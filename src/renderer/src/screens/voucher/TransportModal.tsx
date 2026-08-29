@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import type { VoucherTransportInput } from '@shared/schemas'
 import { GST_STATES } from '@shared/gst/states'
-import { api } from '../../lib/client'
+import { api, type EwayDistanceOffer } from '../../lib/client'
 import { useToasts } from '../../state/stores'
 import { Button, DateInput, Field, Modal, Select, Spinner, TextInput } from '../../components/ui'
 
@@ -119,7 +119,7 @@ export function TransportModal({
       ) : (
         <div className="flex flex-col gap-4">
           <div>
-            <p className="mb-2 text-[11px] font-semibold tracking-[0.08em] text-muted uppercase">Transport</p>
+            <p className="mb-2 text-caption font-semibold tracking-[0.08em] text-muted uppercase">Transport</p>
             <div className="grid grid-cols-4 gap-3">
               <Field label="Mode">
                 <Select
@@ -134,7 +134,7 @@ export function TransportModal({
                   <option value="4">Ship</option>
                 </Select>
               </Field>
-              <Field label="Distance km">
+              <Field label="Distance km" hint="Governs how long the e-way bill stays valid">
                 <TextInput
                   data-testid="input-trans-distance"
                   value={form.transDistanceKm ?? ''}
@@ -198,10 +198,15 @@ export function TransportModal({
                 />
               </Field>
             </div>
+            <DistanceEstimator
+              voucherId={voucherId}
+              shipToPincode={form.shipToPincode}
+              onAccept={(km) => set({ transDistanceKm: km })}
+            />
           </div>
 
           <div>
-            <p className="mb-2 text-[11px] font-semibold tracking-[0.08em] text-muted uppercase">Ship to (when different from buyer)</p>
+            <p className="mb-2 text-caption font-semibold tracking-[0.08em] text-muted uppercase">Ship to (when different from buyer)</p>
             <div className="grid grid-cols-3 gap-3">
               <Field label="Name">
                 <TextInput
@@ -264,5 +269,98 @@ export function TransportModal({
         </div>
       )}
     </Modal>
+  )
+}
+
+/**
+ * An approximate PIN-to-PIN distance, offered and never applied on its own (roadmap D-96).
+ *
+ * The distance on an e-way bill decides how long the bill stays valid, so understating it can
+ * expire a consignment while the vehicle is still on the road — a detained truck and a penalty.
+ * That is why this asks rather than fills: the figure appears with the disclaimer attached, and
+ * only a click on "Use this distance" puts it in the field the bill is built from. An unknown
+ * PIN produces no number at all rather than a fallback, because a confident wrong distance is
+ * worse here than an empty box.
+ *
+ * The despatch PIN is typed every time: the company address is one free-text field with no PIN
+ * column and the party ledger has none either, so there is no stored despatch point to prefill
+ * from, and pulling six digits out of an address line would present a guess as a fact. The
+ * delivery PIN comes from the ship-to address on this form when it has one.
+ */
+function DistanceEstimator({
+  voucherId,
+  shipToPincode,
+  onAccept
+}: {
+  voucherId: number
+  shipToPincode: string | null
+  onAccept: (km: number) => void
+}): React.JSX.Element {
+  const toast = useToasts()
+  const [fromPin, setFromPin] = useState('')
+  const [toPin, setToPin] = useState('')
+  const [offer, setOffer] = useState<EwayDistanceOffer | null>(null)
+  const [busy, setBusy] = useState(false)
+
+  const effectiveTo = toPin.trim() || shipToPincode || ''
+
+  const estimate = async (): Promise<void> => {
+    setBusy(true)
+    try {
+      // Sent explicitly rather than left to the stored ship-to PIN: the address on this form may
+      // not be saved yet, and the estimate must describe what the user is looking at.
+      setOffer(await api.edoc.estimateDistance(voucherId, fromPin.trim() || null, effectiveTo || null))
+    } catch (err) {
+      toast.push('error', (err as Error).message)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <div className="mt-3 rounded-md border border-line bg-panel2 px-3 py-2">
+      <div className="flex flex-wrap items-end gap-3">
+        <Field label="Despatch PIN" hint="Not stored anywhere — type where the goods leave from">
+          <TextInput
+            data-testid="input-distance-from-pin"
+            value={fromPin}
+            onChange={(e) => setFromPin(e.target.value)}
+            placeholder="6 digits"
+            className="num w-28"
+          />
+        </Field>
+        <Field label="Delivery PIN" hint={shipToPincode ? `Ship-to PIN ${shipToPincode}` : 'From the ship-to address'}>
+          <TextInput
+            data-testid="input-distance-to-pin"
+            value={toPin}
+            onChange={(e) => setToPin(e.target.value)}
+            placeholder={shipToPincode ?? '6 digits'}
+            className="num w-28"
+          />
+        </Field>
+        <Button data-testid="btn-distance-estimate" disabled={busy} onClick={() => void estimate()}>
+          {busy ? 'Estimating…' : 'Estimate distance'}
+        </Button>
+      </div>
+
+      {offer && offer.estimate && (
+        <div className="mt-2 flex flex-col gap-1" data-testid="distance-offer">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="num rounded-full border border-accent/40 bg-accent/10 px-2 py-0.5 text-body-sm font-medium text-accent">
+              ≈ {offer.estimate.km} km
+            </span>
+            <span className="text-small text-muted">{offer.estimate.basis}</span>
+            <Button data-testid="btn-distance-accept" onClick={() => onAccept(offer.estimate!.km)}>
+              Use this distance
+            </Button>
+          </div>
+          {/* PIN_DISTANCE_DISCLAIMER, printed verbatim as the engine writes it. */}
+          <p className="text-small text-warn" data-testid="distance-disclaimer">{offer.disclaimer}</p>
+        </div>
+      )}
+      {offer && !offer.estimate && (
+        <p className="mt-2 text-small text-muted" data-testid="distance-no-offer">{offer.reason}</p>
+      )}
+    </div>
   )
 }

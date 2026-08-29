@@ -1,13 +1,31 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '../lib/client'
+import { GstinPicker, usePrimaryRegistrationId } from '../components/GstinPicker'
+import { JsonPreview } from '../components/JsonPreview'
 import { useNav, useSession, useToasts } from '../state/stores'
-import { AmountInput, Button, EmptyState, Money, Panel, SectionTitle, Select, SkeletonRows, Spinner } from '../components/ui'
-import { todayISO } from '@shared/dates'
+import {
+  AmountInput,
+  Button,
+  EmptyState,
+  Money,
+  Panel,
+  RowAction,
+  SectionTitle,
+  Select,
+  SkeletonRows,
+  Spinner,
+  useTableNav
+} from '../components/ui'
+import { todayISO, toDisplayDate } from '@shared/dates'
 import { formatPaise } from '@shared/money'
 import { posLabel } from '@shared/gst/states'
+import type { AmendmentChange } from '@shared/gst/amendments'
+import type { AmendmentRowInfo } from '../lib/client'
 import type { GstIssue } from '@shared/gst/validate'
+import { GST_ISSUE_EXPLANATIONS } from '@shared/ai/gstExplain'
 import type { Gst3bManualInput } from '@shared/schemas'
+import { Gstr1aPanel } from './statutoryTabs'
 
 export interface MonthChoice {
   key: string // YYYY-MM
@@ -104,30 +122,61 @@ export function NoMonths(): React.JSX.Element {
 
 const SEVERITY_CLASS: Record<GstIssue['severity'], string> = {
   blocking: 'border-cr/50 bg-cr/10 text-cr',
-  warning: 'border-amber/50 bg-amber/10 text-amber'
+  warning: 'border-accent/50 bg-accent/10 text-accent'
 }
 
+/**
+ * One validation issue, with an optional plain-English explanation underneath (roadmap #209).
+ *
+ * The explanation is WRITTEN, in @shared/ai/gstExplain, keyed by the issue code, and cited to the
+ * provision. It is not generated: an improvised account of a GST rule is the one kind of text a
+ * user will act on and cannot check, and it would be wrong on a machine with no assistant
+ * configured at all. The assistant's gst_explain tool quotes these same sentences.
+ */
 function IssueRow({
   severity,
+  code,
   message,
   voucherIds,
   onOpen
 }: {
   severity: GstIssue['severity']
+  /** Absent for the synthesised round-off rows, which have no code and no written explanation. */
+  code?: GstIssue['code']
   message: string
   voucherIds: number[]
   onOpen: (voucherId: number) => void
 }): React.JSX.Element {
   const [expanded, setExpanded] = useState(false)
+  const [why, setWhy] = useState(false)
   const shown = expanded ? voucherIds : voucherIds.slice(0, 8)
+  const explanation = code ? GST_ISSUE_EXPLANATIONS[code] : undefined
   return (
     <div className="flex flex-col gap-1 border-b border-line px-3 py-2 last:border-b-0" data-row-id={voucherIds[0]}>
       <div className="flex items-start gap-2">
-        <span className={`mt-0.5 shrink-0 rounded border px-1.5 py-0.5 text-[10.5px] font-medium uppercase ${SEVERITY_CLASS[severity]}`}>
+        <span className={`mt-0.5 shrink-0 rounded-md border px-1.5 py-0.5 text-label font-medium uppercase ${SEVERITY_CLASS[severity]}`}>
           {severity}
         </span>
-        <span className="text-[12.5px] text-ink">{message}</span>
+        <span className="text-body-sm text-ink">{message}</span>
+        {explanation && (
+          <button
+            data-testid="btn-gst-explain"
+            className="ml-auto shrink-0 text-caption text-muted underline decoration-dotted underline-offset-2 hover:text-ink"
+            onClick={() => setWhy((v) => !v)}
+          >
+            {why ? 'Hide' : 'What does this mean?'}
+          </button>
+        )}
       </div>
+      {why && explanation && (
+        <div className="ml-1 rounded-md border border-line bg-panel2 px-3 py-2" data-testid="gst-explanation">
+          <p className="text-body-sm text-ink">{explanation.what}</p>
+          <p className="mt-1 text-body-sm text-muted">{explanation.why}</p>
+          <p className="mt-1 text-body-sm">
+            <b>Fix:</b> {explanation.fix}
+          </p>
+        </div>
+      )}
       {voucherIds.length > 0 && (
         <div className="flex flex-wrap items-center gap-1.5 pl-1">
           {shown.map((id) => (
@@ -135,14 +184,14 @@ function IssueRow({
               key={id}
               data-testid="btn-gstr1-drill"
               data-row-id={id}
-              className="rounded border border-line px-1.5 py-0.5 text-[11px] text-blue hover:bg-panel2"
+              className="rounded-md border border-line px-1.5 py-0.5 text-caption text-blue hover:bg-panel2"
               onClick={() => onOpen(id)}
             >
               Open #{id}
             </button>
           ))}
           {voucherIds.length > 8 && !expanded && (
-            <button className="text-[11px] text-muted hover:text-ink" onClick={() => setExpanded(true)}>
+            <button className="text-caption text-muted hover:text-ink" onClick={() => setExpanded(true)}>
               +{voucherIds.length - 8} more
             </button>
           )}
@@ -152,26 +201,296 @@ function IssueRow({
   )
 }
 
-export function Gstr1Screen(): React.JSX.Element {
-  const { months, month, monthKey, setMonthKey } = useMonth()
-  const { info } = useSession()
+// ---------- GSTR-1 amendments (Tables 9A / 9C) ----------
+
+/** Field name → what a user calls it. `tax` covers the whole rate-wise split: the amendment row
+ *  restates every item anyway, so the useful signal is "the tax is not what was filed". */
+const AMENDMENT_FIELD_LABEL: Record<AmendmentChange['field'], string> = {
+  value: 'Invoice value',
+  tax: 'Taxable value / tax',
+  pos: 'Place of supply',
+  rchrg: 'Reverse charge',
+  partyGstin: 'Counterparty GSTIN',
+  date: 'Document date',
+  number: 'Document number',
+  invTyp: 'Invoice type'
+}
+
+/** Amounts on `value`/`tax` are paise; everything else is already a label. */
+function amendmentValue(field: AmendmentChange['field'], v: AmendmentChange['from']): string {
+  if (v === null || v === '') return '—'
+  if (field === 'value' || field === 'tax') return `₹${formatPaise(Number(v))}`
+  if (field === 'rchrg') return v ? 'Yes' : 'No'
+  if (field === 'pos') return posLabel(String(v))
+  return String(v)
+}
+
+const AMENDMENT_TABLE_LABEL: Record<AmendmentRowInfo['table'], string> = {
+  b2ba: '9A · B2BA',
+  b2cla: '9A · B2CLA',
+  cdnra: '9C · CDNRA',
+  cdnura: '9C · CDNURA'
+}
+
+/**
+ * What changed against the return that was actually filed.
+ *
+ * The panel exists because an amendment row is meaningless without it: the row carries the
+ * ORIGINAL document's identity as the portal's match key and the REVISED particulars as the new
+ * truth, and neither half tells the filer why the row is there. Three things are shown that are
+ * NOT amendments and are easy to mistake for missing ones — a document deleted after filing, a
+ * document added after filing, and a pair the engine refused — because a correction someone
+ * believes they filed is worse than one they can see failed.
+ */
+function AmendmentsPanel({ month }: { month: MonthChoice }): React.JSX.Element {
   const nav = useNav()
   const toast = useToasts()
   const { data, isLoading } = useQuery({
-    queryKey: ['gstr1', month?.key],
-    queryFn: () => api.gst.gstr1(month!.from, month!.to, month!.period),
+    queryKey: ['amendments', month.period],
+    queryFn: () => api.amendments.report(month.period)
+  })
+
+  const doExport = async (): Promise<void> => {
+    try {
+      const r = await api.amendments.exportJson(month.period)
+      toast.push('success', `Amendment JSON ready — ${r.path.split('/').pop()} (${r.counts.amended} row${r.counts.amended === 1 ? '' : 's'})`)
+    } catch (err) {
+      toast.push('error', (err as Error).message)
+    }
+  }
+
+  if (isLoading || !data) return <Panel><SkeletonRows rows={6} /></Panel>
+
+  // "Never filed" and "nothing changed" are different answers, and an empty table reads as the
+  // second. Say the first out loud.
+  if (data.noSnapshots) {
+    return (
+      <Panel data-testid="panel-amendments-none">
+        <EmptyState
+          title="No earlier GSTR-1 has been marked filed"
+          hint={
+            'An amendment corrects a return the portal has already accepted, so there is nothing to amend against until a period is recorded as filed with its ARN (GST → Filings). ' +
+            'The documents of a return are frozen at that moment — before it, a correction is simply an edit to the voucher.'
+          }
+        />
+      </Panel>
+    )
+  }
+
+  const nothingChanged =
+    data.rows.length === 0 &&
+    data.tables.rejected.length === 0 &&
+    data.deleted.length === 0 &&
+    data.addedAfterFiling.length === 0
+
+  return (
+    <div className="flex flex-col gap-4">
+      <Panel>
+        <div className="flex flex-wrap items-center justify-between gap-2 px-3 py-2">
+          <p className="text-body-sm text-muted" data-testid="amendments-filed-periods">
+            Compared against{' '}
+            {data.filedPeriods
+              .filter((p) => p.earlier)
+              .map((p) => `${p.period} (${p.docs} document${p.docs === 1 ? '' : 's'}, filed ${p.filedAt})`)
+              .join(' · ')}
+            . The snapshot is the one taken when the return was first marked filed — re-entering an ARN never replaces it.
+          </p>
+          <div className="flex items-center gap-2">
+            <JsonPreview
+              value={data.json}
+              title={`GSTR-1 amendments JSON — ${month.period}`}
+              filename={`gstr1-amendments-${month.period}.json`}
+              testId="json-amendments"
+            />
+            <Button
+              variant="primary"
+              data-testid="btn-amendments-export"
+              disabled={!data.json}
+              title={data.json ? undefined : 'No amendment table has a row in this period'}
+              onClick={() => void doExport()}
+            >
+              Export amendment JSON
+            </Button>
+          </div>
+        </div>
+      </Panel>
+
+      <Panel>
+        {data.rows.length === 0 ? (
+          <EmptyState
+            title={nothingChanged ? 'Nothing has changed since those returns were filed' : 'No amendment rows'}
+            hint={
+              nothingChanged
+                ? 'Every document in the filed snapshots still matches the books, so there is nothing to amend.'
+                : 'Nothing became an amendment row — see the notes below for what happened to each document instead.'
+            }
+          />
+        ) : (
+          <table className="ledger-table">
+            <thead>
+              <tr>
+                <th scope="col" className="w-28">Table</th>
+                <th scope="col" className="w-40">Original (as filed)</th>
+                <th scope="col" className="w-32">Now</th>
+                <th scope="col">Party</th>
+                <th scope="col" className="r w-28">Value</th>
+                <th scope="col">What changed</th>
+                <th scope="col" className="r w-20"></th>
+              </tr>
+            </thead>
+            <tbody data-testid="rows-amendments">
+              {data.rows.map((r) => (
+                <tr key={`${r.table}-${r.originalPeriod}-${r.originalNumber}-${r.originalDate}`} data-row-id={r.voucherId}>
+                  <td>
+                    <span className="rounded-full border border-line bg-panel2 px-2 py-0.5 text-label font-medium uppercase text-muted">
+                      {AMENDMENT_TABLE_LABEL[r.table]}
+                    </span>
+                  </td>
+                  <td className="num text-muted">
+                    {r.originalNumber} · {toDisplayDate(r.originalDate)}
+                    <span className="ml-1 text-hint">{r.originalPeriod}</span>
+                  </td>
+                  <td className="num">{r.number} · {toDisplayDate(r.date)}</td>
+                  <td>{r.partyName ?? 'Unregistered'}<span className="ml-1 num text-hint text-muted">{r.partyGstin ?? ''}</span></td>
+                  <td className="r"><Money paise={r.invoiceValue} /></td>
+                  <td>
+                    <div className="flex flex-wrap gap-1">
+                      {r.changes.map((c) => (
+                        <span
+                          key={c.field}
+                          className="rounded-full border border-accent/40 bg-accent/10 px-2 py-0.5 text-label text-accent"
+                        >
+                          {AMENDMENT_FIELD_LABEL[c.field]}:{' '}
+                          {c.from === c.to ? (
+                            // The `tax` flag collapses the whole rate-wise split, so the taxable
+                            // total it carries can be unchanged while the split under it moved —
+                            // printing "₹45,000 → ₹45,000" would read as a bug rather than a fact.
+                            'rate split restated, same taxable value'
+                          ) : (
+                            <>
+                              {amendmentValue(c.field, c.from)} → {amendmentValue(c.field, c.to)}
+                            </>
+                          )}
+                        </span>
+                      ))}
+                    </div>
+                  </td>
+                  <td className="r">
+                    <RowAction
+                      data-testid="btn-amendments-drill"
+                      data-row-id={r.voucherId}
+                      onClick={() => nav.go({ name: 'voucher-entry', voucherId: r.voucherId })}
+                    >
+                      Open
+                    </RowAction>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </Panel>
+
+      {data.tables.rejected.length > 0 && (
+        <Panel>
+          <p className="border-b border-line px-3 py-2 text-body-sm font-medium text-ink">
+            Refused — {data.tables.rejected.length} correction{data.tables.rejected.length === 1 ? '' : 's'} the portal would bounce
+          </p>
+          <div data-testid="rows-amendments-rejected">
+            {data.tables.rejected.map((r, i) => (
+              <div key={`${r.code}-${i}`} className="flex items-start gap-2 border-b border-line px-3 py-2 last:border-b-0">
+                <span className="mt-0.5 shrink-0 rounded-md border border-warnline/60 bg-warnsoft px-1.5 py-0.5 text-label font-medium uppercase text-warn">
+                  {r.code.replace(/_/g, ' ')}
+                </span>
+                <span className="text-body-sm text-ink">{r.message}</span>
+              </div>
+            ))}
+          </div>
+        </Panel>
+      )}
+
+      {data.deleted.length > 0 && (
+        <Panel>
+          <p className="border-b border-line px-3 py-2 text-body-sm font-medium text-ink">
+            Filed, and no longer in the books
+          </p>
+          <div data-testid="rows-amendments-deleted">
+            {data.deleted.map((d) => (
+              <p key={`${d.originalPeriod}-${d.number}`} className="border-b border-line px-3 py-2 text-body-sm text-cr last:border-b-0">
+                {d.message}
+              </p>
+            ))}
+          </div>
+        </Panel>
+      )}
+
+      {data.addedAfterFiling.length > 0 && (
+        <Panel>
+          <p className="border-b border-line px-3 py-2 text-body-sm font-medium text-ink">
+            Dated in a filed period, but never filed — not an amendment
+          </p>
+          <div data-testid="rows-amendments-added">
+            {data.addedAfterFiling.map((d) => (
+              <p key={`${d.originalPeriod}-${d.number}`} className="border-b border-line px-3 py-2 text-body-sm text-muted last:border-b-0">
+                {d.message}
+              </p>
+            ))}
+          </div>
+        </Panel>
+      )}
+
+      <p className="text-small text-muted" data-testid="amendments-verify-note">
+        Check before you upload. Section 37(3) allows a filed particular to be rectified in a later return, up to 30 November following the
+        financial year or the annual return, whichever is earlier — this app reports amendments but does not enforce that window, because the
+        portal is the authority on whether it is still open. The JSON fields are validated against GSTN&apos;s GSTR-1 Save API v5.0: B2BA uses
+        group-level <span className="num">ctin</span> plus <span className="num">oinum</span>/<span className="num">oidt</span>, and CDNRA uses{' '}
+        <span className="num">ont_num</span>/<span className="num">ont_dt</span>. The v5.0 root permits table-only partial uploads and GSTN&apos;s
+        current offline-tool manual permits multiple JSON chunks. Recipient GSTIN is explicitly non-amendable; any registered/unregistered or
+        GSTIN-to-GSTIN correction is refused here for deliberate portal handling rather than converted into a different table. For QRMP,
+        IFF-filed records keep their M1/M2 original period; records missed from IFF
+        remain ordinary records when they are first furnished in the next IFF or the quarter&apos;s GSTR-1.
+      </p>
+    </div>
+  )
+}
+
+export function Gstr1Screen(): React.JSX.Element {
+  const { months, month, monthKey, setMonthKey } = useMonth()
+  const [tab, setTab] = useState<'return' | 'amendments'>('return')
+  const { info } = useSession()
+  const nav = useNav()
+  const toast = useToasts()
+  // Which GSTIN this return is for (roadmap #108). Null on a one-registration book, where the
+  // picker renders nothing and the main side resolves null to the primary.
+  const primaryRegId = usePrimaryRegistrationId()
+  const [regId, setRegId] = useState<number | null>(null)
+  const registrationId = regId ?? primaryRegId
+  const { data, isLoading } = useQuery({
+    queryKey: ['gstr1', month?.key, registrationId],
+    queryFn: () => api.gst.gstr1(month!.from, month!.to, month!.period, registrationId),
     enabled: !!month
   })
   const { data: validation, isLoading: validating } = useQuery({
-    queryKey: ['gstValidate', month?.key],
-    queryFn: () => api.gst.validate(month!.from, month!.to),
+    queryKey: ['gstValidate', month?.key, registrationId],
+    queryFn: () => api.gst.validate(month!.from, month!.to, registrationId),
     enabled: !!month
   })
+  // Selection only: these are section totals with nowhere to drill. It still earns its place --
+  // a user who has learned the arrows work everywhere should not meet a screen where they do
+  // not, and the bar is how you keep your place in a dense table.
+  const summaryTable = useTableNav(data?.summary ?? [], { rowId: (s) => s.section })
+  // Amendments are a different return, filed after this one, so they sit behind a toggle rather
+  // than under the summary — a filer opening GSTR-1 for the month is not amending last month.
+  const [showAmendments, setShowAmendments] = useState(false)
 
   const issues = validation?.issues ?? []
   const blocking = issues.filter((i) => i.severity === 'blocking')
   const warnings = issues.filter((i) => i.severity === 'warning')
   const roundOff = validation?.roundOff ?? []
+  // Stock that moved from one of the company's registrations to another (roadmap #108). Under
+  // Schedule I para 2 that is a taxable supply even though nothing was sold, and this app does
+  // not raise the invoice for it — so it is said plainly here rather than left invisible.
+  const crossRegistration = validation?.crossRegistration ?? []
   const exportBlockedReason = !info?.gstin
     ? 'Add the company GSTIN under Company details to enable portal export.'
     : blocking.length
@@ -181,7 +500,7 @@ export function Gstr1Screen(): React.JSX.Element {
   const doExport = async (): Promise<void> => {
     if (!month) return
     try {
-      const r = await api.gst.exportGstr1(month.from, month.to, month.period)
+      const r = await api.gst.exportGstr1(month.from, month.to, month.period, registrationId)
       toast.push('success', `GSTR-1 JSON ready to upload — ${r.jsonPath.split('/').pop()}`)
     } catch (err) {
       toast.push('error', (err as Error).message)
@@ -192,7 +511,7 @@ export function Gstr1Screen(): React.JSX.Element {
 
   if (!month) {
     return (
-      <div className="mx-auto max-w-4xl">
+      <div className="flex h-full min-h-0 w-full flex-col max-w-[1440px]">
         <SectionTitle>GSTR-1 · Outward supplies</SectionTitle>
         <NoMonths />
       </div>
@@ -200,41 +519,103 @@ export function Gstr1Screen(): React.JSX.Element {
   }
 
   return (
-    <div className="mx-auto max-w-4xl">
+    <div className="flex h-full min-h-0 w-full flex-col max-w-[1440px]">
       <SectionTitle
         right={
           <div className="flex items-center gap-2">
+            <div className="flex gap-1" role="group" aria-label="GSTR-1 view">
+              {(
+                [
+                  ['return', 'Return'],
+                  ['amendments', 'Amendments']
+                ] as const
+              ).map(([id, label]) => (
+                <button
+                  key={id}
+                  type="button"
+                  data-testid={`tab-gstr1-${id}`}
+                  aria-pressed={tab === id}
+                  onClick={() => setTab(id)}
+                  className={`rounded-md px-2.5 py-1 text-small ${
+                    tab === id ? 'bg-accentbar/25 font-medium text-ink' : 'text-muted hover:bg-panel2'
+                  }`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+            <GstinPicker value={registrationId} onChange={setRegId} testId="select-gstr1-gstin" />
             <MonthBar months={months} value={monthKey} onChange={setMonthKey} testId="input-gstr1-month" />
-            <Button
-              variant="primary"
-              data-testid="btn-gstr1-export"
-              onClick={() => void doExport()}
-              disabled={!!exportBlockedReason || validating}
-              title={exportBlockedReason ?? undefined}
-            >
-              Export portal JSON
-            </Button>
+            {tab === 'return' && (
+              <>
+                <JsonPreview
+                  value={data?.json}
+                  title={`GSTR-1 portal JSON — ${month.period}`}
+                  filename={`gstr1-${month.period}.json`}
+                  testId="json-gstr1"
+                />
+                {/* Two different amendment features, both kept. This button opens the GSTR-1A
+                    panel — the return the portal auto-drafts from the supplier's side. The
+                    Amendments TAB beside it is Tables 9A/9C, computed against the snapshot taken
+                    when the period was marked filed. Neither answers the other's question. */}
+                <Button
+                  variant="ghost"
+                  data-testid="btn-gstr1-amendments"
+                  onClick={() => setShowAmendments(!showAmendments)}
+                >
+                  {showAmendments ? 'Hide GSTR-1A' : 'GSTR-1A'}
+                </Button>
+                <Button
+                  variant="primary"
+                  data-testid="btn-gstr1-export"
+                  onClick={() => void doExport()}
+                  disabled={!!exportBlockedReason || validating}
+                  title={exportBlockedReason ?? undefined}
+                >
+                  Export portal JSON
+                </Button>
+              </>
+            )}
           </div>
         }
       >
         GSTR-1 · Outward supplies
       </SectionTitle>
 
+      {tab === 'amendments' ? (
+        <AmendmentsPanel month={month} />
+      ) : (
+      <>
       {exportBlockedReason && (
-        <p className={`mb-3 text-[12.5px] ${blocking.length ? 'text-cr' : 'text-amber'}`}>{exportBlockedReason}</p>
+        <p className={`mb-3 text-body-sm ${blocking.length ? 'text-cr' : 'text-accent'}`}>{exportBlockedReason}</p>
+      )}
+
+      {showAmendments && (
+        <div className="mb-4">
+          <Gstr1aPanel period={month.key} />
+        </div>
       )}
 
       {validating ? (
         <Panel className="mb-4">
-          <div className="flex items-center gap-2 px-3 py-3 text-[12.5px] text-muted">
+          <div className="flex items-center gap-2 px-3 py-3 text-body-sm text-muted">
             <Spinner /> Validating period documents…
           </div>
         </Panel>
-      ) : issues.length > 0 || roundOff.length > 0 ? (
+      ) : issues.length > 0 || roundOff.length > 0 || crossRegistration.length > 0 ? (
         <Panel className="mb-4" scroll={{ maxH: '18rem' }}>
           <div data-testid="rows-gstr1-issues">
             {[...blocking, ...warnings].map((issue, i) => (
-              <IssueRow key={`${issue.code}-${i}`} severity={issue.severity} message={issue.message} voucherIds={issue.voucherIds} onOpen={openVoucher} />
+              <IssueRow key={`${issue.code}-${i}`} severity={issue.severity} code={issue.code} message={issue.message} voucherIds={issue.voucherIds} onOpen={openVoucher} />
+            ))}
+            {crossRegistration.map((t) => (
+              <IssueRow
+                key={`crossreg-${t.voucherId}-${t.fromRegistrationId}-${t.toRegistrationId}`}
+                severity="warning"
+                message={`${t.number} moved ₹${formatPaise(t.valuePaise)} of stock from ${t.fromGstin ?? t.fromStateCode} to ${t.toGstin ?? t.toStateCode}. Under Schedule I para 2 that is a taxable supply between two registrations of the same PAN, and it has no invoice yet — so it is not in this return. Raise it on Disclosure › Branch transfers, valued under rule 28; nothing posts and the books do not move.`}
+                voucherIds={[t.voucherId]}
+                onOpen={openVoucher}
+              />
             ))}
             {roundOff.map((r) => (
               <IssueRow
@@ -248,7 +629,7 @@ export function Gstr1Screen(): React.JSX.Element {
           </div>
         </Panel>
       ) : (
-        <p className="mb-3 text-[12px] text-muted">Validation clean — no issues found in this period. ✓</p>
+        <p className="mb-3 text-small text-muted">Validation clean — no issues found in this period. ✓</p>
       )}
 
       <Panel>
@@ -258,18 +639,22 @@ export function Gstr1Screen(): React.JSX.Element {
         <table className="ledger-table">
           <thead>
             <tr>
-              <th>Section</th>
-              <th className="r w-16">Docs</th>
-              <th className="r w-32">Taxable</th>
-              <th className="r w-28">IGST</th>
-              <th className="r w-28">CGST</th>
-              <th className="r w-28">SGST</th>
-              <th className="r w-24">Cess</th>
+              <th scope="col">Section</th>
+              <th scope="col" className="r w-16">Docs</th>
+              <th scope="col" className="r w-32">Taxable</th>
+              <th scope="col" className="r w-28">IGST</th>
+              <th scope="col" className="r w-28">CGST</th>
+              <th scope="col" className="r w-28">SGST</th>
+              <th scope="col" className="r w-24">Cess</th>
             </tr>
           </thead>
           <tbody data-testid="rows-gstr1">
-            {(data?.summary ?? []).map((s) => (
-              <tr key={s.section} className={s.docs === 0 && s.taxable === 0 ? 'opacity-40' : ''}>
+            {(data?.summary ?? []).map((s, i) => (
+              <tr
+                key={s.section}
+                {...summaryTable.rowProps(i, s)}
+                className={`${summaryTable.rowProps(i, s).className} ${s.docs === 0 && s.taxable === 0 ? 'opacity-40' : ''}`}
+              >
                 <td>{s.label}</td>
                 <td className="r num">{s.docs}</td>
                 <td className="r"><Money paise={s.taxable} /></td>
@@ -302,9 +687,11 @@ export function Gstr1Screen(): React.JSX.Element {
         </table>
         )}
       </Panel>
-      <p className="mt-3 text-[12px] text-muted">
+      <p className="mt-3 text-small text-muted">
         The exported JSON matches the GST offline-tool schema — upload it on the portal under Returns → GSTR-1 → Prepare offline. A CSV summary lands beside it in exports/. HSN rows (Table 12) restate the invoice tables and Documents issued (Table 13) counts net series — neither adds to the total.
       </p>
+      </>
+      )}
     </div>
   )
 }
@@ -365,11 +752,11 @@ function ManualAdjustments({ period }: { period: string }): React.JSX.Element {
       <table className="ledger-table">
         <thead>
           <tr>
-            <th>Adjustment (entered by you, applied to this period)</th>
-            <th className="r w-32">IGST</th>
-            <th className="r w-32">CGST</th>
-            <th className="r w-32">SGST</th>
-            <th className="r w-32">Cess</th>
+            <th scope="col">Adjustment (entered by you, applied to this period)</th>
+            <th scope="col" className="r w-32">IGST</th>
+            <th scope="col" className="r w-32">CGST</th>
+            <th scope="col" className="r w-32">SGST</th>
+            <th scope="col" className="r w-32">Cess</th>
           </tr>
         </thead>
         <tbody data-testid="rows-gstr3b-manual">
@@ -409,7 +796,7 @@ function ManualAdjustments({ period }: { period: string }): React.JSX.Element {
         </tbody>
       </table>
       <div className="mt-2 flex items-center justify-end gap-2">
-        {dirty && <span className="text-[11.5px] text-amber">Unsaved changes</span>}
+        {dirty && <span className="text-hint text-accent">Unsaved changes</span>}
         <Button variant="primary" data-testid="btn-gstr3b-save-manual" disabled={!dirty || saving} onClick={() => void doSave()}>
           {saving ? 'Saving…' : 'Save adjustments'}
         </Button>
@@ -422,16 +809,19 @@ export function Gstr3bScreen(): React.JSX.Element {
   const { months, month, monthKey, setMonthKey } = useMonth()
   const { info } = useSession()
   const toast = useToasts()
+  const primaryRegId = usePrimaryRegistrationId()
+  const [regId, setRegId] = useState<number | null>(null)
+  const registrationId = regId ?? primaryRegId
   const { data, isLoading } = useQuery({
-    queryKey: ['gstr3b', month?.key],
-    queryFn: () => api.gst.gstr3b(month!.from, month!.to, month!.period),
+    queryKey: ['gstr3b', month?.key, registrationId],
+    queryFn: () => api.gst.gstr3b(month!.from, month!.to, month!.period, registrationId),
     enabled: !!month
   })
 
   const doExport = async (): Promise<void> => {
     if (!month) return
     try {
-      const r = await api.gst.exportGstr3b(month.from, month.to, month.period)
+      const r = await api.gst.exportGstr3b(month.from, month.to, month.period, registrationId)
       toast.push('success', `GSTR-3B JSON saved — ${r.jsonPath.split('/').pop()}`)
     } catch (err) {
       toast.push('error', (err as Error).message)
@@ -460,7 +850,7 @@ export function Gstr3bScreen(): React.JSX.Element {
 
   if (!month) {
     return (
-      <div className="mx-auto max-w-4xl">
+      <div className="flex h-full min-h-0 w-full flex-col max-w-[1440px]">
         <SectionTitle>GSTR-3B · Summary return</SectionTitle>
         <NoMonths />
       </div>
@@ -468,11 +858,18 @@ export function Gstr3bScreen(): React.JSX.Element {
   }
 
   return (
-    <div className="mx-auto max-w-4xl">
+    <div className="flex h-full min-h-0 w-full flex-col max-w-[1440px]">
       <SectionTitle
         right={
           <div className="flex items-center gap-2">
+            <GstinPicker value={registrationId} onChange={setRegId} testId="select-gstr3b-gstin" />
             <MonthBar months={months} value={monthKey} onChange={setMonthKey} testId="input-gstr3b-month" />
+            <JsonPreview
+              value={data?.json}
+              title={`GSTR-3B portal JSON — ${month.period}`}
+              filename={`gstr3b-${month.period}.json`}
+              testId="json-gstr3b"
+            />
             <Button variant="primary" data-testid="btn-gstr3b-export" onClick={() => void doExport()} disabled={!info?.gstin}>
               Export JSON
             </Button>
@@ -483,7 +880,7 @@ export function Gstr3bScreen(): React.JSX.Element {
       </SectionTitle>
 
       {!info?.gstin && (
-        <p className="mb-3 text-[12.5px] text-amber">Add the company GSTIN under Company details to enable export.</p>
+        <p className="mb-3 text-body-sm text-accent">Add the company GSTIN under Company details to enable export.</p>
       )}
 
       <Panel>
@@ -493,12 +890,12 @@ export function Gstr3bScreen(): React.JSX.Element {
         <table className="ledger-table">
           <thead>
             <tr>
-              <th>Table</th>
-              <th className="r w-32">Taxable</th>
-              <th className="r w-28">IGST</th>
-              <th className="r w-28">CGST</th>
-              <th className="r w-28">SGST</th>
-              <th className="r w-24">Cess</th>
+              <th scope="col">Table</th>
+              <th scope="col" className="r w-32">Taxable</th>
+              <th scope="col" className="r w-28">IGST</th>
+              <th scope="col" className="r w-28">CGST</th>
+              <th scope="col" className="r w-28">SGST</th>
+              <th scope="col" className="r w-24">Cess</th>
             </tr>
           </thead>
           <tbody data-testid="rows-gstr3b">
@@ -529,9 +926,9 @@ export function Gstr3bScreen(): React.JSX.Element {
           <table className="ledger-table">
             <thead>
               <tr>
-                <th>3.2 Inter-state supplies to unregistered persons — place of supply</th>
-                <th className="r w-32">Taxable</th>
-                <th className="r w-28">IGST</th>
+                <th scope="col">3.2 Inter-state supplies to unregistered persons — place of supply</th>
+                <th scope="col" className="r w-32">Taxable</th>
+                <th scope="col" className="r w-28">IGST</th>
               </tr>
             </thead>
             <tbody data-testid="rows-gstr3b-interstate">
@@ -552,11 +949,11 @@ export function Gstr3bScreen(): React.JSX.Element {
           <table className="ledger-table">
             <thead>
               <tr>
-                <th>Set-off (sec 49/49A order: IGST credit first, cess only against cess)</th>
-                <th className="r w-28">IGST</th>
-                <th className="r w-28">CGST</th>
-                <th className="r w-28">SGST</th>
-                <th className="r w-24">Cess</th>
+                <th scope="col">Set-off (sec 49/49A order: IGST credit first, cess only against cess)</th>
+                <th scope="col" className="r w-28">IGST</th>
+                <th scope="col" className="r w-28">CGST</th>
+                <th scope="col" className="r w-28">SGST</th>
+                <th scope="col" className="r w-24">Cess</th>
               </tr>
             </thead>
             <tbody data-testid="rows-gstr3b-setoff">
@@ -597,7 +994,7 @@ export function Gstr3bScreen(): React.JSX.Element {
         <ManualAdjustments period={month.period} />
       </Panel>
 
-      <p className="mt-3 text-[12px] text-muted">
+      <p className="mt-3 text-small text-muted">
         4(B) reversals and 5.1 interest/late fee are the manual adjustments above, persisted per period and folded into the exported JSON. RCM tax (3.1(d)) is payable in cash and simultaneously claimable as ITC under 4(A)(3).
       </p>
     </div>

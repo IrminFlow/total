@@ -1,5 +1,8 @@
 /** Core domain types shared by main (SQL) and renderer (UI). */
 
+import type { TurnoverBand } from './gst/turnover'
+import type { PayCycle } from './payCycle'
+
 export type Nature = 'asset' | 'liability' | 'income' | 'expense'
 export type DrCr = 'dr' | 'cr'
 
@@ -36,6 +39,8 @@ export interface Ledger {
   tdsSectionId: number | null
   /** Deductee's Income Tax PAN (drives the no-PAN 20% TDS rate). */
   pan: string | null
+  /** Deductor TAN used when this customer withholds tax from us (Form 26AS/Form 16A). */
+  tan: string | null
   /** Default bill-to-bill credit period in days, used when a bill has no explicit due date. */
   creditDays: number | null
   /** SEZ/export classification for GST e-invoicing (task 2.8); null for a normal domestic party. */
@@ -46,9 +51,43 @@ export interface Ledger {
   itcEligibility: 'eligible' | 'blocked' | 'capital_goods' | 'input_services'
   /** Price level whose rates prefill this party's invoice lines; null = item base rate. */
   priceLevelId: number | null
+  /** Cost centre every line posted against this ledger is allocated to by default; null = none.
+   *  A default, never a rule — the operator can clear or re-split it on any voucher. */
+  defaultCostCentreId: number | null
   /** Credit limit in paise; null = no limit. saveVoucher warns (or blocks, under F11
    *  enforceCreditLimit) when the party's outstanding would exceed it. */
   creditLimit: number | null
+  /** A director, a relative, or an entity under common control — for the disclosure schedule.
+   *  Only a person can know this; the books only know the transactions. */
+  relatedParty: boolean
+  relationship: string | null
+  /** MSME classification under the MSMED Act. Null means nobody has asked — distinct from
+   *  'not_registered', because silence is not an exemption from section 43B(h). */
+  msmeStatus: 'micro' | 'small' | 'medium' | 'not_registered' | null
+  udyamNumber: string | null
+  /** Overdue-interest terms. Basis points (1800 = 18% p.a.); null = charge nothing. Grace days
+   *  are the week everybody forgives before a rate is worth applying. */
+  interestRateBp: number | null
+  interestGraceDays: number | null
+  /** Who owns the relationship, and where they are. Free text: the ageing report groups on
+   *  whatever is typed, and an empty one groups under "Unassigned". */
+  salesperson: string | null
+  territory: string | null
+  /** Party contact. `phone` drives the WhatsApp reminder; both are optional everywhere. */
+  phone: string | null
+  email: string | null
+  /** Where this party is paid. Changing it is the single highest-value fraud available in this
+   *  market, so a company with two users parks the change for a second person to confirm
+   *  (roadmap V #388) rather than applying it. */
+  bankAccount: string | null
+  bankIfsc: string | null
+  bankHolder: string | null
+  /** This account is knowingly shared with another party — a proprietor and their firm. Silences
+   *  the shared-account exception for this party (roadmap V #389). */
+  bankSharedOk: boolean
+  /** ISO code of the currency this account is KEPT in (roadmap #140), or null — which means no
+   *  foreign side at all, not "INR". Only a ledger with one is ever revalued. */
+  currencyCode: string | null
   isSystem: boolean
 }
 
@@ -63,6 +102,16 @@ export interface TdsSection {
   thresholdSingle: number
   /** Paise; 0 = no FY-cumulative threshold. */
   thresholdAnnual: number
+  /**
+   * The Income-tax Act 2025 reference for the same deduction, or null.
+   *
+   * `code` is the 1961 Act section. From 1 April 2026 the same deduction is made under the 2025
+   * Act, which renumbers it, and a certificate for a payment on or after that date has to carry
+   * the new reference. Both are kept and the payment's own date decides which is printed — see
+   * src/shared/itAct2025.ts. NULL until a user records one, because the app's proposed mapping is
+   * unverified and writing a guess into the master would make it look confirmed.
+   */
+  code2025: string | null
 }
 
 export interface CostCentre {
@@ -110,17 +159,22 @@ export interface RecurringTemplate {
   voucherKind: VoucherKind | null
 }
 
-export type VoucherKind =
-  | 'contra'
-  | 'payment'
-  | 'receipt'
-  | 'journal'
-  | 'sales'
-  | 'purchase'
-  | 'credit_note'
-  | 'debit_note'
-  | 'stock_journal'
-  | 'physical_stock'
+/** Every voucher kind, as a value — so a caller can validate a stored one without restating the
+ *  list and letting the two drift. */
+export const VOUCHER_KINDS = [
+  'contra',
+  'payment',
+  'receipt',
+  'journal',
+  'sales',
+  'purchase',
+  'credit_note',
+  'debit_note',
+  'stock_journal',
+  'physical_stock'
+] as const
+
+export type VoucherKind = (typeof VOUCHER_KINDS)[number]
 
 export interface VoucherType {
   id: number
@@ -154,6 +208,10 @@ export interface VoucherLine {
   bankDate: string | null
   /** Optional split of this line's amount across cost centres. */
   costAllocations: VoucherLineCostAllocation[]
+  /** Foreign-currency amount in the currency's minor unit, and the rate that produced `amount`
+   *  (millionths of a rupee per major unit). Both or neither — see @shared/fx. */
+  fcAmount: number | null
+  fcRateMicro: number | null
 }
 
 export interface VoucherBillRef {
@@ -187,6 +245,9 @@ export interface InventoryLine {
   direction: 'in' | 'out'
   /** Physical Stock line: qtyMilli is the counted closing quantity, not a movement. */
   isAbsolute: boolean
+  /** Serial numbers that moved on this line, for an item that tracks them (roadmap #115).
+   *  Empty for every other line, which is almost all of them. */
+  serials: string[]
 }
 
 export interface Voucher {
@@ -207,6 +268,8 @@ export interface Voucher {
   transportDistanceKm: number | null
   /** Place-of-supply override (two-digit state code); null = derive from party/company state. */
   posOverride: string | null
+  /** The GST registration that made this supply (roadmap #108); null only on a book that has none. */
+  gstRegistrationId: number | null
   /** Foreign-currency invoice: ISO code + base-currency (INR) per unit rate. */
   currencyCode: string | null
   exchangeRate: number | null
@@ -223,14 +286,40 @@ export interface Voucher {
   isOptional: boolean
   /** Set once the voucher is moved to the bin (soft delete); null while active. */
   deletedAt: string | null
+  /** Approval threshold (roadmap V #386). NULL on almost every voucher: it means the entry was
+   *  never gated, which is different from having been approved. 'pending' keeps it out of the
+   *  books until the owner decides. */
+  approvalState: 'pending' | 'approved' | 'rejected' | null
+  approvalBy: string | null
+  approvalAt: string | null
+  approvalNote: string | null
   lines: VoucherLine[]
   inventory: InventoryLine[]
   /** Bill-by-bill references against the party ledger line. */
   billRefs: VoucherBillRef[]
   /** TDS deducted on this voucher, if any. */
   tds: VoucherTds | null
+  /**
+   * Company-defined custom fields carried by this voucher (roadmap #195).
+   *
+   * Text values, always — a number here is a number and never paise, and nothing in any report
+   * sums them. Includes values whose field has since been retired, because they are what the
+   * document said when it was issued.
+   */
+  customFields: VoucherCustomField[]
   createdAt: string
   updatedAt: string
+}
+
+export interface VoucherCustomField {
+  fieldId: number
+  key: string
+  label: string
+  kind: 'text' | 'number' | 'date' | 'list'
+  value: string
+  printed: boolean
+  /** The definition was removed after this voucher was saved; the value stays, read-only. */
+  retired: boolean
 }
 
 /** Per-voucher transport + ship-to details (voucher_transport row) for e-way bills /
@@ -262,6 +351,11 @@ export interface StockGroup {
   id: number
   name: string
   parentId: number | null
+  /** Tax an item in this group inherits when it states none of its own. Null = nothing to
+   *  inherit, which is what every existing group is. */
+  gstRate: number | null
+  cessRate: number | null
+  hsn: string | null
 }
 
 export interface Unit {
@@ -284,18 +378,45 @@ export interface StockItem {
   cessRate: number | null
   openingQtyMilli: number
   openingValue: number
+  /** Short code printed on the shelf label — what a person types at a counter. Unique when set. */
+  code: string | null
   /** Scannable barcode/SKU (unique when set). */
   barcode: string | null
+  /** Alternate unit of measure, e.g. a box of twelve. Stock is always kept in the base unit. */
+  altUnitId: number | null
+  /** Base units in one alternate unit, thousandths. 12 pieces per box = 12_000. */
+  altConversionMilli: number | null
   /** Reorder level in integer thousandths; null = no reorder alert (v0.3 #58). */
   reorderLevelMilli: number | null
   /** How this item's stock is valued (src/shared/valuation.ts). */
   valuationMethod: 'weighted_avg' | 'fifo'
+  /**
+   * Refuse to let this item go negative, whatever the company-wide setting says.
+   *
+   * `null` means "follow the company setting", and is what every item starts as. The company
+   * flag is all-or-nothing, and a business that books a sale before the purchase invoice arrives
+   * has to leave it off — which leaves it off for the items where going negative really is
+   * always a mistake. `false` is the opposite exemption: allow this one item to go negative in a
+   * book that otherwise blocks it.
+   */
+  blockNegative: boolean | null
+  /** Every movement of this item names the serial numbers that moved (roadmap #115). */
+  trackSerials: boolean
+  /**
+   * File name of the item's picture inside `<company>/item-images/`, or null.
+   *
+   * The NAME, never the bytes and never a path: the picture lives in the company folder like an
+   * attachment does, for the same reasons (src/shared/itemImages.ts).
+   */
+  imageName: string | null
 }
 
 export interface Godown {
   id: number
   name: string
   address: string | null
+  /** The GST registration this location sits under (roadmap #108). */
+  gstRegistrationId: number | null
 }
 
 /** A batch/lot of a stock item (F11 `batches`), created on the fly from voucher entry. */
@@ -354,7 +475,27 @@ export interface CompanyInfo {
   stateCode: string
   gstin: string | null
   gstRegistrationType: 'regular' | 'composition' | 'unregistered'
+  /**
+   * How often GST returns are filed.
+   *
+   * QRMP (Quarterly Return, Monthly Payment) is available to registrations with aggregate
+   * turnover up to Rs 5 crore, which is most small businesses. Under it GSTR-1 and GSTR-3B are
+   * quarterly, tax is still paid monthly by PMT-06 challan, and an optional IFF lets a filer
+   * push B2B invoices to their buyers in the first two months of the quarter.
+   *
+   * Defaults to monthly so an existing company's calendar does not change under it.
+   */
+  gstFilingFrequency: 'monthly' | 'quarterly'
   address: string
+  /**
+   * Declared aggregate annual turnover band, or null if never declared.
+   *
+   * Declared rather than computed: the statutory figure is aggregate turnover across every GSTIN
+   * on the same PAN, including exempt supplies and the part of the year before these books
+   * begin. Nearly every GST threshold keys off it -- e-invoicing, QRMP, HSN digit count,
+   * composition ceilings. See src/shared/gst/turnover.ts.
+   */
+  turnoverBand: TurnoverBand | null
   /** FY start year of the earliest books, e.g. 2025. */
   booksFrom: number
   email: string | null
@@ -387,6 +528,8 @@ export interface Employee {
   code: string | null
   designation: string | null
   joined: string | null
+  /** Inclusive last working day. Null while employment has no recorded end. */
+  leftOn: string | null
   pan: string | null
   uan: string | null
   esicNo: string | null
@@ -399,6 +542,21 @@ export interface Employee {
   ptEnabled: boolean
   /** Professional-tax state code (PT_SLABS key in src/shared/payroll.ts), e.g. 'MH'. */
   ptState: string
+  /** Where salary is transferred. Null for an employee genuinely paid in cash. */
+  bankAccount: string | null
+  ifsc: string | null
+  /** Where the payslip goes. Both optional; the phone drives WhatsApp delivery. */
+  email: string | null
+  phone: string | null
+  /** Income tax regime under section 115BAC. The new regime is the default in law. */
+  taxRegime: 'new' | 'old'
+  /** Chapter VI-A deductions declared and accepted, paise. Only the old regime allows them. */
+  declaredDeductions: number | null
+  /** TDS taken by a previous system this financial year, so the spread does not re-deduct it. */
+  openingTds: number | null
+  /** How often this person is paid. The floor can be weekly while the office is monthly, so it
+   *  is a property of the employee and not of the company (roadmap #179). */
+  payCycle: PayCycle
   active: boolean
 }
 
@@ -422,6 +580,10 @@ export interface PayrollLine {
   otherEarnings: number
   /** Custom deduction heads (subtracted from net). */
   otherDeductions: number
+  /** Salary advance instalment recovered this month; never prorated by attendance. */
+  advanceRecovery: number
+  /** Income tax deducted at source under section 192, paise. */
+  tds: number
   gross: number
   pfEmp: number
   pfEr: number
@@ -439,7 +601,14 @@ export interface PayrollLine {
 
 export interface PayrollRun {
   id: number
+  /** The STATUTORY month the run accrues to, 'YYYY-MM'. For a weekly or fortnightly run this is
+   *  the month the period's last day falls in, which is not always the month it started in. */
   month: string
+  cycle: PayCycle
+  periodStart: string
+  periodEnd: string
+  /** 'June 2026', or '29 Jan – 04 Feb 2026'. */
+  periodLabel: string
   voucherId: number | null
   createdAt: string
   lines: PayrollLine[]
@@ -452,6 +621,39 @@ export interface BomLine {
   unitSymbol: string
   /** Component quantity (thousandths) needed per ONE unit of the parent item. */
   qtyMilliPerUnit: number
+  /** Wastage on this component alone, hundredths of a percent (2.5% = 250). */
+  scrapBp: number
+  /** Set when this component carries a BOM of its own — a sub-assembly, not a raw material. */
+  hasBom?: boolean
+}
+
+/** A BOM with the finished item's yield, which belongs to the item rather than to a line. */
+export interface BomDetail {
+  itemId: number
+  /** Good units per 100 started, hundredths of a percent. 10000 = nothing is lost. */
+  bomYieldBp: number
+  lines: BomLine[]
+}
+
+/** One row of an exploded requirement, flattened for display with its nesting depth. */
+export interface BomRequirementRow {
+  componentId: number
+  componentName: string
+  unitSymbol: string
+  qtyMilli: number
+  scrapBp: number
+  parentYieldBp: number
+  depth: number
+  isSubAssembly: boolean
+}
+
+export interface BomRequirement {
+  itemId: number
+  qtyMilli: number
+  /** Depth-first, so a sub-assembly is immediately followed by what it is made of. */
+  rows: BomRequirementRow[]
+  /** Leaves only — what the manufacture voucher actually issues from stock. */
+  raw: BomRequirementRow[]
 }
 
 export interface AuditEntry {

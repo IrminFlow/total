@@ -51,4 +51,37 @@ await scenario('05-banking', async (h) => {
 
   await h.goto('banking')
   await h.shot('01-banking-screen')
+
+  // ---- where every account stands, on one page ----
+  // The Reconcile tab answers this one account at a time and only once you have picked one, so a
+  // business with four accounts cannot see which one is behind.
+  const status = await h.invoke('bank:reconciliationStatus', { asOn: '2026-12-31' })
+  assert(status.length > 0, 'the status covers every bank account')
+  for (const s of status) {
+    assert(
+      s.reconciledLines <= s.totalLines,
+      `${s.name}: cannot have reconciled more lines than exist`
+    )
+    assert(
+      s.ageing.reduce((a, b) => a + b, 0) === s.totalLines - s.reconciledLines,
+      `${s.name}: the ageing buckets account for every open line`
+    )
+    // Same derivation the BRS uses, so a status row and a printed BRS can never disagree.
+    const recon = await h.invoke('bank:recon', { ledgerId: s.ledgerId, from: '1900-01-01', to: '2026-12-31' })
+    assert(s.bookBalance === recon.bookBalance, `${s.name}: book balance agrees with the BRS`)
+    assert(s.bankBalance === recon.bankBalance, `${s.name}: bank balance agrees with the BRS`)
+  }
+
+  await h.goto('banking')
+  await h.page.click('[data-testid="tab-banking-status"]')
+  await h.page.waitForSelector('[data-testid="rows-recon-status"] tr', { timeout: 15000 })
+  const progress = await h.page.$$eval('[data-testid="recon-progress"]', (els) =>
+    els.map((e) => e.textContent.trim())
+  )
+  assert(progress.length === status.length, 'a progress figure per account')
+  assert(
+    progress.every((t) => /^\d+\/\d+$/.test(t)),
+    `each reads as reconciled of total (got ${JSON.stringify(progress)})`
+  )
+  await h.shot('05-recon-status')
 })

@@ -1,22 +1,33 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import type { VoucherBillRef, VoucherKind } from '@shared/domain'
 import type { OutstandingBill } from '@shared/reports'
 import type { VoucherInputParsed } from '@shared/schemas'
+import { isB2cLarge } from '@shared/gst/returns'
+import { rcmAdvice } from '@shared/gst/reverseCharge'
+import { suggestNarration } from '@shared/autoNarration'
+import { useStickyFlag } from '../../lib/useStickyTab'
 import { computeGst, supplyTypeFor, addBreakups, type GstBreakup } from '@shared/gst/calc'
 import { GST_STATES } from '@shared/gst/states'
+import { registrationLabel } from '@shared/gst/registrations'
+import { useGstRegistrations } from '../../components/GstinPicker'
 import { roundToRupee, formatPaise, amountInWords } from '@shared/money'
-import { toDisplayDate } from '@shared/dates'
+import { applyInvoiceDiscount, discountFromPercent } from '@shared/invoiceDiscount'
+import { addDays, toDisplayDate } from '@shared/dates'
 import { api } from '../../lib/client'
 import { useNav, useSession, useToasts, type VoucherDraft } from '../../state/stores'
-import { AmountInput, Button, DateInput, Field, isAnyModalOpen, LineTableScroller, Money, Panel, Select, TextInput, inputCls } from '../../components/ui'
+import { AmountInput, Button, DateInput, Field, isAnyModalOpen, LineTableScroller, Money, Panel, QtyInput, Select, TextInput, inputCls } from '../../components/ui'
 import { ItemPicker, LedgerPicker, useLedgers, useStockItems, useTaxLedgers } from '../../components/pickers'
 import { LedgerFormModal } from '../../components/LedgerFormModal'
 import { useFeatures } from '../../lib/useFeatures'
 import { confirmDialog } from '../../lib/dialogs'
 import { useUnsavedGuard } from '../../lib/useUnsavedGuard'
-import { addDaysLocal, nextLineKey, NUMBER_LOADING, useVoucherNumberField } from './hooks'
+import { matchByName, parseItemPaste } from '@shared/gridPaste'
+import { parseQtyExpression } from '@shared/qtyExpr'
+import type { AltUnit } from '@shared/units'
+import { nextLineKey, NUMBER_LOADING, useVoucherNumberField } from './hooks'
 import { QuickItemModal, QuickLedgerModal, SaveAsRecurringModal } from './modals'
+import { useVoucherCustomFields } from './CustomFields'
 
 // ---------- invoice mode (sales / purchase / notes) ----------
 
@@ -34,7 +45,7 @@ interface ItemRow {
 const blankItemRow = (): ItemRow => ({ key: nextLineKey(), itemId: null, qtyText: '', rate: null, discount: null })
 
 export function InvoiceEntry({ typeId, kind, draft }: { typeId: number; kind: VoucherKind; draft?: VoucherDraft }): React.JSX.Element {
-  const { info, workingDate, setWorkingDate } = useSession()
+  const { info, workingDate, setWorkingDate, from: periodFrom, to: periodTo } = useSession()
   const toast = useToasts()
   const nav = useNav()
   const queryClient = useQueryClient()
@@ -48,7 +59,14 @@ export function InvoiceEntry({ typeId, kind, draft }: { typeId: number; kind: Vo
   const [partyId, setPartyId] = useState<number | null>(draft?.partyLedgerId ?? null)
   const [accountId, setAccountId] = useState<number | null>(null)
   const [rows, setRows] = useState<ItemRow[]>(() => [blankItemRow()])
+  // Bill-level discount: a one-shot input, not part of the draft — once spread it lives in the
+  // line discounts, which is the only place it can legally live (see applyBillDiscount).
+  const [billDiscountText, setBillDiscountText] = useState('')
+  const [billDiscountPct, setBillDiscountPct] = useState(true)
   const [narration, setNarration] = useState(draft?.narration ?? '')
+  // The company's own fields for this voucher type (roadmap #195) — on the payload, not written
+  // afterwards, so a bad value refuses the save instead of half-writing it. Never money.
+  const customFields = useVoucherCustomFields(typeId)
   const [vehicleNo, setVehicleNo] = useState('')
   const [transporterId, setTransporterId] = useState('')
   const [distanceKm, setDistanceKm] = useState('')
@@ -63,6 +81,13 @@ export function InvoiceEntry({ typeId, kind, draft }: { typeId: number; kind: Vo
   // ---------- GST details (place-of-supply override + memorandum flag) ----------
   const [gstOpen, setGstOpen] = useState(false)
   const [posOverride, setPosOverride] = useState<string | null>(null)
+  // Which of the company's GST registrations made this supply (roadmap #108). Null means the
+  // primary, which is what every single-GSTIN book has and what the save path stamps.
+  const registrations = useGstRegistrations()
+  const [gstRegistrationId, setGstRegistrationId] = useState<number | null>(null)
+  const activeRegistration =
+    registrations.find((r) => r.id === gstRegistrationId) ?? registrations.find((r) => r.isPrimary) ?? null
+  const [keepParty, setKeepParty] = useStickyFlag('invoice-keep-party', false)
   const [optionalVoucher, setOptionalVoucher] = useState(false)
 
   const numberField = useVoucherNumberField(typeId, date)
@@ -95,7 +120,7 @@ export function InvoiceEntry({ typeId, kind, draft }: { typeId: number; kind: Vo
 
   useEffect(() => {
     if (billDueDateTouched) return
-    setBillDueDate(addDaysLocal(date, party?.creditDays ?? 0))
+    setBillDueDate(addDays(date, party?.creditDays ?? 0))
   }, [date, party?.creditDays, billDueDateTouched])
 
   // A party switch invalidates any bills already checked against the OLD party — 'against' refs
@@ -118,19 +143,58 @@ export function InvoiceEntry({ typeId, kind, draft }: { typeId: number; kind: Vo
     enabled: !!partyId && isNoteKind && !manualNewBillMode
   })
 
-  // Same precedence the GSTR builders use: explicit override → party state → company state.
-  const supply = supplyTypeFor(info!.stateCode, posOverride ?? party?.stateCode ?? info!.stateCode)
+  // Same precedence the GSTR builders use: explicit override → party state → the SUPPLYING
+  // REGISTRATION's state. With one registration that is the company's own state, exactly as
+  // before; with several, billing from a Gujarat registration to a Gujarat customer is CGST+SGST
+  // even though the company's head office is in Maharashtra.
+  const supplyState = activeRegistration?.stateCode ?? info!.stateCode
+  const supply = supplyTypeFor(supplyState, posOverride ?? party?.stateCode ?? supplyState)
 
   const fxRate = currencyCode && fxRateText.trim() ? Number(fxRateText) : null
   const fxActive = !!currencyCode && !!fxRate && Number.isFinite(fxRate) && fxRate > 0
 
+  // Declared ABOVE `computed`, which calls qtyMilliOf. A `const` arrow function is in the
+  // temporal dead zone until its own line runs, so having these below the memo threw
+  // "Cannot access 'qtyMilliOf' before initialization" on first render and took the whole
+  // invoice screen down — caught by scenario 21, which is why it asserts on a screen rendering
+  // at all before it asserts on anything in it.
+  const itemMap = useMemo(() => new Map(items.map((i) => [i.id, i])), [items])
+  /**
+   * Everything the quantity cell needs to read what was typed: the base unit's symbol and
+   * precision, plus the item's alternate unit when it has one (#34).
+   *
+   * Resolved here rather than inside QtyInput because the units list is already loaded on this
+   * screen, and a component that fetched it per row would issue one query per line.
+   */
+  const unitInfoOf = (itemId: number | null): { symbol: string; decimals: number; alt: AltUnit | null } => {
+    const item = itemId ? itemMap.get(itemId) : null
+    const base = units?.find((u) => u.id === item?.unitId)
+    const altUnit = item?.altUnitId != null ? units?.find((u) => u.id === item.altUnitId) : undefined
+    const alt: AltUnit | null =
+      altUnit && item?.altConversionMilli != null
+        ? { symbol: altUnit.symbol, conversionMilli: item.altConversionMilli }
+        : null
+    return { symbol: base?.symbol ?? '', decimals: base?.decimals ?? 3, alt }
+  }
+
+  /**
+   * Base thousandths for a row, reading the alternate unit and any arithmetic in the cell.
+   *
+   * The single place qtyText becomes a number — the totals below and the payload sent to the
+   * books both come through here, so a box can never be twelve pieces in one and one in the
+   * other.
+   */
+  const qtyMilliOf = (itemId: number | null, qtyText: string): number | null => {
+    const { symbol, alt } = unitInfoOf(itemId)
+    return parseQtyExpression(qtyText, symbol, alt)?.baseQtyMilli ?? null
+  }
+
   const computed = useMemo(() => {
-    const itemMap = new Map(items.map((i) => [i.id, i]))
     const detail = rows
       .map((r) => {
         const item = r.itemId ? itemMap.get(r.itemId) : null
-        const qtyMilli = Math.round(parseFloat(r.qtyText || '0') * 1000)
-        if (!item || !Number.isFinite(qtyMilli) || qtyMilli <= 0 || r.rate == null) return null
+        const qtyMilli = qtyMilliOf(r.itemId, r.qtyText)
+        if (!item || qtyMilli == null || qtyMilli <= 0 || r.rate == null) return null
         // Rates (and discounts) are typed in the invoice currency; books stay in ₹.
         const baseRate = fxActive ? Math.round(r.rate * fxRate!) : r.rate
         const gross = Math.round((qtyMilli * baseRate) / 1000)
@@ -155,6 +219,79 @@ export function InvoiceEntry({ typeId, kind, draft }: { typeId: number; kind: Vo
     const rounded = roundToRupee(gst.total)
     return { detail, gst, rounded, roundDiff: rounded - gst.total }
   }, [rows, items, account, supply, fxActive, fxRate])
+
+  /**
+   * Two things the entry screen can tell you that the books cannot work out after the fact.
+   *
+   * Reverse charge attaches to the *supply*, not the supplier, so a per-party flag misses the
+   * common case: an ordinary vendor billing one notified service. Matched on the SAC of what was
+   * actually billed, and only ever advice — reverse charge moves real money, so nothing here
+   * changes a posting.
+   *
+   * B2C large: an inter-state sale over Rs 1,00,000 to an unregistered buyer must be itemised in
+   * GSTR-1 table 5 rather than summarised in 7. That is a return-time consequence of an
+   * entry-time fact, and the entry screen is where the value can still be checked.
+   */
+  const rcm = useMemo(() => {
+    if (isSalesSide || kind === 'debit_note') return { kind: 'none' as const }
+    // The SAC on the purchase ledger, or on the first line's stock item when it carries one.
+    const itemHsn = computed.detail.find((d) => d.item.hsn)?.item.hsn ?? null
+    return rcmAdvice({
+      sac: itemHsn ?? account?.hsn ?? null,
+      partyFlagged: !!party?.rcm,
+      partyGstin: party?.gstin ?? null
+    })
+  }, [isSalesSide, kind, computed.detail, account?.hsn, party?.rcm, party?.gstin])
+
+  // The same predicate the return applies, not a second copy of the test — a hint derived from
+  // its own rule would eventually disagree with the return it is meant to predict.
+  const b2cLarge =
+    isSalesSide &&
+    kind === 'sales' &&
+    isB2cLarge({
+      partyGstin: party?.gstin ?? null,
+      pos: posOverride ?? party?.stateCode ?? info!.stateCode,
+      companyStateCode: info!.stateCode,
+      invoiceValue: computed.rounded
+    })
+
+  // One cached call for every ledger's balance, shared with any other screen that asks — cheaper
+  // and simpler than a per-party endpoint, and react-query keeps it warm across party changes.
+  const { data: balances } = useQuery({
+    queryKey: ['ledgerBalances', periodTo],
+    queryFn: () => api.ledgers.balances(periodTo),
+    enabled: !!partyId
+  })
+  const partyBalance = partyId ? (balances?.find((b) => b.ledgerId === partyId)?.balance ?? null) : null
+
+  /**
+   * The credit limit, checked while the invoice is being typed rather than at save.
+   *
+   * A refusal at save is the wrong moment — the invoice is entered, the customer is at the
+   * counter, and the only choices left are to abandon it or switch enforcement off. Asked here,
+   * the same fact is something the user can act on: take a part payment, or raise the limit on
+   * purpose. Only for sales-side vouchers: a limit is what the customer may owe US.
+   */
+  const { data: credit } = useQuery({
+    queryKey: ['creditCheck', partyId, isSalesSide ? computed.rounded : 0],
+    queryFn: () => api.receivables.creditCheck(partyId!, isSalesSide ? computed.rounded : 0),
+    enabled: !!partyId && isSalesSide
+  })
+  const creditBreach = credit?.exceeds ? credit : null
+
+  // A narration written from what the voucher already says. Narration is the field most often
+  // left blank and most often wanted a year later, and asking for it every time is how it ends
+  // up blank.
+  const suggestedNarration = useMemo(
+    () =>
+      suggestNarration({
+        kind,
+        partyName: party?.name ?? null,
+        itemNames: computed.detail.map((d) => d.item.name),
+        accountNames: account ? [account.name] : []
+      }),
+    [kind, party?.name, computed.detail, account]
+  )
 
   const noteAllocatedTotal = noteBillRefs.reduce((s, r) => s + r.amount, 0)
 
@@ -215,6 +352,7 @@ export function InvoiceEntry({ typeId, kind, draft }: { typeId: number; kind: Vo
       vehicleNo: vehicleNo.trim().toUpperCase() || null,
       transportDistanceKm: distanceKm.trim() ? Number(distanceKm) : null,
       posOverride,
+      gstRegistrationId,
       currencyCode: fxActive ? currencyCode : null,
       exchangeRate: fxActive ? fxRate : null,
       isOptional: optionalVoucher,
@@ -234,9 +372,10 @@ export function InvoiceEntry({ typeId, kind, draft }: { typeId: number; kind: Vo
           : billName.trim()
             ? [{ kind: 'new', name: billName.trim(), amount: rounded, dueDate: billDueDate || null }]
             : [],
-      tds: null
+      tds: null,
+      customFields: customFields.values
     }
-  }, [partyId, accountId, computed, kind, typeId, date, numberField.forPayload, narration, transporterId, vehicleNo, distanceKm, posOverride, optionalVoucher, fxActive, currencyCode, fxRate, isNoteKind, manualNewBillMode, noteBillRefs, billName, billDueDate, ensureTax, ensureRoundOff])
+  }, [customFields.values, partyId, accountId, computed, kind, typeId, date, numberField.forPayload, narration, transporterId, vehicleNo, distanceKm, posOverride, gstRegistrationId, optionalVoucher, fxActive, currencyCode, fxRate, isNoteKind, manualNewBillMode, noteBillRefs, billName, billDueDate, ensureTax, ensureRoundOff])
 
   const formValid = !!partyId && !!accountId && computed.detail.length > 0
 
@@ -245,6 +384,22 @@ export function InvoiceEntry({ typeId, kind, draft }: { typeId: number; kind: Vo
     if (!partyId) return void toast.push('error', 'Pick the party account first')
     if (!accountId) return void toast.push('error', `Pick the ${isSalesSide ? 'sales' : 'purchase'} ledger`)
     if (computed.detail.length === 0) return void toast.push('error', 'Add at least one item line')
+    // The limit, asked before anything is built. Under F11 enforcement saveVoucher would refuse
+    // this anyway; saying so here means the refusal arrives with the options still open.
+    if (creditBreach) {
+      if (creditBreach.enforced) {
+        return void toast.push(
+          'error',
+          `${creditBreach.name} would be over their credit limit. Take a payment, raise the limit, or turn enforcement off in Settings → Features.`
+        )
+      }
+      const proceed = await confirmDialog({
+        title: 'Over the credit limit',
+        message: `This takes ${creditBreach.name} to ${formatPaise(creditBreach.after, { symbol: true })} against a limit of ${formatPaise(creditBreach.creditLimit ?? 0, { symbol: true })}. Save anyway?`,
+        confirmLabel: 'Save anyway'
+      })
+      if (!proceed) return
+    }
     setSaving(true)
     try {
       const input = await buildPayload()
@@ -255,6 +410,17 @@ export function InvoiceEntry({ typeId, kind, draft }: { typeId: number; kind: Vo
         const proceed = await confirmDialog({
           title: 'Duplicate number',
           message: `Voucher number ${input.number} is already used by another voucher of this type. Save anyway with the same number?`,
+          confirmLabel: 'Save anyway'
+        })
+        if (!proceed) return
+      }
+      // Dated outside the working period. Not an error -- backdating an invoice is routine -- but
+      // it is the reason a voucher "vanishes" the moment it is saved, since every report on
+      // screen is scoped to that period.
+      if (input.date < periodFrom || input.date > periodTo) {
+        const proceed = await confirmDialog({
+          title: 'Outside the open period',
+          message: `${toDisplayDate(input.date)} is outside the working period (${toDisplayDate(periodFrom)} to ${toDisplayDate(periodTo)}). It will save correctly, but will not show in reports until you change the period. Save it?`,
           confirmLabel: 'Save anyway'
         })
         if (!proceed) return
@@ -271,11 +437,26 @@ export function InvoiceEntry({ typeId, kind, draft }: { typeId: number; kind: Vo
       }
       const saved = await api.vouchers.save(input)
       toast.push('success', `${saved.number} saved — ${formatPaise(computed.rounded, { symbol: true })}`)
+      // Warnings ride back alongside the saved voucher; they used to be dropped on the floor.
+      const limitWarning = saved.warnings?.creditLimitExceeded
+      if (limitWarning) {
+        toast.push(
+          'warning',
+          `${limitWarning.ledgerName} is now ${formatPaise(limitWarning.outstanding, { symbol: true })} against a limit of ${formatPaise(limitWarning.creditLimit, { symbol: true })}`
+        )
+      }
+      for (const neg of saved.warnings?.negativeStock ?? []) {
+        toast.push('warning', `${neg.name} has gone negative in stock`)
+      }
       if (andPdf && kind === 'sales') {
         await api.invoice.pdf(saved.id)
       }
       setWorkingDate(date)
-      setPartyId(null)
+      // The date always carries — it is already the working date — and the party carries only if
+      // asked. Entering ten invoices for one customer and re-picking them ten times is the tax;
+      // entering ten for ten customers and having the last one stick is the opposite mistake, so
+      // it is a choice rather than a default.
+      if (!keepParty) setPartyId(null)
       setRows([blankItemRow()])
       setNarration('')
       setVehicleNo('')
@@ -292,7 +473,7 @@ export function InvoiceEntry({ typeId, kind, draft }: { typeId: number; kind: Vo
     } finally {
       setSaving(false)
     }
-  }, [saving, partyId, accountId, computed, buildPayload, isSalesSide, kind, typeId, date, toast, setWorkingDate, queryClient, numberField.reset])
+  }, [saving, partyId, accountId, computed, buildPayload, creditBreach, isSalesSide, kind, typeId, date, periodFrom, periodTo, keepParty, toast, setWorkingDate, queryClient, numberField.reset])
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
@@ -316,11 +497,111 @@ export function InvoiceEntry({ typeId, kind, draft }: { typeId: number; kind: Vo
     })
   }
 
-  const itemMap = useMemo(() => new Map(items.map((i) => [i.id, i])), [items])
-  const unitOf = (itemId: number | null): string => {
-    if (!itemId || !units) return ''
-    const item = itemMap.get(itemId)
-    return units.find((u) => u.id === item?.unitId)?.symbol ?? ''
+  /**
+   * Spread a bill-level discount across the lines (roadmap I-203).
+   *
+   * The base each line bears its share on is its POST-line-discount value, because that is the
+   * amount the customer is being billed and therefore the base the "less 2% on the bill"
+   * conversation is about. The apportionment itself is `applyInvoiceDiscount`, which allocates by
+   * largest remainder so the parts add back to exactly the discount promised — rounding each
+   * share independently would leave the discount column disagreeing with the discount, and an
+   * invoice that does not foot is an invoice that gets argued about.
+   *
+   * The typed figure is in the ENTRY currency, like every other rate and discount on this screen.
+   */
+  const applyBillDiscount = (): void => {
+    const typed = parseFloat(billDiscountText)
+    if (!Number.isFinite(typed) || typed <= 0) {
+      toast.push('error', 'Type a bill discount first')
+      return
+    }
+    const bases = rows.map((r) => {
+      const item = r.itemId ? itemMap.get(r.itemId) : null
+      const qty = parseFloat(r.qtyText || '0')
+      if (!item || !(qty > 0) || r.rate == null) return 0
+      return Math.max(0, Math.round(qty * r.rate) - (r.discount ?? 0))
+    })
+    const total = bases.reduce((s, b) => s + b, 0)
+    try {
+      const discount = billDiscountPct
+        ? discountFromPercent(total, typed)
+        : Math.round(typed * 100)
+      const applied = applyInvoiceDiscount(
+        rows.map((r, i) => ({ amountPaise: bases[i]!, lineDiscountPaise: r.discount ?? 0 })),
+        discount
+      )
+      setRows((rs) => rs.map((r, i) => ({ ...r, discount: applied.lines[i]!.totalDiscountPaise || null })))
+      setBillDiscountText('')
+      toast.push('success', `Spread ${formatPaise(applied.discountPaise)} across ${rows.filter((_, i) => bases[i]! > 0).length} line(s)`)
+    } catch (err) {
+      toast.push('error', (err as Error).message)
+    }
+  }
+
+  /**
+   * Paste a block of item lines from a spreadsheet — `Item, Qty, Rate[, Discount]`.
+   *
+   * The commonest source is a picking list or an order confirmation with no prices in it at all,
+   * so a missing rate is not an error: the row lands with the quantity filled and the rate left
+   * for the item master or the party's price level, which is where a price should come from.
+   *
+   * Only a table (a tab or a line break) is intercepted; pasting one item name into one cell has
+   * to keep working, and it is the commoner paste by far.
+   */
+  const onGridPaste = (e: React.ClipboardEvent): void => {
+    const text = e.clipboardData.getData('text/plain')
+    if (!text || (!text.includes('\t') && !text.includes('\n'))) return
+    e.preventDefault()
+    const { lines, skipped } = parseItemPaste(text)
+    if (lines.length === 0) {
+      return void toast.push('error', skipped.length ? `Nothing to paste — ${skipped[0]!.reason}` : 'Nothing to paste')
+    }
+    let unmatched = 0
+    const pasted: ItemRow[] = []
+    for (const l of lines) {
+      const item = matchByName(l.name, items)
+      // An item line with no item is not a line — there is nothing to value, tax or deliver. So
+      // unlike the accounting grid, an unmatched name is reported rather than kept as a shell.
+      if (!item) {
+        unmatched++
+        continue
+      }
+      pasted.push({ key: nextLineKey(), itemId: item.id, qtyText: l.qtyText, rate: l.rate, discount: l.discount })
+    }
+    if (pasted.length === 0) {
+      return void toast.push('error', `No item matched — ${lines.map((l) => l.name).slice(0, 3).join(', ')}`)
+    }
+    setRows((rs) => [...rs.filter((r) => r.itemId != null), ...pasted, blankItemRow()])
+    const parts = [`${pasted.length} line${pasted.length === 1 ? '' : 's'} pasted`]
+    if (unmatched) parts.push(`${unmatched} item${unmatched === 1 ? '' : 's'} not found`)
+    if (skipped.length) parts.push(`${skipped.length} row${skipped.length === 1 ? '' : 's'} skipped (${skipped[0]!.reason})`)
+    toast.push(unmatched || skipped.length ? 'warning' : 'success', parts.join(' · '))
+  }
+
+  /**
+   * Barcode scan lands the cursor on the quantity (#47).
+   *
+   * Keyed by the row's stable key rather than its index: the trailing blank row is inserted as
+   * lines are filled, and an index-keyed map would hand back the ref of whichever row happened
+   * to slide into that position. Refs are created on demand and never cleared — a handful of
+   * detached nodes per voucher is not worth a cleanup pass that could drop a live one.
+   */
+  const qtyRefs = useRef(new Map<number, React.RefObject<HTMLInputElement | null>>())
+  const qtyRef = (key: number): React.RefObject<HTMLInputElement | null> => {
+    const existing = qtyRefs.current.get(key)
+    if (existing) return existing
+    const created: React.RefObject<HTMLInputElement | null> = { current: null }
+    qtyRefs.current.set(key, created)
+    return created
+  }
+  const focusQty = (key: number): void => {
+    // After the render the pick triggers, not during it — the input does not exist yet on the
+    // row that has only just been given an item.
+    requestAnimationFrame(() => {
+      const input = qtyRefs.current.get(key)?.current
+      input?.focus()
+      input?.select()
+    })
   }
 
   return (
@@ -345,11 +626,16 @@ export function InvoiceEntry({ typeId, kind, draft }: { typeId: number; kind: Vo
               onPick={setPartyId}
               placeholder="Party ledger"
               onCreateRequest={(name) => setQuickLedger({ name, forParty: true })}
+              // #30: the party on a sales invoice is a debtor and the party on a purchase is a
+              // creditor. There is nothing to ask, so it is created here with an undo on the
+              // toast rather than behind a form. Every other ledger still goes through the form,
+              // because "which group" is a real question everywhere else.
+              inlineGroup={isSalesSide ? 'Sundry Debtors' : 'Sundry Creditors'}
               className="flex-1"
               testId="picker-party"
             />
             {party && (
-              <Button variant="ghost" className="shrink-0 px-2 py-1 text-[11px]" onClick={() => setEditingParty(true)}>
+              <Button variant="ghost" className="shrink-0 px-2 py-1 text-caption" onClick={() => setEditingParty(true)}>
                 Edit
               </Button>
             )}
@@ -370,15 +656,76 @@ export function InvoiceEntry({ typeId, kind, draft }: { typeId: number; kind: Vo
               return false
             }}
             onCreateRequest={(name) => setQuickLedger({ name, forParty: false })}
+            // The revenue/cost account of an invoice is likewise not in doubt.
+            inlineGroup={isSalesSide ? 'Sales Accounts' : 'Purchase Accounts'}
           />
         </Field>
       </div>
 
+      {rcm.kind !== 'none' && (
+        <p
+          className={`mt-2 text-hint ${rcm.kind === 'suggest' ? 'text-accent' : 'text-muted'}`}
+          data-testid="hint-rcm"
+        >
+          {rcm.kind === 'suggest' ? (
+            <>
+              <b>{rcm.match.category.label}</b> looks like a reverse-charge supply — you would owe
+              the tax, not the supplier. {rcm.match.category.reason}. Set “Reverse charge” on the
+              party ledger if that is right.
+            </>
+          ) : (
+            <>
+              Reverse charge — {rcm.match.category.label.toLowerCase()}. The tax is yours to pay and
+              the party is flagged for it.
+            </>
+          )}
+        </p>
+      )}
+
+      {b2cLarge && (
+        <p className="mt-2 text-hint text-accent" data-testid="hint-b2cl">
+          Over ₹1,00,000 inter-state to an unregistered buyer — this goes into GSTR-1 table 5
+          (B2C large) invoice by invoice, not into the table 7 summary. Worth checking the value
+          and the place of supply now.
+        </p>
+      )}
+
       <div className="mt-2 flex items-center justify-between">
         {party ? (
-          <p className="text-[11.5px] text-muted">
+          <p className="text-hint text-muted" data-testid="party-facts">
             {party.gstin ? <>GSTIN <span className="num">{party.gstin}</span> · </> : 'Unregistered · '}
             {supply === 'intra' ? 'Intra-state — CGST + SGST' : 'Inter-state — IGST'}
+            {/* The balance the party is on right now. "Does he already owe me?" is the question
+                being asked at exactly this moment, and it used to need a separate screen. */}
+            {partyBalance != null && (
+              <>
+                {' · '}
+                <span data-testid="party-balance">
+                  Balance <Money paise={partyBalance} signed />
+                </span>
+              </>
+            )}
+            {credit?.creditLimit != null && (
+              <>
+                {' · '}
+                <span
+                  data-testid="party-credit"
+                  className={credit.exceeds ? 'text-cr font-semibold' : ''}
+                >
+                  Limit <Money paise={credit.creditLimit} />
+                  {' · '}
+                  {credit.headroom != null && credit.headroom >= 0 ? (
+                    <>
+                      <Money paise={credit.headroom} /> left
+                    </>
+                  ) : (
+                    <>
+                      over by <Money paise={Math.abs(credit.headroom ?? 0)} />
+                    </>
+                  )}
+                </span>
+              </>
+            )}
           </p>
         ) : (
           <span />
@@ -401,7 +748,7 @@ export function InvoiceEntry({ typeId, kind, draft }: { typeId: number; kind: Vo
                   placeholder={`₹ per ${currencyCode}`}
                   className="num w-28 text-right"
                 />
-                {fxActive && <span className="text-[11px] text-muted">rates in {currencyCode} · books in ₹</span>}
+                {fxActive && <span className="text-caption text-muted">rates in {currencyCode} · books in ₹</span>}
               </>
             )}
           </div>
@@ -411,24 +758,30 @@ export function InvoiceEntry({ typeId, kind, draft }: { typeId: number; kind: Vo
       {/* Long invoices scroll inside a capped container instead of pushing the totals
           off-screen. Short ones stay unwrapped: any overflow container would clip the
           absolutely-positioned TypeAhead dropdowns. */}
-      <LineTableScroller active={rows.length > 8} className="mt-4">
-      <table className="ledger-table">
+      <LineTableScroller active={rows.length > 8} className="mt-4" onPaste={onGridPaste}>
+      <table className="ledger-table" data-testid="invoice-grid">
         <thead>
           <tr>
-            <th>Item</th>
-            <th className="r w-28">Qty</th>
-            <th className="r w-32">Rate</th>
-            <th className="r w-28">Disc.</th>
-            <th className="r w-24">GST %</th>
-            <th className="r w-36">Amount</th>
+            <th scope="col">Item</th>
+            <th scope="col" className="r w-28">Qty</th>
+            <th scope="col" className="r w-32">Rate</th>
+            <th scope="col" className="r w-28">Disc.</th>
+            <th scope="col" className="r w-24">GST %</th>
+            <th scope="col" className="r w-36">Amount</th>
           </tr>
         </thead>
         <tbody data-testid="rows-invoice-lines">
           {rows.map((r, i) => {
             const item = r.itemId ? itemMap.get(r.itemId) : null
-            const qty = parseFloat(r.qtyText || '0')
+            const qtyMilli = qtyMilliOf(r.itemId, r.qtyText)
+            // Integer thousandths times paise, divided by a thousand — never `qty * rate` on a
+            // float. `1.1 * 3` in floats is 3.3000000000000003, and the line amount ends up a
+            // paisa away from what `computed` (which does the integer version) sends to the books.
             const amount =
-              item && qty > 0 && r.rate != null ? Math.max(0, Math.round(qty * r.rate) - (r.discount ?? 0)) : 0
+              item && qtyMilli != null && qtyMilli > 0 && r.rate != null
+                ? Math.max(0, Math.round((qtyMilli * r.rate) / 1000) - (r.discount ?? 0))
+                : 0
+            const unit = unitInfoOf(r.itemId)
             return (
               <tr key={r.key}>
                 <td>
@@ -453,20 +806,19 @@ export function InvoiceEntry({ typeId, kind, draft }: { typeId: number; kind: Vo
                           .catch(() => {}) // a missing rate just leaves the cell for the user
                       }
                     }}
+                    onScanned={() => focusQty(r.key)}
                     onCreateRequest={(name) => setQuickItem({ name, row: i })}
                   />
                 </td>
                 <td className="r">
-                  <div className="flex items-center gap-1.5">
-                    <input
-                      className={`${inputCls} num text-right`}
-                      value={r.qtyText}
-                      inputMode="decimal"
-                      placeholder="0"
-                      onChange={(e) => setRow(i, { qtyText: e.target.value })}
-                    />
-                    <span className="w-8 text-[11px] text-muted">{unitOf(r.itemId)}</span>
-                  </div>
+                  <QtyInput
+                    text={r.qtyText}
+                    onText={(text) => setRow(i, { qtyText: text })}
+                    baseSymbol={unit.symbol}
+                    alt={unit.alt}
+                    decimals={unit.decimals}
+                    inputRef={qtyRef(r.key)}
+                  />
                 </td>
                 <td className="r">
                   <AmountInput paise={r.rate} onPaise={(p) => setRow(i, { rate: p })} />
@@ -480,10 +832,10 @@ export function InvoiceEntry({ typeId, kind, draft }: { typeId: number; kind: Vo
                   />
                 </td>
                 <td className="r">
-                  <span className="num text-[12.5px] text-muted">{item ? `${item.gstRate ?? account?.gstRate ?? 0}%` : ''}</span>
+                  <span className="num text-body-sm text-muted">{item ? `${item.gstRate ?? account?.gstRate ?? 0}%` : ''}</span>
                 </td>
                 <td className="r">
-                  <Money paise={amount} className="text-[13.5px]" />
+                  <Money paise={amount} className="text-body" />
                 </td>
               </tr>
             )
@@ -495,7 +847,18 @@ export function InvoiceEntry({ typeId, kind, draft }: { typeId: number; kind: Vo
       <div className="mt-4 flex items-start justify-between gap-6">
         <div className="flex-1">
           <Field label="Narration">
-            <TextInput value={narration} onChange={(e) => setNarration(e.target.value)} placeholder="Being goods sold…" />
+            <TextInput
+              data-testid="input-narration"
+              value={narration}
+              onChange={(e) => setNarration(e.target.value)}
+              onFocus={() => {
+                // Filled on focus, not on every keystroke of the lines above: the suggestion is
+                // offered at the moment the field is reached and can be typed straight over.
+                // Never over something already typed.
+                if (!narration && suggestedNarration) setNarration(suggestedNarration)
+              }}
+              placeholder={suggestedNarration ?? 'Being goods sold…'}
+            />
           </Field>
           {isSalesSide && kind === 'sales' && (
             <div className="mt-3 grid grid-cols-3 gap-3">
@@ -510,18 +873,58 @@ export function InvoiceEntry({ typeId, kind, draft }: { typeId: number; kind: Vo
               </Field>
             </div>
           )}
+          {customFields.node}
           {computed.rounded > 0 && (
-            <p className="mt-2 text-[11.5px] text-muted italic">{amountInWords(computed.rounded)}</p>
+            <p className="mt-2 text-hint text-muted italic">{amountInWords(computed.rounded)}</p>
           )}
         </div>
-        <div className="num w-72 text-[13px]">
+        <div className="num w-72 text-detail">
+          {/*
+            Bill-level discount (roadmap I-203).
+
+            Deliberately an ACTION, not a running field: pressing it spreads the discount across
+            the lines in proportion to their value and leaves it visible in each line's Disc.
+            cell. Section 15(3)(a) only lets a discount out of the transaction value when it is
+            "duly recorded in the invoice", so a trailing "less 2%" below the tax total would be
+            a discount tax is still payable on. Apportioning is what makes it legal — and it keeps
+            the app's own invariant intact, that a line's amount IS its post-discount taxable
+            value, so GST can never be computed on the wrong base.
+          */}
+          <div className="mb-2 flex items-center justify-between gap-2 text-body-sm">
+            <span className="text-muted">Bill discount</span>
+            <div className="flex items-center gap-1">
+              <input
+                className={`${inputCls} num w-16 text-right`}
+                data-testid="input-bill-discount"
+                value={billDiscountText}
+                inputMode="decimal"
+                placeholder="0"
+                onChange={(e) => setBillDiscountText(e.target.value)}
+              />
+              <button
+                className="rounded-full border border-line px-2 py-0.5 text-caption text-muted"
+                data-testid="btn-bill-discount-mode"
+                title="Switch between a percentage of the bill and a rupee amount"
+                onClick={() => setBillDiscountPct((v) => !v)}
+              >
+                {billDiscountPct ? '%' : '₹'}
+              </button>
+              <button
+                className="rounded-full border border-line px-2 py-0.5 text-caption"
+                data-testid="btn-bill-discount-apply"
+                onClick={applyBillDiscount}
+              >
+                Spread
+              </button>
+            </div>
+          </div>
           <SummaryRow label="Taxable value" paise={computed.gst.taxable} />
           {computed.gst.cgst > 0 && <SummaryRow label="CGST" paise={computed.gst.cgst} />}
           {computed.gst.sgst > 0 && <SummaryRow label="SGST" paise={computed.gst.sgst} />}
           {computed.gst.igst > 0 && <SummaryRow label="IGST" paise={computed.gst.igst} />}
           {computed.gst.cess > 0 && <SummaryRow label="Cess" paise={computed.gst.cess} />}
           {computed.roundDiff !== 0 && <SummaryRow label="Round off" paise={computed.roundDiff} />}
-          <div className="mt-1 flex justify-between border-t border-ink pt-1.5 pb-0.5 text-[15px] font-semibold" style={{ borderBottom: '3px double var(--color-ink)' }}>
+          <div className="mt-1 flex justify-between border-t border-ink pt-1.5 pb-0.5 text-lead font-semibold" style={{ borderBottom: '3px double var(--color-ink)' }}>
             <span>Total</span>
             <Money paise={computed.rounded} />
           </div>
@@ -531,15 +934,16 @@ export function InvoiceEntry({ typeId, kind, draft }: { typeId: number; kind: Vo
       <div className="mt-4 border-t border-line pt-3">
         <button
           data-testid="btn-invoice-gst-details"
-          className="flex items-center gap-1.5 text-[11px] font-semibold tracking-[0.08em] text-muted uppercase"
+          className="flex items-center gap-1.5 text-caption font-semibold tracking-[0.08em] text-muted uppercase"
           onClick={() => setGstOpen((v) => !v)}
         >
-          <span className="inline-block w-3 text-[10px]">{gstOpen ? '▾' : '▸'}</span>
+          <span className="inline-block w-3 text-label">{gstOpen ? '▾' : '▸'}</span>
           GST details
-          {(posOverride || optionalVoucher) && (
+          {(posOverride || optionalVoucher || registrations.length > 1) && (
             <span className="normal-case text-muted/80">
               {' '}
               ·{posOverride ? ` POS ${posOverride} — ${GST_STATES[posOverride] ?? ''}` : ''}
+              {registrations.length > 1 && activeRegistration ? ` · ${activeRegistration.gstin ?? activeRegistration.stateCode}` : ''}
               {optionalVoucher ? ' optional (memorandum)' : ''}
             </span>
           )}
@@ -555,7 +959,7 @@ export function InvoiceEntry({ typeId, kind, draft }: { typeId: number; kind: Vo
                 value={posOverride ?? ''}
                 onChange={(e) => setPosOverride(e.target.value || null)}
               >
-                <option value="">Auto — {party?.stateCode ?? info!.stateCode}</option>
+                <option value="">Auto — {party?.stateCode ?? supplyState}</option>
                 {Object.entries(GST_STATES).map(([code, name]) => (
                   <option key={code} value={code}>
                     {code} — {name}
@@ -563,7 +967,25 @@ export function InvoiceEntry({ typeId, kind, draft }: { typeId: number; kind: Vo
                 ))}
               </Select>
             </Field>
-            <label className="col-span-2 flex items-center gap-2 pb-2 text-[12.5px]">
+            {registrations.length > 1 && (
+              <Field
+                label="Supplied by"
+                hint="Decides the GSTIN this invoice is filed under, and CGST+SGST vs IGST"
+              >
+                <Select
+                  data-testid="input-voucher-registration"
+                  value={String(activeRegistration?.id ?? '')}
+                  onChange={(e) => setGstRegistrationId(e.target.value ? Number(e.target.value) : null)}
+                >
+                  {registrations.map((r) => (
+                    <option key={r.id} value={r.id}>
+                      {registrationLabel(r)}
+                    </option>
+                  ))}
+                </Select>
+              </Field>
+            )}
+            <label className={`${registrations.length > 1 ? '' : 'col-span-2 '}flex items-center gap-2 pb-2 text-body-sm`}>
               <input
                 type="checkbox"
                 data-testid="input-optional-voucher"
@@ -579,10 +1001,10 @@ export function InvoiceEntry({ typeId, kind, draft }: { typeId: number; kind: Vo
       {features.billWise && partyId && (
         <div className="mt-4 border-t border-line pt-3">
           <button
-            className="flex items-center gap-1.5 text-[11px] font-semibold tracking-[0.08em] text-muted uppercase"
+            className="flex items-center gap-1.5 text-caption font-semibold tracking-[0.08em] text-muted uppercase"
             onClick={() => setBillsOpen((v) => !v)}
           >
-            <span className="inline-block w-3 text-[10px]">{billsOpen ? '▾' : '▸'}</span>
+            <span className="inline-block w-3 text-label">{billsOpen ? '▾' : '▸'}</span>
             Bill allocation
             {isNoteKind && !manualNewBillMode && (
               <span className="normal-case text-muted/80">
@@ -596,13 +1018,13 @@ export function InvoiceEntry({ typeId, kind, draft }: { typeId: number; kind: Vo
               {isNoteKind && !manualNewBillMode ? (
                 <>
                   {(openBillsForNote ?? []).length === 0 ? (
-                    <p className="text-[12px] text-muted">No open bills for this party.</p>
+                    <p className="text-small text-muted">No open bills for this party.</p>
                   ) : (
                     <div className="flex flex-col gap-1">
                       {(openBillsForNote ?? []).map((b) => {
                         const ref = noteBillRefs.find((r) => r.kind === 'against' && r.name === b.number)
                         return (
-                          <div key={b.number} className="flex items-center gap-3 rounded-md px-1 py-1 text-[12.5px] hover:bg-panel2">
+                          <div key={b.number} className="flex items-center gap-3 rounded-md px-1 py-1 text-body-sm hover:bg-panel2">
                             <input type="checkbox" checked={!!ref} onChange={(e) => toggleNoteBill(b, e.target.checked)} />
                             <span className="flex-1">{b.number}</span>
                             <span className="num w-24 text-muted">{toDisplayDate(b.date)}</span>
@@ -618,7 +1040,7 @@ export function InvoiceEntry({ typeId, kind, draft }: { typeId: number; kind: Vo
                       })}
                     </div>
                   )}
-                  <button className="mt-2 text-[11.5px] text-blue hover:underline" onClick={() => setManualNewBillMode(true)}>
+                  <button className="mt-2 text-hint text-blue hover:underline" onClick={() => setManualNewBillMode(true)}>
                     Create new bill instead
                   </button>
                 </>
@@ -650,7 +1072,7 @@ export function InvoiceEntry({ typeId, kind, draft }: { typeId: number; kind: Vo
                   </Field>
                   {isNoteKind && (
                     <button
-                      className="col-span-3 self-start text-[11.5px] text-blue hover:underline"
+                      className="col-span-3 self-start text-hint text-blue hover:underline"
                       onClick={() => setManualNewBillMode(false)}
                     >
                       Allocate against open bills instead
@@ -663,6 +1085,19 @@ export function InvoiceEntry({ typeId, kind, draft }: { typeId: number; kind: Vo
         </div>
       )}
 
+      {creditBreach && (
+        <div
+          data-testid="credit-limit-banner"
+          className="mt-4 rounded-md border border-cr/40 bg-cr/5 px-3.5 py-2.5 text-body-sm text-cr"
+        >
+          <b>{creditBreach.name}</b> would be at <Money paise={creditBreach.after} /> against a credit
+          limit of <Money paise={creditBreach.creditLimit ?? 0} />.{' '}
+          {creditBreach.enforced
+            ? 'Enforcement is on, so this voucher will not save until the limit is raised or a payment is taken.'
+            : 'You will be asked to confirm before it saves.'}
+        </div>
+      )}
+
       <div className="mt-5 flex justify-end gap-2">
         {formValid && <Button onClick={() => setShowRecurring(true)}>Save as recurring…</Button>}
         <Button onClick={() => nav.back()}>Cancel</Button>
@@ -671,6 +1106,15 @@ export function InvoiceEntry({ typeId, kind, draft }: { typeId: number; kind: Vo
             Save + invoice PDF
           </Button>
         )}
+        <label className="mr-2 flex items-center gap-1.5 text-hint text-muted" title="Keep the party selected after saving, for the next voucher">
+          <input
+            type="checkbox"
+            data-testid="check-keep-party"
+            checked={keepParty}
+            onChange={(e) => setKeepParty(e.target.checked)}
+          />
+          Keep party
+        </label>
         <Button variant="primary" data-testid="btn-save-voucher" disabled={saving} onClick={() => void save()}>
           Save voucher ⌘↵
         </Button>

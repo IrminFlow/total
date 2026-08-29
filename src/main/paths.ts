@@ -1,12 +1,25 @@
 import { app } from 'electron'
 import { join } from 'path'
-import { mkdirSync } from 'fs'
+import { existsSync, mkdirSync } from 'fs'
+import { configuredDataRoot } from './dataRootConfig'
 
-/** Root of all Total data: ~/Documents/total */
+/** Root of all Total data: ~/Documents/total, unless the user has moved it. */
 export function dataRoot(): string {
-  // Hermetic override for CI/smoke tests: an absolute TOTAL_DATA_DIR is used verbatim.
+  // Hermetic override for CI/smoke tests: an absolute TOTAL_DATA_DIR is used verbatim, and beats
+  // a configured location so a driver script can never be pointed at somebody's real books.
   if (process.env.TOTAL_DATA_DIR) return process.env.TOTAL_DATA_DIR
+  // Moved out of a synced folder (roadmap #244). Falls back to the default when the chosen
+  // folder has gone — an unplugged drive should leave the app usable rather than pathless.
+  const chosen = configuredDataRoot()
+  if (chosen && existsSync(chosen)) return chosen
   return join(app.getPath('documents'), 'total')
+}
+
+/** True when the configured data folder has gone missing (drive unplugged, folder deleted). */
+export function dataRootMissing(): boolean {
+  if (process.env.TOTAL_DATA_DIR) return false
+  const chosen = configuredDataRoot()
+  return chosen !== null && !existsSync(chosen)
 }
 
 export function registryPath(): string {
@@ -33,6 +46,22 @@ export function companyExportsDir(slug: string): string {
   return join(companyDir(slug), 'exports')
 }
 
+/** Where a voucher's attached bills live. Inside the company folder on purpose: the folder is
+ *  the unit a user copies, syncs and backs up, so an attachment kept anywhere else would be
+ *  missing from the copy at exactly the moment it was wanted. */
+export function companyAttachmentsDir(slug: string): string {
+  return join(companyDir(slug), 'attachments')
+}
+
+/**
+ * Where an item's picture lives. Inside the company folder for exactly the reason attachments are
+ * (see above): the folder is the unit a user copies, syncs and backs up, and a picture kept
+ * anywhere else would be missing from the copy.
+ */
+export function companyItemImagesDir(slug: string): string {
+  return join(companyDir(slug), 'item-images')
+}
+
 export function ensureDataTree(): void {
   mkdirSync(companiesDir(), { recursive: true })
 }
@@ -41,6 +70,8 @@ export function ensureCompanyTree(slug: string): void {
   mkdirSync(companyDir(slug), { recursive: true })
   mkdirSync(companyBackupsDir(slug), { recursive: true })
   mkdirSync(companyExportsDir(slug), { recursive: true })
+  mkdirSync(companyAttachmentsDir(slug), { recursive: true })
+  mkdirSync(companyItemImagesDir(slug), { recursive: true })
 }
 
 export function slugify(name: string): string {

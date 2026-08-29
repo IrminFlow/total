@@ -1,8 +1,11 @@
 import Link from 'next/link'
 
 /**
- * Slim top bar shared by every page except the homepage (which keeps its own
- * hero-adjacent .top bar with the same links inlined).
+ * Slim top bar shared by every page except the homepage, which keeps its own hero-adjacent bar.
+ *
+ * Five links and a button is the ceiling: it has to stay on one line at a laptop width. Privacy,
+ * the changelog and the partner pages live in the footer, where a page nobody visits twice
+ * belongs.
  */
 export default function SiteNav(): React.JSX.Element {
   return (
@@ -13,12 +16,14 @@ export default function SiteNav(): React.JSX.Element {
         </Link>
         <span className="sitenav-links">
           <Link href="/docs">Docs</Link>
+          <Link href="/pricing">Pricing</Link>
           <Link href="/compare">Compare</Link>
-          <Link href="/changelog">Changelog</Link>
+          <Link href="/roadmap">Roadmap</Link>
+          <Link href="/contact">Contact</Link>
         </span>
-        <a className="btn small" href="/api/download">
+        <Link className="btn small" href="/download">
           Download
-        </a>
+        </Link>
       </div>
     </nav>
   )

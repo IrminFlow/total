@@ -9,6 +9,8 @@ declare global {
     total: {
       platform: string
       invoke: (channel: string, payload?: unknown) => Promise<IpcResult>
+      /** Subscribe to a main-process event; returns the unsubscriber. */
+      on: (channel: string, listener: (payload: unknown) => void) => () => void
     }
   }
 }

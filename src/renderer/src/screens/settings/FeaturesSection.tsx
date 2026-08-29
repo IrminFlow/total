@@ -11,7 +11,12 @@ const TOGGLES: { key: keyof CompanyFeatures; label: string; hint: string }[] = [
   { key: 'costCentres', label: 'Cost centres', hint: 'Split voucher lines across cost centres for the cost-centre report' },
   { key: 'tds', label: 'TDS', hint: 'Tax Deducted at Source suggestions, deduction entries, and the TDS report' },
   { key: 'multiCurrency', label: 'Multi-currency', hint: 'Foreign-currency invoices with an exchange rate; books stay in ₹' },
-  { key: 'payroll', label: 'Payroll', hint: 'Employees, pay runs, and payslips' }
+  { key: 'payroll', label: 'Payroll', hint: 'Employees, pay runs, and payslips' },
+  {
+    key: 'ai',
+    label: 'AI assistant',
+    hint: 'Off by default. Ask questions about these books using your own API key — the only part of Total that uses the internet. Set it up in Settings → AI assistant.'
+  }
 ]
 
 export function FeaturesSection(): React.JSX.Element {
@@ -46,7 +51,7 @@ export function FeaturesSection(): React.JSX.Element {
   return (
     <div>
       <SectionTitle>Features</SectionTitle>
-      <p className="mb-4 text-[12.5px] text-muted">
+      <p className="mb-4 text-body-sm text-muted">
         Turning a feature off only hides it — existing entries stay in your books and reports.
       </p>
       <Panel className="divide-y divide-line">
@@ -57,22 +62,23 @@ export function FeaturesSection(): React.JSX.Element {
           >
             <input
               type="checkbox"
+              data-testid={`toggle-feature-${t.key}`}
               checked={value[t.key]}
               disabled={!canEdit}
               onChange={() => toggle(t.key)}
               className="mt-0.5"
             />
             <div>
-              <p className="text-[13.5px] font-medium">{t.label}</p>
-              <p className="text-[12px] text-muted">{t.hint}</p>
+              <p className="text-body font-medium">{t.label}</p>
+              <p className="text-small text-muted">{t.hint}</p>
             </div>
           </label>
         ))}
       </Panel>
       <div className="mt-4 flex items-center justify-end gap-3">
-        {!canEdit && <span className="text-[11.5px] text-muted">Only owners can change features</span>}
+        {!canEdit && <span className="text-hint text-muted">Only owners can change features</span>}
         {canEdit && (
-          <Button variant="primary" disabled={busy || !draft} onClick={() => void save()}>
+          <Button variant="primary" data-testid="btn-features-save" disabled={busy || !draft} onClick={() => void save()}>
             {busy ? 'Saving…' : 'Save features'}
           </Button>
         )}

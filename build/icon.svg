@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Total — app icon.
+
+  The mark is the double rule an accountant draws beneath a grand total, with a stem descending
+  from it. Read one way it is that rule; read the other it is a T. It is drawn in the app's own
+  colours: ink ground, paper rules, and the indigo of the keyboard bar that is the product's
+  signature everywhere else.
+
+  The ground is a neutral graphite rather than the blue-grey it was drawn on: that was chosen to
+  set off a gold stem, and against an indigo one it swallowed it.
+
+  Deliberately two shapes and two colours. An icon is seen at 16 pixels in a dock far more often
+  than at 1024 in a store listing, and anything finer than this disappears there.
+
+  Geometry follows the macOS Big Sur grid: a 1024 canvas with the artwork inside an 824 squircle,
+  which is what leaves it the same visual size as every other icon beside it.
+-->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <defs>
+    <linearGradient id="ground" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#2b2b30"/>
+      <stop offset="1" stop-color="#17171b"/>
+    </linearGradient>
+    <linearGradient id="accent" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#6f65e8"/>
+      <stop offset="1" stop-color="#4338ca"/>
+    </linearGradient>
+  </defs>
+
+  <!-- The squircle. 185 is the Big Sur corner radius at this size. -->
+  <rect x="100" y="100" width="824" height="824" rx="185" ry="185" fill="url(#ground)"/>
+
+  <!-- A single hairline of paper at the top edge: the sheet the ledger is ruled on, catching
+       light the way a real icon's top edge does. Barely visible, and absent at 16px, which is
+       correct — it is depth, not information. -->
+  <rect x="100" y="100" width="824" height="824" rx="185" ry="185"
+        fill="none" stroke="#f4f4ef" stroke-opacity="0.10" stroke-width="3"/>
+
+  <!-- The double rule. Thick above, thin below, in the same paper — one material, ruled twice,
+       the way it is drawn by hand and the way the app's own report template prints it.
+       At 16 pixels the gap between them closes and the pair reads as a single crossbar, which is
+       the intended fallback: the double rule at size, a T in the dock. -->
+  <rect x="292" y="284" width="440" height="80" rx="14" fill="#f4f4ef"/>
+  <rect x="292" y="394" width="440" height="42" rx="13" fill="#f4f4ef" fill-opacity="0.92"/>
+
+  <!-- The stem, in the indigo of the keyboard bar. Roughly a quarter of the crossbar's width,
+       which is the proportion a bold T is drawn at; thinner than this and the mark reads as a
+       table rather than a letter. -->
+  <rect x="452" y="436" width="120" height="304" rx="16" fill="url(#accent)"/>
+</svg>

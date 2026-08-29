@@ -3,6 +3,20 @@ name: total-books
 description: Read and post entries into the Total accounting app's books (offline, ~/Documents/total). Use when asked to record transactions, import ledgers/items, check balances or receivables, or reconcile books managed by Total. Reads CSV/JSON mirrors; writes go through Total's own validation (double-entry, period lock) via the CLI or the inbox drop-folder.
 ---
 
+## Use MCP if your client supports it
+
+Total ships an MCP server that gives live, validated access to the books -- no export step, and
+no snapshot to go stale. Get the config from the app: **Settings -> Agent access -> Connect an AI
+agent (MCP)**, which generates the exact snippet for Claude Desktop, Claude Code or Codex.
+
+Read tools are always available. Posting vouchers needs two switches on: `--allow-writes` on the
+command line AND the inbox watcher in Settings, so either one revokes it.
+
+The mirror files and `inbox/` drop folder below still matter for two things MCP is worse at:
+working with no MCP client at all (a shell script, cron, anything that can write a file), and
+bulk writes -- a 200-voucher backfill is one atomic drop rather than 200 round trips.
+
+
 # Total books — agent access
 
 Total is a fully offline double-entry accounting app (Electron + SQLite). Its data root is

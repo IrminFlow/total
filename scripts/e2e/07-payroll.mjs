@@ -53,4 +53,101 @@ await scenario('07-payroll', async (h) => {
 
   await h.goto('payroll')
   await h.shot('01-payroll')
+
+  // ---- what payroll cost over time ----
+  // Payroll is usually the largest single expense a small business has and the one it looks at
+  // least. Employer cost, not gross, is the figure: gross understates what actually left the
+  // business by roughly a seventh once the employer's own PF and ESI are counted.
+  const trend = await h.invoke('payroll:trend', {})
+  assert(trend.length > 0, 'the committed run appears in the trend')
+  for (const point of trend) {
+    assert(
+      point.employerCost === point.gross + point.employerContributions,
+      `${point.month}: employer cost is gross plus the employer's own contributions`
+    )
+    assert(
+      point.net === point.gross - point.employeeDeductions,
+      `${point.month}: net is gross less what was withheld from the employee`
+    )
+    assert(point.employerCost > point.gross, `${point.month}: and it exceeds gross`)
+    assert(point.headcount > 0, `${point.month}: someone was paid`)
+    assert(
+      point.costPerHead === Math.round(point.employerCost / point.headcount),
+      `${point.month}: per-head is the cost divided by the people`
+    )
+  }
+
+  await h.goto('payroll')
+  await h.page.click('[data-testid="tab-payroll-trend"]')
+  await h.page.waitForSelector('[data-testid="rows-payroll-trend"] tr', { timeout: 15000 })
+  const shown = await h.page.$$eval('[data-testid="rows-payroll-trend"] tr', (els) => els.length)
+  assert(shown === trend.length, `every month is on screen (${shown} of ${trend.length})`)
+  await h.shot('04-payroll-trend')
+
+  // ---- the bulk salary transfer file ----
+  // Paying salaries one transfer at a time is how a business with fifteen people spends an hour
+  // a month typing account numbers, and how one of them eventually goes to the wrong account.
+  const employees = await h.invoke('payroll:employees:list')
+  assert(employees.length > 0, 'the run has employees')
+
+  // Before any bank details exist, nobody can be in the file — and everyone is NAMED rather than
+  // silently dropped, because a file that omits someone is how a person does not get paid.
+  const allRuns = await h.invoke('payroll:runs')
+  const runId = allRuns[0].id
+  const empty = await h.invoke('payroll:transferFile', { runId })
+  assert(empty.count === 0, 'nobody is in the file without bank details')
+  assert(empty.skipped.length > 0, 'and everyone left out is named')
+  assert(/bank account|IFSC|nothing payable/.test(empty.skipped[0].reason), 'with a reason')
+
+  // Give one employee bank details and the file picks exactly them up.
+  const first = employees[0]
+  await h.invoke('payroll:employees:save', {
+    data: { ...first, bankAccount: '12345678901', ifsc: 'HDFC0001234' },
+    id: first.id
+  })
+  const filled = await h.invoke('payroll:transferFile', { runId })
+  assert(filled.count === 1, `one payable employee is in the file (got ${filled.count})`)
+  assert(filled.totalPaise > 0, 'and the total is what will move')
+  assert(filled.skipped.length === empty.skipped.length - 1, 'one fewer skipped')
+
+  // A malformed IFSC is refused at save rather than written into a file the bank rejects.
+  let rejected = false
+  try {
+    await h.invoke('payroll:employees:save', {
+      data: { ...first, bankAccount: '12345678901', ifsc: 'NOTANIFSC' },
+      id: first.id
+    })
+  } catch {
+    rejected = true
+  }
+  assert(rejected, 'a malformed IFSC is refused')
+
+  // ---- salary revision history ----
+  // Derived from the audit log rather than a second table: employee saves have always recorded
+  // their full before and after, so the history already existed and simply had nowhere to be read.
+  const before = await h.invoke('audit:list', {
+    entity: 'employee', entityId: first.id, page: 0, pageSize: 50
+  })
+  await h.invoke('payroll:employees:save', {
+    data: { ...first, bankAccount: '12345678901', ifsc: 'HDFC0001234', basic: first.basic + 500000 },
+    id: first.id
+  })
+  const trail = await h.invoke('audit:list', {
+    entity: 'employee', entityId: first.id, page: 0, pageSize: 50
+  })
+  assert(trail.total > before.total, 'the raise is recorded')
+
+  const latest = trail.rows[0]
+  assert(latest.beforeJson && latest.afterJson, 'with both sides of the change')
+  const wasBasic = JSON.parse(latest.beforeJson).basic
+  const nowBasic = JSON.parse(latest.afterJson).basic
+  assert(nowBasic === wasBasic + 500000, `and the amounts (${wasBasic} → ${nowBasic})`)
+
+  // Only THIS employee's history — an id filter without an entity would mix employee 3 with
+  // voucher 3, and the trail on an employee screen must be about the employee.
+  assert(
+    trail.rows.every((r) => r.entityId === first.id),
+    'the trail is this employee only'
+  )
+  assert(trail.rows.every((r) => r.entity === 'employee'), 'and only employee records')
 })

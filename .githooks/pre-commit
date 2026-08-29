@@ -1,0 +1,12 @@
+#!/bin/sh
+# Pre-commit: the checks that are fast enough to run every time.
+#
+# Typecheck and the three test harnesses — about 25 seconds. Deliberately NOT the build or the
+# E2E suite: those take minutes, and a hook people disable is worse than no hook.
+#
+# Install:  git config core.hooksPath .githooks
+# Skip once (you know why):  git commit --no-verify
+#
+# Invoked as `node` rather than `npm run`: npm swallows the flag after `--silent` and the hook
+# silently ran the full suite instead of the fast one.
+exec node scripts/verify.mjs --fast

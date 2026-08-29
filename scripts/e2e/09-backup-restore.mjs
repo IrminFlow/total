@@ -59,4 +59,107 @@ await scenario('09-backup-restore', async (h) => {
   // The UI survives a restore: navigate + render the backups tab.
   await h.goto('settings')
   await h.shot('01-settings-after-restore')
+
+  // ---- proving a backup, rather than promising one ----
+  // A backup button that has never been proved is a promise, and a business finds out whether it
+  // was true on the worst day of its year. Checking quick_check is not proof: a structurally
+  // valid SQLite file can still hold books that do not add up.
+  const toVerify = await h.invoke('backup:list')
+  assert(toVerify.length > 0, 'there is a backup to verify')
+
+  const verified = await h.invoke('backup:verify', { file: toVerify[0].file })
+  assert(verified.integrityOk, 'the backup is structurally sound')
+  assert(verified.opensAsCompany, 'and is a Total company database')
+  assert(verified.balanced, 'and the books inside it balance')
+  assert(verified.totalDebit === verified.totalCredit, 'debits equal credits in the backup')
+  assert(verified.problem === null, 'with nothing to report')
+
+  // The count is the backup's own, not the live books' — that is what makes it a check.
+  assert(typeof verified.voucherCount === 'number', 'it counts the vouchers it found')
+
+  // On screen, verification is on demand: opening twenty databases to answer a question nobody
+  // asked would be worse than not offering it.
+  await h.goto('settings')
+  await h.page.click('[data-testid="tab-settings-backups"]')
+  await h.page.waitForSelector(`[data-testid="btn-verify-${toVerify[0].file}"]`, { timeout: 15000 })
+  await h.page.click(`[data-testid="btn-verify-${toVerify[0].file}"]`)
+  await h.page.waitForSelector(`[data-testid="verify-result-${toVerify[0].file}"]`, { timeout: 15000 })
+  const resultText = await h.page.textContent(`[data-testid="verify-result-${toVerify[0].file}"]`)
+  assert(/books balance/.test(resultText), `the result says the books balance (got ${resultText})`)
+  await h.shot('05-verified')
+
+  // ---- the Gateway says when the books were last backed up ----
+  await h.goto('gateway')
+  await h.page.waitForSelector('[data-testid="gateway-last-backup"]', { timeout: 15000 })
+  const line = await h.page.textContent('[data-testid="gateway-last-backup"]')
+  assert(/Last backup/.test(line), `the Gateway states the last backup (got ${line})`)
+  assert(new RegExp(`${toVerify.length} kept`).test(line), 'and how many are kept')
+
+  // ---- what a restore would cost, before it costs it ----
+  // "This replaces the current books" is true and abstract. What someone needs is how many
+  // vouchers exist now that do not exist in the backup, because those get typed again.
+  const liveCount = await h.invoke('voucher:count')
+  assert(typeof liveCount === 'number', 'the books report a voucher count')
+  const backupCount = (await h.invoke('backup:verify', { file: toVerify[0].file })).voucherCount
+  assert(typeof backupCount === 'number', 'and so does the backup')
+
+  await h.goto('settings')
+  await h.page.click('[data-testid="tab-settings-backups"]')
+  await h.page.waitForSelector('[data-testid="btn-verify-' + toVerify[0].file + '"]', { timeout: 15000 })
+  // Restore is owner-gated. A company with no users has no signed-in role, so the control is
+  // absent — which is correct, and is why this checks rather than assumes.
+  const restoreBtn = await h.page.$(`[data-testid="btn-restore-${toVerify[0].file}"]`)
+  if (restoreBtn) {
+    await restoreBtn.click()
+    await h.page.waitForSelector('[data-testid="restore-impact"]', { timeout: 15000 })
+    const impact = await h.page.textContent('[data-testid="restore-impact"]')
+    if (liveCount > backupCount) {
+      assert(
+        new RegExp(`${liveCount - backupCount}`).test(impact),
+        `it names how many vouchers would be lost (got ${impact})`
+      )
+    } else {
+      assert(impact.length > 0, `it says where the two stand (got ${impact})`)
+    }
+    await h.shot('06-restore-impact')
+    await h.page.keyboard.press('Escape')
+  }
+
+  // ---- backup retention is the business's choice ----
+  // Twenty was a guess: a business that opens its books four times a day burns through twenty in
+  // a week, and one that opens weekly keeps five months in the same twenty.
+  const before = await h.invoke('config:backupKeep:get')
+  assert(before.keep === 20, `the default is twenty (got ${before.keep})`)
+  const set = await h.invoke('config:backupKeep:set', { keep: 50 })
+  assert(set.keep === 50, 'and it can be changed')
+
+  // A retention of one is not a backup policy but a mirror — the next open would overwrite the
+  // only copy, and the one thing backups exist to survive is a mistake noticed later.
+  let refused = false
+  try {
+    await h.invoke('config:backupKeep:set', { keep: 1 })
+  } catch {
+    refused = true
+  }
+  assert(refused, 'a retention of one is refused')
+  await h.invoke('config:backupKeep:set', { keep: 20 })
+
+  // ---- the bin's auto-purge policy is visible and its zero means never ----
+  // A policy that silently deletes is a policy nobody can check.
+  const policy = await h.invoke('config:binPurge:get')
+  assert(policy.days === 30, `thirty days by default (got ${policy.days})`)
+  assert(typeof policy.count === 'number', 'and it says how many the next purge would take')
+
+  const never = await h.invoke('config:binPurge:set', { days: 0 })
+  assert(never.days === 0, 'Never is a policy, not a disabled feature')
+  const afterNever = await h.invoke('config:binPurge:get')
+  assert(afterNever.count === 0, 'and with it set, nothing is ever a candidate')
+
+  await h.invoke('config:binPurge:set', { days: 30 })
+  await h.goto('settings')
+  await h.page.click('[data-testid="tab-settings-bin"]')
+  await h.page.waitForSelector('[data-testid="select-bin-purge-days"]', { timeout: 15000 })
+  const shownDays = await h.page.inputValue('[data-testid="select-bin-purge-days"]')
+  assert(shownDays === '30', `the screen shows the policy (got ${shownDays})`)
+  await h.shot('07-bin-policy')
 })

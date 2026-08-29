@@ -1,4 +1,5 @@
-import { app, dialog, ipcMain, Notification, shell } from 'electron'
+import { app, BrowserWindow, clipboard as electronClipboard, dialog, ipcMain, Notification, shell } from 'electron'
+import { pathToFileURL } from 'url'
 import { readFileSync, writeFileSync, copyFileSync, rmSync, unlinkSync, mkdtempSync, existsSync } from 'fs'
 import { tmpdir } from 'os'
 import { join, basename } from 'path'
@@ -6,31 +7,81 @@ import { z } from 'zod'
 import Database from 'better-sqlite3'
 import type { DB } from './db/connection'
 import { backupCompany, closeCompanyDb, openCompanyDb } from './db/connection'
-import { listBackupsIn, restoreCompanyDb, rollbackRestore, snapshotSync, backupStamp, runWeeklyIntegrityCheck, type BackupInfo } from './db/backup'
+import { verifyBackup, listBackupsIn, restoreCompanyDb, restorePreview, rollbackRestore, snapshotSync, backupStamp, runWeeklyIntegrityCheck, type BackupInfo } from './db/backup'
 import { checkIntegrity } from './db/integrity'
 import { encryptFile, decryptFile } from './db/crypt'
 import { readCompanyInfo, seedCompany, writeCompanyInfo } from './db/seed'
 import { readRegistry, removeCompany, touchLastOpened, upsertCompany } from './registry'
-import { companyBackupsDir, companyDbPath, companyDir, companyExportsDir, ensureCompanyTree, slugify } from './paths'
-import { log, revealLogs } from './log'
+import { companyBackupsDir, companyDbPath, companyDir, companyExportsDir, dataRoot, dataRootMissing, ensureCompanyTree, slugify } from './paths'
+import { claimLock, inspectLock, releaseLock } from './deviceLock'
+import { inspectMoveTarget, moveDataRoot } from './dataLocation'
+import { configuredDataRoot } from './dataRootConfig'
+import { readSecret, writeSecret } from './secrets'
+import { syncFolderWarning } from '@shared/syncpath'
+import { isUrlAtOrBelow } from './externalUrl'
+import { log, recentLogLines, revealLogs } from './log'
 import { checkForUpdatesInteractive } from './updater'
 import {
   backupFileSchema, bankRuleInputSchema, batchInputSchema, billsOpenSchema, budgetInputSchema, budgetVarianceSchema, ccStatementSchema,
-  chequeConfigSchema, companyCreateSchema, consolidatedRunSchema, costCentreInputSchema, exportCsvSchema, godownInputSchema, groupInputSchema, gst3bManualSchema, gstr2bSchema,
-  isoDate, ledgerInputSchema, notifyDeadlinesSchema, passphraseSchema, periodSchema, priceLevelInputSchema, priceRateInputSchema, recurringInputSchema, rendererLogSchema, reportPdfSchema,
+  chequeConfigSchema, companyCreateSchema, consolidatedRunSchema, costCentreInputSchema, exportCsvSchema, exportStreamCsvSchema, godownInputSchema, groupInputSchema, gst3bManualSchema, gstr2bSchema,
+  gstRegistrationSchema, isoDate, itemRateInputSchema, ledgerInputSchema, notifyDeadlinesSchema, passphraseSchema, periodSchema, priceLevelInputSchema, reportScheduleInputSchema, reportViewSaveSchema, exportXlsSchema, priceRateInputSchema, recurringInputSchema, rendererLogSchema, reportPdfSchema, supportSendSchema,
   searchGlobalSchema, stockGroupInputSchema, stockItemInputSchema, stockQuerySchema, tallyImportSchema, tdsExport26qSchema, tdsSectionInputSchema, tdsSuggestSchema,
-  tdsSummarySchema, unitInputSchema, voucherInputSchema, voucherTransportSchema, voucherTypeInputSchema
+  tdsSummarySchema, tdsCertificateInputSchema, tds26asSchema,
+  unitInputSchema, voucherInputSchema, voucherTransportSchema, voucherTypeInputSchema,
+  // Statutory depth (roadmap section S).
+  form16aSchema, imsDecisionSchema, imsWorklistSchema, itemGstRateSchema, rcmIssueSchema,
+  tdsChallanSchema, tdsFilingConfigSchema, tdsLinkSchema, tdsQuarterSchema, tdsReturnFileSchema, tdsReturnSchema,
+  // The inventory lane's last five, and the foreign-currency bank account.
+  labelJobSchema, priceRevisionSchema, reclassifySchema,
+  revaluationSchema, standardCostSchema, varianceQuerySchema,
+  // The last two GST items: the branch-transfer invoice (#108) and the ISD (#355).
+  branchTransferIssueSchema, isdCreditSchema, isdMonthSchema
 } from '@shared/schemas'
-import { todayISO } from '@shared/dates'
+import { addDays, todayISO } from '@shared/dates'
+import { aiSettingsSchema, isLocalEndpoint } from '@shared/ai/config'
+import { alwaysRedactedFields, redactionPreview } from '@shared/ai/preview'
+import * as aiConfig from './services/ai/config'
+import * as assistantLog from './services/assistantLog'
+import * as licenseSvc from './services/license'
+import { mcpSnippet } from './mcp/snippet'
 import { formatPaise } from '@shared/money'
+import { ATTACHMENT_EXTENSIONS } from '@shared/attachments'
+import { ITEM_IMAGE_EXTENSIONS } from '@shared/itemImages'
 import * as configSvc from './services/config'
 import * as masters from './services/masters'
 import * as vouchers from './services/vouchers'
 import * as reports from './services/reports'
+import { streamReportCsv, type StreamRequest } from './services/exportStream'
 import * as gst from './services/gst'
+import * as registrations from './services/registrations'
+import * as branchTransfer from './services/branchTransfer'
+import * as isd from './services/isd'
+import { branchTransferPdf } from './services/branchTransferPdf'
+import { isdInvoicePdf } from './services/isdPdf'
+import * as filings from './services/filings'
+import * as amendments from './services/amendments'
+import * as partyNotes from './services/partyNotes'
 import * as intel from './services/intel'
 import * as analysis from './services/analysis'
+import * as receivables from './services/receivables'
+import * as attendance from './services/attendance'
+import * as assets from './services/assets'
+import * as disclosure from './services/disclosure'
+import * as counter from './services/counter'
+import * as salesDocs from './services/salesDocs'
+import * as customFields from './services/customFields'
+import { CUSTOM_FIELD_KINDS, MAX_OPTIONS } from '@shared/customFields'
+import * as jobWork from './services/jobWork'
+import * as borrowing from './services/borrowing'
+import * as cma from './services/cma'
+import * as commission from './services/commission'
+import * as rawPrint from './services/rawPrint'
+import { DEFAULT_MARGINS } from '@shared/drawingPower'
+import { escpDebug } from '@shared/escp'
+import { ratesForMonth, STATUTORY_HISTORY } from '@shared/statutory'
+import { statementHtml } from './services/statementHtml'
 import * as banking from './services/banking'
+import * as chequeBounce from './services/chequeBounce'
 import * as edocs from './services/edocs'
 import * as invoice from './services/invoice'
 import * as cheque from './services/cheque'
@@ -38,13 +89,37 @@ import * as extras from './services/extras'
 import * as payroll from './services/payroll'
 import * as nic from './services/nic'
 import * as tds from './services/tds'
+import * as rcm from './services/rcm'
+import * as ims from './services/ims'
+import * as gstr1a from './services/gstr1a'
+import * as gstRates from './services/gstRates'
+import * as presentation from './services/presentation'
+
+import * as tdsCertificates from './services/tdsCertificates'
+import * as form26as from './services/form26as'
 import * as costCentres from './services/costCentres'
+import * as cashForecast from './services/cashForecast'
+import * as reportViews from './services/reportViews'
+import * as reportSchedules from './services/reportSchedules'
 import * as stockAnalysis from './services/stockAnalysis'
+import * as inventoryTransfer from './services/inventoryTransfer'
+import * as inventoryLandedCost from './services/inventoryLandedCost'
+import * as inventoryReorder from './services/inventoryReorder'
+import * as itemRates from './services/itemRates'
 import * as priceLevels from './services/priceLevels'
+import * as priceListVersions from './services/priceListVersions'
+import * as serials from './services/serials'
+import * as standardCosts from './services/standardCosts'
+import * as itemImages from './services/itemImages'
+import * as labels from './services/labels'
+import * as fx from './services/fx'
+import * as scratchpad from './services/scratchpad'
 import * as budgets from './services/budgets'
 import * as recurring from './services/recurring'
+import * as voucherTemplates from './services/voucherTemplates'
 import * as yearEnd from './services/yearEnd'
-import { importTallyXml, dryRunTallyXml } from './services/tallyImport'
+import { importTallyXml, dryRunTallyXml, diffTallyXml, importTallyXmlStreaming } from './services/tallyImport'
+import { migrationReportBody } from './services/migrationReport'
 import * as importer from './services/importers'
 import * as agentBridge from './services/agentBridge'
 import { agentBridgeConfigSchema, agentExportSchema } from '@shared/schemas'
@@ -54,18 +129,44 @@ import { writeExportPdf } from './services/pdf'
 import { reportHtml } from './services/reportHtml'
 import { globalSearch } from './services/search'
 import { createDemoCompany } from './services/demo'
-import { setAuditContext, writeAudit, listAudit, pruneAudit } from './services/audit'
+import { DEMO_TRADES } from '@shared/demo'
+import {
+  setAuditContext, writeAudit, listAudit, pruneAudit, verifyAuditChain, dailyDigest
+} from './services/audit'
 import * as users from './services/users'
 import { assertDeleteAuthorized, auditCompanyDeletion } from './services/companyDelete'
 import { roleAllows, type Role } from './services/roles'
+import { capabilityOfChannel, denialMessage, permitsChannel, type Capability } from '@shared/permissions'
+import { recoveryGuidance } from '@shared/recovery'
+import { lockMessage } from '@shared/deviceLock'
+import { duplicateWarning, findDuplicateCompanies } from '@shared/companyIdentity'
+import { externalDestinationVerdict, describeExternalSchedule } from '@shared/backupSchedule'
+import { externalBackupSchema } from '@shared/schemas'
+import * as externalBackup from './services/externalBackup'
+import { exportPortable, importPortable } from './services/portable'
+import {
+  buildSpreadsheet, date as xlsDate, money as xlsMoney, num as xlsNum, text as xlsText
+} from '@shared/spreadsheet'
+import { PORTABLE_FORMAT } from '@shared/portable'
+import * as attachments from './services/attachments'
+import * as approvals from './services/approvals'
+import * as bankChanges from './services/bankChanges'
+import * as support from './services/support'
+import {
+  AUDITOR_DURATIONS_HOURS, AUDITOR_SESSION_NAME, auditorExpiry, auditorSessionExpired,
+  auditorTimeLeftLabel, type AuditorSession
+} from '@shared/auditorSession'
 import {
   bomInputSchema, currencyInputSchema, employeeInputSchema, nicCredentialsSchema, auditListSchema,
   userInputSchema, authLoginSchema, payHeadInputSchema, employeeHeadsSetSchema, payrollRunIdSchema,
   auditRetentionSchema, invoicePdfBatchSchema
 } from '@shared/schemas'
 import type { CompanyInfo } from '@shared/domain'
-import { featuresSchema } from '@shared/features'
-import { invoiceConfigPartialSchema, invoiceConfigSchema } from '@shared/invoiceConfig'
+import { featuresSchema } from '@shared/features.schema'
+import { invoiceConfigPartialSchema, invoiceConfigSchema } from '@shared/invoiceConfig.schema'
+import { PERIODS } from '@shared/period'
+import { buildChecklist } from '@shared/onboarding'
+import { GITHUB_REPO, SITE_URL } from '@shared/product'
 
 export interface OpenCompany {
   slug: string
@@ -74,6 +175,8 @@ export interface OpenCompany {
   /** Cached usersExist(db) — recomputed only on open and after users:save/deactivate, so ordinary
    *  IPC calls (the vast majority) never pay for a COUNT query just to check the role gate. */
   usersExist: boolean
+  /** Cached archive flag (roadmap #257), for the same reason: the gate runs on every channel. */
+  archived: boolean
 }
 
 let current: OpenCompany | null = null
@@ -85,13 +188,45 @@ let current: OpenCompany | null = null
  *  echo that same path back. The `xmlText` inline path (used by drivers/tests) is unaffected. */
 const dialogIssuedTallyPaths = new Set<string>()
 
+/** Same guard for attachments: a `filePath` in a voucher:attachments:add payload must be one the
+ *  picker issued this session, or the renderer could have any file on disk copied into the
+ *  company folder. The inline `bytesBase64` path (drivers/tests) is unaffected. */
+const dialogIssuedAttachmentPaths = new Set<string>()
+
+/** Set by tally:cancel, polled by the running import between chunks. A plain module-level flag
+ *  is enough because only one import can be in flight: the wizard's button is disabled while it
+ *  runs, and main processes one handler at a time between yields. */
+let importCancelled = false
+
 /** The signed-in user for the currently-open company, or null before login / after logout.
  *  Cleared whenever the company itself closes (see closeCurrentCompany). */
-let sessionUser: { id: number; name: string; role: Role } | null = null
+let sessionUser: { id: number; name: string; role: Role; denied: Capability[] } | null = null
+
+/**
+ * The auditor's session, when one is open (roadmap V #391).
+ *
+ * In memory only, and never persisted: an auditor session that survived a restart would be a
+ * second way into the books that outlives the visit, which is the exact failure it exists to
+ * prevent. It rides alongside `sessionUser` — while it is live, `sessionUser` IS the auditor
+ * (role 'viewer', so every write channel refuses it by the existing gate) and the expiry below
+ * is the only thing this adds.
+ */
+let auditorSession: AuditorSession | null = null
+
+/** Ends the auditor's session — on expiry, on Sign out, or when the company closes. */
+function endAuditorSession(): void {
+  auditorSession = null
+  if (sessionUser?.name === AUDITOR_SESSION_NAME) sessionUser = null
+}
 
 function requireCompany(): OpenCompany {
   if (!current) throw new Error('No company is open')
   return current
+}
+
+/** Who is signed in, for the device-lock heartbeat — the second machine is told a name, not a pid. */
+export function getSessionUserName(): string | null {
+  return sessionUser?.name ?? null
 }
 
 /** Accessor for the currently-open company, used by the backup scheduler (backup-scheduler.ts). */
@@ -111,10 +246,14 @@ export function closeCurrentCompany(): void {
   // Stop the inbox watcher + any pending mirror refresh before the handle closes under them.
   agentBridge.syncInboxWatcher(null)
   if (current) {
+    // Drop this machine's claim before the handle goes: another machine watching the folder
+    // should see the books free the moment they actually are (roadmap #259).
+    releaseLock(current.slug)
     closeCompanyDb(current.db)
     current = null
   }
   sessionUser = null
+  auditorSession = null
 }
 
 type Handler = (payload: unknown) => unknown | Promise<unknown>
@@ -139,9 +278,88 @@ const UNGATED_CHANNELS = new Set([
   'auth:current',
   'log:renderer',
   'log:reveal',
+  'log:diagnostics',
+  'support:send',
   'backup:importEncrypted',
   'app:info'
 ])
+
+/**
+ * Channels that still work on archived books.
+ *
+ * Only the ones that get data OUT, plus the switch itself — an archive you cannot reverse is a
+ * trap, and it has to be reversible from inside the state it creates.
+ */
+const ARCHIVE_EXEMPT_CHANNELS = new Set([
+  'company:archive:set',
+  'company:close',
+  'company:backup',
+  'company:revealExports',
+  'backup:run',
+  'backup:exportEncrypted',
+  'backup:external:runNow',
+  'export:csv',
+  'export:streamCsv',
+  'export:caPack',
+  'export:tallyXml',
+  'export:portable',
+  'log:renderer',
+  'log:reveal',
+  'log:diagnostics',
+  'support:send',
+  'auth:login',
+  'auth:logout'
+])
+
+/**
+ * Channels that keep working when the licence has lapsed.
+ *
+ * The promise is that an expired licence never locks anyone out of their own accounts, so
+ * everything that gets data OUT stays available forever: opening a company, backing it up,
+ * exporting it, printing it, and of course entering a licence. Only posting new entries stops.
+ */
+const LICENSE_EXEMPT_CHANNELS = new Set([
+  'company:list',
+  'company:open',
+  'company:close',
+  'company:create',
+  'backup:list',
+  'backup:run',
+  'backup:restore',
+  'backup:exportEncrypted',
+  'backup:importEncrypted',
+  'export:csv',
+  'export:streamCsv',
+  'export:xls',
+  'export:caPack',
+  'export:tallyXml',
+  'license:get',
+  'license:apply',
+  'log:renderer',
+  'log:reveal',
+  'log:diagnostics',
+  'support:send',
+  'app:info',
+  'auth:login',
+  'auth:logout',
+  'auth:current'
+])
+
+/**
+ * Cached licence state. `currentState()` reads a file, and this wrapper runs on all 200-odd
+ * channels, so re-reading per call would put a stat in the path of every query for no benefit —
+ * the state only changes when a key is entered, or at midnight.
+ */
+let licenseCache: { readOnly: boolean; at: number } | null = null
+function licenseReadOnly(): boolean {
+  if (licenseCache && Date.now() - licenseCache.at < 60_000) return licenseCache.readOnly
+  const readOnly = licenseSvc.isReadOnly()
+  licenseCache = { readOnly, at: Date.now() }
+  return readOnly
+}
+export function invalidateLicenseCache(): void {
+  licenseCache = null
+}
 
 function handle(channel: string, fn: Handler, minRole: Role = 'accountant'): void {
   ipcMain.handle(`total:${channel}`, async (_event, payload: unknown) => {
@@ -150,6 +368,13 @@ function handle(channel: string, fn: Handler, minRole: Role = 'accountant'): voi
       // (usersExist is cached on `current` — see OpenCompany — to avoid a COUNT query per call).
       // A brand-new company with zero users is intentionally wide open: that's how the very
       // first (owner) user gets created via users:save without a chicken-and-egg deadlock.
+      // An auditor session dies of old age wherever it is noticed, which is here — the one
+      // place every channel passes through. Checked before the role gate, so an expired auditor
+      // is refused as "signed out" rather than as "not allowed", and the renderer routes them to
+      // the lock screen like any other ended session.
+      if (auditorSession && auditorSessionExpired(auditorSession, Date.now())) {
+        endAuditorSession()
+      }
       if (!UNGATED_CHANNELS.has(channel) && current && current.usersExist) {
         if (!sessionUser) {
           // Distinct from the role-denied case below: the renderer can route this specifically
@@ -159,6 +384,28 @@ function handle(channel: string, fn: Handler, minRole: Role = 'accountant'): voi
         if (!roleAllows(sessionUser.role, minRole)) {
           throw new Error('You do not have permission to do that')
         }
+        // Per-user denials narrow the role (roadmap #266). Checked here, in the same place the
+        // role is, so a channel added tomorrow is covered by its prefix without being annotated.
+        if (!permitsChannel(sessionUser.denied, channel)) {
+          throw new Error(denialMessage(capabilityOfChannel(channel)!))
+        }
+      }
+      // An archived company is read-only for everyone, including its owner (roadmap #257).
+      // Same shape as the licence check below and for the same reason: reading, printing,
+      // exporting and backing up must keep working — archived books nobody can get data out of
+      // are a hostage rather than a record. Un-archiving is exempt, or it would lock itself in.
+      if (minRole !== 'viewer' && current?.archived && !ARCHIVE_EXEMPT_CHANNELS.has(channel)) {
+        throw new Error(
+          'These books are archived and read-only. Turn that off in Settings → Backups if you need to post to them.'
+        )
+      }
+      // A lapsed licence is exactly "everyone is a viewer": every read channel is declared
+      // `viewer`, so gating on minRole alone leaves reading, printing, exporting and backup
+      // working without listing them one by one.
+      if (minRole !== 'viewer' && !LICENSE_EXEMPT_CHANNELS.has(channel) && licenseReadOnly()) {
+        throw new Error(
+          'Your licence has lapsed. Your books are still here — you can read, print, export and back up everything. Add a licence in Settings to post new entries.'
+        )
       }
       return { ok: true, data: await fn(payload) }
     } catch (err) {
@@ -176,6 +423,59 @@ function handle(channel: string, fn: Handler, minRole: Role = 'accountant'): voi
 
 const idSchema = z.object({ id: z.number().int().positive() })
 const withIdSchema = <T extends z.ZodTypeAny>(schema: T) => z.object({ id: z.number().int().positive(), data: schema })
+
+/** Godown-to-godown transfer (roadmap #112). Quantities are integer thousandths; the value is
+ *  never sent from the renderer — the service asks the valuation engine for it. */
+const transferInputSchema = z.object({
+  date: isoDate,
+  fromGodownId: z.number().int().positive(),
+  toGodownId: z.number().int().positive(),
+  items: z
+    .array(z.object({ stockItemId: z.number().int().positive(), qtyMilli: z.number().int() }))
+    .max(200),
+  narration: z.string().trim().max(1000).nullable().optional(),
+  number: z.string().trim().max(40).optional()
+})
+
+/** One landed-cost line on a purchase (roadmap #117). */
+const landedCostRowSchema = z.object({
+  ledgerId: z.number().int().positive(),
+  label: z.string().trim().max(60),
+  amount: z.number().int().positive(),
+  basis: z.enum(['value', 'qty'])
+})
+
+/** One attachment to add: a picked path, or the bytes inline (drivers/tests), plus the name to
+ *  keep it under. Base64 capped a little above the 10 MB byte limit, since base64 is ~4/3 the
+ *  size — the real limit is enforced on the decoded bytes in services/attachments.ts. */
+const attachmentAddSchema = z.object({
+  voucherId: z.number().int().positive(),
+  filePath: z.string().min(1).optional(),
+  fileName: z.string().min(1).max(255).optional(),
+  bytesBase64: z.string().max(16 * 1024 * 1024).optional(),
+  note: z.string().trim().max(200).nullable().optional()
+})
+
+/** One item picture to set: a picked path, or the bytes inline (drivers/tests). Base64 capped a
+ *  little above the 2 MB byte limit, since base64 is ~4/3 the size — the real limit is enforced on
+ *  the decoded bytes in services/itemImages.ts. */
+const itemImageSetSchema = z.object({
+  stockItemId: z.number().int().positive(),
+  filePath: z.string().min(1).optional(),
+  fileName: z.string().min(1).max(255).optional(),
+  bytesBase64: z.string().max(4 * 1024 * 1024).optional()
+})
+
+/** The auditor session as the renderer sees it: enough to draw the banner, nothing more. */
+function auditorStatus(): { active: boolean; expiresAt: string | null; timeLeft: string | null; grantedBy: string | null } {
+  if (!auditorSession) return { active: false, expiresAt: null, timeLeft: null, grantedBy: null }
+  return {
+    active: true,
+    expiresAt: auditorSession.expiresAt,
+    timeLeft: auditorTimeLeftLabel(auditorSession, Date.now()),
+    grantedBy: auditorSession.grantedBy
+  }
+}
 
 /** [lane-Q audit] one-line summary audit row for every file-export handler (task Q1 #90). */
 const auditExport = (db: DB, kind: string, detail: Record<string, unknown>): void =>
@@ -201,7 +501,13 @@ export function registerIpc(): void {
     return { slug }
   })
 
-  handle('company:createDemo', () => createDemoCompany())
+  // The trade is optional and defaults to 'trading': an older renderer (or a driver script)
+  // that sends no payload at all still gets the original Demo Traders books.
+  handle('company:createDemo', (payload) =>
+    createDemoCompany(
+      z.object({ trade: z.enum(DEMO_TRADES).optional() }).parse(payload ?? {}).trade ?? 'trading'
+    )
+  )
 
   handle('company:delete', (payload) => {
     const { slug, confirmName, pin } = z
@@ -232,9 +538,14 @@ export function registerIpc(): void {
     const { slug } = z.object({ slug: z.string().min(1) }).parse(payload)
     if (!existsSync(companyDbPath(slug))) throw new Error('Company database not found')
     closeCurrentCompany()
+    // Who else has these books open, decided BEFORE we take them (roadmap #259). Reported, never
+    // refused: a lock file is evidence about another machine, and evidence about another machine
+    // is exactly the kind of thing that is sometimes wrong.
+    const lockVerdict = inspectLock(slug)
     const db = openCompanyDb(slug)
     const info = readCompanyInfo(db)
-    current = { slug, db, info, usersExist: users.usersExist(db) }
+    current = { slug, db, info, usersExist: users.usersExist(db), archived: configSvc.getArchive(db).archived }
+    claimLock(slug, sessionUser?.name ?? null)
     // Online backup needs an open handle, so this runs after open (not before, as it used to).
     // A backup failure here must never fail — or desync — the open itself.
     try {
@@ -253,8 +564,18 @@ export function registerIpc(): void {
       log('warn', 'integrity-weekly-failed', { slug, detail: weekly.detail })
     }
     try {
-      const purged = vouchers.purgeOldDeleted(db, 30)
-      if (purged > 0) log('info', 'bin-purge', { purged })
+      const purged = vouchers.purgeOldDeleted(db, configSvc.getBinPurgeDays(db))
+      if (purged > 0) {
+        log('info', 'bin-purge', { purged })
+        // A purge is the only thing that really deletes a voucher, and with it the rows that
+        // remembered its attachments. Their copies would otherwise sit in the folder forever.
+        const swept = attachments.sweepOrphanFiles(db, slug)
+        if (swept > 0) log('info', 'attachment-sweep', { swept })
+        // The same housekeeping for item pictures (#119): deleting a stock item takes its row and
+        // leaves the file, and nothing in the database then remembers what the file was.
+        const sweptImages = itemImages.sweepOrphanItemImages(db, slug)
+        if (sweptImages > 0) log('info', 'item-image-sweep', { swept: sweptImages })
+      }
     } catch (err) {
       // e.g. an over-age binned voucher still referenced by payroll_runs — housekeeping must
       // never block opening the company.
@@ -276,9 +597,28 @@ export function registerIpc(): void {
       if (prunedAudit > 0) log('info', 'audit-prune', { pruned: prunedAudit, keepDays: auditKeepDays })
     }
     touchLastOpened(slug)
+    // Scheduled reports. There is no daemon in an offline app, so "on a timer" means "the next
+    // time the books are opened after the due date" — deliberately fire-and-forget so a slow PDF
+    // render (or a folder that has gone away) can never delay opening the company.
+    void reportSchedules
+      .runDue(db, info, slug, todayISO())
+      .then((runs) => {
+        for (const r of runs) {
+          if (r.error) log('warn', 'report-schedule-failed', { id: r.id, report: r.report, error: r.error })
+          else log('info', 'report-schedule-written', { id: r.id, report: r.report, path: r.path })
+        }
+      })
+      .catch((err: unknown) => log('warn', 'report-schedule-run-failed', { slug, error: String(err) }))
     // Agent bridge (feature flag, default OFF): watch <company>/inbox/ for dropped files.
     if (configSvc.getAgentBridgeEnabled(db)) agentBridge.syncInboxWatcher({ slug, db })
-    return { slug, info, integrity, locked: current.usersExist }
+    return {
+      slug,
+      info,
+      integrity,
+      locked: current.usersExist,
+      archived: current.archived,
+      openElsewhere: lockMessage(lockVerdict)
+    }
   })
 
   handle('company:close', () => {
@@ -288,9 +628,21 @@ export function registerIpc(): void {
 
   handle('company:current', () =>
     current
-      ? { slug: current.slug, info: current.info, locked: current.usersExist && !sessionUser }
+      ? { slug: current.slug, info: current.info, locked: current.usersExist && !sessionUser, archived: current.archived }
       : null
   )
+
+  // ---------- archived books: readable, not writable (roadmap #257) ----------
+  handle('company:archive:get', () => configSvc.getArchive(requireCompany().db), 'viewer')
+  handle('company:archive:set', (p) => {
+    const { archived, note } = z
+      .object({ archived: z.boolean(), note: z.string().max(200).nullable().default(null) })
+      .parse(p)
+    const c = requireCompany()
+    const state = configSvc.setArchive(c.db, archived, note, sessionUser?.name ?? null)
+    c.archived = state.archived
+    return state
+  }, 'owner')
 
   handle('company:updateInfo', (payload) => {
     const c = requireCompany()
@@ -335,6 +687,11 @@ export function registerIpc(): void {
     const c = requireCompany()
     return yearEnd.postClose(c.db, c.info, fyStartYear)
   }, 'owner')
+  // Closing the wrong year is a two-keystroke mistake with a heavy consequence (roadmap #258).
+  handle('yearend:reverse', (p) => {
+    const { fyStartYear } = fyStartYearSchema.parse(p)
+    return yearEnd.reverseClose(requireCompany().db, fyStartYear)
+  }, 'owner')
 
   // ---------- backups: list/run/restore + encrypted export/import ----------
   handle('backup:list', (): BackupInfo[] => {
@@ -343,6 +700,128 @@ export function registerIpc(): void {
   }, 'viewer')
 
   handle('backup:run', runManualBackup)
+
+  handle('config:binPurge:get', () => {
+    const c = requireCompany()
+    const days = configSvc.getBinPurgeDays(c.db)
+    return { days, ...vouchers.binPurgeCandidates(c.db, days) }
+  }, 'viewer')
+  handle('config:binPurge:set', (p) => {
+    const { days } = z.object({ days: z.number().int().min(0).max(3650) }).parse(p)
+    return { days: configSvc.setBinPurgeDays(requireCompany().db, days) }
+  }, 'owner')
+
+  handle('config:backupKeep:get', () => ({ keep: configSvc.getBackupKeep(requireCompany().db) }), 'viewer')
+  handle('config:backupKeep:set', (p) => {
+    const { keep } = z.object({ keep: z.number().int().min(5).max(200) }).parse(p)
+    return { keep: configSvc.setBackupKeep(requireCompany().db, keep) }
+  }, 'owner')
+
+  // ---------- what a restore would change, before it changes it (roadmap #246) ----------
+  handle('backup:preview', (payload) => {
+    const { file } = z.object({ file: backupFileSchema }).parse(payload)
+    const c = requireCompany()
+    return restorePreview(c.db, join(companyBackupsDir(c.slug), file), file)
+  }, 'viewer')
+
+  /**
+   * What to do when the database is damaged (roadmap #248).
+   *
+   * Built in main because only main can see both the integrity result and the backups folder,
+   * and the guidance depends on both: there is no point telling someone to restore a backup when
+   * they have none, or to repair a file when one voucher is out of balance.
+   */
+  handle('backup:recovery', () => {
+    const c = requireCompany()
+    const integrity = checkIntegrity(c.db)
+    const backups = listBackupsIn(companyBackupsDir(c.slug))
+    const newest = backups[0]
+    return {
+      integrity,
+      guidance: recoveryGuidance({
+        quickCheck: integrity.quickCheck,
+        unbalancedVoucherIds: integrity.unbalancedVoucherIds,
+        backupsNewestFirst: backups.map((b) => new Date(b.mtime).toISOString().slice(0, 16).replace('T', ' ')),
+        newestBackupVerified: newest ? verifyBackup(join(companyBackupsDir(c.slug), newest.file)).balanced : undefined
+      })
+    }
+  }, 'viewer')
+
+  // ---------- the backup that leaves the machine (roadmap #245, #253) ----------
+  const externalPassphraseKey = (slug: string): string => `backup.external.${slug}`
+
+  handle('backup:external:get', () => {
+    const c = requireCompany()
+    const config = configSvc.getExternalBackup(c.db)
+    return {
+      ...config,
+      description: describeExternalSchedule(config),
+      // Never the passphrase itself — only whether this machine still has one.
+      hasPassphrase: readSecret(externalPassphraseKey(c.slug)) !== null
+    }
+  }, 'viewer')
+
+  handle('backup:external:choose', async () => {
+    const c = requireCompany()
+    const picked = await dialog.showOpenDialog({
+      title: 'Choose a folder for copies of these books',
+      properties: ['openDirectory', 'createDirectory']
+    })
+    if (picked.canceled || !picked.filePaths[0]) return null
+    const dir = picked.filePaths[0]
+    const config = configSvc.getExternalBackup(c.db)
+    return { dir, verdict: externalDestinationVerdict(dir, dataRoot(), config.encrypt) }
+  }, 'owner')
+
+  handle('backup:external:set', (p) => {
+    const input = externalBackupSchema.parse(p)
+    const c = requireCompany()
+    if (input.dir) {
+      const verdict = externalDestinationVerdict(input.dir, dataRoot(), input.encrypt)
+      if (!verdict.ok) throw new Error(verdict.error)
+    }
+    // The passphrase goes to the OS keychain, never into `meta` — a passphrase stored in the
+    // database would be copied into every backup it exists to protect. Turning encryption off
+    // forgets it rather than leaving it lying in the keychain unused.
+    if (input.encrypt) {
+      if (input.passphrase) writeSecret(externalPassphraseKey(c.slug), input.passphrase)
+      if (readSecret(externalPassphraseKey(c.slug)) === null) {
+        throw new Error('An encrypted schedule needs a passphrase. Nobody can recover it, so keep it somewhere else.')
+      }
+    } else {
+      writeSecret(externalPassphraseKey(c.slug), null)
+    }
+    const saved = configSvc.setExternalBackup(c.db, {
+      dir: input.dir,
+      everyHours: input.everyHours,
+      encrypt: input.encrypt,
+      keep: input.keep,
+      lastRunAt: null,
+      lastError: null
+    })
+    return { ...saved, description: describeExternalSchedule(saved) }
+  }, 'owner')
+
+  handle('backup:external:runNow', async () => {
+    const c = requireCompany()
+    const config = configSvc.getExternalBackup(c.db)
+    if (!config.dir) throw new Error('No folder is set for copies of these books')
+    const run = await externalBackup.runExternalBackup(
+      c.db,
+      c.slug,
+      config,
+      config.encrypt ? readSecret(externalPassphraseKey(c.slug)) : null
+    )
+    configSvc.stampExternalBackup(c.db, new Date().toISOString(), null)
+    auditExport(c.db, 'external_backup', { path: run.path, encrypted: config.encrypt })
+    return run
+  }, 'owner')
+
+  handle('backup:verify', (payload) => {
+    const { file } = z.object({ file: backupFileSchema }).parse(payload)
+    const c = requireCompany()
+    return verifyBackup(join(companyBackupsDir(c.slug), file))
+  }, 'viewer')
 
   handle('backup:restore', async (payload) => {
     const { file } = z.object({ file: backupFileSchema }).parse(payload)
@@ -361,7 +840,7 @@ export function registerIpc(): void {
     const reopen = (): OpenCompany => {
       const db = openCompanyDb(slug) // migrates if the backup predates the current schema
       const info = readCompanyInfo(db)
-      return { slug, db, info, usersExist: users.usersExist(db) }
+      return { slug, db, info, usersExist: users.usersExist(db), archived: configSvc.getArchive(db).archived }
     }
 
     try {
@@ -424,7 +903,9 @@ export function registerIpc(): void {
 
   // No requireCompany() — importing an encrypted backup works with no company open.
   handle('backup:importEncrypted', async (payload) => {
-    const { passphrase } = z.object({ passphrase: passphraseSchema }).parse(payload)
+    const { passphrase, allowDuplicate } = z
+      .object({ passphrase: passphraseSchema, allowDuplicate: z.boolean().default(false) })
+      .parse(payload)
     const picked = await dialog.showOpenDialog({
       title: 'Choose a Total encrypted backup',
       filters: [{ name: 'Total backup', extensions: ['totalbak'] }],
@@ -454,6 +935,15 @@ export function registerIpc(): void {
       throw new Error("This file doesn't look like a Total company backup")
     }
 
+    // The same books arriving twice under two slugs is the most dangerous silent success in the
+    // app (roadmap #251): the user works in the copy for a week while their real books sit in the
+    // other one, and the two can never be recombined.
+    const duplicates = findDuplicateCompanies(readRegistry().companies, { name: info.name, gstin: info.gstin })
+    if (duplicates.length > 0 && !allowDuplicate) {
+      rmSync(tempDir, { recursive: true, force: true })
+      return { needsConfirmation: true, duplicates, warning: duplicateWarning(duplicates) }
+    }
+
     let slug = slugify(info.name)
     let n = 2
     while (existsSync(companyDbPath(slug))) slug = `${slugify(info.name)}-${n++}`
@@ -467,7 +957,7 @@ export function registerIpc(): void {
     }
 
     upsertCompany({ slug, name: info.name, stateCode: info.stateCode, gstin: info.gstin, lastOpenedAt: new Date().toISOString() })
-    return { slug, name: info.name }
+    return { needsConfirmation: false, slug, name: info.name }
   })
 
   // ---------- masters ----------
@@ -481,10 +971,37 @@ export function registerIpc(): void {
   handle('master:groups:delete', (p) => masters.deleteGroup(requireCompany().db, idSchema.parse(p).id))
 
   handle('master:ledgers:list', () => masters.listLedgers(requireCompany().db), 'viewer')
+  // Bank details on a NEW party are written straight through: there is no previous account to
+  // redirect money away from, so the two-person rule (which guards the *change*) has nothing to
+  // protect yet. The shared-account exception still sees it immediately.
   handle('master:ledgers:create', (p) => masters.createLedger(requireCompany().db, ledgerInputSchema.parse(p)))
+  /**
+   * Save a party — with the bank details taken out of the ordinary path.
+   *
+   * Everything else about the master saves as it always did. The account number, IFSC and holder
+   * are routed through the two-person rule (roadmap V #388), which either applies them or parks
+   * them for someone else to confirm. The result says which happened, because a change that
+   * silently did not take effect would be worse than no rule at all.
+   */
   handle('master:ledgers:update', (p) => {
     const { id, data } = withIdSchema(ledgerInputSchema).parse(p)
-    return masters.updateLedger(requireCompany().db, id, data)
+    const c = requireCompany()
+    const wantsBankChange =
+      data.bankAccount !== undefined || data.bankIfsc !== undefined || data.bankHolder !== undefined
+    const ledger = masters.updateLedger(c.db, id, {
+      ...data,
+      bankAccount: undefined,
+      bankIfsc: undefined,
+      bankHolder: undefined
+    })
+    if (!wantsBankChange) return { ...ledger, bankChange: null as bankChanges.BankChangeRequest | null }
+    const outcome = bankChanges.submitBankChange(
+      c.db,
+      id,
+      { account: data.bankAccount ?? null, ifsc: data.bankIfsc ?? null, holder: data.bankHolder ?? null },
+      { role: sessionUser?.role ?? null, name: sessionUser?.name ?? null }
+    )
+    return { ...masters.getLedger(c.db, id)!, bankChange: outcome.request }
   })
   handle('master:ledgers:delete', (p) => masters.deleteLedger(requireCompany().db, idSchema.parse(p).id))
   handle('master:ledgerBalances', (p) => {
@@ -540,6 +1057,73 @@ export function registerIpc(): void {
     const { asOn } = stockQuerySchema.parse(p)
     return stockAnalysis.expiryAgeing(requireCompany().db, asOn)
   }, 'viewer')
+
+  handle('stock:nearExpiry', (p) => {
+    const { asOn } = z.object({ asOn: isoDate }).parse(p)
+    return stockAnalysis.nearExpiry(requireCompany().db, asOn)
+  }, 'viewer')
+
+  handle('stock:effectiveTax', (p) => {
+    // `onDate` is the date of the document being priced. Omitted means "what does it charge now?",
+    // which is what a master screen asks — the service defaults to today.
+    const { stockItemId, onDate } = z
+      .object({ stockItemId: z.number().int().positive(), onDate: isoDate.optional() })
+      .parse(p)
+    return masters.effectiveItemTax(requireCompany().db, stockItemId, onDate)
+  }, 'viewer')
+
+  // ---------- GST rate history per item (roadmap D-92) ----------
+  handle('item:rates:list', (p) => {
+    const { stockItemId, asOn } = z
+      .object({ stockItemId: z.number().int().positive(), asOn: isoDate.optional() })
+      .parse(p)
+    return itemRates.itemRateHistory(requireCompany().db, stockItemId, asOn)
+  }, 'viewer')
+  handle('item:rates:save', (p) => {
+    const { id, data } = z.object({ id: z.number().int().positive().optional(), data: itemRateInputSchema }).parse(p)
+    return itemRates.saveItemRate(requireCompany().db, data, id)
+  })
+  handle('item:rates:delete', (p) => itemRates.deleteItemRate(requireCompany().db, idSchema.parse(p).id))
+
+  handle('stock:find', (p) => {
+    const { query } = z.object({ query: z.string().trim().max(120) }).parse(p)
+    return masters.findItem(requireCompany().db, query)
+  }, 'viewer')
+  // ---------- moving stock between godowns (roadmap #112) ----------
+  handle('stock:godownStock', (p) => {
+    const { asOn, godownId } = z.object({ asOn: isoDate, godownId: z.number().int().positive() }).parse(p)
+    return inventoryTransfer.godownAvailability(requireCompany().db, asOn, godownId)
+  }, 'viewer')
+  handle('stock:previewTransfer', (p) => inventoryTransfer.previewTransfer(requireCompany().db, transferInputSchema.parse(p)), 'viewer')
+  handle('stock:saveTransfer', (p) => inventoryTransfer.saveTransfer(requireCompany().db, transferInputSchema.parse(p)), 'accountant')
+  handle('stock:transfers', (p) => {
+    const { from, to } = periodSchema.parse(p)
+    return inventoryTransfer.listTransfers(requireCompany().db, from, to)
+  }, 'viewer')
+
+  // ---------- landed cost on a purchase (roadmap #117) ----------
+  handle('stock:costablePurchases', (p) => {
+    const { from, to } = periodSchema.parse(p)
+    return inventoryLandedCost.costablePurchases(requireCompany().db, from, to)
+  }, 'viewer')
+  handle('stock:landedCosts', (p) => {
+    const { voucherId } = z.object({ voucherId: z.number().int().positive() }).parse(p)
+    return inventoryLandedCost.landedCostView(requireCompany().db, voucherId)
+  }, 'viewer')
+  handle('stock:saveLandedCosts', (p) => {
+    const { voucherId, costs } = z
+      .object({ voucherId: z.number().int().positive(), costs: z.array(landedCostRowSchema).max(20) })
+      .parse(p)
+    return inventoryLandedCost.saveLandedCosts(requireCompany().db, voucherId, costs)
+  }, 'accountant')
+
+  // ---------- reorder alerts (roadmap #121) ----------
+  handle('stock:reorderAlerts', (p) => {
+    const { asOn } = z.object({ asOn: isoDate }).parse(p)
+    const c = requireCompany()
+    return inventoryReorder.reorderAlerts(c.db, c.info.name, asOn)
+  }, 'viewer')
+
   handle('stock:negative', (p) => {
     const { asOn } = stockQuerySchema.parse(p)
     return stockAnalysis.negativeStock(requireCompany().db, asOn)
@@ -579,15 +1163,44 @@ export function registerIpc(): void {
   handle('voucher:save', (p) => {
     const { data, id } = z.object({ data: voucherInputSchema, id: z.number().int().positive().optional() }).parse(p)
     const c = requireCompany()
-    const saved = vouchers.saveVoucher(c.db, data, id)
+    // The approval threshold applies to what a PERSON types, which is only knowable here: the
+    // recurring runner, the Tally import and the agent inbox all call saveVoucher without an
+    // actor and are therefore never gated (roadmap V #386).
+    const saved = vouchers.saveVoucher(c.db, data, id, {
+      role: sessionUser?.role ?? null,
+      hasUsers: c.usersExist
+    })
     // Agent mirror stays fresh while the flag is on — debounced so entry bursts export once.
     if (configSvc.getAgentBridgeEnabled(c.db)) agentBridge.scheduleMirrorRefresh(c.db, c.slug)
     return saved
   })
   handle('voucher:delete', (p) => vouchers.deleteVoucher(requireCompany().db, idSchema.parse(p).id))
+  // Bulk edit: narration and cost centre only (#39). Both are annotations on an entry rather
+  // than part of what it says, which is why they are the two that can be swept safely.
+  handle('voucher:bulkEdit', (p) => {
+    const { ids, narration, costCentreId } = z
+      .object({
+        ids: z.array(z.number().int().positive()).min(1).max(500),
+        narration: z.string().max(500).nullable().optional(),
+        costCentreId: z.number().int().positive().nullable().optional()
+      })
+      .parse(p)
+    const edit: vouchers.BulkVoucherEdit = {}
+    if (narration !== undefined) edit.narration = narration
+    if (costCentreId !== undefined) edit.costCentreId = costCentreId
+    return vouchers.bulkEditVouchers(requireCompany().db, ids, edit)
+  })
   handle('voucher:bin', () => vouchers.listBin(requireCompany().db), 'viewer')
   handle('voucher:restore', (p) => vouchers.restoreVoucher(requireCompany().db, idSchema.parse(p).id))
-  handle('voucher:purge', (p) => vouchers.purgeVoucher(requireCompany().db, idSchema.parse(p).id), 'owner')
+  handle('voucher:purge', (p) => {
+    const c = requireCompany()
+    vouchers.purgeVoucher(c.db, idSchema.parse(p).id)
+    // The attachment rows went with the voucher (ON DELETE CASCADE); the copies on disk have to
+    // be shown the door explicitly.
+    attachments.sweepOrphanFiles(c.db, c.slug)
+  }, 'owner')
+  /** Item pictures whose item has gone (#119) — the same sweep, on the master side. */
+  handle('stock:image:sweep', () => ({ swept: itemImages.sweepOrphanItemImages(requireCompany().db, requireCompany().slug) }))
   handle('voucher:nextNumber', (p) => {
     const { voucherTypeId, date, excludeId } = z
       .object({ voucherTypeId: z.number().int().positive(), date: z.string(), excludeId: z.number().int().positive().optional() })
@@ -604,6 +1217,50 @@ export function registerIpc(): void {
       .parse(p)
     return vouchers.voucherNumberExists(requireCompany().db, voucherTypeId, number, excludeId)
   })
+  /** Vouchers in books right now — the denominator for "what would a restore cost". */
+  /**
+   * The getting-started checklist, derived from the books.
+   *
+   * Every step is computed rather than ticked: a checklist someone can tick without doing the
+   * thing is a checklist that lies, and the moment it matters is the moment a new user is
+   * deciding whether this application will work for them.
+   *
+   * Two facts are genuinely preferences rather than book facts — whether the shortcut sheet has
+   * been opened, and whether a backup has been verified — so those live in meta.
+   */
+  handle('app:checklist', () => {
+    const c = requireCompany()
+    const count = (sql: string): number => (c.db.prepare(sql).get() as { n: number }).n
+    return buildChecklist({
+      hasCompanyAddress: c.info.address.trim().length > 0,
+      hasGstin: !!c.info.gstin,
+      gstAnswered: c.info.gstRegistrationType === 'unregistered' ? true : !!c.info.gstin,
+      ledgerCount: count('SELECT COUNT(*) AS n FROM ledgers'),
+      voucherCount: count(`SELECT COUNT(*) AS n FROM vouchers v WHERE ${vouchers.IN_BOOKS}`),
+      hasVerifiedBackup: configSvc.getChecklistFlag(c.db, 'backupVerified'),
+      hasSeenShortcuts: configSvc.getChecklistFlag(c.db, 'sawShortcuts')
+    })
+  }, 'viewer')
+
+  handle('app:checklistDone', (p) => {
+    const { step } = z.object({ step: z.enum(['backupVerified', 'sawShortcuts']) }).parse(p)
+    configSvc.setChecklistFlag(requireCompany().db, step, true)
+    return null
+  }, 'viewer')
+
+  handle('voucher:count', () => {
+    const c = requireCompany()
+    return (c.db.prepare(`SELECT COUNT(*) AS n FROM vouchers v WHERE ${vouchers.IN_BOOKS}`).get() as { n: number }).n
+  }, 'viewer')
+
+  handle('voucher:draftFrom', (p) => {
+    const { voucherId } = z.object({ voucherId: z.number().int().positive() }).parse(p)
+    return vouchers.draftFromVoucher(requireCompany().db, voucherId)
+  }, 'viewer')
+  handle('voucher:latestOfType', (p) => {
+    const { voucherTypeId } = z.object({ voucherTypeId: z.number().int().positive() }).parse(p)
+    return { voucherId: vouchers.latestVoucherOfType(requireCompany().db, voucherTypeId) }
+  }, 'viewer')
   handle('voucher:duplicates', (p) => {
     const { data, excludeId } = z.object({ data: voucherInputSchema, excludeId: z.number().int().positive().optional() }).parse(p)
     return vouchers.findDuplicates(requireCompany().db, data, excludeId)
@@ -611,20 +1268,78 @@ export function registerIpc(): void {
 
   // ---------- reports ----------
   handle('report:dayBook', (p) => {
+    const { from, to, includeOutOfBooks, limit, offset, after } = periodSchema
+      .extend({
+        includeOutOfBooks: z.boolean().optional(),
+        limit: z.number().int().min(1).max(2000).optional(),
+        offset: z.number().int().min(0).optional(),
+        // An opaque cursor from a previous page. Bounded because it crosses a trust boundary;
+        // malformed content is ignored by decodeCursor rather than throwing the screen away.
+        after: z.string().max(512).nullish()
+      })
+      .parse(p)
+    const { db } = requireCompany()
+    // Paged by default from the screen; the CA pack and Tally export call the service directly
+    // and still get every row.
+    const rows = reports.dayBook(db, from, to, { includeOutOfBooks, limit, offset, after })
+    return {
+      rows,
+      total: reports.dayBookCount(db, from, to, includeOutOfBooks),
+      // Null means "no more rows", so the screen can stop asking without comparing counts that
+      // may have moved under it. A short page is the end of the book.
+      nextCursor:
+        limit != null && rows.length === limit ? reports.dayBookCursor(rows[rows.length - 1]!) : null
+    }
+  }, 'viewer')
+  handle('report:ledger', (p) => {
+    const { ledgerId, from, to, groupBy, limit, offset, after } = periodSchema
+      .extend({
+        ledgerId: z.number().int().positive(),
+        groupBy: z.enum(PERIODS).optional(),
+        limit: z.number().int().min(1).max(2000).optional(),
+        offset: z.number().int().min(0).optional(),
+        after: z.string().max(512).nullish()
+      })
+      .parse(p)
+    return reports.ledgerStatement(
+      requireCompany().db,
+      ledgerId,
+      from,
+      to,
+      groupBy,
+      limit == null ? undefined : { limit, offset, after }
+    )
+  }, 'viewer')
+  handle('payroll:transferFile', (p) => {
+    const { runId } = z.object({ runId: z.number().int().positive() }).parse(p)
+    const c = requireCompany()
+    const file = payroll.salaryTransferFile(c.db, runId)
+    const path = join(companyExportsDir(c.slug), `salary-transfer-${runId}.csv`)
+    writeFileSync(path, file.csv, 'utf8')
+    auditExport(c.db, 'csv', { filename: `salary-transfer-${runId}`, path })
+    return { path, count: file.count, totalPaise: file.totalPaise, skipped: file.skipped }
+  }, 'accountant')
+
+  handle('payroll:trend', (p) => {
+    const { months } = z.object({ months: z.number().int().min(1).max(120).optional() }).parse(p ?? {})
+    return payroll.payrollTrend(requireCompany().db, months)
+  }, 'viewer')
+
+  handle('report:purchaseSuggestions', (p) => {
+    const { asOn } = z.object({ asOn: isoDate }).parse(p)
+    return reports.purchaseSuggestions(requireCompany().db, asOn)
+  }, 'viewer')
+  handle('report:dayBookByType', (p) => {
     const { from, to, includeOutOfBooks } = periodSchema
       .extend({ includeOutOfBooks: z.boolean().optional() })
       .parse(p)
-    return reports.dayBook(requireCompany().db, from, to, { includeOutOfBooks })
-  }, 'viewer')
-  handle('report:ledger', (p) => {
-    const { ledgerId, from, to, groupBy } = periodSchema
-      .extend({ ledgerId: z.number().int().positive(), groupBy: z.enum(['month']).optional() })
-      .parse(p)
-    return reports.ledgerStatement(requireCompany().db, ledgerId, from, to, groupBy)
+    return reports.dayBookByType(requireCompany().db, from, to, includeOutOfBooks)
   }, 'viewer')
   handle('report:trialBalance', (p) => {
-    const { asOn } = z.object({ asOn: z.string() }).parse(p)
-    return reports.trialBalance(requireCompany().db, asOn)
+    const { asOn, includeZeroBalances } = z
+      .object({ asOn: z.string(), includeZeroBalances: z.boolean().optional() })
+      .parse(p)
+    return reports.trialBalance(requireCompany().db, asOn, includeZeroBalances)
   }, 'viewer')
   handle('report:profitLoss', (p) => {
     const { from, to, comparePrior } = periodSchema.extend({ comparePrior: z.boolean().optional() }).parse(p)
@@ -656,9 +1371,65 @@ export function registerIpc(): void {
     return reports.itemProfitability(requireCompany().db, from, to)
   }, 'viewer')
   handle('report:exceptions', (p) => {
-    const { from, to } = periodSchema.parse(p)
-    return reports.exceptions(requireCompany().db, from, to)
+    const { from, to, largeVoucherPaise } = z
+      .object({
+        from: isoDate,
+        to: isoDate,
+        largeVoucherPaise: z.number().int().min(0).max(1_000_000_000_00).optional()
+      })
+      .parse(p)
+    const c = requireCompany()
+    return reports.exceptions(c.db, from, to, c.info, largeVoucherPaise)
   }, 'viewer')
+
+  handle('report:whatChanged', (p) => {
+    const { from, to } = periodSchema.parse(p)
+    return reports.whatChanged(requireCompany().db, from, to)
+  }, 'viewer')
+  handle('report:ratios', (p) => {
+    const { from, to } = periodSchema.parse(p)
+    return reports.ratios(requireCompany().db, from, to)
+  }, 'viewer')
+  handle('report:itemProfitByPeriod', (p) => {
+    const { from, to, groupBy } = z
+      .object({ from: isoDate, to: isoDate, groupBy: z.enum(PERIODS) })
+      .parse(p)
+    return reports.itemProfitabilityByPeriod(requireCompany().db, from, to, groupBy)
+  }, 'viewer')
+  handle('report:cashForecast', (p) => {
+    const { from, to, bucketDays } = z
+      .object({ from: isoDate, to: isoDate, bucketDays: z.number().int().min(1).max(31).default(7) })
+      .parse(p)
+    return cashForecast.cashForecast(requireCompany().db, from, to, bucketDays)
+  }, 'viewer')
+
+  // ---------- saved report views (C58) ----------
+  handle('view:list', (p) => {
+    const { screen } = z.object({ screen: z.string().trim().max(40).optional() }).parse(p ?? {})
+    return reportViews.listReportViews(requireCompany().db, screen)
+  }, 'viewer')
+  handle('view:save', (p) => {
+    const { screen, name, state } = reportViewSaveSchema.parse(p)
+    return reportViews.saveReportView(requireCompany().db, screen, name, state)
+  })
+  handle('view:delete', (p) => reportViews.deleteReportView(requireCompany().db, idSchema.parse(p).id))
+
+  // ---------- scheduled reports (C59) ----------
+  handle('schedule:list', () => reportSchedules.listSchedules(requireCompany().db), 'viewer')
+  handle('schedule:save', (p) => {
+    const { id, data } = z
+      .object({ id: z.number().int().positive().optional(), data: reportScheduleInputSchema })
+      .parse(p)
+    return reportSchedules.saveSchedule(requireCompany().db, data, id)
+  })
+  handle('schedule:delete', (p) => reportSchedules.deleteSchedule(requireCompany().db, idSchema.parse(p).id))
+  handle('schedule:run', async (p) => {
+    const { id } = idSchema.parse(p)
+    const c = requireCompany()
+    const schedule = reportSchedules.listSchedules(c.db).find((s) => s.id === id)
+    if (!schedule) throw new Error('Schedule not found')
+    return reportSchedules.runSchedule(c.db, c.info, c.slug, schedule, todayISO())
+  })
 
   // ---------- consolidated (multi-company, read-only) ----------
   handle('consol:run', (p) => {
@@ -666,25 +1437,54 @@ export function registerIpc(): void {
     return consolidated.consolidated(slugs, kind, from, to)
   }, 'viewer')
 
-  // ---------- gst ----------
-  const gstPeriodInput = periodSchema.extend({ period: z.string().regex(/^\d{6}$/) })
-  handle('gst:gstr1', (p) => {
-    const { from, to, period } = gstPeriodInput.parse(p)
+  // ---------- gst registrations (roadmap #108) ----------
+  //
+  // Which GSTIN a GST screen is looking at. Optional everywhere, and null on a single-registration
+  // book — where `gstScope` returns an empty SQL filter and every return computes exactly what it
+  // computed before any of this existed.
+  const regIdField = { registrationId: z.number().int().positive().nullish() }
+  const scopeOf = (c: OpenCompany, registrationId?: number | null): registrations.GstScope =>
+    registrations.gstScope(c.db, c.info, registrationId ?? null)
+
+  handle('gstReg:list', () => registrations.listRegistrations(requireCompany().db), 'viewer')
+  handle('gstReg:save', (p) => registrations.saveRegistration(requireCompany().db, gstRegistrationSchema.parse(p)), 'owner')
+  handle('gstReg:setPrimary', (p) => {
     const c = requireCompany()
-    return gst.gstr1(c.db, c.info, from, to, period)
+    const regs = registrations.setPrimaryRegistration(c.db, idSchema.parse(p).id)
+    // The primary registration IS the company's gstin/stateCode (db/seed.ts explains the mirror),
+    // so the in-memory company must move with it or every screen keeps showing the old GSTIN.
+    c.info = readCompanyInfo(c.db)
+    return regs
+  }, 'owner')
+  handle('gstReg:delete', (p) => {
+    registrations.deleteRegistration(requireCompany().db, idSchema.parse(p).id)
+    return { ok: true }
+  }, 'owner')
+  handle('gstReg:crossTransfers', (p) => {
+    const { from, to } = periodSchema.parse(p)
+    return registrations.crossRegistrationTransfers(requireCompany().db, from, to)
+  }, 'viewer')
+
+  // ---------- gst ----------
+  const gstPeriodInput = periodSchema.extend({ period: z.string().regex(/^\d{6}$/), ...regIdField })
+  handle('gst:gstr1', (p) => {
+    const { from, to, period, registrationId } = gstPeriodInput.parse(p)
+    const c = requireCompany()
+    return gst.gstr1(c.db, scopeOf(c, registrationId), from, to, period)
   }, 'viewer')
   handle('gst:gstr3b', (p) => {
-    const { from, to, period } = gstPeriodInput.parse(p)
+    const { from, to, period, registrationId } = gstPeriodInput.parse(p)
     const c = requireCompany()
-    return gst.gstr3b(c.db, c.info, from, to, period)
+    return gst.gstr3b(c.db, scopeOf(c, registrationId), from, to, period)
   }, 'viewer')
   handle('gst:exportGstr1', (p) => {
-    const { from, to, period } = gstPeriodInput.parse(p)
+    const { from, to, period, registrationId } = gstPeriodInput.parse(p)
     const c = requireCompany()
+    const scope = scopeOf(c, registrationId)
     // Server-side export gate (G7): blocking validation issues refuse the export outright —
     // the renderer disables the button too, but the gate must hold for any caller.
-    gst.assertExportable(c.db, c.info, from, to)
-    const result = gst.gstr1(c.db, c.info, from, to, period)
+    gst.assertExportable(c.db, scope, from, to)
+    const result = gst.gstr1(c.db, scope, from, to, period)
     const jsonPath = gst.exportReturnJson(c.slug, 'gstr1', period, result.json)
     const csvPath = gst.exportGstr1Csv(c.slug, result)
     auditExport(c.db, 'gstr1', { period, path: jsonPath })
@@ -693,11 +1493,17 @@ export function registerIpc(): void {
   })
   // ---------- gst rebuild (lane G): validation panel + 3B manual adjustments ----------
   handle('gst:validate', (p) => {
-    const { from, to } = periodSchema.parse(p)
+    const { from, to, registrationId } = periodSchema.extend(regIdField).parse(p)
     const c = requireCompany()
-    const issues = gst.gstValidate(c.db, c.info, from, to)
-    const roundOff = edocs.einvoiceRoundOffIssues(c.db, c.info, from, to)
-    return { issues, roundOff }
+    const scope = scopeOf(c, registrationId)
+    const issues = gst.gstValidate(c.db, scope, from, to)
+    const roundOff = edocs.einvoiceRoundOffIssues(c.db, scope, from, to)
+    // Stock moved between two registrations of the same PAN is a taxable supply under Schedule I
+    // para 2. The app now RAISES that invoice (Disclosure › Branch transfers), so what is warned
+    // about here is only what still has no document — the warning shrinks as the work is done
+    // instead of standing there repeating something the user has already fixed.
+    const crossRegistration = branchTransfer.undocumentedCrossTransfers(c.db, from, to)
+    return { issues, roundOff, crossRegistration }
   }, 'viewer')
   handle('gst:3bManualGet', (p) => {
     const { period } = z.object({ period: z.string().regex(/^\d{6}$/) }).parse(p)
@@ -708,20 +1514,22 @@ export function registerIpc(): void {
     return configSvc.setGst3bManual(requireCompany().db, period, data)
   })
   handle('gst:exportGstr3b', (p) => {
-    const { from, to, period } = gstPeriodInput.parse(p)
+    const { from, to, period, registrationId } = gstPeriodInput.parse(p)
     const c = requireCompany()
+    const scope = scopeOf(c, registrationId)
     // Same server-side gate as gst:exportGstr1 — 3B is computed from the same extracted
     // documents, so a period with blocking validation issues must not export either return.
-    gst.assertExportable(c.db, c.info, from, to)
-    const result = gst.gstr3b(c.db, c.info, from, to, period)
+    gst.assertExportable(c.db, scope, from, to)
+    const result = gst.gstr3b(c.db, scope, from, to, period)
     const jsonPath = gst.exportReturnJson(c.slug, 'gstr3b', period, result.json)
     auditExport(c.db, 'gstr3b', { period, path: jsonPath })
     shell.showItemInFolder(jsonPath)
     return { jsonPath }
   })
   handle('gst:recon2b', (p) => {
-    const { jsonText, from, to } = gstr2bSchema.parse(p)
-    return gst.recon2b(requireCompany().db, jsonText, from, to)
+    const { jsonText, from, to, registrationId } = gstr2bSchema.extend(regIdField).parse(p)
+    const c = requireCompany()
+    return gst.recon2b(c.db, jsonText, from, to, scopeOf(c, registrationId))
   }, 'viewer')
   handle('gst:recon2bPickFile', async () => {
     const picked = await dialog.showOpenDialog({
@@ -734,14 +1542,1270 @@ export function registerIpc(): void {
     return { jsonText, fileName: picked.filePaths[0].split('/').pop() ?? 'gstr2b.json' }
   }, 'viewer')
 
+  handle('gst:gstr9', (p) => {
+    const { fyStartYear, registrationId } = z
+      .object({ fyStartYear: z.number().int().min(1990).max(2100), ...regIdField })
+      .parse(p)
+    const c = requireCompany()
+    return gst.gstr9(c.db, scopeOf(c, registrationId), fyStartYear)
+  }, 'viewer')
+
+  // ---------- composition scheme ----------
+  handle('gst:cmp08', (p) => {
+    const { from, to, category, interest, lateFee, registrationId } = periodSchema
+      .extend({
+        category: z.enum(['trader', 'restaurant', 'service']),
+        interest: z.number().int().min(0).optional(),
+        lateFee: z.number().int().min(0).optional(),
+        ...regIdField
+      })
+      .parse(p)
+    const c = requireCompany()
+    return gst.cmp08(c.db, scopeOf(c, registrationId), from, to, category, { interest, lateFee })
+  }, 'viewer')
+
+  handle('gst:gstr4', (p) => {
+    const { fyStartYear, category, registrationId } = z
+      .object({
+        fyStartYear: z.number().int().min(1990).max(2100),
+        category: z.enum(['trader', 'restaurant', 'service']),
+        ...regIdField
+      })
+      .parse(p)
+    const c = requireCompany()
+    return gst.gstr4(c.db, scopeOf(c, registrationId), fyStartYear, category)
+  }, 'viewer')
+
+  // ---------- filing register ----------
+  handle('filings:register', (p) => {
+    const { fyStartYear, registrationId } = z
+      .object({ fyStartYear: z.number().int().min(1990).max(2100), ...regIdField })
+      .parse(p)
+    const c = requireCompany()
+    return filings.filingRegister(c.db, scopeOf(c, registrationId), fyStartYear, todayISO())
+  }, 'viewer')
+
+  handle('filings:record', (p) => {
+    const input = z
+      .object({
+        form: z.string().trim().min(1).max(20),
+        period: z.string().trim().regex(/^\d{4}-(\d{2}|Q[1-4]|H[12]|FY)$/, 'Not a period key'),
+        dueDate: isoDate,
+        // Null clears the filing, returning the row to unfiled.
+        filedAt: isoDate.nullable(),
+        // 15 characters on the portal today, but it has been longer before — accept a range
+        // rather than pinning a length that would reject a valid ARN.
+        arn: z.string().trim().min(1).max(64).nullable(),
+        taxPaid: z.number().int().min(0),
+        notes: z.string().trim().max(500).nullable(),
+        ...regIdField
+      })
+      .parse(p)
+    const c = requireCompany()
+    // Marking a GSTR-1 or IFF filed is also when its documents are frozen for later amendment
+    // (services/amendments.ts) — hence the scope, which the snapshot extraction needs and which
+    // also decides WHICH registration's filing this is.
+    return filings.recordFiling(c.db, scopeOf(c, input.registrationId), input)
+  }, 'owner')
+
+  handle('filings:liability', (p) => {
+    const { form, period, registrationId } = z
+      .object({
+        form: z.string().trim().min(1).max(20),
+        period: z.string().trim().regex(/^\d{4}-(\d{2}|Q[1-4]|H[12]|FY)$/, 'Not a period key'),
+        ...regIdField
+      })
+      .parse(p)
+    const c = requireCompany()
+    return filings.filingLiability(c.db, scopeOf(c, registrationId), form, period)
+  }, 'viewer')
+
+  // ---------- GSTR-1 amendments (Tables 9A / 9C) ----------
+  // A correction to an already-filed invoice is a new row in a LATER period's amendment table,
+  // keyed on the ORIGINAL document. Both handlers work off the snapshots taken when each GSTR-1
+  // or IFF was marked filed (filings:record) — never off today's books alone.
+  const portalPeriod = z.string().trim().regex(/^(0[1-9]|1[0-2])\d{4}$/, 'Not a portal tax period (MMYYYY)')
+
+  handle('amendments:report', (p) => {
+    const { period } = z.object({ period: portalPeriod }).parse(p)
+    const c = requireCompany()
+    return amendments.gstr1Amendments(c.db, scopeOf(c, (p as { registrationId?: number | null } | null)?.registrationId ?? null), period)
+  }, 'viewer')
+
+  handle('amendments:export', (p) => {
+    const { period } = z.object({ period: portalPeriod }).parse(p)
+    const c = requireCompany()
+    const report = amendments.gstr1Amendments(c.db, scopeOf(c, (p as { registrationId?: number | null } | null)?.registrationId ?? null), period)
+    if (!report.json) throw new Error('Nothing to amend in this period — no amendment table has a row.')
+    const path = amendments.exportAmendmentJson(c.slug, period, report.json)
+    auditExport(c.db, 'gstr1-amendments', { period, path })
+    shell.showItemInFolder(path)
+    return { path, counts: report.counts }
+  })
+
   // ---------- analysis ----------
+  handle('bank:reconciliationStatus', (p) => {
+    const { asOn } = z.object({ asOn: isoDate }).parse(p)
+    return banking.reconciliationStatus(requireCompany().db, asOn)
+  }, 'viewer')
+
+  handle('party:notes', (p) => {
+    const { ledgerId } = z.object({ ledgerId: z.number().int().positive() }).parse(p)
+    return partyNotes.listPartyNotes(requireCompany().db, ledgerId)
+  }, 'viewer')
+
+  handle('party:addNote', (p) => {
+    const input = z
+      .object({
+        ledgerId: z.number().int().positive(),
+        note: z.string().trim().min(1).max(1000),
+        promisedDate: isoDate.nullable().optional(),
+        promisedAmount: z.number().int().min(0).nullable().optional()
+      })
+      .parse(p)
+    const c = requireCompany()
+    // Same attribution the audit log uses, so the note and its audit row agree about who.
+    return partyNotes.addPartyNote(c.db, input, sessionUser?.name ?? null)
+  }, 'accountant')
+
+  handle('party:closeNote', (p) => {
+    const { id } = z.object({ id: z.number().int().positive() }).parse(p)
+    return partyNotes.closePartyNote(requireCompany().db, id)
+  }, 'accountant')
+
+  handle('party:promises', () => partyNotes.openPromises(requireCompany().db, todayISO()), 'viewer')
+
+  // ---------- the collections desk (roadmap #151, #153-#159, #161, #164, #165) ----------
+
+  handle('recv:interest', (p) => {
+    const { side, asOn } = z.object({ side: z.enum(['receivable', 'payable']), asOn: isoDate }).parse(p)
+    return receivables.interestDue(requireCompany().db, side, asOn)
+  }, 'viewer')
+
+  handle('recv:creditScores', (p) => {
+    const { asOn } = z.object({ asOn: isoDate }).parse(p)
+    return receivables.creditScores(requireCompany().db, asOn)
+  }, 'viewer')
+
+  handle('recv:allocationSuggestions', (p) => {
+    const { ledgerId, amount, asOn, side } = z
+      .object({
+        ledgerId: z.number().int().positive(),
+        amount: z.number().int().min(0),
+        asOn: isoDate,
+        side: z.enum(['receivable', 'payable']).default('receivable')
+      })
+      .parse(p)
+    return receivables.allocationSuggestions(requireCompany().db, ledgerId, amount, asOn, side)
+  }, 'viewer')
+
+  handle('recv:ageingBy', (p) => {
+    const { side, asOn, dimension, bandCuts } = z
+      .object({
+        side: z.enum(['receivable', 'payable']),
+        asOn: isoDate,
+        dimension: z.enum(['salesperson', 'territory', 'party']),
+        bandCuts: z.array(z.number().int().positive()).max(6).optional()
+      })
+      .parse(p)
+    const c = requireCompany()
+    return receivables.ageingBy(c.db, side, asOn, dimension, bandCuts ?? configSvc.getCollectionsPolicy(c.db).bandCuts)
+  }, 'viewer')
+
+  handle('recv:provision', (p) => {
+    const { asOn } = z.object({ asOn: isoDate }).parse(p)
+    const c = requireCompany()
+    const policy = configSvc.getCollectionsPolicy(c.db).provisionPolicy
+    return {
+      result: receivables.badDebtProvision(c.db, asOn, policy),
+      draft: receivables.provisionDraft(c.db, asOn, policy)
+    }
+  }, 'viewer')
+
+  handle('recv:advances', (p) => {
+    const { side, asOn } = z.object({ side: z.enum(['receivable', 'payable']), asOn: isoDate }).parse(p)
+    return receivables.advances(requireCompany().db, side, asOn)
+  }, 'viewer')
+
+  handle('recv:paymentSchedule', (p) => {
+    const { from, to, side } = z
+      .object({ from: isoDate, to: isoDate, side: z.enum(['payable', 'receivable']).default('payable') })
+      .parse(p)
+    return receivables.paymentSchedule(requireCompany().db, from, to, side)
+  }, 'viewer')
+
+  handle('recv:reminders', (p) => {
+    const { side, asOn, minOverdueDays, includeInterest } = z
+      .object({
+        side: z.enum(['receivable', 'payable']),
+        asOn: isoDate,
+        minOverdueDays: z.number().int().min(0).max(365).optional(),
+        includeInterest: z.boolean().optional()
+      })
+      .parse(p)
+    const c = requireCompany()
+    return receivables.bulkReminders(c.db, c.info.name, side, asOn, { minOverdueDays, includeInterest })
+  }, 'viewer')
+
+  handle('recv:statement', (p) => {
+    const { ledgerId, from, to } = z
+      .object({ ledgerId: z.number().int().positive(), from: isoDate, to: isoDate })
+      .parse(p)
+    const c = requireCompany()
+    return receivables.partyStatement(c.db, ledgerId, from, to, configSvc.getCollectionsPolicy(c.db).bandCuts)
+  }, 'viewer')
+
+  handle('recv:statementPdf', async (p) => {
+    const { ledgerId, from, to, side } = z
+      .object({
+        ledgerId: z.number().int().positive(),
+        from: isoDate,
+        to: isoDate,
+        side: z.enum(['receivable', 'payable']).default('receivable')
+      })
+      .parse(p)
+    const c = requireCompany()
+    const policy = configSvc.getCollectionsPolicy(c.db)
+    const st = receivables.partyStatement(c.db, ledgerId, from, to, policy.bandCuts)
+    const html = statementHtml(c.info, st, { side, contact: policy.contact })
+    const path = await writeExportPdf(c.slug, `statement-${slugify(st.name)}-${from}-${to}.pdf`, html, {
+      pageSize: 'A4',
+      pageNumbers: true,
+      runningHead: { company: c.info.name, gstin: c.info.gstin, title: `Statement — ${st.name}`, periodLabel: `${from} to ${to}` }
+    })
+    return { path, name: st.name }
+  }, 'viewer')
+
+  // ---------- fixed assets and depreciation (roadmap #366, #367, #368) ----------
+
+  handle('assets:blocks', () => assets.ensureBlocks(requireCompany().db), 'viewer')
+
+  handle('assets:saveBlock', (p) => {
+    const { data, id } = z
+      .object({
+        data: z.object({ name: z.string().trim().min(1).max(80), itRate: z.number().min(0).max(100) }),
+        id: z.number().int().positive().optional()
+      })
+      .parse(p)
+    return assets.saveBlock(requireCompany().db, data, id)
+  })
+
+  handle('assets:list', (p) => {
+    const { includeDisposed } = z.object({ includeDisposed: z.boolean().optional() }).parse(p ?? {})
+    return assets.listAssets(requireCompany().db, { includeDisposed })
+  }, 'viewer')
+
+  handle('assets:save', (p) => {
+    const { data, id } = z
+      .object({
+        data: z.object({
+          name: z.string().trim().min(1).max(120),
+          code: z.string().trim().max(32).nullable().optional(),
+          blockId: z.number().int().positive().nullable().optional(),
+          ledgerId: z.number().int().positive().nullable().optional(),
+          purchaseDate: isoDate,
+          putToUseDate: isoDate.nullable().optional(),
+          cost: z.number().int().positive(),
+          residualValue: z.number().int().min(0).optional(),
+          usefulLifeMonths: z.number().int().positive().max(1200),
+          method: z.enum(['slm', 'wdv']).optional(),
+          location: z.string().trim().max(80).nullable().optional(),
+          notes: z.string().trim().max(500).nullable().optional()
+        }),
+        id: z.number().int().positive().optional()
+      })
+      .parse(p)
+    return assets.saveAsset(requireCompany().db, data, id)
+  })
+
+  handle('assets:delete', (p) => {
+    assets.deleteAsset(requireCompany().db, idSchema.parse(p).id)
+    return null
+  })
+
+  handle('assets:schedule', (p) => {
+    const { fyStartYear } = z.object({ fyStartYear: z.number().int().min(1990).max(2200) }).parse(p)
+    const c = requireCompany()
+    return {
+      schedule: assets.depreciationSchedule(c.db, fyStartYear),
+      draft: assets.depreciationDraft(c.db, fyStartYear)
+    }
+  }, 'viewer')
+
+  handle('assets:postDepreciation', (p) => {
+    const { fyStartYear, voucherId } = z
+      .object({ fyStartYear: z.number().int().min(1990).max(2200), voucherId: z.number().int().positive().nullable() })
+      .parse(p)
+    const c = requireCompany()
+    assets.ensureAssetLedgers(c.db)
+    return { runId: assets.recordDepreciationRun(c.db, fyStartYear, voucherId) }
+  })
+
+  handle('assets:disposalDraft', (p) => {
+    const { assetId, on, proceeds } = z
+      .object({ assetId: z.number().int().positive(), on: isoDate, proceeds: z.number().int().min(0) })
+      .parse(p)
+    const c = requireCompany()
+    assets.ensureAssetLedgers(c.db)
+    return assets.disposalDraft(c.db, assetId, on, proceeds)
+  }, 'viewer')
+
+  handle('assets:dispose', (p) => {
+    const { assetId, on, proceeds, voucherId } = z
+      .object({
+        assetId: z.number().int().positive(),
+        on: isoDate,
+        proceeds: z.number().int().min(0),
+        voucherId: z.number().int().positive().optional()
+      })
+      .parse(p)
+    return assets.recordDisposal(requireCompany().db, assetId, on, proceeds, voucherId)
+  })
+
+  // ---------- counter mode, the drawer and schemes (roadmap #376–#385) ----------
+
+  const cartLineSchema = z.object({
+    stockItemId: z.number().int().positive(),
+    qtyMilli: z.number().int().positive(),
+    ratePaise: z.number().int().min(0).optional(),
+    discountPaise: z.number().int().min(0).optional(),
+    noScheme: z.boolean().optional()
+  })
+  const tenderSchema = z.object({
+    mode: z.enum(['cash', 'card', 'upi', 'credit']),
+    amountPaise: z.number().int().min(0)
+  })
+  const pricingModeSchema = z.enum(['exclusive', 'inclusive'])
+
+  handle('counter:lookup', (p) => {
+    const { query, asOn } = z.object({ query: z.string().trim().min(1).max(80), asOn: isoDate.optional() }).parse(p)
+    return counter.lookup(requireCompany().db, query, asOn ?? todayISO())
+  }, 'viewer')
+
+  handle('counter:price', (p) => {
+    const input = z
+      .object({
+        lines: z.array(cartLineSchema).max(200),
+        date: isoDate.optional(),
+        partyLedgerId: z.number().int().positive().nullable().optional(),
+        pricingMode: pricingModeSchema.optional(),
+        gstRegistrationId: z.number().int().positive().nullable().optional()
+      })
+      .parse(p)
+    const c = requireCompany()
+    return counter.priceCounterCart(c.db, registrations.gstScope(c.db, c.info, input.gstRegistrationId), input)
+  }, 'viewer')
+
+  handle('counter:sale', (p) => {
+    const input = z
+      .object({
+        lines: z.array(cartLineSchema).min(1).max(200),
+        tenders: z.array(tenderSchema).min(1).max(6),
+        date: isoDate.optional(),
+        pricingMode: pricingModeSchema.optional(),
+        partyLedgerId: z.number().int().positive().nullable().optional(),
+        customerName: z.string().trim().max(80).nullable().optional(),
+        customerPhone: z.string().trim().max(20).nullable().optional(),
+        narration: z.string().trim().max(500).nullable().optional(),
+        returnsVoucherId: z.number().int().positive().nullable().optional(),
+        kind: z.enum(['sale', 'return']).optional(),
+        gstRegistrationId: z.number().int().positive().nullable().optional()
+      })
+      .parse(p)
+    const c = requireCompany()
+    return counter.saveCounterSale(c.db, registrations.gstScope(c.db, c.info, input.gstRegistrationId), input)
+  })
+
+  handle('counter:session', () => counter.openSession(requireCompany().db), 'viewer')
+  handle('counter:sessions', (p) => {
+    const { limit } = z.object({ limit: z.number().int().positive().max(500).optional() }).parse(p ?? {})
+    return counter.listSessions(requireCompany().db, limit)
+  }, 'viewer')
+
+  handle('counter:open', (p) => {
+    const input = z
+      .object({
+        openedOn: isoDate.optional(),
+        operator: z.string().trim().max(60).nullable().optional(),
+        openingFloatPaise: z.number().int().min(0),
+        cashLedgerId: z.number().int().positive().nullable().optional()
+      })
+      .parse(p)
+    return counter.openDrawer(requireCompany().db, input)
+  })
+
+  handle('counter:summary', (p) => {
+    const { sessionId } = z.object({ sessionId: z.number().int().positive() }).parse(p)
+    return counter.sessionSummary(requireCompany().db, sessionId)
+  }, 'viewer')
+
+  handle('counter:close', (p) => {
+    const { sessionId, countedPaise, notes } = z
+      .object({
+        sessionId: z.number().int().positive(),
+        countedPaise: z.number().int().min(0),
+        notes: z.string().trim().max(500).nullable().default(null)
+      })
+      .parse(p)
+    return counter.closeDrawer(requireCompany().db, sessionId, countedPaise, notes)
+  })
+
+  handle('counter:movement', (p) => {
+    const { sessionId, kind, amountPaise, reason } = z
+      .object({
+        sessionId: z.number().int().positive(),
+        kind: z.enum(['payin', 'payout']),
+        amountPaise: z.number().int().positive(),
+        reason: z.string().trim().max(200).nullable().default(null)
+      })
+      .parse(p)
+    return counter.recordMovement(requireCompany().db, sessionId, kind, amountPaise, reason)
+  })
+
+  handle('counter:sales', (p) => {
+    const { sessionId, limit } = z
+      .object({ sessionId: z.number().int().positive().optional(), limit: z.number().int().positive().max(1000).optional() })
+      .parse(p ?? {})
+    return counter.listCounterSales(requireCompany().db, sessionId, limit)
+  }, 'viewer')
+
+  handle('counter:findSale', (p) => {
+    const { query } = z.object({ query: z.string().trim().min(1).max(60) }).parse(p)
+    return counter.findSaleForReturn(requireCompany().db, query)
+  }, 'viewer')
+
+  handle('counter:schemes', () => counter.listSchemes(requireCompany().db), 'viewer')
+
+  handle('counter:saveScheme', (p) => {
+    const { data, id } = z
+      .object({
+        data: z.object({
+          name: z.string().trim().min(1).max(80),
+          stockItemId: z.number().int().positive().nullable().optional(),
+          stockGroupId: z.number().int().positive().nullable().optional(),
+          kind: z.enum(['percent', 'rate', 'free']),
+          minQtyMilli: z.number().int().positive(),
+          percentBp: z.number().int().min(0).max(10000).nullable().optional(),
+          ratePaise: z.number().int().min(0).nullable().optional(),
+          freeQtyMilli: z.number().int().min(0).nullable().optional(),
+          fromDate: isoDate,
+          toDate: isoDate.nullable().optional(),
+          active: z.boolean().optional()
+        }),
+        id: z.number().int().positive().optional()
+      })
+      .parse(p)
+    return counter.saveScheme(requireCompany().db, data, id)
+  })
+
+  handle('counter:deleteScheme', (p) => {
+    counter.deleteScheme(requireCompany().db, idSchema.parse(p).id)
+    return null
+  })
+
+  // ---------- quotation → order → challan → invoice, outward and inward (#378, #188, #189) ----
+
+  const stageSchema = z.enum(['quotation', 'order', 'challan'])
+  const sideSchema = z.enum(['sales', 'purchase'])
+  const docLineSchema = z.object({
+    stockItemId: z.number().int().positive().nullable().optional(),
+    description: z.string().trim().min(1).max(200),
+    qtyMilli: z.number().int().positive(),
+    ratePaise: z.number().int().min(0),
+    discountPaise: z.number().int().min(0).optional(),
+    gstRate: z.number().min(0).max(100).nullable().optional(),
+    hsn: z.string().trim().max(12).nullable().optional()
+  })
+
+  handle('salesdoc:list', (p) => {
+    const { stage, status, side } = z
+      .object({
+        stage: stageSchema.optional(),
+        status: z.enum(['open', 'converted', 'closed', 'lost']).optional(),
+        side: sideSchema.optional()
+      })
+      .parse(p ?? {})
+    const c = requireCompany()
+    return salesDocs.listDocuments(c.db, c.info, { stage, status, side })
+  }, 'viewer')
+
+  handle('salesdoc:get', (p) => {
+    const c = requireCompany()
+    return salesDocs.getDocument(c.db, idSchema.parse(p).id, c.info)
+  }, 'viewer')
+
+  handle('salesdoc:next', (p) => {
+    const { stage, side } = z.object({ stage: stageSchema, side: sideSchema.optional() }).parse(p)
+    return { number: salesDocs.nextNumber(requireCompany().db, stage, side) }
+  }, 'viewer')
+
+  handle('salesdoc:save', (p) => {
+    const { data, id } = z
+      .object({
+        data: z.object({
+          stage: stageSchema,
+          side: sideSchema.optional(),
+          number: z.string().trim().max(40).optional(),
+          date: isoDate,
+          partyLedgerId: z.number().int().positive().nullable().optional(),
+          partyName: z.string().trim().max(120).nullable().optional(),
+          validUntil: isoDate.nullable().optional(),
+          reference: z.string().trim().max(120).nullable().optional(),
+          narration: z.string().trim().max(1000).nullable().optional(),
+          terms: z.string().trim().max(2000).nullable().optional(),
+          lines: z.array(docLineSchema).min(1).max(200)
+        }),
+        id: z.number().int().positive().optional()
+      })
+      .parse(p)
+    const c = requireCompany()
+    return salesDocs.saveDocument(c.db, c.info, data, id)
+  })
+
+  handle('salesdoc:delete', (p) => {
+    const c = requireCompany()
+    salesDocs.deleteDocument(c.db, idSchema.parse(p).id, c.info)
+    return null
+  })
+
+  handle('salesdoc:close', (p) => {
+    const { id, status, reason } = z
+      .object({
+        id: z.number().int().positive(),
+        status: z.enum(['closed', 'lost']),
+        reason: z.string().trim().max(200).nullable().default(null)
+      })
+      .parse(p)
+    const c = requireCompany()
+    return salesDocs.closeDocument(c.db, id, c.info, status, reason)
+  })
+
+  handle('salesdoc:convert', (p) => {
+    const { id, quantities, date, number, allowOver } = z
+      .object({
+        id: z.number().int().positive(),
+        quantities: z.array(z.object({ lineId: z.number().int().positive(), qtyMilli: z.number().int().min(0) })).max(200).optional(),
+        date: isoDate.optional(),
+        number: z.string().trim().max(40).optional(),
+        // Inward only, and the service says so — a delivery challan may never exceed the order.
+        allowOver: z.boolean().optional()
+      })
+      .parse(p)
+    const c = requireCompany()
+    return salesDocs.convert(c.db, id, c.info, { quantities, date, number, allowOver })
+  })
+
+  handle('salesdoc:invoiceDraft', (p) => {
+    const c = requireCompany()
+    return salesDocs.invoiceDraft(c.db, idSchema.parse(p).id, c.info)
+  }, 'viewer')
+
+  handle('salesdoc:markInvoiced', (p) => {
+    const { id, voucherId } = z.object({ id: z.number().int().positive(), voucherId: z.number().int().positive() }).parse(p)
+    const c = requireCompany()
+    return salesDocs.markInvoiced(c.db, id, voucherId, c.info)
+  })
+
+  handle('salesdoc:pipeline', (p) => {
+    const { side } = z.object({ side: sideSchema.optional() }).parse(p ?? {})
+    const c = requireCompany()
+    return salesDocs.pipeline(c.db, c.info, undefined, side)
+  }, 'viewer')
+
+  /** Ordered vs received vs billed, for a purchase order or a bare receipt note (#189). */
+  handle('salesdoc:match', (p) => {
+    const c = requireCompany()
+    return salesDocs.threeWayMatchFor(c.db, idSchema.parse(p).id, c.info)
+  }, 'viewer')
+
+  // ---------- custom fields, defined per company and per voucher type (roadmap #195) ----------
+  //
+  // Defining a field changes what every future voucher of a type carries, which is a
+  // configuration decision rather than a book-keeping one — so writes are owner/accountant, and
+  // reads are 'viewer' because voucher entry has to know what to render.
+
+  handle('customField:list', (p) => {
+    const { voucherTypeId, includeRetired } = z
+      .object({ voucherTypeId: z.number().int().positive().optional(), includeRetired: z.boolean().optional() })
+      .parse(p ?? {})
+    const c = requireCompany()
+    return voucherTypeId
+      ? customFields.listFields(c.db, voucherTypeId, includeRetired ?? false)
+      : customFields.allFields(c.db)
+  }, 'viewer')
+
+  handle('customField:save', (p) => {
+    const { data, id } = z
+      .object({
+        data: z.object({
+          voucherTypeId: z.number().int().positive(),
+          label: z.string().trim().min(1).max(60),
+          kind: z.enum(CUSTOM_FIELD_KINDS),
+          // Bounded here rather than in the service: a list with a thousand choices is a master,
+          // not a field, and the entry screen renders it as a dropdown.
+          options: z.array(z.string().trim().min(1).max(60)).max(MAX_OPTIONS).optional(),
+          required: z.boolean().optional(),
+          printed: z.boolean().optional(),
+          sortOrder: z.number().int().min(0).max(999).optional()
+        }),
+        id: z.number().int().positive().optional()
+      })
+      .parse(p)
+    return customFields.saveField(requireCompany().db, data, id)
+  })
+
+  handle('customField:remove', (p) => {
+    // A retirement, not a delete: vouchers already carry values for it. The count of those comes
+    // back so the screen can say how many documents keep the field.
+    return customFields.removeField(requireCompany().db, idSchema.parse(p).id, new Date().toISOString())
+  })
+
+  handle('customField:forVoucher', (p) => {
+    return customFields.valuesFor(requireCompany().db, idSchema.parse(p).id)
+  }, 'viewer')
+
+  // ---------- job work: the challan out, what came back, the s.143 clock, ITC-04 (D-89) ----------
+  //
+  // Nothing here posts, so nothing here is 'accountant'-gated for accounting reasons — but a
+  // challan starts a statutory clock, so writing one is a write. Reads are 'viewer'.
+
+  const dispositionSchema = z.enum([
+    'returned', 'sent_to_other_job_worker', 'supplied_from_job_worker_premises', 'waste_and_scrap'
+  ])
+  const jobWorkChallanSchema = z.object({
+    number: z.string().trim().max(40).optional(),
+    date: isoDate,
+    jobWorkerLedgerId: z.number().int().positive().nullable().optional(),
+    jobWorkerGstin: z.string().trim().max(15).nullable().optional(),
+    jobWorkerStateCode: z.string().trim().max(2).nullable().optional(),
+    jobWorkerIsSez: z.boolean().optional(),
+    goodsType: z.enum(['input', 'capital_goods']),
+    stockItemId: z.number().int().positive().nullable().optional(),
+    description: z.string().trim().min(1).max(200),
+    hsn: z.string().trim().max(12).nullable().optional(),
+    qtyMilli: z.number().int().positive(),
+    uqc: z.string().trim().max(10).optional(),
+    taxablePaise: z.number().int().min(0).optional(),
+    gstRate: z.number().min(0).max(100).optional(),
+    cessPaise: z.number().int().min(0).optional(),
+    mouldsDiesJigsTools: z.boolean().optional(),
+    receivedByJobWorkerOn: isoDate.nullable().optional(),
+    extendedDueBackBy: isoDate.nullable().optional(),
+    notes: z.string().trim().max(1000).nullable().optional(),
+    // The stock half (#127): where the goods leave from. Null is unallocated stock. The godown
+    // they go TO is never passed — it is named for the job worker and made on first use.
+    fromGodownId: z.number().int().positive().nullable().optional()
+  })
+  const jobWorkReturnSchema = z.object({
+    challanId: z.number().int().positive(),
+    date: isoDate,
+    number: z.string().trim().max(40).nullable().optional(),
+    qtyMilli: z.number().int().min(0),
+    disposition: dispositionSchema,
+    invoiceVoucherId: z.number().int().positive().nullable().optional(),
+    notes: z.string().trim().max(1000).nullable().optional(),
+    /** Where the goods come back TO. Null is unallocated stock. Waste never comes back at all. */
+    toGodownId: z.number().int().positive().nullable().optional(),
+    sourceJobWorkerLedgerId: z.number().int().positive().nullable().optional(),
+    sourceJobWorkerGstin: z.string().trim().max(15).nullable().optional(),
+    sourceJobWorkerStateCode: z.string().trim().max(2).nullable().optional(),
+    sourceJobWorkerIsSez: z.boolean().optional(),
+    destinationJobWorkerLedgerId: z.number().int().positive().nullable().optional(),
+    destinationJobWorkerGstin: z.string().trim().max(15).nullable().optional(),
+    destinationJobWorkerStateCode: z.string().trim().max(2).nullable().optional(),
+    destinationJobWorkerIsSez: z.boolean().optional(),
+    onwardChallanProvenance: z.enum(['endorsed_original', 'fresh']).nullable().optional(),
+    lossWasteUqc: z.string().trim().max(10).nullable().optional(),
+    lossWasteQtyMilli: z.number().int().min(0).optional()
+  }).superRefine((row, ctx) => {
+    if (row.qtyMilli + (row.lossWasteQtyMilli ?? 0) <= 0) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Record a positive goods or loss/waste quantity' })
+    }
+  })
+
+  handle('jobWork:list', (p) => {
+    const { from, to, openOnly } = z
+      .object({ from: isoDate.optional(), to: isoDate.optional(), openOnly: z.boolean().optional() })
+      .parse(p ?? {})
+    const c = requireCompany()
+    return jobWork.listChallans(c.db, c.info, { from, to, openOnly })
+  }, 'viewer')
+
+  handle('jobWork:get', (p) => {
+    const c = requireCompany()
+    return jobWork.getChallan(c.db, idSchema.parse(p).id, c.info)
+  }, 'viewer')
+
+  handle('jobWork:next', () => ({ number: jobWork.nextChallanNumber(requireCompany().db) }), 'viewer')
+
+  handle('jobWork:save', (p) => {
+    const { data, id } = z
+      .object({ data: jobWorkChallanSchema, id: z.number().int().positive().optional() })
+      .parse(p)
+    const c = requireCompany()
+    return jobWork.saveChallan(c.db, c.info, data, id)
+  })
+
+  handle('jobWork:delete', (p) => {
+    const c = requireCompany()
+    jobWork.deleteChallan(c.db, idSchema.parse(p).id, c.info)
+    return null
+  })
+
+  handle('jobWork:saveReturn', (p) => {
+    const { data, id } = z
+      .object({ data: jobWorkReturnSchema, id: z.number().int().positive().optional() })
+      .parse(p)
+    const c = requireCompany()
+    return jobWork.saveReturn(c.db, c.info, data, id)
+  })
+
+  handle('jobWork:deleteReturn', (p) => {
+    const c = requireCompany()
+    return jobWork.deleteReturn(c.db, idSchema.parse(p).id, c.info)
+  })
+
+  handle('jobWork:clock', (p) => {
+    const { asOn } = z.object({ asOn: isoDate.optional() }).parse(p ?? {})
+    const c = requireCompany()
+    return jobWork.jobWorkClock(c.db, c.info, asOn)
+  }, 'viewer')
+
+  handle('jobWork:itc04', (p) => {
+    const opts = z
+      .object({
+        fyStartYear: z.number().int().min(2000).max(2200).optional(),
+        periodIndex: z.number().int().min(0).max(11).optional(),
+        asOn: isoDate.optional(),
+        aggregateTurnoverPaise: z.number().int().min(0).optional()
+      })
+      .parse(p ?? {})
+    const c = requireCompany()
+    return jobWork.itc04(c.db, c.info, opts)
+  }, 'viewer')
+
+  // ---------- borrowing: loans, deposits, projects, prepayments, the bank's return ----------
+
+  handle('loans:list', () => borrowing.listLoans(requireCompany().db), 'viewer')
+
+  handle('loans:save', (p) => {
+    const { data, id } = z
+      .object({
+        data: z.object({
+          name: z.string().trim().min(1).max(120),
+          lender: z.string().trim().max(120).nullable().optional(),
+          accountNumber: z.string().trim().max(40).nullable().optional(),
+          kind: z.enum(['term', 'vehicle', 'machinery', 'working_capital', 'other']).optional(),
+          ledgerId: z.number().int().positive().nullable().optional(),
+          interestLedgerId: z.number().int().positive().nullable().optional(),
+          principalPaise: z.number().int().positive(),
+          annualRateBp: z.number().int().min(0).max(10000),
+          months: z.number().int().positive().max(600),
+          emiPaise: z.number().int().min(0).nullable().optional(),
+          disbursedOn: isoDate,
+          firstInstalmentDate: isoDate,
+          notes: z.string().trim().max(500).nullable().optional()
+        }),
+        id: z.number().int().positive().optional()
+      })
+      .parse(p)
+    return borrowing.saveLoan(requireCompany().db, data, id)
+  })
+
+  handle('loans:delete', (p) => {
+    borrowing.deleteLoan(requireCompany().db, idSchema.parse(p).id)
+    return null
+  })
+
+  handle('loans:view', (p) => {
+    const { id, asOn, fyFrom, fyTo } = z
+      .object({
+        id: z.number().int().positive(),
+        asOn: isoDate.optional(),
+        fyFrom: isoDate.optional(),
+        fyTo: isoDate.optional()
+      })
+      .parse(p)
+    return borrowing.loanView(requireCompany().db, id, asOn ?? todayISO(), fyFrom, fyTo)
+  }, 'viewer')
+
+  handle('loans:instalmentDraft', (p) => {
+    const { id, instalmentNo } = z.object({ id: z.number().int().positive(), instalmentNo: z.number().int().positive() }).parse(p)
+    const c = requireCompany()
+    borrowing.ensureLoanLedgers(c.db)
+    return borrowing.instalmentDraft(c.db, id, instalmentNo)
+  }, 'viewer')
+
+  handle('loans:postInstalment', (p) => {
+    const { id, instalmentNo, voucherId } = z
+      .object({
+        id: z.number().int().positive(),
+        instalmentNo: z.number().int().positive(),
+        voucherId: z.number().int().positive().nullable().default(null)
+      })
+      .parse(p)
+    return borrowing.recordInstalment(requireCompany().db, id, instalmentNo, voucherId)
+  })
+
+  handle('deposits:list', (p) => {
+    const { includeReturned } = z.object({ includeReturned: z.boolean().optional() }).parse(p ?? {})
+    return borrowing.listDeposits(requireCompany().db, includeReturned)
+  }, 'viewer')
+
+  handle('deposits:summary', (p) => {
+    const { asOn } = z.object({ asOn: isoDate.optional() }).parse(p ?? {})
+    return borrowing.depositSummary(requireCompany().db, asOn ?? todayISO())
+  }, 'viewer')
+
+  handle('deposits:save', (p) => {
+    const { data, id } = z
+      .object({
+        data: z.object({
+          direction: z.enum(['paid', 'received']),
+          counterparty: z.string().trim().min(1).max(120),
+          partyLedgerId: z.number().int().positive().nullable().optional(),
+          ledgerId: z.number().int().positive().nullable().optional(),
+          purpose: z.string().trim().max(200).nullable().optional(),
+          amountPaise: z.number().int().positive(),
+          paidOn: isoDate,
+          refundableOn: isoDate.nullable().optional(),
+          interestRateBp: z.number().int().min(0).max(10000).nullable().optional(),
+          notes: z.string().trim().max(500).nullable().optional()
+        }),
+        id: z.number().int().positive().optional()
+      })
+      .parse(p)
+    return borrowing.saveDeposit(requireCompany().db, data, id)
+  })
+
+  handle('deposits:return', (p) => {
+    const { id, on, amountPaise } = z
+      .object({ id: z.number().int().positive(), on: isoDate, amountPaise: z.number().int().min(0) })
+      .parse(p)
+    return borrowing.returnDeposit(requireCompany().db, id, on, amountPaise)
+  })
+
+  handle('deposits:delete', (p) => {
+    borrowing.deleteDeposit(requireCompany().db, idSchema.parse(p).id)
+    return null
+  })
+
+  handle('cwip:list', (p) => {
+    const { includeCapitalised } = z.object({ includeCapitalised: z.boolean().optional() }).parse(p ?? {})
+    return borrowing.listProjects(requireCompany().db, includeCapitalised ?? true)
+  }, 'viewer')
+
+  handle('cwip:save', (p) => {
+    const { data, id } = z
+      .object({
+        data: z.object({
+          name: z.string().trim().min(1).max(120),
+          startedOn: isoDate,
+          ledgerId: z.number().int().positive().nullable().optional(),
+          notes: z.string().trim().max(500).nullable().optional()
+        }),
+        id: z.number().int().positive().optional()
+      })
+      .parse(p)
+    const c = requireCompany()
+    borrowing.ensureCwipLedger(c.db)
+    return borrowing.saveProject(c.db, data, id)
+  })
+
+  handle('cwip:addCost', (p) => {
+    const { projectId, data } = z
+      .object({
+        projectId: z.number().int().positive(),
+        data: z.object({
+          date: isoDate,
+          description: z.string().trim().min(1).max(200),
+          amountPaise: z.number().int().positive(),
+          voucherId: z.number().int().positive().nullable().optional(),
+          supplier: z.string().trim().max(120).nullable().optional()
+        })
+      })
+      .parse(p)
+    return borrowing.addCost(requireCompany().db, projectId, data)
+  })
+
+  handle('cwip:removeCost', (p) => {
+    borrowing.removeCost(requireCompany().db, idSchema.parse(p).id)
+    return null
+  })
+
+  handle('cwip:capitaliseDraft', (p) => {
+    const { id, on, assetLedgerName } = z
+      .object({ id: z.number().int().positive(), on: isoDate, assetLedgerName: z.string().trim().min(1).max(120) })
+      .parse(p)
+    return borrowing.capitalisationDraft(requireCompany().db, id, on, assetLedgerName)
+  }, 'viewer')
+
+  handle('cwip:capitalise', (p) => {
+    const { id, on, fixedAssetId, voucherId } = z
+      .object({
+        id: z.number().int().positive(),
+        on: isoDate,
+        fixedAssetId: z.number().int().positive().nullable().default(null),
+        voucherId: z.number().int().positive().nullable().default(null)
+      })
+      .parse(p)
+    return borrowing.recordCapitalisation(requireCompany().db, id, on, fixedAssetId, voucherId)
+  })
+
+  handle('prepaid:list', (p) => {
+    const { asOn } = z.object({ asOn: isoDate.optional() }).parse(p ?? {})
+    return borrowing.listPrepaid(requireCompany().db, asOn ?? todayISO())
+  }, 'viewer')
+
+  handle('prepaid:save', (p) => {
+    const { data, id } = z
+      .object({
+        data: z.object({
+          kind: z.enum(['prepaid', 'accrued']),
+          name: z.string().trim().min(1).max(120),
+          amountPaise: z.number().int().positive(),
+          periodFrom: isoDate,
+          periodTo: isoDate,
+          basis: z.enum(['month', 'day']).optional(),
+          expenseLedgerId: z.number().int().positive().nullable().optional(),
+          balanceLedgerId: z.number().int().positive().nullable().optional(),
+          sourceVoucherId: z.number().int().positive().nullable().optional(),
+          notes: z.string().trim().max(500).nullable().optional()
+        }),
+        id: z.number().int().positive().optional()
+      })
+      .parse(p)
+    const c = requireCompany()
+    borrowing.ensurePrepaidLedgers(c.db)
+    return borrowing.savePrepaid(c.db, data, id)
+  })
+
+  handle('prepaid:delete', (p) => {
+    borrowing.deletePrepaid(requireCompany().db, idSchema.parse(p).id)
+    return null
+  })
+
+  handle('prepaid:draft', (p) => {
+    const { id, month } = z.object({ id: z.number().int().positive(), month: z.string().regex(/^\d{4}-\d{2}$/) }).parse(p)
+    const c = requireCompany()
+    borrowing.ensurePrepaidLedgers(c.db)
+    return borrowing.prepaidDraft(c.db, id, month)
+  }, 'viewer')
+
+  handle('prepaid:post', (p) => {
+    const { id, month, voucherId } = z
+      .object({
+        id: z.number().int().positive(),
+        month: z.string().regex(/^\d{4}-\d{2}$/),
+        voucherId: z.number().int().positive().nullable().default(null)
+      })
+      .parse(p)
+    return borrowing.recordPrepaidPosting(requireCompany().db, id, month, voucherId)
+  })
+
+  const marginsSchema = z.object({
+    stockMarginPercent: z.number().min(0).max(100),
+    debtorMarginPercent: z.number().min(0).max(100),
+    debtorAgeLimitDays: z.number().int().min(1).max(3650),
+    sanctionedLimitPaise: z.number().int().min(0)
+  })
+
+  handle('bank:stockStatement', (p) => {
+    const { asOn, margins, ccLedgerId } = z
+      .object({
+        asOn: isoDate,
+        margins: marginsSchema.optional(),
+        ccLedgerId: z.number().int().positive().nullable().optional()
+      })
+      .parse(p)
+    return borrowing.computeStockStatement(requireCompany().db, asOn, margins ?? DEFAULT_MARGINS, ccLedgerId ?? null)
+  }, 'viewer')
+
+  handle('bank:fileStatement', (p) => {
+    const { asOn, margins, notes, ccLedgerId } = z
+      .object({
+        asOn: isoDate,
+        margins: marginsSchema,
+        notes: z.string().trim().max(500).nullable().default(null),
+        ccLedgerId: z.number().int().positive().nullable().optional()
+      })
+      .parse(p)
+    return borrowing.fileStockStatement(requireCompany().db, asOn, margins, notes, ccLedgerId ?? null)
+  })
+
+  handle('bank:statements', () => borrowing.listFiledStatements(requireCompany().db), 'viewer')
+
+  handle('bank:unfileStatement', (p) => {
+    borrowing.unfileStockStatement(requireCompany().db, idSchema.parse(p).id)
+    return null
+  })
+
+  // ---------- CMA data for a working-capital application (roadmap #371) ----------
+
+  const cmaColumnKey = z.enum(['a2', 'a1', 'e', 'p1', 'p2'])
+
+  handle('cma:packs', () => cma.listCmaPacks(requireCompany().db), 'viewer')
+
+  handle('cma:pack', (p) => {
+    const c = requireCompany()
+    return cma.cmaPackView(c.db, idSchema.parse(p).id, c.info)
+  }, 'viewer')
+
+  handle('cma:savePack', (p) => {
+    const { data, id } = z
+      .object({
+        data: z.object({
+          name: z.string().trim().min(1).max(120),
+          // Wide enough to cover any year a business could plausibly be applying for, narrow
+          // enough that a typo in the box does not send the pack somewhere nonsensical.
+          estimateFyStartYear: z.number().int().min(1990).max(2200),
+          notes: z.string().trim().max(1000).nullable().default(null)
+        }),
+        id: z.number().int().positive().optional()
+      })
+      .parse(p)
+    return cma.saveCmaPack(requireCompany().db, data, id)
+  })
+
+  handle('cma:deletePack', (p) => {
+    cma.deleteCmaPack(requireCompany().db, idSchema.parse(p).id)
+    return null
+  })
+
+  handle('cma:setInput', (p) => {
+    const { packId, columnKey, lineKey, value } = z
+      .object({
+        packId: z.number().int().positive(),
+        columnKey: cmaColumnKey,
+        lineKey: z.string().trim().min(1).max(60),
+        // null clears the cell, which is not the same as storing zero: a cleared cell has no row
+        // and the column can go back to reading blank rather than as an asserted nil.
+        value: z.number().int().nullable()
+      })
+      .parse(p)
+    cma.setCmaInput(requireCompany().db, packId, columnKey, lineKey, value)
+    return null
+  })
+
+  handle('cma:prefill', (p) => {
+    const { packId, fromKey, toKey } = z
+      .object({ packId: z.number().int().positive(), fromKey: cmaColumnKey, toKey: cmaColumnKey })
+      .parse(p)
+    const c = requireCompany()
+    return cma.prefillCmaColumn(c.db, packId, fromKey, toKey, c.info)
+  })
+
+  handle('cma:saveFacility', (p) => {
+    const { packId, data, id } = z
+      .object({
+        packId: z.number().int().positive(),
+        data: z.object({
+          facility: z.string().trim().min(1).max(120),
+          existingLimitPaise: z.number().int().min(0),
+          proposedLimitPaise: z.number().int().min(0),
+          outstandingPaise: z.number().int().min(0).nullable().default(null),
+          ledgerId: z.number().int().positive().nullable().default(null),
+          security: z.string().trim().max(500).nullable().default(null),
+          notes: z.string().trim().max(500).nullable().default(null),
+          seq: z.number().int().min(0).max(999).default(0)
+        }),
+        id: z.number().int().positive().optional()
+      })
+      .parse(p)
+    return cma.saveCmaFacility(requireCompany().db, packId, data, id)
+  })
+
+  handle('cma:deleteFacility', (p) => {
+    cma.deleteCmaFacility(requireCompany().db, idSchema.parse(p).id)
+    return null
+  })
+
+  // ---------- salesperson commission, on collection (roadmap #380) ----------
+
+  handle('commission:report', (p) => {
+    const { from, to } = periodSchema.parse(p)
+    return commission.commissionReport(requireCompany().db, from, to)
+  }, 'viewer')
+
+  handle('commission:draft', (p) => {
+    const { from, to } = periodSchema.parse(p)
+    return commission.commissionDraft(requireCompany().db, from, to)
+  }, 'viewer')
+
+  handle('commission:schemes', () => commission.listCommissionSchemes(requireCompany().db), 'viewer')
+
+  handle('commission:saveScheme', (p) => {
+    const { data, id } = z
+      .object({
+        data: z.object({
+          salesperson: z.string().trim().min(1).max(60),
+          rateBp: z.number().int().min(0).max(10000),
+          basis: z.enum(['gross', 'net_of_tax']),
+          fromDate: isoDate,
+          active: z.boolean().optional()
+        }),
+        id: z.number().int().positive().optional()
+      })
+      .parse(p)
+    return commission.saveCommissionScheme(requireCompany().db, data, id)
+  })
+
+  handle('commission:deleteScheme', (p) => {
+    commission.deleteCommissionScheme(requireCompany().db, idSchema.parse(p).id)
+    return null
+  })
+
+  // ---------- dot-matrix, printed raw (roadmap #379) ----------
+
+  handle('print:printers', () => rawPrint.listPrinters(), 'viewer')
+
+  const escpOptionsSchema = z.object({
+    width: z.union([z.literal(80), z.literal(132)]).optional(),
+    formLines: z.number().int().min(1).max(127).optional(),
+    perforationSkip: z.number().int().min(1).max(127).optional(),
+    condensed: z.boolean().optional(),
+    preprintedHeader: z.boolean().optional(),
+    copies: z.array(z.string().trim().max(40)).max(4).optional()
+  })
+
+  handle('print:escpPreview', (p) => {
+    const { voucherId, options } = z
+      .object({ voucherId: z.number().int().positive(), options: escpOptionsSchema.optional() })
+      .parse(p)
+    const c = requireCompany()
+    const { bytes, number } = rawPrint.invoiceEscp(c.db, c.info, voucherId, options ?? {})
+    // The preview is the byte stream as characters, escape codes shown in angle brackets: the
+    // only honest preview of a job whose whole point is that it is not a rendered page.
+    return { number, bytes: bytes.length, text: escpDebug(bytes) }
+  }, 'viewer')
+
+  handle('print:escp', async (p) => {
+    const { voucherId, printer, options } = z
+      .object({
+        voucherId: z.number().int().positive(),
+        printer: z.string().trim().min(1).max(120),
+        options: escpOptionsSchema.optional()
+      })
+      .parse(p)
+    const c = requireCompany()
+    const { bytes, number } = rawPrint.invoiceEscp(c.db, c.info, voucherId, options ?? {})
+    const result = await rawPrint.printRaw(bytes, printer)
+    return { ...result, number }
+  }, 'viewer')
+
+  handle('print:escpSave', async (p) => {
+    const { voucherId, options } = z
+      .object({ voucherId: z.number().int().positive(), options: escpOptionsSchema.optional() })
+      .parse(p)
+    const c = requireCompany()
+    const { bytes, number } = rawPrint.invoiceEscp(c.db, c.info, voucherId, options ?? {})
+    const path = join(companyExportsDir(c.slug), `invoice-${slugify(number)}.escp`)
+    return { ...rawPrint.saveRaw(bytes, path), number }
+  }, 'viewer')
+
+  // ---------- disclosure: related parties, the audit trail, LUT, the IRP window ----------
+
+  handle('disclosure:relatedParties', (p) => {
+    const { from, to } = periodSchema.parse(p)
+    return disclosure.relatedPartyReport(requireCompany().db, from, to)
+  }, 'viewer')
+
+  handle('disclosure:auditStatement', (p) => {
+    const { from, to } = periodSchema.parse(p)
+    const c = requireCompany()
+    return disclosure.auditTrailStatement(c.db, from, to, configSvc.getAuditKeepDays(c.db))
+  }, 'viewer')
+
+  handle('disclosure:luts', () => disclosure.listLuts(requireCompany().db), 'viewer')
+
+  handle('disclosure:lutStatus', () => disclosure.currentLut(requireCompany().db, todayISO()), 'viewer')
+
+  handle('disclosure:saveLut', (p) => {
+    const input = z
+      .object({
+        arn: z.string().trim().min(1).max(30),
+        fyStartYear: z.number().int().min(2017).max(2200),
+        filedOn: isoDate
+      })
+      .parse(p)
+    return disclosure.saveLut(requireCompany().db, input)
+  })
+
+  handle('disclosure:deleteLut', (p) => {
+    const { fyStartYear } = z.object({ fyStartYear: z.number().int().min(2017).max(2200) }).parse(p)
+    return disclosure.deleteLut(requireCompany().db, fyStartYear)
+  })
+
+  handle('disclosure:eInvoiceWindow', (p) => {
+    const { from, to } = periodSchema.parse(p)
+    const c = requireCompany()
+    return disclosure.eInvoiceBacklog(c.db, from, to, todayISO(), c.info.turnoverBand)
+  }, 'viewer')
+
+  handle('recv:msme', (p) => {
+    const { asOn } = z.object({ asOn: isoDate }).parse(p)
+    return receivables.msmeExposure(requireCompany().db, asOn)
+  }, 'viewer')
+
+  handle('recv:creditCheck', (p) => {
+    const { ledgerId, addPaise } = z
+      .object({ ledgerId: z.number().int().positive(), addPaise: z.number().int().default(0) })
+      .parse(p)
+    return receivables.creditStatus(requireCompany().db, ledgerId, addPaise)
+  }, 'viewer')
+
+  handle('recv:policy', () => configSvc.getCollectionsPolicy(requireCompany().db), 'viewer')
+
+  handle('recv:setPolicy', (p) => {
+    const input = z
+      .object({
+        interestRateBp: z.number().int().min(0).max(6000),
+        interestGraceDays: z.number().int().min(0).max(365),
+        bandCuts: z.array(z.number().int().positive()).min(1).max(6),
+        provisionPolicy: z
+          .array(z.object({ afterDays: z.number().int().positive(), pct: z.number().int().min(0).max(100) }))
+          .min(1)
+          .max(6),
+        reminderMinOverdueDays: z.number().int().min(0).max(365),
+        contact: z.string().trim().max(120).nullable(),
+        /** RBI bank rate for section 16 MSMED interest — three times it, compounded monthly. */
+        msmeBankRatePercent: z.number().min(0).max(30)
+      })
+      .parse(p)
+    return configSvc.setCollectionsPolicy(requireCompany().db, input)
+  }, 'owner')
+
+  handle('analysis:khata', (p) => {
+    const { side, asOn } = z
+      .object({ side: z.enum(['receivable', 'payable']), asOn: isoDate })
+      .parse(p)
+    return analysis.khata(requireCompany().db, side, asOn)
+  }, 'viewer')
+
+  handle('analysis:partyShares', (p) => {
+    const { kind, from, to } = periodSchema
+      .extend({ kind: z.enum(['sales', 'purchase']) })
+      .parse(p)
+    return analysis.partyShares(requireCompany().db, kind, from, to)
+  }, 'viewer')
+
   handle('analysis:register', (p) => {
-    const { kind, from, to } = periodSchema.extend({ kind: z.enum(['sales', 'purchase']) }).parse(p)
-    return analysis.registerByMonth(requireCompany().db, kind, from, to)
+    const { kind, from, to, groupBy } = periodSchema
+      .extend({ kind: z.enum(['sales', 'purchase']), groupBy: z.enum(PERIODS).optional() })
+      .parse(p)
+    return analysis.registerByPeriod(requireCompany().db, kind, from, to, groupBy)
   }, 'viewer')
   handle('analysis:outstandings', (p) => {
-    const { side, asOn } = z.object({ side: z.enum(['receivable', 'payable']), asOn: z.string() }).parse(p)
-    return analysis.outstandings(requireCompany().db, side, asOn)
+    const { side, asOn, includeBills } = z
+      .object({
+        side: z.enum(['receivable', 'payable']),
+        asOn: z.string(),
+        // The screen asks for a summary and fetches a party's bills on expand; exports ask for
+        // everything. At 30k vouchers that is the difference between ~4 MB and a few KB.
+        includeBills: z.boolean().default(true)
+      })
+      .parse(p)
+    return analysis.outstandings(requireCompany().db, side, asOn, { includeBills })
   }, 'viewer')
 
   // ---------- outstanding bills (party picker for receipt/payment "settle against") ----------
@@ -754,8 +2818,8 @@ export function registerIpc(): void {
   handle('tds:sections', () => tds.listSections(requireCompany().db), 'viewer')
   handle('tds:sectionSave', (p) => tds.saveSection(requireCompany().db, tdsSectionInputSchema.parse(p)), 'owner')
   handle('tds:suggest', (p) => {
-    const { partyLedgerId, base, date } = tdsSuggestSchema.parse(p)
-    return tds.tdsSuggestion(requireCompany().db, partyLedgerId, base, date)
+    const { partyLedgerId, base, date, excludeVoucherId } = tdsSuggestSchema.parse(p)
+    return tds.tdsSuggestion(requireCompany().db, partyLedgerId, base, date, excludeVoucherId)
   })
   handle('tds:summary', (p) => {
     const { fyStartYear } = tdsSummarySchema.parse(p)
@@ -769,6 +2833,247 @@ export function registerIpc(): void {
     shell.showItemInFolder(path)
     return { path }
   })
+
+  // ---------- TDS challans and the quarterly return (roadmap #360, #361) ----------
+  handle('tds:challans', (p) => {
+    const { fyStartYear } = tdsSummarySchema.parse(p)
+    return tds.listChallans(requireCompany().db, fyStartYear)
+  }, 'viewer')
+  handle('tds:challanSave', (p) => tds.saveChallan(requireCompany().db, tdsChallanSchema.parse(p)))
+  handle('tds:challanDelete', (p) => tds.deleteChallan(requireCompany().db, idSchema.parse(p).id))
+  handle('tds:link', (p) => {
+    const { entryIds, challanId } = tdsLinkSchema.parse(p)
+    return tds.linkDeductions(requireCompany().db, entryIds, challanId)
+  })
+  handle('tds:filingConfig', () => configSvc.getTdsFiling(requireCompany().db), 'viewer')
+  handle('tds:filingConfigSave', (p) => configSvc.setTdsFiling(requireCompany().db, tdsFilingConfigSchema.parse(p)), 'owner')
+  handle('tds:return', (p) => {
+    const { form, fyStartYear, quarter } = tdsReturnSchema.parse(p)
+    const c = requireCompany()
+    return tds.tdsReturnWorking(c.db, c.info, form, fyStartYear, quarter)
+  }, 'viewer')
+  handle('tds:returnCsv', (p) => {
+    const { form, fyStartYear, quarter } = tdsReturnSchema.parse(p)
+    const c = requireCompany()
+    const out = tds.exportTdsReturnCsv(c.db, c.info, c.slug, form, fyStartYear, quarter)
+    auditExport(c.db, 'tds_return_csv', { form, fyStartYear, quarter, path: out.deducteesPath })
+    shell.showItemInFolder(out.deducteesPath)
+    return out
+  })
+  handle('tds:returnFile', (p) => {
+    // The acknowledgement is a literal `true` in the schema, so a caller cannot reach this
+    // without having said out loud that the record layout is unverified.
+    const { form, fyStartYear, quarter, acknowledgedUnverifiedFormat } = tdsReturnFileSchema.parse(p)
+    const c = requireCompany()
+    const out = tds.exportTdsReturnFile(c.db, c.info, c.slug, form, fyStartYear, quarter, acknowledgedUnverifiedFormat)
+    auditExport(c.db, 'tds_return_file', { form, fyStartYear, quarter, path: out.path })
+    shell.showItemInFolder(out.path)
+    return out
+  })
+  handle('tds:form16aDeductees', (p) => {
+    const { fyStartYear, quarter } = tdsQuarterSchema.parse(p)
+    return tds.form16aDeductees(requireCompany().db, fyStartYear, quarter)
+  }, 'viewer')
+  handle('tds:form16a', (p) => {
+    const { ledgerId, fyStartYear, quarter } = form16aSchema.parse(p)
+    const c = requireCompany()
+    return tds.form16aFor(c.db, c.info, ledgerId, fyStartYear, quarter)
+  }, 'viewer')
+  handle('tds:form16aPdf', async (p) => {
+    const { ledgerId, fyStartYear, quarter } = form16aSchema.parse(p)
+    const c = requireCompany()
+    const path = await tds.form16aPdf(c.db, c.info, c.slug, ledgerId, fyStartYear, quarter)
+    auditExport(c.db, 'form16a', { ledgerId, fyStartYear, quarter, path })
+    shell.showItemInFolder(path)
+    return { path }
+  })
+
+  // ---------- reverse-charge self-invoices (roadmap #356) ----------
+  handle('rcm:register', (p) => {
+    const { from, to, registrationId } = periodSchema.extend({ registrationId: z.number().int().positive().nullable().optional() }).parse(p)
+    const c = requireCompany()
+    return rcm.rcmRegister(c.db, registrations.gstScope(c.db, c.info, registrationId), from, to)
+  }, 'viewer')
+  handle('rcm:issue', (p) => {
+    const { from, to, consolidate, voucherIds, registrationId } = rcmIssueSchema.parse(p)
+    const c = requireCompany()
+    const scope = registrations.gstScope(c.db, c.info, registrationId)
+    return rcm.issueSelfInvoices(c.db, scope, from, to, { consolidate, voucherIds, by: sessionUser?.name ?? null })
+  })
+  handle('rcm:delete', (p) => rcm.deleteSelfInvoice(requireCompany().db, idSchema.parse(p).id))
+  handle('rcm:pdf', async (p) => {
+    const c = requireCompany()
+    const path = await rcm.selfInvoicePdf(c.db, c.info, c.slug, idSchema.parse(p).id)
+    auditExport(c.db, 'rcm_self_invoice', { path })
+    shell.showItemInFolder(path)
+    return { path }
+  })
+
+  // ---------- branch-transfer invoices (roadmap #108) ----------
+  //
+  // Stock moved between two registrations of one PAN is a taxable supply under Schedule I para 2.
+  // These channels raise the invoice for it. None of them posts: the document feeds the sender's
+  // GSTR-1 and the receiver's ITC, and the trial balance does not move. See services/branchTransfer.ts.
+  handle('branchTransfer:register', (p) => {
+    const { from, to } = periodSchema.parse(p)
+    return branchTransfer.branchTransferRegister(requireCompany().db, from, to)
+  }, 'viewer')
+  handle('branchTransfer:issue', (p) => {
+    const input = branchTransferIssueSchema.parse(p)
+    return branchTransfer.issueBranchTransfers(requireCompany().db, { ...input, by: sessionUser?.name ?? null })
+  })
+  handle('branchTransfer:delete', (p) =>
+    branchTransfer.deleteBranchTransferInvoice(requireCompany().db, idSchema.parse(p).id)
+  )
+  handle('branchTransfer:pdf', async (p) => {
+    const c = requireCompany()
+    const path = await branchTransferPdf(c.db, c.slug, idSchema.parse(p).id)
+    auditExport(c.db, 'branch_transfer_invoice', { path })
+    shell.showItemInFolder(path)
+    return { path }
+  })
+
+  // ---------- Input Service Distributor (roadmap #355) ----------
+  handle('isd:desk', (p) => {
+    const { month, overrides } = isdMonthSchema.parse(p)
+    return isd.isdDesk(requireCompany().db, month, overrides)
+  }, 'viewer')
+  handle('isd:setRegistration', (p) => {
+    const { id } = z.object({ id: z.number().int().positive().nullable() }).parse(p)
+    const c = requireCompany()
+    isd.setIsdRegistration(c.db, id)
+    // Returns the ISD itself rather than the whole registration list: `gstReg:list`'s shape is
+    // read by every GSTIN picker in the app, and widening it for one flag nothing else looks at
+    // would be a change to all of them for the benefit of none.
+    return isd.isdRegistration(c.db)
+  }, 'owner')
+  handle('isd:saveCredit', (p) => isd.saveIsdCredit(requireCompany().db, isdCreditSchema.parse(p)))
+  handle('isd:deleteCredit', (p) => {
+    isd.deleteIsdCredit(requireCompany().db, idSchema.parse(p).id)
+    return { ok: true }
+  })
+  handle('isd:distribute', (p) => {
+    const { month, overrides } = isdMonthSchema.parse(p)
+    return isd.distributeMonth(requireCompany().db, month, { overrides, by: sessionUser?.name ?? null })
+  })
+  handle('isd:withdraw', (p) => {
+    const { month } = isdMonthSchema.parse(p)
+    isd.withdrawDistribution(requireCompany().db, month)
+    return { ok: true }
+  })
+  handle('isd:gstr6', (p) => {
+    const { month } = isdMonthSchema.parse(p)
+    return isd.gstr6(requireCompany().db, month)
+  }, 'viewer')
+  handle('isd:pdf', async (p) => {
+    const c = requireCompany()
+    const path = await isdInvoicePdf(c.db, c.slug, idSchema.parse(p).id)
+    auditExport(c.db, 'isd_invoice', { path })
+    shell.showItemInFolder(path)
+    return { path }
+  })
+
+  // ---------- IMS decisions from the 2B reconciliation (roadmap #352) ----------
+  handle('ims:worklist', (p) => {
+    const { jsonText, from, to } = imsWorklistSchema.parse(p)
+    return ims.imsWorklist(requireCompany().db, jsonText, from, to)
+  }, 'viewer')
+  handle('ims:decide', (p) =>
+    ims.recordImsDecision(requireCompany().db, imsDecisionSchema.parse(p), sessionUser?.name ?? null)
+  )
+  handle('ims:clear', (p) => ims.clearImsDecision(requireCompany().db, z.object({ docKey: z.string() }).parse(p).docKey))
+  handle('ims:acceptMatched', (p) => {
+    const { jsonText, from, to } = imsWorklistSchema.parse(p)
+    const c = requireCompany()
+    const { worklist } = ims.imsWorklist(c.db, jsonText, from, to)
+    return { accepted: ims.acceptMatched(c.db, worklist, sessionUser?.name ?? null) }
+  })
+
+  // ---------- GSTR-1A, the amendment return (roadmap #353) ----------
+  handle('gst:gstr1a', (p) => {
+    const { period, registrationId } = z
+      .object({ period: z.string().trim().min(1).max(20), ...regIdField })
+      .parse(p)
+    const c = requireCompany()
+    return gstr1a.gstr1aFor(c.db, scopeOf(c, registrationId), period)
+  }, 'viewer')
+  handle('gst:gstr1Snapshot', (p) => {
+    const { period, registrationId } = z
+      .object({ period: z.string().trim().min(1).max(20), ...regIdField })
+      .parse(p)
+    const c = requireCompany()
+    return gstr1a.snapshotGstr1(c.db, scopeOf(c, registrationId), period)
+  })
+
+  // ---------- dated item rates (roadmap #358) ----------
+  handle('gst:itemRates', (p) => gstRates.itemRateHistory(requireCompany().db, idSchema.parse(p).id), 'viewer')
+  handle('gst:itemRateSave', (p) => gstRates.saveItemRate(requireCompany().db, itemGstRateSchema.parse(p)))
+  handle('gst:itemRateDelete', (p) => gstRates.deleteItemRate(requireCompany().db, idSchema.parse(p).id))
+  handle('gst:rateAdvisory', (p) => {
+    const { from, to } = periodSchema.parse(p)
+    return gstRates.rateAdvisory(requireCompany().db, from, to)
+  }, 'viewer')
+
+  // ---------- Schedule III and the Form 3CD pack (roadmap #362, #363) ----------
+  handle('report:scheduleIII', (p) => {
+    const { from, to } = periodSchema.parse(p)
+    return presentation.scheduleIII(requireCompany().db, from, to)
+  }, 'viewer')
+  handle('report:scheduleIIICsv', (p) => {
+    const { from, to } = periodSchema.parse(p)
+    const c = requireCompany()
+    const path = presentation.exportScheduleIIICsv(c.db, c.info, c.slug, from, to)
+    auditExport(c.db, 'schedule_iii', { from, to, path })
+    shell.showItemInFolder(path)
+    return { path }
+  })
+  handle('report:form3cd', (p) => {
+    const { fyStartYear } = tdsSummarySchema.parse(p)
+    return presentation.form3cdPack(requireCompany().db, fyStartYear)
+  }, 'viewer')
+  handle('report:form3cdCsv', (p) => {
+    const { fyStartYear } = tdsSummarySchema.parse(p)
+    const c = requireCompany()
+    const path = presentation.exportForm3cdCsv(c.db, c.info, c.slug, fyStartYear)
+    auditExport(c.db, 'form_3cd', { fyStartYear, path })
+    shell.showItemInFolder(path)
+    return { path }
+  })
+
+  // ---------- TDS lower-deduction certificates (s.197 / Rule 28AA) ----------
+  // Owner-only to write: a certificate silently lowers every future deduction for that payee, and
+  // an under-deduction is the DEDUCTOR's own liability under s.201(1) plus interest under
+  // s.201(1A). Reading one is a viewer matter like any other master.
+  handle('tds:certificates', () => tdsCertificates.listCertificatesWithUsage(requireCompany().db), 'viewer')
+  handle('tds:certificateSave', (p) => {
+    const { id, data } = z
+      .object({ id: z.number().int().positive().optional(), data: tdsCertificateInputSchema })
+      .parse(p)
+    return tdsCertificates.saveCertificate(requireCompany().db, data, id)
+  }, 'owner')
+  handle('tds:certificateDelete', (p) => {
+    const { id } = z.object({ id: z.number().int().positive() }).parse(p)
+    tdsCertificates.deleteCertificate(requireCompany().db, id)
+    return null
+  }, 'owner')
+
+  // ---------- Form 26AS reconciliation (s.199 / Rule 37BA) ----------
+  // The statement rides in the payload as `text` and is never stored — see the note at the top of
+  // services/form26as.ts. Inline for the same reason tally:import takes xmlText and
+  // bank:importCsv takes csvText: a driver can exercise it with no native dialog in the way.
+  handle('tds:recon26as', (p) => form26as.recon26as(requireCompany().db, tds26asSchema.parse(p)), 'viewer')
+  handle('tds:pick26as', async () => {
+    const picked = await dialog.showOpenDialog({
+      title: 'Choose a Form 26AS export (downloaded from TRACES)',
+      filters: [{ name: 'Form 26AS text / CSV', extensions: ['txt', 'csv'] }],
+      properties: ['openFile']
+    })
+    if (picked.canceled || !picked.filePaths[0]) return null
+    return {
+      text: readFileSync(picked.filePaths[0], 'utf8'),
+      fileName: picked.filePaths[0].split('/').pop() ?? '26as.csv'
+    }
+  }, 'viewer')
 
   // ---------- cost centres ----------
   handle('cc:list', () => costCentres.listCostCentres(requireCompany().db), 'viewer')
@@ -799,6 +3104,31 @@ export function registerIpc(): void {
   }, 'viewer')
 
   // ---------- recurring vouchers ----------
+  // Named voucher templates (#27) — a shape with no schedule; nothing here ever posts.
+  handle('vtemplate:list', (p) => {
+    const { voucherTypeId } = z.object({ voucherTypeId: z.number().int().positive().optional() }).parse(p ?? {})
+    return voucherTemplates.listTemplates(requireCompany().db, voucherTypeId)
+  }, 'viewer')
+  handle('vtemplate:save', (p) => {
+    const { id, data } = z
+      .object({
+        id: z.number().int().positive().optional(),
+        data: z.object({
+          name: z.string().trim().min(1).max(80),
+          voucherTypeId: z.number().int().positive(),
+          voucherJson: z.string().min(2).max(200_000)
+        })
+      })
+      .parse(p)
+    return voucherTemplates.saveTemplate(requireCompany().db, data, id)
+  })
+  handle('vtemplate:delete', (p) => voucherTemplates.deleteTemplate(requireCompany().db, idSchema.parse(p).id))
+  handle('vtemplate:use', (p) => {
+    const { id, date } = z
+      .object({ id: z.number().int().positive(), date: isoDate.optional() })
+      .parse(p)
+    return voucherTemplates.useTemplate(requireCompany().db, id, date)
+  })
   handle('recurring:list', () => recurring.listTemplates(requireCompany().db), 'viewer')
   handle('recurring:save', (p) => {
     const { id, data } = z.object({ id: z.number().int().positive().optional(), data: recurringInputSchema }).parse(p)
@@ -826,25 +3156,83 @@ export function registerIpc(): void {
     banking.setBankDate(requireCompany().db, lineId, bankDate)
     return null
   })
-  handle('bank:importCsv', async (p) => {
-    const { ledgerId, csvText, dryRun } = z
-      .object({ ledgerId: z.number().int().positive(), csvText: z.string().optional(), dryRun: z.boolean().optional() })
+  // ---------- statement import profiles (#131) ----------
+  // Column maps live in one schema shared by the profile CRUD, the inspector and the importer, so
+  // the mapping a user previews is byte-for-byte the one that reads their file.
+  const profileColumnsSchema = z.object({
+    date: z.string().trim().max(120),
+    narration: z.string().trim().max(120),
+    reference: z.string().trim().max(120).nullable().optional(),
+    debit: z.string().trim().max(120).nullable().optional(),
+    credit: z.string().trim().max(120).nullable().optional(),
+    amount: z.string().trim().max(120).nullable().optional(),
+    drCr: z.string().trim().max(120).nullable().optional(),
+    balance: z.string().trim().max(120).nullable().optional()
+  })
+  const adHocProfileSchema = z.object({
+    name: z.string().trim().min(1).max(60).optional(),
+    dateFormat: z.enum(['dmy', 'mdy', 'ymd']),
+    convention: z.enum(['debit_credit', 'signed', 'flagged']),
+    debitFlag: z.string().trim().max(10).nullable(),
+    columns: profileColumnsSchema
+  })
+  const profileChoiceSchema = z.object({
+    profileId: z.string().trim().max(60).nullable().optional(),
+    adHoc: adHocProfileSchema.nullable().optional()
+  })
+
+  handle('bankprofile:list', () => banking.listImportProfiles(requireCompany().db), 'viewer')
+  handle('bankprofile:save', (p) => {
+    const { id, data } = z
+      .object({ id: z.number().int().positive().optional(), data: adHocProfileSchema.extend({ name: z.string().trim().min(1).max(60) }) })
+      .parse(p)
+    return banking.saveImportProfile(requireCompany().db, data, id)
+  })
+  handle('bankprofile:delete', (p) => {
+    banking.deleteImportProfile(requireCompany().db, idSchema.parse(p).id)
+    return null
+  })
+
+  /** Read a statement CSV from disk when the renderer didn't supply the text itself. */
+  const pickStatementCsv = async (csvText: string | undefined): Promise<string | null> => {
+    if (csvText !== undefined) return csvText
+    const picked = await dialog.showOpenDialog({
+      title: 'Choose bank statement CSV',
+      filters: [{ name: 'CSV', extensions: ['csv', 'txt'] }],
+      properties: ['openFile']
+    })
+    if (picked.canceled || !picked.filePaths[0]) return null
+    return readFileSync(picked.filePaths[0], 'utf8')
+  }
+
+  // Look before you import: which profile fits, what it would read, what it would skip. Returns
+  // csvText so the renderer can carry the same bytes through mapping → preview → apply.
+  handle('bank:inspectStatement', async (p) => {
+    const { csvText, profileId, adHoc } = profileChoiceSchema
+      .extend({ csvText: z.string().optional() })
       .parse(p)
     const c = requireCompany()
-    let csv = csvText
-    if (csv === undefined) {
-      const picked = await dialog.showOpenDialog({
-        title: 'Choose bank statement CSV',
-        filters: [{ name: 'CSV', extensions: ['csv', 'txt'] }],
-        properties: ['openFile']
+    const csv = await pickStatementCsv(csvText)
+    if (csv === null) return null
+    return { ...banking.inspectStatement(c.db, csv, { profileId, adHoc }), csvText: csv }
+  }, 'viewer')
+
+  handle('bank:importCsv', async (p) => {
+    const { ledgerId, csvText, dryRun, profileId, adHoc } = profileChoiceSchema
+      .extend({
+        ledgerId: z.number().int().positive(),
+        csvText: z.string().optional(),
+        dryRun: z.boolean().optional()
       })
-      if (picked.canceled || !picked.filePaths[0]) return null
-      csv = readFileSync(picked.filePaths[0], 'utf8')
-    }
+      .parse(p)
+    const c = requireCompany()
+    const csv = await pickStatementCsv(csvText)
+    if (csv === null) return null
+    const profile = banking.resolveProfile(c.db, { profileId, adHoc })
     // csvText rides back on the response (not just the parsed result) so the renderer — which
     // never sees the picked file's contents when the dialog path is used — can hand the exact
     // same text to banking:suggest (or back to an applying import after a dryRun preview).
-    return { ...banking.importStatement(c.db, ledgerId, csv, { apply: !dryRun }), csvText: csv }
+    return { ...banking.importStatement(c.db, ledgerId, csv, { apply: !dryRun, profile }), csvText: csv }
   })
   handle('bankrule:list', () => banking.listRules(requireCompany().db), 'viewer')
   handle('bankrule:save', (p) => {
@@ -860,8 +3248,48 @@ export function registerIpc(): void {
     return null
   })
   handle('banking:suggest', (p) => {
-    const { ledgerId, csvText } = z.object({ ledgerId: z.number().int().positive(), csvText: z.string() }).parse(p)
-    return banking.suggestVouchers(requireCompany().db, ledgerId, csvText)
+    const { ledgerId, csvText, profileId, adHoc } = profileChoiceSchema
+      .extend({ ledgerId: z.number().int().positive(), csvText: z.string() })
+      .parse(p)
+    const c = requireCompany()
+    return banking.suggestVouchers(c.db, ledgerId, csvText, banking.resolveProfile(c.db, { profileId, adHoc }))
+  })
+
+  // ---------- narration memory (#133) + bulk accept (#134) ----------
+  const learnSchema = z.object({
+    description: z.string().trim().min(1).max(500),
+    ledgerId: z.number().int().positive(),
+    kind: z.enum(['payment', 'receipt'])
+  })
+  handle('banking:learn', (p) => {
+    const { description, ledgerId, kind } = learnSchema.parse(p)
+    return { keywords: banking.learnFromMatch(requireCompany().db, description, ledgerId, kind) }
+  })
+  handle('banking:memory', () => banking.listNarrationMemory(requireCompany().db), 'viewer')
+  handle('banking:forget', (p) => {
+    const { keyword, ledgerId, kind } = learnSchema
+      .omit({ description: true })
+      .extend({ keyword: z.string().trim().min(1).max(60) })
+      .parse(p)
+    banking.forgetNarration(requireCompany().db, keyword, ledgerId, kind)
+    return null
+  })
+  handle('banking:bulkAccept', (p) => {
+    const { ledgerId, csvText, minConfidence, apply, profileId, adHoc } = profileChoiceSchema
+      .extend({
+        ledgerId: z.number().int().positive(),
+        csvText: z.string(),
+        // A threshold below 50 would accept single-observation guesses, which is the one thing
+        // the confidence model exists to prevent.
+        minConfidence: z.number().int().min(50).max(100),
+        apply: z.boolean().optional()
+      })
+      .parse(p)
+    const c = requireCompany()
+    return banking.bulkAcceptSuggestions(c.db, ledgerId, csvText, minConfidence, {
+      apply,
+      profile: banking.resolveProfile(c.db, { profileId, adHoc })
+    })
   })
   // statement matching v2 — read-only tolerance/many-to-one suggestions (task Y2)
   handle('banking:matchSuggestions', (p) => {
@@ -874,6 +3302,46 @@ export function registerIpc(): void {
       .parse(p)
     return banking.matchSuggestions(requireCompany().db, ledgerId, csvText, tolerancePaise ?? 100)
   }, 'viewer')
+  // the bank's own charges and interest (#135) — 'bank:' prefix, so it inherits the `banking`
+  // capability in permissions.ts (the 'banking:' prefix does not, see PREFIX_CAPABILITIES).
+  handle('bank:charges:list', () => banking.chargeLedgers(requireCompany().db), 'viewer')
+  handle('bank:charges:setup', () => banking.setupChargeLedgers(requireCompany().db))
+
+  // reconciliation freeze (#142)
+  handle('bank:reconLock:list', () => banking.listReconLocks(requireCompany().db), 'viewer')
+  handle('bank:reconLock:set', (p) => {
+    const { ledgerId, date } = z
+      .object({ ledgerId: z.number().int().positive(), date: isoDate.nullable() })
+      .parse(p)
+    banking.setReconLock(requireCompany().db, ledgerId, date)
+    return null
+  })
+
+  // bounced cheques (#138)
+  handle('bank:bounce:list', (p) => {
+    const { from, to } = z.object({ from: isoDate.optional(), to: isoDate.optional() }).parse(p ?? {})
+    return chequeBounce.listBounces(requireCompany().db, from, to)
+  }, 'viewer')
+  handle('bank:bounce:byParty', () => chequeBounce.bounceCountByParty(requireCompany().db), 'viewer')
+  handle('bank:bounce:create', (p) => {
+    const input = z
+      .object({
+        voucherId: z.number().int().positive(),
+        bounceDate: isoDate,
+        reason: z.string().trim().max(120).nullable().optional(),
+        chargeAmount: z.number().int().min(0).optional(),
+        chargeLedgerId: z.number().int().positive().nullable().optional(),
+        bankLedgerId: z.number().int().positive().nullable().optional()
+      })
+      .parse(p)
+    return chequeBounce.bounceCheque(requireCompany().db, input)
+  })
+  handle('bank:bounce:remove', (p) => {
+    const { id } = z.object({ id: z.number().int().positive() }).parse(p)
+    chequeBounce.unbounce(requireCompany().db, id)
+    return null
+  })
+
   // bank reconciliation statement (task Y2)
   const brsSchema = z.object({ ledgerId: z.number().int().positive(), asOn: isoDate })
   handle('banking:brs', (p) => {
@@ -912,25 +3380,48 @@ export function registerIpc(): void {
       ],
       rows
     })
-    const path = await writeExportPdf(c.slug, `brs-${slugify(r.ledgerName)}-${asOn}.pdf`, html, { pageSize: 'A4' })
+    const path = await writeExportPdf(c.slug, `brs-${slugify(r.ledgerName)}-${asOn}.pdf`, html, {
+      pageSize: 'A4',
+      pageNumbers: true,
+      runningHead: {
+        company: c.info.name,
+        gstin: c.info.gstin,
+        title: 'Bank Reconciliation Statement',
+        periodLabel: `${r.ledgerName} · as on ${asOn}`
+      }
+    })
     return { path }
   }, 'viewer')
 
   // ---------- e-documents + invoice printing ----------
   handle('edoc:list', (p) => {
-    const { from, to } = periodSchema.parse(p)
-    return edocs.listSalesInvoices(requireCompany().db, from, to)
+    const { from, to, limit, after } = periodSchema
+      .extend({
+        limit: z.number().int().min(1).max(2000).optional(),
+        after: z.string().max(512).nullish()
+      })
+      .parse(p)
+    const { db } = requireCompany()
+    // Paged like the Day Book, and for a worse reason: unpaged, on a book of 85,000 vouchers this
+    // screen never rendered at all. Callers that need every document (the e-invoice and e-way
+    // exports) call the service directly and still get everything.
+    const rows = edocs.listSalesInvoices(db, from, to, { limit, after })
+    return {
+      rows,
+      total: edocs.countSalesInvoices(db, from, to),
+      nextCursor: limit != null && rows.length === limit ? edocs.edocCursor(rows[rows.length - 1]!) : null
+    }
   }, 'viewer')
   handle('edoc:exportEInvoice', (p) => {
-    const { from, to, period } = gstPeriodInput.parse(p)
+    const { from, to, period, registrationId } = gstPeriodInput.parse(p)
     const c = requireCompany()
-    const r = edocs.exportEInvoices(c.db, c.info, c.slug, from, to, period)
+    const r = edocs.exportEInvoices(c.db, scopeOf(c, registrationId), c.slug, from, to, period)
     auditExport(c.db, 'einvoice', { period, path: r.path, count: r.count })
     shell.showItemInFolder(r.path)
     return r
   })
   handle('edoc:exportEwb', (p) => {
-    const { from, to, period, voucherIds, includeBelowThreshold } = gstPeriodInput
+    const { from, to, period, voucherIds, includeBelowThreshold, registrationId } = gstPeriodInput
       .extend({
         voucherIds: z.array(z.number().int().positive()).max(500).optional(),
         includeBelowThreshold: z.boolean().default(false)
@@ -938,7 +3429,7 @@ export function registerIpc(): void {
       .parse(p)
     const c = requireCompany()
     // Writes the combined bulk file AND one single-bill file per voucher (exports/ewb/<period>/).
-    const r = edocs.exportEwb(c.db, c.info, c.slug, from, to, period, { voucherIds, includeBelowThreshold })
+    const r = edocs.exportEwb(c.db, scopeOf(c, registrationId), c.slug, from, to, period, { voucherIds, includeBelowThreshold })
     auditExport(c.db, 'ewb', { period, path: r.path, count: r.count })
     shell.showItemInFolder(r.path)
     return r
@@ -946,10 +3437,33 @@ export function registerIpc(): void {
   handle('edoc:ewbJson', (p) => {
     const { voucherId } = z.object({ voucherId: z.number().int().positive() }).parse(p)
     const c = requireCompany()
-    const r = edocs.ewbJsonForVoucher(c.db, c.info, c.slug, voucherId)
+    // The voucher's OWN registration, not whichever one a screen is showing: the portal
+    // authenticates as a GSTIN, and a bill generated under the wrong one is filed under the
+    // wrong return.
+    const r = edocs.ewbJsonForVoucher(c.db, registrations.gstScopeForVoucher(c.db, c.info, voucherId), c.slug, voucherId)
     shell.showItemInFolder(r.path)
     return r
   })
+  handle('edoc:previewJson', (p) => {
+    const { kind, from, to, voucherId, includeBelowThreshold } = z
+      .object({
+        kind: z.enum(['einvoice', 'ewb']),
+        from: isoDate,
+        to: isoDate,
+        voucherId: z.number().int().positive().optional(),
+        includeBelowThreshold: z.boolean().optional()
+      })
+      .parse(p)
+    const c = requireCompany()
+    // A single document previews under the registration that RAISED it; a period previews under
+    // the one the screen is showing.
+    const scope =
+      voucherId != null
+        ? registrations.gstScopeForVoucher(c.db, c.info, voucherId)
+        : scopeOf(c, (p as { registrationId?: number | null } | null)?.registrationId ?? null)
+    return edocs.previewJson(c.db, scope, kind, from, to, { voucherId, includeBelowThreshold })
+  }, 'viewer')
+
   handle('edoc:transportGet', (p) => {
     const { voucherId } = z.object({ voucherId: z.number().int().positive() }).parse(p)
     return edocs.getTransport(requireCompany().db, voucherId)
@@ -960,6 +3474,19 @@ export function registerIpc(): void {
       .parse(p)
     return edocs.setTransport(requireCompany().db, voucherId, data)
   })
+  // Offers an approximate PIN-to-PIN distance for the e-way bill. Read-only on purpose: the
+  // figure is returned with its disclaimer and is stored only if the user then saves it through
+  // edoc:transportSet. An understated distance expires a consignment in transit.
+  handle('edoc:estimateDistance', (p) => {
+    const { voucherId, fromPin, toPin } = z
+      .object({
+        voucherId: z.number().int().positive(),
+        fromPin: z.string().trim().max(10).nullable().optional(),
+        toPin: z.string().trim().max(10).nullable().optional()
+      })
+      .parse(p)
+    return edocs.estimateTransportDistance(requireCompany().db, voucherId, { fromPin, toPin })
+  }, 'viewer')
   handle('invoice:pdf', async (p) => {
     const { voucherId } = z.object({ voucherId: z.number().int().positive() }).parse(p)
     const c = requireCompany()
@@ -976,6 +3503,50 @@ export function registerIpc(): void {
     auditExport(c.db, 'invoice_pdf_batch', { count: r.paths.length, dir: r.dir })
     shell.showItemInFolder(r.paths[0] ?? r.dir)
     return r
+  })
+
+  // ---------- 3-inch thermal receipt (roadmap I-183) ----------
+  handle('invoice:thermalPdf', async (p) => {
+    const { voucherId } = z.object({ voucherId: z.number().int().positive() }).parse(p)
+    const c = requireCompany()
+    const path = await invoice.thermalReceiptPdf(c.db, c.info, c.slug, voucherId)
+    auditExport(c.db, 'invoice_thermal_pdf', { voucherId, path })
+    shell.openPath(path)
+    return { path }
+  })
+  handle('invoice:thermalHtml', (p) => {
+    const { voucherId } = z.object({ voucherId: z.number().int().positive() }).parse(p)
+    const c = requireCompany()
+    const { html, widthMm } = invoice.thermalReceiptHtml(c.db, c.info, voucherId)
+    return { html, widthMm }
+  }, 'viewer')
+
+  /**
+   * Share an invoice on WhatsApp or by email (roadmap I-193, I-192).
+   *
+   * The PDF goes on the clipboard as a FILE, not as an image: pasting a file into WhatsApp
+   * Desktop or a mail compose window attaches it, pasting an image inlines a picture of page one
+   * and loses the rest. macOS names that clipboard flavour `public.file-url` and wants a plain
+   * file:// URL in it; on other platforms there is no equivalent single-file flavour, so the path
+   * goes on as text and the returned hint tells the user to attach it by hand. The app never
+   * sends: it hands back links for the renderer to open.
+   */
+  handle('invoice:share', async (p) => {
+    const { voucherId } = z.object({ voucherId: z.number().int().positive() }).parse(p)
+    const c = requireCompany()
+    const share = await invoice.invoiceShareLinks(c.db, c.info, c.slug, voucherId)
+    auditExport(c.db, 'invoice_share', { voucherId, path: share.pdfPath })
+    let clipboard: 'file' | 'path' = 'path'
+    if (process.platform === 'darwin') {
+      electronClipboard.writeBuffer('public.file-url', Buffer.from(pathToFileURL(share.pdfPath).toString(), 'utf8'))
+      clipboard = 'file'
+    } else {
+      electronClipboard.writeText(share.pdfPath)
+    }
+    // Revealed as well as copied: a clipboard is invisible, and a person who cannot find the file
+    // has no way to attach it if the paste does not take.
+    shell.showItemInFolder(share.pdfPath)
+    return { ...share, clipboard }
   })
 
   handle('invoice:previewHtml', (p) => {
@@ -1030,8 +3601,19 @@ export function registerIpc(): void {
   handle('currency:create', (p) => extras.createCurrency(requireCompany().db, currencyInputSchema.parse(p)))
   handle('currency:delete', (p) => extras.deleteCurrency(requireCompany().db, idSchema.parse(p).id))
   handle('bom:get', (p) => extras.getBom(requireCompany().db, z.object({ itemId: z.number().int().positive() }).parse(p).itemId), 'viewer')
+  handle('bom:detail', (p) => extras.getBomDetail(requireCompany().db, z.object({ itemId: z.number().int().positive() }).parse(p).itemId), 'viewer')
   handle('bom:set', (p) => extras.setBom(requireCompany().db, bomInputSchema.parse(p)))
   handle('bom:items', () => extras.itemsWithBom(requireCompany().db), 'viewer')
+  handle(
+    'bom:explode',
+    (p) => {
+      const { itemId, qtyMilli } = z
+        .object({ itemId: z.number().int().positive(), qtyMilli: z.number().int().min(0) })
+        .parse(p)
+      return extras.explodeBomRequirement(requireCompany().db, itemId, qtyMilli)
+    },
+    'viewer'
+  )
 
   // ---------- payroll ----------
   const daysSchema = z.array(z.object({ employeeId: z.number().int().positive(), payableDays: z.number().min(0).max(31) }))
@@ -1075,6 +3657,108 @@ export function registerIpc(): void {
   }, 'viewer')
   handle('payroll:employeeHeads:set', (p) => payroll.setEmployeeHeads(requireCompany().db, employeeHeadsSetSchema.parse(p)))
   // statutory exports: PF ECR text, ESI upload CSV, PT summary per state (lane Y, task Y1)
+  // ---------- attendance, advances, settlement (roadmap #168, #169, #170, #172, #178) ----------
+
+  handle('payroll:attendance', (p) => {
+    const { month } = z.object({ month: z.string().regex(/^\d{4}-\d{2}$/) }).parse(p)
+    return attendance.attendanceForMonth(requireCompany().db, month)
+  }, 'viewer')
+
+  handle('payroll:saveAttendance', (p) => {
+    const input = z
+      .object({
+        employeeId: z.number().int().positive(),
+        month: z.string().regex(/^\d{4}-\d{2}$/),
+        presentDays: z.number().min(0).max(31),
+        paidLeaveDays: z.number().min(0).max(31),
+        lopDays: z.number().min(0).max(31),
+        note: z.string().trim().max(200).nullable().optional()
+      })
+      .parse(p)
+    return attendance.saveAttendance(requireCompany().db, input)
+  })
+
+  handle('payroll:loans', (p) => {
+    const { employeeId, openOnly } = z
+      .object({ employeeId: z.number().int().positive().optional(), openOnly: z.boolean().optional() })
+      .parse(p ?? {})
+    return attendance.listLoans(requireCompany().db, { employeeId, openOnly })
+  }, 'viewer')
+
+  handle('payroll:createLoan', (p) => {
+    const input = z
+      .object({
+        employeeId: z.number().int().positive(),
+        grantedOn: isoDate,
+        principal: z.number().int().positive(),
+        instalment: z.number().int().positive(),
+        note: z.string().trim().max(200).nullable().optional()
+      })
+      .parse(p)
+    return attendance.createLoan(requireCompany().db, input)
+  })
+
+  handle('payroll:closeLoan', (p) => {
+    const { id } = idSchema.parse(p)
+    return attendance.closeLoan(requireCompany().db, id, todayISO())
+  })
+
+  handle('payroll:dueRecoveries', (p) => {
+    const { month } = z.object({ month: z.string().regex(/^\d{4}-\d{2}$/) }).parse(p)
+    return attendance.dueRecoveries(requireCompany().db, month)
+  }, 'viewer')
+
+  handle('payroll:tds', (p) => {
+    const { month } = z.object({ month: z.string().regex(/^\d{4}-\d{2}$/) }).parse(p)
+    return [...payroll.tdsForMonth(requireCompany().db, month).values()]
+  }, 'viewer')
+
+  handle('payroll:form16', (p) => {
+    const { employeeId, fyStartYear } = z
+      .object({ employeeId: z.number().int().positive(), fyStartYear: z.number().int().min(2000).max(2100) })
+      .parse(p)
+    return payroll.form16(requireCompany().db, employeeId, fyStartYear)
+  }, 'viewer')
+
+  handle('payroll:form16Pdf', async (p) => {
+    const { employeeId, fyStartYear } = z
+      .object({ employeeId: z.number().int().positive(), fyStartYear: z.number().int().min(2000).max(2100) })
+      .parse(p)
+    const c = requireCompany()
+    const path = await payroll.form16Pdf(c.db, c.info, c.slug, employeeId, fyStartYear)
+    shell.openPath(path)
+    return { path }
+  }, 'viewer')
+
+  handle('payroll:payslips', async (p) => {
+    const { runId } = payrollRunIdSchema.parse(p)
+    const c = requireCompany()
+    return payroll.payslipsForRun(c.db, c.info, c.slug, runId)
+  }, 'viewer')
+
+  handle('payroll:ecrCheck', (p) => payroll.ecrCheck(requireCompany().db, payrollRunIdSchema.parse(p).runId), 'viewer')
+
+  handle('payroll:settlement', (p) => {
+    const input = z
+      .object({
+        employeeId: z.number().int().positive(),
+        lastDay: isoDate,
+        leaveBalanceDays: z.number().min(0).max(365),
+        noticeShortfallDays: z.number().min(0).max(365).optional(),
+        finalMonthDays: z.number().min(0).max(31).optional(),
+        payBonus: z.boolean().optional(),
+        bonusPercent: z.number().min(0).max(20).optional(),
+        waiveGratuityMinimum: z.boolean().optional()
+      })
+      .parse(p)
+    return payroll.settlement(requireCompany().db, input)
+  }, 'viewer')
+
+  handle('payroll:rates', (p) => {
+    const { month } = z.object({ month: z.string().regex(/^\d{4}-\d{2}$/) }).parse(p)
+    return { rates: ratesForMonth(month), history: STATUTORY_HISTORY }
+  }, 'viewer')
+
   handle('payroll:ecr', (p) => {
     const { runId } = payrollRunIdSchema.parse(p)
     const c = requireCompany()
@@ -1155,9 +3839,60 @@ export function registerIpc(): void {
       xml = readFileSync(resolvedPath, 'utf8')
     }
     // Dry run is parse-only — zero DB writes, so no backup is taken (nothing to roll back to).
-    if (dryRun) return { filePath: resolvedPath ?? null, summary: dryRunTallyXml(xml) }
+    // It now carries the diff as well: what is in the file is the wrong question, and what this
+    // would do to THESE books is the right one (roadmap O #296).
+    if (dryRun) {
+      return { filePath: resolvedPath ?? null, summary: dryRunTallyXml(xml), diff: diffTallyXml(c.db, xml) }
+    }
     await backupCompany(c.db, c.slug, 'pre-tally-import')
-    return { filePath: resolvedPath ?? null, summary: importTallyXml(c.db, xml) }
+    // Progress + cancel (roadmap O #300). The streaming import yields between chunks, which is
+    // the only reason the tally:cancel click below can be serviced at all — main is
+    // single-threaded, and the old synchronous loop could never have seen it.
+    importCancelled = false
+    const wc = BrowserWindow.getAllWindows()[0]?.webContents
+    const summary = await importTallyXmlStreaming(c.db, xml, {
+      onProgress: (progress) => wc?.send('total:import:progress', progress),
+      isCancelled: () => importCancelled
+    })
+    importCancelled = false
+    return { filePath: resolvedPath ?? null, summary }
+  })
+
+  /**
+   * The migration report a CA signs (roadmap O #298).
+   *
+   * Written as a PDF into the company's exports folder. Every figure on it is read back out of
+   * the books and the audit trail here in main — nothing the screen was holding is trusted,
+   * because a report whose numbers the caller supplies proves nothing to the person signing it.
+   */
+  handle('tally:migrationReport', async (p) => {
+    const { asOn } = z.object({ asOn: isoDate.optional() }).parse(p ?? {})
+    const c = requireCompany()
+    const date = asOn ?? todayISO()
+    const body = migrationReportBody(c.db, date)
+    const html = reportHtml({
+      title: 'Migration report',
+      company: c.info,
+      periodLabel: `as on ${date}`,
+      columns: [
+        { label: 'Stage', align: 'l' },
+        { label: 'What', align: 'l' },
+        { label: 'Figure', align: 'r' }
+      ],
+      rows: body.rows,
+      footNote: body.footNote
+    })
+    const path = await writeExportPdf(c.slug, 'migration-report.pdf', html)
+    auditExport(c.db, 'migrationReport', { asOn: date, outOfBalance: body.outOfBalance })
+    shell.showItemInFolder(path)
+    return { path, outOfBalance: body.outOfBalance }
+  }, 'viewer')
+
+  /** Ask the running import to stop. It rolls back: everything or nothing is the only honest
+   *  answer to "stop" halfway through somebody's books. */
+  handle('tally:cancel', () => {
+    importCancelled = true
+    return { cancelling: true }
   })
 
   // ---------- report print/export (task 3.6) ----------
@@ -1165,10 +3900,114 @@ export function registerIpc(): void {
     const { title, periodLabel, columns, rows, footNote, filename, landscape } = reportPdfSchema.parse(p)
     const c = requireCompany()
     const html = reportHtml({ title, company: c.info, periodLabel, columns, rows, footNote })
-    const path = await writeExportPdf(c.slug, `${filename}.pdf`, html, { pageSize: 'A4', landscape, pageNumbers: true })
+    // A running head and foot on every page: page four of a printed ledger is exactly the page
+    // that gets photocopied or emailed on its own, and it used to identify neither the company
+    // nor the period it covered.
+    const path = await writeExportPdf(c.slug, `${filename}.pdf`, html, {
+      pageSize: 'A4',
+      landscape,
+      pageNumbers: true,
+      runningHead: { company: c.info.name, gstin: c.info.gstin, title, periodLabel }
+    })
     auditExport(c.db, 'report_pdf', { filename, path })
     return { path }
   }, 'viewer')
+  /**
+   * The books in a format that is not this app's (roadmap #254).
+   *
+   * Written into the company's exports folder as plain JSON, documented in docs/export-format.md,
+   * and guaranteed to round-trip: `export:portable` then `import:portable` into an empty company
+   * gives back an identical document (proved in portable.dbtest.ts, not asserted here).
+   */
+  handle('export:portable', () => {
+    const c = requireCompany()
+    const doc = exportPortable(c.db)
+    const path = join(companyExportsDir(c.slug), `total-books-${c.slug}-${backupStamp()}.json`)
+    writeFileSync(path, JSON.stringify(doc, null, 2), 'utf8')
+    auditExport(c.db, 'portable', { path, vouchers: doc.vouchers.length })
+    shell.showItemInFolder(path)
+    return { path, vouchers: doc.vouchers.length, ledgers: doc.ledgers.length }
+  }, 'viewer')
+
+  /**
+   * Read one back into a NEW company. Never into the open one: merging two sets of books is a
+   * different and much harder job than restoring one, and doing it silently would duplicate every
+   * entry that happens to differ by a character.
+   *
+   * `json` inline is how drivers and tests reach this without a native dialog, exactly as
+   * tally:import does.
+   */
+  handle('import:portable', async (p) => {
+    const { json, allowDuplicate } = z
+      .object({ json: z.string().max(200_000_000).optional(), allowDuplicate: z.boolean().default(false) })
+      .parse(p ?? {})
+
+    let text = json
+    if (!text) {
+      const picked = await dialog.showOpenDialog({
+        title: 'Choose a Total books export',
+        filters: [{ name: 'Total books', extensions: ['json'] }],
+        properties: ['openFile']
+      })
+      if (picked.canceled || !picked.filePaths[0]) return null
+      text = readFileSync(picked.filePaths[0], 'utf8')
+    }
+
+    let doc: { company?: { name?: string; gstin?: string | null }; format?: string }
+    try {
+      doc = JSON.parse(text) as typeof doc
+    } catch {
+      throw new Error('That file is not readable as JSON')
+    }
+    if (doc.format !== PORTABLE_FORMAT) throw new Error('That file is not a Total books export.')
+    const name = doc.company?.name
+    if (!name) throw new Error('That file does not say which company it is.')
+
+    // Making a second, separate set of somebody's own books is the most dangerous silent success
+    // in the app (roadmap #251) — so it is never silent.
+    const duplicates = findDuplicateCompanies(readRegistry().companies, { name, gstin: doc.company?.gstin ?? null })
+    if (duplicates.length > 0 && !allowDuplicate) {
+      return { needsConfirmation: true, duplicates, warning: duplicateWarning(duplicates) }
+    }
+
+    let slug = slugify(name)
+    let n = 2
+    while (existsSync(companyDbPath(slug))) slug = `${slugify(name)}-${n++}`
+    ensureCompanyTree(slug)
+    const db = openCompanyDb(slug)
+    try {
+      const parsed = JSON.parse(text) as Parameters<typeof importPortable>[1]
+      const company = (parsed as { company: Partial<CompanyInfo> }).company
+      // The open format carries what identifies a company and deliberately not its GST filing
+      // preferences (see docs/export-format.md) — those are settings, not books. Defaults here,
+      // and the importer sets them afterwards if they matter.
+      const info: CompanyInfo = companyCreateSchema.parse({
+        name,
+        stateCode: company.stateCode ?? '27',
+        gstin: doc.company?.gstin ?? null,
+        gstRegistrationType: doc.company?.gstin ? 'regular' : 'unregistered',
+        gstFilingFrequency: 'monthly',
+        address: company.address ?? '',
+        booksFrom: company.booksFrom ?? new Date().getFullYear(),
+        email: null,
+        phone: null,
+        pan: company.pan ?? null,
+        tan: null
+      })
+      seedCompany(db, info)
+      const result = importPortable(db, parsed)
+      upsertCompany({ slug, name, stateCode: info.stateCode, gstin: info.gstin, lastOpenedAt: null })
+      return { needsConfirmation: false, slug, name, ...result }
+    } catch (err) {
+      // A half-imported company is worse than none: it looks like books and is not.
+      db.close()
+      rmSync(companyDir(slug), { recursive: true, force: true })
+      throw err
+    } finally {
+      if (db.open) db.close()
+    }
+  })
+
   handle('export:csv', (p) => {
     const { filename, csv } = exportCsvSchema.parse(p)
     const c = requireCompany()
@@ -1178,14 +4017,78 @@ export function registerIpc(): void {
     return { path }
   }, 'viewer')
 
+  /**
+   * The same CSV, for a period too big to build in one piece.
+   *
+   * `export:csv` takes a finished string: the renderer fetches every row, formats it, joins it,
+   * and hands ~6 MB across IPC for three years of a Day Book. This takes the REQUEST instead and
+   * streams the report out of the database a page at a time (services/exportStream.ts), so peak
+   * memory is a page rather than the period, and nothing but the request crosses the boundary.
+   *
+   * The renderer uses it only for an unfiltered export, because the filters live on the screen —
+   * a streamed export cannot know about a text filter typed into a box. That is stated where it
+   * is decided, in the screen.
+   */
+  handle('export:streamCsv', (p) => {
+    const parsed = exportStreamCsvSchema.parse(p)
+    const c = requireCompany()
+    const path = join(companyExportsDir(c.slug), `${parsed.filename}.csv`)
+    const result = streamReportCsv(c.db, parsed.request as StreamRequest, path)
+    auditExport(c.db, 'csv', { filename: parsed.filename, path })
+    return { path, rows: result.rows, bytes: result.bytes }
+  }, 'viewer')
+
+  /**
+   * Spreadsheet export.
+   *
+   * The renderer sends TYPED cells — money as integer paise, dates as ISO — and the workbook is
+   * built here, so an amount reaches Excel as a number it can sum rather than as the string
+   * "₹1,234.56". That is the whole reason this channel exists beside export:csv.
+   *
+   * Written as .xls (SpreadsheetML) rather than .xlsx: see src/shared/spreadsheet.ts for why the
+   * honest single-file format beat adding a ZIP dependency to an offline app.
+   */
+  handle('export:xls', (p) => {
+    const { filename, sheets } = exportXlsSchema.parse(p)
+    const c = requireCompany()
+    const xml = buildSpreadsheet(
+      sheets.map((sheet) => ({
+        name: sheet.name,
+        header: sheet.columns.map((col) => col.label),
+        rows: sheet.rows.map((row) => ({
+          bold: row.bold,
+          cells: row.cells.map((value, i) => {
+            const kind = sheet.columns[i]?.kind ?? 'text'
+            if (value === null) return xlsText('')
+            if (kind === 'money') return typeof value === 'number' ? xlsMoney(value) : xlsText(String(value))
+            if (kind === 'number') return typeof value === 'number' ? xlsNum(value) : xlsText(String(value))
+            if (kind === 'date') return typeof value === 'string' ? xlsDate(value) : xlsText(String(value))
+            return xlsText(String(value))
+          })
+        }))
+      }))
+    )
+    const path = join(companyExportsDir(c.slug), `${filename}.xls`)
+    writeFileSync(path, xml, 'utf8')
+    auditExport(c.db, 'xls', { filename, path })
+    return { path }
+  }, 'viewer')
+
   // ---------- CA export pack + Tally XML export ----------
-  handle('export:caPack', (p) => {
+  handle('export:caPack', async (p) => {
     const { from, to } = periodSchema.parse(p)
     const c = requireCompany()
-    const r = caPack.exportCaPack(c.db, c.info, c.slug, from, to)
-    auditExport(c.db, 'ca_pack', { from, to, path: r.path })
+    // The CA pack's GSTR-1 sheet is one registration's return (roadmap #108) — the primary,
+    // since the pack is not asked which. Its accounts sheets are the whole entity, as they should
+    // be: the books do not split by registration.
+    const r = caPack.exportCaPack(c.db, scopeOf(c), c.slug, from, to)
+    // The CSVs are for a machine; the PDF and the workbook are for the accountant who opens the
+    // folder. All three, because the pack is handed to a person who then feeds it to a tool.
+    const pdf = await caPack.exportCaPackPdf(c.db, c.info, c.slug, from, to)
+    const workbook = caPack.exportCaPackWorkbook(c.db, c.info, c.slug, from, to)
+    auditExport(c.db, 'ca_pack', { from, to, path: r.path, pdf: pdf.path, workbook: workbook.path })
     shell.showItemInFolder(r.path)
-    return r
+    return { ...r, pdfPath: pdf.path, workbookPath: workbook.path }
   })
   handle('export:tallyXml', (p) => {
     const { from, to } = periodSchema.parse(p)
@@ -1198,38 +4101,45 @@ export function registerIpc(): void {
 
   // ---------- live filing (NIC APIs) ----------
   handle('nic:get', () => {
-    const creds = nic.readNicCredentials(requireCompany().db)
+    const c = requireCompany()
+    const creds = nic.readNicCredentials(c.db, c.slug)
     // Never send live secrets back to the UI in full — password AND clientSecret are the two
     // halves of the NIC auth credential pair (username/password + client_id/client_secret),
     // and nic:get is viewer-gated (v0.3 review F3).
     return {
       ...creds,
       password: creds.password ? '••••••••' : '',
-      clientSecret: creds.clientSecret ? '••••••••' : ''
+      clientSecret: creds.clientSecret ? '••••••••' : '',
+      // 'session' means the OS keychain was unavailable, so the secrets live in memory only and
+      // are gone at quit. The Settings panel says so rather than silently losing them.
+      secretStorage: nic.nicSecretStorageMode()
     }
   }, 'viewer')
   handle('nic:save', (p) => {
     const c = requireCompany()
     const incoming = nicCredentialsSchema.parse(p)
-    const existing = nic.readNicCredentials(c.db)
+    const existing = nic.readNicCredentials(c.db, c.slug)
     // Re-saving the mask sentinel means "keep what's stored" — the settings form round-trips
     // nic:get values verbatim when the owner doesn't retype them.
     if (incoming.password === '••••••••') incoming.password = existing.password
     if (incoming.clientSecret === '••••••••') incoming.clientSecret = existing.clientSecret
-    nic.writeNicCredentials(c.db, incoming)
+    nic.writeNicCredentials(c.db, c.slug, incoming)
     nic.resetNicSession()
-    return { configured: nic.nicConfigured(c.db) }
+    return { configured: nic.nicConfigured(c.db, c.slug) }
   }, 'owner')
-  handle('nic:status', () => ({ configured: nic.nicConfigured(requireCompany().db) }), 'viewer')
+  handle('nic:status', () => {
+    const c = requireCompany()
+    return { configured: nic.nicConfigured(c.db, c.slug), secretStorage: nic.nicSecretStorageMode() }
+  }, 'viewer')
   handle('nic:generateIrn', async (p) => {
     const { voucherId } = z.object({ voucherId: z.number().int().positive() }).parse(p)
     const c = requireCompany()
-    return nic.generateIrn(c.db, c.info, voucherId)
+    return nic.generateIrn(c.db, c.slug, c.info, voucherId)
   }, 'owner')
   handle('nic:generateEwb', async (p) => {
     const { voucherId } = z.object({ voucherId: z.number().int().positive() }).parse(p)
     const c = requireCompany()
-    return nic.generateEwbByIrn(c.db, c.info, voucherId)
+    return nic.generateEwbByIrn(c.db, c.slug, c.info, voucherId)
   }, 'owner')
 
   // ---------- intelligence ----------
@@ -1243,10 +4153,343 @@ export function registerIpc(): void {
   }, 'viewer')
 
   // ---------- audit ----------
+  /**
+   * Has anybody edited the log? (roadmap #265)
+   *
+   * Deliberately not cached and not run on a timer: this is the answer to a question somebody is
+   * asking right now, and an answer that might be an hour old is not one.
+   */
+  handle('audit:verifyChain', () => verifyAuditChain(requireCompany().db), 'viewer')
+
   handle('audit:list', (p) => {
-    const { entity, from, to, page } = auditListSchema.parse(p)
-    return listAudit(requireCompany().db, { entity, from, to, page })
+    const { entity, entityId, from, to, page, pageSize } = auditListSchema.parse(p)
+    return listAudit(requireCompany().db, { entity, entityId, from, to, page, pageSize })
   }, 'viewer')
+
+  /**
+   * The daily digest (roadmap V #390): what changed on a given day, for the owner who was not
+   * there. Defaults to yesterday, which is the question actually being asked — "what happened
+   * while I was out" — rather than to today, which is still happening.
+   */
+  handle('audit:digest', (p) => {
+    const { date } = z.object({ date: isoDate.optional() }).parse(p ?? {})
+    const day = date ?? addDays(todayISO(), -1)
+    return dailyDigest(requireCompany().db, day)
+  }, 'viewer')
+
+  // ---------- attachments: the scan of the bill (roadmap V #387) ----------
+  handle('voucher:attachments:list', (p) => {
+    const { id } = idSchema.parse(p)
+    const c = requireCompany()
+    return attachments.listAttachments(c.db, c.slug, id)
+  }, 'viewer')
+
+  /**
+   * Attach a file to a voucher.
+   *
+   * Three ways in, one code path: a path the file dialog just issued, an inline base64 blob (how
+   * a driver or a test attaches without native chrome — same trick as tally:import's xmlText),
+   * or no payload at all, which opens the picker. As with the Tally import, a bare `filePath`
+   * from the renderer is refused unless the dialog issued it this session: otherwise the
+   * renderer could name any file on disk and have it copied into the company folder.
+   */
+  handle('voucher:attachments:add', async (p) => {
+    const { voucherId, filePath, fileName, bytesBase64, note } = attachmentAddSchema.parse(p)
+    const c = requireCompany()
+    let sourcePath = filePath
+    let name = fileName
+    if (!bytesBase64 && !sourcePath) {
+      const picked = await dialog.showOpenDialog({
+        title: 'Choose the bill to attach',
+        filters: [{ name: 'Bill or scan', extensions: [...ATTACHMENT_EXTENSIONS] }],
+        properties: ['openFile']
+      })
+      if (picked.canceled || !picked.filePaths[0]) return null
+      sourcePath = picked.filePaths[0]
+      dialogIssuedAttachmentPaths.add(sourcePath)
+      name = basename(sourcePath)
+    } else if (sourcePath && !dialogIssuedAttachmentPaths.has(sourcePath)) {
+      throw new Error('File path must come from the file picker')
+    }
+    return attachments.addAttachment(c.db, c.slug, {
+      voucherId,
+      sourcePath,
+      bytes: bytesBase64 ? Buffer.from(bytesBase64, 'base64') : undefined,
+      fileName: name ?? (sourcePath ? basename(sourcePath) : 'attachment'),
+      note
+    })
+  })
+
+  handle('voucher:attachments:remove', (p) => {
+    const { id } = idSchema.parse(p)
+    const c = requireCompany()
+    attachments.removeAttachment(c.db, c.slug, id)
+    return { removed: true }
+  })
+
+  // Opening is a read, so a viewer (and an auditor) can see the bill without being able to
+  // change anything about it.
+  handle('voucher:attachments:open', async (p) => {
+    const { id } = idSchema.parse(p)
+    const c = requireCompany()
+    const row = attachments.getAttachment(c.db, c.slug, id)
+    if (!row) throw new Error('Attachment not found')
+    if (row.missing) throw new Error(`"${row.fileName}" is no longer in the company folder`)
+    const error = await shell.openPath(attachments.attachmentPath(c.slug, row.storedName))
+    if (error) throw new Error(error)
+    return { opened: true }
+  }, 'viewer')
+
+  handle('voucher:attachments:reveal', (p) => {
+    const { id } = idSchema.parse(p)
+    const c = requireCompany()
+    const row = attachments.getAttachment(c.db, c.slug, id)
+    if (!row) throw new Error('Attachment not found')
+    shell.showItemInFolder(attachments.attachmentPath(c.slug, row.storedName))
+    return { revealed: true }
+  }, 'viewer')
+
+  /** What the copies are costing, so "copy the file in" stays a decision the user can see. */
+  handle('voucher:attachments:footprint', () => attachments.attachmentsFootprint(requireCompany().db), 'viewer')
+
+
+  // ---------- price list versions (roadmap E #128) ----------
+  handle('priceLevels:versions', (p) => {
+    const q = z.object({ priceLevelId: z.number().int().positive(), asOn: isoDate }).parse(p)
+    return priceListVersions.listVersions(requireCompany().db, q.priceLevelId, q.asOn)
+  }, 'viewer')
+  handle('priceLevels:listAsOn', (p) => {
+    const q = z.object({ priceLevelId: z.number().int().positive(), asOn: isoDate }).parse(p)
+    return priceListVersions.listAsOn(requireCompany().db, q.priceLevelId, q.asOn)
+  }, 'viewer')
+  handle('priceLevels:previewRevision', (p) =>
+    priceListVersions.previewRevision(requireCompany().db, priceRevisionSchema.parse(p)), 'viewer')
+  handle('priceLevels:applyRevision', (p) =>
+    priceListVersions.applyRevision(requireCompany().db, priceRevisionSchema.parse(p)))
+  handle('priceLevels:deleteVersion', (p) => {
+    const q = z.object({ priceLevelId: z.number().int().positive(), effectiveFrom: isoDate }).parse(p)
+    return { removed: priceListVersions.deleteVersion(requireCompany().db, q.priceLevelId, q.effectiveFrom) }
+  })
+
+  // ---------- serial numbers (roadmap E #115) ----------
+  handle('stock:serials:list', (p) => {
+    const q = z
+      .object({
+        stockItemId: z.number().int().positive().nullable().default(null),
+        status: z.enum(['in_stock', 'issued', 'all']).default('all'),
+        search: z.string().trim().max(60).nullable().default(null),
+        limit: z.number().int().min(1).max(2000).default(500)
+      })
+      .parse(p ?? {})
+    return serials.listSerials(requireCompany().db, q)
+  }, 'viewer')
+  handle('stock:serials:history', (p) => serials.serialHistory(requireCompany().db, idSchema.parse(p).id), 'viewer')
+  handle('stock:serials:counts', () => serials.serialCounts(requireCompany().db), 'viewer')
+
+  // ---------- standard costing (roadmap E #118) ----------
+  handle('stock:standardCosts:list', (p) => {
+    const q = z.object({ stockItemId: z.number().int().positive().nullable().default(null) }).parse(p ?? {})
+    return standardCosts.listStandardCosts(requireCompany().db, q.stockItemId)
+  }, 'viewer')
+  handle('stock:standardCosts:save', (p) =>
+    standardCosts.saveStandardCost(requireCompany().db, standardCostSchema.parse(p)))
+  handle('stock:standardCosts:delete', (p) => {
+    standardCosts.deleteStandardCost(requireCompany().db, idSchema.parse(p).id)
+    return { removed: true }
+  })
+  handle('stock:variance', (p) => standardCosts.varianceReport(requireCompany().db, varianceQuerySchema.parse(p)), 'viewer')
+
+  // ---------- item images (roadmap E #119) ----------
+  handle('stock:image:get', (p) => {
+    const { id } = idSchema.parse(p)
+    const c = requireCompany()
+    return { image: itemImages.getItemImage(c.db, c.slug, id), dataUrl: itemImages.itemImageDataUrl(c.db, c.slug, id) }
+  }, 'viewer')
+  handle('stock:image:many', (p) => {
+    const { ids } = z.object({ ids: z.array(z.number().int().positive()).max(200) }).parse(p)
+    const c = requireCompany()
+    return itemImages.itemImageDataUrls(c.db, c.slug, ids)
+  }, 'viewer')
+  /**
+   * Put a picture on an item.
+   *
+   * The same three ways in as an attachment, and the same refusal: a bare `filePath` from the
+   * renderer is only accepted when the file dialog issued it this session, so the renderer can
+   * never name an arbitrary file and have it copied into the company folder.
+   */
+  handle('stock:image:set', async (p) => {
+    const { stockItemId, filePath, fileName, bytesBase64 } = itemImageSetSchema.parse(p)
+    const c = requireCompany()
+    let sourcePath = filePath
+    let name = fileName
+    if (!bytesBase64 && !sourcePath) {
+      const picked = await dialog.showOpenDialog({
+        title: 'Choose a picture for this item',
+        filters: [{ name: 'Picture', extensions: [...ITEM_IMAGE_EXTENSIONS] }],
+        properties: ['openFile']
+      })
+      if (picked.canceled || !picked.filePaths[0]) return null
+      sourcePath = picked.filePaths[0]
+      dialogIssuedAttachmentPaths.add(sourcePath)
+      name = basename(sourcePath)
+    } else if (sourcePath && !dialogIssuedAttachmentPaths.has(sourcePath)) {
+      throw new Error('File path must come from the file picker')
+    }
+    return itemImages.setItemImage(c.db, c.slug, {
+      stockItemId,
+      sourcePath,
+      bytes: bytesBase64 ? Buffer.from(bytesBase64, 'base64') : undefined,
+      fileName: name ?? (sourcePath ? basename(sourcePath) : 'item.jpg')
+    })
+  })
+  handle('stock:image:clear', (p) => {
+    const { id } = idSchema.parse(p)
+    const c = requireCompany()
+    itemImages.clearItemImage(c.db, c.slug, id)
+    return { cleared: true }
+  })
+
+  // ---------- barcode labels (roadmap E #111) ----------
+  handle('stock:labels:preview', (p) => labels.planLabelJob(requireCompany().db, labelJobSchema.parse(p)), 'viewer')
+  /**
+   * Send the labels, or write them to a file.
+   *
+   * Save-to-file is not a fallback for the printerless — it is how the first person to try this on
+   * real hardware reads the job before sending it, because nothing in `@shared/labels` has ever
+   * been near a physical printer. Same honesty as the ESC/P invoice path.
+   */
+  handle('stock:labels:print', async (p) => {
+    const { job, printer, savePath } = z
+      .object({
+        job: labelJobSchema,
+        printer: z.string().trim().max(120).nullable().default(null),
+        savePath: z.string().trim().max(1024).nullable().default(null)
+      })
+      .parse(p)
+    const c = requireCompany()
+    const bytes = labels.renderLabelJob(c.db, job)
+    if (savePath !== null || printer === null) {
+      const target = savePath ?? join(companyExportsDir(c.slug), `labels-${backupStamp()}.tspl`)
+      return rawPrint.saveRaw(bytes, target)
+    }
+    return rawPrint.printRaw(bytes, printer)
+  })
+
+  // Job work (roadmap E #127) has no channels of its own. This lane built a second set —
+  // jobwork:send / jobwork:receive — before the ITC-04 lane's `jobWork:*` channels landed. The
+  // stock movement they existed for now hangs off `jobWork:save` and `jobWork:saveReturn` above,
+  // which are the channels the job-work screen already talks to.
+
+  // ---------- foreign currency and revaluation (roadmap F #140) ----------
+  handle('fx:accounts', (p) => {
+    const { asOn } = z.object({ asOn: isoDate }).parse(p)
+    return fx.fcAccounts(requireCompany().db, asOn)
+  }, 'viewer')
+  handle('fx:preview', (p) => {
+    const q = revaluationSchema.parse(p)
+    return fx.previewRevaluation(requireCompany().db, q)
+  }, 'viewer')
+  handle('fx:revalue', (p) => fx.postRevaluation(requireCompany().db, revaluationSchema.parse(p)))
+  handle('fx:revaluations', (p) => {
+    const q = z.object({ ledgerId: z.number().int().positive().nullable().default(null) }).parse(p ?? {})
+    return fx.listRevaluations(requireCompany().db, q.ledgerId)
+  }, 'viewer')
+  handle('fx:remove', (p) => {
+    fx.removeRevaluation(requireCompany().db, idSchema.parse(p).id)
+    return { removed: true }
+  })
+
+  // ---------- the scratchpad ledger (roadmap B #46) ----------
+  handle('scratchpad:list', (p) => {
+    const q = z.object({ limit: z.number().int().min(1).max(1000).default(200) }).parse(p ?? {})
+    return scratchpad.scratchpad(requireCompany().db, q.limit)
+  }, 'viewer')
+  /** Creating the ledger is a write, and deliberately explicit: a Suspense ledger that appears in
+   *  every new company's trial balance at zero teaches people to ignore a Suspense balance. */
+  handle('scratchpad:ensure', () => ({ ledgerId: scratchpad.scratchpadLedgerId(requireCompany().db) }))
+  handle('scratchpad:classify', (p) => scratchpad.reclassify(requireCompany().db, reclassifySchema.parse(p)))
+
+  // ---------- approvals (roadmap V #386) ----------
+  handle('approvals:list', () => {
+    const c = requireCompany()
+    return {
+      threshold: configSvc.getApprovalThreshold(c.db),
+      pending: approvals.listPending(c.db),
+      decided: approvals.listDecided(c.db)
+    }
+  }, 'viewer')
+
+  handle('approvals:decide', (p) => {
+    const { voucherId, approve, note } = z
+      .object({ voucherId: z.number().int().positive(), approve: z.boolean(), note: z.string().trim().max(500).nullable().optional() })
+      .parse(p)
+    const c = requireCompany()
+    return approvals.decide(c.db, { voucherId, approve, note }, {
+      role: sessionUser?.role ?? null,
+      name: sessionUser?.name ?? null
+    })
+  }, 'owner')
+
+  handle('config:approvalThreshold:get', () => ({ threshold: configSvc.getApprovalThreshold(requireCompany().db) }), 'viewer')
+  handle('config:approvalThreshold:set', (p) => {
+    // `null` is off; `0` is "everything waits". Both are real answers, so the schema keeps them
+    // apart rather than coercing (see src/shared/approvals.ts).
+    const { threshold } = z.object({ threshold: z.number().int().min(0).nullable() }).parse(p)
+    return { threshold: configSvc.setApprovalThreshold(requireCompany().db, threshold) }
+  }, 'owner')
+
+  // ---------- the two-person rule on bank details (roadmap V #388) ----------
+  handle('bankChange:list', () => {
+    const c = requireCompany()
+    return { pending: bankChanges.listPendingBankChanges(c.db), decided: bankChanges.listDecidedBankChanges(c.db) }
+  }, 'viewer')
+
+  handle('bankChange:decide', (p) => {
+    const { id, approve, note } = z
+      .object({ id: z.number().int().positive(), approve: z.boolean(), note: z.string().trim().max(500).nullable().optional() })
+      .parse(p)
+    const c = requireCompany()
+    return bankChanges.decideBankChange(c.db, id, approve, {
+      role: sessionUser?.role ?? null,
+      name: sessionUser?.name ?? null
+    }, note)
+  })
+
+  // ---------- auditor mode (roadmap V #391) ----------
+  /**
+   * Hand the books to an auditor for a stated number of hours.
+   *
+   * What happens instead today is that the auditor is given the owner's PIN, which is never
+   * withdrawn and makes the audit trail unable to tell the two people apart. This session is a
+   * viewer (so every write channel already refuses it), it is stamped as 'Auditor' on everything
+   * it touches, and it ends by itself.
+   *
+   * Only the owner can open one, and doing so signs the owner OUT — the point is to hand the
+   * machine over, and leaving the owner's own session live underneath would defeat it.
+   */
+  handle('auditor:begin', (p) => {
+    const { hours } = z.object({ hours: z.number().int().refine((h) => (AUDITOR_DURATIONS_HOURS as readonly number[]).includes(h), 'Not an offered duration') }).parse(p)
+    const c = requireCompany()
+    const now = Date.now()
+    auditorSession = {
+      startedAt: new Date(now).toISOString(),
+      expiresAt: auditorExpiry(now, hours),
+      grantedBy: sessionUser?.name ?? null
+    }
+    writeAudit(c.db, 'user', 0, 'login', null, { auditorSessionUntil: auditorSession.expiresAt, grantedBy: auditorSession.grantedBy })
+    // An auditor is a viewer with nothing additionally denied: the read-only role is the whole
+    // restriction, and a per-user denial list would be a second, quieter one that nobody set.
+    sessionUser = { id: 0, name: AUDITOR_SESSION_NAME, role: 'viewer', denied: [] }
+    return auditorStatus()
+  }, 'owner')
+
+  handle('auditor:end', () => {
+    if (current && auditorSession) writeAudit(current.db, 'user', 0, 'logout', null, { auditorSession: 'ended' })
+    endAuditorSession()
+    return auditorStatus()
+  }, 'viewer')
+
+  handle('auditor:status', () => auditorStatus(), 'viewer')
 
   // ---------- audit retention (lane Q, task Q1 #92) ----------
   handle('config:audit:get', () => ({ keepDays: configSvc.getAuditKeepDays(requireCompany().db) }), 'viewer')
@@ -1288,7 +4531,7 @@ export function registerIpc(): void {
     // The bootstrap owner (the very first user of a fresh company) is auto-authenticated as
     // themselves — they just proved they're standing at the machine by creating the account,
     // and forcing them to immediately re-enter the PIN they picked a second ago would be theatre.
-    if (bootstrap) sessionUser = { id: saved.id, name: saved.name, role: saved.role }
+    if (bootstrap) sessionUser = { id: saved.id, name: saved.name, role: saved.role, denied: saved.denied }
     writeAudit(c.db, 'user', saved.id, id ? 'update' : 'create', before, saved)
     return { ...saved, locked: c.usersExist && !sessionUser }
   }, 'owner')
@@ -1302,6 +4545,161 @@ export function registerIpc(): void {
     return null
   }, 'owner')
 
+  // ---------- AI assistant ----------
+  //
+  // Everything here is gated on the company's `ai` feature flag IN MAIN, not just in the
+  // renderer: a renderer-only gate is a UI affordance, not a boundary. The assistant is off by
+  // default, and nothing under services/ai is even imported until a run starts, so a user who
+  // never turns it on never loads the SDK into their process.
+  const requireAiOn = (): ReturnType<typeof requireCompany> => {
+    const c = requireCompany()
+    if (!configSvc.getFeatures(c.db).ai) throw new Error('The assistant is off for this company')
+    return c
+  }
+
+  handle('ai:getConfig', () => {
+    const c = getCurrentCompany()
+    const featureOn = c ? configSvc.getFeatures(c.db).ai : false
+    return aiConfig.readConfigView(featureOn)
+  }, 'viewer')
+
+  handle('ai:setConfig', (p) => aiConfig.writeConfigFromSettings(aiSettingsSchema.parse(p)), 'owner')
+
+  handle('ai:testConnection', async () => {
+    const { makeClient } = await import('./services/ai/provider')
+    const started = Date.now()
+    const models = await makeClient().listModels()
+    const config = aiConfig.readConfig()
+    const warnings: string[] = []
+    if (models.length > 0 && !models.includes(config.model)) {
+      warnings.push(`${config.model} isn't in this endpoint's model list — check the spelling.`)
+    }
+    if (!config.visionModel) {
+      warnings.push('No vision model set, so reading a bill from a photo stays unavailable.')
+    }
+    return { ok: true, latencyMs: Date.now() - started, models, warnings }
+  }, 'owner')
+
+  handle('ai:chat', async (p) => {
+    const { question, screen, history } = z
+      .object({
+        question: z.string().trim().min(1).max(2000),
+        screen: z.string().max(60).optional(),
+        history: z
+          .array(z.object({ role: z.enum(['user', 'assistant']), content: z.string().max(8000) }))
+          .max(16)
+          .optional()
+      })
+      .parse(p)
+    const c = requireAiOn()
+    const { startRun } = await import('./services/ai/runner')
+    const wc = BrowserWindow.getAllWindows()[0]?.webContents
+    if (!wc) throw new Error('No window to stream to')
+    return {
+      runId: startRun({
+        db: c.db,
+        slug: c.slug,
+        info: c.info,
+        today: todayISO(),
+        question,
+        screen,
+        history,
+        wc,
+        askedBy: sessionUser?.name ?? null
+      })
+    }
+  }, 'viewer')
+
+  /**
+   * The payload viewer (roadmap #214) and the redaction preview (#222).
+   *
+   * Read-only and offline: it builds what would be sent and returns it. Gated on the feature flag
+   * like every other AI channel, but deliberately NOT on a key existing — the point is to let
+   * someone read the disclosure before deciding to configure anything.
+   */
+  handle('ai:preview', async (p) => {
+    const { question, screen, history } = z
+      .object({
+        question: z.string().trim().max(2000).default('(your question)'),
+        screen: z.string().max(60).optional(),
+        history: z
+          .array(z.object({ role: z.enum(['user', 'assistant']), content: z.string().max(8000) }))
+          .max(16)
+          .optional()
+      })
+      .parse(p ?? {})
+    const c = requireAiOn()
+    const { buildPreview } = await import('./services/ai/runner')
+    return {
+      payload: buildPreview({ info: c.info, today: todayISO(), question, screen, history }),
+      redaction: redactionPreview(),
+      alwaysRedacted: alwaysRedactedFields()
+    }
+  }, 'viewer')
+
+  /** What the assistant has cost. Machine-level, so it needs no company. */
+  handle('ai:spend', async () => {
+    const { spendSnapshot } = await import('./services/ai/spend')
+    const config = aiConfig.readConfig()
+    return {
+      ...spendSnapshot(todayISO()),
+      sessionCapPaise: config.sessionCapPaise,
+      dailyCapPaise: config.dailyCapPaise,
+      local: isLocalEndpoint(config.baseUrl)
+    }
+  }, 'viewer')
+
+  /** Clearing the conversation clears the session budget with it. */
+  handle('ai:resetSession', async () => {
+    const { resetSession } = await import('./services/ai/spend')
+    resetSession()
+    return { ok: true }
+  }, 'viewer')
+
+  /** The assistant audit trail (#217): question, draft, and the voucher a human saved. */
+  handle('ai:log', (p) => {
+    const { limit } = z.object({ limit: z.number().int().min(1).max(200).default(50) }).parse(p ?? {})
+    return assistantLog.listRuns(requireCompany().db, limit)
+  }, 'viewer')
+
+  /**
+   * Join a saved voucher to the run that proposed its draft.
+   *
+   * Called by the voucher screen AFTER a successful save, never by the assistant: the link is a
+   * record of what a person did, and it is only true once the save went through.
+   */
+  handle('ai:linkVoucher', (p) => {
+    const { runId, voucherId } = z
+      .object({ runId: z.string().min(1).max(80), voucherId: z.number().int().positive() })
+      .parse(p)
+    return { linked: assistantLog.linkVoucher(requireCompany().db, runId, voucherId) }
+  }, 'accountant')
+
+  handle('ai:cancel', async (p) => {
+    const { runId } = z.object({ runId: z.string().min(1).max(80) }).parse(p)
+    const { abortRun } = await import('./services/ai/runner')
+    return { cancelled: abortRun(runId) }
+  }, 'viewer')
+
+  handle('mcp:snippet', (p) => {
+    const { client, allowWrites } = z
+      .object({
+        client: z.enum(['claude-desktop', 'claude-code', 'codex']),
+        allowWrites: z.boolean().default(false)
+      })
+      .parse(p)
+    return mcpSnippet(requireCompany().slug, client, allowWrites)
+  }, 'owner')
+
+  // ---------- licence ----------
+  handle('license:get', () => licenseSvc.currentState(), 'viewer')
+  handle('license:apply', (p) => {
+    const { token } = z.object({ token: z.string().max(4000) }).parse(p)
+    const state = licenseSvc.applyToken(token)
+    invalidateLicenseCache()
+    return state
+  }, 'owner')
+
   // ---------- logging ----------
   handle('log:renderer', (p) => {
     const { message, stack, componentStack, screen } = rendererLogSchema.parse(p)
@@ -1312,10 +4710,100 @@ export function registerIpc(): void {
     revealLogs()
     return null
   })
+  /**
+   * The diagnostics block the support dialog shows the user before they send anything. Built in
+   * main because the version, platform and log tail live here — and returned as plain text so
+   * the dialog can print it verbatim rather than describing it.
+   */
+  handle('log:diagnostics', () => {
+    const company = getCurrentCompany()
+    return {
+      version: app.getVersion(),
+      platform: `${process.platform} ${process.arch}`,
+      electron: process.versions.electron,
+      companyOpen: company != null,
+      lines: recentLogLines()
+    }
+  }, 'viewer')
+
+  /**
+   * Send the support message the user just read (roadmap #345).
+   *
+   * Deliberately takes the report text rather than rebuilding it: what the dialog showed and what
+   * leaves the machine have to be the same string, and the only way to guarantee that is to send
+   * the one that was on screen.
+   */
+  handle('support:send', async (p) => {
+    const { message, email, log: logText } = supportSendSchema.parse(p)
+    return support.sendFeedback({ message, email: email || null, log: logText || null })
+  })
+
+  // ---------- where the books live (roadmap #244) ----------
+  handle('app:dataRoot:get', () => {
+    const root = dataRoot()
+    return {
+      root,
+      isDefault: configuredDataRoot() === null,
+      // The chosen folder has gone (a drive unplugged, a folder deleted) and the app has fallen
+      // back to the default — which must be said out loud, or the user opens a company picker
+      // that is mysteriously empty.
+      chosenMissing: dataRootMissing(),
+      syncedBy: syncFolderWarning(root),
+      // Moving copies every company, so the app has to be holding none of them open.
+      companyOpen: current !== null
+    }
+  }, 'viewer')
+
+  /**
+   * Move the whole data folder somewhere the sync client cannot reach it.
+   *
+   * Copies, verifies every company database in the copy, and only then points the app at it. The
+   * original is left exactly where it was: somebody moving their accounts between disks should
+   * end up with two copies and a choice, not one copy and a hope.
+   */
+  handle('app:dataRoot:move', async (p) => {
+    const { destination } = z.object({ destination: z.string().max(1000).optional() }).parse(p ?? {})
+    let target = destination
+    if (!target) {
+      const picked = await dialog.showOpenDialog({
+        title: 'Choose a folder to keep your books in',
+        properties: ['openDirectory', 'createDirectory']
+      })
+      if (picked.canceled || !picked.filePaths[0]) return null
+      target = picked.filePaths[0]
+    }
+    const from = dataRoot()
+    const verdict = inspectMoveTarget(from, target)
+    if (!verdict.ok) throw new Error(verdict.error)
+
+    // Copying a database another handle is writing to is precisely how a sync client corrupts
+    // one; doing it ourselves would be a poor joke in a feature about not doing that.
+    closeCurrentCompany()
+    const result = moveDataRoot(from, target)
+    log('info', 'data-root-moved', { ...result })
+    return { ...result, warning: verdict.warning }
+  }, 'owner')
 
   // ---------- app info + updates ----------
   handle('app:info', () => ({ version: app.getVersion(), platform: process.platform }))
   handle('app:checkUpdates', () => checkForUpdatesInteractive(), 'viewer')
+
+  /**
+   * Open a link in the user's browser.
+   *
+   * Restricted to this product's own site and its GitHub releases. A general "open any URL"
+   * channel reachable from the renderer is a way to launch anything the renderer can be talked
+   * into asking for, and the renderer renders remote text (release notes, AI answers).
+   */
+  handle('app:openExternal', async (p) => {
+    const { url } = z.object({ url: z.string().url().max(500) }).parse(p)
+    const allowed = [SITE_URL, `https://github.com/${GITHUB_REPO}`]
+    if (!allowed.some((base) => isUrlAtOrBelow(url, base))) {
+      throw new Error('That link is not one this app opens')
+    }
+    await shell.openExternal(url)
+    return null
+  }, 'viewer')
 
   // ---------- agent bridge (CSV/JSON mirrors + inbox, lane A) ----------
   handle('agent:exportMirror', (p) => {

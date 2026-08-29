@@ -3,13 +3,33 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import type { Godown, Ledger, StockGroup, StockItem, VoucherType } from '@shared/domain'
 import type { GroupTreeNode } from '@shared/reports'
 import { api } from '../lib/client'
+import { useGstRegistrations } from '../components/GstinPicker'
+import { registrationLabel } from '@shared/gst/registrations'
 import { useNav, useToasts, type Screen } from '../state/stores'
-import { AmountInput, Button, EmptyState, Field, Modal, Money, Panel, Select, TextInput, useKeyNav } from '../components/ui'
+import {
+  AmountInput,
+  Button,
+  DateInput,
+  EmptyState,
+  Field,
+  Modal,
+  Money,
+  Panel,
+  RowAction,
+  SectionTitle,
+  Select,
+  TextInput,
+  useKeyNav
+} from '../components/ui'
 import { TabBar } from '../components/TabBar'
 import { useGroups, useLedgers, useStockItems } from '../components/pickers'
 import { LedgerFormModal } from '../components/LedgerFormModal'
 import { validateHsn } from '@shared/gst/validate'
+import { expandSeriesPattern, seriesHasFyToken, SERIES_TOKENS } from '@shared/numberSeries'
+import { fyOf, todayISO, toDisplayDate } from '@shared/dates'
 import { confirmDialog, promptDialog } from '../lib/dialogs'
+import { PriceListsTab } from './masters/PriceListsTab'
+import { ITEM_IMAGE_HINT } from '@shared/itemImages'
 
 export type MastersTab = NonNullable<Extract<Screen, { name: 'masters' }>['tab']>
 
@@ -21,27 +41,31 @@ const TABS: { id: MastersTab; label: string }[] = [
   { id: 'godowns', label: 'Godowns' },
   { id: 'units', label: 'Units' },
   { id: 'types', label: 'Voucher types' },
-  { id: 'currencies', label: 'Currencies' }
+  { id: 'currencies', label: 'Currencies' },
+  { id: 'price-lists', label: 'Price lists' }
 ]
 
 export function Masters({ tab }: { tab?: MastersTab }): React.JSX.Element {
   const nav = useNav()
   const active = tab ?? 'ledgers'
   return (
-    <div className="mx-auto max-w-4xl">
-      <div className="mb-4 flex items-center gap-1">
-        <h2 className="mr-4 font-serif text-[19px] font-semibold tracking-tight">Masters</h2>
-        {/* Tab lives in the nav stack (not local state) so Esc/back retraces tabs and
-            other screens can deep-link straight to a tab — same pattern as Settings. */}
-        <TabBar
-          screen="masters"
-          tabs={TABS}
-          active={active}
-          onSelect={(t) => {
-            if (t !== active) nav.go({ name: 'masters', tab: t })
-          }}
-        />
-      </div>
+    <div className="flex h-full min-h-0 w-full flex-col max-w-[1440px]">
+      <SectionTitle
+        right={
+          // Tab lives in the nav stack (not local state) so Esc/back retraces tabs and
+          // other screens can deep-link straight to a tab — same pattern as Settings.
+          <TabBar
+            screen="masters"
+            tabs={TABS}
+            active={active}
+            onSelect={(t) => {
+              if (t !== active) nav.go({ name: 'masters', tab: t })
+            }}
+          />
+        }
+      >
+        Masters
+      </SectionTitle>
       {active === 'ledgers' && <LedgersTab />}
       {active === 'groups' && <GroupsTab />}
       {active === 'items' && <ItemsTab />}
@@ -50,6 +74,7 @@ export function Masters({ tab }: { tab?: MastersTab }): React.JSX.Element {
       {active === 'units' && <UnitsTab />}
       {active === 'types' && <TypesTab />}
       {active === 'currencies' && <CurrenciesTab />}
+      {active === 'price-lists' && <PriceListsTab />}
     </div>
   )
 }
@@ -91,10 +116,10 @@ function CurrenciesTab(): React.JSX.Element {
           <table className="ledger-table">
             <thead>
               <tr>
-                <th className="w-24">Code</th>
-                <th className="w-24">Symbol</th>
-                <th>Name</th>
-                <th className="w-20"></th>
+                <th scope="col" className="w-24">Code</th>
+                <th scope="col" className="w-24">Symbol</th>
+                <th scope="col">Name</th>
+                <th scope="col" className="w-20"></th>
               </tr>
             </thead>
             <tbody>
@@ -104,8 +129,8 @@ function CurrenciesTab(): React.JSX.Element {
                   <td>{c.symbol}</td>
                   <td className="text-muted">{c.name}</td>
                   <td className="r">
-                    <button
-                      className="text-[12px] text-cr hover:underline"
+                    <RowAction
+                      tone="danger"
                       onClick={async () => {
                         try {
                           await api.currencies.remove(c.id)
@@ -116,7 +141,7 @@ function CurrenciesTab(): React.JSX.Element {
                       }}
                     >
                       Remove
-                    </button>
+                    </RowAction>
                   </td>
                 </tr>
               ))}
@@ -167,16 +192,18 @@ function SortTh({
   className?: string
 }): React.JSX.Element {
   const active = sort.key === k
+  // `uppercase` explicitly: the UA stylesheet resets text-transform inside a <button>, so
+  // `.ledger-table th`'s micro-caps never reach a sortable label without it.
   return (
-    <th className={className} aria-sort={active ? (sort.dir === 1 ? 'ascending' : 'descending') : undefined}>
+    <th scope="col" className={className} aria-sort={active ? (sort.dir === 1 ? 'ascending' : 'descending') : undefined}>
       <button
         type="button"
         data-testid={`sort-masters-ledgers-${k}`}
-        className={`inline-flex items-center gap-1 hover:text-ink ${active ? 'text-ink' : ''}`}
+        className={`inline-flex items-center gap-1 uppercase hover:text-ink ${active ? 'text-ink' : ''}`}
         onClick={() => onSort(k)}
       >
         {label}
-        <span aria-hidden="true" className={active ? 'text-amber' : 'invisible'}>
+        <span aria-hidden="true" className={active ? 'text-accent' : 'invisible'}>
           {active && sort.dir === -1 ? '↓' : '↑'}
         </span>
       </button>
@@ -207,6 +234,8 @@ function LedgersTab(): React.JSX.Element {
     })
   }, [ledgers, filter, sort, groupMap])
 
+  const anyOpening = useMemo(() => ledgers.some((l) => l.openingBalance !== 0), [ledgers])
+
   const onSort = (k: LedgerSortKey): void => setSort((s) => (s.key === k ? { key: k, dir: s.dir === 1 ? -1 : 1 } : { key: k, dir: 1 }))
 
   const open = (l: Ledger | undefined): void => {
@@ -217,7 +246,7 @@ function LedgersTab(): React.JSX.Element {
   return (
     <>
       <div className="mb-3 flex justify-between">
-        <TextInput value={filter} onChange={(e) => setFilter(e.target.value)} placeholder="Type to filter…" className="w-64" />
+        <TextInput value={filter} onChange={(e) => setFilter(e.target.value)} placeholder="Type to filter…" data-filter-box className="w-64" />
         <Button variant="primary" data-testid="btn-masters-new-ledger" onClick={() => setEditing('new')}>
           New ledger
         </Button>
@@ -232,8 +261,10 @@ function LedgersTab(): React.JSX.Element {
                 <SortTh label="Name" k="name" sort={sort} onSort={onSort} />
                 <SortTh label="Group" k="group" sort={sort} onSort={onSort} />
                 <SortTh label="GSTIN" k="gstin" sort={sort} onSort={onSort} />
-                <SortTh label="Opening" k="opening" sort={sort} onSort={onSort} className="r w-40" />
-                <th className="w-24"></th>
+                {/* Only when some ledger actually carries one. A column of nothing but dashes
+                    costs width on every row to say nothing on any of them. */}
+                {anyOpening && <SortTh label="Opening" k="opening" sort={sort} onSort={onSort} className="r w-40" />}
+                <th scope="col" className="w-16" aria-label="Edit" />
               </tr>
             </thead>
             <tbody data-testid="rows-masters-ledgers">
@@ -242,27 +273,30 @@ function LedgersTab(): React.JSX.Element {
                   key={l.id}
                   data-row-id={l.id}
                   data-active={i === active}
-                  className="kbar-row cursor-pointer"
+                  className="kbar-row group cursor-pointer"
                   onMouseEnter={() => setActive(i)}
                   onClick={() => open(l)}
                 >
                   <td>{l.name}</td>
                   <td className="text-muted">{groupMap.get(l.groupId)}</td>
                   <td className="num text-muted">{l.gstin ?? ''}</td>
-                  <td className="r">
-                    <Money paise={l.openingBalance} signed />
-                  </td>
-                  <td className="r">
-                    <button
+                  {anyOpening && (
+                    <td className="r">
+                      <Money paise={l.openingBalance} signed />
+                    </td>
+                  )}
+                  <td className="r" onClick={(e) => e.stopPropagation()}>
+                    {/* One quiet action per row instead of fifteen identical blue links stacked
+                        down the page — it surfaces on the row the pointer or keyboard is on. */}
+                    <RowAction
                       data-testid="btn-masters-edit-ledger"
-                      className="text-[12px] text-blue hover:underline"
                       onClick={(e) => {
                         e.stopPropagation()
                         setEditing(l)
                       }}
                     >
                       Edit
-                    </button>
+                    </RowAction>
                   </td>
                 </tr>
               ))}
@@ -459,25 +493,28 @@ function GroupNode({
   onMove: (node: GroupTreeNode) => void
   onDelete: (node: GroupTreeNode) => Promise<void>
 }): React.JSX.Element {
-  const natureTone = { asset: 'text-dr', liability: 'text-cr', income: 'text-blue', expense: 'text-amber' }[node.nature]
+  const natureTone = { asset: 'text-dr', liability: 'text-cr', income: 'text-blue', expense: 'text-accent' }[node.nature]
   return (
     <>
       <div
         data-row-id={node.id}
-        className="group flex items-center justify-between rounded px-2 py-1 hover:bg-panel2"
+        className="group flex items-center justify-between rounded-md px-2 py-1 hover:bg-panel2"
         style={{ paddingLeft: `${8 + depth * 18}px` }}
       >
-        <span className={`text-[13px] ${depth === 0 ? 'font-medium' : 'text-muted'}`}>{node.name}</span>
-        {depth === 0 && <span className={`text-[10.5px] uppercase tracking-wider ${natureTone}`}>{node.nature}</span>}
+        <span className={`text-detail ${depth === 0 ? 'font-medium' : 'text-muted'}`}>{node.name}</span>
+        {depth === 0 && <span className={`text-label uppercase tracking-wider ${natureTone}`}>{node.nature}</span>}
         {!node.isSystem && (
-          <span className="flex gap-2 opacity-0 transition-opacity group-hover:opacity-100">
-            <button data-testid="btn-masters-group-rename" className="text-[11.5px] text-blue hover:underline" onClick={() => void onRename(node)}>
+          /* Three actions on one node, revealed together: `.row-action` also lights up on
+             :focus-within, so tabbing to Rename shows Move and Delete beside it rather than
+             leaving the user pressing invisible buttons. */
+          <span className="row-action flex gap-2">
+            <button data-testid="btn-masters-group-rename" className="text-hint text-blue hover:underline" onClick={() => void onRename(node)}>
               Rename
             </button>
-            <button data-testid="btn-masters-group-move" className="text-[11.5px] text-blue hover:underline" onClick={() => onMove(node)}>
+            <button data-testid="btn-masters-group-move" className="text-hint text-blue hover:underline" onClick={() => onMove(node)}>
               Move
             </button>
-            <button data-testid="btn-masters-group-delete" className="text-[11.5px] text-cr hover:underline" onClick={() => void onDelete(node)}>
+            <button data-testid="btn-masters-group-delete" className="text-hint text-cr hover:underline" onClick={() => void onDelete(node)}>
               Delete
             </button>
           </span>
@@ -512,12 +549,12 @@ function ItemsTab(): React.JSX.Element {
           <table className="ledger-table">
             <thead>
               <tr>
-                <th>Name</th>
-                <th className="w-16">Unit</th>
-                <th className="w-24">HSN</th>
-                <th className="r w-20">GST %</th>
-                <th className="r w-28">Opening qty</th>
-                <th className="w-20"></th>
+                <th scope="col">Name</th>
+                <th scope="col" className="w-16">Unit</th>
+                <th scope="col" className="w-24">HSN</th>
+                <th scope="col" className="r w-20">GST %</th>
+                <th scope="col" className="r w-28">Opening qty</th>
+                <th scope="col" className="w-20"></th>
               </tr>
             </thead>
             <tbody data-testid="rows-masters-items">
@@ -529,9 +566,9 @@ function ItemsTab(): React.JSX.Element {
                   <td className="r num">{i.gstRate ?? '–'}</td>
                   <td className="r num">{(i.openingQtyMilli / 1000).toString()}</td>
                   <td className="r">
-                    <button className="text-[12px] text-blue hover:underline" onClick={() => setEditing(i)}>
+                    <RowAction onClick={() => setEditing(i)}>
                       Edit
-                    </button>
+                    </RowAction>
                   </td>
                 </tr>
               ))}
@@ -547,14 +584,29 @@ function ItemsTab(): React.JSX.Element {
 function ItemFormModal({ item, onClose }: { item: StockItem | null; onClose: () => void }): React.JSX.Element {
   const { data: units } = useQuery({ queryKey: ['units'], queryFn: api.units.list })
   const allItems = useStockItems()
-  const { data: bom } = useQuery({
-    queryKey: ['bom', item?.id],
-    queryFn: () => api.bom.get(item!.id),
+  const { data: bomDetail } = useQuery({
+    queryKey: ['bom', item?.id, 'detail'],
+    queryFn: () => api.bom.detail(item!.id),
     enabled: !!item
   })
-  const [bomRows, setBomRows] = useState<{ componentId: number | ''; qtyText: string }[] | null>(null)
+  const { data: bomItems } = useQuery({ queryKey: ['bom', 'items'], queryFn: api.bom.items })
+  const madeItems = new Set((bomItems ?? []).map((b) => b.itemId))
+  const bom = bomDetail?.lines
+  const [bomRows, setBomRows] = useState<{ componentId: number | ''; qtyText: string; scrapText: string }[] | null>(null)
   const effectiveBomRows =
-    bomRows ?? (bom ? bom.map((b) => ({ componentId: b.componentId as number | '', qtyText: String(b.qtyMilliPerUnit / 1000) })) : [])
+    bomRows ??
+    (bom
+      ? bom.map((b) => ({
+          componentId: b.componentId as number | '',
+          qtyText: String(b.qtyMilliPerUnit / 1000),
+          // Shown as a percent because that is how a shop floor talks about wastage; stored as
+          // hundredths of a percent so 2.5 survives the round trip without a float.
+          scrapText: b.scrapBp ? String(b.scrapBp / 100) : ''
+        }))
+      : [])
+  // null until touched, so an item whose yield was never set saves the value it already has.
+  const [yieldText, setYieldText] = useState<string | null>(null)
+  const effectiveYieldText = yieldText ?? (bomDetail ? String(bomDetail.bomYieldBp / 100) : '100')
   const toast = useToasts()
   const queryClient = useQueryClient()
   const [name, setName] = useState(item?.name ?? '')
@@ -565,6 +617,20 @@ function ItemFormModal({ item, onClose }: { item: StockItem | null; onClose: () 
   const [openQty, setOpenQty] = useState(item ? (item.openingQtyMilli / 1000).toString() : '')
   const [openValue, setOpenValue] = useState<number | null>(item?.openingValue ?? null)
   const [barcode, setBarcode] = useState(item?.barcode ?? '')
+  const [code, setCode] = useState(item?.code ?? '')
+  const [altUnitId, setAltUnitId] = useState<number | ''>(item?.altUnitId ?? '')
+  const [altConversion, setAltConversion] = useState(
+    item?.altConversionMilli != null ? String(item.altConversionMilli / 1000) : ''
+  )
+  const [reorderLevel, setReorderLevel] = useState(
+    item?.reorderLevelMilli != null ? String(item.reorderLevelMilli / 1000) : ''
+  )
+  // Three states, not a checkbox: '' follows the company setting, which is what every item
+  // starts as and what most of them should stay as.
+  const [blockNegative, setBlockNegative] = useState<'' | 'block' | 'allow'>(
+    item?.blockNegative == null ? '' : item.blockNegative ? 'block' : 'allow'
+  )
+  const [trackSerials, setTrackSerials] = useState(item?.trackSerials ?? false)
 
   const hsnCheck = hsn.trim() ? validateHsn(hsn) : null
   const hsnError = hsnCheck && !hsnCheck.valid ? hsnCheck.error : null
@@ -584,18 +650,33 @@ function ItemFormModal({ item, onClose }: { item: StockItem | null; onClose: () 
         cessRate: cessRate.trim() ? Number(cessRate) : null,
         openingQtyMilli: Math.round(parseFloat(openQty || '0') * 1000),
         openingValue: openValue ?? 0,
+        code: code.trim() || null,
         barcode: barcode.trim() || null,
-        // Reorder level has no field in this modal yet (Wave 3); preserve what the item has.
-        reorderLevelMilli: item?.reorderLevelMilli ?? null
+        // Both or neither: half the pair stored makes the conversion a silent no-op.
+        altUnitId: altUnitId === '' || !altConversion.trim() ? null : altUnitId,
+        altConversionMilli:
+          altUnitId === '' || !altConversion.trim() ? null : Math.round(parseFloat(altConversion) * 1000),
+        reorderLevelMilli: reorderLevel.trim() ? Math.round(parseFloat(reorderLevel) * 1000) : null,
+        blockNegative: blockNegative === '' ? null : blockNegative === 'block',
+        trackSerials
       }
       if (item) await api.stockItems.update(item.id, data)
       else await api.stockItems.create(data)
-      if (item && bomRows) {
+      if (item && (bomRows || yieldText != null)) {
+        const yieldBp = Math.round(Number(effectiveYieldText || '100') * 100)
+        if (!(yieldBp > 0 && yieldBp <= 10000)) {
+          return void toast.push('error', 'Yield is a percentage above 0 and at most 100')
+        }
         await api.bom.set({
           itemId: item.id,
-          lines: bomRows
+          bomYieldBp: yieldBp,
+          lines: effectiveBomRows
             .filter((r) => r.componentId !== '' && Number(r.qtyText) > 0)
-            .map((r) => ({ componentId: r.componentId as number, qtyMilliPerUnit: Math.round(Number(r.qtyText) * 1000) }))
+            .map((r) => ({
+              componentId: r.componentId as number,
+              qtyMilliPerUnit: Math.round(Number(r.qtyText) * 1000),
+              scrapBp: Math.min(9999, Math.max(0, Math.round(Number(r.scrapText || '0') * 100)))
+            }))
         })
       }
       await queryClient.invalidateQueries()
@@ -659,15 +740,106 @@ function ItemFormModal({ item, onClose }: { item: StockItem | null; onClose: () 
             <AmountInput paise={openValue} onPaise={setOpenValue} />
           </Field>
         </div>
-        <Field label="Barcode" hint="Scan into this field, or type an SKU">
-          <TextInput value={barcode} onChange={(e) => setBarcode(e.target.value)} className="num" placeholder="Optional" />
-        </Field>
+        <div className="grid grid-cols-2 gap-3">
+          <Field label="Code" hint="What is printed on the shelf label — the fastest way to find this at a counter">
+            <TextInput
+              data-testid="input-item-code"
+              value={code}
+              onChange={(e) => setCode(e.target.value)}
+              className="num"
+              placeholder="Optional"
+            />
+          </Field>
+          <Field label="Barcode" hint="Scan into this field, or type an SKU">
+            <TextInput value={barcode} onChange={(e) => setBarcode(e.target.value)} className="num" placeholder="Optional" />
+          </Field>
+        </div>
+        {/* Stock is always kept in the base unit — the small one, or a part box cannot be
+            represented. The alternate is a named multiple that entry accepts and converts. */}
+        <div className="grid grid-cols-2 gap-3">
+          <Field label="Also sold in" hint="A box, a case, a dozen — entry accepts either unit">
+            <Select
+              data-testid="select-item-alt-unit"
+              value={altUnitId}
+              onChange={(e) => setAltUnitId(e.target.value ? Number(e.target.value) : '')}
+            >
+              <option value="">No alternate unit</option>
+              {(units ?? []).map((u) => (
+                <option key={u.id} value={u.id}>
+                  {u.name} ({u.symbol})
+                </option>
+              ))}
+            </Select>
+          </Field>
+          <Field
+            label="Base units in one"
+            hint={
+              altUnitId === ''
+                ? 'Pick an alternate unit first'
+                : `1 ${units?.find((u) => u.id === altUnitId)?.symbol ?? ''} = this many ${
+                    units?.find((u) => u.id === unitId)?.symbol ?? 'base units'
+                  }`
+            }
+          >
+            <TextInput
+              data-testid="input-item-alt-conversion"
+              value={altConversion}
+              onChange={(e) => setAltConversion(e.target.value)}
+              className="num text-right"
+              inputMode="decimal"
+              placeholder="12"
+              disabled={altUnitId === ''}
+            />
+          </Field>
+        </div>
+        <div className="grid grid-cols-2 gap-3">
+          <Field label="Reorder level" hint="Below this, the item appears in the buy list">
+            <TextInput
+              data-testid="input-item-reorder"
+              value={reorderLevel}
+              onChange={(e) => setReorderLevel(e.target.value)}
+              className="num"
+              inputMode="decimal"
+              placeholder="None"
+            />
+          </Field>
+          <Field
+            label="Going negative"
+            hint="The company setting is all-or-nothing; this overrides it for this item."
+          >
+            <Select
+              data-testid="select-item-block-negative"
+              value={blockNegative}
+              onChange={(e) => setBlockNegative(e.target.value as '' | 'block' | 'allow')}
+            >
+              <option value="">Follow the company setting</option>
+              <option value="block">Never allow it</option>
+              <option value="allow">Always allow it</option>
+            </Select>
+          </Field>
+          <Field
+            label="Serial numbers"
+            hint="Every movement then names the serials that moved, and the unit can be traced to the invoice that sold it."
+          >
+            <label className="flex items-center gap-2 py-1.5 text-body">
+              <input
+                type="checkbox"
+                data-testid="check-item-track-serials"
+                checked={trackSerials}
+                onChange={(e) => setTrackSerials(e.target.checked)}
+              />
+              Track serial numbers
+            </label>
+          </Field>
+        </div>
+        {item && <ItemRateHistory itemId={item.id} />}
+        {item && <ItemImageField itemId={item.id} />}
         {item && (
           <div>
-            <span className="mb-1 block text-[11px] font-semibold tracking-[0.08em] text-muted uppercase">
+            <span className="mb-1 block text-caption font-semibold tracking-[0.08em] text-muted uppercase">
               Bill of materials — components per 1 unit
             </span>
-            {[...effectiveBomRows, { componentId: '' as const, qtyText: '' }].map((row, i) => (
+            {[...effectiveBomRows, { componentId: '' as const, qtyText: '', scrapText: '' }].map((row, i) => (
               <div key={i} className="mb-1.5 flex gap-2">
                 <Select
                   value={row.componentId}
@@ -675,7 +847,7 @@ function ItemFormModal({ item, onClose }: { item: StockItem | null; onClose: () 
                     const next = [...effectiveBomRows]
                     const value = e.target.value ? Number(e.target.value) : ('' as const)
                     if (i < next.length) next[i] = { ...next[i]!, componentId: value }
-                    else next.push({ componentId: value, qtyText: '1' })
+                    else next.push({ componentId: value, qtyText: '1', scrapText: '' })
                     setBomRows(next.filter((r) => r.componentId !== ''))
                   }}
                   className="flex-1"
@@ -686,24 +858,59 @@ function ItemFormModal({ item, onClose }: { item: StockItem | null; onClose: () 
                     .map((si) => (
                       <option key={si.id} value={si.id}>
                         {si.name}
+                        {/* Naming it here is what stops someone adding a sub-assembly's raw
+                            materials a second time, alongside the sub-assembly itself. */}
+                        {madeItems.has(si.id) ? ' — sub-assembly' : ''}
                       </option>
                     ))}
                 </Select>
                 {i < effectiveBomRows.length && (
-                  <TextInput
-                    value={row.qtyText}
-                    onChange={(e) => {
-                      const next = [...effectiveBomRows]
-                      next[i] = { ...next[i]!, qtyText: e.target.value }
-                      setBomRows(next)
-                    }}
-                    className="num w-24 text-right"
-                    placeholder="Qty"
-                  />
+                  <>
+                    <TextInput
+                      value={row.qtyText}
+                      onChange={(e) => {
+                        const next = [...effectiveBomRows]
+                        next[i] = { ...next[i]!, qtyText: e.target.value }
+                        setBomRows(next)
+                      }}
+                      className="num w-24 text-right"
+                      placeholder="Qty"
+                    />
+                    <TextInput
+                      data-testid={`input-bom-scrap-${i}`}
+                      value={row.scrapText}
+                      onChange={(e) => {
+                        const next = [...effectiveBomRows]
+                        next[i] = { ...next[i]!, scrapText: e.target.value }
+                        setBomRows(next)
+                      }}
+                      className="num w-24 text-right"
+                      inputMode="decimal"
+                      placeholder="Scrap %"
+                      title="Wastage on this component alone — cutting cloth wastes cloth, not buttons"
+                    />
+                  </>
                 )}
               </div>
             ))}
-            <span className="text-[11px] text-muted">Used by the Manufacture voucher to consume inputs automatically.</span>
+            <div className="mt-2 grid grid-cols-2 gap-3">
+              <Field
+                label="Yield %"
+                hint="Good units per 100 started. It inflates every component — scrap inflates only its own."
+              >
+                <TextInput
+                  data-testid="input-bom-yield"
+                  value={effectiveYieldText}
+                  onChange={(e) => setYieldText(e.target.value)}
+                  className="num text-right"
+                  inputMode="decimal"
+                  placeholder="100"
+                />
+              </Field>
+            </div>
+            <span className="text-caption text-muted">
+              Used by the Manufacture voucher, which explodes sub-assemblies down to raw materials.
+            </span>
           </div>
         )}
         <div className="flex justify-between">
@@ -717,6 +924,228 @@ function ItemFormModal({ item, onClose }: { item: StockItem | null; onClose: () 
         </div>
       </div>
     </Modal>
+  )
+}
+
+/**
+ * The GST rate history of a stock item (roadmap D-92).
+ *
+ * A rate is dated data, not a field. A document is priced with the rate in force on ITS OWN date,
+ * so recording this year's change here — rather than by editing the GST % above — is what stops it
+ * reaching back and repricing an invoice that was already raised or a return that was already
+ * filed. An item with no rows here bills at its own GST %, exactly as it always did.
+ *
+ * Every change carries the notification that made it, because a rate with no citation is a rate
+ * nobody can audit.
+ */
+function ItemRateHistory({ itemId }: { itemId: number }): React.JSX.Element {
+  const toast = useToasts()
+  const queryClient = useQueryClient()
+  const today = todayISO()
+  const { data } = useQuery({
+    queryKey: ['itemRates', itemId, today],
+    queryFn: () => api.stock.rates(itemId, today)
+  })
+  const [editingId, setEditingId] = useState<number | null>(null)
+  const [effectiveFrom, setEffectiveFrom] = useState(today)
+  const [ratePercent, setRatePercent] = useState('')
+  const [cessPercent, setCessPercent] = useState('')
+  const [note, setNote] = useState('')
+
+  const reset = (): void => {
+    setEditingId(null)
+    setEffectiveFrom(today)
+    setRatePercent('')
+    setCessPercent('')
+    setNote('')
+  }
+
+  const refresh = async (): Promise<void> => {
+    // The rate feeds pricing everywhere, not just this modal — a stale copy anywhere else would
+    // quote a rate that is no longer what the item charges.
+    await queryClient.invalidateQueries()
+  }
+
+  const save = async (): Promise<void> => {
+    const rate = Number(ratePercent)
+    if (!ratePercent.trim() || !Number.isFinite(rate)) return void toast.push('error', 'Enter the rate, in percent')
+    const cess = cessPercent.trim() ? Number(cessPercent) : 0
+    if (!Number.isFinite(cess)) return void toast.push('error', 'Cess must be a percentage')
+    try {
+      const saved = await api.stock.saveRate(
+        {
+          stockItemId: itemId,
+          effectiveFrom,
+          ratePercent: rate,
+          cessPercent: cess,
+          note: note.trim() || null
+        },
+        editingId ?? undefined
+      )
+      // Warnings are advisory and never block: the Council has notified odd rates before, and an
+      // app that refuses to record reality is worse than one that queries it.
+      for (const w of saved.warnings) toast.push('warning', w)
+      toast.push('success', editingId ? 'Rate change updated' : 'Rate change recorded')
+      reset()
+      await refresh()
+    } catch (err) {
+      toast.push('error', (err as Error).message)
+    }
+  }
+
+  const remove = async (row: { id: number; effectiveFrom: string }): Promise<void> => {
+    const proceed = await confirmDialog({
+      title: 'Forget this rate change',
+      message: `Forget the change dated ${toDisplayDate(row.effectiveFrom)}? Documents on or after that date will be priced at whatever rate then applies.`,
+      confirmLabel: 'Forget',
+      danger: true
+    })
+    if (!proceed) return
+    try {
+      await api.stock.deleteRate(row.id)
+      if (editingId === row.id) reset()
+      toast.push('success', 'Rate change forgotten')
+      await refresh()
+    } catch (err) {
+      toast.push('error', (err as Error).message)
+    }
+  }
+
+  const rows = data?.rows ?? []
+  const inForce = data?.inForce ?? null
+  const own = data?.itemRate.gstRate ?? null
+
+  return (
+    <div data-testid="section-item-rate-history">
+      <span className="mb-1 block text-caption font-semibold tracking-[0.08em] text-muted uppercase">
+        GST rate history — the rate each date bills at
+      </span>
+
+      {/* What is in force today, and since when. The one line somebody reads before invoicing. */}
+      <p className="mb-2 text-small text-muted" data-testid="text-item-rate-in-force">
+        {inForce ? (
+          <>
+            <span className="rounded-full border border-line bg-panel2 px-2 py-0.5 num text-ink">
+              {inForce.ratePercent}%{inForce.cessPercent > 0 ? ` + ${inForce.cessPercent}% cess` : ''}
+            </span>{' '}
+            in force today, from {toDisplayDate(inForce.effectiveFrom)}
+            {inForce.note ? ` (${inForce.note})` : ''}.
+          </>
+        ) : rows.length > 0 ? (
+          <>
+            No change has taken effect yet — until {toDisplayDate(rows[0]!.effectiveFrom)} this item bills at its own{' '}
+            {own === null ? 'rate' : `${own}%`}.
+          </>
+        ) : (
+          <>
+            No dated change recorded — this item bills at its own {own === null ? 'rate' : `${own}%`} on every date, as
+            it always has.
+          </>
+        )}
+      </p>
+
+      {data?.latestSentence && (
+        <p className="mb-2 text-caption text-muted">{data.latestSentence}</p>
+      )}
+      {(data?.warnings ?? []).map((w) => (
+        <p key={w} className="mb-1 text-caption text-warn">
+          {w}
+        </p>
+      ))}
+
+      {rows.length > 0 && (
+        <div className="mb-2 overflow-hidden rounded-md border border-line">
+          <table className="ledger-table">
+            <thead>
+              <tr>
+                <th scope="col" className="w-24">From</th>
+                <th scope="col" className="r w-14">GST %</th>
+                <th scope="col" className="r w-14">Cess %</th>
+                <th scope="col">Notification</th>
+                <th scope="col" className="r w-20"></th>
+              </tr>
+            </thead>
+            <tbody data-testid="rows-item-rate-history">
+              {rows.map((r) => (
+                <tr key={r.id} className="hover:bg-panel2">
+                  <td className="num">{toDisplayDate(r.effectiveFrom)}</td>
+                  <td className="r num">{r.ratePercent}</td>
+                  <td className="r num">{r.cessPercent}</td>
+                  <td className={r.note ? 'text-muted' : 'text-warn'}>{r.note ?? 'No citation'}</td>
+                  <td className="r">
+                    <RowAction
+                      onClick={() => {
+                        setEditingId(r.id)
+                        setEffectiveFrom(r.effectiveFrom)
+                        setRatePercent(String(r.ratePercent))
+                        setCessPercent(r.cessPercent ? String(r.cessPercent) : '')
+                        setNote(r.note ?? '')
+                      }}
+                    >
+                      Edit
+                    </RowAction>
+                    <RowAction
+                      tone="danger"
+                      data-testid="btn-item-rate-delete"
+                      onClick={() => void remove(r)}
+                    >
+                      Delete
+                    </RowAction>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      <div className="rounded-md border border-line bg-panel2 p-3">
+        <div className="grid grid-cols-2 gap-3">
+          <Field label="With effect from" hint="Inclusive — a notification “from the 22nd” applies on the 22nd">
+            <DateInput
+              value={effectiveFrom}
+              context={effectiveFrom}
+              onChange={setEffectiveFrom}
+              testId="input-item-rate-from"
+            />
+          </Field>
+          <Field label="GST %">
+            <TextInput
+              data-testid="input-item-rate-percent"
+              value={ratePercent}
+              onChange={(e) => setRatePercent(e.target.value)}
+              className="num text-right"
+              inputMode="decimal"
+              placeholder="18"
+            />
+          </Field>
+          <Field label="Cess %">
+            <TextInput
+              data-testid="input-item-rate-cess"
+              value={cessPercent}
+              onChange={(e) => setCessPercent(e.target.value)}
+              className="num text-right"
+              inputMode="decimal"
+              placeholder="0"
+            />
+          </Field>
+          <Field label="Notification" hint="A rate with no citation is a rate nobody can audit">
+            <TextInput
+              data-testid="input-item-rate-note"
+              value={note}
+              onChange={(e) => setNote(e.target.value)}
+              placeholder="9/2025-CTR"
+            />
+          </Field>
+        </div>
+        <div className="mt-2 flex justify-end gap-2">
+          {editingId !== null && <Button onClick={reset}>Cancel</Button>}
+          <Button variant="primary" data-testid="btn-item-rate-save" onClick={() => void save()}>
+            {editingId !== null ? 'Update change' : 'Record change'}
+          </Button>
+        </div>
+      </div>
+    </div>
   )
 }
 
@@ -754,10 +1183,10 @@ function UnitsTab(): React.JSX.Element {
         <table className="ledger-table">
           <thead>
             <tr>
-              <th>Name</th>
-              <th className="w-20">Symbol</th>
-              <th className="r w-24">Decimals</th>
-              <th className="w-24">UQC</th>
+              <th scope="col">Name</th>
+              <th scope="col" className="w-20">Symbol</th>
+              <th scope="col" className="r w-24">Decimals</th>
+              <th scope="col" className="w-24">UQC</th>
             </tr>
           </thead>
           <tbody>
@@ -823,11 +1252,11 @@ function TypesTab(): React.JSX.Element {
         <table className="ledger-table">
           <thead>
             <tr>
-              <th>Name</th>
-              <th>Kind</th>
-              <th>Numbering</th>
-              <th className="w-32">Format</th>
-              <th className="w-20"></th>
+              <th scope="col">Name</th>
+              <th scope="col">Kind</th>
+              <th scope="col">Numbering</th>
+              <th scope="col" className="w-32">Format</th>
+              <th scope="col" className="w-20"></th>
             </tr>
           </thead>
           <tbody>
@@ -840,12 +1269,12 @@ function TypesTab(): React.JSX.Element {
                   {t.prefix}
                   {'#'.repeat(Math.max(1, t.padWidth))}
                   {t.suffix}
-                  {!t.restartFy && <span className="ml-1 normal-case text-[10px]">(no FY restart)</span>}
+                  {!t.restartFy && <span className="ml-1 normal-case text-label">(no FY restart)</span>}
                 </td>
                 <td className="r">
-                  <button className="text-[12px] text-blue hover:underline" onClick={() => setEditing(t)}>
+                  <RowAction onClick={() => setEditing(t)}>
                     Edit
-                  </button>
+                  </RowAction>
                 </td>
               </tr>
             ))}
@@ -875,7 +1304,11 @@ function TypeFormModal({ vt, onClose }: { vt: VoucherType | null; onClose: () =>
   const [restartFy, setRestartFy] = useState(vt?.restartFy ?? true)
 
   const pad = Math.min(8, Math.max(0, Number(padWidth) || 0))
-  const previewNumber = (seq: number): string => `${prefix}${String(seq).padStart(pad, '0')}${suffix}`
+  // Previewed against TODAY, because that is the series the next voucher will actually get. The
+  // number itself is expanded against each voucher's own date (see nextVoucherNumber).
+  const previewNumber = (seq: number, date = todayISO()): string =>
+    `${expandSeriesPattern(prefix, date)}${String(seq).padStart(pad, '0')}${expandSeriesPattern(suffix, date)}`
+  const perFy = seriesHasFyToken(prefix) || seriesHasFyToken(suffix)
   // The service keeps a system type's name/kind regardless of input — reflect that in the UI.
   const identityLocked = !!vt?.isSystem
 
@@ -914,25 +1347,41 @@ function TypeFormModal({ vt, onClose }: { vt: VoucherType | null; onClose: () =>
             <option value="manual">Manual</option>
           </Select>
         </Field>
-        <Field label="Prefix" hint="e.g. INV- gives INV-1, INV-2…">
-          <TextInput value={prefix} onChange={(e) => setPrefix(e.target.value)} />
+        <Field label="Prefix" hint="e.g. INV- gives INV-1 · {FY} becomes the financial year">
+          <TextInput data-testid="input-type-prefix" value={prefix} onChange={(e) => setPrefix(e.target.value)} />
         </Field>
-        <Field label="Suffix" hint="e.g. /24-25 gives INV-1/24-25">
+        <Field label="Suffix" hint="e.g. /{YY} gives INV-1/24">
           <TextInput value={suffix} onChange={(e) => setSuffix(e.target.value)} />
         </Field>
         <Field label="Zero-pad width" hint="3 gives 001, 002… — 0 for no padding">
           <TextInput value={padWidth} onChange={(e) => setPadWidth(e.target.value)} className="num" />
         </Field>
       </div>
-      <label className="mt-3 flex items-center gap-2 text-[12.5px]">
+      <label className="mt-3 flex items-center gap-2 text-body-sm">
         <input type="checkbox" checked={restartFy} onChange={(e) => setRestartFy(e.target.checked)} />
         Restart numbering at 1 each financial year
       </label>
       {numbering === 'auto' && (
-        <p className="mt-3 rounded-md border border-line bg-panel2 px-3 py-2 text-[12px] text-muted">
-          Preview: <span className="num text-ink">{previewNumber(1)}</span>, <span className="num text-ink">{previewNumber(2)}</span>
-          {!restartFy && <span> … continuing across financial years</span>}
-        </p>
+        <div className="mt-3 rounded-md border border-line bg-panel2 px-3 py-2 text-small text-muted">
+          <p data-testid="type-number-preview">
+            Preview: <span className="num text-ink">{previewNumber(1)}</span>,{' '}
+            <span className="num text-ink">{previewNumber(2)}</span>
+            {!restartFy && !perFy && <span> … continuing across financial years</span>}
+          </p>
+          {/* Rule 46(b) requires an invoice number to be unique for the financial year. Restarting
+              the count alone does not achieve that — it produces INV-0007 twice, a year apart. */}
+          <p className="mt-1.5">
+            {SERIES_TOKENS.map((t) => t.token).join(' · ')} put the year in the number itself:{' '}
+            <span className="num">{`{FY}`}</span> is {fyOf(todayISO()).label}.
+            {perFy && (
+              <span className="text-ink">
+                {' '}
+                This series restarts every April by construction — last year&rsquo;s numbers no longer
+                share the prefix.
+              </span>
+            )}
+          </p>
+        </div>
       )}
       <div className="mt-4 flex justify-end gap-2">
         <Button onClick={onClose}>Cancel</Button>
@@ -964,9 +1413,9 @@ function GodownsTab(): React.JSX.Element {
           <table className="ledger-table">
             <thead>
               <tr>
-                <th>Name</th>
-                <th>Address</th>
-                <th className="w-20"></th>
+                <th scope="col">Name</th>
+                <th scope="col">Address</th>
+                <th scope="col" className="w-20"></th>
               </tr>
             </thead>
             <tbody data-testid="rows-masters-godowns">
@@ -975,9 +1424,9 @@ function GodownsTab(): React.JSX.Element {
                   <td>{g.name}</td>
                   <td className="max-w-72 truncate text-muted">{g.address ?? ''}</td>
                   <td className="r">
-                    <button data-testid="btn-masters-edit-godown" className="text-[12px] text-blue hover:underline" onClick={() => setEditing(g)}>
+                    <RowAction data-testid="btn-masters-edit-godown" onClick={() => setEditing(g)}>
                       Edit
-                    </button>
+                    </RowAction>
                   </td>
                 </tr>
               ))}
@@ -995,11 +1444,17 @@ function GodownFormModal({ godown, onClose }: { godown: Godown | null; onClose: 
   const queryClient = useQueryClient()
   const [name, setName] = useState(godown?.name ?? '')
   const [address, setAddress] = useState(godown?.address ?? '')
+  // Which GST registration this location sits under (roadmap #108) — what a supply from it
+  // defaults to, and what makes a transfer out of it a supply between two registrations.
+  const registrations = useGstRegistrations()
+  const [gstRegistrationId, setGstRegistrationId] = useState<number | null>(
+    godown?.gstRegistrationId ?? null
+  )
 
   const save = async (): Promise<void> => {
     try {
       if (!name.trim()) return void toast.push('error', 'Name the godown')
-      const data = { name: name.trim(), address: address.trim() || null }
+      const data = { name: name.trim(), address: address.trim() || null, gstRegistrationId }
       if (godown) await api.godowns.update(godown.id, data)
       else await api.godowns.create(data)
       await queryClient.invalidateQueries({ queryKey: ['godowns'] })
@@ -1038,6 +1493,25 @@ function GodownFormModal({ godown, onClose }: { godown: Godown | null; onClose: 
         <Field label="Address">
           <TextInput value={address} onChange={(e) => setAddress(e.target.value)} placeholder="Optional" />
         </Field>
+        {registrations.length > 1 && (
+          <Field
+            label="GST registration"
+            hint="Moving stock to a godown under another registration is a taxable supply"
+          >
+            <Select
+              data-testid="select-godown-registration"
+              value={String(gstRegistrationId ?? '')}
+              onChange={(e) => setGstRegistrationId(e.target.value ? Number(e.target.value) : null)}
+            >
+              <option value="">Not set</option>
+              {registrations.map((r) => (
+                <option key={r.id} value={r.id}>
+                  {registrationLabel(r)}
+                </option>
+              ))}
+            </Select>
+          </Field>
+        )}
         <div className="flex justify-between">
           <div>
             {godown && (
@@ -1111,10 +1585,10 @@ function StockGroupsTab(): React.JSX.Element {
               <div
                 key={group.id}
                 data-row-id={group.id}
-                className="flex items-center rounded px-2 py-1 hover:bg-panel2"
+                className="flex items-center rounded-md px-2 py-1 hover:bg-panel2"
                 style={{ paddingLeft: `${8 + depth * 18}px` }}
               >
-                <span className={`text-[13px] ${depth === 0 ? '' : 'text-muted'}`}>{group.name}</span>
+                <span className={`text-detail ${depth === 0 ? '' : 'text-muted'}`}>{group.name}</span>
               </div>
             ))}
           </div>
@@ -1146,5 +1620,80 @@ function StockGroupsTab(): React.JSX.Element {
         </Modal>
       )}
     </>
+  )
+}
+
+/**
+ * The item's picture (roadmap E #119).
+ *
+ * Only offered on an item that already exists, because the file is stored under the item's id —
+ * there is nowhere to put a picture for something that has not been saved yet, and inventing a
+ * temporary name would leave orphan files behind every time somebody cancelled a new-item form.
+ *
+ * The image itself lives in `<company>/item-images/`, never in the database: a company.db carrying
+ * two hundred product photographs is a database backed up and integrity-checked at forty times its
+ * real size. It comes back over IPC as a data URL because the renderer has no filesystem access at
+ * all, and punching a hole in that to draw a thumbnail would be a poor trade.
+ */
+function ItemImageField({ itemId }: { itemId: number }): React.JSX.Element {
+  const toast = useToasts()
+  const queryClient = useQueryClient()
+  const { data } = useQuery({ queryKey: ['itemImage', itemId], queryFn: () => api.itemImages.get(itemId) })
+
+  const pick = async (): Promise<void> => {
+    try {
+      const result = await api.itemImages.set(itemId)
+      // Null is the user cancelling the native picker, not a failure.
+      if (result) {
+        await queryClient.invalidateQueries({ queryKey: ['itemImage', itemId] })
+        await queryClient.invalidateQueries({ queryKey: ['stockItems'] })
+        toast.push('success', 'Picture set')
+      }
+    } catch (err) {
+      toast.push('error', (err as Error).message)
+    }
+  }
+
+  const clear = async (): Promise<void> => {
+    try {
+      await api.itemImages.clear(itemId)
+      await queryClient.invalidateQueries({ queryKey: ['itemImage', itemId] })
+      await queryClient.invalidateQueries({ queryKey: ['stockItems'] })
+      toast.push('success', 'Picture removed')
+    } catch (err) {
+      toast.push('error', (err as Error).message)
+    }
+  }
+
+  return (
+    <Field label="Picture" hint={ITEM_IMAGE_HINT}>
+      <div className="flex items-center gap-3">
+        {data?.dataUrl ? (
+          <img
+            src={data.dataUrl}
+            alt=""
+            data-testid="img-item-image"
+            className="h-16 w-16 rounded-md border border-line object-cover"
+          />
+        ) : (
+          <div className="flex h-16 w-16 items-center justify-center rounded-md border border-dashed border-line text-caption text-muted">
+            none
+          </div>
+        )}
+        <Button data-testid="btn-item-image-set" onClick={() => void pick()}>
+          {data?.dataUrl ? 'Replace' : 'Choose a picture'}
+        </Button>
+        {data?.image && (
+          <Button variant="ghost" data-testid="btn-item-image-clear" onClick={() => void clear()}>
+            Remove
+          </Button>
+        )}
+        {/* Shown, never hidden: a picture that quietly disappears is the app losing a file
+            without saying so. */}
+        {data?.image?.missing && (
+          <span className="text-hint text-cr">The file is no longer in the company folder.</span>
+        )}
+      </div>
+    </Field>
   )
 }

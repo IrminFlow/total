@@ -59,11 +59,11 @@ export class ErrorBoundary extends Component<Props, State> {
 
     return (
       <Panel className="m-6 p-6">
-        <h2 className="font-serif text-[19px] font-semibold tracking-tight text-cr">Something went wrong</h2>
-        <p className="mt-2 text-[13.5px] text-muted">
+        <h2 className="font-serif text-heading font-semibold tracking-tight text-cr">Something went wrong</h2>
+        <p className="mt-2 text-body text-muted">
           This screen hit an unexpected error. Nothing you haven't saved was touched — go back and try again.
         </p>
-        <p className="mt-3 rounded-md border border-line bg-panel2 px-2.5 py-1.5 font-mono text-[12px] text-muted">
+        <p className="mt-3 rounded-md border border-line bg-panel2 px-2.5 py-1.5 font-mono text-small text-muted">
           {error.message}
         </p>
         <div className="mt-4 flex gap-2">

@@ -6,10 +6,9 @@ import { upsertCompany } from '../registry'
 import { companyDbPath, ensureCompanyTree, slugify } from '../paths'
 import { createLedger, createStockItem } from './masters'
 import { saveVoucher } from './vouchers'
-import {
-  DEMO_COMPANY, DEMO_PARTIES, DEMO_ITEMS, DEMO_EXTRA_LEDGERS, demoVouchers,
-  type DemoVoucher
-} from '@shared/demo'
+import { setBom } from './extras'
+import { getFeatures, setFeatures } from './config'
+import { demoProfile, type DemoTrade, type DemoVoucher } from '@shared/demo'
 import { todayISO } from '@shared/dates'
 import type { VoucherKind } from '@shared/domain'
 
@@ -78,24 +77,32 @@ function postDemoVoucher(
 }
 
 /**
- * Create the "Demo Traders" sample company: seeded masters (parties, items, GST/bank ledgers)
- * plus ~40 balanced sample vouchers, so a first-time user can explore Gateway/GSTR-1/reports
- * without typing anything in. Mirrors company:create (slugify + dedup, ensureCompanyTree,
- * openCompanyDb, seedCompany), then layers demo-specific masters and vouchers on top.
+ * Create a sample company for one of the trades in `DEMO_TRADE_PROFILES` — the shop, the
+ * workshop or the practice (roadmap #293): seeded masters (parties, items, GST/bank ledgers)
+ * plus a few dozen balanced sample vouchers, so a first-time user can explore Gateway/GSTR-1/
+ * reports without typing anything in, in books that look like their own.
+ *
+ * Defaults to 'trading', which is the original "Demo Traders" book, so every existing caller
+ * keeps the company it expects. Mirrors company:create (slugify + dedup, ensureCompanyTree,
+ * openCompanyDb, seedCompany), then layers the profile's masters, bill of materials, feature
+ * toggles and vouchers on top.
  */
-export function createDemoCompany(): { slug: string } {
-  let slug = slugify(DEMO_COMPANY.name)
+export function createDemoCompany(trade: DemoTrade = 'trading'): { slug: string } {
+  const profile = demoProfile(trade)
+  const company = profile.company
+
+  let slug = slugify(company.name)
   let n = 2
-  while (existsSync(companyDbPath(slug))) slug = `${slugify(DEMO_COMPANY.name)}-${n++}`
+  while (existsSync(companyDbPath(slug))) slug = `${slugify(company.name)}-${n++}`
 
   ensureCompanyTree(slug)
   const db = openCompanyDb(slug)
   try {
-    seedCompany(db, DEMO_COMPANY)
+    seedCompany(db, company)
 
     const debtorGroup = groupId(db, 'Sundry Debtors')
     const creditorGroup = groupId(db, 'Sundry Creditors')
-    for (const p of DEMO_PARTIES) {
+    for (const p of profile.parties) {
       createLedger(db, {
         name: p.name,
         groupId: p.kind === 'debtor' ? debtorGroup : creditorGroup,
@@ -113,7 +120,7 @@ export function createDemoCompany(): { slug: string } {
       })
     }
 
-    for (const l of DEMO_EXTRA_LEDGERS) {
+    for (const l of profile.extraLedgers) {
       createLedger(db, {
         name: l.name,
         groupId: groupId(db, l.groupName),
@@ -131,7 +138,7 @@ export function createDemoCompany(): { slug: string } {
       })
     }
 
-    for (const item of DEMO_ITEMS) {
+    for (const item of profile.items) {
       createStockItem(db, {
         name: item.name,
         groupId: null,
@@ -153,13 +160,35 @@ export function createDemoCompany(): { slug: string } {
       (db.prepare('SELECT id, name FROM stock_items').all() as { id: number; name: string }[]).map((r) => [r.name, r.id])
     )
 
-    for (const v of demoVouchers(todayISO())) {
+    const itemId = (name: string): number => {
+      const id = itemIdByName.get(name)
+      if (id === undefined) throw new Error(`Demo BOM references unknown item "${name}"`)
+      return id
+    }
+
+    // The bill of materials is the app's own bom_lines (services/extras.ts#setBom), not a
+    // demo-only shadow of one: the sample is worth having only if Masters → Stock items and the
+    // Manufacture voucher find exactly what a user would have typed in themselves.
+    for (const b of profile.bom) {
+      setBom(db, {
+        itemId: itemId(b.itemName),
+        lines: b.components.map((c) => ({ componentId: itemId(c.itemName), qtyMilliPerUnit: c.qtyMilliPerUnit }))
+      })
+    }
+
+    // A services firm with inventory switched on is shown several screens about stock it will
+    // never have. Settings turns it back on the moment anyone wants it.
+    if (Object.keys(profile.featureOverrides).length > 0) {
+      setFeatures(db, { ...getFeatures(db), ...profile.featureOverrides })
+    }
+
+    for (const v of profile.vouchers(todayISO())) {
       postDemoVoucher(db, v, ledgerIdByName, itemIdByName)
     }
   } finally {
     db.close()
   }
 
-  upsertCompany({ slug, name: DEMO_COMPANY.name, stateCode: DEMO_COMPANY.stateCode, gstin: DEMO_COMPANY.gstin, lastOpenedAt: null })
+  upsertCompany({ slug, name: company.name, stateCode: company.stateCode, gstin: company.gstin, lastOpenedAt: null })
   return { slug }
 }

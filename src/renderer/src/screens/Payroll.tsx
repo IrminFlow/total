@@ -2,17 +2,38 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import type { Employee, PayrollRun } from '@shared/domain'
 import { daysInMonth } from '@shared/payroll'
-import { todayISO } from '@shared/dates'
+import { todayISO, toDisplayDate } from '@shared/dates'
 import { api, type EmployeeHeadRow, type PayHead } from '../lib/client'
 import { formatPaise, parseRupees } from '@shared/money'
 import { useNav, useToasts } from '../state/stores'
 import {
-  AmountInput, Button, EmptyState, Field, Modal, Money, Panel, ScrollList, Select, SkeletonRows, Spinner, TextInput, inputCls
+  AmountInput,
+  Button,
+  EmptyState,
+  ExportGroup,
+  Field,
+  inputCls,
+  Modal,
+  Money,
+  Panel,
+  RowAction,
+  ScrollList,
+  SectionTitle,
+  Select,
+  SkeletonRows,
+  Spinner,
+  TextInput,
+  useTableNav
 } from '../components/ui'
 import { confirmDialog } from '../lib/dialogs'
 import { TabBar } from '../components/TabBar'
+import { useStickyTab } from '../lib/useStickyTab'
+import { AttendanceTab, AdvancesTab, Form16Modal, PayslipsModal, SettlementModal } from './payrollTabs'
+import { auditFieldChanges, fieldLabel } from '@shared/auditDiff'
+import { csvReport, printReport } from '../lib/reportExport'
+import type { ReportColumn as PdfColumn, ReportRow as PdfRow } from '../lib/client'
 
-type Tab = 'employees' | 'runs'
+type Tab = 'employees' | 'attendance' | 'advances' | 'runs' | 'trend'
 
 const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
 
@@ -23,25 +44,40 @@ function monthLabel(month: string): string {
 }
 
 export function PayrollScreen(): React.JSX.Element {
-  const [tab, setTab] = useState<Tab>('employees')
+  const [tab, setTab] = useStickyTab<Tab>(
+    'payroll',
+    ['employees', 'attendance', 'advances', 'runs', 'trend'],
+    'employees'
+  )
+  // One month drives the attendance register and the "what will the next run recover" banner, so
+  // moving between the two tabs does not mean picking the month twice.
+  const [month, setMonth] = useState(() => todayISO().slice(0, 7))
   return (
-    <div className="mx-auto max-w-5xl">
-      <div className="mb-4 flex items-center gap-1">
-        <h2 className="mr-4 font-serif text-[19px] font-semibold tracking-tight">Payroll</h2>
-        <TabBar
-          screen="payroll"
-          tabs={[
-            { id: 'employees', label: 'Employees' },
-            { id: 'runs', label: 'Pay runs' }
-          ]}
-          active={tab}
-          onSelect={setTab}
-        />
-      </div>
-      {tab === 'employees' ? <EmployeesTab /> : <RunsTab />}
-      <p className="mt-3 text-[11.5px] text-muted">
-        Statutory defaults: EPF 12% + 12% on basic (₹15,000 ceiling) · ESI 0.75% / 3.25% when gross ≤ ₹21,000 · simplified professional-tax slab. Posting books one Journal voucher: salaries and employer contributions against PF/ESI/PT/Salaries payable.
-      </p>
+    <div className="flex h-full min-h-0 w-full flex-col max-w-[1440px]">
+      <SectionTitle
+        right={
+          <TabBar
+            screen="payroll"
+            tabs={[
+              { id: 'employees', label: 'Employees' },
+              { id: 'attendance', label: 'Attendance' },
+              { id: 'advances', label: 'Advances' },
+              { id: 'runs', label: 'Pay runs' },
+              { id: 'trend', label: 'Cost over time' }
+            ]}
+            active={tab}
+            onSelect={setTab}
+          />
+        }
+      >
+        Payroll
+      </SectionTitle>
+      {tab === 'employees' && <EmployeesTab />}
+      {tab === 'attendance' && <AttendanceTab month={month} onMonth={setMonth} />}
+      {tab === 'advances' && <AdvancesTab month={month} />}
+      {tab === 'runs' && <RunsTab />}
+      {tab === 'trend' && <TrendTab />}
+      <StatutoryFootnote month={month} />
     </div>
   )
 }
@@ -53,8 +89,12 @@ function EmployeesTab(): React.JSX.Element {
   const queryClient = useQueryClient()
   const { data: employees } = useQuery({ queryKey: ['employees'], queryFn: api.payroll.employees })
   const [editing, setEditing] = useState<Employee | 'new' | null>(null)
+  const [settling, setSettling] = useState<Employee | null>(null)
+  const [form16For, setForm16For] = useState<Employee | null>(null)
   const [headsOpen, setHeadsOpen] = useState(false)
   const [overridesFor, setOverridesFor] = useState<Employee | null>(null)
+  // Enter opens the selected employee for editing, matching the row's Edit button.
+  const table = useTableNav(employees ?? [], { rowId: (e) => e.id, onEnter: (e) => setEditing(e) })
 
   const remove = async (e: Employee): Promise<void> => {
     const proceed = await confirmDialog({
@@ -90,21 +130,28 @@ function EmployeesTab(): React.JSX.Element {
           <table className="ledger-table">
             <thead>
               <tr>
-                <th>Name</th>
-                <th>Designation</th>
-                <th className="r w-28">Basic</th>
-                <th className="r w-28">HRA</th>
-                <th className="r w-28">Special</th>
-                <th className="r w-28">Gross / mo</th>
-                <th className="w-44"></th>
+                <th scope="col">Name</th>
+                <th scope="col">Designation</th>
+                <th scope="col" className="r w-28">Basic</th>
+                <th scope="col" className="r w-28">HRA</th>
+                <th scope="col" className="r w-28">Special</th>
+                <th scope="col" className="r w-28">Gross / mo</th>
+                <th scope="col" className="w-[22rem]"></th>
               </tr>
             </thead>
             <tbody data-testid="rows-payroll-employees">
-              {employees.map((e) => (
-                <tr key={e.id} data-row-id={e.id} className={e.active ? '' : 'opacity-50'}>
+              {employees.map((e, i) => (
+                <tr
+                  key={e.id}
+                  {...table.rowProps(i, e)}
+                  className={`${table.rowProps(i, e).className} ${e.active ? '' : 'opacity-50'}`}
+                >
                   <td>
                     {e.name}
-                    {!e.active && <span className="ml-2 text-[11px] text-muted">inactive</span>}
+                    {!e.active && <span className="ml-2 text-caption text-muted">inactive</span>}
+                    {e.leftOn && (
+                      <span className="ml-2 text-caption text-muted">last day {toDisplayDate(e.leftOn)}</span>
+                    )}
                   </td>
                   <td className="text-muted">{e.designation}</td>
                   <td className="r"><Money paise={e.basic} /></td>
@@ -113,26 +160,41 @@ function EmployeesTab(): React.JSX.Element {
                   <td className="r font-medium"><Money paise={e.basic + e.hra + e.special} /></td>
                   <td className="r">
                     <button
-                      className="mr-3 text-[12px] text-muted hover:text-ink"
+                      className="mr-3 text-small text-muted hover:text-ink"
                       data-testid="btn-payroll-overrides"
                       onClick={() => setOverridesFor(e)}
                     >
                       Heads
                     </button>
-                    <button
-                      className="mr-3 text-[12px] text-blue hover:underline"
+                    <RowAction
                       data-testid="btn-payroll-edit-employee"
                       onClick={() => setEditing(e)}
                     >
                       Edit
+                    </RowAction>
+                    <button
+                      className="mr-3 text-small text-muted hover:text-ink"
+                      data-testid={`btn-payroll-form16-${e.id}`}
+                      title="Form 16 Part B"
+                      onClick={() => setForm16For(e)}
+                    >
+                      Form 16
                     </button>
                     <button
-                      className="text-[12px] text-cr hover:underline"
+                      className="mr-3 text-small text-muted hover:text-ink"
+                      data-testid={`btn-payroll-settle-${e.id}`}
+                      title="Full and final settlement"
+                      onClick={() => setSettling(e)}
+                    >
+                      Settle
+                    </button>
+                    <RowAction
+                      tone="danger"
                       data-testid="btn-payroll-delete-employee"
                       onClick={() => void remove(e)}
                     >
                       Delete
-                    </button>
+                    </RowAction>
                   </td>
                 </tr>
               ))}
@@ -143,6 +205,17 @@ function EmployeesTab(): React.JSX.Element {
       {editing && <EmployeeModal employee={editing === 'new' ? null : editing} onClose={() => setEditing(null)} />}
       {headsOpen && <PayHeadsModal onClose={() => setHeadsOpen(false)} />}
       {overridesFor && <EmployeeHeadsModal employee={overridesFor} onClose={() => setOverridesFor(null)} />}
+      {settling && (
+        <SettlementModal
+          employeeId={settling.id}
+          employeeName={settling.name}
+          defaultLastDay={settling.leftOn}
+          onClose={() => setSettling(null)}
+        />
+      )}
+      {form16For && (
+        <Form16Modal employeeId={form16For.id} employeeName={form16For.name} onClose={() => setForm16For(null)} />
+      )}
     </>
   )
 }
@@ -155,6 +228,8 @@ function EmployeeModal({ employee, onClose }: { employee: Employee | null; onClo
   const [code, setCode] = useState(employee?.code ?? '')
   const [pan, setPan] = useState(employee?.pan ?? '')
   const [uan, setUan] = useState(employee?.uan ?? '')
+  const [bankAccount, setBankAccount] = useState(employee?.bankAccount ?? '')
+  const [ifsc, setIfsc] = useState(employee?.ifsc ?? '')
   const [basic, setBasic] = useState<number | null>(employee?.basic ?? null)
   const [hra, setHra] = useState<number | null>(employee?.hra ?? null)
   const [special, setSpecial] = useState<number | null>(employee?.special ?? null)
@@ -162,6 +237,13 @@ function EmployeeModal({ employee, onClose }: { employee: Employee | null; onClo
   const [esiEnabled, setEsi] = useState(employee?.esiEnabled ?? true)
   const [ptEnabled, setPt] = useState(employee?.ptEnabled ?? true)
   const [active, setActive] = useState(employee?.active ?? true)
+  const [joined, setJoined] = useState(employee?.joined ?? '')
+  const [leftOn, setLeftOn] = useState(employee?.leftOn ?? '')
+  const [email, setEmail] = useState(employee?.email ?? '')
+  const [phone, setPhone] = useState(employee?.phone ?? '')
+  const [taxRegime, setTaxRegime] = useState<'new' | 'old'>(employee?.taxRegime ?? 'new')
+  const [declared, setDeclared] = useState<number | null>(employee?.declaredDeductions ?? null)
+  const [openingTds, setOpeningTds] = useState<number | null>(employee?.openingTds ?? null)
 
   const save = async (): Promise<void> => {
     try {
@@ -170,13 +252,21 @@ function EmployeeModal({ employee, onClose }: { employee: Employee | null; onClo
           name: name.trim(),
           code: code.trim() || null,
           designation: designation.trim() || null,
-          joined: employee?.joined ?? null,
+          joined: joined.trim() || null,
+          leftOn: leftOn.trim() || null,
           pan: pan.trim() || null,
           uan: uan.trim() || null,
           esicNo: employee?.esicNo ?? null,
+          bankAccount: bankAccount.trim() || null,
+          ifsc: ifsc.trim().toUpperCase() || null,
           basic: basic ?? 0,
           hra: hra ?? 0,
           special: special ?? 0,
+          email: email.trim() || null,
+          phone: phone.trim() || null,
+          taxRegime,
+          declaredDeductions: taxRegime === 'old' ? declared : null,
+          openingTds,
           pfEnabled,
           esiEnabled,
           ptEnabled,
@@ -197,7 +287,7 @@ function EmployeeModal({ employee, onClose }: { employee: Employee | null; onClo
   }
 
   const check = (label: string, value: boolean, set: (v: boolean) => void): React.JSX.Element => (
-    <label className="flex items-center gap-2 text-[13px]">
+    <label className="flex items-center gap-2 text-detail">
       <input type="checkbox" checked={value} onChange={(e) => set(e.target.checked)} />
       {label}
     </label>
@@ -225,6 +315,93 @@ function EmployeeModal({ employee, onClose }: { employee: Employee | null; onClo
             <TextInput value={uan} onChange={(e) => setUan(e.target.value)} className="num" />
           </Field>
         </div>
+        {/* Needed only for the bulk transfer file. An employee genuinely paid in cash has
+            neither, and payroll must not refuse a run over it. */}
+        <div className="grid grid-cols-2 gap-3">
+          <Field label="Bank account" hint="For the salary transfer file. Leave blank if paid in cash.">
+            <TextInput
+              data-testid="input-employee-account"
+              value={bankAccount}
+              onChange={(e) => setBankAccount(e.target.value)}
+              className="num"
+            />
+          </Field>
+          <Field
+            label="IFSC"
+            error={ifsc.trim() && !/^[A-Za-z]{4}0[A-Za-z0-9]{6}$/.test(ifsc.trim()) ? 'Not an IFSC (e.g. HDFC0001234)' : null}
+          >
+            <TextInput
+              data-testid="input-employee-ifsc"
+              value={ifsc}
+              onChange={(e) => setIfsc(e.target.value.toUpperCase())}
+              className="num"
+              placeholder="HDFC0001234"
+            />
+          </Field>
+        </div>
+        <div className="grid grid-cols-2 gap-3">
+          <Field label="Joined" hint="Gratuity cannot be computed without it">
+            <TextInput
+              type="date"
+              data-testid="input-employee-joined"
+              value={joined}
+              onChange={(e) => setJoined(e.target.value)}
+            />
+          </Field>
+          <Field
+            label="Last working day"
+            hint="Inclusive — leave blank while employed"
+            error={joined && leftOn && leftOn < joined ? 'Cannot be before the joining date' : null}
+          >
+            <TextInput
+              type="date"
+              data-testid="input-employee-left-on"
+              value={leftOn}
+              onChange={(e) => setLeftOn(e.target.value)}
+            />
+          </Field>
+          <Field label="Email" hint="Where the payslip goes">
+            <TextInput
+              data-testid="input-employee-email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              inputMode="email"
+            />
+          </Field>
+          <Field label="Phone" hint="Drives WhatsApp payslip delivery">
+            <TextInput
+              data-testid="input-employee-phone"
+              value={phone}
+              onChange={(e) => setPhone(e.target.value)}
+              className="num"
+              inputMode="tel"
+            />
+          </Field>
+        </div>
+        <div className="grid grid-cols-3 gap-3">
+          <Field
+            label="Tax regime"
+            hint={taxRegime === 'new' ? 'The statutory default. Almost no deductions survive it.' : 'Chosen deliberately'}
+          >
+            <Select
+              data-testid="select-employee-regime"
+              value={taxRegime}
+              onChange={(e) => setTaxRegime(e.target.value as 'new' | 'old')}
+            >
+              <option value="new">New (section 115BAC)</option>
+              <option value="old">Old</option>
+            </Select>
+          </Field>
+          <Field
+            label="Declared deductions"
+            hint={taxRegime === 'old' ? '80C, 80D and the rest, for the year' : 'Not allowed under the new regime'}
+          >
+            <AmountInput paise={declared} onPaise={setDeclared} />
+          </Field>
+          <Field label="TDS already taken" hint="This financial year, by a previous system">
+            <AmountInput paise={openingTds} onPaise={setOpeningTds} />
+          </Field>
+        </div>
         <div className="grid grid-cols-3 gap-3">
           <Field label="Basic / month">
             <AmountInput paise={basic} onPaise={setBasic} />
@@ -242,6 +419,7 @@ function EmployeeModal({ employee, onClose }: { employee: Employee | null; onClo
           {check('Professional tax', ptEnabled, setPt)}
           {check('Active', active, setActive)}
         </div>
+        {employee && <SalaryHistory employeeId={employee.id} />}
         <div className="flex justify-end gap-2">
           <Button onClick={onClose}>Cancel</Button>
           <Button variant="primary" data-testid="btn-payroll-save-employee" onClick={() => void save()}>
@@ -250,6 +428,82 @@ function EmployeeModal({ employee, onClose }: { employee: Employee | null; onClo
         </div>
       </div>
     </Modal>
+  )
+}
+
+/** Pay fields, in the order they appear on the form. Anything else — a corrected PAN, a change of
+ *  professional-tax state — is a change to the record but not a salary revision, and listing it
+ *  here would bury the ones that are. */
+const PAY_FIELDS = new Set(['basic', 'hra', 'special'])
+
+/**
+ * When this employee's pay changed, and by how much.
+ *
+ * Derived from the audit log rather than a second table: employee saves have always recorded
+ * their full before and after, so the revision history already existed — it simply had nowhere to
+ * be read. A separate salary-history table would be a second record of the same fact, free to
+ * disagree with the first.
+ *
+ * Collapsed by default. Most edits are opened to fix a detail, not to review a history.
+ */
+function SalaryHistory({ employeeId }: { employeeId: number }): React.JSX.Element {
+  const [open, setOpen] = useState(false)
+  const { data } = useQuery({
+    queryKey: ['employeeAudit', employeeId],
+    queryFn: () => api.audit.list({ entity: 'employee', entityId: employeeId, page: 0, pageSize: 50 }),
+    enabled: open
+  })
+
+  const revisions = (data?.rows ?? [])
+    .filter((row) => row.beforeJson && row.afterJson)
+    .map((row) => ({
+      row,
+      changes: auditFieldChanges(
+        JSON.parse(row.beforeJson!) as unknown,
+        JSON.parse(row.afterJson!) as unknown,
+        (paise) => formatPaise(paise)
+      ).filter((c) => PAY_FIELDS.has(c.field))
+    }))
+    .filter((r) => r.changes.length > 0)
+
+  return (
+    <div>
+      <button
+        data-testid="btn-salary-history"
+        className="text-small text-muted hover:text-ink"
+        onClick={() => setOpen((v) => !v)}
+      >
+        {open ? '▾' : '▸'} Salary history
+      </button>
+      {open && (
+        <div className="mt-2 rounded-md border border-line bg-panel2 p-3" data-testid="salary-history">
+          {!data ? (
+            <p className="text-hint text-muted">Loading…</p>
+          ) : revisions.length === 0 ? (
+            // Possible and unremarkable: an employee whose pay has never been changed since they
+            // were added, or one imported before the audit log covered them.
+            <p className="text-hint text-muted">No pay changes recorded for this employee.</p>
+          ) : (
+            <ol className="flex flex-col gap-1.5">
+              {revisions.map(({ row, changes }) => (
+                <li key={row.id} className="text-body-sm">
+                  <span className="num text-muted">{row.at}</span>
+                  <span className="text-muted"> · {row.userName ?? 'someone'}</span>
+                  <ul className="mt-0.5 ml-4 flex flex-col gap-0.5 text-hint text-muted">
+                    {changes.map((c) => (
+                      <li key={c.field}>
+                        {fieldLabel(c.field)}: <span className="num">{c.before ?? '—'}</span> →{' '}
+                        <span className="num text-ink">{c.after ?? '—'}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </li>
+              ))}
+            </ol>
+          )}
+        </div>
+      )}
+    </div>
   )
 }
 
@@ -354,12 +608,12 @@ function PayHeadsModal({ onClose }: { onClose: () => void }): React.JSX.Element 
             <table className="ledger-table">
               <thead>
                 <tr>
-                  <th>Name</th>
-                  <th className="w-24">Kind</th>
-                  <th className="w-36">Calculation</th>
-                  <th className="r w-32">Value</th>
-                  <th className="w-16">Active</th>
-                  <th className="w-28"></th>
+                  <th scope="col">Name</th>
+                  <th scope="col" className="w-24">Kind</th>
+                  <th scope="col" className="w-36">Calculation</th>
+                  <th scope="col" className="r w-32">Value</th>
+                  <th scope="col" className="w-16">Active</th>
+                  <th scope="col" className="w-28"></th>
                 </tr>
               </thead>
               <tbody data-testid="rows-payroll-heads">
@@ -371,12 +625,12 @@ function PayHeadsModal({ onClose }: { onClose: () => void }): React.JSX.Element 
                     <td className="num r">{h.calc === 'flat' ? <Money paise={h.value} /> : percentLabel(h.value)}</td>
                     <td className="text-muted">{h.active ? 'Yes' : 'No'}</td>
                     <td className="r">
-                      <button className="mr-3 text-[12px] text-blue hover:underline" onClick={() => edit(h)}>
+                      <RowAction onClick={() => edit(h)}>
                         Edit
-                      </button>
-                      <button className="text-[12px] text-cr hover:underline" onClick={() => void remove(h)}>
+                      </RowAction>
+                      <RowAction tone="danger" onClick={() => void remove(h)}>
                         Delete
-                      </button>
+                      </RowAction>
                     </td>
                   </tr>
                 ))}
@@ -386,7 +640,7 @@ function PayHeadsModal({ onClose }: { onClose: () => void }): React.JSX.Element 
         )}
 
         <div className="border-t border-line pt-4">
-          <p className="mb-2 text-[11px] font-semibold tracking-[0.08em] text-muted uppercase">{editingId ? 'Edit pay head' : 'Add pay head'}</p>
+          <p className="mb-2 text-caption font-semibold tracking-[0.08em] text-muted uppercase">{editingId ? 'Edit pay head' : 'Add pay head'}</p>
           <div className="grid grid-cols-4 gap-3">
             <Field label="Name">
               <TextInput value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Conveyance" />
@@ -420,7 +674,7 @@ function PayHeadsModal({ onClose }: { onClose: () => void }): React.JSX.Element 
             )}
           </div>
           <div className="mt-3 flex items-center justify-between">
-            <label className="flex items-center gap-2 text-[13px] text-ink">
+            <label className="flex items-center gap-2 text-detail text-ink">
               <input type="checkbox" checked={active} onChange={(e) => setActive(e.target.checked)} />
               Active
             </label>
@@ -431,7 +685,7 @@ function PayHeadsModal({ onClose }: { onClose: () => void }): React.JSX.Element 
               </Button>
             </span>
           </div>
-          <p className="mt-2 text-[11.5px] text-muted">
+          <p className="mt-2 text-hint text-muted">
             Basic, HRA and Special Allowance are the built-in salary heads — their per-employee values live on the employee form and mirror here automatically.
           </p>
         </div>
@@ -502,7 +756,7 @@ function EmployeeHeadsModal({ employee, onClose }: { employee: Employee; onClose
   return (
     <Modal title={`Pay heads — ${employee.name}`} onClose={onClose} wide dirty={dirty}>
       {!loaded ? (
-        <div className="flex items-center gap-2 py-4 text-[13px] text-muted">
+        <div className="flex items-center gap-2 py-4 text-detail text-muted">
           <Spinner /> Loading…
         </div>
       ) : !heads.length ? (
@@ -513,11 +767,11 @@ function EmployeeHeadsModal({ employee, onClose }: { employee: Employee; onClose
             <table className="ledger-table">
               <thead>
                 <tr>
-                  <th className="w-10"></th>
-                  <th>Head</th>
-                  <th className="w-24">Kind</th>
-                  <th className="r w-32">Default</th>
-                  <th className="r w-44">Override for {employee.name.split(' ')[0]}</th>
+                  <th scope="col" className="w-10"></th>
+                  <th scope="col">Head</th>
+                  <th scope="col" className="w-24">Kind</th>
+                  <th scope="col" className="r w-32">Default</th>
+                  <th scope="col" className="r w-44">Override for {employee.name.split(' ')[0]}</th>
                 </tr>
               </thead>
               <tbody data-testid="rows-payroll-employee-heads">
@@ -534,7 +788,7 @@ function EmployeeHeadsModal({ employee, onClose }: { employee: Employee; onClose
                       </td>
                       <td>
                         {h.name}
-                        {!h.active && <span className="ml-2 text-[11px] text-muted">paused</span>}
+                        {!h.active && <span className="ml-2 text-caption text-muted">paused</span>}
                       </td>
                       <td className="capitalize text-muted">{h.kind}</td>
                       <td className="num r">{h.calc === 'flat' ? <Money paise={h.value} /> : percentLabel(h.value)}</td>
@@ -553,7 +807,7 @@ function EmployeeHeadsModal({ employee, onClose }: { employee: Employee; onClose
               </tbody>
             </table>
           </ScrollList>
-          <p className="text-[11.5px] text-muted">
+          <p className="text-hint text-muted">
             Empty override = the head's default value. Basic, HRA and Special Allowance overrides write back to the salary fields on the employee form.
           </p>
           <div className="flex justify-end gap-2 border-t border-line pt-4">
@@ -719,13 +973,13 @@ function RunsTab(): React.JSX.Element {
             <table className="ledger-table">
               <thead>
                 <tr>
-                  <th>Employee</th>
-                  <th className="r w-24">Days</th>
-                  <th className="r w-32">Gross</th>
-                  <th className="r w-24">PF</th>
-                  <th className="r w-24">ESI</th>
-                  <th className="r w-20">PT</th>
-                  <th className="r w-32">Net pay</th>
+                  <th scope="col">Employee</th>
+                  <th scope="col" className="r w-24">Days</th>
+                  <th scope="col" className="r w-32">Gross</th>
+                  <th scope="col" className="r w-24">PF</th>
+                  <th scope="col" className="r w-24">ESI</th>
+                  <th scope="col" className="r w-20">PT</th>
+                  <th scope="col" className="r w-32">Net pay</th>
                 </tr>
               </thead>
               <tbody data-testid="rows-payroll-preview">
@@ -743,7 +997,7 @@ function RunsTab(): React.JSX.Element {
                           step={0.5}
                           data-testid="input-payroll-days"
                           aria-invalid={err ? true : undefined}
-                          className={`num w-16 rounded border px-1.5 py-0.5 text-right text-[12.5px] bg-panel2 ${err ? 'border-cr/70' : 'border-line'}`}
+                          className={`num w-16 rounded-md border px-1.5 py-0.5 text-right text-body-sm bg-panel2 ${err ? 'border-cr/70' : 'border-line'}`}
                           value={daysOverride[e.id] ?? String(monthDays)}
                           onChange={(ev) => setDaysOverride((d) => ({ ...d, [e.id]: ev.target.value }))}
                         />
@@ -771,7 +1025,7 @@ function RunsTab(): React.JSX.Element {
       </Panel>
 
       <Panel scroll={{ maxH: '52vh' }}>
-        <p className="border-b border-line px-4 py-2.5 text-[11px] font-semibold tracking-[0.08em] text-muted uppercase">
+        <p className="border-b border-line px-4 py-2.5 text-caption font-semibold tracking-[0.08em] text-muted uppercase">
           Posted runs
         </p>
         {runsLoading ? (
@@ -791,6 +1045,7 @@ function RunRow({ run }: { run: PayrollRun }): React.JSX.Element {
   const nav = useNav()
   const queryClient = useQueryClient()
   const [payslipsOpen, setPayslipsOpen] = useState(false)
+  const [sendingPayslips, setSendingPayslips] = useState(false)
   const [ptOpen, setPtOpen] = useState(false)
   const payslipsRef = useRef<HTMLSpanElement>(null)
 
@@ -811,10 +1066,53 @@ function RunRow({ run }: { run: PayrollRun }): React.JSX.Element {
     }
   }, [payslipsOpen])
 
+  /**
+   * Write a statutory file, after checking the portal would take it.
+   *
+   * The ECR is checked first because EPFO rejects the whole upload over one bad line and answers
+   * with a line number rather than a name. Anyone the file cannot carry is named here too: a
+   * member silently left out only finds out when their passbook does not update.
+   */
   const exportFile = async (kind: 'ecr' | 'esi'): Promise<void> => {
     try {
+      if (kind === 'ecr') {
+        const check = await api.payroll.ecrCheck(run.id)
+        const errors = check.problems.filter((p) => p.severity === 'error')
+        if (errors.length > 0) {
+          toast.push('error', `EPFO would reject this: ${errors[0]!.employee} — ${errors[0]!.message}`)
+          return
+        }
+        for (const w of check.problems.filter((p) => p.severity === 'warning')) {
+          toast.push('warning', `${w.employee}: ${w.message}`)
+        }
+        for (const s of check.skipped) toast.push('warning', `${s.name} is not in the file — ${s.reason}`)
+      }
       const r = kind === 'ecr' ? await api.payroll.ecr(run.id) : await api.payroll.esiCsv(run.id)
       toast.push('success', `${kind === 'ecr' ? 'PF ECR' : 'ESI CSV'}: ${r.path}`)
+    } catch (err) {
+      toast.push('error', (err as Error).message)
+    }
+  }
+
+  /**
+   * The bulk transfer file for this run.
+   *
+   * Anyone left out is named in the toast rather than reported only in the file. A transfer file
+   * that silently omits someone is how a person does not get paid, and the business finds out
+   * from them rather than from the file.
+   */
+  const transferFile = async (): Promise<void> => {
+    try {
+      const r = await api.payroll.transferFile(run.id)
+      if (r.skipped.length > 0) {
+        toast.push(
+          'warning',
+          `${r.count} of ${r.count + r.skipped.length} in the file — ` +
+            r.skipped.map((s) => `${s.employeeName} (${s.reason})`).join(', ')
+        )
+      } else {
+        toast.push('success', `${r.count} transfers: ${r.path}`)
+      }
     } catch (err) {
       toast.push('error', (err as Error).message)
     }
@@ -841,7 +1139,7 @@ function RunRow({ run }: { run: PayrollRun }): React.JSX.Element {
     <div className="border-b border-line/50 px-4 py-2.5 last:border-b-0" data-row-id={run.id}>
       <div className="flex items-center justify-between">
         <span className="font-medium">{monthLabel(run.month)}</span>
-        <span className="flex items-center gap-3 text-[12px]">
+        <span className="flex items-center gap-3 text-small">
           <Money paise={run.lines.reduce((s, l) => s + l.net, 0)} />
           {run.voucherId && (
             <button
@@ -866,7 +1164,7 @@ function RunRow({ run }: { run: PayrollRun }): React.JSX.Element {
                   {run.lines.map((l) => (
                     <button
                       key={l.id}
-                      className="block w-full truncate px-3 py-1.5 text-left text-[12.5px] text-ink hover:bg-panel2"
+                      className="block w-full truncate px-3 py-1.5 text-left text-body-sm text-ink hover:bg-panel2"
                       title="Open payslip PDF"
                       onClick={() => {
                         setPayslipsOpen(false)
@@ -877,9 +1175,30 @@ function RunRow({ run }: { run: PayrollRun }): React.JSX.Element {
                     </button>
                   ))}
                 </ScrollList>
+                <span className="mt-1 block border-t border-line pt-1">
+                  <button
+                    className="block w-full px-3 py-1.5 text-left text-body-sm font-medium text-ink hover:bg-panel2"
+                    data-testid="btn-payroll-payslips-all"
+                    title="Write every payslip and get a way to send each one"
+                    onClick={() => {
+                      setPayslipsOpen(false)
+                      setSendingPayslips(true)
+                    }}
+                  >
+                    All {run.lines.length}, with sending…
+                  </button>
+                </span>
               </span>
             )}
           </span>
+          <button
+            className="text-muted hover:text-ink"
+            data-testid="btn-payroll-transfer"
+            onClick={() => void transferFile()}
+            title="Bulk salary transfer CSV for your bank"
+          >
+            Transfer file
+          </button>
           <button className="text-muted hover:text-ink" data-testid="btn-payroll-ecr" onClick={() => void exportFile('ecr')} title="EPFO ECR upload file">
             PF ECR
           </button>
@@ -895,6 +1214,14 @@ function RunRow({ run }: { run: PayrollRun }): React.JSX.Element {
         </span>
       </div>
       {ptOpen && <PtSummaryModal run={run} onClose={() => setPtOpen(false)} />}
+      {sendingPayslips && (
+        <PayslipsModal
+          runId={run.id}
+          monthLabel={monthLabel(run.month)}
+          count={run.lines.length}
+          onClose={() => setSendingPayslips(false)}
+        />
+      )}
     </div>
   )
 }
@@ -918,7 +1245,7 @@ function PtSummaryModal({ run, onClose }: { run: PayrollRun; onClose: () => void
   return (
     <Modal title={`Professional tax — ${monthLabel(run.month)}`} onClose={onClose}>
       {isLoading || !rows ? (
-        <div className="flex items-center gap-2 py-4 text-[13px] text-muted">
+        <div className="flex items-center gap-2 py-4 text-detail text-muted">
           <Spinner /> Loading…
         </div>
       ) : rows.length === 0 ? (
@@ -927,10 +1254,10 @@ function PtSummaryModal({ run, onClose }: { run: PayrollRun; onClose: () => void
         <table className="ledger-table">
           <thead>
             <tr>
-              <th>State</th>
-              <th className="r w-28">Employees</th>
-              <th className="r w-32">Gross</th>
-              <th className="r w-32">PT payable</th>
+              <th scope="col">State</th>
+              <th scope="col" className="r w-28">Employees</th>
+              <th scope="col" className="r w-32">Gross</th>
+              <th scope="col" className="r w-32">PT payable</th>
             </tr>
           </thead>
           <tbody data-testid="rows-payroll-pt">
@@ -959,5 +1286,165 @@ function PtSummaryModal({ run, onClose }: { run: PayrollRun; onClose: () => void
         </div>
       )}
     </Modal>
+  )
+}
+
+// ---------- cost over time ----------
+
+/**
+ * What payroll cost, month by month, and how many people it covered.
+ *
+ * Payroll is usually the largest single expense a small business has and the one it looks at
+ * least: the run is committed, the payslips go out, and nobody asks what it did over the year.
+ *
+ * Employer cost, not gross, is the headline. Gross understates what actually left the business by
+ * roughly a seventh once the employer's own PF and ESI are counted, and that gap is precisely
+ * what someone budgeting a hire needs to see. Cost per head sits beside it because a rise on more
+ * people is a different fact from the same rise on the same people.
+ */
+function TrendTab(): React.JSX.Element {
+  const toast = useToasts()
+  const { data, isLoading } = useQuery({ queryKey: ['payrollTrend'], queryFn: () => api.payroll.trend() })
+  const rows = data ?? []
+
+  const columns: PdfColumn[] = [
+    { label: 'Month', align: 'l' },
+    { label: 'People', align: 'r' },
+    { label: 'Gross', align: 'r' },
+    { label: 'Employer PF/ESI', align: 'r' },
+    { label: 'Total cost', align: 'r' },
+    { label: 'Per head', align: 'r' },
+    { label: 'Net paid', align: 'r' }
+  ]
+  const exportRows: PdfRow[] = rows.map((r) => ({
+    cells: [
+      r.label,
+      String(r.headcount),
+      formatPaise(r.gross),
+      formatPaise(r.employerContributions),
+      formatPaise(r.employerCost),
+      formatPaise(r.costPerHead),
+      formatPaise(r.net)
+    ]
+  }))
+
+  if (isLoading) return <SkeletonRows rows={6} />
+  if (rows.length === 0) {
+    return (
+      <Panel>
+        <EmptyState
+          title="No pay runs yet"
+          hint="Commit a pay run and its cost will show here, month by month."
+        />
+      </Panel>
+    )
+  }
+
+  const latest = rows[rows.length - 1]!
+  const previous = rows.length > 1 ? rows[rows.length - 2] : null
+
+  return (
+    <>
+      <div className="mb-3 flex items-center gap-3">
+        <span className="text-body-sm">
+          <b>{latest.label}</b>: <Money paise={latest.employerCost} /> for {latest.headcount}{' '}
+          {latest.headcount === 1 ? 'person' : 'people'}
+        </span>
+        {previous && previous.employerCost > 0 && (
+          <span
+            className={`text-hint ${latest.employerCost > previous.employerCost ? 'text-cr' : 'text-dr'}`}
+            data-testid="payroll-trend-change"
+          >
+            {latest.employerCost >= previous.employerCost ? '+' : ''}
+            {Math.round(((latest.employerCost - previous.employerCost) / previous.employerCost) * 100)}% on{' '}
+            {previous.label}
+            {latest.headcount !== previous.headcount &&
+              ` · ${latest.headcount > previous.headcount ? '+' : ''}${latest.headcount - previous.headcount} ${
+                Math.abs(latest.headcount - previous.headcount) === 1 ? 'person' : 'people'
+              }`}
+          </span>
+        )}
+        <span className="flex-1" />
+        <ExportGroup
+          items={[
+            {
+              label: 'PDF',
+              onClick: () => void printReport(
+                {
+                  title: 'Payroll cost over time',
+                  periodLabel: `${rows[0]!.label} to ${latest.label}`,
+                  columns,
+                  rows: exportRows,
+                  filename: 'payroll-trend'
+                },
+                toast
+              )
+            },
+            {
+              label: 'CSV',
+              onClick: () => void csvReport(columns.map((c) => c.label), exportRows.map((r) => r.cells), 'payroll-trend', toast)
+            }
+          ]}
+        />
+      </div>
+
+      <Panel>
+        <table className="ledger-table">
+          <thead>
+            <tr>
+              <th scope="col">Month</th>
+              <th scope="col" className="r w-24">People</th>
+              <th scope="col" className="r w-36">Gross</th>
+              <th scope="col" className="r w-36">Employer PF/ESI</th>
+              <th scope="col" className="r w-36">Total cost</th>
+              <th scope="col" className="r w-32">Per head</th>
+              <th scope="col" className="r w-36">Net paid</th>
+            </tr>
+          </thead>
+          <tbody data-testid="rows-payroll-trend">
+            {rows.map((r) => (
+              <tr key={r.month}>
+                <td>{r.label}</td>
+                <td className="r num">{r.headcount}</td>
+                <td className="r"><Money paise={r.gross} /></td>
+                <td className="r text-muted"><Money paise={r.employerContributions} /></td>
+                <td className="r font-semibold"><Money paise={r.employerCost} /></td>
+                <td className="r text-muted"><Money paise={r.costPerHead} /></td>
+                <td className="r"><Money paise={r.net} /></td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </Panel>
+      <p className="mt-2 text-hint text-muted">
+        Total cost is gross plus the employer&rsquo;s own PF and ESI — what actually left the
+        business, which gross alone understates by roughly a seventh.
+      </p>
+    </>
+  )
+}
+
+
+/**
+ * The rates the run will actually use, rather than the rates that happen to apply today.
+ *
+ * Stated per month because they change on dates: a June 2019 run and a July 2019 run are computed
+ * on different ESI rates, and a footnote that says otherwise is a footnote that will be quoted
+ * back during an inspection.
+ */
+function StatutoryFootnote({ month }: { month: string }): React.JSX.Element {
+  const { data } = useQuery({ queryKey: ['payrollRates', month], queryFn: () => api.payroll.rates(month) })
+  const r = data?.rates
+  if (!r) return <p className="mt-3 text-hint text-muted">Loading the rates in force…</p>
+  const pct = (n: number): string => `${n}%`
+  return (
+    <p className="mt-3 text-hint text-muted" data-testid="statutory-footnote">
+      Rates in force for {monthLabel(month)} (effective {toDisplayDate(r.effectiveFrom)}): EPF{' '}
+      {pct(r.pfRate)} + {pct(r.pfRate)} on basic, ceiling {formatPaise(r.pfWageCeiling, { symbol: true })} · EPS{' '}
+      {pct(r.epsRate)} · admin {pct(r.pfAdminRate)} + EDLI {pct(r.edliRate)} · ESI {pct(r.esiEmpRate)} /{' '}
+      {pct(r.esiErRate)} when gross ≤ {formatPaise(r.esiGrossLimit, { symbol: true })} · professional tax by state
+      slab. Posting books one Journal voucher; a run is always computed on its own month&rsquo;s rates,
+      so re-opening an old one cannot change what was filed.
+    </p>
   )
 }

@@ -3,12 +3,53 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import type { TdsSection } from '@shared/domain'
 import { api } from '../lib/client'
 import { useSession, useToasts } from '../state/stores'
-import { AmountInput, Button, EmptyState, Field, Modal, Money, Panel, ScrollList, SectionTitle, Select, TextInput } from '../components/ui'
+import {
+  AmountInput,
+  Button,
+  EmptyState,
+  Field,
+  Modal,
+  Money,
+  Panel,
+  RowAction,
+  ScrollList,
+  SectionTitle,
+  Select,
+  TextInput,
+  useTableNav
+} from '../components/ui'
 import { useLedgers } from '../components/pickers'
-import { fyOf, fyFromStartYear, todayISO } from '@shared/dates'
+import { fyOf, fyFromStartYear, toDisplayDate, todayISO } from '@shared/dates'
 import { tdsQuarterOf } from '@shared/tds'
+import { useStickyTab } from '../lib/useStickyTab'
+import { CertificatesTab, ChallansTab, Form26asTab, LowerDeductionTab, ReturnTab } from './tdsTabs'
 
 const QUARTERS = [1, 2, 3, 4] as const
+
+/**
+ * The six things a deductor does with TDS, in the order the year goes.
+ *
+ * Deductions are recorded by voucher entry, so the summary is a read-out. Everything after it is
+ * work: paying the tax and recording the challan, filing the statement, issuing the vendor's
+ * certificate, keeping the section 197 certificates the department issued against us, and
+ * reconciling what we deducted against what 26AS says was credited. Each is a step nothing in
+ * this app could do before.
+ *
+ * `ldc` and `26as` arrived on another branch as a second, competing tab strip on this screen.
+ * They are views in the one strip instead — two tab bars for one screen is how a user loses a
+ * feature. The id is `ldc`, not `certificates`, because `certificates` already means Form 16A
+ * here: the one we ISSUE to a vendor, not the one the Assessing Officer issues about them.
+ */
+type TdsView = 'summary' | 'challans' | 'return' | 'certificates' | 'ldc' | '26as'
+
+const VIEWS: { id: TdsView; label: string; hint: string }[] = [
+  { id: 'summary', label: 'Deductions', hint: 'What was deducted, section by section' },
+  { id: 'challans', label: 'Challans', hint: 'How the tax was paid — the BSR code, date and serial a statement needs' },
+  { id: 'return', label: 'TDS return', hint: 'The date-selected quarterly statement, and everything standing between it and the FVU' },
+  { id: 'certificates', label: 'Form 16A', hint: 'The deduction certificate for a vendor' },
+  { id: 'ldc', label: 'Section 197', hint: 'Certificates telling us to deduct less, and how much of each ceiling is left' },
+  { id: '26as', label: '26AS', hint: 'What we deducted against what the department says was credited' }
+]
 
 export function TdsScreen(): React.JSX.Element {
   const { info } = useSession()
@@ -18,6 +59,8 @@ export function TdsScreen(): React.JSX.Element {
   const [fyStartYear, setFyStartYear] = useState(currentFy.startYear)
   const [quarter, setQuarter] = useState<1 | 2 | 3 | 4>(tdsQuarterOf(todayISO()).q)
   const [sectionsOpen, setSectionsOpen] = useState(false)
+  const [view, setView] = useStickyTab<TdsView>('tds-view', VIEWS.map((v) => v.id), 'summary')
+  const activeView = VIEWS.find((v) => v.id === view) ?? VIEWS[0]!
 
   const years: number[] = []
   for (let y = currentFy.startYear; y >= (info?.booksFrom ?? currentFy.startYear); y--) years.push(y)
@@ -52,7 +95,7 @@ export function TdsScreen(): React.JSX.Element {
   }
 
   return (
-    <div className="mx-auto max-w-4xl">
+    <div className="flex h-full min-h-0 w-full flex-col max-w-[1440px]">
       <SectionTitle
         right={
           <div className="flex items-center gap-2">
@@ -63,45 +106,68 @@ export function TdsScreen(): React.JSX.Element {
                 </option>
               ))}
             </Select>
-            <Button data-testid="btn-tds-sections" onClick={() => setSectionsOpen(true)}>
-              Sections…
-            </Button>
-            <Button data-testid="btn-tds-export" variant="primary" onClick={() => void doExport()}>
-              Export 26Q CSV
-            </Button>
+            {view === 'summary' && (
+              <>
+                <Button data-testid="btn-tds-sections" onClick={() => setSectionsOpen(true)}>
+                  Sections…
+                </Button>
+                <Button data-testid="btn-tds-export" variant="primary" onClick={() => void doExport()}>
+                  Export 26Q CSV
+                </Button>
+              </>
+            )}
           </div>
         }
       >
         TDS
       </SectionTitle>
 
-      <div className="mb-3 flex gap-1">
-        {QUARTERS.map((q) => (
-          <button
-            key={q}
-            data-testid={`tab-tds-q${q}`}
-            onClick={() => setQuarter(q)}
-            className={`rounded-md px-3 py-1 text-[12.5px] ${
-              quarter === q ? 'bg-amberbar/25 font-medium text-ink' : 'text-muted hover:bg-panel2'
-            }`}
-          >
-            Q{q}
-          </button>
-        ))}
+      <div className="mb-2 flex flex-wrap items-center gap-3">
+        <div className="flex gap-1">
+          {QUARTERS.map((q) => (
+            <button
+              key={q}
+              data-testid={`tab-tds-q${q}`}
+              onClick={() => setQuarter(q)}
+              className={`rounded-md px-3 py-1 text-body-sm ${
+                quarter === q ? 'bg-accentbar/25 font-medium text-ink' : 'text-muted hover:bg-panel2'
+              }`}
+            >
+              Q{q}
+            </button>
+          ))}
+        </div>
+        <div className="flex flex-wrap gap-1" role="group" aria-label="TDS view">
+          {VIEWS.map((v) => (
+            <button
+              key={v.id}
+              type="button"
+              data-testid={`tab-tds-${v.id}`}
+              aria-pressed={view === v.id}
+              onClick={() => setView(v.id)}
+              className={`rounded-md px-2.5 py-1 text-small ${
+                view === v.id ? 'bg-accentbar/25 font-medium text-ink' : 'text-muted hover:bg-panel2'
+              }`}
+            >
+              {v.label}
+            </button>
+          ))}
+        </div>
       </div>
+      <p className="mb-3 text-hint text-muted">{activeView.hint}</p>
 
-      {flaggedNoPan.length > 0 && (
+      {view === 'summary' && flaggedNoPan.length > 0 && (
         <Panel className="mb-3">
-          <div className="border-b border-line bg-amber/10 px-3 py-2 text-[12.5px] text-amber">
+          <div className="border-b border-line bg-accent/10 px-3 py-2 text-body-sm text-accent">
             {flaggedNoPan.length} part{flaggedNoPan.length > 1 ? 'ies' : 'y'} flagged for TDS with no PAN on file — the
             higher 20% rate applies
           </div>
           <table className="ledger-table">
             <thead>
               <tr>
-                <th>Party</th>
-                <th className="w-28">Section</th>
-                <th className="w-28">PAN</th>
+                <th scope="col">Party</th>
+                <th scope="col" className="w-28">Section</th>
+                <th scope="col" className="w-28">PAN</th>
               </tr>
             </thead>
             <tbody data-testid="rows-tds-nopan">
@@ -117,6 +183,7 @@ export function TdsScreen(): React.JSX.Element {
         </Panel>
       )}
 
+      {view === 'summary' && (
       <Panel>
         {rows.length === 0 ? (
           <EmptyState title={`No TDS deductions in ${qLabel}`} />
@@ -124,10 +191,10 @@ export function TdsScreen(): React.JSX.Element {
           <table className="ledger-table">
             <thead>
               <tr>
-                <th>Section</th>
-                <th className="r w-32">Deductees</th>
-                <th className="r w-36">Base</th>
-                <th className="r w-36">TDS</th>
+                <th scope="col">Section</th>
+                <th scope="col" className="r w-32">Deductees</th>
+                <th scope="col" className="r w-36">Base</th>
+                <th scope="col" className="r w-36">TDS</th>
               </tr>
             </thead>
             <tbody>
@@ -149,10 +216,19 @@ export function TdsScreen(): React.JSX.Element {
           </table>
         )}
       </Panel>
-      <p className="mt-2 text-[11.5px] text-muted">
-        {qLabel} · The 26Q CSV lists deductee, PAN, section, voucher and amounts for manual import into NSDL's Return
-        Preparation Utility — it is not a ready-to-file FVU.
-      </p>
+      )}
+      {view === 'summary' && (
+        <p className="mt-2 text-hint text-muted">
+          {qLabel} · The 26Q CSV lists deductee, PAN, section, voucher and amounts for manual import into NSDL's Return
+          Preparation Utility — it is not a ready-to-file FVU.
+        </p>
+      )}
+
+      {view === 'challans' && <ChallansTab fyStartYear={fyStartYear} />}
+      {view === 'return' && <ReturnTab fyStartYear={fyStartYear} quarter={quarter} />}
+      {view === 'certificates' && <CertificatesTab fyStartYear={fyStartYear} quarter={quarter} />}
+      {view === 'ldc' && <LowerDeductionTab />}
+      {view === '26as' && <Form26asTab fyStartYear={fyStartYear} />}
 
       {sectionsOpen && <SectionsModal sections={sections ?? []} onClose={() => setSectionsOpen(false)} />}
     </div>
@@ -169,9 +245,13 @@ interface SectionForm {
   rate: string
   thresholdSingle: number | null
   thresholdAnnual: number | null
+  /** Income-tax Act 2025 reference, typed by the user. See src/shared/itAct2025.ts. */
+  code2025: string
 }
 
-const blankSection = (): SectionForm => ({ code: '', description: '', rate: '', thresholdSingle: null, thresholdAnnual: null })
+const blankSection = (): SectionForm => ({
+  code: '', description: '', rate: '', thresholdSingle: null, thresholdAnnual: null, code2025: ''
+})
 
 /** Lists the TDS sections and lets the owner add or edit one — wires tds:sectionSave. */
 function SectionsModal({ sections, onClose }: { sections: TdsSection[]; onClose: () => void }): React.JSX.Element {
@@ -180,6 +260,8 @@ function SectionsModal({ sections, onClose }: { sections: TdsSection[]; onClose:
   const [form, setForm] = useState<SectionForm>(blankSection())
   const [error, setError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
+  // Enter edits the selected section, which is what its row button does.
+  const sectionTable = useTableNav(sections, { rowId: (s) => s.id, onEnter: (s) => edit(s) })
 
   const edit = (s: TdsSection): void => {
     setError(null)
@@ -189,7 +271,8 @@ function SectionsModal({ sections, onClose }: { sections: TdsSection[]; onClose:
       description: s.description,
       rate: String(s.rate),
       thresholdSingle: s.thresholdSingle || null,
-      thresholdAnnual: s.thresholdAnnual || null
+      thresholdAnnual: s.thresholdAnnual || null,
+      code2025: s.code2025 ?? ''
     })
   }
 
@@ -207,7 +290,8 @@ function SectionsModal({ sections, onClose }: { sections: TdsSection[]; onClose:
         description: form.description.trim(),
         rate,
         thresholdSingle: form.thresholdSingle ?? 0,
-        thresholdAnnual: form.thresholdAnnual ?? 0
+        thresholdAnnual: form.thresholdAnnual ?? 0,
+        code2025: form.code2025.trim() || null
       })
       await queryClient.invalidateQueries({ queryKey: ['tdsSections'] })
       toast.push('success', form.id != null ? 'Section updated' : 'Section added')
@@ -229,30 +313,33 @@ function SectionsModal({ sections, onClose }: { sections: TdsSection[]; onClose:
             <table className="ledger-table">
               <thead>
                 <tr>
-                  <th className="w-20">Code</th>
-                  <th>Description</th>
-                  <th className="r w-20">Rate</th>
-                  <th className="r w-32">Single limit</th>
-                  <th className="r w-32">Annual limit</th>
-                  <th className="w-14"></th>
+                  <th scope="col" className="w-20">Code</th>
+                  <th scope="col">Description</th>
+                  <th scope="col" className="r w-20">Rate</th>
+                  <th scope="col" className="r w-32">Single limit</th>
+                  <th scope="col" className="r w-32">Annual limit</th>
+                  <th scope="col" className="w-14"></th>
                 </tr>
               </thead>
               <tbody data-testid="rows-tds-sections">
-                {sections.map((s) => (
-                  <tr key={s.id} className={form.id === s.id ? 'bg-amberbar/10' : ''}>
+                {sections.map((s, i) => (
+                  <tr
+                    key={s.id}
+                    {...sectionTable.rowProps(i, s)}
+                    className={`${sectionTable.rowProps(i, s).className} ${form.id === s.id ? 'bg-accentbar/10' : ''}`}
+                  >
                     <td className="num">{s.code}</td>
                     <td>{s.description}</td>
                     <td className="r num">{s.rate}%</td>
                     <td className="r">{s.thresholdSingle > 0 ? <Money paise={s.thresholdSingle} /> : <span className="text-muted">—</span>}</td>
                     <td className="r">{s.thresholdAnnual > 0 ? <Money paise={s.thresholdAnnual} /> : <span className="text-muted">—</span>}</td>
                     <td className="r">
-                      <button
+                      <RowAction
                         data-testid={`btn-tds-section-edit-${s.id}`}
-                        className="text-[12px] text-blue hover:underline"
                         onClick={() => edit(s)}
                       >
                         Edit
-                      </button>
+                      </RowAction>
                     </td>
                   </tr>
                 ))}
@@ -262,7 +349,7 @@ function SectionsModal({ sections, onClose }: { sections: TdsSection[]; onClose:
         </ScrollList>
 
         <div>
-          <p className="mb-2 text-[12.5px] font-medium text-ink">{form.id != null ? `Edit ${form.code}` : 'New section'}</p>
+          <p className="mb-2 text-body-sm font-medium text-ink">{form.id != null ? `Edit ${form.code}` : 'New section'}</p>
           <div className="grid grid-cols-3 gap-3">
             <Field label="Code" hint="e.g. 194C">
               <TextInput
@@ -292,8 +379,23 @@ function SectionsModal({ sections, onClose }: { sections: TdsSection[]; onClose:
             <Field label="Annual threshold" hint="Blank = none">
               <AmountInput paise={form.thresholdAnnual} onPaise={(p) => setForm({ ...form, thresholdAnnual: p })} />
             </Field>
+            <Field label="Income-tax Act 2025 reference" hint="Printed instead of the 1961 section from 1 April 2026">
+              <TextInput
+                data-testid="input-tds-section-code2025"
+                value={form.code2025}
+                onChange={(e) => setForm({ ...form, code2025: e.target.value })}
+              />
+            </Field>
           </div>
-          {error && <p className="mt-2 text-[12.5px] text-cr">{error}</p>}
+          <p className="mt-2 text-hint text-muted">
+            The Income-tax Act 2025 consolidates deduction at source: salary is section 392, everything else is a
+            serial in the Table under section 393(1), and 194C becomes <span className="num">393(1) [Table: Sl. No.
+            6(i)]</span>. The serials below are read in the Act as gazetted. What has <em>not</em> been checked is
+            whether the prescribed certificate wants the Act&rsquo;s own citation form or a short code of its own, so a
+            proposed reference is still flagged for your eye. Type the reference your certificates should carry and it
+            is used instead.
+          </p>
+          {error && <p className="mt-2 text-body-sm text-cr">{error}</p>}
           <div className="mt-3 flex justify-end gap-2">
             {form.id != null && (
               <Button

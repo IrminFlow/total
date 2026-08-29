@@ -2,7 +2,17 @@ import { Fragment, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { api } from '../lib/client'
 import { useNav, useSession, useToasts, type ToastState } from '../state/stores'
-import { Button, EmptyState, Money, Panel, SectionTitle, SkeletonRows } from '../components/ui'
+import {
+  EmptyState,
+  ExportGroup,
+  Money,
+  Panel,
+  RowAction,
+  RowLink,
+  SectionTitle,
+  SkeletonRows,
+  useTableNav
+} from '../components/ui'
 import { TabBar } from '../components/TabBar'
 import { csvReport, printReport } from '../lib/reportExport'
 import type { ReportColumn as PdfColumn, ReportRow as PdfRow } from '../lib/client'
@@ -10,6 +20,7 @@ import { toDisplayDate } from '@shared/dates'
 import { formatPaise } from '@shared/money'
 import { buildReminder } from '@shared/outstanding'
 import type { OutstandingBill } from '@shared/reports'
+import { useStickyTab } from '../lib/useStickyTab'
 
 const EXPORT_COLUMNS: PdfColumn[] = [
   { label: 'Party', align: 'l' },
@@ -20,31 +31,77 @@ const EXPORT_COLUMNS: PdfColumn[] = [
   { label: 'Pending', align: 'r' }
 ]
 
-async function remind(companyName: string, partyName: string, bills: OutstandingBill[], toast: ToastState): Promise<void> {
-  const reminder = buildReminder({ name: companyName }, { name: partyName, email: null }, bills)
+/**
+ * Send a payment reminder.
+ *
+ * WhatsApp when the party has a usable number, email otherwise. That order is not a preference:
+ * in this market almost nobody chases a payment by email, and the number is the reason the
+ * ledger gained a phone field. The body is identical either way, and is copied to the clipboard
+ * so the user can paste it anywhere the two channels do not reach.
+ */
+async function remind(
+  companyName: string,
+  party: { name: string; phone: string | null; email: string | null },
+  bills: OutstandingBill[],
+  toast: ToastState
+): Promise<void> {
+  const reminder = buildReminder({ name: companyName }, party, bills)
   let copied = true
   try {
     await navigator.clipboard.writeText(reminder.body)
   } catch {
-    // Clipboard access can fail in some sandboxes — the mailto still opens with the body.
+    // Clipboard access can fail in some sandboxes — the draft still carries the full text.
     copied = false
   }
+
+  if (reminder.whatsapp) {
+    window.open(reminder.whatsapp)
+    toast.push('success', `WhatsApp opened for ${party.name}${copied ? ' — text also copied' : ''}`)
+    return
+  }
+
   window.open(reminder.mailto)
-  if (copied) toast.push('success', 'Reminder copied — email draft opened')
-  else toast.push('warning', "Couldn't copy to the clipboard — the email draft still has the full text")
+  toast.push(
+    copied ? 'success' : 'warning',
+    party.phone
+      ? `${party.name}'s phone number isn't one WhatsApp can use — opened an email draft instead`
+      : `No phone number for ${party.name} — opened an email draft. Add one in Masters to send on WhatsApp.`
+  )
 }
 
 export function OutstandingsScreen(): React.JSX.Element {
   const { to, info } = useSession()
   const nav = useNav()
   const toast = useToasts()
-  const [side, setSide] = useState<'receivable' | 'payable'>('receivable')
+  const [side, setSide] = useStickyTab<'receivable' | 'payable'>(
+    'outstandings',
+    ['receivable', 'payable'],
+    'receivable'
+  )
   const [openParty, setOpenParty] = useState<number | null>(null)
+  // Summary only. Every party's bills came down on load even though the screen hides them
+  // behind the expand toggle -- ~4 MB of JSON at 30,000 vouchers to render a list of names.
   const { data, isLoading } = useQuery({
     queryKey: ['outstandings', side, to],
-    queryFn: () => api.analysis.outstandings(side, to)
+    queryFn: () => api.analysis.outstandings(side, to, false)
+  })
+
+  // The expanded party's bills, fetched when it opens. `bills:open` is the same endpoint the
+  // receipt/payment settle-against picker already uses.
+  const { data: openBills } = useQuery({
+    queryKey: ['openBills', openParty, to],
+    queryFn: () => api.bills.open(openParty!, to),
+    enabled: openParty != null
   })
   const parties = data ?? []
+  // Enter and Space (A17) expand the party's bill breakdown, matching the click.
+  const toggleParty = (p: { ledgerId: number }): void =>
+    setOpenParty((cur) => (cur === p.ledgerId ? null : p.ledgerId))
+  const table = useTableNav(parties, {
+    rowId: (p) => p.ledgerId,
+    onEnter: toggleParty,
+    onToggle: toggleParty
+  })
   const total = parties.reduce((s, p) => s + p.pending, 0)
   const bucketTotals = [0, 1, 2, 3].map((i) => parties.reduce((s, p) => s + p.buckets[i as 0 | 1 | 2 | 3], 0))
 
@@ -75,7 +132,7 @@ export function OutstandingsScreen(): React.JSX.Element {
   ]
 
   return (
-    <div className="mx-auto max-w-5xl">
+    <div className="flex h-full min-h-0 w-full flex-col max-w-[1440px]">
       <SectionTitle
         right={
           <div className="flex items-center gap-2">
@@ -88,25 +145,21 @@ export function OutstandingsScreen(): React.JSX.Element {
               active={side}
               onSelect={setSide}
             />
-            <Button
-              variant="ghost"
-              onClick={() =>
-                void printReport(
-                  { title: side === 'receivable' ? 'Receivables · ageing' : 'Payables · ageing', periodLabel, columns: EXPORT_COLUMNS, rows: exportRows },
-                  toast
-                )
-              }
-            >
-              PDF
-            </Button>
-            <Button
-              variant="ghost"
-              onClick={() =>
-                void csvReport(EXPORT_COLUMNS.map((c) => c.label), exportRows.map((r) => r.cells), `outstandings-${side}`, toast)
-              }
-            >
-              CSV
-            </Button>
+            <ExportGroup
+              items={[
+                {
+                  label: 'PDF',
+                  onClick: () => void printReport(
+                    { title: side === 'receivable' ? 'Receivables · ageing' : 'Payables · ageing', periodLabel, columns: EXPORT_COLUMNS, rows: exportRows },
+                    toast
+                  )
+                },
+                {
+                  label: 'CSV',
+                  onClick: () => void csvReport(EXPORT_COLUMNS.map((c) => c.label), exportRows.map((r) => r.cells), `outstandings-${side}`, toast)
+                }
+              ]}
+            />
           </div>
         }
       >
@@ -122,65 +175,72 @@ export function OutstandingsScreen(): React.JSX.Element {
           <table className="ledger-table">
             <thead>
               <tr>
-                <th>Party</th>
-                <th className="w-32">Due date</th>
-                <th className="r w-32">0–30 d</th>
-                <th className="r w-32">31–60 d</th>
-                <th className="r w-32">61–90 d</th>
-                <th className="r w-32">90+ d</th>
-                <th className="r w-36">Pending</th>
-                <th className="w-24"></th>
+                {/* No "Due date" column: a due date belongs to a bill, not to a party, so the
+                    summary row had nothing to put under it. Each bill carries its own due date
+                    inline in the expanded rows below. */}
+                <th scope="col">Party</th>
+                <th scope="col" className="r w-32">0–30 d</th>
+                <th scope="col" className="r w-32">31–60 d</th>
+                <th scope="col" className="r w-32">61–90 d</th>
+                <th scope="col" className="r w-32">90+ d</th>
+                <th scope="col" className="r w-36">Pending</th>
+                <th scope="col" className="w-24"></th>
               </tr>
             </thead>
             <tbody data-testid="rows-outstandings">
-              {parties.map((p) => (
+              {parties.map((p, i) => (
                 <Fragment key={p.ledgerId}>
-                  <tr
-                    data-row-id={p.ledgerId}
-                    className="cursor-pointer"
-                    onClick={() => setOpenParty(openParty === p.ledgerId ? null : p.ledgerId)}
-                  >
+                  <tr {...table.rowProps(i, p)} aria-expanded={openParty === p.ledgerId}>
                     <td>
-                      <span className="mr-1.5 inline-block w-3 text-[10px] text-muted">{openParty === p.ledgerId ? '▾' : '▸'}</span>
+                      <span className="mr-1.5 inline-block w-3 text-label text-muted">{openParty === p.ledgerId ? '▾' : '▸'}</span>
                       {p.name}
                     </td>
-                    <td></td>
                     <td className="r"><Money paise={p.buckets[0]} /></td>
                     <td className="r"><Money paise={p.buckets[1]} /></td>
                     <td className="r"><Money paise={p.buckets[2]} /></td>
                     <td className="r"><span className={p.buckets[3] > 0 ? 'text-cr' : ''}><Money paise={p.buckets[3]} /></span></td>
                     <td className="r font-medium"><Money paise={p.pending} /></td>
                     <td className="r">
-                      <button
+                      <RowAction
                         data-testid="btn-outstandings-remind"
-                        className="text-[11.5px] text-blue hover:underline"
                         onClick={(e) => {
                           e.stopPropagation()
-                          void remind(info?.name ?? '', p.name, p.bills, toast)
+                          void api.bills
+                            .open(p.ledgerId, to)
+                            .then((bills) =>
+                              remind(
+                                info?.name ?? '',
+                                { name: p.name, phone: p.phone ?? null, email: p.email ?? null },
+                                bills,
+                                toast
+                              )
+                            )
+                            .catch((err: Error) => toast.push('error', err.message))
                         }}
                       >
-                        Remind
-                      </button>
+                        {p.phone ? 'WhatsApp' : 'Remind'}
+                      </RowAction>
                     </td>
                   </tr>
                   {openParty === p.ledgerId &&
-                    p.bills.map((b, i) => (
-                      <tr key={`${p.ledgerId}-${i}`} className={`bg-panel2/50 ${b.overdueDays > 0 ? 'text-cr' : ''}`}>
+                    (openBills ?? []).map((b, i) => (
+                      <tr key={`${p.ledgerId}-${i}`} className="bg-panel2/50">
                         <td className="pl-9 text-muted">
-                          <button
-                            className="hover:text-blue hover:underline"
+                          <RowLink
                             onClick={(e) => {
                               e.stopPropagation()
                               if (b.voucherId) nav.go({ name: 'voucher-entry', voucherId: b.voucherId })
                             }}
                           >
                             {b.number}
-                          </button>
-                          <span className="num ml-3 text-[11.5px]">{toDisplayDate(b.date)} · {b.ageDays} days</span>
-                        </td>
-                        <td className="num text-[11.5px]">
-                          {b.dueDate ? toDisplayDate(b.dueDate) : ''}
-                          {b.overdueDays > 0 && <span className="ml-1.5">· {b.overdueDays}d overdue</span>}
+                          </RowLink>
+                          <span className="num ml-3 text-hint">{toDisplayDate(b.date)} · {b.ageDays} days</span>
+                          <span className="num ml-3 text-hint">
+                            {b.dueDate ? `due ${toDisplayDate(b.dueDate)}` : 'no due date'}
+                            {b.overdueDays > 0 && (
+                              <span className="text-cr font-semibold"> · {b.overdueDays}d overdue</span>
+                            )}
+                          </span>
                         </td>
                         <td colSpan={4}></td>
                         <td className="r"><Money paise={b.pending} /></td>
@@ -191,7 +251,6 @@ export function OutstandingsScreen(): React.JSX.Element {
               ))}
               <tr className="total-row">
                 <td>Total</td>
-                <td></td>
                 <td className="r"><Money paise={bucketTotals[0]!} /></td>
                 <td className="r"><Money paise={bucketTotals[1]!} /></td>
                 <td className="r"><Money paise={bucketTotals[2]!} /></td>
@@ -204,7 +263,7 @@ export function OutstandingsScreen(): React.JSX.Element {
           </div>
         )}
       </Panel>
-      <p className="mt-2 text-[11.5px] text-muted">
+      <p className="mt-2 text-hint text-muted">
         Ageing buckets count days overdue past each bill&apos;s due date (or the bill date when none is set). Receipts settle
         the oldest bills first. Click a party to see its open bills; click a bill number to open the voucher.
       </p>

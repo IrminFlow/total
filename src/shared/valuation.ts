@@ -209,6 +209,49 @@ export function expiryBucketOf(expiryDate: string | null, asOn: string): ExpiryB
   return 'later'
 }
 
+/** Bucket labels, ordered worst-first, so a report and a legend cannot disagree about either. */
+export const EXPIRY_BUCKETS: { bucket: ExpiryBucket; label: string }[] = [
+  { bucket: 'expired', label: 'Expired' },
+  { bucket: 'within30', label: 'Within 30 days' },
+  { bucket: 'within90', label: '31-90 days' },
+  { bucket: 'later', label: 'Beyond 90 days' },
+  { bucket: 'none', label: 'No expiry recorded' }
+]
+
+/** Days from `asOn` to expiry; negative once past. Null expiry has no answer. */
+export function daysToExpiry(expiryDate: string | null, asOn: string): number | null {
+  if (!expiryDate) return null
+  return Math.round((Date.parse(expiryDate + 'T00:00:00Z') - Date.parse(asOn + 'T00:00:00Z')) / 86400000)
+}
+
+/** The buckets that are worth acting on — what "at risk" means everywhere it is reported. */
+export const AT_RISK_BUCKETS = new Set<ExpiryBucket>(['expired', 'within30', 'within90'])
+
+export interface ExpirySummaryInput {
+  bucket: ExpiryBucket
+  value: number
+}
+
+export interface ExpirySummaryRow {
+  bucket: ExpiryBucket
+  label: string
+  value: number
+  batches: number
+}
+
+/**
+ * Value per expiry bucket, in worst-first order, with every bucket present.
+ *
+ * Empty buckets are kept so the shape of the report does not change from month to month — a table
+ * that grows and shrinks columns is one nobody can compare against last month's printout.
+ */
+export function summariseExpiry(rows: ExpirySummaryInput[]): ExpirySummaryRow[] {
+  return EXPIRY_BUCKETS.map(({ bucket, label }) => {
+    const inBucket = rows.filter((r) => r.bucket === bucket)
+    return { bucket, label, value: inBucket.reduce((s, r) => s + r.value, 0), batches: inBucket.length }
+  })
+}
+
 // ---------- BOM cycle detection (task 79) ----------
 
 export interface BomEdge {

@@ -3,7 +3,22 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import type { CostCentre } from '@shared/domain'
 import { api } from '../lib/client'
 import { useNav, useSession, useToasts } from '../state/stores'
-import { Button, EmptyState, Field, Modal, Money, Panel, SectionTitle, Select, Skeleton, SkeletonRows, TextInput } from '../components/ui'
+import {
+  Button,
+  EmptyState,
+  Field,
+  Modal,
+  Money,
+  Panel,
+  RowAction,
+  RowLink,
+  SectionTitle,
+  Select,
+  Skeleton,
+  SkeletonRows,
+  TextInput,
+  useTableNav
+} from '../components/ui'
 import { toDisplayDate } from '@shared/dates'
 import { confirmDialog } from '../lib/dialogs'
 
@@ -18,6 +33,20 @@ export function CostCentresScreen(): React.JSX.Element {
   const [drillId, setDrillId] = useState<number | null>(null)
 
   const centreMap = new Map((centres ?? []).map((c) => [c.id, c]))
+
+  // The P&L-by-centre rows drill down on click; ↑↓ selects one, Enter and Space (A17) open and
+  // close it. The "Not allocated" line (id -1) is a reconciling total with nothing underneath,
+  // so it selects like any other row but folds into nothing.
+  const reportRows = report ?? []
+  const toggleDrill = (r: { costCentreId: number }): void => {
+    if (r.costCentreId === -1) return
+    setDrillId((cur) => (cur === r.costCentreId ? null : r.costCentreId))
+  }
+  const reportTable = useTableNav(reportRows, {
+    rowId: (r) => r.costCentreId,
+    onEnter: toggleDrill,
+    onToggle: toggleDrill
+  })
 
   const remove = async (cc: CostCentre): Promise<void> => {
     const proceed = await confirmDialog({
@@ -37,7 +66,7 @@ export function CostCentresScreen(): React.JSX.Element {
   }
 
   return (
-    <div className="mx-auto max-w-4xl">
+    <div className="flex h-full min-h-0 w-full flex-col max-w-[1440px]">
       <SectionTitle
         right={
           <Button variant="primary" onClick={() => setEditing('new')}>
@@ -57,10 +86,10 @@ export function CostCentresScreen(): React.JSX.Element {
           <table className="ledger-table">
             <thead>
               <tr>
-                <th>Name</th>
-                <th>Parent</th>
-                <th className="w-20">Active</th>
-                <th className="w-32"></th>
+                <th scope="col">Name</th>
+                <th scope="col">Parent</th>
+                <th scope="col" className="w-20">Active</th>
+                <th scope="col" className="w-32"></th>
               </tr>
             </thead>
             <tbody>
@@ -70,12 +99,12 @@ export function CostCentresScreen(): React.JSX.Element {
                   <td className="text-muted">{c.parentId ? (centreMap.get(c.parentId)?.name ?? '') : ''}</td>
                   <td className="text-muted">{c.active ? 'Yes' : 'No'}</td>
                   <td className="r">
-                    <button className="mr-3 text-[12px] text-blue hover:underline" onClick={() => setEditing(c)}>
+                    <RowAction onClick={() => setEditing(c)}>
                       Edit
-                    </button>
-                    <button className="text-[12px] text-cr hover:underline" onClick={() => void remove(c)}>
+                    </RowAction>
+                    <RowAction tone="danger" onClick={() => void remove(c)}>
                       Delete
-                    </button>
+                    </RowAction>
                   </td>
                 </tr>
               ))}
@@ -96,23 +125,36 @@ export function CostCentresScreen(): React.JSX.Element {
           <table className="ledger-table">
             <thead>
               <tr>
-                <th>Cost centre</th>
-                <th className="r w-36">Income</th>
-                <th className="r w-36">Expense</th>
-                <th className="r w-36">Net</th>
+                <th scope="col">Cost centre</th>
+                <th scope="col" className="r w-36">Income</th>
+                <th scope="col" className="r w-36">Expense</th>
+                <th scope="col" className="r w-36">Net</th>
+                <th scope="col" className="r w-24">Margin</th>
               </tr>
             </thead>
             <tbody>
-              {report.map((r) => (
+              {reportRows.map((r, i) => (
                 <Fragment key={r.costCentreId}>
-                  <tr className="cursor-pointer" onClick={() => setDrillId(drillId === r.costCentreId ? null : r.costCentreId)}>
+                  {/* The "Not allocated" line (id -1) is a reconciling row, not a cost centre:
+                      it has nothing to drill into, and without it the sections would quietly sum
+                      to less than the company's own P&L. */}
+                  <tr
+                    {...reportTable.rowProps(i, r)}
+                    className={`${reportTable.rowProps(i, r).className} ${r.costCentreId === -1 ? 'total-row' : ''}`}
+                    aria-expanded={r.costCentreId === -1 ? undefined : drillId === r.costCentreId}
+                    data-testid={r.costCentreId === -1 ? 'cc-unallocated' : undefined}
+                  >
                     <td>
-                      <span className="mr-1.5 inline-block w-3 text-[10px] text-muted">{drillId === r.costCentreId ? '▾' : '▸'}</span>
+                      {r.costCentreId !== -1 && (
+                        <span className="mr-1.5 inline-block w-3 text-label text-muted">{drillId === r.costCentreId ? '▾' : '▸'}</span>
+                      )}
                       {r.name}
                     </td>
                     <td className="r"><Money paise={r.income} /></td>
                     <td className="r"><Money paise={r.expense} /></td>
                     <td className="r font-medium"><Money paise={r.net} signed /></td>
+                    {/* An em dash, not 0%: a centre carrying only expense has no margin to state. */}
+                    <td className="r num text-muted">{r.marginPct === null ? '–' : `${r.marginPct}%`}</td>
                   </tr>
                   {drillId === r.costCentreId && (
                     <DrillRows
@@ -155,7 +197,7 @@ function DrillRows({
       <>
         {[0, 1].map((i) => (
           <tr key={i} className="bg-panel2/50">
-            <td colSpan={4} className="pl-9">
+            <td colSpan={5} className="pl-9">
               <Skeleton className={`h-3 ${i === 0 ? 'w-56' : 'w-40'}`} />
             </td>
           </tr>
@@ -166,7 +208,7 @@ function DrillRows({
   if (!rows.length) {
     return (
       <tr className="bg-panel2/50">
-        <td colSpan={4} className="pl-9 text-muted">
+        <td colSpan={5} className="pl-9 text-muted">
           No postings in this period
         </td>
       </tr>
@@ -177,10 +219,10 @@ function DrillRows({
       {rows.map((r, i) => (
         <tr key={i} className="bg-panel2/50">
           <td className="pl-9 text-muted">
-            <button className="hover:text-blue hover:underline" onClick={() => onOpenVoucher(r.voucherId)}>
+            <RowLink onClick={() => onOpenVoucher(r.voucherId)}>
               {r.number}
-            </button>
-            <span className="ml-3 text-[11.5px]">
+            </RowLink>
+            <span className="ml-3 text-hint">
               <span className="num">{toDisplayDate(r.date)}</span> · {r.ledgerName}
             </span>
           </td>
@@ -188,6 +230,7 @@ function DrillRows({
           <td className="r">
             <Money paise={r.drCr === 'dr' ? r.amount : -r.amount} signed />
           </td>
+          <td />
         </tr>
       ))}
     </>
@@ -238,7 +281,7 @@ function CostCentreFormModal({
               ))}
           </Select>
         </Field>
-        <label className="flex items-center gap-2 text-[13px] text-ink">
+        <label className="flex items-center gap-2 text-detail text-ink">
           <input type="checkbox" checked={active} onChange={(e) => setActive(e.target.checked)} />
           Active
         </label>

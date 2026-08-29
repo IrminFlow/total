@@ -213,6 +213,41 @@ describe('nextVoucherNumber — suffix/pad/restart (task 2.12)', () => {
     expect(nextVoucherNumber(db, vt.id, '2026-04-01')).toBe('3')
   })
 
+  it('puts the financial year in the number itself when the prefix carries a token', () => {
+    const db = seededDb()
+    const vt = createVoucherType(db, {
+      name: 'FY Series', kind: 'journal', numbering: 'auto', prefix: 'INV/{FY}/', suffix: '', padWidth: 3, restartFy: true
+    })
+    const v1 = postJournal(db, vt.id, '2024-06-15')
+    expect(v1.number).toBe('INV/2024-25/001')
+    expect(nextVoucherNumber(db, vt.id, '2024-07-01')).toBe('INV/2024-25/002')
+    // A new financial year is a new series, so the count starts again under the new prefix —
+    // and, unlike restartFy alone, the printed number is not a repeat of last year's.
+    expect(nextVoucherNumber(db, vt.id, '2025-04-01')).toBe('INV/2025-26/001')
+  })
+
+  it('an FY token restarts the series even with restartFy off, because the prefix no longer matches', () => {
+    const db = seededDb()
+    const vt = createVoucherType(db, {
+      name: 'FY Token No Reset', kind: 'journal', numbering: 'auto', prefix: '', suffix: '/{YY}', padWidth: 0, restartFy: false
+    })
+    const v1 = postJournal(db, vt.id, '2024-06-15')
+    expect(v1.number).toBe('1/24')
+    const v2 = postJournal(db, vt.id, '2024-07-01')
+    expect(v2.number).toBe('2/24')
+    expect(nextVoucherNumber(db, vt.id, '2025-05-01')).toBe('1/25')
+  })
+
+  it('expands the token against the VOUCHER date, so altering an old voucher keeps its series', () => {
+    const db = seededDb()
+    const vt = createVoucherType(db, {
+      name: 'Old FY', kind: 'journal', numbering: 'auto', prefix: '{YYYY}-', suffix: '', padWidth: 0, restartFy: true
+    })
+    // 31 March is still the previous financial year.
+    expect(nextVoucherNumber(db, vt.id, '2025-03-31')).toBe('2024-1')
+    expect(nextVoucherNumber(db, vt.id, '2025-04-01')).toBe('2025-1')
+  })
+
   it('a deleted (binned) voucher still counts toward the next number — it is never reissued', () => {
     const db = seededDb()
     const vt = createVoucherType(db, {

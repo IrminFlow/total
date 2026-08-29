@@ -1,6 +1,7 @@
 import type { Metadata } from 'next'
 import { listReleases } from '@/lib/release'
 import { mdToHtml } from '@/lib/md'
+import SiteFooter from '@/components/SiteFooter'
 import SiteNav from '@/components/SiteNav'
 
 export const revalidate = 300
@@ -42,6 +43,7 @@ export default async function ChangelogPage(): Promise<React.JSX.Element> {
           )}
         </section>
       </div>
+      <SiteFooter />
     </>
   )
 }

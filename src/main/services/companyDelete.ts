@@ -1,7 +1,8 @@
 import Database from 'better-sqlite3'
 import { existsSync } from 'fs'
 import { log } from '../log'
-import { AUTH_THROTTLE_MESSAGE, clearAuthFailures, isAuthThrottled, recordAuthFailure, usersExist } from './users'
+import { authThrottleRemainingMs, clearAuthFailures, isAuthThrottled, recordAuthFailure, usersExist } from './users'
+import { lockoutMessage } from '@shared/lockout'
 import { verifyPin } from './authcrypt'
 
 /**
@@ -59,7 +60,10 @@ export function assertDeleteAuthorized(dbPath: string, pin: string | undefined):
     // caller can't distinguish PIN-space progress during the lockout window.
     const unlocked = owners.filter((o) => !isAuthThrottled(db!, o.id, now))
     if (owners.length > 0 && unlocked.length === 0) {
-      throw new Error(AUTH_THROTTLE_MESSAGE)
+      // Quote the same wait auth:login would, from the same persisted counter — two PIN surfaces
+      // that disagree about the lockout are two surfaces an attacker can compare.
+      const remaining = Math.max(...owners.map((o) => authThrottleRemainingMs(db!, o.id, now)))
+      throw new Error(lockoutMessage(remaining))
     }
     const matched = pin === undefined ? undefined : unlocked.find((o) => verifyPin(pin, o.pinHash))
     if (!matched) {

@@ -2,7 +2,8 @@
 // scripts/shots-site.mjs. Wraps playwright-core's _electron with the launch/retry/idle/testid
 // conventions from src/renderer/src/lib/testids.ts:
 //
-//   launch()        Electron via require('electron'), args [cwd], mkdtemp TOTAL_DATA_DIR,
+//   launch()        Electron via require('electron'), args [cwd], mkdtemp TOTAL_DATA_DIR
+//                   and --user-data-dir (so localStorage is fresh per run),
 //                   TOTAL_SUPPRESS_SYNC_WARNING=1, one retry, viewport 1440x900, waits for
 //                   window.total.
 //   invoke(ch, p)   window.total.invoke — throws on { ok: false }.
@@ -23,7 +24,9 @@ import * as path from 'node:path'
 import * as os from 'node:os'
 
 const require = createRequire(import.meta.url)
-const electronPath = require('electron')
+// The override is used by the Electron/CDP compatibility matrix. It lets that audit launch a
+// separately installed Electron without rewriting package.json or package-lock.json.
+const electronPath = process.env.TOTAL_ELECTRON_PATH || require('electron')
 
 /** Console noise that is not the app's fault — never fails a scenario. */
 const CONSOLE_IGNORE = [
@@ -34,12 +37,16 @@ const CONSOLE_IGNORE = [
 ]
 
 export class Harness {
-  /** @param {{ dataDir?: string, outDir?: string, appDir?: string }} [opts] */
+  /** @param {{ dataDir?: string, outDir?: string, appDir?: string, createDataDir?: boolean }} [opts] */
   constructor(opts = {}) {
     this.appDir = opts.appDir ?? process.cwd()
     this.dataDir = opts.dataDir ?? fs.mkdtempSync(path.join(os.tmpdir(), 'total-e2e-'))
+    this.userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'total-e2e-profile-'))
     this.outDir = opts.outDir ?? process.env.SMOKE_OUT ?? path.join(os.tmpdir(), 'total-e2e-out')
-    fs.mkdirSync(this.dataDir, { recursive: true })
+    // Normally the data dir is made for the app, because every scenario but one cares about what
+    // happens *after* first run. `createDataDir: false` leaves the path genuinely absent, which is
+    // the state of a machine that has never held the app (roadmap #346).
+    if (opts.createDataDir !== false) fs.mkdirSync(this.dataDir, { recursive: true })
     fs.mkdirSync(this.outDir, { recursive: true })
     this.app = null
     this.page = null
@@ -55,10 +62,20 @@ export class Harness {
     const attempt = async () => {
       const app = await electron.launch({
         executablePath: electronPath,
-        args: [this.appDir],
+        // A scratch Chromium profile as well as a scratch data dir. Without this every run shares
+        // Electron's real userData directory, so localStorage — the theme, and each screen's
+        // remembered tab — leaks between scenarios AND into the developer's own installed app. A
+        // scenario that ends on a non-default tab then decides where the next run starts.
+        args: [this.appDir, `--user-data-dir=${this.userDataDir}`],
         timeout: 60000,
         env: {
           ...process.env,
+          // `npm run test:db` runs Electron as a plain Node process, and that variable leaking
+          // into this environment makes electron.launch fail with a bare "Process failed to
+          // launch!" -- the app's main entry sees `electron.app` as undefined and exits before
+          // Playwright can attach. Clear it explicitly so the failure can never reappear as a
+          // mystery in CI or on a developer's shell.
+          ELECTRON_RUN_AS_NODE: undefined,
           TOTAL_DATA_DIR: this.dataDir,
           TOTAL_SUPPRESS_SYNC_WARNING: '1'
         }
@@ -103,6 +120,22 @@ export class Harness {
   /** Close and relaunch against the SAME data dir (fresh renderer state, same books). */
   async relaunch() {
     await this.close()
+    await this.launch()
+  }
+
+  /**
+   * Close, throw away everything the *installation* owns, and launch again against the same
+   * books — an uninstall followed by a reinstall (roadmap #350).
+   *
+   * The Chromium profile is the honest stand-in for what an uninstaller removes: preferences,
+   * localStorage, the app's userData. What it must not remove is `~/Documents/total`, which is
+   * the whole promise. Relaunching with a fresh profile over the same TOTAL_DATA_DIR is exactly
+   * that sequence, and the books either survive it or they do not.
+   */
+  async reinstall() {
+    await this.close()
+    fs.rmSync(this.userDataDir, { recursive: true, force: true })
+    this.userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'total-e2e-profile-'))
     await this.launch()
   }
 
@@ -176,14 +209,28 @@ export class Harness {
     await this.waitScreen('company-select')
     await this.click('btn-company-create')
     await this.fill('input-company-name', name)
-    await this.click('btn-company-save')
-    await this.waitScreen('gateway', timeout)
+    // Creating a company runs every migration and seeds the chart synchronously in Electron's
+    // main process. On Windows that can delay Playwright's acknowledgement of the already-issued
+    // pointer click beyond the generic 10s action timeout; noWaitAfter alone does not avoid that
+    // CDP delay. Start the real click and the durable destination wait together, and give both the
+    // explicit company-creation budget so a slow seed cannot be misclassified as a click failure.
+    await Promise.all([
+      this.click('btn-company-save', { noWaitAfter: true, timeout }),
+      this.waitScreen('gateway', timeout)
+    ])
   }
 
-  /** From company-select: build the Demo Traders sample company and land on the Gateway. */
-  async createDemoCompany(timeout = 60000) {
+  /**
+   * From company-select: build a sample company and land on the Gateway. The row now opens a
+   * three-way choice of trade (roadmap #293) instead of building the books straight away, so
+   * this clicks through it; 'trading' is the original Demo Traders books, which is what every
+   * scenario that says nothing means.
+   * @param {'trading'|'manufacturing'|'services'} [trade]
+   */
+  async createDemoCompany(trade = 'trading', timeout = 60000) {
     await this.waitScreen('company-select')
-    await this.clickText('Explore with sample data')
+    await this.click('btn-company-demo')
+    await this.click(`btn-demo-trade-${trade}`)
     await this.waitScreen('gateway', timeout)
   }
 

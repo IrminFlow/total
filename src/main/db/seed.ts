@@ -25,7 +25,20 @@ export function seedCompany(db: DB, info: CompanyInfo): void {
     const insertUnit = db.prepare('INSERT INTO units (name, symbol, decimals, uqc) VALUES (?, ?, ?, ?)')
     for (const u of DEFAULT_UNITS) insertUnit.run(u.name, u.symbol, u.decimals, u.uqc)
 
-    db.prepare('INSERT INTO godowns (name) VALUES (?)').run('Main Location')
+    // The company's own GST registration (roadmap #108). One row, marked primary, mirroring the
+    // gstin/stateCode on `meta.company` — which is exactly what migration 47 writes for a company
+    // that already existed. Written here rather than by `ensureRegistrations` because
+    // `meta.company` is inserted after migrations have run, so the migration's copy found nothing.
+    const regRes = db
+      .prepare(
+        'INSERT INTO gst_registrations (gstin, state_code, trade_name, address, is_primary) VALUES (?, ?, ?, ?, 1)'
+      )
+      .run(info.gstin, info.stateCode, info.name, info.address || null)
+
+    db.prepare('INSERT INTO godowns (name, gst_registration_id) VALUES (?, ?)').run(
+      'Main Location',
+      Number(regRes.lastInsertRowid)
+    )
 
     db.prepare('INSERT INTO ledgers (name, group_id, is_system) VALUES (?, ?, 1)').run(
       'Cash',
@@ -38,10 +51,28 @@ export function seedCompany(db: DB, info: CompanyInfo): void {
 export function readCompanyInfo(db: DB): CompanyInfo {
   const row = db.prepare("SELECT value FROM meta WHERE key = 'company'").get() as { value: string }
   const parsed = JSON.parse(row.value) as CompanyInfo
-  // Older companies were seeded before pan/tan existed — default them in so callers never see undefined.
-  return { ...parsed, pan: parsed.pan ?? null, tan: parsed.tan ?? null }
+  // Older companies were seeded before these existed — default them in so callers never see
+  // undefined. Filing frequency defaults to monthly, which is what those companies were on.
+  return {
+    ...parsed,
+    pan: parsed.pan ?? null,
+    tan: parsed.tan ?? null,
+    gstFilingFrequency: parsed.gstFilingFrequency ?? 'monthly',
+    // Null, not a guess: an undeclared band must not silently impose or waive an obligation.
+    turnoverBand: parsed.turnoverBand ?? null
+  }
 }
 
 export function writeCompanyInfo(db: DB, info: CompanyInfo): void {
   db.prepare("UPDATE meta SET value = ? WHERE key = 'company'").run(JSON.stringify(info))
+  // The PRIMARY registration mirrors the company's own GSTIN and state (roadmap #108). Two
+  // places holding the same fact is a hazard, so it is a mirror and not a second opinion:
+  // editing Company Info moves the primary row, and editing the primary row (see
+  // services/registrations.ts) writes back here. Trade name and address are deliberately NOT
+  // mirrored — a registration's trade name is often not the legal name, and clobbering one the
+  // user typed would be the app overruling them.
+  db.prepare(
+    `UPDATE gst_registrations SET gstin = ?, state_code = ?
+     WHERE id = (SELECT id FROM gst_registrations ORDER BY is_primary DESC, id LIMIT 1)`
+  ).run(info.gstin, info.stateCode)
 }

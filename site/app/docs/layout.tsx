@@ -1,3 +1,4 @@
+import SiteFooter from '@/components/SiteFooter'
 import SiteNav from '@/components/SiteNav'
 import Sidebar from './Sidebar'
 
@@ -9,6 +10,7 @@ export default function DocsLayout({ children }: { children: React.ReactNode }):
         <Sidebar />
         <div className="docs-content">{children}</div>
       </div>
+      <SiteFooter />
     </>
   )
 }

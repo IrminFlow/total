@@ -100,6 +100,15 @@
       ],
       "default": null
     },
+    "gstRegistrationId": {
+      "description": "Which of the company's GST registrations made this supply; null = the primary (see gstReg:list).",
+      "type": [
+        "integer",
+        "null"
+      ],
+      "exclusiveMinimum": 0,
+      "default": null
+    },
     "currencyCode": {
       "description": "3-letter currency code for multi-currency vouchers (e.g. USD); null = base currency (INR).",
       "type": [
@@ -173,6 +182,20 @@
             },
             "maxItems": 20,
             "default": []
+          },
+          "fcAmount": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "fcRateMicro": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "exclusiveMinimum": 0,
+            "maximum": 1000000000000
           }
         },
         "required": [
@@ -237,6 +260,15 @@
           },
           "isAbsolute": {
             "type": "boolean"
+          },
+          "serials": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 40
+            },
+            "maxItems": 500
           }
         },
         "required": [
@@ -322,6 +354,29 @@
       ],
       "additionalProperties": false,
       "default": null
+    },
+    "customFields": {
+      "description": "Company-defined custom fields for this voucher type (fieldId + value). Every value is TEXT, including for number fields — a custom field is never money and no report sums it. Omit the key entirely to leave existing values untouched; send [] to clear them.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "fieldId": {
+            "type": "integer",
+            "exclusiveMinimum": 0
+          },
+          "value": {
+            "type": "string",
+            "maxLength": 200
+          }
+        },
+        "required": [
+          "fieldId",
+          "value"
+        ],
+        "additionalProperties": false
+      },
+      "maxItems": 50
     }
   },
   "required": [

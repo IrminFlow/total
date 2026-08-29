@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { api } from '../lib/client'
 import { useSession, useToasts } from '../state/stores'
-import { Button, EmptyState, Money, Panel, ScrollList, SectionTitle, SkeletonRows } from '../components/ui'
+import { Button, EmptyState, ExportGroup, Money, Panel, ScrollList, SectionTitle, SkeletonRows } from '../components/ui'
 import { csvReport } from '../lib/reportExport'
 import { toDisplayDate } from '@shared/dates'
 import { plainRupees } from '@shared/money'
@@ -61,15 +61,15 @@ export function ConsolidatedScreen(): React.JSX.Element {
   }
 
   return (
-    <div className="mx-auto max-w-5xl">
+    <div className="flex h-full min-h-0 w-full flex-col max-w-[1440px]">
       <SectionTitle
         right={
           <div className="flex items-center gap-3">
             <div className="flex overflow-hidden rounded-md border border-line">
               <button
                 data-testid="tab-consolidated-tb"
-                className={`px-3 py-1 text-[12px] transition-colors ${
-                  kind === 'tb' ? 'bg-amberbar/20 font-medium text-ink' : 'text-muted hover:text-ink'
+                className={`px-3 py-1 text-small transition-colors ${
+                  kind === 'tb' ? 'bg-accentbar/20 font-medium text-ink' : 'text-muted hover:text-ink'
                 }`}
                 onClick={() => setKind('tb')}
               >
@@ -77,15 +77,15 @@ export function ConsolidatedScreen(): React.JSX.Element {
               </button>
               <button
                 data-testid="tab-consolidated-pnl"
-                className={`border-l border-line px-3 py-1 text-[12px] transition-colors ${
-                  kind === 'pnl' ? 'bg-amberbar/20 font-medium text-ink' : 'text-muted hover:text-ink'
+                className={`border-l border-line px-3 py-1 text-small transition-colors ${
+                  kind === 'pnl' ? 'bg-accentbar/20 font-medium text-ink' : 'text-muted hover:text-ink'
                 }`}
                 onClick={() => setKind('pnl')}
               >
                 Profit &amp; loss
               </button>
             </div>
-            <span className="num text-[12px] text-muted">
+            <span className="num text-small text-muted">
               {toDisplayDate(from)} → {toDisplayDate(to)}
             </span>
           </div>
@@ -100,7 +100,7 @@ export function ConsolidatedScreen(): React.JSX.Element {
         ) : (
           <ScrollList maxH="40vh" className="flex flex-col gap-1.5">
             {companies.map((c) => (
-              <label key={c.slug} className="flex items-center gap-2 text-[13px]">
+              <label key={c.slug} className="flex items-center gap-2 text-detail">
                 <input
                   type="checkbox"
                   data-testid={`check-consolidated-${c.slug}`}
@@ -108,7 +108,7 @@ export function ConsolidatedScreen(): React.JSX.Element {
                   onChange={() => toggle(c.slug)}
                 />
                 {c.name}
-                <span className="num text-[11px] text-muted">{c.slug}</span>
+                <span className="num text-caption text-muted">{c.slug}</span>
               </label>
             ))}
           </ScrollList>
@@ -117,22 +117,18 @@ export function ConsolidatedScreen(): React.JSX.Element {
           <Button data-testid="btn-consolidated-run" variant="primary" onClick={() => void run()} disabled={isFetching}>
             {isFetching ? 'Running…' : 'Run'}
           </Button>
-          {data && (
-            <Button data-testid="btn-consolidated-csv" onClick={() => void exportCsv()}>
-              Export CSV
-            </Button>
-          )}
+          {data && <ExportGroup items={[{ label: 'CSV', testId: 'btn-consolidated-csv', onClick: () => void exportCsv() }]} />}
         </div>
       </Panel>
 
       {ranOnce && error && (
-        <div className="mb-4 rounded-md border border-cr/50 bg-cr/10 px-3 py-2 text-[12.5px] text-cr">
+        <div className="mb-4 rounded-md border border-cr/50 bg-cr/10 px-3 py-2 text-body-sm text-cr">
           Couldn&apos;t run the consolidation: {error.message}
         </div>
       )}
 
       {data && data.warnings.length > 0 && (
-        <div className="mb-4 rounded-md border border-amberbar/50 bg-amberbar/10 px-3 py-2 text-[12.5px] text-ink">
+        <div className="mb-4 rounded-md border border-accentbar/50 bg-accentbar/10 px-3 py-2 text-body-sm text-ink">
           {data.warnings.map((w, i) => (
             <p key={i}>{w}</p>
           ))}
@@ -154,14 +150,14 @@ export function ConsolidatedScreen(): React.JSX.Element {
               <table className="ledger-table">
                 <thead>
                   <tr>
-                    <th>Name</th>
-                    <th>Group</th>
+                    <th scope="col">Name</th>
+                    <th scope="col">Group</th>
                     {data.columns.map((col) => (
-                      <th key={col} className="r w-32">
+                      <th scope="col" key={col} className="r w-32">
                         {col}
                       </th>
                     ))}
-                    <th className="r w-32">Total</th>
+                    <th scope="col" className="r w-32">Total</th>
                   </tr>
                 </thead>
                 <tbody>

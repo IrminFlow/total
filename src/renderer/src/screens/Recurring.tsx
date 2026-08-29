@@ -1,55 +1,32 @@
 import { useEffect, useRef, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import type { RecurringTemplate, VoucherKind } from '@shared/domain'
-import type { Screen, VoucherDraft } from '../state/stores'
+import type { RecurringTemplate } from '@shared/domain'
 import { api } from '../lib/client'
-import { useNav, useToasts, nextDraftId } from '../state/stores'
-import { Button, DateInput, EmptyState, Field, Modal, Panel, SectionTitle, Select, SkeletonRows, TextInput } from '../components/ui'
+import { useNav, useToasts } from '../state/stores'
+import {
+  Button,
+  DateInput,
+  EmptyState,
+  Field,
+  Modal,
+  Panel,
+  RowAction,
+  SectionTitle,
+  Select,
+  SkeletonRows,
+  TextInput,
+  useTableNav
+} from '../components/ui'
 import { toDisplayDate, todayISO } from '@shared/dates'
 import { nextDueAfter } from '@shared/recurring'
-import type { VoucherInputParsed } from '@shared/schemas'
 import { confirmDialog } from '../lib/dialogs'
+import { templateOpenTarget } from '../lib/recurringDraft'
 
 const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
-
-/** Trading kinds open in InvoiceEntry, which has no line-draft support (see draftFromTemplate) —
- *  opening one of these drops the stored lines and the caller should say so. */
-const TRADING_KINDS: VoucherKind[] = ['sales', 'purchase', 'credit_note', 'debit_note']
 
 function cadenceSummary(t: RecurringTemplate): string {
   if (t.cadence === 'monthly') return `Monthly · day ${t.dayOfMonth}`
   return `Weekly · ${WEEKDAYS[t.weekday ?? 0]}`
-}
-
-/** Best-effort draft for "Open in voucher entry" — maps a template's stored lines to the
- *  voucher-entry draft shape so a stale/rejected template can still be posted by hand. Only
- *  AccountingEntry (non-trading kinds) actually consumes `lines`; InvoiceEntry ignores them. */
-export function draftFromTemplate(t: RecurringTemplate): VoucherDraft {
-  try {
-    const parsed = JSON.parse(t.voucherJson) as Partial<VoucherInputParsed>
-    return {
-      date: todayISO(),
-      partyLedgerId: parsed.partyLedgerId ?? undefined,
-      narration: parsed.narration ?? undefined,
-      lines: (parsed.lines ?? []).map((l) => ({ ledgerId: l.ledgerId, drCr: l.drCr, amount: l.amount }))
-    }
-  } catch {
-    return { date: todayISO() }
-  }
-}
-
-/** Where "Open in voucher entry" should navigate for a template, plus whether the caller should
- *  warn that line items get dropped (trading kinds — InvoiceEntry can only prefill date/party/
- *  narration, not lines). `voucherKind` is null only if the underlying voucher type was deleted;
- *  that falls through to VoucherEntry's own default (Journal) same as omitting kindHint. */
-export function templateOpenTarget(t: RecurringTemplate): { screen: Screen; warnInvoice: boolean } {
-  const kindHint = t.voucherKind ?? undefined
-  return {
-    // draftId forces VoucherEntry to remount when the previous screen is already a fresh
-    // voucher-entry (same 'new' key otherwise) — see Banking/Gstr2b's draft entry points.
-    screen: { name: 'voucher-entry', kindHint, draft: draftFromTemplate(t), draftId: nextDraftId() },
-    warnInvoice: !!kindHint && TRADING_KINDS.includes(kindHint)
-  }
 }
 
 export function RecurringScreen(): React.JSX.Element {
@@ -57,6 +34,11 @@ export function RecurringScreen(): React.JSX.Element {
   const toast = useToasts()
   const queryClient = useQueryClient()
   const { data: templates, isLoading } = useQuery({ queryKey: ['recurring'], queryFn: api.recurring.list })
+  // Enter opens the selected template in voucher entry, the same thing its row button does.
+  const table = useTableNav(templates ?? [], {
+    rowId: (t) => t.id,
+    onEnter: (t) => nav.go(templateOpenTarget(t).screen)
+  })
   const [editing, setEditing] = useState<RecurringTemplate | null>(null)
   const [busyId, setBusyId] = useState<number | null>(null)
 
@@ -117,7 +99,7 @@ export function RecurringScreen(): React.JSX.Element {
   }
 
   return (
-    <div className="mx-auto max-w-4xl">
+    <div className="flex h-full min-h-0 w-full flex-col max-w-[1440px]">
       <SectionTitle
         right={
           <Button data-testid="btn-recurring-new" variant="primary" onClick={newTemplate}>
@@ -140,35 +122,34 @@ export function RecurringScreen(): React.JSX.Element {
           <table className="ledger-table">
             <thead>
               <tr>
-                <th>Name</th>
-                <th>Cadence</th>
-                <th>Next due</th>
-                <th>Last posted</th>
-                <th className="w-16">Active</th>
-                <th className="w-32"></th>
+                <th scope="col">Name</th>
+                <th scope="col">Cadence</th>
+                <th scope="col">Next due</th>
+                <th scope="col">Last posted</th>
+                <th scope="col" className="w-16">Active</th>
+                <th scope="col" className="w-32"></th>
               </tr>
             </thead>
             <tbody data-testid="rows-recurring">
-              {templates.map((t) => (
-                <tr key={t.id} className="hover:bg-panel2">
+              {templates.map((t, i) => (
+                <tr key={t.id} {...table.rowProps(i, t)}>
                   <td>{t.name}</td>
                   <td className="text-muted">{cadenceSummary(t)}</td>
                   <td className="num">{toDisplayDate(t.nextDue)}</td>
                   <td className="num text-muted">{t.lastPosted ? toDisplayDate(t.lastPosted) : '—'}</td>
                   <td>
-                    <span className={`rounded px-1.5 py-0.5 text-[10.5px] ${t.active ? 'bg-dr/10 text-dr' : 'bg-panel2 text-muted'}`}>
+                    <span className={`rounded-md px-1.5 py-0.5 text-label ${t.active ? 'bg-dr/10 text-dr' : 'bg-panel2 text-muted'}`}>
                       {t.active ? 'Active' : 'Paused'}
                     </span>
                   </td>
                   <td className="r">
-                    <button
+                    <RowAction
                       data-testid={`btn-recurring-post-${t.id}`}
                       disabled={busyId === t.id}
-                      className="mr-2 text-[12px] text-blue hover:underline disabled:opacity-40"
                       onClick={() => void postNow(t)}
                     >
                       Post now
-                    </button>
+                    </RowAction>
                     <RowMenu
                       testId={`btn-recurring-menu-${t.id}`}
                       disabled={busyId === t.id}
@@ -243,7 +224,7 @@ function RowMenu({
         aria-expanded={pos != null}
         disabled={disabled}
         title="More actions"
-        className="rounded px-1.5 py-0.5 text-[13px] leading-none text-muted hover:bg-panel2 hover:text-ink disabled:opacity-40"
+        className="rounded-md px-1.5 py-0.5 text-detail leading-none text-muted hover:bg-panel2 hover:text-ink disabled:opacity-40"
         onClick={toggle}
       >
         ⋯
@@ -259,7 +240,7 @@ function RowMenu({
             <button
               key={a.label}
               role="menuitem"
-              className={`block w-full px-3 py-1.5 text-left text-[12.5px] hover:bg-panel2 ${a.danger ? 'text-cr' : 'text-ink'}`}
+              className={`block w-full px-3 py-1.5 text-left text-body-sm hover:bg-panel2 ${a.danger ? 'text-cr' : 'text-ink'}`}
               onClick={() => {
                 setPos(null)
                 a.onClick()
@@ -365,7 +346,7 @@ function RecurringFormModal({ template, onClose }: { template: RecurringTemplate
         <Field label="Next due">
           <DateInput value={nextDue} context={nextDue} onChange={setNextDue} />
         </Field>
-        <label className="flex items-center gap-2 text-[13px] text-ink">
+        <label className="flex items-center gap-2 text-detail text-ink">
           <input type="checkbox" checked={active} onChange={(e) => setActive(e.target.checked)} />
           Active
         </label>

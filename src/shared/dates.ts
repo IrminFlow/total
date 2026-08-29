@@ -48,11 +48,24 @@ export function toPortalDate(date: string): string {
   return `${d}-${m}-${y}`
 }
 
-/** 'DD-MMM-YY' for on-screen display (Tally style). */
+/**
+ * 'DD-MMM-YY' for on-screen display (Tally style).
+ *
+ * Total on purpose: anything that is not a full ISO date comes back as an en dash, which is what
+ * every other empty cell in the app shows. It used to throw, and a formatter that throws is a
+ * formatter that can take a whole screen down — which it did. A row whose due date was null was
+ * rendered with `toDisplayDate(x ?? '')`, meaning to be careful; `''.split('-')` gives one part,
+ * the day is undefined, and `undefined.toString()` ended the render. The screen showed "Something
+ * went wrong" instead of one dash in one cell.
+ *
+ * Returning a dash rather than the raw input because the input in that case is empty or nonsense,
+ * and printing nonsense in a date column is worse than printing nothing.
+ */
 export function toDisplayDate(date: string): string {
   const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
-  const [y, m, d] = date.split('-').map(Number) as [number, number, number]
-  return `${d.toString().padStart(2, '0')}-${months[m - 1]}-${(y % 100).toString().padStart(2, '0')}`
+  const [y, m, d] = String(date ?? '').split('-').map(Number)
+  if (!Number.isFinite(y) || !Number.isFinite(m) || !Number.isFinite(d) || m! < 1 || m! > 12) return '–'
+  return `${d!.toString().padStart(2, '0')}-${months[m! - 1]}-${(y! % 100).toString().padStart(2, '0')}`
 }
 
 /** 'DD-MMM-YY HH:MM' (24h, local time) for on-screen timestamps — audit trail, backup list.
@@ -103,10 +116,45 @@ export function parseSmartDate(input: string, context: string): string | null {
   return candidate && isValidISODate(candidate) ? candidate : null
 }
 
+/**
+ * `date` shifted by whole days, still as 'YYYY-MM-DD'.
+ *
+ * Done in UTC rather than local time on purpose: an ISO date in this app is a calendar day with
+ * no clock attached, and doing the arithmetic locally makes 30 days land on a different date
+ * either side of a DST change.
+ */
+export function addDays(date: string, days: number): string {
+  const dt = new Date(`${date}T00:00:00Z`)
+  dt.setUTCDate(dt.getUTCDate() + days)
+  return dt.toISOString().slice(0, 10)
+}
+
+/** Whole days from `fromDate` to `toDate`; negative when `toDate` is earlier. */
+export function daysBetween(fromDate: string, toDate: string): number {
+  return Math.round((Date.parse(toDate) - Date.parse(fromDate)) / 86_400_000)
+}
+
 export function todayISO(): string {
   const now = new Date()
   const y = now.getFullYear()
   const m = (now.getMonth() + 1).toString().padStart(2, '0')
   const d = now.getDate().toString().padStart(2, '0')
   return `${y}-${m}-${d}`
+}
+
+/**
+ * `date` shifted by whole calendar months, clamped to the end of the target month.
+ *
+ * 31 January + 1 month is 28 February (29 in a leap year), not 3 March. JavaScript's own
+ * `setUTCMonth` overflows into the next month, which is how "one year from 31 March" quietly
+ * becomes 1 April — a day that matters when the number is a statutory deadline.
+ */
+export function addMonths(date: string, months: number): string {
+  const dt = new Date(`${date}T00:00:00Z`)
+  const day = dt.getUTCDate()
+  dt.setUTCDate(1)
+  dt.setUTCMonth(dt.getUTCMonth() + months)
+  const lastOfMonth = new Date(Date.UTC(dt.getUTCFullYear(), dt.getUTCMonth() + 1, 0)).getUTCDate()
+  dt.setUTCDate(Math.min(day, lastOfMonth))
+  return dt.toISOString().slice(0, 10)
 }

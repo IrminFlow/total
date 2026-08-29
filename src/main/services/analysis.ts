@@ -1,30 +1,51 @@
 import type { DB } from '../db/connection'
-import type { OutstandingBill, OutstandingParty, RegisterMonthRow } from '@shared/reports'
+import type { KhataParty, OutstandingBill, OutstandingParty, PartyShareRow, RegisterPeriodRow } from '@shared/reports'
+import { concentration, type Concentration } from '@shared/concentration'
 import { allocateBills, type BillEvent, type BillRef } from '@shared/outstanding'
 import { fyOf } from '@shared/dates'
+import { periodKey, periodLabel, type Period } from '@shared/period'
 import { descendantIdsByName } from './masters'
 import { IN_BOOKS } from './vouchers'
 
-/** Monthly sales/purchase register: voucher count, taxable, tax and invoice totals per month. */
-export function registerByMonth(db: DB, kind: 'sales' | 'purchase', from: string, to: string): RegisterMonthRow[] {
+/**
+ * Sales/purchase register bucketed by period: voucher count, taxable, tax and invoice totals.
+ * Granularity comes from `@shared/period`, so a quarterly register here means the same
+ * Apr-Jun Q1 as GSTR/TDS quarters do.
+ */
+export function registerByPeriod(
+  db: DB,
+  kind: 'sales' | 'purchase',
+  from: string,
+  to: string,
+  period: Period = 'month'
+): RegisterPeriodRow[] {
   const accountRoot = kind === 'sales' ? ['Sales Accounts', 'Direct Incomes', 'Indirect Incomes'] : ['Purchase Accounts', 'Direct Expenses', 'Indirect Expenses']
   const accountIds = descendantIdsByName(db, accountRoot)
   const side = kind === 'sales' ? 'cr' : 'dr'
 
   const rows = db
     .prepare(
-      `SELECT substr(v.date, 1, 7) AS month, v.id AS voucherId, vl.amount, l.group_id AS groupId, l.tax_type AS taxType, vl.dr_cr AS drCr
+      `SELECT v.date AS date, v.id AS voucherId, vl.amount, l.group_id AS groupId, l.tax_type AS taxType, vl.dr_cr AS drCr
        FROM vouchers v
        JOIN voucher_types vt ON vt.id = v.voucher_type_id
        JOIN voucher_lines vl ON vl.voucher_id = v.id
        JOIN ledgers l ON l.id = vl.ledger_id
        WHERE vt.kind = ? AND v.date BETWEEN ? AND ? AND ${IN_BOOKS}`
     )
-    .all(kind, from, to) as { month: string; voucherId: number; amount: number; groupId: number; taxType: string | null; drCr: string }[]
+    .all(kind, from, to) as { date: string; voucherId: number; amount: number; groupId: number; taxType: string | null; drCr: string }[]
 
-  const months = new Map<string, RegisterMonthRow & { seen: Set<number> }>()
+  const buckets = new Map<string, RegisterPeriodRow & { seen: Set<number> }>()
   for (const r of rows) {
-    const m = months.get(r.month) ?? { month: r.month, vouchers: 0, taxable: 0, tax: 0, total: 0, seen: new Set<number>() }
+    const key = periodKey(r.date, period)
+    const m = buckets.get(key) ?? {
+      period: key,
+      label: periodLabel(key, period),
+      vouchers: 0,
+      taxable: 0,
+      tax: 0,
+      total: 0,
+      seen: new Set<number>()
+    }
     if (!m.seen.has(r.voucherId)) {
       m.seen.add(r.voucherId)
       m.vouchers++
@@ -32,16 +53,17 @@ export function registerByMonth(db: DB, kind: 'sales' | 'purchase', from: string
     if (r.drCr === side && accountIds.has(r.groupId)) m.taxable += r.amount
     if (r.drCr === side && r.taxType) m.tax += r.amount
     if (r.drCr === 'dr') m.total += r.amount
-    months.set(r.month, m)
+    buckets.set(key, m)
   }
-  return [...months.values()]
+  // Bucket keys are built to sort chronologically as plain strings (see @shared/period).
+  return [...buckets.values()]
     .map(({ seen: _seen, ...rest }) => rest)
-    .sort((a, b) => a.month.localeCompare(b.month))
+    .sort((a, b) => a.period.localeCompare(b.period))
 }
 
 /** Every party's movements + bill_refs, expressed as pure `BillEvent`s for `allocateBills` —
  *  two batched queries for the whole party set instead of two queries per party (the old N+1). */
-function partyEventsBatch(db: DB, partyIds: number[], asOn: string, sign: number): Map<number, BillEvent[]> {
+export function partyEventsBatch(db: DB, partyIds: number[], asOn: string, sign: number): Map<number, BillEvent[]> {
   const result = new Map<number, BillEvent[]>()
   if (partyIds.length === 0) return result
   const placeholders = partyIds.map(() => '?').join(',')
@@ -90,7 +112,7 @@ function partyEventsBatch(db: DB, partyIds: number[], asOn: string, sign: number
 
 /** Opening-balance event, normalized to the same sign convention as `partyEvents`. Kept as a
  *  separate first event (never carries refs) — matches the pre-refactor behavior exactly. */
-function openingEvent(asOn: string, openingBalance: number, sign: number): BillEvent[] {
+export function openingEvent(asOn: string, openingBalance: number, sign: number): BillEvent[] {
   if (openingBalance === 0) return []
   // v0.3 #62: the FY start of asOn — `${asOn.year}-04-01` was wrong for Jan–Mar dates (it
   // produced a date in asOn's FUTURE, zeroing the opening bill's age).
@@ -103,11 +125,25 @@ function openingEvent(asOn: string, openingBalance: number, sign: number): BillE
  * creditors. Buckets are keyed on days overdue from the due date (or the bill date, when no due
  * date is known) — see shared/outstanding.ts's `allocateBills`.
  */
-export function outstandings(db: DB, side: 'receivable' | 'payable', asOn: string): OutstandingParty[] {
+/**
+ * Open bills per party, as on a date.
+ *
+ * `includeBills` defaults to true so the CA pack, the agent mirror and every existing caller keep
+ * the whole picture. The Outstandings SCREEN passes false: it collapses each party's bills behind
+ * an expand toggle and fetches them with `openBills` when one is opened, so shipping every bill
+ * for every party was ~4 MB of JSON to render a list of party names. Measured in scale.dbtest.ts.
+ */
+export function outstandings(
+  db: DB,
+  side: 'receivable' | 'payable',
+  asOn: string,
+  opts: { includeBills?: boolean } = {}
+): OutstandingParty[] {
   const groupIds = descendantIdsByName(db, [side === 'receivable' ? 'Sundry Debtors' : 'Sundry Creditors'])
   const parties = (
-    db.prepare('SELECT id, name, opening_balance, group_id, credit_days FROM ledgers').all() as {
+    db.prepare('SELECT id, name, opening_balance, group_id, credit_days, phone, email FROM ledgers').all() as {
       id: number; name: string; opening_balance: number; group_id: number; credit_days: number | null
+      phone: string | null; email: string | null
     }[]
   ).filter((l) => groupIds.has(l.group_id))
 
@@ -128,9 +164,14 @@ export function outstandings(db: DB, side: 'receivable' | 'payable', asOn: strin
     result.push({
       ledgerId: party.id,
       name: party.name,
+      phone: party.phone,
+      email: party.email,
       pending: bills.reduce((s, b) => s + b.pending, 0),
       buckets,
-      bills,
+      billCount: bills.length,
+      // The buckets and the total above are computed from every bill regardless; only the bill
+      // rows themselves are withheld.
+      bills: opts.includeBills === false ? [] : bills,
       ...(warnings.length > 0 ? { warnings } : {})
     })
   }
@@ -148,4 +189,151 @@ export function openBills(db: DB, partyLedgerId: number, asOn: string): Outstand
   const eventsByParty = partyEventsBatch(db, [partyLedgerId], asOn, sign)
   const events = [...openingEvent(asOn, ledger.opening_balance, sign), ...(eventsByParty.get(partyLedgerId) ?? [])]
   return allocateBills(events, asOn, ledger.credit_days).bills
+}
+
+/**
+ * Who the period's sales (or purchases) actually came from, largest first.
+ *
+ * Netted per party across the period, including credit and debit notes: a customer who bought
+ * a crore and returned half of it is a fifty-lakh customer, and ranking them by gross would put
+ * the wrong name at the top of a report whose whole purpose is to name the right one.
+ *
+ * Value is the document total (the party-side debit on a sale), not the taxable value — this is
+ * "how much business does this customer represent", and the tax is part of what they owe.
+ */
+export function partyShares(
+  db: DB,
+  kind: 'sales' | 'purchase',
+  from: string,
+  to: string
+): { rows: PartyShareRow[]; total: number; concentration: Concentration } {
+  // The note that reverses a sale is a credit note; the one that reverses a purchase is a debit
+  // note. Each carries the opposite sign to the document it corrects.
+  const noteKind = kind === 'sales' ? 'credit_note' : 'debit_note'
+  // On a sale the party is debited; on a purchase, credited. The correcting note is the reverse.
+  const partySide = kind === 'sales' ? 'dr' : 'cr'
+
+  const rows = db
+    .prepare(
+      `SELECT v.party_ledger_id AS ledgerId, l.name AS name, vt.kind AS kind, v.id AS voucherId,
+              COALESCE(SUM(CASE WHEN vl.dr_cr = ? THEN vl.amount ELSE -vl.amount END), 0) AS amount
+       FROM vouchers v
+       JOIN voucher_types vt ON vt.id = v.voucher_type_id
+       JOIN ledgers l ON l.id = v.party_ledger_id
+       JOIN voucher_lines vl ON vl.voucher_id = v.id AND vl.ledger_id = v.party_ledger_id
+       WHERE vt.kind IN (?, ?) AND v.date BETWEEN ? AND ? AND ${IN_BOOKS}
+         AND v.party_ledger_id IS NOT NULL
+       GROUP BY v.id`
+    )
+    .all(partySide, kind, noteKind, from, to) as {
+      ledgerId: number; name: string; kind: string; voucherId: number; amount: number
+    }[]
+
+  const byParty = new Map<number, { ledgerId: number; name: string; amount: number; documents: number }>()
+  for (const r of rows) {
+    const entry = byParty.get(r.ledgerId) ?? { ledgerId: r.ledgerId, name: r.name, amount: 0, documents: 0 }
+    entry.amount += r.amount
+    entry.documents += 1
+    byParty.set(r.ledgerId, entry)
+  }
+
+  const ranked = [...byParty.values()].sort((a, b) => b.amount - a.amount)
+  // The denominator is the positive business only, matching how `concentration` reads the list:
+  // a net-negative party cannot be a share of turnover, and including them in the total would
+  // inflate everyone else's share.
+  const total = ranked.reduce((sum, r) => sum + Math.max(0, r.amount), 0)
+
+  let running = 0
+  const out: PartyShareRow[] = ranked.map((r) => {
+    const share = total === 0 ? 0 : Math.max(0, r.amount) / total
+    running += share
+    return { ...r, share, cumulativeShare: running }
+  })
+
+  return { rows: out, total, concentration: concentration(ranked.map((r) => r.amount)) }
+}
+
+/**
+ * The khata: every party on one page.
+ *
+ * "Who owes me, how much, how long, and can they take more" is the question a small business asks
+ * every day, and answering it meant the Outstandings screen for the amount, the ledger statement
+ * for the balance, and the party master for the credit limit.
+ *
+ * Built on the same `outstandings` allocation rather than a parallel query, so the khata and the
+ * ageing report can never disagree about what is open. Balance is read separately, because it and
+ * the allocated pending total are genuinely different numbers: an unallocated receipt lowers the
+ * balance without closing a bill, and seeing the two differ is the point rather than a bug.
+ */
+export function khata(db: DB, side: 'receivable' | 'payable', asOn: string): KhataParty[] {
+  const parties = outstandings(db, side, asOn, { includeBills: true })
+  if (parties.length === 0) return []
+
+  const ids = parties.map((p) => p.ledgerId)
+  const placeholders = ids.map(() => '?').join(',')
+
+  const limits = new Map(
+    (
+      db
+        .prepare(`SELECT id, credit_limit AS creditLimit FROM ledgers WHERE id IN (${placeholders})`)
+        .all(...ids) as { id: number; creditLimit: number | null }[]
+    ).map((r) => [r.id, r.creditLimit])
+  )
+
+  // Signed dr-positive balance per party, opening included.
+  const balances = new Map(
+    (
+      db
+        .prepare(
+          `SELECT l.id,
+                  l.opening_balance + COALESCE((
+                    SELECT SUM(CASE WHEN vl.dr_cr = 'dr' THEN vl.amount ELSE -vl.amount END)
+                    FROM voucher_lines vl JOIN vouchers v ON v.id = vl.voucher_id
+                    WHERE vl.ledger_id = l.id AND v.date <= ? AND ${IN_BOOKS}
+                  ), 0) AS balance
+           FROM ledgers l WHERE l.id IN (${placeholders})`
+        )
+        .all(asOn, ...ids) as { id: number; balance: number }[]
+    ).map((r) => [r.id, r.balance])
+  )
+
+  // The last time money actually moved with this party. A receipt on the receivable side, a
+  // payment on the payable side — the voucher kinds that settle rather than create a bill.
+  const settleKind = side === 'receivable' ? 'receipt' : 'payment'
+  const lastPayments = new Map(
+    (
+      db
+        .prepare(
+          `SELECT v.party_ledger_id AS ledgerId, MAX(v.date) AS date
+           FROM vouchers v JOIN voucher_types vt ON vt.id = v.voucher_type_id
+           WHERE vt.kind = ? AND v.date <= ? AND ${IN_BOOKS} AND v.party_ledger_id IN (${placeholders})
+           GROUP BY v.party_ledger_id`
+        )
+        .all(settleKind, asOn, ...ids) as { ledgerId: number; date: string }[]
+    ).map((r) => [r.ledgerId, r.date])
+  )
+
+  return parties.map((p) => {
+    const creditLimit = limits.get(p.ledgerId) ?? null
+    // Signed dr-positive; a payable party's balance is naturally negative, so flip it so both
+    // sides read as "what is owed" rather than making the caller remember which way round it is.
+    const raw = balances.get(p.ledgerId) ?? 0
+    const balance = side === 'receivable' ? raw : -raw
+    return {
+      ledgerId: p.ledgerId,
+      name: p.name,
+      side,
+      balance,
+      pending: p.pending,
+      billCount: p.billCount,
+      oldestBillDays: p.bills.reduce((max, b) => Math.max(max, b.ageDays), 0),
+      worstOverdueDays: p.bills.reduce((max, b) => Math.max(max, b.overdueDays), 0),
+      buckets: p.buckets,
+      creditLimit,
+      creditUsed: creditLimit && creditLimit > 0 ? balance / creditLimit : null,
+      lastPaymentDate: lastPayments.get(p.ledgerId) ?? null,
+      phone: p.phone,
+      email: p.email
+    }
+  })
 }

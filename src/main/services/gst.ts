@@ -1,7 +1,6 @@
 import { writeFileSync } from 'fs'
 import { join } from 'path'
 import type { DB } from '../db/connection'
-import type { CompanyInfo } from '@shared/domain'
 import {
   buildGstr1, buildGstr3b, classifyDoc, isZeroRatedTyp,
   type GstAdvanceAgg, type GstDoc, type GstDocRateItem, type GstDocSeries, type GstHsnLine,
@@ -9,15 +8,29 @@ import {
   type ItcBreakdown, type TaxTotals
 } from '@shared/gst/returns'
 import { backOutAdvance, computeGst, supplyTypeFor } from '@shared/gst/calc'
+import { makeRateResolver } from './itemRates'
 import { toUqc } from '@shared/gst/uqc'
 import { validateGstr1, type GstIssue } from '@shared/gst/validate'
-import { fyOf } from '@shared/dates'
+import { fyFromStartYear, fyOf, todayISO } from '@shared/dates'
+import { periodBounds } from '@shared/period'
+import { buildGstr9, type Gstr9Working } from '@shared/gst/gstr9'
+import { filingRegister } from './filings'
+import {
+  buildGstr4,
+  computeCmp08,
+  type Cmp08,
+  type CompositionCategory,
+  type Gstr4
+} from '@shared/gst/composition'
 import { plainRupees } from '@shared/money'
 import { parseGstr2b, reconcile2b, type PurchaseDoc, type Recon2bResult } from '@shared/gst/recon2b'
 import { descendantIdsByName } from './masters'
 import { getGst3bManual } from './config'
 import { companyExportsDir } from '../paths'
 import { IN_BOOKS } from './vouchers'
+import { regScope, type GstScope } from './registrations'
+import { branchTransferInwardItc, branchTransferOutwardDocs } from './branchTransfer'
+import { isdInwardItc } from './isd'
 
 interface DocVoucherRow {
   id: number; date: string; number: string; kind: 'sales' | 'credit_note' | 'debit_note'
@@ -26,6 +39,7 @@ interface DocVoucherRow {
   partyExportType: 'sez_wp' | 'sez_wop' | 'exp_wp' | 'exp_wop' | null
   partyRcm: number
   transDocNo: string | null; transDocDate: string | null
+  irn: string | null
 }
 
 const INCOME_GROUPS = ['Sales Accounts', 'Direct Incomes', 'Indirect Incomes']
@@ -36,12 +50,12 @@ const INCOME_GROUPS = ['Sales Accounts', 'Direct Incomes', 'Indirect Incomes']
  * ledger, or failing that when its party sits under Sundry Debtors (a customer). Everything
  * else stays purchase-side (GSTR-3B ITC / 2B reconciliation).
  */
-export function outwardDebitNoteIds(db: DB, from: string, to: string): Set<number> {
+export function outwardDebitNoteIds(db: DB, from: string, to: string, scope?: GstScope): Set<number> {
   const rows = db
     .prepare(
       `SELECT v.id, v.party_ledger_id AS partyLedgerId
        FROM vouchers v JOIN voucher_types vt ON vt.id = v.voucher_type_id
-       WHERE vt.kind = 'debit_note' AND v.date BETWEEN ? AND ? AND ${IN_BOOKS}`
+       WHERE vt.kind = 'debit_note' AND v.date BETWEEN ? AND ? AND ${IN_BOOKS}${regScope(scope)}`
     )
     .all(from, to) as { id: number; partyLedgerId: number | null }[]
   if (!rows.length) return new Set()
@@ -76,27 +90,33 @@ export function outwardDebitNoteIds(db: DB, from: string, to: string): Set<numbe
  * to nilLines (Table 8), never into the rated buckets. SEWOP/EXPWOP (without-payment)
  * documents are zero-rated with no tax charged.
  */
-export function extractOutwardDocs(db: DB, company: CompanyInfo, from: string, to: string): GstDoc[] {
+export function extractOutwardDocs(db: DB, company: GstScope, from: string, to: string): GstDoc[] {
   const vouchers = db
     .prepare(
       `SELECT v.id, v.date, v.number, vt.kind, v.pos_override AS posOverride,
               p.name AS partyName, p.gstin AS partyGstin, p.state_code AS partyState,
               p.export_type AS partyExportType, COALESCE(p.rcm, 0) AS partyRcm,
-              t.trans_doc_no AS transDocNo, t.trans_doc_date AS transDocDate
+              t.trans_doc_no AS transDocNo, t.trans_doc_date AS transDocDate,
+              v.irn
        FROM vouchers v
        JOIN voucher_types vt ON vt.id = v.voucher_type_id
        LEFT JOIN ledgers p ON p.id = v.party_ledger_id
        LEFT JOIN voucher_transport t ON t.voucher_id = v.id
-       WHERE vt.kind IN ('sales', 'credit_note', 'debit_note') AND v.date BETWEEN ? AND ? AND ${IN_BOOKS}
+       WHERE vt.kind IN ('sales', 'credit_note', 'debit_note') AND v.date BETWEEN ? AND ? AND ${IN_BOOKS}${regScope(company)}
        ORDER BY v.date, v.id`
     )
     .all(from, to) as DocVoucherRow[]
 
-  const outwardDbn = outwardDebitNoteIds(db, from, to)
+  const outwardDbn = outwardDebitNoteIds(db, from, to, company)
   const salesGroupIds = descendantIdsByName(db, INCOME_GROUPS)
 
+  // Rate history (D-92): a rate change must not reprice a return that was already filed, so the
+  // rate is resolved against the VOUCHER's date. Null when no item in the book has any history,
+  // in which case the master column answers and this path is exactly what it always was.
+  const rateOnDate = makeRateResolver(db)
+
   const invStmt = db.prepare(
-    `SELECT il.qty_milli AS qtyMilli, il.amount,
+    `SELECT il.stock_item_id AS stockItemId, il.qty_milli AS qtyMilli, il.amount,
             si.name AS itemName, si.hsn, si.gst_rate AS gstRate, si.cess_rate AS cessRate,
             u.uqc
      FROM inventory_lines il
@@ -113,13 +133,16 @@ export function extractOutwardDocs(db: DB, company: CompanyInfo, from: string, t
     "SELECT COALESCE(SUM(amount), 0) AS t FROM voucher_lines WHERE voucher_id = ? AND dr_cr = 'dr'"
   )
 
-  return vouchers
+  const docs: GstDoc[] = vouchers
     .filter((v) => v.kind !== 'debit_note' || outwardDbn.has(v.id))
     .map((v) => {
       const invTyp = classifyDoc(v.partyExportType, v.partyState)
       const isExport = invTyp === 'EXPWP' || invTyp === 'EXPWOP'
-      // POS precedence: per-voucher override, then party state, then company state
-      // (exports default to 96 "Other Country" when the party has no state code).
+      // POS precedence: per-voucher override, then party state, then the SUPPLYING
+      // REGISTRATION's state (exports default to 96 "Other Country" when the party has no
+      // state code). `company` here is the book as one registration sees it: with a single
+      // GSTIN it is the company's own state, exactly as before; with several it is the state
+      // of the registration that made the supply, which is what decides CGST+SGST vs IGST.
       const pos = v.posOverride ?? v.partyState ?? (isExport ? '96' : company.stateCode)
       // SEZ/export supplies are ALWAYS inter-state (sec 7(5)(b) IGST Act) — an SEZ unit in
       // the company's own state still gets IGST, never CGST/SGST. POS stays the real state.
@@ -128,7 +151,7 @@ export function extractOutwardDocs(db: DB, company: CompanyInfo, from: string, t
       const zeroTax = invTyp === 'SEWOP' || invTyp === 'EXPWOP'
 
       const inv = invStmt.all(v.id) as {
-        qtyMilli: number; amount: number; itemName: string
+        stockItemId: number; qtyMilli: number; amount: number; itemName: string
         hsn: string | null; gstRate: number | null; cessRate: number | null; uqc: string
       }[]
 
@@ -176,7 +199,13 @@ export function extractOutwardDocs(db: DB, company: CompanyInfo, from: string, t
           // kept as-is so the validation panel can flag them (never silently 'OTH').
           const mapped = toUqc(line.uqc)
           const uqc = mapped.fallback ? line.uqc : mapped.uqc
-          addLine(line.amount, line.gstRate ?? 0, line.cessRate ?? 0, line.hsn, line.itemName, uqc, line.qtyMilli)
+          const dated = rateOnDate?.(line.stockItemId, v.date) ?? null
+          addLine(
+            line.amount,
+            dated ? dated.ratePercent : (line.gstRate ?? 0),
+            dated ? dated.cessPercent : (line.cessRate ?? 0),
+            line.hsn, line.itemName, uqc, line.qtyMilli
+          )
         }
       } else {
         const lines = lineStmt.all(v.id) as {
@@ -211,6 +240,7 @@ export function extractOutwardDocs(db: DB, company: CompanyInfo, from: string, t
         invTyp,
         rchrg: !!v.partyRcm,
         shippingBill: isExport ? { num: v.transDocNo, date: v.transDocDate } : null,
+        irn: v.irn ?? null,
         validation: {
           valDiff: invoiceValue - computedTotal,
           missingHsnCount,
@@ -219,6 +249,12 @@ export function extractOutwardDocs(db: DB, company: CompanyInfo, from: string, t
         }
       }
     })
+
+  // Branch transfers (roadmap #108). Stock that moved to another registration of this PAN is a
+  // supply under Schedule I para 2, and once its invoice has been raised it belongs IN this
+  // registration's outward documents — B2B in GSTR-1, 3.1(a) in GSTR-3B — not in a warning beside
+  // them. Nothing is appended on a single-registration book, or until an invoice is issued.
+  return [...docs, ...branchTransferOutwardDocs(db, company, from, to)]
 }
 
 // ---------- inward (purchase) side ----------
@@ -232,25 +268,26 @@ const ZERO: InwardSummary = { igst: 0, cgst: 0, sgst: 0, cess: 0 }
  * (item rate, else purchase-ledger rate) since RCM purchases book no input-tax lines of
  * their own. Outward (sales-side) debit notes are excluded via outwardDebitNoteIds.
  */
-export function rcmInwardSummary(db: DB, company: CompanyInfo, from: string, to: string): TaxTotals {
-  const outwardDbn = outwardDebitNoteIds(db, from, to)
+export function rcmInwardSummary(db: DB, company: GstScope, from: string, to: string): TaxTotals {
+  const outwardDbn = outwardDebitNoteIds(db, from, to, company)
   const vouchers = (db
     .prepare(
-      `SELECT v.id, vt.kind, p.state_code AS partyState
+      `SELECT v.id, v.date, vt.kind, p.state_code AS partyState
        FROM vouchers v
        JOIN voucher_types vt ON vt.id = v.voucher_type_id
        JOIN ledgers p ON p.id = v.party_ledger_id
-       WHERE vt.kind IN ('purchase', 'debit_note') AND p.rcm = 1 AND v.date BETWEEN ? AND ? AND ${IN_BOOKS}`
+       WHERE vt.kind IN ('purchase', 'debit_note') AND p.rcm = 1 AND v.date BETWEEN ? AND ? AND ${IN_BOOKS}${regScope(company)}`
     )
-    .all(from, to) as { id: number; kind: 'purchase' | 'debit_note'; partyState: string | null }[])
+    .all(from, to) as { id: number; date: string; kind: 'purchase' | 'debit_note'; partyState: string | null }[])
     .filter((v) => v.kind !== 'debit_note' || !outwardDbn.has(v.id))
 
   const purchaseGroupIds = descendantIdsByName(db, ['Purchase Accounts', 'Direct Expenses', 'Indirect Expenses'])
   const invStmt = db.prepare(
-    `SELECT il.amount, si.gst_rate AS gstRate, si.cess_rate AS cessRate
+    `SELECT il.stock_item_id AS stockItemId, il.amount, si.gst_rate AS gstRate, si.cess_rate AS cessRate
      FROM inventory_lines il JOIN stock_items si ON si.id = il.stock_item_id
      WHERE il.voucher_id = ?`
   )
+  const rateOnDate = makeRateResolver(db)
   const lineStmt = db.prepare(
     `SELECT vl.amount, vl.dr_cr AS drCr, l.group_id AS groupId, l.gst_rate AS gstRate
      FROM voucher_lines vl JOIN ledgers l ON l.id = vl.ledger_id WHERE vl.voucher_id = ?`
@@ -263,10 +300,20 @@ export function rcmInwardSummary(db: DB, company: CompanyInfo, from: string, to:
     // value sits on the CREDIT lines (mirror of extractPurchaseDocs).
     const sign = v.kind === 'debit_note' ? -1 : 1
     const purchaseSide = v.kind === 'debit_note' ? 'cr' : 'dr'
-    const inv = invStmt.all(v.id) as { amount: number; gstRate: number | null; cessRate: number | null }[]
+    const inv = invStmt.all(v.id) as {
+      stockItemId: number; amount: number; gstRate: number | null; cessRate: number | null
+    }[]
     const lines =
       inv.length > 0
-        ? inv.map((l) => ({ amount: l.amount, rate: l.gstRate ?? 0, cessRate: l.cessRate ?? 0 }))
+        ? inv.map((l) => {
+            // Same rule as the outward side: the rate in force on the voucher's own date (D-92).
+            const dated = rateOnDate?.(l.stockItemId, v.date) ?? null
+            return {
+              amount: l.amount,
+              rate: dated ? dated.ratePercent : (l.gstRate ?? 0),
+              cessRate: dated ? dated.cessPercent : (l.cessRate ?? 0)
+            }
+          })
         : (lineStmt.all(v.id) as { amount: number; drCr: 'dr' | 'cr'; groupId: number; gstRate: number | null }[])
             .filter((l) => l.drCr === purchaseSide && purchaseGroupIds.has(l.groupId))
             .map((l) => ({ amount: l.amount, rate: l.gstRate ?? 0, cessRate: 0 }))
@@ -289,8 +336,8 @@ export function rcmInwardSummary(db: DB, company: CompanyInfo, from: string, to:
  * ISRC, computed from master rates in rcmInwardSummary). Outward debit notes are excluded —
  * their tax lines are OUTPUT tax, not ITC (they used to be silently subtracted).
  */
-export function itcBreakdown(db: DB, company: CompanyInfo, from: string, to: string): ItcBreakdown {
-  const outwardDbn = outwardDebitNoteIds(db, from, to)
+export function itcBreakdown(db: DB, company: GstScope, from: string, to: string): ItcBreakdown {
+  const outwardDbn = outwardDebitNoteIds(db, from, to, company)
   const rows = db
     .prepare(
       `SELECT v.id AS voucherId, vt.kind, l.tax_type AS taxType,
@@ -307,7 +354,7 @@ export function itcBreakdown(db: DB, company: CompanyInfo, from: string, to: str
        JOIN ledgers l ON l.id = vl.ledger_id
        LEFT JOIN ledgers p ON p.id = v.party_ledger_id
        WHERE l.tax_type IS NOT NULL AND vt.kind IN ('purchase', 'debit_note')
-         AND v.date BETWEEN ? AND ? AND ${IN_BOOKS}
+         AND v.date BETWEEN ? AND ? AND ${IN_BOOKS}${regScope(company)}
        GROUP BY v.id, l.tax_type`
     )
     .all(from, to) as {
@@ -331,13 +378,27 @@ export function itcBreakdown(db: DB, company: CompanyInfo, from: string, to: str
   }
   const rcm = rcmInwardSummary(db, company, from, to)
   result.isrc = { igst: rcm.igst, cgst: rcm.cgst, sgst: rcm.sgst, cess: rcm.cess }
+
+  // 4(A)(5) also carries stock received from another registration of this PAN (roadmap #108). An
+  // inward branch transfer is an ordinary inward supply from a registered person, and the tax is
+  // read off the SENDER's stored invoice rather than recomputed here — which is what makes the two
+  // registrations' returns tie to the paise instead of drifting apart on a rounding difference.
+  const bt = branchTransferInwardItc(db, company, from, to)
+  result.oth.igst += bt.igst
+  result.oth.cgst += bt.cgst
+  result.oth.sgst += bt.sgst
+  result.oth.cess += bt.cess
+
+  // 4(A)(4) — inward supplies from an Input Service Distributor (roadmap #355). Eligible credit
+  // only; see isdInwardItc.
+  result.isd = isdInwardItc(db, company, from, to)
   return result
 }
 
 /** Net booked ITC for the period (legacy shape — the on-screen "Eligible ITC" row). */
-export function inwardSummary(db: DB, from: string, to: string): InwardSummary {
+export function inwardSummary(db: DB, from: string, to: string, scope?: GstScope): InwardSummary {
   // Kept for the 2B reconciliation summary; excludes outward debit notes like itcBreakdown.
-  const outwardDbn = outwardDebitNoteIds(db, from, to)
+  const outwardDbn = outwardDebitNoteIds(db, from, to, scope)
   const rows = db
     .prepare(
       `SELECT v.id AS voucherId, vt.kind, l.tax_type AS taxType,
@@ -350,7 +411,7 @@ export function inwardSummary(db: DB, from: string, to: string): InwardSummary {
        JOIN vouchers v ON v.id = vl.voucher_id
        JOIN voucher_types vt ON vt.id = v.voucher_type_id
        JOIN ledgers l ON l.id = vl.ledger_id
-       WHERE l.tax_type IS NOT NULL AND vt.kind IN ('purchase', 'debit_note') AND v.date BETWEEN ? AND ? AND ${IN_BOOKS}
+       WHERE l.tax_type IS NOT NULL AND vt.kind IN ('purchase', 'debit_note') AND v.date BETWEEN ? AND ? AND ${IN_BOOKS}${regScope(scope)}
        GROUP BY v.id, l.tax_type`
     )
     .all(from, to) as { voucherId: number; kind: string; taxType: 'cgst' | 'sgst' | 'igst' | 'cess'; amount: number }[]
@@ -372,7 +433,7 @@ export function inwardSummary(db: DB, from: string, to: string): InwardSummary {
  * can't be rate-classified and are skipped — the dedicated "advance" flag on receipt entry
  * is renderer work (S4).
  */
-export function extractAdvances(db: DB, company: CompanyInfo, from: string, to: string): GstAdvanceAgg[] {
+export function extractAdvances(db: DB, company: GstScope, from: string, to: string): GstAdvanceAgg[] {
   const rows = db
     .prepare(
       `SELECT br.amount, p.state_code AS partyState, p.gst_rate AS gstRate
@@ -381,7 +442,7 @@ export function extractAdvances(db: DB, company: CompanyInfo, from: string, to: 
        JOIN voucher_types vt ON vt.id = v.voucher_type_id
        JOIN ledgers p ON p.id = br.party_ledger_id
        WHERE vt.kind = 'receipt' AND br.kind = 'new' AND p.gst_rate IS NOT NULL
-         AND v.date BETWEEN ? AND ? AND ${IN_BOOKS}`
+         AND v.date BETWEEN ? AND ? AND ${IN_BOOKS}${regScope(company)}`
     )
     .all(from, to) as { amount: number; partyState: string | null; gstRate: number }[]
   return aggregateAdvances(rows, company)
@@ -391,7 +452,7 @@ export function extractAdvances(db: DB, company: CompanyInfo, from: string, to: 
  * 11B — advances adjusted: sales vouchers in the period settling ('against') a bill that a
  * receipt voucher created ('new') — i.e. an invoice issued against an earlier advance.
  */
-export function extractAdvanceAdjustments(db: DB, company: CompanyInfo, from: string, to: string): GstAdvanceAgg[] {
+export function extractAdvanceAdjustments(db: DB, company: GstScope, from: string, to: string): GstAdvanceAgg[] {
   const rows = db
     .prepare(
       `SELECT br.amount, p.state_code AS partyState, p.gst_rate AS gstRate
@@ -400,7 +461,7 @@ export function extractAdvanceAdjustments(db: DB, company: CompanyInfo, from: st
        JOIN voucher_types vt ON vt.id = v.voucher_type_id
        JOIN ledgers p ON p.id = br.party_ledger_id
        WHERE vt.kind = 'sales' AND br.kind = 'against' AND p.gst_rate IS NOT NULL
-         AND v.date BETWEEN ? AND ? AND ${IN_BOOKS}
+         AND v.date BETWEEN ? AND ? AND ${IN_BOOKS}${regScope(company)}
          AND EXISTS (
            SELECT 1 FROM bill_refs br2
            JOIN vouchers v2 ON v2.id = br2.voucher_id
@@ -415,7 +476,7 @@ export function extractAdvanceAdjustments(db: DB, company: CompanyInfo, from: st
 
 function aggregateAdvances(
   rows: { amount: number; partyState: string | null; gstRate: number }[],
-  company: CompanyInfo
+  company: GstScope
 ): GstAdvanceAgg[] {
   const agg = new Map<string, GstAdvanceAgg>()
   for (const r of rows) {
@@ -437,23 +498,24 @@ function aggregateAdvances(
 }
 
 /**
- * Table 13 — documents issued, one series per sales/credit-note/debit-note voucher type.
+ * Table 13 — documents issued, one series per sales/credit-note/debit-note voucher type, plus
+ * the separately numbered branch-transfer tax-invoice series for the sending registration.
  *
  * DELIBERATE EXCEPTION to the NOT_DELETED rule: this query reads soft-deleted (binned)
  * vouchers too — a deleted voucher consumed a number in the series, and Table 13 reports it
  * as a CANCELLED document (`cancel`), not a gap. Do not add the filter here.
  */
-export function extractDocSeries(db: DB, from: string, to: string): GstDocSeries[] {
+export function extractDocSeries(db: DB, from: string, to: string, scope?: GstScope): GstDocSeries[] {
   const types = db
     .prepare(
       `SELECT DISTINCT v.voucher_type_id AS typeId, vt.kind
        FROM vouchers v JOIN voucher_types vt ON vt.id = v.voucher_type_id
-       WHERE vt.kind IN ('sales', 'credit_note', 'debit_note') AND v.date BETWEEN ? AND ?`
+       WHERE vt.kind IN ('sales', 'credit_note', 'debit_note') AND v.date BETWEEN ? AND ?${regScope(scope)}`
     )
     .all(from, to) as { typeId: number; kind: 'sales' | 'credit_note' | 'debit_note' }[]
   const seriesStmt = db.prepare(
     `SELECT v.number, v.deleted_at AS deletedAt
-     FROM vouchers v WHERE v.voucher_type_id = ? AND v.date BETWEEN ? AND ?
+     FROM vouchers v WHERE v.voucher_type_id = ? AND v.date BETWEEN ? AND ?${regScope(scope)}
      ORDER BY v.date, v.id`
   )
   const CATEGORY: Record<string, 1 | 4 | 5> = { sales: 1, debit_note: 4, credit_note: 5 }
@@ -469,7 +531,30 @@ export function extractDocSeries(db: DB, from: string, to: string): GstDocSeries
       cancel: rows.filter((r) => r.deletedAt).length
     })
   }
-  return result.sort((a, b) => a.category - b.category)
+  // Branch-transfer invoices are statutory outward-supply tax invoices but deliberately are not
+  // accounting vouchers (issuing one must not create revenue or change the trial balance). Their
+  // rule-46 series therefore has to be read from its own durable register. It belongs only to the
+  // sending GSTIN's category-1 documents; the receiving registration neither issued nor reports
+  // it. A bare/single-registration scope has no such documents.
+  if (scope?.registrationId != null) {
+    const branchRows = db
+      .prepare(
+        `SELECT number FROM branch_transfer_invoices
+         WHERE from_registration_id = ? AND doc_date BETWEEN ? AND ?
+         ORDER BY doc_date, id`
+      )
+      .all(scope.registrationId, from, to) as { number: string }[]
+    if (branchRows.length > 0) {
+      result.push({
+        category: 1,
+        from: branchRows[0]!.number,
+        to: branchRows[branchRows.length - 1]!.number,
+        totnum: branchRows.length,
+        cancel: 0
+      })
+    }
+  }
+  return result.sort((a, b) => a.category - b.category || a.from.localeCompare(b.from))
 }
 
 /**
@@ -499,13 +584,14 @@ export function turnover(db: DB, from: string, to: string): number {
   return Math.max(0, row.t)
 }
 
-function gstr1Extras(db: DB, company: CompanyInfo, from: string, to: string): Gstr1Extras {
+function gstr1Extras(db: DB, company: GstScope, from: string, to: string): Gstr1Extras {
   const fy = fyOf(from)
   const prevFy = fyOf(`${fy.startYear - 1}-06-01`)
   return {
     advances: extractAdvances(db, company, from, to),
     advanceAdjustments: extractAdvanceAdjustments(db, company, from, to),
-    docSeries: extractDocSeries(db, from, to),
+    docSeries: extractDocSeries(db, from, to, company),
+    // GT/current GT are PAN-level aggregate turnover, not this GSTIN's — deliberately unscoped.
     gt: turnover(db, prevFy.from, prevFy.to),
     curGt: turnover(db, fy.from, to)
   }
@@ -525,8 +611,8 @@ interface PurchaseVoucherRow {
  * are the actual booked tax lines — not a recomputation — so entry errors surface in the
  * reconciliation. Outward (sales-side) debit notes are excluded.
  */
-export function extractPurchaseDocs(db: DB, from: string, to: string): PurchaseDoc[] {
-  const outwardDbn = outwardDebitNoteIds(db, from, to)
+export function extractPurchaseDocs(db: DB, from: string, to: string, scope?: GstScope): PurchaseDoc[] {
+  const outwardDbn = outwardDebitNoteIds(db, from, to, scope)
   const vouchers = (db
     .prepare(
       `SELECT v.id, v.date, v.number, v.reference, v.party_ledger_id AS partyLedgerId, vt.kind,
@@ -534,7 +620,7 @@ export function extractPurchaseDocs(db: DB, from: string, to: string): PurchaseD
        FROM vouchers v
        JOIN voucher_types vt ON vt.id = v.voucher_type_id
        LEFT JOIN ledgers p ON p.id = v.party_ledger_id
-       WHERE vt.kind IN ('purchase', 'debit_note') AND v.date BETWEEN ? AND ? AND ${IN_BOOKS}
+       WHERE vt.kind IN ('purchase', 'debit_note') AND v.date BETWEEN ? AND ? AND ${IN_BOOKS}${regScope(scope)}
        ORDER BY v.date, v.id`
     )
     .all(from, to) as PurchaseVoucherRow[])
@@ -604,22 +690,23 @@ export function recon2b(
   db: DB,
   jsonText: string,
   from: string,
-  to: string
+  to: string,
+  scope?: GstScope
 ): { result: Recon2bResult; errors: string[]; period: string | null } {
   const parsed = parseGstr2b(jsonText)
-  const books = extractPurchaseDocs(db, from, to)
+  const books = extractPurchaseDocs(db, from, to, scope)
   const result = reconcile2b(parsed.invoices, books, { amountTolerancePaise: 100, dateWindowDays: 7 })
   return { result, errors: parsed.errors, period: parsed.period }
 }
 
 // ---------- entry points ----------
 
-export function gstr1(db: DB, company: CompanyInfo, from: string, to: string, period: string): Gstr1Result {
+export function gstr1(db: DB, company: GstScope, from: string, to: string, period: string): Gstr1Result {
   const docs = extractOutwardDocs(db, company, from, to)
   return buildGstr1(docs, company.gstin ?? '', company.stateCode, period, gstr1Extras(db, company, from, to))
 }
 
-export function gstr3b(db: DB, company: CompanyInfo, from: string, to: string, period: string): Gstr3bResult {
+export function gstr3b(db: DB, company: GstScope, from: string, to: string, period: string): Gstr3bResult {
   const docs = extractOutwardDocs(db, company, from, to)
   return buildGstr3b(
     {
@@ -633,20 +720,87 @@ export function gstr3b(db: DB, company: CompanyInfo, from: string, to: string, p
   )
 }
 
+/**
+ * CMP-08 for a quarter, for a composition dealer.
+ *
+ * Turnover is read from the outward documents the same extraction the other returns use, so a
+ * composition dealer's figures come from the same source of truth as everyone else's. Their
+ * invoices carry no tax -- that is the scheme -- so what matters here is the taxable value.
+ */
+export function cmp08(
+  db: DB,
+  company: GstScope,
+  from: string,
+  to: string,
+  category: CompositionCategory,
+  extras: { interest?: number; lateFee?: number } = {}
+): Cmp08 {
+  const docs = extractOutwardDocs(db, company, from, to)
+  // Turnover is the sum of the line values, taking both buckets: the extraction files rate-0
+  // lines under `nilLines` rather than `items`, and a composition dealer's sales ledgers carry
+  // no rate at all, so almost every rupee of their turnover lands there. Reading only `items`
+  // reports nil for the typical dealer.
+  //
+  // Genuinely exempt supplies are excluded from a composition dealer's taxable turnover, but
+  // the books cannot tell an exempt supply from an untaxed one -- neither carries a rate -- so
+  // this includes both and the dealer adjusts. Over-reporting here is recoverable; silently
+  // dropping the whole turnover is not.
+  const lineValue = (d: (typeof docs)[number]): number =>
+    d.items.reduce((sum, item) => sum + item.taxable, 0) +
+    (d.nilLines ?? []).reduce((sum, line) => sum + line.taxable, 0)
+  const outwardTurnover = docs.reduce((sum, d) => sum + lineValue(d), 0)
+  const rcm = rcmInwardSummary(db, company, from, to)
+  return computeCmp08({
+    category,
+    outwardTurnover,
+    inwardReverseCharge: rcm.taxable,
+    // Reverse-charge tax is at the normal rate, not the composition rate: the dealer owes it as
+    // the recipient of the supply, which the scheme does not change.
+    reverseChargeTax: rcm.igst + rcm.cgst + rcm.sgst + rcm.cess,
+    interest: extras.interest,
+    lateFee: extras.lateFee
+  })
+}
+
+/**
+ * GSTR-4 for a financial year: the four quarterly CMP-08 statements rolled up.
+ *
+ * Each quarter is computed from the books rather than from a stored CMP-08, so the annual return
+ * cannot disagree with the quarters it is made of.
+ *
+ * A quarter that has not started yet is left out rather than computed as zero, so a dealer
+ * opening the current year's return in August sees "covers Q1 of 4" instead of an apparently
+ * complete return with three nil quarters in it.
+ */
+export function gstr4(
+  db: DB,
+  company: GstScope,
+  fyStartYear: number,
+  category: CompositionCategory,
+  today: string = todayISO()
+): Gstr4 {
+  const quarters = ([1, 2, 3, 4] as const)
+    .map((q) => ({ q, ...periodBounds(`${fyStartYear}-Q${q}`, 'quarter') }))
+    .filter((x) => x.from <= today)
+    .map((x) => ({ quarter: `Q${x.q}`, cmp08: cmp08(db, company, x.from, x.to, category) }))
+  return buildGstr4(fyFromStartYear(fyStartYear).label, quarters)
+}
+
 /** Pre-export validation over the period's extracted documents (G7 panel + export gate). */
-export function gstValidate(db: DB, company: CompanyInfo, from: string, to: string): GstIssue[] {
+export function gstValidate(db: DB, company: GstScope, from: string, to: string): GstIssue[] {
   const docs = extractOutwardDocs(db, company, from, to)
   return validateGstr1(docs, {
     stateCode: company.stateCode,
     gstin: company.gstin,
-    gstRegistrationType: company.gstRegistrationType
+    gstRegistrationType: company.gstRegistrationType,
+    turnoverBand: company.turnoverBand
   })
 }
 
 /** Throw (with the issue list) when blocking issues exist — the server-side export gate.
  *  Guards BOTH return exports: GSTR-1 and GSTR-3B are computed from the same extracted
  *  documents, so a period the app knows is unsound must not export either JSON. */
-export function assertExportable(db: DB, company: CompanyInfo, from: string, to: string): void {
+export function assertExportable(db: DB, company: GstScope, from: string, to: string): void {
   const blocking = gstValidate(db, company, from, to).filter((i) => i.severity === 'blocking')
   if (blocking.length) {
     throw new Error(`GST export blocked: ${blocking.map((i) => i.message).join(' | ')}`)
@@ -675,4 +829,73 @@ export function exportGstr1Csv(slug: string, result: Gstr1Result): string {
   const path = join(companyExportsDir(slug), `gstr1-${result.period}-summary.csv`)
   writeFileSync(path, [header, ...lines].join('\n'))
   return path
+}
+
+/**
+ * GSTR-9 working papers for a financial year.
+ *
+ * Aggregated from the same extraction every other return uses, over the whole year in one pass
+ * rather than twelve — the extraction is already period-bounded, so a year is just a wider
+ * period, and summing twelve monthly builds would round twelve times where once is correct.
+ *
+ * Deliberately no portal JSON. GSTR-9 has no offline utility worth targeting, its tables are
+ * heavily judgement-driven, and a filled-in annual return generated from books alone would be a
+ * confident answer to a question that needs a human. What this produces is every figure that CAN
+ * be computed, beside what was filed, so the person at the portal is transcribing rather than
+ * deriving.
+ */
+export function gstr9(db: DB, company: GstScope, fyStartYear: number): Gstr9Working {
+  const fy = fyFromStartYear(fyStartYear)
+  const docs = extractOutwardDocs(db, company, fy.from, fy.to)
+
+  const taxableOf = (d: (typeof docs)[number]): number =>
+    d.items.reduce((sum, i) => sum + i.taxable, 0) + (d.nilLines ?? []).reduce((sum, n) => sum + n.taxable, 0)
+  const nilOf = (d: (typeof docs)[number]): number =>
+    (d.nilLines ?? []).reduce((sum, n) => sum + n.taxable, 0)
+
+  const sales = docs.filter((d) => d.kind === 'sales')
+  const creditNotes = docs.filter((d) => d.kind === 'credit_note')
+  const debitNotes = docs.filter((d) => d.kind === 'debit_note')
+  const isExport = (d: (typeof docs)[number]): boolean => isZeroRatedTyp(d.invTyp ?? 'R')
+
+  const sumTax = (pick: (i: GstDocRateItem) => number): number =>
+    docs.reduce((sum, d) => sum + d.items.reduce((t, i) => t + pick(i), 0), 0)
+
+  const itc = itcBreakdown(db, company, fy.from, fy.to)
+  const rcm = rcmInwardSummary(db, company, fy.from, fy.to)
+
+  // What the filing register says was actually paid, and which of the year's 3B periods have no
+  // filing recorded. A month with nothing recorded is not a month filed nil.
+  const register = filingRegister(db, company, fyStartYear, todayISO())
+  const taxReturns = register.filter((r) => r.form === 'GSTR-3B')
+  const filedRows = taxReturns.filter((r) => r.record?.filedAt)
+  const taxPaid = filedRows.length > 0 ? filedRows.reduce((sum, r) => sum + (r.record?.taxPaid ?? 0), 0) : null
+
+  return buildGstr9({
+    financialYear: fy.label,
+    outward: {
+      b2bTaxable: sales.filter((d) => d.partyGstin && !isExport(d)).reduce((s, d) => s + taxableOf(d), 0),
+      b2cTaxable: sales.filter((d) => !d.partyGstin && !isExport(d)).reduce((s, d) => s + taxableOf(d), 0),
+      exportTaxable: sales.filter(isExport).reduce((s, d) => s + taxableOf(d), 0),
+      nilExemptTaxable: sales.reduce((s, d) => s + nilOf(d), 0),
+      creditNoteTaxable: creditNotes.reduce((s, d) => s + taxableOf(d), 0),
+      debitNoteTaxable: debitNotes.reduce((s, d) => s + taxableOf(d), 0),
+      igst: sumTax((i) => i.igst),
+      cgst: sumTax((i) => i.cgst),
+      sgst: sumTax((i) => i.sgst),
+      cess: sumTax((i) => i.cess)
+    },
+    itc: {
+      igst: itc.impg.igst + itc.isrc.igst + itc.oth.igst,
+      cgst: itc.impg.cgst + itc.isrc.cgst + itc.oth.cgst,
+      sgst: itc.impg.sgst + itc.isrc.sgst + itc.oth.sgst,
+      cess: itc.impg.cess + itc.isrc.cess + itc.oth.cess,
+      blocked: itc.blocked.igst + itc.blocked.cgst + itc.blocked.sgst + itc.blocked.cess
+    },
+    rcm: { igst: rcm.igst, cgst: rcm.cgst, sgst: rcm.sgst, cess: rcm.cess },
+    filed: {
+      taxPaid,
+      unfiledMonths: taxReturns.filter((r) => !r.record?.filedAt && r.status !== 'upcoming').map((r) => r.period)
+    }
+  })
 }

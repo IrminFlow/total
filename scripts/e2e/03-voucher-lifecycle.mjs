@@ -73,4 +73,57 @@ await scenario('03-voucher-lifecycle', async (h) => {
   await h.goto('gateway')
   await h.goto('daybook')
   await h.page.waitForSelector(`[data-testid="rows-daybook"] [data-row-id="${saved.id}"]`, { timeout: 10000 })
+
+  // ---- the voucher's own audit trail, next to the voucher ----
+  // The audit log has always held before/after snapshots, but only Settings could list them, and
+  // only across the whole book — so "who changed this invoice" meant scrolling a global feed.
+  await h.invoke('voucher:save', {
+    id: saved.id,
+    data: {
+      voucherTypeId: receipt.id, date: today, partyLedgerId: null,
+      narration: 'E2E lifecycle receipt — altered', reference: null, instrumentNo: null, instrumentDate: null,
+      transporterId: null, vehicleNo: null, transportDistanceKm: null, currencyCode: null, exchangeRate: null,
+      lines: [
+        { ledgerId: cash.id, drCr: 'dr', amount: 200000 },
+        { ledgerId: salesLedger.id, drCr: 'cr', amount: 200000 }
+      ],
+      inventory: []
+    }
+  })
+
+  const trail = await h.invoke('audit:list', { entity: 'voucher', entityId: saved.id, page: 0, pageSize: 50 })
+  assert(trail.rows.length >= 2, `the voucher has a create and an alter (${trail.rows.length} rows)`)
+  assert(
+    trail.rows.every((r) => r.entityId === saved.id),
+    'and the filter returns only this voucher, not every voucher'
+  )
+  // An id filter without an entity would mix voucher 7 with ledger 7.
+  const unfiltered = await h.invoke('audit:list', { entityId: saved.id, page: 0, pageSize: 200 })
+  assert(
+    unfiltered.total >= trail.total,
+    'the id alone does not narrow anything, since ids are per-entity'
+  )
+
+  await h.goto('daybook')
+  await h.page.click(`[data-testid="rows-daybook"] [data-row-id="${saved.id}"]`)
+  await h.waitScreen('voucher-entry')
+  await h.click('btn-voucher-history')
+  await h.page.waitForSelector('[data-testid="voucher-history"]', { timeout: 15000 })
+  // The list loads on first expand, so wait for it rather than reading the loading state.
+  await h.page.waitForFunction(
+    () => !/Loading/.test(document.querySelector('[data-testid="voucher-history"]')?.textContent ?? 'Loading'),
+    null,
+    { timeout: 15000 }
+  )
+  const historyText = await h.page.textContent('[data-testid="voucher-history"]')
+  assert(/Altered/.test(historyText), 'the trail names the alteration')
+  assert(/Narration/.test(historyText), 'and which field changed')
+  assert(/Lines: 2 lines, 1,234\.00 → 2 lines, 2,000\.00/.test(historyText),
+    `the line total is the voucher's value, not both sides added (got ${JSON.stringify(historyText.slice(0, 200))})`)
+  assert(/Created/.test(historyText), 'the create is in the trail')
+  // A create or delete lists no field changes: one side is absent, so every field would read
+  // "— → value" and restate what the action label already said.
+  const createSection = historyText.slice(historyText.lastIndexOf('Created'))
+  assert(!/→/.test(createSection), 'a create lists no field-by-field noise')
+  await h.shot('05-voucher-history')
 })

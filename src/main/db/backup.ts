@@ -231,3 +231,249 @@ export function restoreCompanyDb(db: DB, dbPath: string, backupPath: string, bac
 export function rollbackRestore(dbPath: string, snapshotPath: string): void {
   swapInPlace(snapshotPath, dbPath)
 }
+
+export interface RestoreChange {
+  what: string
+  /** In the books as they stand now. */
+  now: string
+  /** In the backup that is about to replace them. */
+  after: string
+  /** True when restoring loses something — the rows a person needs to read first. */
+  loses: boolean
+}
+
+export interface RestorePreview {
+  file: string
+  /** Set when the backup cannot be read at all; every other field is then meaningless. */
+  problem: string | null
+  changes: RestoreChange[]
+  /** Vouchers in the books now that are not in the backup — the entries that get typed again. */
+  vouchersLost: number
+  /** Vouchers in the backup that are not in the books now — deletions the restore undoes. */
+  vouchersReturned: number
+  /** The lost ones, newest first, capped: a list of ten is read, a list of four hundred is not. */
+  sample: { date: string; type: string; number: string; amount: number }[]
+}
+
+const SAMPLE_SIZE = 10
+
+/** Vouchers keyed the way a human identifies one, so two databases can be compared without ids. */
+function voucherKeys(db: Database.Database): Map<string, { date: string; type: string; number: string; amount: number }> {
+  const rows = db
+    .prepare(
+      `SELECT v.date, vt.name AS type, v.number,
+              COALESCE((SELECT SUM(CASE WHEN vl.dr_cr = 'dr' THEN vl.amount ELSE 0 END)
+                        FROM voucher_lines vl WHERE vl.voucher_id = v.id), 0) AS amount
+       FROM vouchers v JOIN voucher_types vt ON vt.id = v.voucher_type_id
+       WHERE v.deleted_at IS NULL`
+    )
+    .all() as { date: string; type: string; number: string; amount: number }[]
+  return new Map(rows.map((r) => [`${r.date}|${r.type}|${r.number}`, r]))
+}
+
+function countOf(db: Database.Database, sql: string): number {
+  try {
+    return (db.prepare(sql).get() as { n: number }).n
+  } catch {
+    // A table that does not exist in an older backup is a real answer: it held none of those.
+    return 0
+  }
+}
+
+/**
+ * What restoring this backup would change, before it changes it (roadmap #246).
+ *
+ * "This replaces the current books" is true and unactionable. The Backups screen already says how
+ * many vouchers would be lost; that number answers "how bad" and not "what". A restore is a
+ * one-way door for everything entered since, and the two questions people actually ask on the way
+ * through it are which entries disappear and which deletions come back — both of which need the
+ * backup and the live books compared row by row, which is what this does.
+ *
+ * Read-only on both sides. The live database is the caller's open handle; the backup is opened
+ * read-only and closed here.
+ */
+export function restorePreview(live: DB, backupPath: string, file = basename(backupPath)): RestorePreview {
+  const empty = (problem: string): RestorePreview => ({
+    file,
+    problem,
+    changes: [],
+    vouchersLost: 0,
+    vouchersReturned: 0,
+    sample: []
+  })
+  if (!existsSync(backupPath)) return empty('Backup file not found')
+
+  let backup: Database.Database
+  try {
+    backup = new Database(backupPath, { readonly: true, fileMustExist: true })
+  } catch (err) {
+    return empty(`Could not open the backup: ${err instanceof Error ? err.message : String(err)}`)
+  }
+
+  try {
+    const quick = (backup.pragma('quick_check') as Array<{ quick_check: string }>)[0]?.quick_check
+    if (quick !== 'ok') return empty(`SQLite reports: ${quick ?? 'no result'}`)
+
+    const liveKeys = voucherKeys(live)
+    const backupKeys = voucherKeys(backup)
+
+    const lost = [...liveKeys.entries()].filter(([key]) => !backupKeys.has(key)).map(([, v]) => v)
+    const returned = [...backupKeys.keys()].filter((key) => !liveKeys.has(key)).length
+
+    const counts: { what: string; sql: string }[] = [
+      { what: 'Vouchers', sql: 'SELECT COUNT(*) AS n FROM vouchers WHERE deleted_at IS NULL' },
+      { what: 'Ledgers', sql: 'SELECT COUNT(*) AS n FROM ledgers' },
+      { what: 'Stock items', sql: 'SELECT COUNT(*) AS n FROM stock_items' },
+      { what: 'Employees', sql: 'SELECT COUNT(*) AS n FROM employees' },
+      { what: 'Audit entries', sql: 'SELECT COUNT(*) AS n FROM audit_log' }
+    ]
+
+    const changes: RestoreChange[] = counts.map(({ what, sql }) => {
+      const now = countOf(live, sql)
+      const after = countOf(backup, sql)
+      return {
+        what,
+        now: now.toLocaleString('en-IN'),
+        after: after.toLocaleString('en-IN'),
+        loses: after < now
+      }
+    })
+
+    const lastOf = (db: Database.Database): string =>
+      ((db.prepare('SELECT MAX(date) AS d FROM vouchers WHERE deleted_at IS NULL').get() as { d: string | null }).d ??
+        '—')
+    changes.push({
+      what: 'Latest entry',
+      now: lastOf(live),
+      after: lastOf(backup),
+      loses: lastOf(backup) < lastOf(live)
+    })
+
+    const lockOf = (db: Database.Database): string =>
+      ((db.prepare("SELECT value FROM meta WHERE key = 'lock_before'").get() as { value: string } | undefined)?.value ??
+        'not locked')
+    if (lockOf(live) !== lockOf(backup)) {
+      changes.push({ what: 'Books locked up to', now: lockOf(live), after: lockOf(backup), loses: false })
+    }
+
+    return {
+      file,
+      problem: null,
+      changes,
+      vouchersLost: lost.length,
+      vouchersReturned: returned,
+      sample: lost.sort((a, b) => b.date.localeCompare(a.date)).slice(0, SAMPLE_SIZE)
+    }
+  } catch (err) {
+    return empty(err instanceof Error ? err.message : String(err))
+  } finally {
+    backup.close()
+  }
+}
+
+export interface BackupVerification {
+  file: string
+  /** SQLite says the file is structurally sound. */
+  integrityOk: boolean
+  /** It has the shape of a Total company database — the schema opened and migrated cleanly. */
+  opensAsCompany: boolean
+  /** Vouchers in books (the bin excluded), so "it restored" can be compared against expectation. */
+  voucherCount: number
+  /** Whether the books in the backup balance. The proof that matters. */
+  balanced: boolean
+  totalDebit: number
+  totalCredit: number
+  /** What went wrong, when something did. */
+  problem: string | null
+}
+
+/**
+ * Verify a backup by actually opening it, not by trusting its file size.
+ *
+ * A backup button that has never been proved is a promise, and a business finds out whether it
+ * was true on the worst day of its year. Checking `quick_check` is not enough either: a
+ * structurally valid SQLite file can still be a database whose books do not add up, or one from
+ * a schema this build can no longer read.
+ *
+ * So this opens the file read-only, runs the thorough integrity check, confirms it has a company
+ * in it, counts the vouchers, and foots the trial balance. If all four hold, the backup will
+ * restore into a working set of books — which is the only claim worth making.
+ *
+ * Read-only throughout, and never touches the live database. Migrations are deliberately NOT
+ * run: a backup that needs migrating still restores fine (restoreCompanyDb migrates on reopen),
+ * and running them here would write to the backup file itself.
+ */
+export function verifyBackup(path: string): BackupVerification {
+  const file = path.split('/').pop() ?? path
+  const fail = (problem: string, partial: Partial<BackupVerification> = {}): BackupVerification => ({
+    file,
+    integrityOk: false,
+    opensAsCompany: false,
+    voucherCount: 0,
+    balanced: false,
+    totalDebit: 0,
+    totalCredit: 0,
+    problem,
+    ...partial
+  })
+
+  let db: Database.Database
+  try {
+    db = new Database(path, { readonly: true, fileMustExist: true })
+  } catch (err) {
+    return fail(`Could not open the file: ${err instanceof Error ? err.message : String(err)}`)
+  }
+
+  // Tracked rather than assumed at each failure point: opening a non-database file succeeds and
+  // the pragma is what throws, so a catch that claimed integrityOk would report a text file as
+  // structurally sound.
+  let integrityOk = false
+  try {
+    const integrity = (db.pragma('integrity_check') as Array<{ integrity_check: string }>)[0]?.integrity_check
+    if (integrity !== 'ok') return fail(`SQLite reports: ${integrity ?? 'no result'}`)
+    integrityOk = true
+
+    const company = db.prepare("SELECT value FROM meta WHERE key = 'company'").get() as
+      | { value: string }
+      | undefined
+    if (!company) {
+      return fail('The file is a database, but not a Total company database.', { integrityOk })
+    }
+
+    const { n } = db
+      .prepare('SELECT COUNT(*) AS n FROM vouchers WHERE deleted_at IS NULL')
+      .get() as { n: number }
+
+    // Foot the books straight from the lines. Opening balances count: a set of books balances
+    // only when the openings and the movement balance together.
+    const totals = db
+      .prepare(
+        `SELECT
+           COALESCE((SELECT SUM(CASE WHEN vl.dr_cr = 'dr' THEN vl.amount ELSE 0 END)
+                     FROM voucher_lines vl JOIN vouchers v ON v.id = vl.voucher_id
+                     WHERE v.deleted_at IS NULL), 0) AS dr,
+           COALESCE((SELECT SUM(CASE WHEN vl.dr_cr = 'cr' THEN vl.amount ELSE 0 END)
+                     FROM voucher_lines vl JOIN vouchers v ON v.id = vl.voucher_id
+                     WHERE v.deleted_at IS NULL), 0) AS cr`
+      )
+      .get() as { dr: number; cr: number }
+
+    const balanced = totals.dr === totals.cr
+    return {
+      file,
+      integrityOk: true,
+      opensAsCompany: true,
+      voucherCount: n,
+      balanced,
+      totalDebit: totals.dr,
+      totalCredit: totals.cr,
+      problem: balanced
+        ? null
+        : `The books in this backup do not balance: debits ${totals.dr} against credits ${totals.cr}.`
+    }
+  } catch (err) {
+    return fail(err instanceof Error ? err.message : String(err), { integrityOk })
+  } finally {
+    db.close()
+  }
+}

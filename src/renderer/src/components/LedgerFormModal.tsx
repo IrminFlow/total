@@ -19,6 +19,7 @@ const EXPORT_TYPES: { value: NonNullable<Ledger['exportType']> | ''; label: stri
 ]
 
 const PAN_RE = /^[A-Z]{5}\d{4}[A-Z]$/
+const TAN_RE = /^[A-Z]{4}\d{5}[A-Z]$/
 
 export const PARTY_GROUPS = ['Sundry Debtors', 'Sundry Creditors']
 export const TAX_GROUPS = ['Duties & Taxes']
@@ -64,8 +65,35 @@ export function LedgerFormModal({ ledger, onClose }: { ledger: Ledger | null; on
   const [hsn, setHsn] = useState(ledger?.hsn ?? '')
   const [tdsSectionId, setTdsSectionId] = useState<number | ''>(ledger?.tdsSectionId ?? '')
   const [pan, setPan] = useState(ledger?.pan ?? '')
+  const [tan, setTan] = useState(ledger?.tan ?? '')
   const [creditDays, setCreditDays] = useState(ledger?.creditDays?.toString() ?? '')
+  const [creditLimit, setCreditLimit] = useState<number | null>(ledger?.creditLimit ?? null)
+  // The currency this account is KEPT in (#140). Null is not "INR": it means the account has no
+  // foreign side at all and is never revalued.
+  const [currencyCode, setCurrencyCode] = useState<string>(ledger?.currencyCode ?? '')
+  // Shown as a percentage because that is how a rate is agreed and argued about; stored as basis
+  // points so 18% never becomes 17.999999 on a customer's statement.
+  const [interestPct, setInterestPct] = useState(
+    ledger?.interestRateBp != null ? (ledger.interestRateBp / 100).toString() : ''
+  )
+  const [interestGrace, setInterestGrace] = useState(ledger?.interestGraceDays?.toString() ?? '')
+  const [salesperson, setSalesperson] = useState(ledger?.salesperson ?? '')
+  const [territory, setTerritory] = useState(ledger?.territory ?? '')
+  const [msmeStatus, setMsmeStatus] = useState<'' | 'micro' | 'small' | 'medium' | 'not_registered'>(
+    ledger?.msmeStatus ?? ''
+  )
+  const [udyamNumber, setUdyamNumber] = useState(ledger?.udyamNumber ?? '')
+  const [phone, setPhone] = useState(ledger?.phone ?? '')
+  const [email, setEmail] = useState(ledger?.email ?? '')
   const [exportType, setExportType] = useState<NonNullable<Ledger['exportType']> | ''>(ledger?.exportType ?? '')
+  const [defaultCostCentreId, setDefaultCostCentreId] = useState<number | ''>(ledger?.defaultCostCentreId ?? '')
+  const { data: costCentres } = useQuery({ queryKey: ['costCentres'], queryFn: api.cc.list })
+  const { data: currencies } = useQuery({ queryKey: ['currencies'], queryFn: api.currencies.list })
+  const [bankAccount, setBankAccount] = useState(ledger?.bankAccount ?? '')
+  const [bankIfsc, setBankIfsc] = useState(ledger?.bankIfsc ?? '')
+  const [bankHolder, setBankHolder] = useState(ledger?.bankHolder ?? '')
+  const [bankSharedOk, setBankSharedOk] = useState(ledger?.bankSharedOk ?? false)
+  const [rcm, setRcm] = useState(ledger?.rcm ?? false)
 
   const ancestry = useMemo(() => groupAncestryNames(groupId, groups), [groupId, groups])
   const isParty = ancestry.some((n) => PARTY_GROUPS.includes(n))
@@ -73,6 +101,7 @@ export function LedgerFormModal({ ledger, onClose }: { ledger: Ledger | null; on
   const isTradingLedger = !isParty && !isTaxLedger && ancestry.some((n) => TRADING_GROUPS.includes(n))
 
   const panError = isParty && pan.trim() && !PAN_RE.test(pan.trim()) ? 'Invalid PAN — format AAAAA9999A' : null
+  const tanError = isParty && tan.trim() && !TAN_RE.test(tan.trim()) ? 'Invalid TAN — format AAAA99999A' : null
 
   const gstinCheck = isParty && gstin.trim() ? validateGstin(gstin) : null
   const gstinError = gstinCheck && !gstinCheck.valid
@@ -85,6 +114,7 @@ export function LedgerFormModal({ ledger, onClose }: { ledger: Ledger | null; on
     try {
       if (gstinError) return void toast.push('error', gstinError)
       if (panError) return void toast.push('error', panError)
+      if (tanError) return void toast.push('error', tanError)
       const effectiveState = stateCode || (gstinCheck?.valid ? gstinCheck.stateCode : null)
       const data = {
         name: name.trim(),
@@ -98,12 +128,53 @@ export function LedgerFormModal({ ledger, onClose }: { ledger: Ledger | null; on
         hsn: hsn.trim() || null,
         tdsSectionId: tdsSectionId === '' ? null : tdsSectionId,
         pan: pan.trim() ? pan.trim().toUpperCase() : null,
+        tan: tan.trim() ? tan.trim().toUpperCase() : null,
         creditDays: creditDays.trim() ? Number(creditDays) : null,
-        exportType: exportType || null
+        creditLimit,
+        currencyCode: currencyCode || null,
+        interestRateBp: interestPct.trim() ? Math.round(Number(interestPct) * 100) : null,
+        interestGraceDays: interestGrace.trim() ? Number(interestGrace) : null,
+        // '' is stored as NULL, which means "nobody has asked" — deliberately not the same as
+        // 'not_registered', because silence is not an exemption from section 43B(h).
+        msmeStatus: msmeStatus === '' ? null : msmeStatus,
+        udyamNumber: udyamNumber.trim() || null,
+        salesperson: salesperson.trim() || null,
+        territory: territory.trim() || null,
+        phone: phone.trim() || null,
+        email: email.trim() || null,
+        exportType: exportType || null,
+        rcm,
+        defaultCostCentreId: defaultCostCentreId === '' ? null : defaultCostCentreId,
+        // Sent only when they were typed. On an existing party the two-person rule (#388) reads
+        // these, so passing them unchanged on every save would fill the queue with requests for
+        // changes nobody made — and `undefined` is what tells the service to leave them alone.
+        ...(isParty
+          ? {
+              bankAccount: bankAccount.trim() || null,
+              bankIfsc: bankIfsc.trim() ? bankIfsc.trim().toUpperCase() : null,
+              bankHolder: bankHolder.trim() || null,
+              bankSharedOk
+            }
+          : {})
       }
-      if (ledger) await api.ledgers.update(ledger.id, data)
-      else await api.ledgers.create(data)
-      await queryClient.invalidateQueries({ queryKey: ['ledgers'] })
+      if (ledger) {
+        const saved = await api.ledgers.update(ledger.id, data)
+        await queryClient.invalidateQueries({ queryKey: ['ledgers'] })
+        await queryClient.invalidateQueries({ queryKey: ['bankChanges'] })
+        // A change that silently did not take effect would be worse than no rule at all, so the
+        // toast says which of the two things happened.
+        if (saved.bankChange) {
+          toast.push(
+            'success',
+            'Saved. The bank details are waiting for a second person to confirm — Settings → Approvals.'
+          )
+          onClose()
+          return
+        }
+      } else {
+        await api.ledgers.create(data)
+        await queryClient.invalidateQueries({ queryKey: ['ledgers'] })
+      }
       toast.push('success', `Ledger ${ledger ? 'updated' : 'created'}`)
       onClose()
     } catch (err) {
@@ -152,7 +223,7 @@ export function LedgerFormModal({ ledger, onClose }: { ledger: Ledger | null; on
             <div className="flex gap-2">
               <AmountInput paise={opening} onPaise={setOpening} className="flex-1" />
               <button
-                className={`num w-12 rounded-md border border-line text-[12.5px] font-medium ${openingSide === 'dr' ? 'text-dr' : 'text-cr'}`}
+                className={`num w-12 rounded-md border border-line text-body-sm font-medium ${openingSide === 'dr' ? 'text-dr' : 'text-cr'}`}
                 onClick={() => setOpeningSide((s) => (s === 'dr' ? 'cr' : 'dr'))}
               >
                 {openingSide === 'dr' ? 'Dr' : 'Cr'}
@@ -189,7 +260,7 @@ export function LedgerFormModal({ ledger, onClose }: { ledger: Ledger | null; on
                 </Select>
               </Field>
             </div>
-            <div className="grid grid-cols-3 gap-3">
+            <div className="grid grid-cols-4 gap-3">
               <Field label="TDS section" hint="Flags this party for TDS deduction">
                 <Select value={tdsSectionId} onChange={(e) => setTdsSectionId(e.target.value ? Number(e.target.value) : '')}>
                   <option value="">None</option>
@@ -203,8 +274,172 @@ export function LedgerFormModal({ ledger, onClose }: { ledger: Ledger | null; on
               <Field label="PAN" error={panError}>
                 <TextInput value={pan} onChange={(e) => setPan(e.target.value.toUpperCase())} className="num" placeholder="AAAAA9999A" maxLength={10} />
               </Field>
+              <Field label="Deductor TAN" hint="Customer's TAN from Form 16A / 26AS" error={tanError}>
+                <TextInput data-testid="input-ledger-tan" value={tan} onChange={(e) => setTan(e.target.value.toUpperCase())} className="num" placeholder="AAAA99999A" maxLength={10} />
+              </Field>
+              <Field label="Reverse charge" hint="Only a notified RCM category; an unregistered supplier alone is not section 9(4)">
+                <label className="flex items-center gap-2 text-body-sm">
+                  <input data-testid="input-ledger-rcm" type="checkbox" checked={rcm} onChange={(e) => setRcm(e.target.checked)} />
+                  Tax is payable by this business
+                </label>
+              </Field>
               <Field label="Credit days" hint="Default due date for bills">
                 <TextInput value={creditDays} onChange={(e) => setCreditDays(e.target.value)} className="num text-right" placeholder="0" />
+              </Field>
+              {(costCentres?.length ?? 0) > 0 && (
+                <Field label="Cost centre" hint="Prefilled on every line posted to this party">
+                  <Select
+                    data-testid="input-ledger-cost-centre"
+                    value={defaultCostCentreId}
+                    onChange={(e) => setDefaultCostCentreId(e.target.value ? Number(e.target.value) : '')}
+                  >
+                    <option value="">None</option>
+                    {(costCentres ?? []).map((c) => (
+                      <option key={c.id} value={c.id}>
+                        {c.name}
+                      </option>
+                    ))}
+                  </Select>
+                </Field>
+              )}
+              <Field label="Phone" hint="Used to send payment reminders on WhatsApp">
+                <TextInput
+                  data-testid="input-ledger-phone"
+                  value={phone}
+                  onChange={(e) => setPhone(e.target.value)}
+                  className="num"
+                  placeholder="98765 43210"
+                  inputMode="tel"
+                />
+              </Field>
+              <Field label="Email" hint="Falls back to an email draft when there is no phone">
+                <TextInput
+                  data-testid="input-ledger-email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  placeholder="accounts@example.com"
+                  inputMode="email"
+                />
+              </Field>
+              <Field label="Credit limit" hint="Warns at entry; blocks under F11 enforcement. Blank = no limit">
+                <AmountInput testId="input-ledger-credit-limit" paise={creditLimit} onPaise={setCreditLimit} />
+              </Field>
+              <Field
+                label="Currency kept"
+                hint="A dollar bank account or a euro supplier. Blank means rupees only and never revalued — Banking → Foreign currency does the restating."
+              >
+                <Select
+                  data-testid="select-ledger-currency"
+                  value={currencyCode}
+                  onChange={(e) => setCurrencyCode(e.target.value)}
+                >
+                  <option value="">Rupees only</option>
+                  {(currencies ?? []).map((c) => (
+                    <option key={c.id} value={c.code}>
+                      {c.code} — {c.name}
+                    </option>
+                  ))}
+                </Select>
+              </Field>
+              <Field label="Interest % p.a." hint="On overdue bills. Blank = the company default">
+                <TextInput
+                  data-testid="input-ledger-interest"
+                  value={interestPct}
+                  onChange={(e) => setInterestPct(e.target.value)}
+                  className="num text-right"
+                  placeholder="18"
+                  inputMode="decimal"
+                />
+              </Field>
+              <Field label="Interest grace days" hint="Days past due before interest starts running">
+                <TextInput
+                  value={interestGrace}
+                  onChange={(e) => setInterestGrace(e.target.value)}
+                  className="num text-right"
+                  placeholder="0"
+                  inputMode="numeric"
+                />
+              </Field>
+              <Field
+                label="MSME status"
+                hint="From their Udyam certificate. Micro and small bring section 43B(h) into play; blank means nobody has asked."
+              >
+                <Select
+                  data-testid="select-ledger-msme"
+                  value={msmeStatus}
+                  onChange={(e) => setMsmeStatus(e.target.value as typeof msmeStatus)}
+                >
+                  <option value="">Not asked</option>
+                  <option value="micro">Micro</option>
+                  <option value="small">Small</option>
+                  <option value="medium">Medium</option>
+                  <option value="not_registered">Not registered</option>
+                </Select>
+              </Field>
+              <Field label="Udyam number" hint="Printed on the certificate they gave you">
+                <TextInput
+                  data-testid="input-ledger-udyam"
+                  value={udyamNumber}
+                  onChange={(e) => setUdyamNumber(e.target.value.toUpperCase())}
+                  className="num"
+                  placeholder="UDYAM-XX-00-0000000"
+                />
+              </Field>
+              <Field label="Salesperson" hint="Groups the ageing report by who owns the relationship">
+                <TextInput
+                  data-testid="input-ledger-salesperson"
+                  value={salesperson}
+                  onChange={(e) => setSalesperson(e.target.value)}
+                  placeholder="Ravi"
+                />
+              </Field>
+              <Field label="Territory" hint="Groups the ageing report by where they are">
+                <TextInput
+                  data-testid="input-ledger-territory"
+                  value={territory}
+                  onChange={(e) => setTerritory(e.target.value)}
+                  placeholder="North"
+                />
+              </Field>
+              <Field label="Bank account" hint="Where this party is paid. Changing it needs a second person">
+                <TextInput
+                  data-testid="input-ledger-bank-account"
+                  value={bankAccount}
+                  onChange={(e) => setBankAccount(e.target.value)}
+                  className="num"
+                  placeholder="001234567890"
+                />
+              </Field>
+              <Field label="IFSC">
+                <TextInput
+                  data-testid="input-ledger-bank-ifsc"
+                  value={bankIfsc}
+                  onChange={(e) => setBankIfsc(e.target.value.toUpperCase())}
+                  className="num"
+                  placeholder="HDFC0001234"
+                />
+              </Field>
+              <Field label="Account holder" hint="As the bank has it — often not the ledger name">
+                <TextInput
+                  data-testid="input-ledger-bank-holder"
+                  value={bankHolder}
+                  onChange={(e) => setBankHolder(e.target.value)}
+                  placeholder="Kumar Traders"
+                />
+              </Field>
+              <Field
+                label="Shared account"
+                hint="A proprietor and their firm, say. Stops the exceptions report flagging this pair"
+              >
+                <label className="flex items-center gap-2 text-body-sm">
+                  <input
+                    type="checkbox"
+                    data-testid="input-ledger-bank-shared-ok"
+                    checked={bankSharedOk}
+                    onChange={(e) => setBankSharedOk(e.target.checked)}
+                  />
+                  This account is knowingly shared with another party
+                </label>
               </Field>
             </div>
             <Field label="Export / SEZ type" hint="For e-invoice/e-way classification">

@@ -3,6 +3,8 @@
 // credential pair — v0.3 review F3), and re-saving the masked sentinels keeps the real values
 // (configured stays true) instead of clobbering them.
 import { scenario, assert, assertEq } from '../lib/harness.mjs'
+import fs from 'node:fs'
+import path from 'node:path'
 
 const CREDS = {
   baseUrlEinvoice: 'https://einv-apisandbox.nic.in',
@@ -46,5 +48,35 @@ await scenario('13-nic-masking', async (h) => {
     [CREDS.password, CREDS.clientSecret]
   )
   assert(!leaked, 'neither secret ever appears in the DOM')
+
+  // The assertion the old plaintext-in-meta layout could never make: neither secret exists
+  // anywhere under the data directory. That directory is what backups, the CA pack, encrypted
+  // exports and a folder-copy all carry, and syncpath.ts warns it may live inside OneDrive --
+  // so a credential landing there travels with the books. Secrets belong in the OS keychain,
+  // and this walk is what keeps them there.
+  const walk = (dir) =>
+    fs.readdirSync(dir, { withFileTypes: true }).flatMap((e) => {
+      const full = path.join(dir, e.name)
+      return e.isDirectory() ? walk(full) : [full]
+    })
+
+  const files = walk(h.dataDir)
+  assert(files.length > 0, `data dir has files to check (${files.length})`)
+  // Guard against this passing vacuously. With a keychain the secrets file must exist and be
+  // one of the files walked above -- that is what proves the bytes were encrypted rather than
+  // simply never written. Without one (a CI box with no libsecret) secrets are session-only by
+  // design, and the walk proves the weaker but still useful "nothing hit the disk".
+  console.log('[13] secret storage mode:', got.secretStorage)
+  if (got.secretStorage === 'keychain') {
+    const rel = files.map((f) => path.relative(h.dataDir, f))
+    assert(rel.includes('secrets.json'), `secrets.json was written and scanned (saw ${rel.join(', ')})`)
+  }
+  for (const file of files) {
+    const bytes = fs.readFileSync(file)
+    for (const secret of [CREDS.password, CREDS.clientSecret]) {
+      assert(!bytes.includes(secret), `${secret} leaked into ${path.relative(h.dataDir, file)}`)
+    }
+  }
+
   await h.shot('01-edocs')
 })

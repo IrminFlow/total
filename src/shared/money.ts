@@ -16,6 +16,24 @@ export function parseRupees(input: string): number | null {
   return cleaned.startsWith('-') ? -paise : paise
 }
 
+/**
+ * Parse a user- or model-entered quantity string ("12.5") into integer thousandths.
+ *
+ * The mirror of parseRupees for the other integer unit in the engine. Same discipline: split on
+ * the decimal point and do integer arithmetic, so a float never touches a quantity either.
+ */
+export function parseMilli(input: string): number | null {
+  const cleaned = input.replace(/[,\s]/g, '')
+  if (cleaned === '' || cleaned === '-' || cleaned === '.') return null
+  if (!/^-?\d*(\.\d{0,3})?$/.test(cleaned)) return null
+  const [wholeRaw = '', fracRaw = ''] = cleaned.replace('-', '').split('.')
+  const whole = wholeRaw === '' ? 0 : parseInt(wholeRaw, 10)
+  const frac = fracRaw === '' ? 0 : parseInt(fracRaw.padEnd(3, '0'), 10)
+  if (!Number.isSafeInteger(whole * 1000)) return null
+  const milli = whole * 1000 + frac
+  return cleaned.startsWith('-') ? -milli : milli
+}
+
 /** Format paise using Indian digit grouping: 12345678 -> "1,23,456.78" */
 export function formatPaise(paise: number, opts: { symbol?: boolean; zeroDash?: boolean } = {}): string {
   if (paise === 0 && opts.zeroDash) return '–'

@@ -16,7 +16,8 @@ export function ReportConfigButton({
   return (
     <>
       <button
-        className="rounded-md border border-line bg-panel2 px-2 py-1 text-[12px] text-muted hover:border-amber/60 hover:text-ink"
+        data-testid="btn-report-config"
+        className="rounded-md border border-line bg-panel2 px-2 py-1 text-small text-muted hover:border-accent/60 hover:text-ink"
         onClick={() => setOpen(true)}
         title="Configure columns"
         aria-label="Configure columns"
@@ -27,8 +28,13 @@ export function ReportConfigButton({
         <Modal title="Columns" onClose={() => setOpen(false)}>
           <div className="flex flex-col gap-2">
             {columns.map((c) => (
-              <label key={c.key} className="flex items-center gap-2 text-[13px]">
-                <input type="checkbox" checked={visible[c.key] ?? c.defaultOn} onChange={() => toggle(c.key)} />
+              <label key={c.key} className="flex items-center gap-2 text-detail">
+                <input
+                  type="checkbox"
+                  data-testid={`report-config-${c.key}`}
+                  checked={visible[c.key] ?? c.defaultOn}
+                  onChange={() => toggle(c.key)}
+                />
                 {c.label}
               </label>
             ))}

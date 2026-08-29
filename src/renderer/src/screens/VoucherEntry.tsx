@@ -1,20 +1,26 @@
 import { useEffect, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import type { VoucherKind } from '@shared/domain'
+import { VOUCHER_KINDS, type VoucherKind } from '@shared/domain'
 import { todayISO } from '@shared/dates'
 import { api } from '../lib/client'
-import { useSession, type VoucherDraft } from '../state/stores'
-import { isAnyModalOpen, Kbd } from '../components/ui'
+import { nextDraftId, useNav, useSession, useToasts, type VoucherDraft } from '../state/stores'
+import { Kbd, Panel, SectionTitle } from '../components/ui'
+import { auditFieldChanges, fieldLabel } from '@shared/auditDiff'
+import { formatPaise } from '@shared/money'
 import { useFeatures } from '../lib/useFeatures'
 import { TRADING_KINDS } from './voucher/hooks'
 import { InvoiceEntry } from './voucher/InvoiceEntry'
 import { AccountingEntry } from './voucher/AccountingEntry'
 import { ManufactureEntry } from './voucher/ManufactureEntry'
 import { PhysicalStockEntry } from './voucher/PhysicalStockEntry'
-
-const FKEYS: Record<string, VoucherKind> = {
-  F4: 'contra', F5: 'payment', F6: 'receipt', F7: 'journal', F8: 'sales', F9: 'purchase'
-}
+import { Attachments } from './voucher/Attachments'
+import { ApprovalBanner } from './voucher/ApprovalBanner'
+import { useScreenAccels } from '../lib/screenAccels'
+// One source of truth for these letters: Settings → Shortcuts reads the same array to report
+// which navigation accelerators this screen shadows, and it has to do that without the screen
+// being mounted. See lib/voucherTypeKeys.ts.
+import { VOUCHER_TYPE_KEYS as TYPE_KEYS } from '../lib/voucherTypeKeys'
+import { useStickyTab } from '../lib/useStickyTab'
 
 export function VoucherEntry({
   voucherId,
@@ -33,6 +39,7 @@ export function VoucherEntry({
   })
   const features = useFeatures()
   const [typeId, setTypeId] = useState<number | null>(null)
+  const [lastKind, setLastKind] = useStickyTab<VoucherKind>('voucher-entry-kind', VOUCHER_KINDS, 'journal')
   const [hintDismissed, setHintDismissed] = useState(false)
 
   // Same queryKey Gateway uses for report:dashboard — a brand-new company (no vouchers yet) gets a
@@ -45,32 +52,43 @@ export function VoucherEntry({
   useEffect(() => {
     if (!types || typeId != null) return
     if (voucherId) return
-    const wanted = kindHint ?? 'journal'
-    const t = types.find((t) => t.kind === wanted) ?? types[0]
+    // An explicit hint (a drill from GSTR-2B, a ⌘D duplicate) wins; failing that, the type this
+    // user last entered, because a business enters the same kind of voucher over and over and
+    // landing on Journal every time is a tab press paid on every visit.
+    const wanted = kindHint ?? lastKind
+    const t = types.find((t) => t.kind === wanted) ?? types.find((t) => t.kind === 'journal') ?? types[0]
     if (t) setTypeId(t.id)
-  }, [types, typeId, kindHint, voucherId])
+  }, [types, typeId, kindHint, voucherId, lastKind])
+
+  // Remember it for next time, but only while creating — the type of a voucher being altered is
+  // the voucher's, not a choice the user just made.
+  useEffect(() => {
+    if (voucherId || !types || typeId == null) return
+    const kind = types.find((t) => t.id === typeId)?.kind
+    if (kind) setLastKind(kind)
+  }, [typeId, types, voucherId, setLastKind])
 
   useEffect(() => {
     if (existing) setTypeId(existing.voucherTypeId)
   }, [existing])
 
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent): void => {
-      const kind = FKEYS[e.key]
-      if (!kind || voucherId || !types) return
-      // Never switch voucher type underneath an open dialog (quick-create ledger, confirm…).
-      if (isAnyModalOpen()) return
-      const withCtrl = e.ctrlKey || e.altKey
-      const target = withCtrl && kind === 'sales' ? 'credit_note' : withCtrl && kind === 'purchase' ? 'debit_note' : kind
-      const t = types.find((t) => t.kind === target)
-      if (t) {
-        e.preventDefault()
-        setTypeId(t.id)
+  // Switching type only makes sense while creating; altering an existing voucher keeps its type.
+  // A dialog on top pushes an opaque layer, so nothing here needs to check for one any more.
+  const canSwitchType = !voucherId && !!types
+  useScreenAccels(
+    'voucher-entry',
+    TYPE_KEYS.map((t) => ({
+      key: t.key,
+      fkey: t.fkey,
+      ctrlOrAlt: t.ctrlOrAlt,
+      label: t.label,
+      when: () => canSwitchType && types!.some((v) => v.kind === t.kind),
+      run: () => {
+        const target = types?.find((v) => v.kind === t.kind)
+        if (target) setTypeId(target.id)
       }
-    }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [types, voucherId])
+    }))
+  )
 
   if (!types || (voucherId && !existing)) return <p className="text-muted">Loading…</p>
   const currentType = types.find((t) => t.id === typeId) ?? types[0]!
@@ -79,42 +97,48 @@ export function VoucherEntry({
   const physicalMode = !voucherId && currentType.kind === 'physical_stock'
 
   return (
-    <div className="mx-auto max-w-4xl">
+    <div className="flex h-full min-h-0 w-full flex-col max-w-4xl">
+      {/* Crash-safe recovery (roadmap #250) — suppressed while altering an existing voucher, and
+          while a draft has just been handed in by a nudge or a duplicate. */}
       {showFirstVoucherHint && (
-        <div className="mb-4 flex items-center justify-between gap-4 rounded-md border border-amber/40 bg-amber/10 px-4 py-2.5">
-          <p className="text-[12.5px] text-ink">
+        <div className="mb-4 flex items-center justify-between gap-4 rounded-md border border-accent/40 bg-accent/10 px-4 py-2.5">
+          <p className="text-body-sm text-ink">
             First voucher? Pick a type above (or <Kbd>F8</Kbd> for Sales), fill in the lines, then{' '}
             <Kbd>⌘↵</Kbd> to save.
           </p>
           <button
             onClick={() => setHintDismissed(true)}
             aria-label="Dismiss"
-            className="shrink-0 text-[12px] text-muted hover:text-ink"
+            className="shrink-0 text-small text-muted hover:text-ink"
           >
             Dismiss
           </button>
         </div>
       )}
-      <div className="mb-4 flex items-center gap-2">
-        <h2 className="mr-3 font-serif text-[19px] font-semibold tracking-tight">
-          {voucherId ? `Alter voucher ${existing?.number}` : 'Voucher entry'}
-        </h2>
-        {!voucherId &&
-          types
-            .filter((t) => features.inventory || (t.kind !== 'stock_journal' && t.kind !== 'physical_stock'))
-            .map((t) => (
-            <button
-              key={t.id}
-              data-testid={`tab-voucher-entry-${t.kind}`}
-              onClick={() => setTypeId(t.id)}
-              className={`rounded-md px-2.5 py-1 text-[12px] transition-colors ${
-                t.id === currentType.id ? 'bg-amber/20 text-amber' : 'text-muted hover:bg-panel2 hover:text-ink'
-              }`}
-            >
-              {t.name}
-            </button>
-          ))}
-      </div>
+      <SectionTitle
+        right={
+          <div className="flex items-center gap-1">
+            {!voucherId &&
+              types
+                .filter((t) => features.inventory || (t.kind !== 'stock_journal' && t.kind !== 'physical_stock'))
+                .map((t) => (
+                  <button
+                    key={t.id}
+                    data-testid={`tab-voucher-entry-${t.kind}`}
+                    onClick={() => setTypeId(t.id)}
+                    className={`rounded-md px-2.5 py-1 text-small whitespace-nowrap transition-colors ${
+                      t.id === currentType.id ? 'bg-accent/20 text-accent' : 'text-muted hover:bg-panel2 hover:text-ink'
+                    }`}
+                  >
+                    {t.name}
+                  </button>
+                ))}
+            {!voucherId && currentType && <SameAsLast typeId={currentType.id} kind={currentType.kind} />}
+          </div>
+        }
+      >
+        {voucherId ? `Alter voucher ${existing?.number}` : 'Voucher entry'}
+      </SectionTitle>
       {invoiceMode ? (
         <InvoiceEntry key={currentType.id} typeId={currentType.id} kind={currentType.kind} draft={draft} />
       ) : manufactureMode ? (
@@ -130,11 +154,148 @@ export function VoucherEntry({
           draft={draft}
         />
       )}
-      <p className="mt-3 text-[11.5px] text-muted">
-        <Kbd>F4</Kbd>–<Kbd>F9</Kbd> switch type · <Kbd>⌘↵</Kbd> save · <Kbd>Esc</Kbd> back · dates accept <span className="num">7</span>, <span className="num">7/4</span>, <span className="num">y</span>
+      {voucherId && existing && <ApprovalBanner voucher={existing} />}
+      {/* Both only make sense once the voucher exists: an attachment needs something to hang on,
+          and an approval is a fact about a saved entry. */}
+      {voucherId && <Attachments voucherId={voucherId} />}
+      {voucherId && <VoucherHistory voucherId={voucherId} />}
+      {/* One line, and only what the key bars do not already say. Two paragraphs used to sit here
+          restating ⌘↵, Esc and the line chords — all of which the strip directly below carries, or
+          `?` does, and every one of them is published by the same declaration that binds it. What
+          is left is the two things that are not keys at all: what a date field will accept, and
+          that a spreadsheet can be pasted straight into the grid. */}
+      <p className="mt-3 text-hint text-muted">
+        Dates accept <span className="num">7</span>, <span className="num">7/4</span>,{' '}
+        <span className="num">y</span> · paste a table from a spreadsheet straight into the lines ·
+        every key on this screen is under <Kbd>?</Kbd>
       </p>
     </div>
   )
+}
+
+/**
+ * Start this voucher from the last one of the same type.
+ *
+ * "Same as last time, different amount" is most of the data entry in a small business: the rent
+ * cheque, the monthly retainer, the standing purchase from one supplier. Recurring templates
+ * cover the ones that repeat on a schedule; this covers the far commoner case of one that repeats
+ * whenever it happens to.
+ *
+ * Hidden rather than disabled when there is no previous voucher of the type — a control that can
+ * never do anything on a brand-new book is noise on the screen where noise costs most.
+ */
+function SameAsLast({ typeId, kind }: { typeId: number; kind: VoucherKind }): React.JSX.Element | null {
+  const nav = useNav()
+  const toast = useToasts()
+  const { data } = useQuery({
+    queryKey: ['latestOfType', typeId],
+    queryFn: () => api.vouchers.latestOfType(typeId)
+  })
+  if (!data?.voucherId) return null
+
+  const start = async (): Promise<void> => {
+    try {
+      const draft = await api.vouchers.draftFrom(data.voucherId!)
+      if (!draft) return void toast.push('error', 'That voucher is no longer in the books')
+      nav.go({ name: 'voucher-entry', kindHint: kind, draft, draftId: nextDraftId() })
+    } catch (err) {
+      toast.push('error', (err as Error).message)
+    }
+  }
+
+  return (
+    <button
+      data-testid="btn-same-as-last"
+      onClick={() => void start()}
+      title="Start from the last voucher of this type — everything but its date"
+      className="ml-2 rounded-md border border-line px-2.5 py-1 text-small whitespace-nowrap text-muted hover:border-accent/60 hover:text-ink"
+    >
+      Same as last
+    </button>
+  )
+}
+
+/**
+ * This voucher's own audit trail: who touched it, when, and what they changed.
+ *
+ * The audit log has always held whole before/after snapshots, and Settings could list them — but
+ * only across the whole book, so answering "who changed this invoice" meant scrolling a global
+ * feed. The trail belongs next to the thing it is about.
+ *
+ * Collapsed by default. Most alterations are opened to make an edit, not to investigate one, and
+ * a panel of history above the save button would be in the way every time.
+ */
+function VoucherHistory({ voucherId }: { voucherId: number }): React.JSX.Element | null {
+  const [open, setOpen] = useState(false)
+  const { data } = useQuery({
+    queryKey: ['voucherAudit', voucherId],
+    queryFn: () => api.audit.list({ entity: 'voucher', entityId: voucherId, page: 0, pageSize: 50 }),
+    enabled: open
+  })
+
+  return (
+    <div className="mt-4">
+      <button
+        data-testid="btn-voucher-history"
+        className="text-small text-muted hover:text-ink"
+        onClick={() => setOpen((v) => !v)}
+      >
+        {open ? '▾' : '▸'} History
+      </button>
+      {open && (
+        <Panel className="mt-2 p-3" data-testid="voucher-history">
+          {!data ? (
+            <p className="text-hint text-muted">Loading…</p>
+          ) : data.rows.length === 0 ? (
+            // Possible: audit retention can have trimmed the entries, and a voucher imported from
+            // Tally never had a create event of its own.
+            <p className="text-hint text-muted">No recorded history for this voucher.</p>
+          ) : (
+            <ol className="flex flex-col gap-2">
+              {data.rows.map((row) => {
+                // Field changes only for an edit between two full records. On a create or a
+                // delete one side is absent, so every field would list as "— → value" or
+                // "value → —" — a wall of noise restating what the action label already said.
+                const changes =
+                  row.beforeJson && row.afterJson
+                    ? auditFieldChanges(
+                        JSON.parse(row.beforeJson) as unknown,
+                        JSON.parse(row.afterJson) as unknown,
+                        (paise) => formatPaise(paise)
+                      )
+                    : []
+                return (
+                  <li key={row.id} className="text-body-sm">
+                    <span className="font-medium">{ACTION_LABEL[row.action] ?? row.action}</span>{' '}
+                    <span className="text-muted">
+                      by {row.userName ?? 'someone'} · <span className="num">{row.at}</span>
+                    </span>
+                    {changes.length > 0 && (
+                      <ul className="mt-0.5 ml-4 flex flex-col gap-0.5 text-hint text-muted">
+                        {changes.map((c) => (
+                          <li key={c.field}>
+                            {fieldLabel(c.field)}: <span className="num">{c.before ?? '—'}</span> →{' '}
+                            <span className="num text-ink">{c.after ?? '—'}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </li>
+                )
+              })}
+            </ol>
+          )}
+        </Panel>
+      )}
+    </div>
+  )
+}
+
+const ACTION_LABEL: Record<string, string> = {
+  create: 'Created',
+  update: 'Altered',
+  delete: 'Deleted',
+  import: 'Imported'
 }
 
 // Re-export for renderer unit tests that target the pre-split path (lane T's voucherNumberField.test).

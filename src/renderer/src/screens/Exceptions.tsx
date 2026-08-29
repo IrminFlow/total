@@ -2,9 +2,10 @@ import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { api } from '../lib/client'
 import { useNav, useSession } from '../state/stores'
-import { EmptyState, Money, Panel, SectionTitle } from '../components/ui'
+import { EmptyState, Money, Panel, RowLink, SectionTitle } from '../components/ui'
 import { toDisplayDate } from '@shared/dates'
 import type { ExceptionSection } from '@shared/reports'
+import { ScratchpadPanel } from './ScratchpadPanel'
 
 function SectionPanel({ section }: { section: ExceptionSection }): React.JSX.Element {
   const nav = useNav()
@@ -18,9 +19,9 @@ function SectionPanel({ section }: { section: ExceptionSection }): React.JSX.Ele
         onClick={() => setOpen((v) => !v)}
         disabled={clean}
       >
-        <span className="text-[13.5px] font-medium">{section.label}</span>
+        <span className="text-body font-medium">{section.label}</span>
         <span
-          className={`num rounded-full px-2.5 py-0.5 text-[12px] ${
+          className={`num rounded-full px-2.5 py-0.5 text-small ${
             clean ? 'bg-panel2 text-muted' : 'bg-cr/10 text-cr font-semibold'
           }`}
         >
@@ -31,15 +32,19 @@ function SectionPanel({ section }: { section: ExceptionSection }): React.JSX.Ele
         <table className="ledger-table mt-2" data-testid={`exceptions-rows-${section.key}`}>
           <tbody>
             {section.rows.map((r, i) => (
-              <tr
-                key={i}
-                className={r.voucherId || r.ledgerId ? 'kbar-row cursor-pointer' : ''}
-                onClick={() => {
-                  if (r.voucherId) nav.go({ name: 'voucher-entry', voucherId: r.voucherId })
-                  else if (r.ledgerId) nav.go({ name: 'ledger-statement', ledgerId: r.ledgerId })
-                }}
-              >
-                <td>{r.label}</td>
+              <tr key={i}>
+                <td>
+                  {r.voucherId || r.ledgerId ? (
+                    <RowLink
+                      onClick={() => {
+                        if (r.voucherId) nav.go({ name: 'voucher-entry', voucherId: r.voucherId })
+                        else if (r.ledgerId) nav.go({ name: 'ledger-statement', ledgerId: r.ledgerId })
+                      }}
+                    >
+                      {r.label}
+                    </RowLink>
+                  ) : r.label}
+                </td>
                 <td className="text-muted">{r.detail}</td>
                 <td className="r">{r.amount !== undefined && <Money paise={r.amount} />}</td>
               </tr>
@@ -48,7 +53,7 @@ function SectionPanel({ section }: { section: ExceptionSection }): React.JSX.Ele
         </table>
       )}
       {open && section.count > section.rows.length && (
-        <p className="mt-1 px-1 text-[11.5px] text-muted">Showing first {section.rows.length} of {section.count}.</p>
+        <p className="mt-1 px-1 text-hint text-muted">Showing first {section.rows.length} of {section.count}.</p>
       )}
     </Panel>
   )
@@ -60,12 +65,15 @@ export function ExceptionsScreen(): React.JSX.Element {
   const total = data?.sections.reduce((s, x) => s + x.count, 0) ?? 0
 
   return (
-    <div className="mx-auto max-w-4xl">
+    <div className="flex h-full min-h-0 w-full flex-col max-w-[1440px]">
       <SectionTitle
-        right={<span className="num text-[12px] text-muted">{toDisplayDate(from)} → {toDisplayDate(to)}</span>}
+        right={<span className="num text-small text-muted">{toDisplayDate(from)} → {toDisplayDate(to)}</span>}
       >
         Exception reports
       </SectionTitle>
+      {/* Above the exception sections, not below: the scratchpad is the one thing on this screen
+          that somebody put there on purpose and intends to come back to. */}
+      <ScratchpadPanel />
       {data && total === 0 && (
         <Panel className="mb-3">
           <EmptyState title="No exceptions found" hint="Every check came back clean for this period" />

@@ -91,6 +91,7 @@ export function PhysicalStockEntry({ typeId }: { typeId: number }): React.JSX.El
         vehicleNo: null,
         transportDistanceKm: null,
         posOverride: null,
+        gstRegistrationId: null,
         currencyCode: null,
         exchangeRate: null,
         lines: [],
@@ -136,9 +137,10 @@ export function PhysicalStockEntry({ typeId }: { typeId: number }): React.JSX.El
           <DateInput value={date} context={workingDate} onChange={setDate} />
         </Field>
         <div className="col-span-2 flex items-end">
-          <p className="text-[11.5px] text-muted">
+          <p className="text-hint text-muted">
             Enter the counted closing quantity per item — the difference from book stock posts as an
-            adjustment at average cost.
+            adjustment at average cost. This is a company-wide count, so it replaces the prior
+            godown split rather than guessing where a shortage or surplus occurred.
           </p>
         </div>
       </div>
@@ -146,10 +148,10 @@ export function PhysicalStockEntry({ typeId }: { typeId: number }): React.JSX.El
       <table className="ledger-table mt-4">
         <thead>
           <tr>
-            <th>Item</th>
-            <th className="r w-32">Book qty</th>
-            <th className="r w-32">Counted</th>
-            <th className="r w-36">Difference</th>
+            <th scope="col">Item</th>
+            <th scope="col" className="r w-32">Book qty</th>
+            <th scope="col" className="r w-32">Counted</th>
+            <th scope="col" className="r w-36">Difference</th>
           </tr>
         </thead>
         <tbody data-testid="rows-physical-lines">
@@ -164,7 +166,7 @@ export function PhysicalStockEntry({ typeId }: { typeId: number }): React.JSX.El
                   <ItemPicker value={r.itemId} onPick={(id) => setRow(i, { itemId: id })} />
                 </td>
                 <td className="r">
-                  {book != null && <span className="num text-[12.5px] text-muted">{book / 1000} {unit}</span>}
+                  {book != null && <span className="num text-body-sm text-muted">{book / 1000} {unit}</span>}
                 </td>
                 <td className="r">
                   <input
@@ -178,7 +180,7 @@ export function PhysicalStockEntry({ typeId }: { typeId: number }): React.JSX.El
                 </td>
                 <td className="r">
                   {diff != null && (
-                    <span className={`num text-[12.5px] ${diff === 0 ? 'text-muted' : diff > 0 ? 'text-dr' : 'text-cr'}`}>
+                    <span className={`num text-body-sm ${diff === 0 ? 'text-muted' : diff > 0 ? 'text-dr' : 'text-cr'}`}>
                       {diff > 0 ? '+' : ''}{diff / 1000} {unit}
                     </span>
                   )}

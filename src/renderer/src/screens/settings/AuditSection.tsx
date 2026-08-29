@@ -2,7 +2,7 @@ import { Fragment, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { api, type AuditRow } from '../../lib/client'
 import { useSession } from '../../state/stores'
-import { Button, DateInput, EmptyState, Panel, Select, SectionTitle } from '../../components/ui'
+import { Button, DateInput, EmptyState, Panel, RowLink, Select, SectionTitle } from '../../components/ui'
 import { diffJson } from '@shared/diff'
 import { toDisplayDateTime } from '@shared/dates'
 import { AUDIT_ENTITIES } from '@shared/auditEntities'
@@ -27,9 +27,10 @@ export function AuditSection(): React.JSX.Element {
   return (
     <div>
       <SectionTitle>Audit trail</SectionTitle>
+      <TamperEvidence />
       <div className="mb-3 flex flex-wrap items-end gap-3">
         <div>
-          <span className="mb-1 block text-[11px] font-semibold tracking-[0.08em] text-muted uppercase">Entity</span>
+          <span className="mb-1 block text-caption font-semibold tracking-[0.08em] text-muted uppercase">Entity</span>
           <Select
             data-testid="input-audit-entity"
             value={entity}
@@ -47,7 +48,7 @@ export function AuditSection(): React.JSX.Element {
           </Select>
         </div>
         <div>
-          <span className="mb-1 block text-[11px] font-semibold tracking-[0.08em] text-muted uppercase">From</span>
+          <span className="mb-1 block text-caption font-semibold tracking-[0.08em] text-muted uppercase">From</span>
           <DateInput
             testId="input-audit-from"
             value={from}
@@ -59,7 +60,7 @@ export function AuditSection(): React.JSX.Element {
           />
         </div>
         <div>
-          <span className="mb-1 block text-[11px] font-semibold tracking-[0.08em] text-muted uppercase">To</span>
+          <span className="mb-1 block text-caption font-semibold tracking-[0.08em] text-muted uppercase">To</span>
           <DateInput
             testId="input-audit-to"
             value={to}
@@ -71,7 +72,7 @@ export function AuditSection(): React.JSX.Element {
           />
         </div>
         <div>
-          <span className="mb-1 block text-[11px] font-semibold tracking-[0.08em] text-muted uppercase">Per page</span>
+          <span className="mb-1 block text-caption font-semibold tracking-[0.08em] text-muted uppercase">Per page</span>
           <Select
             data-testid="input-audit-page-size"
             value={pageSize}
@@ -95,17 +96,24 @@ export function AuditSection(): React.JSX.Element {
           <table className="ledger-table">
             <thead>
               <tr>
-                <th className="w-40">At</th>
-                <th className="w-28">User</th>
-                <th>Entity</th>
-                <th className="w-20">Action</th>
+                <th scope="col" className="w-40">At</th>
+                <th scope="col" className="w-28">User</th>
+                <th scope="col">Entity</th>
+                <th scope="col" className="w-20">Action</th>
               </tr>
             </thead>
             <tbody data-testid="rows-settings-audit">
               {rows.map((r) => (
                 <Fragment key={r.id}>
-                  <tr className="cursor-pointer" onClick={() => setExpanded(expanded === r.id ? null : r.id)}>
-                    <td className="num text-muted">{toDisplayDateTime(new Date(r.at))}</td>
+                  <tr>
+                    <td className="num text-muted">
+                      <RowLink
+                        aria-expanded={expanded === r.id}
+                        onClick={() => setExpanded(expanded === r.id ? null : r.id)}
+                      >
+                        {toDisplayDateTime(new Date(r.at))}
+                      </RowLink>
+                    </td>
                     <td>{r.userName ?? '—'}</td>
                     <td className="num">
                       {r.entity} #{r.entityId}
@@ -114,7 +122,7 @@ export function AuditSection(): React.JSX.Element {
                   </tr>
                   {expanded === r.id && (
                     <tr>
-                      <td colSpan={4} className="bg-panel2 px-3 py-2.5 text-[12px]">
+                      <td colSpan={4} className="bg-panel2 px-3 py-2.5 text-small">
                         <AuditDiff row={r} />
                       </td>
                     </tr>
@@ -126,12 +134,12 @@ export function AuditSection(): React.JSX.Element {
         )}
       </Panel>
       <div className="mt-3 flex items-center justify-between">
-        <p className="text-[11.5px] text-muted">{total} entries</p>
+        <p className="text-hint text-muted">{total} entries</p>
         <div className="flex items-center gap-2">
           <Button data-testid="btn-settings-audit-prev" disabled={page === 0} onClick={() => setPage((p) => p - 1)}>
             Prev
           </Button>
-          <span className="px-2 text-[12px] text-muted">
+          <span className="px-2 text-small text-muted">
             Page {page + 1} of {pageCount}
           </span>
           <Button data-testid="btn-settings-audit-next" disabled={page + 1 >= pageCount} onClick={() => setPage((p) => p + 1)}>
@@ -159,6 +167,50 @@ function AuditDiff({ row }: { row: AuditRow }): React.JSX.Element {
           <span className="text-muted">{d.key}:</span> {d.from || '—'} → {d.to || '—'}
         </p>
       ))}
+    </div>
+  )
+}
+
+
+/**
+ * Has anybody edited the log? (roadmap #265)
+ *
+ * The app could already say the trail cannot be switched off. It could not say the trail had not
+ * been rewritten: audit_log is a table in a file in Documents, and sqlite3 is a free download.
+ * Every entry now carries the hash of its contents chained onto the entry before it, so this line
+ * is a check rather than a promise.
+ */
+function TamperEvidence(): React.JSX.Element | null {
+  const { data } = useQuery({ queryKey: ['auditChain'], queryFn: api.audit.verifyChain })
+  if (!data) return null
+
+  if (data.ok) {
+    return (
+      <div
+        className="mb-3 rounded-md border border-line bg-panel2 px-3.5 py-2.5 text-body-sm text-muted"
+        data-testid="audit-chain-state"
+      >
+        {data.checked.toLocaleString('en-IN')} entries check out against their own hashes — nothing in this log has been
+        edited outside the app.
+        {data.unchained > 0 && (
+          <>
+            {' '}
+            {data.unchained.toLocaleString('en-IN')} older entries were written before this check existed and can be
+            neither proved nor disproved.
+          </>
+        )}
+      </div>
+    )
+  }
+
+  return (
+    <div className="mb-3 rounded-md border border-cr/40 bg-cr/5 px-3.5 py-2.5 text-body-sm text-cr" data-testid="audit-chain-state">
+      <b>This audit trail does not match its own hashes.</b> Something has changed the log outside the app.
+      <ul className="mt-1 list-disc pl-5">
+        {data.problems.slice(0, 5).map((problem) => (
+          <li key={`${problem.kind}-${problem.id}`}>{problem.detail}</li>
+        ))}
+      </ul>
     </div>
   )
 }

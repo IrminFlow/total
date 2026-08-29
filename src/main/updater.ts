@@ -34,6 +34,8 @@ function isNewer(remote: string, local: string): boolean {
 interface LatestInfo {
   version: string
   downloadUrl: string
+  /** Release notes, when the source supplied any. Null from a source that carries none. */
+  notes: string | null
 }
 
 /** The site's /api/latest works even while the repo is private; GitHub's API is the public-repo fallback. */
@@ -41,8 +43,14 @@ async function fetchLatest(): Promise<LatestInfo | null> {
   try {
     const res = await fetch(SITE_LATEST_URL)
     if (res.ok) {
-      const data = (await res.json()) as { version?: string; downloadUrl?: string }
-      if (data.version) return { version: data.version, downloadUrl: data.downloadUrl ?? SITE_LATEST_URL.replace('/api/latest', '/api/download') }
+      const data = (await res.json()) as { version?: string; downloadUrl?: string; notes?: string }
+      if (data.version) {
+        return {
+          version: data.version,
+          downloadUrl: data.downloadUrl ?? SITE_LATEST_URL.replace('/api/latest', '/api/download'),
+          notes: data.notes ?? null
+        }
+      }
     }
   } catch (err) {
     // Site unreachable — try GitHub directly.
@@ -53,9 +61,13 @@ async function fetchLatest(): Promise<LatestInfo | null> {
       headers: { Accept: 'application/vnd.github+json' }
     })
     if (!res.ok) return null
-    const release = (await res.json()) as { tag_name?: string; html_url?: string }
+    const release = (await res.json()) as { tag_name?: string; html_url?: string; body?: string }
     if (!release.tag_name) return null
-    return { version: release.tag_name, downloadUrl: release.html_url ?? RELEASES_URL }
+    return {
+      version: release.tag_name,
+      downloadUrl: release.html_url ?? RELEASES_URL,
+      notes: release.body ?? null
+    }
   } catch (err) {
     log('warn', 'updater', { error: String(err) })
     return null
@@ -66,6 +78,29 @@ export interface UpdateCheckResult {
   status: 'dev' | 'available' | 'up-to-date' | 'error'
   current: string
   latest?: string
+  /** Release notes for the newer version, when the source supplied any. */
+  notes?: string | null
+}
+
+/**
+ * Release notes are shown in the offer dialog, not after the download.
+ *
+ * An update is a decision — this is an accounting application in the middle of a filing season,
+ * and "what changed" is exactly what decides whether now is the moment. A dialog that says only
+ * "a new version is available" asks the user to accept a change they cannot see.
+ *
+ * Trimmed hard: a native dialog is not a document reader, and the full changelog lives on the
+ * site and in the app's About panel.
+ */
+const NOTES_IN_DIALOG = 700
+
+function trimNotes(notes: string | null): string {
+  if (!notes?.trim()) return ''
+  const clean = notes.trim().replace(/\r\n/g, '\n')
+  if (clean.length <= NOTES_IN_DIALOG) return clean
+  // Cut at a line boundary rather than mid-sentence — a changelog cut mid-word reads as corrupt.
+  const cut = clean.slice(0, NOTES_IN_DIALOG)
+  return `${cut.slice(0, cut.lastIndexOf('\n'))}\n…`
 }
 
 /** Shared fetch+compare+offer-download logic behind both the silent startup fallback
@@ -79,13 +114,18 @@ async function checkAndOffer(): Promise<UpdateCheckResult> {
     const choice = await dialog.showMessageBox({
       type: 'info',
       message: `Total ${latest.version.replace(/^v/, '')} is available`,
-      detail: `You're on ${current}. Download the new version — your data in ~/Documents/total is untouched by updates.`,
+      detail: [
+        `You're on ${current}. Your data in ~/Documents/total is untouched by updates.`,
+        trimNotes(latest.notes ?? null)
+      ]
+        .filter(Boolean)
+        .join('\n\n'),
       buttons: ['Download update', 'Later'],
       defaultId: 0,
       cancelId: 1
     })
     if (choice.response === 0) shell.openExternal(latest.downloadUrl)
-    return { status: 'available', current, latest: latest.version }
+    return { status: 'available', current, latest: latest.version, notes: latest.notes ?? null }
   } catch (err) {
     log('warn', 'updater', { error: String(err) })
     return { status: 'error', current }

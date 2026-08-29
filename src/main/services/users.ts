@@ -1,5 +1,7 @@
 import type { DB } from '../db/connection'
 import { hashPin, verifyPin } from './authcrypt'
+import { lockoutMessage, lockoutMsFor } from '@shared/lockout'
+import { parseDenials, type Capability } from '@shared/permissions'
 import { writeAudit } from './audit'
 import type { Role } from './roles'
 
@@ -11,6 +13,8 @@ export interface User {
   role: Role
   active: boolean
   createdAt: string
+  /** Areas cut out of this user's role (roadmap #266). Empty = the role's full reach. */
+  denied: Capability[]
 }
 
 export interface UserInput {
@@ -19,12 +23,15 @@ export interface UserInput {
   /** Required when creating a user; omit on update to keep the existing PIN hash. */
   pin?: string
   active?: boolean
+  /** Capabilities to deny on top of the role. Deny-only by design — see @shared/permissions. */
+  denied?: Capability[]
 }
 
 export interface LoginResult {
   id: number
   name: string
   role: Role
+  denied: Capability[]
 }
 
 interface UserRow {
@@ -33,6 +40,7 @@ interface UserRow {
   role: Role
   active: number
   createdAt: string
+  deniedJson: string | null
 }
 
 /** True once at least one user row exists for this company — the signal that the app is
@@ -43,14 +51,31 @@ export function usersExist(db: DB): boolean {
   return row.n > 0
 }
 
+/** Denials are re-validated on read: the column is JSON a restore or a hand-edit can reach. */
+function deniedOf(json: string | null): Capability[] {
+  if (!json) return []
+  try {
+    return parseDenials(JSON.parse(json))
+  } catch {
+    return []
+  }
+}
+
 function toUser(row: UserRow): User {
-  return { id: row.id, name: row.name, role: row.role, active: !!row.active, createdAt: row.createdAt }
+  return {
+    id: row.id,
+    name: row.name,
+    role: row.role,
+    active: !!row.active,
+    createdAt: row.createdAt,
+    denied: deniedOf(row.deniedJson)
+  }
 }
 
 /** All users (active and inactive), for the owner-only management screen. */
 export function listUsers(db: DB): User[] {
   const rows = db
-    .prepare('SELECT id, name, role, active, created_at AS createdAt FROM users ORDER BY name COLLATE NOCASE')
+    .prepare('SELECT id, name, role, active, created_at AS createdAt, denied_json AS deniedJson FROM users ORDER BY name COLLATE NOCASE')
     .all() as UserRow[]
   return rows.map(toUser)
 }
@@ -64,7 +89,7 @@ export function listLoginNames(db: DB): { id: number; name: string; role: Role }
 
 export function getUser(db: DB, id: number): User {
   const row = db
-    .prepare('SELECT id, name, role, active, created_at AS createdAt FROM users WHERE id = ?')
+    .prepare('SELECT id, name, role, active, created_at AS createdAt, denied_json AS deniedJson FROM users WHERE id = ?')
     .get(id) as UserRow | undefined
   if (!row) throw new Error('User not found')
   return toUser(row)
@@ -81,27 +106,33 @@ export function saveUser(db: DB, input: UserInput, id?: number): User {
     const bootstrap = !usersExist(db)
     const role: Role = bootstrap ? 'owner' : input.role
     const pinHash = hashPin(input.pin)
+    // The bootstrap owner cannot be denied anything: they are the only account, and an owner
+    // locked out of settings could never grant themselves back in.
+    const denied = bootstrap ? [] : parseDenials(input.denied)
     const result = db
-      .prepare('INSERT INTO users (name, pin_hash, role, active) VALUES (?, ?, ?, ?)')
-      .run(input.name, pinHash, role, input.active === false ? 0 : 1)
+      .prepare('INSERT INTO users (name, pin_hash, role, active, denied_json) VALUES (?, ?, ?, ?, ?)')
+      .run(input.name, pinHash, role, input.active === false ? 0 : 1, JSON.stringify(denied))
     return getUser(db, Number(result.lastInsertRowid))
   }
 
   getUser(db, id) // 404s if missing
+  const denied = JSON.stringify(parseDenials(input.denied))
   if (input.pin) {
     const pinHash = hashPin(input.pin)
-    db.prepare('UPDATE users SET name = ?, role = ?, active = ?, pin_hash = ? WHERE id = ?').run(
+    db.prepare('UPDATE users SET name = ?, role = ?, active = ?, denied_json = ?, pin_hash = ? WHERE id = ?').run(
       input.name,
       input.role,
       input.active === false ? 0 : 1,
+      denied,
       pinHash,
       id
     )
   } else {
-    db.prepare('UPDATE users SET name = ?, role = ?, active = ? WHERE id = ?').run(
+    db.prepare('UPDATE users SET name = ?, role = ?, active = ?, denied_json = ? WHERE id = ?').run(
       input.name,
       input.role,
       input.active === false ? 0 : 1,
+      denied,
       id
     )
   }
@@ -125,9 +156,11 @@ export function deactivateUser(db: DB, id: number): void {
  * Consecutive-failure throttle, per user id, persisted in the `meta` table under
  * `auth.fails.<userId>` (task Q1 #93) — restarting the app no longer resets the lockout the way
  * the old in-memory Map did. Reset (row deleted) on a successful login.
+ *
+ * How long the wait is now comes from @shared/lockout, which doubles it per failure (roadmap
+ * #264). The flat thirty seconds this used to apply cost an honest typo the same as it cost a
+ * script working through all ten thousand four-digit PINs, and the script could afford it.
  */
-const MAX_FAILS = 5
-const LOCKOUT_MS = 30_000
 
 interface ThrottleState {
   fails: number
@@ -164,7 +197,11 @@ function clearThrottle(db: DB, userId: number): void {
   db.prepare('DELETE FROM meta WHERE key = ?').run(throttleKey(userId))
 }
 
-export const AUTH_THROTTLE_MESSAGE = 'Too many attempts — wait 30 seconds'
+/** Milliseconds left on `userId`'s lockout, 0 when there is none. */
+export function authThrottleRemainingMs(db: DB, userId: number, now = Date.now()): number {
+  const state = readThrottle(db, userId)
+  return state && state.until > now ? state.until - now : 0
+}
 
 /** True while `userId` is inside the lockout window. Exported so EVERY PIN-verification surface
  *  (auth:login here, company:delete in companyDelete.ts) consumes the same persisted throttle —
@@ -176,10 +213,11 @@ export function isAuthThrottled(db: DB, userId: number, now = Date.now()): boole
 }
 
 /** Record one failed PIN attempt against `userId`: bumps the persisted consecutive-failure
- *  counter (locking out at MAX_FAILS) and writes the 'login_failed' audit row. */
+ *  counter (which decides the wait, see @shared/lockout) and writes the 'login_failed' audit row. */
 export function recordAuthFailure(db: DB, userId: number, now = Date.now()): void {
   const fails = (readThrottle(db, userId)?.fails ?? 0) + 1
-  writeThrottle(db, userId, { fails, until: fails >= MAX_FAILS ? now + LOCKOUT_MS : 0 })
+  const wait = lockoutMsFor(fails)
+  writeThrottle(db, userId, { fails, until: wait > 0 ? now + wait : 0 })
   writeAudit(db, 'user', userId, 'login_failed', null, null)
 }
 
@@ -189,13 +227,16 @@ export function clearAuthFailures(db: DB, userId: number): void {
 }
 
 /** Verify `pin` for `userId`. Throws 'Wrong PIN' on mismatch (or unknown/inactive user), or the
- *  throttle message after 5 consecutive failures — in which case verifyPin isn't even called.
+ *  throttle message once the backoff has kicked in — in which case verifyPin isn't even called.
  *  Every failed attempt is audited (entity 'user', action 'login_failed', before/after null);
  *  successes are audited as action 'login'. */
 export function login(db: DB, userId: number, pin: string): LoginResult {
   const now = Date.now()
-  if (isAuthThrottled(db, userId, now)) {
-    throw new Error(AUTH_THROTTLE_MESSAGE)
+  const remaining = authThrottleRemainingMs(db, userId, now)
+  if (remaining > 0) {
+    // The wait is quoted so the person who mistyped their own PIN knows whether to wait or to go
+    // and make tea. It tells an attacker nothing they could not measure with a clock.
+    throw new Error(lockoutMessage(remaining))
   }
 
   const row = db
@@ -210,5 +251,5 @@ export function login(db: DB, userId: number, pin: string): LoginResult {
 
   clearAuthFailures(db, userId)
   writeAudit(db, 'user', row.id, 'login', null, { name: row.name, role: row.role })
-  return { id: row.id, name: row.name, role: row.role }
+  return { id: row.id, name: row.name, role: row.role, denied: getUser(db, row.id).denied }
 }

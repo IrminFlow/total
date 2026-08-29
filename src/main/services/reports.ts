@@ -1,13 +1,26 @@
 import type { DB } from '../db/connection'
 import type {
-  BalanceSheet, CashSparkPoint, DashboardData, DayBookRow, ExceptionRow, ExceptionSection, ExceptionsReport,
-  ItemProfitRow, LedgerStatement, LedgerStatementRow,
-  ProfitAndLoss, StatementNode, StockAgeingRow, StockSummaryRow, TopLedgerRow, TrialBalance
+  BalanceSheet, CashSparkPoint, DashboardData, DayBookRow, DayBookTypeRow, ExceptionRow, ExceptionSection, ExceptionsReport,
+  PurchaseSuggestionRow,
+  ItemProfitPeriod, ItemProfitRow, LedgerStatement, LedgerStatementRow,
+  ProfitAndLoss, RatioReport, StatementNode, StockAgeingRow, StockSummaryRow, TileSpark, TileSparkKey,
+  TopLedgerRow, TrialBalance
 } from '@shared/reports'
 import type { Group, Nature } from '@shared/domain'
 import { listGroups } from './masters'
 import { CASH_BANK_GROUPS } from '@shared/seed'
 import { ageStock, buildCashFlow, computeRatios, type CashFlowStatement, type InwardLot } from '@shared/reportMath'
+import { periodBounds, periodKey, periodLabel, periodRange, type Period } from '@shared/period'
+import { summariseChanges, type ChangeInput, type ChangeReport } from '@shared/whatChanged'
+import { todayISO } from '@shared/dates'
+import { plainRupees } from '@shared/money'
+import type { CompanyInfo } from '@shared/domain'
+import { itcRisk } from '@shared/gst/itcAgeing'
+import { describeGap, gapSize, numberGaps } from '@shared/numberSeries'
+import { computeTcs, tcsAppliesToSeller, TCS_THRESHOLD_PAISE } from '@shared/tcs'
+import { maskAccount, sharedBankAccounts } from '@shared/bankDetails'
+import { fyOf } from '@shared/dates'
+import { decodeCursor, encodeCursor, keysetAfter, keysetAtOrBefore, keysetOrderBy } from '@shared/keyset'
 import { listVouchers, IN_BOOKS, NOT_DELETED } from './vouchers'
 import * as stockAnalysis from './stockAnalysis'
 
@@ -114,6 +127,70 @@ export function stockValue(db: DB, asOn: string): number {
 
 /** Stock ageing + reorder report (v0.3 #58): where the held quantity came from (by inward
  *  date, newest first), whether the item has gone stale, and reorder-level breaches. */
+/**
+ * What to buy, from whom, and roughly for how much.
+ *
+ * The stock summary already flags an item below its reorder level, and a flag is not an action:
+ * turning it into one takes the shortfall, the last supplier and the last price, which otherwise
+ * means opening three screens before picking up the phone.
+ *
+ * Built on `stockAgeing` rather than a parallel query, so "below reorder" means exactly what the
+ * stock summary means by it. An item with no reorder level set is not a suggestion — it is an
+ * item nobody has expressed an opinion about, and inventing a level would be inventing the
+ * opinion too.
+ */
+export function purchaseSuggestions(db: DB, asOn: string): PurchaseSuggestionRow[] {
+  const below = stockAgeing(db, asOn).filter((r) => r.belowReorder && r.reorderLevelMilli != null)
+  if (below.length === 0) return []
+
+  const ids = below.map((r) => r.stockItemId)
+  const placeholders = ids.map(() => '?').join(',')
+
+  // The most recent purchase line per item, with the party it came from. Rate is stored per
+  // whole unit, so it carries across to a different quantity without conversion.
+  const lastPurchases = new Map(
+    (
+      db
+        .prepare(
+          `SELECT il.stock_item_id AS stockItemId, v.date, il.rate_paise AS ratePaise,
+                  l.id AS ledgerId, l.name AS supplier
+           FROM inventory_lines il
+           JOIN vouchers v ON v.id = il.voucher_id
+           JOIN voucher_types vt ON vt.id = v.voucher_type_id
+           LEFT JOIN ledgers l ON l.id = v.party_ledger_id
+           WHERE vt.kind = 'purchase' AND il.direction = 'in' AND v.date <= ?
+             AND il.stock_item_id IN (${placeholders}) AND ${IN_BOOKS}
+           GROUP BY il.stock_item_id
+           HAVING v.date = MAX(v.date)`
+        )
+        .all(asOn, ...ids) as {
+          stockItemId: number; date: string; ratePaise: number; ledgerId: number | null; supplier: string | null
+        }[]
+    ).map((r) => [r.stockItemId, r])
+  )
+
+  return below.map((r) => {
+    const shortfallQtyMilli = (r.reorderLevelMilli ?? 0) - r.closingQtyMilli
+    const last = lastPurchases.get(r.stockItemId)
+    return {
+      stockItemId: r.stockItemId,
+      name: r.name,
+      unitSymbol: r.unitSymbol,
+      decimals: r.decimals,
+      closingQtyMilli: r.closingQtyMilli,
+      reorderLevelMilli: r.reorderLevelMilli ?? 0,
+      shortfallQtyMilli,
+      lastSupplier: last?.supplier ?? null,
+      lastSupplierLedgerId: last?.ledgerId ?? null,
+      lastPurchaseDate: last?.date ?? null,
+      lastRatePaise: last?.ratePaise ?? null,
+      // Rate is per whole unit and the shortfall is in thousandths, so the division is part of
+      // the unit conversion rather than a rounding choice.
+      estimatedCost: last ? Math.round((shortfallQtyMilli * last.ratePaise) / 1000) : null
+    }
+  })
+}
+
 export function stockAgeing(db: DB, asOn: string): StockAgeingRow[] {
   const items = db
     .prepare(
@@ -248,7 +325,22 @@ export function itemProfitability(db: DB, from: string, to: string): ItemProfitR
 const EXCEPTION_ROW_CAP = 200
 
 /** Exception reports (v0.3 #60): things that are almost certainly mistakes, with drillable rows. */
-export function exceptions(db: DB, from: string, to: string): ExceptionsReport {
+/**
+ * The default "tell me about anything above this" line, in paise: one lakh.
+ *
+ * Not a rule about anything — a voucher over a lakh is perfectly ordinary in most businesses.
+ * It is a review threshold, which is why it is a parameter with a default rather than a constant:
+ * the number that means "look at this" is different for a kirana shop and a distributor.
+ */
+export const DEFAULT_LARGE_VOUCHER_PAISE = 100_000_00
+
+export function exceptions(
+  db: DB,
+  from: string,
+  to: string,
+  company?: CompanyInfo,
+  largeVoucherPaise: number = DEFAULT_LARGE_VOUCHER_PAISE
+): ExceptionsReport {
   const sections: ExceptionSection[] = []
   const section = (key: ExceptionSection['key'], label: string, rows: ExceptionRow[]): void => {
     sections.push({ key, label, count: rows.length, rows: rows.slice(0, EXCEPTION_ROW_CAP) })
@@ -325,6 +417,160 @@ export function exceptions(db: DB, from: string, to: string): ExceptionsReport {
     .all(from, to) as VRow[]).map((v) => voucherRow(v, 'B2B party but no GST tax line'))
   section('missingGst', 'Missing GST fields', missingGst)
 
+  // Input credit under section 16(4) cannot be taken after 30 November of the following FY. Miss
+  // it and the credit is gone — not deferred, gone — and it is one of the few GST mistakes with
+  // no remedy. A purchase from two years ago otherwise sits in the books looking exactly like one
+  // from last month.
+  //
+  // Scanned over ALL purchases in books, not just the working period: the whole risk is that an
+  // old invoice is out of sight. Anything already comfortably inside its window is dropped, so a
+  // clean set of books reports clean.
+  const today = todayISO()
+  const itcRows = (db
+    .prepare(
+      `${baseVoucherSql}
+       WHERE ${IN_BOOKS} AND vt.kind IN ('purchase', 'debit_note')
+       AND EXISTS (
+         SELECT 1 FROM voucher_lines vl JOIN ledgers l ON l.id = vl.ledger_id
+         WHERE vl.voucher_id = v.id AND l.tax_type IS NOT NULL AND vl.dr_cr = 'dr'
+       )
+       ORDER BY v.date, v.id`
+    )
+    .all() as VRow[])
+    .map((v) => ({ v, risk: itcRisk({ invoiceDate: v.date, today }) }))
+    .filter((x) => x.risk.level !== 'ok')
+    .map(({ v, risk }) =>
+      voucherRow(
+        v,
+        risk.level === 'lapsed'
+          ? `credit window shut ${risk.deadline} — ${-risk.daysRemaining} days ago`
+          : `credit window shuts ${risk.deadline} — ${risk.daysRemaining} days left`
+      )
+    )
+  section('itcAtRisk', 'Input credit about to lapse', itcRows)
+
+  // Gaps in an auto-numbered series. A missing invoice number is the first thing an auditor asks
+  // about, and the honest answer is usually dull — but the business should know before it is
+  // asked rather than finding out across a table.
+  //
+  // Only auto-numbered types: a manual series is the user's own, and reporting gaps in it would
+  // second-guess a numbering scheme the app does not own. Scoped to the working period, because
+  // a series that restarts each FY has a legitimate discontinuity at every year boundary.
+  const seriesRows = db
+    .prepare(
+      `SELECT vt.id AS typeId, vt.name AS voucherType, vt.prefix, vt.suffix, v.number
+       FROM vouchers v
+       JOIN voucher_types vt ON vt.id = v.voucher_type_id
+       WHERE v.date BETWEEN ? AND ? AND ${IN_BOOKS} AND vt.numbering = 'auto'`
+    )
+    .all(from, to) as { typeId: number; voucherType: string; prefix: string; suffix: string; number: string }[]
+
+  const byType = new Map<number, { voucherType: string; numbers: number[] }>()
+  for (const r of seriesRows) {
+    let core = r.number
+    if (r.suffix && core.endsWith(r.suffix)) core = core.slice(0, -r.suffix.length)
+    if (r.prefix && core.startsWith(r.prefix)) core = core.slice(r.prefix.length)
+    const n = Number(core)
+    // A number that does not parse is not part of a sequence — someone typed over the auto value.
+    // Skipping it is right: treating it as 0 would report a gap from 1 to the next real number.
+    if (!Number.isInteger(n)) continue
+    const entry = byType.get(r.typeId) ?? { voucherType: r.voucherType, numbers: [] }
+    entry.numbers.push(n)
+    byType.set(r.typeId, entry)
+  }
+
+  const gapRows: ExceptionRow[] = []
+  for (const { voucherType, numbers } of byType.values()) {
+    for (const gap of numberGaps(numbers)) {
+      const size = gapSize(gap)
+      gapRows.push({
+        label: `${voucherType} ${describeGap(gap)}`,
+        detail: `${size} number${size === 1 ? '' : 's'} missing from the series — usually a deleted voucher`
+      })
+    }
+  }
+  section('numberGaps', 'Gaps in voucher numbering', gapRows)
+
+  // Section 206C(1H): once receipts from one buyer pass Rs 50 lakh in a financial year, TCS at
+  // 0.1% may be collectible on the excess. It is collected on RECEIPT rather than on sale, which
+  // is what makes it easy to miss — nothing about the invoice tells you, and the threshold is
+  // crossed by a payment arriving.
+  //
+  // Flagged rather than collected: 206C(1H) does not apply where the buyer is deducting TDS under
+  // 194Q on the same transaction, which is now the common case and which the seller cannot know
+  // from their own books. Adding 0.1% on that assumption would be collecting tax that should not
+  // have been collected.
+  const tcsRows: ExceptionRow[] = []
+  if (tcsAppliesToSeller(company?.turnoverBand ?? null)) {
+    const fy = fyOf(to)
+    const receipts = db
+      .prepare(
+        `SELECT l.id AS ledgerId, l.name, l.pan,
+                COALESCE(SUM(vl.amount), 0) AS received
+         FROM vouchers v
+         JOIN voucher_types vt ON vt.id = v.voucher_type_id
+         JOIN voucher_lines vl ON vl.voucher_id = v.id AND vl.ledger_id = v.party_ledger_id
+         JOIN ledgers l ON l.id = v.party_ledger_id
+         WHERE vt.kind = 'receipt' AND vl.dr_cr = 'cr'
+           AND v.date BETWEEN ? AND ? AND ${IN_BOOKS}
+         GROUP BY l.id
+         HAVING received > ?`
+      )
+      .all(fy.from, fy.to, TCS_THRESHOLD_PAISE) as {
+        ledgerId: number; name: string; pan: string | null; received: number
+      }[]
+
+    for (const r of receipts) {
+      const t = computeTcs({ receiptsThisFy: r.received, hasPan: !!r.pan })
+      tcsRows.push({
+        label: r.name,
+        detail:
+          `Received ${(r.received / 100).toLocaleString('en-IN')} this year — TCS at ${t.ratePercent}% on the excess` +
+          (r.pan ? '' : ' (no PAN on record, so 1% rather than 0.1%)'),
+        ledgerId: r.ledgerId,
+        amount: t.collectible
+      })
+    }
+  }
+  section('tcsThreshold', 'Buyers past the TCS threshold (206C(1H))', tcsRows)
+
+  // Large vouchers. Scoped to the period and ordered by amount rather than by date: this section
+  // exists to be read top-down and stopped at, not scrolled.
+  const large = (db
+    .prepare(
+      `${baseVoucherSql} WHERE v.date BETWEEN ? AND ? AND ${IN_BOOKS}
+       AND (SELECT COALESCE(SUM(amount), 0) FROM voucher_lines WHERE voucher_id = v.id AND dr_cr = 'dr') >= ?
+       ORDER BY total DESC, v.date`
+    )
+    .all(from, to, largeVoucherPaise) as VRow[]).map((v) => voucherRow(v, `over ${plainRupees(largeVoucherPaise)}`))
+  section('largeVouchers', `Vouchers over ${plainRupees(largeVoucherPaise)}`, large)
+  // Two parties paid into one bank account (roadmap V #389). Not period-scoped: a master is true
+  // now or it is not, and a payee pointed at somebody else's account is not a fact about April.
+  //
+  // The legitimate case — a proprietor and their firm — is silenced per party by the "shared
+  // knowingly" flag on the master, and only when EVERY party on that account carries it, so a
+  // third name appearing on the same account speaks up again. The rule itself is pure:
+  // src/shared/bankDetails.ts.
+  const bankRows = db
+    .prepare(
+      `SELECT id AS ledgerId, name, bank_account AS account, bank_ifsc AS ifsc, bank_shared_ok AS sharedOk
+       FROM ledgers WHERE bank_account IS NOT NULL AND TRIM(bank_account) <> ''`
+    )
+    .all() as { ledgerId: number; name: string; account: string; ifsc: string | null; sharedOk: number }[]
+  const sharedRows: ExceptionRow[] = sharedBankAccounts(
+    bankRows.map((r) => ({ ...r, sharedOk: !!r.sharedOk }))
+  ).flatMap((group) =>
+    group.parties.map((p) => ({
+      label: p.name,
+      detail: `Paid into ${maskAccount(group.account)}, shared with ${group.parties
+        .filter((o) => o.ledgerId !== p.ledgerId)
+        .map((o) => o.name)
+        .join(', ')}`,
+      ledgerId: p.ledgerId
+    }))
+  )
+  section('sharedBankAccount', 'One bank account on two parties', sharedRows)
+
   return { sections }
 }
 
@@ -348,6 +594,30 @@ function yearBefore(date: string): string {
 
 // ---------- reports ----------
 
+/**
+ * A page of day-book rows, plus how many there are in total.
+ *
+ * The queries here are fast even on a large book -- measured at 94 ms for 30,000 vouchers in
+ * scale.dbtest.ts -- so paginating is not about SQL. It is about what crosses IPC: the same
+ * period serialised whole is a ~6 MB JSON payload, structure-cloned onto the thread that also
+ * serves every other query, on every visit to the screen. `total` comes from a COUNT so the UI
+ * can say "500 of 30,000" honestly rather than implying it has everything.
+ */
+export interface DayBookPage {
+  rows: DayBookRow[]
+  total: number
+}
+
+/** The columns the Day Book orders by, and therefore the shape of its cursor. `v.id` is the
+ *  tiebreak that makes the order total: thousands of vouchers share a date, and a cursor of the
+ *  date alone would either repeat or skip the rest of that day. */
+export const DAY_BOOK_KEY = ['v.date', 'v.id'] as const
+
+/** The cursor identifying a row, for asking for the page after it. */
+export function dayBookCursor(row: Pick<DayBookRow, 'date' | 'voucherId'>): string {
+  return encodeCursor([row.date, row.voucherId])
+}
+
 export function dayBook(
   db: DB,
   from: string,
@@ -357,69 +627,301 @@ export function dayBook(
      *  Day Book can badge/filter them (v0.3 S5). Default false keeps books-only semantics for
      *  existing consumers (CA pack). */
     includeOutOfBooks?: boolean
+    /** Rows to return. Omit for every row — what the CA pack and Tally export need. */
+    limit?: number
+    /** Keyset cursor from `dayBookCursor`: return the rows strictly after it. Preferred over
+     *  `offset`, whose cost grows with how far into the book the page falls. */
+    after?: string | null
+    /** Offset paging, kept for callers that jump to an arbitrary page. Ignored when `after` is
+     *  given, because a cursor already says where to resume. */
+    offset?: number
   } = {}
 ): DayBookRow[] {
   const scope = opts.includeOutOfBooks ? NOT_DELETED : IN_BOOKS
-  // v0.3 #61: real Dr/Cr split — the shown account's net signed amount lands in the column of
-  // its actual side, instead of the voucher total being printed under BOTH Debit and Credit.
-  const rows = db
+
+  // Two phases, deliberately.
+  //
+  // This used to be one statement with three derived tables, each a GROUP BY over the WHOLE
+  // voucher_lines table: the first line of every voucher, the net per account, the bank legs.
+  // SQLite materialised all three before applying LIMIT, so a 500-row page cost almost as much as
+  // the whole book — 33 ms against 68 ms on a 7,800-voucher fixture — and that cost grew with the
+  // book rather than with the page.
+  //
+  // Phase one picks the page's voucher ids from the date index alone; phase two enriches exactly
+  // those. The work is then proportional to the page, which is what lets a 30,000-voucher book
+  // behave like a 500-row one.
+  const cursor = decodeCursor(opts.after)
+  const after = cursor ? keysetAfter(DAY_BOOK_KEY, cursor) : null
+  const idParams: (string | number)[] = [from, to, ...(after?.params ?? [])]
+  if (opts.limit != null) {
+    idParams.push(opts.limit)
+    if (!after) idParams.push(opts.offset ?? 0)
+  }
+  const ids = db
     .prepare(
-      `SELECT v.id AS voucherId, v.date, vt.name AS voucherType, vt.kind AS kind, v.number, v.narration,
-              v.is_optional AS isOptional, v.post_dated AS postDated,
-              COALESCE(pl.name, fl.name, '') AS account,
-              COALESCE(anet.net, 0) AS accountNet
+      `SELECT v.id AS voucherId, v.date
+       FROM vouchers v
+       WHERE v.date BETWEEN ? AND ? AND ${scope}${after ? ` AND ${after.sql}` : ''}
+       ORDER BY ${keysetOrderBy(DAY_BOOK_KEY)}
+       ${opts.limit != null ? (after ? 'LIMIT ?' : 'LIMIT ? OFFSET ?') : ''}`
+    )
+    .all(...idParams) as { voucherId: number; date: string }[]
+  if (ids.length === 0) return []
+
+  const enriched = dayBookEnrich(db, ids.map((r) => r.voucherId), scope)
+  // The order comes from phase one; the enrichment is a lookup, never a re-sort.
+  return ids.map((r) => enriched.get(r.voucherId)).filter((r): r is DayBookRow => r != null)
+}
+
+/**
+ * Everything a day-book row shows beyond its date and id, for a known set of vouchers.
+ *
+ * Batched because SQLite has a bind-parameter ceiling (32,766 in current builds) and a whole-book
+ * export passes tens of thousands of ids. 400 keeps each statement small enough that SQLite reuses
+ * one prepared plan across the batches.
+ */
+function dayBookEnrich(db: DB, voucherIds: number[], scope: string): Map<number, DayBookRow> {
+  const out = new Map<number, DayBookRow>()
+  const BATCH = 400
+  for (let i = 0; i < voucherIds.length; i += BATCH) {
+    const batch = voucherIds.slice(i, i + BATCH)
+    // The id list arrives as one JSON parameter rather than N placeholders, so both statements
+    // below are the SAME prepared statement on every batch — SQLite compiles each once instead of
+    // once per 400 vouchers. On a whole-book export that is 2 compilations rather than 40, worth
+    // a measured 82 ms → 76 ms at 7,800 vouchers. It also sidesteps the bind-parameter ceiling
+    // entirely. 400 was picked by measurement: 2,000 was slower (81 ms), and it is not close
+    // enough to matter beside the page path, which is what this rewrite is actually for.
+    const holes = 'SELECT value FROM json_each(?)'
+    const arg = JSON.stringify(batch)
+
+    const metas = db
+      .prepare(
+        `SELECT v.id AS voucherId, v.date, vt.name AS voucherType, vt.kind AS kind, v.number, v.narration,
+                v.is_optional AS isOptional, v.post_dated AS postDated,
+                v.party_ledger_id AS partyId, pl.name AS partyName
+         FROM vouchers v
+         JOIN voucher_types vt ON vt.id = v.voucher_type_id
+         LEFT JOIN ledgers pl ON pl.id = v.party_ledger_id
+         WHERE v.id IN (${holes}) AND ${scope}`
+      )
+      .all(arg) as {
+        voucherId: number; date: string; voucherType: string; kind: string; number: string
+        narration: string | null; isOptional: number; postDated: number
+        partyId: number | null; partyName: string | null
+      }[]
+
+    // Every line of those vouchers — two to a handful each — aggregated in JS instead of in three
+    // separate grouped scans of the whole table.
+    const lines = db
+      .prepare(
+        `SELECT vl.voucher_id AS voucherId, vl.id AS lineId, vl.ledger_id AS ledgerId,
+                vl.dr_cr AS drCr, vl.amount, vl.bank_date AS bankDate,
+                l.name AS ledgerName, g.name AS groupName
+         FROM voucher_lines vl
+         JOIN ledgers l ON l.id = vl.ledger_id
+         JOIN groups g ON g.id = l.group_id
+         WHERE vl.voucher_id IN (${holes})
+         ORDER BY vl.id`
+      )
+      .all(arg) as {
+        voucherId: number; lineId: number; ledgerId: number; drCr: 'dr' | 'cr'; amount: number
+        bankDate: string | null; ledgerName: string; groupName: string
+      }[]
+
+    const byVoucher = new Map<number, typeof lines>()
+    for (const l of lines) {
+      const list = byVoucher.get(l.voucherId)
+      if (list) list.push(l)
+      else byVoucher.set(l.voucherId, [l])
+    }
+
+    for (const m of metas) {
+      const vlines = byVoucher.get(m.voucherId) ?? []
+      // The account shown is the party when there is one, else the first line's ledger — first by
+      // insertion id, exactly as the old MIN(id) subquery chose it.
+      const first = vlines[0]
+      const shownId = m.partyId ?? first?.ledgerId ?? null
+      const account = m.partyName ?? first?.ledgerName ?? ''
+      // v0.3 #61: real Dr/Cr split — the shown account's net signed amount lands in the column of
+      // its actual side, instead of the voucher total being printed under BOTH Debit and Credit.
+      let net = 0
+      // Counted rather than boolean so a voucher between two bank accounts can say "partial".
+      let bankLegs = 0
+      let bankCleared = 0
+      for (const l of vlines) {
+        if (shownId != null && l.ledgerId === shownId) net += l.drCr === 'dr' ? l.amount : -l.amount
+        // Direct membership of 'Bank Accounts', not its descendants — the same test the derived
+        // table made, kept so a reconciliation badge does not change meaning under a rewrite.
+        if (l.groupName === 'Bank Accounts') {
+          bankLegs++
+          if (l.bankDate != null) bankCleared++
+        }
+      }
+      out.set(m.voucherId, {
+        voucherId: m.voucherId,
+        date: m.date,
+        voucherType: m.voucherType,
+        kind: m.kind,
+        number: m.number,
+        account,
+        narration: m.narration,
+        debit: net > 0 ? net : 0,
+        credit: net < 0 ? -net : 0,
+        isOptional: !!m.isOptional,
+        postDated: !!m.postDated,
+        bankStatus:
+          bankLegs === 0
+            ? null
+            : bankCleared === 0
+              ? 'pending'
+              : bankCleared < bankLegs
+                ? 'partial'
+                : 'reconciled'
+      })
+    }
+  }
+  return out
+}
+
+/**
+ * The period by voucher type: how many of each, and what they moved.
+ *
+ * A summary rather than subtotals inside the list, because the list is paged — subtotals
+ * computed over a page would be subtotals of an arbitrary slice, which is worse than none. This
+ * counts the whole period in one query however many rows that is, and each row drills into the
+ * Day Book filtered to that type.
+ */
+export function dayBookByType(db: DB, from: string, to: string, includeOutOfBooks = false): DayBookTypeRow[] {
+  const scope = includeOutOfBooks ? NOT_DELETED : IN_BOOKS
+  return db
+    .prepare(
+      `SELECT vt.kind AS kind, vt.name AS voucherType, COUNT(DISTINCT v.id) AS count,
+              COALESCE(SUM(CASE WHEN vl.dr_cr = 'dr' THEN vl.amount ELSE 0 END), 0) AS debit,
+              COALESCE(SUM(CASE WHEN vl.dr_cr = 'cr' THEN vl.amount ELSE 0 END), 0) AS credit
        FROM vouchers v
        JOIN voucher_types vt ON vt.id = v.voucher_type_id
-       LEFT JOIN ledgers pl ON pl.id = v.party_ledger_id
-       LEFT JOIN (
-         SELECT voucher_id, MIN(id) AS first_line FROM voucher_lines GROUP BY voucher_id
-       ) f ON f.voucher_id = v.id
-       LEFT JOIN voucher_lines fvl ON fvl.id = f.first_line
-       LEFT JOIN ledgers fl ON fl.id = fvl.ledger_id
-       LEFT JOIN (
-         SELECT vl.voucher_id, vl.ledger_id,
-                SUM(CASE WHEN vl.dr_cr = 'dr' THEN vl.amount ELSE -vl.amount END) AS net
-         FROM voucher_lines vl GROUP BY vl.voucher_id, vl.ledger_id
-       ) anet ON anet.voucher_id = v.id AND anet.ledger_id = COALESCE(pl.id, fl.id)
+       LEFT JOIN voucher_lines vl ON vl.voucher_id = v.id
        WHERE v.date BETWEEN ? AND ? AND ${scope}
-       ORDER BY v.date, v.id`
+       GROUP BY vt.id
+       ORDER BY count DESC, vt.name`
     )
-    .all(from, to) as {
-      voucherId: number; date: string; voucherType: string; kind: string; number: string
-      narration: string | null; account: string; accountNet: number
-      isOptional: number; postDated: number
-    }[]
-  return rows.map((r) => ({
-    voucherId: r.voucherId,
-    date: r.date,
-    voucherType: r.voucherType,
-    kind: r.kind,
-    number: r.number,
-    account: r.account,
-    narration: r.narration,
-    debit: r.accountNet > 0 ? r.accountNet : 0,
-    credit: r.accountNet < 0 ? -r.accountNet : 0,
-    isOptional: !!r.isOptional,
-    postDated: !!r.postDated
-  }))
+    .all(from, to) as DayBookTypeRow[]
 }
 
-/** 'YYYY-MM' months from `from` to `to`, inclusive. */
-function monthRange(from: string, to: string): string[] {
-  const months: string[] = []
-  let [y, m] = [Number(from.slice(0, 4)), Number(from.slice(5, 7))]
-  const end = to.slice(0, 7)
-  for (;;) {
-    const key = `${y}-${String(m).padStart(2, '0')}`
-    months.push(key)
-    if (key === end || months.length > 1200) break
-    m += 1
-    if (m > 12) { m = 1; y += 1 }
+/** How many day-book rows the period holds — the denominator for a paged view. */
+export function dayBookCount(db: DB, from: string, to: string, includeOutOfBooks = false): number {
+  const scope = includeOutOfBooks ? NOT_DELETED : IN_BOOKS
+  const row = db
+    .prepare(`SELECT COUNT(*) AS n FROM vouchers v WHERE v.date BETWEEN ? AND ? AND ${scope}`)
+    .get(from, to) as { n: number }
+  return row.n
+}
+
+/** The period's row count and both totals, in one aggregate. What the keyset path uses instead of
+ *  adding up rows it deliberately did not read. */
+function statementTotals(
+  db: DB,
+  ledgerId: number,
+  from: string,
+  to: string
+): { count: number; debit: number; credit: number } {
+  return db
+    .prepare(
+      `SELECT COUNT(*) AS count,
+              COALESCE(SUM(CASE WHEN vl.dr_cr = 'dr' THEN vl.amount ELSE 0 END), 0) AS debit,
+              COALESCE(SUM(CASE WHEN vl.dr_cr = 'cr' THEN vl.amount ELSE 0 END), 0) AS credit
+       FROM voucher_lines vl JOIN vouchers v ON v.id = vl.voucher_id
+       WHERE vl.ledger_id = ? AND v.date BETWEEN ? AND ? AND ${IN_BOOKS}`
+    )
+    .get(ledgerId, from, to) as { count: number; debit: number; credit: number }
+}
+
+/**
+ * Counterpart names for the "particulars" column — one batched query over the touched vouchers
+ * plus JS grouping, replacing the correlated GROUP_CONCAT subquery per line. Scoped to the rows
+ * handed in, so the paged path asks about the page's vouchers and no others.
+ */
+function statementParticulars(
+  db: DB,
+  lines: readonly { voucherId: number }[]
+): (voucherId: number, drCr: 'dr' | 'cr') => string {
+  const voucherIds = [...new Set(lines.map((r) => r.voucherId))]
+  const namesBySide = new Map<string, string[]>() // `${voucherId}|${drCr}` -> distinct names, first-seen order
+  // The id list travels as one JSON parameter, so this is ONE prepared statement whatever the
+  // page size — a 4,000-voucher statement used to compile a 4,000-placeholder IN, and batching it
+  // into chunks of 400 measured slower still (whole statement 14.8 ms → 20.5 ms). Also removes any
+  // question of the bind-parameter ceiling.
+  if (voucherIds.length > 0) {
+    const counterRows = db
+      .prepare(
+        `SELECT vl2.voucher_id AS voucherId, vl2.dr_cr AS drCr, l2.name
+         FROM voucher_lines vl2 JOIN ledgers l2 ON l2.id = vl2.ledger_id
+         WHERE vl2.voucher_id IN (SELECT value FROM json_each(?))
+         ORDER BY vl2.id`
+      )
+      .all(JSON.stringify(voucherIds)) as { voucherId: number; drCr: 'dr' | 'cr'; name: string }[]
+    for (const r of counterRows) {
+      const key = `${r.voucherId}|${r.drCr}`
+      const list = namesBySide.get(key) ?? []
+      if (!list.includes(r.name)) list.push(r.name)
+      namesBySide.set(key, list)
+    }
   }
-  return months
+  return (voucherId, drCr) => (namesBySide.get(`${voucherId}|${drCr === 'dr' ? 'cr' : 'dr'}`) ?? []).join(',')
 }
 
-export function ledgerStatement(db: DB, ledgerId: number, from: string, to: string, groupBy?: 'month'): LedgerStatement {
+/**
+ * The columns a ledger statement orders by, and therefore the shape of its cursor.
+ *
+ * Four of them, because the first three are all non-unique: a date is shared by thousands of
+ * vouchers, a voucher contributes several lines to the same ledger, and `line_order` repeats
+ * across vouchers. `vl.id` is what makes the order total, and a total order is the precondition
+ * for a cursor that neither repeats a row nor skips one.
+ */
+export const LEDGER_STATEMENT_KEY = ['v.date', 'v.id', 'vl.line_order', 'vl.id'] as const
+
+/** One raw statement line, before the running balance and particulars are attached. */
+interface StatementLineRow {
+  voucherId: number
+  date: string
+  voucherType: string
+  number: string
+  narration: string | null
+  drCr: 'dr' | 'cr'
+  amount: number
+  lineOrder: number
+  lineId: number
+}
+
+const statementCursorOf = (r: StatementLineRow): string =>
+  encodeCursor([r.date, r.voucherId, r.lineOrder, r.lineId])
+
+/**
+ * A ledger's entries over a period.
+ *
+ * `page` returns a window. Opening, closing and the period totals always describe the WHOLE
+ * period, so a paged statement still foots — the same discipline the tool envelopes use. Measured
+ * at 30,000 vouchers the whole statement serialises to ~5 MB; the screen shows 500.
+ *
+ * Two paths, and the difference is the point. With `page.after` the totals come from aggregates
+ * and only the page's rows are read, so the cost is the page's. Without it — a whole statement,
+ * or the `groupBy` matrix, which genuinely needs every row — the old path runs unchanged.
+ */
+export function ledgerStatement(
+  db: DB,
+  ledgerId: number,
+  from: string,
+  to: string,
+  groupBy?: Period,
+  page?: {
+    limit: number
+    /** Keyset cursor: the rows strictly after it. What the screen uses. */
+    after?: string | null
+    /** Offset paging, kept for callers that jump to an arbitrary page. Ignored when `after` is
+     *  given. Its cost grows with the offset; a cursor's does not. */
+    offset?: number
+  }
+): LedgerStatement {
   const ledger = db.prepare('SELECT id, name, opening_balance FROM ledgers WHERE id = ?').get(ledgerId) as
     | { id: number; name: string; opening_balance: number }
     | undefined
@@ -434,44 +936,79 @@ export function ledgerStatement(db: DB, ledgerId: number, from: string, to: stri
     .get(ledgerId, from) as { m: number }
   const opening = ledger.opening_balance + beforeRow.m
 
-  const lineRows = db
-    .prepare(
-      `SELECT v.id AS voucherId, v.date, vt.name AS voucherType, v.number, v.narration,
-              vl.dr_cr AS drCr, vl.amount
+  const SELECT_LINES = `SELECT v.id AS voucherId, v.date, vt.name AS voucherType, v.number, v.narration,
+              vl.dr_cr AS drCr, vl.amount, vl.line_order AS lineOrder, vl.id AS lineId
        FROM voucher_lines vl
        JOIN vouchers v ON v.id = vl.voucher_id
        JOIN voucher_types vt ON vt.id = v.voucher_type_id
-       WHERE vl.ledger_id = ? AND v.date BETWEEN ? AND ? AND ${IN_BOOKS}
-       ORDER BY v.date, v.id, vl.line_order`
-    )
-    .all(ledgerId, from, to) as {
-      voucherId: number; date: string; voucherType: string; number: string; narration: string | null
-      drCr: 'dr' | 'cr'; amount: number
-    }[]
+       WHERE vl.ledger_id = ? AND v.date BETWEEN ? AND ? AND ${IN_BOOKS}`
+  const ORDER = `ORDER BY ${keysetOrderBy(LEDGER_STATEMENT_KEY)}`
 
-  // Counterpart names for the "particulars" column — one batched query over the touched
-  // vouchers plus JS grouping, replacing the correlated GROUP_CONCAT subquery per line.
-  const voucherIds = [...new Set(lineRows.map((r) => r.voucherId))]
-  const namesBySide = new Map<string, string[]>() // `${voucherId}|${drCr}` -> distinct names, first-seen order
-  if (voucherIds.length > 0) {
-    const placeholders = voucherIds.map(() => '?').join(',')
-    const counterRows = db
-      .prepare(
-        `SELECT vl2.voucher_id AS voucherId, vl2.dr_cr AS drCr, l2.name
-         FROM voucher_lines vl2 JOIN ledgers l2 ON l2.id = vl2.ledger_id
-         WHERE vl2.voucher_id IN (${placeholders})
-         ORDER BY vl2.id`
-      )
-      .all(...voucherIds) as { voucherId: number; drCr: 'dr' | 'cr'; name: string }[]
-    for (const r of counterRows) {
-      const key = `${r.voucherId}|${r.drCr}`
-      const list = namesBySide.get(key) ?? []
-      if (!list.includes(r.name)) list.push(r.name)
-      namesBySide.set(key, list)
+  const cursor = page ? decodeCursor(page.after) : null
+  // The keyset path serves any page EXCEPT the period matrix, whose `periods` are computed from
+  // every row. It covers the first page too — a cursor of null just means "start at the top", and
+  // the first page is the one every visit to the screen asks for. Offset paging stays on the old
+  // path: a caller jumping to row 4,000 is asking for something a cursor cannot express.
+  const keysetPath = page != null && !groupBy && (cursor != null || !page.offset)
+
+  if (keysetPath && page) {
+    const after = cursor ? keysetAfter(LEDGER_STATEMENT_KEY, cursor) : null
+    // One extra row, purely to answer "is there a next page" exactly. Comparing rows.length
+    // against a COUNT taken at a different instant answers it only usually.
+    const fetched = db
+      .prepare(`${SELECT_LINES} ${after ? `AND ${after.sql}` : ''} ${ORDER} LIMIT ?`)
+      .all(ledgerId, from, to, ...(after?.params ?? []), page.limit + 1) as StatementLineRow[]
+    const pageRows = fetched.slice(0, page.limit)
+    const totals = statementTotals(db, ledgerId, from, to)
+    // Everything before this page, as one aggregate rather than as rows deliberately not read.
+    // Recomputed rather than carried in the cursor: a balance a client hands back is a balance
+    // that can be stale or wrong, and this is money on screen.
+    const priorMovement = cursor
+      ? (db
+          .prepare(
+            `SELECT COALESCE(SUM(CASE WHEN vl.dr_cr = 'dr' THEN vl.amount ELSE -vl.amount END), 0) AS m
+         FROM voucher_lines vl
+         JOIN vouchers v ON v.id = vl.voucher_id
+         WHERE vl.ledger_id = ? AND v.date BETWEEN ? AND ? AND ${IN_BOOKS}
+           AND ${keysetAtOrBefore(LEDGER_STATEMENT_KEY, cursor).sql}`
+          )
+          .get(ledgerId, from, to, ...cursor) as { m: number })
+      : { m: 0 }
+    const particularsFor = statementParticulars(db, pageRows)
+    let running = opening + priorMovement.m
+    const rows: LedgerStatementRow[] = pageRows.map((r) => {
+      const debit = r.drCr === 'dr' ? r.amount : 0
+      const credit = r.drCr === 'cr' ? r.amount : 0
+      running += debit - credit
+      return {
+        voucherId: r.voucherId,
+        date: r.date,
+        voucherType: r.voucherType,
+        number: r.number,
+        particulars: particularsFor(r.voucherId, r.drCr),
+        narration: r.narration,
+        debit,
+        credit,
+        running
+      }
+    })
+    return {
+      ledgerId,
+      ledgerName: ledger.name,
+      opening,
+      rows,
+      totalRows: totals.count,
+      // Closing is the period's, not the page's: a statement that footed to wherever the reader
+      // happened to stop scrolling would be worse than useless.
+      closing: opening + totals.debit - totals.credit,
+      totalDebit: totals.debit,
+      totalCredit: totals.credit,
+      nextCursor: fetched.length > page.limit ? statementCursorOf(pageRows[pageRows.length - 1]!) : null
     }
   }
-  const particularsFor = (voucherId: number, drCr: 'dr' | 'cr'): string =>
-    (namesBySide.get(`${voucherId}|${drCr === 'dr' ? 'cr' : 'dr'}`) ?? []).join(',')
+
+  const lineRows = db.prepare(`${SELECT_LINES} ${ORDER}`).all(ledgerId, from, to) as StatementLineRow[]
+  const particularsFor = statementParticulars(db, lineRows)
 
   let running = opening
   let totalDebit = 0
@@ -495,41 +1032,72 @@ export function ledgerStatement(db: DB, ledgerId: number, from: string, to: stri
     }
   })
 
+  const start = page ? (page.offset ?? 0) : 0
+  const windowed = page ? rows.slice(start, start + page.limit) : rows
   const result: LedgerStatement = {
-    ledgerId, ledgerName: ledger.name, opening, rows, closing: running, totalDebit, totalCredit
+    ledgerId,
+    ledgerName: ledger.name,
+    opening,
+    // Totals above are computed over every row before this slice, so a page still foots.
+    rows: windowed,
+    totalRows: rows.length,
+    closing: running,
+    totalDebit,
+    totalCredit,
+    // Only when a page was asked for. An unpaged statement has no next page, and saying so with a
+    // null would add a field to every existing caller's payload for nothing.
+    ...(page
+      ? {
+          nextCursor:
+            start + windowed.length < rows.length && windowed.length > 0
+              ? statementCursorOf(lineRows[start + windowed.length - 1]!)
+              : null
+        }
+      : {})
   }
 
-  // Columnar monthly matrix (v0.3 #55): every month in the period, with the running closing
-  // carried across months that had no activity.
-  if (groupBy === 'month') {
-    const byMonth = new Map<string, { debit: number; credit: number; closing: number }>()
+  // Columnar period matrix (v0.3 #55, generalised to any granularity in v0.5): every bucket in
+  // the range, with the running closing carried across buckets that had no activity.
+  if (groupBy) {
+    const byPeriod = new Map<string, { debit: number; credit: number; closing: number }>()
     for (const r of rows) {
-      const key = r.date.slice(0, 7)
-      const m = byMonth.get(key) ?? { debit: 0, credit: 0, closing: opening }
+      const key = periodKey(r.date, groupBy)
+      const m = byPeriod.get(key) ?? { debit: 0, credit: 0, closing: opening }
       m.debit += r.debit
       m.credit += r.credit
       m.closing = r.running
-      byMonth.set(key, m)
+      byPeriod.set(key, m)
     }
     let carried = opening
-    result.months = monthRange(from, to).map((month) => {
-      const m = byMonth.get(month)
+    result.periods = periodRange(from, to, groupBy).map((period) => {
+      const label = periodLabel(period, groupBy)
+      const m = byPeriod.get(period)
       if (m) {
         carried = m.closing
-        return { month, debit: m.debit, credit: m.credit, closing: m.closing }
+        return { period, label, debit: m.debit, credit: m.credit, closing: m.closing }
       }
-      return { month, debit: 0, credit: 0, closing: carried }
+      return { period, label, debit: 0, credit: 0, closing: carried }
     })
   }
 
   return result
 }
 
-export function trialBalance(db: DB, asOn: string): TrialBalance {
+/**
+ * @param includeZeroBalances Keep ledgers with no balance and no movement in the result.
+ *
+ * They are dropped by default and always have been: a chart of accounts collects ledgers that
+ * were used once, and a trial balance three screens long, mostly zeroes, hides the numbers that
+ * matter. But "never" is the wrong answer too -- a ledger you expected to see and cannot is
+ * indistinguishable from one that does not exist -- so the choice belongs to the caller. Hiding
+ * them can never change a total, which is what makes it safe.
+ */
+export function trialBalance(db: DB, asOn: string, includeZeroBalances = false): TrialBalance {
   // Opening + gross Dr/Cr movement per ledger in one grouped pass; closing derives from them.
   const rows = db
     .prepare(
-      `SELECT l.id AS ledgerId, l.name AS ledgerName, g.name AS groupName, l.group_id AS groupId,
+      `SELECT l.id AS ledgerId, l.name AS ledgerName, g.name AS groupName, g.nature AS nature,
+              l.group_id AS groupId,
               l.opening_balance AS opening,
               COALESCE(m.drTotal, 0) AS movementDebit,
               COALESCE(m.crTotal, 0) AS movementCredit
@@ -545,9 +1113,13 @@ export function trialBalance(db: DB, asOn: string): TrialBalance {
        ) m ON m.ledger_id = l.id`
     )
     .all(asOn) as {
-      ledgerId: number; ledgerName: string; groupName: string; groupId: number
+      ledgerId: number; ledgerName: string; groupName: string; nature: Nature; groupId: number
       opening: number; movementDebit: number; movementCredit: number
     }[]
+
+  // The primary (root) group each group descends from, so the screen can subtotal at
+  // balance-sheet level without a second query. Computed once per report, not per row.
+  const topNameByGroupId = rootGroupNames(listGroups(db))
 
   const result = rows
     .map((r) => {
@@ -556,6 +1128,8 @@ export function trialBalance(db: DB, asOn: string): TrialBalance {
         ledgerId: r.ledgerId,
         ledgerName: r.ledgerName,
         groupName: r.groupName,
+        topGroupName: topNameByGroupId.get(r.groupId) ?? r.groupName,
+        nature: r.nature,
         debit: bal > 0 ? bal : 0,
         credit: bal < 0 ? -bal : 0,
         opening: r.opening,
@@ -563,7 +1137,14 @@ export function trialBalance(db: DB, asOn: string): TrialBalance {
         movementCredit: r.movementCredit
       }
     })
-    .filter((r) => r.debit !== 0 || r.credit !== 0 || r.movementDebit !== 0 || r.movementCredit !== 0)
+    .filter(
+      (r) =>
+        includeZeroBalances ||
+        r.debit !== 0 ||
+        r.credit !== 0 ||
+        r.movementDebit !== 0 ||
+        r.movementCredit !== 0
+    )
 
   // Opening stock joins the debit side so a stock-carrying book still balances — but only when
   // no ledger actually lives under Stock-in-Hand (or any of its descendant groups); if one does,
@@ -576,6 +1157,7 @@ export function trialBalance(db: DB, asOn: string): TrialBalance {
   if (stockOpening !== 0 && !hasStockLedger) {
     result.push({
       ledgerId: -1, ledgerName: 'Stock-in-Hand (opening)', groupName: 'Stock-in-Hand',
+      topGroupName: 'Current Assets', nature: 'asset',
       debit: stockOpening, credit: 0, opening: stockOpening, movementDebit: 0, movementCredit: 0
     })
   }
@@ -782,6 +1364,30 @@ function descendantIdSet(groups: Group[], names: string[]): Set<number> {
   return result
 }
 
+/**
+ * Group id → the name of the primary (root) group it descends from.
+ *
+ * Walks up rather than down so a chart of accounts nested five deep still resolves, and stops on
+ * a cycle instead of looping forever — a self-parented group is corrupt data, not a reason for
+ * the trial balance to hang.
+ */
+function rootGroupNames(groups: Group[]): Map<number, string> {
+  const byId = new Map(groups.map((g) => [g.id, g]))
+  const out = new Map<number, string>()
+  for (const g of groups) {
+    let cur = g
+    const seen = new Set<number>([g.id])
+    while (cur.parentId !== null) {
+      const parent = byId.get(cur.parentId)
+      if (!parent || seen.has(parent.id)) break
+      seen.add(parent.id)
+      cur = parent
+    }
+    out.set(g.id, cur.name)
+  }
+  return out
+}
+
 /** Top 5 ledgers under the given group-id set by outstanding balance, descending, zero/negative
  *  excluded. `sign` flips the dr-positive figure onto the "amount owed" axis (1 for debtors, -1
  *  for creditors, whose natural balance is credit i.e. negative dr-positive). */
@@ -895,6 +1501,8 @@ export function dashboard(db: DB, today: string, fyFrom: string): DashboardData 
       // Real flags (not hard-coded false): the recent list shows out-of-books vouchers too, and
       // the renderer badges them just like the Day Book does.
       isOptional: v.isOptional, postDated: v.postDated
+      // bankStatus deliberately absent: the Gateway's recent list has no reconciliation column,
+      // and `null` already means "not a bank voucher".
     }))
 
   const partyIds = new Set([...debtorIds, ...creditorIds])
@@ -964,6 +1572,250 @@ export function dashboard(db: DB, today: string, fyFrom: string): DashboardData 
     partyCount,
     itemCount: counts.itemCount,
     hasEmployees: !!counts.hasEmployees,
-    ratios
+    ratios,
+    tileSparks: tileSparks(db, today, groups, ledgers, balances)
   }
+}
+
+// ---------- what changed between two dates (C66) ----------
+
+/**
+ * Every ledger whose balance moved between two dates, largest move first.
+ *
+ * The window is (from, to] — the balance as on `from` is where we started, so entries dated
+ * `from` itself are already in the opening figure and counting them again would report a move
+ * that has not happened. A one-day report (from === to) therefore correctly shows nothing.
+ */
+export function whatChanged(db: DB, from: string, to: string): ChangeReport {
+  const openingByLedger = closingBalances(db, from)
+  const closingByLedger = closingBalances(db, to)
+
+  const touched = db
+    .prepare(
+      `SELECT vl.ledger_id AS ledgerId, COUNT(DISTINCT v.id) AS n
+       FROM voucher_lines vl JOIN vouchers v ON v.id = vl.voucher_id
+       WHERE v.date > ? AND v.date <= ? AND ${IN_BOOKS}
+       GROUP BY vl.ledger_id`
+    )
+    .all(from, to) as { ledgerId: number; n: number }[]
+  const voucherCount = new Map(touched.map((r) => [r.ledgerId, r.n]))
+
+  const groupNames = new Map(listGroups(db).map((g) => [g.id, g.name]))
+  const inputs: ChangeInput[] = ledgersLite(db).map((l) => ({
+    ledgerId: l.id,
+    ledgerName: l.name,
+    groupName: groupNames.get(l.groupId) ?? '',
+    opening: openingByLedger.get(l.id) ?? 0,
+    closing: closingByLedger.get(l.id) ?? 0,
+    vouchers: voucherCount.get(l.id) ?? 0
+  }))
+
+  return summariseChanges(from, to, inputs)
+}
+
+// ---------- ratio panel as a report of its own (C60) ----------
+
+/**
+ * The ratio panel with the figures behind it.
+ *
+ * The Gateway already computes these, but only as six numbers with no workings — and a ratio
+ * whose inputs you cannot see is one you cannot argue with when the bank disagrees. This returns
+ * both, for an arbitrary as-on date rather than only for today.
+ */
+export function ratios(db: DB, fyFrom: string, asOn: string): RatioReport {
+  const balances = closingBalances(db, asOn)
+  const ledgers = ledgersLite(db)
+  const groups = listGroups(db)
+
+  const sumGroupSet = (ids: Set<number>, sign: 1 | -1, onlyPositive = false): number => {
+    let total = 0
+    for (const l of ledgers) {
+      if (!ids.has(l.groupId)) continue
+      const bal = sign * (balances.get(l.id) ?? 0)
+      total += onlyPositive ? Math.max(0, bal) : bal
+    }
+    return total
+  }
+
+  const pnl = profitAndLoss(db, fyFrom, asOn)
+  const flows = db
+    .prepare(
+      `SELECT vt.kind AS kind, COALESCE(SUM(t.total), 0) AS total
+       FROM vouchers v
+       JOIN voucher_types vt ON vt.id = v.voucher_type_id
+       JOIN (SELECT voucher_id, SUM(amount) AS total FROM voucher_lines WHERE dr_cr = 'dr' GROUP BY voucher_id) t
+         ON t.voucher_id = v.id
+       WHERE vt.kind IN ('sales', 'purchase') AND v.date BETWEEN ? AND ? AND ${IN_BOOKS}
+       GROUP BY vt.kind`
+    )
+    .all(fyFrom, asOn) as { kind: 'sales' | 'purchase'; total: number }[]
+  const flowTotals = new Map(flows.map((r) => [r.kind, r.total]))
+
+  const inputs = {
+    currentAssets: sumGroupSet(descendantIdSet(groups, ['Current Assets']), 1) + pnl.closingStock,
+    currentLiabilities: sumGroupSet(descendantIdSet(groups, ['Current Liabilities']), -1),
+    stock: pnl.closingStock,
+    receivables: sumGroupSet(descendantIdSet(groups, ['Sundry Debtors']), 1, true),
+    payables: sumGroupSet(descendantIdSet(groups, ['Sundry Creditors']), -1, true),
+    // Gearing counts what the business has borrowed, which includes an overdrawn current
+    // account: an OD used as working capital is debt whatever group it sits in.
+    borrowings: sumGroupSet(
+      descendantIdSet(groups, ['Loans (Liability)', 'Bank OD A/c', 'Secured Loans', 'Unsecured Loans']),
+      -1
+    ),
+    // Reserves are part of owners' funds, and so is the year's profit — it belongs to the owners
+    // the moment it is earned, not when it is transferred at year end.
+    equity: sumGroupSet(descendantIdSet(groups, ['Capital Account', 'Reserves & Surplus']), -1) + pnl.netProfit,
+    sales: flowTotals.get('sales') ?? 0,
+    purchases: flowTotals.get('purchase') ?? 0,
+    grossProfit: pnl.grossProfit,
+    netProfit: pnl.netProfit,
+    periodDays: Math.max(1, Math.round((Date.parse(asOn) - Date.parse(fyFrom)) / 86_400_000) + 1)
+  }
+
+  return {
+    asOn,
+    from: fyFrom,
+    inputs,
+    ratios: computeRatios({
+      ...inputs,
+      openingStock: pnl.openingStock,
+      closingStock: pnl.closingStock
+    })
+  }
+}
+
+// ---------- item-wise gross margin, period by period (C72) ----------
+
+/**
+ * The same item margin the whole-period report gives, cut into sub-periods.
+ *
+ * A single margin for the year hides the month the price went up and the month a discount ran;
+ * the per-period cut is what makes the two visible. Each bucket is valued independently through
+ * the same consumption engine, so a bucket's COGS reflects the cost of the stock actually
+ * consumed inside it rather than an average smeared across the year.
+ */
+export function itemProfitabilityByPeriod(db: DB, from: string, to: string, period: Period): ItemProfitPeriod[] {
+  return periodRange(from, to, period).map((key) => {
+    const bounds = periodBounds(key, period)
+    // Clamped to the requested window: a report headed "April to June" must not quietly value
+    // the whole of a quarter that starts in March.
+    const bFrom = bounds.from < from ? from : bounds.from
+    const bTo = bounds.to > to ? to : bounds.to
+    const rows = itemProfitability(db, bFrom, bTo)
+    return {
+      key,
+      label: periodLabel(key, period),
+      from: bFrom,
+      to: bTo,
+      rows,
+      salesValue: rows.reduce((s, r) => s + r.salesValue, 0),
+      cogs: rows.reduce((s, r) => s + r.cogs, 0),
+      profit: rows.reduce((s, r) => s + r.profit, 0)
+    }
+  })
+}
+
+// ---------- Gateway tile sparklines (C62) ----------
+
+/** Twelve `YYYY-MM` keys ending in the month `today` falls in, oldest first. */
+function trailingMonths(today: string, count = 12): string[] {
+  const out: string[] = []
+  let y = Number(today.slice(0, 4))
+  let m = Number(today.slice(5, 7))
+  for (let i = 0; i < count; i++) {
+    out.unshift(`${y}-${String(m).padStart(2, '0')}`)
+    m -= 1
+    if (m === 0) {
+      m = 12
+      y -= 1
+    }
+  }
+  return out
+}
+
+/**
+ * A twelve-month trend behind every Gateway tile.
+ *
+ * Balance tiles are walked BACKWARDS from the balance the tile already shows: month-end balance
+ * for month i is the current balance minus every movement after month i. Deriving them forwards
+ * from opening balances would need a second full-history scan, and would disagree with the tile
+ * by a paisa the first time a voucher fell outside the window.
+ *
+ * Flow tiles (sales) are plain monthly totals, which is what a sales trend means — the balance of
+ * the sales ledger would grow monotonically and say nothing.
+ */
+function tileSparks(
+  db: DB,
+  today: string,
+  groups: Group[],
+  ledgers: LedgerLite[],
+  balances: Map<number, number>
+): TileSpark[] {
+  const months = trailingMonths(today)
+  const windowStart = `${months[0]!}-01`
+
+  const monthlyMovement = db
+    .prepare(
+      `SELECT substr(v.date, 1, 7) AS ym, vl.ledger_id AS ledgerId,
+              SUM(CASE WHEN vl.dr_cr = 'dr' THEN vl.amount ELSE -vl.amount END) AS m
+       FROM voucher_lines vl JOIN vouchers v ON v.id = vl.voucher_id
+       WHERE v.date >= ? AND v.date <= ? AND ${IN_BOOKS}
+       GROUP BY ym, vl.ledger_id`
+    )
+    .all(windowStart, today) as { ym: string; ledgerId: number; m: number }[]
+
+  // Walked per LEDGER, not per group set, because `onlyPositive` (receivables, payables) drops
+  // negative balances one ledger at a time — the same rule the tile itself uses. Summing the set
+  // first and clamping the total would let a customer in credit net off against the rest, and the
+  // spark's last point would then disagree with the figure printed above it.
+  const balanceSeries = (ids: Set<number>, sign: 1 | -1, onlyPositive = false): { month: string; value: number }[] => {
+    const running = new Map<number, number>()
+    for (const l of ledgers) if (ids.has(l.groupId)) running.set(l.id, balances.get(l.id) ?? 0)
+    if (running.size === 0) return months.map((month) => ({ month, value: 0 }))
+
+    const movementByMonth = new Map<string, Map<number, number>>()
+    for (const r of monthlyMovement) {
+      if (!running.has(r.ledgerId)) continue
+      const perLedger = movementByMonth.get(r.ym) ?? new Map<number, number>()
+      perLedger.set(r.ledgerId, (perLedger.get(r.ledgerId) ?? 0) + r.m)
+      movementByMonth.set(r.ym, perLedger)
+    }
+
+    const out: { month: string; value: number }[] = []
+    for (let i = months.length - 1; i >= 0; i--) {
+      let total = 0
+      for (const bal of running.values()) {
+        const signed = sign * bal
+        total += onlyPositive ? Math.max(0, signed) : signed
+      }
+      out.unshift({ month: months[i]!, value: total })
+      for (const [ledgerId, m] of movementByMonth.get(months[i]!) ?? []) {
+        running.set(ledgerId, (running.get(ledgerId) ?? 0) - m)
+      }
+    }
+    return out
+  }
+
+  const kindMonths = db
+    .prepare(
+      `SELECT substr(v.date, 1, 7) AS ym, COALESCE(SUM(t.total), 0) AS total
+       FROM vouchers v
+       JOIN voucher_types vt ON vt.id = v.voucher_type_id
+       JOIN (SELECT voucher_id, SUM(amount) AS total FROM voucher_lines WHERE dr_cr = 'dr' GROUP BY voucher_id) t
+         ON t.voucher_id = v.id
+       WHERE vt.kind = 'sales' AND v.date >= ? AND v.date <= ? AND ${IN_BOOKS}
+       GROUP BY ym`
+    )
+    .all(windowStart, today) as { ym: string; total: number }[]
+  const salesByMonth = new Map(kindMonths.map((r) => [r.ym, r.total]))
+
+  return [
+    { key: 'cash' as TileSparkKey, points: balanceSeries(descendantIdSet(groups, ['Cash-in-Hand']), 1) },
+    { key: 'bank' as TileSparkKey, points: balanceSeries(descendantIdSet(groups, ['Bank Accounts', 'Bank OD A/c']), 1) },
+    { key: 'receivables' as TileSparkKey, points: balanceSeries(descendantIdSet(groups, ['Sundry Debtors']), 1, true) },
+    { key: 'payables' as TileSparkKey, points: balanceSeries(descendantIdSet(groups, ['Sundry Creditors']), -1, true) },
+    { key: 'sales' as TileSparkKey, points: months.map((month) => ({ month, value: salesByMonth.get(month) ?? 0 })) },
+    { key: 'gst' as TileSparkKey, points: balanceSeries(descendantIdSet(groups, ['Duties & Taxes']), -1) }
+  ]
 }

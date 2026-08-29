@@ -200,7 +200,7 @@ open /Applications/Total.app`}</code>
       </table>
       <p>
         Inside any list — the ledger picker, item search, voucher list — <kbd>↑</kbd> <kbd>↓</kbd> move and{' '}
-        <kbd>↵</kbd> drills in, exactly like the amber cursor bar on the homepage.
+        <kbd>↵</kbd> drills in, exactly like the accent cursor bar on the homepage.
       </p>
 
       <h2>5. Where your files live</h2>

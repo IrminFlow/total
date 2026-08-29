@@ -73,6 +73,9 @@ export interface GstDoc {
   rchrg?: boolean
   /** Shipping bill (exports, Table 6A) — from voucher_transport trans_doc_no/date. */
   shippingBill?: { num: string | null; date: string | null } | null
+  /** NIC Invoice Reference Number, once e-invoiced. Absent on a B2B invoice from a business
+   *  over the e-invoice threshold is a real problem — see validate.ts. */
+  irn?: string | null
   validation?: GstDocValidation
 }
 
@@ -94,6 +97,30 @@ export interface TaxTotals extends InwardSummary {
  * the earlier ₹2,50,000 limit. Verify against the notification if this ever changes.
  */
 export const B2CL_THRESHOLD_PAISE = 100_000 * 100
+
+/**
+ * Does this sale belong in GSTR-1 table 5 (B2C large) rather than the table 7 summary?
+ *
+ * Named and exported so the voucher screen can warn at entry time using the *same* rule the
+ * return applies. A hint derived from a second copy of the test would eventually disagree with
+ * the return it is meant to predict, and the user would trust the wrong one.
+ *
+ * Strictly above the threshold, matching the statute: an invoice of exactly ₹1,00,000 is B2C
+ * small.
+ */
+export function isB2cLarge(input: {
+  partyGstin: string | null
+  /** Place of supply, two-digit state code. */
+  pos: string
+  companyStateCode: string
+  invoiceValue: number
+}): boolean {
+  return (
+    !input.partyGstin &&
+    input.pos !== input.companyStateCode &&
+    input.invoiceValue > B2CL_THRESHOLD_PAISE
+  )
+}
 
 const toRupees = (paise: number): number => Math.round(paise) / 100
 
@@ -263,7 +290,15 @@ export function buildGstr1(
   const expDocs = sales.filter((d) => isExport(d) && hasRated(d))
   const b2bDocs = sales.filter((d) => !isExport(d) && d.partyGstin && hasRated(d))
   const b2clDocs = sales.filter(
-    (d) => !isExport(d) && !d.partyGstin && hasRated(d) && d.pos !== companyState && d.invoiceValue > B2CL_THRESHOLD_PAISE
+    (d) =>
+      !isExport(d) &&
+      hasRated(d) &&
+      isB2cLarge({
+        partyGstin: d.partyGstin,
+        pos: d.pos,
+        companyStateCode: companyState,
+        invoiceValue: d.invoiceValue
+      })
   )
   const b2csDocs = sales.filter(
     (d) => !isExport(d) && !d.partyGstin && !b2clDocs.includes(d)
@@ -607,6 +642,14 @@ export interface ItcBreakdown {
   isrc: ItcPart
   /** 4(A)(5) — all other ITC. */
   oth: ItcPart
+  /**
+   * 4(A)(4) — inward supplies from an Input Service Distributor (roadmap #355).
+   *
+   * Optional, and absent means zero. Every caller that predates ISD — and every test that builds
+   * an `ItcBreakdown` by hand — keeps compiling and keeps computing exactly what it did, which is
+   * the same reason `GstScope`'s registration fields are optional.
+   */
+  isd?: ItcPart
   /** 4(D)(1) — ineligible ITC (party itc_eligibility = 'blocked'). */
   blocked: ItcPart
 }
@@ -767,7 +810,7 @@ export function buildGstr3b(
   const unregDetails = interState.map((r) => ({ pos: r.pos, txval: toRupees(r.taxable), iamt: toRupees(r.igst) }))
 
   // ITC: 4(A) availed − 4(B) reversed = 4(C) net; 4(D) ineligible reported separately.
-  const itcAvailed = addItc(inputs.itc.impg, inputs.itc.isrc, inputs.itc.oth)
+  const itcAvailed = addItc(inputs.itc.impg, inputs.itc.isrc, inputs.itc.oth, inputs.itc.isd ?? ZERO_ITC)
   const itcReversed = addItc(manual.itcRevRul, manual.itcRevOth)
   const itcNet = subItc(itcAvailed, itcReversed)
 
@@ -797,7 +840,7 @@ export function buildGstr3b(
         { ty: 'IMPG', ...itcJson(inputs.itc.impg) },
         { ty: 'IMPS', ...itcJson(ZERO_ITC) },
         { ty: 'ISRC', ...itcJson(inputs.itc.isrc) },
-        { ty: 'ISD', ...itcJson(ZERO_ITC) },
+        { ty: 'ISD', ...itcJson(inputs.itc.isd ?? ZERO_ITC) },
         { ty: 'OTH', ...itcJson(inputs.itc.oth) }
       ],
       itc_rev: [

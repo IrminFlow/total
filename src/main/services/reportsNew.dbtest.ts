@@ -1,7 +1,7 @@
 /** DB-layer tests for the v0.3 lane-R report additions (#53–#60). */
 import { describe, it, expect } from 'vitest'
 import type { DB } from '../db/connection'
-import { seededDb, postSimpleVoucher } from '../db/testdb'
+import { seededDb, postSimpleVoucher, TEST_INFO } from '../db/testdb'
 import { createLedger } from './masters'
 import { saveVoucher } from './vouchers'
 import type { VoucherInput } from '@shared/schemas'
@@ -99,14 +99,14 @@ describe('columnar monthly ledger (#55)', () => {
     const cash = (db.prepare("SELECT id FROM ledgers WHERE name = 'Cash'").get() as { id: number }).id
 
     const plain = ledgerStatement(db, cash, '2025-04-01', '2025-07-31')
-    expect(plain.months).toBeUndefined()
+    expect(plain.periods).toBeUndefined()
 
     const stmt = ledgerStatement(db, cash, '2025-04-01', '2025-07-31', 'month')
-    expect(stmt.months).toEqual([
-      { month: '2025-04', debit: 50000, credit: 0, closing: 50000 },
-      { month: '2025-05', debit: 0, credit: 0, closing: 50000 },
-      { month: '2025-06', debit: 0, credit: 20000, closing: 30000 },
-      { month: '2025-07', debit: 0, credit: 0, closing: 30000 }
+    expect(stmt.periods).toEqual([
+      { period: '2025-04', label: 'Apr 2025', debit: 50000, credit: 0, closing: 50000 },
+      { period: '2025-05', label: 'May 2025', debit: 0, credit: 0, closing: 50000 },
+      { period: '2025-06', label: 'Jun 2025', debit: 0, credit: 20000, closing: 30000 },
+      { period: '2025-07', label: 'Jul 2025', debit: 0, credit: 0, closing: 30000 }
     ])
   })
 })
@@ -300,6 +300,168 @@ describe('exception reports (#60)', () => {
     expect(by.get('missingGst')!.rows[0]!.voucherId).toBeDefined()
     expect(by.get('negativeCash')!.count).toBe(0)
     expect(by.get('singleLedger')!.count).toBe(0)
+  })
+
+  it('flags a purchase whose section 16(4) credit window has shut, and leaves a fresh one alone', () => {
+    // Input credit lapses 30 November of the following FY, and is then gone rather than deferred.
+    // An old purchase otherwise sits in the books looking exactly like one from last month.
+    const db = seededDb()
+    const purchases = createLedger(db, {
+      ...LEDGER_DEFAULTS, name: 'Purchases', groupId: groupId(db, 'Purchase Accounts'), openingBalance: 0
+    }).id
+    const cgst = createLedger(db, {
+      ...LEDGER_DEFAULTS, name: 'CGST Input', groupId: groupId(db, 'Duties & Taxes'), openingBalance: 0,
+      taxType: 'cgst'
+    }).id
+    const vendor = createLedger(db, {
+      ...LEDGER_DEFAULTS, name: 'Old Vendor', groupId: groupId(db, 'Sundry Creditors'), openingBalance: 0,
+      gstin: '27AAPFU0939F1ZV', stateCode: '27'
+    }).id
+
+    const buy = (date: string): void => {
+      postLines(db, 'purchase', date, [
+        { ledgerId: purchases, drCr: 'dr', amount: 100000 },
+        { ledgerId: cgst, drCr: 'dr', amount: 9000 },
+        { ledgerId: vendor, drCr: 'cr', amount: 109000 }
+      ], vendor)
+    }
+
+    // FY 2020-21: the window shut 30 Nov 2021, long past whenever this test runs.
+    buy('2020-06-15')
+    // And one dated today, which cannot be at risk.
+    buy(new Date().toISOString().slice(0, 10))
+
+    const section = exceptions(db, '2020-04-01', '2021-03-31').sections.find((x) => x.key === 'itcAtRisk')!
+    expect(section.count).toBe(1)
+    expect(section.rows[0]!.detail).toMatch(/credit window shut/)
+    // The row is drillable — the point is to open the voucher and deal with it.
+    expect(section.rows[0]!.voucherId).toBeDefined()
+  })
+
+  it('ignores a purchase with no input tax on it, which has no credit to lose', () => {
+    const db = seededDb()
+    const purchases = createLedger(db, {
+      ...LEDGER_DEFAULTS, name: 'Purchases', groupId: groupId(db, 'Purchase Accounts'), openingBalance: 0
+    }).id
+    const vendor = createLedger(db, {
+      ...LEDGER_DEFAULTS, name: 'Unregistered Vendor', groupId: groupId(db, 'Sundry Creditors'), openingBalance: 0
+    }).id
+    postLines(db, 'purchase', '2020-06-15', [
+      { ledgerId: purchases, drCr: 'dr', amount: 100000 },
+      { ledgerId: vendor, drCr: 'cr', amount: 100000 }
+    ], vendor)
+
+    const section = exceptions(db, '2020-04-01', '2021-03-31').sections.find((x) => x.key === 'itcAtRisk')!
+    expect(section.count).toBe(0)
+  })
+
+  it('flags a buyer past the TCS threshold only when the seller is above ₹10 crore', () => {
+    // Section 206C(1H) is collected on RECEIPT, not on sale, which is what makes it easy to miss:
+    // nothing about the invoice tells you, and the threshold is crossed by a payment arriving.
+    const db = seededDb()
+    const cash = (db.prepare("SELECT id FROM ledgers WHERE name = 'Cash'").get() as { id: number }).id
+    const buyer = createLedger(db, {
+      ...LEDGER_DEFAULTS, name: 'Big Buyer', groupId: groupId(db, 'Sundry Debtors'), openingBalance: 0,
+      pan: 'AAAPA1234A'
+    }).id
+    // Rs 60 lakh received — Rs 10 lakh over the Rs 50 lakh threshold.
+    postLines(db, 'receipt', '2026-05-01', [
+      { ledgerId: cash, drCr: 'dr', amount: 60_00_000_00 },
+      { ledgerId: buyer, drCr: 'cr', amount: 60_00_000_00 }
+    ], buyer)
+
+    const small = { ...TEST_INFO, turnoverBand: '1.5Cr-5Cr' as const }
+    const sectionFor = (info: typeof TEST_INFO) =>
+      exceptions(db, '2026-04-01', '2027-03-31', info).sections.find((x) => x.key === 'tcsThreshold')!
+
+    // Under ₹10 crore the section does not apply at all, so there is nothing to say.
+    expect(sectionFor(small).count).toBe(0)
+    // And an undeclared turnover says nothing either: a warning about a threshold that probably
+    // does not apply is noise that gets the whole feature ignored.
+    expect(sectionFor({ ...TEST_INFO, turnoverBand: null }).count).toBe(0)
+
+    // ₹5–10 crore is still under the seller threshold, so still nothing.
+    expect(sectionFor({ ...TEST_INFO, turnoverBand: '5Cr-10Cr' as const }).count).toBe(0)
+
+    // Above ₹10 crore the section applies, and the buyer who crossed ₹50 lakh is named.
+    const big = sectionFor({ ...TEST_INFO, turnoverBand: '10Cr-plus' as const })
+    expect(big.count).toBe(1)
+    expect(big.rows[0]!.label).toBe('Big Buyer')
+    // 0.1% of the ₹10 lakh excess is ₹1,000.
+    expect(big.rows[0]!.amount).toBe(1_000_00)
+    expect(big.rows[0]!.ledgerId).toBeDefined()
+  })
+
+  it('charges ten times as much when the buyer has no PAN, and says so', () => {
+    const db = seededDb()
+    const cash = (db.prepare("SELECT id FROM ledgers WHERE name = 'Cash'").get() as { id: number }).id
+    const buyer = createLedger(db, {
+      ...LEDGER_DEFAULTS, name: 'No PAN Buyer', groupId: groupId(db, 'Sundry Debtors'), openingBalance: 0
+    }).id
+    postLines(db, 'receipt', '2026-05-01', [
+      { ledgerId: cash, drCr: 'dr', amount: 60_00_000_00 },
+      { ledgerId: buyer, drCr: 'cr', amount: 60_00_000_00 }
+    ], buyer)
+
+    const section = exceptions(db, '2026-04-01', '2027-03-31', {
+      ...TEST_INFO,
+      turnoverBand: '10Cr-plus' as const
+    }).sections.find((x) => x.key === 'tcsThreshold')!
+    expect(section.rows[0]!.amount).toBe(10_000_00) // 1% of ₹10 lakh
+    expect(section.rows[0]!.detail).toMatch(/no PAN/)
+  })
+
+  it('reports a gap left by a deleted voucher, and nothing on an unbroken series', () => {
+    // A missing invoice number is the first thing an auditor asks about. The bin is a soft
+    // delete, so the number is not reissued — which is correct, and is what leaves the hole.
+    const db = seededDb()
+    const cash = (db.prepare("SELECT id FROM ledgers WHERE name = 'Cash'").get() as { id: number }).id
+    const sales = createLedger(db, {
+      ...LEDGER_DEFAULTS, name: 'Sales', groupId: groupId(db, 'Sales Accounts'), openingBalance: 0
+    }).id
+
+    const ids: number[] = []
+    for (let i = 0; i < 4; i++) {
+      ids.push(
+        postLines(db, 'receipt', '2026-05-01', [
+          { ledgerId: cash, drCr: 'dr', amount: 1000 },
+          { ledgerId: sales, drCr: 'cr', amount: 1000 }
+        ])
+      )
+    }
+
+    const clean = exceptions(db, '2026-04-01', '2027-03-31').sections.find((x) => x.key === 'numberGaps')!
+    expect(clean.count).toBe(0)
+
+    // Delete the second of four: 1, _, 3, 4.
+    db.prepare("UPDATE vouchers SET deleted_at = '2026-06-01T00:00:00Z' WHERE id = ?").run(ids[1])
+    const withGap = exceptions(db, '2026-04-01', '2027-03-31').sections.find((x) => x.key === 'numberGaps')!
+    expect(withGap.count).toBe(1)
+    expect(withGap.rows[0]!.label).toMatch(/2$/)
+    expect(withGap.rows[0]!.detail).toMatch(/1 number missing/)
+  })
+
+  it('ignores a soft-deleted purchase', () => {
+    const db = seededDb()
+    const purchases = createLedger(db, {
+      ...LEDGER_DEFAULTS, name: 'Purchases', groupId: groupId(db, 'Purchase Accounts'), openingBalance: 0
+    }).id
+    const cgst = createLedger(db, {
+      ...LEDGER_DEFAULTS, name: 'CGST Input', groupId: groupId(db, 'Duties & Taxes'), openingBalance: 0,
+      taxType: 'cgst'
+    }).id
+    const vendor = createLedger(db, {
+      ...LEDGER_DEFAULTS, name: 'Vendor', groupId: groupId(db, 'Sundry Creditors'), openingBalance: 0
+    }).id
+    postLines(db, 'purchase', '2020-06-15', [
+      { ledgerId: purchases, drCr: 'dr', amount: 100000 },
+      { ledgerId: cgst, drCr: 'dr', amount: 9000 },
+      { ledgerId: vendor, drCr: 'cr', amount: 109000 }
+    ], vendor)
+    db.prepare("UPDATE vouchers SET deleted_at = '2021-01-01T00:00:00Z'").run()
+
+    const section = exceptions(db, '2020-04-01', '2021-03-31').sections.find((x) => x.key === 'itcAtRisk')!
+    expect(section.count).toBe(0)
   })
 })
 

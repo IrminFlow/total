@@ -12,3 +12,12 @@ site/next-env.d.ts
 smoke-out
 smoke-out/
 .claude/worktrees/
+.claude/settings.local.json
+.claude/litellm.local.yaml
+.claude/claude-openai
+.claude/litellm.pid
+.claude/litellm.log
+.claude/cliproxy.local.yaml
+.claude/cliproxy.log
+.claude/start-cliproxy
+.mutate-journal.json

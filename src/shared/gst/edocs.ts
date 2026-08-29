@@ -68,6 +68,15 @@ export interface EdocInvoice {
   pos: string
   /** Reverse charge applies (party ledger rcm flag) — drives TranDtls.RegRev. Defaults false. */
   rchrg?: boolean
+  /**
+   * A memorandum voucher, out of the books.
+   *
+   * On a sales voucher this is a proforma: a document sent to a customer to agree a price before
+   * anything is owed. It prints as one — different heading, watermarked, no payment QR — because
+   * a proforma that looks like a tax invoice is one a customer may pay against and one an auditor
+   * will ask about.
+   */
+  isOptional?: boolean
   items: EdocItem[]
   taxable: number
   cgst: number
@@ -99,6 +108,37 @@ export interface EdocCompany {
 
 /** E-way bills are mandatory for goods movements above ₹50,000 invoice value. */
 export const EWB_THRESHOLD_PAISE = 50_000 * 100
+
+/**
+ * Why a document cannot ride on a combined e-way bill file. Null when it can.
+ *
+ * A CODE, not the sentence. The threshold reason is the answer for most rows in most periods, and
+ * a screen that prints the same sixty-character sentence thirteen times over is printing a
+ * property of the screen as though it were row data (docs/chrome-spec.md section 6). The code
+ * lets the table show three words and the explanation live in one footnote below it.
+ */
+export type EwbIneligibility = 'credit_note' | 'purchase_dbn' | 'services_only' | 'below_threshold'
+
+/**
+ * The long form of each code, for the tooltip and for the export skip-list.
+ *
+ * Kept next to the codes rather than in the renderer because the EWB export quotes these same
+ * sentences back in its "N skipped" toast, and two copies of a reason drift.
+ */
+export const EWB_INELIGIBILITY_REASON: Record<EwbIneligibility, string> = {
+  credit_note: 'Credit note — e-way bills accompany goods movement',
+  purchase_dbn: 'Purchase-side debit note',
+  services_only: 'Services only — no goods movement',
+  below_threshold: 'At or below \u20b950,000 — per-bill export overrides'
+}
+
+/** Three words for the table cell. The sentence above is the footnote and the tooltip. */
+export const EWB_INELIGIBILITY_SHORT: Record<EwbIneligibility, string> = {
+  credit_note: 'Credit note',
+  purchase_dbn: 'Purchase-side',
+  services_only: 'Services only',
+  below_threshold: 'Under \u20b950,000'
+}
 
 const toRupees = (paise: number): number => Math.round(paise) / 100
 

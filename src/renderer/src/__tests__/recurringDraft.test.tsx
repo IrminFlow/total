@@ -1,9 +1,9 @@
-// Recurring template → voucher-entry draft helpers (screens/Recurring.tsx): line mapping,
+// Recurring template → voucher-entry draft helpers: line mapping,
 // corrupt-JSON fallback, and the invoice-mode "lines get dropped" warning flag.
 import { describe, expect, it } from 'vitest'
 import type { RecurringTemplate } from '@shared/domain'
 import { todayISO } from '@shared/dates'
-import { draftFromTemplate, templateOpenTarget } from '../screens/Recurring'
+import { draftFromTemplate, templateOpenTarget } from '../lib/recurringDraft'
 
 function template(overrides: Partial<RecurringTemplate>): RecurringTemplate {
   return {

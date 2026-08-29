@@ -1,13 +1,24 @@
-import { memo, useCallback, useEffect, useMemo, useState } from 'react'
-import { useQuery } from '@tanstack/react-query'
+import { memo, useCallback, useMemo, useState } from 'react'
+import { useInfiniteQuery } from '@tanstack/react-query'
 import { api } from '../lib/client'
+import { useVirtualRows } from '../lib/useVirtualRows'
 import { useNav, useSession, useToasts } from '../state/stores'
-import { Button, EmptyState, Money, Panel, SectionTitle, SkeletonRows, useKeyNav } from '../components/ui'
+import {
+  EmptyState,
+  ExportGroup,
+  Money,
+  Panel,
+  RowLink,
+  SectionTitle,
+  SkeletonRows,
+  useKeyNav
+} from '../components/ui'
 import { csvReport, printReport, slugFilename } from '../lib/reportExport'
 import type { ReportColumn as PdfColumn, ReportRow as PdfRow } from '../lib/client'
 import { toDisplayDate } from '@shared/dates'
 import { formatPaise } from '@shared/money'
 import type { LedgerStatementRow } from '@shared/reports'
+import type { Period } from '@shared/period'
 
 const EXPORT_COLUMNS: PdfColumn[] = [
   { label: 'Date', align: 'l' },
@@ -18,21 +29,36 @@ const EXPORT_COLUMNS: PdfColumn[] = [
   { label: 'Balance', align: 'r' }
 ]
 
-const MONTHLY_COLUMNS: PdfColumn[] = [
-  { label: 'Month', align: 'l' },
-  { label: 'Debit', align: 'r' },
-  { label: 'Credit', align: 'r' },
-  { label: 'Closing', align: 'r' }
-]
-
-const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
-
-function monthLabel(ym: string): string {
-  const [y, m] = ym.split('-').map(Number) as [number, number]
-  return `${MONTH_NAMES[(m ?? 1) - 1]} ${y}`
+/** Export columns for a columnar summary; the first header tracks the chosen granularity. */
+function summaryColumns(heading: string): PdfColumn[] {
+  return [
+    { label: heading, align: 'l' },
+    { label: 'Debit', align: 'r' },
+    { label: 'Credit', align: 'r' },
+    { label: 'Closing', align: 'r' }
+  ]
 }
 
+/**
+ * Summary granularities. `detail` is the voucher-by-voucher view; the rest are columnar
+ * summaries bucketed by `@shared/period`, which anchors quarters to the Indian financial year
+ * (Q1 = Apr-Jun) so this agrees with GSTR/TDS quarters. Row labels come from the service, so
+ * there is no label logic to drift here.
+ */
+type Mode = 'detail' | Period
+
+const MODES: { mode: Mode; tab: string; testid: string; heading: string }[] = [
+  { mode: 'detail', tab: 'Vouchers', testid: 'detail', heading: 'Date' },
+  { mode: 'month', tab: 'Monthly', testid: 'monthly', heading: 'Month' },
+  { mode: 'quarter', tab: 'Quarterly', testid: 'quarterly', heading: 'Quarter' },
+  { mode: 'half', tab: 'Half-year', testid: 'half-yearly', heading: 'Half-year' },
+  { mode: 'year', tab: 'Yearly', testid: 'yearly', heading: 'Year' }
+]
+
 const PAGE = 500
+
+/** Measured height of one statement row, for the virtualizer's spacer arithmetic. */
+const ROW_H = 30
 
 const LedgerStatementRowView = memo(function LedgerStatementRowView({
   row,
@@ -57,7 +83,7 @@ const LedgerStatementRowView = memo(function LedgerStatementRowView({
     >
       <td className="num text-muted">{toDisplayDate(row.date)}</td>
       <td className="max-w-64 truncate">{row.particulars}</td>
-      <td className="num text-[12px] text-muted">
+      <td className="num text-small text-muted">
         {row.voucherType} {row.number}
       </td>
       <td className="r">
@@ -77,23 +103,45 @@ export function LedgerStatementScreen({ ledgerId }: { ledgerId: number }): React
   const { from, to } = useSession()
   const nav = useNav()
   const toast = useToasts()
-  const [limit, setLimit] = useState(PAGE)
-  // Columnar month mode (v0.3 #55): one row per month with period totals + closing balance.
-  const [mode, setMode] = useState<'detail' | 'monthly'>('detail')
-  const { data, isLoading } = useQuery({
+  // Columnar summary mode (v0.3 #55, any granularity since v0.5): one row per period with
+  // period totals + the closing balance carried across periods with no activity.
+  const [mode, setMode] = useState<Mode>('detail')
+  /**
+   * Pages accumulate behind a keyset cursor rather than being refetched with a bigger limit.
+   *
+   * The old "Show more" asked for `limit: limit + 500` from the start, and the service answered by
+   * materialising EVERY row of the period in JavaScript and slicing it — so each click re-read the
+   * whole statement to show 500 more lines of it. The cursor path reads only the page, and the
+   * opening, closing and totals still describe the whole period, so what is on screen still foots.
+   */
+  const { data: paged, isLoading, fetchNextPage, hasNextPage, isFetchingNextPage } = useInfiniteQuery({
     queryKey: ['ledgerStatement', ledgerId, from, to, mode],
-    queryFn: () => api.reports.ledger(ledgerId, from, to, mode === 'monthly' ? 'month' : undefined)
+    initialPageParam: null as string | null,
+    queryFn: ({ pageParam }) =>
+      api.reports.ledger(
+        ledgerId,
+        from,
+        to,
+        mode === 'detail' ? undefined : mode,
+        // Only the detail view has rows worth paging; the columnar summaries are a few dozen.
+        mode === 'detail' ? { limit: PAGE, after: pageParam } : undefined
+      ),
+    getNextPageParam: (last) => last.nextCursor ?? null
   })
 
-  const rows = data?.rows ?? []
-  const months = data?.months ?? []
+  // Every page carries the same period-wide opening, closing and totals; the first is as good as
+  // the last and does not move while the user scrolls.
+  const data = paged?.pages[0]
+  const rows = useMemo(() => (paged?.pages ?? []).flatMap((p) => p.rows), [paged])
+  const periods = data?.periods ?? []
+  const summaryHeading = MODES.find((m) => m.mode === mode)?.heading ?? 'Period'
 
-  useEffect(() => {
-    setLimit(PAGE)
-  }, [ledgerId, from, to, mode])
-
-  const displayRows = useMemo(() => rows.slice(0, limit), [rows, limit])
-  const remaining = rows.length - displayRows.length
+  const displayRows = rows
+  // A ledger a business actually uses — sales, or the bank — runs to thousands of lines over a
+  // year, and "Show more" now accumulates them rather than refetching. Above 300 rows they are
+  // drawn as they scroll into view.
+  const { scrollRef: rowsScrollRef, window: win, virtualized } = useVirtualRows(rows.length, ROW_H)
+  const remaining = Math.max(0, (data?.totalRows ?? 0) - rows.length)
 
   const { active, setActive } = useKeyNav(
     displayRows.length,
@@ -113,7 +161,7 @@ export function LedgerStatementScreen({ ledgerId }: { ledgerId: number }): React
 
   if (!data) {
     return (
-      <div className="mx-auto max-w-5xl">
+      <div className="flex h-full min-h-0 w-full flex-col max-w-[1440px]">
         <Panel>
           <SkeletonRows />
         </Panel>
@@ -122,13 +170,13 @@ export function LedgerStatementScreen({ ledgerId }: { ledgerId: number }): React
   }
 
   const periodLabel = `${toDisplayDate(from)} → ${toDisplayDate(to)}`
-  const exportColumns = mode === 'monthly' ? MONTHLY_COLUMNS : EXPORT_COLUMNS
-  const exportRows: PdfRow[] =
-    mode === 'monthly'
+  const exportColumns = mode === 'detail' ? EXPORT_COLUMNS : summaryColumns(summaryHeading)
+  const buildExportRows = (detailRows: typeof rows): PdfRow[] =>
+    mode !== 'detail'
       ? [
-          ...months.map((m) => ({
+          ...periods.map((m) => ({
             cells: [
-              monthLabel(m.month),
+              m.label,
               formatPaise(m.debit, { zeroDash: true }),
               formatPaise(m.credit, { zeroDash: true }),
               formatPaise(m.closing, { zeroDash: true })
@@ -146,7 +194,7 @@ export function LedgerStatementScreen({ ledgerId }: { ledgerId: number }): React
           }
         ]
       : [
-          ...rows.map((r) => ({
+          ...detailRows.map((r) => ({
             cells: [
               toDisplayDate(r.date),
               r.particulars,
@@ -170,52 +218,80 @@ export function LedgerStatementScreen({ ledgerId }: { ledgerId: number }): React
           }
         ]
 
+  /**
+   * Exports cover the whole period, not the page on screen.
+   *
+   * The detail view fetches a window to keep the payload small, so building an export from what
+   * is rendered would silently ship 500 rows of a 30,000-row statement and look complete.
+   */
+  const fullExportRows = async (): Promise<PdfRow[]> => {
+    if (mode !== 'detail') return buildExportRows([])
+    const complete = await api.reports.ledger(ledgerId, from, to)
+    return buildExportRows(complete.rows)
+  }
+
   return (
-    <div className="mx-auto max-w-5xl">
+    <div className="flex h-full min-h-0 w-full flex-col max-w-[1440px]">
       <SectionTitle
         right={
           <div className="flex items-center gap-2">
             <div className="flex gap-1">
-              {(['detail', 'monthly'] as const).map((m) => (
+              {MODES.map((m) => (
                 <button
-                  key={m}
-                  data-testid={`tab-ledger-statement-${m}`}
-                  onClick={() => setMode(m)}
-                  className={`rounded-md px-3 py-1 text-[12.5px] capitalize ${mode === m ? 'bg-amberbar/25 font-medium text-ink' : 'text-muted hover:bg-panel2'}`}
+                  key={m.mode}
+                  data-testid={`tab-ledger-statement-${m.testid}`}
+                  onClick={() => setMode(m.mode)}
+                  className={`rounded-md px-3 py-1 text-body-sm ${mode === m.mode ? 'bg-accentbar/25 font-medium text-ink' : 'text-muted hover:bg-panel2'}`}
                 >
-                  {m === 'detail' ? 'Vouchers' : 'Monthly'}
+                  {m.tab}
                 </button>
               ))}
             </div>
-            <Button
-              variant="ghost"
-              onClick={() =>
-                void printReport({ title: data.ledgerName, periodLabel, columns: exportColumns, rows: exportRows }, toast)
-              }
-            >
-              PDF
-            </Button>
-            <Button
-              variant="ghost"
-              onClick={() =>
-                void csvReport(
-                  exportColumns.map((c) => c.label),
-                  exportRows.map((r) => r.cells),
-                  `ledger-${slugFilename(data.ledgerName)}${mode === 'monthly' ? '-monthly' : ''}`,
-                  toast
-                )
-              }
-            >
-              CSV
-            </Button>
-            <Money paise={data.closing} signed className="text-[15px]" />
+            <ExportGroup
+              items={[
+                {
+                  label: 'PDF',
+                  onClick: () => void fullExportRows()
+                  .then((all) =>
+                    printReport({ title: data.ledgerName, periodLabel, columns: exportColumns, rows: all }, toast)
+                  )
+                  .catch((err: Error) => toast.push('error', err.message))
+                },
+                {
+                  label: 'CSV',
+                  onClick: () => {
+                    // The detail statement is the long one, and it has no screen-side filters — so it
+                    // is written by main straight out of the database, a page at a time. The columnar
+                    // summaries are a few dozen rows and go the ordinary way.
+                    if (mode === 'detail') {
+                      void api.exportReport
+                        .streamCsv(`ledger-${slugFilename(data.ledgerName)}`, { kind: 'ledgerStatement', ledgerId, from, to })
+                        .then((r) => toast.push('success', `Saved to exports — ${r.path}`))
+                        .catch((err: Error) => toast.push('error', err.message))
+                      return
+                    }
+                    void fullExportRows()
+                      .then((all) =>
+                        csvReport(
+                          exportColumns.map((c) => c.label),
+                          all.map((r) => r.cells),
+                          `ledger-${slugFilename(data.ledgerName)}-${mode}`,
+                          toast
+                        )
+                      )
+                      .catch((err: Error) => toast.push('error', err.message))
+                  }
+                }
+              ]}
+            />
+            <Money paise={data.closing} signed className="text-lead" />
           </div>
         }
       >
         {data.ledgerName}
       </SectionTitle>
       <Panel>
-        <div className="flex justify-between border-b border-line px-4 py-2 text-[12px] text-muted">
+        <div className="flex justify-between border-b border-line px-4 py-2 text-small text-muted">
           <span>
             Opening balance · <Money paise={data.opening} signed />
           </span>
@@ -225,23 +301,23 @@ export function LedgerStatementScreen({ ledgerId }: { ledgerId: number }): React
         </div>
         {isLoading ? (
           <SkeletonRows />
-        ) : mode === 'monthly' ? (
-          months.length === 0 ? (
+        ) : mode !== 'detail' ? (
+          periods.length === 0 ? (
             <EmptyState title="No entries for this ledger in the period" />
           ) : (
             <table className="ledger-table">
               <thead>
                 <tr>
-                  <th>Month</th>
-                  <th className="r w-36">Debit</th>
-                  <th className="r w-36">Credit</th>
-                  <th className="r w-40">Closing</th>
+                  <th scope="col">{summaryHeading}</th>
+                  <th scope="col" className="r w-36">Debit</th>
+                  <th scope="col" className="r w-36">Credit</th>
+                  <th scope="col" className="r w-40">Closing</th>
                 </tr>
               </thead>
-              <tbody data-testid="rows-ledger-statement-monthly">
-                {months.map((m) => (
-                  <tr key={m.month}>
-                    <td>{monthLabel(m.month)}</td>
+              <tbody data-testid="rows-ledger-statement-summary">
+                {periods.map((m) => (
+                  <tr key={m.period}>
+                    <td>{m.label}</td>
                     <td className="r">
                       <Money paise={m.debit} />
                     </td>
@@ -274,31 +350,44 @@ export function LedgerStatementScreen({ ledgerId }: { ledgerId: number }): React
           <table className="ledger-table">
             <thead>
               <tr>
-                <th className="w-24">Date</th>
-                <th>Particulars</th>
-                <th className="w-24">Type · No.</th>
-                <th className="r w-32">Debit</th>
-                <th className="r w-32">Credit</th>
-                <th className="r w-36">Balance</th>
+                <th scope="col" className="w-24">Date</th>
+                <th scope="col">Particulars</th>
+                <th scope="col" className="w-24">Type · No.</th>
+                <th scope="col" className="r w-32">Debit</th>
+                <th scope="col" className="r w-32">Credit</th>
+                <th scope="col" className="r w-36">Balance</th>
               </tr>
             </thead>
-            <tbody data-testid="rows-ledger-statement">
-              {displayRows.map((r, i) => (
+            <tbody data-testid="rows-ledger-statement" ref={rowsScrollRef}>
+              {/* Spacer rows, not transforms: a transformed tbody breaks table layout. */}
+              {win.padTop > 0 && (
+                <tr aria-hidden style={{ height: win.padTop }}>
+                  <td colSpan={6} />
+                </tr>
+              )}
+              {displayRows.slice(win.start, win.end).map((r, i) => (
                 <LedgerStatementRowView
-                  key={i}
+                  key={win.start + i}
                   row={r}
-                  index={i}
-                  isActive={i === active}
+                  index={win.start + i}
+                  isActive={win.start + i === active}
                   onHover={setActive}
                   onOpen={openRow}
                 />
               ))}
-              {remaining > 0 && (
+              {win.padBottom > 0 && (
+                <tr aria-hidden style={{ height: win.padBottom }}>
+                  <td colSpan={6} />
+                </tr>
+              )}
+              {hasNextPage && (
                 <tr>
                   <td colSpan={6} className="py-2 text-center">
-                    <Button variant="ghost" onClick={() => setLimit((l) => l + PAGE)}>
-                      Show 500 more ({remaining} remaining)
-                    </Button>
+                    <RowLink disabled={isFetchingNextPage} onClick={() => void fetchNextPage()}>
+                      {isFetchingNextPage
+                        ? 'Loading…'
+                        : `Show 500 more (${remaining.toLocaleString('en-IN')} more in this period)`}
+                    </RowLink>
                   </td>
                 </tr>
               )}
@@ -318,6 +407,11 @@ export function LedgerStatementScreen({ ledgerId }: { ledgerId: number }): React
           </table>
         )}
       </Panel>
+      {virtualized && (
+        <p className="mt-1 text-hint text-muted" data-testid="ledger-virtualized-note">
+          Showing {rows.length.toLocaleString('en-IN')} rows — they are drawn as you scroll. Exports carry all of them.
+        </p>
+      )}
     </div>
   )
 }

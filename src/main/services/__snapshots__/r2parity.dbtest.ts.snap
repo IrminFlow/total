@@ -157,6 +157,7 @@ exports[`R2 parity — budgets & dashboard > dashboard is unchanged > dashboard 
   "ratios": {
     "creditorDays": 201.17,
     "currentRatio": 7.56,
+    "debtEquity": null,
     "debtorDays": 183.54,
     "grossMarginPct": 43.5,
     "inventoryTurnover": 0.2,
@@ -255,6 +256,326 @@ exports[`R2 parity — budgets & dashboard > dashboard is unchanged > dashboard 
       "postDated": false,
       "voucherId": 1,
       "voucherType": "Sales",
+    },
+  ],
+  "tileSparks": [
+    {
+      "key": "cash",
+      "points": [
+        {
+          "month": "2024-07",
+          "value": 0,
+        },
+        {
+          "month": "2024-08",
+          "value": 0,
+        },
+        {
+          "month": "2024-09",
+          "value": 0,
+        },
+        {
+          "month": "2024-10",
+          "value": 0,
+        },
+        {
+          "month": "2024-11",
+          "value": 0,
+        },
+        {
+          "month": "2024-12",
+          "value": 0,
+        },
+        {
+          "month": "2025-01",
+          "value": 0,
+        },
+        {
+          "month": "2025-02",
+          "value": 0,
+        },
+        {
+          "month": "2025-03",
+          "value": 0,
+        },
+        {
+          "month": "2025-04",
+          "value": 0,
+        },
+        {
+          "month": "2025-05",
+          "value": -10000,
+        },
+        {
+          "month": "2025-06",
+          "value": 10000,
+        },
+      ],
+    },
+    {
+      "key": "bank",
+      "points": [
+        {
+          "month": "2024-07",
+          "value": 500000,
+        },
+        {
+          "month": "2024-08",
+          "value": 500000,
+        },
+        {
+          "month": "2024-09",
+          "value": 500000,
+        },
+        {
+          "month": "2024-10",
+          "value": 500000,
+        },
+        {
+          "month": "2024-11",
+          "value": 500000,
+        },
+        {
+          "month": "2024-12",
+          "value": 500000,
+        },
+        {
+          "month": "2025-01",
+          "value": 500000,
+        },
+        {
+          "month": "2025-02",
+          "value": 500000,
+        },
+        {
+          "month": "2025-03",
+          "value": 500000,
+        },
+        {
+          "month": "2025-04",
+          "value": 550000,
+        },
+        {
+          "month": "2025-05",
+          "value": 530000,
+        },
+        {
+          "month": "2025-06",
+          "value": 530000,
+        },
+      ],
+    },
+    {
+      "key": "receivables",
+      "points": [
+        {
+          "month": "2024-07",
+          "value": 250000,
+        },
+        {
+          "month": "2024-08",
+          "value": 250000,
+        },
+        {
+          "month": "2024-09",
+          "value": 250000,
+        },
+        {
+          "month": "2024-10",
+          "value": 250000,
+        },
+        {
+          "month": "2024-11",
+          "value": 250000,
+        },
+        {
+          "month": "2024-12",
+          "value": 250000,
+        },
+        {
+          "month": "2025-01",
+          "value": 250000,
+        },
+        {
+          "month": "2025-02",
+          "value": 250000,
+        },
+        {
+          "month": "2025-03",
+          "value": 250000,
+        },
+        {
+          "month": "2025-04",
+          "value": 318000,
+        },
+        {
+          "month": "2025-05",
+          "value": 318000,
+        },
+        {
+          "month": "2025-06",
+          "value": 357000,
+        },
+      ],
+    },
+    {
+      "key": "payables",
+      "points": [
+        {
+          "month": "2024-07",
+          "value": 100000,
+        },
+        {
+          "month": "2024-08",
+          "value": 100000,
+        },
+        {
+          "month": "2024-09",
+          "value": 100000,
+        },
+        {
+          "month": "2024-10",
+          "value": 100000,
+        },
+        {
+          "month": "2024-11",
+          "value": 100000,
+        },
+        {
+          "month": "2024-12",
+          "value": 100000,
+        },
+        {
+          "month": "2025-01",
+          "value": 100000,
+        },
+        {
+          "month": "2025-02",
+          "value": 100000,
+        },
+        {
+          "month": "2025-03",
+          "value": 100000,
+        },
+        {
+          "month": "2025-04",
+          "value": 100000,
+        },
+        {
+          "month": "2025-05",
+          "value": 182600,
+        },
+        {
+          "month": "2025-06",
+          "value": 182600,
+        },
+      ],
+    },
+    {
+      "key": "sales",
+      "points": [
+        {
+          "month": "2024-07",
+          "value": 0,
+        },
+        {
+          "month": "2024-08",
+          "value": 0,
+        },
+        {
+          "month": "2024-09",
+          "value": 0,
+        },
+        {
+          "month": "2024-10",
+          "value": 0,
+        },
+        {
+          "month": "2024-11",
+          "value": 0,
+        },
+        {
+          "month": "2024-12",
+          "value": 0,
+        },
+        {
+          "month": "2025-01",
+          "value": 0,
+        },
+        {
+          "month": "2025-02",
+          "value": 0,
+        },
+        {
+          "month": "2025-03",
+          "value": 0,
+        },
+        {
+          "month": "2025-04",
+          "value": 118000,
+        },
+        {
+          "month": "2025-05",
+          "value": 0,
+        },
+        {
+          "month": "2025-06",
+          "value": 59000,
+        },
+      ],
+    },
+    {
+      "key": "gst",
+      "points": [
+        {
+          "month": "2024-07",
+          "value": 0,
+        },
+        {
+          "month": "2024-08",
+          "value": 0,
+        },
+        {
+          "month": "2024-09",
+          "value": 0,
+        },
+        {
+          "month": "2024-10",
+          "value": 0,
+        },
+        {
+          "month": "2024-11",
+          "value": 0,
+        },
+        {
+          "month": "2024-12",
+          "value": 0,
+        },
+        {
+          "month": "2025-01",
+          "value": 0,
+        },
+        {
+          "month": "2025-02",
+          "value": 0,
+        },
+        {
+          "month": "2025-03",
+          "value": 0,
+        },
+        {
+          "month": "2025-04",
+          "value": 0,
+        },
+        {
+          "month": "2025-05",
+          "value": 0,
+        },
+        {
+          "month": "2025-06",
+          "value": 0,
+        },
+      ],
     },
   ],
   "todaySales": 0,
@@ -379,6 +700,7 @@ exports[`R2 parity — outstandings > receivables/payables and open bills are un
 exports[`R2 parity — outstandings > receivables/payables and open bills are unchanged > payables 1`] = `
 [
   {
+    "billCount": 2,
     "bills": [
       {
         "ageDays": 90,
@@ -407,9 +729,11 @@ exports[`R2 parity — outstandings > receivables/payables and open bills are un
       100000,
       0,
     ],
+    "email": null,
     "ledgerId": 4,
     "name": "Creditor X",
     "pending": 182600,
+    "phone": null,
   },
 ]
 `;
@@ -417,6 +741,7 @@ exports[`R2 parity — outstandings > receivables/payables and open bills are un
 exports[`R2 parity — outstandings > receivables/payables and open bills are unchanged > receivables 1`] = `
 [
   {
+    "billCount": 2,
     "bills": [
       {
         "ageDays": 90,
@@ -445,11 +770,14 @@ exports[`R2 parity — outstandings > receivables/payables and open bills are un
       0,
       0,
     ],
+    "email": null,
     "ledgerId": 2,
     "name": "Debtor A",
     "pending": 318000,
+    "phone": null,
   },
   {
+    "billCount": 1,
     "bills": [
       {
         "ageDays": 29,
@@ -468,9 +796,11 @@ exports[`R2 parity — outstandings > receivables/payables and open bills are un
       0,
       0,
     ],
+    "email": null,
     "ledgerId": 3,
     "name": "Debtor B",
     "pending": 39000,
+    "phone": null,
   },
 ]
 `;
@@ -529,6 +859,7 @@ exports[`R2 parity — statements > ledger statements (incl. multi-name particul
   ],
   "totalCredit": 40000,
   "totalDebit": 40000,
+  "totalRows": 4,
 }
 `;
 
@@ -564,13 +895,15 @@ exports[`R2 parity — statements > ledger statements (incl. multi-name particul
   ],
   "totalCredit": 50000,
   "totalDebit": 118000,
+  "totalRows": 2,
 }
 `;
 
-exports[`R2 parity — statements > registers by month are unchanged > purchase register 1`] = `
+exports[`R2 parity — statements > registers by period are unchanged > purchase register 1`] = `
 [
   {
-    "month": "2025-05",
+    "label": "May 2025",
+    "period": "2025-05",
     "tax": 0,
     "taxable": 82600,
     "total": 82600,
@@ -579,17 +912,19 @@ exports[`R2 parity — statements > registers by month are unchanged > purchase 
 ]
 `;
 
-exports[`R2 parity — statements > registers by month are unchanged > sales register 1`] = `
+exports[`R2 parity — statements > registers by period are unchanged > sales register 1`] = `
 [
   {
-    "month": "2025-04",
+    "label": "Apr 2025",
+    "period": "2025-04",
     "tax": 0,
     "taxable": 118000,
     "total": 118000,
     "vouchers": 1,
   },
   {
-    "month": "2025-06",
+    "label": "Jun 2025",
+    "period": "2025-06",
     "tax": 0,
     "taxable": 59000,
     "total": 59000,
@@ -827,7 +1162,9 @@ exports[`R2 parity — statements > trial balance / P&L / balance sheet / stock 
       "ledgerName": "Capital",
       "movementCredit": 0,
       "movementDebit": 0,
+      "nature": "liability",
       "opening": -650000,
+      "topGroupName": "Capital Account",
     },
     {
       "credit": 0,
@@ -837,7 +1174,9 @@ exports[`R2 parity — statements > trial balance / P&L / balance sheet / stock 
       "ledgerName": "Cash",
       "movementCredit": 30000,
       "movementDebit": 40000,
+      "nature": "asset",
       "opening": 0,
+      "topGroupName": "Current Assets",
     },
     {
       "credit": 182600,
@@ -847,7 +1186,9 @@ exports[`R2 parity — statements > trial balance / P&L / balance sheet / stock 
       "ledgerName": "Creditor X",
       "movementCredit": 82600,
       "movementDebit": 0,
+      "nature": "liability",
       "opening": -100000,
+      "topGroupName": "Current Liabilities",
     },
     {
       "credit": 0,
@@ -857,7 +1198,9 @@ exports[`R2 parity — statements > trial balance / P&L / balance sheet / stock 
       "ledgerName": "Debtor A",
       "movementCredit": 50000,
       "movementDebit": 118000,
+      "nature": "asset",
       "opening": 250000,
+      "topGroupName": "Current Assets",
     },
     {
       "credit": 0,
@@ -867,7 +1210,9 @@ exports[`R2 parity — statements > trial balance / P&L / balance sheet / stock 
       "ledgerName": "Debtor B",
       "movementCredit": 20000,
       "movementDebit": 59000,
+      "nature": "asset",
       "opening": 0,
+      "topGroupName": "Current Assets",
     },
     {
       "credit": 0,
@@ -877,7 +1222,9 @@ exports[`R2 parity — statements > trial balance / P&L / balance sheet / stock 
       "ledgerName": "HDFC Bank",
       "movementCredit": 20000,
       "movementDebit": 50000,
+      "nature": "asset",
       "opening": 500000,
+      "topGroupName": "Current Assets",
     },
     {
       "credit": 0,
@@ -887,7 +1234,9 @@ exports[`R2 parity — statements > trial balance / P&L / balance sheet / stock 
       "ledgerName": "Purchases",
       "movementCredit": 0,
       "movementDebit": 82600,
+      "nature": "expense",
       "opening": 0,
+      "topGroupName": "Purchase Accounts",
     },
     {
       "credit": 0,
@@ -897,7 +1246,9 @@ exports[`R2 parity — statements > trial balance / P&L / balance sheet / stock 
       "ledgerName": "Rent",
       "movementCredit": 0,
       "movementDebit": 30000,
+      "nature": "expense",
       "opening": 0,
+      "topGroupName": "Indirect Expenses",
     },
     {
       "credit": 177000,
@@ -907,7 +1258,9 @@ exports[`R2 parity — statements > trial balance / P&L / balance sheet / stock 
       "ledgerName": "Sales Local",
       "movementCredit": 177000,
       "movementDebit": 0,
+      "nature": "income",
       "opening": 0,
+      "topGroupName": "Sales Accounts",
     },
     {
       "credit": 0,
@@ -917,7 +1270,9 @@ exports[`R2 parity — statements > trial balance / P&L / balance sheet / stock 
       "ledgerName": "Stock-in-Hand (opening)",
       "movementCredit": 0,
       "movementDebit": 0,
+      "nature": "asset",
       "opening": 500000,
+      "topGroupName": "Current Assets",
     },
   ],
   "totalCredit": 1009600,

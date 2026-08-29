@@ -1,10 +1,14 @@
 import type { DB } from '../db/connection'
+import { prep } from '../db/stmt'
 import type { Batch, Godown, Group, Ledger, StockGroup, StockItem, Unit, VoucherType } from '@shared/domain'
 import { ledgerInputSchema } from '@shared/schemas'
 import type { BatchInput, GroupInput, GodownInput, LedgerInput, StockGroupInput, StockItemInput, UnitInput, VoucherTypeInput } from '@shared/schemas'
 import type { GroupTreeNode, LedgerBalanceRow } from '@shared/reports'
 import { CASH_BANK_GROUPS } from '@shared/seed'
+import { todayISO } from '@shared/dates'
 import { writeAudit } from './audit'
+import { primaryRegistrationId } from './registrationId'
+import { rateForItemOn } from './itemRates'
 
 // ---------- row mappers ----------
 
@@ -21,17 +25,33 @@ interface LedgerRow {
   id: number; name: string; group_id: number; opening_balance: number
   gstin: string | null; state_code: string | null; address: string | null
   tax_type: Ledger['taxType']; gst_rate: number | null; hsn: string | null; is_system: number
-  tds_section_id: number | null; pan: string | null; credit_days: number | null; export_type: Ledger['exportType']
+  tds_section_id: number | null; pan: string | null; tan: string | null; credit_days: number | null; export_type: Ledger['exportType']
   rcm: number; itc_eligibility: Ledger['itcEligibility'] | null
-  price_level_id: number | null; credit_limit: number | null
+  price_level_id: number | null; credit_limit: number | null; default_cost_centre_id: number | null
+  interest_rate_bp: number | null; interest_grace_days: number | null
+  msme_status: 'micro' | 'small' | 'medium' | 'not_registered' | null; udyam_number: string | null
+  related_party: number; relationship: string | null
+  salesperson: string | null; territory: string | null
+  phone: string | null; email: string | null
+  bank_account: string | null; bank_ifsc: string | null; bank_holder: string | null; bank_shared_ok: number
+  currency_code: string | null
 }
 const mapLedger = (r: LedgerRow): Ledger => ({
   id: r.id, name: r.name, groupId: r.group_id, openingBalance: r.opening_balance,
   gstin: r.gstin, stateCode: r.state_code, address: r.address,
   taxType: r.tax_type, gstRate: r.gst_rate, hsn: r.hsn, isSystem: !!r.is_system,
-  tdsSectionId: r.tds_section_id, pan: r.pan, creditDays: r.credit_days, exportType: r.export_type,
+  tdsSectionId: r.tds_section_id, pan: r.pan, tan: r.tan, creditDays: r.credit_days, exportType: r.export_type,
   rcm: !!r.rcm, itcEligibility: r.itc_eligibility ?? 'eligible',
-  priceLevelId: r.price_level_id, creditLimit: r.credit_limit
+  priceLevelId: r.price_level_id, creditLimit: r.credit_limit,
+  defaultCostCentreId: r.default_cost_centre_id,
+  interestRateBp: r.interest_rate_bp, interestGraceDays: r.interest_grace_days,
+  msmeStatus: r.msme_status, udyamNumber: r.udyam_number,
+  relatedParty: !!r.related_party, relationship: r.relationship,
+  salesperson: r.salesperson, territory: r.territory,
+  phone: r.phone, email: r.email,
+  bankAccount: r.bank_account, bankIfsc: r.bank_ifsc, bankHolder: r.bank_holder,
+  bankSharedOk: !!r.bank_shared_ok,
+  currencyCode: r.currency_code
 })
 
 // ---------- groups ----------
@@ -97,7 +117,7 @@ export function deleteGroup(db: DB, id: number): void {
 
 /** All ids in the subtrees rooted at the given group ids (inclusive). */
 export function descendantIds(db: DB, rootIds: number[]): Set<number> {
-  const groups = db.prepare('SELECT id, parent_id FROM groups').all() as { id: number; parent_id: number | null }[]
+  const groups = prep(db, 'SELECT id, parent_id FROM groups').all() as { id: number; parent_id: number | null }[]
   const children = new Map<number | null, number[]>()
   for (const g of groups) {
     const list = children.get(g.parent_id) ?? []
@@ -154,13 +174,23 @@ export function createLedger(db: DB, raw: LedgerInput): Ledger {
   const res = db
     .prepare(
       `INSERT INTO ledgers (name, group_id, opening_balance, gstin, state_code, address, tax_type, gst_rate, hsn,
-        tds_section_id, pan, credit_days, export_type, rcm, itc_eligibility, price_level_id, credit_limit, is_system)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)`
+        tds_section_id, pan, tan, credit_days, export_type, rcm, itc_eligibility, price_level_id, credit_limit,
+        interest_rate_bp, interest_grace_days, msme_status, udyam_number, related_party, relationship,
+        salesperson, territory, phone, email, default_cost_centre_id,
+        bank_account, bank_ifsc, bank_holder, bank_shared_ok, currency_code, is_system)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)`
     )
     .run(input.name, input.groupId, input.openingBalance, input.gstin, input.stateCode, input.address,
-      input.taxType, input.gstRate, input.hsn, input.tdsSectionId, input.pan, input.creditDays, input.exportType,
+      input.taxType, input.gstRate, input.hsn, input.tdsSectionId, input.pan, input.tan, input.creditDays, input.exportType,
       input.rcm ? 1 : 0, input.itcEligibility,
-      input.priceLevelId ?? null, input.creditLimit ?? null)
+      input.priceLevelId ?? null, input.creditLimit ?? null,
+      input.interestRateBp ?? null, input.interestGraceDays ?? null,
+      input.msmeStatus ?? null, input.udyamNumber ?? null,
+      input.relatedParty ? 1 : 0, input.relationship ?? null,
+      input.salesperson ?? null, input.territory ?? null,
+      input.phone ?? null, input.email ?? null, input.defaultCostCentreId ?? null,
+      input.bankAccount ?? null, input.bankIfsc ?? null, input.bankHolder ?? null,
+      input.bankSharedOk ? 1 : 0, input.currencyCode ?? null)
   const created = getLedger(db, Number(res.lastInsertRowid))!
   writeAudit(db, 'ledger', created.id, 'create', null, created)
   return created
@@ -172,14 +202,41 @@ export function updateLedger(db: DB, id: number, raw: LedgerInput): Ledger {
   if (!existing) throw new Error('Ledger not found')
   db.prepare(
     `UPDATE ledgers SET name = ?, group_id = ?, opening_balance = ?, gstin = ?, state_code = ?,
-     address = ?, tax_type = ?, gst_rate = ?, hsn = ?, tds_section_id = ?, pan = ?, credit_days = ?, export_type = ?,
-     rcm = ?, itc_eligibility = ?, price_level_id = ?, credit_limit = ?
+     address = ?, tax_type = ?, gst_rate = ?, hsn = ?, tds_section_id = ?, pan = ?, tan = ?, credit_days = ?, export_type = ?,
+     rcm = ?, itc_eligibility = ?, price_level_id = ?, credit_limit = ?,
+     interest_rate_bp = ?, interest_grace_days = ?, msme_status = ?, udyam_number = ?,
+     related_party = ?, relationship = ?, salesperson = ?, territory = ?, phone = ?, email = ?,
+     default_cost_centre_id = ?, bank_account = ?, bank_ifsc = ?, bank_holder = ?, bank_shared_ok = ?,
+     currency_code = ?
      WHERE id = ?`
   ).run(input.name, input.groupId, input.openingBalance, input.gstin, input.stateCode, input.address,
-    input.taxType, input.gstRate, input.hsn, input.tdsSectionId, input.pan, input.creditDays, input.exportType,
+    input.taxType, input.gstRate, input.hsn, input.tdsSectionId, input.pan, input.tan, input.creditDays, input.exportType,
     input.rcm ? 1 : 0, input.itcEligibility,
     input.priceLevelId === undefined ? existing.priceLevelId : input.priceLevelId,
-    input.creditLimit === undefined ? existing.creditLimit : input.creditLimit, id)
+    input.creditLimit === undefined ? existing.creditLimit : input.creditLimit,
+    input.interestRateBp === undefined ? existing.interestRateBp : input.interestRateBp,
+    input.interestGraceDays === undefined ? existing.interestGraceDays : input.interestGraceDays,
+    input.msmeStatus === undefined ? existing.msmeStatus : (input.msmeStatus ?? null),
+    input.udyamNumber === undefined ? existing.udyamNumber : (input.udyamNumber ?? null),
+    (input.relatedParty === undefined ? existing.relatedParty : input.relatedParty) ? 1 : 0,
+    input.relationship === undefined ? existing.relationship : (input.relationship ?? null),
+    input.salesperson === undefined ? existing.salesperson : (input.salesperson ?? null),
+    input.territory === undefined ? existing.territory : (input.territory ?? null),
+    input.phone === undefined ? existing.phone : (input.phone ?? null),
+    input.email === undefined ? existing.email : (input.email ?? null),
+    input.defaultCostCentreId === undefined ? existing.defaultCostCentreId : (input.defaultCostCentreId ?? null),
+    // Bank details absent from the input leave the master alone. Every caller that does not deal
+    // in bank details (the CSV importer, the Tally import, a party edited from the invoice
+    // screen) therefore cannot clear them by omission, and the two-person rule above this
+    // function is never bypassed by a form that simply did not carry the fields.
+    input.bankAccount === undefined ? existing.bankAccount : (input.bankAccount ?? null),
+    input.bankIfsc === undefined ? existing.bankIfsc : (input.bankIfsc ?? null),
+    input.bankHolder === undefined ? existing.bankHolder : (input.bankHolder ?? null),
+    (input.bankSharedOk === undefined ? existing.bankSharedOk : input.bankSharedOk) ? 1 : 0,
+    // Absent leaves it alone, for the same reason the bank details do: a form that never carried
+    // the field must not be able to un-designate a foreign-currency account by omission.
+    input.currencyCode === undefined ? existing.currencyCode : (input.currencyCode ?? null),
+    id)
   const updated = getLedger(db, id)!
   writeAudit(db, 'ledger', id, 'update', existing, updated)
   return updated
@@ -267,30 +324,63 @@ export function createUnit(db: DB, input: UnitInput): Unit {
   return created
 }
 
-interface StockGroupRow { id: number; name: string; parent_id: number | null }
+interface StockGroupRow {
+  id: number; name: string; parent_id: number | null
+  gst_rate: number | null; cess_rate: number | null; hsn: string | null
+}
+const mapStockGroup = (r: StockGroupRow): StockGroup => ({
+  id: r.id, name: r.name, parentId: r.parent_id,
+  gstRate: r.gst_rate, cessRate: r.cess_rate, hsn: r.hsn
+})
 
 export function listStockGroups(db: DB): StockGroup[] {
-  return (db.prepare('SELECT * FROM stock_groups ORDER BY name').all() as StockGroupRow[])
-    .map((r) => ({ id: r.id, name: r.name, parentId: r.parent_id }))
+  return (db.prepare('SELECT * FROM stock_groups ORDER BY name').all() as StockGroupRow[]).map(mapStockGroup)
 }
 
 export function createStockGroup(db: DB, input: StockGroupInput): StockGroup {
-  const res = db.prepare('INSERT INTO stock_groups (name, parent_id) VALUES (?, ?)').run(input.name, input.parentId)
+  const res = db
+    .prepare('INSERT INTO stock_groups (name, parent_id, gst_rate, cess_rate, hsn) VALUES (?, ?, ?, ?, ?)')
+    .run(input.name, input.parentId, input.gstRate ?? null, input.cessRate ?? null, input.hsn ?? null)
   const r = db.prepare('SELECT * FROM stock_groups WHERE id = ?').get(res.lastInsertRowid) as StockGroupRow
-  const created = { id: r.id, name: r.name, parentId: r.parent_id }
+  const created = mapStockGroup(r)
   writeAudit(db, 'stockGroup', created.id, 'create', null, created)
   return created
+}
+
+/** An empty code must become NULL: the unique index treats '' as a value, so two items with a
+ *  cleared code would collide on it. */
+const normaliseCode = (code: string | null | undefined): string | null => (code?.trim() ? code.trim() : null)
+
+/**
+ * An alternate unit is only meaningful with a conversion, and a conversion only with a unit.
+ * Half of the pair silently stored would make `toBase` a no-op that looks like it worked, so
+ * either both are written or neither is.
+ */
+function altColumns(input: StockItemInput): [number | null, number | null] {
+  const unit = input.altUnitId ?? null
+  const conversion = input.altConversionMilli ?? null
+  if (unit === null || conversion === null || conversion <= 0) return [null, null]
+  return [unit, conversion]
 }
 
 interface StockItemRow {
   id: number; name: string; group_id: number | null; unit_id: number; hsn: string | null
   gst_rate: number | null; cess_rate: number | null; opening_qty_milli: number; opening_value: number
   barcode: string | null; reorder_level_milli: number | null; valuation_method: 'weighted_avg' | 'fifo'
+  block_negative: number | null
+  code: string | null; alt_unit_id: number | null; alt_conversion_milli: number | null
+  track_serials: number; image_name: string | null
 }
 const mapItem = (r: StockItemRow): StockItem => ({
   id: r.id, name: r.name, groupId: r.group_id, unitId: r.unit_id, hsn: r.hsn,
   gstRate: r.gst_rate, cessRate: r.cess_rate, openingQtyMilli: r.opening_qty_milli, openingValue: r.opening_value,
-  barcode: r.barcode, reorderLevelMilli: r.reorder_level_milli, valuationMethod: r.valuation_method
+  code: r.code, barcode: r.barcode, reorderLevelMilli: r.reorder_level_milli,
+  altUnitId: r.alt_unit_id, altConversionMilli: r.alt_conversion_milli,
+  valuationMethod: r.valuation_method,
+  // NULL is a third state, not a missing false: it means "follow the company setting".
+  blockNegative: r.block_negative == null ? null : r.block_negative === 1,
+  trackSerials: r.track_serials === 1,
+  imageName: r.image_name
 })
 
 export function listStockItems(db: DB): StockItem[] {
@@ -299,10 +389,16 @@ export function listStockItems(db: DB): StockItem[] {
 
 export function createStockItem(db: DB, input: StockItemInput): StockItem {
   const res = db.prepare(
-    `INSERT INTO stock_items (name, group_id, unit_id, hsn, gst_rate, cess_rate, opening_qty_milli, opening_value, barcode, reorder_level_milli, valuation_method)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    `INSERT INTO stock_items (name, group_id, unit_id, hsn, gst_rate, cess_rate, opening_qty_milli, opening_value,
+      code, barcode, alt_unit_id, alt_conversion_milli, reorder_level_milli, valuation_method, block_negative,
+      track_serials)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   ).run(input.name, input.groupId, input.unitId, input.hsn, input.gstRate, input.cessRate,
-    input.openingQtyMilli, input.openingValue, input.barcode, input.reorderLevelMilli, input.valuationMethod ?? 'weighted_avg')
+    input.openingQtyMilli, input.openingValue, normaliseCode(input.code), input.barcode,
+    ...altColumns(input),
+    input.reorderLevelMilli, input.valuationMethod ?? 'weighted_avg',
+    input.blockNegative == null ? null : input.blockNegative ? 1 : 0,
+    input.trackSerials ? 1 : 0)
   const created = mapItem(db.prepare('SELECT * FROM stock_items WHERE id = ?').get(res.lastInsertRowid) as StockItemRow)
   writeAudit(db, 'stockItem', created.id, 'create', null, created)
   return created
@@ -313,9 +409,17 @@ export function updateStockItem(db: DB, id: number, input: StockItemInput): Stoc
   if (!existing) throw new Error('Stock item not found')
   db.prepare(
     `UPDATE stock_items SET name = ?, group_id = ?, unit_id = ?, hsn = ?, gst_rate = ?, cess_rate = ?,
-     opening_qty_milli = ?, opening_value = ?, barcode = ?, reorder_level_milli = ?, valuation_method = ? WHERE id = ?`
+     opening_qty_milli = ?, opening_value = ?, code = ?, barcode = ?, alt_unit_id = ?, alt_conversion_milli = ?,
+     reorder_level_milli = ?, valuation_method = ?, block_negative = ?, track_serials = ? WHERE id = ?`
   ).run(input.name, input.groupId, input.unitId, input.hsn, input.gstRate, input.cessRate,
-    input.openingQtyMilli, input.openingValue, input.barcode, input.reorderLevelMilli, input.valuationMethod ?? existing.valuation_method, id)
+    input.openingQtyMilli, input.openingValue, normaliseCode(input.code), input.barcode,
+    ...altColumns(input),
+    input.reorderLevelMilli,
+    input.valuationMethod ?? existing.valuation_method,
+    input.blockNegative == null ? null : input.blockNegative ? 1 : 0,
+    // `undefined` means "leave it as it is". Reading it as false would quietly turn tracking off
+    // for an item that already has serials against it, stranding every one of them.
+    input.trackSerials === undefined ? existing.track_serials : input.trackSerials ? 1 : 0, id)
   const updated = mapItem(db.prepare('SELECT * FROM stock_items WHERE id = ?').get(id) as StockItemRow)
   writeAudit(db, 'stockItem', id, 'update', mapItem(existing), updated)
   return updated
@@ -326,33 +430,52 @@ export function deleteStockItem(db: DB, id: number): void {
   if (!existing) throw new Error('Stock item not found')
   const used = db.prepare('SELECT COUNT(*) AS n FROM inventory_lines WHERE stock_item_id = ?').get(id) as { n: number }
   if (used.n > 0) throw new Error('Stock item has vouchers; delete those first')
+  // The picture goes with the item, but the file on disk cannot be reached from here (this module
+  // has no company slug). `sweepOrphanItemImages` catches it — same arrangement attachments use
+  // after a purge, and for the same reason: the row is gone, so nothing remembers the file.
   db.prepare('DELETE FROM stock_items WHERE id = ?').run(id)
   writeAudit(db, 'stockItem', id, 'delete', mapItem(existing), null)
 }
 
+const GODOWN_COLS = 'id, name, address, gst_registration_id AS gstRegistrationId'
+
+/** A godown's registration defaults to whatever the previous row said, so that adding the column
+ *  never silently moved an existing location into a different state's books. */
+function getGodown(db: DB, id: number): Godown | undefined {
+  return db.prepare(`SELECT ${GODOWN_COLS} FROM godowns WHERE id = ?`).get(id) as Godown | undefined
+}
+
 export function listGodowns(db: DB): Godown[] {
-  return db.prepare('SELECT * FROM godowns ORDER BY name').all() as Godown[]
+  return db.prepare(`SELECT ${GODOWN_COLS} FROM godowns ORDER BY name`).all() as Godown[]
 }
 
 export function createGodown(db: DB, input: GodownInput): Godown {
-  const res = db.prepare('INSERT INTO godowns (name, address) VALUES (?, ?)').run(input.name, input.address ?? null)
-  const created = db.prepare('SELECT * FROM godowns WHERE id = ?').get(res.lastInsertRowid) as Godown
+  const regId = input.gstRegistrationId ?? primaryRegistrationId(db)
+  const res = db
+    .prepare('INSERT INTO godowns (name, address, gst_registration_id) VALUES (?, ?, ?)')
+    .run(input.name, input.address ?? null, regId)
+  const created = getGodown(db, Number(res.lastInsertRowid))!
   writeAudit(db, 'godown', created.id, 'create', null, created)
   return created
 }
 
 export function updateGodown(db: DB, id: number, input: GodownInput): Godown {
-  const existing = db.prepare('SELECT * FROM godowns WHERE id = ?').get(id) as Godown | undefined
+  const existing = getGodown(db, id)
   if (!existing) throw new Error('Godown not found')
-  db.prepare('UPDATE godowns SET name = ?, address = ? WHERE id = ?')
-    .run(input.name, input.address === undefined ? existing.address : input.address, id)
-  const updated = db.prepare('SELECT * FROM godowns WHERE id = ?').get(id) as Godown
+  db.prepare('UPDATE godowns SET name = ?, address = ?, gst_registration_id = ? WHERE id = ?')
+    .run(
+      input.name,
+      input.address === undefined ? existing.address : input.address,
+      input.gstRegistrationId === undefined ? existing.gstRegistrationId : input.gstRegistrationId,
+      id
+    )
+  const updated = getGodown(db, id)!
   writeAudit(db, 'godown', id, 'update', existing, updated)
   return updated
 }
 
 export function deleteGodown(db: DB, id: number): void {
-  const existing = db.prepare('SELECT * FROM godowns WHERE id = ?').get(id) as Godown | undefined
+  const existing = getGodown(db, id)
   if (!existing) throw new Error('Godown not found')
   const used = db.prepare('SELECT COUNT(*) AS n FROM inventory_lines WHERE godown_id = ?').get(id) as { n: number }
   if (used.n > 0) throw new Error('Godown has stock movements; delete those first')
@@ -389,4 +512,107 @@ export function createBatch(db: DB, input: BatchInput): Batch {
   const created = mapBatch(db.prepare('SELECT * FROM batches WHERE id = ?').get(res.lastInsertRowid) as BatchRow)
   writeAudit(db, 'batch', created.id, 'create', null, created)
   return created
+}
+
+
+// ---------- item tax inherited from its group (roadmap #129) ----------
+
+export interface EffectiveItemTax {
+  gstRate: number | null
+  cessRate: number | null
+  hsn: string | null
+  /** Which of the three came from the group rather than the item — shown, never guessed at. */
+  inherited: { gstRate: boolean; cessRate: boolean; hsn: boolean }
+  /** The group the values were inherited from, when any were. */
+  fromGroup: string | null
+  /** Effective date of the `stock_item_gst_rates` row the rate came from, or null when none applied. */
+  datedFrom: string | null
+}
+
+/**
+ * The rate and HSN an item actually charges.
+ *
+ * A trade with two hundred items in one tax band should state the band once. NULL on the item is
+ * the only way to say "whatever the group says" — copying the value down onto every item looks
+ * identical on day one and silently stops following the group the day the rate changes, which is
+ * exactly the day it matters.
+ *
+ * Inheritance walks up the group tree, so a sub-group can override its parent and a leaf item can
+ * override both. The nearest ancestor that states a value wins.
+ *
+ * `onDate` is the date of the DOCUMENT being priced, not today (roadmap D-92). A dated change in
+ * `stock_item_gst_rates` beats everything else, because it is both the most specific statement about
+ * this item and the only one that knows when it started being true — without it, a Council rate
+ * change on the 22nd silently reprices every invoice from the 1st. It defaults to today so that
+ * callers with no document in hand (a master screen showing "what does this charge now?") keep
+ * working unchanged.
+ */
+export function effectiveItemTax(db: DB, stockItemId: number, onDate: string = todayISO()): EffectiveItemTax {
+  const item = db
+    .prepare('SELECT group_id, gst_rate, cess_rate, hsn FROM stock_items WHERE id = ?')
+    .get(stockItemId) as { group_id: number | null; gst_rate: number | null; cess_rate: number | null; hsn: string | null } | undefined
+  if (!item) throw new Error('Stock item not found')
+
+  // The history answers first when it has something to say about this date. When it does not —
+  // no rows at all, or rows that all start later — the item's own column answers exactly as it
+  // did before this table existed, so a book that never records a change is untouched.
+  const dated = rateForItemOn(db, stockItemId, onDate)
+
+  let gstRate = dated ? dated.ratePercent : item.gst_rate
+  let cessRate = dated ? dated.cessPercent : item.cess_rate
+  let hsn = item.hsn
+  const inherited = { gstRate: false, cessRate: false, hsn: false }
+  let fromGroup: string | null = null
+
+  let groupId = item.group_id
+  const seen = new Set<number>()
+  while (groupId !== null && !seen.has(groupId)) {
+    seen.add(groupId)
+    const g = db
+      .prepare('SELECT name, parent_id, gst_rate, cess_rate, hsn FROM stock_groups WHERE id = ?')
+      .get(groupId) as { name: string; parent_id: number | null; gst_rate: number | null; cess_rate: number | null; hsn: string | null } | undefined
+    if (!g) break
+    if (gstRate === null && g.gst_rate !== null) {
+      gstRate = g.gst_rate
+      inherited.gstRate = true
+      fromGroup ??= g.name
+    }
+    if (cessRate === null && g.cess_rate !== null) {
+      cessRate = g.cess_rate
+      inherited.cessRate = true
+      fromGroup ??= g.name
+    }
+    if (hsn === null && g.hsn !== null) {
+      hsn = g.hsn
+      inherited.hsn = true
+      fromGroup ??= g.name
+    }
+    groupId = g.parent_id
+  }
+
+  return { gstRate, cessRate, hsn, inherited, fromGroup, datedFrom: dated?.effectiveFrom ?? null }
+}
+
+// ---------- finding an item the way a person at a counter would (roadmap #130) ----------
+
+/**
+ * Look an item up by code, barcode or name, in that order.
+ *
+ * Code first because it is the shortest thing to type and the one printed on the shelf label;
+ * barcode next because a scanner types it for you; name last because it is the slowest and the
+ * most ambiguous. An exact match on any of the three wins outright — a shop with an item called
+ * "12" and an item coded "12" wants the coded one.
+ */
+export function findItem(db: DB, query: string): StockItem | null {
+  const q = query.trim()
+  if (!q) return null
+  const exact = db
+    .prepare(
+      `SELECT * FROM stock_items
+       WHERE code = ? COLLATE NOCASE OR barcode = ? COLLATE NOCASE OR name = ? COLLATE NOCASE
+       ORDER BY CASE WHEN code = ? COLLATE NOCASE THEN 0 WHEN barcode = ? COLLATE NOCASE THEN 1 ELSE 2 END
+       LIMIT 1`
+    )
+    .get(q, q, q, q, q) as StockItemRow | undefined
+  return exact ? mapItem(exact) : null
 }

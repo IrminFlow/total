@@ -1,0 +1,10 @@
+Annual Tax Statement^Sanitized regression fixture
+Source layout^Income Tax Department TRACES text-to-Excel tutorial (reviewed 2026-08-28)
+PART-I - Details of Tax Deducted at Source
+Sr. No.^Name of Deductor^TAN of Deductor^Total Amount Paid / Credited^Total Tax Deducted^Total TDS Deposited
+1^Bright Media Pvt Ltd^MUMB12345A^100000.00^10000.00^10000.00
+Sr. No.^Section^Transaction Date^Status of Booking^Date of Booking^Remarks^Amount Paid / Credited^Tax Deducted^TDS Deposited
+1^194J^10-May-2025^F^28-May-2025^-^100000.00^10000.00^10000.00
+2^194J^20-Jun-2025^F^28-Jun-2025^-^(20000.00)^(2000.00)^(2000.00)
+2^Quiet Systems LLP^DELQ98765B^50000.00^1000.00^1000.00
+1^194C^20-Jun-2025^F^28-Jun-2025^-^50000.00^1000.00^1000.00

@@ -28,6 +28,8 @@ export interface ReleaseInfo {
   version: string
   htmlUrl: string
   assets: Partial<Record<Platform, AssetRef>>
+  /** The release body, so the app can show what changed before someone updates. */
+  notes: string
 }
 
 /** Latest release, or null when the repo has no releases yet / token is missing on a private repo. */
@@ -41,6 +43,7 @@ export async function latestRelease(): Promise<ReleaseInfo | null> {
     const data = (await res.json()) as {
       tag_name?: string
       html_url?: string
+      body?: string | null
       assets?: { id: number; name: string; browser_download_url: string }[]
     }
     if (!data.tag_name) return null
@@ -51,7 +54,8 @@ export async function latestRelease(): Promise<ReleaseInfo | null> {
     return {
       version: data.tag_name.replace(/^v/, ''),
       htmlUrl: data.html_url ?? RELEASES_PAGE,
-      assets: { mac: find('.dmg'), win: find('.exe') }
+      assets: { mac: find('.dmg'), win: find('.exe') },
+      notes: data.body ?? ''
     }
   } catch {
     return null
@@ -115,4 +119,81 @@ export async function resolveDownloadUrl(release: ReleaseInfo, platform: Platfor
     // fall through
   }
   return asset.publicUrl
+}
+
+export interface Checksum {
+  /** Installer file name, exactly as it downloads. */
+  name: string
+  /** Base64 SHA-512, which is the form electron-builder publishes and the updater checks. */
+  sha512: string
+  bytes: number
+}
+
+/**
+ * Checksums for the current release.
+ *
+ * These are not typed out by hand. electron-builder publishes latest-mac.yml and latest.yml
+ * beside the installers, carrying the SHA-512 of each file, and the auto-updater already
+ * verifies against them. Reading the same files means the download page cannot quote a hash that
+ * the updater disagrees with, which would be worse than quoting none.
+ */
+export async function releaseChecksums(): Promise<Checksum[]> {
+  const release = await latestRelease()
+  if (!release) return []
+  const manifests = ['latest-mac.yml', 'latest.yml']
+  const out: Checksum[] = []
+  for (const manifest of manifests) {
+    const text = await fetchAssetText(manifest)
+    if (!text) continue
+    out.push(...parseUpdateManifest(text))
+  }
+  // One entry per file. Both manifests can name the same blockmap, and a page listing a file
+  // twice looks like a mistake even when it is not.
+  const seen = new Set<string>()
+  return out.filter((c) => (seen.has(c.name) ? false : (seen.add(c.name), true)))
+}
+
+async function fetchAssetText(name: string): Promise<string | null> {
+  try {
+    const list = await fetch(`https://api.github.com/repos/${GITHUB_REPO}/releases/latest`, {
+      headers: githubHeaders(),
+      next: { revalidate: 300 }
+    })
+    if (!list.ok) return null
+    const data = (await list.json()) as { assets?: { id: number; name: string }[] }
+    const asset = data.assets?.find((a) => a.name === name)
+    if (!asset) return null
+    const res = await fetch(`https://api.github.com/repos/${GITHUB_REPO}/releases/assets/${asset.id}`, {
+      headers: githubHeaders('application/octet-stream'),
+      next: { revalidate: 300 }
+    })
+    if (!res.ok) return null
+    return await res.text()
+  } catch {
+    return null
+  }
+}
+
+/**
+ * The three fields we need out of an electron-builder update manifest. Deliberately not a YAML
+ * parser: the file shape is fixed, and a dependency to read four lines is a poor trade.
+ */
+export function parseUpdateManifest(text: string): Checksum[] {
+  const out: Checksum[] = []
+  let current: Partial<Checksum> = {}
+  for (const raw of text.split('\n')) {
+    const line = raw.trim()
+    const url = /^-?\s*url:\s*(.+)$/.exec(line)
+    if (url) {
+      if (current.name && current.sha512) out.push(current as Checksum)
+      current = { name: url[1].trim() }
+      continue
+    }
+    const sha = /^sha512:\s*(.+)$/.exec(line)
+    if (sha && current.name) current.sha512 = sha[1].trim()
+    const size = /^size:\s*(\d+)$/.exec(line)
+    if (size && current.name) current.bytes = Number(size[1])
+  }
+  if (current.name && current.sha512) out.push(current as Checksum)
+  return out.filter((c) => !c.name.endsWith('.blockmap'))
 }

@@ -1,16 +1,22 @@
 import { useEffect, useRef, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { api } from '../lib/client'
+import { GstinPicker, usePrimaryRegistrationId } from '../components/GstinPicker'
 import { useNav, useToasts, nextDraftId } from '../state/stores'
-import { Button, EmptyState, Modal, Money, Panel, SectionTitle } from '../components/ui'
+import { Button, EmptyState, Modal, Money, Panel, RowAction, SectionTitle, useTableNav } from '../components/ui'
 import { toDisplayDate } from '@shared/dates'
 import type { Recon2bBucket, Recon2bPair } from '@shared/gst/recon2b'
 import { MonthBar, NoMonths, useMonth } from './GstReturns'
+import { ImsWorklistPanel } from './statutoryTabs'
 
 const BUCKETS: { key: Recon2bBucket; label: string }[] = [
   { key: 'matched', label: 'Matched' },
   { key: 'amountMismatch', label: 'Amount mismatch' },
   { key: 'taxMismatch', label: 'Tax mismatch' },
+  // Paired on supplier name across a GSTIN disagreement. Its own tab because the mismatch is the
+  // finding: a wrong supplier GSTIN on a voucher means the credit is claimed against the wrong
+  // registration, and nothing downstream notices.
+  { key: 'gstinMismatch', label: 'GSTIN mismatch' },
   { key: 'missingInBooks', label: 'Missing in books' },
   { key: 'missingInPortal', label: 'Missing in portal' }
 ]
@@ -31,7 +37,7 @@ function PasteModal({ onClose, onApply }: { onClose: () => void; onApply: (jsonT
         autoFocus
         data-testid="input-2b-paste"
         placeholder="Paste the contents of the downloaded GSTR-2B JSON here…"
-        className="num w-full rounded-md border border-line bg-panel2 px-2.5 py-1.5 text-[11px]"
+        className="num w-full rounded-md border border-line bg-panel2 px-2.5 py-1.5 text-caption"
       />
       <div className="mt-3 flex justify-end gap-2">
         <Button variant="ghost" onClick={onClose}>
@@ -59,10 +65,12 @@ function taxTotal(t: { igst: number; cgst: number; sgst: number; cess: number })
 
 function PairRow({
   pair,
+  rowProps,
   onOpenVoucher,
   onCreatePurchase
 }: {
   pair: Recon2bPair
+  rowProps: React.ComponentProps<'tr'>
   onOpenVoucher: (voucherId: number) => void
   onCreatePurchase: (portal: NonNullable<Recon2bPair['portal']>) => void
 }): React.JSX.Element {
@@ -70,19 +78,30 @@ function PairRow({
   const clickable = !!book
   return (
     <tr
-      className={clickable ? 'kbar-row cursor-pointer' : ''}
+      {...rowProps}
+      className={`${rowProps.className ?? ''}${clickable ? ' cursor-pointer' : ''}`}
       onClick={clickable ? () => onOpenVoucher(book!.voucherId) : undefined}
     >
-      <td>{portal ? portal.number : <span className="text-muted">—</span>}</td>
+      <td>
+        {portal ? portal.number : <span className="text-muted">—</span>}
+        {/* The two GSTINs are the whole point of this bucket — show them where each side is. */}
+        {pair.bucket === 'gstinMismatch' && portal && (
+          <span className="block text-hint num text-muted">{portal.gstin}</span>
+        )}
+      </td>
       <td className="num text-muted">{portal ? toDisplayDate(portal.date) : '—'}</td>
       <td className="r">{portal ? <Money paise={portal.value} /> : '—'}</td>
       <td className="r">{portal ? <Money paise={taxTotal(portal)} /> : '—'}</td>
       <td>
         {book ? (
-          book.supplierRef ?? book.number
+          <>
+            {book.supplierRef ?? book.number}
+            {pair.bucket === 'gstinMismatch' && (
+              <span className="block text-hint num text-cr">{book.partyGstin ?? 'no GSTIN'}</span>
+            )}
+          </>
         ) : pair.bucket === 'missingInBooks' && portal ? (
-          <button
-            className="text-[12px] text-blue hover:underline"
+          <RowAction
             data-testid="btn-2b-create-purchase"
             onClick={(e) => {
               e.stopPropagation()
@@ -90,7 +109,7 @@ function PairRow({
             }}
           >
             Create purchase
-          </button>
+          </RowAction>
         ) : (
           <span className="text-muted">—</span>
         )}
@@ -110,10 +129,19 @@ export function Gstr2bScreen(): React.JSX.Element {
   const [imported, setImported] = useState<Imported | null>(null)
   const [pasteOpen, setPasteOpen] = useState(false)
   const [bucket, setBucket] = useState<Recon2bBucket>('matched')
+  // The reconciliation answers "do these agree"; IMS answers "what are you going to do about it".
+  // One import, two readings of it — which is why this is a mode on the same screen rather than a
+  // screen of its own that would need the JSON imported twice.
+  const [showIms, setShowIms] = useState(false)
+  // Which GSTIN's 2B this is (roadmap #108): the portal issues one per registration, and books
+  // matched against the wrong one report every invoice as missing.
+  const primaryRegId = usePrimaryRegistrationId()
+  const [regId, setRegId] = useState<number | null>(null)
+  const registrationId = regId ?? primaryRegId
 
   const { data, isFetching } = useQuery({
-    queryKey: ['gstr2b', month?.key, imported?.jsonText],
-    queryFn: () => api.gst.recon2b(imported!.jsonText, month!.from, month!.to),
+    queryKey: ['gstr2b', month?.key, imported?.jsonText, registrationId],
+    queryFn: () => api.gst.recon2b(imported!.jsonText, month!.from, month!.to, registrationId),
     enabled: !!imported && !!month
   })
 
@@ -162,10 +190,18 @@ export function Gstr2bScreen(): React.JSX.Element {
 
   const result = data?.result
   const pairs = result?.pairs.filter((p) => p.bucket === bucket) ?? []
+  // Enter opens the matched voucher, the same thing clicking the row does. Rows with no book
+  // side have nothing to open and simply do not fire.
+  const pairTable = useTableNav(pairs, {
+    rowId: (p, i) => p.book?.voucherId ?? `portal-${i}`,
+    onEnter: (p) => {
+      if (p.book) openVoucher(p.book.voucherId)
+    }
+  })
 
   if (!month) {
     return (
-      <div className="mx-auto max-w-6xl">
+      <div className="flex h-full min-h-0 w-full flex-col max-w-[1440px]">
         <SectionTitle>GSTR-2B · Reconciliation</SectionTitle>
         <NoMonths />
       </div>
@@ -173,14 +209,23 @@ export function Gstr2bScreen(): React.JSX.Element {
   }
 
   return (
-    <div className="mx-auto max-w-6xl">
+    <div className="flex h-full min-h-0 w-full flex-col max-w-[1440px]">
       <SectionTitle
         right={
           <div className="flex items-center gap-2">
+            <GstinPicker value={registrationId} onChange={setRegId} testId="select-gstr2b-gstin" />
             <MonthBar months={months} value={monthKey} onChange={setMonthKey} />
             <Button data-testid="btn-2b-pick" onClick={() => void doPick()}>Pick 2B JSON…</Button>
             <Button variant="ghost" data-testid="btn-2b-paste" onClick={() => setPasteOpen(true)}>
               Paste JSON…
+            </Button>
+            <Button
+              variant="ghost"
+              data-testid="btn-2b-ims"
+              disabled={!imported}
+              onClick={() => setShowIms(!showIms)}
+            >
+              {showIms ? 'Reconciliation' : 'IMS actions'}
             </Button>
           </div>
         }
@@ -206,6 +251,8 @@ export function Gstr2bScreen(): React.JSX.Element {
         <Panel>
           <EmptyState title="Reconciling…" />
         </Panel>
+      ) : result && showIms ? (
+        <ImsWorklistPanel jsonText={imported.jsonText} from={month.from} to={month.to} />
       ) : result ? (
         <>
           <div className="mb-3 flex flex-wrap gap-2">
@@ -216,8 +263,8 @@ export function Gstr2bScreen(): React.JSX.Element {
                   key={b.key}
                   data-testid={`btn-2b-bucket-${b.key}`}
                   onClick={() => setBucket(b.key)}
-                  className={`rounded-md border px-3 py-1.5 text-[12.5px] ${
-                    bucket === b.key ? 'border-amber/60 bg-amber/15 text-amber' : 'border-line text-muted hover:bg-panel2 hover:text-ink'
+                  className={`rounded-md border px-3 py-1.5 text-body-sm ${
+                    bucket === b.key ? 'border-accent/60 bg-accent/15 text-accent' : 'border-line text-muted hover:bg-panel2 hover:text-ink'
                   }`}
                 >
                   {b.label} <span className="num">{t.count}</span> · <Money paise={taxTotal(t)} />
@@ -226,8 +273,19 @@ export function Gstr2bScreen(): React.JSX.Element {
             })}
           </div>
 
+          {bucket === 'gstinMismatch' && result.buckets.gstinMismatch.count > 0 && (
+            <div
+              className="mb-3 rounded-md border border-cr/40 bg-cr/5 px-3.5 py-2.5 text-body-sm"
+              data-testid="note-2b-gstin-mismatch"
+            >
+              These matched on supplier name, value and date, but the GSTIN on the voucher is not
+              the one the portal published. Until the voucher is corrected the credit is claimed
+              against the wrong registration — open each row and fix the party&rsquo;s GSTIN.
+            </div>
+          )}
+
           {imported.fileName && (
-            <p className="mb-2 text-[12px] text-muted">
+            <p className="mb-2 text-small text-muted">
               {imported.fileName}
               {result.pairs.length > 0 && ` · ${result.pairs.length} document${result.pairs.length > 1 ? 's' : ''} compared`}
             </p>
@@ -241,25 +299,31 @@ export function Gstr2bScreen(): React.JSX.Element {
                 <table className="ledger-table min-w-[56rem]">
                   <thead>
                     <tr>
-                      <th colSpan={4}>Portal (GSTR-2B)</th>
-                      <th colSpan={4}>Books</th>
-                      <th className="w-24">Diff</th>
+                      <th scope="col" colSpan={4}>Portal (GSTR-2B)</th>
+                      <th scope="col" colSpan={4}>Books</th>
+                      <th scope="col" className="w-24">Diff</th>
                     </tr>
                     <tr>
-                      <th>No.</th>
-                      <th className="w-24">Date</th>
-                      <th className="r w-28">Value</th>
-                      <th className="r w-28">Tax</th>
-                      <th>No. (supplier ref)</th>
-                      <th className="w-24">Date</th>
-                      <th className="r w-28">Value</th>
-                      <th className="r w-28">Tax</th>
-                      <th className="r">Value</th>
+                      <th scope="col">No.</th>
+                      <th scope="col" className="w-24">Date</th>
+                      <th scope="col" className="r w-28">Value</th>
+                      <th scope="col" className="r w-28">Tax</th>
+                      <th scope="col">No. (supplier ref)</th>
+                      <th scope="col" className="w-24">Date</th>
+                      <th scope="col" className="r w-28">Value</th>
+                      <th scope="col" className="r w-28">Tax</th>
+                      <th scope="col" className="r">Value</th>
                     </tr>
                   </thead>
                   <tbody data-testid="rows-2b-pairs">
                     {pairs.map((p, i) => (
-                      <PairRow key={i} pair={p} onOpenVoucher={openVoucher} onCreatePurchase={createPurchase} />
+                      <PairRow
+                        key={i}
+                        pair={p}
+                        rowProps={pairTable.rowProps(i, p)}
+                        onOpenVoucher={openVoucher}
+                        onCreatePurchase={createPurchase}
+                      />
                     ))}
                   </tbody>
                 </table>

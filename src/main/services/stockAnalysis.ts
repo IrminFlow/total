@@ -1,9 +1,10 @@
 import type { DB } from '../db/connection'
 import type { StockSummaryRow } from '@shared/reports'
 import {
-  valueStock, expiryBucketOf, allocateAdditionalCost,
-  type ExpiryBucket, type StockMovement, type ValuationMethod
+  valueStock, expiryBucketOf, allocateAdditionalCost, daysToExpiry, summariseExpiry, AT_RISK_BUCKETS,
+  type ExpiryBucket, type ExpirySummaryRow, type StockMovement, type ValuationMethod
 } from '@shared/valuation'
+import { allocateLandedCosts, type LandedCostBasis } from '@shared/landedCost'
 import { IN_BOOKS, checkStock } from './vouchers'
 import type { NegativeStockWarning } from '@shared/domain'
 
@@ -71,6 +72,50 @@ function additionalCostByLine(db: DB, asOn: string): Map<number, number> {
   return extraByLine
 }
 
+/**
+ * Landed costs (roadmap #117): freight, insurance, duty and clearing charges recorded against a
+ * purchase in `landed_costs`, carried into the value of that purchase's item lines on their own
+ * basis (by value or by quantity). Returns extra paise per inventory_lines.id, exactly conserving
+ * each charge.
+ *
+ * Read here rather than written into `inventory_lines.amount` at save time for the same reason
+ * the manufacture costs above are: the item lines are what the supplier billed, and that is what
+ * the purchase register, GST return and party ledger have to keep showing. Only the valuation
+ * sees the loaded cost.
+ */
+function landedCostByLine(db: DB, asOn: string): Map<number, number> {
+  const extraByLine = new Map<number, number>()
+  const costs = db
+    .prepare(
+      `SELECT lc.voucher_id AS voucherId, lc.amount, lc.basis
+       FROM landed_costs lc JOIN vouchers v ON v.id = lc.voucher_id
+       WHERE v.date <= ? AND ${IN_BOOKS}
+       ORDER BY lc.voucher_id, lc.line_order, lc.id`
+    )
+    .all(asOn) as { voucherId: number; amount: number; basis: LandedCostBasis }[]
+  if (costs.length === 0) return extraByLine
+
+  const byVoucher = new Map<number, { label: string; amount: number; basis: LandedCostBasis }[]>()
+  for (const c of costs) {
+    const list = byVoucher.get(c.voucherId) ?? []
+    list.push({ label: '', amount: c.amount, basis: c.basis })
+    byVoucher.set(c.voucherId, list)
+  }
+
+  const inLinesStmt = db.prepare(
+    `SELECT id, qty_milli AS qtyMilli, amount FROM inventory_lines
+     WHERE voucher_id = ? AND direction = 'in' AND is_absolute = 0 ORDER BY line_order, id`
+  )
+  for (const [voucherId, list] of byVoucher) {
+    const inLines = inLinesStmt.all(voucherId) as { id: number; qtyMilli: number; amount: number }[]
+    if (inLines.length === 0) continue
+    for (const line of allocateLandedCosts(inLines, list).lines) {
+      extraByLine.set(line.id, (extraByLine.get(line.id) ?? 0) + line.extra)
+    }
+  }
+  return extraByLine
+}
+
 function listItems(db: DB): ItemRow[] {
   return db
     .prepare(
@@ -95,6 +140,9 @@ function movementsByItem(db: DB, asOn: string, godownId?: number): Map<number, M
     )
     .all(...(godownId ? [asOn, godownId] : [asOn])) as MovementRow[]
   const extraByLine = additionalCostByLine(db, asOn)
+  for (const [lineId, extra] of landedCostByLine(db, asOn)) {
+    extraByLine.set(lineId, (extraByLine.get(lineId) ?? 0) + extra)
+  }
   if (extraByLine.size > 0) {
     for (const r of rows) {
       const extra = extraByLine.get(r.lineId)
@@ -222,21 +270,24 @@ export function stockByGodown(db: DB, asOn: string): GodownStockRow[] {
     const moves = byItem.get(item.id) ?? []
     const summary = valueStock(item.valuationMethod, item.openingQtyMilli, item.openingValue, moves.map(toMovement))
 
-    // Quantity per godown: absolute (physical-count) lines pin the quantity of the godown they
-    // sit on (null = the company-wide bucket).
-    // KNOWN LIMITATION (deferred, v0.3 review): PhysicalStockEntry saves counts with
-    // godownId = null, so a company-wide count pins only the no-godown bucket while
-    // godown-attributed rows keep their pre-count quantities — per-godown rows can then sum to
-    // more than the item's engine-valued closing, and the value pro-ration (below, which divides
-    // by the engine closing) skews per-row values. Fixing this properly needs per-godown counts
-    // (or distributing a null-godown count across godown buckets), tracked for a later wave.
+    // A physical-stock line is an item-wide closing count, just as it is in valueStock. It
+    // therefore replaces the previous location split instead of creating a second independent
+    // balance beside it. The count is kept in the line's bucket (currently PhysicalStockEntry
+    // deliberately uses null because a company-wide count cannot truthfully infer locations).
+    // Later godown movements accumulate from that unallocated counted balance. This keeps every
+    // by-godown quantity and paisa exactly reconcilable to the item-wide valuation without
+    // inventing a proportional location split.
     const qtyByGodown = new Map<number | null, number>()
     qtyByGodown.set(null, item.openingQtyMilli)
     for (const m of moves) {
       const key = m.godownId
       const cur = qtyByGodown.get(key) ?? 0
-      if (m.isAbsolute) qtyByGodown.set(key, m.qtyMilli)
-      else qtyByGodown.set(key, cur + (m.direction === 'in' ? m.qtyMilli : -m.qtyMilli))
+      if (m.isAbsolute) {
+        qtyByGodown.clear()
+        qtyByGodown.set(key, m.qtyMilli)
+      } else {
+        qtyByGodown.set(key, cur + (m.direction === 'in' ? m.qtyMilli : -m.qtyMilli))
+      }
     }
 
     // Pro-rate the item's closing value over godown quantities (the last row soaks up the
@@ -317,4 +368,107 @@ export function expiryAgeing(db: DB, asOn: string): ExpiryAgeingRow[] {
     .filter((r) => r.closingQtyMilli > 0 && r.expiryDate !== null)
     .map((r) => ({ ...r, bucket: expiryBucketOf(r.expiryDate, asOn) }))
     .sort((a, b) => (a.expiryDate! < b.expiryDate! ? -1 : a.expiryDate! > b.expiryDate! ? 1 : 0))
+}
+
+
+// ---------- near-expiry, with what it is worth (roadmap #114, #116) ----------
+
+export interface NearExpiryRow extends ExpiryAgeingRow {
+  daysToExpiry: number
+  /** What this batch's remaining stock is worth, at the item's own valuation. Paise. */
+  value: number
+  /** Days since the batch was made, when a manufacturing date was recorded. */
+  ageDays: number | null
+}
+
+export interface NearExpiryReport {
+  asOn: string
+  rows: NearExpiryRow[]
+  summary: ExpirySummaryRow[]
+  /** Expired plus everything inside ninety days — the number worth putting in front of somebody. */
+  atRisk: number
+  expired: number
+  /** Batches holding stock with no expiry recorded. Not a clean bill of health: a gap in the data. */
+  undatedBatches: number
+  undatedQtyMilli: number
+}
+
+/**
+ * What is about to become worthless, and what it costs.
+ *
+ * `expiryAgeing` already knew which batches expire when; what it could not say is what they are
+ * worth, which is the only form of the question anybody acts on. Value is the batch's remaining
+ * quantity at the item's own rate from the valuation engine, so it agrees with the closing stock
+ * on the balance sheet rather than being a second opinion about it.
+ *
+ * Batches with stock but no expiry date are counted separately and loudly. Reporting "nothing
+ * expires soon" when the truth is "nobody recorded a date" is the one failure this report cannot
+ * afford.
+ */
+export function nearExpiry(db: DB, asOn: string): NearExpiryReport {
+  const batches = batchStock(db, asOn).filter((r) => r.closingQtyMilli > 0)
+  // One valuation pass for every item that has a live batch, rather than one per batch.
+  const rates = new Map<number, number>()
+  for (const row of stockSummary(db, asOn)) {
+    rates.set(row.stockItemId, row.closingQtyMilli > 0 ? Math.round((row.closingValue * 1000) / row.closingQtyMilli) : 0)
+  }
+
+  const rows: NearExpiryRow[] = batches
+    .filter((r) => r.expiryDate !== null)
+    .map((r) => {
+      const rate = rates.get(r.stockItemId) ?? 0
+      return {
+        ...r,
+        bucket: expiryBucketOf(r.expiryDate, asOn),
+        daysToExpiry: daysToExpiry(r.expiryDate, asOn) as number,
+        value: Math.round((r.closingQtyMilli * rate) / 1000),
+        ageDays: r.mfgDate ? Math.max(0, -(daysToExpiry(r.mfgDate, asOn) as number)) : null
+      }
+    })
+    .sort((a, b) => a.daysToExpiry - b.daysToExpiry || b.value - a.value)
+
+  const undated = batches.filter((r) => r.expiryDate === null)
+  return {
+    asOn,
+    rows,
+    summary: summariseExpiry(rows.map((r) => ({ bucket: r.bucket, value: r.value }))),
+    atRisk: rows.filter((r) => AT_RISK_BUCKETS.has(r.bucket)).reduce((s, r) => s + r.value, 0),
+    expired: rows.filter((r) => r.bucket === 'expired').reduce((s, r) => s + r.value, 0),
+    undatedBatches: undated.length,
+    undatedQtyMilli: undated.reduce((s, r) => s + r.closingQtyMilli, 0)
+  }
+}
+
+// ---------- what it costs to take stock out (roadmap #112) ----------
+
+/**
+ * The book cost of moving `qtyMilli` of an item out on `asOn` — what the valuation engine would
+ * charge for that outward line if it were the next one entered.
+ *
+ * Asked as a difference of two walks rather than read off a rate, because under FIFO the cost of
+ * the next unit out is the oldest layer's cost, which is not the average and can be a long way
+ * from it. A godown transfer values both of its lines at this number so the pair cancels exactly
+ * and company-wide stock value does not move.
+ *
+ * A transfer dated before later movements is priced as if it were the last one on its date, which
+ * is what a person entering it today means; re-pricing history around a back-dated move would
+ * silently rewrite the cost of sales already reported.
+ */
+export function outwardCostOf(db: DB, asOn: string, stockItemId: number, qtyMilli: number): number {
+  if (qtyMilli <= 0) return 0
+  const item = db
+    .prepare(
+      `SELECT opening_qty_milli AS openingQtyMilli, opening_value AS openingValue,
+              valuation_method AS valuationMethod
+       FROM stock_items WHERE id = ?`
+    )
+    .get(stockItemId) as
+    | { openingQtyMilli: number; openingValue: number; valuationMethod: ValuationMethod }
+    | undefined
+  if (!item) return 0
+
+  const moves = (movementsByItem(db, asOn).get(stockItemId) ?? []).map(toMovement)
+  const walk = (ms: StockMovement[]): number =>
+    valueStock(item.valuationMethod, item.openingQtyMilli, item.openingValue, ms).consumedValue
+  return walk([...moves, { direction: 'out', qtyMilli, amount: 0 }]) - walk(moves)
 }

@@ -1,22 +1,85 @@
 import { forwardRef, useCallback, useEffect, useId, useRef, useState, type ReactNode } from 'react'
 import { formatPaise, parseRupees } from '@shared/money'
+import { isExpression, parseAmountExpression } from '@shared/amountExpr'
+import { conversionHint, isQtyExpression, parseQtyExpression } from '@shared/qtyExpr'
+import type { AltUnit } from '@shared/units'
 import { parseSmartDate, toDisplayDate } from '@shared/dates'
-import { useToasts } from '../state/stores'
+import { useAnnouncer, useKeyPrefs, useToasts } from '../state/stores'
+import { isBlocked, isPlainKey, isTypingTarget, topLayer, useKeyLayer } from '../lib/keyboard'
+import { splitAccel } from '../lib/accel'
 
 // ---------- text + labels ----------
 
 export function Kbd({ children }: { children: ReactNode }): React.JSX.Element {
   return (
-    <kbd className="rounded border border-line bg-panel2 px-1.5 py-0.5 font-mono text-label text-muted">
+    <kbd className="rounded-md border border-line bg-panel2 px-1.5 py-0.5 font-mono text-micro text-muted">
       {children}
     </kbd>
+  )
+}
+
+/**
+ * A label with its accelerator letter highlighted, e.g. Ba<span class=accel>l</span>ance sheet.
+ *
+ * The accessible name is unchanged because the text stays one contiguous run — screen readers
+ * and Playwright's text matching both still see "Balance sheet".
+ *
+ * `muted` renders the letter grey instead of red: used when the current screen has claimed that
+ * letter for itself, so the sidebar shows at a glance which shortcuts are temporarily shadowed
+ * rather than leaving the user to discover it by pressing one.
+ */
+export function Accel({
+  label,
+  accel,
+  at,
+  muted = false
+}: {
+  label: string
+  accel?: string
+  at?: number
+  muted?: boolean
+}): React.JSX.Element {
+  const { before, hit, after } = splitAccel(label, accel, at)
+  if (!hit) {
+    // The accelerator isn't a letter of the label — show it as a key badge.
+    //
+    // Drawn as a key, not as coloured text. Rendered the same way as an in-label letter, a
+    // trailing "5" beside "Fixed assets" reads as a count of five things needing attention; a
+    // digit next to "Disclosure" reads as six unread items. A bordered key cap cannot be
+    // mistaken for a number about the data.
+    return (
+      <span>
+        {label}
+        {accel ? (
+          <span
+            // The ring is neutral and only the glyph carries the accelerator red. Ringed in red
+            // as well, six of these down the sidebar read as six alerts — red is already doing
+            // the work of "money or compliance is wrong" elsewhere, and an ambient red is a red
+            // that stops registering when it matters.
+            className={`ml-1.5 rounded-md border border-line px-1 font-mono text-micro leading-none ${
+              muted ? 'text-muted' : 'text-accel'
+            }`}
+            aria-hidden="true"
+          >
+            {accel}
+          </span>
+        ) : null}
+      </span>
+    )
+  }
+  return (
+    <span>
+      {before}
+      <span className={muted ? 'accel-muted' : 'accel'}>{hit}</span>
+      {after}
+    </span>
   )
 }
 
 export function SectionTitle({ children, right }: { children: ReactNode; right?: ReactNode }): React.JSX.Element {
   return (
     <div className="mb-3 flex items-baseline justify-between">
-      <h2 className="font-serif text-heading font-semibold tracking-tight whitespace-nowrap">{children}</h2>
+      <h2 className="font-serif text-section font-semibold tracking-tight whitespace-nowrap">{children}</h2>
       {right}
     </div>
   )
@@ -31,17 +94,39 @@ export function Money({ paise, signed = false, className = '' }: { paise: number
 // ---------- controls ----------
 
 export const inputCls =
-  'w-full rounded-md border border-line bg-panel2 px-2.5 py-1.5 text-body text-ink placeholder:text-muted/60 focus:border-amber/60'
+  'w-full rounded-md border border-line bg-panel2 px-2.5 py-1.5 text-body text-ink placeholder:text-muted/60 focus:border-accent/60'
+
+/**
+ * A caller-supplied width beats `inputCls`'s own `w-full`.
+ *
+ * Tailwind emits `.w-full` *after* the numeric widths in the stylesheet, and both have the same
+ * specificity — so the order of the class attribute is irrelevant and `<Select className="w-36">`
+ * rendered full-width anyway. Every width override on a Select or TextInput in the app was
+ * silently doing nothing. Dropping the base width when the call site names one is the only merge
+ * that honours what it asked for.
+ *
+ * Only a plain `w-*` counts: `max-w-*` and `min-w-*` are meant to be combined with `w-full`.
+ */
+const OWN_WIDTH = /(?:^|\s)!?w-\S+/
+export function mergeInputCls(className?: string): string {
+  if (!className) return inputCls
+  const base = OWN_WIDTH.test(className) ? inputCls.replace('w-full ', '') : inputCls
+  return `${base} ${className}`
+}
 
 export function Field({ label, children, hint, error }: { label: string; children: ReactNode; hint?: string; error?: string | null }): React.JSX.Element {
   return (
     <label className="block">
-      <span className="mb-1 block text-caption font-semibold tracking-[0.08em] text-muted uppercase">{label}</span>
+      <span className="mb-1 block text-micro font-semibold tracking-[0.08em] text-muted uppercase">{label}</span>
       {children}
       {error ? (
-        <span className="mt-1 block text-hint text-cr">{error}</span>
+        // role="alert" so the message is announced when it appears. A validation error the user
+        // has to act on is exactly the case a polite region is allowed to sit on indefinitely.
+        <span role="alert" className="mt-1 block text-micro text-cr">
+          {error}
+        </span>
       ) : hint ? (
-        <span className="mt-1 block text-hint text-muted/80">{hint}</span>
+        <span className="mt-1 block text-micro text-muted/80">{hint}</span>
       ) : null}
     </label>
   )
@@ -49,12 +134,133 @@ export function Field({ label, children, hint, error }: { label: string; childre
 
 export const TextInput = forwardRef<HTMLInputElement, React.InputHTMLAttributes<HTMLInputElement>>(
   function TextInput(props, ref) {
-    return <input ref={ref} {...props} className={`${inputCls} ${props.className ?? ''}`} />
+    return <input ref={ref} {...props} className={mergeInputCls(props.className)} />
   }
 )
 
+/**
+ * The app's only <select>. `appearance-none` is what stops macOS painting its own double-chevron
+ * in its own blue-grey — the loudest off-brand element on any screen with a filter bar. The
+ * replacement caret and the room made for it live on the element rule in app.css, so a select
+ * that ever gets hand-written elsewhere still looks like this one.
+ */
 export function Select(props: React.SelectHTMLAttributes<HTMLSelectElement>): React.JSX.Element {
-  return <select {...props} className={`${inputCls} ${props.className ?? ''}`} />
+  return <select {...props} className={`appearance-none ${mergeInputCls(props.className)}`} />
+}
+
+/**
+ * The export actions, as one control rather than three loose words.
+ *
+ * Nineteen screens offer a PDF, and until now each rendered `PDF` `CSV` `XLS` as three
+ * consecutive ghost buttons — grey text, sitting beside other grey text that is a label, in a
+ * different position on every screen. Three words that happen to be adjacent do not read as one
+ * thing; a bordered group does, and it lands in the same place every time, which is what makes
+ * a toolbar scannable rather than something to be re-read.
+ *
+ * Disabled renders inside the group, never as a pair of grey words floating alone on their own
+ * row — one screen used to do that and it read as a rendering fault rather than as an unavailable
+ * action.
+ *
+ * `busy` disables the whole group while an export is running: they all read the same rows, so
+ * starting a second one while the first is still gathering is a way to wait twice.
+ */
+export function ExportGroup({
+  items,
+  busy = false,
+  className = ''
+}: {
+  items: { label: string; onClick: () => void; testId?: string; title?: string; disabled?: boolean }[]
+  busy?: boolean
+  className?: string
+}): React.JSX.Element {
+  return (
+    <span
+      role="group"
+      aria-label="Export"
+      data-testid="export-group"
+      className={`inline-flex overflow-hidden rounded-md border border-line bg-panel ${className}`}
+    >
+      {items.map((item, i) => (
+        <button
+          key={item.label}
+          type="button"
+          data-testid={item.testId}
+          title={item.title ?? `Export as ${item.label}`}
+          disabled={busy || item.disabled}
+          onClick={item.onClick}
+          className={`px-2.5 py-1.5 text-body text-muted transition-colors hover:bg-panel2 hover:text-ink disabled:pointer-events-none disabled:opacity-40 ${
+            // A hairline between segments, not around them: the group has one border and the
+            // divisions inside it are lighter, so it reads as one control divided rather than as
+            // three controls touching.
+            i > 0 ? 'border-l border-line' : ''
+          }`}
+        >
+          {item.label}
+        </button>
+      ))}
+    </span>
+  )
+}
+
+/**
+ * A quiet per-row action — the affordance that lives in a table cell's trailing column.
+ *
+ * This exists because two densities did. The day book, masters and the trial balance put a bare
+ * `.row-action` button in the last cell and their rows are 30px; collections, khata, the filing
+ * register and the exceptions list put a `<Button variant="ghost">` there instead, and a button's
+ * own 12px of vertical padding pushed those rows to 44px. Khata and outstandings were showing the
+ * same two debtors at different heights. The pills shrink; the rows do not grow.
+ *
+ * `.row-action` stays out of the way until the row is hovered, is the keyboard-active row, or the
+ * action itself takes focus — so a table of quiet rows stays quiet, and a keyboard operator can
+ * still reach every one of them with Tab. Never hand-roll the fade: the keyboard-only preference
+ * turns hover off, and a hand-rolled `hover:opacity-100` would go on ignoring it.
+ */
+export function RowAction({
+  tone = 'link',
+  className = '',
+  ...props
+}: React.ButtonHTMLAttributes<HTMLButtonElement> & {
+  /** `danger` for the one that destroys something. Everything else is a link. */
+  tone?: 'link' | 'danger'
+}): React.JSX.Element {
+  return (
+    <button
+      type="button"
+      {...props}
+      className={`row-action text-hint hover:underline disabled:opacity-40 disabled:hover:no-underline ${
+        tone === 'danger' ? 'text-cr' : 'text-blue'
+      } ${className}`}
+    />
+  )
+}
+
+/**
+ * The other kind of thing that lives in a cell: a link whose text is data.
+ *
+ * `RowAction` stays out of the way until the row is hovered or active, which is right for a verb —
+ * Edit, Remind, PDF — and wrong for a voucher number, because the number IS the cell's content and
+ * the row would read as empty until the cursor found it. Same colour and same underline, always
+ * visible. Also the "show 500 more" foot of a paged table, which is not a row action either, and
+ * the remove on a line in a grid that is being typed into rather than read.
+ */
+export function RowLink({
+  tone = 'link',
+  className = '',
+  ...props
+}: React.ButtonHTMLAttributes<HTMLButtonElement> & {
+  /** `danger` for the one that destroys something. Everything else is a link. */
+  tone?: 'link' | 'danger'
+}): React.JSX.Element {
+  return (
+    <button
+      type="button"
+      {...props}
+      className={`row-link hover:underline disabled:opacity-40 disabled:hover:no-underline ${
+        tone === 'danger' ? 'text-cr' : 'text-blue'
+      } ${className}`}
+    />
+  )
 }
 
 export function Button({
@@ -68,8 +274,8 @@ export function Button({
   disabledTitle?: string
 }): React.JSX.Element {
   const styles = {
-    default: 'border border-line bg-panel hover:border-amber/60 text-ink panel-shadow',
-    primary: 'border border-amberbar bg-amberbar/90 text-[#2b2000] hover:bg-amberbar font-semibold',
+    default: 'border border-line bg-panel hover:border-accent/60 text-ink panel-shadow',
+    primary: 'border border-accentbar bg-accentbar/90 text-onaccent hover:bg-accentbar font-semibold',
     danger: 'border border-cr/50 bg-cr/10 text-cr hover:bg-cr/20',
     ghost: 'border border-transparent text-muted hover:text-ink hover:border-line'
   }[variant]
@@ -77,7 +283,7 @@ export function Button({
     <button
       type="button"
       {...props}
-      className={`rounded-md px-3 py-1.5 text-detail transition-colors disabled:opacity-40 disabled:pointer-events-none ${styles} ${props.className ?? ''}`}
+      className={`rounded-md px-3 py-1.5 text-body transition-colors disabled:opacity-40 disabled:pointer-events-none ${styles} ${props.className ?? ''}`}
     />
   )
   if (props.disabled && disabledTitle) {
@@ -113,9 +319,15 @@ export function AmountInput({
   const [text, setText] = useState(paise != null && paise !== 0 ? formatPaise(paise) : '')
   useEffect(() => {
     // Reflect external resets (e.g. clearing a form).
-    if (paise == null || paise === 0) setText((t) => (parseRupees(t) ? t : ''))
+    if (paise == null || paise === 0) setText((t) => (parseAmountExpression(t) ? t : ''))
   }, [paise])
-  const invalid = text.trim() !== '' && parseRupees(text) == null
+
+  const parsed = text.trim() === '' ? null : parseAmountExpression(text)
+  const invalid = text.trim() !== '' && parsed == null
+  // Only worth previewing when the user typed something a plain number parser would reject —
+  // otherwise the preview just repeats what is already in the box.
+  const preview = parsed != null && isExpression(text) ? formatPaise(parsed) : null
+
   return (
     <span className={`block min-w-0 ${className ?? ''}`}>
       <input
@@ -128,17 +340,95 @@ export function AmountInput({
         aria-invalid={invalid || undefined}
         onChange={(e) => {
           setText(e.target.value)
-          onPaise(parseRupees(e.target.value))
+          onPaise(parseAmountExpression(e.target.value))
         }}
         onBlur={() => {
-          const parsed = parseRupees(text)
+          // Resolve the expression in place on blur, so what is stored and what is shown agree.
           if (parsed != null) setText(formatPaise(parsed))
         }}
         onKeyDown={(e) => {
           if (e.key === 'Enter' && onEnter) onEnter()
         }}
       />
-      {invalid && <span className="mt-0.5 block text-hint text-cr">Not an amount</span>}
+      {invalid && <span className="mt-0.5 block text-micro text-cr">Not an amount</span>}
+      {preview && (
+        <span className="mt-0.5 block text-right text-micro text-muted" data-testid={`${testId}-preview`}>
+          = {preview}
+        </span>
+      )}
+    </span>
+  )
+}
+
+/**
+ * Quantity input: arithmetic and alternate units, the same way AmountInput handles money (#34).
+ *
+ * Holds TEXT, not a number, and hands the caller the parsed thousandths alongside it. The text
+ * has to survive round-trips because `2 box` and `24` are the same quantity and only one of them
+ * is what the user typed — resolving the box away on every keystroke would make the field
+ * impossible to correct halfway through.
+ *
+ * The unit symbol sits inside the control rather than beside it so the two cannot drift apart in
+ * a narrow grid cell, and the conversion caption appears only when there is a conversion to
+ * state (see conversionHint).
+ */
+export function QtyInput({
+  text,
+  onText,
+  baseSymbol,
+  alt,
+  decimals = 3,
+  onEnter,
+  inputRef,
+  className,
+  testId = 'input-qty'
+}: {
+  text: string
+  /** Raw text plus what it parsed to, in base thousandths — null when it does not parse. */
+  onText: (text: string, baseQtyMilli: number | null) => void
+  baseSymbol: string
+  /** The item's alternate unit, or null when it has none. */
+  alt: AltUnit | null
+  /** Display precision of the base unit, from the unit master. */
+  decimals?: number
+  onEnter?: () => void
+  inputRef?: React.RefObject<HTMLInputElement | null>
+  className?: string
+  testId?: string
+}): React.JSX.Element {
+  const parsed = text.trim() === '' ? null : parseQtyExpression(text, baseSymbol, alt)
+  const invalid = text.trim() !== '' && parsed == null
+  const hint = parsed ? conversionHint(parsed, baseSymbol, alt, decimals) : null
+  // Only worth previewing what a plain number parser would have refused; echoing '24' back as
+  // '24' is noise in a row of eight cells.
+  const preview = parsed && !hint && isQtyExpression(text) ? (parsed.baseQtyMilli / 1000).toFixed(decimals) : null
+
+  return (
+    <span className={`block min-w-0 ${className ?? ''}`}>
+      <span className="flex items-center gap-1.5">
+        <input
+          ref={inputRef}
+          className={`${inputCls} num text-right ${invalid ? 'border-cr/70' : ''}`}
+          data-testid={testId}
+          value={text}
+          inputMode="decimal"
+          placeholder="0"
+          aria-invalid={invalid || undefined}
+          onChange={(e) =>
+            onText(e.target.value, parseQtyExpression(e.target.value, baseSymbol, alt)?.baseQtyMilli ?? null)
+          }
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' && onEnter) onEnter()
+          }}
+        />
+        <span className="w-8 shrink-0 text-caption text-muted">{baseSymbol}</span>
+      </span>
+      {invalid && <span className="mt-0.5 block text-micro text-cr">Not a quantity</span>}
+      {(hint ?? preview) && (
+        <span className="mt-0.5 block text-right text-micro text-muted" data-testid={`${testId}-preview`}>
+          {hint ?? `= ${preview} ${baseSymbol}`}
+        </span>
+      )}
     </span>
   )
 }
@@ -159,9 +449,14 @@ export function DateInput({
   /** data-testid for the input (lib/testids.ts — `input-<what>`). */
   testId?: string
 }): React.JSX.Element {
-  const [text, setText] = useState(toDisplayDate(value))
+  // An OPTIONAL date field holds '' when it is unset, and toDisplayDate('') indexes into a
+  // split that isn't there and throws — which took the whole screen down through the error
+  // boundary the moment a modal with an empty date opened (the transport modal's document
+  // date). Empty in, empty out.
+  const show = (v: string): string => (v ? toDisplayDate(v) : '')
+  const [text, setText] = useState(show(value))
   const [bad, setBad] = useState(false)
-  useEffect(() => setText(toDisplayDate(value)), [value])
+  useEffect(() => setText(show(value)), [value])
   return (
     <span className={`block min-w-0 ${className ?? ''}`}>
       <input
@@ -175,39 +470,49 @@ export function DateInput({
         }}
         onFocus={(e) => e.target.select()}
         onBlur={() => {
-          const parsed = parseSmartDate(text, context) ?? (text.trim() === toDisplayDate(value) ? value : null)
+          const parsed = parseSmartDate(text, context) ?? (text.trim() === show(value) ? value : null)
           if (parsed) {
             setBad(false)
             onChange(parsed)
-            setText(toDisplayDate(parsed))
+            setText(show(parsed))
           } else {
-            setBad(true)
+            // An empty box over an unset date is the field's resting state, not a typo.
+            setBad(!(text.trim() === '' && value === ''))
           }
         }}
         onKeyDown={(e) => {
           if (e.key === 'Enter') (e.target as HTMLInputElement).blur()
         }}
       />
-      {bad && <span className="mt-0.5 block text-hint text-cr">Try 7, 7/4, t, y or 15-08-2026</span>}
+      {bad && <span className="mt-0.5 block text-micro text-cr">Try 7, 7/4, t, y or 15-08-2026</span>}
     </span>
   )
 }
 
 // ---------- panels + modal ----------
 
-export function Panel({
-  children,
-  className = '',
-  scroll
-}: {
-  children: ReactNode
-  className?: string
-  /** Cap the panel's content height — anything longer scrolls inside the panel instead of
-   *  growing the page (Gateway top-lists, Settings backups, …). */
-  scroll?: { maxH: string }
-}): React.JSX.Element {
+export const Panel = forwardRef<
+  HTMLDivElement,
+  {
+    children: ReactNode
+    className?: string
+    /** Cap the panel's content height — anything longer scrolls inside the panel instead of
+     *  growing the page (Gateway top-lists, Settings backups, …). */
+    scroll?: { maxH: string }
+    /** Entry forms attach the Enter-chaining handler to the panel that wraps their fields. */
+    onKeyDown?: (e: React.KeyboardEvent<HTMLDivElement>) => void
+    /** A panel is often the thing a test wants to assert on; without this it silently swallows
+     *  the attribute and the selector never matches. */
+    'data-testid'?: string
+  }
+>(function Panel({ children, className = '', scroll, onKeyDown, ...rest }, ref): React.JSX.Element {
   return (
-    <div className={`rounded-lg border border-line bg-panel panel-shadow overflow-hidden ${className}`}>
+    <div
+      ref={ref}
+      onKeyDown={onKeyDown}
+      {...rest}
+      className={`rounded-lg border border-line bg-panel panel-shadow overflow-hidden ${className}`}
+    >
       {scroll ? (
         <div className="overflow-y-auto" style={{ maxHeight: scroll.maxH }}>
           {children}
@@ -217,20 +522,22 @@ export function Panel({
       )}
     </div>
   )
-}
+})
 
 /** Bare capped-height scroll container for lists that already live inside a Panel (or none). */
 export function ScrollList({
   maxH,
   children,
-  className = ''
+  className = '',
+  onPaste
 }: {
   maxH: string
   children: ReactNode
   className?: string
+  onPaste?: (e: React.ClipboardEvent) => void
 }): React.JSX.Element {
   return (
-    <div className={`overflow-y-auto ${className}`} style={{ maxHeight: maxH }}>
+    <div className={`overflow-y-auto ${className}`} style={{ maxHeight: maxH }} onPaste={onPaste}>
       {children}
     </div>
   )
@@ -243,35 +550,121 @@ export function LineTableScroller({
   active,
   children,
   className = '',
-  maxH = '340px'
+  maxH = '340px',
+  onPaste
 }: {
   active: boolean
   children: ReactNode
   className?: string
   maxH?: string
+  /** Paste handler for the whole grid — a pasted spreadsheet table belongs to the table, not to
+   *  whichever cell happened to have focus. Passed through both branches so the behaviour does
+   *  not change the moment a voucher grows past eight lines and starts scrolling. */
+  onPaste?: (e: React.ClipboardEvent) => void
 }): React.JSX.Element {
   return active ? (
-    <ScrollList maxH={maxH} className={className}>
+    <ScrollList maxH={maxH} className={className} onPaste={onPaste}>
       {children}
     </ScrollList>
   ) : (
-    <div className={className}>{children}</div>
+    <div className={className} onPaste={onPaste}>
+      {children}
+    </div>
   )
 }
 
 const FOCUSABLE =
   'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
 
-/** Stack of mounted modals — only the topmost one responds to Esc/Tab, so stacked modals
- *  (e.g. a ConfirmModal over a form modal) close one at a time. */
-let modalSeq = 0
-const modalStack: number[] = []
+/**
+ * True while a dialog or the command palette owns the keyboard — screens use it to suppress
+ * their own shortcuts so keys aimed at a dialog never leak to the screen underneath.
+ *
+ * Modal stacking (a ConfirmModal over a form modal) and "only the topmost list takes the
+ * arrows" are both handled by the shared layer registry in lib/keyboard.ts now; this is kept
+ * as the familiar name for the predicate.
+ */
+export const isAnyModalOpen = isBlocked
 
-/** True while any Modal is mounted — screens use it to suppress their own global shortcuts
- *  (Gateway single-letter keys, VoucherEntry F-keys / ⌘↵) so keys aimed at a dialog never
- *  leak through to the screen underneath. useKeyNav already checks this internally. */
-export function isAnyModalOpen(): boolean {
-  return modalStack.length > 0
+/**
+ * The focus trap, as one implementation (#280).
+ *
+ * Every overlay in the app needs the same three things and they are easy to get 2-of-3 right:
+ *
+ *   1. focus moves INTO the overlay when it opens — otherwise the caret is still on the row
+ *      behind it and the first Tab walks the page under the dimmer;
+ *   2. Tab and Shift+Tab wrap at the ends — otherwise focus escapes to the sidebar and the user
+ *      is operating a screen they cannot see;
+ *   3. focus goes BACK to whatever opened it on close — otherwise it falls to <body> and the
+ *      next Tab restarts from the top of the app.
+ *
+ * The Command palette had (1) only, via `autoFocus` on its input, which is exactly the 2-of-3
+ * this hook exists to stop happening again.
+ *
+ * Tab is a capture-phase window listener rather than a key-layer entry: the trap has to beat the
+ * browser's own default focus move, and the bubble-phase dispatcher runs too late for that.
+ *
+ * `isTop` lets a stack of overlays agree on which one owns the keyboard; the default traps
+ * unconditionally, which is right for an overlay that can't be stacked on.
+ */
+export function useFocusTrap(
+  ref: React.RefObject<HTMLElement | null>,
+  opts: { isTop?: () => boolean; autoFocus?: boolean } = {}
+): void {
+  const { isTop, autoFocus = true } = opts
+  const isTopRef = useRef(isTop)
+  isTopRef.current = isTop
+
+  // Captured during the first RENDER, not in the effect. React applies a child's `autoFocus`
+  // during commit, which is before passive effects run — so an effect reading activeElement
+  // finds the overlay's own input and "restores" focus to a node that is about to be unmounted.
+  // That is how the Modal has been quietly failing to give focus back all along.
+  const previousRef = useRef<HTMLElement | null>(
+    typeof document === 'undefined' ? null : (document.activeElement as HTMLElement | null)
+  )
+
+  useEffect(() => {
+    const previous = previousRef.current
+    const container = ref.current
+    if (autoFocus && container && !container.contains(document.activeElement)) {
+      const first = container.querySelector<HTMLElement>(FOCUSABLE)
+      ;(first ?? container).focus()
+    }
+    return () => {
+      // Guarded: the element that opened the overlay may itself have been unmounted by whatever
+      // the overlay did (a row deleted, a screen navigated away from).
+      if (previous?.isConnected) previous.focus?.()
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.key !== 'Tab') return
+      if (isTopRef.current && !isTopRef.current()) return
+      const container = ref.current
+      if (!container) return
+      const focusables = Array.from(container.querySelectorAll<HTMLElement>(FOCUSABLE)).filter(
+        (el) => el.offsetParent !== null || el === document.activeElement
+      )
+      if (focusables.length === 0) {
+        e.preventDefault()
+        return
+      }
+      const first = focusables[0]!
+      const last = focusables[focusables.length - 1]!
+      const inside = container.contains(document.activeElement)
+      if (e.shiftKey && (document.activeElement === first || !inside)) {
+        e.preventDefault()
+        last.focus()
+      } else if (!e.shiftKey && (document.activeElement === last || !inside)) {
+        e.preventDefault()
+        first.focus()
+      }
+    }
+    window.addEventListener('keydown', onKey, true)
+    return () => window.removeEventListener('keydown', onKey, true)
+  }, [ref])
 }
 
 export function Modal({
@@ -308,61 +701,25 @@ export function Modal({
     onCloseRef.current()
   }, [])
 
-  // Focus trap: move focus in on mount (unless a child autoFocus already took it), restore on close.
-  useEffect(() => {
-    const previous = document.activeElement as HTMLElement | null
-    const dialog = dialogRef.current
-    if (dialog && !dialog.contains(document.activeElement)) {
-      const first = dialog.querySelector<HTMLElement>(FOCUSABLE)
-      ;(first ?? dialog).focus()
-    }
-    return () => {
-      previous?.focus?.()
-    }
-  }, [])
-
-  useEffect(() => {
-    const id = ++modalSeq
-    modalStack.push(id)
-    const isTop = (): boolean => modalStack[modalStack.length - 1] === id
-    const onKey = (e: KeyboardEvent): void => {
-      if (!isTop()) return
-      if (e.key === 'Escape') {
-        e.stopPropagation()
-        if (confirmRef.current) {
-          setConfirmDiscard(false) // Esc on the discard prompt = keep editing
-          return
-        }
-        requestClose()
-      } else if (e.key === 'Tab') {
-        const dialog = dialogRef.current
-        if (!dialog) return
-        const focusables = Array.from(dialog.querySelectorAll<HTMLElement>(FOCUSABLE)).filter(
-          (el) => el.offsetParent !== null || el === document.activeElement
-        )
-        if (focusables.length === 0) {
-          e.preventDefault()
-          return
-        }
-        const first = focusables[0]!
-        const last = focusables[focusables.length - 1]!
-        const inside = dialog.contains(document.activeElement)
-        if (e.shiftKey && (document.activeElement === first || !inside)) {
-          e.preventDefault()
-          last.focus()
-        } else if (!e.shiftKey && (document.activeElement === last || !inside)) {
-          e.preventDefault()
-          first.focus()
-        }
+  // Escape goes through the layer registry as an OPAQUE layer: it closes this dialog and, by
+  // being opaque, stops the key reaching the screen's own shortcuts or nav's Esc-to-go-back.
+  const modalLayer = useKeyLayer(
+    'modal',
+    (e) => {
+      if (e.key !== 'Escape') return false
+      if (confirmRef.current) {
+        setConfirmDiscard(false) // Esc on the discard prompt = keep editing
+        return true
       }
-    }
-    window.addEventListener('keydown', onKey, true)
-    return () => {
-      window.removeEventListener('keydown', onKey, true)
-      const i = modalStack.indexOf(id)
-      if (i >= 0) modalStack.splice(i, 1)
-    }
-  }, [requestClose])
+      requestClose()
+      return true
+    },
+    { opaque: true }
+  )
+
+  // Focus in on mount, wrap at the ends, restore on close — and only while this dialog is the
+  // top of the modal stack, so a ConfirmModal over a form modal traps against itself.
+  useFocusTrap(dialogRef, { isTop: () => topLayer('modal')?.id === modalLayer.current })
 
   return (
     <div
@@ -385,10 +742,10 @@ export function Modal({
         aria-labelledby={titleId}
         data-modal={title}
         tabIndex={-1}
-        className={`max-h-[75vh] w-full ${wide ? 'max-w-3xl' : 'max-w-lg'} overflow-auto rounded-xl border border-line bg-panel shadow-2xl outline-none`}
+        className={`max-h-[80vh] w-full ${wide ? 'max-w-3xl' : 'max-w-lg'} overflow-auto rounded-lg border border-line bg-panel shadow-2xl outline-none`}
       >
         <div className="flex items-center justify-between border-b border-line px-5 py-3">
-          <h3 id={titleId} className="font-serif text-title font-semibold">
+          <h3 id={titleId} className="font-serif text-section font-semibold">
             {title}
           </h3>
           <div className="flex items-center gap-2">
@@ -398,7 +755,7 @@ export function Modal({
               aria-label="Close"
               data-testid="modal-close"
               onClick={requestClose}
-              className="rounded-md border border-transparent px-1.5 py-0.5 text-[15px] leading-none text-muted transition-colors hover:border-line hover:text-ink"
+              className="rounded-md border border-transparent px-1.5 py-0.5 text-lead leading-none text-muted transition-colors hover:border-line hover:text-ink"
             >
               ✕
             </button>
@@ -406,8 +763,8 @@ export function Modal({
         </div>
         <div className="p-5">{children}</div>
         {confirmDiscard && (
-          <div className="flex items-center justify-between gap-3 border-t border-amber/60 bg-amber/10 px-5 py-3">
-            <p className="text-detail text-ink">Discard unsaved changes?</p>
+          <div className="flex items-center justify-between gap-3 border-t border-warnline bg-warnsoft px-5 py-3">
+            <p className="text-body text-ink">Discard unsaved changes?</p>
             <div className="flex shrink-0 gap-2">
               <Button data-testid="modal-keep-editing" onClick={() => setConfirmDiscard(false)}>
                 Keep editing
@@ -429,27 +786,48 @@ export function Toasts(): React.JSX.Element {
     info: 'border-blue/50 text-blue',
     success: 'border-dr/50 text-dr',
     error: 'border-cr/60 text-cr',
-    warning: 'border-amber/60 text-amber'
+    // Warnings use the ochre, not the accent: the accent is the selection bar and the primary
+    // button, and a toast wearing it reads as something to click rather than something to read.
+    warning: 'border-warnline text-warn'
   }
   return (
     // Pause/resume live on the container, not the toast: React still fires the container's
     // mouseEnter/Leave when the pointer moves over a child, and a hovered toast that gets
     // removed (click-dismiss, dedupe) can no longer strand the stack in the paused state.
     <div
-      aria-live="polite"
+      // Two live-region politeness levels would need two containers, and two containers would
+      // stack toasts in two places on screen. One container, assertive only while it holds a
+      // message the user has to act on: a polite region may be deferred indefinitely, which is
+      // fine for "saved" and wrong for "could not save".
+      aria-live={toasts.some((t) => t.kind === 'error' || t.kind === 'warning') ? 'assertive' : 'polite'}
       role="status"
       onMouseEnter={pause}
       onMouseLeave={resume}
       className="pointer-events-none fixed right-4 bottom-4 z-50 flex w-96 flex-col gap-2"
     >
       {toasts.map((t) => (
-        <button
+        <div
           key={t.id}
-          onClick={() => dismiss(t.id)}
-          className={`pointer-events-auto rounded-lg border bg-panel px-4 py-2.5 text-left text-detail shadow-xl ${tones[t.kind]}`}
+          className={`pointer-events-auto flex items-center gap-3 rounded-lg border bg-panel px-4 py-2.5 text-left text-body shadow-xl ${tones[t.kind]}`}
         >
-          {t.text}
-        </button>
+          {/* The message dismisses on click, as it always has. The action is a separate target
+              so reaching for Undo can never dismiss the toast by missing it. */}
+          <button className="flex-1 text-left" onClick={() => dismiss(t.id)}>
+            {t.text}
+          </button>
+          {t.action && (
+            <button
+              data-testid="toast-action"
+              className="shrink-0 rounded-md border border-current px-2 py-0.5 text-micro font-medium"
+              onClick={() => {
+                dismiss(t.id)
+                void t.action!.run()
+              }}
+            >
+              {t.action.label}
+            </button>
+          )}
+        </div>
       ))}
     </div>
   )
@@ -462,13 +840,13 @@ export function Spinner({ className = '' }: { className?: string }): React.JSX.E
     <span
       role="status"
       aria-label="Loading"
-      className={`inline-block h-4 w-4 animate-spin rounded-full border-2 border-line border-t-amber ${className}`}
+      className={`inline-block h-4 w-4 animate-spin rounded-full border-2 border-line border-t-accent ${className}`}
     />
   )
 }
 
 export function Skeleton({ className = '' }: { className?: string }): React.JSX.Element {
-  return <span aria-hidden="true" className={`block animate-pulse rounded bg-panel2 ${className}`} />
+  return <span aria-hidden="true" className={`block animate-pulse rounded-md bg-panel2 ${className}`} />
 }
 
 /** Placeholder rows while a list/report query is in flight — drop inside a Panel. */
@@ -482,14 +860,87 @@ export function SkeletonRows({ rows = 8, className = '' }: { rows?: number; clas
   )
 }
 
-// ---------- keyboard list navigation (the amber bar) ----------
+/**
+ * The app's single polite live region (#275) — mount once, near the toasts.
+ *
+ * Separate from <Toasts/> on purpose: that region flips to `assertive` while an error is up, and
+ * a row-selection announcement sharing it would inherit the interruption and talk over the user
+ * on every arrow press.
+ */
+export function LiveAnnouncer(): React.JSX.Element {
+  const message = useAnnouncer((s) => s.message)
+  return (
+    <div data-testid="live-announcer" role="status" aria-live="polite" aria-atomic="true" className="sr-only">
+      {message}
+    </div>
+  )
+}
 
-/** Stack of mounted keyboard lists — only the topmost enabled list responds to ↑↓↵, so an
- *  overlay's list doesn't fight the screen's list underneath it. */
-let keyNavSeq = 0
-const keyNavStack: number[] = []
+// ---------- keyboard list navigation (the accent bar) ----------
 
-export function useKeyNav(count: number, onEnter: (index: number) => void, enabled = true): {
+/** How much of a row gets read out. A ledger row can carry ten columns; the first few identify
+ *  it, and the rest is the reader talking for fifteen seconds before the next arrow press. */
+const ANNOUNCE_MAX = 140
+
+/**
+ * What a screen reader should hear when the accent bar lands on a row.
+ *
+ * Cells are joined with commas rather than taken from `textContent`, because `textContent` runs
+ * "12-Apr-26Sales/0007Acme Traders" together into one unreadable word. Position is read first:
+ * "row 4 of 96" is the thing a sighted user gets for free from the scrollbar.
+ */
+function rowAnnouncement(row: HTMLElement, index: number, count: number): string {
+  const cells = Array.from(row.querySelectorAll<HTMLElement>('td'))
+  const text = (cells.length > 0 ? cells.map((c) => c.textContent ?? '') : [row.textContent ?? ''])
+    .map((t) => t.replace(/\s+/g, ' ').trim())
+    .filter(Boolean)
+    .join(', ')
+  const clipped = text.length > ANNOUNCE_MAX ? `${text.slice(0, ANNOUNCE_MAX)}…` : text
+  return `Row ${index + 1} of ${count}${clipped ? `: ${clipped}` : ''}`
+}
+
+/** What `useKeyNav` binds, as data — ShortcutHelp renders this rather than restating it. */
+export const LIST_SHORTCUTS: { keys: string[]; label: string }[] = [
+  { keys: ['↑', '↓'], label: 'Move the selection' },
+  { keys: ['↵'], label: 'Open the selected row' },
+  { keys: ['Home', 'End'], label: 'Jump to the first or last row' },
+  { keys: ['PgUp', 'PgDn'], label: 'Move ten rows at a time' },
+  { keys: ['⌘⌫'], label: 'Delete the selected row, with an undo on the toast' },
+  { keys: ['Space'], label: 'Expand or collapse the selected row, on a report that has sub-rows' },
+  // Advertised whether or not the preference is on: a shortcut nobody can find out about is a
+  // shortcut nobody uses, and the row says where to turn it on.
+  { keys: ['gg', 'G'], label: 'First / last row — vim keys, off until Settings → Appearance' }
+]
+
+/** Rows moved by PageUp/PageDown. Reports routinely run to hundreds of rows, so one screenful
+ *  of arrow-key presses is not a realistic way to reach the bottom. */
+const PAGE_JUMP = 10
+
+/** How long a lone `g` waits for its partner before it stops meaning anything (vim keys). */
+const G_CHORD_MS = 800
+
+/**
+ * Elements the browser already activates with Space, so the row bar must keep its hands off it.
+ *
+ * The statement trees on the Balance Sheet and P&L are nested `<button>`s: Space on a focused
+ * button fires that button's click, and if this layer also toggled the selected table row the
+ * one keypress would fold two different things. Chromium does not set `defaultPrevented` for a
+ * button's own Space, so there is nothing else to read this off.
+ */
+const SPACE_ACTIVATES = 'button, a[href], summary, [role="button"], [role="option"]'
+
+function spaceBelongsToFocus(): boolean {
+  const el = typeof document === 'undefined' ? null : document.activeElement
+  return !!el && typeof el.closest === 'function' && el.closest(SPACE_ACTIVATES) !== null
+}
+
+export function useKeyNav(
+  count: number,
+  onEnter: (index: number) => void,
+  enabled = true,
+  /** Space on the selected row — expand or collapse it (roadmap A17). */
+  onToggle?: (index: number) => void
+): {
   active: number
   setActive: (i: number) => void
 } {
@@ -500,49 +951,200 @@ export function useKeyNav(count: number, onEnter: (index: number) => void, enabl
   activeRef.current = active
   const onEnterRef = useRef(onEnter)
   onEnterRef.current = onEnter
-  const idRef = useRef(0)
+  const onToggleRef = useRef(onToggle)
+  onToggleRef.current = onToggle
+  // Whether the last move came from the keyboard. Only those are announced: a pointer user
+  // sweeping down a table moves the selection dozens of times a second, and a live region fed
+  // from that is a stuck record. Screen-reader users are on the keyboard by definition.
+  const fromKeyboard = useRef(false)
+  /** Timestamp of a lone `g` waiting for its partner; 0 when nothing is pending. */
+  const gPending = useRef(0)
   useEffect(() => {
     if (active >= count && count > 0) setActive(count - 1)
   }, [count, active])
-  useEffect(() => {
-    if (!enabled) return
-    const id = ++keyNavSeq
-    idRef.current = id
-    keyNavStack.push(id)
-    const isTop = (): boolean => keyNavStack[keyNavStack.length - 1] === id
-    const onKey = (e: KeyboardEvent): void => {
-      if (!isTop()) return
-      // While any Modal is up it owns the keyboard — a screen's list behind it must not
-      // move its selection (or fire Enter) from keys aimed at the dialog.
-      if (modalStack.length > 0) return
-      const tag = (e.target as HTMLElement).tagName
-      if (tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA') return
+
+  // A 'list' layer. Being below any modal in the stack is what keeps a screen's list from
+  // reacting to keys aimed at a dialog on top of it — the old explicit modalStack check.
+  const listLayer = useKeyLayer(
+    'list',
+    (e) => {
+      if (isTypingTarget(e)) return false
+      // Set for every key this layer might claim, before the branches: whichever one fires, the
+      // move it causes is a keyboard move and should be spoken.
+      fromKeyboard.current = true
       if (e.key === 'ArrowDown') {
         e.preventDefault()
         setActive((a) => Math.min(countRef.current - 1, a + 1))
-      } else if (e.key === 'ArrowUp') {
+        return true
+      }
+      if (e.key === 'ArrowUp') {
         e.preventDefault()
         setActive((a) => Math.max(0, a - 1))
-      } else if (e.key === 'Enter') {
+        return true
+      }
+      if (e.key === 'Home') {
+        e.preventDefault()
+        setActive(0)
+        return true
+      }
+      if (e.key === 'End') {
+        e.preventDefault()
+        setActive(Math.max(0, countRef.current - 1))
+        return true
+      }
+      /**
+       * Vim's `gg` and `G`, only when the preference is on (Settings → Appearance).
+       *
+       * Off by default and it has to be: `G` is the Gateway accelerator, and this layer sits
+       * above the nav layer, so binding it here shadows the way home on every screen with a
+       * list. Behind the preference it is a trade the user has made knowingly.
+       *
+       * The `gg` timeout is what stops a stray `g` from arming forever — a `g` pressed now and
+       * another two minutes later is two separate keystrokes, not a jump to the top.
+       */
+      if (useKeyPrefs.getState().vimKeys && isPlainKey(e) && (e.key === 'g' || e.key === 'G')) {
+        e.preventDefault()
+        if (e.key === 'G') {
+          gPending.current = 0
+          setActive(Math.max(0, countRef.current - 1))
+          return true
+        }
+        if (Date.now() - gPending.current < G_CHORD_MS) {
+          gPending.current = 0
+          setActive(0)
+        } else {
+          gPending.current = Date.now()
+        }
+        return true
+      }
+      if (e.key === 'PageDown') {
+        e.preventDefault()
+        setActive((a) => Math.min(countRef.current - 1, a + PAGE_JUMP))
+        return true
+      }
+      if (e.key === 'PageUp') {
+        e.preventDefault()
+        setActive((a) => Math.max(0, a - PAGE_JUMP))
+        return true
+      }
+      if (e.key === 'Enter') {
         // Side-effect outside the state updater — updaters can run twice under StrictMode.
         if (countRef.current > 0) onEnterRef.current(activeRef.current)
+        return true
       }
-    }
-    window.addEventListener('keydown', onKey)
-    return () => {
-      window.removeEventListener('keydown', onKey)
-      const i = keyNavStack.indexOf(id)
-      if (i >= 0) keyNavStack.splice(i, 1)
-    }
-  }, [enabled])
+      // Space folds the selected row (A17). `e.code` as well as `e.key` because a Space that
+      // arrives with a dead-key or IME state set reports an empty `key` on some layouts.
+      if (e.key === ' ' || e.code === 'Space') {
+        if (!onToggleRef.current || !isPlainKey(e) || spaceBelongsToFocus()) return false
+        // Unconditionally: Space is page-scroll otherwise, and a report that jumps a screenful
+        // every time a row folds is worse than one that does not fold at all.
+        e.preventDefault()
+        if (countRef.current > 0) onToggleRef.current(activeRef.current)
+        return true
+      }
+      return false
+    },
+    { enabled, topOfKind: true }
+  )
   // Keep the active row visible as the selection moves. Rows follow the `.kbar-row` +
   // `data-active` convention; the last match wins because overlays render after the screen.
   useEffect(() => {
-    if (enabled && keyNavStack[keyNavStack.length - 1] !== idRef.current) return
+    if (enabled && topLayer('list')?.id !== listLayer.current) return
     const rows = document.querySelectorAll<HTMLElement>('.kbar-row[data-active="true"]')
-    rows[rows.length - 1]?.scrollIntoView({ block: 'nearest' })
-  }, [active, enabled])
-  return { active, setActive }
+    const row = rows[rows.length - 1]
+    row?.scrollIntoView({ block: 'nearest' })
+    // Moving the accent bar changes nothing in the accessibility tree — no focus moves, no state
+    // attribute a reader watches. Without this, arrowing down a 900-row day book is silence.
+    if (!row || !fromKeyboard.current || countRef.current === 0) return
+    useAnnouncer.getState().announce(rowAnnouncement(row, active, countRef.current))
+  }, [active, enabled, listLayer])
+
+  // The pointer path, wrapped so hover can mark itself as not-keyboard. Stable identity: screens
+  // pass this straight into deps and into `rowProps`.
+  const select = useCallback((i: number) => {
+    fromKeyboard.current = false
+    setActive(i)
+  }, [])
+
+  return { active, setActive: select }
+}
+
+/**
+ * List navigation for a `.ledger-table` — `useKeyNav` plus the row markup it depends on.
+ *
+ * Rows are plain hand-written `<tr>`s all over this app (screens do their own colSpan maths,
+ * expandable sub-rows, per-report column visibility), so a `<DataTable>` would mean rewriting
+ * thousands of lines of screen code against a 13-scenario E2E suite. Instead `rowProps` emits
+ * the three things the accent bar and the E2E harness rely on — `.kbar-row`, `data-active` and
+ * `data-row-id` — so they cannot be typed correctly on one screen and wrongly on the next.
+ *
+ * Screens with several tables pass `enabled` for the visible one; the topmost enabled list is
+ * the only one that reacts, so the tables never fight over the arrow keys.
+ */
+export function useTableNav<T>(
+  rows: T[],
+  opts: {
+    onEnter?: (row: T, index: number) => void
+    /** Space on the selected row — expand or collapse it, matching the click on the ▸ row. */
+    onToggle?: (row: T, index: number) => void
+    rowId?: (row: T, index: number) => string | number
+    enabled?: boolean
+  } = {}
+): {
+  active: number
+  setActive: (i: number) => void
+  rowProps: (index: number, row: T) => {
+    'data-active': boolean
+    'data-row-id'?: string | number
+    className: string
+    onMouseEnter: () => void
+    onClick?: (e: React.MouseEvent) => void
+  }
+} {
+  const { onEnter, onToggle, rowId, enabled = true } = opts
+  const onEnterRef = useRef(onEnter)
+  onEnterRef.current = onEnter
+  const onToggleRef = useRef(onToggle)
+  onToggleRef.current = onToggle
+  const rowsRef = useRef(rows)
+  rowsRef.current = rows
+
+  const { active, setActive } = useKeyNav(
+    rows.length,
+    (index) => {
+      const row = rowsRef.current[index]
+      if (row !== undefined) onEnterRef.current?.(row, index)
+    },
+    enabled,
+    // Passed only when the caller wants it: without a handler the layer declines Space, so a
+    // list with nothing to fold leaves the key to whatever is underneath.
+    onToggle
+      ? (index) => {
+          const row = rowsRef.current[index]
+          if (row !== undefined) onToggleRef.current?.(row, index)
+        }
+      : undefined
+  )
+
+  return {
+    active,
+    setActive,
+    rowProps: (index, row) => ({
+      'data-active': index === active,
+      'data-row-id': rowId ? rowId(row, index) : undefined,
+      className: `kbar-row${onEnter ? ' cursor-pointer' : ''}`,
+      onMouseEnter: () => setActive(index),
+      // A click on a control inside the row is that control's click, not the row's. Without this
+      // an action button in the last cell fires its own handler AND the row's, which on a screen
+      // where both open a dialog means two dialogs stacked on top of each other.
+      onClick: onEnter
+        ? (e: React.MouseEvent) => {
+            if ((e.target as HTMLElement).closest('button, a, input, select, textarea, label')) return
+            onEnter(row, index)
+          }
+        : undefined
+    })
+  }
 }
 
 export function EmptyState({
@@ -559,8 +1161,8 @@ export function EmptyState({
   return (
     <div className="flex flex-col items-center justify-center py-16 text-center">
       {icon && <div className="mb-3 text-muted/50">{icon}</div>}
-      <p className="text-[14px] text-muted">{title}</p>
-      {hint && <p className="mt-1 text-body-sm text-muted/70">{hint}</p>}
+      <p className="text-lead text-muted">{title}</p>
+      {hint && <p className="mt-1 text-body text-muted/70">{hint}</p>}
       {action && <div className="mt-4">{action}</div>}
     </div>
   )

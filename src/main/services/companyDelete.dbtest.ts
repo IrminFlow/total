@@ -10,7 +10,9 @@ import { assertDeleteAuthorized } from './companyDelete'
 import type { CompanyInfo } from '@shared/domain'
 
 const INFO: CompanyInfo = {
-  name: 'Test Co', stateCode: '27', gstin: null, gstRegistrationType: 'regular', address: '',
+  name: 'Test Co', stateCode: '27', gstin: null, gstRegistrationType: 'regular',
+  gstFilingFrequency: 'monthly',
+  turnoverBand: null, address: '',
   booksFrom: 2025, email: null, phone: null, pan: null, tan: null
 }
 

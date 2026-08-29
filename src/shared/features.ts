@@ -1,7 +1,11 @@
-import { z } from 'zod'
-
 /**
  * Company-wide feature toggles (Tally's F11 "features") — gate renderer affordances only.
+ *
+ * Deliberately zod-free, and this file is where that costs something to keep: the schema and the
+ * merge live next door in `features.schema.ts` because `useFeatures` is on every screen, so
+ * whatever this module imports lands in the renderer's ENTRY chunk — the bytes read before
+ * anything is on screen. Importing zod here put the whole validator in front of every user for
+ * the sake of a ten-key object of booleans that the renderer only ever reads.
  * Data already entered stays valid and every report keeps reading it regardless of these flags;
  * flipping a toggle never mutates books. Stored per company in `meta` under key 'features'.
  */
@@ -18,6 +22,12 @@ export interface CompanyFeatures {
   batches: boolean
   /** Turn credit-limit save warnings into hard blocks. */
   enforceCreditLimit: boolean
+  /**
+   * The in-app AI assistant. OFF by default and gated in main as well as the renderer: Total's
+   * promise is that it works entirely offline with no account, and that stays literally true
+   * for anyone who never turns this on. Nothing under services/ai is even imported until it is.
+   */
+  ai: boolean
 }
 
 export const DEFAULT_FEATURES: CompanyFeatures = {
@@ -29,29 +39,6 @@ export const DEFAULT_FEATURES: CompanyFeatures = {
   payroll: true,
   preventNegativeStock: false,
   batches: false,
-  enforceCreditLimit: false
-}
-
-export const featuresSchema = z.object({
-  inventory: z.boolean(),
-  billWise: z.boolean(),
-  costCentres: z.boolean(),
-  tds: z.boolean(),
-  multiCurrency: z.boolean(),
-  payroll: z.boolean(),
-  preventNegativeStock: z.boolean(),
-  batches: z.boolean(),
-  enforceCreditLimit: z.boolean()
-})
-
-/**
- * Merge a partial/unknown-shaped object (e.g. persisted JSON from an older build, or a corrupted
- * row) over the defaults, then validate. Never throws — falls back to all-defaults if the merged
- * shape still doesn't validate (a value of the wrong type, say).
- */
-export function mergeFeatures(partial: unknown): CompanyFeatures {
-  const obj = partial && typeof partial === 'object' ? (partial as Record<string, unknown>) : {}
-  const merged = { ...DEFAULT_FEATURES, ...obj }
-  const parsed = featuresSchema.safeParse(merged)
-  return parsed.success ? parsed.data : { ...DEFAULT_FEATURES }
+  enforceCreditLimit: false,
+  ai: false
 }

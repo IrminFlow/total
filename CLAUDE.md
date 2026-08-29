@@ -49,7 +49,7 @@ cd site && npm run dev / npm run build   # marketing site
 - Every IPC payload is Zod-parsed in `src/main/ipc.ts`; handlers return `{ ok, data | error }`.
 - Schema changes = append a numbered migration in `src/main/db/migrations.ts` (never edit old ones).
 - Debit/credit: signed balances are dr-positive; Tally XML import converts Tally's negative-=-debit convention.
-- UI: theme tokens are `--t-*` CSS vars on `[data-theme]`, mapped through Tailwind `@theme inline` — components use token utilities only. The amber `.kbar-row` selection bar on `<tr>` uses an inset box-shadow, **never `::before`** (a `tr::before` renders as a phantom first cell).
+- UI: theme tokens are `--t-*` CSS vars on `[data-theme]`, mapped through Tailwind `@theme inline` — components use token utilities only. The accent `.kbar-row` selection bar on `<tr>` uses an inset box-shadow, **never `::before`** (a `tr::before` renders as a phantom first cell).
 - Vouchers are soft-deleted (`vouchers.deleted_at`, moved to the bin) — every new SQL query touching `vouchers`/`voucher_lines` must filter `deleted_at IS NULL` (see `NOT_DELETED` in `src/main/services/vouchers.ts`) unless it's explicitly reading the bin, `getVoucher`, or `nextVoucherNumber`.
 
 ## Gotchas
@@ -64,11 +64,26 @@ cd site && npm run dev / npm run build   # marketing site
 ## Release steps (auto-update pipeline)
 
 ```bash
-npm version patch      # bumps version, commits, tags vX.Y.Z
+npm run release -- patch   # pre-flight, full verify, version, tag, push, then CHECK it published
+```
+
+`scripts/release.mjs` does what the two commands below used to do from memory, and then goes and
+looks: it polls the release until the assets exist and fails loudly if it published as a draft or
+a pre-release, because `releases/latest` returns neither and both reach nobody while looking
+perfect on the releases page. `--dry-run` stops before the version commit and the push.
+
+```bash
+npm version patch      # what it runs underneath: bumps version, commits, tags vX.Y.Z
 git push --follow-tags # → GitHub Actions: tests, DMG+ZIP build, publishes the release
 ```
 
 - `.github/workflows/release.yml` runs on `v*` tags (macOS runner, `GITHUB_TOKEN` automatic). `releaseType: "release"` in package.json `build.publish` — releases publish directly, **never leave them as drafts** (drafts are invisible to the `releases/latest` API that feeds updates and the site).
+- **Signing is secrets-driven — no code change needed when certificates arrive.** Add
+  `CSC_LINK` + `CSC_KEY_PASSWORD` + `APPLE_ID` + `APPLE_APP_SPECIFIC_PASSWORD` + `APPLE_TEAM_ID`
+  (macOS) and `WIN_CSC_LINK` + `WIN_CSC_KEY_PASSWORD` (Windows) as repo secrets, and the next tag
+  is signed and notarized. Until then each job logs a `::warning::` saying the build is unsigned.
+  Hardened runtime + `build/entitlements.mac.plist` are already configured (notarization needs
+  them, and Electron needs JIT + unsigned-executable-memory + library-validation to survive it).
 - Installed apps check for updates on launch (`src/main/updater.ts`): electron-updater first; because builds are unsigned and the repo is private, the working path is the fallback — it asks the site's `/api/latest` and offers `/api/download`. Once an Apple Developer ID (`CSC_LINK`/`CSC_KEY_PASSWORD` secrets) exists **and** releases are public, silent in-place updates take over.
 - If the repo owner/name ever changes: update package.json `build.publish`, `GITHUB_REPO` + `SITE_LATEST_URL` in `src/main/updater.ts`, and Vercel's `GITHUB_REPO` env.
 

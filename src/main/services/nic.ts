@@ -11,28 +11,72 @@ import { nicCredentialsSchema, type NicCredentials } from '@shared/schemas'
 import { buildEInvoiceJson, type EdocCompany } from '@shared/gst/edocs'
 import { extractEdocInvoices } from './edocs'
 import { writeAudit } from './audit'
+import { readSecret, storageMode, writeSecret, type StorageMode } from '../secrets'
 
 // ---------- credential storage ----------
 
-export function readNicCredentials(db: DB): NicCredentials {
-  const row = db.prepare("SELECT value FROM meta WHERE key = 'nic'").get() as { value: string } | undefined
-  if (!row) return nicCredentialsSchema.parse({})
-  try {
-    return nicCredentialsSchema.parse(JSON.parse(row.value))
-  } catch {
-    return nicCredentialsSchema.parse({})
-  }
+/**
+ * The two genuinely secret fields. Everything else in the record (URLs, username, client id,
+ * the NIC public key) is configuration and stays in the company DB where it is backed up with
+ * the books. These two move to the OS keychain via ../secrets, because the company DB is copied
+ * into every backup, snapshot, CA pack and restore.
+ */
+const SECRET_FIELDS = ['password', 'clientSecret'] as const
+
+function secretKey(slug: string, field: string): string {
+  return `${slug}:nic:${field}`
 }
 
-export function writeNicCredentials(db: DB, creds: NicCredentials): void {
+export function readNicCredentials(db: DB, slug: string): NicCredentials {
+  const row = db.prepare("SELECT value FROM meta WHERE key = 'nic'").get() as { value: string } | undefined
+  let stored: NicCredentials
+  try {
+    stored = row ? nicCredentialsSchema.parse(JSON.parse(row.value)) : nicCredentialsSchema.parse({})
+  } catch {
+    stored = nicCredentialsSchema.parse({})
+  }
+
+  // One-time migration off the old plaintext-in-meta layout. Anything still in the DB is moved
+  // to the keychain and blanked here, so an existing install is cleaned up the first time its
+  // credentials are read rather than needing a schema migration.
+  let migrated = false
+  for (const field of SECRET_FIELDS) {
+    if (stored[field]) {
+      writeSecret(secretKey(slug, field), stored[field])
+      stored[field] = ''
+      migrated = true
+    }
+  }
+  if (migrated) persist(db, stored)
+
+  for (const field of SECRET_FIELDS) {
+    stored[field] = readSecret(secretKey(slug, field)) ?? ''
+  }
+  return stored
+}
+
+function persist(db: DB, creds: NicCredentials): void {
+  const onDisk: NicCredentials = { ...creds }
+  for (const field of SECRET_FIELDS) onDisk[field] = ''
   db.prepare('INSERT INTO meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value')
-    .run('nic', JSON.stringify(creds))
+    .run('nic', JSON.stringify(onDisk))
+}
+
+export function writeNicCredentials(db: DB, slug: string, creds: NicCredentials): void {
+  persist(db, creds)
+  for (const field of SECRET_FIELDS) {
+    writeSecret(secretKey(slug, field), creds[field] || null)
+  }
   // Credentials (incl. password) never go into the audit trail — before/after are always null.
   writeAudit(db, 'nic_credentials', 0, 'update', null, null)
 }
 
-export function nicConfigured(db: DB): boolean {
-  const c = readNicCredentials(db)
+export function nicSecretStorageMode(): StorageMode {
+  return storageMode()
+}
+
+export function nicConfigured(db: DB, slug: string): boolean {
+  const c = readNicCredentials(db, slug)
   return !!(c.baseUrlEinvoice && c.username && c.password && c.clientId && c.publicKeyPem)
 }
 
@@ -150,9 +194,9 @@ export interface IrnResult {
 }
 
 /** Generate an IRN for one sales voucher and store it on the voucher. */
-export async function generateIrn(db: DB, company: CompanyInfo, voucherId: number): Promise<IrnResult> {
-  const creds = readNicCredentials(db)
-  if (!nicConfigured(db)) throw new Error('Live filing is not configured — add NIC API credentials first')
+export async function generateIrn(db: DB, slug: string, company: CompanyInfo, voucherId: number): Promise<IrnResult> {
+  const creds = readNicCredentials(db, slug)
+  if (!nicConfigured(db, slug)) throw new Error('Live filing is not configured — add NIC API credentials first')
   if (!company.gstin) throw new Error('Company GSTIN is missing')
   const existing = db.prepare('SELECT irn FROM vouchers WHERE id = ?').get(voucherId) as { irn: string | null } | undefined
   if (!existing) throw new Error('Voucher not found')
@@ -183,9 +227,9 @@ export interface EwbResult {
 }
 
 /** Generate an e-way bill against an existing IRN (dispatch details from the voucher). */
-export async function generateEwbByIrn(db: DB, company: CompanyInfo, voucherId: number): Promise<EwbResult> {
-  const creds = readNicCredentials(db)
-  if (!nicConfigured(db)) throw new Error('Live filing is not configured — add NIC API credentials first')
+export async function generateEwbByIrn(db: DB, slug: string, company: CompanyInfo, voucherId: number): Promise<EwbResult> {
+  const creds = readNicCredentials(db, slug)
+  if (!nicConfigured(db, slug)) throw new Error('Live filing is not configured — add NIC API credentials first')
   if (!company.gstin) throw new Error('Company GSTIN is missing')
   const v = db.prepare('SELECT irn, ewb_no, vehicle_no, transporter_id, transport_distance FROM vouchers WHERE id = ?').get(voucherId) as
     | { irn: string | null; ewb_no: string | null; vehicle_no: string | null; transporter_id: string | null; transport_distance: number | null }

@@ -550,5 +550,1965 @@ export const MIGRATIONS: string[] = [
   ALTER TABLE audit_log_new RENAME TO audit_log;
   CREATE INDEX idx_audit_at ON audit_log(at);
   CREATE INDEX idx_audit_entity ON audit_log(entity, entity_id);
+  `,
+
+  // 18 — party contact details.
+  //
+  // Reminders had only an email address to work with, and in this market almost nobody sends a
+  // payment reminder by email. A phone number turns the existing reminder text into a WhatsApp
+  // message, which is how these conversations actually happen.
+  `
+  ALTER TABLE ledgers ADD COLUMN phone TEXT;
+  ALTER TABLE ledgers ADD COLUMN email TEXT;
+  `,
+
+  // 19 — the filing register.
+  //
+  // The app showed due dates and then had nowhere to record that a return was actually filed, so
+  // "did we file August?" was answered by looking at the portal. One row per (form, period): the
+  // ARN, when it was filed, the tax paid, and the late fee and interest that came with it.
+  //
+  // Deliberately NOT derived from vouchers: filing is an act performed on the portal, not
+  // something the books can infer. The schedule of what is owed is computed (filingSchedule);
+  // only what happened is stored.
+  `
+  CREATE TABLE gst_filings (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    form TEXT NOT NULL,
+    -- 'YYYY-MM', 'YYYY-Qn' or 'YYYY-FY', as src/shared/period.ts keys them.
+    period TEXT NOT NULL,
+    due_date TEXT NOT NULL,
+    filed_at TEXT,
+    -- Acknowledgement Reference Number from the portal. The proof a return was filed.
+    arn TEXT,
+    tax_paid INTEGER NOT NULL DEFAULT 0,
+    late_fee INTEGER NOT NULL DEFAULT 0,
+    interest INTEGER NOT NULL DEFAULT 0,
+    notes TEXT,
+    UNIQUE (form, period)
+  );
+  CREATE INDEX idx_gst_filings_period ON gst_filings(period);
+  `,
+
+  // 20 — per-item negative-stock block.
+  //
+  // The company-wide F11 flag is all-or-nothing, and a business that sells services alongside
+  // goods, or that legitimately books a sale before the purchase invoice arrives, has to leave it
+  // off — which leaves it off for the items where going negative really is always a mistake.
+  //
+  // NULL means "follow the company setting", which is what every existing item wants. A per-item
+  // yes/no would have forced a migration to guess an answer for items nobody has an opinion on.
+  `
+  ALTER TABLE stock_items ADD COLUMN block_negative INTEGER;
+  `,
+
+  // 21 — employee bank details, for the salary transfer file.
+  //
+  // Paying salaries one transfer at a time is how a business with fifteen people spends an hour
+  // every month typing account numbers into a banking portal, and how one of them eventually goes
+  // to the wrong account. Every bank accepts a bulk file; none of them can be given one without
+  // the account number and IFSC being somewhere.
+  //
+  // Nullable, because an employee genuinely paid in cash has neither, and requiring them would
+  // make the payroll refuse a run it should accept.
+  `
+  ALTER TABLE employees ADD COLUMN bank_account TEXT;
+  ALTER TABLE employees ADD COLUMN ifsc TEXT;
+  `,
+
+  // 22 — party notes and promised payments.
+  //
+  // Chasing money is a conversation, and the app remembered none of it. "He said he'd pay on the
+  // 20th" lived in someone's head or a diary, so the next call started from nothing and a promise
+  // nobody wrote down is a promise nobody follows up.
+  //
+  // A promise is a note with a date on it rather than a separate field on the party: a party can
+  // promise more than once, the promises are what the call log IS, and the last one is not
+  // automatically the one that matters.
+  `
+  CREATE TABLE party_notes (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    ledger_id INTEGER NOT NULL REFERENCES ledgers(id) ON DELETE CASCADE,
+    at TEXT NOT NULL DEFAULT (datetime('now')),
+    user_name TEXT,
+    note TEXT NOT NULL,
+    -- ISO date they said they would pay, when they said one. NULL for an ordinary note.
+    promised_date TEXT,
+    -- Paise they promised, when a figure was named. NULL means "the balance" or nothing specific.
+    promised_amount INTEGER,
+    -- Set when the promise is settled or written off, so an open promise list stays short.
+    closed_at TEXT
+  );
+  CREATE INDEX idx_party_notes_ledger ON party_notes(ledger_id, at DESC);
+  CREATE INDEX idx_party_notes_promised ON party_notes(promised_date) WHERE promised_date IS NOT NULL;
+  `,
+
+  // 23 — party credit terms beyond the limit: interest, and who the party belongs to.
+  //
+  // Interest is stored in basis points rather than a percentage float because a rate is a rounded
+  // human number ("eighteen percent"), and 0.18 stored as a double is how 18% becomes 17.999999
+  // in a statement the customer is going to argue about. Grace days sit next to it because a rate
+  // without a grace period is a rate nobody applies — everybody forgives the first week.
+  //
+  // Salesperson and territory are free text, not a foreign key to a table that does not exist and
+  // that most companies would never fill in. The ageing report groups on whatever is typed; an
+  // empty one groups under "Unassigned", which is itself a useful row.
+  `
+  ALTER TABLE ledgers ADD COLUMN interest_rate_bp INTEGER;
+  ALTER TABLE ledgers ADD COLUMN interest_grace_days INTEGER;
+  ALTER TABLE ledgers ADD COLUMN salesperson TEXT;
+  ALTER TABLE ledgers ADD COLUMN territory TEXT;
+  `,
+
+  // 24 — attendance, salary advances, and where a salary lands.
+  //
+  // Payable days were typed into the pay run and forgotten the moment it was posted, so "why was
+  // Anita paid for 22 days in June" had no answer three months later. Attendance is now a record
+  // in its own right: one row per employee per month, entered before the run and kept after it.
+  //
+  // The three counts are stored rather than derived from each other because they are three
+  // different facts — a paid leave is not a present day and is not a loss of pay — and a business
+  // that reconciles its own register against ours needs to see each of them.
+  //
+  // Advances are their own table rather than a recurring deduction head: a head is a rate, and an
+  // advance is a balance that runs down. Recoveries are recorded per run, so the outstanding
+  // amount is derived and cannot drift from the payslips that actually deducted it.
+  `
+  CREATE TABLE attendance (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    employee_id INTEGER NOT NULL REFERENCES employees(id) ON DELETE CASCADE,
+    -- 'YYYY-MM'.
+    month TEXT NOT NULL,
+    present_days REAL NOT NULL DEFAULT 0,
+    paid_leave_days REAL NOT NULL DEFAULT 0,
+    -- Loss of pay: days present in the month that are not paid for.
+    lop_days REAL NOT NULL DEFAULT 0,
+    note TEXT,
+    UNIQUE (employee_id, month)
+  );
+  CREATE INDEX idx_attendance_month ON attendance(month);
+
+  CREATE TABLE employee_loans (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    employee_id INTEGER NOT NULL REFERENCES employees(id) ON DELETE CASCADE,
+    granted_on TEXT NOT NULL,
+    principal INTEGER NOT NULL,
+    -- Paise recovered per pay run. The last instalment is whatever is left, never an overshoot.
+    instalment INTEGER NOT NULL,
+    note TEXT,
+    -- Set when written off or settled outside payroll; a fully recovered loan closes itself.
+    closed_at TEXT
+  );
+  CREATE INDEX idx_employee_loans_employee ON employee_loans(employee_id);
+
+  CREATE TABLE loan_recoveries (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    loan_id INTEGER NOT NULL REFERENCES employee_loans(id) ON DELETE CASCADE,
+    run_id INTEGER REFERENCES payroll_runs(id) ON DELETE CASCADE,
+    month TEXT NOT NULL,
+    amount INTEGER NOT NULL,
+    UNIQUE (loan_id, month)
+  );
+  CREATE INDEX idx_loan_recoveries_run ON loan_recoveries(run_id);
+
+  -- What the payslip actually recovered. Stored on the line rather than derived from
+  -- loan_recoveries so a reprinted payslip shows the figure it showed the first time, even if
+  -- the advance is later written off.
+  ALTER TABLE payroll_lines ADD COLUMN advance_recovery INTEGER NOT NULL DEFAULT 0;
+
+  -- Which cost centre carries this employee's salary. NULL means the salary journal is posted
+  -- unallocated, exactly as it was before — no existing company's books change under this.
+  ALTER TABLE employees ADD COLUMN cost_centre_id INTEGER REFERENCES cost_centres(id);
+  `,
+
+  // 25 — income tax on salary: how to reach the employee, and what regime they chose.
+  //
+  // Section 192 asks the employer to estimate the year's salary, compute the tax on it and deduct
+  // it in parts. That needs two things the employee master never held: which regime they opted
+  // for (the new one is the default, and the old one has to be chosen), and what they declared
+  // under Chapter VI-A, which only the old regime allows anyway.
+  //
+  // Phone and email are here for the same reason they are on a party ledger: a payslip that has
+  // to be printed, walked over and handed across a desk is a payslip that arrives late.
+  `
+  ALTER TABLE employees ADD COLUMN email TEXT;
+  ALTER TABLE employees ADD COLUMN phone TEXT;
+  -- 'new' | 'old'. NULL means the default, which is the new regime.
+  ALTER TABLE employees ADD COLUMN tax_regime TEXT;
+  -- Chapter VI-A deductions the employee declared and the employer accepted, paise. Old regime only.
+  ALTER TABLE employees ADD COLUMN declared_deductions INTEGER;
+  -- Tax deducted before this app started running payroll mid-year, so the spread over the
+  -- remaining months does not re-deduct what another system already took.
+  ALTER TABLE employees ADD COLUMN opening_tds INTEGER;
+
+  ALTER TABLE payroll_lines ADD COLUMN tds INTEGER NOT NULL DEFAULT 0;
+  `,
+
+  // 26 — the item master, made worth typing into.
+  //
+  // A code, because at a counter nobody types "Parle-G Biscuit 200g" — they type the six
+  // characters printed on the shelf label, and the picker should find it on the first one.
+  //
+  // An alternate unit, because a trade buys in boxes and sells in pieces. Stock is always kept in
+  // the base unit (the small one, or a part box becomes unrepresentable); the alternate is a
+  // named multiple that entry accepts and converts. The conversion is in thousandths so
+  // "1 box = 12 pieces" is 12000 and no float ever touches a quantity.
+  //
+  // GST rate and HSN on the group, inherited by items that do not state their own. A trade with
+  // two hundred items in one tax band should set the band once, and NULL on the item is the only
+  // way to say "whatever the group says" — a copied-down value silently stops following it.
+  `
+  ALTER TABLE stock_items ADD COLUMN code TEXT;
+  CREATE UNIQUE INDEX idx_stock_items_code ON stock_items(code) WHERE code IS NOT NULL;
+
+  ALTER TABLE stock_items ADD COLUMN alt_unit_id INTEGER REFERENCES units(id);
+  -- Base units in one alternate unit, thousandths. NULL when there is no alternate.
+  ALTER TABLE stock_items ADD COLUMN alt_conversion_milli INTEGER;
+
+  ALTER TABLE stock_groups ADD COLUMN gst_rate REAL;
+  ALTER TABLE stock_groups ADD COLUMN cess_rate REAL;
+  ALTER TABLE stock_groups ADD COLUMN hsn TEXT;
+  `,
+
+  // 27 — MSME classification, for section 43B(h).
+  //
+  // Since FY 2023-24 a sum payable to a micro or small enterprise beyond the section 15 limit is
+  // not deductible in that year at all — it is allowed only in the year it is actually paid. The
+  // books already know what is unpaid and for how long; what they could not know is which
+  // suppliers are covered, because that is a fact about the supplier, not about the invoice.
+  //
+  // NULL is deliberately distinct from 'not_registered'. An unclassified supplier is not a
+  // supplier outside 43B(h) — it is one nobody has asked yet, and the report says so rather than
+  // quietly treating silence as an exemption.
+  `
+  -- 'micro' | 'small' | 'medium' | 'not_registered'. NULL = never asked.
+  ALTER TABLE ledgers ADD COLUMN msme_status TEXT;
+  ALTER TABLE ledgers ADD COLUMN udyam_number TEXT;
+  `,
+
+  // 28 — the fixed asset register.
+  //
+  // "Fixed Assets" existed here as a ledger group and nothing else: the books recorded that four
+  // lakh of machinery was bought and nothing recorded what the machinery was, when it was put to
+  // use, or what it is worth now. Every year-end needs all three.
+  //
+  // Two schedules, because the law asks for two different numbers. The Companies Act depreciates
+  // per asset over a useful life, pro-rated from the day it was put to use. The Income-tax Act
+  // pools assets into blocks by rate and charges half in the first year if it was used for fewer
+  // than 180 days. They disagree on purpose, and the difference is a deferred tax somebody has to
+  // see — so both are stored per asset per year rather than one being derived from the other.
+  `
+  CREATE TABLE asset_blocks (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL UNIQUE COLLATE NOCASE,
+    -- Written-down-value rate under the Income-tax Act, whole percent.
+    it_rate REAL NOT NULL
+  );
+
+  CREATE TABLE fixed_assets (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    code TEXT,
+    block_id INTEGER REFERENCES asset_blocks(id),
+    -- The ledger the asset's cost sits in, so the register can be reconciled to the books.
+    ledger_id INTEGER REFERENCES ledgers(id),
+    purchase_date TEXT NOT NULL,
+    -- Depreciation starts here, not at purchase. An asset in a crate is not in use.
+    put_to_use_date TEXT,
+    cost INTEGER NOT NULL,
+    -- Schedule II caps this at 5% of cost; a company may assume less.
+    residual_value INTEGER NOT NULL DEFAULT 0,
+    useful_life_months INTEGER NOT NULL,
+    method TEXT NOT NULL DEFAULT 'slm' CHECK (method IN ('slm','wdv')),
+    location TEXT,
+    notes TEXT,
+    disposed_on TEXT,
+    disposal_proceeds INTEGER,
+    disposal_voucher_id INTEGER REFERENCES vouchers(id) ON DELETE SET NULL
+  );
+  CREATE INDEX idx_fixed_assets_block ON fixed_assets(block_id);
+  CREATE UNIQUE INDEX idx_fixed_assets_code ON fixed_assets(code) WHERE code IS NOT NULL;
+
+  CREATE TABLE depreciation_runs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    fy_start_year INTEGER NOT NULL UNIQUE,
+    voucher_id INTEGER REFERENCES vouchers(id) ON DELETE SET NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+
+  CREATE TABLE depreciation_lines (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    run_id INTEGER NOT NULL REFERENCES depreciation_runs(id) ON DELETE CASCADE,
+    asset_id INTEGER NOT NULL REFERENCES fixed_assets(id) ON DELETE CASCADE,
+    opening_wdv INTEGER NOT NULL,
+    -- Companies Act charge for the year, per asset.
+    depreciation INTEGER NOT NULL,
+    closing_wdv INTEGER NOT NULL,
+    UNIQUE (run_id, asset_id)
+  );
+  CREATE INDEX idx_depreciation_lines_asset ON depreciation_lines(asset_id);
+  `,
+
+  // 29 — related parties, and the LUT an exporter supplies under.
+  //
+  // A related-party disclosure is a schedule every audited entity has to produce and nothing here
+  // could answer: the books know every transaction with a ledger, and only a person knows whether
+  // that ledger is a director, a relative, or a company under common control. One flag and a
+  // relationship, and the report writes itself.
+  //
+  // The LUT is annual, expires on 31 March whenever it was filed, and an expired one silently
+  // turns a zero-rated export into a taxable supply. Stored per financial year rather than as a
+  // single current value, because "which LUT covered this invoice" is a question that gets asked
+  // a year later.
+  `
+  ALTER TABLE ledgers ADD COLUMN related_party INTEGER NOT NULL DEFAULT 0;
+  -- Free text: 'Director', 'Relative of director', 'Company under common control', …
+  ALTER TABLE ledgers ADD COLUMN relationship TEXT;
+
+  CREATE TABLE luts (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    arn TEXT NOT NULL,
+    -- Financial year start: 2026 means FY 2026-27.
+    fy_start_year INTEGER NOT NULL UNIQUE,
+    filed_on TEXT NOT NULL
+  );
+  `,
+
+  // 30 — assets that existed before this app did, and the tax written-down value.
+  //
+  // Two gaps found in review, both of which make the register wrong for every real adopter.
+  //
+  // A business installing this in 2026 owns a machine bought in 2018. Without an opening
+  // accumulated figure the first schedule computes depreciation off full cost and reports a book
+  // value years out of date — wrong on day one for exactly the users a launch targets.
+  //
+  // And the income-tax block has its own written-down value, which rolls forward at the block's
+  // own rate. Deriving it from the Companies Act charge (the only depreciation stored until now)
+  // is wrong from the second year and compounds annually, because the two schedules depreciate at
+  // different rates by design.
+  `
+  -- Companies Act depreciation charged before this app started keeping the register.
+  ALTER TABLE fixed_assets ADD COLUMN opening_accumulated INTEGER NOT NULL DEFAULT 0;
+  -- The asset's share of its block's written-down value when it was brought on to the register.
+  -- NULL means "cost", which is right for an asset bought after the app was installed.
+  ALTER TABLE fixed_assets ADD COLUMN opening_tax_wdv INTEGER;
+
+  -- The income-tax charge per asset per year, so the block rolls forward on its own rate rather
+  -- than on the books'. Stored beside the Companies Act charge, never derived from it.
+  ALTER TABLE depreciation_lines ADD COLUMN tax_depreciation INTEGER NOT NULL DEFAULT 0;
+  `,
+
+  // 31 — how each bank writes its statement, and what the user taught us about narrations.
+  //
+  // Two tables, both about the same hour of work: the one spent every month turning a CSV nobody
+  // designed for us into reconciled entries.
+  //
+  // A statement profile is the shape of one bank's export — which header holds the narration, how
+  // the dates are written, whether direction is two columns or a flag. The built-in five ship as
+  // code (src/shared/bankImport.ts) because they are facts about banks, not user data; this table
+  // is only for the ones a user maps by hand. The column map is one JSON blob on purpose: it is
+  // the profile's own vocabulary, and no query will ever filter on "which column held the
+  // balance".
+  //
+  // The narration memory is the other half. When a user matches a statement line to a ledger, the
+  // significant words of that narration are remembered against it, so the next month's identical
+  // remark can be offered back. `hits` is the whole safety mechanism: it separates "seen once"
+  // from "seen every month for a year", and the confidence the suggestion is offered with is
+  // computed from it. UNIQUE on the triple, because the same word learned twice is evidence, not
+  // a second row.
+  `
+  CREATE TABLE bank_import_profiles (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL UNIQUE,
+    date_format TEXT NOT NULL DEFAULT 'dmy' CHECK (date_format IN ('dmy','mdy','ymd')),
+    convention TEXT NOT NULL CHECK (convention IN ('debit_credit','signed','flagged')),
+    -- Cell text that means "money out" under the 'flagged' convention, e.g. 'DR'.
+    debit_flag TEXT,
+    -- { date, narration, reference, debit, credit, amount, drCr, balance } → header text.
+    columns_json TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+
+  CREATE TABLE bank_narration_memory (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    keyword TEXT NOT NULL,
+    ledger_id INTEGER NOT NULL REFERENCES ledgers(id) ON DELETE CASCADE,
+    -- Direction is part of the key: a name learned from payments says nothing about a deposit
+    -- with the same wording, which is usually a refund and belongs somewhere else.
+    kind TEXT NOT NULL CHECK (kind IN ('payment','receipt')),
+    hits INTEGER NOT NULL DEFAULT 1,
+    last_seen TEXT NOT NULL DEFAULT (datetime('now')),
+    UNIQUE (keyword, ledger_id, kind)
+  );
+  CREATE INDEX idx_bank_narration_keyword ON bank_narration_memory(keyword);
+  `,
+
+  // 32 — freight, insurance and duty that belong in the cost of the goods.
+  //
+  // Money paid to get a purchase to the door is part of what those goods cost. Left sitting in an
+  // expense ledger it makes closing stock too low and gross margin too high, and every price set
+  // off that margin is wrong in the same direction.
+  //
+  // A row here does NOT post anything: the charge is already an ordinary debit line on the
+  // purchase voucher. What is recorded is the instruction to carry that line's money into the
+  // value of the item lines, and on which basis — by value (insurance, duty, commission) or by
+  // quantity (freight, handling). The valuation engine reads these the same way it already reads
+  // a stock journal's additional costs.
+  `
+  CREATE TABLE landed_costs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    voucher_id INTEGER NOT NULL REFERENCES vouchers(id) ON DELETE CASCADE,
+    -- The expense ledger the charge is posted to on this very voucher. Kept so the allocation can
+    -- be checked against a real line rather than being a number somebody typed.
+    ledger_id INTEGER NOT NULL REFERENCES ledgers(id) ON DELETE CASCADE,
+    label TEXT NOT NULL,
+    -- Paise, always positive.
+    amount INTEGER NOT NULL,
+    basis TEXT NOT NULL CHECK (basis IN ('value','qty')),
+    line_order INTEGER NOT NULL DEFAULT 0
+  );
+  CREATE INDEX idx_landed_costs_voucher ON landed_costs(voucher_id);
+  `,
+
+  // 33 — saved report views, and reports written on a timer.
+  //
+  //
+  // A saved view is display state and nothing else: which columns, which period, which flags.
+  // It is stored in the company database rather than in localStorage because it is a thing a
+  // firm agrees on ("open the March view") and a thing that should survive a reinstall, unlike
+  // the per-machine column preferences that already live in localStorage.
+  //
+  // A schedule is a standing instruction, not a daemon. The app is offline and has no background
+  // process, so a due schedule is written the next time the company is opened — which is stated
+  // on the screen rather than implied. `next_run` rolls forward from the day it actually runs,
+  // so three weeks away from the laptop produces today's report, not twenty-one stale ones.
+  `
+  CREATE TABLE report_views (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    -- The screen the view belongs to ('trial-balance', 'day-book', ...). Views are never shown
+    -- on a screen that cannot restore them.
+    screen TEXT NOT NULL,
+    name TEXT NOT NULL,
+    -- Opaque to the main process: the screen wrote it, the screen reads it back. Validated only
+    -- as "is JSON", because a schema here would have to be revised every time a screen gains a
+    -- filter, and a stale schema would silently refuse to save the view.
+    state_json TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    UNIQUE (screen, name)
+  );
+
+  CREATE TABLE report_schedules (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    report TEXT NOT NULL,
+    -- 'mtd' | 'lastMonth' | 'fytd' | 'lastFy' — resolved against the date the run happens.
+    period_kind TEXT NOT NULL,
+    format TEXT NOT NULL CHECK (format IN ('csv', 'xls', 'pdf')),
+    frequency TEXT NOT NULL CHECK (frequency IN ('daily', 'weekly', 'monthly')),
+    -- NULL means the company's own exports folder. An absolute path elsewhere is allowed so a
+    -- firm can point it at a synced folder the accountant also sees.
+    folder TEXT,
+    next_run TEXT NOT NULL,
+    last_run TEXT,
+    last_path TEXT,
+    -- The last failure, kept so a schedule that silently stopped working can say why.
+    last_error TEXT,
+    active INTEGER NOT NULL DEFAULT 1,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+  CREATE INDEX idx_report_schedules_due ON report_schedules(active, next_run);
+  `,
+
+  // 34 — the counter: a till, a drawer and a walk-in.
+  //
+  // A kirana, a pharmacy or a hardware shop cannot run the voucher screen at a counter, and that
+  // is most of the businesses this app is otherwise right for. What a counter needs that a
+  // voucher form does not: a tender (which may be split across cash, card and UPI), a change
+  // figure, and a drawer that is opened with a float in the morning and counted at night.
+  //
+  // The walk-in deliberately leaves no ledger behind. A shop doing two hundred cash sales a day
+  // would otherwise accumulate two hundred masters a day and make the party picker unusable
+  // within a month, so a counter sale posts straight to cash with the customer's name — if they
+  // gave one — recorded against the sale rather than as a master record.
+  `
+  CREATE TABLE counter_sessions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    -- The business date the till is trading on, which is not always the wall-clock date: a shop
+    -- open past midnight is still on yesterday's takings until somebody closes the drawer.
+    opened_on TEXT NOT NULL,
+    opened_at TEXT NOT NULL DEFAULT (datetime('now')),
+    operator TEXT,
+    opening_float INTEGER NOT NULL DEFAULT 0,
+    -- Which cash ledger the till settles to.
+    cash_ledger_id INTEGER REFERENCES ledgers(id),
+    closed_at TEXT,
+    -- What was physically counted at closing. NULL while the session is open.
+    counted_paise INTEGER,
+    -- Counted less expected, signed: negative is short. Stored rather than recomputed so a
+    -- closed session still reports the variance it was closed on.
+    variance_paise INTEGER,
+    notes TEXT
+  );
+  CREATE INDEX idx_counter_sessions_open ON counter_sessions(closed_at);
+
+  CREATE TABLE counter_sales (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_id INTEGER REFERENCES counter_sessions(id) ON DELETE SET NULL,
+    voucher_id INTEGER NOT NULL REFERENCES vouchers(id) ON DELETE CASCADE,
+    -- A walk-in leaves a name on the bill, never a ledger.
+    customer_name TEXT,
+    customer_phone TEXT,
+    change_paise INTEGER NOT NULL DEFAULT 0,
+    kind TEXT NOT NULL DEFAULT 'sale' CHECK (kind IN ('sale','return')),
+    -- The sale a return reverses, when the customer still has the receipt.
+    returns_voucher_id INTEGER REFERENCES vouchers(id) ON DELETE SET NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+  CREATE UNIQUE INDEX idx_counter_sales_voucher ON counter_sales(voucher_id);
+  CREATE INDEX idx_counter_sales_session ON counter_sales(session_id);
+
+  CREATE TABLE counter_tenders (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    counter_sale_id INTEGER NOT NULL REFERENCES counter_sales(id) ON DELETE CASCADE,
+    mode TEXT NOT NULL CHECK (mode IN ('cash','card','upi','credit')),
+    amount INTEGER NOT NULL,
+    reference TEXT
+  );
+  CREATE INDEX idx_counter_tenders_sale ON counter_tenders(counter_sale_id);
+
+  -- Cash in and out of the drawer that is not a sale: a bank drop, the tea money, a float top-up.
+  -- Without these the closing count never agrees and the operator learns to ignore the variance,
+  -- which is the same as not counting at all.
+  CREATE TABLE counter_movements (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_id INTEGER NOT NULL REFERENCES counter_sessions(id) ON DELETE CASCADE,
+    at TEXT NOT NULL DEFAULT (datetime('now')),
+    kind TEXT NOT NULL CHECK (kind IN ('payin','payout')),
+    amount INTEGER NOT NULL,
+    reason TEXT,
+    voucher_id INTEGER REFERENCES vouchers(id) ON DELETE SET NULL
+  );
+  CREATE INDEX idx_counter_movements_session ON counter_movements(session_id);
+
+  -- Quantity-break and scheme discounts. Priced by hand today, and got wrong in the customer's
+  -- favour about as often as the reverse.
+  CREATE TABLE discount_schemes (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    -- Exactly one of these: a scheme is written for an item or for a group, never both.
+    stock_item_id INTEGER REFERENCES stock_items(id) ON DELETE CASCADE,
+    stock_group_id INTEGER REFERENCES stock_groups(id) ON DELETE CASCADE,
+    kind TEXT NOT NULL CHECK (kind IN ('percent','rate','free')),
+    -- The slab starts here, in thousandths.
+    min_qty_milli INTEGER NOT NULL,
+    -- Basis points off, for 'percent'.
+    percent_bp INTEGER,
+    -- Flat rate per base unit, for 'rate'.
+    rate_paise INTEGER,
+    -- Units free per min_qty_milli bought, for 'free'.
+    free_qty_milli INTEGER,
+    from_date TEXT NOT NULL,
+    to_date TEXT,
+    active INTEGER NOT NULL DEFAULT 1
+  );
+  CREATE INDEX idx_discount_schemes_item ON discount_schemes(stock_item_id);
+  CREATE INDEX idx_discount_schemes_group ON discount_schemes(stock_group_id);
+  `,
+
+  // 35 — quotation, order and delivery challan.
+  //
+  // The sale does not start at the invoice. It starts at a quotation, which becomes an order,
+  // which is delivered on a challan, which is invoiced. None of the first three is an accounting
+  // entry — no money has moved and no liability exists — so they are their own documents rather
+  // than memorandum vouchers, and only the last stage posts.
+  //
+  // Each stage records what it became, and a document that has already been converted refuses to
+  // convert again: quoting once and invoicing twice is the failure this chain exists to prevent.
+  `
+  CREATE TABLE sales_documents (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    stage TEXT NOT NULL CHECK (stage IN ('quotation','order','challan')),
+    number TEXT NOT NULL,
+    date TEXT NOT NULL,
+    -- A quotation often goes to somebody who is not a customer yet, so the party may be a name
+    -- rather than a ledger. An order or a challan needs the ledger.
+    party_ledger_id INTEGER REFERENCES ledgers(id),
+    party_name TEXT,
+    -- A quotation that never expires is a price the shop is still held to two years later.
+    valid_until TEXT,
+    reference TEXT,
+    narration TEXT,
+    terms TEXT,
+    -- The document this one came from, and the one it became. A chain, walkable both ways.
+    from_document_id INTEGER REFERENCES sales_documents(id) ON DELETE SET NULL,
+    converted_to_id INTEGER REFERENCES sales_documents(id) ON DELETE SET NULL,
+    invoice_voucher_id INTEGER REFERENCES vouchers(id) ON DELETE SET NULL,
+    converted_on TEXT,
+    status TEXT NOT NULL DEFAULT 'open' CHECK (status IN ('open','converted','closed','lost')),
+    -- Why a quotation was lost. The only field on this table worth a report of its own.
+    closed_reason TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+  CREATE UNIQUE INDEX idx_sales_documents_number ON sales_documents(stage, number);
+  CREATE INDEX idx_sales_documents_party ON sales_documents(party_ledger_id);
+  CREATE INDEX idx_sales_documents_status ON sales_documents(stage, status);
+
+  CREATE TABLE sales_document_lines (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    document_id INTEGER NOT NULL REFERENCES sales_documents(id) ON DELETE CASCADE,
+    -- NULL for a service line, which a quotation has far more often than an invoice does.
+    stock_item_id INTEGER REFERENCES stock_items(id) ON DELETE SET NULL,
+    description TEXT NOT NULL,
+    qty_milli INTEGER NOT NULL,
+    rate_paise INTEGER NOT NULL,
+    discount_paise INTEGER NOT NULL DEFAULT 0,
+    gst_rate REAL,
+    hsn TEXT,
+    -- Quantity already carried downstream, so an order can be part-delivered on two challans.
+    fulfilled_milli INTEGER NOT NULL DEFAULT 0,
+    sort_order INTEGER NOT NULL DEFAULT 0
+  );
+  CREATE INDEX idx_sales_document_lines_doc ON sales_document_lines(document_id);
+  `,
+
+  // 36 — what the business owes and what it has parked: loans, deposits, projects, prepayments,
+  // and the return the bank asks for every month.
+  //
+  // Every business with a vehicle or a machine has a loan, and every one of them books the whole
+  // EMI to the loan account — which leaves the loan balance wrong and the profit overstated by
+  // the interest for as long as the loan runs. What was missing was not the arithmetic but a
+  // place to record the terms it is computed from.
+  //
+  // The stock statement is stored rather than recomputed on demand because it is a FILED
+  // document: what was sent to the bank in June must still read as it read in June, even after
+  // somebody back-dates a purchase invoice into that month.
+  `
+  CREATE TABLE loans (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    lender TEXT,
+    account_number TEXT,
+    kind TEXT NOT NULL DEFAULT 'term' CHECK (kind IN ('term','vehicle','machinery','working_capital','other')),
+    -- The liability ledger the loan sits in, so the register reconciles to the books.
+    ledger_id INTEGER REFERENCES ledgers(id),
+    -- Where the interest is charged.
+    interest_ledger_id INTEGER REFERENCES ledgers(id),
+    principal INTEGER NOT NULL,
+    -- Annual rate in basis points: 9.25% p.a. is 925.
+    annual_rate_bp INTEGER NOT NULL,
+    months INTEGER NOT NULL,
+    -- The instalment the sanction letter states. NULL means compute it.
+    emi INTEGER,
+    disbursed_on TEXT NOT NULL,
+    first_instalment_date TEXT NOT NULL,
+    notes TEXT,
+    closed_on TEXT
+  );
+
+  -- Which instalments have actually been posted, so a month is not booked twice and the register
+  -- can show what is behind.
+  CREATE TABLE loan_postings (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    loan_id INTEGER NOT NULL REFERENCES loans(id) ON DELETE CASCADE,
+    instalment_no INTEGER NOT NULL,
+    voucher_id INTEGER REFERENCES vouchers(id) ON DELETE SET NULL,
+    posted_on TEXT NOT NULL,
+    interest INTEGER NOT NULL,
+    principal INTEGER NOT NULL,
+    UNIQUE (loan_id, instalment_no)
+  );
+
+  -- Security deposits paid and received. Money that is genuinely the business's and is routinely
+  -- forgotten — a shop deposit from 2014 that nobody has asked for back.
+  CREATE TABLE deposits (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    direction TEXT NOT NULL CHECK (direction IN ('paid','received')),
+    counterparty TEXT NOT NULL,
+    party_ledger_id INTEGER REFERENCES ledgers(id),
+    ledger_id INTEGER REFERENCES ledgers(id),
+    purpose TEXT,
+    amount INTEGER NOT NULL,
+    paid_on TEXT NOT NULL,
+    -- When it is due back. NULL means "on termination", which is most of them.
+    refundable_on TEXT,
+    interest_rate_bp INTEGER,
+    returned_on TEXT,
+    returned_amount INTEGER,
+    notes TEXT
+  );
+  CREATE INDEX idx_deposits_open ON deposits(returned_on);
+
+  -- Capital work in progress: costs accumulate against a project and become an asset on a date.
+  -- Today they land in an expense or sit in a ledger nobody revisits.
+  CREATE TABLE cwip_projects (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    started_on TEXT NOT NULL,
+    ledger_id INTEGER REFERENCES ledgers(id),
+    notes TEXT,
+    -- Set when the project is capitalised into the fixed asset register.
+    capitalised_on TEXT,
+    fixed_asset_id INTEGER REFERENCES fixed_assets(id) ON DELETE SET NULL,
+    capitalisation_voucher_id INTEGER REFERENCES vouchers(id) ON DELETE SET NULL
+  );
+
+  CREATE TABLE cwip_costs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    project_id INTEGER NOT NULL REFERENCES cwip_projects(id) ON DELETE CASCADE,
+    date TEXT NOT NULL,
+    description TEXT NOT NULL,
+    amount INTEGER NOT NULL,
+    voucher_id INTEGER REFERENCES vouchers(id) ON DELETE SET NULL,
+    supplier TEXT
+  );
+  CREATE INDEX idx_cwip_costs_project ON cwip_costs(project_id);
+
+  -- An annual premium amortised across the months it covers, posted monthly, rather than
+  -- expensed in April and explained in March. The same table runs the other way for an accrual.
+  CREATE TABLE prepaid_schedules (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    kind TEXT NOT NULL CHECK (kind IN ('prepaid','accrued')),
+    name TEXT NOT NULL,
+    amount INTEGER NOT NULL,
+    period_from TEXT NOT NULL,
+    period_to TEXT NOT NULL,
+    basis TEXT NOT NULL DEFAULT 'month' CHECK (basis IN ('month','day')),
+    expense_ledger_id INTEGER REFERENCES ledgers(id),
+    balance_ledger_id INTEGER REFERENCES ledgers(id),
+    source_voucher_id INTEGER REFERENCES vouchers(id) ON DELETE SET NULL,
+    notes TEXT
+  );
+
+  CREATE TABLE prepaid_postings (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    schedule_id INTEGER NOT NULL REFERENCES prepaid_schedules(id) ON DELETE CASCADE,
+    -- 'YYYY-MM'.
+    month TEXT NOT NULL,
+    amount INTEGER NOT NULL,
+    voucher_id INTEGER REFERENCES vouchers(id) ON DELETE SET NULL,
+    posted_on TEXT NOT NULL,
+    UNIQUE (schedule_id, month)
+  );
+
+  -- The monthly stock statement a cash-credit borrower files, and the drawing power it produces.
+  -- Stored as filed: the margins are copied on to the row rather than read from a setting, so a
+  -- statement printed a year later shows the arithmetic that was actually sent.
+  CREATE TABLE stock_statements (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    as_on TEXT NOT NULL UNIQUE,
+    stock INTEGER NOT NULL,
+    eligible_debtors INTEGER NOT NULL,
+    ineligible_debtors INTEGER NOT NULL,
+    creditors INTEGER NOT NULL,
+    utilised INTEGER NOT NULL,
+    stock_margin_percent REAL NOT NULL,
+    debtor_margin_percent REAL NOT NULL,
+    debtor_age_limit_days INTEGER NOT NULL,
+    sanctioned_limit INTEGER NOT NULL,
+    drawing_power INTEGER NOT NULL,
+    filed_on TEXT,
+    notes TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+
+  -- What a salesperson earns, and on what. Dated, because a rate change is not retrospective.
+  CREATE TABLE commission_schemes (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    salesperson TEXT NOT NULL,
+    rate_bp INTEGER NOT NULL,
+    basis TEXT NOT NULL DEFAULT 'net_of_tax' CHECK (basis IN ('gross','net_of_tax')),
+    from_date TEXT NOT NULL,
+    active INTEGER NOT NULL DEFAULT 1,
+    UNIQUE (salesperson, from_date)
+  );
+  `,
+
+  // 37 — the audit trail's own signature, permissions with a hole in them, and the entry
+  // somebody was halfway through when the power went.
+  //
+  // The audit log could say it had never been switched off and could not say it had never been
+  // rewritten: it is a table in a file in Documents, and sqlite3 is a free download. Each row now
+  // carries the hash of its contents chained onto the row before it (services/auditChain.ts).
+  // Both columns are nullable because every row already written was written without them, and a
+  // row with no hash is evidence of nothing rather than evidence of tampering.
+  //
+  // Denials are per user and deny-only: the role still sets the ceiling and this cuts areas out
+  // of it. There is no grant column on purpose — a grant would let a viewer post entries that the
+  // audit trail then attributes to a viewer.
+  //
+  // A draft is not a voucher. It is deliberately opaque JSON owned by the entry screen: main
+  // stores and returns it and never parses it, so a change to the entry form can never leave a
+  // draft that main refuses to hand back. One row per person, because "the entry I was in the
+  // middle of" is singular.
+  `
+  ALTER TABLE audit_log ADD COLUMN prev_hash TEXT;
+  ALTER TABLE audit_log ADD COLUMN row_hash TEXT;
+
+  ALTER TABLE users ADD COLUMN denied_json TEXT;
+
+  CREATE TABLE voucher_drafts (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    -- Signed-in user name, or '' when the company has no user accounts at all.
+    owner TEXT NOT NULL UNIQUE,
+    saved_at TEXT NOT NULL DEFAULT (datetime('now')),
+    app_version TEXT,
+    payload_json TEXT NOT NULL
+  );
+  `,
+
+  // 38 — the cost centre a party's transactions belong to by default.
+  //
+  // Credit days and price level already prefill from the party ledger the moment it is picked.
+  // Cost centre was the one party default still typed by hand on every voucher, and it is the
+  // one that is invisible when forgotten: a missing due date shows up in the ageing report the
+  // same day, whereas an unallocated line just quietly never appears in the branch's P&L.
+  //
+  // ON DELETE SET NULL, not CASCADE: deleting a cost centre must not delete the party. NULL is
+  // the correct residue — "this party no longer has a default", which is exactly true.
+  `
+  ALTER TABLE ledgers ADD COLUMN default_cost_centre_id INTEGER REFERENCES cost_centres(id) ON DELETE SET NULL;
+  `,
+
+  // 39 — the bill in the drawer, the entry that is a decision, and the account number nobody
+  // should be able to change alone.
+  //
+  // (The number is 37, not 33: migrations apply by ARRAY POSITION, and 33–36 are reserved for
+  // branches being written in parallel with this one. The label is only a label — what matters
+  // is that nothing is ever inserted BEFORE an existing entry, because an existing database has
+  // already recorded how many it applied and would silently skip the newcomer.)
+  //
+  // ATTACHMENTS. "Where is the physical bill" is asked every day and the app has had no answer.
+  // The file is COPIED into the company folder rather than referenced: a reference is a path,
+  // and a path breaks the first time somebody empties Downloads, renames a folder, or restores
+  // the books onto another machine — at which point the app confidently shows an attachment that
+  // is not there. Copying doubles the disk a scan occupies, and that is the price of the company
+  // folder being the whole of the user's data, which is the promise the rest of the app makes.
+  // `sha256` is stored so the same scan attached twice is recognised rather than duplicated.
+  //
+  // APPROVALS. A voucher above a stated amount, entered by an accountant, is a decision rather
+  // than a keystroke. `approval_state` is NULL for the overwhelming majority of entries — the
+  // threshold is off by default, and an owner's own entry never waits for the owner. A 'pending'
+  // voucher is deliberately kept OUT of the books (see IN_BOOKS in services/vouchers.ts) but
+  // still visible in the day book to the person who typed it: it exists, it just does not count
+  // yet. Rejected is a third state rather than a deletion, because the accountant needs to see
+  // why and fix it.
+  //
+  // IMPORT IDENTITY. `import_key` is the fingerprint of the source voucher in a Tally export
+  // (its GUID when the export carries one, otherwise its content). Indexed, NOT unique: a
+  // voucher that was imported and then deliberately binned must be importable again, so the
+  // duplicate check filters on deleted_at IS NULL rather than the database refusing the insert.
+  //
+  // BANK DETAILS ON A PARTY. Changing a supplier's account number is the highest-value fraud
+  // available in this market and was, until now, not even recordable here. Two things follow:
+  // a pending-change table so the change needs a second person (bank_detail_requests), and a
+  // shared-account exception (`bank_shared_ok` marks the legitimate case — a proprietor and
+  // their firm banking into one account — so the exception report can stay silent about it
+  // without going blind to the next one).
+  `
+  CREATE TABLE voucher_attachments (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    voucher_id INTEGER NOT NULL REFERENCES vouchers(id) ON DELETE CASCADE,
+    -- What the user called it, shown in the UI.
+    file_name TEXT NOT NULL,
+    -- The name it has inside <company>/attachments/. Unique because it is a filename.
+    stored_name TEXT NOT NULL UNIQUE,
+    byte_size INTEGER NOT NULL,
+    sha256 TEXT NOT NULL,
+    note TEXT,
+    added_at TEXT NOT NULL DEFAULT (datetime('now')),
+    added_by TEXT
+  );
+  CREATE INDEX idx_voucher_attachments_voucher ON voucher_attachments(voucher_id);
+
+  ALTER TABLE vouchers ADD COLUMN approval_state TEXT
+    CHECK (approval_state IS NULL OR approval_state IN ('pending','approved','rejected'));
+  ALTER TABLE vouchers ADD COLUMN approval_by TEXT;
+  ALTER TABLE vouchers ADD COLUMN approval_at TEXT;
+  ALTER TABLE vouchers ADD COLUMN approval_note TEXT;
+  -- Partial: the column is NULL on almost every row, and the only query is "what is waiting".
+  CREATE INDEX idx_vouchers_approval ON vouchers(approval_state) WHERE approval_state IS NOT NULL;
+
+  ALTER TABLE vouchers ADD COLUMN import_key TEXT;
+  CREATE INDEX idx_vouchers_import_key ON vouchers(import_key) WHERE import_key IS NOT NULL;
+
+  ALTER TABLE ledgers ADD COLUMN bank_account TEXT;
+  ALTER TABLE ledgers ADD COLUMN bank_ifsc TEXT;
+  -- The name the account is held in. Not the ledger name: "S. Kumar" paying "Kumar Traders" is
+  -- the ordinary case, and the mismatch is only worth flagging when a human looks at it.
+  ALTER TABLE ledgers ADD COLUMN bank_holder TEXT;
+  ALTER TABLE ledgers ADD COLUMN bank_shared_ok INTEGER NOT NULL DEFAULT 0;
+
+  CREATE TABLE bank_detail_requests (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    ledger_id INTEGER NOT NULL REFERENCES ledgers(id) ON DELETE CASCADE,
+    old_account TEXT, old_ifsc TEXT, old_holder TEXT,
+    new_account TEXT, new_ifsc TEXT, new_holder TEXT,
+    state TEXT NOT NULL DEFAULT 'pending' CHECK (state IN ('pending','approved','rejected')),
+    requested_by TEXT,
+    requested_at TEXT NOT NULL DEFAULT (datetime('now')),
+    decided_by TEXT,
+    decided_at TEXT,
+    decision_note TEXT
+  );
+  CREATE INDEX idx_bank_detail_requests_state ON bank_detail_requests(state);
+  `,
+  // ---- 40. the assistant audit trail (roadmap #217) ----
+  //
+  // Joins the question to the draft to the voucher that was finally saved. Three reasons this is
+  // a table in the company database rather than a log file beside the key:
+  //
+  //  1. The join. "Which entries in these books came out of a conversation with a model?" is a
+  //     question an auditor is entitled to ask, and it can only be answered where the vouchers
+  //     are. A voucher_id foreign key answers it; a log file elsewhere cannot.
+  //  2. It travels with the books. A CA restoring a client's backup gets the provenance too.
+  //  3. It is not the key. The API key stays machine-level, in the keychain, and nothing here
+  //     records the endpoint's credentials — only the host and model, which are the parts a
+  //     reviewer needs.
+  //
+  // Nothing in this table is on any read path for a report. It is provenance, not books.
+  `
+  CREATE TABLE assistant_runs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    run_id TEXT NOT NULL UNIQUE,
+    asked_at TEXT NOT NULL DEFAULT (datetime('now')),
+    asked_by TEXT,
+    question TEXT NOT NULL,
+    answer TEXT,
+    model TEXT NOT NULL,
+    host TEXT NOT NULL,
+    local INTEGER NOT NULL DEFAULT 0,
+    -- JSON array of tool names, in call order.
+    tools TEXT,
+    -- How many tool-result fields were quarantined as instruction-shaped (roadmap #221).
+    quarantined INTEGER NOT NULL DEFAULT 0,
+    -- The proposed voucher as JSON, when the run produced one.
+    draft TEXT,
+    -- Set when the human saved that draft. ON DELETE SET NULL: deleting a voucher must not
+    -- delete the record that a model proposed it.
+    voucher_id INTEGER REFERENCES vouchers(id) ON DELETE SET NULL,
+    cost_paise INTEGER NOT NULL DEFAULT 0,
+    finish TEXT
+  );
+  CREATE INDEX idx_assistant_runs_at ON assistant_runs(asked_at);
+  CREATE INDEX idx_assistant_runs_voucher ON assistant_runs(voucher_id) WHERE voucher_id IS NOT NULL;
+  `,
+
+  // 41 — statutory depth: the reverse-charge self-invoice, IMS decisions, and what was filed.
+  //
+  // (The label is 41, not 40: migrations apply by ARRAY POSITION and 40 is reserved for a branch
+  // being written alongside this one. The label is only a label — what matters is that nothing is
+  // ever inserted BEFORE an existing entry, because a database that has already applied N resumes
+  // at N and would skip the newcomer in silence.)
+  //
+  // RCM SELF-INVOICES (roadmap #356). Section 31(3)(f) makes the recipient issue the invoice for a
+  // reverse-charge inward supply, and the auditor asks to see it. `number` is UNIQUE because it is
+  // a serial in a Rule 46(b) series and a duplicate serial is a defective invoice, not a warning.
+  // The link table exists rather than a JSON array of voucher ids because the question asked every
+  // month is "which reverse-charge purchases still have no self-invoice", and that is a LEFT JOIN
+  // against a table, not a scan of a JSON column. ON DELETE CASCADE on the link and not on the
+  // document: binning a purchase voucher removes it from the document, but a self-invoice that was
+  // issued to satisfy Rule 46 does not stop having existed because the voucher behind it was
+  // deleted — that is precisely the case an auditor is looking for.
+  //
+  // IMS ACTIONS (roadmap #352). Keyed on supplier GSTIN + normalised document number rather than
+  // on a voucher, because the rows most in need of a decision are the ones with no voucher at all
+  // (filed by the supplier, never recorded here). That key is also what survives re-downloading
+  // GSTR-2B: the twelve invoices somebody worked through last week must not come back as
+  // undecided. The action is a RECORD of what was done on the portal, not an instruction to it —
+  // nothing here can take an IMS action, and the screen says so.
+  //
+  // FILED SNAPSHOTS (roadmap #353). GSTR-1A carries the difference between what was filed and what
+  // the books now say, and without a copy of what was filed there is nothing to difference
+  // against. Stored on the filing row as JSON: it is a frozen document, never queried by parts,
+  // and the only thing that ever reads it is the amendment diff.
+  `
+  CREATE TABLE rcm_self_invoices (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    number TEXT NOT NULL UNIQUE,
+    doc_date TEXT NOT NULL,
+    -- 'unregistered' = section 9(4), 'notified' = section 9(3). Decides which proviso the
+    -- document sits under and whether monthly consolidation is available at all.
+    basis TEXT NOT NULL CHECK (basis IN ('unregistered','notified')),
+    party_ledger_id INTEGER REFERENCES ledgers(id),
+    supplier_name TEXT NOT NULL,
+    supplier_gstin TEXT,
+    place_of_supply TEXT NOT NULL,
+    supply_type TEXT NOT NULL CHECK (supply_type IN ('intra','inter')),
+    taxable INTEGER NOT NULL DEFAULT 0,
+    igst INTEGER NOT NULL DEFAULT 0,
+    cgst INTEGER NOT NULL DEFAULT 0,
+    sgst INTEGER NOT NULL DEFAULT 0,
+    cess INTEGER NOT NULL DEFAULT 0,
+    -- The document as issued, so a reprint is the same paper rather than a recomputation.
+    doc_json TEXT NOT NULL,
+    issued_at TEXT NOT NULL DEFAULT (datetime('now')),
+    issued_by TEXT
+  );
+  CREATE INDEX idx_rcm_self_invoices_date ON rcm_self_invoices(doc_date);
+
+  CREATE TABLE rcm_self_invoice_vouchers (
+    self_invoice_id INTEGER NOT NULL REFERENCES rcm_self_invoices(id) ON DELETE CASCADE,
+    voucher_id INTEGER NOT NULL REFERENCES vouchers(id) ON DELETE CASCADE,
+    PRIMARY KEY (self_invoice_id, voucher_id)
+  );
+  CREATE INDEX idx_rcm_self_invoice_vouchers_voucher ON rcm_self_invoice_vouchers(voucher_id);
+
+  CREATE TABLE ims_actions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    -- '<SUPPLIER GSTIN or NOGSTIN>|<normalised document number>' — see imsKey in shared/gst/ims.ts.
+    doc_key TEXT NOT NULL UNIQUE,
+    period TEXT NOT NULL,
+    action TEXT NOT NULL CHECK (action IN ('accept','reject','pending')),
+    note TEXT,
+    decided_at TEXT NOT NULL DEFAULT (datetime('now')),
+    decided_by TEXT
+  );
+  CREATE INDEX idx_ims_actions_period ON ims_actions(period);
+
+  ALTER TABLE gst_filings ADD COLUMN docs_json TEXT;
+  `,
+
+  // 42 — dated rates, and the facts a TDS return needs that the books never held.
+  //
+  // ITEM RATE HISTORY (roadmap #358). `stock_items.gst_rate` is a single number, which was fine
+  // until 22 September 2025 made the same item carry two different rates either side of a date.
+  // The master column stays — it is what voucher entry prefills and what an unchanged item still
+  // answers with — and this table records the changes. A credit note issued in 2026 against a 2025
+  // invoice carries the ORIGINAL rate (section 34 read with section 15: a note adjusts the supply
+  // it refers to), which is only answerable from a dated history.
+  //
+  // TDS CHALLANS (roadmap #360). A quarterly statement is built challan by challan: the BSR code
+  // of the branch, the date, the serial the bank gave it, and under each one the deductees it
+  // paid for. None of that was recorded anywhere, which is the actual reason a business pays
+  // somebody else to file. `challan_id` on tds_entries is the link, nullable because a deduction
+  // exists from the moment it is posted and the challan is paid later — an unlinked deduction is
+  // a normal state for a few weeks and a blocking issue at filing time, which is exactly what
+  // validateReturn says.
+  //
+  // 2025 ACT SECTIONS (roadmap #359). `code` holds the Income-tax Act 1961 section. From 1 April
+  // 2026 the same deduction is made under the Income-tax Act 2025 and a certificate has to carry
+  // that number instead. Both are kept, the voucher date decides which is printed, and the column
+  // is NULL until a user fills it in — because the app's own proposed mapping is unverified and
+  // must not be silently written into anyone's books. See src/shared/itAct2025.ts.
+  `
+  CREATE TABLE stock_item_gst_rates (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    stock_item_id INTEGER NOT NULL REFERENCES stock_items(id) ON DELETE CASCADE,
+    effective_from TEXT NOT NULL,
+    gst_rate REAL NOT NULL,
+    cess_rate REAL NOT NULL DEFAULT 0,
+    -- The user's own citation: the notification, the Council meeting, "as advised by our CA".
+    note TEXT,
+    UNIQUE (stock_item_id, effective_from)
+  );
+
+  CREATE TABLE tds_challans (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    -- '24Q' or '26Q'. A challan is paid for one form's liability.
+    form TEXT NOT NULL CHECK (form IN ('24Q','26Q')),
+    -- Seven-digit Bank Branch Serial code. Empty for a book-adjustment entry.
+    bsr_code TEXT NOT NULL DEFAULT '',
+    paid_on TEXT NOT NULL,
+    serial TEXT NOT NULL DEFAULT '',
+    tax INTEGER NOT NULL DEFAULT 0,
+    surcharge INTEGER NOT NULL DEFAULT 0,
+    cess INTEGER NOT NULL DEFAULT 0,
+    interest INTEGER NOT NULL DEFAULT 0,
+    fee INTEGER NOT NULL DEFAULT 0,
+    book_entry INTEGER NOT NULL DEFAULT 0,
+    note TEXT
+  );
+  CREATE INDEX idx_tds_challans_paid_on ON tds_challans(paid_on);
+
+  ALTER TABLE tds_entries ADD COLUMN challan_id INTEGER REFERENCES tds_challans(id) ON DELETE SET NULL;
+  CREATE INDEX idx_tds_entries_challan ON tds_entries(challan_id);
+
+  ALTER TABLE tds_sections ADD COLUMN code_2025 TEXT;
+  `,
+
+  // 40 — pay cycles that are not a month (roadmap #179).
+  //
+  // Payroll assumed a month everywhere: one run per month, keyed by a UNIQUE month string. A
+  // factory paying its floor weekly and its office monthly could not be run in this app at all.
+  //
+  // The hard part was never the arithmetic. PF's wage ceiling, ESI's gross limit, every state's
+  // professional-tax slab and TDS under section 192 are all defined PER MONTH. Computing each of
+  // them afresh on a week's wages does not produce a quarter of the monthly figure — it produces
+  // a number that is wrong, and wrong in the direction the employee discovers years later when
+  // EPFO's passbook does not match their payslips.
+  //
+  // So a run now carries the statutory month it accrues to alongside its own period. The month is
+  // the unit the statutory computation runs on; the period is the unit the money moves on. A run
+  // is identified by (cycle, period_start) rather than by month, which is what the UNIQUE had to
+  // go for.
+  //
+  // The table is rebuilt because SQLite cannot drop a UNIQUE constraint. Its two children are
+  // emptied into plain copies first: DROP TABLE runs ON DELETE CASCADE, and foreign_keys cannot
+  // be turned off from inside the transaction a migration runs in.
+  `
+  ALTER TABLE employees ADD COLUMN pay_cycle TEXT NOT NULL DEFAULT 'monthly'
+    CHECK (pay_cycle IN ('monthly','fortnightly','weekly'));
+
+  CREATE TABLE payroll_runs_bak AS SELECT * FROM payroll_runs;
+  CREATE TABLE payroll_lines_bak AS SELECT * FROM payroll_lines;
+  CREATE TABLE loan_recoveries_bak AS SELECT * FROM loan_recoveries;
+  DELETE FROM payroll_lines;
+  DELETE FROM loan_recoveries;
+  DROP TABLE payroll_runs;
+
+  CREATE TABLE payroll_runs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    -- The statutory month the run accrues to, 'YYYY-MM'. A weekly period that straddles a month
+    -- end belongs to the month its LAST day falls in: wages accrue as the period closes.
+    month TEXT NOT NULL,
+    cycle TEXT NOT NULL DEFAULT 'monthly' CHECK (cycle IN ('monthly','fortnightly','weekly')),
+    period_start TEXT NOT NULL,
+    period_end TEXT NOT NULL,
+    voucher_id INTEGER REFERENCES vouchers(id),
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    UNIQUE (cycle, period_start)
+  );
+  INSERT INTO payroll_runs (id, month, cycle, period_start, period_end, voucher_id, created_at)
+    SELECT id, month, 'monthly', month || '-01',
+           date(month || '-01', '+1 month', '-1 day'), voucher_id, created_at
+    FROM payroll_runs_bak;
+
+  INSERT INTO payroll_lines SELECT * FROM payroll_lines_bak;
+  INSERT INTO loan_recoveries SELECT * FROM loan_recoveries_bak;
+  DROP TABLE payroll_runs_bak;
+  DROP TABLE payroll_lines_bak;
+  DROP TABLE loan_recoveries_bak;
+
+  CREATE INDEX idx_payroll_runs_month ON payroll_runs(month);
+  `,
+
+  // 41 — CMA data for a working-capital application (roadmap #371).
+  //
+  // Three tables and a boundary. `cma_packs` pins which five financial years a pack covers, so a
+  // pack submitted to a bank in March still reads in June as it read when it was submitted.
+  //
+  // `cma_inputs` holds ONLY the figures the user typed. The audited columns are never stored:
+  // they are recomputed from the books every time the pack is opened, because the books are what
+  // the bank's own verification will be run against. Storing a copy would let the pack and the
+  // ledgers drift apart silently, and the pack is the one that would be wrong.
+  //
+  // A row exists here for exactly the cells a person asserted. That is what makes it possible for
+  // the screen to show a projection column as blank rather than as a column of confident zeros —
+  // a CMA pack that prints zeros for a year that does not exist is a pack that gets refused.
+  `
+  CREATE TABLE cma_packs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    -- FY start year of the CURRENT-YEAR ESTIMATE column. The two audited years count back from
+    -- it and the two projections count forward.
+    estimate_fy_start_year INTEGER NOT NULL,
+    notes TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+
+  CREATE TABLE cma_inputs (
+    pack_id INTEGER NOT NULL REFERENCES cma_packs(id) ON DELETE CASCADE,
+    column_key TEXT NOT NULL CHECK (column_key IN ('a2','a1','e','p1','p2')),
+    line_key TEXT NOT NULL,
+    -- Integer paise, like every other amount in this database.
+    value INTEGER NOT NULL,
+    PRIMARY KEY (pack_id, column_key, line_key)
+  );
+
+  CREATE TABLE cma_facilities (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    pack_id INTEGER NOT NULL REFERENCES cma_packs(id) ON DELETE CASCADE,
+    seq INTEGER NOT NULL DEFAULT 0,
+    facility TEXT NOT NULL,
+    existing_limit INTEGER NOT NULL DEFAULT 0,
+    proposed_limit INTEGER NOT NULL DEFAULT 0,
+    -- Typed. NULL when a ledger is linked, in which case the books answer instead.
+    outstanding INTEGER,
+    ledger_id INTEGER REFERENCES ledgers(id) ON DELETE SET NULL,
+    security TEXT,
+    notes TEXT
+  );
+  CREATE INDEX idx_cma_facilities_pack ON cma_facilities(pack_id);
+  `,
+
+  // 40 — the cheque that came back, the entry worth keeping a shape of, and the part of a batch
+  // that was never going to survive the process.
+  `
+  -- BOUNCED CHEQUES (#138). A returned cheque is two facts, and only one of them is accounting:
+  -- the reversal voucher restores the money, but "this customer's cheque bounced in June" is a
+  -- fact about the customer that the reversal alone cannot be read back out of — a journal
+  -- reversing a receipt looks identical to a journal correcting a keying error.
+  --
+  -- So the event is recorded: which receipt/payment came back, which voucher reversed it, on
+  -- what date, and the bank's own charge if one was levied. UNIQUE on voucher_id because a
+  -- cheque bounces once; a re-presented cheque that bounces again is a new receipt.
+  CREATE TABLE cheque_bounces (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    voucher_id INTEGER NOT NULL UNIQUE REFERENCES vouchers(id) ON DELETE CASCADE,
+    reversal_voucher_id INTEGER REFERENCES vouchers(id) ON DELETE SET NULL,
+    bounce_date TEXT NOT NULL,
+    reason TEXT,
+    -- Paise. 0 when the bank charged nothing, which does happen on an own-cheque return.
+    charge_amount INTEGER NOT NULL DEFAULT 0 CHECK (charge_amount >= 0),
+    recorded_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+  CREATE INDEX idx_cheque_bounces_date ON cheque_bounces(bounce_date);
+  CREATE INDEX idx_cheque_bounces_reversal ON cheque_bounces(reversal_voucher_id);
+
+  -- VOUCHER TEMPLATES (#27). recurring_templates already stores a voucher shape, but its
+  -- cadence and next_due are NOT NULL: it is a schedule that happens to carry a shape. A
+  -- template is the shape without the schedule — the monthly rent journal you post when the
+  -- landlord asks rather than on the 1st — and forcing it into a cadence would put entries on
+  -- the books nobody asked for.
+  CREATE TABLE voucher_templates (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL UNIQUE COLLATE NOCASE,
+    voucher_type_id INTEGER NOT NULL REFERENCES voucher_types(id),
+    voucher_json TEXT NOT NULL,
+    -- Ordering hint for the picker: most-used first beats alphabetical for something typed daily.
+    used_count INTEGER NOT NULL DEFAULT 0,
+    last_used_at TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+  CREATE INDEX idx_voucher_templates_type ON voucher_templates(voucher_type_id);
+
+  -- BOM SCRAP AND YIELD (#125). Both are needed and they are not the same number.
+  --
+  -- Scrap is per component: cutting 100 shirts from cloth wastes cloth, and the wastage belongs
+  -- to that component's issue quantity, not to the others. Yield is per finished item: of 100
+  -- units started, 97 pass inspection, and that inflates EVERY component equally.
+  --
+  -- Stored in hundredths of a percent so 2.5% is 250 and no float touches a quantity. Scrap
+  -- defaults to 0 and yield to 10000 (=100.00%), which is exactly today's behaviour, so every
+  -- existing BOM keeps producing the numbers it produced yesterday.
+  ALTER TABLE bom_lines ADD COLUMN scrap_bp INTEGER NOT NULL DEFAULT 0;
+  ALTER TABLE stock_items ADD COLUMN bom_yield_bp INTEGER NOT NULL DEFAULT 10000;
+  `,
+
+  // 41 — the goods at the job worker's, the certificate that says deduct less, and what the
+  // return said on the day it was filed.
+  //
+  // One migration for three features because they share a premise: statutory facts are DATED. A
+  // certificate is valid between two dates, a challan starts a clock, and a filed return is what
+  // it said when the ARN came back — not what the books say today. Everywhere the app previously
+  // stored one of these as a single current value, editing it rewrote history.
+  //
+  // The dated item rate that shipped with this lane is NOT here: migration 40 above already
+  // created `stock_item_gst_rates` with the same columns (rate, cess, citation note), that
+  // migration has already run on real databases, and migrations apply by array position — so a
+  // second table for the same fact would be a second answer to the same question. The engine in
+  // `src/shared/gst/rateHistory.ts` reads that table instead.
+  `
+  -- Goods sent to a job worker on a delivery challan (roadmap D-89, ITC-04).
+  --
+  -- Not a voucher: sending goods for job work is not a supply, so it posts nothing. It is a
+  -- movement that starts a statutory clock — section 143 deems a supply on the day of despatch if
+  -- the goods do not come back within a year (inputs) or three years (capital goods).
+  CREATE TABLE job_work_challans (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    number TEXT NOT NULL,
+    date TEXT NOT NULL,
+    job_worker_ledger_id INTEGER REFERENCES ledgers(id),
+    -- Denormalised from the ledger AT DESPATCH: the job worker's registration can change later,
+    -- and the challan has to keep saying what it said.
+    job_worker_gstin TEXT,
+    job_worker_state_code TEXT,
+    goods_type TEXT NOT NULL CHECK (goods_type IN ('input','capital_goods')),
+    stock_item_id INTEGER REFERENCES stock_items(id),
+    description TEXT NOT NULL,
+    hsn TEXT,
+    qty_milli INTEGER NOT NULL,
+    uqc TEXT NOT NULL DEFAULT 'NOS',
+    taxable_paise INTEGER NOT NULL DEFAULT 0,
+    gst_rate REAL NOT NULL DEFAULT 0,
+    -- Section 143(4) excludes moulds, dies, jigs, fixtures and tools from the capital-goods clock.
+    moulds_dies_jigs_tools INTEGER NOT NULL DEFAULT 0,
+    -- Explanation to section 143: goods sent straight from the supplier to the job worker start
+    -- the clock on the job worker's receipt, not on our despatch.
+    received_by_job_worker_on TEXT,
+    -- The Commissioner's extension under the proviso to 143(1).
+    extended_due_back_by TEXT,
+    notes TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    UNIQUE (number)
+  );
+  CREATE INDEX idx_job_work_challans_date ON job_work_challans(date);
+
+  -- What came back, or where else it went (ITC-04 tables 5A/5B/5C).
+  CREATE TABLE job_work_returns (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    challan_id INTEGER NOT NULL REFERENCES job_work_challans(id) ON DELETE CASCADE,
+    date TEXT NOT NULL,
+    number TEXT,
+    qty_milli INTEGER NOT NULL,
+    disposition TEXT NOT NULL CHECK (disposition IN (
+      'returned','sent_to_other_job_worker','supplied_from_job_worker_premises','waste_and_scrap'
+    )),
+    -- Set when the goods were sold from the job worker's premises, which IS a supply.
+    invoice_voucher_id INTEGER REFERENCES vouchers(id) ON DELETE SET NULL,
+    notes TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+  CREATE INDEX idx_job_work_returns_challan ON job_work_returns(challan_id, date);
+
+  -- A section 197 lower-deduction certificate (roadmap D-109).
+  --
+  -- Keyed on the payee's PAN rather than on a ledger id: a certificate is issued to a PERSON, and
+  -- the same person can be two ledgers in the books. A NULL ceiling means uncapped, which is
+  -- not the same as a zero ceiling — once cumulative payments pass a ceiling the normal rate
+  -- resumes on the excess, in the same payment.
+  CREATE TABLE tds_lower_deduction_certificates (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    certificate_number TEXT NOT NULL,
+    pan TEXT NOT NULL,
+    section_code TEXT NOT NULL,
+    rate_percent REAL NOT NULL,
+    valid_from TEXT NOT NULL,
+    valid_to TEXT NOT NULL,
+    ceiling_paise INTEGER,
+    notes TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    UNIQUE (certificate_number, section_code)
+  );
+  CREATE INDEX idx_tds_ldc_pan ON tds_lower_deduction_certificates(pan, section_code);
+
+  -- What a GSTR-1 said on the day it was filed (roadmap D-101).
+  --
+  -- An amendment table (B2BA, CDNRA) is only computable against the ORIGINAL particulars, and the
+  -- books no longer hold them once the voucher has been corrected. So the document set is
+  -- snapshotted at the moment the return is marked filed. Without this, "what changed since we
+  -- filed" is unanswerable and the amendment row would have to be typed by hand.
+  CREATE TABLE gstr1_filed_documents (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    period TEXT NOT NULL,
+    voucher_id INTEGER REFERENCES vouchers(id) ON DELETE SET NULL,
+    doc_number TEXT NOT NULL,
+    doc_date TEXT NOT NULL,
+    doc_type TEXT NOT NULL DEFAULT 'INV',
+    party_gstin TEXT,
+    pos TEXT,
+    -- The whole normalized document as filed, as JSON. Deliberately opaque: the amendment engine
+    -- compares an old shape against a new one, and freezing a column layout here would mean a
+    -- later schema change silently reinterpreting an old snapshot.
+    payload TEXT NOT NULL,
+    filed_at TEXT NOT NULL DEFAULT (datetime('now')),
+    UNIQUE (period, doc_number, doc_type)
+  );
+  CREATE INDEX idx_gstr1_filed_documents_period ON gstr1_filed_documents(period);
+  `,
+
+  // 47 — multi-GSTIN companies: one book, several registrations (roadmap #108).
+  //
+  // Until now a company held ONE gstin and ONE stateCode in `meta.company`, and every GST
+  // computation read them. A business with one PAN and premises in several states holds a
+  // separate registration per state; it is still one set of books, but returns are filed per
+  // GSTIN and intra/inter is decided against the state of the registration that made the supply.
+  //
+  // The existing single registration is migrated in as the first row, marked primary, so an
+  // existing company opens computing exactly what it computed before.
+  //
+  // Every existing voucher is STAMPED with that primary id rather than left NULL. A voucher
+  // whose registration is re-derived at report time is a voucher whose tax can move under it
+  // when a second registration is added later; stamping is what makes "it keeps doing what it
+  // did" a fact about the data rather than a promise about the code.
+  `
+  CREATE TABLE gst_registrations (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    -- NULL is legitimate: an unregistered company still gets exactly one row here.
+    gstin TEXT,
+    state_code TEXT NOT NULL,
+    trade_name TEXT NOT NULL,
+    address TEXT,
+    registered_on TEXT,
+    surrendered_on TEXT,
+    is_primary INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+  -- Partial, so the several NULL-GSTIN rows a half-filled book may hold don't collide, while
+  -- the same GSTIN can never be entered twice.
+  CREATE UNIQUE INDEX idx_gst_registrations_gstin ON gst_registrations(gstin) WHERE gstin IS NOT NULL;
+
+  ALTER TABLE vouchers ADD COLUMN gst_registration_id INTEGER REFERENCES gst_registrations(id);
+  CREATE INDEX idx_vouchers_gst_registration ON vouchers(gst_registration_id);
+
+  -- Which registration a godown/branch sits under, so a new supply can default to the
+  -- registration whose state the goods actually left.
+  ALTER TABLE godowns ADD COLUMN gst_registration_id INTEGER REFERENCES gst_registrations(id);
+
+  INSERT INTO gst_registrations (gstin, state_code, trade_name, address, is_primary)
+  SELECT json_extract(value, '$.gstin'),
+         json_extract(value, '$.stateCode'),
+         COALESCE(json_extract(value, '$.name'), 'Head office'),
+         json_extract(value, '$.address'),
+         1
+  FROM meta
+  WHERE key = 'company' AND json_extract(value, '$.stateCode') IS NOT NULL;
+
+  UPDATE vouchers SET gst_registration_id = (SELECT id FROM gst_registrations WHERE is_primary = 1)
+  WHERE gst_registration_id IS NULL
+    AND EXISTS (SELECT 1 FROM gst_registrations WHERE is_primary = 1);
+
+  UPDATE godowns SET gst_registration_id = (SELECT id FROM gst_registrations WHERE is_primary = 1)
+  WHERE gst_registration_id IS NULL
+    AND EXISTS (SELECT 1 FROM gst_registrations WHERE is_primary = 1);
+  `,
+
+  // 48 — the filing register is per GSTIN.
+  //
+  // `gst_filings` carried UNIQUE (form, period), which is exactly right for one registration and
+  // exactly wrong for two: a Maharashtra GSTR-3B and a Gujarat GSTR-3B for the same month are two
+  // filings, two ARNs, two payments. SQLite cannot widen a UNIQUE constraint in place, so the
+  // table is rebuilt and every existing row is attributed to the primary registration.
+  `
+  CREATE TABLE gst_filings_new (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    form TEXT NOT NULL,
+    period TEXT NOT NULL,
+    due_date TEXT NOT NULL,
+    filed_at TEXT,
+    arn TEXT,
+    tax_paid INTEGER NOT NULL DEFAULT 0,
+    late_fee INTEGER NOT NULL DEFAULT 0,
+    interest INTEGER NOT NULL DEFAULT 0,
+    notes TEXT,
+    -- The GSTR-1A snapshot (migration 38): carried across verbatim, it is a whole return as JSON.
+    docs_json TEXT,
+    registration_id INTEGER REFERENCES gst_registrations(id),
+    UNIQUE (form, period, registration_id)
+  );
+
+  INSERT INTO gst_filings_new
+    (id, form, period, due_date, filed_at, arn, tax_paid, late_fee, interest, notes, docs_json, registration_id)
+  SELECT id, form, period, due_date, filed_at, arn, tax_paid, late_fee, interest, notes, docs_json,
+         (SELECT id FROM gst_registrations WHERE is_primary = 1)
+  FROM gst_filings;
+
+  DROP TABLE gst_filings;
+  ALTER TABLE gst_filings_new RENAME TO gst_filings;
+  CREATE INDEX idx_gst_filings_period ON gst_filings(period);
+  `,
+
+  // 49 — the GSTR-1 filed snapshot is per GSTIN too.
+  //
+  // `gstr1_filed_documents` was keyed UNIQUE (period, doc_number, doc_type). With two
+  // registrations that is one snapshot for two returns: marking the Gujarat GSTR-1 filed would
+  // find the Maharashtra snapshot already there, keep it (the deliberate first-writer-wins rule
+  // in recordFiling), and every Gujarat amendment would be computed against Maharashtra's
+  // documents. Rebuilt with the registration in the key; existing rows go to the primary.
+  `
+  CREATE TABLE gstr1_filed_documents_new (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    period TEXT NOT NULL,
+    voucher_id INTEGER REFERENCES vouchers(id) ON DELETE SET NULL,
+    doc_number TEXT NOT NULL,
+    doc_date TEXT NOT NULL,
+    doc_type TEXT NOT NULL DEFAULT 'INV',
+    party_gstin TEXT,
+    pos TEXT,
+    payload TEXT NOT NULL,
+    registration_id INTEGER REFERENCES gst_registrations(id),
+    filed_at TEXT NOT NULL DEFAULT (datetime('now')),
+    UNIQUE (period, doc_number, doc_type, registration_id)
+  );
+
+  INSERT INTO gstr1_filed_documents_new
+    (id, period, voucher_id, doc_number, doc_date, doc_type, party_gstin, pos, payload, registration_id, filed_at)
+  SELECT id, period, voucher_id, doc_number, doc_date, doc_type, party_gstin, pos, payload,
+         (SELECT id FROM gst_registrations WHERE is_primary = 1), filed_at
+  FROM gstr1_filed_documents;
+
+  DROP TABLE gstr1_filed_documents;
+  ALTER TABLE gstr1_filed_documents_new RENAME TO gstr1_filed_documents;
+  CREATE INDEX idx_gstr1_filed_documents_period ON gstr1_filed_documents(period);
+  `,
+  // 43 — the purchase half of the order chain (roadmap #188 / #189).
+  //
+  // The sales chain already models quotation → order → challan → invoice, with quantities carried
+  // per line so an order can go out on two challans. Inward is the SAME shape pointing the other
+  // way: a purchase order, then a receipt note as the goods arrive, then the supplier's bill.
+  //
+  // So this is one column, not a second set of tables. `side` says which way the document faces;
+  // an 'order' on the purchase side IS the purchase order, and a 'challan' on the purchase side IS
+  // the goods receipt note. Building a parallel purchase_documents table would have duplicated the
+  // conversion logic, and the conversion logic is where the fulfilment arithmetic lives — two
+  // copies of it is two answers to "what is still owed".
+  //
+  // Numbering stays unique per (stage, number) because the prefixes differ (SO-/PO-, DC-/GRN-).
+  //
+  // fulfilled_milli is deliberately NOT capped at qty_milli on the purchase side: a supplier who
+  // sends 110 against an order for 100 has over-delivered, and clamping the receipt at 100 would
+  // lose the ten units that are physically in the godown. The excess is carried and reported.
+  `
+  ALTER TABLE sales_documents ADD COLUMN side TEXT NOT NULL DEFAULT 'sales'
+    CHECK (side IN ('sales','purchase'));
+  CREATE INDEX idx_sales_documents_side ON sales_documents(side, stage, status);
+  `,
+
+  // 44 — fields a company defines for itself, per voucher type (roadmap #195).
+  //
+  // Definitions in a table and values in a table, keyed by voucher. Emphatically NOT columns:
+  // a user-defined column is user-defined SQL, and an accounting file whose shape depends on what
+  // somebody typed in Settings is one nobody can migrate, back up or reason about.
+  //
+  // `value` is TEXT for every kind, including 'number'. A number in a custom field is a number,
+  // not paise — nothing sums it into a ledger, and storing it as an integer would be the first
+  // step towards something trying to.
+  //
+  // A definition is never hard-deleted by the app; removing one stamps `retired_at`. Vouchers
+  // already carry values for it, and those values are what the document said when it was issued.
+  // The ON DELETE CASCADE below is therefore only reachable by deleting the voucher TYPE itself,
+  // which the app refuses while vouchers of that type exist.
+  `
+  CREATE TABLE custom_field_defs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    voucher_type_id INTEGER NOT NULL REFERENCES voucher_types(id) ON DELETE CASCADE,
+    -- Derived from the label once, then frozen: the print template and any export address the
+    -- field by key, so renaming the label must not move it.
+    key TEXT NOT NULL,
+    label TEXT NOT NULL,
+    kind TEXT NOT NULL CHECK (kind IN ('text','number','date','list')),
+    -- JSON array, only meaningful for 'list'.
+    options TEXT NOT NULL DEFAULT '[]',
+    required INTEGER NOT NULL DEFAULT 0,
+    printed INTEGER NOT NULL DEFAULT 1,
+    sort_order INTEGER NOT NULL DEFAULT 0,
+    retired_at TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+  -- Unique among LIVE fields only. A field removed last year and re-added under the same label is
+  -- a NEW field: the old definition stays so the vouchers issued under it still read back, and
+  -- blocking the re-add instead would make one removal permanent for the life of the company.
+  CREATE UNIQUE INDEX idx_custom_field_defs_key
+    ON custom_field_defs(voucher_type_id, key) WHERE retired_at IS NULL;
+  CREATE INDEX idx_custom_field_defs_type ON custom_field_defs(voucher_type_id, sort_order);
+
+  CREATE TABLE custom_field_values (
+    voucher_id INTEGER NOT NULL REFERENCES vouchers(id) ON DELETE CASCADE,
+    field_id INTEGER NOT NULL REFERENCES custom_field_defs(id) ON DELETE CASCADE,
+    value TEXT NOT NULL,
+    PRIMARY KEY (voucher_id, field_id)
+  );
+  CREATE INDEX idx_custom_field_values_field ON custom_field_values(field_id);
+  `,
+
+  // 52 — the inventory lane's last five, and the foreign-currency bank account.
+  //
+  // One migration rather than five because they land together and a database that has three of
+  // them is a database nobody ever had.
+  `
+  -- SERIAL NUMBERS (#115). A batch answers "which lot"; a serial answers "where is THAT one" —
+  -- the engine number, the IMEI, the compressor on the warranty card.
+  --
+  -- Two tables, because a serial is not a field on a movement: it is a thing with a history, and
+  -- the questions asked of it months later are all about dates ("was this in stock in March",
+  -- "what did we pay for it"). So the MOVEMENTS are stored and the status is derived from the
+  -- latest one. A a status column would be a second copy of a fact the movements already carry,
+  -- and the two would disagree the first time a voucher was altered.
+  --
+  -- serial is NOCASE-unique per item and not globally: two manufacturers genuinely do stamp the
+  -- same number on different things, and a global unique index would refuse the second one for a
+  -- reason the user cannot act on. original_text keeps what was typed, for the warranty card.
+  CREATE TABLE serial_numbers (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    stock_item_id INTEGER NOT NULL REFERENCES stock_items(id) ON DELETE CASCADE,
+    serial TEXT NOT NULL COLLATE NOCASE,
+    original_text TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    UNIQUE (stock_item_id, serial)
+  );
+
+  -- ON DELETE CASCADE from the voucher: a purged voucher's serial movements are not history, they
+  -- are a record of an entry that no longer exists, and leaving them would make a serial look
+  -- issued to an invoice nobody can open.
+  CREATE TABLE serial_movements (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    serial_id INTEGER NOT NULL REFERENCES serial_numbers(id) ON DELETE CASCADE,
+    voucher_id INTEGER NOT NULL REFERENCES vouchers(id) ON DELETE CASCADE,
+    direction TEXT NOT NULL CHECK (direction IN ('in','out')),
+    moved_on TEXT NOT NULL,
+    -- Paise per unit at the time, so "what did this one cost" is answerable without re-deriving a
+    -- weighted average that has moved on since.
+    rate_paise INTEGER NOT NULL DEFAULT 0,
+    party_ledger_id INTEGER REFERENCES ledgers(id) ON DELETE SET NULL,
+    godown_id INTEGER REFERENCES godowns(id) ON DELETE SET NULL
+  );
+  CREATE INDEX idx_serial_movements_serial ON serial_movements(serial_id, moved_on);
+  CREATE INDEX idx_serial_movements_voucher ON serial_movements(voucher_id);
+
+  -- Nullable-free: an item either tracks serials or it does not, and every item that existed
+  -- before this migration did not.
+  ALTER TABLE stock_items ADD COLUMN track_serials INTEGER NOT NULL DEFAULT 0;
+
+  -- ITEM IMAGES (#119). The NAME of a file in <company>/item-images/, never the bytes. Images do
+  -- not go in the database: a company.db carrying two hundred product photographs is a database
+  -- that is copied, backed up and integrity-checked at forty times its real size, and the folder
+  -- is the unit a user syncs anyway. Same rule as attachments, same reasons — see
+  -- src/shared/itemImages.ts.
+  ALTER TABLE stock_items ADD COLUMN image_name TEXT;
+
+  -- STANDARD COSTING (#118). Dated data, not a column on the item: a standard revised in October
+  -- must leave September's variance report saying what it said in September. UNIQUE on
+  -- (item, date) so revising the same day's standard twice corrects it rather than stacking.
+  CREATE TABLE standard_costs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    stock_item_id INTEGER NOT NULL REFERENCES stock_items(id) ON DELETE CASCADE,
+    effective_from TEXT NOT NULL,
+    -- Paise per whole unit.
+    standard_cost INTEGER NOT NULL CHECK (standard_cost >= 0),
+    note TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    UNIQUE (stock_item_id, effective_from)
+  );
+
+  -- JOB WORK (#127) is NOT here. Migration 41 above already created job_work_challans and
+  -- job_work_returns for the ITC-04 lane (#89), that migration has already run on real
+  -- databases, and migrations apply by array position — so a second set of job-work tables would
+  -- be a second answer to the same question. The stock-movement half this lane built is grafted
+  -- onto those tables by migration 53 below instead.
+
+  -- MULTI-CURRENCY BANK ACCOUNTS AND REVALUATION (#140).
+  --
+  -- Three columns and a table, and each one exists because the alternative loses a fact.
+  --
+  -- ledgers.currency_code is what makes an account foreign. Without it there is nothing to
+  -- revalue: a rupee figure alone cannot say how many dollars it was, and dividing it back out by
+  -- today's rate invents a different dollar balance every day.
+  --
+  -- voucher_lines.fc_amount is the foreign amount as it was agreed — USD 1,200.00 stays USD
+  -- 1,200.00 forever. voucher_lines.fc_rate_micro is the rate that was USED, recorded on the
+  -- entry that used it rather than looked up again later, which is the whole point: a March
+  -- revaluation has to keep saying March's rate in June. Micro-units (millionths of a rupee per
+  -- one foreign unit) because a rate is not money and rounding it to paise before use would put
+  -- the error into every amount computed from it. See src/shared/fx.ts.
+  ALTER TABLE ledgers ADD COLUMN currency_code TEXT REFERENCES currencies(code);
+  ALTER TABLE voucher_lines ADD COLUMN fc_amount INTEGER;
+  ALTER TABLE voucher_lines ADD COLUMN fc_rate_micro INTEGER;
+
+  -- One row per account per period end. UNIQUE so a period cannot be revalued twice and post the
+  -- difference twice; the second run corrects the first by being refused, not by adding to it.
+  CREATE TABLE fx_revaluations (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    ledger_id INTEGER NOT NULL REFERENCES ledgers(id) ON DELETE CASCADE,
+    as_on TEXT NOT NULL,
+    currency_code TEXT NOT NULL,
+    closing_rate_micro INTEGER NOT NULL CHECK (closing_rate_micro > 0),
+    -- All signed dr-positive, like every balance in this database.
+    fc_minor INTEGER NOT NULL,
+    book_paise INTEGER NOT NULL,
+    restated_paise INTEGER NOT NULL,
+    difference_paise INTEGER NOT NULL,
+    voucher_id INTEGER REFERENCES vouchers(id) ON DELETE SET NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    UNIQUE (ledger_id, as_on)
+  );
+  CREATE INDEX idx_fx_revaluations_as_on ON fx_revaluations(as_on);
+  `,
+
+  // 53 — the job worker's godown, and the stock journal that puts the goods in it (#127 onto #89).
+  //
+  // Migration 41 recorded the PAPERWORK of job work — the challan, the receipt, the section 143
+  // clock, ITC-04 — and moved no stock at all. That is an accounting error, not a missing nicety:
+  // goods at a job worker are still the principal's stock and belong in his closing stock. Left
+  // as they were they sat in the despatching godown as though they had never gone out.
+  //
+  // Columns rather than tables, because the movement is a fact ABOUT a challan that already
+  // exists. Every one is nullable and every existing row reads back exactly as it did: a challan
+  // saved before this migration has no godown and no voucher, and the service treats that as
+  // "paperwork only", which is what it was.
+  `
+  -- Where the goods went. Named for the job worker and created on first use — see
+  -- jobWorkGodownName in @shared/jobWork, which is the single place the name is spelt.
+  ALTER TABLE job_work_challans ADD COLUMN godown_id INTEGER REFERENCES godowns(id);
+  -- Where they left FROM. NULL means unallocated stock, the same convention inventory_lines uses.
+  ALTER TABLE job_work_challans ADD COLUMN from_godown_id INTEGER REFERENCES godowns(id);
+  -- The stock journal that did the moving. ON DELETE SET NULL and not CASCADE: a voucher purged
+  -- from the bin must not take the statutory paperwork — and the clock running on it — with it.
+  ALTER TABLE job_work_challans ADD COLUMN voucher_id INTEGER REFERENCES vouchers(id) ON DELETE SET NULL;
+
+  -- The same two facts for a receipt: which stock journal brought the goods back, and into which
+  -- godown. Waste (section 143(5)) has a voucher but no inward leg — see saveReturn.
+  ALTER TABLE job_work_returns ADD COLUMN voucher_id INTEGER REFERENCES vouchers(id) ON DELETE SET NULL;
+  ALTER TABLE job_work_returns ADD COLUMN to_godown_id INTEGER REFERENCES godowns(id);
+  `,
+
+  // 54 — the branch-transfer invoice: stock that moved between two registrations (roadmap #108).
+  //
+  // Migration 47 made the movement VISIBLE — every voucher carries its registration, and
+  // `crossRegistrationTransfers` finds a stock journal whose goods left one registration's godown
+  // and arrived in another's. What it could not do was raise the document Schedule I para 2
+  // requires: a tax invoice from the sending registration to the receiving one, valued under
+  // rule 28, in the sender's own rule 46(b) series.
+  //
+  // A table rather than a voucher, and this is the whole design. One business, one set of books:
+  // a transfer between its own branches creates output tax in one return and input credit in
+  // another, but no revenue, no expense and no change in the closing stock value. Posting it
+  // would move the trial balance, and the trial balance must not move. So the document is a GST
+  // document that FEEDS the returns — the sender's GSTR-1 and the receiver's ITC — and posts
+  // nothing. See src/shared/gst/branchTransfer.ts, BOOKS_NOTE.
+  `
+  CREATE TABLE branch_transfer_invoices (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    -- Rule 46(b): a consecutive serial for a financial year, per SENDING registration.
+    number TEXT NOT NULL UNIQUE,
+    doc_date TEXT NOT NULL,
+    -- The stock journal that moved the goods. ON DELETE SET NULL, not CASCADE: purging a voucher
+    -- from the bin must not take an issued tax invoice — and the return it is in — with it.
+    voucher_id INTEGER REFERENCES vouchers(id) ON DELETE SET NULL,
+    from_registration_id INTEGER NOT NULL REFERENCES gst_registrations(id),
+    to_registration_id INTEGER NOT NULL REFERENCES gst_registrations(id),
+    place_of_supply TEXT NOT NULL,
+    supply_type TEXT NOT NULL CHECK (supply_type IN ('intra','inter')),
+    -- Which limb of rule 28 fixed the value. See Rule28Basis in the engine.
+    basis TEXT NOT NULL CHECK (basis IN ('declared-full-itc','open-market','like-kind','ninety-percent','cost-110')),
+    -- Whether the receiving registration takes full credit. Decides the second proviso, and
+    -- decides whether the tax on this transfer is a real cost the user must journal themselves.
+    recipient_full_itc INTEGER NOT NULL DEFAULT 1,
+    -- Book value of the stock moved, paise — what the journal moved at. NOT the taxable value.
+    book_value INTEGER NOT NULL DEFAULT 0,
+    taxable INTEGER NOT NULL DEFAULT 0,
+    igst INTEGER NOT NULL DEFAULT 0,
+    cgst INTEGER NOT NULL DEFAULT 0,
+    sgst INTEGER NOT NULL DEFAULT 0,
+    cess INTEGER NOT NULL DEFAULT 0,
+    -- The document as issued, so a reprint is the same paper rather than a recomputation.
+    doc_json TEXT NOT NULL,
+    issued_at TEXT NOT NULL DEFAULT (datetime('now')),
+    issued_by TEXT,
+    -- One invoice per movement per direction pair. Two invoices for one supply is a worse
+    -- finding than none, and this is the constraint that makes issuing idempotent.
+    UNIQUE (voucher_id, from_registration_id, to_registration_id)
+  );
+  CREATE INDEX idx_branch_transfer_invoices_date ON branch_transfer_invoices(doc_date);
+  CREATE INDEX idx_branch_transfer_invoices_from ON branch_transfer_invoices(from_registration_id);
+  CREATE INDEX idx_branch_transfer_invoices_to ON branch_transfer_invoices(to_registration_id);
+  `,
+
+  // 55 — Input Service Distributor (roadmap #355).
+  //
+  // An office that receives invoices for services used across several registrations — the audit
+  // fee, the software subscription, head-office rent — and distributes the credit to them.
+  // Optional until 1 April 2025 and compulsory for this pattern since, so a business with
+  // multiple registrations paying a common bill is now required to do it.
+  //
+  // `is_isd` on gst_registrations rather than a table of its own: an ISD IS a registration, with
+  // its own GSTIN, and section 24(viii) makes it a separate one. Nullable-by-default column, so
+  // every existing registration reads back exactly as it did — not an ISD, which is what it was.
+  //
+  // Nothing here posts either. Distribution moves credit between two of one business's own
+  // electronic credit ledgers on the portal; it creates no revenue and no expense.
+  `
+  ALTER TABLE gst_registrations ADD COLUMN is_isd INTEGER NOT NULL DEFAULT 0;
+
+  -- An invoice received centrally, whose credit is to be distributed.
+  CREATE TABLE isd_credits (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    -- The ISD registration that received it.
+    registration_id INTEGER NOT NULL REFERENCES gst_registrations(id) ON DELETE CASCADE,
+    doc_date TEXT NOT NULL,
+    supplier_name TEXT NOT NULL,
+    supplier_gstin TEXT,
+    invoice_number TEXT NOT NULL,
+    description TEXT,
+    taxable INTEGER NOT NULL DEFAULT 0,
+    igst INTEGER NOT NULL DEFAULT 0,
+    cgst INTEGER NOT NULL DEFAULT 0,
+    sgst INTEGER NOT NULL DEFAULT 0,
+    cess INTEGER NOT NULL DEFAULT 0,
+    -- Rule 39 distributes eligible and ineligible credit separately, as separate amounts.
+    eligibility TEXT NOT NULL CHECK (eligibility IN ('eligible','ineligible')),
+    -- 'all' | 'some' | 'one'. Credit attributable to one recipient goes to that one whole and is
+    -- never apportioned; the app must not infer which case an invoice is in.
+    attribution TEXT NOT NULL CHECK (attribution IN ('all','some','one')),
+    -- Tax paid by the ISD under section 9(3)/9(4) rather than charged by the supplier.
+    reverse_charge INTEGER NOT NULL DEFAULT 0,
+    -- The month whose distribution consumed it, 'YYYY-MM'. NULL until distributed.
+    distributed_month TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    UNIQUE (registration_id, supplier_gstin, invoice_number, doc_date)
+  );
+  CREATE INDEX idx_isd_credits_date ON isd_credits(doc_date);
+  CREATE INDEX idx_isd_credits_month ON isd_credits(distributed_month);
+
+  -- Which registrations a 'some'/'one' credit is attributable to. Empty for 'all'.
+  CREATE TABLE isd_credit_recipients (
+    isd_credit_id INTEGER NOT NULL REFERENCES isd_credits(id) ON DELETE CASCADE,
+    registration_id INTEGER NOT NULL REFERENCES gst_registrations(id) ON DELETE CASCADE,
+    PRIMARY KEY (isd_credit_id, registration_id)
+  );
+
+  -- One ISD invoice, rule 54(1), to one recipient registration for one month.
+  CREATE TABLE isd_invoices (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    number TEXT NOT NULL UNIQUE,
+    doc_date TEXT NOT NULL,
+    -- 'YYYY-MM' the distribution belongs to. Distribution is monthly.
+    month TEXT NOT NULL,
+    isd_registration_id INTEGER NOT NULL REFERENCES gst_registrations(id),
+    recipient_registration_id INTEGER NOT NULL REFERENCES gst_registrations(id),
+    -- Distributed amounts, split by eligibility, in the heads they ARRIVE in: CGST+SGST becomes
+    -- IGST for a recipient outside the ISD's own State. See convertHeads in the engine.
+    eligible_igst INTEGER NOT NULL DEFAULT 0,
+    eligible_cgst INTEGER NOT NULL DEFAULT 0,
+    eligible_sgst INTEGER NOT NULL DEFAULT 0,
+    eligible_cess INTEGER NOT NULL DEFAULT 0,
+    ineligible_igst INTEGER NOT NULL DEFAULT 0,
+    ineligible_cgst INTEGER NOT NULL DEFAULT 0,
+    ineligible_sgst INTEGER NOT NULL DEFAULT 0,
+    ineligible_cess INTEGER NOT NULL DEFAULT 0,
+    -- The turnover ratio this share was computed on, printed on the document so it can be checked.
+    turnover_paise INTEGER NOT NULL DEFAULT 0,
+    total_turnover_paise INTEGER NOT NULL DEFAULT 0,
+    doc_json TEXT NOT NULL,
+    issued_at TEXT NOT NULL DEFAULT (datetime('now')),
+    issued_by TEXT,
+    -- A month is distributed once per recipient. Re-running the month is a withdrawal and a
+    -- re-issue, not a second document.
+    UNIQUE (month, isd_registration_id, recipient_registration_id)
+  );
+  CREATE INDEX idx_isd_invoices_month ON isd_invoices(month);
+  CREATE INDEX idx_isd_invoices_recipient ON isd_invoices(recipient_registration_id);
+  `,
+
+  // 56 — employee last working day.
+  //
+  // The pay-cycle engine has always understood both ends of an employment period, but the
+  // employee master stored only the joining date. A weekly/fortnightly employee leaving during a
+  // cycle was consequently paid to the end of that cycle, and a monthly run had no durable fact
+  // with which to cap the final month's attendance. Nullable keeps every existing employee active
+  // indefinitely and preserves all historical reads.
+  `
+  ALTER TABLE employees ADD COLUMN left_on TEXT;
+  `,
+
+  // 57 — durable outward-return snapshot headers and IFF provenance.
+  //
+  // A document row alone cannot prove that an empty return/IFF was filed: COUNT(*) = 0 looks the
+  // same as "never snapshotted", so re-recording an ARN after entering a late invoice could
+  // silently rewrite history. The header makes filing itself durable, including nil filings.
+  //
+  // IFF is also a filing surface in its own right. Records furnished in M1/M2 are not furnished
+  // again in the quarter's GSTR-1, and a missed M1 invoice may legitimately be furnished in M2.
+  // Provenance on each document lets the quarter exclude IFF records without losing the period
+  // in which the portal first saw them.
+  `
+  CREATE TABLE gst_outward_snapshot_headers (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    form TEXT NOT NULL CHECK (form IN ('GSTR-1','IFF')),
+    filing_period TEXT NOT NULL,
+    portal_period TEXT NOT NULL,
+    from_date TEXT NOT NULL,
+    to_date TEXT NOT NULL,
+    registration_id INTEGER REFERENCES gst_registrations(id),
+    filed_at TEXT NOT NULL,
+    UNIQUE (form, filing_period, registration_id)
+  );
+  CREATE INDEX idx_gst_outward_snapshot_headers_portal
+    ON gst_outward_snapshot_headers(portal_period, registration_id);
+
+  ALTER TABLE gstr1_filed_documents ADD COLUMN source_form TEXT NOT NULL DEFAULT 'GSTR-1';
+  ALTER TABLE gstr1_filed_documents ADD COLUMN filing_period TEXT;
+  `,
+
+  // 58 — deductor TAN on a party ledger.
+  //
+  // GSTIN and PAN do not identify the TAN under which a customer files TDS. Form 26AS names TAN
+  // as its stable deductor key, so borrowing it back from a statement by fuzzy party name made a
+  // short-deduction match depend on spelling. Nullable preserves every existing party; once the
+  // TAN is entered from Form 16A/26AS, later reconciliations use the durable identifier.
+  `
+  ALTER TABLE ledgers ADD COLUMN tan TEXT;
+  `,
+
+  // 59 — GSTR-6 source invoice detail and tax-head lineage.
+  //
+  // GSTN's Table 3 requires invoice value, place of supply and one row per GST rate. The portal's
+  // distribution object also names the incoming and outgoing head separately (iamti/iamtc/iamts,
+  // camtc/camti, samts/samti), which cannot be reconstructed from a recipient's final aggregate
+  // after CGST+SGST has converted to IGST. Preserve those facts at issue time.
+  `
+  ALTER TABLE isd_credits ADD COLUMN invoice_value INTEGER NOT NULL DEFAULT 0;
+  ALTER TABLE isd_credits ADD COLUMN place_of_supply TEXT NOT NULL DEFAULT '';
+
+  UPDATE isd_credits
+  SET invoice_value = taxable + igst + cgst + sgst + cess,
+      place_of_supply = COALESCE(NULLIF(substr(supplier_gstin, 1, 2), ''),
+        (SELECT state_code FROM gst_registrations r WHERE r.id = isd_credits.registration_id));
+
+  CREATE TABLE isd_credit_items (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    isd_credit_id INTEGER NOT NULL REFERENCES isd_credits(id) ON DELETE CASCADE,
+    line_number INTEGER NOT NULL,
+    rate_bps INTEGER NOT NULL CHECK (rate_bps >= 0),
+    taxable INTEGER NOT NULL CHECK (taxable >= 0),
+    igst INTEGER NOT NULL DEFAULT 0 CHECK (igst >= 0),
+    cgst INTEGER NOT NULL DEFAULT 0 CHECK (cgst >= 0),
+    sgst INTEGER NOT NULL DEFAULT 0 CHECK (sgst >= 0),
+    cess INTEGER NOT NULL DEFAULT 0 CHECK (cess >= 0),
+    UNIQUE (isd_credit_id, line_number)
+  );
+  CREATE INDEX idx_isd_credit_items_credit ON isd_credit_items(isd_credit_id);
+
+  INSERT INTO isd_credit_items
+    (isd_credit_id, line_number, rate_bps, taxable, igst, cgst, sgst, cess)
+  SELECT id, 1, 0, taxable, igst, cgst, sgst, cess FROM isd_credits;
+
+  CREATE TABLE isd_invoice_lineage (
+    isd_invoice_id INTEGER NOT NULL REFERENCES isd_invoices(id) ON DELETE CASCADE,
+    isd_credit_id INTEGER NOT NULL REFERENCES isd_credits(id),
+    eligibility TEXT NOT NULL CHECK (eligibility IN ('eligible','ineligible')),
+    iamti INTEGER NOT NULL DEFAULT 0,
+    iamtc INTEGER NOT NULL DEFAULT 0,
+    iamts INTEGER NOT NULL DEFAULT 0,
+    camtc INTEGER NOT NULL DEFAULT 0,
+    camti INTEGER NOT NULL DEFAULT 0,
+    samts INTEGER NOT NULL DEFAULT 0,
+    samti INTEGER NOT NULL DEFAULT 0,
+    csamt INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (isd_invoice_id, isd_credit_id)
+  );
+  CREATE INDEX idx_isd_invoice_lineage_invoice ON isd_invoice_lineage(isd_invoice_id);
+  `,
+
+  // 60 — current ITC-04 utility facts and the complete job-worker chain.
+  //
+  // GSTN's v2.15 workbook requires SEZ/non-SEZ and cess on Table 4, identifies the worker who
+  // actually returns/supplies the goods in Tables 5A/5B/5C, and carries loss/waste UQC+quantity
+  // on the same form row. An onward move must also retain its destination and whether it travelled
+  // on the endorsed original challan or a fresh challan, without resetting section 143's clock.
+  `
+  ALTER TABLE job_work_challans ADD COLUMN job_worker_is_sez INTEGER NOT NULL DEFAULT 0;
+  ALTER TABLE job_work_challans ADD COLUMN cess_paise INTEGER NOT NULL DEFAULT 0;
+
+  ALTER TABLE job_work_returns ADD COLUMN source_job_worker_ledger_id INTEGER REFERENCES ledgers(id);
+  ALTER TABLE job_work_returns ADD COLUMN source_job_worker_gstin TEXT;
+  ALTER TABLE job_work_returns ADD COLUMN source_job_worker_state_code TEXT;
+  ALTER TABLE job_work_returns ADD COLUMN source_job_worker_is_sez INTEGER NOT NULL DEFAULT 0;
+  ALTER TABLE job_work_returns ADD COLUMN destination_job_worker_ledger_id INTEGER REFERENCES ledgers(id);
+  ALTER TABLE job_work_returns ADD COLUMN destination_job_worker_gstin TEXT;
+  ALTER TABLE job_work_returns ADD COLUMN destination_job_worker_state_code TEXT;
+  ALTER TABLE job_work_returns ADD COLUMN destination_job_worker_is_sez INTEGER NOT NULL DEFAULT 0;
+  ALTER TABLE job_work_returns ADD COLUMN onward_challan_provenance TEXT
+    CHECK (onward_challan_provenance IN ('endorsed_original','fresh'));
+  ALTER TABLE job_work_returns ADD COLUMN loss_waste_uqc TEXT;
+  ALTER TABLE job_work_returns ADD COLUMN loss_waste_qty_milli INTEGER NOT NULL DEFAULT 0;
+  ALTER TABLE job_work_returns ADD COLUMN from_godown_id INTEGER REFERENCES godowns(id);
+
+  -- Every legacy receipt was recorded only against the first worker, so that worker is the only
+  -- honest source identity to preserve. Legacy waste was its own disposition; translate its
+  -- quantity into the current same-row loss/waste fields without changing the old discriminator.
+  UPDATE job_work_returns
+  SET source_job_worker_ledger_id = (
+        SELECT c.job_worker_ledger_id FROM job_work_challans c WHERE c.id = job_work_returns.challan_id
+      ),
+      source_job_worker_gstin = (
+        SELECT c.job_worker_gstin FROM job_work_challans c WHERE c.id = job_work_returns.challan_id
+      ),
+      source_job_worker_state_code = (
+        SELECT c.job_worker_state_code FROM job_work_challans c WHERE c.id = job_work_returns.challan_id
+      ),
+      loss_waste_uqc = CASE WHEN disposition = 'waste_and_scrap' THEN (
+        SELECT c.uqc FROM job_work_challans c WHERE c.id = job_work_returns.challan_id
+      ) ELSE NULL END,
+      loss_waste_qty_milli = CASE WHEN disposition = 'waste_and_scrap' THEN qty_milli ELSE 0 END;
   `
 ]

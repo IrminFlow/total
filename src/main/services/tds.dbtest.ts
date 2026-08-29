@@ -13,7 +13,9 @@ import type { VoucherInputParsed } from '@shared/schemas'
 import { companyExportsDir, ensureCompanyTree } from '../paths'
 
 const INFO: CompanyInfo = {
-  name: 'Test Co', stateCode: '27', gstin: null, gstRegistrationType: 'regular', address: '',
+  name: 'Test Co', stateCode: '27', gstin: null, gstRegistrationType: 'regular',
+  gstFilingFrequency: 'monthly',
+  turnoverBand: null, address: '',
   booksFrom: 2025, email: null, phone: null, pan: null, tan: null
 }
 
@@ -49,7 +51,7 @@ function paymentVoucherWithTds(
     transporterId: null,
     vehicleNo: null,
     transportDistanceKm: null,
-    posOverride: null,
+    posOverride: null, gstRegistrationId: null,
     currencyCode: null,
     exchangeRate: null,
     postDated: opts.postDated,
@@ -154,7 +156,7 @@ describe('tds service', () => {
     // Exercises saveSection's update branch (id given) — edits the seeded row in place.
     const edited = saveSection(db, {
       id: section.id, code: '194C', description: 'Payments to contractors (edited)', rate: 2,
-      thresholdSingle: 3000000, thresholdAnnual: 10000000
+      thresholdSingle: 3000000, thresholdAnnual: 10000000, code2025: null
     })
     expect(edited.description).toBe('Payments to contractors (edited)')
     paymentVoucherWithTds(db, { date: '2025-05-10', partyLedgerId: party.id, base: 5000000, tds: 100000, sectionId: section.id, sectionCode: '194C' })

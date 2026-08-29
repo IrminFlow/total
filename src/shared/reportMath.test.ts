@@ -87,9 +87,38 @@ describe('computeRatios', () => {
       sales: 0, purchases: 0, openingStock: 0, closingStock: 0, grossProfit: 0, netProfit: 0, periodDays: 30
     })
     expect(r).toEqual({
-      currentRatio: null, quickRatio: null, debtorDays: null, creditorDays: null,
+      currentRatio: null, quickRatio: null, debtEquity: null, debtorDays: null, creditorDays: null,
       inventoryTurnover: null, grossMarginPct: null, netMarginPct: null
     })
+  })
+
+  it('gears borrowings against owners funds', () => {
+    const r = computeRatios({
+      currentAssets: 0, currentLiabilities: 0, stock: 0, receivables: 0, payables: 0,
+      borrowings: 300000, equity: 200000,
+      sales: 0, purchases: 0, openingStock: 0, closingStock: 0, grossProfit: 0, netProfit: 0, periodDays: 30
+    })
+    expect(r.debtEquity).toBe(1.5)
+  })
+
+  it('will not report gearing for a company with no equity to gear against', () => {
+    // Not Infinity, and not zero: a nil capital account makes the ratio unmeasurable, and a
+    // confident number here is the kind that ends up quoted to a bank.
+    const r = computeRatios({
+      currentAssets: 0, currentLiabilities: 0, stock: 0, receivables: 0, payables: 0,
+      borrowings: 300000, equity: 0,
+      sales: 0, purchases: 0, openingStock: 0, closingStock: 0, grossProfit: 0, netProfit: 0, periodDays: 30
+    })
+    expect(r.debtEquity).toBeNull()
+  })
+
+  it('reports negative gearing rather than hiding accumulated losses', () => {
+    const r = computeRatios({
+      currentAssets: 0, currentLiabilities: 0, stock: 0, receivables: 0, payables: 0,
+      borrowings: 100000, equity: -50000,
+      sales: 0, purchases: 0, openingStock: 0, closingStock: 0, grossProfit: 0, netProfit: 0, periodDays: 30
+    })
+    expect(r.debtEquity).toBe(-2)
   })
 })
 

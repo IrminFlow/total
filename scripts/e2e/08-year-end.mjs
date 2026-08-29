@@ -63,4 +63,35 @@ await scenario('08-year-end', async (h) => {
   await h.goto('gateway')
   await h.goto('year-end')
   await h.shot('02-year-end-after-close')
+
+  // ---- closing the wrong year is undoable (roadmap #258) ----
+  // The close zeroes every income and expense ledger and then locks the books up to 31 March,
+  // which locks the closing entry itself: without this, undoing it by hand means lifting the
+  // lock, finding one entry among thousands, and hoping the lock date typed back is the one that
+  // was there.
+  const beforeReverse = await h.invoke('report:trialBalance', { asOn: fyEnd })
+  const lockAfterClose = await h.invoke('company:lock:get')
+  assertEq(lockAfterClose.date, fyEnd, 'the close locked the books up to 31 March')
+
+  await h.page.waitForSelector('[data-testid="btn-year-end-reverse"]', { timeout: 15000 })
+  await h.click('btn-year-end-reverse')
+  await h.page.waitForSelector('[data-testid="btn-year-end-reverse"]', { state: 'detached', timeout: 15000 })
+  await h.shot('03-year-end-reversed')
+
+  const lockAfterReverse = await h.invoke('company:lock:get')
+  assertEq(lockAfterReverse.date, null, 'reversing puts the books lock back where it was')
+  const afterReverse = await h.invoke('yearend:preview', { fyStartYear })
+  assertEq(afterReverse.alreadyClosed, false, 'and the year is open again')
+  const tbAfterReverse = await h.invoke('report:trialBalance', { asOn: fyEnd })
+  assertEq(tbAfterReverse.totalDebit, tbAfterReverse.totalCredit, 'the books still tie')
+  // The FY's income is back on the income ledger, where the close had moved it to Retained
+  // Earnings. Totals alone would not show this: the close moves a balance, it does not create one.
+  const closedSales = beforeReverse.rows.find((r) => r.ledgerName === 'YE Sales')
+  const reopenedSales = tbAfterReverse.rows.find((r) => r.ledgerName === 'YE Sales')
+  assertEq(closedSales === undefined ? 0 : closedSales.credit, 0, 'the close had zeroed the income ledger')
+  assertEq(reopenedSales.credit, 777700, 'and reversing put the income back on it')
+
+  // Closing again gives the same answer, which is what "reversed" has to mean.
+  const reclosed = await h.invoke('yearend:close', { fyStartYear })
+  assertEq(reclosed.netProfit, closed.netProfit, 'closing again reaches the same profit')
 })

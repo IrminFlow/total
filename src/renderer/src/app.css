@@ -1,46 +1,179 @@
-@import '@fontsource/ibm-plex-sans/400.css';
-@import '@fontsource/ibm-plex-sans/500.css';
-@import '@fontsource/ibm-plex-sans/600.css';
-@import '@fontsource/ibm-plex-serif/500.css';
-@import '@fontsource/ibm-plex-serif/600.css';
-@import '@fontsource/ibm-plex-mono/400.css';
-@import '@fontsource/ibm-plex-mono/500.css';
+/* Latin subsets plus one currency fallback, and woff2 only.
+   The unscoped entrypoints (`400.css` rather than `latin-400.css`) pull every subset fontsource
+   ships — cyrillic, greek, vietnamese, latin-ext — for all seven faces, and each subset in both
+   woff2 AND legacy woff. That was 76 font files and about 890 KB in a bundle for an app whose
+   entire interface is English and whose numbers are Latin digits. IBM Plex puts U+20B9 (₹) in
+   latin-ext, so one Sans woff2 is registered below as a currency-only fallback instead of shipping
+   seven full extended subsets. Chromium has supported woff2 since 2014, so the woff half is never
+   needed by that fallback.
+   If the app is ever localised into a script outside Latin, add that subset here deliberately. */
+@import '@fontsource/ibm-plex-sans/latin-400.css';
+@import '@fontsource/ibm-plex-sans/latin-500.css';
+@import '@fontsource/ibm-plex-sans/latin-600.css';
+@import '@fontsource/ibm-plex-serif/latin-500.css';
+@import '@fontsource/ibm-plex-serif/latin-600.css';
+@import '@fontsource/ibm-plex-mono/latin-400.css';
+@import '@fontsource/ibm-plex-mono/latin-500.css';
 @import 'tailwindcss';
+
+@font-face {
+  font-family: 'Total Currency';
+  font-style: normal;
+  font-display: swap;
+  font-weight: 400;
+  src: url('@fontsource/ibm-plex-sans/files/ibm-plex-sans-latin-ext-400-normal.woff2') format('woff2');
+  unicode-range: U+20B9;
+}
 
 /* ---------- theme tokens: light (default) and dark ---------- */
 
 :root {
+  /* ---- Text size preference (#279) ----
+     Every step of the type scale below is `calc(Npx * var(--t-font-scale))`, so one number moves
+     the whole scale and nothing else. Deliberately NOT a root font-size change: Tailwind v4 sizes
+     spacing in rem, so scaling the root would inflate every padding, gap and gutter in the app
+     and turn a dense ledger into a comfortable one. This product is dense on purpose — bigger
+     text has to arrive inside the same rhythm, not blow it apart. Set from JS on <html>. */
+  --t-font-scale: 1;
+
   --t-bg: #f4f4ef;
   --t-panel: #ffffff;
   --t-panel2: #f6f7fa;
   --t-line: #dcdfe6;
   --t-ink: #21263a;
   --t-muted: #6a7186;
-  --t-amber: #b97f0a;
-  --t-amber-bar: #f5b82e;
-  --t-amber-soft: rgba(245, 184, 46, 0.18);
+  /* ---- The accent: indigo ----
+     Every selection bar, active tab, active nav item and primary button in the app is this one
+     colour. It was a gold amber, which on a cream ground reads as highlighter pen: warm, loud,
+     and close enough to the ochre used for warnings that the two competed.
+
+     Two values rather than one, because the accent does two different jobs. `--t-accent` is for
+     text and hairlines and has to clear 4.5:1 against paper; `--t-accent-bar` is for solid fills
+     and can be brighter, since what sits on it is white. Using one value for both is how an
+     accent ends up either too pale to fill with or too dark to read. */
+  --t-accent: #3730a3;
+  --t-accent-bar: #4338ca;
+  --t-accent-soft: rgba(67, 56, 202, 0.1);
+  /* The focus ring, and a THIRD accent value rather than a reuse of one of the two above.
+     The ring is drawn just outside a control, on whatever surface the control sits on, and it has
+     to separate from THAT — which is a different requirement from filling a button and a
+     different one again from being readable as text. On paper the bar colour does the job; in the
+     dark theme it does not, at 2.9:1 against the sidebar, and a ring that exists in the stylesheet
+     and cannot be seen is the same as no ring at all. WCAG 2.2 SC 1.4.11 puts the floor at 3:1 and
+     names a focus indicator as the example; scripts/e2e/12-theme-a11y.mjs measures it. */
+  --t-focus-ring: #4338ca;
+  /* Ink ON the solid bar (the primary button), and ink on the soft selection band. They are
+     opposite ends of the same scale and were one token, which is how a white label ended up on
+     a ten-percent tint the first time this was tried. */
+  --t-on-accent: #ffffff;
+  --t-on-accent-soft: #1e1b4b;
   --t-dr: #157a53;
   --t-cr: #bb4433;
-  --t-blue: #1f5fc2;
+  /* Links and row actions. Demoted from a true blue to a slate: with an indigo signature, a blue
+     link is a second accent competing with the first, and the day book had sixty of them on
+     screen at once. Quiet enough to read as ink, distinct enough to read as clickable. */
+  --t-blue: #3f4a63;
+  /* Accelerator letters. Deliberately NOT --t-cr: that red means "credit" throughout the
+     app, and a menu label sharing it would read as an amount. */
+  --t-accel: #c02f1d;
+  /* The margin rule down the left of a ledger page. Muted well below --t-cr so it reads as
+     ruling, not as a credit figure. */
+  --t-margin: color-mix(in oklab, #bb4433 34%, transparent);
   --t-shadow: 0 1px 2px rgba(30, 35, 60, 0.06), 0 4px 16px rgba(30, 35, 60, 0.05);
   --t-rule: #3a4053;
+  /* Warnings. A caution needs its own colour, and now that the signature is indigo this ochre
+     finally has the field to itself — it used to sit eight pixels from an amber selection bar
+     and lose. */
+  --t-warn: #8a6512;
+  --t-warn-soft: rgba(138, 101, 18, 0.1);
+  --t-warn-line: color-mix(in oklab, #8a6512 38%, transparent);
 }
 
 [data-theme='dark'] {
-  --t-bg: #0e1220;
-  --t-panel: #151b2c;
-  --t-panel2: #1b2338;
-  --t-line: #273049;
-  --t-ink: #e9e9e2;
-  --t-muted: #8c94ab;
-  --t-amber: #f0b429;
-  --t-amber-bar: #f0b429;
-  --t-amber-soft: rgba(240, 180, 41, 0.14);
+  /* Dark is an elevation model, not a colour swap. The ground is pushed down and the panel up,
+     so a panel reads as a sheet lying on the desk rather than dissolving into it; the top-edge
+     highlight in --t-shadow is the light catching the near edge of that sheet.
+     
+     The neutrals are a true grey, neither the old navy nor a brown. Navy made the app a different
+     product after dark, and a warm charcoal would now fight the indigo accent rather than carry
+     it. Grey is the ground that lets one accent be the only colour in the room. */
+  --t-bg: #121316;
+  --t-panel: #1c1e23;
+  --t-panel2: #262930;
+  --t-line: #363a44;
+  --t-ink: #e8e9ec;
+  --t-muted: #9aa0ab;
+  /* Lighter than the light theme's indigo, because the job is reversed: here it has to separate
+     from a dark ground rather than from paper. */
+  --t-accent: #a5a0f5;
+  --t-accent-bar: #5b52d9;
+  /* The bar colour is 2.9:1 against this theme's sidebar — under the 3:1 floor. The ring takes the
+     lighter value, which is the one chosen to separate from a dark ground. */
+  --t-focus-ring: #a5a0f5;
+  /* An opaque mix, not the accent at low alpha. A translucent colour takes its hue from whatever
+     is behind it, which is how a selected row ends up muddy in one theme and clean in the other. */
+  --t-accent-soft: #292748;
+  --t-on-accent: #ffffff;
+  --t-on-accent-soft: #e8e9ec;
   --t-dr: #6ec6a0;
   --t-cr: #e4796b;
-  --t-blue: #6e8ef5;
-  --t-shadow: none;
+  /* The link slate, lifted for a dark ground. */
+  --t-blue: #a7b0c4;
+  /* Hotter and more saturated than the light theme's vermilion: on a near-black ground the old
+     #ff8a75 washed out to pink and stopped separating from --t-cr. */
+  --t-accel: #ff5f45;
+  /* The margin rule down the left of a ledger page. Muted well below --t-cr so it reads as
+     ruling, not as a credit figure. */
+  --t-margin: color-mix(in oklab, #e4796b 26%, transparent);
+  /* Inset first: a 1px top-edge highlight inside the panel's own border. Then a cast shadow that
+     is real (dark had none, which is why every panel floated flush with the background). */
+  --t-shadow:
+    inset 0 1px 0 0 rgba(255, 255, 255, 0.05), 0 1px 2px rgba(0, 0, 0, 0.5),
+    0 8px 24px rgba(0, 0, 0, 0.38);
   --t-rule: #e9e9e2;
+  /* Tan rather than gold: on a grey ground a saturated ochre is the loudest thing on screen, and
+     a caution should not outrank the figures it is cautioning about. */
+  --t-warn: #d1a86a;
+  --t-warn-soft: rgba(209, 168, 106, 0.16);
+  --t-warn-line: color-mix(in oklab, #d1a86a 46%, transparent);
+}
+
+/* ---------- high contrast (#278) ----------
+
+   Not "light with the dial turned up". Light and dark are both elevation models built out of
+   near-neighbours — cream on off-white, panel on ground — and that is exactly what fails for a
+   reader with low vision: the whole interface is one value. High contrast throws elevation away
+   and spends everything on separation. Pure white ground, pure black ink and black hairlines, so
+   every edge in the app is a real edge rather than a two-percent step, and every accent colour is
+   darkened until it clears WCAG AAA (7:1) against the ground instead of AA.
+
+   The indigo survives as the selection bar because it is the signature, darkened to 11:1 against
+   white so it clears AAA as text as well as filling as a graphic. */
+[data-theme='contrast'] {
+  --t-bg: #ffffff;
+  --t-panel: #ffffff;
+  --t-panel2: #ededed;
+  --t-line: #000000;
+  --t-ink: #000000;
+  --t-muted: #3a3a3a;
+  --t-accent: #241c6e;
+  --t-accent-bar: #2f2590;
+  --t-focus-ring: #2f2590;
+  --t-accent-soft: rgba(47, 37, 144, 0.18);
+  --t-on-accent: #ffffff;
+  --t-on-accent-soft: #000000;
+  --t-dr: #005a36;
+  --t-cr: #a4000f;
+  --t-blue: #1b2233;
+  --t-accel: #8a2600;
+  --t-margin: color-mix(in oklab, #a4000f 70%, transparent);
+  /* A blurred drop shadow is invisible at this contrast and does no separating work. A hard 1px
+     ring is the same job done in a way the eye it is meant for can actually see. */
+  --t-shadow: 0 0 0 1px #000000;
+  --t-rule: #000000;
+  --t-warn: #5c4a00;
+  --t-warn-soft: rgba(92, 74, 0, 0.14);
+  --t-warn-line: #5c4a00;
 }
 
 @theme inline {
@@ -53,29 +186,71 @@
   --color-line: var(--t-line);
   --color-ink: var(--t-ink);
   --color-muted: var(--t-muted);
-  --color-amber: var(--t-amber);
-  --color-amberbar: var(--t-amber-bar);
+  --color-accent: var(--t-accent);
+  --color-accentbar: var(--t-accent-bar);
   --color-dr: var(--t-dr);
   --color-cr: var(--t-cr);
   --color-blue: var(--t-blue);
   --color-rule: var(--t-rule);
+  --color-accel: var(--t-accel);
+  --color-onaccent: var(--t-on-accent);
+  --color-onaccentsoft: var(--t-on-accent-soft);
+  --color-warn: var(--t-warn);
+  --color-warnsoft: var(--t-warn-soft);
+  --color-warnline: var(--t-warn-line);
 
-  --font-sans: 'IBM Plex Sans', system-ui, sans-serif;
-  --font-serif: 'IBM Plex Serif', Georgia, serif;
-  --font-mono: 'IBM Plex Mono', ui-monospace, monospace;
+  --font-sans: 'IBM Plex Sans', 'Total Currency', system-ui, sans-serif;
+  --font-serif: 'IBM Plex Serif', 'Total Currency', Georgia, serif;
+  --font-mono: 'IBM Plex Mono', 'Total Currency', ui-monospace, monospace;
 
-  /* Type scale — use these (text-label, text-hint, …) in kit components instead of raw
-     bracket sizes; screens converge opportunistically. */
-  --text-label: 10.5px; /* uppercase micro-labels, Kbd */
-  --text-caption: 11px; /* field labels */
-  --text-hint: 11.5px; /* hints + inline errors */
-  --text-small: 12px; /* small links/actions */
-  --text-body-sm: 12.5px; /* secondary body */
-  --text-detail: 13px; /* buttons, dense rows */
-  --text-body: 13.5px; /* inputs + default body */
-  --text-lead: 14.5px; /* emphasized row titles */
-  --text-title: 16px; /* modal titles */
-  --text-heading: 19px; /* section titles */
+  /* ---- Type scale ----
+     Seven steps, and each one is a different size on screen. The old scale had six steps inside
+     a three-pixel band (10.5 / 11 / 11.5 / 12 / 12.5 / 13) which no reader could tell apart, and
+     nothing above 19px — so a page of dense figures had no top note at all. The band is now two
+     steps, and the room that freed up went to the top, where hierarchy is actually read.
+
+       micro   11.5  uppercase micro-labels, field labels, hints, inline errors, Kbd
+       body    13     everything else: rows, buttons, inputs, links, secondary text
+       lead    15     emphasized row titles, the company name in the header
+       section 18     modal titles, panel and section headings
+       figure  21     KPI values and key figures — the number a screen exists to show
+       page    24     the screen title, once per screen
+       display 28/34  wordmark, lock screen, import result counts
+
+     The old names are kept as aliases so no screen breaks: they map onto the two band steps and
+     onto `section`. New code should use micro / body / lead / section / figure / page.
+
+     Every step is multiplied by --t-font-scale (the text-size preference, see :root). The
+     multiplication has to happen here rather than at the root font-size for the density reason
+     recorded there. */
+  --text-micro: calc(11.5px * var(--t-font-scale));
+  --text-body: calc(13px * var(--t-font-scale));
+  --text-lead: calc(15px * var(--t-font-scale));
+  --text-section: calc(18px * var(--t-font-scale));
+  --text-figure: calc(21px * var(--t-font-scale));
+  --text-page: calc(24px * var(--t-font-scale));
+  --text-display-sm: calc(28px * var(--t-font-scale));
+  --text-display: calc(34px * var(--t-font-scale));
+  /* The three big steps set tight, so a title reads as one object rather than a line of prose.
+     (`@theme inline` inlines these, so the aliases below must repeat the literal value — a
+     var() reference there would point at a custom property that is never emitted.) */
+  --text-section--line-height: 1.25;
+  --text-figure--line-height: 1.15;
+  --text-page--line-height: 1.1;
+  --text-display-sm--line-height: 1.1;
+  --text-display--line-height: 1.05;
+
+  /* Aliases — deprecated names, live sizes. Kept so existing screens keep compiling. */
+  --text-label: calc(11.5px * var(--t-font-scale));
+  --text-caption: calc(11.5px * var(--t-font-scale));
+  --text-hint: calc(11.5px * var(--t-font-scale));
+  --text-small: calc(13px * var(--t-font-scale));
+  --text-body-sm: calc(13px * var(--t-font-scale));
+  --text-detail: calc(13px * var(--t-font-scale));
+  --text-title: calc(18px * var(--t-font-scale));
+  --text-title--line-height: 1.25;
+  --text-heading: calc(18px * var(--t-font-scale));
+  --text-heading--line-height: 1.25;
 }
 
 html,
@@ -88,15 +263,32 @@ body {
   background: var(--t-bg);
   color: var(--t-ink);
   font-family: var(--font-sans);
-  font-size: 13.5px;
+  /* The body step, written out — and scaled, so text that inherits rather than naming a step
+     grows with the preference too. */
+  font-size: calc(13px * var(--t-font-scale));
   -webkit-font-smoothing: antialiased;
   overflow: hidden;
   user-select: none;
 }
 
+/* The highlighted letter of a menu label -- press it to go there. `.accel-muted` is the same
+   letter while the current screen has claimed that key for one of its own actions. */
+.accel {
+  color: var(--t-accel);
+  font-weight: 600;
+}
+
+.accel-muted {
+  color: var(--t-muted);
+  font-weight: 600;
+}
+
 .num {
   font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
+  /* A date or an amount is one atomic value. Letting "24-May-26" break across two lines makes
+     a dense table unreadable and misaligns every row it happens on. */
+  white-space: nowrap;
 }
 
 .panel-shadow {
@@ -112,13 +304,13 @@ body {
   -webkit-app-region: no-drag;
 }
 
-/* ---------- amber keyboard bar — the signature ---------- */
+/* ---------- the accent keyboard bar — the signature ---------- */
 
 .kbar-row {
   position: relative;
 }
 .kbar-row[data-active='true'] {
-  background: var(--t-amber-soft);
+  background: var(--t-accent-soft);
 }
 .kbar-row[data-active='true']::before {
   content: '';
@@ -128,7 +320,7 @@ body {
   bottom: 2px;
   width: 3px;
   border-radius: 2px;
-  background: var(--t-amber-bar);
+  background: var(--t-accent-bar);
 }
 /* On table rows a ::before would become a phantom first cell — use an inset bar instead. */
 tr.kbar-row::before,
@@ -136,7 +328,107 @@ tr.kbar-row[data-active='true']::before {
   content: none;
 }
 tr.kbar-row[data-active='true'] td:first-child {
-  box-shadow: inset 3px 0 0 0 var(--t-amber-bar);
+  box-shadow: inset 3px 0 0 0 var(--t-accent-bar);
+}
+
+/* Coloured figures step back to full-contrast ink while their row is selected.
+ *
+ * An overdue amount is drawn in the credit red, and the selected row carries the accent. Colour on
+ * colour:
+ * the one moment a keyboard-driven app puts a number under the cursor is the moment that number
+ * loses its contrast. The signal is not lost — the row itself is now the loudest thing on the
+ * screen, and weight and position still separate the figure — but it becomes legible again.
+ *
+ * Scoped to the cell text, so a status chip with its own background keeps its colour. */
+.kbar-row[data-active='true'] .text-cr,
+.kbar-row[data-active='true'] .text-dr,
+.kbar-row[data-active='true'] .text-accent,
+.kbar-row[data-active='true'] .text-warn,
+.kbar-row[data-active='true'] .text-blue {
+  color: var(--t-on-accent-soft);
+}
+[data-theme='dark'] .kbar-row[data-active='true'] .text-cr,
+[data-theme='dark'] .kbar-row[data-active='true'] .text-dr,
+[data-theme='dark'] .kbar-row[data-active='true'] .text-accent,
+[data-theme='dark'] .kbar-row[data-active='true'] .text-warn,
+[data-theme='dark'] .kbar-row[data-active='true'] .text-blue {
+  color: var(--t-ink);
+}
+
+/* ---------- row actions: quiet, but never hover-only (#283) ----------
+
+   A per-row action (Edit, PDF, Rename) stays out of the way until the row is the one being
+   worked on. "Being worked on" is four different things depending on how the app is being
+   driven, and a rule that only knows about the first one locks out everyone else:
+
+     .group:hover              the pointer is on the row
+     .group:focus-within       Tab has landed inside the row
+     .group[data-active=true]  the accent keyboard bar is on the row (useTableNav's row props)
+     :focus-visible            the action itself has focus, including inside a row that is not
+                               a `.group` at all
+
+   Opacity rather than `display: none` on purpose: a hidden button is not in the tab order, so
+   Tab could never reach it and `:focus-within` could never fire. The button is always there and
+   always reachable; only its ink fades.
+
+   This lives in one class instead of a five-variant utility string repeated per screen, because
+   the repeated string is how DayBook and Masters each ended up with a different subset of it. */
+.row-action {
+  opacity: 0;
+  transition: opacity 120ms ease;
+}
+
+/* The cell those actions live in.
+ *
+ * Two actions in one cell wrapped onto a second line, which made every sales row in the day book
+ * two pixels short of a line taller than every purchase row next to it. Invisible until you scan
+ * the column and find the rhythm jittering, and then impossible to unsee. The actions are hidden
+ * until the row is hovered or active, so the wrap was happening in rows that looked empty.
+ *
+ * `nowrap` on the cell rather than a width on the buttons: the number of actions differs by row
+ * kind, and a fixed width would only move the problem to whichever row grows a third one. */
+td:has(.row-action) {
+  white-space: nowrap;
+}
+.group:hover .row-action,
+.group:focus-within .row-action,
+.group[data-active='true'] .row-action,
+/* A plain table row, too. Most tables in the app do not carry `.group` on the <tr>, and without
+   this the action in their trailing cell was reachable only by Tab — invisible to the mouse that
+   was hovering directly over it. */
+tr:hover .row-action,
+tr:focus-within .row-action,
+tr[data-active='true'] .row-action,
+.row-action:focus-visible,
+.row-action:focus-within {
+  opacity: 1;
+}
+
+/* Two actions in a cell are spaced by the rule, not by a margin the call site remembers to add.
+   Rows of different kinds carry different numbers of actions, and the gap was drifting — and a
+   quiet action sitting next to a link (Active/Paused, then Edit) had no gap at all. `.row-link`
+   earns nothing else: it is here only so the pair rule can see both kinds. */
+.row-action + .row-action,
+.row-action + .row-link,
+.row-link + .row-action,
+.row-link + .row-link {
+  margin-left: 0.5rem;
+}
+
+/* Keyboard-only mode (Settings → Appearance): hover stops revealing anything.
+
+   The point is not to punish the mouse, it is to make the screen honest. With hover in the mix
+   an operator working from the keyboard sees rows whose actions appear for someone else and
+   never for them, and cannot tell whether a row has one action or four. With it out, the accent
+   bar and Tab are the only things that light an action up — so what is visible is exactly what
+   the keyboard can reach.
+
+   `:not()` rather than a blanket override so a row that is BOTH hovered and keyboard-active
+   still shows its actions: the later rule would otherwise win on equal specificity and blank
+   out the very row the user is on. */
+[data-kbd-only='true'] .group:hover:not([data-active='true']):not(:focus-within) .row-action,
+[data-kbd-only='true'] tr:hover:not([data-active='true']):not(:focus-within) .row-action {
+  opacity: 0;
 }
 
 /* ---------- ledger tables: hand-rules + double-rule totals ---------- */
@@ -145,8 +437,19 @@ tr.kbar-row[data-active='true'] td:first-child {
   width: 100%;
   border-collapse: collapse;
 }
+/* The margin rule: the red vertical line down the left of every page of a bahi khata. It runs
+   the full height because it is drawn on each row's first cell against a collapsed border, so it
+   never needs a wrapper element and never shifts the layout. */
+.ledger-table th:first-child,
+.ledger-table td:first-child {
+  border-left: 1.5px solid var(--t-margin);
+  /* No extra padding: the cell's existing 12px is already the gutter a ruled page has, and
+     widening it here was enough to wrap the date column onto two lines. */
+}
 .ledger-table th {
-  font-size: 10.5px;
+  /* The micro step, written out: `@theme inline` inlines the scale into utilities rather than
+     emitting custom properties, so plain CSS cannot reference it by name. */
+  font-size: calc(11.5px * var(--t-font-scale));
   font-weight: 600;
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -159,7 +462,31 @@ tr.kbar-row[data-active='true'] td:first-child {
 .ledger-table td {
   padding: 6px 12px;
   border-bottom: 1px solid color-mix(in oklab, var(--t-line) 60%, transparent);
+  /* One row, one height. A long party name used to wrap to two lines and break the rhythm of
+     every table it appeared in, so text cells are clipped to a single line instead. `height` on
+     a td is a minimum, so a row holding an input is still allowed to be taller. */
+  height: 30px;
+  line-height: 1.3;
 }
+/* Truncation needs a width to truncate against: add Tailwind's `table-fixed` plus a <colgroup>
+   to the table and long text ellipsises. Without them the cell simply widens instead of
+   wrapping, which is already the better of the two failures.
+
+   Cells holding a control are exempt — `overflow: hidden` on them would clip the absolutely
+   positioned TypeAhead menus that open inside voucher-entry line grids. `.wrap` opts a cell out
+   by hand for the rare column that genuinely wants two lines. */
+.ledger-table td:not(.wrap):not(.num):not(:has(input, select, textarea, button, [data-typeahead], .num)) {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ledger-table th:not(.wrap) {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* `.num` cells are untouched by the rule above — they already carry `white-space: nowrap` and
+   are sized by their tabular figures, not by the column. */
 .ledger-table tr.total-row td {
   border-top: 1px solid var(--t-rule);
   border-bottom: 3px double var(--t-rule);
@@ -186,28 +513,234 @@ textarea {
   user-select: text;
 }
 
+/* ---------- form controls: ours, not the OS's ---------- */
+
+/* macOS draws a double-chevron in its own blue-grey on every unstyled <select>. There are
+   eighty-odd selects in this app and that control was the loudest off-brand thing on screen, so
+   the element itself is restyled rather than the kit wrapper — a hand-written <select> on a
+   screen gets the same treatment as <Select>.
+
+   The caret is two gradients rather than an SVG data URI on purpose: a data URI cannot read a
+   custom property, so an inline chevron would have to hardcode a hex and would then be the wrong
+   colour in the other theme. Utilities still win on specificity (0,1,0 beats 0,0,1), so a screen
+   that wants its own padding or appearance keeps it. */
+select:not([multiple]):not([size]) {
+  appearance: none;
+  -webkit-appearance: none;
+  padding-right: 26px;
+  background-image:
+    linear-gradient(45deg, transparent 50%, var(--t-muted) 50%),
+    linear-gradient(135deg, var(--t-muted) 50%, transparent 50%);
+  background-position:
+    calc(100% - 15px) calc(50% + 1px),
+    calc(100% - 10px) calc(50% + 1px);
+  background-size:
+    5px 5px,
+    5px 5px;
+  background-repeat: no-repeat;
+}
+select:not([multiple]):not([size]):hover {
+  background-image:
+    linear-gradient(45deg, transparent 50%, var(--t-ink) 50%),
+    linear-gradient(135deg, var(--t-ink) 50%, transparent 50%);
+}
+
+/* Checkboxes and radios, drawn rather than borrowed from the OS.
+
+   `accent-color` alone is not enough: it tints a box that is already ticked, and leaves the
+   UNTICKED state to the platform — which on macOS is a near-white square. Down the left edge of a
+   dark table that is the loudest thing on the screen, and it is the state most boxes are in.
+
+   So: `appearance: none` and paint both states from tokens. The tick is a CSS mask rather than a
+   background image so it inherits `--t-on-accent` and stays legible in either theme; a hardcoded
+   SVG fill would be wrong in one of them. */
+input[type='checkbox'],
+input[type='radio'] {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 14px;
+  height: 14px;
+  flex: 0 0 auto;
+  border: 1px solid var(--t-line);
+  background: var(--t-panel);
+  cursor: pointer;
+  display: inline-grid;
+  place-content: center;
+  transition: background-color 120ms ease, border-color 120ms ease;
+}
+
+input[type='checkbox'] {
+  border-radius: 3px;
+}
+
+input[type='radio'] {
+  border-radius: 50%;
+}
+
+input[type='checkbox']:hover:not(:disabled),
+input[type='radio']:hover:not(:disabled) {
+  border-color: var(--t-accent);
+}
+
+input[type='checkbox']:checked,
+input[type='radio']:checked {
+  background: var(--t-accent-bar);
+  border-color: var(--t-accent-bar);
+}
+
+input[type='checkbox']:checked::after {
+  content: '';
+  width: 9px;
+  height: 9px;
+  background: var(--t-on-accent);
+  clip-path: polygon(14% 46%, 0 60%, 39% 100%, 100% 22%, 86% 8%, 39% 71%);
+}
+
+input[type='radio']:checked::after {
+  content: '';
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--t-on-accent);
+}
+
+input[type='checkbox']:disabled,
+input[type='radio']:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+/* ---------- warnings ---------- */
+
+/* A caution box. Uses --t-warn, never the accent: see the token comment. */
+.callout-warn {
+  border: 1px solid var(--t-warn-line);
+  background: var(--t-warn-soft);
+  color: var(--t-ink);
+}
+
 :focus-visible {
-  outline: 2px solid var(--t-amber-bar);
+  outline: 2px solid var(--t-focus-ring);
   outline-offset: 1px;
   border-radius: 3px;
 }
 
-::-webkit-scrollbar {
-  width: 10px;
-  height: 10px;
-}
-::-webkit-scrollbar-thumb {
-  background: var(--t-line);
-  border-radius: 6px;
-  border: 2px solid var(--t-bg);
-}
-::-webkit-scrollbar-track {
-  background: transparent;
+/* A card that scrolls when it must and ends when it can.
+ *
+ * The pattern everywhere was `flex-1` on the report card, which fills the viewport whatever the
+ * content. A trial balance for a young company then ended with its double-rule Total and carried
+ * on for another two hundred blank pixels INSIDE the same card — which reads as data that has
+ * been cut off, not as whitespace. A ledger ends at its ruled total; that is the whole paper
+ * metaphor this app is built on.
+ *
+ * `max-height: 100%` keeps the bound the inner scroller needs, so a long report still scrolls
+ * inside a fixed card with its header in place. A short one just stops. */
+.card-fit {
+  flex: 0 1 auto;
+  min-height: 0;
+  max-height: 100%;
 }
 
+/* Scrollbars that stay out of the way.
+ *
+ * A styled webkit scrollbar is painted at full strength forever, so every screen carried a grey
+ * pill parked between the sidebar and the content — a phantom third column that reads as a
+ * rendering fault rather than as a control, because nothing else in the chrome is grey-on-white
+ * at that weight.
+ *
+ * The standard properties rather than the webkit pseudo-elements, because `:hover` cannot be used
+ * to reveal a thumb: `:hover` matches every ancestor under the pointer, so `html` is hovered
+ * whenever the pointer is anywhere in the window and the "hidden" thumb was always visible.
+ * `scrollbar-width: thin` gets a bar half the width, and the thumb is mixed down until it reads
+ * as a hint about position rather than as a piece of furniture. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in oklab, var(--t-muted) 30%, transparent) transparent;
+}
+
+/* High contrast is the one theme where the scrollbar should be as loud as everything else: the
+   reader it is built for should not have to find a control by looking closely. */
+[data-theme='contrast'] * {
+  scrollbar-color: var(--t-ink) transparent;
+}
+
+/* Tailwind v4 ships sr-only/not-sr-only; declared here too because the skip link is the one
+   place where a missing utility would silently leave visible text at the top of every screen. */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border-width: 0;
+}
+.focus\:not-sr-only:focus {
+  position: static;
+  width: auto;
+  height: auto;
+  padding: revert;
+  margin: revert;
+  overflow: visible;
+  clip: auto;
+  white-space: normal;
+}
+
+/* ---------- reduced motion (#277) ----------
+
+   Two ways in, one implementation: the OS setting, and an in-app preference for the case where
+   the machine is shared or the user wants it here but not everywhere. `[data-motion='reduced']`
+   is set on <html> by the preference; the media query covers the OS. Both hit the same rules, so
+   there is no second code path to keep honest.
+
+   `animation: none` was wrong in two ways. It removed the spinner and the skeleton entirely —
+   the two things on screen whose whole job is to say "still working" — and killing a transition
+   outright can strand code that waits for `transitionend`. The near-zero-duration recipe below
+   ends every transition immediately at its final value instead, so the end state is still
+   reached and the journey is not animated.
+
+   The exception is deliberate: a spinner is essential feedback, not decoration, so under reduced
+   motion it keeps pulsing — opacity only. Opacity is not vestibular; a rotating object is. */
 @media (prefers-reduced-motion: reduce) {
-  * {
-    animation: none !important;
-    transition: none !important;
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-delay: 0ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    transition-delay: 0ms !important;
+    scroll-behavior: auto !important;
+  }
+  .animate-spin,
+  .animate-pulse {
+    animation: t-quiet-pulse 1.6s ease-in-out infinite !important;
+  }
+}
+
+[data-motion='reduced'] *,
+[data-motion='reduced'] *::before,
+[data-motion='reduced'] *::after {
+  animation-duration: 0.01ms !important;
+  animation-delay: 0ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.01ms !important;
+  transition-delay: 0ms !important;
+  scroll-behavior: auto !important;
+}
+[data-motion='reduced'] .animate-spin,
+[data-motion='reduced'] .animate-pulse {
+  animation: t-quiet-pulse 1.6s ease-in-out infinite !important;
+}
+
+@keyframes t-quiet-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
   }
 }

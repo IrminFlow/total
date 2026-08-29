@@ -23,7 +23,9 @@ async function launchApp() {
     executablePath: electronPath,
     args: [process.cwd()],
     timeout: 60000,
-    env: { ...process.env, TOTAL_DATA_DIR: dataDir, TOTAL_SUPPRESS_SYNC_WARNING: '1' }
+    // Same guard as the E2E harness: ELECTRON_RUN_AS_NODE leaking in from the shell makes
+    // launch fail with a bare "Process failed to launch!".
+    env: { ...process.env, ELECTRON_RUN_AS_NODE: undefined, TOTAL_DATA_DIR: dataDir, TOTAL_SUPPRESS_SYNC_WARNING: '1' }
   })
   const page = await app.firstWindow()
   await page.waitForLoadState('domcontentloaded')
@@ -77,9 +79,14 @@ try {
   // --- Get to the Gateway with demo data. "Explore with sample data" chains
   // company:createDemo -> company:open -> setCompany itself (CompanySelect.tsx), so a single
   // click drives create+open, integrity/locked handling included.
+  // Two clicks now, not one: the sample company asks which trade it should look like (roadmap
+  // #293), and the marketing shots have always been the trading book — item invoices, GST both
+  // ways, stock that moves. Driven by testid rather than by label text, because the label is
+  // marketing copy and the last time this was matched by text it broke silently the day the copy
+  // changed, leaving a stale screenshot on the home page.
   await waitForText(page, 'Explore with sample data', 15000)
-  const clicked = await clickText(page, 'Explore with sample data')
-  if (clicked !== 'OK') throw new Error('could not find "Explore with sample data" button')
+  await page.click('[data-testid="btn-company-demo"]', { timeout: 15000 })
+  await page.click('[data-testid="btn-demo-trade-trading"]', { timeout: 15000 })
   await waitForTextWithLog(page, 'Cash in hand', { intervalMs: 3000, maxIterations: 15, label: 'Cash in hand (Gateway loaded)' })
   await wait(800)
 

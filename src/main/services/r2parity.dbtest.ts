@@ -14,7 +14,7 @@ import { saveVoucher, nextVoucherNumber, findDuplicates } from './vouchers'
 import { voucherInputSchema } from '@shared/schemas'
 import type { VoucherInput } from '@shared/schemas'
 import { trialBalance, profitAndLoss, balanceSheet, ledgerStatement, stockSummary, dashboard } from './reports'
-import { outstandings, openBills, registerByMonth } from './analysis'
+import { outstandings, openBills, registerByPeriod } from './analysis'
 import { suggestLedgers, anomalyCheck } from './intel'
 import { saveBudget, budgetVarianceReport } from './budgets'
 
@@ -163,10 +163,28 @@ describe('R2 parity — statements', () => {
     expect(ledgerStatement(db, ids.debtorA!, '2025-04-01', '2025-06-30')).toMatchSnapshot('debtorA statement')
   })
 
-  it('registers by month are unchanged', () => {
+  it('registers by period are unchanged', () => {
     const { db } = richBook()
-    expect(registerByMonth(db, 'sales', '2025-04-01', '2025-06-30')).toMatchSnapshot('sales register')
-    expect(registerByMonth(db, 'purchase', '2025-04-01', '2025-06-30')).toMatchSnapshot('purchase register')
+    expect(registerByPeriod(db, 'sales', '2025-04-01', '2025-06-30')).toMatchSnapshot('sales register')
+    expect(registerByPeriod(db, 'purchase', '2025-04-01', '2025-06-30')).toMatchSnapshot('purchase register')
+  })
+
+  // Apr-Jun is exactly FY quarter 1, so the quarterly register must be the monthly one summed.
+  // This is the invariant that keeps a coarser granularity from silently dropping or
+  // double-counting vouchers (the voucher count is de-duplicated per bucket, so it is the
+  // column most likely to break).
+  it('a quarterly register equals its months summed', () => {
+    const { db } = richBook()
+    for (const kind of ['sales', 'purchase'] as const) {
+      const months = registerByPeriod(db, kind, '2025-04-01', '2025-06-30', 'month')
+      const quarters = registerByPeriod(db, kind, '2025-04-01', '2025-06-30', 'quarter')
+      expect(quarters).toHaveLength(1)
+      expect(quarters[0]!.period).toBe('2025-Q1')
+      expect(quarters[0]!.label).toBe('Q1 FY2025-26')
+      for (const col of ['vouchers', 'taxable', 'tax', 'total'] as const) {
+        expect(quarters[0]![col], `${kind}.${col}`).toBe(months.reduce((sum, m) => sum + m[col], 0))
+      }
+    }
   })
 })
 

@@ -130,7 +130,10 @@ describe('soft delete + bin', () => {
     const blocked = postSimpleVoucher(db, { date: '2025-04-05', amount: 5000, kind: 'payment' })
     const purgeable = postSimpleVoucher(db, { date: '2025-04-06', amount: 5000, kind: 'receipt' })
     // payroll_runs.voucher_id references vouchers WITHOUT ON DELETE CASCADE — the classic blocker.
-    db.prepare("INSERT INTO payroll_runs (month, voucher_id) VALUES ('2025-04', ?)").run(blocked.id)
+    db.prepare(
+      `INSERT INTO payroll_runs (month, cycle, period_start, period_end, voucher_id)
+       VALUES ('2025-04', 'monthly', '2025-04-01', '2025-04-30', ?)`
+    ).run(blocked.id)
     deleteVoucher(db, blocked.id)
     deleteVoucher(db, purgeable.id)
     db.prepare("UPDATE vouchers SET deleted_at = datetime('now', '-40 days')").run()
@@ -186,6 +189,11 @@ describe('soft delete + bin', () => {
       .prepare("SELECT action, after_json FROM audit_log WHERE entity = 'voucher' AND entity_id = ? ORDER BY id")
       .all(v.id) as { action: string; after_json: string | null }[]
     expect(rows.map((r) => r.action)).toEqual(['create', 'delete', 'update', 'delete', 'delete'])
-    expect(JSON.parse(rows[2]!.after_json!)).toEqual({ restored: true })
+    // The restore records the whole voucher on both sides, not a `{ restored: true }` marker.
+    // Against a marker, a reader comparing snapshots sees every field on the voucher reported as
+    // removed — the opposite of what happened.
+    const restored = JSON.parse(rows[2]!.after_json!) as { id: number; deletedAt: string | null }
+    expect(restored.id).toBe(v.id)
+    expect(restored.deletedAt).toBeNull()
   })
 })

@@ -2,9 +2,10 @@ import { describe, it, expect } from 'vitest'
 import { seededDb } from '../db/testdb'
 import { createLedger } from './masters'
 import { setAuditContext, listAudit } from './audit'
+import { deleteVoucher } from './vouchers'
 import {
   listRules, saveRule, deleteRule, recordRuleHit, suggestVouchers, importStatement,
-  matchSuggestions, brs, bankRecon
+  matchSuggestions, brs, bankRecon, reconciliationStatus, setBankDate
 } from './banking'
 
 function bankLedger(db: ReturnType<typeof seededDb>, name = 'HDFC Bank') {
@@ -211,6 +212,20 @@ function bookBankEntry(
     .run(vid, bankId, bankSide, amount)
   return Number(res.lastInsertRowid)
 }
+
+describe('direct reconciliation edits', () => {
+  it('refuses a stale line id after its voucher has moved to the bin', () => {
+    const db = seededDb()
+    const bank = bankLedger(db)
+    const office = expenseLedger(db, 'Office Supplies')
+    const line = bookBankEntry(db, bank.id, office.id, '2026-08-01', 100000, 'cr')
+    const voucher = db.prepare('SELECT voucher_id AS id FROM voucher_lines WHERE id = ?').get(line) as { id: number }
+    deleteVoucher(db, voucher.id)
+
+    expect(() => setBankDate(db, line, '2026-08-02')).toThrow(/not found in the books/)
+    expect(db.prepare('SELECT bank_date AS date FROM voucher_lines WHERE id = ?').get(line)).toEqual({ date: null })
+  })
+})
 
 describe('bank rules v2 fields', () => {
   it('persists matchField/minAmount/maxAmount/autoApply and defaults them for legacy payloads', () => {
@@ -426,5 +441,86 @@ describe('BRS', () => {
     const csv = [CSV_HEADER, '2026-08-10,MEMO ENTRY,500.00,'].join('\n')
     const result = importStatement(db, bank.id, csv)
     expect(result.matched).toBe(0)
+  })
+})
+
+describe('reconciliationStatus — where every account stands', () => {
+  it('counts reconciled against total, per account', () => {
+    const db = seededDb()
+    const bank = bankLedger(db)
+    const office = expenseLedger(db, 'Office Supplies')
+    const cleared = bookBankEntry(db, bank.id, office.id, '2026-08-01', 100000, 'cr')
+    bookBankEntry(db, bank.id, office.id, '2026-08-02', 200000, 'cr')
+    setBankDate(db, cleared, '2026-08-03')
+
+    const [status] = reconciliationStatus(db, '2026-08-31')
+    expect(status!.name).toBe(bank.name)
+    expect(status!.totalLines).toBe(2)
+    expect(status!.reconciledLines).toBe(1)
+    expect(status!.lastReconciledDate).toBe('2026-08-03')
+  })
+
+  it('treats an entry cleared after the date as still open on it', () => {
+    // The same rule bankRecon uses. Getting this wrong would make a back-dated status disagree
+    // with the BRS printed from the same date, which is the one comparison anyone makes.
+    const db = seededDb()
+    const bank = bankLedger(db)
+    const office = expenseLedger(db, 'Office Supplies')
+    const line = bookBankEntry(db, bank.id, office.id, '2026-08-01', 100000, 'cr')
+    setBankDate(db, line, '2026-09-15')
+
+    expect(reconciliationStatus(db, '2026-08-31')[0]!.reconciledLines).toBe(0)
+    expect(reconciliationStatus(db, '2026-09-30')[0]!.reconciledLines).toBe(1)
+  })
+
+  it('derives the bank balance the same way the BRS does', () => {
+    const db = seededDb()
+    const bank = bankLedger(db)
+    const office = expenseLedger(db, 'Office Supplies')
+    bookBankEntry(db, bank.id, office.id, '2026-08-01', 100000, 'cr')
+
+    const status = reconciliationStatus(db, '2026-08-31')[0]!
+    const recon = bankRecon(db, bank.id, '2026-08-01', '2026-08-31')
+    expect(status.bookBalance).toBe(recon.bookBalance)
+    expect(status.bankBalance).toBe(recon.bankBalance)
+  })
+
+  it('ages open entries into buckets and names the oldest', () => {
+    const db = seededDb()
+    const bank = bankLedger(db)
+    const office = expenseLedger(db, 'Office Supplies')
+    bookBankEntry(db, bank.id, office.id, '2026-08-20', 1000, 'cr') // 11 days
+    bookBankEntry(db, bank.id, office.id, '2026-06-20', 1000, 'cr') // 72 days
+    bookBankEntry(db, bank.id, office.id, '2026-01-01', 1000, 'cr') // 242 days
+
+    const status = reconciliationStatus(db, '2026-08-31')[0]!
+    expect(status.ageing).toEqual([1, 0, 1, 1])
+    expect(status.oldestUnreconciledDays).toBe(242)
+  })
+
+  it('reports a clean account as fully reconciled with nothing open', () => {
+    const db = seededDb()
+    const bank = bankLedger(db)
+    const office = expenseLedger(db, 'Office Supplies')
+    const line = bookBankEntry(db, bank.id, office.id, '2026-08-01', 100000, 'cr')
+    setBankDate(db, line, '2026-08-02')
+
+    const status = reconciliationStatus(db, '2026-08-31')[0]!
+    expect(status.reconciledLines).toBe(status.totalLines)
+    expect(status.oldestUnreconciledDays).toBe(0)
+    expect(status.ageing).toEqual([0, 0, 0, 0])
+    // With nothing outstanding the two balances agree, which is what "reconciled" means.
+    expect(status.bankBalance).toBe(status.bookBalance)
+  })
+
+  it('reports an account that has never been reconciled honestly', () => {
+    const db = seededDb()
+    const bank = bankLedger(db)
+    const office = expenseLedger(db, 'Office Supplies')
+    bookBankEntry(db, bank.id, office.id, '2026-08-01', 100000, 'cr')
+
+    const status = reconciliationStatus(db, '2026-08-31')[0]!
+    expect(status.lastReconciledDate).toBeNull()
+    expect(status.reconciledLines).toBe(0)
   })
 })

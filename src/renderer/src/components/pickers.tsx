@@ -3,6 +3,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import type { Group, Ledger, StockItem } from '@shared/domain'
 import { createScanDetector } from '@shared/barcode'
 import { api } from '../lib/client'
+import { useToasts } from '../state/stores'
 import { inputCls } from './ui'
 
 export function useLedgers(): Ledger[] {
@@ -26,9 +27,16 @@ interface PickerOption {
   sub?: string
   /** Scannable barcode/SKU — when the typed text matches one exactly, that option ranks first. */
   barcode?: string | null
+  /** Short code from the shelf label. Beats the barcode on an exact match: a person typing four
+   *  characters means the code, and a scanner does not type slowly enough to reach here first. */
+  code?: string | null
+  /** A data-URL thumbnail (roadmap E #119). Only the item picker sets one, and only for the items
+   *  that have a picture — half the point of an item image is telling two similar bolts apart in
+   *  a list, and the list is where the telling has to happen. */
+  imageUrl?: string
 }
 
-/** Generic type-ahead picker with the amber keyboard bar and an optional inline-create hook. */
+/** Generic type-ahead picker with the accent keyboard bar and an optional inline-create hook. */
 function TypeAhead({
   options,
   value,
@@ -36,6 +44,7 @@ function TypeAhead({
   placeholder,
   autoFocus,
   onCreate,
+  createLabel,
   className,
   onScan,
   testId
@@ -46,6 +55,9 @@ function TypeAhead({
   placeholder: string
   autoFocus?: boolean
   onCreate?: (name: string) => void
+  /** Extra words on the create row — "in Sundry Debtors" — so a create that will not stop to ask
+   *  says where the thing is going BEFORE it goes there (#30). */
+  createLabel?: string
   className?: string
   /** Fed every keydown for barcode-scan detection; return true to swallow the keystroke. */
   onScan?: (e: React.KeyboardEvent<HTMLInputElement>) => boolean
@@ -55,6 +67,9 @@ function TypeAhead({
   const selected = options.find((o) => o.id === value) ?? null
   const [text, setText] = useState(selected?.label ?? '')
   const [open, setOpen] = useState(false)
+  /** Has the user arrowed within the dropdown? Distinguishes "Enter means pick the highlighted
+   *  row" from "Enter on a field I never touched", which must not commit anything. */
+  const [movedSelection, setMovedSelection] = useState(false)
   const [active, setActive] = useState(0)
   const wrapRef = useRef<HTMLDivElement>(null)
 
@@ -66,14 +81,20 @@ function TypeAhead({
     const q = text.trim().toLowerCase()
     if (!q || q === selected?.label.toLowerCase()) return options.slice(0, 50)
     const matches = options.filter(
-      (o) => o.label.toLowerCase().includes(q) || (o.barcode ? o.barcode.toLowerCase().includes(q) : false)
+      (o) =>
+        o.label.toLowerCase().includes(q) ||
+        (o.barcode ? o.barcode.toLowerCase().includes(q) : false) ||
+        (o.code ? o.code.toLowerCase().includes(q) : false)
     )
-    // Exact barcode match ranks first (scanner input lands here before onScan can even fire).
-    matches.sort((a, b) => {
-      const aExact = a.barcode && a.barcode.toLowerCase() === q ? 0 : 1
-      const bExact = b.barcode && b.barcode.toLowerCase() === q ? 0 : 1
-      return aExact - bExact
-    })
+    // Rank: exact code, then exact barcode, then everything else. Code first because it is the
+    // shortest thing a person types and the one printed on the shelf label; scanner input lands
+    // here before onScan can even fire, and a barcode is never four characters.
+    const rank = (o: PickerOption): number => {
+      if (o.code && o.code.toLowerCase() === q) return 0
+      if (o.barcode && o.barcode.toLowerCase() === q) return 1
+      return 2
+    }
+    matches.sort((a, b) => rank(a) - rank(b))
     return matches.slice(0, 50)
   }, [options, text, selected])
 
@@ -106,26 +127,43 @@ function TypeAhead({
           e.target.select()
           setOpen(true)
           setActive(0)
+          setMovedSelection(false)
         }}
         onChange={(e) => {
           setText(e.target.value)
           setOpen(true)
           setActive(0)
+          setMovedSelection(false)
           if (e.target.value.trim() === '') onPick(null)
         }}
         onKeyDown={(e) => {
           if (onScan?.(e)) return
+          // ⌥↑/↓ belongs to the grid this picker sits in — it moves the whole line. Claiming the
+          // arrow regardless of the modifier would make the chord unreachable from the cell the
+          // cursor is actually in, which is this one on nearly every line.
+          if (e.altKey) return
           if (!open && (e.key === 'ArrowDown' || e.key === 'Enter')) {
             setOpen(true)
             return
           }
           if (e.key === 'ArrowDown') {
             e.preventDefault()
+            setMovedSelection(true)
             setActive((a) => Math.min(filtered.length - (showCreate ? 0 : 1), a + 1))
           } else if (e.key === 'ArrowUp') {
             e.preventDefault()
+            setMovedSelection(true)
             setActive((a) => Math.max(0, a - 1))
           } else if (e.key === 'Enter') {
+            // Enter on an untouched, empty field means "nothing goes here" — close and let the
+            // key fall through to the form's Enter-chain. Picking `filtered[0]` here would
+            // silently commit whichever ledger happens to sort first, and in the voucher line
+            // grid that also appends a fresh row, so Enter-chaining could never reach the end
+            // of the form.
+            if (text.trim() === '' && !movedSelection) {
+              setOpen(false)
+              return
+            }
             e.preventDefault()
             if (showCreate && active === filtered.length) {
               onCreate(text.trim())
@@ -152,14 +190,17 @@ function TypeAhead({
                 pick(o)
               }}
             >
-              <span className="text-[13px]">{o.label}</span>
-              {o.sub && <span className="ml-2 text-[11px] text-muted">{o.sub}</span>}
+              {o.imageUrl && (
+                <img src={o.imageUrl} alt="" className="mr-2 inline-block h-6 w-6 rounded-md border border-line object-cover align-middle" />
+              )}
+              <span className="text-detail">{o.label}</span>
+              {o.sub && <span className="ml-2 text-caption text-muted">{o.sub}</span>}
             </div>
           ))}
           {showCreate && (
             <div
               data-active={active === filtered.length}
-              className="kbar-row cursor-pointer border-t border-line px-3 py-1.5 text-[13px] text-amber"
+              className="kbar-row cursor-pointer border-t border-line px-3 py-1.5 text-detail text-accent"
               onMouseEnter={() => setActive(filtered.length)}
               onMouseDown={(e) => {
                 e.preventDefault()
@@ -168,6 +209,7 @@ function TypeAhead({
               }}
             >
               Create “{text.trim()}”
+              {createLabel && <span className="ml-1 text-caption text-muted">{createLabel}</span>}
             </div>
           )}
         </div>
@@ -183,6 +225,7 @@ export function LedgerPicker({
   filter,
   autoFocus,
   onCreateRequest,
+  inlineGroup,
   className,
   testId = 'picker-ledger'
 }: {
@@ -192,11 +235,25 @@ export function LedgerPicker({
   filter?: (l: Ledger, groups: Map<number, Group>) => boolean
   autoFocus?: boolean
   onCreateRequest?: (name: string) => void
+  /**
+   * Create the ledger here and now, in this group, without opening the form (#30).
+   *
+   * Only ever passed where the group is not in question — the party cell of a sales voucher is
+   * a debtor, the party cell of a purchase is a creditor. Everywhere else the answer is genuinely
+   * "it depends", and guessing a group is worse than a modal: a ledger under the wrong group
+   * lands in the wrong half of the balance sheet, and nothing about the entry looks wrong
+   * afterwards.
+   *
+   * Absent = the old behaviour, `onCreateRequest` opening the full form.
+   */
+  inlineGroup?: string | null
   className?: string
   testId?: string
 }): React.JSX.Element {
   const ledgers = useLedgers()
   const groups = useGroups()
+  const toast = useToasts()
+  const queryClient = useQueryClient()
   const groupMap = useMemo(() => new Map(groups.map((g) => [g.id, g])), [groups])
   const options = useMemo(
     () =>
@@ -205,6 +262,42 @@ export function LedgerPicker({
         .map((l) => ({ id: l.id, label: l.name, sub: groupMap.get(l.groupId)?.name })),
     [ledgers, filter, groupMap]
   )
+
+  const group = inlineGroup ? groups.find((g) => g.name === inlineGroup) : undefined
+
+  /**
+   * Create and select in one keystroke, with an undo.
+   *
+   * The undo is what makes this safe enough to do without a confirmation. A mistyped name creates
+   * a junk ledger, and the honest answer to that is not a dialog on the ninety-nine correct ones
+   * — it is a way back on the one that was wrong. Nine seconds, the same as every other undo
+   * toast in the app.
+   */
+  const createInline = async (name: string): Promise<void> => {
+    if (!group) return
+    try {
+      const ledger = await api.ledgers.create({ name, groupId: group.id })
+      await queryClient.invalidateQueries({ queryKey: ['ledgers'] })
+      onPick(ledger.id)
+      toast.push('success', `“${ledger.name}” created in ${group.name}`, {
+        label: 'Undo',
+        run: async () => {
+          try {
+            await api.ledgers.remove(ledger.id)
+            await queryClient.invalidateQueries({ queryKey: ['ledgers'] })
+            onPick(null)
+          } catch (err) {
+            // A ledger already used by a voucher cannot be deleted, which is correct — say so
+            // rather than leaving the toast looking as though it worked.
+            toast.push('error', (err as Error).message)
+          }
+        }
+      })
+    } catch (err) {
+      toast.push('error', (err as Error).message)
+    }
+  }
+
   return (
     <TypeAhead
       options={options}
@@ -212,7 +305,8 @@ export function LedgerPicker({
       onPick={onPick}
       placeholder={placeholder}
       autoFocus={autoFocus}
-      onCreate={onCreateRequest}
+      onCreate={group ? (name) => void createInline(name) : onCreateRequest}
+      createLabel={group ? `in ${group.name}` : undefined}
       className={className}
       testId={testId}
     />
@@ -222,26 +316,45 @@ export function LedgerPicker({
 export function ItemPicker({
   value,
   onPick,
+  onScanned,
   onCreateRequest,
   className,
   testId = 'picker-item'
 }: {
   value: number | null
   onPick: (id: number | null) => void
+  /** Fired after onPick when the item arrived from a hardware scan rather than being typed or
+   *  clicked (#47). The counter hand scanning a shelf has already told the app which item it is;
+   *  the only thing left to say is how many, so the caller moves the cursor there. Typing the
+   *  name does NOT fire this — someone reading down a list is choosing, and yanking their focus
+   *  out of the cell they are still working in would be worse than leaving it. */
+  onScanned?: (id: number) => void
   onCreateRequest?: (name: string) => void
   className?: string
   testId?: string
 }): React.JSX.Element {
   const items = useStockItems()
+  // Only the items that actually carry a picture, and capped in the service: a hundred base64
+  // photographs down one IPC message is a frozen window, and the picker only ever shows fifty
+  // rows anyway.
+  const withImages = useMemo(() => items.filter((i) => i.imageName).map((i) => i.id), [items])
+  const { data: images } = useQuery({
+    queryKey: ['itemImages', withImages],
+    queryFn: () => api.itemImages.many(withImages),
+    enabled: withImages.length > 0
+  })
   const options = useMemo(
     () =>
       items.map((i) => ({
         id: i.id,
         label: i.name,
-        sub: i.gstRate != null ? `${i.gstRate}% GST` : undefined,
-        barcode: i.barcode
+        // The code goes in the sub-line too: seeing it is how somebody learns to type it.
+        sub: [i.code, i.gstRate != null ? `${i.gstRate}% GST` : null].filter(Boolean).join(' · ') || undefined,
+        code: i.code,
+        barcode: i.barcode,
+        imageUrl: images?.[i.id]
       })),
-    [items]
+    [items, images]
   )
 
   // A hardware scanner types the barcode's characters in a fast burst terminated by Enter,
@@ -258,9 +371,10 @@ export function ItemPicker({
       if (!match) return false
       e.preventDefault()
       onPick(match.id)
+      onScanned?.(match.id)
       return true
     },
-    [items, onPick]
+    [items, onPick, onScanned]
   )
 
   return (

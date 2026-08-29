@@ -2,79 +2,71 @@ import { useEffect, useMemo, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '../lib/client'
 import { useNav, useSession, useToasts, type Screen } from '../state/stores'
-import { Button, isAnyModalOpen, Money, Panel, ScrollList, Skeleton } from '../components/ui'
-import { toDisplayDate, todayISO } from '@shared/dates'
+import { Button, Money, Panel, ScrollList, Skeleton } from '../components/ui'
+import { toDisplayDate, toDisplayDateTime, todayISO } from '@shared/dates'
 import { upcomingDeadlines, type Deadline } from '@shared/compliance'
-import { useFeatures } from '../lib/useFeatures'
+import { buildReminder } from '@shared/outstanding'
 import type { RecurringTemplate } from '@shared/domain'
-import type { CashSparkPoint, TopLedgerRow } from '@shared/reports'
-import { templateOpenTarget } from './Recurring'
-import { CARD_SCREENS } from '../lib/screens'
-
-/** Cards derived from the single screen registry (lib/screens.ts). */
-const CARDS: { name: string; label: string; sub: string; screen: Screen; key: string; feature?: (typeof CARD_SCREENS)[number]['feature'] }[] =
-  CARD_SCREENS.map((s) => ({ name: s.name, label: s.title, sub: s.card.sub, screen: s.screen, key: s.card.key, feature: s.feature }))
+import type { CashSparkPoint, TileSparkKey, TopLedgerRow } from '@shared/reports'
+import { Sparkline } from '../components/Sparkline'
+import { templateOpenTarget } from '../lib/recurringDraft'
 
 export function Gateway(): React.JSX.Element {
   const nav = useNav()
-  const { from, info } = useSession()
+  const { from } = useSession()
   const today = todayISO()
-  const features = useFeatures()
-  const cards = useMemo(() => CARDS.filter((c) => !c.feature || features[c.feature]), [features])
   const { data } = useQuery({
     queryKey: ['dashboard', today, from],
     queryFn: () => api.reports.dashboard(today, from)
   })
 
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent): void => {
-      if (e.metaKey || e.ctrlKey || e.altKey) return
-      // A key aimed at an open dialog (ConfirmModal "y", PromptModal text…) must never
-      // double as a Gateway navigation shortcut underneath it.
-      if (isAnyModalOpen()) return
-      const tag = (e.target as HTMLElement).tagName
-      if (tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA') return
-      const card = cards.find((c) => c.key.toLowerCase() === e.key.toLowerCase())
-      if (card) nav.go(card.screen)
-    }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [nav, cards])
+  // Card letters are not handled here any more: they are registry accelerators bound by App's
+  // `nav` keyboard layer, so they work from every screen rather than only this one.
 
-  const gstRegistrationType = info?.gstRegistrationType ?? 'unregistered'
-
-  // hasPayroll doesn't matter for a 'gst'-kind deadline, so `false` is fine here.
-  const nearestGst = useMemo(
-    () =>
-      gstRegistrationType === 'unregistered'
-        ? null
-        : (upcomingDeadlines(today, gstRegistrationType, false, 30).find((d) => d.kind === 'gst') ?? null),
-    [today, gstRegistrationType]
-  )
-
-  const tiles: { label: string; value?: number; text?: string }[] = [
-    { label: 'Cash in hand', value: data?.cashBalance ?? 0 },
-    { label: 'Bank balance', value: data?.bankBalance ?? 0 },
-    { label: 'Receivables', value: data?.receivables ?? 0 },
-    { label: 'Payables', value: data?.payables ?? 0 },
-    { label: 'Sales this month', value: data?.monthSales ?? 0 },
-    { label: 'GST payable', value: data?.gstPayable ?? 0 }
+  /**
+   * Exactly six, and every one of them a figure.
+   *
+   * The row is six columns wide, so a seventh tile orphans onto a second row on its own. The
+   * next GST deadline used to be that seventh: a sentence rather than an amount, wrapping to two
+   * lines and standing a head taller than its neighbours. A due date is not a balance — it now
+   * reads as a countdown on the compliance calendar, which is the panel that owns dates.
+   */
+  const gstPayable = data?.gstPayable ?? 0
+  const tiles: { label: string; value: number; spark: TileSparkKey }[] = [
+    { label: 'Cash in hand', value: data?.cashBalance ?? 0, spark: 'cash' },
+    { label: 'Bank balance', value: data?.bankBalance ?? 0, spark: 'bank' },
+    { label: 'Receivables', value: data?.receivables ?? 0, spark: 'receivables' },
+    { label: 'Payables', value: data?.payables ?? 0, spark: 'payables' },
+    { label: 'Sales this month', value: data?.monthSales ?? 0, spark: 'sales' },
+    // Negative GST payable is a credit balance — money the department owes back. Printed as a
+    // signed number it reads as an error on a card that is actually good news, so the card
+    // changes its own label rather than asking the reader to interpret a minus sign.
+    gstPayable < 0
+      ? { label: 'GST credit', value: Math.abs(gstPayable), spark: 'gst' }
+      : { label: 'GST payable', value: gstPayable, spark: 'gst' }
   ]
-  if (nearestGst) tiles.push({ label: 'Next GST due', text: deadlineCountdown(nearestGst, today) })
+  // A figure with no history behind it is a figure nobody can judge: 4.2 lakh of receivables is
+  // either a good month or a collections problem, and only the shape of the last twelve tells
+  // you which. The line is anchored at zero (see Sparkline) so it cannot dramatise noise.
+  const sparkFor = (key: TileSparkKey): { month: string; value: number }[] =>
+    data?.tileSparks.find((s) => s.key === key)?.points ?? []
 
   return (
-    <div className="mx-auto max-w-5xl">
-      <div className="grid grid-cols-3 gap-3 lg:grid-cols-6">
+    <div className="flex h-full min-h-0 w-full flex-col max-w-[1440px]">
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
         {tiles.map((t) => (
           <Panel key={t.label} className="px-4 py-3">
-            <p className="text-[10.5px] font-semibold tracking-[0.08em] text-muted uppercase">{t.label}</p>
-            {data === undefined && t.text === undefined ? (
+            <p className="text-label font-semibold tracking-[0.08em] text-muted uppercase">{t.label}</p>
+            {data === undefined ? (
               // Loading — a skeleton, not a misleading ₹0.00.
               <Skeleton className="mt-2.5 h-4 w-20" />
             ) : (
-              <p className={`mt-1.5 text-[16px] font-medium ${t.text ? '' : 'num'}`}>
-                {t.text ?? <Money paise={t.value ?? 0} />}
-              </p>
+              <>
+                <p className="num mt-1.5 text-title font-medium">
+                  <Money paise={t.value} />
+                </p>
+                <Sparkline points={sparkFor(t.spark)} label={t.label} testId={`spark-tile-${t.spark}`} />
+              </>
             )}
           </Panel>
         ))}
@@ -83,31 +75,23 @@ export function Gateway(): React.JSX.Element {
       <DueTodayPanel />
       <CompliancePanel hasEmployees={data?.hasEmployees ?? false} dashboardLoaded={data !== undefined} />
 
-      <div className="mt-6 grid grid-cols-3 gap-3">
-        {cards.map((c) => (
-          <button
-            key={c.label}
-            data-testid={`card-${c.name}`}
-            onClick={() => nav.go(c.screen)}
-            className="group rounded-lg border border-line bg-panel px-5 py-4 text-left transition-colors hover:border-amber/50"
-          >
-            <div className="flex items-center justify-between">
-              <span className="text-[14.5px] font-medium">{c.label}</span>
-              <span className="rounded border border-line px-1.5 text-[10.5px] text-muted group-hover:border-amber/50 group-hover:text-amber">
-                {c.key}
-              </span>
-            </div>
-            <p className="mt-1 text-[12px] text-muted">{c.sub}</p>
-          </button>
-        ))}
-      </div>
+      {/* The nine navigation cards that used to sit here were the sidebar again, in a second
+          typeface size: the same nine destinations, the same accelerator letters, ~280px of the
+          most valuable space on the screen, and nothing the rail on the left does not already
+          say. The books' own numbers get that space instead. */}
 
       {/* Fixed row height: long receivable/payable lists scroll inside their panels instead of
           stretching the row — which would also stretch the sparkline opposite and make its
           aspect depend on how many debtors the company has. */}
+      <GettingStarted />
+      <LastBackupLine />
+
       <div className="mt-6 grid h-[420px] grid-cols-2 gap-3">
         <div className="flex min-h-0 flex-col gap-3">
-          <TopLedgersPanel title="Top receivables" rows={data?.topReceivables ?? []} />
+          {/* Who to chase today comes before who owes the most: the largest debtor is usually
+              the one who always pays, and the panel is only useful if it names someone to call.
+              It falls back to the top-receivables list when nothing is overdue. */}
+          <ChaseTodayPanel />
           <TopLedgersPanel title="Top payables" rows={data?.topPayables ?? []} />
         </div>
         <CashSparklinePanel points={data?.cashSpark ?? []} />
@@ -119,7 +103,7 @@ export function Gateway(): React.JSX.Element {
         data &&
         data.recentVouchers.length > 0 && (
           <Panel className="mt-6">
-            <p className="border-b border-line px-5 py-2.5 text-[11px] font-semibold tracking-[0.08em] text-muted uppercase">
+            <p className="border-b border-line px-5 py-2.5 text-caption font-semibold tracking-[0.08em] text-muted uppercase">
               Recent entries
             </p>
             <ScrollList maxH="20rem">
@@ -129,19 +113,19 @@ export function Gateway(): React.JSX.Element {
                   className="flex w-full items-center gap-4 border-b border-line/40 px-5 py-2 text-left last:border-b-0 hover:bg-panel2"
                   onClick={() => nav.go({ name: 'voucher-entry', voucherId: v.voucherId })}
                 >
-                  <span className="num w-20 text-[12px] text-muted">{toDisplayDate(v.date)}</span>
-                  <span className="w-24 text-[12.5px] text-muted">{v.voucherType}</span>
-                  <span className="num w-14 text-[12px] text-muted">{v.number}</span>
-                  <span className="flex-1 truncate text-[13px]">
+                  <span className="num w-20 text-small text-muted">{toDisplayDate(v.date)}</span>
+                  <span className="w-24 text-body-sm text-muted">{v.voucherType}</span>
+                  <span className="num w-14 text-small text-muted">{v.number}</span>
+                  <span className="flex-1 truncate text-detail">
                     {v.account}
                     {v.isOptional && (
-                      <span data-testid="recent-badge-optional" className="ml-2 rounded bg-amber/15 px-1.5 py-0.5 text-[10px] font-medium text-amber">Optional</span>
+                      <span data-testid="recent-badge-optional" className="ml-2 rounded-md bg-accent/15 px-1.5 py-0.5 text-label font-medium text-accent">Optional</span>
                     )}
                     {v.postDated && (
-                      <span data-testid="recent-badge-pdc" className="ml-2 rounded bg-blue/10 px-1.5 py-0.5 text-[10px] font-medium text-blue">PDC</span>
+                      <span data-testid="recent-badge-pdc" className="ml-2 rounded-md bg-blue/10 px-1.5 py-0.5 text-label font-medium text-blue">PDC</span>
                     )}
                   </span>
-                  <Money paise={v.debit} className="text-[13px]" />
+                  <Money paise={v.debit} className="text-detail" />
                 </button>
               ))}
             </ScrollList>
@@ -197,16 +181,16 @@ function DueTodayPanel(): React.JSX.Element | null {
   return (
     <Panel className="mt-6">
       <div className="flex items-center justify-between border-b border-line px-5 py-2.5">
-        <p className="text-[11px] font-semibold tracking-[0.08em] text-muted uppercase">Due today</p>
-        <button className="text-[11.5px] text-blue hover:underline" onClick={() => nav.go({ name: 'recurring' })}>
+        <p className="text-caption font-semibold tracking-[0.08em] text-muted uppercase">Due today</p>
+        <button className="text-hint text-blue hover:underline" onClick={() => nav.go({ name: 'recurring' })}>
           All recurring vouchers
         </button>
       </div>
       <div>
         {dueList.map((t) => (
           <div key={t.id} className="flex items-center gap-4 border-b border-line/40 px-5 py-2 last:border-b-0">
-            <span className="num w-20 text-[12px] text-muted">{toDisplayDate(t.nextDue)}</span>
-            <span className="flex-1 truncate text-[13px]">{t.name}</span>
+            <span className="num w-20 text-small text-muted">{toDisplayDate(t.nextDue)}</span>
+            <span className="flex-1 truncate text-detail">{t.name}</span>
             <Button disabled={busyId === t.id} onClick={() => void post(t)}>
               Post
             </Button>
@@ -224,10 +208,13 @@ function DueTodayPanel(): React.JSX.Element | null {
 }
 
 /** "GSTR-3B in 5 days" / "GSTR-1 tomorrow" / "GSTR-3B due today". Exported for renderer tests. */
+/** Whole days from `today` to an ISO date — negative once the date is behind us. */
+function daysUntil(date: string, today: string): number {
+  return Math.round((new Date(date + 'T00:00:00Z').getTime() - new Date(today + 'T00:00:00Z').getTime()) / 86400000)
+}
+
 export function deadlineCountdown(d: Deadline, today: string): string {
-  const days = Math.round(
-    (new Date(d.date + 'T00:00:00Z').getTime() - new Date(today + 'T00:00:00Z').getTime()) / 86400000
-  )
+  const days = daysUntil(d.date, today)
   if (days <= 0) return `${d.form} due today`
   if (days === 1) return `${d.form} tomorrow`
   return `${d.form} in ${days} days`
@@ -250,18 +237,21 @@ function CompliancePanel({
   const today = todayISO()
   const [showAll, setShowAll] = useState(false)
   const gstRegistrationType = info?.gstRegistrationType ?? 'unregistered'
+  const filingFrequency = info?.gstFilingFrequency ?? 'monthly'
+  const stateCode = info?.stateCode ?? ''
 
   const deadlines = useMemo(
-    () => upcomingDeadlines(today, gstRegistrationType, hasEmployees, 30),
+    () => upcomingDeadlines(today, gstRegistrationType, hasEmployees, 30, filingFrequency, stateCode),
     [today, gstRegistrationType, hasEmployees]
   )
+  const nearestGst = deadlines.find((d) => d.kind === 'gst') ?? null
 
   useEffect(() => {
     // Wait for the dashboard query to actually resolve, so `hasEmployees` (and hence PF/ESI
     // deadlines) reflects reality rather than the react-query default of `false`.
     if (!info || !slug || !dashboardLoaded || notifiedCompanies.has(slug)) return
     notifiedCompanies.add(slug)
-    const soon = upcomingDeadlines(today, gstRegistrationType, hasEmployees, 3)
+    const soon = upcomingDeadlines(today, gstRegistrationType, hasEmployees, 3, filingFrequency, stateCode)
     if (soon.length) {
       // Deliberately fire-and-forget: an OS notification failing is not worth interrupting
       // the Gateway for — swallow the rejection.
@@ -279,23 +269,36 @@ function CompliancePanel({
   return (
     <Panel className="mt-6">
       <div className="flex items-center justify-between border-b border-line px-5 py-2.5">
-        <p className="text-[11px] font-semibold tracking-[0.08em] text-muted uppercase">Compliance calendar</p>
-        <button className="text-[11.5px] text-blue hover:underline" onClick={() => nav.go({ name: 'gstr3b' })}>
+        <div className="flex items-baseline gap-3">
+          <p className="text-caption font-semibold tracking-[0.08em] text-muted uppercase">Compliance calendar</p>
+          {/* The nearest GST return, read as a countdown rather than as a balance. */}
+          {nearestGst && (
+            <span
+              data-testid="gateway-next-gst"
+              className={`rounded-md px-1.5 py-0.5 text-hint font-medium whitespace-nowrap ${
+                daysUntil(nearestGst.date, today) <= 3 ? 'bg-cr/10 text-cr' : 'bg-accent/15 text-accent'
+              }`}
+            >
+              {deadlineCountdown(nearestGst, today)}
+            </span>
+          )}
+        </div>
+        <button className="text-hint text-blue hover:underline" onClick={() => nav.go({ name: 'gstr3b' })}>
           GSTR-3B
         </button>
       </div>
       <div>
         {(showAll ? deadlines : deadlines.slice(0, 6)).map((d) => (
           <div key={d.id} className="flex items-center gap-4 border-b border-line/40 px-5 py-2 last:border-b-0">
-            <span className="num w-20 text-[12px] text-muted">{toDisplayDate(d.date)}</span>
-            <span className="w-28 text-[12.5px] text-muted">{d.form}</span>
-            <span className="flex-1 truncate text-[13px]">{d.title}</span>
+            <span className="num w-20 text-small text-muted">{toDisplayDate(d.date)}</span>
+            <span className="w-28 text-body-sm text-muted">{d.form}</span>
+            <span className="flex-1 truncate text-detail">{d.title}</span>
           </div>
         ))}
         {deadlines.length > 6 && (
           <button
             data-testid="btn-gateway-compliance-all"
-            className="w-full px-5 py-2 text-left text-[11.5px] text-blue hover:underline"
+            className="w-full px-5 py-2 text-left text-hint text-blue hover:underline"
             onClick={() => setShowAll((v) => !v)}
           >
             {showAll ? 'Show fewer' : `Show all ${deadlines.length}`}
@@ -334,7 +337,7 @@ function OnboardingChecklist({ partyCount, itemCount }: { partyCount: number; it
 
   return (
     <Panel className="mt-6">
-      <p className="border-b border-line px-5 py-2.5 text-[11px] font-semibold tracking-[0.08em] text-muted uppercase">
+      <p className="border-b border-line px-5 py-2.5 text-caption font-semibold tracking-[0.08em] text-muted uppercase">
         Set up your books
       </p>
       <div>
@@ -344,10 +347,13 @@ function OnboardingChecklist({ partyCount, itemCount }: { partyCount: number; it
             onClick={s.onClick}
             className="flex w-full items-center gap-3 border-b border-line/40 px-5 py-3 text-left last:border-b-0 hover:bg-panel2"
           >
-            <span className={`text-[15px] ${s.done ? 'text-amber' : 'text-muted/60'}`}>{s.done ? '✓' : '○'}</span>
+            <span className={`text-lead ${s.done ? 'text-accent' : 'text-muted/60'}`}>{s.done ? '✓' : '○'}</span>
             <span className="flex-1">
-              <span className={`block text-[13.5px] ${s.done ? 'text-muted line-through' : 'text-ink'}`}>{s.label}</span>
-              <span className="block text-[11.5px] text-muted/70">{s.hint}</span>
+              {/* Dimmed, not struck through. The tick already says the step is done; a line through the
+                  words says it a second time and in a register that means "cancelled" — four
+                  crossed-out lines make a card of completed work look like a card of mistakes. */}
+              <span className={`block text-body ${s.done ? 'text-muted' : 'text-ink'}`}>{s.label}</span>
+              <span className="block text-hint text-muted/70">{s.hint}</span>
             </span>
           </button>
         ))}
@@ -361,11 +367,11 @@ function TopLedgersPanel({ title, rows }: { title: string; rows: TopLedgerRow[] 
   const nav = useNav()
   return (
     <Panel className="flex min-h-0 flex-1 flex-col">
-      <p className="shrink-0 border-b border-line px-5 py-2.5 text-[11px] font-semibold tracking-[0.08em] text-muted uppercase">
+      <p className="shrink-0 border-b border-line px-5 py-2.5 text-caption font-semibold tracking-[0.08em] text-muted uppercase">
         {title}
       </p>
       {rows.length === 0 ? (
-        <p className="px-5 py-6 text-center text-[12.5px] text-muted">Nothing outstanding</p>
+        <p className="px-5 py-6 text-center text-body-sm text-muted">Nothing outstanding</p>
       ) : (
         <ScrollList maxH="340px" className="min-h-0 flex-1">
           {rows.map((r) => (
@@ -374,8 +380,8 @@ function TopLedgersPanel({ title, rows }: { title: string; rows: TopLedgerRow[] 
               onClick={() => nav.go({ name: 'ledger-statement', ledgerId: r.ledgerId })}
               className="flex w-full items-center gap-3 border-b border-line/40 px-5 py-2 text-left last:border-b-0 hover:bg-panel2"
             >
-              <span className="flex-1 truncate text-[13px]">{r.name}</span>
-              <Money paise={r.amount} className="text-[13px]" />
+              <span className="flex-1 truncate text-detail">{r.name}</span>
+              <Money paise={r.amount} className="text-detail" />
             </button>
           ))}
         </ScrollList>
@@ -404,9 +410,9 @@ function CashSparklinePanel({ points }: { points: CashSparkPoint[] }): React.JSX
   return (
     <Panel className="flex min-h-0 flex-col p-5">
       <div className="flex shrink-0 items-center justify-between">
-        <p className="text-[11px] font-semibold tracking-[0.08em] text-muted uppercase">Cash + bank · 30 days</p>
+        <p className="text-caption font-semibold tracking-[0.08em] text-muted uppercase">Cash + bank · 30 days</p>
         {readout && (
-          <p className="num text-[13px]">
+          <p className="num text-detail">
             {hoverIdx != null && <span className="mr-2 text-muted">{toDisplayDate(readout.date)}</span>}
             <Money paise={readout.balance} />
           </p>
@@ -440,13 +446,196 @@ function CashSparklinePanel({ points }: { points: CashSparkPoint[] }): React.JSX
               y1={0}
               x2={xAt(hoverIdx)}
               y2={h}
-              stroke="var(--t-amber)"
+              stroke="var(--t-accent)"
               strokeWidth="1"
               vectorEffect="non-scaling-stroke"
             />
           )}
         </svg>
       )}
+    </Panel>
+  )
+}
+
+/** How many parties the chase list shows before it stops being a list and becomes a report. */
+const CHASE_LIMIT = 5
+
+/**
+ * Who to chase today.
+ *
+ * The Gateway showed the five largest receivables, which is the wrong five: the largest debtor
+ * is usually the one who always pays. This shows the five most overdue, with a one-tap reminder
+ * beside each, because the answer to "who do I call this morning" should not require opening a
+ * report.
+ *
+ * Falls back to naming the largest open balances when nothing is overdue, rather than showing an
+ * empty panel — a business with everything within terms still wants to see where its money is.
+ */
+function ChaseTodayPanel(): React.JSX.Element {
+  const nav = useNav()
+  const { info, to } = useSession()
+  const toast = useToasts()
+  const { data } = useQuery({
+    queryKey: ['khata', 'receivable', to],
+    queryFn: () => api.analysis.khata('receivable', to)
+  })
+
+  const overdue = (data ?? []).filter((p) => p.worstOverdueDays > 0)
+  const chasing = overdue.length > 0
+  const rows = (chasing ? overdue : (data ?? []))
+    .slice()
+    .sort((a, b) =>
+      chasing ? b.worstOverdueDays - a.worstOverdueDays || b.pending - a.pending : b.pending - a.pending
+    )
+    .slice(0, CHASE_LIMIT)
+
+  const remind = (party: (typeof rows)[number]): void => {
+    const reminder = buildReminder(
+      { name: info?.name ?? 'We' },
+      { name: party.name, email: party.email, phone: party.phone },
+      []
+    )
+    if (!reminder.whatsapp) {
+      toast.push('error', `No usable phone number for ${party.name}`)
+      return
+    }
+    window.open(reminder.whatsapp, '_blank')
+  }
+
+  return (
+    <Panel className="flex min-h-0 flex-1 flex-col">
+      <div className="flex shrink-0 items-baseline justify-between border-b border-line px-5 py-2.5">
+        <p className="text-caption font-semibold tracking-[0.08em] text-muted uppercase">
+          {chasing ? 'Chase today' : 'Top receivables'}
+        </p>
+        <button
+          className="text-hint text-muted hover:text-ink"
+          data-testid="btn-gateway-open-khata"
+          onClick={() => nav.go({ name: 'khata' })}
+        >
+          Khata →
+        </button>
+      </div>
+      <div className="min-h-0 flex-1 overflow-y-auto" data-testid="rows-chase-today">
+        {rows.length === 0 ? (
+          <p className="px-5 py-3 text-hint text-muted">Nobody owes you anything.</p>
+        ) : (
+          rows.map((p) => (
+            <div key={p.ledgerId} className="flex items-center gap-2 px-5 py-1.5 hover:bg-panel2">
+              <button
+                className="min-w-0 flex-1 truncate text-left text-detail"
+                onClick={() => nav.go({ name: 'ledger-statement', ledgerId: p.ledgerId })}
+              >
+                {p.name}
+                {p.worstOverdueDays > 0 && (
+                  <span className="ml-2 num text-hint text-cr">{p.worstOverdueDays}d</span>
+                )}
+              </button>
+              <Money paise={p.pending} className="text-detail" />
+              {p.phone && (
+                <button
+                  className="shrink-0 text-hint text-blue hover:underline"
+                  data-testid={`btn-chase-remind-${p.ledgerId}`}
+                  onClick={() => remind(p)}
+                >
+                  Remind
+                </button>
+              )}
+            </div>
+          ))
+        )}
+      </div>
+    </Panel>
+  )
+}
+
+/** A backup older than this is worth mentioning rather than leaving to be noticed. */
+const STALE_BACKUP_HOURS = 48
+
+/**
+ * When the books were last backed up.
+ *
+ * Backups happen automatically on open and before anything risky, and until now the only way to
+ * know they had was to open Settings. A one-line statement is enough: it is reassurance most
+ * days and a warning on the day it matters, which is exactly the day nobody thinks to check.
+ */
+function LastBackupLine(): React.JSX.Element | null {
+  const nav = useNav()
+  const { data } = useQuery({ queryKey: ['backups'], queryFn: api.backups.list })
+  if (!data) return null
+
+  const latest = data.reduce<{ mtime: number } | null>((best, b) => (!best || b.mtime > best.mtime ? b : best), null)
+  const hours = latest ? (Date.now() - latest.mtime) / 3_600_000 : Infinity
+  const stale = hours > STALE_BACKUP_HOURS
+
+  return (
+    <p className={`mt-3 text-hint ${stale ? 'text-accent' : 'text-muted'}`} data-testid="gateway-last-backup">
+      {latest ? (
+        <>
+          Last backup {toDisplayDateTime(new Date(latest.mtime))}
+          {stale && ' — over two days ago'}
+        </>
+      ) : (
+        'No backup yet'
+      )}
+      {' · '}
+      <button
+        className="text-blue hover:underline"
+        data-testid="btn-gateway-backups"
+        onClick={() => nav.go({ name: 'settings', tab: 'backups' })}
+      >
+        {data.length} kept
+      </button>
+    </p>
+  )
+}
+
+/**
+ * The getting-started checklist.
+ *
+ * Every step is derived from the books, so it cannot be ticked without doing the thing and it
+ * reopens if the thing is undone. It disappears entirely once complete — a permanent checklist
+ * on the main screen of an application someone uses daily is clutter, and the point is to be
+ * finished with it.
+ */
+function GettingStarted(): React.JSX.Element | null {
+  const nav = useNav()
+  const { data } = useQuery({ queryKey: ['checklist'], queryFn: api.app.checklist })
+  if (!data || data.complete) return null
+
+  const remaining = data.steps.length - data.doneCount
+
+  return (
+    <Panel className="mt-4 p-4" data-testid="getting-started">
+      <div className="mb-2 flex items-baseline justify-between">
+        <p className="text-body font-medium">
+          Getting started — {data.doneCount} of {data.steps.length} done
+        </p>
+        <span className="text-hint text-muted">
+          {remaining} step{remaining === 1 ? '' : 's'} left. This disappears when they are.
+        </span>
+      </div>
+      <ol className="flex flex-col gap-1.5">
+        {data.steps.map((step) => (
+          <li key={step.id} className="flex items-baseline gap-2.5 text-body-sm">
+            <span className={step.done ? 'text-dr' : 'text-muted'}>{step.done ? '✓' : '○'}</span>
+            <span className={step.done ? 'text-muted' : ''}>
+              {step.screen && !step.done ? (
+                <button
+                  className="text-blue hover:underline"
+                  data-testid={`btn-checklist-${step.id}`}
+                  onClick={() => nav.go({ name: step.screen as Screen['name'] } as Screen)}
+                >
+                  {step.label}
+                </button>
+              ) : (
+                step.label
+              )}
+              {!step.done && <span className="ml-2 text-hint text-muted">{step.why}</span>}
+            </span>
+          </li>
+        ))}
+      </ol>
     </Panel>
   )
 }

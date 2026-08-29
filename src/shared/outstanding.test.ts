@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { allocateBills, buildReminder, type BillEvent } from './outstanding'
+import { allocateBills, buildReminder, type BillEvent, type BillRef, whatsappNumber } from './outstanding'
 
 describe('allocateBills — refless legacy inference (byte-identical to the pre-refactor algorithm)', () => {
   it('one bill, no settlement: stays open in full', () => {
@@ -200,5 +200,91 @@ describe('buildReminder', () => {
   it('leaves the mailto address blank (not "null") when the party has no email', () => {
     const r = buildReminder({ name: 'Demo Traders' }, { name: 'Umbrella Retail', email: null }, [])
     expect(r.mailto.startsWith('mailto:?subject=')).toBe(true)
+  })
+})
+
+describe('whatsappNumber', () => {
+  it('adds the country code to a bare ten-digit mobile', () => {
+    expect(whatsappNumber('9876543210')).toBe('919876543210')
+  })
+
+  it('strips the punctuation people actually type', () => {
+    for (const typed of ['98765 43210', '98765-43210', '(98765) 43210', '+91 98765 43210', '0091-9876543210']) {
+      expect(whatsappNumber(typed), typed).toBe('919876543210')
+    }
+  })
+
+  it('drops a domestic trunk prefix', () => {
+    expect(whatsappNumber('09876543210')).toBe('919876543210')
+  })
+
+  it('leaves an already-international number alone', () => {
+    expect(whatsappNumber('+44 7700 900123')).toBe('447700900123')
+  })
+
+  it('refuses anything it cannot read with certainty', () => {
+    // Sending a payment reminder to the wrong person is worse than not sending one.
+    for (const bad of [null, '', '12345', 'call the office', '1234567890123456789']) {
+      expect(whatsappNumber(bad as string | null), String(bad)).toBeNull()
+    }
+  })
+})
+
+describe('buildReminder over WhatsApp', () => {
+  const company = { name: 'Demo Traders' }
+  const bills = [
+    { voucherId: 1, number: 'INV-1', date: '2026-04-01', dueDate: null, amount: 100000, pending: 100000, ageDays: 40, overdueDays: 10 }
+  ]
+
+  it('sends the same text through both channels', () => {
+    const r = buildReminder(company, { name: 'Sharma Traders', email: 'a@b.com', phone: '9876543210' }, bills)
+    expect(r.whatsapp).toContain('wa.me/919876543210')
+    expect(decodeURIComponent(r.whatsapp!)).toContain(r.body)
+    expect(decodeURIComponent(r.mailto)).toContain(r.body)
+  })
+
+  it('offers no WhatsApp link when there is no usable number', () => {
+    expect(buildReminder(company, { name: 'X', email: null, phone: null }, bills).whatsapp).toBeNull()
+    expect(buildReminder(company, { name: 'X', email: null }, bills).whatsapp).toBeNull()
+  })
+})
+
+describe('settled-bill history', () => {
+  const ev = (date: string, number: string, amount: number, refs: BillRef[] = []): BillEvent => ({
+    voucherId: null, date, number, amount, refs
+  })
+
+  it('records a bill closed by a later payment, with how late it was', () => {
+    const r = allocateBills(
+      [ev('2026-01-01', 'INV-1', 10_000), ev('2026-02-10', 'RCT-1', -10_000)],
+      '2026-03-01',
+      30
+    )
+    expect(r.bills).toHaveLength(0)
+    expect(r.settled).toHaveLength(1)
+    expect(r.settled[0]).toMatchObject({ number: 'INV-1', settledDate: '2026-02-10', dueDate: '2026-01-31', daysLate: 10 })
+  })
+
+  it('counts a bill met from an advance as settled on the day it was raised, not late', () => {
+    const r = allocateBills([ev('2026-01-01', 'RCT-1', -10_000), ev('2026-02-10', 'INV-1', 10_000)], '2026-03-01', 30)
+    expect(r.settled[0]).toMatchObject({ number: 'INV-1', settledDate: '2026-02-10', daysLate: -30 })
+  })
+
+  it('leaves a part-paid bill open and out of the history', () => {
+    const r = allocateBills([ev('2026-01-01', 'INV-1', 10_000), ev('2026-02-10', 'RCT-1', -4_000)], '2026-03-01', 30)
+    expect(r.settled).toHaveLength(0)
+    expect(r.bills[0]!.pending).toBe(6_000)
+  })
+
+  it('records bills settled by an explicit reference too', () => {
+    const r = allocateBills(
+      [
+        ev('2026-01-01', 'S1', 10_000, [{ kind: 'new', name: 'INV-9', amount: 10_000, dueDate: '2026-01-20' }]),
+        ev('2026-01-25', 'R1', -10_000, [{ kind: 'against', name: 'INV-9', amount: 10_000, dueDate: null }])
+      ],
+      '2026-03-01',
+      null
+    )
+    expect(r.settled[0]).toMatchObject({ number: 'INV-9', daysLate: 5 })
   })
 })

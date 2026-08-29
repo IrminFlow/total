@@ -2,12 +2,15 @@ import { app, BrowserWindow, dialog, shell } from 'electron'
 import { join } from 'path'
 import { existsSync } from 'fs'
 import { homedir } from 'os'
-import { electronApp, is, optimizer } from '@electron-toolkit/utils'
-import { registerIpc, closeCurrentCompany, getCurrentCompany } from './ipc'
+import { electronApp, is } from '@electron-toolkit/utils'
+import { registerIpc, closeCurrentCompany, getCurrentCompany, getSessionUserName } from './ipc'
 import { ensureDataTree, dataRoot } from './paths'
 import { initUpdater } from './updater'
+import { installMenu } from './menu'
 import { initLogging, log } from './log'
 import { startBackupScheduler, backupOnQuit } from './backup-scheduler'
+import { startHeartbeat } from './deviceLock'
+import { isAllowedWindowOpenUrl } from './externalUrl'
 import { syncFolderWarning } from '@shared/syncpath'
 
 const gotSingleInstanceLock = app.requestSingleInstanceLock()
@@ -70,7 +73,9 @@ function createWindow(): void {
     backgroundColor: '#f4f4ef',
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
-      sandbox: false,
+      // The preload uses only contextBridge/ipcRenderer and the sandbox's process.platform shim.
+      // Keeping the renderer sandboxed limits the impact of a Chromium or context-isolation bug.
+      sandbox: true,
       contextIsolation: true,
       nodeIntegration: false
     }
@@ -78,8 +83,31 @@ function createWindow(): void {
 
   win.on('ready-to-show', () => win.show())
 
+  // A renderer that dies outright (OOM, a GPU fault, a native crash) never reaches React's
+  // ErrorBoundary — the whole window goes blank instead. Record it so the support report can
+  // show what happened, and reload once so the user is not left staring at nothing.
+  let reloadedAfterCrash = false
+  win.webContents.on('render-process-gone', (_e, details) => {
+    log('error', 'render-process-gone', { reason: details.reason, exitCode: details.exitCode })
+    if (details.reason === 'clean-exit' || reloadedAfterCrash) return
+    reloadedAfterCrash = true
+    win.reload()
+  })
+  win.webContents.on('unresponsive', () => log('warn', 'renderer-unresponsive', {}))
+  app.on('child-process-gone', (_e, details) => {
+    log('error', 'child-process-gone', { type: details.type, reason: details.reason })
+  })
+
   win.webContents.setWindowOpenHandler((details) => {
-    shell.openExternal(details.url)
+    if (isAllowedWindowOpenUrl(details.url)) {
+      void shell.openExternal(details.url).catch((error) => {
+        log('warn', 'external-open-failed', {
+          error: error instanceof Error ? error.message : String(error)
+        })
+      })
+    } else {
+      log('warn', 'external-open-refused', { url: details.url.slice(0, 200) })
+    }
     return { action: 'deny' }
   })
 
@@ -103,10 +131,17 @@ if (gotSingleInstanceLock) {
     initLogging()
     log('info', 'app-start', { version: app.getVersion(), platform: process.platform })
     electronApp.setAppUserModelId('com.irminlabs.total')
-    app.on('browser-window-created', (_, window) => optimizer.watchWindowShortcuts(window))
+    installMenu()
+    // `optimizer.watchWindowShortcuts` is deliberately NOT used: in development it intercepts
+    // F12 via before-input-event to toggle devtools, which would silently eat the renderer's
+    // F12 (configure columns) for every developer while working fine in the packaged build.
+    // Devtools live in the View menu under `is.dev` instead.
     ensureDataTree()
     registerIpc()
     startBackupScheduler(getCurrentCompany)
+    // Keep this machine's claim on the open company warm, so a second machine can tell a live
+    // session from a crashed one (roadmap #259).
+    startHeartbeat(() => getCurrentCompany()?.slug ?? null, getSessionUserName)
     createWindow()
     warnIfSyncedFolder()
     initUpdater()

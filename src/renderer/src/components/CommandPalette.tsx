@@ -1,12 +1,14 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { useNav, useSession, useToasts, type Screen } from '../state/stores'
+import { useAsk, useNav, useSession, useToasts, type Screen } from '../state/stores'
 import { api } from '../lib/client'
-import { useKeyNav } from './ui'
+import { isAnyModalOpen, useFocusTrap, useKeyNav } from './ui'
 import { useFeatures } from '../lib/useFeatures'
 import { SCREENS } from '../lib/screens'
 import type { CompanyFeatures } from '@shared/features'
 import type { SearchHit } from '@shared/search'
+import { resolveAsk, type AskMatch } from '@shared/ai/askbar'
+import { todayISO } from '@shared/dates'
 
 interface Command {
   label: string
@@ -24,19 +26,67 @@ type NavItem = { type: 'command'; cmd: Command } | { type: 'hit'; hit: SearchHit
 
 const HIT_KIND_LABEL: Record<SearchHit['kind'], string> = { ledger: 'Ledger', item: 'Item', voucher: 'Voucher' }
 
-export function CommandPalette({ onClose }: { onClose: () => void }): React.JSX.Element {
+const HIT_KIND_PLURAL: Record<SearchHit['kind'], string> = { ledger: 'ledgers', item: 'items', voucher: 'vouchers' }
+
+/**
+ * What "search this screen" means, per screen (⌘⇧F).
+ *
+ * ⌘K searches everything and lists every command, which is right when you do not know where you
+ * are going. It is the wrong tool when you are already on the Day Book and want one voucher: the
+ * answer arrives behind forty navigation commands nobody asked for.
+ *
+ * So ⌘⇧F opens the same palette with the commands dropped and the results narrowed to the kind
+ * of thing THIS screen is about. A screen not listed here is one where "the current screen"
+ * narrows nothing — the key then behaves like ⌘K rather than pretending to a scope it has not got.
+ */
+export const SCREEN_SEARCH_SCOPE: Partial<Record<Screen['name'], SearchHit['kind'][]>> = {
+  daybook: ['voucher'],
+  'voucher-entry': ['voucher'],
+  registers: ['voucher'],
+  exceptions: ['voucher'],
+  'ledger-statement': ['ledger'],
+  'trial-balance': ['ledger'],
+  'profit-loss': ['ledger'],
+  'balance-sheet': ['ledger'],
+  outstandings: ['ledger'],
+  khata: ['ledger'],
+  collections: ['ledger'],
+  masters: ['ledger', 'item'],
+  'stock-summary': ['item']
+}
+
+/**
+ * The screen an ask match opens.
+ *
+ * Kept here rather than in shared because `Screen` is a renderer type: the matcher returns a
+ * screen NAME and a window, and this is the one place that knows what those mean as navigation.
+ */
+export function screenForAsk(match: AskMatch): Screen {
+  if (match.screen === 'daybook' && match.span) return { name: 'daybook', span: match.span }
+  return { name: match.screen } as Screen
+}
+
+export function CommandPalette({
+  onClose,
+  scope
+}: {
+  onClose: () => void
+  /** Result kinds to keep; the command list is hidden entirely while a scope is in force. */
+  scope?: SearchHit['kind'][]
+}): React.JSX.Element {
   const nav = useNav()
   const toast = useToasts()
   const { clearCompany } = useSession()
   const features = useFeatures()
   const [query, setQuery] = useState('')
+  const dialogRef = useRef<HTMLDivElement>(null)
 
   const commands = useMemo<Command[]>(() => {
     const go = (screen: Screen) => () => nav.go(screen)
     // Every navigable screen comes from the single registry; action commands are appended below.
     const screenCommands: Command[] = SCREENS.filter((s) => s.screen != null).map((s) => ({
       label: s.title,
-      hint: s.card?.key,
+      hint: s.accel,
       keywords: s.keywords,
       feature: s.feature,
       run: s.name === 'gateway' ? () => nav.home() : go(s.screen!)
@@ -78,6 +128,13 @@ export function CommandPalette({ onClose }: { onClose: () => void }): React.JSX.
             toast.push('error', (err as Error).message)
           }
         }
+      },
+      // Named for what people search for, not for the tab: someone whose eyes hurt types
+      // "contrast" or "text size", never "appearance".
+      {
+        label: 'Appearance — theme, text size, motion',
+        keywords: ['contrast', 'high contrast', 'text size', 'font size', 'dark', 'motion', 'accessibility'],
+        run: go({ name: 'settings', tab: 'appearance' })
       },
       { label: 'Backups', run: go({ name: 'settings', tab: 'backups' }) },
       { label: 'Bin', run: go({ name: 'settings', tab: 'bin' }) },
@@ -121,14 +178,58 @@ export function CommandPalette({ onClose }: { onClose: () => void }): React.JSX.
     ]
   }, [nav, toast, clearCompany])
 
+  /**
+   * The ask bar (roadmap #212): deterministic first, model second.
+   *
+   * A typed question is resolved against the report intents in @shared/ai/askbar BEFORE anything
+   * else. When one matches, the top row opens that report — exact, instant, free, and working
+   * with the assistant switched off, which is most companies. Only an unmatched question offers
+   * the assistant, and only when the feature is on.
+   *
+   * The ordering is the feature. Putting the model first would make the common questions slower,
+   * costlier and less exact than the screens that already answer them.
+   */
+  const askMatch = useMemo<AskMatch | null>(
+    () => (scope ? null : resolveAsk(query, todayISO())),
+    [query, scope]
+  )
+
+  const askCommands = useMemo<Command[]>(() => {
+    if (scope || query.trim().length < 3) return []
+    const out: Command[] = []
+    if (askMatch) {
+      out.push({
+        label: askMatch.label,
+        hint: 'Report',
+        run: () => nav.go(screenForAsk(askMatch))
+      })
+    }
+    // Offered only when nothing deterministic matched — the assistant is the fallback, not the
+    // front door. The feature gate is the same one Shell uses to render the drawer at all.
+    if (!askMatch && features.ai) {
+      out.push({
+        label: `Ask the assistant: “${query.trim()}”`,
+        hint: '⌘J',
+        feature: 'ai',
+        run: () => useAsk.getState().openAsk(query.trim())
+      })
+    }
+    return out
+  }, [askMatch, query, scope, features.ai, nav])
+
   const filtered = useMemo(() => {
+    // A scoped search is a search, not a menu — the commands would bury the hits it was opened for.
+    if (scope) return []
     const visible = commands.filter((c) => !c.feature || features[c.feature])
     const q = query.trim().toLowerCase()
     if (!q) return visible
-    return visible.filter(
-      (c) => c.label.toLowerCase().includes(q) || c.keywords?.some((k) => k.toLowerCase().includes(q))
-    )
-  }, [commands, query, features])
+    return [
+      ...askCommands,
+      ...visible.filter(
+        (c) => c.label.toLowerCase().includes(q) || c.keywords?.some((k) => k.toLowerCase().includes(q))
+      )
+    ]
+  }, [commands, query, features, scope, askCommands])
 
   // Books search: debounced 150ms, only fires once the query is meaningfully specific (2+ chars).
   const [debounced, setDebounced] = useState('')
@@ -137,11 +238,14 @@ export function CommandPalette({ onClose }: { onClose: () => void }): React.JSX.
     return () => clearTimeout(t)
   }, [query])
   const searchEnabled = debounced.length >= 2
-  const { data: hits = [] } = useQuery({
+  const { data: allHits = [] } = useQuery({
     queryKey: ['search', debounced],
     queryFn: () => api.search.global(debounced),
     enabled: searchEnabled
   })
+  // Filtered here rather than at the IPC boundary so the same cached result serves both the
+  // scoped and the unscoped palette — the query key stays the query, which is what it is about.
+  const hits = useMemo(() => (scope ? allHits.filter((h) => scope.includes(h.kind)) : allHits), [allHits, scope])
 
   const navItems = useMemo<NavItem[]>(
     () => [...filtered.map((cmd) => ({ type: 'command' as const, cmd })), ...hits.map((hit) => ({ type: 'hit' as const, hit }))],
@@ -149,6 +253,11 @@ export function CommandPalette({ onClose }: { onClose: () => void }): React.JSX.
   )
 
   const { active, setActive } = useKeyNav(navItems.length, () => {}, false)
+
+  // The input keeps its own `autoFocus` (it must be focused, not merely first in the trap), so
+  // the hook only has to wrap Tab and hand focus back to whatever was focused when ⌘K was hit.
+  // It yields to any modal opened over the palette — the modal's own trap wins.
+  useFocusTrap(dialogRef, { autoFocus: false, isTop: () => !isAnyModalOpen() })
 
   const runItem = (item: NavItem | undefined): void => {
     if (!item) return
@@ -165,7 +274,18 @@ export function CommandPalette({ onClose }: { onClose: () => void }): React.JSX.
 
   return (
     <div className="fixed inset-0 z-40 flex items-start justify-center bg-black/50 pt-[14vh]" onMouseDown={onClose}>
-      <div className="w-full max-w-xl overflow-hidden rounded-xl border border-line bg-panel shadow-2xl" onMouseDown={(e) => e.stopPropagation()}>
+      {/* A dialog in every way that matters to the user, so it says so to the reader too: named,
+          modal, and trapped. Before this it was an unlabelled <div> whose only a11y behaviour was
+          `autoFocus` on the input — Tab walked straight out into the sidebar behind the dimmer. */}
+      <div
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-label="Command palette"
+        data-testid="command-palette"
+        className="w-full max-w-xl overflow-hidden rounded-lg border border-line bg-panel shadow-2xl"
+        onMouseDown={(e) => e.stopPropagation()}
+      >
         <input
           autoFocus
           data-testid="input-palette"
@@ -180,24 +300,28 @@ export function CommandPalette({ onClose }: { onClose: () => void }): React.JSX.
             else if (e.key === 'ArrowUp') { e.preventDefault(); setActive(Math.max(0, active - 1)) }
             else if (e.key === 'Enter') runItem(navItems[active])
           }}
-          placeholder="Type a command — voucher, report, GST…"
-          className="w-full border-b border-line bg-transparent px-5 py-3.5 text-[14px] outline-none placeholder:text-muted/60"
+          placeholder={
+            scope
+              ? `Search ${scope.map((k) => HIT_KIND_PLURAL[k]).join(' and ')} on this screen…`
+              : 'Type a command — voucher, report, GST…'
+          }
+          className="w-full border-b border-line bg-transparent px-5 py-3.5 text-lead outline-none placeholder:text-muted/60"
         />
         <div className="max-h-80 overflow-auto py-1">
           {filtered.map((cmd, i) => (
             <div
               key={cmd.label}
               data-active={i === active}
-              className="kbar-row flex cursor-pointer items-center justify-between px-5 py-2 text-[13.5px]"
+              className="kbar-row flex cursor-pointer items-center justify-between px-5 py-2 text-body"
               onMouseEnter={() => setActive(i)}
               onClick={() => runItem(navItems[i])}
             >
               <span>{cmd.label}</span>
-              {cmd.hint && <span className="text-[11px] text-muted">{cmd.hint}</span>}
+              {cmd.hint && <span className="text-caption text-muted">{cmd.hint}</span>}
             </div>
           ))}
           {hits.length > 0 && (
-            <p className="px-5 pb-1 pt-3 text-[10.5px] font-medium uppercase tracking-wide text-muted">In your books</p>
+            <p className="px-5 pb-1 pt-3 text-label font-medium uppercase tracking-wide text-muted">In your books</p>
           )}
           {hits.map((hit, j) => {
             const i = filtered.length + j
@@ -205,19 +329,19 @@ export function CommandPalette({ onClose }: { onClose: () => void }): React.JSX.
               <div
                 key={`${hit.kind}-${hit.id}`}
                 data-active={i === active}
-                className="kbar-row flex cursor-pointer items-center justify-between gap-3 px-5 py-2 text-[13.5px]"
+                className="kbar-row flex cursor-pointer items-center justify-between gap-3 px-5 py-2 text-body"
                 onMouseEnter={() => setActive(i)}
                 onClick={() => runItem(navItems[i])}
               >
                 <div className="flex min-w-0 flex-col">
                   <span className="truncate">{hit.label}</span>
-                  <span className="truncate text-[11px] text-muted">{hit.sub}</span>
+                  <span className="truncate text-caption text-muted">{hit.sub}</span>
                 </div>
-                <span className="shrink-0 text-[11px] text-muted">{HIT_KIND_LABEL[hit.kind]}</span>
+                <span className="shrink-0 text-caption text-muted">{HIT_KIND_LABEL[hit.kind]}</span>
               </div>
             )
           })}
-          {navItems.length === 0 && <p className="px-5 py-6 text-center text-[13px] text-muted">No commands or matches</p>}
+          {navItems.length === 0 && <p className="px-5 py-6 text-center text-detail text-muted">No commands or matches</p>}
         </div>
       </div>
     </div>

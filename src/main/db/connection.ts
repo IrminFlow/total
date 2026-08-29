@@ -43,7 +43,28 @@ export function closeCompanyDb(db: DB): void {
   db.close()
 }
 
+/** Default only; the per-company setting lives in meta. See services/config.ts. */
 const MAX_BACKUPS = 20
+const MIN_BACKUPS = 5
+
+/**
+ * How many backups this company keeps.
+ *
+ * Anything outside the sane range falls back to the default rather than being honoured: a stored
+ * 1 would mean the next open overwrites the only copy, which is not a backup policy but a mirror,
+ * and the one thing backups exist to survive is a mistake noticed later.
+ */
+function backupKeepOf(db: DB): number {
+  try {
+    const row = db.prepare("SELECT value FROM meta WHERE key = 'backup.keep'").get() as { value: string } | undefined
+    const parsed = row ? (JSON.parse(row.value) as unknown) : null
+    return typeof parsed === 'number' && Number.isInteger(parsed) && parsed >= MIN_BACKUPS && parsed <= 200
+      ? parsed
+      : MAX_BACKUPS
+  } catch {
+    return MAX_BACKUPS
+  }
+}
 
 /**
  * WAL-safe snapshot of an already-open company DB into backups/, tagged (e.g. 'open', 'manual',
@@ -60,6 +81,12 @@ export async function backupCompany(db: DB, slug: string, tag = 'auto'): Promise
     rmSync(dest, { force: true })
     throw new Error('Backup verification failed (quick_check) — the snapshot was discarded')
   }
-  pruneBackupsIn(companyBackupsDir(slug), MAX_BACKUPS)
+  // Read per company rather than using the constant: a business that opens its books four times
+  // a day burns through twenty in a week, and one that opens weekly keeps five months in the same
+  // twenty. The constant is only the default.
+  //
+  // Read inline rather than through services/config so the db layer keeps no dependency on the
+  // service layer — this is one row, and the alternative is an import cycle waiting to happen.
+  pruneBackupsIn(companyBackupsDir(slug), backupKeepOf(db))
   return dest
 }

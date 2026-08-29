@@ -17,6 +17,7 @@ import {
   EWB_THRESHOLD_PAISE, type EdocCompany, type EdocInvoice
 } from './edocs'
 import { validateGstr1 } from './validate'
+import { isB2cLarge } from './returns'
 import { backOutAdvance } from './calc'
 import { isUqc, toUqc, UQC_CODES } from './uqc'
 
@@ -695,5 +696,85 @@ describe('validateGstr1', () => {
     const issues = validateGstr1(docs, company)
     expect(issues.find((i) => i.code === 'rate_zero_untyped')?.severity).toBe('warning')
     expect(issues.find((i) => i.code === 'b2cl_edge')?.severity).toBe('warning')
+  })
+
+  describe('turnover-dependent checks', () => {
+    // Rule 46 asks for 6 HSN digits over ₹5 crore and 4 below, and e-invoicing is mandatory over
+    // the same line. Both are silent until the company declares a band, because guessing it from
+    // these books would be wrong for exactly the multi-GSTIN businesses the rules target.
+    const big = { ...company, turnoverBand: '5Cr-10Cr' as const }
+    const small = { ...company, turnoverBand: '1.5Cr-5Cr' as const }
+
+    /** Every HSN in the fixture rewritten to one code, so the assertion is about the rule and
+     *  not about how many 4-digit codes the fixture happens to carry. */
+    const allHsn = (hsn: string): GstDoc[] =>
+      fixtureDocs().map((d) => ({ ...d, hsnLines: d.hsnLines.map((h) => ({ ...h, hsn })) }))
+
+    it('says nothing about either threshold while turnover is undeclared', () => {
+      const issues = validateGstr1(allHsn('9983'), company)
+      expect(issues.find((i) => i.code === 'hsn_too_short')).toBeUndefined()
+      expect(issues.find((i) => i.code === 'missing_irn')).toBeUndefined()
+    })
+
+    it('warns on a 4-digit HSN above ₹5 crore, and not below it', () => {
+      const docs = allHsn('9983')
+      const short = validateGstr1(docs, big).find((i) => i.code === 'hsn_too_short')
+      expect(short?.severity).toBe('warning')
+      expect(short?.message).toContain('6 digits')
+      // Every document with an HSN line is named, and nothing else is.
+      expect(short?.voucherIds).toEqual(docs.filter((d) => d.hsnLines.length).map((d) => d.voucherId))
+      expect(validateGstr1(docs, small).find((i) => i.code === 'hsn_too_short')).toBeUndefined()
+    })
+
+    it('accepts a 6-digit HSN at the higher band', () => {
+      expect(validateGstr1(allHsn('998314'), big).find((i) => i.code === 'hsn_too_short')).toBeUndefined()
+      // And an 8-digit one, which is longer than required rather than wrong.
+      expect(validateGstr1(allHsn('99831400'), big).find((i) => i.code === 'hsn_too_short')).toBeUndefined()
+    })
+
+    it('warns when a B2B document has no IRN and e-invoicing is mandatory', () => {
+      const docs = fixtureDocs()
+      const b2b = docs.filter((d) => d.partyGstin)
+      expect(b2b.length).toBeGreaterThan(0) // the fixture has to contain a B2B doc for this to mean anything
+      const issue = validateGstr1(docs, big).find((i) => i.code === 'missing_irn')!
+      expect(issue.severity).toBe('warning')
+      expect(issue.voucherIds).toEqual(b2b.map((d) => d.voucherId))
+      // A warning, not a block: holding the export hostage does not fix the invoices, and the
+      // return is still due.
+      expect(issue.message).toMatch(/input credit/)
+    })
+
+    it('is satisfied once every B2B document carries an IRN', () => {
+      const docs = fixtureDocs().map((d) => (d.partyGstin ? { ...d, irn: 'a'.repeat(64) } : d))
+      expect(validateGstr1(docs, big).find((i) => i.code === 'missing_irn')).toBeUndefined()
+    })
+
+    it('does not ask a B2C document for an IRN, which has none to give', () => {
+      const docs = fixtureDocs().map((d) => ({ ...d, partyGstin: null }))
+      expect(validateGstr1(docs, big).find((i) => i.code === 'missing_irn')).toBeUndefined()
+    })
+  })
+})
+
+describe('isB2cLarge', () => {
+  // Exported so the voucher screen can warn at entry time using the same rule the return
+  // applies. These pin the rule itself; the routing tests above pin its use in the return.
+  const base = { partyGstin: null, pos: '29', companyStateCode: '27', invoiceValue: 100_00_001 }
+
+  it('is true for an inter-state unregistered sale above ₹1,00,000', () => {
+    expect(isB2cLarge(base)).toBe(true)
+  })
+
+  it('is false at exactly ₹1,00,000 — the statute says above', () => {
+    expect(isB2cLarge({ ...base, invoiceValue: 100_00_000 })).toBe(false)
+    expect(isB2cLarge({ ...base, invoiceValue: 99_99_999 })).toBe(false)
+  })
+
+  it('is false for a registered buyer, who goes to B2B whatever the value', () => {
+    expect(isB2cLarge({ ...base, partyGstin: '29AAPFU0939F1ZV' })).toBe(false)
+  })
+
+  it('is false intra-state, however large', () => {
+    expect(isB2cLarge({ ...base, pos: '27', invoiceValue: 10_00_00_000 })).toBe(false)
   })
 })

@@ -1,20 +1,27 @@
 import { mkdirSync, writeFileSync } from 'fs'
 import { join } from 'path'
 import type { DB } from '../db/connection'
-import type { CompanyInfo, VoucherTransport } from '@shared/domain'
+import type { VoucherTransport } from '@shared/domain'
+import { regScope, type GstScope } from './registrations'
 import type { EdocListRow } from '@shared/reports'
 import type { VoucherTransportInput } from '@shared/schemas'
 import {
   buildEInvoiceJson, buildEwbJson, ewbEligibility, ewbIssues, EWB_THRESHOLD_PAISE,
+  EWB_INELIGIBILITY_REASON, type EwbIneligibility,
   type EdocCompany, type EdocInvoice, type EdocItem, type EdocShipTo, type EdocTransport
 } from '@shared/gst/edocs'
 import { computeGst, supplyTypeFor } from '@shared/gst/calc'
+import {
+  estimateEwayDistanceKm, pinCoordinates, PIN_DISTANCE_DISCLAIMER, type EwayDistanceEstimate
+} from '@shared/gst/pinDistance'
+import { makeRateResolver } from './itemRates'
 import { toUqc } from '@shared/gst/uqc'
 import { descendantIdsByName } from './masters'
 import { outwardDebitNoteIds } from './gst'
 import { writeAudit } from './audit'
 import { companyExportsDir } from '../paths'
 import { IN_BOOKS, NOT_DELETED } from './vouchers'
+import { decodeCursor, encodeCursor, keysetAfter, keysetOrderBy } from '@shared/keyset'
 
 /** Voucher kinds eligible for e-invoice/e-way bill extraction: sales invoices plus the
  *  credit/debit notes issued against them. */
@@ -41,10 +48,70 @@ function supTypFor(exportType: string | null, partyStateCode: string | null): 'B
   return 'B2B'
 }
 
-export function listSalesInvoices(db: DB, from: string, to: string): EdocListRow[] {
+/** How many e-document rows the period holds — the denominator for a paged view. */
+export function countSalesInvoices(db: DB, from: string, to: string): number {
   const kindPlaceholders = EDOC_KINDS.map(() => '?').join(', ')
+  const row = db
+    .prepare(
+      `SELECT COUNT(*) AS n FROM vouchers v JOIN voucher_types vt ON vt.id = v.voucher_type_id
+       WHERE vt.kind IN (${kindPlaceholders}) AND v.date BETWEEN ? AND ? AND ${IN_BOOKS}`
+    )
+    .get(...EDOC_KINDS, from, to) as { n: number }
+  return row.n
+}
+
+/** The cursor identifying an e-document row, for asking for the page after it. */
+export function edocCursor(row: { date: string; voucherId: number }): string {
+  return encodeCursor([row.date, row.voucherId])
+}
+
+/** Ordering columns, and therefore the cursor's shape. `v.id` is the tiebreak: a day's invoices
+ *  all share a date, and a cursor of date alone would repeat or skip the rest of that day. */
+const EDOC_KEY = ['v.date', 'v.id'] as const
+
+/**
+ * The period's e-invoice / e-way-bill worklist.
+ *
+ * Paged, and two-phase, for the same reason the Day Book is. This used to be one statement with a
+ * derived table that summed EVERY voucher line in the database and two correlated EXISTS per row,
+ * returning every sales document in the period unbounded. On a book with 85,840 vouchers the
+ * screen never finished at all — it was the one screen in the sweep that did not come back inside
+ * sixty seconds. Phase one takes the page's ids off the date index; phase two totals and inspects
+ * exactly those.
+ *
+ * The other lane fixed the same 13.8-second screen by folding the two correlated EXISTS over
+ * `inventory_lines` into one grouped LEFT JOIN, and said in its own comment that pagination was
+ * this lane's to design. Both cures are not needed and the grouped pass is the wrong one once the
+ * page is bounded: it groups the WHOLE period to answer a question about `limit` rows, while the
+ * EXISTS below now run once per row of one page. So the page won, and the LEFT JOIN went.
+ */
+export function listSalesInvoices(
+  db: DB,
+  from: string,
+  to: string,
+  opts: { limit?: number; after?: string | null } = {}
+): EdocListRow[] {
+  const kindPlaceholders = EDOC_KINDS.map(() => '?').join(', ')
+  const cursor = decodeCursor(opts.after)
+  const after = cursor ? keysetAfter(EDOC_KEY, cursor) : null
+  const params: (string | number)[] = [...EDOC_KINDS, from, to, ...(after?.params ?? [])]
+  if (opts.limit != null) params.push(opts.limit)
+  const ids = db
+    .prepare(
+      `SELECT v.id AS voucherId, v.date
+       FROM vouchers v JOIN voucher_types vt ON vt.id = v.voucher_type_id
+       WHERE vt.kind IN (${kindPlaceholders}) AND v.date BETWEEN ? AND ? AND ${IN_BOOKS}${after ? ` AND ${after.sql}` : ''}
+       ORDER BY ${keysetOrderBy(EDOC_KEY)}
+       ${opts.limit != null ? 'LIMIT ?' : ''}`
+    )
+    .all(...params) as { voucherId: number; date: string }[]
+  if (ids.length === 0) return []
+
+  // The outward-debit-note set is a property of the period, not of the page — but it is small
+  // (debit notes are rare) and computing it per page is cheaper than carrying state.
   const outwardDbn = outwardDebitNoteIds(db, from, to)
-  return db
+  const idJson = JSON.stringify(ids.map((r) => r.voucherId))
+  const rows = db
     .prepare(
       `SELECT v.id AS voucherId, v.number, v.date, vt.kind AS kind, p.name AS partyName, p.gstin AS partyGstin,
               COALESCE(t.total, 0) AS total, v.vehicle_no AS vehicleNo, v.irn, v.ewb_no AS ewbNo,
@@ -54,28 +121,36 @@ export function listSalesInvoices(db: DB, from: string, to: string): EdocListRow
        FROM vouchers v
        JOIN voucher_types vt ON vt.id = v.voucher_type_id
        LEFT JOIN ledgers p ON p.id = v.party_ledger_id
-       LEFT JOIN (SELECT voucher_id, SUM(amount) AS total FROM voucher_lines WHERE dr_cr = 'dr' GROUP BY voucher_id) t
-         ON t.voucher_id = v.id
-       WHERE vt.kind IN (${kindPlaceholders}) AND v.date BETWEEN ? AND ? AND ${IN_BOOKS}
-       ORDER BY v.date, v.id`
+       LEFT JOIN (
+         SELECT voucher_id, SUM(amount) AS total FROM voucher_lines
+         WHERE dr_cr = 'dr' AND voucher_id IN (SELECT value FROM json_each(?))
+         GROUP BY voucher_id
+       ) t ON t.voucher_id = v.id
+       WHERE v.id IN (SELECT value FROM json_each(?)) AND ${IN_BOOKS}
+       ORDER BY ${keysetOrderBy(EDOC_KEY)}`
     )
-    .all(...EDOC_KINDS, from, to)
-    .map((r: any) => {
-      const { kind, hasGoods, ...rest } = r
-      const docType = docTypeFor(kind)
-      const isOutwardDbn = docType === 'DBN' && outwardDbn.has(r.voucherId)
-      const ewbReason =
-        docType === 'CRN'
-          ? 'Credit note — e-way bills accompany goods movement'
-          : docType === 'DBN' && !isOutwardDbn
-            ? 'Purchase-side debit note'
-            : !hasGoods
-              ? 'Services only — no goods movement'
-              : r.total <= EWB_THRESHOLD_PAISE
-                ? 'At or below ₹50,000 — per-bill export overrides'
-                : null
-      return { ...rest, docType, hasHsn: !!r.hasHsn, outwardDbn: isOutwardDbn, ewbReason }
-    }) as EdocListRow[]
+    .all(idJson, idJson) as Record<string, unknown>[]
+
+  return rows.map((r) => {
+    const { kind, hasGoods, ...rest } = r as { kind: string; hasGoods: number; voucherId: number; total: number }
+    const docType = docTypeFor(kind)
+    const isOutwardDbn = docType === 'DBN' && outwardDbn.has(r.voucherId as number)
+    // The CODE, not the sentence. `ewbReason: string` shipped the same sixty-character English
+    // string once per row — 44,000 identical copies across the wire for one screen — and it also
+    // put a user-facing sentence in the service layer. The renderer maps the code through
+    // EWB_INELIGIBILITY_REASON / _SHORT in @shared/gst/edocs.
+    const ewbReasonCode: EwbIneligibility | null =
+      docType === 'CRN'
+        ? 'credit_note'
+        : docType === 'DBN' && !isOutwardDbn
+          ? 'purchase_dbn'
+          : !hasGoods
+            ? 'services_only'
+            : (r.total as number) <= EWB_THRESHOLD_PAISE
+              ? 'below_threshold'
+              : null
+    return { ...rest, docType, hasHsn: !!r.hasHsn, outwardDbn: isOutwardDbn, ewbReasonCode }
+  }) as unknown as EdocListRow[]
 }
 
 // ---------- voucher transport (migration 013) ----------
@@ -151,14 +226,110 @@ export function setTransport(db: DB, voucherId: number, input: VoucherTransportI
   return after
 }
 
+// ---------- e-way bill distance estimate (roadmap D-96) ----------
+
+/**
+ * What the PIN-code estimator offers for one voucher. Deliberately an OFFER and never a write.
+ *
+ * The e-way bill's distance field decides how long the bill stays valid (one day per 200 km of
+ * the declared distance, broadly). An understated distance expires the consignment while it is
+ * still on the road, which is a detained vehicle and a penalty — so an approximate figure must
+ * never arrive in that field on its own. This returns a number to look at; storing it is a
+ * separate, explicit `setTransport` call the user makes after reading the disclaimer.
+ *
+ * WHERE THE PIN CODES COME FROM — the destination PIN is stored (voucher_transport.ship_to_pincode,
+ * the ship-to address on the transport modal). The DESPATCH PIN IS NOT STORED ANYWHERE: the
+ * company's own address is a single free-text field with no PIN column, and the party ledger
+ * has a state code but no PIN. Rather than parse six digits out of an address line and present a
+ * guess as the despatch point, the despatch PIN is always supplied by the caller — the user
+ * types it. See the report for D-96.
+ */
+export interface EwayDistanceOffer {
+  fromPin: string | null
+  toPin: string | null
+  /** Where the destination PIN came from. 'ship_to' = the stored ship-to address. */
+  toPinSource: 'ship_to' | 'typed' | null
+  /** Null when either PIN cannot be resolved honestly — an unknown PIN offers nothing at all. */
+  estimate: EwayDistanceEstimate | null
+  /** Printed verbatim beside any figure this produces. */
+  disclaimer: string
+  /** What the voucher's distance field holds right now. This call never changes it. */
+  storedKm: number | null
+  /** Why there is no estimate, when there is none. */
+  reason: string | null
+}
+
+/**
+ * Offer an estimated distance for a voucher's e-way bill. Reads; never writes.
+ *
+ * `opts.toPin` overrides the stored ship-to PIN (the consignment can go somewhere the ship-to
+ * address does not describe). Either PIN being unresolvable yields `estimate: null` and a reason
+ * — never a fallback figure, because a wrong distance offered confidently is the failure this
+ * whole path exists to avoid.
+ */
+export function estimateTransportDistance(
+  db: DB,
+  voucherId: number,
+  opts: { fromPin?: string | null; toPin?: string | null } = {}
+): EwayDistanceOffer {
+  const stored = getTransport(db, voucherId)
+  const clean = (v: string | null | undefined): string | null => {
+    const t = (v ?? '').trim()
+    return t === '' ? null : t
+  }
+  const fromPin = clean(opts.fromPin)
+  const typedTo = clean(opts.toPin)
+  const shipToPin = clean(stored?.shipToPincode)
+  const toPin = typedTo ?? shipToPin
+  const toPinSource: EwayDistanceOffer['toPinSource'] =
+    toPin === null ? null : typedTo !== null ? 'typed' : 'ship_to'
+
+  const base = {
+    fromPin,
+    toPin,
+    toPinSource,
+    disclaimer: PIN_DISTANCE_DISCLAIMER,
+    storedKm: stored?.transDistanceKm ?? null
+  }
+
+  if (!fromPin || !toPin) {
+    return {
+      ...base,
+      estimate: null,
+      reason: !fromPin && !toPin
+        ? 'Enter the despatch and delivery PIN codes. Neither is stored: the company address has no PIN field, and this document has no ship-to PIN.'
+        : !fromPin
+          ? 'Enter the despatch PIN code — the company address is free text and holds no PIN.'
+          : 'Enter the delivery PIN code, or set a ship-to PIN on this document.'
+    }
+  }
+
+  const estimate = estimateEwayDistanceKm(fromPin, toPin)
+  if (!estimate) {
+    // pinCoordinates() answers null for a malformed PIN, an unallotted postal sub-region, and the
+    // 9x Army Postal Service range. All three mean the same thing to a user: type the distance.
+    const bad = [
+      ...(pinCoordinates(fromPin) ? [] : [`despatch PIN ${fromPin}`]),
+      ...(pinCoordinates(toPin) ? [] : [`delivery PIN ${toPin}`])
+    ].join(' and ')
+    return {
+      ...base,
+      estimate: null,
+      reason: `No estimate: ${bad} is not a PIN this app can place. Enter the distance the e-way bill portal gives you.`
+    }
+  }
+  return { ...base, estimate, reason: null }
+}
+
 // ---------- extraction ----------
 
 /** Assemble full e-doc invoices (items, party, transport, ship-to) for the sales vouchers in a period. */
-export function extractEdocInvoices(db: DB, company: CompanyInfo, from: string, to: string, voucherId?: number): EdocInvoice[] {
+export function extractEdocInvoices(db: DB, company: GstScope, from: string, to: string, voucherId?: number): EdocInvoice[] {
   const kindPlaceholders = EDOC_KINDS.map(() => '?').join(', ')
   const vouchers = db
     .prepare(
       `SELECT v.id, v.number, v.date, vt.kind AS kind, v.reference,
+              v.is_optional AS isOptional,
               v.transporter_id AS transporterId, v.vehicle_no AS vehicleNo,
               v.transport_distance AS distanceKm, v.pos_override AS posOverride, v.irn,
               p.name AS partyName, p.gstin AS partyGstin, p.state_code AS partyState, p.address AS partyAddress,
@@ -172,11 +343,12 @@ export function extractEdocInvoices(db: DB, company: CompanyInfo, from: string, 
        LEFT JOIN ledgers p ON p.id = v.party_ledger_id
        LEFT JOIN voucher_transport t ON t.voucher_id = v.id
        WHERE vt.kind IN (${kindPlaceholders}) AND v.date BETWEEN ? AND ?
-         AND (? IS NULL OR v.id = ?) AND ${IN_BOOKS}
+         AND (? IS NULL OR v.id = ?) AND ${voucherId != null ? NOT_DELETED : IN_BOOKS}${voucherId != null ? '' : regScope(company)}
        ORDER BY v.date, v.id`
     )
     .all(...EDOC_KINDS, from, to, voucherId ?? null, voucherId ?? null) as {
       id: number; number: string; date: string; kind: 'sales' | 'credit_note' | 'debit_note'; reference: string | null
+      isOptional: number
       transporterId: string | null; vehicleNo: string | null; distanceKm: number | null
       posOverride: string | null; irn: string | null
       partyName: string | null; partyGstin: string | null; partyState: string | null; partyAddress: string | null
@@ -191,8 +363,12 @@ export function extractEdocInvoices(db: DB, company: CompanyInfo, from: string, 
 
   const salesGroupIds = descendantIdsByName(db, ['Sales Accounts', 'Direct Incomes', 'Indirect Incomes'])
 
+  // An IRN is signed against the tax the invoice actually carried, so the rate is the one in
+  // force on the invoice's own date, not today's master rate (D-92).
+  const rateOnDate = makeRateResolver(db)
+
   const invStmt = db.prepare(
-    `SELECT il.qty_milli AS qtyMilli, il.rate_paise AS ratePaise, il.amount,
+    `SELECT il.stock_item_id AS stockItemId, il.qty_milli AS qtyMilli, il.rate_paise AS ratePaise, il.amount,
             si.name, si.hsn, si.gst_rate AS gstRate, si.cess_rate AS cessRate, si.barcode, u.uqc
      FROM inventory_lines il
      JOIN stock_items si ON si.id = il.stock_item_id
@@ -216,17 +392,21 @@ export function extractEdocInvoices(db: DB, company: CompanyInfo, from: string, 
 
   return vouchers.map((v) => {
     const supTyp = supTypFor(v.partyExportType, v.partyState)
+    // `company` is the book as ONE registration sees it (roadmap #108): the seller GSTIN and
+    // the state that decides CGST+SGST vs IGST are the supplying registration's, not a single
+    // company-level state. With one registration these are the company's own, as before.
     const pos = v.posOverride ?? v.partyState ?? company.stateCode
     // SEZ/export supplies are ALWAYS inter-state (sec 7(5)(b) IGST Act): a same-state SEZ
     // unit must be billed IGST — the IRP rejects SEZWP/SEZWOP payloads carrying CGST/SGST.
     const supply = supTyp !== 'B2B' ? 'inter' : supplyTypeFor(company.stateCode, pos)
     const rawItems = invStmt.all(v.id) as {
-      qtyMilli: number; ratePaise: number; amount: number
+      stockItemId: number; qtyMilli: number; ratePaise: number; amount: number
       name: string; hsn: string | null; gstRate: number | null; cessRate: number | null; barcode: string | null; uqc: string
     }[]
     let items: EdocItem[] = rawItems.map((item) => {
-      const rate = item.gstRate ?? 0
-      const cessRate = item.cessRate ?? 0
+      const dated = rateOnDate?.(item.stockItemId, v.date) ?? null
+      const rate = dated ? dated.ratePercent : (item.gstRate ?? 0)
+      const cessRate = dated ? dated.cessPercent : (item.cessRate ?? 0)
       const g = computeGst(item.amount, rate, supply, cessRate)
       const mapped = toUqc(item.uqc)
       return {
@@ -317,6 +497,7 @@ export function extractEdocInvoices(db: DB, company: CompanyInfo, from: string, 
       number: v.number,
       date: v.date,
       docType: docTypeFor(v.kind),
+      isOptional: !!v.isOptional,
       supTyp,
       rchrg: !!v.partyRcm,
       partyName: v.partyName,
@@ -344,8 +525,9 @@ export function extractEdocInvoices(db: DB, company: CompanyInfo, from: string, 
   })
 }
 
-function edocCompany(company: CompanyInfo): EdocCompany {
+function edocCompany(company: GstScope): EdocCompany {
   return {
+    // Trade name stays the company's legal name; the GSTIN and state are the registration's.
     name: company.name,
     gstin: company.gstin ?? '',
     stateCode: company.stateCode,
@@ -353,12 +535,12 @@ function edocCompany(company: CompanyInfo): EdocCompany {
   }
 }
 
-export function exportEInvoices(db: DB, company: CompanyInfo, slug: string, from: string, to: string, period: string): { path: string; count: number } {
+export function exportEInvoices(db: DB, company: GstScope, slug: string, from: string, to: string, period: string): { path: string; count: number } {
   // Purchase-side debit notes (goods returned to a supplier) are NOT outward documents —
   // e-invoicing one would register a spurious IRN and auto-populate portal GSTR-1 with
   // output tax the books don't contain. Same outwardDebitNoteIds split as every sibling
   // path (listSalesInvoices, ewbInvoicesFor, GSTR-1 extraction).
-  const outwardDbn = outwardDebitNoteIds(db, from, to)
+  const outwardDbn = outwardDebitNoteIds(db, from, to, company)
   // A GSTIN is required for domestic/SEZ buyers, but exports legitimately have none — the
   // builder maps those to BuyerDtls.Gstin 'URP', so don't drop them here.
   const invoices = extractEdocInvoices(db, company, from, to).filter(
@@ -403,10 +585,10 @@ const ewbFileName = (inv: EdocInvoice): string =>
  * docType enum has no DBN — outward debit notes export as docType 'OTH'.
  */
 function ewbInvoicesFor(
-  db: DB, company: CompanyInfo, from: string, to: string,
+  db: DB, company: GstScope, from: string, to: string,
   opts: { voucherIds?: number[]; includeBelowThreshold?: boolean }
 ): { eligible: EdocInvoice[]; skipped: EwbSkipped[] } {
-  const outwardDbn = outwardDebitNoteIds(db, from, to)
+  const outwardDbn = outwardDebitNoteIds(db, from, to, company)
   const all = extractEdocInvoices(db, company, from, to)
 
   const eligible: EdocInvoice[] = []
@@ -414,11 +596,11 @@ function ewbInvoicesFor(
   for (const inv of all) {
     if (opts.voucherIds && (inv.voucherId == null || !opts.voucherIds.includes(inv.voucherId))) continue
     if (inv.docType === 'CRN') {
-      skipped.push({ number: inv.number, reason: 'Credit note — e-way bills accompany goods movement' })
+      skipped.push({ number: inv.number, reason: EWB_INELIGIBILITY_REASON.credit_note })
       continue
     }
     if (inv.docType === 'DBN' && (inv.voucherId == null || !outwardDbn.has(inv.voucherId))) {
-      skipped.push({ number: inv.number, reason: 'Purchase-side debit note' })
+      skipped.push({ number: inv.number, reason: EWB_INELIGIBILITY_REASON.purchase_dbn })
       continue
     }
     const elig = ewbEligibility(inv, opts.includeBelowThreshold ?? false)
@@ -443,7 +625,7 @@ function ewbInvoicesFor(
  * single-row files, and per-bill files let each consignment be uploaded independently.
  */
 export function exportEwb(
-  db: DB, company: CompanyInfo, slug: string, from: string, to: string, period: string,
+  db: DB, company: GstScope, slug: string, from: string, to: string, period: string,
   opts: { voucherIds?: number[]; includeBelowThreshold?: boolean } = {}
 ): EwbExportResult {
   const { eligible, skipped } = ewbInvoicesFor(db, company, from, to, opts)
@@ -465,7 +647,7 @@ export function exportEwb(
 
 /** Single-voucher EWB JSON (the per-row button): throws with the blocking reasons when the
  *  bill can't be generated, otherwise writes a one-entry bulk file and returns its path. */
-export function ewbJsonForVoucher(db: DB, company: CompanyInfo, slug: string, voucherId: number): { path: string } {
+export function ewbJsonForVoucher(db: DB, company: GstScope, slug: string, voucherId: number): { path: string } {
   const [inv] = extractEdocInvoices(db, company, '0000-01-01', '9999-12-31', voucherId)
   if (!inv) throw new Error('Voucher not found')
   const elig = ewbEligibility(inv, true) // explicit per-bill request overrides the threshold
@@ -478,6 +660,55 @@ export function ewbJsonForVoucher(db: DB, company: CompanyInfo, slug: string, vo
   const path = join(dir, ewbFileName(inv))
   writeFileSync(path, JSON.stringify(json, null, 2))
   return { path }
+}
+
+/**
+ * The exact JSON an export would write, without writing anything.
+ *
+ * Deliberately built by calling the same builders the export paths call, rather than by reading
+ * a file back: a preview that reads the last export shows the last export, which is precisely
+ * the wrong thing when someone is checking what is about to happen.
+ *
+ * Nothing here throws for an ineligible bill the way `ewbJsonForVoucher` does -- the point of
+ * looking is often to find out why a payload is not what you expected, and refusing to show it
+ * defeats that. The blocking issues are returned alongside instead.
+ */
+export function previewJson(
+  db: DB,
+  company: GstScope,
+  kind: 'einvoice' | 'ewb',
+  from: string,
+  to: string,
+  opts: { voucherId?: number; includeBelowThreshold?: boolean } = {}
+): { json: unknown; count: number; issues: string[] } {
+  const comp = edocCompany(company)
+
+  if (kind === 'einvoice') {
+    const outwardDbn = outwardDebitNoteIds(db, from, to, company)
+    const invoices = extractEdocInvoices(db, company, from, to, opts.voucherId).filter(
+      (i) =>
+        (i.docType !== 'DBN' || (i.voucherId != null && outwardDbn.has(i.voucherId))) &&
+        (i.partyGstin || i.supTyp === 'EXPWP' || i.supTyp === 'EXPWOP')
+    )
+    return { json: buildEInvoiceJson(invoices, comp), count: invoices.length, issues: [] }
+  }
+
+  if (opts.voucherId != null) {
+    const [inv] = extractEdocInvoices(db, company, '0000-01-01', '9999-12-31', opts.voucherId)
+    if (!inv) return { json: null, count: 0, issues: ['Voucher not found'] }
+    const elig = ewbEligibility(inv, true)
+    const issues = [...(elig.eligible ? [] : [elig.reason!]), ...ewbIssues(inv, comp)]
+    return { json: buildEwbJson([inv], comp), count: 1, issues }
+  }
+
+  const { eligible, skipped } = ewbInvoicesFor(db, company, from, to, {
+    includeBelowThreshold: opts.includeBelowThreshold
+  })
+  return {
+    json: buildEwbJson(eligible, comp),
+    count: eligible.length,
+    issues: skipped.map((s) => `${s.number}: ${s.reason}`)
+  }
 }
 
 // ---------- e-invoice round-off validation (G6 #33) ----------
@@ -495,7 +726,7 @@ export interface RoundOffIssue {
  * represent (freight, discounts booked as bare ledger lines, …) — surfaced per voucher with
  * the offending line names instead of silently landing in RndOffAmt (audit D11).
  */
-export function einvoiceRoundOffIssues(db: DB, company: CompanyInfo, from: string, to: string): RoundOffIssue[] {
+export function einvoiceRoundOffIssues(db: DB, company: GstScope, from: string, to: string): RoundOffIssue[] {
   const invoices = extractEdocInvoices(db, company, from, to)
   const lineStmt = db.prepare(
     `SELECT l.name, l.tax_type AS taxType, l.group_id AS groupId, vl.ledger_id AS ledgerId
