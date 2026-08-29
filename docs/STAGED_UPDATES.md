@@ -40,3 +40,9 @@ The workflow has read-only repository permissions, disables signing and notariza
 `--publish never`, and uploads test artifacts for 14 days. Every platform bundle contains a
 content-addressed manifest marked `signed: false` and `publishable: false`. It does not alter the
 reviewer-protected release-candidate or promotion workflows.
+
+The public staging store is deliberately bounded: before packaging begins, the workflow deletes
+only superseded objects under its dedicated `v5/` prefix. Both platform jobs wait for that cleanup
+and the quality gate, then publish under the exact source revision. The GitHub Actions artifacts
+remain the 14-day evidence copy, including installer checksums and package-contract results. Support
+and feedback objects use separate prefixes and are never part of this cleanup.

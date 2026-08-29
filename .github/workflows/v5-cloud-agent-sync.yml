@@ -55,7 +55,45 @@ jobs:
         working-directory: site
         run: npm ci && npm test && npm run build
 
+  prune-test-downloads:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: site/package-lock.json
+      - name: Remove superseded branch-only test downloads
+        env:
+          BLOB_READ_WRITE_TOKEN: ${{ secrets.V5_TEST_BLOB_READ_WRITE_TOKEN }}
+        run: |
+          if test -z "$BLOB_READ_WRITE_TOKEN"; then
+            echo "Branch test-download storage is not configured; skipping retention cleanup."
+            exit 0
+          fi
+
+          npm ci --prefix site --ignore-scripts
+          node --input-type=module <<'NODE'
+          import { del, list } from './site/node_modules/@vercel/blob/dist/index.js'
+
+          let cursor
+          const urls = []
+          do {
+            const page = await list({ prefix: 'v5/', limit: 1000, cursor })
+            urls.push(...page.blobs.map((blob) => blob.url))
+            cursor = page.hasMore ? page.cursor : undefined
+          } while (cursor)
+
+          for (let index = 0; index < urls.length; index += 100) {
+            await del(urls.slice(index, index + 100))
+          }
+          console.log(`Removed ${urls.length} superseded branch-test object(s).`)
+          NODE
+
   package:
+    needs: [quality, prune-test-downloads]
     env:
       # This profile is compiled into the main process and copied into app.asar. The package
       # contract below rejects any production origin or enabled updater in these test artifacts.

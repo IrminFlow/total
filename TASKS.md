@@ -17,7 +17,9 @@ Status vocabulary:
 - `DONE` Branch `v5-cloud-agent-sync` is pushed.
 - `DONE` Draft PR [#4](https://github.com/IrminFlow/total/pull/4) is mergeable and clean.
 - `DONE` GitHub application, database, renderer, E2E, visual, website, macOS, and Windows checks pass.
-- `DONE` Unsigned macOS and Windows test packages and content-addressed manifests were produced.
+- `DONE` Unsigned macOS and Windows test packages and content-addressed manifests are produced on
+  every branch push. Superseded public test installers are removed before each build so the staging
+  channel stays within its storage quota; GitHub retains the exact packages and evidence for 14 days.
 - `DONE` Encrypted collaboration, distinct-user invitations, support intake, offline OCR, AI Operator, Codex device authentication, Radix primitives, and staged rollout code are implemented.
 - `DONE` The isolated Supabase staging project `cewz…qmlx` has all migrations through
   `202608280004_collaboration_invitation_history.sql`. `total-sync` v13 and `total-intake` v10 are
