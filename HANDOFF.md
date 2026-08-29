@@ -2,7 +2,7 @@
 
 Use this file to continue the project in another chat without relying on the old transcript.
 
-**Last updated:** 28 August 2026
+**Last updated:** 29 August 2026
 **Repository:** private GitHub repo `IrminFlow/total`  
 **Working directory:** `/Users/irmin/.t3/worktrees/total-t/t3code-fae681b6`  
 **Branch:** `t3code/revamp-ledgers-shortcuts`  
@@ -10,7 +10,7 @@ Use this file to continue the project in another chat without relying on the old
 **Pull request:** [#2 — Build out the roadmap: 382 of 392 settled](https://github.com/IrminFlow/total/pull/2)  
 **Verified product/workflow baseline:** `481ec56e535e80f983bbbd63bd4cb977037230c1` — `ci: migrate workflows to Node 24 actions`
 
-**Evidence:** [full cross-platform CI run 33188585495](https://github.com/IrminFlow/total/actions/runs/33188585495)
+**Latest source evidence:** [full cross-platform CI run 33248953167](https://github.com/IrminFlow/total/actions/runs/33248953167) on `087a1ca9fb64f7b64974b1600a9b7f17a1417f09`
 
 **Local state:** later verification/documentation-only commits may sit above the verified product
 baseline; the pre-existing unstaged `.gitignore` modification remains deliberately preserved.
@@ -558,10 +558,10 @@ remain owner/external gates in `HUMAN.md`.
 The owner asked the agent to exhaust everything still possible without touching the two rewrite
 PRs. The audit added evidence; it did not find a safe new product change to make:
 
-- Exact-HEAD GitHub Actions run
-  [33190304340](https://github.com/IrminFlow/total/actions/runs/33190304340) is green on
-  `ba88615af014f80227316b4325a3acf07faf24c2` across Linux tests, macOS smoke/E2E and Windows
-  build/E2E (54/54 on each platform).
+- Exact-source GitHub Actions run
+  [33248953167](https://github.com/IrminFlow/total/actions/runs/33248953167) is green on
+  `087a1ca9fb64f7b64974b1600a9b7f17a1417f09` across Linux tests, macOS smoke/E2E and Windows
+  build/E2E (54/54 on each platform), including the later renderer-sandbox hardening.
 - GitHub contains no Apple or Windows signing secrets and this Mac has no valid code-signing
   identity. Downloaded v0.4.0 artefacts confirm the consequence: the macOS app is ad-hoc signed and
   fails strict `codesign` and Gatekeeper assessment; the Windows installer has no Authenticode
@@ -599,7 +599,7 @@ At the time final evidence was recorded:
 ```text
 branch: t3code/revamp-ledgers-shortcuts
 verified product/workflow baseline: 481ec56e535e80f983bbbd63bd4cb977037230c1
-latest exact-HEAD full CI: ba88615af014f80227316b4325a3acf07faf24c2 / run 33190304340
+latest verified source full CI: 087a1ca9fb64f7b64974b1600a9b7f17a1417f09 / run 33248953167
 status: M .gitignore
 ```
 

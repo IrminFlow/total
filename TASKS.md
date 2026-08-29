@@ -262,10 +262,10 @@ A task is complete only when:
 ## Final release evidence
 
 - [x] One immutable product/workflow commit has green local verification and green macOS/Windows
-  GitHub CI. The latest exact-HEAD run is
-  [33190304340](https://github.com/IrminFlow/total/actions/runs/33190304340) on
-  `ba88615af014f80227316b4325a3acf07faf24c2`: test, smoke-mac, e2e-mac, build-win and e2e-win all
-  passed. The earlier staged product/workflow baseline remains
+  GitHub CI. The latest exact-source run is
+  [33248953167](https://github.com/IrminFlow/total/actions/runs/33248953167) on
+  `087a1ca9fb64f7b64974b1600a9b7f17a1417f09`: test, smoke-mac, e2e-mac, build-win and e2e-win all
+  passed after the renderer-sandbox hardening. The earlier staged product/workflow baseline remains
   `481ec56e535e80f983bbbd63bd4cb977037230c1`; documentation-only evidence may sit above it.
 - [x] No E2E scenario is marked flaky and no executable release gate was skipped. Both platform
   jobs passed 54/54; the Windows job also passed typecheck, renderer, full DB, build, smoke, artifact

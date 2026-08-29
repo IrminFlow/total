@@ -28,6 +28,12 @@ budgets, a 33-route site build, 54/54 E2E without retry in 198 seconds, and a 72
 visual comparison. Computer Use independently walked onboarding, demo creation,
 voucher/dirty-state recovery, reports, GST and Settings.
 
+The later security-hardening source commit `087a1ca9fb64f7b64974b1600a9b7f17a1417f09`
+passed [full cross-platform run 33248953167](https://github.com/IrminFlow/total/actions/runs/33248953167):
+164 files / 2,337 pure tests, renderer and full Linux/Windows DB suites, build/smoke/unsigned Windows
+packaging, and 54/54 no-flake Electron scenarios on both macOS and Windows. Its local macOS E2E run
+also passed 54/54 without retry in 245 seconds.
+
 ## Important statutory and platform limits
 
 - Direct NIC e-invoice/e-way filing remains experimental until recorded sandbox validation with
