@@ -2,7 +2,8 @@ import { useState } from 'react'
 import { useIsFetching, useQuery } from '@tanstack/react-query'
 import { api, type LoginName } from '../lib/client'
 import { useNav, useSession, useToasts } from '../state/stores'
-import { Button, TextInput, useKeyNav } from './ui'
+import { Button, TextInput } from './ui'
+import { useKeyNav } from './useKeyNav'
 import { SupportLink } from './SupportLink'
 
 /** Full-viewport PIN lock, shown whenever a company has users but no one has signed in yet

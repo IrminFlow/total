@@ -8,10 +8,12 @@ import {
   getEmployeeHeads, setEmployeeHeads, previewRun, commitRun, getRun, deleteRun,
   ecrForRun, esiForRun, ptSummaryForRun
 } from './payroll'
+import { lockPayrollRun, payrollPreflight, payrollTieOut } from './payrollOperations'
 
 const emp = (over: Partial<EmployeeInput> = {}): EmployeeInput => ({
   name: 'Asha Kumar', code: null, designation: null, joined: null,
   pan: null, uan: null, esicNo: null,
+  bankAccount: null, bankIfsc: null, department: null, exitDate: null,
   basic: 20_000_00, hra: 8_000_00, special: 4_000_00,
   pfEnabled: true, esiEnabled: true, ptEnabled: true, ptState: 'MH', active: true,
   ...over
@@ -139,6 +141,63 @@ describe('commitRun', () => {
     setLockDate(db, null)
     deleteRun(db, run.id)
     expect(getRun(db, run.id)).toBeNull()
+  })
+})
+
+describe('payroll controls', () => {
+  it('preflight blocks unreviewed attendance and reports payment and statutory gaps', () => {
+    const db = seededDb()
+    const employee = saveEmployee(db, emp())
+
+    const blocked = payrollPreflight(db, '2026-07', [])
+    expect(blocked.canPost).toBe(false)
+    expect(blocked.issues).toEqual(expect.arrayContaining([
+      expect.objectContaining({ employeeId: employee.id, category: 'attendance', severity: 'error' }),
+      expect.objectContaining({ employeeId: employee.id, category: 'bank', severity: 'warning' }),
+      expect.objectContaining({ employeeId: employee.id, category: 'statutory', severity: 'warning' })
+    ]))
+
+    const reviewed = payrollPreflight(db, '2026-07', [{ employeeId: employee.id, payableDays: 31 }])
+    expect(reviewed.canPost).toBe(true)
+    expect(reviewed.netPay).toBeGreaterThan(0)
+    expect(reviewed.issues.some((issue) => issue.category === 'attendance')).toBe(false)
+  })
+
+  it('preflight blocks employees without a salary structure', () => {
+    const db = seededDb()
+    const employee = saveEmployee(db, emp({ basic: 0, hra: 0, special: 0 }))
+    db.prepare('DELETE FROM employee_pay_heads WHERE employee_id = ?').run(employee.id)
+
+    const result = payrollPreflight(db, '2026-07', [{ employeeId: employee.id, payableDays: 31 }])
+    expect(result.canPost).toBe(false)
+    expect(result.issues).toContainEqual(expect.objectContaining({
+      employeeId: employee.id,
+      category: 'salary',
+      severity: 'error'
+    }))
+  })
+
+  it('ties every payroll control account to the posting voucher', () => {
+    const db = seededDb()
+    saveEmployee(db, emp())
+    const run = commitRun(db, '2026-07', [])
+
+    const tieOut = payrollTieOut(db, run.id)
+    expect(tieOut.reconciled).toBe(true)
+    expect(tieOut.totalDifference).toBe(0)
+    expect(tieOut.rows.every((row) => row.expected === row.posted)).toBe(true)
+  })
+
+  it('locks a reconciled run and prevents deletion', () => {
+    const db = seededDb()
+    saveEmployee(db, emp())
+    const run = commitRun(db, '2026-07', [])
+
+    const locked = lockPayrollRun(db, run.id, 'Owner')
+    expect(locked?.lockedAt).toBeTruthy()
+    expect(locked?.lockedBy).toBe('Owner')
+    expect(() => deleteRun(db, run.id)).toThrow(/locked/i)
+    expect(getRun(db, run.id)).not.toBeNull()
   })
 })
 

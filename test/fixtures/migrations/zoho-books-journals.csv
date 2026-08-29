@@ -1,0 +1,3 @@
+Journal Number,Journal Date,Transaction Type,Account,Debit,Credit,Description,Reference Number
+ZOHO-3001,2026-08-26,Manual Journal,Cash,2100,,Zoho Books migration fixture,ZOHO-REF-1
+ZOHO-3001,2026-08-26,Manual Journal,Sales Account,,2100,Zoho Books migration fixture,ZOHO-REF-1

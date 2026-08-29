@@ -1,14 +1,16 @@
 import { useMemo, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import type { Group, Ledger } from '@shared/domain'
+import type { Ledger } from '@shared/domain'
 import { api } from '../lib/client'
 import { useToasts } from '../state/stores'
 import { AmountInput, Button, Field, Modal, Select, TextInput } from './ui'
-import { useGroups } from './pickers'
+import { useGroups } from './pickerHooks'
 import { GST_STATES } from '@shared/gst/states'
 import { validateGstin } from '@shared/gst/validate'
 import { GST_RATE_PRESETS } from '@shared/seed'
 import { confirmDialog } from '../lib/dialogs'
+import { groupAncestryNames, PARTY_GROUPS, TAX_GROUPS, TRADING_GROUPS } from './ledgerGroups'
+import { PartyContactsEditor } from './PartyContactsEditor'
 
 const EXPORT_TYPES: { value: NonNullable<Ledger['exportType']> | ''; label: string }[] = [
   { value: '', label: 'None (domestic)' },
@@ -20,25 +22,7 @@ const EXPORT_TYPES: { value: NonNullable<Ledger['exportType']> | ''; label: stri
 
 const PAN_RE = /^[A-Z]{5}\d{4}[A-Z]$/
 
-export const PARTY_GROUPS = ['Sundry Debtors', 'Sundry Creditors']
-export const TAX_GROUPS = ['Duties & Taxes']
-export const TRADING_GROUPS = [
-  'Sales Accounts', 'Purchase Accounts', 'Direct Incomes', 'Direct Expenses', 'Indirect Incomes', 'Indirect Expenses'
-]
-
-/** This group's own name plus every ancestor's name, walking parent_id up to the root. */
-export function groupAncestryNames(groupId: number, groups: Group[]): string[] {
-  const map = new Map(groups.map((g) => [g.id, g]))
-  const names: string[] = []
-  let g = map.get(groupId)
-  while (g) {
-    names.push(g.name)
-    g = g.parentId ? map.get(g.parentId) : undefined
-  }
-  return names
-}
-
-/** Ledger create/edit form. Which optional fields show depends on the selected group's ancestry:
+/** Ledger create-and-edit form. Which optional fields show depends on the selected group's ancestry:
  *  - Sundry Debtors/Creditors descendants ("party" ledgers) → GSTIN/state/address/PAN/TDS/credit
  *    days/export-SEZ type. No taxType/gstRate/HSN.
  *  - Duties & Taxes descendants ("tax" ledgers) → taxType only.
@@ -59,6 +43,8 @@ export function LedgerFormModal({ ledger, onClose }: { ledger: Ledger | null; on
   const [gstin, setGstin] = useState(ledger?.gstin ?? '')
   const [stateCode, setStateCode] = useState(ledger?.stateCode ?? '')
   const [address, setAddress] = useState(ledger?.address ?? '')
+  const [email, setEmail] = useState(ledger?.email ?? '')
+  const [phone, setPhone] = useState(ledger?.phone ?? '')
   const [taxType, setTaxType] = useState(ledger?.taxType ?? '')
   const [gstRate, setGstRate] = useState(ledger?.gstRate?.toString() ?? '')
   const [hsn, setHsn] = useState(ledger?.hsn ?? '')
@@ -93,6 +79,8 @@ export function LedgerFormModal({ ledger, onClose }: { ledger: Ledger | null; on
         gstin: gstin.trim() ? gstin.trim().toUpperCase() : null,
         stateCode: effectiveState || null,
         address: address.trim() || null,
+        email: email.trim().toLowerCase() || null,
+        phone: phone.replace(/[^0-9+]/g, '') || null,
         taxType: (taxType || null) as 'cgst' | 'sgst' | 'igst' | 'cess' | null,
         gstRate: gstRate.trim() ? Number(gstRate) : null,
         hsn: hsn.trim() || null,
@@ -131,7 +119,7 @@ export function LedgerFormModal({ ledger, onClose }: { ledger: Ledger | null; on
   }
 
   return (
-    <Modal title={ledger ? `Edit ${ledger.name}` : 'New ledger'} onClose={onClose}>
+    <Modal title={ledger ? `Edit ${ledger.name}` : 'New ledger'} onClose={onClose} wide>
       <div className="flex flex-col gap-3">
         <div className="grid grid-cols-2 gap-3">
           <Field label="Name">
@@ -219,6 +207,20 @@ export function LedgerFormModal({ ledger, onClose }: { ledger: Ledger | null; on
             <Field label="Address">
               <TextInput value={address} onChange={(e) => setAddress(e.target.value)} />
             </Field>
+            <div className="grid grid-cols-2 gap-3">
+              <Field label="Email" hint="Used only when you open a reviewed email draft">
+                <TextInput type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="accounts@example.com" />
+              </Field>
+              <Field label="WhatsApp / phone" hint="Country code recommended, for example +91">
+                <TextInput value={phone} onChange={(e) => setPhone(e.target.value)} className="num" placeholder="+919876543210" />
+              </Field>
+            </div>
+            {ledger && <PartyContactsEditor ledgerId={ledger.id} />}
+            {!ledger && (
+              <p className="rounded-md border border-line bg-panel2 px-3 py-2 text-[10.5px] text-muted">
+                Save the ledger first, then add separate billing, accounts and delivery contacts.
+              </p>
+            )}
           </>
         )}
 

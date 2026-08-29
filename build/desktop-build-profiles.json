@@ -1,0 +1,19 @@
+{
+  "schema": 1,
+  "profiles": {
+    "production": {
+      "schema": 1,
+      "name": "production",
+      "siteOrigin": "https://devjindal.tech",
+      "servicesOrigin": "https://devjindal.tech",
+      "updatesEnabled": true
+    },
+    "staging": {
+      "schema": 1,
+      "name": "staging",
+      "siteOrigin": "https://total-v5-staging.vercel.app",
+      "servicesOrigin": "https://total-v5-staging.vercel.app",
+      "updatesEnabled": false
+    }
+  }
+}

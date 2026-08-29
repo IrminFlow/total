@@ -1,0 +1,342 @@
+# Roadmap implementation status
+
+Last updated: 28 August 2026. This is the historical implementation map for the opportunity set in
+[BACKLOG_300.md](BACKLOG_300.md). Root [ROADMAP.md](../ROADMAP.md) is the current product and release
+status source of truth.
+
+## Wave A — implemented
+
+All Wave A code paths are implemented and covered by automated gates:
+
+- 31, 35 — duplicate/suspicious voucher controls and linked validation summary
+- 91–94 — GST readiness, books bridge, frozen returns and filing acknowledgements
+- 106–108 — drill-down, report provenance and saved report views
+- 121–123 — negative-stock controls, movement trail and valuation reconciliation
+- 166–169 — maker-checker, configurable permissions, sensitive masking and audit hash chain
+- 181–184 — previewed, atomic, reconciled and idempotent imports
+- 196–199 — cited AI answers, context inspector, provider boundary and proposal-only writes
+- 226–230 — verified backup/restore preview, atomic config, encrypted secrets and safe diagnostics
+- 241–244 — startup/large-book/query-plan budgets and forced-crash transaction recovery
+- 256–259 — keyboard/focus/name/contrast accessibility gates in light and dark themes
+- 286–291 — signed/notarized release configuration, migration matrix, rollback, updater contract
+  and real DMG/NSIS install smoke workflow
+
+The macOS install workflow has also been dry-run locally against a generated DMG. Signing,
+notarization and Windows Authenticode checks execute only in release CI because their private
+credentials must never exist in the repository.
+
+## Public-release completion waves
+
+- 1 — preflight readiness check for writable storage, disk space, system clock, secure credentials and automatic-backup capability
+- 2 — guided company setup capturing registration, business type, prior software and optional inventory/payroll scope
+- 3 — opening-balance review with exact unresolved rows and a visible debit/credit difference
+- 4 — durable setup checklist and health score surfaced in Company Info
+- 5 — retailer, wholesaler, service, manufacturer, freelancer and professional ledger templates
+- 6 — staged Tally XML dry-run/import wizard with reconciliation evidence
+- 7 — spreadsheet mapping, validation preview and reusable source profiles
+- 8 — six industry-specific demo companies with realistic vouchers, masters and feature defaults
+- 9 — first-voucher coaching with type, keyboard and save guidance
+- 10 — company setup health score derived from ledgers, openings, bank, tax, backup and first voucher
+- 11 — atomic accountant setup handoff export/import with an explicit review checklist
+- 12 — prior-software selection for Tally, Busy, Marg, Zoho, spreadsheets or first-time books
+- 13 — generated sample import templates for supported migration sources
+- 14 — verified rollback points before risky import, restore, close and migration operations
+- 15 — local, opt-in activation milestones that never transmit book contents
+- 31 — duplicate supplier invoice, reference and same-party/amount detection before posting
+- 32 — suspicious-entry checks for future dates, round amounts, party direction and tax asymmetry
+- 35 — linked validation summary showing all field-level blockers together
+- 38 — explicit party-history defaults for narration, tax ledgers, cost centres and bill behavior; never silently applied
+- 39 — visual split receipt/payment allocation across bills, write-offs, discounts and advances
+- 40 — managed voucher evidence bundles for invoices, receipts, emails and delivery documents, compatible with attachment encryption
+- 42 — configurable amount and sensitive-ledger approval thresholds with maker/checker handoff
+- 43 — bounded Ledger/Debit/Credit clipboard parser with exact-paise conversion, preview, ledger resolution and balance validation
+- 44 — guided balanced drafts for asset purchase, loan repayment, import purchase and advance adjustment
+- 45 — safe macro capture/replay through entry templates that always opens an editable draft and cannot bypass validation or approval
+- 48 — prospective credit exposure warning/blocking with a mandatory, audited override reason
+- 49 — customer timeline combining invoices, receipts, credit notes, promises, reminders, disputes and notes
+- 50 — branded ledger statement generation with opening, activity, closing balance and PDF/CSV output
+- 51 — reviewed email/WhatsApp-ready reminder drafts with invoice and overdue context
+- 52 — configurable per-customer reminder cadence with manual-review due queue
+- 53 — invoice dispute lifecycle with reason, owner, resolution and automatic reminder exclusion
+- 54 — customer ownership policy plus owner workload, follow-ups, exposure and 90-day collections
+- 55 — explainable incoming-receipt matching by exact/near amount, payer, reference and due date
+- 56 — six-month customer ageing trend across all four overdue buckets
+- 57 — transparent customer and company DSO using visible 90-day sales and receivable inputs
+- 58 — explainable low/medium/high customer risk from lateness, broken promises and disputes
+- 59 — early-payment discount, expiry, net receipt and annualized financing-cost model
+- 60 — receipt forecast combining explicit promises, bill due dates and observed customer payment delay
+
+## Additional completed product work
+
+- 16 — month-close cockpit with bank, GST, books/suspense, verified-backup and durable-lock gates
+- 17 — universal command actions for entry, reports, working periods, exports, backup and company switching
+- 18 — startup-enforced shortcut collision detection with separate Gateway and global scopes
+- 19 — per-company Gateway ordering, visibility and compact/comfortable density with restart persistence
+- 20 — persisted Bookkeeper, Owner, GST, Collections, Inventory and Payroll workspace profiles
+- 21 — safe per-company restoration of last workspace, working period and per-screen scroll position
+- 22 — per-company recent voucher, ledger and item history surfaced in Command K
+- 23 — in-app cross-company switcher preserving each company’s workspace and continuation context
+- 24 — consistent natural date language for today/yesterday, prior weekdays, months, quarters and Indian FYs
+- 25 — Day Book multi-select tray for exact-selection print/CSV, tags, review evidence and atomic reversal
+- 26 — personal task inbox with priority, assignee, due dates, typed record/report links, Action Centre surfacing and completion history
+- 27 — per-user pinned screens and density synchronized across companies on the same device, while company layouts and history remain isolated
+- 28 — focused voucher, reconciliation, return and close workspaces with a full-width canvas and Command+Shift+F toggle
+- 29 — bidirectional screen history with meaningful drilled-record labels, direct timeline jumps and keyboard navigation
+- 30 — local morning brief combining cash, overdue receivables and payables, book exceptions, compliance deadlines and scheduled work with direct action links
+- 33 — immutable linked reversal vouchers with reason, author, original trace and statutory-safe guardrails
+- 34 — durable incomplete voucher drafts for accounting, invoices, manufacturing and physical counts, with exact resume, Action Centre visibility and atomic consumption on posting
+- 36 — safe voucher duplication with fresh identity/date and retained accounting, inventory and tax context
+- 37 — reusable one-off accounting and invoice templates that always instantiate as editable drafts and never post or schedule automatically
+- 41 — append-only voucher review comments with author and timestamp, kept separate from accounting narration and print output
+- 46–47 — ranked collections queue with durable promise-to-pay ownership and outcome history
+- 61 — ranked supplier due queue with overdue urgency and visible cash/bank coverage
+- 62 — durable supplier payment-run drafts with exact bill selection, bank-impact preview, stale-bill revalidation and atomic owner posting
+- 63 — immutable three-way PO/GRN/supplier-invoice matching with pre-post quantity/rate variance evidence and financial-only posting that cannot duplicate received stock
+- 64 — purchase requisitions with department, required date, approval/rejection evidence and conversion-only handoff to purchase orders
+- 65 — direct and requisition-backed purchase orders with draft/issue/receipt/close/cancel states plus ordered, delivered, accepted, rejected, billed and outstanding quantities
+- 66 — independent GRNs with accepted/rejected inspection splits, partial receipt history, linked stock journals and supplier-invoice handoff
+- 67 — supplier/item price memory in purchase entry, backed by both ordinary and GRN-matched purchase invoices
+- 68 — explainable supplier comparison across latest and weighted price, tax-inclusive cost, terms, lead time, on-time delivery and rejection rate
+- 69 — evidence-led debit-note claims for rejected goods, closed-order shortages and invoice-over-PO rate differences, prepared as editable drafts and linked exactly once without false stock movement
+- 70 — independent employee/department expense approval policy, automatic expense-ledger classification, cost-centre context and different-user posting through Action Centre
+- 71 — supplier payment advice with settled bill detail from both individual payment vouchers and posted payment-run review
+- 72 — supplier advance register derived from the same FIFO bill allocator as payables, with pending adjustment, source payments and ageing that automatically shrink against later bills
+- 73 — owner-reviewed reorder suggestions grouped by latest proven supplier into editable PO drafts that are never auto-issued
+- 74 — vendor onboarding profiles with contact, bank, IFSC and Udyam evidence, duplicate tax/contact/bank signals, owner verification/blocking and viewer bank masking
+- 75 — supplier concentration view with period purchase share, category exposure and sole-source item risk
+- 76 — learned reconciliation rules with confidence, reviewed hit/rejection feedback, source/effective-date scoping and rollback
+- 77 — durable statement evidence with matched, bank-only, book-only, ignored and timing-difference completeness controls
+- 78 — statement-versus-books opening balance comparison with explicit unavailable and mismatch explanations
+- 79 — bounded CSV, XLSX, OFX, QIF and MT940 import through one canonical preview-and-apply pipeline
+- 80 — full reconciliation rule builder for text/reference, amount, direction, bank, dates, target ledger and narration
+- 81 — confidence-ranked inter-account transfer suggestions with reviewed one-time Contra posting and retained statement links
+- 82 — bank-charge and inclusive-GST extraction that posts a linked adjustment without rewriting the original receipt
+- 83 — cheque issue/deposit, clearing, bounce, cancellation and stale-instrument lifecycle with explicit evidence
+- 84 — denomination-level cash counts, books comparison and owner-only posting of the exact reviewed difference
+- 85 — daily cash position across cash and bank accounts, open bills and recurring commitments
+- 86 — deterministic 13-week cash-flow forecast with event drill-down and calendar-accurate recurring commitments
+- 87 — reviewed Generic NEFT, HDFC and ICICI payment exports with verified beneficiaries, debit-account and format validation
+- 88 — optional, revocable, read-only bank-feed consent with encrypted credentials and durable statement ingestion
+- 89 — saved non-posting liquidity scenarios for timing, realization and one-off cash events
+- 90 — configurable shortfall and sustained-idle-cash planning alerts without investment advice or automatic movement
+- 95 — retained, idempotent GSTR-2B source evidence with GSTIN/number/date/value/tax tolerance matching
+- 96 — owned ITC action queue for missing, mismatched, blocked, reversed and supplier follow-up credits
+- 97 — retry-safe e-invoice lifecycle evidence for pending, generated, failed and cancelled IRNs
+- 98 — e-way bill generation, extension, cancellation, vehicle-update and expiry lifecycle history
+- 99 — confirm-before-post TDS section, threshold, PAN and rate suggestions in voucher entry
+- 100 — quarterly TDS control workspace tying book deductions to challans, differences and filing acknowledgements
+- 101 — owned statutory and custom compliance calendar covering GST, TDS, PF, ESI, advance tax and state work
+- 102 — deterministic export/SEZ treatment guidance plus registration-specific LUT acknowledgement and validity evidence
+- 103 — multi-GSTIN identities with registration-scoped vouchers, GSTR-1/GSTR-3B calculations, frozen filings, manual 3B adjustments, document numbering and stock-location validation
+- 104 — period notice evidence export containing return snapshots, vouchers, 2B imports and tamper-evident audit history
+- 105 — effective-dated, versioned tax guidance packs kept structurally separate from deterministic calculation code
+- 109 — monthly/FY budget-versus-actual by ledger, group and hierarchical department/project/branch dimensions
+- 110 — rolling comparison workbench with prior month, quarter, equal period, prior year/FY and custom ranges
+- 111 — ranked customer, supplier and item variance drivers with price, quantity, residual and exact voucher evidence
+- 112 — visible ratio formulas with direct navigation into their balance sheet, P&L, outstandings and stock sources
+- 113 — plain-language owner decision desk for cash, sales, collections, payables, tax and margins
+- 114 — accountant workbench through the Action Centre for suspense, unusual entries, stock, bank and tax exceptions
+- 115 — cost-centre P&L with parent/child operating dimensions and allocation-level voucher drill-down
+- 116 — multi-company/branch consolidation with reviewed translation rates and explicit elimination columns
+- 117 — configurable Schedule III group/note mappings, current/prior statements and unmapped-balance control
+- 118 — saved conservative/base/growth scenarios with visible assumptions and no effect on posted books
+- 119 — authored period/row report annotations with selected explanations carried into exports
+- 120 — indexed portable report pack with PDF index, manifest, statements, schedules, registers, returns and supporting ledgers
+- 124 — batch manufacture/expiry identity, hard batch availability checks and near-expiry ageing actions
+- 125 — serialized-unit receipt/issue lifecycle with duplicate-use prevention, warranty evidence and current custody
+- 126 — value-conserving godown dispatch/receipt transfers with an explicit in-transit state and location availability
+- 127 — lead-time replenishment planner netting reservations, open purchase orders, safety stock and 90-day demand velocity
+- 128 — durable blind cycle-count sessions with godown scope, review gates and Physical Stock voucher posting
+- 129 — printable A4 warehouse label sheets carrying the item barcode/SKU as a scannable QR plus human-readable identity
+- 130 — customer stock reservations that reduce promiseable availability without posting or storing derived balances
+- 131 — planned/released/completed manufacturing orders with component sufficiency checks and linked production vouchers
+- 132 — effective-dated BOM revisions with active/retired history, scrap allowance and cross-version cycle prevention
+- 133 — reviewed landed-cost allocations that load freight/duty evidence into the original inward valuation layer
+- 134 — velocity, prior-year seasonal and reviewed monthly demand forecast policies with 30-day demand and days-cover signals
+- 135 — owned reorder, transfer, markdown, return, disposal and review actions with retained resolution history
+- 136 — payroll preflight for attendance, salary structures, bank profiles, statutory IDs and negative net pay
+- 137 — owner-locked reconciled payroll runs that cannot be deleted or silently rewritten
+- 138 — exact payroll-to-books tie-out across gross pay, deductions, employer costs and every payable ledger
+- 139 — duplicate-safe biometric/spreadsheet attendance import with employee mapping, exception review and monthly approval
+- 140 — transaction-derived leave balances with accrual, carry-forward, request, approval, encashment and unpaid-leave movements
+- 141 — approved future-dated salary structures selected by pay-month effective date without rewriting historical payroll
+- 142 — reducing-balance employee loan schedules with interest, pause/waive controls, automatic payroll deduction and reversal safety
+- 143 — evidence-aware reimbursement claims with taxable flags, approval gates and balanced cash/bank payment posting
+- 144 — contractor masters and work-period payments with PAN-aware threshold TDS, balanced posting and 26Q evidence
+- 145 — computed full-and-final settlements with gratuity, advances, balanced posting, exit evidence and loan closure
+- 146 — locked-run offline payslip delivery folders with one PDF per employee and a machine-readable manifest
+- 147 — month-wise PF, ESI, PT and TDS workspaces derived from posted books with challan and filing reconciliation
+- 148 — effective-dated shift policies, holidays and approved overtime flowing into payroll earnings and statutory gross
+- 149 — immutable department payroll snapshots comparing people, gross, overtime, employer cost, net pay and prior year
+- 150 — previewed, atomic and source-hash-idempotent joiner/leaver imports with effective dates and row-level errors
+- 151 — quantity-linked quotation → sales order → delivery challan → editable invoice-draft conversion with no duplicate entry or premature posting
+- 152 — immutable financial-year-aware number allocations, safe previews, series controls and revision-stable document identity
+- 153 — quotation builder with validity, item/free-text lines, discounts, GST, optional lines, terms and retained revision snapshots
+- 154 — sales orders with evidence-derived allocated, delivered, invoiced, cancelled, returned and open/backordered quantities
+- 155 — approved delivery challans with purpose/job-work context, partial fulfilment, return-ready lineage and invoice-draft conversion
+- 156 — visibly non-posting proforma invoices with approval flow and explicit human-reviewed tax-invoice handoff
+- 157 — customer-specific monthly, quarterly and annual invoice schedules with multi-cycle preview, retained pricing exceptions and editable draft-only batch generation
+- 158 — named wholesale/retail/contract price lists with customer assignment, date-effective item rates and automatic sales-entry resolution
+- 159 — server-enforced global, role, item and customer discount ceilings using the strictest applicable rule, with blocked-attempt evidence
+- 160 — original-invoice-line sales returns with open-quantity control, reviewed credit-note drafts and one-time posting lineage
+- 161 — sold-serial warranty register linking invoice date, coverage expiry, issue, service state, outcome and cost
+- 162 — typed, scoped, required custom sales-document fields validated server-side without changing accounting semantics
+- 163 — tokenized offline customer folders with invoice PDFs, activity JSON, offline index and SHA-256 file manifest
+- 164 — effective-dated customer territory and salesperson ownership with sales, return and net-performance analysis
+- 165 — subscription contracts linked to recurring billing schedules with plan, term, escalation, pause, resume and renewal state
+- 170 — voucher-linked review questions with ownership, due date, answer evidence and different-user resolution
+- 171 — monthly preparer/reviewer sign-off with outstanding issues, evidence references, reopening reasons and independent approval
+- 172 — main-process export permissions split across PDF, spreadsheet, JSON mirror and full-data formats
+- 173 — expiring local accountant/auditor access that automatically disappears from sign-in after its access window
+- 174 — shared-installation session history with signed-in, locked, signed-out and last-activity evidence
+- 175 — exact, field-level before/after comparison for changed masters and vouchers in the audit trail
+- 176 — independently approved policy exceptions, with closed-period lock removal consuming one approved exception exactly once
+- 177 — AES-256-GCM encrypted offline review bundles carrying questions, sign-off evidence and period audit changes
+- 178 — role boundaries for voucher types and godowns, enforced against nested IPC payloads in the main process
+- 179 — evidence-retention policies that default to keep forever, surface advance warnings and never purge automatically
+- 180 — period control reporting for overrides, deleted drafts, reversals, late postings, privileged actions and unresolved review work
+- 185 — reusable source/target column and value mapping profiles with ten ready-made Busy, Zoho Books and Marg presets
+- 186 — XLSX rejected-row workbooks carrying exact errors, original values and stable source-row fingerprints
+- 187 — Busy ledger, item and balanced voucher migration through reviewed, atomic normalized imports
+- 188 — Zoho Books contact, item, opening, invoice, bill, payment and journal normalization profiles
+- 189 — Marg ledger, item and transaction export normalization for common retail migrations
+- 190 — validated debit/credit-row journals grouped into balanced vouchers, with all-or-nothing group rejection
+- 191 — source-document folder matching by filename plus voucher number/reference, copied with SHA-256 lineage
+- 192 — documented schema-v1 portable JSON export with company identity, core entities, counts and content hash
+- 193 — pre-import migration report for unsupported columns, duplicate/update risk, cleanup reasons and estimated vouchers
+- 194 — standalone portable-package upgrade CLI that writes a new file and reports every transformation
+- 195 — tested vendor-independent exit package excluding secrets while retaining books, inventory, tax and audit evidence
+- 200 — managed invoice-image inbox extracting supplier identity, number, date, GSTIN, integer-paise taxes and line items into an explicit human review queue
+- 201 — managed receipt-image capture with file-size boundaries, retained source hashes and duplicate detection before approval
+- 202 — evidence-ranked ledger suggestions combining voucher kind, selected-party history, matching narrations, name evidence and local accept/reject feedback
+- 203 — reconciliation-assistant review for tolerance and many-to-one matches, explaining top rank, lower alternatives and exact voucher citations before clearing
+- 204 — deterministic variance narratives with formatted book figures, ranked drivers and exact voucher citations
+- 205 — constrained indexed search across vouchers, exact integer-paise amounts, ledgers, items and navigable reports without generated SQL
+- 206 — editable, unsent collection reminders grounded only in the customer invoices explicitly selected by the user, with per-invoice citations
+- 207 — retained compatible-provider profiles including HTTPS endpoints and loopback-local model support with encrypted independent credentials
+- 208 — owner-controlled OCR, classification, analysis and writing routes with separate provider/model selection and configured-provider preflight
+- 209 — fixed-fixture evaluation harness scoring exact extraction, citation validity and accounting-valid voucher drafts, with durable run history
+- 210 — company-local ledger-ranking feedback that is audited, never uploaded and never changes posted entries
+- 211 — independently versioned MCP v1 schemas, structured success/error envelopes, capability metadata and a machine-readable contract resource
+- 212 — company listing, mirror reads, managed attachments, refresh requests and voucher proposals separated into explicit token scopes
+- 213 — bounded append-only MCP evidence recording client, tool, company, outcome, proposal identity and error code without arguments or secrets
+- 214 — visible mirror generation time, schema, manifest and ten-minute staleness state plus an owner-approved refresh queue
+- 215 — one-time local MCP secrets retained only as SHA-256 hashes, constrained to one company, selected actions and an explicit expiry, with revocation in Settings
+- 216 — strict declarative-v1 plugin manifests for compatibility, permissions, screens, imports, reports and exports, installed disabled and owner-enabled
+- 217 — bounded partner JSON/CSV mappings producing source-hashed canonical previews without expressions, database access or posting authority
+- 218 — allow-listed report primitives with period provenance, totals and app-owned ledger/voucher/register drill-down contracts instead of SQL
+- 219 — optional OS-encrypted HMAC webhook endpoints with customer-visible payloads, attempt history, bounded retry and dead-letter state
+- 220 — in-app schedules for verified backup, mirror and portable report-pack jobs, with pause, run-now and retained success/failure history
+- 221 — review-only Generic, Razorpay and Stripe settlement tie-out across gross, fees, fee GST, refunds, withholding, provider net and bank amount
+- 222 — retained Generic, Shopify and WooCommerce order review preserving cancellations, returns, tax, shipping and settlement references without automatic invoicing
+- 223 — Generic, Delhivery and Shiprocket shipment CSV generation with integer units, content hashes and a sidecar manifest, without carrier credentials or runtime dependency
+- 224 — data-only plugin isolation: strict manifests reject executable entrypoints and grant no ambient filesystem, network, database or cross-company access
+- 225 — partner compatibility CLI, example manifest and settlement, ecommerce and shipment fixtures for contract-v1 validation
+- 231 — authenticated password-encrypted portable company backup with strength checks, clean import and recovery-safe validation
+- 232 — verified replication to user-selected local, external or mounted-cloud folders without embedded cloud credentials or SDKs
+- 233 — ninety-day recovery-drill state with owner prompts and retained read-only identity, schema, voucher-count and integrity evidence
+- 234 — destination availability, writability, volume-kind and free-space health with persistent success/error state
+- 235 — consolidated Privacy centre for provider endpoints, bank feeds, webhooks, MCP/drop-folder authority, retention and exact diagnostic payload
+- 236 — optional AES-256-GCM encryption for managed source documents using a platform-protected random key and atomic in-place migration
+- 237 — configurable sensitive-clipboard expiry that clears only when Total's copied value remains current
+- 238 — device-local Ed25519 signing identity for report-pack manifests, portable packages and logistics manifests, with standalone verification sidecars
+- 239 — daily, weekly, monthly and year-end backup rotation presets with retained-point and storage-space forecasts
+- 240 — release-blocking threat-model gate covering renderer, IPC, navigation, filesystem, update, MCP, plugin and provider boundaries
+- 245 — lazy-loaded workspace routes with an accessible loading surface, reducing the initial renderer JavaScript from 2.79 MB to under 1 MB
+- 246 — bounded 200-row report windows for Day Book, ledger statements and stock summary so large books do not mount every row at once
+- 247 — deterministic report execution in a dedicated governed main-process lane, outside renderer rendering and interaction work
+- 248 — React Query abort signals, opaque request identities and cancellation-aware queues that discard obsolete report work and stale results
+- 249 — first-window report rendering with explicit “showing N of total” state while totals and closing balances continue to cover the complete result
+- 250 — owner-facing Data Health workspace for quick/full integrity checks, WAL checkpoint, optimize, schema, size and reclaimable-space diagnostics
+- 251 — filesystem-aware low-disk mode that blocks high-risk CSV, mapped, attachment and Tally imports while preserving ordinary accounting writes
+- 252 — copy-based recovery that preserves the original database/WAL/SHM evidence and adds only a separately verified recovery backup
+- 253 — bounded report, export/PDF/CSV, document/OCR and maintenance workload lanes with queue, cancellation and recent timing visibility
+- 254 — release-blocking renderer bundle and main/renderer memory budgets exercised through heavy lazy-loaded workflows in Electron
+- 255 — owner-approved, signed-when-enabled anonymized profiler packs containing only runtime, storage, counts, category timings and query plans
+- 260 — device-local 100%, 112% and 122% interface scaling with preserved report, dialog and sidebar scrolling
+- 261 — macOS reduced-motion support plus a manual no-motion preference that keeps every state and action available
+- 262 — visible semantic labels for toast severity and text/symbol companions for debit, credit, warning, success and readiness states
+- 263 — bilingual Hindi navigation and shortcut help that retains standard English accounting terms in brackets
+- 264 — customer-facing invoice labels in English, Hindi, Marathi, Gujarati and Tamil without rewriting names, GST terms or values
+- 265 — consistent lakh/crore formatting with an optional device-level international three-digit grouping mode
+- 266 — tagged, selectable-text PDF generation with document outlines and semantic invoice reading order
+- 267 — stable accessible and voice-command names for sidebar and Gateway destinations
+- 268 — a device-only spaced-text reading mode with alternate system typography that never changes printed documents
+- 269 — state and GST-registration-aware help for filing context, payroll checks and suitable invoice languages
+- 270 — accessibility support reports with value-free focus metadata and a separately consented, bounded screenshot preview
+- 271 — trackable `TOT-YYYYMMDD-XXXXXXXXXXXX` support references (with legacy six-character references still accepted) and a device-local status/consent ledger that never retains message or email text
+- 272 — separate, explicit consent for message, diagnostics, allow-listed activity events, company metadata, focus context and screenshot, each with an exact preview
+- 273 — standard offline support ZIPs containing only selected fields, protected by AES-256-GCM passphrases for out-of-band delivery
+- 274 — screen-aware help matched to enabled company features, GST registration, state terminology and the work currently visible
+- 275 — a bundled, searchable task index for vouchers, registers, banking, GST, recovery, migration, inventory, payroll, close and Assist that works without internet
+- 276 — guided update, Electron/native SQLite ABI, verified-backup, AI-provider and filing-configuration checks with specific next actions and no automatic diagnostic upload
+- 277 — customer-facing version notes linked back to relevant screens, shown once after upgrades and always available from Help and About
+- 278 — related-work feature tips after repeat use, with 30-day dismiss and permanent never-show controls stored only on the device
+- 279 — app and website customer-idea boards with bounded submissions, voting/follow actions, planning status and release-version linkage through a configurable Convex-compatible backend
+- 280 — explicit opt-in cohort milestones with an exact six-event aggregate payload, pseudonymous installation ID and hard exclusion of company identity, amounts, vouchers and user text
+- 281 — offline referral generation and typo-detecting attribution codes containing no identity or book information
+- 282 — accountant partner mode labeling locally isolated client company folders without merging databases, users, backups, audits or exports
+- 283 — one-click fresh training-company packs with repeatable practice briefs, expected evidence and no destructive reset of an existing book
+- 284 — a six-module Total practitioner pathway for accounting, GST, banking, controls, migration and safe automation, with local practice progress and a separate proctored-assessment gate
+- 285 — visible Founding-edition pricing terms, unlimited preview grace and a permanent promise that book access and portable export are never disabled by entitlement state
+- 292 — randomized accounting property suites covering balanced postings, bill/tax allocations and long stock-valuation walks without floating-point money
+- 293 — bounded malformed XML, CSV, XLSX, portable-package, logo-image, MCP/plugin-shaped and AI/provider-shaped fuzzing, with explicit workbook size and shape limits
+- 294 — release visual contracts for light/dark Gateway, large Hindi layouts, regional invoice labels, offline help and community/learning surfaces
+- 295 — automated direct-dependency source, version, license, native-runtime and deprecation policy with transitive deprecations retained as actionable warnings
+- 296 — local-only redacted crash envelopes with bounded stack frames, exact Privacy-centre preview, explicit submission and trackable failed-delivery fallback
+- 297 — versioned device-only feature flags with bounded change history and safe fallbacks that cannot gate migrations, posting, reports, backups or export
+- 298 — per-platform build evidence recording revision, dirty state, lock hash, toolchain, signing configuration and SHA-256 artifact provenance
+- 299 — forced-termination and recovery orchestration across vouchers, imports, approvals, migrations, backups, restore, exports and atomic writes
+- 300 — fail-closed macOS and Windows publication scorecards spanning correctness, types, renderer/database tests, accessibility, restore, performance, security, dependencies, chaos, multi-company soak, visuals and packaged-artifact verification
+- Batch sales-invoice PDF generation from the Day Book’s exact selection
+- Monthly and quarterly sales/purchase registers
+- Global and screen-level red-letter keyboard mnemonics
+- Taste-led shell, Gateway, settings, GST, import, backup and Action Centre redesign
+- OpenAI SDK plus compatible-provider/local-key support
+- Bundled versioned MCP server, JSON/CSV mirror and inert proposal review
+- Support website and in-app feedback with exact diagnostic preview
+- Universal Intel/Apple Silicon packaging and one-public-release orchestration
+
+## Post-program v5 hardening
+
+The current branch also includes these security and acceptance corrections:
+
+- AI Operator plans are retained in the main process for a bounded time and execution is bound to
+  the company, user, reviewed action index and action hash. Sensitive actions require a one-time
+  approval token; a completed or expired action cannot be replayed.
+- Collaboration envelopes carry Ed25519 device signatures. The relay checks the registered device
+  key, while the desktop quarantines invalid envelopes, records a bounded security error and
+  continues to later valid rows. Expiring Supabase sessions refresh only against the configured
+  Supabase origin and require reconnection after revocation.
+- Support receipts return a private tracking token. The site stores only its SHA-256 hash, and the
+  desktop retains the token in its device-local status ledger rather than sending an email address
+  for routine status checks.
+- Tally imports retain a semantic hash so formatting-only changes cannot bypass duplicate detection.
+  Migration attachments are accepted only from managed paths and link only after one unique active
+  voucher match; repeated linking is idempotent.
+- The v5 branch package job embeds an immutable staging profile in `app.asar`. Staging support,
+  feedback, cohort and site URLs resolve only to `total-v5-staging.vercel.app`, update checks are
+  disabled, and the package contract rejects a production origin in the compiled staging bundle.
+
+The isolated Supabase project `cewz…qmlx` is configured through
+`202608280004_collaboration_invitation_history.sql`; `total-sync` v13 and `total-intake` v10 are
+active; and an unauthenticated sync request returns HTTP 401. A live distinct-user relay exercise
+passed with exact synthetic cleanup. The staging site has passed synthetic support
+create/private-token tracking and feedback idea/vote/follow checks. These checks do not configure
+or accept production.
+
+## Current build direction
+
+The numbered 300-item implementation programme is code-complete on the v5 branch. Later additions
+include encrypted Supabase review collaboration, distinct-user invitations, Supabase support intake,
+AI Operator actions, Codex device authentication, bundled offline OCR, Radix interaction primitives
+and staged update channels.
+
+Code-complete does not mean configured, accepted, signed or publicly released. Current production
+status is tracked in root [ROADMAP.md](../ROADMAP.md), agent work in [TASKS.md](../TASKS.md), and
+external actions in [HUMAN.md](../HUMAN.md). No later feature may weaken balanced-book, recovery,
+accessibility, security, performance, packaging or permanent-export guarantees.
+
+Installed-device collaboration, representative customer migration exports, signed candidate
+verification and role-based human acceptance remain pending. Final review and release have not
+started.

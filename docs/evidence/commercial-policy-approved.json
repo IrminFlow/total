@@ -1,0 +1,23 @@
+{
+  "schema": 1,
+  "kind": "commercial",
+  "status": "approved",
+  "productVersion": "5.0.0",
+  "approvedAt": "2026-08-28T05:38:24.000Z",
+  "authority": "Product-owner instruction that the current branch release is Total v5; existing approved commercial terms carry forward unchanged",
+  "approvers": [
+    { "name": "Total product owner", "role": "Product owner", "decision": "approved" }
+  ],
+  "policyDate": "2026-08-24",
+  "policySha256": "190301318a80867d56f8865fa589276e3f8156c8c0a49808b0adc806695a657c",
+  "model": "perpetual-major-version",
+  "betaPricePaise": 0,
+  "businessPricePaise": 990000,
+  "practicePricePaise": 2990000,
+  "includedSupportMonths": 12,
+  "directRefundDays": 30,
+  "automaticBetaConversion": false,
+  "permanentBookAccess": true,
+  "permanentPortableExport": true,
+  "qualifiedLegalReviewStillRequired": true
+}

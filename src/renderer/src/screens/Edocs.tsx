@@ -1,9 +1,9 @@
 import { useMemo, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { api } from '../lib/client'
+import { api, type EdocEvent } from '../lib/client'
 import { useNav, useSession, useToasts } from '../state/stores'
-import { Button, EmptyState, Modal, Money, Panel, SectionTitle, Select, SkeletonRows } from '../components/ui'
-import { gstPeriodOf, toDisplayDate } from '@shared/dates'
+import { Button, DateInput, EmptyState, Field, Modal, Money, Panel, SectionTitle, Select, SkeletonRows, TextInput } from '../components/ui'
+import { gstPeriodOf, toDisplayDate, todayISO } from '@shared/dates'
 import { TransportModal } from './voucher/TransportModal'
 
 type DocTypeFilter = 'all' | 'INV' | 'CRN' | 'DBN'
@@ -36,6 +36,9 @@ export function EdocsScreen(): React.JSX.Element {
   const [confirming, setConfirming] = useState<{ kind: 'irn' | 'ewb'; voucherId: number } | null>(null)
   const [transportFor, setTransportFor] = useState<{ voucherId: number; number: string } | null>(null)
   const [docTypeFilter, setDocTypeFilter] = useState<DocTypeFilter>('all')
+  const [lifecycleFor,setLifecycleFor]=useState<{voucherId:number;number:string}|null>(null)
+  const {data:events}=useQuery({queryKey:['edocEvents'],queryFn:()=>api.edoc.events()})
+  const latestByVoucher=useMemo(()=>{const map=new Map<number,EdocEvent>();for(const event of events??[])if(!map.has(event.voucherId))map.set(event.voucherId,event);return map},[events])
   const allRows = data ?? []
   const rows = useMemo(
     () => (docTypeFilter === 'all' ? allRows : allRows.filter((r) => r.docType === docTypeFilter)),
@@ -204,6 +207,7 @@ export function EdocsScreen(): React.JSX.Element {
                     {r.irn ? <span className="text-dr" title={r.irn}>IRN ✓</span> : <span className="text-muted">no IRN</span>}
                     {' · '}
                     {r.ewbNo ? <span className="num text-dr">{r.ewbNo}</span> : <span className="text-muted">no EWB</span>}
+                    {latestByVoucher.get(r.voucherId)&&<span className="mt-0.5 block text-[9px] capitalize text-muted">{latestByVoucher.get(r.voucherId)!.kind} · {latestByVoucher.get(r.voucherId)!.status.replace('_',' ')}</span>}
                   </td>
                   <td className="text-[11.5px]">
                     {r.ewbReason == null ? (
@@ -249,6 +253,7 @@ export function EdocsScreen(): React.JSX.Element {
                     >
                       Transport
                     </button>
+                    <button className="mr-2 text-[12px] text-blue hover:underline" onClick={()=>setLifecycleFor({voucherId:r.voucherId,number:r.number})}>Lifecycle</button>
                     <button
                       className="mr-2 text-[12px] text-blue hover:underline"
                       onClick={() => {
@@ -293,8 +298,15 @@ export function EdocsScreen(): React.JSX.Element {
           }}
         />
       )}
+      {lifecycleFor&&<EdocLifecycleModal target={lifecycleFor} events={(events??[]).filter((event)=>event.voucherId===lifecycleFor.voucherId)} onClose={()=>setLifecycleFor(null)} onSaved={async()=>{await queryClient.invalidateQueries({queryKey:['edocEvents']})}}/>}
     </div>
   )
+}
+
+function EdocLifecycleModal({target,events,onClose,onSaved}:{target:{voucherId:number;number:string};events:EdocEvent[];onClose:()=>void;onSaved:()=>Promise<void>}):React.JSX.Element{
+  const toast=useToasts();const [kind,setKind]=useState<EdocEvent['kind']>('eway');const [status,setStatus]=useState<EdocEvent['status']>('vehicle_updated');const [documentNo,setDocumentNo]=useState('');const [validUntil,setValidUntil]=useState(todayISO());const [vehicleNo,setVehicleNo]=useState('');const [reason,setReason]=useState('');const [saving,setSaving]=useState(false)
+  const save=async()=>{setSaving(true);try{await api.edoc.eventAdd({voucherId:target.voucherId,kind,status,requestKey:null,documentNo:documentNo.trim()||null,validUntil:status==='extended'||status==='generated'?validUntil:null,vehicleNo:status==='vehicle_updated'?vehicleNo.trim()||null:null,reason:reason.trim()||null});await onSaved();toast.push('success','Document lifecycle updated');setReason('');setSaving(false)}catch(error){toast.push('error',error instanceof Error?error.message:String(error));setSaving(false)}}
+  return <Modal title={`Document lifecycle · ${target.number}`} onClose={onClose} wide><div className="grid grid-cols-[1fr_1.15fr] gap-4"><div><p className="mb-2 text-[10px] font-semibold uppercase tracking-[0.1em] text-muted">History</p>{!events.length?<EmptyState title="No lifecycle events yet"/>:<div className="max-h-80 overflow-y-auto rounded-md border border-line">{events.map((event)=><div key={event.id} className="border-b border-line px-3 py-2.5 last:border-0"><div className="flex justify-between"><span className="text-[11px] font-semibold capitalize">{event.kind} · {event.status.replace('_',' ')}</span><span className="num text-[9px] text-muted">{event.occurredAt.slice(0,16)}</span></div><p className="mt-1 text-[9.5px] text-muted">{event.documentNo??event.reason??event.vehicleNo??'Evidence recorded'} · {event.actor}</p></div>)}</div>}</div><div><p className="mb-2 text-[10px] font-semibold uppercase tracking-[0.1em] text-muted">Record portal update</p><div className="space-y-3"><div className="grid grid-cols-2 gap-3"><Field label="Document"><Select value={kind} onChange={(e)=>setKind(e.target.value as typeof kind)}><option value="einvoice">E-invoice / IRN</option><option value="eway">E-way bill</option></Select></Field><Field label="Status"><Select value={status} onChange={(e)=>setStatus(e.target.value as typeof status)}><option value="pending">Pending</option><option value="generated">Generated</option><option value="failed">Failed</option><option value="cancelled">Cancelled</option>{kind==='eway'&&<><option value="extended">Extended</option><option value="vehicle_updated">Vehicle updated</option><option value="expired">Expired</option></>}</Select></Field></div><Field label="IRN / EWB number"><TextInput value={documentNo} onChange={(e)=>setDocumentNo(e.target.value)}/></Field>{(status==='generated'||status==='extended')&&<Field label="Valid until"><DateInput value={validUntil} context={todayISO()} onChange={setValidUntil}/></Field>}{status==='vehicle_updated'&&<Field label="Vehicle number"><TextInput value={vehicleNo} onChange={(e)=>setVehicleNo(e.target.value.toUpperCase())}/></Field>}<Field label="Reason / portal note"><TextInput value={reason} onChange={(e)=>setReason(e.target.value)}/></Field><div className="flex justify-end gap-2"><Button onClick={onClose}>Close</Button><Button variant="primary" disabled={saving} onClick={()=>void save()}>Record event</Button></div></div></div></div></Modal>
 }
 
 

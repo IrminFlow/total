@@ -1,91 +1,321 @@
-# Build the macOS app and publish it to GitHub Releases whenever a version tag is pushed.
-# Tag with:  npm version patch && git push --follow-tags
-# electron-updater in the app reads these releases to auto-update installed copies.
-name: Release
+# Promote a previously signed and accepted candidate without rebuilding it. GitHub does
+# not support atomic non-draft release asset uploads, so any failed partial publication
+# is withdrawn using the exact release ID and tag identity created by this run.
+name: Promote release candidate
 
 on:
-  push:
-    tags:
-      - 'v*'
+  workflow_dispatch:
+    inputs:
+      candidate_run_id:
+        description: Successful Release candidate workflow run ID
+        required: true
+        type: string
+      candidate_run_attempt:
+        description: Exact workflow run attempt
+        required: true
+        default: "1"
+        type: string
+      candidate_artifact_id:
+        description: Immutable candidate Actions artifact ID
+        required: true
+        type: string
+      candidate_manifest_sha256:
+        description: Candidate manifest SHA-256 shown in the candidate summary
+        required: true
+        type: string
+      candidate_revision:
+        description: Exact source commit used to build the candidate
+        required: true
+        type: string
+      version:
+        description: Exact package version to publish
+        required: true
+        type: string
+
+env:
+  RELEASE_REVISION: ${{ inputs.candidate_revision }}
+  RELEASE_VERSION: ${{ inputs.version }}
+  RELEASE_TAG: v${{ inputs.version }}
+  RELEASE_WORKFLOW_RUN_ID: ${{ inputs.candidate_run_id }}
+  RELEASE_WORKFLOW_RUN_ATTEMPT: ${{ inputs.candidate_run_attempt }}
+  RELEASE_CANDIDATE_ARTIFACT_ID: ${{ inputs.candidate_artifact_id }}
+  RELEASE_CANDIDATE_MANIFEST_SHA256: ${{ inputs.candidate_manifest_sha256 }}
+  RELEASE_REPOSITORY: ${{ github.repository }}
 
 permissions:
-  contents: write
+  actions: read
+  contents: read
+
+concurrency:
+  group: release-promotion-${{ inputs.version }}
+  cancel-in-progress: false
 
 jobs:
-  release-mac:
-    runs-on: macos-latest
+  validate:
+    runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
           node-version: 22
           cache: npm
 
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Run tests
-        run: npm test
-
-      - name: DB-layer tests (Electron-as-Node)
-        run: npm run test:db
-
-      - name: Build
-        run: npm run build
-
-      - name: Hermetic IPC smoke test against the build
-        run: npm run smoke
-        env:
-          TOTAL_DATA_DIR: ${{ runner.temp }}/total-data
-          SMOKE_OUT: ${{ runner.temp }}/smoke
-
-      - name: Ensure the release exists (one per tag)
-        # electron-builder's parallel asset uploads race to CREATE the release and can end up
-        # with two releases on one tag (observed on v0.3.0) — pre-creating makes it only upload.
-        run: gh release create "$GITHUB_REF_NAME" --title "Total ${GITHUB_REF_NAME#v}" --notes "Release notes to follow." --repo "$GITHUB_REPOSITORY" || true
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Publish DMG + ZIP to the release
-        run: npx electron-builder --mac --publish always
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # Unsigned beta builds: users right-click → Open on first launch, and the
-          # in-app updater falls back to a "download the new version" prompt.
-          # When you have an Apple Developer ID, add CSC_LINK + CSC_KEY_PASSWORD
-          # secrets here and auto-update becomes fully silent.
-          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
-
-  release-win:
-    # Runs after the mac job so both publish into the SAME release —
-    # parallel jobs each create their own release for the tag (learned the hard way).
-    needs: release-mac
-    runs-on: windows-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: npm
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Run tests
-        run: npm test
-
-      - name: DB-layer tests (Electron-as-Node)
-        run: npm run test:db
-
-      - name: Build NSIS installer (no publish — electron-builder creates a DUPLICATE
-          release for the tag even when one exists; observed on v0.2.0)
-        run: npm run build && npx electron-builder --win --publish never
-
-      - name: Upload installer to the existing release
+      - name: Validate immutable promotion inputs
         shell: bash
         run: |
-          gh release upload "${GITHUB_REF_NAME}" dist/*.exe dist/*.exe.blockmap dist/latest.yml --clobber --repo "${GITHUB_REPOSITORY}"
+          [[ "$RELEASE_REVISION" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$RELEASE_CANDIDATE_MANIFEST_SHA256" =~ ^[0-9a-f]{64}$ ]]
+          [[ "$RELEASE_WORKFLOW_RUN_ID" =~ ^[1-9][0-9]*$ ]]
+          [[ "$RELEASE_WORKFLOW_RUN_ATTEMPT" =~ ^[1-9][0-9]*$ ]]
+          [[ "$RELEASE_CANDIDATE_ARTIFACT_ID" =~ ^[1-9][0-9]*$ ]]
+          test "$(node -p "require('./package.json').version")" = "$RELEASE_VERSION"
+
+      - name: Require candidate ancestry and evidence-only later commits
+        shell: bash
+        run: |
+          git fetch origin main --no-tags
+          test "$(git rev-parse HEAD)" = "$(git rev-parse origin/main)"
+          git cat-file -e "$RELEASE_REVISION^{commit}"
+          git merge-base --is-ancestor "$RELEASE_REVISION" HEAD
+          git diff --no-renames --name-only "$RELEASE_REVISION..HEAD" > "$RUNNER_TEMP/promotion-paths.txt"
+          node scripts/promotion-gate.mjs paths "$RUNNER_TEMP/promotion-paths.txt"
+          test "$(git show "$RELEASE_REVISION:package.json" | jq -r .version)" = "$RELEASE_VERSION"
+
+      - name: Verify candidate workflow and artifact provenance
+        shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$RELEASE_WORKFLOW_RUN_ID" > "$RUNNER_TEMP/candidate-run.json"
+          gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$RELEASE_CANDIDATE_ARTIFACT_ID" > "$RUNNER_TEMP/candidate-artifact.json"
+          node scripts/promotion-gate.mjs run "$RUNNER_TEMP/candidate-run.json" "$RUNNER_TEMP/candidate-artifact.json"
+
+      - name: Download the exact immutable candidate artifact
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          mkdir candidate
+          gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$RELEASE_CANDIDATE_ARTIFACT_ID/zip" > "$RUNNER_TEMP/candidate.zip"
+          unzip -q "$RUNNER_TEMP/candidate.zip" -d candidate
+
+      - name: Recompute candidate manifest and every artifact digest
+        run: node scripts/candidate-manifest.mjs validate candidate
+
+      - name: Install validation dependencies
+        run: npm ci
+
+      - name: Revalidate build, upgrade and updater contracts
+        run: |
+          node scripts/release-candidate-evidence.mjs
+          npm run release:contract
+        env:
+          RELEASE_CANDIDATE_EVIDENCE_DIR: ${{ github.workspace }}/candidate
+          RELEASE_DIR: ${{ github.workspace }}/candidate
+
+      - name: Exercise support and feedback on the exact current site deployment
+        run: npm run release:live -- --intake-evidence
+        env:
+          TOTAL_EXPECTED_SITE_REVISION: ${{ github.sha }}
+          TOTAL_DEPLOYMENT_WAIT_MS: 600000
+          TOTAL_SYNTHETIC_EMAIL: synthetic-promotion-gate@irminflow.invalid
+          INTAKE_ADMIN_SECRET: ${{ secrets.INTAKE_ADMIN_SECRET }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          PRODUCTION_SERVICE_EVIDENCE_OUT: ${{ github.workspace }}/candidate/production-services.json
+
+      - name: Require exact-artifact acceptance and final readiness
+        run: npm run release:readiness -- --strict
+        env:
+          RELEASE_CANDIDATE_EVIDENCE_DIR: ${{ github.workspace }}/candidate
+          PRODUCTION_SERVICE_EVIDENCE: ${{ github.workspace }}/candidate/production-services.json
+          SITE_REVISION: ${{ github.sha }}
+
+  publish:
+    needs: validate
+    runs-on: ubuntu-latest
+    environment: production-release
+    permissions:
+      actions: read
+      contents: write
+    concurrency:
+      group: production-synthetic-${{ github.repository }}
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: 22
+
+      - name: Recheck publication target is unused
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if git ls-remote --exit-code --tags origin "refs/tags/$RELEASE_TAG" >/dev/null 2>&1; then
+            echo "Tag $RELEASE_TAG already exists; refusing to replace it." >&2
+            exit 1
+          fi
+          if gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "Release $RELEASE_TAG already exists; refusing to replace it." >&2
+            exit 1
+          fi
+
+      - name: Re-download and validate the selected candidate
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          mkdir candidate
+          gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$RELEASE_CANDIDATE_ARTIFACT_ID/zip" > "$RUNNER_TEMP/candidate.zip"
+          unzip -q "$RUNNER_TEMP/candidate.zip" -d candidate
+          node scripts/candidate-manifest.mjs validate candidate
+
+      - name: Create exact release tag
+        id: create-tag
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh api --method POST "repos/$GITHUB_REPOSITORY/git/refs" \
+            --raw-field "ref=refs/tags/$RELEASE_TAG" \
+            --raw-field "sha=$RELEASE_REVISION" >/dev/null
+          echo "created=true" >> "$GITHUB_OUTPUT"
+
+      - name: Create non-draft prerelease
+        id: create-publication
+        continue-on-error: true
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          created_release="$(gh api --method POST "repos/$GITHUB_REPOSITORY/releases" \
+            --raw-field "tag_name=$RELEASE_TAG" \
+            --raw-field "target_commitish=$RELEASE_REVISION" \
+            --raw-field "name=Total v$RELEASE_VERSION" \
+            --field draft=false \
+            --field prerelease=true \
+            --field generate_release_notes=true)"
+          release_id="$(jq -er '.id' <<<"$created_release")"
+          echo "release_id=$release_id" >> "$GITHUB_OUTPUT"
+
+      - name: Upload only approved public assets
+        id: upload-public-assets
+        if: ${{ steps.create-publication.outcome == 'success' }}
+        continue-on-error: true
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          assets=()
+          while IFS= read -r name; do assets+=("candidate/$name"); done < <(jq -r '.publicAssetNames[]' candidate/candidate-manifest.json)
+          test "${#assets[@]}" -gt 0
+          gh release upload "$RELEASE_TAG" "${assets[@]}" --repo "$GITHUB_REPOSITORY"
+
+      - name: Re-download and verify every staged prerelease asset
+        id: verify-staged-assets
+        if: ${{ steps.upload-public-assets.outcome == 'success' }}
+        continue-on-error: true
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          EXPECTED_PRERELEASE: "1"
+        run: |
+          mkdir staged-release
+          gh release download "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --dir staged-release
+          node scripts/candidate-manifest.mjs public candidate staged-release
+          gh api "repos/$GITHUB_REPOSITORY/releases/${{ steps.create-publication.outputs.release_id }}" > "$RUNNER_TEMP/staged-release.json"
+          node scripts/promotion-gate.mjs publication "$RUNNER_TEMP/staged-release.json"
+
+      - name: Promote verified prerelease to public latest
+        id: promote-publication
+        if: ${{ steps.verify-staged-assets.outcome == 'success' }}
+        continue-on-error: true
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          EXPECTED_PRERELEASE: "0"
+        run: |
+          gh api --method PATCH "repos/$GITHUB_REPOSITORY/releases/${{ steps.create-publication.outputs.release_id }}" \
+            --field prerelease=false \
+            --raw-field make_latest=true > "$RUNNER_TEMP/public-release.json"
+          node scripts/promotion-gate.mjs publication "$RUNNER_TEMP/public-release.json"
+
+      - name: Verify public updater, installers and production services
+        id: verify-publication
+        if: ${{ steps.promote-publication.outcome == 'success' }}
+        continue-on-error: true
+        run: npm run release:live
+        env:
+          TOTAL_EXPECTED_SITE_REVISION: ${{ github.sha }}
+          TOTAL_DEPLOYMENT_WAIT_MS: 600000
+          TOTAL_RELEASE_WAIT_MS: 600000
+          TOTAL_REQUIRE_SYNTHETIC: "1"
+          TOTAL_SYNTHETIC_EMAIL: synthetic-post-publication@irminflow.invalid
+          INTAKE_ADMIN_SECRET: ${{ secrets.INTAKE_ADMIN_SECRET }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          PRODUCTION_SERVICE_EVIDENCE_OUT: ${{ github.workspace }}/candidate/post-publication-live.json
+
+      - name: Withdraw only the publication created by this run after any failure
+        if: ${{ always() && steps.create-tag.outputs.created == 'true' && (steps.create-publication.outcome == 'failure' || steps.upload-public-assets.outcome == 'failure' || steps.verify-staged-assets.outcome == 'failure' || steps.promote-publication.outcome == 'failure' || steps.verify-publication.outcome == 'failure') }}
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CREATED_RELEASE_ID: ${{ steps.create-publication.outputs.release_id }}
+        run: |
+          is_404() {
+            local endpoint="$1" response status
+            response="$(gh api --include "$endpoint" 2>&1)" && status=0 || status=$?
+            test "$status" -ne 0 && grep -Eq '^HTTP/[^ ]+ 404' <<<"$response"
+          }
+          delete_until_absent() {
+            local endpoint="$1"
+            for attempt in 1 2 3 4 5; do
+              is_404 "$endpoint" && return 0
+              gh api --method DELETE "$endpoint" >/dev/null 2>&1 || true
+              sleep "$((attempt * 2))"
+            done
+            is_404 "$endpoint"
+          }
+
+          current_tag_sha="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$RELEASE_TAG" --jq '.object.sha' 2>/dev/null || true)"
+          if test -n "$current_tag_sha" && test "$current_tag_sha" != "$RELEASE_REVISION"; then
+            echo "Refusing cleanup because $RELEASE_TAG no longer points to this candidate." >&2
+            exit 1
+          fi
+
+          release_by_tag=""
+          if gh api "repos/$GITHUB_REPOSITORY/releases/tags/$RELEASE_TAG" > "$RUNNER_TEMP/release-by-tag.json" 2>/dev/null; then
+            release_by_tag="$RUNNER_TEMP/release-by-tag.json"
+          fi
+          release_id="$CREATED_RELEASE_ID"
+          if test -z "$release_id" && test -n "$release_by_tag"; then
+            release_id="$(node scripts/promotion-gate.mjs recover-cleanup-id "$release_by_tag" | jq -er '.releaseId')"
+          fi
+          if test -n "$release_id"; then
+            gh api "repos/$GITHUB_REPOSITORY/releases/$release_id" \
+              --jq '{releaseId: .id, tagName: .tag_name, targetCommitish: .target_commitish}' > "$RUNNER_TEMP/cleanup-release.json"
+            jq --arg sha "$RELEASE_REVISION" '. + {tagSha: $sha}' "$RUNNER_TEMP/cleanup-release.json" > "$RUNNER_TEMP/cleanup.json"
+            CREATED_RELEASE_ID="$release_id" node scripts/promotion-gate.mjs cleanup "$RUNNER_TEMP/cleanup.json"
+            delete_until_absent "repos/$GITHUB_REPOSITORY/releases/$release_id" || {
+              echo "Could not prove release ID $release_id was deleted." >&2
+              exit 1
+            }
+          fi
+          delete_until_absent "repos/$GITHUB_REPOSITORY/git/refs/tags/$RELEASE_TAG" || {
+            echo "Could not prove tag $RELEASE_TAG was deleted." >&2
+            exit 1
+          }
+          is_404 "repos/$GITHUB_REPOSITORY/releases/tags/$RELEASE_TAG" || {
+            echo "Could not prove release tag $RELEASE_TAG is absent." >&2
+            exit 1
+          }
+
+      - name: Require complete verified publication
+        if: ${{ always() && (steps.create-publication.outcome == 'failure' || steps.upload-public-assets.outcome == 'failure' || steps.verify-staged-assets.outcome == 'failure' || steps.promote-publication.outcome == 'failure' || steps.verify-publication.outcome == 'failure') }}
+        run: |
+          echo "Publication failed; safeguarded cleanup ran for identities this workflow could prove it created." >&2
+          exit 1

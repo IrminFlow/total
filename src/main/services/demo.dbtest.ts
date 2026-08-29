@@ -67,4 +67,14 @@ describe('createDemoCompany', () => {
     expect(first.slug).toBe('demo-traders')
     expect(second.slug).toBe('demo-traders-2')
   })
+
+  it('creates distinct industry packs with the relevant ledgers and setup profile', () => {
+    const { slug } = createDemoCompany('manufacturer')
+    const db = openCompanyDb(slug)
+    const ledger = db.prepare("SELECT id FROM ledgers WHERE name = 'Factory Wages'").get()
+    expect(ledger).toBeTruthy()
+    const profile = JSON.parse(require('fs').readFileSync(join(dataDir, 'companies', slug, 'setup.json'), 'utf8')) as { businessType: string; needsInventory: boolean; needsPayroll: boolean }
+    expect(profile).toMatchObject({ businessType: 'manufacturer', needsInventory: true, needsPayroll: true })
+    db.close()
+  })
 })

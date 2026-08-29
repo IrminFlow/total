@@ -7,6 +7,7 @@ import { parseTallyExport } from '@shared/tally'
 import { openCompanyDb } from '../db/connection'
 import { seedCompany } from '../db/seed'
 import { exportCaPack, exportTallyXml } from './caPack'
+import { saveReportAnnotation } from './managementInsights'
 
 // exportCaPack/exportTallyXml derive every path from paths.ts#dataRoot(), which honours
 // TOTAL_DATA_DIR — point the whole storage tree at a throwaway temp dir per test so nothing
@@ -97,7 +98,9 @@ describe('caPack.exportCaPack', () => {
       'sales-register.csv',
       'purchase-register.csv',
       'outstandings.csv',
-      'gstr1-072026.json'
+      'gstr1-072026.json',
+      'index.html',
+      'manifest.json'
     ]) {
       expect(existsSync(join(dir, f)), f).toBe(true)
     }
@@ -126,6 +129,8 @@ describe('caPack.exportCaPack', () => {
 
     db.close()
   })
+
+  it('includes selected period and row explanations in the indexed pack',()=>{const {db,slug,info}=freshCompany();seedLedgersAndVouchers(db);saveReportAnnotation(db,{reportKey:'profit-loss',rowKey:'gross-profit',from:'2026-07-01',to:'2026-07-31',note:'Seasonal launch spend',includeInExport:true},'Asha');const {path:dir}=exportCaPack(db,info,slug,'2026-07-01','2026-07-31');expect(readFileSync(join(dir,'report-annotations.csv'),'utf8')).toContain('Seasonal launch spend');expect(readFileSync(join(dir,'index.html'),'utf8')).toContain('report-annotations.csv');db.close()})
 
   it('omits tds-26q.csv when there are no TDS entries for the period', () => {
     const { db, slug, info } = freshCompany()

@@ -35,7 +35,23 @@ companies/<slug>/
     <anything>.csv              masters import (ledger or item CSV, template headers)
     processed/<ts>-<file>       success — file is moved here
     failed/<file> + <file>.error.txt   failure — error text explains exactly what to fix
+  proposals/                    MCP/AI drafts; inert until reviewed and approved inside Total
 ```
+
+## MCP (safest for AI clients)
+
+From a source checkout, run `npm run mcp` as a stdio MCP server. An installed app bundles the
+same server at `/Applications/Total.app/Contents/Resources/total-mcp.mjs` on macOS (run it with
+`node`). Issue a company-bound, expiring token in Total → Settings → Agent access, then set
+`TOTAL_MCP_TOKEN` and a descriptive `TOTAL_MCP_CLIENT` in the client process. The token secret is
+shown once and only its SHA-256 hash is retained.
+
+The v1 server exposes public capability discovery plus scoped company listing, mirror status,
+accounting snapshots, constrained search, managed-attachment reads, owner-approved mirror refresh
+requests and voucher proposals. Read tools never open SQLite. `propose_voucher` creates a pending
+review file—it never posts a voucher. A human accountant must inspect and approve it in Total,
+where the live schema, balance checks, permissions and period lock run. See
+`docs/MCP_CONTRACT_V1.md` in the source repository for scopes, errors and compatibility guarantees.
 
 ## CLI (works whether or not the app is running)
 

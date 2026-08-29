@@ -1,5 +1,6 @@
 import { writeFileSync } from 'fs'
 import { join } from 'path'
+import { createHash } from 'crypto'
 import type { DB } from '../db/connection'
 import type { CompanyInfo } from '@shared/domain'
 import {
@@ -18,6 +19,7 @@ import { descendantIdsByName } from './masters'
 import { getGst3bManual } from './config'
 import { companyExportsDir } from '../paths'
 import { IN_BOOKS } from './vouchers'
+import { writeAudit } from './audit'
 
 interface DocVoucherRow {
   id: number; date: string; number: string; kind: 'sales' | 'credit_note' | 'debit_note'
@@ -36,14 +38,15 @@ const INCOME_GROUPS = ['Sales Accounts', 'Direct Incomes', 'Indirect Incomes']
  * ledger, or failing that when its party sits under Sundry Debtors (a customer). Everything
  * else stays purchase-side (GSTR-3B ITC / 2B reconciliation).
  */
-export function outwardDebitNoteIds(db: DB, from: string, to: string): Set<number> {
+export function outwardDebitNoteIds(db: DB, from: string, to: string, registrationId?: number | null): Set<number> {
   const rows = db
     .prepare(
       `SELECT v.id, v.party_ledger_id AS partyLedgerId
        FROM vouchers v JOIN voucher_types vt ON vt.id = v.voucher_type_id
-       WHERE vt.kind = 'debit_note' AND v.date BETWEEN ? AND ? AND ${IN_BOOKS}`
+       WHERE vt.kind = 'debit_note' AND v.date BETWEEN ? AND ?
+         AND (? IS NULL OR v.gst_registration_id = ?) AND ${IN_BOOKS}`
     )
-    .all(from, to) as { id: number; partyLedgerId: number | null }[]
+    .all(from, to, registrationId ?? null, registrationId ?? null) as { id: number; partyLedgerId: number | null }[]
   if (!rows.length) return new Set()
   const incomeIds = descendantIdsByName(db, INCOME_GROUPS)
   const debtorIds = descendantIdsByName(db, ['Sundry Debtors'])
@@ -76,7 +79,7 @@ export function outwardDebitNoteIds(db: DB, from: string, to: string): Set<numbe
  * to nilLines (Table 8), never into the rated buckets. SEWOP/EXPWOP (without-payment)
  * documents are zero-rated with no tax charged.
  */
-export function extractOutwardDocs(db: DB, company: CompanyInfo, from: string, to: string): GstDoc[] {
+export function extractOutwardDocs(db: DB, company: CompanyInfo, from: string, to: string, registrationId?: number | null): GstDoc[] {
   const vouchers = db
     .prepare(
       `SELECT v.id, v.date, v.number, vt.kind, v.pos_override AS posOverride,
@@ -87,12 +90,13 @@ export function extractOutwardDocs(db: DB, company: CompanyInfo, from: string, t
        JOIN voucher_types vt ON vt.id = v.voucher_type_id
        LEFT JOIN ledgers p ON p.id = v.party_ledger_id
        LEFT JOIN voucher_transport t ON t.voucher_id = v.id
-       WHERE vt.kind IN ('sales', 'credit_note', 'debit_note') AND v.date BETWEEN ? AND ? AND ${IN_BOOKS}
+       WHERE vt.kind IN ('sales', 'credit_note', 'debit_note') AND v.date BETWEEN ? AND ?
+         AND (? IS NULL OR v.gst_registration_id = ?) AND ${IN_BOOKS}
        ORDER BY v.date, v.id`
     )
-    .all(from, to) as DocVoucherRow[]
+    .all(from, to, registrationId ?? null, registrationId ?? null) as DocVoucherRow[]
 
-  const outwardDbn = outwardDebitNoteIds(db, from, to)
+  const outwardDbn = outwardDebitNoteIds(db, from, to, registrationId)
   const salesGroupIds = descendantIdsByName(db, INCOME_GROUPS)
 
   const invStmt = db.prepare(
@@ -232,17 +236,18 @@ const ZERO: InwardSummary = { igst: 0, cgst: 0, sgst: 0, cess: 0 }
  * (item rate, else purchase-ledger rate) since RCM purchases book no input-tax lines of
  * their own. Outward (sales-side) debit notes are excluded via outwardDebitNoteIds.
  */
-export function rcmInwardSummary(db: DB, company: CompanyInfo, from: string, to: string): TaxTotals {
-  const outwardDbn = outwardDebitNoteIds(db, from, to)
+export function rcmInwardSummary(db: DB, company: CompanyInfo, from: string, to: string, registrationId?: number | null): TaxTotals {
+  const outwardDbn = outwardDebitNoteIds(db, from, to, registrationId)
   const vouchers = (db
     .prepare(
       `SELECT v.id, vt.kind, p.state_code AS partyState
        FROM vouchers v
        JOIN voucher_types vt ON vt.id = v.voucher_type_id
        JOIN ledgers p ON p.id = v.party_ledger_id
-       WHERE vt.kind IN ('purchase', 'debit_note') AND p.rcm = 1 AND v.date BETWEEN ? AND ? AND ${IN_BOOKS}`
+       WHERE vt.kind IN ('purchase', 'debit_note') AND p.rcm = 1 AND v.date BETWEEN ? AND ?
+         AND (? IS NULL OR v.gst_registration_id = ?) AND ${IN_BOOKS}`
     )
-    .all(from, to) as { id: number; kind: 'purchase' | 'debit_note'; partyState: string | null }[])
+    .all(from, to, registrationId ?? null, registrationId ?? null) as { id: number; kind: 'purchase' | 'debit_note'; partyState: string | null }[])
     .filter((v) => v.kind !== 'debit_note' || !outwardDbn.has(v.id))
 
   const purchaseGroupIds = descendantIdsByName(db, ['Purchase Accounts', 'Direct Expenses', 'Indirect Expenses'])
@@ -289,8 +294,8 @@ export function rcmInwardSummary(db: DB, company: CompanyInfo, from: string, to:
  * ISRC, computed from master rates in rcmInwardSummary). Outward debit notes are excluded —
  * their tax lines are OUTPUT tax, not ITC (they used to be silently subtracted).
  */
-export function itcBreakdown(db: DB, company: CompanyInfo, from: string, to: string): ItcBreakdown {
-  const outwardDbn = outwardDebitNoteIds(db, from, to)
+export function itcBreakdown(db: DB, company: CompanyInfo, from: string, to: string, registrationId?: number | null): ItcBreakdown {
+  const outwardDbn = outwardDebitNoteIds(db, from, to, registrationId)
   const rows = db
     .prepare(
       `SELECT v.id AS voucherId, vt.kind, l.tax_type AS taxType,
@@ -307,10 +312,10 @@ export function itcBreakdown(db: DB, company: CompanyInfo, from: string, to: str
        JOIN ledgers l ON l.id = vl.ledger_id
        LEFT JOIN ledgers p ON p.id = v.party_ledger_id
        WHERE l.tax_type IS NOT NULL AND vt.kind IN ('purchase', 'debit_note')
-         AND v.date BETWEEN ? AND ? AND ${IN_BOOKS}
+         AND v.date BETWEEN ? AND ? AND (? IS NULL OR v.gst_registration_id = ?) AND ${IN_BOOKS}
        GROUP BY v.id, l.tax_type`
     )
-    .all(from, to) as {
+    .all(from, to, registrationId ?? null, registrationId ?? null) as {
       voucherId: number; kind: string; taxType: 'cgst' | 'sgst' | 'igst' | 'cess'; amount: number
       partyState: string | null; partyRcm: number; itcEligibility: string
     }[]
@@ -329,15 +334,15 @@ export function itcBreakdown(db: DB, company: CompanyInfo, from: string, to: str
           : result.oth
     bucket[r.taxType] += r.amount
   }
-  const rcm = rcmInwardSummary(db, company, from, to)
+  const rcm = rcmInwardSummary(db, company, from, to, registrationId)
   result.isrc = { igst: rcm.igst, cgst: rcm.cgst, sgst: rcm.sgst, cess: rcm.cess }
   return result
 }
 
 /** Net booked ITC for the period (legacy shape — the on-screen "Eligible ITC" row). */
-export function inwardSummary(db: DB, from: string, to: string): InwardSummary {
+export function inwardSummary(db: DB, from: string, to: string, registrationId?: number | null): InwardSummary {
   // Kept for the 2B reconciliation summary; excludes outward debit notes like itcBreakdown.
-  const outwardDbn = outwardDebitNoteIds(db, from, to)
+  const outwardDbn = outwardDebitNoteIds(db, from, to, registrationId)
   const rows = db
     .prepare(
       `SELECT v.id AS voucherId, vt.kind, l.tax_type AS taxType,
@@ -350,10 +355,11 @@ export function inwardSummary(db: DB, from: string, to: string): InwardSummary {
        JOIN vouchers v ON v.id = vl.voucher_id
        JOIN voucher_types vt ON vt.id = v.voucher_type_id
        JOIN ledgers l ON l.id = vl.ledger_id
-       WHERE l.tax_type IS NOT NULL AND vt.kind IN ('purchase', 'debit_note') AND v.date BETWEEN ? AND ? AND ${IN_BOOKS}
+       WHERE l.tax_type IS NOT NULL AND vt.kind IN ('purchase', 'debit_note') AND v.date BETWEEN ? AND ?
+         AND (? IS NULL OR v.gst_registration_id = ?) AND ${IN_BOOKS}
        GROUP BY v.id, l.tax_type`
     )
-    .all(from, to) as { voucherId: number; kind: string; taxType: 'cgst' | 'sgst' | 'igst' | 'cess'; amount: number }[]
+    .all(from, to, registrationId ?? null, registrationId ?? null) as { voucherId: number; kind: string; taxType: 'cgst' | 'sgst' | 'igst' | 'cess'; amount: number }[]
   const s: InwardSummary = { ...ZERO }
   for (const r of rows) {
     if (r.kind === 'debit_note' && outwardDbn.has(r.voucherId)) continue
@@ -372,7 +378,7 @@ export function inwardSummary(db: DB, from: string, to: string): InwardSummary {
  * can't be rate-classified and are skipped — the dedicated "advance" flag on receipt entry
  * is renderer work (S4).
  */
-export function extractAdvances(db: DB, company: CompanyInfo, from: string, to: string): GstAdvanceAgg[] {
+export function extractAdvances(db: DB, company: CompanyInfo, from: string, to: string, registrationId?: number | null): GstAdvanceAgg[] {
   const rows = db
     .prepare(
       `SELECT br.amount, p.state_code AS partyState, p.gst_rate AS gstRate
@@ -381,9 +387,9 @@ export function extractAdvances(db: DB, company: CompanyInfo, from: string, to: 
        JOIN voucher_types vt ON vt.id = v.voucher_type_id
        JOIN ledgers p ON p.id = br.party_ledger_id
        WHERE vt.kind = 'receipt' AND br.kind = 'new' AND p.gst_rate IS NOT NULL
-         AND v.date BETWEEN ? AND ? AND ${IN_BOOKS}`
+         AND v.date BETWEEN ? AND ? AND (? IS NULL OR v.gst_registration_id = ?) AND ${IN_BOOKS}`
     )
-    .all(from, to) as { amount: number; partyState: string | null; gstRate: number }[]
+    .all(from, to, registrationId ?? null, registrationId ?? null) as { amount: number; partyState: string | null; gstRate: number }[]
   return aggregateAdvances(rows, company)
 }
 
@@ -391,7 +397,7 @@ export function extractAdvances(db: DB, company: CompanyInfo, from: string, to: 
  * 11B — advances adjusted: sales vouchers in the period settling ('against') a bill that a
  * receipt voucher created ('new') — i.e. an invoice issued against an earlier advance.
  */
-export function extractAdvanceAdjustments(db: DB, company: CompanyInfo, from: string, to: string): GstAdvanceAgg[] {
+export function extractAdvanceAdjustments(db: DB, company: CompanyInfo, from: string, to: string, registrationId?: number | null): GstAdvanceAgg[] {
   const rows = db
     .prepare(
       `SELECT br.amount, p.state_code AS partyState, p.gst_rate AS gstRate
@@ -400,7 +406,7 @@ export function extractAdvanceAdjustments(db: DB, company: CompanyInfo, from: st
        JOIN voucher_types vt ON vt.id = v.voucher_type_id
        JOIN ledgers p ON p.id = br.party_ledger_id
        WHERE vt.kind = 'sales' AND br.kind = 'against' AND p.gst_rate IS NOT NULL
-         AND v.date BETWEEN ? AND ? AND ${IN_BOOKS}
+         AND v.date BETWEEN ? AND ? AND (? IS NULL OR v.gst_registration_id = ?) AND ${IN_BOOKS}
          AND EXISTS (
            SELECT 1 FROM bill_refs br2
            JOIN vouchers v2 ON v2.id = br2.voucher_id
@@ -409,7 +415,7 @@ export function extractAdvanceAdjustments(db: DB, company: CompanyInfo, from: st
              AND vt2.kind = 'receipt' AND v2.deleted_at IS NULL
          )`
     )
-    .all(from, to) as { amount: number; partyState: string | null; gstRate: number }[]
+    .all(from, to, registrationId ?? null, registrationId ?? null) as { amount: number; partyState: string | null; gstRate: number }[]
   return aggregateAdvances(rows, company)
 }
 
@@ -443,23 +449,25 @@ function aggregateAdvances(
  * vouchers too — a deleted voucher consumed a number in the series, and Table 13 reports it
  * as a CANCELLED document (`cancel`), not a gap. Do not add the filter here.
  */
-export function extractDocSeries(db: DB, from: string, to: string): GstDocSeries[] {
+export function extractDocSeries(db: DB, from: string, to: string, registrationId?: number | null): GstDocSeries[] {
   const types = db
     .prepare(
       `SELECT DISTINCT v.voucher_type_id AS typeId, vt.kind
        FROM vouchers v JOIN voucher_types vt ON vt.id = v.voucher_type_id
-       WHERE vt.kind IN ('sales', 'credit_note', 'debit_note') AND v.date BETWEEN ? AND ?`
+       WHERE vt.kind IN ('sales', 'credit_note', 'debit_note') AND v.date BETWEEN ? AND ?
+         AND (? IS NULL OR v.gst_registration_id = ?)`
     )
-    .all(from, to) as { typeId: number; kind: 'sales' | 'credit_note' | 'debit_note' }[]
+    .all(from, to, registrationId ?? null, registrationId ?? null) as { typeId: number; kind: 'sales' | 'credit_note' | 'debit_note' }[]
   const seriesStmt = db.prepare(
     `SELECT v.number, v.deleted_at AS deletedAt
      FROM vouchers v WHERE v.voucher_type_id = ? AND v.date BETWEEN ? AND ?
+       AND (? IS NULL OR v.gst_registration_id = ?)
      ORDER BY v.date, v.id`
   )
   const CATEGORY: Record<string, 1 | 4 | 5> = { sales: 1, debit_note: 4, credit_note: 5 }
   const result: GstDocSeries[] = []
   for (const t of types) {
-    const rows = seriesStmt.all(t.typeId, from, to) as { number: string; deletedAt: string | null }[]
+    const rows = seriesStmt.all(t.typeId, from, to, registrationId ?? null, registrationId ?? null) as { number: string; deletedAt: string | null }[]
     if (!rows.length) continue
     result.push({
       category: CATEGORY[t.kind]!,
@@ -477,7 +485,7 @@ export function extractDocSeries(db: DB, from: string, to: string): GstDocSeries
  * + outward debit-note credits) over a date range. Computed from the books every time —
  * never hardcoded.
  */
-export function turnover(db: DB, from: string, to: string): number {
+export function turnover(db: DB, from: string, to: string, registrationId?: number | null): number {
   const incomeIds = [...descendantIdsByName(db, INCOME_GROUPS)]
   if (!incomeIds.length) return 0
   const placeholders = incomeIds.map(() => '?').join(',')
@@ -493,21 +501,21 @@ export function turnover(db: DB, from: string, to: string): number {
        JOIN ledgers l ON l.id = vl.ledger_id
        WHERE l.group_id IN (${placeholders})
          AND vt.kind IN ('sales', 'credit_note', 'debit_note')
-         AND v.date BETWEEN ? AND ? AND ${IN_BOOKS}`
+         AND v.date BETWEEN ? AND ? AND (? IS NULL OR v.gst_registration_id = ?) AND ${IN_BOOKS}`
     )
-    .get(...incomeIds, from, to) as { t: number }
+    .get(...incomeIds, from, to, registrationId ?? null, registrationId ?? null) as { t: number }
   return Math.max(0, row.t)
 }
 
-function gstr1Extras(db: DB, company: CompanyInfo, from: string, to: string): Gstr1Extras {
+function gstr1Extras(db: DB, company: CompanyInfo, from: string, to: string, registrationId?: number | null): Gstr1Extras {
   const fy = fyOf(from)
   const prevFy = fyOf(`${fy.startYear - 1}-06-01`)
   return {
-    advances: extractAdvances(db, company, from, to),
-    advanceAdjustments: extractAdvanceAdjustments(db, company, from, to),
-    docSeries: extractDocSeries(db, from, to),
-    gt: turnover(db, prevFy.from, prevFy.to),
-    curGt: turnover(db, fy.from, to)
+    advances: extractAdvances(db, company, from, to, registrationId),
+    advanceAdjustments: extractAdvanceAdjustments(db, company, from, to, registrationId),
+    docSeries: extractDocSeries(db, from, to, registrationId),
+    gt: turnover(db, prevFy.from, prevFy.to, registrationId),
+    curGt: turnover(db, fy.from, to, registrationId)
   }
 }
 
@@ -525,8 +533,8 @@ interface PurchaseVoucherRow {
  * are the actual booked tax lines — not a recomputation — so entry errors surface in the
  * reconciliation. Outward (sales-side) debit notes are excluded.
  */
-export function extractPurchaseDocs(db: DB, from: string, to: string): PurchaseDoc[] {
-  const outwardDbn = outwardDebitNoteIds(db, from, to)
+export function extractPurchaseDocs(db: DB, from: string, to: string, registrationId?: number | null): PurchaseDoc[] {
+  const outwardDbn = outwardDebitNoteIds(db, from, to, registrationId)
   const vouchers = (db
     .prepare(
       `SELECT v.id, v.date, v.number, v.reference, v.party_ledger_id AS partyLedgerId, vt.kind,
@@ -534,10 +542,11 @@ export function extractPurchaseDocs(db: DB, from: string, to: string): PurchaseD
        FROM vouchers v
        JOIN voucher_types vt ON vt.id = v.voucher_type_id
        LEFT JOIN ledgers p ON p.id = v.party_ledger_id
-       WHERE vt.kind IN ('purchase', 'debit_note') AND v.date BETWEEN ? AND ? AND ${IN_BOOKS}
+       WHERE vt.kind IN ('purchase', 'debit_note') AND v.date BETWEEN ? AND ?
+         AND (? IS NULL OR v.gst_registration_id = ?) AND ${IN_BOOKS}
        ORDER BY v.date, v.id`
     )
-    .all(from, to) as PurchaseVoucherRow[])
+    .all(from, to, registrationId ?? null, registrationId ?? null) as PurchaseVoucherRow[])
     .filter((v) => v.kind !== 'debit_note' || !outwardDbn.has(v.id))
 
   const purchaseGroupIds = descendantIdsByName(db, ['Purchase Accounts', 'Direct Expenses', 'Indirect Expenses'])
@@ -614,28 +623,180 @@ export function recon2b(
 
 // ---------- entry points ----------
 
-export function gstr1(db: DB, company: CompanyInfo, from: string, to: string, period: string): Gstr1Result {
-  const docs = extractOutwardDocs(db, company, from, to)
-  return buildGstr1(docs, company.gstin ?? '', company.stateCode, period, gstr1Extras(db, company, from, to))
+export function gstr1(db: DB, company: CompanyInfo, from: string, to: string, period: string, registrationId?: number | null): Gstr1Result {
+  const docs = extractOutwardDocs(db, company, from, to, registrationId)
+  return buildGstr1(docs, company.gstin ?? '', company.stateCode, period, gstr1Extras(db, company, from, to, registrationId))
 }
 
-export function gstr3b(db: DB, company: CompanyInfo, from: string, to: string, period: string): Gstr3bResult {
-  const docs = extractOutwardDocs(db, company, from, to)
+export function gstr3b(db: DB, company: CompanyInfo, from: string, to: string, period: string, registrationId?: number | null): Gstr3bResult {
+  const docs = extractOutwardDocs(db, company, from, to, registrationId)
+  const outwardDbn = outwardDebitNoteIds(db, from, to, registrationId)
+  const purchaseSources = (db.prepare(
+    `SELECT DISTINCT v.id AS voucherId, vt.kind, p.state_code AS partyState,
+            COALESCE(p.rcm, 0) AS partyRcm, COALESCE(p.itc_eligibility, 'eligible') AS itcEligibility
+     FROM vouchers v
+     JOIN voucher_types vt ON vt.id = v.voucher_type_id
+     JOIN voucher_lines vl ON vl.voucher_id = v.id
+     JOIN ledgers tax ON tax.id = vl.ledger_id AND tax.tax_type IS NOT NULL
+     LEFT JOIN ledgers p ON p.id = v.party_ledger_id
+     WHERE vt.kind IN ('purchase', 'debit_note') AND v.date BETWEEN ? AND ?
+       AND (? IS NULL OR v.gst_registration_id = ?) AND ${IN_BOOKS}`
+  ).all(from, to, registrationId ?? null, registrationId ?? null) as { voucherId: number; kind: string; partyState: string | null; partyRcm: number; itcEligibility: string }[])
+    .filter((row) => row.kind !== 'debit_note' || !outwardDbn.has(row.voucherId))
+  const rcmIds = (db.prepare(
+    `SELECT v.id AS voucherId, vt.kind
+     FROM vouchers v JOIN voucher_types vt ON vt.id = v.voucher_type_id
+     JOIN ledgers p ON p.id = v.party_ledger_id
+     WHERE vt.kind IN ('purchase', 'debit_note') AND p.rcm = 1
+       AND v.date BETWEEN ? AND ? AND (? IS NULL OR v.gst_registration_id = ?) AND ${IN_BOOKS}`
+  ).all(from, to, registrationId ?? null, registrationId ?? null) as { voucherId: number; kind: string }[])
+    .filter((row) => row.kind !== 'debit_note' || !outwardDbn.has(row.voucherId))
+    .map((row) => row.voucherId)
+  const impgIds = [...new Set(purchaseSources.filter((row) => !row.partyRcm && (row.partyState === '96' || row.partyState === '97') && row.itcEligibility !== 'blocked').map((row) => row.voucherId))]
+  const blockedIds = [...new Set(purchaseSources.filter((row) => !row.partyRcm && row.itcEligibility === 'blocked').map((row) => row.voucherId))]
+  const othIds = [...new Set(purchaseSources.filter((row) => !row.partyRcm && row.partyState !== '96' && row.partyState !== '97' && row.itcEligibility !== 'blocked').map((row) => row.voucherId))]
+  const unique = (ids: number[]): number[] => [...new Set(ids)]
   return buildGstr3b(
     {
       docs,
-      itc: itcBreakdown(db, company, from, to),
-      rcmInward: rcmInwardSummary(db, company, from, to),
-      manual: getGst3bManual(db, period)
+      itc: itcBreakdown(db, company, from, to, registrationId),
+      rcmInward: rcmInwardSummary(db, company, from, to, registrationId),
+      manual: getGst3bManual(db, period, registrationId),
+      sourceVoucherIds: {
+        outward: docs.filter((doc) => !isZeroRatedTyp(doc.invTyp ?? 'R') && doc.items.some((item) => item.rate > 0)).map((doc) => doc.voucherId),
+        zeroRated: docs.filter((doc) => isZeroRatedTyp(doc.invTyp ?? 'R')).map((doc) => doc.voucherId),
+        nilExempt: docs.filter((doc) => (doc.nilLines?.length ?? 0) > 0 || doc.items.some((item) => item.rate === 0)).map((doc) => doc.voucherId),
+        rcm: rcmIds,
+        impg: impgIds,
+        isrc: rcmIds,
+        oth: othIds,
+        blocked: blockedIds,
+        netItc: unique([...impgIds, ...rcmIds, ...othIds])
+      }
     },
     company.gstin ?? '',
     period
   )
 }
 
+export type GstReturnType = 'gstr1' | 'gstr3b'
+
+export interface GstReturnStatus {
+  registrationId: number | null
+  returnType: GstReturnType
+  period: string
+  from: string
+  to: string
+  status: 'not_prepared' | 'prepared' | 'filed'
+  frozenAt: string | null
+  changedSinceFreeze: boolean
+  filedAt: string | null
+  arn: string | null
+  hasSubmittedJson: boolean
+}
+
+interface GstReturnPeriodRow {
+  id: number
+  registration_id: number | null
+  return_type: GstReturnType
+  period: string
+  from_date: string
+  to_date: string
+  frozen_at: string
+  snapshot_hash: string
+  status: 'prepared' | 'filed'
+  filed_at: string | null
+  arn: string | null
+  submitted_json: string | null
+}
+
+function returnPayload(db: DB, company: CompanyInfo, type: GstReturnType, from: string, to: string, period: string, registrationId?: number | null): Record<string, unknown> {
+  return type === 'gstr1'
+    ? gstr1(db, company, from, to, period, registrationId).json
+    : gstr3b(db, company, from, to, period, registrationId).json
+}
+
+function payloadHash(payload: Record<string, unknown>): string {
+  return createHash('sha256').update(JSON.stringify(payload)).digest('hex')
+}
+
+export function gstReturnStatus(db: DB, company: CompanyInfo, type: GstReturnType, from: string, to: string, period: string, registrationId?: number | null): GstReturnStatus {
+  const scope = registrationId ?? null
+  const row = db.prepare('SELECT * FROM gst_return_periods WHERE COALESCE(registration_id, 0) = COALESCE(?, 0) AND return_type = ? AND period = ?').get(scope, type, period) as GstReturnPeriodRow | undefined
+  if (!row) {
+    return { registrationId: scope, returnType: type, period, from, to, status: 'not_prepared', frozenAt: null, changedSinceFreeze: false, filedAt: null, arn: null, hasSubmittedJson: false }
+  }
+  const currentHash = payloadHash(returnPayload(db, company, type, from, to, period, scope))
+  return {
+    registrationId: row.registration_id,
+    returnType: type,
+    period,
+    from: row.from_date,
+    to: row.to_date,
+    status: row.status,
+    frozenAt: row.frozen_at,
+    changedSinceFreeze: currentHash !== row.snapshot_hash,
+    filedAt: row.filed_at,
+    arn: row.arn,
+    hasSubmittedJson: row.submitted_json !== null
+  }
+}
+
+/** Freeze the exact reviewed/exported JSON. Subsequent book edits are compared to its hash. */
+export function freezeGstReturn(db: DB, company: CompanyInfo, type: GstReturnType, from: string, to: string, period: string, registrationId?: number | null): GstReturnStatus {
+  const scope = registrationId ?? null
+  assertExportable(db, company, from, to, scope)
+  const existing = db.prepare('SELECT id, status FROM gst_return_periods WHERE COALESCE(registration_id, 0) = COALESCE(?, 0) AND return_type = ? AND period = ?').get(scope, type, period) as { id: number; status: string } | undefined
+  if (existing?.status === 'filed') throw new Error('This return is already marked filed. Keep its acknowledgement and prepare an amendment separately.')
+  const payload = returnPayload(db, company, type, from, to, period, scope)
+  const snapshot = JSON.stringify(payload)
+  const hash = payloadHash(payload)
+  let id: number
+  if (existing) {
+    db.prepare(
+      `UPDATE gst_return_periods SET from_date=?, to_date=?, frozen_at=datetime('now'), snapshot_hash=?,
+       snapshot_json=?, status='prepared', filed_at=NULL, arn=NULL, submitted_json=NULL WHERE id=?`
+    ).run(from, to, hash, snapshot, existing.id)
+    id = existing.id
+  } else {
+    id = Number(db.prepare(
+      `INSERT INTO gst_return_periods
+       (registration_id, return_type, period, from_date, to_date, frozen_at, snapshot_hash, snapshot_json, status)
+       VALUES (?, ?, ?, ?, ?, datetime('now'), ?, ?, 'prepared')`
+    ).run(scope, type, period, from, to, hash, snapshot).lastInsertRowid)
+  }
+  writeAudit(db, 'gst_return', id, existing ? 'update' : 'create', existing ?? null, { registrationId: scope, type, period, hash, status: 'prepared' })
+  return gstReturnStatus(db, company, type, from, to, period, scope)
+}
+
+/** Retain portal acknowledgement and the optional exact submitted JSON beside the frozen copy. */
+export function acknowledgeGstReturn(
+  db: DB,
+  company: CompanyInfo,
+  type: GstReturnType,
+  from: string,
+  to: string,
+  period: string,
+  input: { arn: string; filedAt: string; submittedJson: string | null },
+  registrationId?: number | null
+): GstReturnStatus {
+  const scope = registrationId ?? null
+  const row = db.prepare('SELECT id, status, arn, filed_at FROM gst_return_periods WHERE COALESCE(registration_id, 0) = COALESCE(?, 0) AND return_type = ? AND period = ?').get(scope, type, period) as { id: number; status: string; arn: string | null; filed_at: string | null } | undefined
+  if (!row) throw new Error('Prepare or export this return before marking it filed')
+  if (input.submittedJson) {
+    try { JSON.parse(input.submittedJson) } catch { throw new Error('Submitted return JSON is not valid JSON') }
+  }
+  db.prepare(
+    `UPDATE gst_return_periods SET status = 'filed', arn = ?, filed_at = ?, submitted_json = ?
+     WHERE id = ?`
+  ).run(input.arn.trim().toUpperCase(), input.filedAt, input.submittedJson, row.id)
+  writeAudit(db, 'gst_return', row.id, 'update', row, { status: 'filed', arn: input.arn.trim().toUpperCase(), filedAt: input.filedAt })
+  return gstReturnStatus(db, company, type, from, to, period, scope)
+}
+
 /** Pre-export validation over the period's extracted documents (G7 panel + export gate). */
-export function gstValidate(db: DB, company: CompanyInfo, from: string, to: string): GstIssue[] {
-  const docs = extractOutwardDocs(db, company, from, to)
+export function gstValidate(db: DB, company: CompanyInfo, from: string, to: string, registrationId?: number | null): GstIssue[] {
+  const docs = extractOutwardDocs(db, company, from, to, registrationId)
   return validateGstr1(docs, {
     stateCode: company.stateCode,
     gstin: company.gstin,
@@ -646,8 +807,8 @@ export function gstValidate(db: DB, company: CompanyInfo, from: string, to: stri
 /** Throw (with the issue list) when blocking issues exist — the server-side export gate.
  *  Guards BOTH return exports: GSTR-1 and GSTR-3B are computed from the same extracted
  *  documents, so a period the app knows is unsound must not export either JSON. */
-export function assertExportable(db: DB, company: CompanyInfo, from: string, to: string): void {
-  const blocking = gstValidate(db, company, from, to).filter((i) => i.severity === 'blocking')
+export function assertExportable(db: DB, company: CompanyInfo, from: string, to: string, registrationId?: number | null): void {
+  const blocking = gstValidate(db, company, from, to, registrationId).filter((i) => i.severity === 'blocking')
   if (blocking.length) {
     throw new Error(`GST export blocked: ${blocking.map((i) => i.message).join(' | ')}`)
   }
@@ -657,9 +818,10 @@ export function exportReturnJson(
   slug: string,
   name: 'gstr1' | 'gstr3b',
   period: string,
-  json: Record<string, unknown>
+  json: Record<string, unknown>,
+  gstin?: string | null
 ): string {
-  const path = join(companyExportsDir(slug), `${name}-${period}.json`)
+  const path = join(companyExportsDir(slug), `${name}-${period}${gstin ? `-${gstin}` : ''}.json`)
   writeFileSync(path, JSON.stringify(json, null, 2))
   return path
 }

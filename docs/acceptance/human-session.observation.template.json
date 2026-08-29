@@ -1,0 +1,30 @@
+{
+  "schema": 1,
+  "candidate": {
+    "artifactId": "",
+    "name": "",
+    "sha256": ""
+  },
+  "cohort": "bookkeeper",
+  "participantCode": "",
+  "startedAt": "",
+  "durationMinutes": 0,
+  "scenario": "",
+  "startingCompanyType": "retailer",
+  "result": "pending",
+  "pathTaken": [],
+  "expectedResultObserved": false,
+  "facilitatorTakeover": false,
+  "firstHesitation": "",
+  "errors": [],
+  "workarounds": [],
+  "findings": [
+    {
+      "severity": "P3",
+      "summary": "",
+      "reproduction": [],
+      "status": "open"
+    }
+  ],
+  "sanitizedEvidenceSha256": ""
+}

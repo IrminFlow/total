@@ -2,6 +2,7 @@ import { useQuery } from '@tanstack/react-query'
 import { api } from '../lib/client'
 import { useSession, useToasts } from '../state/stores'
 import { Button, EmptyState, Money, Panel, SectionTitle } from '../components/ui'
+import { ReportToolbar } from '../components/ReportToolbar'
 import { csvReport, printReport } from '../lib/reportExport'
 import type { ReportColumn as PdfColumn, ReportRow as PdfRow } from '../lib/client'
 import { toDisplayDate } from '@shared/dates'
@@ -48,9 +49,9 @@ function Section({ title, rows, total, leadRow }: {
 export function CashFlowScreen(): React.JSX.Element {
   const { from, to } = useSession()
   const toast = useToasts()
-  const { data } = useQuery({ queryKey: ['cashFlow', from, to], queryFn: () => api.reports.cashFlow(from, to) })
+  const { data } = useQuery({ queryKey: ['cashFlow', from, to], queryFn: ({ signal }) => api.reports.cashFlow(from, to, signal) })
 
-  const periodLabel = `${toDisplayDate(from)} → ${toDisplayDate(to)}`
+  const periodLabel = `${toDisplayDate(from)} to ${toDisplayDate(to)}`
   const hasAnything =
     data && (data.netProfit !== 0 || data.operating.length > 0 || data.investing.length > 0 || data.financing.length > 0 || data.netChange !== 0)
 
@@ -79,10 +80,13 @@ export function CashFlowScreen(): React.JSX.Element {
 
   return (
     <div className="mx-auto max-w-3xl">
-      <SectionTitle
-        right={
-          <div className="flex items-center gap-2">
-            <span className="num text-[12px] text-muted">{periodLabel}</span>
+      <SectionTitle>Cash flow statement</SectionTitle>
+      <ReportToolbar
+        ariaLabel="Cash flow report controls"
+        className="mb-3"
+        period={<span className="num text-[12px] text-muted">{periodLabel}</span>}
+        actions={
+          <>
             <Button
               variant="ghost"
               data-testid="cash-flow-pdf"
@@ -101,11 +105,9 @@ export function CashFlowScreen(): React.JSX.Element {
             >
               CSV
             </Button>
-          </div>
+          </>
         }
-      >
-        Cash flow statement
-      </SectionTitle>
+      />
       <Panel>
         {!data || !hasAnything ? (
           <EmptyState title="No cash movement in this period" hint="Post vouchers, then come back" />

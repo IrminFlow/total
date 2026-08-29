@@ -10,6 +10,7 @@ export interface BudgetLineRow {
   targetName: string
   ledgerId: number | null
   groupId: number | null
+  costCentreId?: number | null
   /** 'YYYY-MM' for a monthly line, null for an annual line (compared FY-to-date). */
   month: string | null
   /** Budgeted amount, paise. */
@@ -22,6 +23,7 @@ export interface BudgetLineRow {
  *  this module just sums whatever it's handed. */
 export interface ActualRow {
   ledgerId: number
+  costCentreId?: number | null
   /** 'YYYY-MM'. */
   month: string
   amount: number
@@ -47,6 +49,11 @@ function matchesTarget(ledgerId: number, line: BudgetLineRow, groupDescendants: 
   return false
 }
 
+function matchesActual(actual: ActualRow, line: BudgetLineRow, groupDescendants: Map<number, Set<number>>, costCentreDescendants: Map<number, Set<number>>): boolean {
+  if (line.costCentreId != null) return actual.costCentreId != null && (costCentreDescendants.get(line.costCentreId)?.has(actual.costCentreId) ?? actual.costCentreId===line.costCentreId)
+  return actual.costCentreId == null && matchesTarget(actual.ledgerId,line,groupDescendants)
+}
+
 /**
  * Variance for every line of one budget.
  * - Monthly lines (`month` set): actual = sum of actuals for that ledger/group in that exact month.
@@ -62,13 +69,14 @@ export function budgetVariance(
   lines: BudgetLineRow[],
   actuals: ActualRow[],
   groupDescendants: Map<number, Set<number>>,
-  upToMonth: string
+  upToMonth: string,
+  costCentreDescendants: Map<number, Set<number>> = new Map()
 ): BudgetVarianceRow[] {
   return lines.map((line) => {
     const relevant = line.month
       ? actuals.filter((a) => a.month === line.month)
       : actuals.filter((a) => a.month <= upToMonth)
-    const actual = relevant.filter((a) => matchesTarget(a.ledgerId, line, groupDescendants)).reduce((sum, a) => sum + a.amount, 0)
+    const actual = relevant.filter((a) => matchesActual(a, line, groupDescendants, costCentreDescendants)).reduce((sum, a) => sum + a.amount, 0)
     const budget = line.amount
     const variance = actual - budget
     const pct = budget === 0 ? null : Math.round((actual * 100) / budget)

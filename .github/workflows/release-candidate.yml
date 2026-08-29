@@ -1,0 +1,432 @@
+# Signed release candidate: build once, accept these exact bytes, then promote them
+# with release.yml. This workflow never creates a tag or GitHub release.
+name: Release candidate
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_revision:
+        description: Full commit SHA already merged to protected main
+        required: true
+        type: string
+      version:
+        description: Exact package version to build
+        required: true
+        type: string
+
+env:
+  RELEASE_VERSION: ${{ inputs.version }}
+  RELEASE_TAG: v${{ inputs.version }}
+  RELEASE_REVISION: ${{ inputs.source_revision }}
+
+permissions:
+  actions: read
+  contents: read
+
+concurrency:
+  group: release-candidate-${{ inputs.version }}
+  cancel-in-progress: false
+
+jobs:
+  release-gate:
+    runs-on: ubuntu-latest
+    concurrency:
+      group: production-synthetic-${{ github.repository }}
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+          ref: ${{ inputs.source_revision }}
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Require the exact candidate commit to be on main
+        shell: bash
+        run: |
+          [[ "$RELEASE_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || {
+            echo "Version must be an exact stable semantic version (for example, 5.0.0)." >&2
+            exit 1
+          }
+          git fetch origin main --no-tags
+          test "$(git rev-parse HEAD)" = "$RELEASE_REVISION" || {
+            echo "Checkout does not match the requested candidate revision." >&2
+            exit 1
+          }
+          git merge-base --is-ancestor "$RELEASE_REVISION" origin/main || {
+            echo "Candidate revision must already be merged into main." >&2
+            exit 1
+          }
+          test "$(node -p "require('./package.json').version")" = "$RELEASE_VERSION" || {
+            echo "Requested version does not match package.json at the candidate revision." >&2
+            exit 1
+          }
+
+      - name: Require successful CI for the exact candidate commit
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh api --method GET "repos/$GITHUB_REPOSITORY/actions/workflows/ci.yml/runs" \
+            -f head_sha="$RELEASE_REVISION" \
+            -f branch=main \
+            -f event=push \
+            -f per_page=100 > "$RUNNER_TEMP/ci-runs.json"
+          node scripts/ci-provenance-gate.mjs "$RUNNER_TEMP/ci-runs.json"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Validate tag and release configuration
+        run: npm run release:preflight
+
+      - name: Exercise production support and feedback on this deployment
+        run: npm run release:live -- --intake-evidence
+        env:
+          TOTAL_EXPECTED_SITE_REVISION: ${{ inputs.source_revision }}
+          TOTAL_DEPLOYMENT_WAIT_MS: 600000
+          TOTAL_SYNTHETIC_EMAIL: synthetic-release-gate@irminflow.invalid
+          TOTAL_REQUIRE_CANONICAL_REDIRECT: "1"
+          INTAKE_ADMIN_SECRET: ${{ secrets.INTAKE_ADMIN_SECRET }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+
+      - name: Require implementation and production-service readiness
+        run: npm run release:readiness -- --pre-artifact
+        env:
+          PRODUCTION_SERVICE_EVIDENCE: dist/production-services.json
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: release-production-services
+          if-no-files-found: error
+          path: dist/production-services.json
+
+  release-mac:
+    needs: release-gate
+    runs-on: macos-latest
+    environment: release-signing
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ inputs.source_revision }}
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Validate tag and release configuration
+        run: npm run release:preflight
+
+      - name: Require macOS signing and notarization credentials
+        shell: bash
+        env:
+          MAC_CSC_LINK: ${{ secrets.MAC_CSC_LINK }}
+          MAC_CSC_KEY_PASSWORD: ${{ secrets.MAC_CSC_KEY_PASSWORD }}
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+        run: |
+          for name in MAC_CSC_LINK MAC_CSC_KEY_PASSWORD APPLE_API_KEY APPLE_API_KEY_ID APPLE_API_ISSUER; do
+            if [ -z "${!name}" ]; then echo "Missing required release secret: $name" >&2; exit 1; fi
+          done
+
+      - name: Materialize App Store Connect API key
+        shell: bash
+        env:
+          APPLE_API_KEY_BASE64: ${{ secrets.APPLE_API_KEY }}
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+        run: |
+          key_path="$RUNNER_TEMP/AuthKey_${APPLE_API_KEY_ID}.p8"
+          APPLE_API_KEY_PATH="$key_path" node <<'NODE'
+          const fs = require('node:fs')
+          const encoded = process.env.APPLE_API_KEY_BASE64 ?? ''
+          const decoded = Buffer.from(encoded, 'base64')
+          const text = decoded.toString('utf8')
+          if (!/^-----BEGIN PRIVATE KEY-----\r?\n/.test(text) || !/\r?\n-----END PRIVATE KEY-----\r?\n?$/.test(text)) {
+            throw new Error('APPLE_API_KEY must be the base64 encoding of the complete App Store Connect .p8 file')
+          }
+          fs.writeFileSync(process.env.APPLE_API_KEY_PATH, decoded, { mode: 0o600 })
+          NODE
+          echo "APPLE_API_KEY=$key_path" >> "$GITHUB_ENV"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Electron runtime
+        timeout-minutes: 5
+        run: |
+          node node_modules/electron/install.js
+          node -e "const fs = require('node:fs'); const executable = require('electron'); if (!fs.existsSync(executable)) throw new Error('Electron runtime is missing')"
+
+      - name: Typecheck and complete test suite
+        run: npm run typecheck && npm test && npm run test:renderer && npm run test:db
+
+      - name: One-million-line performance and query-plan gate
+        run: npm run test:large
+
+      - name: Build application
+        run: npm run build
+
+      - name: Renderer bundle budget
+        run: npm run perf:bundle
+
+      - name: Hermetic IPC smoke test against the build
+        run: npm run smoke
+        env:
+          TOTAL_DATA_DIR: ${{ runner.temp }}/total-data
+          SMOKE_OUT: ${{ runner.temp }}/smoke
+
+      - name: Production startup budget
+        run: npm run perf:startup
+        env:
+          SMOKE_OUT: ${{ runner.temp }}/performance
+
+      - name: Large-workflow memory budget
+        timeout-minutes: 5
+        run: npm run perf:memory
+        env:
+          SMOKE_OUT: ${{ runner.temp }}/performance
+
+      - name: Build, sign and notarize universal DMG + ZIP
+        run: npx electron-builder --mac --universal --publish never --config.forceCodeSigning=true
+        env:
+          CSC_LINK: ${{ secrets.MAC_CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.MAC_CSC_KEY_PASSWORD }}
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+
+      - name: Verify signature, notarization, archives and packaged launch
+        run: npm run release:artifact -- mac
+
+      - name: Verify package contents, permissions, icon and updater metadata
+        run: npm run release:package-contract -- mac
+        env:
+          PACKAGE_CONTRACT_EVIDENCE: ${{ github.workspace }}/dist/package-contract-mac.json
+
+      - name: Install from DMG, post, backup, restore and uninstall
+        run: npm run release:install-smoke -- mac
+        env:
+          INSTALL_EVIDENCE: ${{ github.workspace }}/dist/install-evidence-mac.json
+
+      - name: Download the actual public v0.4 macOS build
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          mkdir -p "${RUNNER_TEMP}/total-v04"
+          gh release download v0.4.0 --repo "${GITHUB_REPOSITORY}" --pattern 'Total-0.4.0-arm64-mac.zip' --dir "${RUNNER_TEMP}/total-v04"
+          ditto -x -k "${RUNNER_TEMP}/total-v04/Total-0.4.0-arm64-mac.zip" "${RUNNER_TEMP}/total-v04/app"
+
+      - name: Upgrade real public v0.4 books to the candidate
+        run: npm run release:upgrade-smoke
+        env:
+          OLD_TOTAL_EXECUTABLE: ${{ runner.temp }}/total-v04/app/Total.app/Contents/MacOS/Total
+          PUBLIC_TOTAL_ARTIFACT: ${{ runner.temp }}/total-v04/Total-0.4.0-arm64-mac.zip
+          CURRENT_TOTAL_ARTIFACT_DIR: ${{ github.workspace }}/dist
+          UPGRADE_PLATFORM: mac
+          UPGRADE_EVIDENCE: ${{ github.workspace }}/dist/upgrade-evidence-mac.json
+
+      - name: Publication scorecard
+        run: npm run release:scorecard
+        env:
+          SMOKE_OUT: ${{ runner.temp }}/release-scorecard
+          RELEASE_SCORECARD_PLATFORM: mac
+          RELEASE_SCORECARD_NAME: release-scorecard-mac.json
+
+      - name: Record reproducible macOS build evidence
+        run: npm run release:evidence
+        env:
+          RELEASE_EVIDENCE_NAME: build-evidence-mac.json
+          RELEASE_MAC_SIGNING_VERIFIED: "1"
+          RELEASE_MAC_NOTARIZATION_VERIFIED: "1"
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: release-mac
+          if-no-files-found: error
+          path: |
+            dist/*.dmg
+            dist/*.dmg.blockmap
+            dist/*.zip
+            dist/*.zip.blockmap
+            dist/latest-mac.yml
+            dist/build-evidence-mac.json
+            dist/package-contract-mac.json
+            dist/install-evidence-mac.json
+            dist/release-scorecard-mac.json
+            dist/upgrade-evidence-mac.json
+
+  release-win:
+    needs: release-gate
+    runs-on: windows-latest
+    environment: release-signing
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ inputs.source_revision }}
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Validate tag and release configuration
+        run: npm run release:preflight
+
+      - name: Require Windows signing credentials
+        shell: bash
+        env:
+          WIN_CSC_LINK: ${{ secrets.WIN_CSC_LINK }}
+          WIN_CSC_KEY_PASSWORD: ${{ secrets.WIN_CSC_KEY_PASSWORD }}
+        run: |
+          for name in WIN_CSC_LINK WIN_CSC_KEY_PASSWORD; do
+            if [ -z "${!name}" ]; then echo "Missing required release secret: $name" >&2; exit 1; fi
+          done
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build and sign NSIS installer
+        run: npm run build && npx electron-builder --win --publish never --config.forceCodeSigning=true
+        env:
+          WIN_CSC_LINK: ${{ secrets.WIN_CSC_LINK }}
+          WIN_CSC_KEY_PASSWORD: ${{ secrets.WIN_CSC_KEY_PASSWORD }}
+
+      - name: Verify Authenticode signatures
+        shell: pwsh
+        run: |
+          $targets = @(Get-ChildItem dist -Filter *.exe)
+          $targets += Get-Item dist/win-unpacked/Total.exe
+          foreach ($target in $targets) {
+            $signature = Get-AuthenticodeSignature $target.FullName
+            if ($signature.Status -ne 'Valid') { throw "Invalid signature on $($target.FullName): $($signature.Status)" }
+          }
+
+      - name: Verify packaged launch
+        run: npm run release:artifact -- win
+
+      - name: Verify package contents, icon and updater metadata
+        run: npm run release:package-contract -- win
+        env:
+          PACKAGE_CONTRACT_EVIDENCE: ${{ github.workspace }}\dist\package-contract-win.json
+
+      - name: Install NSIS, post, backup, restore and uninstall
+        run: npm run release:install-smoke -- win
+        env:
+          INSTALL_EVIDENCE: ${{ github.workspace }}\dist\install-evidence-win.json
+
+      - name: Download and install the actual public v0.4 Windows build
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          New-Item -ItemType Directory -Force -Path "$env:RUNNER_TEMP\total-v04" | Out-Null
+          gh release download v0.4.0 --repo "$env:GITHUB_REPOSITORY" --pattern 'Total.Setup.0.4.0.exe' --dir "$env:RUNNER_TEMP\total-v04"
+          & "$env:RUNNER_TEMP\total-v04\Total.Setup.0.4.0.exe" /S "/D=$env:RUNNER_TEMP\total-v04\app"
+          if (-not (Test-Path "$env:RUNNER_TEMP\total-v04\app\Total.exe")) { throw 'Public v0.4 executable was not installed' }
+
+      - name: Upgrade real public v0.4 books to the candidate
+        run: npm run release:upgrade-smoke
+        env:
+          OLD_TOTAL_EXECUTABLE: ${{ runner.temp }}\total-v04\app\Total.exe
+          PUBLIC_TOTAL_ARTIFACT: ${{ runner.temp }}\total-v04\Total.Setup.0.4.0.exe
+          CURRENT_TOTAL_ARTIFACT_DIR: ${{ github.workspace }}\dist
+          UPGRADE_PLATFORM: win
+          UPGRADE_EVIDENCE: ${{ github.workspace }}\dist\upgrade-evidence-win.json
+
+      - name: Uninstall the public v0.4 test copy without touching its books
+        if: always()
+        shell: pwsh
+        run: |
+          $uninstaller = "$env:RUNNER_TEMP\total-v04\app\Uninstall Total.exe"
+          if (Test-Path $uninstaller) { & $uninstaller /S }
+
+      - name: Publication scorecard
+        run: npm run release:scorecard
+        env:
+          SMOKE_OUT: ${{ runner.temp }}/release-scorecard
+          RELEASE_SCORECARD_PLATFORM: win
+          RELEASE_SCORECARD_NAME: release-scorecard-win.json
+
+      - name: Record reproducible Windows build evidence
+        run: npm run release:evidence
+        env:
+          RELEASE_EVIDENCE_NAME: build-evidence-win.json
+          RELEASE_WINDOWS_SIGNING_VERIFIED: "1"
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: release-win
+          if-no-files-found: error
+          path: |
+            dist/*.exe
+            dist/*.exe.blockmap
+            dist/latest.yml
+            dist/build-evidence-win.json
+            dist/package-contract-win.json
+            dist/install-evidence-win.json
+            dist/release-scorecard-win.json
+            dist/upgrade-evidence-win.json
+
+  assemble-candidate:
+    needs: [release-mac, release-win]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ inputs.source_revision }}
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: 22
+
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          pattern: release-*
+          path: release
+          merge-multiple: true
+
+      - name: Require artifact-linked executed candidate evidence
+        run: node scripts/release-candidate-evidence.mjs
+        env:
+          RELEASE_CANDIDATE_EVIDENCE_DIR: ${{ github.workspace }}/release
+          RELEASE_REVISION: ${{ inputs.source_revision }}
+          RELEASE_TAG: v${{ inputs.version }}
+
+      - name: Validate cross-platform updater contract
+        run: npm run release:contract
+
+      - name: Create content-addressed candidate manifest
+        run: node scripts/candidate-manifest.mjs create release
+        env:
+          RELEASE_REVISION: ${{ inputs.source_revision }}
+          RELEASE_VERSION: ${{ inputs.version }}
+          RELEASE_WORKFLOW_RUN_ID: ${{ github.run_id }}
+          RELEASE_WORKFLOW_RUN_ATTEMPT: ${{ github.run_attempt }}
+          RELEASE_REPOSITORY: ${{ github.repository }}
+
+      - name: Upload immutable signed candidate bundle
+        id: candidate-upload
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: release-candidate-${{ inputs.version }}-${{ inputs.source_revision }}-${{ github.run_id }}-${{ github.run_attempt }}
+          if-no-files-found: error
+          retention-days: 90
+          path: release
+
+      - name: Record candidate identity
+        shell: bash
+        run: |
+          manifest_sha="$(sha256sum release/candidate-manifest.json | cut -d' ' -f1)"
+          {
+            echo "### Signed candidate"
+            echo "- Revision: \`$RELEASE_REVISION\`"
+            echo "- Version: \`$RELEASE_VERSION\`"
+            echo "- Run: \`${{ github.run_id }}\`, attempt \`${{ github.run_attempt }}\`"
+            echo "- Artifact ID: \`${{ steps.candidate-upload.outputs.artifact-id }}\`"
+            echo "- Manifest SHA-256: \`$manifest_sha\`"
+          } >> "$GITHUB_STEP_SUMMARY"

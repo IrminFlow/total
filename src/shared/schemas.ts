@@ -1,21 +1,25 @@
-import { z } from 'zod'
-import { GST_STATES } from './gst/states'
-import { validateGstin } from './gst/validate'
-import { isUqc } from './gst/uqc'
-import { PT_STATES } from './payroll'
+import { z } from "zod";
+import { GST_STATES } from "./gst/states";
+import { validateGstin } from "./gst/validate";
+import { isUqc } from "./gst/uqc";
+import { PT_STATES } from "./payroll";
 
-export const isoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Expected YYYY-MM-DD')
+export const isoDate = z
+  .string()
+  .regex(/^\d{4}-\d{2}-\d{2}$/, "Expected YYYY-MM-DD");
 
-export const stateCodeSchema = z.string().refine((s) => s in GST_STATES, 'Unknown GST state code')
+export const stateCodeSchema = z
+  .string()
+  .refine((s) => s in GST_STATES, "Unknown GST state code");
 
 export const gstinSchema = z
   .string()
   .transform((s) => s.trim().toUpperCase())
-  .refine((s) => validateGstin(s).valid, 'Invalid GSTIN')
+  .refine((s) => validateGstin(s).valid, "Invalid GSTIN");
 
-const paise = z.number().int().safe()
-const positivePaise = paise.positive()
-const id = z.number().int().positive()
+const paise = z.number().int().safe();
+const positivePaise = paise.positive();
+const id = z.number().int().positive();
 
 /** Optional identifier field: uppercases, treats an empty/blank string as absent (null), and
  *  regex-validates whatever's left. Used for PAN/TAN, which are optional on a company. */
@@ -27,31 +31,45 @@ const optionalIdSchema = (regex: RegExp, message: string) =>
     .nullable()
     .optional()
     .default(null)
-    .transform((s) => (s === '' ? null : s))
-    .refine((s) => s === null || regex.test(s), message)
+    .transform((s) => (s === "" ? null : s))
+    .refine((s) => s === null || regex.test(s), message);
 
-export const panSchema = optionalIdSchema(/^[A-Z]{5}\d{4}[A-Z]$/, 'Invalid PAN')
-export const tanSchema = optionalIdSchema(/^[A-Z]{4}\d{5}[A-Z]$/, 'Invalid TAN')
+export const panSchema = optionalIdSchema(
+  /^[A-Z]{5}\d{4}[A-Z]$/,
+  "Invalid PAN",
+);
+export const tanSchema = optionalIdSchema(
+  /^[A-Z]{4}\d{5}[A-Z]$/,
+  "Invalid TAN",
+);
 
 export const companyCreateSchema = z.object({
   name: z.string().trim().min(1).max(120),
   stateCode: stateCodeSchema,
   gstin: gstinSchema.nullable(),
-  gstRegistrationType: z.enum(['regular', 'composition', 'unregistered']),
-  address: z.string().trim().max(500).default(''),
+  gstRegistrationType: z.enum(["regular", "composition", "unregistered"]),
+  address: z.string().trim().max(500).default(""),
   booksFrom: z.number().int().min(1990).max(2100),
   email: z.string().trim().email().nullable(),
   phone: z.string().trim().max(20).nullable(),
   pan: panSchema,
-  tan: tanSchema
-})
-export type CompanyCreateInput = z.infer<typeof companyCreateSchema>
+  tan: tanSchema,
+});
+export type CompanyCreateInput = z.infer<typeof companyCreateSchema>;
+
+/** Canonical on-disk company directory identifier. This intentionally does not trim or transform:
+ * existing-company operations must receive the exact registered slug, never a path fragment. */
+export const companySlugSchema = z
+  .string()
+  .min(1)
+  .max(60)
+  .regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/, "Invalid company identifier");
 
 export const groupInputSchema = z.object({
   name: z.string().trim().min(1).max(120),
-  parentId: id
-})
-export type GroupInput = z.infer<typeof groupInputSchema>
+  parentId: id,
+});
+export type GroupInput = z.infer<typeof groupInputSchema>;
 
 export const ledgerInputSchema = z.object({
   name: z.string().trim().min(1).max(120),
@@ -60,26 +78,33 @@ export const ledgerInputSchema = z.object({
   gstin: gstinSchema.nullable().default(null),
   stateCode: stateCodeSchema.nullable().default(null),
   address: z.string().trim().max(500).nullable().default(null),
-  taxType: z.enum(['cgst', 'sgst', 'igst', 'cess']).nullable().default(null),
+  email: z.string().trim().email().max(200).nullable().default(null),
+  phone: z.string().trim().regex(/^\+?[0-9]{7,15}$/, "Enter a valid phone number").nullable().default(null),
+  taxType: z.enum(["cgst", "sgst", "igst", "cess"]).nullable().default(null),
   gstRate: z.number().min(0).max(100).nullable().default(null),
   hsn: z.string().trim().nullable().default(null),
   tdsSectionId: id.nullable().default(null),
   pan: panSchema,
   creditDays: z.number().int().min(0).max(365).nullable().default(null),
-  exportType: z.enum(['sez_wp', 'sez_wop', 'exp_wp', 'exp_wop']).nullable().default(null),
+  exportType: z
+    .enum(["sez_wp", "sez_wop", "exp_wp", "exp_wop"])
+    .nullable()
+    .default(null),
   /** Reverse charge applies to this party's supplies (GSTR-1 rchrg / GSTR-3B 3.1(d)). */
   rcm: z.boolean().default(false),
   /** ITC eligibility class for purchases from this party — 'blocked' lands in 3B 4(D). */
-  itcEligibility: z.enum(['eligible', 'blocked', 'capital_goods', 'input_services']).default('eligible'),
+  itcEligibility: z
+    .enum(["eligible", "blocked", "capital_goods", "input_services"])
+    .default("eligible"),
   /** Price level whose rates prefill this party's invoice lines; absent/null = item base rate. */
   priceLevelId: id.nullable().optional(),
   /** Credit limit in paise; absent/null = no limit. */
-  creditLimit: paise.min(0).nullable().optional()
-})
+  creditLimit: paise.min(0).nullable().optional(),
+});
 /** Unparsed shape (defaults optional) — createLedger/updateLedger parse internally, so direct
  *  service callers (tests, importers) don't have to spell out every defaulted field. */
-export type LedgerInput = z.input<typeof ledgerInputSchema>
-export type LedgerInputParsed = z.infer<typeof ledgerInputSchema>
+export type LedgerInput = z.input<typeof ledgerInputSchema>;
+export type LedgerInputParsed = z.infer<typeof ledgerInputSchema>;
 
 export const unitInputSchema = z.object({
   name: z.string().trim().min(1).max(60),
@@ -93,15 +118,15 @@ export const unitInputSchema = z.object({
     .min(2)
     .max(8)
     .transform((s) => s.toUpperCase())
-    .refine((s) => isUqc(s), 'Not a valid GST portal UQC code')
-})
-export type UnitInput = z.infer<typeof unitInputSchema>
+    .refine((s) => isUqc(s), "Not a valid GST portal UQC code"),
+});
+export type UnitInput = z.infer<typeof unitInputSchema>;
 
 export const stockGroupInputSchema = z.object({
   name: z.string().trim().min(1).max(120),
-  parentId: id.nullable().default(null)
-})
-export type StockGroupInput = z.infer<typeof stockGroupInputSchema>
+  parentId: id.nullable().default(null),
+});
+export type StockGroupInput = z.infer<typeof stockGroupInputSchema>;
 
 export const stockItemInputSchema = z.object({
   name: z.string().trim().min(1).max(120),
@@ -118,44 +143,45 @@ export const stockItemInputSchema = z.object({
     .max(64)
     .nullable()
     .default(null)
-    .transform((s) => (s === '' ? null : s)),
+    .transform((s) => (s === "" ? null : s)),
   /** Reorder level in integer thousandths; null = no reorder alert (v0.3 #58). */
   reorderLevelMilli: z.number().int().min(0).nullable().default(null),
   /** Absent = keep existing (update) / 'weighted_avg' (create). */
-  valuationMethod: z.enum(['weighted_avg', 'fifo']).optional()
-})
-export type StockItemInput = z.infer<typeof stockItemInputSchema>
+  valuationMethod: z.enum(["weighted_avg", "fifo"]).optional(),
+});
+export type StockItemInput = z.infer<typeof stockItemInputSchema>;
 
 export const godownInputSchema = z.object({
   name: z.string().trim().min(1).max(120),
-  address: z.string().trim().max(500).nullable().optional()
-})
-export type GodownInput = z.infer<typeof godownInputSchema>
+  address: z.string().trim().max(500).nullable().optional(),
+  gstRegistrationId: id.nullable().optional(),
+});
+export type GodownInput = z.infer<typeof godownInputSchema>;
 
 export const costAllocationSchema = z.object({
   costCentreId: id,
-  amount: positivePaise
-})
+  amount: positivePaise,
+});
 
 export const voucherLineSchema = z.object({
   ledgerId: id,
-  drCr: z.enum(['dr', 'cr']),
+  drCr: z.enum(["dr", "cr"]),
   amount: positivePaise,
-  costAllocations: z.array(costAllocationSchema).max(20).default([])
-})
+  costAllocations: z.array(costAllocationSchema).max(20).default([]),
+});
 
 export const billRefSchema = z.object({
-  kind: z.enum(['new', 'against']),
+  kind: z.enum(["new", "against"]),
   name: z.string().trim().min(1).max(80),
   amount: positivePaise,
-  dueDate: isoDate.nullable().default(null)
-})
+  dueDate: isoDate.nullable().default(null),
+});
 
 export const tdsSchema = z.object({
   sectionId: id,
   baseAmount: positivePaise,
-  tdsAmount: positivePaise
-})
+  tdsAmount: positivePaise,
+});
 
 export const inventoryLineSchema = z
   .object({
@@ -170,17 +196,18 @@ export const inventoryLineSchema = z
      *  so existing callers that never heard of discounts keep compiling and working. */
     discountPaise: paise.min(0).optional(),
     amount: paise.min(0),
-    direction: z.enum(['in', 'out']),
+    direction: z.enum(["in", "out"]),
     /** Physical Stock line: qtyMilli is the counted closing quantity, not a movement. */
-    isAbsolute: z.boolean().optional()
+    isAbsolute: z.boolean().optional(),
   })
   .refine((l) => l.isAbsolute || l.qtyMilli > 0, {
-    message: 'Inventory quantity must be positive',
-    path: ['qtyMilli']
-  })
+    message: "Inventory quantity must be positive",
+    path: ["qtyMilli"],
+  });
 
 export const voucherInputSchema = z.object({
   voucherTypeId: id,
+  gstRegistrationId: id.nullable().optional(),
   date: isoDate,
   number: z.string().trim().max(40).optional(),
   partyLedgerId: id.nullable().default(null),
@@ -190,10 +217,22 @@ export const voucherInputSchema = z.object({
   instrumentDate: isoDate.nullable().default(null),
   transporterId: z.string().trim().max(20).nullable().default(null),
   vehicleNo: z.string().trim().max(20).nullable().default(null),
-  transportDistanceKm: z.number().int().min(0).max(10000).nullable().default(null),
+  transportDistanceKm: z
+    .number()
+    .int()
+    .min(0)
+    .max(10000)
+    .nullable()
+    .default(null),
   /** Place-of-supply override (two-digit state code) for GST returns; null = party/company state. */
   posOverride: stateCodeSchema.nullable().default(null),
-  currencyCode: z.string().trim().length(3).transform((s) => s.toUpperCase()).nullable().default(null),
+  currencyCode: z
+    .string()
+    .trim()
+    .length(3)
+    .transform((s) => s.toUpperCase())
+    .nullable()
+    .default(null),
   exchangeRate: z.number().positive().max(100000).nullable().default(null),
   /** Post-dated: kept out of the books until the date arrives (auto-matures on company open). */
   postDated: z.boolean().optional(),
@@ -202,98 +241,150 @@ export const voucherInputSchema = z.object({
   lines: z.array(voucherLineSchema).max(200),
   inventory: z.array(inventoryLineSchema).max(200).default([]),
   billRefs: z.array(billRefSchema).max(50).default([]),
-  tds: tdsSchema.nullable().default(null)
-})
-export type VoucherInputParsed = z.infer<typeof voucherInputSchema>
+  tds: tdsSchema.nullable().default(null),
+});
+export type VoucherInputParsed = z.infer<typeof voucherInputSchema>;
 /** Unparsed shape (defaults optional) — saveVoucher parses internally. */
-export type VoucherInput = z.input<typeof voucherInputSchema>
+export type VoucherInput = z.input<typeof voucherInputSchema>;
 
 export const voucherTypeInputSchema = z.object({
   name: z.string().trim().min(1).max(60),
   kind: z.enum([
-    'contra', 'payment', 'receipt', 'journal', 'sales',
-    'purchase', 'credit_note', 'debit_note', 'stock_journal', 'physical_stock'
+    "contra",
+    "payment",
+    "receipt",
+    "journal",
+    "sales",
+    "purchase",
+    "credit_note",
+    "debit_note",
+    "stock_journal",
+    "physical_stock",
   ]),
-  numbering: z.enum(['auto', 'manual']).default('auto'),
-  prefix: z.string().trim().max(20).default(''),
-  suffix: z.string().trim().max(20).default(''),
+  numbering: z.enum(["auto", "manual"]).default("auto"),
+  prefix: z.string().trim().max(20).default(""),
+  suffix: z.string().trim().max(20).default(""),
   padWidth: z.number().int().min(0).max(8).default(0),
-  restartFy: z.boolean().default(true)
-})
-export type VoucherTypeInput = z.infer<typeof voucherTypeInputSchema>
+  restartFy: z.boolean().default(true),
+  gstRegistrationId: id.nullable().optional(),
+});
+export type VoucherTypeInput = z.infer<typeof voucherTypeInputSchema>;
 
-export const periodSchema = z.object({ from: isoDate, to: isoDate })
-export type Period = z.infer<typeof periodSchema>
+export const periodSchema = z.object({ from: isoDate, to: isoDate });
+export type Period = z.infer<typeof periodSchema>;
 
 export const consolidatedRunSchema = z.object({
-  slugs: z.array(z.string().trim().min(1)).min(1).max(20),
-  kind: z.enum(['tb', 'pnl']),
+  slugs: z.array(companySlugSchema).min(1).max(20),
+  kind: z.enum(["tb", "pnl"]),
   from: isoDate,
-  to: isoDate
-})
-export type ConsolidatedRunInput = z.infer<typeof consolidatedRunSchema>
+  to: isoDate,
+  translationRates: z
+    .record(z.string(), z.number().positive().max(1_000_000))
+    .default({}),
+  eliminations: z
+    .array(
+      z.object({
+        name: z.string().trim().min(1).max(120),
+        group: z.string().trim().min(1).max(120),
+        amount: z.number().int(),
+        reason: z.string().trim().min(1).max(500),
+      }),
+    )
+    .max(200)
+    .default([]),
+});
+export type ConsolidatedRunInput = z.infer<typeof consolidatedRunSchema>;
 
-export const gstr2bSchema = z.object({ jsonText: z.string().min(2), from: isoDate, to: isoDate })
-export type Gstr2bInput = z.infer<typeof gstr2bSchema>
+export const gstr2bSchema = z.object({
+  jsonText: z.string().min(2),
+  from: isoDate,
+  to: isoDate,
+});
+export type Gstr2bInput = z.infer<typeof gstr2bSchema>;
 
 export const currencyInputSchema = z.object({
-  code: z.string().trim().length(3).transform((s) => s.toUpperCase()),
+  code: z
+    .string()
+    .trim()
+    .length(3)
+    .transform((s) => s.toUpperCase()),
   symbol: z.string().trim().min(1).max(4),
   name: z.string().trim().min(1).max(60),
-  decimals: z.number().int().min(0).max(4).default(2)
-})
-export type CurrencyInput = z.infer<typeof currencyInputSchema>
+  decimals: z.number().int().min(0).max(4).default(2),
+});
+export type CurrencyInput = z.infer<typeof currencyInputSchema>;
 
 export const employeeInputSchema = z.object({
   name: z.string().trim().min(1).max(120),
   code: z.string().trim().max(30).nullable().default(null),
   designation: z.string().trim().max(80).nullable().default(null),
   joined: isoDate.nullable().default(null),
-  pan: z.string().trim().max(10).transform((s) => s.toUpperCase()).nullable().default(null),
+  pan: z
+    .string()
+    .trim()
+    .max(10)
+    .transform((s) => s.toUpperCase())
+    .nullable()
+    .default(null),
   uan: z.string().trim().max(20).nullable().default(null),
   esicNo: z.string().trim().max(20).nullable().default(null),
+  bankAccount: z.string().trim().max(40).nullable().default(null),
+  bankIfsc: z.string().trim().max(20).nullable().default(null),
+  department: z.string().trim().max(80).nullable().default(null),
+  exitDate: isoDate.nullable().default(null),
   basic: z.number().int().min(0),
   hra: z.number().int().min(0).default(0),
   special: z.number().int().min(0).default(0),
   pfEnabled: z.boolean().default(true),
   esiEnabled: z.boolean().default(true),
   ptEnabled: z.boolean().default(true),
-  ptState: z.enum(PT_STATES).default('MH'),
-  active: z.boolean().default(true)
-})
-export type EmployeeInput = z.infer<typeof employeeInputSchema>
+  ptState: z.enum(PT_STATES).default("MH"),
+  active: z.boolean().default(true),
+});
+export type EmployeeInput = z.infer<typeof employeeInputSchema>;
 /** What the renderer actually sends (defaulted fields optional) — keeps older forms compiling. */
-export type EmployeeInputPayload = z.input<typeof employeeInputSchema>
+export type EmployeeInputPayload = z.input<typeof employeeInputSchema>;
 
 export const bomLineInputSchema = z.object({
   componentId: z.number().int().positive(),
-  qtyMilliPerUnit: z.number().int().positive()
-})
+  qtyMilliPerUnit: z.number().int().positive(),
+});
 export const bomInputSchema = z.object({
   itemId: z.number().int().positive(),
-  lines: z.array(bomLineInputSchema).max(100)
-})
-export type BomInput = z.infer<typeof bomInputSchema>
+  lines: z.array(bomLineInputSchema).max(100),
+});
+export type BomInput = z.infer<typeof bomInputSchema>;
 
 /** NIC live-filing credentials, stored per company in the meta table. */
 export const nicCredentialsSchema = z.object({
-  mode: z.enum(['einvoice', 'ewb']).optional(),
-  baseUrlEinvoice: z.string().trim().url().or(z.literal('')).default(''),
-  baseUrlEwb: z.string().trim().url().or(z.literal('')).default(''),
-  username: z.string().trim().default(''),
-  password: z.string().default(''),
-  clientId: z.string().trim().default(''),
-  clientSecret: z.string().trim().default(''),
+  mode: z.enum(["einvoice", "ewb"]).optional(),
+  baseUrlEinvoice: z.string().trim().url().or(z.literal("")).default(""),
+  baseUrlEwb: z.string().trim().url().or(z.literal("")).default(""),
+  username: z.string().trim().default(""),
+  password: z.string().default(""),
+  clientId: z.string().trim().default(""),
+  clientSecret: z.string().trim().default(""),
   /** NIC RSA public key PEM used to encrypt password/app key during auth. */
-  publicKeyPem: z.string().trim().default('')
-})
-export type NicCredentials = z.infer<typeof nicCredentialsSchema>
+  publicKeyPem: z.string().trim().default(""),
+});
+export type NicCredentials = z.infer<typeof nicCredentialsSchema>;
 
 /** Backup filename as offered back by backup:list — no path traversal. */
-export const backupFileSchema = z.string().regex(/^[A-Za-z0-9._-]+\.db$/, 'Invalid backup filename')
+export const backupFileSchema = z
+  .string()
+  .regex(/^[A-Za-z0-9._-]+\.db$/, "Invalid backup filename");
 
 /** Passphrase for encrypted export/import. */
-export const passphraseSchema = z.string().min(8, 'Passphrase must be at least 8 characters')
+export const passphraseSchema = z
+  .string()
+  .min(12, "Passphrase must be at least 12 characters")
+  .max(200)
+  .refine(
+    (value) =>
+      value.length >= 16 ||
+      [/[a-z]/.test(value), /[A-Z]/.test(value), /\d/.test(value), /[^A-Za-z0-9]/.test(value)].filter(Boolean).length >= 3,
+    "Use 16+ characters or combine at least three of uppercase, lowercase, numbers and symbols",
+  );
 
 /** audit:list query — entity/date range are optional filters; page is server-paged at 100 rows. */
 export const auditListSchema = z.object({
@@ -302,102 +393,117 @@ export const auditListSchema = z.object({
   to: isoDate.optional(),
   page: z.number().int().min(0).default(0),
   /** Rows per page; server defaults to AUDIT_PAGE_SIZE (100) when absent. */
-  pageSize: z.number().int().min(10).max(500).optional()
-})
-export type AuditListInput = z.infer<typeof auditListSchema>
+  pageSize: z.number().int().min(10).max(500).optional(),
+});
+export type AuditListInput = z.infer<typeof auditListSchema>;
 
 // ---------- lane Q: audit retention + batch invoice PDF ----------
 
 /** config:audit:set — days of audit history to keep, or null = keep forever (the default). */
 export const auditRetentionSchema = z.object({
-  keepDays: z.number().int().min(30).max(3650).nullable()
-})
-export type AuditRetentionInput = z.infer<typeof auditRetentionSchema>
+  keepDays: z.number().int().min(30).max(3650).nullable(),
+});
+export type AuditRetentionInput = z.infer<typeof auditRetentionSchema>;
 
 /** invoice:pdfBatch — render several sales invoices into one exports folder, sequentially. */
 export const invoicePdfBatchSchema = z.object({
-  voucherIds: z.array(id).min(1).max(500)
-})
-export type InvoicePdfBatchInput = z.infer<typeof invoicePdfBatchSchema>
+  voucherIds: z.array(id).min(1).max(500),
+});
+export type InvoicePdfBatchInput = z.infer<typeof invoicePdfBatchSchema>;
 
 /** search:global input — ⌘K global search query (min 1 so an empty string is rejected outright;
  *  the palette itself gates the IPC call to 2+ chars). */
 export const searchGlobalSchema = z.object({
-  q: z.string().trim().min(1).max(80)
-})
-export type SearchGlobalInput = z.infer<typeof searchGlobalSchema>
+  q: z.string().trim().min(1).max(80),
+});
+export type SearchGlobalInput = z.infer<typeof searchGlobalSchema>;
 
 /** users:save input — pin is digits-only, 4-12 long; required on create, optional on update
  *  (an update without a pin keeps the existing hash). Role requests are honored except for the
  *  very first user of a company, which the service always forces to 'owner'. */
 export const userInputSchema = z.object({
   name: z.string().trim().min(1).max(60),
-  role: z.enum(['owner', 'accountant', 'viewer']),
-  pin: z.string().regex(/^\d{4,12}$/, 'PIN must be 4-12 digits').optional(),
-  active: z.boolean().default(true)
-})
-export type UserInput = z.infer<typeof userInputSchema>
+  role: z.enum(["owner", "accountant", "viewer"]),
+  pin: z
+    .string()
+    .regex(/^\d{4,12}$/, "PIN must be 4-12 digits")
+    .optional(),
+  active: z.boolean().default(true),
+  accessExpiresAt: z.string().datetime().nullable().default(null),
+});
+export type UserInput = z.infer<typeof userInputSchema>;
 
 /** auth:login input. */
 export const authLoginSchema = z.object({
   userId: id,
-  pin: z.string().min(1).max(20)
-})
-export type AuthLoginInput = z.infer<typeof authLoginSchema>
+  pin: z.string().min(1).max(20),
+});
+export type AuthLoginInput = z.infer<typeof authLoginSchema>;
 
 /** Renderer-side crash report sent to the main process for logging. */
 export const rendererLogSchema = z.object({
   message: z.string(),
   stack: z.string().optional(),
   componentStack: z.string().optional(),
-  screen: z.string().optional()
-})
-export type RendererLogInput = z.infer<typeof rendererLogSchema>
+  screen: z.string().optional(),
+});
+export type RendererLogInput = z.infer<typeof rendererLogSchema>;
 
 // ---------- TDS ----------
 
 export const tdsSectionInputSchema = z.object({
   id: id.optional(),
-  code: z.string().trim().min(1).max(20).transform((s) => s.toUpperCase()),
+  code: z
+    .string()
+    .trim()
+    .min(1)
+    .max(20)
+    .transform((s) => s.toUpperCase()),
   description: z.string().trim().min(1).max(200),
   rate: z.number().min(0).max(100),
   thresholdSingle: paise.min(0).default(0),
-  thresholdAnnual: paise.min(0).default(0)
-})
-export type TdsSectionInput = z.infer<typeof tdsSectionInputSchema>
+  thresholdAnnual: paise.min(0).default(0),
+});
+export type TdsSectionInput = z.infer<typeof tdsSectionInputSchema>;
 
 export const tdsSuggestSchema = z.object({
   partyLedgerId: id,
   base: positivePaise,
-  date: isoDate
-})
-export type TdsSuggestInput = z.infer<typeof tdsSuggestSchema>
+  date: isoDate,
+});
+export type TdsSuggestInput = z.infer<typeof tdsSuggestSchema>;
 
-export const tdsSummarySchema = z.object({ fyStartYear: z.number().int().min(1990).max(2100) })
-export type TdsSummaryInput = z.infer<typeof tdsSummarySchema>
+export const tdsSummarySchema = z.object({
+  fyStartYear: z.number().int().min(1990).max(2100),
+});
+export type TdsSummaryInput = z.infer<typeof tdsSummarySchema>;
 
 export const tdsExport26qSchema = z.object({
   fyStartYear: z.number().int().min(1990).max(2100),
-  quarter: z.number().int().min(1).max(4)
-})
-export type TdsExport26qInput = z.infer<typeof tdsExport26qSchema>
+  quarter: z.number().int().min(1).max(4),
+});
+export type TdsExport26qInput = z.infer<typeof tdsExport26qSchema>;
 
 // ---------- cost centres ----------
 
 export const costCentreInputSchema = z.object({
   name: z.string().trim().min(1).max(120),
   parentId: id.nullable().default(null),
-  active: z.boolean().default(true)
-})
-export type CostCentreInput = z.infer<typeof costCentreInputSchema>
+  active: z.boolean().default(true),
+});
+export type CostCentreInput = z.infer<typeof costCentreInputSchema>;
 
-export const ccStatementSchema = z.object({ ccId: id, from: isoDate, to: isoDate })
-export type CcStatementInput = z.infer<typeof ccStatementSchema>
+export const ccStatementSchema = z.object({
+  ccId: id,
+  from: isoDate,
+  to: isoDate,
+});
+export type CcStatementInput = z.infer<typeof ccStatementSchema>;
 
 // ---------- outstandings / bill reminders ----------
 
-export const billsOpenSchema = z.object({ partyLedgerId: id, asOn: isoDate })
-export type BillsOpenInput = z.infer<typeof billsOpenSchema>
+export const billsOpenSchema = z.object({ partyLedgerId: id, asOn: isoDate });
+export type BillsOpenInput = z.infer<typeof billsOpenSchema>;
 
 // ---------- recurring vouchers ----------
 
@@ -408,21 +514,21 @@ export const recurringInputSchema = z
   .object({
     name: z.string().trim().min(1).max(60),
     voucherJson: z.string().min(2),
-    cadence: z.enum(['monthly', 'weekly']),
+    cadence: z.enum(["monthly", "weekly"]),
     dayOfMonth: z.number().int().min(1).max(31).optional(),
     weekday: z.number().int().min(0).max(6).optional(),
     nextDue: isoDate,
-    active: z.boolean().default(true)
+    active: z.boolean().default(true),
   })
-  .refine((v) => v.cadence !== 'monthly' || v.dayOfMonth != null, {
-    message: 'dayOfMonth is required for a monthly cadence',
-    path: ['dayOfMonth']
+  .refine((v) => v.cadence !== "monthly" || v.dayOfMonth != null, {
+    message: "dayOfMonth is required for a monthly cadence",
+    path: ["dayOfMonth"],
   })
-  .refine((v) => v.cadence !== 'weekly' || v.weekday != null, {
-    message: 'weekday is required for a weekly cadence',
-    path: ['weekday']
-  })
-export type RecurringInput = z.infer<typeof recurringInputSchema>
+  .refine((v) => v.cadence !== "weekly" || v.weekday != null, {
+    message: "weekday is required for a weekly cadence",
+    path: ["weekday"],
+  });
+export type RecurringInput = z.infer<typeof recurringInputSchema>;
 
 // ---------- budgets ----------
 
@@ -432,54 +538,79 @@ export const budgetLineInputSchema = z
   .object({
     ledgerId: id.nullable().default(null),
     groupId: id.nullable().default(null),
+    costCentreId: id.nullable().default(null),
     /** 'YYYY-MM' within the budget's FY, or null for an annual line. */
     month: z
       .string()
-      .regex(/^\d{4}-\d{2}$/, 'Expected YYYY-MM')
+      .regex(/^\d{4}-\d{2}$/, "Expected YYYY-MM")
       .nullable()
       .default(null),
-    amount: positivePaise
+    amount: positivePaise,
   })
-  .refine((v) => (v.ledgerId == null) !== (v.groupId == null), {
-    message: 'Each budget line must target exactly one of a ledger or a group',
-    path: ['ledgerId']
-  })
-export type BudgetLineInput = z.infer<typeof budgetLineInputSchema>
+  .refine(
+    (v) =>
+      [v.ledgerId, v.groupId, v.costCentreId].filter((value) => value != null)
+        .length === 1,
+    {
+      message:
+        "Each budget line must target exactly one ledger, group or cost centre",
+      path: ["ledgerId"],
+    },
+  );
+export type BudgetLineInput = z.input<typeof budgetLineInputSchema>;
 
 export const budgetInputSchema = z.object({
   name: z.string().trim().min(1).max(60),
   fyStartYear: z.number().int().min(1990).max(2100),
-  lines: z.array(budgetLineInputSchema).max(200)
-})
-export type BudgetInput = z.infer<typeof budgetInputSchema>
+  lines: z.array(budgetLineInputSchema).max(200),
+});
+export type BudgetInput = z.input<typeof budgetInputSchema>;
 
 export const budgetVarianceSchema = z.object({
   budgetId: id,
   /** 'YYYY-MM' — annual lines report FY-to-date actuals through this month. */
-  upToMonth: z.string().regex(/^\d{4}-\d{2}$/, 'Expected YYYY-MM')
-})
-export type BudgetVarianceInput = z.infer<typeof budgetVarianceSchema>
+  upToMonth: z.string().regex(/^\d{4}-\d{2}$/, "Expected YYYY-MM"),
+});
+export type BudgetVarianceInput = z.infer<typeof budgetVarianceSchema>;
 
 // ---------- bank rules (auto-categorization, task 2.5) ----------
 
-export const bankRuleInputSchema = z.object({
-  pattern: z.string().trim().min(2).max(80),
-  ledgerId: id,
-  kind: z.enum(['payment', 'receipt']),
-  /** Statement cell the pattern matches against; defaults to 'description' server-side. */
-  matchField: z.enum(['description', 'reference']).optional(),
-  /** Amount window (paise, inclusive); null/omitted = unbounded on that side. */
-  minAmount: paise.min(0).nullable().optional(),
-  maxAmount: paise.min(0).nullable().optional(),
-  /** Opt-in: an applying statement import auto-creates the voucher on an exact rule match. */
-  autoApply: z.boolean().optional(),
-  active: z.boolean().default(true)
-})
+export const bankRuleInputSchema = z
+  .object({
+    pattern: z.string().trim().min(2).max(80),
+    ledgerId: id,
+    kind: z.enum(["payment", "receipt"]),
+    /** Statement cell the pattern matches against; defaults to 'description' server-side. */
+    matchField: z.enum(["description", "reference"]).optional(),
+    /** Amount window (paise, inclusive); null/omitted = unbounded on that side. */
+    minAmount: paise.min(0).nullable().optional(),
+    maxAmount: paise.min(0).nullable().optional(),
+    /** Opt-in: an applying statement import auto-creates the voucher on an exact rule match. */
+    autoApply: z.boolean().optional(),
+    /** Manual rules are deliberate; learned rules originate from a reviewed statement mapping. */
+    source: z.enum(["manual", "learned"]).optional(),
+    /** Optional source-account and effective-date scope. */
+    bankLedgerId: id.nullable().optional(),
+    dateFrom: isoDate.nullable().optional(),
+    dateTo: isoDate.nullable().optional(),
+    narrationTemplate: z.string().trim().max(240).nullable().optional(),
+    active: z.boolean().default(true),
+  })
+  .refine(
+    (value) =>
+      value.dateFrom == null ||
+      value.dateTo == null ||
+      value.dateFrom <= value.dateTo,
+    {
+      message: "Rule start date cannot be after its end date",
+      path: ["dateFrom"],
+    },
+  );
 
 // ---------- cheque printing (task 2.7) ----------
 
 /** mm offset/size fields on a cheque layout — positive and boxed under a sane printable-page cap. */
-const mm = z.number().positive().max(300)
+const mm = z.number().positive().max(300);
 
 /** Per-bank-ledger cheque print calibration, stored in `meta` under key `cheque.<bankLedgerId>`.
  *  Consumed by src/main/services/cheque.ts. */
@@ -491,9 +622,9 @@ export const chequeConfigSchema = z.object({
   payee: z.object({ xMm: mm, yMm: mm }),
   words: z.object({ xMm: mm, yMm: mm, wMm: mm }),
   figures: z.object({ xMm: mm, yMm: mm }),
-  acPayee: z.boolean()
-})
-export type ChequeConfig = z.infer<typeof chequeConfigSchema>
+  acPayee: z.boolean(),
+});
+export type ChequeConfig = z.infer<typeof chequeConfigSchema>;
 
 /** Standard CTS-2010 cheque leaf (202×92mm) — a reasonable starting point until the user
  *  calibrates their own stationery via Banking → "Cheque setup…" + the test-grid printout. */
@@ -504,63 +635,80 @@ export const DEFAULT_CHEQUE_CONFIG: ChequeConfig = {
   payee: { xMm: 18, yMm: 22 },
   words: { xMm: 28, yMm: 32, wMm: 150 },
   figures: { xMm: 158, yMm: 38 },
-  acPayee: true
-}
+  acPayee: true,
+};
 
 /** Merge a partial/unknown-shaped object over the defaults, then validate. Never throws — falls
  *  back to all-defaults if the merged shape still doesn't validate (mirrors mergeInvoiceConfig). */
 export function mergeChequeConfig(partial: unknown): ChequeConfig {
-  const obj = partial && typeof partial === 'object' ? (partial as Record<string, unknown>) : {}
-  const merged = { ...DEFAULT_CHEQUE_CONFIG, ...obj }
-  const parsed = chequeConfigSchema.safeParse(merged)
-  return parsed.success ? parsed.data : { ...DEFAULT_CHEQUE_CONFIG }
+  const obj =
+    partial && typeof partial === "object"
+      ? (partial as Record<string, unknown>)
+      : {};
+  const merged = { ...DEFAULT_CHEQUE_CONFIG, ...obj };
+  const parsed = chequeConfigSchema.safeParse(merged);
+  return parsed.success ? parsed.data : { ...DEFAULT_CHEQUE_CONFIG };
 }
 
 /** `app:notifyDeadlines` — the renderer hands over titles/bodies it already computed from
  *  `src/shared/compliance.ts`; the main process just guards the once-per-day fire and pops the
  *  OS notifications (see `services/notifications.ts`). */
 export const notifyDeadlinesSchema = z.object({
-  items: z.array(z.object({ title: z.string().min(1), body: z.string().min(1) }))
-})
-export type NotifyDeadlinesInput = z.infer<typeof notifyDeadlinesSchema>
-export type BankRuleInput = z.infer<typeof bankRuleInputSchema>
+  items: z.array(
+    z.object({ title: z.string().min(1), body: z.string().min(1) }),
+  ),
+});
+export type NotifyDeadlinesInput = z.infer<typeof notifyDeadlinesSchema>;
+export type BankRuleInput = z.infer<typeof bankRuleInputSchema>;
 
 // ---------- report print/export (task 3.6) ----------
 
 /** Filenames are slugified client-side before hitting the wire — this just double-checks it
  *  server-side too, since the string is joined straight into an exports/<file> path. */
-const exportFilename = z.string().trim().regex(/^[a-z0-9-_]+$/, 'Filename must be lowercase letters, digits, - or _')
+const exportFilename = z
+  .string()
+  .trim()
+  .regex(/^[a-z0-9-_]+$/, "Filename must be lowercase letters, digits, - or _");
 
 export const reportColumnSchema = z.object({
   label: z.string().trim().min(1).max(60),
-  align: z.enum(['l', 'r', 'c']),
-  width: z.number().positive().max(2000).optional()
-})
+  align: z.enum(["l", "r", "c"]),
+  width: z.number().positive().max(2000).optional(),
+});
 
 export const reportRowSchema = z.object({
   cells: z.array(z.string()).max(40),
   bold: z.boolean().optional(),
   indent: z.number().int().min(0).max(12).optional(),
-  rule: z.boolean().optional()
-})
+  rule: z.boolean().optional(),
+});
+
+export const reportProvenanceSchema = z.object({
+  period: z.string().trim().min(1).max(160),
+  accountingBasis: z.string().trim().min(1).max(80),
+  dataFreshness: z.string().trim().min(1).max(120),
+  generatedAt: z.string().datetime(),
+});
 
 export const reportPdfSchema = z.object({
   title: z.string().trim().min(1).max(120),
-  periodLabel: z.string().trim().max(120).default(''),
+  periodLabel: z.string().trim().max(120).default(""),
   columns: z.array(reportColumnSchema).min(1).max(20),
   rows: z.array(reportRowSchema).max(5000),
   footNote: z.string().max(500).optional(),
+  provenance: reportProvenanceSchema,
   filename: exportFilename,
   /** Landscape orientation for wide reports (lane Q #95). */
-  landscape: z.boolean().default(false)
-})
-export type ReportPdfInput = z.infer<typeof reportPdfSchema>
+  landscape: z.boolean().default(false),
+});
+export type ReportPdfInput = z.infer<typeof reportPdfSchema>;
 
 export const exportCsvSchema = z.object({
   filename: exportFilename,
-  csv: z.string().max(2 * 1024 * 1024)
-})
-export type ExportCsvInput = z.infer<typeof exportCsvSchema>
+  csv: z.string().max(2 * 1024 * 1024),
+  provenance: reportProvenanceSchema,
+});
+export type ExportCsvInput = z.infer<typeof exportCsvSchema>;
 
 // ---------- payroll pay heads + statutory exports (lane Y, task Y1) ----------
 
@@ -569,85 +717,97 @@ export type ExportCsvInput = z.infer<typeof exportCsvSchema>
 export const payHeadInputSchema = z
   .object({
     name: z.string().trim().min(1).max(60),
-    kind: z.enum(['earning', 'deduction']),
-    calc: z.enum(['flat', 'percent_of_basic']),
+    kind: z.enum(["earning", "deduction"]),
+    calc: z.enum(["flat", "percent_of_basic"]),
     value: z.number().int().min(0),
-    active: z.boolean().default(true)
+    active: z.boolean().default(true),
   })
-  .refine((v) => v.calc !== 'percent_of_basic' || v.value <= 10000, {
-    message: 'Percent-of-basic value is percent × 100 (max 10000 = 100%)',
-    path: ['value']
-  })
-export type PayHeadInput = z.infer<typeof payHeadInputSchema>
+  .refine((v) => v.calc !== "percent_of_basic" || v.value <= 10000, {
+    message: "Percent-of-basic value is percent × 100 (max 10000 = 100%)",
+    path: ["value"],
+  });
+export type PayHeadInput = z.infer<typeof payHeadInputSchema>;
 
 /** payroll:employeeHeads:set input — replaces the employee's full head assignment list.
  *  overrideValue null = use the head's default value. */
 export const employeeHeadsSetSchema = z.object({
   employeeId: id,
   heads: z
-    .array(z.object({ payHeadId: id, overrideValue: z.number().int().min(0).nullable().default(null) }))
-    .max(50)
-})
-export type EmployeeHeadsSetInput = z.infer<typeof employeeHeadsSetSchema>
+    .array(
+      z.object({
+        payHeadId: id,
+        overrideValue: z.number().int().min(0).nullable().default(null),
+      }),
+    )
+    .max(50),
+});
+export type EmployeeHeadsSetInput = z.infer<typeof employeeHeadsSetSchema>;
 
 /** payroll:ecr / payroll:esi / payroll:ptSummary input. */
-export const payrollRunIdSchema = z.object({ runId: id })
+export const payrollRunIdSchema = z.object({ runId: id });
 
 // ---------- agent bridge (lane A) ----------
 
 /** agent:exportMirror input — regenerate the CSV/JSON mirror under `<company>/agent/`. */
 export const agentExportSchema = z.object({
-  what: z.enum(['masters', 'vouchers', 'reports', 'all']).default('all'),
-  format: z.enum(['csv', 'json', 'all']).default('all'),
+  what: z.enum(["masters", "vouchers", "reports", "all"]).default("all"),
+  format: z.enum(["csv", "json", "all"]).default("all"),
   from: isoDate.optional(),
-  to: isoDate.optional()
-})
-export type AgentExportInput = z.input<typeof agentExportSchema>
+  to: isoDate.optional(),
+});
+export type AgentExportInput = z.input<typeof agentExportSchema>;
 
 /** agent:setConfig input — toggle the inbox watcher + auto mirror refresh (default OFF). */
-export const agentBridgeConfigSchema = z.object({ enabled: z.boolean() })
-export type AgentBridgeConfigInput = z.infer<typeof agentBridgeConfigSchema>
+export const agentBridgeConfigSchema = z.object({ enabled: z.boolean() });
+export type AgentBridgeConfigInput = z.infer<typeof agentBridgeConfigSchema>;
 
 // ---------- Tally import wizard v2 (task 3.5) ----------
 
 export const tallyImportSchema = z
   .object({
-    xmlText: z.string().optional(),
+    // Exact UTF-8 byte enforcement happens in the main-process input boundary.
+    // This prevents pathological inline strings from reaching it in the first place.
+    xmlText: z.string().max(64 * 1024 * 1024).optional(),
     filePath: z.string().optional(),
-    dryRun: z.boolean().default(false)
+    dryRun: z.boolean().default(false),
   })
-  .default({})
-export type TallyImportInput = z.infer<typeof tallyImportSchema>
+  .default({});
+export type TallyImportInput = z.infer<typeof tallyImportSchema>;
 
 // ---------- GST rebuild (lane G): voucher transport + GSTR-3B manual adjustments ----------
 
 /** edoc:transportSet payload — per-voucher transporter/vehicle/transport-doc + ship-to block
  *  persisted to voucher_transport (migration 013); consumed by the EWB/e-invoice builders. */
 export const voucherTransportSchema = z.object({
-  transMode: z.enum(['1', '2', '3', '4']).nullable().default(null),
+  transMode: z.enum(["1", "2", "3", "4"]).nullable().default(null),
   transDistanceKm: z.number().int().min(0).max(10000).nullable().default(null),
   transporterId: z.string().trim().max(20).nullable().default(null),
   transporterName: z.string().trim().max(120).nullable().default(null),
   transDocNo: z.string().trim().max(30).nullable().default(null),
   transDocDate: isoDate.nullable().default(null),
   vehicleNo: z.string().trim().max(20).nullable().default(null),
-  vehicleType: z.enum(['R', 'O']).nullable().default(null),
+  vehicleType: z.enum(["R", "O"]).nullable().default(null),
   shipToName: z.string().trim().max(120).nullable().default(null),
   shipToGstin: gstinSchema.nullable().default(null),
   shipToAddr1: z.string().trim().max(200).nullable().default(null),
   shipToAddr2: z.string().trim().max(200).nullable().default(null),
   shipToPlace: z.string().trim().max(80).nullable().default(null),
-  shipToPincode: z.string().trim().regex(/^\d{6}$/, 'PIN code must be 6 digits').nullable().default(null),
-  shipToState: stateCodeSchema.nullable().default(null)
-})
-export type VoucherTransportInput = z.infer<typeof voucherTransportSchema>
+  shipToPincode: z
+    .string()
+    .trim()
+    .regex(/^\d{6}$/, "PIN code must be 6 digits")
+    .nullable()
+    .default(null),
+  shipToState: stateCodeSchema.nullable().default(null),
+});
+export type VoucherTransportInput = z.infer<typeof voucherTransportSchema>;
 
 const itcPartSchema = z.object({
   igst: paise.default(0),
   cgst: paise.default(0),
   sgst: paise.default(0),
-  cess: paise.default(0)
-})
+  cess: paise.default(0),
+});
 
 /** Manual GSTR-3B adjustments for one period, persisted in meta `gst3b.manual.<MMYYYY>`:
  *  4(B) ITC reversals, 5.1 interest and late fee. All amounts integer paise. */
@@ -655,36 +815,151 @@ export const gst3bManualSchema = z.object({
   itcRevRul: itcPartSchema.default({}),
   itcRevOth: itcPartSchema.default({}),
   interest: itcPartSchema.default({}),
-  lateFee: z.object({ camt: paise.default(0), samt: paise.default(0) }).default({})
-})
-export type Gst3bManualInput = z.infer<typeof gst3bManualSchema>
+  lateFee: z
+    .object({ camt: paise.default(0), samt: paise.default(0) })
+    .default({}),
+});
+export type Gst3bManualInput = z.infer<typeof gst3bManualSchema>;
 // ---------- inventory depth (lane I): batches, price levels, stock analysis ----------
 
 export const batchInputSchema = z.object({
   stockItemId: id,
   name: z.string().trim().min(1).max(60),
   mfgDate: isoDate.nullable().default(null),
-  expiryDate: isoDate.nullable().default(null)
-})
-export type BatchInput = z.infer<typeof batchInputSchema>
+  expiryDate: isoDate.nullable().default(null),
+});
+export type BatchInput = z.infer<typeof batchInputSchema>;
 
 export const priceLevelInputSchema = z.object({
-  name: z.string().trim().min(1).max(60)
-})
-export type PriceLevelInput = z.infer<typeof priceLevelInputSchema>
+  name: z.string().trim().min(1).max(60),
+});
+export type PriceLevelInput = z.infer<typeof priceLevelInputSchema>;
 
 /** One date-effective per-item rate under a price level. `rate` is paise per whole unit. */
 export const priceRateInputSchema = z.object({
   priceLevelId: id,
   stockItemId: id,
   rate: paise.min(0),
-  effectiveFrom: isoDate
-})
-export type PriceRateInput = z.infer<typeof priceRateInputSchema>
+  effectiveFrom: isoDate,
+});
+export type PriceRateInput = z.infer<typeof priceRateInputSchema>;
 
 /** stock:* report queries — asOn plus optional godown scope. */
 export const stockQuerySchema = z.object({
   asOn: isoDate,
-  godownId: id.optional()
-})
-export type StockQueryInput = z.infer<typeof stockQuerySchema>
+  godownId: id.optional(),
+});
+export type StockQueryInput = z.infer<typeof stockQuerySchema>;
+
+export const inventoryPlanningSchema = z.object({
+  stockItemId: id,
+  leadTimeDays: z.number().int().min(0).max(3650),
+  safetyStockMilli: z.number().int().min(0),
+  reorderQtyMilli: z.number().int().min(0),
+  preferredSupplierLedgerId: id.nullable().default(null),
+  forecastMethod: z.enum(["velocity", "manual", "seasonal"]),
+});
+export const demandOverrideSchema = z.object({
+  stockItemId: id,
+  month: z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/),
+  qtyMilli: z.number().int().min(0),
+  reason: z.string().trim().min(3).max(500),
+});
+export const inventoryActionSchema = z.object({
+  stockItemId: id,
+  action: z.enum([
+    "reorder",
+    "discount",
+    "transfer",
+    "return",
+    "dispose",
+    "review",
+  ]),
+  dueDate: isoDate.nullable().default(null),
+  owner: z.string().trim().max(120).nullable().default(null),
+  note: z.string().trim().max(1000).nullable().default(null),
+});
+export const stockReservationSchema = z.object({
+  stockItemId: id,
+  godownId: id.nullable().default(null),
+  batchId: id.nullable().default(null),
+  qtyMilli: z.number().int().positive(),
+  requiredDate: isoDate,
+  reference: z.string().trim().min(1).max(120),
+  customerLedgerId: id.nullable().default(null),
+});
+export const stockCountCreateSchema = z.object({
+  name: z.string().trim().min(2).max(120),
+  countDate: isoDate,
+  godownId: id,
+  blindCount: z.boolean().default(true),
+});
+export const stockCountLineSchema = z.object({
+  sessionId: id,
+  lineId: id,
+  countedQtyMilli: z.number().int().min(0),
+  note: z.string().trim().max(500).nullable().default(null),
+});
+export const serialAssignmentSchema = z.object({
+  inventoryLineId: id,
+  serials: z
+    .array(
+      z.object({
+        serialNo: z.string().trim().min(1).max(120),
+        warrantyUntil: isoDate.nullable().default(null),
+        note: z.string().trim().max(500).nullable().default(null),
+      }),
+    )
+    .min(1)
+    .max(500),
+});
+export const stockTransferSchema = z.object({
+  transferDate: isoDate,
+  fromGodownId: id,
+  toGodownId: id,
+  expectedArrival: isoDate.nullable().default(null),
+  note: z.string().trim().max(1000).nullable().default(null),
+  lines: z
+    .array(
+      z.object({
+        stockItemId: id,
+        batchId: id.nullable().default(null),
+        qtyMilli: z.number().int().positive(),
+      }),
+    )
+    .min(1)
+    .max(200),
+});
+export const bomVersionSchema = z.object({
+  itemId: id,
+  version: z.string().trim().min(1).max(40),
+  effectiveFrom: isoDate,
+  effectiveTo: isoDate.nullable().default(null),
+  note: z.string().trim().max(1000).nullable().default(null),
+  lines: z
+    .array(
+      z.object({
+        componentId: id,
+        qtyMilliPerUnit: z.number().int().positive(),
+        scrapPct: z.number().min(0).max(100).default(0),
+      }),
+    )
+    .min(1)
+    .max(200),
+});
+export const manufacturingOrderSchema = z.object({
+  stockItemId: id,
+  plannedQtyMilli: z.number().int().positive(),
+  dueDate: isoDate,
+  godownId: id.nullable().default(null),
+  bomVersionId: id.nullable().default(null),
+  note: z.string().trim().max(1000).nullable().default(null),
+});
+export const landedCostSchema = z.object({
+  sourceVoucherId: id,
+  inventoryLineId: id,
+  costLedgerId: id.nullable().default(null),
+  amount: paise.positive(),
+  method: z.enum(["value", "quantity", "weight", "manual"]),
+  note: z.string().trim().max(1000).nullable().default(null),
+});

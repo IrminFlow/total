@@ -1,0 +1,40 @@
+{
+  "schema": 1,
+  "checkedAt": "2026-08-24T12:03:24.190Z",
+  "sourceCommit": "392e1a9",
+  "ci": {
+    "runId": 32724617871,
+    "status": "success"
+  },
+  "deployment": {
+    "id": "dpl_EGN1uw3UXyzRgS3xUf49z7ecWhDQ",
+    "origin": "https://devjindal.tech",
+    "pricingStatus": 200
+  },
+  "publicChecks": {
+    "routes": "pass",
+    "securityHeadersIncludingHsts": "pass",
+    "macDownloadRedirect": "pass",
+    "windowsDownloadRedirect": "pass",
+    "topNavigationSupportEmail": "pass",
+    "mobileHorizontalOverflow": false,
+    "desktopNavigationHeightPx": 70
+  },
+  "syntheticChecks": {
+    "supportCreateTrackResolveDelete": "pass",
+    "supportStatusEventsDeleted": 1,
+    "feedbackVoteFollowSubmitDelete": "pass",
+    "feedbackEventsDeleted": 3,
+    "feedbackVotesAfterCleanup": 0
+  },
+  "releaseMetadata": {
+    "expected": "0.5.0",
+    "actual": "0.4.0",
+    "status": "blocked_until_signed_v0.5_is_public"
+  },
+  "scheduledMonitor": {
+    "workflow": ".github/workflows/production-monitor.yml",
+    "enabled": false,
+    "enableCondition": "Set PRODUCTION_MONITOR_ENABLED=true only after signed v0.5 is public"
+  }
+}

@@ -6,7 +6,7 @@ import { createLedger } from './masters'
 import { saveVoucher } from './vouchers'
 import type { VoucherInput } from '@shared/schemas'
 import {
-  cashFlow, dashboard, ledgerStatement, trialBalance, profitAndLoss, balanceSheet,
+  cashFlow, dashboard, ledgerStatement, ledgerStatementPage, trialBalance, profitAndLoss, balanceSheet,
   stockAgeing, itemProfitability, exceptions
 } from './reports'
 
@@ -108,6 +108,45 @@ describe('columnar monthly ledger (#55)', () => {
       { month: '2025-06', debit: 0, credit: 20000, closing: 30000 },
       { month: '2025-07', debit: 0, credit: 0, closing: 30000 }
     ])
+  })
+})
+
+describe('bounded ledger statement', () => {
+  it('keeps whole-period totals and exact running balances across pages', () => {
+    const db = seededDb()
+    postSimpleVoucher(db, { date: '2025-04-10', amount: 50000, kind: 'receipt' })
+    postSimpleVoucher(db, { date: '2025-04-20', amount: 20000, kind: 'payment' })
+    postSimpleVoucher(db, { date: '2025-05-01', amount: 7000, kind: 'receipt' })
+    const cash = (db.prepare("SELECT id FROM ledgers WHERE name = 'Cash'").get() as { id: number }).id
+    const full = ledgerStatement(db, cash, '2025-04-01', '2025-05-31')
+
+    const first = ledgerStatementPage(db, cash, '2025-04-01', '2025-05-31', { limit: 2 })
+    const second = ledgerStatementPage(db, cash, '2025-04-01', '2025-05-31', { offset: 2, limit: 2 })
+
+    expect(first.page).toEqual({ offset: 0, limit: 2, totalRows: 3, hasPrevious: false, hasMore: true })
+    expect(second.page).toEqual({ offset: 2, limit: 2, totalRows: 3, hasPrevious: true, hasMore: false })
+    expect([...first.rows, ...second.rows]).toEqual(full.rows)
+    expect(first.totalDebit).toBe(full.totalDebit)
+    expect(second.totalCredit).toBe(full.totalCredit)
+    expect(second.closing).toBe(full.closing)
+    expect(first.rows.every((row) => row.particulars.length > 0)).toBe(true)
+  })
+
+  it('aggregates monthly mode without returning detail rows', () => {
+    const db = seededDb()
+    postSimpleVoucher(db, { date: '2025-04-10', amount: 50000, kind: 'receipt' })
+    postSimpleVoucher(db, { date: '2025-06-05', amount: 20000, kind: 'payment' })
+    const cash = (db.prepare("SELECT id FROM ledgers WHERE name = 'Cash'").get() as { id: number }).id
+
+    const result = ledgerStatementPage(db, cash, '2025-04-01', '2025-07-31', { groupBy: 'month' })
+    expect(result.rows).toEqual([])
+    expect(result.months).toEqual([
+      { month: '2025-04', debit: 50000, credit: 0, closing: 50000 },
+      { month: '2025-05', debit: 0, credit: 0, closing: 50000 },
+      { month: '2025-06', debit: 0, credit: 20000, closing: 30000 },
+      { month: '2025-07', debit: 0, credit: 0, closing: 30000 }
+    ])
+    expect(result.page).toMatchObject({ totalRows: 2, hasPrevious: false, hasMore: false })
   })
 })
 

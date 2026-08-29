@@ -3,9 +3,10 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import type { CostCentre } from '@shared/domain'
 import { api } from '../lib/client'
 import { useNav, useSession, useToasts } from '../state/stores'
-import { Button, EmptyState, Field, Modal, Money, Panel, SectionTitle, Select, Skeleton, SkeletonRows, TextInput } from '../components/ui'
+import { Button, EmptyState, Field, InteractiveReportRow, Modal, Money, Panel, SectionTitle, Select, Skeleton, SkeletonRows, TextInput } from '../components/ui'
 import { toDisplayDate } from '@shared/dates'
 import { confirmDialog } from '../lib/dialogs'
+import { ReportToolbar } from '../components/ReportToolbar'
 
 export function CostCentresScreen(): React.JSX.Element {
   const { from, to } = useSession()
@@ -84,9 +85,21 @@ export function CostCentresScreen(): React.JSX.Element {
         )}
       </Panel>
 
-      <SectionTitle>
-        P&amp;L by centre · {toDisplayDate(from)} → {toDisplayDate(to)}
-      </SectionTitle>
+      <SectionTitle>P&amp;L by centre</SectionTitle>
+      <ReportToolbar
+        ariaLabel="Cost centre report controls"
+        className="mb-3"
+        status={
+          reportLoading
+            ? 'Loading centres...'
+            : `${report?.length ?? 0} ${(report?.length ?? 0) === 1 ? 'centre' : 'centres'}`
+        }
+        period={
+          <span className="num text-[12px] text-muted">
+            {toDisplayDate(from)} to {toDisplayDate(to)}
+          </span>
+        }
+      />
       <Panel>
         {reportLoading ? (
           <SkeletonRows rows={4} />
@@ -105,7 +118,11 @@ export function CostCentresScreen(): React.JSX.Element {
             <tbody>
               {report.map((r) => (
                 <Fragment key={r.costCentreId}>
-                  <tr className="cursor-pointer" onClick={() => setDrillId(drillId === r.costCentreId ? null : r.costCentreId)}>
+                  <InteractiveReportRow
+                    aria-label={`${drillId === r.costCentreId ? 'Collapse' : 'Expand'} ${r.name}`}
+                    aria-expanded={drillId === r.costCentreId}
+                    onActivate={() => setDrillId(drillId === r.costCentreId ? null : r.costCentreId)}
+                  >
                     <td>
                       <span className="mr-1.5 inline-block w-3 text-[10px] text-muted">{drillId === r.costCentreId ? '▾' : '▸'}</span>
                       {r.name}
@@ -113,7 +130,7 @@ export function CostCentresScreen(): React.JSX.Element {
                     <td className="r"><Money paise={r.income} /></td>
                     <td className="r"><Money paise={r.expense} /></td>
                     <td className="r font-medium"><Money paise={r.net} signed /></td>
-                  </tr>
+                  </InteractiveReportRow>
                   {drillId === r.costCentreId && (
                     <DrillRows
                       ccId={r.costCentreId}

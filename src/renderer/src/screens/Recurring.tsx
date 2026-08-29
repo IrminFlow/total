@@ -1,57 +1,24 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import type { RecurringTemplate, VoucherKind } from '@shared/domain'
-import type { Screen, VoucherDraft } from '../state/stores'
+import type { RecurringTemplate } from '@shared/domain'
 import { api } from '../lib/client'
-import { useNav, useToasts, nextDraftId } from '../state/stores'
+import { useNav, useToasts } from '../state/stores'
 import { Button, DateInput, EmptyState, Field, Modal, Panel, SectionTitle, Select, SkeletonRows, TextInput } from '../components/ui'
 import { toDisplayDate, todayISO } from '@shared/dates'
 import { nextDueAfter } from '@shared/recurring'
-import type { VoucherInputParsed } from '@shared/schemas'
 import { confirmDialog } from '../lib/dialogs'
+import { templateOpenTarget } from './recurringDraft'
+import { ActionMenu } from '../components/ActionMenu'
+import { DotsThree } from '@phosphor-icons/react'
 
 const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
-
-/** Trading kinds open in InvoiceEntry, which has no line-draft support (see draftFromTemplate) —
- *  opening one of these drops the stored lines and the caller should say so. */
-const TRADING_KINDS: VoucherKind[] = ['sales', 'purchase', 'credit_note', 'debit_note']
 
 function cadenceSummary(t: RecurringTemplate): string {
   if (t.cadence === 'monthly') return `Monthly · day ${t.dayOfMonth}`
   return `Weekly · ${WEEKDAYS[t.weekday ?? 0]}`
 }
 
-/** Best-effort draft for "Open in voucher entry" — maps a template's stored lines to the
- *  voucher-entry draft shape so a stale/rejected template can still be posted by hand. Only
- *  AccountingEntry (non-trading kinds) actually consumes `lines`; InvoiceEntry ignores them. */
-export function draftFromTemplate(t: RecurringTemplate): VoucherDraft {
-  try {
-    const parsed = JSON.parse(t.voucherJson) as Partial<VoucherInputParsed>
-    return {
-      date: todayISO(),
-      partyLedgerId: parsed.partyLedgerId ?? undefined,
-      narration: parsed.narration ?? undefined,
-      lines: (parsed.lines ?? []).map((l) => ({ ledgerId: l.ledgerId, drCr: l.drCr, amount: l.amount }))
-    }
-  } catch {
-    return { date: todayISO() }
-  }
-}
-
-/** Where "Open in voucher entry" should navigate for a template, plus whether the caller should
- *  warn that line items get dropped (trading kinds — InvoiceEntry can only prefill date/party/
- *  narration, not lines). `voucherKind` is null only if the underlying voucher type was deleted;
- *  that falls through to VoucherEntry's own default (Journal) same as omitting kindHint. */
-export function templateOpenTarget(t: RecurringTemplate): { screen: Screen; warnInvoice: boolean } {
-  const kindHint = t.voucherKind ?? undefined
-  return {
-    // draftId forces VoucherEntry to remount when the previous screen is already a fresh
-    // voucher-entry (same 'new' key otherwise) — see Banking/Gstr2b's draft entry points.
-    screen: { name: 'voucher-entry', kindHint, draft: draftFromTemplate(t), draftId: nextDraftId() },
-    warnInvoice: !!kindHint && TRADING_KINDS.includes(kindHint)
-  }
-}
-
+/** Recurring voucher schedule and posting workspace. */
 export function RecurringScreen(): React.JSX.Element {
   const nav = useNav()
   const toast = useToasts()
@@ -65,7 +32,9 @@ export function RecurringScreen(): React.JSX.Element {
     try {
       const saved = await api.recurring.post(t.id, todayISO())
       await queryClient.invalidateQueries()
-      toast.push('success', `${saved.number} posted from "${t.name}"`)
+      toast.push('success', saved.approvalRequired
+        ? `"${t.name}" sent for approval`
+        : `${saved.number} posted from "${t.name}"`)
     } catch (err) {
       toast.push('error', (err as Error).message)
     } finally {
@@ -203,74 +172,20 @@ function RowMenu({
   disabled?: boolean
   actions: { label: string; danger?: boolean; onClick: () => void }[]
 }): React.JSX.Element {
-  const btnRef = useRef<HTMLButtonElement>(null)
-  const menuRef = useRef<HTMLDivElement>(null)
-  const [pos, setPos] = useState<{ top: number; right: number } | null>(null)
-
-  useEffect(() => {
-    if (!pos) return
-    const close = (): void => setPos(null)
-    const onDown = (e: MouseEvent): void => {
-      const target = e.target as Node
-      if (menuRef.current?.contains(target) || btnRef.current?.contains(target)) return
-      close()
-    }
-    const onKey = (e: KeyboardEvent): void => {
-      if (e.key === 'Escape') close()
-    }
-    document.addEventListener('mousedown', onDown)
-    document.addEventListener('keydown', onKey)
-    window.addEventListener('scroll', close, true)
-    return () => {
-      document.removeEventListener('mousedown', onDown)
-      document.removeEventListener('keydown', onKey)
-      window.removeEventListener('scroll', close, true)
-    }
-  }, [pos])
-
-  const toggle = (): void => {
-    if (pos) return setPos(null)
-    const r = btnRef.current!.getBoundingClientRect()
-    setPos({ top: r.bottom + 4, right: window.innerWidth - r.right })
-  }
-
   return (
-    <>
-      <button
-        ref={btnRef}
-        data-testid={testId}
-        aria-haspopup="menu"
-        aria-expanded={pos != null}
-        disabled={disabled}
-        title="More actions"
-        className="rounded px-1.5 py-0.5 text-[13px] leading-none text-muted hover:bg-panel2 hover:text-ink disabled:opacity-40"
-        onClick={toggle}
-      >
-        ⋯
-      </button>
-      {pos && (
-        <div
-          ref={menuRef}
-          role="menu"
-          className="fixed z-30 min-w-[12rem] rounded-md border border-line bg-panel py-1 text-left panel-shadow"
-          style={{ top: pos.top, right: pos.right }}
-        >
-          {actions.map((a) => (
-            <button
-              key={a.label}
-              role="menuitem"
-              className={`block w-full px-3 py-1.5 text-left text-[12.5px] hover:bg-panel2 ${a.danger ? 'text-cr' : 'text-ink'}`}
-              onClick={() => {
-                setPos(null)
-                a.onClick()
-              }}
-            >
-              {a.label}
-            </button>
-          ))}
-        </div>
-      )}
-    </>
+    <ActionMenu
+      ariaLabel="Recurring template actions"
+      testId={testId}
+      disabled={disabled}
+      triggerClassName="inline-flex rounded px-1.5 py-0.5 text-muted hover:bg-panel2 hover:text-ink disabled:opacity-40"
+      trigger={<DotsThree size={17} weight="bold" aria-hidden="true" />}
+      items={actions.map((action) => ({
+        id: action.label,
+        label: action.label,
+        danger: action.danger,
+        onSelect: action.onClick,
+      }))}
+    />
   )
 }
 

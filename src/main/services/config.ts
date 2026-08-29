@@ -72,16 +72,20 @@ export function setChequeConfig(db: DB, bankLedgerId: number, input: ChequeConfi
 
 // ---------- GSTR-3B manual adjustments (per period, meta `gst3b.manual.<MMYYYY>`) ----------
 
-export function getGst3bManual(db: DB, period: string): Gst3bManualInput {
-  const parsed = gst3bManualSchema.safeParse(readMeta(db, `gst3b.manual.${period}`) ?? {})
+function gst3bManualKey(period: string, registrationId?: number | null): string {
+  return `gst3b.manual.${period}${registrationId == null ? '' : `.r${registrationId}`}`
+}
+
+export function getGst3bManual(db: DB, period: string, registrationId?: number | null): Gst3bManualInput {
+  const parsed = gst3bManualSchema.safeParse(readMeta(db, gst3bManualKey(period, registrationId)) ?? {})
   return parsed.success ? parsed.data : gst3bManualSchema.parse({})
 }
 
-export function setGst3bManual(db: DB, period: string, input: unknown): Gst3bManualInput {
-  const before = getGst3bManual(db, period)
+export function setGst3bManual(db: DB, period: string, input: unknown, registrationId?: number | null): Gst3bManualInput {
+  const before = getGst3bManual(db, period, registrationId)
   const parsed = gst3bManualSchema.parse(input)
-  writeMeta(db, `gst3b.manual.${period}`, parsed)
-  writeAudit(db, 'company', 0, 'update', { gst3bManual: { period, ...before } }, { gst3bManual: { period, ...parsed } })
+  writeMeta(db, gst3bManualKey(period, registrationId), parsed)
+  writeAudit(db, 'company', 0, 'update', { gst3bManual: { period, registrationId: registrationId ?? null, ...before } }, { gst3bManual: { period, registrationId: registrationId ?? null, ...parsed } })
   return parsed
 }
 

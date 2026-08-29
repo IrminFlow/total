@@ -14,11 +14,20 @@ export interface XNode {
 }
 
 const ENTITIES: Record<string, string> = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'" }
+const MAX_XML_DEPTH = 256
+const MAX_XML_NODES = 500_000
 
 function decodeEntities(s: string): string {
   return s.replace(/&(#x?[0-9a-fA-F]+|[a-z]+);/g, (m, body: string) => {
-    if (body.startsWith('#x') || body.startsWith('#X')) return String.fromCodePoint(parseInt(body.slice(2), 16))
-    if (body.startsWith('#')) return String.fromCodePoint(parseInt(body.slice(1), 10))
+    const numeric = body.startsWith('#x') || body.startsWith('#X')
+      ? parseInt(body.slice(2), 16)
+      : body.startsWith('#')
+        ? parseInt(body.slice(1), 10)
+        : null
+    if (numeric !== null)
+      return Number.isInteger(numeric) && numeric >= 0 && numeric <= 0x10ffff
+        ? String.fromCodePoint(numeric)
+        : '\ufffd'
     return ENTITIES[body] ?? m
   })
 }
@@ -28,6 +37,7 @@ export function parseXml(input: string): XNode {
   const root: XNode = { tag: '#root', attrs: {}, children: [], text: '' }
   const stack: XNode[] = [root]
   let i = 0
+  let nodeCount = 0
   const len = input.length
 
   while (i < len) {
@@ -76,8 +86,15 @@ export function parseXml(input: string): XNode {
       while ((m = attrRe.exec(body.slice(spaceIdx)))) attrs[m[1]!.toUpperCase()] = decodeEntities(m[2]!)
     }
     const node: XNode = { tag, attrs, children: [], text: '' }
+    nodeCount++
+    if (nodeCount > MAX_XML_NODES)
+      throw new Error(`Tally XML exceeds the ${MAX_XML_NODES.toLocaleString('en-IN')} node safety limit`)
     stack[stack.length - 1]!.children.push(node)
-    if (!selfClosing) stack.push(node)
+    if (!selfClosing) {
+      if (stack.length >= MAX_XML_DEPTH)
+        throw new Error(`Tally XML nesting exceeds the ${MAX_XML_DEPTH}-level safety limit`)
+      stack.push(node)
+    }
   }
   return root
 }
@@ -85,13 +102,13 @@ export function parseXml(input: string): XNode {
 /** All descendant nodes with the given tag (depth-first). */
 export function collect(node: XNode, tag: string): XNode[] {
   const out: XNode[] = []
-  const walk = (n: XNode): void => {
-    for (const c of n.children) {
-      if (c.tag === tag) out.push(c)
-      walk(c)
-    }
+  const pending: XNode[] = [...node.children].reverse()
+  while (pending.length) {
+    const current = pending.pop()!
+    if (current.tag === tag) out.push(current)
+    for (let index = current.children.length - 1; index >= 0; index--)
+      pending.push(current.children[index]!)
   }
-  walk(node)
   return out
 }
 
@@ -114,7 +131,12 @@ export function parseTallyAmount(s: string): number {
 /** Tally dates: "20260815" -> "2026-08-15". */
 export function parseTallyDate(s: string): string | null {
   const m = s.trim().match(/^(\d{4})(\d{2})(\d{2})$/)
-  return m ? `${m[1]}-${m[2]}-${m[3]}` : null
+  if (!m) return null
+  const date = `${m[1]}-${m[2]}-${m[3]}`
+  const parsed = new Date(`${date}T00:00:00Z`)
+  return Number.isNaN(parsed.getTime()) || parsed.toISOString().slice(0, 10) !== date
+    ? null
+    : date
 }
 
 /** Tally quantities: " 2 Nos" or "2.500 Kg" -> qty in thousandths. */
@@ -126,7 +148,8 @@ export function parseTallyQty(s: string): number {
 
 // ---------- neutral import structures ----------
 
-export interface TallyGroup { name: string; parent: string }
+export interface TallySourceIdentity { guid: string | null; masterId: string | null; alterId: string | null }
+export interface TallyGroup { name: string; parent: string; sourceIdentity?: TallySourceIdentity }
 export interface TallyLedger {
   name: string
   parent: string
@@ -134,8 +157,9 @@ export interface TallyLedger {
   opening: number
   gstin: string | null
   stateName: string | null
+  sourceIdentity?: TallySourceIdentity
 }
-export interface TallyUnit { name: string; decimals: number }
+export interface TallyUnit { name: string; decimals: number; sourceIdentity?: TallySourceIdentity }
 export interface TallyItem {
   name: string
   unit: string
@@ -143,6 +167,7 @@ export interface TallyItem {
   gstRate: number | null
   openingQtyMilli: number
   openingValue: number
+  sourceIdentity?: TallySourceIdentity
 }
 export interface TallyVoucherLine { ledger: string; drCr: 'dr' | 'cr'; amount: number }
 export interface TallyInventoryLine { item: string; qtyMilli: number; amount: number }
@@ -154,6 +179,7 @@ export interface TallyVoucher {
   narration: string | null
   lines: TallyVoucherLine[]
   inventory: TallyInventoryLine[]
+  sourceIdentity?: TallySourceIdentity
 }
 
 export interface TallyImport {
@@ -166,6 +192,14 @@ export interface TallyImport {
 }
 
 const nameOf = (n: XNode): string => n.attrs.NAME ?? childText(n, 'NAME')
+const sourceIdentityOf = (n: XNode): { sourceIdentity?: TallySourceIdentity } => {
+  const identity = {
+    guid: (n.attrs.GUID ?? childText(n, 'GUID')) || null,
+    masterId: (n.attrs.MASTERID ?? childText(n, 'MASTERID')) || null,
+    alterId: (n.attrs.ALTERID ?? childText(n, 'ALTERID')) || null
+  }
+  return identity.guid || identity.masterId || identity.alterId ? { sourceIdentity: identity } : {}
+}
 
 /** Parse a Tally master/voucher export XML into neutral structures. */
 export function parseTallyExport(xml: string): TallyImport {
@@ -176,7 +210,7 @@ export function parseTallyExport(xml: string): TallyImport {
   for (const g of collect(root, 'GROUP')) {
     const name = nameOf(g)
     if (!name) continue
-    result.groups.push({ name, parent: childText(g, 'PARENT') })
+    result.groups.push({ name, parent: childText(g, 'PARENT'), ...sourceIdentityOf(g) })
   }
 
   for (const l of collect(root, 'LEDGER')) {
@@ -189,14 +223,15 @@ export function parseTallyExport(xml: string): TallyImport {
       // Tally: negative = debit. Ours: positive = debit.
       opening: -openingTally,
       gstin: childText(l, 'PARTYGSTIN') || childText(l, 'GSTREGISTRATIONNUMBER') || null,
-      stateName: childText(l, 'LEDSTATENAME') || null
+      stateName: childText(l, 'LEDSTATENAME') || null,
+      ...sourceIdentityOf(l)
     })
   }
 
   for (const u of collect(root, 'UNIT')) {
     const name = nameOf(u)
     if (!name) continue
-    result.units.push({ name, decimals: Number(childText(u, 'DECIMALPLACES') || '0') || 0 })
+    result.units.push({ name, decimals: Number(childText(u, 'DECIMALPLACES') || '0') || 0, ...sourceIdentityOf(u) })
   }
 
   for (const s of collect(root, 'STOCKITEM')) {
@@ -210,7 +245,8 @@ export function parseTallyExport(xml: string): TallyImport {
       hsn: hsnNodes[0]?.text || null,
       gstRate: rateNodes[0]?.text ? Number(rateNodes[0].text) : null,
       openingQtyMilli: parseTallyQty(childText(s, 'OPENINGBALANCE')),
-      openingValue: Math.abs(parseTallyAmount(childText(s, 'OPENINGVALUE')))
+      openingValue: Math.abs(parseTallyAmount(childText(s, 'OPENINGVALUE'))),
+      ...sourceIdentityOf(s)
     })
   }
 
@@ -255,7 +291,8 @@ export function parseTallyExport(xml: string): TallyImport {
       party: childText(v, 'PARTYLEDGERNAME') || null,
       narration: childText(v, 'NARRATION') || null,
       lines,
-      inventory
+      inventory,
+      ...sourceIdentityOf(v)
     })
   }
 

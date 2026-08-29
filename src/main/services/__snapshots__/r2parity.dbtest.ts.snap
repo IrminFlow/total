@@ -930,6 +930,9 @@ exports[`R2 parity — voucher numbering & duplicates > findDuplicates matches t
   {
     "date": "2025-04-05",
     "number": "1",
+    "reasons": [
+      "same_party_amount",
+    ],
     "voucherId": 1,
   },
 ]

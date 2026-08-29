@@ -2,10 +2,11 @@ import { Fragment, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { api, type AuditRow } from '../../lib/client'
 import { useSession } from '../../state/stores'
-import { Button, DateInput, EmptyState, Panel, Select, SectionTitle } from '../../components/ui'
+import { Button, DateInput, EmptyState, InteractiveReportRow, Panel, Select, SectionTitle } from '../../components/ui'
 import { diffJson } from '@shared/diff'
 import { toDisplayDateTime } from '@shared/dates'
 import { AUDIT_ENTITIES } from '@shared/auditEntities'
+import { ShieldCheck, ShieldWarning } from '@phosphor-icons/react'
 
 const PAGE_SIZES = [25, 50, 100, 250]
 
@@ -20,6 +21,7 @@ export function AuditSection(): React.JSX.Element {
 
   const filters = { entity: entity || undefined, from, to, page, pageSize }
   const { data } = useQuery({ queryKey: ['audit', filters], queryFn: () => api.audit.list(filters) })
+  const integrity = useQuery({ queryKey: ['auditIntegrity'], queryFn: api.audit.verify })
   const rows = data?.rows ?? []
   const total = data?.total ?? 0
   const pageCount = Math.max(1, Math.ceil(total / pageSize))
@@ -27,6 +29,18 @@ export function AuditSection(): React.JSX.Element {
   return (
     <div>
       <SectionTitle>Audit trail</SectionTitle>
+      <Panel className={`mb-4 flex items-center justify-between gap-4 p-3.5 ${integrity.data && !integrity.data.ok ? 'border-cr/60 bg-cr/5' : ''}`}>
+        <div className="flex items-start gap-3">
+          {integrity.data?.ok ? <ShieldCheck size={22} weight="duotone" className="mt-0.5 text-dr" /> : <ShieldWarning size={22} weight="duotone" className={`mt-0.5 ${integrity.data ? 'text-cr' : 'text-muted'}`} />}
+          <div>
+            <p className="text-[12.5px] font-semibold">Audit integrity</p>
+            {!integrity.data ? <p className="mt-0.5 text-[11.5px] text-muted">Verifying the cryptographic chain…</p> : integrity.data.ok ?
+              <p className="mt-0.5 text-[11.5px] text-muted">Verified {integrity.data.rowsChecked} entries. Contents, order, links and chain head are intact.</p> :
+              <p className="mt-0.5 text-[11.5px] font-medium text-cr">Integrity failure at entry {integrity.data.firstBrokenId ?? 'head'}: {integrity.data.reason?.replaceAll('_', ' ')}. Preserve the company file and restore from a verified backup.</p>}
+          </div>
+        </div>
+        <Button data-testid="btn-audit-verify" disabled={integrity.isFetching} onClick={() => void integrity.refetch()}>{integrity.isFetching ? 'Verifying…' : 'Verify again'}</Button>
+      </Panel>
       <div className="mb-3 flex flex-wrap items-end gap-3">
         <div>
           <span className="mb-1 block text-[11px] font-semibold tracking-[0.08em] text-muted uppercase">Entity</span>
@@ -104,14 +118,18 @@ export function AuditSection(): React.JSX.Element {
             <tbody data-testid="rows-settings-audit">
               {rows.map((r) => (
                 <Fragment key={r.id}>
-                  <tr className="cursor-pointer" onClick={() => setExpanded(expanded === r.id ? null : r.id)}>
+                  <InteractiveReportRow
+                    aria-label={`${expanded === r.id ? 'Collapse' : 'Expand'} audit entry ${r.id}`}
+                    aria-expanded={expanded === r.id}
+                    onActivate={() => setExpanded(expanded === r.id ? null : r.id)}
+                  >
                     <td className="num text-muted">{toDisplayDateTime(new Date(r.at))}</td>
                     <td>{r.userName ?? '—'}</td>
                     <td className="num">
                       {r.entity} #{r.entityId}
                     </td>
                     <td className="capitalize">{r.action}</td>
-                  </tr>
+                  </InteractiveReportRow>
                   {expanded === r.id && (
                     <tr>
                       <td colSpan={4} className="bg-panel2 px-3 py-2.5 text-[12px]">

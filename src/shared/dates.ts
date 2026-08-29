@@ -12,6 +12,16 @@ export interface FinancialYear {
   label: string
 }
 
+export interface FinancialQuarter {
+  /** Stable key, e.g. "2025-26-Q1". */
+  key: string
+  quarter: 1 | 2 | 3 | 4
+  from: string
+  to: string
+  /** Display label, e.g. "Q1 2025-26". */
+  label: string
+}
+
 export function isValidISODate(s: string): boolean {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return false
   const [y, m, d] = s.split('-').map(Number) as [number, number, number]
@@ -33,6 +43,29 @@ export function fyFromStartYear(startYear: number): FinancialYear {
     from: `${startYear}-04-01`,
     to: `${startYear + 1}-03-31`,
     label: `${startYear}-${endShort}`
+  }
+}
+
+/** Indian financial-year quarter containing `date`: Apr-Jun Q1 through Jan-Mar Q4. */
+export function financialQuarterOf(date: string): FinancialQuarter {
+  const [, month] = date.split('-').map(Number) as [number, number]
+  const fy = fyOf(date)
+  const quarter = (month >= 4 ? Math.floor((month - 4) / 3) + 1 : 4) as 1 | 2 | 3 | 4
+  const starts: Record<FinancialQuarter['quarter'], [number, number]> = {
+    1: [fy.startYear, 4],
+    2: [fy.startYear, 7],
+    3: [fy.startYear, 10],
+    4: [fy.startYear + 1, 1]
+  }
+  const [year, startMonth] = starts[quarter]
+  const end = new Date(Date.UTC(year, startMonth + 2, 0))
+  const to = `${end.getUTCFullYear()}-${String(end.getUTCMonth() + 1).padStart(2, '0')}-${String(end.getUTCDate()).padStart(2, '0')}`
+  return {
+    key: `${fy.label}-Q${quarter}`,
+    quarter,
+    from: `${year}-${String(startMonth).padStart(2, '0')}-01`,
+    to,
+    label: `Q${quarter} ${fy.label}`
   }
 }
 
@@ -75,10 +108,19 @@ export function toDisplayDateTime(d: Date): string {
 export function parseSmartDate(input: string, context: string): string | null {
   const trimmed = input.trim().toLowerCase()
   if (trimmed === '') return null
-  if (trimmed === 't' || trimmed === '.') return context
-  if (trimmed === 'y') {
+  if (trimmed === 't' || trimmed === '.' || trimmed === 'today') return context
+  if (trimmed === 'y' || trimmed === 'yesterday') {
     const dt = new Date(context + 'T00:00:00Z')
     dt.setUTCDate(dt.getUTCDate() - 1)
+    return dt.toISOString().slice(0, 10)
+  }
+  const weekday = trimmed.match(/^last\s+(sun|mon|tue|wed|thu|fri|sat)(?:day)?$/)
+  if (weekday) {
+    const names = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat']
+    const target = names.indexOf(weekday[1]!)
+    const dt = new Date(context + 'T00:00:00Z')
+    const delta = ((dt.getUTCDay() - target + 7) % 7) || 7
+    dt.setUTCDate(dt.getUTCDate() - delta)
     return dt.toISOString().slice(0, 10)
   }
   const parts = trimmed.split(/[/\-.]/).map((p) => p.trim())
@@ -101,6 +143,51 @@ export function parseSmartDate(input: string, context: string): string | null {
     candidate = `${y}-${m.toString().padStart(2, '0')}-${d.toString().padStart(2, '0')}`
   }
   return candidate && isValidISODate(candidate) ? candidate : null
+}
+
+export interface ParsedPeriod { from: string; to: string; label: string }
+
+/** Human period language used by the global period picker and commands. */
+export function parsePeriodExpression(input: string, context: string): ParsedPeriod | null {
+  const value = input.trim().toLowerCase().replace(/\s+/g, ' ')
+  if (!value) return null
+  const single = parseSmartDate(value, context)
+  if (single) return { from: single, to: single, label: toDisplayDate(single) }
+  const month = (date: Date): ParsedPeriod => {
+    const prefix = `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, '0')}`
+    const last = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth() + 1, 0)).getUTCDate()
+    return { from: `${prefix}-01`, to: `${prefix}-${String(last).padStart(2, '0')}`, label: date.toLocaleDateString('en-IN', { month: 'long', year: 'numeric', timeZone: 'UTC' }) }
+  }
+  const contextDate = new Date(`${context}T00:00:00Z`)
+  if (value === 'this month' || value === 'current month') return month(contextDate)
+  if (value === 'last month' || value === 'previous month') {
+    const previous = new Date(contextDate)
+    previous.setUTCDate(1)
+    previous.setUTCMonth(previous.getUTCMonth() - 1)
+    return month(previous)
+  }
+  if (value === 'this fy' || value === 'current fy' || value === 'this financial year') {
+    const fy = fyOf(context)
+    return { from: fy.from, to: fy.to, label: `FY ${fy.label}` }
+  }
+  if (value === 'last fy' || value === 'previous fy' || value === 'last financial year') {
+    const fy = fyFromStartYear(fyOf(context).startYear - 1)
+    return { from: fy.from, to: fy.to, label: `FY ${fy.label}` }
+  }
+  const quarter = value.match(/^(?:this\s+)?q([1-4])$/)
+  if (quarter) {
+    const number = Number(quarter[1]) as 1 | 2 | 3 | 4
+    const fy = fyOf(context)
+    const starts: Record<1 | 2 | 3 | 4, [number, number]> = { 1: [fy.startYear, 4], 2: [fy.startYear, 7], 3: [fy.startYear, 10], 4: [fy.startYear + 1, 1] }
+    const [year, startMonth] = starts[number]
+    const end = new Date(Date.UTC(year, startMonth + 2, 0))
+    return {
+      from: `${year}-${String(startMonth).padStart(2, '0')}-01`,
+      to: end.toISOString().slice(0, 10),
+      label: `Q${number} ${fy.label}`
+    }
+  }
+  return null
 }
 
 export function todayISO(): string {

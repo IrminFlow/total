@@ -21,9 +21,11 @@ import { createRequire } from 'node:module'
 import * as fs from 'node:fs'
 import * as path from 'node:path'
 import * as os from 'node:os'
+import { execFileSync } from 'node:child_process'
 
 const require = createRequire(import.meta.url)
 const electronPath = require('electron')
+const { ELECTRON_RUN_AS_NODE: _electronRunAsNode, ...desktopEnv } = process.env
 
 /** Console noise that is not the app's fault — never fails a scenario. */
 const CONSOLE_IGNORE = [
@@ -34,7 +36,7 @@ const CONSOLE_IGNORE = [
 ]
 
 export class Harness {
-  /** @param {{ dataDir?: string, outDir?: string, appDir?: string }} [opts] */
+  /** @param {{ dataDir?: string, outDir?: string, appDir?: string, scenario?: string }} [opts] */
   constructor(opts = {}) {
     this.appDir = opts.appDir ?? process.cwd()
     this.dataDir = opts.dataDir ?? fs.mkdtempSync(path.join(os.tmpdir(), 'total-e2e-'))
@@ -48,6 +50,12 @@ export class Harness {
     /** @type {string[]} */
     this.keyWarnings = []
     this._shotSeq = 0
+    this.scenario = opts.scenario ?? path.basename(this.outDir)
+    this.captureCommit = process.env.TOTAL_CAPTURE_COMMIT ?? (() => {
+      try { return execFileSync('git', ['rev-parse', 'HEAD'], { cwd: this.appDir, encoding: 'utf8' }).trim() }
+      catch { return 'unknown' }
+    })()
+    this.captureManifest = []
   }
 
   /** Launch the built app (one retry on a slow first boot). */
@@ -55,15 +63,20 @@ export class Harness {
     const attempt = async () => {
       const app = await electron.launch({
         executablePath: electronPath,
-        args: [this.appDir],
+        // A per-scenario Electron profile keeps requestSingleInstanceLock, Chromium state and
+        // safeStorage tests hermetic even when another worktree is running E2E concurrently.
+        args: [`--user-data-dir=${path.join(this.dataDir, '.electron-profile')}`, this.appDir],
         timeout: 60000,
         env: {
-          ...process.env,
+          ...desktopEnv,
           TOTAL_DATA_DIR: this.dataDir,
           TOTAL_SUPPRESS_SYNC_WARNING: '1'
         }
       })
       const page = await app.firstWindow()
+      // Attach before waiting for DOM readiness: module-initialization failures can fire during
+      // the first script turn and would otherwise leave only a blank window with no diagnostic.
+      this._collectConsole(page)
       await page.setViewportSize({ width: 1440, height: 900 })
       await page.waitForLoadState('domcontentloaded')
       await page.waitForFunction(() => Boolean(window.total), null, { timeout: 30000 })
@@ -80,12 +93,11 @@ export class Harness {
       }
       ;({ app: this.app, page: this.page } = await attempt())
     }
-    this._collectConsole()
     return this
   }
 
-  _collectConsole() {
-    this.page.on('console', (msg) => {
+  _collectConsole(page = this.page) {
+    page.on('console', (msg) => {
       const text = msg.text()
       if (/unique "?key"? prop|Each child in a list should have a unique/i.test(text)) {
         this.keyWarnings.push(text)
@@ -95,7 +107,7 @@ export class Harness {
         this.consoleErrors.push({ kind: 'console-error', text })
       }
     })
-    this.page.on('pageerror', (err) => {
+    page.on('pageerror', (err) => {
       this.consoleErrors.push({ kind: 'page-error', text: err.message })
     })
   }
@@ -127,12 +139,62 @@ export class Harness {
       state: 'attached',
       timeout
     })
+    // The Shell marker changes before a lazy route chunk has necessarily mounted. Wait for the
+    // shared Suspense status to leave, then re-check query idleness.
+    await this.page.waitForFunction(
+      (screen) => {
+        const main = document.querySelector(`[data-screen="${screen}"]`)
+        // Voucher validation and other live regions legitimately persist with role=status.
+        // Only the App-level lazy-route fallback blocks readiness.
+        return main && ![...main.querySelectorAll('[role="status"]')].some((status) =>
+          status.textContent?.includes('Loading workspace')
+        )
+      },
+      name,
+      { timeout }
+    )
+    await this.page.waitForSelector(`[data-screen="${name}"][data-loading="false"]`, {
+      state: 'attached',
+      timeout
+    })
   }
 
   /** Sidebar navigation: click nav-<name>, wait for the screen to render + go idle. */
   async goto(name, timeout = 15000) {
-    await this.page.click(`[data-testid="nav-${name}"]`, { timeout })
+    // Route effects can collapse the previously active accordion section. Let those effects
+    // commit before revealing a destination so the button cannot be detached mid-click.
+    await this.page.evaluate(() => new Promise((resolve) =>
+      requestAnimationFrame(() => requestAnimationFrame(resolve))
+    ))
+    const target = this.page.locator(`[data-testid="nav-${name}"]`)
+    if ((await target.count()) === 0) {
+      // The production sidebar is a single-open accordion: opening one section closes the
+      // previous section. Probe each section at most once and stop as soon as the requested
+      // destination is mounted; waiting for every section to be open would never terminate.
+      const sections = this.page.locator('nav[aria-label="Application"] button[aria-expanded]')
+      const sectionCount = await sections.count()
+      for (let index = 0; index < sectionCount && (await target.count()) === 0; index += 1) {
+        const section = sections.nth(index)
+        if ((await section.getAttribute('aria-expanded')) !== 'true') await section.click({ timeout })
+      }
+    }
+    if ((await target.count()) === 0) throw new Error(`goto: navigation target ${JSON.stringify(name)} is unavailable`)
+    await target.click({ timeout })
     await this.waitScreen(name, timeout)
+  }
+
+  /** Reveal one destination without navigating to it. */
+  async revealNavigation(name, timeout = 15000) {
+    const target = this.page.locator(`[data-testid="nav-${name}"]`)
+    if ((await target.count()) > 0) return target
+    const sections = this.page.locator('nav[aria-label="Application"] button[aria-expanded]')
+    const sectionCount = await sections.count()
+    for (let index = 0; index < sectionCount && (await target.count()) === 0; index += 1) {
+      const section = sections.nth(index)
+      if ((await section.getAttribute('aria-expanded')) !== 'true') await section.click({ timeout })
+    }
+    if ((await target.count()) === 0) throw new Error(`revealNavigation: target ${JSON.stringify(name)} is unavailable`)
+    return target
   }
 
   /** Click any control by data-testid. */
@@ -143,8 +205,11 @@ export class Harness {
   /** Click the first button/row whose text matches (exact button text preferred). */
   async clickText(text) {
     const result = await this.page.evaluate((t) => {
+      const semantic = [...document.querySelectorAll('button, a, [role="button"]')]
       const clickables = [...document.querySelectorAll('button, a, [role="button"], .kbar-row, [class*="cursor-pointer"]')]
       const el =
+        semantic.find((e) => e.textContent?.trim() === t) ??
+        semantic.find((e) => e.textContent?.includes(t)) ??
         clickables.find((e) => e.textContent?.trim() === t) ??
         clickables.find((e) => e.textContent?.includes(t))
       if (!el) return false
@@ -178,19 +243,61 @@ export class Harness {
     await this.fill('input-company-name', name)
     await this.click('btn-company-save')
     await this.waitScreen('gateway', timeout)
+    await this.page.waitForSelector('[data-testid="card-voucher-entry"]', { state: 'visible', timeout })
   }
 
   /** From company-select: build the Demo Traders sample company and land on the Gateway. */
   async createDemoCompany(timeout = 60000) {
     await this.waitScreen('company-select')
-    await this.clickText('Explore with sample data')
+    await this.click('btn-company-demo')
     await this.waitScreen('gateway', timeout)
+    await this.page.waitForSelector('[data-testid="card-voucher-entry"]', { state: 'visible', timeout })
   }
 
-  /** Screenshot into the out dir; auto-numbered unless a name is given. */
-  async shot(name) {
+  /** Wait for fonts, images, lazy routes and layout to settle before a visual capture. */
+  async waitForScreenshotReady(timeout = 20000) {
+    await this.page.waitForFunction(async () => {
+      await document.fonts?.ready
+      const images = [...document.images]
+      await Promise.all(images.map((img) => img.complete ? undefined : new Promise((resolve) => {
+        img.addEventListener('load', resolve, { once: true })
+        img.addEventListener('error', resolve, { once: true })
+      })))
+      const loadingWorkspace = [...document.querySelectorAll('[role="status"]')]
+        .some((node) => /Loading (workspace|settings)/i.test(node.textContent ?? ''))
+      const active = [...document.querySelectorAll('[data-screen]')].find((node) => {
+        const style = getComputedStyle(node)
+        return style.display !== 'none' && style.visibility !== 'hidden'
+      })
+      return !loadingWorkspace && (!active || active.getAttribute('data-loading') !== 'true')
+    }, null, { timeout })
+    await this.page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))))
+  }
+
+  /** Screenshot into the out dir and append deterministic review metadata. */
+  async shot(name, metadata = {}) {
     const file = path.join(this.outDir, `${name ?? `shot-${String(++this._shotSeq).padStart(2, '0')}`}.png`)
+    await this.waitForScreenshotReady()
     await this.page.screenshot({ path: file })
+    const discovered = await this.page.evaluate(() => ({
+      theme: document.documentElement.dataset.theme ?? 'light',
+      screen: document.querySelector('[data-screen]')?.getAttribute('data-screen') ?? undefined
+    }))
+    const viewport = this.page.viewportSize()
+    this.captureManifest.push({
+      schemaVersion: 1,
+      capturedAt: new Date().toISOString(),
+      commit: this.captureCommit,
+      scenario: this.scenario,
+      file: path.basename(file),
+      theme: metadata.theme ?? discovered.theme,
+      viewport,
+      ...(metadata.route ? { route: metadata.route } : {}),
+      ...(metadata.screen ?? discovered.screen ? { screen: metadata.screen ?? discovered.screen } : {}),
+      fixture: metadata.fixture ?? 'isolated-e2e-company',
+      state: metadata.state ?? 'ready'
+    })
+    fs.writeFileSync(path.join(this.outDir, 'manifest.json'), JSON.stringify({ schemaVersion: 1, captures: this.captureManifest }, null, 2))
     return file
   }
 
@@ -259,7 +366,7 @@ export function assertEq(actual, expected, label) {
  */
 export async function scenario(name, fn, opts = {}) {
   const outRoot = process.env.SMOKE_OUT ?? path.join(os.tmpdir(), 'total-e2e-out')
-  const h = new Harness({ outDir: path.join(outRoot, name), ...opts.harness })
+  const h = new Harness({ outDir: path.join(outRoot, name), scenario: name, ...opts.harness })
   const started = Date.now()
   let ok = false
   let error
@@ -272,6 +379,9 @@ export async function scenario(name, fn, opts = {}) {
     ok = true
   } catch (err) {
     error = err instanceof Error ? (err.stack ?? err.message) : String(err)
+    if (h.consoleErrors.length > 0) {
+      error += `\nRenderer diagnostics:\n${h.consoleErrors.map((entry) => `  [${entry.kind}] ${entry.text}`).join('\n')}`
+    }
     console.error(`[${name}] FAILED:`, error)
     try {
       if (h.page) await h.shot('99-failure')

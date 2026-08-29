@@ -1,0 +1,3 @@
+Bill No,Date,Voucher Type,Ledger,Debit,Credit,Narration,Reference
+MARG-2001,25/08/2026,Journal,Cash,980.25,,Marg migration fixture,MARG-REF-1
+MARG-2001,25/08/2026,Journal,Sales Account,,980.25,Marg migration fixture,MARG-REF-1

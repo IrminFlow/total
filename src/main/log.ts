@@ -9,6 +9,7 @@ import { appendFileSync, mkdirSync, readdirSync, unlinkSync } from 'fs'
 import { join } from 'path'
 import { dataRoot } from './paths'
 import { formatLine, isExpiredLogName, type LogLevel } from './logformat'
+import { writeCrashEnvelope } from './services/crashReports'
 
 const KEEP_DAYS = 14
 
@@ -75,9 +76,19 @@ export function initLogging(): void {
 
   process.on('uncaughtException', (err) => {
     log('error', 'uncaughtException', { error: String(err), stack: err instanceof Error ? err.stack : undefined })
+    try {
+      writeCrashEnvelope({ kind: 'main_exception', appVersion: appVersion(), platform: process.platform, arch: process.arch, message: err instanceof Error ? err.message : String(err), stack: err instanceof Error ? err.stack : undefined })
+    } catch {
+      // Crash reporting is best-effort and must never turn one failure into another.
+    }
   })
   process.on('unhandledRejection', (reason) => {
     log('error', 'unhandledRejection', { error: String(reason) })
+    try {
+      writeCrashEnvelope({ kind: 'main_rejection', appVersion: appVersion(), platform: process.platform, arch: process.arch, message: reason instanceof Error ? reason.message : String(reason), stack: reason instanceof Error ? reason.stack : undefined })
+    } catch {
+      // Crash reporting is best-effort and must never turn one failure into another.
+    }
   })
 }
 

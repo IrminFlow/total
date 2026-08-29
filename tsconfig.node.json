@@ -19,5 +19,5 @@
       "@main/*": ["src/main/*"]
     }
   },
-  "include": ["electron.vite.config.ts", "src/main/**/*", "src/preload/**/*", "src/shared/**/*"]
+  "include": ["electron.vite.config.ts", "build/desktop-build-profiles.json", "src/main/**/*", "src/preload/**/*", "src/shared/**/*"]
 }

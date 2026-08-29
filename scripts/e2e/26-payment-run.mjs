@@ -1,0 +1,38 @@
+// Scenario 26 — exact supplier-bill selection → bank-impact preview → durable draft → reviewed post.
+import { scenario, assert, assertEq } from '../lib/harness.mjs'
+
+await scenario('26-payment-run', async (h) => {
+  await h.createDemoCompany()
+  await h.goto('supplier-dues')
+  await h.page.getByText('Gujarat Components Pvt Ltd', { exact: true }).click()
+  await h.page.getByTestId(/select-payable-/).first().check()
+  await h.page.getByTestId('payment-selection-tray').waitFor()
+  await h.page.getByTestId('prepare-payment-run').click()
+  await h.page.getByText('Before', { exact: true }).waitFor()
+  await h.page.getByText('After', { exact: true }).waitFor()
+  await h.page.getByPlaceholder('Weekly supplier payments').fill('E2E reviewed supplier run')
+  await h.shot('01-bank-impact-preview')
+  await h.page.getByTestId('save-payment-run-draft').click()
+
+  await h.page.getByText('Run total', { exact: true }).waitFor()
+  const draftsBeforePost = await h.invoke('paymentRun:list')
+  assertEq(draftsBeforePost[0].status, 'draft', 'run remains outside books before review')
+  assert(draftsBeforePost[0].items.every((item) => item.voucherId === null), 'draft has no payment vouchers')
+  await h.shot('02-draft-review')
+
+  await h.page.getByTestId('post-payment-run').click()
+  await h.page.getByRole('button', { name: 'Post payment vouchers', exact: true }).last().click()
+  await h.page
+    .getByTestId(`payment-run-${draftsBeforePost[0].id}`)
+    .getByText('posted', { exact: true })
+    .waitFor()
+  const [posted] = await h.invoke('paymentRun:list')
+  assertEq(posted.status, 'posted', 'review posts the payment run')
+  assert(posted.items.every((item) => typeof item.voucherId === 'number'), 'each supplier receives a linked payment voucher')
+  const voucher = await h.invoke('voucher:get', { id: posted.items[0].voucherId })
+  assertEq(voucher.reference, `PAYRUN-${posted.id}`, 'payment voucher traces to its run')
+  await h.stubDialogs()
+  await h.page.getByRole('button', { name: 'Payment advice', exact: true }).first().click()
+  await h.page.getByText(/Payment advice:/).waitFor()
+  await h.shot('03-posted-run')
+})

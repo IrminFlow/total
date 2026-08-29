@@ -1,7 +1,7 @@
 import type { DB } from '../db/connection'
 import type {
   BalanceSheet, CashSparkPoint, DashboardData, DayBookRow, ExceptionRow, ExceptionSection, ExceptionsReport,
-  ItemProfitRow, LedgerStatement, LedgerStatementRow,
+  ItemProfitRow, LedgerStatement, LedgerStatementPage, LedgerStatementRow,
   ProfitAndLoss, StatementNode, StockAgeingRow, StockSummaryRow, TopLedgerRow, TrialBalance
 } from '@shared/reports'
 import type { Group, Nature } from '@shared/domain'
@@ -364,30 +364,45 @@ export function dayBook(
   // its actual side, instead of the voucher total being printed under BOTH Debit and Credit.
   const rows = db
     .prepare(
-      `SELECT v.id AS voucherId, v.date, vt.name AS voucherType, vt.kind AS kind, v.number, v.narration,
-              v.is_optional AS isOptional, v.post_dated AS postDated,
-              COALESCE(pl.name, fl.name, '') AS account,
-              COALESCE(anet.net, 0) AS accountNet
-       FROM vouchers v
-       JOIN voucher_types vt ON vt.id = v.voucher_type_id
-       LEFT JOIN ledgers pl ON pl.id = v.party_ledger_id
-       LEFT JOIN (
-         SELECT voucher_id, MIN(id) AS first_line FROM voucher_lines GROUP BY voucher_id
-       ) f ON f.voucher_id = v.id
-       LEFT JOIN voucher_lines fvl ON fvl.id = f.first_line
-       LEFT JOIN ledgers fl ON fl.id = fvl.ledger_id
-       LEFT JOIN (
+      `WITH selected AS MATERIALIZED (
+         SELECT v.id, v.date, v.number, v.narration, v.party_ledger_id,
+                v.is_optional, v.post_dated, v.reversal_of_id, vt.name AS voucherType, vt.kind
+         FROM vouchers v
+         JOIN voucher_types vt ON vt.id = v.voucher_type_id
+         WHERE v.date BETWEEN ? AND ? AND ${scope}
+       ),
+       first_lines AS (
+         SELECT vl.voucher_id, MIN(vl.id) AS first_line
+         FROM selected s JOIN voucher_lines vl INDEXED BY idx_lines_voucher ON vl.voucher_id = s.id
+         GROUP BY vl.voucher_id
+       ),
+       account_nets AS (
          SELECT vl.voucher_id, vl.ledger_id,
                 SUM(CASE WHEN vl.dr_cr = 'dr' THEN vl.amount ELSE -vl.amount END) AS net
-         FROM voucher_lines vl GROUP BY vl.voucher_id, vl.ledger_id
-       ) anet ON anet.voucher_id = v.id AND anet.ledger_id = COALESCE(pl.id, fl.id)
-       WHERE v.date BETWEEN ? AND ? AND ${scope}
-       ORDER BY v.date, v.id`
+         FROM selected s JOIN voucher_lines vl INDEXED BY idx_lines_voucher ON vl.voucher_id = s.id
+         GROUP BY vl.voucher_id, vl.ledger_id
+       )
+       SELECT s.id AS voucherId, s.date, s.voucherType, s.kind, s.number, s.narration,
+              s.is_optional AS isOptional, s.post_dated AS postDated, s.reversal_of_id AS reversalOfId,
+              (SELECT id FROM vouchers rv WHERE rv.reversal_of_id = s.id) AS reversedById,
+              (SELECT group_concat(tag, char(31)) FROM voucher_tags WHERE voucher_id = s.id ORDER BY tag) AS tagList,
+              vr.reviewed_at AS reviewedAt, vr.reviewed_by AS reviewedBy,
+              COALESCE(pl.name, fl.name, '') AS account,
+              COALESCE(anet.net, 0) AS accountNet
+       FROM selected s
+       LEFT JOIN ledgers pl ON pl.id = s.party_ledger_id
+       LEFT JOIN first_lines f ON f.voucher_id = s.id
+       LEFT JOIN voucher_lines fvl ON fvl.id = f.first_line
+       LEFT JOIN ledgers fl ON fl.id = fvl.ledger_id
+       LEFT JOIN account_nets anet ON anet.voucher_id = s.id AND anet.ledger_id = COALESCE(pl.id, fl.id)
+       LEFT JOIN voucher_reviews vr ON vr.voucher_id = s.id
+       ORDER BY s.date, s.id`
     )
     .all(from, to) as {
       voucherId: number; date: string; voucherType: string; kind: string; number: string
       narration: string | null; account: string; accountNet: number
-      isOptional: number; postDated: number
+      isOptional: number; postDated: number; reversalOfId: number | null; reversedById: number | null
+      tagList: string | null; reviewedAt: string | null; reviewedBy: string | null
     }[]
   return rows.map((r) => ({
     voucherId: r.voucherId,
@@ -400,7 +415,12 @@ export function dayBook(
     debit: r.accountNet > 0 ? r.accountNet : 0,
     credit: r.accountNet < 0 ? -r.accountNet : 0,
     isOptional: !!r.isOptional,
-    postDated: !!r.postDated
+    postDated: !!r.postDated,
+    tags: r.tagList ? r.tagList.split(String.fromCharCode(31)) : [],
+    reviewedAt: r.reviewedAt,
+    reviewedBy: r.reviewedBy,
+    reversalOfId: r.reversalOfId,
+    reversedById: r.reversedById
   }))
 }
 
@@ -451,18 +471,25 @@ export function ledgerStatement(db: DB, ledgerId: number, from: string, to: stri
 
   // Counterpart names for the "particulars" column — one batched query over the touched
   // vouchers plus JS grouping, replacing the correlated GROUP_CONCAT subquery per line.
-  const voucherIds = [...new Set(lineRows.map((r) => r.voucherId))]
   const namesBySide = new Map<string, string[]>() // `${voucherId}|${drCr}` -> distinct names, first-seen order
-  if (voucherIds.length > 0) {
-    const placeholders = voucherIds.map(() => '?').join(',')
+  if (lineRows.length > 0) {
+    // Do not construct `IN (?, ?, …)` from every touched voucher: a busy ledger can exceed
+    // SQLite's variable limit. Re-select the touched voucher ids as an indexed CTE instead.
     const counterRows = db
       .prepare(
-        `SELECT vl2.voucher_id AS voucherId, vl2.dr_cr AS drCr, l2.name
-         FROM voucher_lines vl2 JOIN ledgers l2 ON l2.id = vl2.ledger_id
-         WHERE vl2.voucher_id IN (${placeholders})
+        `WITH touched AS (
+           SELECT DISTINCT target.voucher_id
+           FROM voucher_lines target
+           JOIN vouchers v ON v.id = target.voucher_id
+           WHERE target.ledger_id = ? AND v.date BETWEEN ? AND ? AND ${IN_BOOKS}
+         )
+         SELECT vl2.voucher_id AS voucherId, vl2.dr_cr AS drCr, l2.name
+         FROM touched t
+         JOIN voucher_lines vl2 INDEXED BY idx_lines_voucher ON vl2.voucher_id = t.voucher_id
+         JOIN ledgers l2 ON l2.id = vl2.ledger_id
          ORDER BY vl2.id`
       )
-      .all(...voucherIds) as { voucherId: number; drCr: 'dr' | 'cr'; name: string }[]
+      .all(ledgerId, from, to) as { voucherId: number; drCr: 'dr' | 'cr'; name: string }[]
     for (const r of counterRows) {
       const key = `${r.voucherId}|${r.drCr}`
       const list = namesBySide.get(key) ?? []
@@ -523,6 +550,156 @@ export function ledgerStatement(db: DB, ledgerId: number, from: string, to: stri
   }
 
   return result
+}
+
+/**
+ * Bounded ledger statement for interactive consumers. The legacy `ledgerStatement` remains
+ * available for internal exports and compatibility, while this path keeps large books out of IPC
+ * and the renderer. Totals and running balances are calculated from all matching lines, never from
+ * the visible page.
+ */
+export function ledgerStatementPage(
+  db: DB,
+  ledgerId: number,
+  from: string,
+  to: string,
+  options: { offset?: number; limit?: number; groupBy?: 'month' } = {}
+): LedgerStatementPage {
+  const offset = Math.max(0, Math.trunc(options.offset ?? 0))
+  const limit = Math.min(500, Math.max(1, Math.trunc(options.limit ?? 200)))
+  const ledger = db.prepare('SELECT id, name, opening_balance FROM ledgers WHERE id = ?').get(ledgerId) as
+    | { id: number; name: string; opening_balance: number }
+    | undefined
+  if (!ledger) throw new Error('Ledger not found')
+
+  const beforeRow = db.prepare(
+    `SELECT COALESCE(SUM(CASE WHEN vl.dr_cr = 'dr' THEN vl.amount ELSE -vl.amount END), 0) AS movement
+     FROM voucher_lines vl JOIN vouchers v ON v.id = vl.voucher_id
+     WHERE vl.ledger_id = ? AND v.date < ? AND ${IN_BOOKS}`
+  ).get(ledgerId, from) as { movement: number }
+  const opening = ledger.opening_balance + beforeRow.movement
+
+  const totals = db.prepare(
+    `SELECT COUNT(*) AS totalRows,
+            COALESCE(SUM(CASE WHEN vl.dr_cr = 'dr' THEN vl.amount ELSE 0 END), 0) AS totalDebit,
+            COALESCE(SUM(CASE WHEN vl.dr_cr = 'cr' THEN vl.amount ELSE 0 END), 0) AS totalCredit
+     FROM voucher_lines vl JOIN vouchers v ON v.id = vl.voucher_id
+     WHERE vl.ledger_id = ? AND v.date BETWEEN ? AND ? AND ${IN_BOOKS}`
+  ).get(ledgerId, from, to) as { totalRows: number; totalDebit: number; totalCredit: number }
+  const closing = opening + totals.totalDebit - totals.totalCredit
+
+  if (options.groupBy === 'month') {
+    const movementRows = db.prepare(
+      `SELECT substr(v.date, 1, 7) AS month,
+              COALESCE(SUM(CASE WHEN vl.dr_cr = 'dr' THEN vl.amount ELSE 0 END), 0) AS debit,
+              COALESCE(SUM(CASE WHEN vl.dr_cr = 'cr' THEN vl.amount ELSE 0 END), 0) AS credit
+       FROM voucher_lines vl JOIN vouchers v ON v.id = vl.voucher_id
+       WHERE vl.ledger_id = ? AND v.date BETWEEN ? AND ? AND ${IN_BOOKS}
+       GROUP BY substr(v.date, 1, 7)
+       ORDER BY month`
+    ).all(ledgerId, from, to) as { month: string; debit: number; credit: number }[]
+    const movementByMonth = new Map(movementRows.map((row) => [row.month, row]))
+    let running = opening
+    const months = monthRange(from, to).map((month) => {
+      const movement = movementByMonth.get(month)
+      running += (movement?.debit ?? 0) - (movement?.credit ?? 0)
+      return { month, debit: movement?.debit ?? 0, credit: movement?.credit ?? 0, closing: running }
+    })
+    return {
+      ledgerId,
+      ledgerName: ledger.name,
+      opening,
+      rows: [],
+      months,
+      closing,
+      totalDebit: totals.totalDebit,
+      totalCredit: totals.totalCredit,
+      page: { offset: 0, limit, totalRows: totals.totalRows, hasPrevious: false, hasMore: false }
+    }
+  }
+
+  const prefix = offset === 0 ? 0 : (db.prepare(
+    `SELECT COALESCE(SUM(delta), 0) AS movement FROM (
+       SELECT CASE WHEN vl.dr_cr = 'dr' THEN vl.amount ELSE -vl.amount END AS delta
+       FROM voucher_lines vl JOIN vouchers v ON v.id = vl.voucher_id
+       WHERE vl.ledger_id = ? AND v.date BETWEEN ? AND ? AND ${IN_BOOKS}
+       ORDER BY v.date, v.id, vl.line_order, vl.id
+       LIMIT ?
+     )`
+  ).get(ledgerId, from, to, offset) as { movement: number }).movement
+
+  const lineRows = db.prepare(
+    `SELECT v.id AS voucherId, v.date, vt.name AS voucherType, v.number, v.narration,
+            vl.dr_cr AS drCr, vl.amount
+     FROM voucher_lines vl
+     JOIN vouchers v ON v.id = vl.voucher_id
+     JOIN voucher_types vt ON vt.id = v.voucher_type_id
+     WHERE vl.ledger_id = ? AND v.date BETWEEN ? AND ? AND ${IN_BOOKS}
+     ORDER BY v.date, v.id, vl.line_order, vl.id
+     LIMIT ? OFFSET ?`
+  ).all(ledgerId, from, to, limit, offset) as {
+    voucherId: number; date: string; voucherType: string; number: string; narration: string | null
+    drCr: 'dr' | 'cr'; amount: number
+  }[]
+
+  const namesBySide = new Map<string, string[]>()
+  if (lineRows.length > 0) {
+    const counterRows = db.prepare(
+      `WITH page_lines AS (
+         SELECT vl.voucher_id
+         FROM voucher_lines vl JOIN vouchers v ON v.id = vl.voucher_id
+         WHERE vl.ledger_id = ? AND v.date BETWEEN ? AND ? AND ${IN_BOOKS}
+         ORDER BY v.date, v.id, vl.line_order, vl.id
+         LIMIT ? OFFSET ?
+       ), touched AS (SELECT DISTINCT voucher_id FROM page_lines)
+       SELECT vl2.voucher_id AS voucherId, vl2.dr_cr AS drCr, l2.name
+       FROM touched t
+       JOIN voucher_lines vl2 INDEXED BY idx_lines_voucher ON vl2.voucher_id = t.voucher_id
+       JOIN ledgers l2 ON l2.id = vl2.ledger_id
+       ORDER BY vl2.id`
+    ).all(ledgerId, from, to, limit, offset) as { voucherId: number; drCr: 'dr' | 'cr'; name: string }[]
+    for (const row of counterRows) {
+      const key = `${row.voucherId}|${row.drCr}`
+      const names = namesBySide.get(key) ?? []
+      if (!names.includes(row.name)) names.push(row.name)
+      namesBySide.set(key, names)
+    }
+  }
+
+  let running = opening + prefix
+  const rows = lineRows.map((row): LedgerStatementRow => {
+    const debit = row.drCr === 'dr' ? row.amount : 0
+    const credit = row.drCr === 'cr' ? row.amount : 0
+    running += debit - credit
+    return {
+      voucherId: row.voucherId,
+      date: row.date,
+      voucherType: row.voucherType,
+      number: row.number,
+      particulars: (namesBySide.get(`${row.voucherId}|${row.drCr === 'dr' ? 'cr' : 'dr'}`) ?? []).join(','),
+      narration: row.narration,
+      debit,
+      credit,
+      running
+    }
+  })
+
+  return {
+    ledgerId,
+    ledgerName: ledger.name,
+    opening,
+    rows,
+    closing,
+    totalDebit: totals.totalDebit,
+    totalCredit: totals.totalCredit,
+    page: {
+      offset,
+      limit,
+      totalRows: totals.totalRows,
+      hasPrevious: offset > 0,
+      hasMore: offset + rows.length < totals.totalRows
+    }
+  }
 }
 
 export function trialBalance(db: DB, asOn: string): TrialBalance {

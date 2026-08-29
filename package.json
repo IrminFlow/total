@@ -1,33 +1,71 @@
 {
   "name": "total",
-  "version": "0.4.0",
-  "description": "Total — fully offline accounting for macOS. Tally-grade books, modern experience.",
+  "version": "5.0.0",
+  "description": "Total — private, offline-first accounting for macOS and Windows.",
   "main": "out/main/index.js",
   "author": "Irmin Labs",
   "license": "UNLICENSED",
   "private": true,
   "scripts": {
     "dev": "electron-vite dev",
-    "build": "electron-vite build",
+    "build": "electron-vite build && node scripts/write-desktop-build-profile.mjs && node scripts/build-mcp.mjs",
     "preview": "electron-vite preview",
     "test": "vitest run",
+    "test:release": "node --test scripts/tests/*.test.mjs",
     "test:watch": "vitest",
     "test:db": "node scripts/test-db.mjs",
     "test:renderer": "vitest run -c vitest.renderer.config.ts",
+    "test:large": "node scripts/test-large.mjs",
+    "test:chaos": "node scripts/chaos-suite.mjs",
+    "test:soak": "node scripts/soak-ci.mjs",
+    "test:visual": "node scripts/visual-regression-gate.mjs",
+    "test:site:visual": "node scripts/site-visual-capture.mjs",
     "cli": "node scripts/total-cli.mjs",
+    "mcp": "node scripts/total-mcp.mjs",
+    "integration:validate": "node scripts/integration-kit.mjs",
     "smoke": "node scripts/smoke-ci.mjs",
+    "perf:startup": "node scripts/startup-gate.mjs",
+    "perf:bundle": "node scripts/performance-budget-gate.mjs",
+    "perf:memory": "node scripts/memory-gate.mjs",
+    "release:preflight": "node scripts/threat-model-gate.mjs && node scripts/release-preflight.mjs",
+    "security:threat-model": "node scripts/threat-model-gate.mjs",
+    "security:audit": "node scripts/security-audit.mjs",
+    "security:evidence": "node scripts/security-evidence.mjs",
+    "release:contract": "node scripts/release-contract.mjs",
+    "release:artifact": "node scripts/artifact-gate.mjs",
+    "release:package-contract": "node scripts/package-contract.mjs",
+    "release:install-smoke": "node scripts/install-smoke.mjs",
+    "release:upgrade-smoke": "node scripts/upgrade-smoke.mjs",
+    "release:evidence": "node scripts/build-evidence.mjs",
+    "release:scorecard": "node scripts/release-scorecard.mjs",
+    "release:readiness": "node scripts/production-readiness.mjs",
+    "release:live": "node scripts/production-live-check.mjs",
+    "staging:readiness": "node scripts/staging-readiness.mjs",
+    "acceptance:gate": "node scripts/acceptance-gate.mjs",
+    "acceptance:legal-packet": "node scripts/legal-review-packet.mjs",
+    "acceptance:legal-risk-packet": "node scripts/legal-risk-packet.mjs",
+    "security:dependencies": "node scripts/dependency-policy.mjs",
     "e2e": "node scripts/run-e2e.mjs",
     "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json",
-    "postinstall": "electron-builder install-app-deps",
-    "build:mac": "electron-vite build && electron-builder --mac"
+    "postinstall": "node node_modules/electron/install.js && electron-builder install-app-deps",
+    "build:mac": "npm run build && electron-builder --mac"
   },
   "dependencies": {
     "@fontsource/ibm-plex-mono": "^5.3.0",
     "@fontsource/ibm-plex-sans": "^5.3.0",
     "@fontsource/ibm-plex-serif": "^5.3.0",
-    "better-sqlite3": "^12.2.0",
+    "@modelcontextprotocol/sdk": "^1.30.0",
+    "@phosphor-icons/react": "^2.1.10",
+    "@radix-ui/react-dialog": "^1.1.23",
+    "@radix-ui/react-popover": "^1.1.23",
+    "@radix-ui/react-tooltip": "^1.2.16",
+    "@tesseract.js-data/eng": "^1.0.0",
+    "better-sqlite3": "^13.0.3",
     "electron-updater": "^6.8.9",
+    "exceljs": "^4.4.0",
+    "openai": "^7.5.0",
     "qrcode-generator": "^2.0.4",
+    "tesseract.js": "^7.0.0",
     "zod": "^3.25.0"
   },
   "devDependencies": {
@@ -42,9 +80,10 @@
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
     "@vitejs/plugin-react": "^4.6.0",
-    "electron": "^37.2.0",
+    "electron": "^43.4.1",
     "electron-builder": "^26.0.12",
     "electron-vite": "^4.0.0",
+    "esbuild": "^0.28.2",
     "jsdom": "^30.0.1",
     "playwright-core": "^1.62.1",
     "react": "^19.1.0",
@@ -54,24 +93,52 @@
     "vitest": "^3.2.0",
     "zustand": "^5.0.0"
   },
+  "overrides": {
+    "exceljs": {
+      "uuid": "^11.1.1"
+    }
+  },
   "build": {
     "appId": "com.irminlabs.total",
     "productName": "Total",
+    "icon": "build/icon-v2.png",
     "directories": {
       "output": "dist"
     },
     "files": [
       "out/**/*",
+      "scripts/total-mcp.mjs",
+      "agent-skill/**/*",
       "package.json"
     ],
+    "extraResources": [
+      {
+        "from": "out/mcp/total-mcp.mjs",
+        "to": "total-mcp.mjs"
+      },
+      {
+        "from": "agent-skill/voucher.schema.json",
+        "to": "voucher.schema.json"
+      },
+      {
+        "from": "node_modules/@tesseract.js-data/eng/4.0.0",
+        "to": "offline-ocr"
+      }
+    ],
     "mac": {
+      "icon": "build/icon-v2.icns",
       "category": "public.app-category.finance",
+      "hardenedRuntime": true,
+      "notarize": true,
+      "entitlements": "build/entitlements.mac.plist",
+      "entitlementsInherit": "build/entitlements.mac.inherit.plist",
       "target": [
         "dmg",
         "zip"
       ]
     },
     "win": {
+      "artifactName": "${productName}-Setup-${version}.${ext}",
       "target": [
         "nsis"
       ]
@@ -90,8 +157,8 @@
     ]
   },
   "allowScripts": {
-    "electron@37.10.3": true,
-    "better-sqlite3@12.11.1": true,
+    "electron@43.4.1": true,
+    "better-sqlite3@13.0.3": true,
     "esbuild@0.25.12": true,
     "esbuild@0.28.2": true,
     "electron-winstaller@5.4.0": true

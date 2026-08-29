@@ -1,0 +1,15 @@
+{
+  "shipmentId": "SHIP-FIXTURE-1",
+  "orderReference": "SO-FIXTURE-1",
+  "invoiceNumber": "INV-FIXTURE-1",
+  "invoiceDate": "2026-08-24",
+  "recipientName": "Asha Shah",
+  "address": "12 Market Road, Mumbai",
+  "pincode": "400001",
+  "phone": "+919999999999",
+  "gstin": null,
+  "weightGrams": 750,
+  "packageCount": 1,
+  "collectOnDeliveryPaise": 0,
+  "declaredValuePaise": 125000
+}

@@ -1,62 +1,142 @@
 # Total
 
-**Fully offline accounting for macOS.** Tally-grade double-entry books with GST, inventory, and portal-ready returns — reimagined with a modern, keyboard-first interface. No cloud, no account, no internet. All data lives in `~/Documents/total/`.
+Total is a local-first accounting workstation for Indian businesses. It combines double-entry books, GST-ready offline workflows, invoicing, inventory, banking, payroll, migration tools, reporting, optional AI assistance, and optional encrypted collaboration in one Electron desktop application for macOS and Windows.
 
-## What it does
+The accounting engine never needs an account or an internet connection. Each company keeps its own SQLite database under the user-controlled Total data directory. Optional network features are separately enabled, can be disabled without affecting the books, and never replace SQLite as the accounting source of truth.
 
-- **Multi-company books** — one SQLite file per company under `~/Documents/total/companies/<slug>/`, auto-backed-up on every open (last 20 snapshots kept in `backups/`).
-- **Masters** — Tally's 28 default account groups seeded verbatim, ledgers with GST/party details, stock items (HSN, GST rate, cess), units with GST UQC codes, godowns, configurable voucher-type numbering.
-- **Vouchers** — Contra, Payment, Receipt, Journal, Sales, Purchase, Credit Note, Debit Note, Stock Journal, Physical Stock. Invoice mode computes GST live (intra → CGST+SGST, inter → IGST from state codes), rounds off to the rupee, and posts balanced double-entry lines. Every edit/delete lands in an audit log.
-- **Reports** — Day Book, Ledger statement, Trial Balance, P&L (trading + P&L with opening/closing stock), Balance Sheet, Stock Summary (weighted-average valuation). Reports drill down: statement → group → ledger → voucher.
-- **GST** — GSTR-1 (B2B/B2CL/B2CS/CDNR/HSN) and GSTR-3B computed from vouchers; **Export portal JSON** writes offline-tool-schema files into the company's `exports/` folder, ready to upload. GSTIN checksum validation, HSN validation, state-mismatch warnings. **e-Invoice** (NIC schema 1.1) and **e-way bill** bulk JSON exports for the government offline tools, with per-invoice dispatch details (vehicle, transporter, distance).
-- **Invoice printing** — GST tax invoice as PDF (HSN column, tax breakup, amount in words, declaration + signatory), from voucher entry ("Save + invoice PDF"), the Day Book, or the e-Invoice screen. PDFs land in `exports/` and open automatically.
-- **Registers & outstandings** — monthly Sales/Purchase registers (count, taxable, GST, total) and party-wise receivable/payable **ageing** (0-30/31-60/61-90/90+) with FIFO bill settlement and drill-down to open bills.
-- **Banking** — bank reconciliation per bank ledger: books vs bank balance, cheque/UTR numbers on payments and receipts, manual bank-date marking, and **statement CSV import** with automatic matching by amount and date (±5 days).
-- **Two themes** — light (default) and dark, toggle in the header, remembered across launches.
-- **Payroll** — employees with salary structures (Basic/HRA/Special), statutory EPF (12%+12%, ₹15,000 ceiling), ESI (0.75%/3.25% under ₹21,000), simplified professional tax; monthly pay runs with attendance proration post one balanced Journal voucher (salaries + employer contributions vs PF/ESI/PT/Salaries payable) and produce payslip PDFs.
-- **Manufacturing / BOM** — bill of materials on stock items; the Stock Journal voucher becomes a Manufacture screen: pick the output and quantity, components are consumed at weighted-average cost (plus an overhead %), finished goods enter stock at cost.
-- **Multi-currency** — add currencies in Masters; sales invoices can be priced in a foreign currency with an exchange rate — books stay in ₹, the currency and rate are stored on the voucher.
-- **Tally import** — reads Tally's Masters and Day Book XML exports (groups, ledgers with opening balances and GSTINs, units, stock items, vouchers with Tally's Dr/Cr sign conventions). Best-effort with a warnings report; auto-backup before every import.
-- **Live filing (optional)** — NIC e-invoice API client (auth with RSA + AES session encryption, generate IRN per invoice, generate e-way bill against the IRN); paste your API credentials once under e-Invoice → Set up live filing. Fully optional — the offline JSON exports remain the default path.
-- **Offline intelligence** — ledger autosuggest ranked by usage per voucher kind, duplicate-voucher warning (same party + amount ± 3 days), anomaly nudge on unusual amounts, Tally-style smart dates (`7`, `7/4`, `y`, `t`), amount-in-words on invoices.
+## Current release state
 
-## Keyboard
+- Version: `5.0.0`
+- Active integration branch: `v5-cloud-agent-sync`
+- Draft pull request: [#4](https://github.com/IrminFlow/total/pull/4)
+- CI: application tests, database tests, renderer tests, macOS E2E, Windows build, visual contracts, website build, and unsigned macOS/Windows packages pass on the branch
+- Public release: not yet approved or signed
+- Explicitly excluded: NIC live filing and online GST portal APIs
 
-`⌘K` command palette · `F4`–`F9` voucher type switching · `⌘↵` save voucher · `Esc` back · arrow keys + `Enter` drive every list (the amber bar is the cursor) · single letters on the Gateway (`V` voucher, `D` day book, `B` balance sheet…).
+Start with the document that matches your role:
 
-## Shipping: GitHub, Vercel, auto-updates
+- Product owner: [HUMAN.md](HUMAN.md)
+- Coding agent: [TASKS.md](TASKS.md) and [CLAUDE.md](CLAUDE.md)
+- Complete feature catalogue: [FEATURES.md](FEATURES.md)
+- Product and delivery roadmap: [ROADMAP.md](ROADMAP.md)
+- Documentation index: [docs/README.md](docs/README.md)
+- Release operator: [docs/RELEASE_RUNBOOK.md](docs/RELEASE_RUNBOOK.md)
 
-One repo holds both the app and the marketing site (`site/`, Next.js).
+## Product capabilities
 
-The repo lives (private) at `IrminFlow/total`. If the owner/name ever changes, update `build.publish` in `package.json`, `GITHUB_REPO` + `SITE_LATEST_URL` in `src/main/updater.ts`, and the `GITHUB_REPO` env on Vercel.
+### Accounting and daily work
 
-1. **Releases (auto-update feed)** — pushing a version tag makes GitHub Actions build the DMG+ZIP and attach them to a release (`.github/workflows/release.yml`):
-   ```bash
-   npm version patch        # bumps package.json, commits, tags v0.1.1
-   git push --follow-tags
-   ```
-2. **Vercel** — import the repo and set **Root Directory to `site`**. Required env var while the repo is private: `GITHUB_TOKEN` — a fine-grained PAT with *read* access to this repo's contents, so the site can show the latest version and serve `/api/download` (it exchanges the asset for a short-lived public URL; the token never reaches the browser). Optional: `NEXT_PUBLIC_SITE_URL` (your domain, for social cards), `GITHUB_REPO` (owner/repo override).
-3. **How updates reach users** — installed apps check the site's `/api/latest` on launch (this works while the repo is private) and offer the new DMG via `/api/download`. Unsigned builds always use this prompt-to-download path; once you add `CSC_LINK`/`CSC_KEY_PASSWORD` secrets (Apple Developer ID) *and* the repo/releases are public, electron-updater's silent in-place updates take over. If `src/main/updater.ts`'s `SITE_LATEST_URL` doesn't match your real Vercel domain, update it.
+- Multi-company double-entry books with append-only migrations and audit history
+- Contra, Payment, Receipt, Journal, Sales, Purchase, Credit Note, Debit Note, Stock Journal, and Physical Stock vouchers
+- Autosaved drafts, duplication warnings, linked reversals, soft-delete recovery, comments, templates, and maker-checker approval
+- Global command palette, contextual keyboard shortcuts, red mnemonic letters, screen history, saved workspaces, and focused work modes
+- Monthly and Indian financial-year quarterly Sales and Purchase registers with export and Day Book drill-through
 
-## Development
+### Business operations
 
-```bash
-npm install                 # postinstall rebuilds better-sqlite3 for Electron
-npm run dev                 # dev app with HMR
-npm test                    # engine test suite (money, GST, posting, GSTR builders)
-npm run typecheck
-npm run build:mac           # DMG in dist/
-```
+- Receivables, payables, ageing, collections, promises to pay, reminders, and customer statements
+- Banking reconciliation, statement imports, rules, cheque lifecycle, payment runs, and cash forecasts
+- Inventory, godowns, batches, serials, reorder controls, weighted-average valuation, BOM, and manufacturing
+- Purchase requisitions, purchase orders, GRNs, three-way matching, debit-note claims, and vendor controls
+- Payroll, attendance, salary structures, statutory calculations, payslips, loans, reimbursements, and final settlement
+- Budgets, cost centres, consolidation, management insights, cash-flow scenarios, and portable report packs
 
-If better-sqlite3 complains about `NODE_MODULE_VERSION`, rebuild it for Electron:
-`npx @electron/rebuild -f -w better-sqlite3` (needed after any plain `npm rebuild`, which targets system Node instead).
+### Compliance and migration
 
-`scripts/e2e/*.mjs` (run with `npm run e2e`) are Playwright E2E scenarios that launch the built app on scratch data dirs and walk onboarding → vouchers → GST → payroll → backup, saving screenshots and JSON results (run `npm run build` first).
+- GSTR-1 and GSTR-3B calculations, GST action centre, GSTR-2B reconciliation, return snapshots, and offline portal exports
+- Offline e-Invoice and e-Way Bill JSON exports
+- TDS controls and compliance calendar
+- Tally XML plus Busy, Marg, Zoho, and spreadsheet migration workbenches
+- Pre-import snapshots, validation previews, reconciliation evidence, and rollback points
+
+### Optional intelligence and collaboration
+
+- OpenAI Responses API support and OpenAI-compatible endpoints
+- Legitimate ChatGPT/Codex device login through the installed Codex CLI
+- AI explanations, searches, document extraction, bank suggestions, and balanced voucher proposals
+- AI Operator with a visible action plan and owner-approved filesystem roots
+- Bundled offline English OCR through Tesseract
+- Local stdio MCP server with read tools and proposal-only write tools
+- End-to-end encrypted Supabase collaboration for proposals, drafts, comments, and tasks
+- Expiring, revocable, single-use team invitations with separate recovery-key exchange
+
+AI cannot post accounting entries directly. Posted-book changes always use the ordinary validation, permissions, period-lock, approval, transaction, and audit paths.
 
 ## Architecture
 
-- `src/shared/` — the pure engine: money (integer paise), dates/FY, double-entry posting rules, GST calculator, GSTIN/HSN validators, GSTR-1/3B builders, seed data. Zero Electron imports; fully unit-tested.
-- `src/main/` — Electron main process: SQLite (better-sqlite3, WAL, migrations), company registry, services (masters/vouchers/reports/gst/intel), IPC handlers with Zod validation on every payload.
-- `src/renderer/` — React + Tailwind UI. Talks to main only through `window.total.invoke` (contextBridge); all money stays in paise until display.
+```text
+src/shared/      Pure TypeScript accounting rules and schemas
+src/main/        Electron main process, SQLite, services, IPC, AI, sync
+src/preload/     Narrow contextBridge API
+src/renderer/    React 19 and Tailwind v4 desktop interface
+site/            Next.js 16 marketing, download, support, and feedback site
+supabase/        Optional encrypted-sync and hosted-intake migrations/functions
+scripts/         E2E, performance, security, evidence, and release tooling
+docs/            Product, operational, security, acceptance, and release guides
+```
 
-Voucher lines are the source of truth — every report is computed from `voucher_lines` + opening balances at query time; nothing is denormalised, so books can never drift.
+Important invariants:
+
+- Money is integer paise. Quantities are integer thousandths.
+- Reports derive from `voucher_lines`; derived balances are not stored.
+- SQLite is authoritative. JSON is the portable human and agent interface.
+- New schemas use appended migrations. Historical migrations are never rewritten.
+- Renderer code calls the typed client only. It does not access SQLite, credentials, or provider SDKs.
+- Optional network services fail closed while local accounting remains available.
+
+## Development
+
+Requirements: Node.js 22, npm, and the platform build tools required by Electron.
+
+```bash
+npm install
+npm run dev
+```
+
+`npm run dev` starts Electron with hot module replacement. Automation must use a scratch company-data directory rather than production data.
+
+Core verification:
+
+```bash
+npm run typecheck
+npm test
+npm run test:db
+npm run test:renderer
+npm run build
+npm run smoke
+npm run e2e
+```
+
+Additional release gates:
+
+```bash
+npm run test:release
+npm run test:visual
+npm run perf:bundle
+npm run security:dependencies
+npm run security:audit
+npm run security:threat-model
+cd site && npm test && npm run build
+```
+
+If `better-sqlite3` reports a `NODE_MODULE_VERSION` mismatch, rebuild it for Electron:
+
+```bash
+npx @electron/rebuild -f -w better-sqlite3
+```
+
+## Data and secret safety
+
+Production company data defaults to `~/Documents/total/`. Every automated driver must use a temporary `TOTAL_DATA_DIR` and must never operate on the real directory. Uninstallers are configured to preserve company data.
+
+Provider keys, collaboration tokens, recovery material, and signing credentials must not enter SQLite, JSON mirrors, backups, renderer state, logs, support payloads, commits, or documentation. Desktop secrets use the operating-system credential facility.
+
+## Shipping
+
+Do not create a release tag manually. The reviewed release commit is merged to `main`, built through the protected release-candidate workflow, accepted against exact artifact digests, and promoted without rebuilding. The authoritative sequence is in [docs/RELEASE_RUNBOOK.md](docs/RELEASE_RUNBOOK.md).
+
+The branch workflow in `.github/workflows/v5-cloud-agent-sync.yml` creates unsigned, non-publishing macOS and Windows test packages. It cannot create a public release.
+
+## Documentation
+
+[docs/README.md](docs/README.md) explains which guides are authoritative, operational, historical, or generated. When implementation and documentation differ, update the implementation status and the relevant operational guide in the same change.

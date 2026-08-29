@@ -1,0 +1,3 @@
+Vch No,Date,Vch Type,Account,Dr,Cr,Narration,Reference
+BUSY-1001,24/08/2026,Journal,Cash,1250.50,,Busy migration fixture,BUSY-REF-1
+BUSY-1001,24/08/2026,Journal,Sales Account,,1250.50,Busy migration fixture,BUSY-REF-1

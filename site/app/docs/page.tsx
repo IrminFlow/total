@@ -1,20 +1,20 @@
 import type { Metadata } from 'next'
 
 export const metadata: Metadata = {
-  title: 'Getting started — Total Docs'
+  title: 'Getting started - Docs'
 }
 
 export default function GettingStartedPage(): React.JSX.Element {
   return (
     <>
       <h1 className="serif">Getting started</h1>
-      <p className="sub">Download, open your first company, and post a voucher — in about five minutes.</p>
+      <p className="sub">Download Total, open your first company and post a voucher in about five minutes.</p>
 
       <h2>1. Download & first launch</h2>
       <p>
-        Grab the build for your machine from the <a href="/">homepage</a> — macOS (Apple Silicon) or Windows. Total
+        Grab the build for your machine from the <a href="/">homepage</a>: macOS (Apple Silicon) or Windows. Total
         isn&rsquo;t code-signed yet, so on macOS Gatekeeper will say the app &ldquo;is damaged and can&rsquo;t be
-        opened&rdquo;. Right-click → Open does <b>not</b> get past this for the current build — instead:
+        opened&rdquo;. Right-click → Open does <b>not</b> get past this for the current build. Instead:
       </p>
       <pre>
         <code>{`# 1. Move Total.app into /Applications
@@ -23,11 +23,11 @@ mv ~/Downloads/Total.app /Applications/
 # 2. Clear the quarantine flag Gatekeeper set on download
 xattr -cr /Applications/Total.app
 
-# 3. Now it opens normally — double-click, or:
+# 3. Now it opens normally. Double-click, or:
 open /Applications/Total.app`}</code>
       </pre>
       <p className="muted">
-        You only need to do this once per downloaded version — later launches (and auto-updates) open normally.
+        You only need to do this once per downloaded version. Later launches (and auto-updates) open normally.
       </p>
 
       <h2>2. Create your company</h2>
@@ -37,18 +37,18 @@ open /Applications/Total.app`}</code>
           <b>Company name</b>
         </li>
         <li>
-          <b>State</b> — used for GST place-of-supply and CGST/SGST vs IGST decisions
+          <b>State:</b> used for GST place-of-supply and CGST/SGST vs IGST decisions
         </li>
         <li>
-          <b>Books begin (FY)</b> — the financial year your opening balances start from, e.g. &ldquo;1 Apr
+          <b>Books begin (FY):</b> the financial year your opening balances start from, e.g. &ldquo;1 Apr
           2025&rdquo;
         </li>
         <li>
-          <b>GSTIN</b> — optional; leave it empty if you&rsquo;re not GST-registered
+          <b>GSTIN:</b> optional; leave it empty if you&rsquo;re not GST-registered
         </li>
         <li>
-          <b>Registration type</b> — Regular or Composition, shown once a GSTIN is entered (Total&rsquo;s GST return
-          builders target regular registration — see <a href="/docs/gst-returns">GST returns</a>)
+          <b>Registration type:</b> Regular or Composition, shown once a GSTIN is entered (Total&rsquo;s GST return
+          builders target regular registration; see <a href="/docs/gst-returns">GST returns</a>)
         </li>
         <li>
           <b>Address</b>
@@ -61,7 +61,7 @@ open /Applications/Total.app`}</code>
 
       <h2>3. The Gateway, in one screen</h2>
       <p>
-        Every session opens on the Gateway — a set of tiles showing your whole position, each reachable by a
+        Every session opens on the Gateway, a set of tiles showing your whole position. Each is reachable by a
         single-letter key from anywhere (as long as focus isn&rsquo;t in a text field):
       </p>
       <table>
@@ -129,7 +129,7 @@ open /Applications/Total.app`}</code>
         </tbody>
       </table>
       <p className="muted">
-        <kbd>⌘K</kbd> opens global search — jump to any ledger, voucher, or command by typing its name, from
+        <kbd>⌘K</kbd> opens global search. Jump to any ledger, voucher, or command by typing its name from
         anywhere in the app.
       </p>
 
@@ -199,24 +199,24 @@ open /Applications/Total.app`}</code>
         </tbody>
       </table>
       <p>
-        Inside any list — the ledger picker, item search, voucher list — <kbd>↑</kbd> <kbd>↓</kbd> move and{' '}
+        Inside any list, including the ledger picker, item search and voucher list, <kbd>↑</kbd> <kbd>↓</kbd> move and{' '}
         <kbd>↵</kbd> drills in, exactly like the amber cursor bar on the homepage.
       </p>
 
       <h2>5. Where your files live</h2>
       <p>
-        Everything lives under <code>~/Documents/total/</code> — nothing touches the cloud:
+        Everything lives under <code>~/Documents/total/</code>. Nothing touches the cloud:
       </p>
       <ul>
         <li>
-          <code>companies/&lt;slug&gt;/company.db</code> — one SQLite file per company, the single source of truth
+          <code>companies/&lt;slug&gt;/company.db</code>: one SQLite file per company, the single source of truth
         </li>
         <li>
-          <code>companies/&lt;slug&gt;/backups/</code> — automatic, WAL-safe snapshots taken every 30 minutes, on
+          <code>companies/&lt;slug&gt;/backups/</code>: automatic, WAL-safe snapshots taken every 30 minutes, on
           open, and on quit (the last 20 auto-snapshots are kept)
         </li>
         <li>
-          <code>companies/&lt;slug&gt;/exports/</code> — PDFs, CSVs, and JSON you export (invoices, GST returns, CA
+          <code>companies/&lt;slug&gt;/exports/</code>: PDFs, CSVs, and JSON you export (invoices, GST returns, CA
           packs, and so on)
         </li>
       </ul>

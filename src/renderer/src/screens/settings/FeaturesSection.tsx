@@ -4,6 +4,13 @@ import { api } from '../../lib/client'
 import { useSession, useToasts } from '../../state/stores'
 import { Button, Panel, SectionTitle } from '../../components/ui'
 import { DEFAULT_FEATURES, type CompanyFeatures } from '@shared/features'
+import {
+  PRODUCT_FLAGS,
+  setProductFlag,
+  type ProductFlagId,
+} from '../../lib/productFlags'
+import { readCommercialState, writeCommercialState } from '../../lib/commercialOps'
+import { DEFAULT_DEVICE_SAFETY_CONTROLS, type DeviceSafetyControls } from '@shared/deviceSafety'
 
 const TOGGLES: { key: keyof CompanyFeatures; label: string; hint: string }[] = [
   { key: 'inventory', label: 'Inventory', hint: 'Stock items, godowns, stock summary, and manufacturing (BOM) vouchers' },
@@ -22,7 +29,13 @@ export function FeaturesSection(): React.JSX.Element {
   const [draft, setDraft] = useState<CompanyFeatures | null>(null)
   const [busy, setBusy] = useState(false)
   const value = draft ?? existing ?? DEFAULT_FEATURES
+  const { data: deviceSafety = DEFAULT_DEVICE_SAFETY_CONTROLS } = useQuery({
+    queryKey: ['deviceSafety'],
+    queryFn: api.deviceSafety.get,
+  })
   const canEdit = user?.role === 'owner'
+  const safetyFlagIds = new Set<ProductFlagId>(['aiCopilot', 'mcpAccess', 'supportUploads', 'telemetry'])
+  const safetyFlags = PRODUCT_FLAGS.filter((flag) => safetyFlagIds.has(flag.id))
 
   const toggle = (key: keyof CompanyFeatures): void => {
     if (!canEdit) return
@@ -40,6 +53,32 @@ export function FeaturesSection(): React.JSX.Element {
       toast.push('error', (err as Error).message)
     } finally {
       setBusy(false)
+    }
+  }
+
+  const toggleSafetyFlag = async (key: keyof DeviceSafetyControls): Promise<void> => {
+    if (!canEdit) return
+    const enabled = !deviceSafety[key]
+    try {
+      await api.deviceSafety.set({ ...deviceSafety, [key]: enabled })
+      await queryClient.invalidateQueries({ queryKey: ['deviceSafety'] })
+    } catch (err) {
+      toast.push('error', (err as Error).message)
+      return
+    }
+    setProductFlag(localStorage, key as ProductFlagId, enabled)
+    if (key === 'telemetry') {
+      const commercial = readCommercialState(localStorage)
+      commercial.analytics.enabled = enabled
+      writeCommercialState(localStorage, commercial)
+    }
+    if (key === 'mcpAccess' && !enabled) {
+      try {
+        await api.agent.setConfig(false)
+        await queryClient.invalidateQueries({ queryKey: ['agentConfig'] })
+      } catch (err) {
+        toast.push('error', `MCP access is off on this device, but the company agent setting could not be updated: ${(err as Error).message}`)
+      }
     }
   }
 
@@ -77,6 +116,27 @@ export function FeaturesSection(): React.JSX.Element {
           </Button>
         )}
       </div>
+      <div className="mt-8"><SectionTitle>Device safety controls</SectionTitle></div>
+      <p className="mb-4 text-[12.5px] leading-5 text-muted">
+        These switches are independent of company modules. They default off on each device and can stop optional network or agent features immediately.
+      </p>
+      <Panel className="divide-y divide-line">
+        {safetyFlags.map((flag) => (
+          <label key={flag.id} className={`flex items-start gap-3 px-5 py-3.5 ${canEdit ? 'cursor-pointer' : 'cursor-default opacity-80'}`}>
+            <input
+              type="checkbox"
+              checked={deviceSafety[flag.id as keyof DeviceSafetyControls]}
+              disabled={!canEdit}
+              onChange={() => void toggleSafetyFlag(flag.id as keyof DeviceSafetyControls)}
+              className="mt-0.5"
+            />
+            <div>
+              <p className="text-[13.5px] font-medium">{flag.label}</p>
+              <p className="text-[12px] text-muted">When off: {flag.safeFallback}</p>
+            </div>
+          </label>
+        ))}
+      </Panel>
     </div>
   )
 }

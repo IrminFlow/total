@@ -1,0 +1,11 @@
+{
+  "schema": "total.synthetic-migration-fixtures",
+  "schemaVersion": 1,
+  "notice": "Synthetic fixtures exercise importer contracts only. They do not replace acceptance with real customer exports.",
+  "fixtures": [
+    { "id": "busy", "file": "busy-vouchers.csv", "profile": "Busy voucher export", "expected": { "voucherCount": 1, "sourceRows": 2, "acceptedRows": 2, "rejectedRows": 0, "totalDebitPaise": 125050, "totalCreditPaise": 125050 } },
+    { "id": "marg", "file": "marg-vouchers.csv", "profile": "Marg transaction export", "expected": { "voucherCount": 1, "sourceRows": 2, "acceptedRows": 2, "rejectedRows": 0, "totalDebitPaise": 98025, "totalCreditPaise": 98025 } },
+    { "id": "zoho_books", "file": "zoho-books-journals.csv", "profile": "Zoho Books journals", "expected": { "voucherCount": 1, "sourceRows": 2, "acceptedRows": 2, "rejectedRows": 0, "totalDebitPaise": 210000, "totalCreditPaise": 210000 } },
+    { "id": "spreadsheet", "file": "common-journal.csv", "profile": null, "expected": { "voucherCount": 1, "sourceRows": 2, "acceptedRows": 2, "rejectedRows": 0, "totalDebitPaise": 45075, "totalCreditPaise": 45075 } }
+  ]
+}

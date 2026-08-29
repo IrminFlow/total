@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from 'react'
-import { useQuery } from '@tanstack/react-query'
-import { api } from '../lib/client'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { api, type ItcActionRow } from '../lib/client'
 import { useNav, useToasts, nextDraftId } from '../state/stores'
-import { Button, EmptyState, Modal, Money, Panel, SectionTitle } from '../components/ui'
-import { toDisplayDate } from '@shared/dates'
+import { Button, DateInput, EmptyState, Field, Modal, Money, Panel, SectionTitle, Select, TextInput } from '../components/ui'
+import { ReportToolbar } from '../components/ReportToolbar'
+import { toDisplayDate, todayISO } from '@shared/dates'
 import type { Recon2bBucket, Recon2bPair } from '@shared/gst/recon2b'
 import { MonthBar, NoMonths, useMonth } from './GstReturns'
 
@@ -107,9 +108,12 @@ export function Gstr2bScreen(): React.JSX.Element {
   const { months, month, monthKey, setMonthKey } = useMonth()
   const nav = useNav()
   const toast = useToasts()
+  const queryClient = useQueryClient()
   const [imported, setImported] = useState<Imported | null>(null)
   const [pasteOpen, setPasteOpen] = useState(false)
   const [bucket, setBucket] = useState<Recon2bBucket>('matched')
+  const [saving, setSaving] = useState(false)
+  const [editingAction, setEditingAction] = useState<ItcActionRow | null>(null)
 
   const { data, isFetching } = useQuery({
     queryKey: ['gstr2b', month?.key, imported?.jsonText],
@@ -131,6 +135,8 @@ export function Gstr2bScreen(): React.JSX.Element {
     if (month && data.period && data.period !== month.period) {
       toast.push('warning', `The JSON is for period ${data.period}, but ${month.label} is selected — showing figures for the selected month`)
     }
+    const firstException = (['taxMismatch','amountMismatch','missingInPortal','missingInBooks'] as Recon2bBucket[]).find((key) => data.result.buckets[key].count > 0)
+    if (data.result.buckets.matched.count === 0 && firstException) setBucket(firstException)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [data, imported])
 
@@ -162,6 +168,17 @@ export function Gstr2bScreen(): React.JSX.Element {
 
   const result = data?.result
   const pairs = result?.pairs.filter((p) => p.bucket === bucket) ?? []
+  const { data: imports } = useQuery({ queryKey: ['gstr2bImports', month?.period], queryFn: () => api.gst.recon2bImports(month!.period), enabled:!!month })
+  const { data: actions } = useQuery({ queryKey: ['itcActions', month?.period], queryFn: () => api.gst.itcActions(month!.period), enabled:!!month })
+  const persist = async (): Promise<void> => {
+    if (!imported || !month) return
+    setSaving(true)
+    try {
+      const saved = await api.gst.recon2bSave(imported.jsonText, imported.fileName ?? null, month.from, month.to, month.period)
+      await Promise.all([queryClient.invalidateQueries({queryKey:['gstr2bImports']}),queryClient.invalidateQueries({queryKey:['itcActions']})])
+      toast.push(saved.duplicate?'warning':'success',saved.duplicate?'This exact 2B file is already retained':'2B evidence retained and ITC exceptions added to the action queue')
+    } catch(error){toast.push('error',error instanceof Error?error.message:String(error))} finally {setSaving(false)}
+  }
 
   if (!month) {
     return (
@@ -174,19 +191,22 @@ export function Gstr2bScreen(): React.JSX.Element {
 
   return (
     <div className="mx-auto max-w-6xl">
-      <SectionTitle
-        right={
+      <SectionTitle>GSTR-2B · Reconciliation</SectionTitle>
+      <ReportToolbar
+        ariaLabel="GSTR-2B reconciliation controls"
+        className="mb-3"
+        status={<span className="num">{month.label}</span>}
+        period={<MonthBar months={months} value={monthKey} onChange={setMonthKey} />}
+        actions={
           <div className="flex items-center gap-2">
-            <MonthBar months={months} value={monthKey} onChange={setMonthKey} />
             <Button data-testid="btn-2b-pick" onClick={() => void doPick()}>Pick 2B JSON…</Button>
             <Button variant="ghost" data-testid="btn-2b-paste" onClick={() => setPasteOpen(true)}>
               Paste JSON…
             </Button>
+            {imported && <Button variant="primary" disabled={saving} onClick={() => void persist()}>{saving?'Saving…':'Retain evidence'}</Button>}
           </div>
         }
-      >
-        GSTR-2B · Reconciliation
-      </SectionTitle>
+      />
 
       {pasteOpen && (
         <PasteModal
@@ -266,8 +286,19 @@ export function Gstr2bScreen(): React.JSX.Element {
               </div>
             )}
           </Panel>
+          <Panel className="mt-3 overflow-hidden p-0" data-testid="itc-action-queue">
+            <div className="flex items-center justify-between border-b border-line bg-panel2/55 px-4 py-3"><div><p className="text-[11.5px] font-semibold">ITC action queue</p><p className="text-[9.5px] text-muted">Missing, mismatched, blocked and reversed credit follow-up retained by period.</p></div><span className="num text-[10px] text-muted">{imports?.length??0} retained import{imports?.length===1?'':'s'} · {actions?.filter((row)=>row.status==='open'||row.status==='waiting_supplier').length??0} active</span></div>
+            {!actions?.length?<EmptyState title="No retained ITC exceptions for this period" hint="Reconcile a 2B file, review it, then retain the evidence."/>:<table className="ledger-table"><thead><tr><th>Document</th><th className="w-28">Class</th><th className="w-32">Status</th><th className="w-32">Owner</th><th className="w-24">Due</th><th className="r w-24"></th></tr></thead><tbody>{actions.map((action)=><tr key={action.id}><td><span className="font-medium">{String(action.portal?.number??action.book?.supplierRef??action.book?.number??action.sourceKey)}</span><span className="block text-[9px] text-muted">{action.bucket}</span></td><td className="capitalize">{action.classification.replace('_',' ')}</td><td className="capitalize">{action.status.replace('_',' ')}</td><td>{action.owner??'—'}</td><td className="num text-muted">{action.dueDate?toDisplayDate(action.dueDate):'—'}</td><td className="r"><Button onClick={()=>setEditingAction(action)}>Review</Button></td></tr>)}</tbody></table>}
+          </Panel>
         </>
       ) : null}
+      {editingAction&&<ItcActionModal action={editingAction} onClose={()=>setEditingAction(null)} onSaved={async()=>{setEditingAction(null);await queryClient.invalidateQueries({queryKey:['itcActions']})}}/>}
     </div>
   )
+}
+
+function ItcActionModal({action,onClose,onSaved}:{action:ItcActionRow;onClose:()=>void;onSaved:()=>Promise<void>}):React.JSX.Element{
+  const toast=useToasts();const [classification,setClassification]=useState(action.classification);const [status,setStatus]=useState(action.status);const [owner,setOwner]=useState(action.owner??'');const [dueDate,setDueDate]=useState(action.dueDate??todayISO());const [note,setNote]=useState(action.note??'');const [saving,setSaving]=useState(false)
+  const save=async()=>{setSaving(true);try{await api.gst.itcActionUpdate({id:action.id,classification,status,owner:owner.trim()||null,dueDate:status==='resolved'||status==='dismissed'?null:dueDate,note:note.trim()||null});await onSaved();toast.push('success','ITC action updated')}catch(error){toast.push('error',error instanceof Error?error.message:String(error));setSaving(false)}}
+  return <Modal title="Review ITC exception" onClose={onClose}><div className="space-y-3"><div className="grid grid-cols-2 gap-3"><Field label="Classification"><Select value={classification} onChange={(e)=>setClassification(e.target.value as typeof classification)}><option value="missing">Missing</option><option value="mismatched">Mismatched</option><option value="blocked">Blocked credit</option><option value="reversed">Reversed</option><option value="follow_up">Supplier follow-up</option></Select></Field><Field label="Status"><Select value={status} onChange={(e)=>setStatus(e.target.value as typeof status)}><option value="open">Open</option><option value="waiting_supplier">Waiting supplier</option><option value="resolved">Resolved</option><option value="dismissed">Dismissed</option></Select></Field></div><div className="grid grid-cols-2 gap-3"><Field label="Owner"><TextInput value={owner} onChange={(e)=>setOwner(e.target.value)}/></Field><Field label="Due date"><DateInput value={dueDate} context={todayISO()} onChange={setDueDate}/></Field></div><Field label="Review note"><TextInput value={note} onChange={(e)=>setNote(e.target.value)}/></Field><div className="flex justify-end gap-2"><Button onClick={onClose}>Cancel</Button><Button variant="primary" disabled={saving} onClick={()=>void save()}>Save review</Button></div></div></Modal>
 }

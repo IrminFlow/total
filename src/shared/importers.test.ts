@@ -1,5 +1,23 @@
 import { describe, expect, it } from 'vitest'
-import { parseItemsCsv, parseLedgersCsv, parseOpeningBalancesCsv } from './importers'
+import { parseGenericJournalCsv, parseItemsCsv, parseLedgersCsv, parseOpeningBalancesCsv } from './importers'
+
+describe('import date validation', () => {
+  const csv = (date: string) => [
+    'Voucher Group,Date,Voucher Type,Ledger,Debit,Credit',
+    `JV-1,${date},Journal,Cash,100,`,
+    `JV-1,${date},Journal,Sales,,100`,
+  ].join('\n')
+
+  it('accepts real ISO and local calendar dates including leap day', () => {
+    expect(parseGenericJournalCsv(csv('2024-02-29')).errors).toEqual([])
+    expect(parseGenericJournalCsv(csv('29/02/2024')).errors).toEqual([])
+  })
+
+  it.each(['2026-02-29', '2026-02-31', '2026-13-01', '2026-00-10', '31/04/2026'])(
+    'rejects impossible date %s',
+    (date) => expect(parseGenericJournalCsv(csv(date)).errors).not.toEqual([]),
+  )
+})
 
 describe('parseLedgersCsv', () => {
   it('recognises header aliases (Ledger Name / Under)', () => {

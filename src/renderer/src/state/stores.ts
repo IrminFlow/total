@@ -1,9 +1,15 @@
-import { create } from 'zustand'
-import type { CompanyInfo, VoucherKind } from '@shared/domain'
-import { fyOf, todayISO } from '@shared/dates'
-import type { SessionUser } from '../lib/client'
-import { confirmDialog } from '../lib/dialogs'
-import { hasUnsavedChanges } from '../lib/useUnsavedGuard'
+import { create } from "zustand";
+import type {
+  CompanyInfo,
+  InventoryLine,
+  VoucherKind,
+  VoucherLineCostAllocation,
+} from "@shared/domain";
+import { fyOf, todayISO } from "@shared/dates";
+import type { SessionUser } from "../lib/client";
+import type { TaskLinkType } from "@shared/tasks";
+import { confirmDialog } from "../lib/dialogs";
+import { hasUnsavedChanges } from "../lib/useUnsavedGuard";
 
 // ---------- navigation ----------
 
@@ -12,10 +18,31 @@ import { hasUnsavedChanges } from '../lib/useUnsavedGuard'
  * handing over what it already knows (date, narration) while leaving party/lines to the user.
  */
 export interface VoucherDraft {
-  date?: string
-  partyLedgerId?: number
-  narration?: string
-  lines?: { ledgerId: number; drCr: 'dr' | 'cr'; amount: number }[]
+  date?: string;
+  partyLedgerId?: number | null;
+  narration?: string;
+  lines?: {
+    ledgerId: number;
+    drCr: "dr" | "cr";
+    amount: number;
+    costAllocations?: VoucherLineCostAllocation[];
+  }[];
+  accountLedgerId?: number;
+  inventory?: Pick<
+    InventoryLine,
+    | "stockItemId"
+    | "godownId"
+    | "batchId"
+    | "qtyMilli"
+    | "ratePaise"
+    | "discountPaise"
+    | "amount"
+    | "direction"
+  >[];
+  posOverride?: string | null;
+  currencyCode?: string | null;
+  exchangeRate?: number | null;
+  isOptional?: boolean;
 }
 
 /**
@@ -23,121 +50,245 @@ export interface VoucherDraft {
  * than `Date.now()`, since two drafts navigated within the same millisecond (e.g. rapid double
  * clicks) would otherwise collide and fail to force VoucherEntry's remount.
  */
-let draftIdCounter = 0
+let draftIdCounter = 0;
 export function nextDraftId(): number {
-  draftIdCounter += 1
-  return draftIdCounter
+  draftIdCounter += 1;
+  return draftIdCounter;
 }
 
 export type Screen =
-  | { name: 'gateway' }
+  | { name: "gateway" }
+  | { name: "action-centre" }
+  | { name: "control-room" }
+  | { name: "assist" }
+  | {
+      name: "task-inbox";
+      compose?: boolean;
+      linkType?: TaskLinkType;
+      linkKey?: string | null;
+    }
   // Optional drill params (Registers month rows → filtered Day Book): restrict to one
   // 'YYYY-MM' month and/or one voucher-type kind ('sales' | 'purchase' | …).
-  | { name: 'daybook'; month?: string; kind?: string }
-  | { name: 'import-tally' }
+  | {
+      name: "daybook";
+      from?: string;
+      to?: string;
+      periodLabel?: string;
+      kind?: string;
+      voucherIds?: number[];
+    }
+  | { name: "import-tally" }
   // `draftId` forces VoucherEntry to remount when a new draft targets the same 'new' voucher slot
   // (e.g. two "Create purchase" nudges in a row) — App.tsx keys the component on it, see there.
-  | { name: 'voucher-entry'; voucherId?: number; kindHint?: VoucherKind; draft?: VoucherDraft; draftId?: number }
+  | {
+      name: "voucher-entry";
+      voucherId?: number;
+      kindHint?: VoucherKind;
+      draft?: VoucherDraft;
+      draftId?: number;
+      workDraftId?: number;
+    }
+  | { name: "voucher-drafts" }
+  | { name: "entry-templates" }
+  | { name: "sales-documents" }
+  | { name: "communications" }
   // Like 'settings', the active tab lives in the nav stack (nav.go per tab) so Esc/back
   // retraces tabs and other screens can deep-link straight to one.
-  | { name: 'masters'; tab?: 'ledgers' | 'groups' | 'items' | 'units' | 'types' | 'currencies' | 'godowns' | 'stock-groups' }
-  | { name: 'trial-balance' }
-  | { name: 'profit-loss' }
-  | { name: 'balance-sheet' }
-  | { name: 'cash-flow' }
-  | { name: 'exceptions' }
-  | { name: 'stock-summary' }
-  | { name: 'ledger-statement'; ledgerId: number }
-  | { name: 'gstr1' }
-  | { name: 'gstr3b' }
-  | { name: 'gstr2b' }
-  | { name: 'edocs' }
-  | { name: 'registers' }
-  | { name: 'outstandings' }
-  | { name: 'consolidated' }
-  | { name: 'recurring' }
-  | { name: 'banking' }
-  | { name: 'payroll' }
-  | { name: 'tds' }
-  | { name: 'cost-centres' }
-  | { name: 'budgets' }
-  | { name: 'company-info' }
-  | { name: 'year-end' }
-  | { name: 'settings'; tab?: 'backups' | 'bin' | 'users' | 'audit' | 'nic' | 'features' | 'invoice' | 'agents' | 'about' }
+  | {
+      name: "masters";
+      tab?:
+        | "ledgers"
+        | "groups"
+        | "items"
+        | "units"
+        | "types"
+        | "currencies"
+        | "godowns"
+        | "stock-groups";
+    }
+  | { name: "trial-balance" }
+  | { name: "profit-loss" }
+  | { name: "balance-sheet" }
+  | { name: "cash-flow" }
+  | { name: "exceptions" }
+  | { name: "stock-summary" }
+  | { name: "inventory-control" }
+  | { name: "ledger-statement"; ledgerId: number }
+  | { name: "gstr1" }
+  | { name: "gstr3b" }
+  | { name: "gstr2b" }
+  | { name: "edocs" }
+  | { name: "registers" }
+  | { name: "outstandings" }
+  | { name: "collections" }
+  | { name: "supplier-dues" }
+  | {
+      name: "procurement";
+      tab?:
+        | "requisitions"
+        | "orders"
+        | "receipts"
+        | "suppliers"
+        | "claims"
+        | "reorder"
+        | "vendors";
+    }
+  | { name: "consolidated" }
+  | { name: "recurring" }
+  | { name: "banking" }
+  | { name: "payroll" }
+  | { name: "tds" }
+  | { name: "compliance-centre" }
+  | { name: "cost-centres" }
+  | { name: "budgets" }
+  | { name: "management-insights" }
+  | { name: "company-info" }
+  | { name: "year-end" }
+  | { name: "month-close" }
+  | {
+      name: "settings";
+      tab?:
+        | "backups"
+        | "bin"
+        | "users"
+        | "controls"
+        | "audit"
+        | "nic"
+        | "features"
+        | "invoice"
+        | "ai"
+        | "agents"
+        | "collaboration"
+        | "integrations"
+        | "email"
+        | "privacy"
+        | "health"
+        | "accessibility"
+        | "community"
+        | "about";
+    };
 
 interface NavState {
-  stack: Screen[]
-  go: (screen: Screen) => void
-  replace: (screen: Screen) => void
-  back: () => void
-  home: () => void
+  stack: Screen[];
+  future: Screen[];
+  go: (screen: Screen) => void;
+  replace: (screen: Screen) => void;
+  back: () => void;
+  forward: () => void;
+  seek: (index: number) => void;
+  home: () => void;
 }
 
 /** True when navigation may proceed — asks to discard when a screen registered unsaved changes.
  *  `replace` deliberately skips this: it's only used programmatically right after a save. */
 async function confirmLeave(): Promise<boolean> {
-  if (!hasUnsavedChanges()) return true
+  if (!hasUnsavedChanges()) return true;
   return confirmDialog({
-    title: 'Unsaved changes',
-    message: 'Leave this screen and discard your unsaved changes?',
-    confirmLabel: 'Discard changes',
-    cancelLabel: 'Stay',
-    danger: true
-  })
+    title: "Unsaved changes",
+    message: "Leave this screen and discard your unsaved changes?",
+    confirmLabel: "Discard changes",
+    cancelLabel: "Stay",
+    danger: true,
+  });
 }
 
 export const useNav = create<NavState>((set) => ({
-  stack: [{ name: 'gateway' }],
+  stack: [{ name: "gateway" }],
+  future: [],
   go: (screen) => {
     void confirmLeave().then((ok) => {
-      if (ok) set((s) => ({ stack: [...s.stack, screen] }))
-    })
+      if (ok)
+        set((s) => ({ stack: [...s.stack, screen].slice(-50), future: [] }));
+    });
   },
-  replace: (screen) => set((s) => ({ stack: [...s.stack.slice(0, -1), screen] })),
+  replace: (screen) =>
+    set((s) => ({ stack: [...s.stack.slice(0, -1), screen], future: [] })),
   back: () => {
     void confirmLeave().then((ok) => {
-      if (ok) set((s) => (s.stack.length > 1 ? { stack: s.stack.slice(0, -1) } : s))
-    })
+      if (ok)
+        set((s) =>
+          s.stack.length > 1
+            ? {
+                stack: s.stack.slice(0, -1),
+                future: [s.stack[s.stack.length - 1]!, ...s.future],
+              }
+            : s,
+        );
+    });
+  },
+  forward: () => {
+    void confirmLeave().then((ok) => {
+      if (ok)
+        set((s) =>
+          s.future.length > 0
+            ? { stack: [...s.stack, s.future[0]!], future: s.future.slice(1) }
+            : s,
+        );
+    });
+  },
+  seek: (index) => {
+    void confirmLeave().then((ok) => {
+      if (!ok) return;
+      set((s) => {
+        const timeline = [...s.stack, ...s.future];
+        if (
+          !Number.isInteger(index) ||
+          index < 0 ||
+          index >= timeline.length ||
+          index === s.stack.length - 1
+        )
+          return s;
+        return {
+          stack: timeline.slice(0, index + 1),
+          future: timeline.slice(index + 1),
+        };
+      });
+    });
   },
   home: () => {
     void confirmLeave().then((ok) => {
-      if (ok) set({ stack: [{ name: 'gateway' }] })
-    })
-  }
-}))
+      if (ok) set({ stack: [{ name: "gateway" }], future: [] });
+    });
+  },
+}));
 
-export const useScreen = (): Screen => useNav((s) => s.stack[s.stack.length - 1]!)
+export const useScreen = (): Screen =>
+  useNav((s) => s.stack[s.stack.length - 1]!);
 
 // ---------- session (open company + working period) ----------
 
 interface SessionState {
-  slug: string | null
-  info: CompanyInfo | null
-  from: string
-  to: string
+  slug: string | null;
+  info: CompanyInfo | null;
+  from: string;
+  to: string;
   /** Context date for smart date entry — last used voucher date. */
-  workingDate: string
+  workingDate: string;
   /** The signed-in local user for the open company, or null before login / after Lock. */
-  user: SessionUser | null
+  user: SessionUser | null;
   /** True when the open company has users and no one has signed in yet — LockScreen shows. */
-  locked: boolean
+  locked: boolean;
   /** Set immediately (synchronously, alongside the rest of the commit) after a Settings →
    *  Backups restore whose post-restore integrity check found a problem. Deliberately store-level
    *  rather than local component state: a restore very often also flips `locked`, which unmounts
    *  whatever screen triggered it (Settings) in the same render — component-local state would be
    *  discarded right along with it. App.tsx renders the warning once, above both the locked and
    *  unlocked layouts, so no navigation or unmount can make it disappear before it's dismissed. */
-  integrityWarning: { quickCheck: string; unbalancedVoucherIds: number[]; context: string } | null
-  setCompany: (slug: string, info: CompanyInfo, locked?: boolean) => void
-  clearCompany: () => void
-  setPeriod: (from: string, to: string) => void
-  setWorkingDate: (date: string) => void
-  setUser: (user: SessionUser | null) => void
-  setLocked: (locked: boolean) => void
-  setIntegrityWarning: (warning: SessionState['integrityWarning']) => void
+  integrityWarning: {
+    quickCheck: string;
+    unbalancedVoucherIds: number[];
+    context: string;
+  } | null;
+  setCompany: (slug: string, info: CompanyInfo, locked?: boolean) => void;
+  clearCompany: () => void;
+  setPeriod: (from: string, to: string) => void;
+  setWorkingDate: (date: string) => void;
+  setUser: (user: SessionUser | null) => void;
+  setLocked: (locked: boolean) => void;
+  setIntegrityWarning: (warning: SessionState["integrityWarning"]) => void;
 }
 
-const fy = fyOf(todayISO())
+const fy = fyOf(todayISO());
 
 export const useSession = create<SessionState>((set) => ({
   slug: null,
@@ -149,115 +300,128 @@ export const useSession = create<SessionState>((set) => ({
   locked: false,
   integrityWarning: null,
   setCompany: (slug, info, locked = false) => set({ slug, info, locked }),
-  clearCompany: () => set({ slug: null, info: null, user: null, locked: false, integrityWarning: null }),
+  clearCompany: () =>
+    set({
+      slug: null,
+      info: null,
+      user: null,
+      locked: false,
+      integrityWarning: null,
+    }),
   setPeriod: (from, to) => set({ from, to }),
   setWorkingDate: (workingDate) => set({ workingDate }),
   setUser: (user) => set({ user }),
   setLocked: (locked) => set({ locked }),
-  setIntegrityWarning: (integrityWarning) => set({ integrityWarning })
-}))
+  setIntegrityWarning: (integrityWarning) => set({ integrityWarning }),
+}));
 
 // ---------- theme ----------
 
-export type Theme = 'light' | 'dark'
+export type Theme = "light" | "dark";
 
 interface ThemeState {
-  theme: Theme
-  toggle: () => void
+  theme: Theme;
+  toggle: () => void;
 }
 
 export function applyTheme(theme: Theme): void {
-  document.documentElement.dataset.theme = theme
-  localStorage.setItem('total-theme', theme)
+  document.documentElement.dataset.theme = theme;
+  localStorage.setItem("total-theme", theme);
 }
 
 export function initialTheme(): Theme {
-  const stored = localStorage.getItem('total-theme')
-  return stored === 'dark' ? 'dark' : 'light'
+  const stored = localStorage.getItem("total-theme");
+  return stored === "dark" ? "dark" : "light";
 }
 
 export const useTheme = create<ThemeState>((set) => ({
   theme: initialTheme(),
   toggle: () =>
     set((s) => {
-      const next: Theme = s.theme === 'light' ? 'dark' : 'light'
-      applyTheme(next)
-      return { theme: next }
-    })
-}))
+      const next: Theme = s.theme === "light" ? "dark" : "light";
+      applyTheme(next);
+      return { theme: next };
+    }),
+}));
 
 // ---------- toasts ----------
 
 export interface Toast {
-  id: number
-  kind: 'info' | 'success' | 'error' | 'warning'
-  text: string
+  id: number;
+  kind: "info" | "success" | "error" | "warning";
+  text: string;
 }
 
 export interface ToastState {
-  toasts: Toast[]
-  push: (kind: Toast['kind'], text: string) => void
-  dismiss: (id: number) => void
+  toasts: Toast[];
+  push: (kind: Toast["kind"], text: string) => void;
+  dismiss: (id: number) => void;
   /** Pause auto-dismissal (hovering the toast stack); resume() restarts the remaining time. */
-  pause: () => void
-  resume: () => void
+  pause: () => void;
+  resume: () => void;
 }
 
-let toastId = 0
+let toastId = 0;
 /** Per-toast auto-dismiss bookkeeping so hover can pause/resume with the remaining time intact. */
-const toastTimers = new Map<number, { timer: ReturnType<typeof setTimeout>; deadline: number }>()
-let toastRemaining: Map<number, number> | null = null // non-null while paused
+const toastTimers = new Map<
+  number,
+  { timer: ReturnType<typeof setTimeout>; deadline: number }
+>();
+let toastRemaining: Map<number, number> | null = null; // non-null while paused
 
 export const useToasts = create<ToastState>((set, get) => {
   const expire = (id: number): void => {
-    toastTimers.delete(id)
-    set((s) => ({ toasts: s.toasts.filter((t) => t.id !== id) }))
-  }
+    toastTimers.delete(id);
+    set((s) => ({ toasts: s.toasts.filter((t) => t.id !== id) }));
+  };
   const arm = (id: number, ms: number): void => {
-    toastTimers.set(id, { timer: setTimeout(() => expire(id), ms), deadline: Date.now() + ms })
-  }
+    toastTimers.set(id, {
+      timer: setTimeout(() => expire(id), ms),
+      deadline: Date.now() + ms,
+    });
+  };
   return {
     toasts: [],
     push: (kind, text) => {
       // Dedupe consecutive identical toasts: just restart the existing one's clock.
-      const last = get().toasts[get().toasts.length - 1]
-      const ttl = kind === 'error' ? 6000 : 3500
+      const last = get().toasts[get().toasts.length - 1];
+      const ttl = kind === "error" ? 6000 : 3500;
       if (last && last.kind === kind && last.text === text) {
-        const entry = toastTimers.get(last.id)
-        if (entry) clearTimeout(entry.timer)
-        if (toastRemaining) toastRemaining.set(last.id, ttl)
-        else arm(last.id, ttl)
-        return
+        const entry = toastTimers.get(last.id);
+        if (entry) clearTimeout(entry.timer);
+        if (toastRemaining) toastRemaining.set(last.id, ttl);
+        else arm(last.id, ttl);
+        return;
       }
-      const id = ++toastId
-      set((s) => ({ toasts: [...s.toasts, { id, kind, text }] }))
-      if (toastRemaining) toastRemaining.set(id, ttl)
-      else arm(id, ttl)
+      const id = ++toastId;
+      set((s) => ({ toasts: [...s.toasts, { id, kind, text }] }));
+      if (toastRemaining) toastRemaining.set(id, ttl);
+      else arm(id, ttl);
     },
     dismiss: (id) => {
-      const entry = toastTimers.get(id)
-      if (entry) clearTimeout(entry.timer)
-      toastTimers.delete(id)
-      toastRemaining?.delete(id)
-      set((s) => ({ toasts: s.toasts.filter((t) => t.id !== id) }))
+      const entry = toastTimers.get(id);
+      if (entry) clearTimeout(entry.timer);
+      toastTimers.delete(id);
+      toastRemaining?.delete(id);
+      set((s) => ({ toasts: s.toasts.filter((t) => t.id !== id) }));
       // Dismissing the last toast removes the element under the cursor, so no mouseleave will
       // ever fire — drop the paused state here or the next toast would never auto-expire.
-      if (get().toasts.length === 0) toastRemaining = null
+      if (get().toasts.length === 0) toastRemaining = null;
     },
     pause: () => {
-      if (toastRemaining) return
-      toastRemaining = new Map()
+      if (toastRemaining) return;
+      toastRemaining = new Map();
       for (const [id, entry] of toastTimers) {
-        clearTimeout(entry.timer)
-        toastRemaining.set(id, Math.max(500, entry.deadline - Date.now()))
+        clearTimeout(entry.timer);
+        toastRemaining.set(id, Math.max(500, entry.deadline - Date.now()));
       }
-      toastTimers.clear()
+      toastTimers.clear();
     },
     resume: () => {
-      if (!toastRemaining) return
-      const remaining = toastRemaining
-      toastRemaining = null
-      for (const [id, ms] of remaining) arm(id, ms)
-    }
-  }
-})
+      if (!toastRemaining) return;
+      const remaining = toastRemaining;
+      toastRemaining = null;
+      for (const [id, ms] of remaining) arm(id, ms);
+    },
+  };
+});

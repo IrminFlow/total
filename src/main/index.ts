@@ -1,14 +1,25 @@
 import { app, BrowserWindow, dialog, shell } from 'electron'
-import { join } from 'path'
+import { isAbsolute, join } from 'path'
 import { existsSync } from 'fs'
 import { homedir } from 'os'
 import { electronApp, is, optimizer } from '@electron-toolkit/utils'
-import { registerIpc, closeCurrentCompany, getCurrentCompany } from './ipc'
+import { registerIpc, closeCurrentCompany, getCurrentCompany, getMcpPresenceContext } from './ipc'
 import { ensureDataTree, dataRoot } from './paths'
 import { initUpdater } from './updater'
 import { initLogging, log } from './log'
 import { startBackupScheduler, backupOnQuit } from './backup-scheduler'
+import { deliverDueWebhooks, runDueAutomations } from './services/integrations'
 import { syncFolderWarning } from '@shared/syncpath'
+import { writeCrashEnvelope } from './services/crashReports'
+import { startMcpPresenceBroker, stopMcpPresenceBroker } from './services/mcpPresenceBroker'
+
+const isolatedUserDataDir = process.env.TOTAL_ELECTRON_USER_DATA_DIR
+if (isolatedUserDataDir) {
+  if (!isAbsolute(isolatedUserDataDir)) {
+    throw new Error('TOTAL_ELECTRON_USER_DATA_DIR must be an absolute path')
+  }
+  app.setPath('userData', isolatedUserDataDir)
+}
 
 const gotSingleInstanceLock = app.requestSingleInstanceLock()
 
@@ -70,18 +81,48 @@ function createWindow(): void {
     backgroundColor: '#f4f4ef',
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
-      sandbox: false,
+      sandbox: true,
       contextIsolation: true,
       nodeIntegration: false
     }
   })
 
   win.on('ready-to-show', () => win.show())
+  win.webContents.on('render-process-gone', (_event, details) => {
+    try {
+      writeCrashEnvelope({
+        kind: 'renderer_gone',
+        appVersion: app.getVersion(),
+        platform: process.platform,
+        arch: process.arch,
+        message: `Renderer process ended: ${details.reason} (${details.exitCode})`
+      })
+    } catch {
+      log('warn', 'crash-envelope-write-failed', { kind: 'renderer_gone' })
+    }
+  })
+
+  const openAllowedExternal = (raw: string): void => {
+    try {
+      const url = new URL(raw)
+      if (url.protocol === 'https:' || url.protocol === 'mailto:') void shell.openExternal(url.toString())
+    } catch {
+      log('warn', 'blocked-external-url', { url: raw.slice(0, 200) })
+    }
+  }
 
   win.webContents.setWindowOpenHandler((details) => {
-    shell.openExternal(details.url)
+    openAllowedExternal(details.url)
     return { action: 'deny' }
   })
+  win.webContents.on('will-navigate', (event, url) => {
+    const current = win.webContents.getURL()
+    if (url !== current) {
+      event.preventDefault()
+      openAllowedExternal(url)
+    }
+  })
+  win.webContents.session.setPermissionRequestHandler((_webContents, _permission, callback) => callback(false))
 
   if (is.dev && process.env.ELECTRON_RENDERER_URL) {
     win.loadURL(process.env.ELECTRON_RENDERER_URL)
@@ -99,14 +140,34 @@ if (gotSingleInstanceLock) {
     }
   })
 
-  app.whenReady().then(() => {
+  app.whenReady().then(async () => {
     initLogging()
     log('info', 'app-start', { version: app.getVersion(), platform: process.platform })
     electronApp.setAppUserModelId('com.irminlabs.total')
     app.on('browser-window-created', (_, window) => optimizer.watchWindowShortcuts(window))
     ensureDataTree()
     registerIpc()
+    try {
+      await startMcpPresenceBroker(getMcpPresenceContext)
+    } catch (error) {
+      log('error', 'mcp-presence-broker-start-failed', {
+        error: error instanceof Error ? error.message : String(error)
+      })
+    }
     startBackupScheduler(getCurrentCompany)
+    const integrationTimer = setInterval(() => {
+      const current = getCurrentCompany()
+      if (!current) return
+      void Promise.all([
+        deliverDueWebhooks(current.db),
+        runDueAutomations(current.db, current.info, current.slug)
+      ]).catch((error) => {
+        log('error', 'integration-scheduler-failed', {
+          error: error instanceof Error ? error.message : String(error)
+        })
+      })
+    }, 60_000)
+    integrationTimer.unref?.()
     createWindow()
     warnIfSyncedFolder()
     initUpdater()
@@ -121,6 +182,7 @@ if (gotSingleInstanceLock) {
   })
 
   app.on('before-quit', () => {
+    void stopMcpPresenceBroker()
     backupOnQuit(getCurrentCompany)
     closeCurrentCompany()
   })

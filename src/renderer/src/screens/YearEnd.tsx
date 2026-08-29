@@ -5,6 +5,7 @@ import { planClose } from '@shared/yearEnd'
 import { api } from '../lib/client'
 import { useNav, useSession, useToasts } from '../state/stores'
 import { Button, EmptyState, Money, Panel, ScrollList, SectionTitle, Select, SkeletonRows, TextInput } from '../components/ui'
+import { ReportToolbar } from '../components/ReportToolbar'
 
 type Step = 1 | 2 | 3
 
@@ -122,21 +123,31 @@ export function YearEndScreen(): React.JSX.Element {
 
   return (
     <div className="mx-auto max-w-4xl">
-      <SectionTitle
-        right={
-          <Select value={fyStartYear} onChange={(e) => changeYear(Number(e.target.value))} className="w-36">
-            {years.map((y) => (
-              <option key={y} value={y}>
-                FY {fyFromStartYear(y).label}
-              </option>
-            ))}
-          </Select>
+      <SectionTitle>Year-end close</SectionTitle>
+      <ReportToolbar
+        ariaLabel="Year-end close controls"
+        className="mb-4"
+        status={<span>Step {step} of 3</span>}
+        period={
+          <div className="flex items-center gap-2">
+            <span className="text-small font-medium text-muted">Financial year</span>
+            <Select
+              aria-label="Financial year to close"
+              value={fyStartYear}
+              onChange={(e) => changeYear(Number(e.target.value))}
+              className="w-36"
+            >
+              {years.map((y) => (
+                <option key={y} value={y}>
+                  FY {fyFromStartYear(y).label}
+                </option>
+              ))}
+            </Select>
+          </div>
         }
-      >
-        Year-end close
-      </SectionTitle>
+      />
 
-      <div className="mb-4 flex items-center gap-2 text-[12px] font-medium text-muted">
+      <div className="mb-4 flex items-center gap-2 text-[12px] font-medium text-muted" aria-label={`Year-end close step ${step} of 3`}>
         <StepDot n={1} step={step} label="Review P&L" />
         <span className="text-line">—</span>
         <StepDot n={2} step={step} label="Closing journal" />

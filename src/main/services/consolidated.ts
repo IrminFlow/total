@@ -1,12 +1,12 @@
 import Database from 'better-sqlite3'
 import type { ProfitAndLoss, StatementNode } from '@shared/reports'
 import {
-  mergeByName, type ConsolidateCompanyInput, type ConsolidateInputRow, type ConsolidatedResult
+  mergeByName, type ConsolidateCompanyInput, type ConsolidateInputRow, type ConsolidatedResult, type ConsolidationOptions
 } from '@shared/consolidate'
-import { companyDbPath } from '../paths'
 import { MIGRATIONS } from '../db/migrations'
-import { readRegistry } from '../registry'
+import { requireRegisteredCompany } from '../registry'
 import * as reports from './reports'
+import { usersExist } from './users'
 
 export type ConsolidatedKind = 'tb' | 'pnl'
 export type { ConsolidatedResult }
@@ -49,19 +49,41 @@ function flattenPnl(pnl: ProfitAndLoss): ConsolidateInputRow[] {
  * predates the current migrations is skipped with a warning — a readonly connection
  * cannot run migrations to catch it up.
  */
-export function consolidated(slugs: string[], kind: ConsolidatedKind, from: string, to: string): ConsolidatedResult {
-  const registry = readRegistry()
-  const nameOf = (slug: string): string => registry.companies.find((c) => c.slug === slug)?.name ?? slug
+export function consolidated(
+  slugs: string[],
+  kind: ConsolidatedKind,
+  from: string,
+  to: string,
+  options: ConsolidationOptions = { translationRates: {}, eliminations: [] },
+  authorizedProtectedSlugs: ReadonlySet<string> = new Set()
+): ConsolidatedResult {
+  if (new Set(slugs).size !== slugs.length) throw new Error('Each company may be selected only once')
+  // Resolve every target before opening any report. An unregistered/traversal target rejects the
+  // entire request instead of being converted into a warning beside otherwise-disclosed data.
+  const targets = slugs.map((slug) => ({ slug, ...requireRegisteredCompany(slug) }))
+  for (const target of targets) {
+    const accessDb = new Database(target.paths.database, { readonly: true, fileMustExist: true })
+    try {
+      if (usersExist(accessDb) && !authorizedProtectedSlugs.has(target.slug)) {
+        throw new Error(
+          `${target.summary.name} is protected. Open and sign in to that company before including it.`
+        )
+      }
+    } finally {
+      accessDb.close()
+    }
+  }
 
   const warnings: string[] = []
   const perCompany: ConsolidateCompanyInput[] = []
 
-  for (const slug of slugs) {
-    const label = nameOf(slug)
+  for (const target of targets) {
+    const { slug } = target
+    const label = target.summary.name
     let db: Database.Database | undefined
     let rows: ConsolidateInputRow[] = []
     try {
-      db = new Database(companyDbPath(slug), { readonly: true, fileMustExist: true })
+      db = new Database(target.paths.database, { readonly: true, fileMustExist: true })
       const { n } = db.prepare('SELECT COUNT(*) AS n FROM migrations').get() as { n: number }
       if (n !== MIGRATIONS.length) {
         warnings.push(`${label}: schema is out of date and can't be migrated read-only — skipped`)
@@ -76,12 +98,17 @@ export function consolidated(slugs: string[], kind: ConsolidatedKind, from: stri
     } finally {
       db?.close()
     }
-    perCompany.push({ company: label, rows })
+    const rate=options.translationRates[slug]??1
+    perCompany.push({ company: label, rows:rows.map((row)=>({...row,dr:Math.round(row.dr*rate),cr:Math.round(row.cr*rate)})) })
   }
+
+  if(options.eliminations.length)perCompany.push({company:'Eliminations',rows:options.eliminations.map((row)=>({group:row.group,name:row.name,dr:row.amount>=0?row.amount:0,cr:row.amount<0?-row.amount:0}))})
 
   return {
     columns: perCompany.map((c) => c.company),
     rows: mergeByName(perCompany),
-    warnings
+    warnings,
+    translationRates:Object.fromEntries(slugs.map((slug)=>[slug,options.translationRates[slug]??1])),
+    eliminationCount:options.eliminations.length
   }
 }

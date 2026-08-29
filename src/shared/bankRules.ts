@@ -5,6 +5,7 @@
 /** The subset of a parsed statement row that matching needs — either the DB-backed
  *  ImportResult.unmatched shape or the raw StatementRow, both qualify structurally. */
 export interface StatementLike {
+  date?: string
   description: string
   /** Cheque/UTR/reference cell of the statement row, when the CSV has one ('' otherwise). */
   reference?: string
@@ -24,6 +25,8 @@ export interface RuleRow {
   /** Amount window (paise, inclusive); null/omitted = unbounded on that side. */
   minAmount?: number | null
   maxAmount?: number | null
+  dateFrom?: string | null
+  dateTo?: string | null
   /** Defaults to true (matched) when omitted — callers that already filter to active rules
    *  before calling matchRules don't need to carry the column through. */
   active?: boolean
@@ -54,6 +57,8 @@ export function matchRules<T extends StatementLike>(rows: T[], rules: RuleRow[])
       if (rule.kind !== wantKind) continue
       if (rule.minAmount != null && amount < rule.minAmount) continue
       if (rule.maxAmount != null && amount > rule.maxAmount) continue
+      if (rule.dateFrom && row.date && row.date < rule.dateFrom) continue
+      if (rule.dateTo && row.date && row.date > rule.dateTo) continue
       const field = rule.matchField === 'reference' ? (row.reference ?? '') : row.description
       const pattern = rule.pattern.toLowerCase()
       if (pattern === '' || !field.toLowerCase().includes(pattern)) continue

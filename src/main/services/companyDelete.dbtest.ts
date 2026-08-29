@@ -1,13 +1,18 @@
 import { describe, it, expect } from 'vitest'
 import Database from 'better-sqlite3'
-import { mkdtempSync, writeFileSync } from 'fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import { migrate } from '../db/migrate'
 import { seedCompany } from '../db/seed'
 import { login, saveUser } from './users'
-import { assertDeleteAuthorized } from './companyDelete'
+import {
+  assertDeleteAuthorized,
+  quarantineCompanyDirectory,
+  restoreQuarantinedCompanyDirectory
+} from './companyDelete'
 import type { CompanyInfo } from '@shared/domain'
+import { companyDbPath, companyDir } from '../paths'
 
 const INFO: CompanyInfo = {
   name: 'Test Co', stateCode: '27', gstin: null, gstRegistrationType: 'regular', address: '',
@@ -35,8 +40,10 @@ describe('company delete authorization (assertDeleteAuthorized)', () => {
     expect(() => assertDeleteAuthorized(dbPath, undefined)).not.toThrow()
   })
 
-  it('allows deleting when the company DB file does not exist at all', () => {
-    expect(() => assertDeleteAuthorized(join(tmpdir(), 'total-does-not-exist', 'company.db'), undefined)).not.toThrow()
+  it('fails closed when the company DB file does not exist', () => {
+    expect(() => assertDeleteAuthorized(join(tmpdir(), 'total-does-not-exist', 'company.db'), undefined)).toThrow(
+      'Company database is missing. Nothing was removed'
+    )
   })
 
   it('refuses a protected company (has users) with no pin', () => {
@@ -112,10 +119,39 @@ describe('company delete authorization (assertDeleteAuthorized)', () => {
     expect(() => assertDeleteAuthorized(dbPath, '1234')).not.toThrow()
   })
 
-  it('falls back to allowing delete (name check alone) when the DB file is corrupt/unreadable', () => {
+  it('fails closed when the DB file is corrupt/unreadable', () => {
     const dir = mkdtempSync(join(tmpdir(), 'total-company-delete-corrupt-'))
     const dbPath = join(dir, 'company.db')
     writeFileSync(dbPath, 'not a sqlite file at all')
-    expect(() => assertDeleteAuthorized(dbPath, undefined)).not.toThrow()
+    expect(() => assertDeleteAuthorized(dbPath, undefined)).toThrow(
+      'Company database could not be verified. Nothing was removed'
+    )
+  })
+
+  it('moves the complete company directory to recoverable quarantine and can roll it back', () => {
+    const dataDir = mkdtempSync(join(tmpdir(), 'total-company-quarantine-'))
+    process.env.TOTAL_DATA_DIR = dataDir
+    try {
+      const slug = 'recovery-books'
+      const directory = companyDir(slug)
+      mkdirSync(join(directory, 'attachments'), { recursive: true })
+      const db = new Database(companyDbPath(slug))
+      migrate(db)
+      seedCompany(db, INFO)
+      db.close()
+      writeFileSync(join(directory, 'attachments', 'evidence.pdf'), 'preserve me')
+
+      const move = quarantineCompanyDirectory(slug)
+      expect(existsSync(directory)).toBe(false)
+      expect(existsSync(move.quarantinePath)).toBe(true)
+      expect(readFileSync(join(move.quarantinePath, 'attachments', 'evidence.pdf'), 'utf8')).toBe('preserve me')
+
+      restoreQuarantinedCompanyDirectory(move)
+      expect(existsSync(move.quarantinePath)).toBe(false)
+      expect(readFileSync(join(directory, 'attachments', 'evidence.pdf'), 'utf8')).toBe('preserve me')
+    } finally {
+      delete process.env.TOTAL_DATA_DIR
+      rmSync(dataDir, { recursive: true, force: true })
+    }
   })
 })

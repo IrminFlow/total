@@ -7,8 +7,10 @@ import { formatPaise } from '@shared/money'
 import { api } from '../lib/client'
 import { useToasts } from '../state/stores'
 import { AmountInput, Button, EmptyState, Field, Modal, Money, Panel, ScrollList, SectionTitle, Select, TextInput, SkeletonRows } from '../components/ui'
-import { LedgerPicker, useGroups } from '../components/pickers'
+import { LedgerPicker } from '../components/pickers'
+import { useGroups } from '../components/pickerHooks'
 import { confirmDialog } from '../lib/dialogs'
+import { ReportToolbar } from '../components/ReportToolbar'
 import { useUnsavedGuard } from '../lib/useUnsavedGuard'
 
 const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
@@ -30,20 +32,22 @@ function monthLabel(month: string): string {
  *  but keeps the ledger/group toggle as an explicit targetType so the picker can switch cleanly). */
 interface EditRow {
   key: number
-  targetType: 'ledger' | 'group'
+  targetType: 'ledger' | 'group' | 'cost-centre'
   ledgerId: number | null
   groupId: number | null
+  costCentreId: number | null
   month: string | null
   amount: number | null
 }
 
 let rowKeySeq = 0
-const newRow = (): EditRow => ({ key: rowKeySeq++, targetType: 'ledger', ledgerId: null, groupId: null, month: null, amount: null })
+const newRow = (): EditRow => ({ key: rowKeySeq++, targetType: 'ledger', ledgerId: null, groupId: null, costCentreId: null, month: null, amount: null })
 
 export function BudgetsScreen(): React.JSX.Element {
   const toast = useToasts()
   const queryClient = useQueryClient()
   const groups = useGroups()
+  const {data:costCentres=[]}=useQuery({queryKey:['costCentres'],queryFn:api.cc.list})
   const { data: budgetList, isLoading: budgetsLoading } = useQuery({ queryKey: ['budgets'], queryFn: api.budget.list })
   const [selectedId, setSelectedId] = useState<number | null>(null)
   const [newOpen, setNewOpen] = useState(false)
@@ -71,9 +75,10 @@ export function BudgetsScreen(): React.JSX.Element {
       selected.lines.length > 0
         ? selected.lines.map((l) => ({
             key: rowKeySeq++,
-            targetType: l.ledgerId != null ? 'ledger' : 'group',
+            targetType: l.ledgerId != null ? 'ledger' : l.groupId != null ? 'group' : 'cost-centre',
             ledgerId: l.ledgerId,
             groupId: l.groupId,
+            costCentreId: l.costCentreId,
             month: l.month,
             amount: l.amount
           }))
@@ -109,11 +114,11 @@ export function BudgetsScreen(): React.JSX.Element {
     const lines: BudgetLineInput[] = []
     const errors: string[] = []
     rows.forEach((r, i) => {
-      const targetId = r.targetType === 'ledger' ? r.ledgerId : r.groupId
+      const targetId = r.targetType === 'ledger' ? r.ledgerId : r.targetType === 'group' ? r.groupId : r.costCentreId
       // A completely blank row (fresh "+ Add line", nothing filled) is ignored, not an error.
       if (targetId == null && r.amount == null) return
       if (targetId == null) {
-        errors.push(`Line ${i + 1}: pick a ${r.targetType === 'ledger' ? 'ledger' : 'group'}`)
+        errors.push(`Line ${i + 1}: pick a ${r.targetType === 'ledger' ? 'ledger' : r.targetType === 'group' ? 'group' : 'cost centre'}`)
         return
       }
       if (r.amount == null || r.amount <= 0) {
@@ -123,6 +128,7 @@ export function BudgetsScreen(): React.JSX.Element {
       lines.push({
         ledgerId: r.targetType === 'ledger' ? targetId : null,
         groupId: r.targetType === 'group' ? targetId : null,
+        costCentreId: r.targetType === 'cost-centre' ? targetId : null,
         month: r.month,
         amount: r.amount
       })
@@ -205,7 +211,7 @@ export function BudgetsScreen(): React.JSX.Element {
               <thead>
                 <tr>
                   <th className="w-20">Target</th>
-                  <th>Ledger / group</th>
+                  <th>Ledger / group / operating dimension</th>
                   <th className="w-36">Month</th>
                   <th className="r w-32">Amount</th>
                   <th className="w-10"></th>
@@ -218,17 +224,18 @@ export function BudgetsScreen(): React.JSX.Element {
                       <Select
                         value={r.targetType}
                         onChange={(e) =>
-                          updateRow(r.key, { targetType: e.target.value as 'ledger' | 'group', ledgerId: null, groupId: null })
+                          updateRow(r.key, { targetType: e.target.value as EditRow['targetType'], ledgerId: null, groupId: null, costCentreId: null })
                         }
                       >
                         <option value="ledger">Ledger</option>
                         <option value="group">Group</option>
+                        <option value="cost-centre">Project / branch</option>
                       </Select>
                     </td>
                     <td>
                       {r.targetType === 'ledger' ? (
                         <LedgerPicker value={r.ledgerId} onPick={(id) => updateRow(r.key, { ledgerId: id })} />
-                      ) : (
+                      ) : r.targetType === 'group' ? (
                         <Select
                           value={r.groupId ?? ''}
                           onChange={(e) => updateRow(r.key, { groupId: e.target.value ? Number(e.target.value) : null })}
@@ -240,7 +247,7 @@ export function BudgetsScreen(): React.JSX.Element {
                             </option>
                           ))}
                         </Select>
-                      )}
+                      ) : <Select value={r.costCentreId??''} onChange={(e)=>updateRow(r.key,{costCentreId:e.target.value?Number(e.target.value):null})}><option value="">Choose a project, department or branch…</option>{costCentres.map((centre)=><option key={centre.id} value={centre.id}>{centre.name}</option>)}</Select>}
                     </td>
                     <td>
                       <Select value={r.month ?? ''} onChange={(e) => updateRow(r.key, { month: e.target.value || null })}>
@@ -290,19 +297,24 @@ export function BudgetsScreen(): React.JSX.Element {
             </div>
           </Panel>
 
-          <SectionTitle
-            right={
-              <Select className="max-w-[10rem]" value={upToMonth} onChange={(e) => setUpToMonth(e.target.value)}>
+          <SectionTitle>Budget variance</SectionTitle>
+          <ReportToolbar
+            ariaLabel="Budget variance controls"
+            className="mb-3"
+            status={selected.name}
+            period={
+              <div className="flex items-center gap-2">
+                <span className="text-[12px] font-medium text-muted">Through</span>
+              <Select aria-label="Budget variance through month" className="max-w-[10rem]" value={upToMonth} onChange={(e) => setUpToMonth(e.target.value)}>
                 {months.map((m) => (
                   <option key={m} value={m}>
                     {monthLabel(m)}
                   </option>
                 ))}
               </Select>
+              </div>
             }
-          >
-            Variance · through {monthLabel(upToMonth)}
-          </SectionTitle>
+          />
           <Panel>
             {varianceLoading ? (
               <SkeletonRows rows={4} />

@@ -1,0 +1,15 @@
+{
+  "schema": 1,
+  "kind": "clean-machine",
+  "status": "pending",
+  "productVersion": "5.0.0",
+  "testedRevision": "",
+  "testedAt": "",
+  "approvedAt": "",
+  "approvers": [],
+  "platforms": [
+    { "id": "macos-arm64", "cleanDevice": false, "osVersion": "", "architecture": "arm64", "installerName": "", "installerBytes": 0, "installerSha256": "", "checks": { "freshInstall": "pending", "launch": "pending", "postVoucher": "pending", "backupRestore": "pending", "uninstallPreservesData": "pending", "upgradeFromV04": "pending" } },
+    { "id": "macos-intel", "cleanDevice": false, "osVersion": "", "architecture": "x64", "installerName": "", "installerBytes": 0, "installerSha256": "", "upgradeNote": "No public Intel v0.4 build exists.", "checks": { "freshInstall": "pending", "launch": "pending", "postVoucher": "pending", "backupRestore": "pending", "uninstallPreservesData": "pending", "upgradeFromV04": "not_applicable" } },
+    { "id": "windows-11", "cleanDevice": false, "osVersion": "", "architecture": "x64", "installerName": "", "installerBytes": 0, "installerSha256": "", "checks": { "freshInstall": "pending", "launch": "pending", "postVoucher": "pending", "backupRestore": "pending", "uninstallPreservesData": "pending", "upgradeFromV04": "pending" } }
+  ]
+}

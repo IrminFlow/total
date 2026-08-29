@@ -1,0 +1,14 @@
+{
+  "schema": 1,
+  "kind": "mobile",
+  "status": "pending",
+  "productVersion": "5.0.0",
+  "testedRevision": "",
+  "testedAt": "",
+  "approvedAt": "",
+  "approvers": [],
+  "devices": [
+    { "id": "ios", "physicalDevice": false, "osVersion": "", "model": "", "checks": { "cameraCapture": "pending", "nativeShare": "pending", "desktopImport": "pending", "duplicateReview": "pending" } },
+    { "id": "android", "physicalDevice": false, "osVersion": "", "model": "", "checks": { "cameraCapture": "pending", "nativeShare": "pending", "desktopImport": "pending", "duplicateReview": "pending" } }
+  ]
+}

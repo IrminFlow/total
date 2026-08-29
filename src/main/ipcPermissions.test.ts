@@ -1,0 +1,370 @@
+import { describe, expect, it } from "vitest";
+import { readdirSync, readFileSync } from "node:fs";
+import * as ts from "typescript";
+import {
+  EXPLICIT_PERMISSION_ACTIONS,
+  IPC_EXPORT_CONTRACTS,
+  IPC_OUTBOUND_DATA_CONTRACTS,
+  PAYLOAD_PERMISSION_CONTRACTS,
+  companyWideExportLabelForChannel,
+  companyWideSurfaceLabelForChannel,
+  exportFormatForChannel,
+  permissionResolvedInsideHandler,
+  permissionActionForChannel,
+} from "./ipcPermissions";
+
+const IPC_SOURCE_URLS = [
+  new URL("./ipc.ts", import.meta.url),
+  ...readdirSync(new URL("./ipc/", import.meta.url), { withFileTypes: true })
+    .filter(
+      (entry) =>
+        entry.isFile() &&
+        entry.name.endsWith(".ts") &&
+        !entry.name.endsWith(".test.ts") &&
+        entry.name !== "types.ts",
+    )
+    .map((entry) => new URL(`./ipc/${entry.name}`, import.meta.url)),
+];
+
+function registeredChannelList(): string[] {
+  return IPC_SOURCE_URLS.flatMap((url) => [
+    ...readFileSync(url, "utf8").matchAll(/handle\(\s*["']([^"']+)["']/g),
+  ]).map((match) => match[1]!);
+}
+
+function registeredChannels(): Set<string> {
+  return new Set(registeredChannelList());
+}
+
+function directFileChannels(): Set<string> {
+  const channels = new Set<string>();
+  for (const url of IPC_SOURCE_URLS) {
+    const sourceText = readFileSync(url, "utf8");
+    const source = ts.createSourceFile(
+      url.pathname,
+      sourceText,
+      ts.ScriptTarget.Latest,
+      true,
+      ts.ScriptKind.TS,
+    );
+    const visit = (node: ts.Node): void => {
+      if (
+        ts.isCallExpression(node) &&
+        ts.isIdentifier(node.expression) &&
+        node.expression.text === "handle" &&
+        node.arguments[0] &&
+        ts.isStringLiteral(node.arguments[0]) &&
+        /writeFileSync|atomicWriteFile|writeExportPdf|showItemInFolder|shell\.openPath/.test(
+          node.getText(source),
+        )
+      )
+        channels.add(node.arguments[0].text);
+      ts.forEachChild(node, visit);
+    };
+    visit(source);
+  }
+  return channels;
+}
+
+describe("IPC permission contracts", () => {
+  it("registers every statically declared IPC channel exactly once", () => {
+    const channels = registeredChannelList();
+    expect(channels).toHaveLength(new Set(channels).size);
+  });
+
+  it.each([
+    ["voucher:batchTag", { ids: [1, 2], tag: "review" }],
+    ["voucher:batchReview", { ids: [1, 2] }],
+    [
+      "voucher:batchReverse",
+      { ids: [1, 2], date: "2026-08-24", reason: "Correction" },
+    ],
+    ["bank:setBankDate", { lineId: 12, bankDate: "2026-08-24" }],
+    [
+      "bank:chequeStatus",
+      { voucherId: 7, status: "cleared", statusDate: "2026-08-24" },
+    ],
+    ["payroll:loans:setInstallment", { installmentId: 12, status: "paused" }],
+    [
+      "tds:returnStatusSet",
+      { fyStartYear: 2026, quarter: 1, status: "prepared" },
+    ],
+  ])(
+    "classifies %s as an edit even without a top-level id",
+    (channel, payload) => {
+      expect(permissionActionForChannel(channel, payload, "accountant")).toBe(
+        "edit",
+      );
+    },
+  );
+
+  it.each([
+    ["payroll:attendance:save", "approved", "approve"],
+    ["payroll:attendance:save", "review", "create"],
+    ["payroll:attendance:save", "exception", "create"],
+    ["payroll:leave:record", "approved", "approve"],
+    ["payroll:leave:record", "rejected", "approve"],
+    ["payroll:leave:record", "requested", "create"],
+    ["payroll:salaryRevisions:save", "approved", "approve"],
+    ["payroll:salaryRevisions:save", "draft", "create"],
+    ["ai:documents:review", "approved", "approve"],
+    ["ai:documents:review", "dismissed", "approve"],
+  ] as const)("classifies %s status %s as %s", (channel, status, action) => {
+    expect(
+      permissionActionForChannel(channel, { id: 1, status }, "accountant"),
+    ).toBe(action);
+  });
+
+  it.each(Object.keys(PAYLOAD_PERMISSION_CONTRACTS))(
+    "fails closed when %s has a missing or unknown status",
+    (channel) => {
+      expect(() =>
+        permissionActionForChannel(channel, {}, "accountant"),
+      ).toThrow("has no permission contract for the requested status");
+      expect(() =>
+        permissionActionForChannel(
+          channel,
+          { status: "future_status" },
+          "accountant",
+        ),
+      ).toThrow("has no permission contract for the requested status");
+    },
+  );
+
+  it.each([
+    "agent:approveProposal",
+    "agent:discardProposal",
+    "controls:exceptions:decide",
+    "payroll:attendance:approveMonth",
+    "payroll:reimbursements:decide",
+    "communications:messages:review",
+    "communications:messages:queue",
+    "communications:messages:deliver",
+    "communications:messages:resolveAcceptance",
+    "communications:batches:approve",
+    "communications:batches:reject",
+    "communications:batches:enqueue",
+  ])("classifies %s as an approval decision", (channel) => {
+    expect(
+      permissionActionForChannel(
+        channel,
+        { file: "proposal.json" },
+        "accountant",
+      ),
+    ).toBe("approve");
+  });
+
+  it.each(Object.keys(IPC_EXPORT_CONTRACTS))(
+    "classifies registered file channel %s as an export",
+    (channel) => {
+      expect(permissionActionForChannel(channel, {}, "accountant")).toBe(
+        "export",
+      );
+      expect(exportFormatForChannel(channel)).toBe(
+        IPC_EXPORT_CONTRACTS[channel as keyof typeof IPC_EXPORT_CONTRACTS]
+          .format,
+      );
+    },
+  );
+
+  it("keeps outbound disclosures separate from local file exports", () => {
+    expect(IPC_OUTBOUND_DATA_CONTRACTS).toEqual({
+      "communications:messages:queue": "full_data",
+      "communications:messages:deliver": "full_data",
+      "communications:messages:resolveAcceptance": "full_data",
+      "communications:batches:enqueue": "full_data",
+    });
+    for (const channel of Object.keys(IPC_OUTBOUND_DATA_CONTRACTS))
+      expect(permissionActionForChannel(channel, {}, "accountant")).toBe(
+        "approve",
+      );
+  });
+
+  it("classifies transport updates as edits", () => {
+    expect(
+      permissionActionForChannel(
+        "edoc:transportSet",
+        { voucherId: 7, data: {} },
+        "accountant",
+      ),
+    ).toBe("edit");
+  });
+
+  it("keeps the explicit contract table synchronized with the protected channels", () => {
+    expect(EXPLICIT_PERMISSION_ACTIONS).toEqual({
+      "recurring:post": "create",
+      "voucher:batchTag": "edit",
+      "voucher:batchReview": "edit",
+      "voucher:batchReverse": "edit",
+      "bank:setBankDate": "edit",
+      "bank:chequeStatus": "edit",
+      "bankrule:reject": "edit",
+      "system:recovery:attempt": "backup",
+      "edoc:transportSet": "edit",
+      "controls:exceptions:decide": "approve",
+      "payroll:attendance:approveMonth": "approve",
+      "payroll:reimbursements:decide": "approve",
+      "payroll:loans:setInstallment": "edit",
+      "tds:returnStatusSet": "edit",
+      "agent:approveProposal": "approve",
+      "agent:discardProposal": "approve",
+      "mcp:refresh:decide": "settings",
+      "communications:messages:updateDraft": "edit",
+      "communications:messages:review": "approve",
+      "communications:messages:queue": "approve",
+      "communications:messages:deliver": "approve",
+      "communications:messages:resolveAcceptance": "approve",
+      "communications:messages:cancel": "edit",
+      "communications:batches:create": "create",
+      "communications:batches:approve": "approve",
+      "communications:batches:reject": "approve",
+      "communications:batches:enqueue": "approve",
+      "communications:batches:cancel": "edit",
+    });
+  });
+
+  it("keeps the payload-aware contract table synchronized with workflow transitions", () => {
+    expect(Object.keys(PAYLOAD_PERMISSION_CONTRACTS)).toEqual([
+      "payroll:attendance:save",
+      "payroll:leave:record",
+      "payroll:salaryRevisions:save",
+      "ai:documents:review",
+    ]);
+  });
+
+  it("fails closed for a new approval-shaped mutation without a contract", () => {
+    expect(() =>
+      permissionActionForChannel(
+        "payroll:bonus:decide",
+        { id: 7, approved: true },
+        "accountant",
+      ),
+    ).toThrow("has no explicit permission contract");
+  });
+
+  it("classifies every registered approval-shaped mutation without heuristic fallback", () => {
+    const approvalShaped = registeredChannelList().filter((channel) =>
+      /(?:^|:)(?:approve(?:[A-Z:]|$)|reject(?:[A-Z:]|$)|decide(?:[A-Z:]|$))/.test(
+        channel,
+      ),
+    );
+    expect(approvalShaped.length).toBeGreaterThan(0);
+    for (const channel of approvalShaped) {
+      expect(() =>
+        permissionActionForChannel(channel, {}, "accountant"),
+      ).not.toThrow();
+    }
+  });
+
+  it("keeps every permission and export contract attached to a registered IPC channel", () => {
+    const registered = registeredChannels();
+    expect(
+      [
+        ...Object.keys(EXPLICIT_PERMISSION_ACTIONS),
+        ...Object.keys(PAYLOAD_PERMISSION_CONTRACTS),
+        ...Object.keys(IPC_EXPORT_CONTRACTS),
+      ].filter((channel) => !registered.has(channel)),
+    ).toEqual([]);
+  });
+
+  it("requires a format contract for every export-shaped registered channel", () => {
+    const intentionallySeparate = new Set(["backup:exportEncrypted"]);
+    const exportShaped = [...registeredChannels()].filter(
+      (channel) =>
+        channel.startsWith("export:") ||
+        /(?:export(?:[A-Z:]|$)|:filePreview$|:pdf$|Pdf$|:payslip(?:Pack)?$|:ecr$|:esi$|:ptCsv$|:advice$|:noticePack$|:portalBundle$|:ewbJson$|:testGrid$)/.test(
+          channel,
+        ),
+    );
+    expect(
+      exportShaped.filter(
+        (channel) =>
+          !intentionallySeparate.has(channel) &&
+          exportFormatForChannel(channel) === null,
+      ),
+    ).toEqual([]);
+  });
+
+  it("audits every direct user-visible file handler or records an explicit exemption", () => {
+    const exemptions = new Set([
+      "backup:exportEncrypted", // governed by the distinct backup permission
+      "import:template", // static blank template, no company records
+      "support:bundleOffline", // consented encrypted support recovery path
+      "voucher:attachmentOpen", // opens one already scope-authorized attachment
+    ]);
+    expect(
+      [...directFileChannels()].filter(
+        (channel) =>
+          !exemptions.has(channel) && exportFormatForChannel(channel) === null,
+      ),
+    ).toEqual([]);
+  });
+
+  it("derives every company-wide scope block from the export registry", () => {
+    for (const [channel, contract] of Object.entries(IPC_EXPORT_CONTRACTS)) {
+      expect(companyWideExportLabelForChannel(channel)).toBe(
+        contract.departmentScope === "company_wide" ? contract.label : null,
+      );
+    }
+  });
+
+  it("fails closed for company-wide audit, budget, and cost-centre surfaces", () => {
+    expect(companyWideSurfaceLabelForChannel("audit:list")).toBe(
+      "The audit trail",
+    );
+    expect(companyWideSurfaceLabelForChannel("budget:variance")).toBe(
+      "Budgets",
+    );
+    expect(companyWideSurfaceLabelForChannel("cc:statement")).toBe(
+      "Cost-centre reports",
+    );
+  });
+
+  it("keeps voucher authorization inside both cheque document handlers", () => {
+    const source = readFileSync(new URL("./ipc.ts", import.meta.url), "utf8");
+    const chequePdf = source.slice(
+      source.indexOf('handle("cheque:pdf"'),
+      source.indexOf('handle("cheque:testGrid"'),
+    );
+    const paymentAdvice = source.slice(
+      source.indexOf('handle("cheque:advice"'),
+      source.indexOf("// ---------- F11 features"),
+    );
+    expect(chequePdf).toContain("assertVoucherDepartmentScope");
+    expect(paymentAdvice).toContain("assertVoucherDepartmentScope");
+  });
+
+  it("authorizes dynamic automation on save, enable, and manual run", () => {
+    const source = readFileSync(new URL("./ipc.ts", import.meta.url), "utf8");
+    expect(source.match(/assertAutomationRunAllowed\(/g)).toHaveLength(3);
+    expect(permissionResolvedInsideHandler("integrations:automation:run")).toBe(
+      true,
+    );
+    expect(
+      permissionResolvedInsideHandler("integrations:automation:save"),
+    ).toBe(false);
+    expect(source).toContain("permissionResolvedInsideHandler(channel)");
+  });
+
+  it("preserves ordinary create, id-based edit, view, and settings inference", () => {
+    expect(
+      permissionActionForChannel("recurring:post", { id: 1 }, "accountant"),
+    ).toBe("create");
+    expect(
+      permissionActionForChannel("master:ledgers:create", {}, "accountant"),
+    ).toBe("create");
+    expect(
+      permissionActionForChannel(
+        "master:ledgers:update",
+        { id: 1 },
+        "accountant",
+      ),
+    ).toBe("edit");
+    expect(permissionActionForChannel("voucher:list", {}, "viewer")).toBe(
+      "view",
+    );
+    expect(permissionActionForChannel("company:updateInfo", {}, "owner")).toBe(
+      "settings",
+    );
+  });
+});

@@ -49,6 +49,20 @@ await scenario('09-backup-restore', async (h) => {
   // Restore the exact backup we just took.
   const base = path.basename(backup.path)
   const entry = backups.find((b) => b.file === base) ?? backups[0]
+  const preview = await h.invoke('backup:preview', { file: entry.file })
+  assert(preview.valid && preview.integrity === 'ok', 'restore preview verifies backup integrity')
+  assertEq(preview.company.name, 'Backup Co', 'restore preview identifies company')
+  assertEq(preview.voucherCount, 1, 'restore preview reports source voucher count')
+
+  await h.goto('settings')
+  await h.page.getByRole('button', { name: 'Restore…', exact: true }).first().waitFor()
+  await h.page.getByRole('button', { name: 'Restore…', exact: true }).first().click()
+  await h.page.waitForFunction(() => document.body.innerText.includes('Integrity verified'))
+  const modalText = await h.page.locator('[role="dialog"]').innerText()
+  assert(modalText.includes('Backup Co') && /voucher period/i.test(modalText), 'restore modal shows identity, period and integrity')
+  await h.shot('01-restore-preview')
+  await h.clickText('Cancel')
+
   const restored = await h.invoke('backup:restore', { file: entry.file })
   assert(restored !== undefined, 'backup:restore answered')
 
@@ -56,7 +70,28 @@ await scenario('09-backup-restore', async (h) => {
   assertEq(tb.totalDebit, 55500, 'restored books have the voucher back (TB debit)')
   assertEq(tb.totalCredit, 55500, 'restored books have the voucher back (TB credit)')
 
+  // A complete backup must survive a clean-company import with managed evidence, not just SQLite.
+  const evidencePath = path.join(h.outDir, 'portable-evidence.txt')
+  fs.writeFileSync(evidencePath, 'portable voucher evidence')
+  await h.stubDialogs({ openPaths: [evidencePath] })
+  const attached = await h.invoke('voucher:attachmentAdd', { id: saved.id, kind: 'receipt' })
+  assertEq(attached.length, 1, 'voucher evidence attached before complete backup')
+  const passphrase = 'portable backup test phrase'
+  const complete = await h.invoke('backup:exportEncrypted', { passphrase })
+  assert(fs.existsSync(complete.path), 'complete encrypted package written')
+  assert(complete.entries > 1 && complete.attachments === 1, 'complete package reports database and evidence')
+
+  await h.invoke('company:close')
+  await h.stubDialogs({ openPaths: [complete.path] })
+  const imported = await h.invoke('backup:importEncrypted', { passphrase })
+  assert(imported && imported.format === 'complete', 'complete package imported as a separate company')
+  assertEq(imported.attachmentsRestored, 1, 'complete import restored the managed attachment')
+  await h.invoke('company:open', { slug: imported.slug })
+  const restoredAttachments = await h.invoke('voucher:attachments', { id: saved.id })
+  assertEq(restoredAttachments.length, 1, 'clean-company restore retained voucher evidence')
+  assert(fs.existsSync(restoredAttachments[0].storedPath), 'restored evidence exists at the rebased managed path')
+
   // The UI survives a restore: navigate + render the backups tab.
   await h.goto('settings')
-  await h.shot('01-settings-after-restore')
+  await h.shot('02-settings-after-restore')
 })

@@ -3,29 +3,34 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { formatPaise } from '@shared/money'
 import { api } from '../../lib/client'
 import { useNav, useSession, useToasts } from '../../state/stores'
-import { Button, DateInput, Field, Money, Panel, TextInput, inputCls } from '../../components/ui'
-import { ItemPicker, useStockItems } from '../../components/pickers'
-import { useUnsavedGuard } from '../../lib/useUnsavedGuard'
+import { Button, DateInput, Field, Money, Panel, TextInput } from '../../components/ui'
+import { inputCls } from '../../components/inputStyles'
+import { ItemPicker } from '../../components/pickers'
+import { useStockItems } from '../../components/pickerHooks'
+import { useDraftAwareUnsavedGuard } from '../../lib/useUnsavedGuard'
 import { useVoucherNumber } from './hooks'
+import type { VoucherWorkDraft } from '@shared/voucherDrafts'
+import { recordCohortEvent } from '../../lib/commercialOps'
 
 // ---------- manufacture mode (stock journal via BOM) ----------
 
-export function ManufactureEntry({ typeId }: { typeId: number }): React.JSX.Element {
+export function ManufactureEntry({ typeId, workDraft }: { typeId: number; workDraft?: VoucherWorkDraft }): React.JSX.Element {
   const { workingDate, setWorkingDate, to } = useSession()
   const toast = useToasts()
   const nav = useNav()
   const queryClient = useQueryClient()
   const items = useStockItems()
-  const [date, setDate] = useState(workingDate)
-  const [producedId, setProducedId] = useState<number | null>(null)
-  const [qtyText, setQtyText] = useState('1')
-  const [extraPctText, setExtraPctText] = useState('0')
+  const payload = workDraft?.mode === 'manufacture' ? workDraft.payload : {}
+  const [date, setDate] = useState(typeof payload.date === 'string' ? payload.date : workingDate)
+  const [producedId, setProducedId] = useState<number | null>(typeof payload.producedId === 'number' ? payload.producedId : null)
+  const [qtyText, setQtyText] = useState(typeof payload.qtyText === 'string' ? payload.qtyText : '1')
+  const [extraPctText, setExtraPctText] = useState(typeof payload.extraPctText === 'string' ? payload.extraPctText : '0')
   const [saving, setSaving] = useState(false)
   const number = useVoucherNumber(typeId, date)
 
   // Same content-based dirtiness as the sibling entry modes (InvoiceEntry/PhysicalStockEntry):
   // anything the user typed beyond the pristine defaults registers the unsaved-entry guard.
-  useUnsavedGuard(producedId != null || qtyText !== '1' || extraPctText !== '0')
+  useDraftAwareUnsavedGuard(workDraft?.id, producedId != null || qtyText !== '1' || extraPctText !== '0', JSON.stringify({ date, producedId, qtyText, extraPctText }))
 
   const { data: bom } = useQuery({
     queryKey: ['bom', producedId],
@@ -34,7 +39,7 @@ export function ManufactureEntry({ typeId }: { typeId: number }): React.JSX.Elem
   })
   const { data: stock } = useQuery({
     queryKey: ['stockSummary', to],
-    queryFn: () => api.reports.stockSummary(to)
+    queryFn: ({ signal }) => api.reports.stockSummary(to, signal)
   })
 
   const qty = Number(qtyText) || 0
@@ -96,8 +101,12 @@ export function ManufactureEntry({ typeId }: { typeId: number }): React.JSX.Elem
         ],
         billRefs: [],
         tds: null
-      })
-      toast.push('success', `Manufacture ${saved.number} saved — ${formatPaise(producedValue, { symbol: true })} into stock`)
+      }, undefined, workDraft?.id)
+      if (!saved.approvalRequired)
+        recordCohortEvent(localStorage, 'first_voucher_posted')
+      toast.push('success', saved.approvalRequired
+        ? `Manufacture sent for approval — request #${saved.request.id}`
+        : `Manufacture ${saved.number} saved — ${formatPaise(producedValue, { symbol: true })} into stock`)
       setWorkingDate(date)
       setProducedId(null)
       setQtyText('1')
@@ -108,6 +117,18 @@ export function ManufactureEntry({ typeId }: { typeId: number }): React.JSX.Elem
     } finally {
       setSaving(false)
     }
+  }
+
+  const saveDraft = async (): Promise<void> => {
+    if (saving) return
+    setSaving(true)
+    try {
+      await api.voucherDrafts.save({ voucherTypeId: typeId, mode: 'manufacture', title: `Manufacture on ${date}`, payloadVersion: 1, payload: { date, producedId, qtyText, extraPctText } }, workDraft?.id)
+      await queryClient.invalidateQueries({ queryKey: ['voucher-drafts'] })
+      toast.push('success', workDraft ? 'Draft updated' : 'Manufacture draft saved')
+      nav.replace({ name: 'voucher-drafts' })
+    } catch (error) { toast.push('error', (error as Error).message) }
+    finally { setSaving(false) }
   }
 
   return (
@@ -169,6 +190,7 @@ export function ManufactureEntry({ typeId }: { typeId: number }): React.JSX.Elem
       )}
 
       <div className="mt-5 flex justify-end gap-2">
+        <Button data-testid="btn-save-voucher-draft" disabled={saving} onClick={() => void saveDraft()}>Save draft</Button>
         <Button onClick={() => nav.back()}>Cancel</Button>
         <Button variant="primary" data-testid="btn-save-manufacture" disabled={saving} onClick={() => void save()}>
           Save manufacture

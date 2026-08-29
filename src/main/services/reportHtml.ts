@@ -28,6 +28,12 @@ export interface ReportHtmlOptions {
   columns: ReportColumnSpec[]
   rows: ReportRowSpec[]
   footNote?: string
+  provenance: {
+    period: string
+    accountingBasis: string
+    dataFreshness: string
+    generatedAt: string
+  }
 }
 
 const alignClass = (a: 'l' | 'r' | 'c'): string => (a === 'l' ? '' : a)
@@ -38,7 +44,12 @@ const alignClass = (a: 'l' | 'r' | 'c'): string => (a === 'l' ? '' : a)
  *  in the app reads as one family. Every cell arrives pre-formatted by the caller (money via
  *  formatPaise, dates via toDisplayDate, ...) — this template only lays it out and escapes it. */
 export function reportHtml(opts: ReportHtmlOptions): string {
-  const { title, company, periodLabel, columns, rows, footNote } = opts
+  const { title, company, periodLabel, columns, rows, footNote, provenance } = opts
+  const generated = new Date(provenance.generatedAt).toLocaleString('en-IN', {
+    dateStyle: 'medium',
+    timeStyle: 'short',
+    timeZone: 'Asia/Kolkata'
+  })
 
   const headRow = columns
     .map((c) => `<th class="${alignClass(c.align)}"${c.width ? ` style="width:${c.width}px"` : ''}>${esc(c.label)}</th>`)
@@ -83,6 +94,8 @@ export function reportHtml(opts: ReportHtmlOptions): string {
     tr.rule td { border-top: 1px solid #16181f; }
     tr.bold.rule td { border-top: 1px solid #16181f; border-bottom: 3px double #16181f; }
     .foot { margin-top: 14px; font-size: 11px; color: #555; }
+    .provenance { display: grid; grid-template-columns: 1.4fr 1fr 1fr; gap: 12px; margin-top: 16px; padding-top: 9px; border-top: 1px solid #bbb; color: #555; font-size: 9.5px; }
+    .provenance b { display: block; margin-bottom: 1px; color: #222; font-size: 8.5px; letter-spacing: .06em; text-transform: uppercase; }
   </style></head><body>
     <div class="sheet">
       <div class="head">
@@ -101,6 +114,11 @@ export function reportHtml(opts: ReportHtmlOptions): string {
         <tbody>${bodyRows}</tbody>
       </table>
       ${footNote ? `<div class="foot">${esc(footNote)}</div>` : ''}
+      <div class="provenance">
+        <div><b>Report context</b>${esc(provenance.period)}</div>
+        <div><b>Basis and source</b>${esc(provenance.accountingBasis)}<br>${esc(provenance.dataFreshness)}</div>
+        <div><b>Generated</b>${esc(generated)} IST</div>
+      </div>
     </div>
   </body></html>`
 }

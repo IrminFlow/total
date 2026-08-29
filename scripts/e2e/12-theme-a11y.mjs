@@ -89,4 +89,16 @@ await scenario('12-theme-a11y', async (h) => {
   console.log('[12-theme-a11y] unlabeled inputs on masters:', JSON.stringify(nakedInputs))
 
   await setTheme('light') // leave the shared profile in the default theme for later scenarios
+
+  // Support diagnostics are allow-listed and visible before consent/submission.
+  await h.click('link-support')
+  await h.page.waitForSelector('[data-testid="support-diagnostics-preview"]')
+  const supportPreview = await h.page.locator('[data-testid="support-diagnostics-preview"] pre').textContent()
+  const diagnosticKeys = Object.keys(JSON.parse(supportPreview)).sort()
+  assert(JSON.stringify(diagnosticKeys) === JSON.stringify(['arch', 'installationId', 'platform', 'version']), `support payload has only safe keys (got ${diagnosticKeys})`)
+  const supportDiagnostics = JSON.parse(supportPreview)
+  assert(/^[0-9a-f-]{36}$/i.test(supportDiagnostics.installationId), 'support installation reference is an opaque UUID')
+  assert(!supportPreview.includes('Demo Traders'), 'support diagnostics exclude company identity')
+  await h.shot('03-support-diagnostics-consent')
+  await h.click('modal-close')
 })

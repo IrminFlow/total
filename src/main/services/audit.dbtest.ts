@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach } from 'vitest'
 import { seededDb } from '../db/testdb'
 import { createGroup, updateGroup, deleteGroup } from './masters'
-import { setAuditContext, writeAudit, listAudit } from './audit'
+import { setAuditContext, writeAudit, listAudit, pruneAudit, verifyAuditChain } from './audit'
 
 describe('audit trail', () => {
   beforeEach(() => {
@@ -56,6 +56,50 @@ describe('audit trail', () => {
     expect(rows[0]!.after_json).toBe('{"a":1}')
     expect(rows[1]!.before_json).toBe('{"a":1}')
     expect(rows[1]!.after_json).toBeNull()
+  })
+
+  it('chains rows and verifies contents, order, anchor and stored head', () => {
+    const db = seededDb()
+    writeAudit(db, 'thing', 1, 'create', null, { a: 1 })
+    writeAudit(db, 'thing', 1, 'update', { a: 1 }, { a: 2 })
+    writeAudit(db, 'thing', 1, 'delete', { a: 2 }, null)
+    const status = verifyAuditChain(db)
+    expect(status).toMatchObject({ ok: true, rowsChecked: 3, firstBrokenId: null, reason: null })
+    const hashes = db.prepare('SELECT prev_hash AS prevHash, row_hash AS rowHash FROM audit_log ORDER BY id').all() as { prevHash: string; rowHash: string }[]
+    expect(hashes[1]!.prevHash).toBe(hashes[0]!.rowHash)
+    expect(hashes[2]!.prevHash).toBe(hashes[1]!.rowHash)
+  })
+
+  it('detects altered contents, missing middle rows and a truncated tail', () => {
+    const altered = seededDb()
+    writeAudit(altered, 'thing', 1, 'create', null, { a: 1 })
+    writeAudit(altered, 'thing', 1, 'update', { a: 1 }, { a: 2 })
+    altered.prepare("UPDATE audit_log SET after_json = '{\"a\":999}' WHERE entity_id = 1 AND action = 'update'").run()
+    expect(verifyAuditChain(altered)).toMatchObject({ ok: false, reason: 'row_hash_mismatch' })
+
+    const missing = seededDb()
+    for (let i = 1; i <= 3; i++) writeAudit(missing, 'thing', i, 'create', null, { i })
+    const middleId = (missing.prepare('SELECT id FROM audit_log ORDER BY id LIMIT 1 OFFSET 1').get() as { id: number }).id
+    missing.prepare('DELETE FROM audit_log WHERE id = ?').run(middleId)
+    expect(verifyAuditChain(missing)).toMatchObject({ ok: false, reason: 'previous_hash_mismatch' })
+
+    const truncated = seededDb()
+    writeAudit(truncated, 'thing', 1, 'create', null, { a: 1 })
+    writeAudit(truncated, 'thing', 2, 'create', null, { a: 2 })
+    truncated.prepare('DELETE FROM audit_log WHERE id = (SELECT MAX(id) FROM audit_log)').run()
+    expect(verifyAuditChain(truncated)).toMatchObject({ ok: false, reason: 'head_mismatch' })
+  })
+
+  it('keeps the retained chain valid after configured prefix pruning', () => {
+    const db = seededDb()
+    writeAudit(db, 'thing', 1, 'create', null, { a: 1 })
+    writeAudit(db, 'thing', 2, 'create', null, { a: 2 })
+    const first = (db.prepare('SELECT id FROM audit_log ORDER BY id LIMIT 1').get() as { id: number }).id
+    db.prepare("UPDATE audit_log SET at = datetime('now', '-400 days') WHERE id = ?").run(first)
+    // Updating the timestamp is deliberate test setup; the deleted row is outside the retained
+    // chain and pruneAudit advances the authenticated anchor to the next row's prev_hash.
+    expect(pruneAudit(db, 365)).toBe(1)
+    expect(verifyAuditChain(db)).toMatchObject({ ok: true, rowsChecked: 1 })
   })
 
   it('listAudit pages server-side at 100 rows, newest first, with a correct total', () => {

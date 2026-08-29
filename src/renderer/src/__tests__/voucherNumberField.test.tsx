@@ -1,11 +1,11 @@
-// useVoucherNumberField (screens/VoucherEntry.tsx) — the editable No. field that tracks
+// useVoucherNumberField — the voucher editor's editable No. field that tracks
 // voucher:nextNumber until the user touches it. window.total is mocked; react-query provides
 // the fetch machinery exactly as in the app.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, renderHook, waitFor } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import type { ReactNode } from 'react'
-import { useVoucherNumberField } from '../screens/VoucherEntry'
+import { useVoucherNumberField } from '../screens/voucher/hooks'
 
 const invoke = vi.fn()
 

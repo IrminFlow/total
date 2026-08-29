@@ -7,7 +7,7 @@ import { migrate } from './migrate'
 import { seedCompany } from './seed'
 import { TEST_INFO, postSimpleVoucher } from './testdb'
 import {
-  snapshotTo, listBackupsIn, pruneBackupsIn, tagOf, backupStamp, restoreCompanyDb, rollbackRestore
+  backupFileName, inspectBackup, snapshotTo, listBackupsIn, pruneBackupsIn, tagOf, backupStamp, restoreCompanyDb, rollbackRestore
 } from './backup'
 
 function tmpDir(): string {
@@ -70,6 +70,10 @@ describe('listBackupsIn / tagOf / backupStamp', () => {
     expect(list[0]?.tag).toBe('manual')
     expect(list[1]?.tag).toBe('auto')
     expect(tagOf('2025-01-01T00-00-00-pre-tally-import.db')).toBe('pre-tally-import')
+    expect(backupFileName('pre-restore', new Date('2025-01-01T00:00:00Z'), '11111111-1111-4111-8111-111111111111'))
+      .toBe('2025-01-01T00-00-00-pre-restore--11111111-1111-4111-8111-111111111111.db')
+    expect(tagOf('2025-01-01T00-00-00-pre-restore--11111111-1111-4111-8111-111111111111.db'))
+      .toBe('pre-restore')
   })
 })
 
@@ -130,6 +134,37 @@ function voucherCountOf(path: string): number {
   return n
 }
 
+describe('inspectBackup', () => {
+  it('returns verified company, schema, period, count, and size without modifying the file', () => {
+    const dir = tmpDir()
+    const path = join(dir, 'preview.db')
+    makeCompanyDbFile(path, 3)
+    const bytesBefore = readFileSync(path)
+
+    const preview = inspectBackup(path)
+
+    expect(preview).toMatchObject({
+      valid: true,
+      integrity: 'ok',
+      company: { name: TEST_INFO.name, booksFrom: TEST_INFO.booksFrom, stateCode: TEST_INFO.stateCode },
+      firstVoucherDate: '2025-04-10',
+      lastVoucherDate: '2025-04-10',
+      voucherCount: 3
+    })
+    expect(preview.schemaVersion).toBeGreaterThan(0)
+    expect(preview.sizeBytes).toBeGreaterThan(0)
+    expect(readFileSync(path).equals(bytesBefore)).toBe(true)
+  })
+
+  it('returns a safe blocked preview for corrupted and missing files', () => {
+    const dir = tmpDir()
+    const corrupt = join(dir, 'corrupt.db')
+    writeFileSync(corrupt, 'not sqlite')
+    expect(inspectBackup(corrupt)).toMatchObject({ valid: false, integrity: 'failed', company: null })
+    expect(inspectBackup(join(dir, 'missing.db'))).toMatchObject({ valid: false, integrity: 'failed', sizeBytes: 0 })
+  })
+})
+
 describe('restoreCompanyDb', () => {
   it('happy path: swaps the backup into place, and reopening dbPath afterwards has the restored data', () => {
     const dir = tmpDir()
@@ -162,6 +197,29 @@ describe('restoreCompanyDb', () => {
     // No stale WAL/SHM siblings left pointing at pre-swap content.
     expect(existsSync(`${dbPath}-wal`)).toBe(false)
     expect(existsSync(`${dbPath}-shm`)).toBe(false)
+  })
+
+  it('takes distinct safety snapshots for repeated restores in the same second', () => {
+    const dir = tmpDir()
+    const dbPath = join(dir, 'company.db')
+    const backupsDir = join(dir, 'backups')
+    mkdirSync(backupsDir)
+
+    const firstLive = new Database(dbPath)
+    migrate(firstLive)
+    seedCompany(firstLive, TEST_INFO)
+    const chosenBackup = join(dir, 'chosen-backup.db')
+    makeCompanyDbFile(chosenBackup, 2)
+
+    const first = restoreCompanyDb(firstLive, dbPath, chosenBackup, backupsDir)
+    const secondLive = new Database(dbPath)
+    const second = restoreCompanyDb(secondLive, dbPath, chosenBackup, backupsDir)
+
+    expect(first.preRestoreSnapshotPath).not.toBe(second.preRestoreSnapshotPath)
+    expect(existsSync(first.preRestoreSnapshotPath)).toBe(true)
+    expect(existsSync(second.preRestoreSnapshotPath)).toBe(true)
+    expect(tagOf(nodeBasename(first.preRestoreSnapshotPath))).toBe('pre-restore')
+    expect(tagOf(nodeBasename(second.preRestoreSnapshotPath))).toBe('pre-restore')
   })
 
   it('rejects a corrupted backup file BEFORE the live DB is touched', () => {

@@ -1,15 +1,29 @@
 // Path-parameterized, Electron-free backup primitives (dbtest-able; better-sqlite3 objects are
 // passed in from callers that already opened them with the Electron ABI).
 import Database from 'better-sqlite3'
+import { randomUUID } from 'crypto'
 import { existsSync, readdirSync, statSync, unlinkSync, copyFileSync, renameSync, rmSync } from 'fs'
 import { join, basename } from 'path'
 import type { DB } from './connection'
+import type { CompanyInfo } from '@shared/domain'
 
 export interface BackupInfo {
   file: string
   sizeBytes: number
   mtime: number
   tag: string
+}
+
+export interface BackupPreview {
+  valid: boolean
+  integrity: 'ok' | 'failed'
+  detail: string
+  company: Pick<CompanyInfo, 'name' | 'booksFrom' | 'stateCode'> | null
+  schemaVersion: number | null
+  firstVoucherDate: string | null
+  lastVoucherDate: string | null
+  voucherCount: number | null
+  sizeBytes: number
 }
 
 /** ISO stamp with ':' and '.' replaced by '-', fixed-width (e.g. "2025-08-15T12-34-56"). */
@@ -21,13 +35,30 @@ export function backupStamp(now = new Date()): string {
 }
 
 /**
+ * Collision-safe filename for a database restore point. `backupStamp` intentionally stays
+ * human-readable and second-granular, so a random suffix is required when two manual backups,
+ * quit hooks, or restores happen during the same second. The double hyphen lets `tagOf` remove
+ * the suffix while remaining compatible with every legacy `<stamp>-<tag>.db` file.
+ */
+export function backupFileName(
+  tag: string,
+  now = new Date(),
+  nonce = randomUUID(),
+): string {
+  return `${backupStamp(now)}-${tag}--${nonce}.db`
+}
+
+/**
  * Tag encoded in a backup filename `<stamp>-<tag>.db`. The stamp is a fixed-width ISO
  * timestamp (itself full of hyphens), so the tag is everything after it — not just the
  * segment after the last '-', since tags like 'pre-tally-import' contain hyphens too.
  */
 export function tagOf(file: string): string {
   const stem = file.endsWith('.db') ? file.slice(0, -3) : file
-  if (stem.length > STAMP_LEN + 1 && stem[STAMP_LEN] === '-') return stem.slice(STAMP_LEN + 1)
+  if (stem.length > STAMP_LEN + 1 && stem[STAMP_LEN] === '-') {
+    const encodedTag = stem.slice(STAMP_LEN + 1)
+    return encodedTag.replace(/--[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i, '')
+  }
   // Fallback for anything that doesn't match the expected shape.
   const idx = stem.lastIndexOf('-')
   return idx === -1 ? stem : stem.slice(idx + 1)
@@ -106,6 +137,58 @@ export function quickCheckOk(path: string): boolean {
     return false
   } finally {
     db.close()
+  }
+}
+
+/** Read-only restore preview. It opens the actual backup, proves SQLite integrity, and extracts
+ *  only non-sensitive identity/version/period metadata. The selected file is never migrated or
+ *  modified during preview. Invalid files return a displayable result rather than throwing. */
+export function inspectBackup(path: string): BackupPreview {
+  const sizeBytes = existsSync(path) ? statSync(path).size : 0
+  let db: Database.Database | null = null
+  try {
+    db = new Database(path, { readonly: true, fileMustExist: true })
+    const quick = db.pragma('quick_check') as Array<{ quick_check: string }>
+    const detail = quick[0]?.quick_check ?? 'No integrity result'
+    if (detail !== 'ok') {
+      return { valid: false, integrity: 'failed', detail, company: null, schemaVersion: null, firstVoucherDate: null, lastVoucherDate: null, voucherCount: null, sizeBytes }
+    }
+    const companyRow = db.prepare("SELECT value FROM meta WHERE key = 'company'").get() as { value: string } | undefined
+    if (!companyRow) throw new Error('Missing Total company metadata')
+    const company = JSON.parse(companyRow.value) as CompanyInfo
+    const schemaVersion = (db.prepare('SELECT MAX(id) AS version FROM migrations').get() as { version: number | null }).version
+    const voucherColumns = db.pragma('table_info(vouchers)') as Array<{ name: string }>
+    const activeFilter = voucherColumns.some((column) => column.name === 'deleted_at') ? ' WHERE deleted_at IS NULL' : ''
+    const period = db.prepare(`SELECT MIN(date) AS firstDate, MAX(date) AS lastDate, COUNT(*) AS count FROM vouchers${activeFilter}`).get() as {
+      firstDate: string | null
+      lastDate: string | null
+      count: number
+    }
+    return {
+      valid: true,
+      integrity: 'ok',
+      detail: 'SQLite integrity verified',
+      company: { name: company.name, booksFrom: company.booksFrom, stateCode: company.stateCode },
+      schemaVersion,
+      firstVoucherDate: period.firstDate,
+      lastVoucherDate: period.lastDate,
+      voucherCount: period.count,
+      sizeBytes
+    }
+  } catch (err) {
+    return {
+      valid: false,
+      integrity: 'failed',
+      detail: err instanceof Error ? err.message : String(err),
+      company: null,
+      schemaVersion: null,
+      firstVoucherDate: null,
+      lastVoucherDate: null,
+      voucherCount: null,
+      sizeBytes
+    }
+  } finally {
+    db?.close()
   }
 }
 
@@ -217,7 +300,7 @@ export function restoreCompanyDb(db: DB, dbPath: string, backupPath: string, bac
   assertValidCompanyDb(backupPath)
 
   db.pragma('wal_checkpoint(TRUNCATE)')
-  const preRestoreSnapshotPath = join(backupsDir, `${backupStamp()}-pre-restore.db`)
+  const preRestoreSnapshotPath = join(backupsDir, backupFileName('pre-restore'))
   snapshotSync(db, preRestoreSnapshotPath)
 
   // Windows: the rename in swapInPlace EPERMs while any handle holds dbPath open.

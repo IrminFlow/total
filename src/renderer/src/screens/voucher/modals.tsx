@@ -8,8 +8,8 @@ import { nextDueAfter } from '@shared/recurring'
 import { api } from '../../lib/client'
 import { useToasts } from '../../state/stores'
 import { AmountInput, Button, DateInput, Field, Modal, Select, TextInput } from '../../components/ui'
-import { useGroups } from '../../components/pickers'
-import { groupAncestryNames, PARTY_GROUPS, TRADING_GROUPS } from '../../components/LedgerFormModal'
+import { useGroups } from '../../components/pickerHooks'
+import { groupAncestryNames, PARTY_GROUPS, TRADING_GROUPS } from '../../components/ledgerGroups'
 
 // ---------- "Save as recurring…" modal (AccountingEntry + InvoiceEntry) ----------
 

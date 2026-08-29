@@ -1,0 +1,44 @@
+name: Production monitor
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "17 */6 * * *"
+
+permissions:
+  contents: read
+
+jobs:
+  live:
+    if: github.event_name == 'workflow_dispatch' || vars.PRODUCTION_MONITOR_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    concurrency:
+      group: production-synthetic-${{ github.repository }}
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: 22
+
+      - name: Check routes, downloads, updater, support and feedback
+        run: npm run release:live
+        env:
+          INTAKE_ADMIN_SECRET: ${{ secrets.INTAKE_ADMIN_SECRET }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          TOTAL_SYNTHETIC_EMAIL: synthetic-production-monitor@irminflow.invalid
+          TOTAL_EXPECTED_SITE_REVISION: ${{ github.sha }}
+          TOTAL_REQUIRE_SYNTHETIC: "1"
+          TOTAL_REQUIRE_CANONICAL_REDIRECT: "1"
+          TOTAL_DEPLOYMENT_WAIT_MS: 600000
+          TOTAL_RELEASE_WAIT_MS: 600000
+
+      - name: Upload monitoring evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: production-live-readiness
+          path: dist/production-live-readiness.json
+          if-no-files-found: error
