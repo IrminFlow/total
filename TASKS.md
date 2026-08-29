@@ -1,6 +1,6 @@
 # Agent-owned task list
 
-Last updated: 28 August 2026.
+Last updated: 29 August 2026.
 
 This file tracks work a coding agent can perform. Human-only account, credential, business, and acceptance actions live in [HUMAN.md](HUMAN.md). Product scope and feature explanations live in [ROADMAP.md](ROADMAP.md).
 
@@ -34,13 +34,24 @@ Status vocabulary:
   comparison, saved-view, column, and action regions have one keyboard-safe order; focused E2E,
   full light/dark surface catalogues, visual contracts, and bundle budgets pass.
 - `DONE` NIC live filing and online GST portal APIs remain excluded.
+- `DONE` The remaining native Procurement prompts use the shared accessible in-app dialog. Payroll
+  and Recurring actions use one keyboard-complete Radix menu primitive with focus restoration,
+  Arrow/Home/End navigation and installed-app acceptance.
+- `DONE` Persistent shell actions and company switching are bilingual in Hindi mode without changing
+  routes, commands, stored values, books or exports.
+- `DONE` A clean `npm ci` deterministically installs the Electron binary before native dependency
+  rebuilds; the clean-install race found during staging admission is fixed and regression-tested.
+- `DONE` `npm run staging:readiness -- --with-gates` binds branch, remote, draft PR, deployment,
+  routes, TLS, downloads, security headers and the complete automated matrix to one exact clean SHA.
+  The latest isolated staging deployment passed this command; human cohort approval remains separate.
 
 ## Ready now
 
-- `READY` Complete the fail-closed [v5 staging readiness checklist](docs/STAGING_READINESS_CHECKLIST.md)
-  against one exact branch commit before admitting external testers. Keep staging services, data,
-  notifications, downloads and domains isolated from production; platform verification is a later
-  release gate and is not part of this admission checklist.
+- `READY` Complete the human decision fields in the fail-closed
+  [v5 staging readiness checklist](docs/STAGING_READINESS_CHECKLIST.md) before admitting external
+  testers. The exact-head automated gate and isolated live deployment pass. Keep staging services,
+  data, notifications, downloads and domains isolated from production; platform verification is a
+  later release gate and is not part of this admission checklist.
 
 - `READY` Keep root documentation and topic guides consistent.
   - Update `ROADMAP.md` when scope or status changes.

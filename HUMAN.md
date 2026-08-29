@@ -1,6 +1,6 @@
 # Morning checklist for the product owner
 
-Last updated: 28 August 2026.
+Last updated: 29 August 2026.
 
 This file contains only actions that require your identity, account access, business decision, physical observation, or approval. Coding agents should not mark these complete for you. Do not paste passwords, API keys, recovery keys, certificates, customer books, or personal data into chat, issues, commits, screenshots, or documentation.
 
@@ -50,6 +50,11 @@ production Supabase project was created or changed.
 The isolated staging site already has support and feedback configured. Synthetic support
 create/private-token tracking and feedback idea/vote/follow checks passed. Production remains
 untouched.
+
+The current branch is also deployed to `https://total-v5-staging.vercel.app`. The automated staging
+admission command verifies the exact source revision, deployment identity, routes, security headers,
+TLS and immutable test downloads. You still choose the tester cohort and staging duration; the
+command does not fabricate that product-owner decision.
 
 - [ ] When production configuration is approved, authenticate Vercel on this computer or open the
   production Total site project in the Vercel dashboard.

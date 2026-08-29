@@ -219,7 +219,8 @@ A feature is not “production complete” merely because it is implemented. Pro
 | Branch test packages | Builds unsigned macOS and Windows installers with non-publishable manifests. The compiled staging profile uses only `total-v5-staging.vercel.app` for app/site services and disables update checks; the ASAR contract rejects production-origin leakage. | Implemented and CI verified | Use for testing only. |
 | Protected candidate build | Builds signed candidates in protected GitHub environments without publishing. | Implemented | Signing credentials and candidate run. |
 | Immutable promotion | Publishes the accepted candidate bytes without rebuilding or manual tagging. | Implemented and contract-tested | Execute after acceptance. |
-| Clean-environment matrix | Uses hosted macOS and Windows runners for install, upgrade, backup/restore, uninstall, and data preservation. | Implemented in release workflow | Run against signed candidate. |
+| Clean-environment matrix | Uses hosted macOS and Windows runners for install, upgrade, backup/restore, uninstall, and data preservation. Clean local installs now provision Electron deterministically before parallel tests. | Implemented and clean-install tested; release workflow exists | Run against signed candidate. |
+| Exact staging admission | Binds the clean branch SHA, draft PR, isolated deployment, routes, TLS, security headers, immutable downloads and the full automated matrix into redacted evidence. | Implemented and executed against isolated staging | Product owner selects the named tester cohort and duration. |
 | Staged channels | Supports internal, beta, and stable cohorts with deterministic percentages and kill switches. | Implemented and tested | Production rollout exercise. |
 | Update and download routes | Serve release metadata and private-repository downloads without exposing the GitHub token. | Implemented and site-tested | Final production live check. |
 

@@ -10,7 +10,7 @@ opaque receipt IDs. They do not store client IP addresses or user-agent strings.
 
 The isolated site is deployed at `https://total-v5-staging.vercel.app`. Its support and feedback
 provider variables point to the isolated Supabase project `cewz…qmlx`, where all migrations through
-`202608280002_collaboration_devices.sql` are applied and `total-intake` v10 is active. `total-sync` v9
+`202608280004_collaboration_invitation_history.sql` are applied and `total-intake` v10 is active. `total-sync` v13
 is also active and returns HTTP 401 without a Supabase JWT.
 
 A staging synthetic run passed support creation, private-token status tracking, feedback idea
