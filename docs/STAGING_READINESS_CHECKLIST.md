@@ -9,6 +9,11 @@ checked against the same commit and deployment. A passing result from another re
 Platform signing, notarization, installer, operating-system upgrade, clean-machine, and
 platform-specific verification are intentionally outside this checklist.
 
+Run `npm run staging:readiness` for the fail-closed source, PR, deployment, route, download, TLS,
+and security-header checks. Add `-- --with-gates` to run the complete automated matrix below with an
+isolated temporary `TOTAL_DATA_DIR`. The command writes a permission-restricted, redacted JSON record
+under `dist/`; it deliberately does not check human acceptance boxes or copy environment values.
+
 ## Completion record
 
 Complete this block before running any gate. Do not use a branch name where a full immutable SHA is

@@ -631,6 +631,8 @@ const outputPath = resolve(
       : "dist/production-live-readiness.json"),
 );
 mkdirSync(dirname(outputPath), { recursive: true });
-writeFileSync(outputPath, `${JSON.stringify(output, null, 2)}\n`);
+writeFileSync(outputPath, `${JSON.stringify(output, null, 2)}\n`, {
+  mode: 0o600,
+});
 console.log(JSON.stringify(output, null, 2));
 if (!output.ok) process.exit(1);

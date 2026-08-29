@@ -40,6 +40,7 @@
     "release:scorecard": "node scripts/release-scorecard.mjs",
     "release:readiness": "node scripts/production-readiness.mjs",
     "release:live": "node scripts/production-live-check.mjs",
+    "staging:readiness": "node scripts/staging-readiness.mjs",
     "acceptance:gate": "node scripts/acceptance-gate.mjs",
     "acceptance:legal-packet": "node scripts/legal-review-packet.mjs",
     "acceptance:legal-risk-packet": "node scripts/legal-risk-packet.mjs",
