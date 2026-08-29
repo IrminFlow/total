@@ -47,7 +47,7 @@
     "security:dependencies": "node scripts/dependency-policy.mjs",
     "e2e": "node scripts/run-e2e.mjs",
     "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json",
-    "postinstall": "electron-builder install-app-deps",
+    "postinstall": "node node_modules/electron/install.js && electron-builder install-app-deps",
     "build:mac": "npm run build && electron-builder --mac"
   },
   "dependencies": {

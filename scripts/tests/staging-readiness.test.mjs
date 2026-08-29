@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import {
   summarizeGateResults,
   validateStagingIdentity,
@@ -71,4 +72,14 @@ test("summarizes fail-fast quality gate outcomes without command output", () => 
       { id: "unit", ok: false, durationMs: 40 },
     ],
   });
+});
+
+test("clean installs provision Electron before native dependency rebuilds", () => {
+  const pkg = JSON.parse(
+    readFileSync(new URL("../../package.json", import.meta.url), "utf8"),
+  );
+  assert.match(
+    pkg.scripts.postinstall,
+    /^node node_modules\/electron\/install\.js && electron-builder install-app-deps$/,
+  );
 });
