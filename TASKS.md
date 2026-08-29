@@ -179,12 +179,19 @@ A task is complete only when:
   still current on 2026-08-28, so Electron remains pinned pending an upstream fix; native coverage
   remains intact.
 - [x] Keep runtime dependency audit at zero high/critical vulnerabilities and document any accepted
-  exception with a release-blocking review date. On 2026-08-28 `npm audit --omit=dev` reports zero
-  vulnerabilities for both the Electron app and `site/`; there is no accepted exception.
+  exception with a release-blocking review date. The 2026-08-29 re-audit found a classification
+  trap: `npm audit --omit=dev` remains zero and `site/` is zero, but Electron is a development
+  dependency that becomes the shipped runtime. The full audit now reports Electron/extract-zip as
+  two high-severity package nodes (multiple Electron advisories). Electron 44.0.0 is still the only
+  registry fix and is the same current version already proved to wedge the checked-in native-input
+  reproducer. The app now enables renderer sandboxing and refuses every renderer-created external
+  URL except generated `mailto:` and numeric `https://wa.me/` drafts. The remaining framework
+  exception blocks the next public release and must be reviewed on every Electron/Playwright
+  release, or by 2026-09-12 at the latest; it is not hidden by the production-only audit result.
 
 ## P1 — complete verification campaign
 
-- [x] `npm test` — 163 files / 2,323 pure tests green on macOS.
+- [x] `npm test` — 164 files / 2,337 pure tests green on macOS.
 - [x] `npm run test:db` — 109 files / 1,348 Electron/SQLite tests green on macOS, including
   migrations, 4,000-voucher scale and memory ceilings.
 - [x] Repeat the full DB suite on Windows at the immutable product/workflow commit. GitHub Actions
@@ -195,8 +202,9 @@ A task is complete only when:
 - [x] `npm run build`, `npm run bundle:budget`, and `npm run smoke` green. The closest budgets are
   main at 98% and renderer assets at 96%; treat growth as release-sensitive.
 - [x] `site/npm run build` green across 33 routes with no workspace/config warning.
-- [x] All 54 E2E scenarios green without retries on macOS in 198 seconds of the 600-second budget
-  on the exact staged release candidate.
+- [x] All 54 E2E scenarios green without retries on macOS. The 2026-08-29 sandbox/external-link
+  hardening run passed 54/54 in 245 seconds of the 600-second budget; the earlier staged release
+  candidate passed in 198 seconds.
 - [x] Repeat all 54 E2E scenarios without a retry-recovered result on Windows at the same immutable
   commit. Run 33188585495 passed 54/54 in 273 seconds; the runner makes every retry-recovered flake
   fail the job. The matching macOS job passed 54/54 in 227 seconds.

@@ -10,6 +10,7 @@ import { installMenu } from './menu'
 import { initLogging, log } from './log'
 import { startBackupScheduler, backupOnQuit } from './backup-scheduler'
 import { startHeartbeat } from './deviceLock'
+import { isAllowedWindowOpenUrl } from './externalUrl'
 import { syncFolderWarning } from '@shared/syncpath'
 
 const gotSingleInstanceLock = app.requestSingleInstanceLock()
@@ -72,7 +73,9 @@ function createWindow(): void {
     backgroundColor: '#f4f4ef',
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
-      sandbox: false,
+      // The preload uses only contextBridge/ipcRenderer and the sandbox's process.platform shim.
+      // Keeping the renderer sandboxed limits the impact of a Chromium or context-isolation bug.
+      sandbox: true,
       contextIsolation: true,
       nodeIntegration: false
     }
@@ -96,7 +99,15 @@ function createWindow(): void {
   })
 
   win.webContents.setWindowOpenHandler((details) => {
-    shell.openExternal(details.url)
+    if (isAllowedWindowOpenUrl(details.url)) {
+      void shell.openExternal(details.url).catch((error) => {
+        log('warn', 'external-open-failed', {
+          error: error instanceof Error ? error.message : String(error)
+        })
+      })
+    } else {
+      log('warn', 'external-open-refused', { url: details.url.slice(0, 200) })
+    }
     return { action: 'deny' }
   })
 

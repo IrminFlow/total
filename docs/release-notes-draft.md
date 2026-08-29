@@ -44,8 +44,10 @@ voucher/dirty-state recovery, reports, GST and Settings.
 - PIN-to-PIN e-way distance is an approximate suggestion and is never written without a separate
   user acceptance. NIC/portal distance remains authoritative.
 - Electron stays pinned to 37.10.3. A reproducible Playwright/CDP regression begins in Electron 38
-  and remains present through the latest 42 patch tested; accepting a later runtime requires the
-  native-input reproducer plus full macOS/Windows E2E.
+  and also affects current Electron 44.0.0; accepting a later runtime requires the native-input
+  reproducer plus full macOS/Windows E2E. Newly published Electron advisories make this a
+  next-release blocker, not ordinary deferred maintenance. In the meantime the renderer is
+  sandboxed and renderer-created OS links are restricted to generated mail and WhatsApp drafts.
 - Physical 58/80 mm thermal, ESC/P dot-matrix and Windows 1366×768 checks remain release gates until
   the target hardware is supplied. Signing, notarization and updater verification require the
   owner-managed Apple and Windows certificates.

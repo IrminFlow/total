@@ -457,6 +457,16 @@ Electron 37 → 44 was attempted and **reverted cleanly**. Do not casually retry
 - The diagnosis is recorded in `HUMAN.md` and the dependency merge commit.
 - Keep Electron 37 / better-sqlite3 12 until the harness issue is solved. Never ship an Electron bump without the full E2E net.
 
+The 2026-08-29 audit picked up newly published Electron advisories that `npm audit --omit=dev`
+hides because Electron is declared as a development dependency even though it is the packaged
+runtime. The full audit reports two high package nodes (Electron and extract-zip). Electron 44.0.0
+and Playwright 1.62.1 remain the current registry releases; that exact Electron version already
+fails the bounded reproducer above. As immediate defence in depth, the main renderer is now
+sandboxed and renderer-created OS handoffs accept only `mailto:` and numeric `https://wa.me/`
+drafts. Unit/typecheck/build/budget/smoke and 54/54 no-retry macOS E2E pass. Treat the remaining
+framework upgrade as a release blocker, review every new Electron/Playwright release, and force a
+review no later than 2026-09-12.
+
 Current approximate bundle status after Zod removal:
 
 - Renderer assets: ~3,023 KB of a 3,200 KB budget.
@@ -574,6 +584,11 @@ PRs. The audit added evidence; it did not find a safe new product change to make
   printers are ordinary HP ink-tank devices, not the required TSPL, ESC/P dot-matrix or 58/80 mm
   thermal hardware. No real print/message/install action was attempted without the required target
   hardware, recipient or signed artefact.
+- A fresh dependency audit found newly published advisories against the pinned Electron runtime.
+  Renderer sandboxing and a strict mail/WhatsApp external-link allowlist were added and passed
+  54/54 no-retry Electron scenarios in 245 seconds. Electron 44.0.0 remains current and already
+  fails the bounded native-input reproducer, so the framework exception is a next-release blocker
+  with a forced review by 2026-09-12.
 
 ---
 

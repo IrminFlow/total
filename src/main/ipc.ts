@@ -18,6 +18,7 @@ import { inspectMoveTarget, moveDataRoot } from './dataLocation'
 import { configuredDataRoot } from './dataRootConfig'
 import { readSecret, writeSecret } from './secrets'
 import { syncFolderWarning } from '@shared/syncpath'
+import { isUrlAtOrBelow } from './externalUrl'
 import { log, recentLogLines, revealLogs } from './log'
 import { checkForUpdatesInteractive } from './updater'
 import {
@@ -4797,7 +4798,7 @@ export function registerIpc(): void {
   handle('app:openExternal', async (p) => {
     const { url } = z.object({ url: z.string().url().max(500) }).parse(p)
     const allowed = [SITE_URL, `https://github.com/${GITHUB_REPO}`]
-    if (!allowed.some((prefix) => url.startsWith(prefix))) {
+    if (!allowed.some((base) => isUrlAtOrBelow(url, base))) {
       throw new Error('That link is not one this app opens')
     }
     await shell.openExternal(url)
