@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type { Employee, PayrollRun } from "@shared/domain";
 import type {
@@ -36,6 +36,8 @@ import {
 import { inputCls } from "../components/inputStyles";
 import { confirmDialog } from "../lib/dialogs";
 import { TabBar } from "../components/TabBar";
+import { ActionMenu } from "../components/ActionMenu";
+import { CaretDown } from "@phosphor-icons/react";
 
 type Tab =
   | "employees"
@@ -4052,31 +4054,11 @@ function RunRow({ run }: { run: PayrollRun }): React.JSX.Element {
   const toast = useToasts();
   const nav = useNav();
   const queryClient = useQueryClient();
-  const [payslipsOpen, setPayslipsOpen] = useState(false);
   const [ptOpen, setPtOpen] = useState(false);
-  const payslipsRef = useRef<HTMLSpanElement>(null);
   const { data: tieOut } = useQuery({
     queryKey: ["payrollTieOut", run.id],
     queryFn: () => api.payroll.tieOut(run.id),
   });
-
-  // Overflow menu closes on outside click / Escape.
-  useEffect(() => {
-    if (!payslipsOpen) return;
-    const onDoc = (e: MouseEvent): void => {
-      if (!payslipsRef.current?.contains(e.target as Node))
-        setPayslipsOpen(false);
-    };
-    const onKey = (e: KeyboardEvent): void => {
-      if (e.key === "Escape") setPayslipsOpen(false);
-    };
-    document.addEventListener("mousedown", onDoc);
-    document.addEventListener("keydown", onKey);
-    return () => {
-      document.removeEventListener("mousedown", onDoc);
-      document.removeEventListener("keydown", onKey);
-    };
-  }, [payslipsOpen]);
 
   const exportFile = async (kind: "ecr" | "esi"): Promise<void> => {
     try {
@@ -4157,59 +4139,53 @@ function RunRow({ run }: { run: PayrollRun }): React.JSX.Element {
               Voucher
             </button>
           )}
-          <span className="relative" ref={payslipsRef}>
-            <button
-              className="text-blue hover:underline"
-              data-testid="btn-payroll-payslips"
-              onClick={() => setPayslipsOpen((o) => !o)}
-            >
-              Payslips ▾
-            </button>
-            {payslipsOpen && (
-              <span className="absolute right-0 top-6 z-20 block w-56 rounded-md border border-line bg-panel py-1 panel-shadow">
-                {run.lockedAt && (
-                  <button
-                    className="block w-full border-b border-line px-3 py-2 text-left text-[12.5px] font-medium text-blue hover:bg-panel2"
-                    onClick={() => {
-                      setPayslipsOpen(false);
-                      void api.payroll
-                        .payslipPack(run.id)
-                        .then((result) =>
-                          toast.push(
-                            "success",
-                            `Delivery pack: ${result.folder}`,
-                          ),
-                        )
-                        .catch((error: Error) =>
-                          toast.push("error", error.message),
-                        );
-                    }}
-                  >
-                    Export delivery pack
-                  </button>
-                )}
-                <ScrollList maxH="40vh">
-                  {run.lines.map((l) => (
-                    <button
-                      key={l.id}
-                      className="block w-full truncate px-3 py-1.5 text-left text-[12.5px] text-ink hover:bg-panel2"
-                      title="Open payslip PDF"
-                      onClick={() => {
-                        setPayslipsOpen(false);
-                        api.payroll
-                          .payslip(run.id, l.employeeId)
-                          .catch((err: Error) =>
-                            toast.push("error", err.message),
+          <ActionMenu
+            ariaLabel={`Payslips for ${monthLabel(run.month)}`}
+            testId="btn-payroll-payslips"
+            triggerClassName="inline-flex items-center gap-0.5 text-blue hover:underline"
+            trigger={
+              <>
+                Payslips <CaretDown size={11} weight="bold" aria-hidden="true" />
+              </>
+            }
+            contentClassName="w-56 max-h-[40vh] overflow-y-auto"
+            items={[
+              ...(run.lockedAt
+                ? [
+                    {
+                      id: "delivery-pack",
+                      label: "Export delivery pack",
+                      onSelect: () => {
+                        void api.payroll
+                          .payslipPack(run.id)
+                          .then((result) =>
+                            toast.push(
+                              "success",
+                              `Delivery pack: ${result.folder}`,
+                            ),
+                          )
+                          .catch((error: Error) =>
+                            toast.push("error", error.message),
                           );
-                      }}
-                    >
-                      {l.employeeName}
-                    </button>
-                  ))}
-                </ScrollList>
-              </span>
-            )}
-          </span>
+                      },
+                    },
+                  ]
+                : []),
+              ...run.lines.map((line, index) => ({
+                id: `employee-${line.id}`,
+                label: line.employeeName,
+                dividerBefore: run.lockedAt != null && index === 0,
+                title: "Open payslip PDF",
+                onSelect: () => {
+                  void api.payroll
+                    .payslip(run.id, line.employeeId)
+                    .catch((error: Error) =>
+                      toast.push("error", error.message),
+                    );
+                },
+              })),
+            ]}
+          />
           <button
             className="text-muted hover:text-ink"
             data-testid="btn-payroll-ecr"

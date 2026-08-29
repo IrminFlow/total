@@ -49,6 +49,32 @@ describe("accessibility preferences", () => {
     );
     expect(localizedLabel("Unknown screen", "hi")).toBe("Unknown screen");
   });
+
+  it("localizes persistent shell labels while preserving their English action", () => {
+    expect(localizedLabel("Search books", "hi")).toBe(
+      "बहीखातों में खोजें (Search books)",
+    );
+    expect(localizedLabel("Switch theme", "hi")).toBe(
+      "थीम बदलें (Switch theme)",
+    );
+    expect(localizedLabel("Save local snapshot", "hi")).toBe(
+      "स्थानीय स्नैपशॉट सहेजें (Save local snapshot)",
+    );
+  });
+
+  it("interpolates user and company values after selecting each translation", () => {
+    expect(
+      localizedLabel("Lock {user}'s session", "hi", { user: "Asha" }),
+    ).toBe("Asha का सत्र लॉक करें (Lock Asha's session)");
+    expect(
+      localizedLabel("Switched to {company}", "hi", {
+        company: "Mehta & Sons",
+      }),
+    ).toBe("Mehta & Sons पर स्विच किया (Switched to Mehta & Sons)");
+    expect(
+      localizedLabel("Lock {user}'s session", "en", { user: "Asha" }),
+    ).toBe("Lock Asha's session");
+  });
 });
 
 describe("accessibility report focus context", () => {

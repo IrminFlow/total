@@ -71,11 +71,53 @@ const HINDI: Record<string, string> = {
   Purchase: "खरीद",
   "Credit note": "क्रेडिट नोट",
   "Debit note": "डेबिट नोट",
+  "Search books": "बहीखातों में खोजें",
+  "Switch theme": "थीम बदलें",
+  "Switch to dark theme": "गहरे रंग की थीम पर जाएं",
+  "Switch to light theme": "हल्के रंग की थीम पर जाएं",
+  "Open help centre": "सहायता केंद्र खोलें",
+  "Help centre": "सहायता केंद्र",
+  "App utilities": "ऐप उपयोगिताएं",
+  Lock: "लॉक करें",
+  "Lock {user}'s session": "{user} का सत्र लॉक करें",
+  "Switch company without leaving workspace":
+    "कार्यस्थान छोड़े बिना कंपनी बदलें",
+  "Switch company": "कंपनी बदलें",
+  "Workspace profile": "कार्यस्थान प्रोफ़ाइल",
+  "Quick start": "तुरंत शुरू करें",
+  "Save local snapshot": "स्थानीय स्नैपशॉट सहेजें",
+  "Local recovery snapshot saved": "स्थानीय रिकवरी स्नैपशॉट सहेजा गया",
+  "Switched to {company}": "{company} पर स्विच किया",
+  "Each company keeps its own workspace, dates and reading position.":
+    "हर कंपनी अपना कार्यस्थान, तारीखें और पढ़ने की स्थिति अलग रखती है।",
+  Unregistered: "अपंजीकृत",
+  Current: "वर्तमान",
+  "Opening…": "खुल रही है…",
+  "Open →": "खोलें →",
 };
 
+type LocalizedValues = Readonly<Record<string, string | number>>;
+
+function interpolate(
+  template: string,
+  values: LocalizedValues | undefined,
+): string {
+  if (!values) return template;
+  return template.replace(/\{([^{}]+)\}/g, (placeholder, key: string) =>
+    Object.hasOwn(values, key) ? String(values[key]) : placeholder,
+  );
+}
+
 /** Hindi stays bilingual so standard English accounting terms remain searchable and learnable. */
-export function localizedLabel(english: string, language: UiLanguage): string {
-  if (language !== "hi") return english;
+export function localizedLabel(
+  english: string,
+  language: UiLanguage,
+  values?: LocalizedValues,
+): string {
+  const englishWithValues = interpolate(english, values);
+  if (language !== "hi") return englishWithValues;
   const translated = HINDI[english];
-  return translated ? `${translated} (${english})` : english;
+  return translated
+    ? `${interpolate(translated, values)} (${englishWithValues})`
+    : englishWithValues;
 }

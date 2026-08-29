@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import type { RecurringTemplate } from '@shared/domain'
 import { api } from '../lib/client'
@@ -8,6 +8,8 @@ import { toDisplayDate, todayISO } from '@shared/dates'
 import { nextDueAfter } from '@shared/recurring'
 import { confirmDialog } from '../lib/dialogs'
 import { templateOpenTarget } from './recurringDraft'
+import { ActionMenu } from '../components/ActionMenu'
+import { DotsThree } from '@phosphor-icons/react'
 
 const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
 
@@ -170,74 +172,20 @@ function RowMenu({
   disabled?: boolean
   actions: { label: string; danger?: boolean; onClick: () => void }[]
 }): React.JSX.Element {
-  const btnRef = useRef<HTMLButtonElement>(null)
-  const menuRef = useRef<HTMLDivElement>(null)
-  const [pos, setPos] = useState<{ top: number; right: number } | null>(null)
-
-  useEffect(() => {
-    if (!pos) return
-    const close = (): void => setPos(null)
-    const onDown = (e: MouseEvent): void => {
-      const target = e.target as Node
-      if (menuRef.current?.contains(target) || btnRef.current?.contains(target)) return
-      close()
-    }
-    const onKey = (e: KeyboardEvent): void => {
-      if (e.key === 'Escape') close()
-    }
-    document.addEventListener('mousedown', onDown)
-    document.addEventListener('keydown', onKey)
-    window.addEventListener('scroll', close, true)
-    return () => {
-      document.removeEventListener('mousedown', onDown)
-      document.removeEventListener('keydown', onKey)
-      window.removeEventListener('scroll', close, true)
-    }
-  }, [pos])
-
-  const toggle = (): void => {
-    if (pos) return setPos(null)
-    const r = btnRef.current!.getBoundingClientRect()
-    setPos({ top: r.bottom + 4, right: window.innerWidth - r.right })
-  }
-
   return (
-    <>
-      <button
-        ref={btnRef}
-        data-testid={testId}
-        aria-haspopup="menu"
-        aria-expanded={pos != null}
-        disabled={disabled}
-        title="More actions"
-        className="rounded px-1.5 py-0.5 text-[13px] leading-none text-muted hover:bg-panel2 hover:text-ink disabled:opacity-40"
-        onClick={toggle}
-      >
-        ⋯
-      </button>
-      {pos && (
-        <div
-          ref={menuRef}
-          role="menu"
-          className="fixed z-30 min-w-[12rem] rounded-md border border-line bg-panel py-1 text-left panel-shadow"
-          style={{ top: pos.top, right: pos.right }}
-        >
-          {actions.map((a) => (
-            <button
-              key={a.label}
-              role="menuitem"
-              className={`block w-full px-3 py-1.5 text-left text-[12.5px] hover:bg-panel2 ${a.danger ? 'text-cr' : 'text-ink'}`}
-              onClick={() => {
-                setPos(null)
-                a.onClick()
-              }}
-            >
-              {a.label}
-            </button>
-          ))}
-        </div>
-      )}
-    </>
+    <ActionMenu
+      ariaLabel="Recurring template actions"
+      testId={testId}
+      disabled={disabled}
+      triggerClassName="inline-flex rounded px-1.5 py-0.5 text-muted hover:bg-panel2 hover:text-ink disabled:opacity-40"
+      trigger={<DotsThree size={17} weight="bold" aria-hidden="true" />}
+      items={actions.map((action) => ({
+        id: action.label,
+        label: action.label,
+        danger: action.danger,
+        onSelect: action.onClick,
+      }))}
+    />
   )
 }
 

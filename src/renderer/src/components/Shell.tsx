@@ -231,6 +231,9 @@ export function Shell({
     screenDef(screen.name)?.title ?? "Total",
     language,
   );
+  const searchBooksLabel = localizedLabel("Search books", language);
+  const searchBooksShortcutLabel = `${searchBooksLabel} (Command+K)`;
+  const switchCompanyLabel = localizedLabel("Switch company", language);
   const canFocus = FOCUS_SCREENS.has(screen.name);
   const focusActive = focusMode && canFocus;
 
@@ -465,13 +468,13 @@ export function Shell({
         {!focusActive && (
           <>
             <button
-              aria-label="Search books (Command+K)"
-              title="Search books (Command+K)"
+              aria-label={searchBooksShortcutLabel}
+              title={searchBooksShortcutLabel}
               className="shell-action flex shrink-0 items-center gap-2 whitespace-nowrap rounded-md border border-line bg-panel2 px-2.5 py-1 text-[12px] text-muted hover:border-amber/60 hover:text-ink"
               onClick={onOpenPalette}
             >
               <MagnifyingGlass size={15} />
-              <span className="shell-action-label">Search books</span>
+              <span className="shell-action-label">{searchBooksLabel}</span>
               <span className="shell-search-kbd">
                 <Kbd>⌘K</Kbd>
               </span>
@@ -490,25 +493,30 @@ export function Shell({
             <SupportLink className="shell-support px-1 text-[11px]" />
             <div
               className="no-drag flex shrink-0 overflow-hidden rounded-md border border-line bg-panel2"
-              aria-label="App utilities"
+              aria-label={localizedLabel("App utilities", language)}
             >
               <button
                 data-testid="btn-theme"
                 className="shell-action px-2 py-1 text-muted hover:bg-panel hover:text-ink"
                 onClick={toggle}
-                title="Switch theme"
+                title={localizedLabel("Switch theme", language)}
               >
                 {theme === "light" ? <Moon size={15} /> : <Sun size={15} />}
                 <span className="sr-only">
-                  Switch to {theme === "light" ? "dark" : "light"} theme
+                  {localizedLabel(
+                    theme === "light"
+                      ? "Switch to dark theme"
+                      : "Switch to light theme",
+                    language,
+                  )}
                 </span>
               </button>
               <button
                 data-testid="btn-help-centre"
-                aria-label="Open help centre"
+                aria-label={localizedLabel("Open help centre", language)}
                 className="shell-action border-l border-line px-2 py-1 text-muted hover:bg-panel hover:text-ink"
                 onClick={onOpenHelp}
-                title="Help centre"
+                title={localizedLabel("Help centre", language)}
               >
                 <Question size={15} />
               </button>
@@ -520,8 +528,16 @@ export function Shell({
                 </span>
                 <button
                   data-testid="btn-lock"
-                  aria-label={`Lock ${user.name}'s session`}
-                  title={`Lock ${user.name}'s session`}
+                  aria-label={localizedLabel(
+                    "Lock {user}'s session",
+                    language,
+                    { user: user.name },
+                  )}
+                  title={localizedLabel(
+                    "Lock {user}'s session",
+                    language,
+                    { user: user.name },
+                  )}
                   className="shell-action shrink-0 whitespace-nowrap rounded-md border border-line bg-panel2 px-2.5 py-1 text-[12px] text-muted hover:border-amber/60 hover:text-ink"
                   onClick={async () => {
                     try {
@@ -534,7 +550,9 @@ export function Shell({
                   }}
                 >
                   <LockKey size={15} className="inline-block -translate-y-px" />
-                  <span className="shell-action-label ml-1.5">Lock</span>
+                  <span className="shell-action-label ml-1.5">
+                    {localizedLabel("Lock", language)}
+                  </span>
                 </button>
               </>
             )}
@@ -552,19 +570,22 @@ export function Shell({
               <button
                 className="min-w-0 flex-1 px-1.5 text-left"
                 onClick={() => nav.go({ name: "company-info" })}
-                title="Company details"
+                title={localizedLabel("Company details", language)}
               >
                 <span className="block truncate text-[13px] font-semibold text-ink">
                   {info?.name}
                 </span>
                 <span className="num mt-0.5 block truncate text-[10px] text-muted">
-                  {info?.gstin || "Company details"}
+                  {info?.gstin || localizedLabel("Company details", language)}
                 </span>
               </button>
               <button
                 data-testid="btn-cross-company"
-                aria-label="Switch company without leaving workspace"
-                title="Switch company"
+                aria-label={localizedLabel(
+                  "Switch company without leaving workspace",
+                  language,
+                )}
+                title={switchCompanyLabel}
                 onClick={() => setCompanySwitcherOpen(true)}
                 className="rounded p-1.5 text-muted hover:bg-panel2 hover:text-ink"
               >
@@ -573,11 +594,11 @@ export function Shell({
             </div>
             <label className="mb-2 block px-2.5">
               <span className="mb-1 block text-[9.5px] font-semibold uppercase tracking-[0.1em] text-muted">
-                Workspace
+                {localizedLabel("Workspace", language)}
               </span>
               <select
                 data-testid="select-workspace-profile"
-                aria-label="Workspace profile"
+                aria-label={localizedLabel("Workspace profile", language)}
                 value={workspace.profile}
                 onChange={(event) =>
                   slug &&
@@ -600,7 +621,7 @@ export function Shell({
             </label>
             <div className="mb-2 border-y border-line py-2">
               <p className="mb-1 px-2.5 text-[9.5px] font-semibold uppercase tracking-[0.1em] text-muted">
-                Quick start
+                {localizedLabel("Quick start", language)}
               </p>
               {quickNav.map((item) => {
                 const active = screen.name === item.screen.name;
@@ -726,13 +747,19 @@ export function Shell({
                 onClick={async () => {
                   try {
                     await api.company.backup();
-                    toast.push("success", "Local recovery snapshot saved");
+                    toast.push(
+                      "success",
+                      localizedLabel(
+                        "Local recovery snapshot saved",
+                        language,
+                      ),
+                    );
                   } catch (err) {
                     toast.push("error", (err as Error).message);
                   }
                 }}
               >
-                Save local snapshot
+                {localizedLabel("Save local snapshot", language)}
               </button>
               <button
                 data-testid="btn-switch-company"
@@ -747,7 +774,7 @@ export function Shell({
                   }
                 }}
               >
-                Switch company
+                {switchCompanyLabel}
               </button>
             </div>
           </aside>
@@ -823,7 +850,12 @@ export function Shell({
                 context: "opened during a company switch",
               });
             setCompanySwitcherOpen(false);
-            toast.push("success", `Switched to ${result.info.name}`);
+            toast.push(
+              "success",
+              localizedLabel("Switched to {company}", language, {
+                company: result.info.name,
+              }),
+            );
           }}
         />
       )}
@@ -906,15 +938,19 @@ function CrossCompanyModal({
   onSwitch: (slug: string) => Promise<void>;
 }): React.JSX.Element {
   const toast = useToasts();
+  const language = useAccessibilityPreferences((state) => state.language);
   const [busy, setBusy] = useState<string | null>(null);
   const { data } = useQuery({
     queryKey: ["company-switcher"],
     queryFn: api.company.list,
   });
   return (
-    <Modal title="Switch company" onClose={onClose}>
+    <Modal title={localizedLabel("Switch company", language)} onClose={onClose}>
       <p className="mb-3 text-[12px] leading-5 text-muted">
-        Each company keeps its own workspace, dates and reading position.
+        {localizedLabel(
+          "Each company keeps its own workspace, dates and reading position.",
+          language,
+        )}
       </p>
       <div className="overflow-hidden rounded-md border border-line">
         {(data?.companies ?? []).map((company) => {
@@ -940,15 +976,15 @@ function CrossCompanyModal({
                   {company.name}
                 </span>
                 <span className="num mt-0.5 block text-[10.5px] text-muted">
-                  {company.gstin || "Unregistered"}
+                  {company.gstin || localizedLabel("Unregistered", language)}
                 </span>
               </span>
               <span className="text-[10.5px] text-muted">
                 {current
-                  ? "Current"
+                  ? localizedLabel("Current", language)
                   : busy === company.slug
-                    ? "Opening…"
-                    : "Open →"}
+                    ? localizedLabel("Opening…", language)
+                    : localizedLabel("Open →", language)}
               </span>
             </button>
           );

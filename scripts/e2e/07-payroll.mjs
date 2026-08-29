@@ -128,6 +128,57 @@ await scenario('07-payroll', async (h) => {
   await h.page.getByText('Import new employees', { exact: true }).waitFor()
   await h.shot('08-payroll-provisioning')
   await h.invoke('payroll:provisioning:apply', { kind: 'joiners', sourceName: 'joiners.csv', csvText: joinersCsv })
+  await h.goto('payroll')
   await h.page.getByRole('tab', { name: 'Pay runs' }).click()
+  const payslipTrigger = h.page.getByTestId('btn-payroll-payslips')
+  await payslipTrigger.focus()
+  await payslipTrigger.press('ArrowDown')
+  const payslipMenu = h.page.getByRole('menu', { name: /Payslips for/ })
+  await payslipMenu.waitFor()
+  assertEq(await h.page.evaluate(() => document.activeElement?.textContent?.trim()), 'Export delivery pack', 'payroll menu focuses its first action')
+  await h.page.keyboard.press('ArrowDown')
+  assertEq(await h.page.evaluate(() => document.activeElement?.textContent?.trim()), 'Asha Kulkarni', 'payroll menu ArrowDown advances focus')
+  await h.page.keyboard.press('End')
+  assertEq(await h.page.evaluate(() => document.activeElement?.textContent?.trim()), 'Ravi Iyer', 'payroll menu End reaches the last action')
+  await h.page.keyboard.press('Escape')
+  await payslipMenu.waitFor({ state: 'detached' })
+  await h.page.waitForFunction(() => document.activeElement?.getAttribute('data-testid') === 'btn-payroll-payslips')
   await h.shot('01-payroll')
+
+  const ledgers = await h.invoke('master:ledgers:list')
+  const cash = ledgers.find((ledger) => ledger.name === 'Cash')
+  const voucherTypes = await h.invoke('master:voucherTypes:list')
+  const journal = voucherTypes.find((type) => type.kind === 'journal')
+  assert(cash && journal, 'recurring fixture has a cash ledger and journal type')
+  const recurring = await h.invoke('recurring:save', {
+    data: {
+      name: 'Keyboard rent check',
+      voucherJson: JSON.stringify({
+        voucherTypeId: journal.id, date: today, partyLedgerId: null,
+        narration: 'Keyboard menu acceptance fixture', reference: null,
+        instrumentNo: null, instrumentDate: null, transporterId: null,
+        vehicleNo: null, transportDistanceKm: null, posOverride: null,
+        currencyCode: null, exchangeRate: null,
+        lines: [
+          { ledgerId: cash.id, drCr: 'dr', amount: 10000, costAllocations: [] },
+          { ledgerId: cash.id, drCr: 'cr', amount: 10000, costAllocations: [] }
+        ],
+        inventory: [], billRefs: [], tds: null
+      }),
+      cadence: 'monthly', dayOfMonth: 1, nextDue: today, active: true
+    }
+  })
+  await h.goto('recurring')
+  const recurringTrigger = h.page.getByTestId(`btn-recurring-menu-${recurring.id}`)
+  await recurringTrigger.focus()
+  await recurringTrigger.press('ArrowDown')
+  const recurringMenu = h.page.getByRole('menu', { name: 'Recurring template actions' })
+  await recurringMenu.waitFor()
+  assertEq(await h.page.evaluate(() => document.activeElement?.textContent?.trim()), 'Skip this occurrence', 'recurring menu transfers focus to its first action')
+  await h.page.keyboard.press('End')
+  assertEq(await h.page.evaluate(() => document.activeElement?.textContent?.trim()), 'Delete…', 'recurring menu End reaches Delete')
+  await h.page.keyboard.press('Enter')
+  await h.page.getByText('Delete recurring template', { exact: true }).waitFor()
+  await h.click('confirm-cancel')
+  assertEq((await h.invoke('recurring:list')).some((template) => template.id === recurring.id), true, 'cancelled Delete keeps the recurring template')
 })
