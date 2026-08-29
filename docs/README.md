@@ -8,11 +8,12 @@ Use this index instead of guessing which similarly named roadmap or runbook is c
 
 1. Architecture, invariants, coding rules, and release boundaries: [../CLAUDE.md](../CLAUDE.md)
 2. Current product scope and status: [../ROADMAP.md](../ROADMAP.md)
-3. Agent-owned execution: [../TASKS.md](../TASKS.md)
-4. Product-owner actions: [../HUMAN.md](../HUMAN.md)
-5. Exact release mechanics: [RELEASE_RUNBOOK.md](RELEASE_RUNBOOK.md)
-6. Service deployment: [ENCRYPTED_COLLABORATION.md](ENCRYPTED_COLLABORATION.md) and [../site/INTAKE_OPERATIONS.md](../site/INTAKE_OPERATIONS.md)
-7. Historical feature catalogue and implementation narrative: [BACKLOG_300.md](BACKLOG_300.md) and [IMPLEMENTATION_STATUS.md](IMPLEMENTATION_STATUS.md)
+3. Complete v5 feature catalogue: [../FEATURES.md](../FEATURES.md)
+4. Agent-owned execution: [../TASKS.md](../TASKS.md)
+5. Product-owner actions: [../HUMAN.md](../HUMAN.md)
+6. Exact release mechanics: [RELEASE_RUNBOOK.md](RELEASE_RUNBOOK.md)
+7. Service deployment: [ENCRYPTED_COLLABORATION.md](ENCRYPTED_COLLABORATION.md) and [../site/INTAKE_OPERATIONS.md](../site/INTAKE_OPERATIONS.md)
+8. Historical feature catalogue and implementation narrative: [BACKLOG_300.md](BACKLOG_300.md) and [IMPLEMENTATION_STATUS.md](IMPLEMENTATION_STATUS.md)
 
 If two documents conflict, follow the higher source in this list and update the lower document in the same change.
 

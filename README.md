@@ -17,6 +17,7 @@ Start with the document that matches your role:
 
 - Product owner: [HUMAN.md](HUMAN.md)
 - Coding agent: [TASKS.md](TASKS.md) and [CLAUDE.md](CLAUDE.md)
+- Complete feature catalogue: [FEATURES.md](FEATURES.md)
 - Product and delivery roadmap: [ROADMAP.md](ROADMAP.md)
 - Documentation index: [docs/README.md](docs/README.md)
 - Release operator: [docs/RELEASE_RUNBOOK.md](docs/RELEASE_RUNBOOK.md)
