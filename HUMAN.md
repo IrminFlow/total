@@ -7,7 +7,8 @@ agent cannot access. Engineering and verification work belongs in `TASKS.md`.
 Do not put ordinary coding, research, browser work, CI work, screenshots, recordings, or automated
 testing here merely because they are difficult. The agent owns those.
 
-Reconciled on 28 August 2026 after green macOS/Windows CI: every unchecked item below still needs
+Reconciled on 29 August 2026 after green macOS/Windows CI and a production/access audit: every
+unchecked item below still needs
 a person's authority, private access, professional judgement, an external account, or physical
 hardware. There is no ordinary engineering or CI task hidden in this list.
 
@@ -29,8 +30,11 @@ work finishes.
 
 ## Product and commercial decisions
 
-- [ ] Choose annual and/or perpetual pricing, whether a free tier exists, and the trial duration.
-  Provide values for `TOTAL_PRICE_ANNUAL_INR` and `TOTAL_PRICE_PERPETUAL_INR`.
+- [x] Choose the public pricing model. Production now publishes a free public beta followed by
+  perpetual major-version Business (₹9,900) and Practice (₹29,900) licences with optional care
+  renewals. This is materially newer than the checked-out branch's annual/perpetual environment
+  model; implementation reconciliation belongs to the later rewrite-PR project and must not be
+  backported by guessing.
 - [ ] Choose the payment path: a hosted Razorpay/UPI payment link or the full in-page Razorpay
   checkout.
 - [ ] Complete Razorpay KYC and create the selected live payment configuration. For full checkout,
@@ -39,8 +43,9 @@ work finishes.
   time; the agent can prepare and inspect the flow.
 - [ ] Decide the v1 AI position: ship the BYO-key/local-model assistant off by default, bundle a
   local model, or postpone AI to a later release.
-- [ ] Decide whether Windows is a launch platform. If it is, signed Windows installation and
-  physical-laptop validation remain release gates.
+- [x] Decide whether Windows is a launch platform. Production publicly offers a Windows download
+  and the v0.4.0 release contains the installer, so the answer is yes. Signed Windows installation
+  and physical-laptop validation remain release gates.
 - [ ] Supply a public support phone/WhatsApp number if the site should advertise one.
 
 ## Accounts, credentials, and persistent access
@@ -52,12 +57,14 @@ work finishes.
   statement; obtaining it requires the TAN holder's authenticated identity. Do not commit or paste
   the file. Give the agent temporary approved access so it can run the generated Form 138/140
   fixture, after which the agent can remove the `.unverified.txt` suffix only on real pass evidence.
-- [ ] Configure at least one real feedback sink. Create the needed account/token and add one of:
-  `FEEDBACK_GITHUB_TOKEN`, Resend credentials (`RESEND_API_KEY`, `MAIL_FROM`, `MAIL_TO`), or
-  `FORWARD_WEBHOOK_URL`. Creating credentials and granting persistent access requires you to
-  approve or perform the credential step; the agent can verify delivery afterwards.
-- [ ] Ensure Vercel has a read-only `GITHUB_TOKEN` for private-repository release metadata and give
-  the agent access to inspect the deployed project when verification begins.
+- [x] Configure at least one real feedback/support sink. The 2026-08-29 production audit found the
+  configured Supabase feedback/support destinations, submitted a clearly synthetic support case,
+  and retrieved case `TOT-20260829-6E46AC`; a synthetic idea also entered moderation. The operator
+  may close/reject those two labelled automation records.
+- [x] Ensure Vercel has a read-only `GITHUB_TOKEN` for private-repository release metadata and give
+  the agent access to inspect the deployed project. The 2026-08-29 audit confirmed the variable is
+  configured without exposing it, `/api/latest` returns v0.4.0, and both platform download proxies
+  resolve the private GitHub release assets.
 - [ ] Provide any private test identities or GSTINs needed for NIC/portal checks in a safe test
   environment. Do not place production credentials in the repository.
 - [ ] Validate the checked-in ITC-04 v2.15 golden on a Windows machine with desktop Microsoft

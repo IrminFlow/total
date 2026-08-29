@@ -543,6 +543,38 @@ This goal deliberately did not inspect, reconcile, update, or merge either exclu
 Release publication, signing/notarization, real portal acceptance, and physical hardware checks
 remain owner/external gates in `HUMAN.md`.
 
+### 9.1 Continuation audit — 29 August 2026
+
+The owner asked the agent to exhaust everything still possible without touching the two rewrite
+PRs. The audit added evidence; it did not find a safe new product change to make:
+
+- Exact-HEAD GitHub Actions run
+  [33190304340](https://github.com/IrminFlow/total/actions/runs/33190304340) is green on
+  `ba88615af014f80227316b4325a3acf07faf24c2` across Linux tests, macOS smoke/E2E and Windows
+  build/E2E (54/54 on each platform).
+- GitHub contains no Apple or Windows signing secrets and this Mac has no valid code-signing
+  identity. Downloaded v0.4.0 artefacts confirm the consequence: the macOS app is ad-hoc signed and
+  fails strict `codesign` and Gatekeeper assessment; the Windows installer has no Authenticode
+  Security Directory. Signed install/update/uninstall testing remains blocked on certificates and
+  clean machines, not on an unrun local command.
+- Vercel is connected and ready. Its read-only GitHub token works: `/api/latest` returns v0.4.0 and
+  both platform download proxies redirect to the correct private-release assets. Production home,
+  privacy and pricing pages return 200.
+- Production support storage was proved end to end with synthetic case `TOT-20260829-6E46AC`, then
+  proved again through case lookup; a clearly synthetic idea entered feedback moderation. The
+  operator may close/reject those two automation records.
+- The checked-out site's unconfigured state was exercised locally: price refusal, order refusal,
+  invalid feedback, no-sink feedback and a successful capture-webhook delivery all returned the
+  documented statuses and payload. Browser inspection at 1280×800 found no horizontal overflow.
+- Production is materially newer than the checked-out site: it publishes a 24 August commercial
+  policy but says sales are not open, and `/buy` plus the checkout API return 404. The checked-out
+  branch still has the older annual/perpetual checkout. Do not overwrite production or guess a
+  backport; reconcile this drift only when the owner starts the separate rewrite-PR project.
+- Computer Use listed no installed Total, Excel or WhatsApp app on this host. The configured
+  printers are ordinary HP ink-tank devices, not the required TSPL, ESC/P dot-matrix or 58/80 mm
+  thermal hardware. No real print/message/install action was attempted without the required target
+  hardware, recipient or signed artefact.
+
 ---
 
 ## 10. Current working-tree note
@@ -552,6 +584,7 @@ At the time final evidence was recorded:
 ```text
 branch: t3code/revamp-ledgers-shortcuts
 verified product/workflow baseline: 481ec56e535e80f983bbbd63bd4cb977037230c1
+latest exact-HEAD full CI: ba88615af014f80227316b4325a3acf07faf24c2 / run 33190304340
 status: M .gitignore
 ```
 
@@ -566,7 +599,9 @@ session.
 ## 11. Immediate next actions
 
 No known agent-executable implementation or verification defect remains in the current-app scope.
-Next actions require the owner or external systems:
+The 2026-08-29 continuation audit exhausted the currently available GitHub, Vercel, browser,
+Computer Use, local endpoint and release-artifact checks. Next actions require the owner or external
+systems:
 
 1. Complete the signing, production configuration, physical hardware, language-review and portal
    dependencies in `HUMAN.md`.
@@ -591,19 +626,19 @@ Next actions require the owner or external systems:
 2. Windows certificate/Trusted Signing and secrets:
    - `WIN_CSC_LINK`
    - `WIN_CSC_KEY_PASSWORD`
-3. Prices and payment:
-   - `TOTAL_PRICE_ANNUAL_INR`
-   - `TOTAL_PRICE_PERPETUAL_INR`
-   - optional `TOTAL_PAYMENT_LINK`
-   - or full Razorpay keys from `site/OPERATOR.md`
-4. At least one feedback sink (`FEEDBACK_GITHUB_TOKEN`, email/webhook alternatives documented in `HUMAN.md` and `site/OPERATOR.md`).
-5. Optional `NEXT_PUBLIC_WHATSAPP_NUMBER`.
-6. A real testimonial and written permission.
-7. A real 90-second GSTR-1 recording and `NEXT_PUBLIC_DEMO_VIDEO_URL`.
-8. A physical 1366×768 / 125%-scaling Windows test.
-9. NIC sandbox credentials.
+3. Payment launch decision and access:
+   - keep sales closed, use a hosted payment link, or provide the full Razorpay keys from
+     `site/OPERATOR.md`
+   - explicitly approve the real one-rupee payment/refund check when ready
+4. Optional `NEXT_PUBLIC_WHATSAPP_NUMBER`.
+5. A real testimonial and written permission.
+6. A real 90-second GSTR-1 recording and `NEXT_PUBLIC_DEMO_VIDEO_URL`.
+7. A physical 1366×768 / 125%-scaling Windows test.
+8. NIC sandbox credentials.
 
-Until prices and sinks are configured, the site behaves honestly: it shows “Not yet announced,” refuses zero-price checkout, and the contact form reports failure rather than discarding a message.
+Production now has working release metadata/download access and feedback/support storage. It also
+has a newer public pricing policy while deliberately keeping sales closed. The checked-out branch's
+older unconfigured site continues to fail safely; reconcile the two only with the deferred PR work.
 
 ---
 

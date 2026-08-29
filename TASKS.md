@@ -216,15 +216,31 @@ A task is complete only when:
   was rendered at 150 DPI and manually inspected for clipping, totals, QR, typography and footer.
   Physical thermal/dot-matrix output remains the hardware-only check in `HUMAN.md`.
 - [ ] Test fresh install, existing-company upgrade, backup restore, N-1 to N updater, uninstall data
-  preservation and offline operation on signed artefacts once certificates exist.
+  preservation and offline operation on signed artefacts once certificates exist. The published
+  v0.4.0 artefacts were audited on 2026-08-29: the arm64 macOS app is only ad-hoc signed and fails
+  strict `codesign`/Gatekeeper assessment, while the Windows installer's PE Security Directory is
+  empty. No valid local Apple signing identity or repository signing secret exists, so these are
+  evidence of the certificate blocker, not acceptable substitutes for the signed-artifact gate.
 
 ## P1 — site and operational work after owner inputs exist
 
 - [ ] Add approved testimonials without inventing or paraphrasing claims beyond permission.
 - [ ] Publish the approved real 90-second GSTR-1 app walkthrough from the existing shot list after
   the human recording/voice asset and publication approval exist.
-- [ ] Verify pricing, buy, checkout refusal, success, webhook idempotence, feedback failure/success,
-  privacy, download and `/api/latest` behaviour in preview and production.
+- [x] Verify every site path that does not require a real sale. On 2026-08-29 the checked-out site's
+  unconfigured build showed “Not yet announced”, refused order creation with 503, rejected invalid
+  feedback with 400, returned 503 rather than dropping valid feedback without a sink, and returned
+  200 plus the exact synthetic payload through a local capture sink. Browser inspection found no
+  horizontal overflow at 1280×800. Production returned 200 for home/privacy/pricing and
+  `/api/latest` (`0.4.0`), and both macOS and Windows download endpoints redirected to the matching
+  private-release assets. A synthetic production support case (`TOT-20260829-6E46AC`) was stored
+  and retrieved successfully; a synthetic idea was accepted into moderation.
+- [ ] Verify a real checkout success, refund and durable Razorpay webhook idempotence after the
+  owner selects/configures the payment path and explicitly approves the transaction. The current
+  production deployment deliberately has no `/buy` or checkout API (404) and says sales are not
+  open, while the checked-out branch contains an older unconfigured checkout implementation.
+  Reconcile that deployment drift only in the later rewrite-PR project; do not deploy this branch
+  over the newer production site.
 - [x] Generate a test licence, apply it, verify expiry/read-only/export behaviour, and document the
   operator flow without exposing the signing key. E2E 16 generates an ephemeral Ed25519 pair,
   proves valid/expired/revalidated behavior, preserved reports/backups and blocked writes; the
@@ -238,14 +254,17 @@ A task is complete only when:
 ## Final release evidence
 
 - [x] One immutable product/workflow commit has green local verification and green macOS/Windows
-  GitHub CI: `481ec56e535e80f983bbbd63bd4cb977037230c1`, run
-  [33188585495](https://github.com/IrminFlow/total/actions/runs/33188585495). A later
-  documentation-only evidence commit may sit above this baseline.
+  GitHub CI. The latest exact-HEAD run is
+  [33190304340](https://github.com/IrminFlow/total/actions/runs/33190304340) on
+  `ba88615af014f80227316b4325a3acf07faf24c2`: test, smoke-mac, e2e-mac, build-win and e2e-win all
+  passed. The earlier staged product/workflow baseline remains
+  `481ec56e535e80f983bbbd63bd4cb977037230c1`; documentation-only evidence may sit above it.
 - [x] No E2E scenario is marked flaky and no executable release gate was skipped. Both platform
   jobs passed 54/54; the Windows job also passed typecheck, renderer, full DB, build, smoke, artifact
   upload and an unsigned `electron-builder --win --dir` package.
-- [x] All remaining open items are genuine `HUMAN.md` dependencies. No known local implementation,
-  macOS verification, Windows CI, or unsigned packaging task remains deferred.
+- [x] Every remaining open item is gated by a genuine `HUMAN.md` dependency or by the explicitly
+  excluded later rewrite-PR reconciliation. No known local implementation, macOS verification,
+  Windows CI, or unsigned packaging task remains deferred.
 - [x] `docs/release-notes-draft.md` states experimental/unverified statutory and platform paths
   accurately and now contains immutable macOS/Windows CI evidence. Replace only the version/date
   after owner approval and before publishing.
