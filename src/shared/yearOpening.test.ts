@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { balanceBasis, crossesYearStart, resetsEachYear } from './yearOpening'
+import { balanceBasis, resetsEachYear } from './yearOpening'
 
 describe('resetsEachYear', () => {
   it('is true only for income and expense natures', () => {
@@ -30,14 +30,5 @@ describe('balanceBasis', () => {
 
   it('unknown books-begin year keeps the stored opening', () => {
     expect(balanceBasis('expense', '2030-05-05', null)).toEqual({ includeStored: true, movementsFrom: '2030-04-01' })
-  })
-})
-
-describe('crossesYearStart', () => {
-  it('detects a 1 April boundary between two dates', () => {
-    expect(crossesYearStart('2026-03-31', '2026-04-01')).toBe(true)
-    expect(crossesYearStart('2026-04-01', '2027-03-31')).toBe(false)
-    expect(crossesYearStart('2025-12-31', '2026-01-01')).toBe(false)
-    expect(crossesYearStart('2025-06-01', '2027-06-01')).toBe(true)
   })
 })

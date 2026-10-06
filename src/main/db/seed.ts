@@ -42,6 +42,20 @@ export function readCompanyInfo(db: DB): CompanyInfo {
   return { ...parsed, pan: parsed.pan ?? null, tan: parsed.tan ?? null }
 }
 
+/** The company's first FY start year (CompanyInfo.booksFrom), or null if unreadable. Tolerant
+ *  (unlike readCompanyInfo, which throws on a missing row) so read-only callers like the
+ *  consolidated report degrade gracefully. Drives the year-opening rule (@shared/yearOpening). */
+export function readBooksFromYear(db: DB): number | null {
+  const row = db.prepare("SELECT value FROM meta WHERE key = 'company'").get() as { value: string } | undefined
+  if (!row) return null
+  try {
+    const v = (JSON.parse(row.value) as { booksFrom?: unknown }).booksFrom
+    return typeof v === 'number' && Number.isInteger(v) ? v : null
+  } catch {
+    return null
+  }
+}
+
 export function writeCompanyInfo(db: DB, info: CompanyInfo): void {
   db.prepare("UPDATE meta SET value = ? WHERE key = 'company'").run(JSON.stringify(info))
 }

@@ -12,6 +12,9 @@
  * window) or, if no close was posted, shown by the trial balance as a computed
  * "Profit & Loss A/c (opening)" line so the books still balance.
  *
+ * The year-end close of the books' first FY transfers the stored openings too, so a closed year
+ * leaves its P&L ledgers at exactly zero under this rule.
+ *
  * Pure date arithmetic only — callers do the SQL.
  */
 import type { Nature } from './domain'
@@ -44,9 +47,4 @@ export function balanceBasis(nature: Nature, date: string, booksFromYear: number
     includeStored: booksFromYear === null || fy.startYear === booksFromYear,
     movementsFrom: fy.from
   }
-}
-
-/** True when `later` falls in a later financial year than `earlier` (both ISO dates). */
-export function crossesYearStart(earlier: string, later: string): boolean {
-  return fyOf(later).startYear > fyOf(earlier).startYear
 }

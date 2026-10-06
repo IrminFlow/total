@@ -5,6 +5,8 @@ import { planClose, type CloseLedgerRow } from '@shared/yearEnd'
 import { findOrCreateLedger } from './masters'
 import { saveVoucher, setLockDate, NOT_DELETED, IN_BOOKS } from './vouchers'
 import { writeAudit } from './audit'
+import { readBooksFromYear } from '../db/seed'
+import { balanceBasis } from '@shared/yearOpening'
 
 /** Marker embedded in the closing journal's narration — how re-close and status checks find it. */
 function closeMarker(fyStartYear: number): string {
@@ -23,14 +25,25 @@ export interface ClosePreview {
  *  IN_BOOKS, not NOT_DELETED: optional (memorandum) and unmatured post-dated vouchers are out of
  *  the books, so they must not enter the closing journal — the close must net exactly what the
  *  P&L/trial balance (also IN_BOOKS) show, or Retained Earnings is misstated and the income/
- *  expense ledgers carry residuals into the locked next FY. */
-export function closePreview(db: DB, fyStartYear: number): ClosePreview {
+ *  expense ledgers carry residuals into the locked next FY.
+ *
+ *  WP 1.3: when closing the books' first FY, each ledger's stored opening balance is part of its
+ *  FY balance (@shared/yearOpening) and is transferred too — otherwise it would never reach
+ *  Retained Earnings and the trial balance would show it forever as a computed
+ *  "Profit & Loss A/c (opening)" row. `booksFrom` defaults to the company's stored value. */
+export function closePreview(
+  db: DB,
+  fyStartYear: number,
+  booksFrom: number | null = readBooksFromYear(db)
+): ClosePreview {
   const fy = fyFromStartYear(fyStartYear)
+  // Nature is irrelevant beyond being income/expense — every row here is one.
+  const includeStored = balanceBasis('income', fy.from, booksFrom).includeStored ? 1 : 0
   const rows = (
     db
       .prepare(
         `SELECT l.id AS ledgerId, l.name AS name, g.nature AS nature,
-                COALESCE((
+                (CASE WHEN ? THEN l.opening_balance ELSE 0 END) + COALESCE((
                   SELECT SUM(CASE WHEN vl.dr_cr = 'dr' THEN vl.amount ELSE -vl.amount END)
                   FROM voucher_lines vl JOIN vouchers v ON v.id = vl.voucher_id
                   WHERE vl.ledger_id = l.id AND v.date BETWEEN ? AND ? AND ${IN_BOOKS}
@@ -38,7 +51,7 @@ export function closePreview(db: DB, fyStartYear: number): ClosePreview {
          FROM ledgers l JOIN groups g ON g.id = l.group_id
          WHERE g.nature IN ('income', 'expense')`
       )
-      .all(fy.from, fy.to) as CloseLedgerRow[]
+      .all(includeStored, fy.from, fy.to) as CloseLedgerRow[]
   )
     .filter((r) => r.net !== 0)
     .sort((a, b) => a.name.localeCompare(b.name))
@@ -74,7 +87,7 @@ export function postClose(db: DB, company: CompanyInfo, fyStartYear: number): Cl
     throw new Error('Cannot close a financial year that has not ended')
   }
 
-  const preview = closePreview(db, fyStartYear)
+  const preview = closePreview(db, fyStartYear, company.booksFrom)
   if (preview.alreadyClosed) throw new Error(`Books for FY ${fy.label} are already closed`)
 
   const plan = planClose(preview.rows)

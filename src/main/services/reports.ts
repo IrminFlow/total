@@ -10,7 +10,8 @@ import { CASH_BANK_GROUPS } from '@shared/seed'
 import { ageStock, buildCashFlow, computeRatios, type CashFlowStatement, type InwardLot } from '@shared/reportMath'
 import { listVouchers, IN_BOOKS, NOT_DELETED } from './vouchers'
 import * as stockAnalysis from './stockAnalysis'
-import { balanceBasis, crossesYearStart, resetsEachYear } from '@shared/yearOpening'
+import { balanceBasis, resetsEachYear } from '@shared/yearOpening'
+import { readBooksFromYear } from '../db/seed'
 
 // ---------- shared helpers ----------
 
@@ -43,20 +44,6 @@ function closingBalances(db: DB, asOn: string): Map<number, number> {
     )
     .all(asOn) as { id: number; bal: number }[]
   return new Map(rows.map((r) => [r.id, r.bal]))
-}
-
-/** The company's first FY start year (CompanyInfo.booksFrom, in `meta`), or null if unreadable.
- *  Read directly (not via readCompanyInfo, which throws on a missing row) so read-only callers
- *  like the consolidated report degrade gracefully. */
-function booksFromYear(db: DB): number | null {
-  const row = db.prepare("SELECT value FROM meta WHERE key = 'company'").get() as { value: string } | undefined
-  if (!row) return null
-  try {
-    const v = (JSON.parse(row.value) as { booksFrom?: unknown }).booksFrom
-    return typeof v === 'number' && Number.isInteger(v) ? v : null
-  } catch {
-    return null
-  }
 }
 
 interface LedgerLite { id: number; name: string; groupId: number; openingBalance: number }
@@ -443,21 +430,22 @@ export function ledgerStatement(db: DB, ledgerId: number, from: string, to: stri
     .get(ledgerId) as { id: number; name: string; opening_balance: number; nature: Nature } | undefined
   if (!ledger) throw new Error('Ledger not found')
 
-  // WP 1.3: income/expense ledgers open each FY at zero (stored opening only in the books' first
-  // FY) — see @shared/yearOpening. Asset/liability ledgers keep stored opening + all history.
-  const books = booksFromYear(db)
-  const resets = resetsEachYear(ledger.nature)
-  const storedAt = (date: string): number =>
-    balanceBasis(ledger.nature, date, books).includeStored ? ledger.opening_balance : 0
-  const openBasis = balanceBasis(ledger.nature, from, books)
+  // WP 1.3: an income/expense ledger's opening is its balance at the start of `from` under the
+  // year-opening rule — movements from 1 April of `from`'s FY, plus the stored opening only in the
+  // books' first FY (see @shared/yearOpening). Asset/liability ledgers keep stored opening + all
+  // history. After the opening the statement is plain accumulation over the requested period, so
+  // closing === opening + totalDebit − totalCredit always. Consequence: the closing equals the
+  // trial balance as on `to` whenever `from` and `to` are in the same FY; for a period spanning
+  // 1 April it intentionally does not for income/expense ledgers (the TB restarts them).
+  const basis = balanceBasis(ledger.nature, from, readBooksFromYear(db))
   const beforeRow = db
     .prepare(
       `SELECT COALESCE(SUM(CASE WHEN vl.dr_cr = 'dr' THEN vl.amount ELSE -vl.amount END), 0) AS m
        FROM voucher_lines vl JOIN vouchers v ON v.id = vl.voucher_id
        WHERE vl.ledger_id = ? AND v.date < ? AND v.date >= ? AND ${IN_BOOKS}`
     )
-    .get(ledgerId, from, openBasis.movementsFrom ?? '') as { m: number }
-  const opening = storedAt(from) + beforeRow.m
+    .get(ledgerId, from, basis.movementsFrom ?? '') as { m: number }
+  const opening = (basis.includeStored ? ledger.opening_balance : 0) + beforeRow.m
 
   const lineRows = db
     .prepare(
@@ -501,12 +489,7 @@ export function ledgerStatement(db: DB, ledgerId: number, from: string, to: stri
   let running = opening
   let totalDebit = 0
   let totalCredit = 0
-  // A period spanning a 1 April boundary restarts an income/expense ledger's running balance in
-  // the new FY, so the statement's closing equals the trial balance as on `to`.
-  let runningAsOf = from
   const rows: LedgerStatementRow[] = lineRows.map((r) => {
-    if (resets && crossesYearStart(runningAsOf, r.date)) running = storedAt(r.date)
-    runningAsOf = r.date
     const debit = r.drCr === 'dr' ? r.amount : 0
     const credit = r.drCr === 'cr' ? r.amount : 0
     running += debit - credit
@@ -525,9 +508,8 @@ export function ledgerStatement(db: DB, ledgerId: number, from: string, to: stri
     }
   })
 
-  const closing = resets && crossesYearStart(runningAsOf, to) ? storedAt(to) : running
   const result: LedgerStatement = {
-    ledgerId, ledgerName: ledger.name, opening, rows, closing, totalDebit, totalCredit
+    ledgerId, ledgerName: ledger.name, opening, rows, closing: running, totalDebit, totalCredit
   }
 
   // Columnar monthly matrix (v0.3 #55): every month in the period, with the running closing
@@ -543,19 +525,11 @@ export function ledgerStatement(db: DB, ledgerId: number, from: string, to: stri
       byMonth.set(key, m)
     }
     let carried = opening
-    let carriedAsOf = from
     result.months = monthRange(from, to).map((month) => {
-      const monthStart = `${month}-01`
       const m = byMonth.get(month)
       if (m) {
         carried = m.closing
-        carriedAsOf = monthStart
         return { month, debit: m.debit, credit: m.credit, closing: m.closing }
-      }
-      // An empty April in a multi-year period still restarts an income/expense ledger.
-      if (resets && crossesYearStart(carriedAsOf, monthStart)) {
-        carried = storedAt(monthStart)
-        carriedAsOf = monthStart
       }
       return { month, debit: 0, credit: 0, closing: carried }
     })
@@ -570,8 +544,11 @@ export function trialBalance(db: DB, asOn: string): TrialBalance {
   // the books' first FY) — the *Fy columns carry that window. Every P&L amount dropped that way
   // (earlier years not carried to Retained Earnings by a year-end close) is summed into a
   // computed "Profit & Loss A/c (opening)" row, so the trial balance still balances.
-  const books = booksFromYear(db)
-  const plBasis = balanceBasis('income', asOn, books)
+  // Companies that closed their first FY before WP 1.3 have a closing journal that netted FY
+  // movements only, leaving stored P&L openings un-transferred; those journals are not rewritten,
+  // so the computed row legitimately shows that residue in later years and the TB still balances
+  // (the row is derived from exactly what the FY window drops, whatever was posted).
+  const plBasis = balanceBasis('income', asOn, readBooksFromYear(db))
   const rawRows = db
     .prepare(
       `SELECT l.id AS ledgerId, l.name AS ledgerName, g.name AS groupName, l.group_id AS groupId,
@@ -745,7 +722,20 @@ export function balanceSheet(db: DB, booksFrom: string, asOn: string, comparePri
   }
 
   const pnl = profitAndLoss(db, booksFrom, asOn, { closingStock })
-  const profitCurrentPeriod = pnl.netProfit
+  // WP 1.3: profitAndLoss sums movements only, but income/expense ledgers can carry a stored
+  // (first-FY) opening balance that is part of the books' cumulative profit — a Dr opening on an
+  // expense ledger is a loss already incurred. Without it the balance sheet was out by exactly
+  // those openings (their counterparts sit in capital/assets). Since books began, the stored
+  // opening always applies (it belongs to the first FY), so subtract it here.
+  const pnlStoredOpening = (
+    db
+      .prepare(
+        `SELECT COALESCE(SUM(l.opening_balance), 0) AS s
+         FROM ledgers l JOIN groups g ON g.id = l.group_id WHERE g.nature IN ('income', 'expense')`
+      )
+      .get() as { s: number }
+  ).s
+  const profitCurrentPeriod = pnl.netProfit - pnlStoredOpening
 
   // If user-entered opening balances don't balance, surface the gap Tally-style. The synthetic
   // stock-opening component stands down when a Stock-in-Hand ledger actually carries the stock
