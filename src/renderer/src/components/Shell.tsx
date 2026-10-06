@@ -4,6 +4,7 @@ import { useNav, useScreen, useSession, useTheme, useToasts } from '../state/sto
 import { api } from '../lib/client'
 import { Button, DateInput, Kbd, Modal } from './ui'
 import { SupportLink } from './SupportLink'
+import { TotalLogo } from './TotalLogo'
 import { toDisplayDate, fyOf, fyFromStartYear, todayISO } from '@shared/dates'
 import { useFeatures } from '../lib/useFeatures'
 import { NAV_SECTIONS, SCREENS } from '../lib/screens'
@@ -91,6 +92,10 @@ export function Shell({ children, onOpenPalette }: { children: ReactNode; onOpen
 
       <div className="flex min-h-0 flex-1">
         <aside className="flex w-48 shrink-0 flex-col gap-0.5 overflow-y-auto border-r border-line bg-panel p-2">
+          <div className="mb-2 flex items-center gap-2 px-2 py-2">
+            <TotalLogo size={28} />
+            <span className="font-serif text-[17px] font-semibold tracking-tight">Total</span>
+          </div>
           {visibleNav.map((section) => (
             <div key={section.title ?? 'top'}>
               {section.title && (

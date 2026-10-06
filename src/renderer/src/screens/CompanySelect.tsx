@@ -4,6 +4,7 @@ import { api, type IntegrityResult } from '../lib/client'
 import { useNav, useSession, useToasts } from '../state/stores'
 import { Button, Field, Modal, ScrollList, Select, TextInput, useKeyNav } from '../components/ui'
 import { SupportLink } from '../components/SupportLink'
+import { TotalLogo } from '../components/TotalLogo'
 import { GST_STATES } from '@shared/gst/states'
 import { gstinErrorMessage } from '../lib/gstinError'
 import { fyOf, todayISO } from '@shared/dates'
@@ -53,6 +54,7 @@ export function CompanySelect(): React.JSX.Element {
       className="drag-region flex h-full flex-col items-center justify-center"
     >
       <div className="w-full max-w-lg">
+        <TotalLogo size={88} className="mx-auto mb-3" />
         <h1 className="text-center font-serif text-[34px] font-semibold tracking-tight">Total</h1>
         <p className="mt-1 mb-8 text-center text-[13px] text-muted">
           Your books, on this Mac, nowhere else · ~/Documents/total

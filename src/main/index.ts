@@ -19,6 +19,10 @@ if (!gotSingleInstanceLock) {
 let syncWarningShown = false
 let iCloudDesktopWarningShown = false
 
+const appIconPath = app.isPackaged
+  ? join(process.resourcesPath, 'total.png')
+  : join(app.getAppPath(), 'resources/total.png')
+
 // Automated drivers (CI smoke test, Playwright scripts) set this to skip the native
 // dialog.showMessageBox() calls below — on macOS an unattended modal alert can wedge the
 // main-thread run loop that also pumps CDP messages, hanging Playwright's electron.launch().
@@ -66,6 +70,7 @@ function createWindow(): void {
     minHeight: 700,
     show: false,
     title: 'Total',
+    icon: appIconPath,
     ...(isMac ? { titleBarStyle: 'hiddenInset' as const, trafficLightPosition: { x: 18, y: 16 } } : {}),
     backgroundColor: '#f4f4ef',
     webPreferences: {
@@ -103,6 +108,7 @@ if (gotSingleInstanceLock) {
     initLogging()
     log('info', 'app-start', { version: app.getVersion(), platform: process.platform })
     electronApp.setAppUserModelId('com.irminlabs.total')
+    if (process.platform === 'darwin') app.dock?.setIcon(appIconPath)
     app.on('browser-window-created', (_, window) => optimizer.watchWindowShortcuts(window))
     ensureDataTree()
     registerIpc()
