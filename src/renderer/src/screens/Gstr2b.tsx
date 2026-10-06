@@ -1,9 +1,9 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { api } from '../lib/client'
 import { useNav, useToasts, nextDraftId } from '../state/stores'
 import { Button, EmptyState, Modal, Money, Panel, SectionTitle } from '../components/ui'
-import { toDisplayDate } from '@shared/dates'
+import { DataTable, defineColumns, type TableColumn } from '../components/table'
 import type { Recon2bBucket, Recon2bPair } from '@shared/gst/recon2b'
 import { MonthBar, NoMonths, useMonth } from './GstReturns'
 
@@ -57,51 +57,105 @@ function taxTotal(t: { igst: number; cgst: number; sgst: number; cess: number })
   return t.igst + t.cgst + t.sgst + t.cess
 }
 
-function PairRow({
-  pair,
-  onOpenVoucher,
-  onCreatePurchase
-}: {
-  pair: Recon2bPair
-  onOpenVoucher: (voucherId: number) => void
-  onCreatePurchase: (portal: NonNullable<Recon2bPair['portal']>) => void
-}): React.JSX.Element {
-  const { portal, book } = pair
-  const clickable = !!book
-  return (
-    <tr
-      className={clickable ? 'kbar-row cursor-pointer' : ''}
-      onClick={clickable ? () => onOpenVoucher(book!.voucherId) : undefined}
-    >
-      <td>{portal ? portal.number : <span className="text-muted">—</span>}</td>
-      <td className="num text-muted">{portal ? toDisplayDate(portal.date) : '—'}</td>
-      <td className="r">{portal ? <Money paise={portal.value} /> : '—'}</td>
-      <td className="r">{portal ? <Money paise={taxTotal(portal)} /> : '—'}</td>
-      <td>
-        {book ? (
-          book.supplierRef ?? book.number
-        ) : pair.bucket === 'missingInBooks' && portal ? (
+const dash = <span className="text-muted">—</span>
+
+const BOOK_KIND_LABEL: Record<NonNullable<Recon2bPair['book']>['kind'], string> = {
+  purchase: 'Purchase',
+  debit_note: 'Debit note'
+}
+
+/** Columns of one reconciliation pair: the portal side, then the books side, then the diff. */
+export function pairColumns(onCreatePurchase: (portal: NonNullable<Recon2bPair['portal']>) => void): TableColumn<Recon2bPair>[] {
+  return defineColumns<Recon2bPair>([
+    {
+      id: 'portalNo',
+      header: 'Portal no.',
+      kind: 'text',
+      value: (p) => p.portal?.number,
+      cell: (p) => p.portal?.number ?? dash,
+      hideable: false,
+      groupable: false,
+      minWidth: 120
+    },
+    { id: 'portalDate', header: 'Portal date', kind: 'date', value: (p) => p.portal?.date, className: 'text-muted', width: 104 },
+    {
+      id: 'supplierGstin',
+      header: 'Supplier GSTIN',
+      kind: 'text',
+      value: (p) => p.portal?.gstin ?? p.book?.partyGstin,
+      className: 'num text-muted',
+      width: 160,
+      defaultHidden: true
+    },
+    { id: 'portalValue', header: 'Portal value', kind: 'money', value: (p) => p.portal?.value, width: 130, aggregate: 'sum' },
+    {
+      id: 'portalTax',
+      header: 'Portal tax',
+      kind: 'money',
+      value: (p) => (p.portal ? taxTotal(p.portal) : null),
+      width: 120,
+      aggregate: 'sum'
+    },
+    {
+      id: 'bookNo',
+      header: 'Books no. (supplier ref)',
+      kind: 'text',
+      value: (p) => (p.book ? (p.book.supplierRef ?? p.book.number) : null),
+      groupable: false,
+      minWidth: 150,
+      cell: (p) =>
+        p.book ? (
+          (p.book.supplierRef ?? p.book.number)
+        ) : p.bucket === 'missingInBooks' && p.portal ? (
           <button
             className="text-[12px] text-blue hover:underline"
             data-testid="btn-2b-create-purchase"
             onClick={(e) => {
               e.stopPropagation()
-              onCreatePurchase(portal)
+              onCreatePurchase(p.portal!)
             }}
           >
             Create purchase
           </button>
         ) : (
-          <span className="text-muted">—</span>
-        )}
-      </td>
-      <td className="num text-muted">{book ? toDisplayDate(book.date) : '—'}</td>
-      <td className="r">{book ? <Money paise={book.invoiceValue} /> : '—'}</td>
-      <td className="r">{book ? <Money paise={taxTotal(book)} /> : '—'}</td>
-      <td className="r">{pair.valueDiffPaise != null ? <Money paise={pair.valueDiffPaise} signed /> : '—'}</td>
-    </tr>
-  )
+          dash
+        )
+    },
+    { id: 'party', header: 'Party', kind: 'text', value: (p) => p.book?.partyName, minWidth: 140, defaultHidden: true },
+    {
+      id: 'bookKind',
+      header: 'Books type',
+      kind: 'enum',
+      value: (p) => p.book?.kind,
+      options: [
+        { value: 'purchase', label: BOOK_KIND_LABEL.purchase },
+        { value: 'debit_note', label: BOOK_KIND_LABEL.debit_note }
+      ],
+      defaultHidden: true
+    },
+    { id: 'bookDate', header: 'Books date', kind: 'date', value: (p) => p.book?.date, className: 'text-muted', width: 104 },
+    { id: 'bookValue', header: 'Books value', kind: 'money', value: (p) => p.book?.invoiceValue, width: 130, aggregate: 'sum' },
+    {
+      id: 'bookTax',
+      header: 'Books tax',
+      kind: 'money',
+      value: (p) => (p.book ? taxTotal(p.book) : null),
+      width: 120,
+      aggregate: 'sum'
+    },
+    {
+      id: 'valueDiff',
+      header: 'Value diff',
+      kind: 'money',
+      signed: true,
+      value: (p) => p.valueDiffPaise,
+      width: 136,
+      aggregate: 'sum'
+    }
+  ])
 }
+
+const BUCKET_LABEL = (b: Recon2bBucket): string => BUCKETS.find((x) => x.key === b)?.label ?? b
 
 export function Gstr2bScreen(): React.JSX.Element {
   const { months, month, monthKey, setMonthKey } = useMonth()
@@ -161,7 +215,10 @@ export function Gstr2bScreen(): React.JSX.Element {
   }
 
   const result = data?.result
-  const pairs = result?.pairs.filter((p) => p.bucket === bucket) ?? []
+  const pairs = useMemo(() => result?.pairs.filter((p) => p.bucket === bucket) ?? [], [result, bucket])
+  // createPurchase only reads nav — keep the column set stable across renders.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const columns = useMemo(() => pairColumns(createPurchase), [])
 
   if (!month) {
     return (
@@ -234,37 +291,26 @@ export function Gstr2bScreen(): React.JSX.Element {
           )}
 
           <Panel>
-            {pairs.length === 0 ? (
-              <EmptyState title="Nothing in this bucket" />
-            ) : (
-              <div className="overflow-x-auto">
-                <table className="ledger-table min-w-[56rem]">
-                  <thead>
-                    <tr>
-                      <th colSpan={4}>Portal (GSTR-2B)</th>
-                      <th colSpan={4}>Books</th>
-                      <th className="w-24">Diff</th>
-                    </tr>
-                    <tr>
-                      <th>No.</th>
-                      <th className="w-24">Date</th>
-                      <th className="r w-28">Value</th>
-                      <th className="r w-28">Tax</th>
-                      <th>No. (supplier ref)</th>
-                      <th className="w-24">Date</th>
-                      <th className="r w-28">Value</th>
-                      <th className="r w-28">Tax</th>
-                      <th className="r">Value</th>
-                    </tr>
-                  </thead>
-                  <tbody data-testid="rows-2b-pairs">
-                    {pairs.map((p, i) => (
-                      <PairRow key={i} pair={p} onOpenVoucher={openVoucher} onCreatePurchase={createPurchase} />
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
+            <DataTable
+              viewId="gstr2b-pairs"
+              testId="2b-pairs"
+              ariaLabel={`GSTR-2B ${BUCKET_LABEL(bucket)}`}
+              columns={columns}
+              rows={pairs}
+              rowKey={(p, i) => `${p.portal?.gstin ?? ''}|${p.portal?.number ?? ''}|${p.book?.voucherId ?? ''}|${i}`}
+              rowAttrs={(p) => ({ 'data-row-id': p.book?.voucherId })}
+              isRowActivatable={(p) => !!p.book}
+              onRowActivate={(p) => {
+                if (p.book) openVoucher(p.book.voucherId)
+              }}
+              maxHeight="calc(100vh - 300px)"
+              exportOptions={{
+                title: `GSTR-2B reconciliation — ${BUCKET_LABEL(bucket)}`,
+                periodLabel: month.label,
+                filename: `gstr2b-${bucket}-${month.period}`
+              }}
+              empty={{ title: 'Nothing in this bucket' }}
+            />
           </Panel>
         </>
       ) : null}
