@@ -2,15 +2,16 @@ import { useEffect, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import type { VoucherKind } from '@shared/domain'
 import { todayISO } from '@shared/dates'
+import { candidateProducedItem, modeForKind, planVoucherEdit, taxLedgerIdsFrom, type EditPlan } from '@shared/voucherEdit'
 import { api } from '../lib/client'
 import { useSession, type VoucherDraft } from '../state/stores'
 import { isAnyModalOpen, Kbd } from '../components/ui'
 import { useFeatures } from '../lib/useFeatures'
-import { TRADING_KINDS } from './voucher/hooks'
 import { InvoiceEntry } from './voucher/InvoiceEntry'
 import { AccountingEntry } from './voucher/AccountingEntry'
 import { ManufactureEntry } from './voucher/ManufactureEntry'
 import { PhysicalStockEntry } from './voucher/PhysicalStockEntry'
+import { StockLinesEntry } from './voucher/StockLinesEntry'
 
 const FKEYS: Record<string, VoucherKind> = {
   F4: 'contra', F5: 'payment', F6: 'receipt', F7: 'journal', F8: 'sales', F9: 'purchase'
@@ -37,10 +38,42 @@ export function VoucherEntry({
 
   // Same queryKey Gateway uses for report:dashboard — a brand-new company (no vouchers yet) gets a
   // first-time hint here; react-query dedupes the request rather than firing a second round-trip.
-  const { from } = useSession()
+  const { from, info } = useSession()
   const today = todayISO()
   const { data: dash } = useQuery({ queryKey: ['dashboard', today, from], queryFn: () => api.reports.dashboard(today, from) })
   const showFirstVoucherHint = !voucherId && !hintDismissed && dash?.voucherCount === 0
+
+  // ---------- alteration: which mode can show this voucher faithfully ----------
+  // Masters for the decision come from the same query keys the entry modes' pickers use, so the
+  // modes mount with them already cached. The plan is computed ONCE per opened voucher — the
+  // post-save refetch must not flip the screen into another mode underneath the user.
+  const { data: ledgers } = useQuery({ queryKey: ['ledgers'], queryFn: api.ledgers.list, enabled: !!voucherId })
+  const { data: items } = useQuery({ queryKey: ['stockItems'], queryFn: api.stockItems.list, enabled: !!voucherId })
+  const existingKind = existing && types?.find((t) => t.id === existing.voucherTypeId)?.kind
+  const producedId = existing && existingKind === 'stock_journal' ? candidateProducedItem(existing) : null
+  const { data: producedBom } = useQuery({
+    queryKey: ['bom', producedId],
+    queryFn: () => api.bom.get(producedId!),
+    enabled: producedId != null
+  })
+  const [plan, setPlan] = useState<EditPlan | null>(null)
+
+  useEffect(() => {
+    if (!voucherId || plan || !existing || !existingKind || !ledgers || !items || !info) return
+    if (producedId != null && producedBom === undefined) return
+    setPlan(
+      planVoucherEdit(existing, existingKind, {
+        invoice: {
+          companyStateCode: info.stateCode,
+          items: new Map(items.map((i) => [i.id, { gstRate: i.gstRate, cessRate: i.cessRate }])),
+          ledgers: new Map(ledgers.map((l) => [l.id, { stateCode: l.stateCode, gstRate: l.gstRate }]))
+        },
+        taxLedgers: taxLedgerIdsFrom(ledgers),
+        bomFor: (id) => (id === producedId ? producedBom : undefined),
+        itemName: (id) => items.find((i) => i.id === id)?.name ?? ''
+      })
+    )
+  }, [voucherId, plan, existing, existingKind, ledgers, items, info, producedId, producedBom])
 
   useEffect(() => {
     if (!types || typeId != null) return
@@ -72,11 +105,8 @@ export function VoucherEntry({
     return () => window.removeEventListener('keydown', onKey)
   }, [types, voucherId])
 
-  if (!types || (voucherId && !existing)) return <p className="text-muted">Loading…</p>
-  const currentType = types.find((t) => t.id === typeId) ?? types[0]!
-  const invoiceMode = !voucherId && TRADING_KINDS.includes(currentType.kind)
-  const manufactureMode = !voucherId && currentType.kind === 'stock_journal'
-  const physicalMode = !voucherId && currentType.kind === 'physical_stock'
+  if (!types || (voucherId && (!existing || !plan))) return <p className="text-muted">Loading…</p>
+  const currentType = (voucherId ? types.find((t) => t.id === existing!.voucherTypeId) : types.find((t) => t.id === typeId)) ?? types[0]!
   const closingEntry = !!existing?.isYearEndClose
 
   return (
@@ -127,21 +157,44 @@ export function VoucherEntry({
       {/* A disabled fieldset disables every input and button inside (Save included) for a
           year-end closing entry; the server refuses the edit regardless. */}
       <fieldset disabled={closingEntry} className="m-0 min-w-0 border-0 p-0">
-      {invoiceMode ? (
-        <InvoiceEntry key={currentType.id} typeId={currentType.id} kind={currentType.kind} draft={draft} />
-      ) : manufactureMode ? (
-        <ManufactureEntry key={currentType.id} typeId={currentType.id} />
-      ) : physicalMode ? (
-        <PhysicalStockEntry key={currentType.id} typeId={currentType.id} />
-      ) : (
-        <AccountingEntry
-          key={voucherId ?? currentType.id}
-          typeId={currentType.id}
-          kind={currentType.kind}
-          voucherId={voucherId}
-          draft={draft}
-        />
-      )}
+      <div data-testid="voucher-entry-mode" data-mode={voucherId ? plan!.mode : modeForKind(currentType.kind)}>
+        {voucherId && existing && plan ? (
+          plan.mode === 'invoice' ? (
+            <InvoiceEntry typeId={currentType.id} kind={currentType.kind} voucherId={voucherId} voucher={existing} initial={plan.state} />
+          ) : plan.mode === 'manufacture' ? (
+            <ManufactureEntry typeId={currentType.id} voucherId={voucherId} voucher={existing} initial={plan.state} />
+          ) : plan.mode === 'physical' ? (
+            <PhysicalStockEntry typeId={currentType.id} voucherId={voucherId} voucher={existing} initial={plan.state} />
+          ) : plan.mode === 'stockLines' ? (
+            <StockLinesEntry
+              typeId={currentType.id}
+              voucherId={voucherId}
+              voucher={existing}
+              initial={plan.state}
+              fallbackReason={plan.fallbackReason}
+              formName={currentType.kind === 'physical_stock' ? 'physical-count' : 'manufacture'}
+            />
+          ) : (
+            <AccountingEntry
+              key={voucherId}
+              typeId={currentType.id}
+              kind={currentType.kind}
+              voucherId={voucherId}
+              voucher={existing}
+              initial={plan.state}
+              fallbackReason={plan.fallbackReason}
+            />
+          )
+        ) : modeForKind(currentType.kind) === 'invoice' ? (
+          <InvoiceEntry key={currentType.id} typeId={currentType.id} kind={currentType.kind} draft={draft} />
+        ) : modeForKind(currentType.kind) === 'manufacture' ? (
+          <ManufactureEntry key={currentType.id} typeId={currentType.id} />
+        ) : modeForKind(currentType.kind) === 'physical' ? (
+          <PhysicalStockEntry key={currentType.id} typeId={currentType.id} />
+        ) : (
+          <AccountingEntry key={currentType.id} typeId={currentType.id} kind={currentType.kind} draft={draft} />
+        )}
+      </div>
       </fieldset>
       <p className="mt-3 text-[11.5px] text-muted">
         <Kbd>F4</Kbd>–<Kbd>F9</Kbd> switch type · <Kbd>⌘↵</Kbd> save · <Kbd>Esc</Kbd> back · dates accept <span className="num">7</span>, <span className="num">7/4</span>, <span className="num">y</span>

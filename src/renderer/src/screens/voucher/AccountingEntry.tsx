@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import type { Ledger, VoucherBillRef, VoucherKind } from '@shared/domain'
+import type { Ledger, Voucher, VoucherBillRef, VoucherKind } from '@shared/domain'
 import type { OutstandingBill } from '@shared/reports'
 import type { VoucherInputParsed } from '@shared/schemas'
+import { buildAccountingPayload, derivePartyId, type AccountingFormState, type AccountingRowState } from '@shared/voucherEdit'
 import { formatPaise } from '@shared/money'
 import { toDisplayDate } from '@shared/dates'
 import { api, type TdsSuggestion } from '../../lib/client'
@@ -13,19 +14,19 @@ import { LedgerFormModal } from '../../components/LedgerFormModal'
 import { useFeatures } from '../../lib/useFeatures'
 import { confirmDialog } from '../../lib/dialogs'
 import { useUnsavedGuard } from '../../lib/useUnsavedGuard'
-import { isBankLedger, isCashOrBankLedger, isPartyLedger, nextLineKey, NUMBER_LOADING, TRADING_KINDS, useVoucherNumberField } from './hooks'
+import {
+  isBankLedger, isCashOrBankLedger, isPartyLedger, nextLineKey, NUMBER_LOADING, TRADING_KINDS,
+  useAlterationDirty, useLeaveAfterSave, useVoucherNumberField
+} from './hooks'
 import { CostAllocModal, QuickLedgerModal } from './modals'
 import { TransportModal } from './TransportModal'
 
-// ---------- accounting mode (payment / receipt / contra / journal + alteration) ----------
+// ---------- accounting mode (payment / receipt / contra / journal, and the lossless fallback
+// for alterations the specialised modes can't show — see planVoucherEdit) ----------
 
-interface AcctRow {
+interface AcctRow extends AccountingRowState {
   /** Stable React key — survives applyTds splicing a payable line in mid-list (never an index). */
   key: number
-  drCr: 'dr' | 'cr'
-  ledgerId: number | null
-  amount: number | null
-  costAllocations: { costCentreId: number; amount: number }[]
 }
 
 const blankAcctRow = (drCr: 'dr' | 'cr'): AcctRow => ({ key: nextLineKey(), drCr, ledgerId: null, amount: null, costAllocations: [] })
@@ -34,12 +35,20 @@ export function AccountingEntry({
   typeId,
   kind,
   voucherId,
-  draft
+  draft,
+  voucher,
+  initial,
+  fallbackReason
 }: {
   typeId: number
   kind: VoucherKind
   voucherId?: number
   draft?: VoucherDraft
+  /** Alteration: the saved voucher and the form state reconstructed from it (accountingStateFromVoucher). */
+  voucher?: Voucher
+  initial?: AccountingFormState
+  /** Set when a trading voucher opens here because the invoice form can't show it faithfully. */
+  fallbackReason?: string | null
 }): React.JSX.Element {
   const { workingDate, setWorkingDate } = useSession()
   const toast = useToasts()
@@ -49,86 +58,57 @@ export function AccountingEntry({
   const ledgers = useLedgers()
   const groups = useGroups()
   const groupMap = useMemo(() => new Map(groups.map((g) => [g.id, g])), [groups])
-  const [date, setDate] = useState(draft?.date ?? workingDate)
-  const [rows, setRows] = useState<AcctRow[]>(
-    draft?.lines?.length
-      ? [...draft.lines.map((l) => ({ ...l, key: nextLineKey(), costAllocations: [] as AcctRow['costAllocations'] })), blankAcctRow('cr')]
-      : [blankAcctRow('dr'), blankAcctRow('cr')]
+  const [date, setDate] = useState(initial?.date ?? draft?.date ?? workingDate)
+  const [rows, setRows] = useState<AcctRow[]>(() =>
+    initial
+      ? initial.rows.map((r) => ({ ...r, key: nextLineKey() }))
+      : draft?.lines?.length
+        ? [...draft.lines.map((l) => ({ ...l, key: nextLineKey(), costAllocations: [] as AcctRow['costAllocations'] })), blankAcctRow('cr')]
+        : [blankAcctRow('dr'), blankAcctRow('cr')]
   )
-  const [narration, setNarration] = useState(draft?.narration ?? '')
-  const [instrumentNo, setInstrumentNo] = useState('')
+  const [narration, setNarration] = useState(initial?.narration ?? draft?.narration ?? '')
+  const [instrumentNo, setInstrumentNo] = useState(initial?.instrumentNo ?? '')
   const [quickLedger, setQuickLedger] = useState<{ name: string; row: number } | null>(null)
-  const [loaded, setLoaded] = useState(false)
   const [saving, setSaving] = useState(false)
   const [showTransport, setShowTransport] = useState(false)
   const [editingParty, setEditingParty] = useState<Ledger | null>(null)
   // Alteration keeps the voucher's own number editable but never auto-suggests a fresh one off
   // voucher:nextNumber (that would rename an existing document to "the next available number"
-  // the moment you touch its date) — it's seeded once from the loaded voucher below. New-entry
-  // mode uses the touched/refetch hook instead, same as InvoiceEntry.
-  const [alterNumber, setAlterNumber] = useState('')
+  // the moment you touch its date) — it's seeded from the loaded voucher. New-entry mode uses
+  // the touched/refetch hook instead, same as InvoiceEntry.
+  const [alterNumber, setAlterNumber] = useState(initial?.number ?? '')
   const numberField = useVoucherNumberField(typeId, date, voucherId)
   const [draftPartyId] = useState(draft?.partyLedgerId ?? null)
-
-  const { data: existing } = useQuery({
-    queryKey: ['voucher', voucherId],
-    queryFn: () => api.vouchers.get(voucherId!),
-    enabled: !!voucherId
-  })
+  const { saved, leave } = useLeaveAfterSave()
 
   // ---------- TDS (payment / journal to a party flagged for TDS) ----------
-  const [tds, setTds] = useState<{ sectionId: number; baseAmount: number; tdsAmount: number } | null>(null)
+  const [tds, setTds] = useState<{ sectionId: number; baseAmount: number; tdsAmount: number } | null>(initial?.tds ?? null)
   const [tdsSuggestion, setTdsSuggestion] = useState<TdsSuggestion | null>(null)
-  const [tdsDismissed, setTdsDismissed] = useState(false)
+  const [tdsDismissed, setTdsDismissed] = useState(!!initial?.tds)
   // Set right before WE mutate rows in a way that would otherwise re-trigger the suggestion
   // effect (applying TDS onto the flagged CR row itself, or loading a voucher that already has
   // tds applied) — the effect consumes it once and skips, so the banner doesn't re-fetch/reopen
   // off of our own write. Genuine user edits always leave it false and behave normally.
-  const skipNextTdsEffectRef = useRef(false)
+  const skipNextTdsEffectRef = useRef(!!initial?.tds)
 
   // ---------- bill allocations (receipt/payment checkbox list; trading-kind alteration editor) ----------
-  const [billRefs, setBillRefs] = useState<VoucherBillRef[]>([])
+  const [billRefs, setBillRefs] = useState<VoucherBillRef[]>(initial?.billRefs ?? [])
   const [billsOpen, setBillsOpen] = useState(true)
 
   // ---------- GST / book-keeping flags ----------
   // Advance receipt (GSTR-1 11A): the unallocated remainder of the party line goes out as a
   // 'new' bill ref, which is exactly what gst.extractAdvances counts. Optional = memorandum.
-  const [advanceReceipt, setAdvanceReceipt] = useState(false)
-  const [optionalVoucher, setOptionalVoucher] = useState(false)
+  const [advanceReceipt, setAdvanceReceipt] = useState(initial?.advanceReceipt ?? false)
+  const [optionalVoucher, setOptionalVoucher] = useState(initial?.optional ?? false)
 
   // ---------- per-line cost-centre allocation ----------
   const { data: ccList } = useQuery({ queryKey: ['costCentres'], queryFn: api.cc.list })
   const hasCc = features.costCentres && (ccList?.length ?? 0) > 0
   const [ccModalRow, setCcModalRow] = useState<number | null>(null)
 
-  useEffect(() => {
-    if (existing && !loaded) {
-      setDate(existing.date)
-      setAlterNumber(existing.number)
-      setNarration(existing.narration ?? '')
-      setInstrumentNo(existing.instrumentNo ?? '')
-      setRows(existing.lines.map((l) => ({ key: nextLineKey(), drCr: l.drCr, ledgerId: l.ledgerId, amount: l.amount, costAllocations: l.costAllocations })))
-      setBillRefs(existing.billRefs)
-      setOptionalVoucher(existing.isOptional)
-      setTds(existing.tds)
-      if (existing.tds) {
-        setTdsDismissed(true)
-        skipNextTdsEffectRef.current = true
-      }
-      setLoaded(true)
-    }
-  }, [existing, loaded])
-
   const totalDr = rows.reduce((s, r) => s + (r.drCr === 'dr' ? (r.amount ?? 0) : 0), 0)
   const totalCr = rows.reduce((s, r) => s + (r.drCr === 'cr' ? (r.amount ?? 0) : 0), 0)
   const balanced = totalDr === totalCr && totalDr > 0
-
-  // Unsaved-entry guard for NEW vouchers only (save resets the form). Alterations are exempt:
-  // rows are seeded from the stored voucher, so content alone can't distinguish edited from
-  // pristine — guarding them would also fire on the programmatic nav.back() after save.
-  useUnsavedGuard(
-    !voucherId && (rows.some((r) => r.ledgerId != null || (r.amount ?? 0) !== 0) || narration.trim() !== '')
-  )
 
   const setRow = (i: number, patch: Partial<AcctRow>): void => {
     setRows((rs) => {
@@ -142,17 +122,18 @@ export function AccountingEntry({
   // A voucher's "party" for TDS/bill-allocation purposes: whichever posted ledger is a Sundry
   // Debtor/Creditor or is flagged for TDS. Falls back to a draft-supplied party (e.g. the GSTR-2B
   // "Create purchase" nudge) when the rows don't yet name one unambiguously.
-  const derivedPartyId = useMemo(() => {
-    const candidates = new Set<number>()
-    for (const r of rows) {
-      if (r.ledgerId == null) continue
-      const l = ledgers.find((x) => x.id === r.ledgerId)
-      if (!l) continue
-      if (isPartyLedger(l, groupMap) || l.tdsSectionId != null) candidates.add(l.id)
-    }
-    if (candidates.size === 1) return [...candidates][0]!
-    return draftPartyId
-  }, [rows, ledgers, groupMap, draftPartyId])
+  const derivedPartyId = useMemo(
+    () =>
+      derivePartyId(
+        rows,
+        (id) => {
+          const l = ledgers.find((x) => x.id === id)
+          return !!l && (isPartyLedger(l, groupMap) || l.tdsSectionId != null)
+        },
+        draftPartyId
+      ),
+    [rows, ledgers, groupMap, draftPartyId]
+  )
 
   // How much of a prior Apply is already sitting in the TDS payable line — i.e. how much the
   // target line has already been reduced (the cumulative reduction on the target always equals
@@ -341,51 +322,43 @@ export function AccountingEntry({
     setBillRefs((refs) => refs.map((r, j) => (j === i ? { ...r, ...patch } : r)))
   const removeManualBillRef = (i: number): void => setBillRefs((refs) => refs.filter((_, j) => j !== i))
 
+  // The form as the shared builder sees it. On alteration `original` carries everything this
+  // form doesn't edit (stock lines with batch/discount/godown/physical-count flag, reference,
+  // transport, POS override, currency, the stored party and cheque date) back verbatim.
+  const formState: AccountingFormState = useMemo(
+    () => ({
+      date,
+      number: voucherId ? alterNumber : numberField.forPayload,
+      rows: rows.map(({ key: _key, ...r }) => r),
+      narration,
+      instrumentNo,
+      billRefs,
+      advanceReceipt,
+      optional: optionalVoucher,
+      tds,
+      original: initial?.original ?? null
+    }),
+    [date, voucherId, alterNumber, numberField.forPayload, rows, narration, instrumentNo, billRefs, advanceReceipt, optionalVoucher, tds, initial]
+  )
+
   // Builds the exact VoucherInputParsed shape `save` posts.
   const buildPayload = useCallback((): VoucherInputParsed | null => {
-    const lines = rows
-      .filter((r) => r.ledgerId != null && r.amount != null && r.amount > 0)
-      .map((r) => ({ ledgerId: r.ledgerId!, drCr: r.drCr, amount: r.amount!, costAllocations: r.costAllocations }))
-    if (lines.length < 2) return null
-    const effectivePartyId = derivedPartyId ?? existing?.partyLedgerId ?? null
-    const refs = effectivePartyId != null ? [...billRefs] : []
-    if (kind === 'receipt' && advanceReceipt && effectivePartyId != null) {
-      const remainder = partyLineTotal - refs.reduce((s, r) => s + r.amount, 0)
-      if (remainder > 0) {
-        refs.push({
-          kind: 'new',
-          name: (voucherId ? alterNumber : numberField.forPayload).trim() || 'Advance',
-          amount: remainder,
-          dueDate: null
-        })
-      }
-    }
-    return {
-      voucherTypeId: typeId,
-      date,
-      number: (voucherId ? alterNumber.trim() : numberField.forPayload) || undefined,
-      partyLedgerId: effectivePartyId,
-      narration: narration.trim() || null,
-      reference: null,
-      instrumentNo: instrumentNo.trim() || null,
-      instrumentDate: instrumentNo.trim() ? date : null,
-      transporterId: existing?.transporterId ?? null,
-      vehicleNo: existing?.vehicleNo ?? null,
-      transportDistanceKm: existing?.transportDistanceKm ?? null,
-      // Preserve an existing override on alteration; the edit UI itself is Wave-3 (S4).
-      posOverride: existing?.posOverride ?? null,
-      currencyCode: existing?.currencyCode ?? null,
-      exchangeRate: existing?.exchangeRate ?? null,
-      isOptional: optionalVoucher,
-      lines,
-      inventory: existing?.inventory.map((l) => ({
-        stockItemId: l.stockItemId, godownId: l.godownId, qtyMilli: l.qtyMilli,
-        ratePaise: l.ratePaise, amount: l.amount, direction: l.direction
-      })) ?? [],
-      billRefs: refs,
-      tds: tds && effectivePartyId != null ? tds : null
-    }
-  }, [rows, derivedPartyId, existing, kind, typeId, date, voucherId, alterNumber, numberField.forPayload, narration, instrumentNo, billRefs, advanceReceipt, optionalVoucher, partyLineTotal, tds])
+    const r = buildAccountingPayload(formState, { kind, voucherTypeId: typeId, derivedPartyId })
+    return r.ok ? r.payload : null
+  }, [formState, kind, typeId, derivedPartyId])
+
+  // Unsaved-changes guard: a new voucher once anything is typed (save resets the form); an
+  // alteration once what it would post differs from the saved voucher.
+  const alterationDirty = useAlterationDirty(
+    voucher,
+    voucherId ? buildAccountingPayload(formState, { kind, voucherTypeId: typeId, derivedPartyId }) : null
+  )
+  useUnsavedGuard(
+    !saved &&
+      (voucherId
+        ? alterationDirty
+        : rows.some((r) => r.ledgerId != null || (r.amount ?? 0) !== 0) || narration.trim() !== '')
+  )
 
   const save = useCallback(async (): Promise<void> => {
     if (saving) return
@@ -418,7 +391,7 @@ export function AccountingEntry({
       toast.push('success', `${saved.number} ${voucherId ? 'altered' : 'saved'}`)
       setWorkingDate(date)
       await queryClient.invalidateQueries()
-      if (voucherId) nav.back()
+      if (voucherId) leave()
       else {
         setRows([blankAcctRow('dr'), blankAcctRow('cr')])
         setNarration('')
@@ -435,7 +408,7 @@ export function AccountingEntry({
     } finally {
       setSaving(false)
     }
-  }, [saving, buildPayload, date, typeId, voucherId, toast, setWorkingDate, queryClient, nav, numberField.reset])
+  }, [saving, buildPayload, date, typeId, voucherId, toast, setWorkingDate, queryClient, leave, numberField.reset])
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
@@ -463,7 +436,7 @@ export function AccountingEntry({
       await api.vouchers.remove(voucherId)
       toast.push('success', 'Moved to Bin')
       await queryClient.invalidateQueries()
-      nav.back()
+      leave()
     } catch (err) {
       toast.push('error', (err as Error).message)
     }
@@ -471,9 +444,9 @@ export function AccountingEntry({
 
   // ---------- cheque printing + payment advice (saved payment vouchers only) ----------
   const bankCrLine = useMemo(() => {
-    if (!voucherId || kind !== 'payment' || !existing) return null
+    if (!voucherId || kind !== 'payment' || !voucher) return null
     let best: { ledgerId: number; amount: number } | null = null
-    for (const l of existing.lines) {
+    for (const l of voucher.lines) {
       if (l.drCr !== 'cr') continue
       const ledger = ledgers.find((x) => x.id === l.ledgerId)
       if (ledger && isBankLedger(ledger, groupMap) && (!best || l.amount > best.amount)) {
@@ -481,7 +454,7 @@ export function AccountingEntry({
       }
     }
     return best
-  }, [voucherId, kind, existing, ledgers, groupMap])
+  }, [voucherId, kind, voucher, ledgers, groupMap])
 
   const printCheque = async (): Promise<void> => {
     if (!voucherId || !bankCrLine) return
@@ -505,6 +478,16 @@ export function AccountingEntry({
 
   return (
     <Panel className="p-5">
+      {fallbackReason && (
+        <p
+          data-testid="banner-accounting-fallback"
+          className="mb-4 rounded-md border border-amber/40 bg-amber/10 px-3 py-2 text-[12.5px] text-ink"
+          title={fallbackReason}
+        >
+          Editing in accounting mode — this voucher can&apos;t be shown as an invoice ({fallbackReason}). Its stock
+          lines and other details are kept exactly as saved.
+        </p>
+      )}
       <div className="grid grid-cols-4 gap-3">
         <Field label="No." hint={voucherId || numberField.value === NUMBER_LOADING ? undefined : 'Auto — edit to override'}>
           <TextInput
@@ -613,9 +596,9 @@ export function AccountingEntry({
       </table>
       </LineTableScroller>
 
-      {existing && existing.inventory.length > 0 && (
+      {voucher && voucher.inventory.length > 0 && (
         <p className="mt-3 text-[12px] text-muted">
-          This voucher carries {existing.inventory.length} stock line{existing.inventory.length > 1 ? 's' : ''}; they are kept as-is when you save.
+          This voucher carries {voucher.inventory.length} stock line{voucher.inventory.length > 1 ? 's' : ''}; they are kept as-is when you save.
         </p>
       )}
 
@@ -798,7 +781,7 @@ export function AccountingEntry({
         />
       )}
       {showTransport && voucherId && (
-        <TransportModal voucherId={voucherId} voucherNumber={existing?.number} onClose={() => setShowTransport(false)} />
+        <TransportModal voucherId={voucherId} voucherNumber={voucher?.number} onClose={() => setShowTransport(false)} />
       )}
       {editingParty && <LedgerFormModal ledger={editingParty} onClose={() => setEditingParty(null)} />}
     </Panel>
