@@ -8,7 +8,8 @@ import { writeAudit } from './audit'
 import { booksFromYear } from './booksStart'
 import { pnlLedgerAmounts } from './reports'
 
-/** Marker embedded in the closing journal's narration — how re-close and status checks find it. */
+/** Marker embedded in the closing journal's narration — for readability (and migration 018's
+ *  backfill of pre-flag closes). Status checks use vouchers.is_year_end_close, not this text. */
 function closeMarker(fyStartYear: number): string {
   return `[year-end close FY${fyStartYear}]`
 }
@@ -48,10 +49,12 @@ export function closePreview(db: DB, fyStartYear: number, booksFrom: number = bo
 
   const { netProfit } = planClose(rows)
 
-  const marker = closeMarker(fyStartYear)
+  // Closed = a live (not binned) voucher flagged is_year_end_close dated this FY's 31 March
+  // (migration 018 backfilled the flag for closes posted before it existed). Binning the closing
+  // journal reopens the year; restoring it from the bin closes it again.
   const existing = db
-    .prepare(`SELECT 1 FROM vouchers v WHERE ${NOT_DELETED} AND v.narration LIKE ? LIMIT 1`)
-    .get(`%${marker}%`)
+    .prepare(`SELECT 1 FROM vouchers v WHERE ${NOT_DELETED} AND v.is_year_end_close = 1 AND v.date = ? LIMIT 1`)
+    .get(fy.to)
 
   return { rows, netProfit, alreadyClosed: !!existing }
 }
@@ -128,6 +131,9 @@ export function postClose(db: DB, company: CompanyInfo, fyStartYear: number): Cl
       billRefs: [],
       tds: null
     })
+    // The flag (migration 018) is what identifies the closing journal; the narration marker is
+    // kept for readability only. Editing the voucher later leaves the column untouched.
+    db.prepare('UPDATE vouchers SET is_year_end_close = 1 WHERE id = ?').run(voucher.id)
     setLockDate(db, closeDate)
     return voucher.id
   })

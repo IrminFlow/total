@@ -550,5 +550,73 @@ export const MIGRATIONS: string[] = [
   ALTER TABLE audit_log_new RENAME TO audit_log;
   CREATE INDEX idx_audit_at ON audit_log(at);
   CREATE INDEX idx_audit_entity ON audit_log(entity, entity_id);
+  `,
+  // 018 (WP 1.3) — year-end closing journals get an explicit flag, and group natures are repaired.
+  // - vouchers.is_year_end_close: 1 on the journal postClose posts. Profit reports (P&L, cash flow,
+  //   close preview, ...) exclude flagged vouchers so a closed year still shows its real profit;
+  //   trial balance / ledger statements keep them (they are real postings). No CHECK constraint,
+  //   matching the other 0/1 voucher flags (post_dated, is_optional).
+  // - Group repair FIRST (the closing-journal shape check below reads group nature): a non-system
+  //   group's nature/affects_gross_profit always follow its parent's, but updateGroup used to
+  //   re-derive them for the moved group only, so a sub-group could keep e.g. 'expense' under an
+  //   asset parent. Values are copied top-down from the nearest system (seeded) ancestor or a
+  //   top-level group; system groups are never changed (in the seed every child already matches
+  //   its parent, so seeded relationships are untouched).
+  // - Backfill, conservative (a false positive would hide real income/expense from the P&L).
+  //   Soft-deleted vouchers are included, so a binned close restored later is still flagged.
+  //   (a) vouchers referenced by a year_end 'create' audit row (postClose writes {voucherId});
+  //       rows whose JSON doesn't parse or whose voucher no longer exists are skipped.
+  //   (b) v0.2.0-style closes with no audit row: narration contains the exact marker
+  //       '[year-end close FY<startYear>]', the voucher is a journal dated 31 March <startYear+1>,
+  //       and every line is on an income/expense ledger or the 'Retained Earnings' ledger, with
+  //       at least one income/expense line.
+  `
+  ALTER TABLE vouchers ADD COLUMN is_year_end_close INTEGER NOT NULL DEFAULT 0;
+
+  WITH RECURSIVE truth(id, nature, gp) AS (
+    SELECT id, nature, affects_gross_profit FROM groups WHERE is_system = 1 OR parent_id IS NULL
+    UNION ALL
+    SELECT g.id, t.nature, t.gp FROM groups g JOIN truth t ON g.parent_id = t.id WHERE g.is_system = 0
+  )
+  UPDATE groups
+     SET nature = (SELECT t.nature FROM truth t WHERE t.id = groups.id),
+         affects_gross_profit = (SELECT t.gp FROM truth t WHERE t.id = groups.id)
+   WHERE is_system = 0
+     AND id IN (
+       SELECT t.id FROM truth t JOIN groups g2 ON g2.id = t.id
+        WHERE g2.nature <> t.nature OR g2.affects_gross_profit <> t.gp
+     );
+
+  UPDATE vouchers SET is_year_end_close = 1
+   WHERE id IN (
+     SELECT CAST(json_extract(a.after_json, '$.voucherId') AS INTEGER)
+       FROM audit_log a
+      WHERE a.entity = 'year_end' AND a.action = 'create'
+        AND a.after_json IS NOT NULL AND json_valid(a.after_json)
+        AND json_type(a.after_json, '$.voucherId') = 'integer'
+   );
+
+  UPDATE vouchers SET is_year_end_close = 1
+   WHERE id IN (
+     SELECT v.id
+       FROM vouchers v
+       JOIN voucher_types vt ON vt.id = v.voucher_type_id
+      WHERE vt.kind = 'journal'
+        AND substr(v.date, 6, 5) = '03-31'
+        AND v.narration IS NOT NULL
+        AND instr(v.narration,
+                  '[year-end close FY' || (CAST(substr(v.date, 1, 4) AS INTEGER) - 1) || ']') > 0
+        AND EXISTS (
+          SELECT 1 FROM voucher_lines vl JOIN ledgers l ON l.id = vl.ledger_id
+            JOIN groups g ON g.id = l.group_id
+           WHERE vl.voucher_id = v.id AND g.nature IN ('income', 'expense')
+        )
+        AND NOT EXISTS (
+          SELECT 1 FROM voucher_lines vl JOIN ledgers l ON l.id = vl.ledger_id
+            JOIN groups g ON g.id = l.group_id
+           WHERE vl.voucher_id = v.id
+             AND g.nature NOT IN ('income', 'expense') AND l.name <> 'Retained Earnings'
+        )
+   );
   `
 ]

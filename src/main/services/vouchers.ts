@@ -38,6 +38,11 @@ export const NOT_OPTIONAL = 'v.is_optional = 0'
  *  optional. New report queries should use this instead of NOT_DELETED alone. */
 export const IN_BOOKS = `${NOT_DELETED} AND ${NOT_POSTDATED} AND ${NOT_OPTIONAL}`
 
+/** Year-end closing journals (migration 018 flag) are real postings — the trial balance, ledger
+ *  statements and balances keep them — but profit-for-a-period reports (P&L, close preview, cash
+ *  flow, budget actuals) exclude them, so a closed year still reports its real profit. */
+export const NOT_YEAR_END_CLOSE = 'v.is_year_end_close = 0'
+
 /** Books-locked-up-to date (inclusive): vouchers dated on or before this date can't be
  *  saved/deleted/restored. Stored in `meta` under key 'lock_before'; null/absent = no lock. */
 export function getLockDate(db: DB): string | null {

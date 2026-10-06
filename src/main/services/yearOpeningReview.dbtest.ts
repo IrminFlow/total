@@ -121,11 +121,13 @@ describe('one definition of profit for a period (stored P&L openings in the firs
     expect(result.netProfit).toBe(pnl.netProfit)
     expect(retainedCredit(b.db, '2026-03-31')).toBe(pnl.netProfit)
     expect(tbClosing(b.db, b.purchase, '2026-03-31')).toBe(0)
-    // The 31-Mar closing journal sits inside FY1, so the P&L of the closed year and a re-run of
-    // the preview both read 0 (review item 2, not changed — see the WP report). They agree.
+    // Profit reports exclude the flagged closing journal, so the closed year still shows its real
+    // profit, and so does a re-run of the preview.
     const after = profitAndLoss(b.db, '2025-04-01', '2026-03-31')
-    expect(after.netProfit).toBe(0)
-    expect(closePreview(b.db, 2025).netProfit).toBe(0)
+    expect(after.netProfit).toBe(15_000_00)
+    expect(after.tradingExpenses.find((n) => n.name === 'Purchase Accounts')!.amount).toBe(15_000_00)
+    expect(closePreview(b.db, 2025)).toMatchObject({ netProfit: 15_000_00, alreadyClosed: true })
+    expect(cashFlow(b.db, '2025-04-01', '2026-03-31').netProfit).toBe(15_000_00)
     const cfAfter = cashFlow(b.db, '2025-04-01', '2026-03-31')
     expect(cfAfter.netChange).toBe(cfAfter.closingCash - cfAfter.openingCash)
     balanced(b.db, '2026-03-31')

@@ -247,7 +247,7 @@ describe('year-end close of the books’ first FY and stored P&L openings', () =
     // Replicate a pre-WP 1.3 closing journal: FY1 movements only, stored openings left behind.
     const retained = findOrCreateLedger(b.db, 'Retained Earnings', 'Reserves & Surplus')
     const vt = b.db.prepare("SELECT id FROM voucher_types WHERE kind = 'journal'").get() as { id: number }
-    saveVoucher(b.db, {
+    const old = saveVoucher(b.db, {
       voucherTypeId: vt.id, date: '2026-03-31', number: undefined, partyLedgerId: null,
       narration: 'Year-end closing entry [year-end close FY2025]', reference: null,
       instrumentNo: null, instrumentDate: null, transporterId: null, vehicleNo: null, transportDistanceKm: null,
@@ -259,6 +259,8 @@ describe('year-end close of the books’ first FY and stored P&L openings', () =
       ],
       inventory: [], billRefs: [], tds: null
     })
+    // Migration 018 flags such pre-flag closes (its backfill is tested in yearEndFlag.dbtest.ts).
+    b.db.prepare('UPDATE vouchers SET is_year_end_close = 1 WHERE id = ?').run(old.id)
     expect(closePreview(b.db, 2025).alreadyClosed).toBe(true)
 
     const tb2 = trialBalance(b.db, '2027-03-31')

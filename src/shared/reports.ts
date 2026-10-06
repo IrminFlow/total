@@ -19,6 +19,8 @@ export interface DayBookRow {
   isOptional: boolean
   /** Post-dated and not yet matured — kept out of the books until its date arrives (v0.3 S5). */
   postDated: boolean
+  /** Year-end closing journal (vouchers.is_year_end_close) — a real posting, tagged in the list. */
+  yearEndClose?: boolean
 }
 
 export interface LedgerStatementRow {

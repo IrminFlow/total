@@ -345,6 +345,18 @@ describe('migrate', () => {
     expect(row.discount_paise).toBe(0)
   })
 
+  it('018: adds vouchers.is_year_end_close, NOT NULL with a 0 default (backfill: migration018.dbtest.ts)', () => {
+    const db = freshDb()
+    const col = (db.prepare('PRAGMA table_info(vouchers)').all() as { name: string; notnull: number; dflt_value: string | null }[])
+      .find((c) => c.name === 'is_year_end_close')
+    expect(col).toMatchObject({ notnull: 1, dflt_value: '0' })
+    const vtId = db.prepare("INSERT INTO voucher_types (name, kind) VALUES ('Journal (m18)', 'journal')").run().lastInsertRowid
+    const vId = db
+      .prepare("INSERT INTO vouchers (voucher_type_id, date, number) VALUES (?, '2025-04-01', '1')")
+      .run(vtId).lastInsertRowid
+    expect((db.prepare('SELECT is_year_end_close AS f FROM vouchers WHERE id = ?').get(vId) as { f: number }).f).toBe(0)
+  })
+
   it('017: audit_log accepts the expanded action set but still rejects unknown actions', () => {
     const db = freshDb()
     const insert = db.prepare('INSERT INTO audit_log (entity, entity_id, action) VALUES (?, ?, ?)')

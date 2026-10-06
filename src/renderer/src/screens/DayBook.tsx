@@ -75,6 +75,9 @@ const DayBookRowView = memo(function DayBookRowView({
           {row.postDated && (
             <span className="ml-2 rounded bg-blue/10 px-1.5 py-0.5 text-[10px] font-medium text-blue">PDC</span>
           )}
+          {row.yearEndClose && (
+            <span className="ml-2 rounded bg-blue/10 px-1.5 py-0.5 text-[10px] font-medium text-blue">Year-end closing entry</span>
+          )}
         </td>
       )}
       <td className="max-w-56 truncate text-muted">{row.narration}</td>
