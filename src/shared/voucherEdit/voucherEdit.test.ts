@@ -60,6 +60,7 @@ function stored(p: VoucherPayload, over: Partial<Voucher> = {}): Voucher {
     irn: null, irnAckNo: null, irnAckDate: null, ewbNo: null, ewbValidUpto: null,
     postDated: p.postDated ?? false,
     isOptional: p.isOptional ?? false,
+    isYearEndClose: false,
     deletedAt: null,
     createdAt: '2025-05-01 10:00:00',
     updatedAt: '2025-05-01 10:00:00',

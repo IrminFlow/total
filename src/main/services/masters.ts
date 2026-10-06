@@ -77,8 +77,17 @@ export function updateGroup(db: DB, id: number, input: GroupInput): Group {
   if (descendantIds(db, [id]).has(input.parentId)) throw new Error('A group cannot be moved under itself')
   const parent = db.prepare('SELECT * FROM groups WHERE id = ?').get(input.parentId) as GroupRow | undefined
   if (!parent) throw new Error('Parent group not found')
-  db.prepare('UPDATE groups SET name = ?, parent_id = ?, nature = ?, affects_gross_profit = ? WHERE id = ?')
-    .run(input.name, input.parentId, parent.nature, parent.affects_gross_profit, id)
+  // A group's nature/affects-gross-profit always follow its parent's. Cascade to every descendant
+  // group in the same transaction — otherwise a sub-group moved along with its parent keeps the
+  // old nature (e.g. stays 'expense' under an asset group), and reports keyed off g.nature (the
+  // WP 1.3 year-opening rule, P&L/balance-sheet trees) would misclassify its ledgers.
+  db.transaction(() => {
+    db.prepare('UPDATE groups SET name = ?, parent_id = ? WHERE id = ?').run(input.name, input.parentId, id)
+    const subtree = [...descendantIds(db, [id])]
+    const placeholders = subtree.map(() => '?').join(',')
+    db.prepare(`UPDATE groups SET nature = ?, affects_gross_profit = ? WHERE id IN (${placeholders})`)
+      .run(parent.nature, parent.affects_gross_profit, ...subtree)
+  })()
   const updated = mapGroup(db.prepare('SELECT * FROM groups WHERE id = ?').get(id) as GroupRow)
   writeAudit(db, 'group', id, 'update', mapGroup(existing), updated)
   return updated

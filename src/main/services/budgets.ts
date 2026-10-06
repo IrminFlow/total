@@ -7,7 +7,7 @@ import { descendantIds } from './masters'
 import { writeAudit } from './audit'
 // IN_BOOKS, not NOT_DELETED: budget actuals must tie to the P&L for the same period, which
 // excludes optional (memorandum) and unmatured post-dated vouchers.
-import { IN_BOOKS } from './vouchers'
+import { IN_BOOKS, NOT_YEAR_END_CLOSE } from './vouchers'
 
 interface BudgetRow {
   id: number
@@ -106,7 +106,7 @@ export function budgetVarianceReport(db: DB, budgetId: number, upToMonth: string
        JOIN vouchers v ON v.id = vl.voucher_id
        JOIN ledgers l ON l.id = vl.ledger_id
        JOIN groups g ON g.id = l.group_id
-       WHERE v.date BETWEEN ? AND ? AND ${IN_BOOKS}
+       WHERE v.date BETWEEN ? AND ? AND ${IN_BOOKS} AND ${NOT_YEAR_END_CLOSE}
        GROUP BY vl.ledger_id, month`
     )
     .all(fy.from, fy.to) as ActualRow[]

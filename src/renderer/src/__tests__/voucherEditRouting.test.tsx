@@ -43,7 +43,7 @@ function asVoucher(id: number, p: ReturnType<typeof salesPayload>): Voucher {
     reference: p.reference, instrumentNo: p.instrumentNo, instrumentDate: p.instrumentDate, transporterId: p.transporterId,
     vehicleNo: p.vehicleNo, transportDistanceKm: p.transportDistanceKm, posOverride: p.posOverride, currencyCode: p.currencyCode,
     exchangeRate: p.exchangeRate, irn: null, irnAckNo: null, irnAckDate: null, ewbNo: null, ewbValidUpto: null,
-    postDated: false, isOptional: p.isOptional ?? false, deletedAt: null, createdAt: '', updatedAt: '',
+    postDated: false, isOptional: p.isOptional ?? false, isYearEndClose: false, deletedAt: null, createdAt: '', updatedAt: '',
     lines: p.lines.map((l, i) => ({ id: i + 1, ledgerId: l.ledgerId, drCr: l.drCr, amount: l.amount, bankDate: null, costAllocations: [] })),
     inventory: p.inventory.map((l, i) => ({
       id: i + 1, stockItemId: l.stockItemId, godownId: l.godownId ?? null, batchId: l.batchId ?? null, qtyMilli: l.qtyMilli,
@@ -160,5 +160,21 @@ describe('VoucherEntry alteration routing', () => {
     renderEntry(8)
     expect(await mode()).toBe('physical')
     await waitFor(() => expect((screen.getAllByTestId('input-counted-qty')[0] as HTMLInputElement).value).toBe('4.5'))
+  })
+
+  it('shows a year-end closing entry read-only: banner and a disabled form (WP 1.3)', async () => {
+    voucher = { ...asVoucher(11, salesPayload()), isYearEndClose: true }
+    renderEntry(11)
+    const modeEl = await screen.findByTestId('voucher-entry-mode', undefined, { timeout: 3000 })
+    expect(screen.getByTestId('year-end-close-banner').textContent).toMatch(/read-only/)
+    expect((modeEl.closest('fieldset') as HTMLFieldSetElement).disabled).toBe(true)
+  })
+
+  it('leaves ordinary vouchers editable', async () => {
+    voucher = asVoucher(12, salesPayload())
+    renderEntry(12)
+    const modeEl = await screen.findByTestId('voucher-entry-mode', undefined, { timeout: 3000 })
+    expect(screen.queryByTestId('year-end-close-banner')).toBeNull()
+    expect((modeEl.closest('fieldset') as HTMLFieldSetElement).disabled).toBe(false)
   })
 })
