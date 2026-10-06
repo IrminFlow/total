@@ -3,7 +3,8 @@ import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, w
 import { tmpdir } from 'os'
 import { join } from 'path'
 import {
-  APP_SCOPE, SecretsUnavailableError, companyScope, createSecretStore, insecureTestCipher, type SecretCipher
+  APP_SCOPE, SecretsUnavailableError, companyScope, createSecretStore, insecureTestCipher, insecureTestCipherAllowed,
+  type SecretCipher
 } from './secrets'
 
 let dir: string
@@ -107,5 +108,26 @@ describe('secret store', () => {
     writeFileSync(file, '"not an object"')
     expect(() => s.set(APP_SCOPE, 'k2', 'v2')).toThrow(/malformed/)
     expect(existsSync(file)).toBe(true)
+  })
+})
+
+describe('insecureTestCipherAllowed (test-cipher gating)', () => {
+  const on = { TOTAL_DATA_DIR: '/tmp/scratch', TOTAL_INSECURE_TEST_SECRETS: '1' }
+
+  it('allows only the explicit opt-in on a scratch data root in an unpackaged build', () => {
+    expect(insecureTestCipherAllowed(on, false)).toBe(true)
+    // Electron-as-Node: app (so isPackaged) is unknown — only ever the test runner.
+    expect(insecureTestCipherAllowed(on, null)).toBe(true)
+  })
+
+  it('is refused in a packaged build whatever the env says', () => {
+    expect(insecureTestCipherAllowed(on, true)).toBe(false)
+  })
+
+  it('needs both env values, exactly', () => {
+    expect(insecureTestCipherAllowed({ TOTAL_INSECURE_TEST_SECRETS: '1' }, false)).toBe(false)
+    expect(insecureTestCipherAllowed({ TOTAL_DATA_DIR: '/tmp/scratch' }, false)).toBe(false)
+    expect(insecureTestCipherAllowed({ ...on, TOTAL_INSECURE_TEST_SECRETS: 'true' }, false)).toBe(false)
+    expect(insecureTestCipherAllowed({ ...on, TOTAL_DATA_DIR: '' }, false)).toBe(false)
   })
 })

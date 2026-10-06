@@ -134,6 +134,19 @@ export function createSecretStore(opts: { filePath: () => string; cipher: Secret
   }
 }
 
+/**
+ * Whether the non-secure test cipher may be used. All three must hold:
+ * - TOTAL_INSECURE_TEST_SECRETS is exactly '1' (explicit opt-in),
+ * - TOTAL_DATA_DIR is set (a scratch data root, never the real ~/Documents/total),
+ * - the app is NOT packaged (a shipped build never honours the flag, whatever its env).
+ * `isPackaged` is null when it can't be determined (Electron-as-Node: `app` is undefined) —
+ * treated as unpackaged, since that environment is only ever the test runner.
+ */
+export function insecureTestCipherAllowed(env: { TOTAL_DATA_DIR?: string; TOTAL_INSECURE_TEST_SECRETS?: string }, isPackaged: boolean | null): boolean {
+  if (isPackaged === true) return false
+  return !!env.TOTAL_DATA_DIR && env.TOTAL_INSECURE_TEST_SECRETS === '1'
+}
+
 /** In-memory-key test cipher (XOR with a fixed pad + marker) — NOT secure. Used by unit/db tests
  *  and, via TOTAL_INSECURE_TEST_SECRETS, by the hermetic smoke/e2e runs so they never touch the
  *  developer's real keychain. */
