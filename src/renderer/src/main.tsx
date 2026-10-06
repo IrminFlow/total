@@ -3,6 +3,7 @@ import ReactDOM from 'react-dom/client'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import App from './App'
 import { applyTheme, initialTheme } from './state/stores'
+import { bindQueryCacheToCompany } from './lib/companyCache'
 import './app.css'
 
 applyTheme(initialTheme())
@@ -12,6 +13,7 @@ const queryClient = new QueryClient({
     queries: { retry: false, staleTime: 5_000, refetchOnWindowFocus: false }
   }
 })
+bindQueryCacheToCompany(queryClient)
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
