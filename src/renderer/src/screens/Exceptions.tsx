@@ -6,9 +6,19 @@ import { EmptyState, Panel, SectionTitle } from '../components/ui'
 import { DataTable, defineColumns } from '../components/table'
 import { toDisplayDate } from '@shared/dates'
 import type { ExceptionRow, ExceptionSection } from '@shared/reports'
+import { ItemLink, LedgerLink, VoucherLink } from '../components/links'
+
+/** The row's own record, by kind: a voucher's "Type No." opens the voucher, a ledger's name its
+ *  edit window, a stock item's name its editor. */
+function LabelCell({ row }: { row: ExceptionRow }): React.JSX.Element {
+  if (row.voucherId) return <VoucherLink voucherId={row.voucherId} label={row.label} />
+  if (row.ledgerId) return <LedgerLink ledgerId={row.ledgerId} name={row.label} />
+  if (row.stockItemId) return <ItemLink itemId={row.stockItemId} name={row.label} />
+  return <>{row.label}</>
+}
 
 const COLUMNS = defineColumns<ExceptionRow>([
-  { id: 'label', header: 'Item', kind: 'text', value: (r) => r.label, hideable: false },
+  { id: 'label', header: 'Item', kind: 'text', value: (r) => r.label, hideable: false, cell: (r) => <LabelCell row={r} /> },
   { id: 'detail', header: 'Detail', kind: 'text', value: (r) => r.detail, className: 'text-muted' },
   // Not every check carries an amount — rows without one show a blank cell (and sort last).
   { id: 'amount', header: 'Amount', kind: 'money', value: (r) => r.amount, width: 150 }

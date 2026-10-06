@@ -7,6 +7,7 @@ import { DataTable, defineColumns, type RowKey } from '../components/table'
 import { formatMilli } from '../lib/table'
 import { toDisplayDate } from '@shared/dates'
 import type { StockAgeingRow, StockSummaryRow } from '@shared/reports'
+import { ItemLink } from '../components/links'
 
 /** Integer milli → "12.500" at the item's own precision (integer maths, never a float divide). */
 const fmtQty = (qtyMilli: number, decimals: number): string => formatMilli(qtyMilli, decimals)
@@ -25,9 +26,10 @@ export const STOCK_SUMMARY_COLUMNS = defineColumns<StockSummaryRow>([
     hideable: false,
     groupable: false,
     minWidth: 160,
+    // The row expands its godown/batch breakdown; the item NAME opens the item editor.
     cell: (r) => (
       <>
-        {r.name}
+        <ItemLink itemId={r.stockItemId} name={r.name} />
         {r.closingQtyMilli < 0 && <span className="ml-2 text-[11px]">— negative stock, check entries</span>}
       </>
     )
@@ -44,7 +46,16 @@ const flagsText = (r: StockAgeingRow): string =>
   [r.belowReorder && 'reorder', r.slowMoving && 'slow-moving'].filter(Boolean).join(' · ')
 
 const AGEING_COLUMNS = defineColumns<StockAgeingRow>([
-  { id: 'item', header: 'Item', kind: 'text', value: (r) => r.name, hideable: false, groupable: false, minWidth: 160 },
+  {
+    id: 'item',
+    header: 'Item',
+    kind: 'text',
+    value: (r) => r.name,
+    hideable: false,
+    groupable: false,
+    minWidth: 160,
+    cell: (r) => <ItemLink itemId={r.stockItemId} name={r.name} />
+  },
   { id: 'b0', header: '0–30 d', kind: 'quantity', value: (r) => r.buckets[0], text: (r) => bucketText(r.buckets[0], r), width: 116 },
   { id: 'b1', header: '31–60 d', kind: 'quantity', value: (r) => r.buckets[1], text: (r) => bucketText(r.buckets[1], r), width: 116 },
   { id: 'b2', header: '61–90 d', kind: 'quantity', value: (r) => r.buckets[2], text: (r) => bucketText(r.buckets[2], r), width: 116 },

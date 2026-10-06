@@ -12,7 +12,7 @@ interface ShortcutGroup {
 }
 
 /** Mirrors the keydown handlers actually wired up in App.tsx (⌘K/⌘⇧F/Esc/?), CommandPalette (⌘↵), VoucherEntry.tsx
- *  (F4–F9 + the note variants + ⌘↵), and ui.tsx's `useKeyNav` (↑↓↵ on every list screen);
+ *  (F4–F9 + the note variants + ⌘↵), and ui.tsx's `useKeyNav` (↑↓↵ on every list screen), DrillHost (⌘E);
  *  the Gateway group derives from the screen registry's cards, same as Gateway itself. */
 export const SHORTCUT_GROUPS: ShortcutGroup[] = [
   {
@@ -47,7 +47,8 @@ export const SHORTCUT_GROUPS: ShortcutGroup[] = [
     title: 'Lists',
     rows: [
       { keys: ['↑', '↓'], label: 'Move the selection' },
-      { keys: ['↵'], label: 'Open the selected row' }
+      { keys: ['↵'], label: 'Open the selected row' },
+      { keys: ['⌘E'], label: "Edit the selected row's ledger (or click its name)" }
     ]
   }
 ]

@@ -1,18 +1,30 @@
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { api } from '../lib/client'
-import { useNav, useSession, useToasts, type ToastState } from '../state/stores'
+import { useSession, useToasts, type ToastState } from '../state/stores'
 import { Money, Panel, SectionTitle } from '../components/ui'
 import { TabBar } from '../components/TabBar'
 import { DataTable, defineColumns, type RowKey } from '../components/table'
 import { toDisplayDate } from '@shared/dates'
 import { buildReminder } from '@shared/outstanding'
 import type { OutstandingBill, OutstandingParty } from '@shared/reports'
+import { LedgerLink, VoucherLink } from '../components/links'
+import { openLedgerStatement } from '../lib/drill'
 
 const bucket = (i: 0 | 1 | 2 | 3) => (p: OutstandingParty) => p.buckets[i]
 
 export const OUTSTANDING_COLUMNS = defineColumns<OutstandingParty>([
-  { id: 'party', header: 'Party', kind: 'text', value: (p) => p.name, hideable: false, groupable: false, minWidth: 180 },
+  {
+    id: 'party',
+    header: 'Party',
+    kind: 'text',
+    value: (p) => p.name,
+    hideable: false,
+    groupable: false,
+    minWidth: 180,
+    // The row expands its bills; the party NAME opens the ledger's edit window.
+    cell: (p) => <LedgerLink ledgerId={p.ledgerId} name={p.name} />
+  },
   { id: 'bills', header: 'Bills', kind: 'number', value: (p) => p.bills.length, aggregate: 'sum', width: 80, defaultHidden: true },
   { id: 'b0', header: '0–30 d', kind: 'money', value: bucket(0), aggregate: 'sum', width: 130 },
   { id: 'b1', header: '31–60 d', kind: 'money', value: bucket(1), aggregate: 'sum', width: 130 },
@@ -49,7 +61,6 @@ async function remind(companyName: string, partyName: string, bills: Outstanding
 
 /** A party's open bills, shown in its expanded detail row. */
 function BillsDetail({ party }: { party: OutstandingParty }): React.JSX.Element {
-  const nav = useNav()
   return (
     // No <thead>: the outer DataTable's sticky-header rule (.data-table thead th) would pin it.
     <table className="ledger-table" data-testid={`outstandings-bills-${party.ledgerId}`}>
@@ -65,17 +76,7 @@ function BillsDetail({ party }: { party: OutstandingParty }): React.JSX.Element 
         {party.bills.map((b, i) => (
           <tr key={i} className={b.overdueDays > 0 ? 'text-cr' : ''}>
             <td>
-              {b.voucherId ? (
-                <button
-                  type="button"
-                  className="hover:text-blue hover:underline"
-                  onClick={() => nav.go({ name: 'voucher-entry', voucherId: b.voucherId! })}
-                >
-                  {b.number}
-                </button>
-              ) : (
-                b.number
-              )}
+              <VoucherLink voucherId={b.voucherId} label={b.number} className="hover:text-blue" />
             </td>
             <td className="num">{toDisplayDate(b.date)}</td>
             <td className="r num">{b.ageDays} days</td>
@@ -158,23 +159,35 @@ export function OutstandingsScreen(): React.JSX.Element {
           onExpandedChange={setExpanded}
           detailHeightEstimate={80}
           trailing={(p) => (
-            <button
-              type="button"
-              data-testid="btn-outstandings-remind"
-              className="text-[11.5px] text-blue hover:underline"
-              onClick={() => void remind(info?.name ?? '', p.name, p.bills, toast)}
-            >
-              Remind
-            </button>
+            <span className="flex justify-end gap-3">
+              <button
+                type="button"
+                data-testid="btn-outstandings-statement"
+                className="text-[11.5px] text-blue hover:underline"
+                title={`Open ${p.name} statement`}
+                onClick={() => openLedgerStatement(p.ledgerId)}
+              >
+                Statement
+              </button>
+              <button
+                type="button"
+                data-testid="btn-outstandings-remind"
+                className="text-[11.5px] text-blue hover:underline"
+                onClick={() => void remind(info?.name ?? '', p.name, p.bills, toast)}
+              >
+                Remind
+              </button>
+            </span>
           )}
-          trailingWidth={80}
+          trailingWidth={150}
           maxHeight="70vh"
           exportOptions={{ title: `${title} · ageing`, periodLabel, filename: `outstandings-${side}` }}
         />
       </Panel>
       <p className="mt-2 text-[11.5px] text-muted">
         Ageing buckets count days overdue past each bill&apos;s due date (or the bill date when none is set). Receipts settle
-        the oldest bills first. Click a party to see its open bills; click a bill number to open the voucher.
+        the oldest bills first. Click a party row to see its open bills, its name to edit the ledger, or Statement for its
+        ledger statement; click a bill number to open the voucher.
       </p>
     </div>
   )

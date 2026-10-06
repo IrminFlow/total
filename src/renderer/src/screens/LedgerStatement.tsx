@@ -2,12 +2,16 @@ import { useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { api } from '../lib/client'
 import { useNav, useSession } from '../state/stores'
-import { Money, Panel, SectionTitle, SkeletonRows } from '../components/ui'
+import { Button, Money, Panel, SectionTitle, SkeletonRows } from '../components/ui'
 import { TabBar } from '../components/TabBar'
 import { DataTable, defineColumns, type TableColumn } from '../components/table'
 import { slugFilename } from '../lib/reportExport'
 import { toDisplayDate } from '@shared/dates'
 import type { LedgerMonthRow, LedgerStatementRow } from '@shared/reports'
+import { LedgerLink, VoucherLink } from '../components/links'
+import { groupAncestryNames } from '../components/LedgerFormModal'
+import { useGroups, useLedgers } from '../components/pickers'
+import { openLedgerEdit, useCanEditMasters } from '../lib/drill'
 
 const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
 
@@ -35,7 +39,16 @@ function closingAggregate<Row>(allCount: number, closing: number): (rows: Row[])
 export function statementColumns(allCount: number, closing: number): TableColumn<LedgerStatementRow>[] {
   return defineColumns<LedgerStatementRow>([
     { id: 'date', header: 'Date', kind: 'date', value: (r) => r.date, className: 'text-muted', groupKey: (r) => monthLabel(r.date.slice(0, 7)) },
-    { id: 'particulars', header: 'Particulars', kind: 'text', value: (r) => r.particulars, hideable: false, minWidth: 160 },
+    {
+      id: 'particulars',
+      header: 'Particulars',
+      kind: 'text',
+      value: (r) => r.particulars,
+      hideable: false,
+      minWidth: 160,
+      // The row opens the voucher; the counter-ledger NAME opens that ledger's edit window.
+      cell: (r) => <LedgerLink ledgerId={r.particularsLedgerId} name={r.particulars} />
+    },
     {
       id: 'voucher',
       header: 'Type · No.',
@@ -43,7 +56,8 @@ export function statementColumns(allCount: number, closing: number): TableColumn
       value: (r) => `${r.voucherType} ${r.number}`,
       groupKey: (r) => r.voucherType,
       className: 'num text-[12px] text-muted',
-      width: 150
+      width: 150,
+      cell: (r) => <VoucherLink voucherId={r.voucherId} label={`${r.voucherType} ${r.number}`} />
     },
     { id: 'narration', header: 'Narration', kind: 'text', value: (r) => r.narration ?? '', className: 'text-muted', defaultHidden: true, groupable: false },
     { id: 'debit', header: 'Debit', kind: 'money', value: (r) => r.debit, aggregate: 'sum', width: 140 },
@@ -77,6 +91,12 @@ export function LedgerStatementScreen({ ledgerId }: { ledgerId: number }): React
   const closing = data?.closing ?? 0
   const detailCols = useMemo(() => statementColumns(rows.length, closing), [rows.length, closing])
   const monthCols = useMemo(() => monthlyColumns(months.length, closing), [months.length, closing])
+  const canEdit = useCanEditMasters()
+  // Group breadcrumb (root → own group), e.g. "Current Assets › Sundry Debtors".
+  const ledgers = useLedgers()
+  const groups = useGroups()
+  const groupId = ledgers.find((l) => l.id === ledgerId)?.groupId
+  const breadcrumb = groupId != null && groups.length ? groupAncestryNames(groupId, groups).reverse() : []
 
   if (!data) {
     return (
@@ -94,10 +114,20 @@ export function LedgerStatementScreen({ ledgerId }: { ledgerId: number }): React
 
   return (
     <div className="mx-auto max-w-5xl">
+      {breadcrumb.length > 0 && (
+        <nav className="mb-0.5 text-[11.5px] text-muted" aria-label="Ledger group" data-testid="ledger-statement-breadcrumb">
+          {breadcrumb.join(' › ')}
+        </nav>
+      )}
       <SectionTitle
         right={
           <div className="flex items-center gap-3">
             <TabBar screen="ledger-statement" tabs={MODE_TABS} active={mode} onSelect={setMode} />
+            {canEdit && (
+              <Button data-testid="btn-statement-edit-ledger" title="Edit this ledger (⌘E)" onClick={() => openLedgerEdit(ledgerId)}>
+                Edit
+              </Button>
+            )}
             <Money paise={data.closing} signed className="text-[15px]" />
           </div>
         }

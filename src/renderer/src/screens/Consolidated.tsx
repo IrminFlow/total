@@ -8,6 +8,8 @@ import type { ConsolidatedRow } from '@shared/consolidate'
 import { csvReport } from '../lib/reportExport'
 import { toDisplayDate } from '@shared/dates'
 import { plainRupees } from '@shared/money'
+import { LedgerLink } from '../components/links'
+import { isRealId, openLedgerStatement } from '../lib/drill'
 
 type Kind = 'tb' | 'pnl'
 
@@ -16,9 +18,26 @@ const signedOrDash = (v: number | null | undefined): React.JSX.Element =>
 
 /** Name, group, one signed (dr-positive) column per company, then the row total. The cells are
  *  closing balances, so there is no footer sum. */
-export function consolidatedColumns(companies: string[]): TableColumn<ConsolidatedRow>[] {
+/** The open company's own ledger id for a row, or null. `openIndex` is the open company's column
+ *  (-1 when it isn't part of the run) — ids of other companies mean nothing in this one's books. */
+export function openCompanyLedgerId(r: ConsolidatedRow, openIndex: number): number | null {
+  const id = openIndex >= 0 ? (r.ledgerIds?.[openIndex] ?? null) : null
+  return isRealId(id) ? id : null
+}
+
+export function consolidatedColumns(companies: string[], openIndex = -1): TableColumn<ConsolidatedRow>[] {
   return defineColumns<ConsolidatedRow>([
-    { id: 'name', header: 'Name', kind: 'text', value: (r) => r.name, hideable: false, groupable: false, minWidth: 180 },
+    {
+      id: 'name',
+      header: 'Name',
+      kind: 'text',
+      value: (r) => r.name,
+      hideable: false,
+      groupable: false,
+      minWidth: 180,
+      // Links only for ledgers of the company that is open here; other companies' rows stay text.
+      cell: (r) => <LedgerLink ledgerId={openCompanyLedgerId(r, openIndex)} name={r.name} />
+    },
     { id: 'group', header: 'Group', kind: 'text', value: (r) => r.group, className: 'text-muted', minWidth: 140 },
     ...companies.map((company, i) => ({
       id: `co:${company}`,
@@ -34,7 +53,7 @@ export function consolidatedColumns(companies: string[]): TableColumn<Consolidat
 }
 
 export function ConsolidatedScreen(): React.JSX.Element {
-  const { from, to } = useSession()
+  const { from, to, slug: openSlug } = useSession()
   const toast = useToasts()
   const { data: registry } = useQuery({ queryKey: ['company-registry'], queryFn: api.company.list })
   const companies = registry?.companies ?? []
@@ -72,7 +91,10 @@ export function ConsolidatedScreen(): React.JSX.Element {
     if (result.error) toast.push('error', result.error.message)
   }
 
-  const columns = useMemo(() => consolidatedColumns(data?.columns ?? []), [data])
+  // The result's columns follow `slugs` order (the query is keyed on it, so `data` always
+  // matches the current selection); only the open company's ledger ids drill from here.
+  const openIndex = openSlug ? slugs.indexOf(openSlug) : -1
+  const columns = useMemo(() => consolidatedColumns(data?.columns ?? [], openIndex), [data, openIndex])
 
   const exportCsv = async (): Promise<void> => {
     if (!data) return
@@ -180,6 +202,8 @@ export function ConsolidatedScreen(): React.JSX.Element {
             columns={columns}
             rows={data.rows}
             rowKey={(r) => `${r.group}|${r.name}`}
+            isRowActivatable={(r) => openCompanyLedgerId(r, openIndex) != null}
+            onRowActivate={(r) => openLedgerStatement(openCompanyLedgerId(r, openIndex)!)}
             empty={{ title: 'No balances', hint: 'Nothing to show for the selected companies and period' }}
             exportOptions={{
               title: kind === 'tb' ? 'Consolidated trial balance' : 'Consolidated profit & loss',

@@ -2,11 +2,12 @@ import { useCallback, useMemo, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import type { CostCentre } from '@shared/domain'
 import { api, type CcReportRow } from '../lib/client'
-import { useNav, useSession, useToasts } from '../state/stores'
+import { useSession, useToasts } from '../state/stores'
 import { Button, Field, Modal, Money, Panel, SectionTitle, Select, Skeleton, TextInput } from '../components/ui'
 import { DataTable, defineColumns, type RowKey } from '../components/table'
 import { toDisplayDate } from '@shared/dates'
 import { confirmDialog } from '../lib/dialogs'
+import { LedgerLink, VoucherLink } from '../components/links'
 
 /** A centre plus its resolved parent name (the master list shows the name, sorts/groups by it). */
 interface CentreRow extends CostCentre {
@@ -35,7 +36,6 @@ export const CC_REPORT_COLUMNS = defineColumns<CcReportRow>([
 
 export function CostCentresScreen(): React.JSX.Element {
   const { from, to } = useSession()
-  const nav = useNav()
   const toast = useToasts()
   const queryClient = useQueryClient()
   const { data: centres, isLoading: centresLoading } = useQuery({ queryKey: ['costCentres'], queryFn: api.cc.list })
@@ -133,14 +133,7 @@ export function CostCentresScreen(): React.JSX.Element {
           onRowActivate={toggleDrill}
           expanded={drill}
           onExpandedChange={onDrillChange}
-          renderDetail={(r) => (
-            <DrillList
-              ccId={r.costCentreId}
-              from={from}
-              to={to}
-              onOpenVoucher={(voucherId) => nav.go({ name: 'voucher-entry', voucherId })}
-            />
-          )}
+          renderDetail={(r) => <DrillList ccId={r.costCentreId} from={from} to={to} />}
           detailHeightEstimate={72}
           toolbarFeatures={{ groupBy: false }}
           exportOptions={{ title: 'P&L by cost centre', periodLabel, filename: 'cost-centre-pl' }}
@@ -155,17 +148,7 @@ export function CostCentresScreen(): React.JSX.Element {
 }
 
 /** Every allocation posted to one centre in the period — the drill-down under its row. */
-function DrillList({
-  ccId,
-  from,
-  to,
-  onOpenVoucher
-}: {
-  ccId: number
-  from: string
-  to: string
-  onOpenVoucher: (voucherId: number) => void
-}): React.JSX.Element {
+function DrillList({ ccId, from, to }: { ccId: number; from: string; to: string }): React.JSX.Element {
   const { data, isLoading } = useQuery({ queryKey: ['ccStatement', ccId, from, to], queryFn: () => api.cc.statement(ccId, from, to) })
   const rows = data ?? []
   if (isLoading) {
@@ -184,12 +167,12 @@ function DrillList({
         {rows.map((r, i) => (
           <tr key={i}>
             <td className="w-28 py-0.5 pr-3">
-              <button className="num text-muted hover:text-blue hover:underline" onClick={() => onOpenVoucher(r.voucherId)}>
-                {r.number}
-              </button>
+              <VoucherLink voucherId={r.voucherId} label={r.number} className="num text-muted hover:text-blue" />
             </td>
             <td className="num w-24 py-0.5 pr-3 text-muted">{toDisplayDate(r.date)}</td>
-            <td className="py-0.5 pr-3 text-muted">{r.ledgerName}</td>
+            <td className="py-0.5 pr-3 text-muted">
+              <LedgerLink ledgerId={r.ledgerId} name={r.ledgerName} />
+            </td>
             <td className="w-40 py-0.5 text-right">
               <Money paise={r.drCr === 'dr' ? r.amount : -r.amount} signed />
             </td>
