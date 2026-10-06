@@ -119,7 +119,7 @@ describe('CommandPalette', () => {
     renderPalette()
     type('umbrella')
     await screen.findByTestId('palette-hit-voucher-42')
-    expect(lastSearch).toMatchObject({ q: 'umbrella', limitPerKind: 20, fyStartYear: 2026 })
+    expect(lastSearch).toMatchObject({ q: 'umbrella', limitPerKind: 6, fyStartYear: 2026 })
     const vouchers = screen.getByTestId('palette-section-kind-voucher')
     expect(vouchers.textContent).toContain('Vouchers')
     expect(vouchers.textContent).toContain('312')
@@ -176,8 +176,25 @@ describe('CommandPalette', () => {
     expect(screen.getByTestId('palette-recent-ledger').textContent).toContain('Umbrella Retail')
     expect(screen.getByTestId('palette-recent-item').textContent).toContain('Office Chair')
     expect(screen.getByTestId('palette-help').textContent).toContain('amt:>50000')
-    // Enter on a recent search refills the box with it.
+    // Recents sit BELOW the commands: the default selection is still the first command.
+    const sections = [...document.querySelectorAll('[data-testid^="palette-section-"]')].map((s) => s.getAttribute('data-testid'))
+    expect(sections).toEqual(['palette-section-commands', 'palette-section-recent-q', 'palette-section-recent-r'])
+    const active = document.querySelector('.kbar-row[data-active="true"]')
+    expect(active?.textContent).toContain('New voucher')
+  })
+
+  it('⌘K then ↵ on an empty query still runs New voucher, even with recents stored', async () => {
+    localStorage.setItem(recentsKey('acme-co'), JSON.stringify(withQuery(EMPTY_RECENTS, 'amt:>50000')))
+    const { onClose } = renderPalette()
     fireEvent.keyDown(input(), { key: 'Enter' })
+    expect(onClose).toHaveBeenCalled()
+    await waitFor(() => expect(useNav.getState().stack.at(-1)).toEqual({ name: 'voucher-entry' }))
+  })
+
+  it('a recent search, once selected, refills the box', async () => {
+    localStorage.setItem(recentsKey('acme-co'), JSON.stringify(withQuery(EMPTY_RECENTS, 'amt:>50000')))
+    renderPalette()
+    fireEvent.click(screen.getByTestId('palette-recent-query'))
     expect(input().value).toBe('amt:>50000')
   })
 

@@ -52,8 +52,9 @@ interface Group {
 const KINDS: SearchKind[] = ['ledger', 'item', 'voucher']
 const SECTION_KEY: Record<SearchKind, 'ledgers' | 'items' | 'vouchers'> = { ledger: 'ledgers', item: 'items', voucher: 'vouchers' }
 
-/** Rows per kind (the roadmap's "20 results per kind in the palette"). */
-const PALETTE_LIMIT = 20
+/** Rows per kind in the palette — kept short; the "See all N" row opens the results screen.
+ *  Counts in the section headers are the true totals from the service. */
+const PALETTE_LIMIT = 6
 
 export function CommandPalette({ onClose }: { onClose: () => void }): React.JSX.Element {
   const nav = useNav()
@@ -185,18 +186,24 @@ export function CommandPalette({ onClose }: { onClose: () => void }): React.JSX.
 
   const groups = useMemo<Group[]>(() => {
     const out: Group[] = []
-    if (query.trim() === '') {
+    const empty = query.trim() === ''
+    const hasRecents = empty && recents.queries.length + recents.vouchers.length + recents.ledgers.length + recents.items.length > 0
+    // Commands always come first, so ⌘K then ↵ still runs what it always ran (New voucher);
+    // recents sit below them and are never the default selection.
+    if (filtered.length) {
+      out.push({ key: 'commands', title: hasRecents || live ? 'Commands' : null, items: filtered.map((cmd) => ({ type: 'command', cmd })) })
+    }
+    if (hasRecents) {
       if (recents.queries.length) {
         out.push({ key: 'recent-q', title: 'Recent searches', items: recents.queries.map((q) => ({ type: 'recent-query', q })) })
       }
       const recentRecords: NavItem[] = [
-        ...recents.vouchers.slice(0, 10).map((rec) => ({ type: 'recent-record' as const, kind: 'voucher' as const, rec })),
-        ...recents.ledgers.slice(0, 10).map((rec) => ({ type: 'recent-record' as const, kind: 'ledger' as const, rec })),
-        ...recents.items.slice(0, 10).map((rec) => ({ type: 'recent-record' as const, kind: 'item' as const, rec }))
+        ...recents.vouchers.map((rec) => ({ type: 'recent-record' as const, kind: 'voucher' as const, rec })),
+        ...recents.ledgers.map((rec) => ({ type: 'recent-record' as const, kind: 'ledger' as const, rec })),
+        ...recents.items.map((rec) => ({ type: 'recent-record' as const, kind: 'item' as const, rec }))
       ]
       if (recentRecords.length) out.push({ key: 'recent-r', title: 'Recently opened', items: recentRecords })
     }
-    if (filtered.length) out.push({ key: 'commands', title: out.length || live ? 'Commands' : null, items: filtered.map((cmd) => ({ type: 'command', cmd })) })
     if (live) {
       for (const k of KINDS) {
         const sec = live[SECTION_KEY[k]] as SearchSection<SearchResult> | null
