@@ -2,38 +2,93 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useInfiniteQuery, useQuery } from '@tanstack/react-query'
 import { api } from '../lib/client'
 import { useSession } from '../state/stores'
-import { Button, EmptyState, Kbd, Money, Panel, SectionTitle, SkeletonRows, TextInput, useKeyNav } from '../components/ui'
+import { Button, EmptyState, Kbd, Panel, SectionTitle, SkeletonRows, TextInput } from '../components/ui'
+import { DataTable, defineColumns, type TableColumn } from '../components/table'
 import { TabBar } from '../components/TabBar'
-import {
-  Highlight,
-  KIND_TITLE,
-  QueryChips,
-  SYNTAX_HINTS,
-  VoucherBadges,
-  matchHint,
-  recentRecordFor,
-  useOpenRecord
-} from '../components/SearchParts'
+import { Highlight, KIND_TITLE, QueryChips, SYNTAX_HINTS, VoucherBadges, matchHint, recentRecordFor, useOpenRecord } from '../components/SearchParts'
 import { rememberQuery } from '../lib/searchRecents'
 import { isEmptyQuery, parseSearchQuery, removeToken, type SearchKind } from '@shared/searchQuery'
-import type { ItemResult, LedgerResult, SearchResponse, SearchResult, SearchSection, VoucherResult } from '@shared/search'
-import { fyOf, todayISO, toDisplayDate } from '@shared/dates'
+import type { ItemResult, LedgerResult, SearchResponse, SearchResult, VoucherResult } from '@shared/search'
+import { fyOf, todayISO } from '@shared/dates'
 
 /** Window event App.tsx fires on ⌘⇧F while this screen is already open — refocus the query box. */
 export const FOCUS_SEARCH_EVENT = 'total:focus-search'
 
-/** Rows per "Load more" page on a single-kind tab. */
-const PAGE = 50
-/** Rows per kind on the All tab (same as the palette). */
+/** Rows per kind on the All tab (overview; "See all" opens the kind's tab). */
 const OVERVIEW = 20
+/** Rows per IPC page on a kind tab (the service's max). */
+const PAGE = 200
+/** Rows a kind tab loads before asking — and the step of each "Load more". */
+const LOAD_STEP = 1000
 
 type Tab = 'all' | SearchKind
 const KINDS: SearchKind[] = ['ledger', 'item', 'voucher']
 const SECTION_KEY: Record<SearchKind, 'ledgers' | 'items' | 'vouchers'> = { ledger: 'ledgers', item: 'items', voucher: 'vouchers' }
+const AREA: Record<SearchKind, string> = { ledger: 'search-ledgers', item: 'search-items', voucher: 'search-vouchers' }
+
+/** A result plus its relevance position — the table's input order IS the ranking; the hidden
+ *  "Rank" column lets the user sort back to it after sorting by something else. */
+type Ranked<T> = T & { rank: number }
+
+// Columns read the free-text terms for highlighting from module state set during render — the
+// column arrays must stay module-level (DataTable memoises on their identity).
+let highlightTerms: string[] = []
+const hl = (text: string | null): React.ReactNode => (text ? <Highlight text={text} terms={highlightTerms} /> : '')
+
+const RANK = { id: 'rank', header: 'Rank', kind: 'number' as const, value: (r: { rank: number }) => r.rank, defaultHidden: true, width: 70, groupable: false }
+
+const LEDGER_COLUMNS = defineColumns<Ranked<LedgerResult>>([
+  { id: 'name', header: 'Ledger', kind: 'text', value: (r) => r.name, hideable: false, cell: (r) => hl(r.name) },
+  { id: 'group', header: 'Group', kind: 'text', value: (r) => r.groupName, className: 'text-muted' },
+  { id: 'gstin', header: 'GSTIN', kind: 'text', value: (r) => r.gstin, cell: (r) => <span className="num text-muted">{hl(r.gstin)}</span>, width: 170 },
+  { id: 'pan', header: 'PAN', kind: 'text', value: (r) => r.pan, defaultHidden: true, width: 120 },
+  { id: 'matched', header: 'Matched', kind: 'text', value: (r) => matchHint(r), cell: (r) => <span className="text-[12px] text-muted">{hl(matchHint(r))}</span>, groupable: false },
+  RANK
+])
+
+const ITEM_COLUMNS = defineColumns<Ranked<ItemResult>>([
+  { id: 'name', header: 'Item', kind: 'text', value: (r) => r.name, hideable: false, cell: (r) => hl(r.name) },
+  { id: 'group', header: 'Stock group', kind: 'text', value: (r) => r.groupName, className: 'text-muted' },
+  { id: 'hsn', header: 'HSN', kind: 'text', value: (r) => r.hsn, cell: (r) => <span className="num text-muted">{hl(r.hsn)}</span>, width: 110 },
+  { id: 'barcode', header: 'Barcode', kind: 'text', value: (r) => r.barcode, cell: (r) => <span className="num text-muted">{hl(r.barcode)}</span>, width: 150 },
+  { id: 'matched', header: 'Matched', kind: 'text', value: (r) => matchHint(r), defaultHidden: true, groupable: false },
+  RANK
+])
+
+const VOUCHER_COLUMNS = defineColumns<Ranked<VoucherResult>>([
+  { id: 'date', header: 'Date', kind: 'date', value: (r) => r.date, className: 'text-muted', width: 110 },
+  { id: 'type', header: 'Type', kind: 'text', value: (r) => r.typeName, className: 'text-muted', width: 120 },
+  { id: 'number', header: 'No.', kind: 'text', value: (r) => r.number, cell: (r) => <span className="num">{hl(r.number)}</span>, width: 110 },
+  {
+    id: 'party', header: 'Party', kind: 'text', value: (r) => r.party, hideable: false,
+    text: (r) => (r.party ?? '') + (r.isOptional ? ' [Optional]' : '') + (r.postDated ? ' [PDC]' : ''),
+    cell: (r) => <>{r.party ? hl(r.party) : <span className="text-muted">–</span>}<VoucherBadges v={r} /></>
+  },
+  {
+    id: 'narration', header: 'Narration / matched', kind: 'text', value: (r) => matchHint(r) ?? r.narration, groupable: false,
+    cell: (r) => <span className="text-[12.5px] text-muted">{hl(matchHint(r) ?? r.narration)}</span>
+  },
+  { id: 'amount', header: 'Amount', kind: 'money', value: (r) => r.amount, width: 140 },
+  RANK
+])
+
+function columnsFor(kind: SearchKind): TableColumn<Ranked<SearchResult>>[] {
+  return (kind === 'ledger' ? LEDGER_COLUMNS : kind === 'item' ? ITEM_COLUMNS : VOUCHER_COLUMNS) as unknown as TableColumn<Ranked<SearchResult>>[]
+}
+
+const ranked = <T,>(rows: readonly T[], from = 0): Ranked<T>[] => rows.map((r, i) => ({ ...r, rank: from + i + 1 }))
 
 function useSearchContext(): { today: string; fyStartYear: number } {
   const from = useSession((s) => s.from)
   return useMemo(() => ({ today: todayISO(), fyStartYear: fyOf(from).startYear }), [from])
+}
+
+/** Give the keyboard to the first results table (DataTable claims it on focus inside its root). */
+function focusFirstTable(): void {
+  const root = document.querySelector<HTMLElement>('[data-search-results] .data-table-wrap')
+  if (!root) return
+  root.tabIndex = -1
+  root.focus({ preventScroll: true })
 }
 
 export function SearchResultsScreen({ q = '', kind }: { q?: string; kind?: SearchKind }): React.JSX.Element {
@@ -41,6 +96,7 @@ export function SearchResultsScreen({ q = '', kind }: { q?: string; kind?: Searc
   const [input, setInput] = useState(q)
   const [query, setQuery] = useState(q.trim())
   const [tab, setTab] = useState<Tab>(kind ?? 'all')
+  const [cap, setCap] = useState(LOAD_STEP)
   const inputRef = useRef<HTMLInputElement>(null)
   const openRecord = useOpenRecord()
 
@@ -48,6 +104,7 @@ export function SearchResultsScreen({ q = '', kind }: { q?: string; kind?: Searc
     const t = setTimeout(() => setQuery(input.trim()), 200)
     return () => clearTimeout(t)
   }, [input])
+  useEffect(() => setCap(LOAD_STEP), [query, tab])
 
   useEffect(() => {
     const focus = (): void => inputRef.current?.focus()
@@ -65,18 +122,28 @@ export function SearchResultsScreen({ q = '', kind }: { q?: string; kind?: Searc
     placeholderData: (prev) => prev
   })
 
+  const kindKey = tab === 'all' ? null : SECTION_KEY[tab]
   const paged = useInfiniteQuery({
     queryKey: ['searchResults', query, ctx.today, ctx.fyStartYear, tab],
-    queryFn: ({ pageParam }) =>
-      api.search.query({ q: query, ...ctx, kind: tab as SearchKind, limitPerKind: PAGE, offset: pageParam }),
+    queryFn: ({ pageParam }) => api.search.query({ q: query, ...ctx, kind: tab as SearchKind, limitPerKind: PAGE, offset: pageParam }),
     initialPageParam: 0,
     getNextPageParam: (last: SearchResponse, all: SearchResponse[]) => {
-      const sec = last[SECTION_KEY[tab as SearchKind]]
-      const loaded = all.reduce((n, p) => n + (p[SECTION_KEY[tab as SearchKind]]?.rows.length ?? 0), 0)
+      const sec = kindKey ? last[kindKey] : null
+      const loaded = all.reduce((n, p) => n + (kindKey ? (p[kindKey]?.rows.length ?? 0) : 0), 0)
       return sec && loaded < sec.total ? loaded : undefined
     },
     enabled: enabled && tab !== 'all'
   })
+
+  const kindRows = useMemo(
+    () => (kindKey ? ranked((paged.data?.pages ?? []).flatMap((p) => (p[kindKey]?.rows ?? []) as SearchResult[])) : []),
+    [paged.data, kindKey]
+  )
+  // Load pages of 200 in the background up to `cap` rows, so the table sorts and filters a
+  // complete result set for any ordinary search; beyond that the user asks for more.
+  useEffect(() => {
+    if (paged.hasNextPage && !paged.isFetchingNextPage && kindRows.length < cap) void paged.fetchNextPage()
+  }, [paged, kindRows.length, cap])
 
   const data = enabled ? overview.data : undefined
   const totals: Record<SearchKind, number> = {
@@ -85,24 +152,9 @@ export function SearchResultsScreen({ q = '', kind }: { q?: string; kind?: Searc
     voucher: data?.vouchers?.total ?? 0
   }
   const grand = totals.ledger + totals.item + totals.voucher
-  const terms = data?.terms ?? parsed.terms.map((t) => t.text)
+  highlightTerms = data?.terms ?? parsed.terms.map((t) => t.text)
 
-  // Flattened, keyboard-navigable rows for the visible tab.
-  const rows = useMemo<SearchResult[]>(() => {
-    if (!enabled) return []
-    if (tab === 'all') {
-      if (!data) return []
-      return [...(data.ledgers?.rows ?? []), ...(data.items?.rows ?? []), ...(data.vouchers?.rows ?? [])]
-    }
-    return (paged.data?.pages ?? []).flatMap((p) => (p[SECTION_KEY[tab]]?.rows ?? []) as SearchResult[])
-  }, [enabled, tab, data, paged.data])
-
-  const open = (r: SearchResult | undefined): void => {
-    if (!r) return
-    openRecord(r.kind, recentRecordFor(r), query)
-  }
-  const { active, setActive } = useKeyNav(rows.length, (i) => open(rows[i]))
-  useEffect(() => setActive(0), [tab, query, setActive])
+  const open = (r: SearchResult): void => openRecord(r.kind, recentRecordFor(r), query)
 
   const tabs = [
     { id: 'all' as Tab, label: enabled && data ? `All · ${grand}` : 'All' },
@@ -114,15 +166,11 @@ export function SearchResultsScreen({ q = '', kind }: { q?: string; kind?: Searc
     inputRef.current?.focus()
   }
 
-  let offset = 0
-  const sectionStart = (k: SearchKind): number => {
-    const start = offset
-    offset += data?.[SECTION_KEY[k]]?.rows.length ?? 0
-    return start
-  }
+  const kindTotal = tab === 'all' ? 0 : totals[tab]
+  const loadingMore = paged.isFetching && kindRows.length < Math.min(cap, kindTotal)
 
   return (
-    <div className="mx-auto max-w-5xl">
+    <div className="mx-auto max-w-5xl" data-search-results>
       <SectionTitle right={<span className="text-[12px] text-muted"><Kbd>⌘⇧F</Kbd> from anywhere</span>}>Search</SectionTitle>
       <div className="mb-3 flex flex-col gap-2">
         <TextInput
@@ -135,11 +183,12 @@ export function SearchResultsScreen({ q = '', kind }: { q?: string; kind?: Searc
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={(e) => {
             if (e.key === 'ArrowDown' || e.key === 'Enter') {
-              // Hand the keyboard to the result list (useKeyNav ignores keys aimed at inputs).
+              // Hand the keyboard to the first results table (tables ignore keys aimed at inputs).
               e.preventDefault()
               setQuery(input.trim())
               if (input.trim().length >= 2) rememberQuery(useSession.getState().slug, input.trim())
               e.currentTarget.blur()
+              focusFirstTable()
             }
           }}
         />
@@ -161,167 +210,70 @@ export function SearchResultsScreen({ q = '', kind }: { q?: string; kind?: Searc
         ) : (
           <div className="flex flex-col gap-4">
             {KINDS.filter((k) => totals[k] > 0).map((k) => {
-              const start = sectionStart(k)
-              const sec = data[SECTION_KEY[k]] as SearchSection<SearchResult>
+              const sec = data[SECTION_KEY[k]]!
               return (
                 <Panel key={k}>
                   <div className="flex items-center justify-between border-b border-line px-4 py-2">
                     <p className="text-[11px] font-semibold tracking-[0.08em] text-muted uppercase">
-                      {KIND_TITLE[k]} <span className="num font-normal normal-case tracking-normal">· showing {sec.rows.length} of {sec.total}</span>
+                      {KIND_TITLE[k]}{' '}
+                      <span className="num font-normal normal-case tracking-normal">· showing {sec.rows.length} of {sec.total}</span>
                     </p>
                     {sec.total > sec.rows.length && (
-                      <button
-                        data-testid={`btn-search-show-all-${k}`}
-                        className="text-[12px] text-blue hover:underline"
-                        onClick={() => setTab(k)}
-                      >
+                      <button data-testid={`btn-search-show-all-${k}`} className="text-[12px] text-blue hover:underline" onClick={() => setTab(k)}>
                         See all {sec.total}
                       </button>
                     )}
                   </div>
-                  <ResultTable kind={k} rows={sec.rows} start={start} active={active} terms={terms} onHover={setActive} onOpen={open} />
+                  {/* Overview: relevance order, no toolbar (sorting/export live on the kind tab). */}
+                  <DataTable
+                    testId={AREA[k]}
+                    ariaLabel={KIND_TITLE[k]}
+                    columns={columnsFor(k)}
+                    rows={ranked(sec.rows as SearchResult[])}
+                    rowKey={(r) => r.id}
+                    rowAttrs={(r) => ({ 'data-row-id': r.id })}
+                    onRowActivate={open}
+                    toolbar={false}
+                    maxHeight="none"
+                  />
                 </Panel>
               )
             })}
           </div>
         )
       ) : (
-        <KindTab
-          kind={tab}
-          rows={rows}
-          total={totals[tab]}
-          loading={paged.isLoading}
-          hasMore={!!paged.hasNextPage}
-          loadingMore={paged.isFetchingNextPage}
-          onMore={() => void paged.fetchNextPage()}
-          active={active}
-          terms={terms}
-          onHover={setActive}
-          onOpen={open}
-        />
+        <Panel>
+          <DataTable
+            testId={AREA[tab]}
+            ariaLabel={KIND_TITLE[tab]}
+            columns={columnsFor(tab)}
+            rows={kindRows}
+            rowKey={(r) => r.id}
+            rowAttrs={(r) => ({ 'data-row-id': r.id })}
+            onRowActivate={open}
+            loading={paged.isLoading}
+            empty={{ title: `No ${KIND_TITLE[tab].toLowerCase()} match` }}
+            exportOptions={{
+              title: `Search — ${KIND_TITLE[tab]}`,
+              periodLabel: `“${query}”`,
+              filename: `search-${SECTION_KEY[tab]}`,
+              footNote: kindRows.length < kindTotal ? `First ${kindRows.length} of ${kindTotal} matches, by relevance.` : undefined
+            }}
+          />
+          <div className="flex items-center justify-between border-t border-line px-4 py-2 text-[12px] text-muted">
+            <span className="num" data-testid="search-loaded">
+              {loadingMore ? `Loading… ${kindRows.length} of ${kindTotal}` : `Loaded ${kindRows.length} of ${kindTotal}`}
+              {kindRows.length < kindTotal && !loadingMore && ' · sorting and filters apply to the loaded rows'}
+            </span>
+            {!loadingMore && kindRows.length < kindTotal && (
+              <Button data-testid="btn-search-load-more" onClick={() => setCap((c) => c + LOAD_STEP)}>
+                Load {Math.min(LOAD_STEP, kindTotal - kindRows.length).toLocaleString('en-IN')} more
+              </Button>
+            )}
+          </div>
+        </Panel>
       )}
     </div>
-  )
-}
-
-function KindTab({
-  kind, rows, total, loading, hasMore, loadingMore, onMore, active, terms, onHover, onOpen
-}: {
-  kind: SearchKind
-  rows: SearchResult[]
-  total: number
-  loading: boolean
-  hasMore: boolean
-  loadingMore: boolean
-  onMore: () => void
-  active: number
-  terms: string[]
-  onHover: (i: number) => void
-  onOpen: (r: SearchResult) => void
-}): React.JSX.Element {
-  if (loading) return <Panel><SkeletonRows rows={8} /></Panel>
-  if (rows.length === 0) return <Panel><EmptyState title={`No ${KIND_TITLE[kind].toLowerCase()} match`} /></Panel>
-  return (
-    <Panel>
-      <ResultTable kind={kind} rows={rows} start={0} active={active} terms={terms} onHover={onHover} onOpen={onOpen} />
-      <div className="flex items-center justify-between border-t border-line px-4 py-2 text-[12px] text-muted">
-        <span className="num">Showing {rows.length} of {total}</span>
-        {hasMore && (
-          <Button data-testid="btn-search-load-more" onClick={onMore} disabled={loadingMore}>
-            {loadingMore ? 'Loading…' : 'Load more'}
-          </Button>
-        )}
-      </div>
-    </Panel>
-  )
-}
-
-function ResultTable({
-  kind, rows, start, active, terms, onHover, onOpen
-}: {
-  kind: SearchKind
-  rows: SearchResult[]
-  /** Index of rows[0] in the screen's flattened keyboard list. */
-  start: number
-  active: number
-  terms: string[]
-  onHover: (i: number) => void
-  onOpen: (r: SearchResult) => void
-}): React.JSX.Element {
-  const rowProps = (r: SearchResult, j: number): React.HTMLAttributes<HTMLTableRowElement> & Record<string, unknown> => ({
-    'data-active': start + j === active,
-    'data-row-id': r.id,
-    className: 'kbar-row cursor-pointer',
-    onMouseEnter: () => onHover(start + j),
-    onClick: () => onOpen(r)
-  })
-  if (kind === 'ledger') {
-    return (
-      <table className="ledger-table">
-        <thead>
-          <tr><th>Ledger</th><th>Group</th><th>GSTIN</th><th>Matched</th></tr>
-        </thead>
-        <tbody data-testid="rows-search-ledgers">
-          {(rows as LedgerResult[]).map((r, j) => (
-            <tr key={r.id} {...rowProps(r, j)}>
-              <td><Highlight text={r.name} terms={terms} /></td>
-              <td className="text-muted">{r.groupName}</td>
-              <td className="num text-muted">{r.gstin ? <Highlight text={r.gstin} terms={terms} /> : ''}</td>
-              <td className="max-w-64 truncate text-[12px] text-muted">{matchHint(r) && <Highlight text={matchHint(r)!} terms={terms} />}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    )
-  }
-  if (kind === 'item') {
-    return (
-      <table className="ledger-table">
-        <thead>
-          <tr><th>Item</th><th>Stock group</th><th className="w-28">HSN</th><th className="w-36">Barcode</th></tr>
-        </thead>
-        <tbody data-testid="rows-search-items">
-          {(rows as ItemResult[]).map((r, j) => (
-            <tr key={r.id} {...rowProps(r, j)}>
-              <td><Highlight text={r.name} terms={terms} /></td>
-              <td className="text-muted">{r.groupName ?? ''}</td>
-              <td className="num text-muted">{r.hsn ? <Highlight text={r.hsn} terms={terms} /> : ''}</td>
-              <td className="num text-muted">{r.barcode ? <Highlight text={r.barcode} terms={terms} /> : ''}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    )
-  }
-  return (
-    <table className="ledger-table">
-      <thead>
-        <tr>
-          <th className="w-28">Date</th><th className="w-28">Type</th><th className="w-28">No.</th><th>Party</th><th>Narration / matched</th>
-          <th className="r w-32">Amount</th>
-        </tr>
-      </thead>
-      <tbody data-testid="rows-search-vouchers">
-        {(rows as VoucherResult[]).map((r, j) => {
-          const hint = matchHint(r)
-          return (
-            <tr key={r.id} {...rowProps(r, j)}>
-              <td className="num whitespace-nowrap text-muted">{toDisplayDate(r.date)}</td>
-              <td className="whitespace-nowrap text-muted">{r.typeName}</td>
-              <td className="num whitespace-nowrap"><Highlight text={r.number} terms={terms} /></td>
-              <td>
-                {r.party ? <Highlight text={r.party} terms={terms} /> : <span className="text-muted">–</span>}
-                <VoucherBadges v={r} />
-              </td>
-              <td className="max-w-72 truncate text-[12.5px] text-muted">
-                {hint ? <Highlight text={hint} terms={terms} /> : r.narration ? <Highlight text={r.narration} terms={terms} /> : ''}
-              </td>
-              <td className="r"><Money paise={r.amount} /></td>
-            </tr>
-          )
-        })}
-      </tbody>
-    </table>
   )
 }
 

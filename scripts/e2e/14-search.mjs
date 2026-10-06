@@ -81,7 +81,8 @@ await scenario('14-search', async (h) => {
   await h.page.waitForSelector('[data-testid="rows-search-vouchers"] tr', { timeout: 10000 })
   const tab = await h.page.getAttribute('[data-testid="tab-search-voucher"]', 'aria-current')
   assert(tab === 'page', 'See all lands on the Vouchers tab')
-  const shown = (await h.page.$$('[data-testid="rows-search-vouchers"] tr')).length
+  await h.page.waitForSelector('[data-testid="search-loaded"]:has-text("Loaded")', { timeout: 10000 })
+  const shown = (await h.page.$$('[data-testid="rows-search-vouchers"] tr[data-row-id]')).length
   assert(shown > 20, `the kind tab shows more than the palette's 20 (${shown})`)
   await h.shot('08-results-vouchers-light')
   await setTheme(h, 'dark')
@@ -95,9 +96,19 @@ await scenario('14-search', async (h) => {
   await h.page.waitForSelector('[data-testid="palette-recent-voucher"]', { timeout: 10000 })
   const recentText = await h.page.textContent('[data-testid="palette-section-recent-r"]')
   assert(recentText.includes('Krishna Enterprises'), 'recently opened ledger is listed')
+  // Muscle memory: the default selection on an empty palette is still the first command.
+  const defaultRow = await h.page.textContent('[data-testid="palette"] .kbar-row[data-active="true"]')
+  assert(defaultRow.includes('New voucher'), `empty palette selects "New voucher" first (got ${defaultRow})`)
+  await h.page.evaluate(() => document.querySelector('[data-testid="palette-section-recent-q"]')?.scrollIntoView({ block: 'start' }))
   await h.shot('10-palette-recents-dark')
   await setTheme(h, 'light')
   await h.shot('11-palette-recents-light')
   await h.page.keyboard.press('Escape')
   await h.page.waitForSelector('[data-testid="input-palette"]', { state: 'detached', timeout: 10000 })
+
+  // ⌘K then ↵ still runs New voucher with recents stored.
+  await h.page.keyboard.press('Control+k')
+  await h.page.waitForSelector('[data-testid="input-palette"]', { timeout: 10000 })
+  await h.page.keyboard.press('Enter')
+  await h.waitScreen('voucher-entry', 20000)
 })

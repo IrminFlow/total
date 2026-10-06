@@ -191,6 +191,16 @@ describe('CommandPalette', () => {
     await waitFor(() => expect(useNav.getState().stack.at(-1)).toEqual({ name: 'voucher-entry' }))
   })
 
+  it('a row appearing under a stationary cursor does not steal the default selection', async () => {
+    renderPalette()
+    const rows = (): Element[] => [...document.querySelectorAll('.kbar-row')]
+    fireEvent.mouseEnter(rows()[3]!)
+    expect(rows()[0]!.getAttribute('data-active')).toBe('true')
+    fireEvent.mouseMove(screen.getByTestId('palette'))
+    fireEvent.mouseEnter(rows()[3]!)
+    expect(rows()[3]!.getAttribute('data-active')).toBe('true')
+  })
+
   it('a recent search, once selected, refills the box', async () => {
     localStorage.setItem(recentsKey('acme-co'), JSON.stringify(withQuery(EMPTY_RECENTS, 'amt:>50000')))
     renderPalette()

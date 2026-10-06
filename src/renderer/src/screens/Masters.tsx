@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
+import { useDeepLinkOpen } from '../lib/useDeepLinkOpen'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import type { Godown, Ledger, StockGroup, StockItem, VoucherType } from '@shared/domain'
 import { filterLedgers, type ChartGroupNode } from '@shared/chartOfAccounts'
@@ -498,17 +499,7 @@ function ItemsTab({ openItemId }: { openItemId?: number }): React.JSX.Element {
   const items = useStockItems()
   const { data: units } = useQuery({ queryKey: ['units'], queryFn: api.units.list })
   const [editing, setEditing] = useState<StockItem | 'new' | null>(null)
-  // Deep link (search results): open that item's editor once the list has it — once only, so
-  // closing the editor doesn't immediately reopen it.
-  const [deepLinked, setDeepLinked] = useState(false)
-  useEffect(() => {
-    if (deepLinked || openItemId == null) return
-    const target = items.find((i) => i.id === openItemId)
-    if (target) {
-      setEditing(target)
-      setDeepLinked(true)
-    }
-  }, [items, openItemId, deepLinked])
+  useDeepLinkOpen(items, openItemId, setEditing) // search results → this item's editor
   const unitMap = new Map((units ?? []).map((u) => [u.id, u.symbol]))
 
   return (

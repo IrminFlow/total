@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { useNav, useSession, useToasts, type Screen } from '../state/stores'
 import { api } from '../lib/client'
@@ -218,6 +218,9 @@ export function CommandPalette({ onClose }: { onClose: () => void }): React.JSX.
 
   const navItems = useMemo(() => groups.flatMap((g) => g.items), [groups])
   const { active, setActive } = useKeyNav(navItems.length, () => {}, false)
+  // A row appearing under a stationary cursor fires mouseenter; only a real mouse move may steal
+  // the selection, so ⌘K then ↵ always runs the default (first) row.
+  const pointerMoved = useRef(false)
 
   const openSearchScreen = (kind?: SearchKind): void => {
     const q = query.trim()
@@ -257,6 +260,9 @@ export function CommandPalette({ onClose }: { onClose: () => void }): React.JSX.
         className="w-full max-w-2xl overflow-hidden rounded-xl border border-line bg-panel shadow-2xl"
         data-testid="palette"
         onMouseDown={(e) => e.stopPropagation()}
+        onMouseMove={() => {
+          if (!pointerMoved.current) pointerMoved.current = true
+        }}
       >
         <input
           autoFocus
@@ -298,7 +304,9 @@ export function CommandPalette({ onClose }: { onClose: () => void }): React.JSX.
                     item={item}
                     active={i === active}
                     terms={terms}
-                    onHover={() => setActive(i)}
+                    onHover={() => {
+                      if (pointerMoved.current) setActive(i)
+                    }}
                     onRun={() => runItem(item)}
                   />
                 )
