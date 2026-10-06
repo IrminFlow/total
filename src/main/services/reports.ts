@@ -540,26 +540,38 @@ export function ledgerStatement(db: DB, ledgerId: number, from: string, to: stri
 }
 
 /** Masters → Groups chart of accounts: every group with its ledgers as leaves, closing balances
- *  as on `asOn` from the same closing-balance pass the balance sheet / cash flow use (opening +
- *  in-books movements, soft-deleted / post-dated / optional vouchers excluded). Unlike the trial
- *  balance, zero-balance ledgers are kept and there is no synthetic opening-stock row — this is a
- *  list of masters, not a statement. */
+ *  as on `asOn` from the same per-ledger pass as the trial balance (yearBasisBalances; in-books
+ *  movements only, soft-deleted / post-dated / optional vouchers excluded), so every leaf equals
+ *  its trial-balance row. Asset/liability balances are cumulative; income/expense ledgers — and
+ *  so their group totals — are current-financial-year figures (FY containing `asOn`; WP 1.3).
+ *  Unlike the trial balance, zero-balance ledgers are kept and there are no synthetic rows (no
+ *  opening-stock row, no computed P&L opening row) — this is a list of masters, not a statement. */
 export function chartOfAccounts(db: DB, asOn: string): ChartGroupNode[] {
-  const balances = closingBalances(db, asOn)
+  const balances = new Map(
+    yearBasisBalances(db, asOn).rows.map((r) => [r.ledgerId, r.opening + r.movementDebit - r.movementCredit])
+  )
   const ledgers = db.prepare('SELECT id, name, group_id AS groupId, gstin, pan FROM ledgers').all() as ChartLedgerInput[]
   return buildChartOfAccounts(listGroups(db), ledgers, (id) => balances.get(id) ?? 0)
 }
 
-export function trialBalance(db: DB, asOn: string): TrialBalance {
-  // Opening + gross Dr/Cr movement per ledger in one grouped pass; closing derives from them.
-  // WP 1.3: income/expense ledgers show only the FY containing `asOn` (stored opening only in
-  // the books' first FY) — the *Fy columns carry that window. Every P&L amount dropped that way
-  // (earlier years not carried to Retained Earnings by a year-end close) is summed into a
-  // computed "Profit & Loss A/c (opening)" row, so the trial balance still balances.
-  // Companies that closed their first FY before WP 1.3 have a closing journal that netted FY
-  // movements only, leaving stored P&L openings un-transferred; those journals are not rewritten,
-  // so the computed row legitimately shows that residue in later years and the TB still balances
-  // (the row is derived from exactly what the FY window drops, whatever was posted).
+interface YearBasisRow {
+  ledgerId: number; ledgerName: string; groupName: string; groupId: number
+  /** Opening / gross Dr / gross Cr under the year-opening basis as on `asOn`. */
+  opening: number; movementDebit: number; movementCredit: number
+}
+
+/**
+ * Per-ledger balances as on `asOn` under the year-opening rule (@shared/yearOpening) — the single
+ * source for the trial balance and the chart of accounts, so the two never disagree. Opening +
+ * gross Dr/Cr movement per ledger in one grouped pass; closing = opening + Dr − Cr.
+ * Asset/liability ledgers: stored opening + all in-books movements up to `asOn`. Income/expense
+ * ledgers: only the FY containing `asOn` (stored opening only in the books' first FY) — the *Fy
+ * columns carry that window. `priorPnl` (dr-positive) is everything the FY window drops from the
+ * P&L ledgers, i.e. earlier years not carried to Retained Earnings by a year-end close.
+ * (`closingBalances` stays cumulative: its callers — balance sheet, cash flow, dashboard,
+ * exceptions — only read asset/liability ledgers from it.)
+ */
+function yearBasisBalances(db: DB, asOn: string): { rows: YearBasisRow[]; priorPnl: number } {
   const plBasis = balanceBasis('income', asOn, readBooksFromYear(db))
   const rawRows = db
     .prepare(
@@ -597,6 +609,18 @@ export function trialBalance(db: DB, asOn: string): TrialBalance {
     priorPnl += (r.opening + r.movementDebit - r.movementCredit) - (opening + movementDebitFy - movementCreditFy)
     return fyRow
   })
+  return { rows, priorPnl }
+}
+
+export function trialBalance(db: DB, asOn: string): TrialBalance {
+  // WP 1.3: income/expense ledgers show only the FY containing `asOn` (yearBasisBalances). Every
+  // P&L amount dropped that way is summed into a computed "Profit & Loss A/c (opening)" row, so
+  // the trial balance still balances. Companies that closed their first FY before WP 1.3 have a
+  // closing journal that netted FY movements only, leaving stored P&L openings un-transferred;
+  // those journals are not rewritten, so the computed row legitimately shows that residue in
+  // later years and the TB still balances (the row is derived from exactly what the FY window
+  // drops, whatever was posted).
+  const { rows, priorPnl } = yearBasisBalances(db, asOn)
 
   const result = rows
     .map((r) => {
