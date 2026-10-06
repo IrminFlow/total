@@ -129,19 +129,16 @@ export function DayBook({ month, kind }: { month?: string; kind?: string } = {})
     <div className="mx-auto max-w-6xl">
       <SectionTitle
         right={
-          <Select
-            data-testid="input-daybook-scope"
-            value={scope}
-            onChange={(e) => setScope(e.target.value as Scope)}
-            className="w-40"
-            aria-label="Voucher scope"
-          >
-            {SCOPE_LABELS.map((s) => (
-              <option key={s.value} value={s.value}>
-                {s.label}
-              </option>
-            ))}
-          </Select>
+          // inputCls is w-full — the wrapper sets the width.
+          <div className="w-40">
+            <Select data-testid="input-daybook-scope" value={scope} onChange={(e) => setScope(e.target.value as Scope)} aria-label="Voucher scope">
+              {SCOPE_LABELS.map((s) => (
+                <option key={s.value} value={s.value}>
+                  {s.label}
+                </option>
+              ))}
+            </Select>
+          </div>
         }
       >
         Day book

@@ -28,7 +28,7 @@ export const REGISTER_COLUMNS = defineColumns<RegisterMonthRow>([
     groupable: false,
     className: 'text-blue'
   },
-  { id: 'vouchers', header: 'Vouchers', kind: 'number', value: (r) => r.vouchers, aggregate: 'sum', width: 110 },
+  { id: 'vouchers', header: 'Vouchers', kind: 'number', value: (r) => r.vouchers, aggregate: 'sum', width: 130 },
   { id: 'taxable', header: 'Taxable value', kind: 'money', value: (r) => r.taxable, aggregate: 'sum', width: 160 },
   { id: 'tax', header: 'GST', kind: 'money', value: (r) => r.tax, aggregate: 'sum', width: 150 },
   { id: 'total', header: 'Invoice total', kind: 'money', value: (r) => r.total, aggregate: 'sum', width: 160 }
@@ -74,7 +74,7 @@ export const ITEM_PROFIT_COLUMNS = defineColumns<ItemProfitRow>([
     value: (r) => (r.salesValue !== 0 ? (r.profit / r.salesValue) * 100 : null),
     text: (r) => marginOf(r.profit, r.salesValue),
     className: 'text-muted',
-    width: 100,
+    width: 120,
     // The footer margin is profit over sales of the rows in scope, not a sum of percentages.
     aggregate: (rows) =>
       marginOf(

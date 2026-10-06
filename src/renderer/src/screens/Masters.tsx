@@ -443,9 +443,9 @@ export const ITEM_COLUMNS = defineColumns<ItemRow>([
   { id: 'name', header: 'Name', kind: 'text', value: (i) => i.name, hideable: false, groupable: false, minWidth: 180 },
   { id: 'unit', header: 'Unit', kind: 'text', value: (i) => i.unitSymbol, className: 'text-muted', width: 90 },
   { id: 'hsn', header: 'HSN', kind: 'text', value: (i) => i.hsn ?? '', className: 'num text-muted', width: 110 },
-  { id: 'gstRate', header: 'GST %', kind: 'number', value: (i) => i.gstRate, text: (i) => (i.gstRate == null ? '–' : String(i.gstRate)), width: 90, groupable: true },
+  { id: 'gstRate', header: 'GST %', kind: 'number', value: (i) => i.gstRate, text: (i) => (i.gstRate == null ? '–' : String(i.gstRate)), width: 110, groupable: true },
   // Integer thousandths, shown to the item's unit decimals. Mixed units never total.
-  { id: 'openingQty', header: 'Opening qty', kind: 'quantity', value: (i) => i.openingQtyMilli, text: (i) => formatMilli(i.openingQtyMilli, i.unitDecimals), width: 120 },
+  { id: 'openingQty', header: 'Opening qty', kind: 'quantity', value: (i) => i.openingQtyMilli, text: (i) => formatMilli(i.openingQtyMilli, i.unitDecimals), width: 150 },
   { id: 'openingValue', header: 'Opening value', kind: 'money', value: (i) => i.openingValue, aggregate: 'sum', width: 150, defaultHidden: true },
   { id: 'barcode', header: 'Barcode', kind: 'text', value: (i) => i.barcode ?? '', className: 'num text-muted', width: 140, groupable: false, defaultHidden: true }
 ])
@@ -674,7 +674,7 @@ function ItemFormModal({ item, onClose }: { item: StockItem | null; onClose: () 
 const UNIT_COLUMNS = defineColumns<Unit>([
   { id: 'name', header: 'Name', kind: 'text', value: (u) => u.name, hideable: false, groupable: false },
   { id: 'symbol', header: 'Symbol', kind: 'text', value: (u) => u.symbol, className: 'text-muted', width: 110, groupable: false },
-  { id: 'decimals', header: 'Decimals', kind: 'number', value: (u) => u.decimals, width: 110 },
+  { id: 'decimals', header: 'Decimals', kind: 'number', value: (u) => u.decimals, width: 130 },
   { id: 'uqc', header: 'UQC', kind: 'text', value: (u) => u.uqc, className: 'num text-muted', width: 110 }
 ])
 
