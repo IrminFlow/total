@@ -10,6 +10,7 @@ import { rememberQuery } from '../lib/searchRecents'
 import { isEmptyQuery, parseSearchQuery, removeToken, type SearchKind } from '@shared/searchQuery'
 import type { ItemResult, LedgerResult, SearchResponse, SearchResult, VoucherResult } from '@shared/search'
 import { fyOf, todayISO } from '@shared/dates'
+import { ItemLink, LedgerLink } from '../components/links'
 
 /** Window event App.tsx fires on ⌘⇧F while this screen is already open — refocus the query box. */
 export const FOCUS_SEARCH_EVENT = 'total:focus-search'
@@ -38,7 +39,11 @@ const hl = (text: string | null): React.ReactNode => (text ? <Highlight text={te
 const RANK = { id: 'rank', header: 'Rank', kind: 'number' as const, value: (r: { rank: number }) => r.rank, defaultHidden: true, width: 70, groupable: false }
 
 const LEDGER_COLUMNS = defineColumns<Ranked<LedgerResult>>([
-  { id: 'name', header: 'Ledger', kind: 'text', value: (r) => r.name, hideable: false, cell: (r) => hl(r.name) },
+  {
+    id: 'name', header: 'Ledger', kind: 'text', value: (r) => r.name, hideable: false,
+    // Name → edit window; the rest of the row (or Enter) → statement.
+    cell: (r) => <LedgerLink ledgerId={r.id} name={r.name}>{hl(r.name)}</LedgerLink>
+  },
   { id: 'group', header: 'Group', kind: 'text', value: (r) => r.groupName, className: 'text-muted' },
   { id: 'gstin', header: 'GSTIN', kind: 'text', value: (r) => r.gstin, cell: (r) => <span className="num text-muted">{hl(r.gstin)}</span>, width: 170 },
   { id: 'pan', header: 'PAN', kind: 'text', value: (r) => r.pan, defaultHidden: true, width: 120 },
@@ -47,7 +52,7 @@ const LEDGER_COLUMNS = defineColumns<Ranked<LedgerResult>>([
 ])
 
 const ITEM_COLUMNS = defineColumns<Ranked<ItemResult>>([
-  { id: 'name', header: 'Item', kind: 'text', value: (r) => r.name, hideable: false, cell: (r) => hl(r.name) },
+  { id: 'name', header: 'Item', kind: 'text', value: (r) => r.name, hideable: false, cell: (r) => <ItemLink itemId={r.id} name={r.name}>{hl(r.name)}</ItemLink> },
   { id: 'group', header: 'Stock group', kind: 'text', value: (r) => r.groupName, className: 'text-muted' },
   { id: 'hsn', header: 'HSN', kind: 'text', value: (r) => r.hsn, cell: (r) => <span className="num text-muted">{hl(r.hsn)}</span>, width: 110 },
   { id: 'barcode', header: 'Barcode', kind: 'text', value: (r) => r.barcode, cell: (r) => <span className="num text-muted">{hl(r.barcode)}</span>, width: 150 },
@@ -62,7 +67,12 @@ const VOUCHER_COLUMNS = defineColumns<Ranked<VoucherResult>>([
   {
     id: 'party', header: 'Party', kind: 'text', value: (r) => r.party, hideable: false,
     text: (r) => (r.party ?? '') + (r.isOptional ? ' [Optional]' : '') + (r.postDated ? ' [PDC]' : ''),
-    cell: (r) => <>{r.party ? hl(r.party) : <span className="text-muted">–</span>}<VoucherBadges v={r} /></>
+    cell: (r) => (
+      <>
+        {r.party ? <LedgerLink ledgerId={r.partyLedgerId} name={r.party}>{hl(r.party)}</LedgerLink> : <span className="text-muted">–</span>}
+        <VoucherBadges v={r} />
+      </>
+    )
   },
   {
     id: 'narration', header: 'Narration / matched', kind: 'text', value: (r) => matchHint(r) ?? r.narration, groupable: false,

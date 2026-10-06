@@ -31,6 +31,8 @@ export interface PurchaseDoc {
   number: string
   /** The supplier's invoice number as entered on the voucher (vouchers.reference). */
   supplierRef: string | null
+  /** The voucher's party ledger (WP 1.8 drill-down); absent/null when it has none. */
+  partyLedgerId?: number | null
   partyName: string | null
   partyGstin: string | null
   invoiceValue: number

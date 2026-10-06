@@ -61,6 +61,7 @@ const edoc = (voucherId: number, number: string, date: string, docType: EdocList
   number,
   date,
   docType,
+  partyLedgerId: partyName ? 9 : null,
   partyName,
   partyGstin: partyName ? '27BBBBB0000B1Z5' : null,
   total,

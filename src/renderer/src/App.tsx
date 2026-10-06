@@ -36,6 +36,7 @@ import { ShortcutHelp } from './components/ShortcutHelp'
 import { ErrorBoundary } from './components/ErrorBoundary'
 import { LockScreen } from './components/LockScreen'
 import { DialogHost } from './components/dialogs'
+import { DrillHost } from './components/DrillHost'
 import { invalidationFamilies } from './lib/screens'
 
 export default function App(): React.JSX.Element {
@@ -163,6 +164,7 @@ export default function App(): React.JSX.Element {
       </Shell>
       {paletteOpen && <CommandPalette onClose={() => setPaletteOpen(false)} />}
       {helpOpen && <ShortcutHelp onClose={() => setHelpOpen(false)} />}
+      <DrillHost />
       {integrityModal}
       <DialogHost />
       <Toasts />

@@ -6,6 +6,8 @@ import { Button, Panel, SectionTitle } from '../components/ui'
 import { DataTable, defineColumns } from '../components/table'
 import { todayISO, toDisplayDate } from '@shared/dates'
 import type { TrialBalanceRow } from '@shared/reports'
+import { LedgerLink } from '../components/links'
+import { isRealId, openLedgerStatement } from '../lib/drill'
 
 type Step =
   | { kind: 'pick' }
@@ -40,7 +42,16 @@ const WARNINGS_PREVIEW = 8
 
 /** Closing balances by side — the debit and credit totals must tie, exactly like Tally's TB. */
 const TB_COLUMNS = defineColumns<TrialBalanceRow>([
-  { id: 'ledger', header: 'Ledger', kind: 'text', value: (r) => r.ledgerName, hideable: false, groupable: false, minWidth: 180 },
+  {
+    id: 'ledger',
+    header: 'Ledger',
+    kind: 'text',
+    value: (r) => r.ledgerName,
+    hideable: false,
+    groupable: false,
+    minWidth: 180,
+    cell: (r) => <LedgerLink ledgerId={r.ledgerId} name={r.ledgerName} />
+  },
   { id: 'group', header: 'Group', kind: 'text', value: (r) => r.groupName, className: 'text-muted', minWidth: 140 },
   { id: 'debit', header: 'Debit', kind: 'money', value: (r) => r.debit, width: 160, aggregate: 'sum' },
   { id: 'credit', header: 'Credit', kind: 'money', value: (r) => r.credit, width: 160, aggregate: 'sum' }
@@ -217,6 +228,8 @@ function DoneStep({ summary, onGateway }: { summary: TallyImportSummary; onGatew
           rows={rows}
           rowKey={(r) => r.ledgerId}
           rowAttrs={(r) => ({ 'data-row-id': r.ledgerId })}
+          isRowActivatable={(r) => isRealId(r.ledgerId)}
+          onRowActivate={(r) => openLedgerStatement(r.ledgerId)}
           loading={!tb}
           maxHeight="60vh"
           empty={{ title: 'No balances yet' }}

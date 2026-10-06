@@ -8,6 +8,8 @@ import { upcomingDeadlines, type Deadline } from '@shared/compliance'
 import { useFeatures } from '../lib/useFeatures'
 import type { CashSparkPoint, TopLedgerRow } from '@shared/reports'
 import { CARD_SCREENS } from '../lib/screens'
+import { LedgerLink, drillRowProps } from '../components/links'
+import { openLedgerStatement } from '../lib/drill'
 
 /** Cards derived from the single screen registry (lib/screens.ts). */
 const CARDS: { name: string; label: string; sub: string; screen: Screen; key: string; feature?: (typeof CARD_SCREENS)[number]['feature'] }[] =
@@ -121,16 +123,18 @@ export function Gateway(): React.JSX.Element {
             </p>
             <ScrollList maxH="20rem">
               {data.recentVouchers.map((v) => (
-                <button
+                // The row opens the voucher; the account NAME opens its ledger's edit window.
+                <div
                   key={v.voucherId}
-                  className="flex w-full items-center gap-4 border-b border-line/40 px-5 py-2 text-left last:border-b-0 hover:bg-panel2"
-                  onClick={() => nav.go({ name: 'voucher-entry', voucherId: v.voucherId })}
+                  data-testid="recent-voucher"
+                  className="flex w-full cursor-pointer items-center gap-4 border-b border-line/40 px-5 py-2 text-left last:border-b-0 hover:bg-panel2 focus-visible:bg-panel2 focus-visible:outline-none"
+                  {...drillRowProps(() => nav.go({ name: 'voucher-entry', voucherId: v.voucherId }), v.accountLedgerId ?? undefined)}
                 >
                   <span className="num w-20 text-[12px] text-muted">{toDisplayDate(v.date)}</span>
                   <span className="w-24 text-[12.5px] text-muted">{v.voucherType}</span>
                   <span className="num w-14 text-[12px] text-muted">{v.number}</span>
                   <span className="flex-1 truncate text-[13px]">
-                    {v.account}
+                    <LedgerLink ledgerId={v.accountLedgerId} name={v.account} />
                     {v.isOptional && (
                       <span data-testid="recent-badge-optional" className="ml-2 rounded bg-amber/15 px-1.5 py-0.5 text-[10px] font-medium text-amber">Optional</span>
                     )}
@@ -139,7 +143,7 @@ export function Gateway(): React.JSX.Element {
                     )}
                   </span>
                   <Money paise={v.debit} className="text-[13px]" />
-                </button>
+                </div>
               ))}
             </ScrollList>
           </Panel>
@@ -282,9 +286,8 @@ function OnboardingChecklist({ partyCount, itemCount }: { partyCount: number; it
   )
 }
 
-/** Shared by "Top receivables" / "Top payables" — rows navigate straight to the ledger's statement. */
+/** Shared by "Top receivables" / "Top payables" — rows open the ledger's statement, names its edit window. */
 function TopLedgersPanel({ title, rows }: { title: string; rows: TopLedgerRow[] }): React.JSX.Element {
-  const nav = useNav()
   return (
     <Panel className="flex min-h-0 flex-1 flex-col">
       <p className="shrink-0 border-b border-line px-5 py-2.5 text-[11px] font-semibold tracking-[0.08em] text-muted uppercase">
@@ -295,14 +298,19 @@ function TopLedgersPanel({ title, rows }: { title: string; rows: TopLedgerRow[] 
       ) : (
         <ScrollList maxH="340px" className="min-h-0 flex-1">
           {rows.map((r) => (
-            <button
+            // Name → the ledger's edit window; the rest of the row → its statement.
+            <div
               key={r.ledgerId}
-              onClick={() => nav.go({ name: 'ledger-statement', ledgerId: r.ledgerId })}
-              className="flex w-full items-center gap-3 border-b border-line/40 px-5 py-2 text-left last:border-b-0 hover:bg-panel2"
+              data-testid="top-ledger"
+              title={`Open ${r.name} statement`}
+              {...drillRowProps(() => openLedgerStatement(r.ledgerId), r.ledgerId)}
+              className="flex w-full cursor-pointer items-center gap-3 border-b border-line/40 px-5 py-2 text-left last:border-b-0 hover:bg-panel2 focus-visible:bg-panel2 focus-visible:outline-none"
             >
-              <span className="flex-1 truncate text-[13px]">{r.name}</span>
+              <span className="flex-1 truncate text-[13px]">
+                <LedgerLink ledgerId={r.ledgerId} name={r.name} />
+              </span>
               <Money paise={r.amount} className="text-[13px]" />
-            </button>
+            </div>
           ))}
         </ScrollList>
       )}

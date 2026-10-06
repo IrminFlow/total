@@ -12,6 +12,8 @@ export interface ConsolidateInputRow {
   dr: number
   /** Signed paise, credit side. */
   cr: number
+  /** The company's own ledger id for this row, when it is a real ledger (WP 1.8 drill-down). */
+  ledgerId?: number
 }
 
 export interface ConsolidateCompanyInput {
@@ -26,6 +28,9 @@ export interface ConsolidatedRow {
   perCompany: (number | null)[]
   /** Row-wise sum of the non-null cells. */
   total: number
+  /** Per input company, that company's ledger id for this row (null where it has none). Only
+   *  present when the inputs carried ledger ids. Ids are only meaningful inside their own company. */
+  ledgerIds?: (number | null)[]
 }
 
 /** Shape returned by the `consol:run` IPC channel and the main-process consolidated() service. */
@@ -49,26 +54,31 @@ export function mergeByName(perCompany: ConsolidateCompanyInput[]): Consolidated
     name: string
     group: string
     values: (number | null)[]
+    ids: (number | null)[]
   }
   const byKey = new Map<string, Acc>()
+  const withIds = perCompany.some((c) => c.rows.some((r) => r.ledgerId != null))
 
   perCompany.forEach((company, colIndex) => {
-    const perNameValue = new Map<string, { name: string; group: string; value: number }>()
+    const perNameValue = new Map<string, { name: string; group: string; value: number; ledgerId: number | null }>()
     for (const row of company.rows) {
       const key = normalize(row.name)
       const value = row.dr - row.cr
       const existing = perNameValue.get(key)
-      if (existing) existing.value += value
-      else perNameValue.set(key, { name: row.name, group: row.group, value })
+      if (existing) {
+        existing.value += value
+        existing.ledgerId ??= row.ledgerId ?? null
+      } else perNameValue.set(key, { name: row.name, group: row.group, value, ledgerId: row.ledgerId ?? null })
     }
 
     for (const [key, entry] of perNameValue) {
       let acc = byKey.get(key)
       if (!acc) {
-        acc = { name: entry.name, group: entry.group, values: perCompany.map(() => null) }
+        acc = { name: entry.name, group: entry.group, values: perCompany.map(() => null), ids: perCompany.map(() => null) }
         byKey.set(key, acc)
       }
       acc.values[colIndex] = entry.value
+      acc.ids[colIndex] = entry.ledgerId
     }
   })
 
@@ -77,7 +87,8 @@ export function mergeByName(perCompany: ConsolidateCompanyInput[]): Consolidated
       name: acc.name,
       group: acc.group,
       perCompany: acc.values,
-      total: acc.values.reduce((s: number, v) => s + (v ?? 0), 0)
+      total: acc.values.reduce((s: number, v) => s + (v ?? 0), 0),
+      ...(withIds ? { ledgerIds: acc.ids } : {})
     }))
     .sort((a, b) => a.name.localeCompare(b.name))
 }

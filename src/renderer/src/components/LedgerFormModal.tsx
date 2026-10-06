@@ -63,16 +63,32 @@ export function groupAncestryNames(groupId: number, groups: Group[]): string[] {
  *  the modal resolves the ledger from the ['ledgers'] query itself (for report drill-downs that
  *  only carry an id). */
 export function LedgerFormModal(
-  props: { ledger: Ledger | null; ledgerId?: undefined; onClose: () => void } | { ledgerId: number; ledger?: undefined; onClose: () => void }
+  props: (
+    | { ledger: Ledger | null; ledgerId?: undefined; onClose: () => void }
+    | { ledgerId: number; ledger?: undefined; onClose: () => void }
+  ) & {
+    /** When set, an existing ledger's window offers "Statement" (the drill-down host passes it). */
+    onOpenStatement?: (ledgerId: number) => void
+  }
 ): React.JSX.Element {
-  if (props.ledgerId !== undefined) return <LedgerByIdModal ledgerId={props.ledgerId} onClose={props.onClose} />
-  return <LedgerForm ledger={props.ledger ?? null} onClose={props.onClose} />
+  if (props.ledgerId !== undefined) {
+    return <LedgerByIdModal ledgerId={props.ledgerId} onClose={props.onClose} onOpenStatement={props.onOpenStatement} />
+  }
+  return <LedgerForm ledger={props.ledger ?? null} onClose={props.onClose} onOpenStatement={props.onOpenStatement} />
 }
 
-function LedgerByIdModal({ ledgerId, onClose }: { ledgerId: number; onClose: () => void }): React.JSX.Element {
+function LedgerByIdModal({
+  ledgerId,
+  onClose,
+  onOpenStatement
+}: {
+  ledgerId: number
+  onClose: () => void
+  onOpenStatement?: (ledgerId: number) => void
+}): React.JSX.Element {
   const { data: ledgers, isLoading, error } = useQuery({ queryKey: ['ledgers'], queryFn: api.ledgers.list })
   const ledger = ledgers?.find((l) => l.id === ledgerId)
-  if (ledger) return <LedgerForm key={ledger.id} ledger={ledger} onClose={onClose} />
+  if (ledger) return <LedgerForm key={ledger.id} ledger={ledger} onClose={onClose} onOpenStatement={onOpenStatement} />
   return (
     <Modal title="Edit ledger" onClose={onClose}>
       <p className="text-[13px] text-muted">
@@ -82,7 +98,15 @@ function LedgerByIdModal({ ledgerId, onClose }: { ledgerId: number; onClose: () 
   )
 }
 
-function LedgerForm({ ledger, onClose }: { ledger: Ledger | null; onClose: () => void }): React.JSX.Element {
+function LedgerForm({
+  ledger,
+  onClose,
+  onOpenStatement
+}: {
+  ledger: Ledger | null
+  onClose: () => void
+  onOpenStatement?: (ledgerId: number) => void
+}): React.JSX.Element {
   const groups = useGroups()
   const toast = useToasts()
   const queryClient = useQueryClient()
@@ -299,6 +323,11 @@ function LedgerForm({ ledger, onClose }: { ledger: Ledger | null; onClose: () =>
         <div className="flex justify-between">
           <div>{ledger && !ledger.isSystem && <Button variant="danger" onClick={() => void remove()}>Delete</Button>}</div>
           <div className="flex gap-2">
+            {ledger && onOpenStatement && (
+              <Button data-testid="btn-ledger-statement" title="Open this ledger's statement" onClick={() => onOpenStatement(ledger.id)}>
+                Statement
+              </Button>
+            )}
             <Button onClick={onClose}>Cancel</Button>
             <Button variant="primary" data-testid="btn-ledger-save" onClick={() => void save()}>
               Save ledger

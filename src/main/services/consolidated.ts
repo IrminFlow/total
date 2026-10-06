@@ -26,7 +26,8 @@ function flattenPnl(pnl: ProfitAndLoss): ConsolidateInputRow[] {
           group: groupName,
           name: node.name,
           dr: side === 'dr' ? node.amount : 0,
-          cr: side === 'cr' ? node.amount : 0
+          cr: side === 'cr' ? node.amount : 0,
+          ...(node.id > 0 ? { ledgerId: node.id } : {})
         })
       } else {
         walk(node.children, side, node.name)
@@ -67,7 +68,9 @@ export function consolidated(slugs: string[], kind: ConsolidatedKind, from: stri
         warnings.push(`${label}: schema is out of date and can't be migrated read-only — skipped`)
       } else if (kind === 'tb') {
         const tb = reports.trialBalance(db, to)
-        rows = tb.rows.map((r) => ({ group: r.groupName, name: r.ledgerName, dr: r.debit, cr: r.credit }))
+        rows = tb.rows.map((r) => ({
+          group: r.groupName, name: r.ledgerName, dr: r.debit, cr: r.credit, ...(r.ledgerId > 0 ? { ledgerId: r.ledgerId } : {})
+        }))
       } else {
         rows = flattenPnl(reports.profitAndLoss(db, from, to))
       }

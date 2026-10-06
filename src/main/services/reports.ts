@@ -248,7 +248,7 @@ export function exceptions(db: DB, from: string, to: string): ExceptionsReport {
 
   const negStock = stockSummary(db, to)
     .filter((r) => r.closingQtyMilli < 0)
-    .map((r) => ({ label: r.name, detail: `Closing quantity ${r.closingQtyMilli / 1000} ${r.unitSymbol}` }))
+    .map((r) => ({ label: r.name, detail: `Closing quantity ${r.closingQtyMilli / 1000} ${r.unitSymbol}`, stockItemId: r.stockItemId }))
   section('negativeStock', 'Negative stock', negStock)
 
   const cashIds = descendantIdSet(listGroups(db), ['Cash-in-Hand'])
@@ -385,6 +385,7 @@ export function dayBook(
       `SELECT v.id AS voucherId, v.date, vt.name AS voucherType, vt.kind AS kind, v.number, v.narration,
               v.is_optional AS isOptional, v.post_dated AS postDated, v.is_year_end_close AS yearEndClose,
               COALESCE(pl.name, fl.name, '') AS account,
+              COALESCE(pl.id, fl.id) AS accountLedgerId,
               COALESCE(anet.net, 0) AS accountNet
        FROM vouchers v
        JOIN voucher_types vt ON vt.id = v.voucher_type_id
@@ -404,7 +405,7 @@ export function dayBook(
     )
     .all(from, to) as {
       voucherId: number; date: string; voucherType: string; kind: string; number: string
-      narration: string | null; account: string; accountNet: number
+      narration: string | null; account: string; accountLedgerId: number | null; accountNet: number
       isOptional: number; postDated: number; yearEndClose: number
     }[]
   return rows.map((r) => ({
@@ -414,6 +415,7 @@ export function dayBook(
     kind: r.kind,
     number: r.number,
     account: r.account,
+    accountLedgerId: r.accountLedgerId ?? null,
     narration: r.narration,
     debit: r.accountNet > 0 ? r.accountNet : 0,
     credit: r.accountNet < 0 ? -r.accountNet : 0,
@@ -486,18 +488,20 @@ export function ledgerStatement(db: DB, ledgerId: number, from: string, to: stri
   // vouchers plus JS grouping, replacing the correlated GROUP_CONCAT subquery per line.
   const voucherIds = [...new Set(lineRows.map((r) => r.voucherId))]
   const namesBySide = new Map<string, string[]>() // `${voucherId}|${drCr}` -> distinct names, first-seen order
+  const firstIdBySide = new Map<string, number>() // `${voucherId}|${drCr}` -> first-seen ledger id
   if (voucherIds.length > 0) {
     const placeholders = voucherIds.map(() => '?').join(',')
     const counterRows = db
       .prepare(
-        `SELECT vl2.voucher_id AS voucherId, vl2.dr_cr AS drCr, l2.name
+        `SELECT vl2.voucher_id AS voucherId, vl2.dr_cr AS drCr, l2.id AS ledgerId, l2.name
          FROM voucher_lines vl2 JOIN ledgers l2 ON l2.id = vl2.ledger_id
          WHERE vl2.voucher_id IN (${placeholders})
          ORDER BY vl2.id`
       )
-      .all(...voucherIds) as { voucherId: number; drCr: 'dr' | 'cr'; name: string }[]
+      .all(...voucherIds) as { voucherId: number; drCr: 'dr' | 'cr'; ledgerId: number; name: string }[]
     for (const r of counterRows) {
       const key = `${r.voucherId}|${r.drCr}`
+      if (!firstIdBySide.has(key)) firstIdBySide.set(key, r.ledgerId)
       const list = namesBySide.get(key) ?? []
       if (!list.includes(r.name)) list.push(r.name)
       namesBySide.set(key, list)
@@ -505,6 +509,8 @@ export function ledgerStatement(db: DB, ledgerId: number, from: string, to: stri
   }
   const particularsFor = (voucherId: number, drCr: 'dr' | 'cr'): string =>
     (namesBySide.get(`${voucherId}|${drCr === 'dr' ? 'cr' : 'dr'}`) ?? []).join(',')
+  const particularsIdFor = (voucherId: number, drCr: 'dr' | 'cr'): number | null =>
+    firstIdBySide.get(`${voucherId}|${drCr === 'dr' ? 'cr' : 'dr'}`) ?? null
 
   let running = opening
   let totalDebit = 0
@@ -521,6 +527,7 @@ export function ledgerStatement(db: DB, ledgerId: number, from: string, to: stri
       voucherType: r.voucherType,
       number: r.number,
       particulars: particularsFor(r.voucherId, r.drCr),
+      particularsLedgerId: particularsIdFor(r.voucherId, r.drCr),
       narration: r.narration,
       debit,
       credit,
@@ -1074,7 +1081,7 @@ export function dashboard(db: DB, today: string, fyFrom: string): DashboardData 
     .reverse()
     .map((v) => ({
       voucherId: v.id, date: v.date, voucherType: v.voucherType, kind: v.kind, number: v.number,
-      account: v.account, narration: v.narration, debit: v.amount, credit: v.amount,
+      account: v.account, accountLedgerId: v.accountLedgerId ?? null, narration: v.narration, debit: v.amount, credit: v.amount,
       // Real flags (not hard-coded false): the recent list shows out-of-books vouchers too, and
       // the renderer badges them just like the Day Book does.
       isOptional: v.isOptional, postDated: v.postDated

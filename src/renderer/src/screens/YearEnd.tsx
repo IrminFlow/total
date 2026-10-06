@@ -6,6 +6,8 @@ import { api } from '../lib/client'
 import { useNav, useSession, useToasts } from '../state/stores'
 import { Button, EmptyState, Money, Panel, SectionTitle, Select, TextInput } from '../components/ui'
 import { DataTable, defineColumns } from '../components/table'
+import { LedgerLink } from '../components/links'
+import { isRealId, openLedgerStatement } from '../lib/drill'
 
 type Step = 1 | 2 | 3
 
@@ -15,7 +17,15 @@ const NATURE_OPTIONS = [
 ]
 
 export const PNL_COLUMNS = defineColumns<CloseLedgerRow>([
-  { id: 'ledger', header: 'Ledger', kind: 'text', value: (r) => r.name, hideable: false, groupable: false },
+  {
+    id: 'ledger',
+    header: 'Ledger',
+    kind: 'text',
+    value: (r) => r.name,
+    hideable: false,
+    groupable: false,
+    cell: (r) => <LedgerLink ledgerId={r.ledgerId} name={r.name} />
+  },
   { id: 'nature', header: 'Nature', kind: 'enum', value: (r) => r.nature, options: NATURE_OPTIONS, className: 'text-muted', width: 110 },
   // Net movement for the FY (dr-positive) — a period figure, so the footer nets it to the P&L result.
   { id: 'balance', header: 'Balance', kind: 'money', signed: true, value: (r) => r.net, width: 170, aggregate: 'sum' }
@@ -30,7 +40,15 @@ interface JournalRow {
 }
 
 const JOURNAL_COLUMNS = defineColumns<JournalRow>([
-  { id: 'ledger', header: 'Ledger', kind: 'text', value: (r) => r.name, hideable: false, groupable: false },
+  {
+    id: 'ledger',
+    header: 'Ledger',
+    kind: 'text',
+    value: (r) => r.name,
+    hideable: false,
+    groupable: false,
+    cell: (r) => <LedgerLink ledgerId={r.ledgerId} name={r.name} />
+  },
   { id: 'debit', header: 'Debit', kind: 'money', value: (r) => r.debit, width: 140, aggregate: 'sum' },
   { id: 'credit', header: 'Credit', kind: 'money', value: (r) => r.credit, width: 140, aggregate: 'sum' }
 ])
@@ -243,6 +261,8 @@ export function YearEndScreen(): React.JSX.Element {
               columns={JOURNAL_COLUMNS}
               rows={journalRows}
               rowKey={(r) => r.ledgerId ?? 'retained'}
+              isRowActivatable={(r) => isRealId(r.ledgerId)}
+              onRowActivate={(r) => openLedgerStatement(r.ledgerId!)}
               rowClassName={(r) => (r.ledgerId == null ? 'bg-amberbar/10 font-medium' : '')}
               maxHeight="50vh"
               exportOptions={{

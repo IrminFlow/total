@@ -9,6 +9,8 @@ import { useLedgers } from '../components/pickers'
 import { fyOf, fyFromStartYear, todayISO } from '@shared/dates'
 import { tdsQuarterOf } from '@shared/tds'
 import { formatPaise } from '@shared/money'
+import { LedgerLink } from '../components/links'
+import { openLedgerStatement } from '../lib/drill'
 
 const QUARTERS = [1, 2, 3, 4] as const
 
@@ -19,7 +21,16 @@ interface NoPanRow {
 }
 
 const NO_PAN_COLUMNS = defineColumns<NoPanRow>([
-  { id: 'party', header: 'Party', kind: 'text', value: (r) => r.name, hideable: false, groupable: false },
+  {
+    id: 'party',
+    header: 'Party',
+    kind: 'text',
+    value: (r) => r.name,
+    hideable: false,
+    groupable: false,
+    // Name → edit window (where the PAN goes); the rest of the row → statement.
+    cell: (r) => <LedgerLink ledgerId={r.ledgerId} name={r.name} />
+  },
   { id: 'section', header: 'Section', kind: 'text', value: (r) => r.section, text: (r) => r.section ?? '—', className: 'num text-muted', width: 120 },
   { id: 'pan', header: 'PAN', kind: 'text', value: () => 'Missing — add it in Masters', className: 'text-muted', width: 220, sortable: false, filterable: false, groupable: false }
 ])
@@ -153,6 +164,7 @@ export function TdsScreen(): React.JSX.Element {
             rows={flaggedNoPan}
             rowKey={(r) => r.ledgerId}
             rowAttrs={(r) => ({ 'data-row-id': r.ledgerId })}
+            onRowActivate={(r) => openLedgerStatement(r.ledgerId)}
             maxHeight="40vh"
             exportOptions={{ title: 'TDS parties without PAN', periodLabel: `FY ${fy.label}`, filename: 'tds-missing-pan' }}
           />

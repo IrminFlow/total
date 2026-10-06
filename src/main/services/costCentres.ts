@@ -82,6 +82,7 @@ export interface CcStatementRow {
   date: string
   voucherId: number
   number: string
+  ledgerId: number
   ledgerName: string
   drCr: 'dr' | 'cr'
   amount: number
@@ -91,7 +92,7 @@ export interface CcStatementRow {
 export function ccStatement(db: DB, ccId: number, from: string, to: string): CcStatementRow[] {
   return db
     .prepare(
-      `SELECT v.date AS date, v.id AS voucherId, v.number AS number, l.name AS ledgerName, vl.dr_cr AS drCr, vlca.amount AS amount
+      `SELECT v.date AS date, v.id AS voucherId, v.number AS number, l.id AS ledgerId, l.name AS ledgerName, vl.dr_cr AS drCr, vlca.amount AS amount
        FROM voucher_line_cost_allocations vlca
        JOIN voucher_lines vl ON vl.id = vlca.voucher_line_id
        JOIN vouchers v ON v.id = vl.voucher_id

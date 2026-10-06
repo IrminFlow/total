@@ -5,12 +5,23 @@ import { Panel, SectionTitle } from '../components/ui'
 import { DataTable, defineColumns } from '../components/table'
 import { toDisplayDate } from '@shared/dates'
 import type { TrialBalanceRow } from '@shared/reports'
+import { LedgerLink } from '../components/links'
 
 /** Old useReportConfig('trial-balance') toggle keys → column ids (one "movement" toggle drove two). */
 const LEGACY_IDS = { movement: ['movementDr', 'movementCr'] }
 
 export const TRIAL_BALANCE_COLUMNS = defineColumns<TrialBalanceRow>([
-  { id: 'ledger', header: 'Ledger', kind: 'text', value: (r) => r.ledgerName, hideable: false, groupable: false, minWidth: 160 },
+  {
+    id: 'ledger',
+    header: 'Ledger',
+    kind: 'text',
+    value: (r) => r.ledgerName,
+    hideable: false,
+    groupable: false,
+    minWidth: 160,
+    // Name → edit window; the rest of the row → statement (synthetic rows stay plain text).
+    cell: (r) => <LedgerLink ledgerId={r.ledgerId} name={r.ledgerName} />
+  },
   { id: 'group', header: 'Group', kind: 'text', value: (r) => r.groupName, className: 'text-muted', width: 200 },
   // Signed dr-positive opening; the sum is the net opening (Dr − Cr), shown Dr/Cr like the rows.
   { id: 'opening', header: 'Opening', kind: 'money', signed: true, value: (r) => r.opening, aggregate: 'sum', defaultHidden: true, width: 160 },

@@ -13,6 +13,7 @@ import { toDisplayDate, todayISO } from '@shared/dates'
 import { suggestPattern } from '@shared/bankRules'
 import { confirmDialog } from '../lib/dialogs'
 import { useUnsavedGuard } from '../lib/useUnsavedGuard'
+import { FirstLedgerLink, LedgerLink, VoucherLink } from '../components/links'
 
 type BankTab = 'recon' | 'brs' | 'pdc'
 
@@ -32,9 +33,26 @@ const STATUS_OPTIONS = [
 function reconColumns(onEditBankDate: (r: BankLineRow) => void): TableColumn<BankLineRow>[] {
   return defineColumns<BankLineRow>([
     { id: 'date', header: 'Date', kind: 'date', value: (r) => r.date, className: 'text-muted' },
-    { id: 'particulars', header: 'Particulars', kind: 'text', value: (r) => r.particulars, hideable: false, minWidth: 160 },
+    {
+      id: 'particulars',
+      header: 'Particulars',
+      kind: 'text',
+      value: (r) => r.particulars,
+      hideable: false,
+      minWidth: 160,
+      cell: (r) => <FirstLedgerLink ledgerId={r.particularsLedgerId} text={r.particulars} />
+    },
     { id: 'type', header: 'Type', kind: 'text', value: (r) => r.voucherType, defaultHidden: true, width: 120, className: 'text-muted' },
-    { id: 'number', header: 'Number', kind: 'text', value: (r) => r.number, defaultHidden: true, width: 110, className: 'num text-muted' },
+    {
+      id: 'number',
+      header: 'Number',
+      kind: 'text',
+      value: (r) => r.number,
+      defaultHidden: true,
+      width: 110,
+      className: 'num text-muted',
+      cell: (r) => <VoucherLink voucherId={r.voucherId} label={r.number} />
+    },
     { id: 'instrument', header: 'Instrument', kind: 'text', value: (r) => r.instrumentNo, width: 140, groupable: false, className: 'num text-muted' },
     { id: 'deposit', header: 'Deposit', kind: 'money', value: (r) => r.deposit, aggregate: 'sum', width: 140 },
     { id: 'withdrawal', header: 'Withdrawal', kind: 'money', value: (r) => r.withdrawal, aggregate: 'sum', width: 140 },
@@ -92,17 +110,51 @@ const SUGGESTION_COLUMNS = defineColumns<BankSuggestionRow>([
 const BRS_COLUMNS = defineColumns<BrsItem>([
   { id: 'date', header: 'Date', kind: 'date', value: (it) => it.date, className: 'text-muted' },
   { id: 'type', header: 'Type', kind: 'text', value: (it) => it.voucherType, defaultHidden: true, width: 120, className: 'text-muted' },
-  { id: 'number', header: 'Number', kind: 'text', value: (it) => it.number, width: 110, groupable: false, className: 'num text-muted' },
-  { id: 'particulars', header: 'Particulars', kind: 'text', value: (it) => it.particulars, hideable: false, minWidth: 160 },
+  {
+    id: 'number',
+    header: 'Number',
+    kind: 'text',
+    value: (it) => it.number,
+    width: 110,
+    groupable: false,
+    className: 'num text-muted',
+    cell: (it) => <VoucherLink voucherId={it.voucherId} label={it.number} />
+  },
+  {
+    id: 'particulars',
+    header: 'Particulars',
+    kind: 'text',
+    value: (it) => it.particulars,
+    hideable: false,
+    minWidth: 160,
+    cell: (it) => <FirstLedgerLink ledgerId={it.particularsLedgerId} text={it.particulars} />
+  },
   { id: 'instrument', header: 'Instrument', kind: 'text', value: (it) => it.instrumentNo, width: 140, groupable: false, className: 'num text-muted' },
   { id: 'amount', header: 'Amount', kind: 'money', value: (it) => it.amount, aggregate: 'sum', width: 140 }
 ])
 
 const PDC_COLUMNS = defineColumns<PdcRow>([
   { id: 'date', header: 'Matures', kind: 'date', value: (r) => r.date, width: 120, className: 'text-muted' },
-  { id: 'number', header: 'Number', kind: 'text', value: (r) => r.number, hideable: false, groupable: false, width: 110, className: 'num' },
+  {
+    id: 'number',
+    header: 'Number',
+    kind: 'text',
+    value: (r) => r.number,
+    hideable: false,
+    groupable: false,
+    width: 110,
+    className: 'num',
+    cell: (r) => <VoucherLink voucherId={r.id} label={r.number} />
+  },
   { id: 'type', header: 'Type', kind: 'text', value: (r) => r.voucherTypeName, width: 116, className: 'text-muted' },
-  { id: 'party', header: 'Party', kind: 'text', value: (r) => r.partyName, minWidth: 140 },
+  {
+    id: 'party',
+    header: 'Party',
+    kind: 'text',
+    value: (r) => r.partyName,
+    minWidth: 140,
+    cell: (r) => (r.partyName ? <LedgerLink ledgerId={r.partyLedgerId} name={r.partyName} /> : null)
+  },
   { id: 'instrument', header: 'Instrument', kind: 'text', value: (r) => r.instrumentNo, width: 140, groupable: false, className: 'num text-muted' },
   { id: 'instrumentDate', header: 'Instrument date', kind: 'date', value: (r) => r.instrumentDate, defaultHidden: true, width: 176, className: 'text-muted' },
   { id: 'amount', header: 'Amount', kind: 'money', value: (r) => r.amount, aggregate: 'sum', width: 140 }

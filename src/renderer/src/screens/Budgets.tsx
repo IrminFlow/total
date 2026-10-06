@@ -12,6 +12,8 @@ import { DataTable, defineColumns } from '../components/table'
 import { LedgerPicker, useGroups } from '../components/pickers'
 import { confirmDialog } from '../lib/dialogs'
 import { useUnsavedGuard } from '../lib/useUnsavedGuard'
+import { LedgerLink } from '../components/links'
+import { isRealId, openLedgerStatement } from '../lib/drill'
 
 const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
 
@@ -48,7 +50,16 @@ function VarianceCell({ paise }: { paise: number }): React.JSX.Element {
 // No footer totals: lines mix income and expense targets, and an annual line plus monthly lines
 // for the same target would double count — a column sum would mislead.
 const VARIANCE_COLUMNS = defineColumns<BudgetVarianceRow>([
-  { id: 'target', header: 'Target', kind: 'text', value: (v) => v.targetName, hideable: false, minWidth: 160 },
+  {
+    id: 'target',
+    header: 'Target',
+    kind: 'text',
+    value: (v) => v.targetName,
+    hideable: false,
+    minWidth: 160,
+    // Ledger lines: name → edit window, row → statement. Group lines stay plain.
+    cell: (v) => <LedgerLink ledgerId={v.ledgerId} name={v.targetName} />
+  },
   {
     id: 'month',
     header: 'Month',
@@ -365,6 +376,8 @@ export function BudgetsScreen(): React.JSX.Element {
               ariaLabel="Budget variance"
               columns={VARIANCE_COLUMNS}
               rows={variance ?? []}
+              isRowActivatable={(v) => isRealId(v.ledgerId)}
+              onRowActivate={(v) => openLedgerStatement(v.ledgerId!)}
               loading={varianceLoading}
               empty={{ title: 'No budget lines to compare yet', hint: 'Add a line above and save the budget' }}
               maxHeight="60vh"

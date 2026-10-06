@@ -6,6 +6,7 @@ import { Kbd, Money, useKeyNav } from './ui'
 import { useFeatures } from '../lib/useFeatures'
 import { SCREENS } from '../lib/screens'
 import { useSearchRecents, type RecentKind, type RecentRecord } from '../lib/searchRecents'
+import { openLedgerEdit } from '../lib/drill'
 import {
   Highlight,
   KIND_SINGULAR,
@@ -229,6 +230,23 @@ export function CommandPalette({ onClose }: { onClose: () => void }): React.JSX.
     nav.go({ name: 'search', q, ...(kind ? { kind } : {}) })
   }
 
+  /** The ledger a row stands for (search hit or recently opened), or null. */
+  const ledgerOf = (item: NavItem | undefined): number | null =>
+    item?.type === 'hit' && item.hit.kind === 'ledger'
+      ? item.hit.id
+      : item?.type === 'recent-record' && item.kind === 'ledger'
+        ? item.rec.id
+        : null
+
+  /** ⌘E / the row's Edit action: the ledger's edit window instead of its statement. */
+  const editItem = (item: NavItem | undefined): boolean => {
+    const id = ledgerOf(item)
+    if (id == null) return false
+    onClose()
+    openLedgerEdit(id)
+    return true
+  }
+
   const runItem = (item: NavItem | undefined): void => {
     if (!item) return
     switch (item.type) {
@@ -277,6 +295,9 @@ export function CommandPalette({ onClose }: { onClose: () => void }): React.JSX.
             else if (e.key === 'ArrowDown') { e.preventDefault(); setActive(Math.min(navItems.length - 1, active + 1)) }
             else if (e.key === 'ArrowUp') { e.preventDefault(); setActive(Math.max(0, active - 1)) }
             else if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); openSearchScreen() }
+            else if (e.key.toLowerCase() === 'e' && (e.metaKey || e.ctrlKey) && !e.shiftKey && !e.altKey) {
+              if (editItem(navItems[active])) e.preventDefault()
+            }
             else if (e.key === 'Enter') runItem(navItems[active])
           }}
           placeholder="Type a command, or search the books — name, number, GSTIN, amount…"
@@ -308,6 +329,7 @@ export function CommandPalette({ onClose }: { onClose: () => void }): React.JSX.
                       if (pointerMoved.current) setActive(i)
                     }}
                     onRun={() => runItem(item)}
+                    onEdit={ledgerOf(item) != null ? () => editItem(item) : undefined}
                   />
                 )
               })}
@@ -337,7 +359,7 @@ export function CommandPalette({ onClose }: { onClose: () => void }): React.JSX.
             </>
           ) : (
             <span>
-              <Kbd>↑↓</Kbd> move · <Kbd>↵</Kbd> open · <Kbd>⌘↵</Kbd> all results
+              <Kbd>↑↓</Kbd> move · <Kbd>↵</Kbd> open · <Kbd>⌘E</Kbd> edit ledger · <Kbd>⌘↵</Kbd> all results
             </span>
           )}
         </div>
@@ -357,14 +379,31 @@ function rowKey(item: NavItem): string {
 }
 
 function PaletteRow({
-  item, active, terms, onHover, onRun
+  item, active, terms, onHover, onRun, onEdit
 }: {
   item: NavItem
   active: boolean
   terms: string[]
   onHover: () => void
   onRun: () => void
+  /** Ledger rows: open the edit window (↵ / click opens the statement). */
+  onEdit?: () => void
 }): React.JSX.Element {
+  // Ledger rows: ↵ / click → statement; this action (or ⌘E) → the edit window.
+  const editAction = onEdit && (
+    <button
+      type="button"
+      data-testid="palette-edit-ledger"
+      title="Edit ledger (⌘E)"
+      className="shrink-0 rounded border border-line px-1.5 py-0.5 text-[11px] text-blue hover:bg-panel2"
+      onClick={(e) => {
+        e.stopPropagation()
+        onEdit()
+      }}
+    >
+      Edit <span className="text-muted">⌘E</span>
+    </button>
+  )
   const base = 'kbar-row flex cursor-pointer items-center justify-between gap-3 px-5 py-2 text-[13.5px]'
   const common = { 'data-active': active, onMouseEnter: onHover, onClick: onRun }
   switch (item.type) {
@@ -389,7 +428,10 @@ function PaletteRow({
             <span className="truncate">{item.rec.label}</span>
             {item.rec.sub && <span className="truncate text-[11px] text-muted">{item.rec.sub}</span>}
           </div>
-          <span className="shrink-0 text-[11px] text-muted">{KIND_SINGULAR[item.kind]}</span>
+          <span className="flex shrink-0 items-center gap-2 text-[11px] text-muted">
+            {active && editAction}
+            {KIND_SINGULAR[item.kind]}
+          </span>
         </div>
       )
     case 'see-all':
@@ -438,7 +480,10 @@ function PaletteRow({
               <Highlight text={sub} terms={terms} />
             </span>
           </div>
-          <span className="shrink-0 text-[11px] text-muted">{KIND_SINGULAR[h.kind]}</span>
+          <span className="flex shrink-0 items-center gap-2 text-[11px] text-muted">
+            {active && editAction}
+            {KIND_SINGULAR[h.kind]}
+          </span>
         </div>
       )
     }

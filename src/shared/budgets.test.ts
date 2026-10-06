@@ -11,7 +11,7 @@ describe('budgetVariance', () => {
       { ledgerId: 1, month: '2025-05', amount: 9000 } // different month — excluded
     ]
     const rows = budgetVariance(lines, actuals, new Map(), '2025-06')
-    expect(rows).toEqual([{ targetName: 'Travel', month: '2025-04', budget: 10000, actual: 6000, variance: -4000, pct: 60 }])
+    expect(rows).toEqual([{ targetName: 'Travel', ledgerId: 1, month: '2025-04', budget: 10000, actual: 6000, variance: -4000, pct: 60 }])
   })
 
   it('sums an annual line as FY-to-date through upToMonth, excluding later months', () => {
