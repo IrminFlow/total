@@ -1,6 +1,6 @@
 // Scenario 11 — keyboard-only navigation: Gateway single-letter shortcuts, ↑↓↵ list
-// navigation on the Day Book (the amber bar), and the Cmd/Ctrl-K command palette — no mouse
-// anywhere after the initial company build.
+// navigation on the Day Book (the amber bar), the Cmd/Ctrl-K command palette, and ←/→ on the
+// sidebar section headings — no mouse anywhere after the initial company build.
 import { scenario, assert } from '../lib/harness.mjs'
 
 await scenario('11-keyboard', async (h) => {
@@ -49,4 +49,13 @@ await scenario('11-keyboard', async (h) => {
   await h.page.waitForSelector('[data-testid="input-palette"]', { state: 'detached', timeout: 10000 })
   const screen = await h.page.getAttribute('[data-screen]', 'data-screen')
   assert(screen === 'trial-balance', 'Escape closed the palette without navigating away')
+
+  // Sidebar section headings: → expands, ← collapses (Banking isn't the active section).
+  const bankingOpen = () => h.page.getAttribute('[data-testid="nav-section-banking"]', 'aria-expanded')
+  await h.page.focus('[data-testid="nav-section-banking"]')
+  await h.page.keyboard.press('ArrowRight')
+  assert((await bankingOpen()) === 'true', 'ArrowRight expanded the Banking section')
+  assert(await h.page.isVisible('[data-testid="nav-banking"]'), 'Banking items are visible once expanded')
+  await h.page.keyboard.press('ArrowLeft')
+  assert((await bankingOpen()) === 'false', 'ArrowLeft collapsed the Banking section')
 })

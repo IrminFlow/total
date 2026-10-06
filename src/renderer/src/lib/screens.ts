@@ -51,7 +51,7 @@ export const SCREENS: ScreenDef[] = [
     title: 'Gateway',
     screen: { name: 'gateway' },
     navSection: 'top',
-    invalidates: ['dashboard', 'recurring']
+    invalidates: ['dashboard']
   },
   {
     name: 'voucher-entry',
@@ -80,21 +80,6 @@ export const SCREENS: ScreenDef[] = [
       'ledgers', 'groups', 'groupTree', 'stockItems', 'units', 'voucherTypes', 'currencies', 'bom',
       'godowns', 'stockGroups'
     ]
-  },
-  {
-    name: 'recurring',
-    keywords: ['templates', 'scheduled'],
-    title: 'Recurring vouchers',
-    screen: { name: 'recurring' },
-    navSection: 'top',
-    invalidates: ['recurring']
-  },
-  {
-    name: 'import-tally',
-    title: 'Import from Tally',
-    screen: { name: 'import-tally' },
-    navSection: 'top',
-    invalidates: []
   },
 
   {
@@ -263,6 +248,13 @@ export const SCREENS: ScreenDef[] = [
       'backups', 'bin', 'users', 'audit', 'nicCreds', 'nicStatus',
       'features', 'invoiceConfig', 'invoicePreview', 'appInfo', 'companyLock', 'agentConfig'
     ]
+  },
+  {
+    name: 'import-tally',
+    title: 'Import from Tally',
+    screen: { name: 'import-tally' },
+    navSection: 'system',
+    invalidates: []
   },
 
   // Not in the sidebar — reached from the header / other screens — but the palette and the

@@ -45,7 +45,7 @@ export function listBudgets(db: DB): Budget[] {
 }
 
 /** Replaces a budget's lines wholesale inside one transaction — simpler and safer than diffing,
- *  and matches how recurring templates / voucher lines are already saved in this codebase. */
+ *  and matches how voucher lines are already saved in this codebase. */
 export function saveBudget(db: DB, input: BudgetInput, id?: number): Budget {
   const run = db.transaction((): Budget => {
     let budgetId: number

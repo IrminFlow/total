@@ -16,7 +16,7 @@ import { useFeatures } from '../../lib/useFeatures'
 import { confirmDialog } from '../../lib/dialogs'
 import { useUnsavedGuard } from '../../lib/useUnsavedGuard'
 import { addDaysLocal, nextLineKey, NUMBER_LOADING, useVoucherNumberField } from './hooks'
-import { QuickItemModal, QuickLedgerModal, SaveAsRecurringModal } from './modals'
+import { QuickItemModal, QuickLedgerModal } from './modals'
 
 // ---------- invoice mode (sales / purchase / notes) ----------
 
@@ -58,7 +58,6 @@ export function InvoiceEntry({ typeId, kind, draft }: { typeId: number; kind: Vo
   const [quickLedger, setQuickLedger] = useState<{ name: string; forParty: boolean } | null>(null)
   const [quickItem, setQuickItem] = useState<{ name: string; row: number } | null>(null)
   const [saving, setSaving] = useState(false)
-  const [showRecurring, setShowRecurring] = useState(false)
   const [editingParty, setEditingParty] = useState(false)
   // ---------- GST details (place-of-supply override + memorandum flag) ----------
   const [gstOpen, setGstOpen] = useState(false)
@@ -171,8 +170,7 @@ export function InvoiceEntry({ typeId, kind, draft }: { typeId: number; kind: Vo
   const setNoteBillAmount = (name: string, amount: number): void =>
     setNoteBillRefs((refs) => refs.map((r) => (r.name === name ? { ...r, amount } : r)))
 
-  // Builds the exact VoucherInputParsed shape `save` posts — factored out so "Save as
-  // recurring…" can serialize the current form state without also saving the voucher itself.
+  // Builds the exact VoucherInputParsed shape `save` posts.
   // Async: computing the tax/round-off lines may create those ledgers on first use (ensureTax /
   // ensureRoundOff), same as it does on a normal save.
   const buildPayload = useCallback(async (): Promise<VoucherInputParsed | null> => {
@@ -237,8 +235,6 @@ export function InvoiceEntry({ typeId, kind, draft }: { typeId: number; kind: Vo
       tds: null
     }
   }, [partyId, accountId, computed, kind, typeId, date, numberField.forPayload, narration, transporterId, vehicleNo, distanceKm, posOverride, optionalVoucher, fxActive, currencyCode, fxRate, isNoteKind, manualNewBillMode, noteBillRefs, billName, billDueDate, ensureTax, ensureRoundOff])
-
-  const formValid = !!partyId && !!accountId && computed.detail.length > 0
 
   const save = useCallback(async (andPdf = false): Promise<void> => {
     if (saving) return
@@ -664,7 +660,6 @@ export function InvoiceEntry({ typeId, kind, draft }: { typeId: number; kind: Vo
       )}
 
       <div className="mt-5 flex justify-end gap-2">
-        {formValid && <Button onClick={() => setShowRecurring(true)}>Save as recurring…</Button>}
         <Button onClick={() => nav.back()}>Cancel</Button>
         {kind === 'sales' && (
           <Button disabled={saving} onClick={() => void save(true)}>
@@ -699,7 +694,6 @@ export function InvoiceEntry({ typeId, kind, draft }: { typeId: number; kind: Vo
           }}
         />
       )}
-      {showRecurring && <SaveAsRecurringModal buildPayload={buildPayload} onClose={() => setShowRecurring(false)} />}
       {editingParty && party && <LedgerFormModal ledger={party} onClose={() => setEditingParty(false)} />}
     </Panel>
   )
