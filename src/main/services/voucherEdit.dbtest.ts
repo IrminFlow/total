@@ -1,0 +1,380 @@
+// WP 1.4 acceptance: for every voucher kind, a rich saved voucher read back with getVoucher,
+// fed through the editor's own pure load → payload path (src/shared/voucherEdit — the code the
+// entry screens run), and saved again leaves voucher_lines, inventory_lines, bill_refs, cost
+// allocations and tds_entries identical apart from row ids. Also pins which entry mode each
+// voucher opens in.
+import { describe, it, expect } from 'vitest'
+import { seededDb, TEST_INFO } from '../db/testdb'
+import type { DB } from '../db/connection'
+import type { Group, Voucher, VoucherKind } from '@shared/domain'
+import {
+  buildAccountingPayload, buildInvoicePayload, buildManufacturePayload, buildPhysicalPayload, buildStockLinesPayload,
+  derivePartyId, emptyInvoiceState, emptyManufactureState, emptyPhysicalState, planVoucherEdit, taxLedgerIdsFrom,
+  type EditPlan, type EditPlanContext, type VoucherPayload
+} from '@shared/voucherEdit'
+import { createBatch, createGodown, createLedger, createStockItem, listGroups, listLedgers, listStockItems } from './masters'
+import { saveVoucher, getVoucher } from './vouchers'
+import { saveCostCentre } from './costCentres'
+import { listSections } from './tds'
+import { getBom, setBom } from './extras'
+import { setBankDate } from './banking'
+
+type LedgerKind = 'Sundry Debtors' | 'Sundry Creditors' | 'Sales Accounts' | 'Purchase Accounts' | 'Duties & Taxes' | 'Indirect Expenses' | 'Bank Accounts'
+
+function ledger(db: DB, name: string, group: LedgerKind, extra: { stateCode?: string; taxType?: 'cgst' | 'sgst' | 'igst' | 'cess'; tdsSectionId?: number } = {}): number {
+  const g = db.prepare('SELECT id FROM groups WHERE name = ?').get(group) as { id: number }
+  return createLedger(db, {
+    name, groupId: g.id, openingBalance: 0, gstin: null, stateCode: extra.stateCode ?? null, address: null,
+    taxType: extra.taxType ?? null, gstRate: null, hsn: null, tdsSectionId: extra.tdsSectionId ?? null,
+    pan: extra.tdsSectionId ? 'ABCDE1234F' : null, creditDays: null, exportType: null
+  }).id
+}
+
+function item(db: DB, name: string, gstRate: number | null, cessRate: number | null = null): number {
+  const unit = db.prepare('SELECT id FROM units ORDER BY id LIMIT 1').get() as { id: number }
+  return createStockItem(db, {
+    name, groupId: null, unitId: unit.id, hsn: '8471', gstRate, cessRate,
+    openingQtyMilli: 1_000_000, openingValue: 1_000_000, barcode: null, reorderLevelMilli: null
+  }).id
+}
+
+function typeId(db: DB, kind: VoucherKind): number {
+  return (db.prepare('SELECT id FROM voucher_types WHERE kind = ?').get(kind) as { id: number }).id
+}
+
+const header = {
+  partyLedgerId: null, narration: null, reference: null, instrumentNo: null, instrumentDate: null, transporterId: null,
+  vehicleNo: null, transportDistanceKm: null, posOverride: null, currencyCode: null, exchangeRate: null
+}
+
+function setup(db: DB) {
+  const cgst = ledger(db, 'CGST', 'Duties & Taxes', { taxType: 'cgst' })
+  const sgst = ledger(db, 'SGST', 'Duties & Taxes', { taxType: 'sgst' })
+  const igst = ledger(db, 'IGST', 'Duties & Taxes', { taxType: 'igst' })
+  const cess = ledger(db, 'Cess', 'Duties & Taxes', { taxType: 'cess' })
+  const roundOff = ledger(db, 'Round Off', 'Indirect Expenses')
+  const section = listSections(db)[0]!
+  const ids = {
+    cgst, sgst, igst, cess, roundOff,
+    buyer: ledger(db, 'Buyer MH', 'Sundry Debtors', { stateCode: '27' }),
+    buyerKa: ledger(db, 'Buyer KA', 'Sundry Debtors', { stateCode: '29' }),
+    supplier: ledger(db, 'Supplier', 'Sundry Creditors', { stateCode: '27' }),
+    contractor: ledger(db, 'Contractor', 'Sundry Creditors', { stateCode: '27', tdsSectionId: section.id }),
+    tdsPayable: ledger(db, 'TDS Payable', 'Duties & Taxes'),
+    sales: ledger(db, 'Sales', 'Sales Accounts'),
+    purchases: ledger(db, 'Purchases', 'Purchase Accounts'),
+    freight: ledger(db, 'Freight', 'Indirect Expenses'),
+    bank: ledger(db, 'HDFC', 'Bank Accounts'),
+    cash: (db.prepare("SELECT id FROM ledgers WHERE name = 'Cash'").get() as { id: number }).id,
+    sectionId: section.id,
+    widget: item(db, 'Widget', 18),
+    gadget: item(db, 'Gadget', 5, 1),
+    steel: item(db, 'Steel', 18),
+    paint: item(db, 'Paint', 18),
+    chair: item(db, 'Chair', 18),
+    godownA: createGodown(db, { name: 'Main' }).id,
+    godownB: createGodown(db, { name: 'Annex' }).id,
+    ccA: saveCostCentre(db, { name: 'Mumbai', parentId: null, active: true }).id,
+    ccB: saveCostCentre(db, { name: 'Pune', parentId: null, active: true }).id
+  }
+  const batch = createBatch(db, { stockItemId: ids.widget, name: 'B-1', mfgDate: null, expiryDate: null }).id
+  const steelBatch = createBatch(db, { stockItemId: ids.steel, name: 'S-1', mfgDate: null, expiryDate: null }).id
+  setBom(db, { itemId: ids.chair, lines: [{ componentId: ids.steel, qtyMilliPerUnit: 2000 }, { componentId: ids.paint, qtyMilliPerUnit: 250 }] })
+  return { ...ids, batch, steelBatch }
+}
+
+/** The renderer's planning context, built from the same masters the screens load. */
+function editContext(db: DB): EditPlanContext {
+  const ledgers = listLedgers(db)
+  const items = listStockItems(db)
+  return {
+    invoice: {
+      companyStateCode: TEST_INFO.stateCode,
+      items: new Map(items.map((i) => [i.id, { gstRate: i.gstRate, cessRate: i.cessRate }])),
+      ledgers: new Map(ledgers.map((l) => [l.id, { stateCode: l.stateCode, gstRate: l.gstRate }]))
+    },
+    taxLedgers: taxLedgerIdsFrom(ledgers),
+    bomFor: (id) => getBom(db, id),
+    itemName: (id) => items.find((i) => i.id === id)?.name ?? ''
+  }
+}
+
+function kindOf(db: DB, v: Voucher): VoucherKind {
+  return (db.prepare('SELECT kind FROM voucher_types WHERE id = ?').get(v.voucherTypeId) as { kind: VoucherKind }).kind
+}
+
+/** Exactly what the entry screen posts when the user opens `v` and hits Save. */
+function editorPayload(db: DB, v: Voucher): { plan: EditPlan; payload: VoucherPayload } {
+  const kind = kindOf(db, v)
+  const ctx = editContext(db)
+  const plan = planVoucherEdit(v, kind, ctx)
+  const ledgers = listLedgers(db)
+  const groups = new Map(listGroups(db).map((g) => [g.id, g]))
+  const isPartyOrTds = (id: number): boolean => {
+    const l = ledgers.find((x) => x.id === id)
+    if (!l) return false
+    let g: Group | undefined = groups.get(l.groupId)
+    while (g) {
+      if (g.name === 'Sundry Debtors' || g.name === 'Sundry Creditors') return true
+      g = g.parentId ? groups.get(g.parentId) : undefined
+    }
+    return l.tdsSectionId != null
+  }
+  const r =
+    plan.mode === 'invoice'
+      ? buildInvoicePayload(plan.state, { ...ctx.invoice, kind }, v.voucherTypeId, ctx.taxLedgers)
+      : plan.mode === 'accounting'
+        ? buildAccountingPayload(plan.state, { kind, voucherTypeId: v.voucherTypeId, derivedPartyId: derivePartyId(plan.state.rows, isPartyOrTds, null) })
+        : plan.mode === 'manufacture'
+          ? buildManufacturePayload(plan.state, { voucherTypeId: v.voucherTypeId, bom: getBom(db, plan.state.producedId!), avgCost: () => 0, itemName: ctx.itemName })
+          : plan.mode === 'physical'
+            ? buildPhysicalPayload(plan.state, { voucherTypeId: v.voucherTypeId, itemName: ctx.itemName })
+            : buildStockLinesPayload(plan.state, { voucherTypeId: v.voucherTypeId })
+  if (!r.ok) throw new Error(`${plan.mode}: ${r.error}`)
+  return { plan, payload: r.payload }
+}
+
+/** Every stored row of a voucher, ids stripped (line order kept — it's stored). */
+function snapshot(db: DB, id: number): unknown {
+  return {
+    voucher: db
+      .prepare(
+        `SELECT voucher_type_id, date, number, party_ledger_id, narration, reference, instrument_no, instrument_date,
+                transporter_id, vehicle_no, transport_distance, pos_override, currency_code, exchange_rate,
+                irn, irn_ack_no, irn_ack_date, ewb_no, ewb_valid_upto, post_dated, is_optional, deleted_at, created_at
+         FROM vouchers WHERE id = ?`
+      )
+      .get(id),
+    lines: db.prepare('SELECT ledger_id, dr_cr, amount, line_order, bank_date FROM voucher_lines WHERE voucher_id = ? ORDER BY line_order').all(id),
+    inventory: db
+      .prepare(
+        `SELECT stock_item_id, godown_id, batch_id, qty_milli, rate_paise, discount_paise, amount, direction, is_absolute, line_order
+         FROM inventory_lines WHERE voucher_id = ? ORDER BY line_order`
+      )
+      .all(id),
+    billRefs: db.prepare('SELECT party_ledger_id, kind, name, amount, due_date FROM bill_refs WHERE voucher_id = ? ORDER BY id').all(id),
+    costAllocations: db
+      .prepare(
+        `SELECT vl.line_order, a.cost_centre_id, a.amount FROM voucher_line_cost_allocations a
+         JOIN voucher_lines vl ON vl.id = a.voucher_line_id WHERE vl.voucher_id = ? ORDER BY vl.line_order, a.id`
+      )
+      .all(id),
+    tds: db.prepare('SELECT section_id, party_ledger_id, pan, base_amount, tds_amount FROM tds_entries WHERE voucher_id = ?').all(id)
+  }
+}
+
+function expectRoundTrip(db: DB, id: number, mode: EditPlan['mode']): EditPlan {
+  const before = snapshot(db, id)
+  const { plan, payload } = editorPayload(db, getVoucher(db, id)!)
+  expect(plan.mode).toBe(mode)
+  saveVoucher(db, payload, id)
+  expect(snapshot(db, id)).toEqual(before)
+  // …and a second pass is just as stable.
+  saveVoucher(db, editorPayload(db, getVoucher(db, id)!).payload, id)
+  expect(snapshot(db, id)).toEqual(before)
+  return plan
+}
+
+describe('voucher editor round-trip (WP 1.4): load → save unchanged stores identical rows', () => {
+  const db = seededDb()
+  const x = setup(db)
+  const ctx = editContext(db)
+  const invoiceFrom = (kind: VoucherKind, over: Partial<ReturnType<typeof emptyInvoiceState>>): number => {
+    const r = buildInvoicePayload({ ...emptyInvoiceState('2025-05-10'), ...over }, { ...ctx.invoice, kind }, typeId(db, kind), ctx.taxLedgers)
+    if (!r.ok) throw new Error(r.error)
+    return saveVoucher(db, r.payload).id
+  }
+
+  it('purchase (invoice form): batch + godown + discount + new bill + transport + reference', () => {
+    const id = invoiceFrom('purchase', {
+      partyId: x.supplier, accountId: x.purchases, billName: 'SUP-INV-1', billDueDate: '2025-06-10', reference: 'PO-1',
+      rows: [
+        { itemId: x.widget, qtyText: '10', rate: 50000, discount: 2500, godownId: x.godownA, batchId: x.batch },
+        { itemId: x.gadget, qtyText: '2.5', rate: 9999, discount: null, godownId: x.godownB, batchId: null }
+      ]
+    })
+    expectRoundTrip(db, id, 'invoice')
+  })
+
+  it('sales (invoice form): discount, batch, godown, e-way details, POS override, optional flag', () => {
+    const id = invoiceFrom('sales', {
+      partyId: x.buyerKa, accountId: x.sales, billName: 'INV-1', billDueDate: '2025-06-01', vehicleNo: 'MH01AB1234',
+      transporterId: '27ABCDE1234F1Z5', distanceKm: '210', narration: 'Being goods sold', posOverride: '29',
+      rows: [{ itemId: x.widget, qtyText: '3', rate: 70000, discount: 10000, godownId: x.godownA, batchId: x.batch }]
+    })
+    const plan = expectRoundTrip(db, id, 'invoice')
+    expect(plan.mode === 'invoice' && plan.state.rows[0]).toMatchObject({ discount: 10000, batchId: x.batch, godownId: x.godownA, qtyText: '3' })
+  })
+
+  it('credit note (invoice form) allocated against bills', () => {
+    const r = buildInvoicePayload(
+      { ...emptyInvoiceState('2025-05-11'), partyId: x.buyer, accountId: x.sales, rows: [{ itemId: x.gadget, qtyText: '1', rate: 10000, discount: null, godownId: null, batchId: null }] },
+      { ...ctx.invoice, kind: 'credit_note' }, typeId(db, 'credit_note'), ctx.taxLedgers
+    )
+    if (!r.ok) throw new Error(r.error)
+    const total = r.payload.lines[0]!.amount
+    const id = saveVoucher(db, { ...r.payload, billRefs: [{ kind: 'against', name: 'INV-1', amount: total, dueDate: null }] }).id
+    expectRoundTrip(db, id, 'invoice')
+  })
+
+  it('debit note (invoice form) as a new bill', () => {
+    const id = invoiceFrom('debit_note', {
+      partyId: x.supplier, accountId: x.purchases, manualNewBillMode: true, billName: 'DN-1', billDueDate: '',
+      rows: [{ itemId: x.widget, qtyText: '1', rate: 50000, discount: null, godownId: x.godownA, batchId: x.batch }]
+    })
+    expectRoundTrip(db, id, 'invoice')
+  })
+
+  it('hand-built sales with freight + cost allocations opens in accounting mode, losslessly', () => {
+    const id = saveVoucher(db, {
+      ...header, voucherTypeId: typeId(db, 'sales'), date: '2025-05-12', number: 'S-HAND', partyLedgerId: x.buyer, narration: 'hand-built',
+      lines: [
+        { ledgerId: x.buyer, drCr: 'dr', amount: 128000 },
+        { ledgerId: x.sales, drCr: 'cr', amount: 100000, costAllocations: [{ costCentreId: x.ccB, amount: 60000 }, { costCentreId: x.ccA, amount: 40000 }] },
+        { ledgerId: x.freight, drCr: 'cr', amount: 10000 },
+        { ledgerId: x.cgst, drCr: 'cr', amount: 9000 },
+        { ledgerId: x.sgst, drCr: 'cr', amount: 9000 }
+      ],
+      inventory: [{ stockItemId: x.widget, godownId: x.godownB, batchId: x.batch, qtyMilli: 2000, ratePaise: 55000, discountPaise: 10000, amount: 100000, direction: 'out' }],
+      billRefs: [{ kind: 'new', name: 'S-HAND', amount: 128000, dueDate: '2025-06-12' }]
+    }).id
+    const plan = expectRoundTrip(db, id, 'accounting')
+    expect(plan.mode === 'accounting' && plan.fallbackReason).toBeTruthy()
+  })
+
+  it('payment with TDS, cost allocations, cheque details and a reconciled bank line', () => {
+    const id = saveVoucher(db, {
+      ...header, voucherTypeId: typeId(db, 'payment'), date: '2025-05-13', partyLedgerId: x.contractor,
+      instrumentNo: '000123', instrumentDate: '2025-05-01', reference: 'Contract #9', narration: 'Being paid',
+      lines: [
+        { ledgerId: x.contractor, drCr: 'dr', amount: 99000, costAllocations: [{ costCentreId: x.ccA, amount: 99000 }] },
+        { ledgerId: x.bank, drCr: 'cr', amount: 99000 }
+      ],
+      billRefs: [{ kind: 'against', name: 'CON-1', amount: 99000, dueDate: null }],
+      tds: { sectionId: x.sectionId, baseAmount: 100000, tdsAmount: 1000 }
+    }).id
+    const bankLine = getVoucher(db, id)!.lines.find((l) => l.ledgerId === x.bank)!
+    setBankDate(db, bankLine.id, '2025-05-15')
+    expectRoundTrip(db, id, 'accounting')
+    expect(getVoucher(db, id)!.lines.find((l) => l.ledgerId === x.bank)!.bankDate).toBe('2025-05-15')
+  })
+
+  it('receipt with an advance bill ref, post-dated', () => {
+    const id = saveVoucher(db, {
+      ...header, voucherTypeId: typeId(db, 'receipt'), date: '2025-05-14', partyLedgerId: x.buyer, postDated: true,
+      lines: [{ ledgerId: x.bank, drCr: 'dr', amount: 50000 }, { ledgerId: x.buyer, drCr: 'cr', amount: 50000 }],
+      billRefs: [{ kind: 'against', name: 'INV-1', amount: 20000, dueDate: null }, { kind: 'new', name: 'ADV-1', amount: 30000, dueDate: null }]
+    }).id
+    expectRoundTrip(db, id, 'accounting')
+  })
+
+  it('contra', () => {
+    const id = saveVoucher(db, {
+      ...header, voucherTypeId: typeId(db, 'contra'), date: '2025-05-15', narration: 'cash deposit',
+      lines: [{ ledgerId: x.bank, drCr: 'dr', amount: 20000 }, { ledgerId: x.cash, drCr: 'cr', amount: 20000 }]
+    }).id
+    expectRoundTrip(db, id, 'accounting')
+  })
+
+  it('journal with TDS, cost allocations, an optional flag and stock lines (batch, discount, godown, absolute)', () => {
+    const id = saveVoucher(db, {
+      ...header, voucherTypeId: typeId(db, 'journal'), date: '2025-05-16', partyLedgerId: x.contractor, isOptional: true,
+      lines: [
+        { ledgerId: x.freight, drCr: 'dr', amount: 10000, costAllocations: [{ costCentreId: x.ccA, amount: 7000 }, { costCentreId: x.ccB, amount: 3000 }] },
+        { ledgerId: x.contractor, drCr: 'cr', amount: 9900 },
+        { ledgerId: x.tdsPayable, drCr: 'cr', amount: 100 }
+      ],
+      inventory: [
+        { stockItemId: x.widget, godownId: x.godownA, batchId: x.batch, qtyMilli: 500, ratePaise: 50000, discountPaise: 500, amount: 24500, direction: 'in' },
+        { stockItemId: x.paint, godownId: x.godownB, batchId: null, qtyMilli: 0, ratePaise: 0, amount: 0, direction: 'in', isAbsolute: true }
+      ],
+      billRefs: [{ kind: 'new', name: 'J-BILL', amount: 9900, dueDate: '2025-07-01' }],
+      tds: { sectionId: x.sectionId, baseAmount: 10000, tdsAmount: 100 }
+    }).id
+    expectRoundTrip(db, id, 'accounting')
+  })
+
+  it('stock journal created by the manufacture form (with godown/batch on its lines)', () => {
+    const avg = (i: number): number => (i === x.steel ? 15000 : i === x.paint ? 33333 : 0)
+    const r = buildManufacturePayload(
+      {
+        ...emptyManufactureState('2025-05-17'), producedId: x.chair, qtyText: '3', extraPctText: '12.5',
+        componentMeta: { [x.steel]: { godownId: x.godownA, batchId: x.steelBatch } },
+        producedMeta: { itemId: x.chair, godownId: x.godownB, batchId: null }
+      },
+      { voucherTypeId: typeId(db, 'stock_journal'), bom: getBom(db, x.chair), avgCost: avg, itemName: ctx.itemName }
+    )
+    if (!r.ok) throw new Error(r.error)
+    // A batch must hold stock before it can be consumed.
+    saveVoucher(db, {
+      ...header, voucherTypeId: typeId(db, 'stock_journal'), date: '2025-05-01',
+      lines: [], inventory: [{ stockItemId: x.steel, godownId: x.godownA, batchId: x.steelBatch, qtyMilli: 100_000, ratePaise: 15000, amount: 1_500_000, direction: 'in' }]
+    })
+    const id = saveVoucher(db, r.payload).id
+    const plan = expectRoundTrip(db, id, 'manufacture')
+    expect(plan.mode === 'manufacture' && plan.state).toMatchObject({ producedId: x.chair, qtyText: '3', extraPctText: '12.5' })
+  })
+
+  it('arbitrary stock journal (godown transfer) falls back to the generic stock-lines editor', () => {
+    const id = saveVoucher(db, {
+      ...header, voucherTypeId: typeId(db, 'stock_journal'), date: '2025-05-18', narration: 'Main → Annex', reference: 'TR-1',
+      lines: [],
+      inventory: [
+        { stockItemId: x.widget, godownId: x.godownA, batchId: x.batch, qtyMilli: 1000, ratePaise: 50000, amount: 50000, direction: 'out' },
+        { stockItemId: x.widget, godownId: x.godownB, batchId: x.batch, qtyMilli: 1000, ratePaise: 50000, amount: 50000, direction: 'in' }
+      ]
+    }).id
+    expectRoundTrip(db, id, 'stockLines')
+  })
+
+  it('physical stock (absolute counts, zero count, godown, batch)', () => {
+    const r = buildPhysicalPayload(
+      {
+        ...emptyPhysicalState('2025-05-19'), narration: 'Count',
+        rows: [
+          { itemId: x.widget, qtyText: '7.5', godownId: x.godownA, batchId: x.batch },
+          { itemId: x.paint, qtyText: '0', godownId: null, batchId: null }
+        ]
+      },
+      { voucherTypeId: typeId(db, 'physical_stock'), itemName: ctx.itemName }
+    )
+    if (!r.ok) throw new Error(r.error)
+    const id = saveVoucher(db, r.payload).id
+    expectRoundTrip(db, id, 'physical')
+    expect(getVoucher(db, id)!.inventory.every((l) => l.isAbsolute)).toBe(true)
+  })
+
+  it('a valued physical-stock voucher (e.g. imported) uses the generic editor and keeps isAbsolute', () => {
+    const id = saveVoucher(db, {
+      ...header, voucherTypeId: typeId(db, 'physical_stock'), date: '2025-05-20',
+      lines: [],
+      inventory: [{ stockItemId: x.gadget, godownId: x.godownB, batchId: null, qtyMilli: 4000, ratePaise: 100, amount: 400, direction: 'in', isAbsolute: true }]
+    }).id
+    expectRoundTrip(db, id, 'stockLines')
+    expect(getVoucher(db, id)!.inventory[0]!.isAbsolute).toBe(true)
+  })
+
+  it('getVoucher returns cost allocations in stored order', () => {
+    const v = getVoucher(db, db.prepare("SELECT id FROM vouchers WHERE number = 'S-HAND'").pluck().get() as number)!
+    expect(v.lines[1]!.costAllocations.map((a) => a.costCentreId)).toEqual([x.ccB, x.ccA])
+  })
+})
+
+describe('saveVoucher keeps bank reconciliation across an alteration', () => {
+  it('carries bank_date to the matching line; a changed amount drops it', () => {
+    const db = seededDb()
+    const x = setup(db)
+    const id = saveVoucher(db, {
+      ...header, voucherTypeId: typeId(db, 'payment'), date: '2025-05-13',
+      lines: [{ ledgerId: x.freight, drCr: 'dr', amount: 5000 }, { ledgerId: x.bank, drCr: 'cr', amount: 5000 }]
+    }).id
+    const line = getVoucher(db, id)!.lines[1]!
+    setBankDate(db, line.id, '2025-05-20')
+    saveVoucher(db, { ...header, voucherTypeId: typeId(db, 'payment'), date: '2025-05-13', narration: 'edited',
+      lines: [{ ledgerId: x.freight, drCr: 'dr', amount: 5000 }, { ledgerId: x.bank, drCr: 'cr', amount: 5000 }] }, id)
+    expect(getVoucher(db, id)!.lines[1]!.bankDate).toBe('2025-05-20')
+    saveVoucher(db, { ...header, voucherTypeId: typeId(db, 'payment'), date: '2025-05-13',
+      lines: [{ ledgerId: x.freight, drCr: 'dr', amount: 6000 }, { ledgerId: x.bank, drCr: 'cr', amount: 6000 }] }, id)
+    expect(getVoucher(db, id)!.lines[1]!.bankDate).toBeNull()
+  })
+})

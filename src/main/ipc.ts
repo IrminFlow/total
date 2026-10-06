@@ -18,7 +18,7 @@ import {
   backupFileSchema, bankRuleInputSchema, batchInputSchema, billsOpenSchema, budgetInputSchema, budgetVarianceSchema, ccStatementSchema,
   chequeConfigSchema, companyCreateSchema, consolidatedRunSchema, costCentreInputSchema, exportCsvSchema, godownInputSchema, groupInputSchema, gst3bManualSchema, gstr2bSchema,
   isoDate, ledgerInputSchema, notifyDeadlinesSchema, passphraseSchema, periodSchema, priceLevelInputSchema, priceRateInputSchema, rendererLogSchema, reportPdfSchema,
-  searchGlobalSchema, stockGroupInputSchema, stockItemInputSchema, stockQuerySchema, tallyImportSchema, tdsExport26qSchema, tdsEnsurePayableSchema, tdsSectionInputSchema, tdsSuggestSchema,
+  searchGlobalSchema, searchQuerySchema, stockGroupInputSchema, stockItemInputSchema, stockQuerySchema, tallyImportSchema, tdsExport26qSchema, tdsEnsurePayableSchema, tdsSectionInputSchema, tdsSuggestSchema,
   tdsSummarySchema, unitInputSchema, voucherInputSchema, voucherTransportSchema, voucherTypeInputSchema
 } from '@shared/schemas'
 import { todayISO } from '@shared/dates'
@@ -51,7 +51,7 @@ import * as consolidated from './services/consolidated'
 import * as caPack from './services/caPack'
 import { writeExportPdf } from './services/pdf'
 import { reportHtml } from './services/reportHtml'
-import { globalSearch } from './services/search'
+import { globalSearch, search } from './services/search'
 import { createDemoCompany } from './services/demo'
 import { setAuditContext, writeAudit, listAudit, pruneAudit } from './services/audit'
 import * as users from './services/users'
@@ -581,6 +581,10 @@ export function registerIpc(): void {
 
   // ---------- search ----------
   handle('search:global', (p) => globalSearch(requireCompany().db, searchGlobalSchema.parse(p).q), 'viewer')
+  handle('search:query', (p) => {
+    const { q, ...opts } = searchQuerySchema.parse(p)
+    return search(requireCompany().db, q, opts)
+  }, 'viewer')
 
   // ---------- vouchers ----------
   handle('voucher:list', (p) => {

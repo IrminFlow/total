@@ -273,6 +273,14 @@ export const SCREENS: ScreenDef[] = [
     screen: null, // needs a ledgerId — reached from ledger lists/search, never bare navigation
     navSection: null,
     invalidates: ['ledgerStatement']
+  },
+  {
+    name: 'search',
+    title: 'Search the books',
+    keywords: ['find', 'search', 'lookup', 'all results'],
+    screen: { name: 'search' }, // ⌘⇧F, or "See all" rows in the ⌘K palette (with a query)
+    navSection: null,
+    invalidates: ['searchResults']
   }
 ]
 

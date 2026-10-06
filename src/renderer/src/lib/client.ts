@@ -21,11 +21,11 @@ import type {
   CurrencyInput, EmployeeHeadsSetInput, EmployeeInputPayload, GodownInput, GroupInput, Gst3bManualInput, LedgerInput, NicCredentials,
   PayHeadInput, PriceLevelInput,
   PriceRateInput,
-  RendererLogInput, StockGroupInput, StockItemInput, TdsSectionInput, UnitInput, UserInput, VoucherTransportInput, VoucherTypeInput,
+  RendererLogInput, SearchQueryInput, StockGroupInput, StockItemInput, TdsSectionInput, UnitInput, UserInput, VoucherTransportInput, VoucherTypeInput,
   VoucherInputParsed
 } from '@shared/schemas'
 import type { CompanyFeatures } from '@shared/features'
-import type { SearchHit } from '@shared/search'
+import type { SearchHit, SearchResponse } from '@shared/search'
 import type { ChartGroupNode } from '@shared/chartOfAccounts'
 import type { InvoiceConfig } from '@shared/invoiceConfig'
 import type { CloseLedgerRow } from '@shared/yearEnd'
@@ -667,7 +667,9 @@ export const api = {
     reveal: () => call<null>('log:reveal')
   },
   search: {
-    global: (q: string) => call<SearchHit[]>('search:global', { q })
+    global: (q: string) => call<SearchHit[]>('search:global', { q }),
+    /** Books search with the query language — see src/shared/searchQuery.ts. */
+    query: (input: SearchQueryInput) => call<SearchResponse>('search:query', input)
   },
   audit: {
     list: (query: AuditListInput) => call<{ rows: AuditRow[]; total: number }>('audit:list', query),

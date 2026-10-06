@@ -40,7 +40,11 @@ export type Screen =
   | { name: 'voucher-entry'; voucherId?: number; kindHint?: VoucherKind; draft?: VoucherDraft; draftId?: number }
   // Like 'settings', the active tab lives in the nav stack (nav.go per tab) so Esc/back
   // retraces tabs and other screens can deep-link straight to one.
-  | { name: 'masters'; tab?: 'ledgers' | 'groups' | 'items' | 'units' | 'types' | 'currencies' | 'godowns' | 'stock-groups' }
+  // `itemId` (items tab only) opens that stock item's editor — how search results open an item.
+  | { name: 'masters'; tab?: 'ledgers' | 'groups' | 'items' | 'units' | 'types' | 'currencies' | 'godowns' | 'stock-groups'; itemId?: number }
+  // Books search results (⌘⇧F, or "See all" in the ⌘K palette): `q` is the query-language
+  // string, `kind` the initially selected tab (omitted = all kinds).
+  | { name: 'search'; q?: string; kind?: 'ledger' | 'item' | 'voucher' }
   | { name: 'trial-balance' }
   | { name: 'profit-loss' }
   | { name: 'balance-sheet' }
