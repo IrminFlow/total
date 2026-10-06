@@ -1,14 +1,61 @@
 import { useMemo, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import type { TdsSection } from '@shared/domain'
-import { api } from '../lib/client'
+import { api, type TdsSummaryRow } from '../lib/client'
 import { useSession, useToasts } from '../state/stores'
-import { AmountInput, Button, EmptyState, Field, Modal, Money, Panel, ScrollList, SectionTitle, Select, TextInput } from '../components/ui'
+import { AmountInput, Button, Field, Modal, Money, Panel, SectionTitle, Select, TextInput } from '../components/ui'
+import { DataTable, defineColumns } from '../components/table'
 import { useLedgers } from '../components/pickers'
 import { fyOf, fyFromStartYear, todayISO } from '@shared/dates'
 import { tdsQuarterOf } from '@shared/tds'
+import { formatPaise } from '@shared/money'
 
 const QUARTERS = [1, 2, 3, 4] as const
+
+interface NoPanRow {
+  ledgerId: number
+  name: string
+  section: string | null
+}
+
+const NO_PAN_COLUMNS = defineColumns<NoPanRow>([
+  { id: 'party', header: 'Party', kind: 'text', value: (r) => r.name, hideable: false, groupable: false },
+  { id: 'section', header: 'Section', kind: 'text', value: (r) => r.section, text: (r) => r.section ?? '—', className: 'num text-muted', width: 120 },
+  { id: 'pan', header: 'PAN', kind: 'text', value: () => 'Missing — add it in Masters', className: 'text-muted', width: 220, sortable: false, filterable: false, groupable: false }
+])
+
+export const TDS_SUMMARY_COLUMNS = defineColumns<TdsSummaryRow>([
+  { id: 'section', header: 'Section', kind: 'text', value: (r) => r.sectionCode, className: 'num', hideable: false, groupable: false },
+  { id: 'deductees', header: 'Deductees', kind: 'number', value: (r) => r.deductees, width: 120, aggregate: 'sum' },
+  { id: 'base', header: 'Base', kind: 'money', value: (r) => r.base, width: 150, aggregate: 'sum' },
+  { id: 'tds', header: 'TDS', kind: 'money', value: (r) => r.tds, width: 150, aggregate: 'sum' }
+])
+
+const optionalMoney = (paise: number): React.JSX.Element => (paise > 0 ? <Money paise={paise} /> : <span className="text-muted">—</span>)
+
+const SECTION_COLUMNS = defineColumns<TdsSection>([
+  { id: 'code', header: 'Code', kind: 'text', value: (s) => s.code, className: 'num', width: 90, hideable: false, groupable: false },
+  { id: 'description', header: 'Description', kind: 'text', value: (s) => s.description, groupable: false },
+  { id: 'rate', header: 'Rate', kind: 'number', value: (s) => s.rate, text: (s) => `${s.rate}%`, width: 80 },
+  {
+    id: 'single',
+    header: 'Single limit',
+    kind: 'money',
+    value: (s) => s.thresholdSingle,
+    text: (s) => (s.thresholdSingle > 0 ? formatPaise(s.thresholdSingle) : '—'),
+    cell: (s) => optionalMoney(s.thresholdSingle),
+    width: 130
+  },
+  {
+    id: 'annual',
+    header: 'Annual limit',
+    kind: 'money',
+    value: (s) => s.thresholdAnnual,
+    text: (s) => (s.thresholdAnnual > 0 ? formatPaise(s.thresholdAnnual) : '—'),
+    cell: (s) => optionalMoney(s.thresholdAnnual),
+    width: 130
+  }
+])
 
 export function TdsScreen(): React.JSX.Element {
   const { info } = useSession()
@@ -33,14 +80,16 @@ export function TdsScreen(): React.JSX.Element {
   // The summary endpoint aggregates section × quarter (deductee count, not per-deductee rows) —
   // there's no per-deductee/PAN breakdown API yet, so the missing-PAN warning surfaces at the
   // ledger-master level instead of per transaction row.
-  const flaggedNoPan = useMemo(() => ledgers.filter((l) => l.tdsSectionId != null && !l.pan), [ledgers])
+  const flaggedNoPan = useMemo<NoPanRow[]>(
+    () =>
+      ledgers
+        .filter((l) => l.tdsSectionId != null && !l.pan)
+        .map((l) => ({ ledgerId: l.id, name: l.name, section: (l.tdsSectionId != null && sectionCodeById.get(l.tdsSectionId)) || null })),
+    [ledgers, sectionCodeById]
+  )
 
   const qLabel = `Q${quarter} FY${fy.label}`
-  const rows = (summary ?? []).filter((r) => r.quarter === qLabel)
-  const totals = rows.reduce(
-    (acc, r) => ({ deductees: acc.deductees + r.deductees, base: acc.base + r.base, tds: acc.tds + r.tds }),
-    { deductees: 0, base: 0, tds: 0 }
-  )
+  const rows = useMemo(() => (summary ?? []).filter((r) => r.quarter === qLabel), [summary, qLabel])
 
   const doExport = async (): Promise<void> => {
     try {
@@ -96,58 +145,32 @@ export function TdsScreen(): React.JSX.Element {
             {flaggedNoPan.length} part{flaggedNoPan.length > 1 ? 'ies' : 'y'} flagged for TDS with no PAN on file — the
             higher 20% rate applies
           </div>
-          <table className="ledger-table">
-            <thead>
-              <tr>
-                <th>Party</th>
-                <th className="w-28">Section</th>
-                <th className="w-28">PAN</th>
-              </tr>
-            </thead>
-            <tbody data-testid="rows-tds-nopan">
-              {flaggedNoPan.map((l) => (
-                <tr key={l.id}>
-                  <td>{l.name}</td>
-                  <td className="num text-muted">{(l.tdsSectionId != null && sectionCodeById.get(l.tdsSectionId)) || '—'}</td>
-                  <td className="text-muted">Missing — add it in Masters</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          <DataTable
+            viewId="tds-nopan"
+            testId="tds-nopan"
+            ariaLabel="Parties flagged for TDS with no PAN"
+            columns={NO_PAN_COLUMNS}
+            rows={flaggedNoPan}
+            rowKey={(r) => r.ledgerId}
+            rowAttrs={(r) => ({ 'data-row-id': r.ledgerId })}
+            maxHeight="40vh"
+            exportOptions={{ title: 'TDS parties without PAN', periodLabel: `FY ${fy.label}`, filename: 'tds-missing-pan' }}
+          />
         </Panel>
       )}
 
       <Panel>
-        {rows.length === 0 ? (
-          <EmptyState title={`No TDS deductions in ${qLabel}`} />
-        ) : (
-          <table className="ledger-table">
-            <thead>
-              <tr>
-                <th>Section</th>
-                <th className="r w-32">Deductees</th>
-                <th className="r w-36">Base</th>
-                <th className="r w-36">TDS</th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((r) => (
-                <tr key={r.sectionCode}>
-                  <td className="num">{r.sectionCode}</td>
-                  <td className="r num">{r.deductees}</td>
-                  <td className="r"><Money paise={r.base} /></td>
-                  <td className="r"><Money paise={r.tds} /></td>
-                </tr>
-              ))}
-              <tr className="total-row">
-                <td>Total</td>
-                <td className="r num">{totals.deductees}</td>
-                <td className="r"><Money paise={totals.base} /></td>
-                <td className="r"><Money paise={totals.tds} /></td>
-              </tr>
-            </tbody>
-          </table>
-        )}
+        <DataTable
+          viewId="tds-summary"
+          testId="tds-summary"
+          ariaLabel={`TDS by section — ${qLabel}`}
+          columns={TDS_SUMMARY_COLUMNS}
+          rows={rows}
+          rowKey={(r) => r.sectionCode}
+          maxHeight="none"
+          empty={{ title: `No TDS deductions in ${qLabel}` }}
+          exportOptions={{ title: 'TDS by section', periodLabel: qLabel, filename: `tds-q${quarter}-fy${fy.label}` }}
+        />
       </Panel>
       <p className="mt-2 text-[11.5px] text-muted">
         {qLabel} · The 26Q CSV lists deductee, PAN, section, voucher and amounts for manual import into NSDL's Return
@@ -222,44 +245,30 @@ function SectionsModal({ sections, onClose }: { sections: TdsSection[]; onClose:
   return (
     <Modal title="TDS sections" onClose={onClose} wide>
       <div className="flex flex-col gap-4">
-        <ScrollList maxH="40vh" className="rounded-md border border-line">
-          {sections.length === 0 ? (
-            <EmptyState title="No sections yet" hint="Add one below — e.g. 194C Contractors at 1%" />
-          ) : (
-            <table className="ledger-table">
-              <thead>
-                <tr>
-                  <th className="w-20">Code</th>
-                  <th>Description</th>
-                  <th className="r w-20">Rate</th>
-                  <th className="r w-32">Single limit</th>
-                  <th className="r w-32">Annual limit</th>
-                  <th className="w-14"></th>
-                </tr>
-              </thead>
-              <tbody data-testid="rows-tds-sections">
-                {sections.map((s) => (
-                  <tr key={s.id} className={form.id === s.id ? 'bg-amberbar/10' : ''}>
-                    <td className="num">{s.code}</td>
-                    <td>{s.description}</td>
-                    <td className="r num">{s.rate}%</td>
-                    <td className="r">{s.thresholdSingle > 0 ? <Money paise={s.thresholdSingle} /> : <span className="text-muted">—</span>}</td>
-                    <td className="r">{s.thresholdAnnual > 0 ? <Money paise={s.thresholdAnnual} /> : <span className="text-muted">—</span>}</td>
-                    <td className="r">
-                      <button
-                        data-testid={`btn-tds-section-edit-${s.id}`}
-                        className="text-[12px] text-blue hover:underline"
-                        onClick={() => edit(s)}
-                      >
-                        Edit
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          )}
-        </ScrollList>
+        <div className="overflow-hidden rounded-md border border-line">
+          <DataTable
+            viewId="tds-sections"
+            testId="tds-sections"
+            ariaLabel="TDS sections"
+            columns={SECTION_COLUMNS}
+            rows={sections}
+            rowKey={(s) => s.id}
+            rowClassName={(s) => (form.id === s.id ? 'bg-amberbar/10' : '')}
+            maxHeight="40vh"
+            empty={{ title: 'No sections yet', hint: 'Add one below — e.g. 194C Contractors at 1%' }}
+            toolbarFeatures={{ views: false, groupBy: false, density: false }}
+            trailingWidth={64}
+            trailing={(s) => (
+              <button
+                data-testid={`btn-tds-section-edit-${s.id}`}
+                className="text-[12px] text-blue hover:underline"
+                onClick={() => edit(s)}
+              >
+                Edit
+              </button>
+            )}
+          />
+        </div>
 
         <div>
           <p className="mb-2 text-[12.5px] font-medium text-ink">{form.id != null ? `Edit ${form.code}` : 'New section'}</p>
