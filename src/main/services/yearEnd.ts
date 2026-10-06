@@ -3,10 +3,10 @@ import type { CompanyInfo } from '@shared/domain'
 import { fyFromStartYear, todayISO } from '@shared/dates'
 import { planClose, type CloseLedgerRow } from '@shared/yearEnd'
 import { findOrCreateLedger } from './masters'
-import { saveVoucher, setLockDate, NOT_DELETED, IN_BOOKS } from './vouchers'
+import { saveVoucher, setLockDate, NOT_DELETED } from './vouchers'
 import { writeAudit } from './audit'
-import { readBooksFromYear } from '../db/seed'
-import { balanceBasis } from '@shared/yearOpening'
+import { booksFromYear } from './booksStart'
+import { pnlLedgerAmounts } from './reports'
 
 /** Marker embedded in the closing journal's narration — how re-close and status checks find it. */
 function closeMarker(fyStartYear: number): string {
@@ -27,32 +27,22 @@ export interface ClosePreview {
  *  P&L/trial balance (also IN_BOOKS) show, or Retained Earnings is misstated and the income/
  *  expense ledgers carry residuals into the locked next FY.
  *
- *  WP 1.3: when closing the books' first FY, each ledger's stored opening balance is part of its
- *  FY balance (@shared/yearOpening) and is transferred too — otherwise it would never reach
+ *  WP 1.3: the nets come from reports.pnlLedgerAmounts — the same "profit for a period" the P&L
+ *  uses — so the close transfers exactly the FY's P&L net profit. When closing the books' first
+ *  FY that includes each ledger's stored opening balance; otherwise it would never reach
  *  Retained Earnings and the trial balance would show it forever as a computed
  *  "Profit & Loss A/c (opening)" row. `booksFrom` defaults to the company's stored value. */
-export function closePreview(
-  db: DB,
-  fyStartYear: number,
-  booksFrom: number | null = readBooksFromYear(db)
-): ClosePreview {
+export function closePreview(db: DB, fyStartYear: number, booksFrom: number = booksFromYear(db)): ClosePreview {
   const fy = fyFromStartYear(fyStartYear)
-  // Nature is irrelevant beyond being income/expense — every row here is one.
-  const includeStored = balanceBasis('income', fy.from, booksFrom).includeStored ? 1 : 0
-  const rows = (
-    db
-      .prepare(
-        `SELECT l.id AS ledgerId, l.name AS name, g.nature AS nature,
-                (CASE WHEN ? THEN l.opening_balance ELSE 0 END) + COALESCE((
-                  SELECT SUM(CASE WHEN vl.dr_cr = 'dr' THEN vl.amount ELSE -vl.amount END)
-                  FROM voucher_lines vl JOIN vouchers v ON v.id = vl.voucher_id
-                  WHERE vl.ledger_id = l.id AND v.date BETWEEN ? AND ? AND ${IN_BOOKS}
-                ), 0) AS net
-         FROM ledgers l JOIN groups g ON g.id = l.group_id
-         WHERE g.nature IN ('income', 'expense')`
-      )
-      .all(includeStored, fy.from, fy.to) as CloseLedgerRow[]
-  )
+  const { amounts } = pnlLedgerAmounts(db, fy.from, fy.to, booksFrom)
+  const ledgers = db
+    .prepare(
+      `SELECT l.id AS ledgerId, l.name AS name, g.nature AS nature
+       FROM ledgers l JOIN groups g ON g.id = l.group_id WHERE g.nature IN ('income', 'expense')`
+    )
+    .all() as Omit<CloseLedgerRow, 'net'>[]
+  const rows: CloseLedgerRow[] = ledgers
+    .map((l) => ({ ...l, net: amounts.get(l.ledgerId) ?? 0 }))
     .filter((r) => r.net !== 0)
     .sort((a, b) => a.name.localeCompare(b.name))
 

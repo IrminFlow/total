@@ -12,13 +12,18 @@
  * window) or, if no close was posted, shown by the trial balance as a computed
  * "Profit & Loss A/c (opening)" line so the books still balance.
  *
- * The year-end close of the books' first FY transfers the stored openings too, so a closed year
- * leaves its P&L ledgers at exactly zero under this rule.
+ * Profit for a period (P&L, year-end close, balance-sheet P&L, cash flow, dashboard, CA pack,
+ * consolidated) = movements of income/expense ledgers in [from, to], plus their stored openings
+ * only when the period contains the first day of the books (1 April of `booksFrom`). Stored
+ * openings belong to the opening of the books: a sub-period of the first FY that starts later
+ * than 1 April (say Q2) does not show them — they are in that sub-period's opening (the ledger
+ * statement's opening), exactly like Q1's movements are. The year-end close of the books' first
+ * FY therefore transfers the stored openings too, leaving its P&L ledgers at exactly zero.
  *
  * Pure date arithmetic only — callers do the SQL.
  */
 import type { Nature } from './domain'
-import { fyOf } from './dates'
+import { fyFromStartYear, fyOf } from './dates'
 
 /** Income and expense ledgers reset at each financial-year start. */
 export function resetsEachYear(nature: Nature): boolean {
@@ -37,14 +42,17 @@ export interface BalanceBasis {
  * `(includeStored ? stored : 0) + movements in [movementsFrom, date]`; the opening of a period
  * starting on `date` uses the same basis with movements up to the day before `date`.
  *
- * `booksFromYear` is the company's first FY start year (CompanyInfo.booksFrom); null (unknown)
- * keeps the stored opening in every year.
+ * `booksFromYear` is the company's first FY start year (CompanyInfo.booksFrom).
  */
-export function balanceBasis(nature: Nature, date: string, booksFromYear: number | null): BalanceBasis {
+export function balanceBasis(nature: Nature, date: string, booksFromYear: number): BalanceBasis {
   if (!resetsEachYear(nature)) return { includeStored: true, movementsFrom: null }
   const fy = fyOf(date)
-  return {
-    includeStored: booksFromYear === null || fy.startYear === booksFromYear,
-    movementsFrom: fy.from
-  }
+  return { includeStored: fy.startYear === booksFromYear, movementsFrom: fy.from }
+}
+
+/** Whether a profit period [from, to] includes the stored opening balances of income/expense
+ *  ledgers: only when it contains the first day of the books. */
+export function periodIncludesStoredPnl(from: string, to: string, booksFromYear: number): boolean {
+  const booksStart = fyFromStartYear(booksFromYear).from
+  return from <= booksStart && booksStart <= to
 }

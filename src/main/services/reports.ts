@@ -11,22 +11,10 @@ import { buildChartOfAccounts, type ChartGroupNode, type ChartLedgerInput } from
 import { ageStock, buildCashFlow, computeRatios, type CashFlowStatement, type InwardLot } from '@shared/reportMath'
 import { listVouchers, IN_BOOKS, NOT_DELETED } from './vouchers'
 import * as stockAnalysis from './stockAnalysis'
-import { balanceBasis, resetsEachYear } from '@shared/yearOpening'
-import { readBooksFromYear } from '../db/seed'
+import { balanceBasis, periodIncludesStoredPnl, resetsEachYear } from '@shared/yearOpening'
+import { booksFromYear } from './booksStart'
 
 // ---------- shared helpers ----------
-
-/** Signed movement (dr positive) per ledger over an inclusive date range. */
-function movements(db: DB, from: string, to: string): Map<number, number> {
-  const rows = db
-    .prepare(
-      `SELECT vl.ledger_id AS id, SUM(CASE WHEN vl.dr_cr = 'dr' THEN vl.amount ELSE -vl.amount END) AS m
-       FROM voucher_lines vl JOIN vouchers v ON v.id = vl.voucher_id
-       WHERE v.date BETWEEN ? AND ? AND ${IN_BOOKS} GROUP BY vl.ledger_id`
-    )
-    .all(from, to) as { id: number; m: number }[]
-  return new Map(rows.map((r) => [r.id, r.m]))
-}
 
 /** Signed closing balance (opening + movement ≤ asOn) per ledger — one grouped scan of
  *  voucher_lines (same shape as masters.ledgerBalances) instead of a correlated subquery
@@ -438,7 +426,7 @@ export function ledgerStatement(db: DB, ledgerId: number, from: string, to: stri
   // closing === opening + totalDebit − totalCredit always. Consequence: the closing equals the
   // trial balance as on `to` whenever `from` and `to` are in the same FY; for a period spanning
   // 1 April it intentionally does not for income/expense ledgers (the TB restarts them).
-  const basis = balanceBasis(ledger.nature, from, readBooksFromYear(db))
+  const basis = balanceBasis(ledger.nature, from, booksFromYear(db))
   const beforeRow = db
     .prepare(
       `SELECT COALESCE(SUM(CASE WHEN vl.dr_cr = 'dr' THEN vl.amount ELSE -vl.amount END), 0) AS m
@@ -572,7 +560,7 @@ interface YearBasisRow {
  * exceptions — only read asset/liability ledgers from it.)
  */
 function yearBasisBalances(db: DB, asOn: string): { rows: YearBasisRow[]; priorPnl: number } {
-  const plBasis = balanceBasis('income', asOn, readBooksFromYear(db))
+  const plBasis = balanceBasis('income', asOn, booksFromYear(db))
   const rawRows = db
     .prepare(
       `SELECT l.id AS ledgerId, l.name AS ledgerName, g.name AS groupName, l.group_id AS groupId,
@@ -672,6 +660,45 @@ export function trialBalance(db: DB, asOn: string): TrialBalance {
   }
 }
 
+/**
+ * The one definition of "profit for a period" (WP 1.3, @shared/yearOpening): signed dr-positive
+ * amount per income/expense ledger = in-books movements in [from, to], plus the ledger's stored
+ * opening balance when the period contains the books' first day (periodIncludesStoredPnl).
+ * Used by profitAndLoss — and through it the balance sheet's P&L figure, cash flow, dashboard,
+ * CA pack and consolidated P&L — and by the year-end close (closePreview), so all of them agree.
+ * `storedIncluded` is the dr-positive sum of the stored openings added (cash flow needs it as a
+ * non-cash item). Only income/expense ledgers are in the map.
+ */
+export function pnlLedgerAmounts(
+  db: DB,
+  from: string,
+  to: string,
+  booksFrom: number = booksFromYear(db)
+): { amounts: Map<number, number>; storedIncluded: number } {
+  const withStored = periodIncludesStoredPnl(from, to, booksFrom) ? 1 : 0
+  const rows = db
+    .prepare(
+      `SELECT l.id, (CASE WHEN ? THEN l.opening_balance ELSE 0 END) AS stored, COALESCE(m.m, 0) AS moved
+       FROM ledgers l
+       JOIN groups g ON g.id = l.group_id
+       LEFT JOIN (
+         SELECT vl.ledger_id, SUM(CASE WHEN vl.dr_cr = 'dr' THEN vl.amount ELSE -vl.amount END) AS m
+         FROM voucher_lines vl JOIN vouchers v ON v.id = vl.voucher_id
+         WHERE v.date BETWEEN ? AND ? AND ${IN_BOOKS}
+         GROUP BY vl.ledger_id
+       ) m ON m.ledger_id = l.id
+       WHERE g.nature IN ('income', 'expense')`
+    )
+    .all(withStored, from, to) as { id: number; stored: number; moved: number }[]
+  let storedIncluded = 0
+  const amounts = new Map<number, number>()
+  for (const r of rows) {
+    storedIncluded += r.stored
+    amounts.set(r.id, r.stored + r.moved)
+  }
+  return { amounts, storedIncluded }
+}
+
 export function profitAndLoss(
   db: DB,
   from: string,
@@ -682,8 +709,8 @@ export function profitAndLoss(
   opts?: { openingStock?: number; closingStock?: number; comparePrior?: boolean }
 ): ProfitAndLoss {
   const stocks = opts
-  const move = movements(db, from, to)
-  const amountOf = (id: number): number => move.get(id) ?? 0
+  const { amounts } = pnlLedgerAmounts(db, from, to)
+  const amountOf = (id: number): number => amounts.get(id) ?? 0
   const groups = listGroups(db)
   const ledgers = ledgersLite(db)
 
@@ -758,20 +785,11 @@ export function balanceSheet(db: DB, booksFrom: string, asOn: string, comparePri
   }
 
   const pnl = profitAndLoss(db, booksFrom, asOn, { closingStock })
-  // WP 1.3: profitAndLoss sums movements only, but income/expense ledgers can carry a stored
-  // (first-FY) opening balance that is part of the books' cumulative profit — a Dr opening on an
-  // expense ledger is a loss already incurred. Without it the balance sheet was out by exactly
-  // those openings (their counterparts sit in capital/assets). Since books began, the stored
-  // opening always applies (it belongs to the first FY), so subtract it here.
-  const pnlStoredOpening = (
-    db
-      .prepare(
-        `SELECT COALESCE(SUM(l.opening_balance), 0) AS s
-         FROM ledgers l JOIN groups g ON g.id = l.group_id WHERE g.nature IN ('income', 'expense')`
-      )
-      .get() as { s: number }
-  ).s
-  const profitCurrentPeriod = pnl.netProfit - pnlStoredOpening
+  // WP 1.3: the period runs from the books' first day, so profitAndLoss (pnlLedgerAmounts)
+  // includes the stored openings of income/expense ledgers — part of the books' cumulative
+  // profit (a Dr opening on an expense ledger is a loss already incurred). Before WP 1.3 they
+  // were left out and the balance sheet was out by exactly those openings.
+  const profitCurrentPeriod = pnl.netProfit
 
   // If user-entered opening balances don't balance, surface the gap Tally-style. The synthetic
   // stock-opening component stands down when a Stock-in-Hand ledger actually carries the stock
@@ -836,6 +854,13 @@ export function cashFlow(db: DB, from: string, to: string): CashFlowStatement {
     const top = topOf(l.groupId)
     if (top.nature !== 'asset' && top.nature !== 'liability') continue // P&L ledgers live in netProfit
     deltaByGroup.set(top.name, (deltaByGroup.get(top.name) ?? 0) + (a - b))
+  }
+  // WP 1.3: a period containing the books' first day counts the stored openings of income/
+  // expense ledgers in net profit (pnlLedgerAmounts). They are opening balances, not cash moved
+  // in the period, so add them back as a non-cash operating item to keep the reconciliation.
+  const { storedIncluded } = pnlLedgerAmounts(db, from, to)
+  if (storedIncluded !== 0) {
+    deltaByGroup.set('Income/expense opening balances', -storedIncluded)
   }
 
   return buildCashFlow({
