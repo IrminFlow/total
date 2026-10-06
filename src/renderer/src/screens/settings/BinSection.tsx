@@ -2,11 +2,21 @@ import { useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { api, type BinRow } from '../../lib/client'
 import { useSession, useToasts } from '../../state/stores'
-import { Button, EmptyState, Modal, Money, Panel, SectionTitle, TextInput } from '../../components/ui'
-import { toDisplayDate } from '@shared/dates'
+import { Button, Modal, Panel, SectionTitle, TextInput } from '../../components/ui'
+import { DataTable, defineColumns } from '../../components/table'
+import { todayISO, toDisplayDate } from '@shared/dates'
+
+const BIN_COLUMNS = defineColumns<BinRow>([
+  { id: 'date', header: 'Date', kind: 'date', value: (r) => r.date, className: 'text-muted', width: 100 },
+  { id: 'number', header: 'No.', kind: 'text', value: (r) => r.number, className: 'num', width: 110, groupable: false },
+  { id: 'type', header: 'Type', kind: 'text', value: (r) => r.voucherType, width: 130 },
+  { id: 'account', header: 'Account', kind: 'text', value: (r) => r.account, hideable: false, minWidth: 160 },
+  { id: 'amount', header: 'Amount', kind: 'money', value: (r) => r.amount, width: 130 },
+  { id: 'deleted', header: 'Deleted', kind: 'date', value: (r) => r.deletedAt.slice(0, 10), className: 'text-muted', width: 104 }
+])
 
 export function BinSection(): React.JSX.Element {
-  const { data } = useQuery({ queryKey: ['bin'], queryFn: api.vouchers.bin })
+  const { data, isLoading } = useQuery({ queryKey: ['bin'], queryFn: api.vouchers.bin })
   const { user } = useSession()
   const toast = useToasts()
   const queryClient = useQueryClient()
@@ -35,51 +45,38 @@ export function BinSection(): React.JSX.Element {
     <div>
       <SectionTitle>Bin</SectionTitle>
       <Panel>
-        {rows.length === 0 ? (
-          <EmptyState title="Bin is empty" />
-        ) : (
-          <table className="ledger-table">
-            <thead>
-              <tr>
-                <th className="w-20">Date</th>
-                <th className="w-20">No.</th>
-                <th className="w-28">Type</th>
-                <th>Account</th>
-                <th className="r w-28">Amount</th>
-                <th className="w-24">Deleted</th>
-                {showActions && <th className="r w-36"></th>}
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((r) => (
-                <tr key={r.id}>
-                  <td className="num text-muted">{toDisplayDate(r.date)}</td>
-                  <td className="num">{r.number}</td>
-                  <td>{r.voucherType}</td>
-                  <td>{r.account}</td>
-                  <td className="r">
-                    <Money paise={r.amount} />
-                  </td>
-                  <td className="num text-muted">{toDisplayDate(r.deletedAt.slice(0, 10))}</td>
-                  {showActions && (
-                    <td className="r whitespace-nowrap">
-                      {canRestore && (
-                        <button className="mr-2 text-[12px] text-blue hover:underline" onClick={() => void restore(r)}>
-                          Restore
-                        </button>
-                      )}
-                      {canPurge && (
-                        <button className="text-[12px] text-cr hover:underline" onClick={() => setPurging(r)}>
-                          Delete forever
-                        </button>
-                      )}
-                    </td>
-                  )}
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
+        <DataTable
+          viewId="settings-bin"
+          testId="settings-bin"
+          ariaLabel="Deleted vouchers"
+          columns={BIN_COLUMNS}
+          rows={rows}
+          rowKey={(r) => r.id}
+          rowAttrs={(r) => ({ 'data-row-id': r.id })}
+          loading={isLoading}
+          maxHeight="60vh"
+          empty={{ title: 'Bin is empty' }}
+          exportOptions={{ title: 'Bin — deleted vouchers', periodLabel: `as on ${toDisplayDate(todayISO())}`, filename: 'bin' }}
+          trailingWidth={canRestore && canPurge ? 170 : 110}
+          trailing={
+            showActions
+              ? (r) => (
+                  <span className="whitespace-nowrap">
+                    {canRestore && (
+                      <button className="mr-2 text-[12px] text-blue hover:underline" onClick={() => void restore(r)}>
+                        Restore
+                      </button>
+                    )}
+                    {canPurge && (
+                      <button className="text-[12px] text-cr hover:underline" onClick={() => setPurging(r)}>
+                        Delete forever
+                      </button>
+                    )}
+                  </span>
+                )
+              : undefined
+          }
+        />
       </Panel>
       <p className="mt-2 text-[11.5px] text-muted">Items are removed permanently after 30 days.</p>
       {purging && <PurgeModal row={purging} onClose={() => setPurging(null)} />}
