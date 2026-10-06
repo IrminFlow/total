@@ -7,6 +7,7 @@
 // ledger statement, the voucher, an expansion…) never fires as well.
 import type { KeyboardEvent, MouseEvent, ReactNode } from 'react'
 import { isRealId, openItemEdit, openLedgerEdit, openVoucher, useCanEditMasters } from '../lib/drill'
+import { useLedgers } from './pickers'
 
 const LINK_CLS =
   'drill-link max-w-full cursor-pointer truncate text-left align-baseline decoration-muted/70 underline-offset-2 hover:underline focus-visible:underline focus-visible:outline-none'
@@ -73,6 +74,23 @@ export function LedgerLink({
       onOpen={() => openLedgerEdit(ledgerId)}
     />
   )
+}
+
+/** A summary like "Purchase A/c,CGST Input,SGST Input" whose FIRST name is `ledgerId`: only that
+ *  name links; the rest stays plain text. Falls back to linking the whole text when the summary
+ *  doesn't start with the ledger's current name (e.g. the ledger list hasn't loaded yet). */
+export function FirstLedgerLink({ ledgerId, text }: { ledgerId: number | null | undefined; text: string }): React.JSX.Element {
+  const ledgers = useLedgers()
+  const first = isRealId(ledgerId) ? ledgers.find((l) => l.id === ledgerId)?.name : undefined
+  if (first && text !== first && text.startsWith(first + ',')) {
+    return (
+      <>
+        <LedgerLink ledgerId={ledgerId} name={first} />
+        <span className="text-muted">{text.slice(first.length)}</span>
+      </>
+    )
+  }
+  return <LedgerLink ledgerId={ledgerId} name={text} />
 }
 
 /** A stock item's name → its editor. Read-only users see plain text (there is no item view). */

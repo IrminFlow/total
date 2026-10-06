@@ -13,7 +13,7 @@ import { toDisplayDate, todayISO } from '@shared/dates'
 import { suggestPattern } from '@shared/bankRules'
 import { confirmDialog } from '../lib/dialogs'
 import { useUnsavedGuard } from '../lib/useUnsavedGuard'
-import { LedgerLink, VoucherLink } from '../components/links'
+import { FirstLedgerLink, LedgerLink, VoucherLink } from '../components/links'
 
 type BankTab = 'recon' | 'brs' | 'pdc'
 
@@ -40,7 +40,7 @@ function reconColumns(onEditBankDate: (r: BankLineRow) => void): TableColumn<Ban
       value: (r) => r.particulars,
       hideable: false,
       minWidth: 160,
-      cell: (r) => <LedgerLink ledgerId={r.particularsLedgerId} name={r.particulars} />
+      cell: (r) => <FirstLedgerLink ledgerId={r.particularsLedgerId} text={r.particulars} />
     },
     { id: 'type', header: 'Type', kind: 'text', value: (r) => r.voucherType, defaultHidden: true, width: 120, className: 'text-muted' },
     {
@@ -127,7 +127,7 @@ const BRS_COLUMNS = defineColumns<BrsItem>([
     value: (it) => it.particulars,
     hideable: false,
     minWidth: 160,
-    cell: (it) => <LedgerLink ledgerId={it.particularsLedgerId} name={it.particulars} />
+    cell: (it) => <FirstLedgerLink ledgerId={it.particularsLedgerId} text={it.particulars} />
   },
   { id: 'instrument', header: 'Instrument', kind: 'text', value: (it) => it.instrumentNo, width: 140, groupable: false, className: 'num text-muted' },
   { id: 'amount', header: 'Amount', kind: 'money', value: (it) => it.amount, aggregate: 'sum', width: 140 }

@@ -8,7 +8,7 @@ import { DataTable, defineColumns, type TableColumn } from '../components/table'
 import { slugFilename } from '../lib/reportExport'
 import { toDisplayDate } from '@shared/dates'
 import type { LedgerMonthRow, LedgerStatementRow } from '@shared/reports'
-import { LedgerLink, VoucherLink } from '../components/links'
+import { FirstLedgerLink, VoucherLink } from '../components/links'
 import { groupAncestryNames } from '../components/LedgerFormModal'
 import { useGroups, useLedgers } from '../components/pickers'
 import { openLedgerEdit, useCanEditMasters } from '../lib/drill'
@@ -47,7 +47,7 @@ export function statementColumns(allCount: number, closing: number): TableColumn
       hideable: false,
       minWidth: 160,
       // The row opens the voucher; the counter-ledger NAME opens that ledger's edit window.
-      cell: (r) => <LedgerLink ledgerId={r.particularsLedgerId} name={r.particulars} />
+      cell: (r) => <FirstLedgerLink ledgerId={r.particularsLedgerId} text={r.particulars} />
     },
     {
       id: 'voucher',

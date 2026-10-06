@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import type { Group, Ledger, StockItem } from '@shared/domain'
-import { ItemLink, LedgerLink, VoucherLink, drillRowProps } from '../components/links'
+import { FirstLedgerLink, ItemLink, LedgerLink, VoucherLink, drillRowProps } from '../components/links'
 import { DrillHost } from '../components/DrillHost'
 import { ledgerForShortcut, openLedgerStatement, useDrill } from '../lib/drill'
 import { useNav, useSession } from '../state/stores'
@@ -117,6 +117,16 @@ describe('LedgerLink', () => {
     )
     expect(screen.queryByTestId('ledger-link')).toBeNull()
     expect(container.textContent).toBe('Profit & Loss A/c (opening)Cash sale')
+  })
+})
+
+describe('FirstLedgerLink', () => {
+  it('links only the first name of a "A,B,C" summary', async () => {
+    renderWithClient(<FirstLedgerLink ledgerId={31} text="Acme Traders,CGST Input,SGST Input" />)
+    await waitFor(() => expect(screen.getByTestId('ledger-link').textContent).toBe('Acme Traders'))
+    expect(document.body.textContent).toContain('Acme Traders,CGST Input,SGST Input')
+    fireEvent.click(screen.getByTestId('ledger-link'))
+    expect(useDrill.getState().ledgerEditId).toBe(31)
   })
 })
 
