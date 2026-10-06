@@ -210,14 +210,30 @@ tr.kbar-row[data-active='true'] td:first-child {
   padding-bottom: 0;
   line-height: 23px;
 }
+/* A band is ruled underneath and on its left; the cell after a band rules its right edge. Single
+   1px rules, so two adjacent bands share one line. */
 .data-table > thead > tr.dt-bands > th.dt-band {
   text-align: center;
   text-overflow: ellipsis;
   color: var(--t-ink);
   box-shadow:
     inset 0 -1px 0 var(--t-line),
-    inset 1px 0 0 var(--t-line),
-    inset -1px 0 0 var(--t-line);
+    inset 1px 0 0 var(--t-line);
+}
+.data-table .dt-band-label {
+  position: absolute;
+  inset: 0 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.data-table > thead > tr.dt-bands > th.dt-band:first-child {
+  box-shadow: inset 0 -1px 0 var(--t-line);
+}
+.data-table > thead > tr.dt-bands > th.dt-band + td {
+  box-shadow:
+    inset 0 -1px 0 var(--t-line),
+    inset 1px 0 0 var(--t-line);
 }
 .data-table > thead > tr.dt-bands + tr > th {
   top: 24px;
@@ -332,6 +348,12 @@ textarea {
   outline: 2px solid var(--t-amber-bar);
   outline-offset: 1px;
   border-radius: 3px;
+}
+/* A Modal's dialog takes focus when a non-focusable spot inside it (e.g. a table row) is clicked;
+   arrowing through that table afterwards must not ring the whole dialog. */
+[role='dialog'][aria-modal='true'][tabindex='-1']:focus-visible {
+  outline: none;
+  border-radius: revert-layer;
 }
 
 ::-webkit-scrollbar {

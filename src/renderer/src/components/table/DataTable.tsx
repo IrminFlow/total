@@ -872,7 +872,9 @@ export function DataTable<Row>(props: DataTableProps<Row>): React.JSX.Element {
                       data-band={b.group}
                       data-testid={`${area}-band-${b.ids[0]}`}
                     >
-                      {b.group}
+                      {/* Out of flow: a spanning cell's text must not nudge the fixed column
+                          widths (Chromium otherwise adds a sub-pixel to one of them). */}
+                      <span className="dt-band-label">{b.group}</span>
                     </th>
                   ) : (
                     <td key={`${b.start}:`} colSpan={b.span} />
