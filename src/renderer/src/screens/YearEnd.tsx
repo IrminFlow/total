@@ -1,12 +1,39 @@
 import { useMemo, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { fyFromStartYear, fyOf, todayISO, toDisplayDate } from '@shared/dates'
-import { planClose } from '@shared/yearEnd'
+import { planClose, type CloseLedgerRow } from '@shared/yearEnd'
 import { api } from '../lib/client'
 import { useNav, useSession, useToasts } from '../state/stores'
-import { Button, EmptyState, Money, Panel, ScrollList, SectionTitle, Select, SkeletonRows, TextInput } from '../components/ui'
+import { Button, EmptyState, Money, Panel, SectionTitle, Select, TextInput } from '../components/ui'
+import { DataTable, defineColumns } from '../components/table'
 
 type Step = 1 | 2 | 3
+
+const NATURE_OPTIONS = [
+  { value: 'income', label: 'Income' },
+  { value: 'expense', label: 'Expense' }
+]
+
+export const PNL_COLUMNS = defineColumns<CloseLedgerRow>([
+  { id: 'ledger', header: 'Ledger', kind: 'text', value: (r) => r.name, hideable: false, groupable: false },
+  { id: 'nature', header: 'Nature', kind: 'enum', value: (r) => r.nature, options: NATURE_OPTIONS, className: 'text-muted', width: 110 },
+  // Net movement for the FY (dr-positive) — a period figure, so the footer nets it to the P&L result.
+  { id: 'balance', header: 'Balance', kind: 'money', signed: true, value: (r) => r.net, width: 170, aggregate: 'sum' }
+])
+
+interface JournalRow {
+  /** null = the Retained Earnings line (resolved by the close service). */
+  ledgerId: number | null
+  name: string
+  debit: number | null
+  credit: number | null
+}
+
+const JOURNAL_COLUMNS = defineColumns<JournalRow>([
+  { id: 'ledger', header: 'Ledger', kind: 'text', value: (r) => r.name, hideable: false, groupable: false },
+  { id: 'debit', header: 'Debit', kind: 'money', value: (r) => r.debit, width: 140, aggregate: 'sum' },
+  { id: 'credit', header: 'Credit', kind: 'money', value: (r) => r.credit, width: 140, aggregate: 'sum' }
+])
 
 export function YearEndScreen(): React.JSX.Element {
   const { info, setPeriod } = useSession()
@@ -35,15 +62,27 @@ export function YearEndScreen(): React.JSX.Element {
     enabled: !noCompletedFy
   })
 
-  const incomeRows = (preview?.rows ?? []).filter((r) => r.nature === 'income')
-  const expenseRows = (preview?.rows ?? []).filter((r) => r.nature === 'expense')
+  // Income first, then expense — the order the review has always shown.
+  const pnlRows = useMemo(() => {
+    const rows = preview?.rows ?? []
+    return [...rows.filter((r) => r.nature === 'income'), ...rows.filter((r) => r.nature === 'expense')]
+  }, [preview])
 
   const plan = useMemo(() => (preview ? planClose(preview.rows) : { lines: [], netProfit: 0 }), [preview])
-  const nameOf = (ledgerId: number): string => preview?.rows.find((r) => r.ledgerId === ledgerId)?.name ?? ''
-  const retainedLine =
-    plan.netProfit !== 0
-      ? { drCr: (plan.netProfit > 0 ? 'cr' : 'dr') as 'dr' | 'cr', amount: Math.abs(plan.netProfit) }
-      : null
+  const journalRows = useMemo<JournalRow[]>(() => {
+    const names = new Map((preview?.rows ?? []).map((r) => [r.ledgerId, r.name]))
+    const rows: JournalRow[] = plan.lines.map((l) => ({
+      ledgerId: l.ledgerId,
+      name: names.get(l.ledgerId) ?? '',
+      debit: l.drCr === 'dr' ? l.amount : null,
+      credit: l.drCr === 'cr' ? l.amount : null
+    }))
+    if (plan.netProfit !== 0) {
+      const amount = Math.abs(plan.netProfit)
+      rows.push({ ledgerId: null, name: 'Retained Earnings', debit: plan.netProfit < 0 ? amount : null, credit: plan.netProfit > 0 ? amount : null })
+    }
+    return rows
+  }, [plan, preview])
 
   const changeYear = (y: number): void => {
     setFyStartYear(y)
@@ -153,38 +192,22 @@ export function YearEndScreen(): React.JSX.Element {
 
       {step === 1 && (
         <>
-          <Panel className="mb-4" scroll={{ maxH: '55vh' }}>
-            {isLoading ? (
-              <SkeletonRows />
-            ) : !incomeRows.length && !expenseRows.length ? (
-              <EmptyState title="No income or expense activity in this FY" hint="Nothing to close for this period" />
-            ) : (
-              <table className="ledger-table">
-                <thead>
-                  <tr>
-                    <th>Ledger</th>
-                    <th className="w-24">Nature</th>
-                    <th className="r w-40">Balance</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {incomeRows.map((r) => (
-                    <tr key={r.ledgerId}>
-                      <td>{r.name}</td>
-                      <td className="text-muted">Income</td>
-                      <td className="r"><Money paise={r.net} signed /></td>
-                    </tr>
-                  ))}
-                  {expenseRows.map((r) => (
-                    <tr key={r.ledgerId}>
-                      <td>{r.name}</td>
-                      <td className="text-muted">Expense</td>
-                      <td className="r"><Money paise={r.net} signed /></td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            )}
+          <Panel className="mb-4">
+            <DataTable
+              viewId="year-end-pnl"
+              testId="year-end-pnl"
+              ariaLabel={`Income and expense ledgers for FY ${fy.label}`}
+              columns={PNL_COLUMNS}
+              rows={pnlRows}
+              rowKey={(r) => r.ledgerId}
+              rowAttrs={(r) => ({ 'data-row-id': r.ledgerId })}
+              loading={isLoading}
+              maxHeight="55vh"
+              totalsLabel="Net"
+              onRowActivate={(r) => nav.go({ name: 'ledger-statement', ledgerId: r.ledgerId })}
+              empty={{ title: 'No income or expense activity in this FY', hint: 'Nothing to close for this period' }}
+              exportOptions={{ title: 'Year-end close — P&L review', periodLabel: `FY ${fy.label}`, filename: `year-end-pnl-${fy.label}`, totalsLabel: 'Net' }}
+            />
           </Panel>
           {preview && (
             <Panel className="mb-4 flex items-center justify-between px-5 py-3">
@@ -198,7 +221,7 @@ export function YearEndScreen(): React.JSX.Element {
           <div className="flex justify-end">
             <Button
               variant="primary"
-              disabled={!preview || preview.alreadyClosed || (!incomeRows.length && !expenseRows.length)}
+              disabled={!preview || preview.alreadyClosed || pnlRows.length === 0}
               onClick={() => setStep(2)}
             >
               Next: review journal
@@ -213,33 +236,21 @@ export function YearEndScreen(): React.JSX.Element {
             <div className="border-b border-line px-4 py-2.5 text-[12.5px] text-muted">
               Journal · dated {toDisplayDate(fy.to)} · narration “Year-end closing entry [year-end close FY{fyStartYear}]”
             </div>
-            <ScrollList maxH="50vh">
-            <table className="ledger-table">
-              <thead>
-                <tr>
-                  <th>Ledger</th>
-                  <th className="r w-28">Debit</th>
-                  <th className="r w-28">Credit</th>
-                </tr>
-              </thead>
-              <tbody>
-                {plan.lines.map((l) => (
-                  <tr key={l.ledgerId}>
-                    <td>{nameOf(l.ledgerId)}</td>
-                    <td className="r">{l.drCr === 'dr' ? <Money paise={l.amount} /> : null}</td>
-                    <td className="r">{l.drCr === 'cr' ? <Money paise={l.amount} /> : null}</td>
-                  </tr>
-                ))}
-                {retainedLine && (
-                  <tr className="bg-amberbar/10 font-medium">
-                    <td>Retained Earnings</td>
-                    <td className="r">{retainedLine.drCr === 'dr' ? <Money paise={retainedLine.amount} /> : null}</td>
-                    <td className="r">{retainedLine.drCr === 'cr' ? <Money paise={retainedLine.amount} /> : null}</td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-            </ScrollList>
+            <DataTable
+              viewId="year-end-journal"
+              testId="year-end-journal"
+              ariaLabel="Closing journal"
+              columns={JOURNAL_COLUMNS}
+              rows={journalRows}
+              rowKey={(r) => r.ledgerId ?? 'retained'}
+              rowClassName={(r) => (r.ledgerId == null ? 'bg-amberbar/10 font-medium' : '')}
+              maxHeight="50vh"
+              exportOptions={{
+                title: `Year-end closing journal — FY ${fy.label}`,
+                periodLabel: `dated ${toDisplayDate(fy.to)}`,
+                filename: `year-end-journal-${fy.label}`
+              }}
+            />
           </Panel>
           <Panel className="mb-4 border-amber/40 bg-amber/5 p-4">
             <p className="text-[13px] font-medium">

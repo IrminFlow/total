@@ -1,13 +1,41 @@
-import { Fragment, useState } from 'react'
+import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { api, type AuditRow } from '../../lib/client'
 import { useSession } from '../../state/stores'
-import { Button, DateInput, EmptyState, Panel, Select, SectionTitle } from '../../components/ui'
+import { Button, DateInput, Panel, Select, SectionTitle } from '../../components/ui'
+import { DataTable, defineColumns, type RowKey } from '../../components/table'
 import { diffJson } from '@shared/diff'
-import { toDisplayDateTime } from '@shared/dates'
+import { toDisplayDate, toDisplayDateTime } from '@shared/dates'
 import { AUDIT_ENTITIES } from '@shared/auditEntities'
 
 const PAGE_SIZES = [25, 50, 100, 250]
+
+const ACTIONS: AuditRow['action'][] = ['create', 'update', 'delete', 'login', 'login_failed', 'logout', 'export', 'import']
+const actionLabel = (a: string): string => (a.charAt(0).toUpperCase() + a.slice(1)).replace(/_/g, ' ')
+
+/** Server-paged: the table sorts and filters within the current page. */
+const AUDIT_COLUMNS = defineColumns<AuditRow>([
+  {
+    id: 'at',
+    header: 'At',
+    kind: 'date',
+    value: (r) => r.at.slice(0, 10),
+    text: (r) => toDisplayDateTime(new Date(r.at)),
+    className: 'num text-muted',
+    width: 170
+  },
+  { id: 'user', header: 'User', kind: 'text', value: (r) => r.userName, text: (r) => r.userName ?? '—', width: 140 },
+  {
+    id: 'entity',
+    header: 'Entity',
+    kind: 'text',
+    value: (r) => `${r.entity} #${r.entityId}`,
+    groupKey: (r) => r.entity,
+    className: 'num',
+    hideable: false
+  },
+  { id: 'action', header: 'Action', kind: 'enum', value: (r) => r.action, options: ACTIONS.map((a) => ({ value: a, label: actionLabel(a) })), width: 120 }
+])
 
 export function AuditSection(): React.JSX.Element {
   const { from: sessionFrom, to: sessionTo } = useSession()
@@ -16,10 +44,17 @@ export function AuditSection(): React.JSX.Element {
   const [to, setTo] = useState(sessionTo)
   const [page, setPage] = useState(0)
   const [pageSize, setPageSize] = useState(100)
-  const [expanded, setExpanded] = useState<number | null>(null)
+  const [expanded, setExpanded] = useState<ReadonlySet<RowKey>>(() => new Set())
+  const toggle = (id: number): void =>
+    setExpanded((cur) => {
+      const next = new Set(cur)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
 
   const filters = { entity: entity || undefined, from, to, page, pageSize }
-  const { data } = useQuery({ queryKey: ['audit', filters], queryFn: () => api.audit.list(filters) })
+  const { data, isLoading } = useQuery({ queryKey: ['audit', filters], queryFn: () => api.audit.list(filters) })
   const rows = data?.rows ?? []
   const total = data?.total ?? 0
   const pageCount = Math.max(1, Math.ceil(total / pageSize))
@@ -88,42 +123,32 @@ export function AuditSection(): React.JSX.Element {
           </Select>
         </div>
       </div>
-      <Panel scroll={{ maxH: '60vh' }}>
-        {rows.length === 0 ? (
-          <EmptyState title="No audit entries in this range" />
-        ) : (
-          <table className="ledger-table">
-            <thead>
-              <tr>
-                <th className="w-40">At</th>
-                <th className="w-28">User</th>
-                <th>Entity</th>
-                <th className="w-20">Action</th>
-              </tr>
-            </thead>
-            <tbody data-testid="rows-settings-audit">
-              {rows.map((r) => (
-                <Fragment key={r.id}>
-                  <tr className="cursor-pointer" onClick={() => setExpanded(expanded === r.id ? null : r.id)}>
-                    <td className="num text-muted">{toDisplayDateTime(new Date(r.at))}</td>
-                    <td>{r.userName ?? '—'}</td>
-                    <td className="num">
-                      {r.entity} #{r.entityId}
-                    </td>
-                    <td className="capitalize">{r.action}</td>
-                  </tr>
-                  {expanded === r.id && (
-                    <tr>
-                      <td colSpan={4} className="bg-panel2 px-3 py-2.5 text-[12px]">
-                        <AuditDiff row={r} />
-                      </td>
-                    </tr>
-                  )}
-                </Fragment>
-              ))}
-            </tbody>
-          </table>
-        )}
+      <Panel>
+        <DataTable
+          viewId="settings-audit"
+          testId="settings-audit"
+          ariaLabel="Audit trail"
+          columns={AUDIT_COLUMNS}
+          rows={rows}
+          rowKey={(r) => r.id}
+          rowAttrs={(r) => ({ 'data-row-id': r.id })}
+          loading={isLoading}
+          maxHeight="60vh"
+          expanded={expanded}
+          onExpandedChange={setExpanded}
+          renderDetail={(r) => (
+            <div className="bg-panel2 px-3 py-2.5 text-[12px]">
+              <AuditDiff row={r} />
+            </div>
+          )}
+          onRowActivate={(r) => toggle(r.id)}
+          empty={{ title: 'No audit entries in this range' }}
+          exportOptions={{
+            title: 'Audit trail',
+            periodLabel: `${toDisplayDate(from)} to ${toDisplayDate(to)}${entity ? ` · ${entity}` : ''} · page ${page + 1} of ${pageCount}`,
+            filename: 'audit-trail'
+          }}
+        />
       </Panel>
       <div className="mt-3 flex items-center justify-between">
         <p className="text-[11.5px] text-muted">{total} entries</p>

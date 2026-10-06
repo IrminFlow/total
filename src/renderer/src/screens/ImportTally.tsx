@@ -2,10 +2,10 @@ import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { api, type TallyImportSummary } from '../lib/client'
 import { useNav, useToasts } from '../state/stores'
-import { Button, EmptyState, Money, Panel, SectionTitle } from '../components/ui'
-import { printReport } from '../lib/reportExport'
+import { Button, Panel, SectionTitle } from '../components/ui'
+import { DataTable, defineColumns } from '../components/table'
 import { todayISO, toDisplayDate } from '@shared/dates'
-import { formatPaise } from '@shared/money'
+import type { TrialBalanceRow } from '@shared/reports'
 
 type Step =
   | { kind: 'pick' }
@@ -37,6 +37,14 @@ function CountsGrid({ summary }: { summary: TallyImportSummary }): React.JSX.Ele
 }
 
 const WARNINGS_PREVIEW = 8
+
+/** Closing balances by side — the debit and credit totals must tie, exactly like Tally's TB. */
+const TB_COLUMNS = defineColumns<TrialBalanceRow>([
+  { id: 'ledger', header: 'Ledger', kind: 'text', value: (r) => r.ledgerName, hideable: false, groupable: false, minWidth: 180 },
+  { id: 'group', header: 'Group', kind: 'text', value: (r) => r.groupName, className: 'text-muted', minWidth: 140 },
+  { id: 'debit', header: 'Debit', kind: 'money', value: (r) => r.debit, width: 160, aggregate: 'sum' },
+  { id: 'credit', header: 'Credit', kind: 'money', value: (r) => r.credit, width: 160, aggregate: 'sum' }
+])
 
 function WarningsBox({ warnings }: { warnings: string[] }): React.JSX.Element | null {
   const [expanded, setExpanded] = useState(false)
@@ -177,37 +185,9 @@ function PreviewStep({
 }
 
 function DoneStep({ summary, onGateway }: { summary: TallyImportSummary; onGateway: () => void }): React.JSX.Element {
-  const toast = useToasts()
   const today = todayISO()
   const { data: tb } = useQuery({ queryKey: ['trialBalance', today], queryFn: () => api.reports.trialBalance(today) })
   const rows = tb?.rows ?? []
-
-  const printTb = (): void => {
-    void printReport(
-      {
-        title: 'Trial balance',
-        periodLabel: `as on ${toDisplayDate(today)}`,
-        columns: [
-          { label: 'Ledger', align: 'l' },
-          { label: 'Group', align: 'l' },
-          { label: 'Debit', align: 'r' },
-          { label: 'Credit', align: 'r' }
-        ],
-        rows: [
-          ...rows.map((r) => ({
-            cells: [r.ledgerName, r.groupName, formatPaise(r.debit, { zeroDash: true }), formatPaise(r.credit, { zeroDash: true })]
-          })),
-          {
-            cells: ['Total', '', formatPaise(tb?.totalDebit ?? 0, { zeroDash: true }), formatPaise(tb?.totalCredit ?? 0, { zeroDash: true })],
-            bold: true,
-            rule: true
-          }
-        ],
-        filename: 'trial-balance'
-      },
-      toast
-    )
-  }
 
   return (
     <>
@@ -222,53 +202,26 @@ function DoneStep({ summary, onGateway }: { summary: TallyImportSummary; onGatew
           Compare with Tally&rsquo;s Trial Balance — should match to the paise.
         </p>
         <div className="flex gap-2">
-          <Button variant="ghost" onClick={printTb}>
-            PDF
-          </Button>
           <Button variant="primary" onClick={onGateway}>
             Go to Gateway
           </Button>
         </div>
       </div>
 
-      <Panel className="mt-3" scroll={{ maxH: '60vh' }}>
-        {rows.length === 0 ? (
-          <EmptyState title="No balances yet" />
-        ) : (
-          <table className="ledger-table">
-            <thead>
-              <tr>
-                <th>Ledger</th>
-                <th>Group</th>
-                <th className="r w-40">Debit</th>
-                <th className="r w-40">Credit</th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((r) => (
-                <tr key={r.ledgerId}>
-                  <td>{r.ledgerName}</td>
-                  <td className="text-muted">{r.groupName}</td>
-                  <td className="r">
-                    <Money paise={r.debit} />
-                  </td>
-                  <td className="r">
-                    <Money paise={r.credit} />
-                  </td>
-                </tr>
-              ))}
-              <tr className="total-row">
-                <td colSpan={2}>Total</td>
-                <td className="r">
-                  <Money paise={tb?.totalDebit ?? 0} />
-                </td>
-                <td className="r">
-                  <Money paise={tb?.totalCredit ?? 0} />
-                </td>
-              </tr>
-            </tbody>
-          </table>
-        )}
+      <Panel className="mt-3">
+        <DataTable
+          viewId="import-tally-tb"
+          testId="import-tally-tb"
+          ariaLabel="Trial balance after import"
+          columns={TB_COLUMNS}
+          rows={rows}
+          rowKey={(r) => r.ledgerId}
+          rowAttrs={(r) => ({ 'data-row-id': r.ledgerId })}
+          loading={!tb}
+          maxHeight="60vh"
+          empty={{ title: 'No balances yet' }}
+          exportOptions={{ title: 'Trial balance', periodLabel: `as on ${toDisplayDate(today)}`, filename: 'trial-balance' }}
+        />
       </Panel>
     </>
   )
