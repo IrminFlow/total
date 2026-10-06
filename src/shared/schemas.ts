@@ -328,6 +328,19 @@ export const searchGlobalSchema = z.object({
 })
 export type SearchGlobalInput = z.infer<typeof searchGlobalSchema>
 
+/** search:query input — the books-search query language (src/shared/searchQuery.ts). `today` /
+ *  `fyStartYear` anchor relative dates (`date:apr`, `date:today`) to the renderer's working
+ *  period; `kind` + `offset` page one result kind (results screen "Load more"). */
+export const searchQuerySchema = z.object({
+  q: z.string().max(500),
+  today: isoDate.optional(),
+  fyStartYear: z.number().int().min(1900).max(9998).optional(),
+  kind: z.enum(['ledger', 'item', 'voucher']).optional(),
+  limitPerKind: z.number().int().min(1).max(200).optional(),
+  offset: z.number().int().min(0).max(1_000_000).optional()
+})
+export type SearchQueryInput = z.infer<typeof searchQuerySchema>
+
 /** users:save input — pin is digits-only, 4-12 long; required on create, optional on update
  *  (an update without a pin keeps the existing hash). Role requests are honored except for the
  *  very first user of a company, which the service always forces to 'owner'. */

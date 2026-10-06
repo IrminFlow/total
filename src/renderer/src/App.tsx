@@ -30,6 +30,7 @@ import { CostCentresScreen } from './screens/CostCentres'
 import { BudgetsScreen } from './screens/Budgets'
 import { YearEndScreen } from './screens/YearEnd'
 import { Settings } from './screens/Settings'
+import { SearchResultsScreen, FOCUS_SEARCH_EVENT } from './screens/SearchResults'
 import { CommandPalette } from './components/CommandPalette'
 import { ShortcutHelp } from './components/ShortcutHelp'
 import { ErrorBoundary } from './components/ErrorBoundary'
@@ -53,6 +54,15 @@ export default function App(): React.JSX.Element {
         // reachable — opening the palette over it would let the user navigate around it.
         if (integrityWarning) return
         setPaletteOpen((v) => !v)
+        return
+      }
+      // ⌘⇧F — the full Search results screen (focuses its query box when already there).
+      if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key.toLowerCase() === 'f') {
+        e.preventDefault()
+        if (integrityWarning) return
+        setPaletteOpen(false)
+        if (useNav.getState().stack.at(-1)?.name === 'search') window.dispatchEvent(new Event(FOCUS_SEARCH_EVENT))
+        else nav.go({ name: 'search' })
         return
       }
       if (paletteOpen) return
@@ -123,7 +133,10 @@ export default function App(): React.JSX.Element {
               draft={screen.draft}
             />
           )}
-          {screen.name === 'masters' && <Masters key={screen.tab ?? 'ledgers'} tab={screen.tab} />}
+          {screen.name === 'masters' && (
+            <Masters key={`${screen.tab ?? 'ledgers'}-${screen.itemId ?? ''}`} tab={screen.tab} itemId={screen.itemId} />
+          )}
+          {screen.name === 'search' && <SearchResultsScreen key={`${screen.q ?? ''}|${screen.kind ?? ''}`} q={screen.q} kind={screen.kind} />}
           {screen.name === 'trial-balance' && <TrialBalanceScreen />}
           {screen.name === 'profit-loss' && <ProfitLossScreen />}
           {screen.name === 'balance-sheet' && <BalanceSheetScreen />}
