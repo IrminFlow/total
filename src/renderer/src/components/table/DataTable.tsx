@@ -744,7 +744,9 @@ function HeaderCell<Row>({
                 filtered || filterOpen ? 'text-amber opacity-100' : 'text-muted opacity-0 group-hover:opacity-100 focus-visible:opacity-100'
               }`}
             >
-              ⌕
+              <svg aria-hidden="true" width="10" height="10" viewBox="0 0 10 10" className="block">
+                <path d="M0.5 1h9L6 5.2V9L4 8V5.2z" fill="currentColor" />
+              </svg>
             </button>
             {filterOpen && (
               <Popover anchor={filterBtn} onClose={() => setFilterOpen(false)} label={`Filter ${col.header}`} align={align === 'right' ? 'right' : 'left'} width={240}>

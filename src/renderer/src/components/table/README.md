@@ -143,7 +143,7 @@ Esc inside a popover closes it and doesn't reach the screen's Esc-to-go-back han
 Mouse controls:
 
 - Click a header to sort. Shift-click adds a secondary sort.
-- The ⌕ button in a header opens that column's filter.
+- The funnel button in a header opens that column's filter.
 - Drag a header to reorder columns. The column chooser also has ↑/↓ buttons.
 - Drag the right edge of a header to resize. The edge is also focusable: ←/→ resizes by 16px and
   a double-click resets the width.
