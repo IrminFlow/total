@@ -1,24 +1,37 @@
-import { Fragment, useState } from 'react'
+import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { api } from '../lib/client'
 import { useNav, useSession, useToasts, type ToastState } from '../state/stores'
-import { Button, EmptyState, Money, Panel, SectionTitle, SkeletonRows } from '../components/ui'
+import { Money, Panel, SectionTitle } from '../components/ui'
 import { TabBar } from '../components/TabBar'
-import { csvReport, printReport } from '../lib/reportExport'
-import type { ReportColumn as PdfColumn, ReportRow as PdfRow } from '../lib/client'
+import { DataTable, defineColumns, type RowKey } from '../components/table'
 import { toDisplayDate } from '@shared/dates'
-import { formatPaise } from '@shared/money'
 import { buildReminder } from '@shared/outstanding'
-import type { OutstandingBill } from '@shared/reports'
+import type { OutstandingBill, OutstandingParty } from '@shared/reports'
 
-const EXPORT_COLUMNS: PdfColumn[] = [
-  { label: 'Party', align: 'l' },
-  { label: '0–30 d', align: 'r' },
-  { label: '31–60 d', align: 'r' },
-  { label: '61–90 d', align: 'r' },
-  { label: '90+ d', align: 'r' },
-  { label: 'Pending', align: 'r' }
-]
+const bucket = (i: 0 | 1 | 2 | 3) => (p: OutstandingParty) => p.buckets[i]
+
+export const OUTSTANDING_COLUMNS = defineColumns<OutstandingParty>([
+  { id: 'party', header: 'Party', kind: 'text', value: (p) => p.name, hideable: false, groupable: false, minWidth: 180 },
+  { id: 'bills', header: 'Bills', kind: 'number', value: (p) => p.bills.length, aggregate: 'sum', width: 80, defaultHidden: true },
+  { id: 'b0', header: '0–30 d', kind: 'money', value: bucket(0), aggregate: 'sum', width: 130 },
+  { id: 'b1', header: '31–60 d', kind: 'money', value: bucket(1), aggregate: 'sum', width: 130 },
+  { id: 'b2', header: '61–90 d', kind: 'money', value: bucket(2), aggregate: 'sum', width: 130 },
+  {
+    id: 'b3',
+    header: '90+ d',
+    kind: 'money',
+    value: bucket(3),
+    aggregate: 'sum',
+    width: 130,
+    cell: (p) => (
+      <span className={p.buckets[3] > 0 ? 'text-cr' : ''}>
+        <Money paise={p.buckets[3]} />
+      </span>
+    )
+  },
+  { id: 'pending', header: 'Pending', kind: 'money', value: (p) => p.pending, aggregate: 'sum', width: 150, className: 'font-medium' }
+])
 
 async function remind(companyName: string, partyName: string, bills: OutstandingBill[], toast: ToastState): Promise<void> {
   const reminder = buildReminder({ name: companyName }, { name: partyName, email: null }, bills)
@@ -34,175 +47,130 @@ async function remind(companyName: string, partyName: string, bills: Outstanding
   else toast.push('warning', "Couldn't copy to the clipboard — the email draft still has the full text")
 }
 
+/** A party's open bills, shown in its expanded detail row. */
+function BillsDetail({ party }: { party: OutstandingParty }): React.JSX.Element {
+  const nav = useNav()
+  return (
+    // No <thead>: the outer DataTable's sticky-header rule (.data-table thead th) would pin it.
+    <table className="ledger-table" data-testid={`outstandings-bills-${party.ledgerId}`}>
+      <tbody>
+        <tr>
+          <th scope="col">Bill</th>
+          <th scope="col" className="w-32">Bill date</th>
+          <th scope="col" className="r w-24">Age</th>
+          <th scope="col" className="w-48">Due date</th>
+          <th scope="col" className="r w-36">Bill amount</th>
+          <th scope="col" className="r w-36">Pending</th>
+        </tr>
+        {party.bills.map((b, i) => (
+          <tr key={i} className={b.overdueDays > 0 ? 'text-cr' : ''}>
+            <td>
+              {b.voucherId ? (
+                <button
+                  type="button"
+                  className="hover:text-blue hover:underline"
+                  onClick={() => nav.go({ name: 'voucher-entry', voucherId: b.voucherId! })}
+                >
+                  {b.number}
+                </button>
+              ) : (
+                b.number
+              )}
+            </td>
+            <td className="num">{toDisplayDate(b.date)}</td>
+            <td className="r num">{b.ageDays} days</td>
+            <td className="num">
+              {b.dueDate ? toDisplayDate(b.dueDate) : ''}
+              {b.overdueDays > 0 && <span className="ml-1.5">· {b.overdueDays}d overdue</span>}
+            </td>
+            <td className="r">
+              <Money paise={b.amount} />
+            </td>
+            <td className="r">
+              <Money paise={b.pending} />
+            </td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  )
+}
+
 export function OutstandingsScreen(): React.JSX.Element {
   const { to, info } = useSession()
-  const nav = useNav()
   const toast = useToasts()
   const [side, setSide] = useState<'receivable' | 'payable'>('receivable')
-  const [openParty, setOpenParty] = useState<number | null>(null)
+  const [expanded, setExpanded] = useState<Set<RowKey>>(() => new Set())
   const { data, isLoading } = useQuery({
     queryKey: ['outstandings', side, to],
     queryFn: () => api.analysis.outstandings(side, to)
   })
   const parties = data ?? []
-  const total = parties.reduce((s, p) => s + p.pending, 0)
-  const bucketTotals = [0, 1, 2, 3].map((i) => parties.reduce((s, p) => s + p.buckets[i as 0 | 1 | 2 | 3], 0))
-
   const periodLabel = `as on ${toDisplayDate(to)}`
-  const exportRows: PdfRow[] = [
-    ...parties.map((p) => ({
-      cells: [
-        p.name,
-        formatPaise(p.buckets[0], { zeroDash: true }),
-        formatPaise(p.buckets[1], { zeroDash: true }),
-        formatPaise(p.buckets[2], { zeroDash: true }),
-        formatPaise(p.buckets[3], { zeroDash: true }),
-        formatPaise(p.pending, { zeroDash: true })
-      ]
-    })),
-    {
-      cells: [
-        'Total',
-        formatPaise(bucketTotals[0]!, { zeroDash: true }),
-        formatPaise(bucketTotals[1]!, { zeroDash: true }),
-        formatPaise(bucketTotals[2]!, { zeroDash: true }),
-        formatPaise(bucketTotals[3]!, { zeroDash: true }),
-        formatPaise(total, { zeroDash: true })
-      ],
-      bold: true,
-      rule: true
-    }
-  ]
+  const title = side === 'receivable' ? 'Receivables' : 'Payables'
+
+  const toggle = (p: OutstandingParty): void =>
+    setExpanded((s) => {
+      const n = new Set(s)
+      if (n.has(p.ledgerId)) n.delete(p.ledgerId)
+      else n.add(p.ledgerId)
+      return n
+    })
 
   return (
     <div className="mx-auto max-w-5xl">
       <SectionTitle
         right={
-          <div className="flex items-center gap-2">
-            <TabBar
-              screen="outstandings"
-              tabs={[
-                { id: 'receivable', label: 'Receivables' },
-                { id: 'payable', label: 'Payables' }
-              ]}
-              active={side}
-              onSelect={setSide}
-            />
-            <Button
-              variant="ghost"
-              onClick={() =>
-                void printReport(
-                  { title: side === 'receivable' ? 'Receivables · ageing' : 'Payables · ageing', periodLabel, columns: EXPORT_COLUMNS, rows: exportRows },
-                  toast
-                )
-              }
-            >
-              PDF
-            </Button>
-            <Button
-              variant="ghost"
-              onClick={() =>
-                void csvReport(EXPORT_COLUMNS.map((c) => c.label), exportRows.map((r) => r.cells), `outstandings-${side}`, toast)
-              }
-            >
-              CSV
-            </Button>
-          </div>
+          <TabBar
+            screen="outstandings"
+            tabs={[
+              { id: 'receivable', label: 'Receivables' },
+              { id: 'payable', label: 'Payables' }
+            ]}
+            active={side}
+            onSelect={(s) => {
+              setSide(s)
+              setExpanded(new Set())
+            }}
+          />
         }
       >
-        {side === 'receivable' ? 'Receivables' : 'Payables'} · ageing
+        {title} · ageing
       </SectionTitle>
-      <Panel scroll={{ maxH: '70vh' }}>
-        {isLoading ? (
-          <SkeletonRows />
-        ) : parties.length === 0 ? (
-          <EmptyState title={`Nothing ${side === 'receivable' ? 'to collect' : 'to pay'} as on ${toDisplayDate(to)}`} />
-        ) : (
-          <div className="overflow-x-auto">
-          <table className="ledger-table">
-            <thead>
-              <tr>
-                <th>Party</th>
-                <th className="w-32">Due date</th>
-                <th className="r w-32">0–30 d</th>
-                <th className="r w-32">31–60 d</th>
-                <th className="r w-32">61–90 d</th>
-                <th className="r w-32">90+ d</th>
-                <th className="r w-36">Pending</th>
-                <th className="w-24"></th>
-              </tr>
-            </thead>
-            <tbody data-testid="rows-outstandings">
-              {parties.map((p) => (
-                <Fragment key={p.ledgerId}>
-                  <tr
-                    data-row-id={p.ledgerId}
-                    className="cursor-pointer"
-                    onClick={() => setOpenParty(openParty === p.ledgerId ? null : p.ledgerId)}
-                  >
-                    <td>
-                      <span className="mr-1.5 inline-block w-3 text-[10px] text-muted">{openParty === p.ledgerId ? '▾' : '▸'}</span>
-                      {p.name}
-                    </td>
-                    <td></td>
-                    <td className="r"><Money paise={p.buckets[0]} /></td>
-                    <td className="r"><Money paise={p.buckets[1]} /></td>
-                    <td className="r"><Money paise={p.buckets[2]} /></td>
-                    <td className="r"><span className={p.buckets[3] > 0 ? 'text-cr' : ''}><Money paise={p.buckets[3]} /></span></td>
-                    <td className="r font-medium"><Money paise={p.pending} /></td>
-                    <td className="r">
-                      <button
-                        data-testid="btn-outstandings-remind"
-                        className="text-[11.5px] text-blue hover:underline"
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          void remind(info?.name ?? '', p.name, p.bills, toast)
-                        }}
-                      >
-                        Remind
-                      </button>
-                    </td>
-                  </tr>
-                  {openParty === p.ledgerId &&
-                    p.bills.map((b, i) => (
-                      <tr key={`${p.ledgerId}-${i}`} className={`bg-panel2/50 ${b.overdueDays > 0 ? 'text-cr' : ''}`}>
-                        <td className="pl-9 text-muted">
-                          <button
-                            className="hover:text-blue hover:underline"
-                            onClick={(e) => {
-                              e.stopPropagation()
-                              if (b.voucherId) nav.go({ name: 'voucher-entry', voucherId: b.voucherId })
-                            }}
-                          >
-                            {b.number}
-                          </button>
-                          <span className="num ml-3 text-[11.5px]">{toDisplayDate(b.date)} · {b.ageDays} days</span>
-                        </td>
-                        <td className="num text-[11.5px]">
-                          {b.dueDate ? toDisplayDate(b.dueDate) : ''}
-                          {b.overdueDays > 0 && <span className="ml-1.5">· {b.overdueDays}d overdue</span>}
-                        </td>
-                        <td colSpan={4}></td>
-                        <td className="r"><Money paise={b.pending} /></td>
-                        <td></td>
-                      </tr>
-                    ))}
-                </Fragment>
-              ))}
-              <tr className="total-row">
-                <td>Total</td>
-                <td></td>
-                <td className="r"><Money paise={bucketTotals[0]!} /></td>
-                <td className="r"><Money paise={bucketTotals[1]!} /></td>
-                <td className="r"><Money paise={bucketTotals[2]!} /></td>
-                <td className="r"><Money paise={bucketTotals[3]!} /></td>
-                <td className="r"><Money paise={total} /></td>
-                <td></td>
-              </tr>
-            </tbody>
-          </table>
-          </div>
-        )}
+      <Panel>
+        <DataTable
+          key={side}
+          viewId="outstandings"
+          testId="outstandings"
+          ariaLabel={`${title} ageing`}
+          columns={OUTSTANDING_COLUMNS}
+          rows={parties}
+          rowKey={(p) => p.ledgerId}
+          rowAttrs={(p) => ({ 'data-row-id': p.ledgerId })}
+          loading={isLoading}
+          empty={{ title: `Nothing ${side === 'receivable' ? 'to collect' : 'to pay'} as on ${toDisplayDate(to)}` }}
+          // Clicking (or Enter on) a party opens its bills, as before; → / ← also expand/collapse.
+          onRowActivate={toggle}
+          isRowActivatable={(p) => p.bills.length > 0}
+          renderDetail={(p) => <BillsDetail party={p} />}
+          isRowExpandable={(p) => p.bills.length > 0}
+          expanded={expanded}
+          onExpandedChange={setExpanded}
+          detailHeightEstimate={80}
+          trailing={(p) => (
+            <button
+              type="button"
+              data-testid="btn-outstandings-remind"
+              className="text-[11.5px] text-blue hover:underline"
+              onClick={() => void remind(info?.name ?? '', p.name, p.bills, toast)}
+            >
+              Remind
+            </button>
+          )}
+          trailingWidth={80}
+          maxHeight="70vh"
+          exportOptions={{ title: `${title} · ageing`, periodLabel, filename: `outstandings-${side}` }}
+        />
       </Panel>
       <p className="mt-2 text-[11.5px] text-muted">
         Ageing buckets count days overdue past each bill&apos;s due date (or the bill date when none is set). Receipts settle

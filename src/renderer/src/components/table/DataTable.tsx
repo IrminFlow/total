@@ -880,6 +880,18 @@ export function DataTable<Row>(props: DataTableProps<Row>): React.JSX.Element {
             <tfoot>
               {renderFooter ? (
                 renderFooter({ columns: visible, rows: model.rows, totals: model.totals, colSpan })
+              ) : firstAgg > 0 ? (
+                // The label spans every column before the first aggregate (like a group header),
+                // so "Closing balance" isn't clipped to a narrow leading Date column.
+                <tr className="total-row" data-testid={`${area}-table-totals`}>
+                  <td colSpan={labelSpan}>{totalsLabel}</td>
+                  {visible.slice(firstAgg).map((c) => (
+                    <td key={c.id} className={alignCls(columnAlign(c))}>
+                      {c.aggregate ? aggregateCell(c, model.totals[c.id]) : null}
+                    </td>
+                  ))}
+                  {trailing && <td />}
+                </tr>
               ) : (
                 <tr className="total-row" data-testid={`${area}-table-totals`}>
                   {hasExpander && <td />}
