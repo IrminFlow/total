@@ -55,7 +55,6 @@ export type Screen =
   | { name: 'registers' }
   | { name: 'outstandings' }
   | { name: 'consolidated' }
-  | { name: 'recurring' }
   | { name: 'banking' }
   | { name: 'payroll' }
   | { name: 'tds' }

@@ -17,7 +17,7 @@ import { checkForUpdatesInteractive } from './updater'
 import {
   backupFileSchema, bankRuleInputSchema, batchInputSchema, billsOpenSchema, budgetInputSchema, budgetVarianceSchema, ccStatementSchema,
   chequeConfigSchema, companyCreateSchema, consolidatedRunSchema, costCentreInputSchema, exportCsvSchema, godownInputSchema, groupInputSchema, gst3bManualSchema, gstr2bSchema,
-  isoDate, ledgerInputSchema, notifyDeadlinesSchema, passphraseSchema, periodSchema, priceLevelInputSchema, priceRateInputSchema, recurringInputSchema, rendererLogSchema, reportPdfSchema,
+  isoDate, ledgerInputSchema, notifyDeadlinesSchema, passphraseSchema, periodSchema, priceLevelInputSchema, priceRateInputSchema, rendererLogSchema, reportPdfSchema,
   searchGlobalSchema, stockGroupInputSchema, stockItemInputSchema, stockQuerySchema, tallyImportSchema, tdsExport26qSchema, tdsSectionInputSchema, tdsSuggestSchema,
   tdsSummarySchema, unitInputSchema, voucherInputSchema, voucherTransportSchema, voucherTypeInputSchema
 } from '@shared/schemas'
@@ -42,7 +42,6 @@ import * as costCentres from './services/costCentres'
 import * as stockAnalysis from './services/stockAnalysis'
 import * as priceLevels from './services/priceLevels'
 import * as budgets from './services/budgets'
-import * as recurring from './services/recurring'
 import * as yearEnd from './services/yearEnd'
 import { importTallyXml, dryRunTallyXml } from './services/tallyImport'
 import * as importer from './services/importers'
@@ -801,23 +800,6 @@ export function registerIpc(): void {
     const { budgetId, upToMonth } = budgetVarianceSchema.parse(p)
     return budgets.budgetVarianceReport(requireCompany().db, budgetId, upToMonth)
   }, 'viewer')
-
-  // ---------- recurring vouchers ----------
-  handle('recurring:list', () => recurring.listTemplates(requireCompany().db), 'viewer')
-  handle('recurring:save', (p) => {
-    const { id, data } = z.object({ id: z.number().int().positive().optional(), data: recurringInputSchema }).parse(p)
-    return recurring.saveTemplate(requireCompany().db, data, id)
-  })
-  handle('recurring:delete', (p) => recurring.deleteTemplate(requireCompany().db, idSchema.parse(p).id))
-  handle('recurring:due', (p) => {
-    const { today } = z.object({ today: isoDate }).parse(p)
-    return recurring.due(requireCompany().db, today)
-  }, 'viewer')
-  handle('recurring:post', (p) => {
-    const { id, date } = z.object({ id: z.number().int().positive(), date: isoDate }).parse(p)
-    return recurring.postFromTemplate(requireCompany().db, id, date)
-  })
-  handle('recurring:skip', (p) => recurring.skip(requireCompany().db, idSchema.parse(p).id))
 
   // ---------- banking ----------
   handle('bank:ledgers', () => banking.bankLedgers(requireCompany().db), 'viewer')

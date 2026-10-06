@@ -22,7 +22,6 @@ import { CompanyInfoScreen } from './screens/CompanyInfo'
 import { RegistersScreen } from './screens/Registers'
 import { OutstandingsScreen } from './screens/Outstandings'
 import { ConsolidatedScreen } from './screens/Consolidated'
-import { RecurringScreen } from './screens/Recurring'
 import { BankingScreen } from './screens/Banking'
 import { EdocsScreen } from './screens/Edocs'
 import { PayrollScreen } from './screens/Payroll'
@@ -139,7 +138,6 @@ export default function App(): React.JSX.Element {
           {screen.name === 'registers' && <RegistersScreen />}
           {screen.name === 'outstandings' && <OutstandingsScreen />}
           {screen.name === 'consolidated' && <ConsolidatedScreen />}
-          {screen.name === 'recurring' && <RecurringScreen />}
           {screen.name === 'banking' && <BankingScreen />}
           {screen.name === 'payroll' && <PayrollScreen />}
           {screen.name === 'tds' && <TdsScreen />}
