@@ -659,9 +659,14 @@ export function InvoiceEntry({
                       }}
                     />
                   </Field>
-                  <Field label="Due date" hint={party?.creditDays != null ? `${party.creditDays} credit days` : undefined}>
+                  <Field
+                    label="Due date"
+                    hint={billDueDate === '' ? 'None saved' : party?.creditDays != null ? `${party.creditDays} credit days` : undefined}
+                  >
+                    {/* '' = a loaded bill saved without a due date: show the voucher date (the input
+                        needs one) but post null until the user picks a date. */}
                     <DateInput
-                      value={billDueDate}
+                      value={billDueDate || date}
                       context={date}
                       onChange={(d) => {
                         setBillDueDate(d)

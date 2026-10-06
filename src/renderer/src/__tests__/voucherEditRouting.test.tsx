@@ -122,6 +122,13 @@ describe('VoucherEntry alteration routing', () => {
     expect(screen.queryByTestId('banner-accounting-fallback')).toBeNull()
   })
 
+  it('opens a sales voucher with no bill reference (empty due date) in the invoice form', async () => {
+    voucher = { ...asVoucher(9, salesPayload()), billRefs: [] }
+    renderEntry(9)
+    expect(await mode()).toBe('invoice')
+    expect((screen.getAllByTestId('input-line-qty')[0] as HTMLInputElement).value).toBe('2')
+  })
+
   it('opens a sales voucher the invoice form cannot reproduce in accounting mode with a banner', async () => {
     const v = asVoucher(6, salesPayload())
     v.inventory[0]!.amount += 1 // e.g. an imported line whose amount ≠ qty × rate − discount

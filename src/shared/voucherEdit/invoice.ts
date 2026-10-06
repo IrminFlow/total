@@ -276,7 +276,9 @@ export function invoiceStateFromVoucher(
   }))
 
   let billName = ''
-  let billDueDate = ''
+  // '' = a saved bill without a due date; with no bill at all the field is unused, so it just
+  // defaults to the voucher date like a fresh form.
+  let billDueDate = v.date
   let manualNewBillMode = false
   let noteBillRefs: VoucherBillRef[] = []
   const refs = v.billRefs
