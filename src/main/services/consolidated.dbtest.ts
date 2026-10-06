@@ -162,6 +162,54 @@ describe('consolidated()', () => {
     expect(cashRow.perCompany).toEqual([80000, null])
   })
 
+  it('applies each company’s own books-begin year to the year-opening rule (WP 1.3)', () => {
+    // Alpha's books begin FY 2025-26, Beta's FY 2026-27. Both have Rent with a stored Dr
+    // opening of 1,000 (balanced by capital) and 500 of FY 2026-27 rent; Alpha also FY1 rent.
+    const build = (slug: string, name: string, booksFrom: number, fy1Rent: number): void => {
+      const db = openCompanyDb(slug)
+      const info = { ...makeInfo(name), booksFrom }
+      seedCompany(db, info)
+      upsertCompany({ slug, name, stateCode: info.stateCode, gstin: info.gstin, lastOpenedAt: null })
+      const groups = listGroups(db)
+      const mk = (n: string, g: string, ob: number): number => createLedger(db, {
+        name: n, groupId: groups.find((x) => x.name === g)!.id, openingBalance: ob,
+        gstin: null, stateCode: null, address: null, taxType: null, gstRate: null, hsn: null,
+        tdsSectionId: null, pan: null, creditDays: null, exportType: null
+      }).id
+      const rent = mk('Rent', 'Indirect Expenses', 1000)
+      mk('Capital', 'Capital Account', -1000)
+      const cash = (db.prepare("SELECT id FROM ledgers WHERE name = 'Cash'").get() as { id: number }).id
+      const vt = db.prepare("SELECT id FROM voucher_types WHERE kind = 'journal'").get() as { id: number }
+      const pay = (date: string, amount: number): void => {
+        saveVoucher(db, {
+          voucherTypeId: vt.id, date, partyLedgerId: null, narration: null, reference: null, instrumentNo: null,
+          instrumentDate: null, transporterId: null, vehicleNo: null, transportDistanceKm: null,
+          currencyCode: null, exchangeRate: null,
+          lines: [
+            { ledgerId: rent, drCr: 'dr', amount, costAllocations: [] },
+            { ledgerId: cash, drCr: 'cr', amount, costAllocations: [] }
+          ],
+          inventory: [], billRefs: [], tds: null
+        })
+      }
+      if (fy1Rent > 0) pay('2025-06-01', fy1Rent)
+      pay('2026-06-01', 500)
+      db.close()
+    }
+    build('alpha', 'Alpha Traders', 2025, 300)
+    build('beta', 'Beta Traders', 2026, 0)
+
+    const result = consolidated(['alpha', 'beta'], 'tb', '2026-04-01', '2027-03-31')
+    expect(result.warnings).toEqual([])
+    const byName = new Map(result.rows.map((r) => [r.name, r]))
+    // Alpha: FY 2026-27 is not its first year — only that year's 500. Beta: first year — 1,000 + 500.
+    expect(byName.get('Rent')!.perCompany).toEqual([500, 1500])
+    // Alpha's earlier-year P&L (1,000 stored + 300) sits in its computed opening row.
+    expect(byName.get('Profit & Loss A/c (opening)')!.perCompany).toEqual([1300, null])
+    // Each company's TB balances, so every column nets to zero.
+    for (const i of [0, 1]) expect(result.rows.reduce((s, r) => s + (r.perCompany[i] ?? 0), 0)).toBe(0)
+  })
+
   it('sanity-checks the migrations guard against the real migration count', () => {
     // Guards against silent drift if MIGRATIONS ever shrinks to 0 by accident.
     expect(MIGRATIONS.length).toBeGreaterThan(0)

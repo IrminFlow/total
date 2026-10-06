@@ -9,22 +9,13 @@ import { listGroups } from './masters'
 import { CASH_BANK_GROUPS } from '@shared/seed'
 import { buildChartOfAccounts, type ChartGroupNode, type ChartLedgerInput } from '@shared/chartOfAccounts'
 import { ageStock, buildCashFlow, computeRatios, type CashFlowStatement, type InwardLot } from '@shared/reportMath'
-import { listVouchers, IN_BOOKS, NOT_DELETED } from './vouchers'
+import { listVouchers, IN_BOOKS, NOT_DELETED, NOT_YEAR_END_CLOSE } from './vouchers'
 import * as stockAnalysis from './stockAnalysis'
+import { balanceBasis, periodIncludesStoredPnl, resetsEachYear } from '@shared/yearOpening'
+import { booksFromYear } from './booksStart'
+import { fyOf } from '@shared/dates'
 
 // ---------- shared helpers ----------
-
-/** Signed movement (dr positive) per ledger over an inclusive date range. */
-function movements(db: DB, from: string, to: string): Map<number, number> {
-  const rows = db
-    .prepare(
-      `SELECT vl.ledger_id AS id, SUM(CASE WHEN vl.dr_cr = 'dr' THEN vl.amount ELSE -vl.amount END) AS m
-       FROM voucher_lines vl JOIN vouchers v ON v.id = vl.voucher_id
-       WHERE v.date BETWEEN ? AND ? AND ${IN_BOOKS} GROUP BY vl.ledger_id`
-    )
-    .all(from, to) as { id: number; m: number }[]
-  return new Map(rows.map((r) => [r.id, r.m]))
-}
 
 /** Signed closing balance (opening + movement ≤ asOn) per ledger — one grouped scan of
  *  voucher_lines (same shape as masters.ledgerBalances) instead of a correlated subquery
@@ -326,6 +317,32 @@ export function exceptions(db: DB, from: string, to: string): ExceptionsReport {
     .all(from, to) as VRow[]).map((v) => voucherRow(v, 'B2B party but no GST tax line'))
   section('missingGst', 'Missing GST fields', missingGst)
 
+  // Year-end closing entries breaking the invariant postClose guarantees (one income/expense
+  // zeroing + a single transfer-ledger line; one live close per FY). Only legacy data can do this
+  // (migration 018 backfill of pre-flag closes, or edits made before closing entries became
+  // immutable); it is reported, never auto-repaired. All dates, like 'unbalanced'.
+  const closes = db
+    .prepare(
+      `${baseVoucherSql} WHERE ${NOT_DELETED} AND v.is_year_end_close = 1 ORDER BY v.date, v.id`
+    )
+    .all() as VRow[]
+  const extraLedgers = db.prepare(
+    `SELECT COUNT(DISTINCT vl.ledger_id) AS n FROM voucher_lines vl
+     JOIN ledgers l ON l.id = vl.ledger_id JOIN groups g ON g.id = l.group_id
+     WHERE vl.voucher_id = ? AND g.nature NOT IN ('income', 'expense')`
+  )
+  const perFy = new Map<string, number>()
+  for (const v of closes) perFy.set(fyOf(v.date).label, (perFy.get(fyOf(v.date).label) ?? 0) + 1)
+  const badCloses: ExceptionRow[] = []
+  for (const v of closes) {
+    const label = fyOf(v.date).label
+    if ((perFy.get(label) ?? 0) > 1) badCloses.push(voucherRow(v, `more than one live year-end closing entry in FY ${label}`))
+    else if ((extraLedgers.get(v.id) as { n: number }).n > 1) {
+      badCloses.push(voucherRow(v, 'year-end closing entry has lines besides the profit transfer'))
+    }
+  }
+  section('yearEndClose', 'Year-end closing entries to review', badCloses)
+
   return { sections }
 }
 
@@ -366,7 +383,7 @@ export function dayBook(
   const rows = db
     .prepare(
       `SELECT v.id AS voucherId, v.date, vt.name AS voucherType, vt.kind AS kind, v.number, v.narration,
-              v.is_optional AS isOptional, v.post_dated AS postDated,
+              v.is_optional AS isOptional, v.post_dated AS postDated, v.is_year_end_close AS yearEndClose,
               COALESCE(pl.name, fl.name, '') AS account,
               COALESCE(anet.net, 0) AS accountNet
        FROM vouchers v
@@ -388,7 +405,7 @@ export function dayBook(
     .all(from, to) as {
       voucherId: number; date: string; voucherType: string; kind: string; number: string
       narration: string | null; account: string; accountNet: number
-      isOptional: number; postDated: number
+      isOptional: number; postDated: number; yearEndClose: number
     }[]
   return rows.map((r) => ({
     voucherId: r.voucherId,
@@ -401,7 +418,8 @@ export function dayBook(
     debit: r.accountNet > 0 ? r.accountNet : 0,
     credit: r.accountNet < 0 ? -r.accountNet : 0,
     isOptional: !!r.isOptional,
-    postDated: !!r.postDated
+    postDated: !!r.postDated,
+    yearEndClose: !!r.yearEndClose
   }))
 }
 
@@ -421,19 +439,33 @@ function monthRange(from: string, to: string): string[] {
 }
 
 export function ledgerStatement(db: DB, ledgerId: number, from: string, to: string, groupBy?: 'month'): LedgerStatement {
-  const ledger = db.prepare('SELECT id, name, opening_balance FROM ledgers WHERE id = ?').get(ledgerId) as
-    | { id: number; name: string; opening_balance: number }
-    | undefined
+  const ledger = db
+    .prepare(
+      `SELECT l.id, l.name, l.opening_balance, g.nature
+       FROM ledgers l JOIN groups g ON g.id = l.group_id WHERE l.id = ?`
+    )
+    .get(ledgerId) as { id: number; name: string; opening_balance: number; nature: Nature } | undefined
   if (!ledger) throw new Error('Ledger not found')
 
+  // WP 1.3: an income/expense ledger's opening is its balance at the start of `from` under the
+  // year-opening rule — movements from 1 April of `from`'s FY, plus the stored opening only in the
+  // books' first FY (see @shared/yearOpening). Asset/liability ledgers keep stored opening + all
+  // history. After the opening the statement is plain accumulation over the requested period, so
+  // closing === opening + totalDebit − totalCredit always. Consequence: the closing equals the
+  // trial balance as on `to` whenever `from` and `to` are in the same FY; for a period spanning
+  // 1 April it intentionally does not for income/expense ledgers (the TB restarts them).
+  // Known and accepted: the statement includes year-end closing journals (real postings), so
+  // drilling from a closed year's P&L (which excludes them) into an income/expense ledger shows
+  // the year's activity followed by the closing entry, ending at 0.
+  const basis = balanceBasis(ledger.nature, from, booksFromYear(db))
   const beforeRow = db
     .prepare(
       `SELECT COALESCE(SUM(CASE WHEN vl.dr_cr = 'dr' THEN vl.amount ELSE -vl.amount END), 0) AS m
        FROM voucher_lines vl JOIN vouchers v ON v.id = vl.voucher_id
-       WHERE vl.ledger_id = ? AND v.date < ? AND ${IN_BOOKS}`
+       WHERE vl.ledger_id = ? AND v.date < ? AND v.date >= ? AND ${IN_BOOKS}`
     )
-    .get(ledgerId, from) as { m: number }
-  const opening = ledger.opening_balance + beforeRow.m
+    .get(ledgerId, from, basis.movementsFrom ?? '') as { m: number }
+  const opening = (basis.includeStored ? ledger.opening_balance : 0) + beforeRow.m
 
   const lineRows = db
     .prepare(
@@ -527,39 +559,87 @@ export function ledgerStatement(db: DB, ledgerId: number, from: string, to: stri
 }
 
 /** Masters → Groups chart of accounts: every group with its ledgers as leaves, closing balances
- *  as on `asOn` from the same closing-balance pass the balance sheet / cash flow use (opening +
- *  in-books movements, soft-deleted / post-dated / optional vouchers excluded). Unlike the trial
- *  balance, zero-balance ledgers are kept and there is no synthetic opening-stock row — this is a
- *  list of masters, not a statement. */
+ *  as on `asOn` from the same per-ledger pass as the trial balance (yearBasisBalances; in-books
+ *  movements only, soft-deleted / post-dated / optional vouchers excluded), so every leaf equals
+ *  its trial-balance row. Asset/liability balances are cumulative; income/expense ledgers — and
+ *  so their group totals — are current-financial-year figures (FY containing `asOn`; WP 1.3).
+ *  Unlike the trial balance, zero-balance ledgers are kept and there are no synthetic rows (no
+ *  opening-stock row, no computed P&L opening row) — this is a list of masters, not a statement. */
 export function chartOfAccounts(db: DB, asOn: string): ChartGroupNode[] {
-  const balances = closingBalances(db, asOn)
+  const balances = new Map(
+    yearBasisBalances(db, asOn).rows.map((r) => [r.ledgerId, r.opening + r.movementDebit - r.movementCredit])
+  )
   const ledgers = db.prepare('SELECT id, name, group_id AS groupId, gstin, pan FROM ledgers').all() as ChartLedgerInput[]
   return buildChartOfAccounts(listGroups(db), ledgers, (id) => balances.get(id) ?? 0)
 }
 
-export function trialBalance(db: DB, asOn: string): TrialBalance {
-  // Opening + gross Dr/Cr movement per ledger in one grouped pass; closing derives from them.
-  const rows = db
+interface YearBasisRow {
+  ledgerId: number; ledgerName: string; groupName: string; groupId: number
+  /** Opening / gross Dr / gross Cr under the year-opening basis as on `asOn`. */
+  opening: number; movementDebit: number; movementCredit: number
+}
+
+/**
+ * Per-ledger balances as on `asOn` under the year-opening rule (@shared/yearOpening) — the single
+ * source for the trial balance and the chart of accounts, so the two never disagree. Opening +
+ * gross Dr/Cr movement per ledger in one grouped pass; closing = opening + Dr − Cr.
+ * Asset/liability ledgers: stored opening + all in-books movements up to `asOn`. Income/expense
+ * ledgers: only the FY containing `asOn` (stored opening only in the books' first FY) — the *Fy
+ * columns carry that window. `priorPnl` (dr-positive) is everything the FY window drops from the
+ * P&L ledgers, i.e. earlier years not carried to Retained Earnings by a year-end close.
+ * (`closingBalances` stays cumulative: its callers — balance sheet, cash flow, dashboard,
+ * exceptions — only read asset/liability ledgers from it.)
+ */
+function yearBasisBalances(db: DB, asOn: string): { rows: YearBasisRow[]; priorPnl: number } {
+  const plBasis = balanceBasis('income', asOn, booksFromYear(db))
+  const rawRows = db
     .prepare(
       `SELECT l.id AS ledgerId, l.name AS ledgerName, g.name AS groupName, l.group_id AS groupId,
+              g.nature AS nature,
               l.opening_balance AS opening,
               COALESCE(m.drTotal, 0) AS movementDebit,
-              COALESCE(m.crTotal, 0) AS movementCredit
+              COALESCE(m.crTotal, 0) AS movementCredit,
+              COALESCE(m.drFy, 0) AS movementDebitFy,
+              COALESCE(m.crFy, 0) AS movementCreditFy
        FROM ledgers l
        JOIN groups g ON g.id = l.group_id
        LEFT JOIN (
          SELECT vl.ledger_id,
                 SUM(CASE WHEN vl.dr_cr = 'dr' THEN vl.amount ELSE 0 END) AS drTotal,
-                SUM(CASE WHEN vl.dr_cr = 'cr' THEN vl.amount ELSE 0 END) AS crTotal
+                SUM(CASE WHEN vl.dr_cr = 'cr' THEN vl.amount ELSE 0 END) AS crTotal,
+                SUM(CASE WHEN vl.dr_cr = 'dr' AND v.date >= ? THEN vl.amount ELSE 0 END) AS drFy,
+                SUM(CASE WHEN vl.dr_cr = 'cr' AND v.date >= ? THEN vl.amount ELSE 0 END) AS crFy
          FROM voucher_lines vl JOIN vouchers v ON v.id = vl.voucher_id
          WHERE v.date <= ? AND ${IN_BOOKS}
          GROUP BY vl.ledger_id
        ) m ON m.ledger_id = l.id`
     )
-    .all(asOn) as {
-      ledgerId: number; ledgerName: string; groupName: string; groupId: number
+    .all(plBasis.movementsFrom, plBasis.movementsFrom, asOn) as {
+      ledgerId: number; ledgerName: string; groupName: string; groupId: number; nature: Nature
       opening: number; movementDebit: number; movementCredit: number
+      movementDebitFy: number; movementCreditFy: number
     }[]
+
+  let priorPnl = 0
+  const rows = rawRows.map(({ nature, movementDebitFy, movementCreditFy, ...r }) => {
+    if (!resetsEachYear(nature)) return r
+    const opening = plBasis.includeStored ? r.opening : 0
+    const fyRow = { ...r, opening, movementDebit: movementDebitFy, movementCredit: movementCreditFy }
+    priorPnl += (r.opening + r.movementDebit - r.movementCredit) - (opening + movementDebitFy - movementCreditFy)
+    return fyRow
+  })
+  return { rows, priorPnl }
+}
+
+export function trialBalance(db: DB, asOn: string): TrialBalance {
+  // WP 1.3: income/expense ledgers show only the FY containing `asOn` (yearBasisBalances). Every
+  // P&L amount dropped that way is summed into a computed "Profit & Loss A/c (opening)" row, so
+  // the trial balance still balances. Companies that closed their first FY before WP 1.3 have a
+  // closing journal that netted FY movements only, leaving stored P&L openings un-transferred;
+  // those journals are not rewritten, so the computed row legitimately shows that residue in
+  // later years and the TB still balances (the row is derived from exactly what the FY window
+  // drops, whatever was posted).
+  const { rows, priorPnl } = yearBasisBalances(db, asOn)
 
   const result = rows
     .map((r) => {
@@ -591,6 +671,14 @@ export function trialBalance(db: DB, asOn: string): TrialBalance {
       debit: stockOpening, credit: 0, opening: stockOpening, movementDebit: 0, movementCredit: 0
     })
   }
+  if (priorPnl !== 0) {
+    // Dr-positive: a debit here is accumulated prior-year loss, a credit accumulated profit.
+    result.push({
+      ledgerId: -5, ledgerName: 'Profit & Loss A/c (opening)', groupName: 'Profit & Loss A/c',
+      debit: priorPnl > 0 ? priorPnl : 0, credit: priorPnl < 0 ? -priorPnl : 0,
+      opening: priorPnl, movementDebit: 0, movementCredit: 0
+    })
+  }
   result.sort((a, b) => a.ledgerName.localeCompare(b.ledgerName))
   return {
     rows: result,
@@ -603,6 +691,56 @@ export function trialBalance(db: DB, asOn: string): TrialBalance {
   }
 }
 
+/**
+ * The one definition of "profit for a period" (WP 1.3, @shared/yearOpening): signed dr-positive
+ * amount per income/expense ledger = in-books movements in [from, to], plus the ledger's stored
+ * opening balance when the period contains the books' first day (periodIncludesStoredPnl).
+ * Used by profitAndLoss — and through it the balance sheet's P&L figure, cash flow, dashboard,
+ * CA pack and consolidated P&L — and by the year-end close (closePreview), so all of them agree.
+ * Year-end closing journals (vouchers.is_year_end_close, migration 018) are excluded, so a closed
+ * year still reports its real profit.
+ * `storedIncluded` is the dr-positive sum of the stored openings added (cash flow needs it as a
+ * non-cash item). `closingTransfers` is the dr-positive sum of the excluded closing journals'
+ * income/expense lines in the period — i.e. the profit (positive) or loss (negative) those
+ * journals carried to Retained Earnings. Only income/expense ledgers are in the map.
+ */
+export function pnlLedgerAmounts(
+  db: DB,
+  from: string,
+  to: string,
+  booksFrom: number = booksFromYear(db)
+): { amounts: Map<number, number>; storedIncluded: number; closingTransfers: number } {
+  const withStored = periodIncludesStoredPnl(from, to, booksFrom) ? 1 : 0
+  const rows = db
+    .prepare(
+      `SELECT l.id, (CASE WHEN ? THEN l.opening_balance ELSE 0 END) AS stored,
+              COALESCE(m.moved, 0) AS moved, COALESCE(m.closed, 0) AS closed
+       FROM ledgers l
+       JOIN groups g ON g.id = l.group_id
+       LEFT JOIN (
+         SELECT vl.ledger_id,
+                SUM(CASE WHEN ${NOT_YEAR_END_CLOSE}
+                         THEN CASE WHEN vl.dr_cr = 'dr' THEN vl.amount ELSE -vl.amount END ELSE 0 END) AS moved,
+                SUM(CASE WHEN ${NOT_YEAR_END_CLOSE} THEN 0
+                         ELSE CASE WHEN vl.dr_cr = 'dr' THEN vl.amount ELSE -vl.amount END END) AS closed
+         FROM voucher_lines vl JOIN vouchers v ON v.id = vl.voucher_id
+         WHERE v.date BETWEEN ? AND ? AND ${IN_BOOKS}
+         GROUP BY vl.ledger_id
+       ) m ON m.ledger_id = l.id
+       WHERE g.nature IN ('income', 'expense')`
+    )
+    .all(withStored, from, to) as { id: number; stored: number; moved: number; closed: number }[]
+  let storedIncluded = 0
+  let closingTransfers = 0
+  const amounts = new Map<number, number>()
+  for (const r of rows) {
+    storedIncluded += r.stored
+    closingTransfers += r.closed
+    amounts.set(r.id, r.stored + r.moved)
+  }
+  return { amounts, storedIncluded, closingTransfers }
+}
+
 export function profitAndLoss(
   db: DB,
   from: string,
@@ -613,8 +751,8 @@ export function profitAndLoss(
   opts?: { openingStock?: number; closingStock?: number; comparePrior?: boolean }
 ): ProfitAndLoss {
   const stocks = opts
-  const move = movements(db, from, to)
-  const amountOf = (id: number): number => move.get(id) ?? 0
+  const { amounts } = pnlLedgerAmounts(db, from, to)
+  const amountOf = (id: number): number => amounts.get(id) ?? 0
   const groups = listGroups(db)
   const ledgers = ledgersLite(db)
 
@@ -689,7 +827,17 @@ export function balanceSheet(db: DB, booksFrom: string, asOn: string, comparePri
   }
 
   const pnl = profitAndLoss(db, booksFrom, asOn, { closingStock })
-  const profitCurrentPeriod = pnl.netProfit
+  // WP 1.3: the period runs from the books' first day, so profitAndLoss (pnlLedgerAmounts)
+  // includes the stored openings of income/expense ledgers — part of the books' cumulative
+  // profit (a Dr opening on an expense ledger is a loss already incurred). Before WP 1.3 they
+  // were left out and the balance sheet was out by exactly those openings.
+  // Migration 018: profitAndLoss excludes year-end closing journals (a closed year shows its real
+  // profit), but what those journals transferred already sits in Retained Earnings on the
+  // liabilities side — so the P&L A/c line is the cumulative profit minus those transfers, i.e.
+  // only profit not yet closed. (Equivalently: computed from the P&L ledgers' balances including
+  // the closing journals.) A fully closed history therefore shows no P&L A/c for closed years.
+  const { closingTransfers } = pnlLedgerAmounts(db, booksFrom, asOn)
+  const profitCurrentPeriod = pnl.netProfit - closingTransfers
 
   // If user-entered opening balances don't balance, surface the gap Tally-style. The synthetic
   // stock-opening component stands down when a Stock-in-Hand ledger actually carries the stock
@@ -739,21 +887,44 @@ export function cashFlow(db: DB, from: string, to: string): CashFlowStatement {
     return g
   }
 
+  // Year-end closing journals in the period are left out of net profit (profitAndLoss), so their
+  // balance-sheet legs (the Retained Earnings transfer) are left out of the deltas too — the
+  // journal balances on its own, so dropping it whole keeps the statement reconciled.
+  const closingMoves = new Map(
+    (db
+      .prepare(
+        `SELECT vl.ledger_id AS id, SUM(CASE WHEN vl.dr_cr = 'dr' THEN vl.amount ELSE -vl.amount END) AS m
+         FROM voucher_lines vl JOIN vouchers v ON v.id = vl.voucher_id
+         WHERE v.date BETWEEN ? AND ? AND ${IN_BOOKS} AND v.is_year_end_close = 1
+         GROUP BY vl.ledger_id`
+      )
+      .all(from, to) as { id: number; m: number }[]).map((r) => [r.id, r.m])
+  )
+
   const deltaByGroup = new Map<string, number>()
   let openingCash = 0
   let closingCash = 0
   for (const l of ledgers) {
     const b = before.get(l.id) ?? 0
-    const a = after.get(l.id) ?? 0
     if (cashBankIds.has(l.groupId)) {
+      // Cash/bank always reports the true balance. A postClose journal never touches cash;
+      // a legacy flagged journal that does is surfaced by the exceptions report instead.
       openingCash += b
-      closingCash += a
+      closingCash += after.get(l.id) ?? 0
       continue
     }
+    const a = (after.get(l.id) ?? 0) - (closingMoves.get(l.id) ?? 0)
     if (a === b) continue
     const top = topOf(l.groupId)
     if (top.nature !== 'asset' && top.nature !== 'liability') continue // P&L ledgers live in netProfit
     deltaByGroup.set(top.name, (deltaByGroup.get(top.name) ?? 0) + (a - b))
+  }
+  // WP 1.3: a period containing the books' first day counts the stored openings of income/
+  // expense ledgers in net profit (pnlLedgerAmounts). They are opening balances, not cash moved
+  // in the period, so add them back as a non-cash operating item to keep the reconciliation.
+  const { storedIncluded } = pnlLedgerAmounts(db, from, to)
+  if (storedIncluded !== 0) {
+    deltaByGroup.set('Income/expense opening balances', -storedIncluded)
   }
 
   return buildCashFlow({

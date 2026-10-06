@@ -203,6 +203,9 @@ export interface Voucher {
   postDated: boolean
   /** Optional (memorandum) voucher: never counts toward the books. */
   isOptional: boolean
+  /** Year-end closing journal posted by the year-end close (migration 018). Immutable: the server
+   *  refuses edits; binning it reopens the year. Never settable from voucher input. */
+  isYearEndClose: boolean
   /** Set once the voucher is moved to the bin (soft delete); null while active. */
   deletedAt: string | null
   lines: VoucherLine[]

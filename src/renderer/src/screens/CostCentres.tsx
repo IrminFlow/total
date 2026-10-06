@@ -1,11 +1,37 @@
-import { Fragment, useState } from 'react'
+import { useCallback, useMemo, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import type { CostCentre } from '@shared/domain'
-import { api } from '../lib/client'
+import { api, type CcReportRow } from '../lib/client'
 import { useNav, useSession, useToasts } from '../state/stores'
-import { Button, EmptyState, Field, Modal, Money, Panel, SectionTitle, Select, Skeleton, SkeletonRows, TextInput } from '../components/ui'
+import { Button, Field, Modal, Money, Panel, SectionTitle, Select, Skeleton, TextInput } from '../components/ui'
+import { DataTable, defineColumns, type RowKey } from '../components/table'
 import { toDisplayDate } from '@shared/dates'
 import { confirmDialog } from '../lib/dialogs'
+
+/** A centre plus its resolved parent name (the master list shows the name, sorts/groups by it). */
+interface CentreRow extends CostCentre {
+  parentName: string
+}
+
+const ACTIVE_OPTIONS = [
+  { value: 'yes', label: 'Yes' },
+  { value: 'no', label: 'No' }
+]
+
+const CENTRE_COLUMNS = defineColumns<CentreRow>([
+  { id: 'name', header: 'Name', kind: 'text', value: (r) => r.name, hideable: false, groupable: false, minWidth: 160 },
+  { id: 'parent', header: 'Parent', kind: 'text', value: (r) => r.parentName, className: 'text-muted' },
+  { id: 'active', header: 'Active', kind: 'enum', value: (r) => (r.active ? 'yes' : 'no'), options: ACTIVE_OPTIONS, width: 112, className: 'text-muted' }
+])
+
+// Income / expense / net are per-centre period figures, so their totals are meaningful. Net keeps
+// today's signed (Dr/Cr) presentation.
+export const CC_REPORT_COLUMNS = defineColumns<CcReportRow>([
+  { id: 'name', header: 'Cost centre', kind: 'text', value: (r) => r.name, hideable: false, groupable: false, minWidth: 160 },
+  { id: 'income', header: 'Income', kind: 'money', value: (r) => r.income, aggregate: 'sum', width: 150 },
+  { id: 'expense', header: 'Expense', kind: 'money', value: (r) => r.expense, aggregate: 'sum', width: 150 },
+  { id: 'net', header: 'Net', kind: 'money', value: (r) => r.net, signed: true, aggregate: 'sum', width: 160, className: 'font-medium' }
+])
 
 export function CostCentresScreen(): React.JSX.Element {
   const { from, to } = useSession()
@@ -15,9 +41,22 @@ export function CostCentresScreen(): React.JSX.Element {
   const { data: centres, isLoading: centresLoading } = useQuery({ queryKey: ['costCentres'], queryFn: api.cc.list })
   const { data: report, isLoading: reportLoading } = useQuery({ queryKey: ['ccReport', from, to], queryFn: () => api.cc.report(from, to) })
   const [editing, setEditing] = useState<CostCentre | 'new' | null>(null)
-  const [drillId, setDrillId] = useState<number | null>(null)
+  // One centre at a time drills into its postings (row click, the chevron, or → / ←).
+  const [drill, setDrill] = useState<ReadonlySet<RowKey>>(() => new Set())
+  const onDrillChange = useCallback((next: Set<RowKey>) => {
+    setDrill((cur) => {
+      const added = [...next].filter((k) => !cur.has(k))
+      return added.length ? new Set([added[added.length - 1]!]) : next
+    })
+  }, [])
+  const toggleDrill = useCallback((r: CcReportRow) => {
+    setDrill((cur) => (cur.has(r.costCentreId) ? new Set() : new Set([r.costCentreId])))
+  }, [])
 
-  const centreMap = new Map((centres ?? []).map((c) => [c.id, c]))
+  const centreRows = useMemo<CentreRow[]>(() => {
+    const byId = new Map((centres ?? []).map((c) => [c.id, c]))
+    return (centres ?? []).map((c) => ({ ...c, parentName: c.parentId ? (byId.get(c.parentId)?.name ?? '') : '' }))
+  }, [centres])
 
   const remove = async (cc: CostCentre): Promise<void> => {
     const proceed = await confirmDialog({
@@ -36,6 +75,8 @@ export function CostCentresScreen(): React.JSX.Element {
     }
   }
 
+  const periodLabel = `${toDisplayDate(from)} to ${toDisplayDate(to)}`
+
   return (
     <div className="mx-auto max-w-4xl">
       <SectionTitle
@@ -49,84 +90,61 @@ export function CostCentresScreen(): React.JSX.Element {
       </SectionTitle>
 
       <Panel className="mb-6">
-        {centresLoading ? (
-          <SkeletonRows rows={4} />
-        ) : !centres?.length ? (
-          <EmptyState title="No cost centres yet" hint="Track income and expense by project, department or branch" />
-        ) : (
-          <table className="ledger-table">
-            <thead>
-              <tr>
-                <th>Name</th>
-                <th>Parent</th>
-                <th className="w-20">Active</th>
-                <th className="w-32"></th>
-              </tr>
-            </thead>
-            <tbody>
-              {centres.map((c) => (
-                <tr key={c.id} className="hover:bg-panel2">
-                  <td>{c.name}</td>
-                  <td className="text-muted">{c.parentId ? (centreMap.get(c.parentId)?.name ?? '') : ''}</td>
-                  <td className="text-muted">{c.active ? 'Yes' : 'No'}</td>
-                  <td className="r">
-                    <button className="mr-3 text-[12px] text-blue hover:underline" onClick={() => setEditing(c)}>
-                      Edit
-                    </button>
-                    <button className="text-[12px] text-cr hover:underline" onClick={() => void remove(c)}>
-                      Delete
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
+        <DataTable
+          viewId="cost-centres"
+          testId="cost-centres"
+          ariaLabel="Cost centres"
+          columns={CENTRE_COLUMNS}
+          rows={centreRows}
+          rowKey={(r) => r.id}
+          rowAttrs={(r) => ({ 'data-row-id': r.id })}
+          loading={centresLoading}
+          empty={{ title: 'No cost centres yet', hint: 'Track income and expense by project, department or branch' }}
+          maxHeight="40vh"
+          trailingWidth={128}
+          trailing={(c) => (
+            <>
+              <button className="mr-3 text-[12px] text-blue hover:underline" onClick={() => setEditing(c)}>
+                Edit
+              </button>
+              <button className="text-[12px] text-cr hover:underline" onClick={() => void remove(c)}>
+                Delete
+              </button>
+            </>
+          )}
+          exportOptions={{ title: 'Cost centres', periodLabel: '', filename: 'cost-centres' }}
+        />
       </Panel>
 
       <SectionTitle>
         P&amp;L by centre · {toDisplayDate(from)} → {toDisplayDate(to)}
       </SectionTitle>
       <Panel>
-        {reportLoading ? (
-          <SkeletonRows rows={4} />
-        ) : !report?.length ? (
-          <EmptyState title="No cost-centre postings in this period" />
-        ) : (
-          <table className="ledger-table">
-            <thead>
-              <tr>
-                <th>Cost centre</th>
-                <th className="r w-36">Income</th>
-                <th className="r w-36">Expense</th>
-                <th className="r w-36">Net</th>
-              </tr>
-            </thead>
-            <tbody>
-              {report.map((r) => (
-                <Fragment key={r.costCentreId}>
-                  <tr className="cursor-pointer" onClick={() => setDrillId(drillId === r.costCentreId ? null : r.costCentreId)}>
-                    <td>
-                      <span className="mr-1.5 inline-block w-3 text-[10px] text-muted">{drillId === r.costCentreId ? '▾' : '▸'}</span>
-                      {r.name}
-                    </td>
-                    <td className="r"><Money paise={r.income} /></td>
-                    <td className="r"><Money paise={r.expense} /></td>
-                    <td className="r font-medium"><Money paise={r.net} signed /></td>
-                  </tr>
-                  {drillId === r.costCentreId && (
-                    <DrillRows
-                      ccId={r.costCentreId}
-                      from={from}
-                      to={to}
-                      onOpenVoucher={(voucherId) => nav.go({ name: 'voucher-entry', voucherId })}
-                    />
-                  )}
-                </Fragment>
-              ))}
-            </tbody>
-          </table>
-        )}
+        <DataTable
+          viewId="cost-centre-pl"
+          testId="cost-centre-pl"
+          ariaLabel="P&L by cost centre"
+          columns={CC_REPORT_COLUMNS}
+          rows={report ?? []}
+          rowKey={(r) => r.costCentreId}
+          rowAttrs={(r) => ({ 'data-row-id': r.costCentreId })}
+          loading={reportLoading}
+          empty={{ title: 'No cost-centre postings in this period' }}
+          onRowActivate={toggleDrill}
+          expanded={drill}
+          onExpandedChange={onDrillChange}
+          renderDetail={(r) => (
+            <DrillList
+              ccId={r.costCentreId}
+              from={from}
+              to={to}
+              onOpenVoucher={(voucherId) => nav.go({ name: 'voucher-entry', voucherId })}
+            />
+          )}
+          detailHeightEstimate={72}
+          toolbarFeatures={{ groupBy: false }}
+          exportOptions={{ title: 'P&L by cost centre', periodLabel, filename: 'cost-centre-pl' }}
+        />
       </Panel>
 
       {editing && (
@@ -136,7 +154,8 @@ export function CostCentresScreen(): React.JSX.Element {
   )
 }
 
-function DrillRows({
+/** Every allocation posted to one centre in the period — the drill-down under its row. */
+function DrillList({
   ccId,
   from,
   to,
@@ -150,47 +169,34 @@ function DrillRows({
   const { data, isLoading } = useQuery({ queryKey: ['ccStatement', ccId, from, to], queryFn: () => api.cc.statement(ccId, from, to) })
   const rows = data ?? []
   if (isLoading) {
-    // Loading is not "no postings" — show placeholder rows until the statement arrives.
+    // Loading is not "no postings" — show placeholder lines until the statement arrives.
     return (
-      <>
-        {[0, 1].map((i) => (
-          <tr key={i} className="bg-panel2/50">
-            <td colSpan={4} className="pl-9">
-              <Skeleton className={`h-3 ${i === 0 ? 'w-56' : 'w-40'}`} />
+      <div className="flex flex-col gap-2 py-1" data-testid="cc-drill-loading">
+        <Skeleton className="h-3 w-56" />
+        <Skeleton className="h-3 w-40" />
+      </div>
+    )
+  }
+  if (!rows.length) return <p className="py-1 text-[12.5px] text-muted">No postings in this period</p>
+  return (
+    <table className="w-full text-[12.5px]" data-testid="cc-drill">
+      <tbody>
+        {rows.map((r, i) => (
+          <tr key={i}>
+            <td className="w-28 py-0.5 pr-3">
+              <button className="num text-muted hover:text-blue hover:underline" onClick={() => onOpenVoucher(r.voucherId)}>
+                {r.number}
+              </button>
+            </td>
+            <td className="num w-24 py-0.5 pr-3 text-muted">{toDisplayDate(r.date)}</td>
+            <td className="py-0.5 pr-3 text-muted">{r.ledgerName}</td>
+            <td className="w-40 py-0.5 text-right">
+              <Money paise={r.drCr === 'dr' ? r.amount : -r.amount} signed />
             </td>
           </tr>
         ))}
-      </>
-    )
-  }
-  if (!rows.length) {
-    return (
-      <tr className="bg-panel2/50">
-        <td colSpan={4} className="pl-9 text-muted">
-          No postings in this period
-        </td>
-      </tr>
-    )
-  }
-  return (
-    <>
-      {rows.map((r, i) => (
-        <tr key={i} className="bg-panel2/50">
-          <td className="pl-9 text-muted">
-            <button className="hover:text-blue hover:underline" onClick={() => onOpenVoucher(r.voucherId)}>
-              {r.number}
-            </button>
-            <span className="ml-3 text-[11.5px]">
-              <span className="num">{toDisplayDate(r.date)}</span> · {r.ledgerName}
-            </span>
-          </td>
-          <td colSpan={2}></td>
-          <td className="r">
-            <Money paise={r.drCr === 'dr' ? r.amount : -r.amount} signed />
-          </td>
-        </tr>
-      ))}
-    </>
+      </tbody>
+    </table>
   )
 }
 

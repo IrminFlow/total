@@ -135,6 +135,24 @@ describe('Day Book', () => {
     expect(totals).toContain('1,180.00')
     expect(totals).not.toContain('2,179.00')
   })
+
+  it('tags the year-end closing journal with its chip; it still counts in the books', async () => {
+    const closing: DayBookRow = {
+      voucherId: 14, date: '2027-03-31', voucherType: 'Journal', kind: 'journal', number: '3', account: 'Profit & Loss A/c',
+      narration: 'Year-end close', debit: 25000, credit: 0, isOptional: false, postDated: false, yearEndClose: true
+    }
+    const base = invoke.getMockImplementation()!
+    invoke.mockImplementation(async (channel: string, payload?: unknown) =>
+      channel === 'report:dayBook' ? { ok: true, data: [...DAYBOOK, closing] } : base(channel, payload)
+    )
+    renderScreen(<DayBook />)
+    await waitFor(() => expect(rowsOf('daybook')).toHaveLength(3), SLOW)
+    const chips = screen.getAllByTestId('daybook-year-end-chip')
+    expect(chips).toHaveLength(1)
+    expect(chips[0]!.textContent).toBe('Year-end closing entry')
+    expect(chips[0]!.closest('tr')!.getAttribute('data-row-id')).toBe('14')
+    expect(screen.getByTestId('daybook-table-totals').textContent).toContain('Total · 3 vouchers')
+  })
 })
 
 describe('Trial Balance', () => {

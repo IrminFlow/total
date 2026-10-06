@@ -27,7 +27,8 @@ function monthLabel(ym: string): string {
 
 /** Totals stay honest: only in-books rows (never optional/PDC) count, whatever the scope shows. */
 const inBooks = (r: DayBookRow): boolean => !r.isOptional && !r.postDated
-const badge = (r: DayBookRow): string => (r.isOptional ? ' [Optional]' : r.postDated ? ' [PDC]' : '')
+const badge = (r: DayBookRow): string =>
+  (r.isOptional ? ' [Optional]' : r.postDated ? ' [PDC]' : '') + (r.yearEndClose ? ' [Year-end closing entry]' : '')
 
 export const DAYBOOK_COLUMNS = defineColumns<DayBookRow>([
   {
@@ -53,6 +54,11 @@ export const DAYBOOK_COLUMNS = defineColumns<DayBookRow>([
         {r.account}
         {r.isOptional && <span className="ml-2 rounded bg-amber/15 px-1.5 py-0.5 text-[10px] font-medium text-amber">Optional</span>}
         {r.postDated && <span className="ml-2 rounded bg-blue/10 px-1.5 py-0.5 text-[10px] font-medium text-blue">PDC</span>}
+        {r.yearEndClose && (
+          <span className="ml-2 rounded bg-blue/10 px-1.5 py-0.5 text-[10px] font-medium text-blue" data-testid="daybook-year-end-chip">
+            Year-end closing entry
+          </span>
+        )}
       </>
     )
   },

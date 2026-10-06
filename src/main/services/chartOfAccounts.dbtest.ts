@@ -104,4 +104,42 @@ describe('chartOfAccounts', () => {
     expect(ca.ledgerCount).toBeGreaterThanOrEqual(1)
     expect(findGroup(ca.children, 'Sundry Debtors')).toBeDefined()
   })
+
+  it('two years, year-end close not run: income/expense leaves show only the current FY and match the TB (WP 1.3)', () => {
+    const db = seededDb() // books from FY 2025-26
+    const cash = ledgerId(db, 'Cash')
+    const sale = ledger(db, 'Local Sale', 'Sales Accounts')
+    const purchase = ledger(db, 'Local Purchase', 'Purchase Accounts')
+    const debtor = ledger(db, 'Acme Traders', 'Sundry Debtors')
+
+    journal(db, '2025-06-10', purchase, cash, 1_40_50_613_00) // FY1 purchases
+    journal(db, '2025-07-01', debtor, sale, 2_00_00_000_00) // FY1 sale on credit
+    journal(db, '2026-05-15', purchase, cash, 2_50_000_00) // FY2 purchases
+    journal(db, '2026-06-01', debtor, sale, 4_00_000_00) // FY2 sale on credit
+
+    const asOn = '2027-03-31'
+    const roots = chartOfAccounts(db, asOn)
+    const purchaseGroup = findGroup(roots, 'Purchase Accounts')!
+    const purchaseLeaf = purchaseGroup.ledgers.find((l) => l.id === purchase)!
+    expect(purchaseLeaf.balance).toBe(2_50_000_00) // FY2 only — not FY1's ₹1,40,50,613
+    expect(purchaseGroup.balance).toBe(2_50_000_00)
+    expect(findGroup(roots, 'Sales Accounts')!.ledgers.find((l) => l.id === sale)!.balance).toBe(-4_00_000_00)
+    // Asset ledgers stay cumulative.
+    expect(findGroup(roots, 'Sundry Debtors')!.ledgers.find((l) => l.id === debtor)!.balance).toBe(2_04_00_000_00)
+
+    const tb = trialBalance(db, asOn)
+    expect(tb.totalDebit).toBe(tb.totalCredit)
+    const purchaseRow = tb.rows.find((r) => r.ledgerId === purchase)!
+    expect(purchaseLeaf.balance).toBe(purchaseRow.debit - purchaseRow.credit)
+    const leaves: { id: number; balance: number }[] = []
+    const walk = (n: ChartGroupNode): void => {
+      leaves.push(...n.ledgers)
+      n.children.forEach(walk)
+    }
+    roots.forEach(walk)
+    for (const leaf of leaves) {
+      const row = tb.rows.find((r) => r.ledgerId === leaf.id)
+      expect(leaf.balance).toBe(row ? row.debit - row.credit : 0)
+    }
+  })
 })

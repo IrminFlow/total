@@ -13,7 +13,8 @@ export interface CloseLedgerRow {
   ledgerId: number
   name: string
   nature: 'income' | 'expense'
-  /** Signed dr-positive net movement for the FY, in paise. */
+  /** Signed dr-positive balance to close for the FY, in paise: the FY's net movement, plus the
+   *  ledger's stored opening balance when the FY is the books' first (WP 1.3). */
   net: number
 }
 

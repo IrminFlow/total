@@ -3,10 +3,13 @@ import type { CompanyInfo } from '@shared/domain'
 import { fyFromStartYear, todayISO } from '@shared/dates'
 import { planClose, type CloseLedgerRow } from '@shared/yearEnd'
 import { findOrCreateLedger } from './masters'
-import { saveVoucher, setLockDate, NOT_DELETED, IN_BOOKS } from './vouchers'
+import { saveVoucher, setLockDate, NOT_DELETED } from './vouchers'
 import { writeAudit } from './audit'
+import { booksFromYear } from './booksStart'
+import { pnlLedgerAmounts } from './reports'
 
-/** Marker embedded in the closing journal's narration — how re-close and status checks find it. */
+/** Marker embedded in the closing journal's narration — for readability (and migration 018's
+ *  backfill of pre-flag closes). Status checks use vouchers.is_year_end_close, not this text. */
 function closeMarker(fyStartYear: number): string {
   return `[year-end close FY${fyStartYear}]`
 }
@@ -23,32 +26,37 @@ export interface ClosePreview {
  *  IN_BOOKS, not NOT_DELETED: optional (memorandum) and unmatured post-dated vouchers are out of
  *  the books, so they must not enter the closing journal — the close must net exactly what the
  *  P&L/trial balance (also IN_BOOKS) show, or Retained Earnings is misstated and the income/
- *  expense ledgers carry residuals into the locked next FY. */
-export function closePreview(db: DB, fyStartYear: number): ClosePreview {
+ *  expense ledgers carry residuals into the locked next FY.
+ *
+ *  WP 1.3: the nets come from reports.pnlLedgerAmounts — the same "profit for a period" the P&L
+ *  uses — so the close transfers exactly the FY's P&L net profit. When closing the books' first
+ *  FY that includes each ledger's stored opening balance; otherwise it would never reach
+ *  Retained Earnings and the trial balance would show it forever as a computed
+ *  "Profit & Loss A/c (opening)" row. `booksFrom` defaults to the company's stored value. */
+export function closePreview(db: DB, fyStartYear: number, booksFrom: number = booksFromYear(db)): ClosePreview {
   const fy = fyFromStartYear(fyStartYear)
-  const rows = (
-    db
-      .prepare(
-        `SELECT l.id AS ledgerId, l.name AS name, g.nature AS nature,
-                COALESCE((
-                  SELECT SUM(CASE WHEN vl.dr_cr = 'dr' THEN vl.amount ELSE -vl.amount END)
-                  FROM voucher_lines vl JOIN vouchers v ON v.id = vl.voucher_id
-                  WHERE vl.ledger_id = l.id AND v.date BETWEEN ? AND ? AND ${IN_BOOKS}
-                ), 0) AS net
-         FROM ledgers l JOIN groups g ON g.id = l.group_id
-         WHERE g.nature IN ('income', 'expense')`
-      )
-      .all(fy.from, fy.to) as CloseLedgerRow[]
-  )
+  const { amounts } = pnlLedgerAmounts(db, fy.from, fy.to, booksFrom)
+  const ledgers = db
+    .prepare(
+      `SELECT l.id AS ledgerId, l.name AS name, g.nature AS nature
+       FROM ledgers l JOIN groups g ON g.id = l.group_id WHERE g.nature IN ('income', 'expense')`
+    )
+    .all() as Omit<CloseLedgerRow, 'net'>[]
+  const rows: CloseLedgerRow[] = ledgers
+    .map((l) => ({ ...l, net: amounts.get(l.ledgerId) ?? 0 }))
     .filter((r) => r.net !== 0)
     .sort((a, b) => a.name.localeCompare(b.name))
 
   const { netProfit } = planClose(rows)
 
-  const marker = closeMarker(fyStartYear)
+  // Closed = a live (not binned) voucher flagged is_year_end_close dated anywhere in this FY
+  // (postClose dates it 31 March; any date in the year counts so odd legacy data still reads as
+  // closed). Migration 018 backfilled the flag for closes posted before it existed. Closing
+  // journals are immutable (saveVoucher refuses edits): binning one reopens the year; restoring
+  // it re-closes the year unless another close is live (restoreVoucher refuses that).
   const existing = db
-    .prepare(`SELECT 1 FROM vouchers v WHERE ${NOT_DELETED} AND v.narration LIKE ? LIMIT 1`)
-    .get(`%${marker}%`)
+    .prepare(`SELECT 1 FROM vouchers v WHERE ${NOT_DELETED} AND v.is_year_end_close = 1 AND v.date BETWEEN ? AND ? LIMIT 1`)
+    .get(fy.from, fy.to)
 
   return { rows, netProfit, alreadyClosed: !!existing }
 }
@@ -74,7 +82,7 @@ export function postClose(db: DB, company: CompanyInfo, fyStartYear: number): Cl
     throw new Error('Cannot close a financial year that has not ended')
   }
 
-  const preview = closePreview(db, fyStartYear)
+  const preview = closePreview(db, fyStartYear, company.booksFrom)
   if (preview.alreadyClosed) throw new Error(`Books for FY ${fy.label} are already closed`)
 
   const plan = planClose(preview.rows)
@@ -125,6 +133,9 @@ export function postClose(db: DB, company: CompanyInfo, fyStartYear: number): Cl
       billRefs: [],
       tds: null
     })
+    // The flag (migration 018) is what identifies the closing journal; the narration marker is
+    // kept for readability only. From here on the voucher is immutable (saveVoucher refuses).
+    db.prepare('UPDATE vouchers SET is_year_end_close = 1 WHERE id = ?').run(voucher.id)
     setLockDate(db, closeDate)
     return voucher.id
   })

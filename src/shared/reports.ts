@@ -19,6 +19,8 @@ export interface DayBookRow {
   isOptional: boolean
   /** Post-dated and not yet matured — kept out of the books until its date arrives (v0.3 S5). */
   postDated: boolean
+  /** Year-end closing journal (vouchers.is_year_end_close) — a real posting, tagged in the list. */
+  yearEndClose?: boolean
 }
 
 export interface LedgerStatementRow {
@@ -172,6 +174,7 @@ export interface ExceptionRow {
 
 export interface ExceptionSection {
   key: 'negativeStock' | 'negativeCash' | 'missingNarration' | 'singleLedger' | 'outsidePeriod' | 'unbalanced' | 'missingGst'
+    | 'yearEndClose'
   label: string
   count: number
   /** Detail rows, capped at 200 per section (count is the true total). */
@@ -230,6 +233,8 @@ export interface VoucherListRow {
   isOptional: boolean
   /** Post-dated and not yet matured — out of the books until its date arrives. */
   postDated: boolean
+  /** Year-end closing journal (immutable; vouchers.is_year_end_close). */
+  isYearEndClose: boolean
 }
 
 export interface LedgerBalanceRow {
