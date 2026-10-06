@@ -13,6 +13,7 @@ import { listVouchers, IN_BOOKS, NOT_DELETED, NOT_YEAR_END_CLOSE } from './vouch
 import * as stockAnalysis from './stockAnalysis'
 import { balanceBasis, periodIncludesStoredPnl, resetsEachYear } from '@shared/yearOpening'
 import { booksFromYear } from './booksStart'
+import { fyOf } from '@shared/dates'
 
 // ---------- shared helpers ----------
 
@@ -316,6 +317,32 @@ export function exceptions(db: DB, from: string, to: string): ExceptionsReport {
     .all(from, to) as VRow[]).map((v) => voucherRow(v, 'B2B party but no GST tax line'))
   section('missingGst', 'Missing GST fields', missingGst)
 
+  // Year-end closing entries breaking the invariant postClose guarantees (one income/expense
+  // zeroing + a single transfer-ledger line; one live close per FY). Only legacy data can do this
+  // (migration 018 backfill of pre-flag closes, or edits made before closing entries became
+  // immutable); it is reported, never auto-repaired. All dates, like 'unbalanced'.
+  const closes = db
+    .prepare(
+      `${baseVoucherSql} WHERE ${NOT_DELETED} AND v.is_year_end_close = 1 ORDER BY v.date, v.id`
+    )
+    .all() as VRow[]
+  const extraLedgers = db.prepare(
+    `SELECT COUNT(DISTINCT vl.ledger_id) AS n FROM voucher_lines vl
+     JOIN ledgers l ON l.id = vl.ledger_id JOIN groups g ON g.id = l.group_id
+     WHERE vl.voucher_id = ? AND g.nature NOT IN ('income', 'expense')`
+  )
+  const perFy = new Map<string, number>()
+  for (const v of closes) perFy.set(fyOf(v.date).label, (perFy.get(fyOf(v.date).label) ?? 0) + 1)
+  const badCloses: ExceptionRow[] = []
+  for (const v of closes) {
+    const label = fyOf(v.date).label
+    if ((perFy.get(label) ?? 0) > 1) badCloses.push(voucherRow(v, `more than one live year-end closing entry in FY ${label}`))
+    else if ((extraLedgers.get(v.id) as { n: number }).n > 1) {
+      badCloses.push(voucherRow(v, 'year-end closing entry has lines besides the profit transfer'))
+    }
+  }
+  section('yearEndClose', 'Year-end closing entries to review', badCloses)
+
   return { sections }
 }
 
@@ -427,6 +454,9 @@ export function ledgerStatement(db: DB, ledgerId: number, from: string, to: stri
   // closing === opening + totalDebit − totalCredit always. Consequence: the closing equals the
   // trial balance as on `to` whenever `from` and `to` are in the same FY; for a period spanning
   // 1 April it intentionally does not for income/expense ledgers (the TB restarts them).
+  // Known and accepted: the statement includes year-end closing journals (real postings), so
+  // drilling from a closed year's P&L (which excludes them) into an income/expense ledger shows
+  // the year's activity followed by the closing entry, ending at 0.
   const basis = balanceBasis(ledger.nature, from, booksFromYear(db))
   const beforeRow = db
     .prepare(
@@ -876,12 +906,14 @@ export function cashFlow(db: DB, from: string, to: string): CashFlowStatement {
   let closingCash = 0
   for (const l of ledgers) {
     const b = before.get(l.id) ?? 0
-    const a = (after.get(l.id) ?? 0) - (closingMoves.get(l.id) ?? 0)
     if (cashBankIds.has(l.groupId)) {
+      // Cash/bank always reports the true balance. A postClose journal never touches cash;
+      // a legacy flagged journal that does is surfaced by the exceptions report instead.
       openingCash += b
-      closingCash += a
+      closingCash += after.get(l.id) ?? 0
       continue
     }
+    const a = (after.get(l.id) ?? 0) - (closingMoves.get(l.id) ?? 0)
     if (a === b) continue
     const top = topOf(l.groupId)
     if (top.nature !== 'asset' && top.nature !== 'liability') continue // P&L ledgers live in netProfit

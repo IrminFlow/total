@@ -77,6 +77,7 @@ export function VoucherEntry({
   const invoiceMode = !voucherId && TRADING_KINDS.includes(currentType.kind)
   const manufactureMode = !voucherId && currentType.kind === 'stock_journal'
   const physicalMode = !voucherId && currentType.kind === 'physical_stock'
+  const closingEntry = !!existing?.isYearEndClose
 
   return (
     <div className="mx-auto max-w-4xl">
@@ -115,6 +116,17 @@ export function VoucherEntry({
             </button>
           ))}
       </div>
+      {closingEntry && (
+        <div
+          data-testid="year-end-close-banner"
+          className="mb-4 rounded-md border border-blue/30 bg-blue/10 px-4 py-2.5 text-[12.5px] text-ink"
+        >
+          Year-end closing entry — read-only. Move it to the bin to reopen the year, then close again.
+        </div>
+      )}
+      {/* A disabled fieldset disables every input and button inside (Save included) for a
+          year-end closing entry; the server refuses the edit regardless. */}
+      <fieldset disabled={closingEntry} className="m-0 min-w-0 border-0 p-0">
       {invoiceMode ? (
         <InvoiceEntry key={currentType.id} typeId={currentType.id} kind={currentType.kind} draft={draft} />
       ) : manufactureMode ? (
@@ -130,6 +142,7 @@ export function VoucherEntry({
           draft={draft}
         />
       )}
+      </fieldset>
       <p className="mt-3 text-[11.5px] text-muted">
         <Kbd>F4</Kbd>–<Kbd>F9</Kbd> switch type · <Kbd>⌘↵</Kbd> save · <Kbd>Esc</Kbd> back · dates accept <span className="num">7</span>, <span className="num">7/4</span>, <span className="num">y</span>
       </p>

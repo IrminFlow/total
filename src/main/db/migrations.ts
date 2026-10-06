@@ -551,72 +551,94 @@ export const MIGRATIONS: string[] = [
   CREATE INDEX idx_audit_at ON audit_log(at);
   CREATE INDEX idx_audit_entity ON audit_log(entity, entity_id);
   `,
-  // 018 (WP 1.3) — year-end closing journals get an explicit flag, and group natures are repaired.
+  // 018 (WP 1.3) — year-end closing journals get an explicit flag; group natures are repaired.
   // - vouchers.is_year_end_close: 1 on the journal postClose posts. Profit reports (P&L, cash flow,
   //   close preview, ...) exclude flagged vouchers so a closed year still shows its real profit;
-  //   trial balance / ledger statements keep them (they are real postings). No CHECK constraint,
-  //   matching the other 0/1 voucher flags (post_dated, is_optional).
-  // - Group repair FIRST (the closing-journal shape check below reads group nature): a non-system
-  //   group's nature/affects_gross_profit always follow its parent's, but updateGroup used to
-  //   re-derive them for the moved group only, so a sub-group could keep e.g. 'expense' under an
-  //   asset parent. Values are copied top-down from the nearest system (seeded) ancestor or a
-  //   top-level group; system groups are never changed (in the seed every child already matches
-  //   its parent, so seeded relationships are untouched).
-  // - Backfill, conservative (a false positive would hide real income/expense from the P&L).
-  //   Soft-deleted vouchers are included, so a binned close restored later is still flagged.
+  //   trial balance / ledger statements keep them (they are real postings). Flagged vouchers are
+  //   immutable (saveVoucher refuses edits). No CHECK constraint, matching the other 0/1 voucher
+  //   flags (post_dated, is_optional).
+  // - (1) Backfill FIRST, on group natures as they are before the repair — the natures postClose
+  //   itself used when it built those journals. Conservative: a false positive would hide real
+  //   income/expense from the P&L. Soft-deleted vouchers are included, so a binned close
+  //   restored later is still flagged.
   //   (a) vouchers referenced by a year_end 'create' audit row (postClose writes {voucherId});
   //       rows whose JSON doesn't parse or whose voucher no longer exists are skipped.
-  //   (b) v0.2.0-style closes with no audit row: narration contains the exact marker
-  //       '[year-end close FY<startYear>]', the voucher is a journal dated 31 March <startYear+1>,
-  //       and every line is on an income/expense ledger or the 'Retained Earnings' ledger, with
-  //       at least one income/expense line.
+  //   (b) pre-audit (v0.2.0) closes: a journal dated 31 March <y+1> whose narration contains the
+  //       exact marker '[year-end close FY<y>]', with at least one income/expense line and ALL
+  //       other lines on one single ledger — the transfer ledger, whatever it is now called
+  //       (postClose finds-or-creates 'Retained Earnings' by name, so a renamed one must match).
+  // - (2) Group repair: a non-system group's nature/affects_gross_profit always follow its
+  //   parent's, but updateGroup used to re-derive them for the moved group only. Values are
+  //   copied top-down from the nearest system (seeded) ancestor, or a top-level group; system
+  //   groups are never changed (in the seed every child already matches its parent).
+  // - (3) Trace: one audit_log row (entity 'migration', entity_id 18, no user) recording the
+  //   voucher ids flagged via audit and via narration and every repaired group (old -> new).
   `
   ALTER TABLE vouchers ADD COLUMN is_year_end_close INTEGER NOT NULL DEFAULT 0;
 
-  WITH RECURSIVE truth(id, nature, gp) AS (
-    SELECT id, nature, affects_gross_profit FROM groups WHERE is_system = 1 OR parent_id IS NULL
-    UNION ALL
-    SELECT g.id, t.nature, t.gp FROM groups g JOIN truth t ON g.parent_id = t.id WHERE g.is_system = 0
-  )
-  UPDATE groups
-     SET nature = (SELECT t.nature FROM truth t WHERE t.id = groups.id),
-         affects_gross_profit = (SELECT t.gp FROM truth t WHERE t.id = groups.id)
-   WHERE is_system = 0
-     AND id IN (
-       SELECT t.id FROM truth t JOIN groups g2 ON g2.id = t.id
-        WHERE g2.nature <> t.nature OR g2.affects_gross_profit <> t.gp
+  CREATE TEMP TABLE m018_via_audit AS
+    SELECT v.id FROM vouchers v
+     WHERE v.id IN (
+       SELECT CAST(json_extract(a.after_json, '$.voucherId') AS INTEGER)
+         FROM audit_log a
+        WHERE a.entity = 'year_end' AND a.action = 'create'
+          AND a.after_json IS NOT NULL AND json_valid(a.after_json)
+          AND json_type(a.after_json, '$.voucherId') = 'integer'
      );
 
-  UPDATE vouchers SET is_year_end_close = 1
-   WHERE id IN (
-     SELECT CAST(json_extract(a.after_json, '$.voucherId') AS INTEGER)
-       FROM audit_log a
-      WHERE a.entity = 'year_end' AND a.action = 'create'
-        AND a.after_json IS NOT NULL AND json_valid(a.after_json)
-        AND json_type(a.after_json, '$.voucherId') = 'integer'
-   );
+  CREATE TEMP TABLE m018_via_narration AS
+    SELECT v.id FROM vouchers v
+      JOIN voucher_types vt ON vt.id = v.voucher_type_id
+     WHERE vt.kind = 'journal'
+       AND v.id NOT IN (SELECT id FROM m018_via_audit)
+       AND substr(v.date, 6, 5) = '03-31'
+       AND v.narration IS NOT NULL
+       AND instr(v.narration,
+                 '[year-end close FY' || (CAST(substr(v.date, 1, 4) AS INTEGER) - 1) || ']') > 0
+       AND EXISTS (
+         SELECT 1 FROM voucher_lines vl JOIN ledgers l ON l.id = vl.ledger_id
+           JOIN groups g ON g.id = l.group_id
+          WHERE vl.voucher_id = v.id AND g.nature IN ('income', 'expense')
+       )
+       AND (
+         SELECT COUNT(DISTINCT vl.ledger_id) FROM voucher_lines vl JOIN ledgers l ON l.id = vl.ledger_id
+           JOIN groups g ON g.id = l.group_id
+          WHERE vl.voucher_id = v.id AND g.nature NOT IN ('income', 'expense')
+       ) <= 1;
 
   UPDATE vouchers SET is_year_end_close = 1
-   WHERE id IN (
-     SELECT v.id
-       FROM vouchers v
-       JOIN voucher_types vt ON vt.id = v.voucher_type_id
-      WHERE vt.kind = 'journal'
-        AND substr(v.date, 6, 5) = '03-31'
-        AND v.narration IS NOT NULL
-        AND instr(v.narration,
-                  '[year-end close FY' || (CAST(substr(v.date, 1, 4) AS INTEGER) - 1) || ']') > 0
-        AND EXISTS (
-          SELECT 1 FROM voucher_lines vl JOIN ledgers l ON l.id = vl.ledger_id
-            JOIN groups g ON g.id = l.group_id
-           WHERE vl.voucher_id = v.id AND g.nature IN ('income', 'expense')
-        )
-        AND NOT EXISTS (
-          SELECT 1 FROM voucher_lines vl JOIN ledgers l ON l.id = vl.ledger_id
-            JOIN groups g ON g.id = l.group_id
-           WHERE vl.voucher_id = v.id
-             AND g.nature NOT IN ('income', 'expense') AND l.name <> 'Retained Earnings'
-        )
-   );
+   WHERE id IN (SELECT id FROM m018_via_audit UNION SELECT id FROM m018_via_narration);
+
+  CREATE TEMP TABLE m018_groups AS
+    WITH RECURSIVE truth(id, nature, gp) AS (
+      SELECT id, nature, affects_gross_profit FROM groups WHERE is_system = 1 OR parent_id IS NULL
+      UNION ALL
+      SELECT g.id, t.nature, t.gp FROM groups g JOIN truth t ON g.parent_id = t.id WHERE g.is_system = 0
+    )
+    SELECT g.id, g.name, g.nature AS old_nature, t.nature AS new_nature,
+           g.affects_gross_profit AS old_gp, t.gp AS new_gp
+      FROM groups g JOIN truth t ON t.id = g.id
+     WHERE g.is_system = 0 AND (g.nature <> t.nature OR g.affects_gross_profit <> t.gp);
+
+  UPDATE groups
+     SET nature = (SELECT m.new_nature FROM m018_groups m WHERE m.id = groups.id),
+         affects_gross_profit = (SELECT m.new_gp FROM m018_groups m WHERE m.id = groups.id)
+   WHERE id IN (SELECT id FROM m018_groups);
+
+  INSERT INTO audit_log (entity, entity_id, action, before_json, after_json, user_name, app_version)
+  VALUES ('migration', 18, 'update', NULL, json_object(
+    'migration', 18,
+    'flaggedViaAudit', json((SELECT json_group_array(id) FROM (SELECT id FROM m018_via_audit ORDER BY id))),
+    'flaggedViaNarration', json((SELECT json_group_array(id) FROM (SELECT id FROM m018_via_narration ORDER BY id))),
+    'groupsRepaired', json((SELECT json_group_array(json_object(
+        'id', id, 'name', name,
+        'nature', json_object('from', old_nature, 'to', new_nature),
+        'affectsGrossProfit', json_object('from', old_gp, 'to', new_gp)))
+      FROM (SELECT * FROM m018_groups ORDER BY id)))
+  ), NULL, NULL);
+
+  DROP TABLE m018_via_audit;
+  DROP TABLE m018_via_narration;
+  DROP TABLE m018_groups;
   `
 ]

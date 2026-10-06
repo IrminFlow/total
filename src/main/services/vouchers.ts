@@ -20,7 +20,7 @@ interface VoucherRow {
   currency_code: string | null; exchange_rate: number | null
   irn: string | null; irn_ack_no: string | null; irn_ack_date: string | null
   ewb_no: string | null; ewb_valid_upto: string | null
-  post_dated: number; is_optional: number
+  post_dated: number; is_optional: number; is_year_end_close: number
   deleted_at: string | null
   created_at: string; updated_at: string
 }
@@ -42,6 +42,9 @@ export const IN_BOOKS = `${NOT_DELETED} AND ${NOT_POSTDATED} AND ${NOT_OPTIONAL}
  *  statements and balances keep them — but profit-for-a-period reports (P&L, close preview, cash
  *  flow, budget actuals) exclude them, so a closed year still reports its real profit. */
 export const NOT_YEAR_END_CLOSE = 'v.is_year_end_close = 0'
+
+export const YEAR_END_CLOSE_IMMUTABLE =
+  "Year-end closing entries can't be edited. Move it to the bin to reopen the year, then close again."
 
 /** Books-locked-up-to date (inclusive): vouchers dated on or before this date can't be
  *  saved/deleted/restored. Stored in `meta` under key 'lock_before'; null/absent = no lock. */
@@ -134,6 +137,7 @@ export function getVoucher(db: DB, id: number): Voucher | null {
     ewbValidUpto: v.ewb_valid_upto,
     postDated: !!v.post_dated,
     isOptional: !!v.is_optional,
+    isYearEndClose: !!v.is_year_end_close,
     deletedAt: v.deleted_at,
     createdAt: v.created_at,
     updatedAt: v.updated_at,
@@ -298,6 +302,15 @@ export function saveVoucher(db: DB, raw: VoucherInput, existingId?: number): Sav
   // Parse here as well as at the IPC boundary so direct callers (tests, importers)
   // get defaults for later-added fields (posOverride) applied consistently.
   const input: VoucherInputParsed = voucherInputSchema.parse(raw)
+  // Year-end closing journals are immutable (WP 1.3) — checked before any validation so the user
+  // always gets this reason. An edited date/type/lines would reopen the year or hide real
+  // postings from the P&L. The flag itself is never part of voucher input — only postClose sets it.
+  if (existingId) {
+    const flagged = db.prepare('SELECT is_year_end_close AS f FROM vouchers WHERE id = ?').get(existingId) as
+      | { f: number }
+      | undefined
+    if (flagged?.f) throw new Error(YEAR_END_CLOSE_IMMUTABLE)
+  }
   const vt = getVoucherType(db, input.voucherTypeId)
   const errors = validateVoucher(input, vt.kind, ledgerFactsResolver(db))
   if (errors.length) {
@@ -505,6 +518,17 @@ export function restoreVoucher(db: DB, id: number): void {
   if (!before.deletedAt) throw new Error('Voucher is not in the bin')
   const lock = getLockDate(db)
   if (lock && before.date <= lock) throw new Error(`Books are locked up to ${lock}`)
+  if (before.isYearEndClose) {
+    // Restoring a closing journal re-closes its year — refuse when the year was closed again in
+    // the meantime, or Retained Earnings would receive the year's profit twice.
+    const fy = fyOf(before.date)
+    const live = db
+      .prepare(`SELECT 1 FROM vouchers v WHERE ${NOT_DELETED} AND v.is_year_end_close = 1 AND v.date BETWEEN ? AND ? LIMIT 1`)
+      .get(fy.from, fy.to)
+    if (live) {
+      throw new Error(`FY ${fy.label} already has a year-end closing entry; bin that one first to restore this one`)
+    }
+  }
   db.prepare('UPDATE vouchers SET deleted_at = NULL WHERE id = ?').run(id)
   writeAudit(db, 'voucher', id, 'update', before, { restored: true })
 }
@@ -677,7 +701,7 @@ export function listVouchers(db: DB, from: string, to: string, voucherTypeId?: n
       `SELECT v.id, v.date, vt.name AS voucherType, vt.kind, v.number, v.narration,
               COALESCE(pl.name, fl.name, '') AS account,
               COALESCE(t.total, 0) AS amount,
-              v.is_optional AS isOptional, v.post_dated AS postDated
+              v.is_optional AS isOptional, v.post_dated AS postDated, v.is_year_end_close AS isYearEndClose
        FROM vouchers v
        JOIN voucher_types vt ON vt.id = v.voucher_type_id
        LEFT JOIN ledgers pl ON pl.id = v.party_ledger_id
@@ -692,9 +716,12 @@ export function listVouchers(db: DB, from: string, to: string, voucherTypeId?: n
        WHERE v.date BETWEEN ? AND ? AND ${NOT_DELETED} ${voucherTypeId ? 'AND v.voucher_type_id = ?' : ''}
        ORDER BY v.date, v.id`
     )
-    .all(...(voucherTypeId ? [from, to, voucherTypeId] : [from, to])) as (Omit<VoucherListRow, 'isOptional' | 'postDated'> & {
+    .all(...(voucherTypeId ? [from, to, voucherTypeId] : [from, to])) as (Omit<VoucherListRow, 'isOptional' | 'postDated' | 'isYearEndClose'> & {
       isOptional: number
       postDated: number
+      isYearEndClose: number
     })[]
-  return rows.map((r) => ({ ...r, isOptional: !!r.isOptional, postDated: !!r.postDated }))
+  return rows.map((r) => ({
+    ...r, isOptional: !!r.isOptional, postDated: !!r.postDated, isYearEndClose: !!r.isYearEndClose
+  }))
 }

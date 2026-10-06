@@ -49,12 +49,14 @@ export function closePreview(db: DB, fyStartYear: number, booksFrom: number = bo
 
   const { netProfit } = planClose(rows)
 
-  // Closed = a live (not binned) voucher flagged is_year_end_close dated this FY's 31 March
-  // (migration 018 backfilled the flag for closes posted before it existed). Binning the closing
-  // journal reopens the year; restoring it from the bin closes it again.
+  // Closed = a live (not binned) voucher flagged is_year_end_close dated anywhere in this FY
+  // (postClose dates it 31 March; any date in the year counts so odd legacy data still reads as
+  // closed). Migration 018 backfilled the flag for closes posted before it existed. Closing
+  // journals are immutable (saveVoucher refuses edits): binning one reopens the year; restoring
+  // it re-closes the year unless another close is live (restoreVoucher refuses that).
   const existing = db
-    .prepare(`SELECT 1 FROM vouchers v WHERE ${NOT_DELETED} AND v.is_year_end_close = 1 AND v.date = ? LIMIT 1`)
-    .get(fy.to)
+    .prepare(`SELECT 1 FROM vouchers v WHERE ${NOT_DELETED} AND v.is_year_end_close = 1 AND v.date BETWEEN ? AND ? LIMIT 1`)
+    .get(fy.from, fy.to)
 
   return { rows, netProfit, alreadyClosed: !!existing }
 }
@@ -132,7 +134,7 @@ export function postClose(db: DB, company: CompanyInfo, fyStartYear: number): Cl
       tds: null
     })
     // The flag (migration 018) is what identifies the closing journal; the narration marker is
-    // kept for readability only. Editing the voucher later leaves the column untouched.
+    // kept for readability only. From here on the voucher is immutable (saveVoucher refuses).
     db.prepare('UPDATE vouchers SET is_year_end_close = 1 WHERE id = ?').run(voucher.id)
     setLockDate(db, closeDate)
     return voucher.id
