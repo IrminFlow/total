@@ -10,6 +10,7 @@ import { CASH_BANK_GROUPS } from '@shared/seed'
 import { ageStock, buildCashFlow, computeRatios, type CashFlowStatement, type InwardLot } from '@shared/reportMath'
 import { listVouchers, IN_BOOKS, NOT_DELETED } from './vouchers'
 import * as stockAnalysis from './stockAnalysis'
+import { balanceBasis, crossesYearStart, resetsEachYear } from '@shared/yearOpening'
 
 // ---------- shared helpers ----------
 
@@ -42,6 +43,20 @@ function closingBalances(db: DB, asOn: string): Map<number, number> {
     )
     .all(asOn) as { id: number; bal: number }[]
   return new Map(rows.map((r) => [r.id, r.bal]))
+}
+
+/** The company's first FY start year (CompanyInfo.booksFrom, in `meta`), or null if unreadable.
+ *  Read directly (not via readCompanyInfo, which throws on a missing row) so read-only callers
+ *  like the consolidated report degrade gracefully. */
+function booksFromYear(db: DB): number | null {
+  const row = db.prepare("SELECT value FROM meta WHERE key = 'company'").get() as { value: string } | undefined
+  if (!row) return null
+  try {
+    const v = (JSON.parse(row.value) as { booksFrom?: unknown }).booksFrom
+    return typeof v === 'number' && Number.isInteger(v) ? v : null
+  } catch {
+    return null
+  }
 }
 
 interface LedgerLite { id: number; name: string; groupId: number; openingBalance: number }
@@ -420,19 +435,29 @@ function monthRange(from: string, to: string): string[] {
 }
 
 export function ledgerStatement(db: DB, ledgerId: number, from: string, to: string, groupBy?: 'month'): LedgerStatement {
-  const ledger = db.prepare('SELECT id, name, opening_balance FROM ledgers WHERE id = ?').get(ledgerId) as
-    | { id: number; name: string; opening_balance: number }
-    | undefined
+  const ledger = db
+    .prepare(
+      `SELECT l.id, l.name, l.opening_balance, g.nature
+       FROM ledgers l JOIN groups g ON g.id = l.group_id WHERE l.id = ?`
+    )
+    .get(ledgerId) as { id: number; name: string; opening_balance: number; nature: Nature } | undefined
   if (!ledger) throw new Error('Ledger not found')
 
+  // WP 1.3: income/expense ledgers open each FY at zero (stored opening only in the books' first
+  // FY) — see @shared/yearOpening. Asset/liability ledgers keep stored opening + all history.
+  const books = booksFromYear(db)
+  const resets = resetsEachYear(ledger.nature)
+  const storedAt = (date: string): number =>
+    balanceBasis(ledger.nature, date, books).includeStored ? ledger.opening_balance : 0
+  const openBasis = balanceBasis(ledger.nature, from, books)
   const beforeRow = db
     .prepare(
       `SELECT COALESCE(SUM(CASE WHEN vl.dr_cr = 'dr' THEN vl.amount ELSE -vl.amount END), 0) AS m
        FROM voucher_lines vl JOIN vouchers v ON v.id = vl.voucher_id
-       WHERE vl.ledger_id = ? AND v.date < ? AND ${IN_BOOKS}`
+       WHERE vl.ledger_id = ? AND v.date < ? AND v.date >= ? AND ${IN_BOOKS}`
     )
-    .get(ledgerId, from) as { m: number }
-  const opening = ledger.opening_balance + beforeRow.m
+    .get(ledgerId, from, openBasis.movementsFrom ?? '') as { m: number }
+  const opening = storedAt(from) + beforeRow.m
 
   const lineRows = db
     .prepare(
@@ -476,7 +501,12 @@ export function ledgerStatement(db: DB, ledgerId: number, from: string, to: stri
   let running = opening
   let totalDebit = 0
   let totalCredit = 0
+  // A period spanning a 1 April boundary restarts an income/expense ledger's running balance in
+  // the new FY, so the statement's closing equals the trial balance as on `to`.
+  let runningAsOf = from
   const rows: LedgerStatementRow[] = lineRows.map((r) => {
+    if (resets && crossesYearStart(runningAsOf, r.date)) running = storedAt(r.date)
+    runningAsOf = r.date
     const debit = r.drCr === 'dr' ? r.amount : 0
     const credit = r.drCr === 'cr' ? r.amount : 0
     running += debit - credit
@@ -495,8 +525,9 @@ export function ledgerStatement(db: DB, ledgerId: number, from: string, to: stri
     }
   })
 
+  const closing = resets && crossesYearStart(runningAsOf, to) ? storedAt(to) : running
   const result: LedgerStatement = {
-    ledgerId, ledgerName: ledger.name, opening, rows, closing: running, totalDebit, totalCredit
+    ledgerId, ledgerName: ledger.name, opening, rows, closing, totalDebit, totalCredit
   }
 
   // Columnar monthly matrix (v0.3 #55): every month in the period, with the running closing
@@ -512,11 +543,19 @@ export function ledgerStatement(db: DB, ledgerId: number, from: string, to: stri
       byMonth.set(key, m)
     }
     let carried = opening
+    let carriedAsOf = from
     result.months = monthRange(from, to).map((month) => {
+      const monthStart = `${month}-01`
       const m = byMonth.get(month)
       if (m) {
         carried = m.closing
+        carriedAsOf = monthStart
         return { month, debit: m.debit, credit: m.credit, closing: m.closing }
+      }
+      // An empty April in a multi-year period still restarts an income/expense ledger.
+      if (resets && crossesYearStart(carriedAsOf, monthStart)) {
+        carried = storedAt(monthStart)
+        carriedAsOf = monthStart
       }
       return { month, debit: 0, credit: 0, closing: carried }
     })
@@ -527,27 +566,48 @@ export function ledgerStatement(db: DB, ledgerId: number, from: string, to: stri
 
 export function trialBalance(db: DB, asOn: string): TrialBalance {
   // Opening + gross Dr/Cr movement per ledger in one grouped pass; closing derives from them.
-  const rows = db
+  // WP 1.3: income/expense ledgers show only the FY containing `asOn` (stored opening only in
+  // the books' first FY) — the *Fy columns carry that window. Every P&L amount dropped that way
+  // (earlier years not carried to Retained Earnings by a year-end close) is summed into a
+  // computed "Profit & Loss A/c (opening)" row, so the trial balance still balances.
+  const books = booksFromYear(db)
+  const plBasis = balanceBasis('income', asOn, books)
+  const rawRows = db
     .prepare(
       `SELECT l.id AS ledgerId, l.name AS ledgerName, g.name AS groupName, l.group_id AS groupId,
+              g.nature AS nature,
               l.opening_balance AS opening,
               COALESCE(m.drTotal, 0) AS movementDebit,
-              COALESCE(m.crTotal, 0) AS movementCredit
+              COALESCE(m.crTotal, 0) AS movementCredit,
+              COALESCE(m.drFy, 0) AS movementDebitFy,
+              COALESCE(m.crFy, 0) AS movementCreditFy
        FROM ledgers l
        JOIN groups g ON g.id = l.group_id
        LEFT JOIN (
          SELECT vl.ledger_id,
                 SUM(CASE WHEN vl.dr_cr = 'dr' THEN vl.amount ELSE 0 END) AS drTotal,
-                SUM(CASE WHEN vl.dr_cr = 'cr' THEN vl.amount ELSE 0 END) AS crTotal
+                SUM(CASE WHEN vl.dr_cr = 'cr' THEN vl.amount ELSE 0 END) AS crTotal,
+                SUM(CASE WHEN vl.dr_cr = 'dr' AND v.date >= ? THEN vl.amount ELSE 0 END) AS drFy,
+                SUM(CASE WHEN vl.dr_cr = 'cr' AND v.date >= ? THEN vl.amount ELSE 0 END) AS crFy
          FROM voucher_lines vl JOIN vouchers v ON v.id = vl.voucher_id
          WHERE v.date <= ? AND ${IN_BOOKS}
          GROUP BY vl.ledger_id
        ) m ON m.ledger_id = l.id`
     )
-    .all(asOn) as {
-      ledgerId: number; ledgerName: string; groupName: string; groupId: number
+    .all(plBasis.movementsFrom, plBasis.movementsFrom, asOn) as {
+      ledgerId: number; ledgerName: string; groupName: string; groupId: number; nature: Nature
       opening: number; movementDebit: number; movementCredit: number
+      movementDebitFy: number; movementCreditFy: number
     }[]
+
+  let priorPnl = 0
+  const rows = rawRows.map(({ nature, movementDebitFy, movementCreditFy, ...r }) => {
+    if (!resetsEachYear(nature)) return r
+    const opening = plBasis.includeStored ? r.opening : 0
+    const fyRow = { ...r, opening, movementDebit: movementDebitFy, movementCredit: movementCreditFy }
+    priorPnl += (r.opening + r.movementDebit - r.movementCredit) - (opening + movementDebitFy - movementCreditFy)
+    return fyRow
+  })
 
   const result = rows
     .map((r) => {
@@ -577,6 +637,14 @@ export function trialBalance(db: DB, asOn: string): TrialBalance {
     result.push({
       ledgerId: -1, ledgerName: 'Stock-in-Hand (opening)', groupName: 'Stock-in-Hand',
       debit: stockOpening, credit: 0, opening: stockOpening, movementDebit: 0, movementCredit: 0
+    })
+  }
+  if (priorPnl !== 0) {
+    // Dr-positive: a debit here is accumulated prior-year loss, a credit accumulated profit.
+    result.push({
+      ledgerId: -5, ledgerName: 'Profit & Loss A/c (opening)', groupName: 'Profit & Loss A/c',
+      debit: priorPnl > 0 ? priorPnl : 0, credit: priorPnl < 0 ? -priorPnl : 0,
+      opening: priorPnl, movementDebit: 0, movementCredit: 0
     })
   }
   result.sort((a, b) => a.ledgerName.localeCompare(b.ledgerName))
