@@ -10,6 +10,7 @@ import { DEFAULT_FEATURES } from '@shared/features'
 import { CommandPalette } from '../components/CommandPalette'
 import { useNav, useSession } from '../state/stores'
 import { loadRecents, recentsKey, withQuery, withRecord, EMPTY_RECENTS, RECENT_LIMIT } from '../lib/searchRecents'
+import { useDrill } from '../lib/drill'
 
 const INFO: CompanyInfo = {
   name: 'A', stateCode: '27', gstin: null, gstRegistrationType: 'regular', address: '',
@@ -228,6 +229,29 @@ describe('CommandPalette', () => {
     await waitFor(() => expect(useNav.getState().stack.at(-1)).toEqual({ name: 'trial-balance' }))
     fireEvent.keyDown(input(), { key: 'Escape' })
     expect(onClose).toHaveBeenCalledTimes(2)
+  })
+
+  it('ledger hits: ↵ opens the statement, ⌘E (or the row\'s Edit action) the ledger edit window', async () => {
+    useDrill.setState({ ledgerEditId: null })
+    const { onClose } = renderPalette()
+    type('umbrella')
+    const hit = await screen.findByTestId('palette-hit-ledger-7')
+    // Move the selection onto the ledger hit (commands come first; 'umbrella' matches none).
+    const rows = [...document.querySelectorAll('.kbar-row')]
+    const at = rows.indexOf(hit)
+    for (let i = 0; i < at; i++) fireEvent.keyDown(input(), { key: 'ArrowDown' })
+    expect(hit.getAttribute('data-active')).toBe('true')
+    expect(hit.querySelector('[data-testid="palette-edit-ledger"]')).not.toBeNull()
+    expect(screen.getByTestId('palette-help').textContent).toContain('⌘E')
+    fireEvent.keyDown(input(), { key: 'e', metaKey: true })
+    expect(onClose).toHaveBeenCalledTimes(1)
+    expect(useDrill.getState().ledgerEditId).toBe(7)
+    expect(useNav.getState().stack.at(-1)).toEqual({ name: 'gateway' })
+
+    useDrill.setState({ ledgerEditId: null })
+    fireEvent.click(hit.querySelector('[data-testid="palette-edit-ledger"]')!)
+    expect(useDrill.getState().ledgerEditId).toBe(7)
+    expect(useNav.getState().stack.at(-1)).toEqual({ name: 'gateway' }) // the click didn't also open the statement
   })
 
   it('does not call the books search for one-character or filter-less queries', async () => {
