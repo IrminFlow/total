@@ -14,6 +14,8 @@ import { useNav, useSession } from '../state/stores'
 
 const invoke = vi.fn()
 const go = vi.fn()
+/** The first render of a screen also pays for its module graph — generous under a loaded CI box. */
+const SLOW = { timeout: 10_000 }
 
 const DAYBOOK: DayBookRow[] = [
   { voucherId: 11, date: '2026-04-02', voucherType: 'Sales', kind: 'sales', number: '9', account: 'Zeta Traders', narration: null, debit: 118000, credit: 0, isOptional: false, postDated: false },
@@ -105,7 +107,7 @@ afterEach(() => cleanup())
 describe('Day Book', () => {
   it('shows in-books vouchers in service order, totals and activation', async () => {
     renderScreen(<DayBook />)
-    await waitFor(() => expect(rowsOf('daybook')).toHaveLength(2)) // the optional voucher is out of the books
+    await waitFor(() => expect(rowsOf('daybook')).toHaveLength(2), SLOW) // the optional voucher is out of the books
     expect(col('daybook', 3)).toEqual(['Zeta Traders', 'Alpha Rent'])
     const totals = screen.getByTestId('daybook-table-totals')
     expect(totals.textContent).toContain('Total · 2 vouchers')
@@ -123,7 +125,7 @@ describe('Day Book', () => {
 
   it('"All vouchers" shows optional rows but keeps them out of the totals', async () => {
     renderScreen(<DayBook />)
-    await waitFor(() => expect(rowsOf('daybook')).toHaveLength(2))
+    await waitFor(() => expect(rowsOf('daybook')).toHaveLength(2), SLOW)
     fireEvent.change(screen.getByTestId('input-daybook-scope'), { target: { value: 'all' } })
     expect(rowsOf('daybook')).toHaveLength(3)
     expect(col('daybook', 3)[2]).toBe('Memo CoOptional')
@@ -137,7 +139,7 @@ describe('Day Book', () => {
 describe('Trial Balance', () => {
   it('renders ledgers in service order with totals; synthetic rows never drill down', async () => {
     renderScreen(<TrialBalanceScreen />)
-    await waitFor(() => expect(rowsOf('trial-balance')).toHaveLength(3))
+    await waitFor(() => expect(rowsOf('trial-balance')).toHaveLength(3), SLOW)
     expect(col('trial-balance', 0)).toEqual(['Cash', 'Profit & Loss A/c (opening)', 'Capital'])
     // Opening / movement columns are hidden by default, as before.
     expect(screen.queryByTestId('sort-trial-balance-opening')).toBeNull()
@@ -156,7 +158,7 @@ describe('Trial Balance', () => {
   it('seeds hidden columns from the old report config (movement → both movement columns)', async () => {
     localStorage.setItem('total-reportcfg-alpha-co-trial-balance', JSON.stringify({ movement: true, opening: true }))
     renderScreen(<TrialBalanceScreen />)
-    await waitFor(() => expect(rowsOf('trial-balance')).toHaveLength(3))
+    await waitFor(() => expect(rowsOf('trial-balance')).toHaveLength(3), SLOW)
     for (const id of ['opening', 'movementDr', 'movementCr']) expect(screen.getByTestId(`sort-trial-balance-${id}`)).toBeTruthy()
     // Net opening, signed like the rows: 1,000 Dr − 200 Cr − 800 Cr = 0 → a dash.
     const totals = screen.getByTestId('trial-balance-table-totals')
@@ -167,7 +169,7 @@ describe('Trial Balance', () => {
 describe('Ledger Statement', () => {
   it('voucher rows open the voucher; the footer shows the closing balance, never a summed balance', async () => {
     renderScreen(<LedgerStatementScreen ledgerId={5} />)
-    await waitFor(() => expect(rowsOf('ledger-statement')).toHaveLength(2))
+    await waitFor(() => expect(rowsOf('ledger-statement')).toHaveLength(2), SLOW)
     const totals = screen.getByTestId('ledger-statement-table-totals').textContent ?? ''
     expect(totals).toContain('Closing balance')
     expect(totals).toContain('1,300.00 Dr')
@@ -180,7 +182,7 @@ describe('Ledger Statement', () => {
 
     // A filtered view has no honest closing figure: the balance total goes blank, debits re-sum.
     fireEvent.change(screen.getByTestId('ledger-statement-table-quick'), { target: { value: 'zeta' } })
-    await waitFor(() => expect(rowsOf('ledger-statement')).toHaveLength(1))
+    await waitFor(() => expect(rowsOf('ledger-statement')).toHaveLength(1), SLOW)
     const filtered = screen.getByTestId('ledger-statement-table-totals').textContent ?? ''
     expect(filtered).toContain('500.00')
     expect(filtered).not.toContain('Dr')
@@ -188,9 +190,9 @@ describe('Ledger Statement', () => {
 
   it('switches to the Monthly view through the shared tab bar', async () => {
     renderScreen(<LedgerStatementScreen ledgerId={5} />)
-    await waitFor(() => expect(rowsOf('ledger-statement')).toHaveLength(2))
+    await waitFor(() => expect(rowsOf('ledger-statement')).toHaveLength(2), SLOW)
     fireEvent.click(screen.getByTestId('tab-ledger-statement-monthly'))
-    await waitFor(() => expect(rowsOf('ledger-statement-monthly')).toHaveLength(1))
+    await waitFor(() => expect(rowsOf('ledger-statement-monthly')).toHaveLength(1), SLOW)
     expect(col('ledger-statement-monthly', 0)).toEqual(['Apr 2026'])
     expect(screen.getByTestId('ledger-statement-monthly-table-totals').textContent).toContain('1,300.00 Dr')
   })
@@ -199,14 +201,14 @@ describe('Ledger Statement', () => {
 describe('Outstandings', () => {
   it('parties expand to their bills; totals sum every bucket', async () => {
     renderScreen(<OutstandingsScreen />)
-    await waitFor(() => expect(rowsOf('outstandings')).toHaveLength(2))
+    await waitFor(() => expect(rowsOf('outstandings')).toHaveLength(2), SLOW)
     expect(col('outstandings', 1)).toEqual(['Zeta Traders', 'Alpha Stores']) // after the chevron cell
     const totals = screen.getByTestId('outstandings-table-totals').textContent ?? ''
     expect(totals).toContain('1,500.00') // 0–30 d
     expect(totals).toContain('3,500.00') // pending
 
     fireEvent.click(rowsOf('outstandings')[0]!)
-    const bills = await screen.findByTestId('outstandings-bills-31')
+    const bills = await screen.findByTestId('outstandings-bills-31', {}, SLOW)
     expect(bills.textContent).toContain('INV-1')
     expect(bills.textContent).toContain('120d overdue')
     fireEvent.click(within(bills).getByText('INV-7'))
