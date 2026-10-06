@@ -2,7 +2,8 @@ import { useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { api, type BackupInfo, type IntegrityResult } from '../../lib/client'
 import { useSession, useToasts } from '../../state/stores'
-import { Button, EmptyState, Field, Modal, Panel, SectionTitle, TextInput } from '../../components/ui'
+import { Button, Field, Modal, Panel, SectionTitle, TextInput } from '../../components/ui'
+import { DataTable, defineColumns } from '../../components/table'
 import { toDisplayDateTime } from '@shared/dates'
 
 function formatSize(bytes: number): string {
@@ -14,6 +15,30 @@ function formatMtime(mtime: number): string {
   return toDisplayDateTime(new Date(mtime))
 }
 
+const tagLabel = (tag: string): string => {
+  const t = tag.replace(/-/g, ' ')
+  return t.charAt(0).toUpperCase() + t.slice(1)
+}
+
+const BACKUP_COLUMNS = defineColumns<BackupInfo>([
+  { id: 'file', header: 'File', kind: 'text', value: (b) => b.file, className: 'num text-[11.5px] text-muted', hideable: false, groupable: false, minWidth: 220 },
+  // mtime is epoch ms — sorts numerically, reads as a local date-time.
+  { id: 'date', header: 'Date', kind: 'number', value: (b) => b.mtime, text: (b) => formatMtime(b.mtime), align: 'left', className: 'text-muted', width: 170 },
+  { id: 'size', header: 'Size', kind: 'number', value: (b) => b.sizeBytes, text: (b) => formatSize(b.sizeBytes), align: 'left', className: 'text-muted', width: 100 },
+  {
+    id: 'tag',
+    header: 'Tag',
+    kind: 'text',
+    value: (b) => b.tag,
+    text: (b) => tagLabel(b.tag),
+    groupable: true,
+    width: 150,
+    cell: (b) => (
+      <span className="rounded-full border border-line bg-panel2 px-2 py-0.5 text-[11px] text-muted">{tagLabel(b.tag)}</span>
+    )
+  }
+])
+
 interface RestoreResult {
   locked: boolean
   integrity: IntegrityResult
@@ -21,7 +46,7 @@ interface RestoreResult {
 }
 
 export function BackupsSection(): React.JSX.Element {
-  const { data } = useQuery({ queryKey: ['backups'], queryFn: api.backups.list })
+  const { data, isLoading } = useQuery({ queryKey: ['backups'], queryFn: api.backups.list })
   const { user, setUser, setLocked, setIntegrityWarning } = useSession()
   const toast = useToasts()
   const queryClient = useQueryClient()
@@ -84,43 +109,28 @@ export function BackupsSection(): React.JSX.Element {
       >
         Backups
       </SectionTitle>
-      <Panel scroll={{ maxH: '60vh' }}>
-        {rows.length === 0 ? (
-          <EmptyState title="No backups yet" />
-        ) : (
-          <table className="ledger-table">
-            <thead>
-              <tr>
-                <th>File</th>
-                <th className="w-40">Date</th>
-                <th className="w-24">Size</th>
-                <th className="w-28">Tag</th>
-                {isOwner && <th className="r w-24"></th>}
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((b) => (
-                <tr key={b.file}>
-                  <td className="num text-[11.5px] text-muted">{b.file}</td>
-                  <td className="num text-muted">{formatMtime(b.mtime)}</td>
-                  <td className="num text-muted">{formatSize(b.sizeBytes)}</td>
-                  <td>
-                    <span className="rounded-full border border-line bg-panel2 px-2 py-0.5 text-[11px] text-muted capitalize">
-                      {b.tag.replace(/-/g, ' ')}
-                    </span>
-                  </td>
-                  {isOwner && (
-                    <td className="r">
-                      <button className="text-[12px] text-blue hover:underline" onClick={() => setRestoring(b)}>
-                        Restore…
-                      </button>
-                    </td>
-                  )}
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
+      <Panel>
+        <DataTable
+          viewId="settings-backups"
+          testId="settings-backups"
+          ariaLabel="Backups"
+          columns={BACKUP_COLUMNS}
+          rows={rows}
+          rowKey={(b) => b.file}
+          loading={isLoading}
+          maxHeight="60vh"
+          empty={{ title: 'No backups yet' }}
+          trailingWidth={96}
+          trailing={
+            isOwner
+              ? (b) => (
+                  <button className="text-[12px] text-blue hover:underline" onClick={() => setRestoring(b)}>
+                    Restore…
+                  </button>
+                )
+              : undefined
+          }
+        />
       </Panel>
       <p className="mt-2 text-[11.5px] text-muted">
         Backups live in this company's data folder. A snapshot is also taken automatically on open and before risky

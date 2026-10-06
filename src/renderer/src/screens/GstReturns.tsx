@@ -3,9 +3,11 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '../lib/client'
 import { useNav, useSession, useToasts } from '../state/stores'
 import { AmountInput, Button, EmptyState, Money, Panel, SectionTitle, Select, SkeletonRows, Spinner } from '../components/ui'
+import { DataTable, defineColumns } from '../components/table'
 import { todayISO } from '@shared/dates'
 import { formatPaise } from '@shared/money'
 import { posLabel } from '@shared/gst/states'
+import type { Gstr1Result, Gstr3bResult } from '@shared/gst/returns'
 import type { GstIssue } from '@shared/gst/validate'
 import type { Gst3bManualInput } from '@shared/schemas'
 
@@ -102,6 +104,26 @@ export function NoMonths(): React.JSX.Element {
 
 // ---------- GSTR-1 ----------
 
+type Gstr1SummaryRow = Gstr1Result['summary'][number]
+
+/** HSN rows (Table 12) restate the invoice tables and Documents issued (Table 13) counts net
+ *  series — neither adds to the grand total. */
+const NON_INVOICE_SECTIONS = new Set(['hsn_b2b', 'hsn_b2c', 'doc_issue'])
+const invoiceSum =
+  (pick: (r: Gstr1SummaryRow) => number) =>
+  (rows: Gstr1SummaryRow[]): number =>
+    rows.filter((r) => !NON_INVOICE_SECTIONS.has(r.section)).reduce((s, r) => s + pick(r), 0)
+
+export const GSTR1_COLUMNS = defineColumns<Gstr1SummaryRow>([
+  { id: 'section', header: 'Section', kind: 'text', value: (r) => r.label, hideable: false, groupable: false, minWidth: 220 },
+  { id: 'docs', header: 'Docs', kind: 'number', value: (r) => r.docs, width: 96, aggregate: invoiceSum((r) => r.docs) },
+  { id: 'taxable', header: 'Taxable', kind: 'money', value: (r) => r.taxable, width: 140, aggregate: invoiceSum((r) => r.taxable) },
+  { id: 'igst', header: 'IGST', kind: 'money', value: (r) => r.igst, width: 124, aggregate: invoiceSum((r) => r.igst) },
+  { id: 'cgst', header: 'CGST', kind: 'money', value: (r) => r.cgst, width: 124, aggregate: invoiceSum((r) => r.cgst) },
+  { id: 'sgst', header: 'SGST', kind: 'money', value: (r) => r.sgst, width: 124, aggregate: invoiceSum((r) => r.sgst) },
+  { id: 'cess', header: 'Cess', kind: 'money', value: (r) => r.cess, width: 108, aggregate: invoiceSum((r) => r.cess) }
+])
+
 const SEVERITY_CLASS: Record<GstIssue['severity'], string> = {
   blocking: 'border-cr/50 bg-cr/10 text-cr',
   warning: 'border-amber/50 bg-amber/10 text-amber'
@@ -192,7 +214,7 @@ export function Gstr1Screen(): React.JSX.Element {
 
   if (!month) {
     return (
-      <div className="mx-auto max-w-4xl">
+      <div className="mx-auto max-w-5xl">
         <SectionTitle>GSTR-1 · Outward supplies</SectionTitle>
         <NoMonths />
       </div>
@@ -200,7 +222,7 @@ export function Gstr1Screen(): React.JSX.Element {
   }
 
   return (
-    <div className="mx-auto max-w-4xl">
+    <div className="mx-auto max-w-5xl">
       <SectionTitle
         right={
           <div className="flex items-center gap-2">
@@ -252,55 +274,26 @@ export function Gstr1Screen(): React.JSX.Element {
       )}
 
       <Panel>
-        {isLoading ? (
-          <SkeletonRows />
-        ) : (
-        <table className="ledger-table">
-          <thead>
-            <tr>
-              <th>Section</th>
-              <th className="r w-16">Docs</th>
-              <th className="r w-32">Taxable</th>
-              <th className="r w-28">IGST</th>
-              <th className="r w-28">CGST</th>
-              <th className="r w-28">SGST</th>
-              <th className="r w-24">Cess</th>
-            </tr>
-          </thead>
-          <tbody data-testid="rows-gstr1">
-            {(data?.summary ?? []).map((s) => (
-              <tr key={s.section} className={s.docs === 0 && s.taxable === 0 ? 'opacity-40' : ''}>
-                <td>{s.label}</td>
-                <td className="r num">{s.docs}</td>
-                <td className="r"><Money paise={s.taxable} /></td>
-                <td className="r"><Money paise={s.igst} /></td>
-                <td className="r"><Money paise={s.cgst} /></td>
-                <td className="r"><Money paise={s.sgst} /></td>
-                <td className="r"><Money paise={s.cess} /></td>
-              </tr>
-            ))}
-            {data && (
-              <tr className="total-row">
-                {/* HSN rows re-state the invoice tables — keep them out of the grand total. */}
-                <td>Total (invoice tables)</td>
-                {(() => {
-                  const inv = data.summary.filter((x) => !['hsn_b2b', 'hsn_b2c', 'doc_issue'].includes(x.section))
-                  return (
-                    <>
-                      <td className="r num">{inv.reduce((s, x) => s + x.docs, 0)}</td>
-                      <td className="r"><Money paise={inv.reduce((s, x) => s + x.taxable, 0)} /></td>
-                      <td className="r"><Money paise={inv.reduce((s, x) => s + x.igst, 0)} /></td>
-                      <td className="r"><Money paise={inv.reduce((s, x) => s + x.cgst, 0)} /></td>
-                      <td className="r"><Money paise={inv.reduce((s, x) => s + x.sgst, 0)} /></td>
-                      <td className="r"><Money paise={inv.reduce((s, x) => s + x.cess, 0)} /></td>
-                    </>
-                  )
-                })()}
-              </tr>
-            )}
-          </tbody>
-        </table>
-        )}
+        <DataTable
+          viewId="gstr1-summary"
+          testId="gstr1"
+          ariaLabel="GSTR-1 section summary"
+          columns={GSTR1_COLUMNS}
+          rows={data?.summary ?? []}
+          rowKey={(s) => s.section}
+          rowAttrs={(s) => ({ 'data-section': s.section })}
+          rowClassName={(s) => (s.docs === 0 && s.taxable === 0 ? 'opacity-40' : '')}
+          loading={isLoading}
+          maxHeight="none"
+          totalsLabel="Total (invoice tables)"
+          empty={{ title: 'No GSTR-1 data for this month' }}
+          exportOptions={{
+            title: 'GSTR-1 summary',
+            periodLabel: month.label,
+            filename: `gstr1-summary-${month.period}`,
+            totalsLabel: 'Total (invoice tables)'
+          }}
+        />
       </Panel>
       <p className="mt-3 text-[12px] text-muted">
         The exported JSON matches the GST offline-tool schema — upload it on the portal under Returns → GSTR-1 → Prepare offline. A CSV summary lands beside it in exports/. HSN rows (Table 12) restate the invoice tables and Documents issued (Table 13) counts net series — neither adds to the total.
@@ -310,6 +303,12 @@ export function Gstr1Screen(): React.JSX.Element {
 }
 
 // ---------- GSTR-3B ----------
+
+const INTERSTATE_COLUMNS = defineColumns<Gstr3bResult['interState'][number]>([
+  { id: 'pos', header: 'Place of supply', kind: 'text', value: (r) => posLabel(r.pos), hideable: false, groupable: false },
+  { id: 'taxable', header: 'Taxable', kind: 'money', value: (r) => r.taxable, width: 140, aggregate: 'sum' },
+  { id: 'igst', header: 'IGST', kind: 'money', value: (r) => r.igst, width: 124, aggregate: 'sum' }
+])
 
 const EMPTY_MANUAL: Gst3bManualInput = {
   itcRevRul: { igst: 0, cgst: 0, sgst: 0, cess: 0 },
@@ -526,24 +525,21 @@ export function Gstr3bScreen(): React.JSX.Element {
 
       {data && data.interState.length > 0 && (
         <Panel className="mt-4">
-          <table className="ledger-table">
-            <thead>
-              <tr>
-                <th>3.2 Inter-state supplies to unregistered persons — place of supply</th>
-                <th className="r w-32">Taxable</th>
-                <th className="r w-28">IGST</th>
-              </tr>
-            </thead>
-            <tbody data-testid="rows-gstr3b-interstate">
-              {data.interState.map((r) => (
-                <tr key={r.pos}>
-                  <td>{posLabel(r.pos)}</td>
-                  <td className="r"><Money paise={r.taxable} /></td>
-                  <td className="r"><Money paise={r.igst} /></td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          <p className="border-b border-line px-3 py-2 text-[12.5px] font-medium text-ink">3.2 Inter-state supplies to unregistered persons</p>
+          <DataTable
+            viewId="gstr3b-interstate"
+            testId="gstr3b-interstate"
+            ariaLabel="3.2 Inter-state supplies to unregistered persons"
+            columns={INTERSTATE_COLUMNS}
+            rows={data.interState}
+            rowKey={(r) => r.pos}
+            maxHeight="none"
+            exportOptions={{
+              title: 'GSTR-3B 3.2 — inter-state supplies to unregistered persons',
+              periodLabel: month.label,
+              filename: `gstr3b-interstate-${month.period}`
+            }}
+          />
         </Panel>
       )}
 
