@@ -51,9 +51,8 @@ async function remind(companyName: string, partyName: string, bills: Outstanding
 function BillsDetail({ party }: { party: OutstandingParty }): React.JSX.Element {
   const nav = useNav()
   return (
-    // No <thead>: the outer DataTable's sticky-header rule (.data-table thead th) would pin it.
     <table className="ledger-table" data-testid={`outstandings-bills-${party.ledgerId}`}>
-      <tbody>
+      <thead>
         <tr>
           <th scope="col">Bill</th>
           <th scope="col" className="w-32">Bill date</th>
@@ -62,6 +61,8 @@ function BillsDetail({ party }: { party: OutstandingParty }): React.JSX.Element 
           <th scope="col" className="r w-36">Bill amount</th>
           <th scope="col" className="r w-36">Pending</th>
         </tr>
+      </thead>
+      <tbody>
         {party.bills.map((b, i) => (
           <tr key={i} className={b.overdueDays > 0 ? 'text-cr' : ''}>
             <td>

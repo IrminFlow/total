@@ -2,9 +2,8 @@ import { useEffect, useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { api } from '../lib/client'
 import { useNav, useSession, useToasts } from '../state/stores'
-import { Money, Panel, SectionTitle, Select } from '../components/ui'
+import { Panel, SectionTitle, Select } from '../components/ui'
 import { DataTable, defineColumns, type DataTableFooterContext } from '../components/table'
-import { columnAlign } from '../lib/table'
 import { toDisplayDate } from '@shared/dates'
 import type { DayBookRow } from '@shared/reports'
 
@@ -81,25 +80,12 @@ export const DAYBOOK_COLUMNS = defineColumns<DayBookRow>([
   }
 ])
 
-function DayBookFooter({ columns, rows, totals, colSpan }: DataTableFooterContext<DayBookRow>): React.JSX.Element {
+/** "Total (in books) · 12 vouchers" — the count is of rows that reach the books, out of the rows
+ *  in view (filters and the quick filter applied). The table lays the row out (label spanning the
+ *  columns before the first total, sums under Debit / Credit). */
+function dayBookTotalsLabel({ rows }: DataTableFooterContext<DayBookRow>): string {
   const bookCount = rows.filter(inBooks).length
-  const label = `Total${bookCount !== rows.length ? ' (in books)' : ''} · ${bookCount} vouchers`
-  // The label spans every column before the first total (Date is too narrow to hold it alone).
-  // (If the user dragged a total column to the front, the label takes the first plain column.)
-  const firstAgg = columns.findIndex((c) => c.aggregate)
-  const span = firstAgg < 0 ? columns.length : firstAgg
-  const labelAt = span > 0 ? -1 : columns.findIndex((c) => !c.aggregate)
-  return (
-    <tr className="total-row" data-testid="daybook-table-totals">
-      {span > 0 && <td colSpan={span}>{label}</td>}
-      {columns.slice(span).map((c, i) => (
-        <td key={c.id} className={columnAlign(c) === 'right' ? 'r' : ''}>
-          {c.aggregate ? <Money paise={Number(totals[c.id] ?? 0)} /> : i === labelAt ? label : null}
-        </td>
-      ))}
-      {colSpan > columns.length && <td />}
-    </tr>
-  )
+  return `Total${bookCount !== rows.length ? ' (in books)' : ''} · ${bookCount} vouchers`
 }
 
 export function DayBook({ month, kind }: { month?: string; kind?: string } = {}): React.JSX.Element {
@@ -200,7 +186,7 @@ export function DayBook({ month, kind }: { month?: string; kind?: string } = {})
             ) : null
           }
           trailingWidth={56}
-          renderFooter={(ctx) => <DayBookFooter {...ctx} />}
+          totalsLabel={dayBookTotalsLabel}
           exportOptions={{ title: 'Day book', periodLabel, filename: 'day-book', totalsLabel: 'Total (in books)' }}
         />
       </Panel>

@@ -32,7 +32,7 @@ const DOC_TYPE_TITLE: Record<EdocListRow['docType'], string> = {
 const irnEwbText = (r: EdocListRow): string => `${r.irn ? 'IRN ✓' : 'no IRN'} · ${r.ewbNo ?? 'no EWB'}`
 
 export const EDOC_COLUMNS = defineColumns<EdocListRow>([
-  { id: 'date', header: 'Date', kind: 'date', value: (r) => r.date, className: 'text-muted', width: 108 },
+  { id: 'date', header: 'Date', kind: 'date', value: (r) => r.date, className: 'text-muted' },
   {
     id: 'number',
     header: 'No.',
@@ -63,7 +63,7 @@ export const EDOC_COLUMNS = defineColumns<EdocListRow>([
       { value: 'DBN', label: 'DBN' }
     ],
     text: (r) => (r.outwardDbn ? `${r.docType} (OTH)` : r.docType),
-    width: 92,
+    width: 76,
     cell: (r) => (
       <>
         <span
@@ -113,7 +113,7 @@ export const EDOC_COLUMNS = defineColumns<EdocListRow>([
     header: 'EWB eligibility',
     kind: 'text',
     value: (r) => r.ewbReason ?? 'Eligible',
-    width: 104,
+    width: 140,
     cell: (r) =>
       r.ewbReason == null ? (
         <span className="text-[11.5px] text-dr">Eligible</span>
@@ -226,16 +226,6 @@ export function EdocsScreen(): React.JSX.Element {
       <SectionTitle
         right={
           <div className="flex items-center gap-2">
-            <Select
-              className="w-40"
-              data-testid="input-edocs-doctype"
-              value={docTypeFilter}
-              onChange={(e) => setDocTypeFilter(e.target.value as DocTypeFilter)}
-            >
-              {DOC_TYPE_FILTERS.map((f) => (
-                <option key={f.value} value={f.value}>{f.label}</option>
-              ))}
-            </Select>
             <Button onClick={() => nav.go({ name: 'settings', tab: 'nic' })}>
               {live ? 'Live filing ✓ · Configure in Settings →' : 'Configure in Settings →'}
             </Button>
@@ -265,7 +255,34 @@ export function EdocsScreen(): React.JSX.Element {
           loading={isLoading}
           onRowActivate={(r) => nav.go({ name: 'voucher-entry', voucherId: r.voucherId })}
           maxHeight="calc(100vh - 15rem)"
-          empty={{ title: allRows.length === 0 ? 'No documents in this period' : 'No documents match this filter' }}
+          empty={{
+            title: allRows.length === 0 ? 'No documents in this period' : 'No documents match this filter',
+            action:
+              allRows.length > 0 && docTypeFilter !== 'all' ? (
+                <button
+                  type="button"
+                  className="text-small text-blue hover:underline"
+                  onClick={() => setDocTypeFilter('all')}
+                  data-testid="edocs-clear-doctype"
+                >
+                  Show all document types
+                </button>
+              ) : undefined
+          }}
+          // The document-type picker pre-filters the rows (the table's view applies on top).
+          toolbarStart={
+            <Select
+              className="!w-40 !py-1 !text-detail"
+              aria-label="Document type"
+              data-testid="input-edocs-doctype"
+              value={docTypeFilter}
+              onChange={(e) => setDocTypeFilter(e.target.value as DocTypeFilter)}
+            >
+              {DOC_TYPE_FILTERS.map((f) => (
+                <option key={f.value} value={f.value}>{f.label}</option>
+              ))}
+            </Select>
+          }
           exportOptions={{
             title: 'e-Invoice & e-way bill documents',
             periodLabel: `${toDisplayDate(from)} to ${toDisplayDate(to)}`,
