@@ -110,6 +110,8 @@ function renameFile(src: string, dest: string): void {
 export function closeCurrentCompany(): void {
   // Stop the inbox watcher + any pending mirror refresh before the handle closes under them.
   agentBridge.syncInboxWatcher(null)
+  // The cached NIC login belongs to this company's identity — never carry it into the next one.
+  nic.resetNicSession()
   if (current) {
     closeCompanyDb(current.db)
     current = null

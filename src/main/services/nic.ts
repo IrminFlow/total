@@ -154,9 +154,26 @@ interface NicSession {
   authToken: string
   sek: Buffer
   obtainedAt: number
+  /** Identity the token was issued for (sessionKey) — a different identity never reuses it. */
+  key: string
 }
 
+const SESSION_TTL_MS = 4 * 60 * 60 * 1000
+
+/** One cached session, valid only for the exact identity it was obtained for. Also reset on
+ *  credential save and on company switch/close (ipc.ts closeCurrentCompany). */
 let session: NicSession | null = null
+
+/** The identity a session belongs to: GSTIN + username + client id + endpoint (sandbox vs
+ *  production), plus a digest of the secrets so a changed password/secret can't ride on an old
+ *  token. Raw secrets never end up in the key. */
+function sessionKey(creds: NicCredentials, gstin: string): string {
+  const secretDigest = crypto.createHash('sha256').update(`${creds.password}\u0000${creds.clientSecret}`).digest('hex')
+  return JSON.stringify([gstin.toUpperCase(), creds.username, creds.clientId, creds.baseUrlEinvoice.replace(/\/$/, ''), secretDigest])
+}
+
+export type NicFetch = (url: string, init: { method: string; headers: Record<string, string>; body: string }) => Promise<{ status: number; json(): Promise<unknown> }>
+const defaultFetch: NicFetch = (url, init) => fetch(url, init)
 
 interface NicEnvelope {
   Status: number | string
@@ -182,8 +199,11 @@ function nicError(body: NicEnvelope, fallback: string): Error {
   return new Error(detail || fallback)
 }
 
-async function authenticate(creds: NicCredentials, gstin: string): Promise<NicSession> {
-  if (session && Date.now() - session.obtainedAt < 4 * 60 * 60 * 1000) return session
+/** Exported for tests (inject `fetchFn`; no real network). */
+export async function authenticate(creds: NicCredentials, gstin: string, fetchFn: NicFetch = defaultFetch): Promise<NicSession> {
+  const key = sessionKey(creds, gstin)
+  if (session && session.key === key && Date.now() - session.obtainedAt < SESSION_TTL_MS) return session
+  session = null
   const appKey = crypto.randomBytes(32)
   const payload = {
     UserName: creds.username,
@@ -192,7 +212,7 @@ async function authenticate(creds: NicCredentials, gstin: string): Promise<NicSe
     ForceRefreshAccessToken: false
   }
   const data = rsaEncrypt(creds.publicKeyPem, Buffer.from(JSON.stringify(payload), 'utf8'))
-  const res = await fetch(`${creds.baseUrlEinvoice.replace(/\/$/, '')}/eivital/v1.04/auth`, {
+  const res = await fetchFn(`${creds.baseUrlEinvoice.replace(/\/$/, '')}/eivital/v1.04/auth`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -206,7 +226,7 @@ async function authenticate(creds: NicCredentials, gstin: string): Promise<NicSe
   if (String(body.Status) !== '1' || !body.Data) throw nicError(body, `Authentication failed (HTTP ${res.status})`)
   const inner = JSON.parse(Buffer.from(body.Data, 'base64').toString('utf8')) as { AuthToken: string; Sek: string }
   const sek = aesDecrypt(appKey, inner.Sek)
-  session = { authToken: inner.AuthToken, sek, obtainedAt: Date.now() }
+  session = { authToken: inner.AuthToken, sek, obtainedAt: Date.now(), key }
   return session
 }
 
@@ -214,10 +234,11 @@ async function nicPost(
   creds: NicCredentials,
   gstin: string,
   path: string,
-  payload: unknown
+  payload: unknown,
+  fetchFn: NicFetch = defaultFetch
 ): Promise<Record<string, unknown>> {
-  const s = await authenticate(creds, gstin)
-  const res = await fetch(`${creds.baseUrlEinvoice.replace(/\/$/, '')}${path}`, {
+  const s = await authenticate(creds, gstin, fetchFn)
+  const res = await fetchFn(`${creds.baseUrlEinvoice.replace(/\/$/, '')}${path}`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',

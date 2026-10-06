@@ -7,7 +7,10 @@ import { join } from 'path'
 import { seededDb } from '../db/testdb'
 import type { DB } from '../db/connection'
 import { createSecretStore, insecureTestCipher, companyScope, SecretsUnavailableError, type SecretStore } from './secrets'
-import { deleteNicSecrets, nicConfigured, readNicCredentials, writeNicCredentials } from './nic'
+import crypto from 'crypto'
+import {
+  authenticate, deleteNicSecrets, nicConfigured, readNicCredentials, resetNicSession, writeNicCredentials, type NicFetch
+} from './nic'
 import { nicCredentialsSchema } from '@shared/schemas'
 
 const CREDS = nicCredentialsSchema.parse({
@@ -106,5 +109,68 @@ describe('NIC credentials at rest', () => {
     deleteNicSecrets('acme', store)
     expect(readNicCredentials(db, 'acme', store).password).toBe('')
     expect(nicConfigured(db, 'acme', store)).toBe(false)
+  })
+})
+
+// ---------- session isolation (fake portal; no network) ----------
+
+/** Minimal NIC auth endpoint: decrypts the RSA payload with its private key, returns a token
+ *  naming the caller (gstin/user) and a SEK encrypted under the caller's AppKey. */
+function fakePortal(privateKeyPem: string) {
+  const calls: { url: string; gstin: string; user: string }[] = []
+  let n = 0
+  const fetchFn: NicFetch = async (url, init) => {
+    const { Data } = JSON.parse(init.body) as { Data: string }
+    const plain = crypto.privateDecrypt({ key: privateKeyPem, padding: crypto.constants.RSA_PKCS1_PADDING }, Buffer.from(Data, 'base64'))
+    const { UserName, AppKey } = JSON.parse(plain.toString('utf8')) as { UserName: string; AppKey: string }
+    calls.push({ url, gstin: init.headers.gstin!, user: UserName })
+    const cipher = crypto.createCipheriv('aes-256-ecb', Buffer.from(AppKey, 'base64'), null)
+    const sek = Buffer.concat([cipher.update(crypto.randomBytes(32)), cipher.final()]).toString('base64')
+    const inner = { AuthToken: `token-${++n}-${init.headers.gstin}-${UserName}`, Sek: sek }
+    return { status: 200, json: async () => ({ Status: 1, Data: Buffer.from(JSON.stringify(inner)).toString('base64') }) }
+  }
+  return { fetchFn, calls }
+}
+
+describe('NIC session cache', () => {
+  const { publicKey, privateKey } = crypto.generateKeyPairSync('rsa', {
+    modulusLength: 2048,
+    publicKeyEncoding: { type: 'spki', format: 'pem' },
+    privateKeyEncoding: { type: 'pkcs8', format: 'pem' }
+  })
+  const A = { ...CREDS, publicKeyPem: publicKey }
+
+  beforeEach(() => resetNicSession())
+
+  it('reuses a session only for the identity it was obtained for', async () => {
+    const portal = fakePortal(privateKey)
+    const s1 = await authenticate(A, '27AAAAA0000A1Z5', portal.fetchFn)
+    const again = await authenticate(A, '27AAAAA0000A1Z5', portal.fetchFn)
+    expect(again.authToken).toBe(s1.authToken)
+    expect(portal.calls).toHaveLength(1)
+
+    // Different company GSTIN, username, client id or endpoint (sandbox vs prod) → fresh login.
+    const variants: [typeof A, string][] = [
+      [A, '29BBBBB1111B1Z5'],
+      [{ ...A, username: 'other_user' }, '27AAAAA0000A1Z5'],
+      [{ ...A, clientId: 'CID2' }, '27AAAAA0000A1Z5'],
+      [{ ...A, baseUrlEinvoice: 'https://api.einvoice1.gst.gov.in' }, '27AAAAA0000A1Z5'],
+      [{ ...A, password: 'changed' }, '27AAAAA0000A1Z5']
+    ]
+    for (const [creds, gstin] of variants) {
+      const s = await authenticate(creds, gstin, portal.fetchFn)
+      expect(s.authToken).not.toBe(s1.authToken)
+    }
+    expect(portal.calls).toHaveLength(1 + variants.length)
+    expect(portal.calls[1]!.gstin).toBe('29BBBBB1111B1Z5')
+  })
+
+  it('resetNicSession (credential save / company switch) forces a new login', async () => {
+    const portal = fakePortal(privateKey)
+    const s1 = await authenticate(A, '27AAAAA0000A1Z5', portal.fetchFn)
+    resetNicSession()
+    const s2 = await authenticate(A, '27AAAAA0000A1Z5', portal.fetchFn)
+    expect(s2.authToken).not.toBe(s1.authToken)
+    expect(portal.calls).toHaveLength(2)
   })
 })
