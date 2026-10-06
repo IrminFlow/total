@@ -69,15 +69,15 @@ export function pairColumns(onCreatePurchase: (portal: NonNullable<Recon2bPair['
   return defineColumns<Recon2bPair>([
     {
       id: 'portalNo',
-      header: 'Portal no.',
+      header: '2B no.',
       kind: 'text',
       value: (p) => p.portal?.number,
       cell: (p) => p.portal?.number ?? dash,
       hideable: false,
       groupable: false,
-      minWidth: 120
+      width: 120
     },
-    { id: 'portalDate', header: 'Portal date', kind: 'date', value: (p) => p.portal?.date, className: 'text-muted', width: 104 },
+    { id: 'portalDate', header: '2B date', kind: 'date', value: (p) => p.portal?.date, className: 'text-muted', width: 104 },
     {
       id: 'supplierGstin',
       header: 'Supplier GSTIN',
@@ -87,22 +87,21 @@ export function pairColumns(onCreatePurchase: (portal: NonNullable<Recon2bPair['
       width: 160,
       defaultHidden: true
     },
-    { id: 'portalValue', header: 'Portal value', kind: 'money', value: (p) => p.portal?.value, width: 130, aggregate: 'sum' },
+    { id: 'portalValue', header: '2B value', kind: 'money', value: (p) => p.portal?.value, width: 124, aggregate: 'sum' },
     {
       id: 'portalTax',
-      header: 'Portal tax',
+      header: '2B tax',
       kind: 'money',
       value: (p) => (p.portal ? taxTotal(p.portal) : null),
-      width: 120,
+      width: 112,
       aggregate: 'sum'
     },
     {
       id: 'bookNo',
-      header: 'Books no. (supplier ref)',
+      header: 'Books ref',
       kind: 'text',
       value: (p) => (p.book ? (p.book.supplierRef ?? p.book.number) : null),
       groupable: false,
-      minWidth: 150,
       cell: (p) =>
         p.book ? (
           (p.book.supplierRef ?? p.book.number)
@@ -133,23 +132,23 @@ export function pairColumns(onCreatePurchase: (portal: NonNullable<Recon2bPair['
       ],
       defaultHidden: true
     },
-    { id: 'bookDate', header: 'Books date', kind: 'date', value: (p) => p.book?.date, className: 'text-muted', width: 104 },
-    { id: 'bookValue', header: 'Books value', kind: 'money', value: (p) => p.book?.invoiceValue, width: 130, aggregate: 'sum' },
+    { id: 'bookDate', header: 'Books date', kind: 'date', value: (p) => p.book?.date, className: 'text-muted', width: 132 },
+    { id: 'bookValue', header: 'Books value', kind: 'money', value: (p) => p.book?.invoiceValue, width: 140, aggregate: 'sum' },
     {
       id: 'bookTax',
       header: 'Books tax',
       kind: 'money',
       value: (p) => (p.book ? taxTotal(p.book) : null),
-      width: 120,
+      width: 124,
       aggregate: 'sum'
     },
     {
       id: 'valueDiff',
-      header: 'Value diff',
+      header: 'Diff',
       kind: 'money',
       signed: true,
       value: (p) => p.valueDiffPaise,
-      width: 136,
+      width: 132,
       aggregate: 'sum'
     }
   ])

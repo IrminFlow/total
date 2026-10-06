@@ -116,7 +116,7 @@ const invoiceSum =
 
 export const GSTR1_COLUMNS = defineColumns<Gstr1SummaryRow>([
   { id: 'section', header: 'Section', kind: 'text', value: (r) => r.label, hideable: false, groupable: false, minWidth: 220 },
-  { id: 'docs', header: 'Docs', kind: 'number', value: (r) => r.docs, width: 72, aggregate: invoiceSum((r) => r.docs) },
+  { id: 'docs', header: 'Docs', kind: 'number', value: (r) => r.docs, width: 96, aggregate: invoiceSum((r) => r.docs) },
   { id: 'taxable', header: 'Taxable', kind: 'money', value: (r) => r.taxable, width: 140, aggregate: invoiceSum((r) => r.taxable) },
   { id: 'igst', header: 'IGST', kind: 'money', value: (r) => r.igst, width: 124, aggregate: invoiceSum((r) => r.igst) },
   { id: 'cgst', header: 'CGST', kind: 'money', value: (r) => r.cgst, width: 124, aggregate: invoiceSum((r) => r.cgst) },
@@ -214,7 +214,7 @@ export function Gstr1Screen(): React.JSX.Element {
 
   if (!month) {
     return (
-      <div className="mx-auto max-w-4xl">
+      <div className="mx-auto max-w-5xl">
         <SectionTitle>GSTR-1 · Outward supplies</SectionTitle>
         <NoMonths />
       </div>
@@ -222,7 +222,7 @@ export function Gstr1Screen(): React.JSX.Element {
   }
 
   return (
-    <div className="mx-auto max-w-4xl">
+    <div className="mx-auto max-w-5xl">
       <SectionTitle
         right={
           <div className="flex items-center gap-2">

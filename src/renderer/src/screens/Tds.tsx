@@ -36,7 +36,7 @@ const optionalMoney = (paise: number): React.JSX.Element => (paise > 0 ? <Money 
 const SECTION_COLUMNS = defineColumns<TdsSection>([
   { id: 'code', header: 'Code', kind: 'text', value: (s) => s.code, className: 'num', width: 90, hideable: false, groupable: false },
   { id: 'description', header: 'Description', kind: 'text', value: (s) => s.description, groupable: false },
-  { id: 'rate', header: 'Rate', kind: 'number', value: (s) => s.rate, text: (s) => `${s.rate}%`, width: 80 },
+  { id: 'rate', header: 'Rate', kind: 'number', value: (s) => s.rate, text: (s) => `${s.rate}%`, width: 96 },
   {
     id: 'single',
     header: 'Single limit',
@@ -44,7 +44,7 @@ const SECTION_COLUMNS = defineColumns<TdsSection>([
     value: (s) => s.thresholdSingle,
     text: (s) => (s.thresholdSingle > 0 ? formatPaise(s.thresholdSingle) : '—'),
     cell: (s) => optionalMoney(s.thresholdSingle),
-    width: 130
+    width: 144
   },
   {
     id: 'annual',
@@ -53,7 +53,7 @@ const SECTION_COLUMNS = defineColumns<TdsSection>([
     value: (s) => s.thresholdAnnual,
     text: (s) => (s.thresholdAnnual > 0 ? formatPaise(s.thresholdAnnual) : '—'),
     cell: (s) => optionalMoney(s.thresholdAnnual),
-    width: 130
+    width: 144
   }
 ])
 

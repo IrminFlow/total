@@ -32,7 +32,7 @@ const DOC_TYPE_TITLE: Record<EdocListRow['docType'], string> = {
 const irnEwbText = (r: EdocListRow): string => `${r.irn ? 'IRN ✓' : 'no IRN'} · ${r.ewbNo ?? 'no EWB'}`
 
 export const EDOC_COLUMNS = defineColumns<EdocListRow>([
-  { id: 'date', header: 'Date', kind: 'date', value: (r) => r.date, className: 'text-muted', width: 100 },
+  { id: 'date', header: 'Date', kind: 'date', value: (r) => r.date, className: 'text-muted', width: 108 },
   {
     id: 'number',
     header: 'No.',
@@ -40,7 +40,7 @@ export const EDOC_COLUMNS = defineColumns<EdocListRow>([
     value: (r) => r.number,
     hideable: false,
     groupable: false,
-    width: 120,
+    width: 84,
     cell: (r) => (
       <span className="num">
         {r.number}
@@ -63,7 +63,7 @@ export const EDOC_COLUMNS = defineColumns<EdocListRow>([
       { value: 'DBN', label: 'DBN' }
     ],
     text: (r) => (r.outwardDbn ? `${r.docType} (OTH)` : r.docType),
-    width: 110,
+    width: 92,
     cell: (r) => (
       <>
         <span
@@ -83,7 +83,7 @@ export const EDOC_COLUMNS = defineColumns<EdocListRow>([
       </>
     )
   },
-  { id: 'buyer', header: 'Buyer', kind: 'text', value: (r) => r.partyName ?? 'Cash sale', minWidth: 160 },
+  { id: 'buyer', header: 'Buyer', kind: 'text', value: (r) => r.partyName ?? 'Cash sale', minWidth: 130 },
   {
     id: 'gstin',
     header: 'GSTIN',
@@ -91,15 +91,15 @@ export const EDOC_COLUMNS = defineColumns<EdocListRow>([
     value: (r) => r.partyGstin,
     text: (r) => r.partyGstin ?? '—',
     className: 'num text-muted',
-    width: 160
+    width: 146
   },
-  { id: 'value', header: 'Value', kind: 'money', value: (r) => r.total, width: 130, aggregate: 'sum' },
+  { id: 'value', header: 'Value', kind: 'money', value: (r) => r.total, width: 116, aggregate: 'sum' },
   {
     id: 'irnEwb',
     header: 'IRN / EWB',
     kind: 'text',
     value: irnEwbText,
-    width: 150,
+    width: 124,
     cell: (r) => (
       <span className="text-[11.5px]">
         {r.irn ? <span className="text-dr" title={r.irn}>IRN ✓</span> : <span className="text-muted">no IRN</span>}
@@ -113,7 +113,7 @@ export const EDOC_COLUMNS = defineColumns<EdocListRow>([
     header: 'EWB eligibility',
     kind: 'text',
     value: (r) => r.ewbReason ?? 'Eligible',
-    width: 180,
+    width: 104,
     cell: (r) =>
       r.ewbReason == null ? (
         <span className="text-[11.5px] text-dr">Eligible</span>
@@ -271,7 +271,7 @@ export function EdocsScreen(): React.JSX.Element {
             periodLabel: `${toDisplayDate(from)} to ${toDisplayDate(to)}`,
             filename: 'edocs'
           }}
-          trailingWidth={live ? 330 : 230}
+          trailingWidth={live ? 300 : 210}
           trailing={(r) => (
             <span className="whitespace-nowrap">
               {live && r.partyGstin && !r.irn && (

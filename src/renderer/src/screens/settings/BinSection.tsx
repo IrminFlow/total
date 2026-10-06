@@ -7,12 +7,12 @@ import { DataTable, defineColumns } from '../../components/table'
 import { todayISO, toDisplayDate } from '@shared/dates'
 
 const BIN_COLUMNS = defineColumns<BinRow>([
-  { id: 'date', header: 'Date', kind: 'date', value: (r) => r.date, className: 'text-muted', width: 100 },
-  { id: 'number', header: 'No.', kind: 'text', value: (r) => r.number, className: 'num', width: 110, groupable: false },
-  { id: 'type', header: 'Type', kind: 'text', value: (r) => r.voucherType, width: 130 },
-  { id: 'account', header: 'Account', kind: 'text', value: (r) => r.account, hideable: false, minWidth: 160 },
-  { id: 'amount', header: 'Amount', kind: 'money', value: (r) => r.amount, width: 130 },
-  { id: 'deleted', header: 'Deleted', kind: 'date', value: (r) => r.deletedAt.slice(0, 10), className: 'text-muted', width: 104 }
+  { id: 'date', header: 'Date', kind: 'date', value: (r) => r.date, className: 'text-muted', width: 104 },
+  { id: 'number', header: 'No.', kind: 'text', value: (r) => r.number, className: 'num', width: 84, groupable: false },
+  { id: 'type', header: 'Type', kind: 'text', value: (r) => r.voucherType, width: 84 },
+  { id: 'account', header: 'Account', kind: 'text', value: (r) => r.account, hideable: false },
+  { id: 'amount', header: 'Amount', kind: 'money', value: (r) => r.amount, width: 112 },
+  { id: 'deleted', header: 'Deleted', kind: 'date', value: (r) => r.deletedAt.slice(0, 10), className: 'text-muted', width: 106 }
 ])
 
 export function BinSection(): React.JSX.Element {
@@ -57,7 +57,7 @@ export function BinSection(): React.JSX.Element {
           maxHeight="60vh"
           empty={{ title: 'Bin is empty' }}
           exportOptions={{ title: 'Bin — deleted vouchers', periodLabel: `as on ${toDisplayDate(todayISO())}`, filename: 'bin' }}
-          trailingWidth={canRestore && canPurge ? 170 : 110}
+          trailingWidth={canRestore && canPurge ? 172 : 110}
           trailing={
             showActions
               ? (r) => (
