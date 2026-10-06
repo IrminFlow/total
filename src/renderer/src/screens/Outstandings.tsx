@@ -21,7 +21,7 @@ export const OUTSTANDING_COLUMNS = defineColumns<OutstandingParty>([
     value: (p) => p.name,
     hideable: false,
     groupable: false,
-    minWidth: 180,
+    minWidth: 170, // 170 + 4 × 130 + 150 + chevron + 150 actions = the 1022px panel at 1440 wide
     // The row expands its bills; the party NAME opens the ledger's edit window.
     cell: (p) => <LedgerLink ledgerId={p.ledgerId} name={p.name} />
   },
