@@ -6,7 +6,8 @@
 //                   TOTAL_SUPPRESS_SYNC_WARNING=1, one retry, viewport 1440x900, waits for
 //                   window.total.
 //   invoke(ch, p)   window.total.invoke — throws on { ok: false }.
-//   goto(name)      Click [data-testid="nav-<name>"] then wait for
+//   goto(name)      Expand the item's sidebar section if collapsed, click
+//                   [data-testid="nav-<name>"], then wait for
 //                   [data-screen="<name>"][data-loading="false"].
 //   waitIdle()      Wait for the current [data-screen] to report data-loading="false".
 //   shot(name)      Screenshot into the scenario's out dir.
@@ -132,8 +133,14 @@ export class Harness {
     })
   }
 
-  /** Sidebar navigation: click nav-<name>, wait for the screen to render + go idle. */
+  /** Sidebar navigation: click nav-<name>, wait for the screen to render + go idle. Items in a
+   *  collapsed sidebar section are in the DOM but hidden — expand the section first. */
   async goto(name, timeout = 15000) {
+    await this.page.waitForSelector(`[data-testid="nav-${name}"]`, { state: 'attached', timeout })
+    await this.page.evaluate((n) => {
+      const list = document.querySelector(`[data-testid="nav-${n}"]`)?.closest('[hidden]')
+      if (list?.id) document.querySelector(`[aria-controls="${list.id}"]`)?.click()
+    }, name)
     await this.page.click(`[data-testid="nav-${name}"]`, { timeout })
     await this.waitScreen(name, timeout)
   }

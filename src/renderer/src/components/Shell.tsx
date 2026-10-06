@@ -8,6 +8,7 @@ import { TotalLogo } from './TotalLogo'
 import { toDisplayDate, fyOf, fyFromStartYear, todayISO } from '@shared/dates'
 import { useFeatures } from '../lib/useFeatures'
 import { NAV_SECTIONS, SCREENS } from '../lib/screens'
+import { useNavSections } from '../lib/navSections'
 
 /** Sidebar derived from the single screen registry (lib/screens.ts). */
 const NAV = NAV_SECTIONS.map((section) => ({
@@ -28,6 +29,7 @@ export function Shell({ children, onOpenPalette }: { children: ReactNode; onOpen
   const [periodOpen, setPeriodOpen] = useState(false)
   const fetching = useIsFetching()
   const features = useFeatures()
+  const sections = useNavSections(screen.name)
   const visibleNav = NAV.filter((s) => !s.feature || features[s.feature]).map((s) => ({
     ...s,
     items: s.items.filter((i) => !i.feature || features[i.feature])
@@ -96,30 +98,51 @@ export function Shell({ children, onOpenPalette }: { children: ReactNode; onOpen
             <TotalLogo size={28} />
             <span className="font-serif text-[17px] font-semibold tracking-tight">Total</span>
           </div>
-          {visibleNav.map((section) => (
-            <div key={section.title ?? 'top'}>
-              {section.title && (
-                <p className="mt-3 mb-1 px-2.5 text-[10px] font-semibold tracking-[0.1em] text-muted/80 uppercase">
-                  {section.title}
-                </p>
-              )}
-              {section.items.map((item) => {
-                const active = screen.name === item.screen.name
-                return (
+          {visibleNav.map((section) => {
+            const open = sections.isOpen(section.id)
+            const listId = `nav-list-${section.id}`
+            return (
+              <div key={section.id}>
+                {section.title && (
                   <button
-                    key={item.label}
-                    data-testid={`nav-${item.screen.name}`}
-                    onClick={() => nav.go(item.screen)}
-                    className={`block w-full rounded-md px-2.5 py-[5px] text-left text-[13px] transition-colors ${
-                      active ? 'bg-amberbar/20 font-medium text-ink' : 'text-muted hover:bg-panel2 hover:text-ink'
-                    }`}
+                    data-testid={`nav-section-${section.id}`}
+                    aria-expanded={open}
+                    aria-controls={listId}
+                    onClick={() => sections.toggle(section.id)}
+                    onKeyDown={(e) => {
+                      // ←/→ collapse/expand, like a tree; ↵/Space toggle via the native button.
+                      if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+                        e.preventDefault()
+                        sections.setOpen(section.id, e.key === 'ArrowRight')
+                      }
+                    }}
+                    className="mt-3 mb-1 flex w-full items-center gap-1 rounded-md px-2.5 text-left text-[10px] font-semibold tracking-[0.1em] text-muted/80 uppercase hover:text-ink"
                   >
-                    {item.label}
+                    <span className="flex-1">{section.title}</span>
+                    <span aria-hidden className="inline-block w-3 text-center text-[10px]">{open ? '▾' : '▸'}</span>
                   </button>
-                )
-              })}
-            </div>
-          ))}
+                )}
+                {/* Collapsed items stay in the DOM (hidden) so aria-controls always resolves. */}
+                <div id={listId} hidden={!open}>
+                  {section.items.map((item) => {
+                    const active = screen.name === item.screen.name
+                    return (
+                      <button
+                        key={item.label}
+                        data-testid={`nav-${item.screen.name}`}
+                        onClick={() => nav.go(item.screen)}
+                        className={`block w-full rounded-md px-2.5 py-[5px] text-left text-[13px] transition-colors ${
+                          active ? 'bg-amberbar/20 font-medium text-ink' : 'text-muted hover:bg-panel2 hover:text-ink'
+                        }`}
+                      >
+                        {item.label}
+                      </button>
+                    )
+                  })}
+                </div>
+              </div>
+            )
+          })}
           <div className="flex-1" />
           <button
             className="rounded-md px-2.5 py-1.5 text-left text-[12.5px] text-muted hover:bg-panel2 hover:text-ink"

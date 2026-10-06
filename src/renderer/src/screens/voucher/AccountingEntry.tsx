@@ -14,7 +14,7 @@ import { useFeatures } from '../../lib/useFeatures'
 import { confirmDialog } from '../../lib/dialogs'
 import { useUnsavedGuard } from '../../lib/useUnsavedGuard'
 import { isBankLedger, isCashOrBankLedger, isPartyLedger, nextLineKey, NUMBER_LOADING, TRADING_KINDS, useVoucherNumberField } from './hooks'
-import { CostAllocModal, QuickLedgerModal, SaveAsRecurringModal } from './modals'
+import { CostAllocModal, QuickLedgerModal } from './modals'
 import { TransportModal } from './TransportModal'
 
 // ---------- accounting mode (payment / receipt / contra / journal + alteration) ----------
@@ -60,7 +60,6 @@ export function AccountingEntry({
   const [quickLedger, setQuickLedger] = useState<{ name: string; row: number } | null>(null)
   const [loaded, setLoaded] = useState(false)
   const [saving, setSaving] = useState(false)
-  const [showRecurring, setShowRecurring] = useState(false)
   const [showTransport, setShowTransport] = useState(false)
   const [editingParty, setEditingParty] = useState<Ledger | null>(null)
   // Alteration keeps the voucher's own number editable but never auto-suggests a fresh one off
@@ -342,8 +341,7 @@ export function AccountingEntry({
     setBillRefs((refs) => refs.map((r, j) => (j === i ? { ...r, ...patch } : r)))
   const removeManualBillRef = (i: number): void => setBillRefs((refs) => refs.filter((_, j) => j !== i))
 
-  // Builds the exact VoucherInputParsed shape `save` posts — factored out so "Save as
-  // recurring…" can serialize the current form state without also saving the voucher itself.
+  // Builds the exact VoucherInputParsed shape `save` posts.
   const buildPayload = useCallback((): VoucherInputParsed | null => {
     const lines = rows
       .filter((r) => r.ledgerId != null && r.amount != null && r.amount > 0)
@@ -771,7 +769,6 @@ export function AccountingEntry({
               Transport / e-way details…
             </Button>
           )}
-          {balanced && <Button onClick={() => setShowRecurring(true)}>Save as recurring…</Button>}
           <Button onClick={() => nav.back()}>Cancel</Button>
           <Button variant="primary" data-testid="btn-save-voucher" disabled={!balanced || saving} onClick={() => void save()}>
             {voucherId ? 'Save changes' : 'Save voucher'} ⌘↵
@@ -800,7 +797,6 @@ export function AccountingEntry({
           onSave={(allocations) => setRow(ccModalRow, { costAllocations: allocations })}
         />
       )}
-      {showRecurring && <SaveAsRecurringModal buildPayload={buildPayload} onClose={() => setShowRecurring(false)} />}
       {showTransport && voucherId && (
         <TransportModal voucherId={voucherId} voucherNumber={existing?.number} onClose={() => setShowTransport(false)} />
       )}

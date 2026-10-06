@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest'
 import { seededDb } from '../db/testdb'
 import { createLedger, createStockItem } from './masters'
 import { saveVoucher, deleteVoucher } from './vouchers'
-import { globalSearch } from './search'
+import { globalSearch, SEARCH_LIMIT } from './search'
 
 function group(db: ReturnType<typeof seededDb>, name: string): number {
   return (db.prepare('SELECT id FROM groups WHERE name = ?').get(name) as { id: number }).id
@@ -79,10 +79,20 @@ describe('globalSearch', () => {
     expect(hits.map((h) => h.label)).toEqual(['50% Off Ltd'])
   })
 
-  it('caps each category at 5 results', () => {
+  it('caps each category at SEARCH_LIMIT (20) results', () => {
     const db = seededDb()
-    for (let i = 0; i < 7; i++) ledger(db, `Zeta Client ${i}`)
+    for (let i = 0; i < 25; i++) ledger(db, `Zeta Client ${String(i).padStart(2, '0')}`)
     const hits = globalSearch(db, 'zeta')
-    expect(hits.filter((h) => h.kind === 'ledger').length).toBe(5)
+    expect(SEARCH_LIMIT).toBe(20)
+    expect(hits.filter((h) => h.kind === 'ledger').length).toBe(20)
+  })
+
+  it('ranks prefix matches before substring matches', () => {
+    const db = seededDb()
+    ledger(db, 'Alpha Sale Co') // substring match, alphabetically first
+    ledger(db, 'Sale Corp') // prefix match
+    const labels = globalSearch(db, 'sale').filter((h) => h.kind === 'ledger').map((h) => h.label)
+    expect(labels.indexOf('Sale Corp')).toBeGreaterThanOrEqual(0)
+    expect(labels.indexOf('Sale Corp')).toBeLessThan(labels.indexOf('Alpha Sale Co'))
   })
 })
