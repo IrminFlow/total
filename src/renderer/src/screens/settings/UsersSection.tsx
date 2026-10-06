@@ -2,9 +2,32 @@ import { useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { api, type Role, type UserRow } from '../../lib/client'
 import { useSession, useToasts } from '../../state/stores'
-import { Button, EmptyState, Field, Modal, Panel, SectionTitle, Select, TextInput } from '../../components/ui'
+import { Button, Field, Modal, Panel, SectionTitle, Select, TextInput } from '../../components/ui'
+import { DataTable, defineColumns } from '../../components/table'
 
 const ROLES: Role[] = ['owner', 'accountant', 'viewer']
+const ROLE_LABEL: Record<Role, string> = { owner: 'Owner', accountant: 'Accountant', viewer: 'Viewer' }
+
+const USER_COLUMNS = defineColumns<UserRow>([
+  { id: 'name', header: 'Name', kind: 'text', value: (u) => u.name, hideable: false, groupable: false },
+  { id: 'role', header: 'Role', kind: 'enum', value: (u) => u.role, options: ROLES.map((r) => ({ value: r, label: ROLE_LABEL[r] })), width: 130 },
+  {
+    id: 'status',
+    header: 'Status',
+    kind: 'enum',
+    value: (u) => (u.active ? 'active' : 'inactive'),
+    options: [
+      { value: 'active', label: 'Active' },
+      { value: 'inactive', label: 'Inactive' }
+    ],
+    width: 110,
+    cell: (u) => (
+      <span className={`rounded-full border px-2 py-0.5 text-[11px] ${u.active ? 'border-dr/40 text-dr' : 'border-line text-muted'}`}>
+        {u.active ? 'Active' : 'Inactive'}
+      </span>
+    )
+  }
+])
 
 export function UsersSection(): React.JSX.Element {
   const { user, setUser } = useSession()
@@ -15,7 +38,7 @@ export function UsersSection(): React.JSX.Element {
   // A signed-in non-owner (accountant/viewer) would just get "You do not have permission" back,
   // so don't even fire the query for them — show the same message the server would.
   const canManage = user == null || isOwner
-  const { data } = useQuery({ queryKey: ['users'], queryFn: api.users.list, enabled: canManage })
+  const { data, isLoading } = useQuery({ queryKey: ['users'], queryFn: api.users.list, enabled: canManage })
   const toast = useToasts()
   const queryClient = useQueryClient()
   const [adding, setAdding] = useState(false)
@@ -41,47 +64,32 @@ export function UsersSection(): React.JSX.Element {
         Users
       </SectionTitle>
       <Panel>
-        {rows.length === 0 ? (
-          <EmptyState title="No users yet" hint="Add the first user to enable sign-in and role-based access." />
-        ) : (
-          <table className="ledger-table">
-            <thead>
-              <tr>
-                <th>Name</th>
-                <th className="w-28">Role</th>
-                <th className="w-24">Status</th>
-                <th className="r w-32"></th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((u) => (
-                <tr key={u.id}>
-                  <td>{u.name}</td>
-                  <td className="capitalize">{u.role}</td>
-                  <td>
-                    <span
-                      className={`rounded-full border px-2 py-0.5 text-[11px] ${
-                        u.active ? 'border-dr/40 text-dr' : 'border-line text-muted'
-                      }`}
-                    >
-                      {u.active ? 'Active' : 'Inactive'}
-                    </span>
-                  </td>
-                  <td className="r whitespace-nowrap">
-                    <button className="mr-2 text-[12px] text-blue hover:underline" onClick={() => setEditing(u)}>
-                      Edit
-                    </button>
-                    {u.active && (
-                      <button className="text-[12px] text-cr hover:underline" onClick={() => setDeactivating(u)}>
-                        Deactivate
-                      </button>
-                    )}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
+        <DataTable
+          viewId="settings-users"
+          testId="settings-users"
+          ariaLabel="Users"
+          columns={USER_COLUMNS}
+          rows={rows}
+          rowKey={(u) => u.id}
+          rowAttrs={(u) => ({ 'data-row-id': u.id })}
+          loading={isLoading}
+          maxHeight="60vh"
+          onRowActivate={(u) => setEditing(u)}
+          empty={{ title: 'No users yet', hint: 'Add the first user to enable sign-in and role-based access.' }}
+          trailingWidth={150}
+          trailing={(u) => (
+            <span className="whitespace-nowrap">
+              <button className="mr-2 text-[12px] text-blue hover:underline" onClick={() => setEditing(u)}>
+                Edit
+              </button>
+              {u.active && (
+                <button className="text-[12px] text-cr hover:underline" onClick={() => setDeactivating(u)}>
+                  Deactivate
+                </button>
+              )}
+            </span>
+          )}
+        />
       </Panel>
 
       {(adding || editing) && (
