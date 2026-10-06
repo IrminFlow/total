@@ -1,10 +1,12 @@
 import { useMemo, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import type { Godown, Ledger, StockGroup, StockItem, VoucherType } from '@shared/domain'
+import type { Currency, Godown, Ledger, StockGroup, StockItem, Unit, VoucherType } from '@shared/domain'
 import { filterLedgers, type ChartGroupNode } from '@shared/chartOfAccounts'
 import { api } from '../lib/client'
 import { useNav, useSession, useToasts, type Screen } from '../state/stores'
-import { AmountInput, Button, EmptyState, Field, Modal, Money, Panel, Select, TextInput, useKeyNav } from '../components/ui'
+import { AmountInput, Button, EmptyState, Field, Modal, Panel, Select, TextInput } from '../components/ui'
+import { DataTable, defineColumns } from '../components/table'
+import { formatMilli } from '../lib/table'
 import { TabBar } from '../components/TabBar'
 import { useGroups, useLedgers, useStockItems } from '../components/pickers'
 import { LedgerFormModal } from '../components/LedgerFormModal'
@@ -57,6 +59,12 @@ export function Masters({ tab }: { tab?: MastersTab }): React.JSX.Element {
 
 // ---------- currencies ----------
 
+const CURRENCY_COLUMNS = defineColumns<Currency>([
+  { id: 'code', header: 'Code', kind: 'text', value: (c) => c.code, className: 'num', width: 110, hideable: false, groupable: false },
+  { id: 'symbol', header: 'Symbol', kind: 'text', value: (c) => c.symbol, width: 110, groupable: false },
+  { id: 'name', header: 'Name', kind: 'text', value: (c) => c.name, className: 'text-muted', groupable: false }
+])
+
 function CurrenciesTab(): React.JSX.Element {
   const { data: currencies } = useQuery({ queryKey: ['currencies'], queryFn: api.currencies.list })
   const toast = useToasts()
@@ -86,44 +94,34 @@ function CurrenciesTab(): React.JSX.Element {
         </Button>
       </div>
       <Panel>
-        {!currencies?.length ? (
-          <EmptyState title="Base books are in ₹ (INR)" hint="Add USD, EUR… to raise foreign-currency invoices with an exchange rate" />
-        ) : (
-          <table className="ledger-table">
-            <thead>
-              <tr>
-                <th className="w-24">Code</th>
-                <th className="w-24">Symbol</th>
-                <th>Name</th>
-                <th className="w-20"></th>
-              </tr>
-            </thead>
-            <tbody>
-              {currencies.map((c) => (
-                <tr key={c.id}>
-                  <td className="num">{c.code}</td>
-                  <td>{c.symbol}</td>
-                  <td className="text-muted">{c.name}</td>
-                  <td className="r">
-                    <button
-                      className="text-[12px] text-cr hover:underline"
-                      onClick={async () => {
-                        try {
-                          await api.currencies.remove(c.id)
-                          await queryClient.invalidateQueries({ queryKey: ['currencies'] })
-                        } catch (err) {
-                          toast.push('error', (err as Error).message)
-                        }
-                      }}
-                    >
-                      Remove
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
+        <DataTable
+          viewId="masters-currencies"
+          testId="masters-currencies"
+          ariaLabel="Currencies"
+          columns={CURRENCY_COLUMNS}
+          rows={currencies ?? []}
+          rowKey={(c) => c.id}
+          rowAttrs={(c) => ({ 'data-row-id': c.id })}
+          empty={{ title: 'Base books are in ₹ (INR)', hint: 'Add USD, EUR… to raise foreign-currency invoices with an exchange rate' }}
+          trailing={(c) => (
+            <button
+              type="button"
+              className="text-[12px] text-cr hover:underline"
+              onClick={async () => {
+                try {
+                  await api.currencies.remove(c.id)
+                  await queryClient.invalidateQueries({ queryKey: ['currencies'] })
+                } catch (err) {
+                  toast.push('error', (err as Error).message)
+                }
+              }}
+            >
+              Remove
+            </button>
+          )}
+          trailingWidth={84}
+          exportOptions={{ title: 'Currencies', periodLabel: 'Masters', filename: 'currencies' }}
+        />
       </Panel>
       {creating && (
         <Modal title="Add currency" onClose={() => setCreating(false)}>
@@ -152,38 +150,18 @@ function CurrenciesTab(): React.JSX.Element {
 
 // ---------- ledgers ----------
 
-type LedgerSortKey = 'name' | 'group' | 'gstin' | 'opening'
+type LedgerRow = Ledger & { groupName: string }
 
-function SortTh({
-  label,
-  k,
-  sort,
-  onSort,
-  className = ''
-}: {
-  label: string
-  k: LedgerSortKey
-  sort: { key: LedgerSortKey; dir: 1 | -1 }
-  onSort: (k: LedgerSortKey) => void
-  className?: string
-}): React.JSX.Element {
-  const active = sort.key === k
-  return (
-    <th className={className} aria-sort={active ? (sort.dir === 1 ? 'ascending' : 'descending') : undefined}>
-      <button
-        type="button"
-        data-testid={`sort-masters-ledgers-${k}`}
-        className={`inline-flex items-center gap-1 hover:text-ink ${active ? 'text-ink' : ''}`}
-        onClick={() => onSort(k)}
-      >
-        {label}
-        <span aria-hidden="true" className={active ? 'text-amber' : 'invisible'}>
-          {active && sort.dir === -1 ? '↓' : '↑'}
-        </span>
-      </button>
-    </th>
-  )
-}
+export const LEDGER_COLUMNS = defineColumns<LedgerRow>([
+  { id: 'name', header: 'Name', kind: 'text', value: (l) => l.name, hideable: false, groupable: false, minWidth: 180 },
+  { id: 'group', header: 'Group', kind: 'text', value: (l) => l.groupName, className: 'text-muted', width: 200 },
+  { id: 'gstin', header: 'GSTIN', kind: 'text', value: (l) => l.gstin ?? '', className: 'num text-muted', width: 170, groupable: false },
+  { id: 'pan', header: 'PAN', kind: 'text', value: (l) => l.pan ?? '', className: 'num text-muted', width: 120, groupable: false, defaultHidden: true },
+  // Signed dr-positive paise. Not totalled: a sum of mixed openings isn't a figure anyone reads here.
+  { id: 'opening', header: 'Opening', kind: 'money', signed: true, value: (l) => l.openingBalance, width: 160 }
+])
+
+const LEDGER_VIEW_DEFAULTS = { sort: [{ id: 'name', dir: 'asc' as const }] }
 
 function LedgersTab(): React.JSX.Element {
   const ledgers = useLedgers()
@@ -192,29 +170,14 @@ function LedgersTab(): React.JSX.Element {
   const [filter, setFilter] = useState('')
   const [groupFilter, setGroupFilter] = useState<number | null>(null)
   const [editing, setEditing] = useState<Ledger | 'new' | null>(null)
-  const [sort, setSort] = useState<{ key: LedgerSortKey; dir: 1 | -1 }>({ key: 'name', dir: 1 })
   const groupMap = useMemo(() => new Map(groups.map((g) => [g.id, g.name])), [groups])
 
-  const rows = useMemo(() => {
-    // Name, group, any ancestor group, GSTIN or PAN — so "Sales" finds "Local Sale" under Sales Accounts.
-    const filtered = filterLedgers(ledgers, groups, filter, groupFilter)
-    // openingBalance stays integer paise — compared, never arithmetically transformed.
-    const keyOf = (l: Ledger): string | number =>
-      sort.key === 'name' ? l.name : sort.key === 'group' ? (groupMap.get(l.groupId) ?? '') : sort.key === 'gstin' ? (l.gstin ?? '') : l.openingBalance
-    return [...filtered].sort((a, b) => {
-      const ka = keyOf(a)
-      const kb = keyOf(b)
-      const cmp = typeof ka === 'number' && typeof kb === 'number' ? ka - kb : String(ka).localeCompare(String(kb), undefined, { sensitivity: 'base' })
-      return sort.dir * (cmp !== 0 ? cmp : a.name.localeCompare(b.name))
-    })
-  }, [ledgers, groups, filter, groupFilter, sort, groupMap])
-
-  const onSort = (k: LedgerSortKey): void => setSort((s) => (s.key === k ? { key: k, dir: s.dir === 1 ? -1 : 1 } : { key: k, dir: 1 }))
-
-  const open = (l: Ledger | undefined): void => {
-    if (l) nav.go({ name: 'ledger-statement', ledgerId: l.id })
-  }
-  const { active, setActive } = useKeyNav(rows.length, (i) => open(rows[i]))
+  // Name, group, any ancestor group, GSTIN or PAN — so "Sales" finds "Local Sale" under Sales
+  // Accounts. This search and the group picker run before the table's own view (sort/filters).
+  const rows = useMemo<LedgerRow[]>(
+    () => filterLedgers(ledgers, groups, filter, groupFilter).map((l) => ({ ...l, groupName: groupMap.get(l.groupId) ?? '' })),
+    [ledgers, groups, filter, groupFilter, groupMap]
+  )
 
   return (
     <>
@@ -250,52 +213,32 @@ function LedgersTab(): React.JSX.Element {
         </Button>
       </div>
       <Panel>
-        {rows.length === 0 ? (
-          <EmptyState title="No ledgers match" />
-        ) : (
-          <table className="ledger-table">
-            <thead>
-              <tr>
-                <SortTh label="Name" k="name" sort={sort} onSort={onSort} />
-                <SortTh label="Group" k="group" sort={sort} onSort={onSort} />
-                <SortTh label="GSTIN" k="gstin" sort={sort} onSort={onSort} />
-                <SortTh label="Opening" k="opening" sort={sort} onSort={onSort} className="r w-40" />
-                <th className="w-24"></th>
-              </tr>
-            </thead>
-            <tbody data-testid="rows-masters-ledgers">
-              {rows.map((l, i) => (
-                <tr
-                  key={l.id}
-                  data-row-id={l.id}
-                  data-active={i === active}
-                  className="kbar-row cursor-pointer"
-                  onMouseEnter={() => setActive(i)}
-                  onClick={() => open(l)}
-                >
-                  <td>{l.name}</td>
-                  <td className="text-muted">{groupMap.get(l.groupId)}</td>
-                  <td className="num text-muted">{l.gstin ?? ''}</td>
-                  <td className="r">
-                    <Money paise={l.openingBalance} signed />
-                  </td>
-                  <td className="r">
-                    <button
-                      data-testid="btn-masters-edit-ledger"
-                      className="text-[12px] text-blue hover:underline"
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        setEditing(l)
-                      }}
-                    >
-                      Edit
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
+        <DataTable
+          viewId="masters-ledgers"
+          testId="masters-ledgers"
+          ariaLabel="Ledgers"
+          columns={LEDGER_COLUMNS}
+          viewDefaults={LEDGER_VIEW_DEFAULTS}
+          rows={rows}
+          rowKey={(l) => l.id}
+          rowAttrs={(l) => ({ 'data-row-id': l.id })}
+          empty={{ title: 'No ledgers match' }}
+          // The search box above already covers name, group (with ancestors), GSTIN and PAN.
+          toolbarFeatures={{ quickFilter: false }}
+          onRowActivate={(l) => nav.go({ name: 'ledger-statement', ledgerId: l.id })}
+          trailing={(l) => (
+            <button
+              type="button"
+              data-testid="btn-masters-edit-ledger"
+              className="text-[12px] text-blue hover:underline"
+              onClick={() => setEditing(l)}
+            >
+              Edit
+            </button>
+          )}
+          trailingWidth={72}
+          exportOptions={{ title: 'Ledgers', periodLabel: 'Masters', filename: 'ledgers' }}
+        />
       </Panel>
       {editing && <LedgerFormModal ledger={editing === 'new' ? null : editing} onClose={() => setEditing(null)} />}
     </>
@@ -494,11 +437,27 @@ function MoveGroupModal({
 
 // ---------- stock items ----------
 
+type ItemRow = StockItem & { unitSymbol: string; unitDecimals: number }
+
+export const ITEM_COLUMNS = defineColumns<ItemRow>([
+  { id: 'name', header: 'Name', kind: 'text', value: (i) => i.name, hideable: false, groupable: false, minWidth: 180 },
+  { id: 'unit', header: 'Unit', kind: 'text', value: (i) => i.unitSymbol, className: 'text-muted', width: 90 },
+  { id: 'hsn', header: 'HSN', kind: 'text', value: (i) => i.hsn ?? '', className: 'num text-muted', width: 110 },
+  { id: 'gstRate', header: 'GST %', kind: 'number', value: (i) => i.gstRate, text: (i) => (i.gstRate == null ? '–' : String(i.gstRate)), width: 90, groupable: true },
+  // Integer thousandths, shown to the item's unit decimals. Mixed units never total.
+  { id: 'openingQty', header: 'Opening qty', kind: 'quantity', value: (i) => i.openingQtyMilli, text: (i) => formatMilli(i.openingQtyMilli, i.unitDecimals), width: 120 },
+  { id: 'openingValue', header: 'Opening value', kind: 'money', value: (i) => i.openingValue, aggregate: 'sum', width: 150, defaultHidden: true },
+  { id: 'barcode', header: 'Barcode', kind: 'text', value: (i) => i.barcode ?? '', className: 'num text-muted', width: 140, groupable: false, defaultHidden: true }
+])
+
 function ItemsTab(): React.JSX.Element {
   const items = useStockItems()
   const { data: units } = useQuery({ queryKey: ['units'], queryFn: api.units.list })
   const [editing, setEditing] = useState<StockItem | 'new' | null>(null)
-  const unitMap = new Map((units ?? []).map((u) => [u.id, u.symbol]))
+  const rows = useMemo<ItemRow[]>(() => {
+    const unitMap = new Map((units ?? []).map((u) => [u.id, u]))
+    return items.map((i) => ({ ...i, unitSymbol: unitMap.get(i.unitId)?.symbol ?? '', unitDecimals: unitMap.get(i.unitId)?.decimals ?? 3 }))
+  }, [items, units])
 
   return (
     <>
@@ -508,38 +467,26 @@ function ItemsTab(): React.JSX.Element {
         </Button>
       </div>
       <Panel>
-        {items.length === 0 ? (
-          <EmptyState title="No stock items yet" hint="Items carry HSN and GST rate so invoices compute tax on their own" />
-        ) : (
-          <table className="ledger-table">
-            <thead>
-              <tr>
-                <th>Name</th>
-                <th className="w-16">Unit</th>
-                <th className="w-24">HSN</th>
-                <th className="r w-20">GST %</th>
-                <th className="r w-28">Opening qty</th>
-                <th className="w-20"></th>
-              </tr>
-            </thead>
-            <tbody data-testid="rows-masters-items">
-              {items.map((i) => (
-                <tr key={i.id} className="hover:bg-panel2">
-                  <td>{i.name}</td>
-                  <td className="text-muted">{unitMap.get(i.unitId)}</td>
-                  <td className="num text-muted">{i.hsn ?? ''}</td>
-                  <td className="r num">{i.gstRate ?? '–'}</td>
-                  <td className="r num">{(i.openingQtyMilli / 1000).toString()}</td>
-                  <td className="r">
-                    <button className="text-[12px] text-blue hover:underline" onClick={() => setEditing(i)}>
-                      Edit
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
+        <DataTable
+          viewId="masters-items"
+          testId="masters-items"
+          ariaLabel="Stock items"
+          columns={ITEM_COLUMNS}
+          rows={rows}
+          rowKey={(i) => i.id}
+          rowAttrs={(i) => ({ 'data-row-id': i.id })}
+          empty={{ title: 'No stock items yet', hint: 'Items carry HSN and GST rate so invoices compute tax on their own' }}
+          // Enter (or a double-click) opens the item, like its Edit button.
+          activateOn="dblclick"
+          onRowActivate={(i) => setEditing(i)}
+          trailing={(i) => (
+            <button type="button" className="text-[12px] text-blue hover:underline" data-testid="btn-masters-edit-item" onClick={() => setEditing(i)}>
+              Edit
+            </button>
+          )}
+          trailingWidth={72}
+          exportOptions={{ title: 'Stock items', periodLabel: 'Masters', filename: 'stock-items' }}
+        />
       </Panel>
       {editing && <ItemFormModal item={editing === 'new' ? null : editing} onClose={() => setEditing(null)} />}
     </>
@@ -724,6 +671,13 @@ function ItemFormModal({ item, onClose }: { item: StockItem | null; onClose: () 
 
 // ---------- units ----------
 
+const UNIT_COLUMNS = defineColumns<Unit>([
+  { id: 'name', header: 'Name', kind: 'text', value: (u) => u.name, hideable: false, groupable: false },
+  { id: 'symbol', header: 'Symbol', kind: 'text', value: (u) => u.symbol, className: 'text-muted', width: 110, groupable: false },
+  { id: 'decimals', header: 'Decimals', kind: 'number', value: (u) => u.decimals, width: 110 },
+  { id: 'uqc', header: 'UQC', kind: 'text', value: (u) => u.uqc, className: 'num text-muted', width: 110 }
+])
+
 function UnitsTab(): React.JSX.Element {
   const { data: units } = useQuery({ queryKey: ['units'], queryFn: api.units.list })
   const toast = useToasts()
@@ -753,26 +707,18 @@ function UnitsTab(): React.JSX.Element {
         </Button>
       </div>
       <Panel>
-        <table className="ledger-table">
-          <thead>
-            <tr>
-              <th>Name</th>
-              <th className="w-20">Symbol</th>
-              <th className="r w-24">Decimals</th>
-              <th className="w-24">UQC</th>
-            </tr>
-          </thead>
-          <tbody>
-            {(units ?? []).map((u) => (
-              <tr key={u.id}>
-                <td>{u.name}</td>
-                <td className="text-muted">{u.symbol}</td>
-                <td className="r num">{u.decimals}</td>
-                <td className="num text-muted">{u.uqc}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+        <DataTable
+          viewId="masters-units"
+          testId="masters-units"
+          ariaLabel="Units"
+          columns={UNIT_COLUMNS}
+          rows={units ?? []}
+          rowKey={(u) => u.id}
+          rowAttrs={(u) => ({ 'data-row-id': u.id })}
+          loading={!units}
+          empty={{ title: 'No units yet' }}
+          exportOptions={{ title: 'Units', periodLabel: 'Masters', filename: 'units' }}
+        />
       </Panel>
       {creating && (
         <Modal title="New unit" onClose={() => setCreating(false)}>
@@ -810,6 +756,41 @@ function UnitsTab(): React.JSX.Element {
 
 // ---------- voucher types ----------
 
+const typeFormat = (t: VoucherType): string => `${t.prefix}${'#'.repeat(Math.max(1, t.padWidth))}${t.suffix}`
+
+const TYPE_COLUMNS = defineColumns<VoucherType>([
+  { id: 'name', header: 'Name', kind: 'text', value: (t) => t.name, hideable: false, groupable: false },
+  { id: 'kind', header: 'Kind', kind: 'text', value: (t) => t.kind.replace('_', ' '), className: 'text-muted', width: 150 },
+  {
+    id: 'numbering',
+    header: 'Numbering',
+    kind: 'enum',
+    value: (t) => t.numbering,
+    options: [
+      { value: 'auto', label: 'Automatic per FY' },
+      { value: 'manual', label: 'Manual' }
+    ],
+    className: 'text-muted',
+    width: 170
+  },
+  {
+    id: 'format',
+    header: 'Format',
+    kind: 'text',
+    value: typeFormat,
+    text: (t) => `${typeFormat(t)}${t.restartFy ? '' : ' (no FY restart)'}`,
+    className: 'num text-muted',
+    width: 200,
+    groupable: false,
+    cell: (t) => (
+      <>
+        {typeFormat(t)}
+        {!t.restartFy && <span className="ml-1 normal-case text-[10px]">(no FY restart)</span>}
+      </>
+    )
+  }
+])
+
 function TypesTab(): React.JSX.Element {
   const { data: types } = useQuery({ queryKey: ['voucherTypes'], queryFn: api.voucherTypes.list })
   const [editing, setEditing] = useState<VoucherType | 'new' | null>(null)
@@ -822,37 +803,27 @@ function TypesTab(): React.JSX.Element {
         </Button>
       </div>
       <Panel>
-        <table className="ledger-table">
-          <thead>
-            <tr>
-              <th>Name</th>
-              <th>Kind</th>
-              <th>Numbering</th>
-              <th className="w-32">Format</th>
-              <th className="w-20"></th>
-            </tr>
-          </thead>
-          <tbody>
-            {(types ?? []).map((t) => (
-              <tr key={t.id} className="hover:bg-panel2">
-                <td>{t.name}</td>
-                <td className="text-muted">{t.kind.replace('_', ' ')}</td>
-                <td className="text-muted">{t.numbering === 'auto' ? 'Automatic per FY' : 'Manual'}</td>
-                <td className="num text-muted">
-                  {t.prefix}
-                  {'#'.repeat(Math.max(1, t.padWidth))}
-                  {t.suffix}
-                  {!t.restartFy && <span className="ml-1 normal-case text-[10px]">(no FY restart)</span>}
-                </td>
-                <td className="r">
-                  <button className="text-[12px] text-blue hover:underline" onClick={() => setEditing(t)}>
-                    Edit
-                  </button>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+        <DataTable
+          viewId="masters-types"
+          testId="masters-types"
+          ariaLabel="Voucher types"
+          columns={TYPE_COLUMNS}
+          rows={types ?? []}
+          rowKey={(t) => t.id}
+          rowAttrs={(t) => ({ 'data-row-id': t.id })}
+          loading={!types}
+          empty={{ title: 'No voucher types' }}
+          // Enter (or a double-click) opens the type's settings, like its Edit button.
+          activateOn="dblclick"
+          onRowActivate={(t) => setEditing(t)}
+          trailing={(t) => (
+            <button type="button" className="text-[12px] text-blue hover:underline" data-testid="btn-masters-edit-type" onClick={() => setEditing(t)}>
+              Edit
+            </button>
+          )}
+          trailingWidth={72}
+          exportOptions={{ title: 'Voucher types', periodLabel: 'Masters', filename: 'voucher-types' }}
+        />
       </Panel>
       {editing && <TypeFormModal vt={editing === 'new' ? null : editing} onClose={() => setEditing(null)} />}
     </>
@@ -948,6 +919,11 @@ function TypeFormModal({ vt, onClose }: { vt: VoucherType | null; onClose: () =>
 
 // ---------- godowns ----------
 
+const GODOWN_COLUMNS = defineColumns<Godown>([
+  { id: 'name', header: 'Name', kind: 'text', value: (g) => g.name, hideable: false, groupable: false, width: 260 },
+  { id: 'address', header: 'Address', kind: 'text', value: (g) => g.address ?? '', className: 'text-muted', groupable: false }
+])
+
 function GodownsTab(): React.JSX.Element {
   const { data: godowns } = useQuery({ queryKey: ['godowns'], queryFn: api.godowns.list })
   const [editing, setEditing] = useState<Godown | 'new' | null>(null)
@@ -960,32 +936,26 @@ function GodownsTab(): React.JSX.Element {
         </Button>
       </div>
       <Panel>
-        {!godowns?.length ? (
-          <EmptyState title="No godowns yet" hint="Track stock per location — voucher lines can then pick a godown" />
-        ) : (
-          <table className="ledger-table">
-            <thead>
-              <tr>
-                <th>Name</th>
-                <th>Address</th>
-                <th className="w-20"></th>
-              </tr>
-            </thead>
-            <tbody data-testid="rows-masters-godowns">
-              {godowns.map((g) => (
-                <tr key={g.id} data-row-id={g.id} className="hover:bg-panel2">
-                  <td>{g.name}</td>
-                  <td className="max-w-72 truncate text-muted">{g.address ?? ''}</td>
-                  <td className="r">
-                    <button data-testid="btn-masters-edit-godown" className="text-[12px] text-blue hover:underline" onClick={() => setEditing(g)}>
-                      Edit
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
+        <DataTable
+          viewId="masters-godowns"
+          testId="masters-godowns"
+          ariaLabel="Godowns"
+          columns={GODOWN_COLUMNS}
+          rows={godowns ?? []}
+          rowKey={(g) => g.id}
+          rowAttrs={(g) => ({ 'data-row-id': g.id })}
+          empty={{ title: 'No godowns yet', hint: 'Track stock per location — voucher lines can then pick a godown' }}
+          // Enter (or a double-click) opens the godown, like its Edit button.
+          activateOn="dblclick"
+          onRowActivate={(g) => setEditing(g)}
+          trailing={(g) => (
+            <button data-testid="btn-masters-edit-godown" type="button" className="text-[12px] text-blue hover:underline" onClick={() => setEditing(g)}>
+              Edit
+            </button>
+          )}
+          trailingWidth={72}
+          exportOptions={{ title: 'Godowns', periodLabel: 'Masters', filename: 'godowns' }}
+        />
       </Panel>
       {editing && <GodownFormModal godown={editing === 'new' ? null : editing} onClose={() => setEditing(null)} />}
     </>
