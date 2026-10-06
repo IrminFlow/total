@@ -14,6 +14,10 @@ export function slugFilename(title: string): string {
   return slug || 'report'
 }
 
+/** Most rows the report:pdf template accepts. printReport refuses anything longer (with a toast);
+ *  DataTable trims its PDF export to fit and says so in the PDF footer (capExportForPdf). */
+export const PDF_ROW_LIMIT = 5000
+
 /** Prints a report to PDF via the shared A4 template (report:pdf) and drops it in the company's
  *  exports folder. Every cell must already be display-formatted (money via formatPaise, dates via
  *  toDisplayDate, ...) — the main-process template only lays the strings out and escapes them. */
@@ -21,7 +25,7 @@ export async function printReport(
   opts: { title: string; periodLabel: string; columns: ReportColumn[]; rows: ReportRow[]; footNote?: string; filename?: string },
   toast: ToastState
 ): Promise<void> {
-  if (opts.rows.length > 5000) {
+  if (opts.rows.length > PDF_ROW_LIMIT) {
     toast.push('error', 'Too many rows for a PDF — narrow the period and try again')
     return
   }
