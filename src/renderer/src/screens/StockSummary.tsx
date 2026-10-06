@@ -25,7 +25,7 @@ const COLUMNS: ReportColumn[] = [
 export function StockSummaryScreen(): React.JSX.Element {
   const { to } = useSession()
   const toast = useToasts()
-  const { data, isLoading } = useQuery({ queryKey: ['stockSummary', to], queryFn: () => api.reports.stockSummary(to) })
+  const { data, isLoading } = useQuery({ queryKey: ['stockSummary', to], queryFn: () => api.stock.summary(to) })
   const rows = data ?? []
   const { visible, toggle } = useReportConfig('stock-summary', COLUMNS)
   // Expandable item rows (user ask): one item at a time unfolds into its godown- and

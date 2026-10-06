@@ -34,7 +34,7 @@ export function ManufactureEntry({ typeId }: { typeId: number }): React.JSX.Elem
   })
   const { data: stock } = useQuery({
     queryKey: ['stockSummary', to],
-    queryFn: () => api.reports.stockSummary(to)
+    queryFn: () => api.stock.summary(to)
   })
 
   const qty = Number(qtyText) || 0

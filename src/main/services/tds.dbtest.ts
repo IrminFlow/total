@@ -6,7 +6,7 @@ import { join } from 'path'
 import { seededDb } from '../db/testdb'
 import { createLedger } from './masters'
 import { saveVoucher } from './vouchers'
-import { listSections, saveSection, tdsSuggestion, tdsSummary, export26qCsv } from './tds'
+import { ensureTdsPayableLedger, listSections, saveSection, tdsSuggestion, tdsSummary, export26qCsv } from './tds'
 import { findOrCreateLedger } from './masters'
 import type { CompanyInfo } from '@shared/domain'
 import type { VoucherInputParsed } from '@shared/schemas'
@@ -79,7 +79,7 @@ describe('tds service', () => {
     expect(tdsSuggestion(db, party.id, 5000000, '2025-05-01')).toBeNull()
   })
 
-  it('tdsSuggestion computes the section rate with a PAN on file, and finds/creates the payable ledger', () => {
+  it('tdsSuggestion computes the section rate with a PAN on file, and only looks up the payable ledger', () => {
     const db = seededDb()
     const section = db.prepare("SELECT id FROM tds_sections WHERE code = '194C'").get() as { id: number }
     const party = creditorLedger(db, 'Contractor A', { tdsSectionId: section.id, pan: 'ABCDE1234F' })
@@ -90,8 +90,49 @@ describe('tds service', () => {
     expect(suggestion!.tdsPaise).toBe(100000) // 2% of ₹50,000 = ₹1,000
     expect(suggestion!.thresholdCrossed).toBe(true) // single threshold ₹30,000 crossed
 
-    const payable = db.prepare('SELECT name FROM ledgers WHERE id = ?').get(suggestion!.payableLedgerId) as { name: string }
-    expect(payable.name).toBe('TDS Payable 194C')
+    // Read-only: the payable ledger doesn't exist yet and the suggestion must not create it.
+    expect(suggestion!.payableLedgerId).toBeNull()
+    expect(suggestion!.payableLedgerName).toBe('TDS Payable 194C')
+    const id = ensureTdsPayableLedger(db, section.id)
+    expect(tdsSuggestion(db, party.id, 5000000, '2025-05-01')!.payableLedgerId).toBe(id)
+  })
+
+  it('tds:suggest never writes; the payable ledger is created once, on Apply, and the TDS voucher saves against it', () => {
+    const db = seededDb()
+    const section = db.prepare("SELECT id FROM tds_sections WHERE code = '194J'").get() as { id: number }
+    const party = creditorLedger(db, 'Consultant J', { tdsSectionId: section.id, pan: 'ABCDE1234F' })
+    const payableCount = (): number =>
+      (db.prepare("SELECT COUNT(*) AS n FROM ledgers WHERE name = 'TDS Payable 194J' COLLATE NOCASE").get() as { n: number }).n
+    const ledgerCount = (): number => (db.prepare('SELECT COUNT(*) AS n FROM ledgers').get() as { n: number }).n
+    const auditCount = (): number => (db.prepare('SELECT COUNT(*) AS n FROM audit_log').get() as { n: number }).n
+    const before = { ledgers: ledgerCount(), audit: auditCount() }
+
+    // Typing amounts → repeated suggestions: zero writes.
+    tdsSuggestion(db, party.id, 5000000, '2025-05-01')
+    tdsSuggestion(db, party.id, 6000000, '2025-05-01')
+    expect(payableCount()).toBe(0)
+    expect(ledgerCount()).toBe(before.ledgers)
+    expect(auditCount()).toBe(before.audit)
+
+    // Apply (twice — re-applying after an edit) creates exactly one ledger.
+    const payableId = ensureTdsPayableLedger(db, section.id)
+    expect(ensureTdsPayableLedger(db, section.id)).toBe(payableId)
+    expect(payableCount()).toBe(1)
+
+    const s = tdsSuggestion(db, party.id, 6000000, '2025-05-01')!
+    expect(s.payableLedgerId).toBe(payableId)
+    const v = paymentVoucherWithTds(db, {
+      date: '2025-05-01', partyLedgerId: party.id, base: 6000000, tds: s.tdsPaise, sectionId: section.id, sectionCode: '194J'
+    })
+    expect(v.lines.some((l) => l.ledgerId === payableId && l.drCr === 'cr' && l.amount === s.tdsPaise)).toBe(true)
+    expect(payableCount()).toBe(1)
+    const entries = db.prepare('SELECT COUNT(*) AS n FROM tds_entries WHERE voucher_id = ?').get(v.id) as { n: number }
+    expect(entries.n).toBe(1)
+  })
+
+  it('ensureTdsPayableLedger rejects an unknown section', () => {
+    const db = seededDb()
+    expect(() => ensureTdsPayableLedger(db, 99999)).toThrow(/section not found/)
   })
 
   it('tdsSuggestion falls back to 20% without a PAN', () => {

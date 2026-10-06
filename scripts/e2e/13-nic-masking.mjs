@@ -2,7 +2,20 @@
 // password AND clientSecret never come back to the renderer (both halves of the NIC auth
 // credential pair — v0.3 review F3), and re-saving the masked sentinels keeps the real values
 // (configured stays true) instead of clobbering them.
+import fs from 'node:fs'
+import path from 'node:path'
 import { scenario, assert, assertEq } from '../lib/harness.mjs'
+
+/** Every file under `dir` (recursive), as raw bytes joined — for "is this string on disk?" checks. */
+function readTree(dir) {
+  const out = []
+  for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+    const p = path.join(dir, e.name)
+    if (e.isDirectory()) out.push(readTree(p))
+    else out.push(fs.readFileSync(p).toString('latin1'))
+  }
+  return out.join('\n')
+}
 
 const CREDS = {
   baseUrlEinvoice: 'https://einv-apisandbox.nic.in',
@@ -38,6 +51,14 @@ await scenario('13-nic-masking', async (h) => {
   const got2 = await h.invoke('nic:get')
   assertEq(got2.password, '••••••••', 'still masked after the round-trip')
   assertEq(got2.clientSecret, '••••••••', 'clientSecret still masked after the round-trip')
+
+  // At rest: the secrets live (encrypted) in <dataRoot>/secrets.json, never in the company folder
+  // (company.db, its WAL, or backups) — so a company backup carries no NIC secrets.
+  const companyFiles = readTree(path.join(h.dataDir, 'companies'))
+  assert(!companyFiles.includes(CREDS.password), 'password is not anywhere in the company folder')
+  assert(!companyFiles.includes(CREDS.clientSecret), 'clientSecret is not anywhere in the company folder')
+  const secretsFile = fs.readFileSync(path.join(h.dataDir, 'secrets.json'), 'utf8')
+  assert(!secretsFile.includes(CREDS.password), 'secrets.json holds ciphertext, not the password')
 
   // And the page itself never contains either secret anywhere.
   await h.goto('edocs')

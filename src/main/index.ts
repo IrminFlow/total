@@ -10,6 +10,16 @@ import { initLogging, log } from './log'
 import { startBackupScheduler, backupOnQuit } from './backup-scheduler'
 import { syncFolderWarning } from '@shared/syncpath'
 
+// Hermetic scripted runs (smoke/e2e/CI, TOTAL_DATA_DIR set): keep Electron's userData —
+// localStorage (theme, sidebar sections, report columns), caches, the single-instance lock —
+// inside the scratch dir too, so a run never writes to the user's real app profile. Relaunches
+// against the same scratch dir (e2e 01/12) still see what the previous launch persisted. Must
+// run before requestSingleInstanceLock(), which places its lock under userData: each scratch dir
+// then gets its own lock, so a scripted run doesn't collide with the user's open app either.
+if (process.env.TOTAL_DATA_DIR) {
+  app.setPath('userData', join(process.env.TOTAL_DATA_DIR, '.electron-userdata'))
+}
+
 const gotSingleInstanceLock = app.requestSingleInstanceLock()
 
 if (!gotSingleInstanceLock) {

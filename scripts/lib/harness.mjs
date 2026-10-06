@@ -61,7 +61,10 @@ export class Harness {
         env: {
           ...process.env,
           TOTAL_DATA_DIR: this.dataDir,
-          TOTAL_SUPPRESS_SYNC_WARNING: '1'
+          TOTAL_SUPPRESS_SYNC_WARNING: '1',
+          // Non-secure test cipher for the secret store (services/secretStore.ts) so runs never
+          // touch the real keychain; honoured only together with TOTAL_DATA_DIR.
+          TOTAL_INSECURE_TEST_SECRETS: '1'
         }
       })
       const page = await app.firstWindow()
