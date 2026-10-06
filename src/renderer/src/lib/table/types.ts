@@ -44,16 +44,32 @@ export interface ColumnDef<Row> {
   options?: EnumOption[]
   /** Money: render signed paise as "1,234.00 Dr" / "Cr" (like <Money signed />). */
   signed?: boolean
-  /** Quantity: decimals shown (0–3). Default 3. */
-  decimals?: number
+  /** Quantity: decimals shown (0–3). Default 3. A function picks them per row (mixed-unit
+   *  columns, e.g. `(r) => r.unitDecimals`); aggregates then use `aggregateDecimals`. */
+  decimals?: number | ((row: Row) => number)
+  /** Quantity: unit appended to the number ("12.500 kg"). A function picks it per row. */
+  unit?: string | ((row: Row) => string)
+  /** Quantity: decimals for footer/group aggregates when `decimals` is per-row. Default 3. */
+  aggregateDecimals?: number
+  /**
+   * Header band label. Adjacent visible columns with the same `group` share a spanning band
+   * row above the header ("Portal" over its number/date/value columns). Exports prefix it:
+   * "Portal · Invoice no.".
+   */
+  group?: string
   sortable?: boolean // default true
   filterable?: boolean // default true
   hideable?: boolean // default true
   groupable?: boolean // default true for text/enum/date, false otherwise
   /** Starts hidden in the default view. */
   defaultHidden?: boolean
-  /** Default width in px. Text columns without a width share the remaining space. */
+  /**
+   * Default width in px. Without one, money/quantity/date/number/enum columns get a kind default
+   * (widened to fit the header label) and text columns are flexible: they start at `minWidth`
+   * and share the space left over (see lib/table/widths.ts).
+   */
   width?: number
+  /** Smallest width in px — a flexible column never shrinks below it; resizing stops at it. */
   minWidth?: number
   /**
    * Footer aggregate. 'sum' adds the raw values (integers stay integers — money stays paise).

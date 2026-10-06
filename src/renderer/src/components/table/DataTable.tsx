@@ -35,7 +35,11 @@ import {
   cellText,
   columnAlign,
   columnDropTarget,
+  columnLabel,
+  columnWidthSpecs,
+  headerBands,
   itemAt,
+  layoutColumnWidths,
   moveColumnTo,
   scrollTopFor,
   toggleSort,
@@ -43,6 +47,7 @@ import {
   type CellValue,
   type DisplayItem,
   type EnumOption,
+  type MoneyExportFormat,
   type ViewDefaults
 } from '../../lib/table'
 import { csvReport, PDF_ROW_LIMIT, printReport } from '../../lib/reportExport'
@@ -64,14 +69,6 @@ const OVERSCAN = 8
 const FALLBACK_VIEWPORT = 640
 const EXPANDER_WIDTH = 32
 
-const DEFAULT_WIDTH: Partial<Record<TableColumn<unknown>['kind'], number>> = {
-  money: 150,
-  quantity: 130,
-  date: 104,
-  number: 96,
-  enum: 130
-}
-
 export type RowKey = string | number
 
 export interface DataTableExportOptions {
@@ -79,17 +76,29 @@ export interface DataTableExportOptions {
   periodLabel: string
   filename?: string
   footNote?: string
-  /** Label for the totals row in the export (default 'Total'). */
+  /** Label for the totals row in the export (default: `totalsLabel` when it is a string, else 'Total'). */
   totalsLabel?: string
+  /** Money cells in the toolbar's CSV: 'display' (default, "1,234.00 Dr") or 'plain' signed
+   *  decimals ("-1234.00") for spreadsheets. See buildTableExport's `moneyFormat`. */
+  csvMoneyFormat?: MoneyExportFormat
+  /** Money cells in the toolbar's PDF (default 'display'). */
+  pdfMoneyFormat?: MoneyExportFormat
 }
 
 export interface DataTableFooterContext<Row> {
+  /** Visible columns in view order. */
   columns: TableColumn<Row>[]
-  /** Filtered + sorted rows. */
+  /** The rows in view: filtered + sorted (every row of a collapsed group included). */
   rows: Row[]
   totals: Record<string, CellValue>
   /** Number of <td>s a footer row needs (visible columns + expander + action cells). */
   colSpan: number
+  /** `rows.length` — rows left after the column filters and the quick filter. */
+  filteredCount: number
+  /** Rows passed to the table, before any filter. */
+  totalCount: number
+  /** True when a filter or the quick filter hides some rows. */
+  isFiltered: boolean
 }
 
 export interface DataTableProps<Row> {
@@ -136,12 +145,16 @@ export interface DataTableProps<Row> {
   trailingWidth?: number
 
   loading?: boolean
-  /** Shown when there are no rows at all (before filtering). */
+  /** Shown in the body when there are no rows at all (before filtering). The toolbar and the
+   *  header stay, so screen controls in `toolbarStart` remain usable. When rows exist but the
+   *  table's filters hide them all, a "No rows match" state with Clear filters shows instead. */
   empty?: { title: string; hint?: string; action?: ReactNode; icon?: ReactNode }
 
   /** Totals footer: 'auto' (default) shows it when any visible column aggregates. */
   totals?: 'auto' | boolean
-  totalsLabel?: ReactNode
+  /** The totals row's label, or a function of the footer context (rows in view, counts), e.g.
+   *  `(ctx) => \`Total · ${ctx.filteredCount} vouchers\``. */
+  totalsLabel?: ReactNode | ((ctx: DataTableFooterContext<Row>) => ReactNode)
   /** Replace the totals footer with your own <tr>s (e.g. a "Closing balance" row). */
   renderFooter?: (ctx: DataTableFooterContext<Row>) => ReactNode
 
@@ -345,6 +358,8 @@ export function DataTable<Row>(props: DataTableProps<Row>): React.JSX.Element {
   const theadRef = useRef<HTMLTableSectionElement>(null)
   const [scrollTop, setScrollTop] = useState(0)
   const [viewportH, setViewportH] = useState(FALLBACK_VIEWPORT)
+  /** The scroll area's inner width (excludes its scrollbar); 0 until measured (and in jsdom). */
+  const [availableW, setAvailableW] = useState(0)
   const [measuredH, setMeasuredH] = useState<number | null>(null)
   const rowH = measuredH ?? ROW_HEIGHT[view.density]
   useEffect(() => setMeasuredH(null), [view.density])
@@ -352,13 +367,16 @@ export function DataTable<Row>(props: DataTableProps<Row>): React.JSX.Element {
   useLayoutEffect(() => {
     const el = scrollRef.current
     if (!el) return
-    const measure = (): void => setViewportH(el.clientHeight || FALLBACK_VIEWPORT)
+    const measure = (): void => {
+      setViewportH(el.clientHeight || FALLBACK_VIEWPORT)
+      setAvailableW(el.clientWidth)
+    }
     measure()
     if (typeof ResizeObserver === 'undefined') return
     const ro = new ResizeObserver(measure)
     ro.observe(el)
     return () => ro.disconnect()
-  }, [loading, rows.length === 0])
+  }, [loading])
 
   // Offset index: prefix sums of (row height + measured/estimated detail height) per item.
   const layout = useMemo(
@@ -540,12 +558,17 @@ export function DataTable<Row>(props: DataTableProps<Row>): React.JSX.Element {
     window.addEventListener('pointerup', up)
   }
 
-  const widthOf = (c: TableColumn<Row>): number | undefined => liveWidths[c.id] ?? view.widths[c.id] ?? c.width ?? DEFAULT_WIDTH[c.kind]
-  const minTableWidth =
-    visible.reduce((s, c) => s + (widthOf(c) ?? 160), 0) +
-    (hasExpander ? EXPANDER_WIDTH : 0) +
-    (leading ? leadingWidth : 0) +
-    (trailing ? trailingWidth : 0)
+  // ---------- column widths (lib/table/layout.ts) ----------
+  // Integer px for every column, summing exactly to the table width: spare space goes to the
+  // flexible columns (or the last text column), so the browser never splits pixels itself.
+  const fixedW = (hasExpander ? EXPANDER_WIDTH : 0) + (leading ? leadingWidth : 0) + (trailing ? trailingWidth : 0)
+  const widthSpecs = columnWidthSpecs(visible, { ...view.widths, ...liveWidths })
+  const measuredLayout = availableW > 0
+  const { widths: colWidths, total: tableWidth } = layoutColumnWidths(widthSpecs, availableW, fixedW)
+  // Before the first measurement (and in jsdom) flexible columns stay auto, as before.
+  const colWidth = (i: number): number | undefined => (measuredLayout || !widthSpecs[i]!.flex ? colWidths[i] : undefined)
+  const bands = headerBands(visible)
+  const headerRows = bands.length > 0 ? 2 : 1
 
   const enumOptions = (c: TableColumn<Row>): EnumOption[] => {
     if (c.options) return c.options
@@ -558,15 +581,28 @@ export function DataTable<Row>(props: DataTableProps<Row>): React.JSX.Element {
     return [...seen.entries()].map(([value, label]) => ({ value, label })).sort((a, b) => a.label.localeCompare(b.label))
   }
 
+  // ---------- footer context ----------
+  const footerCtx: DataTableFooterContext<Row> = {
+    columns: visible,
+    rows: model.rows,
+    totals: model.totals,
+    colSpan,
+    filteredCount: model.rows.length,
+    totalCount: model.totalCount,
+    isFiltered: model.rows.length !== model.totalCount
+  }
+  const totalsLabelNode: ReactNode = typeof totalsLabel === 'function' ? totalsLabel(footerCtx) : totalsLabel
+
   // ---------- export ----------
-  const exportModel = (): ReturnType<typeof buildTableExport> =>
+  const exportModel = (moneyFormat?: MoneyExportFormat): ReturnType<typeof buildTableExport> =>
     buildTableExport(buildTableModel(rows, columns, view, { quick }), {
-      totalsLabel: exportOptions?.totalsLabel ?? (typeof totalsLabel === 'string' ? totalsLabel : 'Total'),
-      includeTotals: showTotals
+      totalsLabel: exportOptions?.totalsLabel ?? (typeof totalsLabelNode === 'string' ? totalsLabelNode : 'Total'),
+      includeTotals: showTotals,
+      moneyFormat
     })
   const exportPdf = exportOptions
     ? (): void => {
-        const capped = capExportForPdf(exportModel(), PDF_ROW_LIMIT)
+        const capped = capExportForPdf(exportModel(exportOptions.pdfMoneyFormat), PDF_ROW_LIMIT)
         if (capped.note) toast.push('warning', capped.note)
         // report:pdf caps footNote at 500 chars — keep the truncation note, trim the screen's own note.
         const footNote = capped.note
@@ -587,7 +623,7 @@ export function DataTable<Row>(props: DataTableProps<Row>): React.JSX.Element {
     : undefined
   const exportCsv = exportOptions
     ? (): void => {
-        const ex = exportModel()
+        const ex = exportModel(exportOptions.csvMoneyFormat)
         void csvReport(ex.header, ex.csvRows, exportOptions.filename ?? exportOptions.title, toast)
       }
     : undefined
@@ -602,7 +638,10 @@ export function DataTable<Row>(props: DataTableProps<Row>): React.JSX.Element {
     ...props.toolbarFeatures
   }
 
-  const toolbarEl = toolbar && !loading && rows.length > 0 && (
+  // The toolbar stays whenever the table is mounted with columns — while loading and with zero
+  // rows too — so screen controls in toolbarStart never vanish and an over-filtered table can
+  // always be un-filtered.
+  const toolbarEl = toolbar && columns.length > 0 && (
     <TableToolbar
       area={area}
       columns={columns}
@@ -613,20 +652,33 @@ export function DataTable<Row>(props: DataTableProps<Row>): React.JSX.Element {
       features={features}
       menu={menu}
       setMenu={setMenu}
-      onExportCsv={exportCsv}
-      onExportPdf={exportPdf}
+      onExportCsv={rows.length > 0 ? exportCsv : undefined}
+      onExportPdf={rows.length > 0 ? exportPdf : undefined}
       start={props.toolbarStart}
       end={props.toolbarEnd}
+      loading={loading}
     />
   )
 
-  if (loading) return <SkeletonRows />
-  if (rows.length === 0)
-    return <EmptyState title={empty?.title ?? 'Nothing to show'} hint={empty?.hint} action={empty?.action} icon={empty?.icon} />
+  if (loading) {
+    if (!toolbarEl) return <SkeletonRows />
+    return (
+      <div ref={rootRef} className={`data-table-wrap ${props.className ?? ''}`} data-testid={`${area}-table`}>
+        {toolbarEl}
+        <SkeletonRows />
+      </div>
+    )
+  }
+
+  const clearAllFilters = (): void => {
+    setQuick('')
+    setView((v) => ({ ...v, filters: {} }))
+  }
+  const hasTableFilters = quick.trim() !== '' || Object.keys(view.filters).length > 0
 
   const firstAgg = visible.findIndex((c) => c.aggregate)
   const labelSpan = (firstAgg < 0 ? visible.length : Math.max(1, firstAgg)) + prefixCols
-  const ariaRow = (i: number): number | undefined => (virtual ? layout.rowIndex[i]! + 2 : undefined)
+  const ariaRow = (i: number): number | undefined => (virtual ? layout.rowIndex[i]! + headerRows + 1 : undefined)
 
   const renderItem = (item: DisplayItem<Row>, i: number): ReactNode => {
     const isActive = i === active
@@ -769,20 +821,67 @@ export function DataTable<Row>(props: DataTableProps<Row>): React.JSX.Element {
           data-virtual={virtual || undefined}
           data-testid={props.tableTestId}
           aria-label={props.ariaLabel}
-          aria-rowcount={virtual ? layout.rowIndex[items.length]! + 1 : undefined}
-          style={{ minWidth: minTableWidth }}
+          aria-rowcount={virtual ? layout.rowIndex[items.length]! + headerRows : undefined}
+          style={measuredLayout ? { width: tableWidth } : { minWidth: tableWidth }}
         >
-          <colgroup>
-            {hasExpander && <col style={{ width: EXPANDER_WIDTH }} />}
-            {leading && <col style={{ width: leadingWidth }} />}
-            {visible.map((c) => {
-              const w = widthOf(c)
-              return <col key={c.id} style={w ? { width: w } : undefined} />
-            })}
-            {trailing && <col style={{ width: trailingWidth }} />}
-          </colgroup>
+          {bands.length === 0 ? (
+            <colgroup>
+              {hasExpander && <col style={{ width: EXPANDER_WIDTH }} />}
+              {leading && <col style={{ width: leadingWidth }} />}
+              {visible.map((c, i) => {
+                const w = colWidth(i)
+                return <col key={c.id} style={w ? { width: w } : undefined} />
+              })}
+              {trailing && <col style={{ width: trailingWidth }} />}
+            </colgroup>
+          ) : (
+            // One <colgroup> per header band, so each band's <th scope="colgroup"> names its columns.
+            <>
+              {prefixCols > 0 && (
+                <colgroup>
+                  {hasExpander && <col style={{ width: EXPANDER_WIDTH }} />}
+                  {leading && <col style={{ width: leadingWidth }} />}
+                </colgroup>
+              )}
+              {bands.map((b) => (
+                <colgroup key={`${b.start}:${b.group ?? ''}`} data-band={b.group ?? undefined}>
+                  {visible.slice(b.start, b.start + b.span).map((c, k) => {
+                    const w = colWidth(b.start + k)
+                    return <col key={c.id} style={w ? { width: w } : undefined} />
+                  })}
+                </colgroup>
+              ))}
+              {trailing && (
+                <colgroup>
+                  <col style={{ width: trailingWidth }} />
+                </colgroup>
+              )}
+            </>
+          )}
           <thead ref={theadRef}>
-            <tr aria-rowindex={virtual ? 1 : undefined}>
+            {bands.length > 0 && (
+              <tr className="dt-bands" aria-rowindex={virtual ? 1 : undefined} data-testid={`${area}-table-bands`}>
+                {prefixCols > 0 && <td colSpan={prefixCols} />}
+                {bands.map((b) =>
+                  b.group ? (
+                    <th
+                      key={`${b.start}:${b.group}`}
+                      scope="colgroup"
+                      colSpan={b.span}
+                      className="dt-band"
+                      data-band={b.group}
+                      data-testid={`${area}-band-${b.ids[0]}`}
+                    >
+                      {b.group}
+                    </th>
+                  ) : (
+                    <td key={`${b.start}:`} colSpan={b.span} />
+                  )
+                )}
+                {trailing && <td />}
+              </tr>
+            )}
+            <tr aria-rowindex={virtual ? headerRows : undefined}>
               {hasExpander && (
                 <th>
                   <span className="sr-only">Details</span>
@@ -838,24 +937,35 @@ export function DataTable<Row>(props: DataTableProps<Row>): React.JSX.Element {
             </tr>
           </thead>
           <tbody data-testid={`rows-${area}`}>
-            {items.length === 0 ? (
-              <tr className="dt-empty">
+            {rows.length === 0 ? (
+              // No data at all: the screen's own empty state, under the (still usable) toolbar.
+              <tr className="dt-empty" data-empty="no-data">
+                <td colSpan={colSpan}>
+                  <EmptyState title={empty?.title ?? 'Nothing to show'} hint={empty?.hint} action={empty?.action} icon={empty?.icon} />
+                </td>
+              </tr>
+            ) : items.length === 0 ? (
+              // Rows exist, the table's own filters hide them all.
+              <tr className="dt-empty" data-empty="filtered">
                 <td colSpan={colSpan}>
                   <EmptyState
                     title="No rows match"
-                    hint={quick ? `Nothing matches “${quick}” with the current filters` : 'Try removing a filter'}
+                    hint={
+                      quick
+                        ? `Nothing matches “${quick}” with the current filters`
+                        : `None of the ${model.totalCount.toLocaleString('en-IN')} ${model.totalCount === 1 ? 'row matches' : 'rows match'} your filters`
+                    }
                     action={
-                      <button
-                        type="button"
-                        className="text-small text-blue hover:underline"
-                        onClick={() => {
-                          setQuick('')
-                          setView((v) => ({ ...v, filters: {} }))
-                        }}
-                        data-testid={`${area}-table-reset-filters`}
-                      >
-                        Clear filters
-                      </button>
+                      hasTableFilters ? (
+                        <button
+                          type="button"
+                          className="text-small text-blue hover:underline"
+                          onClick={clearAllFilters}
+                          data-testid={`${area}-table-reset-filters`}
+                        >
+                          Clear filters
+                        </button>
+                      ) : undefined
                     }
                   />
                 </td>
@@ -879,12 +989,12 @@ export function DataTable<Row>(props: DataTableProps<Row>): React.JSX.Element {
           {showTotals && items.length > 0 && (
             <tfoot>
               {renderFooter ? (
-                renderFooter({ columns: visible, rows: model.rows, totals: model.totals, colSpan })
+                renderFooter(footerCtx)
               ) : firstAgg > 0 ? (
                 // The label spans every column before the first aggregate (like a group header),
                 // so "Closing balance" isn't clipped to a narrow leading Date column.
                 <tr className="total-row" data-testid={`${area}-table-totals`}>
-                  <td colSpan={labelSpan}>{totalsLabel}</td>
+                  <td colSpan={labelSpan}>{totalsLabelNode}</td>
                   {visible.slice(firstAgg).map((c) => (
                     <td key={c.id} className={alignCls(columnAlign(c))}>
                       {c.aggregate ? aggregateCell(c, model.totals[c.id]) : null}
@@ -898,7 +1008,11 @@ export function DataTable<Row>(props: DataTableProps<Row>): React.JSX.Element {
                   {leading && <td />}
                   {visible.map((c, i) => (
                     <td key={c.id} className={alignCls(columnAlign(c))}>
-                      {c.aggregate ? aggregateCell(c, model.totals[c.id]) : i === Math.max(0, visible.findIndex((x) => !x.aggregate)) ? totalsLabel : null}
+                      {c.aggregate
+                        ? aggregateCell(c, model.totals[c.id])
+                        : i === Math.max(0, visible.findIndex((x) => !x.aggregate))
+                          ? totalsLabelNode
+                          : null}
                     </td>
                   ))}
                   {trailing && <td />}
@@ -951,6 +1065,12 @@ function HeaderCell<Row>({
   const sortable = col.sortable !== false
   const filterable = col.filterable !== false
   const ariaSort = sortDir === 'asc' ? 'ascending' : sortDir === 'desc' ? 'descending' : sortable ? 'none' : undefined
+  const label = columnLabel(col)
+  // The funnel overlays the header's padding/label edge instead of reserving width: it shows on
+  // hover, on keyboard focus anywhere in the header, and always while a filter is set or open.
+  // Only an ACTIVE filter reserves room, so its amber funnel never covers the label.
+  const filterSide = align === 'right' ? 'left' : 'right'
+  const filterActive = filtered || filterOpen
   return (
     <th
       ref={thRef}
@@ -960,59 +1080,68 @@ function HeaderCell<Row>({
       onPointerDown={onReorderStart}
       data-col={col.id}
     >
-      <div className={`flex min-w-0 items-center gap-1 ${align === 'right' ? 'justify-end' : align === 'center' ? 'justify-center' : ''}`}>
+      <div
+        className={`flex min-w-0 items-center ${align === 'right' ? 'justify-end' : align === 'center' ? 'justify-center' : ''} ${
+          filterable && filtered ? (filterSide === 'left' ? 'pl-3.5' : 'pr-3.5') : ''
+        }`}
+      >
         {sortable ? (
           <button
             type="button"
             className={`inline-flex min-w-0 items-center gap-1 uppercase hover:text-ink ${sortDir ? 'text-ink' : ''}`}
             onClick={(e) => onSort(e.shiftKey)}
-            title={`Sort by ${col.header} (Shift-click to add a secondary sort; drag to reorder)`}
+            title={`Sort by ${label} (Shift-click to add a secondary sort; drag to reorder)`}
             data-testid={`sort-${area}-${col.id}`}
           >
             <span className="truncate">{col.header}</span>
-            <span aria-hidden="true" className={sortDir ? 'text-amber' : 'invisible'}>
-              {sortDir === 'desc' ? '↓' : '↑'}
-              {multiSort && sortIndex >= 0 && <sup className="num ml-px text-[9px]">{sortIndex + 1}</sup>}
-            </span>
+            {sortDir && (
+              <span aria-hidden="true" className="shrink-0 text-amber">
+                {sortDir === 'desc' ? '↓' : '↑'}
+                {multiSort && sortIndex >= 0 && <sup className="num ml-px text-[9px]">{sortIndex + 1}</sup>}
+              </span>
+            )}
           </button>
         ) : (
-          <span className="truncate">{col.header}</span>
-        )}
-        {filterable && (
-          <>
-            <button
-              ref={filterBtn}
-              type="button"
-              aria-label={`Filter ${col.header}`}
-              aria-haspopup="dialog"
-              aria-expanded={filterOpen}
-              title={`Filter ${col.header}`}
-              onClick={() => setFilterOpen(!filterOpen)}
-              data-testid={`filter-${area}-${col.id}`}
-              data-no-drag=""
-              className={`rounded px-0.5 leading-none transition-opacity ${
-                filtered || filterOpen ? 'text-amber opacity-100' : 'text-muted opacity-0 group-hover:opacity-100 focus-visible:opacity-100'
-              }`}
-            >
-              <svg aria-hidden="true" width="10" height="10" viewBox="0 0 10 10" className="block">
-                <path d="M0.5 1h9L6 5.2V9L4 8V5.2z" fill="currentColor" />
-              </svg>
-            </button>
-            {filterOpen && (
-              <Popover anchor={filterBtn} onClose={() => setFilterOpen(false)} label={`Filter ${col.header}`} align={align === 'right' ? 'right' : 'left'} width={240}>
-                {renderFilter(() => {
-                  filterBtn.current?.focus()
-                  setFilterOpen(false)
-                })}
-              </Popover>
-            )}
-          </>
+          <span className="truncate" title={label}>
+            {col.header}
+          </span>
         )}
       </div>
+      {filterable && (
+        <>
+          <button
+            ref={filterBtn}
+            type="button"
+            aria-label={`Filter ${label}${filtered ? ' (filtered)' : ''}`}
+            aria-haspopup="dialog"
+            aria-expanded={filterOpen}
+            title={`Filter ${label}`}
+            onClick={() => setFilterOpen(!filterOpen)}
+            data-testid={`filter-${area}-${col.id}`}
+            data-no-drag=""
+            data-active={filterActive || undefined}
+            className={`dt-filter ${filterSide === 'left' ? 'dt-filter-left' : 'dt-filter-right'} ${
+              filterActive ? 'text-amber' : 'text-muted hover:text-ink'
+            }`}
+          >
+            <svg aria-hidden="true" width="10" height="10" viewBox="0 0 10 10" className="block">
+              <path d="M0.5 1h9L6 5.2V9L4 8V5.2z" fill="currentColor" />
+            </svg>
+          </button>
+          {filterOpen && (
+            <Popover anchor={filterBtn} onClose={() => setFilterOpen(false)} label={`Filter ${label}`} align={align === 'right' ? 'right' : 'left'} width={240}>
+              {renderFilter(() => {
+                filterBtn.current?.focus()
+                setFilterOpen(false)
+              })}
+            </Popover>
+          )}
+        </>
+      )}
       <span
         role="separator"
         aria-orientation="vertical"
-        aria-label={`Resize ${col.header}`}
+        aria-label={`Resize ${label}`}
         tabIndex={0}
         className="dt-resize"
         data-testid={`resize-${area}-${col.id}`}

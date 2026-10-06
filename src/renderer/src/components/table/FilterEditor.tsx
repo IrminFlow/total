@@ -1,5 +1,5 @@
 import { useId, useState } from 'react'
-import { filterTypeFor, formatRaw, parseFilterValue, type ColumnFilter, type DateOp, type EnumOption, type RangeOp, type TextOp } from '../../lib/table'
+import { columnLabel, filterTypeFor, formatRaw, parseFilterValue, type ColumnFilter, type DateOp, type EnumOption, type RangeOp, type TextOp } from '../../lib/table'
 import { toPortalDate } from '@shared/dates'
 import { Button, inputCls } from '../ui'
 import type { TableColumn } from './types'
@@ -106,7 +106,7 @@ export function FilterEditor<Row>({
 
   return (
     <div className="flex flex-col gap-2" data-testid={testId}>
-      <p className="text-caption font-semibold tracking-[0.08em] text-muted uppercase">Filter · {column.header}</p>
+      <p className="text-caption font-semibold tracking-[0.08em] text-muted uppercase">Filter · {columnLabel(column)}</p>
       {type === 'enum' ? (
         <fieldset className="flex max-h-56 flex-col gap-1 overflow-y-auto">
           <legend className="sr-only">Show only</legend>

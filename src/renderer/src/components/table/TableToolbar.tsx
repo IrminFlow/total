@@ -1,5 +1,5 @@
 import { useState, type ReactNode } from 'react'
-import { describeFilter, isGroupable, moveColumn, type TableModel } from '../../lib/table'
+import { columnLabel, describeFilter, isGroupable, moveColumn, type TableModel } from '../../lib/table'
 import { Button, inputCls } from '../ui'
 import { PopoverButton } from './Popover'
 import type { TableColumn } from './types'
@@ -32,7 +32,8 @@ export function TableToolbar<Row>({
   onExportCsv,
   onExportPdf,
   start,
-  end
+  end,
+  loading = false
 }: {
   area: string
   columns: TableColumn<Row>[]
@@ -47,6 +48,8 @@ export function TableToolbar<Row>({
   onExportPdf?: () => void
   start?: ReactNode
   end?: ReactNode
+  /** Rows are still loading: the count is withheld (it would read "0 rows"). */
+  loading?: boolean
 }): React.JSX.Element {
   const { view, setView } = controller
   const byId = new Map(columns.map((c) => [c.id, c]))
@@ -65,6 +68,8 @@ export function TableToolbar<Row>({
             placeholder="Filter rows…"
             aria-label="Filter rows"
             value={quick}
+            // While it has text, Esc clears it — an enclosing Modal must not close on that key.
+            data-consumes-escape={quick ? '' : undefined}
             onChange={(e) => setQuick(e.target.value)}
             onKeyDown={(e) => {
               if (e.key === 'Escape' && quick) {
@@ -76,9 +81,11 @@ export function TableToolbar<Row>({
             data-testid={`${area}-table-quick`}
           />
         )}
-        <span className="num text-small text-muted" aria-live="polite" data-testid={`${area}-table-count`}>
-          {filtered ? `${model.rows.length} of ${model.totalCount}` : `${model.totalCount}`} {model.totalCount === 1 ? 'row' : 'rows'}
-        </span>
+        {!loading && (
+          <span className="num text-small text-muted" aria-live="polite" data-testid={`${area}-table-count`}>
+            {filtered ? `${model.rows.length} of ${model.totalCount}` : `${model.totalCount}`} {model.totalCount === 1 ? 'row' : 'rows'}
+          </span>
+        )}
         <div className="ml-auto flex flex-wrap items-center gap-2">
           {features.groupBy && groupable.length > 0 && (
             <label className="flex items-center gap-1 text-small text-muted">
@@ -92,7 +99,7 @@ export function TableToolbar<Row>({
                 <option value="">None</option>
                 {groupable.map((c) => (
                   <option key={c.id} value={c.id}>
-                    {c.header}
+                    {columnLabel(c)}
                   </option>
                 ))}
               </select>
@@ -211,12 +218,12 @@ function ColumnChooser<Row>({ columns, controller, area }: { columns: TableColum
                   }
                   data-testid={`${area}-table-col-${id}`}
                 />
-                {c.header}
+                {columnLabel(c)}
               </label>
               <button
                 type="button"
                 className="px-1 text-muted hover:text-ink disabled:opacity-30"
-                aria-label={`Move ${c.header} up`}
+                aria-label={`Move ${columnLabel(c)} up`}
                 disabled={i === 0}
                 onClick={() => setView((v) => moveColumn(v, id, v.order.indexOf(order[i - 1]!)))}
               >
@@ -225,7 +232,7 @@ function ColumnChooser<Row>({ columns, controller, area }: { columns: TableColum
               <button
                 type="button"
                 className="px-1 text-muted hover:text-ink disabled:opacity-30"
-                aria-label={`Move ${c.header} down`}
+                aria-label={`Move ${columnLabel(c)} down`}
                 disabled={i === order.length - 1}
                 onClick={() => setView((v) => moveColumn(v, id, v.order.indexOf(order[i + 1]!)))}
               >

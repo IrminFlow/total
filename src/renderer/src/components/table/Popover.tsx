@@ -1,10 +1,13 @@
 import { useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode, type RefObject } from 'react'
 import { createPortal } from 'react-dom'
+import { registerEscapeLayer, topModalElement } from '../ui'
 
 /**
- * Small anchored panel for the table's menus (filters, columns, views). Portalled to <body> with
- * fixed positioning so the table's own scroll container can't clip it. Closes on Esc (captured,
- * so the screen's Esc-to-go-back never sees it), on a mousedown outside, and on window resize.
+ * Small anchored panel for the table's menus (filters, columns, views). Portalled to <body> — or,
+ * when its anchor is inside the topmost Modal, into that dialog — with fixed positioning so the
+ * table's own scroll container can't clip it. Closes on Esc (captured, so the screen's
+ * Esc-to-go-back never sees it, and an enclosing Modal stays open), on a mousedown outside, and
+ * on window resize.
  */
 export function Popover({
   anchor,
@@ -43,6 +46,8 @@ export function Popover({
   }, [anchor, align, width])
 
   useEffect(() => {
+    // Take Esc before an enclosing Modal does (its capture listener was registered first).
+    const releaseEscape = registerEscapeLayer()
     // Focus the first control so the popover is keyboard-usable straight away.
     const node = ref.current
     const el = node?.querySelector<HTMLElement>('input, select, button, [tabindex]:not([tabindex="-1"])')
@@ -65,11 +70,19 @@ export function Popover({
     window.addEventListener('mousedown', onDown, true)
     window.addEventListener('resize', onResize)
     return () => {
+      releaseEscape()
       window.removeEventListener('keydown', onKey, true)
       window.removeEventListener('mousedown', onDown, true)
       window.removeEventListener('resize', onResize)
     }
   }, [anchor])
+
+  // Inside a Modal the popover portals into the dialog: its controls join the modal's Tab loop,
+  // and it stacks above the dialog's content (the overlay's own stacking context).
+  const [host] = useState<HTMLElement>(() => {
+    const modal = topModalElement()
+    return modal && anchor.current && modal.contains(anchor.current) ? modal : document.body
+  })
 
   return createPortal(
     <div
@@ -84,7 +97,7 @@ export function Popover({
     >
       {children}
     </div>,
-    document.body
+    host
   )
 }
 

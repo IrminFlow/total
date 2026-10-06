@@ -86,6 +86,27 @@ export function columnAlign<Row>(col: ColumnDef<Row>): Align {
   return col.align ?? defaultAlign(col.kind)
 }
 
+/** A column's full label: its header, prefixed with its band (`group`) when it has one —
+ *  "Portal · Invoice no.". Exports, the column chooser and filter chips use it. */
+export function columnLabel<Row>(col: Pick<ColumnDef<Row>, 'header' | 'group'>): string {
+  return col.group ? `${col.group} · ${col.header}` : col.header
+}
+
+/** Quantity decimals for one row (a per-row function or a fixed number; undefined = default 3). */
+export function rowDecimals<Row>(col: ColumnDef<Row>, row: Row): number | undefined {
+  return typeof col.decimals === 'function' ? col.decimals(row) : col.decimals
+}
+
+/** Quantity unit for one row ('' when none). */
+export function rowUnit<Row>(col: ColumnDef<Row>, row: Row): string {
+  return typeof col.unit === 'function' ? col.unit(row) : (col.unit ?? '')
+}
+
+/** Decimals for a column's aggregates: a fixed `decimals`, else `aggregateDecimals`, else 3. */
+function aggregateDecimalsOf<Row>(col: ColumnDef<Row>): number | undefined {
+  return typeof col.decimals === 'number' ? col.decimals : col.aggregateDecimals
+}
+
 /** The display/export text of one cell. */
 export function cellText<Row>(col: ColumnDef<Row>, row: Row): string {
   if (col.text) return col.text(row)
@@ -94,10 +115,18 @@ export function cellText<Row>(col: ColumnDef<Row>, row: Row): string {
     const opt = col.options.find((o) => o.value === String(v))
     if (opt) return opt.label
   }
-  return formatRaw(col.kind, v, { signed: col.signed, decimals: col.decimals })
+  const text = formatRaw(col.kind, v, { signed: col.signed, decimals: rowDecimals(col, row) })
+  if (col.kind === 'quantity' && text !== '') {
+    const unit = rowUnit(col, row)
+    if (unit) return `${text} ${unit}`
+  }
+  return text
 }
 
-/** Formats an aggregate (sum/subtotal) value for a column. */
+/** Formats an aggregate (sum/subtotal) value for a column. A fixed `unit` is appended; a
+ *  per-row unit is not (a mixed-unit column shouldn't aggregate). */
 export function aggregateText<Row>(col: ColumnDef<Row>, v: CellValue): string {
-  return formatRaw(col.kind, v, { signed: col.signed, decimals: col.decimals })
+  const text = formatRaw(col.kind, v, { signed: col.signed, decimals: aggregateDecimalsOf(col) })
+  if (col.kind === 'quantity' && text !== '' && typeof col.unit === 'string' && col.unit) return `${text} ${col.unit}`
+  return text
 }

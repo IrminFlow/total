@@ -6,3 +6,5 @@ export type { TableViewController, SavedView, UseTableViewOptions } from './useT
 export { defineColumns } from './types'
 export type { TableColumn } from './types'
 export type { ToolbarFeatures } from './TableToolbar'
+export { Popover, PopoverButton } from './Popover'
+export type { MoneyExportFormat } from '../../lib/table'
