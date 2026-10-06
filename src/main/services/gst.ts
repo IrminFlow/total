@@ -587,6 +587,7 @@ export function extractPurchaseDocs(db: DB, from: string, to: string): PurchaseD
       date: v.date,
       number: v.number,
       supplierRef: v.reference,
+      partyLedgerId: v.partyLedgerId,
       partyName: v.partyName,
       partyGstin: v.partyGstin,
       invoiceValue,

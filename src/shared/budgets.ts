@@ -29,6 +29,8 @@ export interface ActualRow {
 
 export interface BudgetVarianceRow {
   targetName: string
+  /** The target ledger for a ledger line; null for a group line (WP 1.8 drill-down). */
+  ledgerId: number | null
   month: string | null
   budget: number
   actual: number
@@ -72,6 +74,6 @@ export function budgetVariance(
     const budget = line.amount
     const variance = actual - budget
     const pct = budget === 0 ? null : Math.round((actual * 100) / budget)
-    return { targetName: line.targetName, month: line.month, budget, actual, variance, pct }
+    return { targetName: line.targetName, ledgerId: line.ledgerId, month: line.month, budget, actual, variance, pct }
   })
 }

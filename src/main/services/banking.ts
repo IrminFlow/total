@@ -30,7 +30,9 @@ export function bankRecon(db: DB, ledgerId: number, from: string, to: string): B
               v.instrument_no AS instrumentNo, vl.dr_cr AS drCr, vl.amount, vl.bank_date AS bankDate,
               (SELECT GROUP_CONCAT(DISTINCT l2.name)
                FROM voucher_lines vl2 JOIN ledgers l2 ON l2.id = vl2.ledger_id
-               WHERE vl2.voucher_id = v.id AND vl2.dr_cr <> vl.dr_cr) AS particulars
+               WHERE vl2.voucher_id = v.id AND vl2.dr_cr <> vl.dr_cr) AS particulars,
+              (SELECT vl3.ledger_id FROM voucher_lines vl3
+               WHERE vl3.voucher_id = v.id AND vl3.dr_cr <> vl.dr_cr ORDER BY vl3.id LIMIT 1) AS particularsLedgerId
        FROM voucher_lines vl
        JOIN vouchers v ON v.id = vl.voucher_id
        JOIN voucher_types vt ON vt.id = v.voucher_type_id
@@ -46,6 +48,7 @@ export function bankRecon(db: DB, ledgerId: number, from: string, to: string): B
     voucherType: r.voucherType,
     number: r.number,
     particulars: r.particulars ?? '',
+    particularsLedgerId: r.particularsLedgerId ?? null,
     instrumentNo: r.instrumentNo,
     deposit: r.drCr === 'dr' ? r.amount : 0,
     withdrawal: r.drCr === 'cr' ? r.amount : 0,
@@ -634,6 +637,8 @@ export interface BrsItem {
   voucherType: string
   number: string
   particulars: string
+  /** A counter-side ledger of the voucher (the first line) — the drill target for `particulars`. */
+  particularsLedgerId: number | null
   instrumentNo: string | null
   amount: number
 }
@@ -671,7 +676,9 @@ export function brs(db: DB, ledgerId: number, asOn: string): BrsReport {
               v.instrument_no AS instrumentNo, vl.dr_cr AS drCr, vl.amount,
               (SELECT GROUP_CONCAT(DISTINCT l2.name)
                FROM voucher_lines vl2 JOIN ledgers l2 ON l2.id = vl2.ledger_id
-               WHERE vl2.voucher_id = v.id AND vl2.dr_cr <> vl.dr_cr) AS particulars
+               WHERE vl2.voucher_id = v.id AND vl2.dr_cr <> vl.dr_cr) AS particulars,
+              (SELECT vl3.ledger_id FROM voucher_lines vl3
+               WHERE vl3.voucher_id = v.id AND vl3.dr_cr <> vl.dr_cr ORDER BY vl3.id LIMIT 1) AS particularsLedgerId
        FROM voucher_lines vl
        JOIN vouchers v ON v.id = vl.voucher_id
        JOIN voucher_types vt ON vt.id = v.voucher_type_id
@@ -692,7 +699,7 @@ export function brs(db: DB, ledgerId: number, asOn: string): BrsReport {
 
   const toItem = (r: (typeof rows)[number]): BrsItem => ({
     lineId: r.lineId, voucherId: r.voucherId, date: r.date, voucherType: r.voucherType,
-    number: r.number, particulars: r.particulars ?? '', instrumentNo: r.instrumentNo, amount: r.amount
+    number: r.number, particulars: r.particulars ?? '', particularsLedgerId: r.particularsLedgerId ?? null, instrumentNo: r.instrumentNo, amount: r.amount
   })
   const uncredited = rows.filter((r) => r.drCr === 'dr').map(toItem)
   const unpresented = rows.filter((r) => r.drCr === 'cr').map(toItem)

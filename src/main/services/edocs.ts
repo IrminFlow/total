@@ -46,7 +46,7 @@ export function listSalesInvoices(db: DB, from: string, to: string): EdocListRow
   const outwardDbn = outwardDebitNoteIds(db, from, to)
   return db
     .prepare(
-      `SELECT v.id AS voucherId, v.number, v.date, vt.kind AS kind, p.name AS partyName, p.gstin AS partyGstin,
+      `SELECT v.id AS voucherId, v.number, v.date, vt.kind AS kind, p.id AS partyLedgerId, p.name AS partyName, p.gstin AS partyGstin,
               COALESCE(t.total, 0) AS total, v.vehicle_no AS vehicleNo, v.irn, v.ewb_no AS ewbNo,
               EXISTS(SELECT 1 FROM inventory_lines il JOIN stock_items si ON si.id = il.stock_item_id
                      WHERE il.voucher_id = v.id AND si.hsn IS NOT NULL) AS hasHsn,

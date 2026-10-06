@@ -602,6 +602,7 @@ export interface PdcRow {
   date: string
   number: string
   voucherTypeName: string
+  partyLedgerId: number | null
   partyName: string | null
   instrumentNo: string | null
   instrumentDate: string | null
@@ -614,7 +615,7 @@ export interface PdcRow {
 export function pdcRegister(db: DB): PdcRow[] {
   return db
     .prepare(
-      `SELECT v.id, v.date, v.number, vt.name AS voucherTypeName, l.name AS partyName,
+      `SELECT v.id, v.date, v.number, vt.name AS voucherTypeName, v.party_ledger_id AS partyLedgerId, l.name AS partyName,
               v.instrument_no AS instrumentNo, v.instrument_date AS instrumentDate,
               (SELECT COALESCE(SUM(amount), 0) FROM voucher_lines WHERE voucher_id = v.id AND dr_cr = 'dr') AS amount
        FROM vouchers v
@@ -713,6 +714,7 @@ export function listVouchers(db: DB, from: string, to: string, voucherTypeId?: n
     .prepare(
       `SELECT v.id, v.date, vt.name AS voucherType, vt.kind, v.number, v.narration,
               COALESCE(pl.name, fl.name, '') AS account,
+              COALESCE(pl.id, fl.id) AS accountLedgerId,
               COALESCE(t.total, 0) AS amount,
               v.is_optional AS isOptional, v.post_dated AS postDated, v.is_year_end_close AS isYearEndClose
        FROM vouchers v

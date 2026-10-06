@@ -351,10 +351,10 @@ function itemLine(ids: number[]): { sql: string; params: unknown[] } {
 interface VoucherDetailRow {
   id: number; date: string; number: string; narration: string | null; reference: string | null
   isOptional: number; postDated: number; typeName: string; voucherKind: VoucherKind
-  partyName: string | null; partyGstin: string | null; partyPan: string | null
+  partyLedgerId: number | null; partyName: string | null; partyGstin: string | null; partyPan: string | null
 }
 
-interface VoucherLineRow { voucherId: number; amount: number; drCr: 'dr' | 'cr'; name: string; gstin: string | null; pan: string | null; groupId: number; hsn: string | null }
+interface VoucherLineRow { voucherId: number; ledgerId: number; amount: number; drCr: 'dr' | 'cr'; name: string; gstin: string | null; pan: string | null; groupId: number; hsn: string | null }
 
 function searchVouchers(db: DB, q: ParsedQuery, limit: number, offset: number, groupsOf: ReturnType<typeof treeMatcher>): SearchSection<VoucherResult> {
   const ledgerIdsWhere = (sql: string, param: string): number[] =>
@@ -470,7 +470,7 @@ function searchVouchers(db: DB, q: ParsedQuery, limit: number, offset: number, g
       db
         .prepare(
           `SELECT v.id, v.date, v.number, v.narration, v.reference, v.is_optional AS isOptional, v.post_dated AS postDated,
-                  vt.name AS typeName, vt.kind AS voucherKind, pl.name AS partyName, pl.gstin AS partyGstin, pl.pan AS partyPan
+                  vt.name AS typeName, vt.kind AS voucherKind, pl.id AS partyLedgerId, pl.name AS partyName, pl.gstin AS partyGstin, pl.pan AS partyPan
            FROM vouchers v
            JOIN voucher_types vt ON vt.id = v.voucher_type_id
            LEFT JOIN ledgers pl ON pl.id = v.party_ledger_id
@@ -482,7 +482,7 @@ function searchVouchers(db: DB, q: ParsedQuery, limit: number, offset: number, g
   const linesBy = new Map<number, VoucherLineRow[]>()
   for (const l of db
     .prepare(
-      `SELECT vl.voucher_id AS voucherId, vl.amount, vl.dr_cr AS drCr, l.name, l.gstin, l.pan, l.group_id AS groupId, l.hsn
+      `SELECT vl.voucher_id AS voucherId, vl.ledger_id AS ledgerId, vl.amount, vl.dr_cr AS drCr, l.name, l.gstin, l.pan, l.group_id AS groupId, l.hsn
        FROM voucher_lines vl JOIN ledgers l ON l.id = vl.ledger_id
        WHERE vl.voucher_id ${IN_JSON}
        ORDER BY vl.voucher_id, vl.line_order, vl.id`
@@ -523,6 +523,7 @@ function searchVouchers(db: DB, q: ParsedQuery, limit: number, offset: number, g
       number: d.number,
       date: d.date,
       party: d.partyName ?? lines[0]?.name ?? null,
+      partyLedgerId: d.partyName != null ? d.partyLedgerId : (lines[0]?.ledgerId ?? null),
       amount: total,
       narration: d.narration ? snippet(d.narration, m?.[0] === 'narration' ? firstTerm : null, 90) : null,
       isOptional: d.isOptional === 1,

@@ -12,6 +12,9 @@ export interface DayBookRow {
   number: string
   /** Primary party/account shown in the list. */
   account: string
+  /** Ledger behind `account` (the party ledger, else the first line's ledger); null when the
+   *  voucher has neither (WP 1.8 drill-down). */
+  accountLedgerId: number | null
   narration: string | null
   debit: number
   credit: number
@@ -30,6 +33,8 @@ export interface LedgerStatementRow {
   number: string
   /** The "other side" ledger(s) of the voucher. */
   particulars: string
+  /** The first "other side" ledger named in `particulars`; null when there is none. */
+  particularsLedgerId: number | null
   narration: string | null
   debit: number
   credit: number
@@ -169,6 +174,8 @@ export interface ExceptionRow {
   detail: string
   voucherId?: number
   ledgerId?: number
+  /** Negative-stock rows: the item (WP 1.8 drill-down). */
+  stockItemId?: number
   amount?: number
 }
 
@@ -227,6 +234,8 @@ export interface VoucherListRow {
   kind: string
   number: string
   account: string
+  /** Ledger behind `account` (party ledger, else first line's ledger); null when neither. */
+  accountLedgerId: number | null
   narration: string | null
   amount: number
   /** Memorandum voucher — never counts toward the books. */
@@ -305,6 +314,8 @@ export interface BankLineRow {
   voucherType: string
   number: string
   particulars: string
+  /** A counter-side ledger of the voucher (its first line) — the drill target for `particulars`. */
+  particularsLedgerId: number | null
   instrumentNo: string | null
   /** Paise into the bank (dr) or out (cr). */
   deposit: number
@@ -328,6 +339,8 @@ export interface EdocListRow {
   number: string
   date: string
   docType: 'INV' | 'CRN' | 'DBN'
+  /** The voucher's party ledger; null for a cash sale with no party (WP 1.8 drill-down). */
+  partyLedgerId: number | null
   partyName: string | null
   partyGstin: string | null
   total: number

@@ -55,6 +55,8 @@ export interface VoucherResult {
   date: string
   /** Main party ledger when the voucher has one, else its first ledger line. */
   party: string | null
+  /** The ledger `party` names (WP 1.8 drill-down); null when `party` is. */
+  partyLedgerId: number | null
   /** Voucher total in paise (sum of debit lines). */
   amount: number
   /** Narration trimmed to a short window around the match. */

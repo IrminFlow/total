@@ -30,7 +30,7 @@ function response(over: Partial<SearchResponse> = {}): SearchResponse {
       total: 312, offset: 0,
       rows: [{
         kind: 'voucher', id: 42, typeName: 'Sales', voucherKind: 'sales', number: 'INV-12', date: '2026-04-12',
-        party: 'Umbrella Retail', amount: 1180000, narration: 'Office chairs', isOptional: false, postDated: true,
+        party: 'Umbrella Retail', partyLedgerId: 7, amount: 1180000, narration: 'Office chairs', isOptional: false, postDated: true,
         matchField: 'party', matchText: 'Umbrella Retail'
       }]
     },
