@@ -126,7 +126,7 @@ export function parseViewState<Row>(raw: unknown, columns: readonly ColumnDef<Ro
 }
 
 /** The visible columns, in view order. */
-export function visibleColumns<Row, C extends ColumnDef<Row>>(columns: readonly C[], view: ViewState): C[] {
+export function visibleColumns<C extends { id: string }>(columns: readonly C[], view: ViewState): C[] {
   const byId = new Map(columns.map((c) => [c.id, c]))
   const hidden = new Set(view.hidden)
   const out: C[] = []

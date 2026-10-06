@@ -29,7 +29,7 @@ export function buildTableModel<Row, C extends ColumnDef<Row>>(
   view: ViewState,
   opts: { quick?: string; collapsed?: ReadonlySet<string> } = {}
 ): TableModel<Row, C> {
-  const visible = visibleColumns<Row, C>(columns, view)
+  const visible = visibleColumns(columns, view)
   const filtered = filterRows(allRows, columns, view.filters, opts.quick ?? '', visible)
   const sorted = sortRows(filtered, columns, view.sort)
   const aggCols = columns.filter((c) => c.aggregate)

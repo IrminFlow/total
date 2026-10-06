@@ -180,6 +180,72 @@ tr.kbar-row[data-active='true'] td:first-child {
   background: color-mix(in oklab, var(--t-panel2) 70%, transparent);
 }
 
+/* ---------- DataTable (components/table) — layered on .ledger-table, same look ----------
+   Fixed layout + single-line cells give every row the same height, which the row
+   virtualisation relies on (33px comfortable = 6px padding + 20px line + 1px rule). */
+
+.data-table {
+  table-layout: fixed;
+}
+.data-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  /* border-collapse borders scroll away under a sticky cell — draw the rule as a shadow */
+  border-bottom: 0;
+  box-shadow: inset 0 -1px 0 var(--t-line);
+  white-space: nowrap;
+  overflow: hidden;
+}
+.data-table td {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  line-height: 20px;
+}
+.data-table tr.dt-row {
+  height: 33px;
+}
+.data-table[data-density='compact'] td {
+  padding-top: 3px;
+  padding-bottom: 3px;
+}
+.data-table[data-density='compact'] tr.dt-row {
+  height: 27px;
+}
+.data-table tr.dt-group td {
+  background: var(--t-panel2);
+  font-weight: 600;
+}
+.data-table tr.dt-spacer td,
+.data-table tbody tr.dt-spacer:hover td,
+.data-table tbody tr.dt-empty:hover td {
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+.data-table tr.dt-empty td {
+  white-space: normal;
+}
+.data-table .dt-resize {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 6px;
+  height: 100%;
+  cursor: col-resize;
+  border-radius: 0;
+}
+.data-table .dt-resize:hover,
+.data-table .dt-resize:focus-visible {
+  background: var(--t-amber-soft);
+  outline-offset: -2px;
+}
+/* positioned header cells (for the resize handle) — sticky already establishes this */
+.data-table th.dt-th {
+  cursor: grab;
+}
+
 input,
 select,
 textarea {

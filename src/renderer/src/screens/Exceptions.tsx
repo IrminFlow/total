@@ -2,11 +2,19 @@ import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { api } from '../lib/client'
 import { useNav, useSession } from '../state/stores'
-import { EmptyState, Money, Panel, SectionTitle } from '../components/ui'
+import { EmptyState, Panel, SectionTitle } from '../components/ui'
+import { DataTable, defineColumns } from '../components/table'
 import { toDisplayDate } from '@shared/dates'
-import type { ExceptionSection } from '@shared/reports'
+import type { ExceptionRow, ExceptionSection } from '@shared/reports'
 
-function SectionPanel({ section }: { section: ExceptionSection }): React.JSX.Element {
+const COLUMNS = defineColumns<ExceptionRow>([
+  { id: 'label', header: 'Item', kind: 'text', value: (r) => r.label, hideable: false },
+  { id: 'detail', header: 'Detail', kind: 'text', value: (r) => r.detail, className: 'text-muted' },
+  // Not every check carries an amount — rows without one show a blank cell (and sort last).
+  { id: 'amount', header: 'Amount', kind: 'money', value: (r) => r.amount, width: 150 }
+])
+
+function SectionPanel({ section, periodLabel }: { section: ExceptionSection; periodLabel: string }): React.JSX.Element {
   const nav = useNav()
   const [open, setOpen] = useState(section.count > 0 && section.count <= 8)
   const clean = section.count === 0
@@ -28,24 +36,24 @@ function SectionPanel({ section }: { section: ExceptionSection }): React.JSX.Ele
         </span>
       </button>
       {open && section.rows.length > 0 && (
-        <table className="ledger-table mt-2" data-testid={`exceptions-rows-${section.key}`}>
-          <tbody>
-            {section.rows.map((r, i) => (
-              <tr
-                key={i}
-                className={r.voucherId || r.ledgerId ? 'kbar-row cursor-pointer' : ''}
-                onClick={() => {
-                  if (r.voucherId) nav.go({ name: 'voucher-entry', voucherId: r.voucherId })
-                  else if (r.ledgerId) nav.go({ name: 'ledger-statement', ledgerId: r.ledgerId })
-                }}
-              >
-                <td>{r.label}</td>
-                <td className="text-muted">{r.detail}</td>
-                <td className="r">{r.amount !== undefined && <Money paise={r.amount} />}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+        <div className="mt-2">
+          <DataTable
+            viewId={`exceptions-${section.key}`}
+            testId={`exceptions-${section.key}`}
+            tableTestId={`exceptions-rows-${section.key}`}
+            ariaLabel={section.label}
+            columns={COLUMNS}
+            rows={section.rows}
+            maxHeight="60vh"
+            isRowActivatable={(r) => !!(r.voucherId || r.ledgerId)}
+            rowAttrs={(r) => ({ 'data-row-id': r.voucherId ?? r.ledgerId })}
+            onRowActivate={(r) => {
+              if (r.voucherId) nav.go({ name: 'voucher-entry', voucherId: r.voucherId })
+              else if (r.ledgerId) nav.go({ name: 'ledger-statement', ledgerId: r.ledgerId })
+            }}
+            exportOptions={{ title: `Exceptions — ${section.label}`, periodLabel, filename: `exceptions-${section.key}` }}
+          />
+        </div>
       )}
       {open && section.count > section.rows.length && (
         <p className="mt-1 px-1 text-[11.5px] text-muted">Showing first {section.rows.length} of {section.count}.</p>
@@ -71,7 +79,9 @@ export function ExceptionsScreen(): React.JSX.Element {
           <EmptyState title="No exceptions found" hint="Every check came back clean for this period" />
         </Panel>
       )}
-      {data?.sections.map((s) => <SectionPanel key={s.key} section={s} />)}
+      {data?.sections.map((s) => (
+        <SectionPanel key={s.key} section={s} periodLabel={`${toDisplayDate(from)} to ${toDisplayDate(to)}`} />
+      ))}
     </div>
   )
 }

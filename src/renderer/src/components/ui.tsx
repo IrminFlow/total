@@ -489,11 +489,27 @@ export function SkeletonRows({ rows = 8, className = '' }: { rows?: number; clas
 let keyNavSeq = 0
 const keyNavStack: number[] = []
 
-export function useKeyNav(count: number, onEnter: (index: number) => void, enabled = true): {
+/** Opt-in extras for useKeyNav (used by the DataTable platform; plain lists don't need them). */
+export interface KeyNavOptions {
+  /** Rows per PageUp/PageDown. Setting it also enables PageUp/PageDown/Home/End. */
+  pageSize?: () => number
+  /** Replaces the default DOM scroll-into-view — for virtualised lists, whose active row may not
+   *  be rendered at all (so there is no `.kbar-row[data-active]` element to scroll to). */
+  scrollTo?: (index: number) => void
+}
+
+export function useKeyNav(
+  count: number,
+  onEnter: (index: number) => void,
+  enabled = true,
+  options?: KeyNavOptions
+): {
   active: number
   setActive: (i: number) => void
 } {
   const [active, setActive] = useState(0)
+  const optionsRef = useRef(options)
+  optionsRef.current = options
   const countRef = useRef(count)
   countRef.current = count
   const activeRef = useRef(active)
@@ -526,6 +542,14 @@ export function useKeyNav(count: number, onEnter: (index: number) => void, enabl
       } else if (e.key === 'Enter') {
         // Side-effect outside the state updater — updaters can run twice under StrictMode.
         if (countRef.current > 0) onEnterRef.current(activeRef.current)
+      } else if (optionsRef.current?.pageSize && ['PageDown', 'PageUp', 'Home', 'End'].includes(e.key)) {
+        e.preventDefault()
+        const page = Math.max(1, optionsRef.current.pageSize())
+        const last = Math.max(0, countRef.current - 1)
+        if (e.key === 'PageDown') setActive((a) => Math.min(last, a + page))
+        else if (e.key === 'PageUp') setActive((a) => Math.max(0, a - page))
+        else if (e.key === 'Home') setActive(0)
+        else setActive(last)
       }
     }
     window.addEventListener('keydown', onKey)
@@ -539,6 +563,11 @@ export function useKeyNav(count: number, onEnter: (index: number) => void, enabl
   // `data-active` convention; the last match wins because overlays render after the screen.
   useEffect(() => {
     if (enabled && keyNavStack[keyNavStack.length - 1] !== idRef.current) return
+    const scrollTo = optionsRef.current?.scrollTo
+    if (scrollTo) {
+      scrollTo(active)
+      return
+    }
     const rows = document.querySelectorAll<HTMLElement>('.kbar-row[data-active="true"]')
     rows[rows.length - 1]?.scrollIntoView({ block: 'nearest' })
   }, [active, enabled])
