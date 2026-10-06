@@ -3,7 +3,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import type { Employee, PayrollRun } from '@shared/domain'
 import { daysInMonth } from '@shared/payroll'
 import { todayISO } from '@shared/dates'
-import { api, type EmployeeHeadRow, type PayHead } from '../lib/client'
+import { api, type EmployeeHeadRow, type PayHead, type PtSummaryRow } from '../lib/client'
 import { formatPaise, parseRupees } from '@shared/money'
 import { useNav, useToasts } from '../state/stores'
 import {
@@ -11,8 +11,7 @@ import {
 } from '../components/ui'
 import { confirmDialog } from '../lib/dialogs'
 import { TabBar } from '../components/TabBar'
-import { DataTable, defineColumns } from '../components/table'
-import { Popover } from '../components/table/Popover'
+import { DataTable, defineColumns, Popover } from '../components/table'
 
 type Tab = 'employees' | 'runs'
 
@@ -297,6 +296,43 @@ function percentLabel(value: number): string {
   return `${(value / 100).toLocaleString('en-IN', { maximumFractionDigits: 2 })}%`
 }
 
+const HEAD_KIND_OPTIONS = [
+  { value: 'earning', label: 'Earning' },
+  { value: 'deduction', label: 'Deduction' }
+]
+const HEAD_CALC_OPTIONS = [
+  { value: 'flat', label: 'Flat / month' },
+  { value: 'percent_of_basic', label: '% of basic' }
+]
+/** A head's value: rupees for flat heads, a percent for %-of-basic ones (mixed units, so the
+ *  column sorts by the raw figure but has no range filter). */
+const headValueText = (h: PayHead): string => (h.calc === 'flat' ? formatPaise(h.value) : percentLabel(h.value))
+const headValueCell = (h: PayHead): React.JSX.Element =>
+  h.calc === 'flat' ? <Money paise={h.value} /> : <span className="num">{percentLabel(h.value)}</span>
+
+const PAY_HEAD_COLUMNS = defineColumns<PayHead>([
+  { id: 'name', header: 'Name', kind: 'text', value: (h) => h.name, hideable: false, groupable: false, minWidth: 160 },
+  { id: 'kind', header: 'Kind', kind: 'enum', value: (h) => h.kind, options: HEAD_KIND_OPTIONS, className: 'text-muted', width: 100 },
+  { id: 'calc', header: 'Calculation', kind: 'enum', value: (h) => h.calc, options: HEAD_CALC_OPTIONS, className: 'text-muted', width: 128 },
+  { id: 'value', header: 'Value', kind: 'number', value: (h) => h.value, text: headValueText, cell: headValueCell, filterable: false, width: 112 },
+  {
+    id: 'active',
+    header: 'Active',
+    kind: 'enum',
+    value: (h) => (h.active ? 'yes' : 'no'),
+    options: [
+      { value: 'yes', label: 'Yes' },
+      { value: 'no', label: 'No' }
+    ],
+    className: 'text-muted',
+    width: 84
+  }
+])
+
+/** Tables inside dialogs: quick filter, columns and count — no saved views, grouping, density
+ *  or export in a modal. */
+const MODAL_TABLE_FEATURES = { groupBy: false, density: false, views: false, export: false } as const
+
 function PayHeadsModal({ onClose }: { onClose: () => void }): React.JSX.Element {
   const toast = useToasts()
   const queryClient = useQueryClient()
@@ -384,43 +420,32 @@ function PayHeadsModal({ onClose }: { onClose: () => void }): React.JSX.Element 
   return (
     <Modal title="Pay heads" onClose={onClose} wide>
       <div className="flex flex-col gap-4">
-        {!heads?.length ? (
-          <EmptyState title="No pay heads yet" hint="Add earnings (e.g. Conveyance) or deductions (e.g. Canteen) beyond the built-in salary structure" />
-        ) : (
-          <ScrollList maxH="38vh">
-            <table className="ledger-table">
-              <thead>
-                <tr>
-                  <th>Name</th>
-                  <th className="w-24">Kind</th>
-                  <th className="w-36">Calculation</th>
-                  <th className="r w-32">Value</th>
-                  <th className="w-16">Active</th>
-                  <th className="w-28"></th>
-                </tr>
-              </thead>
-              <tbody data-testid="rows-payroll-heads">
-                {heads.map((h) => (
-                  <tr key={h.id} data-row-id={h.id} className="hover:bg-panel2">
-                    <td>{h.name}</td>
-                    <td className="capitalize text-muted">{h.kind}</td>
-                    <td className="text-muted">{h.calc === 'flat' ? 'Flat / month' : '% of basic'}</td>
-                    <td className="num r">{h.calc === 'flat' ? <Money paise={h.value} /> : percentLabel(h.value)}</td>
-                    <td className="text-muted">{h.active ? 'Yes' : 'No'}</td>
-                    <td className="r">
-                      <button className="mr-3 text-[12px] text-blue hover:underline" onClick={() => edit(h)}>
-                        Edit
-                      </button>
-                      <button className="text-[12px] text-cr hover:underline" onClick={() => void remove(h)}>
-                        Delete
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </ScrollList>
-        )}
+        <div className="overflow-hidden rounded-md border border-line">
+          <DataTable
+            testId="payroll-heads"
+            ariaLabel="Pay heads"
+            columns={PAY_HEAD_COLUMNS}
+            rows={heads ?? []}
+            rowKey={(h) => h.id}
+            rowAttrs={(h) => ({ 'data-row-id': h.id })}
+            loading={heads === undefined}
+            empty={{ title: 'No pay heads yet', hint: 'Add earnings (e.g. Conveyance) or deductions (e.g. Canteen) beyond the built-in salary structure' }}
+            onRowActivate={edit}
+            toolbarFeatures={MODAL_TABLE_FEATURES}
+            maxHeight="38vh"
+            trailingWidth={110}
+            trailing={(h) => (
+              <>
+                <button className="mr-3 text-[12px] text-blue hover:underline" onClick={() => edit(h)}>
+                  Edit
+                </button>
+                <button className="text-[12px] text-cr hover:underline" onClick={() => void remove(h)}>
+                  Delete
+                </button>
+              </>
+            )}
+          />
+        </div>
 
         <div className="border-t border-line pt-4">
           <p className="mb-2 text-[11px] font-semibold tracking-[0.08em] text-muted uppercase">{editingId ? 'Edit pay head' : 'Add pay head'}</p>
@@ -536,6 +561,56 @@ function EmployeeHeadsModal({ employee, onClose }: { employee: Employee; onClose
 
   const dirty = Object.keys(edits).length > 0
 
+  // The cells read the latest assignment state through a ref, so the column set (and the
+  // table's memoised model) stays stable while the user ticks heads and types overrides.
+  const stateRef = useRef({ stateOf, setState })
+  stateRef.current = { stateOf, setState }
+  const firstName = employee.name.split(' ')[0] ?? employee.name
+  const columns = useMemo(
+    () =>
+      defineColumns<PayHead>([
+        {
+          id: 'head',
+          header: 'Head',
+          kind: 'text',
+          value: (h) => h.name,
+          hideable: false,
+          groupable: false,
+          minWidth: 160,
+          cell: (h) => (
+            <>
+              {h.name}
+              {!h.active && <span className="ml-2 text-[11px] text-muted">paused</span>}
+            </>
+          )
+        },
+        { id: 'kind', header: 'Kind', kind: 'enum', value: (h) => h.kind, options: HEAD_KIND_OPTIONS, className: 'text-muted', width: 116 },
+        { id: 'default', header: 'Default', kind: 'number', value: (h) => h.value, text: headValueText, cell: headValueCell, filterable: false, width: 128 },
+        {
+          id: 'override',
+          header: `Override for ${firstName}`,
+          kind: 'number',
+          value: (h) => stateRef.current.stateOf(h).overrideValue,
+          text: (h) => {
+            const v = stateRef.current.stateOf(h).overrideValue
+            return v == null ? '' : h.calc === 'flat' ? formatPaise(v) : percentLabel(v)
+          },
+          sortable: false,
+          filterable: false,
+          groupable: false,
+          hideable: false,
+          width: 200,
+          cell: (h) => {
+            const s = stateRef.current.stateOf(h)
+            return s.assigned ? (
+              <OverrideInput calc={h.calc} value={s.overrideValue} onChange={(v) => stateRef.current.setState(h.id, { ...s, overrideValue: v })} />
+            ) : null
+          }
+        }
+      ]),
+    [firstName]
+  )
+
   return (
     <Modal title={`Pay heads — ${employee.name}`} onClose={onClose} wide dirty={dirty}>
       {!loaded ? (
@@ -546,50 +621,31 @@ function EmployeeHeadsModal({ employee, onClose }: { employee: Employee; onClose
         <EmptyState title="No pay heads defined" hint="Create pay heads first (Employees tab → Pay heads…)" />
       ) : (
         <div className="flex flex-col gap-4">
-          <ScrollList maxH="48vh">
-            <table className="ledger-table">
-              <thead>
-                <tr>
-                  <th className="w-10"></th>
-                  <th>Head</th>
-                  <th className="w-24">Kind</th>
-                  <th className="r w-32">Default</th>
-                  <th className="r w-44">Override for {employee.name.split(' ')[0]}</th>
-                </tr>
-              </thead>
-              <tbody data-testid="rows-payroll-employee-heads">
-                {heads.map((h) => {
-                  const s = stateOf(h)
-                  return (
-                    <tr key={h.id} data-row-id={h.id} className={s.assigned ? '' : 'opacity-50'}>
-                      <td>
-                        <input
-                          type="checkbox"
-                          checked={s.assigned}
-                          onChange={(e) => setState(h.id, { ...s, assigned: e.target.checked })}
-                        />
-                      </td>
-                      <td>
-                        {h.name}
-                        {!h.active && <span className="ml-2 text-[11px] text-muted">paused</span>}
-                      </td>
-                      <td className="capitalize text-muted">{h.kind}</td>
-                      <td className="num r">{h.calc === 'flat' ? <Money paise={h.value} /> : percentLabel(h.value)}</td>
-                      <td className="r">
-                        {s.assigned && (
-                          <OverrideInput
-                            calc={h.calc}
-                            value={s.overrideValue}
-                            onChange={(v) => setState(h.id, { ...s, overrideValue: v })}
-                          />
-                        )}
-                      </td>
-                    </tr>
-                  )
-                })}
-              </tbody>
-            </table>
-          </ScrollList>
+          <div className="overflow-hidden rounded-md border border-line">
+            <DataTable
+              testId="payroll-employee-heads"
+              ariaLabel={`Pay heads assigned to ${employee.name}`}
+              columns={columns}
+              rows={heads}
+              rowKey={(h) => h.id}
+              rowAttrs={(h) => ({ 'data-row-id': h.id })}
+              rowClassName={(h) => (stateOf(h).assigned ? '' : 'opacity-50')}
+              toolbarFeatures={MODAL_TABLE_FEATURES}
+              maxHeight="48vh"
+              leadingWidth={40}
+              leading={(h) => {
+                const st = stateOf(h)
+                return (
+                  <input
+                    type="checkbox"
+                    aria-label={`Assign ${h.name}`}
+                    checked={st.assigned}
+                    onChange={(e) => setState(h.id, { ...st, assigned: e.target.checked })}
+                  />
+                )
+              }}
+            />
+          </div>
           <p className="text-[11.5px] text-muted">
             Empty override = the head's default value. Basic, HRA and Special Allowance overrides write back to the salary fields on the employee form.
           </p>
@@ -631,7 +687,7 @@ function OverrideInput({
   }
   return (
     <input
-      className={`${inputCls} num w-36 text-right`}
+      className={`${inputCls} num !h-[22px] !w-36 !py-0 !text-detail text-right`}
       data-testid="input-payroll-override"
       value={text}
       placeholder="default"
@@ -928,6 +984,13 @@ function RunActions({ run, onPt }: { run: PayrollRun; onPt: (run: PayrollRun) =>
   )
 }
 
+const PT_COLUMNS = defineColumns<PtSummaryRow>([
+  { id: 'state', header: 'State', kind: 'text', value: (r) => r.state, hideable: false, groupable: false, minWidth: 96 },
+  { id: 'employees', header: 'Employees', kind: 'number', value: (r) => r.employees, aggregate: 'sum', width: 104 },
+  { id: 'gross', header: 'Gross', kind: 'money', value: (r) => r.gross, aggregate: 'sum', width: 124 },
+  { id: 'pt', header: 'PT payable', kind: 'money', value: (r) => r.pt, aggregate: 'sum', width: 124, className: 'font-medium' }
+])
+
 function PtSummaryModal({ run, onClose }: { run: PayrollRun; onClose: () => void }): React.JSX.Element {
   const toast = useToasts()
   const { data: rows, isLoading } = useQuery({
@@ -946,40 +1009,19 @@ function PtSummaryModal({ run, onClose }: { run: PayrollRun; onClose: () => void
 
   return (
     <Modal title={`Professional tax — ${monthLabel(run.month)}`} onClose={onClose}>
-      {isLoading || !rows ? (
-        <div className="flex items-center gap-2 py-4 text-[13px] text-muted">
-          <Spinner /> Loading…
-        </div>
-      ) : rows.length === 0 ? (
-        <EmptyState title="No professional tax this run" />
-      ) : (
-        <table className="ledger-table">
-          <thead>
-            <tr>
-              <th>State</th>
-              <th className="r w-28">Employees</th>
-              <th className="r w-32">Gross</th>
-              <th className="r w-32">PT payable</th>
-            </tr>
-          </thead>
-          <tbody data-testid="rows-payroll-pt">
-            {rows.map((r) => (
-              <tr key={r.state}>
-                <td>{r.state}</td>
-                <td className="num r">{r.employees}</td>
-                <td className="r"><Money paise={r.gross} /></td>
-                <td className="r font-medium"><Money paise={r.pt} /></td>
-              </tr>
-            ))}
-            <tr className="total-row">
-              <td>Total</td>
-              <td className="num r">{rows.reduce((s, r) => s + r.employees, 0)}</td>
-              <td className="r"><Money paise={rows.reduce((s, r) => s + r.gross, 0)} /></td>
-              <td className="r"><Money paise={rows.reduce((s, r) => s + r.pt, 0)} /></td>
-            </tr>
-          </tbody>
-        </table>
-      )}
+      <div className="overflow-hidden rounded-md border border-line">
+        <DataTable
+          testId="payroll-pt"
+          ariaLabel={`Professional tax by state — ${monthLabel(run.month)}`}
+          columns={PT_COLUMNS}
+          rows={rows ?? []}
+          rowKey={(r) => r.state}
+          loading={isLoading}
+          empty={{ title: 'No professional tax this run' }}
+          toolbar={false}
+          maxHeight="50vh"
+        />
+      </div>
       {rows && rows.length > 0 && (
         <div className="mt-4 flex justify-end border-t border-line pt-3">
           <Button data-testid="btn-payroll-pt-csv" onClick={() => void exportCsv()} title="State-wise PT return CSV (exports folder)">
