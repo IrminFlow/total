@@ -642,10 +642,6 @@ export function registerIpc(): void {
     const c = requireCompany()
     return reports.balanceSheet(c.db, `${c.info.booksFrom}-04-01`, asOn, comparePrior)
   }, 'viewer')
-  handle('report:stockSummary', (p) => {
-    const { asOn } = z.object({ asOn: z.string() }).parse(p)
-    return reports.stockSummary(requireCompany().db, asOn)
-  }, 'viewer')
   handle('report:dashboard', (p) => {
     const { today, fyFrom } = z.object({ today: z.string(), fyFrom: z.string() }).parse(p)
     return reports.dashboard(requireCompany().db, today, fyFrom)

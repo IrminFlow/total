@@ -468,7 +468,6 @@ export const api = {
       call<ProfitAndLoss>('report:profitLoss', { from, to, comparePrior }),
     balanceSheet: (asOn: string, comparePrior?: boolean) =>
       call<BalanceSheet>('report:balanceSheet', { asOn, comparePrior }),
-    stockSummary: (asOn: string) => call<StockSummaryRow[]>('report:stockSummary', { asOn }),
     dashboard: (today: string, fyFrom: string) => call<DashboardData>('report:dashboard', { today, fyFrom }),
     cashFlow: (from: string, to: string) => call<CashFlowStatement>('report:cashFlow', { from, to }),
     stockAgeing: (asOn: string) => call<StockAgeingRow[]>('report:stockAgeing', { asOn }),
