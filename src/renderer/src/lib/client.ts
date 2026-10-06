@@ -1,6 +1,6 @@
 import type {
   Batch, BomLine, Budget, CompanyInfo, CostCentre, Currency, Employee, Godown, Group, Ledger, NegativeStockWarning,
-  PayrollLine, PayrollRun, PriceLevel, PriceListRate, RecurringTemplate, StockGroup, StockItem, TdsSection, Unit,
+  PayrollLine, PayrollRun, PriceLevel, PriceListRate, StockGroup, StockItem, TdsSection, Unit,
   Voucher, VoucherTransport, VoucherType
 } from '@shared/domain'
 import type { BudgetVarianceRow } from '@shared/budgets'
@@ -20,12 +20,13 @@ import type {
   AuditListInput, BankRuleInput, BatchInput, BomInput, BudgetInput, ChequeConfig, CompanyCreateInput, CostCentreInput,
   CurrencyInput, EmployeeHeadsSetInput, EmployeeInputPayload, GodownInput, GroupInput, Gst3bManualInput, LedgerInput, NicCredentials,
   PayHeadInput, PriceLevelInput,
-  PriceRateInput, RecurringInput,
+  PriceRateInput,
   RendererLogInput, StockGroupInput, StockItemInput, TdsSectionInput, UnitInput, UserInput, VoucherTransportInput, VoucherTypeInput,
   VoucherInputParsed
 } from '@shared/schemas'
 import type { CompanyFeatures } from '@shared/features'
 import type { SearchHit } from '@shared/search'
+import type { ChartGroupNode } from '@shared/chartOfAccounts'
 import type { InvoiceConfig } from '@shared/invoiceConfig'
 import type { CloseLedgerRow } from '@shared/yearEnd'
 import type { ConsolidatedResult } from '@shared/consolidate'
@@ -375,6 +376,8 @@ export const api = {
   groups: {
     list: () => call<Group[]>('master:groups:list'),
     tree: () => call<GroupTreeNode[]>('master:groups:tree'),
+    /** Groups with their ledgers as leaves, closing balances as on `asOn`. */
+    chart: (asOn: string) => call<ChartGroupNode[]>('master:chartOfAccounts', { asOn }),
     create: (data: GroupInput) => call<Group>('master:groups:create', data),
     update: (id: number, data: GroupInput) => call<Group>('master:groups:update', { id, data }),
     remove: (id: number) => call<null>('master:groups:delete', { id })
@@ -525,14 +528,6 @@ export const api = {
     save: (data: BudgetInput, id?: number) => call<Budget>('budget:save', { id, data }),
     remove: (id: number) => call<null>('budget:delete', { id }),
     variance: (budgetId: number, upToMonth: string) => call<BudgetVarianceRow[]>('budget:variance', { budgetId, upToMonth })
-  },
-  recurring: {
-    list: () => call<RecurringTemplate[]>('recurring:list'),
-    save: (data: RecurringInput, id?: number) => call<RecurringTemplate>('recurring:save', { id, data }),
-    remove: (id: number) => call<null>('recurring:delete', { id }),
-    due: (today: string) => call<RecurringTemplate[]>('recurring:due', { today }),
-    post: (id: number, date: string) => call<Voucher>('recurring:post', { id, date }),
-    skip: (id: number) => call<RecurringTemplate>('recurring:skip', { id })
   },
   bank: {
     ledgers: () => call<{ id: number; name: string }[]>('bank:ledgers'),

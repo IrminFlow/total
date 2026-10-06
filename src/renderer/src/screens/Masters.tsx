@@ -1,13 +1,14 @@
 import { useMemo, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import type { Godown, Ledger, StockGroup, StockItem, VoucherType } from '@shared/domain'
-import type { GroupTreeNode } from '@shared/reports'
+import { filterLedgers, type ChartGroupNode } from '@shared/chartOfAccounts'
 import { api } from '../lib/client'
-import { useNav, useToasts, type Screen } from '../state/stores'
+import { useNav, useSession, useToasts, type Screen } from '../state/stores'
 import { AmountInput, Button, EmptyState, Field, Modal, Money, Panel, Select, TextInput, useKeyNav } from '../components/ui'
 import { TabBar } from '../components/TabBar'
 import { useGroups, useLedgers, useStockItems } from '../components/pickers'
 import { LedgerFormModal } from '../components/LedgerFormModal'
+import { ChartOfAccounts } from '../components/ChartOfAccounts'
 import { validateHsn } from '@shared/gst/validate'
 import { confirmDialog, promptDialog } from '../lib/dialogs'
 
@@ -189,13 +190,14 @@ function LedgersTab(): React.JSX.Element {
   const groups = useGroups()
   const nav = useNav()
   const [filter, setFilter] = useState('')
+  const [groupFilter, setGroupFilter] = useState<number | null>(null)
   const [editing, setEditing] = useState<Ledger | 'new' | null>(null)
   const [sort, setSort] = useState<{ key: LedgerSortKey; dir: 1 | -1 }>({ key: 'name', dir: 1 })
   const groupMap = useMemo(() => new Map(groups.map((g) => [g.id, g.name])), [groups])
 
   const rows = useMemo(() => {
-    const q = filter.trim().toLowerCase()
-    const filtered = q ? ledgers.filter((l) => l.name.toLowerCase().includes(q)) : ledgers
+    // Name, group, any ancestor group, GSTIN or PAN — so "Sales" finds "Local Sale" under Sales Accounts.
+    const filtered = filterLedgers(ledgers, groups, filter, groupFilter)
     // openingBalance stays integer paise — compared, never arithmetically transformed.
     const keyOf = (l: Ledger): string | number =>
       sort.key === 'name' ? l.name : sort.key === 'group' ? (groupMap.get(l.groupId) ?? '') : sort.key === 'gstin' ? (l.gstin ?? '') : l.openingBalance
@@ -205,7 +207,7 @@ function LedgersTab(): React.JSX.Element {
       const cmp = typeof ka === 'number' && typeof kb === 'number' ? ka - kb : String(ka).localeCompare(String(kb), undefined, { sensitivity: 'base' })
       return sort.dir * (cmp !== 0 ? cmp : a.name.localeCompare(b.name))
     })
-  }, [ledgers, filter, sort, groupMap])
+  }, [ledgers, groups, filter, groupFilter, sort, groupMap])
 
   const onSort = (k: LedgerSortKey): void => setSort((s) => (s.key === k ? { key: k, dir: s.dir === 1 ? -1 : 1 } : { key: k, dir: 1 }))
 
@@ -216,9 +218,34 @@ function LedgersTab(): React.JSX.Element {
 
   return (
     <>
-      <div className="mb-3 flex justify-between">
-        <TextInput value={filter} onChange={(e) => setFilter(e.target.value)} placeholder="Type to filter…" className="w-64" />
-        <Button variant="primary" data-testid="btn-masters-new-ledger" onClick={() => setEditing('new')}>
+      <div className="mb-3 flex items-center gap-2">
+        {/* inputCls is w-full — the wrappers set the widths. */}
+        <div className="w-64 shrink-0">
+          <TextInput
+            value={filter}
+            onChange={(e) => setFilter(e.target.value)}
+            placeholder="Name, group, GSTIN or PAN…"
+            aria-label="Filter ledgers"
+            data-testid="masters-ledgers-filter"
+          />
+        </div>
+        <div className="w-56 shrink-0">
+          <Select
+            value={groupFilter ?? ''}
+            onChange={(e) => setGroupFilter(e.target.value ? Number(e.target.value) : null)}
+            aria-label="Filter by group (includes sub-groups)"
+            data-testid="masters-ledgers-group"
+          >
+            <option value="">All groups</option>
+            {groups.map((g) => (
+              <option key={g.id} value={g.id}>
+                {g.name}
+              </option>
+            ))}
+          </Select>
+        </div>
+        <span className="flex-1" />
+        <Button variant="primary" className="whitespace-nowrap" data-testid="btn-masters-new-ledger" onClick={() => setEditing('new')}>
           New ledger
         </Button>
       </div>
@@ -278,25 +305,28 @@ function LedgersTab(): React.JSX.Element {
 // ---------- groups ----------
 
 /** All group ids in the subtree rooted at `node` (inclusive) — a group can't move under itself. */
-function subtreeIds(node: GroupTreeNode, acc: Set<number> = new Set()): Set<number> {
+function subtreeIds(node: ChartGroupNode, acc: Set<number> = new Set()): Set<number> {
   acc.add(node.id)
   for (const c of node.children) subtreeIds(c, acc)
   return acc
 }
 
 function GroupsTab(): React.JSX.Element {
-  const { data: tree } = useQuery({ queryKey: ['groupTree'], queryFn: api.groups.tree })
+  const { to } = useSession()
+  const nav = useNav()
+  // Closing balances as on the working period's end — same figure the trial balance shows.
+  const { data: tree } = useQuery({ queryKey: ['chartOfAccounts', to], queryFn: () => api.groups.chart(to) })
   const groups = useGroups()
   const toast = useToasts()
   const queryClient = useQueryClient()
   const [creating, setCreating] = useState(false)
-  const [moving, setMoving] = useState<GroupTreeNode | null>(null)
+  const [moving, setMoving] = useState<ChartGroupNode | null>(null)
   const [name, setName] = useState('')
   const [parentId, setParentId] = useState<number | null>(null)
 
   // Group names surface in the ledgers tab and every grouped report.
   const invalidate = (): Promise<unknown> =>
-    Promise.all(['groupTree', 'groups', 'ledgers'].map((key) => queryClient.invalidateQueries({ queryKey: [key] })))
+    Promise.all(['chartOfAccounts', 'groups', 'ledgers'].map((key) => queryClient.invalidateQueries({ queryKey: [key] })))
 
   const create = async (): Promise<void> => {
     try {
@@ -311,7 +341,7 @@ function GroupsTab(): React.JSX.Element {
     }
   }
 
-  const rename = async (node: GroupTreeNode): Promise<void> => {
+  const rename = async (node: ChartGroupNode): Promise<void> => {
     if (node.parentId == null) return
     const next = await promptDialog({ title: 'Rename group', initial: node.name, confirmLabel: 'Rename' })
     if (next === null || !next.trim() || next.trim() === node.name) return
@@ -324,7 +354,7 @@ function GroupsTab(): React.JSX.Element {
     }
   }
 
-  const remove = async (node: GroupTreeNode): Promise<void> => {
+  const remove = async (node: ChartGroupNode): Promise<void> => {
     const proceed = await confirmDialog({
       title: 'Delete group',
       message: `Delete group “${node.name}”? Groups with sub-groups or ledgers under them cannot be deleted.`,
@@ -348,10 +378,26 @@ function GroupsTab(): React.JSX.Element {
           New sub-group
         </Button>
       </div>
-      <Panel className="p-4">
-        {(tree ?? []).map((node) => (
-          <GroupNode key={node.id} node={node} depth={0} onRename={rename} onMove={setMoving} onDelete={remove} />
-        ))}
+      <Panel>
+        <ChartOfAccounts
+          tree={tree ?? []}
+          onOpenLedger={(ledgerId) => nav.go({ name: 'ledger-statement', ledgerId })}
+          groupActions={(node) =>
+            node.isSystem ? null : (
+              <>
+                <button data-testid="btn-masters-group-rename" className="text-[11.5px] text-blue hover:underline" onClick={() => void rename(node)}>
+                  Rename
+                </button>
+                <button data-testid="btn-masters-group-move" className="text-[11.5px] text-blue hover:underline" onClick={() => setMoving(node)}>
+                  Move
+                </button>
+                <button data-testid="btn-masters-group-delete" className="text-[11.5px] text-cr hover:underline" onClick={() => void remove(node)}>
+                  Delete
+                </button>
+              </>
+            )
+          }
+        />
       </Panel>
       {creating && (
         <Modal title="New sub-group" onClose={() => setCreating(false)}>
@@ -399,7 +445,7 @@ function MoveGroupModal({
   onClose,
   onMoved
 }: {
-  node: GroupTreeNode
+  node: ChartGroupNode
   onClose: () => void
   onMoved: () => Promise<void>
 }): React.JSX.Element {
@@ -443,50 +489,6 @@ function MoveGroupModal({
         </div>
       </div>
     </Modal>
-  )
-}
-
-function GroupNode({
-  node,
-  depth,
-  onRename,
-  onMove,
-  onDelete
-}: {
-  node: GroupTreeNode
-  depth: number
-  onRename: (node: GroupTreeNode) => Promise<void>
-  onMove: (node: GroupTreeNode) => void
-  onDelete: (node: GroupTreeNode) => Promise<void>
-}): React.JSX.Element {
-  const natureTone = { asset: 'text-dr', liability: 'text-cr', income: 'text-blue', expense: 'text-amber' }[node.nature]
-  return (
-    <>
-      <div
-        data-row-id={node.id}
-        className="group flex items-center justify-between rounded px-2 py-1 hover:bg-panel2"
-        style={{ paddingLeft: `${8 + depth * 18}px` }}
-      >
-        <span className={`text-[13px] ${depth === 0 ? 'font-medium' : 'text-muted'}`}>{node.name}</span>
-        {depth === 0 && <span className={`text-[10.5px] uppercase tracking-wider ${natureTone}`}>{node.nature}</span>}
-        {!node.isSystem && (
-          <span className="flex gap-2 opacity-0 transition-opacity group-hover:opacity-100">
-            <button data-testid="btn-masters-group-rename" className="text-[11.5px] text-blue hover:underline" onClick={() => void onRename(node)}>
-              Rename
-            </button>
-            <button data-testid="btn-masters-group-move" className="text-[11.5px] text-blue hover:underline" onClick={() => onMove(node)}>
-              Move
-            </button>
-            <button data-testid="btn-masters-group-delete" className="text-[11.5px] text-cr hover:underline" onClick={() => void onDelete(node)}>
-              Delete
-            </button>
-          </span>
-        )}
-      </div>
-      {node.children.map((c) => (
-        <GroupNode key={c.id} node={c} depth={depth + 1} onRename={onRename} onMove={onMove} onDelete={onDelete} />
-      ))}
-    </>
   )
 }
 
