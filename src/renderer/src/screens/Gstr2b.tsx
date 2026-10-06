@@ -65,33 +65,38 @@ const BOOK_KIND_LABEL: Record<NonNullable<Recon2bPair['book']>['kind'], string> 
   debit_note: 'Debit note'
 }
 
-/** Columns of one reconciliation pair: the portal side, then the books side, then the diff. */
+/** Columns of one reconciliation pair: the portal side, then the books side, then the diff.
+ *  "Portal" / "Books" header bands (`group`) name the side, so the labels stay short; exports
+ *  read "Portal · Invoice no.". */
 export function pairColumns(onCreatePurchase: (portal: NonNullable<Recon2bPair['portal']>) => void): TableColumn<Recon2bPair>[] {
   return defineColumns<Recon2bPair>([
     {
       id: 'portalNo',
-      header: '2B no.',
+      header: 'Invoice no.',
+      group: 'Portal',
       kind: 'text',
       value: (p) => p.portal?.number,
       cell: (p) => p.portal?.number ?? dash,
       hideable: false,
       groupable: false,
-      width: 120
+      minWidth: 120
     },
-    { id: 'portalDate', header: '2B date', kind: 'date', value: (p) => p.portal?.date, className: 'text-muted', width: 104 },
+    { id: 'portalDate', header: 'Date', group: 'Portal', kind: 'date', value: (p) => p.portal?.date, className: 'text-muted' },
     {
       id: 'supplierGstin',
       header: 'Supplier GSTIN',
+      group: 'Portal',
       kind: 'text',
       value: (p) => p.portal?.gstin ?? p.book?.partyGstin,
       className: 'num text-muted',
       width: 160,
       defaultHidden: true
     },
-    { id: 'portalValue', header: '2B value', kind: 'money', value: (p) => p.portal?.value, width: 124, aggregate: 'sum' },
+    { id: 'portalValue', header: 'Value', group: 'Portal', kind: 'money', value: (p) => p.portal?.value, width: 124, aggregate: 'sum' },
     {
       id: 'portalTax',
-      header: '2B tax',
+      header: 'Tax',
+      group: 'Portal',
       kind: 'money',
       value: (p) => (p.portal ? taxTotal(p.portal) : null),
       width: 112,
@@ -99,10 +104,12 @@ export function pairColumns(onCreatePurchase: (portal: NonNullable<Recon2bPair['
     },
     {
       id: 'bookNo',
-      header: 'Books ref',
+      header: 'Supplier ref',
+      group: 'Books',
       kind: 'text',
       value: (p) => (p.book ? (p.book.supplierRef ?? p.book.number) : null),
       groupable: false,
+      minWidth: 132,
       cell: (p) =>
         p.book ? (
           <VoucherLink voucherId={p.book.voucherId} label={p.book.supplierRef ?? p.book.number} />
@@ -124,6 +131,7 @@ export function pairColumns(onCreatePurchase: (portal: NonNullable<Recon2bPair['
     {
       id: 'party',
       header: 'Party',
+      group: 'Books',
       kind: 'text',
       value: (p) => p.book?.partyName,
       minWidth: 140,
@@ -132,7 +140,8 @@ export function pairColumns(onCreatePurchase: (portal: NonNullable<Recon2bPair['
     },
     {
       id: 'bookKind',
-      header: 'Books type',
+      header: 'Type',
+      group: 'Books',
       kind: 'enum',
       value: (p) => p.book?.kind,
       options: [
@@ -141,19 +150,20 @@ export function pairColumns(onCreatePurchase: (portal: NonNullable<Recon2bPair['
       ],
       defaultHidden: true
     },
-    { id: 'bookDate', header: 'Books date', kind: 'date', value: (p) => p.book?.date, className: 'text-muted', width: 132 },
-    { id: 'bookValue', header: 'Books value', kind: 'money', value: (p) => p.book?.invoiceValue, width: 140, aggregate: 'sum' },
+    { id: 'bookDate', header: 'Date', group: 'Books', kind: 'date', value: (p) => p.book?.date, className: 'text-muted' },
+    { id: 'bookValue', header: 'Value', group: 'Books', kind: 'money', value: (p) => p.book?.invoiceValue, width: 124, aggregate: 'sum' },
     {
       id: 'bookTax',
-      header: 'Books tax',
+      header: 'Tax',
+      group: 'Books',
       kind: 'money',
       value: (p) => (p.book ? taxTotal(p.book) : null),
-      width: 124,
+      width: 112,
       aggregate: 'sum'
     },
     {
       id: 'valueDiff',
-      header: 'Diff',
+      header: 'Value diff',
       kind: 'money',
       signed: true,
       value: (p) => p.valueDiffPaise,

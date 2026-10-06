@@ -1,5 +1,5 @@
 // Per-column filters by kind + the quick filter across visible text columns.
-import { cellText, formatRaw } from './format'
+import { cellText, columnLabel, formatRaw } from './format'
 import type { CellValue, ColumnDef, ColumnFilter, ColumnKind } from './types'
 
 /** Which filter shape a column kind takes. */
@@ -124,21 +124,23 @@ const DATE_OPS = { on: 'on', before: 'before', after: 'after', between: 'between
 
 /** Human label for a filter chip: "Amount ≥ 1,000.00", "Date between 01-Apr-26 and 30-Apr-26". */
 export function describeFilter<Row>(col: ColumnDef<Row>, f: ColumnFilter): string {
-  const fmt = (v: CellValue): string => formatRaw(col.kind, v, { decimals: col.decimals, plainZero: true })
+  const decimals = typeof col.decimals === 'number' ? col.decimals : undefined
+  const fmt = (v: CellValue): string => formatRaw(col.kind, v, { decimals, plainZero: true })
+  const label = columnLabel(col)
   switch (f.type) {
     case 'text':
-      return f.op === 'empty' ? `${col.header} is empty` : `${col.header} ${TEXT_OPS[f.op]} “${f.value}”`
+      return f.op === 'empty' ? `${label} is empty` : `${label} ${TEXT_OPS[f.op]} “${f.value}”`
     case 'range': {
       const sym = { eq: '=', gte: '≥', lte: '≤', between: '' }[f.op]
-      if (f.op === 'between') return `${col.header} ${fmt(f.a)} – ${fmt(f.b ?? f.a)}`
-      return `${col.header} ${sym} ${fmt(f.a)}`
+      if (f.op === 'between') return `${label} ${fmt(f.a)} – ${fmt(f.b ?? f.a)}`
+      return `${label} ${sym} ${fmt(f.a)}`
     }
     case 'date':
-      if (f.op === 'between') return `${col.header} ${fmt(f.a)} – ${fmt(f.b ?? f.a)}`
-      return `${col.header} ${DATE_OPS[f.op]} ${fmt(f.a)}`
+      if (f.op === 'between') return `${label} ${fmt(f.a)} – ${fmt(f.b ?? f.a)}`
+      return `${label} ${DATE_OPS[f.op]} ${fmt(f.a)}`
     case 'enum': {
       const labels = f.values.map((v) => col.options?.find((o) => o.value === v)?.label ?? v)
-      return `${col.header}: ${labels.join(', ')}`
+      return `${label}: ${labels.join(', ')}`
     }
   }
 }

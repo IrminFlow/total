@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import type { ChequeConfig } from '@shared/schemas'
 import type { BankLineRow } from '@shared/reports'
@@ -6,7 +6,7 @@ import { api, type BankImportResult, type BankRuleRecord, type BankSuggestionRow
 import { DataTable, defineColumns, type TableColumn } from '../components/table'
 import { useNav, useSession, useToasts, nextDraftId } from '../state/stores'
 import {
-  Button, DateInput, EmptyState, Field, Modal, Money, Panel, ScrollList, SectionTitle, Select, Spinner, TextInput
+  Button, DateInput, EmptyState, Field, Modal, Money, Panel, SectionTitle, Select, Spinner, TextInput
 } from '../components/ui'
 import { LedgerPicker } from '../components/pickers'
 import { toDisplayDate, todayISO } from '@shared/dates'
@@ -159,6 +159,58 @@ const PDC_COLUMNS = defineColumns<PdcRow>([
   { id: 'instrumentDate', header: 'Instrument date', kind: 'date', value: (r) => r.instrumentDate, defaultHidden: true, width: 176, className: 'text-muted' },
   { id: 'amount', header: 'Amount', kind: 'money', value: (r) => r.amount, aggregate: 'sum', width: 140 }
 ])
+
+/** A statement line in the import preview (matched book entry or unmatched line). */
+type ImportPreviewLine = { date: string; description: string; amount: number; kind: 'deposit' | 'withdrawal' }
+
+const IMPORT_LINE_COLUMNS = defineColumns<ImportPreviewLine>([
+  { id: 'date', header: 'Date', kind: 'date', value: (m) => m.date, className: 'text-muted' },
+  { id: 'description', header: 'Description', kind: 'text', value: (m) => m.description, hideable: false, groupable: false, minWidth: 180 },
+  { id: 'kind', header: 'Direction', kind: 'enum', value: (m) => m.kind, options: DIRECTION_OPTIONS, className: 'text-muted' },
+  { id: 'amount', header: 'Amount', kind: 'money', value: (m) => m.amount, width: 140 }
+])
+
+const RULE_KIND_OPTIONS = [
+  { value: 'payment', label: 'Payment' },
+  { value: 'receipt', label: 'Receipt' }
+]
+
+/** Bank rules. The Active cell toggles the rule, so the column set is built around that callback. */
+function ruleColumns(onToggleActive: (r: BankRuleRecord) => void): TableColumn<BankRuleRecord>[] {
+  return defineColumns<BankRuleRecord>([
+    { id: 'pattern', header: 'Pattern', kind: 'text', value: (r) => r.pattern, hideable: false, groupable: false, minWidth: 160 },
+    { id: 'ledger', header: 'Ledger', kind: 'text', value: (r) => r.ledgerName, className: 'text-muted', minWidth: 140 },
+    { id: 'kind', header: 'Kind', kind: 'enum', value: (r) => r.kind, options: RULE_KIND_OPTIONS, width: 110 },
+    { id: 'hits', header: 'Hits', kind: 'number', value: (r) => r.hits, width: 80 },
+    {
+      id: 'active',
+      header: 'Active',
+      kind: 'enum',
+      value: (r) => (r.active ? 'active' : 'paused'),
+      options: [
+        { value: 'active', label: 'Active' },
+        { value: 'paused', label: 'Paused' }
+      ],
+      width: 96,
+      cell: (r) => (
+        <button
+          type="button"
+          className="text-[12px] text-blue hover:underline"
+          onClick={(e) => {
+            e.stopPropagation() // toggling isn't "edit this rule"
+            onToggleActive(r)
+          }}
+        >
+          {r.active ? 'Active' : 'Paused'}
+        </button>
+      )
+    }
+  ])
+}
+
+/** Tables inside dialogs: quick filter, columns and count — no saved views, grouping, density
+ *  or export in a modal. */
+const MODAL_TABLE_FEATURES = { groupBy: false, density: false, views: false, export: false } as const
 
 export function BankingScreen(): React.JSX.Element {
   const nav = useNav()
@@ -576,40 +628,33 @@ function ImportPreviewModal({
         {preview.matches.length > 0 && (
           <div>
             <p className="mb-1.5 text-[11px] font-semibold tracking-[0.08em] text-muted uppercase">Matched book entries</p>
-            <ScrollList maxH="30vh" className="rounded-md border border-line">
-              <table className="ledger-table">
-                <tbody data-testid="rows-banking-import-matches">
-                  {preview.matches.map((m, i) => (
-                    <tr key={i}>
-                      <td className="num w-24 text-muted">{toDisplayDate(m.date)}</td>
-                      <td className="max-w-80 truncate">{m.description}</td>
-                      <td className="w-24 capitalize text-muted">{m.kind}</td>
-                      <td className="num r w-32"><Money paise={m.amount} /></td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </ScrollList>
+            <div className="overflow-hidden rounded-md border border-line">
+              <DataTable
+                testId="banking-import-matches"
+                ariaLabel="Matched book entries"
+                columns={IMPORT_LINE_COLUMNS}
+                rows={preview.matches}
+                rowKey={(m) => m.lineId}
+                toolbarFeatures={MODAL_TABLE_FEATURES}
+                maxHeight="30vh"
+              />
+            </div>
           </div>
         )}
 
         {preview.unmatched.length > 0 && (
           <div>
             <p className="mb-1.5 text-[11px] font-semibold tracking-[0.08em] text-muted uppercase">Unmatched statement lines</p>
-            <ScrollList maxH="24vh" className="rounded-md border border-line">
-              <table className="ledger-table">
-                <tbody data-testid="rows-banking-import-unmatched">
-                  {preview.unmatched.map((u, i) => (
-                    <tr key={i}>
-                      <td className="num w-24 text-muted">{toDisplayDate(u.date)}</td>
-                      <td className="max-w-80 truncate">{u.description}</td>
-                      <td className="w-24 capitalize text-muted">{u.kind}</td>
-                      <td className="num r w-32"><Money paise={u.amount} /></td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </ScrollList>
+            <div className="overflow-hidden rounded-md border border-line">
+              <DataTable
+                testId="banking-import-unmatched"
+                ariaLabel="Unmatched statement lines"
+                columns={IMPORT_LINE_COLUMNS}
+                rows={preview.unmatched}
+                toolbarFeatures={MODAL_TABLE_FEATURES}
+                maxHeight="24vh"
+              />
+            </div>
             <p className="mt-1 text-[11.5px] text-muted">After applying, unmatched lines get ledger suggestions so you can create the missing vouchers.</p>
           </div>
         )}
@@ -880,51 +925,40 @@ function BankRulesModal({
       toast.push('error', (err as Error).message)
     }
   }
+  const toggleRef = useRef(toggleActive)
+  toggleRef.current = toggleActive
+  // Stable columns (the table memoises on their identity); the cell calls the latest handler.
+  const rulesColumns = useMemo(() => ruleColumns((r) => void toggleRef.current(r)), [])
 
   return (
     <Modal title="Bank rules" onClose={onClose} wide>
       <div className="flex flex-col gap-4">
-        {!rules?.length ? (
-          <EmptyState title="No bank rules yet" hint={'Add one below, or use "Remember as rule" on an unmatched statement line'} />
-        ) : (
-          <ScrollList maxH="40vh">
-            <table className="ledger-table">
-              <thead>
-                <tr>
-                  <th>Pattern</th>
-                  <th>Ledger</th>
-                  <th className="w-24">Kind</th>
-                  <th className="r w-16">Hits</th>
-                  <th className="w-16">Active</th>
-                  <th className="w-32"></th>
-                </tr>
-              </thead>
-              <tbody data-testid="rows-banking-rules">
-                {rules.map((r) => (
-                  <tr key={r.id} data-row-id={r.id} className="hover:bg-panel2">
-                    <td>{r.pattern}</td>
-                    <td className="text-muted">{r.ledgerName}</td>
-                    <td className="capitalize">{r.kind}</td>
-                    <td className="num r">{r.hits}</td>
-                    <td>
-                      <button className="text-[12px] text-blue hover:underline" onClick={() => void toggleActive(r)}>
-                        {r.active ? 'Active' : 'Paused'}
-                      </button>
-                    </td>
-                    <td className="r">
-                      <button className="mr-3 text-[12px] text-blue hover:underline" onClick={() => edit(r)}>
-                        Edit
-                      </button>
-                      <button className="text-[12px] text-cr hover:underline" onClick={() => void remove(r)}>
-                        Delete
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </ScrollList>
-        )}
+        <div className="overflow-hidden rounded-md border border-line">
+          <DataTable
+            testId="banking-rules"
+            ariaLabel="Bank rules"
+            columns={rulesColumns}
+            rows={rules ?? []}
+            rowKey={(r) => r.id}
+            rowAttrs={(r) => ({ 'data-row-id': r.id })}
+            loading={rules === undefined}
+            empty={{ title: 'No bank rules yet', hint: 'Add one below, or use "Remember as rule" on an unmatched statement line' }}
+            onRowActivate={edit}
+            toolbarFeatures={MODAL_TABLE_FEATURES}
+            maxHeight="40vh"
+            trailingWidth={120}
+            trailing={(r) => (
+              <>
+                <button className="mr-3 text-[12px] text-blue hover:underline" onClick={() => edit(r)}>
+                  Edit
+                </button>
+                <button className="text-[12px] text-cr hover:underline" onClick={() => void remove(r)}>
+                  Delete
+                </button>
+              </>
+            )}
+          />
+        </div>
 
         <div className="border-t border-line pt-4">
           <p className="mb-2 text-[11px] font-semibold tracking-[0.08em] text-muted uppercase">{editingId ? 'Edit rule' : 'Add rule'}</p>

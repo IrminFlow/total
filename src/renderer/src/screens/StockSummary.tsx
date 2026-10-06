@@ -17,6 +17,9 @@ const qtyText = (milli: number, r: { decimals: number; unitSymbol: string }): st
 // Column ids match the old useReportConfig toggle keys ('stock-summary'), so users keep their
 // hidden-column choices via legacyReportKey. Quantities carry per-item units and precision, so
 // they have no meaningful total; closing value does.
+/** Each item has its own unit and precision: the table formats quantities per row. */
+const perItemQty = { decimals: (r: StockSummaryRow) => r.decimals, unit: (r: StockSummaryRow) => r.unitSymbol }
+
 export const STOCK_SUMMARY_COLUMNS = defineColumns<StockSummaryRow>([
   {
     id: 'item',
@@ -34,10 +37,10 @@ export const STOCK_SUMMARY_COLUMNS = defineColumns<StockSummaryRow>([
       </>
     )
   },
-  { id: 'opening', header: 'Opening', kind: 'quantity', value: (r) => r.openingQtyMilli, text: (r) => qtyText(r.openingQtyMilli, r), width: 124 },
-  { id: 'inwards', header: 'Inwards', kind: 'quantity', value: (r) => r.inwardQtyMilli, text: (r) => qtyText(r.inwardQtyMilli, r), width: 124 },
-  { id: 'outwards', header: 'Outwards', kind: 'quantity', value: (r) => r.outwardQtyMilli, text: (r) => qtyText(r.outwardQtyMilli, r), width: 124 },
-  { id: 'closingQty', header: 'Closing qty', kind: 'quantity', value: (r) => r.closingQtyMilli, text: (r) => qtyText(r.closingQtyMilli, r), width: 148 },
+  { id: 'opening', header: 'Opening', kind: 'quantity', value: (r) => r.openingQtyMilli, ...perItemQty, width: 124 },
+  { id: 'inwards', header: 'Inwards', kind: 'quantity', value: (r) => r.inwardQtyMilli, ...perItemQty, width: 124 },
+  { id: 'outwards', header: 'Outwards', kind: 'quantity', value: (r) => r.outwardQtyMilli, ...perItemQty, width: 124 },
+  { id: 'closingQty', header: 'Closing qty', kind: 'quantity', value: (r) => r.closingQtyMilli, ...perItemQty, width: 148 },
   { id: 'closingValue', header: 'Closing value', kind: 'money', value: (r) => r.closingValue, aggregate: 'sum', width: 160 }
 ])
 

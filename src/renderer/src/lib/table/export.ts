@@ -1,8 +1,12 @@
 // The CURRENT view → the display-formatted cells lib/reportExport.ts (printReport/csvReport) takes.
+import { plainRupees } from '@shared/money'
 import type { ReportColumn as PdfColumn, ReportRow as PdfRow } from '../client'
-import { aggregateText, cellText, columnAlign } from './format'
+import { aggregateText, cellText, columnAlign, columnLabel } from './format'
 import type { TableModel } from './pipeline'
 import type { CellValue, ColumnDef } from './types'
+
+/** Money cells in an export: as displayed ("1,234.00 Dr") or a plain signed decimal ("-1234.00"). */
+export type MoneyExportFormat = 'display' | 'plain'
 
 export interface TableExport {
   columns: PdfColumn[]
@@ -21,24 +25,37 @@ export interface TableExport {
  */
 export function buildTableExport<Row>(
   model: TableModel<Row, ColumnDef<Row>>,
-  opts: { totalsLabel?: string; includeTotals?: boolean } = {}
+  opts: {
+    totalsLabel?: string
+    includeTotals?: boolean
+    /**
+     * How money cells are written. 'display' (default) is the on-screen text — "1,234.00",
+     * "1,234.00 Dr", "–" for zero. 'plain' is a signed decimal a spreadsheet reads as a number:
+     * "1234.00", "-1234.00" (signed columns stay dr-positive), "0.00"; no value stays ''.
+     */
+    moneyFormat?: MoneyExportFormat
+  } = {}
 ): TableExport {
   const cols = model.columns
+  const plain = opts.moneyFormat === 'plain'
   const columns: PdfColumn[] = cols.map((c) => {
     const a = columnAlign(c)
-    return { label: c.header, align: a === 'right' ? 'r' : a === 'center' ? 'c' : 'l' }
+    return { label: columnLabel(c), align: a === 'right' ? 'r' : a === 'center' ? 'c' : 'l' }
   })
   const labelCol = Math.max(
     0,
     cols.findIndex((c) => !c.aggregate)
   )
+  const plainMoney = (v: CellValue): string => (v === null || v === undefined || v === '' || !Number.isFinite(Number(v)) ? '' : plainRupees(Number(v)))
+  const aggCell = (c: ColumnDef<Row>, v: CellValue): string => (plain && c.kind === 'money' ? plainMoney(v) : aggregateText(c, v))
+  const cell = (c: ColumnDef<Row>, row: Row): string => (plain && c.kind === 'money' ? plainMoney(c.value(row)) : cellText(c, row))
   const summaryCells = (totals: Record<string, CellValue>, label: string): string[] =>
-    cols.map((c, i) => (c.aggregate ? aggregateText(c, totals[c.id]) : i === labelCol ? label : ''))
+    cols.map((c, i) => (c.aggregate ? aggCell(c, totals[c.id]) : i === labelCol ? label : ''))
 
   const rows: PdfRow[] = []
   for (const item of model.items) {
     if (item.type === 'group') rows.push({ cells: summaryCells(item.totals, `${item.label} (${item.count})`), bold: true })
-    else rows.push({ cells: cols.map((c) => cellText(c, item.row)), indent: model.items[0]?.type === 'group' ? 1 : undefined })
+    else rows.push({ cells: cols.map((c) => cell(c, item.row)), indent: model.items[0]?.type === 'group' ? 1 : undefined })
   }
   const hasAgg = cols.some((c) => c.aggregate)
   if (hasAgg && opts.includeTotals !== false) {

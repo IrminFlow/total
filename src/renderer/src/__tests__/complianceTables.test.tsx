@@ -158,6 +158,18 @@ describe('GSTR-2B reconciliation table', () => {
     expect(totals.textContent).toContain('9,000.00')
   })
 
+  it('a Portal | Books header band names each side, so the column labels stay short', async () => {
+    await openGstr2b()
+    const bands = Array.from(screen.getByTestId('2b-pairs-table-bands').querySelectorAll<HTMLTableCellElement>('th[scope="colgroup"]'))
+    expect(bands.map((th) => [th.textContent, th.colSpan])).toEqual([
+      ['Portal', 4],
+      ['Books', 4]
+    ])
+    expect(screen.getByTestId('sort-2b-pairs-portalNo').textContent).toBe('Invoice no.')
+    expect(screen.getByTestId('sort-2b-pairs-bookValue').textContent).toBe('Value')
+    expect(screen.getByTestId('sort-2b-pairs-valueDiff').textContent).toBe('Value diff')
+  })
+
   it('sorts on a column header', async () => {
     await openGstr2b()
     fireEvent.click(screen.getByTestId('sort-2b-pairs-portalValue'))

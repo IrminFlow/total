@@ -266,6 +266,9 @@ const FOCUSABLE =
  *  (e.g. a ConfirmModal over a form modal) close one at a time. */
 let modalSeq = 0
 const modalStack: number[] = []
+/** Each mounted modal's dialog element (by stack id), so lists and popovers can tell whether
+ *  they live inside the topmost one. */
+const modalElements = new Map<number, () => HTMLElement | null>()
 
 /** True while any Modal is mounted — screens use it to suppress their own global shortcuts
  *  (Gateway single-letter keys, VoucherEntry F-keys / ⌘↵) so keys aimed at a dialog never
@@ -273,6 +276,36 @@ const modalStack: number[] = []
 export function isAnyModalOpen(): boolean {
   return modalStack.length > 0
 }
+
+/** The topmost open Modal's dialog element, or null when no modal is open. Popovers portal into
+ *  it (so they sit inside its focus trap and above its content); keyboard lists inside it keep
+ *  working while everything behind it is suspended. */
+export function topModalElement(): HTMLElement | null {
+  const id = modalStack[modalStack.length - 1]
+  return id === undefined ? null : (modalElements.get(id)?.() ?? null)
+}
+
+/**
+ * Open "Esc layers" above modals — transient overlays (the table's filter/column/view popovers)
+ * that must take Esc before the modal does. The Modal's capture-phase key handler is registered
+ * first, so it would otherwise close the whole dialog; while a layer is open it lets Esc through.
+ * Returns the unregister function.
+ */
+let escapeLayers = 0
+export function registerEscapeLayer(): () => void {
+  escapeLayers++
+  let done = false
+  return () => {
+    if (done) return
+    done = true
+    escapeLayers--
+  }
+}
+
+/** An element (or an ancestor) marked `data-consumes-escape` handles Esc itself first — e.g. the
+ *  table's quick filter clears its text — so a Modal doesn't close on that keypress. */
+const consumesEscape = (t: EventTarget | null): boolean =>
+  t instanceof Element && t.closest('[data-consumes-escape]') !== null
 
 export function Modal({
   title,
@@ -324,10 +357,13 @@ export function Modal({
   useEffect(() => {
     const id = ++modalSeq
     modalStack.push(id)
+    modalElements.set(id, () => dialogRef.current)
     const isTop = (): boolean => modalStack[modalStack.length - 1] === id
     const onKey = (e: KeyboardEvent): void => {
       if (!isTop()) return
       if (e.key === 'Escape') {
+        // A popover (or a field that clears itself) inside the dialog takes this Esc first.
+        if (escapeLayers > 0 || consumesEscape(e.target)) return
         e.stopPropagation()
         if (confirmRef.current) {
           setConfirmDiscard(false) // Esc on the discard prompt = keep editing
@@ -361,6 +397,7 @@ export function Modal({
       window.removeEventListener('keydown', onKey, true)
       const i = modalStack.indexOf(id)
       if (i >= 0) modalStack.splice(i, 1)
+      modalElements.delete(id)
     }
   }, [requestClose])
 
@@ -488,6 +525,25 @@ export function SkeletonRows({ rows = 8, className = '' }: { rows?: number; clas
  *  overlay's list doesn't fight the screen's list underneath it. */
 let keyNavSeq = 0
 const keyNavStack: number[] = []
+/** Each enabled list's container (its `claim` option), by stack id. */
+const keyNavContainers = new Map<number, () => HTMLElement | null>()
+
+/**
+ * The list that owns ↑↓↵ right now. With no modal open: the top of the stack. With a modal
+ * open: the topmost list whose container sits inside the topmost modal — lists behind the modal
+ * (and lists without a `claim` container, which can't say where they live) are suspended.
+ */
+function keyboardOwner(): number | undefined {
+  if (modalStack.length === 0) return keyNavStack[keyNavStack.length - 1]
+  const modal = topModalElement()
+  if (!modal) return undefined
+  for (let i = keyNavStack.length - 1; i >= 0; i--) {
+    const id = keyNavStack[i]!
+    const el = keyNavContainers.get(id)?.()
+    if (el && modal.contains(el)) return id
+  }
+  return undefined
+}
 
 /** Opt-in extras for useKeyNav (used by the DataTable platform; plain lists don't need them). */
 export interface KeyNavOptions {
@@ -497,8 +553,9 @@ export interface KeyNavOptions {
    *  be rendered at all (so there is no `.kbar-row[data-active]` element to scroll to). */
   scrollTo?: (index: number) => void
   /** The list's container. A pointerdown or focus landing inside it makes this list the keyboard
-   *  target (moves it to the top of the stack) — for screens with several lists. Modals still
-   *  win: the modal check runs before the stack check. */
+   *  target (moves it to the top of the stack) — for screens with several lists. It also says
+   *  where the list lives: while a Modal is open only a list whose container is inside the
+   *  topmost modal responds (lists without `claim` stay suspended under any modal). */
   claim?: () => HTMLElement | null
   /** Extra keys (e.g. ←/→ to collapse/expand). Runs under the same topmost/modal/input rules;
    *  return true when the key was handled (its default is then prevented). */
@@ -532,14 +589,17 @@ export function useKeyNav(
     const id = ++keyNavSeq
     idRef.current = id
     keyNavStack.push(id)
+    keyNavContainers.set(id, () => optionsRef.current?.claim?.() ?? null)
     const isTop = (): boolean => keyNavStack[keyNavStack.length - 1] === id
     const onKey = (e: KeyboardEvent): void => {
-      if (!isTop()) return
-      // While any Modal is up it owns the keyboard — a screen's list behind it must not
-      // move its selection (or fire Enter) from keys aimed at the dialog.
-      if (modalStack.length > 0) return
+      // While a Modal is up it owns the keyboard — a screen's list behind it must not move its
+      // selection (or fire Enter) from keys aimed at the dialog. A list INSIDE the topmost modal
+      // (its `claim` container is within the dialog) keeps working.
+      if (keyboardOwner() !== id) return
       const tag = (e.target as HTMLElement).tagName
       if (tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA') return
+      // In a dialog, focus usually sits on one of its buttons: Enter belongs to that button.
+      if (e.key === 'Enter' && modalStack.length > 0 && (e.target as Element).closest?.('button, a[href], [role="button"]')) return
       if (e.key === 'ArrowDown') {
         e.preventDefault()
         setActive((a) => Math.min(countRef.current - 1, a + 1))
@@ -578,12 +638,13 @@ export function useKeyNav(
       window.removeEventListener('focusin', onClaim, true)
       const i = keyNavStack.indexOf(id)
       if (i >= 0) keyNavStack.splice(i, 1)
+      keyNavContainers.delete(id)
     }
   }, [enabled])
   // Keep the active row visible as the selection moves. Rows follow the `.kbar-row` +
   // `data-active` convention; the last match wins because overlays render after the screen.
   useEffect(() => {
-    if (enabled && keyNavStack[keyNavStack.length - 1] !== idRef.current) return
+    if (enabled && keyboardOwner() !== idRef.current && keyNavStack[keyNavStack.length - 1] !== idRef.current) return
     const scrollTo = optionsRef.current?.scrollTo
     if (scrollTo) {
       scrollTo(active)

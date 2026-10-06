@@ -21,7 +21,7 @@ export const OUTSTANDING_COLUMNS = defineColumns<OutstandingParty>([
     value: (p) => p.name,
     hideable: false,
     groupable: false,
-    minWidth: 180,
+    minWidth: 170, // 170 + 4 × 130 + 150 + chevron + 150 actions = the 1022px panel at 1440 wide
     // The row expands its bills; the party NAME opens the ledger's edit window.
     cell: (p) => <LedgerLink ledgerId={p.ledgerId} name={p.name} />
   },
@@ -62,9 +62,8 @@ async function remind(companyName: string, partyName: string, bills: Outstanding
 /** A party's open bills, shown in its expanded detail row. */
 function BillsDetail({ party }: { party: OutstandingParty }): React.JSX.Element {
   return (
-    // No <thead>: the outer DataTable's sticky-header rule (.data-table thead th) would pin it.
     <table className="ledger-table" data-testid={`outstandings-bills-${party.ledgerId}`}>
-      <tbody>
+      <thead>
         <tr>
           <th scope="col">Bill</th>
           <th scope="col" className="w-32">Bill date</th>
@@ -73,6 +72,8 @@ function BillsDetail({ party }: { party: OutstandingParty }): React.JSX.Element 
           <th scope="col" className="r w-36">Bill amount</th>
           <th scope="col" className="r w-36">Pending</th>
         </tr>
+      </thead>
+      <tbody>
         {party.bills.map((b, i) => (
           <tr key={i} className={b.overdueDays > 0 ? 'text-cr' : ''}>
             <td>

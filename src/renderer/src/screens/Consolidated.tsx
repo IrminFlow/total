@@ -5,9 +5,7 @@ import { useSession, useToasts } from '../state/stores'
 import { Button, EmptyState, Money, Panel, ScrollList, SectionTitle, SkeletonRows } from '../components/ui'
 import { DataTable, defineColumns, type TableColumn } from '../components/table'
 import type { ConsolidatedRow } from '@shared/consolidate'
-import { csvReport } from '../lib/reportExport'
 import { toDisplayDate } from '@shared/dates'
-import { plainRupees } from '@shared/money'
 import { LedgerLink } from '../components/links'
 import { isRealId, openLedgerStatement } from '../lib/drill'
 
@@ -96,18 +94,6 @@ export function ConsolidatedScreen(): React.JSX.Element {
   const openIndex = openSlug ? slugs.indexOf(openSlug) : -1
   const columns = useMemo(() => consolidatedColumns(data?.columns ?? [], openIndex), [data, openIndex])
 
-  const exportCsv = async (): Promise<void> => {
-    if (!data) return
-    const header = ['Name', 'Group', ...data.columns, 'Total']
-    const rows = data.rows.map((r) => [
-      r.name,
-      r.group,
-      ...r.perCompany.map((v) => (v == null ? '' : plainRupees(v))),
-      plainRupees(r.total)
-    ])
-    await csvReport(header, rows, `consolidated-${kind}`, toast)
-  }
-
   return (
     <div className="mx-auto max-w-5xl">
       <SectionTitle
@@ -165,11 +151,6 @@ export function ConsolidatedScreen(): React.JSX.Element {
           <Button data-testid="btn-consolidated-run" variant="primary" onClick={() => void run()} disabled={isFetching}>
             {isFetching ? 'Running…' : 'Run'}
           </Button>
-          {data && (
-            <Button data-testid="btn-consolidated-csv" onClick={() => void exportCsv()}>
-              Export CSV
-            </Button>
-          )}
         </div>
       </Panel>
 
@@ -208,7 +189,10 @@ export function ConsolidatedScreen(): React.JSX.Element {
             exportOptions={{
               title: kind === 'tb' ? 'Consolidated trial balance' : 'Consolidated profit & loss',
               periodLabel: `${toDisplayDate(from)} to ${toDisplayDate(to)}`,
-              filename: `consolidated-${kind}`
+              filename: `consolidated-${kind}`,
+              // Signed plain decimals ("-1234.50", dr-positive) so the CSV opens as numbers in a
+              // spreadsheet; the PDF keeps the on-screen "1,234.50 Cr".
+              csvMoneyFormat: 'plain'
             }}
           />
         </Panel>

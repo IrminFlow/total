@@ -193,33 +193,7 @@ function LedgersTab(): React.JSX.Element {
 
   return (
     <>
-      <div className="mb-3 flex items-center gap-2">
-        {/* inputCls is w-full — the wrappers set the widths. */}
-        <div className="w-64 shrink-0">
-          <TextInput
-            value={filter}
-            onChange={(e) => setFilter(e.target.value)}
-            placeholder="Name, group, GSTIN or PAN…"
-            aria-label="Filter ledgers"
-            data-testid="masters-ledgers-filter"
-          />
-        </div>
-        <div className="w-56 shrink-0">
-          <Select
-            value={groupFilter ?? ''}
-            onChange={(e) => setGroupFilter(e.target.value ? Number(e.target.value) : null)}
-            aria-label="Filter by group (includes sub-groups)"
-            data-testid="masters-ledgers-group"
-          >
-            <option value="">All groups</option>
-            {groups.map((g) => (
-              <option key={g.id} value={g.id}>
-                {g.name}
-              </option>
-            ))}
-          </Select>
-        </div>
-        <span className="flex-1" />
+      <div className="mb-3 flex justify-end">
         <Button variant="primary" className="whitespace-nowrap" data-testid="btn-masters-new-ledger" onClick={() => setEditing('new')}>
           New ledger
         </Button>
@@ -234,9 +208,57 @@ function LedgersTab(): React.JSX.Element {
           rows={rows}
           rowKey={(l) => l.id}
           rowAttrs={(l) => ({ 'data-row-id': l.id })}
-          empty={{ title: 'No ledgers match' }}
-          // The search box above already covers name, group (with ancestors), GSTIN and PAN.
+          empty={{
+            title: 'No ledgers match',
+            action:
+              filter || groupFilter !== null ? (
+                <button
+                  type="button"
+                  className="text-small text-blue hover:underline"
+                  onClick={() => {
+                    setFilter('')
+                    setGroupFilter(null)
+                  }}
+                  data-testid="masters-ledgers-clear-search"
+                >
+                  Clear search
+                </button>
+              ) : undefined
+          }}
+          // The search box covers name, group (with ancestors), GSTIN and PAN, so it replaces the
+          // table's own quick filter; it and the group picker run before the table's view.
           toolbarFeatures={{ quickFilter: false }}
+          toolbarStart={
+            <>
+              {/* inputCls is w-full — the wrappers set the widths. */}
+              <div className="w-64 shrink-0">
+                <TextInput
+                  value={filter}
+                  onChange={(e) => setFilter(e.target.value)}
+                  placeholder="Name, group, GSTIN or PAN…"
+                  aria-label="Filter ledgers"
+                  className="!py-1 !text-detail"
+                  data-testid="masters-ledgers-filter"
+                />
+              </div>
+              <div className="w-56 shrink-0">
+                <Select
+                  value={groupFilter ?? ''}
+                  onChange={(e) => setGroupFilter(e.target.value ? Number(e.target.value) : null)}
+                  aria-label="Filter by group (includes sub-groups)"
+                  className="!py-1 !text-detail"
+                  data-testid="masters-ledgers-group"
+                >
+                  <option value="">All groups</option>
+                  {groups.map((g) => (
+                    <option key={g.id} value={g.id}>
+                      {g.name}
+                    </option>
+                  ))}
+                </Select>
+              </div>
+            </>
+          }
           onRowActivate={(l) => nav.go({ name: 'ledger-statement', ledgerId: l.id })}
           trailing={(l) => (
             <button
