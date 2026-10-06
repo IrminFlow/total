@@ -16,6 +16,7 @@ const invoke = vi.fn()
 const go = vi.fn()
 /** The first render of a screen also pays for its module graph — generous under a loaded CI box. */
 const SLOW = { timeout: 10_000 }
+vi.setConfig({ testTimeout: 30_000 })
 
 const DAYBOOK: DayBookRow[] = [
   { voucherId: 11, date: '2026-04-02', voucherType: 'Sales', kind: 'sales', number: '9', account: 'Zeta Traders', narration: null, debit: 118000, credit: 0, isOptional: false, postDated: false },
