@@ -36,6 +36,8 @@ function makeRows(n: number): Row[] {
     kind: i % 2 ? 'purchase' : 'sales'
   }))
 }
+/** Built once per file: the 50k-row tests only read it (building it per test was pure overhead). */
+const ROWS_50K = makeRows(50_000)
 
 const press = (key: string, init: KeyboardEventInit = {}): void => {
   act(() => {
@@ -58,7 +60,7 @@ afterEach(() => cleanup())
 
 describe('DataTable virtualisation', () => {
   it('renders 50,000 rows with only a bounded number of <tr> in the DOM', () => {
-    const rows = makeRows(50_000)
+    const rows = ROWS_50K
     const t0 = performance.now()
     render(<DataTable columns={COLUMNS} rows={rows} rowKey={(r) => r.id} />)
     const elapsed = performance.now() - t0
@@ -75,7 +77,7 @@ describe('DataTable virtualisation', () => {
   })
 
   it('End / Home / PageDown move the active row and render it even outside the window', () => {
-    const rows = makeRows(50_000)
+    const rows = ROWS_50K
     const onActivate = vi.fn()
     render(<DataTable columns={COLUMNS} rows={rows} rowKey={(r) => r.id} onRowActivate={onActivate} />)
     expect(activeRow()?.textContent).toContain('Row 0')

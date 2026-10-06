@@ -1,12 +1,12 @@
 // DataTable follow-ups — expandable detail rows (incl. variable heights under virtualisation),
 // keyboard claim with several tables, non-activatable rows, pointer reorder/resize of columns,
 // and the visible PDF row cap.
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from 'vitest'
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { useState } from 'react'
 import { DataTable, defineColumns, type RowKey } from '../../components/table'
 import { Modal } from '../../components/ui'
-import { buildRowLayout } from '../../lib/table'
+import { buildRowLayout, itemAt } from '../../lib/table'
 import { useSession, useToasts } from '../../state/stores'
 
 interface Row {
@@ -32,6 +32,8 @@ const SMALL: Row[] = [
 
 const makeRows = (n: number): Row[] =>
   Array.from({ length: n }, (_, i) => ({ id: i, name: `Row ${i}`, date: '2026-04-01', amount: 100, kind: i % 2 ? 'purchase' : 'sales' }))
+/** Built once per file: the 50k-row tests only read it. */
+const ROWS_50K = makeRows(50_000)
 
 const press = (key: string): void => {
   act(() => {
@@ -121,7 +123,10 @@ describe('expandable detail rows', () => {
     const isOpen = (i: number): boolean => i % 160 === 0
     const heightOf = (id: number): number => 40 + (id % 5) * 30
     const measured = new Set<number>()
-    vi.spyOn(Element.prototype, 'getBoundingClientRect').mockImplementation(function (this: Element) {
+    // A plain prototype patch (restored below) rather than vi.spyOn: a spy records every call,
+    // and this one is hit for every rendered row on every render.
+    const realRect = Element.prototype.getBoundingClientRect
+    Element.prototype.getBoundingClientRect = function (this: Element): DOMRect {
       let height = 0
       if (this.classList.contains('dt-detail')) {
         const id = Number((this as HTMLElement).dataset.detailFor)
@@ -129,8 +134,11 @@ describe('expandable detail rows', () => {
         height = heightOf(id)
       } else if (this.classList.contains('dt-row')) height = 33
       return { x: 0, y: 0, top: 0, left: 0, right: 0, bottom: height, width: 0, height, toJSON: () => ({}) } as DOMRect
+    }
+    onTestFinished(() => {
+      Element.prototype.getBoundingClientRect = realRect
     })
-    const rows = makeRows(N)
+    const rows = ROWS_50K
     const expanded = new Set<RowKey>(rows.filter((r) => isOpen(r.id)).map((r) => r.id))
     function Host(): React.JSX.Element {
       const [open, setOpen] = useState<ReadonlySet<RowKey>>(expanded)
@@ -184,20 +192,22 @@ describe('expandable detail rows', () => {
     press('ArrowLeft')
     expect(table.getAttribute('aria-rowcount')).toBe(String(N + 313 + 1))
 
-    // PageDown over expanded rows moves by height, not by a fixed count: from row 159 the
-    // expanded row 160 (with its detail) takes part of the page.
-    for (let k = 0; k < 158; k++) press('ArrowDown')
-    expect(firstCellText(activeRow())).toBe('Row 159')
+    // PageDown over expanded rows moves by height, not by a fixed count: from row 0 (expanded,
+    // its detail measured at 40px) one 607px page (640 viewport − one row) lands exactly where
+    // the pure offset index says, which is fewer rows than a fixed-height page would move.
+    press('Home')
     press('PageDown')
     const after = Number(firstCellText(activeRow())!.replace('Row ', ''))
-    expect(after).toBeGreaterThan(160)
-    expect(after).toBeLessThan(159 + Math.floor(640 / 33))
-  }, 30_000)
+    const L = buildRowLayout(N, 33, (i) => (isOpen(i) ? (measured.has(i) ? heightOf(i) : 120) : 0))
+    expect(after).toBe(itemAt(L, L.offsets[0]! + 640 - 33))
+    expect(after).toBeLessThan(Math.floor((640 - 33) / 33))
+    expect(after).toBeGreaterThan(5)
+  }, 20_000)
 })
 
 describe('paging', () => {
   it('PageUp from the last row moves a full page (not one row), PageDown mirrors it', () => {
-    render(<DataTable columns={COLUMNS} rows={makeRows(50_000)} rowKey={(r) => r.id} />)
+    render(<DataTable columns={COLUMNS} rows={ROWS_50K} rowKey={(r) => r.id} />)
     press('End')
     press('PageUp')
     const up = Number(firstCellText(activeRow())!.replace('Row ', ''))
