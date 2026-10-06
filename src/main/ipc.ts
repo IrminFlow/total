@@ -472,6 +472,10 @@ export function registerIpc(): void {
   // ---------- masters ----------
   handle('master:groups:list', () => masters.listGroups(requireCompany().db), 'viewer')
   handle('master:groups:tree', () => masters.groupTree(requireCompany().db), 'viewer')
+  handle('master:chartOfAccounts', (p) => {
+    const { asOn } = z.object({ asOn: z.string().regex(/^\d{4}-\d{2}-\d{2}$/) }).parse(p)
+    return reports.chartOfAccounts(requireCompany().db, asOn)
+  }, 'viewer')
   handle('master:groups:create', (p) => masters.createGroup(requireCompany().db, groupInputSchema.parse(p)))
   handle('master:groups:update', (p) => {
     const { id, data } = withIdSchema(groupInputSchema).parse(p)

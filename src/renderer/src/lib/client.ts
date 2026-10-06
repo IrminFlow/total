@@ -26,6 +26,7 @@ import type {
 } from '@shared/schemas'
 import type { CompanyFeatures } from '@shared/features'
 import type { SearchHit } from '@shared/search'
+import type { ChartGroupNode } from '@shared/chartOfAccounts'
 import type { InvoiceConfig } from '@shared/invoiceConfig'
 import type { CloseLedgerRow } from '@shared/yearEnd'
 import type { ConsolidatedResult } from '@shared/consolidate'
@@ -375,6 +376,8 @@ export const api = {
   groups: {
     list: () => call<Group[]>('master:groups:list'),
     tree: () => call<GroupTreeNode[]>('master:groups:tree'),
+    /** Groups with their ledgers as leaves, closing balances as on `asOn`. */
+    chart: (asOn: string) => call<ChartGroupNode[]>('master:chartOfAccounts', { asOn }),
     create: (data: GroupInput) => call<Group>('master:groups:create', data),
     update: (id: number, data: GroupInput) => call<Group>('master:groups:update', { id, data }),
     remove: (id: number) => call<null>('master:groups:delete', { id })
