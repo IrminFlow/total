@@ -275,7 +275,8 @@ export const bomInputSchema = z.object({
 })
 export type BomInput = z.infer<typeof bomInputSchema>
 
-/** NIC live-filing credentials, stored per company in the meta table. */
+/** NIC live-filing credentials, per company: non-secret fields in the meta table, password and
+ *  clientSecret in the encrypted secret store (src/main/services/nic.ts). */
 export const nicCredentialsSchema = z.object({
   mode: z.enum(['einvoice', 'ewb']).optional(),
   baseUrlEinvoice: z.string().trim().url().or(z.literal('')).default(''),
@@ -372,6 +373,9 @@ export const tdsSuggestSchema = z.object({
   date: isoDate
 })
 export type TdsSuggestInput = z.infer<typeof tdsSuggestSchema>
+
+/** tds:ensurePayable — find-or-create the section's "TDS Payable <code>" ledger on Apply. */
+export const tdsEnsurePayableSchema = z.object({ sectionId: id })
 
 export const tdsSummarySchema = z.object({ fyStartYear: z.number().int().min(1990).max(2100) })
 export type TdsSummaryInput = z.infer<typeof tdsSummarySchema>

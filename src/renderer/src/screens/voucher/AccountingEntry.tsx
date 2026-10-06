@@ -159,7 +159,7 @@ export function AccountingEntry({
   // the current payable line's amount; see applyTds). Declared before tdsCandidateRow because
   // the journal vendor-CR shape needs it to reconstruct the pre-deduction gross amount below.
   const existingTdsPayableAmount = useMemo(() => {
-    if (!tds || !tdsSuggestion) return 0
+    if (!tds || !tdsSuggestion || tdsSuggestion.payableLedgerId == null) return 0
     return rows.find((r) => r.drCr === 'cr' && r.ledgerId === tdsSuggestion.payableLedgerId)?.amount ?? 0
   }, [rows, tds, tdsSuggestion])
 
@@ -232,23 +232,34 @@ export function AccountingEntry({
     const handle = setTimeout(() => {
       api.tds
         .suggest(tdsCandidateRow.ledgerId, tdsCandidateRow.amount, date)
-        .then((s) => {
-          setTdsSuggestion(s)
-          // The suggestion's payable ledger is find-or-created server-side — refresh so it shows
-          // up by name the moment Apply inserts it as a line.
-          if (s) void queryClient.invalidateQueries({ queryKey: ['ledgers'] })
-        })
+        // Read-only: the payable ledger is only created when the user hits Apply (applyTds).
+        .then((s) => setTdsSuggestion(s))
         .catch(() => setTdsSuggestion(null))
     }, 300)
     return () => clearTimeout(handle)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tdsCandidateRow?.ledgerId, tdsCandidateRow?.amount, date])
 
-  const applyTds = (): void => {
+  const applyTds = async (): Promise<void> => {
     // tdsTargetIdx === -1 is already implied by tdsApplyBlocked today, but checked explicitly
     // too — mirrors the setRows updater's own guard so a future change to the blocked condition
     // can't set the tds payload without the corresponding line mutation.
     if (!tdsCandidateRow || !tdsSuggestion || tdsApplyBlocked || tdsTargetIdx === -1) return
+    // The suggestion is read-only, so "TDS Payable <code>" may not exist yet. Applying is the
+    // explicit action that commits to posting it, so create it now (and refresh ledgers so the
+    // new line shows by name) — never while the user is merely typing amounts.
+    let payableLedgerId = tdsSuggestion.payableLedgerId
+    if (payableLedgerId == null) {
+      try {
+        payableLedgerId = (await api.tds.ensurePayable(tdsSuggestion.sectionId)).ledgerId
+      } catch (err) {
+        toast.push('error', (err as Error).message)
+        return
+      }
+      const created = payableLedgerId
+      setTdsSuggestion((s) => (s && s.sectionId === tdsSuggestion.sectionId ? { ...s, payableLedgerId: created } : s))
+      await queryClient.invalidateQueries({ queryKey: ['ledgers'] })
+    }
     const tdsAmount = tdsSuggestion.tdsPaise
     const isVendorTarget = tdsCandidateRow.rowSide === 'cr'
     // The vendor-CR shape reduces the very row the candidate/suggestion is keyed on — mark it so
@@ -278,7 +289,7 @@ export function AccountingEntry({
 
       // Re-applying (e.g. after editing the base amount) adjusts the TDS payable line already on
       // the voucher instead of inserting a duplicate.
-      const existingIdx = tds ? next.findIndex((r) => r.drCr === 'cr' && r.ledgerId === tdsSuggestion.payableLedgerId) : -1
+      const existingIdx = tds ? next.findIndex((r) => r.drCr === 'cr' && r.ledgerId === payableLedgerId) : -1
       if (existingIdx !== -1) {
         const delta = tdsAmount - (next[existingIdx]!.amount ?? 0)
         next[existingIdx] = { ...next[existingIdx]!, amount: tdsAmount }
@@ -288,7 +299,7 @@ export function AccountingEntry({
 
       next[targetIdx] = { ...next[targetIdx]!, amount: (next[targetIdx]!.amount ?? 0) - tdsAmount }
       const insertAt = next.length > 0 && next[next.length - 1]!.ledgerId == null ? next.length - 1 : next.length
-      const tdsRow: AcctRow = { key: nextLineKey(), drCr: 'cr', ledgerId: tdsSuggestion.payableLedgerId, amount: tdsAmount, costAllocations: [] }
+      const tdsRow: AcctRow = { key: nextLineKey(), drCr: 'cr', ledgerId: payableLedgerId, amount: tdsAmount, costAllocations: [] }
       next = [...next.slice(0, insertAt), tdsRow, ...next.slice(insertAt)]
       if (next[next.length - 1]!.ledgerId != null) next.push(blankAcctRow('cr'))
       return next
@@ -618,7 +629,7 @@ export function AccountingEntry({
             </span>
             <div className="flex shrink-0 gap-2">
               <Button onClick={() => setTdsDismissed(true)}>Dismiss</Button>
-              <Button variant="primary" disabled={tdsApplyBlocked} onClick={applyTds}>
+              <Button variant="primary" disabled={tdsApplyBlocked} onClick={() => void applyTds()}>
                 Apply
               </Button>
             </div>

@@ -39,7 +39,7 @@ export function PhysicalStockEntry({ typeId }: { typeId: number }): React.JSX.El
   // Book stock as on the count date, for the counted-vs-book readout per line.
   const { data: stock } = useQuery({
     queryKey: ['stockSummary', date],
-    queryFn: () => api.reports.stockSummary(date)
+    queryFn: () => api.stock.summary(date)
   })
   const bookOf = useMemo(() => new Map((stock ?? []).map((s) => [s.stockItemId, s])), [stock])
   const itemMap = useMemo(() => new Map(items.map((i) => [i.id, i])), [items])

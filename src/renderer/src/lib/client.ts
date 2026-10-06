@@ -208,7 +208,9 @@ export interface TdsSuggestion {
   code: string
   rate: number
   tdsPaise: number
-  payableLedgerId: number
+  /** null until the payable ledger exists — Apply creates it via tds.ensurePayable. */
+  payableLedgerId: number | null
+  payableLedgerName: string
   panAvailable: boolean
   thresholdCrossed: boolean
 }
@@ -469,7 +471,6 @@ export const api = {
       call<ProfitAndLoss>('report:profitLoss', { from, to, comparePrior }),
     balanceSheet: (asOn: string, comparePrior?: boolean) =>
       call<BalanceSheet>('report:balanceSheet', { asOn, comparePrior }),
-    stockSummary: (asOn: string) => call<StockSummaryRow[]>('report:stockSummary', { asOn }),
     dashboard: (today: string, fyFrom: string) => call<DashboardData>('report:dashboard', { today, fyFrom }),
     cashFlow: (from: string, to: string) => call<CashFlowStatement>('report:cashFlow', { from, to }),
     stockAgeing: (asOn: string) => call<StockAgeingRow[]>('report:stockAgeing', { asOn }),
@@ -513,6 +514,7 @@ export const api = {
     sectionSave: (data: TdsSectionInput) => call<TdsSection>('tds:sectionSave', data),
     suggest: (partyLedgerId: number, base: number, date: string) =>
       call<TdsSuggestion | null>('tds:suggest', { partyLedgerId, base, date }),
+    ensurePayable: (sectionId: number) => call<{ ledgerId: number }>('tds:ensurePayable', { sectionId }),
     summary: (fyStartYear: number) => call<TdsSummaryRow[]>('tds:summary', { fyStartYear }),
     export26q: (fyStartYear: number, quarter: number) => call<{ path: string }>('tds:export26q', { fyStartYear, quarter })
   },

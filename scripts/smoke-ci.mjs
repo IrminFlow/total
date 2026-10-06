@@ -21,7 +21,8 @@ async function launchApp() {
     executablePath: electronPath,
     args: [process.cwd()],
     timeout: 60000,
-    env: { ...process.env, TOTAL_DATA_DIR: dataDir, TOTAL_SUPPRESS_SYNC_WARNING: '1' }
+    // TOTAL_INSECURE_TEST_SECRETS: test cipher for the secret store — keeps the run off the real keychain.
+    env: { ...process.env, TOTAL_DATA_DIR: dataDir, TOTAL_SUPPRESS_SYNC_WARNING: '1', TOTAL_INSECURE_TEST_SECRETS: '1' }
   })
   const page = await app.firstWindow()
   await page.waitForLoadState('domcontentloaded')

@@ -18,6 +18,13 @@ const EXPORT_TYPES: { value: NonNullable<Ledger['exportType']> | ''; label: stri
   { value: 'exp_wop', label: 'Export without payment of tax' }
 ]
 
+const ITC_ELIGIBILITY: { value: Ledger['itcEligibility']; label: string }[] = [
+  { value: 'eligible', label: 'Eligible (inputs)' },
+  { value: 'capital_goods', label: 'Eligible — capital goods' },
+  { value: 'input_services', label: 'Eligible — input services' },
+  { value: 'blocked', label: 'Blocked / ineligible (3B 4(D))' }
+]
+
 const PAN_RE = /^[A-Z]{5}\d{4}[A-Z]$/
 
 export const PARTY_GROUPS = ['Sundry Debtors', 'Sundry Creditors']
@@ -40,14 +47,42 @@ export function groupAncestryNames(groupId: number, groups: Group[]): string[] {
 
 /** Ledger create/edit form. Which optional fields show depends on the selected group's ancestry:
  *  - Sundry Debtors/Creditors descendants ("party" ledgers) → GSTIN/state/address/PAN/TDS/credit
- *    days/export-SEZ type. No taxType/gstRate/HSN.
+ *    days/export-SEZ type/reverse charge/ITC eligibility (both are read off the voucher's party
+ *    ledger by gst.ts). No taxType/gstRate/HSN.
  *  - Duties & Taxes descendants ("tax" ledgers) → taxType only.
  *  - Sales/Purchase/Direct+Indirect Income/Expense descendants ("trading" ledgers) → gstRate + HSN,
  *    no taxType.
  *  - Everything else (cash/bank/capital/…) → none of the above; just name/group/opening.
  *  Fields hidden by the current group choice are NOT cleared — their state simply isn't rendered,
- *  so an existing ledger's stored value in a now-hidden field rides through to save() untouched. */
-export function LedgerFormModal({ ledger, onClose }: { ledger: Ledger | null; onClose: () => void }): React.JSX.Element {
+ *  so an existing ledger's stored value in a now-hidden field rides through to save() untouched.
+ *  Every field of LedgerInput the form doesn't edit must still be sent (or be optional-and-
+ *  preserved server-side, like priceLevelId/creditLimit) — the Zod schema DEFAULTS missing
+ *  fields, so an omitted field silently resets on update.
+ *
+ *  Open it either with a loaded `ledger` (null = create) or with just a `ledgerId`, in which case
+ *  the modal resolves the ledger from the ['ledgers'] query itself (for report drill-downs that
+ *  only carry an id). */
+export function LedgerFormModal(
+  props: { ledger: Ledger | null; ledgerId?: undefined; onClose: () => void } | { ledgerId: number; ledger?: undefined; onClose: () => void }
+): React.JSX.Element {
+  if (props.ledgerId !== undefined) return <LedgerByIdModal ledgerId={props.ledgerId} onClose={props.onClose} />
+  return <LedgerForm ledger={props.ledger ?? null} onClose={props.onClose} />
+}
+
+function LedgerByIdModal({ ledgerId, onClose }: { ledgerId: number; onClose: () => void }): React.JSX.Element {
+  const { data: ledgers, isLoading, error } = useQuery({ queryKey: ['ledgers'], queryFn: api.ledgers.list })
+  const ledger = ledgers?.find((l) => l.id === ledgerId)
+  if (ledger) return <LedgerForm key={ledger.id} ledger={ledger} onClose={onClose} />
+  return (
+    <Modal title="Edit ledger" onClose={onClose}>
+      <p className="text-[13px] text-muted">
+        {isLoading ? 'Loading ledger…' : error ? (error as Error).message : 'Ledger not found — it may have been deleted.'}
+      </p>
+    </Modal>
+  )
+}
+
+function LedgerForm({ ledger, onClose }: { ledger: Ledger | null; onClose: () => void }): React.JSX.Element {
   const groups = useGroups()
   const toast = useToasts()
   const queryClient = useQueryClient()
@@ -66,6 +101,8 @@ export function LedgerFormModal({ ledger, onClose }: { ledger: Ledger | null; on
   const [pan, setPan] = useState(ledger?.pan ?? '')
   const [creditDays, setCreditDays] = useState(ledger?.creditDays?.toString() ?? '')
   const [exportType, setExportType] = useState<NonNullable<Ledger['exportType']> | ''>(ledger?.exportType ?? '')
+  const [rcm, setRcm] = useState<boolean>(ledger?.rcm ?? false)
+  const [itcEligibility, setItcEligibility] = useState<Ledger['itcEligibility']>(ledger?.itcEligibility ?? 'eligible')
 
   const ancestry = useMemo(() => groupAncestryNames(groupId, groups), [groupId, groups])
   const isParty = ancestry.some((n) => PARTY_GROUPS.includes(n))
@@ -99,11 +136,16 @@ export function LedgerFormModal({ ledger, onClose }: { ledger: Ledger | null; on
         tdsSectionId: tdsSectionId === '' ? null : tdsSectionId,
         pan: pan.trim() ? pan.trim().toUpperCase() : null,
         creditDays: creditDays.trim() ? Number(creditDays) : null,
-        exportType: exportType || null
+        exportType: exportType || null,
+        rcm,
+        itcEligibility
       }
       if (ledger) await api.ledgers.update(ledger.id, data)
       else await api.ledgers.create(data)
-      await queryClient.invalidateQueries({ queryKey: ['ledgers'] })
+      // A ledger edit (name, group, opening balance, GST flags) can change any open report, so
+      // refresh everything — same as the delete path. Only active queries refetch; the rest are
+      // marked stale and refetch when their screen next mounts.
+      await queryClient.invalidateQueries()
       toast.push('success', `Ledger ${ledger ? 'updated' : 'created'}`)
       onClose()
     } catch (err) {
@@ -216,6 +258,27 @@ export function LedgerFormModal({ ledger, onClose }: { ledger: Ledger | null; on
                 ))}
               </Select>
             </Field>
+            <div className="grid grid-cols-2 gap-3">
+              <Field label="Reverse charge" hint="Supplies from/to this party are under RCM (3B 3.1(d), GSTR-1 rchrg)">
+                <span className="flex h-[34px] items-center gap-2 text-[13px]">
+                  <input type="checkbox" data-testid="ledger-rcm" checked={rcm} onChange={(e) => setRcm(e.target.checked)} />
+                  Reverse charge applies
+                </span>
+              </Field>
+              <Field label="ITC eligibility" hint="Input tax credit class for purchases from this party">
+                <Select
+                  data-testid="ledger-itc-eligibility"
+                  value={itcEligibility}
+                  onChange={(e) => setItcEligibility(e.target.value as Ledger['itcEligibility'])}
+                >
+                  {ITC_ELIGIBILITY.map((t) => (
+                    <option key={t.value} value={t.value}>
+                      {t.label}
+                    </option>
+                  ))}
+                </Select>
+              </Field>
+            </div>
             <Field label="Address">
               <TextInput value={address} onChange={(e) => setAddress(e.target.value)} />
             </Field>
