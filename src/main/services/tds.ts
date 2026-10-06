@@ -53,15 +53,23 @@ export interface TdsSuggestion {
   code: string
   rate: number
   tdsPaise: number
-  payableLedgerId: number
+  /** Existing "TDS Payable <code>" ledger, or null when it hasn't been created yet — the
+   *  suggestion never creates it (see ensureTdsPayableLedger). */
+  payableLedgerId: number | null
+  /** Name the payable ledger has / will be created with. */
+  payableLedgerName: string
   panAvailable: boolean
   thresholdCrossed: boolean
 }
 
+const TDS_PAYABLE_GROUP = 'Duties & Taxes'
+const payableLedgerName = (code: string): string => `TDS Payable ${code}`
+
 /**
  * Suggests a TDS deduction for a payment/journal to `partyLedgerId`, or null when the party isn't
- * flagged for TDS at all. `payableLedgerId` is auto-created ("TDS Payable <code>" under Duties &
- * Taxes) so the caller can post the credit line without a separate master-creation round trip.
+ * flagged for TDS at all. Strictly read-only: it runs while the user types amounts, so it only
+ * LOOKS UP the "TDS Payable <code>" ledger (payableLedgerId null when absent). The ledger is
+ * created by ensureTdsPayableLedger when the user actually applies the deduction.
  */
 export function tdsSuggestion(db: DB, partyLedgerId: number, basePaise: number, dateISO: string): TdsSuggestion | null {
   const ledger = db.prepare('SELECT tds_section_id, pan FROM ledgers WHERE id = ?').get(partyLedgerId) as
@@ -72,7 +80,9 @@ export function tdsSuggestion(db: DB, partyLedgerId: number, basePaise: number, 
   const section = db.prepare('SELECT * FROM tds_sections WHERE id = ?').get(ledger.tds_section_id) as SectionRow
   const panAvailable = !!ledger.pan
   const tdsPaise = computeTds(section.rate, basePaise, panAvailable)
-  const payableLedgerId = findOrCreateLedger(db, `TDS Payable ${section.code}`, 'Duties & Taxes')
+  const name = payableLedgerName(section.code)
+  // Same lookup rule as findOrCreateLedger (name, case-insensitive) so both agree on "exists".
+  const payable = db.prepare('SELECT id FROM ledgers WHERE name = ? COLLATE NOCASE').get(name) as { id: number } | undefined
 
   const q = tdsQuarterOf(dateISO)
   const fyFrom = `${q.fyStartYear}-04-01`
@@ -96,10 +106,21 @@ export function tdsSuggestion(db: DB, partyLedgerId: number, basePaise: number, 
     code: section.code,
     rate: section.rate,
     tdsPaise,
-    payableLedgerId,
+    payableLedgerId: payable?.id ?? null,
+    payableLedgerName: name,
     panAvailable,
     thresholdCrossed: crossed
   }
+}
+
+/**
+ * Find-or-create the "TDS Payable <code>" ledger for a section — called on the explicit
+ * "Apply TDS" action in voucher entry (tds:ensurePayable), never from the suggestion.
+ */
+export function ensureTdsPayableLedger(db: DB, sectionId: number): number {
+  const section = db.prepare('SELECT code FROM tds_sections WHERE id = ?').get(sectionId) as { code: string } | undefined
+  if (!section) throw new Error('TDS section not found')
+  return db.transaction(() => findOrCreateLedger(db, payableLedgerName(section.code), TDS_PAYABLE_GROUP))()
 }
 
 export interface TdsSummaryRow {

@@ -374,6 +374,9 @@ export const tdsSuggestSchema = z.object({
 })
 export type TdsSuggestInput = z.infer<typeof tdsSuggestSchema>
 
+/** tds:ensurePayable — find-or-create the section's "TDS Payable <code>" ledger on Apply. */
+export const tdsEnsurePayableSchema = z.object({ sectionId: id })
+
 export const tdsSummarySchema = z.object({ fyStartYear: z.number().int().min(1990).max(2100) })
 export type TdsSummaryInput = z.infer<typeof tdsSummarySchema>
 

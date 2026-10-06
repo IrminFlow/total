@@ -18,7 +18,7 @@ import {
   backupFileSchema, bankRuleInputSchema, batchInputSchema, billsOpenSchema, budgetInputSchema, budgetVarianceSchema, ccStatementSchema,
   chequeConfigSchema, companyCreateSchema, consolidatedRunSchema, costCentreInputSchema, exportCsvSchema, godownInputSchema, groupInputSchema, gst3bManualSchema, gstr2bSchema,
   isoDate, ledgerInputSchema, notifyDeadlinesSchema, passphraseSchema, periodSchema, priceLevelInputSchema, priceRateInputSchema, recurringInputSchema, rendererLogSchema, reportPdfSchema,
-  searchGlobalSchema, stockGroupInputSchema, stockItemInputSchema, stockQuerySchema, tallyImportSchema, tdsExport26qSchema, tdsSectionInputSchema, tdsSuggestSchema,
+  searchGlobalSchema, stockGroupInputSchema, stockItemInputSchema, stockQuerySchema, tallyImportSchema, tdsExport26qSchema, tdsEnsurePayableSchema, tdsSectionInputSchema, tdsSuggestSchema,
   tdsSummarySchema, unitInputSchema, voucherInputSchema, voucherTransportSchema, voucherTypeInputSchema
 } from '@shared/schemas'
 import { todayISO } from '@shared/dates'
@@ -762,7 +762,13 @@ export function registerIpc(): void {
   handle('tds:sectionSave', (p) => tds.saveSection(requireCompany().db, tdsSectionInputSchema.parse(p)), 'owner')
   handle('tds:suggest', (p) => {
     const { partyLedgerId, base, date } = tdsSuggestSchema.parse(p)
+    // Read-only (runs as the user types) — never creates the payable ledger.
     return tds.tdsSuggestion(requireCompany().db, partyLedgerId, base, date)
+  })
+  // Explicit "Apply TDS" in voucher entry: the only path that creates "TDS Payable <code>".
+  handle('tds:ensurePayable', (p) => {
+    const { sectionId } = tdsEnsurePayableSchema.parse(p)
+    return { ledgerId: tds.ensureTdsPayableLedger(requireCompany().db, sectionId) }
   })
   handle('tds:summary', (p) => {
     const { fyStartYear } = tdsSummarySchema.parse(p)
