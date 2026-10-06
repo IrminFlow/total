@@ -489,11 +489,34 @@ export function SkeletonRows({ rows = 8, className = '' }: { rows?: number; clas
 let keyNavSeq = 0
 const keyNavStack: number[] = []
 
-export function useKeyNav(count: number, onEnter: (index: number) => void, enabled = true): {
+/** Opt-in extras for useKeyNav (used by the DataTable platform; plain lists don't need them). */
+export interface KeyNavOptions {
+  /** Rows per PageUp (-1) / PageDown (+1). Setting it also enables PageUp/PageDown/Home/End. */
+  pageSize?: (direction: 1 | -1) => number
+  /** Replaces the default DOM scroll-into-view — for virtualised lists, whose active row may not
+   *  be rendered at all (so there is no `.kbar-row[data-active]` element to scroll to). */
+  scrollTo?: (index: number) => void
+  /** The list's container. A pointerdown or focus landing inside it makes this list the keyboard
+   *  target (moves it to the top of the stack) — for screens with several lists. Modals still
+   *  win: the modal check runs before the stack check. */
+  claim?: () => HTMLElement | null
+  /** Extra keys (e.g. ←/→ to collapse/expand). Runs under the same topmost/modal/input rules;
+   *  return true when the key was handled (its default is then prevented). */
+  onKey?: (e: KeyboardEvent, active: number) => boolean
+}
+
+export function useKeyNav(
+  count: number,
+  onEnter: (index: number) => void,
+  enabled = true,
+  options?: KeyNavOptions
+): {
   active: number
   setActive: (i: number) => void
 } {
   const [active, setActive] = useState(0)
+  const optionsRef = useRef(options)
+  optionsRef.current = options
   const countRef = useRef(count)
   countRef.current = count
   const activeRef = useRef(active)
@@ -526,11 +549,33 @@ export function useKeyNav(count: number, onEnter: (index: number) => void, enabl
       } else if (e.key === 'Enter') {
         // Side-effect outside the state updater — updaters can run twice under StrictMode.
         if (countRef.current > 0) onEnterRef.current(activeRef.current)
+      } else if (optionsRef.current?.onKey && optionsRef.current.onKey(e, activeRef.current)) {
+        e.preventDefault()
+      } else if (optionsRef.current?.pageSize && ['PageDown', 'PageUp', 'Home', 'End'].includes(e.key)) {
+        e.preventDefault()
+        const last = Math.max(0, countRef.current - 1)
+        const page = (dir: 1 | -1): number => Math.max(1, optionsRef.current?.pageSize?.(dir) ?? 1)
+        if (e.key === 'PageDown') setActive((a) => Math.min(last, a + page(1)))
+        else if (e.key === 'PageUp') setActive((a) => Math.max(0, a - page(-1)))
+        else if (e.key === 'Home') setActive(0)
+        else setActive(last)
       }
     }
+    // Interaction claims the keyboard: move this list to the top of the stack.
+    const onClaim = (e: Event): void => {
+      const el = optionsRef.current?.claim?.()
+      if (!el || !(e.target instanceof Node) || !el.contains(e.target) || isTop()) return
+      const i = keyNavStack.indexOf(id)
+      if (i >= 0) keyNavStack.splice(i, 1)
+      keyNavStack.push(id)
+    }
     window.addEventListener('keydown', onKey)
+    window.addEventListener('pointerdown', onClaim, true)
+    window.addEventListener('focusin', onClaim, true)
     return () => {
       window.removeEventListener('keydown', onKey)
+      window.removeEventListener('pointerdown', onClaim, true)
+      window.removeEventListener('focusin', onClaim, true)
       const i = keyNavStack.indexOf(id)
       if (i >= 0) keyNavStack.splice(i, 1)
     }
@@ -539,6 +584,11 @@ export function useKeyNav(count: number, onEnter: (index: number) => void, enabl
   // `data-active` convention; the last match wins because overlays render after the screen.
   useEffect(() => {
     if (enabled && keyNavStack[keyNavStack.length - 1] !== idRef.current) return
+    const scrollTo = optionsRef.current?.scrollTo
+    if (scrollTo) {
+      scrollTo(active)
+      return
+    }
     const rows = document.querySelectorAll<HTMLElement>('.kbar-row[data-active="true"]')
     rows[rows.length - 1]?.scrollIntoView({ block: 'nearest' })
   }, [active, enabled])
