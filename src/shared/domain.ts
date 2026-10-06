@@ -92,24 +92,6 @@ export interface Budget {
   lines: BudgetLine[]
 }
 
-/** A saved voucher shape (exact VoucherInputParsed JSON) that recurring:post re-validates and
- *  re-posts on a monthly/weekly cadence (task 2.3). */
-export interface RecurringTemplate {
-  id: number
-  name: string
-  voucherJson: string
-  cadence: 'monthly' | 'weekly'
-  dayOfMonth: number | null
-  weekday: number | null
-  nextDue: string
-  lastPosted: string | null
-  active: boolean
-  /** The stored voucher's type kind (joined off voucher_types via the denormalized
-   *  voucher_type_id column) — null only if that voucher type has since been deleted. Drives
-   *  which entry form "Open in voucher entry" opens (kindHint). */
-  voucherKind: VoucherKind | null
-}
-
 export type VoucherKind =
   | 'contra'
   | 'payment'

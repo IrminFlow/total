@@ -58,11 +58,15 @@ jobs:
           SMOKE_OUT: ${{ runner.temp }}/smoke
 
       - name: Upload smoke screenshots
-        if: always()
+        # Diagnostics only: kept for failures, short-lived, and never allowed to fail the job
+        # (a full artifact storage quota once turned a passing smoke run red).
+        if: failure()
+        continue-on-error: true
         uses: actions/upload-artifact@v4
         with:
           name: smoke-shots
           path: ${{ runner.temp }}/smoke
+          retention-days: 7
 
   # Full UI E2E suite (scripts/e2e/*.mjs via npm run e2e) against the built app. Push-to-main
   # only — it's the slowest job, and PRs already get the smoke-mac coverage above.
@@ -89,11 +93,15 @@ jobs:
           SMOKE_OUT: ${{ runner.temp }}/e2e
 
       - name: Upload E2E screenshots + results
-        if: always()
+        # Diagnostics only: kept for failures, short-lived, and never allowed to fail the job
+        # (a full artifact storage quota once turned a passing smoke run red).
+        if: failure()
+        continue-on-error: true
         uses: actions/upload-artifact@v4
         with:
           name: e2e-shots
           path: ${{ runner.temp }}/e2e
+          retention-days: 7
 
   build-win:
     runs-on: windows-latest

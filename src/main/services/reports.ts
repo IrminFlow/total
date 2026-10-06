@@ -7,6 +7,7 @@ import type {
 import type { Group, Nature } from '@shared/domain'
 import { listGroups } from './masters'
 import { CASH_BANK_GROUPS } from '@shared/seed'
+import { buildChartOfAccounts, type ChartGroupNode, type ChartLedgerInput } from '@shared/chartOfAccounts'
 import { ageStock, buildCashFlow, computeRatios, type CashFlowStatement, type InwardLot } from '@shared/reportMath'
 import { listVouchers, IN_BOOKS, NOT_DELETED } from './vouchers'
 import * as stockAnalysis from './stockAnalysis'
@@ -536,6 +537,17 @@ export function ledgerStatement(db: DB, ledgerId: number, from: string, to: stri
   }
 
   return result
+}
+
+/** Masters → Groups chart of accounts: every group with its ledgers as leaves, closing balances
+ *  as on `asOn` from the same closing-balance pass the balance sheet / cash flow use (opening +
+ *  in-books movements, soft-deleted / post-dated / optional vouchers excluded). Unlike the trial
+ *  balance, zero-balance ledgers are kept and there is no synthetic opening-stock row — this is a
+ *  list of masters, not a statement. */
+export function chartOfAccounts(db: DB, asOn: string): ChartGroupNode[] {
+  const balances = closingBalances(db, asOn)
+  const ledgers = db.prepare('SELECT id, name, group_id AS groupId, gstin, pan FROM ledgers').all() as ChartLedgerInput[]
+  return buildChartOfAccounts(listGroups(db), ledgers, (id) => balances.get(id) ?? 0)
 }
 
 export function trialBalance(db: DB, asOn: string): TrialBalance {

@@ -1,5 +1,5 @@
 /**
- * Compliance calendar — pure date math over the recurring Indian statutory deadlines a small
+ * Compliance calendar — pure date math over the periodic Indian statutory deadlines a small
  * business tracks: GST returns, TDS deposit, PF/ESI contributions, advance tax instalments.
  * No DB, no Electron — `upcomingDeadlines` takes everything it needs as arguments so it can be
  * driven identically from the main-process notifier (services/reports-adjacent) and the renderer
