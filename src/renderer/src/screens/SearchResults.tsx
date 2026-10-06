@@ -297,7 +297,7 @@ function ResultTable({
     <table className="ledger-table">
       <thead>
         <tr>
-          <th className="w-24">Date</th><th className="w-28">Type</th><th className="w-28">No.</th><th>Party</th><th>Narration / matched</th>
+          <th className="w-28">Date</th><th className="w-28">Type</th><th className="w-28">No.</th><th>Party</th><th>Narration / matched</th>
           <th className="r w-32">Amount</th>
         </tr>
       </thead>
@@ -306,9 +306,9 @@ function ResultTable({
           const hint = matchHint(r)
           return (
             <tr key={r.id} {...rowProps(r, j)}>
-              <td className="num text-muted">{toDisplayDate(r.date)}</td>
-              <td className="text-muted">{r.typeName}</td>
-              <td className="num"><Highlight text={r.number} terms={terms} /></td>
+              <td className="num whitespace-nowrap text-muted">{toDisplayDate(r.date)}</td>
+              <td className="whitespace-nowrap text-muted">{r.typeName}</td>
+              <td className="num whitespace-nowrap"><Highlight text={r.number} terms={terms} /></td>
               <td>
                 {r.party ? <Highlight text={r.party} terms={terms} /> : <span className="text-muted">–</span>}
                 <VoucherBadges v={r} />

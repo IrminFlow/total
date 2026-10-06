@@ -95,6 +95,9 @@ const VOUCHER_MATCH: Record<string, string> = {
 /** "GSTIN 27AAB…" — the matched field when it isn't already visible in the row's main text. */
 export function matchHint(r: SearchResult): string | null {
   if (!r.matchField || !r.matchText) return null
+  // A total-amount match just repeats the amount the row already shows; a line match
+  // ("₹2,500 · Office Rent") is worth showing.
+  if (r.kind === 'voucher' && r.matchField === 'amount' && !r.matchText.includes(' · ')) return null
   const map = r.kind === 'ledger' ? LEDGER_MATCH : r.kind === 'item' ? ITEM_MATCH : VOUCHER_MATCH
   const label = map[r.matchField]
   return label ? `${label}: ${r.matchText}` : null
