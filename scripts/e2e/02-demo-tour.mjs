@@ -6,14 +6,15 @@ import { scenario, assert } from '../lib/harness.mjs'
 // Sidebar screens in registry order (lib/screens.ts) with their feature gates. Kept as a
 // static list on purpose: if a lane adds a screen to the registry without covering it here,
 // the registry-integrity renderer test still counts it — this tour is about rendering.
+// h.goto() expands collapsed sidebar sections on the way.
 const TOUR = [
-  ['voucher-entry'], ['daybook'], ['masters'], ['import-tally'],
+  ['voucher-entry'], ['daybook'], ['masters'],
   ['trial-balance'], ['profit-loss'], ['balance-sheet'], ['cash-flow'],
   ['stock-summary', 'inventory'], ['year-end'],
   ['registers'], ['outstandings'], ['consolidated'], ['cost-centres', 'costCentres'],
   ['budgets'], ['exceptions'], ['banking'], ['payroll', 'payroll'],
   ['gstr1'], ['gstr3b'], ['gstr2b'], ['edocs'], ['tds', 'tds'],
-  ['settings'], ['gateway']
+  ['settings'], ['import-tally'], ['gateway']
 ]
 
 await scenario('02-demo-tour', async (h) => {

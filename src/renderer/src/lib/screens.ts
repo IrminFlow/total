@@ -81,13 +81,6 @@ export const SCREENS: ScreenDef[] = [
       'godowns', 'stockGroups'
     ]
   },
-  {
-    name: 'import-tally',
-    title: 'Import from Tally',
-    screen: { name: 'import-tally' },
-    navSection: 'top',
-    invalidates: []
-  },
 
   {
     name: 'trial-balance',
@@ -255,6 +248,13 @@ export const SCREENS: ScreenDef[] = [
       'backups', 'bin', 'users', 'audit', 'nicCreds', 'nicStatus',
       'features', 'invoiceConfig', 'invoicePreview', 'appInfo', 'companyLock', 'agentConfig'
     ]
+  },
+  {
+    name: 'import-tally',
+    title: 'Import from Tally',
+    screen: { name: 'import-tally' },
+    navSection: 'system',
+    invalidates: []
   },
 
   // Not in the sidebar — reached from the header / other screens — but the palette and the
