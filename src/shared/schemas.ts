@@ -275,7 +275,8 @@ export const bomInputSchema = z.object({
 })
 export type BomInput = z.infer<typeof bomInputSchema>
 
-/** NIC live-filing credentials, stored per company in the meta table. */
+/** NIC live-filing credentials, per company: non-secret fields in the meta table, password and
+ *  clientSecret in the encrypted secret store (src/main/services/nic.ts). */
 export const nicCredentialsSchema = z.object({
   mode: z.enum(['einvoice', 'ewb']).optional(),
   baseUrlEinvoice: z.string().trim().url().or(z.literal('')).default(''),

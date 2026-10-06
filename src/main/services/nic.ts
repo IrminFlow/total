@@ -11,29 +11,125 @@ import { nicCredentialsSchema, type NicCredentials } from '@shared/schemas'
 import { buildEInvoiceJson, type EdocCompany } from '@shared/gst/edocs'
 import { extractEdocInvoices } from './edocs'
 import { writeAudit } from './audit'
+import { log } from '../log'
+import { companyScope, SecretsUnavailableError, type SecretStore } from './secrets'
+import { appSecretStore } from './secretStore'
 
 // ---------- credential storage ----------
+//
+// Non-secret settings (URLs, username, client id, public key PEM) live in the company DB's
+// `meta` row 'nic'. The two secret halves — password and clientSecret — live in the encrypted
+// secret store (secrets.ts / secretStore.ts) under scope companyScope(slug), never in the DB.
+// Consequence: company backups carry no NIC secrets, and after restoring a backup on another
+// machine (or under a different slug) the owner must re-enter the password and client secret
+// in Settings → Live filing.
+//
+// Older versions stored everything as plaintext JSON in `meta`. readNicCredentials moves any
+// such plaintext secrets into the store on first read and rewrites the meta row without them.
+// (Backups taken before that move still contain the old plaintext — nothing can fix those.)
 
-export function readNicCredentials(db: DB): NicCredentials {
+const SECRET_FIELDS = ['password', 'clientSecret'] as const
+type SecretField = (typeof SECRET_FIELDS)[number]
+const secretName = (f: SecretField): string => `nic.${f}`
+
+function readMetaRaw(db: DB): Record<string, unknown> {
   const row = db.prepare("SELECT value FROM meta WHERE key = 'nic'").get() as { value: string } | undefined
-  if (!row) return nicCredentialsSchema.parse({})
+  if (!row) return {}
   try {
-    return nicCredentialsSchema.parse(JSON.parse(row.value))
+    const parsed = JSON.parse(row.value) as unknown
+    return parsed && typeof parsed === 'object' ? (parsed as Record<string, unknown>) : {}
   } catch {
-    return nicCredentialsSchema.parse({})
+    return {}
   }
 }
 
-export function writeNicCredentials(db: DB, creds: NicCredentials): void {
+function writeMetaWithoutSecrets(db: DB, creds: Record<string, unknown>): void {
+  const clean = { ...creds }
+  for (const f of SECRET_FIELDS) delete clean[f]
   db.prepare('INSERT INTO meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value')
-    .run('nic', JSON.stringify(creds))
+    .run('nic', JSON.stringify(clean))
+}
+
+function parseCreds(raw: Record<string, unknown>): NicCredentials {
+  const r = nicCredentialsSchema.safeParse(raw)
+  return r.success ? r.data : nicCredentialsSchema.parse({})
+}
+
+/**
+ * Full credentials for the open company, secrets decrypted. Also performs the one-time move of
+ * legacy plaintext secrets out of `meta`: each is copied into the store (unless the store already
+ * holds a value — the store is the source of truth, e.g. after restoring an old backup) and the
+ * meta row is rewritten without it, with secure_delete on so the freed page is zeroed.
+ *
+ * If secure storage is unavailable, legacy plaintext is left in place and still used (it is
+ * already on disk; nothing new is ever written in plaintext), and store-held secrets read as ''.
+ */
+export function readNicCredentials(db: DB, slug: string, store: SecretStore = appSecretStore()): NicCredentials {
+  const raw = readMetaRaw(db)
+  const scope = companyScope(slug)
+  const legacy = SECRET_FIELDS.filter((f) => typeof raw[f] === 'string' && raw[f] !== '')
+
+  if (!store.available()) {
+    if (legacy.length) log('warn', 'nic-secrets-legacy-plaintext-unmigrated', { slug })
+    const out: Record<string, unknown> = { ...raw }
+    for (const f of SECRET_FIELDS) if (!legacy.includes(f)) out[f] = ''
+    return parseCreds(out)
+  }
+
+  const secrets: Partial<Record<SecretField, string>> = {}
+  for (const f of SECRET_FIELDS) {
+    const stored = store.get(scope, secretName(f))
+    if (stored !== null) secrets[f] = stored
+  }
+  if (legacy.length) {
+    for (const f of legacy) {
+      if (secrets[f] === undefined) {
+        store.set(scope, secretName(f), raw[f] as string)
+        secrets[f] = raw[f] as string
+      }
+    }
+    // Store first, then scrub: a crash in between leaves a duplicate the next read scrubs, never
+    // a lost secret.
+    db.pragma('secure_delete = ON')
+    try {
+      writeMetaWithoutSecrets(db, raw)
+    } finally {
+      db.pragma('secure_delete = OFF')
+    }
+    log('info', 'nic-secrets-migrated', { slug, fields: legacy })
+  }
+  return parseCreds({ ...raw, password: secrets.password ?? '', clientSecret: secrets.clientSecret ?? '' })
+}
+
+/** Throws SecretsUnavailableError (and writes nothing) when a non-empty secret can't be encrypted. */
+export function writeNicCredentials(db: DB, slug: string, creds: NicCredentials, store: SecretStore = appSecretStore()): void {
+  const scope = companyScope(slug)
+  // Secrets first — if encryption is unavailable this throws before anything changes.
+  for (const f of SECRET_FIELDS) if (creds[f]) store.set(scope, secretName(f), creds[f])
+  for (const f of SECRET_FIELDS) if (!creds[f]) store.delete(scope, secretName(f))
+  writeMetaWithoutSecrets(db, creds)
   // Credentials (incl. password) never go into the audit trail — before/after are always null.
   writeAudit(db, 'nic_credentials', 0, 'update', null, null)
 }
 
-export function nicConfigured(db: DB): boolean {
-  const c = readNicCredentials(db)
+/** Forget a company's NIC secrets (company deleted) so a future company reusing the slug can't inherit them. */
+export function deleteNicSecrets(slug: string, store: SecretStore = appSecretStore()): void {
+  store.deleteScope(companyScope(slug))
+}
+
+function credsComplete(c: NicCredentials): boolean {
   return !!(c.baseUrlEinvoice && c.username && c.password && c.clientId && c.publicKeyPem)
+}
+
+function assertConfigured(creds: NicCredentials, store: SecretStore = appSecretStore()): void {
+  if (credsComplete(creds)) return
+  // Distinguish "never set up" from "set up, but the keychain can't decrypt the secrets now".
+  if (!store.available()) throw new SecretsUnavailableError()
+  throw new Error('Live filing is not configured — add NIC API credentials first')
+}
+
+export function nicConfigured(db: DB, slug: string, store: SecretStore = appSecretStore()): boolean {
+  return credsComplete(readNicCredentials(db, slug, store))
 }
 
 // ---------- crypto helpers (NIC conventions) ----------
@@ -150,9 +246,9 @@ export interface IrnResult {
 }
 
 /** Generate an IRN for one sales voucher and store it on the voucher. */
-export async function generateIrn(db: DB, company: CompanyInfo, voucherId: number): Promise<IrnResult> {
-  const creds = readNicCredentials(db)
-  if (!nicConfigured(db)) throw new Error('Live filing is not configured — add NIC API credentials first')
+export async function generateIrn(db: DB, slug: string, company: CompanyInfo, voucherId: number): Promise<IrnResult> {
+  const creds = readNicCredentials(db, slug)
+  assertConfigured(creds)
   if (!company.gstin) throw new Error('Company GSTIN is missing')
   const existing = db.prepare('SELECT irn FROM vouchers WHERE id = ?').get(voucherId) as { irn: string | null } | undefined
   if (!existing) throw new Error('Voucher not found')
@@ -183,9 +279,9 @@ export interface EwbResult {
 }
 
 /** Generate an e-way bill against an existing IRN (dispatch details from the voucher). */
-export async function generateEwbByIrn(db: DB, company: CompanyInfo, voucherId: number): Promise<EwbResult> {
-  const creds = readNicCredentials(db)
-  if (!nicConfigured(db)) throw new Error('Live filing is not configured — add NIC API credentials first')
+export async function generateEwbByIrn(db: DB, slug: string, company: CompanyInfo, voucherId: number): Promise<EwbResult> {
+  const creds = readNicCredentials(db, slug)
+  assertConfigured(creds)
   if (!company.gstin) throw new Error('Company GSTIN is missing')
   const v = db.prepare('SELECT irn, ewb_no, vehicle_no, transporter_id, transport_distance FROM vouchers WHERE id = ?').get(voucherId) as
     | { irn: string | null; ewb_no: string | null; vehicle_no: string | null; transporter_id: string | null; transport_distance: number | null }

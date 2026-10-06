@@ -225,6 +225,13 @@ export function registerIpc(): void {
     if (current?.slug === slug) closeCurrentCompany()
     rmSync(companyDir(slug), { recursive: true, force: true })
     removeCompany(slug)
+    // Secrets live outside the company folder; drop them so a future company reusing this slug
+    // starts clean. Best-effort — a secret-store failure must not fail a completed delete.
+    try {
+      nic.deleteNicSecrets(slug)
+    } catch (err) {
+      log('warn', 'company-delete-secrets-failed', { slug, error: err instanceof Error ? err.message : String(err) })
+    }
     return null
   })
 
@@ -1198,7 +1205,10 @@ export function registerIpc(): void {
 
   // ---------- live filing (NIC APIs) ----------
   handle('nic:get', () => {
-    const creds = nic.readNicCredentials(requireCompany().db)
+    const c = requireCompany()
+    // Secrets come from the encrypted secret store (services/secretStore.ts), not the company DB;
+    // a first read also migrates any legacy plaintext copy out of `meta`.
+    const creds = nic.readNicCredentials(c.db, c.slug)
     // Never send live secrets back to the UI in full — password AND clientSecret are the two
     // halves of the NIC auth credential pair (username/password + client_id/client_secret),
     // and nic:get is viewer-gated (v0.3 review F3).
@@ -1211,25 +1221,28 @@ export function registerIpc(): void {
   handle('nic:save', (p) => {
     const c = requireCompany()
     const incoming = nicCredentialsSchema.parse(p)
-    const existing = nic.readNicCredentials(c.db)
+    const existing = nic.readNicCredentials(c.db, c.slug)
     // Re-saving the mask sentinel means "keep what's stored" — the settings form round-trips
     // nic:get values verbatim when the owner doesn't retype them.
     if (incoming.password === '••••••••') incoming.password = existing.password
     if (incoming.clientSecret === '••••••••') incoming.clientSecret = existing.clientSecret
-    nic.writeNicCredentials(c.db, incoming)
+    nic.writeNicCredentials(c.db, c.slug, incoming)
     nic.resetNicSession()
-    return { configured: nic.nicConfigured(c.db) }
+    return { configured: nic.nicConfigured(c.db, c.slug) }
   }, 'owner')
-  handle('nic:status', () => ({ configured: nic.nicConfigured(requireCompany().db) }), 'viewer')
+  handle('nic:status', () => {
+    const c = requireCompany()
+    return { configured: nic.nicConfigured(c.db, c.slug) }
+  }, 'viewer')
   handle('nic:generateIrn', async (p) => {
     const { voucherId } = z.object({ voucherId: z.number().int().positive() }).parse(p)
     const c = requireCompany()
-    return nic.generateIrn(c.db, c.info, voucherId)
+    return nic.generateIrn(c.db, c.slug, c.info, voucherId)
   }, 'owner')
   handle('nic:generateEwb', async (p) => {
     const { voucherId } = z.object({ voucherId: z.number().int().positive() }).parse(p)
     const c = requireCompany()
-    return nic.generateEwbByIrn(c.db, c.info, voucherId)
+    return nic.generateEwbByIrn(c.db, c.slug, c.info, voucherId)
   }, 'owner')
 
   // ---------- intelligence ----------
