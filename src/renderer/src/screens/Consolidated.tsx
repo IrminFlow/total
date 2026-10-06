@@ -3,11 +3,35 @@ import { useQuery } from '@tanstack/react-query'
 import { api } from '../lib/client'
 import { useSession, useToasts } from '../state/stores'
 import { Button, EmptyState, Money, Panel, ScrollList, SectionTitle, SkeletonRows } from '../components/ui'
+import { DataTable, defineColumns, type TableColumn } from '../components/table'
+import type { ConsolidatedRow } from '@shared/consolidate'
 import { csvReport } from '../lib/reportExport'
 import { toDisplayDate } from '@shared/dates'
 import { plainRupees } from '@shared/money'
 
 type Kind = 'tb' | 'pnl'
+
+const signedOrDash = (v: number | null | undefined): React.JSX.Element =>
+  v == null ? <span className="text-muted">—</span> : <Money paise={v} signed />
+
+/** Name, group, one signed (dr-positive) column per company, then the row total. The cells are
+ *  closing balances, so there is no footer sum. */
+export function consolidatedColumns(companies: string[]): TableColumn<ConsolidatedRow>[] {
+  return defineColumns<ConsolidatedRow>([
+    { id: 'name', header: 'Name', kind: 'text', value: (r) => r.name, hideable: false, groupable: false, minWidth: 180 },
+    { id: 'group', header: 'Group', kind: 'text', value: (r) => r.group, className: 'text-muted', minWidth: 140 },
+    ...companies.map((company, i) => ({
+      id: `co:${company}`,
+      header: company,
+      kind: 'money' as const,
+      signed: true,
+      value: (r: ConsolidatedRow) => r.perCompany[i],
+      cell: (r: ConsolidatedRow) => signedOrDash(r.perCompany[i]),
+      width: 150
+    })),
+    { id: 'total', header: 'Total', kind: 'money', signed: true, value: (r) => r.total, width: 160 }
+  ])
+}
 
 export function ConsolidatedScreen(): React.JSX.Element {
   const { from, to } = useSession()
@@ -47,6 +71,8 @@ export function ConsolidatedScreen(): React.JSX.Element {
     const result = await refetch()
     if (result.error) toast.push('error', result.error.message)
   }
+
+  const columns = useMemo(() => consolidatedColumns(data?.columns ?? []), [data])
 
   const exportCsv = async (): Promise<void> => {
     if (!data) return
@@ -147,42 +173,20 @@ export function ConsolidatedScreen(): React.JSX.Element {
 
       {!isFetching && ranOnce && data && (
         <Panel>
-          {data.rows.length === 0 ? (
-            <EmptyState title="No balances" hint="Nothing to show for the selected companies and period" />
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="ledger-table">
-                <thead>
-                  <tr>
-                    <th>Name</th>
-                    <th>Group</th>
-                    {data.columns.map((col) => (
-                      <th key={col} className="r w-32">
-                        {col}
-                      </th>
-                    ))}
-                    <th className="r w-32">Total</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {data.rows.map((r) => (
-                    <tr key={r.name}>
-                      <td>{r.name}</td>
-                      <td className="text-muted">{r.group}</td>
-                      {r.perCompany.map((v, i) => (
-                        <td key={data.columns[i]} className="r">
-                          {v == null ? <span className="text-muted">—</span> : <Money paise={v} signed />}
-                        </td>
-                      ))}
-                      <td className="r">
-                        <Money paise={r.total} signed />
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
+          <DataTable
+            viewId={`consolidated-${kind}`}
+            testId="consolidated"
+            ariaLabel={kind === 'tb' ? 'Consolidated trial balance' : 'Consolidated profit and loss'}
+            columns={columns}
+            rows={data.rows}
+            rowKey={(r) => `${r.group}|${r.name}`}
+            empty={{ title: 'No balances', hint: 'Nothing to show for the selected companies and period' }}
+            exportOptions={{
+              title: kind === 'tb' ? 'Consolidated trial balance' : 'Consolidated profit & loss',
+              periodLabel: `${toDisplayDate(from)} to ${toDisplayDate(to)}`,
+              filename: `consolidated-${kind}`
+            }}
+          />
         </Panel>
       )}
     </div>
