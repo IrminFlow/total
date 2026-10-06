@@ -1,188 +1,117 @@
-import { Fragment, useState } from 'react'
+import { useCallback, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { api } from '../lib/client'
-import { useSession, useToasts } from '../state/stores'
-import { Button, EmptyState, Money, Panel, SectionTitle, SkeletonRows } from '../components/ui'
-import { ReportConfigButton } from '../components/ReportConfigButton'
-import { useReportConfig, type ReportColumn } from '../lib/reportConfig'
-import { csvReport, printReport } from '../lib/reportExport'
-import type { ReportColumn as PdfColumn, ReportRow as PdfRow } from '../lib/client'
+import { useSession } from '../state/stores'
+import { Money, Panel, SectionTitle } from '../components/ui'
+import { DataTable, defineColumns, type RowKey } from '../components/table'
+import { formatMilli } from '../lib/table'
 import { toDisplayDate } from '@shared/dates'
-import { formatPaise } from '@shared/money'
+import type { StockAgeingRow, StockSummaryRow } from '@shared/reports'
 
-function fmtQty(qtyMilli: number, decimals: number): string {
-  return (qtyMilli / 1000).toFixed(decimals)
-}
+/** Integer milli → "12.500" at the item's own precision (integer maths, never a float divide). */
+const fmtQty = (qtyMilli: number, decimals: number): string => formatMilli(qtyMilli, decimals)
+const qtyText = (milli: number, r: { decimals: number; unitSymbol: string }): string =>
+  `${fmtQty(milli, r.decimals)} ${r.unitSymbol}`
 
-const COLUMNS: ReportColumn[] = [
-  { key: 'opening', label: 'Opening', defaultOn: true },
-  { key: 'inwards', label: 'Inwards', defaultOn: true },
-  { key: 'outwards', label: 'Outwards', defaultOn: true },
-  { key: 'closingQty', label: 'Closing qty', defaultOn: true },
-  { key: 'closingValue', label: 'Closing value', defaultOn: true }
-]
+// Column ids match the old useReportConfig toggle keys ('stock-summary'), so users keep their
+// hidden-column choices via legacyReportKey. Quantities carry per-item units and precision, so
+// they have no meaningful total; closing value does.
+export const STOCK_SUMMARY_COLUMNS = defineColumns<StockSummaryRow>([
+  {
+    id: 'item',
+    header: 'Item',
+    kind: 'text',
+    value: (r) => r.name,
+    hideable: false,
+    groupable: false,
+    minWidth: 160,
+    cell: (r) => (
+      <>
+        {r.name}
+        {r.closingQtyMilli < 0 && <span className="ml-2 text-[11px]">— negative stock, check entries</span>}
+      </>
+    )
+  },
+  { id: 'opening', header: 'Opening', kind: 'quantity', value: (r) => r.openingQtyMilli, text: (r) => qtyText(r.openingQtyMilli, r), width: 124 },
+  { id: 'inwards', header: 'Inwards', kind: 'quantity', value: (r) => r.inwardQtyMilli, text: (r) => qtyText(r.inwardQtyMilli, r), width: 124 },
+  { id: 'outwards', header: 'Outwards', kind: 'quantity', value: (r) => r.outwardQtyMilli, text: (r) => qtyText(r.outwardQtyMilli, r), width: 124 },
+  { id: 'closingQty', header: 'Closing qty', kind: 'quantity', value: (r) => r.closingQtyMilli, text: (r) => qtyText(r.closingQtyMilli, r), width: 148 },
+  { id: 'closingValue', header: 'Closing value', kind: 'money', value: (r) => r.closingValue, aggregate: 'sum', width: 160 }
+])
+
+const bucketText = (b: number, r: StockAgeingRow): string => (b === 0 ? '–' : qtyText(b, r))
+const flagsText = (r: StockAgeingRow): string =>
+  [r.belowReorder && 'reorder', r.slowMoving && 'slow-moving'].filter(Boolean).join(' · ')
+
+const AGEING_COLUMNS = defineColumns<StockAgeingRow>([
+  { id: 'item', header: 'Item', kind: 'text', value: (r) => r.name, hideable: false, groupable: false, minWidth: 160 },
+  { id: 'b0', header: '0–30 d', kind: 'quantity', value: (r) => r.buckets[0], text: (r) => bucketText(r.buckets[0], r), width: 116 },
+  { id: 'b1', header: '31–60 d', kind: 'quantity', value: (r) => r.buckets[1], text: (r) => bucketText(r.buckets[1], r), width: 116 },
+  { id: 'b2', header: '61–90 d', kind: 'quantity', value: (r) => r.buckets[2], text: (r) => bucketText(r.buckets[2], r), width: 116 },
+  { id: 'b3', header: '90+ d', kind: 'quantity', value: (r) => r.buckets[3], text: (r) => bucketText(r.buckets[3], r), width: 116 },
+  {
+    id: 'flags',
+    header: 'Flags',
+    kind: 'text',
+    value: flagsText,
+    width: 176,
+    cell: (r) => (
+      <>
+        {r.belowReorder && <span className="mr-2 text-[11.5px] text-cr">reorder</span>}
+        {r.slowMoving && <span className="text-[11.5px] text-muted">slow-moving</span>}
+      </>
+    )
+  }
+])
 
 export function StockSummaryScreen(): React.JSX.Element {
   const { to } = useSession()
-  const toast = useToasts()
   const { data, isLoading } = useQuery({ queryKey: ['stockSummary', to], queryFn: () => api.stock.summary(to) })
   const rows = data ?? []
-  const { visible, toggle } = useReportConfig('stock-summary', COLUMNS)
   // Expandable item rows (user ask): one item at a time unfolds into its godown- and
-  // batch-wise closing position, fetched on demand.
-  const [expandedId, setExpandedId] = useState<number | null>(null)
-  const colCount =
-    1 + (visible.opening ? 1 : 0) + (visible.inwards ? 1 : 0) + (visible.outwards ? 1 : 0) +
-    (visible.closingQty ? 1 : 0) + (visible.closingValue ? 1 : 0)
-
-  const exportColumns: PdfColumn[] = [
-    { label: 'Item', align: 'l' },
-    ...(visible.opening ? [{ label: 'Opening', align: 'r' as const }] : []),
-    ...(visible.inwards ? [{ label: 'Inwards', align: 'r' as const }] : []),
-    ...(visible.outwards ? [{ label: 'Outwards', align: 'r' as const }] : []),
-    ...(visible.closingQty ? [{ label: 'Closing qty', align: 'r' as const }] : []),
-    ...(visible.closingValue ? [{ label: 'Closing value', align: 'r' as const }] : [])
-  ]
-  const exportRows: PdfRow[] = [
-    ...rows.map((r) => ({
-      cells: [
-        r.name,
-        ...(visible.opening ? [`${fmtQty(r.openingQtyMilli, r.decimals)} ${r.unitSymbol}`] : []),
-        ...(visible.inwards ? [`${fmtQty(r.inwardQtyMilli, r.decimals)} ${r.unitSymbol}`] : []),
-        ...(visible.outwards ? [`${fmtQty(r.outwardQtyMilli, r.decimals)} ${r.unitSymbol}`] : []),
-        ...(visible.closingQty ? [`${fmtQty(r.closingQtyMilli, r.decimals)} ${r.unitSymbol}`] : []),
-        ...(visible.closingValue ? [formatPaise(r.closingValue, { zeroDash: true })] : [])
-      ]
-    })),
-    {
-      cells: [
-        'Total',
-        ...(visible.opening ? [''] : []),
-        ...(visible.inwards ? [''] : []),
-        ...(visible.outwards ? [''] : []),
-        ...(visible.closingQty ? [''] : []),
-        ...(visible.closingValue ? [formatPaise(rows.reduce((s, r) => s + r.closingValue, 0), { zeroDash: true })] : [])
-      ],
-      bold: true,
-      rule: true
-    }
-  ]
+  // batch-wise closing position, fetched on demand. A click on the row toggles it; → / ← too.
+  const [expanded, setExpanded] = useState<ReadonlySet<RowKey>>(() => new Set())
+  const onExpandedChange = useCallback((next: Set<RowKey>) => {
+    setExpanded((cur) => {
+      const added = [...next].filter((k) => !cur.has(k))
+      return added.length ? new Set([added[added.length - 1]!]) : next
+    })
+  }, [])
+  const toggle = useCallback((r: StockSummaryRow) => {
+    setExpanded((cur) => (cur.has(r.stockItemId) ? new Set() : new Set([r.stockItemId])))
+  }, [])
   const periodLabel = `as on ${toDisplayDate(to)}`
 
   return (
-    <div className="mx-auto max-w-4xl">
-      <SectionTitle
-        right={
-          <div className="flex items-center gap-2">
-            <span className="num text-[12px] text-muted">as on {toDisplayDate(to)}</span>
-            <ReportConfigButton columns={COLUMNS} visible={visible} toggle={toggle} />
-            <Button
-              variant="ghost"
-              onClick={() =>
-                void printReport({ title: 'Stock summary', periodLabel, columns: exportColumns, rows: exportRows }, toast)
-              }
-            >
-              PDF
-            </Button>
-            <Button
-              variant="ghost"
-              onClick={() =>
-                void csvReport(exportColumns.map((c) => c.label), exportRows.map((r) => r.cells), 'stock-summary', toast)
-              }
-            >
-              CSV
-            </Button>
-          </div>
-        }
-      >
-        Stock summary
-      </SectionTitle>
+    <div className="mx-auto max-w-5xl">
+      <SectionTitle right={<span className="num text-[12px] text-muted">{periodLabel}</span>}>Stock summary</SectionTitle>
       <Panel>
-        {isLoading ? (
-          <SkeletonRows />
-        ) : rows.length === 0 ? (
-          <EmptyState title="No stock items yet" hint="Create items under Masters, or straight from a sales/purchase voucher" />
-        ) : (
-          <table className="ledger-table">
-            <thead>
-              <tr>
-                <th>Item</th>
-                {visible.opening && <th className="r w-32">Opening</th>}
-                {visible.inwards && <th className="r w-32">Inwards</th>}
-                {visible.outwards && <th className="r w-32">Outwards</th>}
-                {visible.closingQty && <th className="r w-32">Closing qty</th>}
-                {visible.closingValue && <th className="r w-40">Closing value</th>}
-              </tr>
-            </thead>
-            <tbody data-testid="rows-stock-summary">
-              {rows.map((r) => (
-                <Fragment key={r.stockItemId}>
-                <tr
-                  data-row-id={r.stockItemId}
-                  className={`cursor-pointer ${r.closingQtyMilli < 0 ? 'text-cr' : ''}`}
-                  onClick={() => setExpandedId((cur) => (cur === r.stockItemId ? null : r.stockItemId))}
-                >
-                  <td>
-                    <span className="mr-1.5 inline-block w-3 text-[10px] text-muted">
-                      {expandedId === r.stockItemId ? '▾' : '▸'}
-                    </span>
-                    {r.name}
-                    {r.closingQtyMilli < 0 && <span className="ml-2 text-[11px]">— negative stock, check entries</span>}
-                  </td>
-                  {visible.opening && (
-                    <td className="r num">
-                      {fmtQty(r.openingQtyMilli, r.decimals)} {r.unitSymbol}
-                    </td>
-                  )}
-                  {visible.inwards && (
-                    <td className="r num">
-                      {fmtQty(r.inwardQtyMilli, r.decimals)} {r.unitSymbol}
-                    </td>
-                  )}
-                  {visible.outwards && (
-                    <td className="r num">
-                      {fmtQty(r.outwardQtyMilli, r.decimals)} {r.unitSymbol}
-                    </td>
-                  )}
-                  {visible.closingQty && (
-                    <td className="r num">
-                      {fmtQty(r.closingQtyMilli, r.decimals)} {r.unitSymbol}
-                    </td>
-                  )}
-                  {visible.closingValue && (
-                    <td className="r">
-                      <Money paise={r.closingValue} />
-                    </td>
-                  )}
-                </tr>
-                {expandedId === r.stockItemId && (
-                  <tr>
-                    <td colSpan={colCount} className="bg-panel2/50">
-                      <ItemDetail stockItemId={r.stockItemId} asOn={to} decimals={r.decimals} unitSymbol={r.unitSymbol} />
-                    </td>
-                  </tr>
-                )}
-                </Fragment>
-              ))}
-              <tr className="total-row">
-                <td colSpan={1 + (visible.opening ? 1 : 0) + (visible.inwards ? 1 : 0) + (visible.outwards ? 1 : 0) + (visible.closingQty ? 1 : 0)}>
-                  Total
-                </td>
-                {visible.closingValue && (
-                  <td className="r">
-                    <Money paise={rows.reduce((s, r) => s + r.closingValue, 0)} />
-                  </td>
-                )}
-              </tr>
-            </tbody>
-          </table>
-        )}
+        <DataTable
+          viewId="stock-summary"
+          legacyReportKey="stock-summary"
+          testId="stock-summary"
+          ariaLabel="Stock summary"
+          columns={STOCK_SUMMARY_COLUMNS}
+          rows={rows}
+          rowKey={(r) => r.stockItemId}
+          rowAttrs={(r) => ({ 'data-row-id': r.stockItemId })}
+          rowClassName={(r) => (r.closingQtyMilli < 0 ? 'text-cr' : '')}
+          loading={isLoading}
+          empty={{ title: 'No stock items yet', hint: 'Create items under Masters, or straight from a sales/purchase voucher' }}
+          onRowActivate={toggle}
+          expanded={expanded}
+          onExpandedChange={onExpandedChange}
+          renderDetail={(r) => <ItemDetail stockItemId={r.stockItemId} asOn={to} decimals={r.decimals} unitSymbol={r.unitSymbol} />}
+          detailHeightEstimate={64}
+          maxHeight="calc(100vh - 260px)"
+          toolbarFeatures={{ groupBy: false }}
+          exportOptions={{ title: 'Stock summary', periodLabel, filename: 'stock-summary' }}
+        />
       </Panel>
       <StockAnalysis asOn={to} />
     </div>
   )
 }
-
 
 /** Godown- and batch-wise closing for one expanded item (fetched on expand). */
 function ItemDetail({
@@ -210,12 +139,12 @@ function ItemDetail({
     (g) => g.stockItemId === stockItemId && g.closingQtyMilli !== 0 && g.godownId !== null
   )
   const batchRows = (batches ?? []).filter((b) => b.closingQtyMilli !== 0)
-  if (loadingGodowns || loadingBatches) return <p className="px-6 py-2 text-[12px] text-muted">Loading breakdown…</p>
+  if (loadingGodowns || loadingBatches) return <p className="py-1 text-[12px] text-muted">Loading breakdown…</p>
   if (godownRows.length === 0 && batchRows.length === 0) {
-    return <p className="px-6 py-2 text-[12px] text-muted">No godown or batch breakdown for this item.</p>
+    return <p className="py-1 text-[12px] text-muted">No godown or batch breakdown for this item.</p>
   }
   return (
-    <div className="flex flex-wrap gap-8 px-6 py-2" data-testid="stock-item-detail">
+    <div className="flex flex-wrap gap-8 py-1 text-ink" data-testid="stock-item-detail">
       {godownRows.length > 0 && (
         <div>
           <p className="mb-1 text-[10.5px] font-semibold tracking-[0.08em] text-muted uppercase">By godown</p>
@@ -249,34 +178,18 @@ function StockAnalysis({ asOn }: { asOn: string }): React.JSX.Element | null {
   return (
     <Panel className="mt-4">
       <p className="mb-2 px-1 text-[13.5px] font-medium">Stock analysis — ageing &amp; reorder</p>
-      <table className="ledger-table" data-testid="stock-ageing-table">
-        <thead>
-          <tr>
-            <th>Item</th>
-            <th className="r w-24">0–30 d</th>
-            <th className="r w-24">31–60 d</th>
-            <th className="r w-24">61–90 d</th>
-            <th className="r w-24">90+ d</th>
-            <th className="w-44">Flags</th>
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((r) => (
-            <tr key={r.stockItemId}>
-              <td>{r.name}</td>
-              {r.buckets.map((b, i) => (
-                <td key={i} className="r num">
-                  {b === 0 ? '–' : `${fmtQty(b, r.decimals)} ${r.unitSymbol}`}
-                </td>
-              ))}
-              <td>
-                {r.belowReorder && <span className="mr-2 text-[11.5px] text-cr">reorder</span>}
-                {r.slowMoving && <span className="text-[11.5px] text-muted">slow-moving</span>}
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+      <DataTable
+        viewId="stock-ageing"
+        testId="stock-ageing"
+        tableTestId="stock-ageing-table"
+        ariaLabel="Stock ageing and reorder"
+        columns={AGEING_COLUMNS}
+        rows={rows}
+        rowKey={(r) => r.stockItemId}
+        rowAttrs={(r) => ({ 'data-row-id': r.stockItemId })}
+        maxHeight="60vh"
+        exportOptions={{ title: 'Stock ageing & reorder', periodLabel: `as on ${toDisplayDate(asOn)}`, filename: 'stock-ageing' }}
+      />
     </Panel>
   )
 }
