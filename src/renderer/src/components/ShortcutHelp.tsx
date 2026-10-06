@@ -11,7 +11,7 @@ interface ShortcutGroup {
   rows: ShortcutRow[]
 }
 
-/** Mirrors the keydown handlers actually wired up in App.tsx (⌘K/Esc/?), VoucherEntry.tsx
+/** Mirrors the keydown handlers actually wired up in App.tsx (⌘K/⌘⇧F/Esc/?), CommandPalette (⌘↵), VoucherEntry.tsx
  *  (F4–F9 + the note variants + ⌘↵), and ui.tsx's `useKeyNav` (↑↓↵ on every list screen);
  *  the Gateway group derives from the screen registry's cards, same as Gateway itself. */
 export const SHORTCUT_GROUPS: ShortcutGroup[] = [
@@ -19,6 +19,8 @@ export const SHORTCUT_GROUPS: ShortcutGroup[] = [
     title: 'Global',
     rows: [
       { keys: ['⌘K'], label: 'Open the command palette' },
+      { keys: ['⌘⇧F'], label: 'Search the books (full results)' },
+      { keys: ['⌘', '↵'], label: 'In the palette: see all results' },
       { keys: ['Esc'], label: 'Close a dialog, or go back a screen' },
       { keys: ['?'], label: 'Show this shortcut reference' }
     ]
