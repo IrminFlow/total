@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import type { Employee, PayrollRun } from '@shared/domain'
 import { daysInMonth } from '@shared/payroll'
@@ -7,10 +7,12 @@ import { api, type EmployeeHeadRow, type PayHead } from '../lib/client'
 import { formatPaise, parseRupees } from '@shared/money'
 import { useNav, useToasts } from '../state/stores'
 import {
-  AmountInput, Button, EmptyState, Field, Modal, Money, Panel, ScrollList, Select, SkeletonRows, Spinner, TextInput, inputCls
+  AmountInput, Button, EmptyState, Field, Modal, Money, Panel, ScrollList, Select, Spinner, TextInput, inputCls
 } from '../components/ui'
 import { confirmDialog } from '../lib/dialogs'
 import { TabBar } from '../components/TabBar'
+import { DataTable, defineColumns } from '../components/table'
+import { Popover } from '../components/table/Popover'
 
 type Tab = 'employees' | 'runs'
 
@@ -21,6 +23,55 @@ function monthLabel(month: string): string {
   const [y, m] = month.split('-').map(Number)
   return `${MONTH_NAMES[(m ?? 1) - 1]} ${y}`
 }
+
+const STATUS_OPTIONS = [
+  { value: 'active', label: 'Active' },
+  { value: 'inactive', label: 'Inactive' }
+]
+
+/** Monthly salary totals count active employees only — an inactive one isn't on the payroll. */
+const activeSum =
+  (pick: (e: Employee) => number) =>
+  (rows: Employee[]): number =>
+    rows.filter((e) => e.active).reduce((s, e) => s + pick(e), 0)
+const grossOf = (e: Employee): number => e.basic + e.hra + e.special
+
+export const EMPLOYEE_COLUMNS = defineColumns<Employee>([
+  {
+    id: 'name',
+    header: 'Name',
+    kind: 'text',
+    value: (e) => e.name,
+    hideable: false,
+    groupable: false,
+    minWidth: 160,
+    cell: (e) => (
+      <>
+        {e.name}
+        {!e.active && <span className="ml-2 text-[11px] text-muted">inactive</span>}
+      </>
+    )
+  },
+  { id: 'code', header: 'Code', kind: 'text', value: (e) => e.code, defaultHidden: true, groupable: false, width: 100, className: 'num text-muted' },
+  { id: 'designation', header: 'Designation', kind: 'text', value: (e) => e.designation, className: 'text-muted' },
+  { id: 'basic', header: 'Basic', kind: 'money', value: (e) => e.basic, aggregate: activeSum((e) => e.basic), width: 124 },
+  { id: 'hra', header: 'HRA', kind: 'money', value: (e) => e.hra, aggregate: activeSum((e) => e.hra), width: 124 },
+  { id: 'special', header: 'Special', kind: 'money', value: (e) => e.special, aggregate: activeSum((e) => e.special), width: 124 },
+  { id: 'gross', header: 'Gross / mo', kind: 'money', value: grossOf, aggregate: activeSum(grossOf), width: 140, className: 'font-medium' },
+  { id: 'status', header: 'Status', kind: 'enum', value: (e) => (e.active ? 'active' : 'inactive'), options: STATUS_OPTIONS, defaultHidden: true, width: 112 }
+])
+
+const runNet = (run: PayrollRun): number => run.lines.reduce((s, l) => s + l.net, 0)
+const runGross = (run: PayrollRun): number => run.lines.reduce((s, l) => s + l.gross, 0)
+
+// Gross and net are per-month payouts, so their totals (the year's payroll so far) are meaningful.
+export const RUN_COLUMNS = defineColumns<PayrollRun>([
+  // 'YYYY-MM' sorts chronologically; shown as "Aug 2026".
+  { id: 'month', header: 'Month', kind: 'text', value: (r) => r.month, text: (r) => monthLabel(r.month), hideable: false, groupable: false, minWidth: 110, className: 'font-medium' },
+  { id: 'employees', header: 'Employees', kind: 'number', value: (r) => r.lines.length, width: 132 },
+  { id: 'gross', header: 'Gross', kind: 'money', value: runGross, aggregate: 'sum', width: 140, defaultHidden: true },
+  { id: 'net', header: 'Net pay', kind: 'money', value: runNet, aggregate: 'sum', width: 140 }
+])
 
 export function PayrollScreen(): React.JSX.Element {
   const [tab, setTab] = useState<Tab>('employees')
@@ -51,7 +102,7 @@ export function PayrollScreen(): React.JSX.Element {
 function EmployeesTab(): React.JSX.Element {
   const toast = useToasts()
   const queryClient = useQueryClient()
-  const { data: employees } = useQuery({ queryKey: ['employees'], queryFn: api.payroll.employees })
+  const { data: employees, isLoading: employeesLoading } = useQuery({ queryKey: ['employees'], queryFn: api.payroll.employees })
   const [editing, setEditing] = useState<Employee | 'new' | null>(null)
   const [headsOpen, setHeadsOpen] = useState(false)
   const [overridesFor, setOverridesFor] = useState<Employee | null>(null)
@@ -83,62 +134,48 @@ function EmployeesTab(): React.JSX.Element {
           Add employee
         </Button>
       </div>
-      <Panel scroll={{ maxH: '58vh' }}>
-        {!employees?.length ? (
-          <EmptyState title="No employees yet" hint="Add employees with their monthly salary structure, then post a pay run" />
-        ) : (
-          <table className="ledger-table">
-            <thead>
-              <tr>
-                <th>Name</th>
-                <th>Designation</th>
-                <th className="r w-28">Basic</th>
-                <th className="r w-28">HRA</th>
-                <th className="r w-28">Special</th>
-                <th className="r w-28">Gross / mo</th>
-                <th className="w-44"></th>
-              </tr>
-            </thead>
-            <tbody data-testid="rows-payroll-employees">
-              {employees.map((e) => (
-                <tr key={e.id} data-row-id={e.id} className={e.active ? '' : 'opacity-50'}>
-                  <td>
-                    {e.name}
-                    {!e.active && <span className="ml-2 text-[11px] text-muted">inactive</span>}
-                  </td>
-                  <td className="text-muted">{e.designation}</td>
-                  <td className="r"><Money paise={e.basic} /></td>
-                  <td className="r"><Money paise={e.hra} /></td>
-                  <td className="r"><Money paise={e.special} /></td>
-                  <td className="r font-medium"><Money paise={e.basic + e.hra + e.special} /></td>
-                  <td className="r">
-                    <button
-                      className="mr-3 text-[12px] text-muted hover:text-ink"
-                      data-testid="btn-payroll-overrides"
-                      onClick={() => setOverridesFor(e)}
-                    >
-                      Heads
-                    </button>
-                    <button
-                      className="mr-3 text-[12px] text-blue hover:underline"
-                      data-testid="btn-payroll-edit-employee"
-                      onClick={() => setEditing(e)}
-                    >
-                      Edit
-                    </button>
-                    <button
-                      className="text-[12px] text-cr hover:underline"
-                      data-testid="btn-payroll-delete-employee"
-                      onClick={() => void remove(e)}
-                    >
-                      Delete
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
+      <Panel>
+        <DataTable
+          viewId="payroll-employees"
+          testId="payroll-employees"
+          ariaLabel="Employees"
+          columns={EMPLOYEE_COLUMNS}
+          rows={employees ?? []}
+          rowKey={(e) => e.id}
+          rowAttrs={(e) => ({ 'data-row-id': e.id })}
+          rowClassName={(e) => (e.active ? '' : 'opacity-50')}
+          loading={employeesLoading}
+          empty={{ title: 'No employees yet', hint: 'Add employees with their monthly salary structure, then post a pay run' }}
+          maxHeight="58vh"
+          totalsLabel="Total (active)"
+          trailingWidth={176}
+          trailing={(e) => (
+            <>
+              <button
+                className="mr-3 text-[12px] text-muted hover:text-ink"
+                data-testid="btn-payroll-overrides"
+                onClick={() => setOverridesFor(e)}
+              >
+                Heads
+              </button>
+              <button
+                className="mr-3 text-[12px] text-blue hover:underline"
+                data-testid="btn-payroll-edit-employee"
+                onClick={() => setEditing(e)}
+              >
+                Edit
+              </button>
+              <button
+                className="text-[12px] text-cr hover:underline"
+                data-testid="btn-payroll-delete-employee"
+                onClick={() => void remove(e)}
+              >
+                Delete
+              </button>
+            </>
+          )}
+          exportOptions={{ title: 'Employees', periodLabel: 'Monthly salary structure', filename: 'employees' }}
+        />
       </Panel>
       {editing && <EmployeeModal employee={editing === 'new' ? null : editing} onClose={() => setEditing(null)} />}
       {headsOpen && <PayHeadsModal onClose={() => setHeadsOpen(false)} />}
@@ -616,6 +653,7 @@ function RunsTab(): React.JSX.Element {
   const [month, setMonth] = useState(todayISO().slice(0, 7))
   const [daysOverride, setDaysOverride] = useState<Record<number, string>>({})
   const [posting, setPosting] = useState(false)
+  const [ptRun, setPtRun] = useState<PayrollRun | null>(null)
 
   // Last 12 months, current first — replaces the free-text YYYY-MM field.
   const monthOptions = useMemo(() => {
@@ -770,46 +808,43 @@ function RunsTab(): React.JSX.Element {
         )}
       </Panel>
 
-      <Panel scroll={{ maxH: '52vh' }}>
+      <Panel>
         <p className="border-b border-line px-4 py-2.5 text-[11px] font-semibold tracking-[0.08em] text-muted uppercase">
           Posted runs
         </p>
-        {runsLoading ? (
-          <SkeletonRows rows={3} />
-        ) : !runs?.length ? (
-          <EmptyState title="Nothing posted yet" />
-        ) : (
-          runs.map((run) => <RunRow key={run.id} run={run} />)
-        )}
+        <DataTable
+          viewId="payroll-runs"
+          testId="payroll-runs"
+          ariaLabel="Posted pay runs"
+          columns={RUN_COLUMNS}
+          rows={runs ?? []}
+          rowKey={(r) => r.id}
+          rowAttrs={(r) => ({ 'data-row-id': r.id })}
+          loading={runsLoading}
+          empty={{ title: 'Nothing posted yet' }}
+          maxHeight="52vh"
+          // Newest month first, as the runs come from the service.
+          viewDefaults={{ sort: [{ id: 'month', dir: 'desc' }] }}
+          toolbarFeatures={{ groupBy: false }}
+          trailingWidth={380}
+          trailing={(run) => <RunActions run={run} onPt={setPtRun} />}
+          exportOptions={{ title: 'Posted pay runs', periodLabel: '', filename: 'pay-runs' }}
+        />
       </Panel>
+      {ptRun && <PtSummaryModal run={ptRun} onClose={() => setPtRun(null)} />}
     </>
   )
 }
 
-function RunRow({ run }: { run: PayrollRun }): React.JSX.Element {
+/** A posted run's actions (the trailing cell of the runs table). The payslip menu is a portalled
+ *  Popover — the table's single-line cells clip anything absolutely positioned inside them — and
+ *  it closes on outside click / Escape. */
+function RunActions({ run, onPt }: { run: PayrollRun; onPt: (run: PayrollRun) => void }): React.JSX.Element {
   const toast = useToasts()
   const nav = useNav()
   const queryClient = useQueryClient()
   const [payslipsOpen, setPayslipsOpen] = useState(false)
-  const [ptOpen, setPtOpen] = useState(false)
-  const payslipsRef = useRef<HTMLSpanElement>(null)
-
-  // Overflow menu closes on outside click / Escape.
-  useEffect(() => {
-    if (!payslipsOpen) return
-    const onDoc = (e: MouseEvent): void => {
-      if (!payslipsRef.current?.contains(e.target as Node)) setPayslipsOpen(false)
-    }
-    const onKey = (e: KeyboardEvent): void => {
-      if (e.key === 'Escape') setPayslipsOpen(false)
-    }
-    document.addEventListener('mousedown', onDoc)
-    document.addEventListener('keydown', onKey)
-    return () => {
-      document.removeEventListener('mousedown', onDoc)
-      document.removeEventListener('keydown', onKey)
-    }
-  }, [payslipsOpen])
+  const payslipsRef = useRef<HTMLButtonElement>(null)
 
   const exportFile = async (kind: 'ecr' | 'esi'): Promise<void> => {
     try {
@@ -838,64 +873,58 @@ function RunRow({ run }: { run: PayrollRun }): React.JSX.Element {
   }
 
   return (
-    <div className="border-b border-line/50 px-4 py-2.5 last:border-b-0" data-row-id={run.id}>
-      <div className="flex items-center justify-between">
-        <span className="font-medium">{monthLabel(run.month)}</span>
-        <span className="flex items-center gap-3 text-[12px]">
-          <Money paise={run.lines.reduce((s, l) => s + l.net, 0)} />
-          {run.voucherId && (
-            <button
-              className="text-blue hover:underline"
-              data-testid="btn-payroll-voucher"
-              onClick={() => nav.go({ name: 'voucher-entry', voucherId: run.voucherId! })}
-            >
-              Voucher
-            </button>
-          )}
-          <span className="relative" ref={payslipsRef}>
-            <button
-              className="text-blue hover:underline"
-              data-testid="btn-payroll-payslips"
-              onClick={() => setPayslipsOpen((o) => !o)}
-            >
-              Payslips ▾
-            </button>
-            {payslipsOpen && (
-              <span className="absolute right-0 top-6 z-20 block w-56 rounded-md border border-line bg-panel py-1 panel-shadow">
-                <ScrollList maxH="40vh">
-                  {run.lines.map((l) => (
-                    <button
-                      key={l.id}
-                      className="block w-full truncate px-3 py-1.5 text-left text-[12.5px] text-ink hover:bg-panel2"
-                      title="Open payslip PDF"
-                      onClick={() => {
-                        setPayslipsOpen(false)
-                        api.payroll.payslip(run.id, l.employeeId).catch((err: Error) => toast.push('error', err.message))
-                      }}
-                    >
-                      {l.employeeName}
-                    </button>
-                  ))}
-                </ScrollList>
-              </span>
-            )}
-          </span>
-          <button className="text-muted hover:text-ink" data-testid="btn-payroll-ecr" onClick={() => void exportFile('ecr')} title="EPFO ECR upload file">
-            PF ECR
-          </button>
-          <button className="text-muted hover:text-ink" data-testid="btn-payroll-esi" onClick={() => void exportFile('esi')} title="ESIC upload CSV">
-            ESI CSV
-          </button>
-          <button className="text-muted hover:text-ink" data-testid="btn-payroll-pt" onClick={() => setPtOpen(true)} title="Professional tax summary by state">
-            PT
-          </button>
-          <button className="text-cr hover:underline" data-testid="btn-payroll-delete-run" onClick={() => void remove()}>
-            Delete
-          </button>
-        </span>
-      </div>
-      {ptOpen && <PtSummaryModal run={run} onClose={() => setPtOpen(false)} />}
-    </div>
+    <span className="inline-flex items-center gap-3 text-[12px]">
+      {run.voucherId && (
+        <button
+          className="text-blue hover:underline"
+          data-testid="btn-payroll-voucher"
+          onClick={() => nav.go({ name: 'voucher-entry', voucherId: run.voucherId! })}
+        >
+          Voucher
+        </button>
+      )}
+      <button
+        ref={payslipsRef}
+        className="text-blue hover:underline"
+        data-testid="btn-payroll-payslips"
+        aria-haspopup="dialog"
+        aria-expanded={payslipsOpen}
+        onClick={() => setPayslipsOpen((o) => !o)}
+      >
+        Payslips ▾
+      </button>
+      {payslipsOpen && (
+        <Popover anchor={payslipsRef} onClose={() => setPayslipsOpen(false)} label={`Payslips — ${monthLabel(run.month)}`} align="right" width={224}>
+          <ScrollList maxH="40vh" className="-m-2">
+            {run.lines.map((l) => (
+              <button
+                key={l.id}
+                className="block w-full truncate rounded px-3 py-1.5 text-left text-[12.5px] text-ink hover:bg-panel2"
+                title="Open payslip PDF"
+                onClick={() => {
+                  setPayslipsOpen(false)
+                  api.payroll.payslip(run.id, l.employeeId).catch((err: Error) => toast.push('error', err.message))
+                }}
+              >
+                {l.employeeName}
+              </button>
+            ))}
+          </ScrollList>
+        </Popover>
+      )}
+      <button className="text-muted hover:text-ink" data-testid="btn-payroll-ecr" onClick={() => void exportFile('ecr')} title="EPFO ECR upload file">
+        PF ECR
+      </button>
+      <button className="text-muted hover:text-ink" data-testid="btn-payroll-esi" onClick={() => void exportFile('esi')} title="ESIC upload CSV">
+        ESI CSV
+      </button>
+      <button className="text-muted hover:text-ink" data-testid="btn-payroll-pt" onClick={() => onPt(run)} title="Professional tax summary by state">
+        PT
+      </button>
+      <button className="text-cr hover:underline" data-testid="btn-payroll-delete-run" onClick={() => void remove()}>
+        Delete
+      </button>
+    </span>
   )
 }
 

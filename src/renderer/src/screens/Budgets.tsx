@@ -6,7 +6,9 @@ import { fyFromStartYear, fyOf, todayISO } from '@shared/dates'
 import { formatPaise } from '@shared/money'
 import { api } from '../lib/client'
 import { useToasts } from '../state/stores'
-import { AmountInput, Button, EmptyState, Field, Modal, Money, Panel, ScrollList, SectionTitle, Select, TextInput, SkeletonRows } from '../components/ui'
+import type { BudgetVarianceRow } from '@shared/budgets'
+import { AmountInput, Button, EmptyState, Field, Modal, Panel, ScrollList, SectionTitle, Select, TextInput, SkeletonRows } from '../components/ui'
+import { DataTable, defineColumns } from '../components/table'
 import { LedgerPicker, useGroups } from '../components/pickers'
 import { confirmDialog } from '../lib/dialogs'
 import { useUnsavedGuard } from '../lib/useUnsavedGuard'
@@ -25,6 +27,59 @@ function monthLabel(month: string): string {
   const [y, m] = month.split('-').map(Number) as [number, number]
   return `${MONTH_NAMES[m - 1]} ${y}`
 }
+
+/** "+1,200.00 over" / "-300.00 under" / "–" — variance is actual − budget. */
+function varianceText(paise: number): string {
+  if (paise === 0) return '–'
+  return `${paise > 0 ? '+' : '-'}${formatPaise(Math.abs(paise))} ${paise > 0 ? 'over' : 'under'}`
+}
+
+function VarianceCell({ paise }: { paise: number }): React.JSX.Element {
+  if (paise === 0) return <span className="num text-muted">–</span>
+  return (
+    <span className={`num ${paise > 0 ? 'text-cr' : 'text-dr'}`}>
+      {paise > 0 ? '+' : '-'}
+      {formatPaise(Math.abs(paise))}
+      <span className="ml-1 text-muted">{paise > 0 ? 'over' : 'under'}</span>
+    </span>
+  )
+}
+
+// No footer totals: lines mix income and expense targets, and an annual line plus monthly lines
+// for the same target would double count — a column sum would mislead.
+const VARIANCE_COLUMNS = defineColumns<BudgetVarianceRow>([
+  { id: 'target', header: 'Target', kind: 'text', value: (v) => v.targetName, hideable: false, minWidth: 160 },
+  {
+    id: 'month',
+    header: 'Month',
+    kind: 'text',
+    // 'YYYY-MM' sorts chronologically; annual lines have no month (sort last) and read "Year".
+    value: (v) => v.month,
+    text: (v) => (v.month ? monthLabel(v.month) : 'Year'),
+    width: 110,
+    className: 'text-muted'
+  },
+  { id: 'budget', header: 'Budget', kind: 'money', value: (v) => v.budget, width: 140 },
+  { id: 'actual', header: 'Actual', kind: 'money', value: (v) => v.actual, width: 140 },
+  {
+    id: 'variance',
+    header: 'Variance',
+    kind: 'money',
+    value: (v) => v.variance,
+    text: (v) => varianceText(v.variance),
+    cell: (v) => <VarianceCell paise={v.variance} />,
+    width: 170
+  },
+  {
+    id: 'pct',
+    header: '%',
+    kind: 'number',
+    value: (v) => v.pct,
+    text: (v) => (v.pct == null ? '—' : `${v.pct}%`),
+    width: 80,
+    className: 'text-muted'
+  }
+])
 
 /** One editable row in the budget line editor — local, pre-save shape (mirrors BudgetLineInput
  *  but keeps the ledger/group toggle as an explicit targetType so the picker can switch cleanly). */
@@ -304,46 +359,21 @@ export function BudgetsScreen(): React.JSX.Element {
             Variance · through {monthLabel(upToMonth)}
           </SectionTitle>
           <Panel>
-            {varianceLoading ? (
-              <SkeletonRows rows={4} />
-            ) : !variance?.length ? (
-              <EmptyState title="No budget lines to compare yet" hint="Add a line above and save the budget" />
-            ) : (
-              <table className="ledger-table">
-                <thead>
-                  <tr>
-                    <th>Target</th>
-                    <th className="w-24">Month</th>
-                    <th className="r w-32">Budget</th>
-                    <th className="r w-32">Actual</th>
-                    <th className="r w-32">Variance</th>
-                    <th className="r w-20">%</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {variance.map((v, i) => (
-                    <tr key={i}>
-                      <td>{v.targetName}</td>
-                      <td className="text-muted">{v.month ? monthLabel(v.month) : 'Year'}</td>
-                      <td className="r"><Money paise={v.budget} /></td>
-                      <td className="r"><Money paise={v.actual} /></td>
-                      <td className="r">
-                        {v.variance === 0 ? (
-                          <span className="num text-muted">–</span>
-                        ) : (
-                          <span className={`num ${v.variance > 0 ? 'text-cr' : 'text-dr'}`}>
-                            {v.variance > 0 ? '+' : '-'}
-                            {formatPaise(Math.abs(v.variance))}
-                            <span className="ml-1 text-muted">{v.variance > 0 ? 'over' : 'under'}</span>
-                          </span>
-                        )}
-                      </td>
-                      <td className="r text-muted">{v.pct == null ? '—' : `${v.pct}%`}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            )}
+            <DataTable
+              viewId="budget-variance"
+              testId="budget-variance"
+              ariaLabel="Budget variance"
+              columns={VARIANCE_COLUMNS}
+              rows={variance ?? []}
+              loading={varianceLoading}
+              empty={{ title: 'No budget lines to compare yet', hint: 'Add a line above and save the budget' }}
+              maxHeight="60vh"
+              exportOptions={{
+                title: `Budget variance — ${selected.name}`,
+                periodLabel: `FY ${fyFromStartYear(selected.fyStartYear).label} · through ${monthLabel(upToMonth)}`,
+                filename: 'budget-variance'
+              }}
+            />
           </Panel>
         </>
       )}

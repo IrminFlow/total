@@ -1,7 +1,9 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import type { ChequeConfig } from '@shared/schemas'
-import { api, type BankImportResult, type BankRuleRecord, type BankSuggestionRow, type BrsItem } from '../lib/client'
+import type { BankLineRow } from '@shared/reports'
+import { api, type BankImportResult, type BankRuleRecord, type BankSuggestionRow, type BrsItem, type PdcRow } from '../lib/client'
+import { DataTable, defineColumns, type TableColumn } from '../components/table'
 import { useNav, useSession, useToasts, nextDraftId } from '../state/stores'
 import {
   Button, DateInput, EmptyState, Field, Modal, Money, Panel, ScrollList, SectionTitle, Select, Spinner, TextInput
@@ -15,6 +17,96 @@ import { useUnsavedGuard } from '../lib/useUnsavedGuard'
 type BankTab = 'recon' | 'brs' | 'pdc'
 
 const TAB_LABELS: Record<BankTab, string> = { recon: 'Reconcile', brs: 'BRS', pdc: 'Post-dated' }
+
+const DIRECTION_OPTIONS = [
+  { value: 'deposit', label: 'Deposit' },
+  { value: 'withdrawal', label: 'Withdrawal' }
+]
+const STATUS_OPTIONS = [
+  { value: 'open', label: 'Unreconciled' },
+  { value: 'reconciled', label: 'Reconciled' }
+]
+
+/** Bank book lines. The bank-date cell is the inline editor's trigger, so the column set is
+ *  built once per screen around that callback. Deposits / withdrawals total for the period. */
+function reconColumns(onEditBankDate: (r: BankLineRow) => void): TableColumn<BankLineRow>[] {
+  return defineColumns<BankLineRow>([
+    { id: 'date', header: 'Date', kind: 'date', value: (r) => r.date, className: 'text-muted' },
+    { id: 'particulars', header: 'Particulars', kind: 'text', value: (r) => r.particulars, hideable: false, minWidth: 160 },
+    { id: 'type', header: 'Type', kind: 'text', value: (r) => r.voucherType, defaultHidden: true, width: 120, className: 'text-muted' },
+    { id: 'number', header: 'Number', kind: 'text', value: (r) => r.number, defaultHidden: true, width: 110, className: 'num text-muted' },
+    { id: 'instrument', header: 'Instrument', kind: 'text', value: (r) => r.instrumentNo, width: 140, groupable: false, className: 'num text-muted' },
+    { id: 'deposit', header: 'Deposit', kind: 'money', value: (r) => r.deposit, aggregate: 'sum', width: 140 },
+    { id: 'withdrawal', header: 'Withdrawal', kind: 'money', value: (r) => r.withdrawal, aggregate: 'sum', width: 140 },
+    {
+      id: 'bankDate',
+      header: 'Bank date',
+      kind: 'date',
+      value: (r) => r.bankDate,
+      text: (r) => (r.bankDate ? toDisplayDate(r.bankDate) : ''),
+      width: 128,
+      groupable: false,
+      cell: (r) => (
+        <button
+          className="num text-[12px] text-blue hover:underline"
+          data-testid="btn-banking-edit-bank-date"
+          onClick={() => onEditBankDate(r)}
+        >
+          {r.bankDate ? toDisplayDate(r.bankDate) : 'Set date'}
+        </button>
+      )
+    },
+    {
+      id: 'status',
+      header: 'Status',
+      kind: 'enum',
+      value: (r) => (r.bankDate ? 'reconciled' : 'open'),
+      options: STATUS_OPTIONS,
+      defaultHidden: true,
+      width: 130
+    }
+  ])
+}
+
+const SUGGESTION_COLUMNS = defineColumns<BankSuggestionRow>([
+  { id: 'date', header: 'Date', kind: 'date', value: (s) => s.statementRow.date, className: 'text-muted' },
+  { id: 'description', header: 'Description', kind: 'text', value: (s) => s.statementRow.description, hideable: false, groupable: false, minWidth: 160 },
+  { id: 'kind', header: 'Direction', kind: 'enum', value: (s) => s.statementRow.kind, options: DIRECTION_OPTIONS, defaultHidden: true, width: 130 },
+  { id: 'amount', header: 'Amount', kind: 'money', value: (s) => s.statementRow.amount, width: 140 },
+  {
+    id: 'suggestion',
+    header: 'Suggested ledger',
+    kind: 'text',
+    value: (s) => s.suggestion?.ledgerName ?? '',
+    text: (s) => s.suggestion?.ledgerName ?? 'No match',
+    width: 192,
+    cell: (s) =>
+      s.suggestion ? (
+        <span className="rounded px-1.5 py-0.5 text-[10.5px] bg-blue/10 text-blue">{s.suggestion.ledgerName}</span>
+      ) : (
+        <span className="text-[11.5px] text-muted">No match</span>
+      )
+  }
+])
+
+const BRS_COLUMNS = defineColumns<BrsItem>([
+  { id: 'date', header: 'Date', kind: 'date', value: (it) => it.date, className: 'text-muted' },
+  { id: 'type', header: 'Type', kind: 'text', value: (it) => it.voucherType, defaultHidden: true, width: 120, className: 'text-muted' },
+  { id: 'number', header: 'Number', kind: 'text', value: (it) => it.number, width: 110, groupable: false, className: 'num text-muted' },
+  { id: 'particulars', header: 'Particulars', kind: 'text', value: (it) => it.particulars, hideable: false, minWidth: 160 },
+  { id: 'instrument', header: 'Instrument', kind: 'text', value: (it) => it.instrumentNo, width: 140, groupable: false, className: 'num text-muted' },
+  { id: 'amount', header: 'Amount', kind: 'money', value: (it) => it.amount, aggregate: 'sum', width: 140 }
+])
+
+const PDC_COLUMNS = defineColumns<PdcRow>([
+  { id: 'date', header: 'Matures', kind: 'date', value: (r) => r.date, width: 120, className: 'text-muted' },
+  { id: 'number', header: 'Number', kind: 'text', value: (r) => r.number, hideable: false, groupable: false, width: 110, className: 'num' },
+  { id: 'type', header: 'Type', kind: 'text', value: (r) => r.voucherTypeName, width: 116, className: 'text-muted' },
+  { id: 'party', header: 'Party', kind: 'text', value: (r) => r.partyName, minWidth: 140 },
+  { id: 'instrument', header: 'Instrument', kind: 'text', value: (r) => r.instrumentNo, width: 140, groupable: false, className: 'num text-muted' },
+  { id: 'instrumentDate', header: 'Instrument date', kind: 'date', value: (r) => r.instrumentDate, defaultHidden: true, width: 176, className: 'text-muted' },
+  { id: 'amount', header: 'Amount', kind: 'money', value: (r) => r.amount, aggregate: 'sum', width: 140 }
+])
 
 export function BankingScreen(): React.JSX.Element {
   const nav = useNav()
@@ -31,6 +123,7 @@ export function BankingScreen(): React.JSX.Element {
   const [chequeSetupOpen, setChequeSetupOpen] = useState(false)
   const [dateEdit, setDateEdit] = useState<{ lineId: number; current: string | null } | null>(null)
   const [importPreview, setImportPreview] = useState<(BankImportResult & { csvText: string }) | null>(null)
+  const columns = useMemo(() => reconColumns((r) => setDateEdit({ lineId: r.lineId, current: r.bankDate })), [])
 
   useEffect(() => {
     if (ledgerId == null && ledgers?.length) setLedgerId(ledgers[0]!.id)
@@ -227,53 +320,34 @@ export function BankingScreen(): React.JSX.Element {
             </Panel>
           </div>
 
-          <Panel scroll={{ maxH: '58vh' }}>
-            {recon.rows.length === 0 ? (
-              <EmptyState title="No bank entries in this period" />
-            ) : (
-              <table className="ledger-table">
-                <thead>
-                  <tr>
-                    <th className="w-24">Date</th>
-                    <th>Particulars</th>
-                    <th className="w-28">Instrument</th>
-                    <th className="r w-32">Deposit</th>
-                    <th className="r w-32">Withdrawal</th>
-                    <th className="w-32">Bank date</th>
-                    <th className="w-24"></th>
-                  </tr>
-                </thead>
-                <tbody data-testid="rows-banking">
-                  {recon.rows.map((r) => (
-                    <tr key={r.lineId} data-row-id={r.lineId} className={r.bankDate ? 'opacity-60' : ''}>
-                      <td className="num text-muted">{toDisplayDate(r.date)}</td>
-                      <td className="max-w-56 truncate">{r.particulars}</td>
-                      <td className="num text-muted">{r.instrumentNo ?? ''}</td>
-                      <td className="r"><Money paise={r.deposit} /></td>
-                      <td className="r"><Money paise={r.withdrawal} /></td>
-                      <td>
-                        <button
-                          className="num text-[12px] text-blue hover:underline"
-                          data-testid="btn-banking-edit-bank-date"
-                          onClick={() => setDateEdit({ lineId: r.lineId, current: r.bankDate })}
-                        >
-                          {r.bankDate ? toDisplayDate(r.bankDate) : 'Set date'}
-                        </button>
-                      </td>
-                      <td className="r">
-                        <button
-                          className="text-[12px] text-muted hover:text-ink"
-                          data-testid="btn-banking-mark-today"
-                          onClick={() => void markToday(r.lineId, r.bankDate)}
-                        >
-                          {r.bankDate ? 'Clear' : 'Cleared today'}
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            )}
+          <Panel>
+            <DataTable
+              viewId="banking-recon"
+              testId="banking"
+              ariaLabel="Bank entries"
+              columns={columns}
+              rows={recon.rows}
+              rowKey={(r) => r.lineId}
+              rowAttrs={(r) => ({ 'data-row-id': r.lineId })}
+              rowClassName={(r) => (r.bankDate ? 'opacity-60' : '')}
+              empty={{ title: 'No bank entries in this period' }}
+              maxHeight="58vh"
+              trailingWidth={112}
+              trailing={(r) => (
+                <button
+                  className="text-[12px] text-muted hover:text-ink"
+                  data-testid="btn-banking-mark-today"
+                  onClick={() => void markToday(r.lineId, r.bankDate)}
+                >
+                  {r.bankDate ? 'Clear' : 'Cleared today'}
+                </button>
+              )}
+              exportOptions={{
+                title: `Bank reconciliation — ${recon.ledgerName}`,
+                periodLabel: `${toDisplayDate(from)} to ${toDisplayDate(to)}`,
+                filename: 'bank-reconciliation'
+              }}
+            />
           </Panel>
           <p className="mt-2 text-[11.5px] text-muted">
             Import a statement CSV (date + debit/credit columns) to auto-match by amount and date; anything left over, set the bank date by hand.
@@ -286,51 +360,39 @@ export function BankingScreen(): React.JSX.Element {
                   Unmatched statement lines · {suggestions.length}
                 </p>
               </div>
-              <ScrollList maxH="40vh">
-                <table className="ledger-table">
-                  <thead>
-                    <tr>
-                      <th className="w-24">Date</th>
-                      <th>Description</th>
-                      <th className="r w-32">Amount</th>
-                      <th className="w-48">Suggested ledger</th>
-                      <th className="w-56"></th>
-                    </tr>
-                  </thead>
-                  <tbody data-testid="rows-banking-unmatched">
-                    {suggestions.map((s, i) => (
-                      <tr key={i} className="hover:bg-panel2">
-                        <td className="num text-muted">{toDisplayDate(s.statementRow.date)}</td>
-                        <td className="max-w-72 truncate">{s.statementRow.description}</td>
-                        <td className="r"><Money paise={s.statementRow.amount} /></td>
-                        <td>
-                          {s.suggestion ? (
-                            <span className="rounded px-1.5 py-0.5 text-[10.5px] bg-blue/10 text-blue">{s.suggestion.ledgerName}</span>
-                          ) : (
-                            <span className="text-[11.5px] text-muted">No match</span>
-                          )}
-                        </td>
-                        <td className="r">
-                          <button
-                            className="mr-3 text-[12px] text-blue hover:underline"
-                            data-testid="btn-banking-create-voucher"
-                            onClick={() => void createFromSuggestion(s)}
-                          >
-                            Create voucher
-                          </button>
-                          <button
-                            className="text-[12px] text-muted hover:text-ink"
-                            data-testid="btn-banking-remember-rule"
-                            onClick={() => rememberRule(s)}
-                          >
-                            Remember as rule
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </ScrollList>
+              <DataTable
+                viewId="banking-unmatched"
+                testId="banking-unmatched"
+                ariaLabel="Unmatched statement lines"
+                columns={SUGGESTION_COLUMNS}
+                rows={suggestions}
+                maxHeight="40vh"
+                trailingWidth={224}
+                trailing={(s) => (
+                  <>
+                    <button
+                      className="mr-3 text-[12px] text-blue hover:underline"
+                      data-testid="btn-banking-create-voucher"
+                      onClick={() => void createFromSuggestion(s)}
+                    >
+                      Create voucher
+                    </button>
+                    <button
+                      className="text-[12px] text-muted hover:text-ink"
+                      data-testid="btn-banking-remember-rule"
+                      onClick={() => rememberRule(s)}
+                    >
+                      Remember as rule
+                    </button>
+                  </>
+                )}
+                exportOptions={{
+                  title: 'Unmatched statement lines',
+                  periodLabel: recon.ledgerName,
+                  filename: 'bank-unmatched-lines'
+                }}
+              />
+
             </Panel>
           )}
         </>
@@ -541,34 +603,25 @@ function BrsSection({ ledgerId, defaultAsOn }: { ledgerId: number; defaultAsOn: 
     }
   }
 
-  const itemTable = (items: BrsItem[], testId: string): React.JSX.Element =>
+  const itemTable = (items: BrsItem[], area: string, title: string): React.JSX.Element =>
     items.length === 0 ? (
       <p className="px-4 py-3 text-[12.5px] text-muted">None</p>
     ) : (
-      <ScrollList maxH="32vh">
-        <table className="ledger-table">
-          <thead>
-            <tr>
-              <th className="w-24">Date</th>
-              <th className="w-24">Number</th>
-              <th>Particulars</th>
-              <th className="w-28">Instrument</th>
-              <th className="r w-32">Amount</th>
-            </tr>
-          </thead>
-          <tbody data-testid={testId}>
-            {items.map((it) => (
-              <tr key={it.lineId} data-row-id={it.voucherId}>
-                <td className="num text-muted">{toDisplayDate(it.date)}</td>
-                <td className="num text-muted">{it.number}</td>
-                <td className="max-w-64 truncate">{it.particulars}</td>
-                <td className="num text-muted">{it.instrumentNo ?? ''}</td>
-                <td className="r"><Money paise={it.amount} /></td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </ScrollList>
+      <DataTable
+        viewId={area}
+        testId={area}
+        ariaLabel={title}
+        columns={BRS_COLUMNS}
+        rows={items}
+        rowKey={(it) => it.lineId}
+        rowAttrs={(it) => ({ 'data-row-id': it.voucherId })}
+        maxHeight="32vh"
+        exportOptions={{
+          title: `BRS — ${title}`,
+          periodLabel: `${brs?.ledgerName ?? ''} · as on ${toDisplayDate(asOn)}`,
+          filename: area
+        }}
+      />
     )
 
   return (
@@ -613,7 +666,7 @@ function BrsSection({ ledgerId, defaultAsOn }: { ledgerId: number; defaultAsOn: 
                 Deposits not yet credited by the bank · {brs.uncredited.length}
               </p>
             </div>
-            {itemTable(brs.uncredited, 'rows-banking-brs-uncredited')}
+            {itemTable(brs.uncredited, 'banking-brs-uncredited', 'Deposits not yet credited')}
           </Panel>
 
           <Panel>
@@ -622,7 +675,7 @@ function BrsSection({ ledgerId, defaultAsOn }: { ledgerId: number; defaultAsOn: 
                 Cheques issued, not yet presented · {brs.unpresented.length}
               </p>
             </div>
-            {itemTable(brs.unpresented, 'rows-banking-brs-unpresented')}
+            {itemTable(brs.unpresented, 'banking-brs-unpresented', 'Cheques issued, not yet presented')}
           </Panel>
         </>
       )}
@@ -658,59 +711,42 @@ function PdcSection(): React.JSX.Element {
   }
 
   return (
-    <Panel scroll={{ maxH: '64vh' }}>
-      {isLoading ? (
-        <div className="flex items-center justify-center py-10">
-          <Spinner />
-        </div>
-      ) : !rows?.length ? (
-        <EmptyState
-          title="No post-dated vouchers"
-          hint="Tick “Post-dated” on a payment or receipt to keep it out of the books until its date arrives"
-        />
-      ) : (
-        <table className="ledger-table">
-          <thead>
-            <tr>
-              <th className="w-24">Matures</th>
-              <th className="w-24">Number</th>
-              <th className="w-28">Type</th>
-              <th>Party</th>
-              <th className="w-28">Instrument</th>
-              <th className="r w-32">Amount</th>
-              <th className="w-36"></th>
-            </tr>
-          </thead>
-          <tbody data-testid="rows-banking-pdc">
-            {rows.map((r) => (
-              <tr key={r.id} data-row-id={r.id} className="hover:bg-panel2">
-                <td className="num text-muted">{toDisplayDate(r.date)}</td>
-                <td className="num">{r.number}</td>
-                <td className="text-muted">{r.voucherTypeName}</td>
-                <td className="max-w-52 truncate">{r.partyName ?? ''}</td>
-                <td className="num text-muted">{r.instrumentNo ?? ''}</td>
-                <td className="r"><Money paise={r.amount} /></td>
-                <td className="r">
-                  <button
-                    className="mr-3 text-[12px] text-blue hover:underline"
-                    data-testid="btn-banking-pdc-mature"
-                    onClick={() => void mature(r.id, r.number)}
-                  >
-                    Mature now
-                  </button>
-                  <button
-                    className="text-[12px] text-muted hover:text-ink"
-                    data-testid="btn-banking-pdc-edit"
-                    onClick={() => nav.go({ name: 'voucher-entry', voucherId: r.id })}
-                  >
-                    Edit
-                  </button>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      )}
+    <Panel>
+      <DataTable
+        viewId="banking-pdc"
+        testId="banking-pdc"
+        ariaLabel="Post-dated vouchers"
+        columns={PDC_COLUMNS}
+        rows={rows ?? []}
+        rowKey={(r) => r.id}
+        rowAttrs={(r) => ({ 'data-row-id': r.id })}
+        loading={isLoading}
+        empty={{
+          title: 'No post-dated vouchers',
+          hint: 'Tick “Post-dated” on a payment or receipt to keep it out of the books until its date arrives'
+        }}
+        maxHeight="64vh"
+        trailingWidth={150}
+        trailing={(r) => (
+          <>
+            <button
+              className="mr-3 text-[12px] text-blue hover:underline"
+              data-testid="btn-banking-pdc-mature"
+              onClick={() => void mature(r.id, r.number)}
+            >
+              Mature now
+            </button>
+            <button
+              className="text-[12px] text-muted hover:text-ink"
+              data-testid="btn-banking-pdc-edit"
+              onClick={() => nav.go({ name: 'voucher-entry', voucherId: r.id })}
+            >
+              Edit
+            </button>
+          </>
+        )}
+        exportOptions={{ title: 'Post-dated vouchers', periodLabel: `as on ${toDisplayDate(todayISO())}`, filename: 'post-dated-vouchers' }}
+      />
     </Panel>
   )
 }
