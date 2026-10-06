@@ -4,6 +4,7 @@ import { api } from '../../lib/client'
 import { useSession, useToasts, type Toast } from '../../state/stores'
 import { Button, DateInput, Field, Modal, Panel, SectionTitle } from '../../components/ui'
 import { toDisplayDate, todayISO } from '@shared/dates'
+import { TotalLogo } from '../../components/TotalLogo'
 
 const PLATFORM_LABELS: Record<string, string> = { darwin: 'macOS', win32: 'Windows', linux: 'Linux' }
 
@@ -45,7 +46,10 @@ export function AboutSection(): React.JSX.Element {
     <div>
       <SectionTitle>About</SectionTitle>
       <Panel className="p-5">
-        <p className="font-serif text-[17px] font-semibold">Total</p>
+        <div className="flex items-center gap-3">
+          <TotalLogo size={44} />
+          <p className="font-serif text-[17px] font-semibold">Total</p>
+        </div>
         <p className="mt-1 text-[13px] text-muted">
           Version <span className="num">{info?.version ?? '—'}</span> ·{' '}
           {info ? (PLATFORM_LABELS[info.platform] ?? info.platform) : '—'}

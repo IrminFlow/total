@@ -64,7 +64,11 @@
       "out/**/*",
       "package.json"
     ],
+    "extraResources": [
+      { "from": "resources/total.png", "to": "total.png" }
+    ],
     "mac": {
+      "icon": "resources/total.icns",
       "category": "public.app-category.finance",
       "target": [
         "dmg",
@@ -72,6 +76,7 @@
       ]
     },
     "win": {
+      "icon": "resources/total.ico",
       "target": [
         "nsis"
       ]
