@@ -1,9 +1,33 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import type { Group, Ledger, VoucherKind } from '@shared/domain'
+import type { Group, Ledger, Voucher } from '@shared/domain'
+import { diffPayloads, voucherToPayload, type BuildResult } from '@shared/voucherEdit'
 import { api } from '../../lib/client'
+import { useNav } from '../../state/stores'
 
-export const TRADING_KINDS: VoucherKind[] = ['sales', 'purchase', 'credit_note', 'debit_note']
+export { TRADING_KINDS } from '@shared/voucherEdit'
+
+// ---------- alteration plumbing (shared by every entry mode) ----------
+
+/** True when what the form would post differs from the saved voucher — the alteration flavour
+ *  of the unsaved-changes guard. Comparing payloads (not raw inputs) means re-typing a value
+ *  back to what it was isn't "dirty", and opening a voucher never is. `null` = not ready yet. */
+export function useAlterationDirty(voucher: Voucher | undefined, rebuilt: BuildResult | null): boolean {
+  const original = useMemo(() => (voucher ? voucherToPayload(voucher) : null), [voucher])
+  if (!original || !rebuilt) return false
+  return !rebuilt.ok || diffPayloads(rebuilt.payload, original).length > 0
+}
+
+/** After saving an alteration: drop the unsaved guard first (`saved` feeds the guard's dirty
+ *  flag), THEN go back — nav.back() checks the guard synchronously, so calling it in the same
+ *  tick as the save would ask "discard changes?" about the very changes just saved. */
+export function useLeaveAfterSave(): { saved: boolean; leave: () => void } {
+  const [saved, setSaved] = useState(false)
+  useEffect(() => {
+    if (saved) useNav.getState().back()
+  }, [saved])
+  return { saved, leave: useCallback(() => setSaved(true), []) }
+}
 
 // ---------- stable line keys ----------
 

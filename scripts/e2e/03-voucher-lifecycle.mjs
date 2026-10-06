@@ -73,4 +73,115 @@ await scenario('03-voucher-lifecycle', async (h) => {
   await h.goto('gateway')
   await h.goto('daybook')
   await h.page.waitForSelector(`[data-testid="rows-daybook"] [data-row-id="${saved.id}"]`, { timeout: 10000 })
+
+  // ---------- WP 1.4: alterations open in the mode that creates the voucher ----------
+  const groupId = (name) => groups.find((g) => g.name === name).id
+  const mkLedger = async (name, group, extra = {}) =>
+    h.invoke('master:ledgers:create', {
+      name, groupId: groupId(group), openingBalance: 0, gstin: null, stateCode: null, address: null,
+      taxType: null, gstRate: null, hsn: null, ...extra
+    })
+  const buyer = await mkLedger('E2E Buyer', 'Sundry Debtors')
+  const cgst = await mkLedger('CGST', 'Duties & Taxes', { taxType: 'cgst' })
+  const sgst = await mkLedger('SGST', 'Duties & Taxes', { taxType: 'sgst' })
+  const unit = (await h.invoke('master:units:list'))[0]
+  const mkItem = (name, opening) =>
+    h.invoke('master:stockItems:create', {
+      name, groupId: null, unitId: unit.id, hsn: '8471', gstRate: 18, cessRate: null,
+      openingQtyMilli: opening, openingValue: opening * 10, barcode: null, reorderLevelMilli: null
+    })
+  const widget = await mkItem('E2E Widget', 100_000)
+  const steel = await mkItem('E2E Steel', 100_000)
+  const chair = await mkItem('E2E Chair', 0)
+  await h.invoke('bom:set', { itemId: chair.id, lines: [{ componentId: steel.id, qtyMilliPerUnit: 2000 }] })
+  const typeOf = (kind) => types.find((t) => t.kind === kind)
+  const blankHeader = {
+    partyLedgerId: null, narration: null, reference: null, instrumentNo: null, instrumentDate: null,
+    transporterId: null, vehicleNo: null, transportDistanceKm: null, currencyCode: null, exchangeRate: null
+  }
+
+  // Sales invoice, exactly as the invoice form posts it: 2 × ₹500 − ₹100 discount = ₹900 taxable,
+  // CGST/SGST 9% each → ₹1,062.
+  const inv = await h.invoke('voucher:save', {
+    data: {
+      ...blankHeader, voucherTypeId: typeOf('sales').id, date: today, partyLedgerId: buyer.id, narration: 'E2E invoice',
+      lines: [
+        { ledgerId: buyer.id, drCr: 'dr', amount: 106200 },
+        { ledgerId: salesLedger.id, drCr: 'cr', amount: 90000 },
+        { ledgerId: cgst.id, drCr: 'cr', amount: 8100 },
+        { ledgerId: sgst.id, drCr: 'cr', amount: 8100 }
+      ],
+      inventory: [{ stockItemId: widget.id, godownId: null, qtyMilli: 2000, ratePaise: 50000, discountPaise: 10000, amount: 90000, direction: 'out' }]
+    }
+  })
+
+  const openFromDaybook = async (id, mode) => {
+    await h.goto('gateway')
+    await h.goto('daybook')
+    await h.page.click(`[data-testid="rows-daybook"] [data-row-id="${id}"]`, { timeout: 10000 })
+    await h.waitScreen('voucher-entry')
+    const el = await h.page.waitForSelector('[data-testid="voucher-entry-mode"]', { timeout: 10000 })
+    const banner = await h.page.$eval('[data-testid^="banner-"][data-testid$="-fallback"]', (b) => b.textContent).catch(() => '')
+    assertEq(await el.getAttribute('data-mode'), mode, `voucher ${id} opens in ${mode} mode ${banner}`)
+  }
+
+  await openFromDaybook(inv.id, 'invoice')
+  const qtyInput = h.page.locator('[data-testid="input-line-qty"]').first()
+  assertEq(await qtyInput.inputValue(), '2', 'reopened invoice shows its quantity')
+  assertEq(await h.page.locator('[data-testid="input-line-discount"]').first().inputValue(), '100.00', 'reopened invoice shows its discount')
+  assertEq(await h.page.locator('[data-testid="input-line-rate"]').first().inputValue(), '500.00', 'reopened invoice shows its rate')
+  await h.shot('02-invoice-reopened')
+  await qtyInput.fill('3')
+  await h.click('btn-save-voucher')
+  await h.waitScreen('daybook')
+  const altered = await h.invoke('voucher:get', { id: inv.id })
+  // 3 × ₹500 − ₹100 = ₹1,400 taxable; CGST/SGST ₹126 each → ₹1,652.
+  assertEq(altered.number, inv.number, 'alteration keeps the invoice number')
+  assertEq(altered.inventory[0].qtyMilli, 3000, 'altered quantity')
+  assertEq(altered.inventory[0].discountPaise, 10000, 'discount survives the alteration')
+  assertEq(altered.inventory[0].amount, 140000, 'line amount = qty × rate − discount')
+  assertEq(altered.lines.find((l) => l.ledgerId === buyer.id).amount, 165200, 'party total after alteration')
+  assertEq(altered.lines.find((l) => l.ledgerId === cgst.id).amount, 12600, 'CGST after alteration')
+  const sideTotal = (side) => altered.lines.filter((l) => l.drCr === side).reduce((s, l) => s + l.amount, 0)
+  assertEq(sideTotal('cr'), sideTotal('dr'), 'altered invoice balances')
+
+  // Stock journal (manufacture form): produce 2 Chairs from 4 Steel at ₹150 → edit to 3 Chairs.
+  const sj = await h.invoke('voucher:save', {
+    data: {
+      ...blankHeader, voucherTypeId: typeOf('stock_journal').id, date: today, narration: 'Manufactured 2 × E2E Chair',
+      lines: [],
+      inventory: [
+        { stockItemId: steel.id, godownId: null, qtyMilli: 4000, ratePaise: 15000, amount: 60000, direction: 'out' },
+        { stockItemId: chair.id, godownId: null, qtyMilli: 2000, ratePaise: 30000, amount: 60000, direction: 'in' }
+      ]
+    }
+  })
+  await openFromDaybook(sj.id, 'manufacture')
+  await h.page.waitForSelector('[data-testid="rows-manufacture-lines"]', { timeout: 10000 })
+  await h.fill('input-manufacture-qty', '3')
+  await h.click('btn-save-manufacture')
+  await h.waitScreen('daybook')
+  const sj2 = await h.invoke('voucher:get', { id: sj.id })
+  assertEq(JSON.stringify(sj2.inventory.map((l) => [l.stockItemId, l.qtyMilli, l.ratePaise, l.direction])),
+    JSON.stringify([[steel.id, 6000, 15000, 'out'], [chair.id, 3000, 30000, 'in']]), 'stock journal altered at the saved component cost')
+  assertEq(sj2.narration, 'Manufactured 3 × E2E Chair', 'automatic narration follows the quantity')
+
+  // Physical stock: count 50 Steel → re-count 40.
+  const ps = await h.invoke('voucher:save', {
+    data: {
+      ...blankHeader, voucherTypeId: typeOf('physical_stock').id, date: today, narration: 'E2E count',
+      lines: [],
+      inventory: [{ stockItemId: steel.id, godownId: null, qtyMilli: 50_000, ratePaise: 0, amount: 0, direction: 'in', isAbsolute: true }]
+    }
+  })
+  await openFromDaybook(ps.id, 'physical')
+  const counted = h.page.locator('[data-testid="input-counted-qty"]').first()
+  assertEq(await counted.inputValue(), '50', 'reopened count shows the counted quantity')
+  await counted.fill('40')
+  await h.click('btn-save-physical')
+  await h.waitScreen('daybook')
+  const ps2 = await h.invoke('voucher:get', { id: ps.id })
+  assertEq(ps2.inventory.length, 1, 'physical stock keeps one line')
+  assertEq(ps2.inventory[0].qtyMilli, 40_000, 'altered count')
+  assertEq(ps2.inventory[0].isAbsolute, true, 'still a physical-count line')
 })
