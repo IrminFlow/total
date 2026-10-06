@@ -1,12 +1,26 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { useNav, useSession, useToasts, type Screen } from '../state/stores'
 import { api } from '../lib/client'
-import { useKeyNav } from './ui'
+import { Kbd, Money, useKeyNav } from './ui'
 import { useFeatures } from '../lib/useFeatures'
 import { SCREENS } from '../lib/screens'
+import { useSearchRecents, type RecentKind, type RecentRecord } from '../lib/searchRecents'
+import {
+  Highlight,
+  KIND_SINGULAR,
+  KIND_TITLE,
+  QueryChips,
+  SYNTAX_HINTS,
+  VoucherBadges,
+  matchHint,
+  recentRecordFor,
+  useOpenRecord
+} from './SearchParts'
 import type { CompanyFeatures } from '@shared/features'
-import type { SearchHit } from '@shared/search'
+import type { SearchResult, SearchSection } from '@shared/search'
+import { isEmptyQuery, parseSearchQuery, type SearchKind } from '@shared/searchQuery'
+import { fyOf, todayISO, toDisplayDate } from '@shared/dates'
 
 interface Command {
   label: string
@@ -18,25 +32,47 @@ interface Command {
   run: () => void | Promise<void>
 }
 
-/** Flattened, keyboard-navigable row — either a static command or a books search hit. Dividers
- *  aren't part of this list (they're not navigable), just spliced in at render time. */
-type NavItem = { type: 'command'; cmd: Command } | { type: 'hit'; hit: SearchHit }
+/** Flattened, keyboard-navigable row. Section headers and the help line aren't part of this list
+ *  (they're not navigable), just rendered between groups. */
+type NavItem =
+  | { type: 'command'; cmd: Command }
+  | { type: 'hit'; hit: SearchResult }
+  | { type: 'see-all'; kind: SearchKind; total: number }
+  | { type: 'recent-query'; q: string }
+  | { type: 'recent-record'; kind: RecentKind; rec: RecentRecord }
 
-const HIT_KIND_LABEL: Record<SearchHit['kind'], string> = { ledger: 'Ledger', item: 'Item', voucher: 'Voucher' }
+/** A titled run of NavItems (rendered with a header). */
+interface Group {
+  key: string
+  title: string | null
+  count?: number
+  items: NavItem[]
+}
+
+const KINDS: SearchKind[] = ['ledger', 'item', 'voucher']
+const SECTION_KEY: Record<SearchKind, 'ledgers' | 'items' | 'vouchers'> = { ledger: 'ledgers', item: 'items', voucher: 'vouchers' }
+
+/** Rows per kind in the palette — kept short; the "See all N" row opens the results screen.
+ *  Counts in the section headers are the true totals from the service. */
+const PALETTE_LIMIT = 6
 
 export function CommandPalette({ onClose }: { onClose: () => void }): React.JSX.Element {
   const nav = useNav()
   const toast = useToasts()
   const { clearCompany } = useSession()
+  const from = useSession((s) => s.from)
   const features = useFeatures()
   const [query, setQuery] = useState('')
+  const { recents, addQuery } = useSearchRecents()
+  const openRecord = useOpenRecord()
+  const ctx = useMemo(() => ({ today: todayISO(), fyStartYear: fyOf(from).startYear }), [from])
 
   const commands = useMemo<Command[]>(() => {
     const go = (screen: Screen) => () => nav.go(screen)
     // Every navigable screen comes from the single registry; action commands are appended below.
     const screenCommands: Command[] = SCREENS.filter((s) => s.screen != null).map((s) => ({
       label: s.title,
-      hint: s.card?.key,
+      hint: s.name === 'search' ? '⌘⇧F' : s.card?.key,
       keywords: s.keywords,
       feature: s.feature,
       run: s.name === 'gateway' ? () => nav.home() : go(s.screen!)
@@ -130,42 +166,104 @@ export function CommandPalette({ onClose }: { onClose: () => void }): React.JSX.
     )
   }, [commands, query, features])
 
+  // Chips come from a local parse (instant, no round-trip); the IPC re-parses the same string.
+  const parsed = useMemo(() => parseSearchQuery(query, ctx), [query, ctx])
+
   // Books search: debounced 150ms, only fires once the query is meaningfully specific (2+ chars).
   const [debounced, setDebounced] = useState('')
   useEffect(() => {
     const t = setTimeout(() => setDebounced(query.trim()), 150)
     return () => clearTimeout(t)
   }, [query])
-  const searchEnabled = debounced.length >= 2
-  const { data: hits = [] } = useQuery({
-    queryKey: ['search', debounced],
-    queryFn: () => api.search.global(debounced),
+  const searchEnabled = debounced.length >= 2 && !isEmptyQuery(parseSearchQuery(debounced, ctx))
+  const { data: results } = useQuery({
+    queryKey: ['search', debounced, ctx.today, ctx.fyStartYear],
+    queryFn: () => api.search.query({ q: debounced, ...ctx, limitPerKind: PALETTE_LIMIT }),
     enabled: searchEnabled
   })
+  const live = searchEnabled ? results : undefined
+  const terms = live?.terms ?? []
 
-  const navItems = useMemo<NavItem[]>(
-    () => [...filtered.map((cmd) => ({ type: 'command' as const, cmd })), ...hits.map((hit) => ({ type: 'hit' as const, hit }))],
-    [filtered, hits]
-  )
+  const groups = useMemo<Group[]>(() => {
+    const out: Group[] = []
+    const empty = query.trim() === ''
+    const hasRecents = empty && recents.queries.length + recents.vouchers.length + recents.ledgers.length + recents.items.length > 0
+    // Commands always come first, so ⌘K then ↵ still runs what it always ran (New voucher);
+    // recents sit below them and are never the default selection.
+    if (filtered.length) {
+      out.push({ key: 'commands', title: hasRecents || live ? 'Commands' : null, items: filtered.map((cmd) => ({ type: 'command', cmd })) })
+    }
+    if (hasRecents) {
+      if (recents.queries.length) {
+        out.push({ key: 'recent-q', title: 'Recent searches', items: recents.queries.map((q) => ({ type: 'recent-query', q })) })
+      }
+      const recentRecords: NavItem[] = [
+        ...recents.vouchers.map((rec) => ({ type: 'recent-record' as const, kind: 'voucher' as const, rec })),
+        ...recents.ledgers.map((rec) => ({ type: 'recent-record' as const, kind: 'ledger' as const, rec })),
+        ...recents.items.map((rec) => ({ type: 'recent-record' as const, kind: 'item' as const, rec }))
+      ]
+      if (recentRecords.length) out.push({ key: 'recent-r', title: 'Recently opened', items: recentRecords })
+    }
+    if (live) {
+      for (const k of KINDS) {
+        const sec = live[SECTION_KEY[k]] as SearchSection<SearchResult> | null
+        if (!sec || sec.total === 0) continue
+        const items: NavItem[] = sec.rows.map((hit) => ({ type: 'hit', hit }))
+        if (sec.total > sec.rows.length) items.push({ type: 'see-all', kind: k, total: sec.total })
+        out.push({ key: `kind-${k}`, title: KIND_TITLE[k], count: sec.total, items })
+      }
+    }
+    return out
+  }, [query, recents, filtered, live])
 
+  const navItems = useMemo(() => groups.flatMap((g) => g.items), [groups])
   const { active, setActive } = useKeyNav(navItems.length, () => {}, false)
+  // A row appearing under a stationary cursor fires mouseenter; only a real mouse move may steal
+  // the selection, so ⌘K then ↵ always runs the default (first) row.
+  const pointerMoved = useRef(false)
+
+  const openSearchScreen = (kind?: SearchKind): void => {
+    const q = query.trim()
+    if (q.length >= 2) addQuery(q)
+    onClose()
+    nav.go({ name: 'search', q, ...(kind ? { kind } : {}) })
+  }
 
   const runItem = (item: NavItem | undefined): void => {
     if (!item) return
-    onClose()
-    if (item.type === 'command') {
-      void item.cmd.run()
-      return
+    switch (item.type) {
+      case 'command':
+        onClose()
+        void item.cmd.run()
+        return
+      case 'recent-query':
+        setQuery(item.q)
+        setActive(0)
+        return
+      case 'see-all':
+        openSearchScreen(item.kind)
+        return
+      case 'recent-record':
+        onClose()
+        openRecord(item.kind, item.rec)
+        return
+      case 'hit':
+        onClose()
+        openRecord(item.hit.kind, recentRecordFor(item.hit), query.trim())
     }
-    const { hit } = item
-    if (hit.kind === 'ledger') nav.go({ name: 'ledger-statement', ledgerId: hit.id })
-    else if (hit.kind === 'item') nav.go({ name: 'masters', tab: 'items' })
-    else nav.go({ name: 'voucher-entry', voucherId: hit.id })
   }
 
+  let index = 0
   return (
     <div className="fixed inset-0 z-40 flex items-start justify-center bg-black/50 pt-[14vh]" onMouseDown={onClose}>
-      <div className="w-full max-w-xl overflow-hidden rounded-xl border border-line bg-panel shadow-2xl" onMouseDown={(e) => e.stopPropagation()}>
+      <div
+        className="w-full max-w-2xl overflow-hidden rounded-xl border border-line bg-panel shadow-2xl"
+        data-testid="palette"
+        onMouseDown={(e) => e.stopPropagation()}
+        onMouseMove={() => {
+          if (!pointerMoved.current) pointerMoved.current = true
+        }}
+      >
         <input
           autoFocus
           data-testid="input-palette"
@@ -178,48 +276,171 @@ export function CommandPalette({ onClose }: { onClose: () => void }): React.JSX.
             if (e.key === 'Escape') onClose()
             else if (e.key === 'ArrowDown') { e.preventDefault(); setActive(Math.min(navItems.length - 1, active + 1)) }
             else if (e.key === 'ArrowUp') { e.preventDefault(); setActive(Math.max(0, active - 1)) }
+            else if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); openSearchScreen() }
             else if (e.key === 'Enter') runItem(navItems[active])
           }}
-          placeholder="Type a command — voucher, report, GST…"
+          placeholder="Type a command, or search the books — name, number, GSTIN, amount…"
           className="w-full border-b border-line bg-transparent px-5 py-3.5 text-[14px] outline-none placeholder:text-muted/60"
         />
-        <div className="max-h-80 overflow-auto py-1">
-          {filtered.map((cmd, i) => (
-            <div
-              key={cmd.label}
-              data-active={i === active}
-              className="kbar-row flex cursor-pointer items-center justify-between px-5 py-2 text-[13.5px]"
-              onMouseEnter={() => setActive(i)}
-              onClick={() => runItem(navItems[i])}
-            >
-              <span>{cmd.label}</span>
-              {cmd.hint && <span className="text-[11px] text-muted">{cmd.hint}</span>}
+        {(parsed.chips.length > 0 || parsed.unknown.length > 0) && (
+          <div className="border-b border-line px-5 py-2">
+            <QueryChips chips={parsed.chips} unknown={parsed.unknown} testId="palette-chips" />
+          </div>
+        )}
+        <div className="max-h-[26rem] overflow-auto py-1">
+          {groups.map((g) => (
+            <div key={g.key} data-testid={`palette-section-${g.key}`}>
+              {g.title && (
+                <p className="flex items-baseline justify-between px-5 pb-1 pt-3 text-[10.5px] font-medium tracking-wide text-muted uppercase">
+                  <span>{g.title}</span>
+                  {g.count != null && <span className="num normal-case tracking-normal">{g.count}</span>}
+                </p>
+              )}
+              {g.items.map((item) => {
+                const i = index++
+                return (
+                  <PaletteRow
+                    key={rowKey(item)}
+                    item={item}
+                    active={i === active}
+                    terms={terms}
+                    onHover={() => {
+                      if (pointerMoved.current) setActive(i)
+                    }}
+                    onRun={() => runItem(item)}
+                  />
+                )
+              })}
             </div>
           ))}
-          {hits.length > 0 && (
-            <p className="px-5 pb-1 pt-3 text-[10.5px] font-medium uppercase tracking-wide text-muted">In your books</p>
+          {navItems.length === 0 && (
+            <p className="px-5 py-6 text-center text-[13px] text-muted">
+              {searchEnabled && !live ? 'Searching…' : 'No commands or matches'}
+            </p>
           )}
-          {hits.map((hit, j) => {
-            const i = filtered.length + j
-            return (
-              <div
-                key={`${hit.kind}-${hit.id}`}
-                data-active={i === active}
-                className="kbar-row flex cursor-pointer items-center justify-between gap-3 px-5 py-2 text-[13.5px]"
-                onMouseEnter={() => setActive(i)}
-                onClick={() => runItem(navItems[i])}
-              >
-                <div className="flex min-w-0 flex-col">
-                  <span className="truncate">{hit.label}</span>
-                  <span className="truncate text-[11px] text-muted">{hit.sub}</span>
-                </div>
-                <span className="shrink-0 text-[11px] text-muted">{HIT_KIND_LABEL[hit.kind]}</span>
-              </div>
-            )
-          })}
-          {navItems.length === 0 && <p className="px-5 py-6 text-center text-[13px] text-muted">No commands or matches</p>}
+        </div>
+        <div data-testid="palette-help" className="flex flex-wrap items-center gap-x-3 gap-y-1 border-t border-line bg-panel2 px-5 py-2 text-[11px] text-muted">
+          {query.trim() === '' ? (
+            <>
+              <span>Filters:</span>
+              {SYNTAX_HINTS.slice(0, 6).map((h) => (
+                <button
+                  key={h.token}
+                  type="button"
+                  className="font-mono text-ink/80 hover:text-ink"
+                  title={h.label}
+                  onClick={() => setQuery(`${h.token} `)}
+                >
+                  {h.token}
+                </button>
+              ))}
+            </>
+          ) : (
+            <span>
+              <Kbd>↑↓</Kbd> move · <Kbd>↵</Kbd> open · <Kbd>⌘↵</Kbd> all results
+            </span>
+          )}
         </div>
       </div>
     </div>
   )
+}
+
+function rowKey(item: NavItem): string {
+  switch (item.type) {
+    case 'command': return `cmd-${item.cmd.label}`
+    case 'hit': return `hit-${item.hit.kind}-${item.hit.id}`
+    case 'see-all': return `all-${item.kind}`
+    case 'recent-query': return `rq-${item.q}`
+    case 'recent-record': return `rr-${item.kind}-${item.rec.id}`
+  }
+}
+
+function PaletteRow({
+  item, active, terms, onHover, onRun
+}: {
+  item: NavItem
+  active: boolean
+  terms: string[]
+  onHover: () => void
+  onRun: () => void
+}): React.JSX.Element {
+  const base = 'kbar-row flex cursor-pointer items-center justify-between gap-3 px-5 py-2 text-[13.5px]'
+  const common = { 'data-active': active, onMouseEnter: onHover, onClick: onRun }
+  switch (item.type) {
+    case 'command':
+      return (
+        <div {...common} className={base}>
+          <span>{item.cmd.label}</span>
+          {item.cmd.hint && <span className="text-[11px] text-muted">{item.cmd.hint}</span>}
+        </div>
+      )
+    case 'recent-query':
+      return (
+        <div {...common} data-testid="palette-recent-query" className={base}>
+          <span className="truncate font-mono text-[12.5px]">{item.q}</span>
+          <span className="shrink-0 text-[11px] text-muted">Search</span>
+        </div>
+      )
+    case 'recent-record':
+      return (
+        <div {...common} data-testid={`palette-recent-${item.kind}`} className={base}>
+          <div className="flex min-w-0 flex-col">
+            <span className="truncate">{item.rec.label}</span>
+            {item.rec.sub && <span className="truncate text-[11px] text-muted">{item.rec.sub}</span>}
+          </div>
+          <span className="shrink-0 text-[11px] text-muted">{KIND_SINGULAR[item.kind]}</span>
+        </div>
+      )
+    case 'see-all':
+      return (
+        <div {...common} data-testid={`palette-see-all-${item.kind}`} className={`${base} text-blue`}>
+          <span>
+            See all {item.total} {KIND_TITLE[item.kind].toLowerCase()}
+          </span>
+          <span className="text-[11px] text-muted">⌘↵</span>
+        </div>
+      )
+    case 'hit': {
+      const h = item.hit
+      const hint = matchHint(h)
+      if (h.kind === 'voucher') {
+        const sub = [toDisplayDate(h.date), hint ?? h.narration].filter(Boolean).join(' · ')
+        return (
+          <div {...common} data-testid={`palette-hit-voucher-${h.id}`} className={base}>
+            <div className="flex min-w-0 flex-col">
+              <span className="truncate">
+                <span className="text-muted">{h.typeName}</span> <Highlight text={h.number} terms={terms} />
+                {h.party && (
+                  <>
+                    <span className="text-muted"> · </span>
+                    <Highlight text={h.party} terms={terms} />
+                  </>
+                )}
+                <VoucherBadges v={h} />
+              </span>
+              <span className="truncate text-[11px] text-muted">
+                <Highlight text={sub} terms={terms} />
+              </span>
+            </div>
+            <Money paise={h.amount} className="shrink-0 text-[12.5px]" />
+          </div>
+        )
+      }
+      const sub = h.kind === 'ledger' ? [h.groupName, hint].filter(Boolean).join(' · ') : [h.groupName ?? 'Stock item', hint].filter(Boolean).join(' · ')
+      return (
+        <div {...common} data-testid={`palette-hit-${h.kind}-${h.id}`} className={base}>
+          <div className="flex min-w-0 flex-col">
+            <span className="truncate">
+              <Highlight text={h.name} terms={terms} />
+            </span>
+            <span className="truncate text-[11px] text-muted">
+              <Highlight text={sub} terms={terms} />
+            </span>
+          </div>
+          <span className="shrink-0 text-[11px] text-muted">{KIND_SINGULAR[h.kind]}</span>
+        </div>
+      )
+    }
+  }
 }

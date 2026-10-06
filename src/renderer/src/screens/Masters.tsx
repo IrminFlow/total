@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react'
+import { useDeepLinkOpen } from '../lib/useDeepLinkOpen'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import type { Godown, Ledger, StockGroup, StockItem, VoucherType } from '@shared/domain'
 import { filterLedgers, type ChartGroupNode } from '@shared/chartOfAccounts'
@@ -25,7 +26,7 @@ const TABS: { id: MastersTab; label: string }[] = [
   { id: 'currencies', label: 'Currencies' }
 ]
 
-export function Masters({ tab }: { tab?: MastersTab }): React.JSX.Element {
+export function Masters({ tab, itemId }: { tab?: MastersTab; itemId?: number }): React.JSX.Element {
   const nav = useNav()
   const active = tab ?? 'ledgers'
   return (
@@ -45,7 +46,7 @@ export function Masters({ tab }: { tab?: MastersTab }): React.JSX.Element {
       </div>
       {active === 'ledgers' && <LedgersTab />}
       {active === 'groups' && <GroupsTab />}
-      {active === 'items' && <ItemsTab />}
+      {active === 'items' && <ItemsTab openItemId={itemId} />}
       {active === 'stock-groups' && <StockGroupsTab />}
       {active === 'godowns' && <GodownsTab />}
       {active === 'units' && <UnitsTab />}
@@ -494,10 +495,11 @@ function MoveGroupModal({
 
 // ---------- stock items ----------
 
-function ItemsTab(): React.JSX.Element {
+function ItemsTab({ openItemId }: { openItemId?: number }): React.JSX.Element {
   const items = useStockItems()
   const { data: units } = useQuery({ queryKey: ['units'], queryFn: api.units.list })
   const [editing, setEditing] = useState<StockItem | 'new' | null>(null)
+  useDeepLinkOpen(items, openItemId, setEditing) // search results → this item's editor
   const unitMap = new Map((units ?? []).map((u) => [u.id, u.symbol]))
 
   return (
