@@ -1,11 +1,14 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import type { VoucherBillRef, VoucherKind } from '@shared/domain'
+import type { Voucher, VoucherBillRef, VoucherKind } from '@shared/domain'
 import type { OutstandingBill } from '@shared/reports'
 import type { VoucherInputParsed } from '@shared/schemas'
-import { computeGst, supplyTypeFor, addBreakups, type GstBreakup } from '@shared/gst/calc'
+import {
+  buildInvoicePayload, computeInvoice, requiredTaxLedgers, taxLedgerIdsFrom,
+  type InvoiceContext, type InvoiceFormState, type InvoiceRowState, type TaxLedgerIds
+} from '@shared/voucherEdit'
 import { GST_STATES } from '@shared/gst/states'
-import { roundToRupee, formatPaise, amountInWords } from '@shared/money'
+import { formatPaise, amountInWords } from '@shared/money'
 import { toDisplayDate } from '@shared/dates'
 import { api } from '../../lib/client'
 import { useNav, useSession, useToasts, type VoucherDraft } from '../../state/stores'
@@ -15,25 +18,40 @@ import { LedgerFormModal } from '../../components/LedgerFormModal'
 import { useFeatures } from '../../lib/useFeatures'
 import { confirmDialog } from '../../lib/dialogs'
 import { useUnsavedGuard } from '../../lib/useUnsavedGuard'
-import { addDaysLocal, nextLineKey, NUMBER_LOADING, useVoucherNumberField } from './hooks'
+import { addDaysLocal, nextLineKey, NUMBER_LOADING, useAlterationDirty, useLeaveAfterSave, useVoucherNumberField } from './hooks'
 import { QuickItemModal, QuickLedgerModal } from './modals'
+import { TransportModal } from './TransportModal'
 
 // ---------- invoice mode (sales / purchase / notes) ----------
 
-interface ItemRow {
+// Field semantics (rate/discount in the invoice currency, godown/batch carried for saved lines)
+// and every state → payload rule live in @shared/voucherEdit/invoice — this component only owns
+// the inputs. `initial` (an alteration) comes from planVoucherEdit, which has already proved the
+// voucher round-trips through this form unchanged.
+interface ItemRow extends InvoiceRowState {
   /** Stable React key — survives the trailing-blank-row insertions (never an array index). */
   key: number
-  itemId: number | null
-  qtyText: string
-  rate: number | null
-  /** Per-line trade discount (paise, in the invoice currency like `rate`). Display + gross
-   *  only — the line amount sent to the books is already post-discount (migration 017). */
-  discount: number | null
 }
 
-const blankItemRow = (): ItemRow => ({ key: nextLineKey(), itemId: null, qtyText: '', rate: null, discount: null })
+const blankItemRow = (): ItemRow => ({ key: nextLineKey(), itemId: null, qtyText: '', rate: null, discount: null, godownId: null, batchId: null })
 
-export function InvoiceEntry({ typeId, kind, draft }: { typeId: number; kind: VoucherKind; draft?: VoucherDraft }): React.JSX.Element {
+export function InvoiceEntry({
+  typeId,
+  kind,
+  draft,
+  voucherId,
+  voucher,
+  initial
+}: {
+  typeId: number
+  kind: VoucherKind
+  draft?: VoucherDraft
+  /** Alteration: the saved voucher and the form state reconstructed from it. */
+  voucherId?: number
+  voucher?: Voucher
+  initial?: InvoiceFormState
+}): React.JSX.Element {
+  const isEdit = voucherId != null
   const { info, workingDate, setWorkingDate } = useSession()
   const toast = useToasts()
   const nav = useNav()
@@ -44,32 +62,35 @@ export function InvoiceEntry({ typeId, kind, draft }: { typeId: number; kind: Vo
   const { data: units } = useQuery({ queryKey: ['units'], queryFn: api.units.list })
   const { ensure: ensureTax, ensureRoundOff } = useTaxLedgers()
 
-  const [date, setDate] = useState(draft?.date ?? workingDate)
-  const [partyId, setPartyId] = useState<number | null>(draft?.partyLedgerId ?? null)
-  const [accountId, setAccountId] = useState<number | null>(null)
-  const [rows, setRows] = useState<ItemRow[]>(() => [blankItemRow()])
-  const [narration, setNarration] = useState(draft?.narration ?? '')
-  const [vehicleNo, setVehicleNo] = useState('')
-  const [transporterId, setTransporterId] = useState('')
-  const [distanceKm, setDistanceKm] = useState('')
-  const [currencyCode, setCurrencyCode] = useState('')
-  const [fxRateText, setFxRateText] = useState('')
+  const [date, setDate] = useState(initial?.date ?? draft?.date ?? workingDate)
+  const [partyId, setPartyId] = useState<number | null>(initial ? initial.partyId : (draft?.partyLedgerId ?? null))
+  const [accountId, setAccountId] = useState<number | null>(initial?.accountId ?? null)
+  const [rows, setRows] = useState<ItemRow[]>(() =>
+    initial ? [...initial.rows.map((r) => ({ ...r, key: nextLineKey() })), blankItemRow()] : [blankItemRow()]
+  )
+  const [narration, setNarration] = useState(initial?.narration ?? draft?.narration ?? '')
+  const [vehicleNo, setVehicleNo] = useState(initial?.vehicleNo ?? '')
+  const [transporterId, setTransporterId] = useState(initial?.transporterId ?? '')
+  const [distanceKm, setDistanceKm] = useState(initial?.distanceKm ?? '')
+  const [currencyCode, setCurrencyCode] = useState(initial?.currencyCode ?? '')
+  const [fxRateText, setFxRateText] = useState(initial?.fxRateText ?? '')
   const { data: currencies } = useQuery({ queryKey: ['currencies'], queryFn: api.currencies.list })
   const [quickLedger, setQuickLedger] = useState<{ name: string; forParty: boolean } | null>(null)
   const [quickItem, setQuickItem] = useState<{ name: string; row: number } | null>(null)
   const [saving, setSaving] = useState(false)
   const [editingParty, setEditingParty] = useState(false)
+  const [showTransport, setShowTransport] = useState(false)
   // ---------- GST details (place-of-supply override + memorandum flag) ----------
   const [gstOpen, setGstOpen] = useState(false)
-  const [posOverride, setPosOverride] = useState<string | null>(null)
-  const [optionalVoucher, setOptionalVoucher] = useState(false)
+  const [posOverride, setPosOverride] = useState<string | null>(initial?.posOverride ?? null)
+  const [optionalVoucher, setOptionalVoucher] = useState(initial?.optional ?? false)
 
-  const numberField = useVoucherNumberField(typeId, date)
+  const numberField = useVoucherNumberField(typeId, date, voucherId)
+  // Alteration keeps the voucher's own number (editable) and never auto-suggests a fresh one —
+  // same rule as AccountingEntry.
+  const [alterNumber, setAlterNumber] = useState(initial?.number ?? '')
   const isSalesSide = kind === 'sales' || kind === 'credit_note'
-
-  // Unsaved-entry guard: anything meaningful typed into a fresh invoice blocks accidental
-  // navigation until it's saved (save resets all of these).
-  useUnsavedGuard(partyId != null || rows.some((r) => r.itemId != null) || narration.trim() !== '')
+  const { saved, leave } = useLeaveAfterSave()
 
   const party = ledgers.find((l) => l.id === partyId) ?? null
   const account = ledgers.find((l) => l.id === accountId) ?? null
@@ -81,12 +102,13 @@ export function InvoiceEntry({ typeId, kind, draft }: { typeId: number; kind: Vo
   // existing invoice) — "create new bill instead" restores the sales/purchase-style single ref.
   const isNoteKind = kind === 'credit_note' || kind === 'debit_note'
   const [billsOpen, setBillsOpen] = useState(true)
-  const [billName, setBillName] = useState('')
-  const [billNameTouched, setBillNameTouched] = useState(false)
-  const [billDueDate, setBillDueDate] = useState(date)
-  const [billDueDateTouched, setBillDueDateTouched] = useState(false)
-  const [manualNewBillMode, setManualNewBillMode] = useState(false)
-  const [noteBillRefs, setNoteBillRefs] = useState<VoucherBillRef[]>([])
+  // An alteration's bill name / due date are what was saved — never re-synced from the number.
+  const [billName, setBillName] = useState(initial?.billName ?? '')
+  const [billNameTouched, setBillNameTouched] = useState(!!initial)
+  const [billDueDate, setBillDueDate] = useState(initial ? initial.billDueDate : date)
+  const [billDueDateTouched, setBillDueDateTouched] = useState(!!initial)
+  const [manualNewBillMode, setManualNewBillMode] = useState(initial?.manualNewBillMode ?? false)
+  const [noteBillRefs, setNoteBillRefs] = useState<VoucherBillRef[]>(initial?.noteBillRefs ?? [])
 
   useEffect(() => {
     if (!billNameTouched && numberField.value !== NUMBER_LOADING) setBillName(numberField.value)
@@ -101,7 +123,11 @@ export function InvoiceEntry({ typeId, kind, draft }: { typeId: number; kind: Vo
   // are matched server-side by name only, so a stale ref would silently misallocate against
   // whatever same-named (or FIFO-fallback) bill the NEW party happens to have. Also resets the
   // note's manual-entry state so a party-specific typed name/due-date doesn't linger either.
+  // Keyed off an actual party change (not mount), so an alteration's loaded allocations survive.
+  const allocParty = useRef(partyId)
   useEffect(() => {
+    if (allocParty.current === partyId) return
+    allocParty.current = partyId
     setNoteBillRefs([])
     if (isNoteKind) {
       setManualNewBillMode(false)
@@ -117,43 +143,55 @@ export function InvoiceEntry({ typeId, kind, draft }: { typeId: number; kind: Vo
     enabled: !!partyId && isNoteKind && !manualNewBillMode
   })
 
-  // Same precedence the GSTR builders use: explicit override → party state → company state.
-  const supply = supplyTypeFor(info!.stateCode, posOverride ?? party?.stateCode ?? info!.stateCode)
+  // Everything the shared invoice math needs, from the same masters the pickers show.
+  const ctx: InvoiceContext = useMemo(
+    () => ({
+      kind,
+      companyStateCode: info!.stateCode,
+      items: new Map(items.map((i) => [i.id, { gstRate: i.gstRate, cessRate: i.cessRate }])),
+      ledgers: new Map(ledgers.map((l) => [l.id, { stateCode: l.stateCode, gstRate: l.gstRate }]))
+    }),
+    [kind, info, items, ledgers]
+  )
 
-  const fxRate = currencyCode && fxRateText.trim() ? Number(fxRateText) : null
-  const fxActive = !!currencyCode && !!fxRate && Number.isFinite(fxRate) && fxRate > 0
+  const formState: InvoiceFormState = useMemo(
+    () => ({
+      date,
+      number: isEdit ? alterNumber : numberField.forPayload,
+      partyId,
+      accountId,
+      rows: rows.map(({ key: _key, ...r }) => r),
+      narration,
+      vehicleNo,
+      transporterId,
+      distanceKm,
+      currencyCode,
+      fxRateText,
+      posOverride,
+      optional: optionalVoucher,
+      billName,
+      billDueDate,
+      manualNewBillMode,
+      noteBillRefs,
+      reference: initial?.reference ?? null,
+      instrumentNo: initial?.instrumentNo ?? null,
+      instrumentDate: initial?.instrumentDate ?? null
+    }),
+    [date, isEdit, alterNumber, numberField.forPayload, partyId, accountId, rows, narration, vehicleNo, transporterId, distanceKm, currencyCode, fxRateText, posOverride, optionalVoucher, billName, billDueDate, manualNewBillMode, noteBillRefs, initial]
+  )
 
-  const computed = useMemo(() => {
-    const itemMap = new Map(items.map((i) => [i.id, i]))
-    const detail = rows
-      .map((r) => {
-        const item = r.itemId ? itemMap.get(r.itemId) : null
-        const qtyMilli = Math.round(parseFloat(r.qtyText || '0') * 1000)
-        if (!item || !Number.isFinite(qtyMilli) || qtyMilli <= 0 || r.rate == null) return null
-        // Rates (and discounts) are typed in the invoice currency; books stay in ₹.
-        const baseRate = fxActive ? Math.round(r.rate * fxRate!) : r.rate
-        const gross = Math.round((qtyMilli * baseRate) / 1000)
-        const discountPaise = Math.min(gross, fxActive ? Math.round((r.discount ?? 0) * fxRate!) : (r.discount ?? 0))
-        // `amount` is the post-discount taxable value — GST buckets below stay correct by construction.
-        const amount = gross - discountPaise
-        const rate = item.gstRate ?? account?.gstRate ?? 0
-        const cessRate = item.cessRate ?? 0
-        return { item, qtyMilli, ratePaise: baseRate, discountPaise, amount, rate, cessRate }
-      })
-      .filter((d): d is NonNullable<typeof d> => d !== null)
+  const computed = useMemo(() => computeInvoice(formState, ctx), [formState, ctx])
+  const { supply, fxActive } = computed
 
-    const buckets = new Map<string, { rate: number; cessRate: number; taxable: number }>()
-    for (const d of detail) {
-      const key = `${d.rate}|${d.cessRate}`
-      const b = buckets.get(key) ?? { rate: d.rate, cessRate: d.cessRate, taxable: 0 }
-      b.taxable += d.amount
-      buckets.set(key, b)
-    }
-    const breakups: GstBreakup[] = [...buckets.values()].map((b) => computeGst(b.taxable, b.rate, supply, b.cessRate))
-    const gst = addBreakups(breakups)
-    const rounded = roundToRupee(gst.total)
-    return { detail, gst, rounded, roundDiff: rounded - gst.total }
-  }, [rows, items, account, supply, fxActive, fxRate])
+  // Unsaved-changes guard: a fresh invoice is dirty once anything meaningful is typed (save
+  // resets all of these); an alteration once what it would post differs from the saved voucher.
+  const alterationDirty = useAlterationDirty(
+    voucher,
+    isEdit ? buildInvoicePayload(formState, ctx, typeId, taxLedgerIdsFrom(ledgers)) : null
+  )
+  useUnsavedGuard(
+    !saved && (isEdit ? alterationDirty : partyId != null || rows.some((r) => r.itemId != null) || narration.trim() !== '')
+  )
 
   const noteAllocatedTotal = noteBillRefs.reduce((s, r) => s + r.amount, 0)
 
@@ -175,66 +213,16 @@ export function InvoiceEntry({ typeId, kind, draft }: { typeId: number; kind: Vo
   // ensureRoundOff), same as it does on a normal save.
   const buildPayload = useCallback(async (): Promise<VoucherInputParsed | null> => {
     if (!partyId || !accountId || computed.detail.length === 0) return null
-    const { gst, rounded, roundDiff } = computed
-    const lines: VoucherInputParsed['lines'] = []
-    // Which way the party faces, per voucher kind.
-    const partyDr = kind === 'sales' || kind === 'debit_note'
-    lines.push({ ledgerId: partyId, drCr: partyDr ? 'dr' : 'cr', amount: rounded, costAllocations: [] })
-    const counter = partyDr ? 'cr' : 'dr'
-    lines.push({ ledgerId: accountId, drCr: counter, amount: gst.taxable, costAllocations: [] })
-    if (gst.cgst > 0) lines.push({ ledgerId: await ensureTax('cgst'), drCr: counter, amount: gst.cgst, costAllocations: [] })
-    if (gst.sgst > 0) lines.push({ ledgerId: await ensureTax('sgst'), drCr: counter, amount: gst.sgst, costAllocations: [] })
-    if (gst.igst > 0) lines.push({ ledgerId: await ensureTax('igst'), drCr: counter, amount: gst.igst, costAllocations: [] })
-    if (gst.cess > 0) lines.push({ ledgerId: await ensureTax('cess'), drCr: counter, amount: gst.cess, costAllocations: [] })
-    if (roundDiff !== 0) {
-      lines.push({
-        ledgerId: await ensureRoundOff(),
-        drCr: roundDiff > 0 ? counter : partyDr ? 'dr' : 'cr',
-        amount: Math.abs(roundDiff),
-        costAllocations: []
-      })
+    // Tax / Round Off ledgers are created on first use, same as before — then the shared
+    // builder lays out the lines.
+    const taxLedgers: TaxLedgerIds = { cgst: null, sgst: null, igst: null, cess: null, roundOff: null }
+    for (const k of requiredTaxLedgers(computed)) {
+      taxLedgers[k] = k === 'roundOff' ? await ensureRoundOff() : await ensureTax(k)
     }
-    // A round-down leaves the counter side heavier — the Round Off line balances the party side.
-    if (roundDiff < 0) {
-      const idx = lines.length - 1
-      lines[idx] = { ...lines[idx]!, drCr: partyDr ? 'dr' : 'cr' }
-    }
-    const goodsIn = kind === 'purchase' || kind === 'credit_note'
-    return {
-      voucherTypeId: typeId,
-      date,
-      number: numberField.forPayload || undefined,
-      partyLedgerId: partyId,
-      narration: narration.trim() || null,
-      reference: null,
-      instrumentNo: null,
-      instrumentDate: null,
-      transporterId: transporterId.trim() || null,
-      vehicleNo: vehicleNo.trim().toUpperCase() || null,
-      transportDistanceKm: distanceKm.trim() ? Number(distanceKm) : null,
-      posOverride,
-      currencyCode: fxActive ? currencyCode : null,
-      exchangeRate: fxActive ? fxRate : null,
-      isOptional: optionalVoucher,
-      lines,
-      inventory: computed.detail.map((d) => ({
-        stockItemId: d.item.id,
-        godownId: null,
-        qtyMilli: d.qtyMilli,
-        ratePaise: d.ratePaise,
-        discountPaise: d.discountPaise,
-        amount: d.amount,
-        direction: goodsIn ? ('in' as const) : ('out' as const)
-      })),
-      billRefs:
-        isNoteKind && !manualNewBillMode
-          ? noteBillRefs
-          : billName.trim()
-            ? [{ kind: 'new', name: billName.trim(), amount: rounded, dueDate: billDueDate || null }]
-            : [],
-      tds: null
-    }
-  }, [partyId, accountId, computed, kind, typeId, date, numberField.forPayload, narration, transporterId, vehicleNo, distanceKm, posOverride, optionalVoucher, fxActive, currencyCode, fxRate, isNoteKind, manualNewBillMode, noteBillRefs, billName, billDueDate, ensureTax, ensureRoundOff])
+    const r = buildInvoicePayload(formState, ctx, typeId, taxLedgers)
+    if (!r.ok) throw new Error(r.error)
+    return r.payload
+  }, [partyId, accountId, computed, formState, ctx, typeId, ensureTax, ensureRoundOff])
 
   const save = useCallback(async (andPdf = false): Promise<void> => {
     if (saving) return
@@ -247,7 +235,7 @@ export function InvoiceEntry({ typeId, kind, draft }: { typeId: number; kind: Vo
       if (!input) return
       // Duplicate-number confirm — catches a manually typed number that's already on the books
       // (and the auto-suggested one losing a race with another entry screen).
-      if (input.number && (await api.vouchers.numberExists(typeId, input.number))) {
+      if (input.number && (await api.vouchers.numberExists(typeId, input.number, voucherId))) {
         const proceed = await confirmDialog({
           title: 'Duplicate number',
           message: `Voucher number ${input.number} is already used by another voucher of this type. Save anyway with the same number?`,
@@ -255,7 +243,7 @@ export function InvoiceEntry({ typeId, kind, draft }: { typeId: number; kind: Vo
         })
         if (!proceed) return
       }
-      const dupes = await api.vouchers.duplicates(input)
+      const dupes = await api.vouchers.duplicates(input, voucherId)
       if (dupes.length > 0) {
         const first = dupes[0]!
         const proceed = await confirmDialog({
@@ -265,12 +253,17 @@ export function InvoiceEntry({ typeId, kind, draft }: { typeId: number; kind: Vo
         })
         if (!proceed) return
       }
-      const saved = await api.vouchers.save(input)
-      toast.push('success', `${saved.number} saved — ${formatPaise(computed.rounded, { symbol: true })}`)
+      const result = await api.vouchers.save(input, voucherId)
+      toast.push('success', `${result.number} ${isEdit ? 'altered' : 'saved'} — ${formatPaise(computed.rounded, { symbol: true })}`)
       if (andPdf && kind === 'sales') {
-        await api.invoice.pdf(saved.id)
+        await api.invoice.pdf(result.id)
       }
       setWorkingDate(date)
+      if (isEdit) {
+        await queryClient.invalidateQueries()
+        leave()
+        return
+      }
       setPartyId(null)
       setRows([blankItemRow()])
       setNarration('')
@@ -288,7 +281,26 @@ export function InvoiceEntry({ typeId, kind, draft }: { typeId: number; kind: Vo
     } finally {
       setSaving(false)
     }
-  }, [saving, partyId, accountId, computed, buildPayload, isSalesSide, kind, typeId, date, toast, setWorkingDate, queryClient, numberField.reset])
+  }, [saving, partyId, accountId, computed, buildPayload, isSalesSide, kind, typeId, voucherId, isEdit, date, toast, setWorkingDate, queryClient, numberField.reset, leave])
+
+  const remove = async (): Promise<void> => {
+    if (!voucherId) return
+    const proceed = await confirmDialog({
+      title: 'Move to Bin',
+      message: 'Move this voucher to the Bin? You can restore it from the bin for 30 days.',
+      confirmLabel: 'Move to Bin',
+      danger: true
+    })
+    if (!proceed) return
+    try {
+      await api.vouchers.remove(voucherId)
+      toast.push('success', 'Moved to Bin')
+      await queryClient.invalidateQueries()
+      leave()
+    } catch (err) {
+      toast.push('error', (err as Error).message)
+    }
+  }
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
@@ -322,10 +334,10 @@ export function InvoiceEntry({ typeId, kind, draft }: { typeId: number; kind: Vo
   return (
     <Panel className="p-5">
       <div className="grid grid-cols-4 gap-3">
-        <Field label="No." hint={numberField.value === NUMBER_LOADING ? undefined : 'Auto — edit to override'}>
+        <Field label="No." hint={isEdit || numberField.value === NUMBER_LOADING ? undefined : 'Auto — edit to override'}>
           <TextInput
-            value={numberField.value === NUMBER_LOADING ? '' : numberField.value}
-            onChange={(e) => numberField.onChange(e.target.value)}
+            value={isEdit ? alterNumber : numberField.value === NUMBER_LOADING ? '' : numberField.value}
+            onChange={(e) => (isEdit ? setAlterNumber(e.target.value) : numberField.onChange(e.target.value))}
             placeholder="Auto"
             className="num"
           />
@@ -336,7 +348,7 @@ export function InvoiceEntry({ typeId, kind, draft }: { typeId: number; kind: Vo
         <Field label={isSalesSide ? 'Party (buyer)' : 'Party (supplier)'}>
           <div className="flex items-center gap-1.5">
             <LedgerPicker
-              autoFocus
+              autoFocus={!isEdit}
               value={partyId}
               onPick={setPartyId}
               placeholder="Party ledger"
@@ -431,7 +443,8 @@ export function InvoiceEntry({ typeId, kind, draft }: { typeId: number; kind: Vo
                   <ItemPicker
                     value={r.itemId}
                     onPick={(id) => {
-                      setRow(i, { itemId: id })
+                      // A batch belongs to one item — a different item can't keep the old line's.
+                      setRow(i, id === r.itemId ? { itemId: id } : { itemId: id, batchId: null })
                       // Price-level autofill: the party's price list fills an empty Rate cell.
                       // Price-list rates are ₹, so skip while a foreign currency is active.
                       if (id != null && r.rate == null && !fxActive && party?.priceLevelId != null) {
@@ -456,6 +469,7 @@ export function InvoiceEntry({ typeId, kind, draft }: { typeId: number; kind: Vo
                   <div className="flex items-center gap-1.5">
                     <input
                       className={`${inputCls} num text-right`}
+                      data-testid="input-line-qty"
                       value={r.qtyText}
                       inputMode="decimal"
                       placeholder="0"
@@ -465,7 +479,7 @@ export function InvoiceEntry({ typeId, kind, draft }: { typeId: number; kind: Vo
                   </div>
                 </td>
                 <td className="r">
-                  <AmountInput paise={r.rate} onPaise={(p) => setRow(i, { rate: p })} />
+                  <AmountInput paise={r.rate} onPaise={(p) => setRow(i, { rate: p })} testId="input-line-rate" />
                 </td>
                 <td className="r">
                   <AmountInput
@@ -591,10 +605,26 @@ export function InvoiceEntry({ typeId, kind, draft }: { typeId: number; kind: Vo
             <div className="mt-2">
               {isNoteKind && !manualNewBillMode ? (
                 <>
-                  {(openBillsForNote ?? []).length === 0 ? (
+                  {(openBillsForNote ?? []).length === 0 && noteBillRefs.length === 0 ? (
                     <p className="text-[12px] text-muted">No open bills for this party.</p>
                   ) : (
                     <div className="flex flex-col gap-1">
+                      {/* Allocations already on this note whose bill no longer shows as open
+                          (this very note may have settled it) — listed so they stay visible. */}
+                      {noteBillRefs
+                        .filter((r) => !(openBillsForNote ?? []).some((b) => b.number === r.name))
+                        .map((r) => (
+                          <div key={`alloc-${r.name}`} className="flex items-center gap-3 rounded-md px-1 py-1 text-[12.5px] hover:bg-panel2">
+                            <input
+                              type="checkbox"
+                              checked
+                              onChange={() => setNoteBillRefs((refs) => refs.filter((x) => x.name !== r.name))}
+                            />
+                            <span className="flex-1">{r.name}</span>
+                            <span className="text-[11.5px] text-muted">allocated on this note</span>
+                            <AmountInput paise={r.amount} onPaise={(p) => setNoteBillAmount(r.name, p ?? 0)} className="w-28" />
+                          </div>
+                        ))}
                       {(openBillsForNote ?? []).map((b) => {
                         const ref = noteBillRefs.find((r) => r.kind === 'against' && r.name === b.number)
                         return (
@@ -629,9 +659,14 @@ export function InvoiceEntry({ typeId, kind, draft }: { typeId: number; kind: Vo
                       }}
                     />
                   </Field>
-                  <Field label="Due date" hint={party?.creditDays != null ? `${party.creditDays} credit days` : undefined}>
+                  <Field
+                    label="Due date"
+                    hint={billDueDate === '' ? 'None saved' : party?.creditDays != null ? `${party.creditDays} credit days` : undefined}
+                  >
+                    {/* '' = a loaded bill saved without a due date: show the voucher date (the input
+                        needs one) but post null until the user picks a date. */}
                     <DateInput
-                      value={billDueDate}
+                      value={billDueDate || date}
                       context={date}
                       onChange={(d) => {
                         setBillDueDate(d)
@@ -659,16 +694,24 @@ export function InvoiceEntry({ typeId, kind, draft }: { typeId: number; kind: Vo
         </div>
       )}
 
-      <div className="mt-5 flex justify-end gap-2">
-        <Button onClick={() => nav.back()}>Cancel</Button>
-        {kind === 'sales' && (
-          <Button disabled={saving} onClick={() => void save(true)}>
-            Save + invoice PDF
+      <div className="mt-5 flex justify-between">
+        <div>{isEdit && <Button variant="danger" onClick={() => void remove()}>Delete voucher</Button>}</div>
+        <div className="flex gap-2">
+          {isEdit && (
+            <Button data-testid="btn-voucher-transport" onClick={() => setShowTransport(true)}>
+              Transport / e-way details…
+            </Button>
+          )}
+          <Button onClick={() => nav.back()}>Cancel</Button>
+          {kind === 'sales' && (
+            <Button disabled={saving} onClick={() => void save(true)}>
+              Save + invoice PDF
+            </Button>
+          )}
+          <Button variant="primary" data-testid="btn-save-voucher" disabled={saving} onClick={() => void save()}>
+            {isEdit ? 'Save changes' : 'Save voucher'} ⌘↵
           </Button>
-        )}
-        <Button variant="primary" data-testid="btn-save-voucher" disabled={saving} onClick={() => void save()}>
-          Save voucher ⌘↵
-        </Button>
+        </div>
       </div>
 
       {quickLedger && (
@@ -695,6 +738,9 @@ export function InvoiceEntry({ typeId, kind, draft }: { typeId: number; kind: Vo
         />
       )}
       {editingParty && party && <LedgerFormModal ledger={party} onClose={() => setEditingParty(false)} />}
+      {showTransport && voucherId && (
+        <TransportModal voucherId={voucherId} voucherNumber={voucher?.number} onClose={() => setShowTransport(false)} />
+      )}
     </Panel>
   )
 }
