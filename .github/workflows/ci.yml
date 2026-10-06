@@ -111,6 +111,12 @@ jobs:
       - name: Typecheck
         run: npm run typecheck
 
+      - name: Unit tests (pure engine, no DB)
+        run: npm test
+
+      - name: DB-layer tests (Electron-as-Node)
+        run: npm run test:db
+
       - name: Build
         run: npm run build
 

@@ -25,8 +25,14 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Typecheck
+        run: npm run typecheck
+
       - name: Run tests
         run: npm test
+
+      - name: Renderer tests (jsdom + RTL)
+        run: npm run test:renderer
 
       - name: DB-layer tests (Electron-as-Node)
         run: npm run test:db
