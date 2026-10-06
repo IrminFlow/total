@@ -51,7 +51,7 @@ export const SCREENS: ScreenDef[] = [
     title: 'Gateway',
     screen: { name: 'gateway' },
     navSection: 'top',
-    invalidates: ['dashboard', 'recurring']
+    invalidates: ['dashboard']
   },
   {
     name: 'voucher-entry',
@@ -80,14 +80,6 @@ export const SCREENS: ScreenDef[] = [
       'ledgers', 'groups', 'groupTree', 'stockItems', 'units', 'voucherTypes', 'currencies', 'bom',
       'godowns', 'stockGroups'
     ]
-  },
-  {
-    name: 'recurring',
-    keywords: ['templates', 'scheduled'],
-    title: 'Recurring vouchers',
-    screen: { name: 'recurring' },
-    navSection: 'top',
-    invalidates: ['recurring']
   },
   {
     name: 'import-tally',

@@ -290,7 +290,7 @@ export function checkStock(db: DB, stockItemIds: number[], date: string): Negati
 export type SaveVoucherResult = SavedVoucher & { warnings: SaveVoucherWarnings }
 
 export function saveVoucher(db: DB, raw: VoucherInput, existingId?: number): SaveVoucherResult {
-  // Parse here as well as at the IPC boundary so direct callers (tests, recurring, importers)
+  // Parse here as well as at the IPC boundary so direct callers (tests, importers)
   // get defaults for later-added fields (posOverride) applied consistently.
   const input: VoucherInputParsed = voucherInputSchema.parse(raw)
   const vt = getVoucherType(db, input.voucherTypeId)

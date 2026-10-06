@@ -1,14 +1,12 @@
 import { useEffect, useMemo, useState } from 'react'
-import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { useQuery } from '@tanstack/react-query'
 import { api } from '../lib/client'
-import { useNav, useSession, useToasts, type Screen } from '../state/stores'
-import { Button, isAnyModalOpen, Money, Panel, ScrollList, Skeleton } from '../components/ui'
+import { useNav, useSession, type Screen } from '../state/stores'
+import { isAnyModalOpen, Money, Panel, ScrollList, Skeleton } from '../components/ui'
 import { toDisplayDate, todayISO } from '@shared/dates'
 import { upcomingDeadlines, type Deadline } from '@shared/compliance'
 import { useFeatures } from '../lib/useFeatures'
-import type { RecurringTemplate } from '@shared/domain'
 import type { CashSparkPoint, TopLedgerRow } from '@shared/reports'
-import { templateOpenTarget } from './Recurring'
 import { CARD_SCREENS } from '../lib/screens'
 
 /** Cards derived from the single screen registry (lib/screens.ts). */
@@ -80,7 +78,6 @@ export function Gateway(): React.JSX.Element {
         ))}
       </div>
 
-      <DueTodayPanel />
       <CompliancePanel hasEmployees={data?.hasEmployees ?? false} dashboardLoaded={data !== undefined} />
 
       <div className="mt-6 grid grid-cols-3 gap-3">
@@ -149,77 +146,6 @@ export function Gateway(): React.JSX.Element {
         )
       )}
     </div>
-  )
-}
-
-function DueTodayPanel(): React.JSX.Element | null {
-  const nav = useNav()
-  const toast = useToasts()
-  const queryClient = useQueryClient()
-  const today = todayISO()
-  const { data: dueList } = useQuery({ queryKey: ['recurring', 'due', today], queryFn: () => api.recurring.due(today) })
-  const [busyId, setBusyId] = useState<number | null>(null)
-
-  if (!dueList?.length) return null
-
-  const post = async (t: RecurringTemplate): Promise<void> => {
-    setBusyId(t.id)
-    try {
-      const saved = await api.recurring.post(t.id, today)
-      await queryClient.invalidateQueries()
-      toast.push('success', `${saved.number} posted from "${t.name}"`)
-    } catch (err) {
-      toast.push('error', (err as Error).message)
-    } finally {
-      setBusyId(null)
-    }
-  }
-
-  const skip = async (t: RecurringTemplate): Promise<void> => {
-    setBusyId(t.id)
-    try {
-      await api.recurring.skip(t.id)
-      await queryClient.invalidateQueries()
-      toast.push('success', `"${t.name}" skipped`)
-    } catch (err) {
-      toast.push('error', (err as Error).message)
-    } finally {
-      setBusyId(null)
-    }
-  }
-
-  const openInVoucherEntry = (t: RecurringTemplate): void => {
-    const { screen, warnInvoice } = templateOpenTarget(t)
-    if (warnInvoice) toast.push('warning', 'Line items must be re-entered for invoice types')
-    nav.go(screen)
-  }
-
-  return (
-    <Panel className="mt-6">
-      <div className="flex items-center justify-between border-b border-line px-5 py-2.5">
-        <p className="text-[11px] font-semibold tracking-[0.08em] text-muted uppercase">Due today</p>
-        <button className="text-[11.5px] text-blue hover:underline" onClick={() => nav.go({ name: 'recurring' })}>
-          All recurring vouchers
-        </button>
-      </div>
-      <div>
-        {dueList.map((t) => (
-          <div key={t.id} className="flex items-center gap-4 border-b border-line/40 px-5 py-2 last:border-b-0">
-            <span className="num w-20 text-[12px] text-muted">{toDisplayDate(t.nextDue)}</span>
-            <span className="flex-1 truncate text-[13px]">{t.name}</span>
-            <Button disabled={busyId === t.id} onClick={() => void post(t)}>
-              Post
-            </Button>
-            <Button disabled={busyId === t.id} onClick={() => void skip(t)}>
-              Skip
-            </Button>
-            <Button variant="ghost" disabled={busyId === t.id} onClick={() => openInVoucherEntry(t)}>
-              Open in voucher entry
-            </Button>
-          </div>
-        ))}
-      </div>
-    </Panel>
   )
 }
 

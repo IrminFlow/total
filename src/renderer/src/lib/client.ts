@@ -1,6 +1,6 @@
 import type {
   Batch, BomLine, Budget, CompanyInfo, CostCentre, Currency, Employee, Godown, Group, Ledger, NegativeStockWarning,
-  PayrollLine, PayrollRun, PriceLevel, PriceListRate, RecurringTemplate, StockGroup, StockItem, TdsSection, Unit,
+  PayrollLine, PayrollRun, PriceLevel, PriceListRate, StockGroup, StockItem, TdsSection, Unit,
   Voucher, VoucherTransport, VoucherType
 } from '@shared/domain'
 import type { BudgetVarianceRow } from '@shared/budgets'
@@ -20,7 +20,7 @@ import type {
   AuditListInput, BankRuleInput, BatchInput, BomInput, BudgetInput, ChequeConfig, CompanyCreateInput, CostCentreInput,
   CurrencyInput, EmployeeHeadsSetInput, EmployeeInputPayload, GodownInput, GroupInput, Gst3bManualInput, LedgerInput, NicCredentials,
   PayHeadInput, PriceLevelInput,
-  PriceRateInput, RecurringInput,
+  PriceRateInput,
   RendererLogInput, StockGroupInput, StockItemInput, TdsSectionInput, UnitInput, UserInput, VoucherTransportInput, VoucherTypeInput,
   VoucherInputParsed
 } from '@shared/schemas'
@@ -525,14 +525,6 @@ export const api = {
     save: (data: BudgetInput, id?: number) => call<Budget>('budget:save', { id, data }),
     remove: (id: number) => call<null>('budget:delete', { id }),
     variance: (budgetId: number, upToMonth: string) => call<BudgetVarianceRow[]>('budget:variance', { budgetId, upToMonth })
-  },
-  recurring: {
-    list: () => call<RecurringTemplate[]>('recurring:list'),
-    save: (data: RecurringInput, id?: number) => call<RecurringTemplate>('recurring:save', { id, data }),
-    remove: (id: number) => call<null>('recurring:delete', { id }),
-    due: (today: string) => call<RecurringTemplate[]>('recurring:due', { today }),
-    post: (id: number, date: string) => call<Voucher>('recurring:post', { id, date }),
-    skip: (id: number) => call<RecurringTemplate>('recurring:skip', { id })
   },
   bank: {
     ledgers: () => call<{ id: number; name: string }[]>('bank:ledgers'),

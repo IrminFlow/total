@@ -7,7 +7,7 @@ import { scenario, assert } from '../lib/harness.mjs'
 // static list on purpose: if a lane adds a screen to the registry without covering it here,
 // the registry-integrity renderer test still counts it — this tour is about rendering.
 const TOUR = [
-  ['voucher-entry'], ['daybook'], ['masters'], ['recurring'], ['import-tally'],
+  ['voucher-entry'], ['daybook'], ['masters'], ['import-tally'],
   ['trial-balance'], ['profit-loss'], ['balance-sheet'], ['cash-flow'],
   ['stock-summary', 'inventory'], ['year-end'],
   ['registers'], ['outstandings'], ['consolidated'], ['cost-centres', 'costCentres'],
