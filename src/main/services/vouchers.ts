@@ -87,7 +87,7 @@ export function getVoucher(db: DB, id: number): Voucher | null {
     ? (db
         .prepare(
           `SELECT voucher_line_id, cost_centre_id, amount FROM voucher_line_cost_allocations
-           WHERE voucher_line_id IN (${lines.map(() => '?').join(',')})`
+           WHERE voucher_line_id IN (${lines.map(() => '?').join(',')}) ORDER BY id`
         )
         .all(...lines.map((l) => l.id)) as { voucher_line_id: number; cost_centre_id: number; amount: number }[])
     : []
@@ -347,14 +347,27 @@ export function saveVoucher(db: DB, raw: VoucherInput, existingId?: number): Sav
       voucherId = Number(res.lastInsertRowid)
     }
 
+    // Bank reconciliation dates live on voucher_lines (set by banking.setBankDate, not by this
+    // input), so replacing the line set would silently un-reconcile an altered voucher. Carry
+    // each reconciled date over to the first new line posting the same ledger/side/amount — an
+    // edit that changes a reconciled line's amount legitimately drops its reconciliation.
+    const carriedBankDates = (before?.lines ?? [])
+      .filter((l) => l.bankDate != null)
+      .map((l) => ({ ledgerId: l.ledgerId, drCr: l.drCr, amount: l.amount, bankDate: l.bankDate!, used: false }))
+    const bankDateFor = (l: { ledgerId: number; drCr: 'dr' | 'cr'; amount: number }): string | null => {
+      const hit = carriedBankDates.find((c) => !c.used && c.ledgerId === l.ledgerId && c.drCr === l.drCr && c.amount === l.amount)
+      if (!hit) return null
+      hit.used = true
+      return hit.bankDate
+    }
     const insertLine = db.prepare(
-      'INSERT INTO voucher_lines (voucher_id, ledger_id, dr_cr, amount, line_order) VALUES (?, ?, ?, ?, ?)'
+      'INSERT INTO voucher_lines (voucher_id, ledger_id, dr_cr, amount, line_order, bank_date) VALUES (?, ?, ?, ?, ?, ?)'
     )
     const insertCostAlloc = db.prepare(
       'INSERT INTO voucher_line_cost_allocations (voucher_line_id, cost_centre_id, amount) VALUES (?, ?, ?)'
     )
     input.lines.forEach((l, i) => {
-      const res = insertLine.run(voucherId, l.ledgerId, l.drCr, l.amount, i)
+      const res = insertLine.run(voucherId, l.ledgerId, l.drCr, l.amount, i, bankDateFor(l))
       const lineId = Number(res.lastInsertRowid)
       for (const alloc of l.costAllocations ?? []) {
         insertCostAlloc.run(lineId, alloc.costCentreId, alloc.amount)
