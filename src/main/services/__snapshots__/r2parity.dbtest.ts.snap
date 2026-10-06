@@ -5,6 +5,7 @@ exports[`R2 parity — budgets & dashboard > budget variance is unchanged > budg
   {
     "actual": 30000,
     "budget": 100000,
+    "ledgerId": 6,
     "month": null,
     "pct": 30,
     "targetName": "Rent",
@@ -13,6 +14,7 @@ exports[`R2 parity — budgets & dashboard > budget variance is unchanged > budg
   {
     "actual": 30000,
     "budget": 50000,
+    "ledgerId": null,
     "month": "2025-05",
     "pct": 60,
     "targetName": "Indirect Expenses",
@@ -167,6 +169,7 @@ exports[`R2 parity — budgets & dashboard > dashboard is unchanged > dashboard 
   "recentVouchers": [
     {
       "account": "Debtor B",
+      "accountLedgerId": 3,
       "credit": 20000,
       "date": "2025-06-20",
       "debit": 20000,
@@ -180,6 +183,7 @@ exports[`R2 parity — budgets & dashboard > dashboard is unchanged > dashboard 
     },
     {
       "account": "Debtor B",
+      "accountLedgerId": 3,
       "credit": 59000,
       "date": "2025-06-01",
       "debit": 59000,
@@ -193,6 +197,7 @@ exports[`R2 parity — budgets & dashboard > dashboard is unchanged > dashboard 
     },
     {
       "account": "Cash",
+      "accountLedgerId": 1,
       "credit": 20000,
       "date": "2025-05-15",
       "debit": 20000,
@@ -206,6 +211,7 @@ exports[`R2 parity — budgets & dashboard > dashboard is unchanged > dashboard 
     },
     {
       "account": "Rent",
+      "accountLedgerId": 6,
       "credit": 30000,
       "date": "2025-05-10",
       "debit": 30000,
@@ -219,6 +225,7 @@ exports[`R2 parity — budgets & dashboard > dashboard is unchanged > dashboard 
     },
     {
       "account": "Creditor X",
+      "accountLedgerId": 4,
       "credit": 82600,
       "date": "2025-05-02",
       "debit": 82600,
@@ -232,6 +239,7 @@ exports[`R2 parity — budgets & dashboard > dashboard is unchanged > dashboard 
     },
     {
       "account": "Debtor A",
+      "accountLedgerId": 2,
       "credit": 50000,
       "date": "2025-04-20",
       "debit": 50000,
@@ -245,6 +253,7 @@ exports[`R2 parity — budgets & dashboard > dashboard is unchanged > dashboard 
     },
     {
       "account": "Debtor A",
+      "accountLedgerId": 2,
       "credit": 118000,
       "date": "2025-04-05",
       "debit": 118000,
@@ -489,6 +498,7 @@ exports[`R2 parity — statements > ledger statements (incl. multi-name particul
       "narration": null,
       "number": "1",
       "particulars": "Rent",
+      "particularsLedgerId": 6,
       "running": -30000,
       "voucherId": 4,
       "voucherType": "Payment",
@@ -500,6 +510,7 @@ exports[`R2 parity — statements > ledger statements (incl. multi-name particul
       "narration": null,
       "number": "1",
       "particulars": "HDFC Bank",
+      "particularsLedgerId": 5,
       "running": -10000,
       "voucherId": 5,
       "voucherType": "Contra",
@@ -511,6 +522,7 @@ exports[`R2 parity — statements > ledger statements (incl. multi-name particul
       "narration": null,
       "number": "2",
       "particulars": "Debtor B",
+      "particularsLedgerId": 3,
       "running": 10000,
       "voucherId": 7,
       "voucherType": "Receipt",
@@ -522,6 +534,7 @@ exports[`R2 parity — statements > ledger statements (incl. multi-name particul
       "narration": null,
       "number": "1",
       "particulars": "Rent,Purchases",
+      "particularsLedgerId": 6,
       "running": 0,
       "voucherId": 8,
       "voucherType": "Journal",
@@ -546,6 +559,7 @@ exports[`R2 parity — statements > ledger statements (incl. multi-name particul
       "narration": null,
       "number": "1",
       "particulars": "Sales Local",
+      "particularsLedgerId": 8,
       "running": 368000,
       "voucherId": 1,
       "voucherType": "Sales",
@@ -557,6 +571,7 @@ exports[`R2 parity — statements > ledger statements (incl. multi-name particul
       "narration": null,
       "number": "1",
       "particulars": "HDFC Bank",
+      "particularsLedgerId": 5,
       "running": 318000,
       "voucherId": 2,
       "voucherType": "Receipt",

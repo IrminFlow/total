@@ -6,6 +6,7 @@ import { Panel, SectionTitle, Select } from '../components/ui'
 import { DataTable, defineColumns, type DataTableFooterContext } from '../components/table'
 import { toDisplayDate } from '@shared/dates'
 import type { DayBookRow } from '@shared/reports'
+import { LedgerLink } from '../components/links'
 
 /** Which vouchers show: the books only (default), everything, or just the out-of-book kinds. */
 type Scope = 'books' | 'all' | 'optional' | 'post-dated'
@@ -48,9 +49,10 @@ export const DAYBOOK_COLUMNS = defineColumns<DayBookRow>([
     value: (r) => r.account,
     text: (r) => `${r.account}${badge(r)}`,
     minWidth: 160,
+    // The row opens the voucher; only the account NAME drills to the ledger's edit window.
     cell: (r) => (
       <>
-        {r.account}
+        <LedgerLink ledgerId={r.accountLedgerId} name={r.account} />
         {r.isOptional && <span className="ml-2 rounded bg-amber/15 px-1.5 py-0.5 text-[10px] font-medium text-amber">Optional</span>}
         {r.postDated && <span className="ml-2 rounded bg-blue/10 px-1.5 py-0.5 text-[10px] font-medium text-blue">PDC</span>}
         {r.yearEndClose && (

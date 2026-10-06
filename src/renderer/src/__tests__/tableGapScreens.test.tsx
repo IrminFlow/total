@@ -58,7 +58,7 @@ const RECON: BankRecon = {
   unreconciledDeposits: 250_000,
   unreconciledWithdrawals: 0,
   bankBalance: 0,
-  rows: [{ lineId: 11, voucherId: 101, date: '2026-04-03', voucherType: 'Receipt', number: 'R1', particulars: 'Acme Traders', instrumentNo: null, deposit: 250_000, withdrawal: 0, bankDate: null }]
+  rows: [{ lineId: 11, voucherId: 101, date: '2026-04-03', voucherType: 'Receipt', number: 'R1', particulars: 'Acme Traders', particularsLedgerId: 31, instrumentNo: null, deposit: 250_000, withdrawal: 0, bankDate: null }]
 }
 
 const RULES: BankRuleRecord[] = [

@@ -7,6 +7,7 @@ import { DataTable, defineColumns } from '../components/table'
 import type { EdocListRow } from '@shared/reports'
 import { gstPeriodOf, toDisplayDate } from '@shared/dates'
 import { TransportModal } from './voucher/TransportModal'
+import { LedgerLink } from '../components/links'
 
 type DocTypeFilter = 'all' | 'INV' | 'CRN' | 'DBN'
 
@@ -83,7 +84,15 @@ export const EDOC_COLUMNS = defineColumns<EdocListRow>([
       </>
     )
   },
-  { id: 'buyer', header: 'Buyer', kind: 'text', value: (r) => r.partyName ?? 'Cash sale', minWidth: 130 },
+  {
+    id: 'buyer',
+    header: 'Buyer',
+    kind: 'text',
+    value: (r) => r.partyName ?? 'Cash sale',
+    minWidth: 130,
+    // The row opens the voucher; the buyer NAME opens the party ledger's edit window.
+    cell: (r) => (r.partyName ? <LedgerLink ledgerId={r.partyLedgerId} name={r.partyName} /> : 'Cash sale')
+  },
   {
     id: 'gstin',
     header: 'GSTIN',

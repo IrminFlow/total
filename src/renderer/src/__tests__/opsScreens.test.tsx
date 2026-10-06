@@ -126,15 +126,15 @@ const RECON: BankRecon = {
   unreconciledWithdrawals: 40_000,
   bankBalance: 790_000,
   rows: [
-    { lineId: 11, voucherId: 101, date: '2026-04-03', voucherType: 'Receipt', number: 'R1', particulars: 'Acme Traders', instrumentNo: null, deposit: 250_000, withdrawal: 0, bankDate: null },
-    { lineId: 12, voucherId: 102, date: '2026-04-05', voucherType: 'Payment', number: 'P1', particulars: 'Office rent', instrumentNo: '000123', deposit: 0, withdrawal: 40_000, bankDate: '2026-04-06' },
-    { lineId: 13, voucherId: 103, date: '2026-04-09', voucherType: 'Receipt', number: 'R2', particulars: 'Bharat Stores', instrumentNo: null, deposit: 75_000, withdrawal: 0, bankDate: null }
+    { lineId: 11, voucherId: 101, date: '2026-04-03', voucherType: 'Receipt', number: 'R1', particulars: 'Acme Traders', particularsLedgerId: 31, instrumentNo: null, deposit: 250_000, withdrawal: 0, bankDate: null },
+    { lineId: 12, voucherId: 102, date: '2026-04-05', voucherType: 'Payment', number: 'P1', particulars: 'Office rent', particularsLedgerId: 32, instrumentNo: '000123', deposit: 0, withdrawal: 40_000, bankDate: '2026-04-06' },
+    { lineId: 13, voucherId: 103, date: '2026-04-09', voucherType: 'Receipt', number: 'R2', particulars: 'Bharat Stores', particularsLedgerId: 33, instrumentNo: null, deposit: 75_000, withdrawal: 0, bankDate: null }
   ]
 }
 
 const PDC: PdcRow[] = [
-  { id: 201, date: '2026-05-01', number: 'P9', voucherTypeName: 'Payment', partyName: 'Landlord', instrumentNo: '445', instrumentDate: '2026-05-01', amount: 40_000 },
-  { id: 202, date: '2026-05-10', number: 'R7', voucherTypeName: 'Receipt', partyName: 'Acme Traders', instrumentNo: null, instrumentDate: null, amount: 90_000 }
+  { id: 201, date: '2026-05-01', number: 'P9', voucherTypeName: 'Payment', partyLedgerId: 34, partyName: 'Landlord', instrumentNo: '445', instrumentDate: '2026-05-01', amount: 40_000 },
+  { id: 202, date: '2026-05-10', number: 'R7', voucherTypeName: 'Receipt', partyLedgerId: 31, partyName: 'Acme Traders', instrumentNo: null, instrumentDate: null, amount: 90_000 }
 ]
 
 describe('Banking on DataTable', () => {

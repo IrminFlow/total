@@ -6,6 +6,7 @@ import { Button, EmptyState, Modal, Money, Panel, SectionTitle } from '../compon
 import { DataTable, defineColumns, type TableColumn } from '../components/table'
 import type { Recon2bBucket, Recon2bPair } from '@shared/gst/recon2b'
 import { MonthBar, NoMonths, useMonth } from './GstReturns'
+import { LedgerLink, VoucherLink } from '../components/links'
 
 const BUCKETS: { key: Recon2bBucket; label: string }[] = [
   { key: 'matched', label: 'Matched' },
@@ -111,7 +112,7 @@ export function pairColumns(onCreatePurchase: (portal: NonNullable<Recon2bPair['
       minWidth: 132,
       cell: (p) =>
         p.book ? (
-          (p.book.supplierRef ?? p.book.number)
+          <VoucherLink voucherId={p.book.voucherId} label={p.book.supplierRef ?? p.book.number} />
         ) : p.bucket === 'missingInBooks' && p.portal ? (
           <button
             className="text-[12px] text-blue hover:underline"
@@ -127,7 +128,16 @@ export function pairColumns(onCreatePurchase: (portal: NonNullable<Recon2bPair['
           dash
         )
     },
-    { id: 'party', header: 'Party', group: 'Books', kind: 'text', value: (p) => p.book?.partyName, minWidth: 140, defaultHidden: true },
+    {
+      id: 'party',
+      header: 'Party',
+      group: 'Books',
+      kind: 'text',
+      value: (p) => p.book?.partyName,
+      minWidth: 140,
+      defaultHidden: true,
+      cell: (p) => (p.book?.partyName ? <LedgerLink ledgerId={p.book.partyLedgerId} name={p.book.partyName} /> : null)
+    },
     {
       id: 'bookKind',
       header: 'Type',

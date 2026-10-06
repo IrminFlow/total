@@ -14,6 +14,7 @@ import { LedgerFormModal } from '../components/LedgerFormModal'
 import { ChartOfAccounts } from '../components/ChartOfAccounts'
 import { validateHsn } from '@shared/gst/validate'
 import { confirmDialog, promptDialog } from '../lib/dialogs'
+import { ItemLink, LedgerLink } from '../components/links'
 
 export type MastersTab = NonNullable<Extract<Screen, { name: 'masters' }>['tab']>
 
@@ -154,7 +155,17 @@ function CurrenciesTab(): React.JSX.Element {
 type LedgerRow = Ledger & { groupName: string }
 
 export const LEDGER_COLUMNS = defineColumns<LedgerRow>([
-  { id: 'name', header: 'Name', kind: 'text', value: (l) => l.name, hideable: false, groupable: false, minWidth: 180 },
+  {
+    id: 'name',
+    header: 'Name',
+    kind: 'text',
+    value: (l) => l.name,
+    hideable: false,
+    groupable: false,
+    minWidth: 180,
+    // Name → edit window; the rest of the row → statement.
+    cell: (l) => <LedgerLink ledgerId={l.id} name={l.name} />
+  },
   { id: 'group', header: 'Group', kind: 'text', value: (l) => l.groupName, className: 'text-muted', width: 200 },
   { id: 'gstin', header: 'GSTIN', kind: 'text', value: (l) => l.gstin ?? '', className: 'num text-muted', width: 170, groupable: false },
   { id: 'pan', header: 'PAN', kind: 'text', value: (l) => l.pan ?? '', className: 'num text-muted', width: 120, groupable: false, defaultHidden: true },
@@ -463,7 +474,16 @@ function MoveGroupModal({
 type ItemRow = StockItem & { unitSymbol: string; unitDecimals: number }
 
 export const ITEM_COLUMNS = defineColumns<ItemRow>([
-  { id: 'name', header: 'Name', kind: 'text', value: (i) => i.name, hideable: false, groupable: false, minWidth: 180 },
+  {
+    id: 'name',
+    header: 'Name',
+    kind: 'text',
+    value: (i) => i.name,
+    hideable: false,
+    groupable: false,
+    minWidth: 180,
+    cell: (i) => <ItemLink itemId={i.id} name={i.name} />
+  },
   { id: 'unit', header: 'Unit', kind: 'text', value: (i) => i.unitSymbol, className: 'text-muted', width: 90 },
   { id: 'hsn', header: 'HSN', kind: 'text', value: (i) => i.hsn ?? '', className: 'num text-muted', width: 110 },
   { id: 'gstRate', header: 'GST %', kind: 'number', value: (i) => i.gstRate, text: (i) => (i.gstRate == null ? '–' : String(i.gstRate)), width: 110, groupable: true },
@@ -517,7 +537,7 @@ function ItemsTab({ openItemId }: { openItemId?: number }): React.JSX.Element {
   )
 }
 
-function ItemFormModal({ item, onClose }: { item: StockItem | null; onClose: () => void }): React.JSX.Element {
+export function ItemFormModal({ item, onClose }: { item: StockItem | null; onClose: () => void }): React.JSX.Element {
   const { data: units } = useQuery({ queryKey: ['units'], queryFn: api.units.list })
   const allItems = useStockItems()
   const { data: bom } = useQuery({

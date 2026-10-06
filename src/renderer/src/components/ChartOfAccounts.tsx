@@ -4,6 +4,7 @@
 import { useMemo, useState, type ReactNode } from 'react'
 import { allGroupIds, filterChartTree, type ChartGroupNode, type ChartLedgerNode } from '@shared/chartOfAccounts'
 import { Button, EmptyState, Money, TextInput } from './ui'
+import { LedgerLink, drillRowProps } from './links'
 
 const NATURE_TONE = { asset: 'text-dr', liability: 'text-cr', income: 'text-blue', expense: 'text-amber' } as const
 
@@ -132,24 +133,27 @@ function GroupRow({
   )
 }
 
+/** A ledger leaf: the NAME opens the ledger's edit window (LedgerLink); the rest of the row — or
+ *  Enter on it — calls `onOpen` (the statement). Not a <button>: it holds the link button. */
 function LedgerLeaf({ ledger, depth, onOpen }: { ledger: ChartLedgerNode; depth: number; onOpen: (id: number) => void }): React.JSX.Element {
   return (
-    <button
-      type="button"
+    <div
+      {...drillRowProps(() => onOpen(ledger.id), ledger.id)}
       role="treeitem"
       aria-selected={false}
       data-testid="coa-ledger"
       data-ledger-id={ledger.id}
-      onClick={() => onOpen(ledger.id)}
       title={`Open ${ledger.name} statement`}
-      className="flex w-full items-center gap-2 rounded px-2 py-1 text-left hover:bg-panel2 focus-visible:bg-panel2"
+      className="flex w-full cursor-pointer items-center gap-2 rounded px-2 py-1 text-left hover:bg-panel2 focus-visible:bg-panel2 focus-visible:outline-none"
       style={{ paddingLeft: `${8 + depth * 18}px` }}
     >
       <span aria-hidden="true" className="w-3 shrink-0 text-center text-[10px] text-muted/60">•</span>
-      <span className="min-w-0 flex-1 truncate text-[12.5px] text-ink">{ledger.name}</span>
+      <span className="min-w-0 flex-1 truncate text-[12.5px] text-ink">
+        <LedgerLink ledgerId={ledger.id} name={ledger.name} />
+      </span>
       <span className="w-40 shrink-0 text-right text-[12.5px]">
         <Money paise={ledger.balance} signed />
       </span>
-    </button>
+    </div>
   )
 }

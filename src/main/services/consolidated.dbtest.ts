@@ -91,10 +91,14 @@ function makeCompany(slug: string, name: string, salesAmount: number, rentAmount
   return db
 }
 
+const idOf = (db: DB, name: string): number => (db.prepare('SELECT id FROM ledgers WHERE name = ?').get(name) as { id: number }).id
+
 describe('consolidated()', () => {
   it('merges trial balances of two companies by ledger name', () => {
     const alpha = makeCompany('alpha', 'Alpha Traders', 100000, 20000)
     const beta = makeCompany('beta', 'Beta Traders', 50000, 5000)
+    const ids = (n: string): number[] => [idOf(alpha, n), idOf(beta, n)]
+    const expectIds = { Cash: ids('Cash'), Rent: ids('Rent'), Sales: ids('Sales') }
     alpha.close()
     beta.close()
 
@@ -104,9 +108,10 @@ describe('consolidated()', () => {
     expect(result.columns).toEqual(['Alpha Traders', 'Beta Traders'])
 
     const byName = new Map(result.rows.map((r) => [r.name, r]))
-    expect(byName.get('Cash')).toEqual({ name: 'Cash', group: 'Cash-in-Hand', perCompany: [80000, 45000], total: 125000 })
-    expect(byName.get('Rent')).toEqual({ name: 'Rent', group: 'Indirect Expenses', perCompany: [20000, 5000], total: 25000 })
-    expect(byName.get('Sales')).toEqual({ name: 'Sales', group: 'Sales Accounts', perCompany: [-100000, -50000], total: -150000 })
+    // WP 1.8: each company's own ledger id rides along per column (drill-down for the open company).
+    expect(byName.get('Cash')).toEqual({ name: 'Cash', group: 'Cash-in-Hand', perCompany: [80000, 45000], total: 125000, ledgerIds: expectIds.Cash })
+    expect(byName.get('Rent')).toEqual({ name: 'Rent', group: 'Indirect Expenses', perCompany: [20000, 5000], total: 25000, ledgerIds: expectIds.Rent })
+    expect(byName.get('Sales')).toEqual({ name: 'Sales', group: 'Sales Accounts', perCompany: [-100000, -50000], total: -150000, ledgerIds: expectIds.Sales })
 
     // Trial balance is self-balancing per company, so the whole merged matrix nets to zero too.
     const grandTotal = result.rows.reduce((s, r) => s + r.total, 0)
@@ -116,6 +121,8 @@ describe('consolidated()', () => {
   it('merges P&L trading incomes and indirect expenses across companies', () => {
     const alpha = makeCompany('alpha', 'Alpha Traders', 100000, 20000)
     const beta = makeCompany('beta', 'Beta Traders', 50000, 5000)
+    const salesIds = [idOf(alpha, 'Sales'), idOf(beta, 'Sales')]
+    const rentIds = [idOf(alpha, 'Rent'), idOf(beta, 'Rent')]
     alpha.close()
     beta.close()
 
@@ -125,8 +132,8 @@ describe('consolidated()', () => {
     const byName = new Map(result.rows.map((r) => [r.name, r]))
     // flattenPnl reports each leaf's actual account group (same names the trial balance
     // uses), not the section label — "Sales" sits directly under "Sales Accounts".
-    expect(byName.get('Sales')).toEqual({ name: 'Sales', group: 'Sales Accounts', perCompany: [-100000, -50000], total: -150000 })
-    expect(byName.get('Rent')).toEqual({ name: 'Rent', group: 'Indirect Expenses', perCompany: [20000, 5000], total: 25000 })
+    expect(byName.get('Sales')).toEqual({ name: 'Sales', group: 'Sales Accounts', perCompany: [-100000, -50000], total: -150000, ledgerIds: salesIds })
+    expect(byName.get('Rent')).toEqual({ name: 'Rent', group: 'Indirect Expenses', perCompany: [20000, 5000], total: 25000, ledgerIds: rentIds })
   })
 
   it('leaves a null column and a warning for a company with a stale (unmigrated) schema', () => {

@@ -8,6 +8,7 @@ import { DataTable, defineColumns } from '../components/table'
 import { formatMilli } from '../lib/table'
 import { toDisplayDate } from '@shared/dates'
 import type { ItemProfitRow, RegisterMonthRow } from '@shared/reports'
+import { ItemLink } from '../components/links'
 
 const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
 
@@ -40,7 +41,16 @@ function marginOf(profit: number, sales: number): string {
 }
 
 export const ITEM_PROFIT_COLUMNS = defineColumns<ItemProfitRow>([
-  { id: 'name', header: 'Item', kind: 'text', value: (r) => r.name, hideable: false, groupable: false, minWidth: 160 },
+  {
+    id: 'name',
+    header: 'Item',
+    kind: 'text',
+    value: (r) => r.name,
+    hideable: false,
+    groupable: false,
+    minWidth: 160,
+    cell: (r) => <ItemLink itemId={r.stockItemId} name={r.name} />
+  },
   {
     id: 'qty',
     header: 'Qty sold',

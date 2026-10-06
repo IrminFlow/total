@@ -158,6 +158,8 @@ export interface BrsItem {
   voucherType: string
   number: string
   particulars: string
+  /** A counter-side ledger of the voucher (its first line) — the drill target for `particulars`. */
+  particularsLedgerId: number | null
   instrumentNo: string | null
   amount: number
 }
@@ -238,6 +240,7 @@ export interface CcStatementRow {
   date: string
   voucherId: number
   number: string
+  ledgerId: number
   ledgerName: string
   drCr: 'dr' | 'cr'
   amount: number
@@ -337,6 +340,7 @@ export interface PdcRow {
   date: string
   number: string
   voucherTypeName: string
+  partyLedgerId: number | null
   partyName: string | null
   instrumentNo: string | null
   instrumentDate: string | null

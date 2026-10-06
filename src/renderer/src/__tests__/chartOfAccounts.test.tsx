@@ -1,9 +1,10 @@
 // Masters → Groups chart of accounts (components/ChartOfAccounts.tsx): ledgers show as leaves
 // under their group, the filter keeps matches' ancestors open, and a leaf opens its statement.
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import { buildChartOfAccounts } from '@shared/chartOfAccounts'
 import { ChartOfAccounts } from '../components/ChartOfAccounts'
+import { useDrill } from '../lib/drill'
 
 const TREE = buildChartOfAccounts(
   [
@@ -63,6 +64,18 @@ describe('ChartOfAccounts', () => {
     render(<ChartOfAccounts tree={TREE} onOpenLedger={onOpen} />)
     const leaf = screen.getAllByTestId('coa-ledger').find((el) => el.textContent?.includes('Local Sale'))!
     fireEvent.click(leaf)
+    expect(onOpen).toHaveBeenCalledWith(10)
+  })
+
+  it('a leaf\'s NAME opens the ledger edit window instead (WP 1.8); Enter on the leaf opens the statement', () => {
+    useDrill.setState({ ledgerEditId: null })
+    const onOpen = vi.fn()
+    render(<ChartOfAccounts tree={TREE} onOpenLedger={onOpen} />)
+    const leaf = screen.getAllByTestId('coa-ledger').find((el) => el.textContent?.includes('Local Sale'))!
+    fireEvent.click(within(leaf).getByTestId('ledger-link'))
+    expect(useDrill.getState().ledgerEditId).toBe(10)
+    expect(onOpen).not.toHaveBeenCalled()
+    fireEvent.keyDown(leaf, { key: 'Enter' })
     expect(onOpen).toHaveBeenCalledWith(10)
   })
 })

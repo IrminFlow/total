@@ -19,9 +19,9 @@ const SLOW = { timeout: 10_000 }
 vi.setConfig({ testTimeout: 30_000 })
 
 const DAYBOOK: DayBookRow[] = [
-  { voucherId: 11, date: '2026-04-02', voucherType: 'Sales', kind: 'sales', number: '9', account: 'Zeta Traders', narration: null, debit: 118000, credit: 0, isOptional: false, postDated: false },
-  { voucherId: 12, date: '2026-04-03', voucherType: 'Payment', kind: 'payment', number: '10', account: 'Alpha Rent', narration: 'April rent', debit: 0, credit: 50000, isOptional: false, postDated: false },
-  { voucherId: 13, date: '2026-04-05', voucherType: 'Journal', kind: 'journal', number: '2', account: 'Memo Co', narration: null, debit: 99900, credit: 0, isOptional: true, postDated: false }
+  { voucherId: 11, date: '2026-04-02', voucherType: 'Sales', kind: 'sales', number: '9', account: 'Zeta Traders', accountLedgerId: 31, narration: null, debit: 118000, credit: 0, isOptional: false, postDated: false },
+  { voucherId: 12, date: '2026-04-03', voucherType: 'Payment', kind: 'payment', number: '10', account: 'Alpha Rent', accountLedgerId: 33, narration: 'April rent', debit: 0, credit: 50000, isOptional: false, postDated: false },
+  { voucherId: 13, date: '2026-04-05', voucherType: 'Journal', kind: 'journal', number: '2', account: 'Memo Co', accountLedgerId: 34, narration: null, debit: 99900, credit: 0, isOptional: true, postDated: false }
 ]
 
 const TB: TrialBalance = {
@@ -43,8 +43,8 @@ const STATEMENT: LedgerStatement = {
   ledgerName: 'Cash',
   opening: 100000,
   rows: [
-    { voucherId: 21, date: '2026-04-01', voucherType: 'Receipt', number: '1', particulars: 'Zeta Traders', narration: null, debit: 50000, credit: 0, running: 150000 },
-    { voucherId: 22, date: '2026-04-04', voucherType: 'Payment', number: '3', particulars: 'Alpha Rent', narration: null, debit: 0, credit: 20000, running: 130000 }
+    { voucherId: 21, date: '2026-04-01', voucherType: 'Receipt', number: '1', particulars: 'Zeta Traders', particularsLedgerId: 31, narration: null, debit: 50000, credit: 0, running: 150000 },
+    { voucherId: 22, date: '2026-04-04', voucherType: 'Payment', number: '3', particulars: 'Alpha Rent', particularsLedgerId: 33, narration: null, debit: 0, credit: 20000, running: 130000 }
   ],
   closing: 130000,
   totalDebit: 50000,
@@ -138,7 +138,7 @@ describe('Day Book', () => {
 
   it('tags the year-end closing journal with its chip; it still counts in the books', async () => {
     const closing: DayBookRow = {
-      voucherId: 14, date: '2027-03-31', voucherType: 'Journal', kind: 'journal', number: '3', account: 'Profit & Loss A/c',
+      voucherId: 14, date: '2027-03-31', voucherType: 'Journal', kind: 'journal', number: '3', account: 'Profit & Loss A/c', accountLedgerId: 35,
       narration: 'Year-end close', debit: 25000, credit: 0, isOptional: false, postDated: false, yearEndClose: true
     }
     const base = invoke.getMockImplementation()!

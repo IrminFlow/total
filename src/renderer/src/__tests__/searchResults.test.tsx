@@ -21,7 +21,7 @@ let TOTAL = 75
 function v(id: number): VoucherResult {
   return {
     kind: 'voucher', id, typeName: 'Receipt', voucherKind: 'receipt', number: `RC-${(id * 37) % 101}`,
-    date: `2026-0${(id % 9) + 1}-1${id % 10}`, party: 'Umbrella Retail', amount: 100000 + ((id * 7919) % 5000),
+    date: `2026-0${(id % 9) + 1}-1${id % 10}`, party: 'Umbrella Retail', partyLedgerId: 7, amount: 100000 + ((id * 7919) % 5000),
     narration: null, isOptional: false, postDated: false, matchField: 'amount', matchText: '₹1,000'
   }
 }
