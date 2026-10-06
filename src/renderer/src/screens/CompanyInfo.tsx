@@ -208,7 +208,7 @@ function CsvImportCard(): React.JSX.Element {
         queryClient.invalidateQueries({ queryKey: ['ledgers'] }),
         queryClient.invalidateQueries({ queryKey: ['stockItems'] }),
         queryClient.invalidateQueries({ queryKey: ['groups'] }),
-        queryClient.invalidateQueries({ queryKey: ['groupTree'] })
+        queryClient.invalidateQueries({ queryKey: ['chartOfAccounts'] })
       ])
       reset()
     } catch (err) {

@@ -77,7 +77,7 @@ export const SCREENS: ScreenDef[] = [
     navSection: 'top',
     card: { sub: 'Ledgers, items, groups', key: 'M' },
     invalidates: [
-      'ledgers', 'groups', 'groupTree', 'stockItems', 'units', 'voucherTypes', 'currencies', 'bom',
+      'ledgers', 'groups', 'chartOfAccounts', 'stockItems', 'units', 'voucherTypes', 'currencies', 'bom',
       'godowns', 'stockGroups'
     ]
   },
