@@ -245,6 +245,31 @@ tr.kbar-row[data-active='true'] td:first-child {
 .data-table th.dt-th {
   cursor: grab;
 }
+/* drag-to-reorder: the dragged header dims, the drop edge gets an amber rule */
+.data-table th.dt-dragging {
+  opacity: 0.45;
+}
+.data-table th.dt-drop-before {
+  box-shadow: inset 3px 0 0 var(--t-amber-bar), inset 0 -1px 0 var(--t-line);
+}
+.data-table th.dt-drop-after {
+  box-shadow: inset -3px 0 0 var(--t-amber-bar), inset 0 -1px 0 var(--t-line);
+}
+.data-table td.dt-expander {
+  padding-left: 8px;
+  padding-right: 0;
+}
+/* expandable detail rows: free height, wrapping content, no row hover */
+.data-table tr.dt-detail > td {
+  white-space: normal;
+  overflow: visible;
+  line-height: normal;
+  padding: 8px 12px 12px 40px;
+  background: color-mix(in oklab, var(--t-panel2) 60%, transparent);
+}
+.data-table tbody tr.dt-detail:hover > td {
+  background: color-mix(in oklab, var(--t-panel2) 60%, transparent);
+}
 
 input,
 select,

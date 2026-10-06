@@ -3,6 +3,12 @@ import { describe, expect, it } from 'vitest'
 import {
   aggregate,
   applyLegacyReportConfig,
+  buildRowLayout,
+  capExportForPdf,
+  columnDropTarget,
+  itemAt,
+  scrollTopFor,
+  visibleRange,
   buildTableExport,
   buildTableModel,
   defaultView,
@@ -373,5 +379,100 @@ describe('export of the current view', () => {
     expect(ex.csvRows[0]).toEqual(['Open (2)', '3,000.00', ''])
     expect(ex.rows[0]!.bold).toBe(true)
     expect(ex.csvRows.at(-1)).toEqual(['Total', '2,950.99', ''])
+  })
+})
+
+describe('variable-height row layout (virtualisation offset index)', () => {
+  // 10 rows of 30px; rows 2 and 5 have detail rows of 100 and 40px.
+  const extra = (i: number): number => (i === 2 ? 100 : i === 5 ? 40 : 0)
+  const L = buildRowLayout(10, 30, extra)
+  it('prefix sums include detail heights', () => {
+    expect(Array.from(L.offsets)).toEqual([0, 30, 60, 190, 220, 250, 320, 350, 380, 410, 440])
+    expect(L.total).toBe(440)
+    expect(Array.from(L.rowIndex)).toEqual([0, 1, 2, 4, 5, 6, 8, 9, 10, 11, 12])
+  })
+  it('itemAt finds the item whose block contains y (detail area belongs to its row)', () => {
+    expect(itemAt(L, 0)).toBe(0)
+    expect(itemAt(L, 59)).toBe(1)
+    expect(itemAt(L, 60)).toBe(2)
+    expect(itemAt(L, 189)).toBe(2) // inside row 2's detail
+    expect(itemAt(L, 190)).toBe(3)
+    expect(itemAt(L, 10_000)).toBe(9)
+    expect(itemAt(L, -5)).toBe(0)
+  })
+  it('visibleRange covers the viewport plus overscan', () => {
+    expect(visibleRange(L, 100, 100, 0)).toEqual([2, 4]) // y 100..199 → row 2 (+detail) and row 3
+    expect(visibleRange(L, 100, 100, 1)).toEqual([1, 5])
+    expect(visibleRange(L, 0, 10_000, 2)).toEqual([0, 10])
+    expect(visibleRange(buildRowLayout(0, 30), 0, 100, 2)).toEqual([0, 0])
+  })
+  it('scrollTopFor brings a row fully into view under a sticky header', () => {
+    // viewport 120 incl. a 20px header; row 3's body offset is 190 → content y 210..240
+    expect(scrollTopFor(L, 3, 30, 0, 120, 20)).toBe(120)
+    expect(scrollTopFor(L, 0, 30, 120, 120, 20)).toBe(0)
+    expect(scrollTopFor(L, 3, 30, 120, 120, 20)).toBe(120) // already visible
+  })
+  it('handles 50,000 rows with hundreds expanded quickly', () => {
+    const t0 = performance.now()
+    const big = buildRowLayout(50_000, 33, (i) => (i % 160 === 0 ? 50 + (i % 7) * 10 : 0))
+    expect(performance.now() - t0).toBeLessThan(50)
+    expect(big.rowIndex[50_000]).toBe(50_000 + 313)
+    expect(itemAt(big, big.offsets[31_337]! + 5)).toBe(31_337)
+  })
+})
+
+describe('columnDropTarget (drag-to-reorder hit testing)', () => {
+  const rects = [
+    { id: 'a', left: 0, right: 100 },
+    { id: 'b', left: 100, right: 200 },
+    { id: 'c', left: 200, right: 300 }
+  ]
+  it('drops before/after the column under the pointer', () => {
+    expect(columnDropTarget(rects, 'a', 260)).toEqual({ id: 'c', after: true })
+    expect(columnDropTarget(rects, 'c', 20)).toEqual({ id: 'a', after: false })
+    expect(columnDropTarget(rects, 'a', 230)).toEqual({ id: 'c', after: false })
+  })
+  it('no-ops on itself and on the adjacent near edge; clamps past the ends', () => {
+    expect(columnDropTarget(rects, 'b', 150)).toBeNull()
+    expect(columnDropTarget(rects, 'a', 120)).toBeNull() // before b = where a already is
+    expect(columnDropTarget(rects, 'c', 180)).toBeNull() // after b = where c already is
+    expect(columnDropTarget(rects, 'a', 900)).toEqual({ id: 'c', after: true })
+    expect(columnDropTarget([], 'a', 0)).toBeNull()
+  })
+  it('feeds moveColumnTo', () => {
+    const t = columnDropTarget(
+      [
+        { id: 'name', left: 0, right: 100 },
+        { id: 'date', left: 100, right: 200 },
+        { id: 'amount', left: 200, right: 300 }
+      ],
+      'name',
+      290
+    )!
+    expect(moveColumnTo(defaultView(COLS), 'name', t.id, t.after).order.slice(0, 3)).toEqual(['date', 'amount', 'name'])
+  })
+})
+
+describe('capExportForPdf', () => {
+  const big = (n: number): ReturnType<typeof buildTableExport> => {
+    const rows: R[] = Array.from({ length: n }, (_, i) => ({ id: i, name: `R${i}`, date: '2026-04-01', amount: 100, qty: 0, status: 'open' }))
+    return buildTableExport(buildTableModel(rows, COLS, defaultView(COLS)))
+  }
+  it('leaves exports under the cap alone', () => {
+    const ex = big(10)
+    const r = capExportForPdf(ex, 5000)
+    expect(r.truncated).toBe(false)
+    expect(r.note).toBeNull()
+    expect(r.export).toBe(ex)
+  })
+  it('cuts the body, keeps the all-rows totals row and says so', () => {
+    const r = capExportForPdf(big(6000), 5000)
+    expect(r.truncated).toBe(true)
+    expect(r.export.rows).toHaveLength(5000)
+    const last = r.export.rows.at(-1)!
+    expect(last.rule).toBe(true)
+    expect(last.cells).toContain('6,000.00') // the totals still cover all 6,000 rows
+    expect(r.note).toContain('first 4,999 of 6,000 lines')
+    expect(r.note).toContain('CSV')
   })
 })

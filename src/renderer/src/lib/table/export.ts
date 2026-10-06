@@ -46,3 +46,24 @@ export function buildTableExport<Row>(
   }
   return { columns, rows, header: columns.map((c) => c.label), csvRows: rows.map((r) => r.cells) }
 }
+
+/**
+ * Fits an export under the PDF row cap (lib/reportExport's PDF_ROW_LIMIT) WITHOUT silently
+ * dropping rows: when it is over, the body is cut to fit, the totals row (which always covers the
+ * whole view) is kept, and `note` says exactly what was left out — the caller puts it in the PDF
+ * footer and a toast. CSV never goes through this.
+ */
+export function capExportForPdf(ex: TableExport, limit: number): { export: TableExport; truncated: boolean; note: string | null } {
+  if (ex.rows.length <= limit) return { export: ex, truncated: false, note: null }
+  const last = ex.rows[ex.rows.length - 1]
+  const totals = last?.rule ? last : null
+  const body = totals ? ex.rows.slice(0, -1) : ex.rows
+  const keep = Math.max(0, limit - (totals ? 1 : 0))
+  const rows = [...body.slice(0, keep), ...(totals ? [totals] : [])]
+  const fmt = (n: number): string => n.toLocaleString('en-IN')
+  const note =
+    `PDF shows the first ${fmt(keep)} of ${fmt(body.length)} lines (the PDF limit is ${fmt(limit)})` +
+    (totals ? '; the totals cover all lines' : '') +
+    '. Export CSV for every line.'
+  return { export: { ...ex, rows, csvRows: rows.map((r) => r.cells) }, truncated: true, note }
+}

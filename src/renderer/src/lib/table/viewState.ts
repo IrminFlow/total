@@ -163,3 +163,28 @@ export function moveColumnTo(view: ViewState, id: string, targetId: string, afte
 export function sameView(a: ViewState, b: ViewState): boolean {
   return JSON.stringify(a) === JSON.stringify(b)
 }
+
+/** A header cell's horizontal extent, for drag-to-reorder hit testing. */
+export interface ColumnRect {
+  id: string
+  left: number
+  right: number
+}
+
+/**
+ * Where a header dragged to pointer x would drop: before/after the column under x (nearest edge
+ * past the ends). Returns null when the drop would not move anything.
+ */
+export function columnDropTarget(rects: readonly ColumnRect[], draggedId: string, x: number): { id: string; after: boolean } | null {
+  if (rects.length === 0) return null
+  let hit = rects.find((r) => x >= r.left && x < r.right)
+  if (!hit) hit = x < rects[0]!.left ? rects[0]! : rects[rects.length - 1]!
+  const after = x >= (hit.left + hit.right) / 2
+  if (hit.id === draggedId) return null
+  const ids = rects.map((r) => r.id)
+  const from = ids.indexOf(draggedId)
+  const to = ids.indexOf(hit.id)
+  // Dropping on the near edge of an adjacent column is a no-op.
+  if ((after && to === from - 1) || (!after && to === from + 1)) return null
+  return { id: hit.id, after }
+}

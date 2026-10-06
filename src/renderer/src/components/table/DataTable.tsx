@@ -24,22 +24,28 @@
  * Money is integer paise, quantities integer milli, dates ISO — the table formats them with the
  * shared helpers and never does float maths on an amount.
  */
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { Fragment, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { todayISO } from '@shared/dates'
 import {
   aggregateText,
+  buildRowLayout,
   buildTableExport,
   buildTableModel,
+  capExportForPdf,
   cellText,
   columnAlign,
+  columnDropTarget,
+  itemAt,
   moveColumnTo,
+  scrollTopFor,
   toggleSort,
+  visibleRange,
   type CellValue,
   type DisplayItem,
   type EnumOption,
   type ViewDefaults
 } from '../../lib/table'
-import { csvReport, printReport } from '../../lib/reportExport'
+import { csvReport, PDF_ROW_LIMIT, printReport } from '../../lib/reportExport'
 import { useSession, useToasts } from '../../state/stores'
 import { EmptyState, Money, SkeletonRows, useKeyNav } from '../ui'
 import { FilterEditor } from './FilterEditor'
@@ -48,14 +54,15 @@ import { TableToolbar, type ToolbarFeatures } from './TableToolbar'
 import type { TableColumn } from './types'
 import { useTableView, type TableViewController } from './useTableView'
 
-/** Fixed row heights (px) per density — virtualisation relies on every row being this tall.
- *  Comfortable matches `.ledger-table td` (6px padding + 20px line + 1px rule). */
+/** Fixed row heights (px) per density — virtualisation relies on every DATA row being this tall
+ *  (detail rows are measured). Comfortable matches `.ledger-table td` (6px + 20px line + 6px + 1px). */
 export const ROW_HEIGHT = { comfortable: 33, compact: 27 } as const
 /** Above this many rendered items the body is windowed (with `virtualize="auto"`). */
 export const VIRTUALIZE_THRESHOLD = 150
 const OVERSCAN = 8
 /** Used when the scroller has no layout yet (first paint, jsdom). */
 const FALLBACK_VIEWPORT = 640
+const EXPANDER_WIDTH = 32
 
 const DEFAULT_WIDTH: Partial<Record<TableColumn<unknown>['kind'], number>> = {
   money: 150,
@@ -64,6 +71,8 @@ const DEFAULT_WIDTH: Partial<Record<TableColumn<unknown>['kind'], number>> = {
   number: 96,
   enum: 130
 }
+
+export type RowKey = string | number
 
 export interface DataTableExportOptions {
   title: string
@@ -79,7 +88,7 @@ export interface DataTableFooterContext<Row> {
   /** Filtered + sorted rows. */
   rows: Row[]
   totals: Record<string, CellValue>
-  /** Number of <td>s a footer row needs (visible columns + action cells). */
+  /** Number of <td>s a footer row needs (visible columns + expander + action cells). */
   colSpan: number
 }
 
@@ -87,7 +96,7 @@ export interface DataTableProps<Row> {
   columns: TableColumn<Row>[]
   rows: readonly Row[]
   /** Stable key per row. Receives the row's index in `rows`. Default: that index. */
-  rowKey?: (row: Row, index: number) => string | number
+  rowKey?: (row: Row, index: number) => RowKey
   /** Persist the view (sort, filters, columns, grouping, density, saved views) under this
    *  screen id, scoped to the open company. Omit for an unpersisted table. */
   viewId?: string
@@ -101,11 +110,24 @@ export interface DataTableProps<Row> {
   /** Enter on the active row, and a click (or double-click, see activateOn) on any row. */
   onRowActivate?: (row: Row) => void
   activateOn?: 'click' | 'dblclick'
-  /** Rows that do nothing on activate get no pointer cursor. Default: all rows when onRowActivate is set. */
+  /** Rows that do nothing on activate: no pointer cursor, Enter is a no-op (the keyboard bar
+   *  still shows). Default: all rows are activatable when onRowActivate is set. */
   isRowActivatable?: (row: Row) => boolean
   /** Extra per-row attributes, e.g. (r) => ({ 'data-row-id': r.voucherId }). */
   rowAttrs?: (row: Row) => Record<string, string | number | undefined>
   rowClassName?: (row: Row) => string
+
+  /** Expandable detail: content rendered in a full-width row under an expanded row. Its height
+   *  may vary (it is measured). Adds a chevron column; → / ← expand and collapse the active row. */
+  renderDetail?: (row: Row) => ReactNode
+  /** Which rows can expand (default: all, when renderDetail is set). */
+  isRowExpandable?: (row: Row) => boolean
+  /** Controlled expanded row keys. Omit for uncontrolled (see defaultExpanded). */
+  expanded?: ReadonlySet<RowKey>
+  onExpandedChange?: (next: Set<RowKey>) => void
+  defaultExpanded?: Iterable<RowKey>
+  /** Assumed height of a detail row before it has been measured (px). Default 120. */
+  detailHeightEstimate?: number
 
   /** Row-level action cells before/after the data columns (clicks inside never activate the row). */
   leading?: (row: Row) => ReactNode
@@ -132,7 +154,7 @@ export interface DataTableProps<Row> {
   /** Enables the toolbar's PDF/CSV export of the CURRENT view. */
   exportOptions?: DataTableExportOptions
 
-  /** Keyboard row navigation (↑↓ PgUp PgDn Home End ↵). Default true. */
+  /** Keyboard row navigation (↑↓ PgUp PgDn Home End ↵ ← →). Default true. */
   keyboard?: boolean
   /** 'auto' windows the body above VIRTUALIZE_THRESHOLD items. */
   virtualize?: 'auto' | boolean
@@ -167,6 +189,45 @@ function aggregateCell<Row>(col: TableColumn<Row>, v: CellValue): ReactNode {
 
 const alignCls = (a: 'left' | 'right' | 'center'): string => (a === 'right' ? 'r' : a === 'center' ? 'text-center' : '')
 
+/** A detail row that reports its rendered height (on mount and whenever it resizes). */
+function DetailRow({
+  id,
+  rowKey,
+  colSpan,
+  ariaRowIndex,
+  onHeight,
+  children
+}: {
+  id: string
+  rowKey: RowKey
+  colSpan: number
+  ariaRowIndex?: number
+  onHeight: (key: RowKey, h: number) => void
+  children: ReactNode
+}): React.JSX.Element {
+  const ref = useRef<HTMLTableRowElement>(null)
+  const onHeightRef = useRef(onHeight)
+  onHeightRef.current = onHeight
+  useLayoutEffect(() => {
+    const el = ref.current
+    if (!el) return
+    const report = (): void => {
+      const h = el.getBoundingClientRect().height
+      if (h > 0) onHeightRef.current(rowKey, h)
+    }
+    report()
+    if (typeof ResizeObserver === 'undefined') return
+    const ro = new ResizeObserver(report)
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [rowKey])
+  return (
+    <tr ref={ref} id={id} className="dt-detail" data-detail-for={String(rowKey)} aria-rowindex={ariaRowIndex}>
+      <td colSpan={colSpan}>{children}</td>
+    </tr>
+  )
+}
+
 export function DataTable<Row>(props: DataTableProps<Row>): React.JSX.Element {
   const {
     columns,
@@ -175,6 +236,9 @@ export function DataTable<Row>(props: DataTableProps<Row>): React.JSX.Element {
     onRowActivate,
     activateOn = 'click',
     isRowActivatable,
+    renderDetail,
+    isRowExpandable,
+    detailHeightEstimate = 120,
     leading,
     trailing,
     leadingWidth = 40,
@@ -191,6 +255,7 @@ export function DataTable<Row>(props: DataTableProps<Row>): React.JSX.Element {
     exportOptions
   } = props
   const area = props.testId ?? props.viewId ?? 'table'
+  const uid = useId()
   const internal = useTableView<Row>(props.controller ? null : (props.viewId ?? null), columns, {
     defaults: props.viewDefaults,
     legacyReportKey: props.legacyReportKey,
@@ -205,6 +270,7 @@ export function DataTable<Row>(props: DataTableProps<Row>): React.JSX.Element {
   const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(() => new Set())
   const [menu, setMenu] = useState<string | null>(null)
   const [liveWidths, setLiveWidths] = useState<Record<string, number>>({})
+  const [drag, setDrag] = useState<{ id: string; target: { id: string; after: boolean } | null } | null>(null)
 
   const indexOf = useMemo(() => {
     const m = new Map<Row, number>()
@@ -212,22 +278,69 @@ export function DataTable<Row>(props: DataTableProps<Row>): React.JSX.Element {
     return m
   }, [rows])
   const keyOf = useCallback(
-    (row: Row): string | number => {
+    (row: Row): RowKey => {
       const i = indexOf.get(row) ?? -1
       return rowKey ? rowKey(row, i) : i
     },
     [indexOf, rowKey]
   )
+  const canActivate = useCallback(
+    (row: Row): boolean => !!onRowActivate && (!isRowActivatable || isRowActivatable(row)),
+    [onRowActivate, isRowActivatable]
+  )
+
+  // ---------- expanded detail rows (controlled or uncontrolled) ----------
+  const [internalExpanded, setInternalExpanded] = useState<ReadonlySet<RowKey>>(() => new Set(props.defaultExpanded ?? []))
+  const expandedSet = props.expanded ?? internalExpanded
+  const expandedRef = useRef(expandedSet)
+  expandedRef.current = expandedSet
+  const onExpandedChangeRef = useRef(props.onExpandedChange)
+  onExpandedChangeRef.current = props.onExpandedChange
+  const controlledExpanded = props.expanded !== undefined
+  const setRowExpanded = useCallback(
+    (key: RowKey, open: boolean) => {
+      const cur = expandedRef.current
+      if (cur.has(key) === open) return
+      const next = new Set(cur)
+      if (open) next.add(key)
+      else next.delete(key)
+      if (!controlledExpanded) setInternalExpanded(next)
+      onExpandedChangeRef.current?.(next)
+    },
+    [controlledExpanded]
+  )
+  const expandable = useCallback(
+    (row: Row): boolean => !!renderDetail && (!isRowExpandable || isRowExpandable(row)),
+    [renderDetail, isRowExpandable]
+  )
+  // Measured detail heights by row key. A ref + version counter, so a measurement doesn't copy a map.
+  const detailHeights = useRef(new Map<RowKey, number>())
+  const [heightsVersion, setHeightsVersion] = useState(0)
+  const onDetailHeight = useCallback((key: RowKey, h: number) => {
+    const prev = detailHeights.current.get(key)
+    if (prev !== undefined && Math.abs(prev - h) < 0.5) return
+    detailHeights.current.set(key, h)
+    setHeightsVersion((v) => v + 1)
+  }, [])
 
   const model = useMemo(() => buildTableModel(rows, columns, view, { quick, collapsed }), [rows, columns, view, quick, collapsed])
   const visible = model.columns
   const items = model.items
   const hasAggregate = visible.some((c) => c.aggregate)
   const showTotals = !!renderFooter || (totalsMode === 'auto' ? hasAggregate : totalsMode)
-  const colSpan = visible.length + (leading ? 1 : 0) + (trailing ? 1 : 0)
+  const hasExpander = !!renderDetail
+  const prefixCols = (hasExpander ? 1 : 0) + (leading ? 1 : 0)
+  const colSpan = visible.length + prefixCols + (trailing ? 1 : 0)
   const virtual = maxHeight !== 'none' && (virtualize === true || (virtualize === 'auto' && items.length > VIRTUALIZE_THRESHOLD))
 
+  const isExpanded = useCallback(
+    (item: DisplayItem<Row> | undefined): boolean =>
+      !!item && item.type === 'row' && expandable(item.row) && expandedSet.has(keyOf(item.row)),
+    [expandable, expandedSet, keyOf]
+  )
+
   // ---------- scrolling + windowing ----------
+  const rootRef = useRef<HTMLDivElement>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
   const theadRef = useRef<HTMLTableSectionElement>(null)
   const [scrollTop, setScrollTop] = useState(0)
@@ -247,16 +360,27 @@ export function DataTable<Row>(props: DataTableProps<Row>): React.JSX.Element {
     return () => ro.disconnect()
   }, [loading, rows.length === 0])
 
+  // Offset index: prefix sums of (row height + measured/estimated detail height) per item.
+  const layout = useMemo(
+    () =>
+      buildRowLayout(items.length, rowH, (i) => {
+        const it = items[i]
+        if (!isExpanded(it) || it?.type !== 'row') return 0
+        return detailHeights.current.get(keyOf(it.row)) ?? detailHeightEstimate
+      }),
+    // heightsVersion: re-sum when a detail row reports a new height
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [items, rowH, isExpanded, keyOf, detailHeightEstimate, heightsVersion]
+  )
+  const layoutRef = useRef(layout)
+  layoutRef.current = layout
+
   const headerH = (): number => theadRef.current?.offsetHeight ?? 0
   let start = 0
   let end = items.length
-  if (virtual) {
-    const bodyScroll = Math.max(0, scrollTop - headerH())
-    start = Math.max(0, Math.floor(bodyScroll / rowH) - OVERSCAN)
-    end = Math.min(items.length, Math.ceil((bodyScroll + viewportH) / rowH) + OVERSCAN)
-  }
+  if (virtual) [start, end] = visibleRange(layout, scrollTop - headerH(), viewportH, OVERSCAN)
 
-  // Self-correct the assumed row height from a real row (fonts/zoom can shift it a pixel).
+  // Self-correct the assumed row height from a real data row (fonts/zoom can shift it a pixel).
   const firstRowRef = useRef<HTMLTableRowElement | null>(null)
   useLayoutEffect(() => {
     if (!virtual) return
@@ -264,6 +388,10 @@ export function DataTable<Row>(props: DataTableProps<Row>): React.JSX.Element {
     if (h > 0 && Math.abs(h - rowH) > 0.5) setMeasuredH(h)
   })
 
+  // The row the keyboard last scrolled to. Detail rows rendered for the first time can turn out
+  // taller/shorter than estimated, which moves that row — so it is re-scrolled whenever the
+  // layout changes, until the user scrolls by hand.
+  const scrollTarget = useRef<number | null>(null)
   const scrollToIndex = useCallback(
     (i: number) => {
       const el = scrollRef.current
@@ -273,13 +401,9 @@ export function DataTable<Row>(props: DataTableProps<Row>): React.JSX.Element {
         if (tr && typeof tr.scrollIntoView === 'function') tr.scrollIntoView({ block: 'nearest' })
         return
       }
-      const hh = headerH()
-      const vh = el.clientHeight || viewportH
-      const top = hh + i * rowH
+      scrollTarget.current = i
       const cur = el.scrollTop || scrollTop
-      let next = cur
-      if (top < cur + hh) next = top - hh
-      else if (top + rowH > cur + vh) next = top + rowH - vh
+      const next = scrollTopFor(layoutRef.current, i, rowH, cur, el.clientHeight || viewportH, headerH())
       if (next !== cur) {
         el.scrollTop = next
         setScrollTop(next) // don't wait for the scroll event — render the target row now
@@ -287,13 +411,25 @@ export function DataTable<Row>(props: DataTableProps<Row>): React.JSX.Element {
     },
     [items.length, virtual, rowH, viewportH, scrollTop]
   )
+  useLayoutEffect(() => {
+    if (virtual && scrollTarget.current !== null && scrollTarget.current < items.length) scrollToIndex(scrollTarget.current)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [layout])
+  const onScroll = (e: React.UIEvent<HTMLDivElement>): void => setScrollTop(e.currentTarget.scrollTop)
+  // Hand scrolling (wheel, touch, scrollbar drag) releases the keyboard target. Scroll events
+  // alone can't tell: Chromium's scroll anchoring also fires them.
+  const releaseScrollTarget = (): void => {
+    scrollTarget.current = null
+  }
 
   // ---------- keyboard ----------
-  const toggleGroup = useCallback((key: string) => {
+  const toggleGroup = useCallback((key: string, open?: boolean) => {
     setCollapsed((s) => {
+      const isOpen = !s.has(key)
+      if (open !== undefined && open === isOpen) return s
       const n = new Set(s)
-      if (n.has(key)) n.delete(key)
-      else n.add(key)
+      if (isOpen) n.add(key)
+      else n.delete(key)
       return n
     })
   }, [])
@@ -301,21 +437,45 @@ export function DataTable<Row>(props: DataTableProps<Row>): React.JSX.Element {
     (item: DisplayItem<Row> | undefined) => {
       if (!item) return
       if (item.type === 'group') toggleGroup(item.key)
-      else if (onRowActivate && (!isRowActivatable || isRowActivatable(item.row))) onRowActivate(item.row)
+      else if (canActivate(item.row)) onRowActivate!(item.row)
     },
-    [onRowActivate, isRowActivatable, toggleGroup]
+    [canActivate, onRowActivate, toggleGroup]
   )
   const itemsRef = useRef(items)
   itemsRef.current = items
+  const activeRef = useRef(0)
   const { active, setActive } = useKeyNav(items.length, (i) => activate(itemsRef.current[i]), keyboard && !menu && !loading, {
-    pageSize: () => Math.max(1, Math.floor(((scrollRef.current?.clientHeight || viewportH) - headerH()) / rowH) - 1),
-    scrollTo: scrollToIndex
+    // A page = the items that fit in one viewport above/below the active one (detail rows count
+    // by their height, so a page over expanded rows moves fewer items).
+    pageSize: (dir) => {
+      const vh = Math.max(rowH, (scrollRef.current?.clientHeight || viewportH) - headerH() - rowH)
+      const L = layoutRef.current
+      const a = Math.min(activeRef.current, itemsRef.current.length - 1)
+      if (a < 0) return 1
+      return dir > 0 ? itemAt(L, L.offsets[a]! + vh) - a : a - itemAt(L, L.offsets[a]! - vh + rowH - 1)
+    },
+    scrollTo: scrollToIndex,
+    claim: () => rootRef.current,
+    onKey: (e, i) => {
+      if (e.key !== 'ArrowRight' && e.key !== 'ArrowLeft') return false
+      const item = itemsRef.current[i]
+      if (!item) return false
+      const open = e.key === 'ArrowRight'
+      if (item.type === 'group') {
+        toggleGroup(item.key, open)
+        return true
+      }
+      if (!expandable(item.row)) return false
+      setRowExpanded(keyOf(item.row), open)
+      return true
+    }
   })
+  activeRef.current = active
 
   // ---------- header interactions ----------
-  const dragId = useRef<string | null>(null)
   const resizing = useRef(false)
   const startResize = (e: React.PointerEvent, id: string): void => {
+    if (e.button !== 0) return
     e.preventDefault()
     e.stopPropagation()
     resizing.current = true
@@ -333,7 +493,7 @@ export function DataTable<Row>(props: DataTableProps<Row>): React.JSX.Element {
       window.removeEventListener('pointerup', up)
       resizing.current = false
       setLiveWidths({})
-      setView((v) => ({ ...v, widths: { ...v.widths, [id]: latest } }))
+      if (latest !== startW) setView((v) => ({ ...v, widths: { ...v.widths, [id]: latest } }))
     }
     window.addEventListener('pointermove', move)
     window.addEventListener('pointerup', up)
@@ -344,9 +504,48 @@ export function DataTable<Row>(props: DataTableProps<Row>): React.JSX.Element {
     setView((v) => ({ ...v, widths: { ...v.widths, [id]: Math.max(min, Math.round(cur + delta)) } }))
   }
 
+  /** Pointer-driven reorder (HTML5 drag-and-drop is avoided: it fires a stray click — a sort — on
+   *  drop and gives no control over the drop indicator). Movement under 5px stays a click. */
+  const startReorder = (e: React.PointerEvent, id: string): void => {
+    if (e.button !== 0 || resizing.current) return
+    if ((e.target as HTMLElement).closest('.dt-resize, [data-no-drag]')) return
+    const startX = e.clientX
+    let dragging = false
+    const rects = (): { id: string; left: number; right: number }[] =>
+      Array.from(theadRef.current?.querySelectorAll<HTMLElement>('th[data-col]') ?? []).map((th) => {
+        const r = th.getBoundingClientRect()
+        return { id: th.dataset.col!, left: r.left, right: r.right }
+      })
+    const move = (ev: PointerEvent): void => {
+      if (!dragging && Math.abs(ev.clientX - startX) < 5) return
+      dragging = true
+      setDrag({ id, target: columnDropTarget(rects(), id, ev.clientX) })
+    }
+    const up = (ev: PointerEvent): void => {
+      window.removeEventListener('pointermove', move)
+      window.removeEventListener('pointerup', up)
+      if (!dragging) return
+      const t = columnDropTarget(rects(), id, ev.clientX)
+      setDrag(null)
+      if (t) setView((v) => moveColumnTo(v, id, t.id, t.after))
+      // Swallow the click that follows the pointerup, so a drag never also sorts.
+      const swallow = (ce: MouseEvent): void => {
+        ce.stopPropagation()
+        ce.preventDefault()
+      }
+      window.addEventListener('click', swallow, { capture: true, once: true })
+      setTimeout(() => window.removeEventListener('click', swallow, { capture: true }), 0)
+    }
+    window.addEventListener('pointermove', move)
+    window.addEventListener('pointerup', up)
+  }
+
   const widthOf = (c: TableColumn<Row>): number | undefined => liveWidths[c.id] ?? view.widths[c.id] ?? c.width ?? DEFAULT_WIDTH[c.kind]
   const minTableWidth =
-    visible.reduce((s, c) => s + (widthOf(c) ?? 160), 0) + (leading ? leadingWidth : 0) + (trailing ? trailingWidth : 0)
+    visible.reduce((s, c) => s + (widthOf(c) ?? 160), 0) +
+    (hasExpander ? EXPANDER_WIDTH : 0) +
+    (leading ? leadingWidth : 0) +
+    (trailing ? trailingWidth : 0)
 
   const enumOptions = (c: TableColumn<Row>): EnumOption[] => {
     if (c.options) return c.options
@@ -367,9 +566,21 @@ export function DataTable<Row>(props: DataTableProps<Row>): React.JSX.Element {
     })
   const exportPdf = exportOptions
     ? (): void => {
-        const ex = exportModel()
+        const capped = capExportForPdf(exportModel(), PDF_ROW_LIMIT)
+        if (capped.note) toast.push('warning', capped.note)
+        // report:pdf caps footNote at 500 chars — keep the truncation note, trim the screen's own note.
+        const footNote = capped.note
+          ? [exportOptions.footNote?.slice(0, 500 - capped.note.length - 3), capped.note].filter(Boolean).join(' · ')
+          : exportOptions.footNote
         void printReport(
-          { title: exportOptions.title, periodLabel: exportOptions.periodLabel, columns: ex.columns, rows: ex.rows, footNote: exportOptions.footNote, filename: exportOptions.filename },
+          {
+            title: exportOptions.title,
+            periodLabel: exportOptions.periodLabel,
+            columns: capped.export.columns,
+            rows: capped.export.rows,
+            footNote,
+            filename: exportOptions.filename
+          },
           toast
         )
       }
@@ -414,7 +625,8 @@ export function DataTable<Row>(props: DataTableProps<Row>): React.JSX.Element {
     return <EmptyState title={empty?.title ?? 'Nothing to show'} hint={empty?.hint} action={empty?.action} icon={empty?.icon} />
 
   const firstAgg = visible.findIndex((c) => c.aggregate)
-  const labelSpan = (firstAgg < 0 ? visible.length : Math.max(1, firstAgg)) + (leading ? 1 : 0)
+  const labelSpan = (firstAgg < 0 ? visible.length : Math.max(1, firstAgg)) + prefixCols
+  const ariaRow = (i: number): number | undefined => (virtual ? layout.rowIndex[i]! + 2 : undefined)
 
   const renderItem = (item: DisplayItem<Row>, i: number): ReactNode => {
     const isActive = i === active
@@ -425,7 +637,7 @@ export function DataTable<Row>(props: DataTableProps<Row>): React.JSX.Element {
           ref={i === start ? firstRowRef : undefined}
           data-item={i}
           data-active={isActive}
-          aria-rowindex={virtual ? i + 2 : undefined}
+          aria-rowindex={ariaRow(i)}
           className="kbar-row dt-row dt-group cursor-pointer"
           onMouseEnter={() => setActive(i)}
           onClick={() => toggleGroup(item.key)}
@@ -446,7 +658,7 @@ export function DataTable<Row>(props: DataTableProps<Row>): React.JSX.Element {
             {item.label}
             <span className="num ml-2 text-small font-normal text-muted">{item.count}</span>
           </td>
-          {visible.slice(labelSpan - (leading ? 1 : 0)).map((c) => (
+          {visible.slice(labelSpan - prefixCols).map((c) => (
             <td key={c.id} className={alignCls(columnAlign(c))}>
               {c.aggregate ? aggregateCell(c, item.totals[c.id]) : null}
             </td>
@@ -456,20 +668,40 @@ export function DataTable<Row>(props: DataTableProps<Row>): React.JSX.Element {
       )
     }
     const row = item.row
-    const canActivate = !!onRowActivate && (!isRowActivatable || isRowActivatable(row))
-    return (
+    const key = keyOf(row)
+    const clickable = canActivate(row)
+    const canExpand = expandable(row)
+    const open = canExpand && expandedSet.has(key)
+    const detailId = `${uid}-detail-${String(key)}`
+    const tr = (
       <tr
-        key={keyOf(row)}
         ref={i === start ? firstRowRef : undefined}
         data-item={i}
         data-active={isActive}
-        aria-rowindex={virtual ? i + 2 : undefined}
+        aria-rowindex={ariaRow(i)}
         {...props.rowAttrs?.(row)}
-        className={`kbar-row dt-row ${canActivate ? 'cursor-pointer' : ''} ${props.rowClassName?.(row) ?? ''}`}
+        className={`kbar-row dt-row ${clickable ? 'cursor-pointer' : 'dt-inert'} ${props.rowClassName?.(row) ?? ''}`}
         onMouseEnter={() => setActive(i)}
-        onClick={activateOn === 'click' && canActivate ? () => onRowActivate!(row) : undefined}
-        onDoubleClick={activateOn === 'dblclick' && canActivate ? () => onRowActivate!(row) : undefined}
+        onClick={activateOn === 'click' && clickable ? () => onRowActivate!(row) : undefined}
+        onDoubleClick={activateOn === 'dblclick' && clickable ? () => onRowActivate!(row) : undefined}
       >
+        {hasExpander && (
+          <td className="dt-expander" onClick={(e) => e.stopPropagation()} onDoubleClick={(e) => e.stopPropagation()}>
+            {canExpand && (
+              <button
+                type="button"
+                className="w-4 text-muted hover:text-ink"
+                aria-expanded={open}
+                aria-controls={open ? detailId : undefined}
+                aria-label={`${open ? 'Hide' : 'Show'} details${visible[0] ? ` for ${cellText(visible[0], row)}` : ''}`}
+                onClick={() => setRowExpanded(key, !open)}
+                data-testid={`${area}-expand-${String(key)}`}
+              >
+                {open ? '▾' : '▸'}
+              </button>
+            )}
+          </td>
+        )}
         {leading && (
           <td onClick={(e) => e.stopPropagation()} onDoubleClick={(e) => e.stopPropagation()}>
             {leading(row)}
@@ -494,19 +726,42 @@ export function DataTable<Row>(props: DataTableProps<Row>): React.JSX.Element {
         )}
       </tr>
     )
+    // One keyed Fragment whether or not the detail shows, so expanding never remounts the row
+    // (which would drop focus from the chevron).
+    return (
+      <Fragment key={key}>
+        {tr}
+        {open && (
+          <DetailRow
+            id={detailId}
+            rowKey={key}
+            colSpan={colSpan}
+            ariaRowIndex={virtual ? ariaRow(i)! + 1 : undefined}
+            onHeight={onDetailHeight}
+          >
+            {renderDetail!(row)}
+          </DetailRow>
+        )}
+      </Fragment>
+    )
   }
 
-  const topPad = virtual ? start * rowH : 0
-  const bottomPad = virtual ? (items.length - end) * rowH : 0
+  const topPad = virtual ? layout.offsets[start]! : 0
+  const bottomPad = virtual ? layout.total - layout.offsets[end]! : 0
 
   return (
-    <div className={`data-table-wrap ${props.className ?? ''}`} data-testid={`${area}-table`}>
+    <div ref={rootRef} className={`data-table-wrap ${props.className ?? ''}`} data-testid={`${area}-table`}>
       {toolbarEl}
       <div
         ref={scrollRef}
         className="overflow-auto"
         style={maxHeight !== 'none' ? { maxHeight } : undefined}
-        onScroll={(e) => setScrollTop((e.currentTarget as HTMLDivElement).scrollTop)}
+        onScroll={onScroll}
+        onWheel={releaseScrollTarget}
+        onTouchMove={releaseScrollTarget}
+        onPointerDown={(e) => {
+          if (e.target === e.currentTarget) releaseScrollTarget() // the scrollbar itself
+        }}
       >
         <table
           className="ledger-table data-table"
@@ -514,10 +769,11 @@ export function DataTable<Row>(props: DataTableProps<Row>): React.JSX.Element {
           data-virtual={virtual || undefined}
           data-testid={props.tableTestId}
           aria-label={props.ariaLabel}
-          aria-rowcount={virtual ? items.length + 1 : undefined}
+          aria-rowcount={virtual ? layout.rowIndex[items.length]! + 1 : undefined}
           style={{ minWidth: minTableWidth }}
         >
           <colgroup>
+            {hasExpander && <col style={{ width: EXPANDER_WIDTH }} />}
             {leading && <col style={{ width: leadingWidth }} />}
             {visible.map((c) => {
               const w = widthOf(c)
@@ -527,6 +783,11 @@ export function DataTable<Row>(props: DataTableProps<Row>): React.JSX.Element {
           </colgroup>
           <thead ref={theadRef}>
             <tr aria-rowindex={virtual ? 1 : undefined}>
+              {hasExpander && (
+                <th>
+                  <span className="sr-only">Details</span>
+                </th>
+              )}
               {leading && <th aria-label="Row actions" />}
               {visible.map((c) => (
                 <HeaderCell
@@ -539,6 +800,9 @@ export function DataTable<Row>(props: DataTableProps<Row>): React.JSX.Element {
                   filtered={!!view.filters[c.id]}
                   filterOpen={menu === `filter:${c.id}`}
                   setFilterOpen={(o) => setMenu(o ? `filter:${c.id}` : null)}
+                  dragState={
+                    drag?.id === c.id ? 'dragging' : drag?.target?.id === c.id ? (drag.target.after ? 'drop-after' : 'drop-before') : null
+                  }
                   renderFilter={(close) => (
                     <FilterEditor
                       column={c}
@@ -558,30 +822,7 @@ export function DataTable<Row>(props: DataTableProps<Row>): React.JSX.Element {
                     />
                   )}
                   onSort={(multi) => setView((v) => ({ ...v, sort: toggleSort(v.sort, c.id, multi) }))}
-                  onDragStart={(e) => {
-                    if (resizing.current) {
-                      e.preventDefault()
-                      return
-                    }
-                    dragId.current = c.id
-                    e.dataTransfer.effectAllowed = 'move'
-                    e.dataTransfer.setData('text/plain', c.id)
-                  }}
-                  onDrop={(e) => {
-                    const from = dragId.current
-                    dragId.current = null
-                    if (!from || from === c.id) return
-                    e.preventDefault()
-                    const r = (e.currentTarget as HTMLElement).getBoundingClientRect()
-                    const after = e.clientX > r.left + r.width / 2
-                    setView((v) => moveColumnTo(v, from, c.id, after))
-                  }}
-                  onDragOver={(e) => {
-                    if (dragId.current && dragId.current !== c.id) {
-                      e.preventDefault()
-                      e.dataTransfer.dropEffect = 'move'
-                    }
-                  }}
+                  onReorderStart={(e) => startReorder(e, c.id)}
                   onResizeStart={(e) => startResize(e, c.id)}
                   onResizeKey={(delta, th) => nudgeWidth(c.id, delta, th)}
                   onResizeReset={() =>
@@ -641,6 +882,7 @@ export function DataTable<Row>(props: DataTableProps<Row>): React.JSX.Element {
                 renderFooter({ columns: visible, rows: model.rows, totals: model.totals, colSpan })
               ) : (
                 <tr className="total-row" data-testid={`${area}-table-totals`}>
+                  {hasExpander && <td />}
                   {leading && <td />}
                   {visible.map((c, i) => (
                     <td key={c.id} className={alignCls(columnAlign(c))}>
@@ -667,11 +909,10 @@ function HeaderCell<Row>({
   filtered,
   filterOpen,
   setFilterOpen,
+  dragState,
   renderFilter,
   onSort,
-  onDragStart,
-  onDragOver,
-  onDrop,
+  onReorderStart,
   onResizeStart,
   onResizeKey,
   onResizeReset
@@ -684,11 +925,10 @@ function HeaderCell<Row>({
   filtered: boolean
   filterOpen: boolean
   setFilterOpen: (o: boolean) => void
+  dragState: 'dragging' | 'drop-before' | 'drop-after' | null
   renderFilter: (close: () => void) => ReactNode
   onSort: (multi: boolean) => void
-  onDragStart: (e: React.DragEvent) => void
-  onDragOver: (e: React.DragEvent) => void
-  onDrop: (e: React.DragEvent) => void
+  onReorderStart: (e: React.PointerEvent) => void
   onResizeStart: (e: React.PointerEvent) => void
   onResizeKey: (delta: number, th: HTMLElement | null) => void
   onResizeReset: () => void
@@ -704,11 +944,8 @@ function HeaderCell<Row>({
       ref={thRef}
       scope="col"
       aria-sort={ariaSort}
-      className={`dt-th group ${alignCls(align)} ${col.headerClassName ?? ''}`}
-      draggable
-      onDragStart={onDragStart}
-      onDragOver={onDragOver}
-      onDrop={onDrop}
+      className={`dt-th group ${alignCls(align)} ${dragState ? `dt-${dragState}` : ''} ${col.headerClassName ?? ''}`}
+      onPointerDown={onReorderStart}
       data-col={col.id}
     >
       <div className={`flex min-w-0 items-center gap-1 ${align === 'right' ? 'justify-end' : align === 'center' ? 'justify-center' : ''}`}>
@@ -717,7 +954,7 @@ function HeaderCell<Row>({
             type="button"
             className={`inline-flex min-w-0 items-center gap-1 uppercase hover:text-ink ${sortDir ? 'text-ink' : ''}`}
             onClick={(e) => onSort(e.shiftKey)}
-            title={`Sort by ${col.header} (Shift-click to add a secondary sort)`}
+            title={`Sort by ${col.header} (Shift-click to add a secondary sort; drag to reorder)`}
             data-testid={`sort-${area}-${col.id}`}
           >
             <span className="truncate">{col.header}</span>
@@ -740,6 +977,7 @@ function HeaderCell<Row>({
               title={`Filter ${col.header}`}
               onClick={() => setFilterOpen(!filterOpen)}
               data-testid={`filter-${area}-${col.id}`}
+              data-no-drag=""
               className={`rounded px-0.5 leading-none transition-opacity ${
                 filtered || filterOpen ? 'text-amber opacity-100' : 'text-muted opacity-0 group-hover:opacity-100 focus-visible:opacity-100'
               }`}
@@ -765,12 +1003,13 @@ function HeaderCell<Row>({
         aria-label={`Resize ${col.header}`}
         tabIndex={0}
         className="dt-resize"
-        draggable={false}
+        data-testid={`resize-${area}-${col.id}`}
         onPointerDown={onResizeStart}
         onDoubleClick={onResizeReset}
         onKeyDown={(e) => {
           if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
             e.preventDefault()
+            e.stopPropagation() // not a table ←/→ (expand/collapse)
             onResizeKey(e.key === 'ArrowLeft' ? -16 : 16, thRef.current)
           }
         }}

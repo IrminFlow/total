@@ -88,7 +88,9 @@ aggregation to `formatPaise`.
 Useful props (all optional except `columns` and `rows`):
 
 - **Activation.** `onRowActivate` fires on Enter and on click, or on double-click when
-  `activateOn="dblclick"`. `isRowActivatable` marks rows that do nothing.
+  `activateOn="dblclick"`. Rows where `isRowActivatable` returns false get no pointer cursor and
+  ignore Enter and clicks. They keep the amber keyboard bar, so navigation still shows.
+- **Detail rows.** `renderDetail` and its related props are covered in the next section.
 - **Action cells.** `leading` and `trailing` render a cell before or after the data columns.
   Clicks inside them never activate the row.
 - **Footer.** `totals` defaults to `'auto'`, which shows the footer when any visible column has
@@ -104,6 +106,38 @@ Useful props (all optional except `columns` and `rows`):
 - **External control.** `controller` takes the result of `useTableView(...)` when the screen
   needs to read or set the view itself.
 
+### Expandable detail rows
+
+Use these for a party row that opens onto its bills, a voucher onto its lines, or a stock item
+onto its batches.
+
+```tsx
+<DataTable
+  columns={COLUMNS}
+  rows={parties}
+  rowKey={(p) => p.ledgerId}              // expanded state is keyed by rowKey, so it survives sorting
+  renderDetail={(p) => <BillsList bills={p.bills} />}
+  isRowExpandable={(p) => p.bills.length > 0}
+  // uncontrolled: defaultExpanded={[firstId]}
+  // controlled:   expanded={openSet} onExpandedChange={setOpenSet}
+/>
+```
+
+- A chevron column (`aria-expanded`, `aria-controls`) appears before the data columns. Pressing
+  → expands the active row and ← collapses it. The same keys open and close a group header.
+- The detail renders as a following `<tr class="dt-detail">` with one cell spanning every column.
+  Its content wraps and can be any height. It is not a navigation stop: ↑/↓ skip over it.
+- **Virtualisation still works.** Each rendered detail row reports its height (measured on
+  render, then via ResizeObserver). Unmeasured details use `detailHeightEstimate` (default 120px).
+  - The table keeps an offset index of per-item heights (`buildRowLayout` in
+    `lib/table/virtual.ts`). The spacer rows, the rendered window, `aria-rowcount` and
+    `aria-rowindex` all come from it.
+  - PageUp and PageDown move by one viewport of height, so an expanded row takes up part of a
+    page.
+  - When a newly measured detail moves the row the keyboard just scrolled to, the table scrolls
+    again until the user scrolls by hand.
+- Details aren't exported. PDF and CSV export the rows only.
+
 ### Exporting the current view
 
 The toolbar's PDF and CSV buttons call `printReport` and `csvReport` from
@@ -117,6 +151,14 @@ const ex = buildTableExport(buildTableModel(rows, COLUMNS, view, { quick }))
 // ex.columns / ex.rows → printReport; ex.header / ex.csvRows → csvReport
 ```
 
+**PDF row cap.** `report:pdf` accepts at most `PDF_ROW_LIMIT` (5,000) rows. When the current
+view has more, the PDF never drops rows silently:
+
+- It keeps the first rows plus the totals row. The totals still cover every row.
+- It says so in the PDF footer and in a warning toast, for example: *"PDF shows the first 4,999
+  of 6,000 lines … Export CSV for every line."*
+- The helper is `capExportForPdf` in `lib/table/export.ts`. CSV is never capped.
+
 ## 3. Keyboard, focus and modals
 
 Navigation reuses `useKeyNav` from `components/ui.tsx`, using its opt-in `options` argument:
@@ -124,16 +166,20 @@ Navigation reuses `useKeyNav` from `components/ui.tsx`, using its opt-in `option
 | Key                      | Action                                                      |
 |--------------------------|-------------------------------------------------------------|
 | ↑ / ↓                    | Move the active row (the amber bar).                        |
-| PageUp / PageDown        | Move by one viewport.                                       |
+| PageUp / PageDown        | Move by one viewport (measured in px, so expanded rows count). |
 | Home / End               | Jump to the first or last row.                              |
 | Enter                    | Activate the active row. On a group header, toggle it.      |
+| → / ←                    | Expand / collapse the active row's detail or group.         |
 
 The active row scrolls into view even when it sits outside the rendered window. The table
 scrolls arithmetically to that position and the row renders immediately.
 
 Because it is the same hook, the existing rules carry over unchanged:
 
-- Only the topmost mounted list responds.
+- Only the topmost list responds. With several tables on a screen, the table you last clicked
+  or tabbed into becomes the topmost: a pointerdown or focus anywhere inside it claims the
+  keyboard (`useKeyNav`'s `claim` option). Before any interaction, the most recently mounted
+  table has it.
 - Keys typed into inputs are ignored.
 - Everything is suspended while any `Modal` is open (`isAnyModalOpen`).
 - Navigation also pauses while one of the table's own popovers (filter, columns, views) is open.
@@ -144,7 +190,9 @@ Mouse controls:
 
 - Click a header to sort. Shift-click adds a secondary sort.
 - The funnel button in a header opens that column's filter.
-- Drag a header to reorder columns. The column chooser also has ↑/↓ buttons.
+- Drag a header to reorder columns. This uses pointer events, not HTML5 drag-and-drop. The
+  dragged header dims, an amber rule marks the drop edge, and a drag never triggers a sort.
+  Movement under 5px counts as a click. The column chooser also has ↑/↓ buttons.
 - Drag the right edge of a header to resize. The edge is also focusable: ←/→ resizes by 16px and
   a double-click resets the width.
 
@@ -182,18 +230,18 @@ key is read only, never deleted. If the old toggle keys don't match the new colu
   ledger look. The `.data-table` rules in `app.css` add a fixed layout, single-line cells
   (ellipsis, with a title tooltip on long text), a sticky header, and fixed row heights of 33px
   (comfortable) or 27px (compact).
-- Fixed row heights are what make virtualisation exact. Keep custom cells to one line.
+- Data rows have a fixed height, which is what makes virtualisation exact. Keep custom cells to
+  one line, and put anything taller in `renderDetail`, which is measured.
 - The active row uses the existing `.kbar-row[data-active]` inset box-shadow bar on the first
   `<td>`, never `tr::before`.
 - Use theme token utilities only (`bg-panel2`, `text-muted`, `border-line`, `text-amber`, …).
 
 ## Known limitations
 
-- Rows have a fixed height, so there are no expandable detail rows yet. For something like
-  Outstandings' bill breakdown, render the details elsewhere (a drawer or modal) or keep a
-  bespoke table for now.
-- One table per screen should own the keyboard. With several tables on screen (such as
-  Exceptions' sections), the most recently mounted one responds, which is the usual
-  `useKeyNav` stack rule.
-- When `printReport` is given more than 5,000 rows it refuses and shows a toast. CSV export has
-  no limit.
+- Detail rows aren't exported, and a detail row can't contain another table that claims the
+  keyboard independently. A table nested in a detail is just one more table on the screen.
+- When a detail row's height first gets measured, Chromium's scroll anchoring keeps the visible
+  rows still while you scroll. The scrollbar thumb can shift slightly as estimates turn into
+  measurements.
+- `printReport` (used directly, outside DataTable) still refuses more than 5,000 rows with a
+  toast. DataTable's own PDF export trims and labels instead.
