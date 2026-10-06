@@ -51,7 +51,9 @@ function post(db: DB, o: PostOpts): number {
 }
 
 let db: DB
-const ids: Record<string, number> = {}
+type Key = 'acme' | 'binned' | 'supplier' | 'bank' | 'rent' | 'sales' | 'purchases' | 'cash' | 'widget' | 'centre'
+  | 'sale' | 'receipt' | 'journal' | 'purchase' | 'pdc' | 'binnedSale' | 'binnedReceipt'
+const ids = {} as Record<Key, number>
 
 beforeEach(() => {
   db = seededDb()
