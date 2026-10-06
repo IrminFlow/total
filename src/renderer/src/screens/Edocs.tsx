@@ -2,7 +2,9 @@ import { useMemo, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '../lib/client'
 import { useNav, useSession, useToasts } from '../state/stores'
-import { Button, EmptyState, Modal, Money, Panel, SectionTitle, Select, SkeletonRows } from '../components/ui'
+import { Button, Modal, Panel, SectionTitle, Select } from '../components/ui'
+import { DataTable, defineColumns } from '../components/table'
+import type { EdocListRow } from '@shared/reports'
 import { gstPeriodOf, toDisplayDate } from '@shared/dates'
 import { TransportModal } from './voucher/TransportModal'
 
@@ -20,6 +22,108 @@ const DOC_TYPE_CLASS: Record<'INV' | 'CRN' | 'DBN', string> = {
   CRN: 'text-dr',
   DBN: 'text-cr'
 }
+
+const DOC_TYPE_TITLE: Record<EdocListRow['docType'], string> = {
+  INV: 'Invoice',
+  CRN: 'Credit note',
+  DBN: 'Debit note'
+}
+
+const irnEwbText = (r: EdocListRow): string => `${r.irn ? 'IRN ✓' : 'no IRN'} · ${r.ewbNo ?? 'no EWB'}`
+
+export const EDOC_COLUMNS = defineColumns<EdocListRow>([
+  { id: 'date', header: 'Date', kind: 'date', value: (r) => r.date, className: 'text-muted', width: 100 },
+  {
+    id: 'number',
+    header: 'No.',
+    kind: 'text',
+    value: (r) => r.number,
+    hideable: false,
+    groupable: false,
+    width: 120,
+    cell: (r) => (
+      <span className="num">
+        {r.number}
+        {!r.hasHsn && (
+          <span className="ml-1 text-amber" title="No stock item on this document carries an HSN code — e-invoice/EWB JSON will be rejected. Set HSN on the items (Masters → Items).">
+            ⚠
+          </span>
+        )}
+      </span>
+    )
+  },
+  {
+    id: 'type',
+    header: 'Type',
+    kind: 'enum',
+    value: (r) => r.docType,
+    options: [
+      { value: 'INV', label: 'INV' },
+      { value: 'CRN', label: 'CRN' },
+      { value: 'DBN', label: 'DBN' }
+    ],
+    text: (r) => (r.outwardDbn ? `${r.docType} (OTH)` : r.docType),
+    width: 110,
+    cell: (r) => (
+      <>
+        <span
+          className={`inline-block rounded border border-line px-1.5 py-0.5 text-[10.5px] font-medium ${DOC_TYPE_CLASS[r.docType]}`}
+          title={DOC_TYPE_TITLE[r.docType]}
+        >
+          {r.docType}
+        </span>
+        {r.outwardDbn && (
+          <span
+            className="ml-1 inline-block rounded border border-amber/50 bg-amber/10 px-1.5 py-0.5 text-[10.5px] font-medium text-amber"
+            title="Outward debit note — the NIC bulk docType enum has no DBN, so it exports as 'OTH'."
+          >
+            OTH
+          </span>
+        )}
+      </>
+    )
+  },
+  { id: 'buyer', header: 'Buyer', kind: 'text', value: (r) => r.partyName ?? 'Cash sale', minWidth: 160 },
+  {
+    id: 'gstin',
+    header: 'GSTIN',
+    kind: 'text',
+    value: (r) => r.partyGstin,
+    text: (r) => r.partyGstin ?? '—',
+    className: 'num text-muted',
+    width: 160
+  },
+  { id: 'value', header: 'Value', kind: 'money', value: (r) => r.total, width: 130, aggregate: 'sum' },
+  {
+    id: 'irnEwb',
+    header: 'IRN / EWB',
+    kind: 'text',
+    value: irnEwbText,
+    width: 150,
+    cell: (r) => (
+      <span className="text-[11.5px]">
+        {r.irn ? <span className="text-dr" title={r.irn}>IRN ✓</span> : <span className="text-muted">no IRN</span>}
+        {' · '}
+        {r.ewbNo ? <span className="num text-dr">{r.ewbNo}</span> : <span className="text-muted">no EWB</span>}
+      </span>
+    )
+  },
+  {
+    id: 'ewbEligibility',
+    header: 'EWB eligibility',
+    kind: 'text',
+    value: (r) => r.ewbReason ?? 'Eligible',
+    width: 180,
+    cell: (r) =>
+      r.ewbReason == null ? (
+        <span className="text-[11.5px] text-dr">Eligible</span>
+      ) : (
+        <span className="text-[11.5px] text-muted" title={r.ewbReason}>
+          {r.ewbReason}
+        </span>
+      )
+  }
+])
 
 /** Per-session "don't ask again" for the live-API confirm gate — module-level so it survives
  *  remounts of this screen but resets on app restart (never persisted to disk). */
@@ -149,123 +253,77 @@ export function EdocsScreen(): React.JSX.Element {
 
       {!info?.gstin && <p className="mb-3 text-[12.5px] text-amber">Add the company GSTIN under Company details to enable exports.</p>}
 
-      <Panel scroll={{ maxH: 'calc(100vh - 15rem)' }}>
-        {isLoading ? (
-          <SkeletonRows />
-        ) : rows.length === 0 ? (
-          <EmptyState title={allRows.length === 0 ? 'No documents in this period' : 'No documents match this filter'} />
-        ) : (
-          <table className="ledger-table">
-            <thead>
-              <tr>
-                <th className="w-20">Date</th>
-                <th className="w-20">No.</th>
-                <th className="w-16">Type</th>
-                <th>Buyer</th>
-                <th className="w-36">GSTIN</th>
-                <th className="r w-28">Value</th>
-                <th className="w-32">IRN / EWB</th>
-                <th className="w-44">EWB eligibility</th>
-                <th className="r w-52"></th>
-              </tr>
-            </thead>
-            <tbody data-testid="rows-edocs">
-              {rows.map((r) => (
-                <tr key={r.voucherId} data-row-id={r.voucherId}>
-                  <td className="num text-muted">{toDisplayDate(r.date)}</td>
-                  <td className="num">
-                    {r.number}
-                    {!r.hasHsn && (
-                      <span className="ml-1 text-amber" title="No stock item on this document carries an HSN code — e-invoice/EWB JSON will be rejected. Set HSN on the items (Masters → Items).">
-                        ⚠
-                      </span>
-                    )}
-                  </td>
-                  <td>
-                    <span
-                      className={`inline-block rounded border border-line px-1.5 py-0.5 text-[10.5px] font-medium ${DOC_TYPE_CLASS[r.docType]}`}
-                      title={r.docType === 'CRN' ? 'Credit note' : r.docType === 'DBN' ? 'Debit note' : 'Invoice'}
-                    >
-                      {r.docType}
-                    </span>
-                    {r.outwardDbn && (
-                      <span
-                        className="ml-1 inline-block rounded border border-amber/50 bg-amber/10 px-1.5 py-0.5 text-[10.5px] font-medium text-amber"
-                        title="Outward debit note — the NIC bulk docType enum has no DBN, so it exports as 'OTH'."
-                      >
-                        OTH
-                      </span>
-                    )}
-                  </td>
-                  <td>{r.partyName ?? 'Cash sale'}</td>
-                  <td className="num text-muted">{r.partyGstin ?? '—'}</td>
-                  <td className="r"><Money paise={r.total} /></td>
-                  <td className="text-[11.5px]">
-                    {r.irn ? <span className="text-dr" title={r.irn}>IRN ✓</span> : <span className="text-muted">no IRN</span>}
-                    {' · '}
-                    {r.ewbNo ? <span className="num text-dr">{r.ewbNo}</span> : <span className="text-muted">no EWB</span>}
-                  </td>
-                  <td className="text-[11.5px]">
-                    {r.ewbReason == null ? (
-                      <span className="text-dr">Eligible</span>
-                    ) : (
-                      <span className="text-muted" title={r.ewbReason}>{r.ewbReason}</span>
-                    )}
-                  </td>
-                  <td className="r whitespace-nowrap">
-                    {live && r.partyGstin && !r.irn && (
-                      <button
-                        className="mr-2 text-[12px] text-blue hover:underline disabled:opacity-40"
-                        disabled={busy === r.voucherId}
-                        onClick={() => requestGenerate('irn', r.voucherId)}
-                      >
-                        Generate IRN
-                      </button>
-                    )}
-                    {live && r.irn && !r.ewbNo && (
-                      <button
-                        className="mr-2 text-[12px] text-blue hover:underline disabled:opacity-40"
-                        disabled={busy === r.voucherId}
-                        onClick={() => requestGenerate('ewb', r.voucherId)}
-                      >
-                        Generate EWB
-                      </button>
-                    )}
-                    {r.docType !== 'CRN' && (
-                      <button
-                        className="mr-2 text-[12px] text-blue hover:underline disabled:opacity-40"
-                        data-testid="btn-edocs-ewb-json"
-                        disabled={busy === r.voucherId}
-                        title="Write this bill's single-bill EWB JSON (overrides the ₹50,000 threshold)"
-                        onClick={() => void perRowEwbJson(r.voucherId)}
-                      >
-                        EWB JSON
-                      </button>
-                    )}
-                    <button
-                      className="mr-2 text-[12px] text-blue hover:underline"
-                      data-testid="btn-edocs-transport"
-                      onClick={() => setTransportFor({ voucherId: r.voucherId, number: r.number })}
-                    >
-                      Transport
-                    </button>
-                    <button
-                      className="mr-2 text-[12px] text-blue hover:underline"
-                      onClick={() => {
-                        api.invoice.pdf(r.voucherId).catch((err: Error) => toast.push('error', err.message))
-                      }}
-                    >
-                      PDF
-                    </button>
-                    <button className="text-[12px] text-muted hover:text-ink" onClick={() => nav.go({ name: 'voucher-entry', voucherId: r.voucherId })}>
-                      Open
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
+      <Panel>
+        <DataTable
+          viewId="edocs"
+          testId="edocs"
+          ariaLabel="e-Invoice and e-way bill documents"
+          columns={EDOC_COLUMNS}
+          rows={rows}
+          rowKey={(r) => r.voucherId}
+          rowAttrs={(r) => ({ 'data-row-id': r.voucherId })}
+          loading={isLoading}
+          onRowActivate={(r) => nav.go({ name: 'voucher-entry', voucherId: r.voucherId })}
+          maxHeight="calc(100vh - 15rem)"
+          empty={{ title: allRows.length === 0 ? 'No documents in this period' : 'No documents match this filter' }}
+          exportOptions={{
+            title: 'e-Invoice & e-way bill documents',
+            periodLabel: `${toDisplayDate(from)} to ${toDisplayDate(to)}`,
+            filename: 'edocs'
+          }}
+          trailingWidth={live ? 330 : 230}
+          trailing={(r) => (
+            <span className="whitespace-nowrap">
+              {live && r.partyGstin && !r.irn && (
+                <button
+                  className="mr-2 text-[12px] text-blue hover:underline disabled:opacity-40"
+                  disabled={busy === r.voucherId}
+                  onClick={() => requestGenerate('irn', r.voucherId)}
+                >
+                  Generate IRN
+                </button>
+              )}
+              {live && r.irn && !r.ewbNo && (
+                <button
+                  className="mr-2 text-[12px] text-blue hover:underline disabled:opacity-40"
+                  disabled={busy === r.voucherId}
+                  onClick={() => requestGenerate('ewb', r.voucherId)}
+                >
+                  Generate EWB
+                </button>
+              )}
+              {r.docType !== 'CRN' && (
+                <button
+                  className="mr-2 text-[12px] text-blue hover:underline disabled:opacity-40"
+                  data-testid="btn-edocs-ewb-json"
+                  disabled={busy === r.voucherId}
+                  title="Write this bill's single-bill EWB JSON (overrides the ₹50,000 threshold)"
+                  onClick={() => void perRowEwbJson(r.voucherId)}
+                >
+                  EWB JSON
+                </button>
+              )}
+              <button
+                className="mr-2 text-[12px] text-blue hover:underline"
+                data-testid="btn-edocs-transport"
+                onClick={() => setTransportFor({ voucherId: r.voucherId, number: r.number })}
+              >
+                Transport
+              </button>
+              <button
+                className="mr-2 text-[12px] text-blue hover:underline"
+                onClick={() => {
+                  api.invoice.pdf(r.voucherId).catch((err: Error) => toast.push('error', err.message))
+                }}
+              >
+                PDF
+              </button>
+              <button className="text-[12px] text-muted hover:text-ink" onClick={() => nav.go({ name: 'voucher-entry', voucherId: r.voucherId })}>
+                Open
+              </button>
+            </span>
+          )}
+        />
       </Panel>
       <p className="mt-2 text-[11.5px] text-muted">
         Offline route: export JSON for the government offline tools — the period export writes one combined bulk file plus a per-bill file per consignment. Live route: add your NIC API credentials once, then generate IRNs and e-way bills directly — needs internet and a registered API user (einvoice1.gst.gov.in → API registration) or GSP credentials.
