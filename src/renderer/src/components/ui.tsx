@@ -553,8 +553,9 @@ export interface KeyNavOptions {
    *  be rendered at all (so there is no `.kbar-row[data-active]` element to scroll to). */
   scrollTo?: (index: number) => void
   /** The list's container. A pointerdown or focus landing inside it makes this list the keyboard
-   *  target (moves it to the top of the stack) — for screens with several lists. Modals still
-   *  win: the modal check runs before the stack check. */
+   *  target (moves it to the top of the stack) — for screens with several lists. It also says
+   *  where the list lives: while a Modal is open only a list whose container is inside the
+   *  topmost modal responds (lists without `claim` stay suspended under any modal). */
   claim?: () => HTMLElement | null
   /** Extra keys (e.g. ←/→ to collapse/expand). Runs under the same topmost/modal/input rules;
    *  return true when the key was handled (its default is then prevented). */

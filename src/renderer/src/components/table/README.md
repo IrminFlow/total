@@ -51,13 +51,20 @@ aggregation to `formatPaise`.
 - `cell(row)`: a custom React cell. Sorting, filtering and export still use `value` and `text`.
 - `align`: by default money, quantity and number align right, everything else left.
 - `signed` (money): renders "1,234.00 Dr/Cr", like `<Money signed>`.
-- `decimals` (quantity): 0 to 3.
+- `decimals` (quantity): 0 to 3, or a function of the row for mixed-unit columns.
+  `unit` (quantity): a string or a function of the row, appended to the number
+  ("12.500 kg"). With per-row decimals, aggregates use `aggregateDecimals` (default 3) and
+  leave out a per-row unit. Stock summary uses this instead of a `text` override:
+  `decimals: (r) => r.decimals, unit: (r) => r.unitSymbol`.
+- `group`: a header band label. Adjacent visible columns with the same `group` share a
+  spanning band row above the header (GSTR-2B's "Portal | Books"), so the column labels can
+  stay short ("Date", "Value"). See "Header bands" below.
 - `sortable`, `filterable`, `hideable`: all default to true. Use `hideable: false` for the
   identifying column.
 - `groupable`: defaults to true for text, enum and date columns.
 - `groupKey(row)`: groups by something other than the cell text, e.g.
   `(r) => r.date.slice(0, 7)` for months.
-- `defaultHidden`, `width` (px), `minWidth`.
+- `defaultHidden`, `width` (px), `minWidth` (px). See "Column widths" below.
 - `aggregate`: `'sum'`, or `(rows) => rawValue` for honest totals that skip some rows. DayBook,
   for example, doesn't count optional or post-dated rows:
   `(rows) => rows.filter(inBooks).reduce((s, r) => s + r.debit, 0)`.
@@ -94,10 +101,22 @@ Useful props (all optional except `columns` and `rows`):
 - **Action cells.** `leading` and `trailing` render a cell before or after the data columns.
   Clicks inside them never activate the row.
 - **Footer.** `totals` defaults to `'auto'`, which shows the footer when any visible column has
-  an `aggregate`. `totalsLabel` sets the label. `renderFooter(ctx)` replaces the footer with your
-  own `<tr className="total-row">` rows, for something like "Closing balance".
+  an `aggregate`. `totalsLabel` sets the label, or computes it from the footer context.
+  `renderFooter(ctx)` replaces the footer with your own `<tr className="total-row">` rows, for
+  something like "Closing balance". The context (`DataTableFooterContext`) holds the visible
+  `columns`, the `rows` in view (filters and quick filter applied), `totals`, `colSpan`,
+  `filteredCount`, `totalCount` and `isFiltered`. Day Book's label is just
+  ``totalsLabel={({ rows }) => `Total · ${rows.filter(inBooks).length} vouchers`}``.
 - **Toolbar.** `toolbar={false}` hides it. `toolbarFeatures={{ groupBy: false, density: false }}`
-  turns off individual features. `toolbarStart` and `toolbarEnd` add screen-specific controls.
+  turns off individual features. `toolbarStart` and `toolbarEnd` add screen-specific controls,
+  such as a screen's own pre-filters (Masters → Ledgers' search and group picker, e-Invoice's
+  document type). The toolbar stays whenever the table has columns, including while loading
+  and with zero rows, so these controls never disappear.
+- **Empty states.** With no rows at all, the body shows the `empty` state (title, hint,
+  action) under the header and toolbar. When rows exist but the table's own filters or quick
+  filter hide them all, it shows "No rows match" with a **Clear filters** button instead
+  (`<area>-table-reset-filters`). If a screen pre-filters rows itself, give `empty` an `action`
+  that clears that filter. Masters passes "Clear search".
 - **Size.** `maxHeight` defaults to `calc(100vh - 220px)`. The header sticks inside this scroll
   area. `maxHeight="none"` lets the table grow with the page, which also turns virtualisation off.
 - **Virtualisation.** `virtualize` defaults to `'auto'`, which windows the body once there are
@@ -138,6 +157,43 @@ onto its batches.
     again until the user scrolls by hand.
 - Details aren't exported. PDF and CSV export the rows only.
 
+### Column widths
+
+`lib/table/layout.ts` works out every column's width in whole pixels:
+
+- A user-resized width wins, then the column's `width`, then a kind default (money 150,
+  quantity 130, date 104, number 96, enum 130) widened to fit the header label. Text columns
+  without a `width` are flexible and start at `max(minWidth ?? 120, header label)`.
+  `minWidth` applies everywhere, including resizing.
+- The table measures its scroll area. Spare space goes to the flexible columns in equal
+  whole-pixel shares. When every column is fixed, it goes to the last text column the user
+  hasn't resized. The table's width is the exact sum, so the browser never splits pixels
+  between cells (which used to draw hairline seams). You don't need to leave a column without
+  a width just to absorb the space.
+- When the columns don't fit, they keep their widths and the table scrolls sideways.
+
+Header controls take no label space. The sort arrow appears only on a sorted column. The
+filter funnel sits over the header's edge. It shows on hover, while focus is anywhere in the
+header (it stays in the Tab order), and always while its filter is set or open. Only an
+active filter reserves room for its funnel.
+
+### Header bands
+
+```tsx
+{ id: 'portalNo', header: 'Invoice no.', group: 'Portal', kind: 'text', value: (p) => p.portal?.number },
+{ id: 'portalDate', header: 'Date', group: 'Portal', kind: 'date', value: (p) => p.portal?.date },
+{ id: 'bookNo', header: 'Supplier ref', group: 'Books', kind: 'text', value: (p) => p.book?.ref },
+```
+
+- Each run of adjacent visible columns with the same `group` gets one `<th scope="colgroup">`
+  band (in the `<area>-table-bands` row), over its own `<colgroup>`. Columns without a group
+  leave their part of the band row empty. When no grouped column is visible, there's no band
+  row.
+- Bands follow the view. Hiding a column narrows its band. Moving a column out of its group
+  splits the band, one band per contiguous stretch.
+- The column chooser, filter chips, tooltips and exports use the full label,
+  "Portal · Invoice no." (`columnLabel` in `lib/table`).
+
 ### Exporting the current view
 
 The toolbar's PDF and CSV buttons call `printReport` and `csvReport` from
@@ -150,6 +206,12 @@ export, use the pure helper:
 const ex = buildTableExport(buildTableModel(rows, COLUMNS, view, { quick }))
 // ex.columns / ex.rows → printReport; ex.header / ex.csvRows → csvReport
 ```
+
+Grouped columns export as "Portal · Invoice no.". Money cells export as displayed
+("1,234.00 Dr") by default. Set `exportOptions.csvMoneyFormat: 'plain'` (or `pdfMoneyFormat`)
+to write signed decimals that a spreadsheet reads as numbers: "-1234.00", dr-positive, `''`
+for no value. Consolidated does this for its CSV. The pure helper takes the same choice per
+call: `buildTableExport(model, { moneyFormat: 'plain' })`.
 
 **PDF row cap.** `report:pdf` accepts at most `PDF_ROW_LIMIT` (5,000) rows. When the current
 view has more, the PDF never drops rows silently:
@@ -174,22 +236,39 @@ Navigation reuses `useKeyNav` from `components/ui.tsx`, using its opt-in `option
 The active row scrolls into view even when it sits outside the rendered window. The table
 scrolls arithmetically to that position and the row renders immediately.
 
-Because it is the same hook, the existing rules carry over unchanged:
+Because it is the same hook, the existing rules carry over:
 
 - Only the topmost list responds. With several tables on a screen, the table you last clicked
   or tabbed into becomes the topmost: a pointerdown or focus anywhere inside it claims the
   keyboard (`useKeyNav`'s `claim` option). Before any interaction, the most recently mounted
   table has it.
 - Keys typed into inputs are ignored.
-- Everything is suspended while any `Modal` is open (`isAnyModalOpen`).
 - Navigation also pauses while one of the table's own popovers (filter, columns, views) is open.
 
+**Modals.** A table inside the topmost `Modal` works fully. Tables behind it are suspended:
+
+- The keyboard goes to the topmost table whose container is inside the topmost modal
+  (`topModalElement()` in `components/ui.tsx`). While a modal is open, every other list
+  ignores keys: one in a modal underneath, one behind the modals, and any plain list without a
+  `claim` container. Enter on one of the dialog's buttons stays with that button.
+- Esc closes an open popover first. Only the next Esc closes the modal: popovers register an
+  Esc layer (`registerEscapeLayer`) that the modal's key handler respects. Esc in the quick
+  filter clears its text first (`data-consumes-escape`).
+- A popover anchored inside a modal portals into the dialog, not `<body>`. Its controls join
+  the modal's Tab loop, and it stacks above the dialog's content.
+- In a dialog, `toolbarFeatures={{ groupBy: false, density: false, views: false, export: false }}`
+  keeps the toolbar to the quick filter, the row count and the column chooser. Banking's
+  import preview and bank rules, and Payroll's pay heads, do this.
+
 Esc inside a popover closes it and doesn't reach the screen's Esc-to-go-back handler.
+`Popover` and `PopoverButton` are exported from `components/table` for screens that need an
+anchored menu of their own, such as Payroll's payslips menu.
 
 Mouse controls:
 
 - Click a header to sort. Shift-click adds a secondary sort.
-- The funnel button in a header opens that column's filter.
+- The funnel button in a header opens that column's filter. It shows on hover and on keyboard
+  focus, and stays visible while that column is filtered.
 - Drag a header to reorder columns. This uses pointer events, not HTML5 drag-and-drop. The
   dragged header dims, an amber rule marks the drop edge, and a drag never triggers a sort.
   Movement under 5px counts as a click. The column chooser also has ↑/↓ buttons.
@@ -230,6 +309,9 @@ key is read only, never deleted. If the old toggle keys don't match the new colu
   ledger look. The `.data-table` rules in `app.css` add a fixed layout, single-line cells
   (ellipsis, with a title tooltip on long text), a sticky header, and fixed row heights of 33px
   (comfortable) or 27px (compact).
+- Those rules use child combinators (`.data-table > thead > tr > th`, `> tbody > tr > td`), so a
+  table nested in a detail row keeps its own `<thead>`. It doesn't inherit the sticky header or
+  the single-line cells. Outstandings' bills list is an example.
 - Data rows have a fixed height, which is what makes virtualisation exact. Keep custom cells to
   one line, and put anything taller in `renderDetail`, which is measured.
 - The active row uses the existing `.kbar-row[data-active]` inset box-shadow bar on the first
@@ -239,7 +321,10 @@ key is read only, never deleted. If the old toggle keys don't match the new colu
 ## Known limitations
 
 - Detail rows aren't exported, and a detail row can't contain another table that claims the
-  keyboard independently. A table nested in a detail is just one more table on the screen.
+  keyboard independently. A DataTable nested in a detail is just one more table on the
+  screen. A plain `<table>` there can have its own `<thead>`.
+- Header width estimates (`headerMinWidth` in `lib/table/layout.ts`) are tuned for IBM Plex
+  Sans at the header's 10.5px. A much wider header font would need them re-tuned.
 - When a detail row's height first gets measured, Chromium's scroll anchoring keeps the visible
   rows still while you scroll. The scrollbar thumb can shift slightly as estimates turn into
   measurements.
