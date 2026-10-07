@@ -156,11 +156,17 @@ await scenario('29-counter-billing', async (h) => {
 
   // Print: the thermal receipt (PDF opened — stubbed) and its HTML.
   await h.click('btn-counter-print')
+  // The thermal PDF: an 80 mm page, written to the company's exports folder.
+  const { path: pdfPath } = await h.invoke('counter:print', { voucherId: inv.id, templateId: 'receipt-80mm' })
+  assert(fs.existsSync(pdfPath) && fs.statSync(pdfPath).size > 1000, `the receipt PDF was written (${pdfPath})`)
+  const pdfHead = fs.readFileSync(pdfPath).toString('latin1')
+  const box = pdfHead.match(/\/MediaBox\s*\[\s*0\s+0\s+([\d.]+)\s+([\d.]+)\s*\]/)
+  assert(box && Math.abs(Number(box[1]) - (80 / 25.4) * 72) < 2, `the receipt page is 80 mm wide (MediaBox ${box?.[0]})`)
+  const { path: a4Path } = await h.invoke('counter:print', { voucherId: inv.id, templateId: 'classic' })
+  assert(fs.existsSync(a4Path), 'the A4 invoice PDF was written')
   const { html } = await h.invoke('counter:printHtml', { voucherId: inv.id, templateId: 'receipt-80mm' })
   assert(html.includes('Wireless Mouse') && html.includes('Paid · Cash') && html.includes('1,795.00'), 'the receipt prints the items, the total and the payments')
   await printShot('07-receipt-80mm', html, '80mm')
-  const exportsDir = path.join(h.dataDir)
-  void exportsDir
 
   await h.goto('daybook')
   // Today's two entries: the counter invoice (Cash sale) and its receipt.
