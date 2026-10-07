@@ -2058,5 +2058,100 @@ export const MIGRATIONS: string[] = [
   );
   CREATE INDEX idx_statutory_payments_period ON statutory_payments(kind, period);
   CREATE INDEX idx_statutory_payments_voucher ON statutory_payments(payment_voucher_id);
+  `,
+  // 030 — pricing and counter billing (WP 2.6). Extends migration 014's price lists:
+  // - price_levels.inclusive_of_tax: the level's rates are GST-inclusive (the resolver backs the
+  //   taxable rate out — src/shared/pricing.ts); price_levels.is_default: the company's default
+  //   level (at most one, partial unique index). ledgers.price_level_id (014) stays the party's.
+  // - price_list_rates is rebuilt (its UNIQUE grows): effective_to (inclusive, NULL = open),
+  //   min_qty_milli (quantity slab: the row applies from this quantity up), discount_bp (the
+  //   slab's discount), currency (rates in a foreign invoice currency). Existing rows keep their
+  //   ids and become open-ended INR base slabs (min 0, no discount). Nothing references the
+  //   table, so a plain create-copy-drop-rename is safe with foreign keys on.
+  // - stock_items.mrp_paise / standard_cost_paise: the printed MRP (GST-inclusive by definition,
+  //   Legal Metrology (Packaged Commodities) Rules 2011 r.2(m) "inclusive of all taxes") and a
+  //   standard cost — both master facts, never posted.
+  // - party_item_rates: negotiated party-wise rates (source 'manual', date-effective) and the
+  //   remembered last selling price (source 'last_sale', one row per party + item).
+  // - discount_schemes + discount_scheme_slabs: qty / value slabs, buy-x-get-y, flat; item,
+  //   stock group or everything; date range; priority (higher wins).
+  // - counter_sales: entry facts of a counter-billing sale (the invoice + its receipt, cash
+  //   tendered / change). Reports still read voucher_lines; this row only links the pair.
+  `
+  ALTER TABLE price_levels ADD COLUMN inclusive_of_tax INTEGER NOT NULL DEFAULT 0 CHECK (inclusive_of_tax IN (0, 1));
+  ALTER TABLE price_levels ADD COLUMN is_default INTEGER NOT NULL DEFAULT 0 CHECK (is_default IN (0, 1));
+  CREATE UNIQUE INDEX idx_price_levels_default ON price_levels(is_default) WHERE is_default = 1;
+
+  CREATE TABLE price_list_rates_030 (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    price_level_id INTEGER NOT NULL REFERENCES price_levels(id) ON DELETE CASCADE,
+    stock_item_id INTEGER NOT NULL REFERENCES stock_items(id) ON DELETE CASCADE,
+    rate INTEGER NOT NULL CHECK (rate >= 0),
+    effective_from TEXT NOT NULL,
+    effective_to TEXT,
+    min_qty_milli INTEGER NOT NULL DEFAULT 0 CHECK (min_qty_milli >= 0),
+    discount_bp INTEGER NOT NULL DEFAULT 0 CHECK (discount_bp BETWEEN 0 AND 10000),
+    currency TEXT NOT NULL DEFAULT 'INR',
+    CHECK (effective_to IS NULL OR effective_to >= effective_from),
+    UNIQUE (price_level_id, stock_item_id, currency, min_qty_milli, effective_from)
+  );
+  INSERT INTO price_list_rates_030 (id, price_level_id, stock_item_id, rate, effective_from)
+    SELECT id, price_level_id, stock_item_id, rate, effective_from FROM price_list_rates;
+  DROP TABLE price_list_rates;
+  ALTER TABLE price_list_rates_030 RENAME TO price_list_rates;
+  CREATE INDEX idx_price_list_rates_item ON price_list_rates(stock_item_id, price_level_id);
+
+  ALTER TABLE stock_items ADD COLUMN mrp_paise INTEGER CHECK (mrp_paise IS NULL OR mrp_paise >= 0);
+  ALTER TABLE stock_items ADD COLUMN standard_cost_paise INTEGER CHECK (standard_cost_paise IS NULL OR standard_cost_paise >= 0);
+
+  CREATE TABLE party_item_rates (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    ledger_id INTEGER NOT NULL REFERENCES ledgers(id) ON DELETE CASCADE,
+    stock_item_id INTEGER NOT NULL REFERENCES stock_items(id) ON DELETE CASCADE,
+    rate_paise INTEGER NOT NULL CHECK (rate_paise >= 0),
+    discount_bp INTEGER NOT NULL DEFAULT 0 CHECK (discount_bp BETWEEN 0 AND 10000),
+    effective_from TEXT,
+    effective_to TEXT,
+    source TEXT NOT NULL DEFAULT 'manual' CHECK (source IN ('manual', 'last_sale')),
+    last_sold_at TEXT,
+    last_voucher_id INTEGER REFERENCES vouchers(id) ON DELETE SET NULL,
+    CHECK (effective_to IS NULL OR effective_from IS NULL OR effective_to >= effective_from)
+  );
+  CREATE INDEX idx_party_item_rates_pair ON party_item_rates(ledger_id, stock_item_id);
+  CREATE UNIQUE INDEX idx_party_item_rates_last ON party_item_rates(ledger_id, stock_item_id) WHERE source = 'last_sale';
+
+  CREATE TABLE discount_schemes (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL UNIQUE COLLATE NOCASE,
+    kind TEXT NOT NULL CHECK (kind IN ('qty_slab', 'value_slab', 'buy_x_get_y', 'flat')),
+    applies_to TEXT NOT NULL CHECK (applies_to IN ('item', 'group', 'all')),
+    target_id INTEGER,
+    from_date TEXT,
+    to_date TEXT,
+    priority INTEGER NOT NULL DEFAULT 0,
+    active INTEGER NOT NULL DEFAULT 1 CHECK (active IN (0, 1)),
+    CHECK ((applies_to = 'all') = (target_id IS NULL)),
+    CHECK (to_date IS NULL OR from_date IS NULL OR to_date >= from_date)
+  );
+  CREATE TABLE discount_scheme_slabs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    scheme_id INTEGER NOT NULL REFERENCES discount_schemes(id) ON DELETE CASCADE,
+    min_qty_milli INTEGER CHECK (min_qty_milli IS NULL OR min_qty_milli >= 0),
+    min_value_paise INTEGER CHECK (min_value_paise IS NULL OR min_value_paise >= 0),
+    discount_bp INTEGER CHECK (discount_bp IS NULL OR discount_bp BETWEEN 0 AND 10000),
+    free_qty_milli INTEGER CHECK (free_qty_milli IS NULL OR free_qty_milli > 0),
+    CHECK ((min_qty_milli IS NULL) <> (min_value_paise IS NULL)),
+    CHECK ((discount_bp IS NULL) <> (free_qty_milli IS NULL))
+  );
+  CREATE INDEX idx_discount_scheme_slabs_scheme ON discount_scheme_slabs(scheme_id);
+
+  CREATE TABLE counter_sales (
+    invoice_voucher_id INTEGER PRIMARY KEY REFERENCES vouchers(id) ON DELETE CASCADE,
+    receipt_voucher_id INTEGER REFERENCES vouchers(id) ON DELETE SET NULL,
+    tendered_paise INTEGER NOT NULL DEFAULT 0 CHECK (tendered_paise >= 0),
+    change_paise INTEGER NOT NULL DEFAULT 0 CHECK (change_paise >= 0),
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+  CREATE INDEX idx_counter_sales_receipt ON counter_sales(receipt_voucher_id);
   `
 ]
