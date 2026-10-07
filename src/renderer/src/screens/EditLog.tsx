@@ -289,7 +289,7 @@ export function EditLogScreen({ voucherId: initialVoucherId }: { voucherId?: num
         <ChainBanner verification={verification.data} busy={verification.isFetching} onVerify={verification.refetch} />
       </div>
       <div className="mb-3 flex flex-wrap items-end gap-3" data-testid="edit-log-filters">
-        <div>
+        <label className="block">
           {label('Entity')}
           <Select data-testid="input-edit-log-entity" value={entity} onChange={(e) => reset(() => setEntity(e.target.value))()}>
             <option value="">All</option>
@@ -299,8 +299,8 @@ export function EditLogScreen({ voucherId: initialVoucherId }: { voucherId?: num
               </option>
             ))}
           </Select>
-        </div>
-        <div>
+        </label>
+        <label className="block">
           {label('Action')}
           <Select data-testid="input-edit-log-action" value={action} onChange={(e) => reset(() => setAction(e.target.value))()}>
             <option value="">All</option>
@@ -310,8 +310,8 @@ export function EditLogScreen({ voucherId: initialVoucherId }: { voucherId?: num
               </option>
             ))}
           </Select>
-        </div>
-        <div>
+        </label>
+        <label className="block">
           {label('User')}
           <Select data-testid="input-edit-log-user" value={user} onChange={(e) => reset(() => setUser(e.target.value))()}>
             <option value="">All</option>
@@ -321,8 +321,8 @@ export function EditLogScreen({ voucherId: initialVoucherId }: { voucherId?: num
               </option>
             ))}
           </Select>
-        </div>
-        <div>
+        </label>
+        <label className="block">
           {label('Voucher id')}
           <TextInput
             data-testid="input-edit-log-voucher"
@@ -332,8 +332,8 @@ export function EditLogScreen({ voucherId: initialVoucherId }: { voucherId?: num
             value={voucherText}
             onChange={(e) => reset(() => setVoucherText(e.target.value))()}
           />
-        </div>
-        <div>
+        </label>
+        <label className="block">
           {label('Per page')}
           <Select data-testid="input-edit-log-page-size" value={pageSize} onChange={(e) => reset(() => setPageSize(Number(e.target.value)))()}>
             {PAGE_SIZES.map((n) => (
@@ -342,7 +342,7 @@ export function EditLogScreen({ voucherId: initialVoucherId }: { voucherId?: num
               </option>
             ))}
           </Select>
-        </div>
+        </label>
       </div>
       <Panel>
         <DataTable
