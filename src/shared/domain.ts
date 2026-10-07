@@ -169,6 +169,9 @@ export interface InventoryLine {
   direction: 'in' | 'out'
   /** Physical Stock line: qtyMilli is the counted closing quantity, not a movement. */
   isAbsolute: boolean
+  /** Serial numbers this line moves (serial-tracked items, WP 2.3); getVoucher always sets it
+   *  ([] when none). Optional only so older hand-built fixtures keep compiling. */
+  serials?: string[]
 }
 
 export interface Voucher {
@@ -275,6 +278,8 @@ export interface StockItem {
   reorderLevelMilli: number | null
   /** How this item's stock is valued (src/shared/valuation.ts). */
   valuationMethod: 'weighted_avg' | 'fifo'
+  /** Every movement names one serial number per unit (WP 2.3, src/shared/serials.ts). */
+  trackSerials: boolean
 }
 
 export interface Godown {
