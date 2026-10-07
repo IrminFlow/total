@@ -103,7 +103,7 @@ describe('Field + inputs', () => {
     expect(screen.getByLabelText('GSTIN')).toBe(input)
   })
 
-  it('an error replaces the hint, announces, and marks the control invalid', () => {
+  it('an error replaces the hint and marks the control invalid', () => {
     render(
       <Field label="Rate" hint="percent" error="Too high" required>
         <Select data-testid="s">
@@ -114,7 +114,7 @@ describe('Field + inputs', () => {
     const s = screen.getByTestId('s')
     expect(s.getAttribute('aria-invalid')).toBe('true')
     expect(document.getElementById(s.getAttribute('aria-describedby')!)?.textContent).toBe('Too high')
-    expect(screen.getByRole('alert').textContent).toBe('Too high')
+    expect(screen.queryByRole('alert')).toBeNull() // linked via aria-describedby, not a second live region
     expect(screen.queryByText('percent')).toBeNull()
   })
 

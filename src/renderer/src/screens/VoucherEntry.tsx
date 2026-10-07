@@ -8,15 +8,13 @@ import { useSession, type VoucherDraft } from '../state/stores'
 import { Banner, DrawerSection, isAnyModalOpen, Kbd, Page, PageHeader, Panel, SkeletonRows } from '../components/ui'
 import { OptionToggle, useScreenOptions } from '../components/ScreenOptions'
 import { useFeatures } from '../lib/useFeatures'
+import { kindForVoucherKey } from '../lib/voucherKeys'
 import { InvoiceEntry } from './voucher/InvoiceEntry'
 import { AccountingEntry } from './voucher/AccountingEntry'
 import { ManufactureEntry } from './voucher/ManufactureEntry'
 import { PhysicalStockEntry } from './voucher/PhysicalStockEntry'
 import { StockLinesEntry } from './voucher/StockLinesEntry'
 
-const FKEYS: Record<string, VoucherKind> = {
-  F4: 'contra', F5: 'payment', F6: 'receipt', F7: 'journal', F8: 'sales', F9: 'purchase'
-}
 
 export function VoucherEntry({
   voucherId,
@@ -92,12 +90,10 @@ export function VoucherEntry({
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
-      const kind = FKEYS[e.key]
-      if (!kind || voucherId || !types) return
+      const target = kindForVoucherKey(e)
+      if (!target || voucherId || !types) return
       // Never switch voucher type underneath an open dialog (quick-create ledger, confirm…).
       if (isAnyModalOpen()) return
-      const withCtrl = e.ctrlKey || e.altKey
-      const target = withCtrl && kind === 'sales' ? 'credit_note' : withCtrl && kind === 'purchase' ? 'debit_note' : kind
       const t = types.find((t) => t.kind === target)
       if (t) {
         e.preventDefault()

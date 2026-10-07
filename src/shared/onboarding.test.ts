@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { deriveOnboarding, isInvoiceConfigCustomised, type OnboardingFacts } from './onboarding'
+import { deriveOnboarding, isInvoiceConfigCustomised, isPrintSetupCustomised, onboardingFromDashSetup, type OnboardingFacts } from './onboarding'
 import { DEFAULT_INVOICE_CONFIG } from './invoiceConfig'
 
 const groups = [
@@ -74,5 +74,31 @@ describe('isInvoiceConfigCustomised', () => {
     expect(isInvoiceConfigCustomised(DEFAULT_INVOICE_CONFIG)).toBe(false)
     expect(isInvoiceConfigCustomised({ ...DEFAULT_INVOICE_CONFIG, terms: 'Net 30' })).toBe(true)
     expect(isInvoiceConfigCustomised({ ...DEFAULT_INVOICE_CONFIG, copyLabels: ['Original', 'Duplicate'] })).toBe(true)
+  })
+})
+
+describe('onboardingFromDashSetup', () => {
+  const setup = { companyInfoComplete: true, gstRegistered: true, gstinSet: false, userLedgers: 2, bankLedgers: 0, voucherCount: 5, userBackups: 0 }
+  it('maps the dashboard setup section onto the same steps', () => {
+    const r = onboardingFromDashSetup(setup, true)
+    expect(Object.fromEntries(r.steps.map((s) => [s.id, s.done]))).toEqual({
+      company: true, gstin: false, ledger: true, bank: false, voucher: true, invoice: true, backup: false
+    })
+    expect(r.doneCount).toBe(4)
+  })
+  it('without the invoice fact the invoice step is left out; unregistered skips the GSTIN', () => {
+    const r = onboardingFromDashSetup({ ...setup, gstRegistered: false })
+    expect(r.steps.map((s) => s.id)).not.toContain('invoice')
+    expect(r.total).toBe(6)
+    expect(r.steps.find((s) => s.id === 'gstin')).toMatchObject({ done: true, skipped: true })
+  })
+})
+
+describe('isPrintSetupCustomised', () => {
+  it('a customised built-in or any user template counts', () => {
+    expect(isPrintSetupCustomised(null)).toBe(false)
+    expect(isPrintSetupCustomised({ templates: [{ builtIn: true, customised: false }] })).toBe(false)
+    expect(isPrintSetupCustomised({ templates: [{ builtIn: true, customised: true }] })).toBe(true)
+    expect(isPrintSetupCustomised({ templates: [{ builtIn: false, customised: false }] })).toBe(true)
   })
 })

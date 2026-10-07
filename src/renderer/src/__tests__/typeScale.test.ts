@@ -9,11 +9,20 @@ const ROOT = resolve(__dirname, '..')
 
 /**
  * Files still allowed a raw size. Each entry must still contain one (stale entries fail), so the
- * list can only shrink. The two left are owned by parallel work packages that are rewriting them
- * (WP 1.10b Gateway dashboard, WP 1.10c invoice template designer) and were deliberately not
- * touched by WP 1.10a — they convert to the scale as part of those rewrites.
+ * list can only shrink. What's left is WP 1.10b's Gateway dashboard and its chart, built in
+ * parallel with the type scale and owned by that work package (WP 1.10a was asked not to edit
+ * them) — they convert with the mechanical mapping:
+ * 9/10→micro 10.5→label 11→caption 11.5→hint 12→small 12.5→body-sm 13→detail 13.5→body
+ * 14/14.5→lead 15→subtitle 16→title 17→brand 19/20→heading 28→display 34→hero.
+ * (SlotChart's SVG <text fontSize> may stay numeric; give it a reason here if it does.)
  */
-const ALLOWLIST: string[] = ['screens/Gateway.tsx', 'screens/settings/InvoiceConfigSection.tsx']
+const ALLOWLIST: string[] = [
+  'screens/Gateway.tsx',
+  'screens/gateway/cards.tsx',
+  'screens/gateway/parts.tsx',
+  'components/charts/SlotChart.tsx'
+]
+
 
 const RAW_SIZE = /\btext-\[(?:length:)?\d+(?:\.\d+)?(?:px|rem|em|pt)\]|\bfontSize\s*:/g
 

@@ -61,6 +61,28 @@ export function plainMilli(qtyMilli: number): string {
   return `${sign}${whole}.${frac}`
 }
 
+/**
+ * Compact Indian-unit label for chart axes and dense tiles: "₹950", "₹45.2K", "₹1.2L", "₹3.4Cr".
+ * One decimal, trailing ".0" dropped, half away from zero — integer math on paise throughout.
+ * Never for amounts a user reads as exact (tooltips and tables use formatPaise).
+ */
+export function formatPaiseCompact(paise: number): string {
+  const sign = paise < 0 ? '-' : ''
+  const abs = Math.abs(paise)
+  const units: [number, string][] = [[100_00000_00, 'Cr'], [100_000_00, 'L'], [1_000_00, 'K']]
+  // Under ₹1,000 the exact rupee figure is already short.
+  for (const [unit, suffix] of abs >= 1_000_00 ? units : []) {
+    // Decide the unit on the ROUNDED value, so ₹99,960 reads "₹1L", not "₹100K".
+    const tenths = Math.floor((abs * 10 + unit / 2) / unit)
+    if (tenths >= 10) {
+      const whole = Math.floor(tenths / 10)
+      const frac = tenths % 10
+      return `${sign}₹${whole}${frac ? `.${frac}` : ''}${suffix}`
+    }
+  }
+  return `${sign}₹${Math.floor((abs + 50) / 100)}`
+}
+
 /** Round a fractional paise value to an integer, half away from zero (GST convention). */
 export function roundPaise(value: number): number {
   return Math.sign(value) * Math.round(Math.abs(value))
@@ -121,4 +143,18 @@ export function amountInWords(paise: number): string {
   if (p) words += ` and ${twoDigits(p)} Paise`
   words += ' Only'
   return (negative ? 'Minus ' : '') + words
+}
+
+/**
+ * Quantity thousandths as the shortest decimal string — trailing zeros trimmed, no grouping:
+ * 2000 -> "2", 2500 -> "2.5", 1 -> "0.001". Integer math only. Used by the printed documents'
+ * quantity cell (src/shared/print/render.ts); identical to the old `qtyMilli / 1000`
+ * interpolation for every integer input.
+ */
+export function formatQtyMilli(qtyMilli: number): string {
+  const sign = qtyMilli < 0 ? '-' : ''
+  const abs = Math.abs(qtyMilli)
+  const whole = Math.trunc(abs / 1000)
+  const frac = (abs % 1000).toString().padStart(3, '0').replace(/0+$/, '')
+  return `${sign}${whole}${frac ? '.' + frac : ''}`
 }

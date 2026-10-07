@@ -12,6 +12,7 @@ import type {
   VoucherListRow
 } from '@shared/reports'
 import type { CashFlowStatement } from '@shared/reportMath'
+import type { DashboardSeries } from '@shared/dashboard'
 import type { Gstr1Result, Gstr3bResult } from '@shared/gst/returns'
 import type { GstIssue } from '@shared/gst/validate'
 import type { Recon2bResult } from '@shared/gst/recon2b'
@@ -28,6 +29,7 @@ import type { CompanyFeatures } from '@shared/features'
 import type { SearchHit, SearchResponse } from '@shared/search'
 import type { ChartGroupNode } from '@shared/chartOfAccounts'
 import type { InvoiceConfig } from '@shared/invoiceConfig'
+import type { PrintDocKind, PrintTemplate, TemplateList } from '@shared/printTemplates'
 import type { CloseLedgerRow } from '@shared/yearEnd'
 import type { ConsolidatedResult } from '@shared/consolidate'
 import type { Registry } from '../types'
@@ -476,6 +478,9 @@ export const api = {
     balanceSheet: (asOn: string, comparePrior?: boolean) =>
       call<BalanceSheet>('report:balanceSheet', { asOn, comparePrior }),
     dashboard: (today: string, fyFrom: string) => call<DashboardData>('report:dashboard', { today, fyFrom }),
+    /** Gateway dashboard cards (WP 1.10b) — sectioned: each card's data or its own error. */
+    dashboardSeries: (today: string, from: string, to: string) =>
+      call<DashboardSeries>('report:dashboardSeries', { today, from, to }),
     cashFlow: (from: string, to: string) => call<CashFlowStatement>('report:cashFlow', { from, to }),
     stockAgeing: (asOn: string) => call<StockAgeingRow[]>('report:stockAgeing', { asOn }),
     itemProfitability: (from: string, to: string) => call<ItemProfitRow[]>('report:itemProfitability', { from, to }),
@@ -572,6 +577,21 @@ export const api = {
     pdfBatch: (voucherIds: number[]) => call<{ dir: string; paths: string[] }>('invoice:pdfBatch', { voucherIds }),
     previewHtml: (voucherId?: number, config?: Partial<InvoiceConfig>) =>
       call<{ html: string }>('invoice:previewHtml', { voucherId, config })
+  },
+  /** Print templates (WP 1.10c) — Settings → Invoice templates. */
+  templates: {
+    list: () => call<TemplateList>('template:list'),
+    get: (id: string) => call<PrintTemplate>('template:get', { id }),
+    save: (template: PrintTemplate) => call<PrintTemplate>('template:save', { template }),
+    duplicate: (id: string) => call<PrintTemplate>('template:duplicate', { id }),
+    remove: (id: string) => call<{ ok: true }>('template:delete', { id }),
+    reset: (id: string) => call<PrintTemplate>('template:reset', { id }),
+    setDefault: (kind: PrintDocKind, id: string) => call<TemplateList>('template:setDefault', { kind, id }),
+    previewHtml: (template: PrintTemplate, opts: { voucherId?: number; kind?: PrintDocKind } = {}) =>
+      call<{ html: string }>('template:previewHtml', { template, ...opts }),
+    testPdf: (template: PrintTemplate, kind?: PrintDocKind) => call<{ path: string }>('template:testPdf', { template, kind }),
+    exportJson: (id: string) => call<{ path: string }>('template:export', { id }),
+    importJson: (jsonText?: string) => call<PrintTemplate | null>('template:import', jsonText === undefined ? {} : { jsonText })
   },
   cheque: {
     config: {

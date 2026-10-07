@@ -95,7 +95,7 @@ spinner. `buttonClass(variant, size)` gives the class string for button-looking 
 ```
 
 The caption is the control's accessible name; hint/error are linked with
-`aria-describedby`, an error sets `aria-invalid` and announces. Outside a Field use
+`aria-describedby` and an error sets `aria-invalid` (the form decides whether to announce it). Outside a Field use
 `<TextInput invalid />`. `inputCls` / `inputSmCls` style custom controls (`controlCls(className)`
 drops `w-full` when you size the control yourself); `useFieldAria()` gives a custom control inside
 a Field its aria props, and `useInField()` tells it not to add a fallback `aria-label` (AmountInput,

@@ -20,7 +20,7 @@ import { fyOf } from '@shared/dates'
 /** Signed closing balance (opening + movement ≤ asOn) per ledger — one grouped scan of
  *  voucher_lines (same shape as masters.ledgerBalances) instead of a correlated subquery
  *  per ledger row. */
-function closingBalances(db: DB, asOn: string): Map<number, number> {
+export function closingBalances(db: DB, asOn: string): Map<number, number> {
   const rows = db
     .prepare(
       `SELECT l.id, l.opening_balance + COALESCE(m.movement, 0) AS bal
@@ -953,7 +953,7 @@ function addDaysISO(iso: string, delta: number): string {
 /** Ids of all groups in the subtrees rooted at the named groups, computed in JS from an
  *  already-loaded group list (dashboard loads groups once and derives every set from it).
  *  Name matching is case-insensitive, mirroring the NOCASE collation on groups.name. */
-function descendantIdSet(groups: Group[], names: string[]): Set<number> {
+export function descendantIdSet(groups: Group[], names: string[]): Set<number> {
   const children = new Map<number | null, number[]>()
   for (const g of groups) {
     const list = children.get(g.parentId) ?? []

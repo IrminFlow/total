@@ -10,8 +10,14 @@
  *
  *   nav-<screen>            Sidebar nav buttons (derived: 'nav-' + screen registry name,
  *                           e.g. nav-daybook, nav-masters, nav-trial-balance).
- *   card-<screen>           Gateway cards (derived: 'card-' + registry name,
- *                           e.g. card-voucher-entry, card-gstr1).
+ *   tile-<figure>           Gateway stat tiles (tile-cash, tile-receivables, tile-payables,
+ *                           tile-sales, tile-purchases, tile-profit) — WP 1.10b replaced the
+ *                           old card-<screen> menu grid; single-letter shortcuts remain.
+ *   dash-<card>             Gateway dashboard cards (dash-trade, dash-profit, dash-ageing,
+ *                           dash-top-customers, dash-top-suppliers, dash-compliance, dash-cash,
+ *                           dash-stock, dash-books, dash-recent, dash-onboarding); each carries
+ *                           data-state="loading|error|ready". quick-<kind> are the header's
+ *                           quick actions; top-ledger / recent-voucher rows are unchanged.
  *   tab-<screen>-<tab>      Tab bars (tab-masters-ledgers, tab-settings-backups,
  *                           tab-payroll-runs, tab-outstandings-receivable, tab-registers-sales).
  *   btn-<screen>-<action>   Primary/submit buttons (btn-masters-new-ledger, btn-gstr1-export,

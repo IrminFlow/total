@@ -80,7 +80,7 @@ export function Field({
           {children}
         </label>
         {error ? (
-          <span id={msgId} role="alert" className="mt-1 block text-hint text-danger">
+          <span id={msgId} className="mt-1 block text-hint text-danger">
             {error}
           </span>
         ) : hint ? (

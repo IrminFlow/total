@@ -120,8 +120,9 @@ describe('Day Book', () => {
 
     fireEvent.click(rowsOf('daybook')[1]!)
     expect(go).toHaveBeenCalledWith({ name: 'voucher-entry', voucherId: 11 })
-    // Only the sales voucher has the invoice PDF action, in its own cell (never activating the row).
-    expect(screen.getAllByTestId('btn-daybook-invoice-pdf')).toHaveLength(1)
+    // Every printable voucher (here the sales invoice and the payment) has the PDF action in its own
+    // cell (never activating the row); WP 1.10c prints non-invoice kinds with their template too.
+    expect(screen.getAllByTestId('btn-daybook-invoice-pdf')).toHaveLength(2)
   })
 
   it('"All vouchers" shows optional rows but keeps them out of the totals', async () => {
