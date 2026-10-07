@@ -43,6 +43,15 @@ const EXPECTED_TABLES = [
   'employee_pay_heads',
   'manufacture_details',
   'serial_numbers',
+  'ca_asset_classes',
+  'it_blocks',
+  'it_block_rates',
+  'it_block_openings',
+  'fixed_asset_groups',
+  'fixed_assets',
+  'fixed_asset_additions',
+  'depreciation_runs',
+  'depreciation_lines',
   'migrations'
 ]
 
