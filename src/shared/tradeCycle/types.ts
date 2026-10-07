@@ -68,6 +68,8 @@ export interface PendingNoteRow {
   stockItemId: number
   itemName: string
   unit: string | null
+  /** The unit's display decimals. */
+  decimals: number
   godownId: number | null
   godownName: string | null
   qtyMilli: number

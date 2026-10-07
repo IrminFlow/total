@@ -297,8 +297,8 @@ export function StockNoteEntry({
             <span>Value of goods</span>
             <Money paise={value} />
           </div>
-          <p className="mt-1 text-hint text-muted not-italic">
-            Nothing posts to the books — stock {outward ? 'leaves' : 'comes in'} on {toDisplayDate(date)}.
+          <p className="mt-1 font-sans text-hint text-muted">
+            Nothing posts to the books — stock {outward ? 'leaves' : 'comes in'} on <span className="num whitespace-nowrap">{toDisplayDate(date)}</span>.
           </p>
         </div>
       </div>

@@ -252,7 +252,7 @@ describe('printing', () => {
     expect(html).toContain('rule 55 of the CGST Rules, 2017')
     expect(html).toContain('Taxable value')
     expect(html).toContain('Purpose: Supply')
-    expect(html).not.toMatch(/tax invoice/i)
+    expect(html).not.toMatch(/invoice/i)
     expect(html).not.toContain('Balance outstanding')
     const jw = saveNote(b, 'delivery_note', '2025-05-02', [row(b.w, 1, 100000)], { purpose: 'job_work' })
     const jwHtml = documentHtml(b.db, COMPANY, jw).html

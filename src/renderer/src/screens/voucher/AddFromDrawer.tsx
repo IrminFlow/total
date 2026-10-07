@@ -4,6 +4,8 @@
 // quantity (defaults to pending, capped at pending), Insert: the form appends rows that carry
 // their `source`, and the save links them (services/tradeLinks.ts).
 import { useMemo, useState } from 'react'
+import { useQuery } from '@tanstack/react-query'
+import { api } from '../../lib/client'
 import type { OpenSourceLine } from '@shared/tradeCycle/types'
 import { formatQtyMilli } from '@shared/money'
 import type { SourcePick } from '@shared/voucherEdit'
@@ -28,6 +30,13 @@ export function AddFromDrawer({
 }): React.JSX.Element {
   const items = useStockItems()
   const itemName = useMemo(() => new Map(items.map((i) => [i.id, i.name])), [items])
+  const { data: units } = useQuery({ queryKey: ['units'], queryFn: api.units.list })
+  // Quantities show in the item's unit decimals.
+  const decimalsOf = useMemo(() => {
+    const byUnit = new Map((units ?? []).map((u) => [u.id, u.decimals]))
+    const byItem = new Map(items.map((i) => [i.id, byUnit.get(i.unitId) ?? 3]))
+    return (r: OpenSourceLine): number => byItem.get(r.stockItemId) ?? 3
+  }, [units, items])
   // Picked lines → the quantity text being typed (units).
   const [picked, setPicked] = useState<ReadonlyMap<string, string>>(() => new Map())
 
@@ -49,18 +58,19 @@ export function AddFromDrawer({
     () =>
       defineColumns<OpenSourceLine>([
         {
-          id: 'doc', header: 'Document', kind: 'text', value: (r) => r.label, minWidth: 150, hideable: false,
-          cell: (r) => <VoucherLink voucherId={r.voucherId} label={r.label} />
+          id: 'doc', header: 'Document', kind: 'text', value: (r) => docOf(r.label), minWidth: 130, hideable: false,
+          cell: (r) => <VoucherLink voucherId={r.voucherId} label={docOf(r.label)} />
         },
+        { id: 'line', header: 'Line', kind: 'number', value: (r) => lineOf(r.label), width: 56, defaultHidden: true },
         { id: 'date', header: 'Date', kind: 'date', value: (r) => r.date, className: 'text-muted' },
         {
           id: 'item', header: 'Item', kind: 'text', value: (r) => itemName.get(r.stockItemId) ?? '', minWidth: 120,
           cell: (r) => <ItemLink itemId={r.stockItemId} name={itemName.get(r.stockItemId) ?? `#${r.stockItemId}`} />
         },
-        { id: 'qty', header: 'On doc.', kind: 'quantity', value: (r) => r.qtyMilli, width: 84 },
-        { id: 'done', header: 'Done', kind: 'quantity', value: (r) => r.doneMilli, width: 76, defaultHidden: false },
-        { id: 'pending', header: 'Pending', kind: 'quantity', value: (r) => r.pendingMilli, width: 84 },
-        { id: 'rate', header: 'Rate', kind: 'money', value: (r) => r.ratePaise, width: 110 },
+        { id: 'qty', header: 'On doc.', kind: 'quantity', value: (r) => r.qtyMilli, decimals: decimalsOf, width: 84 },
+        { id: 'done', header: 'Done', kind: 'quantity', value: (r) => r.doneMilli, decimals: decimalsOf, width: 76, defaultHidden: true },
+        { id: 'pending', header: 'Pending', kind: 'quantity', value: (r) => r.pendingMilli, decimals: decimalsOf, width: 84 },
+        { id: 'rate', header: 'Rate', kind: 'money', value: (r) => r.ratePaise, width: 104 },
         {
           id: 'serials', header: 'Serials', kind: 'text', value: (r) => r.serials.join(', '), defaultHidden: r0(lines),
           width: 120
@@ -85,7 +95,7 @@ export function AddFromDrawer({
             )
         }
       ]),
-    [itemName, picked, lines]
+    [itemName, picked, lines, decimalsOf]
   )
 
   const picks: SourcePick[] = lines
@@ -98,7 +108,7 @@ export function AddFromDrawer({
       title={title}
       subtitle="Tick the lines to draw on; the quantity defaults to what is still pending."
       onClose={onClose}
-      width={860}
+      width={900}
       testId="drawer-add-from"
       footer={
         <>
@@ -122,7 +132,7 @@ export function AddFromDrawer({
         maxHeight="calc(100vh - 220px)"
         empty={{ title: 'Nothing pending for this party', hint: 'Every line is already drawn on, or there are no documents yet.' }}
         onRowActivate={(r) => toggle(r, !picked.has(r.lineUid))}
-        leadingWidth={32}
+        leadingWidth={40}
         leading={(r) => (
           <input
             type="checkbox"
@@ -136,6 +146,10 @@ export function AddFromDrawer({
     </Drawer>
   )
 }
+
+/** "Delivery Note DC-1 line 2" → "Delivery Note DC-1" / 2. */
+const docOf = (label: string): string => label.replace(/ line \d+$/, '')
+const lineOf = (label: string): number => Number(/ line (\d+)$/.exec(label)?.[1] ?? 0)
 
 /** Hide the serials column when no line has any. */
 function r0(lines: OpenSourceLine[]): boolean {

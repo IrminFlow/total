@@ -22,7 +22,7 @@ function columnsFor(stage: PendingStage) {
   return defineColumns<PendingNoteRow>([
     { id: 'date', header: 'Date', kind: 'date', value: (r) => r.date, className: 'text-muted' },
     {
-      id: 'number', header: stage === 'delivery_note' ? 'Challan' : 'GRN', kind: 'text', value: (r) => r.number, width: 110, hideable: false,
+      id: 'number', header: stage === 'delivery_note' ? 'Challan' : 'GRN', kind: 'text', value: (r) => r.number, width: 96, hideable: false,
       cell: (r) => <VoucherLink voucherId={r.voucherId} label={<span className="num">{r.number}</span>} />
     },
     {
@@ -30,7 +30,7 @@ function columnsFor(stage: PendingStage) {
       cell: (r) => (r.partyLedgerId ? <LedgerLink ledgerId={r.partyLedgerId} name={r.partyName ?? ''} /> : <>{r.partyName}</>)
     },
     {
-      id: 'purpose', header: 'Purpose', kind: 'enum', value: (r) => r.purpose, width: 120,
+      id: 'purpose', header: 'Purpose', kind: 'enum', value: (r) => r.purpose, width: 110, defaultHidden: stage === 'receipt_note',
       options: STOCK_NOTE_PURPOSES[stage].map((p) => ({ value: p.value, label: p.label })),
       text: (r) => purposeLabel(r.purpose)
     },
@@ -39,13 +39,13 @@ function columnsFor(stage: PendingStage) {
       cell: (r) => <ItemLink itemId={r.stockItemId} name={r.itemName} />
     },
     { id: 'godown', header: 'Godown', kind: 'text', value: (r) => r.godownName ?? '', defaultHidden: true },
-    { id: 'qty', header: stage === 'delivery_note' ? 'Delivered' : 'Received', kind: 'quantity', value: (r) => r.qtyMilli, unit: (r) => r.unit ?? '', width: 110 },
-    { id: 'done', header: stage === 'delivery_note' ? 'Invoiced' : 'Billed', kind: 'quantity', value: (r) => r.doneMilli, width: 100 },
-    { id: 'pending', header: 'Pending', kind: 'quantity', value: (r) => r.pendingMilli, unit: (r) => r.unit ?? '', width: 110, aggregate: 'sum' },
+    { id: 'qty', header: stage === 'delivery_note' ? 'Delivered' : 'Received', kind: 'quantity', value: (r) => r.qtyMilli, decimals: (r) => r.decimals, width: 100, defaultHidden: true },
+    { id: 'done', header: stage === 'delivery_note' ? 'Invoiced' : 'Billed', kind: 'quantity', value: (r) => r.doneMilli, decimals: (r) => r.decimals, width: 90 },
+    { id: 'pending', header: 'Pending', kind: 'quantity', value: (r) => r.pendingMilli, decimals: (r) => r.decimals, unit: (r) => r.unit ?? '', width: 110, aggregate: 'sum' },
     { id: 'rate', header: 'Rate', kind: 'money', value: (r) => r.ratePaise, width: 120, defaultHidden: true },
-    { id: 'value', header: 'Pending value', kind: 'money', value: (r) => r.pendingValue, width: 140, aggregate: 'sum' },
-    { id: 'age', header: 'Age (days)', kind: 'number', value: (r) => r.ageDays, width: 96 },
-    { id: 'bucket', header: 'Ageing', kind: 'text', value: (r) => bucketOf(r.ageDays), groupKey: (r) => bucketOf(r.ageDays), width: 110 }
+    { id: 'value', header: 'Pending value', kind: 'money', value: (r) => r.pendingValue, width: 130, aggregate: 'sum' },
+    { id: 'age', header: 'Age', kind: 'number', value: (r) => r.ageDays, text: (r) => `${r.ageDays} d`, width: 70 },
+    { id: 'bucket', header: 'Ageing', kind: 'text', value: (r) => bucketOf(r.ageDays), groupKey: (r) => bucketOf(r.ageDays), width: 104, defaultHidden: true }
   ])
 }
 
@@ -64,7 +64,7 @@ export function TradePendingScreen({ stage }: { stage: PendingStage }): React.JS
   const periodLabel = `as on ${toDisplayDate(to)}`
   const outward = stage === 'delivery_note'
   return (
-    <Page>
+    <Page width="wide">
       <PageHeader
         title={TITLE[stage]}
         period={periodLabel}

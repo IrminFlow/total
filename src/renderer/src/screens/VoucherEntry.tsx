@@ -19,6 +19,15 @@ import { LineDetailOption } from './voucher/LineStockDetail'
 import { StockJournalEntry, TransferEntry } from './StockJournal'
 
 
+/** Voucher types in list order, except that challan / GRN types (migration 024 gave them the
+ *  lowest ids) sit right after the last debit-note type. */
+function tabOrder<T extends { kind: VoucherKind }>(types: readonly T[]): T[] {
+  const notes = types.filter((t) => STOCK_NOTE_KINDS.includes(t.kind))
+  const rest = types.filter((t) => !STOCK_NOTE_KINDS.includes(t.kind))
+  const at = rest.map((t) => t.kind).lastIndexOf('debit_note')
+  return at < 0 ? [...rest, ...notes] : [...rest.slice(0, at + 1), ...notes, ...rest.slice(at + 1)]
+}
+
 export function VoucherEntry({
   voucherId,
   kindHint,
@@ -139,7 +148,7 @@ export function VoucherEntry({
 
   const typeTabs = !voucherId ? (
     <div role="tablist" aria-label="Voucher type" className="flex flex-wrap items-center gap-1">
-      {types
+      {tabOrder(types)
         .filter((t) => features.inventory || (t.kind !== 'stock_journal' && t.kind !== 'physical_stock'))
         // Delivery challans / GRNs (WP 2.5b): shown with Orders & challans on.
         .filter((t) => stockNotesOn || !STOCK_NOTE_KINDS.includes(t.kind))

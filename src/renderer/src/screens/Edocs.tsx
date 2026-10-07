@@ -360,7 +360,7 @@ export function EdocsScreen(): React.JSX.Element {
                   Generate EWB
                 </button>
               )}
-              {r.docType !== 'CRN' && (
+              {r.docType !== 'CRN' && !r.ewbReason?.startsWith('Goods moved on challan') && (
                 <button
                   className="mr-2 text-small text-blue hover:underline disabled:opacity-40"
                   data-testid="btn-edocs-ewb-json"

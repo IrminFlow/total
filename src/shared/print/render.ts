@@ -627,8 +627,11 @@ function renderInvoice(c: Ctx, doc: InvoiceDocument, opts: RenderOptions): strin
     : ''
   // Classic keeps the old renderer's always-printed Declaration heading; other styles drop an
   // empty one.
+  // A stock note never carries the invoice declaration ("…this invoice shows the actual price…").
   const declarationBlock =
-    legacy || f.declaration.trim()
+    stockNote && /invoice/i.test(f.declaration)
+      ? ''
+      : legacy || f.declaration.trim()
       ? `<div style="margin-top:10px" class="lbl">Declaration</div>
           <div style="font-size:${c.px(10.5)}">${esc(f.declaration)}</div>`
       : ''

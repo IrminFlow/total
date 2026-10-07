@@ -28,7 +28,7 @@ export function pendingStockNotes(db: DB, stage: 'delivery_note' | 'receipt_note
       `SELECT v.id AS voucherId, v.number, v.date, vt.kind, COALESCE(tvd.purpose, ?) AS purpose,
               v.party_ledger_id AS partyLedgerId, p.name AS partyName,
               il.line_uid AS lineUid, il.line_order AS lineOrder, il.stock_item_id AS stockItemId, si.name AS itemName,
-              u.symbol AS unit, il.godown_id AS godownId, g.name AS godownName, il.qty_milli AS qtyMilli,
+              u.symbol AS unit, COALESCE(u.decimals, 3) AS decimals, il.godown_id AS godownId, g.name AS godownName, il.qty_milli AS qtyMilli,
               il.rate_paise AS ratePaise, il.amount
        FROM inventory_lines il
        JOIN vouchers v ON v.id = il.voucher_id
