@@ -1,0 +1,68 @@
+// WP 4.3 — IPC payload schemas for payables (planning, payment runs, MSME, supplier statements and
+// reconciliation). Every handler in src/main/ipcPayables.ts Zod-parses through these.
+import { z } from 'zod'
+import { isoDate } from '../schemas'
+
+const id = z.number().int().positive()
+const positivePaise = z.number().int().safe().positive()
+
+export const payablesPlanSchema = z.object({ asOn: isoDate })
+
+export const paymentItemSchema = z.object({
+  partyLedgerId: id,
+  bankLedgerId: id,
+  /** Total settled on the supplier's ledger (Dr supplier), paise. */
+  amount: positivePaise,
+  /** Bills settled; empty = no bill-wise refs (the oldest bills settle first). */
+  bills: z.array(z.object({ name: z.string().trim().min(1).max(80), amount: positivePaise })).max(50).default([]),
+  instrumentNo: z.string().trim().max(60).nullable().default(null),
+  instrumentDate: isoDate.nullable().default(null),
+  narration: z.string().trim().max(500).nullable().default(null)
+})
+export type PaymentItemInput = z.input<typeof paymentItemSchema>
+
+export const paymentRunSchema = z.object({
+  date: isoDate,
+  kind: z.enum(['plan', 'batch']),
+  /** Payment voucher type; absent = the system Payment type. */
+  voucherTypeId: id.optional(),
+  /** Deduct TDS on payment where WP 3.2's rule says it is due (threshold crossed, undeducted). */
+  applyTds: z.boolean().default(true),
+  note: z.string().trim().max(200).nullable().default(null),
+  items: z.array(paymentItemSchema).min(1).max(200)
+})
+export type PaymentRunInput = z.input<typeof paymentRunSchema>
+
+export const paymentRunIdSchema = z.object({ id })
+export const paymentRunsListSchema = z.object({ from: isoDate.optional(), to: isoDate.optional() }).default({})
+
+export const msmeReportSchema = z.object({
+  asOn: isoDate,
+  /** s.43B(h) year; absent = the FY of asOn. */
+  fyStartYear: z.number().int().min(2000).max(2100).optional(),
+  /** Any date inside the MSME Form 1 half-year wanted; absent = the last half-year ended by asOn. */
+  formPeriodDate: isoDate.optional(),
+  /** "Today" for the at-risk test (s.15 periods still running); absent = the system date. */
+  today: isoDate.optional()
+})
+
+export const bankRateInputSchema = z.object({
+  fromDate: isoDate,
+  rateBp: z.number().int().min(0).max(5000),
+  source: z.string().trim().min(3).max(300)
+})
+export const bankRateSaveSchema = z.object({ id: id.optional(), data: bankRateInputSchema })
+
+export const supplierStatementSchema = z.object({ ledgerId: id, from: isoDate, to: isoDate })
+
+export const supplierReconSchema = z.object({
+  ledgerId: id,
+  from: isoDate,
+  to: isoDate,
+  csvText: z.string().max(5_000_000),
+  amountPaise: z.number().int().min(0).max(10_000_000).default(100),
+  dateDays: z.number().int().min(0).max(90).default(7)
+})
+
+export const msmeDueSchema = z.object({ asOn: isoDate })
+export const runExportSchema = z.object({ id })
