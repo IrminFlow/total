@@ -6,7 +6,8 @@
 // computeInvoice (voucherEdit/invoice.ts) — the same buckets, the same rupee rounding — so an
 // order's value equals the invoice it turns into, line for line.
 
-import type { LineSource, TradeDocKind } from '../domain'
+import type { CreditLimitWarning, LineSource, TradeDocKind } from '../domain'
+import { formatPaise } from '../money'
 import type { TradeDocInputParsed } from '../schemas'
 import { computeInvoice, type InvoiceComputed, type InvoiceFormState, type InvoiceRowState } from '../voucherEdit/invoice'
 import { qtyText } from '../voucherEdit/payload'
@@ -245,6 +246,16 @@ export function tradeDocStateFromDraft(draft: TradeDocDraft, date: string): Trad
       ...(l.source ? { source: { ...l.source } as LineSource } : {})
     }))
   }
+}
+
+/** The invoice form's credit-limit warning (saveVoucher's creditLimitExceeded). With Orders &
+ *  challans on it names the open sales-order value as a separate figure (§9 Q9, warn-only). */
+export function creditLimitWarningText(w: CreditLimitWarning): string {
+  const r = (p: number): string => formatPaise(p, { symbol: true })
+  const head = `${w.ledgerName}: credit limit ${r(w.creditLimit)}`
+  if (w.openSalesOrders === undefined || w.openSalesOrders === 0) return `${head} exceeded — outstanding ${r(w.outstanding)}`
+  const exposure = `outstanding ${r(w.outstanding)} + open sales orders ${r(w.openSalesOrders)} = ${r(w.outstanding + w.openSalesOrders)}`
+  return w.ordersOnly ? `${head} — ${exposure} (orders not yet invoiced)` : `${head} exceeded — ${exposure}`
 }
 
 /** Labels for the derived status (fulfilment.ts), per kind. */

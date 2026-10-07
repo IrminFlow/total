@@ -756,11 +756,15 @@ function renderInvoice(c: Ctx, doc: InvoiceDocument, opts: RenderOptions): strin
     </div>`
 
   // Rule 55(2): a challan goes in triplicate — unless the template names its own copies.
-  const challanCopies =
-    doc.kind === 'delivery_challan' && t.header.copyLabels.length === 1 && t.header.copyLabels[0] === 'Original for Recipient'
+  const defaultLabel = t.header.copyLabels.length === 1 && t.header.copyLabels[0] === 'Original for Recipient'
+  const copies =
+    doc.kind === 'delivery_challan' && defaultLabel
       ? [...CHALLAN_COPY_LABELS]
-      : undefined
-  return wrapDocument(c, `${label} ${inv.number}`, sheet, opts, challanCopies)
+      : // A quotation / order is one commercial copy — the tax invoice's "Original for Recipient" doesn't apply.
+        tradeDoc && defaultLabel
+        ? ['']
+        : undefined
+  return wrapDocument(c, `${label} ${inv.number}`, sheet, opts, copies)
 }
 
 // ---------------------------------------------------------------- voucher shape

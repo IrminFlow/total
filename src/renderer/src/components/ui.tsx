@@ -97,7 +97,9 @@ export function DateInput({
   onChange,
   className,
   testId = 'input-date',
-  ariaLabel
+  ariaLabel,
+  allowEmpty = false,
+  placeholder
 }: {
   value: string
   context: string
@@ -107,10 +109,15 @@ export function DateInput({
   testId?: string
   /** Accessible name when there's no wrapping Field/label (toolbars, header controls). */
   ariaLabel?: string
+  /** An optional date: '' is a valid value (shown blank; clearing the text sets it). */
+  allowEmpty?: boolean
+  placeholder?: string
 }): React.JSX.Element {
-  const [text, setText] = useState(toDisplayDate(value))
+  const show = (v: string): string => (allowEmpty && !v ? '' : toDisplayDate(v))
+  const [text, setText] = useState(show(value))
   const [bad, setBad] = useState(false)
-  useEffect(() => setText(toDisplayDate(value)), [value])
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => setText(show(value)), [value])
   const fieldAria = useFieldAria()
   const inField = useInField()
   return (
@@ -119,6 +126,7 @@ export function DateInput({
         className={`${inputCls} num ${bad ? 'border-danger/70' : ''}`}
         data-testid={testId}
         value={text}
+        placeholder={placeholder}
         aria-label={ariaLabel ?? (inField ? undefined : 'Date')}
 
         aria-describedby={fieldAria['aria-describedby']}
@@ -129,7 +137,12 @@ export function DateInput({
         }}
         onFocus={(e) => e.target.select()}
         onBlur={() => {
-          const parsed = parseSmartDate(text, context) ?? (text.trim() === toDisplayDate(value) ? value : null)
+          if (allowEmpty && text.trim() === '') {
+            setBad(false)
+            if (value !== '') onChange('')
+            return
+          }
+          const parsed = parseSmartDate(text, context) ?? (text.trim() === show(value) ? value : null)
           if (parsed) {
             setBad(false)
             onChange(parsed)

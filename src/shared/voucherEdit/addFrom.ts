@@ -2,9 +2,9 @@
 // challan / GRN lines for an invoice / bill, or invoice / bill lines for a credit / debit note —
 // into invoice-form rows that carry their `source`. Pure: the drawer and the dbtests share it.
 
-import type { LinkType, VoucherKind } from '../domain'
+import type { LinkType } from '../domain'
 import type { OpenSourceLine } from '../tradeCycle/types'
-import { linkRuleFor, sourceKindsFor } from '../tradeCycle/rules'
+import { linkRuleFor, sourceKindsFor, type TradeSideKind } from '../tradeCycle/rules'
 import type { InvoiceRowState } from './invoice'
 import { qtyText } from './payload'
 
@@ -14,11 +14,16 @@ export interface SourcePick {
   qtyMilli: number
 }
 
-/** What the invoice form's "Add from…" button draws on, per kind (null = no button). */
-export function addFromFor(kind: VoucherKind): { linkType: LinkType; sourceKinds: VoucherKind[]; label: string } | null {
+/** What an entry form's "Add from…" button draws on, per kind (null = no button). WP 2.5c adds
+ *  the order sources: an invoice draws on quotations, sales orders and challans; a bill on
+ *  purchase orders and GRNs; a challan on sales orders; a GRN on purchase orders. */
+export function addFromFor(kind: TradeSideKind): { linkType: LinkType; sourceKinds: TradeSideKind[]; label: string } | null {
   switch (kind) {
-    case 'sales': return { linkType: 'fulfil', sourceKinds: ['delivery_note'], label: 'Add from challans…' }
-    case 'purchase': return { linkType: 'fulfil', sourceKinds: ['receipt_note'], label: 'Add from receipt notes…' }
+    case 'sales_order': return { linkType: 'fulfil', sourceKinds: ['quotation'], label: 'Add from quotations…' }
+    case 'sales': return { linkType: 'fulfil', sourceKinds: ['quotation', 'sales_order', 'delivery_note'], label: 'Add from orders / challans…' }
+    case 'purchase': return { linkType: 'fulfil', sourceKinds: ['purchase_order', 'receipt_note'], label: 'Add from orders / GRNs…' }
+    case 'delivery_note': return { linkType: 'fulfil', sourceKinds: ['sales_order'], label: 'Add from sales orders…' }
+    case 'receipt_note': return { linkType: 'fulfil', sourceKinds: ['purchase_order'], label: 'Add from purchase orders…' }
     case 'credit_note': return { linkType: 'return', sourceKinds: ['sales'], label: 'Against invoice…' }
     case 'debit_note': return { linkType: 'return', sourceKinds: ['purchase'], label: 'Against bill…' }
     default: return null
@@ -26,7 +31,7 @@ export function addFromFor(kind: VoucherKind): { linkType: LinkType; sourceKinds
 }
 
 /** Sanity: every kind addFromFor names is an allowed link pair (rules.ts is the authority). */
-export function addFromIsAllowed(kind: VoucherKind): boolean {
+export function addFromIsAllowed(kind: TradeSideKind): boolean {
   const a = addFromFor(kind)
   if (!a) return false
   const allowed = sourceKindsFor(kind, a.linkType)
@@ -68,6 +73,6 @@ export function rowsFromSourcePicks(picks: readonly SourcePick[], opts: { linkTy
 /** Does a row drawn this way keep the source's goods (item / godown / batch / serials locked)?
  *  True for a fulfil link from a stock note (moves_stock = 0, I3); a return moves stock itself, so
  *  only its item is fixed. */
-export function sourceLocksGoods(sourceKind: VoucherKind, targetKind: VoucherKind, linkType: LinkType): boolean {
+export function sourceLocksGoods(sourceKind: TradeSideKind, targetKind: TradeSideKind, linkType: LinkType): boolean {
   return linkRuleFor(sourceKind, targetKind, linkType)?.nonMoving ?? false
 }

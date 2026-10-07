@@ -6,7 +6,9 @@
 // A link swallows its own click and Enter/Space, so the row underneath (whose click opens the
 // ledger statement, the voucher, an expansion…) never fires as well.
 import type { KeyboardEvent, MouseEvent, ReactNode } from 'react'
+import type { TradeDocKind } from '@shared/domain'
 import { isRealId, openItemEdit, openLedgerEdit, openVoucher, useCanEditMasters } from '../lib/drill'
+import { useNav } from '../state/stores'
 import { useLedgers } from './pickers'
 
 const LINK_CLS =
@@ -138,6 +140,48 @@ export function VoucherLink({
       onOpen={() => openVoucher(voucherId)}
     />
   )
+}
+
+/** A quotation / order's number → its entry form (WP 2.5c). `kind` picks the form's title. */
+export function TradeDocLink({
+  tradeDocId,
+  kind,
+  label,
+  className
+}: {
+  tradeDocId: number | null | undefined
+  kind: TradeDocKind
+  label: ReactNode
+  className?: string
+}): React.JSX.Element {
+  if (!isRealId(tradeDocId)) return <>{label}</>
+  return (
+    <LinkButton
+      label={label}
+      title="Open document"
+      className={className}
+      attrs={{ 'data-trade-doc-link': tradeDocId, 'data-testid': 'trade-doc-link' }}
+      onOpen={() => useNav.getState().go({ name: 'trade-doc', kind, id: tradeDocId })}
+    />
+  )
+}
+
+/** A source / linked document of either class: a voucher or a trade doc. */
+export function DocLink({
+  voucherId,
+  tradeDocId,
+  kind,
+  label
+}: {
+  voucherId: number | null
+  tradeDocId: number | null
+  kind: string
+  label: ReactNode
+}): React.JSX.Element {
+  if (tradeDocId != null && (kind === 'quotation' || kind === 'sales_order' || kind === 'purchase_order')) {
+    return <TradeDocLink tradeDocId={tradeDocId} kind={kind} label={label} />
+  }
+  return <VoucherLink voucherId={voucherId} label={label} />
 }
 
 /** Props that turn a plain (non-DataTable) list row into a drill row: click or Enter opens the
