@@ -918,4 +918,18 @@ export const MIGRATIONS: string[] = [
   DROP TABLE m020_by_name;
   DROP TABLE m020_by_entry;
   `
+  ,
+  // 022 (WP 3.2) — TDS "Not applicable" marks. Number assigned by the orchestrator: it follows 021
+  // (a parallel branch) and depends on nothing that 021 adds — only on vouchers (001). Until 021
+  // merges this sits in the next free slot; on rebase it moves after 021 unchanged.
+  // One row per voucher the user has said carries no TDS (not a sum of that nature, a payee
+  // declaration, below-threshold by agreement …): the Eligible tab skips it and the aggregate
+  // threshold walk leaves it out. Deleting the voucher (purge) cascades.
+  `
+  CREATE TABLE IF NOT EXISTS tds_exemptions (
+    voucher_id INTEGER PRIMARY KEY REFERENCES vouchers(id) ON DELETE CASCADE,
+    reason TEXT NOT NULL CHECK (length(reason) BETWEEN 1 AND 200),
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+  `
 ]
