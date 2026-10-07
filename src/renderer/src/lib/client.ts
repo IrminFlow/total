@@ -755,8 +755,9 @@ export const api = {
     list: (from: string, to: string, voucherTypeId?: number) =>
       call<VoucherListRow[]>('voucher:list', { from, to, voucherTypeId }),
     get: (id: number) => call<Voucher | null>('voucher:get', { id }),
-    save: (data: VoucherInputParsed, id?: number) =>
-      call<Voucher & { duplicateNumber?: boolean; warnings?: SaveVoucherWarnings }>('voucher:save', { data, id }),
+    /** `creditHoldOverride` (WP 4.2): an owner's reason for invoicing a party on credit hold. */
+    save: (data: VoucherInputParsed, id?: number, opts?: { creditHoldOverride?: { reason: string } }) =>
+      call<Voucher & { duplicateNumber?: boolean; warnings?: SaveVoucherWarnings }>('voucher:save', { data, id, ...(opts?.creditHoldOverride ? { creditHoldOverride: opts.creditHoldOverride } : {}) }),
     remove: (id: number) => call<null>('voucher:delete', { id }),
     nextNumber: (voucherTypeId: number, date: string, excludeId?: number) =>
       call<{ number: string }>('voucher:nextNumber', { voucherTypeId, date, excludeId }),

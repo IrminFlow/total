@@ -347,6 +347,32 @@ export interface SaveVoucherHooks {
   manufacture?: boolean
   /** Set by the job-work service (WP 2.4): it owns send / return challans. */
   jobWork?: boolean
+  /** WP 4.2: an owner's override of the party's credit hold, with the reason (audited as
+   *  'credit_override'). The IPC layer only passes it for an owner (or a company without users). */
+  creditHoldOverride?: { reason: string }
+}
+
+/** WP 4.2 — the error saveVoucher throws for a new sales invoice to a party on credit hold. The
+ *  invoice form recognises the prefix and offers the owner override. */
+export const CREDIT_HOLD_PREFIX = 'Credit hold:'
+
+const creditHoldColumn = new WeakMap<DB, boolean>()
+function hasCreditHold(db: DB): boolean {
+  let v = creditHoldColumn.get(db)
+  if (v === undefined) {
+    v = (db.prepare('PRAGMA table_info(ledgers)').all() as { name: string }[]).some((c) => c.name === 'credit_hold')
+    creditHoldColumn.set(db, v)
+  }
+  return v
+}
+
+/** The party's credit hold (migration 033), or null when it isn't on hold. */
+export function creditHoldOf(db: DB, ledgerId: number): { name: string; reason: string | null; at: string | null } | null {
+  if (!hasCreditHold(db)) return null
+  const r = db.prepare('SELECT name, credit_hold AS hold, credit_hold_reason AS reason, credit_hold_at AS at FROM ledgers WHERE id = ?').get(ledgerId) as
+    | { name: string; hold: number; reason: string | null; at: string | null }
+    | undefined
+  return r && r.hold ? { name: r.name, reason: r.reason, at: r.at } : null
 }
 
 export const MANUFACTURE_EDIT_ELSEWHERE = 'This is a manufacture voucher — alter it from the Manufacture screen'
@@ -432,6 +458,15 @@ export function saveVoucher(db: DB, raw: VoucherInput, existingId?: number, hook
   // (an edit that doesn't mention them mustn't silently mature a PDC).
   const postDated = input.postDated ?? before?.postDated ?? false
   const isOptional = input.isOptional ?? before?.isOptional ?? false
+
+  // WP 4.2 credit hold: a NEW in-books sales invoice to a party on hold is refused unless an owner
+  // overrides it with a reason. Edits of existing invoices (fixing a typo) and memorandum /
+  // post-dated vouchers are not new credit, so they pass.
+  const hold = vt.kind === 'sales' && !existingId && !isOptional && input.partyLedgerId !== null ? creditHoldOf(db, input.partyLedgerId) : null
+  const holdOverride = hold ? hooks.creditHoldOverride?.reason.trim() || null : null
+  if (hold && !holdOverride) {
+    throw new Error(`${CREDIT_HOLD_PREFIX} ${hold.name} is on credit hold${hold.reason ? ` (${hold.reason})` : ''} — an owner can override with a reason`)
+  }
 
   const run = db.transaction((): number => {
     // WP 2.5: stable line uids + resolved link sources (refused here — before anything is
@@ -686,6 +721,11 @@ export function saveVoucher(db: DB, raw: VoucherInput, existingId?: number, hook
   const voucherId = run()
   const after = getVoucher(db, voucherId)!
   writeAudit(db, 'voucher', voucherId, existingId ? 'update' : 'create', before, after)
+  if (hold && holdOverride) {
+    writeAudit(db, 'credit_override', voucherId, 'create', null, {
+      voucherId, number: after.number, ledgerId: input.partyLedgerId, party: hold.name, holdReason: hold.reason, overrideReason: holdOverride
+    })
+  }
   const duplicate = db
     .prepare(
       `SELECT 1 FROM vouchers v WHERE v.voucher_type_id = ? AND v.number = ? AND v.id <> ? AND ${NOT_DELETED} LIMIT 1`
@@ -710,6 +750,21 @@ export function deleteVoucher(db: DB, id: number): void {
   writeAudit(db, 'voucher', id, 'delete', before, null)
 }
 
+/** WP 4.2 — refuse to restore an interest debit note whose bill-periods overlap a live charge. */
+function assertInterestRestorable(db: DB, id: number): void {
+  if (!db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'interest_charges'").get()) return
+  const clash = db
+    .prepare(
+      `SELECT a.bill_ref AS bill FROM interest_charges a JOIN interest_charges b
+         ON b.party_ledger_id = a.party_ledger_id AND b.bill_ref = a.bill_ref AND b.bill_voucher_id IS a.bill_voucher_id
+        AND b.debit_note_voucher_id <> a.debit_note_voucher_id AND b.period_from <= a.period_to AND b.period_to >= a.period_from
+       JOIN vouchers v ON v.id = b.debit_note_voucher_id
+       WHERE a.debit_note_voucher_id = ? AND ${NOT_DELETED} LIMIT 1`
+    )
+    .get(id) as { bill: string } | undefined
+  if (clash) throw new Error(`Interest on ${clash.bill} for this period has been charged again on another debit note — restoring this one would charge it twice`)
+}
+
 /** Reinstate a binned voucher so it counts in reports again. */
 export function restoreVoucher(db: DB, id: number): void {
   const before = getVoucher(db, id)
@@ -717,6 +772,9 @@ export function restoreVoucher(db: DB, id: number): void {
   if (!before.deletedAt) throw new Error('Voucher is not in the bin')
   const lock = getLockDate(db)
   if (lock && before.date <= lock) throw new Error(`Books are locked up to ${lock}`)
+  // WP 4.2: a restored interest debit note must not charge a bill-period that another live
+  // note has charged since it was binned.
+  assertInterestRestorable(db, id)
   // WP 3.6: a restored depreciation / disposal journal must not double-count a re-posted period.
   assertFixedAssetVoucherRestorable(db, id)
   if (before.isYearEndClose) {

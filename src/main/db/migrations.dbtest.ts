@@ -76,6 +76,10 @@ const EXPECTED_TABLES = [
   'discount_schemes',
   'discount_scheme_slabs',
   'counter_sales',
+  // 033 (WP 4.2)
+  'reminder_log',
+  'interest_charges',
+  'bill_followups',
   'migrations'
 ]
 

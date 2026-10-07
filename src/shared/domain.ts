@@ -65,6 +65,16 @@ export interface Ledger {
   /** Credit limit in paise; null = no limit. saveVoucher warns (or blocks, under F11
    *  enforceCreditLimit) when the party's outstanding would exceed it. */
   creditLimit: number | null
+  /** WP 4.2 (migration 033) — party email for statements / reminders (mailto:). */
+  email?: string | null
+  /** Annual simple-interest rate on overdue bills, basis points (1800 = 18%); null = none. */
+  interestRateBp?: number | null
+  /** Interest-free days after a bill's due date. */
+  interestGraceDays?: number
+  /** Credit hold: InvoiceEntry blocks a new sales invoice unless an owner overrides. */
+  creditHold?: boolean
+  creditHoldReason?: string | null
+  creditHoldAt?: string | null
   isSystem: boolean
 }
 

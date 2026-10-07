@@ -1,6 +1,6 @@
 import type { DB } from '../db/connection'
 import type { OutstandingBill, OutstandingParty, RegisterMonthRow } from '@shared/reports'
-import { allocateBills, type BillEvent, type BillRef } from '@shared/outstanding'
+import { allocateBills, type AllocateBillsResult, type BillEvent, type BillRef } from '@shared/outstanding'
 import { fyOf } from '@shared/dates'
 import { descendantIdsByName } from './masters'
 import { IN_BOOKS } from './vouchers'
@@ -238,13 +238,19 @@ export function outstandings(db: DB, side: 'receivable' | 'payable', asOn: strin
 
 /** Open bills for a single party as of `asOn` — feeds the receipt/payment "settle against" picker. */
 export function openBills(db: DB, partyLedgerId: number, asOn: string): OutstandingBill[] {
+  return partyAllocation(db, partyLedgerId, asOn).bills
+}
+
+/** One party's full bill allocation as of `asOn` (open bills + unapplied credit + warnings) —
+ *  the same engine run as `outstandings` / `openBills` (WP 4.2 statements read the advance). */
+export function partyAllocation(db: DB, partyLedgerId: number, asOn: string): AllocateBillsResult {
   const ledger = db.prepare('SELECT group_id, opening_balance, credit_days FROM ledgers WHERE id = ?').get(partyLedgerId) as
     | { group_id: number; opening_balance: number; credit_days: number | null }
     | undefined
-  if (!ledger) return []
+  if (!ledger) return { bills: [], unappliedCredit: 0, warnings: [] }
   const debtorIds = descendantIdsByName(db, ['Sundry Debtors'])
   const sign = debtorIds.has(ledger.group_id) ? 1 : -1
   const eventsByParty = partyEventsBatch(db, [partyLedgerId], asOn, sign)
   const events = [...openingEvent(asOn, ledger.opening_balance, sign), ...(eventsByParty.get(partyLedgerId) ?? [])]
-  return allocateBills(events, asOn, ledger.credit_days).bills
+  return allocateBills(events, asOn, ledger.credit_days)
 }
