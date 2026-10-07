@@ -6,6 +6,7 @@ import type { DB } from '../db/connection'
 import type { TradeDocKind } from '@shared/domain'
 import type { TradeDocInput } from '@shared/schemas'
 import { buildTradeDocPayload, tradeDocStateFromDoc, tradeDocStateFromDraft, tradeDocToPayload } from '@shared/tradeCycle/edit'
+import { buildStockNotePayload, planVoucherEdit, taxLedgerIdsFrom } from '@shared/voucherEdit'
 import { TEST_INFO } from '../db/testdb'
 import { listLedgers, listStockItems } from './masters'
 import { deleteVoucher, getVoucher, restoreVoucher } from './vouchers'
@@ -210,6 +211,18 @@ describe('derived status and conversions', () => {
     const ch = dc(b, '2025-06-05', [{ item: b.w, qty: 4, amount: 48_000, from: su }])
     expect(status(b, so.id)).toBe('partly_fulfilled')
     expect(getTradeDoc(b.db, so.id)!.lines[0]).toMatchObject({ doneMilli: 4000, pendingMilli: 6000 })
+    // The challan drawn from the SO still opens in (and round-trips through) the challan form.
+    const c = {
+      companyStateCode: TEST_INFO.stateCode,
+      items: new Map(listStockItems(b.db).map((i) => [i.id, { gstRate: i.gstRate, cessRate: i.cessRate }])),
+      ledgers: new Map(listLedgers(b.db).map((l) => [l.id, { stateCode: l.stateCode, gstRate: l.gstRate, tdsPayableSectionId: l.tdsPayableSectionId }]))
+    }
+    const plan = planVoucherEdit(getVoucher(b.db, ch.id)!, 'delivery_note', { invoice: c, taxLedgers: taxLedgerIdsFrom(listLedgers(b.db)), itemName: () => '' })
+    expect(plan.mode).toBe('stockNote')
+    if (plan.mode === 'stockNote') {
+      const r = buildStockNotePayload(plan.state, { ...c, kind: 'delivery_note' }, getVoucher(b.db, ch.id)!.voucherTypeId)
+      expect(r.ok && r.payload.inventory[0]!.source).toEqual({ lineUid: su, linkType: 'fulfil' })
+    }
     // The challan's lines draw on the SO; the invoice draws on the challan (no stock) …
     const chUid = getVoucher(b.db, ch.id)!.inventory[0]!.lineUid!
     const inv1 = trade(b, 'sales', '2025-06-06', [{ item: b.w, qty: 4, amount: 48_000, from: chUid }])
