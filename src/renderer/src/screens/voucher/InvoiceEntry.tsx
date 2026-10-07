@@ -1,19 +1,19 @@
-import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import type { Voucher, VoucherBillRef, VoucherKind } from '@shared/domain'
 import type { OutstandingBill } from '@shared/reports'
 import type { VoucherInputParsed } from '@shared/schemas'
 import {
   buildInvoicePayload, computeInvoice, invoiceKindTakesTds, requiredTaxLedgers, taxLedgerIdsFrom,
-  type InvoiceContext, type InvoiceFormState, type InvoiceRowState, type TaxLedgerIds, type TdsDeductionState
+  type InvoiceContext, type InvoiceFormState, type TaxLedgerIds, type TdsDeductionState
 } from '@shared/voucherEdit'
 import { GST_STATES } from '@shared/gst/states'
 import { formatPaise, amountInWords } from '@shared/money'
 import { toDisplayDate } from '@shared/dates'
 import { api } from '../../lib/client'
 import { useNav, useSession, useToasts, type VoucherDraft } from '../../state/stores'
-import { AmountInput, Button, DateInput, Field, isAnyModalOpen, LineTableScroller, Money, Panel, Select, TextInput, inputCls } from '../../components/ui'
-import { ItemPicker, LedgerPicker, useLedgers, useStockItems, useTaxLedgers } from '../../components/pickers'
+import { AmountInput, Button, DateInput, Field, isAnyModalOpen, Money, Panel, Select, TextInput, inputCls } from '../../components/ui'
+import { LedgerPicker, useLedgers, useStockItems, useTaxLedgers } from '../../components/pickers'
 import { LedgerFormModal } from '../../components/LedgerFormModal'
 import { useFeatures } from '../../lib/useFeatures'
 import { confirmDialog } from '../../lib/dialogs'
@@ -23,7 +23,7 @@ import { QuickItemModal, QuickLedgerModal } from './modals'
 import { TransportModal } from './TransportModal'
 import { useTdsDeduction } from './useTdsDeduction'
 import { TdsBanner, TdsNotApplicableNote } from './TdsBanner'
-import { LineDetailToggle, LineStockDetail, LineStockSummary, useLineDetails } from './LineStockDetail'
+import { blankItemRow, ItemLineGrid, type ItemRow } from './ItemLineGrid'
 
 // ---------- invoice mode (sales / purchase / notes) ----------
 
@@ -31,12 +31,6 @@ import { LineDetailToggle, LineStockDetail, LineStockSummary, useLineDetails } f
 // and every state → payload rule live in @shared/voucherEdit/invoice — this component only owns
 // the inputs. `initial` (an alteration) comes from planVoucherEdit, which has already proved the
 // voucher round-trips through this form unchanged.
-interface ItemRow extends InvoiceRowState {
-  /** Stable React key — survives the trailing-blank-row insertions (never an array index). */
-  key: number
-}
-
-const blankItemRow = (): ItemRow => ({ key: nextLineKey(), itemId: null, qtyText: '', rate: null, discount: null, godownId: null, batchId: null })
 
 export function InvoiceEntry({
   typeId,
@@ -62,7 +56,6 @@ export function InvoiceEntry({
   const features = useFeatures()
   const ledgers = useLedgers()
   const items = useStockItems()
-  const { data: units } = useQuery({ queryKey: ['units'], queryFn: api.units.list })
   const { ensure: ensureTax, ensureRoundOff } = useTaxLedgers()
 
   const [date, setDate] = useState(initial?.date ?? draft?.date ?? workingDate)
@@ -356,14 +349,7 @@ export function InvoiceEntry({
     })
   }
 
-  const itemMap = useMemo(() => new Map(items.map((i) => [i.id, i])), [items])
-  const details = useLineDetails()
   const goodsIn = kind === 'purchase' || kind === 'credit_note'
-  const unitOf = (itemId: number | null): string => {
-    if (!itemId || !units) return ''
-    const item = itemMap.get(itemId)
-    return units.find((u) => u.id === item?.unitId)?.symbol ?? ''
-  }
 
   return (
     <Panel className="p-5">
@@ -450,115 +436,18 @@ export function InvoiceEntry({
         )}
       </div>
 
-      {/* Long invoices scroll inside a capped container instead of pushing the totals
-          off-screen. Short ones stay unwrapped: any overflow container would clip the
-          absolutely-positioned TypeAhead dropdowns. */}
-      <LineTableScroller active={rows.length > 8} className="mt-4">
-      <table className="ledger-table">
-        <thead>
-          <tr>
-            <th>Item</th>
-            <th className="r w-28">Qty</th>
-            <th className="r w-32">Rate</th>
-            <th className="r w-28">Disc.</th>
-            <th className="r w-24">GST %</th>
-            <th className="r w-36">Amount</th>
-            {features.inventory && <th className="w-6"><span className="sr-only">Stock details</span></th>}
-          </tr>
-        </thead>
-        <tbody data-testid="rows-invoice-lines">
-          {rows.map((r, i) => {
-            const item = r.itemId ? itemMap.get(r.itemId) : null
-            const qty = parseFloat(r.qtyText || '0')
-            const amount =
-              item && qty > 0 && r.rate != null ? Math.max(0, Math.round(qty * r.rate) - (r.discount ?? 0)) : 0
-            const detailOpen = features.inventory && details.isOpen(r.key, item)
-            return (
-              <Fragment key={r.key}>
-              <tr onKeyDown={features.inventory ? details.onRowKeyDown(r.key) : undefined} data-line-key={r.key}>
-                <td>
-                  <ItemPicker
-                    value={r.itemId}
-                    onPick={(id) => {
-                      // A batch (and serials) belong to one item — a different item can't keep the old line's.
-                      setRow(i, id === r.itemId ? { itemId: id } : { itemId: id, batchId: null, serials: undefined })
-                      // Price-level autofill: the party's price list fills an empty Rate cell.
-                      // Price-list rates are ₹, so skip while a foreign currency is active.
-                      if (id != null && r.rate == null && !fxActive && party?.priceLevelId != null) {
-                        const rowKey = r.key
-                        void api.priceLevels
-                          .rateFor(party.priceLevelId, id, date)
-                          .then((rate) => {
-                            if (rate == null) return
-                            setRows((rs) =>
-                              rs.map((row) =>
-                                row.key === rowKey && row.itemId === id && row.rate == null ? { ...row, rate } : row
-                              )
-                            )
-                          })
-                          .catch(() => {}) // a missing rate just leaves the cell for the user
-                      }
-                    }}
-                    onCreateRequest={(name) => setQuickItem({ name, row: i })}
-                  />
-                </td>
-                <td className="r">
-                  <div className="flex items-center gap-1.5">
-                    <input
-                      className={`${inputCls} num text-right`}
-                      data-testid="input-line-qty"
-                      value={r.qtyText}
-                      inputMode="decimal"
-                      placeholder="0"
-                      onChange={(e) => setRow(i, { qtyText: e.target.value })}
-                    />
-                    <span className="w-8 text-caption text-muted">{unitOf(r.itemId)}</span>
-                  </div>
-                </td>
-                <td className="r">
-                  <AmountInput paise={r.rate} onPaise={(p) => setRow(i, { rate: p })} testId="input-line-rate" />
-                </td>
-                <td className="r">
-                  <AmountInput
-                    paise={r.discount}
-                    onPaise={(p) => setRow(i, { discount: p })}
-                    placeholder="0"
-                    testId="input-line-discount"
-                  />
-                </td>
-                <td className="r">
-                  <span className="num text-body-sm text-muted">{item ? `${item.gstRate ?? account?.gstRate ?? 0}%` : ''}</span>
-                </td>
-                <td className="r">
-                  <Money paise={amount} className="text-body" />
-                  {!detailOpen && features.inventory && <div><LineStockSummary fields={r} /></div>}
-                </td>
-                {features.inventory && (
-                  <td>
-                    <LineDetailToggle open={detailOpen} onToggle={() => details.toggle(r.key)} fields={r} disabled={!item} />
-                  </td>
-                )}
-              </tr>
-              {detailOpen && item && (
-                <tr className="line-detail-row" data-testid="row-line-detail">
-                  <td colSpan={7} className="!pt-0">
-                    <LineStockDetail
-                      item={item}
-                      direction={goodsIn ? 'in' : 'out'}
-                      qtyMilli={Math.round(qty * 1000) || 0}
-                      fields={r}
-                      onChange={(patch) => setRow(i, patch)}
-                      voucherId={voucherId}
-                    />
-                  </td>
-                </tr>
-              )}
-              </Fragment>
-            )
-          })}
-        </tbody>
-      </table>
-      </LineTableScroller>
+      <ItemLineGrid
+        rows={rows}
+        setRow={setRow}
+        setRows={setRows}
+        direction={goodsIn ? 'in' : 'out'}
+        priceLevelId={party?.priceLevelId ?? null}
+        fxActive={fxActive}
+        date={date}
+        voucherId={voucherId}
+        fallbackGstRate={account?.gstRate ?? null}
+        onCreateItem={(name, row) => setQuickItem({ name, row })}
+      />
 
       <div className="mt-4 flex items-start justify-between gap-6">
         <div className="flex-1">
