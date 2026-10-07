@@ -17,7 +17,8 @@ const EXPECTED_TABLES = [
   'inventory_lines',
   'audit_log',
   'currencies',
-  'bom_lines',
+  'bom_versions',
+  'bom_version_lines',
   'employees',
   'payroll_runs',
   'payroll_lines',
@@ -43,6 +44,10 @@ const EXPECTED_TABLES = [
   'employee_pay_heads',
   'manufacture_details',
   'serial_numbers',
+  'manufacture_outputs',
+  'job_work_challans',
+  'job_work_losses',
+  'stock_transfers',
   'migrations'
 ]
 
@@ -267,7 +272,7 @@ describe('migrate', () => {
         'idx_payroll_lines_run',
         'idx_payroll_lines_employee',
         'idx_bank_rules_ledger',
-        'idx_bom_lines_component',
+        'idx_bom_version_lines_component', // 012's idx_bom_lines_component moved with the lines (023)
         'idx_inv_godown',
         'idx_groups_parent',
         'idx_stock_groups_parent',
