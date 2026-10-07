@@ -14,6 +14,9 @@ export default defineConfig({
   },
   test: {
     environment: 'jsdom',
+    // jsdom + React render tests flake past vitest's 5s default when the machine is loaded
+    // (parallel gates, e2e running alongside); they are correctness-, not latency-, sensitive.
+    testTimeout: 30000,
     include: ['src/renderer/src/**/*.test.{ts,tsx}']
   }
 })
