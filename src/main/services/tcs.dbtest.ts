@@ -17,6 +17,9 @@ import {
   autoAllocate, challanFromPayment, challanInterest, exemptVoucher, tdsDeducted, tdsEligible, tdsLedgerSummary, tdsPaymentCandidates
 } from './tdsWorkbench'
 import { ensureCompanyTree } from '../paths'
+import { extractEdocInvoices } from './edocs'
+import { extractOutwardDocs } from './gst'
+import { buildEInvoiceJson } from '@shared/gst/edocs'
 import type { VoucherInput } from '@shared/schemas'
 
 beforeAll(() => {
@@ -131,6 +134,15 @@ describe('TCS on a sale — suggestion, save-time payable, validation', () => {
     expect(payable).toEqual({ name: 'TCS Payable 206C(1) SCRAP', t: s.sectionId, d: null })
     expect(last).toMatchObject({ drCr: 'cr', amount: 118000 })
     expect(v.lines[0]).toMatchObject({ ledgerId: fx.dealer, drCr: 'dr', amount: 11800000 + 118000 })
+
+    // GST: TCS is not in the value of supply — taxable / GST / round-off unchanged, no value
+    // mismatch — but the invoice total includes it, and the e-invoice reports it as OthChrg.
+    const inv = extractEdocInvoices(db, TEST_INFO, '2025-06-01', '2025-06-30', id)[0]!
+    expect(inv).toMatchObject({ taxable: 10000000, cgst: 900000, sgst: 900000, roundOff: 0, total: 11918000, tcs: { amountPaise: 118000, rateBp: 100, reference: '206C(1)' } })
+    const json = buildEInvoiceJson([inv], { name: 'Test Co', gstin: '27AAAAA0000A1Z5', stateCode: '27', address: 'Pune 411001' })[0] as { ValDtls: Record<string, number> }
+    expect(json.ValDtls).toMatchObject({ AssVal: 100000, OthChrg: 1180, TotInvVal: 119180 })
+    const docs = extractOutwardDocs(db, TEST_INFO, '2025-06-01', '2025-06-30')
+    expect(docs.find((d) => d.voucherId === id)).toMatchObject({ invoiceValue: 11918000, validation: { valDiff: 0 } })
   })
 
   it('rejects a wrong amount, a missing payable credit, a buyer debit without the TCS, and TCS on a purchase', () => {

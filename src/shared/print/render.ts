@@ -47,6 +47,13 @@ export interface PrintEinvoiceInfo {
   ewbNo: string | null
 }
 
+/** "TCS @ 1% u/s 206C(1)" totals row, or '' when the invoice carries no TCS. */
+function tcsRow(c: { money: (p: number) => string }, inv: EdocInvoice): string {
+  if (!inv.tcs || inv.tcs.amountPaise <= 0) return ''
+  const rate = inv.tcs.rateBp != null ? ` @ ${inv.tcs.rateBp / 100}%` : ''
+  return `<tr><td>TCS${rate} u/s ${esc(inv.tcs.reference)}</td><td class="r num">${c.money(inv.tcs.amountPaise)}</td></tr>`
+}
+
 export interface InvoiceDocument {
   shape: 'invoice'
   kind: PrintDocKind
@@ -606,7 +613,10 @@ function renderInvoice(c: Ctx, doc: InvoiceDocument, opts: RenderOptions): strin
     isIntra ? `<tr><td>SGST</td><td class="r num">${m(inv.sgst)}</td></tr>` : '',
     !isIntra ? `<tr><td>IGST</td><td class="r num">${m(inv.igst)}</td></tr>` : '',
     inv.cess > 0 ? `<tr><td>Cess</td><td class="r num">${m(inv.cess)}</td></tr>` : '',
-    t.totals.showRoundOff && inv.roundOff !== 0 ? `<tr><td>Round off</td><td class="r num">${m(inv.roundOff)}</td></tr>` : ''
+    t.totals.showRoundOff && inv.roundOff !== 0 ? `<tr><td>Round off</td><td class="r num">${m(inv.roundOff)}</td></tr>` : '',
+    // WP 3.3: income-tax TCS collected on the invoice — after GST, inside the total; emitted only
+    // when the invoice carries TCS (so every pre-3.3 rendering, Classic included, is unchanged).
+    tcsRow(c, inv)
   ].join('')
 
   const f = t.footer

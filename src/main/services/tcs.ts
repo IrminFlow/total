@@ -13,6 +13,26 @@ import { findPayableLedger, resolveTds, type TdsSuggestion } from './tds'
 import { buildTcsEventGroups, loadTcsVouchers, tcsContext, tcsPartySectionWalk } from './tcsEvents'
 import { KIND } from './withholdingKind'
 
+/**
+ * The TCS collected on a sale, for documents and GST: the e-invoice / print totals show it as a
+ * separate line after GST and keep it OUT of the taxable value and the GST validation — income-tax
+ * TCS "would not be includible" in the GST value of supply ("an interim levy not having the
+ * character of tax": CBIC Circular 76/50/2018-GST, serial 5 as replaced by the corrigendum of
+ * 7-3-2019 — read via a secondary reproduction, UNVERIFIED against the CBIC copy, accessed
+ * 2026-10-07). It IS part of the invoice total the buyer owes.
+ */
+export function tcsOnVoucher(db: DB, voucherId: number): { amountPaise: number; rateBp: number | null; code: string; reference: string } | null {
+  const r = db
+    .prepare(
+      `SELECT te.tds_amount AS amount, te.rate_bp_at AS rateBp, ts.code, ts.legacy_code AS legacyCode, ts.new_reference AS newReference, v.date
+       FROM tds_entries te JOIN tds_sections ts ON ts.id = te.section_id JOIN vouchers v ON v.id = te.voucher_id
+       WHERE te.voucher_id = ? AND ts.kind = 'tcs' ORDER BY te.id LIMIT 1`
+    )
+    .get(voucherId) as { amount: number; rateBp: number | null; code: string; legacyCode: string | null; newReference: string | null; date: string } | undefined
+  if (!r) return null
+  return { amountPaise: r.amount, rateBp: r.rateBp, code: r.code, reference: sectionReferenceOn({ code: r.code, legacyCode: r.legacyCode, newReference: r.newReference }, r.date) }
+}
+
 export interface TcsSuggestInput {
   partyLedgerId: number
   date: string
