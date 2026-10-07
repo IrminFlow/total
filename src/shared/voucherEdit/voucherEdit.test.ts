@@ -339,7 +339,8 @@ function manufactured(over: Partial<ManufactureFormState> = {}, rawCosts = [9000
     details: {
       voucherId: v.id, finishedItemId: CHAIR, qtyMilli: ev.input.qtyMilli, saleRatePaise: ev.input.saleRatePaise,
       saleAmount: ev.totals.saleAmount, labourPaise: ev.input.labourPaise, labourPosted: ev.input.labourPosted,
-      labourExpenseLedgerId: posted ? LABOUR : null, labourCreditLedgerId: creditId, profitPaise: ev.totals.profit
+      labourExpenseLedgerId: posted ? LABOUR : null, labourCreditLedgerId: creditId, profitPaise: ev.totals.profit,
+      bomVersionId: null, bomExploded: false, byProducts: [], jobWork: null
     }
   }
 }

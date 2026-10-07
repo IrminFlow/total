@@ -30,7 +30,10 @@ const ALLOW: { file: string; contains: string; reason: string }[] = [
   { file: 'vouchers.ts', contains: 'SELECT * FROM inventory_lines WHERE voucher_id', reason: 'getVoucher loads every line of the voucher' },
   { file: 'vouchers.ts', contains: 'DELETE FROM inventory_lines WHERE voucher_id', reason: 'saveVoucher replaces the line set' },
   { file: 'vouchers.ts', contains: 'is_absolute, line_order)\n', reason: 'the pre-024 INSERT (data-migration fixtures only)' },
-  { file: 'tradeLinks.ts', contains: 'PRAGMA table_info(inventory_lines)', reason: 'schema probe' }
+  { file: 'tradeLinks.ts', contains: 'PRAGMA table_info(inventory_lines)', reason: 'schema probe' },
+  { file: 'jobWork.ts', contains: 'FROM inventory_lines il JOIN stock_items si ON si.id = il.stock_item_id JOIN units u', reason: "ITC-04: a job-work challan's own lines (a stock journal — always stock-moving)" },
+  { file: 'manufactureReports.ts', contains: 'FROM inventory_lines WHERE voucher_id IN', reason: "a manufacture's own lines (stock journals — always stock-moving)" },
+  { file: 'stockAnalysis.ts', contains: 'JOIN inventory_lines il ON il.voucher_id = mo.voucher_id', reason: "maps a manufacture's by-product rows to its own line ids" }
 ]
 
 /** Every string / template literal in a TS source (comments skipped; a template's nested

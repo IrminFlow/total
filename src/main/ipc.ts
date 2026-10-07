@@ -22,7 +22,9 @@ import {
   stockRegisterSchema, stockReorderSchema, stockExpiryReportSchema, stockLabelsSchema, serialsListSchema, serialsAvailableSchema, tallyImportSchema, tdsExport26qSchema, tdsEnsurePayableSchema, tdsSectionInputSchema, tdsSuggestSchema,
   tdsSummarySchema, unitInputSchema, voucherInputSchema, voucherTransportSchema, voucherTypeInputSchema,
   tdsRateInputSchema, tdsRatesQuerySchema, tdsCertificateInputSchema, tdsCertificatesQuerySchema, tdsChallanInputSchema,
-  tdsChallansQuerySchema, tdsAllocateSchema, tdsUnallocateSchema, tdsUnallocatedSchema
+  tdsChallansQuerySchema, tdsAllocateSchema, tdsUnallocateSchema, tdsUnallocatedSchema,
+  tdsEligibleSchema, tdsDeductedSchema, tdsApplySchema, tdsApplyManySchema, tdsVoucherSchema, tdsExemptSchema, tdsQuarterSchema,
+  tdsChallanFromPaymentSchema, tdsChallanRowsSchema, tdsChallanInterestSchema, tdsAutoAllocateSchema, tdsForm16aSchema, tdsLedgerSummarySchema
 } from '@shared/schemas'
 import { todayISO } from '@shared/dates'
 import { formatPaise } from '@shared/money'
@@ -43,9 +45,15 @@ import * as extras from './services/extras'
 import * as payroll from './services/payroll'
 import * as nic from './services/nic'
 import * as tds from './services/tds'
+import * as tdsWb from './services/tdsWorkbench'
+import { renderForm16aHtml } from '@shared/print/form16a'
+import { plexFontFaceCss } from './services/printFonts'
 import * as costCentres from './services/costCentres'
 import * as stockAnalysis from './services/stockAnalysis'
 import * as manufacture from './services/manufacture'
+import * as manufactureReports from './services/manufactureReports'
+import * as bomSvc from './services/bom'
+import * as jobWork from './services/jobWork'
 import * as serials from './services/serials'
 import * as tradeLinks from './services/tradeLinks'
 import * as tradeDocTypes from './services/tradeDocTypes'
@@ -57,7 +65,8 @@ import * as importer from './services/importers'
 import * as agentBridge from './services/agentBridge'
 import { agentBridgeConfigSchema, agentExportSchema } from '@shared/schemas'
 import {
-  manufactureCostPreviewSchema, manufactureRegisterSchema, manufactureSaveSchema, stockMovementsSchema
+  manufactureCostPreviewSchema, manufactureRegisterSchema, manufactureSaveSchema, stockMovementsSchema,
+  bomVersionInputSchema, bomExplodeSchema, manufactureReportSchema, jobWorkChallanSaveSchema, jobWorkPendingSchema
 } from '@shared/schemas'
 import * as consolidated from './services/consolidated'
 import * as caPack from './services/caPack'
@@ -625,8 +634,43 @@ export function registerIpc(): void {
   handle('manufacture:get', (p) => manufacture.getManufacture(requireCompany().db, idSchema.parse(p).id), 'viewer')
   handle('manufacture:costPreview', (p) => manufacture.costPreview(requireCompany().db, manufactureCostPreviewSchema.parse(p)), 'viewer')
   handle('manufacture:register', (p) => {
+    const { from, to, itemId } = manufactureReportSchema.parse(p)
+    return manufacture.manufactureRegister(requireCompany().db, from, to, itemId)
+  }, 'viewer')
+  // WP 2.4 manufacturing reports
+  handle('manufacture:production', (p) => {
     const { from, to } = manufactureRegisterSchema.parse(p)
-    return manufacture.manufactureRegister(requireCompany().db, from, to)
+    return manufactureReports.productionRegisterReport(requireCompany().db, from, to)
+  }, 'viewer')
+  handle('manufacture:costSheet', (p) => {
+    const { from, to, itemId } = manufactureReportSchema.extend({ itemId: z.number().int().positive() }).parse(p)
+    return manufactureReports.costSheetReport(requireCompany().db, itemId, from, to)
+  }, 'viewer')
+  handle('manufacture:margin', (p) => {
+    const { from, to } = manufactureRegisterSchema.parse(p)
+    return manufactureReports.marginReport(requireCompany().db, from, to)
+  }, 'viewer')
+  handle('manufacture:variance', (p) => {
+    const { from, to, itemId } = manufactureReportSchema.parse(p)
+    return manufactureReports.materialVarianceReport(requireCompany().db, from, to, itemId)
+  }, 'viewer')
+  // WP 2.4 job work
+  handle('jobWork:get', (p) => jobWork.getJobWorkChallan(requireCompany().db, idSchema.parse(p).id), 'viewer')
+  handle('jobWork:saveChallan', (p) => {
+    const { id, ...rest } = jobWorkChallanSaveSchema.parse(p)
+    const c = requireCompany()
+    const saved = jobWork.saveJobWorkChallan(c.db, rest, id)
+    if (configSvc.getAgentBridgeEnabled(c.db)) agentBridge.scheduleMirrorRefresh(c.db, c.slug)
+    return saved
+  })
+  handle('jobWork:sendChallans', (p) => jobWork.sendChallans(requireCompany().db, idSchema.parse(p).id), 'viewer')
+  handle('jobWork:pending', (p) => {
+    const { asOn, pendingDays } = jobWorkPendingSchema.parse(p)
+    return jobWork.materialAtJobWorkers(requireCompany().db, asOn, pendingDays)
+  }, 'viewer')
+  handle('jobWork:itc04', (p) => {
+    const { from, to } = manufactureRegisterSchema.parse(p)
+    return jobWork.itc04Data(requireCompany().db, from, to)
   }, 'viewer')
   handle('manufacture:save', (p) => {
     const { data, id } = manufactureSaveSchema.parse(p)
@@ -852,9 +896,9 @@ export function registerIpc(): void {
   handle('tds:sections', () => tds.listSections(requireCompany().db), 'viewer')
   handle('tds:sectionSave', (p) => tds.saveSection(requireCompany().db, tdsSectionInputSchema.parse(p)), 'owner')
   handle('tds:suggest', (p) => {
-    const { partyLedgerId, base, date, expenseLedgerId, excludeVoucherId } = tdsSuggestSchema.parse(p)
+    const { partyLedgerId, base, date, expenseLedgerId, excludeVoucherId, sectionId, voucherKind } = tdsSuggestSchema.parse(p)
     // Read-only (runs as the user types) — never creates the payable ledger.
-    return tds.tdsSuggestion(requireCompany().db, partyLedgerId, base, date, { expenseLedgerId, excludeVoucherId })
+    return tds.tdsSuggestion(requireCompany().db, partyLedgerId, base, date, { expenseLedgerId, excludeVoucherId, sectionId, voucherKind })
   })
   // Effective-dated rate table — section master data, owner-edited like tds:sectionSave.
   handle('tds:rates', (p) => tds.listRates(requireCompany().db, tdsRatesQuerySchema.parse(p ?? {}).sectionId), 'viewer')
@@ -898,6 +942,81 @@ export function registerIpc(): void {
     shell.showItemInFolder(path)
     return { path }
   })
+
+  // ---------- TDS screen (WP 3.2): reads for viewers, voucher edits / challans accountant+ ----------
+  handle('tds:eligible', (p) => {
+    const { from, to, includeExempt } = tdsEligibleSchema.parse(p)
+    return tdsWb.tdsEligible(requireCompany().db, from, to, { includeExempt })
+  }, 'viewer')
+  handle('tds:deducted', (p) => {
+    const { from, to } = tdsDeductedSchema.parse(p)
+    return tdsWb.tdsDeducted(requireCompany().db, from, to)
+  }, 'viewer')
+  handle('tds:ledgerSummary', (p) => {
+    const { fyStartYear, quarter } = tdsLedgerSummarySchema.parse(p)
+    return tdsWb.tdsLedgerSummary(requireCompany().db, fyStartYear, quarter as 0 | 1 | 2 | 3 | 4)
+  }, 'viewer')
+  handle('tds:applyToVoucher', (p) => tdsWb.applyTdsToVoucher(requireCompany().db, tdsApplySchema.parse(p)))
+  // Bulk Move to TDS: each voucher on its own (one refusal doesn't undo the others).
+  handle('tds:applyMany', (p) => {
+    const { voucherIds } = tdsApplyManySchema.parse(p)
+    const db = requireCompany().db
+    return voucherIds.map((voucherId) => {
+      try {
+        tdsWb.applyTdsToVoucher(db, { voucherId })
+        return { voucherId, ok: true as const }
+      } catch (err) {
+        return { voucherId, ok: false as const, error: (err as Error).message }
+      }
+    })
+  })
+  handle('tds:removeFromVoucher', (p) => tdsWb.removeTdsFromVoucher(requireCompany().db, tdsVoucherSchema.parse(p).voucherId))
+  handle('tds:exempt', (p) => {
+    const { voucherId, reason } = tdsExemptSchema.parse(p)
+    tdsWb.exemptVoucher(requireCompany().db, voucherId, reason)
+    return null
+  })
+  handle('tds:unexempt', (p) => {
+    tdsWb.unexemptVoucher(requireCompany().db, tdsVoucherSchema.parse(p).voucherId)
+    return null
+  })
+  handle('tds:exemption', (p) => ({ reason: tdsWb.exemptionOf(requireCompany().db, tdsVoucherSchema.parse(p).voucherId) }), 'viewer')
+  handle('tds:paymentCandidates', (p) => tdsWb.tdsPaymentCandidates(requireCompany().db, tdsSummarySchema.parse(p).fyStartYear), 'viewer')
+  handle('tds:challanRows', (p) => {
+    const { fyStartYear, quarter, rateBp } = tdsChallanRowsSchema.parse(p)
+    return tdsWb.challanRows(requireCompany().db, fyStartYear, quarter, rateBp)
+  }, 'viewer')
+  handle('tds:challanFromPayment', (p) => {
+    const input = tdsChallanFromPaymentSchema.parse(p)
+    return tdsWb.challanFromPayment(requireCompany().db, {
+      ...input, quarter: (input.quarter ?? null) as 1 | 2 | 3 | 4 | null
+    })
+  })
+  handle('tds:autoAllocate', (p) => ({ entryIds: tdsWb.autoAllocate(requireCompany().db, tdsAutoAllocateSchema.parse(p).challanId) }))
+  handle('tds:challanInterest', (p) => {
+    const { challanId, rateBp } = tdsChallanInterestSchema.parse(p)
+    return tdsWb.challanInterest(requireCompany().db, challanId, rateBp)
+  }, 'viewer')
+  handle('tds:form26q', (p) => {
+    const { fyStartYear, quarter } = tdsQuarterSchema.parse(p)
+    return tdsWb.form26qData(requireCompany().db, fyStartYear, quarter as 1 | 2 | 3 | 4)
+  }, 'viewer')
+  handle('tds:form16a', (p) => {
+    const { fyStartYear, quarter, partyLedgerId } = tdsForm16aSchema.parse(p)
+    const c = requireCompany()
+    return tdsWb.form16aData(c.db, c.info, fyStartYear, quarter as 1 | 2 | 3 | 4, partyLedgerId)
+  }, 'viewer')
+  handle('tds:form16aPdf', async (p) => {
+    const { fyStartYear, quarter, partyLedgerId } = tdsForm16aSchema.parse(p)
+    const c = requireCompany()
+    const data = tdsWb.form16aData(c.db, c.info, fyStartYear, quarter as 1 | 2 | 3 | 4, partyLedgerId)
+    const html = renderForm16aHtml(data, plexFontFaceCss)
+    const who = partyLedgerId != null && data.parties[0] ? `-${slugify(data.parties[0].partyName)}` : ''
+    const path = await writeExportPdf(c.slug, `form16a-data-${fyStartYear}-Q${quarter}${who}.pdf`, html, { pageSize: 'A4' })
+    auditExport(c.db, 'tds_form16a', { fyStartYear, quarter, partyLedgerId: partyLedgerId ?? null, path })
+    shell.showItemInFolder(path)
+    return { path }
+  }, 'viewer')
 
   // ---------- cost centres ----------
   handle('cc:list', () => costCentres.listCostCentres(requireCompany().db), 'viewer')
@@ -1202,6 +1321,11 @@ export function registerIpc(): void {
   handle('bom:get', (p) => extras.getBom(requireCompany().db, z.object({ itemId: z.number().int().positive() }).parse(p).itemId), 'viewer')
   handle('bom:set', (p) => extras.setBom(requireCompany().db, bomInputSchema.parse(p)))
   handle('bom:items', () => extras.itemsWithBom(requireCompany().db), 'viewer')
+  // WP 2.4: BOM versions + explosion
+  handle('bom:versions', (p) => bomSvc.listBomVersions(requireCompany().db, z.object({ itemId: z.number().int().positive().optional() }).parse(p ?? {}).itemId), 'viewer')
+  handle('bom:saveVersion', (p) => bomSvc.saveBomVersion(requireCompany().db, bomVersionInputSchema.parse(p)))
+  handle('bom:deleteVersion', (p) => bomSvc.deleteBomVersion(requireCompany().db, idSchema.parse(p).id))
+  handle('bom:explode', (p) => bomSvc.explode(requireCompany().db, bomExplodeSchema.parse(p)), 'viewer')
 
   // ---------- payroll ----------
   const daysSchema = z.array(z.object({ employeeId: z.number().int().positive(), payableDays: z.number().min(0).max(31) }))

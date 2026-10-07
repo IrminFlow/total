@@ -22,7 +22,7 @@ import { addDaysLocal, nextLineKey, NUMBER_LOADING, useAlterationDirty, useLeave
 import { QuickItemModal, QuickLedgerModal } from './modals'
 import { TransportModal } from './TransportModal'
 import { useTdsDeduction } from './useTdsDeduction'
-import { TdsBanner } from './TdsBanner'
+import { TdsBanner, TdsNotApplicableNote } from './TdsBanner'
 import { LineDetailToggle, LineStockDetail, LineStockSummary, useLineDetails } from './LineStockDetail'
 
 // ---------- invoice mode (sales / purchase / notes) ----------
@@ -203,6 +203,7 @@ export function InvoiceEntry({
     candidate: partyId != null && computed.gst.taxable > 0 ? { partyLedgerId: partyId, base: computed.gst.taxable, expenseLedgerId: accountId } : null,
     date,
     excludeVoucherId: voucherId,
+    voucherKind: 'purchase',
     tds,
     onChange: setTds,
     startDismissed: !!initial?.tds
@@ -283,6 +284,7 @@ export function InvoiceEntry({
         if (!proceed) return
       }
       const result = await api.vouchers.save(input, voucherId)
+      if (invoiceKindTakesTds(kind)) await tdsDeduction.afterSave(result.id)
       toast.push('success', `${result.number} ${isEdit ? 'altered' : 'saved'} — ${formatPaise(computed.rounded, { symbol: true })}`)
       if (andPdf && kind === 'sales') {
         await api.invoice.pdf(result.id)
@@ -311,7 +313,7 @@ export function InvoiceEntry({
     } finally {
       setSaving(false)
     }
-  }, [saving, partyId, accountId, computed, buildPayload, isSalesSide, kind, typeId, voucherId, isEdit, date, toast, setWorkingDate, queryClient, numberField.reset, leave, tdsDeduction.reset, tdsStale])
+  }, [saving, partyId, accountId, computed, buildPayload, isSalesSide, kind, typeId, voucherId, isEdit, date, toast, setWorkingDate, queryClient, numberField.reset, leave, tdsDeduction.reset, tdsDeduction.afterSave, tdsStale])
 
   const remove = async (): Promise<void> => {
     if (!voucherId) return
@@ -619,11 +621,20 @@ export function InvoiceEntry({
           totals {formatPaise(computed.gst.taxable, { symbol: true })} — apply TDS again before saving.
         </p>
       )}
-      {features.tds && tdsDeduction.suggestion && !tdsDeduction.dismissed && (
+      {features.tds && invoiceKindTakesTds(kind) && tdsDeduction.notApplicable != null && !appliedTds && (
+        <TdsNotApplicableNote reason={tdsDeduction.notApplicable} onUndo={() => tdsDeduction.setNotApplicable(null)} />
+      )}
+      {features.tds && tdsDeduction.suggestion && !tdsDeduction.dismissed && tdsDeduction.notApplicable == null && (
         <TdsBanner
           suggestion={tdsDeduction.suggestion}
           onDismiss={tdsDeduction.dismiss}
           onApply={() => void tdsDeduction.apply()}
+          onApplyManual={(p) => {
+            if (p < computed.rounded) tdsDeduction.applyManual(p)
+            else toast.push('error', "The deduction can't be the whole invoice")
+          }}
+          onChooseSection={(id) => tdsDeduction.chooseSection(id)}
+          onNotApplicable={appliedTds ? undefined : (r) => tdsDeduction.setNotApplicable(r)}
           blockedReason={
             tdsDeduction.suggestion.tdsPaise >= computed.rounded
               ? `The deduction can't be the whole invoice (${formatPaise(computed.rounded, { symbol: true })}).`

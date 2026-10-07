@@ -8,7 +8,7 @@ import { seededDb, TEST_INFO } from '../db/testdb'
 import type { DB } from '../db/connection'
 import type { Group, Voucher, VoucherKind } from '@shared/domain'
 import {
-  buildAccountingPayload, buildInvoicePayload, buildPhysicalPayload, buildStockLinesPayload, buildTransferPayload,
+  buildAccountingPayload, buildInvoicePayload, buildPhysicalPayload, buildStockLinesPayload, buildTransferPayload, withJobWorker,
   derivePartyId, emptyInvoiceState, emptyPhysicalState, evaluateManufactureForm, planVoucherEdit, taxLedgerIdsFrom,
   LEGACY_STOCK_JOURNAL_BANNER, type EditPlan, type EditPlanContext, type VoucherPayload
 } from '@shared/voucherEdit'
@@ -21,6 +21,10 @@ import { costPreview, getManufactureDetails, saveManufacture } from './manufactu
 import type { ManufactureInput } from '@shared/manufacture'
 import { setBankDate } from './banking'
 import { dc, grn, item as tradeItem, trade, tradeBooks, uid as lineUid } from './tradeFixture.testutil'
+import { getJobWorkChallan, saveJobWorkChallan } from './jobWork'
+import { saveBomVersion } from './bom'
+import { buildJobWorkChallan } from '@shared/voucherEdit'
+import { applyTdsToVoucher, removeTdsFromVoucher } from './tdsWorkbench'
 
 type LedgerKind = 'Sundry Debtors' | 'Sundry Creditors' | 'Sales Accounts' | 'Purchase Accounts' | 'Duties & Taxes' | 'Indirect Expenses' | 'Bank Accounts'
 
@@ -103,6 +107,7 @@ function editContext(db: DB, voucherId?: number): EditPlanContext {
     },
     taxLedgers: taxLedgerIdsFrom(ledgers),
     manufacture: voucherId ? getManufactureDetails(db, voucherId) : null,
+    jobWork: voucherId ? getJobWorkChallan(db, voucherId) : null,
     itemName: (id) => items.find((i) => i.id === id)?.name ?? ''
   }
 }
@@ -151,7 +156,9 @@ function editorPayload(db: DB, v: Voucher): { plan: EditPlan; payload: VoucherPa
             ? buildPhysicalPayload(plan.state, { voucherTypeId: v.voucherTypeId, itemName: ctx.itemName })
             : plan.mode === 'transfer'
               ? buildTransferPayload(plan.state, { voucherTypeId: v.voucherTypeId, costs: [] })
-              : buildStockLinesPayload(plan.state, { voucherTypeId: v.voucherTypeId })
+              : plan.mode === 'jobWorkSend'
+                ? buildTransferPayload(withJobWorker(plan.state.transfer, plan.state.challan), { voucherTypeId: v.voucherTypeId, costs: [] })
+                : buildStockLinesPayload(plan.state, { voucherTypeId: v.voucherTypeId })
   if (!r.ok) throw new Error(`${plan.mode}: ${r.error}`)
   return { plan, payload: r.payload }
 }
@@ -187,6 +194,11 @@ function snapshot(db: DB, id: number): unknown {
       .prepare('SELECT id, section_id, party_ledger_id, pan, base_amount, tds_amount, is_manual, rate_bp_at, deductee_type_at, certificate_id FROM tds_entries WHERE voucher_id = ?')
       .all(id),
     manufacture: db.prepare('SELECT * FROM manufacture_details WHERE voucher_id = ?').all(id),
+    // WP 2.4
+    outputs: db.prepare('SELECT line_order, stock_item_id, qty_milli, value_paise, kind FROM manufacture_outputs WHERE voucher_id = ? ORDER BY line_order').all(id),
+    jobWork: db.prepare('SELECT * FROM job_work_challans WHERE voucher_id = ?').all(id),
+    losses: db.prepare('SELECT * FROM job_work_losses WHERE voucher_id = ? ORDER BY line_order').all(id),
+    transferMark: db.prepare('SELECT * FROM stock_transfers WHERE voucher_id = ?').all(id),
     // WP 2.5: stable line uids (except manufactures — manufacture:save rebuilds the journal and
     // renumbers its lines; they can never be linked), moves_stock, the voucher's links both
     // ways and the challan / GRN purpose all survive an open → save.
@@ -208,7 +220,11 @@ function resave(db: DB, id: number): EditPlan {
   const v = getVoucher(db, id)!
   const plan = planVoucherEdit(v, kindOf(db, v), editContext(db, id))
   if (plan.mode === 'manufacture') saveManufacture(db, manufactureEditorInput(db, v, plan), id)
-  else saveVoucher(db, editorPayload(db, v).payload, id)
+  else if (plan.mode === 'jobWorkSend') {
+    const built = buildJobWorkChallan(plan.state, { voucherTypeId: v.voucherTypeId, costs: [] })
+    if (!built.ok) throw new Error(built.error)
+    saveJobWorkChallan(db, built.payload, id)
+  } else saveVoucher(db, editorPayload(db, v).payload, id)
   return plan
 }
 
@@ -330,6 +346,53 @@ describe('voucher editor round-trip (WP 1.4): load → save unchanged stores ide
     expect(getVoucher(db, id)!.lines.find((l) => l.ledgerId === x.bank)!.bankDate).toBe('2025-05-15')
   })
 
+  // WP 3.2 — Move to TDS / remove from the TDS screen keep every editor round-trip intact.
+  it('Move to TDS on a purchase invoice: still opens in invoice mode; removing restores the original rows', () => {
+    const kit = item(db, 'TDS Move Kit', 18)
+    const fresh = editContext(db)
+    const r = buildInvoicePayload({
+      ...emptyInvoiceState('2025-05-20'),
+      partyId: x.contractor, accountId: x.purchases, billName: 'CON-INV-MOVE', billDueDate: '2025-06-20',
+      rows: [{ itemId: kit, qtyText: '1', rate: 500000, discount: null, godownId: null, batchId: null }]
+    }, { ...fresh.invoice, kind: 'purchase' }, typeId(db, 'purchase'), fresh.taxLedgers)
+    if (!r.ok) throw new Error(r.error)
+    const id = saveVoucher(db, r.payload).id
+    const original = snapshot(db, id) as { lines: unknown; billRefs: unknown }
+    applyTdsToVoucher(db, { voucherId: id })
+    const v = getVoucher(db, id)!
+    expect(v.tds).toMatchObject({ baseAmount: 500000, tdsAmount: 50000 })
+    expect(v.lines[v.lines.length - 1]).toMatchObject({ ledgerId: x.tdsPayable, drCr: 'cr', amount: 50000 })
+    expectRoundTrip(db, id, 'invoice')
+    removeTdsFromVoucher(db, id)
+    const back = snapshot(db, id) as { lines: unknown; billRefs: unknown; tds: unknown[] }
+    expect(back.lines).toEqual(original.lines)
+    expect(back.billRefs).toEqual(original.billRefs)
+    expect(back.tds).toEqual([])
+    expectRoundTrip(db, id, 'invoice')
+  })
+
+  it('Move to TDS on a journal and on a payment: accounting mode round-trips both ways', () => {
+    const j = saveVoucher(db, {
+      ...header, voucherTypeId: typeId(db, 'journal'), date: '2025-05-21', partyLedgerId: x.contractor,
+      lines: [{ ledgerId: x.freight, drCr: 'dr', amount: 200000 }, { ledgerId: x.contractor, drCr: 'cr', amount: 200000 }],
+      billRefs: [{ kind: 'new', name: 'J-MOVE', amount: 200000, dueDate: null }]
+    }).id
+    const p = saveVoucher(db, {
+      ...header, voucherTypeId: typeId(db, 'payment'), date: '2025-05-22', partyLedgerId: x.contractor,
+      lines: [{ ledgerId: x.contractor, drCr: 'dr', amount: 300000 }, { ledgerId: x.bank, drCr: 'cr', amount: 300000 }]
+    }).id
+    for (const id of [j, p]) {
+      const original = snapshot(db, id) as { lines: unknown; billRefs: unknown }
+      applyTdsToVoucher(db, { voucherId: id, manualPaise: 2000 })
+      expectRoundTrip(db, id, 'accounting')
+      removeTdsFromVoucher(db, id)
+      const back = snapshot(db, id) as { lines: unknown; billRefs: unknown }
+      expect(back.lines).toEqual(original.lines)
+      expect(back.billRefs).toEqual(original.billRefs)
+      expectRoundTrip(db, id, 'accounting')
+    }
+  })
+
   it('receipt with an advance bill ref, post-dated', () => {
     const id = saveVoucher(db, {
       ...header, voucherTypeId: typeId(db, 'receipt'), date: '2025-05-14', partyLedgerId: x.buyer, postDated: true,
@@ -388,6 +451,60 @@ describe('voucher editor round-trip (WP 1.4): load → save unchanged stores ide
     })
     expect(getVoucher(db, saved.id)!.lines).toEqual([])
     expectRoundTrip(db, saved.id, 'manufacture')
+  })
+
+  it('manufacture with by-products, scrap, a BOM version and the explode flag (WP 2.4) — lossless', () => {
+    const v2 = saveBomVersion(db, { itemId: x.chair, name: 'v2', effectiveFrom: '2025-05-01', isDefault: false, lines: [{ componentId: x.steel, qtyMilliPerUnit: 2000, scrapPctBp: 500 }] })
+    const raw = [{ stockItemId: x.steel, qtyMilli: 6300 }]
+    const bp = [
+      { stockItemId: x.widget, qtyMilli: 500, valuePaise: 1000, kind: 'by_product' as const },
+      { stockItemId: x.paint, qtyMilli: 100, valuePaise: 50, kind: 'scrap' as const }
+    ]
+    const saved = saveManufacture(db, {
+      date: '2025-05-19', godownId: x.godownA, finishedItemId: x.chair, qtyMilli: 3000, saleRatePaise: 1000,
+      raw, labourPaise: 200, labourPosted: true, byProducts: bp, bomVersionId: v2.id, bomExploded: true,
+      profitPaise: 3000 - (6300 + 200 - 1050), confirmLoss: true
+    })
+    const inv = getVoucher(db, saved.id)!.inventory
+    expect(inv.map((l) => [l.stockItemId, l.direction, l.amount])).toEqual([
+      [x.steel, 'out', 6300], [x.chair, 'in', 6300 + 200 - 1050], [x.widget, 'in', 1000], [x.paint, 'in', 50]
+    ])
+    const plan = expectRoundTrip(db, saved.id, 'manufacture')
+    expect(plan.mode === 'manufacture' && plan.state).toMatchObject({
+      bomVersionId: v2.id, bomExploded: true,
+      byProducts: [
+        { itemId: x.widget, qtyText: '0.5', valuePaise: 1000, kind: 'by_product' },
+        { itemId: x.paint, qtyText: '0.1', valuePaise: 50, kind: 'scrap' }
+      ]
+    })
+  })
+
+  it('job-work send challan and receipt (WP 2.4) reopen in their own forms and re-save identically', () => {
+    const worker = ledger(db, 'Job Worker Co', 'Sundry Creditors', { stateCode: '27' })
+    const jw = createGodown(db, { name: 'At Job Worker', kind: 'job_worker', partyLedgerId: worker }).id
+    const sj = typeId(db, 'stock_journal')
+    const sent = saveJobWorkChallan(db, {
+      voucher: {
+        ...header, voucherTypeId: sj, date: '2025-05-20', lines: [],
+        inventory: [
+          { stockItemId: x.steel, godownId: x.godownA, batchId: null, qtyMilli: 5000, ratePaise: 1000, amount: 5000, direction: 'out' },
+          { stockItemId: x.steel, godownId: jw, batchId: null, qtyMilli: 5000, ratePaise: 1000, amount: 5000, direction: 'in' }
+        ]
+      },
+      challan: { kind: 'send', godownId: jw, natureOfProcessing: 'Powder coating', goodsType: 'inputs' }
+    })
+    const plan = expectRoundTrip(db, sent.id, 'jobWorkSend')
+    expect(plan.mode === 'jobWorkSend' && plan.state.challan).toMatchObject({ kind: 'send', godownId: jw, natureOfProcessing: 'Powder coating' })
+    const got = saveManufacture(db, {
+      date: '2025-05-25', godownId: x.godownA, finishedItemId: x.chair, qtyMilli: 2000, saleRatePaise: 0,
+      raw: [{ stockItemId: x.steel, qtyMilli: 4500, lossQtyMilli: 500 }], labourPaise: 900, labourPosted: true,
+      jobWork: { godownId: jw, challanNo: 'JW-77', challanDate: '2025-05-24', natureOfProcessing: 'Powder coating', originalChallanVoucherId: sent.id },
+      profitPaise: -(4500 + 900), confirmLoss: true
+    })
+    expect(getVoucher(db, got.id)!.inventory.map((l) => l.godownId)).toEqual([jw, x.godownA])
+    const rplan = expectRoundTrip(db, got.id, 'manufacture')
+    expect(rplan.mode === 'manufacture' && rplan.state.jobWork).toMatchObject({ godownId: jw, challanNo: 'JW-77', originalChallanVoucherId: sent.id })
+    expect(rplan.mode === 'manufacture' && rplan.state.rows[0]).toMatchObject({ lossText: '0.5', godownId: null })
   })
 
   it('legacy stock journal (no manufacture_details row) opens as plain stock lines with the 0.6.0 banner', () => {

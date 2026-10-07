@@ -12,6 +12,34 @@ import {
   type BuildResult, type HeaderPassthrough, type Representation, type VoucherPayload
 } from './payload'
 
+/**
+ * The shape the engine's 'transfer' costing rule (WP 2.4) applies to: no ledger lines, and the
+ * inventory lines are (out of godown A, into godown B) pairs of the same item, quantity, batch
+ * and amount, A ≠ B, both godowns set — exactly what the transfer form saves. saveVoucher marks
+ * a stock journal of this shape in `stock_transfers`.
+ */
+export function isGodownTransferShape(v: {
+  lines: readonly unknown[]
+  inventory: readonly {
+    stockItemId: number; godownId: number | null; batchId?: number | null; qtyMilli: number; amount: number
+    direction: 'in' | 'out'; isAbsolute?: boolean; discountPaise?: number
+  }[]
+}): boolean {
+  const inv = v.inventory
+  if (v.lines.length > 0 || inv.length === 0 || inv.length % 2 !== 0) return false
+  for (let i = 0; i < inv.length; i += 2) {
+    const out = inv[i]!
+    const into = inv[i + 1]!
+    const ok =
+      out.direction === 'out' && into.direction === 'in' && !out.isAbsolute && !into.isAbsolute &&
+      out.stockItemId === into.stockItemId && out.qtyMilli === into.qtyMilli && (out.batchId ?? null) === (into.batchId ?? null) &&
+      out.amount === into.amount && (out.discountPaise ?? 0) === 0 && (into.discountPaise ?? 0) === 0 &&
+      out.godownId != null && into.godownId != null && out.godownId !== into.godownId && out.qtyMilli > 0
+    if (!ok) return false
+  }
+  return true
+}
+
 export interface TransferRowState {
   itemId: number | null
   fromGodownId: number | null

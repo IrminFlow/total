@@ -6,6 +6,10 @@ import type {
 } from '@shared/domain'
 import type { BudgetVarianceRow } from '@shared/budgets'
 import type {
+  TdsEligibleRow, TdsDeductedRow, TdsLedgerSummaryRow, TdsPaymentCandidate, TdsChallanRow, TdsChallanEntryInterest,
+  Form26qData, Form16aData
+} from '@shared/tdsTypes'
+import type {
   BalanceSheet, BankRecon, DashboardData, DayBookRow, EdocListRow, ExceptionsReport, GroupTreeNode,
   ItemProfitRow, LedgerBalanceRow,
   LedgerStatement, OutstandingBill, OutstandingParty, ProfitAndLoss, RegisterMonthRow, StockAgeingRow,
@@ -30,6 +34,10 @@ import type {
 import type { CompanyFeatures } from '@shared/features'
 import type { StockCostPosition, ConsumptionCosting, ProposedOutward } from '@shared/valuation'
 import type { ManufactureDetails, ManufactureInput } from '@shared/manufacture'
+import type { BomVersion, ExplosionResult } from '@shared/bom'
+import type { CostSheet, MarginRow, ProductionRegisterRow, VarianceReportRow } from '@shared/manufactureReports'
+import type { Itc04Data, JobWorkChallan, JobWorkPendingRow } from '@shared/jobWork'
+import type { JobWorkChallanPayload } from '@shared/voucherEdit'
 import type { ExpiryReportRow, ReorderRow, SerialListRow, StockMovementRegister } from '@shared/stockPlanning'
 import type { SerialStatus } from '@shared/serials'
 import type { OpenSourceLine, VoucherKindRow, VoucherLinks } from '@shared/tradeCycle/types'
@@ -221,6 +229,11 @@ export interface PtSummaryRow {
   pt: number
 }
 
+export type {
+  TdsEligibleRow, TdsDeductedRow, TdsLedgerSummaryRow, TdsPaymentCandidate, TdsChallanRow, TdsChallanEntryInterest,
+  Form26qData, Form26qDeducteeRow, Form26qChallanRow, Form16aData
+} from '@shared/tdsTypes'
+
 /** Mirrors src/main/services/tds.ts's TdsSuggestion shape (kept local — that file is main-process only). */
 export interface TdsSuggestion {
   sectionId: number
@@ -245,8 +258,15 @@ export interface TdsSuggestion {
     basis: 'fy' | 'month'
     priorPaise: number
   }
-  certificate: { id: number; certificateNo: string; rateBp: number } | null
-  sectionFrom: 'party' | 'ledger'
+  certificate: { id: number; certificateNo: string; rateBp: number; validTo?: string } | null
+  sectionFrom: 'party' | 'ledger' | 'chosen' | 'credits'
+  /** Base the deduction is computed on (a payment: undeducted bills + advance). Older mains
+   *  don't send it — callers fall back to the candidate base. */
+  basePaise?: number
+  /** Sections the banner offers (party's own, the debited ledger's default, …). */
+  candidates?: { sectionId: number; code: string; from: 'party' | 'ledger' | 'credits' }[]
+  /** Payments: bills liable and not deducted at credit time, and the advance part. */
+  payment?: { undeductedBillsPaise: number; advancePaise: number; deductedAtCredit: boolean } | null
 }
 
 /** Mirrors src/main/services/tds.ts's TdsSummaryRow shape (kept local — that file is main-process only). */
@@ -397,6 +417,8 @@ export interface ManufactureCostPreview {
   saleRate: { ratePaise: number | null; source: 'sales' | 'priceList' | null }
 }
 
+/** manufacture:register (mirrors services/manufacture.ts ManufactureRegisterRow): engine cost
+ *  NOW next to the save-time figures (WP 2.4). */
 export interface ManufactureRegisterRow {
   voucherId: number
   date: string
@@ -406,11 +428,31 @@ export interface ManufactureRegisterRow {
   unitSymbol: string
   decimals: number
   qtyMilli: number
-  productionCost: number
+  materialPaise: number
   labourPaise: number
+  byProductPaise: number
+  /** Cost now (materials + labour − by-products). */
+  productionCost: number
+  costAtSave: number
   saleAmount: number
+  /** sale − cost now. */
   profitPaise: number
+  profitAtSave: number
+  repriced: boolean
+  jobWork: boolean
 }
+
+/** manufacture:costSheet (mirrors services/manufactureReports.ts CostSheetReport). */
+export interface CostSheetReport {
+  itemId: number
+  itemName: string
+  unitSymbol: string
+  decimals: number
+  manufactures: CostSheet[]
+  average: CostSheet
+}
+
+export type SavedJobWorkChallan = Voucher & { duplicateNumber?: boolean; warnings: { negativeStock: NegativeStockWarning[] }; challan: JobWorkChallan }
 
 /** stock:movements — one item's inventory lines (minimal movement list, WP 2.2). */
 export interface ItemMovementRow {
@@ -579,7 +621,19 @@ export const api = {
     /** Raw rows priced as of the voucher date (+ the finished item's suggested sale rate). */
     costPreview: (q: { date: string; voucherId?: number; finishedItemId?: number | null; lines: { itemId: number; qtyMilli: number }[] }) =>
       call<ManufactureCostPreview>('manufacture:costPreview', q),
-    register: (from: string, to: string) => call<ManufactureRegisterRow[]>('manufacture:register', { from, to })
+    register: (from: string, to: string, itemId?: number) => call<ManufactureRegisterRow[]>('manufacture:register', { from, to, itemId }),
+    // WP 2.4 reports
+    production: (from: string, to: string) => call<ProductionRegisterRow[]>('manufacture:production', { from, to }),
+    costSheet: (itemId: number, from: string, to: string) => call<CostSheetReport>('manufacture:costSheet', { itemId, from, to }),
+    margin: (from: string, to: string) => call<MarginRow[]>('manufacture:margin', { from, to }),
+    variance: (from: string, to: string, itemId?: number) => call<VarianceReportRow[]>('manufacture:variance', { from, to, itemId })
+  },
+  jobWork: {
+    get: (id: number) => call<JobWorkChallan | null>('jobWork:get', { id }),
+    saveChallan: (data: JobWorkChallanPayload, id?: number) => call<SavedJobWorkChallan>('jobWork:saveChallan', { ...data, id }),
+    sendChallans: (godownId: number) => call<{ voucherId: number; number: string; date: string }[]>('jobWork:sendChallans', { id: godownId }),
+    pending: (asOn: string, pendingDays: number) => call<JobWorkPendingRow[]>('jobWork:pending', { asOn, pendingDays }),
+    itc04: (from: string, to: string) => call<Itc04Data>('jobWork:itc04', { from, to })
   },
   priceLevels: {
     list: () => call<PriceLevel[]>('master:priceLevels:list'),
@@ -673,7 +727,12 @@ export const api = {
       partyLedgerId: number,
       base: number,
       date: string,
-      opts: { expenseLedgerId?: number | null; excludeVoucherId?: number } = {}
+      opts: {
+        expenseLedgerId?: number | null
+        excludeVoucherId?: number
+        sectionId?: number | null
+        voucherKind?: 'purchase' | 'journal' | 'payment'
+      } = {}
     ) => call<TdsSuggestion | null>('tds:suggest', { partyLedgerId, base, date, ...opts }),
     ensurePayable: (sectionId: number) => call<{ ledgerId: number }>('tds:ensurePayable', { sectionId }),
     rates: (sectionId?: number) => call<TdsRate[]>('tds:rates', { sectionId }),
@@ -689,7 +748,30 @@ export const api = {
     unallocate: (entryIds: number[]) => call<void>('tds:unallocate', { entryIds }),
     unallocated: (fyStartYear: number, quarter?: number) => call<TdsEntryRow[]>('tds:unallocated', { fyStartYear, quarter }),
     summary: (fyStartYear: number) => call<TdsSummaryRow[]>('tds:summary', { fyStartYear }),
-    export26q: (fyStartYear: number, quarter: number) => call<{ path: string }>('tds:export26q', { fyStartYear, quarter })
+    export26q: (fyStartYear: number, quarter: number) => call<{ path: string }>('tds:export26q', { fyStartYear, quarter }),
+    // WP 3.2 — the TDS screen
+    eligible: (from: string, to: string, includeExempt = false) => call<TdsEligibleRow[]>('tds:eligible', { from, to, includeExempt }),
+    deducted: (from: string, to: string) => call<TdsDeductedRow[]>('tds:deducted', { from, to }),
+    ledgerSummary: (fyStartYear: number, quarter: number) => call<TdsLedgerSummaryRow[]>('tds:ledgerSummary', { fyStartYear, quarter }),
+    applyToVoucher: (voucherId: number, opts: { sectionId?: number | null; manualPaise?: number | null } = {}) =>
+      call<Voucher>('tds:applyToVoucher', { voucherId, ...opts }),
+    applyMany: (voucherIds: number[]) =>
+      call<({ voucherId: number; ok: true } | { voucherId: number; ok: false; error: string })[]>('tds:applyMany', { voucherIds }),
+    removeFromVoucher: (voucherId: number) => call<Voucher>('tds:removeFromVoucher', { voucherId }),
+    exempt: (voucherId: number, reason: string) => call<null>('tds:exempt', { voucherId, reason }),
+    unexempt: (voucherId: number) => call<null>('tds:unexempt', { voucherId }),
+    exemption: (voucherId: number) => call<{ reason: string | null }>('tds:exemption', { voucherId }),
+    paymentCandidates: (fyStartYear: number) => call<TdsPaymentCandidate[]>('tds:paymentCandidates', { fyStartYear }),
+    challanRows: (fyStartYear: number, quarter?: number, rateBp?: number) => call<TdsChallanRow[]>('tds:challanRows', { fyStartYear, quarter, rateBp }),
+    challanFromPayment: (data: {
+      paymentVoucherId: number; bsrCode: string; challanNo: string; date?: string | null
+      quarter?: number | null; fyStartYear?: number | null; autoAllocate?: boolean
+    }) => call<TdsChallanRow>('tds:challanFromPayment', data),
+    autoAllocate: (challanId: number) => call<{ entryIds: number[] }>('tds:autoAllocate', { challanId }),
+    challanInterest: (challanId: number, rateBp?: number) => call<TdsChallanEntryInterest[]>('tds:challanInterest', { challanId, rateBp }),
+    form26q: (fyStartYear: number, quarter: number) => call<Form26qData>('tds:form26q', { fyStartYear, quarter }),
+    form16a: (fyStartYear: number, quarter: number, partyLedgerId?: number) => call<Form16aData>('tds:form16a', { fyStartYear, quarter, partyLedgerId }),
+    form16aPdf: (fyStartYear: number, quarter: number, partyLedgerId?: number) => call<{ path: string }>('tds:form16aPdf', { fyStartYear, quarter, partyLedgerId })
   },
   cc: {
     list: () => call<CostCentre[]>('cc:list'),
@@ -784,7 +866,17 @@ export const api = {
   bom: {
     get: (itemId: number) => call<BomLine[]>('bom:get', { itemId }),
     set: (data: BomInput) => call<BomLine[]>('bom:set', data),
-    items: () => call<{ itemId: number; name: string; components: number }[]>('bom:items')
+    items: () => call<{ itemId: number; name: string; components: number }[]>('bom:items'),
+    // WP 2.4 versions
+    /** One item's versions, or every item's (omit itemId — what the Manufacture screen explodes with). */
+    versions: (itemId?: number) => call<BomVersion[]>('bom:versions', { itemId }),
+    saveVersion: (data: {
+      id?: number; itemId: number; name: string; effectiveFrom: string | null; effectiveTo: string | null; isDefault: boolean
+      lines: { componentId: number; qtyMilliPerUnit: number; scrapPctBp: number | null }[]
+    }) => call<BomVersion>('bom:saveVersion', data),
+    deleteVersion: (id: number) => call<null>('bom:deleteVersion', { id }),
+    explode: (q: { itemId: number; qtyMilli: number; date: string; versionId?: number | null; levels: 'single' | 'full' }) =>
+      call<ExplosionResult>('bom:explode', q)
   },
   payroll: {
     employees: () => call<Employee[]>('payroll:employees:list'),

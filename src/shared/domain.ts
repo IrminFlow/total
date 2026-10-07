@@ -416,6 +416,10 @@ export interface Godown {
   id: number
   name: string
   address: string | null
+  /** WP 2.4: 'job_worker' = a third party's premises holding our material for job work. */
+  kind: 'own' | 'job_worker'
+  /** The job worker's party ledger (required for kind 'job_worker'; null for own godowns). */
+  partyLedgerId: number | null
 }
 
 /** A batch/lot of a stock item (F11 `batches`), created on the fly from voucher entry. */

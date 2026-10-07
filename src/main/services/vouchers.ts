@@ -18,6 +18,7 @@ import { parseLineSerials, rebuildItemSerials, syncVoucherSerials } from './seri
 import {
   assertBinnable, assertRestorable, hasTradeSchema, lineSourcesOf, resolveVoucherLines, syncVoucherLinks, type ResolvedLine
 } from './tradeLinks'
+import { isGodownTransferShape } from '@shared/voucherEdit/stockJournal'
 
 interface VoucherRow {
   id: number; voucher_type_id: number; date: string; number: string
@@ -331,9 +332,18 @@ export interface SaveVoucherHooks {
   withinTransaction?: (voucherId: number) => void
   /** Set by the manufacture service: it owns vouchers that carry a manufacture_details row. */
   manufacture?: boolean
+  /** Set by the job-work service (WP 2.4): it owns send / return challans. */
+  jobWork?: boolean
 }
 
 export const MANUFACTURE_EDIT_ELSEWHERE = 'This is a manufacture voucher — alter it from the Manufacture screen'
+export const JOB_WORK_EDIT_ELSEWHERE = 'This is a job-work challan — alter it from the Stock journal screen (Send to job worker)'
+
+/** Mark / unmark a voucher for 'transfer' costing (stock_transfers, migration 023). */
+export function syncTransferMark(db: DB, voucherId: number, isTransfer: boolean): void {
+  if (isTransfer) db.prepare('INSERT OR IGNORE INTO stock_transfers (voucher_id) VALUES (?)').run(voucherId)
+  else db.prepare('DELETE FROM stock_transfers WHERE voucher_id = ?').run(voucherId)
+}
 
 export function saveVoucher(db: DB, raw: VoucherInput, existingId?: number, hooks: SaveVoucherHooks = {}): SaveVoucherResult {
   // Parse here as well as at the IPC boundary so direct callers (tests, importers)
@@ -350,6 +360,9 @@ export function saveVoucher(db: DB, raw: VoucherInput, existingId?: number, hook
     // A manufacture's entry facts (manufacture_details) would go stale under a generic edit.
     if (!hooks.manufacture && db.prepare('SELECT 1 FROM manufacture_details WHERE voucher_id = ?').get(existingId)) {
       throw new Error(MANUFACTURE_EDIT_ELSEWHERE)
+    }
+    if (!hooks.jobWork && !hooks.manufacture && db.prepare('SELECT 1 FROM job_work_challans WHERE voucher_id = ?').get(existingId)) {
+      throw new Error(JOB_WORK_EDIT_ELSEWHERE)
     }
   }
   const vt = getVoucherType(db, input.voucherTypeId)
@@ -490,6 +503,9 @@ export function saveVoucher(db: DB, raw: VoucherInput, existingId?: number, hook
     }
     // WP 2.3: line serials (validated, stored, serial_numbers re-projected) — services/serials.ts.
     syncVoucherSerials(db, voucherId, input.inventory, before?.inventory)
+    // WP 2.4: a stock journal saved as a same-item godown transfer is costed by the engine's
+    // 'transfer' rule from now on (marked here, at save; never backfilled).
+    syncTransferMark(db, voucherId, vt.kind === 'stock_journal' && !hooks.manufacture && isGodownTransferShape(input))
 
     // Bill refs ride on `vouchers`, not `voucher_lines`, so an UPDATE doesn't cascade their
     // deletion the way replacing the line set does — clear and reinsert explicitly. The TDS entry
@@ -507,6 +523,8 @@ export function saveVoucher(db: DB, raw: VoucherInput, existingId?: number, hook
 
     const existingEntries = db.prepare('SELECT id FROM tds_entries WHERE voucher_id = ? ORDER BY id').all(voucherId) as { id: number }[]
     if (input.tds) {
+      // A deduction supersedes a "Not applicable" mark (WP 3.2, migration 022).
+      db.prepare('DELETE FROM tds_exemptions WHERE voucher_id = ?').run(voucherId)
       const party = input.partyLedgerId
         ? (db.prepare('SELECT pan FROM ledgers WHERE id = ?').get(input.partyLedgerId) as { pan: string | null } | undefined)
         : undefined

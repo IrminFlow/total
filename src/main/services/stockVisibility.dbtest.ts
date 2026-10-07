@@ -3,7 +3,7 @@
 // through save / edit / bin / restore, per-item valuation method switches, reorder planning,
 // expiry report, barcode labels, and migration 021 on a populated fixture.
 import { describe, it, expect } from 'vitest'
-import { freshDb, freshPartialDb, seededDb, TEST_INFO } from '../db/testdb'
+import { freshPartialDb, seededDb, TEST_INFO } from '../db/testdb'
 import { migrate } from '../db/migrate'
 import { MIGRATIONS } from '../db/migrations'
 import { seedCompany } from '../db/seed'
@@ -395,7 +395,7 @@ describe('reorder planning, expiry report, labels', () => {
 describe('migration 021 (serial numbers)', () => {
   const at = MIGRATIONS.findIndex((sql) => sql.includes('CREATE TABLE serial_numbers'))
 
-  it('is migration 021', () => {
+  it('is migration 021 (022, WP 3.2 tds_exemptions, follows it)', () => {
     expect(at + 1).toBe(21)
     expect(MIGRATIONS.length).toBeGreaterThanOrEqual(21)
   })
@@ -405,12 +405,12 @@ describe('migration 021 (serial numbers)', () => {
     const db = freshPartialDb(at)
     seedCompany(db, { ...TEST_INFO, booksFrom: 2025 })
     const fx = seedStockFixture(db, { vouchers: 300, items: 8, seed: 21 })
-    // Today's stock readers need the latest schema (WP 2.5 moves_stock), so "before" is the same
-    // fixture seeded on a fully migrated twin.
-    const twin = freshDb()
-    seedCompany(twin, { ...TEST_INFO, booksFrom: 2025 })
-    seedStockFixture(twin, { vouchers: 300, items: 8, seed: 21 })
-    const before = stock.stockSummary(twin, '2026-03-31')
+    // The figures before 021, from an identical fixture on a current-schema DB (the reports read
+    // tables later migrations add, so they can't run on the pre-021 schema itself).
+    const reference = freshPartialDb(MIGRATIONS.length)
+    seedCompany(reference, { ...TEST_INFO, booksFrom: 2025 })
+    seedStockFixture(reference, { vouchers: 300, items: 8, seed: 21 })
+    const before = stock.stockSummary(reference, '2026-03-31')
     const lines = (db.prepare('SELECT COUNT(*) AS n FROM inventory_lines').get() as { n: number }).n
     migrate(db)
     expect(lines).toBe(fx.inventoryLines)

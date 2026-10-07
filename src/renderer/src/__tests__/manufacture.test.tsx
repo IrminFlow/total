@@ -28,11 +28,14 @@ const TYPES: VoucherType[] = [
 ]
 let bom: { id: number; componentId: number; componentName: string; unitSymbol: string; qtyMilliPerUnit: number }[] = []
 let saleRate: number | null = 100000
+/** WP 2.4 tests set every item's versions directly. */
+let versions: unknown[] | null = null
 const saves: unknown[] = []
 
 beforeEach(() => {
   saves.length = 0
   bom = []
+  versions = null
   saleRate = 100000
   useSession.setState({
     slug: 'test',
@@ -50,6 +53,9 @@ beforeEach(() => {
       case 'voucher:nextNumber': return { ok: true, data: { number: '12' } }
       case 'voucher:numberExists': return { ok: true, data: false }
       case 'bom:get': return { ok: true, data: bom }
+      // WP 2.4: the screen explodes the versions itself — `bom` is the Chair's default version.
+      case 'bom:versions': return { ok: true, data: versions ?? (bom.length ? [{ id: 50, itemId: CHAIR, name: 'v1', effectiveFrom: null, effectiveTo: null, isDefault: true, lines: bom.map((b) => ({ componentId: b.componentId, qtyMilliPerUnit: b.qtyMilliPerUnit, scrapPctBp: null })) }] : []) }
+      case 'jobWork:sendChallans': return { ok: true, data: [] }
       case 'manufacture:costPreview': {
         const q = payload as { lines: { itemId: number; qtyMilli: number }[]; finishedItemId?: number | null }
         const lines = q.lines.map((l) => ({

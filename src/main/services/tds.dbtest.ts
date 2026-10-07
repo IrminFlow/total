@@ -331,7 +331,7 @@ describe('summary and 26Q export', () => {
     const path = export26qCsv(db, INFO, slug, 2025, 1)
     expect(path).toBe(join(companyExportsDir(slug), 'tds-26q-2025-26-Q1.csv'))
     const [head, row] = readFileSync(path, 'utf8').trim().split(/\r?\n/)
-    expect(head).toBe('Deductee,PAN,Section,Voucher Date,Voucher No,Base (Rs),TDS (Rs),Deductee Code,Rate (%),Challan BSR,Challan Date,Challan Serial')
+    expect(head).toBe('Deductee,PAN,Section,Voucher Date,Voucher No,Base (Rs),TDS (Rs),Deductee Code,Rate (%),Challan BSR,Challan Date,Challan Serial,Return Code,Date of Deduction,Reason Code,Challan Amount (Rs)')
     expect(row).toContain('Contractor A,ABCPE1234F,194C,2025-05-10')
     expect(row).toContain('50000.00,500.00,02,1.00,0510308,2025-06-07,42')
   })
