@@ -1,20 +1,20 @@
 import type { DB } from '../db/connection'
 import type { StockSummaryRow } from '@shared/reports'
 import {
-  valueStock, expiryBucketOf, allocateAdditionalCost,
-  type ExpiryBucket, type StockMovement, type ValuationMethod
+  expiryBucketOf, runInventoryPass, stockCostPositionsAsOf, costConsumption, bookedInwardValues,
+  type ExpiryBucket, type ValuationMethod, type ValuationResult, type InventoryItem, type InventoryMovement,
+  type InventoryPassInput, type VoucherCosting, type StockCostPosition, type ConsumptionCosting,
+  type ProposedOutward
 } from '@shared/valuation'
 import { IN_BOOKS, checkStock } from './vouchers'
 import type { NegativeStockWarning } from '@shared/domain'
 
 /**
- * Valuation-engine-driven stock reports (lane I). Unlike the legacy reports.stockSummary
- * (periodic weighted average in SQL), everything here walks inventory movements chronologically
- * through src/shared/valuation.ts, honouring each item's `valuation_method` (FIFO vs perpetual
- * moving average) and physical-stock absolute lines.
- *
- * NOTE for the integrator: `stockValue(db, asOn)` here is the drop-in replacement for
- * reports.stockValue (same signature) once Lane R's balance-sheet single-scan lands.
+ * Valuation-engine-driven stock reports (lane I; global pass WP 2.1). Unlike the legacy
+ * reports.stockSummary (periodic weighted average in SQL), everything here walks inventory
+ * movements chronologically through src/shared/valuation.ts — ONE pass over every item —
+ * honouring each item's `valuation_method` (FIFO vs perpetual moving average), physical-stock
+ * absolute lines, and each voucher's costing rule (see voucherCosting).
  */
 
 interface ItemRow {
@@ -29,9 +29,9 @@ interface ItemRow {
 
 interface MovementRow {
   lineId: number
+  voucherId: number
   stockItemId: number
   godownId: number | null
-  batchId: number | null
   date: string
   qtyMilli: number
   amount: number
@@ -39,37 +39,93 @@ interface MovementRow {
   isAbsolute: number
 }
 
+// ---------- costing rule per voucher (WP 2.1) ----------
+
+/** A voucher marked for `'derived'` (value-conserving) costing. */
+export interface DerivedCostingMark {
+  voucherId: number
+  /** Explicit additional cost (WP 2.2: labour from manufacture_details), paise. `null` = none
+   *  given — fall back to the legacy Dr-ledger-line total. */
+  additionalCostPaise: number | null
+}
+
+/** Supplies the derived marks for in-books vouchers dated ≤ asOn. */
+export type DerivedCostingSource = (db: DB, asOn: string) => DerivedCostingMark[]
+
+/** Default until WP 2.2: nothing is derived, so every existing voucher stays `'stored'` and no
+ *  company's stock value moves. WP 2.2 makes this read its `manufacture_details` rows
+ *  (`SELECT voucher_id, labour_paise FROM manufacture_details`). */
+const noDerivedVouchers: DerivedCostingSource = () => []
+let derivedCostingSource: DerivedCostingSource = noDerivedVouchers
+
+/** Install the derived-mark predicate (`null` restores the default: nothing derived). */
+export function setDerivedCostingSource(source: DerivedCostingSource | null): void {
+  derivedCostingSource = source ?? noDerivedVouchers
+}
+
 /**
- * Manufacture additional costs (task 79): a stock journal's balanced ledger lines
- * (e.g. Dr Freight Inward / Cr Cash) represent cost loaded into what it produces. The debit
- * total (== credit total — the voucher balances) is split across the voucher's inward
- * inventory lines pro-rata by base amount (largest-remainder, every paisa conserved), so the
- * produced item's cost includes freight/labour. Returns extra paise per inventory_lines.id.
+ * Per-voucher costing for every in-books voucher dated ≤ asOn that needs more than the default
+ * (`'stored'`, no additional cost).
+ *
+ * Rule: `'derived'` only when the voucher is marked by the derived-costing source AND it is a
+ * stock_journal with at least one outward and one inward non-absolute in-books line. Everything
+ * else — including a marked voucher that isn't such a journal — is `'stored'`.
+ *
+ * Additional cost precedence (never summed):
+ *   1. an explicit `additionalCostPaise` on the voucher's mark (WP 2.2 labour) — wins, because
+ *      WP 2.2 also posts that labour as Dr ledger lines on the same voucher;
+ *   2. else, for a stock_journal, the total of its Dr ledger lines (legacy task 79:
+ *      freight/labour journalled on the manufacture);
+ *   3. else 0.
+ * Under `'stored'` the additional cost is split over inward lines by stored amount exactly as
+ * before (positive totals only); under `'derived'` it joins the consumed cost in the conserved
+ * total.
  */
-function additionalCostByLine(db: DB, asOn: string): Map<number, number> {
-  const extraByLine = new Map<number, number>()
-  const costRows = db
+export function voucherCosting(db: DB, asOn: string): Map<number, VoucherCosting> {
+  const costing = new Map<number, VoucherCosting>()
+  const ledgerExtra = db
     .prepare(
-      `SELECT v.id AS voucherId,
-              (SELECT COALESCE(SUM(amount), 0) FROM voucher_lines WHERE voucher_id = v.id AND dr_cr = 'dr') AS extra
-       FROM vouchers v JOIN voucher_types vt ON vt.id = v.voucher_type_id
+      `SELECT v.id AS voucherId, SUM(vl.amount) AS extra
+       FROM vouchers v
+       JOIN voucher_types vt ON vt.id = v.voucher_type_id
+       JOIN voucher_lines vl ON vl.voucher_id = v.id AND vl.dr_cr = 'dr'
        WHERE vt.kind = 'stock_journal' AND v.date <= ? AND ${IN_BOOKS}
-         AND EXISTS (SELECT 1 FROM voucher_lines WHERE voucher_id = v.id)`
+       GROUP BY v.id`
     )
     .all(asOn) as { voucherId: number; extra: number }[]
-  const inLinesStmt = db.prepare(
-    `SELECT id, amount FROM inventory_lines
-     WHERE voucher_id = ? AND direction = 'in' AND is_absolute = 0 ORDER BY line_order, id`
-  )
-  for (const { voucherId, extra } of costRows) {
-    if (extra <= 0) continue
-    const inLines = inLinesStmt.all(voucherId) as { id: number; amount: number }[]
-    if (inLines.length === 0) continue
-    const shares = allocateAdditionalCost(inLines.map((l) => l.amount), extra)
-    inLines.forEach((l, i) => extraByLine.set(l.id, shares[i]!))
+  for (const { voucherId, extra } of ledgerExtra) {
+    if (extra > 0) costing.set(voucherId, { rule: 'stored', additionalCostPaise: extra })
   }
-  return extraByLine
+
+  const marks = derivedCostingSource(db, asOn)
+  if (marks.length === 0) return costing
+  const eligible = new Set(
+    (
+      db
+        .prepare(
+          `SELECT v.id AS id
+           FROM vouchers v
+           JOIN voucher_types vt ON vt.id = v.voucher_type_id
+           JOIN inventory_lines il ON il.voucher_id = v.id AND il.is_absolute = 0
+           WHERE vt.kind = 'stock_journal' AND v.date <= ? AND ${IN_BOOKS}
+           GROUP BY v.id
+           HAVING SUM(il.direction = 'out') > 0 AND SUM(il.direction = 'in') > 0`
+        )
+        .all(asOn) as { id: number }[]
+    ).map((r) => r.id)
+  )
+  for (const mark of marks) {
+    if (!eligible.has(mark.voucherId)) continue
+    const legacy = costing.get(mark.voucherId)?.additionalCostPaise ?? 0
+    costing.set(mark.voucherId, {
+      rule: 'derived',
+      additionalCostPaise: mark.additionalCostPaise ?? legacy
+    })
+  }
+  return costing
 }
+
+// ---------- loading ----------
 
 function listItems(db: DB): ItemRow[] {
   return db
@@ -82,40 +138,63 @@ function listItems(db: DB): ItemRow[] {
     .all() as ItemRow[]
 }
 
-/** All in-books inventory movements up to `asOn`, in voucher order, grouped per item. */
-function movementsByItem(db: DB, asOn: string, godownId?: number): Map<number, MovementRow[]> {
-  const godownFilter = godownId ? 'AND il.godown_id = ?' : ''
-  const rows = db
+/** In-books inventory lines dated ≤ asOn, in voucher order (date, voucher, line order) —
+ *  all of them, or one godown's, or (`stockJournalInward`) only stock journals' plain inward
+ *  lines (all that stored-rule additional-cost loading reads). */
+function loadMovements(
+  db: DB,
+  asOn: string,
+  filter: { godownId?: number; stockJournalInward?: boolean } = {}
+): MovementRow[] {
+  const where = [
+    filter.godownId ? 'AND il.godown_id = ?' : '',
+    filter.stockJournalInward
+      ? `AND il.direction = 'in' AND il.is_absolute = 0
+         AND v.voucher_type_id IN (SELECT id FROM voucher_types WHERE kind = 'stock_journal')`
+      : ''
+  ].join(' ')
+  return db
     .prepare(
-      `SELECT il.id AS lineId, il.stock_item_id AS stockItemId, il.godown_id AS godownId, il.batch_id AS batchId,
+      `SELECT il.id AS lineId, il.voucher_id AS voucherId, il.stock_item_id AS stockItemId, il.godown_id AS godownId,
               v.date AS date, il.qty_milli AS qtyMilli, il.amount, il.direction, il.is_absolute AS isAbsolute
        FROM inventory_lines il JOIN vouchers v ON v.id = il.voucher_id
-       WHERE v.date <= ? AND ${IN_BOOKS} ${godownFilter}
+       WHERE v.date <= ? AND ${IN_BOOKS} ${where}
        ORDER BY v.date, v.id, il.line_order, il.id`
     )
-    .all(...(godownId ? [asOn, godownId] : [asOn])) as MovementRow[]
-  const extraByLine = additionalCostByLine(db, asOn)
-  if (extraByLine.size > 0) {
-    for (const r of rows) {
-      const extra = extraByLine.get(r.lineId)
-      if (extra) r.amount += extra
-    }
-  }
-  const byItem = new Map<number, MovementRow[]>()
-  for (const r of rows) {
-    const list = byItem.get(r.stockItemId) ?? []
-    list.push(r)
-    byItem.set(r.stockItemId, list)
-  }
-  return byItem
+    .all(...(filter.godownId ? [asOn, filter.godownId] : [asOn])) as MovementRow[]
 }
 
-const toMovement = (r: MovementRow): StockMovement => ({
+const toMovement = (r: MovementRow, amount = r.amount): InventoryMovement => ({
+  itemId: r.stockItemId,
+  voucherId: r.voucherId,
+  date: r.date,
+  lineId: r.lineId,
   direction: r.direction,
   qtyMilli: r.qtyMilli,
-  amount: r.direction === 'in' && !r.isAbsolute ? r.amount : 0,
+  amount: r.direction === 'in' && !r.isAbsolute ? amount : 0,
   isAbsolute: !!r.isAbsolute
 })
+
+const toItems = (items: ItemRow[], withOpening = true): InventoryItem[] =>
+  items.map((i) => ({
+    itemId: i.id,
+    method: i.valuationMethod,
+    openingQtyMilli: withOpening ? i.openingQtyMilli : 0,
+    openingValue: withOpening ? i.openingValue : 0
+  }))
+
+/** The company-wide pass input as of `asOn` (every item, every in-books line, every rule). */
+function companyPassInput(db: DB, asOn: string): { items: ItemRow[]; rows: MovementRow[]; input: InventoryPassInput } {
+  const items = listItems(db)
+  const rows = loadMovements(db, asOn)
+  return {
+    items,
+    rows,
+    input: { items: toItems(items), movements: rows.map((r) => toMovement(r)), costing: voucherCosting(db, asOn) }
+  }
+}
+
+const ZERO: ValuationResult = { closingQtyMilli: 0, closingValue: 0, inwardQtyMilli: 0, outwardQtyMilli: 0, consumedValue: 0 }
 
 export interface StockSummaryOptions {
   /** Restrict movements to one godown (opening stock is company-wide and excluded then). */
@@ -125,16 +204,39 @@ export interface StockSummaryOptions {
 /**
  * Per-item stock summary as of `asOn`, valued per each item's valuation method. Same row shape
  * as the legacy reports.stockSummary. When `godownId` is given, only that godown's movements
- * count and opening balances are left out (openings aren't godown-attributed).
+ * count and opening balances are left out (openings aren't godown-attributed). Valuation is
+ * company-wide, so a godown view takes each costed inward line (additional cost, derived
+ * manufacture) at the value the company-wide pass booked for it, then walks the godown alone.
  */
 export function stockSummary(db: DB, asOn: string, opts: StockSummaryOptions = {}): StockSummaryRow[] {
   const items = listItems(db)
-  const byItem = movementsByItem(db, asOn, opts.godownId)
+  const costing = voucherCosting(db, asOn)
+  let results: Map<number, ValuationResult>
+  if (opts.godownId) {
+    const godownId = opts.godownId
+    let godownRows: MovementRow[]
+    let booked: Map<number, number>
+    if ([...costing.values()].some((c) => c.rule === 'derived')) {
+      // Derived values need the company-wide pass.
+      const rows = loadMovements(db, asOn)
+      booked = bookedInwardValues({ items: toItems(items), movements: rows.map((r) => toMovement(r)), costing })
+      godownRows = rows.filter((r) => r.godownId === godownId)
+    } else {
+      // Stored-rule values depend only on each voucher's own lines: no pass needed.
+      const journalInward = costing.size > 0 ? loadMovements(db, asOn, { stockJournalInward: true }) : []
+      booked = bookedInwardValues({ items: [], movements: journalInward.map((r) => toMovement(r)), costing })
+      godownRows = loadMovements(db, asOn, { godownId })
+    }
+    const godownMoves = godownRows.map((r) => toMovement(r, booked.get(r.lineId) ?? r.amount))
+    results = runInventoryPass({ items: toItems(items, false), movements: godownMoves }).closing
+  } else {
+    const movements = loadMovements(db, asOn).map((r) => toMovement(r))
+    results = runInventoryPass({ items: toItems(items), movements, costing }).closing
+  }
   return items.map((item) => {
+    const r = results.get(item.id) ?? ZERO
     const openingQty = opts.godownId ? 0 : item.openingQtyMilli
     const openingValue = opts.godownId ? 0 : item.openingValue
-    const moves = (byItem.get(item.id) ?? []).map(toMovement)
-    const r = valueStock(item.valuationMethod, openingQty, openingValue, moves)
     return {
       stockItemId: item.id,
       name: item.name,
@@ -156,25 +258,21 @@ export function stockValue(db: DB, asOn: string): number {
   return stockSummary(db, asOn).reduce((s, r) => s + r.closingValue, 0)
 }
 
-/** stockValue at several dates from ONE movement load — each entry equals stockValue(db, d)
- *  (same items, same in-books movements ≤ d, same valuation). For the dashboard's month-by-month
- *  P&L, which needs every month boundary's stock and would otherwise re-walk the inventory per
- *  boundary. A manufacture's additional cost is per-voucher, so loading up to the latest date
- *  never leaks a later voucher's cost into an earlier date's lines. */
+/** stockValue at several dates from ONE movement load and ONE pass — each entry equals
+ *  stockValue(db, d). For the dashboard's month-by-month P&L. The pass is chronological, so a
+ *  checkpoint's snapshot equals a pass over only the movements up to it (later vouchers, and
+ *  their additional cost, never leak into an earlier date). */
 export function stockValuesAt(db: DB, dates: string[]): Map<string, number> {
   const result = new Map<string, number>()
   if (dates.length === 0) return result
   const latest = dates.reduce((a, b) => (a > b ? a : b))
-  const items = listItems(db)
-  const byItem = movementsByItem(db, latest)
-  for (const d of new Set(dates)) {
-    let total = 0
-    for (const item of items) {
-      const moves = (byItem.get(item.id) ?? []).filter((m) => m.date <= d).map(toMovement)
-      total += valueStock(item.valuationMethod, item.openingQtyMilli, item.openingValue, moves).closingValue
-    }
-    result.set(d, total)
-  }
+  const { items, input } = companyPassInput(db, latest)
+  const unique = [...new Set(dates)]
+  const { at } = runInventoryPass(input, unique.map((date) => ({ date })))
+  unique.forEach((d, i) => {
+    const snap = at[i]!
+    result.set(d, items.reduce((s, item) => s + (snap.get(item.id)?.closingValue ?? 0), 0))
+  })
   return result
 }
 
@@ -187,25 +285,54 @@ export interface PeriodConsumption {
 
 /**
  * Engine-valued consumption per item within [from, to] (v0.3 integration, reconciliation (c):
- * item profitability's COGS basis). Computed as the difference of two chronological valuations —
- * movements before `from` versus movements through `to` — so each item's valuation_method
- * (FIFO / weighted average) prices the period's outward cost.
+ * item profitability's COGS basis): the pass through `to` minus its snapshot just before
+ * `from`, so each item's valuation_method (FIFO / weighted average) prices the period.
  */
 export function periodConsumption(db: DB, from: string, to: string): Map<number, PeriodConsumption> {
-  const items = listItems(db)
-  const byItem = movementsByItem(db, to)
+  const { items, input } = companyPassInput(db, to)
+  const { closing, at } = runInventoryPass(input, [{ date: from, voucherId: 0 }])
+  const before = at[0]!
   const result = new Map<number, PeriodConsumption>()
   for (const item of items) {
-    const moves = byItem.get(item.id) ?? []
-    const before = moves.filter((m) => m.date < from)
-    const all = valueStock(item.valuationMethod, item.openingQtyMilli, item.openingValue, moves.map(toMovement))
-    const prior = valueStock(item.valuationMethod, item.openingQtyMilli, item.openingValue, before.map(toMovement))
+    const all = closing.get(item.id) ?? ZERO
+    const prior = before.get(item.id) ?? ZERO
     result.set(item.id, {
       consumedValue: all.consumedValue - prior.consumedValue,
       outwardQtyMilli: all.outwardQtyMilli - prior.outwardQtyMilli
     })
   }
   return result
+}
+
+// ---------- cost as of a date (WP 2.1 → WP 2.2's manufacture screen) ----------
+
+export interface CostAsOfQuery {
+  /** The voucher date being priced. */
+  date: string
+  /** The voucher being edited: its own saved lines are left out and only vouchers ordered
+   *  before it count. Omit for a new voucher (priced after everything on `date`). */
+  voucherId?: number
+  /** Items whose running position to return (default: every item in `lines`, or all items). */
+  itemIds?: number[]
+  /** Proposed outward lines to price without saving. */
+  lines?: ProposedOutward[]
+}
+
+export interface CostAsOfResult {
+  positions: StockCostPosition[]
+  consumption: ConsumptionCosting | null
+}
+
+/** Exact engine cost figures at a voucher's position: each item's running average / FIFO next
+ *  layer, and (optionally) the cost a proposed set of outward lines would be charged. */
+export function costAsOf(db: DB, q: CostAsOfQuery): CostAsOfResult {
+  const { items, input } = companyPassInput(db, q.date)
+  const at = { date: q.date, voucherId: q.voucherId }
+  const ids = q.itemIds ?? (q.lines ? [...new Set(q.lines.map((l) => l.itemId))] : items.map((i) => i.id))
+  return {
+    positions: stockCostPositionsAsOf(input, at, ids),
+    consumption: q.lines ? costConsumption(input, q.lines, at) : null
+  }
 }
 
 /** Items whose closing quantity is negative as of `asOn` — the Exceptions report rows. */
@@ -233,16 +360,22 @@ export interface GodownStockRow {
 /** Per-(item, godown) closing stock as of `asOn`. Only rows with a non-zero quantity. Opening
  *  balances aren't godown-attributed and land on the "no godown" row. */
 export function stockByGodown(db: DB, asOn: string): GodownStockRow[] {
-  const items = listItems(db)
-  const byItem = movementsByItem(db, asOn)
+  const { items, rows, input } = companyPassInput(db, asOn)
+  const { closing } = runInventoryPass(input)
   const godowns = new Map(
     (db.prepare('SELECT id, name FROM godowns').all() as { id: number; name: string }[]).map((g) => [g.id, g.name])
   )
+  const movesByItem = new Map<number, MovementRow[]>()
+  for (const r of rows) {
+    const list = movesByItem.get(r.stockItemId)
+    if (list) list.push(r)
+    else movesByItem.set(r.stockItemId, [r])
+  }
 
-  const rows: GodownStockRow[] = []
+  const out: GodownStockRow[] = []
   for (const item of items) {
-    const moves = byItem.get(item.id) ?? []
-    const summary = valueStock(item.valuationMethod, item.openingQtyMilli, item.openingValue, moves.map(toMovement))
+    const moves = movesByItem.get(item.id) ?? []
+    const summary = closing.get(item.id) ?? ZERO
 
     // Quantity per godown: absolute (physical-count) lines pin the quantity of the godown they
     // sit on (null = the company-wide bucket).
@@ -275,7 +408,7 @@ export function stockByGodown(db: DB, asOn: string): GodownStockRow[] {
             : Math.round((summary.closingValue * qty) / totalQty)
           : 0
       allocated += value
-      rows.push({
+      out.push({
         godownId,
         godownName: godownId === null ? '' : godowns.get(godownId) ?? '',
         stockItemId: item.id,
@@ -287,7 +420,7 @@ export function stockByGodown(db: DB, asOn: string): GodownStockRow[] {
       })
     })
   }
-  return rows.sort((a, b) => a.name.localeCompare(b.name) || a.godownName.localeCompare(b.godownName))
+  return out.sort((a, b) => a.name.localeCompare(b.name) || a.godownName.localeCompare(b.godownName))
 }
 
 // ---------- batch-wise stock + expiry ageing (task 74) ----------
