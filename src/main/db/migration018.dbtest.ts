@@ -6,30 +6,32 @@ import { MIGRATIONS } from './migrations'
 import { freshPartialDb, TEST_INFO } from './testdb'
 import { seedCompany } from './seed'
 import type { DB } from './connection'
-import { createLedger, findOrCreateLedger } from '../services/masters'
-import { saveVoucher } from '../services/vouchers'
+import { findOrCreateLedger } from '../services/masters'
 import { balanceSheet, exceptions, profitAndLoss, trialBalance } from '../services/reports'
 import { closePreview } from '../services/yearEnd'
 
 const V017 = 17
 
+// The fixture is staged at schema 017 with raw SQL, not the services: createLedger/saveVoucher
+// track the LATEST schema (e.g. migration 020's ledger/TDS columns) and can't run on a 017 DB.
 function ledger(db: DB, name: string, groupName: string, openingBalance = 0): number {
   const group = db.prepare('SELECT id FROM groups WHERE name = ?').get(groupName) as { id: number }
-  return createLedger(db, {
-    name, groupId: group.id, openingBalance, gstin: null, stateCode: null, address: null,
-    taxType: null, gstRate: null, hsn: null, tdsSectionId: null, pan: null, creditDays: null, exportType: null
-  }).id
+  return Number(
+    db.prepare('INSERT INTO ledgers (name, group_id, opening_balance, is_system) VALUES (?, ?, ?, 0)').run(name, group.id, openingBalance)
+      .lastInsertRowid
+  )
 }
 
+let journalSeq = 0
 function journal(db: DB, date: string, narration: string | null, lines: [number, 'dr' | 'cr', number][]): number {
   const vt = db.prepare("SELECT id FROM voucher_types WHERE kind = 'journal'").get() as { id: number }
-  return saveVoucher(db, {
-    voucherTypeId: vt.id, date, number: undefined, partyLedgerId: null, narration, reference: null,
-    instrumentNo: null, instrumentDate: null, transporterId: null, vehicleNo: null, transportDistanceKm: null,
-    currencyCode: null, exchangeRate: null,
-    lines: lines.map(([ledgerId, drCr, amount]) => ({ ledgerId, drCr, amount, costAllocations: [] })),
-    inventory: [], billRefs: [], tds: null
-  }).id
+  const id = Number(
+    db.prepare('INSERT INTO vouchers (voucher_type_id, date, number, narration) VALUES (?, ?, ?, ?)')
+      .run(vt.id, date, `J-${++journalSeq}`, narration).lastInsertRowid
+  )
+  const line = db.prepare('INSERT INTO voucher_lines (voucher_id, ledger_id, dr_cr, amount, line_order) VALUES (?, ?, ?, ?, ?)')
+  lines.forEach(([ledgerId, drCr, amount], i) => line.run(id, ledgerId, drCr, amount, i))
+  return id
 }
 
 function audit(db: DB, afterJson: string | null): void {
@@ -178,10 +180,9 @@ describe('migration 018', () => {
     // kept 'expense', so postClose (reading g.nature) treated the wage ledger as an expense.
     const shop = Number(ins.run('Shop', gid('Current Assets'), 'asset', 0).lastInsertRowid)
     const wagesGroup = Number(ins.run('Shop Wages', shop, 'expense', 0).lastInsertRowid)
-    const wages = createLedger(db, {
-      name: 'Shop Wage', groupId: wagesGroup, openingBalance: 0, gstin: null, stateCode: null, address: null,
-      taxType: null, gstRate: null, hsn: null, tdsSectionId: null, pan: null, creditDays: null, exportType: null
-    }).id
+    const wages = Number(
+      db.prepare('INSERT INTO ledgers (name, group_id, opening_balance, is_system) VALUES (?, ?, 0, 0)').run('Shop Wage', wagesGroup).lastInsertRowid
+    )
     const sales = ledger(db, 'Sales', 'Sales Accounts')
     const retained = findOrCreateLedger(db, 'Retained Earnings', 'Reserves & Surplus')
     journal(db, '2024-06-01', null, [[cash, 'dr', 100_000], [sales, 'cr', 100_000]])

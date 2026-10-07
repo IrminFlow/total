@@ -24,6 +24,10 @@ const EXPECTED_TABLES = [
   'users',
   'tds_sections',
   'tds_entries',
+  'tds_section_rates',
+  'tds_certificates',
+  'tds_challans',
+  'tds_entry_challans',
   'cost_centres',
   'voucher_line_cost_allocations',
   'bill_refs',
@@ -125,8 +129,8 @@ describe('migrate', () => {
     expect(indexNames).not.toContain('idx_lines_ledger')
   })
 
-  it('seeds the five standard tds_sections with the plan\'s rates/thresholds (paise)', () => {
-    const db = freshDb()
+  it('005 seeds the five standard tds_sections with the plan\'s rates/thresholds (paise) — 020 re-sources them (migration020.dbtest.ts)', () => {
+    const db = freshPartialDb(5)
     const rows = (
       db.prepare('SELECT code, description, rate, threshold_single, threshold_annual FROM tds_sections ORDER BY code').all() as {
         code: string; description: string; rate: number; threshold_single: number; threshold_annual: number

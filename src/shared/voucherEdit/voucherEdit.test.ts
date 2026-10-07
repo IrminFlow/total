@@ -4,7 +4,7 @@ import {
   accountingStateFromVoucher, buildAccountingPayload, buildInvoicePayload, buildPhysicalPayload,
   buildStockLinesPayload, computeInvoice, diffPayloads, emptyInvoiceState, emptyManufactureState, emptyPhysicalState,
   evaluateManufactureForm, invoiceRepresentation, manufactureFormKey, manufactureRepresentation, modeForKind,
-  parseQtyMilli, physicalRepresentation, planVoucherEdit, stockLinesStateFromVoucher, voucherToPayload,
+  parseQtyMilli, physicalRepresentation, planVoucherEdit, stockLinesStateFromVoucher, voucherToPayload, applyTdsToAccountingRows, appliedTdsAmount, tdsStateFromSaved,
   accountingStateFromVoucher as acctState, buildTransferPayload, emptyTransferState, transferRepresentation, transferCostQuery,
   invoiceRepresentation as invoiceRep, type TransferRowState,
   LEGACY_STOCK_JOURNAL_BANNER, type EditPlanContext, type ManufactureFormState, type InvoiceContext, type InvoiceFormState, type TaxLedgerIds, type VoucherPayload
@@ -261,7 +261,7 @@ describe('accounting mode state ⇄ payload', () => {
         { stockItemId: GADGET, godownId: null, batchId: null, qtyMilli: 0, ratePaise: 0, discountPaise: 0, amount: 0, direction: 'in', isAbsolute: true }
       ],
       billRefs: [{ kind: 'new', name: 'J-3', amount: 9000, dueDate: '2025-06-01' }],
-      tds: { sectionId: 3, baseAmount: 10000, tdsAmount: 1000 }
+      tds: { sectionId: 3, baseAmount: 10000, tdsAmount: 1000, isManual: false, autoPayable: false }
     })
 
   it('load → save is the identity: every inventory field, header passthrough, party, cheque date, TDS', () => {
@@ -630,5 +630,138 @@ describe('planVoucherEdit routes a saved voucher to the mode that creates its ki
       inventory: [], billRefs: [], tds: null
     })
     expect(planVoucherEdit(v, 'payment', ctx)).toMatchObject({ mode: 'accounting', fallbackReason: null })
+  })
+})
+
+// ---------- TDS in both entry modes (WP 3.1) ----------
+
+describe('TDS on a purchase invoice', () => {
+  const VENDOR = 12
+  const PURCHASE = 22
+  const PAYABLE = 50 // tagged TDS payable for section 3
+  const SECTION = 3
+  const purchaseCtx: InvoiceContext = {
+    ...baseCtx,
+    kind: 'purchase',
+    ledgers: new Map([
+      ...baseCtx.ledgers,
+      [VENDOR, { stateCode: '27', gstRate: null }],
+      [PURCHASE, { stateCode: null, gstRate: null }],
+      [PAYABLE, { stateCode: null, gstRate: null, tdsPayableSectionId: SECTION }]
+    ])
+  }
+  const bill = (tds: InvoiceFormState['tds']): InvoiceFormState =>
+    invoiceState({ partyId: VENDOR, accountId: PURCHASE, number: 'P-1', billName: 'P-1', vehicleNo: '', transporterId: '', distanceKm: '', tds })
+
+  it('reduces the vendor credit, credits the payable ledger last, and the bill ref follows the vendor line', () => {
+    const plain = built(buildInvoicePayload(bill(null), purchaseCtx, 2, TAX))
+    const total = plain.lines[0]!.amount
+    const taxable = computeInvoice(bill(null), purchaseCtx).gst.taxable
+    const tds = { sectionId: SECTION, baseAmount: taxable, tdsAmount: 1000, isManual: false, payableLedgerId: PAYABLE, pending: false }
+    const p = built(buildInvoicePayload(bill(tds), purchaseCtx, 2, TAX))
+    expect(p.lines[0]).toMatchObject({ ledgerId: VENDOR, drCr: 'cr', amount: total - 1000 })
+    expect(p.lines[p.lines.length - 1]).toMatchObject({ ledgerId: PAYABLE, drCr: 'cr', amount: 1000 })
+    expect(p.billRefs[0]!.amount).toBe(total - 1000)
+    expect(p.tds).toEqual({ sectionId: SECTION, baseAmount: taxable, tdsAmount: 1000, isManual: false, autoPayable: false })
+    const dr = p.lines.filter((l) => l.drCr === 'dr').reduce((s, l) => s + l.amount, 0)
+    const cr = p.lines.filter((l) => l.drCr === 'cr').reduce((s, l) => s + l.amount, 0)
+    expect(dr).toBe(cr)
+  })
+
+  it('pending (no payable ledger yet): no payable line, autoPayable for the server to add', () => {
+    const tds = { sectionId: SECTION, baseAmount: 100, tdsAmount: 1000, isManual: false, payableLedgerId: null, pending: true }
+    const p = built(buildInvoicePayload(bill(tds), purchaseCtx, 2, TAX))
+    expect(p.lines.some((l) => l.ledgerId === PAYABLE)).toBe(false)
+    expect(p.tds!.autoPayable).toBe(true)
+  })
+
+  it('round-trips: a saved purchase with TDS opens in invoice mode, identical on save', () => {
+    const tds = { sectionId: SECTION, baseAmount: 5000, tdsAmount: 1000, isManual: true, payableLedgerId: PAYABLE, pending: false }
+    const v = stored(built(buildInvoicePayload(bill(tds), purchaseCtx, 2, TAX)))
+    const rep = invoiceRepresentation(v, purchaseCtx, TAX)
+    if (!rep.ok) throw new Error(rep.reason)
+    expect(rep.state.tds).toEqual(tds)
+    expect(diffPayloads(built(buildInvoicePayload(rep.state, purchaseCtx, 2, TAX)), voucherToPayload(v))).toEqual([])
+  })
+
+  it('falls back to accounting mode when the payable credit is not the tagged last line, or on a sales invoice', () => {
+    const tds = { sectionId: SECTION, baseAmount: 5000, tdsAmount: 1000, isManual: false, payableLedgerId: PAYABLE, pending: false }
+    const v = stored(built(buildInvoicePayload(bill(tds), purchaseCtx, 2, TAX)))
+    const untagged = { ...purchaseCtx, ledgers: new Map([...purchaseCtx.ledgers, [PAYABLE, { stateCode: null, gstRate: null }]]) }
+    expect(invoiceRepresentation(v, untagged, TAX)).toMatchObject({ ok: false, reason: expect.stringContaining('TDS payable') })
+    const wrongSection = { ...v, tds: { ...v.tds!, sectionId: 99 } }
+    expect(invoiceRepresentation(wrongSection, purchaseCtx, TAX).ok).toBe(false)
+    expect(buildInvoicePayload(invoiceState({ tds }), ctxFor('sales'), 1, TAX)).toMatchObject({ ok: false })
+    const plan = planVoucherEdit(v, 'purchase', { invoice: purchaseCtx, taxLedgers: TAX, itemName: () => '' })
+    expect(plan.mode).toBe('invoice')
+  })
+
+  it('isManual is part of the comparison', () => {
+    const tds = { sectionId: SECTION, baseAmount: 5000, tdsAmount: 1000, isManual: false, payableLedgerId: PAYABLE, pending: false }
+    const p = built(buildInvoicePayload(bill(tds), purchaseCtx, 2, TAX))
+    expect(diffPayloads({ ...p, tds: { ...p.tds!, isManual: true } }, p)).toEqual(['tds.isManual'])
+  })
+})
+
+describe('TDS in accounting mode', () => {
+  const VENDOR = 12
+  const PAYABLE = 50
+  type Row = { drCr: 'dr' | 'cr'; ledgerId: number | null; amount: number | null; tag?: string }
+  const make = (ledgerId: number, amount: number): Row => ({ drCr: 'cr', ledgerId, amount, tag: 'new' })
+  const payment = (): Row[] => [
+    { drCr: 'dr', ledgerId: VENDOR, amount: 5000000 },
+    { drCr: 'cr', ledgerId: BANK, amount: 5000000 },
+    { drCr: 'cr', ledgerId: null, amount: null }
+  ]
+
+  it('fresh apply: the target gives up the deduction and the payable row goes before the trailing blank', () => {
+    const out = applyTdsToAccountingRows(payment(), { targetIdx: 1, tdsAmount: 100000, payableLedgerId: PAYABLE, previous: null, makeRow: make })
+    expect(out.map((r) => [r.ledgerId, r.amount])).toEqual([[VENDOR, 5000000], [BANK, 4900000], [PAYABLE, 100000], [null, null]])
+  })
+
+  it('re-apply adjusts the existing payable credit by the difference', () => {
+    const first = applyTdsToAccountingRows(payment(), { targetIdx: 1, tdsAmount: 100000, payableLedgerId: PAYABLE, previous: null, makeRow: make })
+    const prev = { sectionId: 1, baseAmount: 5000000, tdsAmount: 100000, isManual: false, payableLedgerId: PAYABLE, pending: false }
+    const again = applyTdsToAccountingRows(first, { targetIdx: 1, tdsAmount: 120000, payableLedgerId: PAYABLE, previous: prev, makeRow: make })
+    expect(again.map((r) => [r.ledgerId, r.amount])).toEqual([[VENDOR, 5000000], [BANK, 4880000], [PAYABLE, 120000], [null, null]])
+    expect(appliedTdsAmount(again, { ...prev, tdsAmount: 120000 })).toBe(120000)
+  })
+
+  it('pending: no payable row; re-apply moves the target by the delta; the credit counts as applied', () => {
+    const pendingOut = applyTdsToAccountingRows(payment(), { targetIdx: 1, tdsAmount: 100000, payableLedgerId: null, previous: null, makeRow: make })
+    expect(pendingOut.map((r) => [r.ledgerId, r.amount])).toEqual([[VENDOR, 5000000], [BANK, 4900000], [null, null]])
+    const prev = { sectionId: 1, baseAmount: 5000000, tdsAmount: 100000, isManual: false, payableLedgerId: null, pending: true }
+    expect(appliedTdsAmount(pendingOut, prev)).toBe(100000)
+    const again = applyTdsToAccountingRows(pendingOut, { targetIdx: 1, tdsAmount: 150000, payableLedgerId: null, previous: prev, makeRow: make })
+    expect(again[1]!.amount).toBe(4850000)
+    // The ledger exists by now: the credit materialises as a row.
+    const real = applyTdsToAccountingRows(pendingOut, { targetIdx: 1, tdsAmount: 100000, payableLedgerId: PAYABLE, previous: prev, makeRow: make })
+    expect(real.map((r) => [r.ledgerId, r.amount])).toEqual([[VENDOR, 5000000], [BANK, 4900000], [PAYABLE, 100000], [null, null]])
+  })
+
+  it('tdsStateFromSaved finds the payable credit by tag, else by amount', () => {
+    const rows: Row[] = [
+      { drCr: 'dr', ledgerId: EXPENSE, amount: 10000 },
+      { drCr: 'cr', ledgerId: VENDOR, amount: 9000 },
+      { drCr: 'cr', ledgerId: PAYABLE, amount: 1000 }
+    ]
+    const saved = { sectionId: 3, baseAmount: 10000, tdsAmount: 1000, isManual: true }
+    expect(tdsStateFromSaved(saved, rows, VENDOR, (id) => (id === PAYABLE ? 3 : null))).toEqual({ ...saved, payableLedgerId: PAYABLE, pending: false })
+    expect(tdsStateFromSaved(saved, rows, VENDOR, () => null).payableLedgerId).toBe(PAYABLE)
+  })
+
+  it('the accounting payload carries isManual / autoPayable', () => {
+    const r = buildAccountingPayload(
+      {
+        date: '2025-05-01', number: '', narration: '', instrumentNo: '', billRefs: [], advanceReceipt: false, optional: false, original: null,
+        tds: { sectionId: 1, baseAmount: 5000000, tdsAmount: 100000, autoPayable: true },
+        rows: [
+          { drCr: 'dr', ledgerId: VENDOR, amount: 5000000, costAllocations: [] },
+          { drCr: 'cr', ledgerId: BANK, amount: 4900000, costAllocations: [] }
+        ]
+      },
+      { kind: 'payment', voucherTypeId: 3, derivedPartyId: VENDOR }
+    )
+    expect(r.ok && r.payload.tds).toEqual({ sectionId: 1, baseAmount: 5000000, tdsAmount: 100000, isManual: false, autoPayable: true })
   })
 })

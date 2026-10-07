@@ -2,7 +2,7 @@
 // voucher the specialised modes can't show): form state ⇄ save payload. Inventory lines and
 // every header field the form doesn't edit ride along untouched on alteration.
 
-import type { Voucher, VoucherBillRef, VoucherKind, VoucherTds } from '../domain'
+import type { Voucher, VoucherBillRef, VoucherKind } from '../domain'
 import { inventoryToPayload, passthroughOf, type BuildResult, type HeaderPassthrough, type InventoryPayload } from './payload'
 
 export interface AccountingRowState {
@@ -30,9 +30,19 @@ export interface AccountingFormState {
   billRefs: VoucherBillRef[]
   advanceReceipt: boolean
   optional: boolean
-  tds: VoucherTds | null
+  tds: AccountingTdsState | null
   /** null for a new voucher. */
   original: AccountingOriginal | null
+}
+
+/** The TDS entry as the accounting form holds it. `autoPayable` = the rows don't carry the
+ *  payable credit (its ledger doesn't exist yet) — saveVoucher appends it (see tdsSchema). */
+export interface AccountingTdsState {
+  sectionId: number
+  baseAmount: number
+  tdsAmount: number
+  isManual?: boolean
+  autoPayable?: boolean
 }
 
 const distinctSorted = (ids: number[]): number[] => [...new Set(ids)].sort((a, b) => a - b)
@@ -110,7 +120,13 @@ export function buildAccountingPayload(
       // Every stored inventory field, verbatim (batch, discount, godown, physical-count flag).
       inventory: o ? o.inventory.map((l) => ({ ...l })) : [],
       billRefs: refs,
-      tds: state.tds && party != null ? state.tds : null
+      tds:
+        state.tds && party != null
+          ? {
+              sectionId: state.tds.sectionId, baseAmount: state.tds.baseAmount, tdsAmount: state.tds.tdsAmount,
+              isManual: !!state.tds.isManual, autoPayable: !!state.tds.autoPayable
+            }
+          : null
     }
   }
 }
@@ -130,7 +146,9 @@ export function accountingStateFromVoucher(v: Voucher): AccountingFormState {
     billRefs: v.billRefs.map((r) => ({ ...r })),
     advanceReceipt: false,
     optional: v.isOptional,
-    tds: v.tds ? { ...v.tds } : null,
+    tds: v.tds
+      ? { sectionId: v.tds.sectionId, baseAmount: v.tds.baseAmount, tdsAmount: v.tds.tdsAmount, isManual: !!v.tds.isManual }
+      : null,
     original: {
       ...passthroughOf(v),
       ledgerIds: distinctSorted(v.lines.map((l) => l.ledgerId)),

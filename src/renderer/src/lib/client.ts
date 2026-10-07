@@ -1,6 +1,7 @@
 import type {
   Batch, BomLine, Budget, CompanyInfo, CostCentre, Currency, Employee, Godown, Group, Ledger, NegativeStockWarning,
   PayrollLine, PayrollRun, PriceLevel, PriceListRate, StockGroup, StockItem, TdsSection, Unit,
+  TdsRate, TdsCertificateRow, TdsChallan,
   Voucher, VoucherTransport, VoucherType
 } from '@shared/domain'
 import type { BudgetVarianceRow } from '@shared/budgets'
@@ -23,6 +24,7 @@ import type {
   PayHeadInput, PriceLevelInput,
   PriceRateInput,
   RendererLogInput, SearchQueryInput, StockGroupInput, StockItemInput, TdsSectionInput, UnitInput, UserInput, VoucherTransportInput, VoucherTypeInput,
+  TdsRateInput, TdsCertificateInput, TdsChallanInput,
   VoucherInputParsed
 } from '@shared/schemas'
 import type { CompanyFeatures } from '@shared/features'
@@ -222,13 +224,28 @@ export interface PtSummaryRow {
 export interface TdsSuggestion {
   sectionId: number
   code: string
+  /** Section reference for the voucher date (1961 code before 1 Apr 2026, Act-2025 after). */
+  reference: string
+  /** Effective rate, percent. */
   rate: number
+  rateBp: number
+  basis: 'section' | 'no_pan' | 'certificate'
   tdsPaise: number
-  /** null until the payable ledger exists — Apply creates it via tds.ensurePayable. */
+  /** null until the payable ledger exists — saveVoucher creates it (tds.autoPayable). */
   payableLedgerId: number | null
   payableLedgerName: string
   panAvailable: boolean
+  deducteeType: 'individual_huf' | 'company' | 'firm' | 'other' | null
   thresholdCrossed: boolean
+  threshold: {
+    reason: 'single' | 'aggregate' | 'none' | 'below'
+    singlePaise: number
+    aggregateLimitPaise: number
+    basis: 'fy' | 'month'
+    priorPaise: number
+  }
+  certificate: { id: number; certificateNo: string; rateBp: number } | null
+  sectionFrom: 'party' | 'ledger'
 }
 
 /** Mirrors src/main/services/tds.ts's TdsSummaryRow shape (kept local — that file is main-process only). */
@@ -238,6 +255,28 @@ export interface TdsSummaryRow {
   deductees: number
   base: number
   tds: number
+  payableCredited: number
+  payableDebited: number
+  allocatedToChallan: number
+}
+
+/** Mirrors src/main/services/tds.ts's TdsEntryRow shape (kept local — that file is main-process only). */
+export interface TdsEntryRow {
+  entryId: number
+  voucherId: number
+  voucherNumber: string
+  date: string
+  partyLedgerId: number
+  partyName: string
+  pan: string | null
+  sectionId: number
+  sectionCode: string
+  baseAmount: number
+  tdsAmount: number
+  rateBp: number | null
+  deducteeType: string | null
+  isManual: boolean
+  challanId: number | null
 }
 
 /** Mirrors src/main/services/costCentres.ts's CcReportRow shape (kept local — that file is main-process only). */
@@ -614,9 +653,25 @@ export const api = {
   tds: {
     sections: () => call<TdsSection[]>('tds:sections'),
     sectionSave: (data: TdsSectionInput) => call<TdsSection>('tds:sectionSave', data),
-    suggest: (partyLedgerId: number, base: number, date: string) =>
-      call<TdsSuggestion | null>('tds:suggest', { partyLedgerId, base, date }),
+    suggest: (
+      partyLedgerId: number,
+      base: number,
+      date: string,
+      opts: { expenseLedgerId?: number | null; excludeVoucherId?: number } = {}
+    ) => call<TdsSuggestion | null>('tds:suggest', { partyLedgerId, base, date, ...opts }),
     ensurePayable: (sectionId: number) => call<{ ledgerId: number }>('tds:ensurePayable', { sectionId }),
+    rates: (sectionId?: number) => call<TdsRate[]>('tds:rates', { sectionId }),
+    rateSave: (data: TdsRateInput) => call<TdsRate>('tds:rateSave', data),
+    rateDelete: (id: number) => call<void>('tds:rateDelete', { id }),
+    certificates: (ledgerId?: number) => call<TdsCertificateRow[]>('tds:certificates', { ledgerId }),
+    certificateSave: (data: TdsCertificateInput) => call<TdsCertificateRow>('tds:certificateSave', data),
+    certificateDelete: (id: number) => call<void>('tds:certificateDelete', { id }),
+    challans: (fyStartYear: number, quarter?: number) => call<TdsChallan[]>('tds:challans', { fyStartYear, quarter }),
+    challanSave: (data: TdsChallanInput) => call<TdsChallan>('tds:challanSave', data),
+    challanDelete: (id: number) => call<void>('tds:challanDelete', { id }),
+    allocate: (challanId: number, entryIds: number[]) => call<TdsChallan>('tds:allocate', { challanId, entryIds }),
+    unallocate: (entryIds: number[]) => call<void>('tds:unallocate', { entryIds }),
+    unallocated: (fyStartYear: number, quarter?: number) => call<TdsEntryRow[]>('tds:unallocated', { fyStartYear, quarter }),
     summary: (fyStartYear: number) => call<TdsSummaryRow[]>('tds:summary', { fyStartYear }),
     export26q: (fyStartYear: number, quarter: number) => call<{ path: string }>('tds:export26q', { fyStartYear, quarter })
   },

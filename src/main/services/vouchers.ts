@@ -10,6 +10,7 @@ import { fyOf } from '@shared/dates'
 import { cashBankGroupIds } from './masters'
 import { getFeatures } from './config'
 import { writeAudit } from './audit'
+import { ensureTdsPayableLedger, PENDING_PAYABLE_LEDGER, prepareVoucherTds } from './tds'
 import { parseLineSerials, rebuildItemSerials, syncVoucherSerials } from './serials'
 
 interface VoucherRow {
@@ -114,8 +115,16 @@ export function getVoucher(db: DB, id: number): Voucher | null {
     .all(id) as { kind: 'new' | 'against'; name: string; amount: number; due_date: string | null }[]
 
   const tdsRow = db
-    .prepare('SELECT section_id, base_amount, tds_amount FROM tds_entries WHERE voucher_id = ?')
-    .get(id) as { section_id: number; base_amount: number; tds_amount: number } | undefined
+    .prepare(
+      `SELECT id, section_id, base_amount, tds_amount, is_manual, rate_bp_at, deductee_type_at, certificate_id
+       FROM tds_entries WHERE voucher_id = ? ORDER BY id LIMIT 1`
+    )
+    .get(id) as
+    | {
+        id: number; section_id: number; base_amount: number; tds_amount: number; is_manual: number
+        rate_bp_at: number | null; deductee_type_at: string | null; certificate_id: number | null
+      }
+    | undefined
 
   return {
     id: v.id,
@@ -160,7 +169,13 @@ export function getVoucher(db: DB, id: number): Voucher | null {
       })
     ),
     billRefs: billRefRows.map((r) => ({ kind: r.kind, name: r.name, amount: r.amount, dueDate: r.due_date })),
-    tds: tdsRow ? { sectionId: tdsRow.section_id, baseAmount: tdsRow.base_amount, tdsAmount: tdsRow.tds_amount } : null
+    tds: tdsRow
+      ? {
+          sectionId: tdsRow.section_id, baseAmount: tdsRow.base_amount, tdsAmount: tdsRow.tds_amount,
+          isManual: !!tdsRow.is_manual, rateBp: tdsRow.rate_bp_at, deducteeType: tdsRow.deductee_type_at,
+          certificateId: tdsRow.certificate_id, entryId: tdsRow.id
+        }
+      : null
   }
 }
 
@@ -244,13 +259,15 @@ export function findDuplicates(db: DB, input: VoucherInputParsed, excludeId?: nu
 
 function ledgerFactsResolver(db: DB): (id: number) => LedgerFacts {
   const cashBank = cashBankGroupIds(db)
-  const stmt = db.prepare('SELECT group_id FROM ledgers WHERE id = ?')
+  const stmt = db.prepare('SELECT group_id, tds_payable_section_id FROM ledgers WHERE id = ?')
   const cache = new Map<number, LedgerFacts>()
   return (id: number) => {
     const hit = cache.get(id)
     if (hit) return hit
-    const row = stmt.get(id) as { group_id: number } | undefined
-    const facts: LedgerFacts = { exists: !!row, isCashOrBank: !!row && cashBank.has(row.group_id) }
+    const row = stmt.get(id) as { group_id: number; tds_payable_section_id: number | null } | undefined
+    const facts: LedgerFacts = {
+      exists: !!row, isCashOrBank: !!row && cashBank.has(row.group_id), isTdsPayable: row?.tds_payable_section_id != null
+    }
     cache.set(id, facts)
     return facts
   }
@@ -332,7 +349,15 @@ export function saveVoucher(db: DB, raw: VoucherInput, existingId?: number, hook
     }
   }
   const vt = getVoucherType(db, input.voucherTypeId)
-  const errors = validateVoucher(input, vt.kind, ledgerFactsResolver(db))
+  // TDS (WP 3.1): resolve the payable credit for tds.autoPayable (a ledger that doesn't exist
+  // yet rides as PENDING_PAYABLE_LEDGER until the transaction below creates it) and check the
+  // entry against the lines and the rate table. `posting` is what actually gets stored.
+  const preparedTds = prepareVoucherTds(db, input, existingId)
+  const posting: VoucherInputParsed = { ...input, lines: preparedTds.lines }
+  const baseFacts = ledgerFactsResolver(db)
+  const facts = (id: number): LedgerFacts =>
+    id === PENDING_PAYABLE_LEDGER ? { exists: true, isCashOrBank: false, isTdsPayable: true } : baseFacts(id)
+  const errors = [...validateVoucher(posting, vt.kind, facts), ...preparedTds.errors]
   if (errors.length) {
     throw new Error(errors.map((e) => e.message).join('; '))
   }
@@ -404,7 +429,12 @@ export function saveVoucher(db: DB, raw: VoucherInput, existingId?: number, hook
     const insertCostAlloc = db.prepare(
       'INSERT INTO voucher_line_cost_allocations (voucher_line_id, cost_centre_id, amount) VALUES (?, ?, ?)'
     )
-    input.lines.forEach((l, i) => {
+    // Created here, inside the save transaction, so a rejected save never leaves a stray ledger.
+    if (preparedTds.createPayableFor != null) {
+      const payableId = ensureTdsPayableLedger(db, preparedTds.createPayableFor)
+      for (const l of posting.lines) if (l.ledgerId === PENDING_PAYABLE_LEDGER) l.ledgerId = payableId
+    }
+    posting.lines.forEach((l, i) => {
       const res = insertLine.run(voucherId, l.ledgerId, l.drCr, l.amount, i, bankDateFor(l))
       const lineId = Number(res.lastInsertRowid)
       for (const alloc of l.costAllocations ?? []) {
@@ -423,10 +453,10 @@ export function saveVoucher(db: DB, raw: VoucherInput, existingId?: number, hook
     // WP 2.3: line serials (validated, stored, serial_numbers re-projected) — services/serials.ts.
     syncVoucherSerials(db, voucherId, input.inventory, before?.inventory)
 
-    // Bill refs and TDS ride on `vouchers`, not `voucher_lines`, so an UPDATE doesn't cascade
-    // their deletion the way replacing the line set does — clear and reinsert explicitly.
+    // Bill refs ride on `vouchers`, not `voucher_lines`, so an UPDATE doesn't cascade their
+    // deletion the way replacing the line set does — clear and reinsert explicitly. The TDS entry
+    // is updated IN PLACE instead (its id keys the challan allocation, which must survive edits).
     db.prepare('DELETE FROM bill_refs WHERE voucher_id = ?').run(voucherId)
-    db.prepare('DELETE FROM tds_entries WHERE voucher_id = ?').run(voucherId)
 
     if (input.billRefs.length > 0) {
       const insertBillRef = db.prepare(
@@ -437,13 +467,31 @@ export function saveVoucher(db: DB, raw: VoucherInput, existingId?: number, hook
       }
     }
 
+    const existingEntries = db.prepare('SELECT id FROM tds_entries WHERE voucher_id = ? ORDER BY id').all(voucherId) as { id: number }[]
     if (input.tds) {
       const party = input.partyLedgerId
         ? (db.prepare('SELECT pan FROM ledgers WHERE id = ?').get(input.partyLedgerId) as { pan: string | null } | undefined)
         : undefined
-      db.prepare(
-        'INSERT INTO tds_entries (voucher_id, section_id, party_ledger_id, pan, base_amount, tds_amount) VALUES (?, ?, ?, ?, ?, ?)'
-      ).run(voucherId, input.tds.sectionId, input.partyLedgerId, party?.pan ?? null, input.tds.baseAmount, input.tds.tdsAmount)
+      const basis = preparedTds.basis
+      const values = [
+        input.tds.sectionId, input.partyLedgerId, party?.pan ?? null, input.tds.baseAmount, input.tds.tdsAmount,
+        basis?.deducteeType ?? null, basis?.rateBp ?? null, basis?.certificateId ?? null, input.tds.isManual ? 1 : 0
+      ]
+      const keep = existingEntries[0]
+      if (keep) {
+        db.prepare(
+          `UPDATE tds_entries SET section_id = ?, party_ledger_id = ?, pan = ?, base_amount = ?, tds_amount = ?,
+             deductee_type_at = ?, rate_bp_at = ?, certificate_id = ?, is_manual = ? WHERE id = ?`
+        ).run(...values, keep.id)
+        for (const extra of existingEntries.slice(1)) db.prepare('DELETE FROM tds_entries WHERE id = ?').run(extra.id)
+      } else {
+        db.prepare(
+          `INSERT INTO tds_entries (section_id, party_ledger_id, pan, base_amount, tds_amount,
+             deductee_type_at, rate_bp_at, certificate_id, is_manual, voucher_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        ).run(...values, voucherId)
+      }
+    } else if (existingEntries.length > 0) {
+      db.prepare('DELETE FROM tds_entries WHERE voucher_id = ?').run(voucherId)
     }
 
     hooks.withinTransaction?.(voucherId)

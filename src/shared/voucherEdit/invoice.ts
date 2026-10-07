@@ -6,6 +6,7 @@
 import type { Voucher, VoucherBillRef, VoucherKind } from '../domain'
 import { computeGst, supplyTypeFor, addBreakups, type GstBreakup, type SupplyType } from '../gst/calc'
 import { roundToRupee } from '../money'
+import type { TdsDeductionState } from './tds'
 import {
   confirmRoundTrip, passthroughOf, qtyText,
   type BuildResult, type LinePayload, type Representation
@@ -49,7 +50,19 @@ export interface InvoiceFormState {
   reference: string | null
   instrumentNo: string | null
   instrumentDate: string | null
+  /** TDS deducted on a purchase invoice (WP 3.1). Absent/null = none. */
+  tds?: InvoiceTdsState | null
 }
+
+/** A purchase invoice's TDS deduction: the party (vendor) line is reduced by `tdsAmount` and a
+ *  credit of `tdsAmount` goes to the section's tagged payable ledger — appended as the invoice's
+ *  last line, or (`pending`: the ledger doesn't exist yet) left for saveVoucher to create and
+ *  append (autoPayable). */
+export type InvoiceTdsState = TdsDeductionState
+
+/** Only purchase invoices carry TDS in invoice mode (the buyer deducts); every other trading
+ *  kind with a TDS entry falls back to accounting mode. */
+export const invoiceKindTakesTds = (kind: VoucherKind): boolean => kind === 'purchase'
 
 export const blankInvoiceRow = (): InvoiceRowState => ({
   itemId: null, qtyText: '', rate: null, discount: null, godownId: null, batchId: null
@@ -79,7 +92,7 @@ export interface InvoiceContext {
   kind: VoucherKind
   companyStateCode: string
   items: ReadonlyMap<number, { gstRate: number | null; cessRate: number | null }>
-  ledgers: ReadonlyMap<number, { stateCode: string | null; gstRate: number | null }>
+  ledgers: ReadonlyMap<number, { stateCode: string | null; gstRate: number | null; tdsPayableSectionId?: number | null }>
 }
 
 export interface InvoiceLineDetail {
@@ -181,11 +194,19 @@ export function buildInvoicePayload(
     if (taxLedgers[k] == null) return { ok: false, error: `No ${k === 'roundOff' ? 'Round Off' : k.toUpperCase()} ledger` }
   }
   const { gst, rounded, roundDiff } = c
+  const tds = state.tds ?? null
+  if (tds) {
+    if (!invoiceKindTakesTds(ctx.kind)) return { ok: false, error: 'TDS can only be deducted on a purchase invoice' }
+    if (tds.tdsAmount <= 0 || tds.tdsAmount >= rounded) return { ok: false, error: 'TDS must be less than the invoice total' }
+    if (!tds.pending && tds.payableLedgerId == null) return { ok: false, error: 'No TDS payable ledger for the deduction' }
+  }
+  // With TDS the vendor is owed the invoice total less the deduction.
+  const partyAmount = rounded - (tds?.tdsAmount ?? 0)
   const partyDr = partyIsDebit(ctx.kind)
   const partySide = partyDr ? 'dr' : 'cr'
   const counter = partyDr ? 'cr' : 'dr'
   const lines: LinePayload[] = [
-    { ledgerId: state.partyId, drCr: partySide, amount: rounded, costAllocations: [] },
+    { ledgerId: state.partyId, drCr: partySide, amount: partyAmount, costAllocations: [] },
     { ledgerId: state.accountId, drCr: counter, amount: gst.taxable, costAllocations: [] }
   ]
   if (gst.cgst > 0) lines.push({ ledgerId: taxLedgers.cgst!, drCr: counter, amount: gst.cgst, costAllocations: [] })
@@ -196,6 +217,11 @@ export function buildInvoicePayload(
   // heavier, so Round Off balances on the party side.
   if (roundDiff !== 0) {
     lines.push({ ledgerId: taxLedgers.roundOff!, drCr: roundDiff > 0 ? counter : partySide, amount: Math.abs(roundDiff), costAllocations: [] })
+  }
+  // The TDS payable credit is always the LAST line (saveVoucher appends it there too when it
+  // creates the ledger), which is what invoiceStateFromVoucher looks for on the way back.
+  if (tds && !tds.pending && tds.payableLedgerId != null) {
+    lines.push({ ledgerId: tds.payableLedgerId, drCr: partySide, amount: tds.tdsAmount, costAllocations: [] })
   }
   const billName = state.billName.trim()
   return {
@@ -232,9 +258,14 @@ export function buildInvoicePayload(
         isNoteKind(ctx.kind) && !state.manualNewBillMode
           ? state.noteBillRefs
           : billName
-            ? [{ kind: 'new' as const, name: billName, amount: rounded, dueDate: state.billDueDate || null }]
+            ? [{ kind: 'new' as const, name: billName, amount: partyAmount, dueDate: state.billDueDate || null }]
             : [],
-      tds: null
+      tds: tds
+        ? {
+            sectionId: tds.sectionId, baseAmount: tds.baseAmount, tdsAmount: tds.tdsAmount,
+            isManual: tds.isManual, autoPayable: tds.pending
+          }
+        : null
     }
   }
 }
@@ -245,7 +276,7 @@ export function emptyInvoiceState(date: string): InvoiceFormState {
     date, number: '', partyId: null, accountId: null, rows: [blankInvoiceRow()], narration: '',
     vehicleNo: '', transporterId: '', distanceKm: '', currencyCode: '', fxRateText: '', posOverride: null,
     optional: false, billName: '', billDueDate: date, manualNewBillMode: false, noteBillRefs: [],
-    reference: null, instrumentNo: null, instrumentDate: null
+    reference: null, instrumentNo: null, instrumentDate: null, tds: null
   }
 }
 
@@ -254,10 +285,30 @@ export function emptyInvoiceState(date: string): InvoiceFormState {
 export function invoiceStateFromVoucher(
   v: Voucher,
   kind: VoucherKind,
-  taxLedgers: TaxLedgerIds
+  taxLedgers: TaxLedgerIds,
+  ledgerFacts?: InvoiceContext['ledgers']
 ): { ok: true; state: InvoiceFormState } | { ok: false; reason: string } {
   if (v.partyLedgerId == null) return { ok: false, reason: 'no party ledger' }
-  if (v.tds) return { ok: false, reason: 'it carries a TDS deduction' }
+  let tds: InvoiceTdsState | null = null
+  let lines = v.lines
+  if (v.tds) {
+    if (!invoiceKindTakesTds(kind)) return { ok: false, reason: 'it carries a TDS deduction' }
+    // The payable credit must be the last line, on the party side, for exactly the deduction —
+    // and, when the ledger facts are known, on a ledger tagged for the entry's section.
+    const last = v.lines[v.lines.length - 1]
+    const tag = last ? ledgerFacts?.get(last.ledgerId)?.tdsPayableSectionId : undefined
+    if (
+      !last || last.drCr !== 'cr' || last.ledgerId === v.partyLedgerId || last.amount !== v.tds.tdsAmount ||
+      (ledgerFacts && tag !== v.tds.sectionId)
+    ) {
+      return { ok: false, reason: "its TDS payable credit isn't the invoice's last line" }
+    }
+    tds = {
+      sectionId: v.tds.sectionId, baseAmount: v.tds.baseAmount, tdsAmount: v.tds.tdsAmount,
+      isManual: !!v.tds.isManual, payableLedgerId: last.ledgerId, pending: false
+    }
+    lines = v.lines.slice(0, -1)
+  }
   if (v.lines.some((l) => l.costAllocations.length > 0)) return { ok: false, reason: 'it has cost-centre allocations' }
   if (v.inventory.length === 0) return { ok: false, reason: 'it has no item lines' }
   if (v.inventory.some((l) => l.isAbsolute)) return { ok: false, reason: 'it has physical-count lines' }
@@ -265,7 +316,7 @@ export function invoiceStateFromVoucher(
   const counter = partyIsDebit(kind) ? 'cr' : 'dr'
   const taxIds = new Set(Object.values(taxLedgers).filter((x): x is number => x != null))
   const accountIds = [...new Set(
-    v.lines.filter((l) => l.ledgerId !== v.partyLedgerId && l.drCr === counter && !taxIds.has(l.ledgerId)).map((l) => l.ledgerId)
+    lines.filter((l) => l.ledgerId !== v.partyLedgerId && l.drCr === counter && !taxIds.has(l.ledgerId)).map((l) => l.ledgerId)
   )]
   if (accountIds.length !== 1) return { ok: false, reason: 'it does not post to exactly one sales / purchase ledger' }
 
@@ -329,7 +380,8 @@ export function invoiceStateFromVoucher(
       noteBillRefs,
       reference: p.reference,
       instrumentNo: p.instrumentNo,
-      instrumentDate: p.instrumentDate
+      instrumentDate: p.instrumentDate,
+      tds
     }
   }
 }
@@ -342,7 +394,7 @@ export function invoiceRepresentation(
   ctx: InvoiceContext,
   taxLedgers: TaxLedgerIds
 ): Representation<InvoiceFormState> {
-  const loaded = invoiceStateFromVoucher(v, ctx.kind, taxLedgers)
+  const loaded = invoiceStateFromVoucher(v, ctx.kind, taxLedgers, ctx.ledgers)
   if (!loaded.ok) return loaded
   return confirmRoundTrip(v, loaded.state, buildInvoicePayload(loaded.state, ctx, v.voucherTypeId, taxLedgers))
 }

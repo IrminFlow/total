@@ -20,7 +20,9 @@ import {
   isoDate, ledgerInputSchema, notifyDeadlinesSchema, passphraseSchema, periodSchema, priceLevelInputSchema, priceRateInputSchema, rendererLogSchema, reportPdfSchema,
   searchGlobalSchema, searchQuerySchema, stockGroupInputSchema, stockItemInputSchema, stockQuerySchema, stockCostAsOfSchema,
   stockRegisterSchema, stockReorderSchema, stockExpiryReportSchema, stockLabelsSchema, serialsListSchema, serialsAvailableSchema, tallyImportSchema, tdsExport26qSchema, tdsEnsurePayableSchema, tdsSectionInputSchema, tdsSuggestSchema,
-  tdsSummarySchema, unitInputSchema, voucherInputSchema, voucherTransportSchema, voucherTypeInputSchema
+  tdsSummarySchema, unitInputSchema, voucherInputSchema, voucherTransportSchema, voucherTypeInputSchema,
+  tdsRateInputSchema, tdsRatesQuerySchema, tdsCertificateInputSchema, tdsCertificatesQuerySchema, tdsChallanInputSchema,
+  tdsChallansQuerySchema, tdsAllocateSchema, tdsUnallocateSchema, tdsUnallocatedSchema
 } from '@shared/schemas'
 import { todayISO } from '@shared/dates'
 import { formatPaise } from '@shared/money'
@@ -833,11 +835,36 @@ export function registerIpc(): void {
   handle('tds:sections', () => tds.listSections(requireCompany().db), 'viewer')
   handle('tds:sectionSave', (p) => tds.saveSection(requireCompany().db, tdsSectionInputSchema.parse(p)), 'owner')
   handle('tds:suggest', (p) => {
-    const { partyLedgerId, base, date } = tdsSuggestSchema.parse(p)
+    const { partyLedgerId, base, date, expenseLedgerId, excludeVoucherId } = tdsSuggestSchema.parse(p)
     // Read-only (runs as the user types) — never creates the payable ledger.
-    return tds.tdsSuggestion(requireCompany().db, partyLedgerId, base, date)
+    return tds.tdsSuggestion(requireCompany().db, partyLedgerId, base, date, { expenseLedgerId, excludeVoucherId })
   })
-  // Explicit "Apply TDS" in voucher entry: the only path that creates "TDS Payable <code>".
+  // Effective-dated rate table — section master data, owner-edited like tds:sectionSave.
+  handle('tds:rates', (p) => tds.listRates(requireCompany().db, tdsRatesQuerySchema.parse(p ?? {}).sectionId), 'viewer')
+  handle('tds:rateSave', (p) => tds.saveRate(requireCompany().db, tdsRateInputSchema.parse(p)), 'owner')
+  handle('tds:rateDelete', (p) => tds.deleteRate(requireCompany().db, idSchema.parse(p).id), 'owner')
+  // Lower-deduction certificates are party data (like the PAN on the ledger): accountant+.
+  handle('tds:certificates', (p) => tds.listCertificates(requireCompany().db, tdsCertificatesQuerySchema.parse(p ?? {}).ledgerId), 'viewer')
+  handle('tds:certificateSave', (p) => tds.saveCertificate(requireCompany().db, tdsCertificateInputSchema.parse(p)))
+  handle('tds:certificateDelete', (p) => tds.deleteCertificate(requireCompany().db, idSchema.parse(p).id))
+  // Challans + allocation: accountant+ edits, viewer reads.
+  handle('tds:challans', (p) => {
+    const { fyStartYear, quarter } = tdsChallansQuerySchema.parse(p)
+    return tds.listChallans(requireCompany().db, fyStartYear, quarter)
+  }, 'viewer')
+  handle('tds:challanSave', (p) => tds.saveChallan(requireCompany().db, tdsChallanInputSchema.parse(p)))
+  handle('tds:challanDelete', (p) => tds.deleteChallan(requireCompany().db, idSchema.parse(p).id))
+  handle('tds:allocate', (p) => {
+    const { challanId, entryIds } = tdsAllocateSchema.parse(p)
+    return tds.allocateEntries(requireCompany().db, challanId, entryIds)
+  })
+  handle('tds:unallocate', (p) => tds.unallocateEntries(requireCompany().db, tdsUnallocateSchema.parse(p).entryIds))
+  handle('tds:unallocated', (p) => {
+    const { fyStartYear, quarter } = tdsUnallocatedSchema.parse(p)
+    return tds.unallocatedEntries(requireCompany().db, fyStartYear, quarter as 1 | 2 | 3 | 4 | undefined)
+  }, 'viewer')
+  // Thin wrapper kept for callers that want the tagged payable ledger up front; entry screens
+  // no longer call it — saveVoucher creates the ledger inside the save (tds.autoPayable).
   handle('tds:ensurePayable', (p) => {
     const { sectionId } = tdsEnsurePayableSchema.parse(p)
     return { ledgerId: tds.ensureTdsPayableLedger(requireCompany().db, sectionId) }

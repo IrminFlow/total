@@ -395,8 +395,13 @@ describe('reorder planning, expiry report, labels', () => {
 describe('migration 021 (serial numbers)', () => {
   const at = MIGRATIONS.findIndex((sql) => sql.includes('CREATE TABLE serial_numbers'))
 
+  it('is migration 021 and the last one', () => {
+    expect(at + 1).toBe(21)
+    expect(MIGRATIONS.length).toBe(21)
+  })
+
   it('applies on a populated pre-021 fixture: columns added, data and stock figures unchanged', () => {
-    expect(at).toBeGreaterThan(0)
+    expect(at).toBe(20)
     const db = freshPartialDb(at)
     seedCompany(db, { ...TEST_INFO, booksFrom: 2025 })
     const fx = seedStockFixture(db, { vouchers: 300, items: 8, seed: 21 })

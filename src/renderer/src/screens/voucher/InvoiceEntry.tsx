@@ -4,8 +4,8 @@ import type { Voucher, VoucherBillRef, VoucherKind } from '@shared/domain'
 import type { OutstandingBill } from '@shared/reports'
 import type { VoucherInputParsed } from '@shared/schemas'
 import {
-  buildInvoicePayload, computeInvoice, requiredTaxLedgers, taxLedgerIdsFrom,
-  type InvoiceContext, type InvoiceFormState, type InvoiceRowState, type TaxLedgerIds
+  buildInvoicePayload, computeInvoice, invoiceKindTakesTds, requiredTaxLedgers, taxLedgerIdsFrom,
+  type InvoiceContext, type InvoiceFormState, type InvoiceRowState, type TaxLedgerIds, type TdsDeductionState
 } from '@shared/voucherEdit'
 import { GST_STATES } from '@shared/gst/states'
 import { formatPaise, amountInWords } from '@shared/money'
@@ -21,6 +21,8 @@ import { useUnsavedGuard } from '../../lib/useUnsavedGuard'
 import { addDaysLocal, nextLineKey, NUMBER_LOADING, useAlterationDirty, useLeaveAfterSave, useVoucherNumberField } from './hooks'
 import { QuickItemModal, QuickLedgerModal } from './modals'
 import { TransportModal } from './TransportModal'
+import { useTdsDeduction } from './useTdsDeduction'
+import { TdsBanner } from './TdsBanner'
 import { LineDetailToggle, LineStockDetail, LineStockSummary, useLineDetails } from './LineStockDetail'
 
 // ---------- invoice mode (sales / purchase / notes) ----------
@@ -111,6 +113,12 @@ export function InvoiceEntry({
   const [manualNewBillMode, setManualNewBillMode] = useState(initial?.manualNewBillMode ?? false)
   const [noteBillRefs, setNoteBillRefs] = useState<VoucherBillRef[]>(initial?.noteBillRefs ?? [])
 
+  // ---------- TDS (purchase invoices; same suggestion/apply hook as AccountingEntry) ----------
+  // Apply never touches the item lines: the shared builder reduces the vendor's credit by the
+  // deduction and credits the section's tagged payable ledger (or, while that ledger doesn't
+  // exist, leaves it `pending` for saveVoucher to create inside the save).
+  const [tds, setTds] = useState<TdsDeductionState | null>(initial?.tds ?? null)
+
   useEffect(() => {
     if (!billNameTouched && numberField.value !== NUMBER_LOADING) setBillName(numberField.value)
   }, [numberField.value, billNameTouched])
@@ -130,6 +138,8 @@ export function InvoiceEntry({
     if (allocParty.current === partyId) return
     allocParty.current = partyId
     setNoteBillRefs([])
+    // A deduction belongs to its deductee — a different supplier starts without one.
+    setTds(null)
     if (isNoteKind) {
       setManualNewBillMode(false)
       setBillNameTouched(false)
@@ -150,7 +160,7 @@ export function InvoiceEntry({
       kind,
       companyStateCode: info!.stateCode,
       items: new Map(items.map((i) => [i.id, { gstRate: i.gstRate, cessRate: i.cessRate }])),
-      ledgers: new Map(ledgers.map((l) => [l.id, { stateCode: l.stateCode, gstRate: l.gstRate }]))
+      ledgers: new Map(ledgers.map((l) => [l.id, { stateCode: l.stateCode, gstRate: l.gstRate, tdsPayableSectionId: l.tdsPayableSectionId }]))
     }),
     [kind, info, items, ledgers]
   )
@@ -176,13 +186,30 @@ export function InvoiceEntry({
       noteBillRefs,
       reference: initial?.reference ?? null,
       instrumentNo: initial?.instrumentNo ?? null,
-      instrumentDate: initial?.instrumentDate ?? null
+      instrumentDate: initial?.instrumentDate ?? null,
+      tds: invoiceKindTakesTds(kind) ? tds : null
     }),
-    [date, isEdit, alterNumber, numberField.forPayload, partyId, accountId, rows, narration, vehicleNo, transporterId, distanceKm, currencyCode, fxRateText, posOverride, optionalVoucher, billName, billDueDate, manualNewBillMode, noteBillRefs, initial]
+    [date, isEdit, alterNumber, numberField.forPayload, partyId, accountId, rows, narration, vehicleNo, transporterId, distanceKm, currencyCode, fxRateText, posOverride, optionalVoucher, billName, billDueDate, manualNewBillMode, noteBillRefs, initial, kind, tds]
   )
 
   const computed = useMemo(() => computeInvoice(formState, ctx), [formState, ctx])
   const { supply, fxActive } = computed
+
+  // TDS base = the taxable value: GST shown separately on the invoice is excluded (CBDT
+  // Circular 23/2017, 19 Jul 2017 — https://www.incometaxindia.gov.in/documents/d/guest/circular_23_2017-pdf,
+  // accessed 2026-10-07).
+  const tdsDeduction = useTdsDeduction({
+    enabled: features.tds && invoiceKindTakesTds(kind),
+    candidate: partyId != null && computed.gst.taxable > 0 ? { partyLedgerId: partyId, base: computed.gst.taxable, expenseLedgerId: accountId } : null,
+    date,
+    excludeVoucherId: voucherId,
+    tds,
+    onChange: setTds,
+    startDismissed: !!initial?.tds
+  })
+  const appliedTds = formState.tds ?? null
+  const partyAmount = computed.rounded - (appliedTds?.tdsAmount ?? 0)
+  const tdsStale = !!appliedTds && !appliedTds.isManual && appliedTds.baseAmount !== computed.gst.taxable
 
   // Unsaved-changes guard: a fresh invoice is dirty once anything meaningful is typed (save
   // resets all of these); an alteration once what it would post differs from the saved voucher.
@@ -230,6 +257,7 @@ export function InvoiceEntry({
     if (!partyId) return void toast.push('error', 'Pick the party account first')
     if (!accountId) return void toast.push('error', `Pick the ${isSalesSide ? 'sales' : 'purchase'} ledger`)
     if (computed.detail.length === 0) return void toast.push('error', 'Add at least one item line')
+    if (tdsStale) return void toast.push('error', 'The invoice changed since TDS was applied — apply TDS again (or remove it) before saving')
     setSaving(true)
     try {
       const input = await buildPayload()
@@ -275,6 +303,7 @@ export function InvoiceEntry({
       setBillNameTouched(false)
       setBillDueDateTouched(false)
       setNoteBillRefs([])
+      tdsDeduction.reset()
       numberField.reset()
       await queryClient.invalidateQueries()
     } catch (err) {
@@ -282,7 +311,7 @@ export function InvoiceEntry({
     } finally {
       setSaving(false)
     }
-  }, [saving, partyId, accountId, computed, buildPayload, isSalesSide, kind, typeId, voucherId, isEdit, date, toast, setWorkingDate, queryClient, numberField.reset, leave])
+  }, [saving, partyId, accountId, computed, buildPayload, isSalesSide, kind, typeId, voucherId, isEdit, date, toast, setWorkingDate, queryClient, numberField.reset, leave, tdsDeduction.reset, tdsStale])
 
   const remove = async (): Promise<void> => {
     if (!voucherId) return
@@ -562,8 +591,46 @@ export function InvoiceEntry({
             <span>Total</span>
             <Money paise={computed.rounded} />
           </div>
+          {appliedTds && (
+            <div data-testid="invoice-tds-summary">
+              <div className="flex justify-between py-0.5 text-cr">
+                <span>
+                  Less TDS{tdsDeduction.suggestion ? ` u/s ${tdsDeduction.suggestion.code}` : ''}
+                  {appliedTds.pending && <span className="text-caption text-muted"> (payable ledger created on save)</span>}
+                </span>
+                <Money paise={-appliedTds.tdsAmount} />
+              </div>
+              <SummaryRow label="Payable to supplier" paise={partyAmount} />
+              <button
+                className="text-hint text-blue hover:underline"
+                data-testid="btn-tds-remove"
+                onClick={() => setTds(null)}
+              >
+                Remove TDS
+              </button>
+            </div>
+          )}
         </div>
       </div>
+
+      {tdsStale && (
+        <p className="mt-2 text-body-sm text-cr" data-testid="invoice-tds-stale">
+          TDS was applied on a taxable value of {formatPaise(appliedTds!.baseAmount, { symbol: true })}; the invoice now
+          totals {formatPaise(computed.gst.taxable, { symbol: true })} — apply TDS again before saving.
+        </p>
+      )}
+      {features.tds && tdsDeduction.suggestion && !tdsDeduction.dismissed && (
+        <TdsBanner
+          suggestion={tdsDeduction.suggestion}
+          onDismiss={tdsDeduction.dismiss}
+          onApply={() => void tdsDeduction.apply()}
+          blockedReason={
+            tdsDeduction.suggestion.tdsPaise >= computed.rounded
+              ? `The deduction can't be the whole invoice (${formatPaise(computed.rounded, { symbol: true })}).`
+              : null
+          }
+        />
+      )}
 
       <div className="mt-4 border-t border-line pt-3">
         <button
@@ -703,7 +770,7 @@ export function InvoiceEntry({
                   </Field>
                   <Field label="Amount">
                     <div className={`${inputCls} num bg-panel text-right text-muted`}>
-                      <Money paise={computed.rounded} />
+                      <Money paise={partyAmount} />
                     </div>
                   </Field>
                   {isNoteKind && (

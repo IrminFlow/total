@@ -303,7 +303,7 @@
       "default": []
     },
     "tds": {
-      "description": "TDS deduction on this voucher (section + base + deducted amount, paise), or null.",
+      "description": "TDS deduction on this voucher (section + base + deducted amount, paise), or null. The amount must equal the section's rate x base on the voucher date unless isManual; the voucher must credit the section's TDS payable ledger by that amount — or set autoPayable and leave that credit out (the server finds or creates the payable ledger and appends it).",
       "type": [
         "object",
         "null"
@@ -322,6 +322,14 @@
           "type": "integer",
           "maximum": 9007199254740991,
           "exclusiveMinimum": 0
+        },
+        "isManual": {
+          "type": "boolean",
+          "default": false
+        },
+        "autoPayable": {
+          "type": "boolean",
+          "default": false
         }
       },
       "required": [

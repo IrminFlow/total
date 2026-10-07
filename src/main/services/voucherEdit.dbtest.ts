@@ -23,12 +23,16 @@ import { setBankDate } from './banking'
 
 type LedgerKind = 'Sundry Debtors' | 'Sundry Creditors' | 'Sales Accounts' | 'Purchase Accounts' | 'Duties & Taxes' | 'Indirect Expenses' | 'Bank Accounts'
 
-function ledger(db: DB, name: string, group: LedgerKind, extra: { stateCode?: string; taxType?: 'cgst' | 'sgst' | 'igst' | 'cess'; tdsSectionId?: number } = {}): number {
+function ledger(
+  db: DB, name: string, group: LedgerKind,
+  extra: { stateCode?: string; taxType?: 'cgst' | 'sgst' | 'igst' | 'cess'; tdsSectionId?: number; tdsPayableSectionId?: number } = {}
+): number {
   const g = db.prepare('SELECT id FROM groups WHERE name = ?').get(group) as { id: number }
   return createLedger(db, {
     name, groupId: g.id, openingBalance: 0, gstin: null, stateCode: extra.stateCode ?? null, address: null,
     taxType: extra.taxType ?? null, gstRate: null, hsn: null, tdsSectionId: extra.tdsSectionId ?? null,
-    pan: extra.tdsSectionId ? 'ABCDE1234F' : null, creditDays: null, exportType: null
+    pan: extra.tdsSectionId ? 'ABCDE1234F' : null, creditDays: null, exportType: null,
+    tdsPayableSectionId: extra.tdsPayableSectionId ?? null
   }).id
 }
 
@@ -62,7 +66,8 @@ function setup(db: DB) {
     buyerKa: ledger(db, 'Buyer KA', 'Sundry Debtors', { stateCode: '29' }),
     supplier: ledger(db, 'Supplier', 'Sundry Creditors', { stateCode: '27' }),
     contractor: ledger(db, 'Contractor', 'Sundry Creditors', { stateCode: '27', tdsSectionId: section.id }),
-    tdsPayable: ledger(db, 'TDS Payable', 'Duties & Taxes'),
+    // Tagged as the section's payable ledger (migration 020) — saveVoucher validates TDS against it.
+    tdsPayable: ledger(db, 'TDS Payable', 'Duties & Taxes', { tdsPayableSectionId: section.id }),
     sales: ledger(db, 'Sales', 'Sales Accounts'),
     purchases: ledger(db, 'Purchases', 'Purchase Accounts'),
     freight: ledger(db, 'Freight', 'Indirect Expenses'),
@@ -93,7 +98,7 @@ function editContext(db: DB, voucherId?: number): EditPlanContext {
     invoice: {
       companyStateCode: TEST_INFO.stateCode,
       items: new Map(items.map((i) => [i.id, { gstRate: i.gstRate, cessRate: i.cessRate }])),
-      ledgers: new Map(ledgers.map((l) => [l.id, { stateCode: l.stateCode, gstRate: l.gstRate }]))
+      ledgers: new Map(ledgers.map((l) => [l.id, { stateCode: l.stateCode, gstRate: l.gstRate, tdsPayableSectionId: l.tdsPayableSectionId }]))
     },
     taxLedgers: taxLedgerIdsFrom(ledgers),
     manufacture: voucherId ? getManufactureDetails(db, voucherId) : null,
@@ -175,7 +180,11 @@ function snapshot(db: DB, id: number): unknown {
          JOIN voucher_lines vl ON vl.id = a.voucher_line_id WHERE vl.voucher_id = ? ORDER BY vl.line_order, a.id`
       )
       .all(id),
-    tds: db.prepare('SELECT section_id, party_ledger_id, pan, base_amount, tds_amount FROM tds_entries WHERE voucher_id = ?').all(id),
+    // The entry id is part of the snapshot: an edit must update the entry in place (challan
+    // allocations key on it), never delete + reinsert.
+    tds: db
+      .prepare('SELECT id, section_id, party_ledger_id, pan, base_amount, tds_amount, is_manual, rate_bp_at, deductee_type_at, certificate_id FROM tds_entries WHERE voucher_id = ?')
+      .all(id),
     manufacture: db.prepare('SELECT * FROM manufacture_details WHERE voucher_id = ?').all(id)
   }
 }
@@ -267,16 +276,39 @@ describe('voucher editor round-trip (WP 1.4): load → save unchanged stores ide
     expect(plan.mode === 'accounting' && plan.fallbackReason).toBeTruthy()
   })
 
+  it('purchase (invoice form) with TDS: opens in invoice mode, entry and payable credit unchanged', () => {
+    // Contractor flagged for the first section (194A, 10%): base = taxable value 5,00,000 paise.
+    const taxable = 500000
+    // Its own item, so the purchase doesn't move the average cost other tests' stock relies on
+    // (a fresh context, since the shared one predates the item).
+    const kit = item(db, 'TDS Service Kit', 18)
+    const fresh = editContext(db)
+    const r = buildInvoicePayload({
+      ...emptyInvoiceState('2025-05-10'),
+      partyId: x.contractor, accountId: x.purchases, billName: 'CON-INV-1', billDueDate: '2025-06-10',
+      rows: [{ itemId: kit, qtyText: '1', rate: taxable, discount: null, godownId: null, batchId: null }],
+      tds: { sectionId: x.sectionId, baseAmount: taxable, tdsAmount: 50000, isManual: false, payableLedgerId: x.tdsPayable, pending: false }
+    }, { ...fresh.invoice, kind: 'purchase' }, typeId(db, 'purchase'), fresh.taxLedgers)
+    if (!r.ok) throw new Error(r.error)
+    const id = saveVoucher(db, r.payload).id
+    const v = getVoucher(db, id)!
+    expect(v.tds).toMatchObject({ tdsAmount: 50000, isManual: false, rateBp: 1000 })
+    expect(v.lines[v.lines.length - 1]).toMatchObject({ ledgerId: x.tdsPayable, drCr: 'cr', amount: 50000 })
+    expectRoundTrip(db, id, 'invoice')
+  })
+
   it('payment with TDS, cost allocations, cheque details and a reconciled bank line', () => {
     const id = saveVoucher(db, {
       ...header, voucherTypeId: typeId(db, 'payment'), date: '2025-05-13', partyLedgerId: x.contractor,
       instrumentNo: '000123', instrumentDate: '2025-05-01', reference: 'Contract #9', narration: 'Being paid',
       lines: [
-        { ledgerId: x.contractor, drCr: 'dr', amount: 99000, costAllocations: [{ costCentreId: x.ccA, amount: 99000 }] },
-        { ledgerId: x.bank, drCr: 'cr', amount: 99000 }
+        { ledgerId: x.contractor, drCr: 'dr', amount: 100000, costAllocations: [{ costCentreId: x.ccA, amount: 100000 }] },
+        { ledgerId: x.bank, drCr: 'cr', amount: 99000 },
+        { ledgerId: x.tdsPayable, drCr: 'cr', amount: 1000 }
       ],
-      billRefs: [{ kind: 'against', name: 'CON-1', amount: 99000, dueDate: null }],
-      tds: { sectionId: x.sectionId, baseAmount: 100000, tdsAmount: 1000 }
+      billRefs: [{ kind: 'against', name: 'CON-1', amount: 100000, dueDate: null }],
+      // Manual: 1% isn't 194A's table rate — the server then only requires the payable credit.
+      tds: { sectionId: x.sectionId, baseAmount: 100000, tdsAmount: 1000, isManual: true }
     }).id
     const bankLine = getVoucher(db, id)!.lines.find((l) => l.ledgerId === x.bank)!
     setBankDate(db, bankLine.id, '2025-05-15')
@@ -314,7 +346,7 @@ describe('voucher editor round-trip (WP 1.4): load → save unchanged stores ide
         { stockItemId: x.paint, godownId: x.godownB, batchId: null, qtyMilli: 0, ratePaise: 0, amount: 0, direction: 'in', isAbsolute: true }
       ],
       billRefs: [{ kind: 'new', name: 'J-BILL', amount: 9900, dueDate: '2025-07-01' }],
-      tds: { sectionId: x.sectionId, baseAmount: 10000, tdsAmount: 100 }
+      tds: { sectionId: x.sectionId, baseAmount: 10000, tdsAmount: 100, isManual: true }
     }).id
     expectRoundTrip(db, id, 'accounting')
   })

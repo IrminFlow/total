@@ -65,6 +65,12 @@ export const ledgerInputSchema = z.object({
   hsn: z.string().trim().nullable().default(null),
   tdsSectionId: id.nullable().default(null),
   pan: panSchema,
+  /** TDS deductee class; absent = keep the stored value (older callers never send it). */
+  deducteeType: z.enum(['individual_huf', 'company', 'firm', 'other']).nullable().optional(),
+  /** Tags the ledger as a section's TDS payable ledger; absent = keep the stored value. */
+  tdsPayableSectionId: id.nullable().optional(),
+  /** Expense ledgers: default TDS section for debits to this ledger; absent = keep. */
+  tdsDefaultSectionId: id.nullable().optional(),
   creditDays: z.number().int().min(0).max(365).nullable().default(null),
   exportType: z.enum(['sez_wp', 'sez_wop', 'exp_wp', 'exp_wop']).nullable().default(null),
   /** Reverse charge applies to this party's supplies (GSTR-1 rchrg / GSTR-3B 3.1(d)). */
@@ -157,7 +163,14 @@ export const billRefSchema = z.object({
 export const tdsSchema = z.object({
   sectionId: id,
   baseAmount: positivePaise,
-  tdsAmount: positivePaise
+  tdsAmount: positivePaise,
+  /** The deduction was typed rather than computed from the rate table (saveVoucher then skips
+   *  the amount = rate x base check, but still requires a TDS payable credit). */
+  isManual: z.boolean().default(false),
+  /** The voucher's lines do NOT include the TDS payable credit: saveVoucher finds (or creates,
+   *  inside the save transaction) the ledger tagged for the section and appends a Cr line of
+   *  tdsAmount. Lets entry screens apply TDS before the payable ledger exists. */
+  autoPayable: z.boolean().default(false)
 })
 
 export const inventoryLineSchema = z
@@ -376,34 +389,104 @@ export type RendererLogInput = z.infer<typeof rendererLogSchema>
 
 // ---------- TDS ----------
 
+const rateDeducteeTypeSchema = z.enum(['individual_huf', 'company', 'firm', 'other', 'any'])
+const basisPoints = z.number().int().min(0).max(10000)
+const fyStartYearSchema = z.number().int().min(1990).max(2100)
+const quarterSchema = z.number().int().min(1).max(4)
+
 export const tdsSectionInputSchema = z.object({
   id: id.optional(),
   code: z.string().trim().min(1).max(20).transform((s) => s.toUpperCase()),
   description: z.string().trim().min(1).max(200),
   rate: z.number().min(0).max(100),
   thresholdSingle: paise.min(0).default(0),
-  thresholdAnnual: paise.min(0).default(0)
+  thresholdAnnual: paise.min(0).default(0),
+  /** Absent = keep the stored value. */
+  nature: z.string().trim().max(200).nullable().optional(),
+  legacyCode: z.string().trim().max(20).nullable().optional(),
+  newReference: z.string().trim().max(60).nullable().optional()
 })
-export type TdsSectionInput = z.infer<typeof tdsSectionInputSchema>
+export type TdsSectionInput = z.input<typeof tdsSectionInputSchema>
+
+export const tdsRateInputSchema = z
+  .object({
+    id: id.optional(),
+    sectionId: id,
+    effectiveFrom: isoDate,
+    effectiveTo: isoDate.nullable().default(null),
+    deducteeType: rateDeducteeTypeSchema,
+    rateBp: basisPoints,
+    thresholdSinglePaise: paise.min(0).default(0),
+    thresholdAnnualPaise: paise.min(0).default(0),
+    thresholdBasis: z.enum(['fy', 'month']).default('fy'),
+    thresholdExcessOnly: z.boolean().default(false),
+    returnCode: z.string().trim().max(10).nullable().default(null),
+    noPanRateBp: basisPoints.default(2000)
+  })
+  .refine((r) => r.effectiveTo == null || r.effectiveTo >= r.effectiveFrom, {
+    message: 'Effective-to date is before effective-from',
+    path: ['effectiveTo']
+  })
+export type TdsRateInput = z.input<typeof tdsRateInputSchema>
+
+export const tdsRatesQuerySchema = z.object({ sectionId: id.optional() }).default({})
+
+export const tdsCertificateInputSchema = z
+  .object({
+    id: id.optional(),
+    ledgerId: id,
+    sectionId: id.nullable().default(null),
+    certificateNo: z.string().trim().min(1).max(40),
+    rateBp: basisPoints,
+    validFrom: isoDate,
+    validTo: isoDate,
+    capPaise: paise.min(0).nullable().default(null)
+  })
+  .refine((c) => c.validTo >= c.validFrom, { message: 'Valid-to date is before valid-from', path: ['validTo'] })
+export type TdsCertificateInput = z.input<typeof tdsCertificateInputSchema>
+
+export const tdsCertificatesQuerySchema = z.object({ ledgerId: id.optional() }).default({})
 
 export const tdsSuggestSchema = z.object({
   partyLedgerId: id,
   base: positivePaise,
-  date: isoDate
+  date: isoDate,
+  /** Expense / purchase ledger debited — its default section applies when the party has none. */
+  expenseLedgerId: id.nullable().optional(),
+  /** Alteration: the voucher being edited, excluded from the threshold history and from the
+   *  certificate's consumed amount. */
+  excludeVoucherId: id.optional()
 })
 export type TdsSuggestInput = z.infer<typeof tdsSuggestSchema>
 
-/** tds:ensurePayable — find-or-create the section's "TDS Payable <code>" ledger on Apply. */
+/** tds:ensurePayable — find-or-create the section's tagged TDS payable ledger. Kept as a thin
+ *  wrapper; entry screens now let saveVoucher create it (tds.autoPayable). */
 export const tdsEnsurePayableSchema = z.object({ sectionId: id })
 
-export const tdsSummarySchema = z.object({ fyStartYear: z.number().int().min(1990).max(2100) })
+export const tdsSummarySchema = z.object({ fyStartYear: fyStartYearSchema })
 export type TdsSummaryInput = z.infer<typeof tdsSummarySchema>
 
-export const tdsExport26qSchema = z.object({
-  fyStartYear: z.number().int().min(1990).max(2100),
-  quarter: z.number().int().min(1).max(4)
-})
+export const tdsExport26qSchema = z.object({ fyStartYear: fyStartYearSchema, quarter: quarterSchema })
 export type TdsExport26qInput = z.infer<typeof tdsExport26qSchema>
+
+export const tdsChallanInputSchema = z.object({
+  id: id.optional(),
+  date: isoDate,
+  /** 7-digit BSR code of the bank branch. */
+  bsrCode: z.string().trim().regex(/^\d{7}$/, 'BSR code is 7 digits'),
+  /** Challan serial number (up to 5 digits). */
+  challanNo: z.string().trim().regex(/^\d{1,5}$/, 'Challan serial number is 1-5 digits'),
+  amountPaise: positivePaise,
+  paymentVoucherId: id.nullable().default(null),
+  quarter: quarterSchema,
+  fyStartYear: fyStartYearSchema
+})
+export type TdsChallanInput = z.input<typeof tdsChallanInputSchema>
+
+export const tdsChallansQuerySchema = z.object({ fyStartYear: fyStartYearSchema, quarter: quarterSchema.optional() })
+export const tdsAllocateSchema = z.object({ challanId: id, entryIds: z.array(id).min(1).max(1000) })
+export const tdsUnallocateSchema = z.object({ entryIds: z.array(id).min(1).max(1000) })
+export const tdsUnallocatedSchema = z.object({ fyStartYear: fyStartYearSchema, quarter: quarterSchema.optional() })
 
 // ---------- cost centres ----------
 
