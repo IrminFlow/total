@@ -3,7 +3,7 @@ import type { VoucherInput } from '@shared/schemas'
 import { jobWorkChallanSaveSchema, voucherInputSchema, type JobWorkChallanSaveInput } from '@shared/schemas'
 import { isGodownTransferShape } from '@shared/voucherEdit/stockJournal'
 import { ageLots, daysBetween, type JobWorkChallan, type JobWorkPendingRow, type Itc04Data } from '@shared/jobWork'
-import { getVoucher, saveVoucher, IN_BOOKS, type SaveVoucherResult } from './vouchers'
+import { getVoucher, saveVoucher, IN_BOOKS, MOVES_STOCK, type SaveVoucherResult } from './vouchers'
 import { stockSummary } from './stockAnalysis'
 import { writeAudit } from './audit'
 
@@ -151,7 +151,7 @@ export function materialAtJobWorkers(db: DB, asOn: string, pendingDays: number):
       .prepare(
         `SELECT il.stock_item_id AS itemId, il.direction, il.qty_milli AS qtyMilli, v.date
          FROM inventory_lines il JOIN vouchers v ON v.id = il.voucher_id
-         WHERE il.godown_id = ? AND il.is_absolute = 0 AND v.date <= ? AND ${IN_BOOKS}
+         WHERE il.godown_id = ? AND il.is_absolute = 0 AND v.date <= ? AND ${IN_BOOKS} AND ${MOVES_STOCK}
          ORDER BY v.date, v.id, il.line_order, il.id`
       )
       .all(w.id, asOn) as { itemId: number; direction: 'in' | 'out'; qtyMilli: number; date: string }[]

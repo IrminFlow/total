@@ -49,6 +49,12 @@ const EXPECTED_TABLES = [
   'job_work_challans',
   'job_work_losses',
   'stock_transfers',
+  'voucher_kinds',
+  'trade_doc_types',
+  'trade_docs',
+  'trade_doc_lines',
+  'trade_voucher_details',
+  'line_links',
   'migrations'
 ]
 

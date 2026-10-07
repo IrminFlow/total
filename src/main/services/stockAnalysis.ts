@@ -4,9 +4,10 @@ import {
   expiryBucketOf, runInventoryPass, stockCostPositionsAsOf, costConsumption, bookedInwardValues,
   type ExpiryBucket, type ValuationMethod, type ValuationResult, type InventoryItem, type InventoryMovement,
   type InventoryPassInput, type VoucherCosting, type StockCostPosition, type ConsumptionCosting,
-  type ProposedOutward, type DerivedVoucherCost, type StockPosition
+  type ProposedOutward, type DerivedVoucherCost, type StockPosition, type LinkedLineCosting
 } from '@shared/valuation'
-import { IN_BOOKS, checkStock } from './vouchers'
+import { IN_BOOKS, MOVES_STOCK, checkStock } from './vouchers'
+import { hasTradeSchema } from './tradeLinks'
 import type { NegativeStockWarning } from '@shared/domain'
 import {
   averageMonthlyConsumption, daysToExpiry, expiresWithin, isBelowReorder, labelSheetHtml, monthsOfCover, suggestedOrderQty,
@@ -110,7 +111,7 @@ export function setDerivedCostingSource(source: DerivedCostingSource | null): vo
  *   including every pre-0.6.0 one, keep their stored costing.
  */
 export function voucherCosting(db: DB, asOn: string): Map<number, VoucherCosting> {
-  const costing = new Map<number, VoucherCosting>()
+  const costing = linkedCosting(db)
   const ledgerExtra = db
     .prepare(
       `SELECT v.id AS voucherId, SUM(vl.amount) AS extra
@@ -145,7 +146,7 @@ export function voucherCosting(db: DB, asOn: string): Map<number, VoucherCosting
            FROM vouchers v
            JOIN voucher_types vt ON vt.id = v.voucher_type_id
            JOIN inventory_lines il ON il.voucher_id = v.id AND il.is_absolute = 0
-           WHERE vt.kind = 'stock_journal' AND v.date <= ? AND ${IN_BOOKS}
+           WHERE vt.kind = 'stock_journal' AND v.date <= ? AND ${IN_BOOKS} AND ${MOVES_STOCK}
            GROUP BY v.id
            HAVING SUM(il.direction = 'out') > 0 AND SUM(il.direction = 'in') > 0`
         )
@@ -178,6 +179,78 @@ export function voucherCosting(db: DB, asOn: string): Map<number, VoucherCosting
       ...(fixedInwardByLine ? { fixedInwardByLine } : {})
     })
   }
+  return costing
+}
+
+/**
+ * WP 2.5 (design §3.3): the `'linked'` costing of every voucher that needs it — independent of
+ * any as-of date (a bill re-prices its GRN retroactively at the GRN's position, so a checkpoint
+ * snapshot still equals a pass over the movements up to it).
+ * - GRN re-pricing: each live receipt-note line with live `reprices = 1` bill links → `billed`.
+ * - Return costing: each in-books inward line with a `return` link → `returnOf` its cost source,
+ *   found by walking `fulfil` links up from its source line to the first stock-moving line
+ *   (credit note → invoice line (non-moving) → challan line).
+ * Without any link (every company before WP 2.5) this returns an empty map: legacy books are
+ * valued exactly as before.
+ */
+function linkedCosting(db: DB): Map<number, VoucherCosting> {
+  const costing = new Map<number, VoucherCosting>()
+  if (!hasTradeSchema(db)) return costing
+  if (!db.prepare('SELECT 1 FROM line_links LIMIT 1').get()) return costing
+  const lines = new Map<number, Map<number, LinkedLineCosting>>()
+  const entry = (voucherId: number, lineId: number, c: LinkedLineCosting): void => {
+    let m = lines.get(voucherId)
+    if (!m) lines.set(voucherId, (m = new Map()))
+    if (!m.has(lineId)) m.set(lineId, c)
+  }
+
+  const billed = db
+    .prepare(
+      `SELECT g.id AS grnLineId, g.voucher_id AS grnVoucherId, b.qty_milli AS qtyMilli, b.amount
+       FROM line_links ll
+       JOIN inventory_lines g ON g.line_uid = ll.from_line_uid AND g.moves_stock = 1
+       JOIN vouchers gv ON gv.id = g.voucher_id
+       JOIN inventory_lines b ON b.line_uid = ll.to_line_uid
+       JOIN vouchers v ON v.id = b.voucher_id
+       WHERE ll.link_type = 'fulfil' AND ll.reprices = 1 AND gv.deleted_at IS NULL
+         AND v.deleted_at IS NULL AND v.is_optional = 0
+       ORDER BY g.id, b.id`
+    )
+    .all() as { grnLineId: number; grnVoucherId: number; qtyMilli: number; amount: number }[]
+  const byGrnLine = new Map<number, { voucherId: number; bills: { qtyMilli: number; amount: number }[] }>()
+  for (const r of billed) {
+    const cur = byGrnLine.get(r.grnLineId) ?? { voucherId: r.grnVoucherId, bills: [] }
+    cur.bills.push({ qtyMilli: r.qtyMilli, amount: r.amount })
+    byGrnLine.set(r.grnLineId, cur)
+  }
+  for (const [lineId, { voucherId, bills }] of byGrnLine) entry(voucherId, lineId, { billed: bills })
+
+  const returns = db
+    .prepare(
+      `SELECT t.id AS lineId, t.voucher_id AS voucherId, ll.from_line_uid AS fromUid
+       FROM line_links ll
+       JOIN inventory_lines t ON t.line_uid = ll.to_line_uid
+       JOIN vouchers v ON v.id = t.voucher_id
+       WHERE ll.link_type = 'return' AND t.direction = 'in' AND t.is_absolute = 0 AND t.moves_stock = 1 AND ${IN_BOOKS}`
+    )
+    .all() as { lineId: number; voucherId: number; fromUid: string }[]
+  if (returns.length > 0) {
+    const lineByUid = db.prepare('SELECT id, qty_milli AS qtyMilli, moves_stock AS movesStock, direction FROM inventory_lines WHERE line_uid = ?')
+    const upstream = db.prepare("SELECT from_line_uid AS uid FROM line_links WHERE to_line_uid = ? AND link_type = 'fulfil'")
+    for (const r of returns) {
+      let uid: string | undefined = r.fromUid
+      for (let depth = 0; uid && depth < 8; depth++) {
+        const src = lineByUid.get(uid) as { id: number; qtyMilli: number; movesStock: number; direction: 'in' | 'out' } | undefined
+        if (!src) break
+        if (src.movesStock === 1) {
+          if (src.direction === 'out') entry(r.voucherId, r.lineId, { returnOf: { sourceLineId: src.id, sourceQtyMilli: src.qtyMilli } })
+          break
+        }
+        uid = (upstream.get(uid) as { uid: string } | undefined)?.uid
+      }
+    }
+  }
+  for (const [voucherId, linked] of lines) costing.set(voucherId, { rule: 'linked', linked })
   return costing
 }
 
@@ -214,7 +287,7 @@ function loadMovements(
       `SELECT il.id AS lineId, il.voucher_id AS voucherId, il.stock_item_id AS stockItemId, il.godown_id AS godownId,
               v.date AS date, il.qty_milli AS qtyMilli, il.amount, il.direction, il.is_absolute AS isAbsolute
        FROM inventory_lines il JOIN vouchers v ON v.id = il.voucher_id
-       WHERE v.date <= ? AND ${IN_BOOKS} ${where}
+       WHERE v.date <= ? AND ${IN_BOOKS} AND ${MOVES_STOCK} ${where}
        ORDER BY v.date, v.id, il.line_order, il.id`
     )
     .all(...(filter.godownId ? [asOn, filter.godownId] : [asOn])) as MovementRow[]
@@ -266,7 +339,7 @@ function godownPassInput(
   let godownRows: MovementRow[]
   let booked: Map<number, number>
   if ([...costing.values()].some((c) => c.rule !== 'stored')) {
-    // Derived / transfer values need the company-wide pass.
+    // Derived / transfer values (and WP 2.5 linked ones) need the company-wide movements.
     const rows = loadMovements(db, asOn)
     booked = bookedInwardValues({ items: toItems(items), movements: rows.map((r) => toMovement(r)), costing })
     godownRows = rows.filter((r) => r.godownId === godownId)
@@ -559,7 +632,7 @@ export function batchStock(db: DB, asOn: string, stockItemId?: number): BatchSto
               COALESCE((
                 SELECT SUM(CASE WHEN il.direction = 'in' THEN il.qty_milli ELSE -il.qty_milli END)
                 FROM inventory_lines il JOIN vouchers v ON v.id = il.voucher_id
-                WHERE il.batch_id = b.id AND il.is_absolute = 0 AND v.date <= ? AND ${IN_BOOKS}
+                WHERE il.batch_id = b.id AND il.is_absolute = 0 AND v.date <= ? AND ${IN_BOOKS} AND ${MOVES_STOCK}
               ), 0) AS closingQtyMilli
        FROM batches b
        JOIN stock_items si ON si.id = b.stock_item_id
@@ -610,7 +683,7 @@ export function itemMovements(db: DB, stockItemId: number, from: string, to: str
        FROM inventory_lines il
        JOIN vouchers v ON v.id = il.voucher_id
        JOIN voucher_types vt ON vt.id = v.voucher_type_id
-       WHERE il.stock_item_id = ? AND v.date BETWEEN ? AND ? AND ${IN_BOOKS}
+       WHERE il.stock_item_id = ? AND v.date BETWEEN ? AND ? AND ${IN_BOOKS} AND ${MOVES_STOCK}
        ORDER BY v.date, v.id, il.line_order, il.id`
     )
     .all(stockItemId, from, to) as {
@@ -696,7 +769,7 @@ export function stockMovements(db: DB, itemId: number, from: string, to: string,
            LEFT JOIN ledgers pl ON pl.id = v.party_ledger_id
            LEFT JOIN godowns g ON g.id = il.godown_id
            LEFT JOIN batches b ON b.id = il.batch_id
-           WHERE il.stock_item_id = ? AND v.date BETWEEN ? AND ? AND ${IN_BOOKS}`
+           WHERE il.stock_item_id = ? AND v.date BETWEEN ? AND ? AND ${IN_BOOKS} AND ${MOVES_STOCK}`
         )
         .all(itemId, from, to) as RegisterLineRow[]
     ).map((r) => [r.lineId, r])

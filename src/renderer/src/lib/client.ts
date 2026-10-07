@@ -2,7 +2,7 @@ import type {
   Batch, BomLine, Budget, CompanyInfo, CostCentre, Currency, Employee, Godown, Group, Ledger, NegativeStockWarning,
   PayrollLine, PayrollRun, PriceLevel, PriceListRate, StockGroup, StockItem, TdsSection, Unit,
   TdsRate, TdsCertificateRow, TdsChallan,
-  Voucher, VoucherTransport, VoucherType
+  Voucher, VoucherTransport, VoucherType, TradeDocType
 } from '@shared/domain'
 import type { BudgetVarianceRow } from '@shared/budgets'
 import type {
@@ -27,7 +27,7 @@ import type {
   CurrencyInput, EmployeeHeadsSetInput, EmployeeInputPayload, GodownInput, GroupInput, Gst3bManualInput, LedgerInput, NicCredentials,
   PayHeadInput, PriceLevelInput,
   PriceRateInput,
-  RendererLogInput, SearchQueryInput, StockGroupInput, StockItemInput, TdsSectionInput, UnitInput, UserInput, VoucherTransportInput, VoucherTypeInput,
+  RendererLogInput, SearchQueryInput, StockGroupInput, StockItemInput, TdsSectionInput, UnitInput, UserInput, VoucherTransportInput, VoucherTypeInput, TradeDocTypeInput, OpenSourceLinesQuery,
   TdsRateInput, TdsCertificateInput, TdsChallanInput,
   VoucherInputParsed
 } from '@shared/schemas'
@@ -40,6 +40,7 @@ import type { Itc04Data, JobWorkChallan, JobWorkPendingRow } from '@shared/jobWo
 import type { JobWorkChallanPayload } from '@shared/voucherEdit'
 import type { ExpiryReportRow, ReorderRow, SerialListRow, StockMovementRegister } from '@shared/stockPlanning'
 import type { SerialStatus } from '@shared/serials'
+import type { OpenSourceLine, VoucherKindRow, VoucherLinks } from '@shared/tradeCycle/types'
 
 /** stock:labelsHtml / stock:labelsPdf query (mirrors stockLabelsSchema). */
 export interface StockLabelsQuery {
@@ -547,6 +548,21 @@ export const api = {
     list: () => call<VoucherType[]>('master:voucherTypes:list'),
     create: (data: VoucherTypeInput) => call<VoucherType>('master:voucherTypes:create', data),
     update: (id: number, data: VoucherTypeInput) => call<VoucherType>('master:voucherTypes:update', { id, data })
+  },
+  /** WP 2.5a — the voucher_kinds lookup table. */
+  voucherKinds: {
+    list: () => call<VoucherKindRow[]>('voucherKinds:list')
+  },
+  /** WP 2.5a — quotation / order numbering series (documents and screens: WP 2.5c). */
+  tradeDocTypes: {
+    list: () => call<TradeDocType[]>('tradeDocTypes:list'),
+    save: (data: TradeDocTypeInput, id?: number) => call<TradeDocType>('tradeDocTypes:save', { data, ...(id ? { id } : {}) }),
+    nextNumber: (docTypeId: number, date: string) => call<string>('tradeDocs:nextNumber', { docTypeId, date })
+  },
+  /** WP 2.5a — trade-cycle line links. */
+  links: {
+    forVoucher: (voucherId: number) => call<VoucherLinks>('links:forVoucher', { voucherId }),
+    openSourceLines: (q: OpenSourceLinesQuery) => call<OpenSourceLine[]>('links:openSourceLines', q)
   },
   units: {
     list: () => call<Unit[]>('master:units:list'),

@@ -38,6 +38,7 @@ export const AUDIT_ENTITIES = [
   'tdsExemption',
   'tdsRate',
   'tdsSection',
+  'tradeDocType',
   'unit',
   'user',
   'voucher',
