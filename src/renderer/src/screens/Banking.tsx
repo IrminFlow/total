@@ -448,7 +448,7 @@ export function BankingScreen(): React.JSX.Element {
               rows={opts.options.hideCleared ? recon.rows.filter((r) => !r.bankDate) : recon.rows}
               rowKey={(r) => r.lineId}
               rowAttrs={(r) => ({ 'data-row-id': r.lineId })}
-              rowClassName={(r) => (r.bankDate ? 'opacity-60' : '')}
+              rowClassName={(r) => (r.bankDate ? 'text-muted' : '')}
               empty={{ title: 'No bank entries in this period' }}
               maxHeight="58vh"
               trailingWidth={112}

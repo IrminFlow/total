@@ -104,15 +104,16 @@
   --t-line: #273049;
   --t-line-strong: #36415f;
   --t-ink: #e9e9e2;
-  /* WP 1.10a: #8c94ab → #99a1b7, #6e8ef5 → #7f9bf7 (were 4.3:1 on the amber selection row) */
-  --t-muted: #99a1b7;
+  /* WP 1.10a: muted #8c94ab → #a7aec2, blue #6e8ef5 → #8aa4f8, cr #e4796b → #ec8a7d — they were
+     under 4.5:1 on the amber selection row (worst case: a highlighted row in a raised popover) */
+  --t-muted: #a7aec2;
   --t-amber: #f0b429;
   --t-amber-bar: #f0b429;
   --t-amber-soft: rgba(240, 180, 41, 0.14);
   --t-on-amber: #2b2000;
   --t-dr: #6ec6a0;
-  --t-cr: #e4796b;
-  --t-blue: #7f9bf7;
+  --t-cr: #ec8a7d;
+  --t-blue: #8aa4f8;
   --t-rule: #e9e9e2;
 
   --t-success-soft: #172a2a;

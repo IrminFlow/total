@@ -47,7 +47,7 @@ function SupportModal({ onClose }: { onClose: () => void }): React.JSX.Element {
           {SUPPORT_EMAIL}
         </code>
       </div>
-      <p className="mt-1.5 text-caption text-muted/70">Click the address to copy it.</p>
+      <p className="mt-1.5 text-caption text-muted">Click the address to copy it.</p>
       <div className="mt-5 flex justify-end gap-2">
         <Button onClick={onClose}>Close</Button>
         <Button

@@ -547,7 +547,7 @@ export function InvoiceEntry({
           <span className="inline-block w-3 text-micro">{gstOpen ? '▾' : '▸'}</span>
           GST details
           {(posOverride || optionalVoucher) && (
-            <span className="normal-case text-muted/80">
+            <span className="normal-case text-muted">
               {' '}
               ·{posOverride ? ` POS ${posOverride} — ${GST_STATES[posOverride] ?? ''}` : ''}
               {optionalVoucher ? ' optional (memorandum)' : ''}
@@ -595,7 +595,7 @@ export function InvoiceEntry({
             <span className="inline-block w-3 text-micro">{billsOpen ? '▾' : '▸'}</span>
             Bill allocation
             {isNoteKind && !manualNewBillMode && (
-              <span className="normal-case text-muted/80">
+              <span className="normal-case text-muted">
                 {' '}
                 · allocated {formatPaise(noteAllocatedTotal)} / {formatPaise(computed.rounded)}
               </span>

@@ -166,7 +166,7 @@ function EmployeesTab({ tabs }: { tabs: React.ReactNode }): React.JSX.Element {
           rows={(employees ?? []).filter((e) => !opts.options.hideInactive || e.active)}
           rowKey={(e) => e.id}
           rowAttrs={(e) => ({ 'data-row-id': e.id })}
-          rowClassName={(e) => (e.active ? '' : 'opacity-50')}
+          rowClassName={(e) => (e.active ? '' : 'text-muted')}
           loading={employeesLoading}
           empty={{ title: 'No employees yet', hint: 'Add employees with their monthly salary structure, then post a pay run' }}
           maxHeight="58vh"
@@ -659,7 +659,7 @@ function EmployeeHeadsModal({ employee, onClose }: { employee: Employee; onClose
               rows={heads}
               rowKey={(h) => h.id}
               rowAttrs={(h) => ({ 'data-row-id': h.id })}
-              rowClassName={(h) => (stateOf(h).assigned ? '' : 'opacity-50')}
+              rowClassName={(h) => (stateOf(h).assigned ? '' : 'text-muted')}
               toolbarFeatures={MODAL_TABLE_FEATURES}
               maxHeight="48vh"
               leadingWidth={40}

@@ -634,7 +634,7 @@ export function AccountingEntry({
           >
             <span className="inline-block w-3 text-micro">{billsOpen ? '▾' : '▸'}</span>
             Bill allocation
-            <span className="normal-case text-muted/80">
+            <span className="normal-case text-muted">
               {' '}
               · allocated {formatPaise(billAllocatedTotal)} / {formatPaise(partyLineTotal)}
             </span>

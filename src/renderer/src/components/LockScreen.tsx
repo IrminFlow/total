@@ -127,7 +127,7 @@ export function LockScreen(): React.JSX.Element {
           </button>
         </div>
 
-        <p className="mt-4 text-center text-caption text-muted/70">
+        <p className="mt-4 text-center text-caption text-muted">
           PINs are a convenience lock — for at-rest protection use Settings → Encrypted export.
         </p>
 

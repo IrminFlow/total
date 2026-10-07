@@ -322,7 +322,7 @@ export function Gstr1Screen(): React.JSX.Element {
           rows={data?.summary ?? []}
           rowKey={(s) => s.section}
           rowAttrs={(s) => ({ 'data-section': s.section })}
-          rowClassName={(s) => (s.docs === 0 && s.taxable === 0 ? 'opacity-40' : '')}
+          rowClassName={(s) => (s.docs === 0 && s.taxable === 0 ? 'text-muted' : '')}
           loading={isLoading}
           maxHeight="none"
           totalsLabel="Total (invoice tables)"
@@ -424,6 +424,7 @@ function ManualAdjustments({ period }: { period: string }): React.JSX.Element {
                     paise={value[h.key][f]}
                     onPaise={(p) => setPart(h.key, f, p)}
                     testId={`input-3b-${h.key.toLowerCase()}-${f}`}
+                    ariaLabel={`${h.label} — ${f.toUpperCase()}`}
                   />
                 </td>
               ))}
@@ -437,6 +438,7 @@ function ManualAdjustments({ period }: { period: string }): React.JSX.Element {
                 paise={value.lateFee.camt}
                 onPaise={(p) => setDraft({ ...value, lateFee: { ...value.lateFee, camt: p ?? 0 } })}
                 testId="input-3b-latefee-camt"
+                ariaLabel="5.1 Late fee — CGST"
               />
             </td>
             <td className="r">
@@ -444,6 +446,7 @@ function ManualAdjustments({ period }: { period: string }): React.JSX.Element {
                 paise={value.lateFee.samt}
                 onPaise={(p) => setDraft({ ...value, lateFee: { ...value.lateFee, samt: p ?? 0 } })}
                 testId="input-3b-latefee-samt"
+                ariaLabel="5.1 Late fee — SGST"
               />
             </td>
             <td className="r text-muted">–</td>

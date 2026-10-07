@@ -4,7 +4,7 @@ import { parseSmartDate, toDisplayDate } from '@shared/dates'
 import { useToasts } from '../state/stores'
 import { Button, IconButton } from './kit/Button'
 import { Kbd } from './kit/Text'
-import { inputCls, useFieldAria } from './kit/Field'
+import { inputCls, useFieldAria, useInField } from './kit/Field'
 import { isAnyModalOpen, layerCount, topModalElement, useDialogLayer } from './kit/layers'
 
 // The design-system kit lives in components/kit (see kit/README.md). Everything is re-exported
@@ -59,6 +59,7 @@ export function AmountInput({
   }, [paise])
   const invalid = text.trim() !== '' && parseRupees(text) == null
   const fieldAria = useFieldAria()
+  const inField = useInField()
   return (
     <span className={`block min-w-0 ${className ?? ''}`}>
       <input
@@ -68,7 +69,7 @@ export function AmountInput({
         autoFocus={autoFocus}
         placeholder={placeholder ?? '0.00'}
         inputMode="decimal"
-        aria-label={ariaLabel}
+        aria-label={ariaLabel ?? (inField ? undefined : 'Amount')}
         aria-describedby={fieldAria['aria-describedby']}
         aria-invalid={invalid || fieldAria['aria-invalid'] || undefined}
         onChange={(e) => {
@@ -111,13 +112,15 @@ export function DateInput({
   const [bad, setBad] = useState(false)
   useEffect(() => setText(toDisplayDate(value)), [value])
   const fieldAria = useFieldAria()
+  const inField = useInField()
   return (
     <span className={`block min-w-0 ${className ?? ''}`}>
       <input
         className={`${inputCls} num ${bad ? 'border-danger/70' : ''}`}
         data-testid={testId}
         value={text}
-        aria-label={ariaLabel}
+        aria-label={ariaLabel ?? (inField ? undefined : 'Date')}
+
         aria-describedby={fieldAria['aria-describedby']}
         aria-invalid={bad || fieldAria['aria-invalid'] || undefined}
         onChange={(e) => {

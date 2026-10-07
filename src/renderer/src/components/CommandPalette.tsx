@@ -302,7 +302,7 @@ export function CommandPalette({ onClose }: { onClose: () => void }): React.JSX.
             else if (e.key === 'Enter') runItem(navItems[active])
           }}
           placeholder="Type a command, or search the books — name, number, GSTIN, amount…"
-          className="w-full border-b border-line bg-transparent px-5 py-3.5 text-lead outline-none placeholder:text-muted/60"
+          className="w-full border-b border-line bg-transparent px-5 py-3.5 text-lead outline-none placeholder:text-muted"
         />
         {(parsed.chips.length > 0 || parsed.unknown.length > 0) && (
           <div className="border-b border-line px-5 py-2">
@@ -350,7 +350,7 @@ export function CommandPalette({ onClose }: { onClose: () => void }): React.JSX.
                 <button
                   key={h.token}
                   type="button"
-                  className="font-mono text-ink/80 hover:text-ink"
+                  className="font-mono text-ink hover:text-ink"
                   title={h.label}
                   onClick={() => setQuery(`${h.token} `)}
                 >

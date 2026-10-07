@@ -147,7 +147,7 @@ function LedgerLeaf({ ledger, depth, onOpen }: { ledger: ChartLedgerNode; depth:
       className="flex w-full cursor-pointer items-center gap-2 rounded px-2 py-1 text-left hover:bg-panel2 focus-visible:bg-panel2 focus-visible:outline-none"
       style={{ paddingLeft: `${8 + depth * 18}px` }}
     >
-      <span aria-hidden="true" className="w-3 shrink-0 text-center text-micro text-muted/60">•</span>
+      <span aria-hidden="true" className="w-3 shrink-0 text-center text-micro text-muted">•</span>
       <span className="min-w-0 flex-1 truncate text-body-sm text-ink">
         <LedgerLink ledgerId={ledger.id} name={ledger.name} />
       </span>

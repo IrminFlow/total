@@ -37,34 +37,59 @@ export function Shell({ children, onOpenPalette }: { children: ReactNode; onOpen
 
   return (
     <div className="flex h-full flex-col">
+      {/* Skip link: the first Tab stop on every screen jumps past the header and sidebar. */}
+      <a
+        href="#main"
+        data-testid="skip-to-content"
+        onClick={(e) => {
+          e.preventDefault()
+          document.getElementById('main')?.focus()
+        }}
+        className="sr-only z-50 rounded-md bg-amberbar px-3 py-1.5 text-detail font-semibold text-on-amber focus:not-sr-only focus:fixed focus:top-2 focus:left-24"
+      >
+        Skip to content
+      </a>
       <header
         className={`drag-region flex h-12 shrink-0 items-center gap-3 border-b border-line bg-panel pr-4 panel-shadow ${
           window.total.platform === 'darwin' ? 'pl-24' : 'pl-4'
         }`}
       >
-        <button className="flex items-baseline gap-2" onClick={() => nav.go({ name: 'company-info' })} title="Company details">
+        <button
+          type="button"
+          className="flex items-baseline gap-2 rounded-md"
+          onClick={() => nav.go({ name: 'company-info' })}
+          title="Company details"
+          aria-label={`${info?.name ?? 'Company'} — company details`}
+        >
           <span className="font-serif text-subtitle font-semibold tracking-tight">{info?.name}</span>
           {info?.gstin && <span className="num text-label text-muted">{info.gstin}</span>}
         </button>
         <div className="flex-1" />
         <button
+          type="button"
           className="num rounded-md border border-line bg-panel2 px-2.5 py-1 text-small text-muted hover:border-amber/60 hover:text-ink"
           onClick={() => setPeriodOpen(true)}
           title="Change period"
+          aria-label={`Working period ${toDisplayDate(from)} to ${toDisplayDate(to)} — change`}
+          data-testid="btn-period"
         >
           {toDisplayDate(from)} → {toDisplayDate(to)}
         </button>
         <button
+          type="button"
           data-testid="btn-theme"
           className="rounded-md border border-line bg-panel2 px-2.5 py-1 text-small text-muted hover:border-amber/60 hover:text-ink"
           onClick={toggle}
-          title="Switch theme"
+          title="Switch theme (Settings → Appearance for density and more)"
+          aria-label={theme === 'light' ? 'Switch to the dark theme' : 'Switch to the light theme'}
         >
           {theme === 'light' ? 'Dark' : 'Light'}
         </button>
         <button
+          type="button"
           className="flex items-center gap-2 rounded-md border border-line bg-panel2 px-2.5 py-1 text-small text-muted hover:border-amber/60 hover:text-ink"
           onClick={onOpenPalette}
+          aria-label="Go anywhere (command palette, ⌘K)"
         >
           Anywhere <Kbd>⌘K</Kbd>
         </button>
@@ -74,7 +99,9 @@ export function Shell({ children, onOpenPalette }: { children: ReactNode; onOpen
               {user.name} · {user.role}
             </span>
             <button
+              type="button"
               data-testid="btn-lock"
+              aria-label="Lock the company"
               className="rounded-md border border-line bg-panel2 px-2.5 py-1 text-small text-muted hover:border-amber/60 hover:text-ink"
               onClick={async () => {
                 try {
@@ -93,7 +120,7 @@ export function Shell({ children, onOpenPalette }: { children: ReactNode; onOpen
       </header>
 
       <div className="flex min-h-0 flex-1">
-        <aside className="flex w-48 shrink-0 flex-col gap-0.5 overflow-y-auto border-r border-line bg-panel p-2">
+        <nav aria-label="Main" className="flex w-48 shrink-0 flex-col gap-0.5 overflow-y-auto border-r border-line bg-panel p-2">
           <div className="mb-2 flex items-center gap-2 px-2 py-2">
             <TotalLogo size={28} />
             <span className="font-serif text-brand font-semibold tracking-tight">Total</span>
@@ -105,6 +132,7 @@ export function Shell({ children, onOpenPalette }: { children: ReactNode; onOpen
               <div key={section.id}>
                 {section.title && (
                   <button
+                    type="button"
                     data-testid={`nav-section-${section.id}`}
                     aria-expanded={open}
                     aria-controls={listId}
@@ -116,7 +144,7 @@ export function Shell({ children, onOpenPalette }: { children: ReactNode; onOpen
                         sections.setOpen(section.id, e.key === 'ArrowRight')
                       }
                     }}
-                    className="mt-3 mb-1 flex w-full items-center gap-1 rounded-md px-2.5 text-left text-micro font-semibold tracking-[0.1em] text-muted/80 uppercase hover:text-ink"
+                    className="mt-3 mb-1 flex w-full items-center gap-1 rounded-md px-2.5 text-left text-label font-semibold tracking-[0.1em] text-muted uppercase hover:text-ink"
                   >
                     <span className="flex-1">{section.title}</span>
                     <span aria-hidden className="inline-block w-3 text-center text-micro">{open ? '▾' : '▸'}</span>
@@ -128,8 +156,10 @@ export function Shell({ children, onOpenPalette }: { children: ReactNode; onOpen
                     const active = screen.name === item.screen.name
                     return (
                       <button
+                        type="button"
                         key={item.label}
                         data-testid={`nav-${item.screen.name}`}
+                        aria-current={active ? 'page' : undefined}
                         onClick={() => nav.go(item.screen)}
                         className={`block w-full rounded-md px-2.5 py-[5px] text-left text-detail transition-colors ${
                           active ? 'bg-amberbar/20 font-medium text-ink' : 'text-muted hover:bg-panel2 hover:text-ink'
@@ -145,6 +175,7 @@ export function Shell({ children, onOpenPalette }: { children: ReactNode; onOpen
           })}
           <div className="flex-1" />
           <button
+            type="button"
             className="rounded-md px-2.5 py-1.5 text-left text-body-sm text-muted hover:bg-panel2 hover:text-ink"
             onClick={async () => {
               try {
@@ -158,6 +189,7 @@ export function Shell({ children, onOpenPalette }: { children: ReactNode; onOpen
             Back up now
           </button>
           <button
+            type="button"
             data-testid="btn-switch-company"
             className="rounded-md px-2.5 py-1.5 text-left text-body-sm text-muted hover:bg-panel2 hover:text-ink"
             onClick={async () => {
@@ -175,13 +207,15 @@ export function Shell({ children, onOpenPalette }: { children: ReactNode; onOpen
           <div className="mt-2 border-t border-line pt-2">
             <SupportLink />
           </div>
-        </aside>
+        </nav>
 
         {/* data-screen + data-loading: the E2E harness's navigation/idle markers (lib/testids.ts). */}
         <main
+          id="main"
+          tabIndex={-1}
           data-screen={screen.name}
           data-loading={fetching > 0 ? 'true' : 'false'}
-          className="min-h-0 flex-1 overflow-auto p-5"
+          className="min-h-0 flex-1 overflow-auto p-page outline-none"
         >
           {children}
         </main>
@@ -205,11 +239,12 @@ function PeriodModal({ onClose }: { onClose: () => void }): React.JSX.Element {
       <div className="flex gap-3">
         <div className="flex-1">
           <span className="mb-1 block text-caption font-semibold tracking-[0.08em] text-muted uppercase">From</span>
-          <DateInput value={f} context={f} onChange={setF} testId="input-period-from" />
+          <DateInput value={f} context={f} onChange={setF} testId="input-period-from" ariaLabel="From" />
         </div>
         <div className="flex-1">
           <span className="mb-1 block text-caption font-semibold tracking-[0.08em] text-muted uppercase">To</span>
-          <DateInput value={t} context={t} onChange={setT} testId="input-period-to" />
+          <DateInput value={t} context={t} onChange={setT} testId="input-period-to" ariaLabel="To" />
+
         </div>
       </div>
       <div className="mt-3 flex flex-wrap gap-2">

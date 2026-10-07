@@ -69,7 +69,7 @@ export function AboutSection(): React.JSX.Element {
         <p className="mt-6 text-hint text-muted">
           Your data lives at <span className="num">~/Documents/total</span> — fully offline, no cloud, no accounts.
         </p>
-        <p className="mt-2 text-caption text-muted/70">© Irmin Labs — proprietary</p>
+        <p className="mt-2 text-caption text-muted">© Irmin Labs — proprietary</p>
       </Panel>
       <PeriodLockCard />
     </div>

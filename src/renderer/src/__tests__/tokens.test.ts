@@ -46,10 +46,14 @@ describe.each([
     expect(contrastRatio(color(vars, fg), color(vars, bg))).toBeGreaterThanOrEqual(4.5)
   })
 
-  it.each(TEXT)('%s on the amber selection bar row (amber-soft over panel) ≥ 4.5', (fg) => {
-    const row = blend(color(vars, '--t-amber-soft'), color(vars, '--t-panel'))
-    expect(contrastRatio(color(vars, fg), row)).toBeGreaterThanOrEqual(4.5)
-  })
+  it.each(TEXT.flatMap((fg) => ['--t-panel', '--t-panel2', '--t-raised'].map((bg) => [fg, bg] as const)))(
+    '%s on the amber selection row (amber-soft over %s) ≥ 4.5',
+    (fg, bg) => {
+      const row = blend(color(vars, '--t-amber-soft'), color(vars, bg))
+      expect(contrastRatio(color(vars, fg), row)).toBeGreaterThanOrEqual(4.5)
+    }
+  )
+
 
   it.each(STATUS)('%s on %s ≥ 4.5, and ink on the soft tint ≥ 4.5', (fg, bg) => {
     expect(contrastRatio(color(vars, fg), color(vars, bg))).toBeGreaterThanOrEqual(4.5)

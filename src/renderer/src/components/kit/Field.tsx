@@ -20,9 +20,14 @@ export function controlCls(className?: string): string {
 export const inputSmCls = `${inputCls} !min-h-control-sm !py-0.5 !text-detail`
 
 /** What a Field tells the control inside it: the ids of its hint/error text and whether it's in error. */
-const FieldContext = createContext<{ describedBy?: string; invalid: boolean }>({
+const FieldContext = createContext<{ describedBy?: string; invalid: boolean; inField?: boolean }>({
   invalid: false
 })
+
+/** True inside a Field — its label names the control, so a fallback aria-label must not override it. */
+export function useInField(): boolean {
+  return !!useContext(FieldContext).inField
+}
 
 /** aria props for a custom control inside a Field (TextInput/Select/Textarea apply them already). */
 export function useFieldAria(): {
@@ -60,7 +65,8 @@ export function Field({
   const id = useId()
   const msgId = error || hint ? `${id}-msg` : undefined
   return (
-    <FieldContext.Provider value={{ describedBy: msgId, invalid: !!error }}>
+    <FieldContext.Provider value={{ describedBy: msgId, invalid: !!error, inField: true }}>
+
       <div className={className}>
         <label className="block">
           <span className="mb-1 block text-caption font-semibold tracking-[0.08em] text-muted uppercase">
