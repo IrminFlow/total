@@ -236,6 +236,8 @@ export interface FixedAssetRow {
   carryingPaise: number
   /** Last day depreciation is booked for (null = none yet). */
   depreciatedThrough: string | null
+  /** A live depreciation run (or disposal catch-up) has charged this asset. */
+  hasDepreciation: boolean
   lifeEnd: string
   additions: AssetAdditionRow[]
 }

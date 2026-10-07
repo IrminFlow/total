@@ -45,6 +45,12 @@ export const accDepLedgerName = (groupName: string): string => `Accumulated Depr
 
 const FIXED_ASSETS_GROUP = 'Fixed Assets'
 
+/** 'YYYY-MM-DD' → 'DD-MM-YYYY' for messages and narrations. */
+function fmtDate(iso: string): string {
+  const [y, m, d] = iso.split('-')
+  return `${d}-${m}-${y}`
+}
+
 function fixedAssetGroupIds(db: DB): Set<number> {
   return descendantIdsByName(db, [FIXED_ASSETS_GROUP])
 }
@@ -458,7 +464,7 @@ function toRow(db: DB, a: AssetRec, asOn: string, names: Map<number, string>): F
     disposalDate: a.disposed ? r.disposal_date : null, disposalVoucherId: a.disposed ? r.disposal_voucher_id : null,
     disposalKind: a.disposed ? r.disposal_kind : null, disposalProceedsPaise: a.disposed ? r.disposal_proceeds_paise : null,
     grossPaise: gross, accumulatedPaise: acc, carryingPaise: gross - acc,
-    depreciatedThrough: depreciatedThrough(a), lifeEnd: lifeEndDate(r.put_to_use_date, r.useful_life_months),
+    depreciatedThrough: depreciatedThrough(a), hasDepreciation: a.lines.length > 0, lifeEnd: lifeEndDate(r.put_to_use_date, r.useful_life_months),
     additions: a.additions
   }
 }
@@ -524,7 +530,7 @@ export function saveAsset(db: DB, raw: FixedAssetInput, id?: number): FixedAsset
       if (eff <= input.putToUseDate) throw new Error('The change must apply after the asset was put to use')
       const through = depreciatedThrough(before)
       if (through && eff <= through) {
-        throw new Error(`Depreciation is booked up to ${through} — the change can only apply from a later year (bin those runs to restate)`)
+        throw new Error(`Depreciation is booked up to ${fmtDate(through)} — the change can only apply from a later year (bin those runs to restate)`)
       }
       basisDate = eff
     } else if (!booked) {
@@ -572,7 +578,7 @@ export function saveAddition(db: DB, raw: AssetAdditionInput, id?: number): Asse
   if (a.disposed) throw new Error('This asset is disposed')
   if (input.date < a.row.purchase_date) throw new Error('An addition cannot be dated before the asset was bought')
   const through = depreciatedThrough(a)
-  if (through && input.date <= through) throw new Error(`Depreciation is booked up to ${through} — date the addition after that`)
+  if (through && input.date <= through) throw new Error(`Depreciation is booked up to ${fmtDate(through)} — date the addition after that`)
   if (id) {
     const existing = a.additions.find((x) => x.id === id)
     if (!existing) throw new Error('Addition not found')
@@ -754,7 +760,7 @@ function computeRun(db: DB, from: string, to: string): ComputedRun {
   let blocked: string | null = null
   if (existing) {
     const num = (db.prepare('SELECT number FROM vouchers WHERE id = ?').get(existing.voucherId) as { number: string }).number
-    blocked = `Depreciation for ${existing.from} to ${existing.to} is already posted (Journal ${num}) — move that voucher to the bin to run this period again`
+    blocked = `Depreciation for ${fmtDate(existing.from)} to ${fmtDate(existing.to)} is already posted (Journal ${num}) — move that voucher to the bin to run this period again`
   } else {
     blocked = postingBlock(db, to)
     if (!blocked && total === 0) blocked = assets.length === 0 ? 'No assets in service in this period' : 'Nothing to depreciate in this period'
@@ -789,11 +795,6 @@ function runJournalPreview(db: DB, perAsset: ComputedRun['perAsset']): JournalPr
 
 export function previewRun(db: DB, from: string, to: string): DepreciationPreview {
   return computeRun(db, from, to).preview
-}
-
-const fmtDate = (iso: string): string => {
-  const [y, m, d] = iso.split('-')
-  return `${d}-${m}-${y}`
 }
 
 /** Post a depreciation run: ONE journal (dated the period end) + the run and its lines, in one
@@ -898,7 +899,7 @@ function computeDisposal(db: DB, input: ReturnType<typeof disposalInputSchema.pa
   else if (a.additions.some((x) => x.date >= date)) blocked = 'An addition is dated on or after the disposal date'
   const through = depreciatedThrough(a)
   if (!blocked && through && through >= date) {
-    blocked = `Depreciation is booked up to ${through}, past the disposal date — bin that run first`
+    blocked = `Depreciation is booked up to ${fmtDate(through)}, past the disposal date — bin that run first`
   }
   const lastDay = addDays(date, -1)
   let catchUp = 0
@@ -909,7 +910,7 @@ function computeDisposal(db: DB, input: ReturnType<typeof disposalInputSchema.pa
     const fy = fyOf(lastDay)
     const start = [fy.from, a.row.put_to_use_date, through ? addDays(through, 1) : fy.from].reduce((m, d) => (d > m ? d : m))
     if (a.row.put_to_use_date < fy.from && (!through || through < addDays(fy.from, -1))) {
-      blocked = `Depreciation for the year before ${fy.from} isn't booked for this asset — run it first`
+      blocked = `Depreciation for the year before ${fmtDate(fy.from)} isn't booked for this asset — run it first`
     } else if (start <= lastDay) {
       const r = companiesActPeriod(engineInput(a, { from: start, to: lastDay }, date), { from: start, to: lastDay })
       catchUp = r.depreciation
@@ -1027,7 +1028,7 @@ export function assertFixedAssetVoucherRestorable(db: DB, voucherId: number): vo
       `SELECT r.period_from AS "from", r.period_to AS "to" FROM depreciation_runs r JOIN vouchers v ON v.id = r.voucher_id
         WHERE ${NOT_DELETED} AND r.asset_id IS NULL AND r.voucher_id <> ? AND r.period_from <= ? AND r.period_to >= ? LIMIT 1`
     ).get(voucherId, run.to, run.from) as { from: string; to: string } | undefined
-    if (clash) throw new Error(`Depreciation for ${clash.from} to ${clash.to} has been posted again since — bin that run to restore this one`)
+    if (clash) throw new Error(`Depreciation for ${fmtDate(clash.from)} to ${fmtDate(clash.to)} has been posted again since — bin that run to restore this one`)
   }
   const disposalOf = db.prepare('SELECT id FROM depreciation_runs WHERE voucher_id = ? AND asset_id IS NOT NULL').get(voucherId)
   const asset = db.prepare('SELECT id, disposal_voucher_id FROM fixed_assets WHERE disposal_voucher_id = ?').get(voucherId)

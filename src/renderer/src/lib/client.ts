@@ -45,6 +45,7 @@ import type { ChartGroupNode } from '@shared/chartOfAccounts'
 import type { InvoiceConfig } from '@shared/invoiceConfig'
 import type { PrintDocKind, PrintTemplate, TemplateList } from '@shared/printTemplates'
 import type { CloseLedgerRow } from '@shared/yearEnd'
+import type { DepreciationYearStatus } from '@shared/fixedAssets'
 import type { ConsolidatedResult } from '@shared/consolidate'
 import type { Registry } from '../types'
 
@@ -453,7 +454,7 @@ export interface PdcRow {
   amount: number
 }
 
-async function call<T>(channel: string, payload?: unknown): Promise<T> {
+export async function call<T>(channel: string, payload?: unknown): Promise<T> {
   const result = await window.total.invoke(channel, payload)
   if (!result.ok) throw new Error(result.error ?? 'Unknown error')
   return result.data as T
@@ -797,7 +798,7 @@ export const api = {
   },
   yearEnd: {
     preview: (fyStartYear: number) =>
-      call<{ rows: CloseLedgerRow[]; netProfit: number; alreadyClosed: boolean }>('yearend:preview', { fyStartYear }),
+      call<{ rows: CloseLedgerRow[]; netProfit: number; alreadyClosed: boolean; depreciation?: DepreciationYearStatus }>('yearend:preview', { fyStartYear }),
     close: (fyStartYear: number) =>
       call<{ voucherId: number; netProfit: number; lockedUpTo: string }>('yearend:close', { fyStartYear })
   },
