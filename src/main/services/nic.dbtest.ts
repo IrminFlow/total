@@ -114,20 +114,20 @@ describe('NIC credentials at rest', () => {
 
 // ---------- session isolation (fake portal; no network) ----------
 
-/** Minimal NIC auth endpoint: decrypts the RSA payload with its private key, returns a token
+/** Minimal NIC auth endpoint: decrypts the RSA payload (PKCS#1 v1.5 over Base64(JSON) — WP 3.5), returns a token
  *  naming the caller (gstin/user) and a SEK encrypted under the caller's AppKey. */
 function fakePortal(privateKeyPem: string) {
   const calls: { url: string; gstin: string; user: string }[] = []
   let n = 0
   const fetchFn: NicFetch = async (url, init) => {
-    const { Data } = JSON.parse(init.body) as { Data: string }
+    const { Data } = JSON.parse(init.body!) as { Data: string }
     const plain = crypto.privateDecrypt({ key: privateKeyPem, padding: crypto.constants.RSA_PKCS1_PADDING }, Buffer.from(Data, 'base64'))
-    const { UserName, AppKey } = JSON.parse(plain.toString('utf8')) as { UserName: string; AppKey: string }
-    calls.push({ url, gstin: init.headers.gstin!, user: UserName })
+    const { UserName, AppKey } = JSON.parse(Buffer.from(plain.toString('utf8'), 'base64').toString('utf8')) as { UserName: string; AppKey: string }
+    calls.push({ url, gstin: init.headers.Gstin!, user: UserName })
     const cipher = crypto.createCipheriv('aes-256-ecb', Buffer.from(AppKey, 'base64'), null)
     const sek = Buffer.concat([cipher.update(crypto.randomBytes(32)), cipher.final()]).toString('base64')
-    const inner = { AuthToken: `token-${++n}-${init.headers.gstin}-${UserName}`, Sek: sek }
-    return { status: 200, json: async () => ({ Status: 1, Data: Buffer.from(JSON.stringify(inner)).toString('base64') }) }
+    const inner = { AuthToken: `token-${++n}-${init.headers.Gstin}-${UserName}`, Sek: sek, TokenExpiry: '2099-01-01 00:00:00' }
+    return { status: 200, json: async () => ({ Status: 1, Data: inner }) }
   }
   return { fetchFn, calls }
 }

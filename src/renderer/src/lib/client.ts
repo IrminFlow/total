@@ -1096,6 +1096,8 @@ export const api = {
     get: () => call<NicCredentials>('nic:get'),
     save: (creds: NicCredentials) => call<{ configured: boolean }>('nic:save', creds),
     status: () => call<{ configured: boolean }>('nic:status'),
+    /** Auth handshake only (WP 3.5) — files nothing. */
+    testConnection: () => call<{ ok: true; endpoint: string; sandbox: boolean; tokenExpiry: string }>('nic:testConnection'),
     generateIrn: (voucherId: number) => call<{ irn: string; ackNo: string; ackDate: string }>('nic:generateIrn', { voucherId }),
     generateEwb: (voucherId: number) => call<{ ewbNo: string; validUpto: string }>('nic:generateEwb', { voucherId })
   },
