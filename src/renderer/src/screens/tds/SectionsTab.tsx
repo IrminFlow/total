@@ -17,8 +17,8 @@ import { confirmDialog } from '../../lib/dialogs'
 
 const optionalMoney = (paise: number): React.JSX.Element => (paise > 0 ? <Money paise={paise} /> : <span className="text-muted">—</span>)
 
-export const SECTION_COLUMNS = defineColumns<TdsSection>([
-  { id: 'code', header: 'Code', kind: 'text', value: (s) => s.code, className: 'num', width: 90, hideable: false, groupable: false },
+export const sectionColumns = (kind: 'tds' | 'tcs') => defineColumns<TdsSection>([
+  { id: 'code', header: 'Code', kind: 'text', value: (s) => s.code, className: 'num', width: kind === 'tcs' ? 172 : 90, hideable: false, groupable: false },
   { id: 'description', header: 'Description', kind: 'text', value: (s) => s.description, groupable: false },
   { id: 'reference', header: '2025 Act', kind: 'text', value: (s) => s.newReference, width: 170, text: (s) => s.newReference ?? '—', className: 'text-muted' },
   { id: 'rate', header: 'Rate today', kind: 'number', value: (s) => s.rate, text: (s) => `${s.rate}%`, width: 100 },
@@ -31,6 +31,8 @@ export const SECTION_COLUMNS = defineColumns<TdsSection>([
     text: (s) => (s.thresholdAnnual > 0 ? formatPaise(s.thresholdAnnual) : '—'), cell: (s) => optionalMoney(s.thresholdAnnual), width: 144
   }
 ])
+
+export const SECTION_COLUMNS = sectionColumns('tds')
 
 interface DeducteeRow {
   ledgerId: number
@@ -70,6 +72,7 @@ function SectionsBody(): React.JSX.Element {
   const w = KIND_WORDS[k]
   const wapi = withholdingApi(k)
   void w
+  const sectionCols = useMemo(() => sectionColumns(k), [k])
 
   const canEdit = useCanEditMasters()
   const ledgers = useLedgers()
@@ -126,7 +129,7 @@ function SectionsBody(): React.JSX.Element {
           viewId={`${k}-sections`}
           testId={`${k}-sections`}
           ariaLabel={`${w.name} sections`}
-          columns={SECTION_COLUMNS}
+          columns={sectionCols}
           rows={sections ?? []}
           rowKey={(s) => s.id}
           onRowActivate={canEdit ? (s) => setEditing(s) : undefined}

@@ -30,12 +30,13 @@ export function deductedColumns(kind: WithholdingKind) {
     },
     { id: 'party', header: 'Party', kind: 'text', value: (r) => r.partyName, minWidth: 120, cell: (r) => <LedgerLink ledgerId={r.partyLedgerId} name={r.partyName} /> },
     { id: 'pan', header: 'PAN', kind: 'text', value: (r) => r.pan, width: 116, text: (r) => r.pan ?? 'Missing', className: 'num', defaultHidden: true },
-    { id: 'section', header: 'Section', kind: 'text', value: (r) => r.sectionCode, width: kind === 'tcs' ? 150 : 80, className: 'num' },
-    { id: 'base', header: 'Base', kind: 'money', value: (r) => r.basePaise, aggregate: 'sum', width: 116 },
+    { id: 'section', header: 'Section', kind: 'text', value: (r) => r.sectionCode, width: kind === 'tcs' ? 172 : 80, className: 'num' },
+    { id: 'base', header: 'Base', kind: 'money', value: (r) => r.basePaise, aggregate: 'sum', width: kind === 'tcs' ? 140 : 116 },
     { id: 'rate', header: 'Rate', kind: 'number', value: (r) => (r.rateBp == null ? null : r.rateBp / 100), text: (r) => (r.isManual ? 'Manual' : pctText(r.rateBp)), width: 72 },
     { id: 'tds', header: w.name, kind: 'money', value: (r) => r.tdsPaise, aggregate: 'sum', width: 112 },
-    { id: 'deductee', header: `${w.party} type`, kind: 'text', value: (r) => (r.deducteeType ? DEDUCTEE_TYPE_LABELS[r.deducteeType] : null), width: 112 },
-    { id: 'certificate', header: 'Certificate', kind: 'text', value: (r) => r.certificateNo, width: 96, text: (r) => r.certificateNo ?? '—' },
+    // TCS rates don't vary by collectee type and lower-collection certificates are rare: hidden.
+    { id: 'deductee', header: `${w.party} type`, kind: 'text', value: (r) => (r.deducteeType ? DEDUCTEE_TYPE_LABELS[r.deducteeType] : null), width: 112, defaultHidden: kind === 'tcs' },
+    { id: 'certificate', header: 'Certificate', kind: 'text', value: (r) => r.certificateNo, width: 96, text: (r) => r.certificateNo ?? '—', defaultHidden: kind === 'tcs' },
     {
       id: 'challan', header: 'Challan', kind: 'enum', value: (r) => r.challanStatus, width: 140,
       options: Object.entries(STATUS).map(([value, s]) => ({ value, label: s.label })),

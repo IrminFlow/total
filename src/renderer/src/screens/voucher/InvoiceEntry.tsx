@@ -630,13 +630,20 @@ export function InvoiceEntry({
           {computed.gst.cess > 0 && <SummaryRow label="Cess" paise={computed.gst.cess} />}
           {computed.roundDiff !== 0 && <SummaryRow label="Round off" paise={computed.roundDiff} />}
           {appliedTcs && (
-            <div className="flex justify-between py-0.5" data-testid="invoice-tcs-summary">
-              <span>
-                TCS{tcsCollection.suggestion ? ` u/s ${tcsCollection.suggestion.reference}` : ''}
-                {tcsCollection.suggestion && !appliedTcs.isManual ? ` @ ${tcsCollection.suggestion.rate}%` : ''}
-                {appliedTcs.pending && <span className="text-caption text-muted"> (payable ledger created on save)</span>}{' '}
-                <button className="text-hint text-blue hover:underline" data-testid="btn-tcs-remove" onClick={() => setTcs(null)}>
-                  Remove
+            <div
+              className="flex justify-between py-0.5"
+              data-testid="invoice-tcs-summary"
+              title={tcsCollection.suggestion ? `TCS u/s ${tcsCollection.suggestion.code} (${tcsCollection.suggestion.reference})${appliedTcs.pending ? ' — payable ledger created on save' : ''}` : undefined}
+            >
+              <span className="flex items-center gap-1.5">
+                TCS{tcsCollection.suggestion && !appliedTcs.isManual ? ` @ ${tcsCollection.suggestion.rate}%` : appliedTcs.isManual ? ' (manual)' : ''}
+                <button
+                  className="text-hint text-muted hover:text-cr"
+                  aria-label="Remove TCS"
+                  data-testid="btn-tcs-remove"
+                  onClick={() => setTcs(null)}
+                >
+                  ×
                 </button>
               </span>
               <Money paise={appliedTcs.tdsAmount} />
@@ -858,7 +865,7 @@ export function InvoiceEntry({
                   </Field>
                   <Field label="Amount">
                     <div className={`${inputCls} num bg-panel text-right text-muted`}>
-                      <Money paise={partyAmount} />
+                      <Money paise={partyAmount + (appliedTcs?.tdsAmount ?? 0)} />
                     </div>
                   </Field>
                   {isNoteKind && (

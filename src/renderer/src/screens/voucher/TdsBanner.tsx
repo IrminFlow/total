@@ -117,7 +117,7 @@ export function TdsBanner({
           <Money paise={s.tdsPaise} className="text-amber" /> <span className="text-muted">at {s.rate}%</span>
           {s.basePaise != null && <span className="text-muted"> on {rs(s.basePaise)}</span>}
           {s.basis === 'no_pan' && <span className="ml-2 text-cr">PAN missing — {s.rate}% rate</span>}
-          {s.deducteeType && <span className="ml-2 text-muted">· {DEDUCTEE_TYPE_LABELS[s.deducteeType]}</span>}
+          {!tcs && s.deducteeType && <span className="ml-2 text-muted">· {DEDUCTEE_TYPE_LABELS[s.deducteeType]}</span>}
           {s.sectionFrom === 'ledger' && <span className="ml-2 text-muted">· section from the {tcs ? 'sales' : 'debited'} ledger</span>}
           {s.sectionFrom === 'goods' && <span className="ml-2 text-muted">· section from the goods</span>}
           {s.payableLedgerId == null && <span className="ml-2 text-muted">· {s.payableLedgerName} is created when you save</span>}

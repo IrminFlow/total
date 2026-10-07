@@ -38,8 +38,11 @@ export function eligibleColumns(kind: WithholdingKind) {
         <span className="text-muted">—</span>
       )
   },
-  { id: 'section', header: 'Section', kind: 'text', value: (r) => r.sectionCode, width: kind === 'tcs' ? 176 : 116, className: 'num', text: (r) => `${r.sectionCode} · ${pctText(r.rateBp)}` },
-  { id: 'base', header: 'Base', kind: 'money', value: (r) => r.basePaise, aggregate: 'sum', width: 118 },
+  // TCS section codes are longer ("206C(1F) VEHICLE"): the rate moves to its own column.
+  kind === 'tcs'
+    ? { id: 'section', header: 'Section', kind: 'text', value: (r) => r.sectionCode, width: 172, className: 'num' }
+    : { id: 'section', header: 'Section', kind: 'text', value: (r) => r.sectionCode, width: 116, className: 'num', text: (r) => `${r.sectionCode} · ${pctText(r.rateBp)}` },
+  { id: 'base', header: 'Base', kind: 'money', value: (r) => r.basePaise, aggregate: 'sum', width: kind === 'tcs' ? 140 : 118 },
   { id: 'rate', header: 'Rate', kind: 'number', value: (r) => (r.rateBp == null ? null : r.rateBp / 100), text: (r) => pctText(r.rateBp), width: 72, defaultHidden: true },
   { id: 'tds', header: `Suggested ${w.name}`, kind: 'money', value: (r) => r.tdsPaise ?? 0, aggregate: 'sum', width: 124 },
   {
