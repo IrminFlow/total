@@ -34,15 +34,18 @@ const monthLabel = (m: string): string => `${MONTHS[Number(m.slice(5, 7)) - 1]} 
 
 export const DUE_COLUMNS = defineColumns<StatutoryDueRow>([
   { id: 'period', header: 'Month', kind: 'text', value: (r) => r.period, text: (r) => monthLabel(r.period), width: 96, hideable: false },
-  { id: 'kind', header: 'Statute', kind: 'enum', value: (r) => r.kind, options: KIND_OPTIONS, width: 130, cell: (r) => <span className="font-medium">{KIND_LABEL[r.kind]}</span> },
-  { id: 'state', header: 'State', kind: 'text', value: (r) => r.state ?? '', width: 64, className: 'num' },
-  { id: 'employees', header: 'Employees', kind: 'number', value: (r) => r.employees, width: 92 },
-  { id: 'employee', header: 'Employee share', kind: 'money', value: (r) => r.employeePaise, aggregate: 'sum', width: 124 },
-  { id: 'employer', header: 'Employer share', kind: 'money', value: (r) => r.employerPaise, aggregate: 'sum', width: 124 },
-  { id: 'payable', header: 'Payable', kind: 'money', value: (r) => r.payablePaise, aggregate: 'sum', width: 116, className: 'font-medium' },
-  { id: 'paid', header: 'Paid', kind: 'money', value: (r) => r.paidPaise, aggregate: 'sum', width: 110 },
-  { id: 'outstanding', header: 'Outstanding', kind: 'money', value: (r) => r.outstandingPaise, aggregate: 'sum', width: 116 },
-  { id: 'due', header: 'Due by', kind: 'date', value: (r) => r.dueDate, width: 104 },
+  {
+    id: 'kind', header: 'Statute', kind: 'enum', value: (r) => r.kind, options: KIND_OPTIONS, width: 168,
+    text: (r) => `${KIND_LABEL[r.kind]}${r.state ? ` · ${r.state}` : ''}`,
+    cell: (r) => <span className="font-medium">{KIND_LABEL[r.kind]}{r.state && <span className="num ml-1 font-normal text-muted">· {r.state}</span>}</span>
+  },
+  { id: 'employees', header: 'Employees', kind: 'number', value: (r) => r.employees, width: 92, defaultHidden: true },
+  { id: 'employee', header: 'Employee', kind: 'money', value: (r) => r.employeePaise, aggregate: 'sum', width: 112 },
+  { id: 'employer', header: 'Employer', kind: 'money', value: (r) => r.employerPaise, aggregate: 'sum', width: 112 },
+  { id: 'payable', header: 'Payable', kind: 'money', value: (r) => r.payablePaise, aggregate: 'sum', width: 112, className: 'font-medium' },
+  { id: 'paid', header: 'Paid', kind: 'money', value: (r) => r.paidPaise, aggregate: 'sum', width: 104 },
+  { id: 'outstanding', header: 'Outstanding', kind: 'money', value: (r) => r.outstandingPaise, aggregate: 'sum', width: 112 },
+  { id: 'due', header: 'Due by', kind: 'date', value: (r) => r.dueDate, width: 100 },
   {
     id: 'status', header: 'Status', kind: 'enum', value: (r) => r.status, width: 96,
     options: (Object.keys(STATUS) as StatutoryDueRow['status'][]).map((s) => ({ value: s, label: STATUS[s].label })),
@@ -156,7 +159,7 @@ export function StatutoryTab({ fyStartYear }: { fyStartYear: number }): React.JS
           empty={{ title: 'No pay runs posted this year', hint: 'Dues appear here once a pay run is posted' }}
           maxHeight="46vh"
           viewDefaults={{ sort: [{ id: 'period', dir: 'desc' }] }}
-          trailingWidth={150}
+          trailingWidth={128}
           trailing={(d) => (
             <span className="inline-flex items-center gap-3 text-small">
               {d.outstandingPaise > 0 && (
@@ -209,8 +212,8 @@ export function StatutoryTab({ fyStartYear }: { fyStartYear: number }): React.JS
         </div>
         <p className="px-3 pb-2 text-hint text-muted">
           {f16?.act === '2025'
-            ? 'Form No. 130 (Income-tax Rules 2026 rule 215, certificate u/s 395) — Part C salary workings from the posted runs and declarations; issue by 15 June.'
-            : 'Form No. 16 (rule 31(1)(a)) — Part B salary workings from the posted runs and declarations; Part A is downloaded from TRACES.'}
+            ? 'Form No. 130 (Income-tax Rules 2026 rule 215, certificate u/s 395) — Part C salary workings from the runs posted so far and the declarations; issue by 15 June after the year.'
+            : 'Form No. 16 (rule 31(1)(a)) — Part B salary workings from the runs posted so far and the declarations; Part A is downloaded from TRACES.'}
         </p>
         <DataTable
           viewId="payroll-form16"
@@ -222,7 +225,7 @@ export function StatutoryTab({ fyStartYear }: { fyStartYear: number }): React.JS
           loading={f16Loading}
           maxHeight="30vh"
           empty={{ title: 'No salary paid in this year' }}
-          trailingWidth={64}
+          trailingWidth={80}
           trailing={(e) => (
             <Button size="sm" variant="ghost" data-testid={`btn-form16-pdf-${e.employeeId}`} onClick={() => void pdf(e.employeeId)}>
               PDF

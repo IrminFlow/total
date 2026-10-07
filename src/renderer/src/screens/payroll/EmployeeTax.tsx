@@ -140,7 +140,7 @@ export function DeclarationsModal({ employee, onClose }: { employee: Employee; o
               rows={rows}
               rowKey={(r) => r.section}
               toolbarFeatures={MODAL_TABLE_FEATURES}
-              maxHeight="52vh"
+              maxHeight="38vh"
             />
           </div>
         )}

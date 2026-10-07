@@ -13,8 +13,8 @@ import { AmountInput, Badge, Button, DateInput, Field, Modal, Panel, Select, Tex
 import { DataTable, defineColumns } from '../../components/table'
 
 export const RATE_KIND_LABEL: Record<StatutoryRateKind, string> = {
-  epf: 'EPF (employee = employer)',
-  eps: 'EPS (out of employer)',
+  epf: 'EPF',
+  eps: 'EPS',
   edli: 'EDLI',
   epf_admin: 'EPF admin charges',
   esi_emp: 'ESI employee',
@@ -34,7 +34,7 @@ export function rateText(r: StatutoryRate): string {
     const base = `${rs(r.amountPaise)} ${r.basis === 'month' ? '/ month' : r.basis === 'half_year' ? '/ half-year' : '/ year'}`
     return r.specialMonth ? `${base} (${MONTHS[r.specialMonth]} ${rs(r.specialAmountPaise)})` : base
   }
-  if (r.kind === 'ss_wages') return `excluded items over ${pct(r.rateBp)} added back`
+  if (r.kind === 'ss_wages') return `${pct(r.rateBp)} rule`
   return pct(r.rateBp)
 }
 /** Ceiling / threshold / slab in words. */

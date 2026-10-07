@@ -67,9 +67,9 @@ export const EMPLOYEE_COLUMNS = defineColumns<Employee>([
   { id: 'special', header: 'Special', kind: 'money', value: (e) => e.special, aggregate: activeSum((e) => e.special), width: 124 },
   { id: 'gross', header: 'Gross / mo', kind: 'money', value: grossOf, aggregate: activeSum(grossOf), width: 140, className: 'font-medium' },
   { id: 'status', header: 'Status', kind: 'enum', value: (e) => (e.active ? 'active' : 'inactive'), options: STATUS_OPTIONS, defaultHidden: true, width: 112 },
-  { id: 'ptState', header: 'PT state', kind: 'text', value: (e) => (e.ptEnabled ? e.ptState : ''), width: 84, className: 'num text-muted' },
+  { id: 'ptState', header: 'PT state', kind: 'text', value: (e) => (e.ptEnabled ? e.ptState : ''), width: 84, className: 'num text-muted', defaultHidden: true },
   {
-    id: 'regime', header: 'Regime', kind: 'enum', value: (e) => (e.tdsEnabled ? e.taxRegime : 'off'), width: 84,
+    id: 'regime', header: 'Regime', kind: 'enum', value: (e) => (e.tdsEnabled ? e.taxRegime : 'off'), width: 80,
     options: [{ value: 'new', label: 'New' }, { value: 'old', label: 'Old' }, { value: 'off', label: 'No TDS' }]
   },
   { id: 'uan', header: 'UAN', kind: 'text', value: (e) => e.uan, defaultHidden: true, width: 120, className: 'num text-muted' },
@@ -117,7 +117,7 @@ export function PayrollScreen(): React.JSX.Element {
     />
   )
   return (
-    <Page width={tab === 'statutory' || tab === 'rates' ? 'wide' : undefined}>
+    <Page width="wide">
       {tab === 'employees' ? <EmployeesTab tabs={tabs} /> : tab === 'runs' ? <RunsTab tabs={tabs} /> : tab === 'statutory' ? <StatutoryScreenTab tabs={tabs} /> : <RatesScreenTab tabs={tabs} />}
     </Page>
   )
@@ -359,7 +359,7 @@ function EmployeeModal({ employee, onClose }: { employee: Employee | null; onClo
   )
 
   return (
-    <Modal title={employee ? `Edit ${employee.name}` : 'Add employee'} onClose={onClose}>
+    <Modal title={employee ? `Edit ${employee.name}` : 'Add employee'} onClose={onClose} wide>
       <div className="flex flex-col gap-3">
         <div className="grid grid-cols-2 gap-3">
           <Field label="Name">
@@ -399,7 +399,7 @@ function EmployeeModal({ employee, onClose }: { employee: Employee | null; onClo
           {check('Active', active, setActive)}
         </div>
         <p className="border-t border-line pt-3 text-caption font-semibold tracking-[0.08em] text-muted uppercase">Statutory profile</p>
-        <div className="grid grid-cols-3 gap-3">
+        <div className="grid grid-cols-4 gap-3">
           <Field label="PF member id">
             <TextInput value={pfNumber} onChange={(e) => setPfNumber(e.target.value)} className="num" placeholder="MHBAN0012345000000123" data-testid="input-employee-pf-number" />
           </Field>
@@ -411,17 +411,17 @@ function EmployeeModal({ employee, onClose }: { employee: Employee | null; onClo
               {PT_STATES.map((s) => <option key={s} value={s}>{s} — {PT_STATE_NAMES[s]}</option>)}
             </Select>
           </Field>
-          <Field label="Gender" hint="Maharashtra PT has a women’s slab">
+          <Field label="Gender" hint="MH PT: women’s slab">
             <Select value={gender ?? ''} onChange={(e) => setGender((e.target.value || null) as Employee['gender'])} data-testid="input-employee-gender">
               <option value="">Not given</option><option value="female">Female</option><option value="male">Male</option><option value="other">Other</option>
             </Select>
           </Field>
-          <Field label="Date of birth" hint="Old-regime senior slabs; EPS ends at 58">
+          <Field label="Date of birth" hint="Senior slabs; EPS to 58">
             <TextInput value={dob} onChange={(e) => setDob(e.target.value)} placeholder="YYYY-MM-DD" className="num" data-testid="input-employee-dob" />
           </Field>
           <Field label="Tax regime">
             <Select value={taxRegime} onChange={(e) => setTaxRegime(e.target.value as Employee['taxRegime'])} data-testid="input-employee-regime">
-              <option value="new">New (default) regime</option><option value="old">Old regime (opted out)</option>
+              <option value="new">New (default)</option><option value="old">Old (opted out)</option>
             </Select>
           </Field>
           <Field label="VPF % of PF wages" error={vpfInvalid ? '0 – 88' : null}>
@@ -1042,7 +1042,7 @@ function RunsTab({ tabs }: { tabs: React.ReactNode }): React.JSX.Element {
                       <td className="r">{line ? <Money paise={line.esiEmp} /> : '—'}</td>
                       <td className="r">{line ? <Money paise={line.pt} /> : '—'}</td>
                       <td className="r">
-                        {line?.tdsWorkings ? (
+                        {line?.tdsWorkings && line.tds > 0 ? (
                           <button
                             type="button"
                             className="num text-blue hover:underline"
@@ -1060,7 +1060,7 @@ function RunsTab({ tabs }: { tabs: React.ReactNode }): React.JSX.Element {
                   )
                 })}
                 <tr className="total-row">
-                  <td>Total · employer cost <Money paise={totals.cost} /></td>
+                  <td title="Gross pay plus the employer share">Total <span className="block text-hint font-normal text-muted">cost <Money paise={totals.cost} /></span></td>
                   <td></td>
                   <td className="r"><Money paise={totals.gross} /></td>
                   <td className="r" colSpan={4}><Money paise={totals.deductions} /></td>
