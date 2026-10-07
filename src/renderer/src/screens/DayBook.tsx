@@ -6,6 +6,7 @@ import { Panel, SectionTitle, Select } from '../components/ui'
 import { DataTable, defineColumns, type DataTableFooterContext } from '../components/table'
 import { toDisplayDate } from '@shared/dates'
 import type { DayBookRow } from '@shared/reports'
+import { printKindForVoucherKind } from '@shared/printTemplates'
 import { LedgerLink } from '../components/links'
 
 /** Which vouchers show: the books only (default), everything, or just the out-of-book kinds. */
@@ -173,11 +174,11 @@ export function DayBook({ month, kind }: { month?: string; kind?: string } = {})
           }}
           onRowActivate={(r) => nav.go({ name: 'voucher-entry', voucherId: r.voucherId })}
           trailing={(r) =>
-            r.kind === 'sales' ? (
+            printKindForVoucherKind(r.kind) ? (
               <button
                 type="button"
                 className="text-[11.5px] text-blue hover:underline"
-                title="Invoice PDF"
+                title={r.kind === 'sales' ? 'Invoice PDF' : 'Print PDF (default template for this kind)'}
                 data-testid="btn-daybook-invoice-pdf"
                 onClick={() => {
                   api.invoice.pdf(r.voucherId).catch((err: Error) => toast.push('error', err.message))

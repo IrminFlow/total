@@ -246,7 +246,7 @@ export const SCREENS: ScreenDef[] = [
     navSection: 'system',
     invalidates: [
       'backups', 'bin', 'users', 'audit', 'nicCreds', 'nicStatus',
-      'features', 'invoiceConfig', 'invoicePreview', 'appInfo', 'companyLock', 'agentConfig'
+      'features', 'invoiceConfig', 'invoicePreview', 'printTemplates', 'printTemplate', 'printPreview', 'appInfo', 'companyLock', 'agentConfig'
     ]
   },
   {
