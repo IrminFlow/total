@@ -1,9 +1,10 @@
 import Database from 'better-sqlite3'
 import { rmSync } from 'fs'
-import { join } from 'path'
+import { basename, join } from 'path'
 import { companyBackupsDir, companyDbPath, ensureCompanyTree } from '../paths'
 import { migrate } from './migrate'
 import { backupStamp, pruneBackupsIn, quickCheckOk, snapshotTo } from './backup'
+import { SYSTEM_AUDIT_USER, writeAudit } from '../services/audit'
 
 export type DB = Database.Database
 
@@ -50,7 +51,7 @@ const MAX_BACKUPS = 20
  * 'auto', 'pre-tally-import', 'pre-restore', 'quit'). Uses better-sqlite3's native online backup
  * so uncheckpointed WAL content is always captured — a raw file copy would not see it.
  */
-export async function backupCompany(db: DB, slug: string, tag = 'auto'): Promise<string> {
+export async function backupCompany(db: DB, slug: string, tag = 'auto', auditUser: string = SYSTEM_AUDIT_USER): Promise<string> {
   const dest = join(companyBackupsDir(slug), `${backupStamp()}-${tag}.db`)
   await snapshotTo(db, dest)
   // Post-write verification (task Q3 #99): a backup that doesn't pass quick_check is worse than
@@ -61,5 +62,9 @@ export async function backupCompany(db: DB, slug: string, tag = 'auto'): Promise
     throw new Error('Backup verification failed (quick_check) — the snapshot was discarded')
   }
   pruneBackupsIn(companyBackupsDir(slug), MAX_BACKUPS)
+  // WP 3.8: every backup is in the trail — it is a full copy of the books AND of this audit log
+  // (written after the copy, so the row itself lives only in the live file). Automatic backups
+  // (open, every 30 min, pre-import, quit) are 'system'; a manual one names the user.
+  writeAudit(db, 'backup', 0, 'backup', null, { tag, file: basename(dest) }, { user: auditUser })
   return dest
 }

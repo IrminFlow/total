@@ -1,189 +1,130 @@
 import { useState } from 'react'
-import { useQuery } from '@tanstack/react-query'
-import { api, type AuditRow } from '../../lib/client'
-import { useSession } from '../../state/stores'
-import { Button, DateInput, Panel, Select, SectionTitle } from '../../components/ui'
-import { DataTable, defineColumns, type RowKey } from '../../components/table'
-import { diffJson } from '@shared/diff'
-import { toDisplayDate, toDisplayDateTime } from '@shared/dates'
-import { AUDIT_ENTITIES } from '@shared/auditEntities'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { api } from '../../lib/client'
+import { useNav, useSession, useToasts } from '../../state/stores'
+import { Button, Checkbox, Panel, SectionTitle, TextInput } from '../../components/ui'
+import { MIN_AUDIT_KEEP_DAYS, statutoryRetentionFloor } from '@shared/auditRetention'
+import { todayISO, toDisplayDate } from '@shared/dates'
+import { ChainBanner, useAuditVerification } from '../audit/ChainBanner'
 
-const PAGE_SIZES = [25, 50, 100, 250]
-
-const ACTIONS: AuditRow['action'][] = ['create', 'update', 'delete', 'login', 'login_failed', 'logout', 'export', 'import']
-const actionLabel = (a: string): string => (a.charAt(0).toUpperCase() + a.slice(1)).replace(/_/g, ' ')
-
-/** Server-paged: the table sorts and filters within the current page. */
-const AUDIT_COLUMNS = defineColumns<AuditRow>([
-  {
-    id: 'at',
-    header: 'At',
-    kind: 'date',
-    value: (r) => r.at.slice(0, 10),
-    text: (r) => toDisplayDateTime(new Date(r.at)),
-    className: 'num text-muted',
-    width: 170
-  },
-  { id: 'user', header: 'User', kind: 'text', value: (r) => r.userName, text: (r) => r.userName ?? '—', width: 140 },
-  {
-    id: 'entity',
-    header: 'Entity',
-    kind: 'text',
-    value: (r) => `${r.entity} #${r.entityId}`,
-    groupKey: (r) => r.entity,
-    className: 'num',
-    hideable: false
-  },
-  { id: 'action', header: 'Action', kind: 'enum', value: (r) => r.action, options: ACTIONS.map((a) => ({ value: a, label: actionLabel(a) })), width: 120 }
-])
-
+/**
+ * Settings → Audit trail (WP 3.8). The trail itself cannot be turned off and has no edit or
+ * delete; this section only shows the chain check and the owner-only retention settings, and
+ * links to the edit-log report.
+ */
 export function AuditSection(): React.JSX.Element {
-  const { from: sessionFrom, to: sessionTo } = useSession()
-  const [entity, setEntity] = useState('')
-  const [from, setFrom] = useState(sessionFrom)
-  const [to, setTo] = useState(sessionTo)
-  const [page, setPage] = useState(0)
-  const [pageSize, setPageSize] = useState(100)
-  const [expanded, setExpanded] = useState<ReadonlySet<RowKey>>(() => new Set())
-  const toggle = (id: number): void =>
-    setExpanded((cur) => {
-      const next = new Set(cur)
-      if (next.has(id)) next.delete(id)
-      else next.add(id)
-      return next
-    })
+  const nav = useNav()
+  const toast = useToasts()
+  const queryClient = useQueryClient()
+  const { user } = useSession()
+  // A company without users has no roles at all (the main-process gate is open too).
+  const isOwner = user == null || user.role === 'owner'
+  const verification = useAuditVerification()
+  const { data: settings } = useQuery({ queryKey: ['audit', 'settings'], queryFn: api.audit.settings })
+  const [years, setYears] = useState('')
+  const [busy, setBusy] = useState(false)
+  const floor = statutoryRetentionFloor(todayISO())
+  const minYears = Math.ceil(MIN_AUDIT_KEEP_DAYS / 365.25)
 
-  const filters = { entity: entity || undefined, from, to, page, pageSize }
-  const { data, isLoading } = useQuery({ queryKey: ['audit', filters], queryFn: () => api.audit.list(filters) })
-  const rows = data?.rows ?? []
-  const total = data?.total ?? 0
-  const pageCount = Math.max(1, Math.ceil(total / pageSize))
+  const run = async (fn: () => Promise<unknown>, ok: string): Promise<void> => {
+    setBusy(true)
+    try {
+      await fn()
+      await queryClient.invalidateQueries({ queryKey: ['audit'] })
+      toast.push('success', ok)
+    } catch (err) {
+      toast.push('error', (err as Error).message)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const required = settings?.trailRequired ?? true
+  const keepYears = settings?.keepDays ? Math.round(settings.keepDays / 365.25) : null
 
   return (
     <div>
       <SectionTitle>Audit trail</SectionTitle>
-      <div className="mb-3 flex flex-wrap items-end gap-3">
-        <div>
-          <span className="mb-1 block text-caption font-semibold tracking-[0.08em] text-muted uppercase">Entity</span>
-          <Select
-            data-testid="input-audit-entity"
-            value={entity}
-            onChange={(e) => {
-              setEntity(e.target.value)
-              setPage(0)
-            }}
-          >
-            <option value="">All</option>
-            {AUDIT_ENTITIES.map((e) => (
-              <option key={e} value={e}>
-                {e}
-              </option>
-            ))}
-          </Select>
-        </div>
-        <div>
-          <span className="mb-1 block text-caption font-semibold tracking-[0.08em] text-muted uppercase">From</span>
-          <DateInput
-            testId="input-audit-from"
-            value={from}
-            context={from}
-            onChange={(v) => {
-              setFrom(v)
-              setPage(0)
-            }}
-          />
-        </div>
-        <div>
-          <span className="mb-1 block text-caption font-semibold tracking-[0.08em] text-muted uppercase">To</span>
-          <DateInput
-            testId="input-audit-to"
-            value={to}
-            context={to}
-            onChange={(v) => {
-              setTo(v)
-              setPage(0)
-            }}
-          />
-        </div>
-        <div>
-          <span className="mb-1 block text-caption font-semibold tracking-[0.08em] text-muted uppercase">Per page</span>
-          <Select
-            data-testid="input-audit-page-size"
-            value={pageSize}
-            onChange={(e) => {
-              setPageSize(Number(e.target.value))
-              setPage(0)
-            }}
-          >
-            {PAGE_SIZES.map((n) => (
-              <option key={n} value={n}>
-                {n}
-              </option>
-            ))}
-          </Select>
-        </div>
+      <p className="mb-4 text-body-sm text-muted">
+        Every change to the books is recorded with who made it, when, and exactly what changed — the edit log required by the
+        Companies (Accounts) Rules 2014, rule 3(1). It cannot be disabled, and no one can edit or delete an entry from the app.
+      </p>
+      <div className="mb-4">
+        <ChainBanner verification={verification.data} busy={verification.isFetching} onVerify={verification.refetch} />
       </div>
-      <Panel>
-        <DataTable
-          viewId="settings-audit"
-          testId="settings-audit"
-          ariaLabel="Audit trail"
-          columns={AUDIT_COLUMNS}
-          rows={rows}
-          rowKey={(r) => r.id}
-          rowAttrs={(r) => ({ 'data-row-id': r.id })}
-          loading={isLoading}
-          maxHeight="60vh"
-          expanded={expanded}
-          onExpandedChange={setExpanded}
-          renderDetail={(r) => (
-            <div className="bg-panel2 px-3 py-2.5 text-small">
-              <AuditDiff row={r} />
+      <Panel className="mb-4 px-5 py-4">
+        <div className="flex items-center justify-between gap-4">
+          <div>
+            <p className="font-semibold text-ink">Edit log report</p>
+            <p className="text-hint text-muted">Filter by period, entity, action, user or voucher; export CSV or PDF for your auditor.</p>
+          </div>
+          <Button variant="primary" data-testid="btn-open-edit-log" onClick={() => nav.go({ name: 'audit-trail' })}>
+            Open edit log
+          </Button>
+        </div>
+      </Panel>
+
+      <Panel className="divide-y divide-line" testId="audit-retention">
+        <div className="px-5 py-4">
+          <Checkbox
+            label="Audit trail required (company under the Companies Act)"
+            hint={
+              <>
+                Rule 3(1) requires the trail to be kept; Companies Act s.128(5) keeps books for the current year and the eight before
+                it (today: everything from {toDisplayDate(floor)}). While this is on — the default — nothing is ever removed.
+              </>
+            }
+            checked={required}
+            disabled={!isOwner || busy}
+            testId="input-audit-required"
+            onChange={(v) => void run(() => api.audit.setRequired(v), v ? 'Audit trail kept in full' : 'Retention can now be set')}
+          />
+        </div>
+        <div className="px-5 py-4">
+          <p className="font-semibold text-ink">Retention</p>
+          <p className="text-hint text-muted" data-testid="audit-retention-status">
+            {required || !settings?.keepDays
+              ? 'Keep every entry forever.'
+              : `Entries older than ${keepYears} years are removed when the company opens — never anything from ${toDisplayDate(floor)} on, never migration records, and every removal is itself logged.`}
+          </p>
+          {!required && (
+            <p className="mt-1 text-hint text-warning" data-testid="audit-required-off-warning">
+              Only for a business outside the Companies Act (e.g. a proprietorship or firm). GST still needs records for 72 months
+              from the annual-return due date (CGST Act s.36), so the window can never be under {minYears} years.
+            </p>
+          )}
+          {!required && isOwner && (
+            <div className="mt-3 flex items-end gap-2">
+              <div>
+                <span className="mb-1 block text-caption font-semibold tracking-[0.08em] text-muted uppercase">Keep (years)</span>
+                <TextInput
+                  data-testid="input-audit-keep-years"
+                  className="w-24"
+                  inputMode="numeric"
+                  placeholder={String(minYears)}
+                  value={years}
+                  onChange={(e) => setYears(e.target.value)}
+                />
+              </div>
+              <Button
+                size="sm"
+                disabled={busy || !/^\d+$/.test(years) || Number(years) < minYears}
+                data-testid="btn-audit-keep-save"
+                onClick={() => void run(() => api.audit.retentionSet(Math.round(Number(years) * 365.25)), 'Retention saved')}
+              >
+                Save
+              </Button>
+              {settings?.keepDays && (
+                <Button size="sm" variant="ghost" disabled={busy} onClick={() => void run(() => api.audit.retentionSet(null), 'Keeping every entry')}>
+                  Keep forever
+                </Button>
+              )}
+              <span className="text-hint text-muted">minimum {minYears} years</span>
             </div>
           )}
-          onRowActivate={(r) => toggle(r.id)}
-          empty={{ title: 'No audit entries in this range' }}
-          exportOptions={{
-            title: 'Audit trail',
-            periodLabel: `${toDisplayDate(from)} to ${toDisplayDate(to)}${entity ? ` · ${entity}` : ''} · page ${page + 1} of ${pageCount}`,
-            filename: 'audit-trail'
-          }}
-        />
-      </Panel>
-      <div className="mt-3 flex items-center justify-between">
-        <p className="text-hint text-muted">{total} entries</p>
-        <div className="flex items-center gap-2">
-          <Button data-testid="btn-settings-audit-prev" disabled={page === 0} onClick={() => setPage((p) => p - 1)}>
-            Prev
-          </Button>
-          <span className="px-2 text-small text-muted">
-            Page {page + 1} of {pageCount}
-          </span>
-          <Button data-testid="btn-settings-audit-next" disabled={page + 1 >= pageCount} onClick={() => setPage((p) => p + 1)}>
-            Next
-          </Button>
+          {!isOwner && <p className="mt-2 text-hint text-muted">Only an owner can change retention.</p>}
         </div>
-      </div>
-    </div>
-  )
-}
-
-function AuditDiff({ row }: { row: AuditRow }): React.JSX.Element {
-  if (row.beforeJson === null && row.afterJson === null) {
-    return <p className="text-muted">No details recorded</p>
-  }
-  if (row.beforeJson === null) return <p className="text-dr">created</p>
-  if (row.afterJson === null) return <p className="text-cr">deleted</p>
-
-  const diffs = diffJson(row.beforeJson, row.afterJson)
-  if (diffs.length === 0) return <p className="text-muted">No field changes</p>
-  return (
-    <div className="flex flex-col gap-0.5 font-mono">
-      {diffs.map((d) => (
-        <p key={d.key}>
-          <span className="text-muted">{d.key}:</span> {d.from || '—'} → {d.to || '—'}
-        </p>
-      ))}
+      </Panel>
     </div>
   )
 }

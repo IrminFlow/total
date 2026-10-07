@@ -28,6 +28,8 @@ export interface ReportHtmlOptions {
   columns: ReportColumnSpec[]
   rows: ReportRowSpec[]
   footNote?: string
+  /** Extra lines under the header block (e.g. the edit log's generation time and chain check). */
+  headerLines?: string[]
 }
 
 const alignClass = (a: 'l' | 'r' | 'c'): string => (a === 'l' ? '' : a)
@@ -38,7 +40,7 @@ const alignClass = (a: 'l' | 'r' | 'c'): string => (a === 'l' ? '' : a)
  *  in the app reads as one family. Every cell arrives pre-formatted by the caller (money via
  *  formatPaise, dates via toDisplayDate, ...) — this template only lays it out and escapes it. */
 export function reportHtml(opts: ReportHtmlOptions): string {
-  const { title, company, periodLabel, columns, rows, footNote } = opts
+  const { title, company, periodLabel, columns, rows, footNote, headerLines } = opts
 
   const headRow = columns
     .map((c) => `<th class="${alignClass(c.align)}"${c.width ? ` style="width:${c.width}px"` : ''}>${esc(c.label)}</th>`)
@@ -83,6 +85,8 @@ export function reportHtml(opts: ReportHtmlOptions): string {
     tr.rule td { border-top: 1px solid #16181f; }
     tr.bold.rule td { border-top: 1px solid #16181f; border-bottom: 3px double #16181f; }
     .foot { margin-top: 14px; font-size: 11px; color: #555; }
+    .meta { margin-top: 8px; font-size: 11px; color: #333; }
+    .meta div { margin-top: 2px; }
   </style></head><body>
     <div class="sheet">
       <div class="head">
@@ -96,6 +100,7 @@ export function reportHtml(opts: ReportHtmlOptions): string {
           <div class="period">${esc(periodLabel)}</div>
         </div>
       </div>
+      ${headerLines && headerLines.length ? `<div class="meta">${headerLines.map((l) => `<div>${esc(l)}</div>`).join('')}</div>` : ''}
       <table class="rpt">
         <thead><tr>${headRow}</tr></thead>
         <tbody>${bodyRows}</tbody>

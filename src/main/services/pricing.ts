@@ -95,7 +95,7 @@ export function savePartyRate(db: DB, raw: PartyRateInput, id?: number): PartyRa
       )
     }
     const saved = getPartyRate(db, rowId!)!
-    writeAudit(db, 'priceRate', saved.id, before ? 'update' : 'create', before ? { partyRate: before } : null, { partyRate: saved })
+    writeAudit(db, 'partyRate', saved.id, before ? 'update' : 'create', before ?? null, saved)
     return saved
   })()
 }
@@ -104,7 +104,7 @@ export function deletePartyRate(db: DB, id: number): void {
   const before = getPartyRate(db, id)
   if (!before) throw new Error('Party rate not found')
   db.prepare('DELETE FROM party_item_rates WHERE id = ?').run(id)
-  writeAudit(db, 'priceRate', id, 'delete', { partyRate: before }, null)
+  writeAudit(db, 'partyRate', id, 'delete', before, null)
 }
 
 /**
@@ -210,7 +210,7 @@ export function saveScheme(db: DB, raw: DiscountSchemeInput, id?: number): Disco
       ins.run(schemeId, minQty, sl.minValuePaise, sl.discountBp, sl.freeQtyMilli)
     }
     const saved = getScheme(db, schemeId!)!
-    writeAudit(db, 'priceLevel', saved.id, before ? 'update' : 'create', before ? { scheme: before } : null, { scheme: saved })
+    writeAudit(db, 'discountScheme', saved.id, before ? 'update' : 'create', before ?? null, saved)
     return saved
   })()
 }
@@ -219,7 +219,7 @@ export function deleteScheme(db: DB, id: number): void {
   const before = getScheme(db, id)
   if (!before) throw new Error('Scheme not found')
   db.prepare('DELETE FROM discount_schemes WHERE id = ?').run(id)
-  writeAudit(db, 'priceLevel', id, 'delete', { scheme: before }, null)
+  writeAudit(db, 'discountScheme', id, 'delete', before, null)
 }
 
 // ---------------------------------------------------------------- the resolver

@@ -277,6 +277,11 @@ export function counterCheckout(db: DB, company: CompanyInfo, raw: CounterChecko
     db.prepare('INSERT INTO counter_sales (invoice_voucher_id, receipt_voucher_id, tendered_paise, change_paise) VALUES (?, ?, ?, ?)').run(
       invoice.id, receipt?.id ?? null, tendered, change
     )
+    // WP 3.8: the sale as one event (the invoice and receipt vouchers log themselves).
+    writeAudit(db, 'counter_sale', invoice.id, 'create', null, {
+      invoiceVoucherId: invoice.id, invoiceNumber: invoice.number, receiptVoucherId: receipt?.id ?? null, totalPaise: total,
+      paidPaise: paid, tenderedPaise: tendered, changePaise: change, payments
+    })
     rememberSalePrices(db, invoice.id, { skipLedgerId: walkIn })
     return {
       invoiceId: invoice.id, invoiceNumber: invoice.number, totalPaise: total, receiptId: receipt?.id ?? null, receiptNumber: receipt?.number ?? null,
@@ -308,6 +313,8 @@ export function holdBill(db: DB, raw: HeldBillInput): HeldBill {
     lines: input.lines.map((l) => ({ itemId: l.itemId, qtyMilli: l.qtyMilli, ratePaise: l.ratePaise, discountPaise: l.discountPaise, rateSource: l.rateSource }))
   }
   writeMeta(db, HELD_KEY, [...bills, bill])
+  // Held bills have string ids — entity_id 0, the id is in the JSON (WP 3.8).
+  writeAudit(db, 'held_bill', 0, 'create', null, bill)
   return bill
 }
 
@@ -317,11 +324,15 @@ export function recallHeldBill(db: DB, id: string): HeldBill {
   const bill = bills.find((b) => b.id === id)
   if (!bill) throw new Error('That bill is no longer on hold')
   writeMeta(db, HELD_KEY, bills.filter((b) => b.id !== id))
+  writeAudit(db, 'held_bill', 0, 'delete', bill, { recalled: true, id })
   return bill
 }
 
 export function discardHeldBill(db: DB, id: string): void {
-  writeMeta(db, HELD_KEY, listHeldBills(db).filter((b) => b.id !== id))
+  const bills = listHeldBills(db)
+  const bill = bills.find((b) => b.id === id)
+  writeMeta(db, HELD_KEY, bills.filter((b) => b.id !== id))
+  if (bill) writeAudit(db, 'held_bill', 0, 'delete', bill, { discarded: true, id })
 }
 
 // ---------------------------------------------------------------- day end

@@ -1,5 +1,6 @@
 import type { DB } from './connection'
 import { MIGRATIONS } from './migrations'
+import { auditChainMaxId, sealAuditChain } from '../services/audit'
 
 /**
  * A migration whose SQL STARTS with this marker runs with foreign-key enforcement off — the
@@ -34,7 +35,13 @@ export function migrate(db: DB, migrations: readonly string[] = MIGRATIONS): voi
     if (fkOff) db.pragma('foreign_keys = OFF') // outside the transaction, where it takes effect
     try {
       db.transaction(() => {
+        // WP 3.8: rows a migration inserts into audit_log with raw SQL carry no hash (SQLite has
+        // no SHA-256) — seal them, in id order, before this migration commits. Only rows newer
+        // than the ones present before it ran, except for the very first seal (migration 031's
+        // backfill), so a row slipped in by an outside tool is never sealed as if legitimate.
+        const maxIdBefore = auditChainMaxId(db)
         db.exec(sql)
+        sealAuditChain(db, maxIdBefore)
         if (fkOff) {
           const bad = db.pragma('foreign_key_check') as unknown[]
           if (bad.length > 0) {

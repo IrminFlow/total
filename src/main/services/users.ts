@@ -209,6 +209,8 @@ export function login(db: DB, userId: number, pin: string): LoginResult {
   }
 
   clearAuthFailures(db, userId)
-  writeAudit(db, 'user', row.id, 'login', null, { name: row.name, role: row.role })
+  // WP 3.8: the sign-in is the user's own act — attribute it to them, not to whoever the session
+  // held before (a failed attempt stays with the machine's OS login: we don't know who typed it).
+  writeAudit(db, 'user', row.id, 'login', null, { name: row.name, role: row.role }, { user: row.name })
   return { id: row.id, name: row.name, role: row.role }
 }

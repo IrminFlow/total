@@ -292,6 +292,18 @@ export function exportRatesCsv(db: DB, priceLevelId?: number): string {
  *  nothing: any bad row and nothing is written. Unknown levels are created; items are matched by
  *  barcode, then by name. Each row upserts its (level, item, currency, slab, from) key. */
 export function importRatesCsv(db: DB, csvText: string, dryRun = false): RatesImportResult {
+  const result = importRatesCsvInner(db, csvText, dryRun)
+  // WP 3.8: each rate logs itself (saveRate); this row ties them to the import.
+  if (!dryRun) writeAudit(db, 'csv_import', 0, 'import', null, { kind: 'price_rates', ...summaryOf(result) })
+  return result
+}
+
+function summaryOf(r: RatesImportResult): Record<string, unknown> {
+  const o = r as unknown as Record<string, unknown>
+  return Object.fromEntries(Object.entries(o).map(([k, v]) => [k, Array.isArray(v) ? v.length : v]))
+}
+
+function importRatesCsvInner(db: DB, csvText: string, dryRun: boolean): RatesImportResult {
   const [head, ...body] = parseCsv(csvText.replace(/^\uFEFF/, ''))
   const header = (head?.cells ?? []).map((h) => h.trim().toLowerCase())
   // Cells our own export neutralised against spreadsheet formulas carry a leading quote.

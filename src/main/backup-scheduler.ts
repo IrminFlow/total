@@ -6,6 +6,7 @@ import { backupCompany } from './db/connection'
 import { backupStamp, snapshotSync } from './db/backup'
 import { companyBackupsDir } from './paths'
 import { log } from './log'
+import { SYSTEM_AUDIT_USER, writeAudit } from './services/audit'
 
 export interface CurrentCompanyLike {
   slug: string
@@ -41,6 +42,7 @@ export function backupOnQuit(getCurrent: () => CurrentCompanyLike | null): void 
     if (!current) return
     const dest = join(companyBackupsDir(current.slug), `${backupStamp()}-quit.db`)
     snapshotSync(current.db, dest)
+    writeAudit(current.db, 'backup', 0, 'backup', null, { tag: 'quit', file: dest.split(/[\\/]/).pop() }, { user: SYSTEM_AUDIT_USER })
     log('info', 'backup-quit', { slug: current.slug })
   } catch (err) {
     log('error', 'backup-quit-failed', { error: err instanceof Error ? err.message : String(err) })

@@ -475,6 +475,15 @@ export const SCREENS: ScreenDef[] = [
     ]
   },
   {
+    name: 'audit-trail',
+    title: 'Audit trail (edit log)',
+    navLabel: 'Audit trail',
+    keywords: ['edit log', 'audit log', 'rule 11(g)', 'mca', 'history', 'who changed', 'tamper', 'hash chain'],
+    screen: { name: 'audit-trail' },
+    navSection: 'system',
+    invalidates: ['audit']
+  },
+  {
     name: 'import-tally',
     title: 'Import from Tally',
     screen: { name: 'import-tally' },

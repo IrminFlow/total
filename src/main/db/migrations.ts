@@ -2153,5 +2153,89 @@ export const MIGRATIONS: string[] = [
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
   );
   CREATE INDEX idx_counter_sales_receipt ON counter_sales(receipt_voucher_id);
+  `,
+  // 031 (WP 3.8) — audit trail for the MCA edit-log requirement (Companies (Accounts) Rules 2014
+  // r.3(1) proviso; sources in src/main/services/audit.ts). Number assigned by the orchestrator;
+  // appended after 030 (WP 2.6, pricing and counter billing). dbtests locate it by content.
+  // - audit_log is rebuilt (SQLite can't ALTER a CHECK) preserving every row and id:
+  //   * action CHECK gains 'restore' (bin restore / backup restore), 'purge' (permanent delete
+  //     from the bin), 'backup' and 'prune' (the retention job);
+  //   * user_id (the signed-in user's id; names can change), at_iso (local ISO 8601 with offset
+  //     and milliseconds — `at` stays UTC seconds for compatibility), clock_skew_note (set when
+  //     the system clock reads earlier than the previous row), prev_hash / row_hash (SHA-256
+  //     hash chain, see src/shared/auditChain.ts);
+  //   * rows written by earlier migrations (entity 'migration', no user) are attributed to
+  //     'system' before hashing.
+  // - The hashes are NOT computed here: SQLite has no SHA-256. The migration runner seals every
+  //   unhashed row in id order right after this SQL, inside the same transaction (migrate.ts
+  //   → sealAuditChain), which is the backfill. Rows inserted by raw SQL in any later migration
+  //   are sealed the same way.
+  // - Database-level protection (ICAI Implementation Guide on rule 11(g), para 20: the trail
+  //   should also be enabled "at the database level"): sealed rows can never be UPDATEd; rows
+  //   can only be DELETEd by the retention job, which opens a guard in meta inside its own
+  //   transaction — and never 'migration' or 'prune' rows. This stops accidental or app-code
+  //   edits; anyone with the file and a SQLite tool can still drop the triggers, which is what
+  //   the hash chain exists to reveal.
+  // - A future migration that rebuilds audit_log again must recreate both triggers.
+  // - Trace: one 'migration' row (entity_id 31, user 'system') with the row count backfilled
+  //   and the highest id SQLite had issued (ids below it that no longer exist were removed
+  //   before the chain existed, e.g. by the old retention setting).
+  `
+  CREATE TEMP TABLE m031_before AS
+    SELECT (SELECT COUNT(*) FROM audit_log) AS n,
+           (SELECT MAX(id) FROM audit_log) AS max_id,
+           (SELECT seq FROM sqlite_sequence WHERE name = 'audit_log') AS seq;
+
+  CREATE TABLE audit_log_new (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    entity TEXT NOT NULL,
+    entity_id INTEGER NOT NULL,
+    action TEXT NOT NULL CHECK (action IN (
+      'create','update','delete','restore','purge','login','login_failed','logout','export','import','backup','prune'
+    )),
+    at TEXT NOT NULL DEFAULT (datetime('now')),
+    before_json TEXT,
+    after_json TEXT,
+    user_name TEXT,
+    app_version TEXT,
+    user_id INTEGER,
+    at_iso TEXT,
+    clock_skew_note TEXT,
+    prev_hash TEXT,
+    row_hash TEXT
+  );
+  INSERT INTO audit_log_new (id, entity, entity_id, action, at, before_json, after_json, user_name, app_version)
+    SELECT id, entity, entity_id, action, at, before_json, after_json,
+           CASE WHEN entity = 'migration' AND user_name IS NULL THEN 'system' ELSE user_name END,
+           app_version
+      FROM audit_log ORDER BY id;
+  DROP TABLE audit_log;
+  ALTER TABLE audit_log_new RENAME TO audit_log;
+  CREATE INDEX idx_audit_at ON audit_log(at);
+  CREATE INDEX idx_audit_entity ON audit_log(entity, entity_id);
+  CREATE INDEX idx_audit_user ON audit_log(user_name);
+
+  CREATE TRIGGER audit_log_append_only BEFORE UPDATE ON audit_log
+    WHEN OLD.row_hash IS NOT NULL
+  BEGIN
+    SELECT RAISE(ABORT, 'audit_log is append-only: a sealed audit entry cannot be changed');
+  END;
+  CREATE TRIGGER audit_log_no_delete BEFORE DELETE ON audit_log
+    WHEN OLD.entity = 'migration' OR OLD.action = 'prune'
+      OR (SELECT value FROM meta WHERE key = 'audit.pruneWindowOpen') IS NOT '1'
+  BEGIN
+    SELECT RAISE(ABORT, 'audit_log entries cannot be deleted');
+  END;
+
+  INSERT INTO audit_log (entity, entity_id, action, before_json, after_json, user_name, app_version)
+  VALUES ('migration', 31, 'update', NULL, json_object(
+    'migration', 31,
+    'change', 'audit trail hash chain (SHA-256, total-audit-v1), append-only triggers, clock-skew notes',
+    'rowsBackfilled', (SELECT n FROM m031_before),
+    'highestIdBefore', (SELECT COALESCE(seq, max_id, 0) FROM m031_before),
+    'missingIdsBefore', (SELECT COALESCE(seq, max_id, 0) - n FROM m031_before)
+  ), 'system', NULL);
+
+  DROP TABLE m031_before;
   `
 ]

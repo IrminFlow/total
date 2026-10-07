@@ -6,6 +6,7 @@ import { upsertCompany } from '../registry'
 import { companyDbPath, ensureCompanyTree, slugify } from '../paths'
 import { createLedger, createStockItem } from './masters'
 import { saveVoucher } from './vouchers'
+import { writeAudit } from './audit'
 import {
   DEMO_COMPANY, DEMO_PARTIES, DEMO_ITEMS, DEMO_EXTRA_LEDGERS, demoVouchers,
   type DemoVoucher
@@ -92,6 +93,7 @@ export function createDemoCompany(): { slug: string } {
   const db = openCompanyDb(slug)
   try {
     seedCompany(db, DEMO_COMPANY)
+    writeAudit(db, 'company', 0, 'create', null, { ...DEMO_COMPANY, demo: true })
 
     const debtorGroup = groupId(db, 'Sundry Debtors')
     const creditorGroup = groupId(db, 'Sundry Creditors')

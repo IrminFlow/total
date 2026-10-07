@@ -119,7 +119,7 @@ export function CommandPalette({ onClose }: { onClose: () => void }): React.JSX.
       },
       { label: 'Backups', run: go({ name: 'settings', tab: 'backups' }) },
       { label: 'Bin', run: go({ name: 'settings', tab: 'bin' }) },
-      { label: 'Audit trail', run: go({ name: 'settings', tab: 'audit' }) },
+      { label: 'Audit trail settings — retention', run: go({ name: 'settings', tab: 'audit' }) },
       { label: 'Users', run: go({ name: 'settings', tab: 'users' }) },
       { label: 'Features', run: go({ name: 'settings', tab: 'features' }) },
       { label: 'Invoice templates', run: go({ name: 'settings', tab: 'invoice' }) },

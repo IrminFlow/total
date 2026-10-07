@@ -94,14 +94,17 @@ import { writeExportPdf } from './services/pdf'
 import { reportHtml } from './services/reportHtml'
 import { globalSearch, search } from './services/search'
 import { createDemoCompany } from './services/demo'
-import { setAuditContext, writeAudit, listAudit, pruneAudit } from './services/audit'
+import {
+  setAuditContext, writeAudit, listAudit, pruneAudit, verifyAudit, editLogExport, runAsAuditUser, osAuditUser, SYSTEM_AUDIT_USER
+} from './services/audit'
+import { rowsToCsv } from '@shared/csv'
 import * as users from './services/users'
 import { assertDeleteAuthorized, auditCompanyDeletion } from './services/companyDelete'
 import { roleAllows, type Role } from './services/roles'
 import {
   bomInputSchema, currencyInputSchema, employeeInputSchema, nicCredentialsSchema, auditListSchema,
   userInputSchema, authLoginSchema, payHeadInputSchema, employeeHeadsSetSchema, payrollRunIdSchema,
-  auditRetentionSchema, invoicePdfBatchSchema, linksForVoucherSchema, openSourceLinesSchema, tradePendingSchema, tradeDocNextNumberSchema,
+  auditRetentionSchema, auditExportSchema, auditTrailRequiredSchema, invoicePdfBatchSchema, linksForVoucherSchema, openSourceLinesSchema, tradePendingSchema, tradeDocNextNumberSchema,
   tradeDocTypeSaveSchema, tradeDocListSchema, tradeDocSaveSchema, tradeDocActionSchema, tradeDocConvertSchema, pendingOrdersSchema,
   quotationPipelineSchema, openOrderValueSchema, tradeChainSchema, threeWayMatchSchema, itemDemandSchema, orderBookSchema,
   leadTimeSchema, returnsRegisterSchema, returnsRateSchema, asOnSchema, staleDocumentsSchema, noteActionSchema, noteClosureSchema,
@@ -190,7 +193,15 @@ const UNGATED_CHANNELS = new Set([
   'app:info'
 ])
 
+/** Every registered channel and its minimum role — read by the audit-coverage registry dbtest
+ *  (auditCoverage.dbtest.ts) so a new write channel cannot ship without an audit mapping. */
+export const CHANNEL_ROLES = new Map<string, Role>()
+
+/** The ungated channels (exported for the same registry test — several of them write). */
+export const UNGATED_CHANNEL_NAMES: ReadonlySet<string> = UNGATED_CHANNELS
+
 function handle(channel: string, fn: Handler, minRole: Role = 'accountant'): void {
+  CHANNEL_ROLES.set(channel, minRole)
   ipcMain.handle(`total:${channel}`, async (_event, payload: unknown) => {
     try {
       // Role gating is a no-op until a company is open AND that company has at least one user
@@ -229,7 +240,10 @@ const auditExport = (db: DB, kind: string, detail: Record<string, unknown>): voi
   writeAudit(db, 'export', 0, 'export', null, { kind, ...detail })
 
 export function registerIpc(): void {
-  setAuditContext({ appVersion: app.getVersion(), getUserName: () => sessionUser?.name ?? null })
+  // WP 3.8 user attribution: the signed-in user (id + name). With no session the writer falls back
+  // to the OS login ('os:<name>') — only reachable in a company without users, since a company
+  // with users refuses every gated channel until someone signs in.
+  setAuditContext({ appVersion: app.getVersion(), getUserName: () => sessionUser?.name ?? null, getUserId: () => sessionUser?.id ?? null })
 
   // ---------- fixed assets (WP 3.6) — channels live in ipcFixedAssets.ts ----------
   registerFixedAssetIpc(handle, () => requireCompany().db)
@@ -249,6 +263,7 @@ export function registerIpc(): void {
     const db = openCompanyDb(slug)
     const info: CompanyInfo = { ...input }
     seedCompany(db, info)
+    writeAudit(db, 'company', 0, 'create', null, info)
     db.close()
     upsertCompany({ slug, name: input.name, stateCode: input.stateCode, gstin: input.gstin, lastOpenedAt: null })
     return { slug }
@@ -312,8 +327,9 @@ export function registerIpc(): void {
     if (weekly.ran && !weekly.ok) {
       log('warn', 'integrity-weekly-failed', { slug, detail: weekly.detail })
     }
+    // Housekeeping below runs as 'system' in the audit trail — nobody asked for it.
     try {
-      const purged = vouchers.purgeOldDeleted(db, 30)
+      const purged = runAsAuditUser(SYSTEM_AUDIT_USER, () => vouchers.purgeOldDeleted(db, 30))
       if (purged > 0) log('info', 'bin-purge', { purged })
     } catch (err) {
       // e.g. an over-age binned voucher still referenced by payroll_runs — housekeeping must
@@ -323,17 +339,22 @@ export function registerIpc(): void {
     // Post-dated vouchers whose date has arrived flip into the books (audited per voucher).
     // PDCs dated inside a locked period are refused, not silently posted — they stay in the
     // PDC register until the lock is lifted (v0.3 review F3).
-    const { matured, blockedByLock } = vouchers.maturePostDated(db, todayISO())
+    const { matured, blockedByLock } = runAsAuditUser(SYSTEM_AUDIT_USER, () => vouchers.maturePostDated(db, todayISO()))
     if (matured.length > 0) log('info', 'pdc-mature', { count: matured.length, ids: matured })
     if (blockedByLock.length > 0) {
       log('warn', 'pdc-mature-blocked-by-lock', { count: blockedByLock.length, ids: blockedByLock })
     }
-    // [lane-Q audit] retention: prune audit rows older than the configured window (default: keep
-    // forever — getAuditKeepDays returns null and nothing is pruned).
+    // [lane-Q audit, WP 3.8] retention: only when the company is NOT flagged audit-trail-required
+    // (default: required → never pruned) and a window is set; never inside the s.128(5) floor.
+    // pruneAudit logs its own 'prune' row as 'system'.
     const auditKeepDays = configSvc.getAuditKeepDays(db)
     if (auditKeepDays !== null) {
-      const prunedAudit = pruneAudit(db, auditKeepDays)
-      if (prunedAudit > 0) log('info', 'audit-prune', { pruned: prunedAudit, keepDays: auditKeepDays })
+      try {
+        const prunedAudit = pruneAudit(db, auditKeepDays)
+        if (prunedAudit > 0) log('info', 'audit-prune', { pruned: prunedAudit, keepDays: auditKeepDays })
+      } catch (err) {
+        log('warn', 'audit-prune-failed', { slug, error: err instanceof Error ? err.message : String(err) })
+      }
     }
     touchLastOpened(slug)
     // Agent bridge (feature flag, default OFF): watch <company>/inbox/ for dropped files.
@@ -366,7 +387,7 @@ export function registerIpc(): void {
 
   const runManualBackup = async (): Promise<{ path: string }> => {
     const c = requireCompany()
-    return { path: await backupCompany(c.db, c.slug, 'manual') }
+    return { path: await backupCompany(c.db, c.slug, 'manual', sessionUser?.name ?? osAuditUser()) }
   }
   // 'company:backup' is kept as an alias of 'backup:run' for existing callers.
   handle('company:backup', runManualBackup)
@@ -408,6 +429,8 @@ export function registerIpc(): void {
     const { file } = z.object({ file: backupFileSchema }).parse(payload)
     const c = requireCompany()
     const { slug } = c
+    // closeCurrentCompany() below clears the session — remember who asked for the restore.
+    const restoredBy = sessionUser?.name ?? osAuditUser()
     const backupPath = join(companyBackupsDir(slug), file)
     const dbPath = companyDbPath(slug)
 
@@ -461,9 +484,17 @@ export function registerIpc(): void {
     if (!integrity.ok) {
       log('warn', 'integrity', { slug, quickCheck: integrity.quickCheck, unbalanced: integrity.unbalancedVoucherIds })
     }
+    // WP 3.8: the restored file carries the backup's own audit trail and hash chain. Verify it,
+    // then record the restore itself on top of it (the live trail up to the restore survives in
+    // the pre-restore snapshot).
+    const auditChain = verifyAudit(current.db)
+    writeAudit(current.db, 'backup', 0, 'restore', null, {
+      file, preRestoreSnapshot: basename(preRestoreSnapshotPath), chainOk: auditChain.ok, chainRows: auditChain.rows,
+      chainHeadId: auditChain.headId, chainFirstBreak: auditChain.firstBreak?.rowId ?? null
+    }, { user: restoredBy })
     // closeCurrentCompany() above already cleared sessionUser, so this is realistically always
     // `current.usersExist` — spelled out in full to match the other two locked-flag call sites.
-    return { info: current.info, integrity, locked: current.usersExist && !sessionUser }
+    return { info: current.info, integrity, locked: current.usersExist && !sessionUser, auditChain }
   }, 'owner')
 
   handle('backup:exportEncrypted', async (payload) => {
@@ -527,6 +558,20 @@ export function registerIpc(): void {
     }
 
     upsertCompany({ slug, name: info.name, stateCode: info.stateCode, gstin: info.gstin, lastOpenedAt: new Date().toISOString() })
+    // WP 3.8: record the import in the imported company's own trail (opening migrates it first).
+    try {
+      const imported = openCompanyDb(slug)
+      try {
+        const chain = verifyAudit(imported)
+        writeAudit(imported, 'backup', 0, 'restore', null, {
+          file: basename(picked.filePaths[0]), encrypted: true, chainOk: chain.ok, chainRows: chain.rows, chainFirstBreak: chain.firstBreak?.rowId ?? null
+        }, { user: osAuditUser() })
+      } finally {
+        closeCompanyDb(imported)
+      }
+    } catch (err) {
+      log('warn', 'import-encrypted-audit-failed', { slug, error: err instanceof Error ? err.message : String(err) })
+    }
     return { slug, name: info.name }
   })
 
@@ -1488,6 +1533,7 @@ export function registerIpc(): void {
     const { voucherId } = z.object({ voucherId: z.number().int().positive() }).parse(p)
     const c = requireCompany()
     const r = edocs.ewbJsonForVoucher(c.db, c.info, c.slug, voucherId)
+    auditExport(c.db, 'ewb_json', { voucherId, path: r.path })
     shell.showItemInFolder(r.path)
     return r
   })
@@ -1601,12 +1647,14 @@ export function registerIpc(): void {
     // chequePdf itself reveals the file in Finder — a cheque is meant to be loaded into the
     // printer tray and checked for alignment, not opened in a PDF viewer.
     const path = await cheque.chequePdf(c.db, c.info, c.slug, voucherId, bankLedgerId)
+    auditExport(c.db, 'cheque_pdf', { voucherId, bankLedgerId, path })
     return { path }
   })
   handle('cheque:testGrid', async (p) => {
     const { bankLedgerId } = bankLedgerIdSchema.parse(p)
     const c = requireCompany()
     const path = await cheque.testGridPdf(c.db, c.info, c.slug, bankLedgerId)
+    auditExport(c.db, 'cheque_test_grid', { bankLedgerId, path })
     shell.openPath(path)
     return { path }
   })
@@ -1614,6 +1662,7 @@ export function registerIpc(): void {
     const { voucherId } = z.object({ voucherId: z.number().int().positive() }).parse(p)
     const c = requireCompany()
     const path = await cheque.paymentAdvicePdf(c.db, c.info, c.slug, voucherId)
+    auditExport(c.db, 'payment_advice', { voucherId, path })
     shell.openPath(path)
     return { path }
   })
@@ -1660,6 +1709,7 @@ export function registerIpc(): void {
     const { runId, employeeId } = z.object({ runId: z.number().int().positive(), employeeId: z.number().int().positive() }).parse(p)
     const c = requireCompany()
     const path = await payroll.payslipPdf(c.db, c.info, c.slug, runId, employeeId)
+    auditExport(c.db, 'payslip', { runId, employeeId, path })
     shell.openPath(path)
     return { path }
   })
@@ -1685,6 +1735,7 @@ export function registerIpc(): void {
     const { filename, text } = payroll.ecrForRun(c.db, runId)
     const path = join(companyExportsDir(c.slug), filename)
     writeFileSync(path, text, 'utf8')
+    auditExport(c.db, 'payroll_ecr', { runId, path })
     shell.showItemInFolder(path)
     return { path }
   })
@@ -1694,6 +1745,7 @@ export function registerIpc(): void {
     const { filename, text } = payroll.esiForRun(c.db, runId)
     const path = join(companyExportsDir(c.slug), filename)
     writeFileSync(path, text, 'utf8')
+    auditExport(c.db, 'payroll_esi', { runId, path })
     shell.showItemInFolder(path)
     return { path }
   })
@@ -1704,6 +1756,7 @@ export function registerIpc(): void {
     const { filename, text } = payroll.ptCsvForRun(c.db, runId)
     const path = join(companyExportsDir(c.slug), filename)
     writeFileSync(path, text, 'utf8')
+    auditExport(c.db, 'payroll_pt_csv', { runId, path })
     shell.showItemInFolder(path)
     return { path }
   })
@@ -1733,6 +1786,7 @@ export function registerIpc(): void {
     const { kind } = z.object({ kind: importKindSchema }).parse(p)
     const c = requireCompany()
     const path = importer.writeTemplateCsv(c.slug, kind)
+    auditExport(c.db, 'import_template', { importKind: kind, path })
     shell.showItemInFolder(path)
     return { path }
   })
@@ -1853,16 +1907,60 @@ export function registerIpc(): void {
   }, 'viewer')
 
   // ---------- audit ----------
-  handle('audit:list', (p) => {
-    const { entity, from, to, page } = auditListSchema.parse(p)
-    return listAudit(requireCompany().db, { entity, from, to, page })
+  // WP 3.8: the edit log is read-only from the UI — there is no channel that edits or deletes an
+  // audit entry, and none that turns the trail off (only the owner-only retention settings below).
+  handle('audit:list', (p) => listAudit(requireCompany().db, auditListSchema.parse(p)), 'viewer')
+  handle('audit:verify', () => verifyAudit(requireCompany().db), 'viewer')
+  const editLogFilename = (q: { from?: string; to?: string }): string => `edit-log-${q.from ?? 'start'}_${q.to ?? todayISO()}`
+  handle('audit:exportCsv', (p) => {
+    const q = auditExportSchema.parse(p)
+    const c = requireCompany()
+    const r = editLogExport(c.db, c.info, q)
+    const csv = rowsToCsv(['Edit log (audit trail)'], [...r.header.map((h) => [h]), [], r.columns, ...r.rows])
+    const path = join(companyExportsDir(c.slug), `${editLogFilename(q)}.csv`)
+    writeFileSync(path, csv, 'utf8')
+    auditExport(c.db, 'edit_log_csv', { ...q, rows: r.rows.length, chainOk: r.verification.ok, path })
+    shell.showItemInFolder(path)
+    return { path, rows: r.rows.length, verification: r.verification }
+  }, 'viewer')
+  handle('audit:exportPdf', async (p) => {
+    const q = auditExportSchema.parse(p)
+    const c = requireCompany()
+    const r = editLogExport(c.db, c.info, q, { diffMaxLen: 600 })
+    const html = reportHtml({
+      title: 'Edit log (audit trail)',
+      company: c.info,
+      periodLabel: r.header[1]!.replace(/^Period: /, ''),
+      headerLines: r.header.slice(2, -1),
+      columns: [
+        { label: '#', align: 'r', width: 36 }, { label: 'Date/time', align: 'l', width: 118 }, { label: 'User', align: 'l', width: 76 },
+        { label: 'Entity', align: 'l', width: 86 }, { label: 'Id / number', align: 'l', width: 86 }, { label: 'Action', align: 'l', width: 56 },
+        { label: 'Field-level changes', align: 'l' }, { label: 'Version', align: 'l', width: 50 }, { label: 'Hash', align: 'l', width: 66 }
+      ],
+      rows: r.rows.map((cells) => ({ cells })),
+      footNote: r.header[r.header.length - 1]
+    })
+    const path = await writeExportPdf(c.slug, `${editLogFilename(q)}.pdf`, html, { pageSize: 'A4', landscape: true, pageNumbers: true })
+    auditExport(c.db, 'edit_log_pdf', { ...q, rows: r.rows.length, chainOk: r.verification.ok, path })
+    shell.openPath(path)
+    return { path, rows: r.rows.length, verification: r.verification }
   }, 'viewer')
 
-  // ---------- audit retention (lane Q, task Q1 #92) ----------
-  handle('config:audit:get', () => ({ keepDays: configSvc.getAuditKeepDays(requireCompany().db) }), 'viewer')
+  // ---------- audit retention (lane Q, task Q1 #92; WP 3.8: owner-only, rule 3(1) default) ----------
+  handle('config:audit:get', () => configSvc.getAuditSettings(requireCompany().db), 'viewer')
   handle('config:audit:set', (p) => {
     const { keepDays } = auditRetentionSchema.parse(p)
-    return { keepDays: configSvc.setAuditKeepDays(requireCompany().db, keepDays) }
+    const db = requireCompany().db
+    configSvc.setAuditKeepDays(db, keepDays)
+    return configSvc.getAuditSettings(db)
+  }, 'owner')
+  handle('config:audit:required', (p) => {
+    const { required } = auditTrailRequiredSchema.parse(p)
+    const db = requireCompany().db
+    // Turning the flag back on clears any retention window, so "required" always means "never pruned".
+    if (required && configSvc.getAuditKeepDays(db) !== null) configSvc.setAuditKeepDays(db, null)
+    configSvc.setAuditTrailRequired(db, required)
+    return configSvc.getAuditSettings(db)
   }, 'owner')
 
   // ---------- auth + users ----------
@@ -1931,7 +2029,9 @@ export function registerIpc(): void {
   handle('agent:exportMirror', (p) => {
     const input = agentExportSchema.parse(p ?? {})
     const c = requireCompany()
-    return agentBridge.exportMirror(c.db, c.slug, input)
+    const r = agentBridge.exportMirror(c.db, c.slug, input)
+    auditExport(c.db, 'agent_mirror', { dir: r.dir, files: r.files.length })
+    return r
   })
   handle('agent:getConfig', () => ({ enabled: configSvc.getAgentBridgeEnabled(requireCompany().db) }), 'viewer')
   handle('agent:setConfig', (p) => {

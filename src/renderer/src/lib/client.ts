@@ -32,7 +32,7 @@ export type ImsDecisionPayload = Omit<ImsDecisionInput, 'note' | 'voucherId' | '
   Partial<Pick<ImsDecisionInput, 'note' | 'voucherId' | 'value' | 'taxable' | 'igst' | 'cgst' | 'sgst' | 'cess'>>
 import type {
   AgentExportInput,
-  AuditListInput, BankRuleInput, BatchInput, BomInput, BudgetInput, ChequeConfig, CompanyCreateInput, CostCentreInput,
+  AuditExportInput, AuditListInput, BankRuleInput, BatchInput, BomInput, BudgetInput, ChequeConfig, CompanyCreateInput, CostCentreInput,
   CurrencyInput, EmployeeHeadsSetInput, EmployeeInputPayload, GodownInput, GroupInput, Gst3bManualInput, LedgerInput, NicCredentials,
   PayHeadInput, PriceLevelInput,
   PriceRateInput,
@@ -72,6 +72,8 @@ import type { CloseLedgerRow } from '@shared/yearEnd'
 import type { DepreciationYearStatus } from '@shared/fixedAssets'
 import type { ConsolidatedResult } from '@shared/consolidate'
 import type { Registry } from '../types'
+import type { ChainVerification } from '@shared/auditChain'
+import type { AuditAction } from '@shared/auditEntities'
 
 export type Role = 'owner' | 'accountant' | 'viewer'
 
@@ -127,12 +129,27 @@ export interface AuditRow {
   id: number
   entity: string
   entityId: number
-  action: 'create' | 'update' | 'delete' | 'login' | 'login_failed' | 'logout' | 'export' | 'import'
+  action: AuditAction
+  /** UTC 'YYYY-MM-DD HH:MM:SS'. */
   at: string
+  /** Local ISO with offset (null before migration 031). */
+  atIso: string | null
   beforeJson: string | null
   afterJson: string | null
   userName: string | null
+  userId: number | null
   appVersion: string | null
+  clockSkewNote: string | null
+  rowHash: string | null
+  /** The record's number / code / name when its JSON carries one. */
+  ref: string | null
+}
+
+export type { ChainVerification }
+
+export interface AuditSettings {
+  keepDays: number | null
+  trailRequired: boolean
 }
 
 /** Mirrors src/main/services/banking.ts's BankRuleRecord shape (kept local — main-process only). */
@@ -1098,9 +1115,13 @@ export const api = {
     query: (input: SearchQueryInput) => call<SearchResponse>('search:query', input)
   },
   audit: {
-    list: (query: AuditListInput) => call<{ rows: AuditRow[]; total: number }>('audit:list', query),
-    retentionGet: () => call<{ keepDays: number | null }>('config:audit:get'),
-    retentionSet: (keepDays: number | null) => call<{ keepDays: number | null }>('config:audit:set', { keepDays })
+    list: (query: AuditListInput) => call<{ rows: AuditRow[]; total: number; users: string[] }>('audit:list', query),
+    verify: () => call<ChainVerification>('audit:verify'),
+    exportCsv: (query: AuditExportInput) => call<{ path: string; rows: number; verification: ChainVerification }>('audit:exportCsv', query),
+    exportPdf: (query: AuditExportInput) => call<{ path: string; rows: number; verification: ChainVerification }>('audit:exportPdf', query),
+    settings: () => call<AuditSettings>('config:audit:get'),
+    retentionSet: (keepDays: number | null) => call<AuditSettings>('config:audit:set', { keepDays }),
+    setRequired: (required: boolean) => call<AuditSettings>('config:audit:required', { required })
   },
   auth: {
     users: () => call<LoginName[]>('auth:users'),
