@@ -172,6 +172,14 @@ export const SCREENS: ScreenDef[] = [
     invalidates: ['transferCost', 'stockByGodown', 'godowns', 'batches', 'serialsAvailable', 'nextNumber', 'stockItems', 'voucherTypes', 'jobWorkSendChallans', 'ledgers']
   },
   {
+    name: 'fixed-assets',
+    title: 'Fixed assets',
+    keywords: ['asset register', 'depreciation', 'schedule ii', 'block of assets', 'disposal', 'asset schedule', 'net block'],
+    screen: { name: 'fixed-assets' },
+    navSection: 'books',
+    invalidates: ['faList', 'faGroups', 'faBlocks', 'faClasses', 'faRunPreview', 'faRuns', 'faSchedule', 'faIt', 'faCandidates', 'faDisposal']
+  },
+  {
     name: 'year-end',
     title: 'Year-end close',
     screen: { name: 'year-end' },

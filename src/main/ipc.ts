@@ -61,6 +61,7 @@ import * as tradeReports from './services/tradeReports'
 import * as priceLevels from './services/priceLevels'
 import * as budgets from './services/budgets'
 import * as yearEnd from './services/yearEnd'
+import { registerFixedAssetIpc } from './ipcFixedAssets'
 import { importTallyXml, dryRunTallyXml } from './services/tallyImport'
 import * as importer from './services/importers'
 import * as agentBridge from './services/agentBridge'
@@ -208,6 +209,9 @@ const auditExport = (db: DB, kind: string, detail: Record<string, unknown>): voi
 
 export function registerIpc(): void {
   setAuditContext({ appVersion: app.getVersion(), getUserName: () => sessionUser?.name ?? null })
+
+  // ---------- fixed assets (WP 3.6) — channels live in ipcFixedAssets.ts ----------
+  registerFixedAssetIpc(handle, () => requireCompany().db)
 
   // ---------- company ----------
   handle('company:list', () => readRegistry())

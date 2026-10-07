@@ -79,6 +79,7 @@ export type Screen =
   | { name: 'budgets' }
   | { name: 'company-info' }
   | { name: 'year-end' }
+  | { name: 'fixed-assets'; tab?: 'register' | 'depreciation' | 'schedule' | 'income-tax' | 'setup' }
   | { name: 'settings'; tab?: 'appearance' | 'backups' | 'bin' | 'users' | 'audit' | 'nic' | 'features' | 'invoice' | 'agents' | 'about' }
 
 interface NavState {
