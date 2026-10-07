@@ -8,7 +8,7 @@ import { seededDb, TEST_INFO } from '../db/testdb'
 import type { DB } from '../db/connection'
 import type { Group, Voucher, VoucherKind } from '@shared/domain'
 import {
-  buildAccountingPayload, buildInvoicePayload, buildPhysicalPayload, buildStockLinesPayload, buildTransferPayload, withJobWorker,
+  buildAccountingPayload, buildInvoicePayload, buildPhysicalPayload, buildStockLinesPayload, buildStockNotePayload, type StockNoteKind, buildTransferPayload, withJobWorker,
   derivePartyId, emptyInvoiceState, emptyPhysicalState, evaluateManufactureForm, planVoucherEdit, taxLedgerIdsFrom,
   LEGACY_STOCK_JOURNAL_BANNER, type EditPlan, type EditPlanContext, type VoucherPayload
 } from '@shared/voucherEdit'
@@ -158,7 +158,9 @@ function editorPayload(db: DB, v: Voucher): { plan: EditPlan; payload: VoucherPa
               ? buildTransferPayload(plan.state, { voucherTypeId: v.voucherTypeId, costs: [] })
               : plan.mode === 'jobWorkSend'
                 ? buildTransferPayload(withJobWorker(plan.state.transfer, plan.state.challan), { voucherTypeId: v.voucherTypeId, costs: [] })
-                : buildStockLinesPayload(plan.state, { voucherTypeId: v.voucherTypeId })
+                : plan.mode === 'stockNote'
+                  ? buildStockNotePayload(plan.state, { ...ctx.invoice, kind: kind as StockNoteKind }, v.voucherTypeId)
+                  : buildStockLinesPayload(plan.state, { voucherTypeId: v.voucherTypeId })
   if (!r.ok) throw new Error(`${plan.mode}: ${r.error}`)
   return { plan, payload: r.payload }
 }
@@ -671,8 +673,9 @@ describe('voucher editor round-trip (WP 2.5a): challans, GRNs and linked invoice
     ])
     const bill = trade(b, 'purchase', '2025-05-04', [{ item: w, qty: 4, amount: 4400, godown: b.godown2, from: lineUid(db, g.id) }])
     const cn = trade(b, 'credit_note', '2025-05-06', [{ item: w, qty: 1, amount: 1200, godown: b.godown, from: lineUid(db, inv.id, 2), link: 'return' }])
-    expectRoundTrip(db, d.id, 'stockLines')
-    expectRoundTrip(db, g.id, 'stockLines')
+    // WP 2.5b: the notes open in their own screen (qty × rate amounts here: 5000/5, 26000/2, 4000/4).
+    expectRoundTrip(db, d.id, 'stockNote')
+    expectRoundTrip(db, g.id, 'stockNote')
     expectRoundTrip(db, inv.id, 'accounting') // no GST ledgers on these test lines → the invoice form can't show it
     expectRoundTrip(db, bill.id, 'accounting')
     expectRoundTrip(db, cn.id, 'accounting')

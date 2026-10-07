@@ -9,20 +9,20 @@ import { manufactureRepresentation, type ManufactureFormState } from './manufact
 import type { ManufactureDetails } from '../manufacture'
 import { physicalRepresentation, type PhysicalFormState } from './physical'
 import { stockLinesStateFromVoucher, type StockLinesFormState } from './stockLines'
+import { isStockNoteKind, stockNoteRepresentation, type StockNoteFormState } from './stockNote'
 import { transferRepresentation, type TransferFormState } from './stockJournal'
 import { jobWorkSendRepresentation, type JobWorkSendFormState } from './jobWork'
 import type { JobWorkChallan } from '../jobWork'
 import { TRADING_KINDS } from './payload'
 
-export type EntryMode = 'invoice' | 'accounting' | 'manufacture' | 'physical' | 'stockLines' | 'transfer' | 'jobWorkSend'
+export type EntryMode = 'invoice' | 'accounting' | 'manufacture' | 'physical' | 'stockLines' | 'transfer' | 'jobWorkSend' | 'stockNote'
 
-export function modeForKind(kind: VoucherKind): Exclude<EntryMode, 'transfer' | 'jobWorkSend'> {
+export function modeForKind(kind: VoucherKind): Exclude<EntryMode, 'transfer' | 'jobWorkSend' | 'stockLines'> {
   if (TRADING_KINDS.includes(kind)) return 'invoice'
   if (kind === 'stock_journal') return 'manufacture'
   if (kind === 'physical_stock') return 'physical'
-  // WP 2.5a: delivery challans / GRNs open in the generic stock-lines editor (party, purpose and
-  // line links ride along verbatim); WP 2.5b gives them their own screen.
-  if (STOCK_NOTE_KINDS.includes(kind)) return 'stockLines'
+  // WP 2.5b: delivery challans / GRNs have their own screen (stock-lines editor as the fallback).
+  if (STOCK_NOTE_KINDS.includes(kind)) return 'stockNote'
   return 'accounting'
 }
 
@@ -34,6 +34,7 @@ export type EditPlan =
   | { mode: 'stockLines'; state: StockLinesFormState; fallbackReason: string | null; legacy?: boolean }
   | { mode: 'transfer'; state: TransferFormState }
   | { mode: 'jobWorkSend'; state: JobWorkSendFormState }
+  | { mode: 'stockNote'; state: StockNoteFormState }
 
 /** Banner for a stock journal saved before the Manufacture screen existed (no details row). */
 export const LEGACY_STOCK_JOURNAL_BANNER = 'Created before 0.6.0 — costed at the saved amounts'
@@ -81,9 +82,15 @@ export function planVoucherEdit(v: Voucher, kind: VoucherKind, ctx: EditPlanCont
       if (r.ok) return { mode: 'physical', state: r.state }
       return { mode: 'stockLines', state: stockLinesStateFromVoucher(v), fallbackReason: r.reason }
     }
-    case 'stockLines':
-      return { mode: 'stockLines', state: stockLinesStateFromVoucher(v), fallbackReason: null }
+    case 'stockNote': {
+      if (!isStockNoteKind(kind)) break
+      const r = stockNoteRepresentation(v, { ...ctx.invoice, kind })
+      if (r.ok) return { mode: 'stockNote', state: r.state }
+      // Lossless fallback: every stored field (party, purpose, links) rides along verbatim.
+      return { mode: 'stockLines', state: stockLinesStateFromVoucher(v), fallbackReason: r.reason }
+    }
     default:
-      return { mode: 'accounting', state: accountingStateFromVoucher(v), fallbackReason: null }
+      break
   }
+  return { mode: 'accounting', state: accountingStateFromVoucher(v), fallbackReason: null }
 }

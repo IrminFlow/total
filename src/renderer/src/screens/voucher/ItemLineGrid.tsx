@@ -3,7 +3,7 @@
 // every testid, keyboard path (⌥D, the TypeAhead pickers) and the price-level autofill are the
 // invoice's — so the delivery challan / GRN screen shares it. The parent owns the rows; this
 // component only renders them and reports edits.
-import { Fragment, useMemo, type Dispatch, type SetStateAction } from 'react'
+import { Fragment, useMemo, type Dispatch, type ReactNode, type SetStateAction } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import type { InvoiceRowState } from '@shared/voucherEdit'
 import { api } from '../../lib/client'
@@ -39,10 +39,21 @@ export interface ItemLineGridProps {
   /** GST % shown for an item without its own rate (the invoice's sales / purchase ledger). */
   fallbackGstRate?: number | null
   onCreateItem: (name: string, row: number) => void
+  /**
+   * WP 2.5b: a row drawn from a stock-moving source (a challan / GRN line) — its goods already
+   * moved, so item, godown, batch and serials are read-only and the quantity can't exceed what
+   * is still pending on the source. Null = an ordinary row.
+   */
+  lockedBySource?: (row: ItemRow) => { label: string; maxQtyMilli: number } | null
+  /** Extra content under a row's item cell (the "from DC-12" chip). */
+  rowNote?: (row: ItemRow, i: number) => ReactNode
+  /** Remove a row (shown for rows drawn from a source, which have no blank-out path). */
+  onRemoveRow?: (i: number) => void
 }
 
 export function ItemLineGrid({
-  rows, setRow, setRows, direction, priceLevelId, fxActive, date, voucherId, fallbackGstRate, onCreateItem
+  rows, setRow, setRows, direction, priceLevelId, fxActive, date, voucherId, fallbackGstRate, onCreateItem,
+  lockedBySource, rowNote, onRemoveRow
 }: ItemLineGridProps): React.JSX.Element {
   const features = useFeatures()
   const items = useStockItems()
@@ -78,11 +89,30 @@ export function ItemLineGrid({
             const qty = parseFloat(r.qtyText || '0')
             const amount =
               item && qty > 0 && r.rate != null ? Math.max(0, Math.round(qty * r.rate) - (r.discount ?? 0)) : 0
+            const locked = lockedBySource?.(r) ?? null
             const detailOpen = features.inventory && details.isOpen(r.key, item)
             return (
               <Fragment key={r.key}>
               <tr onKeyDown={features.inventory ? details.onRowKeyDown(r.key) : undefined} data-line-key={r.key}>
                 <td>
+                  {locked ? (
+                    <div className="flex items-center gap-1.5">
+                      <div className={`${inputCls} flex-1 bg-panel2 text-ink`} data-testid="line-item-locked" title={`Goods moved on ${locked.label}`}>
+                        {item?.name ?? ''}
+                      </div>
+                      {onRemoveRow && (
+                        <button
+                          type="button"
+                          className="shrink-0 px-1 text-caption text-muted hover:text-cr"
+                          aria-label="Remove line"
+                          data-testid="btn-line-remove"
+                          onClick={() => onRemoveRow(i)}
+                        >
+                          ✕
+                        </button>
+                      )}
+                    </div>
+                  ) : (
                   <ItemPicker
                     value={r.itemId}
                     onPick={(id) => {
@@ -107,6 +137,8 @@ export function ItemLineGrid({
                     }}
                     onCreateRequest={(name) => onCreateItem(name, i)}
                   />
+                  )}
+                  {rowNote?.(r, i)}
                 </td>
                 <td className="r">
                   <div className="flex items-center gap-1.5">
@@ -116,7 +148,13 @@ export function ItemLineGrid({
                       value={r.qtyText}
                       inputMode="decimal"
                       placeholder="0"
-                      onChange={(e) => setRow(i, { qtyText: e.target.value })}
+                      onChange={(e) => {
+                        // A drawn-down row can't take more than the source still has pending.
+                        const v = e.target.value
+                        const q = Math.round(parseFloat(v || '0') * 1000)
+                        setRow(i, { qtyText: locked && Number.isFinite(q) && q > locked.maxQtyMilli ? String(locked.maxQtyMilli / 1000) : v })
+                      }}
+                      title={locked ? `At most ${locked.maxQtyMilli / 1000} (pending on ${locked.label})` : undefined}
                     />
                     <span className="w-8 text-caption text-muted">{unitOf(r.itemId)}</span>
                   </div>
@@ -137,15 +175,15 @@ export function ItemLineGrid({
                 </td>
                 <td className="r">
                   <Money paise={amount} className="text-body" />
-                  {!detailOpen && features.inventory && <div><LineStockSummary fields={r} /></div>}
+                  {(!detailOpen || locked) && features.inventory && <div><LineStockSummary fields={r} /></div>}
                 </td>
                 {features.inventory && (
                   <td>
-                    <LineDetailToggle open={detailOpen} onToggle={() => details.toggle(r.key)} fields={r} disabled={!item} />
+                    <LineDetailToggle open={detailOpen} onToggle={() => details.toggle(r.key)} fields={r} disabled={!item || !!locked} />
                   </td>
                 )}
               </tr>
-              {detailOpen && item && (
+              {detailOpen && item && !locked && (
                 <tr className="line-detail-row" data-testid="row-line-detail">
                   <td colSpan={7} className="!pt-0">
                     <LineStockDetail
