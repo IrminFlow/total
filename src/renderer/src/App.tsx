@@ -215,7 +215,7 @@ export default function App(): React.JSX.Element {
           {screen.name === 'unbilled-goods' && <UnbilledGoodsScreen />}
           {screen.name === 'stale-documents' && <StaleDocumentsScreen />}
           {screen.name === 'consolidated' && <ConsolidatedScreen />}
-          {screen.name === 'banking' && <BankingScreen />}
+          {screen.name === 'banking' && <BankingScreen key={screen.tab ?? 'recon'} tab={screen.tab} />}
           {screen.name === 'payroll' && <PayrollScreen />}
           {screen.name === 'tds' && <TdsScreen />}
           {screen.name === 'tcs' && <TcsScreen />}

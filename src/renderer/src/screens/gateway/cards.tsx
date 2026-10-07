@@ -2,7 +2,7 @@
 // failed (or threw while rendering — CardBoundary) degrades alone.
 import { useEffect, useMemo, useState } from 'react'
 import type {
-  DashAgeing, DashCash, DashGst, DashParty, DashStatus, DashStock, DashTds, DashTrade, DashActivity, DashboardWindow, DashSetup
+  DashAgeing, DashCash, DashGst, DashParty, DashStatus, DashStock, DashTds, DashTrade, DashActivity, DashboardWindow, DashSetup, DashPdc
 } from '@shared/dashboard'
 import type { DayBookRow } from '@shared/reports'
 import { formatPaise, formatPaiseCompact } from '@shared/money'
@@ -224,10 +224,13 @@ export function ComplianceCard({
   gst,
   tds,
   hasPayroll,
-  dashboardLoaded
+  dashboardLoaded,
+  pdc = null
 }: {
   gst: CardState<DashGst | null>
   tds: CardState<DashTds | null> | null
+  /** WP 4.1 — post-dated cheques maturing this week (null = none / not loaded). */
+  pdc?: DashPdc | null
   /** Payroll feature on AND active employees — PF/ESI deadlines show only then. */
   hasPayroll: boolean
   dashboardLoaded: boolean
@@ -313,6 +316,24 @@ export function ComplianceCard({
               </span>
             </div>
           )}
+          {pdc && pdc.received.count + pdc.issued.count > 0 && (
+            <div data-testid="dash-pdc" {...drillRowProps(() => nav.go({ name: 'banking', tab: 'pdc' }))} className={stackRowCls}>
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-body-sm text-ink">Post-dated cheques · this week</span>
+                {pdc.overdue > 0 && <Badge tone="danger" testId="chip-pdc-overdue">{pdc.overdue} past due</Badge>}
+              </div>
+              <dl className="grid grid-cols-2 gap-2 text-caption">
+                <div>
+                  <dt className="text-muted">Received · {pdc.received.count}</dt>
+                  <dd className="num text-ink" title={formatPaise(pdc.received.amount, { symbol: true })}>{formatPaiseCompact(pdc.received.amount)}</dd>
+                </div>
+                <div>
+                  <dt className="text-muted">Issued · {pdc.issued.count}</dt>
+                  <dd className="num text-ink" title={formatPaise(pdc.issued.amount, { symbol: true })}>{formatPaiseCompact(pdc.issued.amount)}</dd>
+                </div>
+              </dl>
+            </div>
+          )}
           {(showAll ? others : others.slice(0, 3)).map((d) => (
             <div key={d.id} className="flex items-center gap-2 border-b border-line/40 px-4 py-[5px] last:border-b-0">
               <span className="num w-[62px] text-caption text-muted">{toDisplayDate(d.date)}</span>
@@ -324,7 +345,7 @@ export function ComplianceCard({
               {showAll ? 'Show fewer' : `Show all ${others.length}`}
             </button>
           )}
-          {g === null && !t && others.length === 0 && <p className="px-4 py-6 text-center text-body-sm text-muted">Nothing due in the next 30 days</p>}
+          {g === null && !t && others.length === 0 && !(pdc && pdc.received.count + pdc.issued.count > 0) && <p className="px-4 py-6 text-center text-body-sm text-muted">Nothing due in the next 30 days</p>}
         </div>
       )}
     </DashCard>

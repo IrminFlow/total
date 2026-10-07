@@ -97,7 +97,7 @@ export type Screen =
   | { name: 'unbilled-goods' }
   | { name: 'stale-documents' }
   | { name: 'consolidated' }
-  | { name: 'banking' }
+  | { name: 'banking'; tab?: 'recon' | 'import' | 'rules' | 'cheques' | 'pdc' | 'bulk' | 'brs' }
   | { name: 'payroll' }
   | { name: 'tds' }
   | { name: 'tcs' }
