@@ -10,6 +10,9 @@ export interface CompanyFeatures {
   billWise: boolean
   costCentres: boolean
   tds: boolean
+  /** TCS on sales (WP 3.3): the invoice / receipt banner and the TCS screen (the banner only
+   *  appears for buyers, goods or sales ledgers flagged with a TCS section). */
+  tcs: boolean
   multiCurrency: boolean
   payroll: boolean
   /** Turn negative-stock save warnings into hard blocks. */
@@ -25,6 +28,7 @@ export const DEFAULT_FEATURES: CompanyFeatures = {
   billWise: true,
   costCentres: true,
   tds: true,
+  tcs: true,
   multiCurrency: true,
   payroll: true,
   preventNegativeStock: false,
@@ -37,6 +41,7 @@ export const featuresSchema = z.object({
   billWise: z.boolean(),
   costCentres: z.boolean(),
   tds: z.boolean(),
+  tcs: z.boolean(),
   multiCurrency: z.boolean(),
   payroll: z.boolean(),
   preventNegativeStock: z.boolean(),

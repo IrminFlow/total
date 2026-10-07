@@ -237,7 +237,7 @@ function writeLedgerStatements(dir: string, db: DB, from: string, to: string): n
  *  tds_entries (voucher_id/section_id/party_ledger_id/pan/base_amount/tds_amount) to the section
  *  code and the voucher's date/number, filtered to [from, to] and IN_BOOKS (books figures only, matching tds.ts). Returns null (no
  *  file written) if there are no entries in the period. */
-function tdsCsv(db: DB, from: string, to: string): string | null {
+function tdsCsv(db: DB, from: string, to: string, kind: 'tds' | 'tcs' = 'tds'): string | null {
   const rows = db
     .prepare(
       `SELECT l.name AS deductee, te.pan AS pan, ts.code AS section, v.date AS date, v.number AS number,
@@ -246,13 +246,16 @@ function tdsCsv(db: DB, from: string, to: string): string | null {
        JOIN vouchers v ON v.id = te.voucher_id
        JOIN tds_sections ts ON ts.id = te.section_id
        JOIN ledgers l ON l.id = te.party_ledger_id
-       WHERE v.date BETWEEN ? AND ? AND ${IN_BOOKS}
+       WHERE v.date BETWEEN ? AND ? AND ts.kind = ? AND ${IN_BOOKS}
        ORDER BY v.date, v.id`
     )
-    .all(from, to) as { deductee: string; pan: string | null; section: string; date: string; number: string; base: number; tds: number }[]
+    .all(from, to, kind) as { deductee: string; pan: string | null; section: string; date: string; number: string; base: number; tds: number }[]
   if (rows.length === 0) return null
   const csvRows = rows.map((r) => [r.deductee, r.pan ?? '', r.section, r.date, r.number, plainRupees(r.base), plainRupees(r.tds)])
-  return rowsToCsv(['Deductee', 'PAN', 'Section', 'Voucher Date', 'Voucher No', 'Base (Rs)', 'TDS (Rs)'], csvRows)
+  const header = kind === 'tcs'
+    ? ['Collectee', 'PAN', 'Section', 'Voucher Date', 'Voucher No', 'Base (Rs)', 'TCS (Rs)']
+    : ['Deductee', 'PAN', 'Section', 'Voucher Date', 'Voucher No', 'Base (Rs)', 'TDS (Rs)']
+  return rowsToCsv(header, csvRows)
 }
 
 // ---------- entry points ----------
@@ -288,6 +291,9 @@ export function exportCaPack(db: DB, company: CompanyInfo, slug: string, from: s
 
   const tds = tdsCsv(db, from, to)
   if (tds) writeFileSync(join(dir, 'tds-26q.csv'), tds)
+  // WP 3.3: TCS collections (27EQ data) ride along when there are any.
+  const tcs = tdsCsv(db, from, to, 'tcs')
+  if (tcs) writeFileSync(join(dir, 'tcs-27eq.csv'), tcs)
 
   if (!existsSync(dir)) throw new Error('CA pack export failed')
   return { path: dir }

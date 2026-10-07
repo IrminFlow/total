@@ -1,5 +1,13 @@
 // Row shapes of the TDS screen's IPC (WP 3.2), shared by main (src/main/services/tdsWorkbench.ts)
 // and the renderer (screens/Tds.tsx). Types only.
+//
+// WP 3.3: the TCS screen (screens/Tcs.tsx, the same tab components with kind 'tcs') uses the
+// same shapes — for TCS "deductee" reads collectee (the buyer), "deducted" collected, the
+// expense ledger is the sales ledger (or the goods, see TcsEligibleRow), Form 26Q is Form 27EQ
+// and Form 16A is Form 27D.
+
+/** Which withholding a row / call is about: tax deducted (we pay) or collected (we sell). */
+export type WithholdingKind = 'tds' | 'tcs'
 import type { VoucherKind } from './domain'
 import type { DeducteeType } from './tds'
 import type { EligibleReason } from './tdsEligibility'
@@ -28,6 +36,9 @@ export interface TdsEligibleRow {
   /** Set when the row is a "Not applicable" mark (only listed with includeExempt). */
   exemptReason: string | null
   candidates: { sectionId: number; code: string }[]
+  /** TCS: the stock item whose goods category set the section, if any. */
+  stockItemId?: number | null
+  stockItemName?: string | null
 }
 
 export type ChallanStatus = 'unallocated' | 'allocated' | 'paid'
@@ -154,8 +165,10 @@ export interface Form26qChallanRow {
 export interface Form26qData {
   fyStartYear: number
   quarter: 1 | 2 | 3 | 4
-  /** 'form26q' up to FY 2025-26; 'form140' (26Q under the 2025 Act) from 1 Apr 2026. */
-  layout: 'form26q' | 'form140'
+  /** TDS: 'form26q' up to FY 2025-26; 'form140' (26Q under the 2025 Act) from 1 Apr 2026.
+   *  TCS: 'form27eq' up to FY 2025-26; 'form143' (27EQ under the 2025 Act / Income-tax Rules
+   *  2026) from 1 Apr 2026 — see migration 027. */
+  layout: 'form26q' | 'form140' | 'form27eq' | 'form143'
   deductees: Form26qDeducteeRow[]
   challans: Form26qChallanRow[]
   totals: { amountPaise: number; tdsPaise: number; depositedPaise: number }

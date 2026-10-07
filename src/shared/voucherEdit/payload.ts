@@ -95,6 +95,9 @@ export function voucherToPayload(v: Voucher): VoucherPayload {
     billRefs: v.billRefs.map((r) => ({ kind: r.kind, name: r.name, amount: r.amount, dueDate: r.dueDate })),
     tds: v.tds
       ? { sectionId: v.tds.sectionId, baseAmount: v.tds.baseAmount, tdsAmount: v.tds.tdsAmount, isManual: !!v.tds.isManual, autoPayable: false }
+      : null,
+    tcs: v.tcs
+      ? { sectionId: v.tcs.sectionId, baseAmount: v.tcs.baseAmount, tcsAmount: v.tcs.tcsAmount, isManual: !!v.tcs.isManual, autoPayable: false }
       : null
   }
 }
@@ -153,7 +156,8 @@ function canonical(p: VoucherPayload): Record<string, unknown> {
     billRefs: (p.billRefs ?? []).map((r) => ({ kind: r.kind, name: r.name.trim(), amount: r.amount, dueDate: r.dueDate ?? null })),
     // autoPayable isn't compared on its own: a payload that leaves the payable credit to the
     // server already differs from the stored voucher in its lines.
-    tds: p.tds ? { sectionId: p.tds.sectionId, baseAmount: p.tds.baseAmount, tdsAmount: p.tds.tdsAmount, isManual: !!p.tds.isManual } : null
+    tds: p.tds ? { sectionId: p.tds.sectionId, baseAmount: p.tds.baseAmount, tdsAmount: p.tds.tdsAmount, isManual: !!p.tds.isManual } : null,
+    tcs: p.tcs ? { sectionId: p.tcs.sectionId, baseAmount: p.tcs.baseAmount, tcsAmount: p.tcs.tcsAmount, isManual: !!p.tcs.isManual } : null
   }
 }
 
