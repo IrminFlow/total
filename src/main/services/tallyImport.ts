@@ -3,7 +3,7 @@ import { parseTallyExport, type TallyImport } from '@shared/tally'
 import { GST_STATES } from '@shared/gst/states'
 import { saveVoucher } from './vouchers'
 import { writeAudit } from './audit'
-import type { VoucherKind } from '@shared/domain'
+import type { TradePurpose, VoucherKind } from '@shared/domain'
 
 export interface ImportSummary {
   groups: number
@@ -15,9 +15,22 @@ export interface ImportSummary {
   warnings: string[]
 }
 
-/** Map a Tally voucher-type name to one of our kinds. */
-function kindForName(name: string): VoucherKind {
+/** Tally order voucher types (Sales Order, Purchase Order, Job Work In/Out Order): not books
+ *  documents, so not vouchers. Skipped with a warning until orders import into trade_docs
+ *  (design Q8). */
+export function isOrderTypeName(name: string): boolean {
+  return /\border\b/i.test(name)
+}
+
+/** Map a Tally voucher-type name to one of our kinds. The stock notes are matched FIRST —
+ *  "Receipt Note" used to fall into 'receipt' (a cash/bank voucher) and "Delivery Note" into
+ *  'journal'. Tally's "Rejections In" is goods back from a customer (a receipt note), "Rejections
+ *  Out" goods back to a supplier (a delivery note). Orders never get here (isOrderTypeName). */
+export function kindForName(name: string): VoucherKind {
   const n = name.toLowerCase()
+  if (n.includes('delivery note') || n.includes('delivery challan')) return 'delivery_note'
+  if (n.includes('receipt note') || n.includes('goods receipt')) return 'receipt_note'
+  if (n.includes('rejection')) return /\bout\b/.test(n) ? 'delivery_note' : 'receipt_note'
   if (n.includes('contra')) return 'contra'
   if (n.includes('payment')) return 'payment'
   if (n.includes('receipt')) return 'receipt'
@@ -27,6 +40,14 @@ function kindForName(name: string): VoucherKind {
   if (n.includes('purchase')) return 'purchase'
   if (n.includes('stock')) return 'stock_journal'
   return 'journal'
+}
+
+/** A rejection note returns goods (to the supplier / from the customer); other notes are a
+ *  supply out or a purchase in. */
+function stockNotePurpose(kind: VoucherKind, typeName: string): TradePurpose {
+  const rejection = /rejection/i.test(typeName)
+  if (kind === 'delivery_note') return rejection ? 'non_supply' : 'supply'
+  return rejection ? 'return' : 'purchase'
 }
 
 function stateCodeFromName(stateName: string | null): string | null {
@@ -172,14 +193,26 @@ function applyParsedTallyImport(db: DB, data: TallyImport): ImportSummary {
       counts.skipped++
       continue
     }
+    if (isOrderTypeName(v.vchType || '')) {
+      warnings.push(`Voucher ${v.number || v.date} skipped: ${v.vchType} is an order — orders are not imported yet`)
+      counts.skipped++
+      continue
+    }
     const vt = typeIdFor(v.vchType || 'Journal')
-    const goodsIn = vt.kind === 'purchase' || vt.kind === 'credit_note'
+    const goodsIn = vt.kind === 'purchase' || vt.kind === 'credit_note' || vt.kind === 'receipt_note'
+    // A delivery / receipt note moves goods only: Tally may still list the party's ledger entry
+    // on it, but it posts nothing — keep the goods and the party, drop the ledger lines.
+    const stockNote = vt.kind === 'delivery_note' || vt.kind === 'receipt_note'
+    if (stockNote && v.lines.length > 0) {
+      warnings.push(`Voucher ${v.number || v.date} (${v.vchType}): ledger entries on a ${vt.kind === 'delivery_note' ? 'delivery' : 'receipt'} note were not imported — it moves stock only`)
+    }
     try {
       saveVoucher(db, {
         voucherTypeId: vt.id,
         date: v.date,
         number: v.number || undefined,
         partyLedgerId: v.party ? ledgerId(v.party) : null,
+        ...(stockNote ? { trade: { purpose: stockNotePurpose(vt.kind, v.vchType || '') } } : {}),
         narration: v.narration,
         reference: null,
         instrumentNo: null,
@@ -189,7 +222,7 @@ function applyParsedTallyImport(db: DB, data: TallyImport): ImportSummary {
         transportDistanceKm: null,
         currencyCode: null,
         exchangeRate: null,
-        lines: v.lines.map((l) => ({ ledgerId: ledgerId(l.ledger)!, drCr: l.drCr, amount: l.amount, costAllocations: [] })),
+        lines: stockNote ? [] : v.lines.map((l) => ({ ledgerId: ledgerId(l.ledger)!, drCr: l.drCr, amount: l.amount, costAllocations: [] })),
         inventory: v.inventory
           .filter((inv) => itemId(inv.item))
           .map((inv) => ({
