@@ -8,6 +8,7 @@ import { useQuery } from '@tanstack/react-query'
 import type { OpenSourceLine } from '@shared/tradeCycle/types'
 import type { TradeSideKind } from '@shared/tradeCycle/rules'
 import { addFromFor, rowsFromSourcePicks, sourceLocksGoods, type SourcePick } from '@shared/voucherEdit'
+import type { LinkType } from '@shared/domain'
 import { api } from '../../lib/client'
 import { isAnyModalOpen } from '../../components/ui'
 import { DocLink } from '../../components/links'
@@ -38,11 +39,17 @@ export function useAddFrom(opts: {
   setRows: Dispatch<SetStateAction<ItemRow[]>>
   /** Draw every pending line of this order once its lines load ("Convert to …"). */
   convertFromTradeDocId?: number | null
+  /** WP 2.5d: a second picker on the same form (a stock note's rejection, `rejectionFor`) —
+   *  replaces addFromFor(kind); its rows are the ones with this link type. */
+  spec?: ReturnType<typeof addFromFor>
+  /** ⌥A opens this picker (default true; the second picker of a form passes false). */
+  hotkey?: boolean
 }): AddFromState {
   const { kind, partyId, voucherId, tradeDocId, rows, setRows } = opts
-  const addFrom = opts.enabled ? addFromFor(kind) : null
-  const sourced = rows.some((r) => r.source)
-  const linkType = addFrom?.linkType ?? rows.find((r) => r.source)?.source?.linkType ?? 'fulfil'
+  const addFrom = opts.enabled ? (opts.spec !== undefined ? opts.spec : addFromFor(kind)) : null
+  const own = (r: ItemRow): boolean => !!r.source && (opts.spec === undefined || r.source.linkType === opts.spec?.linkType)
+  const sourced = rows.some(own)
+  const linkType: LinkType = addFrom?.linkType ?? rows.find(own)?.source?.linkType ?? 'fulfil'
   const [open, setOpen] = useState(false)
   const { data: openLines, isLoading } = useQuery({
     queryKey: ['openSourceLines', partyId, kind, linkType, voucherId ?? null, tradeDocId ?? null],
@@ -119,8 +126,9 @@ export function useAddFrom(opts: {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [openLines])
 
+  const hotkey = opts.hotkey ?? true
   useEffect(() => {
-    if (!addFrom || partyId == null) return
+    if (!addFrom || partyId == null || !hotkey) return
     const onKey = (e: KeyboardEvent): void => {
       if (e.altKey && !e.metaKey && !e.ctrlKey && e.code === 'KeyA') {
         if (isAnyModalOpen()) return
@@ -130,7 +138,7 @@ export function useAddFrom(opts: {
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [addFrom, partyId])
+  }, [addFrom, partyId, hotkey])
 
   return { addFrom, open, setOpen, drawerLines, loading: isLoading, insert, lockedBySource, rowNote, removeRow }
 }

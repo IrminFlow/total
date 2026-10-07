@@ -89,6 +89,13 @@ export type Screen =
   | { name: 'pending-sales-orders' }
   | { name: 'pending-purchase-orders' }
   | { name: 'quotation-pipeline' }
+  // WP 2.5d: trade-cycle reports.
+  | { name: 'three-way-match' }
+  | { name: 'order-book'; tab?: 'party' | 'month' | 'lead-time' }
+  | { name: 'item-demand' }
+  | { name: 'trade-returns'; tab?: 'register' | 'item' | 'party' }
+  | { name: 'unbilled-goods' }
+  | { name: 'stale-documents' }
   | { name: 'consolidated' }
   | { name: 'banking' }
   | { name: 'payroll' }

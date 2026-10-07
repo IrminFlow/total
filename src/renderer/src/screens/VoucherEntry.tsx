@@ -9,6 +9,7 @@ import { Banner, DrawerSection, isAnyModalOpen, Kbd, Page, PageHeader, Panel, Sk
 import { OptionToggle, useScreenOptions } from '../components/ScreenOptions'
 import { useFeatures } from '../lib/useFeatures'
 import { isManufactureKey, kindForVoucherKey } from '../lib/voucherKeys'
+import { LINKABLE_VOUCHER_KINDS, LinkedDocsButton } from '../components/LinkedDocs'
 import { InvoiceEntry } from './voucher/InvoiceEntry'
 import { PricingOptions } from './voucher/PricingOptions'
 import { AccountingEntry } from './voucher/AccountingEntry'
@@ -179,6 +180,9 @@ export function VoucherEntry({
       <PageHeader
         title={voucherId ? `Alter voucher ${existing?.number}` : 'Voucher entry'}
         tabs={typeTabs}
+        secondary={
+          voucherId && features.orders && LINKABLE_VOUCHER_KINDS.has(currentType.kind) ? <LinkedDocsButton target={{ voucherId }} /> : undefined
+        }
         options={{
           onReset: opts.reset,
           content: (

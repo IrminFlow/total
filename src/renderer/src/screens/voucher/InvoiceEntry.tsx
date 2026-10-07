@@ -452,9 +452,11 @@ export function InvoiceEntry({
       </span>
     )
   }
-  const insertPicks = (picks: SourcePick[]): void => {
+  const insertPicks = (picks: SourcePick[], reason?: string): void => {
     const added = rowsFromSourcePicks(picks, { linkType, fxRate: computed.fxRate }).map((r) => ({ ...r, key: nextLineKey() }))
     setRows((rs) => [...rs.filter((r) => r.itemId != null || r.source), ...added, blankItemRow()])
+    // WP 2.5d: a return's reason (the "Against…" picker) becomes the narration when there is none.
+    if (reason) setNarration((n) => (n.trim() ? n : reason))
     setAddFromOpen(false)
   }
   // WP 2.5c "Convert to invoice / bill" on an order: draw all of its pending lines once loaded.
@@ -942,6 +944,7 @@ export function InvoiceEntry({
           loading={openLinesLoading}
           onClose={() => setAddFromOpen(false)}
           onInsert={insertPicks}
+          linkType={addFrom.linkType}
         />
       )}
       {showTransport && voucherId && (

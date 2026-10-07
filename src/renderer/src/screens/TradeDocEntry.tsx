@@ -22,6 +22,7 @@ import {
 } from '../components/ui'
 import { MenuButton } from '../components/kit/Menu'
 import { LedgerPicker, useLedgers, useStockItems } from '../components/pickers'
+import { LinkedDocsButton } from '../components/LinkedDocs'
 import { DocLink } from '../components/links'
 import { confirmDialog } from '../lib/dialogs'
 import { useUnsavedGuard } from '../lib/useUnsavedGuard'
@@ -228,6 +229,7 @@ function TradeDocForm({
             {doc && <TradeStatusBadge kind={doc.kind} status={doc.status} binned={doc.deletedAt != null} />}
           </span>
         }
+        secondary={doc ? <LinkedDocsButton target={{ tradeDocId: doc.id }} /> : undefined}
         actions={
           actionDoc ? (
             <MenuButton label="Document actions" testId="trade-doc-actions" items={actions.menu(actionDoc, { canWrite, open: false })}>

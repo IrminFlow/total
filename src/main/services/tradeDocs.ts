@@ -330,12 +330,14 @@ function auditShape(d: TradeDoc): unknown {
 
 // ---------- bin / cancel / close ----------
 
-function setState(db: DB, id: number, fn: (d: DocRow) => void, label: string): TradeDoc {
+function setState(db: DB, id: number, fn: (d: DocRow) => void, label: string, reason?: string | null): TradeDoc {
   const before = getTradeDoc(db, id)
   if (!before) throw new Error('Document not found')
   db.transaction(() => fn(requireDoc(db, id)))()
   const after = getTradeDoc(db, id)!
-  writeAudit(db, 'trade_doc', id, label === 'delete' ? 'delete' : 'update', auditShape(before), { ...(auditShape(after) as object), action: label })
+  writeAudit(db, 'trade_doc', id, label === 'delete' ? 'delete' : 'update', auditShape(before), {
+    ...(auditShape(after) as object), action: label, ...(reason !== undefined ? { reason } : {})
+  })
   return after
 }
 
@@ -382,14 +384,15 @@ export function closeTradeDoc(db: DB, id: number, reason: string | null): TradeD
   }, 'close')
 }
 
-/** tradeDocs:reopen — undo a close or a cancel (a cancelled order's links must fit again). */
-export function reopenTradeDoc(db: DB, id: number): TradeDoc {
+/** tradeDocs:reopen — undo a close or a cancel (a cancelled order's links must fit again). The
+ *  reason (WP 2.5d, optional) is kept on the audit trail; the close reason is cleared. */
+export function reopenTradeDoc(db: DB, id: number, reason: string | null = null): TradeDoc {
   return setState(db, id, (d) => {
     if (d.deleted_at) throw new Error(`${name(d)} is in the bin`)
     if (d.status === 'open') throw new Error(`${name(d)} is already open`)
     db.prepare("UPDATE trade_docs SET status = 'open', closed_at = NULL, close_reason = NULL, updated_at = datetime('now') WHERE id = ?").run(id)
     if (d.status === 'cancelled') assertDocRestorable(db, id)
-  }, 'reopen')
+  }, 'reopen', reason)
 }
 
 // ---------- convert / duplicate ----------

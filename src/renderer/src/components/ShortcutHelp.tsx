@@ -40,8 +40,12 @@ export const SHORTCUT_GROUPS: ShortcutGroup[] = [
       { keys: ['F7'], label: 'Journal' },
       { keys: ['F8'], label: 'Sales' },
       { keys: ['F9'], label: 'Purchase' },
-      { keys: ['Ctrl/Alt', 'F8'], label: 'Credit note' },
-      { keys: ['Ctrl/Alt', 'F9'], label: 'Debit note' },
+      { keys: ['Ctrl', 'F8'], label: 'Credit note' },
+      { keys: ['Ctrl', 'F9'], label: 'Debit note' },
+      { keys: ['Alt', 'F8'], label: 'Delivery challan (Orders & challans on)' },
+      { keys: ['Alt', 'F9'], label: 'Goods receipt note (Orders & challans on)' },
+      { keys: ['Alt', 'A'], label: 'Add from orders / challans, or Against… for a return' },
+      { keys: ['Alt', 'L'], label: 'Linked documents of the voucher or order being altered' },
       { keys: ['Alt', 'F7'], label: 'Manufacture (finished goods from raw materials)' },
       { keys: ['⌘', '↵'], label: 'Save the voucher' }
     ]

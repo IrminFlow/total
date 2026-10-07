@@ -7,7 +7,8 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import type { TradePurpose, Voucher } from '@shared/domain'
 import {
-  buildStockNotePayload, computeStockNote, documentNumberWarning, emptyStockNoteState, purposeIsTaxed, STOCK_NOTE_PURPOSES,
+  buildStockNotePayload, computeStockNote, documentNumberWarning, emptyStockNoteState, purposeIsTaxed, rejectionFor, STOCK_NOTE_PURPOSES,
+  type SourcePick,
   type StockNoteContext, type StockNoteFormState, type StockNoteKind
 } from '@shared/voucherEdit'
 import { formatPaise, amountInWords } from '@shared/money'
@@ -17,7 +18,7 @@ import { useNav, useSession, useToasts } from '../../state/stores'
 import { Banner, Button, DateInput, Field, isAnyModalOpen, Kbd, Money, Panel, Segmented, TextInput } from '../../components/ui'
 import { LedgerPicker, useLedgers, useStockItems } from '../../components/pickers'
 import { VoucherLink } from '../../components/links'
-import { confirmDialog } from '../../lib/dialogs'
+import { confirmDialog, promptDialog } from '../../lib/dialogs'
 import { useUnsavedGuard } from '../../lib/useUnsavedGuard'
 import { nextLineKey, NUMBER_LOADING, useAlterationDirty, useLeaveAfterSave, useVoucherNumberField } from './hooks'
 import { QuickItemModal, QuickLedgerModal } from './modals'
@@ -82,6 +83,46 @@ export function StockNoteEntry({
     kind, enabled: features.orders && features.inventory, partyId, voucherId, rows, setRows,
     convertFromTradeDocId: isEdit ? null : draft?.fromTradeDocId ?? null
   })
+  // WP 2.5d: rejections before invoicing — a GRN brings goods back against a challan, a challan
+  // sends goods back against a GRN (return links; the engine costs them at the source's cost).
+  const rejection = useAddFrom({
+    kind, enabled: features.orders && features.inventory, partyId, voucherId, rows, setRows, spec: rejectionFor(kind), hotkey: false
+  })
+  const insertRejection = (picks: SourcePick[], reason?: string): void => {
+    rejection.insert(picks)
+    setPurpose(outward ? 'non_supply' : 'return')
+    if (reason) setNarration((n) => (n.trim() ? n : reason))
+  }
+  const lockedBySource = (r: ItemRow) => (r.source?.linkType === 'return' ? rejection : addFrom).lockedBySource(r)
+  const rowNote = (r: ItemRow) => (r.source?.linkType === 'return' ? rejection : addFrom).rowNote(r)
+
+  // WP 2.5d: doc-level short-close of the note (trade:closeVoucher) — shown on an alteration.
+  const { data: closure } = useQuery({
+    queryKey: ['voucher', voucherId, 'closure'],
+    queryFn: () => api.trade.noteClosure(voucherId!),
+    enabled: isEdit && features.orders
+  })
+  const closeOrReopen = async (): Promise<void> => {
+    if (!voucherId) return
+    const closed = !!closure?.closedAt
+    const reason = await promptDialog({
+      title: closed ? `Reopen ${TITLE[kind].toLowerCase()} ${voucher?.number ?? ''}` : `Short-close ${TITLE[kind].toLowerCase()} ${voucher?.number ?? ''}`,
+      message: closed
+        ? `What is not yet ${outward ? 'invoiced' : 'billed'} becomes pending again and can be drawn on. The reason goes on the audit trail.`
+        : `What is not yet ${outward ? 'invoiced' : 'billed'} stops being pending (Pending ${outward ? 'challans' : 'GRNs'}, ${outward ? 'GDNI' : 'GRNI'}); lines already drawn on keep their links. Stock is not touched.`,
+      placeholder: 'Reason (optional)',
+      confirmLabel: closed ? 'Reopen' : 'Short-close'
+    })
+    if (reason === null) return
+    try {
+      if (closed) await api.trade.reopenVoucher(voucherId, reason.trim() || null)
+      else await api.trade.closeVoucher(voucherId, reason.trim() || null)
+      toast.push('success', closed ? 'Reopened' : 'Short-closed')
+      await queryClient.invalidateQueries()
+    } catch (err) {
+      toast.push('error', (err as Error).message)
+    }
+  }
 
   // Downstream documents (invoices / bills drawn from this note) — shown on an alteration.
   const { data: links } = useQuery({
@@ -206,6 +247,17 @@ export function StockNoteEntry({
 
   return (
     <Panel className="p-5" testId={`stock-note-${kind}`}>
+      {closure?.closedAt && (
+        <Banner
+          tone="warning"
+          className="mb-3"
+          testId="stock-note-closed"
+          action={<Button size="sm" data-testid="btn-stock-note-reopen" onClick={() => void closeOrReopen()}>Reopen…</Button>}
+        >
+          Short-closed on {toDisplayDate(closure.closedAt.slice(0, 10))}{closure.closeReason ? ` — ${closure.closeReason}` : ''}. Nothing more is pending on it and
+          it can&apos;t be drawn on until it is reopened.
+        </Banner>
+      )}
       {downstream.length > 0 && (
         <Banner tone="info" className="mb-3" testId="stock-note-linked">
           {outward ? 'Invoiced' : 'Billed'} on{' '}
@@ -269,6 +321,17 @@ export function StockNoteEntry({
               {!taxed && ' · value only, no tax (not a supply)'}
             </p>
           )}
+          {rejection.addFrom && partyId != null && (
+            <Button
+              variant="ghost"
+              className="px-2 py-1 text-caption"
+              data-testid="btn-add-rejection"
+              onClick={() => rejection.setOpen(true)}
+              title={rejection.addFrom.label}
+            >
+              {rejection.addFrom.label}
+            </Button>
+          )}
           {addFrom.addFrom && partyId != null && (
             <Button
               variant="ghost"
@@ -293,8 +356,8 @@ export function StockNoteEntry({
         date={date}
         voucherId={voucherId}
         onCreateItem={(name, row) => setQuickItem({ name, row })}
-        lockedBySource={addFrom.lockedBySource}
-        rowNote={addFrom.rowNote}
+        lockedBySource={lockedBySource}
+        rowNote={rowNote}
         onRemoveRow={addFrom.removeRow}
       />
       {addFrom.open && addFrom.addFrom && (
@@ -304,6 +367,16 @@ export function StockNoteEntry({
           loading={addFrom.loading}
           onClose={() => addFrom.setOpen(false)}
           onInsert={addFrom.insert}
+        />
+      )}
+      {rejection.open && rejection.addFrom && (
+        <AddFromDrawer
+          title={`${rejection.addFrom.label.replace('…', '')} — ${party?.name ?? ''}`}
+          lines={rejection.drawerLines}
+          loading={rejection.loading}
+          onClose={() => rejection.setOpen(false)}
+          onInsert={insertRejection}
+          linkType="return"
         />
       )}
 
@@ -344,6 +417,11 @@ export function StockNoteEntry({
       <div className="mt-5 flex justify-between">
         <div>{isEdit && <Button variant="danger" onClick={() => void remove()}>Delete</Button>}</div>
         <div className="flex gap-2">
+          {isEdit && features.orders && !closure?.closedAt && (
+            <Button data-testid="btn-stock-note-close" onClick={() => void closeOrReopen()} title="Doc-level short-close: the rest stops being pending">
+              Short-close…
+            </Button>
+          )}
           {isEdit && (
             <Button data-testid="btn-voucher-transport" onClick={() => setShowTransport(true)}>
               Transport / e-way details…

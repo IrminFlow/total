@@ -60,6 +60,7 @@ cd site && npm run dev / npm run build   # marketing site
 - Secrets (NIC credentials, later the AI key) live in `src/main/services/secrets.ts` (safeStorage, `<dataRoot>/secrets.json`), never in a company DB or backup.
 - Every list screen uses `DataTable`; new screens must too (sort/filter/views/keyboard/export come for free). Report rows must carry `ledgerId`/`itemId`/`voucherId` so names can be links.
 - Voucher load/save mapping per entry mode lives in `src/shared/voucherEdit/`; a voucher must round-trip unchanged through its editor (dbtest `voucherEdit.dbtest.ts` enforces it).
+- Trade cycle (WP 2.5): line links live in `line_links`, owned and rewritten by the TARGET's save (`services/tradeLinks.ts`, invariants I1–I7); allowed pairs are data in `shared/tradeCycle/rules.ts`. Returns (credit / debit notes, rejection GRNs / challans) are `return` links and never re-open an order. Closure is manual and doc-level only (`trade_docs.status`, `trade_voucher_details.closed_at`). Every trade report (`tradeReports.ts`, `tradeAnalysis.ts`, `tradeChain.ts`) is computed from documents + live links at query time; GRNI / GDNI must equal the pending-challan / pending-GRN values (supply / approval / purchase purposes) — the year-end close only warns with them.
 
 ## Gotchas
 

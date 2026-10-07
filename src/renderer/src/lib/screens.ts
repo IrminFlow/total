@@ -190,6 +190,64 @@ export const SCREENS: ScreenDef[] = [
     invalidates: ['tradePending']
   },
 
+  // WP 2.5d: trade-cycle reports — match, demand, order book / lead time, returns, GRNI / GDNI, stale.
+  {
+    name: 'three-way-match',
+    title: 'Three-way match',
+    keywords: ['po grn bill', 'rate variance', 'purchase match', 'bill mismatch', '3-way'],
+    screen: { name: 'three-way-match' },
+    navSection: 'trade',
+    feature: 'orders',
+    invalidates: ['tradeMatch']
+  },
+  {
+    name: 'item-demand',
+    title: 'Demand vs stock',
+    navLabel: 'Demand vs stock',
+    keywords: ['pending orders by item', 'shortage', 'on order', 'to order', 'open so', 'open po'],
+    screen: { name: 'item-demand' },
+    navSection: 'trade',
+    feature: 'orders',
+    invalidates: ['tradeItemDemand']
+  },
+  {
+    name: 'order-book',
+    title: 'Order book',
+    keywords: ['orders by party', 'orders by month', 'lead time', 'fulfilment', 'delivery days'],
+    screen: { name: 'order-book' },
+    navSection: 'trade',
+    feature: 'orders',
+    invalidates: ['tradeOrderBook', 'tradeLeadTime']
+  },
+  {
+    name: 'trade-returns',
+    title: 'Returns',
+    keywords: ['returns register', 'sales returns', 'purchase returns', 'credit notes', 'debit notes', 'rejections', 'return rate'],
+    screen: { name: 'trade-returns' },
+    navSection: 'trade',
+    feature: 'orders',
+    invalidates: ['tradeReturns', 'tradeReturnsRate']
+  },
+  {
+    name: 'unbilled-goods',
+    title: 'Goods not invoiced',
+    navLabel: 'GRNI / GDNI',
+    keywords: ['grni', 'gdni', 'received not invoiced', 'delivered not invoiced', 'unbilled', 'provision'],
+    screen: { name: 'unbilled-goods' },
+    navSection: 'trade',
+    feature: 'orders',
+    invalidates: ['tradeUnbilled']
+  },
+  {
+    name: 'stale-documents',
+    title: 'Stale documents',
+    keywords: ['expired quotations', 'overdue orders', 'old challans', 'close quotations', 'short-close'],
+    screen: { name: 'stale-documents' },
+    navSection: 'trade',
+    feature: 'orders',
+    invalidates: ['tradeStale']
+  },
+
   {
     name: 'trial-balance',
     title: 'Trial balance',

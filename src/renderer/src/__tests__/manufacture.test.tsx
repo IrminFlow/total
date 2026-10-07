@@ -252,3 +252,23 @@ describe('Alt+F7 — the Manufacture key', () => {
     expect(isManufactureKey({ key: 'F8', altKey: true, ctrlKey: false })).toBe(false)
   })
 })
+
+describe('Ctrl / Alt + F8 / F9 — split (WP 2.5d, design §9 Q10)', () => {
+  it('Ctrl is the credit / debit note; Alt the delivery / receipt note, only with stock notes on', async () => {
+    const { kindForVoucherKey } = await import('../lib/voucherKeys')
+    const k = (key: string, mods: { ctrlKey?: boolean; altKey?: boolean }, stockNotes: boolean) =>
+      kindForVoucherKey({ key, ctrlKey: !!mods.ctrlKey, altKey: !!mods.altKey }, { stockNotes })
+    for (const on of [true, false]) {
+      expect(k('F8', { ctrlKey: true }, on)).toBe('credit_note')
+      expect(k('F9', { ctrlKey: true }, on)).toBe('debit_note')
+      expect(k('F8', { ctrlKey: true, altKey: true }, on)).toBe('credit_note')
+      expect(k('F8', {}, on)).toBe('sales')
+      expect(k('F9', {}, on)).toBe('purchase')
+      expect(k('F5', { altKey: true }, on)).toBe('payment')
+    }
+    expect(k('F8', { altKey: true }, true)).toBe('delivery_note')
+    expect(k('F9', { altKey: true }, true)).toBe('receipt_note')
+    expect(k('F8', { altKey: true }, false)).toBeNull()
+    expect(k('F9', { altKey: true }, false)).toBeNull()
+  })
+})
