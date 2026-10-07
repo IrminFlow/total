@@ -1,195 +1,182 @@
-// Manufacture mode (stock journal built from a bill of materials): "produce item X qty N,
-// consuming BOM components at cost, plus an overhead %". Form state ⇄ save payload.
+// Manufacture mode (WP 2.2): the Manufacture screen's form state ⇄ the manufacture:save input,
+// and reconstruction of that form from a saved stock journal + its manufacture_details row.
+// A stock journal WITHOUT a details row is a legacy (pre-0.6.0) journal: it is never
+// representable here and opens in the generic stock-lines editor (route.ts).
 
 import type { Voucher } from '../domain'
 import {
-  confirmRoundTrip, EMPTY_PASSTHROUGH, passthroughOf, qtyText,
-  type BuildResult, type HeaderPassthrough, type Representation
-} from './payload'
+  autoManufactureNarration, buildManufactureVoucher, manufactureTotals, validateManufacture, RAW_ROWS_VISIBLE,
+  type ManufactureDetails, type ManufactureInput, type ManufactureIssue
+} from '../manufacture'
+import { confirmRoundTrip, qtyText, type Representation, type VoucherPayload } from './payload'
 
-export interface BomComponent {
-  componentId: number
-  qtyMilliPerUnit: number
-}
-
-export interface LineMeta {
+export interface ManufactureRowState {
+  itemId: number | null
+  qtyText: string
+  /** The saved line's own godown when it differs from the header godown; null = header. */
   godownId: number | null
-  batchId: number | null
 }
 
 export interface ManufactureFormState {
   date: string
   /** '' = auto-assign. */
   number: string
-  producedId: number | null
+  /** Header godown (finished item + default for raw rows). */
+  godownId: number | null
+  /** '' = the automatic "Manufactured N × Item". */
+  narration: string
+  finishedItemId: number | null
   qtyText: string
-  extraPctText: string
-  /** true = the automatic "Manufactured N × Item" narration (tracks item/qty edits). */
-  autoNarration: boolean
-  /** Used when autoNarration is false (an alteration of a voucher with its own narration). */
-  narration: string | null
-  /** Alteration only: the saved component rates (paise per unit), so re-saving doesn't revalue
-   *  consumption at today's average cost. Components without one use the live average. */
-  frozenRates: Record<number, number>
-  /** Alteration only: godown/batch of saved component lines (by component id) and of the
-   *  produced line (applied only while the produced item is unchanged). */
-  componentMeta: Record<number, LineMeta>
-  producedMeta: LineMeta & { itemId: number | null }
-  passthrough: HeaderPassthrough
-  isOptional: boolean | undefined
+  /** Average (sale) price per unit, paise. */
+  saleRatePaise: number | null
+  labourPaise: number | null
+  /** false = "Labour already booked" — capitalised without ledger lines. */
+  labourPosted: boolean
+  /** null = Wages Payable. */
+  labourCreditLedgerId: number | null
+  rows: ManufactureRowState[]
+}
+
+export const blankManufactureRow = (): ManufactureRowState => ({ itemId: null, qtyText: '', godownId: null })
+
+/** Pad to the ten rows the screen always shows. */
+export function padManufactureRows(rows: ManufactureRowState[]): ManufactureRowState[] {
+  const out = [...rows]
+  while (out.length < RAW_ROWS_VISIBLE) out.push(blankManufactureRow())
+  return out
 }
 
 export function emptyManufactureState(date: string): ManufactureFormState {
   return {
-    date, number: '', producedId: null, qtyText: '1', extraPctText: '0', autoNarration: true, narration: null,
-    frozenRates: {}, componentMeta: {}, producedMeta: { itemId: null, godownId: null, batchId: null },
-    passthrough: EMPTY_PASSTHROUGH, isOptional: undefined
+    date, number: '', godownId: null, narration: '', finishedItemId: null, qtyText: '', saleRatePaise: null,
+    labourPaise: null, labourPosted: true, labourCreditLedgerId: null, rows: padManufactureRows([])
   }
 }
 
-export const autoManufactureNarration = (qty: number, itemName: string): string => `Manufactured ${qty} × ${itemName}`.trim()
-
-export interface ConsumptionLine {
-  componentId: number
-  useMilli: number
-  rate: number
-  amount: number
+/** "2.5" → 2500 thousandths; null for blank or unparseable text. */
+export function parseQtyMilli(text: string): number | null {
+  const t = text.trim()
+  if (t === '') return null
+  if (!/^\d*\.?\d*$/.test(t) || t === '.') return null
+  const n = Math.round(parseFloat(t) * 1000)
+  return Number.isFinite(n) ? n : null
 }
 
-export function computeManufacture(
+const rowIsBlank = (r: ManufactureRowState): boolean => r.itemId == null && r.qtyText.trim() === ''
+
+export interface ManufactureFormEval {
+  /** What manufacture:save would receive (profit from `materialPaise`). */
+  input: ManufactureInput
+  /** input.raw[i] came from form row rowIndex[i]. */
+  rowIndex: number[]
+  totals: ReturnType<typeof manufactureTotals>
+  /** Rule violations, row indices in FORM rows. Empty = savable. */
+  issues: ManufactureIssue[]
+}
+
+/**
+ * Evaluate the form: build the save input and run the shared rules. `materialPaise` is the
+ * engine cost of the raw rows from manufacture:costPreview (undefined while it loads — the
+ * profit check is then skipped and `pending` should keep Save disabled).
+ */
+export function evaluateManufactureForm(
   state: ManufactureFormState,
-  bom: readonly BomComponent[],
-  avgCost: (itemId: number) => number
-): { qty: number; extraPct: number; consumption: ConsumptionLine[]; consumedTotal: number; producedValue: number } {
-  const qty = Number(state.qtyText) || 0
-  const extraPct = Number(state.extraPctText) || 0
-  const consumption = bom.map((line) => {
-    const useMilli = Math.round(line.qtyMilliPerUnit * qty)
-    const rate = state.frozenRates[line.componentId] ?? avgCost(line.componentId)
-    return { componentId: line.componentId, useMilli, rate, amount: Math.round((useMilli * rate) / 1000) }
+  opts: { voucherTypeId?: number; materialPaise: number | undefined; itemName?: (id: number) => string; confirmLoss?: boolean }
+): ManufactureFormEval {
+  const rowIndex: number[] = []
+  const raw: ManufactureInput['raw'] = []
+  state.rows.forEach((r, i) => {
+    if (rowIsBlank(r)) return
+    rowIndex.push(i)
+    raw.push({ stockItemId: r.itemId ?? 0, qtyMilli: parseQtyMilli(r.qtyText) ?? 0, ...(r.godownId != null ? { godownId: r.godownId } : {}) })
   })
-  const consumedTotal = consumption.reduce((s, c) => s + c.amount, 0)
-  return { qty, extraPct, consumption, consumedTotal, producedValue: Math.round(consumedTotal * (1 + extraPct / 100)) }
+  const qtyMilli = parseQtyMilli(state.qtyText) ?? 0
+  const labourPaise = state.labourPaise ?? 0
+  const saleRatePaise = state.saleRatePaise ?? 0
+  const totals = manufactureTotals({ qtyMilli, saleRatePaise, materialPaise: opts.materialPaise ?? 0, labourPaise })
+  const input: ManufactureInput = {
+    ...(opts.voucherTypeId ? { voucherTypeId: opts.voucherTypeId } : {}),
+    date: state.date,
+    ...(state.number.trim() ? { number: state.number.trim() } : {}),
+    narration: state.narration.trim() || null,
+    godownId: state.godownId,
+    finishedItemId: state.finishedItemId ?? 0,
+    qtyMilli,
+    saleRatePaise,
+    raw,
+    labourPaise,
+    labourPosted: state.labourPosted,
+    labourCreditLedgerId: state.labourPosted ? state.labourCreditLedgerId : null,
+    profitPaise: totals.profit,
+    ...(opts.confirmLoss ? { confirmLoss: true } : {})
+  }
+  const issues = validateManufacture(input, opts.materialPaise, opts.itemName, (i) => rowIndex[i]! + 1).map((x) =>
+    x.row !== undefined ? { ...x, row: rowIndex[x.row]! } : x
+  )
+  return { input, rowIndex, totals, issues }
 }
 
-export function buildManufacturePayload(
-  state: ManufactureFormState,
-  opts: {
-    voucherTypeId: number
-    bom: readonly BomComponent[]
-    avgCost: (itemId: number) => number
-    itemName: (itemId: number) => string
-  }
-): BuildResult {
-  if (state.producedId == null) return { ok: false, error: 'Pick the item to produce' }
-  if (opts.bom.length === 0) return { ok: false, error: 'This item has no bill of materials — set it in Masters → Stock items' }
-  const c = computeManufacture(state, opts.bom, opts.avgCost)
-  if (c.qty <= 0) return { ok: false, error: 'Quantity must be positive' }
-  const qtyMilli = Math.round(c.qty * 1000)
-  const produced = state.producedMeta.itemId === state.producedId ? state.producedMeta : { godownId: null, batchId: null }
-  const p = state.passthrough
-  return {
-    ok: true,
-    payload: {
-      voucherTypeId: opts.voucherTypeId,
-      date: state.date,
-      number: state.number.trim() || undefined,
-      ...p,
-      partyLedgerId: null,
-      narration: state.autoNarration ? autoManufactureNarration(c.qty, opts.itemName(state.producedId)) : state.narration,
-      ...(state.isOptional !== undefined ? { isOptional: state.isOptional } : {}),
-      lines: [],
-      inventory: [
-        ...c.consumption.map((x) => ({
-          stockItemId: x.componentId,
-          godownId: state.componentMeta[x.componentId]?.godownId ?? null,
-          batchId: state.componentMeta[x.componentId]?.batchId ?? null,
-          qtyMilli: x.useMilli,
-          ratePaise: x.rate,
-          amount: x.amount,
-          direction: 'out' as const
-        })),
-        {
-          stockItemId: state.producedId,
-          godownId: produced.godownId,
-          batchId: produced.batchId,
-          qtyMilli,
-          ratePaise: Math.round((c.producedValue * 1000) / qtyMilli),
-          amount: c.producedValue,
-          direction: 'in' as const
-        }
-      ],
-      billRefs: [],
-      tds: null
-    }
-  }
+/** Canonical text of what the form would save (profit aside — it follows the live costs). Two
+ *  states with the same key save identically; used for the unsaved-changes guard. */
+export function manufactureFormKey(state: ManufactureFormState): string {
+  const { input } = evaluateManufactureForm(state, { materialPaise: undefined })
+  const { profitPaise: _p, ...rest } = input
+  return JSON.stringify(rest)
 }
 
-/** Shortest overhead-% text that reproduces `producedValue` from `consumedTotal`. */
-function overheadText(consumedTotal: number, producedValue: number): string | null {
-  if (consumedTotal === 0) return producedValue === 0 ? '0' : null
-  const pct = (producedValue / consumedTotal - 1) * 100
-  for (let d = 0; d <= 8; d++) {
-    const text = String(Number(pct.toFixed(d)))
-    if (Math.round(consumedTotal * (1 + Number(text) / 100)) === producedValue) return text
-  }
-  return null
-}
-
-/** Reconstruct the manufacture form from a saved stock journal — needs the produced item's
- *  current BOM (`bomFor`) — then rebuild and compare. Anything else (transfers, imported or
- *  hand-made journals, a since-changed BOM) is not representable and falls back to the
- *  generic stock-lines editor. */
+/**
+ * Reconstruct the form from a saved manufacture (voucher + details row), then rebuild its
+ * stock journal from that form (at the saved line costs) and compare with the voucher — only a
+ * faithful reconstruction opens in the Manufacture screen.
+ */
 export function manufactureRepresentation(
   v: Voucher,
-  opts: {
-    bomFor: (itemId: number) => readonly BomComponent[] | undefined
-    itemName: (itemId: number) => string
-  }
+  details: ManufactureDetails | null | undefined,
+  opts: { itemName: (itemId: number) => string }
 ): Representation<ManufactureFormState> {
-  if (v.lines.length > 0 || v.billRefs.length > 0 || v.tds || v.partyLedgerId != null) {
-    return { ok: false, reason: 'it carries ledger lines' }
-  }
+  if (!details) return { ok: false, reason: 'it has no manufacture details' }
   const inv = v.inventory
-  const produced = inv[inv.length - 1]
-  if (!produced || produced.direction !== 'in' || inv.length < 2) return { ok: false, reason: 'it is not a single produced item' }
+  const finished = inv[inv.length - 1]
+  if (!finished || finished.direction !== 'in' || finished.stockItemId !== details.finishedItemId || inv.length < 2) {
+    return { ok: false, reason: 'its last line is not the manufactured item' }
+  }
   const outs = inv.slice(0, -1)
-  if (outs.some((l) => l.direction !== 'out') || inv.some((l) => l.isAbsolute || l.discountPaise !== 0)) {
-    return { ok: false, reason: 'its lines are not consumption + one produced item' }
+  if (outs.some((l) => l.direction !== 'out' || l.isAbsolute || l.batchId != null || l.discountPaise !== 0)) {
+    return { ok: false, reason: 'its lines are not raw materials + one finished item' }
   }
-  const bom = opts.bomFor(produced.stockItemId)
-  if (!bom || bom.length === 0) return { ok: false, reason: 'the produced item has no bill of materials' }
-
-  const frozenRates: Record<number, number> = {}
-  const componentMeta: Record<number, LineMeta> = {}
-  for (const l of outs) {
-    if (l.stockItemId in frozenRates) return { ok: false, reason: 'a component appears twice' }
-    frozenRates[l.stockItemId] = l.ratePaise
-    componentMeta[l.stockItemId] = { godownId: l.godownId, batchId: l.batchId }
-  }
-  const consumedTotal = outs.reduce((s, l) => s + l.amount, 0)
-  const extraPctText = overheadText(consumedTotal, produced.amount)
-  if (extraPctText == null) return { ok: false, reason: 'its produced value is not consumption plus an overhead %' }
-
-  const qty = Number(qtyText(produced.qtyMilli))
-  const auto = autoManufactureNarration(qty, opts.itemName(produced.stockItemId))
+  const header = finished.godownId
+  const auto = autoManufactureNarration(finished.qtyMilli, opts.itemName(finished.stockItemId))
   const state: ManufactureFormState = {
     date: v.date,
     number: v.number,
-    producedId: produced.stockItemId,
-    qtyText: qtyText(produced.qtyMilli),
-    extraPctText,
-    autoNarration: v.narration === auto,
-    narration: v.narration,
-    frozenRates,
-    componentMeta,
-    producedMeta: { itemId: produced.stockItemId, godownId: produced.godownId, batchId: produced.batchId },
-    passthrough: passthroughOf(v),
-    isOptional: v.isOptional
+    godownId: header,
+    narration: v.narration === auto ? '' : (v.narration ?? ''),
+    finishedItemId: details.finishedItemId,
+    qtyText: qtyText(finished.qtyMilli),
+    saleRatePaise: details.saleRatePaise,
+    labourPaise: details.labourPaise,
+    labourPosted: details.labourPosted,
+    labourCreditLedgerId: details.labourCreditLedgerId,
+    rows: padManufactureRows(
+      outs.map((l) => ({ itemId: l.stockItemId, qtyText: qtyText(l.qtyMilli), godownId: l.godownId === header ? null : l.godownId }))
+    )
   }
-  return confirmRoundTrip(
-    v,
-    state,
-    buildManufacturePayload(state, { voucherTypeId: v.voucherTypeId, bom, avgCost: () => 0, itemName: opts.itemName })
-  )
+  const { input, issues } = evaluateManufactureForm(state, { voucherTypeId: v.voucherTypeId, materialPaise: undefined, itemName: opts.itemName })
+  if (issues.length > 0) return { ok: false, reason: issues[0]!.message }
+  let rebuilt: { ok: true; payload: VoucherPayload } | { ok: false; error: string }
+  try {
+    rebuilt = {
+      ok: true,
+      payload: buildManufactureVoucher(input, {
+        voucherTypeId: v.voucherTypeId,
+        rawCosts: outs.map((l) => l.amount),
+        finishedName: opts.itemName(details.finishedItemId),
+        labourExpenseLedgerId: details.labourExpenseLedgerId,
+        labourCreditLedgerId: details.labourCreditLedgerId
+      }) as unknown as VoucherPayload
+    }
+  } catch (err) {
+    rebuilt = { ok: false, error: (err as Error).message }
+  }
+  return confirmRoundTrip(v, state, rebuilt)
 }
