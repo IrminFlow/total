@@ -945,5 +945,204 @@ export const MIGRATIONS: string[] = [
     UNIQUE (stock_item_id, serial)
   );
   CREATE INDEX idx_serial_numbers_status ON serial_numbers(stock_item_id, status);
+  `,
+
+  // 024 (WP 2.5a) — trade cycle, part 1: voucher kinds, stable line ids, the non-moving flag.
+  // Appended after 022 (WP 3.2) and 023 (WP 2.4); self-contained. Design:
+  // docs/superpowers/specs/2026-10-07-wp2.5-trade-cycle-design.md §2.2–2.3, §9 Q7.
+  // - voucher_kinds replaces the CHECK list on voucher_types.kind (SQLite can't alter a CHECK):
+  //   the table is rebuilt with ids, column order and the AUTOINCREMENT high-water mark preserved,
+  //   so every later kind is one INSERT. Runs with foreign keys OFF (the marker on the first
+  //   line; see migrate.ts) — DROP TABLE would otherwise trip vouchers/recurring_templates FKs.
+  // - System types for the new stock-only kinds: the first free name wins (a Tally import may
+  //   already have created a "Delivery Note" type — as a journal — which is left untouched).
+  //   Not in DEFAULT_VOUCHER_TYPES: a fresh company gets them here, before seedCompany runs.
+  // - inventory_lines.line_uid: a stable line identity (saveVoucher re-inserts lines on every
+  //   edit, so ids change); trade links key on it. Backfilled for every existing line.
+  // - inventory_lines.moves_stock: 0 = an invoice/bill line whose goods moved on a challan/GRN
+  //   (server-derived from its link; every stock reader filters MOVES_STOCK). Legacy lines = 1.
+  // - serial_numbers.status gains 'delivered' (out on a delivery challan, not yet invoiced) —
+  //   another CHECK rebuild of the small WP 2.3 projection table.
+  `-- @foreign-keys-off
+  CREATE TABLE voucher_kinds (
+    kind TEXT PRIMARY KEY,
+    stock_only INTEGER NOT NULL CHECK (stock_only IN (0, 1))
+  ) WITHOUT ROWID;
+  INSERT INTO voucher_kinds (kind, stock_only) VALUES
+    ('contra', 0), ('payment', 0), ('receipt', 0), ('journal', 0), ('sales', 0), ('purchase', 0),
+    ('credit_note', 0), ('debit_note', 0), ('stock_journal', 1), ('physical_stock', 1),
+    ('delivery_note', 1), ('receipt_note', 1);
+
+  CREATE TEMP TABLE m024_seq AS SELECT seq FROM sqlite_sequence WHERE name = 'voucher_types';
+
+  CREATE TABLE voucher_types_new (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL UNIQUE COLLATE NOCASE,
+    kind TEXT NOT NULL REFERENCES voucher_kinds(kind),
+    numbering TEXT NOT NULL DEFAULT 'auto' CHECK (numbering IN ('auto','manual')),
+    prefix TEXT NOT NULL DEFAULT '',
+    is_system INTEGER NOT NULL DEFAULT 0,
+    suffix TEXT NOT NULL DEFAULT '',
+    pad_width INTEGER NOT NULL DEFAULT 0,
+    restart_fy INTEGER NOT NULL DEFAULT 1
+  );
+  INSERT INTO voucher_types_new (id, name, kind, numbering, prefix, is_system, suffix, pad_width, restart_fy)
+    SELECT id, name, kind, numbering, prefix, is_system, suffix, pad_width, restart_fy FROM voucher_types ORDER BY id;
+  DROP TABLE voucher_types;
+  ALTER TABLE voucher_types_new RENAME TO voucher_types;
+  -- Keep the AUTOINCREMENT high-water mark: a deleted type's id is never reissued (audit rows name it).
+  INSERT INTO sqlite_sequence (name, seq)
+    SELECT 'voucher_types', 0 WHERE NOT EXISTS (SELECT 1 FROM sqlite_sequence WHERE name = 'voucher_types');
+  UPDATE sqlite_sequence SET seq = MAX(seq, COALESCE((SELECT seq FROM m024_seq), 0)) WHERE name = 'voucher_types';
+  DROP TABLE m024_seq;
+
+  WITH c(o, n) AS (VALUES (1, 'Delivery Note'), (2, 'Delivery Challan'), (3, 'Outward Delivery Note'))
+  INSERT INTO voucher_types (name, kind, numbering, prefix, is_system)
+    SELECT n, 'delivery_note', 'auto', '', 1 FROM c
+     WHERE NOT EXISTS (SELECT 1 FROM voucher_types WHERE name = c.n COLLATE NOCASE) ORDER BY o LIMIT 1;
+  WITH c(o, n) AS (VALUES (1, 'Receipt Note'), (2, 'Goods Receipt Note'), (3, 'Inward Receipt Note'))
+  INSERT INTO voucher_types (name, kind, numbering, prefix, is_system)
+    SELECT n, 'receipt_note', 'auto', '', 1 FROM c
+     WHERE NOT EXISTS (SELECT 1 FROM voucher_types WHERE name = c.n COLLATE NOCASE) ORDER BY o LIMIT 1;
+
+  ALTER TABLE inventory_lines ADD COLUMN line_uid TEXT;
+  UPDATE inventory_lines SET line_uid = lower(hex(randomblob(16)));
+  CREATE UNIQUE INDEX idx_inv_line_uid ON inventory_lines(line_uid);
+  ALTER TABLE inventory_lines ADD COLUMN moves_stock INTEGER NOT NULL DEFAULT 1 CHECK (moves_stock IN (0, 1));
+  CREATE INDEX idx_inv_nonmoving ON inventory_lines(voucher_id) WHERE moves_stock = 0;
+
+  CREATE TABLE serial_numbers_new (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    stock_item_id INTEGER NOT NULL REFERENCES stock_items(id) ON DELETE CASCADE,
+    serial TEXT NOT NULL,
+    batch_id INTEGER REFERENCES batches(id) ON DELETE SET NULL,
+    godown_id INTEGER REFERENCES godowns(id) ON DELETE SET NULL,
+    status TEXT NOT NULL CHECK (status IN ('in_stock', 'sold', 'consumed', 'returned', 'delivered')),
+    inward_line_id INTEGER NOT NULL REFERENCES inventory_lines(id) ON DELETE CASCADE,
+    outward_line_id INTEGER REFERENCES inventory_lines(id) ON DELETE SET NULL,
+    UNIQUE (stock_item_id, serial)
+  );
+  INSERT INTO serial_numbers_new (id, stock_item_id, serial, batch_id, godown_id, status, inward_line_id, outward_line_id)
+    SELECT id, stock_item_id, serial, batch_id, godown_id, status, inward_line_id, outward_line_id FROM serial_numbers ORDER BY id;
+  DROP TABLE serial_numbers;
+  ALTER TABLE serial_numbers_new RENAME TO serial_numbers;
+  CREATE INDEX idx_serial_numbers_status ON serial_numbers(stock_item_id, status);
+
+  INSERT INTO audit_log (entity, entity_id, action, before_json, after_json, user_name, app_version)
+  VALUES ('migration', 24, 'update', NULL, json_object(
+    'migration', 24,
+    'voucherKinds', (SELECT COUNT(*) FROM voucher_kinds),
+    'voucherTypesCreated', json((SELECT json_group_array(json_object('id', id, 'name', name, 'kind', kind))
+                                  FROM (SELECT * FROM voucher_types WHERE kind IN ('delivery_note', 'receipt_note') ORDER BY id))),
+    'lineUidsBackfilled', (SELECT COUNT(*) FROM inventory_lines),
+    'serialsCarried', (SELECT COUNT(*) FROM serial_numbers)
+  ), NULL, NULL);
+  `,
+
+  // 025 (WP 2.5a) — trade cycle, part 2: orders/quotations (tables only; screens in WP 2.5c),
+  // challan/GRN facts, and line links. Design §2.4 and §2.7. line_links lives here (not in 024)
+  // because it references trade_docs: SQLite refuses DML and foreign_key_check against a child
+  // table whose parent table doesn't exist yet.
+  // - trade_doc_types: own numbering series per order/quotation kind (same knobs as voucher types).
+  // - trade_docs / trade_doc_lines: non-posting documents; trade_doc_lines.line_uid is the link key.
+  //   The stored status is only the MANUAL state (closed / cancelled); the shown status is derived.
+  // - trade_voucher_details: facts about a challan / GRN that aren't voucher columns (purpose,
+  //   short-close) — like manufacture_details.
+  // - line_links: one row per target line (to_line_uid UNIQUE → one source each), written by the
+  //   TARGET's save (services/tradeLinks.ts). Purging a target cascades its links away; purging a
+  //   source is blocked (NO ACTION) while any link — live or binned — still points at it.
+  `
+  CREATE TABLE trade_doc_types (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL UNIQUE COLLATE NOCASE,
+    kind TEXT NOT NULL CHECK (kind IN ('quotation', 'sales_order', 'purchase_order')),
+    numbering TEXT NOT NULL DEFAULT 'auto' CHECK (numbering IN ('auto','manual')),
+    prefix TEXT NOT NULL DEFAULT '',
+    suffix TEXT NOT NULL DEFAULT '',
+    pad_width INTEGER NOT NULL DEFAULT 0,
+    restart_fy INTEGER NOT NULL DEFAULT 1,
+    is_system INTEGER NOT NULL DEFAULT 0
+  );
+  INSERT INTO trade_doc_types (name, kind, prefix, is_system) VALUES
+    ('Quotation', 'quotation', 'QT-', 1), ('Sales Order', 'sales_order', 'SO-', 1),
+    ('Purchase Order', 'purchase_order', 'PO-', 1);
+
+  CREATE TABLE trade_docs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    doc_type_id INTEGER NOT NULL REFERENCES trade_doc_types(id),
+    number TEXT NOT NULL,
+    date TEXT NOT NULL,
+    party_ledger_id INTEGER NOT NULL REFERENCES ledgers(id),
+    valid_until TEXT,
+    due_date TEXT,
+    reference TEXT,
+    terms TEXT,
+    narration TEXT,
+    pos_override TEXT,
+    currency_code TEXT,
+    exchange_rate REAL,
+    status TEXT NOT NULL DEFAULT 'open' CHECK (status IN ('open', 'closed', 'cancelled')),
+    closed_at TEXT,
+    close_reason TEXT,
+    deleted_at TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+  CREATE INDEX idx_trade_docs_type_date ON trade_docs(doc_type_id, date);
+  CREATE INDEX idx_trade_docs_party ON trade_docs(party_ledger_id);
+
+  CREATE TABLE trade_doc_lines (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    doc_id INTEGER NOT NULL REFERENCES trade_docs(id) ON DELETE CASCADE,
+    line_uid TEXT NOT NULL UNIQUE,
+    line_order INTEGER NOT NULL DEFAULT 0,
+    stock_item_id INTEGER NOT NULL REFERENCES stock_items(id),
+    description TEXT,
+    godown_id INTEGER REFERENCES godowns(id),
+    qty_milli INTEGER NOT NULL CHECK (qty_milli > 0),
+    rate_paise INTEGER NOT NULL CHECK (rate_paise >= 0),
+    discount_paise INTEGER NOT NULL DEFAULT 0 CHECK (discount_paise >= 0),
+    amount INTEGER NOT NULL CHECK (amount >= 0),
+    gst_rate REAL,
+    cess_rate REAL,
+    due_date TEXT
+  );
+  CREATE INDEX idx_trade_doc_lines_doc ON trade_doc_lines(doc_id);
+  CREATE INDEX idx_trade_doc_lines_item ON trade_doc_lines(stock_item_id);
+
+  CREATE TABLE trade_voucher_details (
+    voucher_id INTEGER PRIMARY KEY REFERENCES vouchers(id) ON DELETE CASCADE,
+    purpose TEXT NOT NULL DEFAULT 'supply'
+      CHECK (purpose IN ('supply', 'job_work', 'approval', 'liquid_gas', 'non_supply', 'purchase', 'return')),
+    closed_at TEXT,
+    close_reason TEXT
+  );
+
+  CREATE TABLE line_links (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    link_type TEXT NOT NULL CHECK (link_type IN ('fulfil', 'return')),
+    from_trade_doc_id INTEGER REFERENCES trade_docs(id),
+    from_voucher_id INTEGER REFERENCES vouchers(id),
+    from_line_uid TEXT NOT NULL,
+    to_trade_doc_id INTEGER REFERENCES trade_docs(id) ON DELETE CASCADE,
+    to_voucher_id INTEGER REFERENCES vouchers(id) ON DELETE CASCADE,
+    to_line_uid TEXT NOT NULL UNIQUE,
+    qty_milli INTEGER NOT NULL CHECK (qty_milli > 0),
+    reprices INTEGER NOT NULL DEFAULT 0 CHECK (reprices IN (0, 1)),
+    CHECK ((from_trade_doc_id IS NULL) <> (from_voucher_id IS NULL)),
+    CHECK ((to_trade_doc_id IS NULL) <> (to_voucher_id IS NULL)),
+    CHECK (from_line_uid <> to_line_uid)
+  );
+  CREATE INDEX idx_line_links_from_uid ON line_links(from_line_uid);
+  CREATE INDEX idx_line_links_from_voucher ON line_links(from_voucher_id) WHERE from_voucher_id IS NOT NULL;
+  CREATE INDEX idx_line_links_from_doc ON line_links(from_trade_doc_id) WHERE from_trade_doc_id IS NOT NULL;
+  CREATE INDEX idx_line_links_to_voucher ON line_links(to_voucher_id) WHERE to_voucher_id IS NOT NULL;
+  CREATE INDEX idx_line_links_to_doc ON line_links(to_trade_doc_id) WHERE to_trade_doc_id IS NOT NULL;
+
+  INSERT INTO audit_log (entity, entity_id, action, before_json, after_json, user_name, app_version)
+  VALUES ('migration', 25, 'update', NULL, json_object(
+    'migration', 25,
+    'tradeDocTypesSeeded', (SELECT COUNT(*) FROM trade_doc_types)
+  ), NULL, NULL);
   `
 ]

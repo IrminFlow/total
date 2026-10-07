@@ -3,7 +3,7 @@
 // through save / edit / bin / restore, per-item valuation method switches, reorder planning,
 // expiry report, barcode labels, and migration 021 on a populated fixture.
 import { describe, it, expect } from 'vitest'
-import { freshPartialDb, seededDb, TEST_INFO } from '../db/testdb'
+import { freshDb, freshPartialDb, seededDb, TEST_INFO } from '../db/testdb'
 import { migrate } from '../db/migrate'
 import { MIGRATIONS } from '../db/migrations'
 import { seedCompany } from '../db/seed'
@@ -395,9 +395,9 @@ describe('reorder planning, expiry report, labels', () => {
 describe('migration 021 (serial numbers)', () => {
   const at = MIGRATIONS.findIndex((sql) => sql.includes('CREATE TABLE serial_numbers'))
 
-  it('is migration 021 and the last one', () => {
+  it('is migration 021', () => {
     expect(at + 1).toBe(21)
-    expect(MIGRATIONS.length).toBe(21)
+    expect(MIGRATIONS.length).toBeGreaterThanOrEqual(21)
   })
 
   it('applies on a populated pre-021 fixture: columns added, data and stock figures unchanged', () => {
@@ -405,7 +405,12 @@ describe('migration 021 (serial numbers)', () => {
     const db = freshPartialDb(at)
     seedCompany(db, { ...TEST_INFO, booksFrom: 2025 })
     const fx = seedStockFixture(db, { vouchers: 300, items: 8, seed: 21 })
-    const before = stock.stockSummary(db, '2026-03-31')
+    // Today's stock readers need the latest schema (WP 2.5 moves_stock), so "before" is the same
+    // fixture seeded on a fully migrated twin.
+    const twin = freshDb()
+    seedCompany(twin, { ...TEST_INFO, booksFrom: 2025 })
+    seedStockFixture(twin, { vouchers: 300, items: 8, seed: 21 })
+    const before = stock.stockSummary(twin, '2026-03-31')
     const lines = (db.prepare('SELECT COUNT(*) AS n FROM inventory_lines').get() as { n: number }).n
     migrate(db)
     expect(lines).toBe(fx.inventoryLines)
