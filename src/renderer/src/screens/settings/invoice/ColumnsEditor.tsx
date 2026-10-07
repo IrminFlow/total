@@ -52,12 +52,12 @@ export function ColumnsEditor({
       <table className="w-full border-collapse text-body-sm">
         <thead>
           <tr className="text-left text-caption tracking-[0.06em] text-muted uppercase">
-            <th className="w-6 py-1" aria-label="Reorder" />
-            <th className="w-8 py-1">Show</th>
-            <th className="py-1">Column</th>
-            <th className="py-1">Header text</th>
-            <th className="w-20 py-1">Width px</th>
-            <th className="w-14 py-1" aria-label="Move" />
+            <th className="w-5 py-1" aria-label="Reorder" />
+            <th className="w-11 py-1 pr-1">Show</th>
+            <th className="py-1 pr-2">Column</th>
+            <th className="w-[34%] py-1 pr-2">Header</th>
+            <th className="w-[4.5rem] py-1 pr-2">Width</th>
+            <th className="w-11 py-1" aria-label="Move" />
           </tr>
         </thead>
         <tbody ref={rowsRef} data-testid="rows-settings-tpl-columns">
@@ -115,7 +115,7 @@ export function ColumnsEditor({
                     onChange={(e) => patch(i, { visible: e.target.checked })}
                   />
                 </td>
-                <td className="py-1 pr-2 whitespace-nowrap">{def.name}</td>
+                <td className="py-1 pr-2 leading-tight">{def.name}</td>
                 <td className="py-1 pr-2">
                   <input
                     aria-label={`${def.name} header text`}

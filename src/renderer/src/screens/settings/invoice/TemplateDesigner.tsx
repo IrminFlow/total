@@ -1,6 +1,7 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { keepPreviousData, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
+  PAGE_MM,
   PHASE2_KINDS,
   PRINT_DOC_KIND_LABELS,
   printTemplateSchema,
@@ -27,7 +28,8 @@ import {
 } from './sections'
 
 const PREVIEW_DEBOUNCE_MS = 250
-const ZOOMS = [0.4, 0.5, 0.6, 0.75, 1, 1.25] as const
+const ZOOMS = [0.35, 0.5, 0.6, 0.75, 1, 1.25] as const
+const PX_PER_MM = 96 / 25.4
 
 const SECTIONS = [
   { id: 'page', label: 'Page' },
@@ -67,12 +69,35 @@ export function TemplateDesigner(): React.JSX.Element {
   const { data: saved } = useQuery({ queryKey: ['printTemplate', selectedId], queryFn: () => api.templates.get(selectedId) })
   const [draft, setDraft] = useState<PrintTemplate | null>(null)
   const [section, setSection] = useState<SectionId>('page')
-  const [zoom, setZoom] = useState<number>(0.6)
+  // 'fit' = scale the paper to the preview column's width (default); otherwise a fixed step.
+  const [zoomPick, setZoomPick] = useState<number | 'fit'>('fit')
+  const previewBox = useRef<HTMLDivElement>(null)
+  // The preview box mounts once the template has loaded — (re)attach the observer then.
+  const hasValue = !!(draft ?? saved)
+  const [boxW, setBoxW] = useState(0)
+  useEffect(() => {
+    const el = previewBox.current
+    if (!el) return
+    const read = (): void => setBoxW(el.clientWidth)
+    read()
+    if (typeof ResizeObserver === 'undefined') return
+    const ro = new ResizeObserver(read)
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [hasValue])
   const [busy, setBusy] = useState(false)
   const value = draft ?? saved ?? null
   const issue = value ? firstIssue(value) : null
   const [previewKind, setPreviewKind] = useState<PrintDocKind>('sales')
   const kind: PrintDocKind = value && !value.kinds.includes(previewKind) ? (value.kinds[0] ?? 'sales') : previewKind
+  const pageMm = value ? PAGE_MM[value.page.size] : PAGE_MM.A4
+  const pageWpx = (value?.page.orientation === 'landscape' ? pageMm.h : pageMm.w) * PX_PER_MM
+  const fitZoom = boxW > 0 ? Math.min(1.25, Math.max(0.3, (boxW - 34) / pageWpx)) : 0.5
+  const zoom = zoomPick === 'fit' ? fitZoom : zoomPick
+  const stepZoom = (dir: 1 | -1): void => {
+    const next = dir > 0 ? ZOOMS.find((z) => z > zoom + 0.001) : [...ZOOMS].reverse().find((z) => z < zoom - 0.001)
+    if (next !== undefined) setZoomPick(next)
+  }
 
   // Debounce only VALID drafts into the preview; an invalid edit keeps the last good render.
   const [debounced, setDebounced] = useState<PrintTemplate | null>(null)
@@ -213,7 +238,7 @@ export function TemplateDesigner(): React.JSX.Element {
       {!value || !props ? (
         <p className="mt-4 text-body text-muted">Loading template…</p>
       ) : (
-        <div className="mt-4 grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)] items-start gap-4">
+        <div className="mt-4 grid grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)] items-start gap-4">
           <Panel className="p-4">
             <div className="mb-3 flex flex-wrap items-center gap-2">
               <h3 className="mr-auto text-lead font-semibold" data-testid="settings-tpl-editing">
@@ -263,9 +288,11 @@ export function TemplateDesigner(): React.JSX.Element {
                         variant={isDefault ? 'primary' : 'default'}
                         aria-pressed={isDefault}
                         data-testid={`btn-settings-tpl-default-${k}`}
-                        disabled={!canEdit || busy || isDefault || !savedKinds.includes(k)}
+                        disabled={!canEdit || busy || !savedKinds.includes(k)}
                         disabledTitle={!savedKinds.includes(k) ? 'Save the template first' : undefined}
-                        onClick={() => void setDefault(k)}
+                        onClick={() => {
+                          if (!isDefault) void setDefault(k)
+                        }}
                         className="py-1 text-caption"
                       >
                         {isDefault ? '✓ ' : ''}
@@ -301,19 +328,20 @@ export function TemplateDesigner(): React.JSX.Element {
           <div className="sticky top-0 flex max-h-[calc(100vh-7rem)] flex-col">
             <div className="mb-2 flex flex-wrap items-center gap-2">
               <span className="mr-auto text-caption font-semibold tracking-[0.08em] text-muted uppercase">Live preview</span>
-              <Select aria-label="Sample document" className="w-auto py-1 text-detail" value={kind} onChange={(e) => setPreviewKind(e.target.value as PrintDocKind)}>
+              <Select aria-label="Sample document" className="max-w-40 py-1 text-detail" value={kind} onChange={(e) => setPreviewKind(e.target.value as PrintDocKind)}>
                 {value.kinds.map((k) => <option key={k} value={k}>{PRINT_DOC_KIND_LABELS[k]}</option>)}
               </Select>
               <div className="flex items-center rounded-md border border-line" role="group" aria-label="Zoom">
-                <button type="button" aria-label="Zoom out" className="px-2 py-1 text-detail disabled:opacity-30" disabled={zoom <= ZOOMS[0]} onClick={() => setZoom(ZOOMS[Math.max(0, ZOOMS.indexOf(zoom as (typeof ZOOMS)[number]) - 1)]!)}>−</button>
+                <button type="button" aria-label="Zoom out" className="px-2 py-1 text-detail disabled:opacity-30" disabled={zoom <= ZOOMS[0] + 0.001} onClick={() => stepZoom(-1)}>−</button>
                 <span className="num w-11 text-center text-detail" data-testid="settings-tpl-zoom">{Math.round(zoom * 100)}%</span>
-                <button type="button" aria-label="Zoom in" className="px-2 py-1 text-detail disabled:opacity-30" disabled={zoom >= ZOOMS[ZOOMS.length - 1]!} onClick={() => setZoom(ZOOMS[Math.min(ZOOMS.length - 1, ZOOMS.indexOf(zoom as (typeof ZOOMS)[number]) + 1)]!)}>+</button>
+                <button type="button" aria-label="Zoom in" className="px-2 py-1 text-detail disabled:opacity-30" disabled={zoom >= ZOOMS[ZOOMS.length - 1]! - 0.001} onClick={() => stepZoom(1)}>+</button>
+                <button type="button" aria-pressed={zoomPick === 'fit'} className={`border-l border-line px-2 py-1 text-detail ${zoomPick === 'fit' ? 'text-ink' : 'text-muted'}`} onClick={() => setZoomPick('fit')}>Fit</button>
               </div>
               <Button data-testid="btn-settings-tpl-test-page" disabled={busy || !!issue} onClick={() => void testPage()}>
                 Print test page
               </Button>
             </div>
-            <div className="min-h-0 flex-1 overflow-auto rounded-lg border border-line bg-panel2 p-4" data-testid="settings-tpl-preview">
+            <div ref={previewBox} className="min-h-0 flex-1 overflow-auto rounded-lg border border-line bg-panel2 p-4" data-testid="settings-tpl-preview">
               {preview ? (
                 <PaperPreview html={preview.html} page={(debounced ?? value).page} zoom={zoom} title={`Preview of ${value.name}`} />
               ) : (

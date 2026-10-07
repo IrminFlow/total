@@ -308,7 +308,7 @@ function extraCss(c: Ctx): string {
   const acc = c.t.typography.accent
   const rules: Record<string, string> = {
     'logo-c': '.logo-c { text-align: center; padding-top: 10px; }',
-    einv: `.einv { padding: 5px 16px; border-bottom: 1px solid ${c.t.style === 'modern' ? '#e3e6ea' : acc}; font-size: ${c.px(10)}; word-break: break-all; }`,
+    einv: `.einv { padding: 5px 16px; border-bottom: 1px solid ${c.t.style === 'modern' ? '#e3e6ea' : acc}; font-size: ${c.px(10)}; overflow-wrap: anywhere; }`,
     due: `table.tot tr.due td { font-size: ${c.px(11)}; color: #444; }`,
     'qr-foot': '.qr-foot { text-align: center; }',
     'cg-note': `.cg-note { padding: 4px 16px 0; text-align: center; font-size: ${c.px(9)}; color: #666; }`,

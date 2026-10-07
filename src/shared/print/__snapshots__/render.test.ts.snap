@@ -37,7 +37,7 @@ exports[`built-in templates on the sample invoice (snapshots) > Classic renders 
     table.tot tr.grand td { border-top: 1px solid #16181f; border-bottom: 3px double #16181f; font-weight: 700; font-size: 13px; }
     .sig { display: flex; justify-content: space-between; padding: 26px 16px 12px; border-top: 1.5px solid #16181f; font-size: 11px; }
     .sig .for { text-align: right; }
-    .einv { padding: 5px 16px; border-bottom: 1px solid #16181f; font-size: 10px; word-break: break-all; }
+    .einv { padding: 5px 16px; border-bottom: 1px solid #16181f; font-size: 10px; overflow-wrap: anywhere; }
   </style></head><body>
       <div class="copy">
         <div class="copy-label">Original for Recipient</div>
@@ -229,7 +229,7 @@ exports[`built-in templates on the sample invoice (snapshots) > Compact renders 
     table.tot tr.grand td { border-top: 1px solid #222222; font-weight: 700; font-size: 10.83px; }
     .sig { display: flex; justify-content: space-between; align-items: flex-end; padding: 16px 10px 8px; border-top: 1px solid #222222; font-size: 9.17px; page-break-inside: avoid; }
     .sig .for { text-align: right; }
-    .einv { padding: 5px 16px; border-bottom: 1px solid #222222; font-size: 8.33px; word-break: break-all; }
+    .einv { padding: 5px 16px; border-bottom: 1px solid #222222; font-size: 8.33px; overflow-wrap: anywhere; }
     .cg-note { padding: 4px 16px 0; text-align: center; font-size: 7.5px; color: #666; }
   </style></head><body>
       <div class="copy">
@@ -273,16 +273,16 @@ exports[`built-in templates on the sample invoice (snapshots) > Compact renders 
       
       <table class="items">
         <thead><tr>
-          <th class="c" style="width:26px">#</th>
+          <th class="c" style="width:24px">#</th>
           <th>Description</th>
-          <th class="c" style="width:64px">HSN</th>
-          <th class="r" style="width:56px">Qty</th>
-          <th class="c" style="width:40px">Unit</th>
-          <th class="r" style="width:76px">Rate</th>
-          <th class="r" style="width:64px">Discount</th>
-          <th class="r" style="width:84px">Taxable</th>
-          <th class="c" style="width:44px">GST</th>
-          <th class="r" style="width:88px">Total</th>
+          <th class="c" style="width:56px">HSN</th>
+          <th class="r" style="width:50px">Qty</th>
+          <th class="c" style="width:38px">Unit</th>
+          <th class="r" style="width:80px">Rate</th>
+          <th class="r" style="width:72px">Discount</th>
+          <th class="r" style="width:86px">Taxable</th>
+          <th class="c" style="width:40px">GST</th>
+          <th class="r" style="width:90px">Total</th>
         </tr></thead>
         <tbody>
       <tr>
@@ -432,7 +432,7 @@ exports[`built-in templates on the sample invoice (snapshots) > Modern renders s
     .sig { display: flex; justify-content: space-between; align-items: flex-end; margin-top: 30px; padding-top: 10px; border-top: 1px solid #e3e6ea; font-size: 10.08px; page-break-inside: avoid; }
     .sig .for { text-align: right; }
     .qr-foot { text-align: center; }
-    .einv { padding: 5px 16px; border-bottom: 1px solid #e3e6ea; font-size: 9.17px; word-break: break-all; }
+    .einv { padding: 5px 16px; border-bottom: 1px solid #e3e6ea; font-size: 9.17px; overflow-wrap: anywhere; }
     .cg-note { padding: 4px 16px 0; text-align: center; font-size: 8.25px; color: #666; }
   </style></head><body>
       <div class="copy">

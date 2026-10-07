@@ -436,9 +436,9 @@ export const COMPACT_DEFAULT: PrintTemplate = printTemplateSchema.parse({
   header: { logoMaxHeightPx: 40, logoMaxWidthPx: 160, showPhone: true, showEmail: true },
   party: { showState: true },
   columns: cols([
-    ['sl', { width: 26 }], ['item'], ['hsn', { width: 64 }], ['qty', { width: 56 }], ['unit', { width: 40 }],
-    ['rate', { width: 76 }], ['discount', { width: 64 }], ['taxable', { label: 'Taxable', width: 84 }],
-    ['gstRate', { width: 44 }], ['amount', { width: 88 }]
+    ['sl', { width: 24 }], ['item'], ['hsn', { width: 56 }], ['qty', { width: 50 }], ['unit', { width: 38 }],
+    ['rate', { width: 80 }], ['discount', { width: 72 }], ['taxable', { label: 'Taxable', width: 86 }],
+    ['gstRate', { width: 40 }], ['amount', { width: 90 }]
   ]),
   table: { carryForwardEvery: 0 },
   totals: { taxSummary: 'rate' },
