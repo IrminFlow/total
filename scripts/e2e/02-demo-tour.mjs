@@ -10,7 +10,7 @@ import { scenario, assert } from '../lib/harness.mjs'
 const TOUR = [
   ['voucher-entry'], ['daybook'], ['masters'],
   ['trial-balance'], ['profit-loss'], ['balance-sheet'], ['cash-flow'],
-  ['stock-summary', 'inventory'], ['year-end'],
+  ['stock-summary', 'inventory'], ['stock-movements', 'inventory'], ['stock-journal', 'inventory'], ['year-end'],
   ['registers'], ['outstandings'], ['consolidated'], ['cost-centres', 'costCentres'],
   ['budgets'], ['exceptions'], ['banking'], ['payroll', 'payroll'],
   ['gstr1'], ['gstr3b'], ['gstr2b'], ['edocs'], ['tds', 'tds'],

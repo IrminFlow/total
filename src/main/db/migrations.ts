@@ -917,5 +917,33 @@ export const MIGRATIONS: string[] = [
 
   DROP TABLE m020_by_name;
   DROP TABLE m020_by_entry;
+  `,
+
+  // 021 (WP 2.3) — serial numbers. Appended after 019 (WP 2.2) and 020 (WP 3.1); self-contained.
+  // - stock_items.track_serials: 1 = every non-count inventory line of the item names one serial
+  //   per whole unit (src/shared/serials.ts has the rules).
+  // - inventory_lines.serials: the line's serials as a JSON array (NULL = none) — the source of
+  //   truth, carried through the bin with its voucher.
+  // - serial_numbers: a projection of the live line serials (one row per item + serial, its
+  //   current status, the line that brought it in and the one that took it out), rebuilt per item
+  //   by services/serials.ts whenever a voucher touching the item is saved, binned or restored.
+  //   Line ids are re-issued when a voucher is altered, so both line FKs let go on delete
+  //   (CASCADE / SET NULL) and the rebuild in the same transaction re-points them.
+  `
+  ALTER TABLE stock_items ADD COLUMN track_serials INTEGER NOT NULL DEFAULT 0;
+  ALTER TABLE inventory_lines ADD COLUMN serials TEXT;
+
+  CREATE TABLE serial_numbers (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    stock_item_id INTEGER NOT NULL REFERENCES stock_items(id) ON DELETE CASCADE,
+    serial TEXT NOT NULL,
+    batch_id INTEGER REFERENCES batches(id) ON DELETE SET NULL,
+    godown_id INTEGER REFERENCES godowns(id) ON DELETE SET NULL,
+    status TEXT NOT NULL CHECK (status IN ('in_stock', 'sold', 'consumed', 'returned')),
+    inward_line_id INTEGER NOT NULL REFERENCES inventory_lines(id) ON DELETE CASCADE,
+    outward_line_id INTEGER REFERENCES inventory_lines(id) ON DELETE SET NULL,
+    UNIQUE (stock_item_id, serial)
+  );
+  CREATE INDEX idx_serial_numbers_status ON serial_numbers(stock_item_id, status);
   `
 ]

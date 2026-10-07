@@ -18,7 +18,8 @@ import {
   backupFileSchema, bankRuleInputSchema, batchInputSchema, billsOpenSchema, budgetInputSchema, budgetVarianceSchema, ccStatementSchema,
   chequeConfigSchema, companyCreateSchema, consolidatedRunSchema, costCentreInputSchema, exportCsvSchema, godownInputSchema, groupInputSchema, gst3bManualSchema, gstr2bSchema,
   isoDate, ledgerInputSchema, notifyDeadlinesSchema, passphraseSchema, periodSchema, priceLevelInputSchema, priceRateInputSchema, rendererLogSchema, reportPdfSchema,
-  searchGlobalSchema, searchQuerySchema, stockGroupInputSchema, stockItemInputSchema, stockQuerySchema, stockCostAsOfSchema, tallyImportSchema, tdsExport26qSchema, tdsEnsurePayableSchema, tdsSectionInputSchema, tdsSuggestSchema,
+  searchGlobalSchema, searchQuerySchema, stockGroupInputSchema, stockItemInputSchema, stockQuerySchema, stockCostAsOfSchema,
+  stockRegisterSchema, stockReorderSchema, stockExpiryReportSchema, stockLabelsSchema, serialsListSchema, serialsAvailableSchema, tallyImportSchema, tdsExport26qSchema, tdsEnsurePayableSchema, tdsSectionInputSchema, tdsSuggestSchema,
   tdsSummarySchema, unitInputSchema, voucherInputSchema, voucherTransportSchema, voucherTypeInputSchema,
   tdsRateInputSchema, tdsRatesQuerySchema, tdsCertificateInputSchema, tdsCertificatesQuerySchema, tdsChallanInputSchema,
   tdsChallansQuerySchema, tdsAllocateSchema, tdsUnallocateSchema, tdsUnallocatedSchema
@@ -45,6 +46,7 @@ import * as tds from './services/tds'
 import * as costCentres from './services/costCentres'
 import * as stockAnalysis from './services/stockAnalysis'
 import * as manufacture from './services/manufacture'
+import * as serials from './services/serials'
 import * as priceLevels from './services/priceLevels'
 import * as budgets from './services/budgets'
 import * as yearEnd from './services/yearEnd'
@@ -566,6 +568,37 @@ export function registerIpc(): void {
     return stockAnalysis.negativeStock(requireCompany().db, asOn)
   }, 'viewer')
   handle('stock:costAsOf', (p) => stockAnalysis.costAsOf(requireCompany().db, stockCostAsOfSchema.parse(p)), 'viewer')
+  // ---------- stock visibility (WP 2.3) ----------
+  handle('stock:register', (p) => {
+    const q = stockRegisterSchema.parse(p)
+    return stockAnalysis.stockMovements(requireCompany().db, q.itemId, q.from, q.to, q.godownId)
+  }, 'viewer')
+  handle('stock:reorder', (p) => {
+    const q = stockReorderSchema.parse(p)
+    return stockAnalysis.reorderPlan(requireCompany().db, q.from, q.to, { onlyBelow: q.onlyBelow })
+  }, 'viewer')
+  handle('stock:expiryReport', (p) => {
+    const q = stockExpiryReportSchema.parse(p)
+    return stockAnalysis.expiryReport(requireCompany().db, q.asOn, q.withinDays)
+  }, 'viewer')
+  handle('stock:labelsHtml', (p) => {
+    const c = requireCompany()
+    return { html: stockAnalysis.labelsHtml(c.db, { ...stockLabelsSchema.parse(p), caption: c.info.name }) }
+  }, 'viewer')
+  handle('stock:labelsPdf', async (p) => {
+    const q = stockLabelsSchema.parse(p)
+    const c = requireCompany()
+    const html = stockAnalysis.labelsHtml(c.db, { ...q, caption: c.info.name })
+    const path = await writeExportPdf(c.slug, `barcode-labels-${q.date}.pdf`, html, { pageSize: 'A4', margins: 'none' })
+    auditExport(c.db, 'barcode_labels', { items: q.items.length, path })
+    shell.openPath(path)
+    return { path }
+  }, 'viewer')
+  handle('serials:list', (p) => serials.listSerials(requireCompany().db, serialsListSchema.parse(p ?? {})), 'viewer')
+  handle('serials:available', (p) => {
+    const q = serialsAvailableSchema.parse(p)
+    return serials.availableSerials(requireCompany().db, q.stockItemId, q.voucherId)
+  }, 'viewer')
   handle('stock:movements', (p) => {
     const { stockItemId, from, to } = stockMovementsSchema.parse(p)
     return stockAnalysis.itemMovements(requireCompany().db, stockItemId, from, to)

@@ -5,6 +5,8 @@ import {
   buildStockLinesPayload, computeInvoice, diffPayloads, emptyInvoiceState, emptyManufactureState, emptyPhysicalState,
   evaluateManufactureForm, invoiceRepresentation, manufactureFormKey, manufactureRepresentation, modeForKind,
   parseQtyMilli, physicalRepresentation, planVoucherEdit, stockLinesStateFromVoucher, voucherToPayload, applyTdsToAccountingRows, appliedTdsAmount, tdsStateFromSaved,
+  accountingStateFromVoucher as acctState, buildTransferPayload, emptyTransferState, transferRepresentation, transferCostQuery,
+  invoiceRepresentation as invoiceRep, type TransferRowState,
   LEGACY_STOCK_JOURNAL_BANNER, type EditPlanContext, type ManufactureFormState, type InvoiceContext, type InvoiceFormState, type TaxLedgerIds, type VoucherPayload
 } from './index'
 import { buildManufactureVoucher, type ManufactureDetails } from '../manufacture'
@@ -72,7 +74,7 @@ function stored(p: VoucherPayload, over: Partial<Voucher> = {}): Voucher {
     inventory: p.inventory.map((l) => ({
       id: nextId++, stockItemId: l.stockItemId, godownId: l.godownId ?? null, batchId: l.batchId ?? null,
       qtyMilli: l.qtyMilli, ratePaise: l.ratePaise, discountPaise: l.discountPaise ?? 0, amount: l.amount,
-      direction: l.direction, isAbsolute: l.isAbsolute ?? false
+      direction: l.direction, isAbsolute: l.isAbsolute ?? false, serials: l.serials ? [...l.serials] : []
     })),
     billRefs: p.billRefs.map((r) => ({ kind: r.kind, name: r.name, amount: r.amount, dueDate: r.dueDate ?? null })),
     tds: p.tds,
@@ -485,6 +487,104 @@ describe('generic stock-lines editor', () => {
     const r = buildStockLinesPayload(stockLinesStateFromVoucher(v), { voucherTypeId: 9 })
     if (!r.ok) throw new Error(r.error)
     expect(diffPayloads(r.payload, voucherToPayload(v))).toEqual([])
+  })
+})
+
+// ---------- serial numbers round-trip (WP 2.3) ----------
+
+describe('serial numbers ride every mode losslessly', () => {
+  it('invoice: row serials post on the line and a saved invoice reloads them, order kept', () => {
+    const state = invoiceState()
+    state.rows[0] = { ...state.rows[0]!, qtyText: '2', serials: ['SN-B', 'SN-A'] }
+    const p = built(buildInvoicePayload(state, ctxFor('sales'), 1, TAX))
+    expect(p.inventory[0]!.serials).toEqual(['SN-B', 'SN-A'])
+    expect(p.inventory[1]!.serials).toBeUndefined()
+    const v = stored(p)
+    const r = invoiceRep(v, ctxFor('sales'), TAX)
+    expect(r.ok && r.state.rows[0]!.serials).toEqual(['SN-B', 'SN-A'])
+    // A changed serial order is a change (stored as given).
+    const other = stored({ ...p, inventory: p.inventory.map((l, i) => (i === 0 ? { ...l, serials: ['SN-A', 'SN-B'] } : l)) })
+    expect(diffPayloads(voucherToPayload(other), p)).toEqual(['inventory[0].serials[0]', 'inventory[0].serials[1]'])
+  })
+
+  it('absent and empty serials store the same', () => {
+    const p = built(buildInvoicePayload(invoiceState(), ctxFor('sales'), 1, TAX))
+    expect(diffPayloads({ ...p, inventory: p.inventory.map((l) => ({ ...l, serials: [] })) }, p)).toEqual([])
+  })
+
+  it('stock lines and accounting carry serials verbatim', () => {
+    const v = stored({
+      voucherTypeId: 9, date: '2025-05-05', number: 'SJ-S', partyLedgerId: null, narration: null, reference: null, instrumentNo: null,
+      instrumentDate: null, transporterId: null, vehicleNo: null, transportDistanceKm: null, posOverride: null, currencyCode: null,
+      exchangeRate: null, lines: [],
+      inventory: [{ stockItemId: STEEL, godownId: 1, batchId: null, qtyMilli: 2000, ratePaise: 100, discountPaise: 0, amount: 200, direction: 'out', isAbsolute: false, serials: ['X1', 'X2'] }],
+      billRefs: [], tds: null
+    })
+    const s = buildStockLinesPayload(stockLinesStateFromVoucher(v), { voucherTypeId: 9 })
+    if (!s.ok) throw new Error(s.error)
+    expect(diffPayloads(s.payload, voucherToPayload(v))).toEqual([])
+    expect(acctState(v).original!.inventory[0]!.serials).toEqual(['X1', 'X2'])
+  })
+})
+
+// ---------- stock journal transfer mode (WP 2.3) ----------
+
+describe('transfer mode state ⇄ payload', () => {
+  const rows: TransferRowState[] = [
+    { itemId: STEEL, fromGodownId: 1, toGodownId: 2, qtyText: '2.5', batchId: 3 },
+    { itemId: PAINT, fromGodownId: 1, toGodownId: 2, qtyText: '1', batchId: null, serials: ['P-1'] },
+    { itemId: null, fromGodownId: 1, toGodownId: 2, qtyText: '', batchId: null }
+  ]
+  const state = { ...emptyTransferState('2025-05-06'), narration: 'Main → Annex', rows }
+
+  it('prices only posting rows and posts out/in pairs at the engine cost (value conserved, rate derived)', () => {
+    expect(transferCostQuery(state)).toEqual([{ itemId: STEEL, qtyMilli: 2500 }, { itemId: PAINT, qtyMilli: 1000 }])
+    const p = built(buildTransferPayload(state, { voucherTypeId: 9, costs: [37_501, 999] }))
+    expect(p.lines).toEqual([])
+    expect(p.inventory).toEqual([
+      { stockItemId: STEEL, godownId: 1, batchId: 3, qtyMilli: 2500, ratePaise: 15_000, discountPaise: 0, amount: 37_501, direction: 'out', isAbsolute: false },
+      { stockItemId: STEEL, godownId: 2, batchId: 3, qtyMilli: 2500, ratePaise: 15_000, discountPaise: 0, amount: 37_501, direction: 'in', isAbsolute: false },
+      { stockItemId: PAINT, godownId: 1, batchId: null, qtyMilli: 1000, ratePaise: 999, discountPaise: 0, amount: 999, direction: 'out', isAbsolute: false, serials: ['P-1'] },
+      { stockItemId: PAINT, godownId: 2, batchId: null, qtyMilli: 1000, ratePaise: 999, discountPaise: 0, amount: 999, direction: 'in', isAbsolute: false, serials: ['P-1'] }
+    ])
+  })
+
+  it('a saved transfer reloads with its value frozen (re-saving never revalues), a qty change reprices', () => {
+    const v = stored(built(buildTransferPayload(state, { voucherTypeId: 9, costs: [37_501, 999] })))
+    const r = transferRepresentation(v)
+    if (!r.ok) throw new Error(r.reason)
+    expect(r.state.rows.map((x) => [x.itemId, x.fromGodownId, x.toGodownId, x.qtyText])).toEqual([[STEEL, 1, 2, '2.5'], [PAINT, 1, 2, '1']])
+    const again = built(buildTransferPayload(r.state, { voucherTypeId: 9, costs: [1, 1] }))
+    expect(diffPayloads(again, voucherToPayload(v))).toEqual([])
+    const changed = { ...r.state, rows: r.state.rows.map((x, i) => (i === 0 ? { ...x, qtyText: '3' } : x)) }
+    expect(built(buildTransferPayload(changed, { voucherTypeId: 9, costs: [45_000, 1] })).inventory[0]!.amount).toBe(45_000)
+  })
+
+  it('anything that is not same-item godown pairs is not a transfer', () => {
+    const v = stored(built(buildTransferPayload(state, { voucherTypeId: 9, costs: [37_501, 999] })))
+    const variants: ((x: Voucher) => void)[] = [
+      (x) => (x.inventory[1]!.amount += 1),
+      (x) => (x.inventory[1]!.stockItemId = PAINT),
+      (x) => (x.inventory[1]!.godownId = 1),
+      (x) => (x.inventory[0]!.direction = 'in'),
+      (x) => x.inventory.pop(),
+      (x) => (x.inventory[3]!.serials = ['P-2']),
+      (x) => (x.lines = [{ id: 1, ledgerId: EXPENSE, drCr: 'dr', amount: 1, bankDate: null, costAllocations: [] }])
+    ]
+    for (const mutate of variants) {
+      const copy: Voucher = JSON.parse(JSON.stringify(v))
+      mutate(copy)
+      expect(transferRepresentation(copy).ok).toBe(false)
+    }
+    expect(planVoucherEdit(v, 'stock_journal', { invoice: baseCtx, taxLedgers: TAX, manufacture: null, itemName: names }).mode).toBe('transfer')
+  })
+
+  it('refuses rows without godowns, with the same godown twice, or without a quantity', () => {
+    const one = (row: Partial<TransferRowState>) =>
+      buildTransferPayload({ ...state, rows: [{ ...rows[0]!, ...row }] }, { voucherTypeId: 9, costs: [1] })
+    expect(one({ toGodownId: null }).ok).toBe(false)
+    expect(one({ toGodownId: 1 }).ok).toBe(false)
+    expect(one({ qtyText: '' }).ok).toBe(false)
   })
 })
 

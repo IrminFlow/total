@@ -17,6 +17,9 @@ import { ExceptionsScreen } from './screens/Exceptions'
 import { StockSummaryScreen } from './screens/StockSummary'
 import { ManufactureScreen } from './screens/Manufacture'
 import { ManufactureRegisterScreen } from './screens/ManufactureRegister'
+import { StockMovementsScreen } from './screens/StockMovements'
+import { StockJournalScreen } from './screens/StockJournal'
+import { StockReportsScreen } from './screens/StockReports'
 import { LedgerStatementScreen } from './screens/LedgerStatement'
 import { Gstr1Screen, Gstr3bScreen } from './screens/GstReturns'
 import { Gstr2bScreen } from './screens/Gstr2b'
@@ -148,6 +151,11 @@ export default function App(): React.JSX.Element {
           {screen.name === 'stock-summary' && <StockSummaryScreen />}
           {screen.name === 'manufacture' && <ManufactureScreen />}
           {screen.name === 'manufacture-register' && <ManufactureRegisterScreen />}
+          {screen.name === 'stock-movements' && (
+            <StockMovementsScreen key={`${screen.itemId ?? ''}-${screen.godownId ?? ''}`} itemId={screen.itemId} godownId={screen.godownId} />
+          )}
+          {screen.name === 'stock-journal' && <StockJournalScreen />}
+          {screen.name === 'stock-reports' && <StockReportsScreen key={screen.tab ?? 'reorder'} tab={screen.tab} />}
           {screen.name === 'ledger-statement' && <LedgerStatementScreen ledgerId={screen.ledgerId} />}
           {screen.name === 'gstr1' && <Gstr1Screen />}
           {screen.name === 'gstr3b' && <Gstr3bScreen />}

@@ -416,3 +416,40 @@ describe('allocateExact', () => {
     expect(allocateExact([0, 0], 3)).toEqual([2, 1])
   })
 })
+
+// ---------- per-line observer (WP 2.3 movement register) ----------
+
+describe('runInventoryPass — observer', () => {
+  it("one item's line effects chain from its opening to its closing (200 random books, mixed costing rules)", () => {
+    for (let seed = 1; seed <= 200; seed++) {
+      const { input, journals } = randomBook(seed)
+      const costing = new Map<number, VoucherCosting>()
+      journals.forEach((v, i) => costing.set(v, i % 2 === 0 ? derived(i * 37) : { rule: 'stored', additionalCostPaise: i * 11 }))
+      const full = { ...input, costing }
+      const watched = 1 + (seed % input.items.length)
+      const effects: { qtyDelta: number; valueDelta: number; qtyAfter: number; valueAfter: number }[] = []
+      const { closing } = runInventoryPass(full, [], { itemId: watched, onLine: (e) => effects.push(e) })
+      const it = input.items.find((i) => i.itemId === watched)!
+      let q = it.openingQtyMilli
+      let v = it.openingValue
+      for (const e of effects) {
+        q += e.qtyDelta
+        v += e.valueDelta
+        expect(e.qtyAfter).toBe(q)
+        expect(e.valueAfter).toBe(v)
+      }
+      const c = closing.get(watched)!
+      expect(q).toBe(c.closingQtyMilli)
+      expect(v).toBe(c.closingValue)
+      expect(effects).toHaveLength(full.movements.filter((m) => m.itemId === watched).length)
+    }
+  })
+
+  it('without itemId it sees every line once, in pass order; observing changes nothing', () => {
+    const { input } = randomBook(7)
+    const seen: number[] = []
+    const watched = runInventoryPass(input, [], { onLine: (e) => seen.push(e.movement.lineId!) })
+    expect(seen).toEqual(input.movements.map((m) => m.lineId))
+    expect(watched.closing).toEqual(runInventoryPass(input).closing)
+  })
+})

@@ -58,9 +58,10 @@ export function passthroughOf(v: Voucher): HeaderPassthrough {
   }
 }
 
-/** Every stored inventory-line field, verbatim — never drop batch/discount/godown/absolute. */
+/** Every stored inventory-line field, verbatim — never drop batch/discount/godown/absolute/serials. */
 export function inventoryToPayload(l: InventoryLine): InventoryPayload {
   return {
+    ...(l.serials && l.serials.length > 0 ? { serials: [...l.serials] } : {}),
     stockItemId: l.stockItemId,
     godownId: l.godownId,
     batchId: l.batchId,
@@ -145,7 +146,9 @@ function canonical(p: VoucherPayload): Record<string, unknown> {
       discountPaise: l.discountPaise ?? 0,
       amount: l.amount,
       direction: l.direction,
-      isAbsolute: l.isAbsolute ?? false
+      isAbsolute: l.isAbsolute ?? false,
+      // Serial order is significant (stored as given); absent and [] store the same.
+      serials: [...(l.serials ?? [])]
     })),
     billRefs: (p.billRefs ?? []).map((r) => ({ kind: r.kind, name: r.name.trim(), amount: r.amount, dueDate: r.dueDate ?? null })),
     // autoPayable isn't compared on its own: a payload that leaves the payable credit to the

@@ -25,6 +25,7 @@ import { CostAllocModal, QuickLedgerModal } from './modals'
 import { TransportModal } from './TransportModal'
 import { useTdsDeduction } from './useTdsDeduction'
 import { TdsBanner } from './TdsBanner'
+import { CarriedStockLines } from './CarriedStockLines'
 
 // ---------- accounting mode (payment / receipt / contra / journal, and the lossless fallback
 // for alterations the specialised modes can't show — see planVoucherEdit) ----------
@@ -262,6 +263,11 @@ export function AccountingEntry({
     setBillRefs((refs) => refs.map((r, j) => (j === i ? { ...r, ...patch } : r)))
   const removeManualBillRef = (i: number): void => setBillRefs((refs) => refs.filter((_, j) => j !== i))
 
+  // WP 2.3: the carried stock lines' godown / batch / serials are editable (everything else verbatim).
+  const [stockLines, setStockLines] = useState(() => initial?.original?.inventory ?? [])
+  const setStockLine = (i: number, patch: Partial<(typeof stockLines)[number]>): void =>
+    setStockLines((ls) => ls.map((l, j) => (j === i ? { ...l, ...patch } : l)))
+
   // The form as the shared builder sees it. On alteration `original` carries everything this
   // form doesn't edit (stock lines with batch/discount/godown/physical-count flag, reference,
   // transport, POS override, currency, the stored party and cheque date) back verbatim.
@@ -278,9 +284,9 @@ export function AccountingEntry({
       tds: tds
         ? { sectionId: tds.sectionId, baseAmount: tds.baseAmount, tdsAmount: tds.tdsAmount, isManual: tds.isManual, autoPayable: tds.pending }
         : null,
-      original: initial?.original ?? null
+      original: initial?.original ? { ...initial.original, inventory: stockLines } : null
     }),
-    [date, voucherId, alterNumber, numberField.forPayload, rows, narration, instrumentNo, billRefs, advanceReceipt, optionalVoucher, tds, initial]
+    [date, voucherId, alterNumber, numberField.forPayload, rows, narration, instrumentNo, billRefs, advanceReceipt, optionalVoucher, tds, initial, stockLines]
   )
 
   // Builds the exact VoucherInputParsed shape `save` posts.
@@ -551,10 +557,14 @@ export function AccountingEntry({
       </table>
       </LineTableScroller>
 
-      {voucher && voucher.inventory.length > 0 && (
-        <p className="mt-3 text-small text-muted">
-          This voucher carries {voucher.inventory.length} stock line{voucher.inventory.length > 1 ? 's' : ''}; they are kept as-is when you save.
-        </p>
+      {voucher && stockLines.length > 0 && (
+        features.inventory ? (
+          <CarriedStockLines lines={stockLines} onChange={setStockLine} voucherId={voucherId} />
+        ) : (
+          <p className="mt-3 text-small text-muted">
+            This voucher carries {stockLines.length} stock line{stockLines.length > 1 ? 's' : ''}; they are kept as-is when you save.
+          </p>
+        )
       )}
 
       {features.tds && tdsSuggestion && !tdsDeduction.dismissed && (

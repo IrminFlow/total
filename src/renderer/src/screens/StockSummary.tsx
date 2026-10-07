@@ -1,8 +1,8 @@
 import { useCallback, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { api } from '../lib/client'
-import { useSession } from '../state/stores'
-import { DrawerSection, Money, Page, PageHeader, Panel, SectionTitle } from '../components/ui'
+import { useNav, useSession } from '../state/stores'
+import { Button, DrawerSection, Money, Page, PageHeader, Panel, SectionTitle } from '../components/ui'
 import { OptionToggle, OptionsPeriod, OptionsTable, useScreenOptions } from '../components/ScreenOptions'
 import { DataTable, defineColumns, type RowKey } from '../components/table'
 import { formatMilli } from '../lib/table'
@@ -97,12 +97,29 @@ export function StockSummaryScreen(): React.JSX.Element {
     setExpanded((cur) => (cur.has(r.stockItemId) ? new Set() : new Set([r.stockItemId])))
   }, [])
   const periodLabel = `as on ${toDisplayDate(to)}`
+  const nav = useNav()
 
   return (
     <Page>
       <PageHeader
         title="Stock summary"
         period={periodLabel}
+        actions={
+          <div className="flex items-center gap-2">
+            <Button size="sm" onClick={() => nav.go({ name: 'stock-movements' })} data-testid="btn-stock-summary-movements">
+              Movements
+            </Button>
+            <Button size="sm" onClick={() => nav.go({ name: 'stock-reports', tab: 'reorder' })} data-testid="btn-stock-summary-reorder">
+              Reorder
+            </Button>
+            <Button size="sm" onClick={() => nav.go({ name: 'stock-reports', tab: 'expiry' })} data-testid="btn-stock-summary-expiry">
+              Expiry
+            </Button>
+            <Button size="sm" onClick={() => nav.go({ name: 'stock-reports', tab: 'labels' })} data-testid="btn-stock-summary-labels">
+              Labels
+            </Button>
+          </div>
+        }
         options={{
           onReset: opts.reset,
           content: (
@@ -190,6 +207,12 @@ function ItemDetail({
     (g) => g.stockItemId === stockItemId && g.closingQtyMilli !== 0 && g.godownId !== null
   )
   const batchRows = (batches ?? []).filter((b) => b.closingQtyMilli !== 0)
+  const nav = useNav()
+  const registerLink = (
+    <Button size="sm" variant="ghost" onClick={() => nav.go({ name: 'stock-movements', itemId: stockItemId })} data-testid="btn-stock-item-movements">
+      Movement register →
+    </Button>
+  )
   if (loadingGodowns || loadingBatches || loadingMoves) return <p className="py-1 text-small text-muted">Loading breakdown…</p>
   const moves = movements ?? []
   return (
@@ -218,7 +241,8 @@ function ItemDetail({
             </tbody>
           </table>
         )}
-        {moves.length > 12 && <p className="mt-1 text-hint text-muted">Latest 12 of {moves.length} — the full movement register is coming.</p>}
+        {moves.length > 12 && <p className="mt-1 text-hint text-muted">Latest 12 of {moves.length}.</p>}
+        <div className="mt-1">{registerLink}</div>
       </div>
       {godownRows.length === 0 && batchRows.length === 0 && (
         <p className="text-small text-muted">No godown or batch breakdown for this item.</p>

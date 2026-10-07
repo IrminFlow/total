@@ -237,6 +237,15 @@
           },
           "isAbsolute": {
             "type": "boolean"
+          },
+          "serials": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 60
+            },
+            "maxItems": 5000
           }
         },
         "required": [

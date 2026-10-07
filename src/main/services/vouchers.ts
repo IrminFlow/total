@@ -11,6 +11,7 @@ import { cashBankGroupIds } from './masters'
 import { getFeatures } from './config'
 import { writeAudit } from './audit'
 import { ensureTdsPayableLedger, PENDING_PAYABLE_LEDGER, prepareVoucherTds } from './tds'
+import { parseLineSerials, rebuildItemSerials, syncVoucherSerials } from './serials'
 
 interface VoucherRow {
   id: number; voucher_type_id: number; date: string; number: string
@@ -86,10 +87,12 @@ export function getVoucher(db: DB, id: number): Voucher | null {
     .prepare('SELECT id, ledger_id, dr_cr, amount, bank_date FROM voucher_lines WHERE voucher_id = ? ORDER BY line_order, id')
     .all(id) as { id: number; ledger_id: number; dr_cr: 'dr' | 'cr'; amount: number; bank_date: string | null }[]
   const inventory = db
-    .prepare('SELECT id, stock_item_id, godown_id, batch_id, qty_milli, rate_paise, discount_paise, amount, direction, is_absolute FROM inventory_lines WHERE voucher_id = ? ORDER BY line_order, id')
+    // SELECT * so `serials` (migration 021) is simply absent on an older schema (migration tests).
+    .prepare('SELECT * FROM inventory_lines WHERE voucher_id = ? ORDER BY line_order, id')
     .all(id) as {
       id: number; stock_item_id: number; godown_id: number | null; batch_id: number | null
       qty_milli: number; rate_paise: number; discount_paise: number; amount: number; direction: 'in' | 'out'; is_absolute: number
+      serials?: string | null
     }[]
 
   const costAllocRows = lines.length
@@ -161,7 +164,8 @@ export function getVoucher(db: DB, id: number): Voucher | null {
         id: l.id, stockItemId: l.stock_item_id, godownId: l.godown_id, batchId: l.batch_id,
         qtyMilli: l.qty_milli, ratePaise: l.rate_paise, discountPaise: l.discount_paise,
         amount: l.amount, direction: l.direction,
-        isAbsolute: !!l.is_absolute
+        isAbsolute: !!l.is_absolute,
+        serials: parseLineSerials(l.serials)
       })
     ),
     billRefs: billRefRows.map((r) => ({ kind: r.kind, name: r.name, amount: r.amount, dueDate: r.due_date })),
@@ -446,6 +450,8 @@ export function saveVoucher(db: DB, raw: VoucherInput, existingId?: number, hook
       insertInv.run(voucherId, l.stockItemId, l.godownId, l.batchId ?? null, l.qtyMilli, l.ratePaise,
         l.discountPaise ?? 0, l.amount, l.direction, l.isAbsolute ? 1 : 0, i)
     )
+    // WP 2.3: line serials (validated, stored, serial_numbers re-projected) — services/serials.ts.
+    syncVoucherSerials(db, voucherId, input.inventory, before?.inventory)
 
     // Bill refs ride on `vouchers`, not `voucher_lines`, so an UPDATE doesn't cascade their
     // deletion the way replacing the line set does — clear and reinsert explicitly. The TDS entry
@@ -586,7 +592,11 @@ export function deleteVoucher(db: DB, id: number): void {
   if (!before) throw new Error('Voucher not found')
   const lock = getLockDate(db)
   if (lock && before.date <= lock) throw new Error(`Books are locked up to ${lock}`)
-  db.prepare("UPDATE vouchers SET deleted_at = datetime('now') WHERE id = ?").run(id)
+  db.transaction(() => {
+    db.prepare("UPDATE vouchers SET deleted_at = datetime('now') WHERE id = ?").run(id)
+    // WP 2.3: a binned voucher's serials no longer count (a sale's go back into stock).
+    rebuildItemSerials(db, before.inventory.map((l) => l.stockItemId))
+  })()
   writeAudit(db, 'voucher', id, 'delete', before, null)
 }
 
@@ -608,7 +618,11 @@ export function restoreVoucher(db: DB, id: number): void {
       throw new Error(`FY ${fy.label} already has a year-end closing entry; bin that one first to restore this one`)
     }
   }
-  db.prepare('UPDATE vouchers SET deleted_at = NULL WHERE id = ?').run(id)
+  db.transaction(() => {
+    db.prepare('UPDATE vouchers SET deleted_at = NULL WHERE id = ?').run(id)
+    // WP 2.3: re-apply its serials — refused (rolled back) if one has moved on meanwhile.
+    rebuildItemSerials(db, before.inventory.map((l) => l.stockItemId))
+  })()
   writeAudit(db, 'voucher', id, 'update', before, { restored: true })
 }
 

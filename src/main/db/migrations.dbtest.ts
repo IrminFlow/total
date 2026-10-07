@@ -42,6 +42,7 @@ const EXPECTED_TABLES = [
   'pay_heads',
   'employee_pay_heads',
   'manufacture_details',
+  'serial_numbers',
   'migrations'
 ]
 

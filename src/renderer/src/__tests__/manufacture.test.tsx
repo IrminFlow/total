@@ -14,7 +14,7 @@ const invoke = vi.fn()
 
 const item = (id: number, name: string): StockItem => ({
   id, name, groupId: null, unitId: 1, hsn: null, gstRate: null, cessRate: null, openingQtyMilli: 0, openingValue: 0,
-  barcode: null, reorderLevelMilli: null, valuationMethod: 'weighted_avg'
+  barcode: null, reorderLevelMilli: null, valuationMethod: 'weighted_avg', trackSerials: false
 })
 const CHAIR = 1
 const STEEL = 2
