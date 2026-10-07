@@ -21,6 +21,7 @@ import { costPreview, getManufactureDetails, saveManufacture } from './manufactu
 import type { ManufactureInput } from '@shared/manufacture'
 import { setBankDate } from './banking'
 import { applyTdsToVoucher, removeTdsFromVoucher } from './tdsWorkbench'
+import { applyTcsToVoucher, removeTcsFromVoucher } from './tcsWorkbench'
 
 type LedgerKind = 'Sundry Debtors' | 'Sundry Creditors' | 'Sales Accounts' | 'Purchase Accounts' | 'Duties & Taxes' | 'Indirect Expenses' | 'Bank Accounts'
 
@@ -99,7 +100,7 @@ function editContext(db: DB, voucherId?: number): EditPlanContext {
     invoice: {
       companyStateCode: TEST_INFO.stateCode,
       items: new Map(items.map((i) => [i.id, { gstRate: i.gstRate, cessRate: i.cessRate }])),
-      ledgers: new Map(ledgers.map((l) => [l.id, { stateCode: l.stateCode, gstRate: l.gstRate, tdsPayableSectionId: l.tdsPayableSectionId }]))
+      ledgers: new Map(ledgers.map((l) => [l.id, { stateCode: l.stateCode, gstRate: l.gstRate, tdsPayableSectionId: l.tdsPayableSectionId, tcsPayableSectionId: l.tcsPayableSectionId ?? null }]))
     },
     taxLedgers: taxLedgerIdsFrom(ledgers),
     manufacture: voucherId ? getManufactureDetails(db, voucherId) : null,
@@ -296,6 +297,54 @@ describe('voucher editor round-trip (WP 1.4): load → save unchanged stores ide
     expect(v.tds).toMatchObject({ tdsAmount: 50000, isManual: false, rateBp: 1000 })
     expect(v.lines[v.lines.length - 1]).toMatchObject({ ledgerId: x.tdsPayable, drCr: 'cr', amount: 50000 })
     expectRoundTrip(db, id, 'invoice')
+  })
+
+  it('sales (invoice form) with TCS: payable created at save, last line; opens in invoice mode; Move to / remove TCS round-trip', () => {
+    // WP 3.3: buyer flagged for 206C(1) scrap (1% in FY 2025-26, GST in the base).
+    const scrap = listSections(db, 'tcs').find((s) => s.code === '206C(1) SCRAP')!.id
+    const dealer = ledger(db, 'Scrap Dealer', 'Sundry Debtors', { stateCode: '27' })
+    db.prepare("UPDATE ledgers SET tcs_section_id = ?, pan = 'AABCS1234D' WHERE id = ?").run(scrap, dealer)
+    const lot = item(db, 'Scrap Lot', 18)
+    const fresh = editContext(db)
+    const rows = [{ itemId: lot, qtyText: '1', rate: 10000000, discount: null, godownId: null, batchId: null }]
+    // Stock in first so the sale doesn't go negative.
+    saveVoucher(db, { ...header, voucherTypeId: typeId(db, 'purchase'), date: '2025-05-01', partyLedgerId: x.supplier,
+      lines: [{ ledgerId: x.purchases, drCr: 'dr', amount: 100 }, { ledgerId: x.supplier, drCr: 'cr', amount: 100 }],
+      inventory: [{ stockItemId: lot, godownId: null, qtyMilli: 5000, ratePaise: 20, amount: 100, direction: 'in' }] })
+    const r = buildInvoicePayload({
+      ...emptyInvoiceState('2025-05-10'), partyId: dealer, accountId: x.sales, billName: 'SCR-1', billDueDate: '2025-06-10', rows,
+      tcs: { sectionId: scrap, baseAmount: 11800000, tdsAmount: 118000, isManual: false, payableLedgerId: null, pending: true }
+    }, { ...fresh.invoice, kind: 'sales' }, typeId(db, 'sales'), fresh.taxLedgers)
+    if (!r.ok) throw new Error(r.error)
+    expect(r.payload.lines[0]).toMatchObject({ ledgerId: dealer, drCr: 'dr', amount: 11800000 + 118000 })
+    expect(r.payload.billRefs[0]!.amount).toBe(11918000)
+    const id = saveVoucher(db, r.payload).id
+    const v = getVoucher(db, id)!
+    expect(v.tcs).toMatchObject({ tcsAmount: 118000, rateBp: 100, gstInBase: true })
+    expect(v.lines[v.lines.length - 1]).toMatchObject({ drCr: 'cr', amount: 118000 })
+    const plan = expectRoundTrip(db, id, 'invoice')
+    expect(plan.mode === 'invoice' && plan.state.tcs).toMatchObject({ tdsAmount: 118000, pending: false })
+
+    // Remove on the TCS screen, then Move to TCS: invoice mode both ways.
+    removeTcsFromVoucher(db, id)
+    expect(getVoucher(db, id)!.tcs).toBeNull()
+    expectRoundTrip(db, id, 'invoice')
+    applyTcsToVoucher(db, { voucherId: id })
+    expect(getVoucher(db, id)!.tcs).toMatchObject({ tcsAmount: 118000 })
+    expectRoundTrip(db, id, 'invoice')
+  })
+
+  it('receipt with TCS on top (accounting form): bank debit includes the TCS, round-trips', () => {
+    const scrap = listSections(db, 'tcs').find((s) => s.code === '206C(1) SCRAP')!.id
+    const buyer = ledger(db, 'Advance Buyer', 'Sundry Debtors', { stateCode: '27' })
+    db.prepare("UPDATE ledgers SET tcs_section_id = ?, pan = 'AABCA1234D' WHERE id = ?").run(scrap, buyer)
+    const id = saveVoucher(db, {
+      ...header, voucherTypeId: typeId(db, 'receipt'), date: '2025-05-20', partyLedgerId: buyer,
+      lines: [{ ledgerId: x.bank, drCr: 'dr', amount: 5050000 }, { ledgerId: buyer, drCr: 'cr', amount: 5000000 }],
+      tcs: { sectionId: scrap, baseAmount: 5000000, tcsAmount: 50000, isManual: false, autoPayable: true }
+    }).id
+    expect(getVoucher(db, id)!.tcs).toMatchObject({ tcsAmount: 50000 })
+    expectRoundTrip(db, id, 'accounting')
   })
 
   it('payment with TDS, cost allocations, cheque details and a reconciled bank line', () => {

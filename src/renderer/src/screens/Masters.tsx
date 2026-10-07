@@ -16,6 +16,7 @@ import { ChartOfAccounts } from '../components/ChartOfAccounts'
 import { validateHsn } from '@shared/gst/validate'
 import { confirmDialog, promptDialog } from '../lib/dialogs'
 import { ItemLink, LedgerLink } from '../components/links'
+import { useFeatures } from '../lib/useFeatures'
 
 export type MastersTab = NonNullable<Extract<Screen, { name: 'masters' }>['tab']>
 
@@ -593,6 +594,10 @@ export function ItemFormModal({ item, onClose }: { item: StockItem | null; onClo
   const [reorderText, setReorderText] = useState(item?.reorderLevelMilli != null ? String(item.reorderLevelMilli / 1000) : '')
   const [valuationMethod, setValuationMethod] = useState<'weighted_avg' | 'fifo'>(item?.valuationMethod ?? 'weighted_avg')
   const [trackSerials, setTrackSerials] = useState(item?.trackSerials ?? false)
+  // TCS goods category (WP 3.3): selling this item collects TCS under the section.
+  const features = useFeatures()
+  const { data: tcsSections } = useQuery({ queryKey: ['tcsSections'], queryFn: api.tcs.sections, enabled: features.tcs })
+  const [tcsSectionId, setTcsSectionId] = useState<number | ''>(item?.tcsSectionId ?? '')
   const nav = useNav()
 
   const hsnCheck = hsn.trim() ? validateHsn(hsn) : null
@@ -616,7 +621,8 @@ export function ItemFormModal({ item, onClose }: { item: StockItem | null; onClo
         barcode: barcode.trim() || null,
         reorderLevelMilli: reorderText.trim() ? Math.round(parseFloat(reorderText) * 1000) : null,
         valuationMethod,
-        trackSerials
+        trackSerials,
+        ...(features.tcs ? { tcsSectionId: tcsSectionId === '' ? null : tcsSectionId } : {})
       }
       if (data.reorderLevelMilli != null && !(data.reorderLevelMilli >= 0)) return void toast.push('error', 'Reorder level must be a number')
       if (item) await api.stockItems.update(item.id, data)
@@ -718,6 +724,18 @@ export function ItemFormModal({ item, onClose }: { item: StockItem | null; onClo
           onChange={setTrackSerials}
           testId="input-item-track-serials"
         />
+        {features.tcs && (
+          <Field label="TCS on sale (goods category)" hint="Sales of this item collect TCS under the section — scrap, timber, minerals, a motor vehicle …">
+            <Select data-testid="input-item-tcs-section" value={tcsSectionId} onChange={(e) => setTcsSectionId(e.target.value ? Number(e.target.value) : '')}>
+              <option value="">None</option>
+              {(tcsSections ?? []).map((s) => (
+                <option key={s.id} value={s.id}>
+                  {s.code} — {s.description}
+                </option>
+              ))}
+            </Select>
+          </Field>
+        )}
         {item && (
           <div>
             <span className="mb-1 block text-caption font-semibold tracking-[0.08em] text-muted uppercase">

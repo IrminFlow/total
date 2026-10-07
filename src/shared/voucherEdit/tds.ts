@@ -38,13 +38,17 @@ export function applyTdsToAccountingRows<R extends TdsApplyRow>(
     payableLedgerId: number | null
     previous: TdsDeductionState | null
     makeRow: (ledgerId: number, amount: number) => R
+    /** 'reduce' (TDS: the target gives up the deduction) or 'increase' (TCS on a receipt, WP 3.3:
+     *  the bank / cash debit grows by the TCS collected on top of the consideration). */
+    direction?: 'reduce' | 'increase'
   }
 ): R[] {
   const next = rows.map((r) => ({ ...r }))
   const { targetIdx, tdsAmount, payableLedgerId, previous } = opts
+  const sign = opts.direction === 'increase' ? -1 : 1
   if (targetIdx < 0 || targetIdx >= next.length) return next
   const reduceTarget = (by: number): void => {
-    next[targetIdx] = { ...next[targetIdx]!, amount: (next[targetIdx]!.amount ?? 0) - by }
+    next[targetIdx] = { ...next[targetIdx]!, amount: (next[targetIdx]!.amount ?? 0) - sign * by }
   }
   const insertPayable = (ledgerId: number, amount: number): R[] => {
     const insertAt = next.length > 0 && next[next.length - 1]!.ledgerId == null ? next.length - 1 : next.length
