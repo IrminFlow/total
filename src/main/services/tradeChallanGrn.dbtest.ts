@@ -221,7 +221,7 @@ describe('e-way bill from a challan; none for the invoice whose goods moved on i
     expect(dc!.cgst + dc!.sgst).toBe(1_080_000)
     expect(dc!.total).toBe(7_080_000)
     const bill = (buildEwbJson([dc!], { name: COMPANY.name, gstin: COMPANY.gstin!, stateCode: '27', address: COMPANY.address }).billLists as Record<string, unknown>[])[0]!
-    expect(bill).toMatchObject({ supplyType: 'O', subSupplyType: '1', docType: 'CHL', docNo: 'DC-1', totInvValue: 70800, vehicleNo: 'MH12AB1234', transDistance: '18' })
+    expect(bill).toMatchObject({ supplyType: 'O', subSupplyType: '8', subSupplyDesc: 'Supply on challan', docType: 'CHL', docNo: 'DC-1', totInvValue: 70800, vehicleNo: 'MH12AB1234', transDistance: '18' })
 
     const [jw] = extractEdocInvoices(b.db, COMPANY, FROM, TO, jwId, ['delivery_note'])
     const jwBill = (buildEwbJson([jw!], { name: COMPANY.name, gstin: COMPANY.gstin!, stateCode: '27', address: COMPANY.address }).billLists as Record<string, unknown>[])[0]!
