@@ -1,12 +1,20 @@
 /**
- * Every `entity` value the app ever writes to audit_log — the single source of truth for the
- * Settings → Audit trail entity filter (and re-exported by src/main/services/audit.ts, which
- * owns the write side). Kept in src/shared because the renderer can't import main-process
- * modules; when adding a writeAudit call with a NEW entity string, add it here too.
+ * The audit trail's stable vocabulary — every `entity` and `action` value the app ever writes to
+ * audit_log. Single source of truth for the edit-log report filters (renderer) and the write
+ * side (src/main/services/audit.ts re-exports these). Kept in src/shared because the renderer
+ * can't import main-process modules.
  *
- * Derived from the writeAudit call sites across src/main/services/*.ts and src/main/ipc.ts.
+ * When adding a writeAudit call with a NEW entity string, add it here too —
+ * src/main/auditCoverage.dbtest.ts scans every writeAudit call site and fails on an entity that
+ * is not listed, and also fails when a new write IPC channel has no entry in
+ * src/main/auditCoverage.ts (WP 3.8: the MCA edit log may not silently skip a write path).
+ *
+ * Entries are never removed: old rows keep their entity forever (e.g. 'recurring_template',
+ * whose feature was removed in 0.5.0).
  */
 export const AUDIT_ENTITIES = [
+  'audit_log',
+  'backup',
   'bank_rule',
   'bank_statement',
   'batch',
@@ -16,6 +24,7 @@ export const AUDIT_ENTITIES = [
   'cheque_config',
   'company',
   'costCentre',
+  'csv_import',
   'currency',
   'depreciation_run',
   'employee',
@@ -31,6 +40,7 @@ export const AUDIT_ENTITIES = [
   'job_work',
   'ledger',
   'manufacture',
+  'migration',
   'nic_credentials',
   'pay_head',
   'payroll_run',
@@ -42,6 +52,8 @@ export const AUDIT_ENTITIES = [
   'stockGroup',
   'stockItem',
   'tally_import',
+  'tcsEntry',
+  'tcsExemption',
   'tdsCertificate',
   'tdsChallan',
   'tdsEntry',
@@ -59,3 +71,93 @@ export const AUDIT_ENTITIES = [
 ] as const
 
 export type AuditEntity = (typeof AUDIT_ENTITIES)[number]
+
+/**
+ * Every audit_log action. Mirrors migration 031's CHECK (017's set plus 'restore' — a voucher
+ * or trade document back from the bin, or a company restored from a backup — 'purge' — a
+ * permanent delete from the bin — 'backup' and 'prune' — the retention job removing rows, which
+ * the default `auditTrailRequired` setting never does).
+ */
+export const AUDIT_ACTIONS = [
+  'create',
+  'update',
+  'delete',
+  'restore',
+  'purge',
+  'login',
+  'login_failed',
+  'logout',
+  'export',
+  'import',
+  'backup',
+  'prune'
+] as const
+
+export type AuditAction = (typeof AUDIT_ACTIONS)[number]
+
+/** Human labels for the report's entity column/filter; anything missing falls back to the raw key. */
+export const AUDIT_ENTITY_LABELS: Partial<Record<AuditEntity, string>> = {
+  audit_log: 'Audit log',
+  backup: 'Backup',
+  bank_rule: 'Bank rule',
+  bank_statement: 'Bank statement',
+  batch: 'Batch',
+  bom: 'Bill of materials',
+  budget: 'Budget',
+  ca_asset_class: 'Asset class (Companies Act)',
+  cheque_config: 'Cheque layout',
+  company: 'Company settings',
+  costCentre: 'Cost centre',
+  csv_import: 'CSV import',
+  currency: 'Currency',
+  depreciation_run: 'Depreciation run',
+  employee: 'Employee',
+  export: 'Export',
+  fixed_asset: 'Fixed asset',
+  fixed_asset_group: 'Asset group',
+  godown: 'Godown',
+  group: 'Group',
+  gst_ims: 'GST IMS action',
+  gst_self_invoice: 'RCM self-invoice',
+  it_block: 'IT Act block',
+  it_block_rate: 'IT Act block rate',
+  job_work: 'Job work challan',
+  ledger: 'Ledger',
+  manufacture: 'Manufacture',
+  migration: 'Database migration',
+  nic_credentials: 'NIC credentials',
+  pay_head: 'Pay head',
+  payroll_run: 'Pay run',
+  priceLevel: 'Price level',
+  priceRate: 'Price rate',
+  recurring_template: 'Recurring template',
+  statutory_payment: 'Statutory payment',
+  statutory_rate: 'Statutory rate',
+  stockGroup: 'Stock group',
+  stockItem: 'Stock item',
+  tally_import: 'Tally import',
+  tcsEntry: 'TCS entry',
+  tcsExemption: 'TCS not-applicable mark',
+  tdsCertificate: 'TDS/TCS certificate',
+  tdsChallan: 'TDS/TCS challan',
+  tdsEntry: 'TDS entry',
+  tdsExemption: 'TDS not-applicable mark',
+  tdsRate: 'TDS/TCS rate',
+  tdsSection: 'TDS/TCS section',
+  trade_doc: 'Order / quotation',
+  tradeDocType: 'Order series',
+  unit: 'Unit',
+  user: 'User',
+  voucher: 'Voucher',
+  voucher_line: 'Voucher line',
+  voucherType: 'Voucher type',
+  year_end: 'Year-end close'
+}
+
+export const auditEntityLabel = (entity: string): string => AUDIT_ENTITY_LABELS[entity as AuditEntity] ?? entity
+
+export const auditActionLabel = (a: string): string => (a.charAt(0).toUpperCase() + a.slice(1)).replace(/_/g, ' ')
+
+/** Entities whose rows belong to one voucher: the report's voucher filter matches these by
+ *  entity_id, and every other entity by a `voucherId` field in its before/after JSON. */
+export const VOUCHER_ENTITIES: readonly AuditEntity[] = ['voucher', 'manufacture', 'job_work', 'gst_self_invoice']

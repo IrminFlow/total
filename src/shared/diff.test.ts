@@ -1,5 +1,26 @@
 import { describe, it, expect } from 'vitest'
-import { diffJson } from './diff'
+import { diffJson, diffJsonDeep, diffText } from './diff'
+
+describe('diffJsonDeep (WP 3.8 edit log)', () => {
+  it('diffs nested voucher lines leaf by leaf', () => {
+    const before = JSON.stringify({ number: 'R-1', lines: [{ ledgerId: 1, amount: 5000 }, { ledgerId: 2, amount: 5000 }] })
+    const after = JSON.stringify({ number: 'R-1', lines: [{ ledgerId: 1, amount: 6000 }, { ledgerId: 2, amount: 6000 }] })
+    const d = diffJsonDeep(before, after)
+    expect(d).toEqual([
+      { key: 'lines[0].amount', from: '5000', to: '6000' },
+      { key: 'lines[1].amount', from: '5000', to: '6000' }
+    ])
+    expect(diffText(d)).toBe('lines[0].amount: 5000 → 6000; lines[1].amount: 5000 → 6000')
+    expect(diffText(d, 20)).toHaveLength(20)
+  })
+  it('create lists every leaf; non-object JSON still diffs', () => {
+    expect(diffJsonDeep(null, '{"a":{"b":1},"t":["x","y"]}')).toEqual([
+      { key: 'a.b', from: '', to: '1' },
+      { key: 't', from: '', to: '["x","y"]' }
+    ])
+    expect(diffJsonDeep('3', '4')).toEqual([{ key: 'value', from: '3', to: '4' }])
+  })
+})
 
 describe('diffJson', () => {
   it('reports changed keys only', () => {
