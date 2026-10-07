@@ -58,4 +58,37 @@ await scenario('11-keyboard', async (h) => {
   assert(await h.page.isVisible('[data-testid="nav-banking"]'), 'Banking items are visible once expanded')
   await h.page.keyboard.press('ArrowLeft')
   assert((await bankingOpen()) === 'false', 'ArrowLeft collapsed the Banking section')
+
+  // Voucher F-keys, split in WP 2.5d (design §9 Q10): Ctrl+F8 / Ctrl+F9 are the credit / debit
+  // note; Alt+F8 / Alt+F9 are the delivery challan / GRN — and do nothing while Orders & challans
+  // is off (no stock-note screens), rather than opening a note as before.
+  const selected = (kind) => h.page.getAttribute(`[data-testid="tab-voucher-entry-${kind}"]`, 'aria-selected')
+  await h.goto('voucher-entry')
+  await h.page.waitForSelector('[data-testid="tab-voucher-entry-sales"]', { timeout: 10000 })
+  await h.page.keyboard.press('F8')
+  await h.page.waitForSelector('[data-testid="tab-voucher-entry-sales"][aria-selected="true"]', { timeout: 5000 })
+  await h.page.keyboard.press('Control+F8')
+  await h.page.waitForSelector('[data-testid="tab-voucher-entry-credit_note"][aria-selected="true"]', { timeout: 5000 })
+  await h.page.keyboard.press('Control+F9')
+  await h.page.waitForSelector('[data-testid="tab-voucher-entry-debit_note"][aria-selected="true"]', { timeout: 5000 })
+  await h.page.keyboard.press('Alt+F8')
+  await h.page.waitForTimeout(300)
+  assert((await selected('debit_note')) === 'true', 'Alt+F8 with Orders & challans off leaves the voucher type alone')
+  assert((await h.page.locator('[data-testid="tab-voucher-entry-delivery_note"]').count()) === 0, 'no delivery challan tab while the feature is off')
+  await h.shot('05-ctrl-f9-debit-note')
+
+  // With Orders & challans on, Alt+F8 / Alt+F9 open the challan / GRN.
+  const features = await h.invoke('config:features:get')
+  await h.invoke('config:features:set', { ...features, inventory: true, orders: true })
+  await h.relaunch()
+  await h.openCompany('Demo Traders')
+  await h.goto('voucher-entry')
+  await h.page.waitForSelector('[data-testid="tab-voucher-entry-sales"]', { timeout: 10000 })
+  await h.page.keyboard.press('Alt+F8')
+  await h.page.waitForSelector('[data-testid="tab-voucher-entry-delivery_note"][aria-selected="true"]', { timeout: 5000 })
+  await h.page.keyboard.press('Alt+F9')
+  await h.page.waitForSelector('[data-testid="tab-voucher-entry-receipt_note"][aria-selected="true"]', { timeout: 5000 })
+  await h.page.keyboard.press('Control+F8')
+  await h.page.waitForSelector('[data-testid="tab-voucher-entry-credit_note"][aria-selected="true"]', { timeout: 5000 })
+  await h.shot('06-alt-f9-then-ctrl-f8')
 })

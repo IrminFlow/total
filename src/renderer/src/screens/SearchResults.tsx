@@ -11,6 +11,8 @@ import { isEmptyQuery, parseSearchQuery, removeToken, type SearchKind } from '@s
 import type { ItemResult, LedgerResult, SearchResponse, SearchResult, VoucherResult } from '@shared/search'
 import { fyOf, todayISO } from '@shared/dates'
 import { ItemLink, LedgerLink } from '../components/links'
+import { LINKABLE_VOUCHER_KINDS, openLinkedDocs } from '../components/LinkedDocs'
+import { useFeatures } from '../lib/useFeatures'
 
 /** Window event App.tsx fires on ⌘⇧F while this screen is already open — refocus the query box. */
 export const FOCUS_SEARCH_EVENT = 'total:focus-search'
@@ -165,6 +167,23 @@ export function SearchResultsScreen({ q = '', kind }: { q?: string; kind?: Searc
   highlightTerms = data?.terms ?? parsed.terms.map((t) => t.text)
 
   const open = (r: SearchResult): void => openRecord(r.kind, recentRecordFor(r), query)
+  // WP 2.5d: trade vouchers carry a "Links" action (the linked-documents drawer).
+  const ordersOn = useFeatures().orders
+  const linksTrailing = (r: SearchResult): React.ReactNode =>
+    r.kind === 'voucher' && LINKABLE_VOUCHER_KINDS.has(r.voucherKind) ? (
+      <button
+        type="button"
+        className="text-hint text-blue hover:underline"
+        title="Linked documents"
+        data-testid="btn-search-links"
+        onClick={(e) => {
+          e.stopPropagation()
+          openLinkedDocs({ voucherId: r.id })
+        }}
+      >
+        Links
+      </button>
+    ) : null
 
   const tabs = [
     { id: 'all' as Tab, label: enabled && data ? `All · ${grand}` : 'All' },
@@ -252,6 +271,7 @@ export function SearchResultsScreen({ q = '', kind }: { q?: string; kind?: Searc
                     rowKey={(r) => r.id}
                     rowAttrs={(r) => ({ 'data-row-id': r.id })}
                     onRowActivate={open}
+                    {...(k === 'voucher' && ordersOn ? { trailing: linksTrailing, trailingWidth: 52 } : {})}
                     toolbar={false}
                     maxHeight="none"
                   />
@@ -270,6 +290,7 @@ export function SearchResultsScreen({ q = '', kind }: { q?: string; kind?: Searc
             rowKey={(r) => r.id}
             rowAttrs={(r) => ({ 'data-row-id': r.id })}
             onRowActivate={open}
+            {...(tab === 'voucher' && ordersOn ? { trailing: linksTrailing, trailingWidth: 52 } : {})}
             loading={paged.isLoading}
             empty={{ title: `No ${KIND_TITLE[tab].toLowerCase()} match` }}
             exportOptions={{
