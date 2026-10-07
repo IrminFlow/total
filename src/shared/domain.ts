@@ -65,6 +65,18 @@ export interface Ledger {
   /** Credit limit in paise; null = no limit. saveVoucher warns (or blocks, under F11
    *  enforceCreditLimit) when the party's outstanding would exceed it. */
   creditLimit: number | null
+  /** WP 4.3 (migration 034): the supplier is registered on Udyam (MSMED Act s.2(n), s.8). */
+  msmeRegistered?: boolean
+  /** Udyam Registration Number, UDYAM-XX-00-0000000. */
+  udyamNo?: string | null
+  /** Micro / small / medium (s.7). Only micro and small get s.15–16 / s.43B(h) / MSME Form 1. */
+  msmeCategory?: 'micro' | 'small' | 'medium' | null
+  /** Credit period agreed in writing with the supplier (s.15; capped at 45 days); null = none. */
+  agreedCreditDays?: number | null
+  /** Early-payment discount offered by the supplier, basis points of the bill. */
+  earlyPaymentDiscountBp?: number | null
+  /** …if paid within this many days of the bill date. */
+  earlyPaymentDiscountDays?: number | null
   isSystem: boolean
 }
 
