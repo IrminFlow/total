@@ -186,7 +186,7 @@ export function selfInvoiceDocument(db: DB, company: CompanyInfo, voucherId: num
     pos: h.posOverride ?? company.stateCode,
     items, taxable, cgst, sgst, igst, cess, roundOff: 0, total: taxable + cgst + sgst + igst + cess,
     transporterId: null, vehicleNo: null, distanceKm: null,
-    precedingDoc: h.reference ? { invNo: h.reference, invDate: h.date } : null
+    precedingDoc: null
   }
   return { shape: 'invoice', kind: 'self_invoice', company, invoice, outstandingPaise: null, einvoice: null }
 }

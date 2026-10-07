@@ -185,8 +185,28 @@ await scenario('25-gst-expansion', async (h) => {
   const exported2 = JSON.parse(fs.readFileSync(ex.jsonPath, 'utf8'))
   assertEq(exported2.records.length, actions.length, 'every decision is in the export')
 
+  // ---------- RCM self-invoice: an unregistered RCM supplier's purchase → generate → PDF ----------
+  const accountGroups = await h.invoke('master:groups:list')
+  const gid = (n) => accountGroups.find((g) => g.name === n).id
+  const transporter = await h.invoke('master:ledgers:create', { name: 'Local Transporter', groupId: gid('Sundry Creditors'), stateCode: '27', rcm: true })
+  const freight = await h.invoke('master:ledgers:create', { name: 'Freight Inward', groupId: gid('Direct Expenses'), gstRate: 5, hsn: '9965' })
+  const rcmBill = await h.invoke('voucher:save', {
+    data: {
+      voucherTypeId: vtypes.find((t) => t.kind === 'purchase').id, date: months[0].from, partyLedgerId: transporter.id, reference: 'LR-55',
+      lines: [{ ledgerId: freight.id, drCr: 'dr', amount: 1200000 }, { ledgerId: transporter.id, drCr: 'cr', amount: 1200000 }]
+    }
+  })
   await h.goto('edocs')
   await h.click('tab-edocs-self-invoices')
-  await h.page.waitForSelector('[data-testid="rows-self-invoices"]', { state: 'attached', timeout: 10000 })
+  await h.page.waitForSelector(`[data-testid="btn-self-invoice-generate-${rcmBill.id}"]`, { timeout: 10000 })
+  await h.click(`btn-self-invoice-generate-${rcmBill.id}`)
+  await h.page.waitForSelector(`[data-testid="self-invoice-status-${rcmBill.id}"]:has-text("Generated")`, { timeout: 10000 })
+  const si = (await h.invoke('gst:selfInvoices', { from: months[0].from, to: months[0].to })).find((r) => r.voucherId === rcmBill.id)
+  assert(/^SI\/\d\d-\d\d\/0001$/.test(si.selfInvoiceNumber ?? ''), `self-invoice numbered in the FY series (got ${si.selfInvoiceNumber})`)
+  assertEq(si.tax, 60000, 'RCM tax at the ledger rate (5% of ₹12,000)')
+  const pdf = await h.invoke('gst:selfInvoicePdf', { voucherId: rcmBill.id })
+  assert(fs.existsSync(pdf.path) && fs.statSync(pdf.path).size > 1000, 'the self-invoice prints to PDF through the print templates')
+  const g3 = await h.invoke('gst:gstr3b', { from: months[0].from, to: months[0].to, period: months[0].period })
+  assert(g3.rcm.taxable >= 1200000 && g3.itcParts.isrc.cgst >= 30000, 'the RCM purchase is in 3B 3.1(d) and 4(A)(3)')
   await h.shot('07-self-invoices')
 })

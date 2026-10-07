@@ -631,7 +631,8 @@ function renderInvoice(c: Ctx, doc: InvoiceDocument, opts: RenderOptions): strin
           <div><i>${esc(amountInWords(inv.total))}</i></div>`
     : ''
 
-  const showQr = t.einvoice.showQr
+  // No QR on a self-invoice: it is never e-invoiced and carries no payment details.
+  const showQr = t.einvoice.showQr && doc.kind !== 'self_invoice'
   const headerQr = showQr && t.einvoice.qrPlacement === 'header' ? qrBlock(c, company, inv, irn) : ''
   const footerQr = showQr && t.einvoice.qrPlacement === 'footer' ? `<div class="qr-foot">${qrBlock(c, company, inv, irn)}</div>` : ''
   if (footerQr) c.extra.add('qr-foot')
