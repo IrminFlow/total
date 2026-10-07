@@ -60,11 +60,11 @@ export function Checklist({
         ✓
       </span>
       <span className="min-w-0 flex-1">
-        <span className={`block truncate text-detail ${item.done ? 'text-muted line-through decoration-line-strong' : 'text-ink'}`}>
+        <span className={`block truncate text-detail ${item.skipped ? 'text-muted' : item.done ? 'text-muted line-through decoration-line-strong' : 'text-ink'}`}>
           {item.label}
           <span className="sr-only">{item.done ? (item.skipped ? ' (not needed)' : ' (done)') : ' (to do)'}</span>
         </span>
-        {item.hint && !item.done && <span className="block truncate text-hint text-muted">{item.hint}</span>}
+        {item.hint && (!item.done || item.skipped) && <span className="block truncate text-hint text-muted">{item.hint}</span>}
       </span>
     </>
   )
