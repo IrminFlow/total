@@ -47,7 +47,10 @@ const ALLOW: { file: string; contains: string; reason: string }[] = [
   { file: 'tradeAnalysis.ts', contains: 'SELECT COUNT(*) AS n FROM inventory_lines il WHERE il.voucher_id', reason: "a stock note's own line count (stock notes always move stock)" },
   { file: 'tradeChain.ts', contains: 'il.line_order AS lineOrder, il.stock_item_id AS stockItemId', reason: 'linked documents: every line of each document in the chain' },
   { file: 'tradeClosure.ts', contains: 'SELECT line_uid AS uid, qty_milli AS q FROM inventory_lines', reason: "closing a stock note reads its own lines' linked quantity" },
-  { file: 'gstRcm.ts', contains: 'FROM inventory_lines il JOIN stock_items si ON si.id = il.stock_item_id JOIN units u', reason: 'self-invoice items = the bill items' }
+  { file: 'gstRcm.ts', contains: 'FROM inventory_lines il JOIN stock_items si ON si.id = il.stock_item_id JOIN units u', reason: 'self-invoice items = the bill items' },
+  { file: 'pricing.ts', contains: 'FROM inventory_lines WHERE voucher_id = ? AND is_absolute = 0', reason: "remember last price: the sale's item rates" },
+  { file: 'pricing.ts', contains: "vt.kind = 'purchase' AND il.direction = 'in'", reason: 'last purchase RATE of an item (a price, not a movement)' },
+  { file: 'counter.ts', contains: 'FROM inventory_lines il JOIN stock_items si ON si.id = il.stock_item_id JOIN units u ON u.id = si.unit_id', reason: "day-end items = the counter invoices' items" }
 ]
 
 /** Every string / template literal in a TS source (comments skipped; a template's nested

@@ -61,7 +61,7 @@ export const SCREENS: ScreenDef[] = [
     screen: { name: 'voucher-entry' },
     navSection: 'top',
     card: { sub: 'Sales, purchase, payment…', key: 'V' },
-    invalidates: ['voucher', 'nextNumber', 'billsOpen', 'ledgers', 'stockItems', 'units', 'currencies', 'voucherTypes', 'openSourceLines']
+    invalidates: ['voucher', 'nextNumber', 'billsOpen', 'ledgers', 'stockItems', 'units', 'currencies', 'voucherTypes', 'openSourceLines', 'pricingConfig']
   },
   {
     name: 'manufacture',
@@ -71,6 +71,17 @@ export const SCREENS: ScreenDef[] = [
     navSection: 'top',
     feature: 'inventory',
     invalidates: ['manufacturePreview', 'nextNumber', 'stockItems', 'ledgers', 'godowns', 'units', 'bom', 'bomVersions', 'jobWorkSendChallans', 'voucherTypes']
+  },
+  // WP 2.6: POS-style counter sales (a normal sales invoice + its receipt).
+  {
+    name: 'counter-billing',
+    title: 'Counter billing',
+    navLabel: 'Counter',
+    keywords: ['pos', 'point of sale', 'retail', 'barcode', 'scan', 'cash sale', 'billing', 'till', 'receipt'],
+    screen: { name: 'counter-billing' },
+    navSection: 'top',
+    feature: 'inventory',
+    invalidates: ['counterConfig', 'counterHeld', 'counterDayEnd', 'nextNumber', 'stockItems', 'ledgers', 'groups', 'units', 'pricingConfig', 'printTemplates']
   },
   {
     name: 'daybook',
@@ -89,7 +100,9 @@ export const SCREENS: ScreenDef[] = [
     card: { sub: 'Ledgers, items, groups', key: 'M' },
     invalidates: [
       'ledgers', 'groups', 'chartOfAccounts', 'stockItems', 'units', 'voucherTypes', 'currencies', 'bom',
-      'godowns', 'stockGroups', 'tradeDocTypes'
+      'godowns', 'stockGroups', 'tradeDocTypes',
+      // WP 2.6 pricing tabs
+      'pricingGrid', 'priceLevels', 'priceRates', 'partyRates', 'discountSchemes'
     ]
   },
 

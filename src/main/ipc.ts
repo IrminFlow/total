@@ -78,6 +78,8 @@ import * as budgets from './services/budgets'
 import * as yearEnd from './services/yearEnd'
 import { registerFixedAssetIpc } from './ipcFixedAssets'
 import { registerPayrollStatutoryIpc } from './ipcPayrollStatutory'
+import { registerPricingIpc } from './ipcPricing'
+import { rememberSalePrices } from './services/pricing'
 import { importTallyXml, dryRunTallyXml } from './services/tallyImport'
 import * as importer from './services/importers'
 import * as agentBridge from './services/agentBridge'
@@ -247,6 +249,7 @@ export function registerIpc(): void {
   registerFixedAssetIpc(handle, () => requireCompany().db)
   // ---------- payroll statutory (WP 3.7) — channels live in ipcPayrollStatutory.ts ----------
   registerPayrollStatutoryIpc(handle, () => requireCompany())
+  registerPricingIpc(handle, () => requireCompany())
 
   // ---------- company ----------
   handle('company:list', () => readRegistry())
@@ -872,6 +875,13 @@ export function registerIpc(): void {
     const { data, id } = z.object({ data: voucherInputSchema, id: z.number().int().positive().optional() }).parse(p)
     const c = requireCompany()
     const saved = vouchers.saveVoucher(c.db, data, id)
+    // WP 2.6 "remember last price" (Options toggle; a no-op unless on and this is a sale). Never
+    // fails the save it follows.
+    try {
+      rememberSalePrices(c.db, saved.id)
+    } catch (err) {
+      log('warn', 'pricing.rememberSalePrices.failed', { error: (err as Error).message })
+    }
     // Agent mirror stays fresh while the flag is on — debounced so entry bursts export once.
     if (configSvc.getAgentBridgeEnabled(c.db)) agentBridge.scheduleMirrorRefresh(c.db, c.slug)
     return saved

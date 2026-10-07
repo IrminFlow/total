@@ -69,6 +69,15 @@ export interface InvoiceDocument {
   einvoice?: PrintEinvoiceInfo | null
   /** Quotations and orders (WP 2.5c): the commercial facts their print carries. */
   trade?: PrintTradeInfo | null
+  /** Counter-billing sale (WP 2.6): how it was paid — printed by the receipt style. */
+  counter?: PrintCounterInfo | null
+}
+
+export interface PrintCounterInfo {
+  /** The receipt's cash / bank debits (ledger name, paise). */
+  payments: { label: string; amountPaise: number }[]
+  tenderedPaise: number
+  changePaise: number
 }
 
 export interface PrintTradeInfo {
@@ -257,6 +266,34 @@ function baseCss(c: Ctx): string {
     .sig .for { text-align: right; }
   `
   }
+  if (t.style === 'receipt') {
+    // WP 2.6 — 80 mm thermal receipt: one narrow column, black on white, no boxes.
+    return `
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font: ${px(12)}/1.35 ${fam}; color: #000; width: 100%; }
+    ${numCss}
+    .copy { page-break-after: always; }
+    .copy:last-child { page-break-after: auto; }
+    .rc-c { text-align: center; }
+    .rc-co { font-size: ${px(15)}; font-weight: 700; }
+    .rc-sm { font-size: ${px(10.5)}; }
+    .rc-title { margin-top: 4px; font-weight: 700; letter-spacing: 0.08em; }
+    .rc-row { display: flex; justify-content: space-between; gap: 6px; }
+    .rc-rule { border-top: 1px dashed #000; margin: 5px 0; }
+    thead { display: table-header-group; }
+    tr { page-break-inside: avoid; }
+    table.rc-items { width: 100%; border-collapse: collapse; }
+    table.rc-items td { padding: 1px 0; vertical-align: top; }
+    table.rc-items tr.rc-name td { padding-top: 3px; font-weight: 600; }
+    table.rc-tot { width: 100%; border-collapse: collapse; }
+    table.rc-tot td { padding: 1px 0; }
+    table.rc-tot tr.grand td { font-size: ${px(14)}; font-weight: 700; padding-top: 3px; }
+    table.rc-tax { width: 100%; border-collapse: collapse; font-size: ${px(10)}; }
+    table.rc-tax th { font-weight: 600; text-align: left; border-bottom: 1px solid #000; }
+    .r { text-align: right; }
+    .rc-foot { margin-top: 6px; text-align: center; font-size: ${px(10.5)}; }
+  `
+  }
   if (t.style === 'compact') {
     return `
     * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -349,6 +386,8 @@ function extraCss(c: Ctx): string {
 
 function pageCss(t: PrintTemplate): string {
   if (t.page.size === 'A4' && t.page.orientation === 'portrait') return ''
+  // Roll paper: the PDF engine sets the custom page (pdfOptionsFor); no named CSS size exists.
+  if (t.page.size === 'Roll80') return ''
   const size = t.page.size === 'Letter' ? 'letter' : t.page.size
   return `@page { size: ${size} ${t.page.orientation}; }`
 }
@@ -615,7 +654,82 @@ function einvoiceLine(c: Ctx, info: PrintEinvoiceInfo): string {
   return `<div class="einv">${parts.join(' · ')}</div>`
 }
 
+/** WP 2.6 — the till receipt (style 'receipt', Roll80 paper): company, bill no / date, the
+ *  customer, item lines as "qty × rate = amount", the GST lines, round off, total, the
+ *  payments with cash tendered / change, a by-rate tax summary and the footer note. */
+function renderReceipt(c: Ctx, doc: InvoiceDocument, opts: RenderOptions): string {
+  const { t } = c
+  const { company, invoice: inv } = doc
+  const m = c.money
+  const isIntra = inv.igst > 0 ? false : inv.cgst > 0 || inv.sgst > 0 ? true : inv.pos === company.stateCode
+  const h = t.header
+  const contact = [h.showPhone && company.phone ? `Ph ${esc(company.phone)}` : null, h.showEmail && company.email ? esc(company.email) : null].filter(Boolean)
+  const visible = (key: PrintColumnKey): boolean => t.columns.some((col) => col.key === key && col.visible)
+  const items = inv.items
+    .map((it) => {
+      const qtyRate = visible('rate') ? `${formatQtyMilli(it.qtyMilli)} ${esc(it.uqc)} × ${m(it.unitPricePaise)}` : `${formatQtyMilli(it.qtyMilli)} ${esc(it.uqc)}`
+      const disc = visible('discount') && it.discountPaise ? `<tr><td class="rc-sm">&nbsp;&nbsp;Discount</td><td class="r num">-${m(it.discountPaise)}</td></tr>` : ''
+      return `<tr class="rc-name"><td colspan="2">${esc(it.name)}</td></tr>
+        <tr><td class="num">${qtyRate}${it.rate ? ` <span class="rc-sm">(${it.rate}%)</span>` : ''}</td><td class="r num">${m(it.taxablePaise + (it.discountPaise ?? 0))}</td></tr>${disc}`
+    })
+    .join('')
+  const qtyTotal = inv.items.reduce((s, it) => s + it.qtyMilli, 0)
+  const tot = [
+    `<tr><td>Taxable value</td><td class="r num">${m(inv.taxable)}</td></tr>`,
+    isIntra && inv.cgst ? `<tr><td>CGST</td><td class="r num">${m(inv.cgst)}</td></tr>` : '',
+    isIntra && inv.sgst ? `<tr><td>SGST</td><td class="r num">${m(inv.sgst)}</td></tr>` : '',
+    !isIntra && inv.igst ? `<tr><td>IGST</td><td class="r num">${m(inv.igst)}</td></tr>` : '',
+    inv.cess ? `<tr><td>Cess</td><td class="r num">${m(inv.cess)}</td></tr>` : '',
+    t.totals.showRoundOff && inv.roundOff !== 0 ? `<tr><td>Round off</td><td class="r num">${m(inv.roundOff)}</td></tr>` : '',
+    tcsRow(c, inv),
+    `<tr class="grand"><td>TOTAL</td><td class="r num">${t.formats.currencySymbolOnTotal ? '₹ ' : ''}${m(inv.total)}</td></tr>`
+  ].join('')
+  const counter = doc.counter ?? null
+  const pays = counter && counter.payments.length
+    ? `<div class="rc-rule"></div><table class="rc-tot">${counter.payments.map((p) => `<tr><td>Paid · ${esc(p.label)}</td><td class="r num">${m(p.amountPaise)}</td></tr>`).join('')}${
+        counter.tenderedPaise > 0 ? `<tr><td>Cash tendered</td><td class="r num">${m(counter.tenderedPaise)}</td></tr><tr><td>Change</td><td class="r num">${m(counter.changePaise)}</td></tr>` : ''
+      }</table>`
+    : ''
+  const summaryRows = t.totals.taxSummary === 'none' ? [] : taxSummaryForInvoice(inv, 'rate', isIntra ? 'intra' : 'inter')
+  const summary = summaryRows.length
+    ? `<div class="rc-rule"></div><table class="rc-tax"><thead><tr><th>GST</th><th class="r">Taxable</th><th class="r">Tax</th></tr></thead><tbody>${summaryRows
+        .map((r) => `<tr><td class="num">${r.rate}%${r.cessRate ? `+${r.cessRate}%` : ''}</td><td class="r num">${m(r.taxable)}</td><td class="r num">${m(r.cgst + r.sgst + r.igst + r.cess)}</td></tr>`)
+        .join('')}</tbody></table>`
+    : ''
+  const irn = doc.einvoice?.irn ?? inv.irn ?? null
+  const foot = [
+    t.footer.terms.trim() ? `<div>${esc(t.footer.terms).replace(/\n/g, '<br/>')}</div>` : '',
+    t.footer.showComputerGenerated && t.footer.computerGeneratedText ? `<div>${esc(t.footer.computerGeneratedText)}</div>` : ''
+  ].join('')
+  const sheet = `
+    <div class="rc">
+      <div class="rc-c">
+        ${h.showLogo && h.logoDataUrl ? `<div>${logoImg(c)}</div>` : ''}
+        <div class="rc-co">${esc(company.name)}</div>
+        ${h.showAddress && company.address ? `<div class="rc-sm">${esc(company.address)}</div>` : ''}
+        ${h.showGstin ? `<div class="rc-sm num">GSTIN ${esc(company.gstin ?? 'Unregistered')}</div>` : ''}
+        ${contact.length ? `<div class="rc-sm">${contact.join(' · ')}</div>` : ''}
+        <div class="rc-title">${esc(h.titles[doc.kind])}</div>
+      </div>
+      <div class="rc-rule"></div>
+      <div class="rc-row"><span>Bill <b class="num">${esc(inv.number)}</b></span><span class="num">${c.date(inv.date)}</span></div>
+      <div class="rc-row"><span>${esc(inv.partyName ?? 'Cash sale')}</span>${t.party.showGstin && inv.partyGstin ? `<span class="num rc-sm">${esc(inv.partyGstin)}</span>` : ''}</div>
+      ${t.einvoice.showIrn && irn ? `<div class="rc-sm num" style="overflow-wrap:anywhere">IRN ${esc(irn)}</div>` : ''}
+      <div class="rc-rule"></div>
+      <table class="rc-items"><tbody>${items}</tbody></table>
+      <div class="rc-rule"></div>
+      <div class="rc-row rc-sm"><span>${inv.items.length} item${inv.items.length === 1 ? '' : 's'}</span><span class="num">Qty ${formatQtyMilli(qtyTotal)}</span></div>
+      <table class="rc-tot">${tot}</table>${pays}${summary}
+      ${foot ? `<div class="rc-foot">${foot}</div>` : ''}
+    </div>`
+  const copies = t.header.copyLabels.map(() => `<div class="copy">${sheet}</div>`).join('')
+  const pre = [fontFaces(t, opts)].filter(Boolean).join('\n    ')
+  return `<!doctype html><html><head><meta charset="utf-8"><title>${esc(DOC_LABEL[doc.kind])} ${esc(inv.number)}</title>
+  <style>${pre ? `\n    ${pre}` : ''}${baseCss(c)}</style></head><body>${copies}</body></html>`
+}
+
 function renderInvoice(c: Ctx, doc: InvoiceDocument, opts: RenderOptions): string {
+  if (c.t.style === 'receipt') return renderReceipt(c, doc, opts)
   const { t } = c
   const { company, invoice: inv } = doc
   // Supply type for the tax columns: any IGST → inter; any CGST/SGST → intra; when every line is
@@ -857,7 +971,9 @@ function renderVoucher(c: Ctx, doc: VoucherDocument, opts: RenderOptions): strin
 
 /** Render a document with a template → self-contained HTML. */
 export function renderDocument(template: PrintTemplate, doc: PrintDocument, opts: RenderOptions = {}): string {
-  const c = makeCtx(template)
+  // The till-receipt style lays out invoices only; an accounting voucher printed with a receipt
+  // template falls back to the compact voucher layout (same paper, fonts and footer).
+  const c = makeCtx(doc.shape === 'voucher' && template.style === 'receipt' ? { ...template, style: 'compact' } : template)
   return doc.shape === 'invoice' ? renderInvoice(c, doc, opts) : renderVoucher(c, doc, opts)
 }
 

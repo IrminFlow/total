@@ -99,10 +99,10 @@ describe('Classic migration is lossless on a real voucher (config â†’ template â
 })
 
 describe('print templates service', () => {
-  it('lists the three built-ins with Classic as every kind default', () => {
+  it('lists the built-ins (incl. the WP 2.6 thermal receipt) with Classic as every kind default', () => {
     const { db } = setup()
     const l = pt.listTemplates(db)
-    expect(l.templates.map((t) => t.id)).toEqual(['classic', 'compact', 'modern'])
+    expect(l.templates.map((t) => t.id)).toEqual(['classic', 'compact', 'modern', 'receipt-80mm'])
     expect(l.templates.every((t) => t.builtIn && !t.customised)).toBe(true)
     expect(Object.values(l.defaults)).toEqual(PRINT_DOC_KINDS.map(() => 'classic'))
   })
@@ -163,7 +163,7 @@ describe('print templates service', () => {
   it('survives a corrupt store (falls back to built-ins) and drops invalid stored templates', () => {
     const s = setup()
     s.db.prepare("INSERT INTO meta (key, value) VALUES ('printTemplates', '{not json')").run()
-    expect(pt.listTemplates(s.db).templates).toHaveLength(3)
+    expect(pt.listTemplates(s.db).templates).toHaveLength(4)
     s.db.prepare("UPDATE meta SET value = ? WHERE key = 'printTemplates'").run(JSON.stringify({ version: 1, templates: [{ id: 'BAD' }], defaults: { sales: 'BAD' } }))
     expect(pt.listTemplates(s.db).defaults.sales).toBe('classic')
     expect(invoiceHtml(s.db, INFO, s.inv.id).html).toContain('TAX INVOICE')

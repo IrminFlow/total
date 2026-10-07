@@ -318,13 +318,17 @@ interface StockItemRow {
   barcode: string | null; reorder_level_milli: number | null; valuation_method: 'weighted_avg' | 'fifo'
   track_serials: number
   tcs_section_id?: number | null
+  mrp_paise?: number | null
+  standard_cost_paise?: number | null
 }
 const mapItem = (r: StockItemRow): StockItem => ({
   id: r.id, name: r.name, groupId: r.group_id, unitId: r.unit_id, hsn: r.hsn,
   gstRate: r.gst_rate, cessRate: r.cess_rate, openingQtyMilli: r.opening_qty_milli, openingValue: r.opening_value,
   barcode: r.barcode, reorderLevelMilli: r.reorder_level_milli, valuationMethod: r.valuation_method,
   trackSerials: !!r.track_serials,
-  tcsSectionId: r.tcs_section_id ?? null
+  tcsSectionId: r.tcs_section_id ?? null,
+  mrpPaise: r.mrp_paise ?? null,
+  standardCostPaise: r.standard_cost_paise ?? null
 })
 
 export function listStockItems(db: DB): StockItem[] {
@@ -333,11 +337,11 @@ export function listStockItems(db: DB): StockItem[] {
 
 export function createStockItem(db: DB, input: StockItemInput): StockItem {
   const res = db.prepare(
-    `INSERT INTO stock_items (name, group_id, unit_id, hsn, gst_rate, cess_rate, opening_qty_milli, opening_value, barcode, reorder_level_milli, valuation_method, track_serials, tcs_section_id)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    `INSERT INTO stock_items (name, group_id, unit_id, hsn, gst_rate, cess_rate, opening_qty_milli, opening_value, barcode, reorder_level_milli, valuation_method, track_serials, tcs_section_id, mrp_paise, standard_cost_paise)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   ).run(input.name, input.groupId, input.unitId, input.hsn, input.gstRate, input.cessRate,
     input.openingQtyMilli, input.openingValue, input.barcode, input.reorderLevelMilli, input.valuationMethod ?? 'weighted_avg',
-    input.trackSerials ? 1 : 0, input.tcsSectionId ?? null)
+    input.trackSerials ? 1 : 0, input.tcsSectionId ?? null, input.mrpPaise ?? null, input.standardCostPaise ?? null)
   const created = mapItem(db.prepare('SELECT * FROM stock_items WHERE id = ?').get(res.lastInsertRowid) as StockItemRow)
   writeAudit(db, 'stockItem', created.id, 'create', null, created)
   return created
@@ -351,10 +355,12 @@ export function updateStockItem(db: DB, id: number, input: StockItemInput): Stoc
     db.prepare(
       `UPDATE stock_items SET name = ?, group_id = ?, unit_id = ?, hsn = ?, gst_rate = ?, cess_rate = ?,
        opening_qty_milli = ?, opening_value = ?, barcode = ?, reorder_level_milli = ?, valuation_method = ?, track_serials = ?,
-       tcs_section_id = ? WHERE id = ?`
+       tcs_section_id = ?, mrp_paise = ?, standard_cost_paise = ? WHERE id = ?`
     ).run(input.name, input.groupId, input.unitId, input.hsn, input.gstRate, input.cessRate,
       input.openingQtyMilli, input.openingValue, input.barcode, input.reorderLevelMilli, input.valuationMethod ?? existing.valuation_method,
-      trackSerials, input.tcsSectionId === undefined ? (existing.tcs_section_id ?? null) : input.tcsSectionId, id)
+      trackSerials, input.tcsSectionId === undefined ? (existing.tcs_section_id ?? null) : input.tcsSectionId,
+      input.mrpPaise === undefined ? (existing.mrp_paise ?? null) : input.mrpPaise,
+      input.standardCostPaise === undefined ? (existing.standard_cost_paise ?? null) : input.standardCostPaise, id)
     // Turning tracking on/off re-projects the item's serials from its line serials (off → none).
     if (trackSerials !== existing.track_serials) rebuildItemSerials(db, [id])
   })()

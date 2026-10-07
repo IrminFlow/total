@@ -16,6 +16,7 @@ import { CashFlowScreen } from './screens/CashFlow'
 import { ExceptionsScreen } from './screens/Exceptions'
 import { StockSummaryScreen } from './screens/StockSummary'
 import { ManufactureScreen } from './screens/Manufacture'
+import { CounterBillingScreen } from './screens/CounterBilling'
 import { ManufactureRegisterScreen } from './screens/ManufactureRegister'
 import { ManufactureReportsScreen } from './screens/ManufactureReports'
 import { FixedAssetsScreen } from './screens/FixedAssets'
@@ -172,6 +173,7 @@ export default function App(): React.JSX.Element {
               prefill={screen.prefill}
             />
           )}
+          {screen.name === 'counter-billing' && <CounterBillingScreen />}
           {screen.name === 'manufacture-register' && <ManufactureRegisterScreen />}
           {screen.name === 'manufacture-reports' && <ManufactureReportsScreen key={screen.tab ?? 'production'} tab={screen.tab} />}
           {screen.name === 'fixed-assets' && <FixedAssetsScreen tab={screen.tab} />}

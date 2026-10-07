@@ -86,7 +86,7 @@ describe('template designer', () => {
   it('lists the built-ins and previews Classic with the real renderer', async () => {
     renderDesigner()
     const list = await screen.findByTestId('rows-settings-tpl-list')
-    await waitFor(() => expect(within(list).getAllByRole('button')).toHaveLength(3))
+    await waitFor(() => expect(within(list).getAllByRole('button')).toHaveLength(4)) // + Receipt 80mm (WP 2.6)
     await waitFor(() => expect(previewHtml()).toContain('TAX INVOICE'), { timeout: 2000 })
     expect(previewHtml()).toContain('INV-SAMPLE-1')
     expect(list.querySelector('[data-row-id="classic"]')?.getAttribute('aria-current')).toBe('true')
@@ -124,7 +124,7 @@ describe('template designer', () => {
   it('sets a template as the default for a document kind', async () => {
     renderDesigner()
     const list = await screen.findByTestId('rows-settings-tpl-list')
-    await waitFor(() => expect(within(list).getAllByRole('button')).toHaveLength(3))
+    await waitFor(() => expect(within(list).getAllByRole('button')).toHaveLength(4)) // + Receipt 80mm (WP 2.6)
     fireEvent.click(list.querySelector('[data-row-id="modern"]')!)
     await waitFor(() => expect(screen.getByTestId('settings-tpl-editing').textContent).toContain('Modern'))
     const btn = await screen.findByTestId('btn-settings-tpl-default-sales')

@@ -11,6 +11,7 @@ import { validateGstin } from '@shared/gst/validate'
 import { GST_RATE_PRESETS } from '@shared/seed'
 import { confirmDialog } from '../lib/dialogs'
 import { useFeatures } from '../lib/useFeatures'
+import { PartyRatesModal } from '../screens/masters/PartyRatesTab'
 
 const EXPORT_TYPES: { value: NonNullable<Ledger['exportType']> | ''; label: string }[] = [
   { value: '', label: 'None (domestic)' },
@@ -138,6 +139,10 @@ function LedgerForm({
   const [exportType, setExportType] = useState<NonNullable<Ledger['exportType']> | ''>(ledger?.exportType ?? '')
   const [rcm, setRcm] = useState<boolean>(ledger?.rcm ?? false)
   const [itcEligibility, setItcEligibility] = useState<Ledger['itcEligibility']>(ledger?.itcEligibility ?? 'eligible')
+  // WP 2.6: the party's price level and its party-wise rates.
+  const [priceLevelId, setPriceLevelId] = useState<number | ''>(ledger?.priceLevelId ?? '')
+  const { data: priceLevelList } = useQuery({ queryKey: ['priceLevels'], queryFn: api.priceLevels.list, enabled: features.inventory })
+  const [partyRatesOpen, setPartyRatesOpen] = useState(false)
 
   const ancestry = useMemo(() => groupAncestryNames(groupId, groups), [groupId, groups])
   const isParty = ancestry.some((n) => PARTY_GROUPS.includes(n))
@@ -183,7 +188,9 @@ function LedgerForm({
         creditDays: creditDays.trim() ? Number(creditDays) : null,
         exportType: exportType || null,
         rcm,
-        itcEligibility
+        itcEligibility,
+        // Sent only where the form shows it; otherwise the server keeps the stored level.
+        ...(features.inventory && isParty ? { priceLevelId: priceLevelId === '' ? null : priceLevelId } : {})
       }
       if (ledger) await api.ledgers.update(ledger.id, data)
       else await api.ledgers.create(data)
@@ -344,6 +351,26 @@ function LedgerForm({
                 ))}
               </Select>
             </Field>
+            {features.inventory && (
+              <div className="grid grid-cols-3 items-end gap-3">
+                <Field label="Price level" hint="Prices this party's sales lines (after party-wise rates)" className="col-span-2">
+                  <Select data-testid="ledger-price-level" value={priceLevelId} onChange={(e) => setPriceLevelId(e.target.value ? Number(e.target.value) : '')}>
+                    <option value="">Company default</option>
+                    {(priceLevelList ?? []).map((l) => (
+                      <option key={l.id} value={l.id}>
+                        {l.name}
+                        {l.inclusiveOfTax ? ' (incl. GST)' : ''}
+                      </option>
+                    ))}
+                  </Select>
+                </Field>
+                {ledger && (
+                  <Button className="mb-0.5" data-testid="btn-ledger-party-rates" onClick={() => setPartyRatesOpen(true)}>
+                    Party rates…
+                  </Button>
+                )}
+              </div>
+            )}
             {features.tcs && (
               <Field label="TCS section (buyer)" hint="Sales to this buyer collect TCS under this section (e.g. a motor vehicle above ₹10 lakh)">
                 <Select data-testid="ledger-tcs-section" value={tcsSectionId} onChange={(e) => setTcsSectionId(e.target.value ? Number(e.target.value) : '')}>
@@ -448,6 +475,7 @@ function LedgerForm({
           </div>
         </div>
       </div>
+      {partyRatesOpen && ledger && <PartyRatesModal ledgerId={ledger.id} name={ledger.name} onClose={() => setPartyRatesOpen(false)} />}
     </Modal>
   )
 }

@@ -28,7 +28,7 @@ import {
   type TemplateList,
   type TemplateSummary
 } from '@shared/printTemplates'
-import { renderDocument, type InvoiceAuditTrail, type InvoiceDocument, type PrintDocument, type VoucherDocLine } from '@shared/print/render'
+import { renderDocument, type InvoiceAuditTrail, type InvoiceDocument, type PrintCounterInfo, type PrintDocument, type VoucherDocLine } from '@shared/print/render'
 import { sampleDocument } from '@shared/print/sample'
 import type { EdocItem } from '@shared/gst/edocs'
 import { computeGst, supplyTypeFor } from '@shared/gst/calc'
@@ -315,7 +315,8 @@ export function loadPrintDocument(db: DB, company: CompanyInfo, voucherId: numbe
     attachDiscounts(db, voucherId, inv.items)
     return {
       shape: 'invoice', kind, company, invoice: inv, audit: auditTrailFor(db, voucherId), outstandingPaise,
-      einvoice: { irn: head.irn, ackNo: head.ackNo, ackDate: head.ackDate, ewbNo: head.ewbNo }
+      einvoice: { irn: head.irn, ackNo: head.ackNo, ackDate: head.ackDate, ewbNo: head.ewbNo },
+      ...(kind === 'sales' ? { counter: counterPaymentsFor(db, voucherId) } : {})
     }
   }
   const lines = db
@@ -355,6 +356,25 @@ export function loadPrintDocument(db: DB, company: CompanyInfo, voucherId: numbe
   }
 }
 
+/** WP 2.6: a counter-billing sale's payments (its receipt's cash / bank debits) and the cash
+ *  tendered / change, for the receipt print. null for any other invoice. */
+function counterPaymentsFor(db: DB, voucherId: number): PrintCounterInfo | null {
+  const row = db
+    .prepare('SELECT receipt_voucher_id AS receiptId, tendered_paise AS tendered, change_paise AS change FROM counter_sales WHERE invoice_voucher_id = ?')
+    .get(voucherId) as { receiptId: number | null; tendered: number; change: number } | undefined
+  if (!row) return null
+  const payments = row.receiptId
+    ? (db
+        .prepare(
+          `SELECT l.name AS label, vl.amount AS amountPaise FROM voucher_lines vl JOIN ledgers l ON l.id = vl.ledger_id
+           JOIN vouchers v ON v.id = vl.voucher_id
+           WHERE vl.voucher_id = ? AND vl.dr_cr = 'dr' AND ${NOT_DELETED} ORDER BY vl.line_order, vl.id`
+        )
+        .all(row.receiptId) as { label: string; amountPaise: number }[])
+    : []
+  return { payments, tenderedPaise: row.tendered, changePaise: row.change }
+}
+
 const RENDER_OPTS = { fontFaceCss: plexFontFaceCss }
 
 /** The real-print HTML for a voucher with its kind's default template. */
@@ -363,13 +383,14 @@ export function documentHtml(
   company: CompanyInfo,
   voucherId: number,
   templateOverride?: PrintTemplate
-): { html: string; number: string; kind: PrintDocKind; template: PrintTemplate } {
+): { html: string; number: string; kind: PrintDocKind; template: PrintTemplate; itemCount: number } {
   const head = voucherHead(db, voucherId)
   const kind = printKindForVoucherKind(head.kind)
   if (!kind) throw new Error('This voucher type has no printed form')
   const template = templateOverride ?? resolveTemplate(db, kind, voucherId)
   const doc = loadPrintDocument(db, company, voucherId, template.totals.showOutstanding)
-  return { html: renderDocument(template, doc, RENDER_OPTS), number: head.number, kind, template }
+  const itemCount = doc.shape === 'invoice' ? doc.invoice.items.length : doc.voucher.lines.length
+  return { html: renderDocument(template, doc, RENDER_OPTS), number: head.number, kind, template, itemCount }
 }
 
 export const pdfFileName = (kind: PrintDocKind, number: string, voucherId?: number): string => {
@@ -379,13 +400,19 @@ export const pdfFileName = (kind: PrintDocKind, number: string, voucherId?: numb
 }
 
 export async function documentPdf(db: DB, company: CompanyInfo, slug: string, voucherId: number): Promise<string> {
-  const { html, number, kind, template } = documentHtml(db, company, voucherId)
-  return writeExportPdf(slug, pdfFileName(kind, number), html, pdfOptionsFor(template))
+  const { html, number, kind, template, itemCount } = documentHtml(db, company, voucherId)
+  return writeExportPdf(slug, pdfFileName(kind, number), html, pdfOptionsFor(template, { itemCount }))
+}
+
+/** WP 2.6 counter billing: the voucher printed with a chosen template (the thermal receipt or A4). */
+export async function documentPdfWith(db: DB, company: CompanyInfo, slug: string, voucherId: number, templateId: string): Promise<string> {
+  const { html, number, kind, template, itemCount } = documentHtml(db, company, voucherId, getTemplate(db, templateId))
+  return writeExportPdf(slug, pdfFileName(kind, `${number}-${template.id}`), html, pdfOptionsFor(template, { itemCount }))
 }
 
 export async function documentPdfBuffer(db: DB, company: CompanyInfo, voucherId: number): Promise<{ pdf: Buffer; number: string; kind: PrintDocKind }> {
-  const { html, number, kind, template } = documentHtml(db, company, voucherId)
-  return { pdf: await htmlToPdf(html, pdfOptionsFor(template)), number, kind }
+  const { html, number, kind, template, itemCount } = documentHtml(db, company, voucherId)
+  return { pdf: await htmlToPdf(html, pdfOptionsFor(template, { itemCount })), number, kind }
 }
 
 // ---------------------------------------------------------------- quotations / orders (WP 2.5c)

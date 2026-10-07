@@ -158,16 +158,19 @@ export interface PrintColumn {
 
 // ---------------------------------------------------------------- template shape
 
-export const PAGE_SIZES = ['A4', 'A5', 'Letter'] as const
+export const PAGE_SIZES = ['A4', 'A5', 'Letter', 'Roll80'] as const
 export type PageSize = (typeof PAGE_SIZES)[number]
-/** Page dimensions in mm (portrait). */
+/** Page dimensions in mm (portrait). Roll80 (WP 2.6) is 80 mm thermal roll paper: the PDF's
+ *  height follows the content (pdfOptionsFor); 200 mm is the designer preview's sheet. */
 export const PAGE_MM: Record<PageSize, { w: number; h: number }> = {
   A4: { w: 210, h: 297 },
   A5: { w: 148, h: 210 },
-  Letter: { w: 215.9, h: 279.4 }
+  Letter: { w: 215.9, h: 279.4 },
+  Roll80: { w: 80, h: 200 }
 }
 
-export const PRINT_STYLES = ['classic', 'compact', 'modern'] as const
+/** 'receipt' (WP 2.6): the narrow till-receipt layout for thermal printers. */
+export const PRINT_STYLES = ['classic', 'compact', 'modern', 'receipt'] as const
 export type PrintStyle = (typeof PRINT_STYLES)[number]
 
 export const FONT_FAMILIES = ['helvetica', 'plex-sans', 'plex-serif', 'system-sans', 'system-serif'] as const
@@ -354,7 +357,7 @@ export type PrintTemplateInput = z.input<typeof printTemplateSchema>
 
 // ---------------------------------------------------------------- built-ins
 
-export const BUILT_IN_IDS = ['classic', 'compact', 'modern'] as const
+export const BUILT_IN_IDS = ['classic', 'compact', 'modern', 'receipt-80mm'] as const
 export type BuiltInId = (typeof BUILT_IN_IDS)[number]
 export const isBuiltInId = (id: string): id is BuiltInId => (BUILT_IN_IDS as readonly string[]).includes(id)
 
@@ -505,10 +508,34 @@ export const MODERN_DEFAULT: PrintTemplate = printTemplateSchema.parse({
   typography: { fontFamily: 'plex-sans', numberFont: 'body', baseFontPx: 11, accent: '#1f4f78' }
 } satisfies PrintTemplateInput)
 
+/** WP 2.6 — "Receipt 80mm": the counter bill on 80 mm thermal roll paper (72 mm printable).
+ *  Sales only; item / qty × rate / amount, the GST lines, round off, total and the payments. */
+export const RECEIPT_80MM_DEFAULT: PrintTemplate = printTemplateSchema.parse({
+  id: 'receipt-80mm',
+  name: 'Receipt 80mm',
+  builtIn: true,
+  style: 'receipt',
+  kinds: ['sales'],
+  page: { size: 'Roll80', marginsMm: { top: 3, right: 4, bottom: 4, left: 4 }, pageNumbers: false },
+  header: { showLogo: true, logoMaxHeightPx: 36, logoMaxWidthPx: 140, logoPosition: 'center', showPhone: true, copyLabels: ['Customer copy'] },
+  party: { showAddress: false, showPlaceOfSupply: false, showVehicle: false },
+  columns: cols([['item'], ['qty'], ['rate'], ['discount'], ['taxable', { label: 'Amount' }]]),
+  table: { carryForwardEvery: 0 },
+  totals: { taxSummary: 'rate', showAmountInWords: false },
+  footer: {
+    declaration: '', showSignature: false, showReceiverSignature: false, showComputerGenerated: true,
+    computerGeneratedText: 'Thank you. Please visit again.'
+  },
+  einvoice: { showQr: false, showIrn: true, showEwb: false },
+  formats: { date: 'dd-mmm-yy', currencySymbolOnTotal: true },
+  typography: { fontFamily: 'system-sans', numberFont: 'body', baseFontPx: 9, accent: '#000000' }
+} satisfies PrintTemplateInput)
+
 export const BUILT_IN_DEFAULTS: Record<BuiltInId, PrintTemplate> = {
   classic: CLASSIC_DEFAULT,
   compact: COMPACT_DEFAULT,
-  modern: MODERN_DEFAULT
+  modern: MODERN_DEFAULT,
+  'receipt-80mm': RECEIPT_80MM_DEFAULT
 }
 
 // ---------------------------------------------------------------- store
@@ -589,12 +616,23 @@ export function parseTemplateImport(jsonText: string): PrintTemplate {
   return r.data
 }
 
-/** PDF engine options for a template (consumed by src/main/services/pdf.ts). */
-export function pdfOptionsFor(t: PrintTemplate): {
-  pageSize: PageSize
+/** Roll paper height for a receipt (mm): a fixed head/foot plus a band per item line — the
+ *  thermal printer cuts after the content, so a generous estimate only feeds blank paper. */
+export function rollHeightMm(itemCount: number): number {
+  return Math.min(2000, 120 + 10 * Math.max(1, itemCount))
+}
+
+/** PDF engine options for a template (consumed by src/main/services/pdf.ts). Roll80 becomes a
+ *  custom 80 mm page (INCHES, as printToPDF takes custom sizes) as tall as the content needs. */
+export function pdfOptionsFor(t: PrintTemplate, opts: { itemCount?: number } = {}): {
+  pageSize: Exclude<PageSize, 'Roll80'> | { width: number; height: number }
   landscape: boolean
   marginsMm: { top: number; right: number; bottom: number; left: number }
   pageNumbers: boolean
 } {
-  return { pageSize: t.page.size, landscape: t.page.orientation === 'landscape', marginsMm: { ...t.page.marginsMm }, pageNumbers: t.page.pageNumbers }
+  const pageSize = t.page.size === 'Roll80' ? { width: 80 / 25.4, height: rollHeightMm(opts.itemCount ?? 1) / 25.4 } : t.page.size
+  return {
+    pageSize, landscape: t.page.size !== 'Roll80' && t.page.orientation === 'landscape', marginsMm: { ...t.page.marginsMm },
+    pageNumbers: t.page.size !== 'Roll80' && t.page.pageNumbers
+  }
 }

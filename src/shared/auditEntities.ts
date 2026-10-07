@@ -24,9 +24,11 @@ export const AUDIT_ENTITIES = [
   'cheque_config',
   'company',
   'costCentre',
+  'counter_sale',
   'csv_import',
   'currency',
   'depreciation_run',
+  'discountScheme',
   'employee',
   'export',
   'fixed_asset',
@@ -35,6 +37,7 @@ export const AUDIT_ENTITIES = [
   'group',
   'gst_ims',
   'gst_self_invoice',
+  'held_bill',
   'it_block',
   'it_block_rate',
   'job_work',
@@ -42,6 +45,7 @@ export const AUDIT_ENTITIES = [
   'manufacture',
   'migration',
   'nic_credentials',
+  'partyRate',
   'pay_head',
   'payroll_run',
   'priceLevel',
@@ -108,6 +112,10 @@ export const AUDIT_ENTITY_LABELS: Partial<Record<AuditEntity, string>> = {
   cheque_config: 'Cheque layout',
   company: 'Company settings',
   costCentre: 'Cost centre',
+  counter_sale: 'Counter sale',
+  discountScheme: 'Discount scheme',
+  held_bill: 'Held counter bill',
+  partyRate: 'Party rate',
   csv_import: 'CSV import',
   currency: 'Currency',
   depreciation_run: 'Depreciation run',
@@ -164,4 +172,4 @@ export const auditActionLabel = (a: string): string => (a.charAt(0).toUpperCase(
 
 /** Entities whose rows belong to one voucher: the report's voucher filter matches these by
  *  entity_id, and every other entity by a `voucherId` field in its before/after JSON. */
-export const VOUCHER_ENTITIES: readonly AuditEntity[] = ['voucher', 'manufacture', 'job_work', 'gst_self_invoice']
+export const VOUCHER_ENTITIES: readonly AuditEntity[] = ['voucher', 'manufacture', 'job_work', 'gst_self_invoice', 'counter_sale']

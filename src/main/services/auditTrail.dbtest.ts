@@ -32,8 +32,9 @@ beforeEach(() => {
 })
 
 describe('migration 031 backfill', () => {
-  it('is the last migration on this branch and comes after 029', () => {
-    expect(M031).toBeGreaterThan(MIGRATIONS.findIndex((sql) => sql.includes('CREATE TABLE statutory_rates')))
+  it('is migration 031, after 030 (WP 2.6), and the last', () => {
+    expect(M031).toBeGreaterThan(MIGRATIONS.findIndex((sql) => sql.includes('CREATE TABLE price_list_rates_030')))
+    expect(M031 + 1).toBe(31)
     expect(M031).toBe(MIGRATIONS.length - 1)
   })
 
@@ -250,5 +251,35 @@ describe('edit-log export and the CA pack', () => {
     const summary = readFileSync(join(path, 'audit-trail-verification.txt'), 'utf8')
     expect(summary).toContain('Result: VERIFIED')
     expect(summary).toMatch(/Chain head hash \(SHA-256\): [0-9a-f]{64}/)
+  })
+})
+
+describe('WP 2.6 pricing and counter billing write their own entities', () => {
+  it('party rates, schemes, counter sales and held bills', async () => {
+    const { pricingFixture } = await import('./pricingFixture.testutil')
+    const { savePartyRate, deletePartyRate, saveScheme } = await import('./pricing')
+    const { counterCheckout, holdBill, recallHeldBill, discardHeldBill } = await import('./counter')
+    const { db, umbrella, pen } = pricingFixture()
+    const rows = (entity: string): { action: string; entity_id: number }[] =>
+      db.prepare('SELECT action, entity_id FROM audit_log WHERE entity = ? ORDER BY id').all(entity) as { action: string; entity_id: number }[]
+
+    const r = savePartyRate(db, { ledgerId: umbrella, stockItemId: pen, ratePaise: 900 })
+    deletePartyRate(db, r.id)
+    expect(rows('partyRate').map((x) => x.action)).toEqual(['create', 'delete'])
+    saveScheme(db, { name: 'Diwali 10%', kind: 'flat', appliesTo: 'all', slabs: [{ discountBp: 1000 }] })
+    expect(rows('discountScheme').map((x) => x.action)).toEqual(['create'])
+
+    const sale = counterCheckout(db, TEST_INFO, {
+      date: '2025-10-07', lines: [{ itemId: pen, qtyMilli: 1000, ratePaise: 1000 }], payments: [{ mode: 'cash', amountPaise: 1200 }]
+    })
+    expect(rows('counter_sale')).toEqual([{ action: 'create', entity_id: sale.invoiceId }])
+    expect(listAudit(db, { voucherId: sale.invoiceId }).rows.map((x) => x.entity)).toContain('counter_sale')
+
+    const a = holdBill(db, { lines: [{ itemId: pen, qtyMilli: 1000, ratePaise: 1000 }] })
+    const b = holdBill(db, { lines: [{ itemId: pen, qtyMilli: 2000, ratePaise: 1000 }] })
+    recallHeldBill(db, a.id)
+    discardHeldBill(db, b.id)
+    expect(rows('held_bill').map((x) => x.action)).toEqual(['create', 'create', 'delete', 'delete'])
+    expect(verifyAudit(db).ok).toBe(true)
   })
 })
