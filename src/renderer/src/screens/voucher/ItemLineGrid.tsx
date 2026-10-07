@@ -12,10 +12,13 @@ import { ItemPicker, useStockItems } from '../../components/pickers'
 import { useFeatures } from '../../lib/useFeatures'
 import { nextLineKey } from './hooks'
 import { LineDetailToggle, LineStockDetail, LineStockSummary, useLineDetails } from './LineStockDetail'
+import { PriceHint, useLinePricing, type LinePricingContext, type RowPricing } from './useLinePricing'
 
 export interface ItemRow extends InvoiceRowState {
   /** Stable React key — survives the trailing-blank-row insertions (never an array index). */
   key: number
+  /** WP 2.6: who owns the rate (UI state only — never posted). */
+  pricing?: RowPricing
 }
 
 export const blankItemRow = (): ItemRow => ({
@@ -52,13 +55,18 @@ export interface ItemLineGridProps {
   /** WP 2.5c: false hides the per-line stock detail (godown / batch / serials) — quotations and
    *  orders move no goods. Default: shown whenever inventory is on. */
   stockDetail?: boolean
+  /** WP 2.6: price lines through the resolver (party rate › level › scheme › default › MRP) and
+   *  show where each rate came from. Absent / disabled = the legacy party-price-level fill. */
+  pricing?: LinePricingContext
 }
 
 export function ItemLineGrid({
   rows, setRow, setRows, direction, priceLevelId, fxActive, date, voucherId, fallbackGstRate, onCreateItem,
-  lockedBySource, rowNote, onRemoveRow, stockDetail = true
+  lockedBySource, rowNote, onRemoveRow, stockDetail = true, pricing
 }: ItemLineGridProps): React.JSX.Element {
   const features = useFeatures()
+  const resolverOn = !!pricing?.enabled
+  const linePricing = useLinePricing(rows, setRows, pricing ?? { enabled: false, autoApply: false, partyId: null, date, supply: 'intra', currency: '' })
   const stockDetailOn = features.inventory && stockDetail
   const items = useStockItems()
   const { data: units } = useQuery({ queryKey: ['units'], queryFn: api.units.list })
@@ -124,7 +132,7 @@ export function ItemLineGrid({
                       setRow(i, id === r.itemId ? { itemId: id } : { itemId: id, batchId: null, serials: undefined })
                       // Price-level autofill: the party's price list fills an empty Rate cell.
                       // Price-list rates are ₹, so skip while a foreign currency is active.
-                      if (id != null && r.rate == null && !fxActive && priceLevelId != null) {
+                      if (!resolverOn && id != null && r.rate == null && !fxActive && priceLevelId != null) {
                         const rowKey = r.key
                         void api.priceLevels
                           .rateFor(priceLevelId, id, date)
@@ -164,12 +172,20 @@ export function ItemLineGrid({
                   </div>
                 </td>
                 <td className="r">
-                  <AmountInput paise={r.rate} onPaise={(p) => setRow(i, { rate: p })} testId="input-line-rate" />
+                  <AmountInput
+                    paise={r.rate}
+                    onPaise={(p) =>
+                      // A typed rate is the user's; clearing it hands the line back to the price list.
+                      setRow(i, resolverOn ? { rate: p, pricing: p == null ? undefined : { source: 'manual' } } : { rate: p })
+                    }
+                    testId="input-line-rate"
+                  />
+                  {resolverOn && item && <PriceHint pricing={r.pricing} onReset={() => linePricing.resetRow(r.key)} />}
                 </td>
                 <td className="r">
                   <AmountInput
                     paise={r.discount}
-                    onPaise={(p) => setRow(i, { discount: p })}
+                    onPaise={(p) => setRow(i, resolverOn && r.rate != null ? { discount: p, pricing: { source: 'manual' } } : { discount: p })}
                     placeholder="0"
                     testId="input-line-discount"
                   />

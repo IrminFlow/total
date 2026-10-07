@@ -15,7 +15,10 @@ import { IN_BOOKS, nextVoucherNumber, saveVoucher } from './vouchers'
 import { getFeatures } from './config'
 import { tcsSuggestion } from './tcs'
 import { rememberSalePrices } from './pricing'
+import type { CheckoutResult, CounterAccounts, CounterQuote, DayEndSummary, HeldBill } from '@shared/pricingTypes'
 import { writeAudit } from './audit'
+
+export type { CheckoutResult, CounterAccounts, CounterQuote, DayEndSummary, HeldBill }
 
 /**
  * Counter billing (WP 2.6): a POS-style sale posts a NORMAL sales invoice (built by the same
@@ -95,15 +98,6 @@ export function ensureWalkIn(db: DB, cfg: CounterConfig = getCounterConfig(db)):
   }).id
 }
 
-export interface CounterAccounts {
-  walkInLedgerId: number | null
-  salesLedgerId: number | null
-  voucherTypeId: number | null
-  receiptTypeId: number | null
-  cashLedgerId: number | null
-  upiLedgerId: number | null
-  cardLedgerId: number | null
-}
 
 /** What the counter will post to (config, else sensible defaults) — read-only (the walk-in
  *  ledger may not exist yet; checkout creates it). */
@@ -181,16 +175,6 @@ function invoiceContext(db: DB, company: CompanyInfo, itemIds: number[], ledgerI
 
 // ---------------------------------------------------------------- checkout
 
-export interface CounterQuote {
-  taxable: number
-  cgst: number
-  sgst: number
-  igst: number
-  cess: number
-  roundOff: number
-  total: number
-  supply: 'intra' | 'inter'
-}
 
 /** The bill's totals exactly as the invoice will post them (no writes). */
 export function counterQuote(db: DB, company: CompanyInfo, raw: CounterCheckoutInput): CounterQuote {
@@ -218,18 +202,6 @@ function stateFor(input: ReturnType<typeof counterCheckoutSchema.parse>, partyId
   }
 }
 
-export interface CheckoutResult {
-  invoiceId: number
-  invoiceNumber: string
-  totalPaise: number
-  receiptId: number | null
-  receiptNumber: string | null
-  paidPaise: number
-  /** Total less payments — on the party's account (named parties only). */
-  balancePaise: number
-  changePaise: number
-  negativeStock: { name: string }[]
-}
 
 export function counterCheckout(db: DB, company: CompanyInfo, raw: CounterCheckoutInput): CheckoutResult {
   const input = counterCheckoutSchema.parse(raw)
@@ -317,13 +289,6 @@ export function counterCheckout(db: DB, company: CompanyInfo, raw: CounterChecko
 
 // ---------------------------------------------------------------- held bills (meta)
 
-export interface HeldBill {
-  id: string
-  label: string
-  heldAt: string
-  partyLedgerId: number | null
-  lines: { itemId: number; qtyMilli: number; ratePaise: number; discountPaise: number; rateSource: 'auto' | 'manual' }[]
-}
 
 export function listHeldBills(db: DB): HeldBill[] {
   const raw = readMeta(db, HELD_KEY)
@@ -361,20 +326,6 @@ export function discardHeldBill(db: DB, id: string): void {
 
 // ---------------------------------------------------------------- day end
 
-export interface DayEndSummary {
-  date: string
-  bills: number
-  totalPaise: number
-  taxablePaise: number
-  taxPaise: number
-  /** Payments received, per payment account (cash / UPI / card / other). */
-  byMode: { mode: PaymentMode | 'other'; label: string; ledgerId: number; amountPaise: number }[]
-  /** Billed but not received (named parties on account). */
-  onAccountPaise: number
-  changePaise: number
-  items: { itemId: number; name: string; unitSymbol: string; qtyMilli: number; amountPaise: number }[]
-  invoices: { voucherId: number; number: string; partyName: string; totalPaise: number; receiptVoucherId: number | null }[]
-}
 
 /** Sales by payment mode and items for one day's counter bills (live invoices only; the figures
  *  are read from their voucher lines, so an altered or binned bill is reflected). */

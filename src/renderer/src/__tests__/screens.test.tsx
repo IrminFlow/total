@@ -13,11 +13,16 @@ describe('screen registry invalidation families', () => {
     expect(fams).toContain('stockBatches')
   })
 
-  it('masters no longer lists families no query uses (priceLevels/priceRates/batches)', () => {
+  it('masters lists only families a query uses (batches has none; the WP 2.6 pricing tabs do)', () => {
     const fams = invalidationFamilies('masters')
-    expect(fams).not.toContain('priceLevels')
-    expect(fams).not.toContain('priceRates')
+    expect(fams).toEqual(expect.arrayContaining(['priceLevels', 'priceRates', 'pricingGrid', 'partyRates', 'discountSchemes']))
     expect(fams).not.toContain('batches')
+  })
+
+  it('Counter billing sits in the top block after Manufacture, gated on inventory (WP 2.6)', () => {
+    const top = SCREENS.filter((s) => s.navSection === 'top').map((s) => s.name)
+    expect(top.indexOf('counter-billing')).toBe(top.indexOf('manufacture') + 1)
+    expect(SCREENS.find((s) => s.name === 'counter-billing')).toMatchObject({ feature: 'inventory', navLabel: 'Counter' })
   })
 
   it('edocs targets the real list key family (edocList, not the removed "edocs")', () => {

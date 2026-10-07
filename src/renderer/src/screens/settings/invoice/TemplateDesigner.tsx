@@ -43,7 +43,7 @@ const SECTIONS = [
 ] as const
 type SectionId = (typeof SECTIONS)[number]['id']
 
-const STYLE_NAME: Record<PrintTemplate['style'], string> = { classic: 'Classic', compact: 'Compact', modern: 'Modern' }
+const STYLE_NAME: Record<PrintTemplate['style'], string> = { classic: 'Classic', compact: 'Compact', modern: 'Modern', receipt: 'Receipt 80mm' }
 
 /** First validation issue, phrased for a person. */
 function firstIssue(t: PrintTemplate): string | null {

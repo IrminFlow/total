@@ -7,7 +7,10 @@ import {
   type DiscountSchemeInput, type PartyRateInput, type PricingConfig
 } from '@shared/pricingSchemas'
 import type { SupplyType } from '@shared/gst/calc'
+import type { DiscountSchemeRow, PartyRate, ResolvedLine } from '@shared/pricingTypes'
 import { writeAudit } from './audit'
+
+export type { DiscountSchemeRow, PartyRate, ResolvedLine }
 import { IN_BOOKS } from './vouchers'
 import { defaultPriceLevel } from './priceLevels'
 
@@ -46,21 +49,6 @@ export function setPricingConfig(db: DB, input: unknown): PricingConfig {
 
 // ---------------------------------------------------------------- party-wise rates
 
-export interface PartyRate {
-  id: number
-  ledgerId: number
-  ledgerName: string
-  stockItemId: number
-  itemName: string
-  unitSymbol: string
-  ratePaise: number
-  discountBp: number
-  effectiveFrom: string | null
-  effectiveTo: string | null
-  source: 'manual' | 'last_sale'
-  lastSoldAt: string | null
-  lastVoucherId: number | null
-}
 
 const PARTY_RATE_SELECT = `SELECT p.id, p.ledger_id AS ledgerId, l.name AS ledgerName, p.stock_item_id AS stockItemId,
     si.name AS itemName, u.symbol AS unitSymbol, p.rate_paise AS ratePaise, p.discount_bp AS discountBp,
@@ -176,9 +164,6 @@ function walkInLedgerId(db: DB): number | null {
 
 // ---------------------------------------------------------------- discount schemes
 
-export interface DiscountSchemeRow extends DiscountScheme {
-  targetName: string | null
-}
 
 export function listSchemes(db: DB): DiscountSchemeRow[] {
   const rows = db
@@ -247,12 +232,6 @@ export interface ResolveRequest {
   lines: { key: number; itemId: number; qtyMilli: number }[]
 }
 
-export interface ResolvedLine {
-  key: number
-  itemId: number
-  qtyMilli: number
-  result: PriceResult
-}
 
 /** Prepared statements + per-call caches for building PriceContexts (counter billing reuses one
  *  loader across a checkout). */

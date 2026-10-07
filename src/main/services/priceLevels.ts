@@ -4,7 +4,10 @@ import { priceRateInputSchema, type PriceLevelInput, type PriceRateInput } from 
 import type { BulkRateUpdate } from '@shared/pricingSchemas'
 import { parseCsv, rowsToCsv } from '@shared/csv'
 import { formatQtyMilli, plainRupees, parseRupees } from '@shared/money'
+import type { RateGridCell, RateGridRow, RatesImportResult } from '@shared/pricingTypes'
 import { writeAudit } from './audit'
+
+export type { RateGridCell, RateGridRow, RatesImportResult }
 
 /**
  * Price levels (task 75, extended by WP 2.6 / migration 030): named price lists (Retail /
@@ -153,27 +156,7 @@ export function rateFor(db: DB, priceLevelId: number, stockItemId: number, date:
 
 // ---------------------------------------------------------------- the items × levels grid
 
-export interface RateGridCell {
-  rateId: number
-  rate: number
-  effectiveFrom: string
-  effectiveTo: string | null
-  /** Further quantity slabs under the level for the item (shown as "+2 slabs"). */
-  slabs: number
-}
 
-export interface RateGridRow {
-  itemId: number
-  itemName: string
-  barcode: string | null
-  unitSymbol: string
-  gstRate: number | null
-  mrpPaise: number | null
-  standardCostPaise: number | null
-  groupId: number | null
-  /** levelId → the base ₹ row in force on the grid date. */
-  rates: Record<number, RateGridCell | null>
-}
 
 export function rateGrid(db: DB, date: string): { levels: PriceLevel[]; rows: RateGridRow[] } {
   const levels = listPriceLevels(db)
@@ -304,13 +287,6 @@ export function exportRatesCsv(db: DB, priceLevelId?: number): string {
   return rowsToCsv(RATES_CSV_HEADER, out)
 }
 
-export interface RatesImportResult {
-  rows: number
-  /** Levels the import creates (named in the file, not yet in the books). */
-  newLevels: string[]
-  errors: { line: number; message: string }[]
-  applied: boolean
-}
 
 /** Import price-list rows from CSV (the export's columns; header names matched loosely). All or
  *  nothing: any bad row and nothing is written. Unknown levels are created; items are matched by

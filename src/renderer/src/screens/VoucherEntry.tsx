@@ -10,6 +10,7 @@ import { OptionToggle, useScreenOptions } from '../components/ScreenOptions'
 import { useFeatures } from '../lib/useFeatures'
 import { isManufactureKey, kindForVoucherKey } from '../lib/voucherKeys'
 import { InvoiceEntry } from './voucher/InvoiceEntry'
+import { PricingOptions } from './voucher/PricingOptions'
 import { AccountingEntry } from './voucher/AccountingEntry'
 import { ManufactureForm } from './Manufacture'
 import { PhysicalStockEntry } from './voucher/PhysicalStockEntry'
@@ -195,6 +196,7 @@ export function VoucherEntry({
                   <LineDetailOption />
                 </DrawerSection>
               )}
+              {features.inventory && <PricingOptions />}
               <DrawerSection title="Keyboard">
                 <ul className="flex flex-col gap-1 text-detail text-ink">
                   <li>
