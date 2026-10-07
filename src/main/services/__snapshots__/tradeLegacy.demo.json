@@ -1,0 +1,1541 @@
+{
+ "stockSummary": [
+  {
+   "stockItemId": 4,
+   "name": "A4 Paper Ream",
+   "unitSymbol": "Box",
+   "decimals": 0,
+   "openingQtyMilli": 0,
+   "openingValue": 0,
+   "inwardQtyMilli": 6000,
+   "outwardQtyMilli": 2000,
+   "closingQtyMilli": 4000,
+   "closingValue": 88000
+  },
+  {
+   "stockItemId": 1,
+   "name": "Laptop 14\"",
+   "unitSymbol": "Nos",
+   "decimals": 0,
+   "openingQtyMilli": 0,
+   "openingValue": 0,
+   "inwardQtyMilli": 5000,
+   "outwardQtyMilli": 3000,
+   "closingQtyMilli": 2000,
+   "closingValue": 10000000
+  },
+  {
+   "stockItemId": 6,
+   "name": "Notebook Pack",
+   "unitSymbol": "Box",
+   "decimals": 0,
+   "openingQtyMilli": 0,
+   "openingValue": 0,
+   "inwardQtyMilli": 4000,
+   "outwardQtyMilli": 6000,
+   "closingQtyMilli": -2000,
+   "closingValue": -70000
+  },
+  {
+   "stockItemId": 3,
+   "name": "Office Chair",
+   "unitSymbol": "Nos",
+   "decimals": 0,
+   "openingQtyMilli": 0,
+   "openingValue": 0,
+   "inwardQtyMilli": 3000,
+   "outwardQtyMilli": 6000,
+   "closingQtyMilli": -3000,
+   "closingValue": 1500000
+  },
+  {
+   "stockItemId": 5,
+   "name": "Steel Filing Cabinet",
+   "unitSymbol": "Nos",
+   "decimals": 0,
+   "openingQtyMilli": 0,
+   "openingValue": 0,
+   "inwardQtyMilli": 8000,
+   "outwardQtyMilli": 4000,
+   "closingQtyMilli": 4000,
+   "closingValue": 3800000
+  },
+  {
+   "stockItemId": 2,
+   "name": "Wireless Mouse",
+   "unitSymbol": "Nos",
+   "decimals": 0,
+   "openingQtyMilli": 0,
+   "openingValue": 0,
+   "inwardQtyMilli": 2000,
+   "outwardQtyMilli": 6000,
+   "closingQtyMilli": -4000,
+   "closingValue": 120000
+  }
+ ],
+ "stockByGodown": [
+  {
+   "godownId": null,
+   "godownName": "",
+   "stockItemId": 4,
+   "name": "A4 Paper Ream",
+   "unitSymbol": "Box",
+   "decimals": 0,
+   "closingQtyMilli": 4000,
+   "closingValue": 88000
+  },
+  {
+   "godownId": null,
+   "godownName": "",
+   "stockItemId": 1,
+   "name": "Laptop 14\"",
+   "unitSymbol": "Nos",
+   "decimals": 0,
+   "closingQtyMilli": 2000,
+   "closingValue": 10000000
+  },
+  {
+   "godownId": null,
+   "godownName": "",
+   "stockItemId": 6,
+   "name": "Notebook Pack",
+   "unitSymbol": "Box",
+   "decimals": 0,
+   "closingQtyMilli": -2000,
+   "closingValue": -70000
+  },
+  {
+   "godownId": null,
+   "godownName": "",
+   "stockItemId": 3,
+   "name": "Office Chair",
+   "unitSymbol": "Nos",
+   "decimals": 0,
+   "closingQtyMilli": -3000,
+   "closingValue": 1500000
+  },
+  {
+   "godownId": null,
+   "godownName": "",
+   "stockItemId": 5,
+   "name": "Steel Filing Cabinet",
+   "unitSymbol": "Nos",
+   "decimals": 0,
+   "closingQtyMilli": 4000,
+   "closingValue": 3800000
+  },
+  {
+   "godownId": null,
+   "godownName": "",
+   "stockItemId": 2,
+   "name": "Wireless Mouse",
+   "unitSymbol": "Nos",
+   "decimals": 0,
+   "closingQtyMilli": -4000,
+   "closingValue": 120000
+  }
+ ],
+ "stockValuesAt": [
+  [
+   "2026-05-31",
+   2894000
+  ],
+  [
+   "2026-06-30",
+   16007000
+  ],
+  [
+   "2026-08-15",
+   15438000
+  ]
+ ],
+ "movements": [
+  {
+   "item": {
+    "id": 1,
+    "name": "Laptop 14\"",
+    "unitSymbol": "Nos",
+    "decimals": 0,
+    "valuationMethod": "weighted_avg"
+   },
+   "from": "2026-04-01",
+   "to": "2026-08-15",
+   "godownId": null,
+   "opening": {
+    "qtyMilli": 0,
+    "value": 0
+   },
+   "rows": [
+    {
+     "lineId": 1,
+     "voucherId": 1,
+     "date": "2026-05-15",
+     "number": "1",
+     "voucherType": "Sales",
+     "kind": "sales",
+     "particulars": "Umbrella Retail",
+     "partyLedgerId": 2,
+     "narration": "Sale of Laptop 14\" to Umbrella Retail",
+     "godownId": null,
+     "godownName": null,
+     "batchId": null,
+     "batchName": null,
+     "expiryDate": null,
+     "isAbsolute": false,
+     "inwardQtyMilli": 0,
+     "outwardQtyMilli": 1000,
+     "ratePaise": 4500000,
+     "value": 0,
+     "runningQtyMilli": -1000,
+     "runningValue": 0,
+     "serials": []
+    },
+    {
+     "lineId": 10,
+     "voucherId": 18,
+     "date": "2026-06-23",
+     "number": "4",
+     "voucherType": "Purchase",
+     "kind": "purchase",
+     "particulars": "Gujarat Components Pvt Ltd",
+     "partyLedgerId": 6,
+     "narration": "Purchase of Laptop 14\" from Gujarat Components Pvt Ltd",
+     "godownId": null,
+     "godownName": null,
+     "batchId": null,
+     "batchName": null,
+     "expiryDate": null,
+     "isAbsolute": false,
+     "inwardQtyMilli": 5000,
+     "outwardQtyMilli": 0,
+     "ratePaise": 4000000,
+     "value": 20000000,
+     "runningQtyMilli": 4000,
+     "runningValue": 20000000,
+     "serials": []
+    },
+    {
+     "lineId": 11,
+     "voucherId": 20,
+     "date": "2026-06-26",
+     "number": "7",
+     "voucherType": "Sales",
+     "kind": "sales",
+     "particulars": "Umbrella Retail",
+     "partyLedgerId": 2,
+     "narration": "Sale of Laptop 14\" to Umbrella Retail",
+     "godownId": null,
+     "godownName": null,
+     "batchId": null,
+     "batchName": null,
+     "expiryDate": null,
+     "isAbsolute": false,
+     "inwardQtyMilli": 0,
+     "outwardQtyMilli": 1000,
+     "ratePaise": 4500000,
+     "value": 5000000,
+     "runningQtyMilli": 3000,
+     "runningValue": 15000000,
+     "serials": []
+    },
+    {
+     "lineId": 20,
+     "voucherId": 34,
+     "date": "2026-08-08",
+     "number": "13",
+     "voucherType": "Sales",
+     "kind": "sales",
+     "particulars": "Umbrella Retail",
+     "partyLedgerId": 2,
+     "narration": "Sale of Laptop 14\" to Umbrella Retail",
+     "godownId": null,
+     "godownName": null,
+     "batchId": null,
+     "batchName": null,
+     "expiryDate": null,
+     "isAbsolute": false,
+     "inwardQtyMilli": 0,
+     "outwardQtyMilli": 1000,
+     "ratePaise": 4500000,
+     "value": 5000000,
+     "runningQtyMilli": 2000,
+     "runningValue": 10000000,
+     "serials": []
+    }
+   ],
+   "totals": {
+    "inwardQtyMilli": 5000,
+    "inwardValue": 20000000,
+    "outwardQtyMilli": 3000,
+    "outwardValue": 10000000
+   },
+   "closing": {
+    "qtyMilli": 2000,
+    "value": 10000000
+   }
+  },
+  {
+   "item": {
+    "id": 2,
+    "name": "Wireless Mouse",
+    "unitSymbol": "Nos",
+    "decimals": 0,
+    "valuationMethod": "weighted_avg"
+   },
+   "from": "2026-04-01",
+   "to": "2026-08-15",
+   "godownId": null,
+   "opening": {
+    "qtyMilli": 0,
+    "value": 0
+   },
+   "rows": [
+    {
+     "lineId": 3,
+     "voucherId": 7,
+     "date": "2026-05-22",
+     "number": "2",
+     "voucherType": "Sales",
+     "kind": "sales",
+     "particulars": "Silverline Traders",
+     "partyLedgerId": 3,
+     "narration": "Sale of Wireless Mouse to Silverline Traders",
+     "godownId": null,
+     "godownName": null,
+     "batchId": null,
+     "batchName": null,
+     "expiryDate": null,
+     "isAbsolute": false,
+     "inwardQtyMilli": 0,
+     "outwardQtyMilli": 2000,
+     "ratePaise": 80000,
+     "value": 0,
+     "runningQtyMilli": -2000,
+     "runningValue": 0,
+     "serials": []
+    },
+    {
+     "lineId": 12,
+     "voucherId": 21,
+     "date": "2026-07-04",
+     "number": "8",
+     "voucherType": "Sales",
+     "kind": "sales",
+     "particulars": "Silverline Traders",
+     "partyLedgerId": 3,
+     "narration": "Sale of Wireless Mouse to Silverline Traders",
+     "godownId": null,
+     "godownName": null,
+     "batchId": null,
+     "batchName": null,
+     "expiryDate": null,
+     "isAbsolute": false,
+     "inwardQtyMilli": 0,
+     "outwardQtyMilli": 2000,
+     "ratePaise": 80000,
+     "value": 0,
+     "runningQtyMilli": -4000,
+     "runningValue": 0,
+     "serials": []
+    },
+    {
+     "lineId": 13,
+     "voucherId": 22,
+     "date": "2026-07-07",
+     "number": "5",
+     "voucherType": "Purchase",
+     "kind": "purchase",
+     "particulars": "Bharat Steel Suppliers",
+     "partyLedgerId": 5,
+     "narration": "Purchase of Wireless Mouse from Bharat Steel Suppliers",
+     "godownId": null,
+     "godownName": null,
+     "batchId": null,
+     "batchName": null,
+     "expiryDate": null,
+     "isAbsolute": false,
+     "inwardQtyMilli": 2000,
+     "outwardQtyMilli": 0,
+     "ratePaise": 60000,
+     "value": 120000,
+     "runningQtyMilli": -2000,
+     "runningValue": 120000,
+     "serials": []
+    },
+    {
+     "lineId": 21,
+     "voucherId": 35,
+     "date": "2026-08-15",
+     "number": "14",
+     "voucherType": "Sales",
+     "kind": "sales",
+     "particulars": "Silverline Traders",
+     "partyLedgerId": 3,
+     "narration": "Sale of Wireless Mouse to Silverline Traders",
+     "godownId": null,
+     "godownName": null,
+     "batchId": null,
+     "batchName": null,
+     "expiryDate": null,
+     "isAbsolute": false,
+     "inwardQtyMilli": 0,
+     "outwardQtyMilli": 2000,
+     "ratePaise": 80000,
+     "value": 0,
+     "runningQtyMilli": -4000,
+     "runningValue": 120000,
+     "serials": []
+    }
+   ],
+   "totals": {
+    "inwardQtyMilli": 2000,
+    "inwardValue": 120000,
+    "outwardQtyMilli": 6000,
+    "outwardValue": 0
+   },
+   "closing": {
+    "qtyMilli": -4000,
+    "value": 120000
+   }
+  },
+  {
+   "item": {
+    "id": 3,
+    "name": "Office Chair",
+    "unitSymbol": "Nos",
+    "decimals": 0,
+    "valuationMethod": "weighted_avg"
+   },
+   "from": "2026-04-01",
+   "to": "2026-08-15",
+   "godownId": null,
+   "opening": {
+    "qtyMilli": 0,
+    "value": 0
+   },
+   "rows": [
+    {
+     "lineId": 5,
+     "voucherId": 10,
+     "date": "2026-05-29",
+     "number": "3",
+     "voucherType": "Sales",
+     "kind": "sales",
+     "particulars": "Krishna Enterprises",
+     "partyLedgerId": 4,
+     "narration": "Sale of Office Chair to Krishna Enterprises",
+     "godownId": null,
+     "godownName": null,
+     "batchId": null,
+     "batchName": null,
+     "expiryDate": null,
+     "isAbsolute": false,
+     "inwardQtyMilli": 0,
+     "outwardQtyMilli": 3000,
+     "ratePaise": 650000,
+     "value": 0,
+     "runningQtyMilli": -3000,
+     "runningValue": 0,
+     "serials": []
+    },
+    {
+     "lineId": 14,
+     "voucherId": 25,
+     "date": "2026-07-11",
+     "number": "9",
+     "voucherType": "Sales",
+     "kind": "sales",
+     "particulars": "Krishna Enterprises",
+     "partyLedgerId": 4,
+     "narration": "Sale of Office Chair to Krishna Enterprises",
+     "godownId": null,
+     "godownName": null,
+     "batchId": null,
+     "batchName": null,
+     "expiryDate": null,
+     "isAbsolute": false,
+     "inwardQtyMilli": 0,
+     "outwardQtyMilli": 3000,
+     "ratePaise": 650000,
+     "value": 0,
+     "runningQtyMilli": -6000,
+     "runningValue": 0,
+     "serials": []
+    },
+    {
+     "lineId": 16,
+     "voucherId": 27,
+     "date": "2026-07-20",
+     "number": "6",
+     "voucherType": "Purchase",
+     "kind": "purchase",
+     "particulars": "Gujarat Components Pvt Ltd",
+     "partyLedgerId": 6,
+     "narration": "Purchase of Office Chair from Gujarat Components Pvt Ltd",
+     "godownId": null,
+     "godownName": null,
+     "batchId": null,
+     "batchName": null,
+     "expiryDate": null,
+     "isAbsolute": false,
+     "inwardQtyMilli": 3000,
+     "outwardQtyMilli": 0,
+     "ratePaise": 500000,
+     "value": 1500000,
+     "runningQtyMilli": -3000,
+     "runningValue": 1500000,
+     "serials": []
+    }
+   ],
+   "totals": {
+    "inwardQtyMilli": 3000,
+    "inwardValue": 1500000,
+    "outwardQtyMilli": 6000,
+    "outwardValue": 0
+   },
+   "closing": {
+    "qtyMilli": -3000,
+    "value": 1500000
+   }
+  },
+  {
+   "item": {
+    "id": 4,
+    "name": "A4 Paper Ream",
+    "unitSymbol": "Box",
+    "decimals": 0,
+    "valuationMethod": "weighted_avg"
+   },
+   "from": "2026-04-01",
+   "to": "2026-08-15",
+   "godownId": null,
+   "opening": {
+    "qtyMilli": 0,
+    "value": 0
+   },
+   "rows": [
+    {
+     "lineId": 2,
+     "voucherId": 2,
+     "date": "2026-05-15",
+     "number": "1",
+     "voucherType": "Purchase",
+     "kind": "purchase",
+     "particulars": "Bharat Steel Suppliers",
+     "partyLedgerId": 5,
+     "narration": "Purchase of A4 Paper Ream from Bharat Steel Suppliers",
+     "godownId": null,
+     "godownName": null,
+     "batchId": null,
+     "batchName": null,
+     "expiryDate": null,
+     "isAbsolute": false,
+     "inwardQtyMilli": 2000,
+     "outwardQtyMilli": 0,
+     "ratePaise": 22000,
+     "value": 44000,
+     "runningQtyMilli": 2000,
+     "runningValue": 44000,
+     "serials": []
+    },
+    {
+     "lineId": 6,
+     "voucherId": 12,
+     "date": "2026-06-05",
+     "number": "4",
+     "voucherType": "Sales",
+     "kind": "sales",
+     "particulars": "Umbrella Retail",
+     "partyLedgerId": 2,
+     "narration": "Sale of A4 Paper Ream to Umbrella Retail",
+     "godownId": null,
+     "godownName": null,
+     "batchId": null,
+     "batchName": null,
+     "expiryDate": null,
+     "isAbsolute": false,
+     "inwardQtyMilli": 0,
+     "outwardQtyMilli": 1000,
+     "ratePaise": 28000,
+     "value": 22000,
+     "runningQtyMilli": 1000,
+     "runningValue": 22000,
+     "serials": []
+    },
+    {
+     "lineId": 15,
+     "voucherId": 26,
+     "date": "2026-07-18",
+     "number": "10",
+     "voucherType": "Sales",
+     "kind": "sales",
+     "particulars": "Umbrella Retail",
+     "partyLedgerId": 2,
+     "narration": "Sale of A4 Paper Ream to Umbrella Retail",
+     "godownId": null,
+     "godownName": null,
+     "batchId": null,
+     "batchName": null,
+     "expiryDate": null,
+     "isAbsolute": false,
+     "inwardQtyMilli": 0,
+     "outwardQtyMilli": 1000,
+     "ratePaise": 28000,
+     "value": 22000,
+     "runningQtyMilli": 0,
+     "runningValue": 0,
+     "serials": []
+    },
+    {
+     "lineId": 19,
+     "voucherId": 32,
+     "date": "2026-08-02",
+     "number": "7",
+     "voucherType": "Purchase",
+     "kind": "purchase",
+     "particulars": "Bharat Steel Suppliers",
+     "partyLedgerId": 5,
+     "narration": "Purchase of A4 Paper Ream from Bharat Steel Suppliers",
+     "godownId": null,
+     "godownName": null,
+     "batchId": null,
+     "batchName": null,
+     "expiryDate": null,
+     "isAbsolute": false,
+     "inwardQtyMilli": 4000,
+     "outwardQtyMilli": 0,
+     "ratePaise": 22000,
+     "value": 88000,
+     "runningQtyMilli": 4000,
+     "runningValue": 88000,
+     "serials": []
+    }
+   ],
+   "totals": {
+    "inwardQtyMilli": 6000,
+    "inwardValue": 132000,
+    "outwardQtyMilli": 2000,
+    "outwardValue": 44000
+   },
+   "closing": {
+    "qtyMilli": 4000,
+    "value": 88000
+   }
+  },
+  {
+   "item": {
+    "id": 5,
+    "name": "Steel Filing Cabinet",
+    "unitSymbol": "Nos",
+    "decimals": 0,
+    "valuationMethod": "weighted_avg"
+   },
+   "from": "2026-04-01",
+   "to": "2026-08-15",
+   "godownId": null,
+   "opening": {
+    "qtyMilli": 0,
+    "value": 0
+   },
+   "rows": [
+    {
+     "lineId": 4,
+     "voucherId": 8,
+     "date": "2026-05-28",
+     "number": "2",
+     "voucherType": "Purchase",
+     "kind": "purchase",
+     "particulars": "Gujarat Components Pvt Ltd",
+     "partyLedgerId": 6,
+     "narration": "Purchase of Steel Filing Cabinet from Gujarat Components Pvt Ltd",
+     "godownId": null,
+     "godownName": null,
+     "batchId": null,
+     "batchName": null,
+     "expiryDate": null,
+     "isAbsolute": false,
+     "inwardQtyMilli": 3000,
+     "outwardQtyMilli": 0,
+     "ratePaise": 950000,
+     "value": 2850000,
+     "runningQtyMilli": 3000,
+     "runningValue": 2850000,
+     "serials": []
+    },
+    {
+     "lineId": 8,
+     "voucherId": 15,
+     "date": "2026-06-12",
+     "number": "5",
+     "voucherType": "Sales",
+     "kind": "sales",
+     "particulars": "Silverline Traders",
+     "partyLedgerId": 3,
+     "narration": "Sale of Steel Filing Cabinet to Silverline Traders",
+     "godownId": null,
+     "godownName": null,
+     "batchId": null,
+     "batchName": null,
+     "expiryDate": null,
+     "isAbsolute": false,
+     "inwardQtyMilli": 0,
+     "outwardQtyMilli": 2000,
+     "ratePaise": 1200000,
+     "value": 1900000,
+     "runningQtyMilli": 1000,
+     "runningValue": 950000,
+     "serials": []
+    },
+    {
+     "lineId": 17,
+     "voucherId": 29,
+     "date": "2026-07-25",
+     "number": "11",
+     "voucherType": "Sales",
+     "kind": "sales",
+     "particulars": "Silverline Traders",
+     "partyLedgerId": 3,
+     "narration": "Sale of Steel Filing Cabinet to Silverline Traders",
+     "godownId": null,
+     "godownName": null,
+     "batchId": null,
+     "batchName": null,
+     "expiryDate": null,
+     "isAbsolute": false,
+     "inwardQtyMilli": 0,
+     "outwardQtyMilli": 2000,
+     "ratePaise": 1200000,
+     "value": 1900000,
+     "runningQtyMilli": -1000,
+     "runningValue": -950000,
+     "serials": []
+    },
+    {
+     "lineId": 22,
+     "voucherId": 36,
+     "date": "2026-08-15",
+     "number": "8",
+     "voucherType": "Purchase",
+     "kind": "purchase",
+     "particulars": "Gujarat Components Pvt Ltd",
+     "partyLedgerId": 6,
+     "narration": "Purchase of Steel Filing Cabinet from Gujarat Components Pvt Ltd",
+     "godownId": null,
+     "godownName": null,
+     "batchId": null,
+     "batchName": null,
+     "expiryDate": null,
+     "isAbsolute": false,
+     "inwardQtyMilli": 5000,
+     "outwardQtyMilli": 0,
+     "ratePaise": 950000,
+     "value": 4750000,
+     "runningQtyMilli": 4000,
+     "runningValue": 3800000,
+     "serials": []
+    }
+   ],
+   "totals": {
+    "inwardQtyMilli": 8000,
+    "inwardValue": 7600000,
+    "outwardQtyMilli": 4000,
+    "outwardValue": 3800000
+   },
+   "closing": {
+    "qtyMilli": 4000,
+    "value": 3800000
+   }
+  },
+  {
+   "item": {
+    "id": 6,
+    "name": "Notebook Pack",
+    "unitSymbol": "Box",
+    "decimals": 0,
+    "valuationMethod": "weighted_avg"
+   },
+   "from": "2026-04-01",
+   "to": "2026-08-15",
+   "godownId": null,
+   "opening": {
+    "qtyMilli": 0,
+    "value": 0
+   },
+   "rows": [
+    {
+     "lineId": 7,
+     "voucherId": 13,
+     "date": "2026-06-10",
+     "number": "3",
+     "voucherType": "Purchase",
+     "kind": "purchase",
+     "particulars": "Bharat Steel Suppliers",
+     "partyLedgerId": 5,
+     "narration": "Purchase of Notebook Pack from Bharat Steel Suppliers",
+     "godownId": null,
+     "godownName": null,
+     "batchId": null,
+     "batchName": null,
+     "expiryDate": null,
+     "isAbsolute": false,
+     "inwardQtyMilli": 4000,
+     "outwardQtyMilli": 0,
+     "ratePaise": 35000,
+     "value": 140000,
+     "runningQtyMilli": 4000,
+     "runningValue": 140000,
+     "serials": []
+    },
+    {
+     "lineId": 9,
+     "voucherId": 16,
+     "date": "2026-06-19",
+     "number": "6",
+     "voucherType": "Sales",
+     "kind": "sales",
+     "particulars": "Krishna Enterprises",
+     "partyLedgerId": 4,
+     "narration": "Sale of Notebook Pack to Krishna Enterprises",
+     "godownId": null,
+     "godownName": null,
+     "batchId": null,
+     "batchName": null,
+     "expiryDate": null,
+     "isAbsolute": false,
+     "inwardQtyMilli": 0,
+     "outwardQtyMilli": 3000,
+     "ratePaise": 45000,
+     "value": 105000,
+     "runningQtyMilli": 1000,
+     "runningValue": 35000,
+     "serials": []
+    },
+    {
+     "lineId": 18,
+     "voucherId": 31,
+     "date": "2026-08-01",
+     "number": "12",
+     "voucherType": "Sales",
+     "kind": "sales",
+     "particulars": "Krishna Enterprises",
+     "partyLedgerId": 4,
+     "narration": "Sale of Notebook Pack to Krishna Enterprises",
+     "godownId": null,
+     "godownName": null,
+     "batchId": null,
+     "batchName": null,
+     "expiryDate": null,
+     "isAbsolute": false,
+     "inwardQtyMilli": 0,
+     "outwardQtyMilli": 3000,
+     "ratePaise": 45000,
+     "value": 105000,
+     "runningQtyMilli": -2000,
+     "runningValue": -70000,
+     "serials": []
+    }
+   ],
+   "totals": {
+    "inwardQtyMilli": 4000,
+    "inwardValue": 140000,
+    "outwardQtyMilli": 6000,
+    "outwardValue": 210000
+   },
+   "closing": {
+    "qtyMilli": -2000,
+    "value": -70000
+   }
+  }
+ ],
+ "negativeStock": [
+  {
+   "stockItemId": 2,
+   "name": "Wireless Mouse",
+   "unitSymbol": "Nos",
+   "closingQtyMilli": -4000
+  },
+  {
+   "stockItemId": 3,
+   "name": "Office Chair",
+   "unitSymbol": "Nos",
+   "closingQtyMilli": -3000
+  },
+  {
+   "stockItemId": 6,
+   "name": "Notebook Pack",
+   "unitSymbol": "Box",
+   "closingQtyMilli": -2000
+  }
+ ],
+ "stockAgeing": [
+  {
+   "stockItemId": 4,
+   "name": "A4 Paper Ream",
+   "unitSymbol": "Box",
+   "decimals": 0,
+   "closingQtyMilli": 4000,
+   "buckets": [
+    4000,
+    0,
+    0,
+    0
+   ],
+   "lastOutwardDate": "2026-07-18",
+   "slowMoving": false,
+   "reorderLevelMilli": null,
+   "belowReorder": false
+  },
+  {
+   "stockItemId": 1,
+   "name": "Laptop 14\"",
+   "unitSymbol": "Nos",
+   "decimals": 0,
+   "closingQtyMilli": 2000,
+   "buckets": [
+    0,
+    2000,
+    0,
+    0
+   ],
+   "lastOutwardDate": "2026-08-08",
+   "slowMoving": false,
+   "reorderLevelMilli": null,
+   "belowReorder": false
+  },
+  {
+   "stockItemId": 6,
+   "name": "Notebook Pack",
+   "unitSymbol": "Box",
+   "decimals": 0,
+   "closingQtyMilli": -2000,
+   "buckets": [
+    0,
+    0,
+    0,
+    0
+   ],
+   "lastOutwardDate": "2026-08-01",
+   "slowMoving": false,
+   "reorderLevelMilli": null,
+   "belowReorder": false
+  },
+  {
+   "stockItemId": 3,
+   "name": "Office Chair",
+   "unitSymbol": "Nos",
+   "decimals": 0,
+   "closingQtyMilli": -3000,
+   "buckets": [
+    0,
+    0,
+    0,
+    0
+   ],
+   "lastOutwardDate": "2026-07-11",
+   "slowMoving": false,
+   "reorderLevelMilli": null,
+   "belowReorder": false
+  },
+  {
+   "stockItemId": 5,
+   "name": "Steel Filing Cabinet",
+   "unitSymbol": "Nos",
+   "decimals": 0,
+   "closingQtyMilli": 4000,
+   "buckets": [
+    4000,
+    0,
+    0,
+    0
+   ],
+   "lastOutwardDate": "2026-07-25",
+   "slowMoving": false,
+   "reorderLevelMilli": null,
+   "belowReorder": false
+  },
+  {
+   "stockItemId": 2,
+   "name": "Wireless Mouse",
+   "unitSymbol": "Nos",
+   "decimals": 0,
+   "closingQtyMilli": -4000,
+   "buckets": [
+    0,
+    0,
+    0,
+    0
+   ],
+   "lastOutwardDate": "2026-08-15",
+   "slowMoving": false,
+   "reorderLevelMilli": null,
+   "belowReorder": false
+  }
+ ],
+ "itemProfitability": [
+  {
+   "stockItemId": 4,
+   "name": "A4 Paper Ream",
+   "unitSymbol": "Box",
+   "decimals": 0,
+   "outQtyMilli": 2000,
+   "salesValue": 56000,
+   "cogs": 44000,
+   "profit": 12000
+  },
+  {
+   "stockItemId": 1,
+   "name": "Laptop 14\"",
+   "unitSymbol": "Nos",
+   "decimals": 0,
+   "outQtyMilli": 3000,
+   "salesValue": 13500000,
+   "cogs": 10000000,
+   "profit": 3500000
+  },
+  {
+   "stockItemId": 6,
+   "name": "Notebook Pack",
+   "unitSymbol": "Box",
+   "decimals": 0,
+   "outQtyMilli": 6000,
+   "salesValue": 270000,
+   "cogs": 210000,
+   "profit": 60000
+  },
+  {
+   "stockItemId": 3,
+   "name": "Office Chair",
+   "unitSymbol": "Nos",
+   "decimals": 0,
+   "outQtyMilli": 6000,
+   "salesValue": 3900000,
+   "cogs": 0,
+   "profit": 3900000
+  },
+  {
+   "stockItemId": 5,
+   "name": "Steel Filing Cabinet",
+   "unitSymbol": "Nos",
+   "decimals": 0,
+   "outQtyMilli": 4000,
+   "salesValue": 4800000,
+   "cogs": 3800000,
+   "profit": 1000000
+  },
+  {
+   "stockItemId": 2,
+   "name": "Wireless Mouse",
+   "unitSymbol": "Nos",
+   "decimals": 0,
+   "outQtyMilli": 6000,
+   "salesValue": 480000,
+   "cogs": 0,
+   "profit": 480000
+  }
+ ],
+ "trialBalance": {
+  "rows": [
+   {
+    "ledgerId": 5,
+    "ledgerName": "Bharat Steel Suppliers",
+    "groupName": "Sundry Creditors",
+    "debit": 4213560,
+    "credit": 0,
+    "opening": 0,
+    "movementDebit": 4650000,
+    "movementCredit": 436440
+   },
+   {
+    "ledgerId": 1,
+    "ledgerName": "Cash",
+    "groupName": "Cash-in-Hand",
+    "debit": 6450000,
+    "credit": 0,
+    "opening": 0,
+    "movementDebit": 16100000,
+    "movementCredit": 9650000
+   },
+   {
+    "ledgerId": 12,
+    "ledgerName": "CGST Input",
+    "groupName": "Duties & Taxes",
+    "debit": 22220,
+    "credit": 0,
+    "opening": 0,
+    "movementDebit": 22220,
+    "movementCredit": 0
+   },
+   {
+    "ledgerId": 9,
+    "ledgerName": "CGST Output",
+    "groupName": "Duties & Taxes",
+    "debit": 0,
+    "credit": 1549560,
+    "opening": 0,
+    "movementDebit": 0,
+    "movementCredit": 1549560
+   },
+   {
+    "ledgerId": 6,
+    "ledgerName": "Gujarat Components Pvt Ltd",
+    "groupName": "Sundry Creditors",
+    "debit": 0,
+    "credit": 30482000,
+    "opening": 0,
+    "movementDebit": 3650000,
+    "movementCredit": 34132000
+   },
+   {
+    "ledgerId": 15,
+    "ledgerName": "HDFC Bank",
+    "groupName": "Bank Accounts",
+    "debit": 8450000,
+    "credit": 0,
+    "opening": 0,
+    "movementDebit": 14100000,
+    "movementCredit": 5650000
+   },
+   {
+    "ledgerId": 14,
+    "ledgerName": "IGST Input",
+    "groupName": "Duties & Taxes",
+    "debit": 4782000,
+    "credit": 0,
+    "opening": 0,
+    "movementDebit": 4782000,
+    "movementCredit": 0
+   },
+   {
+    "ledgerId": 11,
+    "ledgerName": "IGST Output",
+    "groupName": "Duties & Taxes",
+    "debit": 0,
+    "credit": 715500,
+    "opening": 0,
+    "movementDebit": 0,
+    "movementCredit": 715500
+   },
+   {
+    "ledgerId": 4,
+    "ledgerName": "Krishna Enterprises",
+    "groupName": "Sundry Debtors",
+    "debit": 2435500,
+    "credit": 0,
+    "opening": 0,
+    "movementDebit": 4885500,
+    "movementCredit": 2450000
+   },
+   {
+    "ledgerId": 8,
+    "ledgerName": "Purchase A/c",
+    "groupName": "Purchase Accounts",
+    "debit": 29742000,
+    "credit": 0,
+    "opening": 0,
+    "movementDebit": 29742000,
+    "movementCredit": 0
+   },
+   {
+    "ledgerId": 7,
+    "ledgerName": "Sales A/c",
+    "groupName": "Sales Accounts",
+    "debit": 0,
+    "credit": 23186000,
+    "opening": 0,
+    "movementDebit": 0,
+    "movementCredit": 23186000
+   },
+   {
+    "ledgerId": 13,
+    "ledgerName": "SGST Input",
+    "groupName": "Duties & Taxes",
+    "debit": 22220,
+    "credit": 0,
+    "opening": 0,
+    "movementDebit": 22220,
+    "movementCredit": 0
+   },
+   {
+    "ledgerId": 10,
+    "ledgerName": "SGST Output",
+    "groupName": "Duties & Taxes",
+    "debit": 0,
+    "credit": 1549560,
+    "opening": 0,
+    "movementDebit": 0,
+    "movementCredit": 1549560
+   },
+   {
+    "ledgerId": 3,
+    "ledgerName": "Silverline Traders",
+    "groupName": "Sundry Debtors",
+    "debit": 0,
+    "credit": 2927600,
+    "opening": 0,
+    "movementDebit": 6122400,
+    "movementCredit": 9050000
+   },
+   {
+    "ledgerId": 2,
+    "ledgerName": "Umbrella Retail",
+    "groupName": "Sundry Debtors",
+    "debit": 4292720,
+    "credit": 0,
+    "opening": 0,
+    "movementDebit": 15992720,
+    "movementCredit": 11700000
+   }
+  ],
+  "totalDebit": 60410220,
+  "totalCredit": 60410220,
+  "openingDebitTotal": 0,
+  "openingCreditTotal": 0,
+  "movementDebitTotal": 100069060,
+  "movementCreditTotal": 100069060
+ },
+ "profitAndLoss": {
+  "period": {
+   "from": "2026-04-01",
+   "to": "2026-08-15"
+  },
+  "openingStock": 0,
+  "closingStock": 15438000,
+  "tradingIncomes": [
+   {
+    "id": 23,
+    "kind": "group",
+    "name": "Sales Accounts",
+    "amount": 23186000,
+    "children": [
+     {
+      "id": 7,
+      "kind": "ledger",
+      "name": "Sales A/c",
+      "amount": 23186000,
+      "children": []
+     }
+    ]
+   }
+  ],
+  "tradingExpenses": [
+   {
+    "id": 24,
+    "kind": "group",
+    "name": "Purchase Accounts",
+    "amount": 29742000,
+    "children": [
+     {
+      "id": 8,
+      "kind": "ledger",
+      "name": "Purchase A/c",
+      "amount": 29742000,
+      "children": []
+     }
+    ]
+   }
+  ],
+  "grossProfit": 8882000,
+  "indirectExpenses": [],
+  "indirectIncomes": [],
+  "netProfit": 8882000
+ },
+ "gstr1": {
+  "period": "072026",
+  "gstin": "27AAPFU0939F1ZV",
+  "json": {
+   "gstin": "27AAPFU0939F1ZV",
+   "fp": "072026",
+   "gt": 0,
+   "cur_gt": 182110,
+   "version": "GST3.2.1",
+   "hash": "hash",
+   "b2b": [
+    {
+     "ctin": "27AABCE5678F1ZH",
+     "inv": [
+      {
+       "inum": "8",
+       "idt": "04-07-2026",
+       "val": 1888,
+       "pos": "27",
+       "rchrg": "N",
+       "inv_typ": "R",
+       "itms": [
+        {
+         "num": 1,
+         "itm_det": {
+          "rt": 18,
+          "txval": 1600,
+          "camt": 144,
+          "samt": 144,
+          "csamt": 0
+         }
+        }
+       ]
+      },
+      {
+       "inum": "11",
+       "idt": "25-07-2026",
+       "val": 26880,
+       "pos": "27",
+       "rchrg": "N",
+       "inv_typ": "R",
+       "itms": [
+        {
+         "num": 1,
+         "itm_det": {
+          "rt": 12,
+          "txval": 24000,
+          "camt": 1440,
+          "samt": 1440,
+          "csamt": 0
+         }
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "ctin": "29AABCF9012G1ZQ",
+     "inv": [
+      {
+       "inum": "9",
+       "idt": "11-07-2026",
+       "val": 23010,
+       "pos": "29",
+       "rchrg": "N",
+       "inv_typ": "R",
+       "itms": [
+        {
+         "num": 1,
+         "itm_det": {
+          "rt": 18,
+          "txval": 19500,
+          "iamt": 3510,
+          "csamt": 0
+         }
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "ctin": "27AABCD1234E1Z8",
+     "inv": [
+      {
+       "inum": "10",
+       "idt": "18-07-2026",
+       "val": 313.6,
+       "pos": "27",
+       "rchrg": "N",
+       "inv_typ": "R",
+       "itms": [
+        {
+         "num": 1,
+         "itm_det": {
+          "rt": 12,
+          "txval": 280,
+          "camt": 16.8,
+          "samt": 16.8,
+          "csamt": 0
+         }
+        }
+       ]
+      }
+     ]
+    }
+   ],
+   "doc_issue": {
+    "doc_det": [
+     {
+      "doc_num": 1,
+      "docs": [
+       {
+        "num": 1,
+        "from": "8",
+        "to": "11",
+        "totnum": 4,
+        "cancel": 0,
+        "net_issue": 4
+       }
+      ]
+     }
+    ]
+   },
+   "hsn": {
+    "hsn_b2b": [
+     {
+      "num": 1,
+      "hsn_sc": "8471",
+      "desc": "Wireless Mouse",
+      "uqc": "NOS",
+      "qty": 2,
+      "txval": 1600,
+      "camt": 144,
+      "samt": 144,
+      "csamt": 0,
+      "rt": 18
+     },
+     {
+      "num": 2,
+      "hsn_sc": "9401",
+      "desc": "Office Chair",
+      "uqc": "NOS",
+      "qty": 3,
+      "txval": 19500,
+      "iamt": 3510,
+      "csamt": 0,
+      "rt": 18
+     },
+     {
+      "num": 3,
+      "hsn_sc": "4802",
+      "desc": "A4 Paper Ream",
+      "uqc": "BOX",
+      "qty": 1,
+      "txval": 280,
+      "camt": 16.8,
+      "samt": 16.8,
+      "csamt": 0,
+      "rt": 12
+     },
+     {
+      "num": 4,
+      "hsn_sc": "9403",
+      "desc": "Steel Filing Cabinet",
+      "uqc": "NOS",
+      "qty": 2,
+      "txval": 24000,
+      "camt": 1440,
+      "samt": 1440,
+      "csamt": 0,
+      "rt": 12
+     }
+    ],
+    "hsn_b2c": []
+   }
+  },
+  "summary": [
+   {
+    "section": "b2b",
+    "label": "B2B — registered buyers",
+    "docs": 4,
+    "taxable": 4538000,
+    "igst": 351000,
+    "cgst": 160080,
+    "sgst": 160080,
+    "cess": 0
+   },
+   {
+    "section": "b2cl",
+    "label": "B2C (Large) — inter-state > ₹1,00,000",
+    "docs": 0,
+    "taxable": 0,
+    "igst": 0,
+    "cgst": 0,
+    "sgst": 0,
+    "cess": 0
+   },
+   {
+    "section": "b2cs",
+    "label": "B2C (Small) — consolidated",
+    "docs": 0,
+    "taxable": 0,
+    "igst": 0,
+    "cgst": 0,
+    "sgst": 0,
+    "cess": 0
+   },
+   {
+    "section": "exp",
+    "label": "Exports (Table 6A)",
+    "docs": 0,
+    "taxable": 0,
+    "igst": 0,
+    "cgst": 0,
+    "sgst": 0,
+    "cess": 0
+   },
+   {
+    "section": "cdnr",
+    "label": "Credit/Debit Notes (registered)",
+    "docs": 0,
+    "taxable": 0,
+    "igst": 0,
+    "cgst": 0,
+    "sgst": 0,
+    "cess": 0
+   },
+   {
+    "section": "cdnur",
+    "label": "Credit/Debit Notes (unregistered)",
+    "docs": 0,
+    "taxable": 0,
+    "igst": 0,
+    "cgst": 0,
+    "sgst": 0,
+    "cess": 0
+   },
+   {
+    "section": "nil",
+    "label": "Nil-rated (Table 8)",
+    "docs": 0,
+    "taxable": 0,
+    "igst": 0,
+    "cgst": 0,
+    "sgst": 0,
+    "cess": 0
+   },
+   {
+    "section": "hsn_b2b",
+    "label": "HSN summary — B2B (Table 12)",
+    "docs": 4,
+    "taxable": 4538000,
+    "igst": 351000,
+    "cgst": 160080,
+    "sgst": 160080,
+    "cess": 0
+   },
+   {
+    "section": "hsn_b2c",
+    "label": "HSN summary — B2C (Table 12)",
+    "docs": 0,
+    "taxable": 0,
+    "igst": 0,
+    "cgst": 0,
+    "sgst": 0,
+    "cess": 0
+   },
+   {
+    "section": "at",
+    "label": "Advances received (11A)",
+    "docs": 0,
+    "taxable": 0,
+    "igst": 0,
+    "cgst": 0,
+    "sgst": 0,
+    "cess": 0
+   },
+   {
+    "section": "txpd",
+    "label": "Advances adjusted (11B)",
+    "docs": 0,
+    "taxable": 0,
+    "igst": 0,
+    "cgst": 0,
+    "sgst": 0,
+    "cess": 0
+   },
+   {
+    "section": "doc_issue",
+    "label": "Documents issued (Table 13)",
+    "docs": 4,
+    "taxable": 0,
+    "igst": 0,
+    "cgst": 0,
+    "sgst": 0,
+    "cess": 0
+   }
+  ]
+ }
+}
