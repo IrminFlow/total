@@ -62,11 +62,17 @@ export function VoucherEntry({
     queryFn: () => api.manufacture.get(voucherId!),
     enabled: !!voucherId && isStockJournal
   })
+  // WP 2.4: a job-work send / return challan opens in the Send-to-job-worker form.
+  const { data: jobWorkChallan } = useQuery({
+    queryKey: ['voucher', voucherId, 'jobWork'],
+    queryFn: () => api.jobWork.get(voucherId!),
+    enabled: !!voucherId && isStockJournal
+  })
   const [plan, setPlan] = useState<EditPlan | null>(null)
 
   useEffect(() => {
     if (!voucherId || plan || !existing || !existingKind || !ledgers || !items || !info) return
-    if (isStockJournal && mfg === undefined) return
+    if (isStockJournal && (mfg === undefined || jobWorkChallan === undefined)) return
     setPlan(
       planVoucherEdit(existing, existingKind, {
         invoice: {
@@ -76,10 +82,11 @@ export function VoucherEntry({
         },
         taxLedgers: taxLedgerIdsFrom(ledgers),
         manufacture: mfg?.details ?? null,
+        jobWork: jobWorkChallan ?? null,
         itemName: (id) => items.find((i) => i.id === id)?.name ?? ''
       })
     )
-  }, [voucherId, plan, existing, existingKind, ledgers, items, info, isStockJournal, mfg])
+  }, [voucherId, plan, existing, existingKind, ledgers, items, info, isStockJournal, mfg, jobWorkChallan])
 
   useEffect(() => {
     if (!types || typeId != null) return
@@ -218,6 +225,8 @@ export function VoucherEntry({
             <PhysicalStockEntry typeId={currentType.id} voucherId={voucherId} voucher={existing} initial={plan.state} />
           ) : plan.mode === 'transfer' ? (
             <TransferEntry typeId={currentType.id} voucherId={voucherId} voucher={existing} initial={plan.state} />
+          ) : plan.mode === 'jobWorkSend' ? (
+            <TransferEntry typeId={currentType.id} voucherId={voucherId} voucher={existing} initial={plan.state.transfer} jobWork={plan.state.challan} />
           ) : plan.mode === 'stockLines' ? (
             <StockLinesEntry
               typeId={currentType.id}

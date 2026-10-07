@@ -1225,7 +1225,7 @@ export function registerIpc(): void {
   handle('bom:set', (p) => extras.setBom(requireCompany().db, bomInputSchema.parse(p)))
   handle('bom:items', () => extras.itemsWithBom(requireCompany().db), 'viewer')
   // WP 2.4: BOM versions + explosion
-  handle('bom:versions', (p) => bomSvc.listBomVersions(requireCompany().db, z.object({ itemId: z.number().int().positive() }).parse(p).itemId), 'viewer')
+  handle('bom:versions', (p) => bomSvc.listBomVersions(requireCompany().db, z.object({ itemId: z.number().int().positive().optional() }).parse(p ?? {}).itemId), 'viewer')
   handle('bom:saveVersion', (p) => bomSvc.saveBomVersion(requireCompany().db, bomVersionInputSchema.parse(p)))
   handle('bom:deleteVersion', (p) => bomSvc.deleteBomVersion(requireCompany().db, idSchema.parse(p).id))
   handle('bom:explode', (p) => bomSvc.explode(requireCompany().db, bomExplodeSchema.parse(p)), 'viewer')

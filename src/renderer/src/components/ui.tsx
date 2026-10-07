@@ -152,16 +152,19 @@ export function DateInput({
 export function Panel({
   children,
   className = '',
-  scroll
+  scroll,
+  testId
 }: {
   children: ReactNode
   className?: string
+  /** data-testid on the panel element. */
+  testId?: string
   /** Cap the panel's content height — anything longer scrolls inside the panel instead of
    *  growing the page (Gateway top-lists, Settings backups, …). */
   scroll?: { maxH: string }
 }): React.JSX.Element {
   return (
-    <div className={`rounded-lg border border-line bg-panel panel-shadow overflow-hidden ${className}`}>
+    <div className={`rounded-lg border border-line bg-panel panel-shadow overflow-hidden ${className}`} data-testid={testId}>
       {scroll ? (
         <div className="overflow-y-auto" style={{ maxHeight: scroll.maxH }}>
           {children}
