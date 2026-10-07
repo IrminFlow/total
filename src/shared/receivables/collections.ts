@@ -22,6 +22,8 @@ export interface CollectionMonthInput {
   closing: number
   /** Part of `closing` not yet due at month end. */
   closingNotDue: number
+  /** Days the month covers (a month cut short by the report's end date); default: all of it. */
+  days?: number
 }
 
 export interface CollectionMonth extends CollectionMonthInput {
@@ -50,7 +52,7 @@ export function collectionMonth(i: CollectionMonthInput): CollectionMonth {
     ...i,
     collected,
     due,
-    dso: dso(i.closing, i.sales, daysInMonth(i.month)),
+    dso: dso(i.closing, i.sales, i.days ?? daysInMonth(i.month)),
     efficiency: due > 0 ? Math.round((collected / due) * 10_000) / 10_000 : null
   }
 }

@@ -9,7 +9,7 @@ import { AmountInput, Button, DateInput, DrawerSection, Money, Page, PageHeader,
 import { OptionToggle, OptionsPeriod, OptionsTable, useScreenOptions } from '../components/ScreenOptions'
 import { TabBar } from '../components/TabBar'
 import { DataTable, defineColumns, type RowKey } from '../components/table'
-import { fyOf, toDisplayDate } from '@shared/dates'
+import { fyOf, todayISO, toDisplayDate } from '@shared/dates'
 import { REMINDER_BUCKET_LABELS } from '@shared/receivables/config'
 import { billKeyOf } from '@shared/receivables/types'
 import type { OutstandingBill, OutstandingParty } from '@shared/reports'
@@ -27,28 +27,28 @@ export const OUTSTANDING_COLUMNS = defineColumns<OutstandingParty>([
     value: (p) => p.name,
     hideable: false,
     groupable: false,
-    minWidth: 170, // 170 + 4 × 130 + 150 + chevron + actions = the panel at 1440 wide
+    minWidth: 170, // 170 + 4 × 122 + 136 + chevron + 170 actions = the 1022px panel at 1440 wide
     // The row expands its bills; the party NAME opens the ledger's edit window.
     cell: (p) => <LedgerLink ledgerId={p.ledgerId} name={p.name} />
   },
   { id: 'bills', header: 'Bills', kind: 'number', value: (p) => p.bills.length, aggregate: 'sum', width: 80, defaultHidden: true },
-  { id: 'b0', header: '0–30 d', kind: 'money', value: bucket(0), aggregate: 'sum', width: 130 },
-  { id: 'b1', header: '31–60 d', kind: 'money', value: bucket(1), aggregate: 'sum', width: 130 },
-  { id: 'b2', header: '61–90 d', kind: 'money', value: bucket(2), aggregate: 'sum', width: 130 },
+  { id: 'b0', header: '0–30 d', kind: 'money', value: bucket(0), aggregate: 'sum', width: 122 },
+  { id: 'b1', header: '31–60 d', kind: 'money', value: bucket(1), aggregate: 'sum', width: 122 },
+  { id: 'b2', header: '61–90 d', kind: 'money', value: bucket(2), aggregate: 'sum', width: 122 },
   {
     id: 'b3',
     header: '90+ d',
     kind: 'money',
     value: bucket(3),
     aggregate: 'sum',
-    width: 130,
+    width: 122,
     cell: (p) => (
       <span className={p.buckets[3] > 0 ? 'text-cr' : ''}>
         <Money paise={p.buckets[3]} />
       </span>
     )
   },
-  { id: 'pending', header: 'Pending', kind: 'money', value: (p) => p.pending, aggregate: 'sum', width: 150, className: 'font-medium' }
+  { id: 'pending', header: 'Pending', kind: 'money', value: (p) => p.pending, aggregate: 'sum', width: 136, className: 'font-medium' }
 ])
 
 /** "Remind" (WP 4.2): the letter for the party's ageing bucket is generated and logged (PDF in
@@ -83,7 +83,7 @@ function FollowupForm({ party, bill, onDone }: { party: OutstandingParty; bill: 
   const { to } = useSession()
   const toast = useToasts()
   const qc = useQueryClient()
-  const [date, setDate] = useState(to)
+  const [date, setDate] = useState(() => (to > todayISO() ? todayISO() : to))
   const [note, setNote] = useState('')
   const [promised, setPromised] = useState('')
   const [amount, setAmount] = useState<number | null>(null)
@@ -201,7 +201,7 @@ function StatementsSection({ parties, onPreview }: { parties: OutstandingParty[]
     try {
       const r = await receivablesApi.statementsBulk(from, to, pickFolder)
       if (r.cancelled) return
-      toast.push('success', `${r.files.length} statement${r.files.length === 1 ? '' : 's'} saved to ${r.folder}`)
+      toast.push('success', `${r.files.length} statement${r.files.length === 1 ? '' : 's'} saved to …/${r.folder.split('/').slice(-2).join('/')}`)
     } catch (err) {
       toast.push('error', (err as Error).message)
     } finally {
@@ -380,7 +380,7 @@ export function OutstandingsScreen(): React.JSX.Element {
                   type="button"
                   data-testid="btn-outstandings-remind"
                   className="text-hint text-blue hover:underline"
-                  onClick={() => void remind(p, to, toast)}
+                  onClick={() => void remind(p, to > todayISO() ? todayISO() : to, toast)}
                 >
                   Remind
                 </button>

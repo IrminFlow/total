@@ -391,7 +391,10 @@ export function interestPreview(db: DB, company: CompanyInfo, asOn: string, ledg
 
 function ensureLedger(db: DB, name: string, groupName: string, extra: { gstRate?: number | null; taxType?: 'cgst' | 'sgst' | 'igst' | null } = {}): number {
   if (extra.taxType) {
-    const tagged = db.prepare('SELECT id FROM ledgers WHERE tax_type = ? ORDER BY id LIMIT 1').get(extra.taxType) as { id: number } | undefined
+    // Output tax: prefer a ledger named for output (books often tag "CGST Input" too).
+    const tagged = db
+      .prepare("SELECT id FROM ledgers WHERE tax_type = ? ORDER BY (lower(name) LIKE '%output%') DESC, (lower(name) LIKE '%input%') ASC, id LIMIT 1")
+      .get(extra.taxType) as { id: number } | undefined
     if (tagged) return tagged.id
   }
   const found = db.prepare('SELECT id FROM ledgers WHERE name = ?').get(name) as { id: number } | undefined
@@ -668,7 +671,7 @@ export function collectionReport(db: DB, from: string, to: string): CollectionRe
   for (const m of months) {
     const end = monthEndIso(m) > to ? to : monthEndIso(m)
     const at = receivablesAt(db, end)
-    out.push({ ...collectionMonth({ month: m, opening, sales: sales.get(m) ?? 0, closing: at.total, closingNotDue: at.notDue }), buckets: at.buckets })
+    out.push({ ...collectionMonth({ month: m, opening, sales: sales.get(m) ?? 0, closing: at.total, closingNotDue: at.notDue, days: Number(end.slice(8, 10)) }), buckets: at.buckets })
     opening = at.total
   }
   return { months: out }

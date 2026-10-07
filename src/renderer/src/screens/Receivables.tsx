@@ -4,7 +4,7 @@
 // figure is computed from the books at query time (services/receivables.ts).
 import { useMemo, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { toDisplayDate, toMonthLabel } from '@shared/dates'
+import { todayISO, toDisplayDate, toMonthLabel } from '@shared/dates'
 import { formatPaise } from '@shared/money'
 import { REMINDER_BUCKET_LABELS, type ReminderBucket } from '@shared/receivables/config'
 import { bpToPercent } from '@shared/receivables/interest'
@@ -24,6 +24,14 @@ import { TabBar } from '../components/TabBar'
 export type ReceivablesTab = 'control' | 'reminders' | 'interest' | 'collections'
 
 const rupees = (p: number): string => formatPaise(p, { symbol: true })
+
+/** The as-on date for credit control, reminders and interest: the period end, but never a day in
+ *  the future (the working period usually runs to 31 March — interest can't accrue to then). */
+export function useAsOn(): string {
+  const { to } = useSession()
+  const today = todayISO()
+  return to > today ? today : to
+}
 const pct = (x: number | null): string => (x == null ? '—' : `${Math.round(x * 1000) / 10} %`)
 const BUCKET_TONE: Record<ReminderBucket, 'info' | 'warning' | 'danger'> = { gentle: 'info', firm: 'warning', final: 'danger' }
 
@@ -31,24 +39,24 @@ const BUCKET_TONE: Record<ReminderBucket, 'info' | 'warning' | 'danger'> = { gen
 
 function controlColumns(orders: boolean) {
   return defineColumns<CreditControlRow>([
-    { id: 'party', header: 'Party', kind: 'text', value: (r) => r.name, minWidth: 170, hideable: false, groupable: false, cell: (r) => <LedgerLink ledgerId={r.ledgerId} name={r.name} /> },
+    { id: 'party', header: 'Party', kind: 'text', value: (r) => r.name, minWidth: 160, hideable: false, groupable: false, cell: (r) => <LedgerLink ledgerId={r.ledgerId} name={r.name} /> },
     { id: 'outstanding', header: 'Outstanding', kind: 'money', value: (r) => r.outstanding, aggregate: 'sum', width: 130, signed: true },
-    { id: 'overdue', header: 'Overdue', kind: 'money', value: (r) => r.overdue, aggregate: 'sum', width: 120, cell: (r) => <span className={`num ${r.overdue > 0 ? 'text-cr' : ''}`}>{formatPaise(r.overdue, { zeroDash: true })}</span> },
+    { id: 'overdue', header: 'Overdue', kind: 'money', value: (r) => r.overdue, aggregate: 'sum', width: 110, cell: (r) => <span className={`num ${r.overdue > 0 ? 'text-cr' : ''}`}>{formatPaise(r.overdue, { zeroDash: true })}</span> },
     ...(orders ? [{ id: 'orders', header: 'Open orders', kind: 'money' as const, value: (r: CreditControlRow) => r.openOrders, aggregate: 'sum' as const, width: 120 }] : []),
-    { id: 'exposure', header: 'Exposure', kind: 'money', value: (r) => r.exposure, aggregate: 'sum', width: 130, className: 'font-medium' },
-    { id: 'limit', header: 'Credit limit', kind: 'money', value: (r) => r.creditLimit, width: 120 },
+    { id: 'exposure', header: 'Exposure', kind: 'money', value: (r) => r.exposure, aggregate: 'sum', width: 120, className: 'font-medium' },
+    { id: 'limit', header: 'Credit limit', kind: 'money', value: (r) => r.creditLimit, width: 110 },
     {
-      id: 'util', header: 'Limit used', kind: 'number', value: (r) => (r.utilisation == null ? null : Math.round(r.utilisation * 1000) / 10), width: 100,
+      id: 'util', header: 'Limit used', kind: 'number', value: (r) => (r.utilisation == null ? null : Math.round(r.utilisation * 1000) / 10), width: 108,
       text: (r) => pct(r.utilisation),
       cell: (r) => <span className={`num ${r.utilisation != null && r.utilisation > 1 ? 'font-medium text-cr' : ''}`}>{pct(r.utilisation)}</span>
     },
-    { id: 'dso', header: 'DSO', kind: 'number', value: (r) => r.dso, width: 80, text: (r) => (r.dso == null ? '—' : `${r.dso} d`) },
-    { id: 'days', header: 'Oldest overdue', kind: 'number', value: (r) => r.maxOverdueDays, width: 110, text: (r) => (r.maxOverdueDays ? `${r.maxOverdueDays} d` : '—') },
+    { id: 'dso', header: 'DSO', kind: 'number', value: (r) => r.dso, width: 76, text: (r) => (r.dso == null ? '—' : `${r.dso} d`) },
+    { id: 'days', header: 'Oldest overdue', kind: 'number', value: (r) => r.maxOverdueDays, width: 110, defaultHidden: true, text: (r) => (r.maxOverdueDays ? `${r.maxOverdueDays} d` : '—') },
     {
       id: 'hold', header: 'Hold', kind: 'text', value: (r) => (r.hold ? `On hold${r.holdReason ? ` — ${r.holdReason}` : ''}` : ''), minWidth: 120,
       cell: (r) => (r.hold ? <span title={r.holdReason ?? ''}><Badge tone="danger" testId="badge-credit-hold">On hold</Badge> <span className="text-hint text-muted">{r.holdReason}</span></span> : null)
     },
-    { id: 'promised', header: 'Promised', kind: 'date', value: (r) => r.promisedDate ?? '', width: 110 },
+    { id: 'promised', header: 'Promised', kind: 'date', value: (r) => r.promisedDate ?? '', width: 100 },
     { id: 'promisedAmount', header: 'Promised ₹', kind: 'money', value: (r) => r.promisedAmount, width: 110, defaultHidden: true },
     { id: 'lastReminder', header: 'Last reminder', kind: 'date', value: (r) => r.lastReminder ?? '', width: 120, defaultHidden: true }
   ])
@@ -101,19 +109,19 @@ const LOG_COLUMNS = defineColumns<ReminderLogRow>([
 ])
 
 const INTEREST_COLUMNS = defineColumns<InterestRow>([
-  { id: 'party', header: 'Party', kind: 'text', value: (r) => r.partyName, minWidth: 140, cell: (r) => <LedgerLink ledgerId={r.ledgerId} name={r.partyName} /> },
-  { id: 'bill', header: 'Bill', kind: 'text', value: (r) => r.billRef, width: 120, hideable: false, cell: (r) => <VoucherLink voucherId={r.billVoucherId} label={r.billRef} /> },
-  { id: 'due', header: 'Due', kind: 'date', value: (r) => r.dueDate ?? r.billDate, width: 100 },
+  { id: 'party', header: 'Party', kind: 'text', value: (r) => r.partyName, minWidth: 130, cell: (r) => <LedgerLink ledgerId={r.ledgerId} name={r.partyName} /> },
+  { id: 'bill', header: 'Bill', kind: 'text', value: (r) => r.billRef, width: 110, hideable: false, cell: (r) => <VoucherLink voucherId={r.billVoucherId} label={r.billRef} /> },
+  { id: 'due', header: 'Due', kind: 'date', value: (r) => r.dueDate ?? r.billDate, width: 96 },
   { id: 'grace', header: 'Grace', kind: 'number', value: (r) => r.graceDays, width: 70, defaultHidden: true },
-  { id: 'from', header: 'From', kind: 'date', value: (r) => r.from, width: 100 },
-  { id: 'to', header: 'To', kind: 'date', value: (r) => r.to, width: 100, defaultHidden: true },
-  { id: 'days', header: 'Days', kind: 'number', value: (r) => r.days, width: 70 },
-  { id: 'pending', header: 'Pending', kind: 'money', value: (r) => r.pendingPaise, width: 120 },
-  { id: 'rate', header: 'Rate', kind: 'number', value: (r) => r.rateBp / 100, width: 80, text: (r) => `${bpToPercent(r.rateBp)} %` },
+  { id: 'from', header: 'From', kind: 'date', value: (r) => r.from, width: 96 },
+  { id: 'to', header: 'To', kind: 'date', value: (r) => r.to, width: 96, defaultHidden: true },
+  { id: 'days', header: 'Days', kind: 'number', value: (r) => r.days, width: 60 },
+  { id: 'pending', header: 'Pending', kind: 'money', value: (r) => r.pendingPaise, width: 110 },
+  { id: 'rate', header: 'Rate', kind: 'number', value: (r) => r.rateBp / 100, width: 70, text: (r) => `${bpToPercent(r.rateBp)} %` },
   { id: 'interest', header: 'Interest', kind: 'money', value: (r) => r.interestPaise, aggregate: 'sum', width: 110, className: 'font-medium' },
-  { id: 'gstRate', header: 'GST rate', kind: 'text', value: (r) => r.gst.filter((g) => g.rate > 0).map((g) => `${g.rate}%`).join(' + ') || 'none', width: 90 },
-  { id: 'gst', header: 'GST', kind: 'money', value: (r) => r.gstPaise, aggregate: 'sum', width: 100 },
-  { id: 'total', header: 'Debit note', kind: 'money', value: (r) => r.totalPaise, aggregate: 'sum', width: 120 },
+  { id: 'gstRate', header: 'GST rate', kind: 'text', value: (r) => r.gst.filter((g) => g.rate > 0).map((g) => `${g.rate}%`).join(' + ') || 'none', width: 80 },
+  { id: 'gst', header: 'GST', kind: 'money', value: (r) => r.gstPaise, aggregate: 'sum', width: 90 },
+  { id: 'total', header: 'Debit note', kind: 'money', value: (r) => r.totalPaise, aggregate: 'sum', width: 110 },
   { id: 'charged', header: 'Charged to', kind: 'date', value: (r) => r.chargedTo ?? '', width: 110, defaultHidden: true }
 ])
 
@@ -132,22 +140,22 @@ const CHARGE_COLUMNS = defineColumns<InterestChargeRow>([
 
 type MonthRow = CollectionReport['months'][number]
 const COLLECTION_COLUMNS = defineColumns<MonthRow>([
-  { id: 'month', header: 'Month', kind: 'text', value: (r) => r.month, width: 110, hideable: false, text: (r) => toMonthLabel(r.month) },
+  { id: 'month', header: 'Month', kind: 'text', value: (r) => r.month, width: 120, hideable: false, text: (r) => toMonthLabel(r.month, 'long') },
   { id: 'opening', header: 'Opening', kind: 'money', value: (r) => r.opening, width: 120, defaultHidden: true },
-  { id: 'sales', header: 'Credit sales', kind: 'money', value: (r) => r.sales, aggregate: 'sum', width: 120 },
-  { id: 'collected', header: 'Collected', kind: 'money', value: (r) => r.collected, aggregate: 'sum', width: 120 },
-  { id: 'due', header: 'Was due', kind: 'money', value: (r) => r.due, width: 120 },
+  { id: 'sales', header: 'Credit sales', kind: 'money', value: (r) => r.sales, aggregate: 'sum', width: 124 },
+  { id: 'collected', header: 'Collected', kind: 'money', value: (r) => r.collected, aggregate: 'sum', width: 124 },
+  { id: 'due', header: 'Was due', kind: 'money', value: (r) => r.due, width: 124, defaultHidden: true },
   {
-    id: 'efficiency', header: 'Efficiency', kind: 'number', value: (r) => (r.efficiency == null ? null : Math.round(r.efficiency * 1000) / 10), width: 100,
+    id: 'efficiency', header: 'Efficiency', kind: 'number', value: (r) => (r.efficiency == null ? null : Math.round(r.efficiency * 1000) / 10), width: 104,
     text: (r) => pct(r.efficiency),
     cell: (r) => <span className={`num ${r.efficiency != null && r.efficiency < 0.5 ? 'text-cr' : ''}`}>{pct(r.efficiency)}</span>
   },
   { id: 'dso', header: 'DSO', kind: 'number', value: (r) => r.dso, width: 80, text: (r) => (r.dso == null ? '—' : `${r.dso} d`) },
-  { id: 'closing', header: 'Closing', kind: 'money', value: (r) => r.closing, width: 120 },
-  { id: 'b0', header: '0–30 d', kind: 'money', value: (r) => r.buckets[0], width: 110, group: 'Ageing at month end' },
-  { id: 'b1', header: '31–60 d', kind: 'money', value: (r) => r.buckets[1], width: 110, group: 'Ageing at month end' },
-  { id: 'b2', header: '61–90 d', kind: 'money', value: (r) => r.buckets[2], width: 110, group: 'Ageing at month end' },
-  { id: 'b3', header: '90+ d', kind: 'money', value: (r) => r.buckets[3], width: 110, group: 'Ageing at month end' }
+  { id: 'closing', header: 'Closing', kind: 'money', value: (r) => r.closing, width: 124 },
+  { id: 'b0', header: '0–30 d', kind: 'money', value: (r) => r.buckets[0], width: 100, group: 'Ageing at month end' },
+  { id: 'b1', header: '31–60 d', kind: 'money', value: (r) => r.buckets[1], width: 100, group: 'Ageing at month end' },
+  { id: 'b2', header: '61–90 d', kind: 'money', value: (r) => r.buckets[2], width: 100, group: 'Ageing at month end' },
+  { id: 'b3', header: '90+ d', kind: 'money', value: (r) => r.buckets[3], width: 100, group: 'Ageing at month end' }
 ])
 
 const TOP_COLUMNS = defineColumns<TopOverdueRow>([
@@ -165,7 +173,7 @@ const TOP_COLUMNS = defineColumns<TopOverdueRow>([
 // ---------------------------------------------------------------- tabs
 
 function ControlTab(): React.JSX.Element {
-  const { to } = useSession()
+  const to = useAsOn()
   const toast = useToasts()
   const qc = useQueryClient()
   const features = useFeatures()
@@ -241,7 +249,8 @@ function ControlTab(): React.JSX.Element {
 }
 
 function RemindersTab(): React.JSX.Element {
-  const { from, to } = useSession()
+  const { from } = useSession()
+  const to = useAsOn()
   const toast = useToasts()
   const qc = useQueryClient()
   const [busy, setBusy] = useState(false)
@@ -348,7 +357,7 @@ function RemindersTab(): React.JSX.Element {
 }
 
 function InterestTab({ gst }: { gst: boolean }): React.JSX.Element {
-  const { to } = useSession()
+  const to = useAsOn()
   const toast = useToasts()
   const qc = useQueryClient()
   const [busy, setBusy] = useState(false)
@@ -434,9 +443,12 @@ function InterestTab({ gst }: { gst: boolean }): React.JSX.Element {
 }
 
 function CollectionsTab(): React.JSX.Element {
-  const { from, to } = useSession()
+  const { from } = useSession()
+  // Months after today have nothing to measure yet — the report runs to today at the latest.
+  const asOn = useAsOn()
+  const to = asOn
   const { data, isLoading } = useQuery({ queryKey: ['collections', from, to], queryFn: () => receivablesApi.collections(from, to) })
-  const { data: top, isLoading: topLoading } = useQuery({ queryKey: ['topOverdue', to], queryFn: () => receivablesApi.topOverdue(to, 25) })
+  const { data: top, isLoading: topLoading } = useQuery({ queryKey: ['topOverdue', asOn], queryFn: () => receivablesApi.topOverdue(asOn, 25) })
   const months = data?.months ?? []
   const last = months[months.length - 1]
   const withDso = months.filter((m) => m.dso != null)
@@ -463,7 +475,7 @@ function CollectionsTab(): React.JSX.Element {
           exportOptions={{ title: 'Collections by month', periodLabel: `${toDisplayDate(from)} to ${toDisplayDate(to)}`, filename: 'collections' }}
         />
       </Panel>
-      <h2 className="mb-2 mt-section text-title font-semibold">Top overdue parties <span className="text-detail font-normal text-muted">as on {toDisplayDate(to)}</span></h2>
+      <h2 className="mb-2 mt-section text-title font-semibold">Top overdue parties <span className="text-detail font-normal text-muted">as on {toDisplayDate(asOn)}</span></h2>
       <Panel>
         <DataTable
           viewId="receivables-top-overdue"
@@ -475,7 +487,7 @@ function CollectionsTab(): React.JSX.Element {
           loading={topLoading}
           empty={{ title: 'Nothing overdue' }}
           maxHeight="40vh"
-          exportOptions={{ title: 'Top overdue parties', periodLabel: `as on ${toDisplayDate(to)}`, filename: 'top-overdue' }}
+          exportOptions={{ title: 'Top overdue parties', periodLabel: `as on ${toDisplayDate(asOn)}`, filename: 'top-overdue' }}
         />
       </Panel>
     </>
@@ -511,7 +523,8 @@ export function ReceivablesScreen({ tab: initialTab = 'control' }: { tab?: Recei
       toast.push('error', (err as Error).message)
     }
   }
-  const asOn = tab === 'collections' || tab === 'reminders' ? `${toDisplayDate(from)} to ${toDisplayDate(to)}` : `as on ${toDisplayDate(to)}`
+  const asOnDate = useAsOn()
+  const asOn = tab === 'collections' ? `${toDisplayDate(from)} to ${toDisplayDate(asOnDate)}` : `as on ${toDisplayDate(asOnDate)}`
   return (
     <Page width="wide">
       <PageHeader
