@@ -294,6 +294,15 @@ export const SCREENS: ScreenDef[] = [
     feature: 'tds',
     invalidates: ['tdsSummary', 'tdsSections']
   },
+  {
+    name: 'tcs',
+    keywords: ['tax collected at source', '206C', '27EQ', '27D'],
+    title: 'TCS',
+    screen: { name: 'tcs' },
+    navSection: 'gst',
+    feature: 'tcs',
+    invalidates: ['tcs', 'tcsSections', 'tcsRates']
+  },
 
   {
     name: 'settings',

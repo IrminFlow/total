@@ -4,7 +4,7 @@ import type { Voucher, VoucherBillRef, VoucherKind } from '@shared/domain'
 import type { OutstandingBill } from '@shared/reports'
 import type { VoucherInputParsed } from '@shared/schemas'
 import {
-  buildInvoicePayload, computeInvoice, invoiceKindTakesTds, requiredTaxLedgers, taxLedgerIdsFrom,
+  buildInvoicePayload, computeInvoice, invoiceKindTakesTcs, invoiceKindTakesTds, requiredTaxLedgers, taxLedgerIdsFrom,
   type InvoiceContext, type InvoiceFormState, type TaxLedgerIds, type TdsDeductionState
 } from '@shared/voucherEdit'
 import { GST_STATES } from '@shared/gst/states'
@@ -21,7 +21,7 @@ import { useUnsavedGuard } from '../../lib/useUnsavedGuard'
 import { addDaysLocal, nextLineKey, NUMBER_LOADING, useAlterationDirty, useLeaveAfterSave, useVoucherNumberField } from './hooks'
 import { QuickItemModal, QuickLedgerModal } from './modals'
 import { TransportModal } from './TransportModal'
-import { useTdsDeduction } from './useTdsDeduction'
+import { useTcsCollection, useTdsDeduction, type TcsCandidate } from './useTdsDeduction'
 import { TdsBanner, TdsNotApplicableNote } from './TdsBanner'
 import { blankItemRow, ItemLineGrid, type ItemRow } from './ItemLineGrid'
 import { AddFromDrawer } from './AddFromDrawer'
@@ -115,6 +115,8 @@ export function InvoiceEntry({
   // deduction and credits the section's tagged payable ledger (or, while that ledger doesn't
   // exist, leaves it `pending` for saveVoucher to create inside the save).
   const [tds, setTds] = useState<TdsDeductionState | null>(initial?.tds ?? null)
+  // ---------- TCS (sales invoices, WP 3.3) — collected on top of the invoice total ----------
+  const [tcs, setTcs] = useState<TdsDeductionState | null>(initial?.tcs ?? null)
 
   useEffect(() => {
     if (!billNameTouched && numberField.value !== NUMBER_LOADING) setBillName(numberField.value)
@@ -141,8 +143,9 @@ export function InvoiceEntry({
       const kept = rs.filter((r) => !r.source)
       return kept.length > 0 && kept[kept.length - 1]!.itemId == null ? kept : [...kept, blankItemRow()]
     })
-    // A deduction belongs to its deductee — a different supplier starts without one.
+    // A deduction belongs to its deductee — a different supplier starts without one (TCS too).
     setTds(null)
+    setTcs(null)
     if (isNoteKind) {
       setManualNewBillMode(false)
       setBillNameTouched(false)
@@ -163,7 +166,7 @@ export function InvoiceEntry({
       kind,
       companyStateCode: info!.stateCode,
       items: new Map(items.map((i) => [i.id, { gstRate: i.gstRate, cessRate: i.cessRate }])),
-      ledgers: new Map(ledgers.map((l) => [l.id, { stateCode: l.stateCode, gstRate: l.gstRate, tdsPayableSectionId: l.tdsPayableSectionId }]))
+      ledgers: new Map(ledgers.map((l) => [l.id, { stateCode: l.stateCode, gstRate: l.gstRate, tdsPayableSectionId: l.tdsPayableSectionId, tcsPayableSectionId: l.tcsPayableSectionId ?? null }]))
     }),
     [kind, info, items, ledgers]
   )
@@ -190,9 +193,10 @@ export function InvoiceEntry({
       reference: initial?.reference ?? null,
       instrumentNo: initial?.instrumentNo ?? null,
       instrumentDate: initial?.instrumentDate ?? null,
-      tds: invoiceKindTakesTds(kind) ? tds : null
+      tds: invoiceKindTakesTds(kind) ? tds : null,
+      tcs: invoiceKindTakesTcs(kind) ? tcs : null
     }),
-    [date, isEdit, alterNumber, numberField.forPayload, partyId, accountId, rows, narration, vehicleNo, transporterId, distanceKm, currencyCode, fxRateText, posOverride, optionalVoucher, billName, billDueDate, manualNewBillMode, noteBillRefs, initial, kind, tds]
+    [date, isEdit, alterNumber, numberField.forPayload, partyId, accountId, rows, narration, vehicleNo, transporterId, distanceKm, currencyCode, fxRateText, posOverride, optionalVoucher, billName, billDueDate, manualNewBillMode, noteBillRefs, initial, kind, tds, tcs]
   )
 
   const computed = useMemo(() => computeInvoice(formState, ctx), [formState, ctx])
@@ -214,6 +218,39 @@ export function InvoiceEntry({
   const appliedTds = formState.tds ?? null
   const partyAmount = computed.rounded - (appliedTds?.tdsAmount ?? 0)
   const tdsStale = !!appliedTds && !appliedTds.isManual && appliedTds.baseAmount !== computed.gst.taxable
+
+  // TCS candidate: the buyer, taxable value, GST (+ round-off), sales ledger and goods — the
+  // server decides the section (buyer → goods → sales ledger) and whether GST is in the base.
+  const tcsCandidate: TcsCandidate | null = useMemo(
+    () =>
+      invoiceKindTakesTcs(kind) && partyId != null && computed.gst.taxable > 0
+        ? {
+            partyLedgerId: partyId, voucherKind: 'sales', taxablePaise: computed.gst.taxable, gstPaise: computed.rounded - computed.gst.taxable,
+            salesLedgerId: accountId, items: computed.detail.map((d) => ({ stockItemId: d.itemId, amount: d.amount }))
+          }
+        : null,
+    [kind, partyId, accountId, computed]
+  )
+  const tcsCollection = useTcsCollection({
+    enabled: features.tcs && invoiceKindTakesTcs(kind),
+    candidate: tcsCandidate,
+    date,
+    excludeVoucherId: voucherId,
+    tcs,
+    onChange: setTcs,
+    startDismissed: !!initial?.tcs
+  })
+  const appliedTcs = formState.tcs ?? null
+  const tcsKey = JSON.stringify(tcsCandidate)
+  // The candidate the applied TCS was computed for (an alteration: the saved invoice's own).
+  const tcsAppliedKey = useRef<string | null>(initial?.tcs ? tcsKey : null)
+  useEffect(() => {
+    if (!appliedTcs) tcsAppliedKey.current = null
+    else if (tcsAppliedKey.current == null) tcsAppliedKey.current = tcsKey
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [appliedTcs])
+  const tcsStale = !!appliedTcs && !appliedTcs.isManual && tcsAppliedKey.current != null && tcsAppliedKey.current !== tcsKey
+  const grandTotal = computed.rounded + (appliedTcs?.tdsAmount ?? 0)
 
   // Unsaved-changes guard: a fresh invoice is dirty once anything meaningful is typed (save
   // resets all of these); an alteration once what it would post differs from the saved voucher.
@@ -262,6 +299,7 @@ export function InvoiceEntry({
     if (!accountId) return void toast.push('error', `Pick the ${isSalesSide ? 'sales' : 'purchase'} ledger`)
     if (computed.detail.length === 0) return void toast.push('error', 'Add at least one item line')
     if (tdsStale) return void toast.push('error', 'The invoice changed since TDS was applied — apply TDS again (or remove it) before saving')
+    if (tcsStale) return void toast.push('error', 'The invoice changed since TCS was applied — apply TCS again (or remove it) before saving')
     setSaving(true)
     try {
       const input = await buildPayload()
@@ -288,7 +326,8 @@ export function InvoiceEntry({
       }
       const result = await api.vouchers.save(input, voucherId)
       if (invoiceKindTakesTds(kind)) await tdsDeduction.afterSave(result.id)
-      toast.push('success', `${result.number} ${isEdit ? 'altered' : 'saved'} — ${formatPaise(computed.rounded, { symbol: true })}`)
+      if (features.tcs && invoiceKindTakesTcs(kind)) await tcsCollection.afterSave(result.id)
+      toast.push('success', `${result.number} ${isEdit ? 'altered' : 'saved'} — ${formatPaise(grandTotal, { symbol: true })}`)
       if (andPdf && kind === 'sales') {
         await api.invoice.pdf(result.id)
       }
@@ -309,6 +348,7 @@ export function InvoiceEntry({
       setBillDueDateTouched(false)
       setNoteBillRefs([])
       tdsDeduction.reset()
+      tcsCollection.reset()
       numberField.reset()
       await queryClient.invalidateQueries()
     } catch (err) {
@@ -316,7 +356,7 @@ export function InvoiceEntry({
     } finally {
       setSaving(false)
     }
-  }, [saving, partyId, accountId, computed, buildPayload, isSalesSide, kind, typeId, voucherId, isEdit, date, toast, setWorkingDate, queryClient, numberField.reset, leave, tdsDeduction.reset, tdsDeduction.afterSave, tdsStale])
+  }, [saving, partyId, accountId, computed, buildPayload, isSalesSide, kind, typeId, voucherId, isEdit, date, toast, setWorkingDate, queryClient, numberField.reset, leave, tdsDeduction.reset, tdsDeduction.afterSave, tdsStale, tcsStale, tcsCollection.reset, tcsCollection.afterSave, features.tcs, grandTotal])
 
   const remove = async (): Promise<void> => {
     if (!voucherId) return
@@ -570,7 +610,7 @@ export function InvoiceEntry({
             </p>
           )}
           {computed.rounded > 0 && (
-            <p className="mt-2 text-hint text-muted italic">{amountInWords(computed.rounded)}</p>
+            <p className="mt-2 text-hint text-muted italic">{amountInWords(grandTotal)}</p>
           )}
         </div>
         <div className="num w-72 text-detail">
@@ -580,9 +620,29 @@ export function InvoiceEntry({
           {computed.gst.igst > 0 && <SummaryRow label="IGST" paise={computed.gst.igst} />}
           {computed.gst.cess > 0 && <SummaryRow label="Cess" paise={computed.gst.cess} />}
           {computed.roundDiff !== 0 && <SummaryRow label="Round off" paise={computed.roundDiff} />}
+          {appliedTcs && (
+            <div
+              className="flex justify-between py-0.5"
+              data-testid="invoice-tcs-summary"
+              title={tcsCollection.suggestion ? `TCS u/s ${tcsCollection.suggestion.code} (${tcsCollection.suggestion.reference})${appliedTcs.pending ? ' — payable ledger created on save' : ''}` : undefined}
+            >
+              <span className="flex items-center gap-1.5">
+                TCS{tcsCollection.suggestion && !appliedTcs.isManual ? ` @ ${tcsCollection.suggestion.rate}%` : appliedTcs.isManual ? ' (manual)' : ''}
+                <button
+                  className="text-hint text-muted hover:text-cr"
+                  aria-label="Remove TCS"
+                  data-testid="btn-tcs-remove"
+                  onClick={() => setTcs(null)}
+                >
+                  ×
+                </button>
+              </span>
+              <Money paise={appliedTcs.tdsAmount} />
+            </div>
+          )}
           <div className="mt-1 flex justify-between border-t border-ink pt-1.5 pb-0.5 text-subtitle font-semibold" style={{ borderBottom: '3px double var(--color-ink)' }}>
             <span>Total</span>
-            <Money paise={computed.rounded} />
+            <Money paise={grandTotal} />
           </div>
           {appliedTds && (
             <div data-testid="invoice-tds-summary">
@@ -611,6 +671,30 @@ export function InvoiceEntry({
           TDS was applied on a taxable value of {formatPaise(appliedTds!.baseAmount, { symbol: true })}; the invoice now
           totals {formatPaise(computed.gst.taxable, { symbol: true })} — apply TDS again before saving.
         </p>
+      )}
+      {tcsStale && (
+        <p className="mt-2 text-body-sm text-cr" data-testid="invoice-tcs-stale">
+          TCS was applied on {formatPaise(appliedTcs!.baseAmount, { symbol: true })}; the invoice has changed since — apply TCS again before saving.
+        </p>
+      )}
+      {features.tcs && invoiceKindTakesTcs(kind) && tcsCollection.notApplicable != null && !appliedTcs && (
+        <TdsNotApplicableNote kind="tcs" reason={tcsCollection.notApplicable} onUndo={() => tcsCollection.setNotApplicable(null)} />
+      )}
+      {features.tcs && tcsCollection.suggestion && !tcsCollection.dismissed && tcsCollection.notApplicable == null && (
+        <TdsBanner
+          kind="tcs"
+          suggestion={tcsCollection.suggestion}
+          onDismiss={tcsCollection.dismiss}
+          onApply={() => {
+            if (tcsCollection.apply()) tcsAppliedKey.current = tcsKey
+          }}
+          onApplyManual={(p) => {
+            if (tcsCollection.applyManual(p)) tcsAppliedKey.current = tcsKey
+          }}
+          onChooseSection={(id) => tcsCollection.chooseSection(id)}
+          onNotApplicable={appliedTcs ? undefined : (r) => tcsCollection.setNotApplicable(r)}
+          blockedReason={null}
+        />
       )}
       {features.tds && invoiceKindTakesTds(kind) && tdsDeduction.notApplicable != null && !appliedTds && (
         <TdsNotApplicableNote reason={tdsDeduction.notApplicable} onUndo={() => tdsDeduction.setNotApplicable(null)} />
@@ -772,7 +856,7 @@ export function InvoiceEntry({
                   </Field>
                   <Field label="Amount">
                     <div className={`${inputCls} num bg-panel text-right text-muted`}>
-                      <Money paise={partyAmount} />
+                      <Money paise={partyAmount + (appliedTcs?.tdsAmount ?? 0)} />
                     </div>
                   </Field>
                   {isNoteKind && (

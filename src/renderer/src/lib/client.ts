@@ -270,6 +270,28 @@ export interface TdsSuggestion {
   payment?: { undeductedBillsPaise: number; advancePaise: number; deductedAtCredit: boolean } | null
 }
 
+/** Mirrors src/main/services/tcs.ts's TcsSuggestion (WP 3.3): the TDS banner's shape — the
+ *  amount to collect rides in `tdsPaise` — plus the TCS basis. */
+export type TcsSuggestion = Omit<TdsSuggestion, 'sectionFrom' | 'candidates'> & {
+  kind: 'tcs'
+  sectionFrom: 'party' | 'goods' | 'ledger' | 'chosen' | 'credits'
+  candidates: { sectionId: number; code: string; from: 'party' | 'goods' | 'ledger' | 'credits' }[]
+  gstInBase: boolean
+}
+
+/** tcs:suggest payload (src/shared/schemas.ts tcsSuggestSchema). */
+export interface TcsSuggestRequest {
+  partyLedgerId: number
+  date: string
+  voucherKind: 'sales' | 'receipt'
+  taxablePaise: number
+  gstPaise?: number
+  salesLedgerId?: number | null
+  items?: { stockItemId: number; amount: number }[]
+  excludeVoucherId?: number
+  sectionId?: number | null
+}
+
 /** Mirrors src/main/services/tds.ts's TdsSummaryRow shape (kept local — that file is main-process only). */
 export interface TdsSummaryRow {
   sectionCode: string
@@ -777,6 +799,48 @@ export const api = {
     form26q: (fyStartYear: number, quarter: number) => call<Form26qData>('tds:form26q', { fyStartYear, quarter }),
     form16a: (fyStartYear: number, quarter: number, partyLedgerId?: number) => call<Form16aData>('tds:form16a', { fyStartYear, quarter, partyLedgerId }),
     form16aPdf: (fyStartYear: number, quarter: number, partyLedgerId?: number) => call<{ path: string }>('tds:form16aPdf', { fyStartYear, quarter, partyLedgerId })
+  },
+  // WP 3.3 — TCS on sales: the same calls as `tds` over the kind-tagged tables (the TDS screen's
+  // tab components take a kind and use whichever namespace), plus the TCS-only suggestion and the
+  // Form 27EQ / Form 27D data.
+  tcs: {
+    sections: () => call<TdsSection[]>('tcs:sections'),
+    sectionSave: (data: TdsSectionInput) => call<TdsSection>('tcs:sectionSave', data),
+    suggest: (input: TcsSuggestRequest) => call<TcsSuggestion | null>('tcs:suggest', input),
+    rates: (sectionId?: number) => call<TdsRate[]>('tcs:rates', { sectionId }),
+    rateSave: (data: TdsRateInput) => call<TdsRate>('tcs:rateSave', data),
+    rateDelete: (id: number) => call<void>('tcs:rateDelete', { id }),
+    certificates: (ledgerId?: number) => call<TdsCertificateRow[]>('tcs:certificates', { ledgerId }),
+    certificateSave: (data: TdsCertificateInput) => call<TdsCertificateRow>('tcs:certificateSave', data),
+    certificateDelete: (id: number) => call<void>('tcs:certificateDelete', { id }),
+    challanSave: (data: TdsChallanInput) => call<TdsChallan>('tcs:challanSave', data),
+    challanDelete: (id: number) => call<void>('tcs:challanDelete', { id }),
+    allocate: (challanId: number, entryIds: number[]) => call<TdsChallan>('tcs:allocate', { challanId, entryIds }),
+    unallocate: (entryIds: number[]) => call<void>('tcs:unallocate', { entryIds }),
+    unallocated: (fyStartYear: number, quarter?: number) => call<TdsEntryRow[]>('tcs:unallocated', { fyStartYear, quarter }),
+    eligible: (from: string, to: string, includeExempt = false) => call<TdsEligibleRow[]>('tcs:eligible', { from, to, includeExempt }),
+    deducted: (from: string, to: string) => call<TdsDeductedRow[]>('tcs:deducted', { from, to }),
+    ledgerSummary: (fyStartYear: number, quarter: number) => call<TdsLedgerSummaryRow[]>('tcs:ledgerSummary', { fyStartYear, quarter }),
+    applyToVoucher: (voucherId: number, opts: { sectionId?: number | null; manualPaise?: number | null } = {}) =>
+      call<Voucher>('tcs:applyToVoucher', { voucherId, ...opts }),
+    applyMany: (voucherIds: number[]) =>
+      call<({ voucherId: number; ok: true } | { voucherId: number; ok: false; error: string })[]>('tcs:applyMany', { voucherIds }),
+    removeFromVoucher: (voucherId: number) => call<Voucher>('tcs:removeFromVoucher', { voucherId }),
+    exempt: (voucherId: number, reason: string) => call<null>('tcs:exempt', { voucherId, reason }),
+    unexempt: (voucherId: number) => call<null>('tcs:unexempt', { voucherId }),
+    exemption: (voucherId: number) => call<{ reason: string | null }>('tcs:exemption', { voucherId }),
+    paymentCandidates: (fyStartYear: number) => call<TdsPaymentCandidate[]>('tcs:paymentCandidates', { fyStartYear }),
+    challanRows: (fyStartYear: number, quarter?: number, rateBp?: number) => call<TdsChallanRow[]>('tcs:challanRows', { fyStartYear, quarter, rateBp }),
+    challanFromPayment: (data: {
+      paymentVoucherId: number; bsrCode: string; challanNo: string; date?: string | null
+      quarter?: number | null; fyStartYear?: number | null; autoAllocate?: boolean
+    }) => call<TdsChallanRow>('tcs:challanFromPayment', data),
+    autoAllocate: (challanId: number) => call<{ entryIds: number[] }>('tcs:autoAllocate', { challanId }),
+    challanInterest: (challanId: number, rateBp?: number) => call<TdsChallanEntryInterest[]>('tcs:challanInterest', { challanId, rateBp }),
+    form27eq: (fyStartYear: number, quarter: number) => call<Form26qData>('tcs:form27eq', { fyStartYear, quarter }),
+    export27eq: (fyStartYear: number, quarter: number) => call<{ path: string }>('tcs:export27eq', { fyStartYear, quarter }),
+    form27d: (fyStartYear: number, quarter: number, partyLedgerId?: number) => call<Form16aData>('tcs:form27d', { fyStartYear, quarter, partyLedgerId }),
+    form27dPdf: (fyStartYear: number, quarter: number, partyLedgerId?: number) => call<{ path: string }>('tcs:form27dPdf', { fyStartYear, quarter, partyLedgerId })
   },
   cc: {
     list: () => call<CostCentre[]>('cc:list'),

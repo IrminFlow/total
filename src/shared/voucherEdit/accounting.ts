@@ -31,6 +31,8 @@ export interface AccountingFormState {
   advanceReceipt: boolean
   optional: boolean
   tds: AccountingTdsState | null
+  /** TCS collected on a receipt (WP 3.3) — `tdsAmount` is the TCS. Absent/null = none. */
+  tcs?: AccountingTdsState | null
   /** null for a new voucher. */
   original: AccountingOriginal | null
 }
@@ -126,6 +128,13 @@ export function buildAccountingPayload(
               sectionId: state.tds.sectionId, baseAmount: state.tds.baseAmount, tdsAmount: state.tds.tdsAmount,
               isManual: !!state.tds.isManual, autoPayable: !!state.tds.autoPayable
             }
+          : null,
+      tcs:
+        state.tcs && party != null
+          ? {
+              sectionId: state.tcs.sectionId, baseAmount: state.tcs.baseAmount, tcsAmount: state.tcs.tdsAmount,
+              isManual: !!state.tcs.isManual, autoPayable: !!state.tcs.autoPayable
+            }
           : null
     }
   }
@@ -148,6 +157,9 @@ export function accountingStateFromVoucher(v: Voucher): AccountingFormState {
     optional: v.isOptional,
     tds: v.tds
       ? { sectionId: v.tds.sectionId, baseAmount: v.tds.baseAmount, tdsAmount: v.tds.tdsAmount, isManual: !!v.tds.isManual }
+      : null,
+    tcs: v.tcs
+      ? { sectionId: v.tcs.sectionId, baseAmount: v.tcs.baseAmount, tdsAmount: v.tcs.tcsAmount, isManual: !!v.tcs.isManual }
       : null,
     original: {
       ...passthroughOf(v),

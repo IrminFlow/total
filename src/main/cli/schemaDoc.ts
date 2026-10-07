@@ -52,6 +52,7 @@ const FIELD_DOCS: Record<string, string> = {
   inventory: 'Stock item lines for inventory vouchers. qtyMilli is integer thousandths (1000 = 1 unit); ratePaise/amount are integer paise.',
   billRefs: "Bill-wise allocations: kind 'new' opens a bill, 'against' settles one, by name.",
   tds: "TDS deduction on this voucher (section + base + deducted amount, paise), or null. The amount must equal the section's rate x base on the voucher date unless isManual; the voucher must credit the section's TDS payable ledger by that amount — or set autoPayable and leave that credit out (the server finds or creates the payable ledger and appends it).",
+  tcs: "TCS collected on a sale or receipt (section + base + collected amount, paise), or null/absent. The amount must equal the section's rate x base unless isManual; the voucher must credit the section's TCS payable ledger by that amount (or set autoPayable), and on a sale the buyer's debit must include it (at least base + TCS).",
   trade: "Delivery challan / goods receipt note only: { purpose } (why the goods moved — supply, job_work, approval, liquid_gas or non_supply on a challan; purchase, return or job_work on a GRN). Absent keeps the stored purpose; ignored for every other kind."
 }
 
