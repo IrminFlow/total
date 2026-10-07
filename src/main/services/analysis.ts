@@ -5,38 +5,133 @@ import { fyOf } from '@shared/dates'
 import { descendantIdsByName } from './masters'
 import { IN_BOOKS } from './vouchers'
 
-/** Monthly sales/purchase register: voucher count, taxable, tax and invoice totals per month. */
-export function registerByMonth(db: DB, kind: 'sales' | 'purchase', from: string, to: string): RegisterMonthRow[] {
-  const accountRoot = kind === 'sales' ? ['Sales Accounts', 'Direct Incomes', 'Indirect Incomes'] : ['Purchase Accounts', 'Direct Expenses', 'Indirect Expenses']
-  const accountIds = descendantIdsByName(db, accountRoot)
+/** Account roots whose lines make up a register's taxable value — the Registers screen's
+ *  definition, shared with the dashboard's net-of-notes trade series below. */
+const REGISTER_ROOTS: Record<'sales' | 'purchase', string[]> = {
+  sales: ['Sales Accounts', 'Direct Incomes', 'Indirect Incomes'],
+  purchase: ['Purchase Accounts', 'Direct Expenses', 'Indirect Expenses']
+}
+
+/** One in-books sales/purchase voucher as the register counts it. */
+export interface RegisterVoucherRow {
+  voucherId: number
+  date: string
+  /** 'YYYY-MM' */
+  month: string
+  partyLedgerId: number | null
+  /** `side` lines (sales: Cr, purchase: Dr) on the register's account roots — excludes tax. */
+  taxable: number
+  /** `side` lines on tax ledgers. */
+  tax: number
+  /** All Dr lines — the invoice total. */
+  total: number
+}
+
+/** The register at voucher grain — the single definition both registerByMonth and the dashboard
+ *  aggregate. Soft-deleted, optional and unmatured post-dated vouchers are out (IN_BOOKS). */
+export function registerVoucherRows(db: DB, kind: 'sales' | 'purchase', from: string, to: string): RegisterVoucherRow[] {
+  const accountIds = descendantIdsByName(db, REGISTER_ROOTS[kind])
   const side = kind === 'sales' ? 'cr' : 'dr'
 
   const rows = db
     .prepare(
-      `SELECT substr(v.date, 1, 7) AS month, v.id AS voucherId, vl.amount, l.group_id AS groupId, l.tax_type AS taxType, vl.dr_cr AS drCr
+      `SELECT v.date AS date, substr(v.date, 1, 7) AS month, v.id AS voucherId, v.party_ledger_id AS partyLedgerId,
+              vl.amount, l.group_id AS groupId, l.tax_type AS taxType, vl.dr_cr AS drCr
        FROM vouchers v
        JOIN voucher_types vt ON vt.id = v.voucher_type_id
        JOIN voucher_lines vl ON vl.voucher_id = v.id
        JOIN ledgers l ON l.id = vl.ledger_id
        WHERE vt.kind = ? AND v.date BETWEEN ? AND ? AND ${IN_BOOKS}`
     )
-    .all(kind, from, to) as { month: string; voucherId: number; amount: number; groupId: number; taxType: string | null; drCr: string }[]
+    .all(kind, from, to) as {
+      date: string; month: string; voucherId: number; partyLedgerId: number | null; amount: number
+      groupId: number; taxType: string | null; drCr: string
+    }[]
 
-  const months = new Map<string, RegisterMonthRow & { seen: Set<number> }>()
+  const byVoucher = new Map<number, RegisterVoucherRow>()
   for (const r of rows) {
-    const m = months.get(r.month) ?? { month: r.month, vouchers: 0, taxable: 0, tax: 0, total: 0, seen: new Set<number>() }
-    if (!m.seen.has(r.voucherId)) {
-      m.seen.add(r.voucherId)
-      m.vouchers++
+    let v = byVoucher.get(r.voucherId)
+    if (!v) {
+      v = { voucherId: r.voucherId, date: r.date, month: r.month, partyLedgerId: r.partyLedgerId, taxable: 0, tax: 0, total: 0 }
+      byVoucher.set(r.voucherId, v)
     }
-    if (r.drCr === side && accountIds.has(r.groupId)) m.taxable += r.amount
-    if (r.drCr === side && r.taxType) m.tax += r.amount
-    if (r.drCr === 'dr') m.total += r.amount
-    months.set(r.month, m)
+    if (r.drCr === side && accountIds.has(r.groupId)) v.taxable += r.amount
+    if (r.drCr === side && r.taxType) v.tax += r.amount
+    if (r.drCr === 'dr') v.total += r.amount
   }
-  return [...months.values()]
-    .map(({ seen: _seen, ...rest }) => rest)
-    .sort((a, b) => a.month.localeCompare(b.month))
+  return [...byVoucher.values()]
+}
+
+/** Monthly sales/purchase register: voucher count, taxable, tax and invoice totals per month. */
+export function registerByMonth(db: DB, kind: 'sales' | 'purchase', from: string, to: string): RegisterMonthRow[] {
+  const months = new Map<string, RegisterMonthRow>()
+  for (const v of registerVoucherRows(db, kind, from, to)) {
+    const m = months.get(v.month) ?? { month: v.month, vouchers: 0, taxable: 0, tax: 0, total: 0 }
+    m.vouchers++
+    m.taxable += v.taxable
+    m.tax += v.tax
+    m.total += v.total
+    months.set(v.month, m)
+  }
+  return [...months.values()].sort((a, b) => a.month.localeCompare(b.month))
+}
+
+/** One in-books credit/debit note's effect on the registers' taxable values: signed amounts on
+ *  the sales roots (Cr − Dr: a sales return is negative, an outward debit note positive) and on
+ *  the purchase roots (Dr − Cr: a purchase return is negative). Tax ledgers are not on those
+ *  roots, so tax never counts — same as the registers' taxable column. */
+export interface NoteVoucherRow {
+  voucherId: number
+  date: string
+  month: string
+  partyLedgerId: number | null
+  sales: number
+  purchases: number
+}
+
+export function noteVoucherRows(db: DB, from: string, to: string): NoteVoucherRow[] {
+  const salesIds = descendantIdsByName(db, REGISTER_ROOTS.sales)
+  const purchaseIds = descendantIdsByName(db, REGISTER_ROOTS.purchase)
+  const rows = db
+    .prepare(
+      `SELECT v.date AS date, substr(v.date, 1, 7) AS month, v.id AS voucherId, v.party_ledger_id AS partyLedgerId,
+              vl.amount, l.group_id AS groupId, vl.dr_cr AS drCr
+       FROM vouchers v
+       JOIN voucher_types vt ON vt.id = v.voucher_type_id
+       JOIN voucher_lines vl ON vl.voucher_id = v.id
+       JOIN ledgers l ON l.id = vl.ledger_id
+       WHERE vt.kind IN ('credit_note', 'debit_note') AND v.date BETWEEN ? AND ? AND ${IN_BOOKS}`
+    )
+    .all(from, to) as { date: string; month: string; voucherId: number; partyLedgerId: number | null; amount: number; groupId: number; drCr: string }[]
+  const byVoucher = new Map<number, NoteVoucherRow>()
+  for (const r of rows) {
+    let v = byVoucher.get(r.voucherId)
+    if (!v) {
+      v = { voucherId: r.voucherId, date: r.date, month: r.month, partyLedgerId: r.partyLedgerId, sales: 0, purchases: 0 }
+      byVoucher.set(r.voucherId, v)
+    }
+    if (salesIds.has(r.groupId)) v.sales += r.drCr === 'cr' ? r.amount : -r.amount
+    if (purchaseIds.has(r.groupId)) v.purchases += r.drCr === 'dr' ? r.amount : -r.amount
+  }
+  return [...byVoucher.values()]
+}
+
+/** Net trade at voucher grain: the sales and purchase registers' taxable value plus the
+ *  credit/debit-note adjustments above. The dashboard aggregates it by month and by party. */
+export interface NetTradeRow {
+  date: string
+  month: string
+  partyLedgerId: number | null
+  sales: number
+  purchases: number
+}
+
+export function netTradeRows(db: DB, from: string, to: string): NetTradeRow[] {
+  const rows: NetTradeRow[] = []
+  for (const r of registerVoucherRows(db, 'sales', from, to)) rows.push({ date: r.date, month: r.month, partyLedgerId: r.partyLedgerId, sales: r.taxable, purchases: 0 })
+  for (const r of registerVoucherRows(db, 'purchase', from, to)) rows.push({ date: r.date, month: r.month, partyLedgerId: r.partyLedgerId, sales: 0, purchases: r.taxable })
+  for (const r of noteVoucherRows(db, from, to)) rows.push({ date: r.date, month: r.month, partyLedgerId: r.partyLedgerId, sales: r.sales, purchases: r.purchases })
+  return rows
 }
 
 /** Every party's movements + bill_refs, expressed as pure `BillEvent`s for `allocateBills` —
@@ -50,16 +145,20 @@ function partyEventsBatch(db: DB, partyIds: number[], asOn: string, sign: number
     .prepare(
       `SELECT vl.ledger_id AS partyId, v.id AS voucherId, v.date, v.number,
               SUM(CASE WHEN vl.dr_cr = 'dr' THEN vl.amount ELSE -vl.amount END) AS net
-       FROM voucher_lines vl JOIN vouchers v ON v.id = vl.voucher_id
+       FROM voucher_lines vl CROSS JOIN vouchers v ON v.id = vl.voucher_id
        WHERE vl.ledger_id IN (${placeholders}) AND v.date <= ? AND ${IN_BOOKS}
        GROUP BY vl.ledger_id, v.id ORDER BY vl.ledger_id, v.date, v.id`
+      // CROSS JOIN pins voucher_lines as the outer loop (SQLite never reorders it): drive the
+      // party-ledger index, then look each voucher up by id. Left to itself the planner scanned
+      // every voucher and probed the line index once per (voucher, party) pair — ~7 s for 1,000
+      // parties on 50k vouchers (WP 1.10b dashboard perf fixture); now tens of ms.
     )
     .all(...partyIds, asOn) as { partyId: number; voucherId: number; date: string; number: string; net: number }[]
 
   const refRows = db
     .prepare(
       `SELECT br.party_ledger_id AS partyId, br.voucher_id AS voucherId, br.kind, br.name, br.amount, br.due_date AS dueDate
-       FROM bill_refs br JOIN vouchers v ON v.id = br.voucher_id
+       FROM bill_refs br CROSS JOIN vouchers v ON v.id = br.voucher_id
        WHERE br.party_ledger_id IN (${placeholders}) AND v.date <= ? AND ${IN_BOOKS}
        ORDER BY br.id`
     )
