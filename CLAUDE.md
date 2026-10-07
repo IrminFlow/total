@@ -14,15 +14,20 @@ src/shared/     Pure TypeScript engine — money, dates, GST calc/validators, GS
 src/main/       Electron main: SQLite via better-sqlite3 (main process only), migrations,
                 services (masters/vouchers/reports/gst/analysis/banking/payroll/edocs/
                 invoice/nic/tallyImport, plus later additions — importers/consolidated/
-                caPack/recurring/tds/costCentres/budgets/yearEnd/audit/roles/users/etc.),
-                IPC handlers with Zod validation, auto-updater.
+                caPack/tds/costCentres/budgets/yearEnd/audit/roles/users/search/dashboard/
+                secrets/printTemplates/etc.), IPC handlers with Zod validation, auto-updater.
 src/preload/    contextBridge → window.total.invoke(channel, payload).
 src/renderer/   React + Tailwind v4 UI. Talks to main ONLY through the typed client in
                 src/renderer/src/lib/client.ts. Light theme default + dark toggle.
+                components/kit/ is the component kit (README there); components/table/ is the
+                shared DataTable every list screen uses (README there); components/links.tsx
+                holds LedgerLink/ItemLink/VoucherLink (name click = edit, row = statement).
+docs/superpowers/specs/  The revamp master plan (2026-10-07-total-revamp-roadmap.md).
 site/           Next.js 16 marketing site (Vercel root directory = site).
 scripts/        e2e/NN-*.mjs — Playwright _electron E2E scenarios (npm run e2e) that launch
                 the BUILT app on scratch data dirs; lib/harness.mjs is the shared driver.
-.github/        release.yml — builds & publishes DMG/ZIP on v* tags.
+.github/        ci.yml — tests on every push/PR (Linux unit+DB, mac smoke, mac e2e on push,
+                Windows unit+DB+build); release.yml — builds & publishes DMG/ZIP/EXE on v* tags.
 ```
 
 ## Commands
@@ -51,15 +56,21 @@ cd site && npm run dev / npm run build   # marketing site
 - Debit/credit: signed balances are dr-positive; Tally XML import converts Tally's negative-=-debit convention.
 - UI: theme tokens are `--t-*` CSS vars on `[data-theme]`, mapped through Tailwind `@theme inline` — components use token utilities only. The amber `.kbar-row` selection bar on `<tr>` uses an inset box-shadow, **never `::before`** (a `tr::before` renders as a phantom first cell).
 - Vouchers are soft-deleted (`vouchers.deleted_at`, moved to the bin) — every new SQL query touching `vouchers`/`voucher_lines` must filter `deleted_at IS NULL` (see `NOT_DELETED` in `src/main/services/vouchers.ts`) unless it's explicitly reading the bin, `getVoucher`, or `nextVoucherNumber`.
+- Income/expense ledgers reset every financial year (`src/shared/yearOpening.ts`); profit for a period is defined once (`pnlLedgerAmounts` in reports.ts) and excludes year-end closing journals (`vouchers.is_year_end_close`, migration 018). Closing journals are immutable — bin to reopen a year. Any new report that touches P&L figures must go through these helpers, never re-derive them.
+- Secrets (NIC credentials, later the AI key) live in `src/main/services/secrets.ts` (safeStorage, `<dataRoot>/secrets.json`), never in a company DB or backup.
+- Every list screen uses `DataTable`; new screens must too (sort/filter/views/keyboard/export come for free). Report rows must carry `ledgerId`/`itemId`/`voucherId` so names can be links.
+- Voucher load/save mapping per entry mode lives in `src/shared/voucherEdit/`; a voucher must round-trip unchanged through its editor (dbtest `voucherEdit.dbtest.ts` enforces it).
 
 ## Gotchas
 
 - better-sqlite3 must match Electron's ABI. If the app throws `NODE_MODULE_VERSION` errors (e.g. after a plain `npm rebuild`), run `npx @electron/rebuild -f -w better-sqlite3`. `electron-builder install-app-deps` sometimes no-ops.
 - npm blocks postinstall scripts (`allowScripts` allowlist in package.json covers electron, better-sqlite3, esbuild).
 - `tally:import` and `bank:importCsv` IPC channels accept inline `xmlText`/`csvText` payloads so drivers can test them without native file dialogs.
-- A `Demo Traders` company with sample data exists in `~/Documents/total` from verification runs.
+- The e2e demo tour (`scripts/e2e/02-demo-tour.mjs`) seeds a `Demo Traders` company into the scratch data dir; reuse that seeding for manual checks instead of assuming one exists in `~/Documents/total` (it does not on every machine).
 - The NIC live-filing client (`src/main/services/nic.ts`) is built to the published API spec (RSA + AES-ECB session crypto) but has **never run against the real portal** — no credentials. Treat as experimental; test on the NIC sandbox first.
-- `TOTAL_DATA_DIR` (absolute path, read verbatim by `dataRoot()`) and `TOTAL_SUPPRESS_SYNC_WARNING=1` point driver/CI scripts at a scratch data dir and silence startup sync warnings — set both when scripting the app (see `scripts/smoke-ci.mjs`, `*.dbtest.ts`) so runs stay hermetic and don't touch `~/Documents/total/`.
+- `TOTAL_DATA_DIR` (absolute path, read verbatim by `dataRoot()`) and `TOTAL_SUPPRESS_SYNC_WARNING=1` point driver/CI scripts at a scratch data dir and silence startup sync warnings — set both when scripting the app (see `scripts/smoke-ci.mjs`, `*.dbtest.ts`) so runs stay hermetic and don't touch `~/Documents/total/`. With `TOTAL_DATA_DIR` set the app also keeps Electron `userData` (localStorage etc.) inside the scratch dir. `TOTAL_INSECURE_TEST_SECRETS=1` (only honoured with `TOTAL_DATA_DIR` and an unpackaged build) swaps safeStorage for a test cipher so smoke/e2e never touch the keychain.
+- Shells spawned by agent tooling may inherit `ELECTRON_RUN_AS_NODE=1`, which makes the app fail to launch under Playwright — run `env -u ELECTRON_RUN_AS_NODE npm run smoke` / `npm run e2e` in that case (`test:db` sets the flag itself on purpose).
+- Recurring vouchers were removed in 0.5.0; migrations 008/009 and the `recurring_templates` table remain, untouched.
 
 ## Release steps (auto-update pipeline)
 
