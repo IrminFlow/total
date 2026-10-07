@@ -318,6 +318,26 @@ export interface InventoryPassResult {
   derived: Map<number, DerivedVoucherCost>
 }
 
+/**
+ * What one inventory line did to its item's position in the pass (WP 2.3 movement register).
+ * `qtyDelta`/`valueDelta` are the engine's effect — for an outward line `-valueDelta` is the
+ * cost the engine charged; for a physical count they are the booked adjustment (0 when the count
+ * matched). `qtyAfter`/`valueAfter` are the item's running position right after the line.
+ */
+export interface LineEffect {
+  movement: InventoryMovement
+  qtyDelta: number
+  valueDelta: number
+  qtyAfter: number
+  valueAfter: number
+}
+
+/** Observe the pass line by line — only lines of `itemId` when given. */
+export interface PassObserver {
+  itemId?: number
+  onLine: (effect: LineEffect) => void
+}
+
 const positionIncludes = (p: StockPosition, m: { date: string; voucherId: number }): boolean =>
   m.date < p.date || (m.date === p.date && (p.voucherId === undefined || m.voucherId < p.voucherId))
 
@@ -371,7 +391,10 @@ class InventoryPass {
   readonly inwardValueByLine = new Map<number, number>()
   readonly derived = new Map<number, DerivedVoucherCost>()
 
-  constructor(private readonly input: InventoryPassInput) {
+  constructor(
+    private readonly input: InventoryPassInput,
+    private readonly observer?: PassObserver
+  ) {
     for (const it of input.items) {
       this.states.set(it.itemId, new ItemCostState(it.method, it.openingQtyMilli, it.openingValue))
     }
@@ -384,6 +407,20 @@ class InventoryPass {
       this.states.set(itemId, s)
     }
     return s
+  }
+
+  /** Apply `fn` to `m`'s item state, reporting the effect to the observer (if watching it). */
+  private step(m: InventoryMovement, fn: (s: ItemCostState) => void): void {
+    const s = this.state(m.itemId)
+    const o = this.observer
+    if (!o || (o.itemId !== undefined && o.itemId !== m.itemId)) {
+      fn(s)
+      return
+    }
+    const q0 = s.qtyMilli
+    const v0 = s.totalValue
+    fn(s)
+    o.onLine({ movement: m, qtyDelta: s.qtyMilli - q0, valueDelta: s.totalValue - v0, qtyAfter: s.qtyMilli, valueAfter: s.totalValue })
   }
 
   snapshot(): Map<number, ValuationResult> {
@@ -416,7 +453,7 @@ class InventoryPass {
         const c = costing?.get(first.voucherId)
         if (c && c.rule === 'derived') this.applyDerived(moves, i, j, c)
         else if (c && (c.additionalCostPaise ?? 0) > 0) this.applyStoredWithExtra(moves, i, j, c.additionalCostPaise!)
-        else for (let k = i; k < j; k++) this.state(moves[k]!.itemId).apply(moves[k]!)
+        else for (let k = i; k < j; k++) this.step(moves[k]!, (st) => st.apply(moves[k]!))
       }
       i = j
     }
@@ -433,10 +470,10 @@ class InventoryPass {
       const m = moves[k]!
       const share = shareAt.get(k)
       if (share === undefined) {
-        this.state(m.itemId).apply(m)
+        this.step(m, (st) => st.apply(m))
       } else {
         const value = m.amount + share
-        this.state(m.itemId).inward(m.qtyMilli, value)
+        this.step(m, (st) => st.inward(m.qtyMilli, value))
         if (m.lineId !== undefined) this.inwardValueByLine.set(m.lineId, value)
       }
     }
@@ -449,8 +486,8 @@ class InventoryPass {
     for (let k = from; k < to; k++) {
       const m = moves[k]!
       if (isPlainInward(m)) inward.push(m)
-      else if (m.isAbsolute) this.state(m.itemId).absolute(m.qtyMilli)
-      else consumed += this.state(m.itemId).outward(m.qtyMilli)
+      else if (m.isAbsolute) this.step(m, (st) => st.absolute(m.qtyMilli))
+      else this.step(m, (st) => (consumed += st.outward(m.qtyMilli)))
     }
     const additional = c.additionalCostPaise ?? 0
     const total = consumed + additional
@@ -458,7 +495,7 @@ class InventoryPass {
     const shares = allocateExact(inward.map((m) => (byAmount ? m.amount : m.qtyMilli)), total)
     inward.forEach((m, n) => {
       const value = shares[n]!
-      this.state(m.itemId).inward(m.qtyMilli, value)
+      this.step(m, (st) => st.inward(m.qtyMilli, value))
       if (m.lineId !== undefined) this.inwardValueByLine.set(m.lineId, value)
     })
     this.derived.set(moves[from]!.voucherId, {
@@ -480,10 +517,15 @@ class InventoryPass {
  * `'stored'` vouchers keep their exact line order, which is what makes every legacy figure
  * byte-identical to the old per-item walk (a stock journal that lists an item inward before
  * outward would otherwise re-cost). O(n) when the input is already ordered (the DB query
- * orders it), O(n log n) otherwise.
+ * orders it), O(n log n) otherwise. `observer` sees every line's effect, in pass order (the
+ * movement register walks one item this way — it never re-derives a cost).
  */
-export function runInventoryPass(input: InventoryPassInput, checkpoints: StockPosition[] = []): InventoryPassResult {
-  const pass = new InventoryPass(input)
+export function runInventoryPass(
+  input: InventoryPassInput,
+  checkpoints: StockPosition[] = [],
+  observer?: PassObserver
+): InventoryPassResult {
+  const pass = new InventoryPass(input, observer)
   const at: Map<number, ValuationResult>[] = new Array(checkpoints.length)
   const sorted = checkpoints
     .map((p, i) => ({ p, onReach: () => (at[i] = pass.snapshot()) }))
