@@ -53,7 +53,7 @@ export const DAYBOOK_COLUMNS = defineColumns<DayBookRow>([
     cell: (r) => (
       <>
         <LedgerLink ledgerId={r.accountLedgerId} name={r.account} />
-        {r.isOptional && <span className="ml-2 rounded bg-amber/15 px-1.5 py-0.5 text-micro font-medium text-amber">Optional</span>}
+        {r.isOptional && <span className="ml-2 rounded bg-amberbar/15 px-1.5 py-0.5 text-micro font-medium text-amber">Optional</span>}
         {r.postDated && <span className="ml-2 rounded bg-blue/10 px-1.5 py-0.5 text-micro font-medium text-blue">PDC</span>}
         {r.yearEndClose && (
           <span className="ml-2 rounded bg-blue/10 px-1.5 py-0.5 text-micro font-medium text-blue" data-testid="daybook-year-end-chip">

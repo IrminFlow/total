@@ -481,7 +481,7 @@ export function AccountingEntry({
       {fallbackReason && (
         <p
           data-testid="banner-accounting-fallback"
-          className="mb-4 rounded-md border border-amber/40 bg-amber/10 px-3 py-2 text-body-sm text-ink"
+          className="mb-4 rounded-md border border-amber/40 bg-amberbar/10 px-3 py-2 text-body-sm text-ink"
           title={fallbackReason}
         >
           Editing in accounting mode — this voucher can&apos;t be shown as an invoice ({fallbackReason}). Its stock
@@ -603,7 +603,7 @@ export function AccountingEntry({
       )}
 
       {features.tds && tdsSuggestion && !tdsDismissed && (
-        <div className="mt-3 rounded-md border border-amber/40 bg-amber/10 px-3 py-2 text-body-sm text-amber">
+        <div className="mt-3 rounded-md border border-amber/40 bg-amberbar/10 px-3 py-2 text-body-sm text-amber">
           <div className="flex items-center justify-between gap-3">
             <span>
               TDS u/s {tdsSuggestion.code}: deduct <Money paise={tdsSuggestion.tdsPaise} className="text-amber" />

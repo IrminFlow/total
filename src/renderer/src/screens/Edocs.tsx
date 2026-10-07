@@ -75,7 +75,7 @@ export const EDOC_COLUMNS = defineColumns<EdocListRow>([
         </span>
         {r.outwardDbn && (
           <span
-            className="ml-1 inline-block rounded border border-amber/50 bg-amber/10 px-1.5 py-0.5 text-label font-medium text-amber"
+            className="ml-1 inline-block rounded border border-amber/50 bg-amberbar/10 px-1.5 py-0.5 text-label font-medium text-amber"
             title="Outward debit note — the NIC bulk docType enum has no DBN, so it exports as 'OTH'."
           >
             OTH

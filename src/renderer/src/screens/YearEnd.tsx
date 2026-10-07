@@ -272,7 +272,7 @@ export function YearEndScreen(): React.JSX.Element {
               }}
             />
           </Panel>
-          <Panel className="mb-4 border-amber/40 bg-amber/5 p-4">
+          <Panel className="mb-4 border-amber/40 bg-amberbar/5 p-4">
             <p className="text-detail font-medium">
               Posting will lock all entries up to {toDisplayDate(fy.to)}.
             </p>
@@ -330,7 +330,7 @@ function StepDot({ n, step, label }: { n: Step; step: Step; label: string }): Re
     <span className={`flex items-center gap-1.5 ${active ? 'text-ink' : done ? 'text-dr' : ''}`}>
       <span
         className={`flex h-4 w-4 items-center justify-center rounded-full text-micro ${
-          active ? 'bg-amberbar text-[#2b2000]' : done ? 'bg-dr/20 text-dr' : 'bg-panel2 text-muted'
+          active ? 'bg-amberbar text-on-amber' : done ? 'bg-dr/20 text-dr' : 'bg-panel2 text-muted'
         }`}
       >
         {n}

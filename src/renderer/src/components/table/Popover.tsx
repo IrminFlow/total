@@ -1,6 +1,6 @@
 import { useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode, type RefObject } from 'react'
 import { createPortal } from 'react-dom'
-import { registerEscapeLayer, topModalElement } from '../ui'
+import { registerEscapeLayer, topModalElement } from '../kit/layers'
 
 /**
  * Small anchored panel for the table's menus (filters, columns, views). Portalled to <body> — or,
@@ -93,7 +93,7 @@ export function Popover({
       data-testid={testId}
       data-table-popover=""
       style={{ position: 'fixed', top: pos.top, left: pos.left, width }}
-      className="z-50 rounded-lg border border-line bg-panel p-3 text-detail text-ink shadow-2xl"
+      className="z-50 rounded-lg border border-line bg-raised p-3 text-detail text-ink shadow-elev-2"
     >
       {children}
     </div>,

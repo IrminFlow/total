@@ -152,7 +152,7 @@ export function TdsScreen(): React.JSX.Element {
 
       {flaggedNoPan.length > 0 && (
         <Panel className="mb-3">
-          <div className="border-b border-line bg-amber/10 px-3 py-2 text-body-sm text-amber">
+          <div className="border-b border-line bg-amberbar/10 px-3 py-2 text-body-sm text-amber">
             {flaggedNoPan.length} part{flaggedNoPan.length > 1 ? 'ies' : 'y'} flagged for TDS with no PAN on file — the
             higher 20% rate applies
           </div>

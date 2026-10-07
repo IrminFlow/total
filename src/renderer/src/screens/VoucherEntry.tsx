@@ -112,7 +112,7 @@ export function VoucherEntry({
   return (
     <div className="mx-auto max-w-4xl">
       {showFirstVoucherHint && (
-        <div className="mb-4 flex items-center justify-between gap-4 rounded-md border border-amber/40 bg-amber/10 px-4 py-2.5">
+        <div className="mb-4 flex items-center justify-between gap-4 rounded-md border border-amber/40 bg-amberbar/10 px-4 py-2.5">
           <p className="text-body-sm text-ink">
             First voucher? Pick a type above (or <Kbd>F8</Kbd> for Sales), fill in the lines, then{' '}
             <Kbd>⌘↵</Kbd> to save.
@@ -139,7 +139,7 @@ export function VoucherEntry({
               data-testid={`tab-voucher-entry-${t.kind}`}
               onClick={() => setTypeId(t.id)}
               className={`rounded-md px-2.5 py-1 text-small transition-colors ${
-                t.id === currentType.id ? 'bg-amber/20 text-amber' : 'text-muted hover:bg-panel2 hover:text-ink'
+                t.id === currentType.id ? 'bg-amberbar/20 text-amber' : 'text-muted hover:bg-panel2 hover:text-ink'
               }`}
             >
               {t.name}

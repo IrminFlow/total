@@ -30,7 +30,7 @@ export function Highlight({ text, terms }: { text: string; terms: string[] }): R
     <>
       {segs.map((s, i) =>
         s.match ? (
-          <mark key={i} className="rounded-sm bg-amber/25 px-px text-ink">
+          <mark key={i} className="rounded-sm bg-amberbar/25 px-px text-ink">
             {s.text}
           </mark>
         ) : (
@@ -61,7 +61,7 @@ export function QueryChips({
           key={`${c.raw}-${i}`}
           data-chip={c.key}
           className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-hint ${
-            c.key === 'bare-amount' ? 'border-line text-muted' : 'border-amber/40 bg-amber/10 text-ink'
+            c.key === 'bare-amount' ? 'border-line text-muted' : 'border-amber/40 bg-amberbar/10 text-ink'
           }`}
         >
           {c.label}
@@ -122,7 +122,7 @@ export function VoucherBadges({ v }: { v: Pick<VoucherResult, 'isOptional' | 'po
   if (!v.isOptional && !v.postDated) return null
   return (
     <>
-      {v.isOptional && <span className="ml-2 rounded bg-amber/15 px-1.5 py-0.5 text-micro font-medium text-amber">Optional</span>}
+      {v.isOptional && <span className="ml-2 rounded bg-amberbar/15 px-1.5 py-0.5 text-micro font-medium text-amber">Optional</span>}
       {v.postDated && <span className="ml-2 rounded bg-blue/10 px-1.5 py-0.5 text-micro font-medium text-blue">PDC</span>}
     </>
   )

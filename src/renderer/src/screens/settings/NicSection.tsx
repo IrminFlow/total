@@ -37,7 +37,7 @@ export function NicSection(): React.JSX.Element {
   return (
     <div>
       <SectionTitle>NIC live filing</SectionTitle>
-      <div className="mb-4 rounded-md border border-amber/50 bg-amber/10 px-3.5 py-2.5 text-body-sm text-amber">
+      <div className="mb-4 rounded-md border border-amber/50 bg-amberbar/10 px-3.5 py-2.5 text-body-sm text-amber">
         Experimental — never tested against the live NIC portal. Verify every document on the portal.
       </div>
 

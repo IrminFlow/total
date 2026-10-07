@@ -273,9 +273,9 @@ export function CommandPalette({ onClose }: { onClose: () => void }): React.JSX.
 
   let index = 0
   return (
-    <div className="fixed inset-0 z-40 flex items-start justify-center bg-black/50 pt-[14vh]" onMouseDown={onClose}>
+    <div className="fixed inset-0 z-40 flex items-start justify-center bg-scrim pt-[14vh]" onMouseDown={onClose}>
       <div
-        className="w-full max-w-2xl overflow-hidden rounded-xl border border-line bg-panel shadow-2xl"
+        className="w-full max-w-2xl overflow-hidden rounded-xl border border-line bg-raised shadow-elev-3"
         data-testid="palette"
         onMouseDown={(e) => e.stopPropagation()}
         onMouseMove={() => {

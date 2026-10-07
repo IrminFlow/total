@@ -172,6 +172,7 @@
   --color-info: var(--t-info);
   --color-info-soft: var(--t-info-soft);
   --color-focus: var(--t-focus);
+  --color-scrim: var(--t-scrim);
 
   --shadow-elev-1: var(--t-shadow-1);
   --shadow-elev-2: var(--t-shadow-2);

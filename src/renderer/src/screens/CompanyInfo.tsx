@@ -85,7 +85,7 @@ export function CompanyInfoScreen(): React.JSX.Element {
       <button
         data-testid="btn-company-info-invoice-layout"
         onClick={() => nav.go({ name: 'settings', tab: 'invoice' })}
-        className="mb-4 flex w-full items-center justify-between rounded-lg border-2 border-amber/50 bg-amber/10 px-4 py-3.5 text-left transition-colors hover:border-amber hover:bg-amber/15"
+        className="mb-4 flex w-full items-center justify-between rounded-lg border-2 border-amber/50 bg-amberbar/10 px-4 py-3.5 text-left transition-colors hover:border-amber hover:bg-amberbar/15"
       >
         <span>
           <span className="block text-lead font-semibold">Invoice layout &amp; contents…</span>

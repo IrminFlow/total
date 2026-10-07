@@ -146,7 +146,7 @@ export function StockLinesEntry({
       {fallbackReason && (
         <p
           data-testid="banner-stock-lines-fallback"
-          className="mb-4 rounded-md border border-amber/40 bg-amber/10 px-3 py-2 text-body-sm text-ink"
+          className="mb-4 rounded-md border border-amber/40 bg-amberbar/10 px-3 py-2 text-body-sm text-ink"
           title={fallbackReason}
         >
           Shown as plain stock lines — this voucher can&apos;t be opened in the {formName} form ({fallbackReason}). Every line

@@ -126,7 +126,7 @@ export const GSTR1_COLUMNS = defineColumns<Gstr1SummaryRow>([
 
 const SEVERITY_CLASS: Record<GstIssue['severity'], string> = {
   blocking: 'border-cr/50 bg-cr/10 text-cr',
-  warning: 'border-amber/50 bg-amber/10 text-amber'
+  warning: 'border-amber/50 bg-amberbar/10 text-amber'
 }
 
 function IssueRow({

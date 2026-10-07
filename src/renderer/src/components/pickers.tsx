@@ -140,7 +140,7 @@ function TypeAhead({
         }}
       />
       {open && (filtered.length > 0 || showCreate) && (
-        <div className="absolute top-full right-0 left-0 z-30 mt-1 max-h-64 overflow-auto rounded-md border border-line bg-panel2 shadow-xl">
+        <div className="absolute top-full right-0 left-0 z-30 mt-1 max-h-64 overflow-auto rounded-md border border-line bg-raised shadow-elev-2">
           {filtered.map((o, i) => (
             <div
               key={o.id}
