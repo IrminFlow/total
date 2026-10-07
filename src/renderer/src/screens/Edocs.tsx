@@ -2,7 +2,8 @@ import { useMemo, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '../lib/client'
 import { useNav, useSession, useToasts } from '../state/stores'
-import { Badge, Banner, Button, DrawerSection, Modal, Page, PageHeader, Panel, Select } from '../components/ui'
+import { Badge, Banner, Button, DrawerSection, Modal, Page, PageHeader, Panel, Select, TabBar } from '../components/ui'
+import { SelfInvoiceOptions, SelfInvoicesTab } from './gst/SelfInvoicesTab'
 import { OptionsExport, OptionsPeriod, OptionsTable } from '../components/ScreenOptions'
 import { DataTable, defineColumns } from '../components/table'
 import type { EdocListRow } from '@shared/reports'
@@ -139,7 +140,58 @@ export const EDOC_COLUMNS = defineColumns<EdocListRow>([
  *  remounts of this screen but resets on app restart (never persisted to disk). */
 let liveApiConfirmed = false
 
-export function EdocsScreen(): React.JSX.Element {
+export type EdocsTab = 'documents' | 'self-invoices'
+
+/** The e-documents tab row (WP 3.4 added RCM self-invoices); the active tab lives in the nav
+ *  stack like Masters / Settings. */
+function EdocsTabs({ active }: { active: EdocsTab }): React.JSX.Element {
+  const nav = useNav()
+  return (
+    <TabBar
+      screen="edocs"
+      label="e-Documents views"
+      tabs={[
+        { id: 'documents', label: 'e-Invoice & e-Way bill' },
+        { id: 'self-invoices', label: 'RCM self-invoices' }
+      ]}
+      active={active}
+      onSelect={(t) => {
+        if (t !== active) nav.go({ name: 'edocs', tab: t as EdocsTab })
+      }}
+    />
+  )
+}
+
+export function EdocsScreen({ tab = 'documents' }: { tab?: EdocsTab }): React.JSX.Element {
+  return tab === 'self-invoices' ? <SelfInvoicesPage /> : <EdocsDocuments />
+}
+
+function SelfInvoicesPage(): React.JSX.Element {
+  const { from, to } = useSession()
+  return (
+    <Page width="wide">
+      <PageHeader
+        title="e-Documents · RCM self-invoices"
+        period={`${toDisplayDate(from)} → ${toDisplayDate(to)}`}
+        tabs={<EdocsTabs active="self-invoices" />}
+        options={{
+          content: (
+            <>
+              <OptionsPeriod />
+              <OptionsTable area="self-invoices" label="Self-invoices table" />
+              <SelfInvoiceOptions />
+            </>
+          )
+        }}
+      />
+      <Panel>
+        <SelfInvoicesTab from={from} to={to} />
+      </Panel>
+    </Page>
+  )
+}
+
+function EdocsDocuments(): React.JSX.Element {
   const { from, to, info } = useSession()
   const nav = useNav()
   const toast = useToasts()
@@ -236,6 +288,7 @@ export function EdocsScreen(): React.JSX.Element {
       <PageHeader
         title="e-Invoice & e-Way bill"
         period={`${toDisplayDate(from)} → ${toDisplayDate(to)}`}
+        tabs={<EdocsTabs active="documents" />}
         subtitle={
           <Badge tone={live ? 'success' : 'neutral'} testId="edocs-live-status">
             {live ? 'Live filing on' : 'Offline JSON'}

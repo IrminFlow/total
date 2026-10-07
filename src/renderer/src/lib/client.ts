@@ -20,7 +20,16 @@ import type { CashFlowStatement } from '@shared/reportMath'
 import type { DashboardSeries } from '@shared/dashboard'
 import type { Gstr1Result, Gstr3bResult } from '@shared/gst/returns'
 import type { GstIssue } from '@shared/gst/validate'
-import type { Recon2bResult } from '@shared/gst/recon2b'
+import type { Recon2bResult, Recon2bTolerances } from '@shared/gst/recon2b'
+import type { ImsActionRecord } from '@shared/gst/ims'
+import type { Gstr3bView, Gstr9View, Itc04View, ItcReversalView } from '@shared/gst/views'
+import type { Itc04PeriodKind, Itc04Periodicity } from '@shared/gst/itc04'
+import type { SelfInvoiceRow } from '@shared/gst/selfInvoice'
+import type { ImsDecisionInput, ItcReversalInputs, SelfInvoiceSeries } from '@shared/gst/expansionSchemas'
+
+/** gst:imsSet decision (schema defaults optional on the way in). */
+export type ImsDecisionPayload = Omit<ImsDecisionInput, 'note' | 'voucherId' | 'value' | 'taxable' | 'igst' | 'cgst' | 'sgst' | 'cess'> &
+  Partial<Pick<ImsDecisionInput, 'note' | 'voucherId' | 'value' | 'taxable' | 'igst' | 'cgst' | 'sgst' | 'cess'>>
 import type {
   AgentExportInput,
   AuditListInput, BankRuleInput, BatchInput, BomInput, BudgetInput, ChequeConfig, CompanyCreateInput, CostCentreInput,
@@ -694,7 +703,7 @@ export const api = {
   },
   gst: {
     gstr1: (from: string, to: string, period: string) => call<Gstr1Result>('gst:gstr1', { from, to, period }),
-    gstr3b: (from: string, to: string, period: string) => call<Gstr3bResult>('gst:gstr3b', { from, to, period }),
+    gstr3b: (from: string, to: string, period: string) => call<Gstr3bView>('gst:gstr3b', { from, to, period }),
     exportGstr1: (from: string, to: string, period: string) =>
       call<{ jsonPath: string; csvPath: string }>('gst:exportGstr1', { from, to, period }),
     exportGstr3b: (from: string, to: string, period: string) =>
@@ -709,7 +718,29 @@ export const api = {
       }>('gst:validate', { from, to }),
     get3bManual: (period: string) => call<Gst3bManualInput>('gst:3bManualGet', { period }),
     set3bManual: (period: string, data: Gst3bManualInput) =>
-      call<Gst3bManualInput>('gst:3bManualSet', { period, data })
+      call<Gst3bManualInput>('gst:3bManualSet', { period, data }),
+    // ---------- WP 3.4: GST expansion ----------
+    recon2bTolerances: () => call<Recon2bTolerances>('gst:recon2bTolerancesGet'),
+    setRecon2bTolerances: (t: Recon2bTolerances) => call<Recon2bTolerances>('gst:recon2bTolerancesSet', t),
+    imsList: (period: string) => call<ImsActionRecord[]>('gst:imsList', { period }),
+    imsSet: (period: string, decisions: ImsDecisionPayload[]) => call<{ saved: number; cleared: number }>('gst:imsSet', { period, decisions }),
+    imsExport: (period: string) => call<{ jsonPath: string; csvPath: string; count: number }>('gst:imsExport', { period }),
+    gstr9: (fyStartYear: number) => call<Gstr9View>('gst:gstr9', { fyStartYear }),
+    exportGstr9: (fyStartYear: number) => call<{ jsonPath: string; csvPath: string }>('gst:exportGstr9', { fyStartYear }),
+    itc04: (q: { fyStartYear: number; kind: Itc04PeriodKind; periodicity?: Itc04Periodicity }) => call<Itc04View>('gst:itc04', q),
+    exportItc04: (q: { fyStartYear: number; kind: Itc04PeriodKind; periodicity?: Itc04Periodicity }) =>
+      call<{ jsonPath: string; csvPath: string }>('gst:exportItc04', q),
+    selfInvoices: (from: string, to: string) => call<SelfInvoiceRow[]>('gst:selfInvoices', { from, to }),
+    selfInvoiceGenerate: (voucherId: number, date?: string) =>
+      call<{ voucherId: number; number: string; date: string }>('gst:selfInvoiceGenerate', { voucherId, date }),
+    selfInvoicePdf: (voucherId: number) => call<{ path: string }>('gst:selfInvoicePdf', { voucherId }),
+    selfInvoiceSeries: () => call<SelfInvoiceSeries>('gst:selfInvoiceSeriesGet'),
+    setSelfInvoiceSeries: (s: SelfInvoiceSeries) => call<SelfInvoiceSeries>('gst:selfInvoiceSeriesSet', s),
+    itcReversal: (from: string, to: string, period: string, inputs?: ItcReversalInputs) =>
+      call<ItcReversalView>('gst:itcReversal', { from, to, period, inputs }),
+    setItcReversalInputs: (period: string, inputs: ItcReversalInputs) => call<ItcReversalInputs>('gst:itcReversalInputsSet', { period, inputs }),
+    itcReversalApply: (from: string, to: string, period: string) => call<ItcReversalView>('gst:itcReversalApply', { from, to, period }),
+    itcReversalPost: (from: string, to: string, period: string) => call<{ voucherId: number; number: string }>('gst:itcReversalPost', { from, to, period })
   },
   analysis: {
     register: (kind: 'sales' | 'purchase', from: string, to: string) =>

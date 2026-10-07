@@ -61,6 +61,7 @@ export interface ImsRow {
   docType: ImsDocType
   bucket: Recon2bBucket
   voucherId: number | null
+  voucherNumber: string | null
   partyName: string | null
   partyLedgerId: number | null
   /** The stored action, or null when undecided (the portal treats no action as deemed accepted). */
@@ -93,6 +94,7 @@ export function imsRows(period: string, pairs: Recon2bPair[], stored: ImsActionR
       docType: k.docType,
       bucket: pair.bucket,
       voucherId: pair.book?.voucherId ?? null,
+      voucherNumber: pair.book?.number ?? null,
       partyName: pair.book?.partyName ?? null,
       partyLedgerId: pair.book?.partyLedgerId ?? null,
       action: s?.action ?? null,

@@ -242,12 +242,36 @@ export const SCREENS: ScreenDef[] = [
     invalidates: ['gstr3b', 'gst3bManual']
   },
   {
+    name: 'gstr9',
+    title: 'GSTR-9 annual workings',
+    keywords: ['annual return', 'gstr-9', 'gstr9c', 'reconciliation'],
+    screen: { name: 'gstr9' },
+    navSection: null,
+    invalidates: ['gstr9']
+  },
+  {
+    name: 'itc04',
+    title: 'ITC-04 · job work',
+    keywords: ['job work', 'itc-04', 'challan'],
+    screen: { name: 'itc04' },
+    navSection: null,
+    invalidates: ['itc04']
+  },
+  {
+    name: 'itc-reversal',
+    title: 'ITC reversal workings',
+    keywords: ['rule 42', 'rule 43', 'rule 37', '17(5)', 'blocked credit', 'reversal'],
+    screen: { name: 'itc-reversal' },
+    navSection: null,
+    invalidates: ['itcReversal', 'gst3bManual']
+  },
+  {
     name: 'gstr2b',
     keywords: ['reconciliation', 'itc'],
     title: 'GSTR-2B recon',
     screen: { name: 'gstr2b' },
     navSection: 'gst',
-    invalidates: ['gstr2b', 'ledgers']
+    invalidates: ['gstr2b', 'ledgers', 'imsActions', 'recon2bTolerances']
   },
   {
     name: 'edocs',
@@ -255,7 +279,7 @@ export const SCREENS: ScreenDef[] = [
     title: 'e-Invoice & e-Way',
     screen: { name: 'edocs' },
     navSection: 'gst',
-    invalidates: ['edocList', 'nicStatus', 'nicCreds']
+    invalidates: ['edocList', 'nicStatus', 'nicCreds', 'selfInvoices']
   },
   {
     name: 'tds',

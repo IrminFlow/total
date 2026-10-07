@@ -548,14 +548,14 @@ export function buildGstr9(input: Gstr9Input): Gstr9Result {
     id, label, annual, monthly, diff: sub9(annual, monthly), against, hasTaxable
   })
   const compare: Gstr9Compare[] = [
-    cmp('g1-taxable', 'Tax-paying outward supplies — 4A to 4E net of 4I/4J', taxPayableYear, sumG1((t) => t.taxPayable), 'GSTR-1'),
-    cmp('g1-notax', 'Outward supplies without tax — 5A to 5C net of their notes', noTaxYearExNil, sumG1((t) => t.noTax), 'GSTR-1'),
-    cmp('g1-nil', 'Nil rated / exempt / non-GST — 5D to 5F net of notes (GSTR-1 Table 8)', { ...ZERO9, taxable: nilYear }, { ...ZERO9, taxable: months.reduce((s, m) => s + m.gstr1.nil, 0) }, 'GSTR-1'),
+    cmp('g1-taxable', 'Taxable outward, tax paid — 4A–4E net of 4I/4J', taxPayableYear, sumG1((t) => t.taxPayable), 'GSTR-1'),
+    cmp('g1-notax', 'Outward without tax — 5A–5C net of notes', noTaxYearExNil, sumG1((t) => t.noTax), 'GSTR-1'),
+    cmp('g1-nil', 'Nil / exempt / non-GST — 5D–5F (GSTR-1 Table 8)', { ...ZERO9, taxable: nilYear }, { ...ZERO9, taxable: months.reduce((s, m) => s + m.gstr1.nil, 0) }, 'GSTR-1'),
     cmp('g1-adv', 'Advances — 4F (GSTR-1 11A − 11B)', adv4F, sumG1((t) => t.advancesNet), 'GSTR-1'),
     cmp('g1-hsn', 'HSN summary — Table 17 (GSTR-1 Table 12)', hsnOutTotal, sumG1((t) => t.hsn), 'GSTR-1'),
-    cmp('3b-out', 'Outward taxable + zero rated — 4A–4E, 5A–5C net of notes (3B 3.1(a) + 3.1(b))', add9(taxPayableYear, noTaxYearExNil),
+    cmp('3b-out', 'Outward taxable + zero rated (3B 3.1(a) + (b))', add9(taxPayableYear, noTaxYearExNil),
       sum3b((g) => ({ taxable: g.outward.taxable + g.zeroRated.taxable, igst: g.outward.igst + g.zeroRated.igst, cgst: g.outward.cgst, sgst: g.outward.sgst, cess: g.outward.cess + g.zeroRated.cess })), 'GSTR-3B'),
-    cmp('3b-nil', 'Nil rated / exempt — 5D to 5F (3B 3.1(c))', { ...ZERO9, taxable: nilYear }, sum3b((g) => ({ ...ZERO9, taxable: g.nilExempt.taxable })), 'GSTR-3B'),
+    cmp('3b-nil', 'Nil / exempt — 5D–5F (3B 3.1(c))', { ...ZERO9, taxable: nilYear }, sum3b((g) => ({ ...ZERO9, taxable: g.nilExempt.taxable })), 'GSTR-3B'),
     cmp('3b-rcm', 'Inward reverse charge — 4G (3B 3.1(d))', rcm4G, sum3b((g) => ({ taxable: g.rcm.taxable, igst: g.rcm.igst, cgst: g.rcm.cgst, sgst: g.rcm.sgst, cess: g.rcm.cess })), 'GSTR-3B'),
     cmp('3b-itc', 'ITC availed — 6B to 6H (3B 4(A) = 6A)', fromItc(i6I), fromItc(itc6A), 'GSTR-3B', false),
     cmp('3b-rev', 'ITC reversed — 7I (3B 4(B))', fromItc(total7I), fromItc(addIs(manual4B, r175Months)), 'GSTR-3B', false),
