@@ -379,6 +379,12 @@ by effective date. This is to be confirmed against the official text at phase st
   "fully offline" claim), migration guides, in-app help, changelog.
 - **WP 7.6** 1.0.0 release and watch: release workflow, published assets, `/api/latest`,
   `/api/download`, Vercel deploy, in-app update from 0.4.0 and from each intermediate version.
+- **WP 7.7** Pre-existing open PRs (user instruction, 2026-10-07): after everything else, test each
+  pre-existing open PR individually against the finished main (the dependency bumps #6, #7, #10,
+  #11, #13–#18, plus #1 "v0.5 revamp", #2 "roadmap", #3 electron bump, #4 "v5 encrypted
+  collaboration"). Merge those that pass and are safe; make the others mergeable where possible;
+  for anything that cannot be made mergeable, write `to-do.md` at the repo root listing what the
+  user must do and why.
 
 ---
 
