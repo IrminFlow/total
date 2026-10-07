@@ -395,9 +395,9 @@ describe('reorder planning, expiry report, labels', () => {
 describe('migration 021 (serial numbers)', () => {
   const at = MIGRATIONS.findIndex((sql) => sql.includes('CREATE TABLE serial_numbers'))
 
-  it('is migration 021 and the last one', () => {
+  it('is migration 021 (022, WP 3.2 tds_exemptions, follows it)', () => {
     expect(at + 1).toBe(21)
-    expect(MIGRATIONS.length).toBe(21)
+    expect(MIGRATIONS.length).toBeGreaterThanOrEqual(21)
   })
 
   it('applies on a populated pre-021 fixture: columns added, data and stock figures unchanged', () => {
