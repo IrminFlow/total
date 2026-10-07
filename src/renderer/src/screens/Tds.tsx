@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import type { TdsSection } from '@shared/domain'
+import type { TdsRate, TdsSection } from '@shared/domain'
 import { api, type TdsSummaryRow } from '../lib/client'
 import { useSession, useToasts } from '../state/stores'
 import { AmountInput, Banner, Button, DrawerSection, Field, Modal, Money, Page, PageHeader, Panel, Select, TabBar, TextInput } from '../components/ui'
@@ -8,7 +8,7 @@ import { OptionsTable } from '../components/ScreenOptions'
 import { DataTable, defineColumns } from '../components/table'
 import { useLedgers } from '../components/pickers'
 import { fyOf, fyFromStartYear, todayISO } from '@shared/dates'
-import { tdsQuarterOf } from '@shared/tds'
+import { DEDUCTEE_TYPE_LABELS, tdsQuarterOf, type RateDeducteeType } from '@shared/tds'
 import { formatPaise } from '@shared/money'
 import { LedgerLink } from '../components/links'
 import { openLedgerStatement } from '../lib/drill'
@@ -165,7 +165,7 @@ export function TdsScreen(): React.JSX.Element {
         <Panel className="mb-3">
           <div className="border-b border-warning/40 bg-warning-soft px-3 py-2 text-body-sm text-warning" role="status">
             {flaggedNoPan.length} part{flaggedNoPan.length > 1 ? 'ies' : 'y'} flagged for TDS with no PAN on file — the
-            higher 20% rate applies
+            higher no-PAN rate applies (20%, or 5% for purchase of goods)
           </div>
           <DataTable
             viewId="tds-nopan"
@@ -323,6 +323,7 @@ function SectionsModal({ sections, onClose }: { sections: TdsSection[]; onClose:
             </Field>
           </div>
           {error && <p className="mt-2 text-body-sm text-cr">{error}</p>}
+          {form.id != null && <RatesEditor sectionId={form.id} />}
           <div className="mt-3 flex justify-end gap-2">
             {form.id != null && (
               <Button
@@ -341,5 +342,182 @@ function SectionsModal({ sections, onClose }: { sections: TdsSection[]; onClose:
         </div>
       </div>
     </Modal>
+  )
+}
+
+// ---------- effective-dated rates (migration 020) ----------
+
+const DEDUCTEE_OPTIONS: RateDeducteeType[] = ['any', 'individual_huf', 'company', 'firm', 'other']
+
+interface RateForm {
+  id?: number
+  effectiveFrom: string
+  effectiveTo: string
+  deducteeType: RateDeducteeType
+  /** Percent text (0.1 is valid). */
+  rate: string
+  single: number | null
+  annual: number | null
+  basis: 'fy' | 'month'
+  excessOnly: boolean
+  noPan: string
+  returnCode: string
+}
+
+const blankRate = (): RateForm => ({
+  effectiveFrom: todayISO(), effectiveTo: '', deducteeType: 'any', rate: '', single: null, annual: null,
+  basis: 'fy', excessOnly: false, noPan: '20', returnCode: ''
+})
+
+const pct = (bp: number): string => `${bp / 100}%`
+
+/** The section's rate rows by date and deductee type — every seeded figure is editable here;
+ *  seeded rows show their statutory citation on hover. Owner-only server-side (tds:rateSave). */
+function RatesEditor({ sectionId }: { sectionId: number }): React.JSX.Element {
+  const toast = useToasts()
+  const queryClient = useQueryClient()
+  const { data: rates } = useQuery({ queryKey: ['tdsRates', sectionId], queryFn: () => api.tds.rates(sectionId) })
+  const [form, setForm] = useState<RateForm | null>(null)
+
+  const edit = (r: TdsRate): void =>
+    setForm({
+      id: r.id, effectiveFrom: r.effectiveFrom, effectiveTo: r.effectiveTo ?? '', deducteeType: r.deducteeType,
+      rate: String(r.rateBp / 100), single: r.thresholdSinglePaise || null, annual: r.thresholdAnnualPaise || null,
+      basis: r.thresholdBasis, excessOnly: r.thresholdExcessOnly, noPan: String(r.noPanRateBp / 100), returnCode: r.returnCode ?? ''
+    })
+
+  const refresh = async (): Promise<void> => {
+    await queryClient.invalidateQueries({ queryKey: ['tdsRates', sectionId] })
+    await queryClient.invalidateQueries({ queryKey: ['tdsSections'] })
+  }
+
+  const save = async (): Promise<void> => {
+    if (!form) return
+    const rate = Number(form.rate)
+    const noPan = Number(form.noPan)
+    if (form.rate.trim() === '' || !Number.isFinite(rate) || rate < 0 || rate > 100) return void toast.push('error', 'Rate must be between 0 and 100%')
+    if (!Number.isFinite(noPan) || noPan < 0 || noPan > 100) return void toast.push('error', 'No-PAN rate must be between 0 and 100%')
+    try {
+      await api.tds.rateSave({
+        ...(form.id != null ? { id: form.id } : {}),
+        sectionId,
+        effectiveFrom: form.effectiveFrom,
+        effectiveTo: form.effectiveTo || null,
+        deducteeType: form.deducteeType,
+        rateBp: Math.round(rate * 100),
+        thresholdSinglePaise: form.single ?? 0,
+        thresholdAnnualPaise: form.annual ?? 0,
+        thresholdBasis: form.basis,
+        thresholdExcessOnly: form.excessOnly,
+        noPanRateBp: Math.round(noPan * 100),
+        returnCode: form.returnCode.trim() || null
+      })
+      await refresh()
+      setForm(null)
+      toast.push('success', 'Rate saved')
+    } catch (err) {
+      toast.push('error', (err as Error).message)
+    }
+  }
+
+  const remove = async (id: number): Promise<void> => {
+    try {
+      await api.tds.rateDelete(id)
+      await refresh()
+    } catch (err) {
+      toast.push('error', (err as Error).message)
+    }
+  }
+
+  return (
+    <div className="mt-4" data-testid="tds-rates">
+      <p className="mb-1 text-body-sm font-medium text-ink">Rates by date</p>
+      <table className="ledger-table text-body-sm">
+        <thead>
+          <tr>
+            <th>From</th>
+            <th>To</th>
+            <th>Deductee</th>
+            <th className="r">Rate</th>
+            <th className="r">Single</th>
+            <th className="r">Aggregate</th>
+            <th className="r">No PAN</th>
+            <th>Code</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          {(rates ?? []).map((r) => (
+            <tr key={r.id} title={r.source ?? 'Added by you'}>
+              <td className="num">{r.effectiveFrom}</td>
+              <td className="num">{r.effectiveTo ?? '—'}</td>
+              <td>{DEDUCTEE_TYPE_LABELS[r.deducteeType]}</td>
+              <td className="r num">{pct(r.rateBp)}</td>
+              <td className="r">{optionalMoney(r.thresholdSinglePaise)}</td>
+              <td className="r">
+                {optionalMoney(r.thresholdAnnualPaise)}
+                {r.thresholdAnnualPaise > 0 && (
+                  <span className="text-caption text-muted"> /{r.thresholdBasis === 'month' ? 'month' : 'year'}{r.thresholdExcessOnly ? ', excess only' : ''}</span>
+                )}
+              </td>
+              <td className="r num">{pct(r.noPanRateBp)}</td>
+              <td className="num text-muted">{r.returnCode ?? ''}</td>
+              <td className="r whitespace-nowrap">
+                <button className="text-small text-blue hover:underline" onClick={() => edit(r)}>Edit</button>{' '}
+                <button className="text-small text-cr hover:underline" onClick={() => void remove(r.id)}>Delete</button>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      {form ? (
+        <div className="mt-2 grid grid-cols-4 gap-2">
+          <Field label="From">
+            <TextInput className="num" value={form.effectiveFrom} onChange={(e) => setForm({ ...form, effectiveFrom: e.target.value })} />
+          </Field>
+          <Field label="To" hint="Blank = open">
+            <TextInput className="num" value={form.effectiveTo} onChange={(e) => setForm({ ...form, effectiveTo: e.target.value })} />
+          </Field>
+          <Field label="Deductee">
+            <Select value={form.deducteeType} onChange={(e) => setForm({ ...form, deducteeType: e.target.value as RateDeducteeType })}>
+              {DEDUCTEE_OPTIONS.map((t) => (
+                <option key={t} value={t}>{DEDUCTEE_TYPE_LABELS[t]}</option>
+              ))}
+            </Select>
+          </Field>
+          <Field label="Rate %">
+            <TextInput className="num" value={form.rate} onChange={(e) => setForm({ ...form, rate: e.target.value })} />
+          </Field>
+          <Field label="Single-payment threshold">
+            <AmountInput paise={form.single} onPaise={(p) => setForm({ ...form, single: p })} />
+          </Field>
+          <Field label="Aggregate threshold">
+            <AmountInput paise={form.annual} onPaise={(p) => setForm({ ...form, annual: p })} />
+          </Field>
+          <Field label="Aggregate over">
+            <Select value={form.basis} onChange={(e) => setForm({ ...form, basis: e.target.value as 'fy' | 'month' })}>
+              <option value="fy">Financial year</option>
+              <option value="month">Month</option>
+            </Select>
+          </Field>
+          <Field label="No-PAN rate %">
+            <TextInput className="num" value={form.noPan} onChange={(e) => setForm({ ...form, noPan: e.target.value })} />
+          </Field>
+          <Field label="Return code">
+            <TextInput className="num" value={form.returnCode} onChange={(e) => setForm({ ...form, returnCode: e.target.value })} />
+          </Field>
+          <label className="col-span-2 flex items-center gap-2 pt-5 text-body-sm">
+            <input type="checkbox" checked={form.excessOnly} onChange={(e) => setForm({ ...form, excessOnly: e.target.checked })} />
+            Deduct only on the amount above the aggregate threshold
+          </label>
+          <div className="flex items-end justify-end gap-2">
+            <Button onClick={() => setForm(null)}>Cancel</Button>
+            <Button variant="primary" onClick={() => void save()}>Save rate</Button>
+          </div>
+        </div>
+      ) : (
+        <Button className="mt-2" onClick={() => setForm(blankRate())}>+ Add rate</Button>
+      )}
+    </div>
   )
 }
