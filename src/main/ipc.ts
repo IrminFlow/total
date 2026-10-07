@@ -24,7 +24,7 @@ import {
   tdsRateInputSchema, tdsRatesQuerySchema, tdsCertificateInputSchema, tdsCertificatesQuerySchema, tdsChallanInputSchema,
   tdsChallansQuerySchema, tdsAllocateSchema, tdsUnallocateSchema, tdsUnallocatedSchema,
   tdsEligibleSchema, tdsDeductedSchema, tdsApplySchema, tdsApplyManySchema, tdsVoucherSchema, tdsExemptSchema, tdsQuarterSchema,
-  tdsChallanFromPaymentSchema, tdsChallanRowsSchema, tdsChallanInterestSchema, tdsAutoAllocateSchema, tdsForm16aSchema, tdsLedgerSummarySchema
+  tdsChallanFromPaymentSchema, tdsChallanRowsSchema, tcsSuggestSchema, tdsChallanInterestSchema, tdsAutoAllocateSchema, tdsForm16aSchema, tdsLedgerSummarySchema
 } from '@shared/schemas'
 import { todayISO } from '@shared/dates'
 import { formatPaise } from '@shared/money'
@@ -55,6 +55,8 @@ import * as payroll from './services/payroll'
 import * as nic from './services/nic'
 import * as tds from './services/tds'
 import * as tdsWb from './services/tdsWorkbench'
+import * as tcsSvc from './services/tcs'
+import * as tcsWb from './services/tcsWorkbench'
 import { renderForm16aHtml } from '@shared/print/form16a'
 import { plexFontFaceCss } from './services/printFonts'
 import * as costCentres from './services/costCentres'
@@ -66,9 +68,11 @@ import * as jobWork from './services/jobWork'
 import * as serials from './services/serials'
 import * as tradeLinks from './services/tradeLinks'
 import * as tradeDocTypes from './services/tradeDocTypes'
+import * as tradeReports from './services/tradeReports'
 import * as priceLevels from './services/priceLevels'
 import * as budgets from './services/budgets'
 import * as yearEnd from './services/yearEnd'
+import { registerFixedAssetIpc } from './ipcFixedAssets'
 import { importTallyXml, dryRunTallyXml } from './services/tallyImport'
 import * as importer from './services/importers'
 import * as agentBridge from './services/agentBridge'
@@ -90,7 +94,7 @@ import { roleAllows, type Role } from './services/roles'
 import {
   bomInputSchema, currencyInputSchema, employeeInputSchema, nicCredentialsSchema, auditListSchema,
   userInputSchema, authLoginSchema, payHeadInputSchema, employeeHeadsSetSchema, payrollRunIdSchema,
-  auditRetentionSchema, invoicePdfBatchSchema, linksForVoucherSchema, openSourceLinesSchema, tradeDocNextNumberSchema,
+  auditRetentionSchema, invoicePdfBatchSchema, linksForVoucherSchema, openSourceLinesSchema, tradePendingSchema, tradeDocNextNumberSchema,
   tradeDocTypeSaveSchema
 } from '@shared/schemas'
 import type { CompanyInfo } from '@shared/domain'
@@ -216,6 +220,9 @@ const auditExport = (db: DB, kind: string, detail: Record<string, unknown>): voi
 
 export function registerIpc(): void {
   setAuditContext({ appVersion: app.getVersion(), getUserName: () => sessionUser?.name ?? null })
+
+  // ---------- fixed assets (WP 3.6) — channels live in ipcFixedAssets.ts ----------
+  registerFixedAssetIpc(handle, () => requireCompany().db)
 
   // ---------- company ----------
   handle('company:list', () => readRegistry())
@@ -556,6 +563,10 @@ export function registerIpc(): void {
   }, 'viewer')
   handle('links:forVoucher', (p) => tradeLinks.linksForVoucher(requireCompany().db, linksForVoucherSchema.parse(p).voucherId), 'viewer')
   handle('links:openSourceLines', (p) => tradeLinks.openSourceLines(requireCompany().db, openSourceLinesSchema.parse(p)), 'viewer')
+  handle('trade:pending', (p) => {
+    const { stage, asOn } = tradePendingSchema.parse(p)
+    return tradeReports.pendingStockNotes(requireCompany().db, stage, asOn)
+  }, 'viewer')
 
   handle('master:units:list', () => masters.listUnits(requireCompany().db), 'viewer')
   handle('master:units:create', (p) => masters.createUnit(requireCompany().db, unitInputSchema.parse(p)))
@@ -1115,6 +1126,109 @@ export function registerIpc(): void {
     return { path }
   }, 'viewer')
 
+  // ---------- TCS (WP 3.3) ----------
+  // The same section / rate / certificate / challan / entry machinery as TDS, kind 'tcs' (shared
+  // tables, migration 027); the TCS-only parts (suggestion, Eligible, Move to TCS, 27EQ / 27D)
+  // live in services/tcs.ts and tcsWorkbench.ts.
+  handle('tcs:sections', () => tds.listSections(requireCompany().db, 'tcs'), 'viewer')
+  handle('tcs:sectionSave', (p) => tds.saveSection(requireCompany().db, tdsSectionInputSchema.parse(p), 'tcs'), 'owner')
+  handle('tcs:suggest', (p) => tcsSvc.tcsSuggestion(requireCompany().db, tcsSuggestSchema.parse(p)), 'viewer')
+  handle('tcs:rates', (p) => tds.listRates(requireCompany().db, tdsRatesQuerySchema.parse(p ?? {}).sectionId, 'tcs'), 'viewer')
+  handle('tcs:rateSave', (p) => tds.saveRate(requireCompany().db, tdsRateInputSchema.parse(p)), 'owner')
+  handle('tcs:rateDelete', (p) => tds.deleteRate(requireCompany().db, idSchema.parse(p).id), 'owner')
+  handle('tcs:certificates', (p) => tds.listCertificates(requireCompany().db, tdsCertificatesQuerySchema.parse(p ?? {}).ledgerId, 'tcs'), 'viewer')
+  handle('tcs:certificateSave', (p) => tds.saveCertificate(requireCompany().db, tdsCertificateInputSchema.parse(p), 'tcs'))
+  handle('tcs:certificateDelete', (p) => tds.deleteCertificate(requireCompany().db, idSchema.parse(p).id))
+  handle('tcs:challanSave', (p) => tds.saveChallan(requireCompany().db, tdsChallanInputSchema.parse(p), 'tcs'))
+  handle('tcs:challanDelete', (p) => tds.deleteChallan(requireCompany().db, idSchema.parse(p).id))
+  handle('tcs:allocate', (p) => {
+    const { challanId, entryIds } = tdsAllocateSchema.parse(p)
+    return tds.allocateEntries(requireCompany().db, challanId, entryIds)
+  })
+  handle('tcs:unallocate', (p) => tds.unallocateEntries(requireCompany().db, tdsUnallocateSchema.parse(p).entryIds))
+  handle('tcs:unallocated', (p) => {
+    const { fyStartYear, quarter } = tdsUnallocatedSchema.parse(p)
+    return tds.unallocatedEntries(requireCompany().db, fyStartYear, quarter as 1 | 2 | 3 | 4 | undefined, 'tcs')
+  }, 'viewer')
+  handle('tcs:eligible', (p) => {
+    const { from, to, includeExempt } = tdsEligibleSchema.parse(p)
+    return tcsWb.tcsEligible(requireCompany().db, from, to, { includeExempt })
+  }, 'viewer')
+  handle('tcs:deducted', (p) => {
+    const { from, to } = tdsDeductedSchema.parse(p)
+    return tdsWb.tdsDeducted(requireCompany().db, from, to, 'tcs')
+  }, 'viewer')
+  handle('tcs:ledgerSummary', (p) => {
+    const { fyStartYear, quarter } = tdsLedgerSummarySchema.parse(p)
+    return tdsWb.tdsLedgerSummary(requireCompany().db, fyStartYear, quarter as 0 | 1 | 2 | 3 | 4, 'tcs')
+  }, 'viewer')
+  handle('tcs:applyToVoucher', (p) => tcsWb.applyTcsToVoucher(requireCompany().db, tdsApplySchema.parse(p)))
+  handle('tcs:applyMany', (p) => {
+    const { voucherIds } = tdsApplyManySchema.parse(p)
+    const db = requireCompany().db
+    return voucherIds.map((voucherId) => {
+      try {
+        tcsWb.applyTcsToVoucher(db, { voucherId })
+        return { voucherId, ok: true as const }
+      } catch (err) {
+        return { voucherId, ok: false as const, error: (err as Error).message }
+      }
+    })
+  })
+  handle('tcs:removeFromVoucher', (p) => tcsWb.removeTcsFromVoucher(requireCompany().db, tdsVoucherSchema.parse(p).voucherId))
+  handle('tcs:exempt', (p) => {
+    const { voucherId, reason } = tdsExemptSchema.parse(p)
+    tdsWb.exemptVoucher(requireCompany().db, voucherId, reason, 'tcs')
+    return null
+  })
+  handle('tcs:unexempt', (p) => {
+    tdsWb.unexemptVoucher(requireCompany().db, tdsVoucherSchema.parse(p).voucherId, 'tcs')
+    return null
+  })
+  handle('tcs:exemption', (p) => ({ reason: tdsWb.exemptionOf(requireCompany().db, tdsVoucherSchema.parse(p).voucherId, 'tcs') }), 'viewer')
+  handle('tcs:paymentCandidates', (p) => tdsWb.tdsPaymentCandidates(requireCompany().db, tdsSummarySchema.parse(p).fyStartYear, 'tcs'), 'viewer')
+  handle('tcs:challanRows', (p) => {
+    const { fyStartYear, quarter, rateBp } = tdsChallanRowsSchema.parse(p)
+    return tdsWb.challanRows(requireCompany().db, fyStartYear, quarter, rateBp, 'tcs')
+  }, 'viewer')
+  handle('tcs:challanFromPayment', (p) => {
+    const input = tdsChallanFromPaymentSchema.parse(p)
+    return tdsWb.challanFromPayment(requireCompany().db, { ...input, quarter: (input.quarter ?? null) as 1 | 2 | 3 | 4 | null }, 'tcs')
+  })
+  handle('tcs:autoAllocate', (p) => ({ entryIds: tdsWb.autoAllocate(requireCompany().db, tdsAutoAllocateSchema.parse(p).challanId) }))
+  handle('tcs:challanInterest', (p) => {
+    const { challanId, rateBp } = tdsChallanInterestSchema.parse(p)
+    return tdsWb.challanInterest(requireCompany().db, challanId, rateBp)
+  }, 'viewer')
+  handle('tcs:form27eq', (p) => {
+    const { fyStartYear, quarter } = tdsQuarterSchema.parse(p)
+    return tcsWb.form27eqData(requireCompany().db, fyStartYear, quarter as 1 | 2 | 3 | 4)
+  }, 'viewer')
+  handle('tcs:export27eq', (p) => {
+    const { fyStartYear, quarter } = tdsQuarterSchema.parse(p)
+    const c = requireCompany()
+    const path = tcsWb.export27eqCsv(c.db, c.slug, fyStartYear, quarter as 1 | 2 | 3 | 4)
+    auditExport(c.db, 'tcs_27eq', { fyStartYear, quarter, path })
+    shell.showItemInFolder(path)
+    return { path }
+  }, 'viewer')
+  handle('tcs:form27d', (p) => {
+    const { fyStartYear, quarter, partyLedgerId } = tdsForm16aSchema.parse(p)
+    const c = requireCompany()
+    return tcsWb.form27dData(c.db, c.info, fyStartYear, quarter as 1 | 2 | 3 | 4, partyLedgerId)
+  }, 'viewer')
+  handle('tcs:form27dPdf', async (p) => {
+    const { fyStartYear, quarter, partyLedgerId } = tdsForm16aSchema.parse(p)
+    const c = requireCompany()
+    const data = tcsWb.form27dData(c.db, c.info, fyStartYear, quarter as 1 | 2 | 3 | 4, partyLedgerId)
+    const html = renderForm16aHtml(data, plexFontFaceCss, 'tcs')
+    const who = partyLedgerId != null && data.parties[0] ? `-${slugify(data.parties[0].partyName)}` : ''
+    const path = await writeExportPdf(c.slug, `form27d-data-${fyStartYear}-Q${quarter}${who}.pdf`, html, { pageSize: 'A4' })
+    auditExport(c.db, 'tcs_form27d', { fyStartYear, quarter, partyLedgerId: partyLedgerId ?? null, path })
+    shell.showItemInFolder(path)
+    return { path }
+  }, 'viewer')
+
   // ---------- cost centres ----------
   handle('cc:list', () => costCentres.listCostCentres(requireCompany().db), 'viewer')
   handle('cc:save', (p) => {
@@ -1247,7 +1361,8 @@ export function registerIpc(): void {
   // ---------- e-documents + invoice printing ----------
   handle('edoc:list', (p) => {
     const { from, to } = periodSchema.parse(p)
-    return edocs.listSalesInvoices(requireCompany().db, from, to)
+    const c = requireCompany()
+    return edocs.listSalesInvoices(c.db, from, to, c.info)
   }, 'viewer')
   handle('edoc:exportEInvoice', (p) => {
     const { from, to, period } = gstPeriodInput.parse(p)

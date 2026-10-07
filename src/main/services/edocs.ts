@@ -1,7 +1,7 @@
 import { mkdirSync, writeFileSync } from 'fs'
 import { join } from 'path'
 import type { DB } from '../db/connection'
-import type { CompanyInfo, VoucherTransport } from '@shared/domain'
+import type { CompanyInfo, TradePurpose, VoucherTransport } from '@shared/domain'
 import type { EdocListRow } from '@shared/reports'
 import type { VoucherTransportInput } from '@shared/schemas'
 import {
@@ -15,17 +15,59 @@ import { outwardDebitNoteIds } from './gst'
 import { writeAudit } from './audit'
 import { companyExportsDir } from '../paths'
 import { IN_BOOKS, NOT_DELETED } from './vouchers'
+import { tcsOnVoucher } from './tcs'
+import { purposeIsTaxed } from '@shared/voucherEdit/stockNote'
+import { hasTradeSchema } from './tradeLinks'
+import { readCompanyInfo } from '../db/seed'
 
 /** Voucher kinds eligible for e-invoice/e-way bill extraction: sales invoices plus the
  *  credit/debit notes issued against them. */
 const EDOC_KINDS = ['sales', 'credit_note', 'debit_note'] as const
 
-/** vt.kind -> NIC DocDtls.Typ / EWB docType. */
-function docTypeFor(kind: string): 'INV' | 'CRN' | 'DBN' {
+/** Stock notes (WP 2.5b) extract the same invoice shape: the delivery challan for its e-way bill
+ *  and print, the GRN for print only. Neither is ever e-invoiced. */
+export const STOCK_NOTE_EDOC_KINDS = ['delivery_note', 'receipt_note'] as const
+export type EdocKind = (typeof EDOC_KINDS)[number] | (typeof STOCK_NOTE_EDOC_KINDS)[number]
+
+/** vt.kind -> NIC DocDtls.Typ / EWB docType ('CHL' = delivery challan, NIC EWB docType). */
+function docTypeFor(kind: string): 'INV' | 'CRN' | 'DBN' | 'CHL' {
   if (kind === 'credit_note') return 'CRN'
   if (kind === 'debit_note') return 'DBN'
+  if (kind === 'delivery_note' || kind === 'receipt_note') return 'CHL'
   return 'INV'
 }
+
+/**
+ * Sales invoices whose every goods line moved on a linked delivery challan (moves_stock = 0,
+ * WP 2.5): voucherId -> the challan numbers (and their EWB numbers). Such an invoice needs no
+ * second e-way bill: rule 138 is about the movement, and the goods travelled under the challan.
+ */
+export function goodsMovedOnChallan(db: DB, voucherIds: readonly number[]): Map<number, { challans: string[]; ewbNos: string[] }> {
+  const out = new Map<number, { challans: string[]; ewbNos: string[] }>()
+  if (voucherIds.length === 0 || !hasTradeSchema(db)) return out
+  const stmt = db.prepare(
+    `SELECT SUM(CASE WHEN il.moves_stock = 1 AND il.qty_milli != 0 THEN 1 ELSE 0 END) AS moving,
+            SUM(CASE WHEN il.moves_stock = 0 THEN 1 ELSE 0 END) AS onChallan
+     FROM inventory_lines il WHERE il.voucher_id = ?`
+  )
+  const srcStmt = db.prepare(
+    `SELECT DISTINCT sv.number, sv.ewb_no AS ewbNo, sv.date, sv.id FROM line_links ll
+     JOIN vouchers sv ON sv.id = ll.from_voucher_id
+     JOIN voucher_types svt ON svt.id = sv.voucher_type_id
+     WHERE ll.to_voucher_id = ? AND ll.link_type = 'fulfil' AND svt.kind = 'delivery_note'
+     ORDER BY sv.date, sv.id`
+  )
+  for (const id of voucherIds) {
+    const r = stmt.get(id) as { moving: number | null; onChallan: number | null }
+    if ((r.onChallan ?? 0) === 0 || (r.moving ?? 0) > 0) continue
+    const src = srcStmt.all(id) as { number: string; ewbNo: string | null }[]
+    out.set(id, { challans: src.map((x) => x.number), ewbNos: src.map((x) => x.ewbNo).filter((x): x is string => !!x) })
+  }
+  return out
+}
+
+export const movedOnChallanReason = (m: { challans: string[]; ewbNos: string[] }): string =>
+  `Goods moved on challan ${m.challans.join(', ')}${m.ewbNos.length ? ` (EWB ${m.ewbNos.join(', ')})` : ''}`
 
 /** TranDtls.SupTyp precedence: party ledger export_type first, then party state code 96/97
  *  (Other Territory / foreign — export-shaped even without an explicit export_type flag),
@@ -41,10 +83,10 @@ function supTypFor(exportType: string | null, partyStateCode: string | null): 'B
   return 'B2B'
 }
 
-export function listSalesInvoices(db: DB, from: string, to: string): EdocListRow[] {
+export function listSalesInvoices(db: DB, from: string, to: string, company?: CompanyInfo): EdocListRow[] {
   const kindPlaceholders = EDOC_KINDS.map(() => '?').join(', ')
   const outwardDbn = outwardDebitNoteIds(db, from, to)
-  return db
+  const rows = db
     .prepare(
       `SELECT v.id AS voucherId, v.number, v.date, vt.kind AS kind, p.id AS partyLedgerId, p.name AS partyName, p.gstin AS partyGstin,
               COALESCE(t.total, 0) AS total, v.vehicle_no AS vehicleNo, v.irn, v.ewb_no AS ewbNo,
@@ -59,13 +101,17 @@ export function listSalesInvoices(db: DB, from: string, to: string): EdocListRow
        WHERE vt.kind IN (${kindPlaceholders}) AND v.date BETWEEN ? AND ? AND ${IN_BOOKS}
        ORDER BY v.date, v.id`
     )
-    .all(...EDOC_KINDS, from, to)
-    .map((r: any) => {
+    .all(...EDOC_KINDS, from, to) as any[]
+  const onChallan = goodsMovedOnChallan(db, rows.filter((r) => r.kind === 'sales').map((r) => r.voucherId))
+  const invoiceRows = rows.map((r: any) => {
       const { kind, hasGoods, ...rest } = r
       const docType = docTypeFor(kind)
       const isOutwardDbn = docType === 'DBN' && outwardDbn.has(r.voucherId)
+      const moved = onChallan.get(r.voucherId)
       const ewbReason =
-        docType === 'CRN'
+        moved
+          ? movedOnChallanReason(moved)
+          : docType === 'CRN'
           ? 'Credit note — e-way bills accompany goods movement'
           : docType === 'DBN' && !isOutwardDbn
             ? 'Purchase-side debit note'
@@ -76,6 +122,21 @@ export function listSalesInvoices(db: DB, from: string, to: string): EdocListRow
                 : null
       return { ...rest, docType, hasHsn: !!r.hasHsn, outwardDbn: isOutwardDbn, ewbReason }
     }) as EdocListRow[]
+  // Delivery challans (WP 2.5b): an e-way bill row each (rule 138(1) CGST Rules: the consignment
+  // value may be the one declared on a delivery challan); their value is computed, not posted.
+  const challanRows: EdocListRow[] = hasTradeSchema(db)
+    ? extractEdocInvoices(db, company ?? readCompanyInfo(db), from, to, undefined, ['delivery_note']).map((inv) => {
+        const goods = inv.items.some((i) => i.qtyMilli !== 0)
+        return {
+          voucherId: inv.voucherId!, number: inv.number, date: inv.date, docType: 'CHL' as const,
+          partyLedgerId: inv.partyLedgerId ?? null, partyName: inv.partyName, partyGstin: inv.partyGstin,
+          total: inv.total, vehicleNo: inv.vehicleNo, hasHsn: inv.items.some((i) => !!i.hsn), irn: null, ewbNo: inv.ewbNo ?? null,
+          outwardDbn: false,
+          ewbReason: !goods ? 'No goods on the challan' : inv.total <= EWB_THRESHOLD_PAISE ? 'At or below ₹50,000 — per-bill export overrides' : null
+        }
+      })
+    : []
+  return [...invoiceRows, ...challanRows].sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : a.voucherId - b.voucherId))
 }
 
 // ---------- voucher transport (migration 013) ----------
@@ -154,11 +215,16 @@ export function setTransport(db: DB, voucherId: number, input: VoucherTransportI
 // ---------- extraction ----------
 
 /** Assemble full e-doc invoices (items, party, transport, ship-to) for the sales vouchers in a period. */
-export function extractEdocInvoices(db: DB, company: CompanyInfo, from: string, to: string, voucherId?: number): EdocInvoice[] {
-  const kindPlaceholders = EDOC_KINDS.map(() => '?').join(', ')
+export function extractEdocInvoices(
+  db: DB, company: CompanyInfo, from: string, to: string, voucherId?: number,
+  kinds: readonly EdocKind[] = EDOC_KINDS
+): EdocInvoice[] {
+  const kindPlaceholders = kinds.map(() => '?').join(', ')
+  const stockNotes = kinds.some((k) => (STOCK_NOTE_EDOC_KINDS as readonly string[]).includes(k))
   const vouchers = db
     .prepare(
-      `SELECT v.id, v.number, v.date, vt.kind AS kind, v.reference,
+      `SELECT v.id, v.number, v.date, vt.kind AS kind, v.reference, v.party_ledger_id AS partyLedgerId, v.ewb_no AS ewbNo,
+              ${stockNotes ? 'tvd.purpose' : 'NULL'} AS purpose,
               v.transporter_id AS transporterId, v.vehicle_no AS vehicleNo,
               v.transport_distance AS distanceKm, v.pos_override AS posOverride, v.irn,
               p.name AS partyName, p.gstin AS partyGstin, p.state_code AS partyState, p.address AS partyAddress,
@@ -171,12 +237,14 @@ export function extractEdocInvoices(db: DB, company: CompanyInfo, from: string, 
        JOIN voucher_types vt ON vt.id = v.voucher_type_id
        LEFT JOIN ledgers p ON p.id = v.party_ledger_id
        LEFT JOIN voucher_transport t ON t.voucher_id = v.id
+       ${stockNotes ? 'LEFT JOIN trade_voucher_details tvd ON tvd.voucher_id = v.id' : ''}
        WHERE vt.kind IN (${kindPlaceholders}) AND v.date BETWEEN ? AND ?
          AND (? IS NULL OR v.id = ?) AND ${IN_BOOKS}
        ORDER BY v.date, v.id`
     )
-    .all(...EDOC_KINDS, from, to, voucherId ?? null, voucherId ?? null) as {
-      id: number; number: string; date: string; kind: 'sales' | 'credit_note' | 'debit_note'; reference: string | null
+    .all(...kinds, from, to, voucherId ?? null, voucherId ?? null) as {
+      id: number; number: string; date: string; kind: EdocKind; reference: string | null
+      partyLedgerId: number | null; ewbNo: string | null; purpose: TradePurpose | null
       transporterId: string | null; vehicleNo: string | null; distanceKm: number | null
       posOverride: string | null; irn: string | null
       partyName: string | null; partyGstin: string | null; partyState: string | null; partyAddress: string | null
@@ -220,13 +288,16 @@ export function extractEdocInvoices(db: DB, company: CompanyInfo, from: string, 
     // SEZ/export supplies are ALWAYS inter-state (sec 7(5)(b) IGST Act): a same-state SEZ
     // unit must be billed IGST — the IRP rejects SEZWP/SEZWOP payloads carrying CGST/SGST.
     const supply = supTyp !== 'B2B' ? 'inter' : supplyTypeFor(company.stateCode, pos)
+    const isNote = v.kind === 'delivery_note' || v.kind === 'receipt_note'
+    // A challan carries tax only "where the transportation is for supply" (rule 55(1)(vii)).
+    const taxed = !isNote || purposeIsTaxed(v.purpose ?? (v.kind === 'delivery_note' ? 'supply' : 'purchase'))
     const rawItems = invStmt.all(v.id) as {
       qtyMilli: number; ratePaise: number; amount: number
       name: string; hsn: string | null; gstRate: number | null; cessRate: number | null; barcode: string | null; uqc: string
     }[]
     let items: EdocItem[] = rawItems.map((item) => {
-      const rate = item.gstRate ?? 0
-      const cessRate = item.cessRate ?? 0
+      const rate = taxed ? (item.gstRate ?? 0) : 0
+      const cessRate = taxed ? (item.cessRate ?? 0) : 0
       const g = computeGst(item.amount, rate, supply, cessRate)
       const mapped = toUqc(item.uqc)
       return {
@@ -248,7 +319,7 @@ export function extractEdocInvoices(db: DB, company: CompanyInfo, from: string, 
     })
     // Service invoices book no inventory lines — build items from the income-side ledger
     // lines instead (SAC from the ledger's HSN, IsServc Y) so ItemList is never empty.
-    if (items.length === 0) {
+    if (items.length === 0 && !isNote) {
       const salesSide = v.kind === 'credit_note' ? 'dr' : 'cr'
       const lines = lineStmt.all(v.id) as {
         amount: number; drCr: 'dr' | 'cr'; groupId: number; gstRate: number | null; hsn: string | null; name: string
@@ -281,7 +352,11 @@ export function extractEdocInvoices(db: DB, company: CompanyInfo, from: string, 
     const sgst = items.reduce((s, i) => s + i.sgst, 0)
     const igst = items.reduce((s, i) => s + i.igst, 0)
     const cess = items.reduce((s, i) => s + i.cess, 0)
-    const total = (totalStmt.get(v.id) as { t: number }).t
+    // A stock note posts nothing: its value is the computed one (taxable + tax, unrounded).
+    const total = isNote ? taxable + cgst + sgst + igst + cess : (totalStmt.get(v.id) as { t: number }).t
+    // WP 3.3: TCS collected rides after GST — in the total the buyer owes, never in round-off.
+    const tcsEntry = tcsOnVoucher(db, v.id)
+    const tcs = tcsEntry ? { amountPaise: tcsEntry.amountPaise, rateBp: tcsEntry.rateBp, reference: tcsEntry.reference } : null
 
     const transport: EdocTransport | null =
       v.trans_mode || v.trans_doc_no || v.trans_doc_date || v.transporter_name || v.vehicle_type
@@ -330,8 +405,9 @@ export function extractEdocInvoices(db: DB, company: CompanyInfo, from: string, 
       sgst,
       igst,
       cess,
-      roundOff: total - (taxable + cgst + sgst + igst + cess),
+      roundOff: total - (tcs?.amountPaise ?? 0) - (taxable + cgst + sgst + igst + cess),
       total,
+      ...(tcs ? { tcs } : {}),
       // Transport-modal values win over the legacy voucher columns.
       transporterId: v.tTransporterId ?? v.transporterId,
       vehicleNo: v.tVehicleNo ?? v.vehicleNo,
@@ -339,7 +415,8 @@ export function extractEdocInvoices(db: DB, company: CompanyInfo, from: string, 
       transport,
       shipTo,
       precedingDoc,
-      irn: v.irn
+      irn: v.irn,
+      ...(isNote ? { purpose: v.purpose, partyLedgerId: v.partyLedgerId, ewbNo: v.ewbNo } : {})
     }
   })
 }
@@ -407,7 +484,13 @@ function ewbInvoicesFor(
   opts: { voucherIds?: number[]; includeBelowThreshold?: boolean }
 ): { eligible: EdocInvoice[]; skipped: EwbSkipped[] } {
   const outwardDbn = outwardDebitNoteIds(db, from, to)
-  const all = extractEdocInvoices(db, company, from, to)
+  // Delivery challans (WP 2.5b) take e-way bills too; an invoice whose goods moved on a challan
+  // doesn't need a second one.
+  const all = [
+    ...extractEdocInvoices(db, company, from, to),
+    ...(hasTradeSchema(db) ? extractEdocInvoices(db, company, from, to, undefined, ['delivery_note']) : [])
+  ].sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : (a.voucherId ?? 0) - (b.voucherId ?? 0)))
+  const onChallan = goodsMovedOnChallan(db, all.filter((i) => i.docType === 'INV').map((i) => i.voucherId!))
 
   const eligible: EdocInvoice[] = []
   const skipped: EwbSkipped[] = []
@@ -415,6 +498,11 @@ function ewbInvoicesFor(
     if (opts.voucherIds && (inv.voucherId == null || !opts.voucherIds.includes(inv.voucherId))) continue
     if (inv.docType === 'CRN') {
       skipped.push({ number: inv.number, reason: 'Credit note — e-way bills accompany goods movement' })
+      continue
+    }
+    const moved = inv.docType === 'INV' ? onChallan.get(inv.voucherId!) : undefined
+    if (moved) {
+      skipped.push({ number: inv.number, reason: movedOnChallanReason(moved) })
       continue
     }
     if (inv.docType === 'DBN' && (inv.voucherId == null || !outwardDbn.has(inv.voucherId))) {
@@ -466,8 +554,14 @@ export function exportEwb(
 /** Single-voucher EWB JSON (the per-row button): throws with the blocking reasons when the
  *  bill can't be generated, otherwise writes a one-entry bulk file and returns its path. */
 export function ewbJsonForVoucher(db: DB, company: CompanyInfo, slug: string, voucherId: number): { path: string } {
-  const [inv] = extractEdocInvoices(db, company, '0000-01-01', '9999-12-31', voucherId)
+  const [inv] = [
+    ...extractEdocInvoices(db, company, '0000-01-01', '9999-12-31', voucherId),
+    ...(hasTradeSchema(db) ? extractEdocInvoices(db, company, '0000-01-01', '9999-12-31', voucherId, ['delivery_note']) : [])
+  ]
   if (!inv) throw new Error('Voucher not found')
+  if (inv.docType === 'CRN') throw new Error('Credit note — e-way bills accompany goods movement')
+  const moved = inv.docType === 'INV' ? goodsMovedOnChallan(db, [voucherId]).get(voucherId) : undefined
+  if (moved) throw new Error(`${movedOnChallanReason(moved)} — no second e-way bill is needed`)
   const elig = ewbEligibility(inv, true) // explicit per-bill request overrides the threshold
   if (!elig.eligible) throw new Error(elig.reason!)
   const issues = ewbIssues(inv, edocCompany(company))

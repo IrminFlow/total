@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '../lib/client'
+import { useFeatures } from '../lib/useFeatures'
 import { useNav, useSession, useToasts } from '../state/stores'
 import { AmountInput, Banner, Button, DrawerSection, EmptyState, Money, Page, PageHeader, Panel, Select, SkeletonRows, Spinner, TabBar } from '../components/ui'
 import { OptionChoice, OptionsTable, useScreenOptions } from '../components/ScreenOptions'
@@ -232,6 +233,7 @@ function ReturnOptions({ openOn, onOpenOn }: { openOn: OpenOn; onOpenOn: (v: Ope
 }
 
 export function Gstr1Screen(): React.JSX.Element {
+  const features = useFeatures()
   const opts = useScreenOptions('gstr1', { openOn: 'current' as OpenOn }, { openOn: ['current', 'previous'] })
   const { months, month, monthKey, setMonthKey } = useMonth(opts.options.openOn)
   const { info } = useSession()
@@ -370,6 +372,12 @@ export function Gstr1Screen(): React.JSX.Element {
       <p className="mt-2 text-hint text-muted">
         Upload the JSON on the portal under Returns → GSTR-1 → Prepare offline. HSN (Table 12) and Documents issued (Table 13) don&apos;t add to the total.
       </p>
+      {features.orders && (
+        <p className="mt-1 text-hint text-muted" data-testid="gstr1-challan-note">
+          Delivery challans are never invoices here; Table 13 counts them by purpose (9 job work, 10 on approval, 11 liquid gas,
+          12 other than supply). A challan for a plain supply is reported under 12 — confirm that with your CA.
+        </p>
+      )}
     </Page>
   )
 }

@@ -72,14 +72,19 @@ export type Screen =
   | { name: 'edocs'; tab?: 'documents' | 'self-invoices' }
   | { name: 'registers' }
   | { name: 'outstandings' }
+  // WP 2.5b: delivery challans not invoiced / GRNs not billed.
+  | { name: 'pending-challans' }
+  | { name: 'pending-grns' }
   | { name: 'consolidated' }
   | { name: 'banking' }
   | { name: 'payroll' }
   | { name: 'tds' }
+  | { name: 'tcs' }
   | { name: 'cost-centres' }
   | { name: 'budgets' }
   | { name: 'company-info' }
   | { name: 'year-end' }
+  | { name: 'fixed-assets'; tab?: 'register' | 'depreciation' | 'schedule' | 'income-tax' | 'setup' }
   | { name: 'settings'; tab?: 'appearance' | 'backups' | 'bin' | 'users' | 'audit' | 'nic' | 'features' | 'invoice' | 'agents' | 'about' }
 
 interface NavState {

@@ -2,7 +2,7 @@ import type {
   Batch, BomLine, Budget, CompanyInfo, CostCentre, Currency, Employee, Godown, Group, Ledger, NegativeStockWarning,
   PayrollLine, PayrollRun, PriceLevel, PriceListRate, StockGroup, StockItem, TdsSection, Unit,
   TdsRate, TdsCertificateRow, TdsChallan,
-  Voucher, VoucherTransport, VoucherType, TradeDocType
+  Voucher, VoucherTransport, VoucherType, TradeDocType, SaveVoucherWarnings
 } from '@shared/domain'
 import type { BudgetVarianceRow } from '@shared/budgets'
 import type {
@@ -49,7 +49,7 @@ import type { Itc04Data, JobWorkChallan, JobWorkPendingRow } from '@shared/jobWo
 import type { JobWorkChallanPayload } from '@shared/voucherEdit'
 import type { ExpiryReportRow, ReorderRow, SerialListRow, StockMovementRegister } from '@shared/stockPlanning'
 import type { SerialStatus } from '@shared/serials'
-import type { OpenSourceLine, VoucherKindRow, VoucherLinks } from '@shared/tradeCycle/types'
+import type { OpenSourceLine, PendingNoteRow, VoucherKindRow, VoucherLinks } from '@shared/tradeCycle/types'
 
 /** stock:labelsHtml / stock:labelsPdf query (mirrors stockLabelsSchema). */
 export interface StockLabelsQuery {
@@ -63,6 +63,7 @@ import type { ChartGroupNode } from '@shared/chartOfAccounts'
 import type { InvoiceConfig } from '@shared/invoiceConfig'
 import type { PrintDocKind, PrintTemplate, TemplateList } from '@shared/printTemplates'
 import type { CloseLedgerRow } from '@shared/yearEnd'
+import type { DepreciationYearStatus } from '@shared/fixedAssets'
 import type { ConsolidatedResult } from '@shared/consolidate'
 import type { Registry } from '../types'
 
@@ -276,6 +277,28 @@ export interface TdsSuggestion {
   candidates?: { sectionId: number; code: string; from: 'party' | 'ledger' | 'credits' }[]
   /** Payments: bills liable and not deducted at credit time, and the advance part. */
   payment?: { undeductedBillsPaise: number; advancePaise: number; deductedAtCredit: boolean } | null
+}
+
+/** Mirrors src/main/services/tcs.ts's TcsSuggestion (WP 3.3): the TDS banner's shape — the
+ *  amount to collect rides in `tdsPaise` — plus the TCS basis. */
+export type TcsSuggestion = Omit<TdsSuggestion, 'sectionFrom' | 'candidates'> & {
+  kind: 'tcs'
+  sectionFrom: 'party' | 'goods' | 'ledger' | 'chosen' | 'credits'
+  candidates: { sectionId: number; code: string; from: 'party' | 'goods' | 'ledger' | 'credits' }[]
+  gstInBase: boolean
+}
+
+/** tcs:suggest payload (src/shared/schemas.ts tcsSuggestSchema). */
+export interface TcsSuggestRequest {
+  partyLedgerId: number
+  date: string
+  voucherKind: 'sales' | 'receipt'
+  taxablePaise: number
+  gstPaise?: number
+  salesLedgerId?: number | null
+  items?: { stockItemId: number; amount: number }[]
+  excludeVoucherId?: number
+  sectionId?: number | null
 }
 
 /** Mirrors src/main/services/tds.ts's TdsSummaryRow shape (kept local — that file is main-process only). */
@@ -505,7 +528,7 @@ export interface PdcRow {
   amount: number
 }
 
-async function call<T>(channel: string, payload?: unknown): Promise<T> {
+export async function call<T>(channel: string, payload?: unknown): Promise<T> {
   const result = await window.total.invoke(channel, payload)
   if (!result.ok) throw new Error(result.error ?? 'Unknown error')
   return result.data as T
@@ -572,6 +595,10 @@ export const api = {
   links: {
     forVoucher: (voucherId: number) => call<VoucherLinks>('links:forVoucher', { voucherId }),
     openSourceLines: (q: OpenSourceLinesQuery) => call<OpenSourceLine[]>('links:openSourceLines', q)
+  },
+  /** WP 2.5b — trade-cycle reports. */
+  trade: {
+    pending: (stage: 'delivery_note' | 'receipt_note', asOn: string) => call<PendingNoteRow[]>('trade:pending', { stage, asOn })
   },
   units: {
     list: () => call<Unit[]>('master:units:list'),
@@ -666,7 +693,7 @@ export const api = {
       call<VoucherListRow[]>('voucher:list', { from, to, voucherTypeId }),
     get: (id: number) => call<Voucher | null>('voucher:get', { id }),
     save: (data: VoucherInputParsed, id?: number) =>
-      call<Voucher & { duplicateNumber?: boolean }>('voucher:save', { data, id }),
+      call<Voucher & { duplicateNumber?: boolean; warnings?: SaveVoucherWarnings }>('voucher:save', { data, id }),
     remove: (id: number) => call<null>('voucher:delete', { id }),
     nextNumber: (voucherTypeId: number, date: string, excludeId?: number) =>
       call<{ number: string }>('voucher:nextNumber', { voucherTypeId, date, excludeId }),
@@ -804,6 +831,48 @@ export const api = {
     form16a: (fyStartYear: number, quarter: number, partyLedgerId?: number) => call<Form16aData>('tds:form16a', { fyStartYear, quarter, partyLedgerId }),
     form16aPdf: (fyStartYear: number, quarter: number, partyLedgerId?: number) => call<{ path: string }>('tds:form16aPdf', { fyStartYear, quarter, partyLedgerId })
   },
+  // WP 3.3 — TCS on sales: the same calls as `tds` over the kind-tagged tables (the TDS screen's
+  // tab components take a kind and use whichever namespace), plus the TCS-only suggestion and the
+  // Form 27EQ / Form 27D data.
+  tcs: {
+    sections: () => call<TdsSection[]>('tcs:sections'),
+    sectionSave: (data: TdsSectionInput) => call<TdsSection>('tcs:sectionSave', data),
+    suggest: (input: TcsSuggestRequest) => call<TcsSuggestion | null>('tcs:suggest', input),
+    rates: (sectionId?: number) => call<TdsRate[]>('tcs:rates', { sectionId }),
+    rateSave: (data: TdsRateInput) => call<TdsRate>('tcs:rateSave', data),
+    rateDelete: (id: number) => call<void>('tcs:rateDelete', { id }),
+    certificates: (ledgerId?: number) => call<TdsCertificateRow[]>('tcs:certificates', { ledgerId }),
+    certificateSave: (data: TdsCertificateInput) => call<TdsCertificateRow>('tcs:certificateSave', data),
+    certificateDelete: (id: number) => call<void>('tcs:certificateDelete', { id }),
+    challanSave: (data: TdsChallanInput) => call<TdsChallan>('tcs:challanSave', data),
+    challanDelete: (id: number) => call<void>('tcs:challanDelete', { id }),
+    allocate: (challanId: number, entryIds: number[]) => call<TdsChallan>('tcs:allocate', { challanId, entryIds }),
+    unallocate: (entryIds: number[]) => call<void>('tcs:unallocate', { entryIds }),
+    unallocated: (fyStartYear: number, quarter?: number) => call<TdsEntryRow[]>('tcs:unallocated', { fyStartYear, quarter }),
+    eligible: (from: string, to: string, includeExempt = false) => call<TdsEligibleRow[]>('tcs:eligible', { from, to, includeExempt }),
+    deducted: (from: string, to: string) => call<TdsDeductedRow[]>('tcs:deducted', { from, to }),
+    ledgerSummary: (fyStartYear: number, quarter: number) => call<TdsLedgerSummaryRow[]>('tcs:ledgerSummary', { fyStartYear, quarter }),
+    applyToVoucher: (voucherId: number, opts: { sectionId?: number | null; manualPaise?: number | null } = {}) =>
+      call<Voucher>('tcs:applyToVoucher', { voucherId, ...opts }),
+    applyMany: (voucherIds: number[]) =>
+      call<({ voucherId: number; ok: true } | { voucherId: number; ok: false; error: string })[]>('tcs:applyMany', { voucherIds }),
+    removeFromVoucher: (voucherId: number) => call<Voucher>('tcs:removeFromVoucher', { voucherId }),
+    exempt: (voucherId: number, reason: string) => call<null>('tcs:exempt', { voucherId, reason }),
+    unexempt: (voucherId: number) => call<null>('tcs:unexempt', { voucherId }),
+    exemption: (voucherId: number) => call<{ reason: string | null }>('tcs:exemption', { voucherId }),
+    paymentCandidates: (fyStartYear: number) => call<TdsPaymentCandidate[]>('tcs:paymentCandidates', { fyStartYear }),
+    challanRows: (fyStartYear: number, quarter?: number, rateBp?: number) => call<TdsChallanRow[]>('tcs:challanRows', { fyStartYear, quarter, rateBp }),
+    challanFromPayment: (data: {
+      paymentVoucherId: number; bsrCode: string; challanNo: string; date?: string | null
+      quarter?: number | null; fyStartYear?: number | null; autoAllocate?: boolean
+    }) => call<TdsChallanRow>('tcs:challanFromPayment', data),
+    autoAllocate: (challanId: number) => call<{ entryIds: number[] }>('tcs:autoAllocate', { challanId }),
+    challanInterest: (challanId: number, rateBp?: number) => call<TdsChallanEntryInterest[]>('tcs:challanInterest', { challanId, rateBp }),
+    form27eq: (fyStartYear: number, quarter: number) => call<Form26qData>('tcs:form27eq', { fyStartYear, quarter }),
+    export27eq: (fyStartYear: number, quarter: number) => call<{ path: string }>('tcs:export27eq', { fyStartYear, quarter }),
+    form27d: (fyStartYear: number, quarter: number, partyLedgerId?: number) => call<Form16aData>('tcs:form27d', { fyStartYear, quarter, partyLedgerId }),
+    form27dPdf: (fyStartYear: number, quarter: number, partyLedgerId?: number) => call<{ path: string }>('tcs:form27dPdf', { fyStartYear, quarter, partyLedgerId })
+  },
   cc: {
     list: () => call<CostCentre[]>('cc:list'),
     save: (data: CostCentreInput, id?: number) => call<CostCentre>('cc:save', { id, data }),
@@ -936,7 +1005,7 @@ export const api = {
   },
   yearEnd: {
     preview: (fyStartYear: number) =>
-      call<{ rows: CloseLedgerRow[]; netProfit: number; alreadyClosed: boolean }>('yearend:preview', { fyStartYear }),
+      call<{ rows: CloseLedgerRow[]; netProfit: number; alreadyClosed: boolean; depreciation?: DepreciationYearStatus }>('yearend:preview', { fyStartYear }),
     close: (fyStartYear: number) =>
       call<{ voucherId: number; netProfit: number; lockedUpTo: string }>('yearend:close', { fyStartYear })
   },

@@ -4,6 +4,8 @@
  * upload the file on the portal to obtain IRNs / EWB numbers.
  */
 
+import type { TradePurpose } from '../domain'
+
 export interface EdocItem {
   name: string
   hsn: string
@@ -59,8 +61,14 @@ export interface EdocInvoice {
   voucherId?: number
   number: string
   date: string // ISO
-  /** Document type for DocDtls.Typ / EWB docType. Defaults to 'INV' (regular invoice) when absent. */
-  docType?: 'INV' | 'CRN' | 'DBN'
+  /** Document type for DocDtls.Typ / EWB docType. Defaults to 'INV' (regular invoice) when absent.
+   *  'CHL' = a delivery challan (WP 2.5b) — e-way bill only, never an e-invoice. */
+  docType?: 'INV' | 'CRN' | 'DBN' | 'CHL'
+  /** Delivery challan / GRN purpose (WP 2.5b) — drives the EWB sub-supply type of a 'CHL'. */
+  purpose?: TradePurpose | null
+  /** Stock notes only (WP 2.5b): the party ledger and any EWB number already recorded. */
+  partyLedgerId?: number | null
+  ewbNo?: string | null
   /** Supply type for TranDtls.SupTyp. Defaults to 'B2B' when absent. EXPWP/EXPWOP force
    *  BuyerDtls.Pos to '96' and BuyerDtls.Gstin to 'URP' in the e-invoice JSON. */
   supTyp?: 'B2B' | 'SEZWP' | 'SEZWOP' | 'EXPWP' | 'EXPWOP'
@@ -78,7 +86,11 @@ export interface EdocInvoice {
   igst: number
   cess: number
   roundOff: number
+  /** Invoice total INCLUDING any TCS (what the buyer owes). */
   total: number
+  /** Income-tax TCS collected on the invoice (WP 3.3) — a line after GST in the totals, reported
+   *  in the e-invoice's ValDtls.OthChrg (part of TotInvVal, not of AssVal / the GST). Absent = none. */
+  tcs?: { amountPaise: number; rateBp: number | null; reference: string } | null
   transporterId: string | null
   vehicleNo: string | null
   distanceKm: number | null
@@ -98,6 +110,22 @@ export interface EdocCompany {
   gstin: string
   stateCode: string
   address: string
+}
+
+/**
+ * EWB sub-supply type of a delivery challan by purpose (WP 2.5b, design §4.2). NIC EWB master
+ * codes — 1 Supply, 4 Job Work, 8 Others (with subSupplyDesc) — from the NIC e-way bill API
+ * master list; UNVERIFIED against the NIC sandbox master (and the allowed docType × subSupplyType
+ * combinations): check before relying on a bulk upload.
+ */
+export function challanSubSupply(purpose: TradePurpose | null | undefined): { type: string; desc: string } {
+  switch (purpose ?? 'supply') {
+    case 'supply': return { type: '1', desc: '' }
+    case 'job_work': return { type: '4', desc: '' }
+    case 'approval': return { type: '8', desc: 'Supply on approval' }
+    case 'liquid_gas': return { type: '8', desc: 'Liquid gas' }
+    default: return { type: '8', desc: 'Not a supply' }
+  }
 }
 
 /** E-way bills are mandatory for goods movements above ₹50,000 invoice value. */
@@ -212,6 +240,10 @@ export function buildEInvoiceJson(invoices: EdocInvoice[], company: EdocCompany)
         IgstVal: toRupees(inv.igst),
         CesVal: toRupees(inv.cess),
         RndOffAmt: toRupees(inv.roundOff),
+        // Income-tax TCS goes in "other charges" (included in TotInvVal, outside AssVal): the
+        // practice the NIC e-invoice schema's OthChrg field is used for — UNVERIFIED against an
+        // NIC FAQ (WP 3.3 report). Emitted only when the invoice carries TCS.
+        ...(inv.tcs && inv.tcs.amountPaise > 0 ? { OthChrg: toRupees(inv.tcs.amountPaise) } : {}),
         TotInvVal: toRupees(inv.total)
       },
       // Export details — mandatory block for EXPWP/EXPWOP. Shipping bill no/date come from
@@ -280,8 +312,9 @@ function buildEwbBill(inv: EdocInvoice, company: EdocCompany): Record<string, un
   return {
     userGstin: company.gstin,
     supplyType: 'O',
-    subSupplyType: '1',
-    subSupplyDesc: '',
+    // A challan (rule 55(3) CGST Rules: declared for the e-way bill) carries its purpose.
+    subSupplyType: inv.docType === 'CHL' ? challanSubSupply(inv.purpose).type : '1',
+    subSupplyDesc: inv.docType === 'CHL' ? challanSubSupply(inv.purpose).desc : '',
     docType: inv.docType ?? 'INV',
     docNo: inv.number,
     docDate: slashDate(inv.date),
@@ -379,7 +412,7 @@ export function ewbEligibility(inv: EdocInvoice, includeBelowThreshold = false):
   const hasGoods = inv.items.some((i) => !i.isService && i.qtyMilli !== 0)
   if (!hasGoods) return { eligible: false, reason: 'Services only — no goods movement' }
   if (!includeBelowThreshold && inv.total <= EWB_THRESHOLD_PAISE) {
-    return { eligible: false, reason: 'Invoice value at or below ₹50,000' }
+    return { eligible: false, reason: `${inv.docType === 'CHL' ? 'Challan' : 'Invoice'} value at or below ₹50,000` }
   }
   return { eligible: true, reason: null }
 }

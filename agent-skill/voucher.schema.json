@@ -368,6 +368,43 @@
       "additionalProperties": false,
       "default": null
     },
+    "tcs": {
+      "description": "TCS collected on a sale or receipt (section + base + collected amount, paise), or null/absent. The amount must equal the section's rate x base unless isManual; the voucher must credit the section's TCS payable ledger by that amount (or set autoPayable), and on a sale the buyer's debit must include it (at least base + TCS).",
+      "type": [
+        "object",
+        "null"
+      ],
+      "properties": {
+        "sectionId": {
+          "type": "integer",
+          "exclusiveMinimum": 0
+        },
+        "baseAmount": {
+          "type": "integer",
+          "maximum": 9007199254740991,
+          "exclusiveMinimum": 0
+        },
+        "tcsAmount": {
+          "type": "integer",
+          "maximum": 9007199254740991,
+          "exclusiveMinimum": 0
+        },
+        "isManual": {
+          "type": "boolean",
+          "default": false
+        },
+        "autoPayable": {
+          "type": "boolean",
+          "default": false
+        }
+      },
+      "required": [
+        "sectionId",
+        "baseAmount",
+        "tcsAmount"
+      ],
+      "additionalProperties": false
+    },
     "trade": {
       "description": "Delivery challan / goods receipt note only: { purpose } (why the goods moved — supply, job_work, approval, liquid_gas or non_supply on a challan; purchase, return or job_work on a GRN). Absent keeps the stored purpose; ignored for every other kind.",
       "type": [

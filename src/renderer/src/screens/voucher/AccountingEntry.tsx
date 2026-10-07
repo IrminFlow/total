@@ -23,7 +23,7 @@ import {
 } from './hooks'
 import { CostAllocModal, QuickLedgerModal } from './modals'
 import { TransportModal } from './TransportModal'
-import { useTdsDeduction } from './useTdsDeduction'
+import { useTcsCollection, useTdsDeduction } from './useTdsDeduction'
 import { TdsBanner, TdsNotApplicableNote } from './TdsBanner'
 import { CarriedStockLines } from './CarriedStockLines'
 
@@ -204,7 +204,64 @@ export function AccountingEntry({
   })
   const tdsSuggestion = tdsDeduction.suggestion
 
-  const pendingTdsCredit = tds?.pending ? tds.tdsAmount : 0
+  // ---------- TCS (WP 3.3): a receipt from a buyer collects TCS on the sales not collected on when
+  // invoiced (and on advances) — the TCS rides ON TOP of the consideration: the bank / cash debit
+  // grows by it and the section's TCS payable ledger is credited; the buyer's credit is the
+  // consideration received.
+  const [tcs, setTcs] = useState(() =>
+    initial?.tcs
+      ? tdsStateFromSaved(initial.tcs, initial.rows, initial.original?.partyLedgerId ?? null, (id) => ledgers.find((l) => l.id === id)?.tcsPayableSectionId)
+      : null
+  )
+  const [initialHadTcs] = useState(!!initial?.tcs)
+  const tcsPartyCredit = useMemo(() => {
+    if (kind !== 'receipt' || derivedPartyId == null) return 0
+    return rows.filter((r) => r.drCr === 'cr' && r.ledgerId === derivedPartyId).reduce((s, r) => s + (r.amount ?? 0), 0)
+  }, [kind, rows, derivedPartyId])
+  const tcsCollection = useTcsCollection({
+    enabled: features.tcs && kind === 'receipt',
+    candidate: derivedPartyId != null && tcsPartyCredit > 0 ? { partyLedgerId: derivedPartyId, voucherKind: 'receipt', taxablePaise: tcsPartyCredit } : null,
+    date,
+    excludeVoucherId: voucherId,
+    tcs,
+    onChange: setTcs,
+    startDismissed: initialHadTcs
+  })
+  const tcsSuggestion = tcsCollection.suggestion
+  // The largest cash / bank debit takes the TCS on top.
+  const tcsTargetIdx = useMemo(() => {
+    let idx = -1
+    let max = -1
+    rows.forEach((r, i) => {
+      if (r.drCr !== 'dr' || r.ledgerId == null) return
+      const l = ledgers.find((x) => x.id === r.ledgerId)
+      if (l && isCashOrBankLedger(l, groupMap) && (r.amount ?? 0) > max) {
+        max = r.amount ?? 0
+        idx = i
+      }
+    })
+    return idx
+  }, [rows, ledgers, groupMap])
+  const applyTcs = (manualPaise?: number): void => {
+    if (!tcsSuggestion || tcsTargetIdx === -1) return
+    const previous = tcs
+    const next = manualPaise == null ? tcsCollection.apply() : tcsCollection.applyManual(manualPaise)
+    if (!next) return
+    setRows((rs) => {
+      const out = applyTdsToAccountingRows(rs, {
+        targetIdx: tcsTargetIdx,
+        tdsAmount: next.tdsAmount,
+        payableLedgerId: next.payableLedgerId,
+        previous,
+        direction: 'increase',
+        makeRow: (ledgerId, amount): AcctRow => ({ key: nextLineKey(), drCr: 'cr', ledgerId, amount, costAllocations: [] })
+      })
+      if (out[out.length - 1]!.ledgerId != null) out.push(blankAcctRow('cr'))
+      return out
+    })
+  }
+
+  const pendingTdsCredit = (tds?.pending ? tds.tdsAmount : 0) + (tcs?.pending ? tcs.tdsAmount : 0)
   const totalDr = rows.reduce((s, r) => s + (r.drCr === 'dr' ? (r.amount ?? 0) : 0), 0)
   const totalCr = rows.reduce((s, r) => s + (r.drCr === 'cr' ? (r.amount ?? 0) : 0), 0) + pendingTdsCredit
   const balanced = totalDr === totalCr && totalDr > 0
@@ -307,9 +364,12 @@ export function AccountingEntry({
       tds: tds
         ? { sectionId: tds.sectionId, baseAmount: tds.baseAmount, tdsAmount: tds.tdsAmount, isManual: tds.isManual, autoPayable: tds.pending }
         : null,
+      tcs: tcs
+        ? { sectionId: tcs.sectionId, baseAmount: tcs.baseAmount, tdsAmount: tcs.tdsAmount, isManual: tcs.isManual, autoPayable: tcs.pending }
+        : null,
       original: initial?.original ? { ...initial.original, inventory: stockLines } : null
     }),
-    [date, voucherId, alterNumber, numberField.forPayload, rows, narration, instrumentNo, billRefs, advanceReceipt, optionalVoucher, tds, initial, stockLines]
+    [date, voucherId, alterNumber, numberField.forPayload, rows, narration, instrumentNo, billRefs, advanceReceipt, optionalVoucher, tds, tcs, initial, stockLines]
   )
 
   // Builds the exact VoucherInputParsed shape `save` posts.
@@ -360,6 +420,7 @@ export function AccountingEntry({
       }
       const saved = await api.vouchers.save(input, voucherId)
       await tdsDeduction.afterSave(saved.id)
+      if (features.tcs && kind === 'receipt') await tcsCollection.afterSave(saved.id)
       toast.push('success', `${saved.number} ${voucherId ? 'altered' : 'saved'}`)
       setWorkingDate(date)
       await queryClient.invalidateQueries()
@@ -371,6 +432,7 @@ export function AccountingEntry({
         setAdvanceReceipt(false)
         setOptionalVoucher(false)
         tdsDeduction.reset()
+        tcsCollection.reset()
         numberField.reset()
       }
     } catch (err) {
@@ -378,7 +440,7 @@ export function AccountingEntry({
     } finally {
       setSaving(false)
     }
-  }, [saving, buildPayload, date, typeId, voucherId, toast, setWorkingDate, queryClient, leave, numberField.reset, tdsDeduction.reset, tdsDeduction.afterSave])
+  }, [saving, buildPayload, date, typeId, voucherId, toast, setWorkingDate, queryClient, leave, numberField.reset, tdsDeduction.reset, tdsDeduction.afterSave, tcsCollection.reset, tcsCollection.afterSave, features.tcs, kind])
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
@@ -569,6 +631,21 @@ export function AccountingEntry({
               {hasCc && <td></td>}
             </tr>
           )}
+          {tcs?.pending && (
+            <tr data-testid="row-tcs-pending">
+              <td>
+                <span className="num inline-block w-12 px-2 py-1 text-body-sm font-medium text-cr">Cr</span>
+              </td>
+              <td className="text-body-sm">
+                {tcsSuggestion?.payableLedgerName ?? 'TCS payable'}{' '}
+                <span className="text-caption text-muted">— ledger created when you save</span>
+              </td>
+              <td className="r">
+                <Money paise={tcs.tdsAmount} />
+              </td>
+              {hasCc && <td></td>}
+            </tr>
+          )}
           <tr className="total-row">
             <td></td>
             <td>Total</td>
@@ -591,6 +668,21 @@ export function AccountingEntry({
         )
       )}
 
+      {features.tcs && kind === 'receipt' && tcsCollection.notApplicable != null && !tcs && (
+        <TdsNotApplicableNote kind="tcs" reason={tcsCollection.notApplicable} onUndo={() => tcsCollection.setNotApplicable(null)} />
+      )}
+      {features.tcs && tcsSuggestion && !tcsCollection.dismissed && tcsCollection.notApplicable == null && (
+        <TdsBanner
+          kind="tcs"
+          suggestion={tcsSuggestion}
+          onDismiss={tcsCollection.dismiss}
+          onApply={() => applyTcs()}
+          onApplyManual={(p) => applyTcs(p)}
+          onChooseSection={(id) => tcsCollection.chooseSection(id)}
+          onNotApplicable={tcs ? undefined : (r) => tcsCollection.setNotApplicable(r)}
+          blockedReason={tcsTargetIdx === -1 ? 'The receipt needs a cash or bank debit to add the TCS to.' : null}
+        />
+      )}
       {features.tds && tdsDeduction.notApplicable != null && !tds && (
         <TdsNotApplicableNote reason={tdsDeduction.notApplicable} onUndo={() => tdsDeduction.setNotApplicable(null)} />
       )}

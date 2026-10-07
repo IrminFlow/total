@@ -18,6 +18,7 @@ export type NavSectionPrefs = Partial<Record<NavSectionId, boolean>>
 /** The untitled top block is always open; of the headed sections only Books starts open. */
 export const DEFAULT_OPEN: Record<NavSectionId, boolean> = {
   top: true,
+  trade: true,
   books: true,
   analysis: false,
   banking: false,

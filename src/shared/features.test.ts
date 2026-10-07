@@ -8,18 +8,20 @@ describe('featuresSchema / mergeFeatures', () => {
       billWise: true,
       costCentres: true,
       tds: true,
+      tcs: true,
       multiCurrency: true,
       payroll: true,
       preventNegativeStock: false,
       batches: false,
-      enforceCreditLimit: false
+      enforceCreditLimit: false,
+      orders: false
     })
   })
 
   it('round-trips a fully-specified object through the schema', () => {
     const input = {
-      inventory: false, billWise: true, costCentres: false, tds: true, multiCurrency: false, payroll: true,
-      preventNegativeStock: true, batches: true, enforceCreditLimit: false
+      inventory: false, billWise: true, costCentres: false, tds: true, tcs: false, multiCurrency: false, payroll: true,
+      preventNegativeStock: true, batches: true, enforceCreditLimit: false, orders: true
     }
     expect(featuresSchema.parse(input)).toEqual(input)
   })

@@ -18,6 +18,7 @@ import { StockSummaryScreen } from './screens/StockSummary'
 import { ManufactureScreen } from './screens/Manufacture'
 import { ManufactureRegisterScreen } from './screens/ManufactureRegister'
 import { ManufactureReportsScreen } from './screens/ManufactureReports'
+import { FixedAssetsScreen } from './screens/FixedAssets'
 import { StockMovementsScreen } from './screens/StockMovements'
 import { StockJournalScreen } from './screens/StockJournal'
 import { StockReportsScreen } from './screens/StockReports'
@@ -30,11 +31,13 @@ import { ItcReversalScreen } from './screens/gst/ItcReversalScreen'
 import { CompanyInfoScreen } from './screens/CompanyInfo'
 import { RegistersScreen } from './screens/Registers'
 import { OutstandingsScreen } from './screens/Outstandings'
+import { TradePendingScreen } from './screens/TradePending'
 import { ConsolidatedScreen } from './screens/Consolidated'
 import { BankingScreen } from './screens/Banking'
 import { EdocsScreen } from './screens/Edocs'
 import { PayrollScreen } from './screens/Payroll'
 import { TdsScreen } from './screens/Tds'
+import { TcsScreen } from './screens/Tcs'
 import { CostCentresScreen } from './screens/CostCentres'
 import { BudgetsScreen } from './screens/Budgets'
 import { YearEndScreen } from './screens/YearEnd'
@@ -162,6 +165,7 @@ export default function App(): React.JSX.Element {
           )}
           {screen.name === 'manufacture-register' && <ManufactureRegisterScreen />}
           {screen.name === 'manufacture-reports' && <ManufactureReportsScreen key={screen.tab ?? 'production'} tab={screen.tab} />}
+          {screen.name === 'fixed-assets' && <FixedAssetsScreen tab={screen.tab} />}
           {screen.name === 'stock-movements' && (
             <StockMovementsScreen key={`${screen.itemId ?? ''}-${screen.godownId ?? ''}`} itemId={screen.itemId} godownId={screen.godownId} />
           )}
@@ -177,10 +181,13 @@ export default function App(): React.JSX.Element {
           {screen.name === 'itc-reversal' && <ItcReversalScreen />}
           {screen.name === 'registers' && <RegistersScreen />}
           {screen.name === 'outstandings' && <OutstandingsScreen />}
+          {screen.name === 'pending-challans' && <TradePendingScreen stage="delivery_note" />}
+          {screen.name === 'pending-grns' && <TradePendingScreen stage="receipt_note" />}
           {screen.name === 'consolidated' && <ConsolidatedScreen />}
           {screen.name === 'banking' && <BankingScreen />}
           {screen.name === 'payroll' && <PayrollScreen />}
           {screen.name === 'tds' && <TdsScreen />}
+          {screen.name === 'tcs' && <TcsScreen />}
           {screen.name === 'cost-centres' && <CostCentresScreen />}
           {screen.name === 'budgets' && <BudgetsScreen />}
           {screen.name === 'year-end' && <YearEndScreen />}

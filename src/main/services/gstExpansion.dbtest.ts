@@ -79,6 +79,7 @@ describe('migration 028', () => {
   it('creates gst_ims_actions and gst_self_invoices (self-contained, appended last)', () => {
     const at = MIGRATIONS.findIndex((sql) => sql.includes('CREATE TABLE gst_ims_actions'))
     expect(at).toBe(MIGRATIONS.length - 1)
+    expect(at + 1).toBe(28) // appended after 026 (WP 3.6) and 027 (WP 3.3)
     expect(MIGRATIONS[at]).toContain('CREATE TABLE gst_self_invoices')
     const db = seededDb()
     const cols = (t: string) => (db.prepare(`PRAGMA table_info(${t})`).all() as { name: string }[]).map((c) => c.name)

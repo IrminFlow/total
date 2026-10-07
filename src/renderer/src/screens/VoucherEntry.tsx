@@ -14,9 +14,19 @@ import { AccountingEntry } from './voucher/AccountingEntry'
 import { ManufactureForm } from './Manufacture'
 import { PhysicalStockEntry } from './voucher/PhysicalStockEntry'
 import { StockLinesEntry } from './voucher/StockLinesEntry'
+import { StockNoteEntry } from './voucher/StockNoteEntry'
 import { LineDetailOption } from './voucher/LineStockDetail'
 import { StockJournalEntry, TransferEntry } from './StockJournal'
 
+
+/** Voucher types in list order, except that challan / GRN types (migration 024 gave them the
+ *  lowest ids) sit right after the last debit-note type. */
+function tabOrder<T extends { kind: VoucherKind }>(types: readonly T[]): T[] {
+  const notes = types.filter((t) => STOCK_NOTE_KINDS.includes(t.kind))
+  const rest = types.filter((t) => !STOCK_NOTE_KINDS.includes(t.kind))
+  const at = rest.map((t) => t.kind).lastIndexOf('debit_note')
+  return at < 0 ? [...rest, ...notes] : [...rest.slice(0, at + 1), ...notes, ...rest.slice(at + 1)]
+}
 
 export function VoucherEntry({
   voucherId,
@@ -37,6 +47,8 @@ export function VoucherEntry({
   const [typeId, setTypeId] = useState<number | null>(null)
   const [hintDismissed, setHintDismissed] = useState(false)
   const [sjMode, setSjMode] = useState<'transfer' | 'manufacture'>('transfer')
+  // Delivery challans / GRNs (WP 2.5b) — behind Orders & challans (F11), which needs inventory.
+  const stockNotesOn = features.inventory && features.orders
 
   // Same queryKey Gateway uses for report:dashboard — a brand-new company (no vouchers yet) gets a
   // first-time hint here; react-query dedupes the request rather than firing a second round-trip.
@@ -103,7 +115,7 @@ export function VoucherEntry({
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
       const manufactureKey = isManufactureKey(e)
-      const target = manufactureKey ? 'stock_journal' : kindForVoucherKey(e)
+      const target = manufactureKey ? 'stock_journal' : kindForVoucherKey(e, { stockNotes: stockNotesOn })
       if (!target || voucherId || !types) return
       if (target === 'stock_journal' && !features.inventory) return
       // Never switch voucher type underneath an open dialog (quick-create ledger, confirm…).
@@ -118,7 +130,7 @@ export function VoucherEntry({
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [types, voucherId, features.inventory])
+  }, [types, voucherId, features.inventory, stockNotesOn])
 
   if (!types || (voucherId && (!existing || !plan))) {
     return (
@@ -136,10 +148,10 @@ export function VoucherEntry({
 
   const typeTabs = !voucherId ? (
     <div role="tablist" aria-label="Voucher type" className="flex flex-wrap items-center gap-1">
-      {types
+      {tabOrder(types)
         .filter((t) => features.inventory || (t.kind !== 'stock_journal' && t.kind !== 'physical_stock'))
-        // Delivery challans / GRNs get their own screen in WP 2.5b; until then no entry tab.
-        .filter((t) => !STOCK_NOTE_KINDS.includes(t.kind))
+        // Delivery challans / GRNs (WP 2.5b): shown with Orders & challans on.
+        .filter((t) => stockNotesOn || !STOCK_NOTE_KINDS.includes(t.kind))
         .map((t) => {
           const selected = t.id === currentType.id
           return (
@@ -191,6 +203,11 @@ export function VoucherEntry({
                   <li>
                     <Kbd>Alt</Kbd>+<Kbd>F7</Kbd> Manufacture
                   </li>
+                  {stockNotesOn && (
+                    <li>
+                      <Kbd>Ctrl</Kbd>+<Kbd>F8</Kbd>/<Kbd>F9</Kbd> credit / debit note · <Kbd>Alt</Kbd>+<Kbd>F8</Kbd>/<Kbd>F9</Kbd> delivery challan / GRN
+                    </li>
+                  )}
                   <li>
                     <Kbd>⌘↵</Kbd> save · <Kbd>Esc</Kbd> back
                   </li>
@@ -229,6 +246,14 @@ export function VoucherEntry({
             <TransferEntry typeId={currentType.id} voucherId={voucherId} voucher={existing} initial={plan.state} />
           ) : plan.mode === 'jobWorkSend' ? (
             <TransferEntry typeId={currentType.id} voucherId={voucherId} voucher={existing} initial={plan.state.transfer} jobWork={plan.state.challan} />
+          ) : plan.mode === 'stockNote' ? (
+            <StockNoteEntry
+              typeId={currentType.id}
+              kind={currentType.kind as 'delivery_note' | 'receipt_note'}
+              voucherId={voucherId}
+              voucher={existing}
+              initial={plan.state}
+            />
           ) : plan.mode === 'stockLines' ? (
             <StockLinesEntry
               typeId={currentType.id}
@@ -237,7 +262,7 @@ export function VoucherEntry({
               initial={plan.state}
               fallbackReason={plan.fallbackReason}
               legacy={!!plan.legacy}
-              formName={currentType.kind === 'physical_stock' ? 'physical-count' : 'manufacture'}
+              formName={currentType.kind === 'physical_stock' ? 'physical-count' : currentType.kind === 'delivery_note' ? 'delivery challan' : currentType.kind === 'receipt_note' ? 'goods receipt' : 'manufacture'}
             />
           ) : (
             <AccountingEntry
@@ -265,6 +290,8 @@ export function VoucherEntry({
           />
         ) : modeForKind(currentType.kind) === 'physical' ? (
           <PhysicalStockEntry key={currentType.id} typeId={currentType.id} />
+        ) : modeForKind(currentType.kind) === 'stockNote' ? (
+          <StockNoteEntry key={currentType.id} typeId={currentType.id} kind={currentType.kind as 'delivery_note' | 'receipt_note'} />
         ) : (
           <AccountingEntry key={currentType.id} typeId={currentType.id} kind={currentType.kind} draft={draft} />
         )}

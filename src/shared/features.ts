@@ -10,6 +10,9 @@ export interface CompanyFeatures {
   billWise: boolean
   costCentres: boolean
   tds: boolean
+  /** TCS on sales (WP 3.3): the invoice / receipt banner and the TCS screen (the banner only
+   *  appears for buyers, goods or sales ledgers flagged with a TCS section). */
+  tcs: boolean
   multiCurrency: boolean
   payroll: boolean
   /** Turn negative-stock save warnings into hard blocks. */
@@ -18,6 +21,9 @@ export interface CompanyFeatures {
   batches: boolean
   /** Turn credit-limit save warnings into hard blocks. */
   enforceCreditLimit: boolean
+  /** Orders & challans (WP 2.5): delivery challans, goods receipt notes and their pending
+   *  reports in the sidebar. Needs inventory. Off by default (design §9 Q14). */
+  orders: boolean
 }
 
 export const DEFAULT_FEATURES: CompanyFeatures = {
@@ -25,11 +31,13 @@ export const DEFAULT_FEATURES: CompanyFeatures = {
   billWise: true,
   costCentres: true,
   tds: true,
+  tcs: true,
   multiCurrency: true,
   payroll: true,
   preventNegativeStock: false,
   batches: false,
-  enforceCreditLimit: false
+  enforceCreditLimit: false,
+  orders: false
 }
 
 export const featuresSchema = z.object({
@@ -37,11 +45,13 @@ export const featuresSchema = z.object({
   billWise: z.boolean(),
   costCentres: z.boolean(),
   tds: z.boolean(),
+  tcs: z.boolean(),
   multiCurrency: z.boolean(),
   payroll: z.boolean(),
   preventNegativeStock: z.boolean(),
   batches: z.boolean(),
-  enforceCreditLimit: z.boolean()
+  enforceCreditLimit: z.boolean(),
+  orders: z.boolean()
 })
 
 /**

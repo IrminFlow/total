@@ -28,11 +28,11 @@ export const PRINT_TEMPLATES_META_KEY = 'printTemplates'
 // ---------------------------------------------------------------- document kinds
 
 /** Document kinds a template can apply to. Extensible: append new kinds at the end (stored
- *  templates keep parsing — titles default per kind). `delivery_challan` / `quotation` are Phase 2
- *  placeholders: selectable in the designer, no voucher kind prints them yet. */
+ *  templates keep parsing — titles default per kind). `delivery_challan` prints delivery notes
+ *  and `goods_receipt` receipt notes (WP 2.5b); `quotation` is still a placeholder (WP 2.5c). */
 export const PRINT_DOC_KINDS = [
   'sales', 'credit_note', 'debit_note', 'purchase', 'receipt', 'payment', 'journal', 'contra',
-  'delivery_challan', 'quotation',
+  'delivery_challan', 'quotation', 'goods_receipt',
   // WP 3.4 — the reverse-charge self-invoice (s.31(3)(f) CGST Act) raised on a purchase from an
   // unregistered supplier; printed from services/gstRcm.ts, not from a voucher kind.
   'self_invoice'
@@ -42,8 +42,10 @@ export const printDocKindSchema = z.enum(PRINT_DOC_KINDS)
 
 /** Kinds rendered with the item-table (invoice) layout; the rest print as an accounting voucher
  *  (particulars / debit / credit). */
-export const INVOICE_SHAPED_KINDS: readonly PrintDocKind[] = ['sales', 'credit_note', 'debit_note', 'delivery_challan', 'quotation', 'self_invoice']
-export const PHASE2_KINDS: readonly PrintDocKind[] = ['delivery_challan', 'quotation']
+export const INVOICE_SHAPED_KINDS: readonly PrintDocKind[] = ['sales', 'credit_note', 'debit_note', 'delivery_challan', 'quotation', 'goods_receipt', 'self_invoice']
+export const PHASE2_KINDS: readonly PrintDocKind[] = ['quotation']
+/** Stock notes (WP 2.5b): goods only — no tax-invoice wording, no outstanding, no IRN / bank QR. */
+export const STOCK_NOTE_PRINT_KINDS: readonly PrintDocKind[] = ['delivery_challan', 'goods_receipt']
 
 export const PRINT_DOC_KIND_LABELS: Record<PrintDocKind, string> = {
   sales: 'Sales invoice',
@@ -56,6 +58,7 @@ export const PRINT_DOC_KIND_LABELS: Record<PrintDocKind, string> = {
   contra: 'Contra voucher',
   delivery_challan: 'Delivery challan',
   quotation: 'Quotation',
+  goods_receipt: 'Goods receipt note',
   self_invoice: 'Self invoice (reverse charge)'
 }
 
@@ -70,15 +73,29 @@ export const DEFAULT_TITLES: Record<PrintDocKind, string> = {
   contra: 'CONTRA VOUCHER',
   delivery_challan: 'DELIVERY CHALLAN',
   quotation: 'QUOTATION',
+  goods_receipt: 'GOODS RECEIPT NOTE',
   self_invoice: 'SELF INVOICE'
+}
+
+/** Voucher kinds whose print kind has another name. */
+const PRINT_KIND_OF_VOUCHER_KIND: Record<string, PrintDocKind> = {
+  delivery_note: 'delivery_challan',
+  receipt_note: 'goods_receipt'
 }
 
 /** Map a books voucher kind onto the print kind (null = not printable). */
 export function printKindForVoucherKind(kind: string): PrintDocKind | null {
+  if (PRINT_KIND_OF_VOUCHER_KIND[kind]) return PRINT_KIND_OF_VOUCHER_KIND[kind]!
+  // The print kinds that are not voucher kinds are never matched by name.
+  if (kind === 'delivery_challan' || kind === 'goods_receipt' || kind === 'quotation') return null
   // A self-invoice is a separate document ON a purchase voucher, never the voucher's own form.
   if (kind === 'self_invoice') return null
   return (PRINT_DOC_KINDS as readonly string[]).includes(kind) ? (kind as PrintDocKind) : null
 }
+
+/** Rule 55(2) CGST Rules: a delivery challan is prepared in triplicate. Used for the challan when
+ *  the template still has the invoice's single default label. */
+export const CHALLAN_COPY_LABELS = ['Original for Consignee', 'Duplicate for Transporter', 'Triplicate for Consigner'] as const
 
 // ---------------------------------------------------------------- columns
 

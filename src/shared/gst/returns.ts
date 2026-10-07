@@ -135,9 +135,10 @@ export interface GstAdvanceAgg {
 }
 
 /** One voucher-number series for Table 13 (documents issued). Category codes per the
- *  portal: 1 = invoices for outward supply, 4 = debit note, 5 = credit note. */
+ *  portal: 1 = invoices for outward supply, 4 = debit note, 5 = credit note; 9–12 = delivery
+ *  challans (job work / on approval / liquid gas / other than supply — WP 2.5b, UNVERIFIED codes). */
 export interface GstDocSeries {
-  category: 1 | 4 | 5
+  category: 1 | 4 | 5 | 9 | 10 | 11 | 12
   from: string
   to: string
   totnum: number

@@ -1,19 +1,19 @@
-import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import type { Voucher, VoucherBillRef, VoucherKind } from '@shared/domain'
 import type { OutstandingBill } from '@shared/reports'
 import type { VoucherInputParsed } from '@shared/schemas'
 import {
-  buildInvoicePayload, computeInvoice, invoiceKindTakesTds, requiredTaxLedgers, taxLedgerIdsFrom,
-  type InvoiceContext, type InvoiceFormState, type InvoiceRowState, type TaxLedgerIds, type TdsDeductionState
+  buildInvoicePayload, computeInvoice, invoiceKindTakesTcs, invoiceKindTakesTds, requiredTaxLedgers, taxLedgerIdsFrom,
+  type InvoiceContext, type InvoiceFormState, type TaxLedgerIds, type TdsDeductionState
 } from '@shared/voucherEdit'
 import { GST_STATES } from '@shared/gst/states'
 import { formatPaise, amountInWords } from '@shared/money'
 import { toDisplayDate } from '@shared/dates'
 import { api } from '../../lib/client'
 import { useNav, useSession, useToasts, type VoucherDraft } from '../../state/stores'
-import { AmountInput, Button, DateInput, Field, isAnyModalOpen, LineTableScroller, Money, Panel, Select, TextInput, inputCls } from '../../components/ui'
-import { ItemPicker, LedgerPicker, useLedgers, useStockItems, useTaxLedgers } from '../../components/pickers'
+import { AmountInput, Button, DateInput, Field, isAnyModalOpen, Kbd, Money, Panel, Select, TextInput, inputCls } from '../../components/ui'
+import { LedgerPicker, useLedgers, useStockItems, useTaxLedgers } from '../../components/pickers'
 import { LedgerFormModal } from '../../components/LedgerFormModal'
 import { useFeatures } from '../../lib/useFeatures'
 import { confirmDialog } from '../../lib/dialogs'
@@ -21,9 +21,13 @@ import { useUnsavedGuard } from '../../lib/useUnsavedGuard'
 import { addDaysLocal, nextLineKey, NUMBER_LOADING, useAlterationDirty, useLeaveAfterSave, useVoucherNumberField } from './hooks'
 import { QuickItemModal, QuickLedgerModal } from './modals'
 import { TransportModal } from './TransportModal'
-import { useTdsDeduction } from './useTdsDeduction'
+import { useTcsCollection, useTdsDeduction, type TcsCandidate } from './useTdsDeduction'
 import { TdsBanner, TdsNotApplicableNote } from './TdsBanner'
-import { LineDetailToggle, LineStockDetail, LineStockSummary, useLineDetails } from './LineStockDetail'
+import { blankItemRow, ItemLineGrid, type ItemRow } from './ItemLineGrid'
+import { AddFromDrawer } from './AddFromDrawer'
+import { addFromFor, rowsFromSourcePicks, sourceLocksGoods, type SourcePick } from '@shared/voucherEdit'
+import type { OpenSourceLine } from '@shared/tradeCycle/types'
+import { VoucherLink } from '../../components/links'
 
 // ---------- invoice mode (sales / purchase / notes) ----------
 
@@ -31,12 +35,6 @@ import { LineDetailToggle, LineStockDetail, LineStockSummary, useLineDetails } f
 // and every state → payload rule live in @shared/voucherEdit/invoice — this component only owns
 // the inputs. `initial` (an alteration) comes from planVoucherEdit, which has already proved the
 // voucher round-trips through this form unchanged.
-interface ItemRow extends InvoiceRowState {
-  /** Stable React key — survives the trailing-blank-row insertions (never an array index). */
-  key: number
-}
-
-const blankItemRow = (): ItemRow => ({ key: nextLineKey(), itemId: null, qtyText: '', rate: null, discount: null, godownId: null, batchId: null })
 
 export function InvoiceEntry({
   typeId,
@@ -62,7 +60,6 @@ export function InvoiceEntry({
   const features = useFeatures()
   const ledgers = useLedgers()
   const items = useStockItems()
-  const { data: units } = useQuery({ queryKey: ['units'], queryFn: api.units.list })
   const { ensure: ensureTax, ensureRoundOff } = useTaxLedgers()
 
   const [date, setDate] = useState(initial?.date ?? draft?.date ?? workingDate)
@@ -118,6 +115,8 @@ export function InvoiceEntry({
   // deduction and credits the section's tagged payable ledger (or, while that ledger doesn't
   // exist, leaves it `pending` for saveVoucher to create inside the save).
   const [tds, setTds] = useState<TdsDeductionState | null>(initial?.tds ?? null)
+  // ---------- TCS (sales invoices, WP 3.3) — collected on top of the invoice total ----------
+  const [tcs, setTcs] = useState<TdsDeductionState | null>(initial?.tcs ?? null)
 
   useEffect(() => {
     if (!billNameTouched && numberField.value !== NUMBER_LOADING) setBillName(numberField.value)
@@ -138,8 +137,15 @@ export function InvoiceEntry({
     if (allocParty.current === partyId) return
     allocParty.current = partyId
     setNoteBillRefs([])
-    // A deduction belongs to its deductee — a different supplier starts without one.
+    // Lines drawn from another party's challan / invoice can't stay (same party, I2).
+    setRows((rs) => {
+      if (!rs.some((r) => r.source)) return rs
+      const kept = rs.filter((r) => !r.source)
+      return kept.length > 0 && kept[kept.length - 1]!.itemId == null ? kept : [...kept, blankItemRow()]
+    })
+    // A deduction belongs to its deductee — a different supplier starts without one (TCS too).
     setTds(null)
+    setTcs(null)
     if (isNoteKind) {
       setManualNewBillMode(false)
       setBillNameTouched(false)
@@ -160,7 +166,7 @@ export function InvoiceEntry({
       kind,
       companyStateCode: info!.stateCode,
       items: new Map(items.map((i) => [i.id, { gstRate: i.gstRate, cessRate: i.cessRate }])),
-      ledgers: new Map(ledgers.map((l) => [l.id, { stateCode: l.stateCode, gstRate: l.gstRate, tdsPayableSectionId: l.tdsPayableSectionId }]))
+      ledgers: new Map(ledgers.map((l) => [l.id, { stateCode: l.stateCode, gstRate: l.gstRate, tdsPayableSectionId: l.tdsPayableSectionId, tcsPayableSectionId: l.tcsPayableSectionId ?? null }]))
     }),
     [kind, info, items, ledgers]
   )
@@ -187,9 +193,10 @@ export function InvoiceEntry({
       reference: initial?.reference ?? null,
       instrumentNo: initial?.instrumentNo ?? null,
       instrumentDate: initial?.instrumentDate ?? null,
-      tds: invoiceKindTakesTds(kind) ? tds : null
+      tds: invoiceKindTakesTds(kind) ? tds : null,
+      tcs: invoiceKindTakesTcs(kind) ? tcs : null
     }),
-    [date, isEdit, alterNumber, numberField.forPayload, partyId, accountId, rows, narration, vehicleNo, transporterId, distanceKm, currencyCode, fxRateText, posOverride, optionalVoucher, billName, billDueDate, manualNewBillMode, noteBillRefs, initial, kind, tds]
+    [date, isEdit, alterNumber, numberField.forPayload, partyId, accountId, rows, narration, vehicleNo, transporterId, distanceKm, currencyCode, fxRateText, posOverride, optionalVoucher, billName, billDueDate, manualNewBillMode, noteBillRefs, initial, kind, tds, tcs]
   )
 
   const computed = useMemo(() => computeInvoice(formState, ctx), [formState, ctx])
@@ -211,6 +218,39 @@ export function InvoiceEntry({
   const appliedTds = formState.tds ?? null
   const partyAmount = computed.rounded - (appliedTds?.tdsAmount ?? 0)
   const tdsStale = !!appliedTds && !appliedTds.isManual && appliedTds.baseAmount !== computed.gst.taxable
+
+  // TCS candidate: the buyer, taxable value, GST (+ round-off), sales ledger and goods — the
+  // server decides the section (buyer → goods → sales ledger) and whether GST is in the base.
+  const tcsCandidate: TcsCandidate | null = useMemo(
+    () =>
+      invoiceKindTakesTcs(kind) && partyId != null && computed.gst.taxable > 0
+        ? {
+            partyLedgerId: partyId, voucherKind: 'sales', taxablePaise: computed.gst.taxable, gstPaise: computed.rounded - computed.gst.taxable,
+            salesLedgerId: accountId, items: computed.detail.map((d) => ({ stockItemId: d.itemId, amount: d.amount }))
+          }
+        : null,
+    [kind, partyId, accountId, computed]
+  )
+  const tcsCollection = useTcsCollection({
+    enabled: features.tcs && invoiceKindTakesTcs(kind),
+    candidate: tcsCandidate,
+    date,
+    excludeVoucherId: voucherId,
+    tcs,
+    onChange: setTcs,
+    startDismissed: !!initial?.tcs
+  })
+  const appliedTcs = formState.tcs ?? null
+  const tcsKey = JSON.stringify(tcsCandidate)
+  // The candidate the applied TCS was computed for (an alteration: the saved invoice's own).
+  const tcsAppliedKey = useRef<string | null>(initial?.tcs ? tcsKey : null)
+  useEffect(() => {
+    if (!appliedTcs) tcsAppliedKey.current = null
+    else if (tcsAppliedKey.current == null) tcsAppliedKey.current = tcsKey
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [appliedTcs])
+  const tcsStale = !!appliedTcs && !appliedTcs.isManual && tcsAppliedKey.current != null && tcsAppliedKey.current !== tcsKey
+  const grandTotal = computed.rounded + (appliedTcs?.tdsAmount ?? 0)
 
   // Unsaved-changes guard: a fresh invoice is dirty once anything meaningful is typed (save
   // resets all of these); an alteration once what it would post differs from the saved voucher.
@@ -259,6 +299,7 @@ export function InvoiceEntry({
     if (!accountId) return void toast.push('error', `Pick the ${isSalesSide ? 'sales' : 'purchase'} ledger`)
     if (computed.detail.length === 0) return void toast.push('error', 'Add at least one item line')
     if (tdsStale) return void toast.push('error', 'The invoice changed since TDS was applied — apply TDS again (or remove it) before saving')
+    if (tcsStale) return void toast.push('error', 'The invoice changed since TCS was applied — apply TCS again (or remove it) before saving')
     setSaving(true)
     try {
       const input = await buildPayload()
@@ -285,7 +326,8 @@ export function InvoiceEntry({
       }
       const result = await api.vouchers.save(input, voucherId)
       if (invoiceKindTakesTds(kind)) await tdsDeduction.afterSave(result.id)
-      toast.push('success', `${result.number} ${isEdit ? 'altered' : 'saved'} — ${formatPaise(computed.rounded, { symbol: true })}`)
+      if (features.tcs && invoiceKindTakesTcs(kind)) await tcsCollection.afterSave(result.id)
+      toast.push('success', `${result.number} ${isEdit ? 'altered' : 'saved'} — ${formatPaise(grandTotal, { symbol: true })}`)
       if (andPdf && kind === 'sales') {
         await api.invoice.pdf(result.id)
       }
@@ -306,6 +348,7 @@ export function InvoiceEntry({
       setBillDueDateTouched(false)
       setNoteBillRefs([])
       tdsDeduction.reset()
+      tcsCollection.reset()
       numberField.reset()
       await queryClient.invalidateQueries()
     } catch (err) {
@@ -313,7 +356,7 @@ export function InvoiceEntry({
     } finally {
       setSaving(false)
     }
-  }, [saving, partyId, accountId, computed, buildPayload, isSalesSide, kind, typeId, voucherId, isEdit, date, toast, setWorkingDate, queryClient, numberField.reset, leave, tdsDeduction.reset, tdsDeduction.afterSave, tdsStale])
+  }, [saving, partyId, accountId, computed, buildPayload, isSalesSide, kind, typeId, voucherId, isEdit, date, toast, setWorkingDate, queryClient, numberField.reset, leave, tdsDeduction.reset, tdsDeduction.afterSave, tdsStale, tcsStale, tcsCollection.reset, tcsCollection.afterSave, features.tcs, grandTotal])
 
   const remove = async (): Promise<void> => {
     if (!voucherId) return
@@ -356,14 +399,80 @@ export function InvoiceEntry({
     })
   }
 
-  const itemMap = useMemo(() => new Map(items.map((i) => [i.id, i])), [items])
-  const details = useLineDetails()
   const goodsIn = kind === 'purchase' || kind === 'credit_note'
-  const unitOf = (itemId: number | null): string => {
-    if (!itemId || !units) return ''
-    const item = itemMap.get(itemId)
-    return units.find((u) => u.id === item?.unitId)?.symbol ?? ''
+
+  // ---------- "Add from…" (WP 2.5b): rows drawn from challans / GRNs / invoices ----------
+  // The source lines (and what is still pending on them, this voucher's own links excluded)
+  // serve the drawer, the per-row quantity caps and the "from DC-12" chips.
+  const addFrom = features.orders && features.inventory ? addFromFor(kind) : null
+  const sourcedRows = rows.some((r) => r.source)
+  const linkType = addFrom?.linkType ?? rows.find((r) => r.source)?.source?.linkType ?? 'fulfil'
+  const [addFromOpen, setAddFromOpen] = useState(false)
+  const { data: openLines, isLoading: openLinesLoading } = useQuery({
+    queryKey: ['openSourceLines', partyId, kind, linkType, voucherId ?? null],
+    queryFn: () =>
+      api.links.openSourceLines({ partyLedgerId: partyId!, targetKind: kind, linkType, ...(voucherId ? { excludeVoucherId: voucherId } : {}) }),
+    enabled: partyId != null && (!!addFrom || sourcedRows)
+  })
+  const sourceByUid = useMemo(() => new Map((openLines ?? []).map((l) => [l.lineUid, l])), [openLines])
+  const qtyInForm = (uid: string, exceptKey?: number): number =>
+    rows
+      .filter((r) => r.source?.lineUid === uid && r.key !== exceptKey)
+      .reduce((s, r) => s + (Math.round(parseFloat(r.qtyText || '0') * 1000) || 0), 0)
+  const drawerLines: OpenSourceLine[] = (openLines ?? [])
+    .map((l) => {
+      const pending = l.pendingMilli - qtyInForm(l.lineUid)
+      return { ...l, doneMilli: l.qtyMilli - pending, pendingMilli: pending }
+    })
+    .filter((l) => l.pendingMilli > 0)
+  const lockedBySource = (r: ItemRow): { label: string; maxQtyMilli: number; lockDetail: boolean } | null => {
+    if (!r.source) return null
+    const l = sourceByUid.get(r.source.lineUid)
+    const own = Math.round(parseFloat(r.qtyText || '0') * 1000) || 0
+    if (!l) return { label: 'the linked line', maxQtyMilli: own, lockDetail: r.source.linkType === 'fulfil' }
+    return {
+      label: l.label,
+      maxQtyMilli: Math.max(0, l.pendingMilli - qtyInForm(l.lineUid, r.key)),
+      lockDetail: sourceLocksGoods(l.kind as VoucherKind, kind, r.source.linkType)
+    }
   }
+  const sourceChip = (r: ItemRow): React.ReactNode => {
+    if (!r.source) return null
+    const l = sourceByUid.get(r.source.lineUid)
+    return (
+      <span className="mt-0.5 inline-flex items-center gap-1 rounded bg-panel2 px-1.5 text-hint text-muted" data-testid="chip-line-source">
+        {r.source.linkType === 'return' ? 'against' : 'from'}{' '}
+        {l ? <VoucherLink voucherId={l.voucherId} label={l.label.replace(/ line (\d+)$/, ' · line $1')} /> : 'a linked line'}
+      </span>
+    )
+  }
+  const insertPicks = (picks: SourcePick[]): void => {
+    const added = rowsFromSourcePicks(picks, { linkType, fxRate: computed.fxRate }).map((r) => ({ ...r, key: nextLineKey() }))
+    setRows((rs) => [...rs.filter((r) => r.itemId != null || r.source), ...added, blankItemRow()])
+    setAddFromOpen(false)
+  }
+  const removeRow = (i: number): void =>
+    setRows((rs) => {
+      const next = rs.filter((_r, j) => j !== i)
+      return next.length > 0 && next[next.length - 1]!.itemId == null ? next : [...next, blankItemRow()]
+    })
+  // Every goods line moved on a challan: the challan's e-way bill covered the movement.
+  const goodsOnChallan =
+    kind === 'sales' && computed.detail.length > 0 &&
+    rows.filter((r) => r.itemId != null).every((r) => r.source?.linkType === 'fulfil' && lockedBySource(r)?.lockDetail)
+
+  useEffect(() => {
+    if (!addFrom || partyId == null) return
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.altKey && !e.metaKey && !e.ctrlKey && e.code === 'KeyA') {
+        if (isAnyModalOpen()) return
+        e.preventDefault()
+        setAddFromOpen(true)
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [addFrom, partyId])
 
   return (
     <Panel className="p-5">
@@ -425,6 +534,17 @@ export function InvoiceEntry({
         ) : (
           <span />
         )}
+        {addFrom && partyId != null && (
+          <Button
+            variant="ghost"
+            className="ml-auto mr-2 px-2 py-1 text-caption"
+            data-testid="btn-add-from"
+            onClick={() => setAddFromOpen(true)}
+            title={`${addFrom.label} (⌥A)`}
+          >
+            {addFrom.label} <Kbd>⌥A</Kbd>
+          </Button>
+        )}
         {features.multiCurrency && (currencies?.length ?? 0) > 0 && (
           <div className="flex items-center gap-2">
             <Select value={currencyCode} onChange={(e) => setCurrencyCode(e.target.value)} className="w-28">
@@ -450,115 +570,21 @@ export function InvoiceEntry({
         )}
       </div>
 
-      {/* Long invoices scroll inside a capped container instead of pushing the totals
-          off-screen. Short ones stay unwrapped: any overflow container would clip the
-          absolutely-positioned TypeAhead dropdowns. */}
-      <LineTableScroller active={rows.length > 8} className="mt-4">
-      <table className="ledger-table">
-        <thead>
-          <tr>
-            <th>Item</th>
-            <th className="r w-28">Qty</th>
-            <th className="r w-32">Rate</th>
-            <th className="r w-28">Disc.</th>
-            <th className="r w-24">GST %</th>
-            <th className="r w-36">Amount</th>
-            {features.inventory && <th className="w-6"><span className="sr-only">Stock details</span></th>}
-          </tr>
-        </thead>
-        <tbody data-testid="rows-invoice-lines">
-          {rows.map((r, i) => {
-            const item = r.itemId ? itemMap.get(r.itemId) : null
-            const qty = parseFloat(r.qtyText || '0')
-            const amount =
-              item && qty > 0 && r.rate != null ? Math.max(0, Math.round(qty * r.rate) - (r.discount ?? 0)) : 0
-            const detailOpen = features.inventory && details.isOpen(r.key, item)
-            return (
-              <Fragment key={r.key}>
-              <tr onKeyDown={features.inventory ? details.onRowKeyDown(r.key) : undefined} data-line-key={r.key}>
-                <td>
-                  <ItemPicker
-                    value={r.itemId}
-                    onPick={(id) => {
-                      // A batch (and serials) belong to one item — a different item can't keep the old line's.
-                      setRow(i, id === r.itemId ? { itemId: id } : { itemId: id, batchId: null, serials: undefined })
-                      // Price-level autofill: the party's price list fills an empty Rate cell.
-                      // Price-list rates are ₹, so skip while a foreign currency is active.
-                      if (id != null && r.rate == null && !fxActive && party?.priceLevelId != null) {
-                        const rowKey = r.key
-                        void api.priceLevels
-                          .rateFor(party.priceLevelId, id, date)
-                          .then((rate) => {
-                            if (rate == null) return
-                            setRows((rs) =>
-                              rs.map((row) =>
-                                row.key === rowKey && row.itemId === id && row.rate == null ? { ...row, rate } : row
-                              )
-                            )
-                          })
-                          .catch(() => {}) // a missing rate just leaves the cell for the user
-                      }
-                    }}
-                    onCreateRequest={(name) => setQuickItem({ name, row: i })}
-                  />
-                </td>
-                <td className="r">
-                  <div className="flex items-center gap-1.5">
-                    <input
-                      className={`${inputCls} num text-right`}
-                      data-testid="input-line-qty"
-                      value={r.qtyText}
-                      inputMode="decimal"
-                      placeholder="0"
-                      onChange={(e) => setRow(i, { qtyText: e.target.value })}
-                    />
-                    <span className="w-8 text-caption text-muted">{unitOf(r.itemId)}</span>
-                  </div>
-                </td>
-                <td className="r">
-                  <AmountInput paise={r.rate} onPaise={(p) => setRow(i, { rate: p })} testId="input-line-rate" />
-                </td>
-                <td className="r">
-                  <AmountInput
-                    paise={r.discount}
-                    onPaise={(p) => setRow(i, { discount: p })}
-                    placeholder="0"
-                    testId="input-line-discount"
-                  />
-                </td>
-                <td className="r">
-                  <span className="num text-body-sm text-muted">{item ? `${item.gstRate ?? account?.gstRate ?? 0}%` : ''}</span>
-                </td>
-                <td className="r">
-                  <Money paise={amount} className="text-body" />
-                  {!detailOpen && features.inventory && <div><LineStockSummary fields={r} /></div>}
-                </td>
-                {features.inventory && (
-                  <td>
-                    <LineDetailToggle open={detailOpen} onToggle={() => details.toggle(r.key)} fields={r} disabled={!item} />
-                  </td>
-                )}
-              </tr>
-              {detailOpen && item && (
-                <tr className="line-detail-row" data-testid="row-line-detail">
-                  <td colSpan={7} className="!pt-0">
-                    <LineStockDetail
-                      item={item}
-                      direction={goodsIn ? 'in' : 'out'}
-                      qtyMilli={Math.round(qty * 1000) || 0}
-                      fields={r}
-                      onChange={(patch) => setRow(i, patch)}
-                      voucherId={voucherId}
-                    />
-                  </td>
-                </tr>
-              )}
-              </Fragment>
-            )
-          })}
-        </tbody>
-      </table>
-      </LineTableScroller>
+      <ItemLineGrid
+        rows={rows}
+        setRow={setRow}
+        setRows={setRows}
+        direction={goodsIn ? 'in' : 'out'}
+        priceLevelId={party?.priceLevelId ?? null}
+        fxActive={fxActive}
+        date={date}
+        voucherId={voucherId}
+        fallbackGstRate={account?.gstRate ?? null}
+        onCreateItem={(name, row) => setQuickItem({ name, row })}
+        lockedBySource={lockedBySource}
+        rowNote={sourceChip}
+        onRemoveRow={removeRow}
+      />
 
       <div className="mt-4 flex items-start justify-between gap-6">
         <div className="flex-1">
@@ -578,8 +604,13 @@ export function InvoiceEntry({
               </Field>
             </div>
           )}
+          {goodsOnChallan && (
+            <p className="mt-2 text-hint text-muted" data-testid="invoice-goods-on-challan">
+              Goods moved on the challan — its e-way bill covered the movement; no second one is needed.
+            </p>
+          )}
           {computed.rounded > 0 && (
-            <p className="mt-2 text-hint text-muted italic">{amountInWords(computed.rounded)}</p>
+            <p className="mt-2 text-hint text-muted italic">{amountInWords(grandTotal)}</p>
           )}
         </div>
         <div className="num w-72 text-detail">
@@ -589,9 +620,29 @@ export function InvoiceEntry({
           {computed.gst.igst > 0 && <SummaryRow label="IGST" paise={computed.gst.igst} />}
           {computed.gst.cess > 0 && <SummaryRow label="Cess" paise={computed.gst.cess} />}
           {computed.roundDiff !== 0 && <SummaryRow label="Round off" paise={computed.roundDiff} />}
+          {appliedTcs && (
+            <div
+              className="flex justify-between py-0.5"
+              data-testid="invoice-tcs-summary"
+              title={tcsCollection.suggestion ? `TCS u/s ${tcsCollection.suggestion.code} (${tcsCollection.suggestion.reference})${appliedTcs.pending ? ' — payable ledger created on save' : ''}` : undefined}
+            >
+              <span className="flex items-center gap-1.5">
+                TCS{tcsCollection.suggestion && !appliedTcs.isManual ? ` @ ${tcsCollection.suggestion.rate}%` : appliedTcs.isManual ? ' (manual)' : ''}
+                <button
+                  className="text-hint text-muted hover:text-cr"
+                  aria-label="Remove TCS"
+                  data-testid="btn-tcs-remove"
+                  onClick={() => setTcs(null)}
+                >
+                  ×
+                </button>
+              </span>
+              <Money paise={appliedTcs.tdsAmount} />
+            </div>
+          )}
           <div className="mt-1 flex justify-between border-t border-ink pt-1.5 pb-0.5 text-subtitle font-semibold" style={{ borderBottom: '3px double var(--color-ink)' }}>
             <span>Total</span>
-            <Money paise={computed.rounded} />
+            <Money paise={grandTotal} />
           </div>
           {appliedTds && (
             <div data-testid="invoice-tds-summary">
@@ -620,6 +671,30 @@ export function InvoiceEntry({
           TDS was applied on a taxable value of {formatPaise(appliedTds!.baseAmount, { symbol: true })}; the invoice now
           totals {formatPaise(computed.gst.taxable, { symbol: true })} — apply TDS again before saving.
         </p>
+      )}
+      {tcsStale && (
+        <p className="mt-2 text-body-sm text-cr" data-testid="invoice-tcs-stale">
+          TCS was applied on {formatPaise(appliedTcs!.baseAmount, { symbol: true })}; the invoice has changed since — apply TCS again before saving.
+        </p>
+      )}
+      {features.tcs && invoiceKindTakesTcs(kind) && tcsCollection.notApplicable != null && !appliedTcs && (
+        <TdsNotApplicableNote kind="tcs" reason={tcsCollection.notApplicable} onUndo={() => tcsCollection.setNotApplicable(null)} />
+      )}
+      {features.tcs && tcsCollection.suggestion && !tcsCollection.dismissed && tcsCollection.notApplicable == null && (
+        <TdsBanner
+          kind="tcs"
+          suggestion={tcsCollection.suggestion}
+          onDismiss={tcsCollection.dismiss}
+          onApply={() => {
+            if (tcsCollection.apply()) tcsAppliedKey.current = tcsKey
+          }}
+          onApplyManual={(p) => {
+            if (tcsCollection.applyManual(p)) tcsAppliedKey.current = tcsKey
+          }}
+          onChooseSection={(id) => tcsCollection.chooseSection(id)}
+          onNotApplicable={appliedTcs ? undefined : (r) => tcsCollection.setNotApplicable(r)}
+          blockedReason={null}
+        />
       )}
       {features.tds && invoiceKindTakesTds(kind) && tdsDeduction.notApplicable != null && !appliedTds && (
         <TdsNotApplicableNote reason={tdsDeduction.notApplicable} onUndo={() => tdsDeduction.setNotApplicable(null)} />
@@ -781,7 +856,7 @@ export function InvoiceEntry({
                   </Field>
                   <Field label="Amount">
                     <div className={`${inputCls} num bg-panel text-right text-muted`}>
-                      <Money paise={partyAmount} />
+                      <Money paise={partyAmount + (appliedTcs?.tdsAmount ?? 0)} />
                     </div>
                   </Field>
                   {isNoteKind && (
@@ -843,6 +918,15 @@ export function InvoiceEntry({
         />
       )}
       {editingParty && party && <LedgerFormModal ledger={party} onClose={() => setEditingParty(false)} />}
+      {addFromOpen && addFrom && (
+        <AddFromDrawer
+          title={`${addFrom.label.replace('…', '')} — ${party?.name ?? ''}`}
+          lines={drawerLines}
+          loading={openLinesLoading}
+          onClose={() => setAddFromOpen(false)}
+          onInsert={insertPicks}
+        />
+      )}
       {showTransport && voucherId && (
         <TransportModal voucherId={voucherId} voucherNumber={voucher?.number} onClose={() => setShowTransport(false)} />
       )}

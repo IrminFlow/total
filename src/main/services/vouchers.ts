@@ -13,12 +13,13 @@ import { nextSeriesNumber } from './numbering'
 import { cashBankGroupIds } from './masters'
 import { getFeatures } from './config'
 import { writeAudit } from './audit'
-import { ensureTdsPayableLedger, PENDING_PAYABLE_LEDGER, prepareVoucherTds } from './tds'
+import { ensureTdsPayableLedger, PENDING_PAYABLE_LEDGER, PENDING_TCS_PAYABLE_LEDGER, prepareVoucherTds, prepareVoucherWithholding } from './tds'
 import { parseLineSerials, rebuildItemSerials, syncVoucherSerials } from './serials'
 import {
   assertBinnable, assertRestorable, hasTradeSchema, lineSourcesOf, resolveVoucherLines, syncVoucherLinks, type ResolvedLine
 } from './tradeLinks'
 import { isGodownTransferShape } from '@shared/voucherEdit/stockJournal'
+import { assertFixedAssetVoucherRestorable, assertNotFixedAssetVoucher } from './fixedAssets'
 
 interface VoucherRow {
   id: number; voucher_type_id: number; date: string; number: string
@@ -140,17 +141,19 @@ export function getVoucher(db: DB, id: number): Voucher | null {
     .prepare('SELECT kind, name, amount, due_date FROM bill_refs WHERE voucher_id = ? ORDER BY id')
     .all(id) as { kind: 'new' | 'against'; name: string; amount: number; due_date: string | null }[]
 
-  const tdsRow = db
-    .prepare(
-      `SELECT id, section_id, base_amount, tds_amount, is_manual, rate_bp_at, deductee_type_at, certificate_id
-       FROM tds_entries WHERE voucher_id = ? ORDER BY id LIMIT 1`
-    )
-    .get(id) as
-    | {
-        id: number; section_id: number; base_amount: number; tds_amount: number; is_manual: number
-        rate_bp_at: number | null; deductee_type_at: string | null; certificate_id: number | null
-      }
-    | undefined
+  // TDS and TCS entries share tds_entries; the section's kind tells them apart (migration 027).
+  const entryStmt = db.prepare(
+    `SELECT te.id, te.section_id, te.base_amount, te.tds_amount, te.is_manual, te.rate_bp_at, te.deductee_type_at,
+            te.certificate_id, te.gst_in_base
+     FROM tds_entries te JOIN tds_sections ts ON ts.id = te.section_id
+     WHERE te.voucher_id = ? AND ts.kind = ? ORDER BY te.id LIMIT 1`
+  )
+  type EntryRow = {
+    id: number; section_id: number; base_amount: number; tds_amount: number; is_manual: number
+    rate_bp_at: number | null; deductee_type_at: string | null; certificate_id: number | null; gst_in_base: number | null
+  }
+  const tdsRow = entryStmt.get(id, 'tds') as EntryRow | undefined
+  const tcsRow = entryStmt.get(id, 'tcs') as EntryRow | undefined
 
   return {
     id: v.id,
@@ -203,6 +206,13 @@ export function getVoucher(db: DB, id: number): Voucher | null {
           sectionId: tdsRow.section_id, baseAmount: tdsRow.base_amount, tdsAmount: tdsRow.tds_amount,
           isManual: !!tdsRow.is_manual, rateBp: tdsRow.rate_bp_at, deducteeType: tdsRow.deductee_type_at,
           certificateId: tdsRow.certificate_id, entryId: tdsRow.id
+        }
+      : null,
+    tcs: tcsRow
+      ? {
+          sectionId: tcsRow.section_id, baseAmount: tcsRow.base_amount, tcsAmount: tcsRow.tds_amount,
+          isManual: !!tcsRow.is_manual, rateBp: tcsRow.rate_bp_at, deducteeType: tcsRow.deductee_type_at,
+          certificateId: tcsRow.certificate_id, gstInBase: tcsRow.gst_in_base == null ? null : !!tcsRow.gst_in_base, entryId: tcsRow.id
         }
       : null,
     trade: tradeRow ? { purpose: tradeRow.purpose } : null
@@ -364,17 +374,24 @@ export function saveVoucher(db: DB, raw: VoucherInput, existingId?: number, hook
     if (!hooks.jobWork && !hooks.manufacture && db.prepare('SELECT 1 FROM job_work_challans WHERE voucher_id = ?').get(existingId)) {
       throw new Error(JOB_WORK_EDIT_ELSEWHERE)
     }
+    // WP 3.6: depreciation-run and disposal journals belong to the fixed-asset register.
+    assertNotFixedAssetVoucher(db, existingId)
   }
   const vt = getVoucherType(db, input.voucherTypeId)
   // TDS (WP 3.1): resolve the payable credit for tds.autoPayable (a ledger that doesn't exist
   // yet rides as PENDING_PAYABLE_LEDGER until the transaction below creates it) and check the
   // entry against the lines and the rate table. `posting` is what actually gets stored.
   const preparedTds = prepareVoucherTds(db, input, existingId)
-  const posting: VoucherInputParsed = { ...input, lines: preparedTds.lines }
+  // TCS (WP 3.3): the same for a collection on a sale / receipt — appended after the TDS step
+  // (a voucher carries one or the other in practice), its pending ledger on its own placeholder.
+  const preparedTcs = prepareVoucherWithholding(db, 'tcs', input, preparedTds.lines, existingId)
+  const posting: VoucherInputParsed = { ...input, lines: preparedTcs.lines }
   const baseFacts = ledgerFactsResolver(db)
   const facts = (id: number): LedgerFacts =>
-    id === PENDING_PAYABLE_LEDGER ? { exists: true, isCashOrBank: false, isTdsPayable: true } : baseFacts(id)
-  const errors = [...validateVoucher(posting, vt.kind, facts), ...preparedTds.errors]
+    id === PENDING_PAYABLE_LEDGER
+      ? { exists: true, isCashOrBank: false, isTdsPayable: true }
+      : id === PENDING_TCS_PAYABLE_LEDGER ? { exists: true, isCashOrBank: false } : baseFacts(id)
+  const errors = [...validateVoucher(posting, vt.kind, facts), ...preparedTds.errors, ...preparedTcs.errors]
   if (errors.length) {
     throw new Error(errors.map((e) => e.message).join('; '))
   }
@@ -464,6 +481,10 @@ export function saveVoucher(db: DB, raw: VoucherInput, existingId?: number, hook
       const payableId = ensureTdsPayableLedger(db, preparedTds.createPayableFor)
       for (const l of posting.lines) if (l.ledgerId === PENDING_PAYABLE_LEDGER) l.ledgerId = payableId
     }
+    if (preparedTcs.createPayableFor != null) {
+      const payableId = ensureTdsPayableLedger(db, preparedTcs.createPayableFor)
+      for (const l of posting.lines) if (l.ledgerId === PENDING_TCS_PAYABLE_LEDGER) l.ledgerId = payableId
+    }
     posting.lines.forEach((l, i) => {
       const res = insertLine.run(voucherId, l.ledgerId, l.drCr, l.amount, i, bankDateFor(l))
       const lineId = Number(res.lastInsertRowid)
@@ -521,34 +542,48 @@ export function saveVoucher(db: DB, raw: VoucherInput, existingId?: number, hook
       }
     }
 
-    const existingEntries = db.prepare('SELECT id FROM tds_entries WHERE voucher_id = ? ORDER BY id').all(voucherId) as { id: number }[]
-    if (input.tds) {
-      // A deduction supersedes a "Not applicable" mark (WP 3.2, migration 022).
-      db.prepare('DELETE FROM tds_exemptions WHERE voucher_id = ?').run(voucherId)
+    // One entry per kind (TDS / TCS) — the section's kind tells them apart (migration 027).
+    const writeEntry = (
+      kind: 'tds' | 'tcs',
+      e: { sectionId: number; baseAmount: number; amount: number; isManual: boolean } | null,
+      basis: typeof preparedTds.basis
+    ): void => {
+      const existingEntries = db
+        .prepare(
+          `SELECT te.id FROM tds_entries te JOIN tds_sections ts ON ts.id = te.section_id
+           WHERE te.voucher_id = ? AND ts.kind = ? ORDER BY te.id`
+        )
+        .all(voucherId, kind) as { id: number }[]
+      if (!e) {
+        for (const x of existingEntries) db.prepare('DELETE FROM tds_entries WHERE id = ?').run(x.id)
+        return
+      }
+      // A deduction / collection supersedes a "Not applicable" mark (WP 3.2, migration 022).
+      db.prepare('DELETE FROM tds_exemptions WHERE voucher_id = ? AND kind = ?').run(voucherId, kind)
       const party = input.partyLedgerId
         ? (db.prepare('SELECT pan FROM ledgers WHERE id = ?').get(input.partyLedgerId) as { pan: string | null } | undefined)
         : undefined
-      const basis = preparedTds.basis
+      const gstInBase = kind === 'tcs' && basis?.gstInBase != null ? (basis.gstInBase ? 1 : 0) : null
       const values = [
-        input.tds.sectionId, input.partyLedgerId, party?.pan ?? null, input.tds.baseAmount, input.tds.tdsAmount,
-        basis?.deducteeType ?? null, basis?.rateBp ?? null, basis?.certificateId ?? null, input.tds.isManual ? 1 : 0
+        e.sectionId, input.partyLedgerId, party?.pan ?? null, e.baseAmount, e.amount,
+        basis?.deducteeType ?? null, basis?.rateBp ?? null, basis?.certificateId ?? null, e.isManual ? 1 : 0, gstInBase
       ]
       const keep = existingEntries[0]
       if (keep) {
         db.prepare(
           `UPDATE tds_entries SET section_id = ?, party_ledger_id = ?, pan = ?, base_amount = ?, tds_amount = ?,
-             deductee_type_at = ?, rate_bp_at = ?, certificate_id = ?, is_manual = ? WHERE id = ?`
+             deductee_type_at = ?, rate_bp_at = ?, certificate_id = ?, is_manual = ?, gst_in_base = ? WHERE id = ?`
         ).run(...values, keep.id)
         for (const extra of existingEntries.slice(1)) db.prepare('DELETE FROM tds_entries WHERE id = ?').run(extra.id)
       } else {
         db.prepare(
           `INSERT INTO tds_entries (section_id, party_ledger_id, pan, base_amount, tds_amount,
-             deductee_type_at, rate_bp_at, certificate_id, is_manual, voucher_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+             deductee_type_at, rate_bp_at, certificate_id, is_manual, gst_in_base, voucher_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
         ).run(...values, voucherId)
       }
-    } else if (existingEntries.length > 0) {
-      db.prepare('DELETE FROM tds_entries WHERE voucher_id = ?').run(voucherId)
     }
+    writeEntry('tds', input.tds ? { sectionId: input.tds.sectionId, baseAmount: input.tds.baseAmount, amount: input.tds.tdsAmount, isManual: input.tds.isManual } : null, preparedTds.basis)
+    writeEntry('tcs', input.tcs ? { sectionId: input.tcs.sectionId, baseAmount: input.tcs.baseAmount, amount: input.tcs.tcsAmount, isManual: input.tcs.isManual } : null, preparedTcs.basis)
 
     hooks.withinTransaction?.(voucherId)
 
@@ -671,6 +706,8 @@ export function restoreVoucher(db: DB, id: number): void {
   if (!before.deletedAt) throw new Error('Voucher is not in the bin')
   const lock = getLockDate(db)
   if (lock && before.date <= lock) throw new Error(`Books are locked up to ${lock}`)
+  // WP 3.6: a restored depreciation / disposal journal must not double-count a re-posted period.
+  assertFixedAssetVoucherRestorable(db, id)
   if (before.isYearEndClose) {
     // Restoring a closing journal re-closes its year — refuse when the year was closed again in
     // the meantime, or Retained Earnings would receive the year's profit twice.

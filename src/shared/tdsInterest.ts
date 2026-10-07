@@ -22,7 +22,9 @@
  * starting and ending month counted (deducted 25 Jan, paid 8 Feb = 2 months). Courts have read
  * it as periods of a month from the date instead; TRACES's reading is the conservative one.
  */
-import { roundToRupee } from './money'
+import { monthlyInterestPaise, monthsOrPart } from './withholding'
+
+export { monthsOrPart }
 
 /** Rates in basis points (100 = 1%). */
 export const LATE_DEDUCTION_RATE_BP = 100
@@ -37,14 +39,6 @@ export function depositDueDate(deductedOn: string): string {
   return `${ny}-${String(nm).padStart(2, '0')}-07`
 }
 
-/** Calendar months from `from` to `to`, both months counted; 0 when `to` is not after `from`. */
-export function monthsOrPart(from: string, to: string): number {
-  if (to <= from) return 0
-  const [fy, fm] = from.split('-').map(Number) as [number, number]
-  const [ty, tm] = to.split('-').map(Number) as [number, number]
-  return ty * 12 + tm - (fy * 12 + fm) + 1
-}
-
 export interface InterestResult {
   months: number
   rateBp: number
@@ -55,11 +49,16 @@ export interface InterestResult {
 
 /** s.201(1A)(ii) / 2025 s.398(3)(a) second limb: deposited after the due date → rate per month
  *  or part from the date of deduction to the date of payment. */
-export function lateDepositInterest(tdsPaise: number, deductedOn: string, paidOn: string, rateBp = LATE_DEPOSIT_RATE_BP): InterestResult {
-  const dueDate = depositDueDate(deductedOn)
+export function lateDepositInterest(
+  tdsPaise: number, deductedOn: string, paidOn: string, rateBp = LATE_DEPOSIT_RATE_BP,
+  /** TCS (WP 3.3) passes its own due date (rule 37CA / Rules 2026 rule 218(2)) — the two-tier
+   *  interest itself is the same under s.206C(7) / 2025 s.398(3)(a). */
+  dueDateOf: (withheldOn: string) => string = depositDueDate
+): InterestResult {
+  const dueDate = dueDateOf(deductedOn)
   if (paidOn <= dueDate || tdsPaise <= 0) return { months: 0, rateBp, interestPaise: 0, dueDate }
   const months = monthsOrPart(deductedOn, paidOn)
-  return { months, rateBp, interestPaise: roundToRupee(Math.round((tdsPaise * rateBp * months) / 10000)), dueDate }
+  return { months, rateBp, interestPaise: monthlyInterestPaise(tdsPaise, rateBp, months), dueDate }
 }
 
 /** s.201(1A)(i) / first limb: deducted after it was deductible (e.g. on payment of a bill that
@@ -67,5 +66,5 @@ export function lateDepositInterest(tdsPaise: number, deductedOn: string, paidOn
 export function lateDeductionInterest(tdsPaise: number, deductibleOn: string, deductedOn: string, rateBp = LATE_DEDUCTION_RATE_BP): InterestResult {
   if (deductedOn <= deductibleOn || tdsPaise <= 0) return { months: 0, rateBp, interestPaise: 0 }
   const months = monthsOrPart(deductibleOn, deductedOn)
-  return { months, rateBp, interestPaise: roundToRupee(Math.round((tdsPaise * rateBp * months) / 10000)) }
+  return { months, rateBp, interestPaise: monthlyInterestPaise(tdsPaise, rateBp, months) }
 }

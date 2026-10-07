@@ -1257,9 +1257,471 @@ export const MIGRATIONS: string[] = [
   ), NULL, NULL);
   `,
 
-  // 028 (WP 3.4) — GST expansion. Number assigned by the orchestrator (026 = WP 3.6 fixed assets,
-  // 027 = WP 3.3 TCS land on parallel branches); self-contained — it only references vouchers
-  // (001), so it can be renumbered on rebase without touching its content.
+  // 026 (WP 3.6) — fixed-asset register and depreciation under the Companies Act, 2013 and the
+  // Income-tax Acts. Number assigned by the orchestrator; appended after 022–025 (WP 3.2, 2.4,
+  // 2.5a) and self-contained (creates its own tables, alters nothing older).
+  //
+  // Tables
+  // - ca_asset_classes: Schedule II Part C useful lives (effective-dated, editable, cited).
+  // - it_blocks / it_block_rates: income-tax blocks of assets with effective-dated rates per Act.
+  // - it_block_openings: the user's opening WDV of a block for a tax year (later years carry the
+  //   computed closing WDV forward unless an opening is entered).
+  // - fixed_asset_groups: Companies-Act class + IT block + the ledgers a depreciation run posts to.
+  // - fixed_assets, fixed_asset_additions: the register (cost layers).
+  // - depreciation_runs / depreciation_lines: a posted run (one journal) or a disposal's catch-up
+  //   (asset_id set). A run counts only while its voucher is live (not binned, not purged).
+  // Voucher FKs SET NULL so the bin's auto-purge is never blocked; a NULL voucher = void.
+  //
+  // Sources (all accessed 2026-10-07). mca.gov.in, incometaxindia.gov.in and indiacode.nic.in
+  // refused automated access that day, so the text was read from these faithful copies:
+  //  [SCH2]  Companies Act, 2013, Schedule II as amended (MCA e-book text, "Source: mca.gov.in"):
+  //          Part A https://oss-data-in.vaquill.ai/legislation/REG_MCA_mcaacts28231scheduleiiusefullivestocompu/act.pdf
+  //          Part C https://oss-data-in.vaquill.ai/legislation/REG_MCA_mcaacts28232scheduleiiusefullivestocompu/act.pdf
+  //          official: https://www.mca.gov.in/content/mca/global/en/acts-rules/ebooks/acts.html
+  //          Part A para 3(i): residual value "shall not be more than five per cent. of the original
+  //          cost"; Note 2: pro rata from the date of addition / up to the date of sale, discard,
+  //          demolition or destruction; Note 4: component accounting mandatory from FY 2015-16;
+  //          Note 6: extra-shift depreciation (not implemented); Note 7: transition — carrying
+  //          amount over the remaining life. Schedule II names no method (Note 3(i) only requires
+  //          the methods used to be disclosed); SLM / WDV are the methods offered here.
+  //  [GN35]  ICAI Guidance Note GN(A) 35 on Accounting for Depreciation in Companies in the
+  //          context of Schedule II (Feb 2016) — https://cdn.taxguru.in/wp-content/uploads/2016/02/41241research31047.pdf
+  //          ¶38 WDV rate R = 1 − (s/c)^(1/n) with a worked example (unit-tested); ¶56-58: the old
+  //          Schedule XIV "cost ≤ Rs 5,000 written off" rule is NOT in Schedule II — a company may
+  //          adopt a materiality threshold as policy. So no ≤ Rs 5,000 rule is seeded.
+  //  [IT61]  Income-tax Act, 1961 s.32(1)(ii) (WDV at the Rule 5 / New Appendix I rates), second
+  //          proviso (half rate if put to use < 180 days), s.32(1)(iia) additional depreciation
+  //          20%, s.43(6) WDV, s.2(11) block, s.50 STCG — read in ICAI BoS Final Paper 4 (DT),
+  //          Module 1 Ch.3 (AY 2026-27) https://resource.cdn.icai.org/88213bos-aps2299-m1-ch3.pdf
+  //          and Ch.4 https://resource.cdn.icai.org/88214bos-aps2299-m1-ch4.pdf
+  //  [IT25]  Income-tax Act, 2025 (in force 1 Apr 2026): s.33 depreciation — s.33(3)(a) block WDV
+  //          at the prescribed percentage, s.33(4) half rate < 180 days, s.33(8)-(9) additional
+  //          20% (10% + 10% next year); s.2(17) block of assets; s.41(1)(c) WDV; s.74(2)-(3) STCG.
+  //          Read in Income-tax (No.2) Bill 2025 as passed by Lok Sabha 11.08.2025 —
+  //          https://prsindia.org/files/bills_acts/bills_parliament/2025/Bill_as_passed_by_LS_Income_Tax_(No.2)_Bill.pdf
+  //  [R2026] Income-tax Rules, 2026, G.S.R. 198(E) of 20 Mar 2026, Rule 25 + Appendix I (rates) —
+  //          Gazette scan via https://simpliance.in/download/file/dXBsb2Fkcy9nb3Z0bm90aWZpY2F0aW9uL1RoZSBJbmNvbWUtdGF4IFJ1bGVzLCAyMDI2LnBkZg==
+  //
+  // UNVERIFIED (kept editable; also listed in the WP 3.6 report):
+  //  - Hotel / school furniture life: 8 years per [GN35] appendix and ca2013.com; the MCA e-book
+  //    copy says 10. Seeded 8.
+  //  - All Schedule II text from copies, not mca.gov.in itself; the 2025 Act read in the Bill as
+  //    passed by Lok Sabha, not the enacted Act 30 of 2025.
+  //  - Finance Act 2026 changing nothing in s.33 / s.41 / s.74 / Appendix I — not confirmed.
+  //  - 1961-Act rows are seeded from FY 2017-18 (the 40% ceiling era); only FY 2025-26 rates were
+  //    read ([IT61], AY 2026-27). Earlier years, and the 23.8.2019–31.3.2020 30%/45% motor-vehicle
+  //    windows, are not seeded.
+  //  - Sale proceeds reduce the full-rate base before the half-rate additions — the reading in
+  //    ICAI Illustration 4 [IT61]; not stated in the Act's text.
+  //  - Default IT-block mapping of the seeded groups (e.g. electrical installations → furniture
+  //    and fittings incl. electrical fittings, [R2026] Appendix I Note 5) is a convenience default.
+  `
+  CREATE TABLE ca_asset_classes (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    code TEXT NOT NULL COLLATE NOCASE,
+    name TEXT NOT NULL,
+    life_months INTEGER NOT NULL CHECK (life_months > 0),
+    effective_from TEXT NOT NULL,
+    effective_to TEXT,
+    source TEXT NOT NULL DEFAULT '',
+    is_seeded INTEGER NOT NULL DEFAULT 0,
+    UNIQUE (code, effective_from)
+  );
+
+  CREATE TABLE it_blocks (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    code TEXT NOT NULL UNIQUE COLLATE NOCASE,
+    name TEXT NOT NULL,
+    is_seeded INTEGER NOT NULL DEFAULT 0
+  );
+
+  CREATE TABLE it_block_rates (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    block_id INTEGER NOT NULL REFERENCES it_blocks(id) ON DELETE CASCADE,
+    effective_from TEXT NOT NULL,
+    effective_to TEXT,
+    rate_bp INTEGER NOT NULL CHECK (rate_bp BETWEEN 0 AND 10000),
+    additional_rate_bp INTEGER NOT NULL DEFAULT 0 CHECK (additional_rate_bp BETWEEN 0 AND 10000),
+    act TEXT NOT NULL CHECK (act IN ('1961', '2025')),
+    section_ref TEXT NOT NULL DEFAULT '',
+    source TEXT NOT NULL DEFAULT '',
+    is_seeded INTEGER NOT NULL DEFAULT 0
+  );
+  CREATE INDEX idx_it_block_rates_block ON it_block_rates(block_id, effective_from);
+
+  CREATE TABLE it_block_openings (
+    block_id INTEGER NOT NULL REFERENCES it_blocks(id) ON DELETE CASCADE,
+    fy_start_year INTEGER NOT NULL,
+    opening_wdv_paise INTEGER NOT NULL DEFAULT 0,
+    additional_bf_paise INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (block_id, fy_start_year)
+  );
+
+  CREATE TABLE fixed_asset_groups (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL UNIQUE COLLATE NOCASE,
+    ca_class_id INTEGER REFERENCES ca_asset_classes(id) ON DELETE SET NULL,
+    life_months INTEGER NOT NULL CHECK (life_months > 0),
+    residual_bp INTEGER NOT NULL DEFAULT 500 CHECK (residual_bp BETWEEN 0 AND 10000),
+    method TEXT NOT NULL DEFAULT 'slm' CHECK (method IN ('slm', 'wdv')),
+    it_block_id INTEGER REFERENCES it_blocks(id) ON DELETE SET NULL,
+    asset_ledger_id INTEGER REFERENCES ledgers(id) ON DELETE SET NULL,
+    acc_dep_ledger_id INTEGER REFERENCES ledgers(id) ON DELETE SET NULL,
+    dep_expense_ledger_id INTEGER REFERENCES ledgers(id) ON DELETE SET NULL,
+    post_per_asset INTEGER NOT NULL DEFAULT 0,
+    is_seeded INTEGER NOT NULL DEFAULT 0
+  );
+
+  CREATE TABLE fixed_assets (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    asset_group_id INTEGER NOT NULL REFERENCES fixed_asset_groups(id),
+    ledger_id INTEGER NOT NULL REFERENCES ledgers(id),
+    purchase_voucher_id INTEGER REFERENCES vouchers(id) ON DELETE SET NULL,
+    purchase_date TEXT NOT NULL,
+    put_to_use_date TEXT NOT NULL,
+    cost_paise INTEGER NOT NULL CHECK (cost_paise > 0),
+    residual_pct_bp INTEGER NOT NULL CHECK (residual_pct_bp BETWEEN 0 AND 10000),
+    useful_life_months INTEGER NOT NULL CHECK (useful_life_months > 0),
+    method TEXT NOT NULL CHECK (method IN ('slm', 'wdv')),
+    -- Date the current method / life / residual took effect (prospective change of estimate).
+    basis_date TEXT NOT NULL,
+    it_block_id INTEGER REFERENCES it_blocks(id) ON DELETE SET NULL,
+    it_additional_eligible INTEGER NOT NULL DEFAULT 0,
+    location TEXT,
+    identifier TEXT,
+    acc_dep_ledger_id INTEGER REFERENCES ledgers(id) ON DELETE SET NULL,
+    opening_acc_dep_paise INTEGER NOT NULL DEFAULT 0,
+    opening_acc_dep_as_of TEXT,
+    disposal_date TEXT,
+    disposal_voucher_id INTEGER REFERENCES vouchers(id) ON DELETE SET NULL,
+    disposal_kind TEXT CHECK (disposal_kind IN ('sale', 'scrap')),
+    disposal_proceeds_paise INTEGER,
+    status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'disposed')),
+    notes TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+  CREATE INDEX idx_fixed_assets_group ON fixed_assets(asset_group_id);
+  CREATE INDEX idx_fixed_assets_purchase ON fixed_assets(purchase_voucher_id);
+
+  CREATE TABLE fixed_asset_additions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    asset_id INTEGER NOT NULL REFERENCES fixed_assets(id) ON DELETE CASCADE,
+    date TEXT NOT NULL,
+    voucher_id INTEGER REFERENCES vouchers(id) ON DELETE SET NULL,
+    amount_paise INTEGER NOT NULL CHECK (amount_paise > 0),
+    kind TEXT NOT NULL CHECK (kind IN ('addition', 'improvement')),
+    note TEXT
+  );
+  CREATE INDEX idx_fixed_asset_additions_asset ON fixed_asset_additions(asset_id);
+
+  CREATE TABLE depreciation_runs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    fy_start_year INTEGER NOT NULL,
+    period_from TEXT NOT NULL,
+    period_to TEXT NOT NULL,
+    basis TEXT NOT NULL CHECK (basis IN ('companies_act', 'income_tax')),
+    voucher_id INTEGER REFERENCES vouchers(id) ON DELETE SET NULL,
+    -- Set for a disposal's catch-up depreciation (posted inside the disposal voucher).
+    asset_id INTEGER REFERENCES fixed_assets(id) ON DELETE CASCADE,
+    posted_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+  CREATE INDEX idx_depreciation_runs_voucher ON depreciation_runs(voucher_id);
+  CREATE INDEX idx_depreciation_runs_period ON depreciation_runs(period_from, period_to);
+
+  CREATE TABLE depreciation_lines (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    run_id INTEGER NOT NULL REFERENCES depreciation_runs(id) ON DELETE CASCADE,
+    asset_id INTEGER NOT NULL REFERENCES fixed_assets(id) ON DELETE CASCADE,
+    opening_wdv INTEGER NOT NULL,
+    depreciation INTEGER NOT NULL CHECK (depreciation >= 0),
+    closing_wdv INTEGER NOT NULL,
+    days_used INTEGER NOT NULL
+  );
+  CREATE INDEX idx_depreciation_lines_asset ON depreciation_lines(asset_id);
+  CREATE INDEX idx_depreciation_lines_run ON depreciation_lines(run_id);
+
+  -- Schedule II Part C useful lives [SCH2] (cross-checked with the [GN35] appendix), in force for
+  -- financial years from 1 Apr 2014. Continuous process plant: 25 years as substituted by the
+  -- notification of 31 Mar 2014 [SCH2].
+  INSERT INTO ca_asset_classes (code, name, life_months, effective_from, source, is_seeded) VALUES
+    ('I(a)', 'Buildings (other than factory buildings), RCC frame structure', 720, '2014-04-01', 'Sch. II Part C I(a) [SCH2]; accessed 2026-10-07', 1),
+    ('I(b)', 'Buildings (other than factory buildings), other than RCC frame structure', 360, '2014-04-01', 'Sch. II Part C I(b) [SCH2]; accessed 2026-10-07', 1),
+    ('I(c)', 'Factory buildings', 360, '2014-04-01', 'Sch. II Part C I(c) ("-do-" = 30 years) [SCH2]; accessed 2026-10-07', 1),
+    ('I(d)', 'Fences, wells, tube wells', 60, '2014-04-01', 'Sch. II Part C I(d) [SCH2]; accessed 2026-10-07', 1),
+    ('I(e)', 'Other buildings, including temporary structures', 36, '2014-04-01', 'Sch. II Part C I(e) [SCH2]; accessed 2026-10-07', 1),
+    ('II', 'Bridges, culverts, bunders', 360, '2014-04-01', 'Sch. II Part C II [SCH2]; accessed 2026-10-07', 1),
+    ('III(a)(i)', 'Roads — carpeted, RCC', 120, '2014-04-01', 'Sch. II Part C III(a)(i) [SCH2]; accessed 2026-10-07', 1),
+    ('III(a)(ii)', 'Roads — carpeted, other than RCC', 60, '2014-04-01', 'Sch. II Part C III(a)(ii) [SCH2]; accessed 2026-10-07', 1),
+    ('III(b)', 'Roads — non-carpeted', 36, '2014-04-01', 'Sch. II Part C III(b) [SCH2]; accessed 2026-10-07', 1),
+    ('IV(a)', 'Plant and machinery (general, not continuous process)', 180, '2014-04-01', 'Sch. II Part C IV(i)(a) [SCH2]; accessed 2026-10-07', 1),
+    ('IV(b)', 'Continuous process plant (no special rate)', 300, '2014-04-01', 'Sch. II Part C IV(i)(b), 25 years as substituted 31 Mar 2014 [SCH2]; accessed 2026-10-07', 1),
+    ('V(i)', 'Furniture and fittings (general)', 120, '2014-04-01', 'Sch. II Part C V(i) [SCH2]; accessed 2026-10-07', 1),
+    ('V(ii)', 'Furniture and fittings in hotels, schools, hire use, etc.', 96, '2014-04-01', 'Sch. II Part C V(ii) — 8 years per [GN35] appendix and ca2013.com; MCA e-book copy reads 10 (UNVERIFIED); accessed 2026-10-07', 1),
+    ('VI(1)', 'Motor cycles, scooters and other mopeds', 120, '2014-04-01', 'Sch. II Part C VI(1) [SCH2]; accessed 2026-10-07', 1),
+    ('VI(2)', 'Motor buses, lorries, cars and taxis used in a business of running them on hire', 72, '2014-04-01', 'Sch. II Part C VI(2) [SCH2]; accessed 2026-10-07', 1),
+    ('VI(3)', 'Motor buses, lorries and cars (other)', 96, '2014-04-01', 'Sch. II Part C VI(3) [SCH2]; accessed 2026-10-07', 1),
+    ('VI(4)', 'Motor tractors, harvesting combines and heavy vehicles', 96, '2014-04-01', 'Sch. II Part C VI(4) ("-do-" = 8 years) [SCH2]; accessed 2026-10-07', 1),
+    ('VI(5)', 'Electrically operated vehicles', 96, '2014-04-01', 'Sch. II Part C VI(5) [SCH2]; accessed 2026-10-07', 1),
+    ('VIII', 'Aircraft or helicopters', 240, '2014-04-01', 'Sch. II Part C VIII [SCH2]; accessed 2026-10-07', 1),
+    ('IX', 'Railway sidings, locomotives, rolling stocks, tramways and railways used by concerns', 180, '2014-04-01', 'Sch. II Part C IX [SCH2]; accessed 2026-10-07', 1),
+    ('X', 'Ropeway structures', 180, '2014-04-01', 'Sch. II Part C X [SCH2]; accessed 2026-10-07', 1),
+    ('XI', 'Office equipment', 60, '2014-04-01', 'Sch. II Part C XI [SCH2]; accessed 2026-10-07', 1),
+    ('XII(i)', 'Computers — servers and networks', 72, '2014-04-01', 'Sch. II Part C XII(i) [SCH2]; accessed 2026-10-07', 1),
+    ('XII(ii)', 'Computers — end user devices (desktops, laptops, etc.)', 36, '2014-04-01', 'Sch. II Part C XII(ii) [SCH2]; accessed 2026-10-07', 1),
+    ('XIII(i)', 'Laboratory equipment (general)', 120, '2014-04-01', 'Sch. II Part C XIII(i) [SCH2]; accessed 2026-10-07', 1),
+    ('XIII(ii)', 'Laboratory equipment used in educational institutions', 60, '2014-04-01', 'Sch. II Part C XIII(ii) [SCH2]; accessed 2026-10-07', 1),
+    ('XIV', 'Electrical installations and equipment', 120, '2014-04-01', 'Sch. II Part C XIV [SCH2]; accessed 2026-10-07', 1),
+    ('XV', 'Hydraulic works, pipelines and sluices', 180, '2014-04-01', 'Sch. II Part C XV [SCH2]; accessed 2026-10-07', 1);
+
+  -- Income-tax blocks. A block is a class of assets with the same prescribed rate (1961 s.2(11);
+  -- 2025 s.2(17)), so each rate class is its own block.
+  INSERT INTO it_blocks (code, name, is_seeded) VALUES
+    ('BLD5', 'Buildings used mainly for residential purposes (except hotels and boarding houses)', 1),
+    ('BLD10', 'Buildings (other)', 1),
+    ('BLD40', 'Purely temporary erections', 1),
+    ('FUR10', 'Furniture and fittings, including electrical fittings', 1),
+    ('PM15', 'Machinery and plant (general), incl. motor cars not used on hire', 1),
+    ('PM30', 'Machinery and plant @30% (motor buses, lorries, taxis used on hire; moulds)', 1),
+    ('PM40', 'Machinery and plant @40% (computers incl. software, pollution-control equipment)', 1),
+    ('INT25', 'Intangible assets (know-how, patents, copyrights, trademarks, licences, franchises)', 1);
+
+  CREATE TEMP TABLE m026_rates (code TEXT, eff_from TEXT, eff_to TEXT, rate INTEGER, addl INTEGER, act TEXT, sec TEXT, src TEXT);
+  INSERT INTO m026_rates VALUES
+    ('BLD5',  '2017-04-01', '2026-03-31',  500,    0, '1961', 's.32(1)(ii); Rule 5(1), New Appendix I Part A I(1)', 'Appendix I rates as read in ICAI BoS Final DT M1 Ch.3, AY 2026-27 [IT61]; start date UNVERIFIED; accessed 2026-10-07'),
+    ('BLD10', '2017-04-01', '2026-03-31', 1000,    0, '1961', 's.32(1)(ii); Rule 5(1), New Appendix I Part A I(2)', 'Appendix I rates as read in ICAI BoS Final DT M1 Ch.3, AY 2026-27 [IT61]; start date UNVERIFIED; accessed 2026-10-07'),
+    ('BLD40', '2017-04-01', '2026-03-31', 4000,    0, '1961', 's.32(1)(ii); Rule 5(1), New Appendix I Part A I(4)', 'Appendix I rates as read in ICAI BoS Final DT M1 Ch.3, AY 2026-27 [IT61]; start date UNVERIFIED; accessed 2026-10-07'),
+    ('FUR10', '2017-04-01', '2026-03-31', 1000,    0, '1961', 's.32(1)(ii); Rule 5(1), New Appendix I Part A II', 'Appendix I rates as read in ICAI BoS Final DT M1 Ch.3, AY 2026-27 [IT61]; start date UNVERIFIED; accessed 2026-10-07'),
+    ('PM15',  '2017-04-01', '2026-03-31', 1500, 2000, '1961', 's.32(1)(ii), (iia) additional 20%; New Appendix I Part A III(1), III(2)(i)', 'Appendix I rates and s.32(1)(iia) as read in ICAI BoS Final DT M1 Ch.3, AY 2026-27 [IT61]; start date UNVERIFIED; accessed 2026-10-07'),
+    ('PM30',  '2017-04-01', '2026-03-31', 3000, 2000, '1961', 's.32(1)(ii), (iia); New Appendix I Part A III(3)(ii), (v)', 'Appendix I rates as read in ICAI BoS Final DT M1 Ch.3, AY 2026-27 [IT61]; start date UNVERIFIED; accessed 2026-10-07'),
+    ('PM40',  '2017-04-01', '2026-03-31', 4000, 2000, '1961', 's.32(1)(ii), (iia); New Appendix I Part A III(5) computers incl. software, III(3)(vi)-(viii)', 'Appendix I rates as read in ICAI BoS Final DT M1 Ch.3, AY 2026-27 [IT61]; start date UNVERIFIED; accessed 2026-10-07'),
+    ('INT25', '2017-04-01', '2026-03-31', 2500,    0, '1961', 's.32(1)(ii); New Appendix I Part B (goodwill excluded, s.2(11))', 'Appendix I rates as read in ICAI BoS Final DT M1 Ch.3, AY 2026-27 [IT61]; start date UNVERIFIED; accessed 2026-10-07'),
+    ('BLD5',  '2026-04-01', NULL,  500,    0, '2025', 's.33(3)(a); Income-tax Rules 2026 r.25(1), Appendix I Part A I(1)', 'Income-tax Rules 2026 (G.S.R. 198(E), 20 Mar 2026) Appendix I [R2026]; Act s.33 [IT25]; accessed 2026-10-07'),
+    ('BLD10', '2026-04-01', NULL, 1000,    0, '2025', 's.33(3)(a); Income-tax Rules 2026 r.25(1), Appendix I Part A I(2)', 'Income-tax Rules 2026 (G.S.R. 198(E), 20 Mar 2026) Appendix I [R2026]; Act s.33 [IT25]; accessed 2026-10-07'),
+    ('BLD40', '2026-04-01', NULL, 4000,    0, '2025', 's.33(3)(a); Income-tax Rules 2026 r.25(1), Appendix I Part A I(4)', 'Income-tax Rules 2026 (G.S.R. 198(E), 20 Mar 2026) Appendix I [R2026]; Act s.33 [IT25]; accessed 2026-10-07'),
+    ('FUR10', '2026-04-01', NULL, 1000,    0, '2025', 's.33(3)(a); Income-tax Rules 2026 r.25(1), Appendix I Part A II (Note 5 electrical fittings)', 'Income-tax Rules 2026 (G.S.R. 198(E), 20 Mar 2026) Appendix I [R2026]; Act s.33 [IT25]; accessed 2026-10-07'),
+    ('PM15',  '2026-04-01', NULL, 1500, 2000, '2025', 's.33(3)(a), s.33(8)-(9) additional 20%; Rules 2026 Appendix I Part A III(1), III(2)(i)', 'Income-tax Rules 2026 (G.S.R. 198(E), 20 Mar 2026) Appendix I [R2026]; Act s.33(8) [IT25]; accessed 2026-10-07'),
+    ('PM30',  '2026-04-01', NULL, 3000, 2000, '2025', 's.33(3)(a), s.33(8)-(9); Rules 2026 Appendix I Part A III(3)(ii), (v)', 'Income-tax Rules 2026 (G.S.R. 198(E), 20 Mar 2026) Appendix I [R2026]; Act s.33(8) [IT25]; accessed 2026-10-07'),
+    ('PM40',  '2026-04-01', NULL, 4000, 2000, '2025', 's.33(3)(a), s.33(8)-(9); Rules 2026 Appendix I Part A III computers incl. software, III(3)(vi)-(viii)', 'Income-tax Rules 2026 (G.S.R. 198(E), 20 Mar 2026) Appendix I [R2026]; Act s.33(8) [IT25]; accessed 2026-10-07'),
+    ('INT25', '2026-04-01', NULL, 2500,    0, '2025', 's.33(3)(a); Rules 2026 Appendix I Part B (goodwill excluded, s.2(17))', 'Income-tax Rules 2026 (G.S.R. 198(E), 20 Mar 2026) Appendix I [R2026]; Act s.2(17) [IT25]; accessed 2026-10-07');
+  INSERT INTO it_block_rates (block_id, effective_from, effective_to, rate_bp, additional_rate_bp, act, section_ref, source, is_seeded)
+    SELECT b.id, m.eff_from, m.eff_to, m.rate, m.addl, m.act, m.sec, m.src, 1 FROM m026_rates m JOIN it_blocks b ON b.code = m.code;
+  DROP TABLE m026_rates;
+
+  -- Default asset groups (editable; ledgers are created at the first posting). Residual 5% — the
+  -- Schedule II ceiling [SCH2] Part A 3(i); method SLM.
+  CREATE TEMP TABLE m026_groups (name TEXT, class TEXT, block TEXT);
+  INSERT INTO m026_groups VALUES
+    ('Buildings', 'I(a)', 'BLD10'),
+    ('Factory buildings', 'I(c)', 'BLD10'),
+    ('Plant and machinery', 'IV(a)', 'PM15'),
+    ('Furniture and fittings', 'V(i)', 'FUR10'),
+    ('Motor vehicles', 'VI(3)', 'PM15'),
+    ('Office equipment', 'XI', 'PM15'),
+    ('Computers', 'XII(ii)', 'PM40'),
+    ('Servers and networks', 'XII(i)', 'PM40'),
+    ('Electrical installations', 'XIV', 'FUR10');
+  INSERT INTO fixed_asset_groups (name, ca_class_id, life_months, residual_bp, method, it_block_id, is_seeded)
+    SELECT g.name, c.id, c.life_months, 500, 'slm', b.id, 1
+      FROM m026_groups g JOIN ca_asset_classes c ON c.code = g.class JOIN it_blocks b ON b.code = g.block;
+  DROP TABLE m026_groups;
+  `,
+  // 027 (WP 3.3) — TCS (tax collected at source) on sales. Number assigned by the orchestrator;
+  // appended after 023 (manufacturing depth), 024/025 (trade cycle) and 026 (fixed assets), none of
+  // which it depends on — only on 005/020/022 (the TDS tables) and 001.
+  //
+  // DATA MODEL — TCS shares the TDS tables, tagged by kind, rather than a parallel tcs_* set:
+  // sections, effective-dated rates, lower-rate certificates, challans + allocation and the
+  // "not applicable" marks are the same shapes under both chapters of the Act, and every service
+  // over them (src/main/services/tds.ts, tdsWorkbench.ts) now takes a kind instead of being
+  // copied. So:
+  // - tds_sections.kind ('tds' | 'tcs'); rate rows and entries take their kind from the section.
+  // - tds_section_rates.base_includes_gst: TCS is computed on "the amount payable by the buyer"
+  //   (GST included — see the GST note below); TDS rows stay 0 (GST excluded, Circular 23/2017).
+  // - tds_certificates.kind (s.206C(9) lower-collection certificates are TCS ones; a certificate
+  //   with no section must not leak across kinds) and tds_challans.kind (a TCS deposit is its own
+  //   challan; allocation refuses entries of the other kind).
+  // - tds_exemptions is rebuilt with PRIMARY KEY (voucher_id, kind) — existing marks become 'tds'.
+  // - tds_entries.gst_in_base: the basis recorded on a TCS entry (1 = the base included GST).
+  // - Ledger / goods tags, separate columns so the TDS tags keep their exact meaning:
+  //   ledgers.tcs_section_id (buyer flagged as collectee), ledgers.tcs_payable_section_id (the
+  //   section's TCS payable ledger under Duties & Taxes, the mirror of tds_payable_section_id),
+  //   ledgers.tcs_default_section_id (a sales ledger: e.g. "Scrap Sales"), stock_items.tcs_section_id
+  //   (goods category: scrap, timber, minerals, a motor vehicle …).
+  //
+  // SOURCES (all accessed 2026-10-07):
+  //  [FA25]   Finance Act, 2025 — https://egazette.gov.in/WriteReadData/2025/262125.pdf
+  //           s.72(a): s.206C(1) Table — timber 2.5% -> 2% (Sl.(iii),(iv)), Sl.(v) "any other
+  //           forest produce" omitted; s.72(b): s.206C(1G) threshold Rs 7 lakh -> Rs 10 lakh;
+  //           s.72(c): proviso to s.206C(1H) "nothing contained in the provisions of this
+  //           sub-section shall apply from the 1st day of April, 2025"; s.73: s.206CCA omitted.
+  //  [206C]   CBDT, s.206C as in force — https://www.incometaxindia.gov.in/w/section-206c-36
+  //           (Table of s.206C(1); (1A)/(1B) Form 27C declaration; (1F) motor vehicle / notified
+  //           goods of value exceeding Rs 10 lakh, "at the time of receipt"; (1G); (7) interest
+  //           1% per month or part (collectible -> collected) + 1.5% (collected -> paid), as
+  //           substituted by Act 15 of 2024 w.e.f. 1-4-2025; time of collection for (1): "at the
+  //           time of debiting ... or at the time of receipt ..., whichever is earlier").
+  //  [206CC]  https://www.incometaxindia.gov.in/w/section-206cc-8 — no PAN: the higher of twice
+  //           the rate and 5%, proviso "shall not exceed twenty per cent"; (1H) capped at 1%.
+  //  [N36]    Notification No. 36/2025, S.O. 1825(E), 22-4-2025 (s.206C(1F) goods of value above
+  //           Rs 10 lakh: wrist watch, art piece, collectibles, yacht/boat/helicopter, sunglasses,
+  //           handbag/purse, shoes, sportswear/equipment, home theatre, race/polo horse) —
+  //           https://egazette.gov.in/WriteReadData/2025/262610.pdf
+  //  [C17]    CBDT Circular 17/2020 (29-9-2020) para 4.6.1 (s.206C(1H)): "no adjustment on account
+  //           of sale return or discount or indirect taxes including GST is required" —
+  //           https://www.incometaxindia.gov.in/w/circular-no.-17/2020-guidelines-under-section-194-o-4-and-section-206c-1-i-of-the-income-tax-act-1961
+  //  [37CA]   Income-tax Rules 1962 rule 37CA(2) — deposit within one week from the last day of
+  //           the month of collection (March included: 7 April) — https://www.incometaxindia.gov.in/w/rule-37ca
+  //  [31AA]   rule 31AA — Form 27EQ due 15 Jul / 15 Oct / 15 Jan / 15 May; [37D] rule 37D — Form
+  //           27D within 15 days of that due date — https://www.incometaxindia.gov.in/w/rule-31aa ,
+  //           https://www.incometaxindia.gov.in/w/rule-37d
+  //  [F27EQ]  Protean Form 27EQ file format v6.9 (27-05-2025), Annexure 2 section codes (A liquor,
+  //           B timber forest lease, C timber other mode, E scrap, I tendu, J minerals, L motor
+  //           vehicle, MA-MJ notified goods in notification order, O overseas tour package, R 1H),
+  //           Annexure 8 collectee codes, Annexure 6 remarks (A s.206C(9), B s.206C(1A), C s.206CC) —
+  //           https://tinpan.proteantech.in/downloads/e-tds/File_Format_27EQ_Regular_Q1_to_Q4_Version_6.9_%2027052025_201011.xls
+  //  [ACT25]  Income-tax Act, 2025 — https://egazette.gov.in/WriteReadData/2025/265620.pdf — TCS is
+  //           s.394(1) Table (Sl. 1 liquor, 2 tendu, 3 timber / forest produce, 4 scrap, 5 coal /
+  //           lignite / iron ore, 6 D(a) motor vehicle / D(b) notified goods above Rs 10 lakh,
+  //           7 LRS, 8 overseas tour package, 9 parking / toll / mine); s.394(1)(c) debit or
+  //           receipt whichever earlier for every row; s.395(3) certificate; s.397(2)(b)(ii) no
+  //           PAN (twice or 5%, max 20%); s.398(3)(a) interest (1% / 1.5%); notification 36/2025
+  //           continues under the savings clause s.536(2)(j).
+  //  [FA26]   Finance Act, 2026 — https://egazette.gov.in/WriteReadData/2026/271439.pdf — s.85
+  //           amends the s.394(1) Table from 1-4-2026: Sl. 1 liquor 1% -> 2%, Sl. 2 tendu
+  //           5% -> 2%, Sl. 4 scrap 1% -> 2%, Sl. 5 minerals 1% -> 2%, Sl. 8 tour package flat 2%;
+  //           Sl. 3 timber 2% and Sl. 6 1% unchanged.
+  //  [R26]    Income-tax Rules 2026 — https://wm.incometaxindia.gov.in/documents/d/guest/income-tax-document-income-tax-rules-2026_2026-04-18_10-56-56_45638f_en
+  //           rule 218(2) deposit within 7 days of month-end, March by 30 April; rule 219(1) Sl.4
+  //           the TCS statement is Form 143 (replaces 27EQ), rule 219(4) due 31 Jul / 31 Oct /
+  //           31 Jan / 31 May; rule 215 Sl.4 certificate Form 133 (replaces 27D), within 15 days.
+  //  [F143]   Protean Form 143 file format v1.1 (tax year 2026-27 on), Annexure 2 collection codes
+  //           (1068 liquor, 1069 tendu, 1070 timber forest lease, 1071 timber other, 1073 scrap,
+  //           1074 minerals, 1075 motor vehicle, 1076-1085 notified goods, 1088 tour package) —
+  //           https://tinpan.proteantech.in/downloads/e-tds/Form%20Number%20143-27EQ%20-%20Q1%20to%20Q4_22072026.xlsx
+  //
+  // GST AND THE BASE: [C17] (s.206C(1H)) says TCS is on the consideration with no deduction for
+  // GST. For s.206C(1) / (1F) and s.394 no circular was found — the statute says "such amount" /
+  // "consideration" payable by the buyer — so every seeded TCS row has base_includes_gst = 1 (the
+  // conservative reading: collecting on the larger figure is recoverable by the buyer, short
+  // collection is a default) — UNVERIFIED, editable per rate row.
+  // NOT MODELLED (UNVERIFIED list in the WP 3.3 report): the 20% slab of s.206C(1G) tour packages
+  // above Rs 10 lakh (seeded at 5%; collect the slab manually), s.206C(1C) (parking / toll /
+  // mining leases) and LRS (authorised dealers only), and FY 2024-25 rates other than 1H.
+  `
+  ALTER TABLE tds_sections ADD COLUMN kind TEXT NOT NULL DEFAULT 'tds' CHECK (kind IN ('tds', 'tcs'));
+  CREATE INDEX idx_tds_sections_kind ON tds_sections(kind);
+  ALTER TABLE tds_section_rates ADD COLUMN base_includes_gst INTEGER NOT NULL DEFAULT 0 CHECK (base_includes_gst IN (0, 1));
+  ALTER TABLE tds_certificates ADD COLUMN kind TEXT NOT NULL DEFAULT 'tds' CHECK (kind IN ('tds', 'tcs'));
+  ALTER TABLE tds_challans ADD COLUMN kind TEXT NOT NULL DEFAULT 'tds' CHECK (kind IN ('tds', 'tcs'));
+  CREATE INDEX idx_tds_challans_kind ON tds_challans(kind, fy_start_year, quarter);
+  ALTER TABLE tds_entries ADD COLUMN gst_in_base INTEGER CHECK (gst_in_base IS NULL OR gst_in_base IN (0, 1));
+
+  CREATE TABLE tds_exemptions_027 (
+    voucher_id INTEGER NOT NULL REFERENCES vouchers(id) ON DELETE CASCADE,
+    kind TEXT NOT NULL DEFAULT 'tds' CHECK (kind IN ('tds', 'tcs')),
+    reason TEXT NOT NULL CHECK (length(reason) BETWEEN 1 AND 200),
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    PRIMARY KEY (voucher_id, kind)
+  );
+  INSERT INTO tds_exemptions_027 (voucher_id, kind, reason, created_at)
+    SELECT voucher_id, 'tds', reason, created_at FROM tds_exemptions;
+  DROP TABLE tds_exemptions;
+  ALTER TABLE tds_exemptions_027 RENAME TO tds_exemptions;
+
+  ALTER TABLE ledgers ADD COLUMN tcs_section_id INTEGER REFERENCES tds_sections(id);
+  ALTER TABLE ledgers ADD COLUMN tcs_payable_section_id INTEGER REFERENCES tds_sections(id);
+  ALTER TABLE ledgers ADD COLUMN tcs_default_section_id INTEGER REFERENCES tds_sections(id);
+  CREATE INDEX idx_ledgers_tcs_payable ON ledgers(tcs_payable_section_id) WHERE tcs_payable_section_id IS NOT NULL;
+  CREATE INDEX idx_ledgers_tcs_section ON ledgers(tcs_section_id) WHERE tcs_section_id IS NOT NULL;
+  ALTER TABLE stock_items ADD COLUMN tcs_section_id INTEGER REFERENCES tds_sections(id);
+
+  -- TCS sections. Codes are unique across the shared master; legacy_code = the 1961 sub-section,
+  -- new_reference = the s.394(1) Table serial [ACT25]. Rates live in the rate rows below.
+  INSERT OR IGNORE INTO tds_sections (code, description, rate, threshold_single, threshold_annual, nature, act, legacy_code, new_reference, kind) VALUES
+    ('206C(1) LIQUOR', 'Sale of alcoholic liquor for human consumption', 2, 0, 0,
+     'Alcoholic liquor for human consumption', 'it_act_1961', '206C(1)', '394(1) Sl. 1', 'tcs'),
+    ('206C(1) TENDU', 'Sale of tendu leaves', 2, 0, 0,
+     'Tendu leaves', 'it_act_1961', '206C(1)', '394(1) Sl. 2', 'tcs'),
+    ('206C(1) TIMBER-FL', 'Sale of timber / forest produce obtained under a forest lease', 2, 0, 0,
+     'Timber or any other forest produce (not tendu leaves) obtained under a forest lease', 'it_act_1961', '206C(1)', '394(1) Sl. 3', 'tcs'),
+    ('206C(1) TIMBER', 'Sale of timber obtained by any other mode', 2, 0, 0,
+     'Timber obtained by any mode other than under a forest lease', 'it_act_1961', '206C(1)', '394(1) Sl. 3', 'tcs'),
+    ('206C(1) SCRAP', 'Sale of scrap', 2, 0, 0,
+     'Scrap', 'it_act_1961', '206C(1)', '394(1) Sl. 4', 'tcs'),
+    ('206C(1) MINERALS', 'Sale of coal, lignite or iron ore', 2, 0, 0,
+     'Minerals, being coal or lignite or iron ore', 'it_act_1961', '206C(1)', '394(1) Sl. 5', 'tcs'),
+    ('206C(1F) VEHICLE', 'Sale of a motor vehicle above Rs 10 lakh', 1, 100000000, 0,
+     'Motor vehicle of value exceeding Rs 10 lakh', 'it_act_1961', '206C(1F)', '394(1) Sl. 6 D(a)', 'tcs'),
+    ('206C(1F) LUXURY', 'Sale of notified goods above Rs 10 lakh', 1, 100000000, 0,
+     'Notified goods of value exceeding Rs 10 lakh (Notification 36/2025: wrist watch, art piece, collectibles, yacht / helicopter, sunglasses, handbag, shoes, sportswear, home theatre, race / polo horse)',
+     'it_act_1961', '206C(1F)', '394(1) Sl. 6 D(b)', 'tcs'),
+    ('206C(1G) TOUR', 'Sale of an overseas tour programme package', 2, 0, 0,
+     'Overseas tour programme package', 'it_act_1961', '206C(1G)', '394(1) Sl. 8', 'tcs'),
+    ('206C(1H)', 'Sale of goods above Rs 50 lakh (not applicable from 1 Apr 2025)', 0.1, 0, 500000000,
+     'Sale of goods: consideration above Rs 50 lakh a year from a buyer (seller turnover above Rs 10 crore) — switched off from 1 Apr 2025 by FA 2025 s.72(c)',
+     'it_act_1961', '206C(1H)', NULL, 'tcs');
+
+  -- Rate rows. Paise: Rs 10 lakh = 100000000; Rs 50 lakh = 500000000. No-PAN 5% floor in
+  -- no_pan_rate_bp; the engine takes the higher of that and twice the rate, capped at 20% [206CC].
+  CREATE TEMP TABLE m027_seed (code TEXT, eff_from TEXT, eff_to TEXT, rate_bp INTEGER, single INTEGER, annual INTEGER,
+    excess INTEGER, no_pan INTEGER, return_code TEXT, source TEXT);
+  INSERT INTO m027_seed VALUES
+    -- FY 2025-26: 1961 Act s.206C as amended by [FA25]; 27EQ section codes [F27EQ].
+    ('206C(1) LIQUOR', '2025-04-01', '2026-03-31', 100, 0, 0, 0, 500, 'A',
+     '1961 s.206C(1) Table Sl.(i) 1% [https://www.incometaxindia.gov.in/w/section-206c-36]; no PAN s.206CC; 27EQ code A; base incl. GST UNVERIFIED; accessed 2026-10-07'),
+    ('206C(1) TENDU', '2025-04-01', '2026-03-31', 500, 0, 0, 0, 500, 'I',
+     '1961 s.206C(1) Table Sl.(ii) 5% [https://www.incometaxindia.gov.in/w/section-206c-36]; no PAN s.206CC (twice = 10%); 27EQ code I; accessed 2026-10-07'),
+    ('206C(1) TIMBER-FL', '2025-04-01', '2026-03-31', 200, 0, 0, 0, 500, 'B',
+     '1961 s.206C(1) Table Sl.(iii) 2.5% -> 2% by Finance Act 2025 s.72(a) [https://egazette.gov.in/WriteReadData/2025/262125.pdf]; 27EQ code B; accessed 2026-10-07'),
+    ('206C(1) TIMBER', '2025-04-01', '2026-03-31', 200, 0, 0, 0, 500, 'C',
+     '1961 s.206C(1) Table Sl.(iv) 2.5% -> 2% by Finance Act 2025 s.72(a) [https://egazette.gov.in/WriteReadData/2025/262125.pdf]; 27EQ code C; accessed 2026-10-07'),
+    ('206C(1) SCRAP', '2025-04-01', '2026-03-31', 100, 0, 0, 0, 500, 'E',
+     '1961 s.206C(1) Table Sl.(vi) 1% [https://www.incometaxindia.gov.in/w/section-206c-36]; no PAN s.206CC; 27EQ code E; accessed 2026-10-07'),
+    ('206C(1) MINERALS', '2025-04-01', '2026-03-31', 100, 0, 0, 0, 500, 'J',
+     '1961 s.206C(1) Table Sl.(vii) 1% [https://www.incometaxindia.gov.in/w/section-206c-36]; 27EQ code J; accessed 2026-10-07'),
+    ('206C(1F) VEHICLE', '2025-04-01', '2026-03-31', 100, 100000000, 0, 0, 500, 'L',
+     '1961 s.206C(1F)(a) 1% of the consideration, value exceeding Rs 10 lakh, at receipt [https://www.incometaxindia.gov.in/w/section-206c-36]; 27EQ code L; accessed 2026-10-07'),
+    ('206C(1F) LUXURY', '2025-04-22', '2026-03-31', 100, 100000000, 0, 0, 500, NULL,
+     '1961 s.206C(1F)(b) + Notification 36/2025 (22-4-2025) [https://egazette.gov.in/WriteReadData/2025/262610.pdf]; 27EQ code MA-MJ by the good (set it per good); accessed 2026-10-07'),
+    ('206C(1G) TOUR', '2025-04-01', '2026-03-31', 500, 0, 0, 0, 500, 'O',
+     '1961 s.206C(1G)(b) 5% up to Rs 10 lakh a year [Finance Act 2025 s.72(b)]; the 20% on the excess over Rs 10 lakh is NOT modelled — collect it manually; 27EQ code O; accessed 2026-10-07'),
+    -- 1H: inserted by Finance Act 2020 from 1-10-2020; 0.1% of consideration above Rs 50 lakh a
+    -- year; no PAN capped at 1% (s.206CC proviso); GST included [C17]; switched off from
+    -- 1-4-2025 by [FA25] s.72(c) — the row ends 31-3-2025 so older vouchers keep their figure.
+    ('206C(1H)', '2020-10-01', '2025-03-31', 10, 0, 500000000, 1, 100, 'R',
+     '1961 s.206C(1H) (0.1% above Rs 50 lakh); GST included per CBDT Circular 17/2020 para 4.6.1; not applicable from 1-4-2025 per Finance Act 2025 s.72(c) [https://egazette.gov.in/WriteReadData/2025/262125.pdf]; accessed 2026-10-07'),
+    -- From 1 Apr 2026: Income-tax Act 2025 s.394(1) Table as amended by [FA26] s.85; Form 143 codes [F143].
+    ('206C(1) LIQUOR', '2026-04-01', NULL, 200, 0, 0, 0, 500, '1068',
+     '2025 Act s.394(1) Table Sl. 1, 1% -> 2% by Finance Act 2026 s.85 [https://egazette.gov.in/WriteReadData/2026/271439.pdf]; no PAN s.397(2)(b)(ii); Form 143 code 1068; accessed 2026-10-07'),
+    ('206C(1) TENDU', '2026-04-01', NULL, 200, 0, 0, 0, 500, '1069',
+     '2025 Act s.394(1) Table Sl. 2, 5% -> 2% by Finance Act 2026 s.85; Form 143 code 1069; accessed 2026-10-07'),
+    ('206C(1) TIMBER-FL', '2026-04-01', NULL, 200, 0, 0, 0, 500, '1070',
+     '2025 Act s.394(1) Table Sl. 3, 2% [https://egazette.gov.in/WriteReadData/2025/265620.pdf]; Form 143 code 1070; accessed 2026-10-07'),
+    ('206C(1) TIMBER', '2026-04-01', NULL, 200, 0, 0, 0, 500, '1071',
+     '2025 Act s.394(1) Table Sl. 3, 2% [https://egazette.gov.in/WriteReadData/2025/265620.pdf]; Form 143 code 1071; accessed 2026-10-07'),
+    ('206C(1) SCRAP', '2026-04-01', NULL, 200, 0, 0, 0, 500, '1073',
+     '2025 Act s.394(1) Table Sl. 4, 1% -> 2% by Finance Act 2026 s.85; Form 143 code 1073; accessed 2026-10-07'),
+    ('206C(1) MINERALS', '2026-04-01', NULL, 200, 0, 0, 0, 500, '1074',
+     '2025 Act s.394(1) Table Sl. 5, 1% -> 2% by Finance Act 2026 s.85; Form 143 code 1074; accessed 2026-10-07'),
+    ('206C(1F) VEHICLE', '2026-04-01', NULL, 100, 100000000, 0, 0, 500, '1075',
+     '2025 Act s.394(1) Table Sl. 6 D(a), 1% of consideration above Rs 10 lakh; debit or receipt whichever earlier s.394(1)(c); Form 143 code 1075; accessed 2026-10-07'),
+    ('206C(1F) LUXURY', '2026-04-01', NULL, 100, 100000000, 0, 0, 500, NULL,
+     '2025 Act s.394(1) Table Sl. 6 D(b) + Notification 36/2025 (saved by s.536(2)(j)); Form 143 codes 1076-1085 by the good; accessed 2026-10-07'),
+    ('206C(1G) TOUR', '2026-04-01', NULL, 200, 0, 0, 0, 500, '1088',
+     '2025 Act s.394(1) Table Sl. 8, flat 2% by Finance Act 2026 s.85; Form 143 code 1088; accessed 2026-10-07');
+
+  INSERT INTO tds_section_rates (section_id, effective_from, effective_to, deductee_type, rate_bp,
+      threshold_single_paise, threshold_annual_paise, threshold_basis, threshold_excess_only, no_pan_rate_bp,
+      return_code, base_includes_gst, source)
+    SELECT s.id, m.eff_from, m.eff_to, 'any', m.rate_bp, m.single, m.annual, 'fy', m.excess, m.no_pan, m.return_code, 1, m.source
+      FROM m027_seed m JOIN tds_sections s ON s.code = m.code AND s.kind = 'tcs';
+  DROP TABLE m027_seed;
+  `,
+
+  // 028 (WP 3.4) — GST expansion. Number assigned by the orchestrator; appended after 026 (WP 3.6,
+  // fixed assets) and 027 (WP 3.3, TCS), whose content it does not depend on — it only references
+  // vouchers (001).
   // - gst_ims_actions: the Invoice Management System action the user decided for one GSTR-2B /
   //   IMS record (accept / reject / pending), keyed by return period + supplier GSTIN + document
   //   type + number. record_json keeps the portal figures the decision was taken on (for the
