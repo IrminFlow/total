@@ -12,6 +12,7 @@ import { fyOf } from '@shared/dates'
 import { nextSeriesNumber } from './numbering'
 import { cashBankGroupIds } from './masters'
 import { getFeatures } from './config'
+import { openSalesOrderValue } from './tradeDocs'
 import { writeAudit } from './audit'
 import { ensureTdsPayableLedger, PENDING_PAYABLE_LEDGER, PENDING_TCS_PAYABLE_LEDGER, prepareVoucherTds, prepareVoucherWithholding } from './tds'
 import { parseLineSerials, rebuildItemSerials, syncVoucherSerials } from './serials'
@@ -653,14 +654,19 @@ export function saveVoucher(db: DB, raw: VoucherInput, existingId?: number, hook
           )
           .get(party.id) as { bal: number }
         const outstanding = party.opening_balance + bal
-        if (outstanding > party.credit_limit) {
+        // WP 2.5c (§9 Q9): with Orders & challans on, a sales invoice's warning also names the
+        // party's open sales-order value — warn-only, never a block, outstandings unchanged.
+        const openSalesOrders = features.orders && vt.kind === 'sales' ? openSalesOrderValue(db, party.id) : undefined
+        const overWithOrders = openSalesOrders !== undefined && outstanding + openSalesOrders > party.credit_limit
+        if (outstanding > party.credit_limit || overWithOrders) {
           warnings.creditLimitExceeded = {
             ledgerId: party.id,
             ledgerName: party.name,
             creditLimit: party.credit_limit,
-            outstanding
+            outstanding,
+            ...(openSalesOrders !== undefined ? { openSalesOrders, ordersOnly: outstanding <= party.credit_limit } : {})
           }
-          if (features.enforceCreditLimit) {
+          if (features.enforceCreditLimit && outstanding > party.credit_limit) {
             throw new Error(
               `Credit limit exceeded for ${party.name}: outstanding ${outstanding} > limit ${party.credit_limit} paise`
             )

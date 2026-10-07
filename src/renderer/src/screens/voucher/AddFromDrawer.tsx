@@ -11,7 +11,7 @@ import { formatQtyMilli } from '@shared/money'
 import type { SourcePick } from '@shared/voucherEdit'
 import { Button, Drawer } from '../../components/ui'
 import { DataTable, defineColumns } from '../../components/table'
-import { ItemLink, VoucherLink } from '../../components/links'
+import { DocLink, ItemLink } from '../../components/links'
 import { useStockItems } from '../../components/pickers'
 
 export function AddFromDrawer({
@@ -59,7 +59,7 @@ export function AddFromDrawer({
       defineColumns<OpenSourceLine>([
         {
           id: 'doc', header: 'Document', kind: 'text', value: (r) => docOf(r.label), minWidth: 130, hideable: false,
-          cell: (r) => <VoucherLink voucherId={r.voucherId} label={docOf(r.label)} />
+          cell: (r) => <DocLink voucherId={r.voucherId} tradeDocId={r.tradeDocId} kind={r.kind} label={docOf(r.label)} />
         },
         { id: 'line', header: 'Line', kind: 'number', value: (r) => lineOf(r.label), width: 56, defaultHidden: true },
         { id: 'date', header: 'Date', kind: 'date', value: (r) => r.date, className: 'text-muted' },

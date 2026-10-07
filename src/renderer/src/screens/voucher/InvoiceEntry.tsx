@@ -27,7 +27,8 @@ import { blankItemRow, ItemLineGrid, type ItemRow } from './ItemLineGrid'
 import { AddFromDrawer } from './AddFromDrawer'
 import { addFromFor, rowsFromSourcePicks, sourceLocksGoods, type SourcePick } from '@shared/voucherEdit'
 import type { OpenSourceLine } from '@shared/tradeCycle/types'
-import { VoucherLink } from '../../components/links'
+import { DocLink } from '../../components/links'
+import { creditLimitWarningText } from '@shared/tradeCycle/edit'
 
 // ---------- invoice mode (sales / purchase / notes) ----------
 
@@ -328,6 +329,8 @@ export function InvoiceEntry({
       if (invoiceKindTakesTds(kind)) await tdsDeduction.afterSave(result.id)
       if (features.tcs && invoiceKindTakesTcs(kind)) await tcsCollection.afterSave(result.id)
       toast.push('success', `${result.number} ${isEdit ? 'altered' : 'saved'} — ${formatPaise(grandTotal, { symbol: true })}`)
+      // Credit limit (warn-only; with Orders & challans on it names the open sales-order value).
+      if (result.warnings?.creditLimitExceeded) toast.push('warning', creditLimitWarningText(result.warnings.creditLimitExceeded))
       if (andPdf && kind === 'sales') {
         await api.invoice.pdf(result.id)
       }
@@ -433,7 +436,7 @@ export function InvoiceEntry({
     return {
       label: l.label,
       maxQtyMilli: Math.max(0, l.pendingMilli - qtyInForm(l.lineUid, r.key)),
-      lockDetail: sourceLocksGoods(l.kind as VoucherKind, kind, r.source.linkType)
+      lockDetail: sourceLocksGoods(l.kind, kind, r.source.linkType)
     }
   }
   const sourceChip = (r: ItemRow): React.ReactNode => {
@@ -442,7 +445,7 @@ export function InvoiceEntry({
     return (
       <span className="mt-0.5 inline-flex items-center gap-1 rounded bg-panel2 px-1.5 text-hint text-muted" data-testid="chip-line-source">
         {r.source.linkType === 'return' ? 'against' : 'from'}{' '}
-        {l ? <VoucherLink voucherId={l.voucherId} label={l.label.replace(/ line (\d+)$/, ' · line $1')} /> : 'a linked line'}
+        {l ? <DocLink voucherId={l.voucherId} tradeDocId={l.tradeDocId} kind={l.kind} label={l.label.replace(/ line (\d+)$/, ' · line $1')} /> : 'a linked line'}
       </span>
     )
   }
@@ -451,6 +454,16 @@ export function InvoiceEntry({
     setRows((rs) => [...rs.filter((r) => r.itemId != null || r.source), ...added, blankItemRow()])
     setAddFromOpen(false)
   }
+  // WP 2.5c "Convert to invoice / bill" on an order: draw all of its pending lines once loaded.
+  const convertFrom = useRef(draft?.fromTradeDocId ?? null)
+  useEffect(() => {
+    if (convertFrom.current == null || !openLines) return
+    const docId = convertFrom.current
+    convertFrom.current = null
+    const picks = openLines.filter((l) => l.tradeDocId === docId).map((line) => ({ line, qtyMilli: line.pendingMilli }))
+    if (picks.length > 0) insertPicks(picks)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [openLines])
   const removeRow = (i: number): void =>
     setRows((rs) => {
       const next = rs.filter((_r, j) => j !== i)
@@ -491,7 +504,7 @@ export function InvoiceEntry({
         <Field label={isSalesSide ? 'Party (buyer)' : 'Party (supplier)'}>
           <div className="flex items-center gap-1.5">
             <LedgerPicker
-              autoFocus={!isEdit}
+              autoFocus={!isEdit && draft?.fromTradeDocId == null}
               value={partyId}
               onPick={setPartyId}
               placeholder="Party ledger"

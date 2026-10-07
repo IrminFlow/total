@@ -49,13 +49,17 @@ export interface ItemLineGridProps {
   rowNote?: (row: ItemRow, i: number) => ReactNode
   /** Remove a row (shown for rows drawn from a source, which have no blank-out path). */
   onRemoveRow?: (i: number) => void
+  /** WP 2.5c: false hides the per-line stock detail (godown / batch / serials) — quotations and
+   *  orders move no goods. Default: shown whenever inventory is on. */
+  stockDetail?: boolean
 }
 
 export function ItemLineGrid({
   rows, setRow, setRows, direction, priceLevelId, fxActive, date, voucherId, fallbackGstRate, onCreateItem,
-  lockedBySource, rowNote, onRemoveRow
+  lockedBySource, rowNote, onRemoveRow, stockDetail = true
 }: ItemLineGridProps): React.JSX.Element {
   const features = useFeatures()
+  const stockDetailOn = features.inventory && stockDetail
   const items = useStockItems()
   const { data: units } = useQuery({ queryKey: ['units'], queryFn: api.units.list })
   const itemMap = useMemo(() => new Map(items.map((i) => [i.id, i])), [items])
@@ -80,7 +84,7 @@ export function ItemLineGrid({
             <th className="r w-28">Disc.</th>
             <th className="r w-24">GST %</th>
             <th className="r w-36">Amount</th>
-            {features.inventory && <th className="w-6"><span className="sr-only">Stock details</span></th>}
+            {stockDetailOn && <th className="w-6"><span className="sr-only">Stock details</span></th>}
           </tr>
         </thead>
         <tbody data-testid="rows-invoice-lines">
@@ -90,10 +94,10 @@ export function ItemLineGrid({
             const amount =
               item && qty > 0 && r.rate != null ? Math.max(0, Math.round(qty * r.rate) - (r.discount ?? 0)) : 0
             const locked = lockedBySource?.(r) ?? null
-            const detailOpen = features.inventory && details.isOpen(r.key, item)
+            const detailOpen = stockDetailOn && details.isOpen(r.key, item)
             return (
               <Fragment key={r.key}>
-              <tr onKeyDown={features.inventory ? details.onRowKeyDown(r.key) : undefined} data-line-key={r.key}>
+              <tr onKeyDown={stockDetailOn ? details.onRowKeyDown(r.key) : undefined} data-line-key={r.key}>
                 <td>
                   {locked ? (
                     <div className="flex items-center gap-1.5">
@@ -175,9 +179,9 @@ export function ItemLineGrid({
                 </td>
                 <td className="r">
                   <Money paise={amount} className="text-body" />
-                  {(!detailOpen || locked?.lockDetail) && features.inventory && <div><LineStockSummary fields={r} /></div>}
+                  {(!detailOpen || locked?.lockDetail) && stockDetailOn && <div><LineStockSummary fields={r} /></div>}
                 </td>
-                {features.inventory && (
+                {stockDetailOn && (
                   <td>
                     <LineDetailToggle open={detailOpen} onToggle={() => details.toggle(r.key)} fields={r} disabled={!item || !!locked?.lockDetail} />
                   </td>
