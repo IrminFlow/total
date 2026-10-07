@@ -28,11 +28,13 @@ function bestOf3(fn: () => unknown): number {
 describe.skipIf(skip)('stock valuation performance (100k inventory lines)', () => {
   let db: DB
   let godown = 0
+  let derivedMarks: stockAnalysis.DerivedCostingMark[] = []
   beforeAll(() => {
     db = seededDb()
     const fx = seedStockFixture(db, { vouchers: 50_000, items: 500, seed: 99, days: 730 })
     expect(fx.inventoryLines).toBeGreaterThanOrEqual(100_000)
     godown = fx.godownIds[0]!
+    derivedMarks = fx.mixedJournalIds.map((voucherId) => ({ voucherId, additionalCostPaise: null }))
   }, 120_000)
 
   const cases: [string, () => unknown][] = [
@@ -41,8 +43,19 @@ describe.skipIf(skip)('stock valuation performance (100k inventory lines)', () =
     ['stockValuesAt(13 dates)', () =>
       stockAnalysis.stockValuesAt(db, Array.from({ length: 13 }, (_, i) => new Date(Date.UTC(2025, 3 + i * 2, 0)).toISOString().slice(0, 10)))],
     ['periodConsumption', () => stockAnalysis.periodConsumption(db, '2026-04-01', '2027-03-31')],
-    ['stockByGodown', () => stockAnalysis.stockByGodown(db, '2027-03-31')]
+    ['stockByGodown', () => stockAnalysis.stockByGodown(db, '2027-03-31')],
+    // Every mixed stock journal (~11k) marked derived — the WP 2.2 steady state, worst case.
+    ['stockSummary(all journals derived)', () => withDerived(() => stockAnalysis.stockSummary(db, '2027-03-31'))],
+    ['stockSummary(godown, all derived)', () => withDerived(() => stockAnalysis.stockSummary(db, '2027-03-31', { godownId: godown }))]
   ]
+  function withDerived<T>(fn: () => T): T {
+    stockAnalysis.setDerivedCostingSource(() => derivedMarks)
+    try {
+      return fn()
+    } finally {
+      stockAnalysis.setDerivedCostingSource(null)
+    }
+  }
   for (const [name, fn] of cases) {
     it(`${name} returns within ${BOUND_MS} ms`, () => {
       const best = bestOf3(fn)
