@@ -56,6 +56,9 @@ export interface InvoiceFormState {
   instrumentDate: string | null
   /** TDS deducted on a purchase invoice (WP 3.1). Absent/null = none. */
   tds?: InvoiceTdsState | null
+  /** TCS collected on a sales invoice (WP 3.3) — same shape, the amount in `tdsAmount`.
+   *  Absent/null = none. */
+  tcs?: InvoiceTdsState | null
 }
 
 /** A purchase invoice's TDS deduction: the party (vendor) line is reduced by `tdsAmount` and a
@@ -67,6 +70,11 @@ export type InvoiceTdsState = TdsDeductionState
 /** Only purchase invoices carry TDS in invoice mode (the buyer deducts); every other trading
  *  kind with a TDS entry falls back to accounting mode. */
 export const invoiceKindTakesTds = (kind: VoucherKind): boolean => kind === 'purchase'
+
+/** Only sales invoices carry TCS in invoice mode (the seller collects, WP 3.3): the buyer is
+ *  debited the invoice total PLUS the TCS, and the section's TCS payable ledger is credited as
+ *  the invoice's last line (or, `pending`, appended by saveVoucher — autoPayable). */
+export const invoiceKindTakesTcs = (kind: VoucherKind): boolean => kind === 'sales'
 
 export const blankInvoiceRow = (): InvoiceRowState => ({
   itemId: null, qtyText: '', rate: null, discount: null, godownId: null, batchId: null
@@ -96,7 +104,7 @@ export interface InvoiceContext {
   kind: VoucherKind
   companyStateCode: string
   items: ReadonlyMap<number, { gstRate: number | null; cessRate: number | null }>
-  ledgers: ReadonlyMap<number, { stateCode: string | null; gstRate: number | null; tdsPayableSectionId?: number | null }>
+  ledgers: ReadonlyMap<number, { stateCode: string | null; gstRate: number | null; tdsPayableSectionId?: number | null; tcsPayableSectionId?: number | null }>
 }
 
 export interface InvoiceLineDetail {
@@ -208,8 +216,15 @@ export function buildInvoicePayload(
     if (tds.tdsAmount <= 0 || tds.tdsAmount >= rounded) return { ok: false, error: 'TDS must be less than the invoice total' }
     if (!tds.pending && tds.payableLedgerId == null) return { ok: false, error: 'No TDS payable ledger for the deduction' }
   }
-  // With TDS the vendor is owed the invoice total less the deduction.
-  const partyAmount = rounded - (tds?.tdsAmount ?? 0)
+  const tcs = state.tcs ?? null
+  if (tcs) {
+    if (!invoiceKindTakesTcs(ctx.kind)) return { ok: false, error: 'TCS can only be collected on a sales invoice' }
+    if (tcs.tdsAmount <= 0) return { ok: false, error: 'TCS must be positive' }
+    if (!tcs.pending && tcs.payableLedgerId == null) return { ok: false, error: 'No TCS payable ledger for the collection' }
+  }
+  // With TDS the vendor is owed the invoice total less the deduction; with TCS the buyer owes
+  // the invoice total plus the collection.
+  const partyAmount = rounded - (tds?.tdsAmount ?? 0) + (tcs?.tdsAmount ?? 0)
   const partyDr = partyIsDebit(ctx.kind)
   const partySide = partyDr ? 'dr' : 'cr'
   const counter = partyDr ? 'cr' : 'dr'
@@ -230,6 +245,10 @@ export function buildInvoicePayload(
   // creates the ledger), which is what invoiceStateFromVoucher looks for on the way back.
   if (tds && !tds.pending && tds.payableLedgerId != null) {
     lines.push({ ledgerId: tds.payableLedgerId, drCr: partySide, amount: tds.tdsAmount, costAllocations: [] })
+  }
+  // The TCS payable credit is likewise the LAST line (a sale's counter side).
+  if (tcs && !tcs.pending && tcs.payableLedgerId != null) {
+    lines.push({ ledgerId: tcs.payableLedgerId, drCr: counter, amount: tcs.tdsAmount, costAllocations: [] })
   }
   const billName = state.billName.trim()
   return {
@@ -275,6 +294,9 @@ export function buildInvoicePayload(
             sectionId: tds.sectionId, baseAmount: tds.baseAmount, tdsAmount: tds.tdsAmount,
             isManual: tds.isManual, autoPayable: tds.pending
           }
+        : null,
+      tcs: tcs
+        ? { sectionId: tcs.sectionId, baseAmount: tcs.baseAmount, tcsAmount: tcs.tdsAmount, isManual: tcs.isManual, autoPayable: tcs.pending }
         : null
     }
   }
@@ -286,7 +308,7 @@ export function emptyInvoiceState(date: string): InvoiceFormState {
     date, number: '', partyId: null, accountId: null, rows: [blankInvoiceRow()], narration: '',
     vehicleNo: '', transporterId: '', distanceKm: '', currencyCode: '', fxRateText: '', posOverride: null,
     optional: false, billName: '', billDueDate: date, manualNewBillMode: false, noteBillRefs: [],
-    reference: null, instrumentNo: null, instrumentDate: null, tds: null
+    reference: null, instrumentNo: null, instrumentDate: null, tds: null, tcs: null
   }
 }
 
@@ -318,6 +340,23 @@ export function invoiceStateFromVoucher(
       isManual: !!v.tds.isManual, payableLedgerId: last.ledgerId, pending: false
     }
     lines = v.lines.slice(0, -1)
+  }
+  let tcs: InvoiceTdsState | null = null
+  if (v.tcs) {
+    if (!invoiceKindTakesTcs(kind)) return { ok: false, reason: 'it carries a TCS collection' }
+    const last = lines[lines.length - 1]
+    const tag = last ? ledgerFacts?.get(last.ledgerId)?.tcsPayableSectionId : undefined
+    if (
+      !last || last.drCr !== 'cr' || last.ledgerId === v.partyLedgerId || last.amount !== v.tcs.tcsAmount ||
+      (ledgerFacts && tag !== v.tcs.sectionId)
+    ) {
+      return { ok: false, reason: "its TCS payable credit isn't the invoice's last line" }
+    }
+    tcs = {
+      sectionId: v.tcs.sectionId, baseAmount: v.tcs.baseAmount, tdsAmount: v.tcs.tcsAmount,
+      isManual: !!v.tcs.isManual, payableLedgerId: last.ledgerId, pending: false
+    }
+    lines = lines.slice(0, -1)
   }
   if (v.lines.some((l) => l.costAllocations.length > 0)) return { ok: false, reason: 'it has cost-centre allocations' }
   if (v.inventory.length === 0) return { ok: false, reason: 'it has no item lines' }
@@ -393,7 +432,8 @@ export function invoiceStateFromVoucher(
       reference: p.reference,
       instrumentNo: p.instrumentNo,
       instrumentDate: p.instrumentDate,
-      tds
+      tds,
+      tcs
     }
   }
 }

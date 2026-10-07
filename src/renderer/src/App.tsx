@@ -37,6 +37,7 @@ import { BankingScreen } from './screens/Banking'
 import { EdocsScreen } from './screens/Edocs'
 import { PayrollScreen } from './screens/Payroll'
 import { TdsScreen } from './screens/Tds'
+import { TcsScreen } from './screens/Tcs'
 import { CostCentresScreen } from './screens/CostCentres'
 import { BudgetsScreen } from './screens/Budgets'
 import { YearEndScreen } from './screens/YearEnd'
@@ -197,6 +198,7 @@ export default function App(): React.JSX.Element {
           {screen.name === 'banking' && <BankingScreen />}
           {screen.name === 'payroll' && <PayrollScreen />}
           {screen.name === 'tds' && <TdsScreen />}
+          {screen.name === 'tcs' && <TcsScreen />}
           {screen.name === 'cost-centres' && <CostCentresScreen />}
           {screen.name === 'budgets' && <BudgetsScreen />}
           {screen.name === 'year-end' && <YearEndScreen />}

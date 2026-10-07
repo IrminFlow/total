@@ -33,6 +33,7 @@ const ALLOW: { file: string; contains: string; reason: string }[] = [
   { file: 'vouchers.ts', contains: 'DELETE FROM inventory_lines WHERE voucher_id', reason: 'saveVoucher replaces the line set' },
   { file: 'vouchers.ts', contains: 'is_absolute, line_order)\n', reason: 'the pre-024 INSERT (data-migration fixtures only)' },
   { file: 'tradeLinks.ts', contains: 'PRAGMA table_info(inventory_lines)', reason: 'schema probe' },
+  { file: 'tcsEvents.ts', contains: 'FROM inventory_lines WHERE voucher_id IN', reason: 'TCS goods category = the items sold on the invoice (TCS is on the sale, wherever the goods moved)' },
   { file: 'jobWork.ts', contains: 'FROM inventory_lines il JOIN stock_items si ON si.id = il.stock_item_id JOIN units u', reason: "ITC-04: a job-work challan's own lines (a stock journal — always stock-moving)" },
   { file: 'manufactureReports.ts', contains: 'FROM inventory_lines WHERE voucher_id IN', reason: "a manufacture's own lines (stock journals — always stock-moving)" },
   { file: 'stockAnalysis.ts', contains: 'JOIN inventory_lines il ON il.voucher_id = mo.voucher_id', reason: "maps a manufacture's by-product rows to its own line ids" }

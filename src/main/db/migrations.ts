@@ -1525,5 +1525,197 @@ export const MIGRATIONS: string[] = [
     SELECT g.name, c.id, c.life_months, 500, 'slm', b.id, 1
       FROM m026_groups g JOIN ca_asset_classes c ON c.code = g.class JOIN it_blocks b ON b.code = g.block;
   DROP TABLE m026_groups;
+  `,
+  // 027 (WP 3.3) — TCS (tax collected at source) on sales. Number assigned by the orchestrator;
+  // appended after 023 (manufacturing depth), 024/025 (trade cycle) and 026 (fixed assets), none of
+  // which it depends on — only on 005/020/022 (the TDS tables) and 001.
+  //
+  // DATA MODEL — TCS shares the TDS tables, tagged by kind, rather than a parallel tcs_* set:
+  // sections, effective-dated rates, lower-rate certificates, challans + allocation and the
+  // "not applicable" marks are the same shapes under both chapters of the Act, and every service
+  // over them (src/main/services/tds.ts, tdsWorkbench.ts) now takes a kind instead of being
+  // copied. So:
+  // - tds_sections.kind ('tds' | 'tcs'); rate rows and entries take their kind from the section.
+  // - tds_section_rates.base_includes_gst: TCS is computed on "the amount payable by the buyer"
+  //   (GST included — see the GST note below); TDS rows stay 0 (GST excluded, Circular 23/2017).
+  // - tds_certificates.kind (s.206C(9) lower-collection certificates are TCS ones; a certificate
+  //   with no section must not leak across kinds) and tds_challans.kind (a TCS deposit is its own
+  //   challan; allocation refuses entries of the other kind).
+  // - tds_exemptions is rebuilt with PRIMARY KEY (voucher_id, kind) — existing marks become 'tds'.
+  // - tds_entries.gst_in_base: the basis recorded on a TCS entry (1 = the base included GST).
+  // - Ledger / goods tags, separate columns so the TDS tags keep their exact meaning:
+  //   ledgers.tcs_section_id (buyer flagged as collectee), ledgers.tcs_payable_section_id (the
+  //   section's TCS payable ledger under Duties & Taxes, the mirror of tds_payable_section_id),
+  //   ledgers.tcs_default_section_id (a sales ledger: e.g. "Scrap Sales"), stock_items.tcs_section_id
+  //   (goods category: scrap, timber, minerals, a motor vehicle …).
+  //
+  // SOURCES (all accessed 2026-10-07):
+  //  [FA25]   Finance Act, 2025 — https://egazette.gov.in/WriteReadData/2025/262125.pdf
+  //           s.72(a): s.206C(1) Table — timber 2.5% -> 2% (Sl.(iii),(iv)), Sl.(v) "any other
+  //           forest produce" omitted; s.72(b): s.206C(1G) threshold Rs 7 lakh -> Rs 10 lakh;
+  //           s.72(c): proviso to s.206C(1H) "nothing contained in the provisions of this
+  //           sub-section shall apply from the 1st day of April, 2025"; s.73: s.206CCA omitted.
+  //  [206C]   CBDT, s.206C as in force — https://www.incometaxindia.gov.in/w/section-206c-36
+  //           (Table of s.206C(1); (1A)/(1B) Form 27C declaration; (1F) motor vehicle / notified
+  //           goods of value exceeding Rs 10 lakh, "at the time of receipt"; (1G); (7) interest
+  //           1% per month or part (collectible -> collected) + 1.5% (collected -> paid), as
+  //           substituted by Act 15 of 2024 w.e.f. 1-4-2025; time of collection for (1): "at the
+  //           time of debiting ... or at the time of receipt ..., whichever is earlier").
+  //  [206CC]  https://www.incometaxindia.gov.in/w/section-206cc-8 — no PAN: the higher of twice
+  //           the rate and 5%, proviso "shall not exceed twenty per cent"; (1H) capped at 1%.
+  //  [N36]    Notification No. 36/2025, S.O. 1825(E), 22-4-2025 (s.206C(1F) goods of value above
+  //           Rs 10 lakh: wrist watch, art piece, collectibles, yacht/boat/helicopter, sunglasses,
+  //           handbag/purse, shoes, sportswear/equipment, home theatre, race/polo horse) —
+  //           https://egazette.gov.in/WriteReadData/2025/262610.pdf
+  //  [C17]    CBDT Circular 17/2020 (29-9-2020) para 4.6.1 (s.206C(1H)): "no adjustment on account
+  //           of sale return or discount or indirect taxes including GST is required" —
+  //           https://www.incometaxindia.gov.in/w/circular-no.-17/2020-guidelines-under-section-194-o-4-and-section-206c-1-i-of-the-income-tax-act-1961
+  //  [37CA]   Income-tax Rules 1962 rule 37CA(2) — deposit within one week from the last day of
+  //           the month of collection (March included: 7 April) — https://www.incometaxindia.gov.in/w/rule-37ca
+  //  [31AA]   rule 31AA — Form 27EQ due 15 Jul / 15 Oct / 15 Jan / 15 May; [37D] rule 37D — Form
+  //           27D within 15 days of that due date — https://www.incometaxindia.gov.in/w/rule-31aa ,
+  //           https://www.incometaxindia.gov.in/w/rule-37d
+  //  [F27EQ]  Protean Form 27EQ file format v6.9 (27-05-2025), Annexure 2 section codes (A liquor,
+  //           B timber forest lease, C timber other mode, E scrap, I tendu, J minerals, L motor
+  //           vehicle, MA-MJ notified goods in notification order, O overseas tour package, R 1H),
+  //           Annexure 8 collectee codes, Annexure 6 remarks (A s.206C(9), B s.206C(1A), C s.206CC) —
+  //           https://tinpan.proteantech.in/downloads/e-tds/File_Format_27EQ_Regular_Q1_to_Q4_Version_6.9_%2027052025_201011.xls
+  //  [ACT25]  Income-tax Act, 2025 — https://egazette.gov.in/WriteReadData/2025/265620.pdf — TCS is
+  //           s.394(1) Table (Sl. 1 liquor, 2 tendu, 3 timber / forest produce, 4 scrap, 5 coal /
+  //           lignite / iron ore, 6 D(a) motor vehicle / D(b) notified goods above Rs 10 lakh,
+  //           7 LRS, 8 overseas tour package, 9 parking / toll / mine); s.394(1)(c) debit or
+  //           receipt whichever earlier for every row; s.395(3) certificate; s.397(2)(b)(ii) no
+  //           PAN (twice or 5%, max 20%); s.398(3)(a) interest (1% / 1.5%); notification 36/2025
+  //           continues under the savings clause s.536(2)(j).
+  //  [FA26]   Finance Act, 2026 — https://egazette.gov.in/WriteReadData/2026/271439.pdf — s.85
+  //           amends the s.394(1) Table from 1-4-2026: Sl. 1 liquor 1% -> 2%, Sl. 2 tendu
+  //           5% -> 2%, Sl. 4 scrap 1% -> 2%, Sl. 5 minerals 1% -> 2%, Sl. 8 tour package flat 2%;
+  //           Sl. 3 timber 2% and Sl. 6 1% unchanged.
+  //  [R26]    Income-tax Rules 2026 — https://wm.incometaxindia.gov.in/documents/d/guest/income-tax-document-income-tax-rules-2026_2026-04-18_10-56-56_45638f_en
+  //           rule 218(2) deposit within 7 days of month-end, March by 30 April; rule 219(1) Sl.4
+  //           the TCS statement is Form 143 (replaces 27EQ), rule 219(4) due 31 Jul / 31 Oct /
+  //           31 Jan / 31 May; rule 215 Sl.4 certificate Form 133 (replaces 27D), within 15 days.
+  //  [F143]   Protean Form 143 file format v1.1 (tax year 2026-27 on), Annexure 2 collection codes
+  //           (1068 liquor, 1069 tendu, 1070 timber forest lease, 1071 timber other, 1073 scrap,
+  //           1074 minerals, 1075 motor vehicle, 1076-1085 notified goods, 1088 tour package) —
+  //           https://tinpan.proteantech.in/downloads/e-tds/Form%20Number%20143-27EQ%20-%20Q1%20to%20Q4_22072026.xlsx
+  //
+  // GST AND THE BASE: [C17] (s.206C(1H)) says TCS is on the consideration with no deduction for
+  // GST. For s.206C(1) / (1F) and s.394 no circular was found — the statute says "such amount" /
+  // "consideration" payable by the buyer — so every seeded TCS row has base_includes_gst = 1 (the
+  // conservative reading: collecting on the larger figure is recoverable by the buyer, short
+  // collection is a default) — UNVERIFIED, editable per rate row.
+  // NOT MODELLED (UNVERIFIED list in the WP 3.3 report): the 20% slab of s.206C(1G) tour packages
+  // above Rs 10 lakh (seeded at 5%; collect the slab manually), s.206C(1C) (parking / toll /
+  // mining leases) and LRS (authorised dealers only), and FY 2024-25 rates other than 1H.
+  `
+  ALTER TABLE tds_sections ADD COLUMN kind TEXT NOT NULL DEFAULT 'tds' CHECK (kind IN ('tds', 'tcs'));
+  CREATE INDEX idx_tds_sections_kind ON tds_sections(kind);
+  ALTER TABLE tds_section_rates ADD COLUMN base_includes_gst INTEGER NOT NULL DEFAULT 0 CHECK (base_includes_gst IN (0, 1));
+  ALTER TABLE tds_certificates ADD COLUMN kind TEXT NOT NULL DEFAULT 'tds' CHECK (kind IN ('tds', 'tcs'));
+  ALTER TABLE tds_challans ADD COLUMN kind TEXT NOT NULL DEFAULT 'tds' CHECK (kind IN ('tds', 'tcs'));
+  CREATE INDEX idx_tds_challans_kind ON tds_challans(kind, fy_start_year, quarter);
+  ALTER TABLE tds_entries ADD COLUMN gst_in_base INTEGER CHECK (gst_in_base IS NULL OR gst_in_base IN (0, 1));
+
+  CREATE TABLE tds_exemptions_027 (
+    voucher_id INTEGER NOT NULL REFERENCES vouchers(id) ON DELETE CASCADE,
+    kind TEXT NOT NULL DEFAULT 'tds' CHECK (kind IN ('tds', 'tcs')),
+    reason TEXT NOT NULL CHECK (length(reason) BETWEEN 1 AND 200),
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    PRIMARY KEY (voucher_id, kind)
+  );
+  INSERT INTO tds_exemptions_027 (voucher_id, kind, reason, created_at)
+    SELECT voucher_id, 'tds', reason, created_at FROM tds_exemptions;
+  DROP TABLE tds_exemptions;
+  ALTER TABLE tds_exemptions_027 RENAME TO tds_exemptions;
+
+  ALTER TABLE ledgers ADD COLUMN tcs_section_id INTEGER REFERENCES tds_sections(id);
+  ALTER TABLE ledgers ADD COLUMN tcs_payable_section_id INTEGER REFERENCES tds_sections(id);
+  ALTER TABLE ledgers ADD COLUMN tcs_default_section_id INTEGER REFERENCES tds_sections(id);
+  CREATE INDEX idx_ledgers_tcs_payable ON ledgers(tcs_payable_section_id) WHERE tcs_payable_section_id IS NOT NULL;
+  CREATE INDEX idx_ledgers_tcs_section ON ledgers(tcs_section_id) WHERE tcs_section_id IS NOT NULL;
+  ALTER TABLE stock_items ADD COLUMN tcs_section_id INTEGER REFERENCES tds_sections(id);
+
+  -- TCS sections. Codes are unique across the shared master; legacy_code = the 1961 sub-section,
+  -- new_reference = the s.394(1) Table serial [ACT25]. Rates live in the rate rows below.
+  INSERT OR IGNORE INTO tds_sections (code, description, rate, threshold_single, threshold_annual, nature, act, legacy_code, new_reference, kind) VALUES
+    ('206C(1) LIQUOR', 'Sale of alcoholic liquor for human consumption', 2, 0, 0,
+     'Alcoholic liquor for human consumption', 'it_act_1961', '206C(1)', '394(1) Sl. 1', 'tcs'),
+    ('206C(1) TENDU', 'Sale of tendu leaves', 2, 0, 0,
+     'Tendu leaves', 'it_act_1961', '206C(1)', '394(1) Sl. 2', 'tcs'),
+    ('206C(1) TIMBER-FL', 'Sale of timber / forest produce obtained under a forest lease', 2, 0, 0,
+     'Timber or any other forest produce (not tendu leaves) obtained under a forest lease', 'it_act_1961', '206C(1)', '394(1) Sl. 3', 'tcs'),
+    ('206C(1) TIMBER', 'Sale of timber obtained by any other mode', 2, 0, 0,
+     'Timber obtained by any mode other than under a forest lease', 'it_act_1961', '206C(1)', '394(1) Sl. 3', 'tcs'),
+    ('206C(1) SCRAP', 'Sale of scrap', 2, 0, 0,
+     'Scrap', 'it_act_1961', '206C(1)', '394(1) Sl. 4', 'tcs'),
+    ('206C(1) MINERALS', 'Sale of coal, lignite or iron ore', 2, 0, 0,
+     'Minerals, being coal or lignite or iron ore', 'it_act_1961', '206C(1)', '394(1) Sl. 5', 'tcs'),
+    ('206C(1F) VEHICLE', 'Sale of a motor vehicle above Rs 10 lakh', 1, 100000000, 0,
+     'Motor vehicle of value exceeding Rs 10 lakh', 'it_act_1961', '206C(1F)', '394(1) Sl. 6 D(a)', 'tcs'),
+    ('206C(1F) LUXURY', 'Sale of notified goods above Rs 10 lakh', 1, 100000000, 0,
+     'Notified goods of value exceeding Rs 10 lakh (Notification 36/2025: wrist watch, art piece, collectibles, yacht / helicopter, sunglasses, handbag, shoes, sportswear, home theatre, race / polo horse)',
+     'it_act_1961', '206C(1F)', '394(1) Sl. 6 D(b)', 'tcs'),
+    ('206C(1G) TOUR', 'Sale of an overseas tour programme package', 2, 0, 0,
+     'Overseas tour programme package', 'it_act_1961', '206C(1G)', '394(1) Sl. 8', 'tcs'),
+    ('206C(1H)', 'Sale of goods above Rs 50 lakh (not applicable from 1 Apr 2025)', 0.1, 0, 500000000,
+     'Sale of goods: consideration above Rs 50 lakh a year from a buyer (seller turnover above Rs 10 crore) — switched off from 1 Apr 2025 by FA 2025 s.72(c)',
+     'it_act_1961', '206C(1H)', NULL, 'tcs');
+
+  -- Rate rows. Paise: Rs 10 lakh = 100000000; Rs 50 lakh = 500000000. No-PAN 5% floor in
+  -- no_pan_rate_bp; the engine takes the higher of that and twice the rate, capped at 20% [206CC].
+  CREATE TEMP TABLE m027_seed (code TEXT, eff_from TEXT, eff_to TEXT, rate_bp INTEGER, single INTEGER, annual INTEGER,
+    excess INTEGER, no_pan INTEGER, return_code TEXT, source TEXT);
+  INSERT INTO m027_seed VALUES
+    -- FY 2025-26: 1961 Act s.206C as amended by [FA25]; 27EQ section codes [F27EQ].
+    ('206C(1) LIQUOR', '2025-04-01', '2026-03-31', 100, 0, 0, 0, 500, 'A',
+     '1961 s.206C(1) Table Sl.(i) 1% [https://www.incometaxindia.gov.in/w/section-206c-36]; no PAN s.206CC; 27EQ code A; base incl. GST UNVERIFIED; accessed 2026-10-07'),
+    ('206C(1) TENDU', '2025-04-01', '2026-03-31', 500, 0, 0, 0, 500, 'I',
+     '1961 s.206C(1) Table Sl.(ii) 5% [https://www.incometaxindia.gov.in/w/section-206c-36]; no PAN s.206CC (twice = 10%); 27EQ code I; accessed 2026-10-07'),
+    ('206C(1) TIMBER-FL', '2025-04-01', '2026-03-31', 200, 0, 0, 0, 500, 'B',
+     '1961 s.206C(1) Table Sl.(iii) 2.5% -> 2% by Finance Act 2025 s.72(a) [https://egazette.gov.in/WriteReadData/2025/262125.pdf]; 27EQ code B; accessed 2026-10-07'),
+    ('206C(1) TIMBER', '2025-04-01', '2026-03-31', 200, 0, 0, 0, 500, 'C',
+     '1961 s.206C(1) Table Sl.(iv) 2.5% -> 2% by Finance Act 2025 s.72(a) [https://egazette.gov.in/WriteReadData/2025/262125.pdf]; 27EQ code C; accessed 2026-10-07'),
+    ('206C(1) SCRAP', '2025-04-01', '2026-03-31', 100, 0, 0, 0, 500, 'E',
+     '1961 s.206C(1) Table Sl.(vi) 1% [https://www.incometaxindia.gov.in/w/section-206c-36]; no PAN s.206CC; 27EQ code E; accessed 2026-10-07'),
+    ('206C(1) MINERALS', '2025-04-01', '2026-03-31', 100, 0, 0, 0, 500, 'J',
+     '1961 s.206C(1) Table Sl.(vii) 1% [https://www.incometaxindia.gov.in/w/section-206c-36]; 27EQ code J; accessed 2026-10-07'),
+    ('206C(1F) VEHICLE', '2025-04-01', '2026-03-31', 100, 100000000, 0, 0, 500, 'L',
+     '1961 s.206C(1F)(a) 1% of the consideration, value exceeding Rs 10 lakh, at receipt [https://www.incometaxindia.gov.in/w/section-206c-36]; 27EQ code L; accessed 2026-10-07'),
+    ('206C(1F) LUXURY', '2025-04-22', '2026-03-31', 100, 100000000, 0, 0, 500, NULL,
+     '1961 s.206C(1F)(b) + Notification 36/2025 (22-4-2025) [https://egazette.gov.in/WriteReadData/2025/262610.pdf]; 27EQ code MA-MJ by the good (set it per good); accessed 2026-10-07'),
+    ('206C(1G) TOUR', '2025-04-01', '2026-03-31', 500, 0, 0, 0, 500, 'O',
+     '1961 s.206C(1G)(b) 5% up to Rs 10 lakh a year [Finance Act 2025 s.72(b)]; the 20% on the excess over Rs 10 lakh is NOT modelled — collect it manually; 27EQ code O; accessed 2026-10-07'),
+    -- 1H: inserted by Finance Act 2020 from 1-10-2020; 0.1% of consideration above Rs 50 lakh a
+    -- year; no PAN capped at 1% (s.206CC proviso); GST included [C17]; switched off from
+    -- 1-4-2025 by [FA25] s.72(c) — the row ends 31-3-2025 so older vouchers keep their figure.
+    ('206C(1H)', '2020-10-01', '2025-03-31', 10, 0, 500000000, 1, 100, 'R',
+     '1961 s.206C(1H) (0.1% above Rs 50 lakh); GST included per CBDT Circular 17/2020 para 4.6.1; not applicable from 1-4-2025 per Finance Act 2025 s.72(c) [https://egazette.gov.in/WriteReadData/2025/262125.pdf]; accessed 2026-10-07'),
+    -- From 1 Apr 2026: Income-tax Act 2025 s.394(1) Table as amended by [FA26] s.85; Form 143 codes [F143].
+    ('206C(1) LIQUOR', '2026-04-01', NULL, 200, 0, 0, 0, 500, '1068',
+     '2025 Act s.394(1) Table Sl. 1, 1% -> 2% by Finance Act 2026 s.85 [https://egazette.gov.in/WriteReadData/2026/271439.pdf]; no PAN s.397(2)(b)(ii); Form 143 code 1068; accessed 2026-10-07'),
+    ('206C(1) TENDU', '2026-04-01', NULL, 200, 0, 0, 0, 500, '1069',
+     '2025 Act s.394(1) Table Sl. 2, 5% -> 2% by Finance Act 2026 s.85; Form 143 code 1069; accessed 2026-10-07'),
+    ('206C(1) TIMBER-FL', '2026-04-01', NULL, 200, 0, 0, 0, 500, '1070',
+     '2025 Act s.394(1) Table Sl. 3, 2% [https://egazette.gov.in/WriteReadData/2025/265620.pdf]; Form 143 code 1070; accessed 2026-10-07'),
+    ('206C(1) TIMBER', '2026-04-01', NULL, 200, 0, 0, 0, 500, '1071',
+     '2025 Act s.394(1) Table Sl. 3, 2% [https://egazette.gov.in/WriteReadData/2025/265620.pdf]; Form 143 code 1071; accessed 2026-10-07'),
+    ('206C(1) SCRAP', '2026-04-01', NULL, 200, 0, 0, 0, 500, '1073',
+     '2025 Act s.394(1) Table Sl. 4, 1% -> 2% by Finance Act 2026 s.85; Form 143 code 1073; accessed 2026-10-07'),
+    ('206C(1) MINERALS', '2026-04-01', NULL, 200, 0, 0, 0, 500, '1074',
+     '2025 Act s.394(1) Table Sl. 5, 1% -> 2% by Finance Act 2026 s.85; Form 143 code 1074; accessed 2026-10-07'),
+    ('206C(1F) VEHICLE', '2026-04-01', NULL, 100, 100000000, 0, 0, 500, '1075',
+     '2025 Act s.394(1) Table Sl. 6 D(a), 1% of consideration above Rs 10 lakh; debit or receipt whichever earlier s.394(1)(c); Form 143 code 1075; accessed 2026-10-07'),
+    ('206C(1F) LUXURY', '2026-04-01', NULL, 100, 100000000, 0, 0, 500, NULL,
+     '2025 Act s.394(1) Table Sl. 6 D(b) + Notification 36/2025 (saved by s.536(2)(j)); Form 143 codes 1076-1085 by the good; accessed 2026-10-07'),
+    ('206C(1G) TOUR', '2026-04-01', NULL, 200, 0, 0, 0, 500, '1088',
+     '2025 Act s.394(1) Table Sl. 8, flat 2% by Finance Act 2026 s.85; Form 143 code 1088; accessed 2026-10-07');
+
+  INSERT INTO tds_section_rates (section_id, effective_from, effective_to, deductee_type, rate_bp,
+      threshold_single_paise, threshold_annual_paise, threshold_basis, threshold_excess_only, no_pan_rate_bp,
+      return_code, base_includes_gst, source)
+    SELECT s.id, m.eff_from, m.eff_to, 'any', m.rate_bp, m.single, m.annual, 'fy', m.excess, m.no_pan, m.return_code, 1, m.source
+      FROM m027_seed m JOIN tds_sections s ON s.code = m.code AND s.kind = 'tcs';
+  DROP TABLE m027_seed;
   `
 ]

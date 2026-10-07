@@ -15,6 +15,7 @@ import { outwardDebitNoteIds } from './gst'
 import { writeAudit } from './audit'
 import { companyExportsDir } from '../paths'
 import { IN_BOOKS, NOT_DELETED } from './vouchers'
+import { tcsOnVoucher } from './tcs'
 import { purposeIsTaxed } from '@shared/voucherEdit/stockNote'
 import { hasTradeSchema } from './tradeLinks'
 import { readCompanyInfo } from '../db/seed'
@@ -353,6 +354,9 @@ export function extractEdocInvoices(
     const cess = items.reduce((s, i) => s + i.cess, 0)
     // A stock note posts nothing: its value is the computed one (taxable + tax, unrounded).
     const total = isNote ? taxable + cgst + sgst + igst + cess : (totalStmt.get(v.id) as { t: number }).t
+    // WP 3.3: TCS collected rides after GST — in the total the buyer owes, never in round-off.
+    const tcsEntry = tcsOnVoucher(db, v.id)
+    const tcs = tcsEntry ? { amountPaise: tcsEntry.amountPaise, rateBp: tcsEntry.rateBp, reference: tcsEntry.reference } : null
 
     const transport: EdocTransport | null =
       v.trans_mode || v.trans_doc_no || v.trans_doc_date || v.transporter_name || v.vehicle_type
@@ -401,8 +405,9 @@ export function extractEdocInvoices(
       sgst,
       igst,
       cess,
-      roundOff: total - (taxable + cgst + sgst + igst + cess),
+      roundOff: total - (tcs?.amountPaise ?? 0) - (taxable + cgst + sgst + igst + cess),
       total,
+      ...(tcs ? { tcs } : {}),
       // Transport-modal values win over the legacy voucher columns.
       transporterId: v.tTransporterId ?? v.transporterId,
       vehicleNo: v.tVehicleNo ?? v.vehicleNo,

@@ -26,6 +26,7 @@ interface LedgerRow {
   rcm: number; itc_eligibility: Ledger['itcEligibility'] | null
   price_level_id: number | null; credit_limit: number | null
   deductee_type: Ledger['deducteeType']; tds_payable_section_id: number | null; tds_default_section_id: number | null
+  tcs_section_id?: number | null; tcs_payable_section_id?: number | null; tcs_default_section_id?: number | null
 }
 const mapLedger = (r: LedgerRow): Ledger => ({
   id: r.id, name: r.name, groupId: r.group_id, openingBalance: r.opening_balance,
@@ -35,7 +36,9 @@ const mapLedger = (r: LedgerRow): Ledger => ({
   rcm: !!r.rcm, itcEligibility: r.itc_eligibility ?? 'eligible',
   priceLevelId: r.price_level_id, creditLimit: r.credit_limit,
   deducteeType: r.deductee_type ?? null, tdsPayableSectionId: r.tds_payable_section_id ?? null,
-  tdsDefaultSectionId: r.tds_default_section_id ?? null
+  tdsDefaultSectionId: r.tds_default_section_id ?? null,
+  tcsSectionId: r.tcs_section_id ?? null, tcsPayableSectionId: r.tcs_payable_section_id ?? null,
+  tcsDefaultSectionId: r.tcs_default_section_id ?? null
 })
 
 // ---------- groups ----------
@@ -168,14 +171,16 @@ export function createLedger(db: DB, raw: LedgerInput): Ledger {
     .prepare(
       `INSERT INTO ledgers (name, group_id, opening_balance, gstin, state_code, address, tax_type, gst_rate, hsn,
         tds_section_id, pan, credit_days, export_type, rcm, itc_eligibility, price_level_id, credit_limit,
-        deductee_type, tds_payable_section_id, tds_default_section_id, is_system)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)`
+        deductee_type, tds_payable_section_id, tds_default_section_id,
+        tcs_section_id, tcs_payable_section_id, tcs_default_section_id, is_system)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)`
     )
     .run(input.name, input.groupId, input.openingBalance, input.gstin, input.stateCode, input.address,
       input.taxType, input.gstRate, input.hsn, input.tdsSectionId, input.pan, input.creditDays, input.exportType,
       input.rcm ? 1 : 0, input.itcEligibility,
       input.priceLevelId ?? null, input.creditLimit ?? null,
-      input.deducteeType ?? null, input.tdsPayableSectionId ?? null, input.tdsDefaultSectionId ?? null)
+      input.deducteeType ?? null, input.tdsPayableSectionId ?? null, input.tdsDefaultSectionId ?? null,
+      input.tcsSectionId ?? null, input.tcsPayableSectionId ?? null, input.tcsDefaultSectionId ?? null)
   const created = getLedger(db, Number(res.lastInsertRowid))!
   writeAudit(db, 'ledger', created.id, 'create', null, created)
   return created
@@ -189,7 +194,8 @@ export function updateLedger(db: DB, id: number, raw: LedgerInput): Ledger {
     `UPDATE ledgers SET name = ?, group_id = ?, opening_balance = ?, gstin = ?, state_code = ?,
      address = ?, tax_type = ?, gst_rate = ?, hsn = ?, tds_section_id = ?, pan = ?, credit_days = ?, export_type = ?,
      rcm = ?, itc_eligibility = ?, price_level_id = ?, credit_limit = ?,
-     deductee_type = ?, tds_payable_section_id = ?, tds_default_section_id = ?
+     deductee_type = ?, tds_payable_section_id = ?, tds_default_section_id = ?,
+     tcs_section_id = ?, tcs_payable_section_id = ?, tcs_default_section_id = ?
      WHERE id = ?`
   ).run(input.name, input.groupId, input.openingBalance, input.gstin, input.stateCode, input.address,
     input.taxType, input.gstRate, input.hsn, input.tdsSectionId, input.pan, input.creditDays, input.exportType,
@@ -199,7 +205,11 @@ export function updateLedger(db: DB, id: number, raw: LedgerInput): Ledger {
     // TDS fields (migration 020): absent = keep, so pre-020 callers can't wipe a payable tag.
     input.deducteeType === undefined ? existing.deducteeType : input.deducteeType,
     input.tdsPayableSectionId === undefined ? existing.tdsPayableSectionId : input.tdsPayableSectionId,
-    input.tdsDefaultSectionId === undefined ? existing.tdsDefaultSectionId : input.tdsDefaultSectionId, id)
+    input.tdsDefaultSectionId === undefined ? existing.tdsDefaultSectionId : input.tdsDefaultSectionId,
+    // TCS fields (migration 027): absent = keep, for the same reason.
+    input.tcsSectionId === undefined ? (existing.tcsSectionId ?? null) : input.tcsSectionId,
+    input.tcsPayableSectionId === undefined ? (existing.tcsPayableSectionId ?? null) : input.tcsPayableSectionId,
+    input.tcsDefaultSectionId === undefined ? (existing.tcsDefaultSectionId ?? null) : input.tcsDefaultSectionId, id)
   const updated = getLedger(db, id)!
   writeAudit(db, 'ledger', id, 'update', existing, updated)
   return updated
@@ -307,12 +317,14 @@ interface StockItemRow {
   gst_rate: number | null; cess_rate: number | null; opening_qty_milli: number; opening_value: number
   barcode: string | null; reorder_level_milli: number | null; valuation_method: 'weighted_avg' | 'fifo'
   track_serials: number
+  tcs_section_id?: number | null
 }
 const mapItem = (r: StockItemRow): StockItem => ({
   id: r.id, name: r.name, groupId: r.group_id, unitId: r.unit_id, hsn: r.hsn,
   gstRate: r.gst_rate, cessRate: r.cess_rate, openingQtyMilli: r.opening_qty_milli, openingValue: r.opening_value,
   barcode: r.barcode, reorderLevelMilli: r.reorder_level_milli, valuationMethod: r.valuation_method,
-  trackSerials: !!r.track_serials
+  trackSerials: !!r.track_serials,
+  tcsSectionId: r.tcs_section_id ?? null
 })
 
 export function listStockItems(db: DB): StockItem[] {
@@ -321,11 +333,11 @@ export function listStockItems(db: DB): StockItem[] {
 
 export function createStockItem(db: DB, input: StockItemInput): StockItem {
   const res = db.prepare(
-    `INSERT INTO stock_items (name, group_id, unit_id, hsn, gst_rate, cess_rate, opening_qty_milli, opening_value, barcode, reorder_level_milli, valuation_method, track_serials)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    `INSERT INTO stock_items (name, group_id, unit_id, hsn, gst_rate, cess_rate, opening_qty_milli, opening_value, barcode, reorder_level_milli, valuation_method, track_serials, tcs_section_id)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   ).run(input.name, input.groupId, input.unitId, input.hsn, input.gstRate, input.cessRate,
     input.openingQtyMilli, input.openingValue, input.barcode, input.reorderLevelMilli, input.valuationMethod ?? 'weighted_avg',
-    input.trackSerials ? 1 : 0)
+    input.trackSerials ? 1 : 0, input.tcsSectionId ?? null)
   const created = mapItem(db.prepare('SELECT * FROM stock_items WHERE id = ?').get(res.lastInsertRowid) as StockItemRow)
   writeAudit(db, 'stockItem', created.id, 'create', null, created)
   return created
@@ -338,10 +350,11 @@ export function updateStockItem(db: DB, id: number, input: StockItemInput): Stoc
   db.transaction(() => {
     db.prepare(
       `UPDATE stock_items SET name = ?, group_id = ?, unit_id = ?, hsn = ?, gst_rate = ?, cess_rate = ?,
-       opening_qty_milli = ?, opening_value = ?, barcode = ?, reorder_level_milli = ?, valuation_method = ?, track_serials = ? WHERE id = ?`
+       opening_qty_milli = ?, opening_value = ?, barcode = ?, reorder_level_milli = ?, valuation_method = ?, track_serials = ?,
+       tcs_section_id = ? WHERE id = ?`
     ).run(input.name, input.groupId, input.unitId, input.hsn, input.gstRate, input.cessRate,
       input.openingQtyMilli, input.openingValue, input.barcode, input.reorderLevelMilli, input.valuationMethod ?? existing.valuation_method,
-      trackSerials, id)
+      trackSerials, input.tcsSectionId === undefined ? (existing.tcs_section_id ?? null) : input.tcsSectionId, id)
     // Turning tracking on/off re-projects the item's serials from its line serials (off → none).
     if (trackSerials !== existing.track_serials) rebuildItemSerials(db, [id])
   })()
