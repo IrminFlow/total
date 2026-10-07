@@ -212,6 +212,8 @@ export interface PayHead {
   /** Paise for 'flat'; percent × 100 (4000 = 40%) for 'percent_of_basic'. */
   value: number
   active: boolean
+  /** WP 3.7: "wages" under the Code on Social Security s.2(88) (false = excluded, e.g. HRA). */
+  inWages: boolean
 }
 
 export interface EmployeeHeadRow {
