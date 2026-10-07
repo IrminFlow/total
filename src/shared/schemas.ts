@@ -489,7 +489,11 @@ export const tdsSuggestSchema = z.object({
   expenseLedgerId: id.nullable().optional(),
   /** Alteration: the voucher being edited, excluded from the threshold history and from the
    *  certificate's consumed amount. */
-  excludeVoucherId: id.optional()
+  excludeVoucherId: id.optional(),
+  /** The banner's section choice (WP 3.2); absent = party flag, then ledger default. */
+  sectionId: id.nullable().optional(),
+  /** 'payment' = first-of-credit-or-payment: deduct only on undeducted bills + advance. */
+  voucherKind: z.enum(['purchase', 'journal', 'payment']).optional()
 })
 export type TdsSuggestInput = z.infer<typeof tdsSuggestSchema>
 
@@ -521,6 +525,37 @@ export const tdsChallansQuerySchema = z.object({ fyStartYear: fyStartYearSchema,
 export const tdsAllocateSchema = z.object({ challanId: id, entryIds: z.array(id).min(1).max(1000) })
 export const tdsUnallocateSchema = z.object({ entryIds: z.array(id).min(1).max(1000) })
 export const tdsUnallocatedSchema = z.object({ fyStartYear: fyStartYearSchema, quarter: quarterSchema.optional() })
+
+// WP 3.2 — the TDS screen
+export const tdsEligibleSchema = z.object({ from: isoDate, to: isoDate, includeExempt: z.boolean().optional() })
+export const tdsDeductedSchema = z.object({ from: isoDate, to: isoDate })
+export const tdsApplySchema = z.object({
+  voucherId: id,
+  sectionId: id.nullable().optional(),
+  /** A typed deduction (stored is_manual); absent = the rate table's figure. */
+  manualPaise: positivePaise.nullable().optional()
+})
+export type TdsApplyInput = z.infer<typeof tdsApplySchema>
+export const tdsApplyManySchema = z.object({ voucherIds: z.array(id).min(1).max(500) })
+export const tdsVoucherSchema = z.object({ voucherId: id })
+export const tdsExemptSchema = z.object({ voucherId: id, reason: z.string().trim().min(1).max(200) })
+export const tdsQuarterSchema = z.object({ fyStartYear: fyStartYearSchema, quarter: quarterSchema })
+/** Quarter 0 = the whole financial year. */
+export const tdsLedgerSummarySchema = z.object({ fyStartYear: fyStartYearSchema, quarter: z.number().int().min(0).max(4) })
+export const tdsChallanFromPaymentSchema = z.object({
+  paymentVoucherId: id,
+  bsrCode: z.string().trim().regex(/^\d{7}$/, 'BSR code is 7 digits'),
+  challanNo: z.string().trim().regex(/^\d{1,5}$/, 'Challan serial number is 1-5 digits'),
+  date: isoDate.nullable().optional(),
+  quarter: quarterSchema.nullable().optional(),
+  fyStartYear: fyStartYearSchema.nullable().optional(),
+  autoAllocate: z.boolean().optional()
+})
+export type TdsChallanFromPaymentInput = z.infer<typeof tdsChallanFromPaymentSchema>
+export const tdsChallanRowsSchema = z.object({ fyStartYear: fyStartYearSchema, quarter: quarterSchema.optional(), rateBp: basisPoints.optional() })
+export const tdsChallanInterestSchema = z.object({ challanId: id, rateBp: basisPoints.optional() })
+export const tdsAutoAllocateSchema = z.object({ challanId: id })
+export const tdsForm16aSchema = z.object({ fyStartYear: fyStartYearSchema, quarter: quarterSchema, partyLedgerId: id.optional() })
 
 // ---------- cost centres ----------
 

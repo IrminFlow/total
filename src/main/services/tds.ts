@@ -1,7 +1,7 @@
 import { writeFileSync } from 'fs'
 import { join } from 'path'
 import type { DB } from '../db/connection'
-import type { CompanyInfo, TdsCertificateRow, TdsChallan, TdsRate, TdsSection } from '@shared/domain'
+import type { CompanyInfo, TdsCertificateRow, TdsChallan, TdsRate, TdsSection, VoucherKind } from '@shared/domain'
 import {
   tdsCertificateInputSchema, tdsChallanInputSchema, tdsRateInputSchema, tdsSectionInputSchema,
   type TdsCertificateInput, type TdsChallanInput, type TdsRateInput, type TdsSectionInput, type VoucherInputParsed
@@ -12,7 +12,11 @@ import {
   type ApplicableRate, type CertificateUse, type DeducteeType, type TdsCertificate, type TdsRateRow
 } from '@shared/tds'
 import type { PostingError } from '@shared/posting'
-import { fyFromStartYear, todayISO } from '@shared/dates'
+import { fyFromStartYear, fyOf, todayISO } from '@shared/dates'
+import { priorAggregate, undeductedCreditsBefore } from '@shared/tdsEligibility'
+import { buildEventGroups, ledgerTdsFacts, loadTdsVouchers, partySectionWalk } from './tdsEvents'
+// Function-body use only (the tds <-> tdsWorkbench cycle is harmless).
+import { form26qData } from './tdsWorkbench'
 import { rowsToCsv } from '@shared/csv'
 import { plainRupees } from '@shared/money'
 import { companyExportsDir } from '../paths'
@@ -371,14 +375,25 @@ export function resolveTds(
   const cert = panAvailable ? certificateFor(db, partyLedgerId, sectionId, dateISO, excludeVoucherId) : null
   const rate = applicableRate(rules, dateISO, deducteeType, panAvailable, cert)
   if (!rate) return { rate: null, tdsPaise: null, deducteeType, panAvailable, priorPaise: 0 }
-  const period = thresholdPeriod(rate.row.thresholdBasis, dateISO)
-  const priorPaise = priorBase(db, partyLedgerId, sectionId, period.from, period.to, excludeVoucherId)
+  const priorPaise = priorBase(db, partyLedgerId, sectionId, rate.row.thresholdBasis, dateISO, excludeVoucherId)
   return { rate, tdsPaise: expectedTdsPaise(rate, basePaise, priorPaise), deducteeType, panAvailable, priorPaise }
 }
 
 // ---------------------------------------------------------------------------------------------
 // Suggestion (read-only — runs while the user types)
 // ---------------------------------------------------------------------------------------------
+
+/**
+ * Prior base for this party + section in the threshold period of `dateISO`: the aggregate of
+ * EVERY qualifying credit / advance payment to the party before this voucher (tdsEligibility's
+ * walk) — not only the deductions already recorded (WP 3.1's gap: a party's untaxed bills
+ * below the limit, or bills nobody deducted on, now count towards the aggregate threshold).
+ */
+function priorBase(db: DB, partyLedgerId: number, sectionId: number, basis: 'fy' | 'month', dateISO: string, excludeVoucherId?: number): number {
+  const fy = fyOf(dateISO)
+  const { results } = partySectionWalk(db, partyLedgerId, sectionId, fy.from, dateISO, excludeVoucherId)
+  return priorAggregate(results, basis, dateISO, excludeVoucherId)
+}
 
 export interface TdsSuggestion {
   sectionId: number
@@ -390,6 +405,9 @@ export interface TdsSuggestion {
   rateBp: number
   basis: ApplicableRate['basis']
   tdsPaise: number
+  /** Base the deduction is computed on — the candidate base, except on a payment, where it is
+   *  the part of the payment that is a TDS event (undeducted bills + advance). */
+  basePaise: number
   /** Tagged payable ledger, or null when it doesn't exist yet — saveVoucher creates it
    *  (tds.autoPayable); the suggestion never writes. */
   payableLedgerId: number | null
@@ -406,20 +424,15 @@ export interface TdsSuggestion {
     /** Prior base in the period (excluding this transaction), paise. */
     priorPaise: number
   }
-  certificate: { id: number; certificateNo: string; rateBp: number } | null
-  /** Where the section came from: the party's own flag, or the debited ledger's default. */
-  sectionFrom: 'party' | 'ledger'
-}
-
-/** Prior base for this party + section inside [from, to], from recorded entries. */
-function priorBase(db: DB, partyLedgerId: number, sectionId: number, from: string, to: string, excludeVoucherId?: number): number {
-  return (db
-    .prepare(
-      `SELECT COALESCE(SUM(te.base_amount), 0) AS total
-       FROM tds_entries te JOIN vouchers v ON v.id = te.voucher_id
-       WHERE te.party_ledger_id = ? AND te.section_id = ? AND v.date BETWEEN ? AND ? AND v.id <> ? AND ${IN_BOOKS}`
-    )
-    .get(partyLedgerId, sectionId, from, to, excludeVoucherId ?? -1) as { total: number }).total
+  certificate: { id: number; certificateNo: string; rateBp: number; validTo: string } | null
+  /** Where the section came from: the party's own flag, the debited ledger's default, the
+   *  user's choice, or (payments) the section the party's bills use. */
+  sectionFrom: 'party' | 'ledger' | 'chosen' | 'credits'
+  /** Sections the user may pick from (party's own, then debited ledgers' defaults). */
+  candidates: { sectionId: number; code: string; from: 'party' | 'ledger' | 'credits' }[]
+  /** Payments only: bills to this party that were liable and not deducted at credit time
+   *  (first-of-credit-or-payment) — the deduction is offered now. */
+  payment: { undeductedBillsPaise: number; advancePaise: number; deductedAtCredit: boolean } | null
 }
 
 /**
@@ -427,28 +440,74 @@ function priorBase(db: DB, partyLedgerId: number, sectionId: number, from: strin
  * party is flagged for a section, or — when it isn't — the debited expense ledger carries a
  * default section and the party has a deductee type (set, or readable off its PAN). Null too
  * when the section has no rate in force on the date. Strictly read-only.
+ *
+ * On a PAYMENT (opts.voucherKind 'payment') the base is not the whole payment: TDS is due at
+ * credit or payment, whichever is earlier (s.194C(1) etc., see src/shared/tdsEligibility.ts), so
+ * a payment only carries a deduction for the bills that were liable and NOT deducted when booked,
+ * plus any advance (paid beyond what has been credited). A payment that settles bills already
+ * deducted gets a suggestion with tdsPaise 0 and payment.deductedAtCredit.
  */
 export function tdsSuggestion(
   db: DB, partyLedgerId: number, basePaise: number, dateISO: string,
-  opts: { expenseLedgerId?: number | null; excludeVoucherId?: number } = {}
+  opts: { expenseLedgerId?: number | null; excludeVoucherId?: number; sectionId?: number | null; voucherKind?: VoucherKind } = {}
 ): TdsSuggestion | null {
   const party = partyFacts(db, partyLedgerId)
   if (!party) return null
-  let sectionId = party.tdsSectionId
-  let sectionFrom: TdsSuggestion['sectionFrom'] = 'party'
-  if (sectionId == null && opts.expenseLedgerId != null && party.deducteeType != null) {
+  const isPayment = opts.voucherKind === 'payment'
+  const candidates: TdsSuggestion['candidates'] = []
+  const codeOf = (id: number): string => getSectionRow(db, id)?.code ?? String(id)
+  if (party.tdsSectionId != null) candidates.push({ sectionId: party.tdsSectionId, code: codeOf(party.tdsSectionId), from: 'party' })
+  if (opts.expenseLedgerId != null && party.deducteeType != null) {
     const exp = db.prepare('SELECT tds_default_section_id AS s FROM ledgers WHERE id = ?').get(opts.expenseLedgerId) as { s: number | null } | undefined
-    sectionId = exp?.s ?? null
-    sectionFrom = 'ledger'
+    if (exp?.s != null && !candidates.some((c) => c.sectionId === exp.s)) candidates.push({ sectionId: exp.s, code: codeOf(exp.s), from: 'ledger' })
+  }
+  const fy = fyOf(dateISO)
+  if (isPayment && candidates.length === 0) {
+    // A party with no section of its own: the sections its bills this year were classified under.
+    const facts = ledgerTdsFacts(db)
+    const groups = buildEventGroups(loadTdsVouchers(db, fy.from, dateISO, { partyLedgerId, excludeVoucherId: opts.excludeVoucherId }), facts)
+    for (const g of groups.values()) {
+      if (g.partyLedgerId === partyLedgerId && !candidates.some((c) => c.sectionId === g.sectionId)) {
+        candidates.push({ sectionId: g.sectionId, code: codeOf(g.sectionId), from: 'credits' })
+      }
+    }
+  }
+  let sectionId: number | null = null
+  let sectionFrom: TdsSuggestion['sectionFrom'] = 'party'
+  if (opts.sectionId != null && getSectionRow(db, opts.sectionId)) {
+    sectionId = opts.sectionId
+    sectionFrom = 'chosen'
+    if (!candidates.some((c) => c.sectionId === sectionId)) candidates.push({ sectionId, code: codeOf(sectionId), from: 'ledger' })
+  } else if (candidates[0]) {
+    sectionId = candidates[0].sectionId
+    sectionFrom = candidates[0].from
   }
   if (sectionId == null) return null
   const rules = sectionRules(db, sectionId)
   if (!rules) return null
-  const resolved = resolveTds(db, sectionId, partyLedgerId, basePaise, dateISO, opts.excludeVoucherId)
+
+  let base = basePaise
+  let payment: TdsSuggestion['payment'] = null
+  if (isPayment) {
+    const { results, group } = partySectionWalk(db, partyLedgerId, sectionId, fy.from, dateISO, opts.excludeVoucherId)
+    const undeducted = undeductedCreditsBefore(results, dateISO, opts.excludeVoucherId)
+    let credited = 0
+    let paid = 0
+    for (const e of group?.events ?? []) {
+      if (e.exempt) continue
+      if (e.kind === 'credit') credited += e.grossPaise
+      else paid += e.grossPaise
+    }
+    const advance = Math.min(basePaise, Math.max(0, paid + basePaise - credited))
+    base = Math.min(basePaise, undeducted + advance)
+    payment = { undeductedBillsPaise: undeducted, advancePaise: advance, deductedAtCredit: base === 0 }
+  }
+
+  const resolved = resolveTds(db, sectionId, partyLedgerId, Math.max(base, 1), dateISO, opts.excludeVoucherId)
   if (!resolved.rate || resolved.tdsPaise == null) return null
   const row = resolved.rate.row
   const prior = resolved.priorPaise
-  const status = thresholdStatus(row, dateISO, basePaise, prior)
+  const status = thresholdStatus(row, dateISO, base, prior)
   const payable = findPayableLedger(db, sectionId)
   const cert = resolved.rate.certificateId != null
     ? (db.prepare('SELECT * FROM tds_certificates WHERE id = ?').get(resolved.rate.certificateId) as CertRow)
@@ -461,7 +520,8 @@ export function tdsSuggestion(
     rate: effectiveBp / 100,
     rateBp: effectiveBp,
     basis: resolved.rate.basis,
-    tdsPaise: resolved.tdsPaise,
+    tdsPaise: base > 0 ? resolved.tdsPaise : 0,
+    basePaise: base,
     payableLedgerId: payable?.id ?? null,
     payableLedgerName: payable?.name ?? payableLedgerName(rules.code),
     panAvailable: resolved.panAvailable,
@@ -474,8 +534,10 @@ export function tdsSuggestion(
       basis: row.thresholdBasis,
       priorPaise: prior
     },
-    certificate: cert ? { id: cert.id, certificateNo: cert.certificate_no, rateBp: cert.rate_bp } : null,
-    sectionFrom
+    certificate: cert ? { id: cert.id, certificateNo: cert.certificate_no, rateBp: cert.rate_bp, validTo: cert.valid_to } : null,
+    sectionFrom,
+    candidates,
+    payment
   }
 }
 
@@ -784,52 +846,56 @@ function entriesBetween(db: DB, from: string, to: string): TdsEntryRow[] {
 // ---------------------------------------------------------------------------------------------
 
 /**
- * 26Q deductee code: '01' company, '02' other than company (Protean/NSDL e-TDS file format —
- * see the citation block in migration 020). Unknown type → '02' is NOT assumed; left blank.
- */
-function deducteeCode26q(type: string | null): string {
-  if (type === 'company') return '01'
-  if (type === 'individual_huf' || type === 'firm' || type === 'other') return '02'
-  return ''
-}
-
-/**
  * CSV of deductee-wise TDS entries for a quarter — for manual import into NSDL's Return
  * Preparation Utility (RPU), NOT a ready-to-file FVU. Written to the company's exports folder.
  * The first seven columns are unchanged from before migration 020; deductee type, rate and the
- * allocated challan (BSR / date / serial) follow.
+ * allocated challan (BSR / date / serial) follow, then (WP 3.2) the return section / payment
+ * code in force (26Q "94C" up to FY 2025-26, Form 140 "1024" from 1 Apr 2026), the date of
+ * deduction, the 26Q annexure reason code ('A' certificate u/s 197, 'C' higher rate for want
+ * of PAN) and the challan amount. When the quarter has challans, a "Challans" block (the
+ * return's challan annexure: serial, BSR, date, serial no., amount, TDS allocated) follows
+ * after a blank line. Data per form26qData (tdsWorkbench.ts).
  */
 export function export26qCsv(db: DB, _company: CompanyInfo, slug: string, fyStartYear: number, quarter: 1 | 2 | 3 | 4): string {
-  const { from, to } = tdsQuarterBounds(fyStartYear, quarter)
-  const entries = entriesBetween(db, from, to)
-  const challans = new Map<number, { bsr: string; date: string; no: string }>()
-  for (const c of db.prepare('SELECT id, bsr_code, date, challan_no FROM tds_challans').all() as { id: number; bsr_code: string; date: string; challan_no: string }[]) {
-    challans.set(c.id, { bsr: c.bsr_code, date: c.date, no: c.challan_no })
-  }
-  const csvRows = entries.map((r) => {
-    const c = r.challanId != null ? challans.get(r.challanId) : undefined
-    return [
-      r.partyName,
-      r.pan ?? '',
-      r.sectionCode,
-      r.date,
-      r.voucherNumber,
-      plainRupees(r.baseAmount),
-      plainRupees(r.tdsAmount),
-      deducteeCode26q(r.deducteeType),
-      r.rateBp != null ? (r.rateBp / 100).toFixed(2) : '',
-      c?.bsr ?? '',
-      c?.date ?? '',
-      c?.no ?? ''
-    ]
-  })
-  const csv = rowsToCsv(
+  const data = form26qData(db, fyStartYear, quarter)
+  const numbers = db.prepare('SELECT number FROM vouchers WHERE id = ?')
+  const challanAmount = new Map(data.challans.map((c) => [c.serial, c.amountPaise]))
+  const csvRows = data.deductees.map((r) => [
+    r.partyName,
+    r.pan ?? '',
+    r.sectionCode,
+    r.paymentDate,
+    (numbers.get(r.voucherId) as { number: string } | undefined)?.number ?? '',
+    plainRupees(r.amountPaise),
+    plainRupees(r.tdsPaise),
+    r.deducteeCode,
+    r.rateBp != null ? (r.rateBp / 100).toFixed(2) : '',
+    r.bsrCode ?? '',
+    r.challanDate ?? '',
+    r.challanNo ?? '',
+    r.returnCode ?? '',
+    r.deductionDate,
+    r.reasonCode,
+    r.challanSerial != null ? plainRupees(challanAmount.get(r.challanSerial) ?? 0) : ''
+  ])
+  let csv = rowsToCsv(
     ['Deductee', 'PAN', 'Section', 'Voucher Date', 'Voucher No', 'Base (Rs)', 'TDS (Rs)',
-      'Deductee Code', 'Rate (%)', 'Challan BSR', 'Challan Date', 'Challan Serial'],
+      'Deductee Code', 'Rate (%)', 'Challan BSR', 'Challan Date', 'Challan Serial',
+      'Return Code', 'Date of Deduction', 'Reason Code', 'Challan Amount (Rs)'],
     csvRows
   )
+  if (data.challans.length > 0) {
+    const block = rowsToCsv(
+      ['Challan #', 'Challan BSR', 'Challan Date', 'Challan Serial', 'Challan Amount (Rs)', 'TDS Allocated (Rs)', 'Entries'],
+      data.challans.map((c) => [String(c.serial), c.bsrCode, c.date, c.challanNo, plainRupees(c.amountPaise), plainRupees(c.allocatedPaise), String(c.entries)])
+    )
+    csv = `${csv.trimEnd()}${CRLF}${CRLF}${block.replace(BOM, "")}`
+  }
   const fy = fyFromStartYear(fyStartYear)
   const path = join(companyExportsDir(slug), `tds-26q-${fy.label}-Q${quarter}.csv`)
   writeFileSync(path, csv)
   return path
 }
+
+const CRLF = '\r\n'
+const BOM = '\uFEFF'

@@ -83,8 +83,9 @@ beforeEach(() => {
 describe('migration 023', () => {
   const at = MIGRATIONS.findIndex((sql) => sql.includes('CREATE TABLE bom_versions'))
 
-  it('is appended after 021 (WP 3.2 owns 022) and is self-contained', () => {
-    expect(at).toBeGreaterThanOrEqual(21)
+  it('is migration 023, appended after 022 (WP 3.2) and self-contained', () => {
+    expect(at + 1).toBe(23)
+    expect(MIGRATIONS[at - 1]).toContain('tds_exemptions')
     expect(MIGRATIONS[at]).toContain('CREATE VIEW bom_lines')
   })
 

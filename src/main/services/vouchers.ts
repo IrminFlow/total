@@ -485,6 +485,8 @@ export function saveVoucher(db: DB, raw: VoucherInput, existingId?: number, hook
 
     const existingEntries = db.prepare('SELECT id FROM tds_entries WHERE voucher_id = ? ORDER BY id').all(voucherId) as { id: number }[]
     if (input.tds) {
+      // A deduction supersedes a "Not applicable" mark (WP 3.2, migration 022).
+      db.prepare('DELETE FROM tds_exemptions WHERE voucher_id = ?').run(voucherId)
       const party = input.partyLedgerId
         ? (db.prepare('SELECT pan FROM ledgers WHERE id = ?').get(input.partyLedgerId) as { pan: string | null } | undefined)
         : undefined

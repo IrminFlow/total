@@ -29,6 +29,7 @@ const EXPECTED_TABLES = [
   'tds_certificates',
   'tds_challans',
   'tds_entry_challans',
+  'tds_exemptions',
   'cost_centres',
   'voucher_line_cost_allocations',
   'bill_refs',

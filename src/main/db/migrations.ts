@@ -946,9 +946,20 @@ export const MIGRATIONS: string[] = [
   );
   CREATE INDEX idx_serial_numbers_status ON serial_numbers(stock_item_id, status);
   `,
-  // 023 (WP 2.4) — deeper manufacturing. Number assigned by the orchestrator: it follows 022
-  // (WP 3.2, written on a parallel branch). Self-contained — depends on nothing in 022 — so it is
-  // simply appended after whatever is last; until 022 lands on this branch it sits at index 21.
+  // 022 (WP 3.2) — TDS "Not applicable" marks. Number assigned by the orchestrator; appended after
+  // 021 (WP 2.3, serial numbers), whose content it does not depend on — only on vouchers (001).
+  // One row per voucher the user has said carries no TDS (not a sum of that nature, a payee
+  // declaration, below-threshold by agreement …): the Eligible tab skips it and the aggregate
+  // threshold walk leaves it out. Deleting the voucher (purge) cascades.
+  `
+  CREATE TABLE IF NOT EXISTS tds_exemptions (
+    voucher_id INTEGER PRIMARY KEY REFERENCES vouchers(id) ON DELETE CASCADE,
+    reason TEXT NOT NULL CHECK (length(reason) BETWEEN 1 AND 200),
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+  `,
+  // 023 (WP 2.4) — deeper manufacturing. Number assigned by the orchestrator; appended after 022
+  // (WP 3.2, TDS exemptions), whose content it does not depend on.
   // - BOM versions: bom_versions (named, effective-dated, one default per item) own
   //   bom_version_lines (per-unit quantity + optional scrap allowance in basis points). Every
   //   existing item BOM is backfilled as a default version "v1" in force from the beginning.

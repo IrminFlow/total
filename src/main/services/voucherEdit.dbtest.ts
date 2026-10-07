@@ -23,6 +23,7 @@ import { setBankDate } from './banking'
 import { getJobWorkChallan, saveJobWorkChallan } from './jobWork'
 import { saveBomVersion } from './bom'
 import { buildJobWorkChallan } from '@shared/voucherEdit'
+import { applyTdsToVoucher, removeTdsFromVoucher } from './tdsWorkbench'
 
 type LedgerKind = 'Sundry Debtors' | 'Sundry Creditors' | 'Sales Accounts' | 'Purchase Accounts' | 'Duties & Taxes' | 'Indirect Expenses' | 'Bank Accounts'
 
@@ -329,6 +330,53 @@ describe('voucher editor round-trip (WP 1.4): load → save unchanged stores ide
     setBankDate(db, bankLine.id, '2025-05-15')
     expectRoundTrip(db, id, 'accounting')
     expect(getVoucher(db, id)!.lines.find((l) => l.ledgerId === x.bank)!.bankDate).toBe('2025-05-15')
+  })
+
+  // WP 3.2 — Move to TDS / remove from the TDS screen keep every editor round-trip intact.
+  it('Move to TDS on a purchase invoice: still opens in invoice mode; removing restores the original rows', () => {
+    const kit = item(db, 'TDS Move Kit', 18)
+    const fresh = editContext(db)
+    const r = buildInvoicePayload({
+      ...emptyInvoiceState('2025-05-20'),
+      partyId: x.contractor, accountId: x.purchases, billName: 'CON-INV-MOVE', billDueDate: '2025-06-20',
+      rows: [{ itemId: kit, qtyText: '1', rate: 500000, discount: null, godownId: null, batchId: null }]
+    }, { ...fresh.invoice, kind: 'purchase' }, typeId(db, 'purchase'), fresh.taxLedgers)
+    if (!r.ok) throw new Error(r.error)
+    const id = saveVoucher(db, r.payload).id
+    const original = snapshot(db, id) as { lines: unknown; billRefs: unknown }
+    applyTdsToVoucher(db, { voucherId: id })
+    const v = getVoucher(db, id)!
+    expect(v.tds).toMatchObject({ baseAmount: 500000, tdsAmount: 50000 })
+    expect(v.lines[v.lines.length - 1]).toMatchObject({ ledgerId: x.tdsPayable, drCr: 'cr', amount: 50000 })
+    expectRoundTrip(db, id, 'invoice')
+    removeTdsFromVoucher(db, id)
+    const back = snapshot(db, id) as { lines: unknown; billRefs: unknown; tds: unknown[] }
+    expect(back.lines).toEqual(original.lines)
+    expect(back.billRefs).toEqual(original.billRefs)
+    expect(back.tds).toEqual([])
+    expectRoundTrip(db, id, 'invoice')
+  })
+
+  it('Move to TDS on a journal and on a payment: accounting mode round-trips both ways', () => {
+    const j = saveVoucher(db, {
+      ...header, voucherTypeId: typeId(db, 'journal'), date: '2025-05-21', partyLedgerId: x.contractor,
+      lines: [{ ledgerId: x.freight, drCr: 'dr', amount: 200000 }, { ledgerId: x.contractor, drCr: 'cr', amount: 200000 }],
+      billRefs: [{ kind: 'new', name: 'J-MOVE', amount: 200000, dueDate: null }]
+    }).id
+    const p = saveVoucher(db, {
+      ...header, voucherTypeId: typeId(db, 'payment'), date: '2025-05-22', partyLedgerId: x.contractor,
+      lines: [{ ledgerId: x.contractor, drCr: 'dr', amount: 300000 }, { ledgerId: x.bank, drCr: 'cr', amount: 300000 }]
+    }).id
+    for (const id of [j, p]) {
+      const original = snapshot(db, id) as { lines: unknown; billRefs: unknown }
+      applyTdsToVoucher(db, { voucherId: id, manualPaise: 2000 })
+      expectRoundTrip(db, id, 'accounting')
+      removeTdsFromVoucher(db, id)
+      const back = snapshot(db, id) as { lines: unknown; billRefs: unknown }
+      expect(back.lines).toEqual(original.lines)
+      expect(back.billRefs).toEqual(original.billRefs)
+      expectRoundTrip(db, id, 'accounting')
+    }
   })
 
   it('receipt with an advance bill ref, post-dated', () => {
