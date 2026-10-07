@@ -47,6 +47,8 @@ import * as costCentres from './services/costCentres'
 import * as stockAnalysis from './services/stockAnalysis'
 import * as manufacture from './services/manufacture'
 import * as serials from './services/serials'
+import * as tradeLinks from './services/tradeLinks'
+import * as tradeDocTypes from './services/tradeDocTypes'
 import * as priceLevels from './services/priceLevels'
 import * as budgets from './services/budgets'
 import * as yearEnd from './services/yearEnd'
@@ -70,7 +72,8 @@ import { roleAllows, type Role } from './services/roles'
 import {
   bomInputSchema, currencyInputSchema, employeeInputSchema, nicCredentialsSchema, auditListSchema,
   userInputSchema, authLoginSchema, payHeadInputSchema, employeeHeadsSetSchema, payrollRunIdSchema,
-  auditRetentionSchema, invoicePdfBatchSchema
+  auditRetentionSchema, invoicePdfBatchSchema, linksForVoucherSchema, openSourceLinesSchema, tradeDocNextNumberSchema,
+  tradeDocTypeSaveSchema
 } from '@shared/schemas'
 import type { CompanyInfo } from '@shared/domain'
 import { featuresSchema } from '@shared/features'
@@ -521,6 +524,20 @@ export function registerIpc(): void {
     const { id, data } = withIdSchema(voucherTypeInputSchema).parse(p)
     return masters.updateVoucherType(requireCompany().db, id, data)
   })
+
+  // ---------- trade cycle (WP 2.5a): kinds, order / quotation numbering series, line links ----------
+  handle('voucherKinds:list', () => tradeDocTypes.listVoucherKinds(requireCompany().db), 'viewer')
+  handle('tradeDocTypes:list', () => tradeDocTypes.listTradeDocTypes(requireCompany().db), 'viewer')
+  handle('tradeDocTypes:save', (p) => {
+    const { id, data } = tradeDocTypeSaveSchema.parse(p)
+    return tradeDocTypes.saveTradeDocType(requireCompany().db, data, id)
+  })
+  handle('tradeDocs:nextNumber', (p) => {
+    const { docTypeId, date } = tradeDocNextNumberSchema.parse(p)
+    return tradeDocTypes.nextTradeDocNumber(requireCompany().db, docTypeId, date)
+  }, 'viewer')
+  handle('links:forVoucher', (p) => tradeLinks.linksForVoucher(requireCompany().db, linksForVoucherSchema.parse(p).voucherId), 'viewer')
+  handle('links:openSourceLines', (p) => tradeLinks.openSourceLines(requireCompany().db, openSourceLinesSchema.parse(p)), 'viewer')
 
   handle('master:units:list', () => masters.listUnits(requireCompany().db), 'viewer')
   handle('master:units:create', (p) => masters.createUnit(requireCompany().db, unitInputSchema.parse(p)))
