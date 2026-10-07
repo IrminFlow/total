@@ -68,6 +68,7 @@ export type Screen =
   | { name: 'banking' }
   | { name: 'payroll' }
   | { name: 'tds' }
+  | { name: 'tcs' }
   | { name: 'cost-centres' }
   | { name: 'budgets' }
   | { name: 'company-info' }

@@ -6,7 +6,7 @@ import type { Ledger, TdsCertificateRow, TdsRate, TdsSection } from '@shared/dom
 import { DEDUCTEE_TYPE_LABELS, deducteeTypeFromPan, type RateDeducteeType } from '@shared/tds'
 import { formatPaise } from '@shared/money'
 import { toDisplayDate, todayISO } from '@shared/dates'
-import { api } from '../../lib/client'
+import { KIND_WORDS, useKind, withholdingApi, KindContext } from './common'
 import { useToasts } from '../../state/stores'
 import { AmountInput, Badge, Button, Field, Modal, Money, Panel, SectionTitle, Select, TextInput } from '../../components/ui'
 import { DataTable, defineColumns } from '../../components/table'
@@ -65,11 +65,16 @@ const DEDUCTEE_COLUMNS = defineColumns<DeducteeRow>([
   { id: 'certs', header: 'Certificates', kind: 'number', value: (r) => r.certificates, width: 110 }
 ])
 
-export function SectionsTab(): React.JSX.Element {
+function SectionsBody(): React.JSX.Element {
+  const k = useKind()
+  const w = KIND_WORDS[k]
+  const wapi = withholdingApi(k)
+  void w
+
   const canEdit = useCanEditMasters()
   const ledgers = useLedgers()
-  const { data: sections } = useQuery({ queryKey: ['tdsSections'], queryFn: api.tds.sections })
-  const { data: certificates } = useQuery({ queryKey: ['tds', 'certificates'], queryFn: () => api.tds.certificates() })
+  const { data: sections } = useQuery({ queryKey: [`${k}Sections`], queryFn: wapi.sections })
+  const { data: certificates } = useQuery({ queryKey: [k, 'certificates'], queryFn: () => wapi.certificates() })
   const [editing, setEditing] = useState<TdsSection | 'new' | null>(null)
   const [cert, setCert] = useState<TdsCertificateRow | 'new' | null>(null)
   const codeOf = useMemo(() => new Map((sections ?? []).map((s) => [s.id, s.code])), [sections])
@@ -79,10 +84,10 @@ export function SectionsTab(): React.JSX.Element {
     const certCount = new Map<number, number>()
     for (const c of certificates ?? []) certCount.set(c.ledgerId, (certCount.get(c.ledgerId) ?? 0) + 1)
     return ledgers
-      .filter((l) => l.tdsSectionId != null || l.deducteeType != null || certCount.has(l.id))
+      .filter((l) => (k === 'tcs' ? l.tcsSectionId != null : l.tdsSectionId != null || l.deducteeType != null) || certCount.has(l.id))
       .map((l) => ({
         ledgerId: l.id, name: l.name, pan: l.pan, explicitType: l.deducteeType, panType: deducteeTypeFromPan(l.pan),
-        sectionCode: l.tdsSectionId != null ? (codeOf.get(l.tdsSectionId) ?? null) : null, certificates: certCount.get(l.id) ?? 0
+        sectionCode: (k === 'tcs' ? l.tcsSectionId : l.tdsSectionId) != null ? (codeOf.get((k === 'tcs' ? l.tcsSectionId : l.tdsSectionId)!) ?? null) : null, certificates: certCount.get(l.id) ?? 0
       }))
   }, [ledgers, certificates, codeOf])
 
@@ -112,15 +117,15 @@ export function SectionsTab(): React.JSX.Element {
         <div className="px-3 pt-3">
           <SectionTitle
             as="h3"
-            right={canEdit && <Button size="sm" data-testid="btn-tds-section-new" onClick={() => setEditing('new')}>New section</Button>}
+            right={canEdit && <Button size="sm" data-testid={`btn-${k}-section-new`} onClick={() => setEditing('new')}>New section</Button>}
           >
             Sections and rates
           </SectionTitle>
         </div>
         <DataTable
-          viewId="tds-sections"
-          testId="tds-sections"
-          ariaLabel="TDS sections"
+          viewId={`${k}-sections`}
+          testId={`${k}-sections`}
+          ariaLabel={`${w.name} sections`}
           columns={SECTION_COLUMNS}
           rows={sections ?? []}
           rowKey={(s) => s.id}
@@ -129,33 +134,34 @@ export function SectionsTab(): React.JSX.Element {
           empty={{ title: 'No sections yet', hint: 'Add one — e.g. 194C Contractors' }}
           trailingWidth={canEdit ? 64 : 0}
           trailing={canEdit ? (s) => (
-            <button data-testid={`btn-tds-section-edit-${s.id}`} className="text-small text-blue hover:underline" onClick={() => setEditing(s)}>
+            <button data-testid={`btn-${k}-section-edit-${s.id}`} className="text-small text-blue hover:underline" onClick={() => setEditing(s)}>
               Edit
             </button>
           ) : undefined}
         />
         <p className="px-3 py-2 text-hint text-muted">
-          Each rate row is effective-dated by deductee type and cites its source (hover a row in the rate editor). Figures are sourced from the
-          Income-tax Act 1961 / Finance Act 2025 and the Income-tax Act 2025 — have them checked by your CA.
+          {k === 'tcs'
+            ? 'Each rate row is effective-dated and cites its source (hover a row in the rate editor): s.206C of the 1961 Act as amended by Finance Act 2025, and s.394 of the 2025 Act as amended by Finance Act 2026. Without a PAN the higher of twice the rate and 5% applies (s.206CC, at most 20%). Have them checked by your CA.'
+            : 'Each rate row is effective-dated by deductee type and cites its source (hover a row in the rate editor). Figures are sourced from the Income-tax Act 1961 / Finance Act 2025 and the Income-tax Act 2025 — have them checked by your CA.'}
         </p>
       </Panel>
 
       <Panel>
         <div className="px-3 pt-3">
-          <SectionTitle as="h3">Deductees</SectionTitle>
+          <SectionTitle as="h3">{w.party}s</SectionTitle>
         </div>
         <DataTable
-          viewId="tds-deductees"
-          testId="tds-deductees"
-          ariaLabel="TDS deductees"
+          viewId={`${k}-deductees`}
+          testId={`${k}-deductees`}
+          ariaLabel={`${w.name} ${w.party.toLowerCase()}s`}
           columns={DEDUCTEE_COLUMNS}
           rows={deductees}
           rowKey={(r) => r.ledgerId}
           rowAttrs={(r) => ({ 'data-row-id': r.ledgerId })}
           onRowActivate={(r) => openLedgerStatement(r.ledgerId)}
           maxHeight="40vh"
-          empty={{ title: 'No party is flagged for TDS', hint: 'Set a TDS section (and PAN) on the supplier ledger' }}
-          exportOptions={{ title: 'TDS deductees', periodLabel: `as on ${toDisplayDate(todayISO())}`, filename: 'tds-deductees' }}
+          empty={k === 'tcs' ? { title: 'No buyer is flagged for TCS', hint: 'Set a TCS section (and PAN) on the customer ledger, or a goods category on the stock item' } : { title: 'No party is flagged for TDS', hint: 'Set a TDS section (and PAN) on the supplier ledger' }}
+          exportOptions={{ title: `${w.name} ${w.party.toLowerCase()}s`, periodLabel: `as on ${toDisplayDate(todayISO())}`, filename: `${k}-deductees` }}
         />
         <p className="px-3 py-2 text-hint text-muted">
           The deductee type defaults from the PAN&apos;s fourth character (P/H individual or HUF, C company, F firm, others); set it on the ledger to
@@ -165,23 +171,23 @@ export function SectionsTab(): React.JSX.Element {
 
       <Panel>
         <div className="px-3 pt-3">
-          <SectionTitle as="h3" right={canEdit && <Button size="sm" data-testid="btn-tds-cert-new" onClick={() => setCert('new')}>New certificate</Button>}>
+          <SectionTitle as="h3" right={canEdit && <Button size="sm" data-testid={`btn-${k}-cert-new`} onClick={() => setCert('new')}>New certificate</Button>}>
             Lower-deduction certificates
           </SectionTitle>
         </div>
         <DataTable
-          viewId="tds-certificates"
-          testId="tds-certificates"
+          viewId={`${k}-certificates`}
+          testId={`${k}-certificates`}
           ariaLabel="Lower-deduction certificates"
           columns={certColumns}
           rows={certificates ?? []}
           rowKey={(c) => c.id}
           onRowActivate={canEdit ? (c) => setCert(c) : undefined}
           maxHeight="40vh"
-          empty={{ title: 'No certificates', hint: 'Record a section 197 certificate the deductee gave you' }}
+          empty={{ title: 'No certificates', hint: k === 'tcs' ? 'Record a section 206C(9) lower-collection certificate the buyer gave you' : 'Record a section 197 certificate the deductee gave you' }}
           trailingWidth={canEdit ? 64 : 0}
           trailing={canEdit ? (c) => (
-            <button data-testid={`btn-tds-cert-edit-${c.id}`} className="text-small text-blue hover:underline" onClick={() => setCert(c)}>
+            <button data-testid={`btn-${k}-cert-edit-${c.id}`} className="text-small text-blue hover:underline" onClick={() => setCert(c)}>
               Edit
             </button>
           ) : undefined}
@@ -207,6 +213,11 @@ interface SectionForm {
 }
 
 function SectionModal({ section, onClose }: { section: TdsSection | null; onClose: () => void }): React.JSX.Element {
+  const k = useKind()
+  const w = KIND_WORDS[k]
+  const wapi = withholdingApi(k)
+  void w
+
   const toast = useToasts()
   const queryClient = useQueryClient()
   const [form, setForm] = useState<SectionForm>(() =>
@@ -228,12 +239,12 @@ function SectionModal({ section, onClose }: { section: TdsSection | null; onClos
     setError(null)
     setSaving(true)
     try {
-      await api.tds.sectionSave({
+      await wapi.sectionSave({
         ...(form.id != null ? { id: form.id } : {}),
         code: form.code.trim(), description: form.description.trim(), rate,
         thresholdSingle: form.thresholdSingle ?? 0, thresholdAnnual: form.thresholdAnnual ?? 0
       })
-      await queryClient.invalidateQueries({ queryKey: ['tdsSections'] })
+      await queryClient.invalidateQueries({ queryKey: [`${k}Sections`] })
       toast.push('success', form.id != null ? 'Section updated' : 'Section added')
       onClose()
     } catch (err) {
@@ -244,16 +255,16 @@ function SectionModal({ section, onClose }: { section: TdsSection | null; onClos
   }
 
   return (
-    <Modal title={section ? `Section ${section.code}` : 'New TDS section'} onClose={onClose} wide>
+    <Modal title={section ? `Section ${section.code}` : `New ${w.name} section`} onClose={onClose} wide>
       <div className="grid grid-cols-3 gap-3">
         <Field label="Code" hint="e.g. 194C">
-          <TextInput data-testid="input-tds-section-code" value={form.code} onChange={(e) => setForm({ ...form, code: e.target.value })} />
+          <TextInput data-testid={`input-${k}-section-code`} value={form.code} onChange={(e) => setForm({ ...form, code: e.target.value })} />
         </Field>
         <Field label="Description">
-          <TextInput data-testid="input-tds-section-desc" value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} />
+          <TextInput data-testid={`input-${k}-section-desc`} value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} />
         </Field>
         <Field label="Rate %" hint="Today's rate for an unknown deductee">
-          <TextInput data-testid="input-tds-section-rate" className="num" value={form.rate} onChange={(e) => setForm({ ...form, rate: e.target.value })} />
+          <TextInput data-testid={`input-${k}-section-rate`} className="num" value={form.rate} onChange={(e) => setForm({ ...form, rate: e.target.value })} />
         </Field>
         <Field label="Single-payment threshold" hint="Blank = none">
           <AmountInput paise={form.thresholdSingle} onPaise={(p) => setForm({ ...form, thresholdSingle: p })} />
@@ -266,7 +277,7 @@ function SectionModal({ section, onClose }: { section: TdsSection | null; onClos
       {form.id != null && <RatesEditor sectionId={form.id} />}
       <div className="mt-3 flex justify-end gap-2">
         <Button onClick={onClose}>Close</Button>
-        <Button data-testid="btn-tds-section-save" variant="primary" disabled={saving} onClick={() => void save()}>
+        <Button data-testid={`btn-${k}-section-save`} variant="primary" disabled={saving} onClick={() => void save()}>
           {form.id != null ? 'Save section' : 'Add section'}
         </Button>
       </div>
@@ -277,6 +288,11 @@ function SectionModal({ section, onClose }: { section: TdsSection | null; onClos
 // ---------- lower-deduction certificate editor ----------
 
 function CertificateModal({ cert, sections, onClose }: { cert: TdsCertificateRow | null; sections: TdsSection[]; onClose: () => void }): React.JSX.Element {
+  const k = useKind()
+  const w = KIND_WORDS[k]
+  const wapi = withholdingApi(k)
+  void w
+
   const toast = useToasts()
   const queryClient = useQueryClient()
   const [ledgerId, setLedgerId] = useState<number | null>(cert?.ledgerId ?? null)
@@ -286,15 +302,15 @@ function CertificateModal({ cert, sections, onClose }: { cert: TdsCertificateRow
   const [from, setFrom] = useState(cert?.validFrom ?? todayISO())
   const [to, setTo] = useState(cert?.validTo ?? '')
   const [cap, setCap] = useState<number | null>(cert?.capPaise ?? null)
-  const refresh = (): Promise<void> => queryClient.invalidateQueries({ queryKey: ['tds'] })
+  const refresh = (): Promise<void> => queryClient.invalidateQueries({ queryKey: [k] })
 
   const save = async (): Promise<void> => {
     const r = Number(rate)
-    if (ledgerId == null) return void toast.push('error', 'Pick the deductee')
+    if (ledgerId == null) return void toast.push('error', `Pick the ${w.party.toLowerCase()}`)
     if (!no.trim()) return void toast.push('error', 'Certificate number is required')
     if (rate.trim() === '' || !Number.isFinite(r) || r < 0 || r > 100) return void toast.push('error', 'Rate must be between 0 and 100%')
     try {
-      await api.tds.certificateSave({
+      await wapi.certificateSave({
         ...(cert ? { id: cert.id } : {}), ledgerId, sectionId, certificateNo: no.trim(), rateBp: Math.round(r * 100),
         validFrom: from, validTo: to, capPaise: cap
       })
@@ -310,7 +326,7 @@ function CertificateModal({ cert, sections, onClose }: { cert: TdsCertificateRow
     const ok = await confirmDialog({ title: 'Delete certificate', message: `Delete certificate ${cert.certificateNo}? Deductions already made keep their rate.`, confirmLabel: 'Delete', danger: true })
     if (!ok) return
     try {
-      await api.tds.certificateDelete(cert.id)
+      await wapi.certificateDelete(cert.id)
       await refresh()
       onClose()
     } catch (err) {
@@ -322,8 +338,8 @@ function CertificateModal({ cert, sections, onClose }: { cert: TdsCertificateRow
     <Modal title={cert ? `Certificate ${cert.certificateNo}` : 'New lower-deduction certificate'} onClose={onClose}>
       <div className="grid grid-cols-2 gap-3">
         <div className="col-span-2">
-          <Field label="Deductee">
-            <LedgerPicker value={ledgerId} onPick={setLedgerId} placeholder="Party" testId="picker-tds-cert-party" />
+          <Field label={w.party}>
+            <LedgerPicker value={ledgerId} onPick={setLedgerId} placeholder="Party" testId={`picker-${k}-cert-party`} />
           </Field>
         </div>
         <Field label="Section" hint="Blank = every section">
@@ -335,10 +351,10 @@ function CertificateModal({ cert, sections, onClose }: { cert: TdsCertificateRow
           </Select>
         </Field>
         <Field label="Certificate no.">
-          <TextInput data-testid="input-tds-cert-no" value={no} onChange={(e) => setNo(e.target.value)} />
+          <TextInput data-testid={`input-${k}-cert-no`} value={no} onChange={(e) => setNo(e.target.value)} />
         </Field>
         <Field label="Rate %" hint="0 = nil deduction">
-          <TextInput data-testid="input-tds-cert-rate" className="num" value={rate} onChange={(e) => setRate(e.target.value)} />
+          <TextInput data-testid={`input-${k}-cert-rate`} className="num" value={rate} onChange={(e) => setRate(e.target.value)} />
         </Field>
         <Field label="Amount cap" hint="Blank = no cap">
           <AmountInput paise={cap} onPaise={setCap} />
@@ -347,14 +363,14 @@ function CertificateModal({ cert, sections, onClose }: { cert: TdsCertificateRow
           <TextInput className="num" value={from} onChange={(e) => setFrom(e.target.value)} placeholder="YYYY-MM-DD" />
         </Field>
         <Field label="Valid to" hint={to ? toDisplayDate(to) : undefined}>
-          <TextInput data-testid="input-tds-cert-to" className="num" value={to} onChange={(e) => setTo(e.target.value)} placeholder="YYYY-MM-DD" />
+          <TextInput data-testid={`input-${k}-cert-to`} className="num" value={to} onChange={(e) => setTo(e.target.value)} placeholder="YYYY-MM-DD" />
         </Field>
       </div>
       <div className="mt-3 flex justify-between gap-2">
         <div>{cert && <Button variant="danger" onClick={() => void remove()}>Delete</Button>}</div>
         <div className="flex gap-2">
           <Button onClick={onClose}>Cancel</Button>
-          <Button variant="primary" data-testid="btn-tds-cert-save" onClick={() => void save()}>Save certificate</Button>
+          <Button variant="primary" data-testid={`btn-${k}-cert-save`} onClick={() => void save()}>Save certificate</Button>
         </div>
       </div>
     </Modal>
@@ -378,11 +394,13 @@ interface RateForm {
   excessOnly: boolean
   noPan: string
   returnCode: string
+  /** TCS: the base includes the GST charged. */
+  gstInBase: boolean
 }
 
-const blankRate = (): RateForm => ({
+const blankRate = (kind: 'tds' | 'tcs'): RateForm => ({
   effectiveFrom: todayISO(), effectiveTo: '', deducteeType: 'any', rate: '', single: null, annual: null,
-  basis: 'fy', excessOnly: false, noPan: '20', returnCode: ''
+  basis: 'fy', excessOnly: false, noPan: kind === 'tcs' ? '5' : '20', returnCode: '', gstInBase: kind === 'tcs'
 })
 
 const pct = (bp: number): string => `${bp / 100}%`
@@ -390,21 +408,27 @@ const pct = (bp: number): string => `${bp / 100}%`
 /** The section's rate rows by date and deductee type — every seeded figure is editable here;
  *  seeded rows show their statutory citation on hover. Owner-only server-side (tds:rateSave). */
 function RatesEditor({ sectionId }: { sectionId: number }): React.JSX.Element {
+  const k = useKind()
+  const w = KIND_WORDS[k]
+  const wapi = withholdingApi(k)
+  void w
+
   const toast = useToasts()
   const queryClient = useQueryClient()
-  const { data: rates } = useQuery({ queryKey: ['tdsRates', sectionId], queryFn: () => api.tds.rates(sectionId) })
+  const { data: rates } = useQuery({ queryKey: [`${k}Rates`, sectionId], queryFn: () => wapi.rates(sectionId) })
   const [form, setForm] = useState<RateForm | null>(null)
 
   const edit = (r: TdsRate): void =>
     setForm({
       id: r.id, effectiveFrom: r.effectiveFrom, effectiveTo: r.effectiveTo ?? '', deducteeType: r.deducteeType,
       rate: String(r.rateBp / 100), single: r.thresholdSinglePaise || null, annual: r.thresholdAnnualPaise || null,
-      basis: r.thresholdBasis, excessOnly: r.thresholdExcessOnly, noPan: String(r.noPanRateBp / 100), returnCode: r.returnCode ?? ''
+      basis: r.thresholdBasis, excessOnly: r.thresholdExcessOnly, noPan: String(r.noPanRateBp / 100), returnCode: r.returnCode ?? '',
+      gstInBase: !!r.baseIncludesGst
     })
 
   const refresh = async (): Promise<void> => {
-    await queryClient.invalidateQueries({ queryKey: ['tdsRates', sectionId] })
-    await queryClient.invalidateQueries({ queryKey: ['tdsSections'] })
+    await queryClient.invalidateQueries({ queryKey: [`${k}Rates`, sectionId] })
+    await queryClient.invalidateQueries({ queryKey: [`${k}Sections`] })
   }
 
   const save = async (): Promise<void> => {
@@ -414,7 +438,7 @@ function RatesEditor({ sectionId }: { sectionId: number }): React.JSX.Element {
     if (form.rate.trim() === '' || !Number.isFinite(rate) || rate < 0 || rate > 100) return void toast.push('error', 'Rate must be between 0 and 100%')
     if (!Number.isFinite(noPan) || noPan < 0 || noPan > 100) return void toast.push('error', 'No-PAN rate must be between 0 and 100%')
     try {
-      await api.tds.rateSave({
+      await wapi.rateSave({
         ...(form.id != null ? { id: form.id } : {}),
         sectionId,
         effectiveFrom: form.effectiveFrom,
@@ -426,7 +450,8 @@ function RatesEditor({ sectionId }: { sectionId: number }): React.JSX.Element {
         thresholdBasis: form.basis,
         thresholdExcessOnly: form.excessOnly,
         noPanRateBp: Math.round(noPan * 100),
-        returnCode: form.returnCode.trim() || null
+        returnCode: form.returnCode.trim() || null,
+        ...(k === 'tcs' ? { baseIncludesGst: form.gstInBase } : {})
       })
       await refresh()
       setForm(null)
@@ -438,7 +463,7 @@ function RatesEditor({ sectionId }: { sectionId: number }): React.JSX.Element {
 
   const remove = async (id: number): Promise<void> => {
     try {
-      await api.tds.rateDelete(id)
+      await wapi.rateDelete(id)
       await refresh()
     } catch (err) {
       toast.push('error', (err as Error).message)
@@ -446,7 +471,7 @@ function RatesEditor({ sectionId }: { sectionId: number }): React.JSX.Element {
   }
 
   return (
-    <div className="mt-4" data-testid="tds-rates">
+    <div className="mt-4" data-testid={`${k}-rates`}>
       <p className="mb-1 text-body-sm font-medium text-ink">Rates by date</p>
       <table className="ledger-table text-body-sm">
         <thead>
@@ -494,7 +519,7 @@ function RatesEditor({ sectionId }: { sectionId: number }): React.JSX.Element {
           <Field label="To" hint="Blank = open">
             <TextInput className="num" value={form.effectiveTo} onChange={(e) => setForm({ ...form, effectiveTo: e.target.value })} />
           </Field>
-          <Field label="Deductee">
+          <Field label={w.party}>
             <Select value={form.deducteeType} onChange={(e) => setForm({ ...form, deducteeType: e.target.value as RateDeducteeType })}>
               {DEDUCTEE_OPTIONS.map((t) => (
                 <option key={t} value={t}>{DEDUCTEE_TYPE_LABELS[t]}</option>
@@ -524,16 +549,31 @@ function RatesEditor({ sectionId }: { sectionId: number }): React.JSX.Element {
           </Field>
           <label className="col-span-2 flex items-center gap-2 pt-5 text-body-sm">
             <input type="checkbox" checked={form.excessOnly} onChange={(e) => setForm({ ...form, excessOnly: e.target.checked })} />
-            Deduct only on the amount above the aggregate threshold
+            {k === 'tcs' ? 'Collect' : 'Deduct'} only on the amount above the aggregate threshold
           </label>
+          {k === 'tcs' && (
+            <label className="col-span-2 flex items-center gap-2 text-body-sm">
+              <input type="checkbox" checked={form.gstInBase} onChange={(e) => setForm({ ...form, gstInBase: e.target.checked })} />
+              Base includes the GST charged
+            </label>
+          )}
           <div className="flex items-end justify-end gap-2">
             <Button onClick={() => setForm(null)}>Cancel</Button>
             <Button variant="primary" onClick={() => void save()}>Save rate</Button>
           </div>
         </div>
       ) : (
-        <Button className="mt-2" onClick={() => setForm(blankRate())}>+ Add rate</Button>
+        <Button className="mt-2" onClick={() => setForm(blankRate(k))}>+ Add rate</Button>
       )}
     </div>
+  )
+}
+
+/** The Sections tab for a kind (TDS by default; the TCS screen passes 'tcs'). */
+export function SectionsTab({ kind = 'tds' }: { kind?: 'tds' | 'tcs' } = {}): React.JSX.Element {
+  return (
+    <KindContext.Provider value={kind}>
+      <SectionsBody />
+    </KindContext.Provider>
   )
 }
