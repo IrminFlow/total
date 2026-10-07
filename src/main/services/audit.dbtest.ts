@@ -96,6 +96,10 @@ describe('audit trail', () => {
     writeAudit(db, 'dated', 3, 'create', null, { d: 3 })
 
     const rows = db.prepare("SELECT id FROM audit_log WHERE entity = 'dated' ORDER BY id").all() as { id: number }[]
+    // Sealed rows are append-only (migration 031): lift the guard to backdate them, which is
+    // exactly the tampering the hash chain then reports. at_iso goes too — the local date wins.
+    db.exec('DROP TRIGGER audit_log_append_only')
+    db.prepare("UPDATE audit_log SET at_iso = NULL WHERE entity = 'dated'").run()
     db.prepare("UPDATE audit_log SET at = '2024-01-05 10:00:00' WHERE id = ?").run(rows[0]!.id)
     db.prepare("UPDATE audit_log SET at = '2024-01-10 23:59:59' WHERE id = ?").run(rows[1]!.id)
     db.prepare("UPDATE audit_log SET at = '2024-01-15 09:00:00' WHERE id = ?").run(rows[2]!.id)

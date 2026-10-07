@@ -7,7 +7,7 @@ import { freshDb, seededDb, postSimpleVoucher, TEST_INFO } from '../db/testdb'
 import { seedCompany } from '../db/seed'
 import { saveUser, login } from './users'
 import { setAuditContext, writeAudit, pruneAudit } from './audit'
-import { getAuditKeepDays, setAuditKeepDays } from './config'
+import { getAuditKeepDays, setAuditKeepDays, setAuditTrailRequired } from './config'
 import { importTallyXml, dryRunTallyXml } from './tallyImport'
 import { deleteVoucher, purgeOldDeleted, setLockDate } from './vouchers'
 import { importStatement } from './banking'
@@ -152,8 +152,8 @@ describe('purgeOldDeleted writes one summary audit row (Q1 #92, lock-gated by F1
     const auditCountAfter = (db.prepare('SELECT COUNT(*) AS n FROM audit_log').get() as { n: number }).n
     expect(auditCountAfter - auditCountBefore).toBe(1)
     const summaryRow = auditRows(db, 'voucher').at(-1)!
-    expect(summaryRow.action).toBe('delete')
-    expect(JSON.parse(summaryRow.before_json!)).toMatchObject({ autoPurgedFromBin: 2, olderThanDays: 30 })
+    expect(summaryRow.action).toBe('purge')
+    expect(JSON.parse(summaryRow.before_json!)).toMatchObject({ autoPurgedFromBin: 2, olderThanDays: 30, voucherIds: [v1.id, v2.id] })
   })
 
   it('writes no audit row when nothing was purged', () => {
@@ -165,26 +165,33 @@ describe('purgeOldDeleted writes one summary audit row (Q1 #92, lock-gated by F1
   })
 })
 
-describe('audit retention (Q1 #92)', () => {
-  it('auditKeepDays round-trips through config, defaults to null (keep forever)', () => {
+describe('audit retention (Q1 #92, WP 3.8 rules)', () => {
+  it('auditKeepDays round-trips through config, defaults to null (keep forever); 8-year minimum; refused while the trail is required', () => {
     const db = seededDb()
     expect(getAuditKeepDays(db)).toBeNull()
-    expect(setAuditKeepDays(db, 365)).toBe(365)
-    expect(getAuditKeepDays(db)).toBe(365)
+    expect(() => setAuditKeepDays(db, 3000)).toThrow(/audit trail required/)
+    setAuditTrailRequired(db, false)
+    expect(() => setAuditKeepDays(db, 365)).toThrow(/at least 2922 days/)
+    expect(setAuditKeepDays(db, 3000)).toBe(3000)
+    expect(getAuditKeepDays(db)).toBe(3000)
     expect(setAuditKeepDays(db, null)).toBeNull()
     expect(getAuditKeepDays(db)).toBeNull()
   })
 
-  it('pruneAudit deletes only rows older than the window', () => {
+  it('pruneAudit deletes only rows older than the window AND the s.128(5) floor, and logs the prune', () => {
     const db = seededDb()
-    writeAudit(db, 'old_thing', 1, 'create', null, { i: 1 })
+    setAuditTrailRequired(db, false)
+    // Rows inserted with an explicit, ancient date (they are unsealed — test-only shortcut).
+    db.prepare("INSERT INTO audit_log (entity, entity_id, action, at, user_name) VALUES ('old_thing', 1, 'create', '2010-01-01 10:00:00', 'x')").run()
     writeAudit(db, 'new_thing', 2, 'create', null, { i: 2 })
-    db.prepare("UPDATE audit_log SET at = datetime('now', '-400 days') WHERE entity = 'old_thing'").run()
 
-    const pruned = pruneAudit(db, 365)
-    expect(pruned).toBeGreaterThanOrEqual(1)
+    const pruned = pruneAudit(db, 3000, '2026-10-07')
+    expect(pruned).toBe(1)
     expect(auditRows(db, 'old_thing')).toHaveLength(0)
     expect(auditRows(db, 'new_thing')).toHaveLength(1)
+    const prune = auditRows(db, 'audit_log').at(-1)!
+    expect(prune.action).toBe('prune')
+    expect(JSON.parse(prune.after_json!)).toMatchObject({ count: 1, cutoff: '2018-04-01', keepDays: 3000 })
   })
 })
 

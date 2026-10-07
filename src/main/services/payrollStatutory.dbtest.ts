@@ -49,11 +49,12 @@ function bank(db: DB): number {
 }
 
 describe('migration 029', () => {
-  it('is the 29th migration — appended after 027 (TCS) and 028 (GST expansion) — and the last', () => {
+  it('is the 29th migration — appended after 027 (TCS) and 028 (GST expansion)', () => {
     const at = MIGRATIONS.findIndex((sql) => sql.includes('CREATE TABLE statutory_rates'))
     expect(at + 1).toBe(29)
     expect(at).toBeGreaterThan(MIGRATIONS.findIndex((sql) => sql.includes('CREATE TABLE gst_ims_actions')))
-    expect(at).toBe(MIGRATIONS.length - 1)
+    // later work-packages append after it (WP 3.8's audit-trail migration 031, ...)
+    expect(at).toBeLessThan(MIGRATIONS.findIndex((sql) => sql.includes('CREATE TRIGGER audit_log_append_only')))
   })
 
   it('seeds cited, effective-dated statutory rates, section 192 and the Code wage rule', () => {

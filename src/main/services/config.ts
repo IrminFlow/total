@@ -2,7 +2,8 @@ import type { DB } from '../db/connection'
 import { featuresSchema, mergeFeatures, type CompanyFeatures } from '@shared/features'
 import { invoiceConfigSchema, type InvoiceConfig } from '@shared/invoiceConfig'
 import { chequeConfigSchema, gst3bManualSchema, mergeChequeConfig, type ChequeConfig, type Gst3bManualInput } from '@shared/schemas'
-import { writeAudit } from './audit'
+import { getAuditTrailRequired, setAuditTrailRequired, writeAudit } from './audit'
+import { MIN_AUDIT_KEEP_DAYS } from '@shared/auditRetention'
 import { getLegacyConfigView, setLegacyConfig } from './printTemplates'
 
 /** Company-scoped JSON config living in the `meta` table — same pattern as readCompanyInfo/
@@ -89,24 +90,38 @@ export function setGst3bManual(db: DB, period: string, input: unknown): Gst3bMan
   return parsed
 }
 
-// ---------- audit retention (task Q1 #92) ----------
+// ---------- audit retention (task Q1 #92; WP 3.8) ----------
 
 /** Days of audit_log history to keep, or null (the default) = keep forever. Stored in `meta`
- *  under 'audit.keepDays'. When set, company open prunes older rows (see ipc.ts + audit.ts). */
+ *  under 'audit.keepDays'. Only consulted when the company is NOT flagged audit-trail-required
+ *  (the default is required → nothing is ever pruned); see pruneAudit in audit.ts. */
 export function getAuditKeepDays(db: DB): number | null {
   const raw = readMeta(db, 'audit.keepDays')
   return typeof raw === 'number' && Number.isInteger(raw) && raw > 0 ? raw : null
 }
 
 export function setAuditKeepDays(db: DB, keepDays: number | null): number | null {
+  if (keepDays !== null && keepDays < MIN_AUDIT_KEEP_DAYS) {
+    throw new Error(`Audit entries must be kept for at least ${MIN_AUDIT_KEEP_DAYS} days (8 years) — Companies Act 2013 s.128(5)`)
+  }
+  if (keepDays !== null && getAuditTrailRequired(db)) {
+    throw new Error('This company keeps the full audit trail (rule 3(1)); turn off "audit trail required" before setting a retention window')
+  }
   const before = getAuditKeepDays(db)
   if (keepDays === null) {
     db.prepare("DELETE FROM meta WHERE key = 'audit.keepDays'").run()
   } else {
     writeMeta(db, 'audit.keepDays', keepDays)
   }
-  writeAudit(db, 'company', 0, 'update', { auditKeepDays: before }, { auditKeepDays: keepDays })
+  if (before !== keepDays) writeAudit(db, 'company', 0, 'update', { auditKeepDays: before }, { auditKeepDays: keepDays })
   return keepDays
+}
+
+export { getAuditTrailRequired, setAuditTrailRequired }
+
+/** The Audit settings view: both retention knobs together. */
+export function getAuditSettings(db: DB): { keepDays: number | null; trailRequired: boolean } {
+  return { keepDays: getAuditKeepDays(db), trailRequired: getAuditTrailRequired(db) }
 }
 
 // ---------- agent bridge feature flag (lane A) ----------

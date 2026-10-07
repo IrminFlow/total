@@ -497,9 +497,12 @@ export const backupFileSchema = z.string().regex(/^[A-Za-z0-9._-]+\.db$/, 'Inval
 /** Passphrase for encrypted export/import. */
 export const passphraseSchema = z.string().min(8, 'Passphrase must be at least 8 characters')
 
-/** audit:list query — entity/date range are optional filters; page is server-paged at 100 rows. */
+/** audit:list query — every filter optional; page is server-paged (default 100 rows). */
 export const auditListSchema = z.object({
   entity: z.string().trim().min(1).optional(),
+  action: z.string().trim().min(1).optional(),
+  user: z.string().trim().min(1).optional(),
+  voucherId: z.number().int().positive().optional(),
   from: isoDate.optional(),
   to: isoDate.optional(),
   page: z.number().int().min(0).default(0),
@@ -508,12 +511,19 @@ export const auditListSchema = z.object({
 })
 export type AuditListInput = z.infer<typeof auditListSchema>
 
+/** audit:exportCsv / audit:exportPdf — the same filters, no paging (the whole period). */
+export const auditExportSchema = auditListSchema.omit({ page: true, pageSize: true })
+export type AuditExportInput = z.infer<typeof auditExportSchema>
+
 // ---------- lane Q: audit retention + batch invoice PDF ----------
 
-/** config:audit:set — days of audit history to keep, or null = keep forever (the default). */
+/** config:audit:set — days of audit history to keep (at least 8 years, MIN_AUDIT_KEEP_DAYS in
+ *  src/shared/auditRetention.ts), or null = keep forever (the default). */
 export const auditRetentionSchema = z.object({
-  keepDays: z.number().int().min(30).max(3650).nullable()
+  keepDays: z.number().int().min(2922).max(36600).nullable()
 })
+/** config:audit:required — the company's "audit trail required" flag (default on). */
+export const auditTrailRequiredSchema = z.object({ required: z.boolean() })
 export type AuditRetentionInput = z.infer<typeof auditRetentionSchema>
 
 /** invoice:pdfBatch — render several sales invoices into one exports folder, sequentially. */

@@ -146,7 +146,7 @@ describe('migration 018', () => {
     const trace = db.prepare("SELECT action, user_name AS userName, after_json AS j FROM audit_log WHERE entity = 'migration' AND entity_id = 18").all() as
       { action: string; userName: string | null; j: string }[]
     expect(trace).toHaveLength(1)
-    expect(trace[0]!.userName).toBeNull()
+    expect(trace[0]!.userName).toBe('system') // migration 031 (WP 3.8) attributes migration rows to 'system'
     expect(JSON.parse(trace[0]!.j)).toEqual({
       migration: 18,
       flaggedViaAudit: [auditLinked],
