@@ -1,8 +1,9 @@
 import type { DB } from '../db/connection'
 import { featuresSchema, mergeFeatures, type CompanyFeatures } from '@shared/features'
-import { invoiceConfigSchema, mergeInvoiceConfig, type InvoiceConfig } from '@shared/invoiceConfig'
+import { invoiceConfigSchema, type InvoiceConfig } from '@shared/invoiceConfig'
 import { chequeConfigSchema, gst3bManualSchema, mergeChequeConfig, type ChequeConfig, type Gst3bManualInput } from '@shared/schemas'
 import { writeAudit } from './audit'
+import { getLegacyConfigView, setLegacyConfig } from './printTemplates'
 
 /** Company-scoped JSON config living in the `meta` table — same pattern as readCompanyInfo/
  *  writeCompanyInfo (db/seed.ts) and the NIC credentials (services/nic.ts). */
@@ -39,14 +40,17 @@ export function setFeatures(db: DB, input: CompanyFeatures): CompanyFeatures {
 
 // ---------- invoice print customization ----------
 
+// Since WP 1.10c the source of truth is the Classic print template (services/printTemplates.ts);
+// these keep the old `config:invoice:*` channels working against it.
+
 export function getInvoiceConfig(db: DB): InvoiceConfig {
-  return mergeInvoiceConfig(readMeta(db, 'invoice'))
+  return getLegacyConfigView(db)
 }
 
 export function setInvoiceConfig(db: DB, input: InvoiceConfig): InvoiceConfig {
   const before = getInvoiceConfig(db)
   const parsed = invoiceConfigSchema.parse(input)
-  writeMeta(db, 'invoice', parsed)
+  setLegacyConfig(db, parsed)
   // Never dump the logo's base64 payload into the audit trail — just its size.
   const redact = (c: InvoiceConfig): unknown => ({
     ...c,

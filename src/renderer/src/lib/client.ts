@@ -28,6 +28,7 @@ import type { CompanyFeatures } from '@shared/features'
 import type { SearchHit, SearchResponse } from '@shared/search'
 import type { ChartGroupNode } from '@shared/chartOfAccounts'
 import type { InvoiceConfig } from '@shared/invoiceConfig'
+import type { PrintDocKind, PrintTemplate, TemplateList } from '@shared/printTemplates'
 import type { CloseLedgerRow } from '@shared/yearEnd'
 import type { ConsolidatedResult } from '@shared/consolidate'
 import type { Registry } from '../types'
@@ -572,6 +573,21 @@ export const api = {
     pdfBatch: (voucherIds: number[]) => call<{ dir: string; paths: string[] }>('invoice:pdfBatch', { voucherIds }),
     previewHtml: (voucherId?: number, config?: Partial<InvoiceConfig>) =>
       call<{ html: string }>('invoice:previewHtml', { voucherId, config })
+  },
+  /** Print templates (WP 1.10c) — Settings → Invoice templates. */
+  templates: {
+    list: () => call<TemplateList>('template:list'),
+    get: (id: string) => call<PrintTemplate>('template:get', { id }),
+    save: (template: PrintTemplate) => call<PrintTemplate>('template:save', { template }),
+    duplicate: (id: string) => call<PrintTemplate>('template:duplicate', { id }),
+    remove: (id: string) => call<{ ok: true }>('template:delete', { id }),
+    reset: (id: string) => call<PrintTemplate>('template:reset', { id }),
+    setDefault: (kind: PrintDocKind, id: string) => call<TemplateList>('template:setDefault', { kind, id }),
+    previewHtml: (template: PrintTemplate, opts: { voucherId?: number; kind?: PrintDocKind } = {}) =>
+      call<{ html: string }>('template:previewHtml', { template, ...opts }),
+    testPdf: (template: PrintTemplate, kind?: PrintDocKind) => call<{ path: string }>('template:testPdf', { template, kind }),
+    exportJson: (id: string) => call<{ path: string }>('template:export', { id }),
+    importJson: (jsonText?: string) => call<PrintTemplate | null>('template:import', jsonText === undefined ? {} : { jsonText })
   },
   cheque: {
     config: {
