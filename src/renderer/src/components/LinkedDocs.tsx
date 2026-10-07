@@ -94,7 +94,7 @@ function NodeCard({ n, onNavigate }: { n: ChainNode; onNavigate: () => void }): 
       data-root={n.isRoot ? 'true' : undefined}
     >
       <div className="flex items-baseline justify-between gap-2">
-        <span className="min-w-0 truncate font-medium" onClickCapture={onNavigate}>
+        <span className="min-w-0 font-medium break-words" onClickCapture={onNavigate}>
           <DocLink voucherId={n.voucherId} tradeDocId={n.tradeDocId} kind={n.kind} label={n.label} />
         </span>
         <span className="num shrink-0 text-hint text-muted">{toDisplayDate(n.date)}</span>
@@ -149,7 +149,8 @@ export function LinkedDocsDrawer({ target, onClose }: { target: LinkedDocsTarget
         const fromNode = byKey.get(e.from)
         const toNode = byKey.get(e.to)
         return { ...e, fromNode, toNode, fromLabel: fromNode?.label ?? e.from, toLabel: toNode?.label ?? e.to, verb: edgeVerb(e, toNode) }
-      }),
+      })
+        .sort((a, b) => (a.fromNode?.level ?? 0) - (b.fromNode?.level ?? 0) || (a.toNode?.date ?? '').localeCompare(b.toNode?.date ?? '')),
     [data, byKey]
   )
   const columns = useMemo(
@@ -164,7 +165,7 @@ export function LinkedDocsDrawer({ target, onClose }: { target: LinkedDocsTarget
           cell: (r) => (r.toNode ? <span onClickCapture={onClose}><DocLink voucherId={r.toNode.voucherId} tradeDocId={r.toNode.tradeDocId} kind={r.toNode.kind} label={r.toLabel} /></span> : r.toLabel)
         },
         { id: 'verb', header: 'Link', kind: 'text', value: (r) => r.verb, width: 96 },
-        { id: 'qty', header: 'Quantity', kind: 'quantity', value: (r) => r.qtyMilli, width: 96 },
+        { id: 'qty', header: 'Quantity', kind: 'quantity', value: (r) => r.qtyMilli, decimals: (r) => r.fromNode?.lines[0]?.decimals ?? 3, width: 96 },
         { id: 'lines', header: 'Lines', kind: 'number', value: (r) => r.lines, width: 64, defaultHidden: true },
         {
           id: 'live', header: 'Counts', kind: 'text', value: (r) => (r.live ? 'Yes' : 'No'), width: 80,
@@ -179,7 +180,7 @@ export function LinkedDocsDrawer({ target, onClose }: { target: LinkedDocsTarget
       title="Linked documents"
       subtitle={root ? `${root.label} · ${nodes.length} document${nodes.length === 1 ? '' : 's'} in the chain` : undefined}
       onClose={onClose}
-      width={Math.min(1180, Math.max(560, levels.length * 236 + 64))}
+      width={Math.min(1180, Math.max(720, levels.length * 264 + 64))}
       testId="drawer-linked-docs"
       footer={<Button onClick={onClose}>Close</Button>}
     >
@@ -200,7 +201,7 @@ export function LinkedDocsDrawer({ target, onClose }: { target: LinkedDocsTarget
             {levels.map(([lv, ns], i) => (
               <div key={lv} className="flex items-start gap-2">
                 {i > 0 && <span aria-hidden="true" className="pt-7 text-muted">→</span>}
-                <section className="flex w-[212px] shrink-0 flex-col gap-2" data-testid="chain-level" aria-label={[...new Set(ns.map((n) => KIND_PLURAL[n.kind]))].join(', ')}>
+                <section className="flex w-[240px] shrink-0 flex-col gap-2" data-testid="chain-level" aria-label={[...new Set(ns.map((n) => KIND_PLURAL[n.kind]))].join(', ')}>
                   <h3 className="truncate text-label font-semibold tracking-[0.08em] text-muted uppercase">
                     {[...new Set(ns.map((n) => KIND_PLURAL[n.kind]))].join(' · ')}
                   </h3>

@@ -29,7 +29,7 @@ const SIDE_LABEL = { gdni: 'Delivered, not invoiced (GDNI)', grni: 'Received, no
 
 const UNBILLED_COLUMNS = defineColumns<UnbilledPartyRow>([
   {
-    id: 'side', header: 'Side', kind: 'enum', value: (r) => r.side, width: 230, groupKey: (r) => SIDE_LABEL[r.side],
+    id: 'side', header: 'Side', kind: 'enum', value: (r) => r.side, width: 230, defaultHidden: true, groupKey: (r) => SIDE_LABEL[r.side],
     options: [{ value: 'gdni', label: SIDE_LABEL.gdni }, { value: 'grni', label: SIDE_LABEL.grni }], text: (r) => SIDE_LABEL[r.side]
   },
   {
@@ -77,8 +77,8 @@ export function UnbilledGoodsScreen(): React.JSX.Element {
         }}
       />
       <StatGrid className="mb-section">
-        <StatTile label="GDNI" value={formatPaise(data?.gdni.value ?? 0, { symbol: true })} hint={`${data?.gdni.notes ?? 0} challans · ${data?.gdni.lines ?? 0} lines`} testId="unbilled-gdni" />
-        <StatTile label="GRNI" value={formatPaise(data?.grni.value ?? 0, { symbol: true })} hint={`${data?.grni.notes ?? 0} GRNs · ${data?.grni.lines ?? 0} lines`} testId="unbilled-grni" />
+        <StatTile label="GDNI" value={formatPaise(data?.gdni.value ?? 0, { symbol: true })} hint={`${data?.gdni.notes ?? 0} challan${data?.gdni.notes === 1 ? '' : 's'} · ${data?.gdni.lines ?? 0} line${data?.gdni.lines === 1 ? '' : 's'}`} testId="unbilled-gdni" />
+        <StatTile label="GRNI" value={formatPaise(data?.grni.value ?? 0, { symbol: true })} hint={`${data?.grni.notes ?? 0} GRN${data?.grni.notes === 1 ? '' : 's'} · ${data?.grni.lines ?? 0} line${data?.grni.lines === 1 ? '' : 's'}`} testId="unbilled-grni" />
       </StatGrid>
       <Panel>
         <DataTable
@@ -114,24 +114,24 @@ const KIND_LABEL: Record<string, string> = {
 }
 
 const STALE_COLUMNS = defineColumns<StaleDocRow>([
-  { id: 'kind', header: 'Document', kind: 'text', value: (r) => KIND_LABEL[r.kind] ?? r.kind, width: 140, groupKey: (r) => KIND_LABEL[r.kind] ?? r.kind },
+  { id: 'kind', header: 'Document', kind: 'text', value: (r) => KIND_LABEL[r.kind] ?? r.kind, width: 130, groupKey: (r) => KIND_LABEL[r.kind] ?? r.kind },
   {
-    id: 'number', header: 'No.', kind: 'text', value: (r) => r.number, width: 100, hideable: false,
+    id: 'number', header: 'No.', kind: 'text', value: (r) => r.number, width: 80, hideable: false,
     cell: (r) => <DocLink voucherId={r.voucherId} tradeDocId={r.tradeDocId} kind={r.kind} label={<span className="num">{r.number}</span>} />
   },
   { id: 'date', header: 'Date', kind: 'date', value: (r) => r.date, className: 'text-muted' },
   {
-    id: 'party', header: 'Party', kind: 'text', value: (r) => r.partyName ?? '', minWidth: 140,
+    id: 'party', header: 'Party', kind: 'text', value: (r) => r.partyName ?? '', minWidth: 120,
     cell: (r) => (r.partyLedgerId ? <LedgerLink ledgerId={r.partyLedgerId} name={r.partyName ?? ''} /> : <>{r.partyName}</>)
   },
   {
-    id: 'why', header: 'Why', kind: 'enum', value: (r) => r.why, width: 150,
+    id: 'why', header: 'Why', kind: 'enum', value: (r) => r.why, width: 140,
     options: (Object.keys(WHY) as StaleReason[]).map((k) => ({ value: k, label: WHY[k].label })), text: (r) => WHY[r.why].label,
     cell: (r) => <Badge tone={WHY[r.why].tone} testId="stale-why">{WHY[r.why].label}</Badge>
   },
-  { id: 'due', header: 'Valid until / due', kind: 'date', value: (r) => r.dueDate ?? '' },
+  { id: 'due', header: 'Due', kind: 'date', value: (r) => r.dueDate ?? '' },
   { id: 'days', header: 'Days', kind: 'number', value: (r) => r.daysStale, text: (r) => `${r.daysStale} d`, width: 72 },
-  { id: 'status', header: 'Status', kind: 'text', value: (r) => chainStatusLabel(r.kind, r.status), width: 140 },
+  { id: 'status', header: 'Status', kind: 'text', value: (r) => chainStatusLabel(r.kind, r.status), width: 130 },
   { id: 'value', header: 'Pending value', kind: 'money', value: (r) => r.pendingValue, width: 130, aggregate: 'sum' }
 ])
 
@@ -241,7 +241,7 @@ export function StaleDocumentsScreen(): React.JSX.Element {
           rowAttrs={(r) => ({ 'data-kind': r.kind, 'data-why': r.why })}
           loading={isLoading}
           onRowActivate={(r) => openLinkedDocs(r.tradeDocId ? { tradeDocId: r.tradeDocId } : { voucherId: r.voucherId! })}
-          leadingWidth={36}
+          leadingWidth={40}
           leading={(r) =>
             canWrite && r.kind === 'quotation' && r.why === 'expired' ? (
               <input
@@ -261,7 +261,7 @@ export function StaleDocumentsScreen(): React.JSX.Element {
               />
             ) : null
           }
-          trailingWidth={44}
+          trailingWidth={52}
           trailing={(r) =>
             canWrite ? (
               <MenuButton

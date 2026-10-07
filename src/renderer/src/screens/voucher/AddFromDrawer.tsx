@@ -25,8 +25,8 @@ import { useStockItems } from '../../components/pickers'
 const RETURN_HEADS: Record<string, { qty: string; done: string }> = {
   sales: { qty: 'Sold', done: 'Returned' },
   purchase: { qty: 'Billed', done: 'Returned' },
-  delivery_note: { qty: 'Delivered', done: 'Invoiced / back' },
-  receipt_note: { qty: 'Received', done: 'Billed / back' }
+  delivery_note: { qty: 'Delivered', done: 'Invoiced' },
+  receipt_note: { qty: 'Received', done: 'Billed' }
 }
 
 export function AddFromDrawer({
@@ -107,9 +107,9 @@ export function AddFromDrawer({
           id: 'item', header: 'Item', kind: 'text', value: (r) => itemName.get(r.stockItemId) ?? '', minWidth: 120,
           cell: (r) => <ItemLink itemId={r.stockItemId} name={itemName.get(r.stockItemId) ?? `#${r.stockItemId}`} />
         },
-        { id: 'qty', header: heads.qty, kind: 'quantity', value: (r) => r.qtyMilli, decimals: decimalsOf, width: 84 },
+        { id: 'qty', header: heads.qty, kind: 'quantity', value: (r) => r.qtyMilli, decimals: decimalsOf, width: 96 },
         { id: 'done', header: heads.done, kind: 'quantity', value: (r) => r.doneMilli, decimals: decimalsOf, width: 92, defaultHidden: !isReturn },
-        { id: 'pending', header: isReturn ? 'Returnable' : 'Pending', kind: 'quantity', value: (r) => r.pendingMilli, decimals: decimalsOf, width: 92 },
+        { id: 'pending', header: isReturn ? 'Returnable' : 'Pending', kind: 'quantity', value: (r) => r.pendingMilli, decimals: decimalsOf, width: 104 },
         { id: 'rate', header: 'Rate', kind: 'money', value: (r) => r.ratePaise, width: 104 },
         {
           id: 'serials', header: 'Serials', kind: 'text', value: (r) => r.serials.join(', '), defaultHidden: r0(lines),

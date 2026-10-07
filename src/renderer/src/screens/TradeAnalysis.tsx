@@ -39,7 +39,7 @@ function summaryColumns(by: 'party' | 'month') {
     { id: 'fulfilled', header: 'Fulfilled', kind: 'money', value: (r) => r.fulfilledValue, width: 130, aggregate: 'sum' },
     { id: 'pending', header: 'Pending', kind: 'money', value: (r) => r.pendingValue, width: 130, aggregate: 'sum' },
     { id: 'short', header: 'Short-closed', kind: 'money', value: (r) => r.shortClosedValue, width: 120, aggregate: 'sum' },
-    { id: 'pct', header: 'Fulfilled %', kind: 'number', value: (r) => r.fulfilledPct, text: (r) => pctText(r.fulfilledPct), width: 96 }
+    { id: 'pct', header: 'Done %', kind: 'number', value: (r) => r.fulfilledPct, text: (r) => pctText(r.fulfilledPct), width: 84 }
   ])
 }
 const PARTY_COLUMNS = summaryColumns('party')
@@ -78,8 +78,8 @@ function leadColumns(kind: OrderKind) {
     { id: 'full', header: sales ? 'Fully delivered' : 'Fully received', kind: 'date', value: (r) => r.fullDeliveryDate ?? '' },
     { id: 'fullDays', header: 'Days', kind: 'number', value: (r) => r.daysToFullDelivery, text: (r) => days(r.daysToFullDelivery), width: 64 },
     { id: 'invoice', header: sales ? 'First invoice' : 'First bill', kind: 'date', value: (r) => r.firstInvoiceDate ?? '' },
-    { id: 'toInvoice', header: sales ? 'Delivery → invoice' : 'Receipt → bill', kind: 'number', value: (r) => r.daysDeliveryToInvoice, text: (r) => days(r.daysDeliveryToInvoice), width: 120 },
-    { id: 'orderToInvoice', header: sales ? 'Order → invoice' : 'Order → bill', kind: 'number', value: (r) => r.daysOrderToInvoice, text: (r) => days(r.daysOrderToInvoice), width: 112 },
+    { id: 'toInvoice', header: sales ? 'To invoice' : 'To bill', kind: 'number', value: (r) => r.daysDeliveryToInvoice, text: (r) => days(r.daysDeliveryToInvoice), width: 96 },
+    { id: 'orderToInvoice', header: sales ? 'Order → inv.' : 'Order → bill', kind: 'number', value: (r) => r.daysOrderToInvoice, text: (r) => days(r.daysOrderToInvoice), width: 112 },
     { id: 'status', header: 'Status', kind: 'text', value: (r) => tradeStatusLabel(kind, r.status), width: 128, defaultHidden: true }
   ])
 }
@@ -167,7 +167,7 @@ export function OrderBookScreen({ tab: initialTab = 'party' }: { tab?: OrderBook
       {tab !== 'lead-time' ? (
         <>
           <StatGrid className="mb-section">
-            <StatTile label="Ordered" value={formatPaise(total((r) => r.orderedValue), { symbol: true })} hint={`${rows.length} orders`} testId="order-book-ordered" />
+            <StatTile label="Ordered" value={formatPaise(total((r) => r.orderedValue), { symbol: true })} hint={`${rows.length} order${rows.length === 1 ? '' : 's'}`} testId="order-book-ordered" />
             <StatTile label="Fulfilled" value={formatPaise(total((r) => r.fulfilledValue), { symbol: true })} />
             <StatTile label="Pending" value={formatPaise(total((r) => r.pendingValue), { symbol: true })} />
             <StatTile label="Short-closed" value={formatPaise(total((r) => r.shortClosedValue), { symbol: true })} />

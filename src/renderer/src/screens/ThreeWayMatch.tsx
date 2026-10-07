@@ -32,30 +32,30 @@ const rateOf = (r: MatchLineRef | null): number | null => (r && r.qtyMilli > 0 ?
 const COLUMNS = defineColumns<MatchRow>([
   { id: 'date', header: 'Date', kind: 'date', value: (r) => r.date, className: 'text-muted' },
   {
-    id: 'exception', header: 'Exception', kind: 'enum', value: (r) => r.exception, width: 190, hideable: false,
+    id: 'exception', header: 'Exception', kind: 'enum', value: (r) => r.exception, width: 150, hideable: false,
     options: MATCH_EXCEPTIONS.map((e) => ({ value: e, label: MATCH_EXCEPTION_LABELS[e] })),
     text: (r) => MATCH_EXCEPTION_LABELS[r.exception],
     cell: (r) => <Badge tone={TONE[r.exception]} testId="match-exception">{MATCH_EXCEPTION_LABELS[r.exception]}</Badge>
   },
   {
-    id: 'party', header: 'Supplier', kind: 'text', value: (r) => r.partyName ?? '', minWidth: 140,
+    id: 'party', header: 'Supplier', kind: 'text', value: (r) => r.partyName ?? '', minWidth: 120,
     cell: (r) => (r.partyLedgerId ? <LedgerLink ledgerId={r.partyLedgerId} name={r.partyName ?? ''} /> : <>{r.partyName}</>)
   },
-  { id: 'item', header: 'Item', kind: 'text', value: (r) => r.itemName, minWidth: 120, cell: (r) => <ItemLink itemId={r.stockItemId} name={r.itemName} /> },
-  { id: 'po', header: 'PO', kind: 'text', value: (r) => r.po?.number ?? '', width: 92, cell: (r) => refCell(r.po, 'po') },
-  { id: 'grn', header: 'GRN', kind: 'text', value: (r) => r.grn?.number ?? '', width: 92, cell: (r) => refCell(r.grn, 'grn') },
-  { id: 'bill', header: 'Bill', kind: 'text', value: (r) => r.bill?.number ?? '', width: 92, cell: (r) => refCell(r.bill, 'bill') },
+  { id: 'item', header: 'Item', kind: 'text', value: (r) => r.itemName, minWidth: 100, cell: (r) => <ItemLink itemId={r.stockItemId} name={r.itemName} /> },
+  { id: 'po', header: 'PO', kind: 'text', value: (r) => r.po?.number ?? '', width: 80, cell: (r) => refCell(r.po, 'po') },
+  { id: 'grn', header: 'GRN', kind: 'text', value: (r) => r.grn?.number ?? '', width: 80, cell: (r) => refCell(r.grn, 'grn') },
+  { id: 'bill', header: 'Bill', kind: 'text', value: (r) => r.bill?.number ?? '', width: 80, cell: (r) => refCell(r.bill, 'bill') },
   { id: 'poRate', header: 'PO rate', kind: 'money', value: (r) => rateOf(r.po), width: 104, defaultHidden: true },
   { id: 'grnRate', header: 'GRN rate', kind: 'money', value: (r) => rateOf(r.grn), width: 104, defaultHidden: true },
   { id: 'billRate', header: 'Bill rate', kind: 'money', value: (r) => rateOf(r.bill), width: 104, defaultHidden: true },
-  { id: 'qty', header: 'Qty', kind: 'quantity', value: (r) => (r.diffQtyMilli || null), decimals: (r) => r.decimals, width: 84 },
-  { id: 'expected', header: 'Expected', kind: 'money', value: (r) => r.expectedPaise, width: 120 },
-  { id: 'actual', header: 'Actual', kind: 'money', value: (r) => r.actualPaise, width: 120 },
+  { id: 'qty', header: 'Qty', kind: 'quantity', value: (r) => (r.diffQtyMilli || null), decimals: (r) => r.decimals, width: 70 },
+  { id: 'expected', header: 'Expected', kind: 'money', value: (r) => r.expectedPaise, width: 110 },
+  { id: 'actual', header: 'Actual', kind: 'money', value: (r) => r.actualPaise, width: 110 },
   {
-    id: 'diff', header: 'Difference', kind: 'money', value: (r) => r.diffPaise, width: 124, aggregate: 'sum',
+    id: 'diff', header: 'Difference', kind: 'money', value: (r) => r.diffPaise, width: 110,
     cell: (r) => <span className={`num ${r.exception === 'rate_variance' ? (r.diffPaise > 0 ? 'text-cr' : 'text-dr') : ''}`}>{formatPaise(r.diffPaise)}</span>
   },
-  { id: 'pct', header: 'Diff %', kind: 'number', value: (r) => (r.diffBp == null ? null : r.diffBp / 100), text: (r) => (r.diffBp == null ? '' : `${(r.diffBp / 100).toFixed(2)} %`), width: 84 }
+  { id: 'pct', header: 'Diff %', kind: 'number', value: (r) => (r.diffBp == null ? null : r.diffBp / 100), text: (r) => (r.diffBp == null ? '' : `${(r.diffBp / 100).toFixed(2)} %`), width: 80, defaultHidden: true }
 ])
 
 interface Opts extends Record<string, unknown> {
@@ -153,6 +153,7 @@ export function ThreeWayMatchScreen(): React.JSX.Element {
           rows={rows}
           rowKey={(r) => r.key}
           rowAttrs={(r) => ({ 'data-exception': r.exception })}
+          totals={false}
           loading={isLoading}
           onRowActivate={(r) => {
             const v = r.bill?.voucherId ?? r.grn?.voucherId
