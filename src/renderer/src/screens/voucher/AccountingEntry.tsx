@@ -24,7 +24,7 @@ import {
 import { CostAllocModal, QuickLedgerModal } from './modals'
 import { TransportModal } from './TransportModal'
 import { useTdsDeduction } from './useTdsDeduction'
-import { TdsBanner } from './TdsBanner'
+import { TdsBanner, TdsNotApplicableNote } from './TdsBanner'
 
 // ---------- accounting mode (payment / receipt / contra / journal, and the lossless fallback
 // for alterations the specialised modes can't show — see planVoucherEdit) ----------
@@ -151,30 +151,52 @@ export function AccountingEntry({
   // different (bank) line, so its candidate amount never moves on its own.
   const [tds, setTds] = useState(initialTds)
   const alreadyApplied = appliedTdsAmount(rows, tds)
+  // WP 3.2: a payment to any supplier (not only one flagged for a section) asks too — the server
+  // offers TDS on its bills that were not deducted when booked (first-of-credit-or-payment) and
+  // returns nothing otherwise; a journal crediting a supplier asks with the debited expense
+  // ledger, whose default section applies when the party has none.
   const tdsCandidateRow = useMemo(() => {
     if (kind !== 'payment' && kind !== 'journal') return null
-    for (const r of rows) {
-      if (r.drCr !== 'dr' || r.ledgerId == null || !r.amount) continue
-      const l = ledgers.find((x) => x.id === r.ledgerId)
-      if (l?.tdsSectionId != null) return { ledgerId: r.ledgerId, amount: r.amount, rowSide: 'dr' as const }
+    const ledgerOf = (id: number | null): Ledger | undefined => (id == null ? undefined : ledgers.find((x) => x.id === id))
+    const deductee = (l: Ledger | undefined, loose: boolean): boolean => !!l && (l.tdsSectionId != null || (loose && isPartyLedger(l, groupMap)))
+    const largestExpense = (): number | null => {
+      let best: { id: number; amount: number } | null = null
+      for (const r of rows) {
+        if (r.drCr !== 'dr' || r.ledgerId == null || !r.amount) continue
+        const l = ledgerOf(r.ledgerId)
+        if (!l || isPartyLedger(l, groupMap) || isCashOrBankLedger(l, groupMap) || l.tdsPayableSectionId != null) continue
+        if (!best || r.amount > best.amount) best = { id: r.ledgerId, amount: r.amount }
+      }
+      return best?.id ?? null
+    }
+    for (const loose of [false, true]) {
+      if (kind === 'journal' && loose) break
+      for (const r of rows) {
+        if (r.drCr !== 'dr' || r.ledgerId == null || !r.amount) continue
+        if (deductee(ledgerOf(r.ledgerId), loose && kind === 'payment')) return { ledgerId: r.ledgerId, amount: r.amount, rowSide: 'dr' as const, expenseLedgerId: null }
+      }
     }
     if (kind === 'journal') {
-      for (const r of rows) {
-        if (r.drCr !== 'cr' || r.ledgerId == null || !r.amount) continue
-        const l = ledgers.find((x) => x.id === r.ledgerId)
-        if (l?.tdsSectionId != null) {
-          return { ledgerId: r.ledgerId, amount: r.amount + alreadyApplied, rowSide: 'cr' as const }
+      for (const loose of [false, true]) {
+        for (const r of rows) {
+          if (r.drCr !== 'cr' || r.ledgerId == null || !r.amount) continue
+          if (deductee(ledgerOf(r.ledgerId), loose)) {
+            return { ledgerId: r.ledgerId, amount: r.amount + alreadyApplied, rowSide: 'cr' as const, expenseLedgerId: largestExpense() }
+          }
         }
       }
     }
     return null
-  }, [rows, kind, ledgers, alreadyApplied])
+  }, [rows, kind, ledgers, groupMap, alreadyApplied])
 
   const tdsDeduction = useTdsDeduction({
     enabled: features.tds,
-    candidate: tdsCandidateRow ? { partyLedgerId: tdsCandidateRow.ledgerId, base: tdsCandidateRow.amount } : null,
+    candidate: tdsCandidateRow
+      ? { partyLedgerId: tdsCandidateRow.ledgerId, base: tdsCandidateRow.amount, expenseLedgerId: tdsCandidateRow.expenseLedgerId }
+      : null,
     date,
     excludeVoucherId: voucherId,
+    voucherKind: kind === 'payment' ? 'payment' : 'journal',
     tds,
     onChange: setTds,
     startDismissed: !!initialTds
@@ -211,10 +233,11 @@ export function AccountingEntry({
   const tdsTargetCapacity = tdsTargetIdx === -1 ? 0 : (rows[tdsTargetIdx]!.amount ?? 0) + alreadyApplied
   const tdsApplyBlocked = !!tdsSuggestion && (tdsTargetIdx === -1 || tdsTargetCapacity < tdsSuggestion.tdsPaise)
 
-  const applyTds = (): void => {
-    if (!tdsCandidateRow || !tdsSuggestion || tdsApplyBlocked || tdsTargetIdx === -1) return
+  const applyTds = (manualPaise?: number): void => {
+    if (!tdsCandidateRow || !tdsSuggestion || tdsTargetIdx === -1) return
+    if (manualPaise == null ? tdsApplyBlocked : tdsTargetCapacity <= manualPaise) return
     const previous = tds
-    const next = tdsDeduction.apply()
+    const next = manualPaise == null ? tdsDeduction.apply() : tdsDeduction.applyManual(manualPaise)
     if (!next) return
     setRows((rs) => {
       const out = applyTdsToAccountingRows(rs, {
@@ -330,6 +353,7 @@ export function AccountingEntry({
         if (!proceed) return
       }
       const saved = await api.vouchers.save(input, voucherId)
+      await tdsDeduction.afterSave(saved.id)
       toast.push('success', `${saved.number} ${voucherId ? 'altered' : 'saved'}`)
       setWorkingDate(date)
       await queryClient.invalidateQueries()
@@ -348,7 +372,7 @@ export function AccountingEntry({
     } finally {
       setSaving(false)
     }
-  }, [saving, buildPayload, date, typeId, voucherId, toast, setWorkingDate, queryClient, leave, numberField.reset, tdsDeduction.reset])
+  }, [saving, buildPayload, date, typeId, voucherId, toast, setWorkingDate, queryClient, leave, numberField.reset, tdsDeduction.reset, tdsDeduction.afterSave])
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
@@ -557,11 +581,17 @@ export function AccountingEntry({
         </p>
       )}
 
-      {features.tds && tdsSuggestion && !tdsDeduction.dismissed && (
+      {features.tds && tdsDeduction.notApplicable != null && !tds && (
+        <TdsNotApplicableNote reason={tdsDeduction.notApplicable} onUndo={() => tdsDeduction.setNotApplicable(null)} />
+      )}
+      {features.tds && tdsSuggestion && !tdsDeduction.dismissed && tdsDeduction.notApplicable == null && (
         <TdsBanner
           suggestion={tdsSuggestion}
           onDismiss={tdsDeduction.dismiss}
-          onApply={applyTds}
+          onApply={() => applyTds()}
+          onApplyManual={(p) => applyTds(p)}
+          onChooseSection={(id) => tdsDeduction.chooseSection(id)}
+          onNotApplicable={tds ? undefined : (r) => tdsDeduction.setNotApplicable(r)}
           blockedReason={
             tdsApplyBlocked
               ? `Apply would unbalance: the ${formatPaise(tdsTargetIdx === -1 ? 0 : (rows[tdsTargetIdx]?.amount ?? 0), { symbol: true })} line can't absorb ${formatPaise(tdsSuggestion.tdsPaise, { symbol: true })} TDS — adjust lines manually.`

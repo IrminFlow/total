@@ -6,6 +6,10 @@ import type {
 } from '@shared/domain'
 import type { BudgetVarianceRow } from '@shared/budgets'
 import type {
+  TdsEligibleRow, TdsDeductedRow, TdsLedgerSummaryRow, TdsPaymentCandidate, TdsChallanRow, TdsChallanEntryInterest,
+  Form26qData, Form16aData
+} from '@shared/tdsTypes'
+import type {
   BalanceSheet, BankRecon, DashboardData, DayBookRow, EdocListRow, ExceptionsReport, GroupTreeNode,
   ItemProfitRow, LedgerBalanceRow,
   LedgerStatement, OutstandingBill, OutstandingParty, ProfitAndLoss, RegisterMonthRow, StockAgeingRow,
@@ -210,6 +214,11 @@ export interface PtSummaryRow {
   pt: number
 }
 
+export type {
+  TdsEligibleRow, TdsDeductedRow, TdsLedgerSummaryRow, TdsPaymentCandidate, TdsChallanRow, TdsChallanEntryInterest,
+  Form26qData, Form26qDeducteeRow, Form26qChallanRow, Form16aData
+} from '@shared/tdsTypes'
+
 /** Mirrors src/main/services/tds.ts's TdsSuggestion shape (kept local — that file is main-process only). */
 export interface TdsSuggestion {
   sectionId: number
@@ -234,8 +243,15 @@ export interface TdsSuggestion {
     basis: 'fy' | 'month'
     priorPaise: number
   }
-  certificate: { id: number; certificateNo: string; rateBp: number } | null
-  sectionFrom: 'party' | 'ledger'
+  certificate: { id: number; certificateNo: string; rateBp: number; validTo?: string } | null
+  sectionFrom: 'party' | 'ledger' | 'chosen' | 'credits'
+  /** Base the deduction is computed on (a payment: undeducted bills + advance). Older mains
+   *  don't send it — callers fall back to the candidate base. */
+  basePaise?: number
+  /** Sections the banner offers (party's own, the debited ledger's default, …). */
+  candidates?: { sectionId: number; code: string; from: 'party' | 'ledger' | 'credits' }[]
+  /** Payments: bills liable and not deducted at credit time, and the advance part. */
+  payment?: { undeductedBillsPaise: number; advancePaise: number; deductedAtCredit: boolean } | null
 }
 
 /** Mirrors src/main/services/tds.ts's TdsSummaryRow shape (kept local — that file is main-process only). */
@@ -634,7 +650,12 @@ export const api = {
       partyLedgerId: number,
       base: number,
       date: string,
-      opts: { expenseLedgerId?: number | null; excludeVoucherId?: number } = {}
+      opts: {
+        expenseLedgerId?: number | null
+        excludeVoucherId?: number
+        sectionId?: number | null
+        voucherKind?: 'purchase' | 'journal' | 'payment'
+      } = {}
     ) => call<TdsSuggestion | null>('tds:suggest', { partyLedgerId, base, date, ...opts }),
     ensurePayable: (sectionId: number) => call<{ ledgerId: number }>('tds:ensurePayable', { sectionId }),
     rates: (sectionId?: number) => call<TdsRate[]>('tds:rates', { sectionId }),
@@ -650,7 +671,30 @@ export const api = {
     unallocate: (entryIds: number[]) => call<void>('tds:unallocate', { entryIds }),
     unallocated: (fyStartYear: number, quarter?: number) => call<TdsEntryRow[]>('tds:unallocated', { fyStartYear, quarter }),
     summary: (fyStartYear: number) => call<TdsSummaryRow[]>('tds:summary', { fyStartYear }),
-    export26q: (fyStartYear: number, quarter: number) => call<{ path: string }>('tds:export26q', { fyStartYear, quarter })
+    export26q: (fyStartYear: number, quarter: number) => call<{ path: string }>('tds:export26q', { fyStartYear, quarter }),
+    // WP 3.2 — the TDS screen
+    eligible: (from: string, to: string, includeExempt = false) => call<TdsEligibleRow[]>('tds:eligible', { from, to, includeExempt }),
+    deducted: (from: string, to: string) => call<TdsDeductedRow[]>('tds:deducted', { from, to }),
+    ledgerSummary: (fyStartYear: number, quarter: number) => call<TdsLedgerSummaryRow[]>('tds:ledgerSummary', { fyStartYear, quarter }),
+    applyToVoucher: (voucherId: number, opts: { sectionId?: number | null; manualPaise?: number | null } = {}) =>
+      call<Voucher>('tds:applyToVoucher', { voucherId, ...opts }),
+    applyMany: (voucherIds: number[]) =>
+      call<({ voucherId: number; ok: true } | { voucherId: number; ok: false; error: string })[]>('tds:applyMany', { voucherIds }),
+    removeFromVoucher: (voucherId: number) => call<Voucher>('tds:removeFromVoucher', { voucherId }),
+    exempt: (voucherId: number, reason: string) => call<null>('tds:exempt', { voucherId, reason }),
+    unexempt: (voucherId: number) => call<null>('tds:unexempt', { voucherId }),
+    exemption: (voucherId: number) => call<{ reason: string | null }>('tds:exemption', { voucherId }),
+    paymentCandidates: (fyStartYear: number) => call<TdsPaymentCandidate[]>('tds:paymentCandidates', { fyStartYear }),
+    challanRows: (fyStartYear: number, quarter?: number, rateBp?: number) => call<TdsChallanRow[]>('tds:challanRows', { fyStartYear, quarter, rateBp }),
+    challanFromPayment: (data: {
+      paymentVoucherId: number; bsrCode: string; challanNo: string; date?: string | null
+      quarter?: number | null; fyStartYear?: number | null; autoAllocate?: boolean
+    }) => call<TdsChallanRow>('tds:challanFromPayment', data),
+    autoAllocate: (challanId: number) => call<{ entryIds: number[] }>('tds:autoAllocate', { challanId }),
+    challanInterest: (challanId: number, rateBp?: number) => call<TdsChallanEntryInterest[]>('tds:challanInterest', { challanId, rateBp }),
+    form26q: (fyStartYear: number, quarter: number) => call<Form26qData>('tds:form26q', { fyStartYear, quarter }),
+    form16a: (fyStartYear: number, quarter: number, partyLedgerId?: number) => call<Form16aData>('tds:form16a', { fyStartYear, quarter, partyLedgerId }),
+    form16aPdf: (fyStartYear: number, quarter: number, partyLedgerId?: number) => call<{ path: string }>('tds:form16aPdf', { fyStartYear, quarter, partyLedgerId })
   },
   cc: {
     list: () => call<CostCentre[]>('cc:list'),
