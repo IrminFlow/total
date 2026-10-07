@@ -77,6 +77,8 @@ export type Screen =
   | { name: 'edocs'; tab?: 'documents' | 'self-invoices' }
   | { name: 'registers' }
   | { name: 'outstandings' }
+  // WP 4.3: payables — planning, batch payments, runs, MSME, supplier reconciliation.
+  | { name: 'payables'; tab?: 'plan' | 'batch' | 'runs' | 'msme' | 'suppliers' }
   // WP 2.5b: delivery challans not invoiced / GRNs not billed.
   | { name: 'pending-challans' }
   | { name: 'pending-grns' }

@@ -76,6 +76,10 @@ const EXPECTED_TABLES = [
   'discount_schemes',
   'discount_scheme_slabs',
   'counter_sales',
+  // 034 (WP 4.3)
+  'msme_bank_rates',
+  'payment_runs',
+  'payment_run_vouchers',
   'migrations'
 ]
 

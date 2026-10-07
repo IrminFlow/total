@@ -18,6 +18,7 @@ import { formatMilli } from '../../lib/table'
 import { CardLink, DashCard, type CardState } from './parts'
 import { onboardingFromDashSetup } from '@shared/onboarding'
 import { onboardingScreen } from '../../lib/onboarding'
+import { MsmeDueLine } from './MsmeDueLine'
 
 const stackRowCls =
   'flex w-full cursor-pointer flex-col gap-1 border-b border-line/40 px-4 py-2 text-left hover:bg-panel2 focus-visible:bg-panel2 focus-visible:outline-none'
@@ -184,6 +185,7 @@ export function AgeingCard({ receivables, payables }: { receivables: CardState<D
         <div className="flex flex-col gap-3 px-4 py-2.5">
           {typeof r === 'string' ? <p className="text-small text-cr">Receivables unavailable</p> : <AgeingBars a={r} color="blue" label="Receivables" />}
           {typeof p === 'string' ? <p className="text-small text-cr">Payables unavailable</p> : <AgeingBars a={p} color="amber" label="Payables" />}
+          <MsmeDueLine />
         </div>
       )}
     </DashCard>

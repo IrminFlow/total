@@ -290,8 +290,13 @@ function prepareRun(db: DB, input: ReturnType<typeof paymentRunSchema.parse>, ru
       if (pending === 0) errors.push(`Bill ${b.name} is not open on ${input.date}`)
       else if (used > pending) errors.push(`Bill ${b.name}: paying ${plainRupees(used)} but only ${plainRupees(pending)} is pending`)
     }
+    // Bills picked must account for the whole payment: a 'new' on-account ref would open a bill
+    // (allocateBills treats every 'new' ref as one), so paying on account = picking no bills
+    // (the oldest open bills settle first and any excess sits as an advance).
     const billsTotal = item.bills.reduce((s, b) => s + b.amount, 0)
-    if (billsTotal > item.amount) errors.push('The bills add up to more than the payment')
+    if (item.bills.length > 0 && billsTotal !== item.amount) {
+      errors.push(`The bills picked add up to ${plainRupees(billsTotal)}, not ${plainRupees(item.amount)} — match them, or pick no bills to pay oldest first`)
+    }
 
     let tds: PaymentRunLine['tds'] = null
     if (tdsOn && party) {
@@ -312,7 +317,7 @@ function prepareRun(db: DB, input: ReturnType<typeof paymentRunSchema.parse>, ru
       tds,
       bankAmount: item.amount - (tds?.amount ?? 0),
       bills: item.bills,
-      onAccount: item.bills.length > 0 ? item.amount - billsTotal : 0,
+      onAccount: 0,
       instrumentNo: item.instrumentNo,
       errors,
       narration:
@@ -368,10 +373,7 @@ export function createPaymentRun(db: DB, raw: PaymentRunInput): PaymentRun {
     )
     const link = db.prepare('INSERT INTO payment_run_vouchers (run_id, voucher_id, line_no) VALUES (?, ?, ?)')
     lines.forEach((l, i) => {
-      const billRefs = [
-        ...l.bills.map((b) => ({ kind: 'against' as const, name: b.name, amount: b.amount, dueDate: null })),
-        ...(l.onAccount > 0 ? [{ kind: 'new' as const, name: `On account ${runNo}`, amount: l.onAccount, dueDate: null }] : [])
-      ]
+      const billRefs = l.bills.map((b) => ({ kind: 'against' as const, name: b.name, amount: b.amount, dueDate: null }))
       const saved = saveVoucher(db, {
         voucherTypeId,
         date: input.date,
@@ -432,7 +434,7 @@ function runLines(db: DB, runId: number): PaymentRunLine[] {
       tds: tdsRow ?? null,
       bankAmount: bankLine?.amount ?? 0,
       bills: refs.filter((x) => x.kind === 'against').map((x) => ({ name: x.name, amount: x.amount })),
-      onAccount: refs.filter((x) => x.kind === 'new').reduce((s, x) => s + x.amount, 0),
+      onAccount: 0,
       instrumentNo: r.instrumentNo,
       voucherId: r.voucherId,
       voucherNumber: r.number,

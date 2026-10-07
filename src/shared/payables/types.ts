@@ -68,7 +68,7 @@ export interface PaymentRunLine {
   /** Cr bank = amount − tds. */
   bankAmount: number
   bills: { name: string; amount: number }[]
-  /** On-account part (amount − Σ bills) when bills were picked. */
+  /** Always 0 since bills picked must equal the amount (kept for the run CSV / UI shape). */
   onAccount: number
   instrumentNo: string | null
   voucherId?: number
