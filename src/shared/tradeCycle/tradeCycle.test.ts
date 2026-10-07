@@ -132,14 +132,17 @@ describe('voucherEdit — stock notes and links', () => {
     ]
   }
 
-  it('delivery / receipt notes open in the stock-lines editor and save back unchanged (uids, source, purpose, party)', () => {
-    expect(modeForKind('delivery_note')).toBe('stockLines')
-    expect(modeForKind('receipt_note')).toBe('stockLines')
+  it('delivery / receipt notes open in the stock-note form; the stock-lines fallback saves back unchanged (uids, source, purpose, party)', () => {
+    expect(modeForKind('delivery_note')).toBe('stockNote')
+    expect(modeForKind('receipt_note')).toBe('stockNote')
     const v = stored(dcPayload)
-    const plan = planVoucherEdit(v, 'delivery_note', ctx)
-    expect(plan.mode).toBe('stockLines')
-    if (plan.mode !== 'stockLines') return
-    expect(plan.fallbackReason).toBeNull()
+    expect(planVoucherEdit(v, 'delivery_note', ctx).mode).toBe('stockNote')
+    // An amount that isn't qty × rate − discount can't be shown by the note form → lossless fallback.
+    const odd = stored({ ...dcPayload, inventory: [{ ...dcPayload.inventory[0]!, amount: 999 }, dcPayload.inventory[1]!] })
+    const fb = planVoucherEdit(odd, 'delivery_note', ctx)
+    expect(fb.mode).toBe('stockLines')
+    expect(fb.mode === 'stockLines' && fb.fallbackReason).toMatch(/would change/)
+    const plan = { mode: 'stockLines' as const, state: stockLinesStateFromVoucher(v) }
     const r = buildStockLinesPayload(plan.state, { voucherTypeId: 1 })
     expect(r.ok && diffPayloads(r.payload, voucherToPayload(v))).toEqual([])
     expect(r.ok && r.payload.inventory.map((l) => l.lineUid)).toEqual([UID(1), UID(2)])

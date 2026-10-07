@@ -57,6 +57,7 @@ import * as jobWork from './services/jobWork'
 import * as serials from './services/serials'
 import * as tradeLinks from './services/tradeLinks'
 import * as tradeDocTypes from './services/tradeDocTypes'
+import * as tradeReports from './services/tradeReports'
 import * as priceLevels from './services/priceLevels'
 import * as budgets from './services/budgets'
 import * as yearEnd from './services/yearEnd'
@@ -82,7 +83,7 @@ import { roleAllows, type Role } from './services/roles'
 import {
   bomInputSchema, currencyInputSchema, employeeInputSchema, nicCredentialsSchema, auditListSchema,
   userInputSchema, authLoginSchema, payHeadInputSchema, employeeHeadsSetSchema, payrollRunIdSchema,
-  auditRetentionSchema, invoicePdfBatchSchema, linksForVoucherSchema, openSourceLinesSchema, tradeDocNextNumberSchema,
+  auditRetentionSchema, invoicePdfBatchSchema, linksForVoucherSchema, openSourceLinesSchema, tradePendingSchema, tradeDocNextNumberSchema,
   tradeDocTypeSaveSchema
 } from '@shared/schemas'
 import type { CompanyInfo } from '@shared/domain'
@@ -551,6 +552,10 @@ export function registerIpc(): void {
   }, 'viewer')
   handle('links:forVoucher', (p) => tradeLinks.linksForVoucher(requireCompany().db, linksForVoucherSchema.parse(p).voucherId), 'viewer')
   handle('links:openSourceLines', (p) => tradeLinks.openSourceLines(requireCompany().db, openSourceLinesSchema.parse(p)), 'viewer')
+  handle('trade:pending', (p) => {
+    const { stage, asOn } = tradePendingSchema.parse(p)
+    return tradeReports.pendingStockNotes(requireCompany().db, stage, asOn)
+  }, 'viewer')
 
   handle('master:units:list', () => masters.listUnits(requireCompany().db), 'viewer')
   handle('master:units:create', (p) => masters.createUnit(requireCompany().db, unitInputSchema.parse(p)))
@@ -1154,7 +1159,8 @@ export function registerIpc(): void {
   // ---------- e-documents + invoice printing ----------
   handle('edoc:list', (p) => {
     const { from, to } = periodSchema.parse(p)
-    return edocs.listSalesInvoices(requireCompany().db, from, to)
+    const c = requireCompany()
+    return edocs.listSalesInvoices(c.db, from, to, c.info)
   }, 'viewer')
   handle('edoc:exportEInvoice', (p) => {
     const { from, to, period } = gstPeriodInput.parse(p)

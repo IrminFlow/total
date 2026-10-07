@@ -2,7 +2,7 @@ import type {
   Batch, BomLine, Budget, CompanyInfo, CostCentre, Currency, Employee, Godown, Group, Ledger, NegativeStockWarning,
   PayrollLine, PayrollRun, PriceLevel, PriceListRate, StockGroup, StockItem, TdsSection, Unit,
   TdsRate, TdsCertificateRow, TdsChallan,
-  Voucher, VoucherTransport, VoucherType, TradeDocType
+  Voucher, VoucherTransport, VoucherType, TradeDocType, SaveVoucherWarnings
 } from '@shared/domain'
 import type { BudgetVarianceRow } from '@shared/budgets'
 import type {
@@ -40,7 +40,7 @@ import type { Itc04Data, JobWorkChallan, JobWorkPendingRow } from '@shared/jobWo
 import type { JobWorkChallanPayload } from '@shared/voucherEdit'
 import type { ExpiryReportRow, ReorderRow, SerialListRow, StockMovementRegister } from '@shared/stockPlanning'
 import type { SerialStatus } from '@shared/serials'
-import type { OpenSourceLine, VoucherKindRow, VoucherLinks } from '@shared/tradeCycle/types'
+import type { OpenSourceLine, PendingNoteRow, VoucherKindRow, VoucherLinks } from '@shared/tradeCycle/types'
 
 /** stock:labelsHtml / stock:labelsPdf query (mirrors stockLabelsSchema). */
 export interface StockLabelsQuery {
@@ -565,6 +565,10 @@ export const api = {
     forVoucher: (voucherId: number) => call<VoucherLinks>('links:forVoucher', { voucherId }),
     openSourceLines: (q: OpenSourceLinesQuery) => call<OpenSourceLine[]>('links:openSourceLines', q)
   },
+  /** WP 2.5b — trade-cycle reports. */
+  trade: {
+    pending: (stage: 'delivery_note' | 'receipt_note', asOn: string) => call<PendingNoteRow[]>('trade:pending', { stage, asOn })
+  },
   units: {
     list: () => call<Unit[]>('master:units:list'),
     create: (data: UnitInput) => call<Unit>('master:units:create', data)
@@ -658,7 +662,7 @@ export const api = {
       call<VoucherListRow[]>('voucher:list', { from, to, voucherTypeId }),
     get: (id: number) => call<Voucher | null>('voucher:get', { id }),
     save: (data: VoucherInputParsed, id?: number) =>
-      call<Voucher & { duplicateNumber?: boolean }>('voucher:save', { data, id }),
+      call<Voucher & { duplicateNumber?: boolean; warnings?: SaveVoucherWarnings }>('voucher:save', { data, id }),
     remove: (id: number) => call<null>('voucher:delete', { id }),
     nextNumber: (voucherTypeId: number, date: string, excludeId?: number) =>
       call<{ number: string }>('voucher:nextNumber', { voucherTypeId, date, excludeId }),

@@ -9,6 +9,7 @@ import {
   BUILT_IN_IDS,
   exportTemplateJson,
   INVOICE_SHAPED_KINDS,
+  STOCK_NOTE_PRINT_KINDS,
   isBuiltInId,
   legacyConfigToTemplate,
   MAX_CUSTOM_TEMPLATES,
@@ -298,9 +299,14 @@ export function loadPrintDocument(db: DB, company: CompanyInfo, voucherId: numbe
   const head = voucherHead(db, voucherId)
   const kind = printKindForVoucherKind(head.kind)
   if (!kind) throw new Error('This voucher type has no printed form')
-  const outstandingPaise = wantOutstanding ? partyBalance(db, head.partyId, head.date) : null
+  // A challan / GRN posts nothing to the party: no outstanding on its print (WP 2.5b).
+  const stockNote = STOCK_NOTE_PRINT_KINDS.includes(kind)
+  const outstandingPaise = wantOutstanding && !stockNote ? partyBalance(db, head.partyId, head.date) : null
   if (INVOICE_SHAPED_KINDS.includes(kind)) {
-    const [inv] = extractEdocInvoices(db, company, '0000-01-01', '9999-12-31', voucherId)
+    const [inv] = extractEdocInvoices(
+      db, company, '0000-01-01', '9999-12-31', voucherId,
+      stockNote ? [head.kind as 'delivery_note' | 'receipt_note'] : undefined
+    )
     if (!inv) throw new Error('Invoice not found (optional or post-dated vouchers are not printed)')
     attachDiscounts(db, voucherId, inv.items)
     return {

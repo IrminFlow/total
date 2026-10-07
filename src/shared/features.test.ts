@@ -12,14 +12,15 @@ describe('featuresSchema / mergeFeatures', () => {
       payroll: true,
       preventNegativeStock: false,
       batches: false,
-      enforceCreditLimit: false
+      enforceCreditLimit: false,
+      orders: false
     })
   })
 
   it('round-trips a fully-specified object through the schema', () => {
     const input = {
       inventory: false, billWise: true, costCentres: false, tds: true, multiCurrency: false, payroll: true,
-      preventNegativeStock: true, batches: true, enforceCreditLimit: false
+      preventNegativeStock: true, batches: true, enforceCreditLimit: false, orders: true
     }
     expect(featuresSchema.parse(input)).toEqual(input)
   })

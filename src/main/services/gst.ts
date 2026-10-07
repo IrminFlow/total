@@ -1,7 +1,7 @@
 import { writeFileSync } from 'fs'
 import { join } from 'path'
 import type { DB } from '../db/connection'
-import type { CompanyInfo } from '@shared/domain'
+import type { CompanyInfo, TradePurpose } from '@shared/domain'
 import {
   buildGstr1, buildGstr3b, classifyDoc, isZeroRatedTyp,
   type GstAdvanceAgg, type GstDoc, type GstDocRateItem, type GstDocSeries, type GstHsnLine,
@@ -18,6 +18,7 @@ import { descendantIdsByName } from './masters'
 import { getGst3bManual } from './config'
 import { companyExportsDir } from '../paths'
 import { IN_BOOKS } from './vouchers'
+import { hasTradeSchema } from './tradeLinks'
 
 interface DocVoucherRow {
   id: number; date: string; number: string; kind: 'sales' | 'credit_note' | 'debit_note'
@@ -469,7 +470,53 @@ export function extractDocSeries(db: DB, from: string, to: string): GstDocSeries
       cancel: rows.filter((r) => r.deletedAt).length
     })
   }
+  result.push(...challanDocSeries(db, from, to))
   return result.sort((a, b) => a.category - b.category)
+}
+
+/**
+ * Table 13 nature of document for a delivery challan, by purpose (WP 2.5b, design §4.2 / §9 Q6).
+ * The GSTR-1 form lists 9 "Delivery Challan for job work", 10 "… for supply on approval",
+ * 11 "… in case of liquid gas", 12 "… in cases other than by way of supply (excluding at S no.
+ * 9 to 11)". The JSON doc_num codes are taken to equal those serial numbers — UNVERIFIED against
+ * the portal's offline tool. A challan for a plain supply (rule 55(4): the invoice follows
+ * delivery) has no row of its own; it is reported under 12 — CONFIRM WITH YOUR CA.
+ */
+export const CHALLAN_DOC_CATEGORY: Record<TradePurpose, 9 | 10 | 11 | 12> = {
+  job_work: 9, approval: 10, liquid_gas: 11, non_supply: 12, supply: 12,
+  // GRN purposes never reach here (GRNs are not outward documents); listed for exhaustiveness.
+  purchase: 12, return: 12
+}
+
+/** Delivery-challan series for Table 13: one entry per (challan voucher type, category). Binned
+ *  challans count as cancelled, like every other series here (same deliberate NOT_DELETED
+ *  exception). GRNs are inward documents and are not reported. */
+function challanDocSeries(db: DB, from: string, to: string): GstDocSeries[] {
+  if (!hasTradeSchema(db)) return []
+  const rows = db
+    .prepare(
+      `SELECT v.voucher_type_id AS typeId, v.number, v.deleted_at AS deletedAt, COALESCE(tvd.purpose, 'supply') AS purpose
+       FROM vouchers v JOIN voucher_types vt ON vt.id = v.voucher_type_id
+       LEFT JOIN trade_voucher_details tvd ON tvd.voucher_id = v.id
+       WHERE vt.kind = 'delivery_note' AND v.is_optional = 0 AND v.date BETWEEN ? AND ?
+       ORDER BY v.voucher_type_id, v.date, v.id`
+    )
+    .all(from, to) as { typeId: number; number: string; deletedAt: string | null; purpose: TradePurpose }[]
+  const groups = new Map<string, { category: GstDocSeries['category']; rows: typeof rows }>()
+  for (const r of rows) {
+    const category = CHALLAN_DOC_CATEGORY[r.purpose]
+    const key = `${r.typeId}|${category}`
+    const g = groups.get(key) ?? { category, rows: [] }
+    g.rows.push(r)
+    groups.set(key, g)
+  }
+  return [...groups.values()].map((g) => ({
+    category: g.category,
+    from: g.rows[0]!.number,
+    to: g.rows[g.rows.length - 1]!.number,
+    totnum: g.rows.length,
+    cancel: g.rows.filter((r) => r.deletedAt).length
+  }))
 }
 
 /**
