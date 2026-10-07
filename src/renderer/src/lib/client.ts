@@ -34,6 +34,10 @@ import type {
 import type { CompanyFeatures } from '@shared/features'
 import type { StockCostPosition, ConsumptionCosting, ProposedOutward } from '@shared/valuation'
 import type { ManufactureDetails, ManufactureInput } from '@shared/manufacture'
+import type { BomVersion, ExplosionResult } from '@shared/bom'
+import type { CostSheet, MarginRow, ProductionRegisterRow, VarianceReportRow } from '@shared/manufactureReports'
+import type { Itc04Data, JobWorkChallan, JobWorkPendingRow } from '@shared/jobWork'
+import type { JobWorkChallanPayload } from '@shared/voucherEdit'
 import type { ExpiryReportRow, ReorderRow, SerialListRow, StockMovementRegister } from '@shared/stockPlanning'
 import type { SerialStatus } from '@shared/serials'
 
@@ -412,6 +416,8 @@ export interface ManufactureCostPreview {
   saleRate: { ratePaise: number | null; source: 'sales' | 'priceList' | null }
 }
 
+/** manufacture:register (mirrors services/manufacture.ts ManufactureRegisterRow): engine cost
+ *  NOW next to the save-time figures (WP 2.4). */
 export interface ManufactureRegisterRow {
   voucherId: number
   date: string
@@ -421,11 +427,31 @@ export interface ManufactureRegisterRow {
   unitSymbol: string
   decimals: number
   qtyMilli: number
-  productionCost: number
+  materialPaise: number
   labourPaise: number
+  byProductPaise: number
+  /** Cost now (materials + labour − by-products). */
+  productionCost: number
+  costAtSave: number
   saleAmount: number
+  /** sale − cost now. */
   profitPaise: number
+  profitAtSave: number
+  repriced: boolean
+  jobWork: boolean
 }
+
+/** manufacture:costSheet (mirrors services/manufactureReports.ts CostSheetReport). */
+export interface CostSheetReport {
+  itemId: number
+  itemName: string
+  unitSymbol: string
+  decimals: number
+  manufactures: CostSheet[]
+  average: CostSheet
+}
+
+export type SavedJobWorkChallan = Voucher & { duplicateNumber?: boolean; warnings: { negativeStock: NegativeStockWarning[] }; challan: JobWorkChallan }
 
 /** stock:movements — one item's inventory lines (minimal movement list, WP 2.2). */
 export interface ItemMovementRow {
@@ -579,7 +605,19 @@ export const api = {
     /** Raw rows priced as of the voucher date (+ the finished item's suggested sale rate). */
     costPreview: (q: { date: string; voucherId?: number; finishedItemId?: number | null; lines: { itemId: number; qtyMilli: number }[] }) =>
       call<ManufactureCostPreview>('manufacture:costPreview', q),
-    register: (from: string, to: string) => call<ManufactureRegisterRow[]>('manufacture:register', { from, to })
+    register: (from: string, to: string, itemId?: number) => call<ManufactureRegisterRow[]>('manufacture:register', { from, to, itemId }),
+    // WP 2.4 reports
+    production: (from: string, to: string) => call<ProductionRegisterRow[]>('manufacture:production', { from, to }),
+    costSheet: (itemId: number, from: string, to: string) => call<CostSheetReport>('manufacture:costSheet', { itemId, from, to }),
+    margin: (from: string, to: string) => call<MarginRow[]>('manufacture:margin', { from, to }),
+    variance: (from: string, to: string, itemId?: number) => call<VarianceReportRow[]>('manufacture:variance', { from, to, itemId })
+  },
+  jobWork: {
+    get: (id: number) => call<JobWorkChallan | null>('jobWork:get', { id }),
+    saveChallan: (data: JobWorkChallanPayload, id?: number) => call<SavedJobWorkChallan>('jobWork:saveChallan', { ...data, id }),
+    sendChallans: (godownId: number) => call<{ voucherId: number; number: string; date: string }[]>('jobWork:sendChallans', { id: godownId }),
+    pending: (asOn: string, pendingDays: number) => call<JobWorkPendingRow[]>('jobWork:pending', { asOn, pendingDays }),
+    itc04: (from: string, to: string) => call<Itc04Data>('jobWork:itc04', { from, to })
   },
   priceLevels: {
     list: () => call<PriceLevel[]>('master:priceLevels:list'),
@@ -812,7 +850,17 @@ export const api = {
   bom: {
     get: (itemId: number) => call<BomLine[]>('bom:get', { itemId }),
     set: (data: BomInput) => call<BomLine[]>('bom:set', data),
-    items: () => call<{ itemId: number; name: string; components: number }[]>('bom:items')
+    items: () => call<{ itemId: number; name: string; components: number }[]>('bom:items'),
+    // WP 2.4 versions
+    /** One item's versions, or every item's (omit itemId — what the Manufacture screen explodes with). */
+    versions: (itemId?: number) => call<BomVersion[]>('bom:versions', { itemId }),
+    saveVersion: (data: {
+      id?: number; itemId: number; name: string; effectiveFrom: string | null; effectiveTo: string | null; isDefault: boolean
+      lines: { componentId: number; qtyMilliPerUnit: number; scrapPctBp: number | null }[]
+    }) => call<BomVersion>('bom:saveVersion', data),
+    deleteVersion: (id: number) => call<null>('bom:deleteVersion', { id }),
+    explode: (q: { itemId: number; qtyMilli: number; date: string; versionId?: number | null; levels: 'single' | 'full' }) =>
+      call<ExplosionResult>('bom:explode', q)
   },
   payroll: {
     employees: () => call<Employee[]>('payroll:employees:list'),

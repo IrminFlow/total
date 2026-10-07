@@ -204,7 +204,7 @@ describe('runInventoryPass — ordering', () => {
     // Finished good listed first; raw material consumed at the pre-voucher avg ₹10.
     const moves = [line(1, '2025-05-01', 2, 'in', 1000, 777), line(1, '2025-05-01', 1, 'out', 4000)]
     const res = runInventoryPass({ items, movements: moves, costing: new Map([[1, derived()]]) })
-    expect(res.derived.get(1)).toEqual({ consumedValue: 40000, additionalCostPaise: 0, inwardValue: 40000 })
+    expect(res.derived.get(1)).toEqual({ consumedValue: 40000, additionalCostPaise: 0, inwardValue: 40000, fixedValue: 0, mainValue: 40000 })
     expect(res.closing.get(2)!.closingValue).toBe(40000)
   })
 
@@ -281,7 +281,7 @@ describe("runInventoryPass — 'derived' rule conserves value", () => {
       const backdated = line(50, '2025-05-01', 1, 'in', 10000, 300000)
       const after = runInventoryPass({ items, movements: [backdated, ...mfg, sale], costing })
       const consumed = method === 'fifo' ? 100000 /* oldest 10 @ ₹10 */ : 200000 /* avg ₹20 */
-      expect(after.derived.get(10)).toEqual({ consumedValue: consumed, additionalCostPaise: 5000, inwardValue: consumed + 5000 })
+      expect(after.derived.get(10)).toEqual({ consumedValue: consumed, additionalCostPaise: 5000, inwardValue: consumed + 5000, fixedValue: 0, mainValue: consumed + 5000 })
       // The finished good carries exactly that cost; its sale takes half of it.
       expect(after.closing.get(2)!.consumedValue).toBe(Math.round((consumed + 5000) / 2))
       expect(after.closing.get(2)!.closingValue + after.closing.get(2)!.consumedValue).toBe(consumed + 5000)
@@ -305,7 +305,7 @@ describe("runInventoryPass — 'derived' rule conserves value", () => {
       const res = runInventoryPass({ items, movements, costing })
       expect(res.derived.get(1)!.inwardValue).toBe(100000 + 3000)
       const sub = Math.round((103000 * 4000) / 5000) // 4 of 5 sub-assemblies
-      expect(res.derived.get(2)).toEqual({ consumedValue: sub + 25000, additionalCostPaise: 700, inwardValue: sub + 25000 + 700 })
+      expect(res.derived.get(2)).toEqual({ consumedValue: sub + 25000, additionalCostPaise: 700, inwardValue: sub + 25000 + 700, fixedValue: 0, mainValue: sub + 25000 + 700 })
       expect(res.closing.get(3)!.closingValue).toBe(sub + 25700)
       expect(res.closing.get(2)!.closingValue).toBe(103000 - sub)
       assertConserved({ items, movements, costing })

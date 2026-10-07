@@ -20,6 +20,7 @@ export const AUDIT_ENTITIES = [
   'export',
   'godown',
   'group',
+  'job_work',
   'ledger',
   'manufacture',
   'nic_credentials',

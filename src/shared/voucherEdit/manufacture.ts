@@ -2,19 +2,41 @@
 // and reconstruction of that form from a saved stock journal + its manufacture_details row.
 // A stock journal WITHOUT a details row is a legacy (pre-0.6.0) journal: it is never
 // representable here and opens in the generic stock-lines editor (route.ts).
+// WP 2.4: the form also carries the BOM version / explode choice, by-product / scrap rows and the
+// receive-from-job-worker facts; all of them round-trip through manufactureRepresentation.
 
 import type { Voucher } from '../domain'
 import {
-  autoManufactureNarration, buildManufactureVoucher, manufactureTotals, validateManufacture, RAW_ROWS_VISIBLE,
-  type ManufactureDetails, type ManufactureInput, type ManufactureIssue
+  autoManufactureNarration, buildManufactureVoucher, byProductTotal, manufactureTotals, validateManufacture, RAW_ROWS_VISIBLE,
+  type ManufactureDetails, type ManufactureInput, type ManufactureIssue, type ManufactureOutputKind
 } from '../manufacture'
 import { confirmRoundTrip, qtyText, type Representation, type VoucherPayload } from './payload'
 
 export interface ManufactureRowState {
   itemId: number | null
   qtyText: string
-  /** The saved line's own godown when it differs from the header godown; null = header. */
+  /** The saved line's own godown when it differs from the header godown (job work: from the
+   *  job worker's godown); null = that default. */
   godownId: number | null
+  /** Job-work receipt only: the loss at the job worker ('' = none). */
+  lossText?: string
+}
+
+export interface ManufactureByProductRowState {
+  itemId: number | null
+  qtyText: string
+  /** Assigned value, paise. */
+  valuePaise: number | null
+  kind: ManufactureOutputKind
+}
+
+export interface ManufactureJobWorkState {
+  /** The job worker's godown. */
+  godownId: number | null
+  challanNo: string
+  challanDate: string | null
+  natureOfProcessing: string
+  originalChallanVoucherId: number | null
 }
 
 export interface ManufactureFormState {
@@ -35,9 +57,21 @@ export interface ManufactureFormState {
   /** null = Wages Payable. */
   labourCreditLedgerId: number | null
   rows: ManufactureRowState[]
+  /** WP 2.4: by-product / scrap rows (blank rows are ignored). */
+  byProducts?: ManufactureByProductRowState[]
+  /** WP 2.4: the BOM version the rows came from. */
+  bomVersionId?: number | null
+  /** WP 2.4: rows are the exploded leaves. */
+  bomExploded?: boolean
+  /** WP 2.4: receive-from-job-worker mode (null/absent = own manufacture). */
+  jobWork?: ManufactureJobWorkState | null
 }
 
 export const blankManufactureRow = (): ManufactureRowState => ({ itemId: null, qtyText: '', godownId: null })
+export const blankByProductRow = (): ManufactureByProductRowState => ({ itemId: null, qtyText: '', valuePaise: null, kind: 'by_product' })
+export const emptyJobWorkState = (): ManufactureJobWorkState => ({
+  godownId: null, challanNo: '', challanDate: null, natureOfProcessing: '', originalChallanVoucherId: null
+})
 
 /** Pad to the ten rows the screen always shows. */
 export function padManufactureRows(rows: ManufactureRowState[]): ManufactureRowState[] {
@@ -49,7 +83,8 @@ export function padManufactureRows(rows: ManufactureRowState[]): ManufactureRowS
 export function emptyManufactureState(date: string): ManufactureFormState {
   return {
     date, number: '', godownId: null, narration: '', finishedItemId: null, qtyText: '', saleRatePaise: null,
-    labourPaise: null, labourPosted: true, labourCreditLedgerId: null, rows: padManufactureRows([])
+    labourPaise: null, labourPosted: true, labourCreditLedgerId: null, rows: padManufactureRows([]),
+    byProducts: [], bomVersionId: null, bomExploded: false, jobWork: null
   }
 }
 
@@ -63,6 +98,7 @@ export function parseQtyMilli(text: string): number | null {
 }
 
 const rowIsBlank = (r: ManufactureRowState): boolean => r.itemId == null && r.qtyText.trim() === ''
+const byProductIsBlank = (r: ManufactureByProductRowState): boolean => r.itemId == null && r.qtyText.trim() === '' && r.valuePaise == null
 
 export interface ManufactureFormEval {
   /** What manufacture:save would receive (profit from `materialPaise`). */
@@ -70,7 +106,8 @@ export interface ManufactureFormEval {
   /** input.raw[i] came from form row rowIndex[i]. */
   rowIndex: number[]
   totals: ReturnType<typeof manufactureTotals>
-  /** Rule violations, row indices in FORM rows. Empty = savable. */
+  /** Rule violations, row indices in FORM rows (by-product indices in form by-product rows).
+   *  Empty = savable. */
   issues: ManufactureIssue[]
 }
 
@@ -85,15 +122,31 @@ export function evaluateManufactureForm(
 ): ManufactureFormEval {
   const rowIndex: number[] = []
   const raw: ManufactureInput['raw'] = []
+  const jw = state.jobWork ?? null
   state.rows.forEach((r, i) => {
     if (rowIsBlank(r)) return
     rowIndex.push(i)
-    raw.push({ stockItemId: r.itemId ?? 0, qtyMilli: parseQtyMilli(r.qtyText) ?? 0, ...(r.godownId != null ? { godownId: r.godownId } : {}) })
+    const loss = jw && (r.lossText ?? '').trim() !== '' ? (parseQtyMilli(r.lossText!) ?? -1) : null
+    raw.push({
+      stockItemId: r.itemId ?? 0,
+      qtyMilli: parseQtyMilli(r.qtyText) ?? 0,
+      ...(r.godownId != null ? { godownId: r.godownId } : {}),
+      ...(loss != null && loss !== 0 ? { lossQtyMilli: loss } : {})
+    })
+  })
+  const bpIndex: number[] = []
+  const byProducts: NonNullable<ManufactureInput['byProducts']> = []
+  ;(state.byProducts ?? []).forEach((b, i) => {
+    if (byProductIsBlank(b)) return
+    bpIndex.push(i)
+    byProducts.push({ stockItemId: b.itemId ?? 0, qtyMilli: parseQtyMilli(b.qtyText) ?? 0, valuePaise: b.valuePaise ?? 0, kind: b.kind })
   })
   const qtyMilli = parseQtyMilli(state.qtyText) ?? 0
   const labourPaise = state.labourPaise ?? 0
   const saleRatePaise = state.saleRatePaise ?? 0
-  const totals = manufactureTotals({ qtyMilli, saleRatePaise, materialPaise: opts.materialPaise ?? 0, labourPaise })
+  const totals = manufactureTotals({
+    qtyMilli, saleRatePaise, materialPaise: opts.materialPaise ?? 0, labourPaise, byProductPaise: byProductTotal(byProducts)
+  })
   const input: ManufactureInput = {
     ...(opts.voucherTypeId ? { voucherTypeId: opts.voucherTypeId } : {}),
     date: state.date,
@@ -106,12 +159,26 @@ export function evaluateManufactureForm(
     raw,
     labourPaise,
     labourPosted: state.labourPosted,
-    labourCreditLedgerId: state.labourPosted ? state.labourCreditLedgerId : null,
+    labourCreditLedgerId: state.labourPosted && !jw ? state.labourCreditLedgerId : null,
     profitPaise: totals.profit,
-    ...(opts.confirmLoss ? { confirmLoss: true } : {})
+    ...(opts.confirmLoss ? { confirmLoss: true } : {}),
+    ...(byProducts.length > 0 ? { byProducts } : {}),
+    ...(state.bomVersionId != null ? { bomVersionId: state.bomVersionId } : {}),
+    ...(state.bomExploded ? { bomExploded: true } : {}),
+    ...(jw
+      ? {
+          jobWork: {
+            godownId: jw.godownId ?? 0,
+            challanNo: jw.challanNo.trim() || null,
+            challanDate: jw.challanDate,
+            natureOfProcessing: jw.natureOfProcessing.trim() || null,
+            originalChallanVoucherId: jw.originalChallanVoucherId
+          }
+        }
+      : {})
   }
   const issues = validateManufacture(input, opts.materialPaise, opts.itemName, (i) => rowIndex[i]! + 1).map((x) =>
-    x.row !== undefined ? { ...x, row: rowIndex[x.row]! } : x
+    x.row !== undefined ? { ...x, row: rowIndex[x.row]! } : x.byProductRow !== undefined ? { ...x, byProductRow: bpIndex[x.byProductRow]! } : x
   )
   return { input, rowIndex, totals, issues }
 }
@@ -136,15 +203,28 @@ export function manufactureRepresentation(
 ): Representation<ManufactureFormState> {
   if (!details) return { ok: false, reason: 'it has no manufacture details' }
   const inv = v.inventory
-  const finished = inv[inv.length - 1]
-  if (!finished || finished.direction !== 'in' || finished.stockItemId !== details.finishedItemId || inv.length < 2) {
-    return { ok: false, reason: 'its last line is not the manufactured item' }
+  const outputs = details.byProducts ?? []
+  const nBp = outputs.length
+  const fi = inv.length - 1 - nBp
+  const finished = inv[fi]
+  if (!finished || finished.direction !== 'in' || finished.stockItemId !== details.finishedItemId || fi < 1) {
+    return { ok: false, reason: 'its lines are not raw materials + the manufactured item' }
   }
-  const outs = inv.slice(0, -1)
+  const outs = inv.slice(0, fi)
   if (outs.some((l) => l.direction !== 'out' || l.isAbsolute || l.batchId != null || l.discountPaise !== 0)) {
     return { ok: false, reason: 'its lines are not raw materials + one finished item' }
   }
+  const bpLines = inv.slice(fi + 1)
+  const bpOk = outputs.every((o, k) => {
+    const l = bpLines[k]
+    return !!l && l.direction === 'in' && !l.isAbsolute && l.batchId == null && o.lineOrder === fi + 1 + k &&
+      l.stockItemId === o.stockItemId && l.qtyMilli === o.qtyMilli && l.amount === o.valuePaise
+  })
+  if (!bpOk) return { ok: false, reason: 'its by-product lines do not match the saved by-products' }
   const header = finished.godownId
+  const jwd = details.jobWork ?? null
+  const rawDefault = jwd ? jwd.godownId : header
+  const lossAt = new Map((jwd?.losses ?? []).map((l) => [l.lineOrder, l.lossQtyMilli]))
   const auto = autoManufactureNarration(finished.qtyMilli, opts.itemName(finished.stockItemId))
   const state: ManufactureFormState = {
     date: v.date,
@@ -156,11 +236,34 @@ export function manufactureRepresentation(
     saleRatePaise: details.saleRatePaise,
     labourPaise: details.labourPaise,
     labourPosted: details.labourPosted,
-    labourCreditLedgerId: details.labourCreditLedgerId,
+    labourCreditLedgerId: jwd ? null : details.labourCreditLedgerId,
     rows: padManufactureRows(
-      outs.map((l) => ({ itemId: l.stockItemId, qtyText: qtyText(l.qtyMilli), godownId: l.godownId === header ? null : l.godownId }))
-    )
+      outs.map((l, i) => ({
+        itemId: l.stockItemId,
+        qtyText: qtyText(l.qtyMilli),
+        godownId: l.godownId === rawDefault ? null : l.godownId,
+        ...(jwd ? { lossText: lossAt.has(i) ? qtyText(lossAt.get(i)!) : '' } : {})
+      }))
+    ),
+    byProducts: outputs.map((o) => ({
+      itemId: o.stockItemId,
+      qtyText: qtyText(o.qtyMilli),
+      valuePaise: o.valuePaise,
+      kind: o.kind
+    })),
+    bomVersionId: details.bomVersionId ?? null,
+    bomExploded: details.bomExploded ?? false,
+    jobWork: jwd
+      ? {
+          godownId: jwd.godownId,
+          challanNo: jwd.challanNo ?? '',
+          challanDate: jwd.challanDate,
+          natureOfProcessing: jwd.natureOfProcessing ?? '',
+          originalChallanVoucherId: jwd.originalChallanVoucherId
+        }
+      : null
   }
+  if (bpLines.some((l) => l.godownId !== header)) return { ok: false, reason: 'a by-product is in a different godown' }
   const { input, issues } = evaluateManufactureForm(state, { voucherTypeId: v.voucherTypeId, materialPaise: undefined, itemName: opts.itemName })
   if (issues.length > 0) return { ok: false, reason: issues[0]!.message }
   let rebuilt: { ok: true; payload: VoucherPayload } | { ok: false; error: string }

@@ -2,30 +2,41 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { keepPreviousData, useQuery, useQueryClient } from '@tanstack/react-query'
 import type { Voucher } from '@shared/domain'
 import { formatPaise } from '@shared/money'
-import { autoManufactureNarration, bomFromRows, needsLossConfirmation, rowsFromBom, RAW_ROWS_VISIBLE } from '@shared/manufacture'
+import { toDisplayDate } from '@shared/dates'
+import { autoManufactureNarration, bomFromRows, needsLossConfirmation, RAW_ROWS_VISIBLE } from '@shared/manufacture'
+import { explodeBom, pickBomVersion } from '@shared/bom'
 import {
-  blankManufactureRow, emptyManufactureState, evaluateManufactureForm, manufactureFormKey, parseQtyMilli, qtyText,
-  type ManufactureFormState, type ManufactureRowState
+  blankByProductRow, blankManufactureRow, emptyJobWorkState, emptyManufactureState, evaluateManufactureForm, manufactureFormKey,
+  parseQtyMilli, qtyText, type ManufactureByProductRowState, type ManufactureFormState, type ManufactureJobWorkState,
+  type ManufactureRowState
 } from '@shared/voucherEdit'
 import { api } from '../lib/client'
 import { useNav, useSession, useToasts } from '../state/stores'
 import {
   AmountInput, Button, Checkbox, DateInput, DrawerSection, Field, isAnyModalOpen, Kbd, Money, Page, PageHeader, Panel,
-  Select, SkeletonRows, TextInput, inputCls
+  Segmented, Select, SkeletonRows, TextInput, inputCls
 } from '../components/ui'
-import { ItemPicker, LedgerPicker, useStockItems } from '../components/pickers'
+import { ItemPicker, LedgerPicker, useLedgers, useStockItems } from '../components/pickers'
+import { GodownPicker, useGodowns } from '../components/stockPickers'
 import { confirmDialog } from '../lib/dialogs'
 import { useUnsavedGuard } from '../lib/useUnsavedGuard'
 import { nextLineKey, NUMBER_LOADING, useLeaveAfterSave, useVoucherNumberField } from './voucher/hooks'
 
-// ---------- Manufacture voucher (WP 2.2) ----------
+// ---------- Manufacture voucher (WP 2.2; WP 2.4 depth) ----------
 // Left "Sale Item": one row — Item · Quantity · Average price · Amount. Right "Raw Material":
 // ten rows from the start — Raw Material · Quantity · Average cost (engine, as of the voucher
-// date, read-only) · Amount; then Labour, Production cost and Profit (= sale amount − production
-// cost, live). Finished goods enter stock at production cost; sale price and profit are margin
-// facts only. Form state ⇄ save input: @shared/voucherEdit/manufacture; rules: @shared/manufacture.
+// date, read-only) · Amount; then a compact "By-products / scrap" section, Labour, Production
+// cost and Profit (= sale amount − production cost, live). Finished goods enter stock at
+// production cost NET of by-products; sale price and profit are margin facts only.
+// WP 2.4: a BOM version picker (defaults by the voucher date) + "Explode sub-assemblies" toggle
+// fill the raw rows; "Receive from job worker" mode consumes the raw rows at a job worker's
+// godown and books the labour row as job charges credited to the job worker.
+// Form state ⇄ save input: @shared/voucherEdit/manufacture; rules: @shared/manufacture.
 
 interface Row extends ManufactureRowState {
+  key: number
+}
+interface BpRow extends ManufactureByProductRowState {
   key: number
 }
 
@@ -55,10 +66,21 @@ const enterNext = (e: React.KeyboardEvent<HTMLElement>): void => {
 
 /** The Manufacture screen (sidebar → Manufacture, Alt+F7): a new manufacture voucher. Saved ones
  *  open through voucher entry, which renders the same form. */
-export function ManufactureScreen(): React.JSX.Element {
+export function ManufactureScreen({
+  jobWork = false,
+  prefill
+}: {
+  jobWork?: boolean
+  prefill?: { itemId: number; qtyMilli: number }
+} = {}): React.JSX.Element {
   const nav = useNav()
   const { data: types } = useQuery({ queryKey: ['voucherTypes'], queryFn: api.voucherTypes.list })
   const sj = types?.find((t) => t.kind === 'stock_journal')
+  const report = (tab: 'production' | 'cost-sheet' | 'margin' | 'variance' | 'job-work', label: string, testId: string): React.JSX.Element => (
+    <Button data-testid={testId} onClick={() => nav.go({ name: 'manufacture-reports', tab })}>
+      {label}
+    </Button>
+  )
   return (
     <Page width="wide">
       <PageHeader
@@ -73,9 +95,16 @@ export function ManufactureScreen(): React.JSX.Element {
           content: (
             <>
               <DrawerSection title="Reports">
-                <Button data-testid="btn-manufacture-open-register" onClick={() => nav.go({ name: 'manufacture-register' })}>
-                  Manufacture register — margins by voucher
-                </Button>
+                <div className="flex flex-col items-start gap-2">
+                  <Button data-testid="btn-manufacture-open-register" onClick={() => nav.go({ name: 'manufacture-register' })}>
+                    Manufacture register — margins by voucher
+                  </Button>
+                  {report('production', 'Production register', 'btn-manufacture-open-production')}
+                  {report('cost-sheet', 'Cost sheet per product', 'btn-manufacture-open-cost-sheet')}
+                  {report('margin', 'Expected vs realised margin', 'btn-manufacture-open-margin')}
+                  {report('variance', 'Material variance vs BOM', 'btn-manufacture-open-variance')}
+                  {report('job-work', 'Material at job workers', 'btn-manufacture-open-job-work')}
+                </div>
               </DrawerSection>
               <DrawerSection title="Keyboard">
                 <ul className="flex flex-col gap-1 text-detail text-ink">
@@ -94,7 +123,7 @@ export function ManufactureScreen(): React.JSX.Element {
           <SkeletonRows rows={6} />
         </Panel>
       ) : (
-        sj && <ManufactureForm typeId={sj.id} />
+        sj && <ManufactureForm typeId={sj.id} initialJobWork={jobWork} prefill={prefill} />
       )}
     </Page>
   )
@@ -104,13 +133,19 @@ export function ManufactureForm({
   typeId,
   voucherId,
   voucher,
-  initial
+  initial,
+  initialJobWork = false,
+  prefill
 }: {
   typeId: number
   voucherId?: number
   voucher?: Voucher
   /** Alteration: the form reconstructed from the voucher + its manufacture_details row. */
   initial?: ManufactureFormState
+  /** New voucher: start in "Receive from job worker" mode. */
+  initialJobWork?: boolean
+  /** New voucher: start with this item and quantity (a "manufacture the sub-assembly first" link). */
+  prefill?: { itemId: number; qtyMilli: number }
 }): React.JSX.Element {
   const isEdit = voucherId != null
   const { workingDate, setWorkingDate } = useSession()
@@ -118,15 +153,24 @@ export function ManufactureForm({
   const nav = useNav()
   const queryClient = useQueryClient()
   const items = useStockItems()
+  const ledgers = useLedgers()
+  const godowns = useGodowns()
   const itemName = useCallback((id: number): string => items.find((i) => i.id === id)?.name ?? '', [items])
   const { data: units } = useQuery({ queryKey: ['units'], queryFn: api.units.list })
-  const { data: godowns } = useQuery({ queryKey: ['godowns'], queryFn: api.godowns.list })
   const unitOf = (itemId: number | null): string => {
     const item = items.find((i) => i.id === itemId)
     return units?.find((u) => u.id === item?.unitId)?.symbol ?? ''
   }
 
-  const [base] = useState(() => initial ?? emptyManufactureState(workingDate))
+  const [base] = useState<ManufactureFormState>(() => {
+    if (initial) return initial
+    const empty = emptyManufactureState(workingDate)
+    return {
+      ...empty,
+      ...(initialJobWork ? { jobWork: { ...emptyJobWorkState(), challanDate: empty.date } } : {}),
+      ...(prefill ? { finishedItemId: prefill.itemId, qtyText: qtyText(prefill.qtyMilli) } : {})
+    }
+  })
   const [date, setDate] = useState(base.date)
   const [alterNumber, setAlterNumber] = useState(base.number)
   const numberField = useVoucherNumberField(typeId, date, voucherId)
@@ -144,10 +188,31 @@ export function ManufactureForm({
   const [labourPosted, setLabourPosted] = useState(base.labourPosted)
   const [creditId, setCreditId] = useState<number | null>(base.labourCreditLedgerId)
   const [rows, setRows] = useState<Row[]>(() => padRows(keyed(base.rows)))
-  /** Rows came from the BOM and haven't been edited: a quantity change rescales them. */
+  const [bpRows, setBpRows] = useState<BpRow[]>(() => (base.byProducts ?? []).map((b) => ({ ...b, key: nextLineKey() })))
+  const [jobWork, setJobWork] = useState<ManufactureJobWorkState | null>(base.jobWork ?? null)
+  /** The BOM version picked by the user; undefined = follow the voucher date. */
+  const [pickedVersion, setPickedVersion] = useState<number | null | undefined>(isEdit ? (base.bomVersionId ?? null) : undefined)
+  const [exploded, setExploded] = useState(base.bomExploded ?? false)
+  /** Rows came from the BOM and haven't been edited: a quantity / version change refills them. */
   const bomRows = useRef(false)
   const [saving, setSaving] = useState(false)
   const { saved, leave } = useLeaveAfterSave()
+
+  // ---------- BOM versions (every item's — the explosion walks sub-assemblies) ----------
+  const { data: allVersions } = useQuery({ queryKey: ['bomVersions'], queryFn: () => api.bom.versions() })
+  const versions = useMemo(() => (allVersions ?? []).filter((v) => v.itemId === finishedItemId), [allVersions, finishedItemId])
+  const dated = finishedItemId != null && allVersions ? pickBomVersion(allVersions, finishedItemId, date) : null
+  const versionId = pickedVersion === undefined ? (dated?.id ?? null) : pickedVersion
+  const qtyMilli = parseQtyMilli(qty) ?? 0
+  const scaleFrom = qtyMilli > 0 ? qtyMilli : 1000
+  const explosion = useMemo(
+    () =>
+      finishedItemId != null && allVersions && versionId != null
+        ? explodeBom(finishedItemId, scaleFrom, allVersions, date, { levels: exploded ? 'full' : 'single', versionId })
+        : null,
+    [finishedItemId, allVersions, versionId, scaleFrom, date, exploded]
+  )
+  const explosionKey = explosion?.ok ? JSON.stringify(explosion.rows) : ''
 
   const state: ManufactureFormState = useMemo(
     () => ({
@@ -160,10 +225,16 @@ export function ManufactureForm({
       saleRatePaise: saleRate,
       labourPaise: labour,
       labourPosted,
-      labourCreditLedgerId: labourPosted ? creditId : null,
-      rows: rows.map(({ key: _k, ...r }) => r)
+      labourCreditLedgerId: labourPosted && !jobWork ? creditId : null,
+      rows: rows.map(({ key: _k, ...r }) => r),
+      byProducts: bpRows.map(({ key: _k, ...b }) => b),
+      bomVersionId: versionId != null && (bomRows.current || isEdit) ? versionId : null,
+      bomExploded: exploded && versionId != null && (bomRows.current || isEdit),
+      jobWork
     }),
-    [date, isEdit, alterNumber, numberField.forPayload, godownId, narration, finishedItemId, qty, saleRate, labour, labourPosted, creditId, rows]
+    // explosionKey: bomRows.current flips with the rows it fills.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [date, isEdit, alterNumber, numberField.forPayload, godownId, narration, finishedItemId, qty, saleRate, labour, labourPosted, creditId, rows, bpRows, versionId, exploded, jobWork, explosionKey]
   )
 
   // ---------- engine prices as of the voucher date ----------
@@ -197,26 +268,21 @@ export function ManufactureForm({
     }
   }, [fresh, finishedItemId, saleRate])
 
-  // ---------- BOM prefill ----------
-  const { data: bom } = useQuery({
-    queryKey: ['bom', finishedItemId],
-    queryFn: () => api.bom.get(finishedItemId!),
-    enabled: finishedItemId != null
-  })
-  const qtyMilli = parseQtyMilli(qty) ?? 0
-  const scaleFrom = qtyMilli > 0 ? qtyMilli : 1000
+  // ---------- BOM prefill (rows = the version's components, or the exploded leaves) ----------
   useEffect(() => {
-    if (isEdit || !bom || bom.length === 0) return
+    if (isEdit || !explosion || !explosion.ok || explosion.rows.length === 0) return
     setRows((rs) => {
       const allBlank = rs.every(isBlank)
       if (!allBlank && !bomRows.current) return rs
       bomRows.current = true
-      return padRows(keyed(rowsFromBom(bom, scaleFrom).map((r) => ({ itemId: r.stockItemId, qtyText: qtyText(r.qtyMilli), godownId: null }))))
+      return padRows(keyed(explosion.rows.map((r) => ({ itemId: r.componentId, qtyText: qtyText(r.qtyMilli), godownId: null }))))
     })
-  }, [bom, scaleFrom, isEdit])
+    // explosionKey covers the explosion's content.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [explosionKey, isEdit])
 
   const setRow = (i: number, patch: Partial<ManufactureRowState>): void => {
-    bomRows.current = false
+    if (patch.itemId !== undefined || patch.qtyText !== undefined) bomRows.current = false
     setRows((rs) => {
       const next = rs.map((r, j) => (j === i ? { ...r, ...patch } : r))
       if (!isBlank(next[next.length - 1]!) && next.length >= RAW_ROWS_VISIBLE) next.push(withKey(blankManufactureRow()))
@@ -224,11 +290,24 @@ export function ManufactureForm({
     })
   }
   const addRow = (): void => setRows((rs) => [...rs, withKey(blankManufactureRow())])
+  const setBp = (i: number, patch: Partial<ManufactureByProductRowState>): void =>
+    setBpRows((rs) => rs.map((r, j) => (j === i ? { ...r, ...patch } : r)))
+  const setJw = (patch: Partial<ManufactureJobWorkState>): void => setJobWork((j) => (j ? { ...j, ...patch } : j))
+
+  // Send challans to the picked job worker (for "against challan").
+  const { data: openChallans } = useQuery({
+    queryKey: ['jobWorkSendChallans', jobWork?.godownId ?? null],
+    queryFn: () => api.jobWork.sendChallans(jobWork!.godownId!),
+    enabled: jobWork?.godownId != null
+  })
+  const jobWorker = jobWork?.godownId != null ? godowns.find((g) => g.id === jobWork.godownId) : undefined
+  const jobWorkerParty = jobWorker?.partyLedgerId != null ? ledgers.find((l) => l.id === jobWorker.partyLedgerId)?.name : undefined
 
   // ---------- evaluation (every keystroke) ----------
   const ev = evaluateManufactureForm(state, { voucherTypeId: typeId, materialPaise, itemName })
   const { totals } = ev
   const issueByRow = new Map(ev.issues.filter((x) => x.row !== undefined).map((x) => [x.row!, x.message]))
+  const issueByBp = new Map(ev.issues.filter((x) => x.byProductRow !== undefined).map((x) => [x.byProductRow!, x.message]))
   const pending = materialPaise === undefined
   const firstIssue = ev.issues[0]?.message ?? (pending ? 'Pricing raw materials…' : null)
   const canSave = !saving && !pending && ev.issues.length === 0
@@ -237,10 +316,12 @@ export function ManufactureForm({
 
   // Content-based dirtiness: for a new voucher the suggested number and the date alone aren't
   // "changes" (same as the sibling entry forms); an alteration compares everything.
-  const initialKey = useMemo(() => manufactureFormKey(base), [base])
+  // The job-work header (worker, their challan, nature) of a NEW voucher is a setting carried from
+  // one receipt to the next, not a change; an alteration compares it too.
+  const initialKey = useMemo(() => manufactureFormKey(isEdit ? base : { ...base, jobWork: null }), [base, isEdit])
   const numberTyped = !isEdit && numberField.touched
   const dirty =
-    numberTyped || manufactureFormKey(isEdit ? state : { ...state, number: '', date: base.date }) !== initialKey
+    numberTyped || manufactureFormKey(isEdit ? state : { ...state, number: '', date: base.date, jobWork: null }) !== initialKey
   useUnsavedGuard(!saved && dirty)
 
   const resetForm = (): void => {
@@ -253,6 +334,10 @@ export function ManufactureForm({
     setLabour(null)
     setNarration('')
     setRows(padRows(keyed(fresh0.rows)))
+    setBpRows([])
+    setPickedVersion(undefined)
+    setExploded(false)
+    if (jobWork) setJobWork({ ...emptyJobWorkState(), godownId: jobWork.godownId, natureOfProcessing: jobWork.natureOfProcessing, challanDate: date })
     bomRows.current = false
     numberField.reset()
     setFormRev((n) => n + 1)
@@ -287,7 +372,7 @@ export function ManufactureForm({
       const result = await api.manufacture.save({ ...current.input, ...(confirmLoss ? { confirmLoss: true } : {}) }, voucherId)
       toast.push(
         'success',
-        `Manufacture ${result.number} ${isEdit ? 'altered' : 'saved'} — ${formatPaise(result.manufacture.saleAmount - result.manufacture.profitPaise, { symbol: true })} into stock`
+        `${jobWork ? 'Job-work receipt' : 'Manufacture'} ${result.number} ${isEdit ? 'altered' : 'saved'} — ${formatPaise(result.manufacture.saleAmount - result.manufacture.profitPaise, { symbol: true })} into stock`
       )
       for (const w of result.warnings.negativeStock) {
         toast.push('error', `${w.name} goes negative (${w.closingQtyMilli / 1000} ${w.unitSymbol}) on ${date}`)
@@ -301,7 +386,8 @@ export function ManufactureForm({
     } finally {
       setSaving(false)
     }
-  }, [saving, state, typeId, materialPaise, itemName, toast, voucherId, isEdit, setWorkingDate, date, queryClient, leave])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [saving, state, typeId, materialPaise, itemName, toast, voucherId, isEdit, setWorkingDate, date, queryClient, leave, jobWork])
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
@@ -334,31 +420,72 @@ export function ManufactureForm({
     }
   }
 
-  const bomCandidate = finishedItemId != null && ev.issues.length === 0 ? bomFromRows(ev.input.raw, ev.input.qtyMilli) : null
+  // "Save these rows as the BOM": into the picked version (or a new default "v1"). Not offered for
+  // exploded rows — those are leaves, not this item's own components.
+  const currentVersion = versions.find((v) => v.id === versionId) ?? null
+  const bomCandidate =
+    finishedItemId != null && ev.issues.length === 0 && !exploded ? bomFromRows(ev.input.raw, ev.input.qtyMilli) : null
   const saveBom = async (): Promise<void> => {
     if (!bomCandidate || finishedItemId == null) return
-    if (bom && bom.length > 0) {
+    if (currentVersion && currentVersion.lines.length > 0) {
       const ok = await confirmDialog({
         title: 'Replace the BOM?',
-        message: `${itemName(finishedItemId)} already has a bill of materials (${bom.length} component${bom.length > 1 ? 's' : ''}). Replace it with these rows, per unit?`,
+        message: `${itemName(finishedItemId)} already has a bill of materials (${currentVersion.name}, ${currentVersion.lines.length} component${currentVersion.lines.length > 1 ? 's' : ''}). Replace it with these rows, per unit?`,
         confirmLabel: 'Replace BOM'
       })
       if (!ok) return
     }
     try {
-      await api.bom.set({ itemId: finishedItemId, lines: bomCandidate })
+      if (currentVersion) {
+        const scrap = new Map(currentVersion.lines.map((l) => [l.componentId, l.scrapPctBp]))
+        await api.bom.saveVersion({
+          id: currentVersion.id, itemId: finishedItemId, name: currentVersion.name, effectiveFrom: currentVersion.effectiveFrom,
+          effectiveTo: currentVersion.effectiveTo, isDefault: currentVersion.isDefault,
+          lines: bomCandidate.map((l) => ({ ...l, scrapPctBp: scrap.get(l.componentId) ?? null }))
+        })
+      } else {
+        await api.bom.set({ itemId: finishedItemId, lines: bomCandidate })
+      }
       toast.push('success', `Saved as the BOM of ${itemName(finishedItemId)} (per unit)`)
       await queryClient.invalidateQueries({ queryKey: ['bom'] })
+      await queryClient.invalidateQueries({ queryKey: ['bomVersions'] })
     } catch (err) {
       toast.push('error', (err as Error).message)
     }
   }
 
+  const switchMode = (toJob: boolean): void => {
+    setJobWork(toJob ? { ...emptyJobWorkState(), challanDate: date } : null)
+    if (!toJob) setRows((rs) => rs.map((r) => ({ ...r, lossText: undefined })))
+  }
+
   const autoNarration = finishedItemId != null && qtyMilli > 0 ? autoManufactureNarration(qtyMilli, itemName(finishedItemId)) : 'Manufactured N × Item'
   const finishedUnit = unitOf(finishedItemId)
+  const subAssemblies = explosion?.ok ? explosion.subAssemblies : []
+  const labourLabel = jobWork ? 'Job charges' : 'Labour'
 
   return (
-    <div data-manufacture-form="" data-testid="manufacture-form" className="flex flex-col gap-section">
+    <div data-manufacture-form="" data-testid="manufacture-form" data-mode={jobWork ? 'job-work' : 'own'} className="flex flex-col gap-section">
+      {!isEdit && (
+        <div className="flex items-center gap-3">
+          <Segmented
+            label="Manufacture kind"
+            size="sm"
+            testId="manufacture-mode"
+            options={[
+              { value: 'own', label: 'Manufacture' },
+              { value: 'job', label: 'Receive from job worker' }
+            ]}
+            value={jobWork ? 'job' : 'own'}
+            onChange={(v) => switchMode(v === 'job')}
+          />
+          <span className="text-hint text-muted">
+            {jobWork
+              ? 'Finished goods back from a job worker: the materials are consumed at their godown and the job charges are added to the cost.'
+              : 'Make an item from raw materials in your own godowns.'}
+          </span>
+        </div>
+      )}
       <Panel className="p-5">
         <div className="grid grid-cols-[minmax(0,9rem)_minmax(0,10rem)_minmax(0,12rem)_minmax(0,1fr)] gap-3">
           <Field label="No." hint={isEdit || numberField.value === NUMBER_LOADING ? undefined : 'Auto — edit to override'}>
@@ -373,18 +500,20 @@ export function ManufactureForm({
           <Field label="Date">
             <DateInput value={date} context={workingDate} onChange={setDate} testId="input-manufacture-date" />
           </Field>
-          <Field label="Godown">
+          <Field label={jobWork ? 'Receive into godown' : 'Godown'}>
             <Select
               value={godownId ?? ''}
               onChange={(e) => setGodownId(e.target.value === '' ? null : Number(e.target.value))}
               data-testid="input-manufacture-godown"
             >
               <option value="">— none —</option>
-              {(godowns ?? []).map((g) => (
-                <option key={g.id} value={g.id}>
-                  {g.name}
-                </option>
-              ))}
+              {godowns
+                .filter((g) => g.kind !== 'job_worker')
+                .map((g) => (
+                  <option key={g.id} value={g.id}>
+                    {g.name}
+                  </option>
+                ))}
             </Select>
           </Field>
           <Field label="Narration">
@@ -396,6 +525,47 @@ export function ManufactureForm({
             />
           </Field>
         </div>
+        {jobWork && (
+          <div className="mt-3 grid grid-cols-[minmax(0,14rem)_minmax(0,9rem)_minmax(0,10rem)_minmax(0,1fr)_minmax(0,12rem)] gap-3 border-t border-line pt-3" data-testid="manufacture-job-work">
+            <Field label="Job worker" hint={jobWorkerParty ? `Job charges credited to ${jobWorkerParty}` : 'A godown of kind “Job worker”'}>
+              <GodownPicker
+                kind="job_worker"
+                value={jobWork.godownId}
+                onPick={(id) => setJw({ godownId: id, originalChallanVoucherId: null })}
+                placeholder="Job worker"
+                testId="picker-manufacture-job-worker"
+              />
+            </Field>
+            <Field label="Their challan no.">
+              <TextInput value={jobWork.challanNo} onChange={(e) => setJw({ challanNo: e.target.value })} data-testid="input-manufacture-jw-challan" />
+            </Field>
+            <Field label="Challan date">
+              <DateInput value={jobWork.challanDate ?? date} context={date} onChange={(d) => setJw({ challanDate: d })} testId="input-manufacture-jw-challan-date" />
+            </Field>
+            <Field label="Nature of processing">
+              <TextInput
+                value={jobWork.natureOfProcessing}
+                onChange={(e) => setJw({ natureOfProcessing: e.target.value })}
+                placeholder="e.g. Powder coating"
+                data-testid="input-manufacture-jw-nature"
+              />
+            </Field>
+            <Field label="Against challan">
+              <Select
+                value={jobWork.originalChallanVoucherId ?? ''}
+                onChange={(e) => setJw({ originalChallanVoucherId: e.target.value === '' ? null : Number(e.target.value) })}
+                data-testid="input-manufacture-jw-original"
+              >
+                <option value="">— optional —</option>
+                {(openChallans ?? []).map((c) => (
+                  <option key={c.voucherId} value={c.voucherId}>
+                    {c.number} · {toDisplayDate(c.date)}
+                  </option>
+                ))}
+              </Select>
+            </Field>
+          </div>
+        )}
       </Panel>
 
       <div className="grid grid-cols-[minmax(0,9fr)_minmax(0,11fr)] items-start gap-section">
@@ -422,6 +592,7 @@ export function ManufactureForm({
                         if (!isEdit) {
                           setSaleRate(null)
                           setSaleRateRev((n) => n + 1)
+                          setPickedVersion(undefined)
                         }
                       }
                       setFinishedItemId(id)
@@ -472,18 +643,83 @@ export function ManufactureForm({
                   : 'No sales or price list for this item yet — enter the price'}
             </p>
           )}
+          {finishedItemId != null && versions.length > 0 && (
+            <div className="mt-4 flex flex-col gap-2 border-t border-line pt-3" data-testid="manufacture-bom">
+              <Field label="BOM version" hint={pickedVersion === undefined ? 'In force on the voucher date' : undefined}>
+                <Select
+                  value={versionId ?? ''}
+                  onChange={(e) => {
+                    bomRows.current = bomRows.current || rows.every(isBlank)
+                    setPickedVersion(e.target.value === '' ? null : Number(e.target.value))
+                  }}
+                  data-testid="input-manufacture-bom-version"
+                >
+                  <option value="">— none (type the rows) —</option>
+                  {versions.map((v) => (
+                    <option key={v.id} value={v.id}>
+                      {v.name}
+                      {v.isDefault ? ' (default)' : ''}
+                      {v.effectiveFrom || v.effectiveTo
+                        ? ` · ${v.effectiveFrom ? toDisplayDate(v.effectiveFrom) : '…'} – ${v.effectiveTo ? toDisplayDate(v.effectiveTo) : '…'}`
+                        : ''}
+                    </option>
+                  ))}
+                </Select>
+              </Field>
+              <Checkbox
+                label="Explode sub-assemblies"
+                hint={
+                  exploded
+                    ? 'Raw rows are the bottom-level materials. Sub-assemblies are not made by this voucher — their materials are consumed directly.'
+                    : 'Raw rows are this BOM’s direct components (sub-assemblies come out of stock).'
+                }
+                checked={exploded}
+                onChange={(v) => {
+                  bomRows.current = bomRows.current || rows.every(isBlank)
+                  setExploded(v)
+                }}
+                testId="input-manufacture-explode"
+              />
+              {subAssemblies.length > 0 && (
+                <ul className="flex flex-col gap-1 text-hint text-muted" data-testid="manufacture-subassemblies">
+                  {subAssemblies.map((s) => (
+                    <li key={s.itemId} className="flex items-center gap-2">
+                      <span>
+                        {itemName(s.itemId)} — needs {s.qtyMilli / 1000} {unitOf(s.itemId)}
+                      </span>
+                      {!isEdit && (
+                        <button
+                          type="button"
+                          className="text-blue hover:underline"
+                          data-testid={`btn-manufacture-subassembly-${s.itemId}`}
+                          onClick={() => nav.go({ name: 'manufacture', prefill: { itemId: s.itemId, qtyMilli: s.qtyMilli } })}
+                        >
+                          Manufacture {itemName(s.itemId)} first →
+                        </button>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              )}
+              {explosion && !explosion.ok && <p className="text-hint text-danger">This BOM loops back on itself — fix it in Masters → Items.</p>}
+            </div>
+          )}
           <dl className="num mt-4 text-detail">
             <SummaryLine label="Sale amount" paise={totals.saleAmount} testId="manufacture-left-total" strong />
           </dl>
-          <p className="mt-3 text-hint text-muted">
-            The sale price and profit are recorded for the margin register only. The finished goods enter stock at production cost.
+          <p className="mt-3 text-hint text-muted" data-testid="manufacture-hint">
+            The sale price and profit are recorded for the margin register only. The finished goods enter stock at production cost —
+            materials + {labourLabel.toLowerCase()} − by-products — and profit = sale amount − that production cost.
           </p>
         </Panel>
 
         {/* ---------- RIGHT: Raw Material ---------- */}
         <Panel className="p-4">
           <div className="flex items-start justify-between gap-3">
-            <PanelTitle title="Raw Material" hint="What it used — costed as of the voucher date" />
+            <PanelTitle
+              title={jobWork ? 'Materials at the job worker' : 'Raw Material'}
+              hint={jobWork ? 'Consumed from the job worker’s godown — costed as of the voucher date' : 'What it used — costed as of the voucher date'}
+            />
             <div className="flex shrink-0 gap-2">
               {bomCandidate && (
                 <Button size="sm" variant="ghost" data-testid="btn-manufacture-save-bom" onClick={() => void saveBom()}>
@@ -492,9 +728,10 @@ export function ManufactureForm({
               )}
             </div>
           </div>
-          {bom && bom.length > 0 && !isEdit && (
+          {versionId != null && !isEdit && bomRows.current && (
             <p className="mb-2 text-hint text-muted" data-testid="manufacture-bom-hint">
-              Rows filled from the bill of materials{qtyMilli > 0 ? ` for ${qtyMilli / 1000}` : ' (per unit)'} — edit freely.
+              Rows filled from the bill of materials{currentVersion ? ` (${currentVersion.name}${exploded ? ', exploded' : ''})` : ''}
+              {qtyMilli > 0 ? ` for ${qtyMilli / 1000}` : ' (per unit)'} — edit freely.
             </p>
           )}
           <table className="ledger-table">
@@ -503,6 +740,7 @@ export function ManufactureForm({
                 <th className="w-8 text-muted">#</th>
                 <th>Raw Material</th>
                 <th className="r w-28">Quantity</th>
+                {jobWork && <th className="r w-24">Loss</th>}
                 <th className="r w-28 whitespace-nowrap">Average cost</th>
                 <th className="r w-28">Amount</th>
               </tr>
@@ -534,6 +772,19 @@ export function ManufactureForm({
                         <span className="w-7 shrink-0 text-caption text-muted">{unitOf(r.itemId)}</span>
                       </div>
                     </td>
+                    {jobWork && (
+                      <td className="r">
+                        <input
+                          className={`${inputCls} num text-right`}
+                          data-testid={`input-manufacture-raw-loss-${i}`}
+                          aria-label={`Raw material ${i + 1} loss at the job worker`}
+                          value={r.lossText ?? ''}
+                          inputMode="decimal"
+                          placeholder="0"
+                          onChange={(e) => setRow(i, { lossText: e.target.value })}
+                        />
+                      </td>
+                    )}
                     <td className="r num text-body-sm text-muted" data-testid={`manufacture-raw-cost-${i}`}>
                       {p ? formatPaise(p.unitCostPaise) : '–'}
                     </td>
@@ -551,21 +802,107 @@ export function ManufactureForm({
             </Button>
           </div>
 
+          {/* ---------- by-products / scrap (compact) ---------- */}
+          <div className="mt-4 border-t border-line pt-3" data-testid="manufacture-byproducts">
+            <div className="flex items-baseline justify-between gap-3">
+              <h3 className="text-caption font-semibold tracking-[0.08em] text-muted uppercase">By-products / scrap</h3>
+              <span className="text-hint text-muted">Enter at the value you assign — it comes off the finished item’s cost</span>
+            </div>
+            {bpRows.length > 0 && (
+              <table className="ledger-table mt-1">
+                <tbody>
+                  {bpRows.map((b, i) => {
+                    const issue = issueByBp.get(i)
+                    return (
+                      <tr key={b.key} data-testid="manufacture-byproduct-row" className={issue ? 'bg-danger-soft/40' : ''} title={issue}>
+                        <td>
+                          <ItemPicker value={b.itemId} onPick={(id) => setBp(i, { itemId: id })} testId={`picker-manufacture-bp-${i}`} />
+                        </td>
+                        <td className="r w-28">
+                          <div className="flex items-center gap-1">
+                            <input
+                              className={`${inputCls} num text-right`}
+                              data-testid={`input-manufacture-bp-qty-${i}`}
+                              aria-label={`By-product ${i + 1} quantity`}
+                              value={b.qtyText}
+                              inputMode="decimal"
+                              placeholder="0"
+                              onChange={(e) => setBp(i, { qtyText: e.target.value })}
+                            />
+                            <span className="w-7 shrink-0 text-caption text-muted">{unitOf(b.itemId)}</span>
+                          </div>
+                        </td>
+                        <td className="w-32">
+                          <Select
+                            value={b.kind}
+                            onChange={(e) => setBp(i, { kind: e.target.value as ManufactureByProductRowState['kind'] })}
+                            aria-label={`By-product ${i + 1} kind`}
+                            data-testid={`input-manufacture-bp-kind-${i}`}
+                          >
+                            <option value="by_product">By-product</option>
+                            <option value="scrap">Scrap</option>
+                          </Select>
+                        </td>
+                        <td className="r w-32">
+                          <AmountInput
+                            key={`${formRev}-${b.key}`}
+                            paise={b.valuePaise}
+                            onPaise={(p) => setBp(i, { valuePaise: p })}
+                            testId={`input-manufacture-bp-value-${i}`}
+                            ariaLabel={`By-product ${i + 1} value`}
+                          />
+                        </td>
+                        <td className="w-8">
+                          <button
+                            type="button"
+                            className="text-muted hover:text-danger"
+                            aria-label={`Remove by-product ${i + 1}`}
+                            data-testid={`btn-manufacture-bp-remove-${i}`}
+                            onClick={() => setBpRows((rs) => rs.filter((_r, j) => j !== i))}
+                          >
+                            ×
+                          </button>
+                        </td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            )}
+            <Button
+              size="sm"
+              variant="ghost"
+              className="mt-1"
+              data-testid="btn-manufacture-add-byproduct"
+              onClick={() => setBpRows((rs) => [...rs, { ...blankByProductRow(), key: nextLineKey() }])}
+            >
+              + Add by-product / scrap
+            </Button>
+          </div>
+
           <div className="mt-4 grid grid-cols-[minmax(0,1fr)_minmax(0,17rem)] gap-6 border-t border-line pt-4">
             <div className="flex flex-col gap-3">
-              <Field label="Labour cost">
+              <Field label={jobWork ? 'Job charges' : 'Labour cost'}>
                 <span onKeyDown={enterNext} className="block w-40">
                   <AmountInput key={formRev} paise={labour} onPaise={setLabour} testId="input-manufacture-labour" />
                 </span>
               </Field>
               <Checkbox
-                label="Labour already booked"
-                hint={labourPosted ? 'Off: this voucher posts Dr Labour Charges / Cr the account below.' : 'On: labour is added to the stock value only — no ledger entry here.'}
+                label={jobWork ? 'Job charges already booked' : 'Labour already booked'}
+                hint={
+                  labourPosted
+                    ? jobWork
+                      ? `Off: this voucher posts Dr Job Work Charges / Cr ${jobWorkerParty ?? 'the job worker'}.`
+                      : 'Off: this voucher posts Dr Labour Charges / Cr the account below.'
+                    : jobWork
+                      ? 'On: e.g. booked on the job worker’s bill — added to the stock value only.'
+                      : 'On: labour is added to the stock value only — no ledger entry here.'
+                }
                 checked={!labourPosted}
                 onChange={(v) => setLabourPosted(!v)}
                 testId="input-manufacture-labour-booked"
               />
-              {labourPosted && (
+              {labourPosted && !jobWork && (
                 <Field label="Credit labour to">
                   <LedgerPicker value={creditId} onPick={setCreditId} placeholder="Wages Payable (default)" testId="picker-manufacture-labour-credit" />
                 </Field>
@@ -573,7 +910,10 @@ export function ManufactureForm({
             </div>
             <dl className="num text-detail">
               <SummaryLine label="Materials" paise={totals.materialPaise} testId="manufacture-materials" muted={pending} />
-              <SummaryLine label="Labour" paise={totals.labourPaise} />
+              <SummaryLine label={labourLabel} paise={totals.labourPaise} />
+              {totals.byProductPaise > 0 && (
+                <SummaryLine label="Less by-products" paise={-totals.byProductPaise} testId="manufacture-byproduct-total" />
+              )}
               <SummaryLine label="Production cost" paise={totals.productionCost} testId="manufacture-production-cost" strong />
               <div
                 data-testid="manufacture-profit"
@@ -602,7 +942,7 @@ export function ManufactureForm({
               {matches ? '= ✓' : '='}
             </span>
             <span data-testid="manufacture-right-total">
-              <span className="mr-2 text-caption font-semibold tracking-[0.08em] text-muted uppercase">Raw Material + Profit</span>
+              <span className="mr-2 text-caption font-semibold tracking-[0.08em] text-muted uppercase">Production cost + Profit</span>
               <Money paise={totals.rightTotal} className="text-subtitle font-semibold" />
             </span>
             <span className={`border-l border-line pl-5 ${totals.profit < 0 ? 'text-danger' : ''}`} data-testid="manufacture-footer-profit">
@@ -623,7 +963,7 @@ export function ManufactureForm({
             )}
             <Button onClick={() => nav.back()}>Cancel</Button>
             <Button variant="primary" data-testid="btn-save-manufacture" disabled={!canSave} onClick={() => void save()}>
-              {isEdit ? 'Save changes' : 'Save manufacture'} ⌘↵
+              {isEdit ? 'Save changes' : jobWork ? 'Save receipt' : 'Save manufacture'} ⌘↵
             </Button>
           </div>
         </div>

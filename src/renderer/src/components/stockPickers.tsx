@@ -29,7 +29,8 @@ export function GodownPicker({
   testId = 'picker-godown',
   placeholder = 'Godown',
   className,
-  ariaLabel
+  ariaLabel,
+  kind
 }: {
   value: number | null
   onPick: (id: number | null) => void
@@ -37,9 +38,14 @@ export function GodownPicker({
   placeholder?: string
   className?: string
   ariaLabel?: string
+  /** WP 2.4: only own godowns, or only job workers' (omitted = all). */
+  kind?: Godown['kind']
 }): React.JSX.Element {
   const godowns = useGodowns()
-  const options = useMemo(() => godowns.map((g) => ({ id: g.id, label: g.name })), [godowns])
+  const options = useMemo(
+    () => godowns.filter((g) => !kind || g.kind === kind).map((g) => ({ id: g.id, label: g.name })),
+    [godowns, kind]
+  )
   return (
     <TypeAhead options={options} value={value} onPick={onPick} placeholder={placeholder} testId={testId} className={className} ariaLabel={ariaLabel ?? placeholder} />
   )

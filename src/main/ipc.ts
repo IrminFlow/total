@@ -51,6 +51,9 @@ import { plexFontFaceCss } from './services/printFonts'
 import * as costCentres from './services/costCentres'
 import * as stockAnalysis from './services/stockAnalysis'
 import * as manufacture from './services/manufacture'
+import * as manufactureReports from './services/manufactureReports'
+import * as bomSvc from './services/bom'
+import * as jobWork from './services/jobWork'
 import * as serials from './services/serials'
 import * as priceLevels from './services/priceLevels'
 import * as budgets from './services/budgets'
@@ -60,7 +63,8 @@ import * as importer from './services/importers'
 import * as agentBridge from './services/agentBridge'
 import { agentBridgeConfigSchema, agentExportSchema } from '@shared/schemas'
 import {
-  manufactureCostPreviewSchema, manufactureRegisterSchema, manufactureSaveSchema, stockMovementsSchema
+  manufactureCostPreviewSchema, manufactureRegisterSchema, manufactureSaveSchema, stockMovementsSchema,
+  bomVersionInputSchema, bomExplodeSchema, manufactureReportSchema, jobWorkChallanSaveSchema, jobWorkPendingSchema
 } from '@shared/schemas'
 import * as consolidated from './services/consolidated'
 import * as caPack from './services/caPack'
@@ -613,8 +617,43 @@ export function registerIpc(): void {
   handle('manufacture:get', (p) => manufacture.getManufacture(requireCompany().db, idSchema.parse(p).id), 'viewer')
   handle('manufacture:costPreview', (p) => manufacture.costPreview(requireCompany().db, manufactureCostPreviewSchema.parse(p)), 'viewer')
   handle('manufacture:register', (p) => {
+    const { from, to, itemId } = manufactureReportSchema.parse(p)
+    return manufacture.manufactureRegister(requireCompany().db, from, to, itemId)
+  }, 'viewer')
+  // WP 2.4 manufacturing reports
+  handle('manufacture:production', (p) => {
     const { from, to } = manufactureRegisterSchema.parse(p)
-    return manufacture.manufactureRegister(requireCompany().db, from, to)
+    return manufactureReports.productionRegisterReport(requireCompany().db, from, to)
+  }, 'viewer')
+  handle('manufacture:costSheet', (p) => {
+    const { from, to, itemId } = manufactureReportSchema.extend({ itemId: z.number().int().positive() }).parse(p)
+    return manufactureReports.costSheetReport(requireCompany().db, itemId, from, to)
+  }, 'viewer')
+  handle('manufacture:margin', (p) => {
+    const { from, to } = manufactureRegisterSchema.parse(p)
+    return manufactureReports.marginReport(requireCompany().db, from, to)
+  }, 'viewer')
+  handle('manufacture:variance', (p) => {
+    const { from, to, itemId } = manufactureReportSchema.parse(p)
+    return manufactureReports.materialVarianceReport(requireCompany().db, from, to, itemId)
+  }, 'viewer')
+  // WP 2.4 job work
+  handle('jobWork:get', (p) => jobWork.getJobWorkChallan(requireCompany().db, idSchema.parse(p).id), 'viewer')
+  handle('jobWork:saveChallan', (p) => {
+    const { id, ...rest } = jobWorkChallanSaveSchema.parse(p)
+    const c = requireCompany()
+    const saved = jobWork.saveJobWorkChallan(c.db, rest, id)
+    if (configSvc.getAgentBridgeEnabled(c.db)) agentBridge.scheduleMirrorRefresh(c.db, c.slug)
+    return saved
+  })
+  handle('jobWork:sendChallans', (p) => jobWork.sendChallans(requireCompany().db, idSchema.parse(p).id), 'viewer')
+  handle('jobWork:pending', (p) => {
+    const { asOn, pendingDays } = jobWorkPendingSchema.parse(p)
+    return jobWork.materialAtJobWorkers(requireCompany().db, asOn, pendingDays)
+  }, 'viewer')
+  handle('jobWork:itc04', (p) => {
+    const { from, to } = manufactureRegisterSchema.parse(p)
+    return jobWork.itc04Data(requireCompany().db, from, to)
   }, 'viewer')
   handle('manufacture:save', (p) => {
     const { data, id } = manufactureSaveSchema.parse(p)
@@ -1265,6 +1304,11 @@ export function registerIpc(): void {
   handle('bom:get', (p) => extras.getBom(requireCompany().db, z.object({ itemId: z.number().int().positive() }).parse(p).itemId), 'viewer')
   handle('bom:set', (p) => extras.setBom(requireCompany().db, bomInputSchema.parse(p)))
   handle('bom:items', () => extras.itemsWithBom(requireCompany().db), 'viewer')
+  // WP 2.4: BOM versions + explosion
+  handle('bom:versions', (p) => bomSvc.listBomVersions(requireCompany().db, z.object({ itemId: z.number().int().positive().optional() }).parse(p ?? {}).itemId), 'viewer')
+  handle('bom:saveVersion', (p) => bomSvc.saveBomVersion(requireCompany().db, bomVersionInputSchema.parse(p)))
+  handle('bom:deleteVersion', (p) => bomSvc.deleteBomVersion(requireCompany().db, idSchema.parse(p).id))
+  handle('bom:explode', (p) => bomSvc.explode(requireCompany().db, bomExplodeSchema.parse(p)), 'viewer')
 
   // ---------- payroll ----------
   const daysSchema = z.array(z.object({ employeeId: z.number().int().positive(), payableDays: z.number().min(0).max(31) }))

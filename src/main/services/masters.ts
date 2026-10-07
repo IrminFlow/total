@@ -359,29 +359,50 @@ export function deleteStockItem(db: DB, id: number): void {
   writeAudit(db, 'stockItem', id, 'delete', mapItem(existing), null)
 }
 
+const GODOWN_COLS = 'id, name, address, kind, party_ledger_id AS partyLedgerId'
+const godownById = (db: DB, id: number | bigint): Godown | undefined =>
+  db.prepare(`SELECT ${GODOWN_COLS} FROM godowns WHERE id = ?`).get(id) as Godown | undefined
+
 export function listGodowns(db: DB): Godown[] {
-  return db.prepare('SELECT * FROM godowns ORDER BY name').all() as Godown[]
+  return db.prepare(`SELECT ${GODOWN_COLS} FROM godowns ORDER BY name`).all() as Godown[]
+}
+
+/** WP 2.4: a job-worker godown needs an existing party ledger; an own godown carries none. */
+function godownKindFields(db: DB, input: GodownInput, existing?: Godown): { kind: Godown['kind']; partyLedgerId: number | null } {
+  const kind = input.kind ?? existing?.kind ?? 'own'
+  if (kind === 'own') return { kind, partyLedgerId: null }
+  const partyLedgerId = input.partyLedgerId === undefined ? (existing?.partyLedgerId ?? null) : input.partyLedgerId
+  if (partyLedgerId == null) throw new Error('A job worker godown needs the job worker’s party ledger')
+  if (!db.prepare('SELECT 1 FROM ledgers WHERE id = ?').get(partyLedgerId)) throw new Error('Party ledger not found')
+  return { kind, partyLedgerId }
 }
 
 export function createGodown(db: DB, input: GodownInput): Godown {
-  const res = db.prepare('INSERT INTO godowns (name, address) VALUES (?, ?)').run(input.name, input.address ?? null)
-  const created = db.prepare('SELECT * FROM godowns WHERE id = ?').get(res.lastInsertRowid) as Godown
+  const k = godownKindFields(db, input)
+  const res = db
+    .prepare('INSERT INTO godowns (name, address, kind, party_ledger_id) VALUES (?, ?, ?, ?)')
+    .run(input.name, input.address ?? null, k.kind, k.partyLedgerId)
+  const created = godownById(db, res.lastInsertRowid)!
   writeAudit(db, 'godown', created.id, 'create', null, created)
   return created
 }
 
 export function updateGodown(db: DB, id: number, input: GodownInput): Godown {
-  const existing = db.prepare('SELECT * FROM godowns WHERE id = ?').get(id) as Godown | undefined
+  const existing = godownById(db, id)
   if (!existing) throw new Error('Godown not found')
-  db.prepare('UPDATE godowns SET name = ?, address = ? WHERE id = ?')
-    .run(input.name, input.address === undefined ? existing.address : input.address, id)
-  const updated = db.prepare('SELECT * FROM godowns WHERE id = ?').get(id) as Godown
+  const k = godownKindFields(db, input, existing)
+  if (k.kind !== existing.kind && db.prepare('SELECT 1 FROM job_work_challans WHERE godown_id = ?').get(id)) {
+    throw new Error('This godown has job-work challans — it must stay a job worker godown')
+  }
+  db.prepare('UPDATE godowns SET name = ?, address = ?, kind = ?, party_ledger_id = ? WHERE id = ?')
+    .run(input.name, input.address === undefined ? existing.address : input.address, k.kind, k.partyLedgerId, id)
+  const updated = godownById(db, id)!
   writeAudit(db, 'godown', id, 'update', existing, updated)
   return updated
 }
 
 export function deleteGodown(db: DB, id: number): void {
-  const existing = db.prepare('SELECT * FROM godowns WHERE id = ?').get(id) as Godown | undefined
+  const existing = godownById(db, id)
   if (!existing) throw new Error('Godown not found')
   const used = db.prepare('SELECT COUNT(*) AS n FROM inventory_lines WHERE godown_id = ?').get(id) as { n: number }
   if (used.n > 0) throw new Error('Godown has stock movements; delete those first')

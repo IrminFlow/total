@@ -957,5 +957,104 @@ export const MIGRATIONS: string[] = [
     reason TEXT NOT NULL CHECK (length(reason) BETWEEN 1 AND 200),
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
   );
+  `,
+  // 023 (WP 2.4) — deeper manufacturing. Number assigned by the orchestrator; appended after 022
+  // (WP 3.2, TDS exemptions), whose content it does not depend on.
+  // - BOM versions: bom_versions (named, effective-dated, one default per item) own
+  //   bom_version_lines (per-unit quantity + optional scrap allowance in basis points). Every
+  //   existing item BOM is backfilled as a default version "v1" in force from the beginning.
+  //   bom_lines (003) is REPLACED BY A VIEW of the default versions' lines, same columns
+  //   (id, item_id, component_id, qty_milli_per_unit), so anything still reading it keeps
+  //   working for one release; it is read-only — writes go through services/bom.ts.
+  // - godowns.kind ('own' | 'job_worker') + party_ledger_id (the job worker's party ledger).
+  // - manufacture_details.bom_version_id / bom_exploded: the version the rows came from (the
+  //   material-variance standard) and whether they were the exploded leaves.
+  // - manufacture_outputs: by-product / scrap rows of a manufacture, keyed to their inward
+  //   line by (voucher_id, line_order). The engine books them at value_paise and gives the
+  //   remainder of the conserved cost to the finished item.
+  // - job_work_challans (one per job-work voucher: send / receive / return) + job_work_losses
+  //   (receive: loss per raw line) hold what ITC-04 needs: challan no/date, job worker,
+  //   nature of processing, goods type, the original challan; quantities and values are the
+  //   voucher's own inventory lines.
+  // - stock_transfers: stock journals saved as same-item godown transfers, costed by the
+  //   engine's 'transfer' rule (inward leg = the outward leg's engine cost at valuation time).
+  //   Marked at save time only — no backfill, so no pre-existing journal re-prices on upgrade.
+  `
+  CREATE TABLE bom_versions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    item_id INTEGER NOT NULL REFERENCES stock_items(id) ON DELETE CASCADE,
+    name TEXT NOT NULL COLLATE NOCASE,
+    effective_from TEXT,
+    effective_to TEXT,
+    is_default INTEGER NOT NULL DEFAULT 0 CHECK (is_default IN (0, 1)),
+    UNIQUE (item_id, name),
+    CHECK (effective_from IS NULL OR effective_to IS NULL OR effective_to >= effective_from)
+  );
+  CREATE UNIQUE INDEX idx_bom_versions_one_default ON bom_versions(item_id) WHERE is_default = 1;
+  CREATE TABLE bom_version_lines (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    version_id INTEGER NOT NULL REFERENCES bom_versions(id) ON DELETE CASCADE,
+    component_id INTEGER NOT NULL REFERENCES stock_items(id),
+    qty_milli_per_unit INTEGER NOT NULL CHECK (qty_milli_per_unit > 0),
+    scrap_pct_bp INTEGER CHECK (scrap_pct_bp IS NULL OR scrap_pct_bp >= 0),
+    line_order INTEGER NOT NULL DEFAULT 0,
+    UNIQUE (version_id, component_id)
+  );
+  CREATE INDEX idx_bom_version_lines_component ON bom_version_lines(component_id);
+
+  INSERT INTO bom_versions (item_id, name, effective_from, effective_to, is_default)
+    SELECT DISTINCT item_id, 'v1', NULL, NULL, 1 FROM bom_lines ORDER BY item_id;
+  INSERT INTO bom_version_lines (version_id, component_id, qty_milli_per_unit, scrap_pct_bp, line_order)
+    SELECT bv.id, b.component_id, b.qty_milli_per_unit, NULL,
+           (SELECT COUNT(*) FROM bom_lines b2 WHERE b2.item_id = b.item_id AND b2.id < b.id)
+      FROM bom_lines b JOIN bom_versions bv ON bv.item_id = b.item_id
+     ORDER BY b.item_id, b.id;
+  DROP TABLE bom_lines;
+  CREATE VIEW bom_lines AS
+    SELECT l.id AS id, v.item_id AS item_id, l.component_id AS component_id, l.qty_milli_per_unit AS qty_milli_per_unit
+      FROM bom_version_lines l JOIN bom_versions v ON v.id = l.version_id
+     WHERE v.is_default = 1;
+
+  ALTER TABLE godowns ADD COLUMN kind TEXT NOT NULL DEFAULT 'own' CHECK (kind IN ('own', 'job_worker'));
+  ALTER TABLE godowns ADD COLUMN party_ledger_id INTEGER REFERENCES ledgers(id);
+
+  ALTER TABLE manufacture_details ADD COLUMN bom_version_id INTEGER REFERENCES bom_versions(id) ON DELETE SET NULL;
+  ALTER TABLE manufacture_details ADD COLUMN bom_exploded INTEGER NOT NULL DEFAULT 0 CHECK (bom_exploded IN (0, 1));
+
+  CREATE TABLE manufacture_outputs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    voucher_id INTEGER NOT NULL REFERENCES manufacture_details(voucher_id) ON DELETE CASCADE,
+    line_order INTEGER NOT NULL,
+    stock_item_id INTEGER NOT NULL REFERENCES stock_items(id),
+    qty_milli INTEGER NOT NULL CHECK (qty_milli > 0),
+    value_paise INTEGER NOT NULL CHECK (value_paise >= 0),
+    kind TEXT NOT NULL DEFAULT 'by_product' CHECK (kind IN ('by_product', 'scrap')),
+    UNIQUE (voucher_id, line_order)
+  );
+  CREATE INDEX idx_manufacture_outputs_item ON manufacture_outputs(stock_item_id);
+
+  CREATE TABLE job_work_challans (
+    voucher_id INTEGER PRIMARY KEY REFERENCES vouchers(id) ON DELETE CASCADE,
+    kind TEXT NOT NULL CHECK (kind IN ('send', 'receive', 'return')),
+    godown_id INTEGER NOT NULL REFERENCES godowns(id),
+    party_ledger_id INTEGER NOT NULL REFERENCES ledgers(id),
+    challan_no TEXT,
+    challan_date TEXT,
+    nature_of_processing TEXT,
+    goods_type TEXT NOT NULL DEFAULT 'inputs' CHECK (goods_type IN ('inputs', 'capital_goods')),
+    original_challan_voucher_id INTEGER REFERENCES vouchers(id) ON DELETE SET NULL
+  );
+  CREATE INDEX idx_job_work_challans_godown ON job_work_challans(godown_id);
+  CREATE INDEX idx_job_work_challans_party ON job_work_challans(party_ledger_id);
+  CREATE TABLE job_work_losses (
+    voucher_id INTEGER NOT NULL REFERENCES job_work_challans(voucher_id) ON DELETE CASCADE,
+    line_order INTEGER NOT NULL,
+    loss_qty_milli INTEGER NOT NULL CHECK (loss_qty_milli > 0),
+    PRIMARY KEY (voucher_id, line_order)
+  );
+
+  CREATE TABLE stock_transfers (
+    voucher_id INTEGER PRIMARY KEY REFERENCES vouchers(id) ON DELETE CASCADE
+  );
   `
 ]

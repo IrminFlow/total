@@ -4,7 +4,7 @@ import {
   expiryBucketOf, runInventoryPass, stockCostPositionsAsOf, costConsumption, bookedInwardValues,
   type ExpiryBucket, type ValuationMethod, type ValuationResult, type InventoryItem, type InventoryMovement,
   type InventoryPassInput, type VoucherCosting, type StockCostPosition, type ConsumptionCosting,
-  type ProposedOutward
+  type ProposedOutward, type DerivedVoucherCost, type StockPosition
 } from '@shared/valuation'
 import { IN_BOOKS, checkStock } from './vouchers'
 import type { NegativeStockWarning } from '@shared/domain'
@@ -99,6 +99,15 @@ export function setDerivedCostingSource(source: DerivedCostingSource | null): vo
  * Under `'stored'` the additional cost is split over inward lines by stored amount exactly as
  * before (positive totals only); under `'derived'` it joins the consumed cost in the conserved
  * total.
+ *
+ * WP 2.4:
+ * - a derived voucher's by-product / scrap lines (manufacture_outputs, matched to their inward
+ *   line by line_order) ride as `fixedInwardByLine` — booked at their assigned value, the
+ *   remainder to the finished item;
+ * - a stock journal marked in `stock_transfers` (saved as a same-item godown transfer — see
+ *   vouchers.ts syncTransferMark) is `'transfer'`: each inward leg = its outward leg's engine
+ *   cost at valuation time. Never applied to a voucher that is also derived. Unmarked journals,
+ *   including every pre-0.6.0 one, keep their stored costing.
  */
 export function voucherCosting(db: DB, asOn: string): Map<number, VoucherCosting> {
   const costing = new Map<number, VoucherCosting>()
@@ -115,6 +124,16 @@ export function voucherCosting(db: DB, asOn: string): Map<number, VoucherCosting
   for (const { voucherId, extra } of ledgerExtra) {
     if (extra > 0) costing.set(voucherId, { rule: 'stored', additionalCostPaise: extra })
   }
+
+  const transfers = db
+    .prepare(
+      `SELECT st.voucher_id AS voucherId FROM stock_transfers st
+       JOIN vouchers v ON v.id = st.voucher_id
+       JOIN voucher_types vt ON vt.id = v.voucher_type_id
+       WHERE vt.kind = 'stock_journal' AND v.date <= ? AND ${IN_BOOKS}`
+    )
+    .all(asOn) as { voucherId: number }[]
+  for (const { voucherId } of transfers) costing.set(voucherId, { rule: 'transfer' })
 
   const marks = derivedCostingSource(db, asOn)
   if (marks.length === 0) return costing
@@ -133,12 +152,30 @@ export function voucherCosting(db: DB, asOn: string): Map<number, VoucherCosting
         .all(asOn) as { id: number }[]
     ).map((r) => r.id)
   )
+  const fixed = new Map<number, Map<number, number>>()
+  for (const r of db
+    .prepare(
+      `SELECT mo.voucher_id AS voucherId, il.id AS lineId, mo.value_paise AS value
+       FROM manufacture_outputs mo
+       JOIN inventory_lines il ON il.voucher_id = mo.voucher_id AND il.line_order = mo.line_order
+         AND il.direction = 'in' AND il.is_absolute = 0
+       JOIN vouchers v ON v.id = mo.voucher_id
+       WHERE v.date <= ? AND ${IN_BOOKS}`
+    )
+    .all(asOn) as { voucherId: number; lineId: number; value: number }[]) {
+    const m = fixed.get(r.voucherId) ?? new Map<number, number>()
+    m.set(r.lineId, r.value)
+    fixed.set(r.voucherId, m)
+  }
   for (const mark of marks) {
     if (!eligible.has(mark.voucherId)) continue
-    const legacy = costing.get(mark.voucherId)?.additionalCostPaise ?? 0
+    const prior = costing.get(mark.voucherId)
+    const legacy = prior?.rule === 'stored' ? (prior.additionalCostPaise ?? 0) : 0
+    const fixedInwardByLine = fixed.get(mark.voucherId)
     costing.set(mark.voucherId, {
       rule: 'derived',
-      additionalCostPaise: mark.additionalCostPaise ?? legacy
+      additionalCostPaise: mark.additionalCostPaise ?? legacy,
+      ...(fixedInwardByLine ? { fixedInwardByLine } : {})
     })
   }
   return costing
@@ -228,8 +265,8 @@ function godownPassInput(
 ): InventoryPassInput {
   let godownRows: MovementRow[]
   let booked: Map<number, number>
-  if ([...costing.values()].some((c) => c.rule === 'derived')) {
-    // Derived values need the company-wide pass.
+  if ([...costing.values()].some((c) => c.rule !== 'stored')) {
+    // Derived / transfer values need the company-wide pass.
     const rows = loadMovements(db, asOn)
     booked = bookedInwardValues({ items: toItems(items), movements: rows.map((r) => toMovement(r)), costing })
     godownRows = rows.filter((r) => r.godownId === godownId)
@@ -332,6 +369,48 @@ export function periodConsumption(db: DB, from: string, to: string): Map<number,
     })
   }
   return result
+}
+
+// ---------- per-voucher engine figures (WP 2.4 manufacturing reports) ----------
+
+export interface VoucherLineCosts {
+  /** inventory lineId → engine value: the cost charged (outward lines, ≥ 0 normally) or the
+   *  value booked (inward lines of costed vouchers). Only lines of the requested vouchers. */
+  lineValue: Map<number, number>
+  /** Per derived voucher: the conserved figures (consumed, additional, by-products, main). */
+  derived: Map<number, DerivedVoucherCost>
+  /** `averageAt[i]` — every item's running average per whole unit (paise) at `points[i]`. */
+  averageAt: Map<number, number>[]
+}
+
+/**
+ * The engine's CURRENT figures for some vouchers (WP 2.4 register re-pricing, cost sheet,
+ * variance): ONE company-wide pass to `asOn`, observed line by line — nothing re-derived. Also
+ * snapshots every item's running average at the requested positions (for valuing a standard
+ * quantity that wasn't consumed).
+ */
+export function voucherLineCosts(db: DB, asOn: string, voucherIds: ReadonlySet<number>, points: StockPosition[] = []): VoucherLineCosts {
+  const { input } = companyPassInput(db, asOn)
+  const lineValue = new Map<number, number>()
+  const result = runInventoryPass(input, points, {
+    onLine: (e) => {
+      const m = e.movement
+      if (!voucherIds.has(m.voucherId) || m.lineId === undefined) return
+      if (m.direction === 'out' && !m.isAbsolute) lineValue.set(m.lineId, -e.valueDelta)
+    }
+  })
+  for (const m of input.movements) {
+    if (!voucherIds.has(m.voucherId) || m.lineId === undefined || m.direction !== 'in' || m.isAbsolute) continue
+    lineValue.set(m.lineId, result.inwardValueByLine.get(m.lineId) ?? m.amount)
+  }
+  const averageAt = result.at.map((snap) => {
+    const out = new Map<number, number>()
+    for (const [itemId, r] of snap) out.set(itemId, r.closingQtyMilli > 0 ? Math.round((r.closingValue * 1000) / r.closingQtyMilli) : 0)
+    return out
+  })
+  const derived = new Map<number, DerivedVoucherCost>()
+  for (const [id, d] of result.derived) if (voucherIds.has(id)) derived.set(id, d)
+  return { lineValue, derived, averageAt }
 }
 
 // ---------- cost as of a date (WP 2.1 → WP 2.2's manufacture screen) ----------

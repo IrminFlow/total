@@ -3,23 +3,31 @@
 //    out/in pair of the same item; the inward leg carries exactly the engine cost of the outward
 //    leg (stock:costAsOf at the voucher's position), so a transfer never changes the item's value.
 //  - Adjustment: free-form in/out rows with rate (the generic stock-lines editor).
+//  - Send to job worker (WP 2.4): the transfer form with a job worker's godown fixed on one side —
+//    "Send" moves material from our godowns to the job worker, "Return" brings unprocessed
+//    material back — plus the ITC-04 facts (nature of processing, goods type, their challan).
+//    Saved through jobWork:saveChallan; the receipt of finished goods is Manufacture's
+//    "Receive from job worker" mode.
 // Voucher entry's Stock Journal tab embeds this (plus a link back to the BOM manufacture form);
 // the sidebar's "Stock journal" screen hosts it on its own. A saved transfer re-opens here
-// (planVoucherEdit → 'transfer'); anything else falls back to the stock-lines editor.
+// (planVoucherEdit → 'transfer' / 'jobWorkSend'); anything else falls back to the stock-lines editor.
 import { Fragment, useCallback, useEffect, useMemo, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import type { Voucher } from '@shared/domain'
 import { formatPaise } from '@shared/money'
 import { formatMilli } from '../lib/table'
 import {
-  blankTransferRow, buildTransferPayload, emptyTransferState, frozenTransferCost, transferCostQuery, transferQtyMilli,
-  transferRowsToPost, type TransferFormState, type TransferRowState
+  blankTransferRow, buildJobWorkChallan, buildTransferPayload, emptyJobWorkChallan, emptyTransferState, frozenTransferCost,
+  transferCostQuery, transferQtyMilli, transferRowsToPost, withJobWorker, type JobWorkChallanState, type TransferFormState,
+  type TransferRowState
 } from '@shared/voucherEdit'
+import { toDisplayDate } from '@shared/dates'
 import { api } from '../lib/client'
 import { useNav, useSession, useToasts } from '../state/stores'
-import { Banner, Button, DateInput, DrawerSection, Field, isAnyModalOpen, Money, Page, PageHeader, Panel, Segmented, SkeletonRows, TextInput, inputCls } from '../components/ui'
+import { Banner, Button, DateInput, DrawerSection, Field, isAnyModalOpen, Money, Page, PageHeader, Panel, Segmented, Select, SkeletonRows, TextInput, inputCls } from '../components/ui'
 import { ItemPicker, useStockItems } from '../components/pickers'
-import { BatchPicker, GodownPicker, SerialsInput } from '../components/stockPickers'
+import { BatchPicker, GodownPicker, SerialsInput, useGodowns } from '../components/stockPickers'
+import { useLedgers } from '../components/pickers'
 import { confirmDialog } from '../lib/dialogs'
 import { useUnsavedGuard } from '../lib/useUnsavedGuard'
 import { useFeatures } from '../lib/useFeatures'
@@ -32,20 +40,31 @@ interface TransferRow extends TransferRowState {
 }
 const blankRow = (): TransferRow => ({ ...blankTransferRow(), key: nextLineKey() })
 
-export type StockJournalMode = 'transfer' | 'adjust'
+export type StockJournalMode = 'transfer' | 'adjust' | 'jobWork'
 
-/** The godown transfer form (new, or altering a saved transfer). */
+/** The godown transfer form (new, or altering a saved transfer). With `jobWork` it is the
+ *  "Send to job worker" form (WP 2.4): the challan header fixes the job worker's godown on one
+ *  side of every row. */
 export function TransferEntry({
   typeId,
   voucherId,
   voucher,
-  initial
+  initial,
+  jobWork: initialChallan
 }: {
   typeId: number
   voucherId?: number
   voucher?: Voucher
   initial?: TransferFormState
+  jobWork?: JobWorkChallanState
 }): React.JSX.Element {
+  const [challan, setChallan] = useState<JobWorkChallanState | null>(initialChallan ?? null)
+  const isJobWork = challan != null
+  const setCh = (patch: Partial<JobWorkChallanState>): void => setChallan((c) => (c ? { ...c, ...patch } : c))
+  const godowns = useGodowns()
+  const ledgers = useLedgers()
+  const worker = challan?.godownId != null ? godowns.find((g) => g.id === challan.godownId) : undefined
+  const workerParty = worker?.partyLedgerId != null ? ledgers.find((l) => l.id === worker.partyLedgerId)?.name : undefined
   const isEdit = voucherId != null
   const { workingDate, setWorkingDate } = useSession()
   const toast = useToasts()
@@ -80,10 +99,10 @@ export function TransferEntry({
     })
   }
 
-  const formState: TransferFormState = useMemo(
-    () => ({ ...base, date, number: isEdit ? alterNumber : numberField.forPayload, narration, rows: rows.map(({ key: _k, ...r }) => r) }),
-    [base, date, isEdit, alterNumber, numberField.forPayload, narration, rows]
-  )
+  const formState: TransferFormState = useMemo(() => {
+    const st = { ...base, date, number: isEdit ? alterNumber : numberField.forPayload, narration, rows: rows.map(({ key: _k, ...r }) => r) }
+    return challan ? withJobWorker(st, challan) : st
+  }, [base, date, isEdit, alterNumber, numberField.forPayload, narration, rows, challan])
 
   // Engine cost of every row's outward leg, as of this voucher's position (an alteration's own
   // saved lines are left out). Rows with a still-valid frozen value don't need it.
@@ -117,14 +136,24 @@ export function TransferEntry({
     () => buildTransferPayload(formState, { voucherTypeId: typeId, costs, itemName: (id) => items.find((i) => i.id === id)?.name ?? '' }),
     [formState, typeId, costs, items]
   )
+  const { data: sendChallans } = useQuery({
+    queryKey: ['jobWorkSendChallans', challan?.godownId ?? null],
+    queryFn: () => api.jobWork.sendChallans(challan!.godownId!),
+    enabled: challan?.kind === 'return' && challan.godownId != null
+  })
   const alterationDirty = useAlterationDirty(voucher, isEdit ? build() : null)
-  useUnsavedGuard(!saved && (isEdit ? alterationDirty : rows.some((r) => r.itemId != null) || narration.trim() !== ''))
+  const challanDirty = isEdit && JSON.stringify(challan) !== JSON.stringify(initialChallan ?? null)
+  useUnsavedGuard(!saved && (isEdit ? alterationDirty || challanDirty : rows.some((r) => r.itemId != null) || narration.trim() !== ''))
 
   const save = useCallback(async (): Promise<void> => {
     if (saving) return
     if (pricing) return void toast.push('error', 'Waiting for the stock cost — try again')
     const built = build()
     if (!built.ok) return void toast.push('error', built.error)
+    const jw = challan
+      ? buildJobWorkChallan({ transfer: formState, challan }, { voucherTypeId: typeId, costs, itemName: (id) => items.find((i) => i.id === id)?.name ?? '' })
+      : null
+    if (jw && !jw.ok) return void toast.push('error', jw.error)
     setSaving(true)
     try {
       if (built.payload.number && (await api.vouchers.numberExists(typeId, built.payload.number, voucherId))) {
@@ -135,8 +164,11 @@ export function TransferEntry({
         })
         if (!proceed) return
       }
-      const result = await api.vouchers.save(built.payload, voucherId)
-      toast.push('success', `Transfer ${result.number} ${isEdit ? 'altered' : 'saved'}`)
+      const result = jw && jw.ok ? await api.jobWork.saveChallan(jw.payload, voucherId) : await api.vouchers.save(built.payload, voucherId)
+      toast.push(
+        'success',
+        `${challan ? (challan.kind === 'send' ? 'Job-work challan' : 'Return from job worker') : 'Transfer'} ${result.number} ${isEdit ? 'altered' : 'saved'}`
+      )
       setWorkingDate(date)
       await queryClient.invalidateQueries()
       if (isEdit) leave()
@@ -150,7 +182,7 @@ export function TransferEntry({
     } finally {
       setSaving(false)
     }
-  }, [saving, pricing, build, toast, typeId, voucherId, isEdit, setWorkingDate, date, queryClient, leave, numberField])
+  }, [saving, pricing, build, toast, typeId, voucherId, isEdit, setWorkingDate, date, queryClient, leave, numberField, challan, formState, costs, items])
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
@@ -190,7 +222,7 @@ export function TransferEntry({
   }
 
   return (
-    <Panel className="p-5" data-testid="form-stock-transfer">
+    <Panel className="p-5" testId={isJobWork ? 'form-job-work-challan' : 'form-stock-transfer'}>
       <div className="grid grid-cols-4 gap-3">
         <Field label="No." hint={isEdit || numberField.value === NUMBER_LOADING ? undefined : 'Auto — edit to override'}>
           <TextInput
@@ -205,17 +237,77 @@ export function TransferEntry({
         </Field>
         <div className="col-span-2 flex items-end justify-end">
           <p className="text-hint text-muted">
-            Each row moves stock out of one godown and into another at its current cost — the item&apos;s value is unchanged.
+            {challan
+              ? challan.kind === 'send'
+                ? 'Each row sends material from your godown to the job worker at its current cost — it stays your stock, held at their premises.'
+                : 'Each row brings unprocessed material back from the job worker at its current cost.'
+              : <>Each row moves stock out of one godown and into another at its current cost — the item&apos;s value is unchanged.</>}
           </p>
         </div>
       </div>
+      {challan && (
+        <div className="mt-3 grid grid-cols-[auto_minmax(0,14rem)_minmax(0,1fr)_minmax(0,10rem)] items-end gap-3 border-t border-line pt-3" data-testid="job-work-challan">
+          {!isEdit ? (
+            <Segmented
+              label="Job-work direction"
+              size="sm"
+              testId="job-work-direction"
+              options={[
+                { value: 'send', label: 'Send' },
+                { value: 'return', label: 'Return' }
+              ]}
+              value={challan.kind}
+              onChange={(k) => setCh({ kind: k, originalChallanVoucherId: null })}
+            />
+          ) : (
+            <span className="text-caption font-semibold text-muted uppercase">{challan.kind === 'send' ? 'Send' : 'Return'}</span>
+          )}
+          <Field label="Job worker" hint={workerParty ? `Party: ${workerParty}` : 'A godown of kind “Job worker” (Masters → Godowns)'}>
+            <GodownPicker kind="job_worker" value={challan.godownId} onPick={(id) => setCh({ godownId: id, originalChallanVoucherId: null })} placeholder="Job worker" testId="picker-job-worker" />
+          </Field>
+          <Field label="Nature of processing">
+            <TextInput value={challan.natureOfProcessing} onChange={(e) => setCh({ natureOfProcessing: e.target.value })} placeholder="e.g. Powder coating" data-testid="input-job-work-nature" />
+          </Field>
+          <Field label="Goods">
+            <Select value={challan.goodsType} onChange={(e) => setCh({ goodsType: e.target.value as JobWorkChallanState['goodsType'] })} data-testid="input-job-work-goods-type">
+              <option value="inputs">Inputs</option>
+              <option value="capital_goods">Capital goods</option>
+            </Select>
+          </Field>
+          {challan.kind === 'return' && (
+            <>
+              <span />
+              <Field label="Their challan no.">
+                <TextInput value={challan.challanNo} onChange={(e) => setCh({ challanNo: e.target.value })} data-testid="input-job-work-challan-no" />
+              </Field>
+              <Field label="Challan date">
+                <DateInput value={challan.challanDate ?? date} context={date} onChange={(d) => setCh({ challanDate: d })} testId="input-job-work-challan-date" />
+              </Field>
+              <Field label="Against challan">
+                <Select
+                  value={challan.originalChallanVoucherId ?? ''}
+                  onChange={(e) => setCh({ originalChallanVoucherId: e.target.value === '' ? null : Number(e.target.value) })}
+                  data-testid="input-job-work-original"
+                >
+                  <option value="">— optional —</option>
+                  {(sendChallans ?? []).map((c) => (
+                    <option key={c.voucherId} value={c.voucherId}>
+                      {c.number} · {toDisplayDate(c.date)}
+                    </option>
+                  ))}
+                </Select>
+              </Field>
+            </>
+          )}
+        </div>
+      )}
 
       <table className="ledger-table mt-4">
         <thead>
           <tr>
             <th>Item</th>
-            <th className="w-44">From godown</th>
-            <th className="w-44">To godown</th>
+            {(!challan || challan.kind === 'send') && <th className="w-44">From godown</th>}
+            {(!challan || challan.kind === 'return') && <th className="w-44">To godown</th>}
             <th className="r w-28">Qty</th>
             <th className="w-56">Batch</th>
             <th className="r w-32">Value</th>
@@ -224,7 +316,7 @@ export function TransferEntry({
         <tbody data-testid="rows-stock-transfer">
           {rows.map((r, i) => {
             const item = r.itemId != null ? items.find((it) => it.id === r.itemId) : undefined
-            const have = onHand(r.itemId, r.fromGodownId)
+            const have = onHand(r.itemId, challan?.kind === 'return' ? challan.godownId : r.fromGodownId)
             const qtyMilli = transferQtyMilli(r)
             const value = valueOf(i)
             return (
@@ -237,17 +329,38 @@ export function TransferEntry({
                       testId="picker-transfer-item"
                     />
                   </td>
-                  <td>
-                    <GodownPicker value={r.fromGodownId} onPick={(id) => setRow(i, { fromGodownId: id })} testId="picker-transfer-from" placeholder="From" />
-                    {have != null && (
-                      <span className={`mt-0.5 block text-hint ${qtyMilli > have ? 'text-cr' : 'text-muted'}`}>
-                        {formatMilli(have, unitOf(r.itemId).decimals)} {unitOf(r.itemId).symbol} there
-                      </span>
-                    )}
-                  </td>
-                  <td>
-                    <GodownPicker value={r.toGodownId} onPick={(id) => setRow(i, { toGodownId: id })} testId="picker-transfer-to" placeholder="To" />
-                  </td>
+                  {(!challan || challan.kind === 'send') && (
+                    <td>
+                      <GodownPicker
+                        value={r.fromGodownId}
+                        onPick={(id) => setRow(i, { fromGodownId: id })}
+                        testId="picker-transfer-from"
+                        placeholder="From"
+                        kind={challan ? 'own' : undefined}
+                      />
+                      {have != null && (
+                        <span className={`mt-0.5 block text-hint ${qtyMilli > have ? 'text-cr' : 'text-muted'}`}>
+                          {formatMilli(have, unitOf(r.itemId).decimals)} {unitOf(r.itemId).symbol} there
+                        </span>
+                      )}
+                    </td>
+                  )}
+                  {(!challan || challan.kind === 'return') && (
+                    <td>
+                      <GodownPicker
+                        value={r.toGodownId}
+                        onPick={(id) => setRow(i, { toGodownId: id })}
+                        testId="picker-transfer-to"
+                        placeholder="To"
+                        kind={challan ? 'own' : undefined}
+                      />
+                      {challan && have != null && (
+                        <span className={`mt-0.5 block text-hint ${qtyMilli > have ? 'text-cr' : 'text-muted'}`}>
+                          {formatMilli(have, unitOf(r.itemId).decimals)} {unitOf(r.itemId).symbol} at the job worker
+                        </span>
+                      )}
+                    </td>
+                  )}
                   <td className="r">
                     <input
                       className={`${inputCls} num text-right`}
@@ -266,7 +379,7 @@ export function TransferEntry({
                 </tr>
                 {item?.trackSerials && (
                   <tr data-testid="row-line-detail">
-                    <td colSpan={6} className="!pt-0">
+                    <td colSpan={isJobWork ? 5 : 6} className="!pt-0">
                       <div className="flex items-start gap-1.5 pl-1">
                         <span className="pt-1.5 text-caption text-muted">Serials</span>
                         <SerialsInput
@@ -285,7 +398,7 @@ export function TransferEntry({
             )
           })}
           <tr className="font-semibold">
-            <td colSpan={5} className="r text-small text-muted">Value moved</td>
+            <td colSpan={isJobWork ? 4 : 5} className="r text-small text-muted">{isJobWork ? (challan!.kind === 'send' ? 'Value sent' : 'Value returned') : 'Value moved'}</td>
             <td className="r" data-testid="transfer-total">
               <span className="num">{formatPaise(total)}</span>
             </td>
@@ -304,7 +417,7 @@ export function TransferEntry({
         <div className="flex gap-2">
           {isEdit && <Button onClick={() => nav.back()}>Cancel</Button>}
           <Button variant="primary" data-testid="btn-save-transfer" disabled={saving} onClick={() => void save()}>
-            {isEdit ? 'Save changes' : 'Save transfer'} ⌘↵
+            {isEdit ? 'Save changes' : challan ? (challan.kind === 'send' ? 'Save challan' : 'Save return') : 'Save transfer'} ⌘↵
           </Button>
         </div>
       </div>
@@ -329,6 +442,7 @@ export function StockJournalEntry({
   const [mode, setMode] = useState<string>(initialMode)
   const options = [
     { value: 'transfer', label: 'Godown transfer' },
+    { value: 'jobWork', label: 'Send to job worker' },
     { value: 'adjust', label: 'Adjustment (in / out)' },
     ...(extraModes ?? []).map((m) => ({ value: m.value, label: m.label }))
   ]
@@ -340,13 +454,17 @@ export function StockJournalEntry({
         <span className="text-hint text-muted">
           {mode === 'transfer'
             ? 'Move stock between godowns at cost.'
-            : mode === 'adjust'
-              ? 'Free-form lines in or out at a rate — write-offs, samples, corrections.'
-              : ''}
+            : mode === 'jobWork'
+              ? 'Material out to a job worker (or back unprocessed) on a challan — receive the finished goods in Manufacture.'
+              : mode === 'adjust'
+                ? 'Free-form lines in or out at a rate — write-offs, samples, corrections.'
+                : ''}
         </span>
       </div>
       {mode === 'transfer' ? (
         <TransferEntry key={`t${typeId}`} typeId={typeId} />
+      ) : mode === 'jobWork' ? (
+        <TransferEntry key={`j${typeId}`} typeId={typeId} jobWork={emptyJobWorkChallan('send')} />
       ) : mode === 'adjust' ? (
         <StockLinesEntry key={`a${typeId}`} typeId={typeId} />
       ) : (
@@ -356,8 +474,8 @@ export function StockJournalEntry({
   )
 }
 
-/** The sidebar screen. */
-export function StockJournalScreen(): React.JSX.Element {
+/** The sidebar screen. `mode` opens one kind directly (Manufacture register → "Send to job worker"). */
+export function StockJournalScreen({ mode }: { mode?: StockJournalMode } = {}): React.JSX.Element {
   const { data: types } = useQuery({ queryKey: ['voucherTypes'], queryFn: api.voucherTypes.list })
   const features = useFeatures()
   const type = types?.find((t) => t.kind === 'stock_journal')
@@ -382,7 +500,7 @@ export function StockJournalScreen(): React.JSX.Element {
       ) : !type ? (
         <Banner tone="warning">No Stock Journal voucher type — add one under Masters → Voucher types.</Banner>
       ) : (
-        <StockJournalEntry typeId={type.id} />
+        <StockJournalEntry typeId={type.id} initialMode={mode} />
       )}
     </Page>
   )
