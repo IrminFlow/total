@@ -6,7 +6,7 @@ import { useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import type { CostSheetLine, MarginRow, ProductionRegisterRow, VarianceReportRow } from '@shared/manufactureReports'
 import type { JobWorkPendingRow } from '@shared/jobWork'
-import { toDisplayDate } from '@shared/dates'
+import { toDisplayDate, todayISO } from '@shared/dates'
 import { formatPaise } from '@shared/money'
 import { api } from '../lib/client'
 import { useNav, useSession } from '../state/stores'
@@ -27,20 +27,26 @@ const TABS: { id: ManufactureReportTab; label: string }[] = [
   { id: 'job-work', label: 'At job workers' }
 ]
 
-const perItem = <R extends { decimals: number; unitSymbol: string }>() => ({ decimals: (r: R) => r.decimals, unit: (r: R) => r.unitSymbol })
+/** A quantity's decimals: the unit's, widened to 3 when the figure has a fraction the unit's
+ *  decimals would hide (manufacturing quantities are often fractional — 0.5 kg of paint). */
+const decimalsFor = (milli: number, unitDecimals: number): number => (milli % 1000 === 0 ? unitDecimals : Math.max(unitDecimals, milli % 10 === 0 ? (milli % 100 === 0 ? 1 : 2) : 3))
+const perItem = <R extends { decimals: number; unitSymbol: string }>(qty?: (r: R) => number) => ({
+  decimals: (r: R) => (qty ? decimalsFor(qty(r), r.decimals) : r.decimals),
+  unit: (r: R) => r.unitSymbol
+})
 const pct = (v: number | null): string => (v == null ? '–' : `${v.toFixed(2)} %`)
 
 const PRODUCTION_COLUMNS = defineColumns<ProductionRegisterRow>([
   { id: 'item', header: 'Item', kind: 'text', value: (r) => r.itemName, minWidth: 180, hideable: false, groupable: false, cell: (r) => <ItemLink itemId={r.finishedItemId} name={r.itemName} /> },
   { id: 'count', header: 'Runs', kind: 'number', value: (r) => r.manufactures, aggregate: 'sum', width: 80 },
-  { id: 'qty', header: 'Qty made', kind: 'quantity', value: (r) => r.qtyMilli, ...perItem<ProductionRegisterRow>(), width: 120 },
-  { id: 'materials', header: 'Materials', kind: 'money', value: (r) => r.materialPaise, aggregate: 'sum', width: 130 },
-  { id: 'labour', header: 'Labour', kind: 'money', value: (r) => r.labourPaise, aggregate: 'sum', width: 120 },
+  { id: 'qty', header: 'Qty made', kind: 'quantity', value: (r) => r.qtyMilli, ...perItem<ProductionRegisterRow>((r) => r.qtyMilli), width: 120 },
+  { id: 'materials', header: 'Materials', kind: 'money', value: (r) => r.materialPaise, aggregate: 'sum', width: 130, defaultHidden: true },
+  { id: 'labour', header: 'Labour', kind: 'money', value: (r) => r.labourPaise, aggregate: 'sum', width: 120, defaultHidden: true },
   { id: 'byProducts', header: 'By-products', kind: 'money', value: (r) => r.byProductPaise, aggregate: 'sum', width: 130 },
-  { id: 'cost', header: 'Production cost', kind: 'money', value: (r) => r.productionCost, aggregate: 'sum', width: 150 },
+  { id: 'cost', header: 'Production cost', kind: 'money', value: (r) => r.productionCost, aggregate: 'sum', width: 140 },
   { id: 'unit', header: 'Cost / unit', kind: 'money', value: (r) => r.unitCostPaise, width: 120 },
-  { id: 'sale', header: 'Sale value', kind: 'money', value: (r) => r.saleAmount, aggregate: 'sum', width: 140 },
-  { id: 'margin', header: 'Margin', kind: 'money', value: (r) => r.marginPaise, aggregate: 'sum', width: 140, cell: (r) => <Money paise={r.marginPaise} className={r.marginPaise < 0 ? 'text-danger' : ''} /> },
+  { id: 'sale', header: 'Sale value', kind: 'money', value: (r) => r.saleAmount, aggregate: 'sum', width: 130 },
+  { id: 'margin', header: 'Margin', kind: 'money', value: (r) => r.marginPaise, aggregate: 'sum', width: 130, cell: (r) => <Money paise={r.marginPaise} className={r.marginPaise < 0 ? 'text-danger' : ''} /> },
   { id: 'marginPct', header: 'Margin %', kind: 'number', value: (r) => r.marginPct, text: (r) => pct(r.marginPct), width: 110 }
 ])
 
@@ -48,7 +54,7 @@ const KIND_LABEL: Record<CostSheetLine['kind'], string> = { material: 'Material'
 const COST_SHEET_COLUMNS = defineColumns<CostSheetLine & { key: string }>([
   { id: 'kind', header: 'Line', kind: 'text', value: (r) => KIND_LABEL[r.kind], width: 110 },
   { id: 'name', header: 'Component', kind: 'text', value: (r) => r.name, minWidth: 180, cell: (r) => (r.itemId ? <ItemLink itemId={r.itemId} name={r.name} /> : <span>{r.name}</span>) },
-  { id: 'qty', header: 'Qty', kind: 'quantity', value: (r) => r.qtyMilli, decimals: (r) => r.decimals, unit: (r) => r.unitSymbol, width: 120, text: (r) => (r.itemId ? `${formatMilli(r.qtyMilli, r.decimals)} ${r.unitSymbol}` : '–') },
+  { id: 'qty', header: 'Qty', kind: 'quantity', value: (r) => r.qtyMilli, decimals: (r) => decimalsFor(r.qtyMilli, r.decimals), unit: (r) => r.unitSymbol, width: 120, text: (r) => (r.itemId ? `${formatMilli(r.qtyMilli, decimalsFor(r.qtyMilli, r.decimals))} ${r.unitSymbol}` : '–') },
   { id: 'rate', header: 'Rate', kind: 'money', value: (r) => r.ratePaise, width: 120, text: (r) => (r.itemId ? formatPaise(r.ratePaise) : '–') },
   { id: 'amount', header: 'Amount', kind: 'money', value: (r) => r.amountPaise, aggregate: 'sum', width: 140 },
   { id: 'perUnitQty', header: 'Qty / unit', kind: 'quantity', value: (r) => r.qtyPerUnitMilli, decimals: (r) => Math.max(r.decimals, 2), unit: (r) => r.unitSymbol, width: 120, text: (r) => (r.itemId ? `${formatMilli(r.qtyPerUnitMilli, 3)} ${r.unitSymbol}` : '–') },
@@ -56,35 +62,35 @@ const COST_SHEET_COLUMNS = defineColumns<CostSheetLine & { key: string }>([
 ])
 
 const MARGIN_COLUMNS = defineColumns<MarginRow>([
-  { id: 'item', header: 'Item', kind: 'text', value: (r) => r.itemName, minWidth: 170, hideable: false, groupable: false, cell: (r) => <ItemLink itemId={r.itemId} name={r.itemName} /> },
-  { id: 'made', header: 'Made', kind: 'quantity', value: (r) => r.madeQtyMilli, ...perItem<MarginRow>(), width: 110 },
-  { id: 'unitCost', header: 'Cost / unit', kind: 'money', value: (r) => r.unitCostPaise, width: 120 },
-  { id: 'expSale', header: 'Expected sale', kind: 'money', value: (r) => r.expectedSaleAmount, aggregate: 'sum', width: 140 },
-  { id: 'expMargin', header: 'Expected margin', kind: 'money', value: (r) => r.expectedMarginPaise, aggregate: 'sum', width: 150 },
-  { id: 'expPct', header: 'Expected %', kind: 'number', value: (r) => r.expectedMarginPct, text: (r) => pct(r.expectedMarginPct), width: 110 },
-  { id: 'sold', header: 'Sold', kind: 'quantity', value: (r) => r.soldQtyMilli, ...perItem<MarginRow>(), width: 110 },
-  { id: 'sales', header: 'Sales value', kind: 'money', value: (r) => r.salesValue, aggregate: 'sum', width: 140 },
-  { id: 'cogs', header: 'COGS (engine)', kind: 'money', value: (r) => r.cogs, aggregate: 'sum', width: 140 },
-  { id: 'realMargin', header: 'Realised margin', kind: 'money', value: (r) => r.realisedMarginPaise, aggregate: 'sum', width: 150 },
-  { id: 'realPct', header: 'Realised %', kind: 'number', value: (r) => r.realisedMarginPct, text: (r) => pct(r.realisedMarginPct), width: 110 },
+  { id: 'item', header: 'Item', kind: 'text', value: (r) => r.itemName, minWidth: 130, hideable: false, groupable: false, cell: (r) => <ItemLink itemId={r.itemId} name={r.itemName} /> },
+  { id: 'made', header: 'Made', kind: 'quantity', value: (r) => r.madeQtyMilli, ...perItem<MarginRow>((r) => r.madeQtyMilli), width: 96 },
+  { id: 'unitCost', header: 'Cost / unit', kind: 'money', value: (r) => r.unitCostPaise, width: 120, defaultHidden: true },
+  { id: 'expSale', header: 'Expected sale', kind: 'money', value: (r) => r.expectedSaleAmount, aggregate: 'sum', width: 122 },
+  { id: 'expMargin', header: 'Expected margin', kind: 'money', value: (r) => r.expectedMarginPaise, aggregate: 'sum', width: 146 },
+  { id: 'expPct', header: '% exp.', kind: 'number', value: (r) => r.expectedMarginPct, text: (r) => pct(r.expectedMarginPct), width: 92 },
+  { id: 'sold', header: 'Sold', kind: 'quantity', value: (r) => r.soldQtyMilli, ...perItem<MarginRow>((r) => r.soldQtyMilli), width: 96 },
+  { id: 'sales', header: 'Sales value', kind: 'money', value: (r) => r.salesValue, aggregate: 'sum', width: 112 },
+  { id: 'cogs', header: 'COGS (engine)', kind: 'money', value: (r) => r.cogs, aggregate: 'sum', width: 140, defaultHidden: true },
+  { id: 'realMargin', header: 'Realised margin', kind: 'money', value: (r) => r.realisedMarginPaise, aggregate: 'sum', width: 146 },
+  { id: 'realPct', header: '% real.', kind: 'number', value: (r) => r.realisedMarginPct, text: (r) => pct(r.realisedMarginPct), width: 92 },
   {
     id: 'gap',
     header: 'Gap (pts)',
     kind: 'number',
     value: (r) => r.marginGapPct,
-    width: 110,
+    width: 92,
     cell: (r) => (r.marginGapPct == null ? <span className="text-muted">–</span> : <span className={`num ${r.marginGapPct < 0 ? 'text-danger' : 'text-success'}`}>{r.marginGapPct > 0 ? '+' : ''}{r.marginGapPct.toFixed(2)}</span>)
   }
 ])
 
 const VARIANCE_COLUMNS = defineColumns<VarianceReportRow>([
-  { id: 'date', header: 'Date', kind: 'date', value: (r) => r.date, width: 110, className: 'text-muted' },
+  { id: 'date', header: 'Date', kind: 'date', value: (r) => r.date, width: 110, className: 'text-muted', defaultHidden: true },
   { id: 'voucher', header: 'No.', kind: 'text', value: (r) => r.number, width: 100, groupable: false, cell: (r) => <VoucherLink voucherId={r.voucherId} label={r.number} /> },
   { id: 'item', header: 'Made', kind: 'text', value: (r) => r.itemName, width: 160, cell: (r) => <ItemLink itemId={r.finishedItemId} name={r.itemName} /> },
-  { id: 'version', header: 'BOM', kind: 'text', value: (r) => r.bomVersionName ?? '', width: 90 },
+  { id: 'version', header: 'BOM', kind: 'text', value: (r) => r.bomVersionName ?? '', width: 90, defaultHidden: true },
   { id: 'component', header: 'Component', kind: 'text', value: (r) => r.componentName, minWidth: 160, cell: (r) => <ItemLink itemId={r.componentId} name={r.componentName} /> },
-  { id: 'std', header: 'Standard qty', kind: 'quantity', value: (r) => r.standardQtyMilli, ...perItem<VarianceReportRow>(), width: 130 },
-  { id: 'act', header: 'Actual qty', kind: 'quantity', value: (r) => r.actualQtyMilli, ...perItem<VarianceReportRow>(), width: 120 },
+  { id: 'std', header: 'Standard qty', kind: 'quantity', value: (r) => r.standardQtyMilli, ...perItem<VarianceReportRow>((r) => r.standardQtyMilli), width: 130 },
+  { id: 'act', header: 'Actual qty', kind: 'quantity', value: (r) => r.actualQtyMilli, ...perItem<VarianceReportRow>((r) => r.actualQtyMilli), width: 120 },
   {
     id: 'qtyVar',
     header: 'Qty variance',
@@ -92,9 +98,9 @@ const VARIANCE_COLUMNS = defineColumns<VarianceReportRow>([
     value: (r) => r.qtyVarianceMilli,
     ...perItem<VarianceReportRow>(),
     width: 130,
-    cell: (r) => <span className={`num ${r.qtyVarianceMilli > 0 ? 'text-danger' : r.qtyVarianceMilli < 0 ? 'text-success' : 'text-muted'}`}>{r.qtyVarianceMilli > 0 ? '+' : ''}{formatMilli(r.qtyVarianceMilli, r.decimals)} {r.unitSymbol}</span>
+    cell: (r) => <span className={`num ${r.qtyVarianceMilli > 0 ? 'text-danger' : r.qtyVarianceMilli < 0 ? 'text-success' : 'text-muted'}`}>{r.qtyVarianceMilli > 0 ? '+' : ''}{formatMilli(r.qtyVarianceMilli, decimalsFor(r.qtyVarianceMilli, r.decimals))} {r.unitSymbol}</span>
   },
-  { id: 'stdValue', header: 'Standard value', kind: 'money', value: (r) => r.standardValuePaise, aggregate: 'sum', width: 140 },
+  { id: 'stdValue', header: 'Standard value', kind: 'money', value: (r) => r.standardValuePaise, aggregate: 'sum', width: 140, defaultHidden: true },
   { id: 'actValue', header: 'Actual value', kind: 'money', value: (r) => r.actualValuePaise, aggregate: 'sum', width: 130 },
   {
     id: 'valueVar',
@@ -108,19 +114,19 @@ const VARIANCE_COLUMNS = defineColumns<VarianceReportRow>([
 ])
 
 const JOB_WORK_COLUMNS = defineColumns<JobWorkPendingRow>([
-  { id: 'worker', header: 'Job worker', kind: 'text', value: (r) => r.godownName, width: 200, groupable: true, cell: (r) => <span>{r.godownName}<span className="ml-1 text-hint text-muted">{r.partyName}</span></span> },
-  { id: 'item', header: 'Item', kind: 'text', value: (r) => r.itemName, minWidth: 160, cell: (r) => <ItemLink itemId={r.stockItemId} name={r.itemName} /> },
-  { id: 'qty', header: 'At job worker', kind: 'quantity', value: (r) => r.qtyMilli, ...perItem<JobWorkPendingRow>(), width: 140 },
+  { id: 'worker', header: 'Job worker', kind: 'text', value: (r) => r.godownName, width: 260, groupable: true, cell: (r) => <span>{r.godownName}<span className="ml-1 text-hint text-muted">{r.partyName}</span></span> },
+  { id: 'item', header: 'Item', kind: 'text', value: (r) => r.itemName, minWidth: 130, cell: (r) => <ItemLink itemId={r.stockItemId} name={r.itemName} /> },
+  { id: 'qty', header: 'At job worker', kind: 'quantity', value: (r) => r.qtyMilli, ...perItem<JobWorkPendingRow>((r) => r.qtyMilli), width: 130 },
   { id: 'value', header: 'Value', kind: 'money', value: (r) => r.valuePaise, aggregate: 'sum', width: 130 },
-  { id: 'oldest', header: 'Oldest sent', kind: 'date', value: (r) => r.oldestDate, width: 120 },
+  { id: 'oldest', header: 'Oldest sent', kind: 'date', value: (r) => r.oldestDate, width: 116 },
   { id: 'age', header: 'Age', kind: 'number', value: (r) => r.ageDays, width: 90, text: (r) => (r.ageDays == null ? '–' : `${r.ageDays} d`) },
   {
     id: 'pending',
-    header: 'Pending beyond limit',
+    header: 'Pending > limit',
     kind: 'quantity',
     value: (r) => r.pendingQtyMilli,
     ...perItem<JobWorkPendingRow>(),
-    width: 170,
+    width: 160,
     cell: (r) =>
       r.pendingQtyMilli > 0 ? (
         <Badge tone="warning" testId="job-work-pending-badge">{formatMilli(r.pendingQtyMilli, r.decimals)} {r.unitSymbol}</Badge>
@@ -128,7 +134,7 @@ const JOB_WORK_COLUMNS = defineColumns<JobWorkPendingRow>([
         <span className="text-muted">–</span>
       )
   },
-  { id: 'pendingValue', header: 'Pending value', kind: 'money', value: (r) => r.pendingValuePaise, aggregate: 'sum', width: 140 }
+  { id: 'pendingValue', header: 'Pending value', kind: 'money', value: (r) => r.pendingValuePaise, aggregate: 'sum', width: 130 }
 ])
 
 export function ManufactureReportsScreen({ tab = 'production' }: { tab?: ManufactureReportTab }): React.JSX.Element {
@@ -138,7 +144,7 @@ export function ManufactureReportsScreen({ tab = 'production' }: { tab?: Manufac
     <Page width="wide">
       <PageHeader
         title="Manufacturing reports"
-        period={tab === 'job-work' ? `as on ${toDisplayDate(to)}` : `${toDisplayDate(from)} → ${toDisplayDate(to)}`}
+        period={tab === 'job-work' ? `as on ${toDisplayDate(ageingDate(to))}` : `${toDisplayDate(from)} → ${toDisplayDate(to)}`}
         tabs={
           <div className="flex items-center gap-3">
             <TabBar screen="manufacture-reports" tabs={TABS} active={tab} onSelect={(t) => nav.replace({ name: 'manufacture-reports', tab: t })} />
@@ -156,6 +162,13 @@ export function ManufactureReportsScreen({ tab = 'production' }: { tab?: Manufac
       {tab === 'job-work' && <JobWorkTab />}
     </Page>
   )
+}
+
+/** Material at job workers is aged as on the period end — or today, when the period runs on
+ *  into the future (ages counted to a future date would overstate every lot). */
+const ageingDate = (to: string): string => {
+  const today = todayISO()
+  return to < today ? to : today
 }
 
 const periodOf = (from: string, to: string): string => `${toDisplayDate(from)} → ${toDisplayDate(to)}`
@@ -297,7 +310,8 @@ const PENDING_WINDOWS = [
 ] as const
 
 function JobWorkTab(): React.JSX.Element {
-  const { to } = useSession()
+  const { to: periodEnd } = useSession()
+  const to = ageingDate(periodEnd)
   const nav = useNav()
   const opts = useScreenOptions('manufacture-job-work', { days: '180' as '30' | '90' | '180' | '365' }, { days: ['30', '90', '180', '365'] })
   const days = Number(opts.options.days)
@@ -320,7 +334,7 @@ function JobWorkTab(): React.JSX.Element {
       </p>
       <DataTable
         viewId="manufacture-job-work"
-        testId="manufacture-job-work"
+        testId="manufacture-job-workers"
         ariaLabel="Material at job workers"
         columns={JOB_WORK_COLUMNS}
         rows={data ?? []}

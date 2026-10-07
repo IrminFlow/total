@@ -16,14 +16,14 @@ import { ItemLink } from '../components/links'
 const perItemQty = { decimals: (r: ManufactureRegisterRow) => r.decimals, unit: (r: ManufactureRegisterRow) => r.unitSymbol }
 
 export const MANUFACTURE_REGISTER_COLUMNS = defineColumns<ManufactureRegisterRow>([
-  { id: 'date', header: 'Date', kind: 'date', value: (r) => r.date, className: 'text-muted', hideable: false, width: 110 },
-  { id: 'number', header: 'No.', kind: 'text', value: (r) => r.number, className: 'num text-muted', width: 100, groupable: false },
+  { id: 'date', header: 'Date', kind: 'date', value: (r) => r.date, className: 'text-muted', hideable: false, width: 104 },
+  { id: 'number', header: 'No.', kind: 'text', value: (r) => r.number, className: 'num text-muted', width: 80, groupable: false },
   {
     id: 'item',
     header: 'Item',
     kind: 'text',
     value: (r) => r.itemName,
-    minWidth: 160,
+    minWidth: 140,
     cell: (r) => (
       <span className="inline-flex items-center gap-2">
         <ItemLink itemId={r.finishedItemId} name={r.itemName} />
@@ -31,17 +31,17 @@ export const MANUFACTURE_REGISTER_COLUMNS = defineColumns<ManufactureRegisterRow
       </span>
     )
   },
-  { id: 'qty', header: 'Qty', kind: 'quantity', value: (r) => r.qtyMilli, ...perItemQty, width: 110 },
+  { id: 'qty', header: 'Qty', kind: 'quantity', value: (r) => r.qtyMilli, ...perItemQty, width: 96 },
   { id: 'materials', header: 'Materials', kind: 'money', value: (r) => r.materialPaise, aggregate: 'sum', width: 130, defaultHidden: true },
   { id: 'labour', header: 'Labour / job charges', kind: 'money', value: (r) => r.labourPaise, aggregate: 'sum', width: 150, defaultHidden: true },
-  { id: 'byProducts', header: 'By-products', kind: 'money', value: (r) => r.byProductPaise, aggregate: 'sum', width: 130 },
+  { id: 'byProducts', header: 'By-products', kind: 'money', value: (r) => r.byProductPaise, aggregate: 'sum', width: 118 },
   {
     id: 'costAtSave',
     header: 'Cost at save',
     kind: 'money',
     value: (r) => r.costAtSave,
     aggregate: 'sum',
-    width: 140,
+    width: 126,
     cell: (r) => <Money paise={r.costAtSave} className={r.repriced ? 'text-muted line-through decoration-1' : 'text-muted'} />
   },
   {
@@ -50,7 +50,7 @@ export const MANUFACTURE_REGISTER_COLUMNS = defineColumns<ManufactureRegisterRow
     kind: 'money',
     value: (r) => r.productionCost,
     aggregate: 'sum',
-    width: 150,
+    width: 196,
     cell: (r) => (
       <span className="inline-flex items-center gap-1.5" data-testid="register-cost-now" data-repriced={r.repriced ? 'true' : 'false'}>
         {r.repriced && <Badge tone="warning" title={`Saved at ${r.costAtSave / 100}; re-priced by later entries`}>re-priced</Badge>}
@@ -58,14 +58,14 @@ export const MANUFACTURE_REGISTER_COLUMNS = defineColumns<ManufactureRegisterRow
       </span>
     )
   },
-  { id: 'saleAmount', header: 'Sale value', kind: 'money', value: (r) => r.saleAmount, aggregate: 'sum', width: 140 },
+  { id: 'saleAmount', header: 'Sale value', kind: 'money', value: (r) => r.saleAmount, aggregate: 'sum', width: 126 },
   {
     id: 'profit',
     header: 'Profit',
     kind: 'money',
     value: (r) => r.profitPaise,
     aggregate: 'sum',
-    width: 140,
+    width: 126,
     cell: (r) => <Money paise={r.profitPaise} className={r.profitPaise < 0 ? 'text-danger' : ''} />
   },
   { id: 'profitAtSave', header: 'Profit at save', kind: 'money', value: (r) => r.profitAtSave, aggregate: 'sum', width: 140, defaultHidden: true }

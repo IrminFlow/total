@@ -107,18 +107,16 @@ export function BomVersionsEditor({ itemId }: { itemId: number }): React.JSX.Ele
 
   return (
     <div data-testid="bom-editor">
-      <div className="mb-2 flex items-center justify-between gap-2">
-        <span className="text-caption font-semibold tracking-[0.08em] text-muted uppercase">Bill of materials — components per 1 unit</span>
-        <div className="flex items-center gap-2">
+      <span className="mb-1.5 block text-caption font-semibold tracking-[0.08em] text-muted uppercase">Bill of materials — components per 1 unit</span>
+      <div className="mb-2 grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] items-end gap-2">
+        <Field label="Version">
           <Select
             value={current.id ?? 'new'}
             onChange={(e) => {
               setDraft(null)
               setSelected(e.target.value === 'new' ? 'new' : Number(e.target.value))
             }}
-            aria-label="BOM version"
             data-testid="input-bom-version"
-            className="w-56"
           >
             {(versions ?? []).map((v) => (
               <option key={v.id} value={v.id}>
@@ -128,18 +126,21 @@ export function BomVersionsEditor({ itemId }: { itemId: number }): React.JSX.Ele
             ))}
             <option value="new">+ New version</option>
           </Select>
-        </div>
-      </div>
-      <div className="mb-2 grid grid-cols-[minmax(0,1fr)_minmax(0,9rem)_minmax(0,9rem)_auto] items-end gap-2">
-        <Field label="Version name">
+        </Field>
+        <Field label="Name">
           <TextInput value={current.name} onChange={(e) => edit({ name: e.target.value })} data-testid="input-bom-version-name" />
         </Field>
+        <div className="pb-1.5">
+          <Checkbox label="Default" checked={current.isDefault} onChange={(v) => edit({ isDefault: v })} testId="input-bom-default" />
+        </div>
+      </div>
+      <div className="mb-2 grid grid-cols-2 items-end gap-2">
         <Field label="Effective from">
           {current.effectiveFrom ? (
             <DateInput value={current.effectiveFrom} context={todayISO()} onChange={(d) => edit({ effectiveFrom: d })} testId="input-bom-effective-from" />
           ) : (
             <Button size="sm" variant="ghost" data-testid="btn-bom-set-from" onClick={() => edit({ effectiveFrom: todayISO() })}>
-              The beginning · set
+              The beginning · set a date
             </Button>
           )}
         </Field>
@@ -148,13 +149,10 @@ export function BomVersionsEditor({ itemId }: { itemId: number }): React.JSX.Ele
             <DateInput value={current.effectiveTo} context={todayISO()} onChange={(d) => edit({ effectiveTo: d })} testId="input-bom-effective-to" />
           ) : (
             <Button size="sm" variant="ghost" data-testid="btn-bom-set-to" onClick={() => edit({ effectiveTo: current.effectiveFrom ?? todayISO() })}>
-              Open-ended · set
+              Open-ended · set a date
             </Button>
           )}
         </Field>
-        <div className="pb-1">
-          <Checkbox label="Default" checked={current.isDefault} onChange={(v) => edit({ isDefault: v })} testId="input-bom-default" />
-        </div>
       </div>
       {(current.effectiveFrom || current.effectiveTo) && (
         <button type="button" className="mb-2 text-hint text-blue hover:underline" onClick={() => edit({ effectiveFrom: null, effectiveTo: null })}>

@@ -316,10 +316,12 @@ export function ManufactureForm({
 
   // Content-based dirtiness: for a new voucher the suggested number and the date alone aren't
   // "changes" (same as the sibling entry forms); an alteration compares everything.
-  const initialKey = useMemo(() => manufactureFormKey(base), [base])
+  // The job-work header (worker, their challan, nature) of a NEW voucher is a setting carried from
+  // one receipt to the next, not a change; an alteration compares it too.
+  const initialKey = useMemo(() => manufactureFormKey(isEdit ? base : { ...base, jobWork: null }), [base, isEdit])
   const numberTyped = !isEdit && numberField.touched
   const dirty =
-    numberTyped || manufactureFormKey(isEdit ? state : { ...state, number: '', date: base.date }) !== initialKey
+    numberTyped || manufactureFormKey(isEdit ? state : { ...state, number: '', date: base.date, jobWork: null }) !== initialKey
   useUnsavedGuard(!saved && dirty)
 
   const resetForm = (): void => {
