@@ -8,7 +8,7 @@ import { seededDb } from '../db/testdb'
 import { MIGRATIONS } from '../db/migrations'
 import { createLedger } from './masters'
 import { deleteVoucher, getVoucher, restoreVoucher, saveVoucher, setLockDate } from './vouchers'
-import { closingBalances, trialBalance } from './reports'
+import { cashFlow, closingBalances, trialBalance } from './reports'
 import { closePreview } from './yearEnd'
 import * as fa from './fixedAssets'
 import type { FixedAssetInput } from '@shared/fixedAssets'
@@ -274,6 +274,23 @@ describe('asset schedule', () => {
     const comp = fy26.groups.find((g) => g.groupName === 'Computers')!
     expect(comp).toMatchObject({ grossOpening: R(60000), grossDisposals: R(60000), grossClosing: 0, accClosing: 0 })
     expect(comp.accDisposals).toBe(comp.accOpening + comp.accCharge)
+  })
+})
+
+describe('cash flow', () => {
+  it('reports a depreciation run as a non-cash operating add-back, not an investing inflow', () => {
+    const furniture = ledger(db, 'Furniture', 'Fixed Assets')
+    post(db, 'journal', '2025-04-01', [{ ledgerId: furniture, drCr: 'dr', amount: R(100000) }, { ledgerId: bank, drCr: 'cr', amount: R(100000) }])
+    fa.saveAsset(db, laptopInput({
+      name: 'Desk', assetGroupId: faGroup(db, 'Furniture and fittings'), ledgerId: furniture, purchaseVoucherId: null,
+      costPaise: R(100000), lifeMonths: 120, identifier: null
+    }))
+    fa.postRun(db, '2025-04-01', '2026-03-31') // ₹9,500
+    const cf = cashFlow(db, '2025-04-01', '2026-03-31')
+    // The desk (cash) and the beforeEach laptop (on credit) — and no +9,500 inflow from the run.
+    expect(cf.investing).toEqual([{ name: 'Fixed Assets', amount: -R(160000) }])
+    expect(cf.operating).toContainEqual({ name: 'Depreciation (non-cash)', amount: R(9500) })
+    expect(cf.netChange).toBe(cf.closingCash - cf.openingCash)
   })
 })
 
