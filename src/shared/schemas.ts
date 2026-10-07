@@ -419,7 +419,18 @@ export const employeeInputSchema = z.object({
   esiEnabled: z.boolean().default(true),
   ptEnabled: z.boolean().default(true),
   ptState: z.enum(PT_STATES).default('MH'),
-  active: z.boolean().default(true)
+  active: z.boolean().default(true),
+  // WP 3.7 statutory profile
+  pfNumber: z.string().trim().max(30).nullable().default(null),
+  gender: z.enum(['male', 'female', 'other']).nullable().default(null),
+  dob: isoDate.nullable().default(null),
+  taxRegime: z.enum(['new', 'old']).default('new'),
+  vpfRateBp: z.number().int().min(0).max(8800).default(0),
+  pfOnFullWage: z.boolean().default(false),
+  epsEligible: z.boolean().default(true),
+  disabled: z.boolean().default(false),
+  metro: z.boolean().default(false),
+  tdsEnabled: z.boolean().default(true)
 })
 export type EmployeeInput = z.infer<typeof employeeInputSchema>
 /** What the renderer actually sends (defaulted fields optional) — keeps older forms compiling. */
@@ -875,7 +886,9 @@ export const payHeadInputSchema = z
     kind: z.enum(['earning', 'deduction']),
     calc: z.enum(['flat', 'percent_of_basic']),
     value: z.number().int().min(0),
-    active: z.boolean().default(true)
+    active: z.boolean().default(true),
+    /** WP 3.7: "wages" under CoSS s.2(88) (false = an excluded item such as HRA or conveyance). */
+    inWages: z.boolean().default(true)
   })
   .refine((v) => v.calc !== 'percent_of_basic' || v.value <= 10000, {
     message: 'Percent-of-basic value is percent × 100 (max 10000 = 100%)',
@@ -895,6 +908,80 @@ export type EmployeeHeadsSetInput = z.infer<typeof employeeHeadsSetSchema>
 
 /** payroll:ecr / payroll:esi / payroll:ptSummary input. */
 export const payrollRunIdSchema = z.object({ runId: id })
+
+// ---------- payroll statutory (WP 3.7) ----------
+
+export const STATUTORY_RATE_KINDS = ['epf', 'eps', 'edli', 'epf_admin', 'esi_emp', 'esi_er', 'pt', 'ss_wages'] as const
+export type StatutoryRateKind = (typeof STATUTORY_RATE_KINDS)[number]
+
+/** payroll:rates:save — one effective-dated statutory rate / PT slab row. */
+export const statutoryRateInputSchema = z
+  .object({
+    kind: z.enum(STATUTORY_RATE_KINDS),
+    state: z.string().trim().toUpperCase().length(2).nullable().default(null),
+    effectiveFrom: isoDate,
+    effectiveTo: isoDate.nullable().default(null),
+    rateBp: z.number().int().min(0).max(10000).nullable().default(null),
+    ceilingPaise: z.number().int().min(0).nullable().default(null),
+    thresholdPaise: z.number().int().min(0).nullable().default(null),
+    minPaise: z.number().int().min(0).nullable().default(null),
+    slabFromPaise: z.number().int().min(0).nullable().default(null),
+    slabToPaise: z.number().int().min(0).nullable().default(null),
+    amountPaise: z.number().int().min(0).nullable().default(null),
+    basis: z.enum(['month', 'half_year', 'year']).default('month'),
+    gender: z.enum(['any', 'male', 'female']).default('any'),
+    variant: z.enum(['standard', 'disabled']).default('standard'),
+    specialMonth: z.number().int().min(1).max(12).nullable().default(null),
+    specialAmountPaise: z.number().int().min(0).nullable().default(null),
+    source: z.string().trim().min(1).max(600),
+    verified: z.boolean().default(false)
+  })
+  .refine((v) => v.effectiveTo == null || v.effectiveTo >= v.effectiveFrom, { message: 'Effective to is before effective from', path: ['effectiveTo'] })
+  .refine((v) => v.kind !== 'pt' || (v.state != null && v.amountPaise != null && v.slabFromPaise != null), {
+    message: 'A professional-tax row needs a state, a slab start and an amount', path: ['kind']
+  })
+  .refine((v) => v.kind === 'pt' || v.rateBp != null, { message: 'A rate row needs a rate', path: ['rateBp'] })
+export type StatutoryRateInput = z.infer<typeof statutoryRateInputSchema>
+
+export const DECLARATION_SECTION_IDS = [
+  '80C', '80CCD1B', '80D', '80D_PARENTS', '24B', 'RENT', 'OTHER_INCOME', 'PREV_SALARY', 'PREV_TDS', 'PREV_PT'
+] as const
+
+/** payroll:declarations:set — replaces an employee's declarations for one financial year. */
+export const taxDeclarationsSetSchema = z.object({
+  employeeId: id,
+  fyStartYear: z.number().int().min(2000).max(2100),
+  rows: z
+    .array(z.object({
+      section: z.enum(DECLARATION_SECTION_IDS),
+      amountPaise: z.number().int().min(0).max(1_000_000_000_00),
+      proofReceived: z.boolean().default(false)
+    }))
+    .max(DECLARATION_SECTION_IDS.length)
+})
+export type TaxDeclarationsSetInput = z.infer<typeof taxDeclarationsSetSchema>
+
+export const STATUTORY_PAYMENT_KINDS = ['pf', 'esi', 'pt', 'tds'] as const
+export type StatutoryPaymentKind = (typeof STATUTORY_PAYMENT_KINDS)[number]
+
+/** payroll:payments:record — pay a month's dues: books a Payment voucher (Dr the tagged payable /
+ *  Cr bank or cash) and records it against the period. */
+export const statutoryPaymentInputSchema = z.object({
+  kind: z.enum(STATUTORY_PAYMENT_KINDS),
+  period: z.string().regex(/^\d{4}-\d{2}$/),
+  state: z.string().trim().toUpperCase().length(2).nullable().default(null),
+  amountPaise: z.number().int().positive(),
+  paidOn: isoDate,
+  bankLedgerId: id,
+  reference: z.string().trim().max(60).nullable().default(null),
+  /** TDS only: register the challan on the TDS screen too (BSR code + challan serial). */
+  bsrCode: z.string().trim().regex(/^\d{7}$/, 'BSR code is 7 digits').nullable().default(null),
+  challanNo: z.string().trim().min(1).max(10).nullable().default(null)
+})
+export type StatutoryPaymentInput = z.infer<typeof statutoryPaymentInputSchema>
+
+export const payrollFySchema = z.object({ fyStartYear: z.number().int().min(2000).max(2100) })
+export const form16InputSchema = z.object({ fyStartYear: z.number().int().min(2000).max(2100), employeeId: id.optional() })
 
 // ---------- agent bridge (lane A) ----------
 

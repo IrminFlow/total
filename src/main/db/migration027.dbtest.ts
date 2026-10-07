@@ -26,7 +26,7 @@ describe('migration 027 — TCS', () => {
     db.prepare("INSERT INTO tds_challans (date, bsr_code, challan_no, amount_paise, quarter, fy_start_year) VALUES ('2025-06-07', '0510002', '1', 100, 1, 2025)").run()
     const tdsCount = (db.prepare('SELECT COUNT(*) AS n FROM tds_sections').get() as { n: number }).n
 
-    migrate(db)
+    migrate(db, MIGRATIONS.slice(0, M027 + 1)) // through 027 only — 029 seeds section 192 (WP 3.7)
 
     expect(db.prepare('SELECT voucher_id, kind, reason FROM tds_exemptions').all()).toEqual([{ voucher_id: v, kind: 'tds', reason: 'Goods, not a contract' }])
     // The same voucher can now carry a TCS mark too, independently.

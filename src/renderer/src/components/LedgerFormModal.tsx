@@ -314,7 +314,7 @@ function LedgerForm({
               <Field label="TDS section" hint="Flags this party for TDS deduction">
                 <Select value={tdsSectionId} onChange={(e) => setTdsSectionId(e.target.value ? Number(e.target.value) : '')}>
                   <option value="">None</option>
-                  {(tdsSections ?? []).map((s) => (
+                  {(tdsSections ?? []).filter((s) => s.code !== '192').map((s) => ( // salary TDS is payroll's (WP 3.7)
                     <option key={s.id} value={s.id}>
                       {s.code} — {s.description}
                     </option>
@@ -407,7 +407,7 @@ function LedgerForm({
                 onChange={(e) => setTdsDefaultSectionId(e.target.value ? Number(e.target.value) : '')}
               >
                 <option value="">None</option>
-                {(tdsSections ?? []).map((s) => (
+                {(tdsSections ?? []).filter((s) => s.code !== '192').map((s) => (
                   <option key={s.id} value={s.id}>
                     {s.code} — {s.description}
                   </option>

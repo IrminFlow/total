@@ -78,7 +78,7 @@ function books() {
 describe('migration 028', () => {
   it('creates gst_ims_actions and gst_self_invoices (self-contained, appended last)', () => {
     const at = MIGRATIONS.findIndex((sql) => sql.includes('CREATE TABLE gst_ims_actions'))
-    expect(at).toBe(MIGRATIONS.length - 1)
+    expect(at).toBeLessThan(MIGRATIONS.length) // 029 (WP 3.7) is appended after it; 028 stays the 28th
     expect(at + 1).toBe(28) // appended after 026 (WP 3.6) and 027 (WP 3.3)
     expect(MIGRATIONS[at]).toContain('CREATE TABLE gst_self_invoices')
     const db = seededDb()

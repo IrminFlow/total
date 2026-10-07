@@ -225,15 +225,16 @@ describe('Cost centres on DataTable', () => {
 
 const emp = (id: number, name: string, basic: number, active = true): Employee => ({
   id, name, code: null, designation: 'Staff', joined: null, pan: null, uan: null, esicNo: null,
-  basic, hra: 0, special: 1_000_00, pfEnabled: true, esiEnabled: true, ptEnabled: true, ptState: 'MH', active
+  basic, hra: 0, special: 1_000_00, pfEnabled: true, esiEnabled: true, ptEnabled: true, ptState: 'MH', active,
+  pfNumber: null, gender: null, dob: null, taxRegime: 'new', vpfRateBp: 0, pfOnFullWage: false, epsEligible: true, disabled: false, metro: false, tdsEnabled: true
 })
 
 describe('Payroll on DataTable', () => {
   beforeEach(() => {
     handlers['payroll:employees:list'] = () => [emp(1, 'Asha', 20_000_00), emp(2, 'Ravi', 15_000_00, false), emp(3, 'Zoya', 10_000_00)]
     handlers['payroll:runs'] = (): PayrollRun[] => [
-      { id: 9, month: '2026-08', voucherId: 900, createdAt: '2026-08-31', lines: [] },
-      { id: 8, month: '2026-07', voucherId: 800, createdAt: '2026-07-31', lines: [] }
+      { id: 9, month: '2026-08', voucherId: 900, createdAt: '2026-08-31', pfAdminTopUp: 0, lines: [] },
+      { id: 8, month: '2026-07', voucherId: 800, createdAt: '2026-07-31', pfAdminTopUp: 0, lines: [] }
     ]
     handlers['payroll:preview'] = () => []
   })

@@ -1,11 +1,11 @@
 import { useMemo, useRef, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import type { Employee, PayrollRun } from '@shared/domain'
-import { daysInMonth } from '@shared/payroll'
-import { todayISO } from '@shared/dates'
+import type { Employee, PayrollLine, PayrollRun } from '@shared/domain'
+import { daysInMonth, PT_STATES } from '@shared/payroll'
+import { fyOf, todayISO } from '@shared/dates'
 import { api, type EmployeeHeadRow, type PayHead, type PtSummaryRow } from '../lib/client'
 import { formatPaise, parseRupees } from '@shared/money'
-import { useNav, useToasts } from '../state/stores'
+import { useNav, useSession, useToasts } from '../state/stores'
 import {
   AmountInput, Button, DrawerSection, EmptyState, Field, Modal, Money, Page, PageHeader, Panel, ScrollList, Select, SkeletonRows, Spinner, TextInput, inputCls
 } from '../components/ui'
@@ -13,8 +13,16 @@ import { OptionToggle, OptionsTable, useScreenOptions } from '../components/Scre
 import { confirmDialog } from '../lib/dialogs'
 import { TabBar } from '../components/TabBar'
 import { DataTable, defineColumns, Popover } from '../components/table'
+import { statApi } from '../lib/payrollStatutoryClient'
+import { DeclarationsModal, TdsWorkingsModal } from './payroll/EmployeeTax'
+import { StatutoryTab, useFyChoices } from './payroll/StatutoryTab'
+import { RatesTab } from './payroll/RatesTab'
 
-type Tab = 'employees' | 'runs'
+type Tab = 'employees' | 'runs' | 'statutory' | 'rates'
+
+const PT_STATE_NAMES: Record<string, string> = {
+  MH: 'Maharashtra', KA: 'Karnataka', WB: 'West Bengal', TN: 'Tamil Nadu (Chennai)', GJ: 'Gujarat', AP: 'Andhra Pradesh', TS: 'Telangana', MP: 'Madhya Pradesh'
+}
 
 const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
 
@@ -58,7 +66,15 @@ export const EMPLOYEE_COLUMNS = defineColumns<Employee>([
   { id: 'hra', header: 'HRA', kind: 'money', value: (e) => e.hra, aggregate: activeSum((e) => e.hra), width: 124 },
   { id: 'special', header: 'Special', kind: 'money', value: (e) => e.special, aggregate: activeSum((e) => e.special), width: 124 },
   { id: 'gross', header: 'Gross / mo', kind: 'money', value: grossOf, aggregate: activeSum(grossOf), width: 140, className: 'font-medium' },
-  { id: 'status', header: 'Status', kind: 'enum', value: (e) => (e.active ? 'active' : 'inactive'), options: STATUS_OPTIONS, defaultHidden: true, width: 112 }
+  { id: 'status', header: 'Status', kind: 'enum', value: (e) => (e.active ? 'active' : 'inactive'), options: STATUS_OPTIONS, defaultHidden: true, width: 112 },
+  { id: 'ptState', header: 'PT state', kind: 'text', value: (e) => (e.ptEnabled ? e.ptState : ''), width: 84, className: 'num text-muted', defaultHidden: true },
+  {
+    id: 'regime', header: 'Regime', kind: 'enum', value: (e) => (e.tdsEnabled ? e.taxRegime : 'off'), width: 80,
+    options: [{ value: 'new', label: 'New' }, { value: 'old', label: 'Old' }, { value: 'off', label: 'No TDS' }]
+  },
+  { id: 'uan', header: 'UAN', kind: 'text', value: (e) => e.uan, defaultHidden: true, width: 120, className: 'num text-muted' },
+  { id: 'esic', header: 'ESI IP no.', kind: 'text', value: (e) => e.esicNo, defaultHidden: true, width: 120, className: 'num text-muted' },
+  { id: 'pan', header: 'PAN', kind: 'text', value: (e) => e.pan, defaultHidden: true, width: 110, className: 'num text-muted' }
 ])
 
 const runNet = (run: PayrollRun): number => run.lines.reduce((s, l) => s + l.net, 0)
@@ -74,7 +90,7 @@ export const RUN_COLUMNS = defineColumns<PayrollRun>([
 ])
 
 const STATUTORY_NOTE =
-  'Statutory defaults: EPF 12% + 12% on basic (₹15,000 ceiling) · ESI 0.75% / 3.25% when gross ≤ ₹21,000 · simplified professional-tax slab. Posting books one Journal voucher: salaries and employer contributions against PF/ESI/PT/Salaries payable.'
+  'EPF 12% + 12% (EPS 8.33%) on wages up to the ceiling (₹15,000; ₹25,000 from 17 Sep 2026), EDLI and admin 0.5% · ESI 0.75% / 3.25% while wages ≤ ₹21,000 (covered to the end of the contribution period) · professional tax by state slab · salary TDS projected for the year under the employee’s regime and declarations. From 21 Nov 2025 EPF and ESI are on Code on Social Security wages (allowances other than HRA-type exclusions count; exclusions over half are added back). Rates and citations: the Statutory rates tab. Posting books one Journal voucher: salaries and employer contributions against tagged PF / ESI / PT / TDS 192 / Salaries payable ledgers.'
 
 /** The Options drawer's note on how payroll is computed (moved off the page). */
 function StatutorySection(): React.JSX.Element {
@@ -92,13 +108,49 @@ export function PayrollScreen(): React.JSX.Element {
       screen="payroll"
       tabs={[
         { id: 'employees', label: 'Employees' },
-        { id: 'runs', label: 'Pay runs' }
+        { id: 'runs', label: 'Pay runs' },
+        { id: 'statutory', label: 'Statutory' },
+        { id: 'rates', label: 'Statutory rates' }
       ]}
       active={tab}
       onSelect={setTab}
     />
   )
-  return <Page>{tab === 'employees' ? <EmployeesTab tabs={tabs} /> : <RunsTab tabs={tabs} />}</Page>
+  return (
+    <Page width="wide">
+      {tab === 'employees' ? <EmployeesTab tabs={tabs} /> : tab === 'runs' ? <RunsTab tabs={tabs} /> : tab === 'statutory' ? <StatutoryScreenTab tabs={tabs} /> : <RatesScreenTab tabs={tabs} />}
+    </Page>
+  )
+}
+
+function StatutoryScreenTab({ tabs }: { tabs: React.ReactNode }): React.JSX.Element {
+  const { info } = useSession()
+  const years = useFyChoices(info?.booksFrom)
+  const [fy, setFy] = useState(fyOf(todayISO()).startYear)
+  return (
+    <>
+      <PageHeader
+        title="Payroll"
+        tabs={tabs}
+        controls={
+          <Select aria-label="Financial year" value={fy} onChange={(e) => setFy(Number(e.target.value))} className="w-32" data-testid="payroll-statutory-fy">
+            {years.map((y) => <option key={y} value={y}>FY {y}-{String((y + 1) % 100).padStart(2, '0')}</option>)}
+          </Select>
+        }
+        options={{ content: <><OptionsTable area="payroll-dues" label="Dues table" /><StatutorySection /></> }}
+      />
+      <StatutoryTab fyStartYear={fy} />
+    </>
+  )
+}
+
+function RatesScreenTab({ tabs }: { tabs: React.ReactNode }): React.JSX.Element {
+  return (
+    <>
+      <PageHeader title="Payroll" tabs={tabs} options={{ content: <><OptionsTable area="payroll-rates" label="Rates table" /><StatutorySection /></> }} />
+      <RatesTab />
+    </>
+  )
 }
 
 // ---------- employees ----------
@@ -110,6 +162,7 @@ function EmployeesTab({ tabs }: { tabs: React.ReactNode }): React.JSX.Element {
   const [editing, setEditing] = useState<Employee | 'new' | null>(null)
   const [headsOpen, setHeadsOpen] = useState(false)
   const [overridesFor, setOverridesFor] = useState<Employee | null>(null)
+  const [taxFor, setTaxFor] = useState<Employee | null>(null)
   const opts = useScreenOptions('payroll', { hideInactive: false })
 
   const remove = async (e: Employee): Promise<void> => {
@@ -171,9 +224,18 @@ function EmployeesTab({ tabs }: { tabs: React.ReactNode }): React.JSX.Element {
           empty={{ title: 'No employees yet', hint: 'Add employees with their monthly salary structure, then post a pay run' }}
           maxHeight="58vh"
           totalsLabel="Total (active)"
-          trailingWidth={176}
+          trailingWidth={216}
           trailing={(e) => (
             <>
+              <button
+                type="button"
+                className="mr-3 text-small text-muted hover:text-ink"
+                data-testid="btn-payroll-declarations"
+                aria-label={`Tax declarations for ${e.name}`}
+                onClick={() => setTaxFor(e)}
+              >
+                Tax
+              </button>
               <button
                 type="button"
                 className="mr-3 text-small text-muted hover:text-ink"
@@ -209,6 +271,7 @@ function EmployeesTab({ tabs }: { tabs: React.ReactNode }): React.JSX.Element {
       {editing && <EmployeeModal employee={editing === 'new' ? null : editing} onClose={() => setEditing(null)} />}
       {headsOpen && <PayHeadsModal onClose={() => setHeadsOpen(false)} />}
       {overridesFor && <EmployeeHeadsModal employee={overridesFor} onClose={() => setOverridesFor(null)} />}
+      {taxFor && <DeclarationsModal employee={taxFor} onClose={() => setTaxFor(null)} />}
     </>
   )
 }
@@ -228,6 +291,21 @@ function EmployeeModal({ employee, onClose }: { employee: Employee | null; onClo
   const [esiEnabled, setEsi] = useState(employee?.esiEnabled ?? true)
   const [ptEnabled, setPt] = useState(employee?.ptEnabled ?? true)
   const [active, setActive] = useState(employee?.active ?? true)
+  // WP 3.7 statutory profile
+  const [esicNo, setEsicNo] = useState(employee?.esicNo ?? '')
+  const [pfNumber, setPfNumber] = useState(employee?.pfNumber ?? '')
+  const [ptState, setPtState] = useState(employee?.ptState ?? 'MH')
+  const [gender, setGender] = useState<Employee['gender']>(employee?.gender ?? null)
+  const [dob, setDob] = useState(employee?.dob ?? '')
+  const [taxRegime, setTaxRegime] = useState<Employee['taxRegime']>(employee?.taxRegime ?? 'new')
+  const [vpfText, setVpfText] = useState(employee?.vpfRateBp ? String(employee.vpfRateBp / 100) : '')
+  const [pfOnFullWage, setPfOnFullWage] = useState(employee?.pfOnFullWage ?? false)
+  const [epsEligible, setEpsEligible] = useState(employee?.epsEligible ?? true)
+  const [disabled, setDisabled] = useState(employee?.disabled ?? false)
+  const [metro, setMetro] = useState(employee?.metro ?? false)
+  const [tdsEnabled, setTdsEnabled] = useState(employee?.tdsEnabled ?? true)
+  const vpfBp = vpfText.trim() === '' ? 0 : Math.round(Number(vpfText) * 100)
+  const vpfInvalid = !Number.isFinite(vpfBp) || vpfBp < 0 || vpfBp > 8800
 
   const save = async (): Promise<void> => {
     try {
@@ -239,14 +317,25 @@ function EmployeeModal({ employee, onClose }: { employee: Employee | null; onClo
           joined: employee?.joined ?? null,
           pan: pan.trim() || null,
           uan: uan.trim() || null,
-          esicNo: employee?.esicNo ?? null,
+          esicNo: esicNo.trim() || null,
           basic: basic ?? 0,
           hra: hra ?? 0,
           special: special ?? 0,
           pfEnabled,
           esiEnabled,
           ptEnabled,
-          active
+          ptState: ptState as (typeof PT_STATES)[number],
+          active,
+          pfNumber: pfNumber.trim() || null,
+          gender,
+          dob: /^\d{4}-\d{2}-\d{2}$/.test(dob) ? dob : null,
+          taxRegime,
+          vpfRateBp: vpfInvalid ? 0 : vpfBp,
+          pfOnFullWage,
+          epsEligible,
+          disabled,
+          metro,
+          tdsEnabled
         },
         employee?.id
       )
@@ -270,7 +359,7 @@ function EmployeeModal({ employee, onClose }: { employee: Employee | null; onClo
   )
 
   return (
-    <Modal title={employee ? `Edit ${employee.name}` : 'Add employee'} onClose={onClose}>
+    <Modal title={employee ? `Edit ${employee.name}` : 'Add employee'} onClose={onClose} wide>
       <div className="flex flex-col gap-3">
         <div className="grid grid-cols-2 gap-3">
           <Field label="Name">
@@ -306,7 +395,44 @@ function EmployeeModal({ employee, onClose }: { employee: Employee | null; onClo
           {check('EPF', pfEnabled, setPf)}
           {check('ESI', esiEnabled, setEsi)}
           {check('Professional tax', ptEnabled, setPt)}
+          {check('Salary TDS', tdsEnabled, setTdsEnabled)}
           {check('Active', active, setActive)}
+        </div>
+        <p className="border-t border-line pt-3 text-caption font-semibold tracking-[0.08em] text-muted uppercase">Statutory profile</p>
+        <div className="grid grid-cols-4 gap-3">
+          <Field label="PF member id">
+            <TextInput value={pfNumber} onChange={(e) => setPfNumber(e.target.value)} className="num" placeholder="MHBAN0012345000000123" data-testid="input-employee-pf-number" />
+          </Field>
+          <Field label="ESI IP number">
+            <TextInput value={esicNo} onChange={(e) => setEsicNo(e.target.value)} className="num" data-testid="input-employee-esic" />
+          </Field>
+          <Field label="PT state">
+            <Select value={ptState} onChange={(e) => setPtState(e.target.value)} data-testid="input-employee-pt-state">
+              {PT_STATES.map((s) => <option key={s} value={s}>{s} — {PT_STATE_NAMES[s]}</option>)}
+            </Select>
+          </Field>
+          <Field label="Gender" hint="MH PT: women’s slab">
+            <Select value={gender ?? ''} onChange={(e) => setGender((e.target.value || null) as Employee['gender'])} data-testid="input-employee-gender">
+              <option value="">Not given</option><option value="female">Female</option><option value="male">Male</option><option value="other">Other</option>
+            </Select>
+          </Field>
+          <Field label="Date of birth" hint="Senior slabs; EPS to 58">
+            <TextInput value={dob} onChange={(e) => setDob(e.target.value)} placeholder="YYYY-MM-DD" className="num" data-testid="input-employee-dob" />
+          </Field>
+          <Field label="Tax regime">
+            <Select value={taxRegime} onChange={(e) => setTaxRegime(e.target.value as Employee['taxRegime'])} data-testid="input-employee-regime">
+              <option value="new">New (default)</option><option value="old">Old (opted out)</option>
+            </Select>
+          </Field>
+          <Field label="VPF % of PF wages" error={vpfInvalid ? '0 – 88' : null}>
+            <TextInput value={vpfText} onChange={(e) => setVpfText(e.target.value)} className="num text-right" placeholder="0" data-testid="input-employee-vpf" />
+          </Field>
+        </div>
+        <div className="flex flex-wrap gap-x-5 gap-y-2">
+          {check('EPS member', epsEligible, setEpsEligible)}
+          {check('PF on full wages (joint option)', pfOnFullWage, setPfOnFullWage)}
+          {check('Person with disability (ESI ₹25,000)', disabled, setDisabled)}
+          {check('Rents in a metro (HRA 50%)', metro, setMetro)}
         </div>
         <div className="flex justify-end gap-2">
           <Button onClick={onClose}>Cancel</Button>
@@ -356,6 +482,18 @@ const PAY_HEAD_COLUMNS = defineColumns<PayHead>([
     ],
     className: 'text-muted',
     width: 84
+  },
+  {
+    id: 'inWages',
+    header: 'Wages (s.2(88))',
+    kind: 'enum',
+    value: (h) => (h.kind === 'deduction' ? '' : h.inWages ? 'yes' : 'no'),
+    options: [
+      { value: 'yes', label: 'Wages' },
+      { value: 'no', label: 'Excluded' }
+    ],
+    className: 'text-muted',
+    width: 120
   }
 ])
 
@@ -374,6 +512,7 @@ function PayHeadsModal({ onClose }: { onClose: () => void }): React.JSX.Element 
   const [flatPaise, setFlatPaise] = useState<number | null>(null)
   const [percentText, setPercentText] = useState('')
   const [active, setActive] = useState(true)
+  const [inWages, setInWages] = useState(true)
   const [saving, setSaving] = useState(false)
 
   const invalidate = (): Promise<void> =>
@@ -391,6 +530,7 @@ function PayHeadsModal({ onClose }: { onClose: () => void }): React.JSX.Element 
     setFlatPaise(null)
     setPercentText('')
     setActive(true)
+    setInWages(true)
   }
 
   const edit = (h: PayHead): void => {
@@ -401,6 +541,7 @@ function PayHeadsModal({ onClose }: { onClose: () => void }): React.JSX.Element 
     setFlatPaise(h.calc === 'flat' ? h.value : null)
     setPercentText(h.calc === 'percent_of_basic' ? String(h.value / 100) : '')
     setActive(h.active)
+    setInWages(h.inWages)
   }
 
   const percentInvalid =
@@ -418,7 +559,7 @@ function PayHeadsModal({ onClose }: { onClose: () => void }): React.JSX.Element 
     }
     setSaving(true)
     try {
-      await api.payroll.heads.save({ name: name.trim(), kind, calc, value, active }, editingId ?? undefined)
+      await api.payroll.heads.save({ name: name.trim(), kind, calc, value, active, inWages }, editingId ?? undefined)
       await invalidate()
       toast.push('success', editingId ? 'Pay head updated' : 'Pay head created')
       resetForm()
@@ -512,10 +653,18 @@ function PayHeadsModal({ onClose }: { onClose: () => void }): React.JSX.Element 
             )}
           </div>
           <div className="mt-3 flex items-center justify-between">
-            <label className="flex items-center gap-2 text-detail text-ink">
-              <input type="checkbox" checked={active} onChange={(e) => setActive(e.target.checked)} />
-              Active
-            </label>
+            <span className="flex items-center gap-5">
+              <label className="flex items-center gap-2 text-detail text-ink">
+                <input type="checkbox" checked={active} onChange={(e) => setActive(e.target.checked)} />
+                Active
+              </label>
+              {kind === 'earning' && (
+                <label className="flex items-center gap-2 text-detail text-ink" title="Code on Social Security s.2(88): EPF and ESI are on wages; HRA, conveyance, overtime, commission and bonus are excluded">
+                  <input type="checkbox" checked={inWages} onChange={(e) => setInWages(e.target.checked)} data-testid="input-payroll-head-in-wages" />
+                  Counts as wages (EPF / ESI)
+                </label>
+              )}
+            </span>
             <span className="flex gap-2">
               {editingId && <Button onClick={resetForm}>Cancel edit</Button>}
               <Button variant="primary" disabled={saving} data-testid="btn-payroll-save-head" onClick={() => void save()}>
@@ -738,6 +887,7 @@ function RunsTab({ tabs }: { tabs: React.ReactNode }): React.JSX.Element {
   const [daysOverride, setDaysOverride] = useState<Record<number, string>>({})
   const [posting, setPosting] = useState(false)
   const [ptRun, setPtRun] = useState<PayrollRun | null>(null)
+  const [workingsFor, setWorkingsFor] = useState<Omit<PayrollLine, 'id'> | null>(null)
 
   // Last 12 months, current first — replaces the free-text YYYY-MM field.
   const monthOptions = useMemo(() => {
@@ -787,11 +937,12 @@ function RunsTab({ tabs }: { tabs: React.ReactNode }): React.JSX.Element {
   const totals = (previewLines ?? []).reduce(
     (acc, l) => ({
       gross: acc.gross + l.gross,
-      deductions: acc.deductions + l.pfEmp + l.esiEmp + l.pt + l.otherDeductions,
+      deductions: acc.deductions + l.pfEmp + l.vpf + l.esiEmp + l.pt + l.tds + l.otherDeductions,
+      employer: acc.employer + l.pfEr + l.pfAdmin + l.edli + l.esiEr,
       net: acc.net + l.net,
       cost: acc.cost + l.gross + l.pfEr + l.pfAdmin + l.edli + l.esiEr
     }),
-    { gross: 0, deductions: 0, net: 0, cost: 0 }
+    { gross: 0, deductions: 0, employer: 0, net: 0, cost: 0 }
   )
 
   const post = async (): Promise<void> => {
@@ -859,7 +1010,9 @@ function RunsTab({ tabs }: { tabs: React.ReactNode }): React.JSX.Element {
                   <th className="r w-24">PF</th>
                   <th className="r w-24">ESI</th>
                   <th className="r w-20">PT</th>
+                  <th className="r w-24">TDS</th>
                   <th className="r w-32">Net pay</th>
+                  <th className="r w-32" title="Employer PF (EPS + EPF) + EDLI + admin, and employer ESI">Employer share</th>
                 </tr>
               </thead>
               <tbody data-testid="rows-payroll-preview">
@@ -885,19 +1038,34 @@ function RunsTab({ tabs }: { tabs: React.ReactNode }): React.JSX.Element {
                         {err && <span className="block text-hint text-danger">{err}</span>}
                       </td>
                       <td className="r">{line ? <Money paise={line.gross} /> : '—'}</td>
-                      <td className="r">{line ? <Money paise={line.pfEmp} /> : '—'}</td>
+                      <td className="r" title={line?.vpf ? `incl. VPF ${formatPaise(line.vpf)}` : undefined}>{line ? <Money paise={line.pfEmp + line.vpf} /> : '—'}</td>
                       <td className="r">{line ? <Money paise={line.esiEmp} /> : '—'}</td>
                       <td className="r">{line ? <Money paise={line.pt} /> : '—'}</td>
+                      <td className="r">
+                        {line?.tdsWorkings && line.tds > 0 ? (
+                          <button
+                            type="button"
+                            className="num text-blue hover:underline"
+                            data-testid="btn-payroll-tds-workings"
+                            aria-label={`TDS workings for ${e.name}`}
+                            onClick={() => setWorkingsFor(line)}
+                          >
+                            <Money paise={line.tds} />
+                          </button>
+                        ) : line ? <Money paise={line.tds} /> : '—'}
+                      </td>
                       <td className="r font-medium">{line ? <Money paise={line.net} /> : '—'}</td>
+                      <td className="r text-muted">{line ? <Money paise={line.pfEr + line.pfAdmin + line.edli + line.esiEr} /> : '—'}</td>
                     </tr>
                   )
                 })}
                 <tr className="total-row">
-                  <td>Total · employer cost <Money paise={totals.cost} /></td>
+                  <td title="Gross pay plus the employer share">Total <span className="block text-hint font-normal text-muted">cost <Money paise={totals.cost} /></span></td>
                   <td></td>
                   <td className="r"><Money paise={totals.gross} /></td>
-                  <td className="r" colSpan={3}><Money paise={totals.deductions} /></td>
+                  <td className="r" colSpan={4}><Money paise={totals.deductions} /></td>
                   <td className="r"><Money paise={totals.net} /></td>
+                  <td className="r"><Money paise={totals.employer} /></td>
                 </tr>
               </tbody>
             </table>
@@ -929,6 +1097,9 @@ function RunsTab({ tabs }: { tabs: React.ReactNode }): React.JSX.Element {
         />
       </Panel>
       {ptRun && <PtSummaryModal run={ptRun} onClose={() => setPtRun(null)} />}
+      {workingsFor?.tdsWorkings && (
+        <TdsWorkingsModal name={workingsFor.employeeName} month={monthLabel(month)} tds={workingsFor.tds} w={workingsFor.tdsWorkings} onClose={() => setWorkingsFor(null)} />
+      )}
     </>
   )
 }
@@ -1039,6 +1210,15 @@ function PtSummaryModal({ run, onClose }: { run: PayrollRun; onClose: () => void
     queryFn: () => api.payroll.ptSummary(run.id)
   })
 
+  const exportState = async (state: string): Promise<void> => {
+    try {
+      const r = await statApi.ptReturnCsv(run.id, state)
+      toast.push('success', `PT return (${state}): ${r.path}`)
+    } catch (err) {
+      toast.push('error', (err as Error).message)
+    }
+  }
+
   const exportCsv = async (): Promise<void> => {
     try {
       const r = await api.payroll.ptCsv(run.id)
@@ -1061,6 +1241,14 @@ function PtSummaryModal({ run, onClose }: { run: PayrollRun; onClose: () => void
           empty={{ title: 'No professional tax this run' }}
           toolbar={false}
           maxHeight="50vh"
+          trailingWidth={110}
+          trailing={(r) =>
+            r.pt > 0 ? (
+              <button className="text-small text-blue hover:underline" data-testid={`btn-payroll-pt-state-${r.state}`} onClick={() => void exportState(r.state)}>
+                {r.state} return
+              </button>
+            ) : null
+          }
         />
       </div>
       {rows && rows.length > 0 && (

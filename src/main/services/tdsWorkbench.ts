@@ -277,7 +277,7 @@ export function tdsDeducted(db: DB, from: string, to: string, kind: WithholdingK
   const rows = db
     .prepare(
       `SELECT te.id AS entryId, v.id AS voucherId, v.number AS voucherNumber, v.date, vt.kind,
-              te.party_ledger_id AS partyLedgerId, l.name AS partyName, te.pan,
+              te.party_ledger_id AS partyLedgerId, COALESCE(emp.name, l.name) AS partyName, te.pan,
               te.section_id AS sectionId, ts.code AS sectionCode, te.base_amount AS basePaise, te.rate_bp_at AS rateBp,
               te.tds_amount AS tdsPaise, te.deductee_type_at AS deducteeType, te.is_manual AS isManual,
               cert.certificate_no AS certificateNo, c.id AS challanId, c.challan_no AS challanNo, c.payment_voucher_id AS paidBy
@@ -286,6 +286,7 @@ export function tdsDeducted(db: DB, from: string, to: string, kind: WithholdingK
        JOIN voucher_types vt ON vt.id = v.voucher_type_id
        JOIN tds_sections ts ON ts.id = te.section_id
        JOIN ledgers l ON l.id = te.party_ledger_id
+       LEFT JOIN employees emp ON emp.id = te.employee_id -- WP 3.7: salary TDS (section 192) names the employee
        LEFT JOIN tds_certificates cert ON cert.id = te.certificate_id
        LEFT JOIN tds_entry_challans tec ON tec.entry_id = te.id
        LEFT JOIN tds_challans c ON c.id = tec.challan_id
@@ -323,7 +324,8 @@ export function tdsLedgerSummary(db: DB, fyStartYear: number, quarter: 0 | 1 | 2
   )
   const entries = db
     .prepare(
-      `SELECT te.section_id AS sectionId, COALESCE(SUM(te.tds_amount), 0) AS tds, COUNT(DISTINCT te.party_ledger_id) AS deductees
+      `SELECT te.section_id AS sectionId, COALESCE(SUM(te.tds_amount), 0) AS tds,
+              COUNT(DISTINCT CASE WHEN te.employee_id IS NOT NULL THEN 'e' || te.employee_id ELSE 'l' || te.party_ledger_id END) AS deductees
        FROM tds_entries te JOIN vouchers v ON v.id = te.voucher_id JOIN tds_sections ts ON ts.id = te.section_id
        WHERE v.date BETWEEN ? AND ? AND ts.kind = ? AND ${IN_BOOKS} GROUP BY te.section_id`
     )
@@ -500,10 +502,11 @@ export function challanInterest(db: DB, challanId: number, rateBp?: number): Tds
   if (!c) throw new Error('Challan not found')
   const rows = db
     .prepare(
-      `SELECT te.id AS entryId, v.id AS voucherId, v.number AS voucherNumber, v.date, l.name AS partyName, ts.code AS sectionCode,
+      `SELECT te.id AS entryId, v.id AS voucherId, v.number AS voucherNumber, v.date, COALESCE(emp.name, l.name) AS partyName, ts.code AS sectionCode,
               te.tds_amount AS tdsPaise
        FROM tds_entry_challans tec JOIN tds_entries te ON te.id = tec.entry_id
        JOIN vouchers v ON v.id = te.voucher_id JOIN ledgers l ON l.id = te.party_ledger_id JOIN tds_sections ts ON ts.id = te.section_id
+       LEFT JOIN employees emp ON emp.id = te.employee_id
        WHERE tec.challan_id = ? AND ${NOT_DELETED} ORDER BY v.date, v.id`
     )
     .all(challanId) as Omit<TdsChallanEntryInterest, 'dueDate' | 'months' | 'interestPaise'>[]
@@ -555,7 +558,9 @@ export function form26qData(db: DB, fyStartYear: number, quarter: 1 | 2 | 3 | 4,
               tec.challan_id AS challanId
        FROM tds_entries te JOIN vouchers v ON v.id = te.voucher_id JOIN ledgers l ON l.id = te.party_ledger_id
        JOIN tds_sections ts ON ts.id = te.section_id LEFT JOIN tds_entry_challans tec ON tec.entry_id = te.id
-       WHERE v.date BETWEEN ? AND ? AND ts.kind = ? AND ${IN_BOOKS} ORDER BY v.date, v.id`
+       WHERE v.date BETWEEN ? AND ? AND ts.kind = ? AND ${IN_BOOKS}
+         AND te.employee_id IS NULL -- WP 3.7: salary TDS is returned in Form 24Q, not 26Q
+       ORDER BY v.date, v.id`
     )
     .all(from, to, kind) as {
       entryId: number; voucherId: number; date: string; partyLedgerId: number; partyName: string; pan: string | null; sectionId: number

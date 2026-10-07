@@ -132,17 +132,18 @@ describe('Banking modal tables', () => {
 
 const emp = (id: number, name: string): Employee => ({
   id, name, code: null, designation: 'Staff', joined: null, pan: null, uan: null, esicNo: null,
-  basic: 20_000_00, hra: 0, special: 0, pfEnabled: true, esiEnabled: true, ptEnabled: true, ptState: 'MH', active: true
+  basic: 20_000_00, hra: 0, special: 0, pfEnabled: true, esiEnabled: true, ptEnabled: true, ptState: 'MH', active: true,
+  pfNumber: null, gender: null, dob: null, taxRegime: 'new', vpfRateBp: 0, pfOnFullWage: false, epsEligible: true, disabled: false, metro: false, tdsEnabled: true
 })
 const HEADS: PayHead[] = [
-  { id: 1, name: 'Conveyance', kind: 'earning', calc: 'flat', value: 1_600_00, active: true },
-  { id: 2, name: 'Bonus', kind: 'earning', calc: 'percent_of_basic', value: 833, active: false }
+  { id: 1, name: 'Conveyance', kind: 'earning', calc: 'flat', value: 1_600_00, active: true, inWages: false },
+  { id: 2, name: 'Bonus', kind: 'earning', calc: 'percent_of_basic', value: 833, active: false, inWages: true }
 ]
 
 describe('Payroll modal tables', () => {
   beforeEach(() => {
     handlers['payroll:employees:list'] = () => [emp(1, 'Asha Rao')]
-    handlers['payroll:runs'] = (): PayrollRun[] => [{ id: 9, month: '2026-08', voucherId: 900, createdAt: '2026-08-31', lines: [] }]
+    handlers['payroll:runs'] = (): PayrollRun[] => [{ id: 9, month: '2026-08', voucherId: 900, createdAt: '2026-08-31', pfAdminTopUp: 0, lines: [] }]
     handlers['payroll:preview'] = () => []
     handlers['payroll:heads:list'] = () => HEADS
     handlers['payroll:employeeHeads:get'] = () => [{ payHeadId: 1, name: 'Conveyance', kind: 'earning', calc: 'flat', value: 1_600_00, overrideValue: 2_000_00 }]

@@ -11,6 +11,7 @@ import { DataTable, defineColumns } from '../../components/table'
 import { LedgerLink, VoucherLink } from '../../components/links'
 import { useToasts } from '../../state/stores'
 import { KIND_WORDS, pctText, withholdingApi, type QuarterChoice, type WithholdingKind } from './common'
+import { Form24qPanel } from './Form24qPanel'
 
 type Q = 1 | 2 | 3 | 4
 type Party16a = Form16aData['parties'][number]
@@ -200,6 +201,9 @@ export function ReturnsTab({ fyStartYear, initialQuarter, kind = 'tds' }: { fySt
           )}
         />
       </Panel>
+
+      {/* WP 3.7: salary TDS (section 192) — Form 24Q / Form 138 */}
+      {!tcs && <Form24qPanel fyStartYear={fyStartYear} quarter={quarter} label={label} />}
 
       {!tcs && (
         <p className="text-hint text-muted" data-testid="tds-27eq-placeholder">

@@ -1,15 +1,21 @@
 /**
- * Payroll computation. All amounts integer paise per month.
- * Statutory defaults (simplified, editable in a later pass):
+ * Payroll computation. All amounts integer paise per month. The statutory maths (EPF/EPS/EDLI/
+ * admin, ESI, PT slabs, salary TDS) lives in payrollStatutory.ts (WP 3.7) with its citations; the
+ * rates themselves are effective-dated data (statutory_rates, migration 029). The legacy notes:
  *  - EPF: 12% employee + 12% employer on basic, wage ceiling ₹15,000/month. The employer 12% is
  *    split EPS 8.33% (pension, on the capped wage) + EPF remainder; EPFO also charges the
  *    employer admin 0.5% and EDLI 0.5% on the capped wage (account 2/21/22 heads of the ECR).
  *  - ESI: 0.75% employee / 3.25% employer on gross, only when full monthly gross ≤ ₹21,000;
  *    contributions rounded UP to the next rupee (statutory rule).
  *  - Professional tax: state-wise monthly slabs (PT_SLABS) keyed by employees.pt_state;
- *    defaults to the simplified Maharashtra slab.
+ *    defaults to the simplified Maharashtra slab. PT_SLABS is now only the fallback for callers
+ *    without rate rows; pay runs use the cited, effective-dated slabs of migration 029.
+ *  - Since WP 3.7 every EPF figure is rounded to the rupee (EPF Scheme para 29), not the paisa.
  */
 import { roundPaise } from './money'
+import {
+  codeWages, computeEsi, computePf, computePt, DEFAULT_ESI_RATES, type WageComponent, DEFAULT_PF_RATES, type EsiRates, type Gender, type PfRates, type PtSlab as StatutoryPtSlab
+} from './payrollStatutory'
 import { neutralizeCsvFormula } from './csv'
 
 export const PF_WAGE_CEILING = 15_000_00
@@ -101,6 +107,8 @@ export interface PayHeadSpec {
   /** 'flat': `value` is monthly paise. 'percent_of_basic': `value` is percent × 100 (4000 = 40%). */
   calc: 'flat' | 'percent_of_basic'
   value: number
+  /** WP 3.7: the head is "wages" under CoSS s.2(88) (default: every earning except HRA). */
+  inWages?: boolean
 }
 
 export interface PayHeadAmount {
@@ -127,6 +135,12 @@ export interface EmployeePayInput {
    * the computation unchanged (byte-identical to the pre-pay-heads engine).
    */
   heads?: PayHeadSpec[]
+  /** WP 3.7 statutory profile (all optional — defaults reproduce the pre-3.7 behaviour). */
+  vpfRateBp?: number
+  pfOnFullWage?: boolean
+  epsEligible?: boolean
+  disabled?: boolean
+  gender?: Gender | null
 }
 
 export interface PayComputation {
@@ -139,7 +153,13 @@ export interface PayComputation {
   otherDeductions: number
   gross: number
   pfEmp: number
+  /** Voluntary PF (employee only), deducted with pfEmp. */
+  vpf: number
   pfEr: number
+  /** EPF / EPS / EDLI wages as remitted (ECR columns). */
+  epfWage: number
+  epsWage: number
+  edliWage: number
   /** Employer 12% split: EPS 8.33% on the capped wage + the EPF remainder (epsEr + epfEr = pfEr). */
   epsEr: number
   epfEr: number
@@ -149,21 +169,41 @@ export interface PayComputation {
   edli: number
   esiEmp: number
   esiEr: number
+  /** ESI-covered this month (drives the contribution-period stickiness). */
+  esiCovered: boolean
+  /** Wages ESI was computed on (gross before the Code; s.2(88) wages from 21-11-2025). */
+  esiWage: number
   pt: number
+  /** Salary TDS (s.192 / 2025 s.392), set by withTds. */
+  tds: number
   net: number
   employerCost: number
   /** Per-head prorated amounts — empty for the legacy (no-heads) shape. */
   headAmounts: PayHeadAmount[]
 }
 
-/** Round paise up to the next whole rupee (ESI convention). */
-function ceilToRupee(paise: number): number {
-  return Math.ceil(paise / 100) * 100
-}
-
 const nameIs = (head: PayHeadSpec, n: string): boolean => head.name.trim().toLowerCase() === n
 
-export function computeMonthlyPay(e: EmployeePayInput, payableDays: number, monthDays: number): PayComputation {
+/**
+ * Statutory context for one wage month (WP 3.7). Every field is optional: absent rates fall back to
+ * the cited defaults in payrollStatutory.ts, absent PT slabs to the legacy PT_SLABS table — so the
+ * pre-WP 3.7 call shape `computeMonthlyPay(e, days, monthDays)` keeps working.
+ */
+export interface PayContext {
+  /** 'YYYY-MM' — needed for month-specific PT (Maharashtra's February) and annual PT spreads. */
+  month?: string
+  pf?: PfRates
+  esi?: EsiRates
+  /** The state's slabs in force (null/undefined = legacy PT_SLABS by ptState). */
+  ptSlabs?: StatutoryPtSlab[] | null
+  /** Covered by ESI in an earlier month of this contribution period (s.2(9) proviso). */
+  esiCoveredEarlier?: boolean
+  /** CoSS s.2(88) wage definition in force: EPF and ESI on "wages" (50% rule) instead of basic /
+   *  gross. Value = the excluded-items cap in bp (5000). Absent = the pre-Code bases. */
+  ssWagesCapBp?: number | null
+}
+
+export function computeMonthlyPay(e: EmployeePayInput, payableDays: number, monthDays: number, ctx: PayContext = {}): PayComputation {
   if (monthDays <= 0 || payableDays < 0) throw new Error('Invalid attendance days')
   const ratio = Math.min(1, payableDays / monthDays)
 
@@ -177,6 +217,9 @@ export function computeMonthlyPay(e: EmployeePayInput, payableDays: number, mont
   let otherEarnings = 0
   let otherDeductions = 0
   const headAmounts: PayHeadAmount[] = []
+  const wageParts: WageComponent[] = []
+  const wagePartsFull: WageComponent[] = []
+  const inWagesOf = (h: PayHeadSpec): boolean => h.inWages ?? !nameIs(h, 'hra')
 
   if (e.heads && e.heads.length > 0) {
     const basicHead = e.heads.find((h) => h.kind === 'earning' && nameIs(h, 'basic'))
@@ -185,12 +228,16 @@ export function computeMonthlyPay(e: EmployeePayInput, payableDays: number, mont
     for (const h of e.heads) {
       if (h === basicHead) {
         headAmounts.push({ name: h.name, kind: h.kind, amount: basic })
+        wageParts.push({ amountPaise: basic, inWages: true })
+        wagePartsFull.push({ amountPaise: basicFull, inWages: true })
         continue
       }
       const full = h.calc === 'flat' ? h.value : roundPaise((basicFull * h.value) / 10000)
       const amount = h.calc === 'flat' ? roundPaise(h.value * ratio) : roundPaise((basic * h.value) / 10000)
       headAmounts.push({ name: h.name, kind: h.kind, amount })
       if (h.kind === 'earning') {
+        wageParts.push({ amountPaise: amount, inWages: inWagesOf(h) })
+        wagePartsFull.push({ amountPaise: full, inWages: inWagesOf(h) })
         if (nameIs(h, 'hra')) {
           hraFull += full
           hra += amount
@@ -212,33 +259,58 @@ export function computeMonthlyPay(e: EmployeePayInput, payableDays: number, mont
     basic = roundPaise(e.basic * ratio)
     hra = roundPaise(e.hra * ratio)
     special = roundPaise(e.special * ratio)
+    wageParts.push({ amountPaise: basic, inWages: true }, { amountPaise: hra, inWages: false }, { amountPaise: special, inWages: true })
+    wagePartsFull.push({ amountPaise: basicFull, inWages: true }, { amountPaise: hraFull, inWages: false }, { amountPaise: specialFull, inWages: true })
   }
 
   const gross = basic + hra + special + otherEarnings
 
-  const pfWage = Math.min(basic, PF_WAGE_CEILING)
-  const pfEmp = e.pfEnabled ? roundPaise((pfWage * PF_RATE) / 100) : 0
-  const pfEr = e.pfEnabled ? roundPaise((pfWage * PF_RATE) / 100) : 0
-  const epsEr = e.pfEnabled ? roundPaise((pfWage * EPS_RATE) / 100) : 0
-  const epfEr = pfEr - epsEr
-  const pfAdmin = e.pfEnabled ? roundPaise((pfWage * PF_ADMIN_RATE) / 100) : 0
-  const edli = e.pfEnabled ? roundPaise((pfWage * EDLI_RATE) / 100) : 0
+  // Contribution bases. Before the Code: EPF on basic (+ DA — no separate DA head), ESI on gross.
+  // From 21-11-2025 (ctx.ssWagesCapBp set): both on s.2(88) wages with the 50% rule [COSS].
+  const ss = ctx.ssWagesCapBp != null
+  const fullGrossForBase = basicFull + hraFull + specialFull + otherEarnFull
+  const pfBase = ss ? codeWages(wageParts, ctx.ssWagesCapBp!) : basic
+  const esiBase = ss ? codeWages(wageParts, ctx.ssWagesCapBp!) : gross
+  const esiContracted = ss ? codeWages(wagePartsFull, ctx.ssWagesCapBp!) : fullGrossForBase
 
-  // ESI eligibility is decided on the full contracted gross, not the prorated one.
-  const fullGross = basicFull + hraFull + specialFull + otherEarnFull
-  const esiEligible = e.esiEnabled && fullGross <= ESI_GROSS_LIMIT
-  const esiEmp = esiEligible ? ceilToRupee((gross * ESI_EMP_RATE) / 100) : 0
-  const esiEr = esiEligible ? ceilToRupee((gross * ESI_ER_RATE) / 100) : 0
+  // EPF rupee-rounded per EPF Scheme para 29 / 2026 para 18(5).
+  const pf = computePf(
+    pfBase,
+    { enabled: e.pfEnabled, vpfRateBp: e.vpfRateBp ?? 0, onFullWage: e.pfOnFullWage ?? false, epsEligible: e.epsEligible ?? true },
+    ctx.pf ?? DEFAULT_PF_RATES
+  )
 
-  const pt = e.ptEnabled ? professionalTax(gross, e.ptState ?? 'MH') : 0
-  const net = gross - pfEmp - esiEmp - pt - otherDeductions
+  // ESI coverage is decided on the full contracted wages, contributions on the wages paid.
+  const esi = computeEsi(
+    {
+      enabled: e.esiEnabled, contractedWagesPaise: esiContracted, wagesPaise: esiBase, payableDays,
+      disabled: e.disabled ?? false, coveredEarlierInPeriod: ctx.esiCoveredEarlier ?? false
+    },
+    ctx.esi ?? DEFAULT_ESI_RATES
+  )
+
+  let pt = 0
+  if (e.ptEnabled) {
+    pt = ctx.ptSlabs != null && ctx.month
+      ? computePt(ctx.ptSlabs, gross, ctx.month, e.gender ?? null)
+      : professionalTax(gross, e.ptState ?? 'MH')
+  }
+  const net = gross - pf.ee - pf.vpf - esi.ee - pt - otherDeductions
 
   return {
     basic, hra, special, otherEarnings, otherDeductions, gross,
-    pfEmp, pfEr, epsEr, epfEr, pfAdmin, edli, esiEmp, esiEr, pt, net,
-    employerCost: gross + pfEr + esiEr + pfAdmin + edli,
+    pfEmp: pf.ee, vpf: pf.vpf, pfEr: pf.er, epsEr: pf.eps, epfEr: pf.epfEr, pfAdmin: pf.admin, edli: pf.edli,
+    epfWage: pf.epfWage, epsWage: pf.epsWage, edliWage: pf.edliWage,
+    esiEmp: esi.ee, esiEr: esi.er, esiCovered: esi.covered, esiWage: esi.wages, pt, tds: 0, net,
+    employerCost: gross + pf.er + esi.er + pf.admin + pf.edli,
     headAmounts
   }
+}
+
+/** Apply this month's salary TDS (computed by the service from the year's projection). */
+export function withTds(pay: PayComputation, tdsPaise: number): PayComputation {
+  const tds = Math.max(0, Math.min(tdsPaise, pay.net + pay.tds))
+  return { ...pay, tds, net: pay.net + pay.tds - tds }
 }
 
 /** Calendar days in 'YYYY-MM'. */
@@ -262,23 +334,33 @@ export interface EcrInput {
   epsEr: number
   payableDays: number
   monthDays: number
+  /** WP 3.7: wages as remitted and VPF; absent on pre-029 lines (derived from basic, capped). */
+  epfWage?: number
+  epsWage?: number
+  edliWage?: number
+  vpf?: number
 }
 
 /**
  * EPFO ECR 2.0 upload text: one '#~#'-separated line per member —
- * UAN#~#NAME#~#GROSS#~#EPF WAGES#~#EPS WAGES#~#EDLI WAGES#~#EPF CONTRI#~#EPS CONTRI#~#DIFF#~#NCP DAYS#~#REFUND
- * All amounts whole rupees; wages capped at the ₹15,000 ceiling; DIFF = employer share − EPS.
+ * UAN#~#MEMBER NAME#~#GROSS WAGES#~#EPF WAGES#~#EPS WAGES#~#EDLI WAGES#~#EPF CONTRI REMITTED#~#
+ * EPS CONTRI REMITTED#~#EPF EPS DIFF REMITTED#~#NCP DAYS#~#REFUND OF ADVANCES
+ * (EPFO "ECR file format" for the unified portal [ECR], cited in payrollStatutory.ts SOURCES_WP37).
+ * Whole rupees; EPF contribution = employee share incl. VPF; DIFF = employer share − EPS.
  */
 export function buildEcr(rows: EcrInput[]): string {
   return rows
     .map((r) => {
-      const wage = rupees(Math.min(r.basic, PF_WAGE_CEILING))
-      const epfContri = rupees(r.pfEmp)
+      const capped = Math.min(r.basic, PF_WAGE_CEILING)
+      const epfWage = rupees(r.epfWage ?? capped)
+      const epsWage = rupees(r.epsWage ?? capped)
+      const edliWage = rupees(r.edliWage ?? capped)
+      const epfContri = rupees(r.pfEmp + (r.vpf ?? 0))
       const epsContri = rupees(r.epsEr)
       const diff = rupees(r.pfEr) - epsContri
       const ncp = Math.max(0, Math.round(r.monthDays - r.payableDays))
       const name = r.name.toUpperCase().replace(/#~#/g, ' ').trim()
-      return [r.uan, name, rupees(r.gross), wage, wage, wage, epfContri, epsContri, diff, ncp, 0].join('#~#')
+      return [r.uan, name, rupees(r.gross), epfWage, epsWage, edliWage, epfContri, epsContri, diff, ncp, 0].join('#~#')
     })
     .join('\n')
 }
@@ -318,6 +400,19 @@ export function buildPtCsv(rows: PtCsvInput[]): string {
     String(rupees(rows.reduce((s, r) => s + r.pt, 0)))
   ].join(',')
   return [header, ...body, total].join('\n')
+}
+
+/** One state's PT return working: employee-wise salary and tax for the month, then the count and
+ *  tax per slab amount (the shape of the state monthly returns, e.g. Maharashtra Form III). */
+export function buildPtStateCsv(state: string, month: string, rows: { employeeName: string; gross: number; pt: number }[]): string {
+  const out = [`Professional tax return working,${csvCell(state)},${month}`, 'Employee,Gross salary,PT deducted']
+  for (const r of rows) out.push([csvCell(r.employeeName), String(rupees(r.gross)), String(rupees(r.pt))].join(','))
+  out.push(['TOTAL', String(rupees(rows.reduce((s, r) => s + r.gross, 0))), String(rupees(rows.reduce((s, r) => s + r.pt, 0)))].join(','))
+  out.push('', 'Rate per month,Employees,Tax')
+  const bySlab = new Map<number, number>()
+  for (const r of rows) bySlab.set(r.pt, (bySlab.get(r.pt) ?? 0) + 1)
+  for (const [pt, n] of [...bySlab].sort((a, b) => a[0] - b[0])) out.push([String(rupees(pt)), String(n), String(rupees(pt * n))].join(','))
+  return out.join('\n')
 }
 
 /** ESIC monthly-contribution upload CSV (the portal's MC excel template, saved as CSV). */
