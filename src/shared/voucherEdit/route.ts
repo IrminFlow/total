@@ -8,11 +8,12 @@ import { invoiceRepresentation, type InvoiceContext, type InvoiceFormState, type
 import { manufactureRepresentation, type BomComponent, type ManufactureFormState } from './manufacture'
 import { physicalRepresentation, type PhysicalFormState } from './physical'
 import { stockLinesStateFromVoucher, type StockLinesFormState } from './stockLines'
+import { transferRepresentation, type TransferFormState } from './stockJournal'
 import { TRADING_KINDS } from './payload'
 
-export type EntryMode = 'invoice' | 'accounting' | 'manufacture' | 'physical' | 'stockLines'
+export type EntryMode = 'invoice' | 'accounting' | 'manufacture' | 'physical' | 'stockLines' | 'transfer'
 
-export function modeForKind(kind: VoucherKind): Exclude<EntryMode, 'stockLines'> {
+export function modeForKind(kind: VoucherKind): Exclude<EntryMode, 'stockLines' | 'transfer'> {
   if (TRADING_KINDS.includes(kind)) return 'invoice'
   if (kind === 'stock_journal') return 'manufacture'
   if (kind === 'physical_stock') return 'physical'
@@ -25,6 +26,7 @@ export type EditPlan =
   | { mode: 'manufacture'; state: ManufactureFormState }
   | { mode: 'physical'; state: PhysicalFormState }
   | { mode: 'stockLines'; state: StockLinesFormState; fallbackReason: string | null }
+  | { mode: 'transfer'; state: TransferFormState }
 
 export interface EditPlanContext {
   invoice: Omit<InvoiceContext, 'kind'>
@@ -43,6 +45,9 @@ export function planVoucherEdit(v: Voucher, kind: VoucherKind, ctx: EditPlanCont
     case 'manufacture': {
       const r = manufactureRepresentation(v, { bomFor: ctx.bomFor, itemName: ctx.itemName })
       if (r.ok) return { mode: 'manufacture', state: r.state }
+      // WP 2.3: a same-item godown transfer opens in the transfer form.
+      const t = transferRepresentation(v)
+      if (t.ok) return { mode: 'transfer', state: t.state }
       return { mode: 'stockLines', state: stockLinesStateFromVoucher(v), fallbackReason: r.reason }
     }
     case 'physical': {
