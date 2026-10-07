@@ -42,8 +42,11 @@ export type Screen =
   // retraces tabs and other screens can deep-link straight to one.
   // `itemId` (items tab only) opens that stock item's editor — how search results open an item.
   // WP 2.2: a new manufacture voucher (saved ones open through voucher-entry, same form).
-  | { name: 'manufacture' }
+  // WP 2.4: `jobWork` opens it in "Receive from job worker" mode; `prefill` starts it for an item
+  // and quantity ("manufacture the sub-assembly first" links).
+  | { name: 'manufacture'; jobWork?: boolean; prefill?: { itemId: number; qtyMilli: number } }
   | { name: 'manufacture-register' }
+  | { name: 'manufacture-reports'; tab?: 'production' | 'cost-sheet' | 'margin' | 'variance' | 'job-work' }
   | { name: 'masters'; tab?: 'ledgers' | 'groups' | 'items' | 'units' | 'types' | 'currencies' | 'godowns' | 'stock-groups'; itemId?: number }
   // Books search results (⌘⇧F, or "See all" in the ⌘K palette): `q` is the query-language
   // string, `kind` the initially selected tab (omitted = all kinds).
@@ -55,7 +58,8 @@ export type Screen =
   | { name: 'exceptions' }
   | { name: 'stock-summary' }
   | { name: 'stock-movements'; itemId?: number; godownId?: number }
-  | { name: 'stock-journal' }
+  // WP 2.4: `mode` opens a stock-journal kind directly (e.g. 'jobWork' = Send to job worker).
+  | { name: 'stock-journal'; mode?: 'transfer' | 'adjust' | 'jobWork' }
   | { name: 'stock-reports'; tab?: 'reorder' | 'ageing' | 'expiry' | 'serials' | 'labels' }
   | { name: 'ledger-statement'; ledgerId: number }
   | { name: 'gstr1' }
@@ -73,6 +77,7 @@ export type Screen =
   | { name: 'budgets' }
   | { name: 'company-info' }
   | { name: 'year-end' }
+  | { name: 'fixed-assets'; tab?: 'register' | 'depreciation' | 'schedule' | 'income-tax' | 'setup' }
   | { name: 'settings'; tab?: 'appearance' | 'backups' | 'bin' | 'users' | 'audit' | 'nic' | 'features' | 'invoice' | 'agents' | 'about' }
 
 interface NavState {

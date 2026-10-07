@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import type { VoucherKind } from '@shared/domain'
+import { STOCK_NOTE_KINDS, type VoucherKind } from '@shared/domain'
 import { todayISO } from '@shared/dates'
 import { modeForKind, planVoucherEdit, taxLedgerIdsFrom, type EditPlan } from '@shared/voucherEdit'
 import { api } from '../lib/client'
@@ -62,11 +62,17 @@ export function VoucherEntry({
     queryFn: () => api.manufacture.get(voucherId!),
     enabled: !!voucherId && isStockJournal
   })
+  // WP 2.4: a job-work send / return challan opens in the Send-to-job-worker form.
+  const { data: jobWorkChallan } = useQuery({
+    queryKey: ['voucher', voucherId, 'jobWork'],
+    queryFn: () => api.jobWork.get(voucherId!),
+    enabled: !!voucherId && isStockJournal
+  })
   const [plan, setPlan] = useState<EditPlan | null>(null)
 
   useEffect(() => {
     if (!voucherId || plan || !existing || !existingKind || !ledgers || !items || !info) return
-    if (isStockJournal && mfg === undefined) return
+    if (isStockJournal && (mfg === undefined || jobWorkChallan === undefined)) return
     setPlan(
       planVoucherEdit(existing, existingKind, {
         invoice: {
@@ -76,16 +82,17 @@ export function VoucherEntry({
         },
         taxLedgers: taxLedgerIdsFrom(ledgers),
         manufacture: mfg?.details ?? null,
+        jobWork: jobWorkChallan ?? null,
         itemName: (id) => items.find((i) => i.id === id)?.name ?? ''
       })
     )
-  }, [voucherId, plan, existing, existingKind, ledgers, items, info, isStockJournal, mfg])
+  }, [voucherId, plan, existing, existingKind, ledgers, items, info, isStockJournal, mfg, jobWorkChallan])
 
   useEffect(() => {
     if (!types || typeId != null) return
     if (voucherId) return
     const wanted = kindHint ?? 'journal'
-    const t = types.find((t) => t.kind === wanted) ?? types[0]
+    const t = types.find((t) => t.kind === wanted) ?? types.find((t) => !STOCK_NOTE_KINDS.includes(t.kind)) ?? types[0]
     if (t) setTypeId(t.id)
   }, [types, typeId, kindHint, voucherId])
 
@@ -123,7 +130,7 @@ export function VoucherEntry({
       </Page>
     )
   }
-  const currentType = (voucherId ? types.find((t) => t.id === existing!.voucherTypeId) : types.find((t) => t.id === typeId)) ?? types[0]!
+  const currentType = (voucherId ? types.find((t) => t.id === existing!.voucherTypeId) : types.find((t) => t.id === typeId)) ?? types.find((t) => !STOCK_NOTE_KINDS.includes(t.kind)) ?? types[0]!
   const closingEntry = !!existing?.isYearEndClose
   const activeMode = voucherId ? plan!.mode : modeForKind(currentType.kind)
 
@@ -131,6 +138,8 @@ export function VoucherEntry({
     <div role="tablist" aria-label="Voucher type" className="flex flex-wrap items-center gap-1">
       {types
         .filter((t) => features.inventory || (t.kind !== 'stock_journal' && t.kind !== 'physical_stock'))
+        // Delivery challans / GRNs get their own screen in WP 2.5b; until then no entry tab.
+        .filter((t) => !STOCK_NOTE_KINDS.includes(t.kind))
         .map((t) => {
           const selected = t.id === currentType.id
           return (
@@ -218,6 +227,8 @@ export function VoucherEntry({
             <PhysicalStockEntry typeId={currentType.id} voucherId={voucherId} voucher={existing} initial={plan.state} />
           ) : plan.mode === 'transfer' ? (
             <TransferEntry typeId={currentType.id} voucherId={voucherId} voucher={existing} initial={plan.state} />
+          ) : plan.mode === 'jobWorkSend' ? (
+            <TransferEntry typeId={currentType.id} voucherId={voucherId} voucher={existing} initial={plan.state.transfer} jobWork={plan.state.challan} />
           ) : plan.mode === 'stockLines' ? (
             <StockLinesEntry
               typeId={currentType.id}

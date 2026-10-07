@@ -246,6 +246,34 @@
               "maxLength": 60
             },
             "maxItems": 5000
+          },
+          "lineUid": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{32}$"
+          },
+          "source": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "lineUid": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{32}$"
+              },
+              "linkType": {
+                "type": "string",
+                "enum": [
+                  "fulfil",
+                  "return"
+                ]
+              }
+            },
+            "required": [
+              "lineUid",
+              "linkType"
+            ],
+            "additionalProperties": false
           }
         },
         "required": [
@@ -374,6 +402,31 @@
         "sectionId",
         "baseAmount",
         "tcsAmount"
+      ],
+      "additionalProperties": false
+    },
+    "trade": {
+      "description": "Delivery challan / goods receipt note only: { purpose } (why the goods moved — supply, job_work, approval, liquid_gas or non_supply on a challan; purchase, return or job_work on a GRN). Absent keeps the stored purpose; ignored for every other kind.",
+      "type": [
+        "object",
+        "null"
+      ],
+      "properties": {
+        "purpose": {
+          "type": "string",
+          "enum": [
+            "supply",
+            "job_work",
+            "approval",
+            "liquid_gas",
+            "non_supply",
+            "purchase",
+            "return"
+          ]
+        }
+      },
+      "required": [
+        "purpose"
       ],
       "additionalProperties": false
     }

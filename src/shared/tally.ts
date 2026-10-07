@@ -168,6 +168,10 @@ export interface TallyImport {
 const nameOf = (n: XNode): string => n.attrs.NAME ?? childText(n, 'NAME')
 
 /** Parse a Tally master/voucher export XML into neutral structures. */
+/** Tally voucher types that move goods without posting: Delivery Note / Receipt Note (and the
+ *  Rejections In / Out notes). */
+export const TALLY_STOCK_NOTE_TYPE = /delivery note|delivery challan|receipt note|goods receipt|rejection/i
+
 export function parseTallyExport(xml: string): TallyImport {
   const root = parseXml(xml)
   const warnings: string[] = []
@@ -244,12 +248,14 @@ export function parseTallyExport(xml: string): TallyImport {
         amount: Math.abs(parseTallyAmount(childText(inv, 'AMOUNT')))
       })
     }
-    if (lines.length === 0) {
+    const vchType = v.attrs.VCHTYPE ?? childText(v, 'VOUCHERTYPENAME')
+    // A delivery / receipt note moves goods only — it legitimately has no ledger entries (WP 2.5).
+    if (lines.length === 0 && !(inventory.length > 0 && TALLY_STOCK_NOTE_TYPE.test(vchType))) {
       warnings.push(`Voucher ${childText(v, 'VOUCHERNUMBER') || date} skipped: no ledger entries`)
       continue
     }
     result.vouchers.push({
-      vchType: v.attrs.VCHTYPE ?? childText(v, 'VOUCHERTYPENAME'),
+      vchType,
       date,
       number: childText(v, 'VOUCHERNUMBER'),
       party: childText(v, 'PARTYLEDGERNAME') || null,

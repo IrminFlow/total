@@ -334,7 +334,9 @@ const TYPE_ALIASES: Record<string, VoucherKind> = {
   credit_note: 'credit_note', 'credit-note': 'credit_note', creditnote: 'credit_note', credit: 'credit_note', cn: 'credit_note',
   debit_note: 'debit_note', 'debit-note': 'debit_note', debitnote: 'debit_note', debit: 'debit_note', dn: 'debit_note',
   stock_journal: 'stock_journal', 'stock-journal': 'stock_journal', stockjournal: 'stock_journal', manufacture: 'stock_journal',
-  physical_stock: 'physical_stock', 'physical-stock': 'physical_stock', physical: 'physical_stock'
+  physical_stock: 'physical_stock', 'physical-stock': 'physical_stock', physical: 'physical_stock',
+  delivery_note: 'delivery_note', 'delivery-note': 'delivery_note', challan: 'delivery_note', dc: 'delivery_note',
+  receipt_note: 'receipt_note', 'receipt-note': 'receipt_note', grn: 'receipt_note'
 }
 
 export const KIND_LABELS: Record<VoucherKind, string> = {
@@ -347,7 +349,9 @@ export const KIND_LABELS: Record<VoucherKind, string> = {
   credit_note: 'Credit note',
   debit_note: 'Debit note',
   stock_journal: 'Stock journal',
-  physical_stock: 'Physical stock'
+  physical_stock: 'Physical stock',
+  delivery_note: 'Delivery note',
+  receipt_note: 'Receipt note'
 }
 
 const IN_ALIASES: Record<string, SearchKind> = {

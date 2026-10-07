@@ -68,7 +68,7 @@ export const SCREENS: ScreenDef[] = [
     screen: { name: 'manufacture' },
     navSection: 'top',
     feature: 'inventory',
-    invalidates: ['manufacturePreview', 'nextNumber', 'stockItems', 'ledgers', 'godowns', 'units', 'bom', 'voucherTypes']
+    invalidates: ['manufacturePreview', 'nextNumber', 'stockItems', 'ledgers', 'godowns', 'units', 'bom', 'bomVersions', 'jobWorkSendChallans', 'voucherTypes']
   },
   {
     name: 'daybook',
@@ -143,12 +143,20 @@ export const SCREENS: ScreenDef[] = [
   },
   {
     name: 'stock-journal',
-    keywords: ['godown transfer', 'stock transfer', 'stock adjustment'],
+    keywords: ['godown transfer', 'stock transfer', 'stock adjustment', 'send to job worker', 'job work challan'],
     title: 'Stock journal',
     screen: { name: 'stock-journal' },
     navSection: 'books',
     feature: 'inventory',
-    invalidates: ['transferCost', 'stockByGodown', 'godowns', 'batches', 'serialsAvailable', 'nextNumber', 'stockItems', 'voucherTypes']
+    invalidates: ['transferCost', 'stockByGodown', 'godowns', 'batches', 'serialsAvailable', 'nextNumber', 'stockItems', 'voucherTypes', 'jobWorkSendChallans', 'ledgers']
+  },
+  {
+    name: 'fixed-assets',
+    title: 'Fixed assets',
+    keywords: ['asset register', 'depreciation', 'schedule ii', 'block of assets', 'disposal', 'asset schedule', 'net block'],
+    screen: { name: 'fixed-assets' },
+    navSection: 'books',
+    invalidates: ['faList', 'faGroups', 'faBlocks', 'faClasses', 'faRunPreview', 'faRuns', 'faSchedule', 'faIt', 'faCandidates', 'faDisposal']
   },
   {
     name: 'year-end',
@@ -327,6 +335,15 @@ export const SCREENS: ScreenDef[] = [
     navSection: null,
     feature: 'inventory',
     invalidates: ['manufactureRegister']
+  },
+  {
+    name: 'manufacture-reports',
+    title: 'Manufacturing reports — production, cost sheet, margin, variance, job work',
+    keywords: ['production register', 'cost sheet', 'material variance', 'bom variance', 'job work', 'job worker', 'itc-04', 'expected margin'],
+    screen: { name: 'manufacture-reports' },
+    navSection: null, // reached from the Manufacture register / Manufacture options and the palette
+    feature: 'inventory',
+    invalidates: ['manufactureProduction', 'manufactureCostSheet', 'manufactureMargin', 'manufactureVariance', 'jobWorkPending', 'stockItems']
   },
   {
     name: 'search',

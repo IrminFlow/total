@@ -9,7 +9,7 @@ import { listGroups } from './masters'
 import { CASH_BANK_GROUPS } from '@shared/seed'
 import { buildChartOfAccounts, type ChartGroupNode, type ChartLedgerInput } from '@shared/chartOfAccounts'
 import { ageStock, buildCashFlow, computeRatios, type CashFlowStatement, type InwardLot } from '@shared/reportMath'
-import { listVouchers, IN_BOOKS, NOT_DELETED, NOT_YEAR_END_CLOSE } from './vouchers'
+import { listVouchers, IN_BOOKS, MOVES_STOCK, NOT_DELETED, NOT_YEAR_END_CLOSE } from './vouchers'
 import * as stockAnalysis from './stockAnalysis'
 import { balanceBasis, periodIncludesStoredPnl, resetsEachYear } from '@shared/yearOpening'
 import { booksFromYear } from './booksStart'
@@ -127,7 +127,7 @@ export function stockAgeing(db: DB, asOn: string): StockAgeingRow[] {
       `SELECT il.stock_item_id AS itemId, v.date, il.direction, il.qty_milli AS qty,
               il.is_absolute AS isAbsolute
        FROM inventory_lines il JOIN vouchers v ON v.id = il.voucher_id
-       WHERE v.date <= ? AND ${IN_BOOKS}
+       WHERE v.date <= ? AND ${IN_BOOKS} AND ${MOVES_STOCK}
        ORDER BY v.date, v.id, il.line_order, il.id`
     )
     .all(asOn) as { itemId: number; date: string; direction: 'in' | 'out'; qty: number; isAbsolute: number }[]
@@ -879,6 +879,9 @@ export function balanceSheet(db: DB, booksFrom: string, asOn: string, comparePri
 
 /** Indirect cash flow statement (v0.3 #53): net profit ± working-capital/stock deltas grouped
  *  by activity, reconciling exactly to the period's cash+bank movement. */
+/** Cash-flow row for depreciation runs' accumulated-depreciation credits (operating, non-cash). */
+export const DEPRECIATION_ADD_BACK = 'Depreciation (non-cash)'
+
 export function cashFlow(db: DB, from: string, to: string): CashFlowStatement {
   const pnl = profitAndLoss(db, from, to)
   const before = closingBalances(db, dayBefore(from))
@@ -908,6 +911,20 @@ export function cashFlow(db: DB, from: string, to: string): CashFlowStatement {
       .all(from, to) as { id: number; m: number }[]).map((r) => [r.id, r.m])
   )
 
+  // WP 3.6: a depreciation run's credit to accumulated depreciation (a Fixed Assets ledger) is a
+  // non-cash charge, not an investing inflow — report it as an operating add-back.
+  const depreciationMoves = new Map(
+    (db
+      .prepare(
+        `SELECT vl.ledger_id AS id, SUM(CASE WHEN vl.dr_cr = 'dr' THEN vl.amount ELSE -vl.amount END) AS m
+         FROM voucher_lines vl JOIN vouchers v ON v.id = vl.voucher_id
+         WHERE v.date BETWEEN ? AND ? AND ${IN_BOOKS}
+           AND v.id IN (SELECT voucher_id FROM depreciation_runs WHERE voucher_id IS NOT NULL AND asset_id IS NULL)
+         GROUP BY vl.ledger_id`
+      )
+      .all(from, to) as { id: number; m: number }[]).map((r) => [r.id, r.m])
+  )
+
   const deltaByGroup = new Map<string, number>()
   let openingCash = 0
   let closingCash = 0
@@ -921,10 +938,12 @@ export function cashFlow(db: DB, from: string, to: string): CashFlowStatement {
       continue
     }
     const a = (after.get(l.id) ?? 0) - (closingMoves.get(l.id) ?? 0)
-    if (a === b) continue
+    const dep = depreciationMoves.get(l.id) ?? 0
+    if (a === b && dep === 0) continue
     const top = topOf(l.groupId)
     if (top.nature !== 'asset' && top.nature !== 'liability') continue // P&L ledgers live in netProfit
-    deltaByGroup.set(top.name, (deltaByGroup.get(top.name) ?? 0) + (a - b))
+    if (dep !== 0) deltaByGroup.set(DEPRECIATION_ADD_BACK, (deltaByGroup.get(DEPRECIATION_ADD_BACK) ?? 0) + dep)
+    deltaByGroup.set(top.name, (deltaByGroup.get(top.name) ?? 0) + (a - b - dep))
   }
   // WP 1.3: a period containing the books' first day counts the stored openings of income/
   // expense ledgers in net profit (pnlLedgerAmounts). They are opening balances, not cash moved

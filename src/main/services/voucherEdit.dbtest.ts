@@ -8,7 +8,7 @@ import { seededDb, TEST_INFO } from '../db/testdb'
 import type { DB } from '../db/connection'
 import type { Group, Voucher, VoucherKind } from '@shared/domain'
 import {
-  buildAccountingPayload, buildInvoicePayload, buildPhysicalPayload, buildStockLinesPayload, buildTransferPayload,
+  buildAccountingPayload, buildInvoicePayload, buildPhysicalPayload, buildStockLinesPayload, buildTransferPayload, withJobWorker,
   derivePartyId, emptyInvoiceState, emptyPhysicalState, evaluateManufactureForm, planVoucherEdit, taxLedgerIdsFrom,
   LEGACY_STOCK_JOURNAL_BANNER, type EditPlan, type EditPlanContext, type VoucherPayload
 } from '@shared/voucherEdit'
@@ -20,6 +20,10 @@ import { setBom } from './extras'
 import { costPreview, getManufactureDetails, saveManufacture } from './manufacture'
 import type { ManufactureInput } from '@shared/manufacture'
 import { setBankDate } from './banking'
+import { dc, grn, item as tradeItem, trade, tradeBooks, uid as lineUid } from './tradeFixture.testutil'
+import { getJobWorkChallan, saveJobWorkChallan } from './jobWork'
+import { saveBomVersion } from './bom'
+import { buildJobWorkChallan } from '@shared/voucherEdit'
 import { applyTdsToVoucher, removeTdsFromVoucher } from './tdsWorkbench'
 import { applyTcsToVoucher, removeTcsFromVoucher } from './tcsWorkbench'
 
@@ -104,6 +108,7 @@ function editContext(db: DB, voucherId?: number): EditPlanContext {
     },
     taxLedgers: taxLedgerIdsFrom(ledgers),
     manufacture: voucherId ? getManufactureDetails(db, voucherId) : null,
+    jobWork: voucherId ? getJobWorkChallan(db, voucherId) : null,
     itemName: (id) => items.find((i) => i.id === id)?.name ?? ''
   }
 }
@@ -152,7 +157,9 @@ function editorPayload(db: DB, v: Voucher): { plan: EditPlan; payload: VoucherPa
             ? buildPhysicalPayload(plan.state, { voucherTypeId: v.voucherTypeId, itemName: ctx.itemName })
             : plan.mode === 'transfer'
               ? buildTransferPayload(plan.state, { voucherTypeId: v.voucherTypeId, costs: [] })
-              : buildStockLinesPayload(plan.state, { voucherTypeId: v.voucherTypeId })
+              : plan.mode === 'jobWorkSend'
+                ? buildTransferPayload(withJobWorker(plan.state.transfer, plan.state.challan), { voucherTypeId: v.voucherTypeId, costs: [] })
+                : buildStockLinesPayload(plan.state, { voucherTypeId: v.voucherTypeId })
   if (!r.ok) throw new Error(`${plan.mode}: ${r.error}`)
   return { plan, payload: r.payload }
 }
@@ -187,7 +194,25 @@ function snapshot(db: DB, id: number): unknown {
     tds: db
       .prepare('SELECT id, section_id, party_ledger_id, pan, base_amount, tds_amount, is_manual, rate_bp_at, deductee_type_at, certificate_id FROM tds_entries WHERE voucher_id = ?')
       .all(id),
-    manufacture: db.prepare('SELECT * FROM manufacture_details WHERE voucher_id = ?').all(id)
+    manufacture: db.prepare('SELECT * FROM manufacture_details WHERE voucher_id = ?').all(id),
+    // WP 2.4
+    outputs: db.prepare('SELECT line_order, stock_item_id, qty_milli, value_paise, kind FROM manufacture_outputs WHERE voucher_id = ? ORDER BY line_order').all(id),
+    jobWork: db.prepare('SELECT * FROM job_work_challans WHERE voucher_id = ?').all(id),
+    losses: db.prepare('SELECT * FROM job_work_losses WHERE voucher_id = ? ORDER BY line_order').all(id),
+    transferMark: db.prepare('SELECT * FROM stock_transfers WHERE voucher_id = ?').all(id),
+    // WP 2.5: stable line uids (except manufactures — manufacture:save rebuilds the journal and
+    // renumbers its lines; they can never be linked), moves_stock, the voucher's links both
+    // ways and the challan / GRN purpose all survive an open → save.
+    lineUids: db.prepare('SELECT 1 FROM manufacture_details WHERE voucher_id = ?').get(id)
+      ? null
+      : db.prepare('SELECT line_uid, moves_stock FROM inventory_lines WHERE voucher_id = ? ORDER BY line_order').all(id),
+    links: db
+      .prepare(
+        `SELECT link_type, from_voucher_id, from_line_uid, to_voucher_id, to_line_uid, qty_milli, reprices FROM line_links
+         WHERE to_voucher_id = ? OR from_voucher_id = ? ORDER BY to_line_uid`
+      )
+      .all(id, id),
+    trade: db.prepare('SELECT purpose, closed_at FROM trade_voucher_details WHERE voucher_id = ?').all(id)
   }
 }
 
@@ -196,7 +221,11 @@ function resave(db: DB, id: number): EditPlan {
   const v = getVoucher(db, id)!
   const plan = planVoucherEdit(v, kindOf(db, v), editContext(db, id))
   if (plan.mode === 'manufacture') saveManufacture(db, manufactureEditorInput(db, v, plan), id)
-  else saveVoucher(db, editorPayload(db, v).payload, id)
+  else if (plan.mode === 'jobWorkSend') {
+    const built = buildJobWorkChallan(plan.state, { voucherTypeId: v.voucherTypeId, costs: [] })
+    if (!built.ok) throw new Error(built.error)
+    saveJobWorkChallan(db, built.payload, id)
+  } else saveVoucher(db, editorPayload(db, v).payload, id)
   return plan
 }
 
@@ -473,6 +502,60 @@ describe('voucher editor round-trip (WP 1.4): load → save unchanged stores ide
     expectRoundTrip(db, saved.id, 'manufacture')
   })
 
+  it('manufacture with by-products, scrap, a BOM version and the explode flag (WP 2.4) — lossless', () => {
+    const v2 = saveBomVersion(db, { itemId: x.chair, name: 'v2', effectiveFrom: '2025-05-01', isDefault: false, lines: [{ componentId: x.steel, qtyMilliPerUnit: 2000, scrapPctBp: 500 }] })
+    const raw = [{ stockItemId: x.steel, qtyMilli: 6300 }]
+    const bp = [
+      { stockItemId: x.widget, qtyMilli: 500, valuePaise: 1000, kind: 'by_product' as const },
+      { stockItemId: x.paint, qtyMilli: 100, valuePaise: 50, kind: 'scrap' as const }
+    ]
+    const saved = saveManufacture(db, {
+      date: '2025-05-19', godownId: x.godownA, finishedItemId: x.chair, qtyMilli: 3000, saleRatePaise: 1000,
+      raw, labourPaise: 200, labourPosted: true, byProducts: bp, bomVersionId: v2.id, bomExploded: true,
+      profitPaise: 3000 - (6300 + 200 - 1050), confirmLoss: true
+    })
+    const inv = getVoucher(db, saved.id)!.inventory
+    expect(inv.map((l) => [l.stockItemId, l.direction, l.amount])).toEqual([
+      [x.steel, 'out', 6300], [x.chair, 'in', 6300 + 200 - 1050], [x.widget, 'in', 1000], [x.paint, 'in', 50]
+    ])
+    const plan = expectRoundTrip(db, saved.id, 'manufacture')
+    expect(plan.mode === 'manufacture' && plan.state).toMatchObject({
+      bomVersionId: v2.id, bomExploded: true,
+      byProducts: [
+        { itemId: x.widget, qtyText: '0.5', valuePaise: 1000, kind: 'by_product' },
+        { itemId: x.paint, qtyText: '0.1', valuePaise: 50, kind: 'scrap' }
+      ]
+    })
+  })
+
+  it('job-work send challan and receipt (WP 2.4) reopen in their own forms and re-save identically', () => {
+    const worker = ledger(db, 'Job Worker Co', 'Sundry Creditors', { stateCode: '27' })
+    const jw = createGodown(db, { name: 'At Job Worker', kind: 'job_worker', partyLedgerId: worker }).id
+    const sj = typeId(db, 'stock_journal')
+    const sent = saveJobWorkChallan(db, {
+      voucher: {
+        ...header, voucherTypeId: sj, date: '2025-05-20', lines: [],
+        inventory: [
+          { stockItemId: x.steel, godownId: x.godownA, batchId: null, qtyMilli: 5000, ratePaise: 1000, amount: 5000, direction: 'out' },
+          { stockItemId: x.steel, godownId: jw, batchId: null, qtyMilli: 5000, ratePaise: 1000, amount: 5000, direction: 'in' }
+        ]
+      },
+      challan: { kind: 'send', godownId: jw, natureOfProcessing: 'Powder coating', goodsType: 'inputs' }
+    })
+    const plan = expectRoundTrip(db, sent.id, 'jobWorkSend')
+    expect(plan.mode === 'jobWorkSend' && plan.state.challan).toMatchObject({ kind: 'send', godownId: jw, natureOfProcessing: 'Powder coating' })
+    const got = saveManufacture(db, {
+      date: '2025-05-25', godownId: x.godownA, finishedItemId: x.chair, qtyMilli: 2000, saleRatePaise: 0,
+      raw: [{ stockItemId: x.steel, qtyMilli: 4500, lossQtyMilli: 500 }], labourPaise: 900, labourPosted: true,
+      jobWork: { godownId: jw, challanNo: 'JW-77', challanDate: '2025-05-24', natureOfProcessing: 'Powder coating', originalChallanVoucherId: sent.id },
+      profitPaise: -(4500 + 900), confirmLoss: true
+    })
+    expect(getVoucher(db, got.id)!.inventory.map((l) => l.godownId)).toEqual([jw, x.godownA])
+    const rplan = expectRoundTrip(db, got.id, 'manufacture')
+    expect(rplan.mode === 'manufacture' && rplan.state.jobWork).toMatchObject({ godownId: jw, challanNo: 'JW-77', originalChallanVoucherId: sent.id })
+    expect(rplan.mode === 'manufacture' && rplan.state.rows[0]).toMatchObject({ lossText: '0.5', godownId: null })
+  })
+
   it('legacy stock journal (no manufacture_details row) opens as plain stock lines with the 0.6.0 banner', () => {
     const id = saveVoucher(db, {
       ...header, voucherTypeId: typeId(db, 'stock_journal'), date: '2025-05-17', narration: 'Manufactured 3 × Chair', lines: [],
@@ -615,5 +698,46 @@ describe('saveVoucher keeps bank reconciliation across an alteration', () => {
     saveVoucher(db, { ...header, voucherTypeId: typeId(db, 'payment'), date: '2025-05-13',
       lines: [{ ledgerId: x.freight, drCr: 'dr', amount: 6000 }, { ledgerId: x.bank, drCr: 'cr', amount: 6000 }] }, id)
     expect(getVoucher(db, id)!.lines[1]!.bankDate).toBeNull()
+  })
+})
+
+describe('voucher editor round-trip (WP 2.5a): challans, GRNs and linked invoices', () => {
+  it('a delivery challan, a GRN and the invoice / bill drawn from them re-save byte-identical', () => {
+    const b = tradeBooks()
+    const db = b.db
+    const w = tradeItem(db, 'Widget', { opening: [20, 20000] })
+    const p = tradeItem(db, 'Phone', { serials: true })
+    trade(b, 'purchase', '2025-04-10', [{ item: p, qty: 2, amount: 20000, godown: b.godown, serials: ['P1', 'P2'] }])
+    const d = dc(b, '2025-05-01', [
+      { item: w, qty: 5, amount: 5000, godown: b.godown },
+      { item: p, qty: 2, amount: 26000, godown: b.godown, serials: ['P1', 'P2'] }
+    ], { purpose: 'approval' })
+    const g = grn(b, '2025-05-02', [{ item: w, qty: 4, amount: 4000, godown: b.godown2 }])
+    const inv = trade(b, 'sales', '2025-05-03', [
+      { item: w, qty: 3, amount: 3600, godown: b.godown, from: lineUid(db, d.id, 0) },
+      { item: p, qty: 1, amount: 13000, godown: b.godown, serials: ['P2'], from: lineUid(db, d.id, 1) },
+      { item: w, qty: 1, amount: 1200 }
+    ])
+    const bill = trade(b, 'purchase', '2025-05-04', [{ item: w, qty: 4, amount: 4400, godown: b.godown2, from: lineUid(db, g.id) }])
+    const cn = trade(b, 'credit_note', '2025-05-06', [{ item: w, qty: 1, amount: 1200, godown: b.godown, from: lineUid(db, inv.id, 2), link: 'return' }])
+    expectRoundTrip(db, d.id, 'stockLines')
+    expectRoundTrip(db, g.id, 'stockLines')
+    expectRoundTrip(db, inv.id, 'accounting') // no GST ledgers on these test lines → the invoice form can't show it
+    expectRoundTrip(db, bill.id, 'accounting')
+    expectRoundTrip(db, cn.id, 'accounting')
+    expect(getVoucher(db, inv.id)!.inventory.map((l) => l.movesStock)).toEqual([false, false, true])
+  })
+
+  it('an invoice-mode sale drawn from a challan keeps its uids and links', () => {
+    const b = tradeBooks()
+    const db = b.db
+    const z = tradeItem(db, 'Zero-rated', { opening: [20, 20000], gstRate: 0 })
+    const d = dc(b, '2025-05-01', [{ item: z, qty: 5, amount: 5000, godown: b.godown }])
+    const inv = trade(b, 'sales', '2025-05-03', [
+      { item: z, qty: 3, amount: 3600, godown: b.godown, from: lineUid(db, d.id) },
+      { item: z, qty: 1, amount: 1200, godown: b.godown }
+    ])
+    expectRoundTrip(db, inv.id, 'invoice')
+    expect(getVoucher(db, inv.id)!.inventory[0]!.source).toEqual({ lineUid: lineUid(db, d.id), linkType: 'fulfil' })
   })
 })

@@ -13,6 +13,8 @@ export interface CountRowState {
   /** Carried from a saved line (no picker in this form yet). */
   godownId: number | null
   batchId: number | null
+  /** Stable line uid of a saved count line (WP 2.5). */
+  lineUid?: string
 }
 
 export interface PhysicalFormState {
@@ -71,7 +73,8 @@ export function buildPhysicalPayload(
         ratePaise: 0,
         amount: 0,
         direction: 'in' as const,
-        isAbsolute: true
+        isAbsolute: true,
+        ...(r.lineUid ? { lineUid: r.lineUid } : {})
       })),
       billRefs: [],
       tds: null
@@ -89,7 +92,10 @@ export function physicalRepresentation(
   const state: PhysicalFormState = {
     date: v.date,
     number: v.number,
-    rows: v.inventory.map((l) => ({ itemId: l.stockItemId, qtyText: qtyText(l.qtyMilli), godownId: l.godownId, batchId: l.batchId })),
+    rows: v.inventory.map((l) => ({
+      itemId: l.stockItemId, qtyText: qtyText(l.qtyMilli), godownId: l.godownId, batchId: l.batchId,
+      ...(l.lineUid ? { lineUid: l.lineUid } : {})
+    })),
     narration: v.narration ?? '',
     passthrough: passthroughOf(v),
     isOptional: v.isOptional

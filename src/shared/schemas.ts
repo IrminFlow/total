@@ -3,6 +3,7 @@ import { GST_STATES } from './gst/states'
 import { validateGstin } from './gst/validate'
 import { isUqc } from './gst/uqc'
 import { PT_STATES } from './payroll'
+import { TRADE_DOC_KINDS, TRADE_PURPOSES, VOUCHER_KINDS } from './domain'
 
 export const isoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Expected YYYY-MM-DD')
 
@@ -144,7 +145,11 @@ export type StockItemInput = z.infer<typeof stockItemInputSchema>
 
 export const godownInputSchema = z.object({
   name: z.string().trim().min(1).max(120),
-  address: z.string().trim().max(500).nullable().optional()
+  address: z.string().trim().max(500).nullable().optional(),
+  /** WP 2.4: 'job_worker' = a third party's premises holding our material (needs a party
+   *  ledger). Absent = keep existing (update) / 'own' (create). */
+  kind: z.enum(['own', 'job_worker']).optional(),
+  partyLedgerId: id.nullable().optional()
 })
 export type GodownInput = z.infer<typeof godownInputSchema>
 
@@ -192,6 +197,10 @@ export const tcsSchema = z.object({
   autoPayable: z.boolean().default(false)
 })
 
+/** A stable line uid: 32 lowercase hex chars (migration 024 backfill / crypto.randomUUID sans hyphens). */
+export const lineUidSchema = z.string().regex(/^[0-9a-f]{32}$/, 'Expected a 32-hex line uid')
+export const lineSourceSchema = z.object({ lineUid: lineUidSchema, linkType: z.enum(['fulfil', 'return']) })
+
 export const inventoryLineSchema = z
   .object({
     stockItemId: id,
@@ -210,7 +219,12 @@ export const inventoryLineSchema = z
     isAbsolute: z.boolean().optional(),
     /** Serial numbers moved by this line (WP 2.3) — one per unit for serial-tracked items
      *  (src/shared/serials.ts); dropped for items that don't track serials. */
-    serials: z.array(z.string().trim().min(1).max(60)).max(5000).optional()
+    serials: z.array(z.string().trim().min(1).max(60)).max(5000).optional(),
+    /** Stable line identity (WP 2.5): kept only when it belonged to this voucher's saved lines —
+     *  saveVoucher assigns a fresh one otherwise. Absent = a new line. */
+    lineUid: lineUidSchema.optional(),
+    /** The line this one fulfils / returns (WP 2.5 line_links); null/absent = none. */
+    source: lineSourceSchema.nullable().optional()
   })
   .refine((l) => l.isAbsolute || l.qtyMilli > 0, {
     message: 'Inventory quantity must be positive',
@@ -242,7 +256,9 @@ export const voucherInputSchema = z.object({
   billRefs: z.array(billRefSchema).max(50).default([]),
   tds: tdsSchema.nullable().default(null),
   /** TCS collected (WP 3.3). Absent = none (never "keep": every editor posts it back). */
-  tcs: tcsSchema.nullable().optional()
+  tcs: tcsSchema.nullable().optional(),
+  /** Delivery challan / GRN facts (WP 2.5); only stored for those kinds. */
+  trade: z.object({ purpose: z.enum(TRADE_PURPOSES) }).nullable().optional()
 })
 export type VoucherInputParsed = z.infer<typeof voucherInputSchema>
 /** Unparsed shape (defaults optional) — saveVoucher parses internally. */
@@ -250,10 +266,7 @@ export type VoucherInput = z.input<typeof voucherInputSchema>
 
 export const voucherTypeInputSchema = z.object({
   name: z.string().trim().min(1).max(60),
-  kind: z.enum([
-    'contra', 'payment', 'receipt', 'journal', 'sales',
-    'purchase', 'credit_note', 'debit_note', 'stock_journal', 'physical_stock'
-  ]),
+  kind: z.enum(VOUCHER_KINDS),
   numbering: z.enum(['auto', 'manual']).default('auto'),
   prefix: z.string().trim().max(20).default(''),
   suffix: z.string().trim().max(20).default(''),
@@ -261,6 +274,38 @@ export const voucherTypeInputSchema = z.object({
   restartFy: z.boolean().default(true)
 })
 export type VoucherTypeInput = z.infer<typeof voucherTypeInputSchema>
+
+// ---------- trade cycle (WP 2.5a: links, kinds, numbering series) ----------
+
+export const tradeDocKindSchema = z.enum(TRADE_DOC_KINDS)
+
+/** A quotation / order numbering series (trade_doc_types) — the voucher-type knobs. */
+export const tradeDocTypeInputSchema = z.object({
+  name: z.string().trim().min(1).max(60),
+  kind: tradeDocKindSchema,
+  numbering: z.enum(['auto', 'manual']).default('auto'),
+  prefix: z.string().trim().max(20).default(''),
+  suffix: z.string().trim().max(20).default(''),
+  padWidth: z.number().int().min(0).max(8).default(0),
+  restartFy: z.boolean().default(true)
+})
+export type TradeDocTypeInput = z.infer<typeof tradeDocTypeInputSchema>
+
+export const tradeDocTypeSaveSchema = z.object({ id: id.optional(), data: tradeDocTypeInputSchema })
+
+export const tradeDocNextNumberSchema = z.object({ docTypeId: id, date: isoDate })
+
+export const linksForVoucherSchema = z.object({ voucherId: id })
+
+/** Open source lines a party could draw on for a target kind (the 2.5b "Add from…" drawer). */
+export const openSourceLinesSchema = z.object({
+  partyLedgerId: id,
+  targetKind: z.union([z.enum(VOUCHER_KINDS), tradeDocKindSchema]),
+  linkType: z.enum(['fulfil', 'return']).default('fulfil'),
+  /** The voucher being altered: its own links don't count against capacity. */
+  excludeVoucherId: id.optional()
+})
+export type OpenSourceLinesQuery = z.infer<typeof openSourceLinesSchema>
 
 export const periodSchema = z.object({ from: isoDate, to: isoDate })
 export type Period = z.infer<typeof periodSchema>
@@ -314,6 +359,36 @@ export const bomInputSchema = z.object({
   lines: z.array(bomLineInputSchema).max(100)
 })
 export type BomInput = z.infer<typeof bomInputSchema>
+
+/** WP 2.4: one BOM version (create without id, replace with id). */
+export const bomVersionInputSchema = z.object({
+  id: id.optional(),
+  itemId: id,
+  name: z.string().trim().min(1).max(60),
+  effectiveFrom: isoDate.nullable().optional(),
+  effectiveTo: isoDate.nullable().optional(),
+  isDefault: z.boolean().default(false),
+  lines: z
+    .array(
+      z.object({
+        componentId: id,
+        qtyMilliPerUnit: z.number().int().positive().max(1e12),
+        scrapPctBp: z.number().int().min(0).max(100_000).nullable().optional()
+      })
+    )
+    .max(200)
+})
+export type BomVersionInput = z.infer<typeof bomVersionInputSchema>
+
+/** WP 2.4: bom:explode — expand a quantity of an item through its BOM as of a date. */
+export const bomExplodeSchema = z.object({
+  itemId: id,
+  qtyMilli: z.number().int().nonnegative().max(1e12),
+  date: isoDate,
+  versionId: id.nullable().optional(),
+  levels: z.enum(['single', 'full']).default('single')
+})
+export type BomExplodeInput = z.infer<typeof bomExplodeSchema>
 
 /** NIC live-filing credentials, per company: non-secret fields in the meta table, password and
  *  clientSecret in the encrypted secret store (src/main/services/nic.ts). */
@@ -869,13 +944,45 @@ export const manufactureInputSchema = z.object({
   qtyMilli: z.number().int().nonnegative().max(1e12),
   saleRatePaise: paise,
   raw: z
-    .array(z.object({ stockItemId: z.number().int().nonnegative(), qtyMilli: z.number().int().nonnegative().max(1e12), godownId: id.nullable().optional() }))
+    .array(
+      z.object({
+        stockItemId: z.number().int().nonnegative(),
+        qtyMilli: z.number().int().nonnegative().max(1e12),
+        godownId: id.nullable().optional(),
+        lossQtyMilli: z.number().int().max(1e12).optional()
+      })
+    )
     .max(200),
   labourPaise: paise,
   labourPosted: z.boolean(),
   labourCreditLedgerId: id.nullable().optional(),
   profitPaise: paise,
-  confirmLoss: z.boolean().optional()
+  confirmLoss: z.boolean().optional(),
+  // WP 2.4
+  byProducts: z
+    .array(
+      z.object({
+        stockItemId: z.number().int().nonnegative(),
+        qtyMilli: z.number().int().nonnegative().max(1e12),
+        valuePaise: paise,
+        kind: z.enum(['by_product', 'scrap']).default('by_product'),
+        godownId: id.nullable().optional()
+      })
+    )
+    .max(50)
+    .optional(),
+  bomVersionId: id.nullable().optional(),
+  bomExploded: z.boolean().optional(),
+  jobWork: z
+    .object({
+      godownId: z.number().int().nonnegative(),
+      challanNo: z.string().trim().max(40).nullable().optional(),
+      challanDate: isoDate.nullable().optional(),
+      natureOfProcessing: z.string().trim().max(200).nullable().optional(),
+      originalChallanVoucherId: id.nullable().optional()
+    })
+    .nullable()
+    .optional()
 })
 export type ManufactureInputParsed = z.infer<typeof manufactureInputSchema>
 
@@ -891,6 +998,30 @@ export const manufactureCostPreviewSchema = z.object({
 export type ManufactureCostPreviewInput = z.infer<typeof manufactureCostPreviewSchema>
 
 export const manufactureRegisterSchema = z.object({ from: isoDate, to: isoDate })
+
+/** WP 2.4 manufacturing reports: a period, optionally one finished item. */
+export const manufactureReportSchema = z.object({ from: isoDate, to: isoDate, itemId: id.optional() })
+
+/** WP 2.4: a job-work send / return challan — the godown-transfer voucher plus its ITC-04 facts.
+ *  The voucher payload is parsed again by saveVoucher. */
+export const jobWorkChallanSaveSchema = z.object({
+  id: id.optional(),
+  voucher: z.unknown(),
+  challan: z.object({
+    kind: z.enum(['send', 'return']),
+    godownId: id,
+    natureOfProcessing: z.string().trim().max(200).nullable().optional(),
+    goodsType: z.enum(['inputs', 'capital_goods']).default('inputs'),
+    /** Return only: the job worker's challan for the material coming back. */
+    challanNo: z.string().trim().max(40).nullable().optional(),
+    challanDate: isoDate.nullable().optional(),
+    originalChallanVoucherId: id.nullable().optional()
+  })
+})
+export type JobWorkChallanSaveInput = z.infer<typeof jobWorkChallanSaveSchema>
+
+/** WP 2.4: material at job workers as on a date; `pendingDays` flags lots older than that. */
+export const jobWorkPendingSchema = z.object({ asOn: isoDate, pendingDays: z.number().int().min(0).max(3650).default(180) })
 
 export const stockMovementsSchema = z.object({ stockItemId: id, from: isoDate, to: isoDate })
 // ---------- stock visibility (WP 2.3) ----------
@@ -922,6 +1053,6 @@ export type StockLabelsInput = z.infer<typeof stockLabelsSchema>
 /** serials:list / serials:available. */
 export const serialsListSchema = z.object({
   stockItemId: id.optional(),
-  status: z.enum(['in_stock', 'sold', 'consumed', 'returned']).optional()
+  status: z.enum(['in_stock', 'sold', 'consumed', 'returned', 'delivered']).optional()
 })
 export const serialsAvailableSchema = z.object({ stockItemId: id, voucherId: id.optional() })

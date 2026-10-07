@@ -1,7 +1,6 @@
 import type { DB } from '../db/connection'
-import type { BomLine, Currency } from '@shared/domain'
-import type { BomInput, CurrencyInput } from '@shared/schemas'
-import { wouldCreateBomCycle, type BomEdge } from '@shared/valuation'
+import type { Currency } from '@shared/domain'
+import type { CurrencyInput } from '@shared/schemas'
 import { writeAudit } from './audit'
 
 // ---------- currencies ----------
@@ -29,51 +28,6 @@ export function deleteCurrency(db: DB, id: number): void {
 }
 
 // ---------- bill of materials ----------
-
-export function getBom(db: DB, itemId: number): BomLine[] {
-  return db
-    .prepare(
-      `SELECT b.id, b.component_id AS componentId, si.name AS componentName, u.symbol AS unitSymbol,
-              b.qty_milli_per_unit AS qtyMilliPerUnit
-       FROM bom_lines b
-       JOIN stock_items si ON si.id = b.component_id
-       JOIN units u ON u.id = si.unit_id
-       WHERE b.item_id = ? ORDER BY si.name`
-    )
-    .all(itemId) as BomLine[]
-}
-
-export function setBom(db: DB, input: BomInput): BomLine[] {
-  if (input.lines.some((l) => l.componentId === input.itemId)) {
-    throw new Error('An item cannot be its own component')
-  }
-  // Multi-level cycle detection (task 79): DFS through the existing BOM graph — saving this
-  // BOM must not make any component (transitively) contain the item itself.
-  const edges = db
-    .prepare('SELECT item_id AS itemId, component_id AS componentId FROM bom_lines')
-    .all() as BomEdge[]
-  if (wouldCreateBomCycle(input.itemId, input.lines.map((l) => l.componentId), edges)) {
-    throw new Error('This BOM would create a cycle — a component already contains this item')
-  }
-  const before = getBom(db, input.itemId)
-  const run = db.transaction(() => {
-    db.prepare('DELETE FROM bom_lines WHERE item_id = ?').run(input.itemId)
-    const insert = db.prepare('INSERT INTO bom_lines (item_id, component_id, qty_milli_per_unit) VALUES (?, ?, ?)')
-    for (const line of input.lines) insert.run(input.itemId, line.componentId, line.qtyMilliPerUnit)
-  })
-  run()
-  const after = getBom(db, input.itemId)
-  writeAudit(db, 'bom', input.itemId, 'update', before, after)
-  return after
-}
-
-/** Items that have a BOM (for the Manufacture picker). */
-export function itemsWithBom(db: DB): { itemId: number; name: string; components: number }[] {
-  return db
-    .prepare(
-      `SELECT si.id AS itemId, si.name, COUNT(b.id) AS components
-       FROM stock_items si JOIN bom_lines b ON b.item_id = si.id
-       GROUP BY si.id ORDER BY si.name`
-    )
-    .all() as { itemId: number; name: string; components: number }[]
-}
+// WP 2.4: BOMs are versioned — services/bom.ts owns them; the pre-2.4 API is re-exported here so
+// existing callers (bom:get / bom:set / bom:items) keep working unchanged.
+export { getBom, setBom, itemsWithBom } from './bom'

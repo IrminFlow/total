@@ -405,7 +405,12 @@ describe('migration 021 (serial numbers)', () => {
     const db = freshPartialDb(at)
     seedCompany(db, { ...TEST_INFO, booksFrom: 2025 })
     const fx = seedStockFixture(db, { vouchers: 300, items: 8, seed: 21 })
-    const before = stock.stockSummary(db, '2026-03-31')
+    // The figures before 021, from an identical fixture on a current-schema DB (the reports read
+    // tables later migrations add, so they can't run on the pre-021 schema itself).
+    const reference = freshPartialDb(MIGRATIONS.length)
+    seedCompany(reference, { ...TEST_INFO, booksFrom: 2025 })
+    seedStockFixture(reference, { vouchers: 300, items: 8, seed: 21 })
+    const before = stock.stockSummary(reference, '2026-03-31')
     const lines = (db.prepare('SELECT COUNT(*) AS n FROM inventory_lines').get() as { n: number }).n
     migrate(db)
     expect(lines).toBe(fx.inventoryLines)

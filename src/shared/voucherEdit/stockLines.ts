@@ -3,7 +3,7 @@
 // Tally journals, arbitrary in/out lines. One row per inventory line; every stored field rides
 // along, and any ledger lines / header fields are posted back untouched.
 
-import type { Voucher } from '../domain'
+import type { LineSource, Voucher } from '../domain'
 import {
   EMPTY_PASSTHROUGH, inventoryToPayload, passthroughOf, qtyText, voucherToPayload,
   type BuildResult, type HeaderPassthrough, type VoucherPayload
@@ -23,6 +23,9 @@ export interface StockLineRowState {
   isAbsolute: boolean
   /** Serial numbers (serial-tracked items, WP 2.3). */
   serials?: string[]
+  /** Stable line uid of a saved line and its link source (WP 2.5) — carried verbatim. */
+  lineUid?: string
+  source?: LineSource | null
 }
 
 export interface StockLinesFormState {
@@ -74,7 +77,9 @@ export function buildStockLinesPayload(state: StockLinesFormState, opts: { vouch
       amount: r.amount ?? 0,
       direction: r.direction,
       isAbsolute: r.isAbsolute,
-      ...(r.serials && r.serials.length > 0 ? { serials: [...r.serials] } : {})
+      ...(r.serials && r.serials.length > 0 ? { serials: [...r.serials] } : {}),
+      ...(r.lineUid ? { lineUid: r.lineUid } : {}),
+      ...(r.source ? { source: { ...r.source } } : {})
     })
   }
   if (inventory.length === 0) return { ok: false, error: 'Add at least one stock line' }
@@ -112,7 +117,9 @@ export function stockLinesStateFromVoucher(v: Voucher): StockLinesFormState {
         batchId: x.batchId ?? null,
         discountPaise: x.discountPaise ?? 0,
         isAbsolute: x.isAbsolute ?? false,
-        ...(x.serials ? { serials: [...x.serials] } : {})
+        ...(x.serials ? { serials: [...x.serials] } : {}),
+        ...(x.lineUid ? { lineUid: x.lineUid } : {}),
+        ...(x.source ? { source: { ...x.source } } : {})
       }
     }),
     narration: v.narration ?? '',

@@ -92,7 +92,7 @@ const EXPIRY_COLUMNS = defineColumns<ExpiryReportRow>([
   { id: 'qty', header: 'In stock', kind: 'quantity', value: (r) => r.closingQtyMilli, ...perItem<ExpiryReportRow>(), width: 124 }
 ])
 
-const STATUS_LABEL: Record<SerialStatus, string> = { in_stock: 'In stock', sold: 'Sold', consumed: 'Consumed', returned: 'Returned to supplier' }
+const STATUS_LABEL: Record<SerialStatus, string> = { in_stock: 'In stock', sold: 'Sold', consumed: 'Consumed', returned: 'Returned to supplier', delivered: 'Delivered (not invoiced)' }
 const SERIAL_COLUMNS = defineColumns<SerialListRow>([
   { id: 'item', header: 'Item', kind: 'text', value: (r) => r.itemName, minWidth: 160, cell: (r) => <ItemLink itemId={r.stockItemId} name={r.itemName} /> },
   { id: 'serial', header: 'Serial', kind: 'text', value: (r) => r.serial, width: 160, groupable: false, cell: (r) => <span className="num">{r.serial}</span> },
