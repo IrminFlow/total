@@ -18,6 +18,7 @@ import { formatMilli } from '../../lib/table'
 import { CardLink, DashCard, type CardState } from './parts'
 import { onboardingFromDashSetup } from '@shared/onboarding'
 import { onboardingScreen } from '../../lib/onboarding'
+import { FinanceReminderRows } from './FinanceReminders'
 
 const stackRowCls =
   'flex w-full cursor-pointer flex-col gap-1 border-b border-line/40 px-4 py-2 text-left hover:bg-panel2 focus-visible:bg-panel2 focus-visible:outline-none'
@@ -313,6 +314,8 @@ export function ComplianceCard({
               </span>
             </div>
           )}
+          {/* WP 4.4: loan EMIs due and the over-budget chip (additive). */}
+          <FinanceReminderRows />
           {(showAll ? others : others.slice(0, 3)).map((d) => (
             <div key={d.id} className="flex items-center gap-2 border-b border-line/40 px-4 py-[5px] last:border-b-0">
               <span className="num w-[62px] text-caption text-muted">{toDisplayDate(d.date)}</span>

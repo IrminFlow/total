@@ -20,6 +20,9 @@ import { CounterBillingScreen } from './screens/CounterBilling'
 import { ManufactureRegisterScreen } from './screens/ManufactureRegister'
 import { ManufactureReportsScreen } from './screens/ManufactureReports'
 import { FixedAssetsScreen } from './screens/FixedAssets'
+import { CashForecastScreen } from './screens/CashForecast'
+import { LoansScreen } from './screens/Loans'
+import { ForexScreen } from './screens/Forex'
 import { StockMovementsScreen } from './screens/StockMovements'
 import { StockJournalScreen } from './screens/StockJournal'
 import { StockReportsScreen } from './screens/StockReports'
@@ -221,6 +224,9 @@ export default function App(): React.JSX.Element {
           {screen.name === 'tcs' && <TcsScreen />}
           {screen.name === 'cost-centres' && <CostCentresScreen />}
           {screen.name === 'budgets' && <BudgetsScreen />}
+          {screen.name === 'cash-forecast' && <CashForecastScreen />}
+          {screen.name === 'loans' && <LoansScreen key={screen.loanId ?? 'all'} loanId={screen.loanId} />}
+          {screen.name === 'forex' && <ForexScreen />}
           {screen.name === 'year-end' && <YearEndScreen />}
           {screen.name === 'company-info' && <CompanyInfoScreen />}
           {screen.name === 'audit-trail' && <EditLogScreen key={screen.voucherId ?? 'all'} voucherId={screen.voucherId} />}

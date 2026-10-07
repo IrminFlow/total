@@ -4,6 +4,7 @@ import { fyFromStartYear, fyOf, todayISO, toDisplayDate } from '@shared/dates'
 import { planClose, type CloseLedgerRow } from '@shared/yearEnd'
 import { api } from '../lib/client'
 import { useNav, useSession, useToasts } from '../state/stores'
+import { CashFinanceCloseWarnings } from './cashFinance/CloseWarnings'
 import { Banner, Button, DrawerSection, EmptyState, Money, Page, PageHeader, Panel, Select, TextInput } from '../components/ui'
 import { OptionsTable } from '../components/ScreenOptions'
 import { DataTable, defineColumns } from '../components/table'
@@ -266,6 +267,9 @@ export function YearEndScreen(): React.JSX.Element {
           Nothing is posted for these automatically — book a provision if your CA asks for one, or bill / invoice them before closing.
         </Banner>
       )}
+
+      {/* WP 4.4: unposted EMIs, unrevalued forex balances, over-budget departments (warn-only). */}
+      <CashFinanceCloseWarnings fyStartYear={fyStartYear} closed={!!preview?.alreadyClosed} />
 
       {step === 1 && (
         <>
