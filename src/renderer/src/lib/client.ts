@@ -755,8 +755,9 @@ export const api = {
     list: (from: string, to: string, voucherTypeId?: number) =>
       call<VoucherListRow[]>('voucher:list', { from, to, voucherTypeId }),
     get: (id: number) => call<Voucher | null>('voucher:get', { id }),
-    save: (data: VoucherInputParsed, id?: number) =>
-      call<Voucher & { duplicateNumber?: boolean; warnings?: SaveVoucherWarnings }>('voucher:save', { data, id }),
+    /** `aiDraftId` (WP 5.1): the voucher was reviewed from an AI draft — main marks it consumed. */
+    save: (data: VoucherInputParsed, id?: number, aiDraftId?: number) =>
+      call<Voucher & { duplicateNumber?: boolean; warnings?: SaveVoucherWarnings }>('voucher:save', { data, id, ...(aiDraftId ? { aiDraftId } : {}) }),
     remove: (id: number) => call<null>('voucher:delete', { id }),
     nextNumber: (voucherTypeId: number, date: string, excludeId?: number) =>
       call<{ number: string }>('voucher:nextNumber', { voucherTypeId, date, excludeId }),

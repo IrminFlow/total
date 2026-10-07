@@ -418,13 +418,14 @@ export function AccountingEntry({
         })
         if (!proceed) return
       }
-      const saved = await api.vouchers.save(input, voucherId)
+      const saved = await api.vouchers.save(input, voucherId, voucherId ? undefined : draft?.aiDraftId)
       await tdsDeduction.afterSave(saved.id)
       if (features.tcs && kind === 'receipt') await tcsCollection.afterSave(saved.id)
       toast.push('success', `${saved.number} ${voucherId ? 'altered' : 'saved'}`)
       setWorkingDate(date)
       await queryClient.invalidateQueries()
-      if (voucherId) leave()
+      // An AI draft is used up by its save — go back to where the user came from.
+      if (voucherId || draft?.aiDraftId) leave()
       else {
         setRows([blankAcctRow('dr'), blankAcctRow('cr')])
         setNarration('')
@@ -440,7 +441,7 @@ export function AccountingEntry({
     } finally {
       setSaving(false)
     }
-  }, [saving, buildPayload, date, typeId, voucherId, toast, setWorkingDate, queryClient, leave, numberField.reset, tdsDeduction.reset, tdsDeduction.afterSave, tcsCollection.reset, tcsCollection.afterSave, features.tcs, kind])
+  }, [saving, buildPayload, date, typeId, voucherId, toast, setWorkingDate, queryClient, leave, numberField.reset, tdsDeduction.reset, tdsDeduction.afterSave, tcsCollection.reset, tcsCollection.afterSave, features.tcs, kind, draft?.aiDraftId])
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
