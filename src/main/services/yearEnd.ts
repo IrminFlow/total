@@ -9,6 +9,8 @@ import { booksFromYear } from './booksStart'
 import { pnlLedgerAmounts } from './reports'
 import { yearStatus } from './fixedAssets'
 import type { DepreciationYearStatus } from '@shared/fixedAssets'
+import type { UnbilledGoods } from '@shared/tradeCycle/types'
+import { unbilledGoods } from './tradeAnalysis'
 
 /** Marker embedded in the closing journal's narration — for readability (and migration 018's
  *  backfill of pre-flag closes). Status checks use vouchers.is_year_end_close, not this text. */
@@ -23,6 +25,9 @@ export interface ClosePreview {
   alreadyClosed: boolean
   /** WP 3.6: book depreciation status for the year — the close screen warns when it's missing. */
   depreciation: DepreciationYearStatus
+  /** WP 2.5d (design §9 Q5): goods delivered / received but not invoiced on the FY's last day —
+   *  the close screen warns with the values; no provision is posted automatically. */
+  unbilled: UnbilledGoods
 }
 
 /** Signed dr-positive net movement + already-closed check for a financial year's income/expense
@@ -62,7 +67,7 @@ export function closePreview(db: DB, fyStartYear: number, booksFrom: number = bo
     .prepare(`SELECT 1 FROM vouchers v WHERE ${NOT_DELETED} AND v.is_year_end_close = 1 AND v.date BETWEEN ? AND ? LIMIT 1`)
     .get(fy.from, fy.to)
 
-  return { rows, netProfit, alreadyClosed: !!existing, depreciation: yearStatus(db, fyStartYear) }
+  return { rows, netProfit, alreadyClosed: !!existing, depreciation: yearStatus(db, fyStartYear), unbilled: unbilledGoods(db, fy.to) }
 }
 
 export interface CloseResult {

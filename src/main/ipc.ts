@@ -70,6 +70,9 @@ import * as tradeLinks from './services/tradeLinks'
 import * as tradeDocTypes from './services/tradeDocTypes'
 import * as tradeReports from './services/tradeReports'
 import * as tradeDocs from './services/tradeDocs'
+import * as tradeChain from './services/tradeChain'
+import * as tradeAnalysis from './services/tradeAnalysis'
+import * as tradeClosure from './services/tradeClosure'
 import * as priceLevels from './services/priceLevels'
 import * as budgets from './services/budgets'
 import * as yearEnd from './services/yearEnd'
@@ -98,7 +101,9 @@ import {
   userInputSchema, authLoginSchema, payHeadInputSchema, employeeHeadsSetSchema, payrollRunIdSchema,
   auditRetentionSchema, invoicePdfBatchSchema, linksForVoucherSchema, openSourceLinesSchema, tradePendingSchema, tradeDocNextNumberSchema,
   tradeDocTypeSaveSchema, tradeDocListSchema, tradeDocSaveSchema, tradeDocActionSchema, tradeDocConvertSchema, pendingOrdersSchema,
-  quotationPipelineSchema, openOrderValueSchema
+  quotationPipelineSchema, openOrderValueSchema, tradeChainSchema, threeWayMatchSchema, itemDemandSchema, orderBookSchema,
+  leadTimeSchema, returnsRegisterSchema, returnsRateSchema, asOnSchema, staleDocumentsSchema, noteActionSchema, noteClosureSchema,
+  closeStaleQuotationsSchema
 } from '@shared/schemas'
 import type { CompanyInfo } from '@shared/domain'
 import { featuresSchema } from '@shared/features'
@@ -589,7 +594,10 @@ export function registerIpc(): void {
     const { id, reason } = tradeDocActionSchema.parse(p)
     return tradeDocs.closeTradeDoc(requireCompany().db, id, reason)
   })
-  handle('tradeDocs:reopen', (p) => tradeDocs.reopenTradeDoc(requireCompany().db, tradeDocActionSchema.parse(p).id))
+  handle('tradeDocs:reopen', (p) => {
+    const { id, reason } = tradeDocActionSchema.parse(p)
+    return tradeDocs.reopenTradeDoc(requireCompany().db, id, reason)
+  })
   handle('tradeDocs:convert', (p) => {
     const { id, to } = tradeDocConvertSchema.parse(p)
     return tradeDocs.convertTradeDoc(requireCompany().db, id, to)
@@ -617,6 +625,36 @@ export function registerIpc(): void {
     return tradeReports.quotationPipeline(requireCompany().db, from, to, asOn)
   }, 'viewer')
   handle('trade:openSalesOrderValue', (p) => tradeDocs.openSalesOrderValue(requireCompany().db, openOrderValueSchema.parse(p).partyLedgerId), 'viewer')
+
+  // ---------- trade cycle (WP 2.5d): linked documents, reports, returns, closure ----------
+  handle('trade:chain', (p) => tradeChain.tradeChain(requireCompany().db, tradeChainSchema.parse(p)), 'viewer')
+  handle('trade:threeWayMatch', (p) => {
+    const { from, to, ...tolerances } = threeWayMatchSchema.parse(p)
+    return tradeAnalysis.threeWayMatchReport(requireCompany().db, { from, to, tolerances })
+  }, 'viewer')
+  handle('trade:itemDemand', (p) => {
+    const { asOn, onlyOpen } = itemDemandSchema.parse(p)
+    return tradeAnalysis.itemDemand(requireCompany().db, asOn, { onlyOpen })
+  }, 'viewer')
+  handle('trade:orderBook', (p) => tradeAnalysis.orderBook(requireCompany().db, orderBookSchema.parse(p)), 'viewer')
+  handle('trade:leadTime', (p) => tradeAnalysis.leadTime(requireCompany().db, leadTimeSchema.parse(p)), 'viewer')
+  handle('trade:returnsRegister', (p) => tradeAnalysis.returnsRegister(requireCompany().db, returnsRegisterSchema.parse(p)), 'viewer')
+  handle('trade:returnsRate', (p) => tradeAnalysis.returnsRate(requireCompany().db, returnsRateSchema.parse(p)), 'viewer')
+  handle('trade:unbilledGoods', (p) => tradeAnalysis.unbilledGoods(requireCompany().db, asOnSchema.parse(p).asOn), 'viewer')
+  handle('trade:staleDocuments', (p) => {
+    const { asOn, ...opts } = staleDocumentsSchema.parse(p)
+    return tradeAnalysis.staleDocuments(requireCompany().db, asOn, opts)
+  }, 'viewer')
+  handle('trade:noteClosure', (p) => tradeClosure.noteClosure(requireCompany().db, noteClosureSchema.parse(p).voucherId), 'viewer')
+  handle('trade:closeVoucher', (p) => {
+    const { voucherId, reason } = noteActionSchema.parse(p)
+    return tradeClosure.closeStockNote(requireCompany().db, voucherId, reason)
+  })
+  handle('trade:reopenVoucher', (p) => {
+    const { voucherId, reason } = noteActionSchema.parse(p)
+    return tradeClosure.reopenStockNote(requireCompany().db, voucherId, reason)
+  })
+  handle('trade:closeStaleQuotations', (p) => tradeClosure.closeStaleQuotations(requireCompany().db, closeStaleQuotationsSchema.parse(p)))
 
   handle('master:units:list', () => masters.listUnits(requireCompany().db), 'viewer')
   handle('master:units:create', (p) => masters.createUnit(requireCompany().db, unitInputSchema.parse(p)))
