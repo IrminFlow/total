@@ -500,6 +500,8 @@ export const tdsApplyManySchema = z.object({ voucherIds: z.array(id).min(1).max(
 export const tdsVoucherSchema = z.object({ voucherId: id })
 export const tdsExemptSchema = z.object({ voucherId: id, reason: z.string().trim().min(1).max(200) })
 export const tdsQuarterSchema = z.object({ fyStartYear: fyStartYearSchema, quarter: quarterSchema })
+/** Quarter 0 = the whole financial year. */
+export const tdsLedgerSummarySchema = z.object({ fyStartYear: fyStartYearSchema, quarter: z.number().int().min(0).max(4) })
 export const tdsChallanFromPaymentSchema = z.object({
   paymentVoucherId: id,
   bsrCode: z.string().trim().regex(/^\d{7}$/, 'BSR code is 7 digits'),

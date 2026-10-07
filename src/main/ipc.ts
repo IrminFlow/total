@@ -23,7 +23,7 @@ import {
   tdsRateInputSchema, tdsRatesQuerySchema, tdsCertificateInputSchema, tdsCertificatesQuerySchema, tdsChallanInputSchema,
   tdsChallansQuerySchema, tdsAllocateSchema, tdsUnallocateSchema, tdsUnallocatedSchema,
   tdsEligibleSchema, tdsDeductedSchema, tdsApplySchema, tdsApplyManySchema, tdsVoucherSchema, tdsExemptSchema, tdsQuarterSchema,
-  tdsChallanFromPaymentSchema, tdsChallanRowsSchema, tdsChallanInterestSchema, tdsAutoAllocateSchema, tdsForm16aSchema
+  tdsChallanFromPaymentSchema, tdsChallanRowsSchema, tdsChallanInterestSchema, tdsAutoAllocateSchema, tdsForm16aSchema, tdsLedgerSummarySchema
 } from '@shared/schemas'
 import { todayISO } from '@shared/dates'
 import { formatPaise } from '@shared/money'
@@ -864,8 +864,8 @@ export function registerIpc(): void {
     return tdsWb.tdsDeducted(requireCompany().db, from, to)
   }, 'viewer')
   handle('tds:ledgerSummary', (p) => {
-    const { fyStartYear, quarter } = tdsQuarterSchema.parse(p)
-    return tdsWb.tdsLedgerSummary(requireCompany().db, fyStartYear, quarter as 1 | 2 | 3 | 4)
+    const { fyStartYear, quarter } = tdsLedgerSummarySchema.parse(p)
+    return tdsWb.tdsLedgerSummary(requireCompany().db, fyStartYear, quarter as 0 | 1 | 2 | 3 | 4)
   }, 'viewer')
   handle('tds:applyToVoucher', (p) => tdsWb.applyTdsToVoucher(requireCompany().db, tdsApplySchema.parse(p)))
   // Bulk Move to TDS: each voucher on its own (one refusal doesn't undo the others).

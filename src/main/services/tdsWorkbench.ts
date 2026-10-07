@@ -296,8 +296,9 @@ export function tdsDeducted(db: DB, from: string, to: string): TdsDeductedRow[] 
 // TDS ledger summary (the card): tagged payable ledgers, from voucher lines at query time
 // ---------------------------------------------------------------------------------------------
 
-export function tdsLedgerSummary(db: DB, fyStartYear: number, quarter: 1 | 2 | 3 | 4): TdsLedgerSummaryRow[] {
-  const { from, to } = tdsQuarterBounds(fyStartYear, quarter)
+/** Quarter 0 = the whole financial year. */
+export function tdsLedgerSummary(db: DB, fyStartYear: number, quarter: 0 | 1 | 2 | 3 | 4): TdsLedgerSummaryRow[] {
+  const { from, to } = quarter === 0 ? fyFromStartYear(fyStartYear) : tdsQuarterBounds(fyStartYear, quarter)
   const ledgers = db
     .prepare(
       `SELECT l.id, l.name, l.opening_balance AS opening, l.tds_payable_section_id AS sectionId, ts.code
