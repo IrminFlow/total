@@ -47,8 +47,8 @@ const transferred = (db: DB, voucherId: number, ledgerId: number): number =>
   ).get(voucherId, ledgerId) as { t: number }).t
 
 describe('migration 018', () => {
-  it('is the last migration and starts from a 017 fixture without the column', () => {
-    expect(MIGRATIONS.length).toBe(18)
+  it('exists (later migrations append after it) and starts from a 017 fixture without the column', () => {
+    expect(MIGRATIONS.length).toBeGreaterThanOrEqual(18)
     const db = freshPartialDb(V017)
     const cols = (db.prepare('PRAGMA table_info(vouchers)').all() as { name: string }[]).map((c) => c.name)
     expect(cols).not.toContain('is_year_end_close')

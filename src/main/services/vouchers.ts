@@ -298,7 +298,19 @@ export function checkStock(db: DB, stockItemIds: number[], date: string): Negati
  *  duplicate-number guard (SavedVoucher). */
 export type SaveVoucherResult = SavedVoucher & { warnings: SaveVoucherWarnings }
 
-export function saveVoucher(db: DB, raw: VoucherInput, existingId?: number): SaveVoucherResult {
+/** Extension points for services that build on the voucher pipeline (WP 2.2 manufacture). */
+export interface SaveVoucherHooks {
+  /** Runs inside the save transaction after the voucher's lines are written and BEFORE the
+   *  post-save checks — so a hard negative-stock block (or a throw here) rolls everything back
+   *  together. Receives the saved voucher id. */
+  withinTransaction?: (voucherId: number) => void
+  /** Set by the manufacture service: it owns vouchers that carry a manufacture_details row. */
+  manufacture?: boolean
+}
+
+export const MANUFACTURE_EDIT_ELSEWHERE = 'This is a manufacture voucher — alter it from the Manufacture screen'
+
+export function saveVoucher(db: DB, raw: VoucherInput, existingId?: number, hooks: SaveVoucherHooks = {}): SaveVoucherResult {
   // Parse here as well as at the IPC boundary so direct callers (tests, importers)
   // get defaults for later-added fields (posOverride) applied consistently.
   const input: VoucherInputParsed = voucherInputSchema.parse(raw)
@@ -310,6 +322,10 @@ export function saveVoucher(db: DB, raw: VoucherInput, existingId?: number): Sav
       | { f: number }
       | undefined
     if (flagged?.f) throw new Error(YEAR_END_CLOSE_IMMUTABLE)
+    // A manufacture's entry facts (manufacture_details) would go stale under a generic edit.
+    if (!hooks.manufacture && db.prepare('SELECT 1 FROM manufacture_details WHERE voucher_id = ?').get(existingId)) {
+      throw new Error(MANUFACTURE_EDIT_ELSEWHERE)
+    }
   }
   const vt = getVoucherType(db, input.voucherTypeId)
   const errors = validateVoucher(input, vt.kind, ledgerFactsResolver(db))
@@ -423,6 +439,8 @@ export function saveVoucher(db: DB, raw: VoucherInput, existingId?: number): Sav
         'INSERT INTO tds_entries (voucher_id, section_id, party_ledger_id, pan, base_amount, tds_amount) VALUES (?, ?, ?, ?, ?, ?)'
       ).run(voucherId, input.tds.sectionId, input.partyLedgerId, party?.pan ?? null, input.tds.baseAmount, input.tds.tdsAmount)
     }
+
+    hooks.withinTransaction?.(voucherId)
 
     // ---- post-save checks (lane I): run INSIDE the transaction so a hard block rolls the
     // whole save back; soft failures just ride out as warnings on the response. ----

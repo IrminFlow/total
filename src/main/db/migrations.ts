@@ -640,5 +640,30 @@ export const MIGRATIONS: string[] = [
   DROP TABLE m018_via_audit;
   DROP TABLE m018_via_narration;
   DROP TABLE m018_groups;
+  `,
+
+  // 019 (WP 2.2) — manufacture voucher entry facts. One row per stock_journal saved by the
+  // Manufacture screen: the finished item and quantity, the sale rate/amount and profit typed on
+  // the screen (margin reporting only — they never post), and the labour figure that the
+  // valuation engine loads into the finished goods (stockAnalysis' derived-costing source reads
+  // this table). labour_posted = 1 when labour was journalled on the voucher itself (Dr
+  // labour_expense_ledger_id / Cr labour_credit_ledger_id); 0 = "already booked" elsewhere,
+  // capitalised without ledger lines. These are entry facts, not balances. A legacy stock
+  // journal has no row and keeps its stored costing. Soft delete leaves the row in place (the
+  // voucher row survives in the bin); only a purge cascades it away.
+  `
+  CREATE TABLE manufacture_details (
+    voucher_id INTEGER PRIMARY KEY REFERENCES vouchers(id) ON DELETE CASCADE,
+    finished_item_id INTEGER NOT NULL REFERENCES stock_items(id),
+    qty_milli INTEGER NOT NULL CHECK (qty_milli > 0),
+    sale_rate_paise INTEGER NOT NULL DEFAULT 0 CHECK (sale_rate_paise >= 0),
+    sale_amount INTEGER NOT NULL DEFAULT 0 CHECK (sale_amount >= 0),
+    labour_paise INTEGER NOT NULL DEFAULT 0 CHECK (labour_paise >= 0),
+    labour_posted INTEGER NOT NULL DEFAULT 0 CHECK (labour_posted IN (0, 1)),
+    labour_expense_ledger_id INTEGER REFERENCES ledgers(id),
+    labour_credit_ledger_id INTEGER REFERENCES ledgers(id),
+    profit_paise INTEGER NOT NULL DEFAULT 0
+  );
+  CREATE INDEX idx_manufacture_details_item ON manufacture_details(finished_item_id);
   `
 ]
