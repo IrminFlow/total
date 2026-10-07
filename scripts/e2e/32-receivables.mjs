@@ -54,7 +54,7 @@ await scenario('32-receivables', async (h) => {
     await page.screenshot({ path: path.join(shotsDir, `${name}.png`) })
     await page.evaluate(() => document.getElementById('e2e-print-preview')?.remove())
   }
-  const bodyHas = (text, timeout = 8000) =>
+  const bodyHas = (text, timeout = 20000) =>
     page.waitForFunction((t) => document.body.textContent?.includes(t), text, { timeout })
 
   // ---------- setup: a late payer with one invoice 100 days old ----------

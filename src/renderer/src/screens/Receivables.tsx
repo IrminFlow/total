@@ -111,15 +111,15 @@ const LOG_COLUMNS = defineColumns<ReminderLogRow>([
 const INTEREST_COLUMNS = defineColumns<InterestRow>([
   { id: 'party', header: 'Party', kind: 'text', value: (r) => r.partyName, minWidth: 130, cell: (r) => <LedgerLink ledgerId={r.ledgerId} name={r.partyName} /> },
   { id: 'bill', header: 'Bill', kind: 'text', value: (r) => r.billRef, width: 110, hideable: false, cell: (r) => <VoucherLink voucherId={r.billVoucherId} label={r.billRef} /> },
-  { id: 'due', header: 'Due', kind: 'date', value: (r) => r.dueDate ?? r.billDate, width: 96 },
+  { id: 'due', header: 'Due', kind: 'date', value: (r) => r.dueDate ?? r.billDate, width: 108 },
   { id: 'grace', header: 'Grace', kind: 'number', value: (r) => r.graceDays, width: 70, defaultHidden: true },
-  { id: 'from', header: 'From', kind: 'date', value: (r) => r.from, width: 96 },
+  { id: 'from', header: 'From', kind: 'date', value: (r) => r.from, width: 108 },
   { id: 'to', header: 'To', kind: 'date', value: (r) => r.to, width: 96, defaultHidden: true },
   { id: 'days', header: 'Days', kind: 'number', value: (r) => r.days, width: 60 },
   { id: 'pending', header: 'Pending', kind: 'money', value: (r) => r.pendingPaise, width: 110 },
   { id: 'rate', header: 'Rate', kind: 'number', value: (r) => r.rateBp / 100, width: 70, text: (r) => `${bpToPercent(r.rateBp)} %` },
   { id: 'interest', header: 'Interest', kind: 'money', value: (r) => r.interestPaise, aggregate: 'sum', width: 110, className: 'font-medium' },
-  { id: 'gstRate', header: 'GST rate', kind: 'text', value: (r) => r.gst.filter((g) => g.rate > 0).map((g) => `${g.rate}%`).join(' + ') || 'none', width: 80 },
+  { id: 'gstRate', header: 'GST rate', kind: 'text', value: (r) => r.gst.filter((g) => g.rate > 0).map((g) => `${g.rate}%`).join(' + ') || 'none', width: 80, defaultHidden: true },
   { id: 'gst', header: 'GST', kind: 'money', value: (r) => r.gstPaise, aggregate: 'sum', width: 90 },
   { id: 'total', header: 'Debit note', kind: 'money', value: (r) => r.totalPaise, aggregate: 'sum', width: 110 },
   { id: 'charged', header: 'Charged to', kind: 'date', value: (r) => r.chargedTo ?? '', width: 110, defaultHidden: true }

@@ -123,7 +123,6 @@ describe('Credit control', () => {
     const rows = await screen.findByTestId('rows-interest-preview')
     await waitFor(() => expect(rows.textContent).toContain('INV-1'))
     expect(rows.textContent).toContain('87.29')
-    expect(rows.textContent).toContain('18%')
     fireEvent.click(within(rows).getByTestId('btn-interest-post'))
     fireEvent.click(await screen.findByTestId('confirm-ok'))
     await waitFor(() =>
