@@ -60,6 +60,8 @@ export interface VoucherInput {
 export interface LedgerFacts {
   exists: boolean
   isCashOrBank: boolean
+  /** Tagged as a TDS payable ledger (ledgers.tds_payable_section_id, migration 020). */
+  isTdsPayable?: boolean
 }
 
 export interface PostingError {
@@ -180,7 +182,12 @@ export function validateVoucher(
   }
   const rule = moneySideRule[kind]
   if (rule) {
-    const moneySide = input.lines.filter((l) => l.drCr === rule.side)
+    // A payment that deducts TDS pays the party net: "Dr Vendor 50,000 / Cr Bank 49,000 / Cr TDS
+    // Payable 1,000" — the TDS payable credit is not money leaving the bank, so it sits outside
+    // the cash/bank-for-the-full-amount test (only when the voucher actually carries a TDS entry).
+    const tdsCredit = (l: VoucherLineInput): boolean =>
+      kind === 'payment' && !!input.tds && l.drCr === 'cr' && !!ledgerFacts(l.ledgerId).isTdsPayable
+    const moneySide = input.lines.filter((l) => l.drCr === rule.side && !tdsCredit(l))
     const sideTotal = moneySide.reduce((s, l) => s + l.amount, 0)
     const cashBankTotal = moneySide.filter((l) => isCashBank(l.ledgerId)).reduce((s, l) => s + l.amount, 0)
     if (moneySide.length === 0 || cashBankTotal !== sideTotal) {

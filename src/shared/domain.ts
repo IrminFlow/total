@@ -34,8 +34,18 @@ export interface Ledger {
   hsn: string | null
   /** Section this party is flagged for TDS deduction under, if any. */
   tdsSectionId: number | null
-  /** Deductee's Income Tax PAN (drives the no-PAN 20% TDS rate). */
+  /** Deductee's Income Tax PAN (drives the no-PAN TDS rate and, when deducteeType is unset,
+   *  the deductee type via its fourth character). */
   pan: string | null
+  /** Deductee class for TDS rates (individual/HUF vs company vs firm vs other); null = derive
+   *  from the PAN (see deducteeTypeFromPan). */
+  deducteeType: 'individual_huf' | 'company' | 'firm' | 'other' | null
+  /** Tags this ledger as the TDS payable ledger for a section — the TDS mirror of `taxType`.
+   *  Reports and save-time validation find TDS payable lines by this tag, never by name. */
+  tdsPayableSectionId: number | null
+  /** Expense ledgers: the TDS section a debit to this ledger usually attracts (e.g. Rent →
+   *  194-I). Used for the suggestion when the party itself has no section. */
+  tdsDefaultSectionId: number | null
   /** Default bill-to-bill credit period in days, used when a bill has no explicit due date. */
   creditDays: number | null
   /** SEZ/export classification for GST e-invoicing (task 2.8); null for a normal domestic party. */
@@ -57,12 +67,68 @@ export interface TdsSection {
   /** e.g. "194C" */
   code: string
   description: string
-  /** Percent. */
+  /** Legacy (pre-migration-020) single rate, percent — mirrors the latest 'any'/'other' row of
+   *  the effective-dated rate table so older screens keep reading something sensible. The rate
+   *  actually applied comes from `tds_section_rates` (listRates / tdsSuggestion). */
   rate: number
-  /** Paise; 0 = no single-transaction threshold. */
+  /** Paise; 0 = no single-transaction threshold. Legacy mirror, see `rate`. */
   thresholdSingle: number
-  /** Paise; 0 = no FY-cumulative threshold. */
+  /** Paise; 0 = no FY-cumulative threshold. Legacy mirror, see `rate`. */
   thresholdAnnual: number
+  /** Payment nature in plain words (e.g. "Payment to contractors / sub-contractors"). */
+  nature: string | null
+  /** Act the `code` is written under. */
+  act: 'it_act_1961' | 'it_act_2025'
+  /** Income-tax Act, 1961 section (e.g. "194C"); null for a section with no 1961 equivalent. */
+  legacyCode: string | null
+  /** Income-tax Act, 2025 reference (e.g. "393(1) Table Sl. 6(i)"); null when not mapped. */
+  newReference: string | null
+}
+
+export interface TdsRate {
+  id: number
+  sectionId: number
+  effectiveFrom: string
+  effectiveTo: string | null
+  deducteeType: 'individual_huf' | 'company' | 'firm' | 'other' | 'any'
+  /** Basis points (100 = 1%). */
+  rateBp: number
+  thresholdSinglePaise: number
+  thresholdAnnualPaise: number
+  thresholdBasis: 'fy' | 'month'
+  /** The rate applies only to the part of the aggregate above the threshold (194Q). */
+  thresholdExcessOnly: boolean
+  /** 26Q section code / Form 140 payment code for this period; null = none recorded. */
+  returnCode: string | null
+  noPanRateBp: number
+  /** Citation for a seeded row; null for rows the user added. */
+  source: string | null
+}
+
+export interface TdsCertificateRow {
+  id: number
+  ledgerId: number
+  sectionId: number | null
+  certificateNo: string
+  rateBp: number
+  validFrom: string
+  validTo: string
+  capPaise: number | null
+}
+
+export interface TdsChallan {
+  id: number
+  date: string
+  bsrCode: string
+  challanNo: string
+  amountPaise: number
+  /** Payment voucher that paid the challan (Dr TDS Payable / Cr Bank), if linked. */
+  paymentVoucherId: number | null
+  quarter: 1 | 2 | 3 | 4
+  fyStartYear: number
+  /** Sum of TDS on the entries allocated to this challan. */
+  allocatedPaise: number
+  entryCount: number
 }
 
 export interface CostCentre {
@@ -149,6 +215,16 @@ export interface VoucherTds {
   sectionId: number
   baseAmount: number
   tdsAmount: number
+  /** The user typed the deduction instead of taking the rate table's figure: saveVoucher then
+   *  only checks that a TDS payable credit exists, not that amount = rate × base. Absent = false. */
+  isManual?: boolean
+  // ---- basis recorded at save (read-only; never part of voucher input) ----
+  /** Effective rate the deduction was checked against, basis points; null = manual/legacy. */
+  rateBp?: number | null
+  deducteeType?: string | null
+  certificateId?: number | null
+  /** Id of the stored tds_entries row (stable across edits — challan allocations key on it). */
+  entryId?: number
 }
 
 export interface InventoryLine {

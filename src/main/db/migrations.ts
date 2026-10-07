@@ -641,7 +641,6 @@ export const MIGRATIONS: string[] = [
   DROP TABLE m018_via_narration;
   DROP TABLE m018_groups;
   `,
-
   // 019 (WP 2.2) — manufacture voucher entry facts. One row per stock_journal saved by the
   // Manufacture screen: the finished item and quantity, the sale rate/amount and profit typed on
   // the screen (margin reporting only — they never post), and the labour figure that the
@@ -665,5 +664,258 @@ export const MIGRATIONS: string[] = [
     profit_paise INTEGER NOT NULL DEFAULT 0
   );
   CREATE INDEX idx_manufacture_details_item ON manufacture_details(finished_item_id);
+  `,
+  // 020 (WP 3.1) — TDS core. Number assigned by the orchestrator; appended after 019 (WP 2.2),
+  // whose content it does not depend on.
+  // - ledgers.tds_payable_section_id tags a ledger as a section's TDS payable ledger (the mirror
+  //   of tax_type); ledgers.deductee_type (null = derive from the PAN's 4th character);
+  //   ledgers.tds_default_section_id flags expense ledgers as TDS-applicable.
+  // - tds_sections gains nature / act / legacy_code (Income-tax Act 1961) / new_reference
+  //   (Income-tax Act 2025). The old rate/threshold columns stay and are kept as a mirror of the
+  //   current 'any' rate row (services/tds.ts syncLegacyColumns) so older readers keep working.
+  // - tds_section_rates: effective-dated rate/threshold rows per section x deductee type, rates
+  //   in basis points. Every seeded number carries a citation (below, and in `source`).
+  // - tds_certificates (s.197 lower/nil deduction), tds_challans + tds_entry_challans (one
+  //   challan per entry), and tds_entries' basis columns (deductee type, rate, certificate,
+  //   manual flag). Entries recorded before 020 were never server-validated: is_manual = 1.
+  // - Backfill: payable ledgers are tagged (a) by the name the app always created them with,
+  //   "TDS Payable <code>", and (b) for hand-named ledgers, when a pre-020 entry's voucher
+  //   credits exactly one untagged Duties & Taxes ledger by exactly the TDS amount and that
+  //   ledger is never matched to two sections. One audit_log row (entity 'migration',
+  //   entity_id 20) records what was tagged.
+  //
+  // SOURCES (all accessed 2026-10-07):
+  //  [ACT25]   Income-tax Act, 2025 (No. 30 of 2025, assent 21 Aug 2025), Gazette —
+  //            https://egazette.gov.in/WriteReadData/2025/265620.pdf ; s.1(3): "it shall come
+  //            into force on the 1st April, 2026". TDS: s.392 (salary), s.393(1) Table
+  //            (residents), s.393(3) (any person), s.397(2)(b)(i) (no PAN), s.516 (rounding).
+  //  [ACT25-FA26] Income-tax Act, 2025 as amended by Finance Act 2026 (CBDT compilation) —
+  //            https://www.incometaxindia.gov.in/documents/d/guest/income_tax_act_2025_as_amended_by_fa_act_2026-pdf
+  //  [FA25]    Finance Act, 2025 — https://egazette.gov.in/WriteReadData/2025/262125.pdf
+  //            (s.63 194H 15,000->20,000; s.64 194-I "50,000 for a month or part of a month";
+  //            s.65 194J 30,000->50,000; s.58 194A thresholds; s.71 omits 206AB)
+  //  [FA26]    Finance Act, 2026 (No. 4 of 2026) — https://egazette.gov.in/WriteReadData/2026/271439.pdf
+  //  [FAQ]     e-filing portal, TDS compliance FAQs (Q1 transition test; Q3 "TDS rates and
+  //            monetary thresholds ... retained as they are under the Income Tax Act, 1961") —
+  //            https://www.incometax.gov.in/iec/foportal/help/all-topics/e-filing-services/tds-compliance
+  //  [RATES]   Income Tax Department, TDS rates (AY 2026-27) — https://www.incometaxindia.gov.in/w/tds-rates-1
+  //  [194C]    https://www.incometaxindia.gov.in/w/section-194c
+  //  [194A]    https://www.incometaxindia.gov.in/w/section-194a
+  //  [194Q]    https://www.incometaxindia.gov.in/w/section-194q
+  //  [206AA]   https://www.incometaxindia.gov.in/w/higher-deduction-of-tax-at-source-in-certain-cases-section-206aa-and-section-206ab-
+  //  [F26Q]    Protean 26Q file format v7.8 (old-Act section codes, deductee code 01/02) —
+  //            https://tinpan.proteantech.in/downloads/e-tds/File_Format_26Q_Regular_Q1_to_Q4_Version_7.8_27052025_201011.xls
+  //  [F140]    Protean Form No. 140 (26Q under the 2025 Act) file format v1.1 (payment codes) —
+  //            https://tinpan.proteantech.in/downloads/e-tds/Form%20Number%20140%20-%2026Q%20-%20Q1%20to%20Q4_22072026.xlsx
+  //  [PAN]     PAN 4th character = holder status — https://www.incometaxindia.gov.in/w/how-pan-is-formed-and-how-it-gets-its-unique-identity-
+  // FY 2025-26 rows: 1961 Act as amended by [FA25] (ss.2-91 in force 1 Apr 2025).
+  // From 1 Apr 2026: [ACT25-FA26]; per [FAQ] Q3 rates/thresholds are unchanged, and [FA26]
+  // changes none of the seeded figures. No-PAN: higher of the section rate and 20% (5% for
+  // 194Q) — 1961 s.206AA [206AA], 2025 s.397(2)(b)(i) [ACT25-FA26].
+  `
+  ALTER TABLE ledgers ADD COLUMN tds_payable_section_id INTEGER REFERENCES tds_sections(id);
+  ALTER TABLE ledgers ADD COLUMN deductee_type TEXT CHECK (deductee_type IN ('individual_huf', 'company', 'firm', 'other'));
+  ALTER TABLE ledgers ADD COLUMN tds_default_section_id INTEGER REFERENCES tds_sections(id);
+  CREATE INDEX idx_ledgers_tds_payable ON ledgers(tds_payable_section_id) WHERE tds_payable_section_id IS NOT NULL;
+
+  ALTER TABLE tds_sections ADD COLUMN nature TEXT;
+  ALTER TABLE tds_sections ADD COLUMN act TEXT NOT NULL DEFAULT 'it_act_1961' CHECK (act IN ('it_act_1961', 'it_act_2025'));
+  ALTER TABLE tds_sections ADD COLUMN legacy_code TEXT;
+  ALTER TABLE tds_sections ADD COLUMN new_reference TEXT;
+
+  CREATE TABLE tds_section_rates (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    section_id INTEGER NOT NULL REFERENCES tds_sections(id) ON DELETE CASCADE,
+    effective_from TEXT NOT NULL,
+    effective_to TEXT,
+    deductee_type TEXT NOT NULL CHECK (deductee_type IN ('individual_huf', 'company', 'firm', 'other', 'any')),
+    rate_bp INTEGER NOT NULL CHECK (rate_bp BETWEEN 0 AND 10000),
+    threshold_single_paise INTEGER NOT NULL DEFAULT 0 CHECK (threshold_single_paise >= 0),
+    threshold_annual_paise INTEGER NOT NULL DEFAULT 0 CHECK (threshold_annual_paise >= 0),
+    threshold_basis TEXT NOT NULL DEFAULT 'fy' CHECK (threshold_basis IN ('fy', 'month')),
+    threshold_excess_only INTEGER NOT NULL DEFAULT 0,
+    no_pan_rate_bp INTEGER NOT NULL DEFAULT 2000 CHECK (no_pan_rate_bp BETWEEN 0 AND 10000),
+    return_code TEXT,
+    source TEXT,
+    CHECK (effective_to IS NULL OR effective_to >= effective_from)
+  );
+  CREATE INDEX idx_tds_section_rates_section ON tds_section_rates(section_id, effective_from);
+
+  CREATE TABLE tds_certificates (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    ledger_id INTEGER NOT NULL REFERENCES ledgers(id) ON DELETE CASCADE,
+    section_id INTEGER REFERENCES tds_sections(id) ON DELETE CASCADE,
+    certificate_no TEXT NOT NULL,
+    rate_bp INTEGER NOT NULL CHECK (rate_bp BETWEEN 0 AND 10000),
+    valid_from TEXT NOT NULL,
+    valid_to TEXT NOT NULL,
+    cap_paise INTEGER CHECK (cap_paise IS NULL OR cap_paise >= 0),
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    CHECK (valid_to >= valid_from)
+  );
+  CREATE INDEX idx_tds_certificates_ledger ON tds_certificates(ledger_id);
+
+  CREATE TABLE tds_challans (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    date TEXT NOT NULL,
+    bsr_code TEXT NOT NULL,
+    challan_no TEXT NOT NULL,
+    amount_paise INTEGER NOT NULL CHECK (amount_paise > 0),
+    payment_voucher_id INTEGER REFERENCES vouchers(id) ON DELETE SET NULL,
+    quarter INTEGER NOT NULL CHECK (quarter BETWEEN 1 AND 4),
+    fy_start_year INTEGER NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+  CREATE INDEX idx_tds_challans_period ON tds_challans(fy_start_year, quarter);
+
+  CREATE TABLE tds_entry_challans (
+    entry_id INTEGER PRIMARY KEY REFERENCES tds_entries(id) ON DELETE CASCADE,
+    challan_id INTEGER NOT NULL REFERENCES tds_challans(id) ON DELETE CASCADE
+  );
+  CREATE INDEX idx_tds_entry_challans_challan ON tds_entry_challans(challan_id);
+
+  ALTER TABLE tds_entries ADD COLUMN deductee_type_at TEXT;
+  ALTER TABLE tds_entries ADD COLUMN rate_bp_at INTEGER;
+  ALTER TABLE tds_entries ADD COLUMN certificate_id INTEGER REFERENCES tds_certificates(id) ON DELETE SET NULL;
+  ALTER TABLE tds_entries ADD COLUMN is_manual INTEGER NOT NULL DEFAULT 0;
+  UPDATE tds_entries SET is_manual = 1;
+
+  -- Sections carried from 005 keep their code; seeded ones get nature + both Act references
+  -- (matched by code, so a section the user renamed is left alone). New-Act references are the
+  -- s.393(1) Table serials in [ACT25-FA26].
+  UPDATE tds_sections SET legacy_code = code;
+  UPDATE tds_sections SET nature = 'Payment to contractors / sub-contractors (work)', new_reference = '393(1) Sl. 6(i)' WHERE code = '194C';
+  UPDATE tds_sections SET nature = 'Fees for professional services and other 194J(b) sums', legacy_code = '194J(b)', new_reference = '393(1) Sl. 6(iii) D(b)' WHERE code = '194J';
+  UPDATE tds_sections SET nature = 'Rent of land, building, furniture or fittings', legacy_code = '194-I(b)', new_reference = '393(1) Sl. 2(ii) D(b)' WHERE code = '194I';
+  UPDATE tds_sections SET nature = 'Commission or brokerage', new_reference = '393(1) Sl. 1(ii)' WHERE code = '194H';
+  UPDATE tds_sections SET nature = 'Interest other than on securities (payer other than a bank / co-op bank / post office)', new_reference = '393(1) Sl. 5(iii)' WHERE code = '194A';
+
+  INSERT OR IGNORE INTO tds_sections (code, description, rate, threshold_single, threshold_annual, nature, act, legacy_code, new_reference) VALUES
+    ('194J(A)', 'Fees for technical services, film royalty, call centre', 2, 0, 5000000,
+     'Fees for technical services (not professional), royalty for sale/distribution/exhibition of films, call centre', 'it_act_1961', '194J(a)', '393(1) Sl. 6(iii) D(a)'),
+    ('194I(A)', 'Rent of plant, machinery or equipment', 2, 0, 5000000,
+     'Rent of plant, machinery or equipment', 'it_act_1961', '194-I(a)', '393(1) Sl. 2(ii) D(a)'),
+    ('194Q', 'Purchase of goods', 0.1, 0, 500000000,
+     'Purchase of goods above Rs 50 lakh a year from a resident seller (buyer turnover above Rs 10 crore in the preceding year)', 'it_act_1961', '194Q', '393(1) Sl. 8(ii)');
+
+  -- (1) Carry every pre-020 section master figure as a rate row, so nothing computed before this
+  --     migration changes: for the five 005 codes it covers dates up to 31 Mar 2025 (the cited
+  --     rows below take over from FY 2025-26); a user-added section keeps it open-ended. These
+  --     figures were NOT re-verified (source says so).
+  INSERT INTO tds_section_rates (section_id, effective_from, effective_to, deductee_type, rate_bp,
+      threshold_single_paise, threshold_annual_paise, threshold_basis, no_pan_rate_bp, source)
+    SELECT id, '1961-04-01',
+           CASE WHEN code IN ('194C', '194J', '194I', '194H', '194A') THEN '2025-03-31' ELSE NULL END,
+           'any', CAST(ROUND(rate * 100) AS INTEGER), threshold_single, threshold_annual, 'fy', 2000,
+           'Carried over from the section master as it stood before migration 020 (not re-verified)'
+      FROM tds_sections WHERE code NOT IN ('194J(A)', '194I(A)', '194Q');
+
+  -- (2) Cited rows. Paise: Rs 30,000 = 3000000; Rs 1,00,000 = 10000000; Rs 50,000 = 5000000;
+  --     Rs 20,000 = 2000000; Rs 10,000 = 1000000; Rs 50 lakh = 500000000.
+  CREATE TEMP TABLE m020_seed (code TEXT, eff_from TEXT, eff_to TEXT, deductee TEXT, rate_bp INTEGER,
+    single INTEGER, annual INTEGER, basis TEXT, excess INTEGER, no_pan INTEGER, return_code TEXT, source TEXT);
+  INSERT INTO m020_seed VALUES
+    -- 194C: 1% individual/HUF, 2% others; single > Rs 30,000 or aggregate > Rs 1,00,000.
+    -- FY25-26: [194C] s.194C(1),(5) "does not exceed thirty thousand rupees ... aggregate ... exceeds one lakh rupees"; 26Q code 94C [F26Q].
+    ('194C', '2025-04-01', '2026-03-31', 'individual_huf', 100, 3000000, 10000000, 'fy', 0, 2000, '94C',
+     '1961 s.194C(1),(5) [https://www.incometaxindia.gov.in/w/section-194c]; no PAN s.206AA; accessed 2026-10-07'),
+    ('194C', '2025-04-01', '2026-03-31', 'any', 200, 3000000, 10000000, 'fy', 0, 2000, '94C',
+     '1961 s.194C(1),(5) [https://www.incometaxindia.gov.in/w/section-194c]; no PAN s.206AA; accessed 2026-10-07'),
+    -- From 1 Apr 2026: 2025 Act s.393(1) Sl. 6(i) D(a)/(b) [ACT25-FA26]; Form 140 codes 1023/1024 [F140].
+    ('194C', '2026-04-01', NULL, 'individual_huf', 100, 3000000, 10000000, 'fy', 0, 2000, '1023',
+     '2025 Act s.393(1) Table Sl. 6(i) D(a) [ACT25 as amended by FA 2026, incometaxindia.gov.in]; no PAN s.397(2)(b)(i); accessed 2026-10-07'),
+    ('194C', '2026-04-01', NULL, 'any', 200, 3000000, 10000000, 'fy', 0, 2000, '1024',
+     '2025 Act s.393(1) Table Sl. 6(i) D(b) [ACT25 as amended by FA 2026, incometaxindia.gov.in]; no PAN s.397(2)(b)(i); accessed 2026-10-07'),
+    -- 194J(b) professional fees: 10%, aggregate > Rs 50,000 a year. FY25-26: [RATES] 10%; [FA25] s.65 "fifty thousand rupees"; 26Q 4JB [F26Q].
+    ('194J', '2025-04-01', '2026-03-31', 'any', 1000, 0, 5000000, 'fy', 0, 2000, '4JB',
+     '1961 s.194J(1)(b) as amended by Finance Act 2025 s.65 [https://egazette.gov.in/WriteReadData/2025/262125.pdf]; rate per https://www.incometaxindia.gov.in/w/tds-rates-1; accessed 2026-10-07'),
+    ('194J', '2026-04-01', NULL, 'any', 1000, 0, 5000000, 'fy', 0, 2000, '1027',
+     '2025 Act s.393(1) Table Sl. 6(iii) D(b), threshold Rs 50,000 [ACT25 as amended by FA 2026]; accessed 2026-10-07'),
+    -- 194J(a) technical fees / film royalty / call centre: 2%, aggregate > Rs 50,000. 26Q 4JA [F26Q]; Form 140 1026 [F140].
+    ('194J(A)', '2025-04-01', '2026-03-31', 'any', 200, 0, 5000000, 'fy', 0, 2000, '4JA',
+     '1961 s.194J(1)(a) as amended by Finance Act 2025 s.65; rate per https://www.incometaxindia.gov.in/w/tds-rates-1; accessed 2026-10-07'),
+    ('194J(A)', '2026-04-01', NULL, 'any', 200, 0, 5000000, 'fy', 0, 2000, '1026',
+     '2025 Act s.393(1) Table Sl. 6(iii) D(a), threshold Rs 50,000 [ACT25 as amended by FA 2026]; accessed 2026-10-07'),
+    -- 194-I(b) land/building/furniture: 10%; 194-I(a) plant/machinery: 2%; "fifty thousand rupees for a month or part of a month" [FA25] s.64.
+    ('194I', '2025-04-01', '2026-03-31', 'any', 1000, 0, 5000000, 'month', 0, 2000, '4IB',
+     '1961 s.194-I(b) as amended by Finance Act 2025 s.64 (Rs 50,000 per month or part of a month); rate per https://www.incometaxindia.gov.in/w/tds-rates-1; accessed 2026-10-07'),
+    ('194I', '2026-04-01', NULL, 'any', 1000, 0, 5000000, 'month', 0, 2000, '1009',
+     '2025 Act s.393(1) Table Sl. 2(ii) D(b) [ACT25 as amended by FA 2026]; accessed 2026-10-07'),
+    ('194I(A)', '2025-04-01', '2026-03-31', 'any', 200, 0, 5000000, 'month', 0, 2000, '4IA',
+     '1961 s.194-I(a) as amended by Finance Act 2025 s.64; rate per https://www.incometaxindia.gov.in/w/tds-rates-1; accessed 2026-10-07'),
+    ('194I(A)', '2026-04-01', NULL, 'any', 200, 0, 5000000, 'month', 0, 2000, '1008',
+     '2025 Act s.393(1) Table Sl. 2(ii) D(a) [ACT25 as amended by FA 2026]; accessed 2026-10-07'),
+    -- 194H: 2%, aggregate > Rs 20,000. [RATES] 2%; [FA25] s.63 "twenty thousand rupees"; 26Q 94H; Form 140 1006.
+    ('194H', '2025-04-01', '2026-03-31', 'any', 200, 0, 2000000, 'fy', 0, 2000, '94H',
+     '1961 s.194H as amended by Finance Act 2025 s.63; rate per https://www.incometaxindia.gov.in/w/tds-rates-1; accessed 2026-10-07'),
+    ('194H', '2026-04-01', NULL, 'any', 200, 0, 2000000, 'fy', 0, 2000, '1006',
+     '2025 Act s.393(1) Table Sl. 1(ii), rate 2%, threshold Rs 20,000 [ACT25 as amended by FA 2026]; accessed 2026-10-07'),
+    -- 194A (payer not a bank/co-op bank/post office): 10%, aggregate > Rs 10,000. [194A]; [FA25] s.58; 26Q 94A; Form 140 1022.
+    ('194A', '2025-04-01', '2026-03-31', 'any', 1000, 0, 1000000, 'fy', 0, 2000, '94A',
+     '1961 s.194A(3)(i) as amended by Finance Act 2025 s.58 [https://www.incometaxindia.gov.in/w/section-194a]; accessed 2026-10-07'),
+    ('194A', '2026-04-01', NULL, 'any', 1000, 0, 1000000, 'fy', 0, 2000, '1022',
+     '2025 Act s.393(1) Table Sl. 5(iii); rate in force 10% per Finance Act 2026 First Schedule Part II [https://egazette.gov.in/WriteReadData/2026/271439.pdf]; accessed 2026-10-07'),
+    -- 194Q: 0.1% of the amount EXCEEDING Rs 50 lakh in the year; no PAN 5% (s.206AA(1A) / s.397(2)(b)(i)(C)). [194Q]; 26Q 94Q; Form 140 1031.
+    ('194Q', '2025-04-01', '2026-03-31', 'any', 10, 0, 500000000, 'fy', 1, 500, '94Q',
+     '1961 s.194Q(1) [https://www.incometaxindia.gov.in/w/section-194q]; no PAN 5% per s.206AA [https://www.incometaxindia.gov.in/w/higher-deduction-of-tax-at-source-in-certain-cases-section-206aa-and-section-206ab-]; accessed 2026-10-07'),
+    ('194Q', '2026-04-01', NULL, 'any', 10, 0, 500000000, 'fy', 1, 500, '1031',
+     '2025 Act s.393(1) Table Sl. 8(ii); no PAN 5% s.397(2)(b)(i)(C) [ACT25 as amended by FA 2026]; accessed 2026-10-07');
+
+  INSERT INTO tds_section_rates (section_id, effective_from, effective_to, deductee_type, rate_bp,
+      threshold_single_paise, threshold_annual_paise, threshold_basis, threshold_excess_only, no_pan_rate_bp, return_code, source)
+    SELECT s.id, m.eff_from, m.eff_to, m.deductee, m.rate_bp, m.single, m.annual, m.basis, m.excess, m.no_pan, m.return_code, m.source
+      FROM m020_seed m JOIN tds_sections s ON s.code = m.code;
+  DROP TABLE m020_seed;
+
+  -- Legacy mirror columns: the open-ended 'any' row (what an unknown deductee pays today).
+  UPDATE tds_sections SET
+    rate = COALESCE((SELECT r.rate_bp / 100.0 FROM tds_section_rates r WHERE r.section_id = tds_sections.id
+                      AND r.deductee_type = 'any' AND r.effective_to IS NULL ORDER BY r.effective_from DESC LIMIT 1), rate),
+    threshold_single = COALESCE((SELECT r.threshold_single_paise FROM tds_section_rates r WHERE r.section_id = tds_sections.id
+                      AND r.deductee_type = 'any' AND r.effective_to IS NULL ORDER BY r.effective_from DESC LIMIT 1), threshold_single),
+    threshold_annual = COALESCE((SELECT r.threshold_annual_paise FROM tds_section_rates r WHERE r.section_id = tds_sections.id
+                      AND r.deductee_type = 'any' AND r.effective_to IS NULL ORDER BY r.effective_from DESC LIMIT 1), threshold_annual);
+
+  -- Backfill (a): ledgers the app created by name.
+  CREATE TEMP TABLE m020_by_name AS
+    SELECT l.id AS ledger_id, s.id AS section_id FROM ledgers l
+      JOIN tds_sections s ON l.name = 'TDS Payable ' || s.code COLLATE NOCASE
+     WHERE l.tds_payable_section_id IS NULL;
+  UPDATE ledgers SET tds_payable_section_id = (SELECT section_id FROM m020_by_name WHERE ledger_id = ledgers.id)
+   WHERE id IN (SELECT ledger_id FROM m020_by_name);
+
+  -- Backfill (b): hand-named payable ledgers, inferred from pre-020 entries (unambiguous only).
+  CREATE TEMP TABLE m020_by_entry AS
+    WITH RECURSIVE dt(id) AS (
+      SELECT id FROM groups WHERE name = 'Duties & Taxes'
+      UNION ALL SELECT g.id FROM groups g JOIN dt ON g.parent_id = dt.id
+    ),
+    cand AS (
+      SELECT te.id AS entry_id, te.section_id, vl.ledger_id
+        FROM tds_entries te
+        JOIN voucher_lines vl ON vl.voucher_id = te.voucher_id AND vl.dr_cr = 'cr' AND vl.amount = te.tds_amount
+        JOIN ledgers l ON l.id = vl.ledger_id
+       WHERE l.id <> te.party_ledger_id AND l.tax_type IS NULL AND l.tds_payable_section_id IS NULL
+         AND l.group_id IN (SELECT id FROM dt)
+    ),
+    single_per_entry AS (SELECT entry_id FROM cand GROUP BY entry_id HAVING COUNT(DISTINCT ledger_id) = 1)
+    SELECT c.ledger_id, MIN(c.section_id) AS section_id FROM cand c
+     WHERE c.entry_id IN (SELECT entry_id FROM single_per_entry)
+     GROUP BY c.ledger_id HAVING COUNT(DISTINCT c.section_id) = 1;
+  UPDATE ledgers SET tds_payable_section_id = (SELECT section_id FROM m020_by_entry WHERE ledger_id = ledgers.id)
+   WHERE id IN (SELECT ledger_id FROM m020_by_entry) AND tds_payable_section_id IS NULL;
+
+  INSERT INTO audit_log (entity, entity_id, action, before_json, after_json, user_name, app_version)
+  VALUES ('migration', 20, 'update', NULL, json_object(
+    'migration', 20,
+    'payableTaggedByName', json((SELECT json_group_array(json_object('ledgerId', ledger_id, 'sectionId', section_id))
+                                  FROM (SELECT * FROM m020_by_name ORDER BY ledger_id))),
+    'payableTaggedByEntry', json((SELECT json_group_array(json_object('ledgerId', ledger_id, 'sectionId', section_id))
+                                  FROM (SELECT * FROM m020_by_entry ORDER BY ledger_id))),
+    'legacyEntriesMarkedManual', (SELECT COUNT(*) FROM tds_entries)
+  ), NULL, NULL);
+
+  DROP TABLE m020_by_name;
+  DROP TABLE m020_by_entry;
   `
 ]

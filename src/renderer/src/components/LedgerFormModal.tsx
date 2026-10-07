@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react'
+import { DEDUCTEE_TYPES, DEDUCTEE_TYPE_LABELS, deducteeTypeFromPan } from '@shared/tds'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import type { Group, Ledger } from '@shared/domain'
 import { api } from '../lib/client'
@@ -123,6 +124,9 @@ function LedgerForm({
   const [hsn, setHsn] = useState(ledger?.hsn ?? '')
   const [tdsSectionId, setTdsSectionId] = useState<number | ''>(ledger?.tdsSectionId ?? '')
   const [pan, setPan] = useState(ledger?.pan ?? '')
+  const [deducteeType, setDeducteeType] = useState<NonNullable<Ledger['deducteeType']> | ''>(ledger?.deducteeType ?? '')
+  const [tdsPayableSectionId, setTdsPayableSectionId] = useState<number | ''>(ledger?.tdsPayableSectionId ?? '')
+  const [tdsDefaultSectionId, setTdsDefaultSectionId] = useState<number | ''>(ledger?.tdsDefaultSectionId ?? '')
   const [creditDays, setCreditDays] = useState(ledger?.creditDays?.toString() ?? '')
   const [exportType, setExportType] = useState<NonNullable<Ledger['exportType']> | ''>(ledger?.exportType ?? '')
   const [rcm, setRcm] = useState<boolean>(ledger?.rcm ?? false)
@@ -159,6 +163,9 @@ function LedgerForm({
         hsn: hsn.trim() || null,
         tdsSectionId: tdsSectionId === '' ? null : tdsSectionId,
         pan: pan.trim() ? pan.trim().toUpperCase() : null,
+        deducteeType: deducteeType || null,
+        tdsPayableSectionId: tdsPayableSectionId === '' ? null : tdsPayableSectionId,
+        tdsDefaultSectionId: tdsDefaultSectionId === '' ? null : tdsDefaultSectionId,
         creditDays: creditDays.trim() ? Number(creditDays) : null,
         exportType: exportType || null,
         rcm,
@@ -225,7 +232,7 @@ function LedgerForm({
               </button>
             </div>
           </Field>
-          {isTaxLedger && (
+          {isTaxLedger && !tdsPayableSectionId && (
             <Field label="GST component" hint="Marks this ledger for GST computation and ITC">
               <Select value={taxType ?? ''} onChange={(e) => setTaxType(e.target.value as typeof taxType)}>
                 <option value="">Not a GST ledger</option>
@@ -237,6 +244,23 @@ function LedgerForm({
             </Field>
           )}
         </div>
+
+        {isTaxLedger && !taxType && (
+          <Field label="TDS payable for section" hint="Marks this ledger as where that section's TDS is credited (TDS reports find it by this, not by name)">
+            <Select
+              data-testid="ledger-tds-payable-section"
+              value={tdsPayableSectionId}
+              onChange={(e) => setTdsPayableSectionId(e.target.value ? Number(e.target.value) : '')}
+            >
+              <option value="">Not a TDS payable ledger</option>
+              {(tdsSections ?? []).map((s) => (
+                <option key={s.id} value={s.id}>
+                  {s.code} — {s.description}
+                </option>
+              ))}
+            </Select>
+          </Field>
+        )}
 
         {isParty && (
           <>
@@ -273,6 +297,22 @@ function LedgerForm({
                 <TextInput value={creditDays} onChange={(e) => setCreditDays(e.target.value)} className="num text-right" placeholder="0" />
               </Field>
             </div>
+            <Field label="TDS deductee type" hint="Picks the rate where it differs (e.g. contractors: 1% individual/HUF, 2% others)">
+              <Select
+                data-testid="ledger-deductee-type"
+                value={deducteeType}
+                onChange={(e) => setDeducteeType(e.target.value as typeof deducteeType)}
+              >
+                <option value="">
+                  Auto from PAN{deducteeTypeFromPan(pan.trim().toUpperCase()) ? ` (${DEDUCTEE_TYPE_LABELS[deducteeTypeFromPan(pan.trim().toUpperCase())!]})` : ''}
+                </option>
+                {DEDUCTEE_TYPES.map((t) => (
+                  <option key={t} value={t}>
+                    {DEDUCTEE_TYPE_LABELS[t]}
+                  </option>
+                ))}
+              </Select>
+            </Field>
             <Field label="Export / SEZ type" hint="For e-invoice/e-way classification">
               <Select value={exportType} onChange={(e) => setExportType(e.target.value as typeof exportType)}>
                 {EXPORT_TYPES.map((t) => (
@@ -316,6 +356,20 @@ function LedgerForm({
             </Field>
             <Field label="HSN / SAC">
               <TextInput value={hsn} onChange={(e) => setHsn(e.target.value)} className="num" placeholder="For services" />
+            </Field>
+            <Field label="TDS section (default)" hint="Debits to this ledger suggest TDS for parties with a PAN or deductee type">
+              <Select
+                data-testid="ledger-tds-default-section"
+                value={tdsDefaultSectionId}
+                onChange={(e) => setTdsDefaultSectionId(e.target.value ? Number(e.target.value) : '')}
+              >
+                <option value="">None</option>
+                {(tdsSections ?? []).map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {s.code} — {s.description}
+                  </option>
+                ))}
+              </Select>
             </Field>
           </div>
         )}

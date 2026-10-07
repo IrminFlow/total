@@ -33,6 +33,9 @@ const PARTY: Ledger = {
   itcEligibility: 'blocked',
   priceLevelId: null,
   creditLimit: null,
+  deducteeType: null,
+  tdsPayableSectionId: null,
+  tdsDefaultSectionId: null,
   isSystem: false
 }
 

@@ -20,7 +20,7 @@ const GROUPS: Group[] = [{ id: 1, name: 'Sundry Debtors', parentId: null, nature
 const ACME: Ledger = {
   id: 31, name: 'Acme Traders', groupId: 1, openingBalance: 0, gstin: null, stateCode: null, address: null, taxType: null,
   gstRate: null, hsn: null, tdsSectionId: null, pan: null, creditDays: null, exportType: null, rcm: false,
-  itcEligibility: 'eligible', priceLevelId: null, creditLimit: null, isSystem: false
+  itcEligibility: 'eligible', priceLevelId: null, creditLimit: null, deducteeType: null, tdsPayableSectionId: null, tdsDefaultSectionId: null, isSystem: false
 }
 const WIDGET = { id: 7, name: 'Widget', unitId: 1, groupId: null, hsn: null, gstRate: null, cessRate: null, openingQtyMilli: 0, openingValue: 0, barcode: null, reorderLevelMilli: null } as unknown as StockItem
 
