@@ -1255,5 +1255,275 @@ export const MIGRATIONS: string[] = [
     'migration', 25,
     'tradeDocTypesSeeded', (SELECT COUNT(*) FROM trade_doc_types)
   ), NULL, NULL);
+  `,
+
+  // 026 (WP 3.6) — fixed-asset register and depreciation under the Companies Act, 2013 and the
+  // Income-tax Acts. Number assigned by the orchestrator; appended after 022–025 (WP 3.2, 2.4,
+  // 2.5a) and self-contained (creates its own tables, alters nothing older).
+  //
+  // Tables
+  // - ca_asset_classes: Schedule II Part C useful lives (effective-dated, editable, cited).
+  // - it_blocks / it_block_rates: income-tax blocks of assets with effective-dated rates per Act.
+  // - it_block_openings: the user's opening WDV of a block for a tax year (later years carry the
+  //   computed closing WDV forward unless an opening is entered).
+  // - fixed_asset_groups: Companies-Act class + IT block + the ledgers a depreciation run posts to.
+  // - fixed_assets, fixed_asset_additions: the register (cost layers).
+  // - depreciation_runs / depreciation_lines: a posted run (one journal) or a disposal's catch-up
+  //   (asset_id set). A run counts only while its voucher is live (not binned, not purged).
+  // Voucher FKs SET NULL so the bin's auto-purge is never blocked; a NULL voucher = void.
+  //
+  // Sources (all accessed 2026-10-07). mca.gov.in, incometaxindia.gov.in and indiacode.nic.in
+  // refused automated access that day, so the text was read from these faithful copies:
+  //  [SCH2]  Companies Act, 2013, Schedule II as amended (MCA e-book text, "Source: mca.gov.in"):
+  //          Part A https://oss-data-in.vaquill.ai/legislation/REG_MCA_mcaacts28231scheduleiiusefullivestocompu/act.pdf
+  //          Part C https://oss-data-in.vaquill.ai/legislation/REG_MCA_mcaacts28232scheduleiiusefullivestocompu/act.pdf
+  //          official: https://www.mca.gov.in/content/mca/global/en/acts-rules/ebooks/acts.html
+  //          Part A para 3(i): residual value "shall not be more than five per cent. of the original
+  //          cost"; Note 2: pro rata from the date of addition / up to the date of sale, discard,
+  //          demolition or destruction; Note 4: component accounting mandatory from FY 2015-16;
+  //          Note 6: extra-shift depreciation (not implemented); Note 7: transition — carrying
+  //          amount over the remaining life. Schedule II names no method (Note 3(i) only requires
+  //          the methods used to be disclosed); SLM / WDV are the methods offered here.
+  //  [GN35]  ICAI Guidance Note GN(A) 35 on Accounting for Depreciation in Companies in the
+  //          context of Schedule II (Feb 2016) — https://cdn.taxguru.in/wp-content/uploads/2016/02/41241research31047.pdf
+  //          ¶38 WDV rate R = 1 − (s/c)^(1/n) with a worked example (unit-tested); ¶56-58: the old
+  //          Schedule XIV "cost ≤ Rs 5,000 written off" rule is NOT in Schedule II — a company may
+  //          adopt a materiality threshold as policy. So no ≤ Rs 5,000 rule is seeded.
+  //  [IT61]  Income-tax Act, 1961 s.32(1)(ii) (WDV at the Rule 5 / New Appendix I rates), second
+  //          proviso (half rate if put to use < 180 days), s.32(1)(iia) additional depreciation
+  //          20%, s.43(6) WDV, s.2(11) block, s.50 STCG — read in ICAI BoS Final Paper 4 (DT),
+  //          Module 1 Ch.3 (AY 2026-27) https://resource.cdn.icai.org/88213bos-aps2299-m1-ch3.pdf
+  //          and Ch.4 https://resource.cdn.icai.org/88214bos-aps2299-m1-ch4.pdf
+  //  [IT25]  Income-tax Act, 2025 (in force 1 Apr 2026): s.33 depreciation — s.33(3)(a) block WDV
+  //          at the prescribed percentage, s.33(4) half rate < 180 days, s.33(8)-(9) additional
+  //          20% (10% + 10% next year); s.2(17) block of assets; s.41(1)(c) WDV; s.74(2)-(3) STCG.
+  //          Read in Income-tax (No.2) Bill 2025 as passed by Lok Sabha 11.08.2025 —
+  //          https://prsindia.org/files/bills_acts/bills_parliament/2025/Bill_as_passed_by_LS_Income_Tax_(No.2)_Bill.pdf
+  //  [R2026] Income-tax Rules, 2026, G.S.R. 198(E) of 20 Mar 2026, Rule 25 + Appendix I (rates) —
+  //          Gazette scan via https://simpliance.in/download/file/dXBsb2Fkcy9nb3Z0bm90aWZpY2F0aW9uL1RoZSBJbmNvbWUtdGF4IFJ1bGVzLCAyMDI2LnBkZg==
+  //
+  // UNVERIFIED (kept editable; also listed in the WP 3.6 report):
+  //  - Hotel / school furniture life: 8 years per [GN35] appendix and ca2013.com; the MCA e-book
+  //    copy says 10. Seeded 8.
+  //  - All Schedule II text from copies, not mca.gov.in itself; the 2025 Act read in the Bill as
+  //    passed by Lok Sabha, not the enacted Act 30 of 2025.
+  //  - Finance Act 2026 changing nothing in s.33 / s.41 / s.74 / Appendix I — not confirmed.
+  //  - 1961-Act rows are seeded from FY 2017-18 (the 40% ceiling era); only FY 2025-26 rates were
+  //    read ([IT61], AY 2026-27). Earlier years, and the 23.8.2019–31.3.2020 30%/45% motor-vehicle
+  //    windows, are not seeded.
+  //  - Sale proceeds reduce the full-rate base before the half-rate additions — the reading in
+  //    ICAI Illustration 4 [IT61]; not stated in the Act's text.
+  //  - Default IT-block mapping of the seeded groups (e.g. electrical installations → furniture
+  //    and fittings incl. electrical fittings, [R2026] Appendix I Note 5) is a convenience default.
+  `
+  CREATE TABLE ca_asset_classes (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    code TEXT NOT NULL COLLATE NOCASE,
+    name TEXT NOT NULL,
+    life_months INTEGER NOT NULL CHECK (life_months > 0),
+    effective_from TEXT NOT NULL,
+    effective_to TEXT,
+    source TEXT NOT NULL DEFAULT '',
+    is_seeded INTEGER NOT NULL DEFAULT 0,
+    UNIQUE (code, effective_from)
+  );
+
+  CREATE TABLE it_blocks (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    code TEXT NOT NULL UNIQUE COLLATE NOCASE,
+    name TEXT NOT NULL,
+    is_seeded INTEGER NOT NULL DEFAULT 0
+  );
+
+  CREATE TABLE it_block_rates (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    block_id INTEGER NOT NULL REFERENCES it_blocks(id) ON DELETE CASCADE,
+    effective_from TEXT NOT NULL,
+    effective_to TEXT,
+    rate_bp INTEGER NOT NULL CHECK (rate_bp BETWEEN 0 AND 10000),
+    additional_rate_bp INTEGER NOT NULL DEFAULT 0 CHECK (additional_rate_bp BETWEEN 0 AND 10000),
+    act TEXT NOT NULL CHECK (act IN ('1961', '2025')),
+    section_ref TEXT NOT NULL DEFAULT '',
+    source TEXT NOT NULL DEFAULT '',
+    is_seeded INTEGER NOT NULL DEFAULT 0
+  );
+  CREATE INDEX idx_it_block_rates_block ON it_block_rates(block_id, effective_from);
+
+  CREATE TABLE it_block_openings (
+    block_id INTEGER NOT NULL REFERENCES it_blocks(id) ON DELETE CASCADE,
+    fy_start_year INTEGER NOT NULL,
+    opening_wdv_paise INTEGER NOT NULL DEFAULT 0,
+    additional_bf_paise INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (block_id, fy_start_year)
+  );
+
+  CREATE TABLE fixed_asset_groups (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL UNIQUE COLLATE NOCASE,
+    ca_class_id INTEGER REFERENCES ca_asset_classes(id) ON DELETE SET NULL,
+    life_months INTEGER NOT NULL CHECK (life_months > 0),
+    residual_bp INTEGER NOT NULL DEFAULT 500 CHECK (residual_bp BETWEEN 0 AND 10000),
+    method TEXT NOT NULL DEFAULT 'slm' CHECK (method IN ('slm', 'wdv')),
+    it_block_id INTEGER REFERENCES it_blocks(id) ON DELETE SET NULL,
+    asset_ledger_id INTEGER REFERENCES ledgers(id) ON DELETE SET NULL,
+    acc_dep_ledger_id INTEGER REFERENCES ledgers(id) ON DELETE SET NULL,
+    dep_expense_ledger_id INTEGER REFERENCES ledgers(id) ON DELETE SET NULL,
+    post_per_asset INTEGER NOT NULL DEFAULT 0,
+    is_seeded INTEGER NOT NULL DEFAULT 0
+  );
+
+  CREATE TABLE fixed_assets (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    asset_group_id INTEGER NOT NULL REFERENCES fixed_asset_groups(id),
+    ledger_id INTEGER NOT NULL REFERENCES ledgers(id),
+    purchase_voucher_id INTEGER REFERENCES vouchers(id) ON DELETE SET NULL,
+    purchase_date TEXT NOT NULL,
+    put_to_use_date TEXT NOT NULL,
+    cost_paise INTEGER NOT NULL CHECK (cost_paise > 0),
+    residual_pct_bp INTEGER NOT NULL CHECK (residual_pct_bp BETWEEN 0 AND 10000),
+    useful_life_months INTEGER NOT NULL CHECK (useful_life_months > 0),
+    method TEXT NOT NULL CHECK (method IN ('slm', 'wdv')),
+    -- Date the current method / life / residual took effect (prospective change of estimate).
+    basis_date TEXT NOT NULL,
+    it_block_id INTEGER REFERENCES it_blocks(id) ON DELETE SET NULL,
+    it_additional_eligible INTEGER NOT NULL DEFAULT 0,
+    location TEXT,
+    identifier TEXT,
+    acc_dep_ledger_id INTEGER REFERENCES ledgers(id) ON DELETE SET NULL,
+    opening_acc_dep_paise INTEGER NOT NULL DEFAULT 0,
+    opening_acc_dep_as_of TEXT,
+    disposal_date TEXT,
+    disposal_voucher_id INTEGER REFERENCES vouchers(id) ON DELETE SET NULL,
+    disposal_kind TEXT CHECK (disposal_kind IN ('sale', 'scrap')),
+    disposal_proceeds_paise INTEGER,
+    status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'disposed')),
+    notes TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+  CREATE INDEX idx_fixed_assets_group ON fixed_assets(asset_group_id);
+  CREATE INDEX idx_fixed_assets_purchase ON fixed_assets(purchase_voucher_id);
+
+  CREATE TABLE fixed_asset_additions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    asset_id INTEGER NOT NULL REFERENCES fixed_assets(id) ON DELETE CASCADE,
+    date TEXT NOT NULL,
+    voucher_id INTEGER REFERENCES vouchers(id) ON DELETE SET NULL,
+    amount_paise INTEGER NOT NULL CHECK (amount_paise > 0),
+    kind TEXT NOT NULL CHECK (kind IN ('addition', 'improvement')),
+    note TEXT
+  );
+  CREATE INDEX idx_fixed_asset_additions_asset ON fixed_asset_additions(asset_id);
+
+  CREATE TABLE depreciation_runs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    fy_start_year INTEGER NOT NULL,
+    period_from TEXT NOT NULL,
+    period_to TEXT NOT NULL,
+    basis TEXT NOT NULL CHECK (basis IN ('companies_act', 'income_tax')),
+    voucher_id INTEGER REFERENCES vouchers(id) ON DELETE SET NULL,
+    -- Set for a disposal's catch-up depreciation (posted inside the disposal voucher).
+    asset_id INTEGER REFERENCES fixed_assets(id) ON DELETE CASCADE,
+    posted_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+  CREATE INDEX idx_depreciation_runs_voucher ON depreciation_runs(voucher_id);
+  CREATE INDEX idx_depreciation_runs_period ON depreciation_runs(period_from, period_to);
+
+  CREATE TABLE depreciation_lines (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    run_id INTEGER NOT NULL REFERENCES depreciation_runs(id) ON DELETE CASCADE,
+    asset_id INTEGER NOT NULL REFERENCES fixed_assets(id) ON DELETE CASCADE,
+    opening_wdv INTEGER NOT NULL,
+    depreciation INTEGER NOT NULL CHECK (depreciation >= 0),
+    closing_wdv INTEGER NOT NULL,
+    days_used INTEGER NOT NULL
+  );
+  CREATE INDEX idx_depreciation_lines_asset ON depreciation_lines(asset_id);
+  CREATE INDEX idx_depreciation_lines_run ON depreciation_lines(run_id);
+
+  -- Schedule II Part C useful lives [SCH2] (cross-checked with the [GN35] appendix), in force for
+  -- financial years from 1 Apr 2014. Continuous process plant: 25 years as substituted by the
+  -- notification of 31 Mar 2014 [SCH2].
+  INSERT INTO ca_asset_classes (code, name, life_months, effective_from, source, is_seeded) VALUES
+    ('I(a)', 'Buildings (other than factory buildings), RCC frame structure', 720, '2014-04-01', 'Sch. II Part C I(a) [SCH2]; accessed 2026-10-07', 1),
+    ('I(b)', 'Buildings (other than factory buildings), other than RCC frame structure', 360, '2014-04-01', 'Sch. II Part C I(b) [SCH2]; accessed 2026-10-07', 1),
+    ('I(c)', 'Factory buildings', 360, '2014-04-01', 'Sch. II Part C I(c) ("-do-" = 30 years) [SCH2]; accessed 2026-10-07', 1),
+    ('I(d)', 'Fences, wells, tube wells', 60, '2014-04-01', 'Sch. II Part C I(d) [SCH2]; accessed 2026-10-07', 1),
+    ('I(e)', 'Other buildings, including temporary structures', 36, '2014-04-01', 'Sch. II Part C I(e) [SCH2]; accessed 2026-10-07', 1),
+    ('II', 'Bridges, culverts, bunders', 360, '2014-04-01', 'Sch. II Part C II [SCH2]; accessed 2026-10-07', 1),
+    ('III(a)(i)', 'Roads — carpeted, RCC', 120, '2014-04-01', 'Sch. II Part C III(a)(i) [SCH2]; accessed 2026-10-07', 1),
+    ('III(a)(ii)', 'Roads — carpeted, other than RCC', 60, '2014-04-01', 'Sch. II Part C III(a)(ii) [SCH2]; accessed 2026-10-07', 1),
+    ('III(b)', 'Roads — non-carpeted', 36, '2014-04-01', 'Sch. II Part C III(b) [SCH2]; accessed 2026-10-07', 1),
+    ('IV(a)', 'Plant and machinery (general, not continuous process)', 180, '2014-04-01', 'Sch. II Part C IV(i)(a) [SCH2]; accessed 2026-10-07', 1),
+    ('IV(b)', 'Continuous process plant (no special rate)', 300, '2014-04-01', 'Sch. II Part C IV(i)(b), 25 years as substituted 31 Mar 2014 [SCH2]; accessed 2026-10-07', 1),
+    ('V(i)', 'Furniture and fittings (general)', 120, '2014-04-01', 'Sch. II Part C V(i) [SCH2]; accessed 2026-10-07', 1),
+    ('V(ii)', 'Furniture and fittings in hotels, schools, hire use, etc.', 96, '2014-04-01', 'Sch. II Part C V(ii) — 8 years per [GN35] appendix and ca2013.com; MCA e-book copy reads 10 (UNVERIFIED); accessed 2026-10-07', 1),
+    ('VI(1)', 'Motor cycles, scooters and other mopeds', 120, '2014-04-01', 'Sch. II Part C VI(1) [SCH2]; accessed 2026-10-07', 1),
+    ('VI(2)', 'Motor buses, lorries, cars and taxis used in a business of running them on hire', 72, '2014-04-01', 'Sch. II Part C VI(2) [SCH2]; accessed 2026-10-07', 1),
+    ('VI(3)', 'Motor buses, lorries and cars (other)', 96, '2014-04-01', 'Sch. II Part C VI(3) [SCH2]; accessed 2026-10-07', 1),
+    ('VI(4)', 'Motor tractors, harvesting combines and heavy vehicles', 96, '2014-04-01', 'Sch. II Part C VI(4) ("-do-" = 8 years) [SCH2]; accessed 2026-10-07', 1),
+    ('VI(5)', 'Electrically operated vehicles', 96, '2014-04-01', 'Sch. II Part C VI(5) [SCH2]; accessed 2026-10-07', 1),
+    ('VIII', 'Aircraft or helicopters', 240, '2014-04-01', 'Sch. II Part C VIII [SCH2]; accessed 2026-10-07', 1),
+    ('IX', 'Railway sidings, locomotives, rolling stocks, tramways and railways used by concerns', 180, '2014-04-01', 'Sch. II Part C IX [SCH2]; accessed 2026-10-07', 1),
+    ('X', 'Ropeway structures', 180, '2014-04-01', 'Sch. II Part C X [SCH2]; accessed 2026-10-07', 1),
+    ('XI', 'Office equipment', 60, '2014-04-01', 'Sch. II Part C XI [SCH2]; accessed 2026-10-07', 1),
+    ('XII(i)', 'Computers — servers and networks', 72, '2014-04-01', 'Sch. II Part C XII(i) [SCH2]; accessed 2026-10-07', 1),
+    ('XII(ii)', 'Computers — end user devices (desktops, laptops, etc.)', 36, '2014-04-01', 'Sch. II Part C XII(ii) [SCH2]; accessed 2026-10-07', 1),
+    ('XIII(i)', 'Laboratory equipment (general)', 120, '2014-04-01', 'Sch. II Part C XIII(i) [SCH2]; accessed 2026-10-07', 1),
+    ('XIII(ii)', 'Laboratory equipment used in educational institutions', 60, '2014-04-01', 'Sch. II Part C XIII(ii) [SCH2]; accessed 2026-10-07', 1),
+    ('XIV', 'Electrical installations and equipment', 120, '2014-04-01', 'Sch. II Part C XIV [SCH2]; accessed 2026-10-07', 1),
+    ('XV', 'Hydraulic works, pipelines and sluices', 180, '2014-04-01', 'Sch. II Part C XV [SCH2]; accessed 2026-10-07', 1);
+
+  -- Income-tax blocks. A block is a class of assets with the same prescribed rate (1961 s.2(11);
+  -- 2025 s.2(17)), so each rate class is its own block.
+  INSERT INTO it_blocks (code, name, is_seeded) VALUES
+    ('BLD5', 'Buildings used mainly for residential purposes (except hotels and boarding houses)', 1),
+    ('BLD10', 'Buildings (other)', 1),
+    ('BLD40', 'Purely temporary erections', 1),
+    ('FUR10', 'Furniture and fittings, including electrical fittings', 1),
+    ('PM15', 'Machinery and plant (general), incl. motor cars not used on hire', 1),
+    ('PM30', 'Machinery and plant @30% (motor buses, lorries, taxis used on hire; moulds)', 1),
+    ('PM40', 'Machinery and plant @40% (computers incl. software, pollution-control equipment)', 1),
+    ('INT25', 'Intangible assets (know-how, patents, copyrights, trademarks, licences, franchises)', 1);
+
+  CREATE TEMP TABLE m026_rates (code TEXT, eff_from TEXT, eff_to TEXT, rate INTEGER, addl INTEGER, act TEXT, sec TEXT, src TEXT);
+  INSERT INTO m026_rates VALUES
+    ('BLD5',  '2017-04-01', '2026-03-31',  500,    0, '1961', 's.32(1)(ii); Rule 5(1), New Appendix I Part A I(1)', 'Appendix I rates as read in ICAI BoS Final DT M1 Ch.3, AY 2026-27 [IT61]; start date UNVERIFIED; accessed 2026-10-07'),
+    ('BLD10', '2017-04-01', '2026-03-31', 1000,    0, '1961', 's.32(1)(ii); Rule 5(1), New Appendix I Part A I(2)', 'Appendix I rates as read in ICAI BoS Final DT M1 Ch.3, AY 2026-27 [IT61]; start date UNVERIFIED; accessed 2026-10-07'),
+    ('BLD40', '2017-04-01', '2026-03-31', 4000,    0, '1961', 's.32(1)(ii); Rule 5(1), New Appendix I Part A I(4)', 'Appendix I rates as read in ICAI BoS Final DT M1 Ch.3, AY 2026-27 [IT61]; start date UNVERIFIED; accessed 2026-10-07'),
+    ('FUR10', '2017-04-01', '2026-03-31', 1000,    0, '1961', 's.32(1)(ii); Rule 5(1), New Appendix I Part A II', 'Appendix I rates as read in ICAI BoS Final DT M1 Ch.3, AY 2026-27 [IT61]; start date UNVERIFIED; accessed 2026-10-07'),
+    ('PM15',  '2017-04-01', '2026-03-31', 1500, 2000, '1961', 's.32(1)(ii), (iia) additional 20%; New Appendix I Part A III(1), III(2)(i)', 'Appendix I rates and s.32(1)(iia) as read in ICAI BoS Final DT M1 Ch.3, AY 2026-27 [IT61]; start date UNVERIFIED; accessed 2026-10-07'),
+    ('PM30',  '2017-04-01', '2026-03-31', 3000, 2000, '1961', 's.32(1)(ii), (iia); New Appendix I Part A III(3)(ii), (v)', 'Appendix I rates as read in ICAI BoS Final DT M1 Ch.3, AY 2026-27 [IT61]; start date UNVERIFIED; accessed 2026-10-07'),
+    ('PM40',  '2017-04-01', '2026-03-31', 4000, 2000, '1961', 's.32(1)(ii), (iia); New Appendix I Part A III(5) computers incl. software, III(3)(vi)-(viii)', 'Appendix I rates as read in ICAI BoS Final DT M1 Ch.3, AY 2026-27 [IT61]; start date UNVERIFIED; accessed 2026-10-07'),
+    ('INT25', '2017-04-01', '2026-03-31', 2500,    0, '1961', 's.32(1)(ii); New Appendix I Part B (goodwill excluded, s.2(11))', 'Appendix I rates as read in ICAI BoS Final DT M1 Ch.3, AY 2026-27 [IT61]; start date UNVERIFIED; accessed 2026-10-07'),
+    ('BLD5',  '2026-04-01', NULL,  500,    0, '2025', 's.33(3)(a); Income-tax Rules 2026 r.25(1), Appendix I Part A I(1)', 'Income-tax Rules 2026 (G.S.R. 198(E), 20 Mar 2026) Appendix I [R2026]; Act s.33 [IT25]; accessed 2026-10-07'),
+    ('BLD10', '2026-04-01', NULL, 1000,    0, '2025', 's.33(3)(a); Income-tax Rules 2026 r.25(1), Appendix I Part A I(2)', 'Income-tax Rules 2026 (G.S.R. 198(E), 20 Mar 2026) Appendix I [R2026]; Act s.33 [IT25]; accessed 2026-10-07'),
+    ('BLD40', '2026-04-01', NULL, 4000,    0, '2025', 's.33(3)(a); Income-tax Rules 2026 r.25(1), Appendix I Part A I(4)', 'Income-tax Rules 2026 (G.S.R. 198(E), 20 Mar 2026) Appendix I [R2026]; Act s.33 [IT25]; accessed 2026-10-07'),
+    ('FUR10', '2026-04-01', NULL, 1000,    0, '2025', 's.33(3)(a); Income-tax Rules 2026 r.25(1), Appendix I Part A II (Note 5 electrical fittings)', 'Income-tax Rules 2026 (G.S.R. 198(E), 20 Mar 2026) Appendix I [R2026]; Act s.33 [IT25]; accessed 2026-10-07'),
+    ('PM15',  '2026-04-01', NULL, 1500, 2000, '2025', 's.33(3)(a), s.33(8)-(9) additional 20%; Rules 2026 Appendix I Part A III(1), III(2)(i)', 'Income-tax Rules 2026 (G.S.R. 198(E), 20 Mar 2026) Appendix I [R2026]; Act s.33(8) [IT25]; accessed 2026-10-07'),
+    ('PM30',  '2026-04-01', NULL, 3000, 2000, '2025', 's.33(3)(a), s.33(8)-(9); Rules 2026 Appendix I Part A III(3)(ii), (v)', 'Income-tax Rules 2026 (G.S.R. 198(E), 20 Mar 2026) Appendix I [R2026]; Act s.33(8) [IT25]; accessed 2026-10-07'),
+    ('PM40',  '2026-04-01', NULL, 4000, 2000, '2025', 's.33(3)(a), s.33(8)-(9); Rules 2026 Appendix I Part A III computers incl. software, III(3)(vi)-(viii)', 'Income-tax Rules 2026 (G.S.R. 198(E), 20 Mar 2026) Appendix I [R2026]; Act s.33(8) [IT25]; accessed 2026-10-07'),
+    ('INT25', '2026-04-01', NULL, 2500,    0, '2025', 's.33(3)(a); Rules 2026 Appendix I Part B (goodwill excluded, s.2(17))', 'Income-tax Rules 2026 (G.S.R. 198(E), 20 Mar 2026) Appendix I [R2026]; Act s.2(17) [IT25]; accessed 2026-10-07');
+  INSERT INTO it_block_rates (block_id, effective_from, effective_to, rate_bp, additional_rate_bp, act, section_ref, source, is_seeded)
+    SELECT b.id, m.eff_from, m.eff_to, m.rate, m.addl, m.act, m.sec, m.src, 1 FROM m026_rates m JOIN it_blocks b ON b.code = m.code;
+  DROP TABLE m026_rates;
+
+  -- Default asset groups (editable; ledgers are created at the first posting). Residual 5% — the
+  -- Schedule II ceiling [SCH2] Part A 3(i); method SLM.
+  CREATE TEMP TABLE m026_groups (name TEXT, class TEXT, block TEXT);
+  INSERT INTO m026_groups VALUES
+    ('Buildings', 'I(a)', 'BLD10'),
+    ('Factory buildings', 'I(c)', 'BLD10'),
+    ('Plant and machinery', 'IV(a)', 'PM15'),
+    ('Furniture and fittings', 'V(i)', 'FUR10'),
+    ('Motor vehicles', 'VI(3)', 'PM15'),
+    ('Office equipment', 'XI', 'PM15'),
+    ('Computers', 'XII(ii)', 'PM40'),
+    ('Servers and networks', 'XII(i)', 'PM40'),
+    ('Electrical installations', 'XIV', 'FUR10');
+  INSERT INTO fixed_asset_groups (name, ca_class_id, life_months, residual_bp, method, it_block_id, is_seeded)
+    SELECT g.name, c.id, c.life_months, 500, 'slm', b.id, 1
+      FROM m026_groups g JOIN ca_asset_classes c ON c.code = g.class JOIN it_blocks b ON b.code = g.block;
+  DROP TABLE m026_groups;
   `
 ]

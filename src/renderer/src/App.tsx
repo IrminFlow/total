@@ -18,6 +18,7 @@ import { StockSummaryScreen } from './screens/StockSummary'
 import { ManufactureScreen } from './screens/Manufacture'
 import { ManufactureRegisterScreen } from './screens/ManufactureRegister'
 import { ManufactureReportsScreen } from './screens/ManufactureReports'
+import { FixedAssetsScreen } from './screens/FixedAssets'
 import { StockMovementsScreen } from './screens/StockMovements'
 import { StockJournalScreen } from './screens/StockJournal'
 import { StockReportsScreen } from './screens/StockReports'
@@ -159,6 +160,7 @@ export default function App(): React.JSX.Element {
           )}
           {screen.name === 'manufacture-register' && <ManufactureRegisterScreen />}
           {screen.name === 'manufacture-reports' && <ManufactureReportsScreen key={screen.tab ?? 'production'} tab={screen.tab} />}
+          {screen.name === 'fixed-assets' && <FixedAssetsScreen tab={screen.tab} />}
           {screen.name === 'stock-movements' && (
             <StockMovementsScreen key={`${screen.itemId ?? ''}-${screen.godownId ?? ''}`} itemId={screen.itemId} godownId={screen.godownId} />
           )}
