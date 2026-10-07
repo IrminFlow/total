@@ -1,5 +1,23 @@
 import { describe, expect, it } from 'vitest'
 import { addMonths, dashboardWindow, monthEnd, monthRange, monthSpan, weekStart } from './dashboard'
+import { formatPaiseCompact } from './money'
+import { toMonthLabel } from './dates'
+
+describe('formatPaiseCompact / toMonthLabel', () => {
+  it('uses Indian units, one decimal, rounding on the unit boundary', () => {
+    expect(formatPaiseCompact(0)).toBe('₹0')
+    expect(formatPaiseCompact(95_000)).toBe('₹950')
+    expect(formatPaiseCompact(4_520_000)).toBe('₹45.2K')
+    expect(formatPaiseCompact(12_000_000)).toBe('₹1.2L')
+    expect(formatPaiseCompact(9_996_000)).toBe('₹1L') // ₹99,960 — not "₹100K"
+    expect(formatPaiseCompact(3_400_000_000)).toBe('₹3.4Cr')
+    expect(formatPaiseCompact(-25_000_000)).toBe('-₹2.5L')
+  })
+  it('month labels', () => {
+    expect(toMonthLabel('2026-04')).toBe('Apr')
+    expect(toMonthLabel('2027-01', 'long')).toBe('Jan 2027')
+  })
+})
 
 describe('dashboard month math', () => {
   it('addMonths / monthRange cross year boundaries', () => {
