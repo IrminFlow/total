@@ -11,7 +11,8 @@ const TOGGLES: { key: keyof CompanyFeatures; label: string; hint: string }[] = [
   { key: 'costCentres', label: 'Cost centres', hint: 'Split voucher lines across cost centres for the cost-centre report' },
   { key: 'tds', label: 'TDS', hint: 'Tax Deducted at Source suggestions, deduction entries, and the TDS report' },
   { key: 'multiCurrency', label: 'Multi-currency', hint: 'Foreign-currency invoices with an exchange rate; books stay in ₹' },
-  { key: 'payroll', label: 'Payroll', hint: 'Employees, pay runs, and payslips' }
+  { key: 'payroll', label: 'Payroll', hint: 'Employees, pay runs, and payslips' },
+  { key: 'orders', label: 'Orders & challans', hint: 'Delivery challans and goods receipt notes, invoices raised from them, and pending reports (needs Inventory)' }
 ]
 
 export function FeaturesSection(): React.JSX.Element {
