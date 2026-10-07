@@ -12,6 +12,7 @@ import { getFeatures } from './config'
 import { writeAudit } from './audit'
 import { ensureTdsPayableLedger, PENDING_PAYABLE_LEDGER, prepareVoucherTds } from './tds'
 import { parseLineSerials, rebuildItemSerials, syncVoucherSerials } from './serials'
+import { assertFixedAssetVoucherRestorable, assertNotFixedAssetVoucher } from './fixedAssets'
 
 interface VoucherRow {
   id: number; voucher_type_id: number; date: string; number: string
@@ -347,6 +348,8 @@ export function saveVoucher(db: DB, raw: VoucherInput, existingId?: number, hook
     if (!hooks.manufacture && db.prepare('SELECT 1 FROM manufacture_details WHERE voucher_id = ?').get(existingId)) {
       throw new Error(MANUFACTURE_EDIT_ELSEWHERE)
     }
+    // WP 3.6: depreciation-run and disposal journals belong to the fixed-asset register.
+    assertNotFixedAssetVoucher(db, existingId)
   }
   const vt = getVoucherType(db, input.voucherTypeId)
   // TDS (WP 3.1): resolve the payable credit for tds.autoPayable (a ledger that doesn't exist
@@ -607,6 +610,8 @@ export function restoreVoucher(db: DB, id: number): void {
   if (!before.deletedAt) throw new Error('Voucher is not in the bin')
   const lock = getLockDate(db)
   if (lock && before.date <= lock) throw new Error(`Books are locked up to ${lock}`)
+  // WP 3.6: a restored depreciation / disposal journal must not double-count a re-posted period.
+  assertFixedAssetVoucherRestorable(db, id)
   if (before.isYearEndClose) {
     // Restoring a closing journal re-closes its year — refuse when the year was closed again in
     // the meantime, or Retained Earnings would receive the year's profit twice.
