@@ -33,6 +33,8 @@ export const AUDIT_ENTITIES = [
   'tally_import',
   'tdsCertificate',
   'tdsChallan',
+  'tdsEntry',
+  'tdsExemption',
   'tdsRate',
   'tdsSection',
   'unit',

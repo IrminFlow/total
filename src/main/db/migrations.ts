@@ -945,5 +945,17 @@ export const MIGRATIONS: string[] = [
     UNIQUE (stock_item_id, serial)
   );
   CREATE INDEX idx_serial_numbers_status ON serial_numbers(stock_item_id, status);
+  `,
+  // 022 (WP 3.2) — TDS "Not applicable" marks. Number assigned by the orchestrator; appended after
+  // 021 (WP 2.3, serial numbers), whose content it does not depend on — only on vouchers (001).
+  // One row per voucher the user has said carries no TDS (not a sum of that nature, a payee
+  // declaration, below-threshold by agreement …): the Eligible tab skips it and the aggregate
+  // threshold walk leaves it out. Deleting the voucher (purge) cascades.
+  `
+  CREATE TABLE IF NOT EXISTS tds_exemptions (
+    voucher_id INTEGER PRIMARY KEY REFERENCES vouchers(id) ON DELETE CASCADE,
+    reason TEXT NOT NULL CHECK (length(reason) BETWEEN 1 AND 200),
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
   `
 ]
