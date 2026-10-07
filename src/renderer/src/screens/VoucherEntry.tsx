@@ -14,6 +14,8 @@ import { AccountingEntry } from './voucher/AccountingEntry'
 import { ManufactureEntry } from './voucher/ManufactureEntry'
 import { PhysicalStockEntry } from './voucher/PhysicalStockEntry'
 import { StockLinesEntry } from './voucher/StockLinesEntry'
+import { LineDetailOption } from './voucher/LineStockDetail'
+import { StockJournalEntry, TransferEntry } from './StockJournal'
 
 
 export function VoucherEntry({
@@ -159,6 +161,11 @@ export function VoucherEntry({
                   testId="input-voucher-entry-shortcuts"
                 />
               </DrawerSection>
+              {features.inventory && (
+                <DrawerSection title="Stock lines">
+                  <LineDetailOption />
+                </DrawerSection>
+              )}
               <DrawerSection title="Keyboard">
                 <ul className="flex flex-col gap-1 text-detail text-ink">
                   <li>
@@ -198,6 +205,8 @@ export function VoucherEntry({
             <ManufactureEntry typeId={currentType.id} voucherId={voucherId} voucher={existing} initial={plan.state} />
           ) : plan.mode === 'physical' ? (
             <PhysicalStockEntry typeId={currentType.id} voucherId={voucherId} voucher={existing} initial={plan.state} />
+          ) : plan.mode === 'transfer' ? (
+            <TransferEntry typeId={currentType.id} voucherId={voucherId} voucher={existing} initial={plan.state} />
           ) : plan.mode === 'stockLines' ? (
             <StockLinesEntry
               typeId={currentType.id}
@@ -221,7 +230,15 @@ export function VoucherEntry({
         ) : modeForKind(currentType.kind) === 'invoice' ? (
           <InvoiceEntry key={currentType.id} typeId={currentType.id} kind={currentType.kind} draft={draft} />
         ) : modeForKind(currentType.kind) === 'manufacture' ? (
-          <ManufactureEntry key={currentType.id} typeId={currentType.id} />
+          // WP 2.3: a new stock journal opens the transfer / adjustment form; the BOM manufacture
+          // form stays one click away (WP 2.2 gives Manufacture its own screen).
+          <StockJournalEntry
+            key={currentType.id}
+            typeId={currentType.id}
+            extraModes={[
+              { value: 'manufacture', label: 'Manufacture (BOM)', render: () => <ManufactureEntry key={currentType.id} typeId={currentType.id} /> }
+            ]}
+          />
         ) : modeForKind(currentType.kind) === 'physical' ? (
           <PhysicalStockEntry key={currentType.id} typeId={currentType.id} />
         ) : (

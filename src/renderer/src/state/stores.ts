@@ -51,6 +51,9 @@ export type Screen =
   | { name: 'cash-flow' }
   | { name: 'exceptions' }
   | { name: 'stock-summary' }
+  | { name: 'stock-movements'; itemId?: number; godownId?: number }
+  | { name: 'stock-journal' }
+  | { name: 'stock-reports'; tab?: 'reorder' | 'ageing' | 'expiry' | 'serials' | 'labels' }
   | { name: 'ledger-statement'; ledgerId: number }
   | { name: 'gstr1' }
   | { name: 'gstr3b' }

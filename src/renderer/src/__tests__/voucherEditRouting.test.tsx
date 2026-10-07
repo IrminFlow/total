@@ -2,7 +2,7 @@
 // kind when that mode can show it faithfully, and in the lossless fallback (with a banner)
 // otherwise. Drives the real component tree against a mocked IPC bridge.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { cleanup, render, screen, waitFor } from '@testing-library/react'
+import { within, cleanup, render, screen, waitFor } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import type { Group, Ledger, StockItem, Voucher, VoucherType } from '@shared/domain'
 import { buildInvoicePayload, emptyInvoiceState, taxLedgerIdsFrom } from '@shared/voucherEdit'
@@ -29,8 +29,8 @@ const LEDGERS: Ledger[] = [
   ledger(41, 'SGST', 3, { taxType: 'sgst' })
 ]
 const ITEMS: StockItem[] = [
-  { id: 100, name: 'Widget', groupId: null, unitId: 1, hsn: null, gstRate: 18, cessRate: null, openingQtyMilli: 0, openingValue: 0, barcode: null, reorderLevelMilli: null, valuationMethod: 'weighted_avg' },
-  { id: 101, name: 'Steel', groupId: null, unitId: 1, hsn: null, gstRate: 18, cessRate: null, openingQtyMilli: 0, openingValue: 0, barcode: null, reorderLevelMilli: null, valuationMethod: 'weighted_avg' }
+  { id: 100, name: 'Widget', groupId: null, unitId: 1, hsn: null, gstRate: 18, cessRate: null, openingQtyMilli: 0, openingValue: 0, barcode: null, reorderLevelMilli: null, valuationMethod: 'weighted_avg', trackSerials: false },
+  { id: 101, name: 'Steel', groupId: null, unitId: 1, hsn: null, gstRate: 18, cessRate: null, openingQtyMilli: 0, openingValue: 0, barcode: null, reorderLevelMilli: null, valuationMethod: 'weighted_avg', trackSerials: false }
 ]
 const vt = (id: number, name: string, kind: VoucherType['kind']): VoucherType => ({
   id, name, kind, numbering: 'auto', prefix: '', suffix: '', padWidth: 0, restartFy: true, isSystem: true
@@ -88,6 +88,9 @@ beforeEach(() => {
       case 'master:stockItems:list': return { ok: true, data: ITEMS }
       case 'master:units:list': return { ok: true, data: [{ id: 1, name: 'Numbers', symbol: 'Nos', decimals: 0, uqc: 'NOS' }] }
       case 'bom:get': return { ok: true, data: [] }
+      case 'master:godowns:list': return { ok: true, data: [{ id: 1, name: 'Main', address: null }, { id: 2, name: 'Annex', address: null }] }
+      case 'master:batches:list': return { ok: true, data: [] }
+      case 'stock:byGodown': return { ok: true, data: [] }
       case 'voucher:nextNumber': return { ok: true, data: { number: '99' } }
       default: return { ok: false, error: `unmocked ${channel}` }
     }
@@ -136,19 +139,29 @@ describe('VoucherEntry alteration routing', () => {
     renderEntry(6)
     expect(await mode()).toBe('accounting')
     expect(await screen.findByTestId('banner-accounting-fallback')).toBeTruthy()
-    expect(screen.getByText(/kept as-is when you save/)).toBeTruthy()
+    // WP 2.3: the carried stock lines are listed, their godown / batch / serials editable.
+    expect(await screen.findByText(/quantities and amounts are kept as saved/)).toBeTruthy()
+    expect(within(screen.getByTestId('rows-carried-stock')).getAllByRole('row')).toHaveLength(1)
   })
 
-  it('opens a stock journal without a BOM shape in the generic stock-lines editor, and a count in physical mode', async () => {
+  it('opens a godown transfer in the transfer form (WP 2.3), an arbitrary stock journal in the stock-lines editor, a count in physical mode', async () => {
     const base = asVoucher(7, salesPayload())
-    voucher = {
+    const transfer: Voucher = {
       ...base, voucherTypeId: 3, partyLedgerId: null, lines: [], billRefs: [],
       inventory: [
         { id: 1, stockItemId: 101, godownId: 1, batchId: null, qtyMilli: 1000, ratePaise: 100, discountPaise: 0, amount: 100, direction: 'out', isAbsolute: false },
         { id: 2, stockItemId: 101, godownId: 2, batchId: null, qtyMilli: 1000, ratePaise: 100, discountPaise: 0, amount: 100, direction: 'in', isAbsolute: false }
       ]
     }
+    voucher = transfer
     renderEntry(7)
+    expect(await mode()).toBe('transfer')
+    expect(await screen.findByTestId('rows-stock-transfer')).toBeTruthy()
+    expect((screen.getAllByTestId('input-transfer-qty')[0] as HTMLInputElement).value).toBe('1')
+    cleanup()
+
+    voucher = { ...transfer, id: 17, inventory: [transfer.inventory[0]!, { ...transfer.inventory[1]!, amount: 90, ratePaise: 90 }] }
+    renderEntry(17)
     expect(await mode()).toBe('stockLines')
     expect(await screen.findByTestId('banner-stock-lines-fallback')).toBeTruthy()
     cleanup()
