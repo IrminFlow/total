@@ -127,8 +127,11 @@ export const stockItemInputSchema = z.object({
     .transform((s) => (s === '' ? null : s)),
   /** Reorder level in integer thousandths; null = no reorder alert (v0.3 #58). */
   reorderLevelMilli: z.number().int().min(0).nullable().default(null),
-  /** Absent = keep existing (update) / 'weighted_avg' (create). */
-  valuationMethod: z.enum(['weighted_avg', 'fifo']).optional()
+  /** Absent = keep existing (update) / 'weighted_avg' (create). Applies from the next
+   *  valuation — every report re-walks the movements with the item's current method. */
+  valuationMethod: z.enum(['weighted_avg', 'fifo']).optional(),
+  /** Serial-number tracking (WP 2.3). Absent = keep existing (update) / off (create). */
+  trackSerials: z.boolean().optional()
 })
 export type StockItemInput = z.infer<typeof stockItemInputSchema>
 
@@ -185,7 +188,10 @@ export const inventoryLineSchema = z
     amount: paise.min(0),
     direction: z.enum(['in', 'out']),
     /** Physical Stock line: qtyMilli is the counted closing quantity, not a movement. */
-    isAbsolute: z.boolean().optional()
+    isAbsolute: z.boolean().optional(),
+    /** Serial numbers moved by this line (WP 2.3) — one per unit for serial-tracked items
+     *  (src/shared/serials.ts); dropped for items that don't track serials. */
+    serials: z.array(z.string().trim().min(1).max(60)).max(5000).optional()
   })
   .refine((l) => l.isAbsolute || l.qtyMilli > 0, {
     message: 'Inventory quantity must be positive',
@@ -850,3 +856,35 @@ export type ManufactureCostPreviewInput = z.infer<typeof manufactureCostPreviewS
 export const manufactureRegisterSchema = z.object({ from: isoDate, to: isoDate })
 
 export const stockMovementsSchema = z.object({ stockItemId: id, from: isoDate, to: isoDate })
+// ---------- stock visibility (WP 2.3) ----------
+
+/** stock:register — one item's movement register over a period with running quantity and
+ *  value from the valuation pass, optionally one godown (WP 2.2's stock:movements is the plain
+ *  line list). */
+export const stockRegisterSchema = z.object({
+  itemId: id,
+  from: isoDate,
+  to: isoDate,
+  godownId: id.optional()
+})
+
+/** stock:reorder — reorder planning over a consumption window ending `to`. */
+export const stockReorderSchema = z.object({ from: isoDate, to: isoDate, onlyBelow: z.boolean().optional() })
+
+/** stock:expiryReport — batches expired or expiring within N days of asOn. */
+export const stockExpiryReportSchema = z.object({ asOn: isoDate, withinDays: z.number().int().min(0).max(3650) })
+
+/** stock:labelsHtml / stock:labelsPdf — barcode label sheet. */
+export const stockLabelsSchema = z.object({
+  items: z.array(z.object({ itemId: id, copies: z.number().int().min(0).max(500) })).min(1).max(500),
+  priceLevelId: id.nullable().optional(),
+  date: isoDate
+})
+export type StockLabelsInput = z.infer<typeof stockLabelsSchema>
+
+/** serials:list / serials:available. */
+export const serialsListSchema = z.object({
+  stockItemId: id.optional(),
+  status: z.enum(['in_stock', 'sold', 'consumed', 'returned']).optional()
+})
+export const serialsAvailableSchema = z.object({ stockItemId: id, voucherId: id.optional() })

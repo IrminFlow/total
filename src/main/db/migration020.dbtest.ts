@@ -62,8 +62,7 @@ const tag = (db: DB, id: number): number | null =>
 
 describe('migration 020', () => {
   it('is appended after the existing migrations and starts from a fixture without the new tables', () => {
-    // Later WPs append after it (022 tds_exemptions, WP 3.2).
-    expect(M020).toBeLessThanOrEqual(MIGRATIONS.length - 1)
+    expect(M020).toBeLessThan(MIGRATIONS.length) // later migrations (021 WP 2.3, 022 WP 3.2) append after it
     // Version 20: right after 019 (WP 2.2, manufacture_details).
     expect(M020 + 1).toBe(20)
     expect(MIGRATIONS[M020 - 1]).toContain('CREATE TABLE manufacture_details')

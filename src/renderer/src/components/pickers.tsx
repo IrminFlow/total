@@ -21,7 +21,7 @@ export function useStockItems(): StockItem[] {
   return data ?? []
 }
 
-interface PickerOption {
+export interface PickerOption {
   id: number
   label: string
   sub?: string
@@ -30,7 +30,7 @@ interface PickerOption {
 }
 
 /** Generic type-ahead picker with the amber keyboard bar and an optional inline-create hook. */
-function TypeAhead({
+export function TypeAhead({
   options,
   value,
   onPick,

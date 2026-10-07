@@ -14,6 +14,8 @@ import { AccountingEntry } from './voucher/AccountingEntry'
 import { ManufactureForm } from './Manufacture'
 import { PhysicalStockEntry } from './voucher/PhysicalStockEntry'
 import { StockLinesEntry } from './voucher/StockLinesEntry'
+import { LineDetailOption } from './voucher/LineStockDetail'
+import { StockJournalEntry, TransferEntry } from './StockJournal'
 
 
 export function VoucherEntry({
@@ -34,6 +36,7 @@ export function VoucherEntry({
   const features = useFeatures()
   const [typeId, setTypeId] = useState<number | null>(null)
   const [hintDismissed, setHintDismissed] = useState(false)
+  const [sjMode, setSjMode] = useState<'transfer' | 'manufacture'>('transfer')
 
   // Same queryKey Gateway uses for report:dashboard — a brand-new company (no vouchers yet) gets a
   // first-time hint here; react-query dedupes the request rather than firing a second round-trip.
@@ -92,7 +95,8 @@ export function VoucherEntry({
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
-      const target = isManufactureKey(e) ? 'stock_journal' : kindForVoucherKey(e)
+      const manufactureKey = isManufactureKey(e)
+      const target = manufactureKey ? 'stock_journal' : kindForVoucherKey(e)
       if (!target || voucherId || !types) return
       if (target === 'stock_journal' && !features.inventory) return
       // Never switch voucher type underneath an open dialog (quick-create ledger, confirm…).
@@ -101,6 +105,8 @@ export function VoucherEntry({
       if (t) {
         e.preventDefault()
         setTypeId(t.id)
+        // WP 2.3: the Stock Journal tab opens on transfers; Alt+F7 asks for Manufacture.
+        if (target === 'stock_journal') setSjMode(manufactureKey ? 'manufacture' : 'transfer')
       }
     }
     window.addEventListener('keydown', onKey)
@@ -163,6 +169,11 @@ export function VoucherEntry({
                   testId="input-voucher-entry-shortcuts"
                 />
               </DrawerSection>
+              {features.inventory && (
+                <DrawerSection title="Stock lines">
+                  <LineDetailOption />
+                </DrawerSection>
+              )}
               <DrawerSection title="Keyboard">
                 <ul className="flex flex-col gap-1 text-detail text-ink">
                   <li>
@@ -205,6 +216,8 @@ export function VoucherEntry({
             <ManufactureForm typeId={currentType.id} voucherId={voucherId} voucher={existing} initial={plan.state} />
           ) : plan.mode === 'physical' ? (
             <PhysicalStockEntry typeId={currentType.id} voucherId={voucherId} voucher={existing} initial={plan.state} />
+          ) : plan.mode === 'transfer' ? (
+            <TransferEntry typeId={currentType.id} voucherId={voucherId} voucher={existing} initial={plan.state} />
           ) : plan.mode === 'stockLines' ? (
             <StockLinesEntry
               typeId={currentType.id}
@@ -229,7 +242,16 @@ export function VoucherEntry({
         ) : modeForKind(currentType.kind) === 'invoice' ? (
           <InvoiceEntry key={currentType.id} typeId={currentType.id} kind={currentType.kind} draft={draft} />
         ) : modeForKind(currentType.kind) === 'manufacture' ? (
-          <ManufactureForm key={currentType.id} typeId={currentType.id} />
+          // WP 2.3: a new stock journal opens the transfer / adjustment form; the BOM manufacture
+          // form stays one click away (WP 2.2 gives Manufacture its own screen).
+          <StockJournalEntry
+            key={`${currentType.id}-${sjMode}`}
+            typeId={currentType.id}
+            initialMode={sjMode}
+            extraModes={[
+              { value: 'manufacture', label: 'Manufacture (BOM)', render: () => <ManufactureForm key={currentType.id} typeId={currentType.id} /> }
+            ]}
+          />
         ) : modeForKind(currentType.kind) === 'physical' ? (
           <PhysicalStockEntry key={currentType.id} typeId={currentType.id} />
         ) : (

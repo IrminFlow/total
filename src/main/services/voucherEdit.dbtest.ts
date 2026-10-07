@@ -8,7 +8,7 @@ import { seededDb, TEST_INFO } from '../db/testdb'
 import type { DB } from '../db/connection'
 import type { Group, Voucher, VoucherKind } from '@shared/domain'
 import {
-  buildAccountingPayload, buildInvoicePayload, buildPhysicalPayload, buildStockLinesPayload,
+  buildAccountingPayload, buildInvoicePayload, buildPhysicalPayload, buildStockLinesPayload, buildTransferPayload,
   derivePartyId, emptyInvoiceState, emptyPhysicalState, evaluateManufactureForm, planVoucherEdit, taxLedgerIdsFrom,
   LEGACY_STOCK_JOURNAL_BANNER, type EditPlan, type EditPlanContext, type VoucherPayload
 } from '@shared/voucherEdit'
@@ -149,7 +149,9 @@ function editorPayload(db: DB, v: Voucher): { plan: EditPlan; payload: VoucherPa
         ? buildAccountingPayload(plan.state, { kind, voucherTypeId: v.voucherTypeId, derivedPartyId: derivePartyId(plan.state.rows, isPartyOrTds, null) })
         : plan.mode === 'physical'
             ? buildPhysicalPayload(plan.state, { voucherTypeId: v.voucherTypeId, itemName: ctx.itemName })
-            : buildStockLinesPayload(plan.state, { voucherTypeId: v.voucherTypeId })
+            : plan.mode === 'transfer'
+              ? buildTransferPayload(plan.state, { voucherTypeId: v.voucherTypeId, costs: [] })
+              : buildStockLinesPayload(plan.state, { voucherTypeId: v.voucherTypeId })
   if (!r.ok) throw new Error(`${plan.mode}: ${r.error}`)
   return { plan, payload: r.payload }
 }
@@ -168,7 +170,7 @@ function snapshot(db: DB, id: number): unknown {
     lines: db.prepare('SELECT ledger_id, dr_cr, amount, line_order, bank_date FROM voucher_lines WHERE voucher_id = ? ORDER BY line_order').all(id),
     inventory: db
       .prepare(
-        `SELECT stock_item_id, godown_id, batch_id, qty_milli, rate_paise, discount_paise, amount, direction, is_absolute, line_order
+        `SELECT stock_item_id, godown_id, batch_id, qty_milli, rate_paise, discount_paise, amount, direction, is_absolute, line_order, serials
          FROM inventory_lines WHERE voucher_id = ? ORDER BY line_order`
       )
       .all(id),
@@ -436,13 +438,28 @@ describe('voucher editor round-trip (WP 1.4): load → save unchanged stores ide
     expect(getManufactureDetails(db, id)).toBeNull()
   })
 
-  it('arbitrary stock journal (godown transfer) falls back to the generic stock-lines editor', () => {
+  it('a same-item godown transfer (WP 2.3) opens in the transfer form', () => {
     const id = saveVoucher(db, {
       ...header, voucherTypeId: typeId(db, 'stock_journal'), date: '2025-05-18', narration: 'Main → Annex', reference: 'TR-1',
       lines: [],
       inventory: [
         { stockItemId: x.widget, godownId: x.godownA, batchId: x.batch, qtyMilli: 1000, ratePaise: 50000, amount: 50000, direction: 'out' },
         { stockItemId: x.widget, godownId: x.godownB, batchId: x.batch, qtyMilli: 1000, ratePaise: 50000, amount: 50000, direction: 'in' }
+      ]
+    }).id
+    const plan = expectRoundTrip(db, id, 'transfer')
+    expect(plan.mode === 'transfer' && plan.state.rows).toEqual([
+      expect.objectContaining({ itemId: x.widget, fromGodownId: x.godownA, toGodownId: x.godownB, qtyText: '1', batchId: x.batch })
+    ])
+  })
+
+  it('arbitrary stock journal (unequal transfer legs) falls back to the generic stock-lines editor', () => {
+    const id = saveVoucher(db, {
+      ...header, voucherTypeId: typeId(db, 'stock_journal'), date: '2025-05-18', narration: 'Main → Annex', reference: 'TR-2',
+      lines: [],
+      inventory: [
+        { stockItemId: x.widget, godownId: x.godownA, batchId: x.batch, qtyMilli: 1000, ratePaise: 50000, amount: 50000, direction: 'out' },
+        { stockItemId: x.widget, godownId: x.godownB, batchId: x.batch, qtyMilli: 1000, ratePaise: 48000, amount: 48000, direction: 'in' }
       ]
     }).id
     expectRoundTrip(db, id, 'stockLines')
@@ -478,6 +495,58 @@ describe('voucher editor round-trip (WP 1.4): load → save unchanged stores ide
   it('getVoucher returns cost allocations in stored order', () => {
     const v = getVoucher(db, db.prepare("SELECT id FROM vouchers WHERE number = 'S-HAND'").pluck().get() as number)!
     expect(v.lines[1]!.costAllocations.map((a) => a.costCentreId)).toEqual([x.ccB, x.ccA])
+  })
+})
+
+describe('serial numbers round-trip through every editor (WP 2.3)', () => {
+  const db = seededDb()
+  const x = setup(db)
+  const unit = db.prepare('SELECT id FROM units ORDER BY id LIMIT 1').get() as { id: number }
+  const phone = createStockItem(db, {
+    name: 'Phone', groupId: null, unitId: unit.id, hsn: '8517', gstRate: 18, cessRate: null, openingQtyMilli: 0, openingValue: 0,
+    barcode: null, reorderLevelMilli: null, trackSerials: true
+  }).id
+  const ctx = editContext(db)
+  const invoiceFrom = (kind: VoucherKind, over: Partial<ReturnType<typeof emptyInvoiceState>>): number => {
+    const r = buildInvoicePayload({ ...emptyInvoiceState('2025-06-01'), ...over }, { ...ctx.invoice, kind }, typeId(db, kind), ctx.taxLedgers)
+    if (!r.ok) throw new Error(r.error)
+    return saveVoucher(db, r.payload).id
+  }
+
+  it('purchase and sale invoices with serials (godown + batch too) re-save identically', () => {
+    const purchase = invoiceFrom('purchase', {
+      partyId: x.supplier, accountId: x.purchases, billName: 'PH-1',
+      rows: [{ itemId: phone, qtyText: '3', rate: 1_000_000, discount: null, godownId: x.godownA, batchId: null, serials: ['IMEI-3', 'IMEI-1', 'IMEI-2'] }]
+    })
+    expectRoundTrip(db, purchase, 'invoice')
+    expect(getVoucher(db, purchase)!.inventory[0]!.serials).toEqual(['IMEI-3', 'IMEI-1', 'IMEI-2'])
+    const sale = invoiceFrom('sales', {
+      partyId: x.buyer, accountId: x.sales, billName: 'S-PH',
+      rows: [{ itemId: phone, qtyText: '1', rate: 1_500_000, discount: null, godownId: x.godownA, batchId: null, serials: ['IMEI-1'] }]
+    })
+    const plan = expectRoundTrip(db, sale, 'invoice')
+    expect(plan.mode === 'invoice' && plan.state.rows[0]!.serials).toEqual(['IMEI-1'])
+  })
+
+  it('a serial transfer opens in the transfer form and re-saves identically', () => {
+    const id = saveVoucher(db, {
+      ...header, voucherTypeId: typeId(db, 'stock_journal'), date: '2025-06-02', lines: [],
+      inventory: [
+        { stockItemId: phone, godownId: x.godownA, batchId: null, qtyMilli: 1000, ratePaise: 1_000_000, amount: 1_000_000, direction: 'out', serials: ['IMEI-2'] },
+        { stockItemId: phone, godownId: x.godownB, batchId: null, qtyMilli: 1000, ratePaise: 1_000_000, amount: 1_000_000, direction: 'in', serials: ['IMEI-2'] }
+      ]
+    }).id
+    expectRoundTrip(db, id, 'transfer')
+  })
+
+  it('a hand-built sale with serials falls back to accounting mode and keeps them', () => {
+    const id = saveVoucher(db, {
+      ...header, voucherTypeId: typeId(db, 'sales'), date: '2025-06-03', number: 'S-PH-HAND', partyLedgerId: x.buyer,
+      lines: [{ ledgerId: x.buyer, drCr: 'dr', amount: 1_000_000 }, { ledgerId: x.sales, drCr: 'cr', amount: 1_000_000 }],
+      inventory: [{ stockItemId: phone, godownId: x.godownB, batchId: null, qtyMilli: 1000, ratePaise: 1_000_000, amount: 1_000_001, direction: 'out', serials: ['IMEI-2'] }]
+    }).id
+    expectRoundTrip(db, id, 'accounting')
+    expect(getVoucher(db, id)!.inventory[0]!.serials).toEqual(['IMEI-2'])
   })
 })
 

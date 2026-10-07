@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import type { Voucher, VoucherBillRef, VoucherKind } from '@shared/domain'
 import type { OutstandingBill } from '@shared/reports'
@@ -23,6 +23,7 @@ import { QuickItemModal, QuickLedgerModal } from './modals'
 import { TransportModal } from './TransportModal'
 import { useTdsDeduction } from './useTdsDeduction'
 import { TdsBanner, TdsNotApplicableNote } from './TdsBanner'
+import { LineDetailToggle, LineStockDetail, LineStockSummary, useLineDetails } from './LineStockDetail'
 
 // ---------- invoice mode (sales / purchase / notes) ----------
 
@@ -356,6 +357,8 @@ export function InvoiceEntry({
   }
 
   const itemMap = useMemo(() => new Map(items.map((i) => [i.id, i])), [items])
+  const details = useLineDetails()
+  const goodsIn = kind === 'purchase' || kind === 'credit_note'
   const unitOf = (itemId: number | null): string => {
     if (!itemId || !units) return ''
     const item = itemMap.get(itemId)
@@ -460,6 +463,7 @@ export function InvoiceEntry({
             <th className="r w-28">Disc.</th>
             <th className="r w-24">GST %</th>
             <th className="r w-36">Amount</th>
+            {features.inventory && <th className="w-6"><span className="sr-only">Stock details</span></th>}
           </tr>
         </thead>
         <tbody data-testid="rows-invoice-lines">
@@ -468,14 +472,16 @@ export function InvoiceEntry({
             const qty = parseFloat(r.qtyText || '0')
             const amount =
               item && qty > 0 && r.rate != null ? Math.max(0, Math.round(qty * r.rate) - (r.discount ?? 0)) : 0
+            const detailOpen = features.inventory && details.isOpen(r.key, item)
             return (
-              <tr key={r.key}>
+              <Fragment key={r.key}>
+              <tr onKeyDown={features.inventory ? details.onRowKeyDown(r.key) : undefined} data-line-key={r.key}>
                 <td>
                   <ItemPicker
                     value={r.itemId}
                     onPick={(id) => {
-                      // A batch belongs to one item — a different item can't keep the old line's.
-                      setRow(i, id === r.itemId ? { itemId: id } : { itemId: id, batchId: null })
+                      // A batch (and serials) belong to one item — a different item can't keep the old line's.
+                      setRow(i, id === r.itemId ? { itemId: id } : { itemId: id, batchId: null, serials: undefined })
                       // Price-level autofill: the party's price list fills an empty Rate cell.
                       // Price-list rates are ₹, so skip while a foreign currency is active.
                       if (id != null && r.rate == null && !fxActive && party?.priceLevelId != null) {
@@ -525,8 +531,29 @@ export function InvoiceEntry({
                 </td>
                 <td className="r">
                   <Money paise={amount} className="text-body" />
+                  {!detailOpen && features.inventory && <div><LineStockSummary fields={r} /></div>}
                 </td>
+                {features.inventory && (
+                  <td>
+                    <LineDetailToggle open={detailOpen} onToggle={() => details.toggle(r.key)} fields={r} disabled={!item} />
+                  </td>
+                )}
               </tr>
+              {detailOpen && item && (
+                <tr className="line-detail-row" data-testid="row-line-detail">
+                  <td colSpan={7} className="!pt-0">
+                    <LineStockDetail
+                      item={item}
+                      direction={goodsIn ? 'in' : 'out'}
+                      qtyMilli={Math.round(qty * 1000) || 0}
+                      fields={r}
+                      onChange={(patch) => setRow(i, patch)}
+                      voucherId={voucherId}
+                    />
+                  </td>
+                </tr>
+              )}
+              </Fragment>
             )
           })}
         </tbody>

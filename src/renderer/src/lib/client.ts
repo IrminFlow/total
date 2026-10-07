@@ -34,6 +34,16 @@ import type {
 import type { CompanyFeatures } from '@shared/features'
 import type { StockCostPosition, ConsumptionCosting, ProposedOutward } from '@shared/valuation'
 import type { ManufactureDetails, ManufactureInput } from '@shared/manufacture'
+import type { ExpiryReportRow, ReorderRow, SerialListRow, StockMovementRegister } from '@shared/stockPlanning'
+import type { SerialStatus } from '@shared/serials'
+
+/** stock:labelsHtml / stock:labelsPdf query (mirrors stockLabelsSchema). */
+export interface StockLabelsQuery {
+  items: { itemId: number; copies: number }[]
+  /** Omitted = the first price list; null = print no price. */
+  priceLevelId?: number | null
+  date: string
+}
 import type { SearchHit, SearchResponse } from '@shared/search'
 import type { ChartGroupNode } from '@shared/chartOfAccounts'
 import type { InvoiceConfig } from '@shared/invoiceConfig'
@@ -547,8 +557,21 @@ export const api = {
      *  editing so the voucher's own saved lines are left out. */
     costAsOf: (q: { date: string; voucherId?: number; itemIds?: number[]; lines?: ProposedOutward[] }) =>
       call<StockCostAsOf>('stock:costAsOf', q),
+    /** WP 2.2 — one item's plain inventory lines (the list under a Stock summary row). */
     movements: (stockItemId: number, from: string, to: string) =>
-      call<ItemMovementRow[]>('stock:movements', { stockItemId, from, to })
+      call<ItemMovementRow[]>('stock:movements', { stockItemId, from, to }),
+    /** WP 2.3 — one item's movement register with running quantity/value from the pass. */
+    register: (q: { itemId: number; from: string; to: string; godownId?: number }) =>
+      call<StockMovementRegister>('stock:register', q),
+    reorder: (from: string, to: string, onlyBelow = true) => call<ReorderRow[]>('stock:reorder', { from, to, onlyBelow }),
+    expiryReport: (asOn: string, withinDays: number) => call<ExpiryReportRow[]>('stock:expiryReport', { asOn, withinDays }),
+    labelsHtml: (q: StockLabelsQuery) => call<{ html: string }>('stock:labelsHtml', q),
+    labelsPdf: (q: StockLabelsQuery) => call<{ path: string }>('stock:labelsPdf', q)
+  },
+  serials: {
+    list: (q: { stockItemId?: number; status?: SerialStatus } = {}) => call<SerialListRow[]>('serials:list', q),
+    /** Serials an outward line may pick (in stock, plus those `voucherId` itself took out). */
+    available: (stockItemId: number, voucherId?: number) => call<string[]>('serials:available', { stockItemId, voucherId })
   },
   manufacture: {
     get: (id: number) => call<ManufactureRecord | null>('manufacture:get', { id }),

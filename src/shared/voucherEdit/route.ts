@@ -9,11 +9,12 @@ import { manufactureRepresentation, type ManufactureFormState } from './manufact
 import type { ManufactureDetails } from '../manufacture'
 import { physicalRepresentation, type PhysicalFormState } from './physical'
 import { stockLinesStateFromVoucher, type StockLinesFormState } from './stockLines'
+import { transferRepresentation, type TransferFormState } from './stockJournal'
 import { TRADING_KINDS } from './payload'
 
-export type EntryMode = 'invoice' | 'accounting' | 'manufacture' | 'physical' | 'stockLines'
+export type EntryMode = 'invoice' | 'accounting' | 'manufacture' | 'physical' | 'stockLines' | 'transfer'
 
-export function modeForKind(kind: VoucherKind): Exclude<EntryMode, 'stockLines'> {
+export function modeForKind(kind: VoucherKind): Exclude<EntryMode, 'stockLines' | 'transfer'> {
   if (TRADING_KINDS.includes(kind)) return 'invoice'
   if (kind === 'stock_journal') return 'manufacture'
   if (kind === 'physical_stock') return 'physical'
@@ -26,6 +27,7 @@ export type EditPlan =
   | { mode: 'manufacture'; state: ManufactureFormState }
   | { mode: 'physical'; state: PhysicalFormState }
   | { mode: 'stockLines'; state: StockLinesFormState; fallbackReason: string | null; legacy?: boolean }
+  | { mode: 'transfer'; state: TransferFormState }
 
 /** Banner for a stock journal saved before the Manufacture screen existed (no details row). */
 export const LEGACY_STOCK_JOURNAL_BANNER = 'Created before 0.6.0 — costed at the saved amounts'
@@ -50,6 +52,10 @@ export function planVoucherEdit(v: Voucher, kind: VoucherKind, ctx: EditPlanCont
       // Legacy journals (no details row) are never converted: they keep their stored costing
       // and open as plain stock lines.
       if (!ctx.manufacture) {
+        // WP 2.3: a same-item godown transfer (stored costing, no details row) opens in the
+        // transfer form, which re-saves it byte-for-byte.
+        const t = transferRepresentation(v)
+        if (t.ok) return { mode: 'transfer', state: t.state }
         return { mode: 'stockLines', state: stockLinesStateFromVoucher(v), fallbackReason: LEGACY_STOCK_JOURNAL_BANNER, legacy: true }
       }
       const r = manufactureRepresentation(v, ctx.manufacture, { itemName: ctx.itemName })

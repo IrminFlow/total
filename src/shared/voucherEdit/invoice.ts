@@ -19,9 +19,11 @@ export interface InvoiceRowState {
   rate: number | null
   /** Per-line trade discount, paise in the invoice currency (display + gross only). */
   discount: number | null
-  /** Not editable in this form (a later phase adds pickers) — carried for saved lines. */
+  /** Picked per line in the stock-detail expander (WP 2.3). */
   godownId: number | null
   batchId: number | null
+  /** Serial numbers (serial-tracked items) — one per unit. */
+  serials?: string[]
 }
 
 export interface InvoiceFormState {
@@ -103,6 +105,7 @@ export interface InvoiceLineDetail {
   cessRate: number
   godownId: number | null
   batchId: number | null
+  serials?: string[]
 }
 
 export interface InvoiceComputed {
@@ -146,7 +149,8 @@ export function computeInvoice(state: InvoiceFormState, ctx: InvoiceContext): In
       rate: item.gstRate ?? account?.gstRate ?? 0,
       cessRate: item.cessRate ?? 0,
       godownId: r.godownId,
-      batchId: r.batchId
+      batchId: r.batchId,
+      ...(r.serials && r.serials.length > 0 ? { serials: [...r.serials] } : {})
     })
   }
 
@@ -247,7 +251,8 @@ export function buildInvoicePayload(
         ratePaise: d.ratePaise,
         discountPaise: d.discountPaise,
         amount: d.amount,
-        direction: goodsComeIn(ctx.kind) ? ('in' as const) : ('out' as const)
+        direction: goodsComeIn(ctx.kind) ? ('in' as const) : ('out' as const),
+        ...(d.serials ? { serials: d.serials } : {})
       })),
       billRefs:
         isNoteKind(ctx.kind) && !state.manualNewBillMode
@@ -323,7 +328,8 @@ export function invoiceStateFromVoucher(
     rate: toInvoiceCurrency(l.ratePaise),
     discount: l.discountPaise ? toInvoiceCurrency(l.discountPaise) : null,
     godownId: l.godownId,
-    batchId: l.batchId
+    batchId: l.batchId,
+    ...(l.serials && l.serials.length > 0 ? { serials: [...l.serials] } : {})
   }))
 
   let billName = ''

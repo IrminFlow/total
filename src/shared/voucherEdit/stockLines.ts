@@ -21,6 +21,8 @@ export interface StockLineRowState {
   batchId: number | null
   discountPaise: number
   isAbsolute: boolean
+  /** Serial numbers (serial-tracked items, WP 2.3). */
+  serials?: string[]
 }
 
 export interface StockLinesFormState {
@@ -71,7 +73,8 @@ export function buildStockLinesPayload(state: StockLinesFormState, opts: { vouch
       discountPaise: r.discountPaise,
       amount: r.amount ?? 0,
       direction: r.direction,
-      isAbsolute: r.isAbsolute
+      isAbsolute: r.isAbsolute,
+      ...(r.serials && r.serials.length > 0 ? { serials: [...r.serials] } : {})
     })
   }
   if (inventory.length === 0) return { ok: false, error: 'Add at least one stock line' }
@@ -108,7 +111,8 @@ export function stockLinesStateFromVoucher(v: Voucher): StockLinesFormState {
         godownId: x.godownId,
         batchId: x.batchId ?? null,
         discountPaise: x.discountPaise ?? 0,
-        isAbsolute: x.isAbsolute ?? false
+        isAbsolute: x.isAbsolute ?? false,
+        ...(x.serials ? { serials: [...x.serials] } : {})
       }
     }),
     narration: v.narration ?? '',

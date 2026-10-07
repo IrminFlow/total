@@ -133,6 +133,24 @@ export const SCREENS: ScreenDef[] = [
     invalidates: ['stockSummary', 'stockAgeing', 'stockByGodown', 'stockBatches', 'stockMovements']
   },
   {
+    name: 'stock-movements',
+    keywords: ['item movement register', 'stock register', 'stock ledger', 'item ledger'],
+    title: 'Stock movements',
+    screen: { name: 'stock-movements' },
+    navSection: 'books',
+    feature: 'inventory',
+    invalidates: ['stockMovements', 'godowns', 'stockItems']
+  },
+  {
+    name: 'stock-journal',
+    keywords: ['godown transfer', 'stock transfer', 'stock adjustment'],
+    title: 'Stock journal',
+    screen: { name: 'stock-journal' },
+    navSection: 'books',
+    feature: 'inventory',
+    invalidates: ['transferCost', 'stockByGodown', 'godowns', 'batches', 'serialsAvailable', 'nextNumber', 'stockItems', 'voucherTypes']
+  },
+  {
     name: 'year-end',
     title: 'Year-end close',
     screen: { name: 'year-end' },
@@ -275,6 +293,15 @@ export const SCREENS: ScreenDef[] = [
     screen: { name: 'company-info' },
     navSection: null,
     invalidates: []
+  },
+  {
+    name: 'stock-reports',
+    keywords: ['reorder', 'reorder planning', 'stock ageing', 'expiry', 'serial numbers', 'barcode labels', 'labels'],
+    title: 'Stock reports — reorder, ageing, expiry, serials, labels',
+    screen: { name: 'stock-reports' },
+    navSection: null, // reached from Stock summary's header and the palette
+    feature: 'inventory',
+    invalidates: ['stockReorder', 'stockAgeing', 'stockExpiry', 'serialList', 'priceLevels', 'labelsPreview']
   },
   {
     name: 'ledger-statement',
