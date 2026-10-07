@@ -463,6 +463,12 @@ export interface CreditLimitWarning {
   creditLimit: number
   /** Party's outstanding (dr-positive, incl. this voucher), paise. */
   outstanding: number
+  /** WP 2.5c (§9 Q9, Orders & challans on): the party's open sales-order value with GST — a
+   *  separate, warn-only figure (outstandings stay invoice-based). Absent when the flag is off. */
+  openSalesOrders?: number
+  /** True when only outstanding + open orders passes the limit (the outstanding alone doesn't):
+   *  a warning that never blocks, even under enforceCreditLimit. */
+  ordersOnly?: boolean
 }
 
 /** Non-blocking issues detected while saving a voucher. Additive: the saved Voucher rides

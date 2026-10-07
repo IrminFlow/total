@@ -282,7 +282,9 @@ export const openSourceLinesSchema = z.object({
   targetKind: z.union([z.enum(VOUCHER_KINDS), tradeDocKindSchema]),
   linkType: z.enum(['fulfil', 'return']).default('fulfil'),
   /** The voucher being altered: its own links don't count against capacity. */
-  excludeVoucherId: id.optional()
+  excludeVoucherId: id.optional(),
+  /** The order being altered (WP 2.5c): its own links don't count against capacity. */
+  excludeTradeDocId: id.optional()
 })
 export type OpenSourceLinesQuery = z.infer<typeof openSourceLinesSchema>
 
@@ -292,6 +294,72 @@ export const tradePendingSchema = z.object({
   asOn: isoDate
 })
 export type TradePendingQuery = z.infer<typeof tradePendingSchema>
+
+// ---------- quotations / sales orders / purchase orders (WP 2.5c, design §6.2) ----------
+
+/** One quotation / order line. `amount` is the taxable value after discount: the server checks
+ *  amount = round(qty × rate) − discount (the invoice rule). GST rates are snapshotted server-side. */
+export const tradeDocLineSchema = z.object({
+  lineUid: lineUidSchema.optional(),
+  stockItemId: id,
+  description: z.string().trim().max(500).nullable().default(null),
+  godownId: id.nullable().default(null),
+  qtyMilli: z.number().int().positive(),
+  ratePaise: paise.min(0),
+  discountPaise: paise.min(0).default(0),
+  amount: paise.min(0),
+  dueDate: isoDate.nullable().default(null),
+  /** The quotation line this order line converts (doc → doc link, rules.ts). */
+  source: lineSourceSchema.nullable().default(null)
+})
+export type TradeDocLineInput = z.input<typeof tradeDocLineSchema>
+
+export const tradeDocInputSchema = z.object({
+  docTypeId: id,
+  date: isoDate,
+  /** Absent / blank = next auto number of the series. */
+  number: z.string().trim().max(40).optional(),
+  partyLedgerId: id,
+  /** Quotations only: valid until (inclusive). */
+  validUntil: isoDate.nullable().default(null),
+  /** Orders: expected delivery / receipt date. */
+  dueDate: isoDate.nullable().default(null),
+  reference: z.string().trim().max(120).nullable().default(null),
+  terms: z.string().trim().max(4000).nullable().default(null),
+  narration: z.string().trim().max(1000).nullable().default(null),
+  posOverride: stateCodeSchema.nullable().default(null),
+  currencyCode: z.string().trim().length(3).transform((s) => s.toUpperCase()).nullable().default(null),
+  exchangeRate: z.number().positive().max(100000).nullable().default(null),
+  lines: z.array(tradeDocLineSchema).min(1, 'Add at least one item line').max(200)
+})
+export type TradeDocInputParsed = z.infer<typeof tradeDocInputSchema>
+export type TradeDocInput = z.input<typeof tradeDocInputSchema>
+
+export const tradeDocSaveSchema = z.object({ data: tradeDocInputSchema, id: id.optional() })
+
+export const tradeDocListSchema = z.object({
+  kind: tradeDocKindSchema,
+  from: isoDate,
+  to: isoDate,
+  /** Include binned documents (the list's "In the bin" view). */
+  includeBinned: z.boolean().default(false)
+})
+export type TradeDocListQuery = z.input<typeof tradeDocListSchema>
+
+/** close / cancel / reopen / delete / restore. */
+export const tradeDocActionSchema = z.object({ id, reason: z.string().trim().max(300).nullable().default(null) })
+
+/** convert (quotation → sales order) / duplicate: a draft for the entry form, never saved. */
+export const tradeDocConvertSchema = z.object({ id, to: tradeDocKindSchema })
+
+/** trade:pendingOrders — open sales / purchase order lines as on a date. */
+export const pendingOrdersSchema = z.object({ kind: z.enum(['sales_order', 'purchase_order']), asOn: isoDate })
+
+/** trade:quotationPipeline — quotations dated in a period, their outcome as on `asOn`. */
+export const quotationPipelineSchema = z.object({ from: isoDate, to: isoDate, asOn: isoDate })
+
+/** trade:openSalesOrderValue — a party's open sales order value (credit-limit figure). */
+export const openOrderValueSchema = z.object({ partyLedgerId: id })
 
 export const periodSchema = z.object({ from: isoDate, to: isoDate })
 export type Period = z.infer<typeof periodSchema>
