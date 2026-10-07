@@ -22,7 +22,7 @@ function StatementRow({ node, depth }: { node: StatementNode; depth: number }): 
   const [open, setOpen] = useState(depth === 0)
   const isLeafLedger = node.kind === 'ledger' && isRealId(node.id)
   const style = { paddingLeft: `${8 + depth * 18}px` }
-  const nameCls = `text-[13px] ${depth === 0 ? 'font-medium' : isLeafLedger ? 'text-muted' : ''}`
+  const nameCls = `text-detail ${depth === 0 ? 'font-medium' : isLeafLedger ? 'text-muted' : ''}`
 
   if (isLeafLedger) {
     return (
@@ -36,7 +36,7 @@ function StatementRow({ node, depth }: { node: StatementNode; depth: number }): 
         <span className={`min-w-0 truncate ${nameCls}`}>
           <LedgerLink ledgerId={node.id} name={node.name} />
         </span>
-        <Money paise={node.amount} className="text-[13px]" />
+        <Money paise={node.amount} className="text-detail" />
       </div>
     )
   }
@@ -51,10 +51,10 @@ function StatementRow({ node, depth }: { node: StatementNode; depth: number }): 
         }}
       >
         <span className={nameCls}>
-          {node.children.length > 0 && <span className="mr-1.5 inline-block w-3 text-[10px] text-muted">{open ? '▾' : '▸'}</span>}
+          {node.children.length > 0 && <span className="mr-1.5 inline-block w-3 text-micro text-muted">{open ? '▾' : '▸'}</span>}
           {node.name}
         </span>
-        <Money paise={node.amount} className="text-[13px]" />
+        <Money paise={node.amount} className="text-detail" />
       </button>
       {open && node.children.length > 0 && <StatementTree nodes={node.children} depth={depth + 1} />}
     </>

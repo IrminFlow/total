@@ -33,7 +33,7 @@ export const STOCK_SUMMARY_COLUMNS = defineColumns<StockSummaryRow>([
     cell: (r) => (
       <>
         <ItemLink itemId={r.stockItemId} name={r.name} />
-        {r.closingQtyMilli < 0 && <span className="ml-2 text-[11px]">— negative stock, check entries</span>}
+        {r.closingQtyMilli < 0 && <span className="ml-2 text-caption">— negative stock, check entries</span>}
       </>
     )
   },
@@ -71,8 +71,8 @@ const AGEING_COLUMNS = defineColumns<StockAgeingRow>([
     width: 176,
     cell: (r) => (
       <>
-        {r.belowReorder && <span className="mr-2 text-[11.5px] text-cr">reorder</span>}
-        {r.slowMoving && <span className="text-[11.5px] text-muted">slow-moving</span>}
+        {r.belowReorder && <span className="mr-2 text-hint text-cr">reorder</span>}
+        {r.slowMoving && <span className="text-hint text-muted">slow-moving</span>}
       </>
     )
   }
@@ -98,7 +98,7 @@ export function StockSummaryScreen(): React.JSX.Element {
 
   return (
     <div className="mx-auto max-w-5xl">
-      <SectionTitle right={<span className="num text-[12px] text-muted">{periodLabel}</span>}>Stock summary</SectionTitle>
+      <SectionTitle right={<span className="num text-small text-muted">{periodLabel}</span>}>Stock summary</SectionTitle>
       <Panel>
         <DataTable
           viewId="stock-summary"
@@ -153,17 +153,17 @@ function ItemDetail({
     (g) => g.stockItemId === stockItemId && g.closingQtyMilli !== 0 && g.godownId !== null
   )
   const batchRows = (batches ?? []).filter((b) => b.closingQtyMilli !== 0)
-  if (loadingGodowns || loadingBatches) return <p className="py-1 text-[12px] text-muted">Loading breakdown…</p>
+  if (loadingGodowns || loadingBatches) return <p className="py-1 text-small text-muted">Loading breakdown…</p>
   if (godownRows.length === 0 && batchRows.length === 0) {
-    return <p className="py-1 text-[12px] text-muted">No godown or batch breakdown for this item.</p>
+    return <p className="py-1 text-small text-muted">No godown or batch breakdown for this item.</p>
   }
   return (
     <div className="flex flex-wrap gap-8 py-1 text-ink" data-testid="stock-item-detail">
       {godownRows.length > 0 && (
         <div>
-          <p className="mb-1 text-[10.5px] font-semibold tracking-[0.08em] text-muted uppercase">By godown</p>
+          <p className="mb-1 text-label font-semibold tracking-[0.08em] text-muted uppercase">By godown</p>
           {godownRows.map((g) => (
-            <p key={`${g.godownId}`} className="num text-[12.5px]">
+            <p key={`${g.godownId}`} className="num text-body-sm">
               {g.godownName}: {fmtQty(g.closingQtyMilli, decimals)} {unitSymbol} · <Money paise={g.closingValue} />
             </p>
           ))}
@@ -171,9 +171,9 @@ function ItemDetail({
       )}
       {batchRows.length > 0 && (
         <div>
-          <p className="mb-1 text-[10.5px] font-semibold tracking-[0.08em] text-muted uppercase">By batch</p>
+          <p className="mb-1 text-label font-semibold tracking-[0.08em] text-muted uppercase">By batch</p>
           {batchRows.map((b) => (
-            <p key={b.batchId} className="num text-[12.5px]">
+            <p key={b.batchId} className="num text-body-sm">
               {b.batchName}: {fmtQty(b.closingQtyMilli, decimals)} {unitSymbol}
               {b.expiryDate ? ` · expires ${toDisplayDate(b.expiryDate)}` : ''}
             </p>
@@ -191,7 +191,7 @@ function StockAnalysis({ asOn }: { asOn: string }): React.JSX.Element | null {
   if (rows.length === 0) return null
   return (
     <Panel className="mt-4">
-      <p className="mb-2 px-1 text-[13.5px] font-medium">Stock analysis — ageing &amp; reorder</p>
+      <p className="mb-2 px-1 text-body font-medium">Stock analysis — ageing &amp; reorder</p>
       <DataTable
         viewId="stock-ageing"
         testId="stock-ageing"

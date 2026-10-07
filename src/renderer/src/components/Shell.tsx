@@ -43,12 +43,12 @@ export function Shell({ children, onOpenPalette }: { children: ReactNode; onOpen
         }`}
       >
         <button className="flex items-baseline gap-2" onClick={() => nav.go({ name: 'company-info' })} title="Company details">
-          <span className="font-serif text-[15px] font-semibold tracking-tight">{info?.name}</span>
-          {info?.gstin && <span className="num text-[10.5px] text-muted">{info.gstin}</span>}
+          <span className="font-serif text-subtitle font-semibold tracking-tight">{info?.name}</span>
+          {info?.gstin && <span className="num text-label text-muted">{info.gstin}</span>}
         </button>
         <div className="flex-1" />
         <button
-          className="num rounded-md border border-line bg-panel2 px-2.5 py-1 text-[12px] text-muted hover:border-amber/60 hover:text-ink"
+          className="num rounded-md border border-line bg-panel2 px-2.5 py-1 text-small text-muted hover:border-amber/60 hover:text-ink"
           onClick={() => setPeriodOpen(true)}
           title="Change period"
         >
@@ -56,26 +56,26 @@ export function Shell({ children, onOpenPalette }: { children: ReactNode; onOpen
         </button>
         <button
           data-testid="btn-theme"
-          className="rounded-md border border-line bg-panel2 px-2.5 py-1 text-[12px] text-muted hover:border-amber/60 hover:text-ink"
+          className="rounded-md border border-line bg-panel2 px-2.5 py-1 text-small text-muted hover:border-amber/60 hover:text-ink"
           onClick={toggle}
           title="Switch theme"
         >
           {theme === 'light' ? 'Dark' : 'Light'}
         </button>
         <button
-          className="flex items-center gap-2 rounded-md border border-line bg-panel2 px-2.5 py-1 text-[12px] text-muted hover:border-amber/60 hover:text-ink"
+          className="flex items-center gap-2 rounded-md border border-line bg-panel2 px-2.5 py-1 text-small text-muted hover:border-amber/60 hover:text-ink"
           onClick={onOpenPalette}
         >
           Anywhere <Kbd>⌘K</Kbd>
         </button>
         {user && (
           <>
-            <span className="num rounded-md border border-line bg-panel2 px-2.5 py-1 text-[12px] text-muted capitalize">
+            <span className="num rounded-md border border-line bg-panel2 px-2.5 py-1 text-small text-muted capitalize">
               {user.name} · {user.role}
             </span>
             <button
               data-testid="btn-lock"
-              className="rounded-md border border-line bg-panel2 px-2.5 py-1 text-[12px] text-muted hover:border-amber/60 hover:text-ink"
+              className="rounded-md border border-line bg-panel2 px-2.5 py-1 text-small text-muted hover:border-amber/60 hover:text-ink"
               onClick={async () => {
                 try {
                   await api.auth.logout()
@@ -96,7 +96,7 @@ export function Shell({ children, onOpenPalette }: { children: ReactNode; onOpen
         <aside className="flex w-48 shrink-0 flex-col gap-0.5 overflow-y-auto border-r border-line bg-panel p-2">
           <div className="mb-2 flex items-center gap-2 px-2 py-2">
             <TotalLogo size={28} />
-            <span className="font-serif text-[17px] font-semibold tracking-tight">Total</span>
+            <span className="font-serif text-brand font-semibold tracking-tight">Total</span>
           </div>
           {visibleNav.map((section) => {
             const open = sections.isOpen(section.id)
@@ -116,10 +116,10 @@ export function Shell({ children, onOpenPalette }: { children: ReactNode; onOpen
                         sections.setOpen(section.id, e.key === 'ArrowRight')
                       }
                     }}
-                    className="mt-3 mb-1 flex w-full items-center gap-1 rounded-md px-2.5 text-left text-[10px] font-semibold tracking-[0.1em] text-muted/80 uppercase hover:text-ink"
+                    className="mt-3 mb-1 flex w-full items-center gap-1 rounded-md px-2.5 text-left text-micro font-semibold tracking-[0.1em] text-muted/80 uppercase hover:text-ink"
                   >
                     <span className="flex-1">{section.title}</span>
-                    <span aria-hidden className="inline-block w-3 text-center text-[10px]">{open ? '▾' : '▸'}</span>
+                    <span aria-hidden className="inline-block w-3 text-center text-micro">{open ? '▾' : '▸'}</span>
                   </button>
                 )}
                 {/* Collapsed items stay in the DOM (hidden) so aria-controls always resolves. */}
@@ -131,7 +131,7 @@ export function Shell({ children, onOpenPalette }: { children: ReactNode; onOpen
                         key={item.label}
                         data-testid={`nav-${item.screen.name}`}
                         onClick={() => nav.go(item.screen)}
-                        className={`block w-full rounded-md px-2.5 py-[5px] text-left text-[13px] transition-colors ${
+                        className={`block w-full rounded-md px-2.5 py-[5px] text-left text-detail transition-colors ${
                           active ? 'bg-amberbar/20 font-medium text-ink' : 'text-muted hover:bg-panel2 hover:text-ink'
                         }`}
                       >
@@ -145,7 +145,7 @@ export function Shell({ children, onOpenPalette }: { children: ReactNode; onOpen
           })}
           <div className="flex-1" />
           <button
-            className="rounded-md px-2.5 py-1.5 text-left text-[12.5px] text-muted hover:bg-panel2 hover:text-ink"
+            className="rounded-md px-2.5 py-1.5 text-left text-body-sm text-muted hover:bg-panel2 hover:text-ink"
             onClick={async () => {
               try {
                 await api.company.backup()
@@ -159,7 +159,7 @@ export function Shell({ children, onOpenPalette }: { children: ReactNode; onOpen
           </button>
           <button
             data-testid="btn-switch-company"
-            className="rounded-md px-2.5 py-1.5 text-left text-[12.5px] text-muted hover:bg-panel2 hover:text-ink"
+            className="rounded-md px-2.5 py-1.5 text-left text-body-sm text-muted hover:bg-panel2 hover:text-ink"
             onClick={async () => {
               try {
                 await api.company.close()
@@ -204,11 +204,11 @@ function PeriodModal({ onClose }: { onClose: () => void }): React.JSX.Element {
     <Modal title="Working period" onClose={onClose}>
       <div className="flex gap-3">
         <div className="flex-1">
-          <span className="mb-1 block text-[11px] font-semibold tracking-[0.08em] text-muted uppercase">From</span>
+          <span className="mb-1 block text-caption font-semibold tracking-[0.08em] text-muted uppercase">From</span>
           <DateInput value={f} context={f} onChange={setF} testId="input-period-from" />
         </div>
         <div className="flex-1">
-          <span className="mb-1 block text-[11px] font-semibold tracking-[0.08em] text-muted uppercase">To</span>
+          <span className="mb-1 block text-caption font-semibold tracking-[0.08em] text-muted uppercase">To</span>
           <DateInput value={t} context={t} onChange={setT} testId="input-period-to" />
         </div>
       </div>

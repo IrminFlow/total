@@ -44,7 +44,7 @@ export function TrialBalanceScreen(): React.JSX.Element {
 
   return (
     <div className="mx-auto max-w-5xl">
-      <SectionTitle right={<span className="num text-[12px] text-muted">{periodLabel}</span>}>Trial balance</SectionTitle>
+      <SectionTitle right={<span className="num text-small text-muted">{periodLabel}</span>}>Trial balance</SectionTitle>
       <Panel>
         <DataTable
           viewId="trial-balance"

@@ -48,9 +48,9 @@ export function AboutSection(): React.JSX.Element {
       <Panel className="p-5">
         <div className="flex items-center gap-3">
           <TotalLogo size={44} />
-          <p className="font-serif text-[17px] font-semibold">Total</p>
+          <p className="font-serif text-brand font-semibold">Total</p>
         </div>
-        <p className="mt-1 text-[13px] text-muted">
+        <p className="mt-1 text-detail text-muted">
           Version <span className="num">{info?.version ?? '—'}</span> ·{' '}
           {info ? (PLATFORM_LABELS[info.platform] ?? info.platform) : '—'}
         </p>
@@ -66,10 +66,10 @@ export function AboutSection(): React.JSX.Element {
             Reveal logs
           </Button>
         </div>
-        <p className="mt-6 text-[11.5px] text-muted">
+        <p className="mt-6 text-hint text-muted">
           Your data lives at <span className="num">~/Documents/total</span> — fully offline, no cloud, no accounts.
         </p>
-        <p className="mt-2 text-[11px] text-muted/70">© Irmin Labs — proprietary</p>
+        <p className="mt-2 text-caption text-muted/70">© Irmin Labs — proprietary</p>
       </Panel>
       <PeriodLockCard />
     </div>
@@ -86,9 +86,9 @@ function PeriodLockCard(): React.JSX.Element {
 
   return (
     <Panel className="mt-4 p-5">
-      <p className="text-[11px] font-semibold tracking-[0.08em] text-muted uppercase">Period lock</p>
+      <p className="text-caption font-semibold tracking-[0.08em] text-muted uppercase">Period lock</p>
       <div className="mt-2 flex items-center justify-between">
-        <p className="text-[13.5px]">
+        <p className="text-body">
           {data?.date ? (
             <>
               Books are locked up to <span className="num font-medium">{toDisplayDate(data.date)}</span> — entries on or before that
@@ -103,7 +103,7 @@ function PeriodLockCard(): React.JSX.Element {
             Change…
           </Button>
         ) : (
-          <span className="shrink-0 text-[11.5px] text-muted">Only owners can change this</span>
+          <span className="shrink-0 text-hint text-muted">Only owners can change this</span>
         )}
       </div>
       {editing && <LockModal current={data?.date ?? null} onClose={() => setEditing(false)} />}

@@ -164,7 +164,7 @@ export function OutstandingsScreen(): React.JSX.Element {
               <button
                 type="button"
                 data-testid="btn-outstandings-statement"
-                className="text-[11.5px] text-blue hover:underline"
+                className="text-hint text-blue hover:underline"
                 title={`Open ${p.name} statement`}
                 onClick={() => openLedgerStatement(p.ledgerId)}
               >
@@ -173,7 +173,7 @@ export function OutstandingsScreen(): React.JSX.Element {
               <button
                 type="button"
                 data-testid="btn-outstandings-remind"
-                className="text-[11.5px] text-blue hover:underline"
+                className="text-hint text-blue hover:underline"
                 onClick={() => void remind(info?.name ?? '', p.name, p.bills, toast)}
               >
                 Remind
@@ -185,7 +185,7 @@ export function OutstandingsScreen(): React.JSX.Element {
           exportOptions={{ title: `${title} · ageing`, periodLabel, filename: `outstandings-${side}` }}
         />
       </Panel>
-      <p className="mt-2 text-[11.5px] text-muted">
+      <p className="mt-2 text-hint text-muted">
         Ageing buckets count days overdue past each bill&apos;s due date (or the bill date when none is set). Receipts settle
         the oldest bills first. Click a party row to see its open bills, its name to edit the ledger, or Statement for its
         ledger statement; click a bill number to open the voucher.

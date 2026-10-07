@@ -82,7 +82,7 @@ export function CashFlowScreen(): React.JSX.Element {
       <SectionTitle
         right={
           <div className="flex items-center gap-2">
-            <span className="num text-[12px] text-muted">{periodLabel}</span>
+            <span className="num text-small text-muted">{periodLabel}</span>
             <Button
               variant="ghost"
               data-testid="cash-flow-pdf"

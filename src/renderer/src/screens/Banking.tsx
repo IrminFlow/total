@@ -66,7 +66,7 @@ function reconColumns(onEditBankDate: (r: BankLineRow) => void): TableColumn<Ban
       groupable: false,
       cell: (r) => (
         <button
-          className="num text-[12px] text-blue hover:underline"
+          className="num text-small text-blue hover:underline"
           data-testid="btn-banking-edit-bank-date"
           onClick={() => onEditBankDate(r)}
         >
@@ -100,9 +100,9 @@ const SUGGESTION_COLUMNS = defineColumns<BankSuggestionRow>([
     width: 192,
     cell: (s) =>
       s.suggestion ? (
-        <span className="rounded px-1.5 py-0.5 text-[10.5px] bg-blue/10 text-blue">{s.suggestion.ledgerName}</span>
+        <span className="rounded px-1.5 py-0.5 text-label bg-blue/10 text-blue">{s.suggestion.ledgerName}</span>
       ) : (
-        <span className="text-[11.5px] text-muted">No match</span>
+        <span className="text-hint text-muted">No match</span>
       )
   }
 ])
@@ -195,7 +195,7 @@ function ruleColumns(onToggleActive: (r: BankRuleRecord) => void): TableColumn<B
       cell: (r) => (
         <button
           type="button"
-          className="text-[12px] text-blue hover:underline"
+          className="text-small text-blue hover:underline"
           onClick={(e) => {
             e.stopPropagation() // toggling isn't "edit this rule"
             onToggleActive(r)
@@ -396,7 +396,7 @@ export function BankingScreen(): React.JSX.Element {
             key={t}
             data-testid={`tab-banking-${t}`}
             onClick={() => setTab(t)}
-            className={`rounded-md px-3 py-1.5 text-[13px] ${tab === t ? 'bg-amberbar/20 font-medium text-ink' : 'text-muted hover:bg-panel2 hover:text-ink'}`}
+            className={`rounded-md px-3 py-1.5 text-detail ${tab === t ? 'bg-amberbar/20 font-medium text-ink' : 'text-muted hover:bg-panel2 hover:text-ink'}`}
           >
             {TAB_LABELS[t]}
           </button>
@@ -407,20 +407,20 @@ export function BankingScreen(): React.JSX.Element {
         <>
           <div className="mb-3 grid grid-cols-4 gap-3">
             <Panel className="px-4 py-2.5">
-              <p className="text-[10.5px] font-semibold tracking-[0.08em] text-muted uppercase">Balance as per books</p>
-              <p className="num mt-1 text-[15px] font-medium"><Money paise={recon.bookBalance} /></p>
+              <p className="text-label font-semibold tracking-[0.08em] text-muted uppercase">Balance as per books</p>
+              <p className="num mt-1 text-subtitle font-medium"><Money paise={recon.bookBalance} /></p>
             </Panel>
             <Panel className="px-4 py-2.5">
-              <p className="text-[10.5px] font-semibold tracking-[0.08em] text-muted uppercase">Deposits not in bank</p>
-              <p className="num mt-1 text-[15px] font-medium"><Money paise={recon.unreconciledDeposits} /></p>
+              <p className="text-label font-semibold tracking-[0.08em] text-muted uppercase">Deposits not in bank</p>
+              <p className="num mt-1 text-subtitle font-medium"><Money paise={recon.unreconciledDeposits} /></p>
             </Panel>
             <Panel className="px-4 py-2.5">
-              <p className="text-[10.5px] font-semibold tracking-[0.08em] text-muted uppercase">Withdrawals not in bank</p>
-              <p className="num mt-1 text-[15px] font-medium"><Money paise={recon.unreconciledWithdrawals} /></p>
+              <p className="text-label font-semibold tracking-[0.08em] text-muted uppercase">Withdrawals not in bank</p>
+              <p className="num mt-1 text-subtitle font-medium"><Money paise={recon.unreconciledWithdrawals} /></p>
             </Panel>
             <Panel className="px-4 py-2.5">
-              <p className="text-[10.5px] font-semibold tracking-[0.08em] text-muted uppercase">Balance as per bank</p>
-              <p className="num mt-1 text-[15px] font-medium"><Money paise={recon.bankBalance} /></p>
+              <p className="text-label font-semibold tracking-[0.08em] text-muted uppercase">Balance as per bank</p>
+              <p className="num mt-1 text-subtitle font-medium"><Money paise={recon.bankBalance} /></p>
             </Panel>
           </div>
 
@@ -439,7 +439,7 @@ export function BankingScreen(): React.JSX.Element {
               trailingWidth={112}
               trailing={(r) => (
                 <button
-                  className="text-[12px] text-muted hover:text-ink"
+                  className="text-small text-muted hover:text-ink"
                   data-testid="btn-banking-mark-today"
                   onClick={() => void markToday(r.lineId, r.bankDate)}
                 >
@@ -453,14 +453,14 @@ export function BankingScreen(): React.JSX.Element {
               }}
             />
           </Panel>
-          <p className="mt-2 text-[11.5px] text-muted">
+          <p className="mt-2 text-hint text-muted">
             Import a statement CSV (date + debit/credit columns) to auto-match by amount and date; anything left over, set the bank date by hand.
           </p>
 
           {suggestions && suggestions.length > 0 && (
             <Panel className="mt-3">
               <div className="border-b border-line px-4 py-2.5">
-                <p className="text-[10.5px] font-semibold tracking-[0.08em] text-muted uppercase">
+                <p className="text-label font-semibold tracking-[0.08em] text-muted uppercase">
                   Unmatched statement lines · {suggestions.length}
                 </p>
               </div>
@@ -475,14 +475,14 @@ export function BankingScreen(): React.JSX.Element {
                 trailing={(s) => (
                   <>
                     <button
-                      className="mr-3 text-[12px] text-blue hover:underline"
+                      className="mr-3 text-small text-blue hover:underline"
                       data-testid="btn-banking-create-voucher"
                       onClick={() => void createFromSuggestion(s)}
                     >
                       Create voucher
                     </button>
                     <button
-                      className="text-[12px] text-muted hover:text-ink"
+                      className="text-small text-muted hover:text-ink"
                       data-testid="btn-banking-remember-rule"
                       onClick={() => rememberRule(s)}
                     >
@@ -612,22 +612,22 @@ function ImportPreviewModal({
       <div className="flex flex-col gap-4">
         <div className="grid grid-cols-3 gap-3">
           <Panel className="px-4 py-2.5">
-            <p className="text-[10.5px] font-semibold tracking-[0.08em] text-muted uppercase">Will reconcile</p>
-            <p className="num mt-1 text-[15px] font-medium">{preview.matched} <span className="text-[11px] text-muted">of {preview.statementRows} rows</span></p>
+            <p className="text-label font-semibold tracking-[0.08em] text-muted uppercase">Will reconcile</p>
+            <p className="num mt-1 text-subtitle font-medium">{preview.matched} <span className="text-caption text-muted">of {preview.statementRows} rows</span></p>
           </Panel>
           <Panel className="px-4 py-2.5">
-            <p className="text-[10.5px] font-semibold tracking-[0.08em] text-muted uppercase">Already reconciled</p>
-            <p className="num mt-1 text-[15px] font-medium">{preview.alreadyReconciled}</p>
+            <p className="text-label font-semibold tracking-[0.08em] text-muted uppercase">Already reconciled</p>
+            <p className="num mt-1 text-subtitle font-medium">{preview.alreadyReconciled}</p>
           </Panel>
           <Panel className="px-4 py-2.5">
-            <p className="text-[10.5px] font-semibold tracking-[0.08em] text-muted uppercase">Unmatched</p>
-            <p className="num mt-1 text-[15px] font-medium">{preview.unmatched.length}</p>
+            <p className="text-label font-semibold tracking-[0.08em] text-muted uppercase">Unmatched</p>
+            <p className="num mt-1 text-subtitle font-medium">{preview.unmatched.length}</p>
           </Panel>
         </div>
 
         {preview.matches.length > 0 && (
           <div>
-            <p className="mb-1.5 text-[11px] font-semibold tracking-[0.08em] text-muted uppercase">Matched book entries</p>
+            <p className="mb-1.5 text-caption font-semibold tracking-[0.08em] text-muted uppercase">Matched book entries</p>
             <div className="overflow-hidden rounded-md border border-line">
               <DataTable
                 testId="banking-import-matches"
@@ -644,7 +644,7 @@ function ImportPreviewModal({
 
         {preview.unmatched.length > 0 && (
           <div>
-            <p className="mb-1.5 text-[11px] font-semibold tracking-[0.08em] text-muted uppercase">Unmatched statement lines</p>
+            <p className="mb-1.5 text-caption font-semibold tracking-[0.08em] text-muted uppercase">Unmatched statement lines</p>
             <div className="overflow-hidden rounded-md border border-line">
               <DataTable
                 testId="banking-import-unmatched"
@@ -655,7 +655,7 @@ function ImportPreviewModal({
                 maxHeight="24vh"
               />
             </div>
-            <p className="mt-1 text-[11.5px] text-muted">After applying, unmatched lines get ledger suggestions so you can create the missing vouchers.</p>
+            <p className="mt-1 text-hint text-muted">After applying, unmatched lines get ledger suggestions so you can create the missing vouchers.</p>
           </div>
         )}
 
@@ -702,7 +702,7 @@ function BrsSection({ ledgerId, defaultAsOn }: { ledgerId: number; defaultAsOn: 
 
   const itemTable = (items: BrsItem[], area: string, title: string): React.JSX.Element =>
     items.length === 0 ? (
-      <p className="px-4 py-3 text-[12.5px] text-muted">None</p>
+      <p className="px-4 py-3 text-body-sm text-muted">None</p>
     ) : (
       <DataTable
         viewId={area}
@@ -740,26 +740,26 @@ function BrsSection({ ledgerId, defaultAsOn }: { ledgerId: number; defaultAsOn: 
         <>
           <div className="mb-3 grid grid-cols-4 gap-3">
             <Panel className="px-4 py-2.5">
-              <p className="text-[10.5px] font-semibold tracking-[0.08em] text-muted uppercase">Balance as per books</p>
-              <p className="num mt-1 text-[15px] font-medium"><Money paise={brs.bookBalance} signed /></p>
+              <p className="text-label font-semibold tracking-[0.08em] text-muted uppercase">Balance as per books</p>
+              <p className="num mt-1 text-subtitle font-medium"><Money paise={brs.bookBalance} signed /></p>
             </Panel>
             <Panel className="px-4 py-2.5">
-              <p className="text-[10.5px] font-semibold tracking-[0.08em] text-muted uppercase">Deposited, not credited</p>
-              <p className="num mt-1 text-[15px] font-medium"><Money paise={brs.uncreditedTotal} /></p>
+              <p className="text-label font-semibold tracking-[0.08em] text-muted uppercase">Deposited, not credited</p>
+              <p className="num mt-1 text-subtitle font-medium"><Money paise={brs.uncreditedTotal} /></p>
             </Panel>
             <Panel className="px-4 py-2.5">
-              <p className="text-[10.5px] font-semibold tracking-[0.08em] text-muted uppercase">Issued, not presented</p>
-              <p className="num mt-1 text-[15px] font-medium"><Money paise={brs.unpresentedTotal} /></p>
+              <p className="text-label font-semibold tracking-[0.08em] text-muted uppercase">Issued, not presented</p>
+              <p className="num mt-1 text-subtitle font-medium"><Money paise={brs.unpresentedTotal} /></p>
             </Panel>
             <Panel className="px-4 py-2.5">
-              <p className="text-[10.5px] font-semibold tracking-[0.08em] text-muted uppercase">Balance as per bank</p>
-              <p className="num mt-1 text-[15px] font-medium"><Money paise={brs.bankBalance} signed /></p>
+              <p className="text-label font-semibold tracking-[0.08em] text-muted uppercase">Balance as per bank</p>
+              <p className="num mt-1 text-subtitle font-medium"><Money paise={brs.bankBalance} signed /></p>
             </Panel>
           </div>
 
           <Panel className="mb-3">
             <div className="border-b border-line px-4 py-2.5">
-              <p className="text-[10.5px] font-semibold tracking-[0.08em] text-muted uppercase">
+              <p className="text-label font-semibold tracking-[0.08em] text-muted uppercase">
                 Deposits not yet credited by the bank · {brs.uncredited.length}
               </p>
             </div>
@@ -768,7 +768,7 @@ function BrsSection({ ledgerId, defaultAsOn }: { ledgerId: number; defaultAsOn: 
 
           <Panel>
             <div className="border-b border-line px-4 py-2.5">
-              <p className="text-[10.5px] font-semibold tracking-[0.08em] text-muted uppercase">
+              <p className="text-label font-semibold tracking-[0.08em] text-muted uppercase">
                 Cheques issued, not yet presented · {brs.unpresented.length}
               </p>
             </div>
@@ -827,14 +827,14 @@ function PdcSection(): React.JSX.Element {
         trailing={(r) => (
           <>
             <button
-              className="mr-3 text-[12px] text-blue hover:underline"
+              className="mr-3 text-small text-blue hover:underline"
               data-testid="btn-banking-pdc-mature"
               onClick={() => void mature(r.id, r.number)}
             >
               Mature now
             </button>
             <button
-              className="text-[12px] text-muted hover:text-ink"
+              className="text-small text-muted hover:text-ink"
               data-testid="btn-banking-pdc-edit"
               onClick={() => nav.go({ name: 'voucher-entry', voucherId: r.id })}
             >
@@ -949,10 +949,10 @@ function BankRulesModal({
             trailingWidth={120}
             trailing={(r) => (
               <>
-                <button className="mr-3 text-[12px] text-blue hover:underline" onClick={() => edit(r)}>
+                <button className="mr-3 text-small text-blue hover:underline" onClick={() => edit(r)}>
                   Edit
                 </button>
-                <button className="text-[12px] text-cr hover:underline" onClick={() => void remove(r)}>
+                <button className="text-small text-cr hover:underline" onClick={() => void remove(r)}>
                   Delete
                 </button>
               </>
@@ -961,7 +961,7 @@ function BankRulesModal({
         </div>
 
         <div className="border-t border-line pt-4">
-          <p className="mb-2 text-[11px] font-semibold tracking-[0.08em] text-muted uppercase">{editingId ? 'Edit rule' : 'Add rule'}</p>
+          <p className="mb-2 text-caption font-semibold tracking-[0.08em] text-muted uppercase">{editingId ? 'Edit rule' : 'Add rule'}</p>
           <div className="grid grid-cols-4 gap-3">
             <Field label="Pattern">
               <TextInput autoFocus value={pattern} onChange={(e) => setPattern(e.target.value)} placeholder="e.g. ACME SUPPLIES" />
@@ -976,7 +976,7 @@ function BankRulesModal({
               </Select>
             </Field>
             <div className="flex items-end pb-1.5">
-              <label className="flex items-center gap-2 text-[13px] text-ink">
+              <label className="flex items-center gap-2 text-detail text-ink">
                 <input type="checkbox" checked={active} onChange={(e) => setActive(e.target.checked)} />
                 Active
               </label>
@@ -1076,13 +1076,13 @@ function ChequeSetupModal({
           // A failed config load used to strand the modal on "Loading…" forever — surface the
           // error and offer a retry instead.
           <div className="flex flex-col items-start gap-3">
-            <p className="text-[13px] text-cr">Couldn’t load the cheque layout: {(loadError as Error).message}</p>
+            <p className="text-detail text-cr">Couldn’t load the cheque layout: {(loadError as Error).message}</p>
             <Button data-testid="btn-banking-cheque-retry" onClick={() => void refetch()}>
               Try again
             </Button>
           </div>
         ) : (
-          <div className="flex items-center gap-2 py-4 text-[13px] text-muted">
+          <div className="flex items-center gap-2 py-4 text-detail text-muted">
             <Spinner /> Loading cheque layout…
           </div>
         )
@@ -1092,7 +1092,7 @@ function ChequeSetupModal({
             <MmField label="Cheque width (mm)" value={form.widthMm} onChange={(n) => setForm({ ...form, widthMm: n })} />
             <MmField label="Cheque height (mm)" value={form.heightMm} onChange={(n) => setForm({ ...form, heightMm: n })} />
             <div className="col-span-2 flex items-end pb-1.5">
-              <label className="flex items-center gap-2 text-[13px] text-ink">
+              <label className="flex items-center gap-2 text-detail text-ink">
                 <input
                   type="checkbox"
                   checked={form.acPayee}
@@ -1104,7 +1104,7 @@ function ChequeSetupModal({
           </div>
 
           <div>
-            <p className="mb-2 text-[11px] font-semibold tracking-[0.08em] text-muted uppercase">Date boxes</p>
+            <p className="mb-2 text-caption font-semibold tracking-[0.08em] text-muted uppercase">Date boxes</p>
             <div className="grid grid-cols-4 gap-3">
               <MmField label="X (mm)" value={form.date.xMm} onChange={(n) => setForm({ ...form, date: { ...form.date, xMm: n } })} />
               <MmField label="Y (mm)" value={form.date.yMm} onChange={(n) => setForm({ ...form, date: { ...form.date, yMm: n } })} />
@@ -1117,7 +1117,7 @@ function ChequeSetupModal({
           </div>
 
           <div>
-            <p className="mb-2 text-[11px] font-semibold tracking-[0.08em] text-muted uppercase">Payee</p>
+            <p className="mb-2 text-caption font-semibold tracking-[0.08em] text-muted uppercase">Payee</p>
             <div className="grid grid-cols-4 gap-3">
               <MmField label="X (mm)" value={form.payee.xMm} onChange={(n) => setForm({ ...form, payee: { ...form.payee, xMm: n } })} />
               <MmField label="Y (mm)" value={form.payee.yMm} onChange={(n) => setForm({ ...form, payee: { ...form.payee, yMm: n } })} />
@@ -1125,7 +1125,7 @@ function ChequeSetupModal({
           </div>
 
           <div>
-            <p className="mb-2 text-[11px] font-semibold tracking-[0.08em] text-muted uppercase">Amount in words</p>
+            <p className="mb-2 text-caption font-semibold tracking-[0.08em] text-muted uppercase">Amount in words</p>
             <div className="grid grid-cols-4 gap-3">
               <MmField label="X (mm)" value={form.words.xMm} onChange={(n) => setForm({ ...form, words: { ...form.words, xMm: n } })} />
               <MmField label="Y (mm)" value={form.words.yMm} onChange={(n) => setForm({ ...form, words: { ...form.words, yMm: n } })} />
@@ -1134,7 +1134,7 @@ function ChequeSetupModal({
           </div>
 
           <div>
-            <p className="mb-2 text-[11px] font-semibold tracking-[0.08em] text-muted uppercase">Amount in figures</p>
+            <p className="mb-2 text-caption font-semibold tracking-[0.08em] text-muted uppercase">Amount in figures</p>
             <div className="grid grid-cols-4 gap-3">
               <MmField
                 label="X (mm)"

@@ -55,7 +55,7 @@ export function statementColumns(allCount: number, closing: number): TableColumn
       kind: 'text',
       value: (r) => `${r.voucherType} ${r.number}`,
       groupKey: (r) => r.voucherType,
-      className: 'num text-[12px] text-muted',
+      className: 'num text-small text-muted',
       width: 150,
       cell: (r) => <VoucherLink voucherId={r.voucherId} label={`${r.voucherType} ${r.number}`} />
     },
@@ -115,7 +115,7 @@ export function LedgerStatementScreen({ ledgerId }: { ledgerId: number }): React
   return (
     <div className="mx-auto max-w-5xl">
       {breadcrumb.length > 0 && (
-        <nav className="mb-0.5 text-[11.5px] text-muted" aria-label="Ledger group" data-testid="ledger-statement-breadcrumb">
+        <nav className="mb-0.5 text-hint text-muted" aria-label="Ledger group" data-testid="ledger-statement-breadcrumb">
           {breadcrumb.join(' › ')}
         </nav>
       )}
@@ -128,14 +128,14 @@ export function LedgerStatementScreen({ ledgerId }: { ledgerId: number }): React
                 Edit
               </Button>
             )}
-            <Money paise={data.closing} signed className="text-[15px]" />
+            <Money paise={data.closing} signed className="text-subtitle" />
           </div>
         }
       >
         {data.ledgerName}
       </SectionTitle>
       <Panel>
-        <div className="flex justify-between border-b border-line px-4 py-2 text-[12px] text-muted">
+        <div className="flex justify-between border-b border-line px-4 py-2 text-small text-muted">
           <span>
             Opening balance · <Money paise={data.opening} signed />
           </span>

@@ -104,10 +104,10 @@ export function CostCentresScreen(): React.JSX.Element {
           trailingWidth={128}
           trailing={(c) => (
             <>
-              <button className="mr-3 text-[12px] text-blue hover:underline" onClick={() => setEditing(c)}>
+              <button className="mr-3 text-small text-blue hover:underline" onClick={() => setEditing(c)}>
                 Edit
               </button>
-              <button className="text-[12px] text-cr hover:underline" onClick={() => void remove(c)}>
+              <button className="text-small text-cr hover:underline" onClick={() => void remove(c)}>
                 Delete
               </button>
             </>
@@ -160,9 +160,9 @@ function DrillList({ ccId, from, to }: { ccId: number; from: string; to: string 
       </div>
     )
   }
-  if (!rows.length) return <p className="py-1 text-[12.5px] text-muted">No postings in this period</p>
+  if (!rows.length) return <p className="py-1 text-body-sm text-muted">No postings in this period</p>
   return (
-    <table className="w-full text-[12.5px]" data-testid="cc-drill">
+    <table className="w-full text-body-sm" data-testid="cc-drill">
       <tbody>
         {rows.map((r, i) => (
           <tr key={i}>
@@ -227,7 +227,7 @@ function CostCentreFormModal({
               ))}
           </Select>
         </Field>
-        <label className="flex items-center gap-2 text-[13px] text-ink">
+        <label className="flex items-center gap-2 text-detail text-ink">
           <input type="checkbox" checked={active} onChange={(e) => setActive(e.target.checked)} />
           Active
         </label>

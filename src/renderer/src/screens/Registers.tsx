@@ -188,7 +188,7 @@ function MonthRegister({
           exportOptions={{ title, periodLabel, filename: `${kind}-register` }}
         />
       </Panel>
-      <p className="mt-2 text-[11.5px] text-muted">Click a month to open its vouchers in the Day Book.</p>
+      <p className="mt-2 text-hint text-muted">Click a month to open its vouchers in the Day Book.</p>
     </>
   )
 }
@@ -217,7 +217,7 @@ function ItemProfitPanel({ from, to, periodLabel }: { from: string; to: string; 
           exportOptions={{ title: 'Item profitability', periodLabel, filename: 'item-profitability' }}
         />
       </Panel>
-      <p className="mt-2 text-[11.5px] text-muted">
+      <p className="mt-2 text-hint text-muted">
         COGS is valued by each item&apos;s valuation method (FIFO / weighted average) over the period&apos;s movements.
       </p>
     </>

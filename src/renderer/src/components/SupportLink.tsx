@@ -15,7 +15,7 @@ export function SupportLink({ className = '' }: { className?: string }): React.J
         data-testid="link-support"
         title={`Email support (${SUPPORT_EMAIL})`}
         onClick={() => setOpen(true)}
-        className={`text-left text-[12px] text-muted hover:text-ink ${className}`}
+        className={`text-left text-small text-muted hover:text-ink ${className}`}
       >
         Support · {SUPPORT_EMAIL}
       </button>
@@ -27,14 +27,14 @@ export function SupportLink({ className = '' }: { className?: string }): React.J
 function SupportModal({ onClose }: { onClose: () => void }): React.JSX.Element {
   return (
     <Modal title="Get support" onClose={onClose}>
-      <p className="text-[13px] text-muted">
+      <p className="text-detail text-muted">
         For support regarding Total, email us at{' '}
         <span className="num font-medium text-ink">{SUPPORT_EMAIL}</span>.
       </p>
       <div className="mt-3 flex items-center gap-2">
         <code
           data-testid="support-email-copy"
-          className="num flex-1 cursor-pointer rounded-md border border-line bg-panel2 px-2.5 py-1.5 text-[12.5px] text-ink"
+          className="num flex-1 cursor-pointer rounded-md border border-line bg-panel2 px-2.5 py-1.5 text-body-sm text-ink"
           title="Click to copy"
           onClick={async () => {
             try {
@@ -47,7 +47,7 @@ function SupportModal({ onClose }: { onClose: () => void }): React.JSX.Element {
           {SUPPORT_EMAIL}
         </code>
       </div>
-      <p className="mt-1.5 text-[11px] text-muted/70">Click the address to copy it.</p>
+      <p className="mt-1.5 text-caption text-muted/70">Click the address to copy it.</p>
       <div className="mt-5 flex justify-end gap-2">
         <Button onClick={onClose}>Close</Button>
         <Button

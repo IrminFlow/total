@@ -1099,7 +1099,7 @@ function HeaderCell<Row>({
             {sortDir && (
               <span aria-hidden="true" className="shrink-0 text-amber">
                 {sortDir === 'desc' ? '↓' : '↑'}
-                {multiSort && sortIndex >= 0 && <sup className="num ml-px text-[9px]">{sortIndex + 1}</sup>}
+                {multiSort && sortIndex >= 0 && <sup className="num ml-px text-micro">{sortIndex + 1}</sup>}
               </span>
             )}
           </button>

@@ -47,7 +47,7 @@ const LEDGER_COLUMNS = defineColumns<Ranked<LedgerResult>>([
   { id: 'group', header: 'Group', kind: 'text', value: (r) => r.groupName, className: 'text-muted' },
   { id: 'gstin', header: 'GSTIN', kind: 'text', value: (r) => r.gstin, cell: (r) => <span className="num text-muted">{hl(r.gstin)}</span>, width: 170 },
   { id: 'pan', header: 'PAN', kind: 'text', value: (r) => r.pan, defaultHidden: true, width: 120 },
-  { id: 'matched', header: 'Matched', kind: 'text', value: (r) => matchHint(r), cell: (r) => <span className="text-[12px] text-muted">{hl(matchHint(r))}</span>, groupable: false },
+  { id: 'matched', header: 'Matched', kind: 'text', value: (r) => matchHint(r), cell: (r) => <span className="text-small text-muted">{hl(matchHint(r))}</span>, groupable: false },
   RANK
 ])
 
@@ -76,7 +76,7 @@ const VOUCHER_COLUMNS = defineColumns<Ranked<VoucherResult>>([
   },
   {
     id: 'narration', header: 'Narration / matched', kind: 'text', value: (r) => matchHint(r) ?? r.narration, groupable: false,
-    cell: (r) => <span className="text-[12.5px] text-muted">{hl(matchHint(r) ?? r.narration)}</span>
+    cell: (r) => <span className="text-body-sm text-muted">{hl(matchHint(r) ?? r.narration)}</span>
   },
   { id: 'amount', header: 'Amount', kind: 'money', value: (r) => r.amount, width: 140 },
   RANK
@@ -181,7 +181,7 @@ export function SearchResultsScreen({ q = '', kind }: { q?: string; kind?: Searc
 
   return (
     <div className="mx-auto max-w-5xl" data-search-results>
-      <SectionTitle right={<span className="text-[12px] text-muted"><Kbd>⌘⇧F</Kbd> from anywhere</span>}>Search</SectionTitle>
+      <SectionTitle right={<span className="text-small text-muted"><Kbd>⌘⇧F</Kbd> from anywhere</span>}>Search</SectionTitle>
       <div className="mb-3 flex flex-col gap-2">
         <TextInput
           ref={inputRef}
@@ -189,7 +189,7 @@ export function SearchResultsScreen({ q = '', kind }: { q?: string; kind?: Searc
           data-testid="input-search"
           value={input}
           placeholder="Ledgers, items, vouchers — try amt:>50000, date:apr, gstin:27…, type:sales"
-          className="py-2 text-[14px]"
+          className="py-2 text-lead"
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={(e) => {
             if (e.key === 'ArrowDown' || e.key === 'Enter') {
@@ -224,12 +224,12 @@ export function SearchResultsScreen({ q = '', kind }: { q?: string; kind?: Searc
               return (
                 <Panel key={k}>
                   <div className="flex items-center justify-between border-b border-line px-4 py-2">
-                    <p className="text-[11px] font-semibold tracking-[0.08em] text-muted uppercase">
+                    <p className="text-caption font-semibold tracking-[0.08em] text-muted uppercase">
                       {KIND_TITLE[k]}{' '}
                       <span className="num font-normal normal-case tracking-normal">· showing {sec.rows.length} of {sec.total}</span>
                     </p>
                     {sec.total > sec.rows.length && (
-                      <button data-testid={`btn-search-show-all-${k}`} className="text-[12px] text-blue hover:underline" onClick={() => setTab(k)}>
+                      <button data-testid={`btn-search-show-all-${k}`} className="text-small text-blue hover:underline" onClick={() => setTab(k)}>
                         See all {sec.total}
                       </button>
                     )}
@@ -270,7 +270,7 @@ export function SearchResultsScreen({ q = '', kind }: { q?: string; kind?: Searc
               footNote: kindRows.length < kindTotal ? `First ${kindRows.length} of ${kindTotal} matches, by relevance.` : undefined
             }}
           />
-          <div className="flex items-center justify-between border-t border-line px-4 py-2 text-[12px] text-muted">
+          <div className="flex items-center justify-between border-t border-line px-4 py-2 text-small text-muted">
             <span className="num" data-testid="search-loaded">
               {loadingMore ? `Loading… ${kindRows.length} of ${kindTotal}` : `Loaded ${kindRows.length} of ${kindTotal}`}
               {kindRows.length < kindTotal && !loadingMore && ' · sorting and filters apply to the loaded rows'}
@@ -291,19 +291,19 @@ function SyntaxHelp({ onPick }: { onPick: (token: string) => void }): React.JSX.
   return (
     <Panel>
       <div className="px-5 py-4" data-testid="search-help">
-        <p className="mb-3 text-[13px] text-ink">
+        <p className="mb-3 text-detail text-ink">
           Type any name, number, GSTIN or amount. Add filters to narrow it down — they combine, and the
           ones you type show up as chips.
         </p>
         <div className="grid grid-cols-3 gap-x-6 gap-y-2">
           {SYNTAX_HINTS.map((h) => (
             <button key={h.token} type="button" className="flex items-center justify-between gap-3 text-left" onClick={() => onPick(h.token)}>
-              <code className="font-mono text-[12px] text-ink">{h.token}</code>
-              <span className="text-[11.5px] text-muted">{h.label}</span>
+              <code className="font-mono text-small text-ink">{h.token}</code>
+              <span className="text-hint text-muted">{h.label}</span>
             </button>
           ))}
         </div>
-        <p className="mt-3 text-[11.5px] text-muted">
+        <p className="mt-3 text-hint text-muted">
           Ranges: <code className="font-mono">amt:1000..5000</code>, <code className="font-mono">date:2026-04-01..2026-04-30</code>.
           Also <code className="font-mono">no:</code> <code className="font-mono">pan:</code> <code className="font-mono">hsn:</code>.
           Optional and post-dated vouchers are included and badged; deleted ones never are.

@@ -53,10 +53,10 @@ export const DAYBOOK_COLUMNS = defineColumns<DayBookRow>([
     cell: (r) => (
       <>
         <LedgerLink ledgerId={r.accountLedgerId} name={r.account} />
-        {r.isOptional && <span className="ml-2 rounded bg-amber/15 px-1.5 py-0.5 text-[10px] font-medium text-amber">Optional</span>}
-        {r.postDated && <span className="ml-2 rounded bg-blue/10 px-1.5 py-0.5 text-[10px] font-medium text-blue">PDC</span>}
+        {r.isOptional && <span className="ml-2 rounded bg-amber/15 px-1.5 py-0.5 text-micro font-medium text-amber">Optional</span>}
+        {r.postDated && <span className="ml-2 rounded bg-blue/10 px-1.5 py-0.5 text-micro font-medium text-blue">PDC</span>}
         {r.yearEndClose && (
-          <span className="ml-2 rounded bg-blue/10 px-1.5 py-0.5 text-[10px] font-medium text-blue" data-testid="daybook-year-end-chip">
+          <span className="ml-2 rounded bg-blue/10 px-1.5 py-0.5 text-micro font-medium text-blue" data-testid="daybook-year-end-chip">
             Year-end closing entry
           </span>
         )}
@@ -139,7 +139,7 @@ export function DayBook({ month, kind }: { month?: string; kind?: string } = {})
       </SectionTitle>
       {(drill.month || drill.kind) && (
         <div className="mb-3 flex items-center gap-2">
-          <span className="flex items-center gap-1.5 rounded-full border border-amberbar/50 bg-amberbar/10 px-3 py-1 text-[12px]">
+          <span className="flex items-center gap-1.5 rounded-full border border-amberbar/50 bg-amberbar/10 px-3 py-1 text-small">
             {drill.month ? monthLabel(drill.month) : null}
             {drill.month && drill.kind ? ' · ' : ''}
             {drill.kind ? <span className="capitalize">{drill.kind.replace('_', ' ')}</span> : null}
@@ -153,7 +153,7 @@ export function DayBook({ month, kind }: { month?: string; kind?: string } = {})
               ✕
             </button>
           </span>
-          <span className="text-[11.5px] text-muted">Filtered from Registers</span>
+          <span className="text-hint text-muted">Filtered from Registers</span>
         </div>
       )}
       <Panel>
@@ -176,7 +176,7 @@ export function DayBook({ month, kind }: { month?: string; kind?: string } = {})
             r.kind === 'sales' ? (
               <button
                 type="button"
-                className="text-[11.5px] text-blue hover:underline"
+                className="text-hint text-blue hover:underline"
                 title="Invoice PDF"
                 data-testid="btn-daybook-invoice-pdf"
                 onClick={() => {

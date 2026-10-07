@@ -67,12 +67,12 @@ export function ProfitLossScreen(): React.JSX.Element {
         right={
           <div className="flex items-center gap-2">
             {isPlaceholderData && (
-              <span data-testid="pnl-refreshing" className="text-[11px] text-muted" aria-live="polite">
+              <span data-testid="pnl-refreshing" className="text-caption text-muted" aria-live="polite">
                 Updating…
               </span>
             )}
             <DateInput value={from} context={from} onChange={setFrom} className="w-28" testId="input-pnl-from" />
-            <span className="text-[12px] text-muted">→</span>
+            <span className="text-small text-muted">→</span>
             <DateInput value={to} context={to} onChange={setTo} className="w-28" testId="input-pnl-to" />
             <Button
               variant="ghost"
@@ -96,7 +96,7 @@ export function ProfitLossScreen(): React.JSX.Element {
 
       <div className={`grid grid-cols-2 gap-3 transition-opacity ${isPlaceholderData ? 'opacity-60' : ''}`}>
         <Panel className="p-4">
-          <p className="mb-2 text-[11px] font-semibold tracking-[0.08em] text-muted uppercase">Expenses</p>
+          <p className="mb-2 text-caption font-semibold tracking-[0.08em] text-muted uppercase">Expenses</p>
           {data.openingStock !== 0 && <FlatRow name="Opening stock" paise={data.openingStock} />}
           <StatementTree nodes={data.tradingExpenses} />
           {data.grossProfit > 0 && <FlatRow name="Gross profit c/o" paise={data.grossProfit} strong />}
@@ -106,7 +106,7 @@ export function ProfitLossScreen(): React.JSX.Element {
         </Panel>
 
         <Panel className="p-4">
-          <p className="mb-2 text-[11px] font-semibold tracking-[0.08em] text-muted uppercase">Incomes</p>
+          <p className="mb-2 text-caption font-semibold tracking-[0.08em] text-muted uppercase">Incomes</p>
           <StatementTree nodes={data.tradingIncomes} />
           {data.closingStock !== 0 && <FlatRow name="Closing stock" paise={data.closingStock} />}
           {data.grossProfit < 0 && <FlatRow name="Gross loss c/o" paise={-data.grossProfit} strong />}
@@ -118,8 +118,8 @@ export function ProfitLossScreen(): React.JSX.Element {
       </div>
 
       <Panel className="mt-3 flex items-center justify-between px-5 py-3">
-        <span className="text-[13.5px] font-medium">{data.netProfit >= 0 ? 'Net profit for the period' : 'Net loss for the period'}</span>
-        <Money paise={Math.abs(data.netProfit)} className={`text-[16px] font-semibold ${data.netProfit >= 0 ? 'text-dr' : 'text-cr'}`} />
+        <span className="text-body font-medium">{data.netProfit >= 0 ? 'Net profit for the period' : 'Net loss for the period'}</span>
+        <Money paise={Math.abs(data.netProfit)} className={`text-title font-semibold ${data.netProfit >= 0 ? 'text-dr' : 'text-cr'}`} />
       </Panel>
     </div>
   )
@@ -128,8 +128,8 @@ export function ProfitLossScreen(): React.JSX.Element {
 function FlatRow({ name, paise, strong, tone }: { name: string; paise: number; strong?: boolean; tone?: 'dr' | 'cr' }): React.JSX.Element {
   return (
     <div className={`flex items-center justify-between px-2 py-1 ${strong ? 'font-medium' : ''}`}>
-      <span className={`text-[13px] ${tone === 'dr' ? 'text-dr' : tone === 'cr' ? 'text-cr' : ''}`}>{name}</span>
-      <Money paise={paise} className="text-[13px]" />
+      <span className={`text-detail ${tone === 'dr' ? 'text-dr' : tone === 'cr' ? 'text-cr' : ''}`}>{name}</span>
+      <Money paise={paise} className="text-detail" />
     </div>
   )
 }

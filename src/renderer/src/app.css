@@ -7,40 +7,141 @@
 @import '@fontsource/ibm-plex-mono/500.css';
 @import 'tailwindcss';
 
-/* ---------- theme tokens: light (default) and dark ---------- */
+/* ---------- theme tokens: light (default) and dark ----------
+   Every colour, surface, elevation and density value lives here as a `--t-*` custom property and
+   is mapped into Tailwind through `@theme inline` below — components use the token utilities
+   (bg-panel, text-muted, shadow-elev-1, h-control, p-page, …), never raw values.
+
+   Contrast (WCAG 2.x, checked by __tests__/tokens.test.ts): ink / muted / dr / cr / blue / amber
+   text clear 4.5:1 on bg, panel, panel2 and their status "soft" tints in BOTH themes; the focus
+   ring clears 3:1 against bg and panel. */
 
 :root {
+  color-scheme: light;
+
+  /* surfaces, low → high: page background, panel, inset/header band, raised (popover/drawer) */
   --t-bg: #f4f4ef;
   --t-panel: #ffffff;
   --t-panel2: #f6f7fa;
+  --t-raised: #ffffff;
   --t-line: #dcdfe6;
+  --t-line-strong: #c4c9d4;
   --t-ink: #21263a;
-  --t-muted: #6a7186;
-  --t-amber: #b97f0a;
+  /* WP 1.10a: #6a7186 → #5f6679 (was 4.41:1 on bg, now 5.2:1) */
+  --t-muted: #5f6679;
+  /* Amber as TEXT (tabs, links, warnings). WP 1.10a: #b97f0a → #8a5d00 (was 3.1:1 on bg). The
+     bright signature amber stays as --t-amber-bar (fills, the selection bar). */
+  --t-amber: #8a5d00;
   --t-amber-bar: #f5b82e;
   --t-amber-soft: rgba(245, 184, 46, 0.18);
+  --t-on-amber: #2b2000;
   --t-dr: #157a53;
-  --t-cr: #bb4433;
+  /* WP 1.10a: #bb4433 → #b03c2c (was 4.46:1 on its own soft tint) */
+  --t-cr: #b03c2c;
   --t-blue: #1f5fc2;
-  --t-shadow: 0 1px 2px rgba(30, 35, 60, 0.06), 0 4px 16px rgba(30, 35, 60, 0.05);
   --t-rule: #3a4053;
+
+  /* semantic status — derived from dr / amber / cr / blue; *-soft is the tinted background */
+  --t-success: var(--t-dr);
+  --t-success-soft: #e6f2ec;
+  --t-warning: var(--t-amber);
+  --t-warning-soft: #fbf1da;
+  --t-danger: var(--t-cr);
+  --t-danger-soft: #f8e9e6;
+  --t-info: var(--t-blue);
+  --t-info-soft: #e8eff9;
+
+  /* focus ring: a darker amber than the bar so it clears 3:1 on white (the bar is 1.8:1) */
+  --t-focus: #b97f0a;
+  --t-focus-ring: 0 0 0 2px var(--t-panel), 0 0 0 4px var(--t-focus);
+
+  /* elevation — light uses soft shadows; dark swaps them for borders (see below) */
+  --t-shadow: 0 1px 2px rgba(30, 35, 60, 0.06), 0 4px 16px rgba(30, 35, 60, 0.05);
+  --t-shadow-1: var(--t-shadow);
+  --t-shadow-2: 0 2px 6px rgba(30, 35, 60, 0.08), 0 12px 32px rgba(30, 35, 60, 0.1);
+  --t-shadow-3: 0 4px 12px rgba(30, 35, 60, 0.12), 0 24px 64px rgba(30, 35, 60, 0.18);
+  --t-elev-border: var(--t-line);
+  --t-scrim: rgba(15, 18, 30, 0.45);
+
+  /* radius */
+  --t-radius-sm: 4px;
+  --t-radius: 6px;
+  --t-radius-lg: 8px;
+  --t-radius-xl: 12px;
+
+  /* spacing scale (4px grid) */
+  --t-space-1: 4px;
+  --t-space-2: 8px;
+  --t-space-3: 12px;
+  --t-space-4: 16px;
+  --t-space-5: 20px;
+  --t-space-6: 24px;
+  --t-space-8: 32px;
+
+  /* density: comfortable (default). [data-density='compact'] on <html> overrides. */
+  --t-page-pad: 20px;
+  --t-section-gap: 16px;
+  --t-panel-pad: 16px;
+  --t-control-h: 32px;
+  --t-control-h-sm: 26px;
+  --t-control-px: 10px;
+  --t-row-h: 33px;
+  --t-cell-py: 6px;
+  --t-cell-px: 12px;
+  --t-head-py: 7px;
+
+  /* motion */
+  --t-duration: 120ms;
+  --t-duration-slow: 200ms;
 }
 
 [data-theme='dark'] {
+  color-scheme: dark;
   --t-bg: #0e1220;
   --t-panel: #151b2c;
   --t-panel2: #1b2338;
+  --t-raised: #1d2640;
   --t-line: #273049;
+  --t-line-strong: #36415f;
   --t-ink: #e9e9e2;
-  --t-muted: #8c94ab;
+  /* WP 1.10a: #8c94ab → #99a1b7, #6e8ef5 → #7f9bf7 (were 4.3:1 on the amber selection row) */
+  --t-muted: #99a1b7;
   --t-amber: #f0b429;
   --t-amber-bar: #f0b429;
   --t-amber-soft: rgba(240, 180, 41, 0.14);
+  --t-on-amber: #2b2000;
   --t-dr: #6ec6a0;
   --t-cr: #e4796b;
-  --t-blue: #6e8ef5;
-  --t-shadow: none;
+  --t-blue: #7f9bf7;
   --t-rule: #e9e9e2;
+
+  --t-success-soft: #172a2a;
+  --t-warning-soft: #2a2618;
+  --t-danger-soft: #2a1d26;
+  --t-info-soft: #1c2440;
+
+  --t-focus: #f0b429;
+
+  /* dark: no shadows — elevation reads through borders and the raised surface instead */
+  --t-shadow: none;
+  --t-shadow-1: none;
+  --t-shadow-2: 0 0 0 1px var(--t-line-strong);
+  --t-shadow-3: 0 0 0 1px var(--t-line-strong), 0 24px 64px rgba(0, 0, 0, 0.5);
+  --t-elev-border: var(--t-line-strong);
+  --t-scrim: rgba(0, 0, 0, 0.6);
+}
+
+[data-density='compact'] {
+  --t-page-pad: 14px;
+  --t-section-gap: 12px;
+  --t-panel-pad: 12px;
+  --t-control-h: 28px;
+  --t-control-h-sm: 24px;
+  --t-control-px: 8px;
+  --t-row-h: 27px;
+  --t-cell-py: 3px;
+  --t-cell-px: 10px;
+  --t-head-py: 5px;
 }
 
 @theme inline {
@@ -50,32 +151,66 @@
   --color-canvas: var(--t-bg);
   --color-panel: var(--t-panel);
   --color-panel2: var(--t-panel2);
+  --color-raised: var(--t-raised);
   --color-line: var(--t-line);
+  --color-line-strong: var(--t-line-strong);
   --color-ink: var(--t-ink);
   --color-muted: var(--t-muted);
   --color-amber: var(--t-amber);
   --color-amberbar: var(--t-amber-bar);
+  --color-on-amber: var(--t-on-amber);
   --color-dr: var(--t-dr);
   --color-cr: var(--t-cr);
   --color-blue: var(--t-blue);
   --color-rule: var(--t-rule);
+  --color-success: var(--t-success);
+  --color-success-soft: var(--t-success-soft);
+  --color-warning: var(--t-warning);
+  --color-warning-soft: var(--t-warning-soft);
+  --color-danger: var(--t-danger);
+  --color-danger-soft: var(--t-danger-soft);
+  --color-info: var(--t-info);
+  --color-info-soft: var(--t-info-soft);
+  --color-focus: var(--t-focus);
+
+  --shadow-elev-1: var(--t-shadow-1);
+  --shadow-elev-2: var(--t-shadow-2);
+  --shadow-elev-3: var(--t-shadow-3);
+
+  --radius-sm: var(--t-radius-sm);
+  --radius-md: var(--t-radius);
+  --radius-lg: var(--t-radius-lg);
+  --radius-xl: var(--t-radius-xl);
+
+  /* density-aware spacing: p-page, gap-section, p-panel, h-control, h-control-sm, px-control */
+  --spacing-page: var(--t-page-pad);
+  --spacing-section: var(--t-section-gap);
+  --spacing-panel: var(--t-panel-pad);
+  --spacing-control: var(--t-control-h);
+  --spacing-control-sm: var(--t-control-h-sm);
+  --spacing-control-x: var(--t-control-px);
 
   --font-sans: 'IBM Plex Sans', system-ui, sans-serif;
   --font-serif: 'IBM Plex Serif', Georgia, serif;
   --font-mono: 'IBM Plex Mono', ui-monospace, monospace;
 
-  /* Type scale — use these (text-label, text-hint, …) in kit components instead of raw
-     bracket sizes; screens converge opportunistically. */
-  --text-label: 10.5px; /* uppercase micro-labels, Kbd */
+  /* Type scale — the ONLY font sizes in the renderer. A raw `text-[Npx]` anywhere under
+     src/renderer fails __tests__/typeScale.test.ts. */
+  --text-micro: 10px; /* chips, tree carets, sidebar section heads */
+  --text-label: 10.5px; /* uppercase micro-labels, table headers, Kbd */
   --text-caption: 11px; /* field labels */
   --text-hint: 11.5px; /* hints + inline errors */
   --text-small: 12px; /* small links/actions */
   --text-body-sm: 12.5px; /* secondary body */
   --text-detail: 13px; /* buttons, dense rows */
   --text-body: 13.5px; /* inputs + default body */
-  --text-lead: 14.5px; /* emphasized row titles */
-  --text-title: 16px; /* modal titles */
-  --text-heading: 19px; /* section titles */
+  --text-lead: 14.5px; /* emphasized row titles, empty-state titles */
+  --text-subtitle: 15px; /* stat values, company name, closing balances */
+  --text-title: 16px; /* modal + drawer titles */
+  --text-brand: 17px; /* the wordmark */
+  --text-heading: 19px; /* page titles */
+  --text-display: 28px; /* full-screen titles (lock) */
+  --text-hero: 34px; /* company select wordmark */
 }
 
 html,
@@ -88,7 +223,7 @@ body {
   background: var(--t-bg);
   color: var(--t-ink);
   font-family: var(--font-sans);
-  font-size: 13.5px;
+  font-size: var(--text-body);
   -webkit-font-smoothing: antialiased;
   overflow: hidden;
   user-select: none;
@@ -100,7 +235,7 @@ body {
 }
 
 .panel-shadow {
-  box-shadow: var(--t-shadow);
+  box-shadow: var(--t-shadow-1);
 }
 
 .drag-region {
@@ -146,18 +281,18 @@ tr.kbar-row[data-active='true'] td:first-child {
   border-collapse: collapse;
 }
 .ledger-table th {
-  font-size: 10.5px;
+  font-size: var(--text-label);
   font-weight: 600;
   letter-spacing: 0.08em;
   text-transform: uppercase;
   color: var(--t-muted);
   text-align: left;
-  padding: 7px 12px;
+  padding: var(--t-head-py) var(--t-cell-px);
   border-bottom: 1px solid var(--t-line);
   background: var(--t-panel2);
 }
 .ledger-table td {
-  padding: 6px 12px;
+  padding: var(--t-cell-py) var(--t-cell-px);
   border-bottom: 1px solid color-mix(in oklab, var(--t-line) 60%, transparent);
 }
 .ledger-table tr.total-row td {
@@ -270,15 +405,21 @@ tr.kbar-row[data-active='true'] td:first-child {
   opacity: 1;
 }
 .data-table tr.dt-row {
-  height: 33px;
+  height: var(--t-row-h);
 }
-.data-table[data-density='compact'] > tbody > tr > td,
-.data-table[data-density='compact'] > tfoot > tr > td {
-  padding-top: 3px;
-  padding-bottom: 3px;
+/* A table's own density (its saved view, or the app setting — DataTable resolves it) wins over
+   the app-wide [data-density] it sits in. Row heights must match ROW_HEIGHT in DataTable.tsx. */
+.data-table[data-density='comfortable'] {
+  --t-row-h: 33px;
+  --t-cell-py: 6px;
+  --t-cell-px: 12px;
+  --t-head-py: 7px;
 }
-.data-table[data-density='compact'] tr.dt-row {
-  height: 27px;
+.data-table[data-density='compact'] {
+  --t-row-h: 27px;
+  --t-cell-py: 3px;
+  --t-cell-px: 10px;
+  --t-head-py: 5px;
 }
 .data-table tr.dt-group td {
   background: var(--t-panel2);
@@ -345,7 +486,7 @@ textarea {
 }
 
 :focus-visible {
-  outline: 2px solid var(--t-amber-bar);
+  outline: 2px solid var(--t-focus);
   outline-offset: 1px;
   border-radius: 3px;
 }
@@ -369,9 +510,37 @@ textarea {
   background: transparent;
 }
 
+/* Reduced motion: the OS setting, or Settings → Appearance forcing it (data-motion="reduce"). */
 @media (prefers-reduced-motion: reduce) {
-  * {
-    animation: none !important;
-    transition: none !important;
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
   }
+}
+[data-motion='reduce'] *,
+[data-motion='reduce'] *::before,
+[data-motion='reduce'] *::after {
+  animation-duration: 0.01ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.01ms !important;
+  scroll-behavior: auto !important;
+}
+
+/* Drawer slide-in (kit/Drawer.tsx); collapses to instant under reduced motion. */
+@keyframes t-drawer-in {
+  from {
+    transform: translateX(16px);
+    opacity: 0;
+  }
+  to {
+    transform: none;
+    opacity: 1;
+  }
+}
+.t-drawer-in {
+  animation: t-drawer-in var(--t-duration-slow) ease-out;
 }

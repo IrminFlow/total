@@ -146,7 +146,7 @@ export function StockLinesEntry({
       {fallbackReason && (
         <p
           data-testid="banner-stock-lines-fallback"
-          className="mb-4 rounded-md border border-amber/40 bg-amber/10 px-3 py-2 text-[12.5px] text-ink"
+          className="mb-4 rounded-md border border-amber/40 bg-amber/10 px-3 py-2 text-body-sm text-ink"
           title={fallbackReason}
         >
           Shown as plain stock lines — this voucher can&apos;t be opened in the {formName} form ({fallbackReason}). Every line
@@ -161,7 +161,7 @@ export function StockLinesEntry({
           <DateInput value={date} context={workingDate} onChange={setDate} />
         </Field>
         <div className="col-span-2 flex items-end justify-end">
-          <p className="num text-[12.5px] text-muted">
+          <p className="num text-body-sm text-muted">
             In {formatPaise(totals.in)} · Out {formatPaise(totals.out)}
           </p>
         </div>
@@ -187,11 +187,11 @@ export function StockLinesEntry({
                   value={r.itemId}
                   onPick={(id) => setRow(i, id === r.itemId ? { itemId: id } : { itemId: id, batchId: null })}
                 />
-                {r.isAbsolute && <span className="ml-1 text-[11px] text-muted">counted closing qty</span>}
+                {r.isAbsolute && <span className="ml-1 text-caption text-muted">counted closing qty</span>}
               </td>
               <td>
                 <button
-                  className={`num w-12 rounded-md border border-line px-2 py-1 text-[12.5px] font-medium ${r.direction === 'in' ? 'text-dr' : 'text-cr'}`}
+                  className={`num w-12 rounded-md border border-line px-2 py-1 text-body-sm font-medium ${r.direction === 'in' ? 'text-dr' : 'text-cr'}`}
                   onClick={() => setRow(i, { direction: r.direction === 'in' ? 'out' : 'in' })}
                   title="Toggle in / out"
                 >
@@ -214,15 +214,15 @@ export function StockLinesEntry({
               <td className="r">
                 <AmountInput key={r.amountRev} paise={r.amount} onPaise={(p) => setRow(i, { amount: p })} testId="input-stock-line-amount" />
               </td>
-              <td className="text-[12px] text-muted">{r.itemId != null ? godownName(r.godownId) : ''}</td>
-              <td className="text-[12px] text-muted">{r.itemId != null ? batchName(r.batchId) : ''}</td>
+              <td className="text-small text-muted">{r.itemId != null ? godownName(r.godownId) : ''}</td>
+              <td className="text-small text-muted">{r.itemId != null ? batchName(r.batchId) : ''}</td>
             </tr>
           ))}
         </tbody>
       </table>
 
       {initial.ledgerLines.length > 0 && (
-        <p className="mt-3 text-[12px] text-muted">
+        <p className="mt-3 text-small text-muted">
           This voucher also carries {initial.ledgerLines.length} ledger line{initial.ledgerLines.length > 1 ? 's' : ''}; they are kept as-is when you save.
         </p>
       )}

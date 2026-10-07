@@ -301,7 +301,7 @@ export function CommandPalette({ onClose }: { onClose: () => void }): React.JSX.
             else if (e.key === 'Enter') runItem(navItems[active])
           }}
           placeholder="Type a command, or search the books — name, number, GSTIN, amount…"
-          className="w-full border-b border-line bg-transparent px-5 py-3.5 text-[14px] outline-none placeholder:text-muted/60"
+          className="w-full border-b border-line bg-transparent px-5 py-3.5 text-lead outline-none placeholder:text-muted/60"
         />
         {(parsed.chips.length > 0 || parsed.unknown.length > 0) && (
           <div className="border-b border-line px-5 py-2">
@@ -312,7 +312,7 @@ export function CommandPalette({ onClose }: { onClose: () => void }): React.JSX.
           {groups.map((g) => (
             <div key={g.key} data-testid={`palette-section-${g.key}`}>
               {g.title && (
-                <p className="flex items-baseline justify-between px-5 pb-1 pt-3 text-[10.5px] font-medium tracking-wide text-muted uppercase">
+                <p className="flex items-baseline justify-between px-5 pb-1 pt-3 text-label font-medium tracking-wide text-muted uppercase">
                   <span>{g.title}</span>
                   {g.count != null && <span className="num normal-case tracking-normal">{g.count}</span>}
                 </p>
@@ -336,12 +336,12 @@ export function CommandPalette({ onClose }: { onClose: () => void }): React.JSX.
             </div>
           ))}
           {navItems.length === 0 && (
-            <p className="px-5 py-6 text-center text-[13px] text-muted">
+            <p className="px-5 py-6 text-center text-detail text-muted">
               {searchEnabled && !live ? 'Searching…' : 'No commands or matches'}
             </p>
           )}
         </div>
-        <div data-testid="palette-help" className="flex flex-wrap items-center gap-x-3 gap-y-1 border-t border-line bg-panel2 px-5 py-2 text-[11px] text-muted">
+        <div data-testid="palette-help" className="flex flex-wrap items-center gap-x-3 gap-y-1 border-t border-line bg-panel2 px-5 py-2 text-caption text-muted">
           {query.trim() === '' ? (
             <>
               <span>Filters:</span>
@@ -395,7 +395,7 @@ function PaletteRow({
       type="button"
       data-testid="palette-edit-ledger"
       title="Edit ledger (⌘E)"
-      className="shrink-0 rounded border border-line px-1.5 py-0.5 text-[11px] text-blue hover:bg-panel2"
+      className="shrink-0 rounded border border-line px-1.5 py-0.5 text-caption text-blue hover:bg-panel2"
       onClick={(e) => {
         e.stopPropagation()
         onEdit()
@@ -404,21 +404,21 @@ function PaletteRow({
       Edit <span className="text-muted">⌘E</span>
     </button>
   )
-  const base = 'kbar-row flex cursor-pointer items-center justify-between gap-3 px-5 py-2 text-[13.5px]'
+  const base = 'kbar-row flex cursor-pointer items-center justify-between gap-3 px-5 py-2 text-body'
   const common = { 'data-active': active, onMouseEnter: onHover, onClick: onRun }
   switch (item.type) {
     case 'command':
       return (
         <div {...common} className={base}>
           <span>{item.cmd.label}</span>
-          {item.cmd.hint && <span className="text-[11px] text-muted">{item.cmd.hint}</span>}
+          {item.cmd.hint && <span className="text-caption text-muted">{item.cmd.hint}</span>}
         </div>
       )
     case 'recent-query':
       return (
         <div {...common} data-testid="palette-recent-query" className={base}>
-          <span className="truncate font-mono text-[12.5px]">{item.q}</span>
-          <span className="shrink-0 text-[11px] text-muted">Search</span>
+          <span className="truncate font-mono text-body-sm">{item.q}</span>
+          <span className="shrink-0 text-caption text-muted">Search</span>
         </div>
       )
     case 'recent-record':
@@ -426,9 +426,9 @@ function PaletteRow({
         <div {...common} data-testid={`palette-recent-${item.kind}`} className={base}>
           <div className="flex min-w-0 flex-col">
             <span className="truncate">{item.rec.label}</span>
-            {item.rec.sub && <span className="truncate text-[11px] text-muted">{item.rec.sub}</span>}
+            {item.rec.sub && <span className="truncate text-caption text-muted">{item.rec.sub}</span>}
           </div>
-          <span className="flex shrink-0 items-center gap-2 text-[11px] text-muted">
+          <span className="flex shrink-0 items-center gap-2 text-caption text-muted">
             {active && editAction}
             {KIND_SINGULAR[item.kind]}
           </span>
@@ -440,7 +440,7 @@ function PaletteRow({
           <span>
             See all {item.total} {KIND_TITLE[item.kind].toLowerCase()}
           </span>
-          <span className="text-[11px] text-muted">⌘↵</span>
+          <span className="text-caption text-muted">⌘↵</span>
         </div>
       )
     case 'hit': {
@@ -461,11 +461,11 @@ function PaletteRow({
                 )}
                 <VoucherBadges v={h} />
               </span>
-              <span className="truncate text-[11px] text-muted">
+              <span className="truncate text-caption text-muted">
                 <Highlight text={sub} terms={terms} />
               </span>
             </div>
-            <Money paise={h.amount} className="shrink-0 text-[12.5px]" />
+            <Money paise={h.amount} className="shrink-0 text-body-sm" />
           </div>
         )
       }
@@ -476,11 +476,11 @@ function PaletteRow({
             <span className="truncate">
               <Highlight text={h.name} terms={terms} />
             </span>
-            <span className="truncate text-[11px] text-muted">
+            <span className="truncate text-caption text-muted">
               <Highlight text={sub} terms={terms} />
             </span>
           </div>
-          <span className="flex shrink-0 items-center gap-2 text-[11px] text-muted">
+          <span className="flex shrink-0 items-center gap-2 text-caption text-muted">
             {active && editAction}
             {KIND_SINGULAR[h.kind]}
           </span>

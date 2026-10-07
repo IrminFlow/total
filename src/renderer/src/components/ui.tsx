@@ -435,7 +435,7 @@ export function Modal({
               aria-label="Close"
               data-testid="modal-close"
               onClick={requestClose}
-              className="rounded-md border border-transparent px-1.5 py-0.5 text-[15px] leading-none text-muted transition-colors hover:border-line hover:text-ink"
+              className="rounded-md border border-transparent px-1.5 py-0.5 text-subtitle leading-none text-muted transition-colors hover:border-line hover:text-ink"
             >
               ✕
             </button>
@@ -670,7 +670,7 @@ export function EmptyState({
   return (
     <div className="flex flex-col items-center justify-center py-16 text-center">
       {icon && <div className="mb-3 text-muted/50">{icon}</div>}
-      <p className="text-[14px] text-muted">{title}</p>
+      <p className="text-lead text-muted">{title}</p>
       {hint && <p className="mt-1 text-body-sm text-muted/70">{hint}</p>}
       {action && <div className="mt-4">{action}</div>}
     </div>
