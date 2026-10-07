@@ -26,6 +26,13 @@ describe('screen registry invalidation families', () => {
     expect(fams).not.toContain('edocs')
   })
 
+  it('Manufacture sits in the top block directly under Voucher entry, gated on inventory (WP 2.2)', () => {
+    const top = SCREENS.filter((s) => s.navSection === 'top').map((s) => s.name)
+    expect(top.indexOf('manufacture')).toBe(top.indexOf('voucher-entry') + 1)
+    expect(SCREENS.find((s) => s.name === 'manufacture')).toMatchObject({ title: 'Manufacture', feature: 'inventory' })
+    expect(invalidationFamilies('manufacture-register')).toEqual(['manufactureRegister'])
+  })
+
   it('no screen lists a family twice', () => {
     for (const s of SCREENS) {
       expect(new Set(s.invalidates).size).toBe(s.invalidates.length)

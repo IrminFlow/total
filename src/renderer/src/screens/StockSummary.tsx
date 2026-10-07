@@ -8,7 +8,7 @@ import { DataTable, defineColumns, type RowKey } from '../components/table'
 import { formatMilli } from '../lib/table'
 import { toDisplayDate } from '@shared/dates'
 import type { StockAgeingRow, StockSummaryRow } from '@shared/reports'
-import { ItemLink } from '../components/links'
+import { ItemLink, VoucherLink } from '../components/links'
 
 /** Integer milli → "12.500" at the item's own precision (integer maths, never a float divide). */
 const fmtQty = (qtyMilli: number, decimals: number): string => formatMilli(qtyMilli, decimals)
@@ -80,7 +80,7 @@ const AGEING_COLUMNS = defineColumns<StockAgeingRow>([
 ])
 
 export function StockSummaryScreen(): React.JSX.Element {
-  const { to } = useSession()
+  const { from, to } = useSession()
   const { data, isLoading } = useQuery({ queryKey: ['stockSummary', to], queryFn: () => api.stock.summary(to) })
   const opts = useScreenOptions('stock-summary', { hideZero: false, showAnalysis: true })
   const rows = (data ?? []).filter((r) => !opts.options.hideZero || r.closingQtyMilli !== 0 || r.closingValue !== 0)
@@ -144,8 +144,8 @@ export function StockSummaryScreen(): React.JSX.Element {
           onRowActivate={toggle}
           expanded={expanded}
           onExpandedChange={onExpandedChange}
-          renderDetail={(r) => <ItemDetail stockItemId={r.stockItemId} asOn={to} decimals={r.decimals} unitSymbol={r.unitSymbol} />}
-          detailHeightEstimate={64}
+          renderDetail={(r) => <ItemDetail stockItemId={r.stockItemId} from={from} asOn={to} decimals={r.decimals} unitSymbol={r.unitSymbol} />}
+          detailHeightEstimate={160}
           maxHeight="calc(100vh - 260px)"
           toolbarFeatures={{ groupBy: false }}
           exportOptions={{ title: 'Stock summary', periodLabel, filename: 'stock-summary' }}
@@ -156,18 +156,26 @@ export function StockSummaryScreen(): React.JSX.Element {
   )
 }
 
-/** Godown- and batch-wise closing for one expanded item (fetched on expand). */
+/** Godown- and batch-wise closing plus the period's movements for one expanded item (fetched on
+ *  expand). The movement list is the minimal read-only register of WP 2.2 — WP 2.3 replaces it
+ *  with the full item movement register (rates, running quantity and value). */
 function ItemDetail({
   stockItemId,
+  from,
   asOn,
   decimals,
   unitSymbol
 }: {
   stockItemId: number
+  from: string
   asOn: string
   decimals: number
   unitSymbol: string
 }): React.JSX.Element {
+  const { data: movements, isLoading: loadingMoves } = useQuery({
+    queryKey: ['stockMovements', stockItemId, from, asOn],
+    queryFn: () => api.stock.movements(stockItemId, from, asOn)
+  })
   const { data: godowns, isLoading: loadingGodowns } = useQuery({
     queryKey: ['stockByGodown', asOn],
     queryFn: () => api.stock.byGodown(asOn)
@@ -182,12 +190,39 @@ function ItemDetail({
     (g) => g.stockItemId === stockItemId && g.closingQtyMilli !== 0 && g.godownId !== null
   )
   const batchRows = (batches ?? []).filter((b) => b.closingQtyMilli !== 0)
-  if (loadingGodowns || loadingBatches) return <p className="py-1 text-small text-muted">Loading breakdown…</p>
-  if (godownRows.length === 0 && batchRows.length === 0) {
-    return <p className="py-1 text-small text-muted">No godown or batch breakdown for this item.</p>
-  }
+  if (loadingGodowns || loadingBatches || loadingMoves) return <p className="py-1 text-small text-muted">Loading breakdown…</p>
+  const moves = movements ?? []
   return (
     <div className="flex flex-wrap gap-8 py-1 text-ink" data-testid="stock-item-detail">
+      <div className="min-w-[22rem]" data-testid="stock-item-movements">
+        <p className="mb-1 text-label font-semibold tracking-[0.08em] text-muted uppercase">Movements this period</p>
+        {moves.length === 0 ? (
+          <p className="text-small text-muted">No movements between {toDisplayDate(from)} and {toDisplayDate(asOn)}.</p>
+        ) : (
+          <table className="text-body-sm">
+            <tbody>
+              {moves.slice(-12).map((m, i) => (
+                <tr key={`${m.voucherId}-${i}`} data-testid="stock-movement-row" data-voucher-id={m.voucherId} data-date={m.date}>
+                  <td className="num pr-3 text-muted">{toDisplayDate(m.date)}</td>
+                  <td className="pr-3">
+                    <VoucherLink voucherId={m.voucherId} label={`${m.voucherType} ${m.number}`} />
+                  </td>
+                  <td className="num pr-3 text-right text-dr" data-testid="stock-movement-in">
+                    {m.inQtyMilli ? `${m.isAbsolute ? '= ' : '+'}${fmtQty(m.inQtyMilli, decimals)} ${unitSymbol}` : ''}
+                  </td>
+                  <td className="num text-right text-cr" data-testid="stock-movement-out">
+                    {m.outQtyMilli ? `−${fmtQty(m.outQtyMilli, decimals)} ${unitSymbol}` : ''}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+        {moves.length > 12 && <p className="mt-1 text-hint text-muted">Latest 12 of {moves.length} — the full movement register is coming.</p>}
+      </div>
+      {godownRows.length === 0 && batchRows.length === 0 && (
+        <p className="text-small text-muted">No godown or batch breakdown for this item.</p>
+      )}
       {godownRows.length > 0 && (
         <div>
           <p className="mb-1 text-label font-semibold tracking-[0.08em] text-muted uppercase">By godown</p>

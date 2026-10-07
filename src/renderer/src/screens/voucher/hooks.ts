@@ -97,6 +97,8 @@ export function useVoucherNumberField(typeId: number, date: string, excludeId?: 
   /** For posting: '' when untouched-and-still-loading (never send the '…' placeholder), else the
    *  trimmed value the user is looking at (empty string included — that means "auto-assign"). */
   forPayload: string
+  /** The user typed into the field since the last type/date change or reset(). */
+  touched: boolean
 } {
   const fetched = useVoucherNumber(typeId, date, excludeId)
   const [value, setValue] = useState(fetched)
@@ -121,5 +123,5 @@ export function useVoucherNumberField(typeId: number, date: string, excludeId?: 
   }, [])
   const reset = useCallback((): void => setTouched(false), [])
 
-  return { value, onChange, reset, forPayload: value === NUMBER_LOADING ? '' : value.trim() }
+  return { value, onChange, reset, forPayload: value === NUMBER_LOADING ? '' : value.trim(), touched }
 }

@@ -693,3 +693,42 @@ export const stockCostAsOfSchema = z.object({
     .optional()
 })
 export type StockCostAsOfInput = z.infer<typeof stockCostAsOfSchema>
+
+// ---------- manufacture voucher (WP 2.2) ----------
+// Structural parsing only — the business rules (row completeness, duplicates, profit to the
+// paisa) live in @shared/manufacture's validateManufacture so the screen and server agree.
+
+export const manufactureInputSchema = z.object({
+  voucherTypeId: id.optional(),
+  date: isoDate,
+  number: z.string().trim().max(40).optional(),
+  narration: z.string().trim().max(1000).nullable().optional(),
+  godownId: id.nullable().optional(),
+  finishedItemId: z.number().int().nonnegative(),
+  qtyMilli: z.number().int().nonnegative().max(1e12),
+  saleRatePaise: paise,
+  raw: z
+    .array(z.object({ stockItemId: z.number().int().nonnegative(), qtyMilli: z.number().int().nonnegative().max(1e12), godownId: id.nullable().optional() }))
+    .max(200),
+  labourPaise: paise,
+  labourPosted: z.boolean(),
+  labourCreditLedgerId: id.nullable().optional(),
+  profitPaise: paise,
+  confirmLoss: z.boolean().optional()
+})
+export type ManufactureInputParsed = z.infer<typeof manufactureInputSchema>
+
+export const manufactureSaveSchema = z.object({ data: manufactureInputSchema, id: id.optional() })
+
+export const manufactureCostPreviewSchema = z.object({
+  date: isoDate,
+  /** The voucher being edited (its own lines are left out of the pricing). */
+  voucherId: id.optional(),
+  finishedItemId: id.nullable().optional(),
+  lines: z.array(z.object({ itemId: id, qtyMilli: z.number().int().nonnegative().max(1e12) })).max(200).default([])
+})
+export type ManufactureCostPreviewInput = z.infer<typeof manufactureCostPreviewSchema>
+
+export const manufactureRegisterSchema = z.object({ from: isoDate, to: isoDate })
+
+export const stockMovementsSchema = z.object({ stockItemId: id, from: isoDate, to: isoDate })

@@ -52,15 +52,27 @@ export interface DerivedCostingMark {
 /** Supplies the derived marks for in-books vouchers dated ≤ asOn. */
 export type DerivedCostingSource = (db: DB, asOn: string) => DerivedCostingMark[]
 
-/** Default until WP 2.2: nothing is derived, so every existing voucher stays `'stored'` and no
- *  company's stock value moves. WP 2.2 makes this read its `manufacture_details` rows
- *  (`SELECT voucher_id, labour_paise FROM manufacture_details`). */
-const noDerivedVouchers: DerivedCostingSource = () => []
-let derivedCostingSource: DerivedCostingSource = noDerivedVouchers
+/**
+ * The default source (WP 2.2): every in-books voucher with a `manufacture_details` row (saved
+ * by the Manufacture screen) is costed `'derived'`, with that row's labour as the explicit
+ * additional cost — which beats the voucher's own Dr labour ledger lines (precedence 1 below),
+ * so labour is never counted twice. Legacy stock journals have no row and stay `'stored'`
+ * exactly as before, so no existing company's stock value moves on upgrade.
+ */
+export const manufactureDetailsCostingSource: DerivedCostingSource = (db, asOn) =>
+  db
+    .prepare(
+      `SELECT md.voucher_id AS voucherId, md.labour_paise AS additionalCostPaise
+       FROM manufacture_details md JOIN vouchers v ON v.id = md.voucher_id
+       WHERE v.date <= ? AND ${IN_BOOKS}`
+    )
+    .all(asOn) as DerivedCostingMark[]
+let derivedCostingSource: DerivedCostingSource = manufactureDetailsCostingSource
 
-/** Install the derived-mark predicate (`null` restores the default: nothing derived). */
+/** Install a derived-mark predicate (tests); `null` restores the default
+ *  (manufactureDetailsCostingSource). */
 export function setDerivedCostingSource(source: DerivedCostingSource | null): void {
-  derivedCostingSource = source ?? noDerivedVouchers
+  derivedCostingSource = source ?? manufactureDetailsCostingSource
 }
 
 /**
@@ -472,4 +484,51 @@ export function expiryAgeing(db: DB, asOn: string): ExpiryAgeingRow[] {
     .filter((r) => r.closingQtyMilli > 0 && r.expiryDate !== null)
     .map((r) => ({ ...r, bucket: expiryBucketOf(r.expiryDate, asOn) }))
     .sort((a, b) => (a.expiryDate! < b.expiryDate! ? -1 : a.expiryDate! > b.expiryDate! ? 1 : 0))
+}
+
+// ---------- item movements (WP 2.2 minimal register; WP 2.3 builds the full one) ----------
+
+export interface ItemMovementRow {
+  voucherId: number
+  date: string
+  number: string
+  voucherType: string
+  kind: string
+  /** Thousandths; for a physical-count line, the counted closing quantity. */
+  inQtyMilli: number
+  outQtyMilli: number
+  isAbsolute: boolean
+  /** Stored line amount, paise (a derived manufacture's inward value is re-derived by the
+   *  engine at valuation time — this is the save-time figure). */
+  amount: number
+}
+
+/** One item's in-books inventory lines dated within [from, to], in voucher order — the
+ *  read-only movement list under a Stock summary row. */
+export function itemMovements(db: DB, stockItemId: number, from: string, to: string): ItemMovementRow[] {
+  const rows = db
+    .prepare(
+      `SELECT v.id AS voucherId, v.date, v.number, vt.name AS voucherType, vt.kind,
+              il.direction, il.qty_milli AS qtyMilli, il.is_absolute AS isAbsolute, il.amount
+       FROM inventory_lines il
+       JOIN vouchers v ON v.id = il.voucher_id
+       JOIN voucher_types vt ON vt.id = v.voucher_type_id
+       WHERE il.stock_item_id = ? AND v.date BETWEEN ? AND ? AND ${IN_BOOKS}
+       ORDER BY v.date, v.id, il.line_order, il.id`
+    )
+    .all(stockItemId, from, to) as {
+      voucherId: number; date: string; number: string; voucherType: string; kind: string
+      direction: 'in' | 'out'; qtyMilli: number; isAbsolute: number; amount: number
+    }[]
+  return rows.map((r) => ({
+    voucherId: r.voucherId,
+    date: r.date,
+    number: r.number,
+    voucherType: r.voucherType,
+    kind: r.kind,
+    inQtyMilli: r.direction === 'in' ? r.qtyMilli : 0,
+    outQtyMilli: r.direction === 'out' ? r.qtyMilli : 0,
+    isAbsolute: !!r.isAbsolute,
+    amount: r.amount
+  }))
 }
