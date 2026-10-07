@@ -15,6 +15,8 @@ import { BalanceSheetScreen } from './screens/BalanceSheet'
 import { CashFlowScreen } from './screens/CashFlow'
 import { ExceptionsScreen } from './screens/Exceptions'
 import { StockSummaryScreen } from './screens/StockSummary'
+import { ManufactureScreen } from './screens/Manufacture'
+import { ManufactureRegisterScreen } from './screens/ManufactureRegister'
 import { LedgerStatementScreen } from './screens/LedgerStatement'
 import { Gstr1Screen, Gstr3bScreen } from './screens/GstReturns'
 import { Gstr2bScreen } from './screens/Gstr2b'
@@ -144,6 +146,8 @@ export default function App(): React.JSX.Element {
           {screen.name === 'cash-flow' && <CashFlowScreen />}
           {screen.name === 'exceptions' && <ExceptionsScreen />}
           {screen.name === 'stock-summary' && <StockSummaryScreen />}
+          {screen.name === 'manufacture' && <ManufactureScreen />}
+          {screen.name === 'manufacture-register' && <ManufactureRegisterScreen />}
           {screen.name === 'ledger-statement' && <LedgerStatementScreen ledgerId={screen.ledgerId} />}
           {screen.name === 'gstr1' && <Gstr1Screen />}
           {screen.name === 'gstr3b' && <Gstr3bScreen />}

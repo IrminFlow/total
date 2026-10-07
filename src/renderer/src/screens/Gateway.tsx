@@ -25,7 +25,7 @@ type SectionKey = Exclude<keyof DashboardSeries, 'window'>
 type SectionData<K extends SectionKey> = DashboardSeries[K] extends DashSection<infer D> ? D : never
 import { useFeatures } from '../lib/useFeatures'
 import { CARD_SCREENS } from '../lib/screens'
-import { kindForVoucherKey } from '../lib/voucherKeys'
+import { isManufactureKey, kindForVoucherKey } from '../lib/voucherKeys'
 import { Sparkline } from '../components/charts'
 import { cardState, type CardState } from './gateway/parts'
 import {
@@ -88,13 +88,18 @@ export function Gateway(): React.JSX.Element {
         nav.go({ name: 'voucher-entry', kindHint: kind })
         return
       }
+      if (isManufactureKey(e)) {
+        e.preventDefault()
+        if (features.inventory) nav.go({ name: 'manufacture' })
+        return
+      }
       if (e.metaKey || e.ctrlKey || e.altKey) return
       const sc = shortcuts.find((c) => c.key.toLowerCase() === e.key.toLowerCase())
       if (sc) nav.go(sc.screen)
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [nav, shortcuts])
+  }, [nav, shortcuts, features.inventory])
 
   const [backingUp, setBackingUp] = useState(false)
   const backupNow = async (): Promise<void> => {

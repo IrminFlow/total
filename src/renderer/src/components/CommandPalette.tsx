@@ -89,8 +89,9 @@ export function CommandPalette({ onClose }: { onClose: () => void }): React.JSX.
       { label: 'Currencies', run: go({ name: 'masters', tab: 'currencies' }) },
       {
         label: 'New manufacture (stock journal)',
+        hint: 'Alt F7',
         feature: 'inventory',
-        run: go({ name: 'voucher-entry', kindHint: 'stock_journal' })
+        run: go({ name: 'manufacture' })
       },
       {
         label: 'Export CA pack',
