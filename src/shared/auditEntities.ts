@@ -20,6 +20,8 @@ export const AUDIT_ENTITIES = [
   'export',
   'godown',
   'group',
+  'gst_ims',
+  'gst_self_invoice',
   'job_work',
   'ledger',
   'manufacture',

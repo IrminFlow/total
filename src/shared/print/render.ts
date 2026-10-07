@@ -140,12 +140,14 @@ const DOC_LABEL: Record<PrintDocKind, string> = {
   journal: 'Voucher',
   contra: 'Voucher',
   delivery_challan: 'Challan',
-  quotation: 'Quotation'
+  quotation: 'Quotation',
+  self_invoice: 'Self invoice'
 }
 const PARTY_LABEL: Partial<Record<PrintDocKind, string>> = {
   receipt: 'Received from',
   payment: 'Paid to',
-  purchase: 'Supplier'
+  purchase: 'Supplier',
+  self_invoice: 'Supplier (unregistered)'
 }
 
 /** `#rrggbb` + alpha → rgba() (accent tints). */
@@ -663,7 +665,7 @@ function renderInvoice(c: Ctx, doc: InvoiceDocument, opts: RenderOptions): strin
       </div>
       <div class="meta">
         <div>
-          <div class="lbl">${esc(p.billToLabel)}</div>
+          <div class="lbl">${esc(doc.kind === 'self_invoice' ? PARTY_LABEL.self_invoice! : p.billToLabel)}</div>
           <div><b>${esc(inv.partyName ?? 'Cash sale')}</b></div>
           ${p.showAddress ? `<div>${esc(inv.partyAddress)}</div>` : ''}
           ${p.showGstin ? `<div class="num">${inv.partyGstin ? 'GSTIN: ' + esc(inv.partyGstin) : 'Unregistered'}</div>` : ''}
@@ -674,7 +676,8 @@ function renderInvoice(c: Ctx, doc: InvoiceDocument, opts: RenderOptions): strin
           <div>No: <b class="num">${esc(inv.number)}</b></div>
           <div>Date: <span class="num">${c.date(inv.date)}</span></div>
           ${inv.precedingDoc ? `<div>Against: <span class="num">${esc(inv.precedingDoc.invNo)}</span> dt <span class="num">${c.date(inv.precedingDoc.invDate)}</span></div>` : ''}
-          ${p.showPlaceOfSupply ? `<div>Place of supply: <span class="num">${esc(inv.pos)}-${esc(GST_STATES[inv.pos] ?? '')}</span></div>` : ''}
+          ${p.showPlaceOfSupply ? `<div>Place of supply: <span class="num">${esc(inv.pos)}-${esc(GST_STATES[inv.pos] ?? '')}</span></div>` : ''}${doc.kind === 'self_invoice' ? `
+          <div>Tax payable on reverse charge: <b>Yes</b></div>` : ''}
           ${p.showVehicle && inv.vehicleNo ? `<div>Vehicle: <span class="num">${esc(inv.vehicleNo)}</span></div>` : ''}
         </div>
       </div>${einvoiceLine(c, { irn, ackNo: doc.einvoice?.ackNo ?? null, ackDate: doc.einvoice?.ackDate ?? null, ewbNo: doc.einvoice?.ewbNo ?? null })}

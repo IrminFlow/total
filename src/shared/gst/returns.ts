@@ -832,3 +832,27 @@ export function buildGstr3b(
     json
   }
 }
+
+// ---------- Circular 170 presentation of Table 4 (WP 3.4) ----------
+
+/**
+ * Re-shape the books' ITC breakdown for GSTR-3B Table 4 per Circular 170/02/2022-GST (sources:
+ * GST_SOURCES.circular170 in ./sources.ts): credit blocked under s.17(5) is AVAILED in 4(A)(5)
+ * and REVERSED in 4(B)(1) (a permanent reversal, alongside rules 38/42/43); credit re-availed
+ * after a rule 37 / 37A reversal (4(B)(2) of an earlier period) is availed again in 4(A)(5) AND
+ * reported in 4(D)(1). Net ITC 4(C) is unchanged by the re-shaping of blocked credit.
+ *
+ * Feeds buildGstr3b unchanged: the returned `itc.blocked` occupies the 4(D)(1) slot (the
+ * itc_inelg 'RUL' row of the JSON), so it carries the RECLAIMED credit, and `manual.itcRevRul`
+ * carries the entered 4(B)(1) amount plus the automatic s.17(5) reversal.
+ */
+export function circular170Inputs(
+  books: ItcBreakdown,
+  manual: Gst3bManual,
+  reclaimed: ItcPart = { ...ZERO_ITC }
+): { itc: ItcBreakdown; manual: Gst3bManual } {
+  return {
+    itc: { impg: books.impg, isrc: books.isrc, oth: addItc(books.oth, books.blocked, reclaimed), blocked: { ...reclaimed } },
+    manual: { ...manual, itcRevRul: addItc(manual.itcRevRul, books.blocked) }
+  }
+}

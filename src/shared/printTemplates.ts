@@ -32,14 +32,17 @@ export const PRINT_TEMPLATES_META_KEY = 'printTemplates'
  *  placeholders: selectable in the designer, no voucher kind prints them yet. */
 export const PRINT_DOC_KINDS = [
   'sales', 'credit_note', 'debit_note', 'purchase', 'receipt', 'payment', 'journal', 'contra',
-  'delivery_challan', 'quotation'
+  'delivery_challan', 'quotation',
+  // WP 3.4 — the reverse-charge self-invoice (s.31(3)(f) CGST Act) raised on a purchase from an
+  // unregistered supplier; printed from services/gstRcm.ts, not from a voucher kind.
+  'self_invoice'
 ] as const
 export type PrintDocKind = (typeof PRINT_DOC_KINDS)[number]
 export const printDocKindSchema = z.enum(PRINT_DOC_KINDS)
 
 /** Kinds rendered with the item-table (invoice) layout; the rest print as an accounting voucher
  *  (particulars / debit / credit). */
-export const INVOICE_SHAPED_KINDS: readonly PrintDocKind[] = ['sales', 'credit_note', 'debit_note', 'delivery_challan', 'quotation']
+export const INVOICE_SHAPED_KINDS: readonly PrintDocKind[] = ['sales', 'credit_note', 'debit_note', 'delivery_challan', 'quotation', 'self_invoice']
 export const PHASE2_KINDS: readonly PrintDocKind[] = ['delivery_challan', 'quotation']
 
 export const PRINT_DOC_KIND_LABELS: Record<PrintDocKind, string> = {
@@ -52,7 +55,8 @@ export const PRINT_DOC_KIND_LABELS: Record<PrintDocKind, string> = {
   journal: 'Journal voucher',
   contra: 'Contra voucher',
   delivery_challan: 'Delivery challan',
-  quotation: 'Quotation'
+  quotation: 'Quotation',
+  self_invoice: 'Self invoice (reverse charge)'
 }
 
 export const DEFAULT_TITLES: Record<PrintDocKind, string> = {
@@ -65,11 +69,14 @@ export const DEFAULT_TITLES: Record<PrintDocKind, string> = {
   journal: 'JOURNAL VOUCHER',
   contra: 'CONTRA VOUCHER',
   delivery_challan: 'DELIVERY CHALLAN',
-  quotation: 'QUOTATION'
+  quotation: 'QUOTATION',
+  self_invoice: 'SELF INVOICE'
 }
 
 /** Map a books voucher kind onto the print kind (null = not printable). */
 export function printKindForVoucherKind(kind: string): PrintDocKind | null {
+  // A self-invoice is a separate document ON a purchase voucher, never the voucher's own form.
+  if (kind === 'self_invoice') return null
   return (PRINT_DOC_KINDS as readonly string[]).includes(kind) ? (kind as PrintDocKind) : null
 }
 
