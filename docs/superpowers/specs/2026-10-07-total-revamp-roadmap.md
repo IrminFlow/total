@@ -384,7 +384,8 @@ by effective date. This is to be confirmed against the official text at phase st
   #11, #13–#18, plus #1 "v0.5 revamp", #2 "roadmap", #3 electron bump, #4 "v5 encrypted
   collaboration"). Merge those that pass and are safe; make the others mergeable where possible;
   for anything that cannot be made mergeable, write `to-do.md` at the repo root listing what the
-  user must do and why.
+  user must do and why. Then run CI (and the full e2e suite) on the final main and confirm every
+  job is green before reporting completion.
 
 ---
 
