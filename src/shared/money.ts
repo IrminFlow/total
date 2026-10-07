@@ -144,3 +144,17 @@ export function amountInWords(paise: number): string {
   words += ' Only'
   return (negative ? 'Minus ' : '') + words
 }
+
+/**
+ * Quantity thousandths as the shortest decimal string — trailing zeros trimmed, no grouping:
+ * 2000 -> "2", 2500 -> "2.5", 1 -> "0.001". Integer math only. Used by the printed documents'
+ * quantity cell (src/shared/print/render.ts); identical to the old `qtyMilli / 1000`
+ * interpolation for every integer input.
+ */
+export function formatQtyMilli(qtyMilli: number): string {
+  const sign = qtyMilli < 0 ? '-' : ''
+  const abs = Math.abs(qtyMilli)
+  const whole = Math.trunc(abs / 1000)
+  const frac = (abs % 1000).toString().padStart(3, '0').replace(/0+$/, '')
+  return `${sign}${whole}${frac ? '.' + frac : ''}`
+}

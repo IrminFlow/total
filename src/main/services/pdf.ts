@@ -14,6 +14,9 @@ export interface HtmlToPdfOptions {
   /** 'none' drops all page margins — for layouts (e.g. a cheque) that are absolutely
    *  positioned against the physical page edge and must not be inset by a default margin. */
   margins?: 'none'
+  /** Custom page margins in mm (print templates). Electron's printToPDF takes margins in INCHES
+   *  (default 1cm each side); converted here. Ignored when `margins: 'none'`. */
+  marginsMm?: { top: number; right: number; bottom: number; left: number }
   /** Landscape orientation — for wide reports (columnar, many-column registers). */
   landscape?: boolean
   /** "Page N of M" centered in the footer of every page. Chromium ignores CSS @page margin-box
@@ -53,6 +56,11 @@ async function renderPdf(html: string, opts: HtmlToPdfOptions): Promise<Buffer> 
   const printOpts: Electron.PrintToPDFOptions = { printBackground: true }
   if (opts.pageSize) printOpts.pageSize = opts.pageSize as Electron.PrintToPDFOptions['pageSize']
   if (opts.margins === 'none') printOpts.margins = { marginType: 'none' }
+  else if (opts.marginsMm) {
+    const inch = (mm: number): number => mm / 25.4
+    const m = opts.marginsMm
+    printOpts.margins = { top: inch(m.top), right: inch(m.right), bottom: inch(m.bottom), left: inch(m.left) }
+  }
   if (opts.landscape) printOpts.landscape = true
   if (opts.pageNumbers) {
     printOpts.displayHeaderFooter = true

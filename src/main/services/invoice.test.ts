@@ -1,6 +1,8 @@
 import { describe, it, expect } from 'vitest'
 import { buildInvoiceHtml, hsnSummaryForInvoice, INVOICE_ITEMS_PER_PAGE, SAMPLE_INVOICE } from './invoice'
 import { DEFAULT_INVOICE_CONFIG } from '@shared/invoiceConfig'
+import { legacyBuildInvoiceHtml } from '@shared/print/legacyInvoiceHtml.fixture'
+import { normaliseHtml } from '@shared/print/render'
 import type { CompanyInfo } from '@shared/domain'
 import type { EdocInvoice, EdocItem } from '@shared/gst/edocs'
 
@@ -80,8 +82,13 @@ describe('buildInvoiceHtml (pure — invoice print config rendering)', () => {
     expect(html).toContain('Sam&#39;s &quot;Best&quot; Traders &lt;India&gt;')
   })
 
+  // This snapshot was recorded from the pre-WP-1.10c renderer and is deliberately left untouched:
+  // it now pins the FROZEN legacy fixture (proving the fixture is a faithful copy of the old code),
+  // and the second assertion ties today's renderer to it (whitespace-normalised equal).
   it('renders stably for the default config (snapshot)', () => {
-    expect(buildInvoiceHtml(COMPANY, DEFAULT_INVOICE_CONFIG, SAMPLE_INVOICE)).toMatchSnapshot()
+    const legacy = legacyBuildInvoiceHtml(COMPANY, DEFAULT_INVOICE_CONFIG, SAMPLE_INVOICE)
+    expect(legacy).toMatchSnapshot()
+    expect(normaliseHtml(buildInvoiceHtml(COMPANY, DEFAULT_INVOICE_CONFIG, SAMPLE_INVOICE))).toBe(normaliseHtml(legacy))
   })
 
   it('repeats the table header on every printed page and keeps rows unsplit (print CSS)', () => {

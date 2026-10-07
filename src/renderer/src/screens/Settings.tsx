@@ -20,7 +20,7 @@ const TABS: { id: SettingsTab; label: string }[] = [
   { id: 'audit', label: 'Audit trail' },
   { id: 'nic', label: 'NIC live filing' },
   { id: 'features', label: 'Features' },
-  { id: 'invoice', label: 'Invoice print' },
+  { id: 'invoice', label: 'Invoice templates' },
   { id: 'agents', label: 'Agent access' },
   { id: 'about', label: 'About' }
 ]

@@ -117,3 +117,27 @@ export function todayISO(): string {
   const d = now.getDate().toString().padStart(2, '0')
   return `${y}-${m}-${d}`
 }
+
+/** Printed-document date formats (print templates). 'dd-mmm-yy' is toDisplayDate's Tally style. */
+export const DOC_DATE_FORMATS = ['dd-mmm-yy', 'dd-mmm-yyyy', 'dd/mm/yyyy', 'dd-mm-yyyy', 'd mmmm yyyy', 'yyyy-mm-dd'] as const
+export type DocDateFormat = (typeof DOC_DATE_FORMATS)[number]
+
+/** Format an ISO date (YYYY-MM-DD) in one of the DocDateFormat shapes. */
+export function formatDateAs(date: string, format: DocDateFormat): string {
+  if (format === 'dd-mmm-yy') return toDisplayDate(date)
+  if (format === 'yyyy-mm-dd') return date
+  const [y, m, d] = date.split('-') as [string, string, string]
+  const short = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+  const long = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December']
+  const mi = Number(m) - 1
+  switch (format) {
+    case 'dd-mmm-yyyy':
+      return `${d}-${short[mi]}-${y}`
+    case 'dd/mm/yyyy':
+      return `${d}/${m}/${y}`
+    case 'dd-mm-yyyy':
+      return `${d}-${m}-${y}`
+    default:
+      return `${Number(d)} ${long[mi]} ${y}`
+  }
+}

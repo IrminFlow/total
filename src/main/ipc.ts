@@ -34,6 +34,7 @@ import * as analysis from './services/analysis'
 import * as banking from './services/banking'
 import * as edocs from './services/edocs'
 import * as invoice from './services/invoice'
+import * as printTemplates from './services/printTemplates'
 import * as cheque from './services/cheque'
 import * as extras from './services/extras'
 import * as payroll from './services/payroll'
@@ -66,6 +67,7 @@ import {
 import type { CompanyInfo } from '@shared/domain'
 import { featuresSchema } from '@shared/features'
 import { invoiceConfigPartialSchema, invoiceConfigSchema } from '@shared/invoiceConfig'
+import { printDocKindSchema, printTemplateSchema } from '@shared/printTemplates'
 
 export interface OpenCompany {
   slug: string
@@ -995,6 +997,64 @@ export function registerIpc(): void {
     const c = requireCompany()
     return invoice.invoicePreviewHtml(c.db, c.info, voucherId, config)
   }, 'viewer')
+
+  // ---------- print templates (WP 1.10c) ----------
+  // Read/preview: viewer+. Edit (save/duplicate/delete/reset/defaults/import): accountant+.
+  const templateIdSchema = z.object({ id: z.string().min(1).max(60) })
+  handle('template:list', () => printTemplates.listTemplates(requireCompany().db), 'viewer')
+  handle('template:get', (p) => printTemplates.getTemplate(requireCompany().db, templateIdSchema.parse(p).id), 'viewer')
+  handle('template:save', (p) => {
+    const { template } = z.object({ template: printTemplateSchema }).parse(p)
+    return printTemplates.saveTemplate(requireCompany().db, template)
+  })
+  handle('template:duplicate', (p) => printTemplates.duplicateTemplate(requireCompany().db, templateIdSchema.parse(p).id))
+  handle('template:delete', (p) => {
+    printTemplates.deleteTemplate(requireCompany().db, templateIdSchema.parse(p).id)
+    return { ok: true }
+  })
+  handle('template:reset', (p) => printTemplates.resetTemplate(requireCompany().db, templateIdSchema.parse(p).id))
+  handle('template:setDefault', (p) => {
+    const { kind, id } = z.object({ kind: printDocKindSchema, id: z.string().min(1).max(60) }).parse(p)
+    return printTemplates.setDefaultTemplate(requireCompany().db, kind, id)
+  })
+  handle('template:previewHtml', (p) => {
+    const { template, voucherId, kind } = z
+      .object({ template: printTemplateSchema, voucherId: z.number().int().positive().optional(), kind: printDocKindSchema.optional() })
+      .parse(p)
+    const c = requireCompany()
+    return printTemplates.templatePreviewHtml(c.db, c.info, template, { voucherId, kind })
+  }, 'viewer')
+  handle('template:testPdf', async (p) => {
+    const { template, kind } = z.object({ template: printTemplateSchema, kind: printDocKindSchema.optional() }).parse(p)
+    const c = requireCompany()
+    const path = await printTemplates.templateTestPdf(c.db, c.info, c.slug, template, kind)
+    auditExport(c.db, 'print_test_pdf', { templateId: template.id, path })
+    shell.openPath(path)
+    return { path }
+  })
+  handle('template:export', (p) => {
+    const { id } = templateIdSchema.parse(p)
+    const c = requireCompany()
+    const path = printTemplates.exportTemplate(c.db, c.slug, id)
+    auditExport(c.db, 'print_template', { templateId: id, path })
+    shell.showItemInFolder(path)
+    return { path }
+  }, 'viewer')
+  // `jsonText` inline lets drivers/tests import without the native file dialog.
+  handle('template:import', async (p) => {
+    const { jsonText } = z.object({ jsonText: z.string().max(2_000_000).optional() }).default({}).parse(p ?? {})
+    let text = jsonText
+    if (text === undefined) {
+      const picked = await dialog.showOpenDialog({
+        title: 'Choose a Total print template (.json)',
+        filters: [{ name: 'Print template', extensions: ['json'] }],
+        properties: ['openFile']
+      })
+      if (picked.canceled || !picked.filePaths[0]) return null
+      text = readFileSync(picked.filePaths[0], 'utf8')
+    }
+    return printTemplates.importTemplate(requireCompany().db, text)
+  })
 
   // ---------- cheque printing + payment advice (task 2.7) ----------
   const bankLedgerIdSchema = z.object({ bankLedgerId: z.number().int().positive() })

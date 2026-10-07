@@ -25,6 +25,9 @@ export interface EdocItem {
   /** Per-line trade discount in paise (inventory_lines.discount_paise, lane Q #97). Display
    *  only: `taxablePaise` is already the post-discount value, so GST math never touches this. */
   discountPaise?: number | null
+  /** Free-text line description for the printed invoice's optional Details column (print
+   *  templates). The books don't capture one yet — samples set it; extraction leaves it unset. */
+  description?: string | null
 }
 
 /** Per-voucher transport details (voucher_transport row), consumed by the EWB/e-invoice builders. */
