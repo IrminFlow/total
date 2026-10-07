@@ -402,9 +402,16 @@ describe('Checklist', () => {
     expect(screen.getByTestId('onboarding-checklist-progress').textContent).toBe('1 of 2 done')
     expect(screen.getByRole('progressbar').getAttribute('aria-valuenow')).toBe('1')
     expect(screen.getByTestId('onboarding-checklist-company').dataset.done).toBe('true')
-    expect(screen.queryByTestId('onboarding-checklist-company-open')).toBeNull()
-    fireEvent.click(screen.getByRole('button', { name: 'Open: First voucher' }))
+    expect(screen.getByTestId('onboarding-checklist-company').tagName).toBe('DIV') // done rows aren't buttons
+    fireEvent.click(screen.getByRole('button', { name: /First voucher/ }))
     expect(onOpen).toHaveBeenCalledWith('voucher')
+  })
+
+  it('bare + columns + itemTestId (the Gateway card form)', () => {
+    render(<Checklist bare columns={3} itemTestId="onboarding" items={[{ id: 'bank', label: 'Bank', done: false }]} onOpen={() => {}} />)
+    expect(screen.getByTestId('onboarding-bank').tagName).toBe('BUTTON')
+    expect(screen.queryByRole('heading')).toBeNull()
+
   })
 
   it('hideDone collapses finished steps', () => {

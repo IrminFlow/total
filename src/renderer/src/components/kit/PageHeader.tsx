@@ -13,7 +13,9 @@ const WIDTHS = {
   /** reports and lists — the default */
   standard: 'max-w-5xl',
   /** wide registers (day book, GSTR-2B, e-documents) */
-  wide: 'max-w-6xl'
+  wide: 'max-w-6xl',
+  /** the Gateway dashboard's card grid */
+  full: 'max-w-[1480px]'
 } as const
 
 export type PageWidth = keyof typeof WIDTHS

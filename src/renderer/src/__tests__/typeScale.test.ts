@@ -8,23 +8,15 @@ import { join, relative, resolve } from 'node:path'
 const ROOT = resolve(__dirname, '..')
 
 /**
- * Files still allowed a raw size. Each entry must still contain one (stale entries fail), so the
- * list can only shrink. What's left is WP 1.10b's Gateway dashboard and its chart, built in
- * parallel with the type scale and owned by that work package (WP 1.10a was asked not to edit
- * them) — they convert with the mechanical mapping:
- * 9/10→micro 10.5→label 11→caption 11.5→hint 12→small 12.5→body-sm 13→detail 13.5→body
- * 14/14.5→lead 15→subtitle 16→title 17→brand 19/20→heading 28→display 34→hero.
- * (SlotChart's SVG <text fontSize> may stay numeric; give it a reason here if it does.)
+ * Files still allowed a raw size. Must stay EMPTY: every renderer file uses the scale. (If one ever
+ * needs an exception, list it here with a reason — each entry must still contain a raw size, so
+ * stale entries fail and the list can only shrink.)
  */
-const ALLOWLIST: string[] = [
-  'screens/Gateway.tsx',
-  'screens/gateway/cards.tsx',
-  'screens/gateway/parts.tsx',
-  'components/charts/SlotChart.tsx'
-]
+const ALLOWLIST: string[] = []
 
 
-const RAW_SIZE = /\btext-\[(?:length:)?\d+(?:\.\d+)?(?:px|rem|em|pt)\]|\bfontSize\s*:/g
+// text-[13px] / text-[1rem] classes, inline style fontSize: …, and SVG/JSX fontSize={…} attributes.
+const RAW_SIZE = /\btext-\[(?:length:)?\d+(?:\.\d+)?(?:px|rem|em|pt)\]|\bfontSize\s*[:=]/g
 
 function walk(dir: string): string[] {
   const out: string[] = []
@@ -49,7 +41,8 @@ describe('type scale guard', () => {
     expect(bad).toEqual([])
   })
 
-  it('every allowlisted file still needs its entry (the allowlist only shrinks)', () => {
+  it('the allowlist is empty, and any entry would still need its exception', () => {
+    expect(ALLOWLIST).toEqual([])
     expect(ALLOWLIST.filter((f) => !offenders.has(f))).toEqual([])
   })
 
