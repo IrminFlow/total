@@ -100,9 +100,10 @@ describe('pay heads backward compatibility', () => {
 describe('EPS split + employer PF charges', () => {
   it('splits the 12% employer PF into EPS 8.33% (capped wage) and the EPF remainder, plus admin/EDLI at 0.5% each', () => {
     const p = computeMonthlyPay(legacyEmp, 31, 31)
-    // PF wage capped at 15,000: EPS = 1,249.50, EPF er = 1,800 − 1,249.50
-    expect(p.epsEr).toBe(1_249_50)
-    expect(p.epfEr).toBe(550_50)
+    // PF wage capped at 15,000: EPS = 8.33% = 1,249.50 → ₹1,250 (rupee-rounded, 50 paise up —
+    // EPS 2026 para 4(3) / EPF Scheme 2026 para 18(5)); EPF er = 1,800 − 1,250 = 550 (WP 3.7).
+    expect(p.epsEr).toBe(1_250_00)
+    expect(p.epfEr).toBe(550_00)
     expect(p.epsEr + p.epfEr).toBe(p.pfEr)
     expect(p.pfAdmin).toBe(75_00)
     expect(p.edli).toBe(75_00)
