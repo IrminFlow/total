@@ -24,6 +24,7 @@ import { TransportModal } from './TransportModal'
 import { useTcsCollection, useTdsDeduction, type TcsCandidate } from './useTdsDeduction'
 import { TdsBanner, TdsNotApplicableNote } from './TdsBanner'
 import { blankItemRow, ItemLineGrid, type ItemRow } from './ItemLineGrid'
+import { useInvoicePricing } from './useLinePricing'
 import { AddFromDrawer } from './AddFromDrawer'
 import { addFromFor, rowsFromSourcePicks, sourceLocksGoods, type SourcePick } from '@shared/voucherEdit'
 import type { OpenSourceLine } from '@shared/tradeCycle/types'
@@ -202,6 +203,8 @@ export function InvoiceEntry({
 
   const computed = useMemo(() => computeInvoice(formState, ctx), [formState, ctx])
   const { supply, fxActive } = computed
+  // WP 2.6: the grid prices sales lines through the resolver (party rate › level › scheme …).
+  const linePricing = useInvoicePricing(kind, partyId, date, supply, fxActive ? currencyCode : '')
 
   // TDS base = the taxable value: GST shown separately on the invoice is excluded (CBDT
   // Circular 23/2017, 19 Jul 2017 — https://www.incometaxindia.gov.in/documents/d/guest/circular_23_2017-pdf,
@@ -599,6 +602,7 @@ export function InvoiceEntry({
         lockedBySource={lockedBySource}
         rowNote={sourceChip}
         onRemoveRow={removeRow}
+        pricing={linePricing}
       />
 
       <div className="mt-4 flex items-start justify-between gap-6">

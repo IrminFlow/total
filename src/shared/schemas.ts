@@ -139,7 +139,11 @@ export const stockItemInputSchema = z.object({
   /** Serial-number tracking (WP 2.3). Absent = keep existing (update) / off (create). */
   trackSerials: z.boolean().optional(),
   /** TCS goods category (WP 3.3). Absent = keep existing (update) / none (create). */
-  tcsSectionId: id.nullable().optional()
+  tcsSectionId: id.nullable().optional(),
+  /** WP 2.6: printed MRP (GST-inclusive) and standard cost, paise per unit. Absent = keep
+   *  existing (update) / none (create). */
+  mrpPaise: paise.min(0).nullable().optional(),
+  standardCostPaise: paise.min(0).nullable().optional()
 })
 export type StockItemInput = z.infer<typeof stockItemInputSchema>
 
@@ -1108,7 +1112,11 @@ export const batchInputSchema = z.object({
 export type BatchInput = z.infer<typeof batchInputSchema>
 
 export const priceLevelInputSchema = z.object({
-  name: z.string().trim().min(1).max(60)
+  name: z.string().trim().min(1).max(60),
+  /** WP 2.6: the level's rates include GST. Absent = keep (update) / no (create). */
+  inclusiveOfTax: z.boolean().optional(),
+  /** WP 2.6: the company's default level (only one). Absent = keep (update) / no (create). */
+  isDefault: z.boolean().optional()
 })
 export type PriceLevelInput = z.infer<typeof priceLevelInputSchema>
 
@@ -1117,9 +1125,15 @@ export const priceRateInputSchema = z.object({
   priceLevelId: id,
   stockItemId: id,
   rate: paise.min(0),
-  effectiveFrom: isoDate
-})
-export type PriceRateInput = z.infer<typeof priceRateInputSchema>
+  effectiveFrom: isoDate,
+  /** WP 2.6 (migration 030): inclusive end date (null = open), quantity slab, slab discount,
+   *  rate currency. Defaults = the pre-030 meaning (open-ended ₹ base slab, no discount). */
+  effectiveTo: isoDate.nullable().default(null),
+  minQtyMilli: z.number().int().min(0).default(0),
+  discountBp: z.number().int().min(0).max(10000).default(0),
+  currency: z.string().trim().toUpperCase().regex(/^[A-Z]{3}$/).default('INR')
+}).refine((r) => r.effectiveTo == null || r.effectiveTo >= r.effectiveFrom, 'The end date is before the start date')
+export type PriceRateInput = z.input<typeof priceRateInputSchema>
 
 /** stock:* report queries — asOn plus optional godown scope. */
 export const stockQuerySchema = z.object({

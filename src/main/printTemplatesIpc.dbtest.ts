@@ -47,7 +47,7 @@ beforeAll(async () => {
 describe('print template IPC', () => {
   it('lists, previews, saves and defaults (open company, no users yet = ungated)', async () => {
     const list = await ok<{ templates: { id: string }[]; defaults: Record<string, string> }>('template:list')
-    expect(list.templates.map((t) => t.id)).toEqual(['classic', 'compact', 'modern'])
+    expect(list.templates.map((t) => t.id)).toEqual(['classic', 'compact', 'modern', 'receipt-80mm'])
     const modern = await ok<Record<string, unknown>>('template:get', { id: 'modern' })
     const { html } = await ok<{ html: string }>('template:previewHtml', { template: modern })
     expect(html).toContain('INV-SAMPLE-1')

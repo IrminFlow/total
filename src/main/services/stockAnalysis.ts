@@ -861,7 +861,7 @@ export function expiryReport(db: DB, asOn: string, withinDays: number): ExpiryRe
 
 export interface LabelRequest {
   items: { itemId: number; copies: number }[]
-  /** Price list to print the rate from (default: the first price list); null = no price. */
+  /** Price list to print the rate from (default: the company's default level, else the first); null = no price. */
   priceLevelId?: number | null
   /** Rate effective on this date. */
   date: string
@@ -872,7 +872,7 @@ export interface LabelRequest {
 export function labelsHtml(db: DB, req: LabelRequest): string {
   const level =
     req.priceLevelId === undefined
-      ? ((db.prepare('SELECT id FROM price_levels ORDER BY id LIMIT 1').get() as { id: number } | undefined)?.id ?? null)
+      ? ((db.prepare('SELECT id FROM price_levels ORDER BY is_default DESC, id LIMIT 1').get() as { id: number } | undefined)?.id ?? null)
       : req.priceLevelId
   const stmt = db.prepare('SELECT id, name, barcode FROM stock_items WHERE id = ?')
   const labels: LabelItem[] = []

@@ -56,6 +56,9 @@ export function AmountInput({
   useEffect(() => {
     // Reflect external resets (e.g. clearing a form).
     if (paise == null || paise === 0) setText((t) => (parseRupees(t) ? t : ''))
+    // …and external values (a rate the price list fills in, WP 2.6) — never while the text the
+    // user is typing already means this amount.
+    else setText((t) => (parseRupees(t) === paise ? t : formatPaise(paise)))
   }, [paise])
   const invalid = text.trim() !== '' && parseRupees(text) == null
   const fieldAria = useFieldAria()

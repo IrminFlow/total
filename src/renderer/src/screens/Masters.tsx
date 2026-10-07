@@ -19,6 +19,9 @@ import { ItemLink, LedgerLink } from '../components/links'
 import { useFeatures } from '../lib/useFeatures'
 import { BomVersionsEditor } from '../components/BomEditor'
 import { LedgerPicker } from '../components/pickers'
+import { PriceListsTab } from './masters/PriceListsTab'
+import { PartyRatesTab } from './masters/PartyRatesTab'
+import { SchemesTab } from './masters/SchemesTab'
 
 export type MastersTab = NonNullable<Extract<Screen, { name: 'masters' }>['tab']>
 
@@ -30,14 +33,21 @@ const TABS: { id: MastersTab; label: string }[] = [
   { id: 'godowns', label: 'Godowns' },
   { id: 'units', label: 'Units' },
   { id: 'types', label: 'Voucher types' },
-  { id: 'currencies', label: 'Currencies' }
+  { id: 'currencies', label: 'Currencies' },
+  // WP 2.6 (inventory on): price lists, party-wise rates, discount schemes.
+  { id: 'price-lists', label: 'Price lists' },
+  { id: 'party-rates', label: 'Party rates' },
+  { id: 'schemes', label: 'Schemes' }
 ]
+const PRICING_TABS: readonly MastersTab[] = ['price-lists', 'party-rates', 'schemes']
 
 export function Masters({ tab, itemId }: { tab?: MastersTab; itemId?: number }): React.JSX.Element {
   const nav = useNav()
-  const active = tab ?? 'ledgers'
+  const features = useFeatures()
+  const tabs = features.inventory ? TABS : TABS.filter((t) => !PRICING_TABS.includes(t.id))
+  const active = tab && tabs.some((t) => t.id === tab) ? tab : 'ledgers'
   return (
-    <Page>
+    <Page width={active === 'price-lists' ? 'wide' : undefined}>
       <PageHeader
         title="Masters"
         // Tab lives in the nav stack (not local state) so Esc/back retraces tabs and other
@@ -46,7 +56,7 @@ export function Masters({ tab, itemId }: { tab?: MastersTab; itemId?: number }):
         tabs={
           <TabBar
             screen="masters"
-            tabs={TABS}
+            tabs={tabs}
             active={active}
             onSelect={(t) => {
               if (t !== active) nav.go({ name: 'masters', tab: t })
@@ -71,6 +81,9 @@ export function Masters({ tab, itemId }: { tab?: MastersTab; itemId?: number }):
       {active === 'units' && <UnitsTab />}
       {active === 'types' && <TypesTab />}
       {active === 'currencies' && <CurrenciesTab />}
+      {active === 'price-lists' && <PriceListsTab />}
+      {active === 'party-rates' && <PartyRatesTab />}
+      {active === 'schemes' && <SchemesTab />}
     </Page>
   )
 }
@@ -82,7 +95,10 @@ const TABLE_AREA: Partial<Record<MastersTab, string>> = {
   units: 'masters-units',
   types: 'masters-types',
   godowns: 'masters-godowns',
-  currencies: 'masters-currencies'
+  currencies: 'masters-currencies',
+  'price-lists': 'masters-price-lists',
+  'party-rates': 'masters-party-rates',
+  schemes: 'masters-schemes'
 }
 
 // ---------- currencies ----------
@@ -592,6 +608,9 @@ export function ItemFormModal({ item, onClose }: { item: StockItem | null; onClo
   const features = useFeatures()
   const { data: tcsSections } = useQuery({ queryKey: ['tcsSections'], queryFn: api.tcs.sections, enabled: features.tcs })
   const [tcsSectionId, setTcsSectionId] = useState<number | ''>(item?.tcsSectionId ?? '')
+  // WP 2.6: printed MRP (GST-inclusive) and standard cost.
+  const [mrp, setMrp] = useState<number | null>(item?.mrpPaise ?? null)
+  const [stdCost, setStdCost] = useState<number | null>(item?.standardCostPaise ?? null)
   const nav = useNav()
 
   const hsnCheck = hsn.trim() ? validateHsn(hsn) : null
@@ -616,7 +635,9 @@ export function ItemFormModal({ item, onClose }: { item: StockItem | null; onClo
         reorderLevelMilli: reorderText.trim() ? Math.round(parseFloat(reorderText) * 1000) : null,
         valuationMethod,
         trackSerials,
-        ...(features.tcs ? { tcsSectionId: tcsSectionId === '' ? null : tcsSectionId } : {})
+        ...(features.tcs ? { tcsSectionId: tcsSectionId === '' ? null : tcsSectionId } : {}),
+        mrpPaise: mrp,
+        standardCostPaise: stdCost
       }
       if (data.reorderLevelMilli != null && !(data.reorderLevelMilli >= 0)) return void toast.push('error', 'Reorder level must be a number')
       if (item) await api.stockItems.update(item.id, data)
@@ -697,6 +718,14 @@ export function ItemFormModal({ item, onClose }: { item: StockItem | null; onClo
               <option value="weighted_avg">Weighted average</option>
               <option value="fifo">FIFO</option>
             </Select>
+          </Field>
+        </div>
+        <div className="grid grid-cols-3 gap-3">
+          <Field label="MRP" hint="Inclusive of all taxes — prices a sale when no price list does">
+            <AmountInput paise={mrp} onPaise={setMrp} testId="input-item-mrp" />
+          </Field>
+          <Field label="Standard cost" hint="Reference only — never posted">
+            <AmountInput paise={stdCost} onPaise={setStdCost} testId="input-item-standard-cost" />
           </Field>
         </div>
         <Checkbox

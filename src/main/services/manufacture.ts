@@ -128,10 +128,14 @@ export function suggestedSaleRate(db: DB, itemId: number, date: string): SaleRat
   if (sales.qty > 0) return { ratePaise: Math.round((sales.amount * 1000) / sales.qty), source: 'sales' }
   const listed = db
     .prepare(
-      `SELECT rate FROM price_list_rates WHERE stock_item_id = ? AND effective_from <= ?
-       ORDER BY price_level_id, effective_from DESC LIMIT 1`
+      // The ₹ base slab in force (WP 2.6 rows carry slabs, end dates and currencies), the
+      // company's default level first, then the lowest level id as before.
+      `SELECT r.rate FROM price_list_rates r JOIN price_levels l ON l.id = r.price_level_id
+       WHERE r.stock_item_id = ? AND r.effective_from <= ? AND (r.effective_to IS NULL OR r.effective_to >= ?)
+         AND r.min_qty_milli = 0 AND r.currency = 'INR'
+       ORDER BY l.is_default DESC, r.price_level_id, r.effective_from DESC LIMIT 1`
     )
-    .get(itemId, date) as { rate: number } | undefined
+    .get(itemId, date, date) as { rate: number } | undefined
   if (listed) return { ratePaise: listed.rate, source: 'priceList' }
   return { ratePaise: null, source: null }
 }

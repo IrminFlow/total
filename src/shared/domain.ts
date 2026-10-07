@@ -445,6 +445,9 @@ export interface StockItem {
   /** TCS (WP 3.3): goods category — selling this item attracts TCS under this section (scrap,
    *  timber, minerals, a motor vehicle …). null / absent = none. */
   tcsSectionId?: number | null
+  /** WP 2.6: printed MRP per unit (paise, inclusive of all taxes) and standard cost. */
+  mrpPaise?: number | null
+  standardCostPaise?: number | null
 }
 
 export interface Godown {
@@ -470,6 +473,12 @@ export interface Batch {
 export interface PriceLevel {
   id: number
   name: string
+  /** WP 2.6: the level's rates include GST (src/shared/pricing.ts backs the taxable rate out). */
+  inclusiveOfTax?: boolean
+  /** WP 2.6: the company's default level (at most one). */
+  isDefault?: boolean
+  /** Rows under the level (list only). */
+  rateCount?: number
 }
 
 /** A date-effective per-item rate under a price level. `rate` is paise per whole unit. */
@@ -479,6 +488,11 @@ export interface PriceListRate {
   stockItemId: number
   rate: number
   effectiveFrom: string
+  /** WP 2.6 (migration 030). */
+  effectiveTo?: string | null
+  minQtyMilli?: number
+  discountBp?: number
+  currency?: string
 }
 
 // ---------- saveVoucher warnings (lane I: negative stock + credit limit) ----------

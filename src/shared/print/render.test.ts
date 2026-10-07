@@ -111,7 +111,8 @@ describe('built-in templates on the sample invoice (snapshots)', () => {
       const html = renderDocument(t, sampleDocument(COMPANY, 'receipt'))
       expect(html).toContain('RECEIPT')
       expect(html).toContain('Received from')
-      expect(html).toContain(amountInWords(7500000))
+      // The thermal receipt (WP 2.6) prints no amount in words; it lays vouchers out compact.
+      if (t.style !== 'receipt') expect(html).toContain(amountInWords(7500000))
     })
   }
 })

@@ -29,7 +29,7 @@ export interface SectionProps {
 }
 
 const MAX_LOGO_BYTES = 200 * 1024
-const STYLE_LABELS: Record<(typeof PRINT_STYLES)[number], string> = { classic: 'Classic (boxed)', compact: 'Compact', modern: 'Modern' }
+const STYLE_LABELS: Record<(typeof PRINT_STYLES)[number], string> = { classic: 'Classic (boxed)', compact: 'Compact', modern: 'Modern', receipt: 'Receipt (80 mm roll)' }
 
 export function PageSection({ t, patch, disabled }: SectionProps): React.JSX.Element {
   const m = t.page.marginsMm
@@ -40,7 +40,7 @@ export function PageSection({ t, patch, disabled }: SectionProps): React.JSX.Ele
         <Row>
           <Field label="Size">
             <Select value={t.page.size} disabled={disabled} data-testid="input-settings-tpl-page-size" onChange={(e) => patch('page', { size: e.target.value as PrintTemplate['page']['size'] })}>
-              {PAGE_SIZES.map((s) => <option key={s} value={s}>{s}</option>)}
+              {PAGE_SIZES.map((s) => <option key={s} value={s}>{s === 'Roll80' ? '80 mm roll' : s}</option>)}
             </Select>
           </Field>
           <Field label="Orientation">

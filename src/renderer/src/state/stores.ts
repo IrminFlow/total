@@ -51,7 +51,8 @@ export type Screen =
   | { name: 'manufacture'; jobWork?: boolean; prefill?: { itemId: number; qtyMilli: number } }
   | { name: 'manufacture-register' }
   | { name: 'manufacture-reports'; tab?: 'production' | 'cost-sheet' | 'margin' | 'variance' | 'job-work' }
-  | { name: 'masters'; tab?: 'ledgers' | 'groups' | 'items' | 'units' | 'types' | 'currencies' | 'godowns' | 'stock-groups'; itemId?: number }
+  | { name: 'masters'; tab?: 'ledgers' | 'groups' | 'items' | 'units' | 'types' | 'currencies' | 'godowns' | 'stock-groups' | 'price-lists' | 'party-rates' | 'schemes'; itemId?: number }
+  | { name: 'counter-billing' }
   // Books search results (⌘⇧F, or "See all" in the ⌘K palette): `q` is the query-language
   // string, `kind` the initially selected tab (omitted = all kinds).
   | { name: 'search'; q?: string; kind?: 'ledger' | 'item' | 'voucher' }

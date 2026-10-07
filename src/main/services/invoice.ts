@@ -127,7 +127,7 @@ export async function invoicePdfBatch(
     } catch (err) {
       throw new Error(`Voucher #${voucherId}: ${err instanceof Error ? err.message : String(err)}`)
     }
-    const pdf = await htmlToPdf(rendered.html, pdfOptionsFor(rendered.template))
+    const pdf = await htmlToPdf(rendered.html, pdfOptionsFor(rendered.template, { itemCount: rendered.itemCount }))
     // The voucher id keeps sanitised numbers unique: 'INV/25-26/001' vs 'INV-25-26/001', or a
     // sales invoice and another type sharing the same number, must never overwrite each other.
     const path = join(dir, pdfFileName(rendered.kind, rendered.number, voucherId))

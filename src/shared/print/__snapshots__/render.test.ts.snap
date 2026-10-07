@@ -591,3 +591,57 @@ exports[`built-in templates on the sample invoice (snapshots) > Modern renders s
     </div>
       </div></body></html>"
 `;
+
+exports[`built-in templates on the sample invoice (snapshots) > Receipt 80mm renders stably 1`] = `
+"<!doctype html><html><head><meta charset="utf-8"><title>Invoice INV-SAMPLE-1</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font: 9px/1.35 -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, sans-serif; color: #000; width: 100%; }
+    .num { font-variant-numeric: tabular-nums; }
+    .copy { page-break-after: always; }
+    .copy:last-child { page-break-after: auto; }
+    .rc-c { text-align: center; }
+    .rc-co { font-size: 11.25px; font-weight: 700; }
+    .rc-sm { font-size: 7.88px; }
+    .rc-title { margin-top: 4px; font-weight: 700; letter-spacing: 0.08em; }
+    .rc-row { display: flex; justify-content: space-between; gap: 6px; }
+    .rc-rule { border-top: 1px dashed #000; margin: 5px 0; }
+    thead { display: table-header-group; }
+    tr { page-break-inside: avoid; }
+    table.rc-items { width: 100%; border-collapse: collapse; }
+    table.rc-items td { padding: 1px 0; vertical-align: top; }
+    table.rc-items tr.rc-name td { padding-top: 3px; font-weight: 600; }
+    table.rc-tot { width: 100%; border-collapse: collapse; }
+    table.rc-tot td { padding: 1px 0; }
+    table.rc-tot tr.grand td { font-size: 10.5px; font-weight: 700; padding-top: 3px; }
+    table.rc-tax { width: 100%; border-collapse: collapse; font-size: 7.5px; }
+    table.rc-tax th { font-weight: 600; text-align: left; border-bottom: 1px solid #000; }
+    .r { text-align: right; }
+    .rc-foot { margin-top: 6px; text-align: center; font-size: 7.88px; }
+  </style></head><body><div class="copy">
+    <div class="rc">
+      <div class="rc-c">
+        
+        <div class="rc-co">Total Traders</div>
+        <div class="rc-sm">1 Market Road, Mumbai</div>
+        <div class="rc-sm num">GSTIN 27AAAAA0000A1Z5</div>
+        <div class="rc-sm">Ph +91 22 4000 1234</div>
+        <div class="rc-title">TAX INVOICE</div>
+      </div>
+      <div class="rc-rule"></div>
+      <div class="rc-row"><span>Bill <b class="num">INV-SAMPLE-1</b></span><span class="num">14-Aug-26</span></div>
+      <div class="rc-row"><span>Sample Buyer Pvt Ltd</span><span class="num rc-sm">27AAACS1234K1Z5</span></div>
+      <div class="rc-sm num" style="overflow-wrap:anywhere">IRN 8f3c2a7d9b1e4f60a5c3d2e1f0b9a8c7d6e5f4a3b2c1d0e9f8a7b6c5d4e3f2a1</div>
+      <div class="rc-rule"></div>
+      <table class="rc-items"><tbody><tr class="rc-name"><td colspan="2">Steel almirah, 4-door</td></tr>
+        <tr><td class="num">2 NOS × 14,500.00 <span class="rc-sm">(18%)</span></td><td class="r num">29,000.00</td></tr><tr><td class="rc-sm">&nbsp;&nbsp;Discount</td><td class="r num">-1,450.00</td></tr><tr class="rc-name"><td colspan="2">Office chair, mesh back</td></tr>
+        <tr><td class="num">6 NOS × 3,899.00 <span class="rc-sm">(18%)</span></td><td class="r num">23,394.00</td></tr><tr class="rc-name"><td colspan="2">A4 copier paper, 75 gsm</td></tr>
+        <tr><td class="num">25 PAC × 245.00 <span class="rc-sm">(12%)</span></td><td class="r num">6,125.00</td></tr><tr class="rc-name"><td colspan="2">Packaged drinking water, 20 L</td></tr>
+        <tr><td class="num">12 NOS × 90.00 <span class="rc-sm">(18%)</span></td><td class="r num">1,080.00</td></tr><tr class="rc-name"><td colspan="2">Installation and setup</td></tr>
+        <tr><td class="num">1 OTH × 2,500.00 <span class="rc-sm">(18%)</span></td><td class="r num">2,500.00</td></tr></tbody></table>
+      <div class="rc-rule"></div>
+      <div class="rc-row rc-sm"><span>5 items</span><span class="num">Qty 46</span></div>
+      <table class="rc-tot"><tr><td>Taxable value</td><td class="r num">60,649.00</td></tr><tr><td>CGST</td><td class="r num">5,274.66</td></tr><tr><td>SGST</td><td class="r num">5,274.66</td></tr><tr><td>Cess</td><td class="r num">129.60</td></tr><tr><td>Round off</td><td class="r num">0.08</td></tr><tr class="grand"><td>TOTAL</td><td class="r num">₹ 71,328.00</td></tr></table><div class="rc-rule"></div><table class="rc-tax"><thead><tr><th>GST</th><th class="r">Taxable</th><th class="r">Tax</th></tr></thead><tbody><tr><td class="num">12%</td><td class="r num">6,125.00</td><td class="r num">735.00</td></tr><tr><td class="num">18%</td><td class="r num">53,444.00</td><td class="r num">9,619.92</td></tr><tr><td class="num">18%+12%</td><td class="r num">1,080.00</td><td class="r num">324.00</td></tr></tbody></table>
+      <div class="rc-foot"><div>Thank you. Please visit again.</div></div>
+    </div></div></body></html>"
+`;
