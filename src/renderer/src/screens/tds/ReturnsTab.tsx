@@ -16,20 +16,20 @@ type Party16a = Form16aData['parties'][number]
 const REASON_TEXT: Record<string, string> = { A: 'A — certificate u/s 197', C: 'C — higher rate, no PAN' }
 
 export const DEDUCTEE_26Q_COLUMNS = defineColumns<Form26qDeducteeRow>([
-  { id: 'serial', header: '#', kind: 'number', value: (r) => r.serial, width: 52 },
-  { id: 'party', header: 'Deductee', kind: 'text', value: (r) => r.partyName, minWidth: 160, hideable: false, cell: (r) => <LedgerLink ledgerId={r.partyLedgerId} name={r.partyName} /> },
+  { id: 'serial', header: '#', kind: 'number', value: (r) => r.serial, width: 44 },
+  { id: 'party', header: 'Deductee', kind: 'text', value: (r) => r.partyName, minWidth: 130, hideable: false, cell: (r) => <LedgerLink ledgerId={r.partyLedgerId} name={r.partyName} /> },
   { id: 'pan', header: 'PAN', kind: 'text', value: (r) => r.pan, width: 116, text: (r) => r.pan ?? 'PANNOTAVBL', className: 'num' },
-  { id: 'code', header: 'Code', kind: 'text', value: (r) => r.deducteeCode, width: 64, className: 'num', text: (r) => r.deducteeCode || '—' },
-  { id: 'section', header: 'Section', kind: 'text', value: (r) => r.sectionCode, width: 88, className: 'num' },
-  { id: 'returnCode', header: 'Return code', kind: 'text', value: (r) => r.returnCode, width: 100, className: 'num', text: (r) => r.returnCode ?? '—' },
-  { id: 'paid', header: 'Paid / credited', kind: 'date', value: (r) => r.paymentDate },
+  { id: 'code', header: 'Type', kind: 'text', value: (r) => r.deducteeCode, width: 56, className: 'num', text: (r) => r.deducteeCode || '—' },
+  { id: 'section', header: 'Section', kind: 'text', value: (r) => r.sectionCode, width: 80, className: 'num' },
+  { id: 'returnCode', header: 'Return code', kind: 'text', value: (r) => r.returnCode, width: 112, className: 'num', text: (r) => r.returnCode ?? '—' },
+  { id: 'paid', header: 'Paid on', kind: 'date', value: (r) => r.paymentDate },
   { id: 'voucher', header: 'Voucher', kind: 'text', value: (r) => String(r.voucherId), width: 90, defaultHidden: true, cell: (r) => <VoucherLink voucherId={r.voucherId} label="Open" /> },
-  { id: 'amount', header: 'Amount', kind: 'money', value: (r) => r.amountPaise, aggregate: 'sum', width: 140 },
-  { id: 'rate', header: 'Rate', kind: 'number', value: (r) => (r.rateBp == null ? null : r.rateBp / 100), text: (r) => pctText(r.rateBp), width: 76 },
-  { id: 'tds', header: 'TDS', kind: 'money', value: (r) => r.tdsPaise, aggregate: 'sum', width: 130 },
+  { id: 'amount', header: 'Amount', kind: 'money', value: (r) => r.amountPaise, aggregate: 'sum', width: 120 },
+  { id: 'rate', header: 'Rate', kind: 'number', value: (r) => (r.rateBp == null ? null : r.rateBp / 100), text: (r) => pctText(r.rateBp), width: 64 },
+  { id: 'tds', header: 'TDS', kind: 'money', value: (r) => r.tdsPaise, aggregate: 'sum', width: 112 },
   { id: 'deducted', header: 'Deducted on', kind: 'date', value: (r) => r.deductionDate, defaultHidden: true },
-  { id: 'reason', header: 'Reason', kind: 'text', value: (r) => r.reasonCode, width: 150, text: (r) => REASON_TEXT[r.reasonCode] ?? '—' },
-  { id: 'challanSerial', header: 'Challan #', kind: 'number', value: (r) => r.challanSerial, width: 84, text: (r) => (r.challanSerial == null ? 'None' : String(r.challanSerial)) },
+  { id: 'reason', header: 'Reason', kind: 'text', value: (r) => r.reasonCode, width: 104, text: (r) => REASON_TEXT[r.reasonCode] ?? '—' },
+  { id: 'challanSerial', header: 'Challan #', kind: 'number', value: (r) => r.challanSerial, width: 100, text: (r) => (r.challanSerial == null ? 'None' : String(r.challanSerial)) },
   { id: 'bsr', header: 'BSR', kind: 'text', value: (r) => r.bsrCode, width: 90, className: 'num', defaultHidden: true },
   { id: 'challanDate', header: 'Challan date', kind: 'date', value: (r) => r.challanDate, defaultHidden: true }
 ])

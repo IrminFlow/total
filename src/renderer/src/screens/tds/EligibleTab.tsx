@@ -19,21 +19,21 @@ const KIND_LABEL: Record<string, string> = { purchase: 'Purchase', journal: 'Jou
 export const ELIGIBLE_COLUMNS = defineColumns<TdsEligibleRow>([
   { id: 'date', header: 'Date', kind: 'date', value: (r) => r.date, className: 'text-muted' },
   {
-    id: 'voucher', header: 'Voucher', kind: 'text', value: (r) => r.voucherNumber, width: 130, hideable: false, groupable: false,
+    id: 'voucher', header: 'Voucher', kind: 'text', value: (r) => r.voucherNumber, width: 92, hideable: false, groupable: false,
     text: (r) => `${KIND_LABEL[r.kind] ?? r.kind} ${r.voucherNumber}`,
     cell: (r) => <VoucherLink voucherId={r.voucherId} label={<><span className="text-muted">{KIND_LABEL[r.kind]?.slice(0, 3) ?? ''} </span>{r.voucherNumber}</>} />
   },
-  { id: 'party', header: 'Party', kind: 'text', value: (r) => r.partyName, minWidth: 160, cell: (r) => <LedgerLink ledgerId={r.partyLedgerId} name={r.partyName} /> },
+  { id: 'party', header: 'Party', kind: 'text', value: (r) => r.partyName, minWidth: 120, cell: (r) => <LedgerLink ledgerId={r.partyLedgerId} name={r.partyName} /> },
   {
-    id: 'expense', header: 'Expense ledger', kind: 'text', value: (r) => r.expenseLedgerName, minWidth: 140,
+    id: 'expense', header: 'Expense ledger', kind: 'text', value: (r) => r.expenseLedgerName, minWidth: 110,
     cell: (r) => (r.expenseLedgerId != null && r.expenseLedgerName ? <LedgerLink ledgerId={r.expenseLedgerId} name={r.expenseLedgerName} /> : <span className="text-muted">—</span>)
   },
-  { id: 'section', header: 'Section', kind: 'text', value: (r) => r.sectionCode, width: 92, className: 'num' },
-  { id: 'base', header: 'Base', kind: 'money', value: (r) => r.basePaise, aggregate: 'sum', width: 140 },
-  { id: 'rate', header: 'Rate', kind: 'number', value: (r) => (r.rateBp == null ? null : r.rateBp / 100), text: (r) => pctText(r.rateBp), width: 80 },
-  { id: 'tds', header: 'Suggested TDS', kind: 'money', value: (r) => r.tdsPaise ?? 0, aggregate: 'sum', width: 140 },
+  { id: 'section', header: 'Section', kind: 'text', value: (r) => r.sectionCode, width: 116, className: 'num', text: (r) => `${r.sectionCode} · ${pctText(r.rateBp)}` },
+  { id: 'base', header: 'Base', kind: 'money', value: (r) => r.basePaise, aggregate: 'sum', width: 118 },
+  { id: 'rate', header: 'Rate', kind: 'number', value: (r) => (r.rateBp == null ? null : r.rateBp / 100), text: (r) => pctText(r.rateBp), width: 72, defaultHidden: true },
+  { id: 'tds', header: 'Suggested TDS', kind: 'money', value: (r) => r.tdsPaise ?? 0, aggregate: 'sum', width: 124 },
   {
-    id: 'reason', header: 'Reason', kind: 'enum', value: (r) => (r.exemptReason ? 'exempt' : r.reason), width: 230,
+    id: 'reason', header: 'Reason', kind: 'enum', value: (r) => (r.exemptReason ? 'exempt' : r.reason), minWidth: 150,
     options: [...Object.entries(ELIGIBLE_REASON_LABELS).map(([value, label]) => ({ value, label })), { value: 'exempt', label: 'Marked not applicable' }],
     text: (r) => (r.exemptReason ? `Not applicable: ${r.exemptReason}` : ELIGIBLE_REASON_LABELS[r.reason])
   },
@@ -107,7 +107,7 @@ export function EligibleTab({ period }: { period: TdsPeriod }): React.JSX.Elemen
         onRowActivate={(r) => openVoucher(r.voucherId)}
         empty={{ title: `Nothing eligible in ${period.label}`, hint: 'Every bill and payment above its threshold already carries TDS (or is marked not applicable).' }}
         exportOptions={{ title: 'TDS eligible vouchers', periodLabel: period.label, filename: `tds-eligible-${period.from}` }}
-        leadingWidth={36}
+        leadingWidth={44}
         leading={
           canEdit
             ? (r) =>
@@ -149,7 +149,7 @@ export function EligibleTab({ period }: { period: TdsPeriod }): React.JSX.Elemen
             <Checkbox label="Show not applicable" checked={includeExempt} onChange={setIncludeExempt} testId="chk-tds-show-exempt" />
           </div>
         }
-        trailingWidth={canEdit ? 196 : 0}
+        trailingWidth={canEdit ? 150 : 0}
         trailing={
           canEdit
             ? (r) =>

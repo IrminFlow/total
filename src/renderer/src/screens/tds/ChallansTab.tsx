@@ -13,21 +13,21 @@ import { useCanEditMasters } from '../../lib/drill'
 import { confirmDialog } from '../../lib/dialogs'
 import { useTdsAction, type TdsPeriod } from './common'
 
-const challanColumns = (rateLabel: string) =>
+const challanColumns = (_rateLabel: string) =>
   defineColumns<TdsChallanRow>([
     { id: 'date', header: 'Deposited', kind: 'date', value: (c) => c.date, className: 'text-muted' },
-    { id: 'challan', header: 'Challan no.', kind: 'text', value: (c) => c.challanNo, width: 100, className: 'num', hideable: false, groupable: false },
-    { id: 'bsr', header: 'BSR code', kind: 'text', value: (c) => c.bsrCode, width: 100, className: 'num' },
-    { id: 'quarter', header: 'For', kind: 'text', value: (c) => `Q${c.quarter}`, width: 64 },
+    { id: 'challan', header: 'Challan', kind: 'text', value: (c) => c.challanNo, width: 88, className: 'num', hideable: false, groupable: false },
+    { id: 'bsr', header: 'BSR code', kind: 'text', value: (c) => c.bsrCode, width: 88, className: 'num' },
+    { id: 'quarter', header: 'For', kind: 'text', value: (c) => `Q${c.quarter}`, width: 48 },
     {
-      id: 'payment', header: 'Payment voucher', kind: 'text', value: (c) => c.paymentVoucherNumber, minWidth: 130,
+      id: 'payment', header: 'Payment voucher', kind: 'text', value: (c) => c.paymentVoucherNumber, minWidth: 88,
       cell: (c) => (c.paymentVoucherId != null ? <VoucherLink voucherId={c.paymentVoucherId} label={c.paymentVoucherNumber ?? 'voucher'} /> : <span className="text-muted">Not linked</span>)
     },
-    { id: 'amount', header: 'Amount', kind: 'money', value: (c) => c.amountPaise, aggregate: 'sum', width: 130 },
-    { id: 'allocated', header: 'Allocated', kind: 'money', value: (c) => c.allocatedPaise, aggregate: 'sum', width: 130 },
-    { id: 'unallocated', header: 'Unallocated', kind: 'money', value: (c) => c.amountPaise - c.allocatedPaise, aggregate: 'sum', width: 130 },
+    { id: 'amount', header: 'Amount', kind: 'money', value: (c) => c.amountPaise, aggregate: 'sum', width: 108 },
+    { id: 'allocated', header: 'Allocated', kind: 'money', value: (c) => c.allocatedPaise, aggregate: 'sum', width: 108 },
+    { id: 'unallocated', header: 'Unallocated', kind: 'money', value: (c) => c.amountPaise - c.allocatedPaise, aggregate: 'sum', width: 108 },
     { id: 'entries', header: 'Entries', kind: 'number', value: (c) => c.entryCount, width: 80 },
-    { id: 'interest', header: `Interest (${rateLabel})`, kind: 'money', value: (c) => c.interestPaise, aggregate: 'sum', width: 150 }
+    { id: 'interest', header: 'Interest', kind: 'money', value: (c) => c.interestPaise, aggregate: 'sum', width: 108 }
   ])
 
 export function ChallansTab({ period }: { period: TdsPeriod }): React.JSX.Element {
@@ -96,13 +96,13 @@ export function ChallansTab({ period }: { period: TdsPeriod }): React.JSX.Elemen
             </label>
           </div>
         }
-        trailingWidth={canEdit ? 168 : 0}
+        trailingWidth={canEdit ? 128 : 0}
         trailing={
           canEdit
             ? (c) => (
                 <div className="flex items-center justify-end gap-1">
                   <Button size="sm" variant="ghost" data-testid={`btn-tds-challan-allocate-${c.id}`} onClick={() => setAllocating(c)}>
-                    Allocate…
+                    Allocate
                   </Button>
                   <Button size="sm" variant="ghost" disabled={busy} data-testid={`btn-tds-challan-delete-${c.id}`} onClick={() => void remove(c)}>
                     <span className="text-cr">Delete</span>

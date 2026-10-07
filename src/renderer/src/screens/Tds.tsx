@@ -140,22 +140,28 @@ export function TdsScreen(): React.JSX.Element {
             />
           </StatGrid>
         </div>
-        <DataTable
-          viewId="tds-ledger-summary"
-          testId="tds-summary"
-          ariaLabel={`TDS payable ledgers — ${period.label}`}
-          columns={TDS_SUMMARY_COLUMNS}
-          rows={rows}
-          loading={isLoading}
-          rowKey={(r) => r.sectionId}
-          rowAttrs={(r) => ({ 'data-row-id': r.sectionId })}
-          isRowActivatable={(r) => r.ledgerId != null}
-          onRowActivate={(r) => r.ledgerId != null && openLedgerStatement(r.ledgerId)}
-          maxHeight="none"
-          toolbarFeatures={{ groupBy: false, views: false }}
-          empty={{ title: `No TDS in ${period.label}`, hint: 'Payable ledgers appear here once a deduction is saved' }}
-          exportOptions={{ title: 'TDS payable ledgers', periodLabel: period.label, filename: `tds-ledgers-${period.from}` }}
-        />
+        {!isLoading && rows.length === 0 ? (
+          <p className="border-t border-line px-3 py-3 text-body-sm text-muted" data-testid="tds-summary-empty">
+            No TDS payable in {period.label} — the section&apos;s payable ledger is created with its first deduction.
+          </p>
+        ) : (
+          <DataTable
+            viewId="tds-ledger-summary"
+            testId="tds-summary"
+            ariaLabel={`TDS payable ledgers — ${period.label}`}
+            columns={TDS_SUMMARY_COLUMNS}
+            rows={rows}
+            loading={isLoading}
+            rowKey={(r) => r.sectionId}
+            rowAttrs={(r) => ({ 'data-row-id': r.sectionId })}
+            isRowActivatable={(r) => r.ledgerId != null}
+            onRowActivate={(r) => r.ledgerId != null && openLedgerStatement(r.ledgerId)}
+            maxHeight="none"
+            toolbarFeatures={{ groupBy: false, views: false }}
+            empty={{ title: `No TDS in ${period.label}`, hint: 'Payable ledgers appear here once a deduction is saved' }}
+            exportOptions={{ title: 'TDS payable ledgers', periodLabel: period.label, filename: `tds-ledgers-${period.from}` }}
+          />
+        )}
       </Panel>
 
       {tab === 'eligible' && <EligibleTab period={period} />}
