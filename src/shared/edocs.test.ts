@@ -36,8 +36,11 @@ const invoice: EdocInvoice = {
 
 // Golden snapshot captured from buildEInvoiceJson BEFORE docType/supTyp were added, to prove
 // the new fields are additive: an invoice that doesn't set them must produce byte-identical output.
+// Deliberately updated in WP 3.5 against the published IRN JSON schema: Addr1/Loc are split from
+// the address (Loc max 50 — the whole address no longer goes in both), and a " in PrdDesc (barred
+// by the schema's text pattern) becomes two single quotes.
 const EINV_SNAPSHOT_BEFORE_DOCTYPE =
-  '[{"Version":"1.1","TranDtls":{"TaxSch":"GST","SupTyp":"B2B","RegRev":"N","IgstOnIntra":"N"},"DocDtls":{"Typ":"INV","No":"1","Dt":"15/08/2026"},"SellerDtls":{"Gstin":"27AAPFU0939F1ZV","LglNm":"Demo Traders","Addr1":"12 MG Road, Pune 411001","Loc":"12 MG Road, Pune 411001","Pin":411001,"Stcd":"27"},"BuyerDtls":{"Gstin":"27AAPFU0939F1ZV","LglNm":"Umbrella Retail","Pos":"27","Addr1":"Shop 4, Mumbai 400001","Loc":"Shop 4, Mumbai 400001","Pin":400001,"Stcd":"27"},"ItemList":[{"SlNo":"1","PrdDesc":"Laptop 14\\"","IsServc":"N","HsnCd":"8471","Qty":2,"Unit":"BOX","UnitPrice":45000,"TotAmt":90000,"Discount":0,"AssAmt":90000,"GstRt":18,"IgstAmt":0,"CgstAmt":8100,"SgstAmt":8100,"CesRt":0,"CesAmt":0,"TotItemVal":106200}],"ValDtls":{"AssVal":90000,"CgstVal":8100,"SgstVal":8100,"IgstVal":0,"CesVal":0,"RndOffAmt":0,"TotInvVal":106200}}]'
+  '[{"Version":"1.1","TranDtls":{"TaxSch":"GST","SupTyp":"B2B","RegRev":"N","IgstOnIntra":"N"},"DocDtls":{"Typ":"INV","No":"1","Dt":"15/08/2026"},"SellerDtls":{"Gstin":"27AAPFU0939F1ZV","LglNm":"Demo Traders","Addr1":"12 MG Road","Loc":"Pune","Pin":411001,"Stcd":"27"},"BuyerDtls":{"Gstin":"27AAPFU0939F1ZV","LglNm":"Umbrella Retail","Pos":"27","Addr1":"Shop 4","Loc":"Mumbai","Pin":400001,"Stcd":"27"},"ItemList":[{"SlNo":"1","PrdDesc":"Laptop 14\'\'","IsServc":"N","HsnCd":"8471","Qty":2,"Unit":"BOX","UnitPrice":45000,"TotAmt":90000,"Discount":0,"AssAmt":90000,"GstRt":18,"IgstAmt":0,"CgstAmt":8100,"SgstAmt":8100,"CesRt":0,"CesAmt":0,"TotItemVal":106200}],"ValDtls":{"AssVal":90000,"CgstVal":8100,"SgstVal":8100,"IgstVal":0,"CesVal":0,"RndOffAmt":0,"TotInvVal":106200}}]'
 
 // Deliberately updated golden (v0.3 GST rebuild): the EWB bulk format gained the mandatory
 // fields the NIC tool rejects files without — subSupplyDesc, transactionType, fromPlace/
