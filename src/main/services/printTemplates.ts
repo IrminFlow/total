@@ -28,8 +28,12 @@ import {
   type TemplateList,
   type TemplateSummary
 } from '@shared/printTemplates'
-import { renderDocument, type InvoiceAuditTrail, type PrintDocument, type VoucherDocLine } from '@shared/print/render'
+import { renderDocument, type InvoiceAuditTrail, type InvoiceDocument, type PrintDocument, type VoucherDocLine } from '@shared/print/render'
 import { sampleDocument } from '@shared/print/sample'
+import type { EdocItem } from '@shared/gst/edocs'
+import { computeGst, supplyTypeFor } from '@shared/gst/calc'
+import { toUqc } from '@shared/gst/uqc'
+import { getTradeDoc } from './tradeDocs'
 import { extractEdocInvoices } from './edocs'
 import { ledgerStatement } from './reports'
 import { NOT_DELETED } from './vouchers'
@@ -382,6 +386,72 @@ export async function documentPdf(db: DB, company: CompanyInfo, slug: string, vo
 export async function documentPdfBuffer(db: DB, company: CompanyInfo, voucherId: number): Promise<{ pdf: Buffer; number: string; kind: PrintDocKind }> {
   const { html, number, kind, template } = documentHtml(db, company, voucherId)
   return { pdf: await htmlToPdf(html, pdfOptionsFor(template)), number, kind }
+}
+
+// ---------------------------------------------------------------- quotations / orders (WP 2.5c)
+
+/** The printable document of a quotation / sales order / purchase order: the same invoice-shaped
+ *  PrintDocument (line GST through computeGst at the line's snapshot rate, header totals from the
+ *  invoice computation), without outstanding, IRN or bank QR. */
+export function loadTradeDocPrint(db: DB, company: CompanyInfo, docId: number): InvoiceDocument {
+  const doc = getTradeDoc(db, docId)
+  if (!doc) throw new Error('Document not found')
+  const party = db.prepare('SELECT name, address, gstin, state_code AS stateCode FROM ledgers WHERE id = ?').get(doc.partyLedgerId) as {
+    name: string; address: string | null; gstin: string | null; stateCode: string | null
+  }
+  const pos = doc.posOverride ?? party.stateCode ?? company.stateCode
+  const supply = supplyTypeFor(company.stateCode, pos)
+  const itemStmt = db.prepare(
+    'SELECT si.name, si.hsn, si.barcode, u.uqc FROM stock_items si LEFT JOIN units u ON u.id = si.unit_id WHERE si.id = ?'
+  )
+  const items: EdocItem[] = doc.lines.map((l) => {
+    const it = itemStmt.get(l.stockItemId) as { name: string; hsn: string | null; barcode: string | null; uqc: string | null }
+    const g = computeGst(l.amount, l.gstRate ?? 0, supply, l.cessRate ?? 0)
+    const mapped = toUqc(it.uqc ?? 'OTH')
+    return {
+      name: it.name, hsn: it.hsn ?? '', qtyMilli: l.qtyMilli, uqc: mapped.fallback ? (it.uqc ?? 'OTH') : mapped.uqc,
+      unitPricePaise: l.ratePaise, taxablePaise: l.amount, rate: l.gstRate ?? 0, cessRate: l.cessRate ?? 0,
+      cgst: g.cgst, sgst: g.sgst, igst: g.igst, cess: g.cess, isService: false, barcode: it.barcode,
+      discountPaise: l.discountPaise, description: l.description
+    }
+  })
+  const kind = doc.kind as PrintDocKind
+  return {
+    shape: 'invoice',
+    kind,
+    company,
+    invoice: {
+      number: doc.number, date: doc.date, partyName: party.name, partyGstin: party.gstin, partyAddress: party.address,
+      partyStateCode: party.stateCode ?? company.stateCode, pos, items, taxable: doc.totals.taxable, cgst: doc.totals.cgst,
+      sgst: doc.totals.sgst, igst: doc.totals.igst, cess: doc.totals.cess, roundOff: doc.totals.roundOff, total: doc.totals.total,
+      transporterId: null, vehicleNo: null, distanceKm: null, irn: null
+    },
+    audit: tradeDocAuditTrail(db, docId),
+    outstandingPaise: null,
+    einvoice: null,
+    trade: { validUntil: doc.validUntil, dueDate: doc.dueDate, reference: doc.reference, terms: doc.terms, narration: doc.narration }
+  }
+}
+
+function tradeDocAuditTrail(db: DB, docId: number): InvoiceAuditTrail {
+  const pick = (action: string, order: 'ASC' | 'DESC'): string | null =>
+    (db.prepare(`SELECT user_name AS u FROM audit_log WHERE entity = 'trade_doc' AND entity_id = ? AND action = ? ORDER BY id ${order} LIMIT 1`).get(docId, action) as
+      | { u: string | null }
+      | undefined)?.u ?? null
+  return { enteredBy: pick('create', 'ASC'), alteredBy: pick('update', 'DESC') }
+}
+
+/** print:tradeDoc — the real-print HTML of a quotation / order with its kind's default template. */
+export function tradeDocHtml(db: DB, company: CompanyInfo, docId: number, templateId?: string): { html: string; number: string; kind: PrintDocKind; template: PrintTemplate } {
+  const doc = loadTradeDocPrint(db, company, docId)
+  const template = templateId ? getTemplate(db, templateId) : resolveTemplate(db, doc.kind)
+  return { html: renderDocument(template, doc, RENDER_OPTS), number: doc.invoice.number, kind: doc.kind, template }
+}
+
+/** tradeDocs:pdf — the document as a PDF in exports/ (email-ready: the file is what gets attached). */
+export async function tradeDocPdf(db: DB, company: CompanyInfo, slug: string, docId: number): Promise<string> {
+  const { html, number, kind, template } = tradeDocHtml(db, company, docId)
+  return writeExportPdf(slug, pdfFileName(kind, number), html, pdfOptionsFor(template))
 }
 
 /** Designer preview: the (unsaved) template on a real voucher or the built-in sample. */

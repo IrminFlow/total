@@ -291,7 +291,7 @@ export function VoucherEntry({
         ) : modeForKind(currentType.kind) === 'physical' ? (
           <PhysicalStockEntry key={currentType.id} typeId={currentType.id} />
         ) : modeForKind(currentType.kind) === 'stockNote' ? (
-          <StockNoteEntry key={currentType.id} typeId={currentType.id} kind={currentType.kind as 'delivery_note' | 'receipt_note'} />
+          <StockNoteEntry key={currentType.id} typeId={currentType.id} kind={currentType.kind as 'delivery_note' | 'receipt_note'} draft={draft} />
         ) : (
           <AccountingEntry key={currentType.id} typeId={currentType.id} kind={currentType.kind} draft={draft} />
         )}

@@ -69,6 +69,7 @@ import * as serials from './services/serials'
 import * as tradeLinks from './services/tradeLinks'
 import * as tradeDocTypes from './services/tradeDocTypes'
 import * as tradeReports from './services/tradeReports'
+import * as tradeDocs from './services/tradeDocs'
 import * as priceLevels from './services/priceLevels'
 import * as budgets from './services/budgets'
 import * as yearEnd from './services/yearEnd'
@@ -95,7 +96,8 @@ import {
   bomInputSchema, currencyInputSchema, employeeInputSchema, nicCredentialsSchema, auditListSchema,
   userInputSchema, authLoginSchema, payHeadInputSchema, employeeHeadsSetSchema, payrollRunIdSchema,
   auditRetentionSchema, invoicePdfBatchSchema, linksForVoucherSchema, openSourceLinesSchema, tradePendingSchema, tradeDocNextNumberSchema,
-  tradeDocTypeSaveSchema
+  tradeDocTypeSaveSchema, tradeDocListSchema, tradeDocSaveSchema, tradeDocActionSchema, tradeDocConvertSchema, pendingOrdersSchema,
+  quotationPipelineSchema, openOrderValueSchema
 } from '@shared/schemas'
 import type { CompanyInfo } from '@shared/domain'
 import { featuresSchema } from '@shared/features'
@@ -567,6 +569,51 @@ export function registerIpc(): void {
     const { stage, asOn } = tradePendingSchema.parse(p)
     return tradeReports.pendingStockNotes(requireCompany().db, stage, asOn)
   }, 'viewer')
+  // ---------- quotations / sales orders / purchase orders (WP 2.5c) ----------
+  handle('tradeDocs:list', (p) => tradeDocs.listTradeDocs(requireCompany().db, tradeDocListSchema.parse(p)), 'viewer')
+  handle('tradeDocs:get', (p) => tradeDocs.getTradeDoc(requireCompany().db, idSchema.parse(p).id), 'viewer')
+  handle('tradeDocs:save', (p) => {
+    const { data, id } = tradeDocSaveSchema.parse(p)
+    return tradeDocs.saveTradeDoc(requireCompany().db, data, id)
+  })
+  handle('tradeDocs:delete', (p) => tradeDocs.deleteTradeDoc(requireCompany().db, tradeDocActionSchema.parse(p).id))
+  handle('tradeDocs:restore', (p) => tradeDocs.restoreTradeDoc(requireCompany().db, tradeDocActionSchema.parse(p).id))
+  handle('tradeDocs:cancel', (p) => {
+    const { id, reason } = tradeDocActionSchema.parse(p)
+    return tradeDocs.cancelTradeDoc(requireCompany().db, id, reason)
+  })
+  handle('tradeDocs:close', (p) => {
+    const { id, reason } = tradeDocActionSchema.parse(p)
+    return tradeDocs.closeTradeDoc(requireCompany().db, id, reason)
+  })
+  handle('tradeDocs:reopen', (p) => tradeDocs.reopenTradeDoc(requireCompany().db, tradeDocActionSchema.parse(p).id))
+  handle('tradeDocs:convert', (p) => {
+    const { id, to } = tradeDocConvertSchema.parse(p)
+    return tradeDocs.convertTradeDoc(requireCompany().db, id, to)
+  })
+  handle('tradeDocs:duplicate', (p) => tradeDocs.duplicateTradeDoc(requireCompany().db, idSchema.parse(p).id))
+  handle('tradeDocs:pdf', async (p) => {
+    const { id } = idSchema.parse(p)
+    const c = requireCompany()
+    const path = await printTemplates.tradeDocPdf(c.db, c.info, c.slug, id)
+    auditExport(c.db, 'trade_doc_pdf', { tradeDocId: id, path })
+    shell.openPath(path)
+    return { path }
+  })
+  handle('tradeDocs:previewHtml', (p) => {
+    const { id } = idSchema.parse(p)
+    const c = requireCompany()
+    return { html: printTemplates.tradeDocHtml(c.db, c.info, id).html }
+  }, 'viewer')
+  handle('trade:pendingOrders', (p) => {
+    const { kind, asOn } = pendingOrdersSchema.parse(p)
+    return tradeReports.pendingOrders(requireCompany().db, kind, asOn)
+  }, 'viewer')
+  handle('trade:quotationPipeline', (p) => {
+    const { from, to, asOn } = quotationPipelineSchema.parse(p)
+    return tradeReports.quotationPipeline(requireCompany().db, from, to, asOn)
+  }, 'viewer')
+  handle('trade:openSalesOrderValue', (p) => tradeDocs.openSalesOrderValue(requireCompany().db, openOrderValueSchema.parse(p).partyLedgerId), 'viewer')
 
   handle('master:units:list', () => masters.listUnits(requireCompany().db), 'viewer')
   handle('master:units:create', (p) => masters.createUnit(requireCompany().db, unitInputSchema.parse(p)))

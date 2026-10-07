@@ -9,6 +9,7 @@ import {
   CHALLAN_COPY_LABELS,
   PRINT_COLUMN_DEFS,
   STOCK_NOTE_PRINT_KINDS,
+  TRADE_DOC_PRINT_KINDS,
   type PrintColumn,
   type PrintColumnKey,
   type PrintDocKind,
@@ -66,6 +67,20 @@ export interface InvoiceDocument {
   /** Party ledger balance as on the document date (dr-positive), for totals.showOutstanding. */
   outstandingPaise?: number | null
   einvoice?: PrintEinvoiceInfo | null
+  /** Quotations and orders (WP 2.5c): the commercial facts their print carries. */
+  trade?: PrintTradeInfo | null
+}
+
+export interface PrintTradeInfo {
+  /** Quotation: valid until (ISO). */
+  validUntil: string | null
+  /** Order: expected delivery / receipt (ISO). */
+  dueDate: string | null
+  /** Customer's PO no. / supplier's quote no. */
+  reference: string | null
+  /** The document's own payment / delivery terms (printed above the template's terms). */
+  terms: string | null
+  narration: string | null
 }
 
 export interface VoucherDocLine {
@@ -152,6 +167,8 @@ const DOC_LABEL: Record<PrintDocKind, string> = {
   delivery_challan: 'Challan',
   quotation: 'Quotation',
   goods_receipt: 'Receipt note',
+  sales_order: 'Order',
+  purchase_order: 'Purchase order',
   self_invoice: 'Self invoice'
 }
 const PARTY_LABEL: Partial<Record<PrintDocKind, string>> = {
@@ -617,6 +634,11 @@ function renderInvoice(c: Ctx, doc: InvoiceDocument, opts: RenderOptions): strin
   // bank details or outstanding; the taxable value (and the tax where the movement is a supply)
   // still prints, as rule 55(1) CGST Rules requires of a challan.
   const stockNote = STOCK_NOTE_PRINT_KINDS.includes(doc.kind)
+  // Quotation / sales order / purchase order (WP 2.5c): commercial documents — no IRN or payment
+  // QR, no outstanding, no invoice declaration; a PO (we are the buyer) prints no bank details.
+  const tradeDoc = TRADE_DOC_PRINT_KINDS.includes(doc.kind)
+  const notInvoice = stockNote || tradeDoc
+  const trade = tradeDoc ? (doc.trade ?? null) : null
 
   const taxRows = [
     isIntra ? `<tr><td>CGST</td><td class="r num">${m(inv.cgst)}</td></tr>` : '',
@@ -630,18 +652,25 @@ function renderInvoice(c: Ctx, doc: InvoiceDocument, opts: RenderOptions): strin
   ].join('')
 
   const f = t.footer
-  const bankBlock = f.bankDetails && !stockNote
+  const bankBlock = f.bankDetails && !stockNote && doc.kind !== 'purchase_order'
     ? `<div style="margin-top:10px" class="lbl">Bank details</div>
        <div style="font-size:${c.px(10.5)}">${esc(f.bankDetails.name)}<br/>A/c ${esc(f.bankDetails.account)} · IFSC ${esc(f.bankDetails.ifsc)}<br/>${esc(f.bankDetails.branch)}</div>`
     : ''
-  const termsBlock = f.terms.trim()
-    ? `<div style="margin-top:10px" class="lbl">Terms</div><div style="font-size:${c.px(10.5)}">${esc(f.terms).replace(/\n/g, '<br/>')}</div>`
+  // A quotation / order prints its own terms first, then the template's standing terms.
+  const docTermsBlock = trade?.terms?.trim()
+    ? `<div style="margin-top:10px" class="lbl">Terms &amp; conditions</div><div style="font-size:${c.px(10.5)}" data-doc-terms>${esc(trade.terms).replace(/\n/g, '<br/>')}</div>`
     : ''
+  const remarksBlock = trade?.narration?.trim()
+    ? `<div style="margin-top:10px" class="lbl">Remarks</div><div style="font-size:${c.px(10.5)}">${esc(trade.narration)}</div>`
+    : ''
+  const termsBlock = docTermsBlock + remarksBlock + (f.terms.trim()
+    ? `<div style="margin-top:10px" class="lbl">Terms</div><div style="font-size:${c.px(10.5)}">${esc(f.terms).replace(/\n/g, '<br/>')}</div>`
+    : '')
   // Classic keeps the old renderer's always-printed Declaration heading; other styles drop an
   // empty one.
   // A stock note never carries the invoice declaration ("…this invoice shows the actual price…").
   const declarationBlock =
-    stockNote && /invoice/i.test(f.declaration)
+    notInvoice && /invoice/i.test(f.declaration)
       ? ''
       : legacy || f.declaration.trim()
       ? `<div style="margin-top:10px" class="lbl">Declaration</div>
@@ -652,8 +681,8 @@ function renderInvoice(c: Ctx, doc: InvoiceDocument, opts: RenderOptions): strin
           <div><i>${esc(amountInWords(inv.total))}</i></div>`
     : ''
 
-  // No QR on a self-invoice (never e-invoiced, no payment details) or a stock note.
-  const showQr = t.einvoice.showQr && !stockNote && doc.kind !== 'self_invoice'
+  // No QR on a self-invoice (never e-invoiced, no payment details) or a non-invoice document.
+  const showQr = t.einvoice.showQr && !notInvoice && doc.kind !== 'self_invoice'
   const headerQr = showQr && t.einvoice.qrPlacement === 'header' ? qrBlock(c, company, inv, irn) : ''
   const footerQr = showQr && t.einvoice.qrPlacement === 'footer' ? `<div class="qr-foot">${qrBlock(c, company, inv, irn)}</div>` : ''
   if (footerQr) c.extra.add('qr-foot')
@@ -665,8 +694,20 @@ function renderInvoice(c: Ctx, doc: InvoiceDocument, opts: RenderOptions): strin
   const p = t.party
   const label = DOC_LABEL[doc.kind]
   const partyLabel =
-    doc.kind === 'delivery_challan' ? 'Consignee' : doc.kind === 'goods_receipt' ? 'Received from' : doc.kind === 'self_invoice' ? PARTY_LABEL.self_invoice! : p.billToLabel
+    doc.kind === 'delivery_challan' ? 'Consignee'
+      : doc.kind === 'goods_receipt' ? 'Received from'
+        : doc.kind === 'purchase_order' ? 'Supplier'
+          : doc.kind === 'quotation' ? 'Quoted to'
+            : doc.kind === 'self_invoice' ? PARTY_LABEL.self_invoice!
+              : p.billToLabel
   const purposeLine = stockNote && inv.purpose ? `<div>Purpose: ${esc(purposeLabel(inv.purpose))}</div>` : ''
+  const tradeLines = trade
+    ? [
+        trade.reference ? `<div>${doc.kind === 'purchase_order' ? 'Your quote' : 'Your ref.'}: <span class="num">${esc(trade.reference)}</span></div>` : '',
+        trade.validUntil ? `<div>Valid until: <span class="num">${c.date(trade.validUntil)}</span></div>` : '',
+        trade.dueDate ? `<div>${doc.kind === 'purchase_order' ? 'Deliver by' : 'Expected delivery'}: <span class="num">${c.date(trade.dueDate)}</span></div>` : ''
+      ].join('')
+    : ''
   const ruleNote =
     doc.kind === 'delivery_challan'
       ? `<div style="margin-top:10px;font-size:${c.px(10)}">Delivery challan issued under rule 55 of the CGST Rules, 2017.</div>`
@@ -707,7 +748,7 @@ function renderInvoice(c: Ctx, doc: InvoiceDocument, opts: RenderOptions): strin
           ${inv.precedingDoc ? `<div>Against: <span class="num">${esc(inv.precedingDoc.invNo)}</span> dt <span class="num">${c.date(inv.precedingDoc.invDate)}</span></div>` : ''}
           ${p.showPlaceOfSupply ? `<div>Place of supply: <span class="num">${esc(inv.pos)}-${esc(GST_STATES[inv.pos] ?? '')}</span></div>` : ''}${doc.kind === 'self_invoice' ? `
           <div>Tax payable on reverse charge: <b>Yes</b></div>` : ''}
-          ${p.showVehicle && inv.vehicleNo ? `<div>Vehicle: <span class="num">${esc(inv.vehicleNo)}</span></div>` : ''}${purposeLine}
+          ${p.showVehicle && inv.vehicleNo ? `<div>Vehicle: <span class="num">${esc(inv.vehicleNo)}</span></div>` : ''}${purposeLine}${tradeLines}
         </div>
       </div>${einvoiceLine(c, { irn, ackNo: doc.einvoice?.ackNo ?? null, ackDate: doc.einvoice?.ackDate ?? null, ewbNo: doc.einvoice?.ewbNo ?? null })}
       ${itemsTable(c, inv, isIntra)}
@@ -723,18 +764,22 @@ function renderInvoice(c: Ctx, doc: InvoiceDocument, opts: RenderOptions): strin
           <tr><td>Taxable value</td><td class="r num">${m(inv.taxable)}</td></tr>
           ${taxRows}
           <tr class="grand"><td>${stockNote ? 'Value of goods' : 'Total'}</td><td class="r num">${t.formats.currencySymbolOnTotal ? '₹ ' : ''}${m(inv.total)}</td></tr>
-          ${stockNote ? '' : outstandingRow(c, doc.outstandingPaise)}
+          ${notInvoice ? '' : outstandingRow(c, doc.outstandingPaise)}
         </table>
       </div>${sigBlock(c, company, footerQr)}
       ${auditFoot(c, doc.audit)}${cgNote(c)}
     </div>`
 
   // Rule 55(2): a challan goes in triplicate — unless the template names its own copies.
-  const challanCopies =
-    doc.kind === 'delivery_challan' && t.header.copyLabels.length === 1 && t.header.copyLabels[0] === 'Original for Recipient'
+  const defaultLabel = t.header.copyLabels.length === 1 && t.header.copyLabels[0] === 'Original for Recipient'
+  const copies =
+    doc.kind === 'delivery_challan' && defaultLabel
       ? [...CHALLAN_COPY_LABELS]
-      : undefined
-  return wrapDocument(c, `${label} ${inv.number}`, sheet, opts, challanCopies)
+      : // A quotation / order is one commercial copy — the tax invoice's "Original for Recipient" doesn't apply.
+        tradeDoc && defaultLabel
+        ? ['']
+        : undefined
+  return wrapDocument(c, `${label} ${inv.number}`, sheet, opts, copies)
 }
 
 // ---------------------------------------------------------------- voucher shape

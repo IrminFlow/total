@@ -32,6 +32,9 @@ import { CompanyInfoScreen } from './screens/CompanyInfo'
 import { RegistersScreen } from './screens/Registers'
 import { OutstandingsScreen } from './screens/Outstandings'
 import { TradePendingScreen } from './screens/TradePending'
+import { TradeDocListScreen } from './screens/TradeDocList'
+import { TradeDocEntry } from './screens/TradeDocEntry'
+import { PendingOrdersScreen, QuotationPipelineScreen } from './screens/TradeOrderReports'
 import { ConsolidatedScreen } from './screens/Consolidated'
 import { BankingScreen } from './screens/Banking'
 import { EdocsScreen } from './screens/Edocs'
@@ -183,6 +186,20 @@ export default function App(): React.JSX.Element {
           {screen.name === 'outstandings' && <OutstandingsScreen />}
           {screen.name === 'pending-challans' && <TradePendingScreen stage="delivery_note" />}
           {screen.name === 'pending-grns' && <TradePendingScreen stage="receipt_note" />}
+          {screen.name === 'quotations' && <TradeDocListScreen kind="quotation" />}
+          {screen.name === 'sales-orders' && <TradeDocListScreen kind="sales_order" />}
+          {screen.name === 'purchase-orders' && <TradeDocListScreen kind="purchase_order" />}
+          {screen.name === 'trade-doc' && (
+            <TradeDocEntry
+              key={screen.id ?? (screen.draftId ? `draft-${screen.draftId}` : `new-${screen.kind}`)}
+              kind={screen.kind}
+              id={screen.id}
+              draft={screen.draft}
+            />
+          )}
+          {screen.name === 'pending-sales-orders' && <PendingOrdersScreen kind="sales_order" />}
+          {screen.name === 'pending-purchase-orders' && <PendingOrdersScreen kind="purchase_order" />}
+          {screen.name === 'quotation-pipeline' && <QuotationPipelineScreen />}
           {screen.name === 'consolidated' && <ConsolidatedScreen />}
           {screen.name === 'banking' && <BankingScreen />}
           {screen.name === 'payroll' && <PayrollScreen />}

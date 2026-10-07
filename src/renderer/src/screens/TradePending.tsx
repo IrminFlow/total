@@ -120,7 +120,7 @@ export function TradePendingScreen({ stage }: { stage: PendingStage }): React.JS
           onRowActivate={(r) => nav.go({ name: 'voucher-entry', voucherId: r.voucherId })}
           empty={{
             title: outward ? 'Every challan is invoiced' : 'Every GRN is billed',
-            hint: outward ? 'Raise the invoice with “Add from challans…” (⌥A) in a sales invoice.' : 'Raise the bill with “Add from receipt notes…” (⌥A) in a purchase bill.'
+            hint: outward ? 'Raise the invoice with “Add from orders / challans…” (⌥A) in a sales invoice.' : 'Raise the bill with “Add from orders / GRNs…” (⌥A) in a purchase bill.'
           }}
           exportOptions={{ title: TITLE[stage], periodLabel, filename: `pending-${outward ? 'challans' : 'grns'}` }}
         />

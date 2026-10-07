@@ -37,6 +37,7 @@ import type {
   PayHeadInput, PriceLevelInput,
   PriceRateInput,
   RendererLogInput, SearchQueryInput, StockGroupInput, StockItemInput, TdsSectionInput, UnitInput, UserInput, VoucherTransportInput, VoucherTypeInput, TradeDocTypeInput, OpenSourceLinesQuery,
+  TradeDocInputParsed, TradeDocListQuery,
   TdsRateInput, TdsCertificateInput, TdsChallanInput,
   VoucherInputParsed
 } from '@shared/schemas'
@@ -49,7 +50,10 @@ import type { Itc04Data, JobWorkChallan, JobWorkPendingRow } from '@shared/jobWo
 import type { JobWorkChallanPayload } from '@shared/voucherEdit'
 import type { ExpiryReportRow, ReorderRow, SerialListRow, StockMovementRegister } from '@shared/stockPlanning'
 import type { SerialStatus } from '@shared/serials'
-import type { OpenSourceLine, PendingNoteRow, VoucherKindRow, VoucherLinks } from '@shared/tradeCycle/types'
+import type {
+  OpenSourceLine, PendingNoteRow, PendingOrderRow, QuotationPipeline, TradeDoc, TradeDocDraft, TradeDocListRow, VoucherKindRow, VoucherLinks
+} from '@shared/tradeCycle/types'
+import type { TradeDocKind } from '@shared/domain'
 
 /** stock:labelsHtml / stock:labelsPdf query (mirrors stockLabelsSchema). */
 export interface StockLabelsQuery {
@@ -598,7 +602,27 @@ export const api = {
   },
   /** WP 2.5b — trade-cycle reports. */
   trade: {
-    pending: (stage: 'delivery_note' | 'receipt_note', asOn: string) => call<PendingNoteRow[]>('trade:pending', { stage, asOn })
+    pending: (stage: 'delivery_note' | 'receipt_note', asOn: string) => call<PendingNoteRow[]>('trade:pending', { stage, asOn }),
+    /** WP 2.5c — open sales / purchase order lines as on a date. */
+    pendingOrders: (kind: 'sales_order' | 'purchase_order', asOn: string) => call<PendingOrderRow[]>('trade:pendingOrders', { kind, asOn }),
+    quotationPipeline: (from: string, to: string, asOn: string) => call<QuotationPipeline>('trade:quotationPipeline', { from, to, asOn }),
+    openSalesOrderValue: (partyLedgerId: number) => call<number>('trade:openSalesOrderValue', { partyLedgerId })
+  },
+  /** WP 2.5c — quotations, sales orders, purchase orders. */
+  tradeDocs: {
+    list: (q: TradeDocListQuery) => call<TradeDocListRow[]>('tradeDocs:list', q),
+    get: (id: number) => call<TradeDoc | null>('tradeDocs:get', { id }),
+    save: (data: TradeDocInputParsed, id?: number) =>
+      call<{ doc: TradeDoc; warnings: { linkDates: string[] } }>('tradeDocs:save', { data, ...(id ? { id } : {}) }),
+    remove: (id: number) => call<null>('tradeDocs:delete', { id }),
+    restore: (id: number) => call<TradeDoc>('tradeDocs:restore', { id }),
+    cancel: (id: number, reason: string | null) => call<TradeDoc>('tradeDocs:cancel', { id, reason }),
+    close: (id: number, reason: string | null) => call<TradeDoc>('tradeDocs:close', { id, reason }),
+    reopen: (id: number) => call<TradeDoc>('tradeDocs:reopen', { id }),
+    convert: (id: number, to: TradeDocKind) => call<TradeDocDraft>('tradeDocs:convert', { id, to }),
+    duplicate: (id: number) => call<TradeDocDraft>('tradeDocs:duplicate', { id }),
+    pdf: (id: number) => call<{ path: string }>('tradeDocs:pdf', { id }),
+    previewHtml: (id: number) => call<{ html: string }>('tradeDocs:previewHtml', { id })
   },
   units: {
     list: () => call<Unit[]>('master:units:list'),
