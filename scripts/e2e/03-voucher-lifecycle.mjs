@@ -1,5 +1,7 @@
 // Scenario 03 — voucher lifecycle with trial-balance tie-outs: save → TB ties → visible in
-// Day Book (testid rows) → delete → bin → restore → TB ties again.
+// Day Book (testid rows) → delete → bin → restore → TB ties again. WP 3.1: a purchase invoice
+// typed in the invoice form takes the TDS suggestion; saving creates the tagged payable ledger
+// and the TDS screen reflects the deduction.
 //
 // Voucher creation goes through voucher:save (the same zod+posting path the UI uses);
 // the UI-typed entry flow lands with lane S1's VoucherEntry split.
@@ -184,4 +186,73 @@ await scenario('03-voucher-lifecycle', async (h) => {
   assertEq(ps2.inventory.length, 1, 'physical stock keeps one line')
   assertEq(ps2.inventory[0].qtyMilli, 40_000, 'altered count')
   assertEq(ps2.inventory[0].isAbsolute, true, 'still a physical-count line')
+
+  // ---------- WP 3.1: TDS on a purchase invoice, typed in the invoice form ----------
+  const sections = await h.invoke('tds:sections')
+  const s194c = sections.find((s) => s.code === '194C')
+  assert(s194c, 'seeded 194C section')
+  await mkLedger('E2E Contractor', 'Sundry Creditors', { tdsSectionId: s194c.id, pan: 'ABCCE1234F' })
+  await mkLedger('E2E Purchases', 'Purchase Accounts')
+  const payableBefore = (await h.invoke('master:ledgers:list')).filter((l) => l.tdsPayableSectionId != null)
+  assertEq(payableBefore.length, 0, 'no TDS payable ledger before the first deduction')
+
+  await h.goto('gateway')
+  await h.goto('voucher-entry')
+  await h.click('tab-voucher-entry-purchase')
+  await h.page.waitForSelector('[data-testid="voucher-entry-mode"][data-mode="invoice"]', { timeout: 10000 })
+  const pick = async (selector, text) => {
+    const input = h.page.locator(selector).first()
+    await input.click()
+    await input.fill(text)
+    await h.page.waitForSelector('[role="option"]', { timeout: 10000 })
+    await input.press('Enter')
+  }
+  await pick('[data-testid="picker-party"]', 'E2E Contractor')
+  await pick('[data-testid="picker-ledger"]', 'E2E Purchases')
+  await pick('[data-testid="picker-item"]', 'E2E Widget')
+  await h.page.locator('[data-testid="input-line-qty"]').first().fill('50')
+  await h.page.locator('[data-testid="input-line-rate"]').first().fill('1000')
+  // ₹50,000 taxable (GST excluded from the base) — 194C, company PAN: 2% = ₹1,000.
+  await h.page.waitForSelector('[data-testid="banner-tds"]', { timeout: 10000 })
+  const bannerText = await h.page.textContent('[data-testid="banner-tds"]')
+  assert(/194C/.test(bannerText) && /1,000\.00/.test(bannerText), `TDS banner suggests ₹1,000 u/s 194C (got: ${bannerText})`)
+  assert(/created when you save/.test(bannerText), 'banner says the payable ledger is created on save')
+  await h.shot('03-purchase-tds-banner')
+  await h.click('btn-tds-apply')
+  await h.page.waitForSelector('[data-testid="invoice-tds-summary"]', { timeout: 10000 })
+  // Applying never creates a ledger — that happens inside the save.
+  assertEq((await h.invoke('master:ledgers:list')).filter((l) => l.tdsPayableSectionId != null).length, 0, 'Apply creates no ledger')
+  await h.shot('04-purchase-tds-applied')
+  await h.click('btn-save-voucher')
+  await h.page.waitForFunction(
+    () => !document.querySelector('[data-testid="invoice-tds-summary"]'),
+    null,
+    { timeout: 10000 }
+  )
+
+  const payables = (await h.invoke('master:ledgers:list')).filter((l) => l.tdsPayableSectionId === s194c.id)
+  assertEq(payables.length, 1, 'saving created exactly one tagged TDS payable ledger')
+  assertEq(payables[0].name, 'TDS Payable 194C', 'payable ledger name')
+  const purchases = await h.invoke('voucher:list', { from: today, to: today, voucherTypeId: typeOf('purchase').id })
+  assertEq(purchases.length, 1, 'the purchase invoice is in the day book')
+  const purchase = await h.invoke('voucher:get', { id: purchases[0].id })
+  assertEq(purchase.tds && purchase.tds.tdsAmount, 100000, 'TDS entry ₹1,000')
+  assertEq(purchase.tds.baseAmount, 5000000, 'TDS base = taxable value')
+  assertEq(purchase.tds.rateBp, 200, 'basis recorded: 2%')
+  const lastLine = purchase.lines[purchase.lines.length - 1]
+  assertEq(lastLine.ledgerId, payables[0].id, 'payable credit is the last line')
+  assertEq(lastLine.amount, 100000, 'payable credit = TDS')
+  const total = purchase.lines.filter((l) => l.drCr === 'dr').reduce((acc, l) => acc + l.amount, 0)
+  assertEq(purchase.lines.filter((l) => l.drCr === 'cr').reduce((acc, l) => acc + l.amount, 0), total, 'purchase with TDS balances')
+
+  // Reopens in invoice mode (no accounting-mode fallback for TDS any more).
+  await openFromDaybook(purchase.id, 'invoice')
+  await h.page.waitForSelector('[data-testid="invoice-tds-summary"]', { timeout: 10000 })
+
+  // The TDS screen reflects it.
+  await h.goto('tds')
+  await h.page.waitForSelector('[data-testid="rows-tds-summary"]', { timeout: 10000 })
+  const summaryText = await h.page.textContent('[data-testid="rows-tds-summary"]')
+  assert(/194C/.test(summaryText) && /1,000\.00/.test(summaryText), `TDS summary shows 194C ₹1,000 (got: ${summaryText})`)
+  await h.shot('05-tds-screen')
 })
