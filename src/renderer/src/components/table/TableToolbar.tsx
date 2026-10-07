@@ -1,5 +1,5 @@
 import { useState, type ReactNode } from 'react'
-import { columnLabel, describeFilter, isGroupable, moveColumn, type TableModel } from '../../lib/table'
+import { columnLabel, describeFilter, isGroupable, moveColumn, type Density, type TableModel } from '../../lib/table'
 import { Button, inputSmCls } from '../ui'
 import { PopoverButton } from './Popover'
 import type { TableColumn } from './types'
@@ -29,6 +29,7 @@ export function TableToolbar<Row>({
   features,
   menu,
   setMenu,
+  appDensity = 'comfortable',
   onExportCsv,
   onExportPdf,
   start,
@@ -44,6 +45,8 @@ export function TableToolbar<Row>({
   features: Required<ToolbarFeatures>
   menu: string | null
   setMenu: (m: string | null) => void
+  /** The app-wide density a view with `density: null` follows. */
+  appDensity?: Density
   onExportCsv?: () => void
   onExportPdf?: () => void
   start?: ReactNode
@@ -52,6 +55,7 @@ export function TableToolbar<Row>({
   loading?: boolean
 }): React.JSX.Element {
   const { view, setView } = controller
+  const density: Density = view.density ?? appDensity
   const byId = new Map(columns.map((c) => [c.id, c]))
   const chips = Object.entries(view.filters).filter(([id]) => byId.has(id))
   const groupable = columns.filter((c) => isGroupable(c))
@@ -109,13 +113,17 @@ export function TableToolbar<Row>({
             <button
               type="button"
               className="rounded-md border border-line bg-panel2 px-2 py-1 text-small text-muted hover:border-amber/60 hover:text-ink"
-              aria-pressed={view.density === 'compact'}
+              aria-pressed={density === 'compact'}
               aria-label="Compact rows"
-              title="Compact rows"
-              onClick={() => setView((v) => ({ ...v, density: v.density === 'compact' ? 'comfortable' : 'compact' }))}
+              title={view.density ? 'Compact rows (this table)' : 'Compact rows (following the app setting)'}
+              // Picking the app's own density stores null, so the table follows the setting again.
+              onClick={() => {
+                const next: Density = density === 'compact' ? 'comfortable' : 'compact'
+                setView((v) => ({ ...v, density: next === appDensity ? null : next }))
+              }}
               data-testid={`${area}-table-density`}
             >
-              {view.density === 'compact' ? '☰ Compact' : '☰ Comfortable'}
+              {density === 'compact' ? '☰ Compact' : '☰ Comfortable'}
             </button>
           )}
           {features.columns && (

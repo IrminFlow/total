@@ -122,6 +122,7 @@ export function CommandPalette({ onClose }: { onClose: () => void }): React.JSX.
       { label: 'Users', run: go({ name: 'settings', tab: 'users' }) },
       { label: 'Features', run: go({ name: 'settings', tab: 'features' }) },
       { label: 'Invoice print', run: go({ name: 'settings', tab: 'invoice' }) },
+      { label: 'Appearance — theme and density', run: go({ name: 'settings', tab: 'appearance' }) },
       {
         label: 'Back up company now',
         run: async () => {

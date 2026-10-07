@@ -281,7 +281,7 @@ describe('view state', () => {
     expect(v.hidden).toEqual(def.hidden)
     expect(v.widths).toEqual({ amount: 180 })
     expect(v.sort).toEqual([])
-    expect(v.density).toBe('comfortable')
+    expect(v.density).toBeNull() // fallback: follow the app density
   })
   it('drops unknown column ids everywhere and adds new columns at their declared spot', () => {
     const stored = {

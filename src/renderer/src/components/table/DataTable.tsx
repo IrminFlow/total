@@ -51,7 +51,7 @@ import {
   type ViewDefaults
 } from '../../lib/table'
 import { csvReport, PDF_ROW_LIMIT, printReport } from '../../lib/reportExport'
-import { useSession, useToasts } from '../../state/stores'
+import { useDensity, useSession, useToasts } from '../../state/stores'
 import { EmptyState, Money, SkeletonRows, useKeyNav } from '../ui'
 import { FilterEditor } from './FilterEditor'
 import { Popover } from './Popover'
@@ -361,8 +361,11 @@ export function DataTable<Row>(props: DataTableProps<Row>): React.JSX.Element {
   /** The scroll area's inner width (excludes its scrollbar); 0 until measured (and in jsdom). */
   const [availableW, setAvailableW] = useState(0)
   const [measuredH, setMeasuredH] = useState<number | null>(null)
-  const rowH = measuredH ?? ROW_HEIGHT[view.density]
-  useEffect(() => setMeasuredH(null), [view.density])
+  // The view's own density, else the app-wide setting (Settings → Appearance).
+  const appDensity = useDensity()
+  const density = view.density ?? appDensity
+  const rowH = measuredH ?? ROW_HEIGHT[density]
+  useEffect(() => setMeasuredH(null), [density])
 
   useLayoutEffect(() => {
     const el = scrollRef.current
@@ -652,6 +655,7 @@ export function DataTable<Row>(props: DataTableProps<Row>): React.JSX.Element {
       features={features}
       menu={menu}
       setMenu={setMenu}
+      appDensity={appDensity}
       onExportCsv={rows.length > 0 ? exportCsv : undefined}
       onExportPdf={rows.length > 0 ? exportPdf : undefined}
       start={props.toolbarStart}
@@ -817,7 +821,7 @@ export function DataTable<Row>(props: DataTableProps<Row>): React.JSX.Element {
       >
         <table
           className="ledger-table data-table"
-          data-density={view.density}
+          data-density={density}
           data-virtual={virtual || undefined}
           data-testid={props.tableTestId}
           aria-label={props.ariaLabel}

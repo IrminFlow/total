@@ -15,12 +15,16 @@ import {
  * is purely a display preference). Key: `total-tableview-<company-slug>-<screenId>`.
  *
  * Stored document (versioned; anything unreadable falls back to defaults):
- *   { v: 1, current: ViewState, active: string | null, saved: { name, view }[] }
+ *   { v: 2, current: ViewState, active: string | null, saved: { name, view }[] }
+ *
+ * v2 (WP 1.10a): a view's `density` may be null = follow the app density setting. v1 documents
+ * still load: their density was always 'comfortable' unless the user picked compact, so a v1
+ * 'comfortable' is read as null (follow the app) and 'compact' stays an explicit choice.
  *
  * `current` is the live view (what the user last saw); `saved` are named views; `active` is the
  * saved view `current` was last switched to/saved as, or null for the default view.
  */
-export const TABLE_VIEW_STORE_VERSION = 1
+export const TABLE_VIEW_STORE_VERSION = 2
 
 export interface SavedView {
   name: string
@@ -92,15 +96,17 @@ function loadDoc<Row>(
   }
   try {
     const o = JSON.parse(raw) as Record<string, unknown>
-    if (!o || typeof o !== 'object' || o.v !== TABLE_VIEW_STORE_VERSION) return fresh
+    if (!o || typeof o !== 'object' || (o.v !== TABLE_VIEW_STORE_VERSION && o.v !== 1)) return fresh
+    // v1 → v2: the old default 'comfortable' becomes "follow the app density".
+    const migrate = o.v === 1 ? (v: ViewState): ViewState => (v.density === 'comfortable' ? { ...v, density: null } : v) : (v: ViewState): ViewState => v
     const saved: SavedView[] = Array.isArray(o.saved)
       ? (o.saved as unknown[])
           .filter((s): s is { name: string; view: unknown } => !!s && typeof (s as SavedView).name === 'string' && (s as SavedView).name.trim() !== '')
-          .map((s) => ({ name: s.name, view: parseViewState(s.view, columns, defaults) }))
+          .map((s) => ({ name: s.name, view: migrate(parseViewState(s.view, columns, defaults)) }))
           .filter((s, i, arr) => arr.findIndex((x) => x.name === s.name) === i)
       : []
     const active = typeof o.active === 'string' && saved.some((s) => s.name === o.active) ? o.active : null
-    return { current: parseViewState(o.current, columns, defaults), active, saved }
+    return { current: migrate(parseViewState(o.current, columns, defaults)), active, saved }
   } catch {
     return fresh
   }

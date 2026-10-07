@@ -122,5 +122,6 @@ export interface ViewState {
   sort: SortKey[]
   filters: Record<string, ColumnFilter>
   groupBy: string | null
-  density: Density
+  /** The table's own row density, or null to follow the app-wide setting (Settings → Appearance). */
+  density: Density | null
 }

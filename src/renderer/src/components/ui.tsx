@@ -23,6 +23,7 @@ export type { TabItem } from './kit/Tabs'
 export { Drawer, DrawerSection } from './kit/Drawer'
 export { Page, PageHeader } from './kit/PageHeader'
 export type { PageOptions, PageWidth } from './kit/PageHeader'
+export { Segmented } from './kit/Segmented'
 export { Checklist } from './kit/Checklist'
 export { isAnyModalOpen, topModalElement, registerEscapeLayer } from './kit/layers'
 
