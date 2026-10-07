@@ -122,7 +122,8 @@ export const listLedgersTool = defineTool({
       .sort((a, b) => a.name.localeCompare(b.name))
     return {
       data: { count: rows.length, ledgers: rows.slice(0, LIST_CAP) },
-      sources: ledgerSources(rows, 15)
+      // A lookup, not evidence: link the ledger list, and the ledgers only when a search narrowed it.
+      sources: [{ kind: 'screen', screen: 'masters', label: 'Ledgers' }, ...(needle || g ? ledgerSources(rows, 8) : [])]
     }
   }
 })

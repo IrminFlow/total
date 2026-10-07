@@ -66,6 +66,9 @@ export function TypeAhead({
 
   useEffect(() => {
     setText(selected?.label ?? '')
+    // Options can arrive after an autofocused picker opened: keep the highlight on the value.
+    if (selected) setActive(Math.max(0, options.slice(0, 50).findIndex((o) => o.id === selected.id)))
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- re-run only when the value's label changes
   }, [selected?.label])
 
   const filtered = useMemo(() => {
@@ -117,7 +120,9 @@ export function TypeAhead({
         onFocus={(e) => {
           e.target.select()
           setOpen(true)
-          setActive(0)
+          // Highlight the current value, not the first option — a pre-filled line (an AI or
+          // GSTR-2B draft) must not change ledger on a stray Enter.
+          setActive(Math.max(0, selected ? options.slice(0, 50).findIndex((o) => o.id === selected.id) : 0))
         }}
         onChange={(e) => {
           setText(e.target.value)
@@ -127,6 +132,8 @@ export function TypeAhead({
         }}
         onKeyDown={(e) => {
           if (onScan?.(e)) return
+          // ⌘↵ / Ctrl+↵ is the form's save shortcut — never a pick.
+          if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) return
           if (!open && (e.key === 'ArrowDown' || e.key === 'Enter')) {
             setOpen(true)
             return

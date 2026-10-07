@@ -386,7 +386,7 @@ function Sources({ sources, onNavigate }: { sources: AiSource[]; onNavigate: () 
       {items.map((it, i) => (
         <span key={i} className="max-w-full">
           {it}
-          {i < items.length - 1 ? <span aria-hidden="true">·</span> : null}
+          {i < items.length - 1 ? <span aria-hidden="true" className="ml-2">·</span> : null}
         </span>
       ))}
     </div>
@@ -405,6 +405,8 @@ export function screenFor(s: Extract<AiSource, { kind: 'screen' }>): NavScreen |
       return { name: 'search', q: typeof p.q === 'string' ? p.q : undefined }
     case 'voucher-entry':
       return typeof p.aiDraftId === 'number' ? { name: 'voucher-entry', aiDraftId: p.aiDraftId } : null
+    case 'masters':
+      return { name: 'masters', tab: 'ledgers' }
     case 'company-info':
     case 'trial-balance':
     case 'profit-loss':

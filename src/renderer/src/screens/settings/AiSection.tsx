@@ -9,20 +9,25 @@ import {
   type AiSettingsView, type AiUsageAggregate, type AiUsageRow
 } from '@shared/ai'
 import { aiApi } from '../../lib/aiClient'
+import { toDisplayDateTime } from '@shared/dates'
 import { useSession, useToasts } from '../../state/stores'
 import { confirmDialog } from '../../lib/dialogs'
 import { Badge, Banner, Button, Checkbox, Field, Panel, SectionTitle, Segmented, SkeletonRows, TextInput } from '../../components/ui'
 import { DataTable, defineColumns } from '../../components/table'
 
 const fmtInt = (n: number): string => n.toLocaleString('en-IN')
-const fmtAt = (iso: string): string => iso.replace('T', ' ').slice(0, 19)
+/** Stored UTC ISO → local display date-time. */
+const fmtAt = (iso: string): string => {
+  const d = new Date(iso)
+  return Number.isNaN(d.getTime()) ? iso : toDisplayDateTime(d)
+}
 
 const AGG_COLUMNS = defineColumns<AiUsageAggregate>([
   { id: 'label', header: 'Day / conversation', kind: 'text', value: (r) => r.label, hideable: false, groupable: false, minWidth: 180 },
   { id: 'calls', header: 'Calls', kind: 'number', value: (r) => r.calls, aggregate: 'sum', width: 80 },
-  { id: 'in', header: 'Input tokens', kind: 'number', value: (r) => r.inputTokens, text: (r) => fmtInt(r.inputTokens), aggregate: 'sum', width: 120 },
-  { id: 'cached', header: 'Cached', kind: 'number', value: (r) => r.cachedTokens, text: (r) => fmtInt(r.cachedTokens), aggregate: 'sum', width: 100 },
-  { id: 'out', header: 'Output tokens', kind: 'number', value: (r) => r.outputTokens, text: (r) => fmtInt(r.outputTokens), aggregate: 'sum', width: 120 },
+  { id: 'in', header: 'Input tokens', kind: 'number', value: (r) => r.inputTokens, aggregate: 'sum', width: 120 },
+  { id: 'cached', header: 'Cached', kind: 'number', value: (r) => r.cachedTokens, aggregate: 'sum', width: 100 },
+  { id: 'out', header: 'Output tokens', kind: 'number', value: (r) => r.outputTokens, aggregate: 'sum', width: 120 },
   {
     id: 'cost', header: 'Est. cost (USD)', kind: 'number', value: (r) => r.costMicroUsd,
     text: (r) => `${formatMicroUsd(r.costMicroUsd)}${r.unpriced ? ` (${r.unpriced} unpriced)` : ''}`, width: 170
@@ -30,7 +35,7 @@ const AGG_COLUMNS = defineColumns<AiUsageAggregate>([
 ])
 
 const CALL_COLUMNS = defineColumns<AiUsageRow>([
-  { id: 'at', header: 'When', kind: 'text', value: (r) => r.at, text: (r) => fmtAt(r.at), className: 'num text-muted', width: 170 },
+  { id: 'at', header: 'When', kind: 'text', value: (r) => r.at, text: (r) => fmtAt(r.at), className: 'num text-muted', width: 200 },
   { id: 'thread', header: 'Conversation', kind: 'text', value: (r) => r.threadTitle ?? '', minWidth: 160 },
   { id: 'model', header: 'Model', kind: 'text', value: (r) => r.model, className: 'num', width: 140 },
   { id: 'in', header: 'In', kind: 'number', value: (r) => r.inputTokens, aggregate: 'sum', width: 90 },
@@ -40,7 +45,7 @@ const CALL_COLUMNS = defineColumns<AiUsageRow>([
 ])
 
 const OUTBOUND_COLUMNS = defineColumns<AiOutboundRow>([
-  { id: 'at', header: 'When', kind: 'text', value: (r) => r.at, text: (r) => fmtAt(r.at), className: 'num text-muted', width: 170, hideable: false },
+  { id: 'at', header: 'When', kind: 'text', value: (r) => r.at, text: (r) => fmtAt(r.at), className: 'num text-muted', width: 200, hideable: false },
   { id: 'model', header: 'Model', kind: 'text', value: (r) => `${r.provider}/${r.model}`, className: 'num', width: 170 },
   { id: 'bytes', header: 'Size (bytes)', kind: 'number', value: (r) => r.requestBytes, text: (r) => fmtInt(r.requestBytes), width: 110 },
   { id: 'items', header: 'Items', kind: 'number', value: (r) => r.messageCount, width: 70 },
@@ -432,6 +437,7 @@ function UsagePanel(): React.JSX.Element {
             maxHeight="50vh"
             empty={{ title: 'No AI calls yet' }}
             toolbarStart={<UsageBy by={by} setBy={setBy} />}
+            toolbarFeatures={{ groupBy: false, density: false }}
           />
         ) : (
           <DataTable
@@ -445,6 +451,7 @@ function UsagePanel(): React.JSX.Element {
             maxHeight="50vh"
             empty={{ title: 'No AI calls yet', hint: 'Every question’s model calls are counted here with their tokens and estimated cost.' }}
             toolbarStart={<UsageBy by={by} setBy={setBy} />}
+            toolbarFeatures={{ groupBy: false, density: false }}
           />
         )}
       </Panel>
@@ -489,6 +496,7 @@ function OutboundPanel(): React.JSX.Element {
           loading={isLoading}
           maxHeight="50vh"
           empty={{ title: 'Nothing has been sent' }}
+          toolbarFeatures={{ groupBy: false, density: false }}
         />
       </Panel>
     </div>
