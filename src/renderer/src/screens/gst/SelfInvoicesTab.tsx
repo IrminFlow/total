@@ -21,17 +21,17 @@ const STATUS_TONE: Record<SelfInvoiceStatus, 'success' | 'warning' | 'danger' | 
 
 export const SELF_INVOICE_COLUMNS = defineColumns<SelfInvoiceRow>([
   { id: 'date', header: 'Received', kind: 'date', value: (r) => r.date, className: 'text-muted' },
-  { id: 'voucher', header: 'Purchase', kind: 'text', value: (r) => r.voucherNumber, width: 110, hideable: false, groupable: false, cell: (r) => <VoucherLink voucherId={r.voucherId} label={r.voucherNumber} /> },
-  { id: 'party', header: 'Supplier (unregistered)', kind: 'text', value: (r) => r.partyName, minWidth: 150, cell: (r) => <LedgerLink ledgerId={r.partyLedgerId} name={r.partyName} /> },
+  { id: 'voucher', header: 'Purchase', kind: 'text', value: (r) => r.voucherNumber, width: 84, hideable: false, groupable: false, cell: (r) => <VoucherLink voucherId={r.voucherId} label={r.voucherNumber} /> },
+  { id: 'party', header: 'Supplier (unregistered)', kind: 'text', value: (r) => r.partyName, minWidth: 130, cell: (r) => <LedgerLink ledgerId={r.partyLedgerId} name={r.partyName} /> },
   { id: 'ref', header: 'Supplier ref', kind: 'text', value: (r) => r.supplierRef, width: 112, defaultHidden: true },
   { id: 'taxable', header: 'Taxable', kind: 'money', value: (r) => r.taxable, aggregate: 'sum', width: 116 },
   { id: 'tax', header: 'Tax (RCM)', kind: 'money', value: (r) => r.tax, aggregate: 'sum', width: 104 },
   { id: 'status', header: 'Status', kind: 'enum', value: (r) => r.status, width: 124,
     options: Object.entries(SELF_INVOICE_STATUS_LABELS).map(([value, label]) => ({ value, label })),
     cell: (r) => <Badge tone={STATUS_TONE[r.status]} testId={`self-invoice-status-${r.voucherId}`}>{SELF_INVOICE_STATUS_LABELS[r.status]}</Badge> },
-  { id: 'due', header: 'Due by (rule 47A)', kind: 'date', value: (r) => r.dueDate, className: 'text-muted', width: 168,
-    text: (r) => (r.dueDate ? `${toDisplayDate(r.dueDate)}${r.daysLeft != null ? ` (${r.daysLeft < 0 ? `${-r.daysLeft}d late` : `${r.daysLeft}d left`})` : ''}` : '—') },
-  { id: 'siNo', header: 'Self-invoice', kind: 'text', value: (r) => r.selfInvoiceNumber, width: 132, className: 'num' },
+  { id: 'due', header: 'Due by (rule 47A)', kind: 'date', value: (r) => r.dueDate, className: 'text-muted', width: 160,
+    text: (r) => (r.dueDate ? `${toDisplayDate(r.dueDate)}${r.daysLeft != null ? ` (${r.daysLeft < 0 ? `${-r.daysLeft}d late` : `${r.daysLeft}d`})` : ''}` : '—') },
+  { id: 'siNo', header: 'Self-invoice', kind: 'text', value: (r) => r.selfInvoiceNumber, width: 124, className: 'num' },
   { id: 'siDate', header: 'Dated', kind: 'date', value: (r) => r.selfInvoiceDate, className: 'text-muted', defaultHidden: true }
 ])
 
@@ -107,7 +107,7 @@ export function SelfInvoicesTab({ from, to }: { from: string; to: string }): Rea
         maxHeight="calc(100vh - 16rem)"
         empty={{ title: 'No reverse-charge purchases from unregistered suppliers in this period', hint: 'Masters → Ledger → Reverse charge marks a supplier; purchases from it then need a self-invoice.' }}
         exportOptions={{ title: 'RCM self-invoices', periodLabel: `${toDisplayDate(from)} to ${toDisplayDate(to)}`, filename: 'self-invoices' }}
-        trailingWidth={120}
+        trailingWidth={96}
         trailing={(r) => (
           <span className="whitespace-nowrap">
             {r.selfInvoiceNumber == null && r.status !== 'cancelled' && canEdit && (
