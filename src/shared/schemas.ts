@@ -680,3 +680,16 @@ export const stockQuerySchema = z.object({
   godownId: id.optional()
 })
 export type StockQueryInput = z.infer<typeof stockQuerySchema>
+
+/** stock:costAsOf (WP 2.1) — exact engine cost position at a voucher's date (and, for an edit,
+ *  its position among that date's vouchers), optionally pricing proposed outward lines. */
+export const stockCostAsOfSchema = z.object({
+  date: isoDate,
+  voucherId: id.optional(),
+  itemIds: z.array(id).max(2000).optional(),
+  lines: z
+    .array(z.object({ itemId: id, qtyMilli: z.number().int().nonnegative().max(1e12) }))
+    .max(500)
+    .optional()
+})
+export type StockCostAsOfInput = z.infer<typeof stockCostAsOfSchema>

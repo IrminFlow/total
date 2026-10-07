@@ -1,0 +1,5064 @@
+{
+ "lines": 5657,
+ "summary": [
+  [
+   {
+    "stockItemId": 1,
+    "name": "Fixture Item 0",
+    "unitSymbol": "Box",
+    "decimals": 0,
+    "openingQtyMilli": 3000,
+    "openingValue": 30697,
+    "inwardQtyMilli": 262207,
+    "outwardQtyMilli": 198207,
+    "closingQtyMilli": 67000,
+    "closingValue": 5142959
+   },
+   {
+    "stockItemId": 2,
+    "name": "Fixture Item 1",
+    "unitSymbol": "Box",
+    "decimals": 0,
+    "openingQtyMilli": 140000,
+    "openingValue": 6902040,
+    "inwardQtyMilli": 184060,
+    "outwardQtyMilli": 260060,
+    "closingQtyMilli": 64000,
+    "closingValue": 4058847
+   },
+   {
+    "stockItemId": 11,
+    "name": "Fixture Item 10",
+    "unitSymbol": "Box",
+    "decimals": 0,
+    "openingQtyMilli": 176000,
+    "openingValue": 3731214,
+    "inwardQtyMilli": 240358,
+    "outwardQtyMilli": 272626,
+    "closingQtyMilli": 143732,
+    "closingValue": 7627537
+   },
+   {
+    "stockItemId": 12,
+    "name": "Fixture Item 11",
+    "unitSymbol": "Box",
+    "decimals": 0,
+    "openingQtyMilli": 0,
+    "openingValue": 0,
+    "inwardQtyMilli": 97000,
+    "outwardQtyMilli": 140834,
+    "closingQtyMilli": -43834,
+    "closingValue": -1794010
+   },
+   {
+    "stockItemId": 13,
+    "name": "Fixture Item 12",
+    "unitSymbol": "Box",
+    "decimals": 0,
+    "openingQtyMilli": 31000,
+    "openingValue": 920754,
+    "inwardQtyMilli": 155000,
+    "outwardQtyMilli": 142725,
+    "closingQtyMilli": 43275,
+    "closingValue": 4209787
+   },
+   {
+    "stockItemId": 14,
+    "name": "Fixture Item 13",
+    "unitSymbol": "Box",
+    "decimals": 0,
+    "openingQtyMilli": 153000,
+    "openingValue": 1728991,
+    "inwardQtyMilli": 142000,
+    "outwardQtyMilli": 149305,
+    "closingQtyMilli": 145695,
+    "closingValue": 7005422
+   },
+   {
+    "stockItemId": 15,
+    "name": "Fixture Item 14",
+    "unitSymbol": "Box",
+    "decimals": 0,
+    "openingQtyMilli": 0,
+    "openingValue": 0,
+    "inwardQtyMilli": 12558,
+    "outwardQtyMilli": 169790,
+    "closingQtyMilli": -157232,
+    "closingValue": -894765
+   },
+   {
+    "stockItemId": 16,
+    "name": "Fixture Item 15",
+    "unitSymbol": "Box",
+    "decimals": 0,
+    "openingQtyMilli": 111000,
+    "openingValue": 6426968,
+    "inwardQtyMilli": 133000,
+    "outwardQtyMilli": 125794,
+    "closingQtyMilli": 118206,
+    "closingValue": 6153203
+   },
+   {
+    "stockItemId": 17,
+    "name": "Fixture Item 16",
+    "unitSymbol": "Box",
+    "decimals": 0,
+    "openingQtyMilli": 194000,
+    "openingValue": 11271492,
+    "inwardQtyMilli": 103000,
+    "outwardQtyMilli": 396874,
+    "closingQtyMilli": -99874,
+    "closingValue": 608887
+   },
+   {
+    "stockItemId": 18,
+    "name": "Fixture Item 17",
+    "unitSymbol": "Box",
+    "decimals": 0,
+    "openingQtyMilli": 0,
+    "openingValue": 0,
+    "inwardQtyMilli": 74000,
+    "outwardQtyMilli": 159597,
+    "closingQtyMilli": -85597,
+    "closingValue": 886435
+   },
+   {
+    "stockItemId": 19,
+    "name": "Fixture Item 18",
+    "unitSymbol": "Box",
+    "decimals": 0,
+    "openingQtyMilli": 166000,
+    "openingValue": 1394417,
+    "inwardQtyMilli": 187000,
+    "outwardQtyMilli": 310000,
+    "closingQtyMilli": 43000,
+    "closingValue": 709943
+   },
+   {
+    "stockItemId": 20,
+    "name": "Fixture Item 19",
+    "unitSymbol": "Box",
+    "decimals": 0,
+    "openingQtyMilli": 72000,
+    "openingValue": 2959202,
+    "inwardQtyMilli": 115764,
+    "outwardQtyMilli": 32980,
+    "closingQtyMilli": 154784,
+    "closingValue": 11722135
+   },
+   {
+    "stockItemId": 3,
+    "name": "Fixture Item 2",
+    "unitSymbol": "Box",
+    "decimals": 0,
+    "openingQtyMilli": 0,
+    "openingValue": 0,
+    "inwardQtyMilli": 93087,
+    "outwardQtyMilli": 103087,
+    "closingQtyMilli": -10000,
+    "closingValue": -350597
+   },
+   {
+    "stockItemId": 21,
+    "name": "Fixture Item 20",
+    "unitSymbol": "Box",
+    "decimals": 0,
+    "openingQtyMilli": 0,
+    "openingValue": 0,
+    "inwardQtyMilli": 137226,
+    "outwardQtyMilli": 235379,
+    "closingQtyMilli": -98153,
+    "closingValue": 11637292
+   },
+   {
+    "stockItemId": 22,
+    "name": "Fixture Item 21",
+    "unitSymbol": "Box",
+    "decimals": 0,
+    "openingQtyMilli": 18000,
+    "openingValue": 1265436,
+    "inwardQtyMilli": 126859,
+    "outwardQtyMilli": 199177,
+    "closingQtyMilli": -54318,
+    "closingValue": 0
+   },
+   {
+    "stockItemId": 23,
+    "name": "Fixture Item 22",
+    "unitSymbol": "Box",
+    "decimals": 0,
+    "openingQtyMilli": 86000,
+    "openingValue": 3852894,
+    "inwardQtyMilli": 142170,
+    "outwardQtyMilli": 223150,
+    "closingQtyMilli": 5020,
+    "closingValue": 77307
+   },
+   {
+    "stockItemId": 24,
+    "name": "Fixture Item 23",
+    "unitSymbol": "Box",
+    "decimals": 0,
+    "openingQtyMilli": 0,
+    "openingValue": 0,
+    "inwardQtyMilli": 114568,
+    "outwardQtyMilli": 146003,
+    "closingQtyMilli": -31435,
+    "closingValue": 858385
+   },
+   {
+    "stockItemId": 25,
+    "name": "Fixture Item 24",
+    "unitSymbol": "Box",
+    "decimals": 0,
+    "openingQtyMilli": 141000,
+    "openingValue": 8953533,
+    "inwardQtyMilli": 170580,
+    "outwardQtyMilli": 73481,
+    "closingQtyMilli": 238099,
+    "closingValue": 15527540
+   },
+   {
+    "stockItemId": 26,
+    "name": "Fixture Item 25",
+    "unitSymbol": "Box",
+    "decimals": 0,
+    "openingQtyMilli": 72000,
+    "openingValue": 1209613,
+    "inwardQtyMilli": 98721,
+    "outwardQtyMilli": 140256,
+    "closingQtyMilli": 30465,
+    "closingValue": 1447420
+   },
+   {
+    "stockItemId": 27,
+    "name": "Fixture Item 26",
+    "unitSymbol": "Box",
+    "decimals": 0,
+    "openingQtyMilli": 0,
+    "openingValue": 0,
+    "inwardQtyMilli": 141584,
+    "outwardQtyMilli": 297121,
+    "closingQtyMilli": -155537,
+    "closingValue": 8502579
+   },
+   {
+    "stockItemId": 28,
+    "name": "Fixture Item 27",
+    "unitSymbol": "Box",
+    "decimals": 0,
+    "openingQtyMilli": 183000,
+    "openingValue": 5929219,
+    "inwardQtyMilli": 237510,
+    "outwardQtyMilli": 348613,
+    "closingQtyMilli": 71897,
+    "closingValue": 6911154
+   },
+   {
+    "stockItemId": 29,
+    "name": "Fixture Item 28",
+    "unitSymbol": "Box",
+    "decimals": 0,
+    "openingQtyMilli": 127000,
+    "openingValue": 4267204,
+    "inwardQtyMilli": 57000,
+    "outwardQtyMilli": 90000,
+    "closingQtyMilli": 94000,
+    "closingValue": 4215129
+   },
+   {
+    "stockItemId": 30,
+    "name": "Fixture Item 29",
+    "unitSymbol": "Box",
+    "decimals": 0,
+    "openingQtyMilli": 0,
+    "openingValue": 0,
+    "inwardQtyMilli": 232556,
+    "outwardQtyMilli": 199556,
+    "closingQtyMilli": 33000,
+    "closingValue": 589003
+   },
+   {
+    "stockItemId": 4,
+    "name": "Fixture Item 3",
+    "unitSymbol": "Box",
+    "decimals": 0,
+    "openingQtyMilli": 94000,
+    "openingValue": 2387655,
+    "inwardQtyMilli": 171144,
+    "outwardQtyMilli": 151144,
+    "closingQtyMilli": 114000,
+    "closingValue": 8209790
+   },
+   {
+    "stockItemId": 5,
+    "name": "Fixture Item 4",
+    "unitSymbol": "Box",
+    "decimals": 0,
+    "openingQtyMilli": 146000,
+    "openingValue": 3927415,
+    "inwardQtyMilli": 148467,
+    "outwardQtyMilli": 115000,
+    "closingQtyMilli": 179467,
+    "closingValue": 8677234
+   },
+   {
+    "stockItemId": 6,
+    "name": "Fixture Item 5",
+    "unitSymbol": "Box",
+    "decimals": 0,
+    "openingQtyMilli": 0,
+    "openingValue": 0,
+    "inwardQtyMilli": 128377,
+    "outwardQtyMilli": 170296,
+    "closingQtyMilli": -41919,
+    "closingValue": -209866
+   },
+   {
+    "stockItemId": 7,
+    "name": "Fixture Item 6",
+    "unitSymbol": "Box",
+    "decimals": 0,
+    "openingQtyMilli": 153000,
+    "openingValue": 7512319,
+    "inwardQtyMilli": 190979,
+    "outwardQtyMilli": 108086,
+    "closingQtyMilli": 235893,
+    "closingValue": 12645138
+   },
+   {
+    "stockItemId": 8,
+    "name": "Fixture Item 7",
+    "unitSymbol": "Box",
+    "decimals": 0,
+    "openingQtyMilli": 74000,
+    "openingValue": 2212653,
+    "inwardQtyMilli": 85195,
+    "outwardQtyMilli": 59117,
+    "closingQtyMilli": 100078,
+    "closingValue": 4700690
+   },
+   {
+    "stockItemId": 9,
+    "name": "Fixture Item 8",
+    "unitSymbol": "Box",
+    "decimals": 0,
+    "openingQtyMilli": 0,
+    "openingValue": 0,
+    "inwardQtyMilli": 204744,
+    "outwardQtyMilli": 101544,
+    "closingQtyMilli": 103200,
+    "closingValue": -44957139
+   },
+   {
+    "stockItemId": 10,
+    "name": "Fixture Item 9",
+    "unitSymbol": "Box",
+    "decimals": 0,
+    "openingQtyMilli": 60000,
+    "openingValue": 5292024,
+    "inwardQtyMilli": 208703,
+    "outwardQtyMilli": 133127,
+    "closingQtyMilli": 135576,
+    "closingValue": 9388589
+   }
+  ],
+  [
+   {
+    "stockItemId": 1,
+    "name": "Fixture Item 0",
+    "unitSymbol": "Box",
+    "decimals": 0,
+    "openingQtyMilli": 3000,
+    "openingValue": 30697,
+    "inwardQtyMilli": 707987,
+    "outwardQtyMilli": 779830,
+    "closingQtyMilli": -68843,
+    "closingValue": 0
+   },
+   {
+    "stockItemId": 2,
+    "name": "Fixture Item 1",
+    "unitSymbol": "Box",
+    "decimals": 0,
+    "openingQtyMilli": 140000,
+    "openingValue": 6902040,
+    "inwardQtyMilli": 496573,
+    "outwardQtyMilli": 651390,
+    "closingQtyMilli": -14817,
+    "closingValue": 1298876
+   },
+   {
+    "stockItemId": 11,
+    "name": "Fixture Item 10",
+    "unitSymbol": "Box",
+    "decimals": 0,
+    "openingQtyMilli": 176000,
+    "openingValue": 3731214,
+    "inwardQtyMilli": 541218,
+    "outwardQtyMilli": 559213,
+    "closingQtyMilli": 158005,
+    "closingValue": 8861730
+   },
+   {
+    "stockItemId": 12,
+    "name": "Fixture Item 11",
+    "unitSymbol": "Box",
+    "decimals": 0,
+    "openingQtyMilli": 0,
+    "openingValue": 0,
+    "inwardQtyMilli": 417783,
+    "outwardQtyMilli": 414399,
+    "closingQtyMilli": 3384,
+    "closingValue": 4154148
+   },
+   {
+    "stockItemId": 13,
+    "name": "Fixture Item 12",
+    "unitSymbol": "Box",
+    "decimals": 0,
+    "openingQtyMilli": 31000,
+    "openingValue": 920754,
+    "inwardQtyMilli": 617364,
+    "outwardQtyMilli": 710391,
+    "closingQtyMilli": -62027,
+    "closingValue": 0
+   },
+   {
+    "stockItemId": 14,
+    "name": "Fixture Item 13",
+    "unitSymbol": "Box",
+    "decimals": 0,
+    "openingQtyMilli": 153000,
+    "openingValue": 1728991,
+    "inwardQtyMilli": 336806,
+    "outwardQtyMilli": 635312,
+    "closingQtyMilli": -145506,
+    "closingValue": 116000
+   },
+   {
+    "stockItemId": 15,
+    "name": "Fixture Item 14",
+    "unitSymbol": "Box",
+    "decimals": 0,
+    "openingQtyMilli": 0,
+    "openingValue": 0,
+    "inwardQtyMilli": 224782,
+    "outwardQtyMilli": 495065,
+    "closingQtyMilli": -270283,
+    "closingValue": 16012025
+   },
+   {
+    "stockItemId": 16,
+    "name": "Fixture Item 15",
+    "unitSymbol": "Box",
+    "decimals": 0,
+    "openingQtyMilli": 111000,
+    "openingValue": 6426968,
+    "inwardQtyMilli": 325000,
+    "outwardQtyMilli": 606807,
+    "closingQtyMilli": -170807,
+    "closingValue": 0
+   },
+   {
+    "stockItemId": 17,
+    "name": "Fixture Item 16",
+    "unitSymbol": "Box",
+    "decimals": 0,
+    "openingQtyMilli": 194000,
+    "openingValue": 11271492,
+    "inwardQtyMilli": 464185,
+    "outwardQtyMilli": 747840,
+    "closingQtyMilli": -89655,
+    "closingValue": -4046294
+   },
+   {
+    "stockItemId": 18,
+    "name": "Fixture Item 17",
+    "unitSymbol": "Box",
+    "decimals": 0,
+    "openingQtyMilli": 0,
+    "openingValue": 0,
+    "inwardQtyMilli": 629825,
+    "outwardQtyMilli": 435586,
+    "closingQtyMilli": 194239,
+    "closingValue": 9714472
+   },
+   {
+    "stockItemId": 19,
+    "name": "Fixture Item 18",
+    "unitSymbol": "Box",
+    "decimals": 0,
+    "openingQtyMilli": 166000,
+    "openingValue": 1394417,
+    "inwardQtyMilli": 527644,
+    "outwardQtyMilli": 711832,
+    "closingQtyMilli": -18188,
+    "closingValue": 0
+   },
+   {
+    "stockItemId": 20,
+    "name": "Fixture Item 19",
+    "unitSymbol": "Box",
+    "decimals": 0,
+    "openingQtyMilli": 72000,
+    "openingValue": 2959202,
+    "inwardQtyMilli": 442112,
+    "outwardQtyMilli": 530515,
+    "closingQtyMilli": -16403,
+    "closingValue": 918638
+   },
+   {
+    "stockItemId": 3,
+    "name": "Fixture Item 2",
+    "unitSymbol": "Box",
+    "decimals": 0,
+    "openingQtyMilli": 0,
+    "openingValue": 0,
+    "inwardQtyMilli": 458382,
+    "outwardQtyMilli": 481431,
+    "closingQtyMilli": -23049,
+    "closingValue": -56754
+   },
+   {
+    "stockItemId": 21,
+    "name": "Fixture Item 20",
+    "unitSymbol": "Box",
+    "decimals": 0,
+    "openingQtyMilli": 0,
+    "openingValue": 0,
+    "inwardQtyMilli": 528844,
+    "outwardQtyMilli": 600714,
+    "closingQtyMilli": -71870,
+    "closingValue": -46551961
+   },
+   {
+    "stockItemId": 22,
+    "name": "Fixture Item 21",
+    "unitSymbol": "Box",
+    "decimals": 0,
+    "openingQtyMilli": 18000,
+    "openingValue": 1265436,
+    "inwardQtyMilli": 588703,
+    "outwardQtyMilli": 547429,
+    "closingQtyMilli": 59274,
+    "closingValue": 4511262
+   },
+   {
+    "stockItemId": 23,
+    "name": "Fixture Item 22",
+    "unitSymbol": "Box",
+    "decimals": 0,
+    "openingQtyMilli": 86000,
+    "openingValue": 3852894,
+    "inwardQtyMilli": 479200,
+    "outwardQtyMilli": 408188,
+    "closingQtyMilli": 157012,
+    "closingValue": 8590323
+   },
+   {
+    "stockItemId": 24,
+    "name": "Fixture Item 23",
+    "unitSymbol": "Box",
+    "decimals": 0,
+    "openingQtyMilli": 0,
+    "openingValue": 0,
+    "inwardQtyMilli": 324357,
+    "outwardQtyMilli": 407022,
+    "closingQtyMilli": -82665,
+    "closingValue": 2785620
+   },
+   {
+    "stockItemId": 25,
+    "name": "Fixture Item 24",
+    "unitSymbol": "Box",
+    "decimals": 0,
+    "openingQtyMilli": 141000,
+    "openingValue": 8953533,
+    "inwardQtyMilli": 441967,
+    "outwardQtyMilli": 516730,
+    "closingQtyMilli": 66237,
+    "closingValue": 4601061
+   },
+   {
+    "stockItemId": 26,
+    "name": "Fixture Item 25",
+    "unitSymbol": "Box",
+    "decimals": 0,
+    "openingQtyMilli": 72000,
+    "openingValue": 1209613,
+    "inwardQtyMilli": 423001,
+    "outwardQtyMilli": 497001,
+    "closingQtyMilli": -2000,
+    "closingValue": 160147
+   },
+   {
+    "stockItemId": 27,
+    "name": "Fixture Item 26",
+    "unitSymbol": "Box",
+    "decimals": 0,
+    "openingQtyMilli": 0,
+    "openingValue": 0,
+    "inwardQtyMilli": 419048,
+    "outwardQtyMilli": 754847,
+    "closingQtyMilli": -335799,
+    "closingValue": 30155264
+   },
+   {
+    "stockItemId": 28,
+    "name": "Fixture Item 27",
+    "unitSymbol": "Box",
+    "decimals": 0,
+    "openingQtyMilli": 183000,
+    "openingValue": 5929219,
+    "inwardQtyMilli": 548841,
+    "outwardQtyMilli": 596333,
+    "closingQtyMilli": 135508,
+    "closingValue": 6290350
+   },
+   {
+    "stockItemId": 29,
+    "name": "Fixture Item 28",
+    "unitSymbol": "Box",
+    "decimals": 0,
+    "openingQtyMilli": 127000,
+    "openingValue": 4267204,
+    "inwardQtyMilli": 199819,
+    "outwardQtyMilli": 513296,
+    "closingQtyMilli": -186477,
+    "closingValue": 2279162
+   },
+   {
+    "stockItemId": 30,
+    "name": "Fixture Item 29",
+    "unitSymbol": "Box",
+    "decimals": 0,
+    "openingQtyMilli": 0,
+    "openingValue": 0,
+    "inwardQtyMilli": 509632,
+    "outwardQtyMilli": 645369,
+    "closingQtyMilli": -135737,
+    "closingValue": 10116071
+   },
+   {
+    "stockItemId": 4,
+    "name": "Fixture Item 3",
+    "unitSymbol": "Box",
+    "decimals": 0,
+    "openingQtyMilli": 94000,
+    "openingValue": 2387655,
+    "inwardQtyMilli": 523894,
+    "outwardQtyMilli": 658248,
+    "closingQtyMilli": -40354,
+    "closingValue": 0
+   },
+   {
+    "stockItemId": 5,
+    "name": "Fixture Item 4",
+    "unitSymbol": "Box",
+    "decimals": 0,
+    "openingQtyMilli": 146000,
+    "openingValue": 3927415,
+    "inwardQtyMilli": 442629,
+    "outwardQtyMilli": 524231,
+    "closingQtyMilli": 64398,
+    "closingValue": 4788425
+   },
+   {
+    "stockItemId": 6,
+    "name": "Fixture Item 5",
+    "unitSymbol": "Box",
+    "decimals": 0,
+    "openingQtyMilli": 0,
+    "openingValue": 0,
+    "inwardQtyMilli": 603573,
+    "outwardQtyMilli": 613573,
+    "closingQtyMilli": -10000,
+    "closingValue": -1126928
+   },
+   {
+    "stockItemId": 7,
+    "name": "Fixture Item 6",
+    "unitSymbol": "Box",
+    "decimals": 0,
+    "openingQtyMilli": 153000,
+    "openingValue": 7512319,
+    "inwardQtyMilli": 653478,
+    "outwardQtyMilli": 751478,
+    "closingQtyMilli": 55000,
+    "closingValue": 4124207
+   },
+   {
+    "stockItemId": 8,
+    "name": "Fixture Item 7",
+    "unitSymbol": "Box",
+    "decimals": 0,
+    "openingQtyMilli": 74000,
+    "openingValue": 2212653,
+    "inwardQtyMilli": 429576,
+    "outwardQtyMilli": 362961,
+    "closingQtyMilli": 140615,
+    "closingValue": 10489317
+   },
+   {
+    "stockItemId": 9,
+    "name": "Fixture Item 8",
+    "unitSymbol": "Box",
+    "decimals": 0,
+    "openingQtyMilli": 0,
+    "openingValue": 0,
+    "inwardQtyMilli": 692833,
+    "outwardQtyMilli": 494072,
+    "closingQtyMilli": 198761,
+    "closingValue": 7337055
+   },
+   {
+    "stockItemId": 10,
+    "name": "Fixture Item 9",
+    "unitSymbol": "Box",
+    "decimals": 0,
+    "openingQtyMilli": 60000,
+    "openingValue": 5292024,
+    "inwardQtyMilli": 523614,
+    "outwardQtyMilli": 398320,
+    "closingQtyMilli": 185294,
+    "closingValue": 7726368
+   }
+  ],
+  [
+   {
+    "stockItemId": 1,
+    "name": "Fixture Item 0",
+    "unitSymbol": "Box",
+    "decimals": 0,
+    "openingQtyMilli": 3000,
+    "openingValue": 30697,
+    "inwardQtyMilli": 1289255,
+    "outwardQtyMilli": 1181383,
+    "closingQtyMilli": 110872,
+    "closingValue": 8971634
+   },
+   {
+    "stockItemId": 2,
+    "name": "Fixture Item 1",
+    "unitSymbol": "Box",
+    "decimals": 0,
+    "openingQtyMilli": 140000,
+    "openingValue": 6902040,
+    "inwardQtyMilli": 1099940,
+    "outwardQtyMilli": 1088243,
+    "closingQtyMilli": 151697,
+    "closingValue": 8329341
+   },
+   {
+    "stockItemId": 11,
+    "name": "Fixture Item 10",
+    "unitSymbol": "Box",
+    "decimals": 0,
+    "openingQtyMilli": 176000,
+    "openingValue": 3731214,
+    "inwardQtyMilli": 952265,
+    "outwardQtyMilli": 1165000,
+    "closingQtyMilli": -36735,
+    "closingValue": 301091
+   },
+   {
+    "stockItemId": 12,
+    "name": "Fixture Item 11",
+    "unitSymbol": "Box",
+    "decimals": 0,
+    "openingQtyMilli": 0,
+    "openingValue": 0,
+    "inwardQtyMilli": 1033450,
+    "outwardQtyMilli": 1009052,
+    "closingQtyMilli": 24398,
+    "closingValue": 280643
+   },
+   {
+    "stockItemId": 13,
+    "name": "Fixture Item 12",
+    "unitSymbol": "Box",
+    "decimals": 0,
+    "openingQtyMilli": 31000,
+    "openingValue": 920754,
+    "inwardQtyMilli": 1192782,
+    "outwardQtyMilli": 1231703,
+    "closingQtyMilli": -7921,
+    "closingValue": 0
+   },
+   {
+    "stockItemId": 14,
+    "name": "Fixture Item 13",
+    "unitSymbol": "Box",
+    "decimals": 0,
+    "openingQtyMilli": 153000,
+    "openingValue": 1728991,
+    "inwardQtyMilli": 1128717,
+    "outwardQtyMilli": 1227863,
+    "closingQtyMilli": 53854,
+    "closingValue": 1040962
+   },
+   {
+    "stockItemId": 15,
+    "name": "Fixture Item 14",
+    "unitSymbol": "Box",
+    "decimals": 0,
+    "openingQtyMilli": 0,
+    "openingValue": 0,
+    "inwardQtyMilli": 967450,
+    "outwardQtyMilli": 1000141,
+    "closingQtyMilli": -32691,
+    "closingValue": 67227
+   },
+   {
+    "stockItemId": 16,
+    "name": "Fixture Item 15",
+    "unitSymbol": "Box",
+    "decimals": 0,
+    "openingQtyMilli": 111000,
+    "openingValue": 6426968,
+    "inwardQtyMilli": 920043,
+    "outwardQtyMilli": 984043,
+    "closingQtyMilli": 47000,
+    "closingValue": 0
+   },
+   {
+    "stockItemId": 17,
+    "name": "Fixture Item 16",
+    "unitSymbol": "Box",
+    "decimals": 0,
+    "openingQtyMilli": 194000,
+    "openingValue": 11271492,
+    "inwardQtyMilli": 1166020,
+    "outwardQtyMilli": 1301020,
+    "closingQtyMilli": 59000,
+    "closingValue": 3177433
+   },
+   {
+    "stockItemId": 18,
+    "name": "Fixture Item 17",
+    "unitSymbol": "Box",
+    "decimals": 0,
+    "openingQtyMilli": 0,
+    "openingValue": 0,
+    "inwardQtyMilli": 1129471,
+    "outwardQtyMilli": 977410,
+    "closingQtyMilli": 152061,
+    "closingValue": 6125821
+   },
+   {
+    "stockItemId": 19,
+    "name": "Fixture Item 18",
+    "unitSymbol": "Box",
+    "decimals": 0,
+    "openingQtyMilli": 166000,
+    "openingValue": 1394417,
+    "inwardQtyMilli": 1119295,
+    "outwardQtyMilli": 1212679,
+    "closingQtyMilli": 72616,
+    "closingValue": 5273319
+   },
+   {
+    "stockItemId": 20,
+    "name": "Fixture Item 19",
+    "unitSymbol": "Box",
+    "decimals": 0,
+    "openingQtyMilli": 72000,
+    "openingValue": 2959202,
+    "inwardQtyMilli": 1010761,
+    "outwardQtyMilli": 1070613,
+    "closingQtyMilli": 12148,
+    "closingValue": 872160
+   },
+   {
+    "stockItemId": 3,
+    "name": "Fixture Item 2",
+    "unitSymbol": "Box",
+    "decimals": 0,
+    "openingQtyMilli": 0,
+    "openingValue": 0,
+    "inwardQtyMilli": 1104416,
+    "outwardQtyMilli": 1058416,
+    "closingQtyMilli": 46000,
+    "closingValue": 3227713
+   },
+   {
+    "stockItemId": 21,
+    "name": "Fixture Item 20",
+    "unitSymbol": "Box",
+    "decimals": 0,
+    "openingQtyMilli": 0,
+    "openingValue": 0,
+    "inwardQtyMilli": 1200675,
+    "outwardQtyMilli": 1126799,
+    "closingQtyMilli": 73876,
+    "closingValue": -1417923
+   },
+   {
+    "stockItemId": 22,
+    "name": "Fixture Item 21",
+    "unitSymbol": "Box",
+    "decimals": 0,
+    "openingQtyMilli": 18000,
+    "openingValue": 1265436,
+    "inwardQtyMilli": 1041030,
+    "outwardQtyMilli": 1053726,
+    "closingQtyMilli": 5304,
+    "closingValue": 531996
+   },
+   {
+    "stockItemId": 23,
+    "name": "Fixture Item 22",
+    "unitSymbol": "Box",
+    "decimals": 0,
+    "openingQtyMilli": 86000,
+    "openingValue": 3852894,
+    "inwardQtyMilli": 914245,
+    "outwardQtyMilli": 857162,
+    "closingQtyMilli": 143083,
+    "closingValue": 9150585
+   },
+   {
+    "stockItemId": 24,
+    "name": "Fixture Item 23",
+    "unitSymbol": "Box",
+    "decimals": 0,
+    "openingQtyMilli": 0,
+    "openingValue": 0,
+    "inwardQtyMilli": 896699,
+    "outwardQtyMilli": 877271,
+    "closingQtyMilli": 19428,
+    "closingValue": 18402274
+   },
+   {
+    "stockItemId": 25,
+    "name": "Fixture Item 24",
+    "unitSymbol": "Box",
+    "decimals": 0,
+    "openingQtyMilli": 141000,
+    "openingValue": 8953533,
+    "inwardQtyMilli": 978660,
+    "outwardQtyMilli": 1119568,
+    "closingQtyMilli": 92,
+    "closingValue": 1840
+   },
+   {
+    "stockItemId": 26,
+    "name": "Fixture Item 25",
+    "unitSymbol": "Box",
+    "decimals": 0,
+    "openingQtyMilli": 72000,
+    "openingValue": 1209613,
+    "inwardQtyMilli": 862289,
+    "outwardQtyMilli": 850057,
+    "closingQtyMilli": 84232,
+    "closingValue": 4232188
+   },
+   {
+    "stockItemId": 27,
+    "name": "Fixture Item 26",
+    "unitSymbol": "Box",
+    "decimals": 0,
+    "openingQtyMilli": 0,
+    "openingValue": 0,
+    "inwardQtyMilli": 1231159,
+    "outwardQtyMilli": 1304513,
+    "closingQtyMilli": -73354,
+    "closingValue": 446429
+   },
+   {
+    "stockItemId": 28,
+    "name": "Fixture Item 27",
+    "unitSymbol": "Box",
+    "decimals": 0,
+    "openingQtyMilli": 183000,
+    "openingValue": 5929219,
+    "inwardQtyMilli": 1004365,
+    "outwardQtyMilli": 1305802,
+    "closingQtyMilli": -118437,
+    "closingValue": 0
+   },
+   {
+    "stockItemId": 29,
+    "name": "Fixture Item 28",
+    "unitSymbol": "Box",
+    "decimals": 0,
+    "openingQtyMilli": 127000,
+    "openingValue": 4267204,
+    "inwardQtyMilli": 1025303,
+    "outwardQtyMilli": 1140303,
+    "closingQtyMilli": 12000,
+    "closingValue": 479762
+   },
+   {
+    "stockItemId": 30,
+    "name": "Fixture Item 29",
+    "unitSymbol": "Box",
+    "decimals": 0,
+    "openingQtyMilli": 0,
+    "openingValue": 0,
+    "inwardQtyMilli": 1228972,
+    "outwardQtyMilli": 1176190,
+    "closingQtyMilli": 52782,
+    "closingValue": 4073108
+   },
+   {
+    "stockItemId": 4,
+    "name": "Fixture Item 3",
+    "unitSymbol": "Box",
+    "decimals": 0,
+    "openingQtyMilli": 94000,
+    "openingValue": 2387655,
+    "inwardQtyMilli": 1408991,
+    "outwardQtyMilli": 1410991,
+    "closingQtyMilli": 92000,
+    "closingValue": 6065758
+   },
+   {
+    "stockItemId": 5,
+    "name": "Fixture Item 4",
+    "unitSymbol": "Box",
+    "decimals": 0,
+    "openingQtyMilli": 146000,
+    "openingValue": 3927415,
+    "inwardQtyMilli": 1171630,
+    "outwardQtyMilli": 1268177,
+    "closingQtyMilli": 49453,
+    "closingValue": -35284
+   },
+   {
+    "stockItemId": 6,
+    "name": "Fixture Item 5",
+    "unitSymbol": "Box",
+    "decimals": 0,
+    "openingQtyMilli": 0,
+    "openingValue": 0,
+    "inwardQtyMilli": 1362897,
+    "outwardQtyMilli": 1293209,
+    "closingQtyMilli": 69688,
+    "closingValue": 3393746
+   },
+   {
+    "stockItemId": 7,
+    "name": "Fixture Item 6",
+    "unitSymbol": "Box",
+    "decimals": 0,
+    "openingQtyMilli": 153000,
+    "openingValue": 7512319,
+    "inwardQtyMilli": 1060465,
+    "outwardQtyMilli": 1217465,
+    "closingQtyMilli": -4000,
+    "closingValue": 0
+   },
+   {
+    "stockItemId": 8,
+    "name": "Fixture Item 7",
+    "unitSymbol": "Box",
+    "decimals": 0,
+    "openingQtyMilli": 74000,
+    "openingValue": 2212653,
+    "inwardQtyMilli": 988304,
+    "outwardQtyMilli": 1058304,
+    "closingQtyMilli": 4000,
+    "closingValue": 43177877
+   },
+   {
+    "stockItemId": 9,
+    "name": "Fixture Item 8",
+    "unitSymbol": "Box",
+    "decimals": 0,
+    "openingQtyMilli": 0,
+    "openingValue": 0,
+    "inwardQtyMilli": 1192163,
+    "outwardQtyMilli": 1233055,
+    "closingQtyMilli": -40892,
+    "closingValue": -5181796
+   },
+   {
+    "stockItemId": 10,
+    "name": "Fixture Item 9",
+    "unitSymbol": "Box",
+    "decimals": 0,
+    "openingQtyMilli": 60000,
+    "openingValue": 5292024,
+    "inwardQtyMilli": 848916,
+    "outwardQtyMilli": 773508,
+    "closingQtyMilli": 135408,
+    "closingValue": 8574959
+   }
+  ],
+  [
+   {
+    "stockItemId": 1,
+    "name": "Fixture Item 0",
+    "unitSymbol": "Box",
+    "decimals": 0,
+    "openingQtyMilli": 3000,
+    "openingValue": 30697,
+    "inwardQtyMilli": 1684478,
+    "outwardQtyMilli": 1796478,
+    "closingQtyMilli": -109000,
+    "closingValue": 0
+   },
+   {
+    "stockItemId": 2,
+    "name": "Fixture Item 1",
+    "unitSymbol": "Box",
+    "decimals": 0,
+    "openingQtyMilli": 140000,
+    "openingValue": 6902040,
+    "inwardQtyMilli": 1565338,
+    "outwardQtyMilli": 1773466,
+    "closingQtyMilli": -68128,
+    "closingValue": 578885
+   },
+   {
+    "stockItemId": 11,
+    "name": "Fixture Item 10",
+    "unitSymbol": "Box",
+    "decimals": 0,
+    "openingQtyMilli": 176000,
+    "openingValue": 3731214,
+    "inwardQtyMilli": 1256265,
+    "outwardQtyMilli": 1468445,
+    "closingQtyMilli": -36180,
+    "closingValue": 21540737
+   },
+   {
+    "stockItemId": 12,
+    "name": "Fixture Item 11",
+    "unitSymbol": "Box",
+    "decimals": 0,
+    "openingQtyMilli": 0,
+    "openingValue": 0,
+    "inwardQtyMilli": 1514322,
+    "outwardQtyMilli": 1546372,
+    "closingQtyMilli": -32050,
+    "closingValue": 1660983
+   },
+   {
+    "stockItemId": 13,
+    "name": "Fixture Item 12",
+    "unitSymbol": "Box",
+    "decimals": 0,
+    "openingQtyMilli": 31000,
+    "openingValue": 920754,
+    "inwardQtyMilli": 1642979,
+    "outwardQtyMilli": 1743714,
+    "closingQtyMilli": -69735,
+    "closingValue": 0
+   },
+   {
+    "stockItemId": 14,
+    "name": "Fixture Item 13",
+    "unitSymbol": "Box",
+    "decimals": 0,
+    "openingQtyMilli": 153000,
+    "openingValue": 1728991,
+    "inwardQtyMilli": 1716156,
+    "outwardQtyMilli": 1716849,
+    "closingQtyMilli": 152307,
+    "closingValue": 9125929
+   },
+   {
+    "stockItemId": 15,
+    "name": "Fixture Item 14",
+    "unitSymbol": "Box",
+    "decimals": 0,
+    "openingQtyMilli": 0,
+    "openingValue": 0,
+    "inwardQtyMilli": 1868922,
+    "outwardQtyMilli": 1726993,
+    "closingQtyMilli": 141929,
+    "closingValue": 20543848
+   },
+   {
+    "stockItemId": 16,
+    "name": "Fixture Item 15",
+    "unitSymbol": "Box",
+    "decimals": 0,
+    "openingQtyMilli": 111000,
+    "openingValue": 6426968,
+    "inwardQtyMilli": 1366886,
+    "outwardQtyMilli": 1495553,
+    "closingQtyMilli": -17667,
+    "closingValue": 0
+   },
+   {
+    "stockItemId": 17,
+    "name": "Fixture Item 16",
+    "unitSymbol": "Box",
+    "decimals": 0,
+    "openingQtyMilli": 194000,
+    "openingValue": 11271492,
+    "inwardQtyMilli": 1808765,
+    "outwardQtyMilli": 1914597,
+    "closingQtyMilli": 88168,
+    "closingValue": 3248963
+   },
+   {
+    "stockItemId": 18,
+    "name": "Fixture Item 17",
+    "unitSymbol": "Box",
+    "decimals": 0,
+    "openingQtyMilli": 0,
+    "openingValue": 0,
+    "inwardQtyMilli": 1620343,
+    "outwardQtyMilli": 1654512,
+    "closingQtyMilli": -34169,
+    "closingValue": 937408
+   },
+   {
+    "stockItemId": 19,
+    "name": "Fixture Item 18",
+    "unitSymbol": "Box",
+    "decimals": 0,
+    "openingQtyMilli": 166000,
+    "openingValue": 1394417,
+    "inwardQtyMilli": 1519034,
+    "outwardQtyMilli": 1575571,
+    "closingQtyMilli": 109463,
+    "closingValue": 6617107
+   },
+   {
+    "stockItemId": 20,
+    "name": "Fixture Item 19",
+    "unitSymbol": "Box",
+    "decimals": 0,
+    "openingQtyMilli": 72000,
+    "openingValue": 2959202,
+    "inwardQtyMilli": 1534867,
+    "outwardQtyMilli": 1699966,
+    "closingQtyMilli": -93099,
+    "closingValue": 5762745
+   },
+   {
+    "stockItemId": 3,
+    "name": "Fixture Item 2",
+    "unitSymbol": "Box",
+    "decimals": 0,
+    "openingQtyMilli": 0,
+    "openingValue": 0,
+    "inwardQtyMilli": 1795740,
+    "outwardQtyMilli": 1826740,
+    "closingQtyMilli": -31000,
+    "closingValue": -1353631
+   },
+   {
+    "stockItemId": 21,
+    "name": "Fixture Item 20",
+    "unitSymbol": "Box",
+    "decimals": 0,
+    "openingQtyMilli": 0,
+    "openingValue": 0,
+    "inwardQtyMilli": 1954502,
+    "outwardQtyMilli": 1785502,
+    "closingQtyMilli": 169000,
+    "closingValue": 4724221
+   },
+   {
+    "stockItemId": 22,
+    "name": "Fixture Item 21",
+    "unitSymbol": "Box",
+    "decimals": 0,
+    "openingQtyMilli": 18000,
+    "openingValue": 1265436,
+    "inwardQtyMilli": 1619799,
+    "outwardQtyMilli": 1381291,
+    "closingQtyMilli": 256508,
+    "closingValue": 17164062
+   },
+   {
+    "stockItemId": 23,
+    "name": "Fixture Item 22",
+    "unitSymbol": "Box",
+    "decimals": 0,
+    "openingQtyMilli": 86000,
+    "openingValue": 3852894,
+    "inwardQtyMilli": 1424949,
+    "outwardQtyMilli": 1426338,
+    "closingQtyMilli": 84611,
+    "closingValue": 5152116
+   },
+   {
+    "stockItemId": 24,
+    "name": "Fixture Item 23",
+    "unitSymbol": "Box",
+    "decimals": 0,
+    "openingQtyMilli": 0,
+    "openingValue": 0,
+    "inwardQtyMilli": 1264107,
+    "outwardQtyMilli": 1352667,
+    "closingQtyMilli": -88560,
+    "closingValue": -39734982
+   },
+   {
+    "stockItemId": 25,
+    "name": "Fixture Item 24",
+    "unitSymbol": "Box",
+    "decimals": 0,
+    "openingQtyMilli": 141000,
+    "openingValue": 8953533,
+    "inwardQtyMilli": 1473396,
+    "outwardQtyMilli": 1558396,
+    "closingQtyMilli": 56000,
+    "closingValue": 4755984
+   },
+   {
+    "stockItemId": 26,
+    "name": "Fixture Item 25",
+    "unitSymbol": "Box",
+    "decimals": 0,
+    "openingQtyMilli": 72000,
+    "openingValue": 1209613,
+    "inwardQtyMilli": 1322084,
+    "outwardQtyMilli": 1341499,
+    "closingQtyMilli": 52585,
+    "closingValue": 2887682
+   },
+   {
+    "stockItemId": 27,
+    "name": "Fixture Item 26",
+    "unitSymbol": "Box",
+    "decimals": 0,
+    "openingQtyMilli": 0,
+    "openingValue": 0,
+    "inwardQtyMilli": 1661655,
+    "outwardQtyMilli": 1645348,
+    "closingQtyMilli": 16307,
+    "closingValue": 1627604
+   },
+   {
+    "stockItemId": 28,
+    "name": "Fixture Item 27",
+    "unitSymbol": "Box",
+    "decimals": 0,
+    "openingQtyMilli": 183000,
+    "openingValue": 5929219,
+    "inwardQtyMilli": 1706788,
+    "outwardQtyMilli": 1786298,
+    "closingQtyMilli": 103490,
+    "closingValue": 4327186
+   },
+   {
+    "stockItemId": 29,
+    "name": "Fixture Item 28",
+    "unitSymbol": "Box",
+    "decimals": 0,
+    "openingQtyMilli": 127000,
+    "openingValue": 4267204,
+    "inwardQtyMilli": 1645000,
+    "outwardQtyMilli": 1670782,
+    "closingQtyMilli": 101218,
+    "closingValue": 6933899
+   },
+   {
+    "stockItemId": 30,
+    "name": "Fixture Item 29",
+    "unitSymbol": "Box",
+    "decimals": 0,
+    "openingQtyMilli": 0,
+    "openingValue": 0,
+    "inwardQtyMilli": 2047158,
+    "outwardQtyMilli": 1866948,
+    "closingQtyMilli": 180210,
+    "closingValue": 11434921
+   },
+   {
+    "stockItemId": 4,
+    "name": "Fixture Item 3",
+    "unitSymbol": "Box",
+    "decimals": 0,
+    "openingQtyMilli": 94000,
+    "openingValue": 2387655,
+    "inwardQtyMilli": 1805087,
+    "outwardQtyMilli": 2003791,
+    "closingQtyMilli": -104704,
+    "closingValue": 0
+   },
+   {
+    "stockItemId": 5,
+    "name": "Fixture Item 4",
+    "unitSymbol": "Box",
+    "decimals": 0,
+    "openingQtyMilli": 146000,
+    "openingValue": 3927415,
+    "inwardQtyMilli": 1854566,
+    "outwardQtyMilli": 1737714,
+    "closingQtyMilli": 262852,
+    "closingValue": 16474546
+   },
+   {
+    "stockItemId": 6,
+    "name": "Fixture Item 5",
+    "unitSymbol": "Box",
+    "decimals": 0,
+    "openingQtyMilli": 0,
+    "openingValue": 0,
+    "inwardQtyMilli": 1826543,
+    "outwardQtyMilli": 1818543,
+    "closingQtyMilli": 8000,
+    "closingValue": 4076536
+   },
+   {
+    "stockItemId": 7,
+    "name": "Fixture Item 6",
+    "unitSymbol": "Box",
+    "decimals": 0,
+    "openingQtyMilli": 153000,
+    "openingValue": 7512319,
+    "inwardQtyMilli": 1657028,
+    "outwardQtyMilli": 1630086,
+    "closingQtyMilli": 179942,
+    "closingValue": 11103558
+   },
+   {
+    "stockItemId": 8,
+    "name": "Fixture Item 7",
+    "unitSymbol": "Box",
+    "decimals": 0,
+    "openingQtyMilli": 74000,
+    "openingValue": 2212653,
+    "inwardQtyMilli": 1474555,
+    "outwardQtyMilli": 1391960,
+    "closingQtyMilli": 156595,
+    "closingValue": 9543245
+   },
+   {
+    "stockItemId": 9,
+    "name": "Fixture Item 8",
+    "unitSymbol": "Box",
+    "decimals": 0,
+    "openingQtyMilli": 0,
+    "openingValue": 0,
+    "inwardQtyMilli": 1837877,
+    "outwardQtyMilli": 1818793,
+    "closingQtyMilli": 19084,
+    "closingValue": 1183255
+   },
+   {
+    "stockItemId": 10,
+    "name": "Fixture Item 9",
+    "unitSymbol": "Box",
+    "decimals": 0,
+    "openingQtyMilli": 60000,
+    "openingValue": 5292024,
+    "inwardQtyMilli": 1574478,
+    "outwardQtyMilli": 1626412,
+    "closingQtyMilli": 8066,
+    "closingValue": 488325
+   }
+  ],
+  [
+   {
+    "stockItemId": 1,
+    "name": "Fixture Item 0",
+    "unitSymbol": "Box",
+    "decimals": 0,
+    "openingQtyMilli": 3000,
+    "openingValue": 30697,
+    "inwardQtyMilli": 2366167,
+    "outwardQtyMilli": 2411867,
+    "closingQtyMilli": -42700,
+    "closingValue": 0
+   },
+   {
+    "stockItemId": 2,
+    "name": "Fixture Item 1",
+    "unitSymbol": "Box",
+    "decimals": 0,
+    "openingQtyMilli": 140000,
+    "openingValue": 6902040,
+    "inwardQtyMilli": 2147897,
+    "outwardQtyMilli": 2062897,
+    "closingQtyMilli": 225000,
+    "closingValue": 12726095
+   },
+   {
+    "stockItemId": 11,
+    "name": "Fixture Item 10",
+    "unitSymbol": "Box",
+    "decimals": 0,
+    "openingQtyMilli": 176000,
+    "openingValue": 3731214,
+    "inwardQtyMilli": 1939464,
+    "outwardQtyMilli": 2014303,
+    "closingQtyMilli": 101161,
+    "closingValue": 9183368
+   },
+   {
+    "stockItemId": 12,
+    "name": "Fixture Item 11",
+    "unitSymbol": "Box",
+    "decimals": 0,
+    "openingQtyMilli": 0,
+    "openingValue": 0,
+    "inwardQtyMilli": 1884852,
+    "outwardQtyMilli": 1842589,
+    "closingQtyMilli": 42263,
+    "closingValue": 1475937
+   },
+   {
+    "stockItemId": 13,
+    "name": "Fixture Item 12",
+    "unitSymbol": "Box",
+    "decimals": 0,
+    "openingQtyMilli": 31000,
+    "openingValue": 920754,
+    "inwardQtyMilli": 2053445,
+    "outwardQtyMilli": 1957813,
+    "closingQtyMilli": 126632,
+    "closingValue": 8375552
+   },
+   {
+    "stockItemId": 14,
+    "name": "Fixture Item 13",
+    "unitSymbol": "Box",
+    "decimals": 0,
+    "openingQtyMilli": 153000,
+    "openingValue": 1728991,
+    "inwardQtyMilli": 2112520,
+    "outwardQtyMilli": 2202635,
+    "closingQtyMilli": 62885,
+    "closingValue": 4374349
+   },
+   {
+    "stockItemId": 15,
+    "name": "Fixture Item 14",
+    "unitSymbol": "Box",
+    "decimals": 0,
+    "openingQtyMilli": 0,
+    "openingValue": 0,
+    "inwardQtyMilli": 2097390,
+    "outwardQtyMilli": 2121163,
+    "closingQtyMilli": -23773,
+    "closingValue": -603947
+   },
+   {
+    "stockItemId": 16,
+    "name": "Fixture Item 15",
+    "unitSymbol": "Box",
+    "decimals": 0,
+    "openingQtyMilli": 111000,
+    "openingValue": 6426968,
+    "inwardQtyMilli": 1732946,
+    "outwardQtyMilli": 1963283,
+    "closingQtyMilli": -119337,
+    "closingValue": 0
+   },
+   {
+    "stockItemId": 17,
+    "name": "Fixture Item 16",
+    "unitSymbol": "Box",
+    "decimals": 0,
+    "openingQtyMilli": 194000,
+    "openingValue": 11271492,
+    "inwardQtyMilli": 2151584,
+    "outwardQtyMilli": 2443980,
+    "closingQtyMilli": -98396,
+    "closingValue": 0
+   },
+   {
+    "stockItemId": 18,
+    "name": "Fixture Item 17",
+    "unitSymbol": "Box",
+    "decimals": 0,
+    "openingQtyMilli": 0,
+    "openingValue": 0,
+    "inwardQtyMilli": 2029340,
+    "outwardQtyMilli": 2031340,
+    "closingQtyMilli": -2000,
+    "closingValue": -366210
+   },
+   {
+    "stockItemId": 19,
+    "name": "Fixture Item 18",
+    "unitSymbol": "Box",
+    "decimals": 0,
+    "openingQtyMilli": 166000,
+    "openingValue": 1394417,
+    "inwardQtyMilli": 1931401,
+    "outwardQtyMilli": 2094401,
+    "closingQtyMilli": 3000,
+    "closingValue": 135092
+   },
+   {
+    "stockItemId": 20,
+    "name": "Fixture Item 19",
+    "unitSymbol": "Box",
+    "decimals": 0,
+    "openingQtyMilli": 72000,
+    "openingValue": 2959202,
+    "inwardQtyMilli": 1954142,
+    "outwardQtyMilli": 2043995,
+    "closingQtyMilli": -17853,
+    "closingValue": -449727
+   },
+   {
+    "stockItemId": 3,
+    "name": "Fixture Item 2",
+    "unitSymbol": "Box",
+    "decimals": 0,
+    "openingQtyMilli": 0,
+    "openingValue": 0,
+    "inwardQtyMilli": 2194750,
+    "outwardQtyMilli": 2164390,
+    "closingQtyMilli": 30360,
+    "closingValue": 5740236
+   },
+   {
+    "stockItemId": 21,
+    "name": "Fixture Item 20",
+    "unitSymbol": "Box",
+    "decimals": 0,
+    "openingQtyMilli": 0,
+    "openingValue": 0,
+    "inwardQtyMilli": 2256793,
+    "outwardQtyMilli": 2286824,
+    "closingQtyMilli": -30031,
+    "closingValue": 4090475
+   },
+   {
+    "stockItemId": 22,
+    "name": "Fixture Item 21",
+    "unitSymbol": "Box",
+    "decimals": 0,
+    "openingQtyMilli": 18000,
+    "openingValue": 1265436,
+    "inwardQtyMilli": 2103773,
+    "outwardQtyMilli": 1988450,
+    "closingQtyMilli": 133323,
+    "closingValue": 7282897
+   },
+   {
+    "stockItemId": 23,
+    "name": "Fixture Item 22",
+    "unitSymbol": "Box",
+    "decimals": 0,
+    "openingQtyMilli": 86000,
+    "openingValue": 3852894,
+    "inwardQtyMilli": 1724005,
+    "outwardQtyMilli": 1919009,
+    "closingQtyMilli": -109004,
+    "closingValue": 1439693
+   },
+   {
+    "stockItemId": 24,
+    "name": "Fixture Item 23",
+    "unitSymbol": "Box",
+    "decimals": 0,
+    "openingQtyMilli": 0,
+    "openingValue": 0,
+    "inwardQtyMilli": 1723621,
+    "outwardQtyMilli": 1706215,
+    "closingQtyMilli": 17406,
+    "closingValue": 1766928
+   },
+   {
+    "stockItemId": 25,
+    "name": "Fixture Item 24",
+    "unitSymbol": "Box",
+    "decimals": 0,
+    "openingQtyMilli": 141000,
+    "openingValue": 8953533,
+    "inwardQtyMilli": 1881605,
+    "outwardQtyMilli": 2153513,
+    "closingQtyMilli": -130908,
+    "closingValue": 0
+   },
+   {
+    "stockItemId": 26,
+    "name": "Fixture Item 25",
+    "unitSymbol": "Box",
+    "decimals": 0,
+    "openingQtyMilli": 72000,
+    "openingValue": 1209613,
+    "inwardQtyMilli": 1777979,
+    "outwardQtyMilli": 1843653,
+    "closingQtyMilli": 6326,
+    "closingValue": 4547740
+   },
+   {
+    "stockItemId": 27,
+    "name": "Fixture Item 26",
+    "unitSymbol": "Box",
+    "decimals": 0,
+    "openingQtyMilli": 0,
+    "openingValue": 0,
+    "inwardQtyMilli": 2181853,
+    "outwardQtyMilli": 2184720,
+    "closingQtyMilli": -2867,
+    "closingValue": -76572583
+   },
+   {
+    "stockItemId": 28,
+    "name": "Fixture Item 27",
+    "unitSymbol": "Box",
+    "decimals": 0,
+    "openingQtyMilli": 183000,
+    "openingValue": 5929219,
+    "inwardQtyMilli": 2139692,
+    "outwardQtyMilli": 2324975,
+    "closingQtyMilli": -2283,
+    "closingValue": 0
+   },
+   {
+    "stockItemId": 29,
+    "name": "Fixture Item 28",
+    "unitSymbol": "Box",
+    "decimals": 0,
+    "openingQtyMilli": 127000,
+    "openingValue": 4267204,
+    "inwardQtyMilli": 2116662,
+    "outwardQtyMilli": 2086715,
+    "closingQtyMilli": 156947,
+    "closingValue": 11033445
+   },
+   {
+    "stockItemId": 30,
+    "name": "Fixture Item 29",
+    "unitSymbol": "Box",
+    "decimals": 0,
+    "openingQtyMilli": 0,
+    "openingValue": 0,
+    "inwardQtyMilli": 2419447,
+    "outwardQtyMilli": 2436479,
+    "closingQtyMilli": -17032,
+    "closingValue": 561306
+   },
+   {
+    "stockItemId": 4,
+    "name": "Fixture Item 3",
+    "unitSymbol": "Box",
+    "decimals": 0,
+    "openingQtyMilli": 94000,
+    "openingValue": 2387655,
+    "inwardQtyMilli": 2202506,
+    "outwardQtyMilli": 2359779,
+    "closingQtyMilli": -63273,
+    "closingValue": 0
+   },
+   {
+    "stockItemId": 5,
+    "name": "Fixture Item 4",
+    "unitSymbol": "Box",
+    "decimals": 0,
+    "openingQtyMilli": 146000,
+    "openingValue": 3927415,
+    "inwardQtyMilli": 2226323,
+    "outwardQtyMilli": 2157852,
+    "closingQtyMilli": 214471,
+    "closingValue": 15961881
+   },
+   {
+    "stockItemId": 6,
+    "name": "Fixture Item 5",
+    "unitSymbol": "Box",
+    "decimals": 0,
+    "openingQtyMilli": 0,
+    "openingValue": 0,
+    "inwardQtyMilli": 2420507,
+    "outwardQtyMilli": 2454507,
+    "closingQtyMilli": -34000,
+    "closingValue": 51547882
+   },
+   {
+    "stockItemId": 7,
+    "name": "Fixture Item 6",
+    "unitSymbol": "Box",
+    "decimals": 0,
+    "openingQtyMilli": 153000,
+    "openingValue": 7512319,
+    "inwardQtyMilli": 2003669,
+    "outwardQtyMilli": 2009402,
+    "closingQtyMilli": 147267,
+    "closingValue": 11652791
+   },
+   {
+    "stockItemId": 8,
+    "name": "Fixture Item 7",
+    "unitSymbol": "Box",
+    "decimals": 0,
+    "openingQtyMilli": 74000,
+    "openingValue": 2212653,
+    "inwardQtyMilli": 1770016,
+    "outwardQtyMilli": 1824076,
+    "closingQtyMilli": 19940,
+    "closingValue": 1964906
+   },
+   {
+    "stockItemId": 9,
+    "name": "Fixture Item 8",
+    "unitSymbol": "Box",
+    "decimals": 0,
+    "openingQtyMilli": 0,
+    "openingValue": 0,
+    "inwardQtyMilli": 2169777,
+    "outwardQtyMilli": 2236116,
+    "closingQtyMilli": -66339,
+    "closingValue": -1301902
+   },
+   {
+    "stockItemId": 10,
+    "name": "Fixture Item 9",
+    "unitSymbol": "Box",
+    "decimals": 0,
+    "openingQtyMilli": 60000,
+    "openingValue": 5292024,
+    "inwardQtyMilli": 2129460,
+    "outwardQtyMilli": 2174569,
+    "closingQtyMilli": 14891,
+    "closingValue": 569581
+   }
+  ]
+ ],
+ "summaryByGodown": [
+  [
+   {
+    "stockItemId": 1,
+    "name": "Fixture Item 0",
+    "unitSymbol": "Box",
+    "decimals": 0,
+    "openingQtyMilli": 0,
+    "openingValue": 0,
+    "inwardQtyMilli": 640410,
+    "outwardQtyMilli": 418886,
+    "closingQtyMilli": 221524,
+    "closingValue": 11911423
+   },
+   {
+    "stockItemId": 2,
+    "name": "Fixture Item 1",
+    "unitSymbol": "Box",
+    "decimals": 0,
+    "openingQtyMilli": 0,
+    "openingValue": 0,
+    "inwardQtyMilli": 418000,
+    "outwardQtyMilli": 486641,
+    "closingQtyMilli": -68641,
+    "closingValue": -9163720
+   },
+   {
+    "stockItemId": 11,
+    "name": "Fixture Item 10",
+    "unitSymbol": "Box",
+    "decimals": 0,
+    "openingQtyMilli": 0,
+    "openingValue": 0,
+    "inwardQtyMilli": 372841,
+    "outwardQtyMilli": 478504,
+    "closingQtyMilli": -105663,
+    "closingValue": -27629780
+   },
+   {
+    "stockItemId": 12,
+    "name": "Fixture Item 11",
+    "unitSymbol": "Box",
+    "decimals": 0,
+    "openingQtyMilli": 0,
+    "openingValue": 0,
+    "inwardQtyMilli": 683731,
+    "outwardQtyMilli": 582633,
+    "closingQtyMilli": 101098,
+    "closingValue": 6894867
+   },
+   {
+    "stockItemId": 13,
+    "name": "Fixture Item 12",
+    "unitSymbol": "Box",
+    "decimals": 0,
+    "openingQtyMilli": 0,
+    "openingValue": 0,
+    "inwardQtyMilli": 373175,
+    "outwardQtyMilli": 342822,
+    "closingQtyMilli": 30353,
+    "closingValue": 2205882
+   },
+   {
+    "stockItemId": 14,
+    "name": "Fixture Item 13",
+    "unitSymbol": "Box",
+    "decimals": 0,
+    "openingQtyMilli": 0,
+    "openingValue": 0,
+    "inwardQtyMilli": 630211,
+    "outwardQtyMilli": 529283,
+    "closingQtyMilli": 100928,
+    "closingValue": 5063442
+   },
+   {
+    "stockItemId": 15,
+    "name": "Fixture Item 14",
+    "unitSymbol": "Box",
+    "decimals": 0,
+    "openingQtyMilli": 0,
+    "openingValue": 0,
+    "inwardQtyMilli": 460808,
+    "outwardQtyMilli": 484946,
+    "closingQtyMilli": -24138,
+    "closingValue": -4885703
+   },
+   {
+    "stockItemId": 16,
+    "name": "Fixture Item 15",
+    "unitSymbol": "Box",
+    "decimals": 0,
+    "openingQtyMilli": 0,
+    "openingValue": 0,
+    "inwardQtyMilli": 463051,
+    "outwardQtyMilli": 526206,
+    "closingQtyMilli": -63155,
+    "closingValue": 0
+   },
+   {
+    "stockItemId": 17,
+    "name": "Fixture Item 16",
+    "unitSymbol": "Box",
+    "decimals": 0,
+    "openingQtyMilli": 0,
+    "openingValue": 0,
+    "inwardQtyMilli": 573536,
+    "outwardQtyMilli": 605536,
+    "closingQtyMilli": -32000,
+    "closingValue": 0
+   },
+   {
+    "stockItemId": 18,
+    "name": "Fixture Item 17",
+    "unitSymbol": "Box",
+    "decimals": 0,
+    "openingQtyMilli": 0,
+    "openingValue": 0,
+    "inwardQtyMilli": 567956,
+    "outwardQtyMilli": 553872,
+    "closingQtyMilli": 14084,
+    "closingValue": 731409
+   },
+   {
+    "stockItemId": 19,
+    "name": "Fixture Item 18",
+    "unitSymbol": "Box",
+    "decimals": 0,
+    "openingQtyMilli": 0,
+    "openingValue": 0,
+    "inwardQtyMilli": 577344,
+    "outwardQtyMilli": 353419,
+    "closingQtyMilli": 223925,
+    "closingValue": 15067648
+   },
+   {
+    "stockItemId": 20,
+    "name": "Fixture Item 19",
+    "unitSymbol": "Box",
+    "decimals": 0,
+    "openingQtyMilli": 0,
+    "openingValue": 0,
+    "inwardQtyMilli": 532599,
+    "outwardQtyMilli": 494315,
+    "closingQtyMilli": 38284,
+    "closingValue": 1433468
+   },
+   {
+    "stockItemId": 3,
+    "name": "Fixture Item 2",
+    "unitSymbol": "Box",
+    "decimals": 0,
+    "openingQtyMilli": 0,
+    "openingValue": 0,
+    "inwardQtyMilli": 747506,
+    "outwardQtyMilli": 704723,
+    "closingQtyMilli": 42783,
+    "closingValue": 2150547
+   },
+   {
+    "stockItemId": 21,
+    "name": "Fixture Item 20",
+    "unitSymbol": "Box",
+    "decimals": 0,
+    "openingQtyMilli": 0,
+    "openingValue": 0,
+    "inwardQtyMilli": 545251,
+    "outwardQtyMilli": 588251,
+    "closingQtyMilli": -43000,
+    "closingValue": 986525
+   },
+   {
+    "stockItemId": 22,
+    "name": "Fixture Item 21",
+    "unitSymbol": "Box",
+    "decimals": 0,
+    "openingQtyMilli": 0,
+    "openingValue": 0,
+    "inwardQtyMilli": 533053,
+    "outwardQtyMilli": 490053,
+    "closingQtyMilli": 43000,
+    "closingValue": 2660391
+   },
+   {
+    "stockItemId": 23,
+    "name": "Fixture Item 22",
+    "unitSymbol": "Box",
+    "decimals": 0,
+    "openingQtyMilli": 0,
+    "openingValue": 0,
+    "inwardQtyMilli": 512557,
+    "outwardQtyMilli": 372932,
+    "closingQtyMilli": 139625,
+    "closingValue": 8854196
+   },
+   {
+    "stockItemId": 24,
+    "name": "Fixture Item 23",
+    "unitSymbol": "Box",
+    "decimals": 0,
+    "openingQtyMilli": 0,
+    "openingValue": 0,
+    "inwardQtyMilli": 334445,
+    "outwardQtyMilli": 424454,
+    "closingQtyMilli": -90009,
+    "closingValue": 15141951
+   },
+   {
+    "stockItemId": 25,
+    "name": "Fixture Item 24",
+    "unitSymbol": "Box",
+    "decimals": 0,
+    "openingQtyMilli": 0,
+    "openingValue": 0,
+    "inwardQtyMilli": 628822,
+    "outwardQtyMilli": 611822,
+    "closingQtyMilli": 17000,
+    "closingValue": 375704
+   },
+   {
+    "stockItemId": 26,
+    "name": "Fixture Item 25",
+    "unitSymbol": "Box",
+    "decimals": 0,
+    "openingQtyMilli": 0,
+    "openingValue": 0,
+    "inwardQtyMilli": 430627,
+    "outwardQtyMilli": 425344,
+    "closingQtyMilli": 5283,
+    "closingValue": 2765103
+   },
+   {
+    "stockItemId": 27,
+    "name": "Fixture Item 26",
+    "unitSymbol": "Box",
+    "decimals": 0,
+    "openingQtyMilli": 0,
+    "openingValue": 0,
+    "inwardQtyMilli": 390863,
+    "outwardQtyMilli": 448418,
+    "closingQtyMilli": -57555,
+    "closingValue": 2599747
+   },
+   {
+    "stockItemId": 28,
+    "name": "Fixture Item 27",
+    "unitSymbol": "Box",
+    "decimals": 0,
+    "openingQtyMilli": 0,
+    "openingValue": 0,
+    "inwardQtyMilli": 646114,
+    "outwardQtyMilli": 504006,
+    "closingQtyMilli": 142108,
+    "closingValue": 7582780
+   },
+   {
+    "stockItemId": 29,
+    "name": "Fixture Item 28",
+    "unitSymbol": "Box",
+    "decimals": 0,
+    "openingQtyMilli": 0,
+    "openingValue": 0,
+    "inwardQtyMilli": 645795,
+    "outwardQtyMilli": 469246,
+    "closingQtyMilli": 176549,
+    "closingValue": 11191995
+   },
+   {
+    "stockItemId": 30,
+    "name": "Fixture Item 29",
+    "unitSymbol": "Box",
+    "decimals": 0,
+    "openingQtyMilli": 0,
+    "openingValue": 0,
+    "inwardQtyMilli": 732491,
+    "outwardQtyMilli": 663491,
+    "closingQtyMilli": 69000,
+    "closingValue": 2746650
+   },
+   {
+    "stockItemId": 4,
+    "name": "Fixture Item 3",
+    "unitSymbol": "Box",
+    "decimals": 0,
+    "openingQtyMilli": 0,
+    "openingValue": 0,
+    "inwardQtyMilli": 449144,
+    "outwardQtyMilli": 375410,
+    "closingQtyMilli": 73734,
+    "closingValue": 4673946
+   },
+   {
+    "stockItemId": 5,
+    "name": "Fixture Item 4",
+    "unitSymbol": "Box",
+    "decimals": 0,
+    "openingQtyMilli": 0,
+    "openingValue": 0,
+    "inwardQtyMilli": 449010,
+    "outwardQtyMilli": 393370,
+    "closingQtyMilli": 55640,
+    "closingValue": 3813033
+   },
+   {
+    "stockItemId": 6,
+    "name": "Fixture Item 5",
+    "unitSymbol": "Box",
+    "decimals": 0,
+    "openingQtyMilli": 0,
+    "openingValue": 0,
+    "inwardQtyMilli": 496151,
+    "outwardQtyMilli": 490151,
+    "closingQtyMilli": 6000,
+    "closingValue": 3709233
+   },
+   {
+    "stockItemId": 7,
+    "name": "Fixture Item 6",
+    "unitSymbol": "Box",
+    "decimals": 0,
+    "openingQtyMilli": 0,
+    "openingValue": 0,
+    "inwardQtyMilli": 647426,
+    "outwardQtyMilli": 461493,
+    "closingQtyMilli": 185933,
+    "closingValue": 9768903
+   },
+   {
+    "stockItemId": 8,
+    "name": "Fixture Item 7",
+    "unitSymbol": "Box",
+    "decimals": 0,
+    "openingQtyMilli": 0,
+    "openingValue": 0,
+    "inwardQtyMilli": 341478,
+    "outwardQtyMilli": 348478,
+    "closingQtyMilli": -7000,
+    "closingValue": -148621
+   },
+   {
+    "stockItemId": 9,
+    "name": "Fixture Item 8",
+    "unitSymbol": "Box",
+    "decimals": 0,
+    "openingQtyMilli": 0,
+    "openingValue": 0,
+    "inwardQtyMilli": 396379,
+    "outwardQtyMilli": 600280,
+    "closingQtyMilli": -203901,
+    "closingValue": 20135155
+   },
+   {
+    "stockItemId": 10,
+    "name": "Fixture Item 9",
+    "unitSymbol": "Box",
+    "decimals": 0,
+    "openingQtyMilli": 0,
+    "openingValue": 0,
+    "inwardQtyMilli": 421122,
+    "outwardQtyMilli": 504278,
+    "closingQtyMilli": -83156,
+    "closingValue": 0
+   }
+  ],
+  [
+   {
+    "stockItemId": 1,
+    "name": "Fixture Item 0",
+    "unitSymbol": "Box",
+    "decimals": 0,
+    "openingQtyMilli": 0,
+    "openingValue": 0,
+    "inwardQtyMilli": 437789,
+    "outwardQtyMilli": 487141,
+    "closingQtyMilli": -49352,
+    "closingValue": 0
+   },
+   {
+    "stockItemId": 2,
+    "name": "Fixture Item 1",
+    "unitSymbol": "Box",
+    "decimals": 0,
+    "openingQtyMilli": 0,
+    "openingValue": 0,
+    "inwardQtyMilli": 538402,
+    "outwardQtyMilli": 451913,
+    "closingQtyMilli": 86489,
+    "closingValue": 3780460
+   },
+   {
+    "stockItemId": 11,
+    "name": "Fixture Item 10",
+    "unitSymbol": "Box",
+    "decimals": 0,
+    "openingQtyMilli": 0,
+    "openingValue": 0,
+    "inwardQtyMilli": 495549,
+    "outwardQtyMilli": 431288,
+    "closingQtyMilli": 64261,
+    "closingValue": 20575055
+   },
+   {
+    "stockItemId": 12,
+    "name": "Fixture Item 11",
+    "unitSymbol": "Box",
+    "decimals": 0,
+    "openingQtyMilli": 0,
+    "openingValue": 0,
+    "inwardQtyMilli": 444820,
+    "outwardQtyMilli": 443650,
+    "closingQtyMilli": 1170,
+    "closingValue": -375885
+   },
+   {
+    "stockItemId": 13,
+    "name": "Fixture Item 12",
+    "unitSymbol": "Box",
+    "decimals": 0,
+    "openingQtyMilli": 0,
+    "openingValue": 0,
+    "inwardQtyMilli": 672559,
+    "outwardQtyMilli": 499085,
+    "closingQtyMilli": 173474,
+    "closingValue": 7567782
+   },
+   {
+    "stockItemId": 14,
+    "name": "Fixture Item 13",
+    "unitSymbol": "Box",
+    "decimals": 0,
+    "openingQtyMilli": 0,
+    "openingValue": 0,
+    "inwardQtyMilli": 432934,
+    "outwardQtyMilli": 406584,
+    "closingQtyMilli": 26350,
+    "closingValue": 2260786
+   },
+   {
+    "stockItemId": 15,
+    "name": "Fixture Item 14",
+    "unitSymbol": "Box",
+    "decimals": 0,
+    "openingQtyMilli": 0,
+    "openingValue": 0,
+    "inwardQtyMilli": 556098,
+    "outwardQtyMilli": 537526,
+    "closingQtyMilli": 18572,
+    "closingValue": 1441356
+   },
+   {
+    "stockItemId": 16,
+    "name": "Fixture Item 15",
+    "unitSymbol": "Box",
+    "decimals": 0,
+    "openingQtyMilli": 0,
+    "openingValue": 0,
+    "inwardQtyMilli": 438258,
+    "outwardQtyMilli": 481974,
+    "closingQtyMilli": -43716,
+    "closingValue": 0
+   },
+   {
+    "stockItemId": 17,
+    "name": "Fixture Item 16",
+    "unitSymbol": "Box",
+    "decimals": 0,
+    "openingQtyMilli": 0,
+    "openingValue": 0,
+    "inwardQtyMilli": 731909,
+    "outwardQtyMilli": 571791,
+    "closingQtyMilli": 160118,
+    "closingValue": 12967293
+   },
+   {
+    "stockItemId": 18,
+    "name": "Fixture Item 17",
+    "unitSymbol": "Box",
+    "decimals": 0,
+    "openingQtyMilli": 0,
+    "openingValue": 0,
+    "inwardQtyMilli": 391608,
+    "outwardQtyMilli": 327608,
+    "closingQtyMilli": 64000,
+    "closingValue": 2956516
+   },
+   {
+    "stockItemId": 19,
+    "name": "Fixture Item 18",
+    "unitSymbol": "Box",
+    "decimals": 0,
+    "openingQtyMilli": 0,
+    "openingValue": 0,
+    "inwardQtyMilli": 319203,
+    "outwardQtyMilli": 466883,
+    "closingQtyMilli": -147680,
+    "closingValue": 0
+   },
+   {
+    "stockItemId": 20,
+    "name": "Fixture Item 19",
+    "unitSymbol": "Box",
+    "decimals": 0,
+    "openingQtyMilli": 0,
+    "openingValue": 0,
+    "inwardQtyMilli": 352693,
+    "outwardQtyMilli": 431607,
+    "closingQtyMilli": -78914,
+    "closingValue": 5255466
+   },
+   {
+    "stockItemId": 3,
+    "name": "Fixture Item 2",
+    "unitSymbol": "Box",
+    "decimals": 0,
+    "openingQtyMilli": 0,
+    "openingValue": 0,
+    "inwardQtyMilli": 314008,
+    "outwardQtyMilli": 373606,
+    "closingQtyMilli": -59598,
+    "closingValue": 15586122
+   },
+   {
+    "stockItemId": 21,
+    "name": "Fixture Item 20",
+    "unitSymbol": "Box",
+    "decimals": 0,
+    "openingQtyMilli": 0,
+    "openingValue": 0,
+    "inwardQtyMilli": 762763,
+    "outwardQtyMilli": 762187,
+    "closingQtyMilli": 576,
+    "closingValue": -9619
+   },
+   {
+    "stockItemId": 22,
+    "name": "Fixture Item 21",
+    "unitSymbol": "Box",
+    "decimals": 0,
+    "openingQtyMilli": 0,
+    "openingValue": 0,
+    "inwardQtyMilli": 529826,
+    "outwardQtyMilli": 547947,
+    "closingQtyMilli": -18121,
+    "closingValue": 0
+   },
+   {
+    "stockItemId": 23,
+    "name": "Fixture Item 22",
+    "unitSymbol": "Box",
+    "decimals": 0,
+    "openingQtyMilli": 0,
+    "openingValue": 0,
+    "inwardQtyMilli": 395987,
+    "outwardQtyMilli": 529930,
+    "closingQtyMilli": -133943,
+    "closingValue": -1235234
+   },
+   {
+    "stockItemId": 24,
+    "name": "Fixture Item 23",
+    "unitSymbol": "Box",
+    "decimals": 0,
+    "openingQtyMilli": 0,
+    "openingValue": 0,
+    "inwardQtyMilli": 400413,
+    "outwardQtyMilli": 494637,
+    "closingQtyMilli": -94224,
+    "closingValue": 28626129
+   },
+   {
+    "stockItemId": 25,
+    "name": "Fixture Item 24",
+    "unitSymbol": "Box",
+    "decimals": 0,
+    "openingQtyMilli": 0,
+    "openingValue": 0,
+    "inwardQtyMilli": 571362,
+    "outwardQtyMilli": 710518,
+    "closingQtyMilli": -139156,
+    "closingValue": 0
+   },
+   {
+    "stockItemId": 26,
+    "name": "Fixture Item 25",
+    "unitSymbol": "Box",
+    "decimals": 0,
+    "openingQtyMilli": 0,
+    "openingValue": 0,
+    "inwardQtyMilli": 584397,
+    "outwardQtyMilli": 609397,
+    "closingQtyMilli": -25000,
+    "closingValue": -8857417
+   },
+   {
+    "stockItemId": 27,
+    "name": "Fixture Item 26",
+    "unitSymbol": "Box",
+    "decimals": 0,
+    "openingQtyMilli": 0,
+    "openingValue": 0,
+    "inwardQtyMilli": 704805,
+    "outwardQtyMilli": 636569,
+    "closingQtyMilli": 68236,
+    "closingValue": 6497823
+   },
+   {
+    "stockItemId": 28,
+    "name": "Fixture Item 27",
+    "unitSymbol": "Box",
+    "decimals": 0,
+    "openingQtyMilli": 0,
+    "openingValue": 0,
+    "inwardQtyMilli": 431248,
+    "outwardQtyMilli": 367234,
+    "closingQtyMilli": 64014,
+    "closingValue": 4497335
+   },
+   {
+    "stockItemId": 29,
+    "name": "Fixture Item 28",
+    "unitSymbol": "Box",
+    "decimals": 0,
+    "openingQtyMilli": 0,
+    "openingValue": 0,
+    "inwardQtyMilli": 478818,
+    "outwardQtyMilli": 510108,
+    "closingQtyMilli": -31290,
+    "closingValue": 12163659
+   },
+   {
+    "stockItemId": 30,
+    "name": "Fixture Item 29",
+    "unitSymbol": "Box",
+    "decimals": 0,
+    "openingQtyMilli": 0,
+    "openingValue": 0,
+    "inwardQtyMilli": 642423,
+    "outwardQtyMilli": 649963,
+    "closingQtyMilli": -7540,
+    "closingValue": -21181
+   },
+   {
+    "stockItemId": 4,
+    "name": "Fixture Item 3",
+    "unitSymbol": "Box",
+    "decimals": 0,
+    "openingQtyMilli": 0,
+    "openingValue": 0,
+    "inwardQtyMilli": 604878,
+    "outwardQtyMilli": 670467,
+    "closingQtyMilli": -65589,
+    "closingValue": 0
+   },
+   {
+    "stockItemId": 5,
+    "name": "Fixture Item 4",
+    "unitSymbol": "Box",
+    "decimals": 0,
+    "openingQtyMilli": 0,
+    "openingValue": 0,
+    "inwardQtyMilli": 460970,
+    "outwardQtyMilli": 415672,
+    "closingQtyMilli": 45298,
+    "closingValue": 3851893
+   },
+   {
+    "stockItemId": 6,
+    "name": "Fixture Item 5",
+    "unitSymbol": "Box",
+    "decimals": 0,
+    "openingQtyMilli": 0,
+    "openingValue": 0,
+    "inwardQtyMilli": 512894,
+    "outwardQtyMilli": 510494,
+    "closingQtyMilli": 2400,
+    "closingValue": -32670
+   },
+   {
+    "stockItemId": 7,
+    "name": "Fixture Item 6",
+    "unitSymbol": "Box",
+    "decimals": 0,
+    "openingQtyMilli": 0,
+    "openingValue": 0,
+    "inwardQtyMilli": 576086,
+    "outwardQtyMilli": 545649,
+    "closingQtyMilli": 30437,
+    "closingValue": 3453682
+   },
+   {
+    "stockItemId": 8,
+    "name": "Fixture Item 7",
+    "unitSymbol": "Box",
+    "decimals": 0,
+    "openingQtyMilli": 0,
+    "openingValue": 0,
+    "inwardQtyMilli": 315794,
+    "outwardQtyMilli": 318076,
+    "closingQtyMilli": -2282,
+    "closingValue": 184622
+   },
+   {
+    "stockItemId": 9,
+    "name": "Fixture Item 8",
+    "unitSymbol": "Box",
+    "decimals": 0,
+    "openingQtyMilli": 0,
+    "openingValue": 0,
+    "inwardQtyMilli": 449429,
+    "outwardQtyMilli": 466345,
+    "closingQtyMilli": -16916,
+    "closingValue": -122794
+   },
+   {
+    "stockItemId": 10,
+    "name": "Fixture Item 9",
+    "unitSymbol": "Box",
+    "decimals": 0,
+    "openingQtyMilli": 0,
+    "openingValue": 0,
+    "inwardQtyMilli": 600766,
+    "outwardQtyMilli": 516028,
+    "closingQtyMilli": 84738,
+    "closingValue": 5340463
+   }
+  ],
+  [
+   {
+    "stockItemId": 1,
+    "name": "Fixture Item 0",
+    "unitSymbol": "Box",
+    "decimals": 0,
+    "openingQtyMilli": 0,
+    "openingValue": 0,
+    "inwardQtyMilli": 459112,
+    "outwardQtyMilli": 597112,
+    "closingQtyMilli": -138000,
+    "closingValue": 0
+   },
+   {
+    "stockItemId": 2,
+    "name": "Fixture Item 1",
+    "unitSymbol": "Box",
+    "decimals": 0,
+    "openingQtyMilli": 0,
+    "openingValue": 0,
+    "inwardQtyMilli": 631602,
+    "outwardQtyMilli": 489602,
+    "closingQtyMilli": 142000,
+    "closingValue": 3360728
+   },
+   {
+    "stockItemId": 11,
+    "name": "Fixture Item 10",
+    "unitSymbol": "Box",
+    "decimals": 0,
+    "openingQtyMilli": 0,
+    "openingValue": 0,
+    "inwardQtyMilli": 584068,
+    "outwardQtyMilli": 548997,
+    "closingQtyMilli": 35071,
+    "closingValue": 2191945
+   },
+   {
+    "stockItemId": 12,
+    "name": "Fixture Item 11",
+    "unitSymbol": "Box",
+    "decimals": 0,
+    "openingQtyMilli": 0,
+    "openingValue": 0,
+    "inwardQtyMilli": 385382,
+    "outwardQtyMilli": 335382,
+    "closingQtyMilli": 50000,
+    "closingValue": 3415988
+   },
+   {
+    "stockItemId": 13,
+    "name": "Fixture Item 12",
+    "unitSymbol": "Box",
+    "decimals": 0,
+    "openingQtyMilli": 0,
+    "openingValue": 0,
+    "inwardQtyMilli": 451550,
+    "outwardQtyMilli": 443384,
+    "closingQtyMilli": 8166,
+    "closingValue": 137191
+   },
+   {
+    "stockItemId": 14,
+    "name": "Fixture Item 13",
+    "unitSymbol": "Box",
+    "decimals": 0,
+    "openingQtyMilli": 0,
+    "openingValue": 0,
+    "inwardQtyMilli": 463749,
+    "outwardQtyMilli": 677153,
+    "closingQtyMilli": -213404,
+    "closingValue": 10701985
+   },
+   {
+    "stockItemId": 15,
+    "name": "Fixture Item 14",
+    "unitSymbol": "Box",
+    "decimals": 0,
+    "openingQtyMilli": 0,
+    "openingValue": 0,
+    "inwardQtyMilli": 329209,
+    "outwardQtyMilli": 685621,
+    "closingQtyMilli": -356412,
+    "closingValue": 26071960
+   },
+   {
+    "stockItemId": 16,
+    "name": "Fixture Item 15",
+    "unitSymbol": "Box",
+    "decimals": 0,
+    "openingQtyMilli": 0,
+    "openingValue": 0,
+    "inwardQtyMilli": 238690,
+    "outwardQtyMilli": 416177,
+    "closingQtyMilli": -177487,
+    "closingValue": 0
+   },
+   {
+    "stockItemId": 17,
+    "name": "Fixture Item 16",
+    "unitSymbol": "Box",
+    "decimals": 0,
+    "openingQtyMilli": 0,
+    "openingValue": 0,
+    "inwardQtyMilli": 420871,
+    "outwardQtyMilli": 472034,
+    "closingQtyMilli": -51163,
+    "closingValue": -2106192
+   },
+   {
+    "stockItemId": 18,
+    "name": "Fixture Item 17",
+    "unitSymbol": "Box",
+    "decimals": 0,
+    "openingQtyMilli": 0,
+    "openingValue": 0,
+    "inwardQtyMilli": 700023,
+    "outwardQtyMilli": 539858,
+    "closingQtyMilli": 160165,
+    "closingValue": 9102785
+   },
+   {
+    "stockItemId": 19,
+    "name": "Fixture Item 18",
+    "unitSymbol": "Box",
+    "decimals": 0,
+    "openingQtyMilli": 0,
+    "openingValue": 0,
+    "inwardQtyMilli": 259984,
+    "outwardQtyMilli": 220649,
+    "closingQtyMilli": 39335,
+    "closingValue": 3116382
+   },
+   {
+    "stockItemId": 20,
+    "name": "Fixture Item 19",
+    "unitSymbol": "Box",
+    "decimals": 0,
+    "openingQtyMilli": 0,
+    "openingValue": 0,
+    "inwardQtyMilli": 469283,
+    "outwardQtyMilli": 557003,
+    "closingQtyMilli": -87720,
+    "closingValue": 2237961
+   },
+   {
+    "stockItemId": 3,
+    "name": "Fixture Item 2",
+    "unitSymbol": "Box",
+    "decimals": 0,
+    "openingQtyMilli": 0,
+    "openingValue": 0,
+    "inwardQtyMilli": 413029,
+    "outwardQtyMilli": 570290,
+    "closingQtyMilli": -157261,
+    "closingValue": 8300046
+   },
+   {
+    "stockItemId": 21,
+    "name": "Fixture Item 20",
+    "unitSymbol": "Box",
+    "decimals": 0,
+    "openingQtyMilli": 0,
+    "openingValue": 0,
+    "inwardQtyMilli": 486559,
+    "outwardQtyMilli": 478559,
+    "closingQtyMilli": 8000,
+    "closingValue": 990247
+   },
+   {
+    "stockItemId": 22,
+    "name": "Fixture Item 21",
+    "unitSymbol": "Box",
+    "decimals": 0,
+    "openingQtyMilli": 0,
+    "openingValue": 0,
+    "inwardQtyMilli": 743509,
+    "outwardQtyMilli": 417614,
+    "closingQtyMilli": 325895,
+    "closingValue": 17247467
+   },
+   {
+    "stockItemId": 23,
+    "name": "Fixture Item 22",
+    "unitSymbol": "Box",
+    "decimals": 0,
+    "openingQtyMilli": 0,
+    "openingValue": 0,
+    "inwardQtyMilli": 274168,
+    "outwardQtyMilli": 476529,
+    "closingQtyMilli": -202361,
+    "closingValue": 8306346
+   },
+   {
+    "stockItemId": 24,
+    "name": "Fixture Item 23",
+    "unitSymbol": "Box",
+    "decimals": 0,
+    "openingQtyMilli": 0,
+    "openingValue": 0,
+    "inwardQtyMilli": 351593,
+    "outwardQtyMilli": 352065,
+    "closingQtyMilli": -472,
+    "closingValue": -35639
+   },
+   {
+    "stockItemId": 25,
+    "name": "Fixture Item 24",
+    "unitSymbol": "Box",
+    "decimals": 0,
+    "openingQtyMilli": 0,
+    "openingValue": 0,
+    "inwardQtyMilli": 364164,
+    "outwardQtyMilli": 307334,
+    "closingQtyMilli": 56830,
+    "closingValue": 4897422
+   },
+   {
+    "stockItemId": 26,
+    "name": "Fixture Item 25",
+    "unitSymbol": "Box",
+    "decimals": 0,
+    "openingQtyMilli": 0,
+    "openingValue": 0,
+    "inwardQtyMilli": 380799,
+    "outwardQtyMilli": 365016,
+    "closingQtyMilli": 15783,
+    "closingValue": 1830293
+   },
+   {
+    "stockItemId": 27,
+    "name": "Fixture Item 26",
+    "unitSymbol": "Box",
+    "decimals": 0,
+    "openingQtyMilli": 0,
+    "openingValue": 0,
+    "inwardQtyMilli": 628878,
+    "outwardQtyMilli": 729559,
+    "closingQtyMilli": -100681,
+    "closingValue": 2387849
+   },
+   {
+    "stockItemId": 28,
+    "name": "Fixture Item 27",
+    "unitSymbol": "Box",
+    "decimals": 0,
+    "openingQtyMilli": 0,
+    "openingValue": 0,
+    "inwardQtyMilli": 591470,
+    "outwardQtyMilli": 508533,
+    "closingQtyMilli": 82937,
+    "closingValue": 2822111
+   },
+   {
+    "stockItemId": 29,
+    "name": "Fixture Item 28",
+    "unitSymbol": "Box",
+    "decimals": 0,
+    "openingQtyMilli": 0,
+    "openingValue": 0,
+    "inwardQtyMilli": 512526,
+    "outwardQtyMilli": 424979,
+    "closingQtyMilli": 87547,
+    "closingValue": 6279874
+   },
+   {
+    "stockItemId": 30,
+    "name": "Fixture Item 29",
+    "unitSymbol": "Box",
+    "decimals": 0,
+    "openingQtyMilli": 0,
+    "openingValue": 0,
+    "inwardQtyMilli": 465695,
+    "outwardQtyMilli": 542942,
+    "closingQtyMilli": -77247,
+    "closingValue": 6414
+   },
+   {
+    "stockItemId": 4,
+    "name": "Fixture Item 3",
+    "unitSymbol": "Box",
+    "decimals": 0,
+    "openingQtyMilli": 0,
+    "openingValue": 0,
+    "inwardQtyMilli": 546491,
+    "outwardQtyMilli": 460678,
+    "closingQtyMilli": 85813,
+    "closingValue": 3589658
+   },
+   {
+    "stockItemId": 5,
+    "name": "Fixture Item 4",
+    "unitSymbol": "Box",
+    "decimals": 0,
+    "openingQtyMilli": 0,
+    "openingValue": 0,
+    "inwardQtyMilli": 505111,
+    "outwardQtyMilli": 532756,
+    "closingQtyMilli": -27645,
+    "closingValue": -892939
+   },
+   {
+    "stockItemId": 6,
+    "name": "Fixture Item 5",
+    "unitSymbol": "Box",
+    "decimals": 0,
+    "openingQtyMilli": 0,
+    "openingValue": 0,
+    "inwardQtyMilli": 568086,
+    "outwardQtyMilli": 563931,
+    "closingQtyMilli": 4155,
+    "closingValue": 1087025
+   },
+   {
+    "stockItemId": 7,
+    "name": "Fixture Item 6",
+    "unitSymbol": "Box",
+    "decimals": 0,
+    "openingQtyMilli": 0,
+    "openingValue": 0,
+    "inwardQtyMilli": 434041,
+    "outwardQtyMilli": 426637,
+    "closingQtyMilli": 7404,
+    "closingValue": 717486
+   },
+   {
+    "stockItemId": 8,
+    "name": "Fixture Item 7",
+    "unitSymbol": "Box",
+    "decimals": 0,
+    "openingQtyMilli": 0,
+    "openingValue": 0,
+    "inwardQtyMilli": 617526,
+    "outwardQtyMilli": 496173,
+    "closingQtyMilli": 121353,
+    "closingValue": 6827067
+   },
+   {
+    "stockItemId": 9,
+    "name": "Fixture Item 8",
+    "unitSymbol": "Box",
+    "decimals": 0,
+    "openingQtyMilli": 0,
+    "openingValue": 0,
+    "inwardQtyMilli": 633335,
+    "outwardQtyMilli": 619335,
+    "closingQtyMilli": 14000,
+    "closingValue": 293115
+   },
+   {
+    "stockItemId": 10,
+    "name": "Fixture Item 9",
+    "unitSymbol": "Box",
+    "decimals": 0,
+    "openingQtyMilli": 0,
+    "openingValue": 0,
+    "inwardQtyMilli": 498474,
+    "outwardQtyMilli": 415474,
+    "closingQtyMilli": 83000,
+    "closingValue": 3232566
+   }
+  ]
+ ],
+ "stockValue": [
+  93306028,
+  93248584,
+  129562863,
+  130805132,
+  75135785
+ ],
+ "valuesAt": [
+  [
+   "2025-04-30",
+   93306028
+  ],
+  [
+   "2025-06-30",
+   93248584
+  ],
+  [
+   "2025-09-30",
+   129562863
+  ],
+  [
+   "2025-12-31",
+   130805132
+  ],
+  [
+   "2026-03-31",
+   75135785
+  ]
+ ],
+ "consumption": [
+  [
+   [
+    1,
+    {
+     "consumedValue": 23672817,
+     "outwardQtyMilli": 779830
+    }
+   ],
+   [
+    2,
+    {
+     "consumedValue": 37698277,
+     "outwardQtyMilli": 651390
+    }
+   ],
+   [
+    3,
+    {
+     "consumedValue": 27410957,
+     "outwardQtyMilli": 481431
+    }
+   ],
+   [
+    4,
+    {
+     "consumedValue": 36039761,
+     "outwardQtyMilli": 658248
+    }
+   ],
+   [
+    5,
+    {
+     "consumedValue": 28593399,
+     "outwardQtyMilli": 524231
+    }
+   ],
+   [
+    6,
+    {
+     "consumedValue": 32605908,
+     "outwardQtyMilli": 613573
+    }
+   ],
+   [
+    7,
+    {
+     "consumedValue": 36934589,
+     "outwardQtyMilli": 751478
+    }
+   ],
+   [
+    8,
+    {
+     "consumedValue": 21326272,
+     "outwardQtyMilli": 362961
+    }
+   ],
+   [
+    9,
+    {
+     "consumedValue": -7247041,
+     "outwardQtyMilli": 494072
+    }
+   ],
+   [
+    10,
+    {
+     "consumedValue": 27582855,
+     "outwardQtyMilli": 398320
+    }
+   ],
+   [
+    11,
+    {
+     "consumedValue": 25188026,
+     "outwardQtyMilli": 559213
+    }
+   ],
+   [
+    12,
+    {
+     "consumedValue": 26842374,
+     "outwardQtyMilli": 414399
+    }
+   ],
+   [
+    13,
+    {
+     "consumedValue": 40569609,
+     "outwardQtyMilli": 710391
+    }
+   ],
+   [
+    14,
+    {
+     "consumedValue": 23051286,
+     "outwardQtyMilli": 635312
+    }
+   ],
+   [
+    15,
+    {
+     "consumedValue": 1548503,
+     "outwardQtyMilli": 495065
+    }
+   ],
+   [
+    16,
+    {
+     "consumedValue": 24009849,
+     "outwardQtyMilli": 606807
+    }
+   ],
+   [
+    17,
+    {
+     "consumedValue": 34212258,
+     "outwardQtyMilli": 747840
+    }
+   ],
+   [
+    18,
+    {
+     "consumedValue": 7725444,
+     "outwardQtyMilli": 435586
+    }
+   ],
+   [
+    19,
+    {
+     "consumedValue": 24548097,
+     "outwardQtyMilli": 711832
+    }
+   ],
+   [
+    20,
+    {
+     "consumedValue": 25662827,
+     "outwardQtyMilli": 530515
+    }
+   ],
+   [
+    21,
+    {
+     "consumedValue": 76061334,
+     "outwardQtyMilli": 600714
+    }
+   ],
+   [
+    22,
+    {
+     "consumedValue": 18411222,
+     "outwardQtyMilli": 547429
+    }
+   ],
+   [
+    23,
+    {
+     "consumedValue": 19539265,
+     "outwardQtyMilli": 408188
+    }
+   ],
+   [
+    24,
+    {
+     "consumedValue": 11065518,
+     "outwardQtyMilli": 407022
+    }
+   ],
+   [
+    25,
+    {
+     "consumedValue": 31042174,
+     "outwardQtyMilli": 516730
+    }
+   ],
+   [
+    26,
+    {
+     "consumedValue": 16357214,
+     "outwardQtyMilli": 497001
+    }
+   ],
+   [
+    27,
+    {
+     "consumedValue": 0,
+     "outwardQtyMilli": 754847
+    }
+   ],
+   [
+    28,
+    {
+     "consumedValue": 32110623,
+     "outwardQtyMilli": 596333
+    }
+   ],
+   [
+    29,
+    {
+     "consumedValue": 10540753,
+     "outwardQtyMilli": 513296
+    }
+   ],
+   [
+    30,
+    {
+     "consumedValue": 17234644,
+     "outwardQtyMilli": 645369
+    }
+   ]
+  ],
+  [
+   [
+    1,
+    {
+     "consumedValue": 0,
+     "outwardQtyMilli": 0
+    }
+   ],
+   [
+    2,
+    {
+     "consumedValue": 0,
+     "outwardQtyMilli": 0
+    }
+   ],
+   [
+    3,
+    {
+     "consumedValue": 0,
+     "outwardQtyMilli": 0
+    }
+   ],
+   [
+    4,
+    {
+     "consumedValue": 0,
+     "outwardQtyMilli": 0
+    }
+   ],
+   [
+    5,
+    {
+     "consumedValue": 0,
+     "outwardQtyMilli": 0
+    }
+   ],
+   [
+    6,
+    {
+     "consumedValue": 0,
+     "outwardQtyMilli": 0
+    }
+   ],
+   [
+    7,
+    {
+     "consumedValue": 0,
+     "outwardQtyMilli": 15000
+    }
+   ],
+   [
+    8,
+    {
+     "consumedValue": 2056031,
+     "outwardQtyMilli": 31000
+    }
+   ],
+   [
+    9,
+    {
+     "consumedValue": 0,
+     "outwardQtyMilli": 0
+    }
+   ],
+   [
+    10,
+    {
+     "consumedValue": 0,
+     "outwardQtyMilli": 0
+    }
+   ],
+   [
+    11,
+    {
+     "consumedValue": 0,
+     "outwardQtyMilli": 0
+    }
+   ],
+   [
+    12,
+    {
+     "consumedValue": -1516403,
+     "outwardQtyMilli": 10000
+    }
+   ],
+   [
+    13,
+    {
+     "consumedValue": 0,
+     "outwardQtyMilli": 0
+    }
+   ],
+   [
+    14,
+    {
+     "consumedValue": 0,
+     "outwardQtyMilli": 38000
+    }
+   ],
+   [
+    15,
+    {
+     "consumedValue": 0,
+     "outwardQtyMilli": 0
+    }
+   ],
+   [
+    16,
+    {
+     "consumedValue": 0,
+     "outwardQtyMilli": 0
+    }
+   ],
+   [
+    17,
+    {
+     "consumedValue": 0,
+     "outwardQtyMilli": 0
+    }
+   ],
+   [
+    18,
+    {
+     "consumedValue": 0,
+     "outwardQtyMilli": 0
+    }
+   ],
+   [
+    19,
+    {
+     "consumedValue": 0,
+     "outwardQtyMilli": 0
+    }
+   ],
+   [
+    20,
+    {
+     "consumedValue": 0,
+     "outwardQtyMilli": 0
+    }
+   ],
+   [
+    21,
+    {
+     "consumedValue": -20927200,
+     "outwardQtyMilli": 22000
+    }
+   ],
+   [
+    22,
+    {
+     "consumedValue": 0,
+     "outwardQtyMilli": 0
+    }
+   ],
+   [
+    23,
+    {
+     "consumedValue": 0,
+     "outwardQtyMilli": 0
+    }
+   ],
+   [
+    24,
+    {
+     "consumedValue": 0,
+     "outwardQtyMilli": 0
+    }
+   ],
+   [
+    25,
+    {
+     "consumedValue": 0,
+     "outwardQtyMilli": 0
+    }
+   ],
+   [
+    26,
+    {
+     "consumedValue": 0,
+     "outwardQtyMilli": 0
+    }
+   ],
+   [
+    27,
+    {
+     "consumedValue": 0,
+     "outwardQtyMilli": 0
+    }
+   ],
+   [
+    28,
+    {
+     "consumedValue": 0,
+     "outwardQtyMilli": 0
+    }
+   ],
+   [
+    29,
+    {
+     "consumedValue": 0,
+     "outwardQtyMilli": 23000
+    }
+   ],
+   [
+    30,
+    {
+     "consumedValue": 0,
+     "outwardQtyMilli": 0
+    }
+   ]
+  ],
+  [
+   [
+    1,
+    {
+     "consumedValue": 63829737,
+     "outwardQtyMilli": 1230484
+    }
+   ],
+   [
+    2,
+    {
+     "consumedValue": 42940003,
+     "outwardQtyMilli": 974654
+    }
+   ],
+   [
+    3,
+    {
+     "consumedValue": 42995045,
+     "outwardQtyMilli": 1105974
+    }
+   ],
+   [
+    4,
+    {
+     "consumedValue": 47460691,
+     "outwardQtyMilli": 948788
+    }
+   ],
+   [
+    5,
+    {
+     "consumedValue": 50988848,
+     "outwardQtyMilli": 889675
+    }
+   ],
+   [
+    6,
+    {
+     "consumedValue": -9202433,
+     "outwardQtyMilli": 1161298
+    }
+   ],
+   [
+    7,
+    {
+     "consumedValue": 55430591,
+     "outwardQtyMilli": 791937
+    }
+   ],
+   [
+    8,
+    {
+     "consumedValue": 83606499,
+     "outwardQtyMilli": 765772
+    }
+   ],
+   [
+    9,
+    {
+     "consumedValue": 45704329,
+     "outwardQtyMilli": 1003061
+    }
+   ],
+   [
+    10,
+    {
+     "consumedValue": 65885148,
+     "outwardQtyMilli": 1401061
+    }
+   ],
+   [
+    11,
+    {
+     "consumedValue": 43482744,
+     "outwardQtyMilli": 849303
+    }
+   ],
+   [
+    12,
+    {
+     "consumedValue": 53988000,
+     "outwardQtyMilli": 833537
+    }
+   ],
+   [
+    13,
+    {
+     "consumedValue": 36919333,
+     "outwardQtyMilli": 726110
+    }
+   ],
+   [
+    14,
+    {
+     "consumedValue": 55663403,
+     "outwardQtyMilli": 974772
+    }
+   ],
+   [
+    15,
+    {
+     "consumedValue": 57162271,
+     "outwardQtyMilli": 1121022
+    }
+   ],
+   [
+    16,
+    {
+     "consumedValue": 38488547,
+     "outwardQtyMilli": 979240
+    }
+   ],
+   [
+    17,
+    {
+     "consumedValue": 55035968,
+     "outwardQtyMilli": 1142960
+    }
+   ],
+   [
+    18,
+    {
+     "consumedValue": 51000438,
+     "outwardQtyMilli": 1053930
+    }
+   ],
+   [
+    19,
+    {
+     "consumedValue": 51998380,
+     "outwardQtyMilli": 881722
+    }
+   ],
+   [
+    20,
+    {
+     "consumedValue": 51330532,
+     "outwardQtyMilli": 973382
+    }
+   ],
+   [
+    21,
+    {
+     "consumedValue": 21647787,
+     "outwardQtyMilli": 1160025
+    }
+   ],
+   [
+    22,
+    {
+     "consumedValue": 52095875,
+     "outwardQtyMilli": 934724
+    }
+   ],
+   [
+    23,
+    {
+     "consumedValue": 38884989,
+     "outwardQtyMilli": 1061847
+    }
+   ],
+   [
+    24,
+    {
+     "consumedValue": 65666321,
+     "outwardQtyMilli": 828944
+    }
+   ],
+   [
+    25,
+    {
+     "consumedValue": 43380783,
+     "outwardQtyMilli": 1033945
+    }
+   ],
+   [
+    26,
+    {
+     "consumedValue": 48224946,
+     "outwardQtyMilli": 993596
+    }
+   ],
+   [
+    27,
+    {
+     "consumedValue": 119383679,
+     "outwardQtyMilli": 880207
+    }
+   ],
+   [
+    28,
+    {
+     "consumedValue": 41321895,
+     "outwardQtyMilli": 1019173
+    }
+   ],
+   [
+    29,
+    {
+     "consumedValue": 45883857,
+     "outwardQtyMilli": 946412
+    }
+   ],
+   [
+    30,
+    {
+     "consumedValue": 65047642,
+     "outwardQtyMilli": 1260289
+    }
+   ]
+  ]
+ ],
+ "byGodown": [
+  {
+   "godownId": null,
+   "godownName": "",
+   "stockItemId": 1,
+   "name": "Fixture Item 0",
+   "unitSymbol": "Box",
+   "decimals": 0,
+   "closingQtyMilli": 32736,
+   "closingValue": 0
+  },
+  {
+   "godownId": 2,
+   "godownName": "Fixture Godown 0",
+   "stockItemId": 1,
+   "name": "Fixture Item 0",
+   "unitSymbol": "Box",
+   "decimals": 0,
+   "closingQtyMilli": 221524,
+   "closingValue": 0
+  },
+  {
+   "godownId": 3,
+   "godownName": "Fixture Godown 1",
+   "stockItemId": 1,
+   "name": "Fixture Item 0",
+   "unitSymbol": "Box",
+   "decimals": 0,
+   "closingQtyMilli": -49352,
+   "closingValue": 0
+  },
+  {
+   "godownId": 4,
+   "godownName": "Fixture Godown 2",
+   "stockItemId": 1,
+   "name": "Fixture Item 0",
+   "unitSymbol": "Box",
+   "decimals": 0,
+   "closingQtyMilli": -138000,
+   "closingValue": 0
+  },
+  {
+   "godownId": null,
+   "godownName": "",
+   "stockItemId": 2,
+   "name": "Fixture Item 1",
+   "unitSymbol": "Box",
+   "decimals": 0,
+   "closingQtyMilli": 92000,
+   "closingValue": 5203559
+  },
+  {
+   "godownId": 2,
+   "godownName": "Fixture Godown 0",
+   "stockItemId": 2,
+   "name": "Fixture Item 1",
+   "unitSymbol": "Box",
+   "decimals": 0,
+   "closingQtyMilli": -68641,
+   "closingValue": -5400898
+  },
+  {
+   "godownId": 3,
+   "godownName": "Fixture Godown 1",
+   "stockItemId": 2,
+   "name": "Fixture Item 1",
+   "unitSymbol": "Box",
+   "decimals": 0,
+   "closingQtyMilli": 86489,
+   "closingValue": 4891854
+  },
+  {
+   "godownId": 4,
+   "godownName": "Fixture Godown 2",
+   "stockItemId": 2,
+   "name": "Fixture Item 1",
+   "unitSymbol": "Box",
+   "decimals": 0,
+   "closingQtyMilli": 142000,
+   "closingValue": 8031580
+  },
+  {
+   "godownId": null,
+   "godownName": "",
+   "stockItemId": 11,
+   "name": "Fixture Item 10",
+   "unitSymbol": "Box",
+   "decimals": 0,
+   "closingQtyMilli": 90799,
+   "closingValue": 8242708
+  },
+  {
+   "godownId": 2,
+   "godownName": "Fixture Godown 0",
+   "stockItemId": 11,
+   "name": "Fixture Item 10",
+   "unitSymbol": "Box",
+   "decimals": 0,
+   "closingQtyMilli": -105663,
+   "closingValue": -8076672
+  },
+  {
+   "godownId": 3,
+   "godownName": "Fixture Godown 1",
+   "stockItemId": 11,
+   "name": "Fixture Item 10",
+   "unitSymbol": "Box",
+   "decimals": 0,
+   "closingQtyMilli": 64261,
+   "closingValue": 5833596
+  },
+  {
+   "godownId": 4,
+   "godownName": "Fixture Godown 2",
+   "stockItemId": 11,
+   "name": "Fixture Item 10",
+   "unitSymbol": "Box",
+   "decimals": 0,
+   "closingQtyMilli": 35071,
+   "closingValue": 3183736
+  },
+  {
+   "godownId": null,
+   "godownName": "",
+   "stockItemId": 12,
+   "name": "Fixture Item 11",
+   "unitSymbol": "Box",
+   "decimals": 0,
+   "closingQtyMilli": 30000,
+   "closingValue": 1047680
+  },
+  {
+   "godownId": 2,
+   "godownName": "Fixture Godown 0",
+   "stockItemId": 12,
+   "name": "Fixture Item 11",
+   "unitSymbol": "Box",
+   "decimals": 0,
+   "closingQtyMilli": 101098,
+   "closingValue": 3530613
+  },
+  {
+   "godownId": 3,
+   "godownName": "Fixture Godown 1",
+   "stockItemId": 12,
+   "name": "Fixture Item 11",
+   "unitSymbol": "Box",
+   "decimals": 0,
+   "closingQtyMilli": 1170,
+   "closingValue": -4848490
+  },
+  {
+   "godownId": 4,
+   "godownName": "Fixture Godown 2",
+   "stockItemId": 12,
+   "name": "Fixture Item 11",
+   "unitSymbol": "Box",
+   "decimals": 0,
+   "closingQtyMilli": 50000,
+   "closingValue": 1746134
+  },
+  {
+   "godownId": null,
+   "godownName": "",
+   "stockItemId": 13,
+   "name": "Fixture Item 12",
+   "unitSymbol": "Box",
+   "decimals": 0,
+   "closingQtyMilli": -69977,
+   "closingValue": -4628340
+  },
+  {
+   "godownId": 2,
+   "godownName": "Fixture Godown 0",
+   "stockItemId": 13,
+   "name": "Fixture Item 12",
+   "unitSymbol": "Box",
+   "decimals": 0,
+   "closingQtyMilli": 30353,
+   "closingValue": 2007574
+  },
+  {
+   "godownId": 3,
+   "godownName": "Fixture Godown 1",
+   "stockItemId": 13,
+   "name": "Fixture Item 12",
+   "unitSymbol": "Box",
+   "decimals": 0,
+   "closingQtyMilli": 173474,
+   "closingValue": 10456212
+  },
+  {
+   "godownId": 4,
+   "godownName": "Fixture Godown 2",
+   "stockItemId": 13,
+   "name": "Fixture Item 12",
+   "unitSymbol": "Box",
+   "decimals": 0,
+   "closingQtyMilli": 8166,
+   "closingValue": 540106
+  },
+  {
+   "godownId": null,
+   "godownName": "",
+   "stockItemId": 14,
+   "name": "Fixture Item 13",
+   "unitSymbol": "Box",
+   "decimals": 0,
+   "closingQtyMilli": 29000,
+   "closingValue": 2017272
+  },
+  {
+   "godownId": 2,
+   "godownName": "Fixture Godown 0",
+   "stockItemId": 14,
+   "name": "Fixture Item 13",
+   "unitSymbol": "Box",
+   "decimals": 0,
+   "closingQtyMilli": 100928,
+   "closingValue": 15368756
+  },
+  {
+   "godownId": 3,
+   "godownName": "Fixture Godown 1",
+   "stockItemId": 14,
+   "name": "Fixture Item 13",
+   "unitSymbol": "Box",
+   "decimals": 0,
+   "closingQtyMilli": 26350,
+   "closingValue": 1832935
+  },
+  {
+   "godownId": 4,
+   "godownName": "Fixture Godown 2",
+   "stockItemId": 14,
+   "name": "Fixture Item 13",
+   "unitSymbol": "Box",
+   "decimals": 0,
+   "closingQtyMilli": -213404,
+   "closingValue": -14844614
+  },
+  {
+   "godownId": null,
+   "godownName": "",
+   "stockItemId": 15,
+   "name": "Fixture Item 14",
+   "unitSymbol": "Box",
+   "decimals": 0,
+   "closingQtyMilli": -208292,
+   "closingValue": -5291605
+  },
+  {
+   "godownId": 2,
+   "godownName": "Fixture Godown 0",
+   "stockItemId": 15,
+   "name": "Fixture Item 14",
+   "unitSymbol": "Box",
+   "decimals": 0,
+   "closingQtyMilli": -24138,
+   "closingValue": 13270397
+  },
+  {
+   "godownId": 3,
+   "godownName": "Fixture Godown 1",
+   "stockItemId": 15,
+   "name": "Fixture Item 14",
+   "unitSymbol": "Box",
+   "decimals": 0,
+   "closingQtyMilli": 18572,
+   "closingValue": 471817
+  },
+  {
+   "godownId": 4,
+   "godownName": "Fixture Godown 2",
+   "stockItemId": 15,
+   "name": "Fixture Item 14",
+   "unitSymbol": "Box",
+   "decimals": 0,
+   "closingQtyMilli": -356412,
+   "closingValue": -9054556
+  },
+  {
+   "godownId": null,
+   "godownName": "",
+   "stockItemId": 16,
+   "name": "Fixture Item 15",
+   "unitSymbol": "Box",
+   "decimals": 0,
+   "closingQtyMilli": 4921,
+   "closingValue": 0
+  },
+  {
+   "godownId": 2,
+   "godownName": "Fixture Godown 0",
+   "stockItemId": 16,
+   "name": "Fixture Item 15",
+   "unitSymbol": "Box",
+   "decimals": 0,
+   "closingQtyMilli": -63155,
+   "closingValue": 0
+  },
+  {
+   "godownId": 3,
+   "godownName": "Fixture Godown 1",
+   "stockItemId": 16,
+   "name": "Fixture Item 15",
+   "unitSymbol": "Box",
+   "decimals": 0,
+   "closingQtyMilli": -43716,
+   "closingValue": 0
+  },
+  {
+   "godownId": 4,
+   "godownName": "Fixture Godown 2",
+   "stockItemId": 16,
+   "name": "Fixture Item 15",
+   "unitSymbol": "Box",
+   "decimals": 0,
+   "closingQtyMilli": -177487,
+   "closingValue": 0
+  },
+  {
+   "godownId": null,
+   "godownName": "",
+   "stockItemId": 17,
+   "name": "Fixture Item 16",
+   "unitSymbol": "Box",
+   "decimals": 0,
+   "closingQtyMilli": -48399,
+   "closingValue": 0
+  },
+  {
+   "godownId": 2,
+   "godownName": "Fixture Godown 0",
+   "stockItemId": 17,
+   "name": "Fixture Item 16",
+   "unitSymbol": "Box",
+   "decimals": 0,
+   "closingQtyMilli": -32000,
+   "closingValue": 0
+  },
+  {
+   "godownId": 3,
+   "godownName": "Fixture Godown 1",
+   "stockItemId": 17,
+   "name": "Fixture Item 16",
+   "unitSymbol": "Box",
+   "decimals": 0,
+   "closingQtyMilli": 160118,
+   "closingValue": 0
+  },
+  {
+   "godownId": 4,
+   "godownName": "Fixture Godown 2",
+   "stockItemId": 17,
+   "name": "Fixture Item 16",
+   "unitSymbol": "Box",
+   "decimals": 0,
+   "closingQtyMilli": -51163,
+   "closingValue": 0
+  },
+  {
+   "godownId": null,
+   "godownName": "",
+   "stockItemId": 18,
+   "name": "Fixture Item 17",
+   "unitSymbol": "Box",
+   "decimals": 0,
+   "closingQtyMilli": -40035,
+   "closingValue": -7330609
+  },
+  {
+   "godownId": 2,
+   "godownName": "Fixture Godown 0",
+   "stockItemId": 18,
+   "name": "Fixture Item 17",
+   "unitSymbol": "Box",
+   "decimals": 0,
+   "closingQtyMilli": 14084,
+   "closingValue": 2578851
+  },
+  {
+   "godownId": 3,
+   "godownName": "Fixture Godown 1",
+   "stockItemId": 18,
+   "name": "Fixture Item 17",
+   "unitSymbol": "Box",
+   "decimals": 0,
+   "closingQtyMilli": 64000,
+   "closingValue": 11718720
+  },
+  {
+   "godownId": 4,
+   "godownName": "Fixture Godown 2",
+   "stockItemId": 18,
+   "name": "Fixture Item 17",
+   "unitSymbol": "Box",
+   "decimals": 0,
+   "closingQtyMilli": 160165,
+   "closingValue": -7333172
+  },
+  {
+   "godownId": 2,
+   "godownName": "Fixture Godown 0",
+   "stockItemId": 19,
+   "name": "Fixture Item 18",
+   "unitSymbol": "Box",
+   "decimals": 0,
+   "closingQtyMilli": 223925,
+   "closingValue": 10083492
+  },
+  {
+   "godownId": 3,
+   "godownName": "Fixture Godown 1",
+   "stockItemId": 19,
+   "name": "Fixture Item 18",
+   "unitSymbol": "Box",
+   "decimals": 0,
+   "closingQtyMilli": -147680,
+   "closingValue": -6650129
+  },
+  {
+   "godownId": 4,
+   "godownName": "Fixture Godown 2",
+   "stockItemId": 19,
+   "name": "Fixture Item 18",
+   "unitSymbol": "Box",
+   "decimals": 0,
+   "closingQtyMilli": 39335,
+   "closingValue": -3298271
+  },
+  {
+   "godownId": null,
+   "godownName": "",
+   "stockItemId": 20,
+   "name": "Fixture Item 19",
+   "unitSymbol": "Box",
+   "decimals": 0,
+   "closingQtyMilli": 163827,
+   "closingValue": 4126893
+  },
+  {
+   "godownId": 2,
+   "godownName": "Fixture Godown 0",
+   "stockItemId": 20,
+   "name": "Fixture Item 19",
+   "unitSymbol": "Box",
+   "decimals": 0,
+   "closingQtyMilli": 38284,
+   "closingValue": 964395
+  },
+  {
+   "godownId": 3,
+   "godownName": "Fixture Godown 1",
+   "stockItemId": 20,
+   "name": "Fixture Item 19",
+   "unitSymbol": "Box",
+   "decimals": 0,
+   "closingQtyMilli": -78914,
+   "closingValue": -1987888
+  },
+  {
+   "godownId": 4,
+   "godownName": "Fixture Godown 2",
+   "stockItemId": 20,
+   "name": "Fixture Item 19",
+   "unitSymbol": "Box",
+   "decimals": 0,
+   "closingQtyMilli": -87720,
+   "closingValue": -3553127
+  },
+  {
+   "godownId": null,
+   "godownName": "",
+   "stockItemId": 3,
+   "name": "Fixture Item 2",
+   "unitSymbol": "Box",
+   "decimals": 0,
+   "closingQtyMilli": 27660,
+   "closingValue": 5229741
+  },
+  {
+   "godownId": 2,
+   "godownName": "Fixture Godown 0",
+   "stockItemId": 3,
+   "name": "Fixture Item 2",
+   "unitSymbol": "Box",
+   "decimals": 0,
+   "closingQtyMilli": 42783,
+   "closingValue": 41512532
+  },
+  {
+   "godownId": 3,
+   "godownName": "Fixture Godown 1",
+   "stockItemId": 3,
+   "name": "Fixture Item 2",
+   "unitSymbol": "Box",
+   "decimals": 0,
+   "closingQtyMilli": -59598,
+   "closingValue": -11268333
+  },
+  {
+   "godownId": 4,
+   "godownName": "Fixture Godown 2",
+   "stockItemId": 3,
+   "name": "Fixture Item 2",
+   "unitSymbol": "Box",
+   "decimals": 0,
+   "closingQtyMilli": -157261,
+   "closingValue": -29733704
+  },
+  {
+   "godownId": null,
+   "godownName": "",
+   "stockItemId": 21,
+   "name": "Fixture Item 20",
+   "unitSymbol": "Box",
+   "decimals": 0,
+   "closingQtyMilli": 30393,
+   "closingValue": -4139782
+  },
+  {
+   "godownId": 2,
+   "godownName": "Fixture Godown 0",
+   "stockItemId": 21,
+   "name": "Fixture Item 20",
+   "unitSymbol": "Box",
+   "decimals": 0,
+   "closingQtyMilli": -43000,
+   "closingValue": 9398380
+  },
+  {
+   "godownId": 3,
+   "godownName": "Fixture Godown 1",
+   "stockItemId": 21,
+   "name": "Fixture Item 20",
+   "unitSymbol": "Box",
+   "decimals": 0,
+   "closingQtyMilli": 576,
+   "closingValue": -78456
+  },
+  {
+   "godownId": 4,
+   "godownName": "Fixture Godown 2",
+   "stockItemId": 21,
+   "name": "Fixture Item 20",
+   "unitSymbol": "Box",
+   "decimals": 0,
+   "closingQtyMilli": 8000,
+   "closingValue": -1089667
+  },
+  {
+   "godownId": null,
+   "godownName": "",
+   "stockItemId": 22,
+   "name": "Fixture Item 21",
+   "unitSymbol": "Box",
+   "decimals": 0,
+   "closingQtyMilli": 30697,
+   "closingValue": 1676853
+  },
+  {
+   "godownId": 2,
+   "godownName": "Fixture Godown 0",
+   "stockItemId": 22,
+   "name": "Fixture Item 21",
+   "unitSymbol": "Box",
+   "decimals": 0,
+   "closingQtyMilli": 43000,
+   "closingValue": -11206407
+  },
+  {
+   "godownId": 3,
+   "godownName": "Fixture Godown 1",
+   "stockItemId": 22,
+   "name": "Fixture Item 21",
+   "unitSymbol": "Box",
+   "decimals": 0,
+   "closingQtyMilli": -18121,
+   "closingValue": -989877
+  },
+  {
+   "godownId": 4,
+   "godownName": "Fixture Godown 2",
+   "stockItemId": 22,
+   "name": "Fixture Item 21",
+   "unitSymbol": "Box",
+   "decimals": 0,
+   "closingQtyMilli": 325895,
+   "closingValue": 17802328
+  },
+  {
+   "godownId": null,
+   "godownName": "",
+   "stockItemId": 23,
+   "name": "Fixture Item 22",
+   "unitSymbol": "Box",
+   "decimals": 0,
+   "closingQtyMilli": -5105,
+   "closingValue": 67425
+  },
+  {
+   "godownId": 2,
+   "godownName": "Fixture Godown 0",
+   "stockItemId": 23,
+   "name": "Fixture Item 22",
+   "unitSymbol": "Box",
+   "decimals": 0,
+   "closingQtyMilli": 139625,
+   "closingValue": -1844126
+  },
+  {
+   "godownId": 3,
+   "godownName": "Fixture Godown 1",
+   "stockItemId": 23,
+   "name": "Fixture Item 22",
+   "unitSymbol": "Box",
+   "decimals": 0,
+   "closingQtyMilli": -133943,
+   "closingValue": 543669
+  },
+  {
+   "godownId": 4,
+   "godownName": "Fixture Godown 2",
+   "stockItemId": 23,
+   "name": "Fixture Item 22",
+   "unitSymbol": "Box",
+   "decimals": 0,
+   "closingQtyMilli": -202361,
+   "closingValue": 2672725
+  },
+  {
+   "godownId": null,
+   "godownName": "",
+   "stockItemId": 24,
+   "name": "Fixture Item 23",
+   "unitSymbol": "Box",
+   "decimals": 0,
+   "closingQtyMilli": -1000,
+   "closingValue": -101513
+  },
+  {
+   "godownId": 2,
+   "godownName": "Fixture Godown 0",
+   "stockItemId": 24,
+   "name": "Fixture Item 23",
+   "unitSymbol": "Box",
+   "decimals": 0,
+   "closingQtyMilli": -90009,
+   "closingValue": -9137046
+  },
+  {
+   "godownId": 3,
+   "godownName": "Fixture Godown 1",
+   "stockItemId": 24,
+   "name": "Fixture Item 23",
+   "unitSymbol": "Box",
+   "decimals": 0,
+   "closingQtyMilli": -94224,
+   "closingValue": -9564922
+  },
+  {
+   "godownId": 4,
+   "godownName": "Fixture Godown 2",
+   "stockItemId": 24,
+   "name": "Fixture Item 23",
+   "unitSymbol": "Box",
+   "decimals": 0,
+   "closingQtyMilli": -472,
+   "closingValue": 20570409
+  },
+  {
+   "godownId": null,
+   "godownName": "",
+   "stockItemId": 25,
+   "name": "Fixture Item 24",
+   "unitSymbol": "Box",
+   "decimals": 0,
+   "closingQtyMilli": 159145,
+   "closingValue": 0
+  },
+  {
+   "godownId": 2,
+   "godownName": "Fixture Godown 0",
+   "stockItemId": 25,
+   "name": "Fixture Item 24",
+   "unitSymbol": "Box",
+   "decimals": 0,
+   "closingQtyMilli": 17000,
+   "closingValue": 0
+  },
+  {
+   "godownId": 3,
+   "godownName": "Fixture Godown 1",
+   "stockItemId": 25,
+   "name": "Fixture Item 24",
+   "unitSymbol": "Box",
+   "decimals": 0,
+   "closingQtyMilli": -139156,
+   "closingValue": 0
+  },
+  {
+   "godownId": 4,
+   "godownName": "Fixture Godown 2",
+   "stockItemId": 25,
+   "name": "Fixture Item 24",
+   "unitSymbol": "Box",
+   "decimals": 0,
+   "closingQtyMilli": 56830,
+   "closingValue": 0
+  },
+  {
+   "godownId": null,
+   "godownName": "",
+   "stockItemId": 26,
+   "name": "Fixture Item 25",
+   "unitSymbol": "Box",
+   "decimals": 0,
+   "closingQtyMilli": -265435,
+   "closingValue": -190820324
+  },
+  {
+   "godownId": 2,
+   "godownName": "Fixture Godown 0",
+   "stockItemId": 26,
+   "name": "Fixture Item 25",
+   "unitSymbol": "Box",
+   "decimals": 0,
+   "closingQtyMilli": 5283,
+   "closingValue": 201994134
+  },
+  {
+   "godownId": 3,
+   "godownName": "Fixture Godown 1",
+   "stockItemId": 26,
+   "name": "Fixture Item 25",
+   "unitSymbol": "Box",
+   "decimals": 0,
+   "closingQtyMilli": -25000,
+   "closingValue": -17972415
+  },
+  {
+   "godownId": 4,
+   "godownName": "Fixture Godown 2",
+   "stockItemId": 26,
+   "name": "Fixture Item 25",
+   "unitSymbol": "Box",
+   "decimals": 0,
+   "closingQtyMilli": 15783,
+   "closingValue": 11346345
+  },
+  {
+   "godownId": null,
+   "godownName": "",
+   "stockItemId": 27,
+   "name": "Fixture Item 26",
+   "unitSymbol": "Box",
+   "decimals": 0,
+   "closingQtyMilli": -65771,
+   "closingValue": -1756629005
+  },
+  {
+   "godownId": 2,
+   "godownName": "Fixture Godown 0",
+   "stockItemId": 27,
+   "name": "Fixture Item 26",
+   "unitSymbol": "Box",
+   "decimals": 0,
+   "closingQtyMilli": -57555,
+   "closingValue": 2546605936
+  },
+  {
+   "godownId": 3,
+   "godownName": "Fixture Godown 1",
+   "stockItemId": 27,
+   "name": "Fixture Item 26",
+   "unitSymbol": "Box",
+   "decimals": 0,
+   "closingQtyMilli": 68236,
+   "closingValue": 1822464867
+  },
+  {
+   "godownId": 4,
+   "godownName": "Fixture Godown 2",
+   "stockItemId": 27,
+   "name": "Fixture Item 26",
+   "unitSymbol": "Box",
+   "decimals": 0,
+   "closingQtyMilli": -100681,
+   "closingValue": -2689014381
+  },
+  {
+   "godownId": null,
+   "godownName": "",
+   "stockItemId": 28,
+   "name": "Fixture Item 27",
+   "unitSymbol": "Box",
+   "decimals": 0,
+   "closingQtyMilli": -263654,
+   "closingValue": 0
+  },
+  {
+   "godownId": 2,
+   "godownName": "Fixture Godown 0",
+   "stockItemId": 28,
+   "name": "Fixture Item 27",
+   "unitSymbol": "Box",
+   "decimals": 0,
+   "closingQtyMilli": 142108,
+   "closingValue": 0
+  },
+  {
+   "godownId": 3,
+   "godownName": "Fixture Godown 1",
+   "stockItemId": 28,
+   "name": "Fixture Item 27",
+   "unitSymbol": "Box",
+   "decimals": 0,
+   "closingQtyMilli": 64014,
+   "closingValue": 0
+  },
+  {
+   "godownId": 4,
+   "godownName": "Fixture Godown 2",
+   "stockItemId": 28,
+   "name": "Fixture Item 27",
+   "unitSymbol": "Box",
+   "decimals": 0,
+   "closingQtyMilli": 82937,
+   "closingValue": 0
+  },
+  {
+   "godownId": null,
+   "godownName": "",
+   "stockItemId": 29,
+   "name": "Fixture Item 28",
+   "unitSymbol": "Box",
+   "decimals": 0,
+   "closingQtyMilli": -158773,
+   "closingValue": -11161814
+  },
+  {
+   "godownId": 2,
+   "godownName": "Fixture Godown 0",
+   "stockItemId": 29,
+   "name": "Fixture Item 28",
+   "unitSymbol": "Box",
+   "decimals": 0,
+   "closingQtyMilli": 176549,
+   "closingValue": 12411474
+  },
+  {
+   "godownId": 3,
+   "godownName": "Fixture Godown 1",
+   "stockItemId": 29,
+   "name": "Fixture Item 28",
+   "unitSymbol": "Box",
+   "decimals": 0,
+   "closingQtyMilli": -31290,
+   "closingValue": -2199701
+  },
+  {
+   "godownId": 4,
+   "godownName": "Fixture Godown 2",
+   "stockItemId": 29,
+   "name": "Fixture Item 28",
+   "unitSymbol": "Box",
+   "decimals": 0,
+   "closingQtyMilli": 87547,
+   "closingValue": 11983486
+  },
+  {
+   "godownId": null,
+   "godownName": "",
+   "stockItemId": 30,
+   "name": "Fixture Item 29",
+   "unitSymbol": "Box",
+   "decimals": 0,
+   "closingQtyMilli": -144962,
+   "closingValue": 4777363
+  },
+  {
+   "godownId": 2,
+   "godownName": "Fixture Godown 0",
+   "stockItemId": 30,
+   "name": "Fixture Item 29",
+   "unitSymbol": "Box",
+   "decimals": 0,
+   "closingQtyMilli": 69000,
+   "closingValue": -7010294
+  },
+  {
+   "godownId": 3,
+   "godownName": "Fixture Godown 1",
+   "stockItemId": 30,
+   "name": "Fixture Item 29",
+   "unitSymbol": "Box",
+   "decimals": 0,
+   "closingQtyMilli": -7540,
+   "closingValue": 248488
+  },
+  {
+   "godownId": 4,
+   "godownName": "Fixture Godown 2",
+   "stockItemId": 30,
+   "name": "Fixture Item 29",
+   "unitSymbol": "Box",
+   "decimals": 0,
+   "closingQtyMilli": -77247,
+   "closingValue": 2545749
+  },
+  {
+   "godownId": null,
+   "godownName": "",
+   "stockItemId": 4,
+   "name": "Fixture Item 3",
+   "unitSymbol": "Box",
+   "decimals": 0,
+   "closingQtyMilli": -192538,
+   "closingValue": 0
+  },
+  {
+   "godownId": 2,
+   "godownName": "Fixture Godown 0",
+   "stockItemId": 4,
+   "name": "Fixture Item 3",
+   "unitSymbol": "Box",
+   "decimals": 0,
+   "closingQtyMilli": 73734,
+   "closingValue": 0
+  },
+  {
+   "godownId": 3,
+   "godownName": "Fixture Godown 1",
+   "stockItemId": 4,
+   "name": "Fixture Item 3",
+   "unitSymbol": "Box",
+   "decimals": 0,
+   "closingQtyMilli": -65589,
+   "closingValue": 0
+  },
+  {
+   "godownId": 4,
+   "godownName": "Fixture Godown 2",
+   "stockItemId": 4,
+   "name": "Fixture Item 3",
+   "unitSymbol": "Box",
+   "decimals": 0,
+   "closingQtyMilli": 85813,
+   "closingValue": 0
+  },
+  {
+   "godownId": null,
+   "godownName": "",
+   "stockItemId": 5,
+   "name": "Fixture Item 4",
+   "unitSymbol": "Box",
+   "decimals": 0,
+   "closingQtyMilli": 134621,
+   "closingValue": 10019091
+  },
+  {
+   "godownId": 2,
+   "godownName": "Fixture Godown 0",
+   "stockItemId": 5,
+   "name": "Fixture Item 4",
+   "unitSymbol": "Box",
+   "decimals": 0,
+   "closingQtyMilli": 55640,
+   "closingValue": 4140975
+  },
+  {
+   "godownId": 3,
+   "godownName": "Fixture Godown 1",
+   "stockItemId": 5,
+   "name": "Fixture Item 4",
+   "unitSymbol": "Box",
+   "decimals": 0,
+   "closingQtyMilli": 45298,
+   "closingValue": 3371278
+  },
+  {
+   "godownId": 4,
+   "godownName": "Fixture Godown 2",
+   "stockItemId": 5,
+   "name": "Fixture Item 4",
+   "unitSymbol": "Box",
+   "decimals": 0,
+   "closingQtyMilli": -27645,
+   "closingValue": -1569463
+  },
+  {
+   "godownId": null,
+   "godownName": "",
+   "stockItemId": 6,
+   "name": "Fixture Item 5",
+   "unitSymbol": "Box",
+   "decimals": 0,
+   "closingQtyMilli": -145191,
+   "closingValue": 220126133
+  },
+  {
+   "godownId": 2,
+   "godownName": "Fixture Godown 0",
+   "stockItemId": 6,
+   "name": "Fixture Item 5",
+   "unitSymbol": "Box",
+   "decimals": 0,
+   "closingQtyMilli": 6000,
+   "closingValue": -9096685
+  },
+  {
+   "godownId": 3,
+   "godownName": "Fixture Godown 1",
+   "stockItemId": 6,
+   "name": "Fixture Item 5",
+   "unitSymbol": "Box",
+   "decimals": 0,
+   "closingQtyMilli": 2400,
+   "closingValue": -3638674
+  },
+  {
+   "godownId": 4,
+   "godownName": "Fixture Godown 2",
+   "stockItemId": 6,
+   "name": "Fixture Item 5",
+   "unitSymbol": "Box",
+   "decimals": 0,
+   "closingQtyMilli": 4155,
+   "closingValue": -155842892
+  },
+  {
+   "godownId": null,
+   "godownName": "",
+   "stockItemId": 7,
+   "name": "Fixture Item 6",
+   "unitSymbol": "Box",
+   "decimals": 0,
+   "closingQtyMilli": 101295,
+   "closingValue": 8015166
+  },
+  {
+   "godownId": 2,
+   "godownName": "Fixture Godown 0",
+   "stockItemId": 7,
+   "name": "Fixture Item 6",
+   "unitSymbol": "Box",
+   "decimals": 0,
+   "closingQtyMilli": 185933,
+   "closingValue": 14712314
+  },
+  {
+   "godownId": 3,
+   "godownName": "Fixture Godown 1",
+   "stockItemId": 7,
+   "name": "Fixture Item 6",
+   "unitSymbol": "Box",
+   "decimals": 0,
+   "closingQtyMilli": 30437,
+   "closingValue": -11660545
+  },
+  {
+   "godownId": 4,
+   "godownName": "Fixture Godown 2",
+   "stockItemId": 7,
+   "name": "Fixture Item 6",
+   "unitSymbol": "Box",
+   "decimals": 0,
+   "closingQtyMilli": 7404,
+   "closingValue": 585856
+  },
+  {
+   "godownId": null,
+   "godownName": "",
+   "stockItemId": 8,
+   "name": "Fixture Item 7",
+   "unitSymbol": "Box",
+   "decimals": 0,
+   "closingQtyMilli": 90000,
+   "closingValue": 8868683
+  },
+  {
+   "godownId": 2,
+   "godownName": "Fixture Godown 0",
+   "stockItemId": 8,
+   "name": "Fixture Item 7",
+   "unitSymbol": "Box",
+   "decimals": 0,
+   "closingQtyMilli": -7000,
+   "closingValue": -18637144
+  },
+  {
+   "godownId": 3,
+   "godownName": "Fixture Godown 1",
+   "stockItemId": 8,
+   "name": "Fixture Item 7",
+   "unitSymbol": "Box",
+   "decimals": 0,
+   "closingQtyMilli": -2282,
+   "closingValue": -224870
+  },
+  {
+   "godownId": 4,
+   "godownName": "Fixture Godown 2",
+   "stockItemId": 8,
+   "name": "Fixture Item 7",
+   "unitSymbol": "Box",
+   "decimals": 0,
+   "closingQtyMilli": 121353,
+   "closingValue": 11958237
+  },
+  {
+   "godownId": null,
+   "godownName": "",
+   "stockItemId": 9,
+   "name": "Fixture Item 8",
+   "unitSymbol": "Box",
+   "decimals": 0,
+   "closingQtyMilli": -37995,
+   "closingValue": -745651
+  },
+  {
+   "godownId": 2,
+   "godownName": "Fixture Godown 0",
+   "stockItemId": 9,
+   "name": "Fixture Item 8",
+   "unitSymbol": "Box",
+   "decimals": 0,
+   "closingQtyMilli": -203901,
+   "closingValue": -499025
+  },
+  {
+   "godownId": 3,
+   "godownName": "Fixture Godown 1",
+   "stockItemId": 9,
+   "name": "Fixture Item 8",
+   "unitSymbol": "Box",
+   "decimals": 0,
+   "closingQtyMilli": -16916,
+   "closingValue": -331976
+  },
+  {
+   "godownId": 4,
+   "godownName": "Fixture Godown 2",
+   "stockItemId": 9,
+   "name": "Fixture Item 8",
+   "unitSymbol": "Box",
+   "decimals": 0,
+   "closingQtyMilli": 14000,
+   "closingValue": 274750
+  },
+  {
+   "godownId": null,
+   "godownName": "",
+   "stockItemId": 10,
+   "name": "Fixture Item 9",
+   "unitSymbol": "Box",
+   "decimals": 0,
+   "closingQtyMilli": -215242,
+   "closingValue": -8233010
+  },
+  {
+   "godownId": 2,
+   "godownName": "Fixture Godown 0",
+   "stockItemId": 10,
+   "name": "Fixture Item 9",
+   "unitSymbol": "Box",
+   "decimals": 0,
+   "closingQtyMilli": -83156,
+   "closingValue": -3180718
+  },
+  {
+   "godownId": 3,
+   "godownName": "Fixture Godown 1",
+   "stockItemId": 10,
+   "name": "Fixture Item 9",
+   "unitSymbol": "Box",
+   "decimals": 0,
+   "closingQtyMilli": 84738,
+   "closingValue": 8808558
+  },
+  {
+   "godownId": 4,
+   "godownName": "Fixture Godown 2",
+   "stockItemId": 10,
+   "name": "Fixture Item 9",
+   "unitSymbol": "Box",
+   "decimals": 0,
+   "closingQtyMilli": 83000,
+   "closingValue": 3174751
+  }
+ ],
+ "profitability": [
+  {
+   "stockItemId": 1,
+   "name": "Fixture Item 0",
+   "unitSymbol": "Box",
+   "decimals": 0,
+   "outQtyMilli": 947717,
+   "salesValue": 61411607,
+   "cogs": 43235274,
+   "profit": 18176333
+  },
+  {
+   "stockItemId": 2,
+   "name": "Fixture Item 1",
+   "unitSymbol": "Box",
+   "decimals": 0,
+   "outQtyMilli": 926222,
+   "salesValue": 50982366,
+   "cogs": 44240408,
+   "profit": 6741958
+  },
+  {
+   "stockItemId": 11,
+   "name": "Fixture Item 10",
+   "unitSymbol": "Box",
+   "decimals": 0,
+   "outQtyMilli": 1055171,
+   "salesValue": 67574129,
+   "cogs": 52107447,
+   "profit": 15466682
+  },
+  {
+   "stockItemId": 12,
+   "name": "Fixture Item 11",
+   "unitSymbol": "Box",
+   "decimals": 0,
+   "outQtyMilli": 913415,
+   "salesValue": 55128898,
+   "cogs": 47815279,
+   "profit": 7313619
+  },
+  {
+   "stockItemId": 13,
+   "name": "Fixture Item 12",
+   "unitSymbol": "Box",
+   "decimals": 0,
+   "outQtyMilli": 902742,
+   "salesValue": 59626208,
+   "cogs": 50815586,
+   "profit": 8810622
+  },
+  {
+   "stockItemId": 14,
+   "name": "Fixture Item 13",
+   "unitSymbol": "Box",
+   "decimals": 0,
+   "outQtyMilli": 1002346,
+   "salesValue": 63870949,
+   "cogs": 49452396,
+   "profit": 14418553
+  },
+  {
+   "stockItemId": 15,
+   "name": "Fixture Item 14",
+   "unitSymbol": "Box",
+   "decimals": 0,
+   "outQtyMilli": 1303376,
+   "salesValue": 84147327,
+   "cogs": 64354161,
+   "profit": 19793166
+  },
+  {
+   "stockItemId": 16,
+   "name": "Fixture Item 15",
+   "unitSymbol": "Box",
+   "decimals": 0,
+   "outQtyMilli": 879930,
+   "salesValue": 52717309,
+   "cogs": 39969834,
+   "profit": 12747475
+  },
+  {
+   "stockItemId": 17,
+   "name": "Fixture Item 16",
+   "unitSymbol": "Box",
+   "decimals": 0,
+   "outQtyMilli": 1096351,
+   "salesValue": 66187300,
+   "cogs": 48929747,
+   "profit": 17257553
+  },
+  {
+   "stockItemId": 18,
+   "name": "Fixture Item 17",
+   "unitSymbol": "Box",
+   "decimals": 0,
+   "outQtyMilli": 1020273,
+   "salesValue": 64026362,
+   "cogs": 44550858,
+   "profit": 19475504
+  },
+  {
+   "stockItemId": 19,
+   "name": "Fixture Item 18",
+   "unitSymbol": "Box",
+   "decimals": 0,
+   "outQtyMilli": 894440,
+   "salesValue": 53391092,
+   "cogs": 41126045,
+   "profit": 12265047
+  },
+  {
+   "stockItemId": 20,
+   "name": "Fixture Item 19",
+   "unitSymbol": "Box",
+   "decimals": 0,
+   "outQtyMilli": 792350,
+   "salesValue": 59404350,
+   "cogs": 40481131,
+   "profit": 18923219
+  },
+  {
+   "stockItemId": 3,
+   "name": "Fixture Item 2",
+   "unitSymbol": "Box",
+   "decimals": 0,
+   "outQtyMilli": 1059176,
+   "salesValue": 71191949,
+   "cogs": 37982200,
+   "profit": 33209749
+  },
+  {
+   "stockItemId": 21,
+   "name": "Fixture Item 20",
+   "unitSymbol": "Box",
+   "decimals": 0,
+   "outQtyMilli": 1216787,
+   "salesValue": 69208163,
+   "cogs": 304118730,
+   "profit": -234910567
+  },
+  {
+   "stockItemId": 22,
+   "name": "Fixture Item 21",
+   "unitSymbol": "Box",
+   "decimals": 0,
+   "outQtyMilli": 1109707,
+   "salesValue": 64673971,
+   "cogs": 53275719,
+   "profit": 11398252
+  },
+  {
+   "stockItemId": 23,
+   "name": "Fixture Item 22",
+   "unitSymbol": "Box",
+   "decimals": 0,
+   "outQtyMilli": 877622,
+   "salesValue": 48966462,
+   "cogs": 41655821,
+   "profit": 7310641
+  },
+  {
+   "stockItemId": 24,
+   "name": "Fixture Item 23",
+   "unitSymbol": "Box",
+   "decimals": 0,
+   "outQtyMilli": 873800,
+   "salesValue": 57728043,
+   "cogs": 39296502,
+   "profit": 18431541
+  },
+  {
+   "stockItemId": 25,
+   "name": "Fixture Item 24",
+   "unitSymbol": "Box",
+   "decimals": 0,
+   "outQtyMilli": 869338,
+   "salesValue": 49756076,
+   "cogs": 44023149,
+   "profit": 5732927
+  },
+  {
+   "stockItemId": 26,
+   "name": "Fixture Item 25",
+   "unitSymbol": "Box",
+   "decimals": 0,
+   "outQtyMilli": 886274,
+   "salesValue": 53132832,
+   "cogs": 41252642,
+   "profit": 11880190
+  },
+  {
+   "stockItemId": 27,
+   "name": "Fixture Item 26",
+   "unitSymbol": "Box",
+   "decimals": 0,
+   "outQtyMilli": 1219668,
+   "salesValue": 72310768,
+   "cogs": 89605926,
+   "profit": -17295158
+  },
+  {
+   "stockItemId": 28,
+   "name": "Fixture Item 27",
+   "unitSymbol": "Box",
+   "decimals": 0,
+   "outQtyMilli": 1043841,
+   "salesValue": 54431543,
+   "cogs": 44175044,
+   "profit": 10256499
+  },
+  {
+   "stockItemId": 29,
+   "name": "Fixture Item 28",
+   "unitSymbol": "Box",
+   "decimals": 0,
+   "outQtyMilli": 927352,
+   "salesValue": 63811186,
+   "cogs": 34804744,
+   "profit": 29006442
+  },
+  {
+   "stockItemId": 30,
+   "name": "Fixture Item 29",
+   "unitSymbol": "Box",
+   "decimals": 0,
+   "outQtyMilli": 1104482,
+   "salesValue": 71729301,
+   "cogs": 51830290,
+   "profit": 19899011
+  },
+  {
+   "stockItemId": 4,
+   "name": "Fixture Item 3",
+   "unitSymbol": "Box",
+   "decimals": 0,
+   "outQtyMilli": 1153901,
+   "salesValue": 67598925,
+   "cogs": 52473177,
+   "profit": 15125748
+  },
+  {
+   "stockItemId": 5,
+   "name": "Fixture Item 4",
+   "unitSymbol": "Box",
+   "decimals": 0,
+   "outQtyMilli": 1153512,
+   "salesValue": 75111966,
+   "cogs": 59249430,
+   "profit": 15862536
+  },
+  {
+   "stockItemId": 6,
+   "name": "Fixture Item 5",
+   "unitSymbol": "Box",
+   "decimals": 0,
+   "outQtyMilli": 1295569,
+   "salesValue": 79154560,
+   "cogs": 22735370,
+   "profit": 56419190
+  },
+  {
+   "stockItemId": 7,
+   "name": "Fixture Item 6",
+   "unitSymbol": "Box",
+   "decimals": 0,
+   "outQtyMilli": 1022615,
+   "salesValue": 63208813,
+   "cogs": 56512442,
+   "profit": 6696371
+  },
+  {
+   "stockItemId": 8,
+   "name": "Fixture Item 7",
+   "unitSymbol": "Box",
+   "decimals": 0,
+   "outQtyMilli": 835679,
+   "salesValue": 57549965,
+   "cogs": 43953671,
+   "profit": 13596294
+  },
+  {
+   "stockItemId": 9,
+   "name": "Fixture Item 8",
+   "unitSymbol": "Box",
+   "decimals": 0,
+   "outQtyMilli": 1328414,
+   "salesValue": 74447031,
+   "cogs": 41420193,
+   "profit": 33026838
+  },
+  {
+   "stockItemId": 10,
+   "name": "Fixture Item 9",
+   "unitSymbol": "Box",
+   "decimals": 0,
+   "outQtyMilli": 1010231,
+   "salesValue": 64729609,
+   "cogs": 55013274,
+   "profit": 9716335
+  }
+ ]
+}
