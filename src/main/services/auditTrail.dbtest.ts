@@ -32,10 +32,11 @@ beforeEach(() => {
 })
 
 describe('migration 031 backfill', () => {
-  it('is migration 031, after 030 (WP 2.6), and the last', () => {
+  it('is migration 031, after 030 (WP 2.6), and the last migration that touches audit_log', () => {
     expect(M031).toBeGreaterThan(MIGRATIONS.findIndex((sql) => sql.includes('CREATE TABLE price_list_rates_030')))
     expect(M031 + 1).toBe(31)
-    expect(M031).toBe(MIGRATIONS.length - 1)
+    // Later migrations (032+) must not rebuild audit_log (a rebuild must recreate both triggers).
+    expect(MIGRATIONS.slice(M031 + 1).some((sql) => /\b(DROP|ALTER) TABLE audit_log\b|CREATE TABLE audit_log/.test(sql))).toBe(false)
   })
 
   it('seals every pre-existing row in id order into a chain that verifies; keeps users as recorded', () => {

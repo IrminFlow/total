@@ -13,6 +13,10 @@
  * whose feature was removed in 0.5.0).
  */
 export const AUDIT_ENTITIES = [
+  'ai_data',
+  'ai_draft',
+  'ai_settings',
+  'ai_thread',
   'audit_log',
   'backup',
   'bank_rule',
@@ -101,6 +105,10 @@ export type AuditAction = (typeof AUDIT_ACTIONS)[number]
 
 /** Human labels for the report's entity column/filter; anything missing falls back to the raw key. */
 export const AUDIT_ENTITY_LABELS: Partial<Record<AuditEntity, string>> = {
+  ai_data: 'AI data (deleted)',
+  ai_draft: 'AI draft',
+  ai_settings: 'AI settings',
+  ai_thread: 'AI conversation',
   audit_log: 'Audit log',
   backup: 'Backup',
   bank_rule: 'Bank rule',

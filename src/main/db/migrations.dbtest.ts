@@ -76,6 +76,14 @@ const EXPECTED_TABLES = [
   'discount_schemes',
   'discount_scheme_slabs',
   'counter_sales',
+  // 036 (WP 5.1) — the AI agent's tables
+  'ai_threads',
+  'ai_messages',
+  'ai_drafts',
+  'ai_memory',
+  'ai_usage',
+  'ai_outbound_log',
+  'ai_pseudonyms',
   'migrations'
 ]
 

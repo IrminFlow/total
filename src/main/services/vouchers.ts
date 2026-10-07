@@ -275,7 +275,7 @@ export function findDuplicates(db: DB, input: VoucherInputParsed, excludeId?: nu
   return rows
 }
 
-function ledgerFactsResolver(db: DB): (id: number) => LedgerFacts {
+export function ledgerFactsResolver(db: DB): (id: number) => LedgerFacts {
   const cashBank = cashBankGroupIds(db)
   const stmt = db.prepare('SELECT group_id, tds_payable_section_id FROM ledgers WHERE id = ?')
   const cache = new Map<number, LedgerFacts>()

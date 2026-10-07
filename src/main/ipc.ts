@@ -1,4 +1,4 @@
-import { app, dialog, ipcMain, Notification, shell } from 'electron'
+import { app, BrowserWindow, dialog, ipcMain, Notification, shell } from 'electron'
 import { readFileSync, writeFileSync, copyFileSync, rmSync, unlinkSync, mkdtempSync, existsSync } from 'fs'
 import { tmpdir } from 'os'
 import { join, basename } from 'path'
@@ -79,6 +79,11 @@ import * as yearEnd from './services/yearEnd'
 import { registerFixedAssetIpc } from './ipcFixedAssets'
 import { registerPayrollStatutoryIpc } from './ipcPayrollStatutory'
 import { registerPricingIpc } from './ipcPricing'
+import { registerAiIpc, aiRuns } from './ai/ipc'
+import { aiMockAllowed } from './ai/env'
+import { consumeDraft } from './ai/drafts'
+import { appSecretStore } from './services/secretStore'
+import type { AiEvent } from '@shared/ai'
 import { rememberSalePrices } from './services/pricing'
 import { importTallyXml, dryRunTallyXml } from './services/tallyImport'
 import * as importer from './services/importers'
@@ -160,6 +165,8 @@ export function closeCurrentCompany(): void {
   agentBridge.syncInboxWatcher(null)
   // The cached NIC login belongs to this company's identity — never carry it into the next one.
   nic.resetNicSession()
+  // In-flight AI answers belong to this company's handle — stop them before it closes.
+  aiRuns.cancelAll()
   if (current) {
     closeCompanyDb(current.db)
     current = null
@@ -250,6 +257,16 @@ export function registerIpc(): void {
   // ---------- payroll statutory (WP 3.7) — channels live in ipcPayrollStatutory.ts ----------
   registerPayrollStatutoryIpc(handle, () => requireCompany())
   registerPricingIpc(handle, () => requireCompany())
+  // ---------- AI agent (WP 5.1) — channels live in ai/ipc.ts; events stream on 'total:ai:event' ----------
+  registerAiIpc(handle, {
+    company: () => requireCompany(),
+    session: () => (sessionUser ? { name: sessionUser.name, role: sessionUser.role } : { name: null, role: 'owner' }),
+    secrets: () => appSecretStore(),
+    emit: (e: AiEvent) => {
+      for (const w of BrowserWindow.getAllWindows()) if (!w.isDestroyed()) w.webContents.send('total:ai:event', e)
+    },
+    mock: () => aiMockAllowed(process.env, app.isPackaged)
+  })
 
   // ---------- company ----------
   handle('company:list', () => readRegistry())
@@ -872,9 +889,19 @@ export function registerIpc(): void {
   }, 'viewer')
   handle('voucher:get', (p) => vouchers.getVoucher(requireCompany().db, idSchema.parse(p).id), 'viewer')
   handle('voucher:save', (p) => {
-    const { data, id } = z.object({ data: voucherInputSchema, id: z.number().int().positive().optional() }).parse(p)
+    const { data, id, aiDraftId } = z
+      .object({ data: voucherInputSchema, id: z.number().int().positive().optional(), aiDraftId: z.number().int().positive().optional() })
+      .parse(p)
     const c = requireCompany()
-    const saved = vouchers.saveVoucher(c.db, data, id)
+    // WP 5.1: a voucher reviewed from an AI draft saves through the normal path; the draft is
+    // marked consumed in the same transaction (audited), so it cannot be saved twice.
+    const saved = aiDraftId
+      ? c.db.transaction(() => {
+          const v = vouchers.saveVoucher(c.db, data, id)
+          consumeDraft(c.db, aiDraftId, v.id)
+          return v
+        })()
+      : vouchers.saveVoucher(c.db, data, id)
     // WP 2.6 "remember last price" (Options toggle; a no-op unless on and this is a sale). Never
     // fails the save it follows.
     try {

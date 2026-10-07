@@ -2237,5 +2237,128 @@ export const MIGRATIONS: string[] = [
   ), 'system', NULL);
 
   DROP TABLE m031_before;
+  `,
+
+  // 032–035: RESERVED for the parallel Phase 4 branches (WP 4.1–4.4 / 3.5), which own those
+  // numbers. Each placeholder is a comment-only (no-op) migration so this branch's 036 keeps its
+  // assigned number; the branch that owns a slot REPLACES its placeholder with the real SQL when
+  // it merges. (A scratch database that already applied a placeholder records that number as
+  // done — re-create scratch databases after the swap; no release ships a placeholder.)
+  `-- 032 reserved (Phase 4)`,
+  `-- 033 reserved (Phase 4)`,
+  `-- 034 reserved (Phase 4)`,
+  `-- 035 reserved (Phase 4)`,
+
+  // 036 (WP 5.1): the AI agent's own tables. Nothing here touches the books — the agent can only
+  // read reports and write drafts; a draft becomes a voucher only through the normal editor and
+  // saveVoucher (ai_drafts.voucher_id records which one).
+  // - ai_threads / ai_messages: the conversation, stored locally with REAL names (privacy
+  //   transforms apply only to what is sent). Assistant rows carry their tool calls; tool rows
+  //   the call's input, the full local result and the sources the panel links to.
+  // - ai_drafts: proposals from draft tools (status open → consumed | discarded).
+  // - ai_memory: per-company memory (WP 5.6 fills it; created now so the schema is complete).
+  // - ai_usage: one row per model call (tokens in / cached / out, estimated micro-USD cost).
+  // - ai_outbound_log: what left the machine per call — sizes, the tools offered, which tool
+  //   results were included, privacy flags and a SHA-256 of the exact (masked) payload; never
+  //   the payload itself.
+  // - ai_pseudonyms: the stable per-company party-name → alias map ("Party-0007").
+  `
+  CREATE TABLE ai_threads (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    title TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    user_name TEXT
+  );
+
+  CREATE TABLE ai_messages (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    thread_id INTEGER NOT NULL REFERENCES ai_threads(id) ON DELETE CASCADE,
+    role TEXT NOT NULL CHECK (role IN ('user', 'assistant', 'tool')),
+    content TEXT NOT NULL DEFAULT '',
+    status TEXT NOT NULL DEFAULT 'ok' CHECK (status IN ('ok', 'error', 'cancelled')),
+    tool_calls_json TEXT,
+    tool_call_id TEXT,
+    tool_name TEXT,
+    tool_input_json TEXT,
+    tool_output_json TEXT,
+    tool_ok INTEGER,
+    truncated INTEGER NOT NULL DEFAULT 0,
+    sources_json TEXT,
+    figures_json TEXT,
+    model TEXT,
+    input_tokens INTEGER,
+    output_tokens INTEGER,
+    cost_micro_usd INTEGER,
+    draft_id INTEGER,
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+  );
+  CREATE INDEX idx_ai_messages_thread ON ai_messages(thread_id, id);
+
+  CREATE TABLE ai_drafts (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    thread_id INTEGER REFERENCES ai_threads(id) ON DELETE SET NULL,
+    message_id INTEGER REFERENCES ai_messages(id) ON DELETE SET NULL,
+    kind TEXT NOT NULL CHECK (kind IN ('voucher')),
+    summary TEXT NOT NULL,
+    payload_json TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'open' CHECK (status IN ('open', 'consumed', 'discarded')),
+    voucher_id INTEGER REFERENCES vouchers(id) ON DELETE SET NULL,
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    consumed_at TEXT
+  );
+  CREATE INDEX idx_ai_drafts_status ON ai_drafts(status);
+
+  CREATE TABLE ai_memory (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    kind TEXT NOT NULL,
+    key TEXT NOT NULL,
+    value TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    UNIQUE (kind, key)
+  );
+
+  CREATE TABLE ai_usage (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    thread_id INTEGER REFERENCES ai_threads(id) ON DELETE SET NULL,
+    message_id INTEGER REFERENCES ai_messages(id) ON DELETE SET NULL,
+    at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    day TEXT NOT NULL,
+    provider TEXT NOT NULL,
+    model TEXT NOT NULL,
+    input_tokens INTEGER NOT NULL DEFAULT 0,
+    cached_tokens INTEGER NOT NULL DEFAULT 0,
+    output_tokens INTEGER NOT NULL DEFAULT 0,
+    reasoning_tokens INTEGER NOT NULL DEFAULT 0,
+    cost_micro_usd INTEGER,
+    duration_ms INTEGER NOT NULL DEFAULT 0,
+    ok INTEGER NOT NULL DEFAULT 1,
+    error TEXT
+  );
+  CREATE INDEX idx_ai_usage_day ON ai_usage(day);
+
+  CREATE TABLE ai_outbound_log (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    thread_id INTEGER REFERENCES ai_threads(id) ON DELETE SET NULL,
+    provider TEXT NOT NULL,
+    model TEXT NOT NULL,
+    request_bytes INTEGER NOT NULL,
+    instructions_bytes INTEGER NOT NULL,
+    message_count INTEGER NOT NULL,
+    tools_offered_json TEXT NOT NULL,
+    tool_results_json TEXT NOT NULL,
+    masked INTEGER NOT NULL,
+    pseudonymised INTEGER NOT NULL,
+    payload_sha256 TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'sent'
+  );
+
+  CREATE TABLE ai_pseudonyms (
+    ledger_id INTEGER PRIMARY KEY REFERENCES ledgers(id) ON DELETE CASCADE,
+    alias TEXT NOT NULL UNIQUE,
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+  );
   `
 ]
