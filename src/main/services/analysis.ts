@@ -7,7 +7,7 @@ import { IN_BOOKS } from './vouchers'
 
 /** Account roots whose lines make up a register's taxable value — the Registers screen's
  *  definition, shared with the dashboard's net-of-notes trade series below. */
-const REGISTER_ROOTS: Record<'sales' | 'purchase', string[]> = {
+export const REGISTER_ROOTS: Record<'sales' | 'purchase', string[]> = {
   sales: ['Sales Accounts', 'Direct Incomes', 'Indirect Incomes'],
   purchase: ['Purchase Accounts', 'Direct Expenses', 'Indirect Expenses']
 }

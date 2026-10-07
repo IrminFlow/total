@@ -2237,5 +2237,52 @@ export const MIGRATIONS: string[] = [
   ), 'system', NULL);
 
   DROP TABLE m031_before;
+  `,
+  // 038 (WP 6.1 / 6.2) — report builder and scheduled report packs. Number assigned by the
+  // orchestrator: 032–037 belong to parallel branches (phases 4, 5.1, 6.3); this one must stay
+  // AFTER them when they merge (renumber the array position, never the content). Self-contained:
+  // depends only on core tables. Saved reports store the query model only (every figure is
+  // computed at query time); a pack lists built-in and saved reports with a period rule, an
+  // output folder and a frequency, and keeps a run log.
+  `
+  CREATE TABLE saved_reports (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL UNIQUE COLLATE NOCASE,
+    model_json TEXT NOT NULL,
+    owner TEXT,
+    pinned INTEGER NOT NULL DEFAULT 0 CHECK (pinned IN (0, 1)),
+    schedule_json TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+
+  CREATE TABLE report_packs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL UNIQUE COLLATE NOCASE,
+    reports_json TEXT NOT NULL,
+    period_rule TEXT NOT NULL CHECK (period_rule IN ('lastMonth', 'lastQuarter', 'fyToDate')),
+    frequency TEXT NOT NULL CHECK (frequency IN ('daily', 'weekly', 'monthly')),
+    formats_json TEXT NOT NULL DEFAULT '["pdf","csv"]',
+    output_dir TEXT,
+    active INTEGER NOT NULL DEFAULT 1 CHECK (active IN (0, 1)),
+    last_run_at TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+
+  CREATE TABLE report_pack_runs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    pack_id INTEGER NOT NULL REFERENCES report_packs(id) ON DELETE CASCADE,
+    trigger TEXT NOT NULL CHECK (trigger IN ('schedule', 'manual')),
+    started_at TEXT NOT NULL,
+    finished_at TEXT,
+    period_from TEXT NOT NULL,
+    period_to TEXT NOT NULL,
+    status TEXT NOT NULL CHECK (status IN ('ok', 'partial', 'failed')),
+    output_dir TEXT,
+    files_json TEXT NOT NULL DEFAULT '[]',
+    error TEXT
+  );
+  CREATE INDEX idx_report_pack_runs_pack ON report_pack_runs(pack_id, id);
   `
 ]

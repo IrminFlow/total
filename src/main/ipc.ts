@@ -79,6 +79,8 @@ import * as yearEnd from './services/yearEnd'
 import { registerFixedAssetIpc } from './ipcFixedAssets'
 import { registerPayrollStatutoryIpc } from './ipcPayrollStatutory'
 import { registerPricingIpc } from './ipcPricing'
+import { registerReportsIpc } from './ipcReports'
+import { runDuePacksInBackground } from './packScheduler'
 import { rememberSalePrices } from './services/pricing'
 import { importTallyXml, dryRunTallyXml } from './services/tallyImport'
 import * as importer from './services/importers'
@@ -250,6 +252,8 @@ export function registerIpc(): void {
   // ---------- payroll statutory (WP 3.7) — channels live in ipcPayrollStatutory.ts ----------
   registerPayrollStatutoryIpc(handle, () => requireCompany())
   registerPricingIpc(handle, () => requireCompany())
+  // ---------- report builder, comparatives, ratios, scheduled packs (WP 6.1 / 6.2) ----------
+  registerReportsIpc(handle, () => requireCompany(), () => sessionUser?.name ?? osAuditUser())
 
   // ---------- company ----------
   handle('company:list', () => readRegistry())
@@ -359,6 +363,9 @@ export function registerIpc(): void {
     touchLastOpened(slug)
     // Agent bridge (feature flag, default OFF): watch <company>/inbox/ for dropped files.
     if (configSvc.getAgentBridgeEnabled(db)) agentBridge.syncInboxWatcher({ slug, db })
+    // WP 6.2: scheduled report packs that came due while the app was closed run once, in the
+    // background — never blocking or failing the open.
+    void runDuePacksInBackground({ slug, db, info })
     return { slug, info, integrity, locked: current.usersExist }
   })
 

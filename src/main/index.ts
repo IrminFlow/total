@@ -8,6 +8,7 @@ import { ensureDataTree, dataRoot } from './paths'
 import { initUpdater } from './updater'
 import { initLogging, log } from './log'
 import { startBackupScheduler, backupOnQuit } from './backup-scheduler'
+import { startPackScheduler } from './packScheduler'
 import { syncFolderWarning } from '@shared/syncpath'
 
 // Hermetic scripted runs (smoke/e2e/CI, TOTAL_DATA_DIR set): keep Electron's userData —
@@ -123,6 +124,8 @@ if (gotSingleInstanceLock) {
     ensureDataTree()
     registerIpc()
     startBackupScheduler(getCurrentCompany)
+    // WP 6.2: scheduled report packs — hourly due-check (the on-open pass runs from company:open).
+    startPackScheduler(getCurrentCompany)
     createWindow()
     warnIfSyncedFolder()
     initUpdater()
