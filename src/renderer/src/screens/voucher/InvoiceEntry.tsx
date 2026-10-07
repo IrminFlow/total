@@ -12,7 +12,7 @@ import { formatPaise, amountInWords } from '@shared/money'
 import { toDisplayDate } from '@shared/dates'
 import { api } from '../../lib/client'
 import { useNav, useSession, useToasts, type VoucherDraft } from '../../state/stores'
-import { AmountInput, Button, DateInput, Field, isAnyModalOpen, Money, Panel, Select, TextInput, inputCls } from '../../components/ui'
+import { AmountInput, Button, DateInput, Field, isAnyModalOpen, Kbd, Money, Panel, Select, TextInput, inputCls } from '../../components/ui'
 import { LedgerPicker, useLedgers, useStockItems, useTaxLedgers } from '../../components/pickers'
 import { LedgerFormModal } from '../../components/LedgerFormModal'
 import { useFeatures } from '../../lib/useFeatures'
@@ -24,6 +24,10 @@ import { TransportModal } from './TransportModal'
 import { useTdsDeduction } from './useTdsDeduction'
 import { TdsBanner, TdsNotApplicableNote } from './TdsBanner'
 import { blankItemRow, ItemLineGrid, type ItemRow } from './ItemLineGrid'
+import { AddFromDrawer } from './AddFromDrawer'
+import { addFromFor, rowsFromSourcePicks, sourceLocksGoods, type SourcePick } from '@shared/voucherEdit'
+import type { OpenSourceLine } from '@shared/tradeCycle/types'
+import { VoucherLink } from '../../components/links'
 
 // ---------- invoice mode (sales / purchase / notes) ----------
 
@@ -131,6 +135,12 @@ export function InvoiceEntry({
     if (allocParty.current === partyId) return
     allocParty.current = partyId
     setNoteBillRefs([])
+    // Lines drawn from another party's challan / invoice can't stay (same party, I2).
+    setRows((rs) => {
+      if (!rs.some((r) => r.source)) return rs
+      const kept = rs.filter((r) => !r.source)
+      return kept.length > 0 && kept[kept.length - 1]!.itemId == null ? kept : [...kept, blankItemRow()]
+    })
     // A deduction belongs to its deductee — a different supplier starts without one.
     setTds(null)
     if (isNoteKind) {
@@ -351,6 +361,79 @@ export function InvoiceEntry({
 
   const goodsIn = kind === 'purchase' || kind === 'credit_note'
 
+  // ---------- "Add from…" (WP 2.5b): rows drawn from challans / GRNs / invoices ----------
+  // The source lines (and what is still pending on them, this voucher's own links excluded)
+  // serve the drawer, the per-row quantity caps and the "from DC-12" chips.
+  const addFrom = features.orders && features.inventory ? addFromFor(kind) : null
+  const sourcedRows = rows.some((r) => r.source)
+  const linkType = addFrom?.linkType ?? rows.find((r) => r.source)?.source?.linkType ?? 'fulfil'
+  const [addFromOpen, setAddFromOpen] = useState(false)
+  const { data: openLines, isLoading: openLinesLoading } = useQuery({
+    queryKey: ['openSourceLines', partyId, kind, linkType, voucherId ?? null],
+    queryFn: () =>
+      api.links.openSourceLines({ partyLedgerId: partyId!, targetKind: kind, linkType, ...(voucherId ? { excludeVoucherId: voucherId } : {}) }),
+    enabled: partyId != null && (!!addFrom || sourcedRows)
+  })
+  const sourceByUid = useMemo(() => new Map((openLines ?? []).map((l) => [l.lineUid, l])), [openLines])
+  const qtyInForm = (uid: string, exceptKey?: number): number =>
+    rows
+      .filter((r) => r.source?.lineUid === uid && r.key !== exceptKey)
+      .reduce((s, r) => s + (Math.round(parseFloat(r.qtyText || '0') * 1000) || 0), 0)
+  const drawerLines: OpenSourceLine[] = (openLines ?? [])
+    .map((l) => {
+      const pending = l.pendingMilli - qtyInForm(l.lineUid)
+      return { ...l, doneMilli: l.qtyMilli - pending, pendingMilli: pending }
+    })
+    .filter((l) => l.pendingMilli > 0)
+  const lockedBySource = (r: ItemRow): { label: string; maxQtyMilli: number; lockDetail: boolean } | null => {
+    if (!r.source) return null
+    const l = sourceByUid.get(r.source.lineUid)
+    const own = Math.round(parseFloat(r.qtyText || '0') * 1000) || 0
+    if (!l) return { label: 'the linked line', maxQtyMilli: own, lockDetail: r.source.linkType === 'fulfil' }
+    return {
+      label: l.label,
+      maxQtyMilli: Math.max(0, l.pendingMilli - qtyInForm(l.lineUid, r.key)),
+      lockDetail: sourceLocksGoods(l.kind as VoucherKind, kind, r.source.linkType)
+    }
+  }
+  const sourceChip = (r: ItemRow): React.ReactNode => {
+    if (!r.source) return null
+    const l = sourceByUid.get(r.source.lineUid)
+    return (
+      <span className="mt-0.5 inline-flex items-center gap-1 rounded bg-panel2 px-1.5 text-hint text-muted" data-testid="chip-line-source">
+        {r.source.linkType === 'return' ? 'against' : 'from'}{' '}
+        {l ? <VoucherLink voucherId={l.voucherId} label={l.label.replace(/ line (\d+)$/, ' · line $1')} /> : 'a linked line'}
+      </span>
+    )
+  }
+  const insertPicks = (picks: SourcePick[]): void => {
+    const added = rowsFromSourcePicks(picks, { linkType, fxRate: computed.fxRate }).map((r) => ({ ...r, key: nextLineKey() }))
+    setRows((rs) => [...rs.filter((r) => r.itemId != null || r.source), ...added, blankItemRow()])
+    setAddFromOpen(false)
+  }
+  const removeRow = (i: number): void =>
+    setRows((rs) => {
+      const next = rs.filter((_r, j) => j !== i)
+      return next.length > 0 && next[next.length - 1]!.itemId == null ? next : [...next, blankItemRow()]
+    })
+  // Every goods line moved on a challan: the challan's e-way bill covered the movement.
+  const goodsOnChallan =
+    kind === 'sales' && computed.detail.length > 0 &&
+    rows.filter((r) => r.itemId != null).every((r) => r.source?.linkType === 'fulfil' && lockedBySource(r)?.lockDetail)
+
+  useEffect(() => {
+    if (!addFrom || partyId == null) return
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.altKey && !e.metaKey && !e.ctrlKey && e.code === 'KeyA') {
+        if (isAnyModalOpen()) return
+        e.preventDefault()
+        setAddFromOpen(true)
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [addFrom, partyId])
+
   return (
     <Panel className="p-5">
       <div className="grid grid-cols-4 gap-3">
@@ -411,6 +494,17 @@ export function InvoiceEntry({
         ) : (
           <span />
         )}
+        {addFrom && partyId != null && (
+          <Button
+            variant="ghost"
+            className="ml-auto mr-2 px-2 py-1 text-caption"
+            data-testid="btn-add-from"
+            onClick={() => setAddFromOpen(true)}
+            title={`${addFrom.label} (⌥A)`}
+          >
+            {addFrom.label} <Kbd>⌥A</Kbd>
+          </Button>
+        )}
         {features.multiCurrency && (currencies?.length ?? 0) > 0 && (
           <div className="flex items-center gap-2">
             <Select value={currencyCode} onChange={(e) => setCurrencyCode(e.target.value)} className="w-28">
@@ -447,6 +541,9 @@ export function InvoiceEntry({
         voucherId={voucherId}
         fallbackGstRate={account?.gstRate ?? null}
         onCreateItem={(name, row) => setQuickItem({ name, row })}
+        lockedBySource={lockedBySource}
+        rowNote={sourceChip}
+        onRemoveRow={removeRow}
       />
 
       <div className="mt-4 flex items-start justify-between gap-6">
@@ -466,6 +563,11 @@ export function InvoiceEntry({
                 <TextInput value={distanceKm} onChange={(e) => setDistanceKm(e.target.value)} placeholder="0" className="num text-right" />
               </Field>
             </div>
+          )}
+          {goodsOnChallan && (
+            <p className="mt-2 text-hint text-muted" data-testid="invoice-goods-on-challan">
+              Goods moved on the challan — its e-way bill covered the movement; no second one is needed.
+            </p>
           )}
           {computed.rounded > 0 && (
             <p className="mt-2 text-hint text-muted italic">{amountInWords(computed.rounded)}</p>
@@ -732,6 +834,15 @@ export function InvoiceEntry({
         />
       )}
       {editingParty && party && <LedgerFormModal ledger={party} onClose={() => setEditingParty(false)} />}
+      {addFromOpen && addFrom && (
+        <AddFromDrawer
+          title={`${addFrom.label.replace('…', '')} — ${party?.name ?? ''}`}
+          lines={drawerLines}
+          loading={openLinesLoading}
+          onClose={() => setAddFromOpen(false)}
+          onInsert={insertPicks}
+        />
+      )}
       {showTransport && voucherId && (
         <TransportModal voucherId={voucherId} voucherNumber={voucher?.number} onClose={() => setShowTransport(false)} />
       )}

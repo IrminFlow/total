@@ -44,7 +44,7 @@ export interface ItemLineGridProps {
    * moved, so item, godown, batch and serials are read-only and the quantity can't exceed what
    * is still pending on the source. Null = an ordinary row.
    */
-  lockedBySource?: (row: ItemRow) => { label: string; maxQtyMilli: number } | null
+  lockedBySource?: (row: ItemRow) => { label: string; maxQtyMilli: number; lockDetail: boolean } | null
   /** Extra content under a row's item cell (the "from DC-12" chip). */
   rowNote?: (row: ItemRow, i: number) => ReactNode
   /** Remove a row (shown for rows drawn from a source, which have no blank-out path). */
@@ -175,15 +175,15 @@ export function ItemLineGrid({
                 </td>
                 <td className="r">
                   <Money paise={amount} className="text-body" />
-                  {(!detailOpen || locked) && features.inventory && <div><LineStockSummary fields={r} /></div>}
+                  {(!detailOpen || locked?.lockDetail) && features.inventory && <div><LineStockSummary fields={r} /></div>}
                 </td>
                 {features.inventory && (
                   <td>
-                    <LineDetailToggle open={detailOpen} onToggle={() => details.toggle(r.key)} fields={r} disabled={!item || !!locked} />
+                    <LineDetailToggle open={detailOpen} onToggle={() => details.toggle(r.key)} fields={r} disabled={!item || !!locked?.lockDetail} />
                   </td>
                 )}
               </tr>
-              {detailOpen && item && !locked && (
+              {detailOpen && item && !locked?.lockDetail && (
                 <tr className="line-detail-row" data-testid="row-line-detail">
                   <td colSpan={7} className="!pt-0">
                     <LineStockDetail

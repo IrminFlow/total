@@ -1,8 +1,9 @@
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { api } from '../lib/client'
-import { useSession, useToasts, type ToastState } from '../state/stores'
-import { DrawerSection, Money, Page, PageHeader, Panel } from '../components/ui'
+import { useNav, useSession, useToasts, type ToastState } from '../state/stores'
+import { useFeatures } from '../lib/useFeatures'
+import { Button, DrawerSection, Money, Page, PageHeader, Panel } from '../components/ui'
 import { OptionToggle, OptionsPeriod, OptionsTable, useScreenOptions } from '../components/ScreenOptions'
 import { TabBar } from '../components/TabBar'
 import { DataTable, defineColumns, type RowKey } from '../components/table'
@@ -103,6 +104,8 @@ export function OutstandingsScreen(): React.JSX.Element {
   const { to, info } = useSession()
   const toast = useToasts()
   const [side, setSide] = useState<'receivable' | 'payable'>('receivable')
+  const features = useFeatures()
+  const nav = useNav()
   const [expanded, setExpanded] = useState<Set<RowKey>>(() => new Set())
   const { data, isLoading } = useQuery({
     queryKey: ['outstandings', side, to],
@@ -155,6 +158,21 @@ export function OutstandingsScreen(): React.JSX.Element {
                 />
               </DrawerSection>
               <OptionsTable area="outstandings" />
+              {features.orders && (
+                <DrawerSection title="Goods not yet invoiced">
+                  <p className="text-hint text-muted">
+                    Challans and GRNs post nothing, so they are not in these buckets until the invoice or bill.
+                  </p>
+                  <div className="flex flex-wrap gap-2">
+                    <Button size="sm" data-testid="btn-outstandings-pending-challans" onClick={() => nav.go({ name: 'pending-challans' })}>
+                      Pending challans
+                    </Button>
+                    <Button size="sm" data-testid="btn-outstandings-pending-grns" onClick={() => nav.go({ name: 'pending-grns' })}>
+                      Pending GRNs
+                    </Button>
+                  </div>
+                </DrawerSection>
+              )}
               <DrawerSection title="About the buckets">
                 <p className="text-hint text-muted">
                   Ageing buckets count days overdue past each bill&apos;s due date (or the bill date when none is set). Receipts

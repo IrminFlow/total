@@ -9,7 +9,7 @@ import { useSession, type Screen } from '../state/stores'
 describe('navSections pure helpers', () => {
   it('defaults: top and Books open, everything else collapsed', () => {
     const open = NAV_SECTIONS.filter((s) => isSectionOpen(s.id, {}, null)).map((s) => s.id)
-    expect(open).toEqual(['top', 'books'])
+    expect(open).toEqual(['top', 'trade', 'books'])
   })
 
   it('has a default for every registry section', () => {
