@@ -3,10 +3,13 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import type { Ledger, Voucher, VoucherBillRef, VoucherKind } from '@shared/domain'
 import type { OutstandingBill } from '@shared/reports'
 import type { VoucherInputParsed } from '@shared/schemas'
-import { buildAccountingPayload, derivePartyId, type AccountingFormState, type AccountingRowState } from '@shared/voucherEdit'
+import {
+  applyTdsToAccountingRows, appliedTdsAmount, buildAccountingPayload, derivePartyId, tdsStateFromSaved,
+  type AccountingFormState, type AccountingRowState
+} from '@shared/voucherEdit'
 import { formatPaise } from '@shared/money'
 import { toDisplayDate } from '@shared/dates'
-import { api, type TdsSuggestion } from '../../lib/client'
+import { api } from '../../lib/client'
 import { useNav, useSession, useToasts, type VoucherDraft } from '../../state/stores'
 import { AmountInput, Button, DateInput, Field, isAnyModalOpen, LineTableScroller, Money, Panel, Select, TextInput } from '../../components/ui'
 import { LedgerPicker, useGroups, useLedgers } from '../../components/pickers'
@@ -20,6 +23,8 @@ import {
 } from './hooks'
 import { CostAllocModal, QuickLedgerModal } from './modals'
 import { TransportModal } from './TransportModal'
+import { useTdsDeduction } from './useTdsDeduction'
+import { TdsBanner } from './TdsBanner'
 
 // ---------- accounting mode (payment / receipt / contra / journal, and the lossless fallback
 // for alterations the specialised modes can't show — see planVoucherEdit) ----------
@@ -82,14 +87,15 @@ export function AccountingEntry({
   const { saved, leave } = useLeaveAfterSave()
 
   // ---------- TDS (payment / journal to a party flagged for TDS) ----------
-  const [tds, setTds] = useState<{ sectionId: number; baseAmount: number; tdsAmount: number } | null>(initial?.tds ?? null)
-  const [tdsSuggestion, setTdsSuggestion] = useState<TdsSuggestion | null>(null)
-  const [tdsDismissed, setTdsDismissed] = useState(!!initial?.tds)
-  // Set right before WE mutate rows in a way that would otherwise re-trigger the suggestion
-  // effect (applying TDS onto the flagged CR row itself, or loading a voucher that already has
-  // tds applied) — the effect consumes it once and skips, so the banner doesn't re-fetch/reopen
-  // off of our own write. Genuine user edits always leave it false and behave normally.
-  const skipNextTdsEffectRef = useRef(!!initial?.tds)
+  // The suggestion/apply state lives in the shared useTdsDeduction hook (InvoiceEntry uses the
+  // same one); this mode only decides which line gives up the deduction. A deduction whose
+  // payable ledger doesn't exist yet stays `pending` — shown as a read-only credit below the
+  // rows and created by saveVoucher inside the save (tds.autoPayable), never on Apply.
+  const [initialTds] = useState(() =>
+    initial?.tds
+      ? tdsStateFromSaved(initial.tds, initial.rows, initial.original?.partyLedgerId ?? null, (id) => ledgers.find((l) => l.id === id)?.tdsPayableSectionId)
+      : null
+  )
 
   // ---------- bill allocations (receipt/payment checkbox list; trading-kind alteration editor) ----------
   const [billRefs, setBillRefs] = useState<VoucherBillRef[]>(initial?.billRefs ?? [])
@@ -106,9 +112,7 @@ export function AccountingEntry({
   const hasCc = features.costCentres && (ccList?.length ?? 0) > 0
   const [ccModalRow, setCcModalRow] = useState<number | null>(null)
 
-  const totalDr = rows.reduce((s, r) => s + (r.drCr === 'dr' ? (r.amount ?? 0) : 0), 0)
-  const totalCr = rows.reduce((s, r) => s + (r.drCr === 'cr' ? (r.amount ?? 0) : 0), 0)
-  const balanced = totalDr === totalCr && totalDr > 0
+  // (TDS hook below needs rows/ledgers first; totals include a pending TDS payable credit.)
 
   const setRow = (i: number, patch: Partial<AcctRow>): void => {
     setRows((rs) => {
@@ -135,26 +139,18 @@ export function AccountingEntry({
     [rows, ledgers, groupMap, draftPartyId]
   )
 
-  // How much of a prior Apply is already sitting in the TDS payable line — i.e. how much the
-  // target line has already been reduced (the cumulative reduction on the target always equals
-  // the current payable line's amount; see applyTds). Declared before tdsCandidateRow because
-  // the journal vendor-CR shape needs it to reconstruct the pre-deduction gross amount below.
-  const existingTdsPayableAmount = useMemo(() => {
-    if (!tds || !tdsSuggestion || tdsSuggestion.payableLedgerId == null) return 0
-    return rows.find((r) => r.drCr === 'cr' && r.ledgerId === tdsSuggestion.payableLedgerId)?.amount ?? 0
-  }, [rows, tds, tdsSuggestion])
-
   // The dr-side (payment: "Dr Vendor / Cr Bank") is checked first; journal additionally checks
   // the cr side, since the standard journal shape is "Dr Expense / Cr Vendor(flagged)" — the
   // vendor never appears as a debit there. `rowSide` records which one matched, since it decides
-  // both the suggestion's base amount and (in applyTds) which line absorbs the deduction.
+  // both the suggestion's base amount and which line absorbs the deduction on Apply.
   //
   // For the cr shape, `amount` is reconstructed back to the GROSS pre-deduction figure (current
   // row amount + whatever a prior Apply already carved out of it) rather than read live off the
   // row — Apply reduces that same row, so reading it live would drift the suggestion base down
-  // to the net amount on any re-trigger (e.g. editing the date) and silently under-deduct on a
-  // re-apply. The payment/dr shape doesn't need this: Apply reduces a different (bank) line, so
-  // the dr candidate row's amount never moves on its own.
+  // to the net amount and silently under-deduct on a re-apply. The payment/dr shape reduces a
+  // different (bank) line, so its candidate amount never moves on its own.
+  const [tds, setTds] = useState(initialTds)
+  const alreadyApplied = appliedTdsAmount(rows, tds)
   const tdsCandidateRow = useMemo(() => {
     if (kind !== 'payment' && kind !== 'journal') return null
     for (const r of rows) {
@@ -167,12 +163,28 @@ export function AccountingEntry({
         if (r.drCr !== 'cr' || r.ledgerId == null || !r.amount) continue
         const l = ledgers.find((x) => x.id === r.ledgerId)
         if (l?.tdsSectionId != null) {
-          return { ledgerId: r.ledgerId, amount: r.amount + existingTdsPayableAmount, rowSide: 'cr' as const }
+          return { ledgerId: r.ledgerId, amount: r.amount + alreadyApplied, rowSide: 'cr' as const }
         }
       }
     }
     return null
-  }, [rows, kind, ledgers, existingTdsPayableAmount])
+  }, [rows, kind, ledgers, alreadyApplied])
+
+  const tdsDeduction = useTdsDeduction({
+    enabled: features.tds,
+    candidate: tdsCandidateRow ? { partyLedgerId: tdsCandidateRow.ledgerId, base: tdsCandidateRow.amount } : null,
+    date,
+    excludeVoucherId: voucherId,
+    tds,
+    onChange: setTds,
+    startDismissed: !!initialTds
+  })
+  const tdsSuggestion = tdsDeduction.suggestion
+
+  const pendingTdsCredit = tds?.pending ? tds.tdsAmount : 0
+  const totalDr = rows.reduce((s, r) => s + (r.drCr === 'dr' ? (r.amount ?? 0) : 0), 0)
+  const totalCr = rows.reduce((s, r) => s + (r.drCr === 'cr' ? (r.amount ?? 0) : 0), 0) + pendingTdsCredit
+  const balanced = totalDr === totalCr && totalDr > 0
 
   // Where the TDS amount would come out of: the flagged CR row itself for the journal vendor
   // shape (Dr Expense / Cr Vendor 9000 / Cr TDS 1000 — the textbook entry), or the largest
@@ -195,98 +207,26 @@ export function AccountingEntry({
     return idx
   }, [rows, tdsCandidateRow, ledgers, groupMap])
 
-  // Capacity of the target line = its current (live, un-reconstructed) amount plus whatever a
-  // prior Apply already carved out of it.
-  const tdsTargetCapacity = tdsTargetIdx === -1 ? 0 : (rows[tdsTargetIdx]!.amount ?? 0) + existingTdsPayableAmount
+  // Capacity of the target line = its current amount plus whatever a prior Apply carved out.
+  const tdsTargetCapacity = tdsTargetIdx === -1 ? 0 : (rows[tdsTargetIdx]!.amount ?? 0) + alreadyApplied
   const tdsApplyBlocked = !!tdsSuggestion && (tdsTargetIdx === -1 || tdsTargetCapacity < tdsSuggestion.tdsPaise)
 
-  useEffect(() => {
-    if (skipNextTdsEffectRef.current) {
-      skipNextTdsEffectRef.current = false
-      return
-    }
-    setTdsDismissed(false)
-    if (!tdsCandidateRow) {
-      setTdsSuggestion(null)
-      return
-    }
-    const handle = setTimeout(() => {
-      api.tds
-        .suggest(tdsCandidateRow.ledgerId, tdsCandidateRow.amount, date)
-        // Read-only: the payable ledger is only created when the user hits Apply (applyTds).
-        .then((s) => setTdsSuggestion(s))
-        .catch(() => setTdsSuggestion(null))
-    }, 300)
-    return () => clearTimeout(handle)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tdsCandidateRow?.ledgerId, tdsCandidateRow?.amount, date])
-
-  const applyTds = async (): Promise<void> => {
-    // tdsTargetIdx === -1 is already implied by tdsApplyBlocked today, but checked explicitly
-    // too — mirrors the setRows updater's own guard so a future change to the blocked condition
-    // can't set the tds payload without the corresponding line mutation.
+  const applyTds = (): void => {
     if (!tdsCandidateRow || !tdsSuggestion || tdsApplyBlocked || tdsTargetIdx === -1) return
-    // The suggestion is read-only, so "TDS Payable <code>" may not exist yet. Applying is the
-    // explicit action that commits to posting it, so create it now (and refresh ledgers so the
-    // new line shows by name) — never while the user is merely typing amounts.
-    let payableLedgerId = tdsSuggestion.payableLedgerId
-    if (payableLedgerId == null) {
-      try {
-        payableLedgerId = (await api.tds.ensurePayable(tdsSuggestion.sectionId)).ledgerId
-      } catch (err) {
-        toast.push('error', (err as Error).message)
-        return
-      }
-      const created = payableLedgerId
-      setTdsSuggestion((s) => (s && s.sectionId === tdsSuggestion.sectionId ? { ...s, payableLedgerId: created } : s))
-      await queryClient.invalidateQueries({ queryKey: ['ledgers'] })
-    }
-    const tdsAmount = tdsSuggestion.tdsPaise
-    const isVendorTarget = tdsCandidateRow.rowSide === 'cr'
-    // The vendor-CR shape reduces the very row the candidate/suggestion is keyed on — mark it so
-    // the debounce effect above doesn't treat our own write as a fresh user edit and re-suggest
-    // off the now-smaller amount. The payment shape reduces an unrelated bank line, so the
-    // candidate row is untouched and no suppression is needed there.
-    if (isVendorTarget) skipNextTdsEffectRef.current = true
+    const previous = tds
+    const next = tdsDeduction.apply()
+    if (!next) return
     setRows((rs) => {
-      let next = rs.map((r) => ({ ...r }))
-
-      let targetIdx = -1
-      if (isVendorTarget) {
-        targetIdx = next.findIndex((r) => r.drCr === 'cr' && r.ledgerId === tdsCandidateRow.ledgerId)
-      } else {
-        let max = -1
-        next.forEach((r, i) => {
-          if (r.drCr !== 'cr' || r.ledgerId == null) return
-          const l = ledgers.find((x) => x.id === r.ledgerId)
-          if (l && isCashOrBankLedger(l, groupMap) && (r.amount ?? 0) > max) {
-            max = r.amount ?? 0
-            targetIdx = i
-          }
-        })
-      }
-      // Guarded by tdsApplyBlocked above — should always be found, but never mutate blind.
-      if (targetIdx === -1) return next
-
-      // Re-applying (e.g. after editing the base amount) adjusts the TDS payable line already on
-      // the voucher instead of inserting a duplicate.
-      const existingIdx = tds ? next.findIndex((r) => r.drCr === 'cr' && r.ledgerId === payableLedgerId) : -1
-      if (existingIdx !== -1) {
-        const delta = tdsAmount - (next[existingIdx]!.amount ?? 0)
-        next[existingIdx] = { ...next[existingIdx]!, amount: tdsAmount }
-        next[targetIdx] = { ...next[targetIdx]!, amount: (next[targetIdx]!.amount ?? 0) - delta }
-        return next
-      }
-
-      next[targetIdx] = { ...next[targetIdx]!, amount: (next[targetIdx]!.amount ?? 0) - tdsAmount }
-      const insertAt = next.length > 0 && next[next.length - 1]!.ledgerId == null ? next.length - 1 : next.length
-      const tdsRow: AcctRow = { key: nextLineKey(), drCr: 'cr', ledgerId: payableLedgerId, amount: tdsAmount, costAllocations: [] }
-      next = [...next.slice(0, insertAt), tdsRow, ...next.slice(insertAt)]
-      if (next[next.length - 1]!.ledgerId != null) next.push(blankAcctRow('cr'))
-      return next
+      const out = applyTdsToAccountingRows(rs, {
+        targetIdx: tdsTargetIdx,
+        tdsAmount: next.tdsAmount,
+        payableLedgerId: next.payableLedgerId,
+        previous,
+        makeRow: (ledgerId, amount): AcctRow => ({ key: nextLineKey(), drCr: 'cr', ledgerId, amount, costAllocations: [] })
+      })
+      if (out[out.length - 1]!.ledgerId != null) out.push(blankAcctRow('cr'))
+      return out
     })
-    setTds({ sectionId: tdsSuggestion.sectionId, baseAmount: tdsCandidateRow.amount, tdsAmount })
-    setTdsDismissed(true)
   }
 
   const showBillsSection =
@@ -335,7 +275,9 @@ export function AccountingEntry({
       billRefs,
       advanceReceipt,
       optional: optionalVoucher,
-      tds,
+      tds: tds
+        ? { sectionId: tds.sectionId, baseAmount: tds.baseAmount, tdsAmount: tds.tdsAmount, isManual: tds.isManual, autoPayable: tds.pending }
+        : null,
       original: initial?.original ?? null
     }),
     [date, voucherId, alterNumber, numberField.forPayload, rows, narration, instrumentNo, billRefs, advanceReceipt, optionalVoucher, tds, initial]
@@ -398,9 +340,7 @@ export function AccountingEntry({
         setBillRefs([])
         setAdvanceReceipt(false)
         setOptionalVoucher(false)
-        setTds(null)
-        setTdsSuggestion(null)
-        setTdsDismissed(false)
+        tdsDeduction.reset()
         numberField.reset()
       }
     } catch (err) {
@@ -408,7 +348,7 @@ export function AccountingEntry({
     } finally {
       setSaving(false)
     }
-  }, [saving, buildPayload, date, typeId, voucherId, toast, setWorkingDate, queryClient, leave, numberField.reset])
+  }, [saving, buildPayload, date, typeId, voucherId, toast, setWorkingDate, queryClient, leave, numberField.reset, tdsDeduction.reset])
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
@@ -584,6 +524,21 @@ export function AccountingEntry({
               )}
             </tr>
           ))}
+          {tds?.pending && (
+            <tr data-testid="row-tds-pending">
+              <td>
+                <span className="num inline-block w-12 px-2 py-1 text-body-sm font-medium text-cr">Cr</span>
+              </td>
+              <td className="text-body-sm">
+                {tdsSuggestion?.payableLedgerName ?? 'TDS payable'}{' '}
+                <span className="text-caption text-muted">— ledger created when you save</span>
+              </td>
+              <td className="r">
+                <Money paise={tds.tdsAmount} />
+              </td>
+              {hasCc && <td></td>}
+            </tr>
+          )}
           <tr className="total-row">
             <td></td>
             <td>Total</td>
@@ -602,28 +557,17 @@ export function AccountingEntry({
         </p>
       )}
 
-      {features.tds && tdsSuggestion && !tdsDismissed && (
-        <div className="mt-3 rounded-md border border-amber/40 bg-amberbar/10 px-3 py-2 text-body-sm text-amber">
-          <div className="flex items-center justify-between gap-3">
-            <span>
-              TDS u/s {tdsSuggestion.code}: deduct <Money paise={tdsSuggestion.tdsPaise} className="text-amber" />
-              {!tdsSuggestion.panAvailable && <span className="ml-2 text-cr">PAN missing — 20% rate</span>}
-              {!tdsSuggestion.thresholdCrossed && <span className="ml-2 text-muted">(below threshold — applying anyway is your call)</span>}
-            </span>
-            <div className="flex shrink-0 gap-2">
-              <Button onClick={() => setTdsDismissed(true)}>Dismiss</Button>
-              <Button variant="primary" disabled={tdsApplyBlocked} onClick={() => void applyTds()}>
-                Apply
-              </Button>
-            </div>
-          </div>
-          {tdsApplyBlocked && (
-            <p className="mt-1.5 text-cr">
-              Apply would unbalance: the {formatPaise(tdsTargetIdx === -1 ? 0 : (rows[tdsTargetIdx]?.amount ?? 0), { symbol: true })} line
-              can&apos;t absorb {formatPaise(tdsSuggestion.tdsPaise, { symbol: true })} TDS — adjust lines manually.
-            </p>
-          )}
-        </div>
+      {features.tds && tdsSuggestion && !tdsDeduction.dismissed && (
+        <TdsBanner
+          suggestion={tdsSuggestion}
+          onDismiss={tdsDeduction.dismiss}
+          onApply={applyTds}
+          blockedReason={
+            tdsApplyBlocked
+              ? `Apply would unbalance: the ${formatPaise(tdsTargetIdx === -1 ? 0 : (rows[tdsTargetIdx]?.amount ?? 0), { symbol: true })} line can't absorb ${formatPaise(tdsSuggestion.tdsPaise, { symbol: true })} TDS — adjust lines manually.`
+              : null
+          }
+        />
       )}
 
       {showBillsSection && (
