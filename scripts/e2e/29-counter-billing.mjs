@@ -177,6 +177,37 @@ await scenario('29-counter-billing', async (h) => {
   await both('09-counter-day-end')
   await page.keyboard.press('Escape')
 
+  // Hold a bill (F3) and recall it (F4); the options drawer.
+  await page.waitForFunction(() => document.activeElement?.getAttribute('data-testid') === 'input-counter-search', null, { timeout: 3000 })
+  await scan('8901000000011')
+  await waitPriced(1)
+  await page.keyboard.press('F3')
+  await page.waitForFunction(() => document.querySelectorAll('[data-testid="counter-line"]').length === 0, null, { timeout: 3000 })
+  assertEq((await h.invoke('counter:held')).length, 1, 'one bill on hold')
+  await page.keyboard.press('F4')
+  await page.waitForSelector('[data-testid="rows-counter-held"] tr.dt-row', { timeout: 5000 })
+  await both('09b-counter-held')
+  await page.locator('[data-testid="rows-counter-held"] tr.dt-row').first().click()
+  await page.waitForFunction(() => document.querySelectorAll('[data-testid="counter-line"]').length === 1, null, { timeout: 3000 })
+  assertEq((await h.invoke('counter:held')).length, 0, 'the recalled bill left the hold list')
+  await page.keyboard.press('F12')
+  await page.waitForSelector('[data-testid="input-counter-template"]', { timeout: 5000 })
+  await both('09c-counter-options')
+  await page.keyboard.press('Escape')
+  await page.waitForTimeout(200)
+  await search.focus()
+  await page.keyboard.press('Delete')
+  await page.waitForFunction(() => document.querySelectorAll('[data-testid="counter-line"]').length === 0, null, { timeout: 3000 })
+
+  // Masters › Party rates and the party's ledger form (price level + party rates).
+  const umbrella = (await h.invoke('master:ledgers:list')).find((l) => l.name === 'Umbrella Retail')
+  await h.invoke('pricing:savePartyRate', { data: { ledgerId: umbrella.id, stockItemId: mouse.id, ratePaise: 76000, discountBp: 0 } })
+  await h.goto('masters')
+  await h.clickText('Party rates')
+  await page.waitForSelector('[data-testid="rows-masters-party-rates"] tr.dt-row', { timeout: 10000 })
+  await both('09d-masters-party-rates')
+  await h.invoke('pricing:deletePartyRate', { id: (await h.invoke('pricing:partyRates', { ledgerId: umbrella.id }))[0].id })
+
   // ---------- the invoice grid's price hint ----------
   await h.goto('voucher-entry')
   await h.click('tab-voucher-entry-sales')

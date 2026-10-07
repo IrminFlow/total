@@ -980,10 +980,10 @@ function CounterOptions({ config }: { config?: CounterConfig }): React.JSX.Eleme
       toast.push('error', (err as Error).message)
     }
   }
-  const select = (label: string, value: number | null, list: typeof ledgers, onChange: (id: number | null) => void, testId: string): React.JSX.Element => (
+  const select = (label: string, value: number | null, list: typeof ledgers, onChange: (id: number | null) => void, testId: string, fallback: string): React.JSX.Element => (
     <Field label={label}>
       <Select value={value ?? ''} onChange={(e) => onChange(e.target.value ? Number(e.target.value) : null)} data-testid={testId}>
-        <option value="">Default</option>
+        <option value="">Default — {fallback}</option>
         {list.map((l) => (
           <option key={l.id} value={l.id}>
             {l.name}
@@ -999,13 +999,11 @@ function CounterOptions({ config }: { config?: CounterConfig }): React.JSX.Eleme
   return (
     <>
       <DrawerSection title="Counter">
-        {select('Walk-in party', config.walkInLedgerId, parties, (id) => void set({ walkInLedgerId: id }), 'input-counter-walk-in')}
-        {select('Cash account', config.cashLedgerId, cashBank, (id) => void set({ cashLedgerId: id }), 'input-counter-cash-ledger')}
-        {select('UPI account', config.upiLedgerId, banks, (id) => void set({ upiLedgerId: id }), 'input-counter-upi-ledger')}
-        {select('Card account', config.cardLedgerId, banks, (id) => void set({ cardLedgerId: id }), 'input-counter-card-ledger')}
-        <p className="text-hint text-muted">
-          Posting to: cash {name(acc?.cashLedgerId)} · UPI {name(acc?.upiLedgerId)} · card {name(acc?.cardLedgerId)} · sales {name(acc?.salesLedgerId)}
-        </p>
+        {select('Walk-in party', config.walkInLedgerId, parties, (id) => void set({ walkInLedgerId: id }), 'input-counter-walk-in', acc?.walkInLedgerId ? name(acc.walkInLedgerId) : 'Cash sale (created on the first sale)')}
+        {select('Cash account', config.cashLedgerId, cashBank, (id) => void set({ cashLedgerId: id }), 'input-counter-cash-ledger', name(acc?.cashLedgerId))}
+        {select('UPI account', config.upiLedgerId, banks, (id) => void set({ upiLedgerId: id }), 'input-counter-upi-ledger', name(acc?.upiLedgerId))}
+        {select('Card account', config.cardLedgerId, banks, (id) => void set({ cardLedgerId: id }), 'input-counter-card-ledger', name(acc?.cardLedgerId))}
+        <p className="text-hint text-muted">Sales post to {name(acc?.salesLedgerId)}; each payment is a receipt against the bill.</p>
       </DrawerSection>
       <DrawerSection title="Print">
         <Field label="Bill template">
