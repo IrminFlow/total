@@ -1,155 +1,324 @@
+// Gateway — the company dashboard (WP 1.10b). Figures come from report:dashboardSeries (sectioned:
+// each card renders its own section, loading skeleton or error) plus the older report:dashboard
+// for recent entries and the payroll flag. Every number reconciles to a report screen and every
+// tile/row clicks through to it. The working period is the session's from/to; "this month" is
+// today's month while today is inside that period, else the period's last month (see
+// dashboardWindow in @shared/dashboard).
+//
+// Keyboard: every tile, card link and list row is a Tab stop (drill rows: Enter opens the
+// statement, the ledger name its edit window). Lists here are short (≤ 8 rows) and several sit
+// side by side, so they use plain focusable rows rather than useKeyNav — a window-level ↑/↓ owner
+// would be ambiguous between six lists. Charts take focus and read out months with ←/→.
+// Single-letter keys still jump to screens (registry cards) and F4–F9 start a voucher.
 import { useEffect, useMemo, useState } from 'react'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '../lib/client'
-import { useNav, useSession, type Screen } from '../state/stores'
-import { isAnyModalOpen, Money, Panel, ScrollList, Skeleton } from '../components/ui'
-import { toDisplayDate, todayISO } from '@shared/dates'
-import { upcomingDeadlines, type Deadline } from '@shared/compliance'
-import { useFeatures } from '../lib/useFeatures'
-import type { CashSparkPoint, TopLedgerRow } from '@shared/reports'
-import { CARD_SCREENS } from '../lib/screens'
-import { LedgerLink, drillRowProps } from '../components/links'
-import { openLedgerStatement } from '../lib/drill'
+import { useNav, useSession, useToasts, type Screen } from '../state/stores'
+import { isAnyModalOpen, Kbd, Money } from '../components/ui'
+import { fyOf, toDisplayDate, toMonthLabel, todayISO } from '@shared/dates'
+import { formatPaiseCompact } from '@shared/money'
+import type { Deadline } from '@shared/compliance'
+import type { DashAgeing, DashCash, DashSection, DashTrade, DashboardSeries, DashboardWindow } from '@shared/dashboard'
 
-/** Cards derived from the single screen registry (lib/screens.ts). */
-const CARDS: { name: string; label: string; sub: string; screen: Screen; key: string; feature?: (typeof CARD_SCREENS)[number]['feature'] }[] =
-  CARD_SCREENS.map((s) => ({ name: s.name, label: s.title, sub: s.card.sub, screen: s.screen, key: s.card.key, feature: s.feature }))
+type SectionKey = Exclude<keyof DashboardSeries, 'window'>
+type SectionData<K extends SectionKey> = DashboardSeries[K] extends DashSection<infer D> ? D : never
+import { useFeatures } from '../lib/useFeatures'
+import { CARD_SCREENS } from '../lib/screens'
+import { kindForVoucherKey } from '../lib/voucherKeys'
+import { Sparkline } from '../components/charts'
+import { cardState, StatTile, type CardState } from './gateway/parts'
+import {
+  AgeingCard, BooksCard, CashCard, ComplianceCard, OnboardingCard, ProfitChartCard, RecentCard, StockCard, TopPartiesCard, TradeChartCard
+} from './gateway/cards'
+
+/** Single-letter screen shortcuts, from the screen registry (lib/screens.ts). */
+const SHORTCUTS: { key: string; screen: Screen; feature?: (typeof CARD_SCREENS)[number]['feature'] }[] = CARD_SCREENS.map((s) => ({
+  key: s.card.key,
+  screen: s.screen,
+  feature: s.feature
+}))
+
+const QUICK_VOUCHERS: { kind: 'sales' | 'purchase' | 'receipt' | 'payment' | 'journal'; label: string; key: string }[] = [
+  { kind: 'sales', label: 'Sales', key: 'F8' },
+  { kind: 'purchase', label: 'Purchase', key: 'F9' },
+  { kind: 'receipt', label: 'Receipt', key: 'F6' },
+  { kind: 'payment', label: 'Payment', key: 'F5' },
+  { kind: 'journal', label: 'Journal', key: 'F7' }
+]
 
 export function Gateway(): React.JSX.Element {
   const nav = useNav()
-  const { from, info } = useSession()
+  const toast = useToasts()
+  const queryClient = useQueryClient()
+  const { from, to } = useSession()
   const today = todayISO()
   const features = useFeatures()
-  const cards = useMemo(() => CARDS.filter((c) => !c.feature || features[c.feature]), [features])
-  const { data } = useQuery({
-    queryKey: ['dashboard', today, from],
-    queryFn: () => api.reports.dashboard(today, from)
+  const shortcuts = useMemo(() => SHORTCUTS.filter((c) => !c.feature || features[c.feature]), [features])
+
+  const seriesQ = useQuery({
+    queryKey: ['dashboard', 'series', today, from, to],
+    queryFn: () => api.reports.dashboardSeries(today, from, to)
   })
+  // Same key VoucherEntry uses (react-query dedupes): recent entries + the payroll flag.
+  const dashQ = useQuery({ queryKey: ['dashboard', today, from], queryFn: () => api.reports.dashboard(today, from) })
+
+  const s: DashboardSeries | undefined = seriesQ.data
+  const card = <K extends SectionKey>(k: K): CardState<SectionData<K>> =>
+    cardState(seriesQ, s?.[k] as DashSection<SectionData<K>> | undefined)
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
-      if (e.metaKey || e.ctrlKey || e.altKey) return
-      // A key aimed at an open dialog (ConfirmModal "y", PromptModal text…) must never
-      // double as a Gateway navigation shortcut underneath it.
+      // A key aimed at an open dialog must never double as a Gateway shortcut underneath it.
       if (isAnyModalOpen()) return
       const tag = (e.target as HTMLElement).tagName
       if (tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA') return
-      const card = cards.find((c) => c.key.toLowerCase() === e.key.toLowerCase())
-      if (card) nav.go(card.screen)
+      const kind = kindForVoucherKey(e)
+      if (kind) {
+        e.preventDefault()
+        nav.go({ name: 'voucher-entry', kindHint: kind })
+        return
+      }
+      if (e.metaKey || e.ctrlKey || e.altKey) return
+      const sc = shortcuts.find((c) => c.key.toLowerCase() === e.key.toLowerCase())
+      if (sc) nav.go(sc.screen)
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [nav, cards])
+  }, [nav, shortcuts])
 
-  const gstRegistrationType = info?.gstRegistrationType ?? 'unregistered'
+  const [backingUp, setBackingUp] = useState(false)
+  const backupNow = async (): Promise<void> => {
+    setBackingUp(true)
+    try {
+      const r = await api.backups.run()
+      toast.push('success', `Backup saved — ${r.path.split('/').pop()}`)
+      void queryClient.invalidateQueries({ queryKey: ['dashboard'] })
+    } catch (err) {
+      toast.push('error', (err as Error).message)
+    } finally {
+      setBackingUp(false)
+    }
+  }
 
-  // hasPayroll doesn't matter for a 'gst'-kind deadline, so `false` is fine here.
-  const nearestGst = useMemo(
-    () =>
-      gstRegistrationType === 'unregistered'
-        ? null
-        : (upcomingDeadlines(today, gstRegistrationType, false, 30).find((d) => d.kind === 'gst') ?? null),
-    [today, gstRegistrationType]
-  )
-
-  const tiles: { label: string; value?: number; text?: string }[] = [
-    { label: 'Cash in hand', value: data?.cashBalance ?? 0 },
-    { label: 'Bank balance', value: data?.bankBalance ?? 0 },
-    { label: 'Receivables', value: data?.receivables ?? 0 },
-    { label: 'Payables', value: data?.payables ?? 0 },
-    { label: 'Sales this month', value: data?.monthSales ?? 0 },
-    { label: 'GST payable', value: data?.gstPayable ?? 0 }
-  ]
-  if (nearestGst) tiles.push({ label: 'Next GST due', text: deadlineCountdown(nearestGst, today) })
+  const fy = fyOf(from)
+  const periodLabel = from === fy.from && to === fy.to ? `FY ${fy.label}` : `${toDisplayDate(from)} → ${toDisplayDate(to)}`
+  const w = s?.window
+  const setup = s?.setup.ok ? s.setup.data : null
+  const brandNew = setup?.voucherCount === 0
+  const hasPayroll = features.payroll && (dashQ.data?.hasEmployees ?? false)
 
   return (
-    <div className="mx-auto max-w-5xl">
-      <div className="grid grid-cols-3 gap-3 lg:grid-cols-6">
-        {tiles.map((t) => (
-          <Panel key={t.label} className="px-4 py-3">
-            <p className="text-[10.5px] font-semibold tracking-[0.08em] text-muted uppercase">{t.label}</p>
-            {data === undefined && t.text === undefined ? (
-              // Loading — a skeleton, not a misleading ₹0.00.
-              <Skeleton className="mt-2.5 h-4 w-20" />
-            ) : (
-              <p className={`mt-1.5 text-[16px] font-medium ${t.text ? '' : 'num'}`}>
-                {t.text ?? <Money paise={t.value ?? 0} />}
-              </p>
-            )}
-          </Panel>
-        ))}
-      </div>
-
-      <CompliancePanel hasEmployees={data?.hasEmployees ?? false} dashboardLoaded={data !== undefined} />
-
-      <div className="mt-6 grid grid-cols-3 gap-3">
-        {cards.map((c) => (
-          <button
-            key={c.label}
-            data-testid={`card-${c.name}`}
-            onClick={() => nav.go(c.screen)}
-            className="group rounded-lg border border-line bg-panel px-5 py-4 text-left transition-colors hover:border-amber/50"
-          >
-            <div className="flex items-center justify-between">
-              <span className="text-[14.5px] font-medium">{c.label}</span>
-              <span className="rounded border border-line px-1.5 text-[10.5px] text-muted group-hover:border-amber/50 group-hover:text-amber">
-                {c.key}
-              </span>
-            </div>
-            <p className="mt-1 text-[12px] text-muted">{c.sub}</p>
-          </button>
-        ))}
-      </div>
-
-      {/* Fixed row height: long receivable/payable lists scroll inside their panels instead of
-          stretching the row — which would also stretch the sparkline opposite and make its
-          aspect depend on how many debtors the company has. */}
-      <div className="mt-6 grid h-[420px] grid-cols-2 gap-3">
-        <div className="flex min-h-0 flex-col gap-3">
-          <TopLedgersPanel title="Top receivables" rows={data?.topReceivables ?? []} />
-          <TopLedgersPanel title="Top payables" rows={data?.topPayables ?? []} />
+    <div className="mx-auto flex max-w-[1480px] flex-col gap-3" data-testid="gateway-dashboard">
+      <header className="flex flex-wrap items-end justify-between gap-x-4 gap-y-2">
+        <div>
+          <h1 className="font-serif text-[19px] font-semibold tracking-tight">Dashboard</h1>
+          <p className="text-[12px] text-muted" data-testid="gateway-period">
+            {periodLabel}
+            {w && <> · as on {toDisplayDate(w.asOn)}</>}
+          </p>
         </div>
-        <CashSparklinePanel points={data?.cashSpark ?? []} />
+        <nav aria-label="Quick actions" className="flex flex-wrap items-center gap-1.5">
+          <span className="mr-0.5 text-[11px] text-muted">New</span>
+          {QUICK_VOUCHERS.map((q) => (
+            <button
+              key={q.kind}
+              type="button"
+              data-testid={`quick-${q.kind}`}
+              onClick={() => nav.go({ name: 'voucher-entry', kindHint: q.kind })}
+              className="flex items-center gap-1.5 rounded-md border border-line bg-panel px-2 py-1 text-[12px] text-ink panel-shadow hover:border-amber/60 focus-visible:border-amber focus-visible:outline-none"
+            >
+              {q.label} <Kbd>{q.key}</Kbd>
+            </button>
+          ))}
+          <span className="mx-1 h-4 w-px bg-line" aria-hidden />
+          <button
+            type="button"
+            data-testid="quick-backup"
+            disabled={backingUp}
+            onClick={() => void backupNow()}
+            className="rounded-md border border-line bg-panel px-2 py-1 text-[12px] text-ink panel-shadow hover:border-amber/60 focus-visible:border-amber focus-visible:outline-none disabled:opacity-50"
+          >
+            {backingUp ? 'Backing up…' : 'Back up now'}
+          </button>
+          <button
+            type="button"
+            data-testid="quick-import"
+            onClick={() => nav.go({ name: 'import-tally' })}
+            className="rounded-md border border-line bg-panel px-2 py-1 text-[12px] text-ink panel-shadow hover:border-amber/60 focus-visible:border-amber focus-visible:outline-none"
+          >
+            Import
+          </button>
+        </nav>
+      </header>
+
+      {brandNew && setup && <OnboardingCard setup={setup} />}
+
+      <StatTiles window={w} cash={card('cash')} receivables={card('receivables')} payables={card('payables')} trade={card('trade')} />
+
+      <div className="grid grid-cols-12 gap-3">
+        <div className="col-span-12 lg:col-span-7">
+          <TradeChartCard card={card('trade')} window={w} />
+        </div>
+        <div className="col-span-12 lg:col-span-5">
+          <ProfitChartCard card={card('trade')} window={w} />
+        </div>
       </div>
 
-      {data && data.voucherCount === 0 ? (
-        <OnboardingChecklist partyCount={data.partyCount} itemCount={data.itemCount} />
-      ) : (
-        data &&
-        data.recentVouchers.length > 0 && (
-          <Panel className="mt-6">
-            <p className="border-b border-line px-5 py-2.5 text-[11px] font-semibold tracking-[0.08em] text-muted uppercase">
-              Recent entries
-            </p>
-            <ScrollList maxH="20rem">
-              {data.recentVouchers.map((v) => (
-                // The row opens the voucher; the account NAME opens its ledger's edit window.
-                <div
-                  key={v.voucherId}
-                  data-testid="recent-voucher"
-                  className="flex w-full cursor-pointer items-center gap-4 border-b border-line/40 px-5 py-2 text-left last:border-b-0 hover:bg-panel2 focus-visible:bg-panel2 focus-visible:outline-none"
-                  {...drillRowProps(() => nav.go({ name: 'voucher-entry', voucherId: v.voucherId }), v.accountLedgerId ?? undefined)}
-                >
-                  <span className="num w-20 text-[12px] text-muted">{toDisplayDate(v.date)}</span>
-                  <span className="w-24 text-[12.5px] text-muted">{v.voucherType}</span>
-                  <span className="num w-14 text-[12px] text-muted">{v.number}</span>
-                  <span className="flex-1 truncate text-[13px]">
-                    <LedgerLink ledgerId={v.accountLedgerId} name={v.account} />
-                    {v.isOptional && (
-                      <span data-testid="recent-badge-optional" className="ml-2 rounded bg-amber/15 px-1.5 py-0.5 text-[10px] font-medium text-amber">Optional</span>
-                    )}
-                    {v.postDated && (
-                      <span data-testid="recent-badge-pdc" className="ml-2 rounded bg-blue/10 px-1.5 py-0.5 text-[10px] font-medium text-blue">PDC</span>
-                    )}
-                  </span>
-                  <Money paise={v.debit} className="text-[13px]" />
-                </div>
-              ))}
-            </ScrollList>
-          </Panel>
-        )
-      )}
+      <div className="grid grid-cols-12 gap-3">
+        <div className="col-span-6 xl:col-span-3">
+          <AgeingCard receivables={card('receivables')} payables={card('payables')} />
+        </div>
+        <div className="col-span-6 xl:col-span-3">
+          <TopPartiesCard title="Top customers" testId="dash-top-customers" card={card('topCustomers')} empty="No sales in this period" />
+        </div>
+        <div className="col-span-6 xl:col-span-3">
+          <TopPartiesCard title="Top suppliers" testId="dash-top-suppliers" card={card('topSuppliers')} empty="No purchases in this period" />
+        </div>
+        <div className="col-span-6 xl:col-span-3">
+          <ComplianceCard
+            gst={card('gst')}
+            tds={features.tds ? card('tds') : null}
+            hasPayroll={hasPayroll}
+            dashboardLoaded={dashQ.data !== undefined}
+          />
+        </div>
+      </div>
+
+      <div className="grid grid-cols-12 gap-3">
+        <div className="col-span-12 xl:col-span-6">
+          <RecentCard rows={dashQ.data?.recentVouchers} />
+        </div>
+        <div className={`col-span-6 ${features.inventory ? 'xl:col-span-3' : 'xl:col-span-6'} flex flex-col gap-3`}>
+          <CashCard card={card('cash')} />
+          <BooksCard activity={card('activity')} status={card('status')} onBackup={() => void backupNow()} backingUp={backingUp} />
+        </div>
+        {features.inventory && (
+          <div className="col-span-6 xl:col-span-3">
+            <StockCard card={card('stock')} />
+          </div>
+        )}
+      </div>
+
+      {!brandNew && setup && <OnboardingCard setup={setup} />}
     </div>
+  )
+}
+
+/** The headline row: six figures with a 6-month trend each, each a click-through. */
+function StatTiles({
+  window: w,
+  cash,
+  receivables: rec,
+  payables: pay,
+  trade
+}: {
+  window: DashboardWindow | undefined
+  cash: CardState<DashCash>
+  receivables: CardState<DashAgeing>
+  payables: CardState<DashAgeing>
+  trade: CardState<DashTrade>
+}): React.JSX.Element {
+  const nav = useNav()
+  const sparkOf = (t: DashTrade, pick: (m: DashTrade['months'][number]) => number): number[] =>
+    (w?.sparkMonths ?? []).map((m) => {
+      const row = t.months.find((x) => x.month === m)
+      return row ? pick(row) : 0
+    })
+  const focus = w && trade.state === 'ready' ? trade.data.months.find((m) => m.month === w.focusMonth) : undefined
+  const focusLabel = w ? `${toMonthLabel(w.focusMonth, 'long')}${w.focusMonth === w.today.slice(0, 7) ? ' to date' : ''}` : ''
+  const overdue = (a: CardState<DashAgeing>): string =>
+    a.state === 'ready' ? `${a.data.parties} ${a.data.parties === 1 ? 'party' : 'parties'} · ${formatPaiseCompact(a.data.buckets[1] + a.data.buckets[2] + a.data.buckets[3])} over 30 days` : ''
+  const err = (c: CardState<unknown>): string | null => (c.state === 'error' ? c.error : null)
+  const fy = w ? fyOf(w.from) : null
+  const profitSub = w && fy ? `${w.from === fy.from && w.to === fy.to ? `FY ${fy.label}` : 'Period'} to ${toDisplayDate(w.asOn)}` : ''
+
+  return (
+    <ul className="grid grid-cols-3 gap-3 xl:grid-cols-6" aria-label="Key figures">
+      <li className="min-w-0">
+        <StatTile
+          label="Cash & bank"
+          testId="tile-cash"
+          loading={cash.state === 'loading'}
+          error={err(cash)}
+          value={cash.state === 'ready' && <Money paise={cash.data.total} />}
+          sub={cash.state === 'ready' && `Cash ${formatPaiseCompact(cash.data.cash)} · Bank ${formatPaiseCompact(cash.data.bank)}`}
+          spark={cash.state === 'ready' && <Sparkline testId="spark-cash" values={cash.data.trend.map((p) => p.amount)} color="ink" label="Cash and bank at month end, last 6 months" />}
+          onOpen={() => nav.go({ name: 'cash-flow' })}
+          openLabel="Open the cash flow statement"
+        />
+      </li>
+      <li className="min-w-0">
+        <StatTile
+          label="Receivables"
+          testId="tile-receivables"
+          loading={rec.state === 'loading'}
+          error={err(rec)}
+          value={rec.state === 'ready' && <Money paise={rec.data.total} />}
+          sub={overdue(rec)}
+          spark={rec.state === 'ready' && <Sparkline values={rec.data.trend.map((p) => p.amount)} color="blue" label="Owed to you at month end, last 6 months" />}
+          onOpen={() => nav.go({ name: 'outstandings' })}
+          openLabel="Open Outstandings"
+        />
+      </li>
+      <li className="min-w-0">
+        <StatTile
+          label="Payables"
+          testId="tile-payables"
+          loading={pay.state === 'loading'}
+          error={err(pay)}
+          value={pay.state === 'ready' && <Money paise={pay.data.total} />}
+          sub={overdue(pay)}
+          spark={pay.state === 'ready' && <Sparkline values={pay.data.trend.map((p) => p.amount)} color="amber" label="You owe at month end, last 6 months" />}
+          onOpen={() => nav.go({ name: 'outstandings' })}
+          openLabel="Open Outstandings"
+        />
+      </li>
+      <li className="min-w-0">
+        <StatTile
+          label="Month sales"
+          testId="tile-sales"
+          loading={trade.state === 'loading'}
+          error={err(trade)}
+          value={trade.state === 'ready' && <Money paise={focus?.sales ?? 0} />}
+          sub={focusLabel}
+          spark={trade.state === 'ready' && <Sparkline values={sparkOf(trade.data, (m) => m.sales)} color="blue" label="Sales by month, last 6 months" />}
+          onOpen={() => nav.go({ name: 'registers' })}
+          openLabel="Open the sales register"
+        />
+      </li>
+      <li className="min-w-0">
+        <StatTile
+          label="Month purchases"
+          testId="tile-purchases"
+          loading={trade.state === 'loading'}
+          error={err(trade)}
+          value={trade.state === 'ready' && <Money paise={focus?.purchases ?? 0} />}
+          sub={focusLabel}
+          spark={trade.state === 'ready' && <Sparkline values={sparkOf(trade.data, (m) => m.purchases)} color="amber" label="Purchases by month, last 6 months" />}
+          onOpen={() => nav.go({ name: 'registers' })}
+          openLabel="Open the purchase register"
+        />
+      </li>
+      <li className="min-w-0">
+        <StatTile
+          label="Net profit"
+          testId="tile-profit"
+          loading={trade.state === 'loading'}
+          error={err(trade)}
+          value={
+            trade.state === 'ready' && (
+              <span className={trade.data.periodNetProfit < 0 ? 'text-cr' : 'text-dr'}>
+                <Money paise={trade.data.periodNetProfit} />
+              </span>
+            )
+          }
+          sub={profitSub}
+          spark={trade.state === 'ready' && <Sparkline values={sparkOf(trade.data, (m) => m.netProfit)} color="dr" negativeColor="cr" label="Net profit by month, last 6 months" />}
+          onOpen={() => nav.go({ name: 'profit-loss' })}
+          openLabel="Open Profit & Loss"
+        />
+      </li>
+    </ul>
   )
 }
 
@@ -161,226 +330,4 @@ export function deadlineCountdown(d: Deadline, today: string): string {
   if (days <= 0) return `${d.form} due today`
   if (days === 1) return `${d.form} tomorrow`
   return `${d.form} in ${days} days`
-}
-
-/** Fires once per company per app session (not per Gateway mount/remount) — a module-level set
- *  rather than component state, so navigating away and back to the Gateway doesn't re-notify,
- *  but switching companies does get its own notification. Keyed by company slug. */
-const notifiedCompanies = new Set<string>()
-
-function CompliancePanel({
-  hasEmployees,
-  dashboardLoaded
-}: {
-  hasEmployees: boolean
-  dashboardLoaded: boolean
-}): React.JSX.Element | null {
-  const nav = useNav()
-  const { info, slug } = useSession()
-  const today = todayISO()
-  const [showAll, setShowAll] = useState(false)
-  const gstRegistrationType = info?.gstRegistrationType ?? 'unregistered'
-
-  const deadlines = useMemo(
-    () => upcomingDeadlines(today, gstRegistrationType, hasEmployees, 30),
-    [today, gstRegistrationType, hasEmployees]
-  )
-
-  useEffect(() => {
-    // Wait for the dashboard query to actually resolve, so `hasEmployees` (and hence PF/ESI
-    // deadlines) reflects reality rather than the react-query default of `false`.
-    if (!info || !slug || !dashboardLoaded || notifiedCompanies.has(slug)) return
-    notifiedCompanies.add(slug)
-    const soon = upcomingDeadlines(today, gstRegistrationType, hasEmployees, 3)
-    if (soon.length) {
-      // Deliberately fire-and-forget: an OS notification failing is not worth interrupting
-      // the Gateway for — swallow the rejection.
-      void api.app
-        .notifyDeadlines(soon.map((d) => ({ title: d.form, body: `${d.title} — due ${toDisplayDate(d.date)}` })))
-        .catch(() => {})
-    }
-    // Deliberately no dependency-driven re-fire within a company: the module set above is the
-    // real guard, this effect just needs to run once `info`/`dashboardLoaded` are available.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [info, slug, hasEmployees, dashboardLoaded])
-
-  if (!deadlines.length) return null
-
-  return (
-    <Panel className="mt-6">
-      <div className="flex items-center justify-between border-b border-line px-5 py-2.5">
-        <p className="text-[11px] font-semibold tracking-[0.08em] text-muted uppercase">Compliance calendar</p>
-        <button className="text-[11.5px] text-blue hover:underline" onClick={() => nav.go({ name: 'gstr3b' })}>
-          GSTR-3B
-        </button>
-      </div>
-      <div>
-        {(showAll ? deadlines : deadlines.slice(0, 6)).map((d) => (
-          <div key={d.id} className="flex items-center gap-4 border-b border-line/40 px-5 py-2 last:border-b-0">
-            <span className="num w-20 text-[12px] text-muted">{toDisplayDate(d.date)}</span>
-            <span className="w-28 text-[12.5px] text-muted">{d.form}</span>
-            <span className="flex-1 truncate text-[13px]">{d.title}</span>
-          </div>
-        ))}
-        {deadlines.length > 6 && (
-          <button
-            data-testid="btn-gateway-compliance-all"
-            className="w-full px-5 py-2 text-left text-[11.5px] text-blue hover:underline"
-            onClick={() => setShowAll((v) => !v)}
-          >
-            {showAll ? 'Show fewer' : `Show all ${deadlines.length}`}
-          </button>
-        )}
-      </div>
-    </Panel>
-  )
-}
-
-/** Replaces "Recent entries" for a brand-new company (voucherCount === 0) with a short setup
- *  checklist — each step's "done" check is derived from data the dashboard already fetched, no
- *  extra round-trip. Disappears on its own once the first voucher is posted. */
-function OnboardingChecklist({ partyCount, itemCount }: { partyCount: number; itemCount: number }): React.JSX.Element {
-  const nav = useNav()
-  const steps = [
-    {
-      label: 'Import your books from Tally',
-      hint: 'Or start from scratch — either way, head to Company info',
-      done: partyCount > 0 || itemCount > 0,
-      onClick: () => nav.go({ name: 'import-tally' })
-    },
-    {
-      label: 'Add a party and an item',
-      hint: 'Masters → Ledgers / Stock items',
-      done: partyCount > 0 && itemCount > 0,
-      onClick: () => nav.go({ name: 'masters' })
-    },
-    {
-      label: 'Post your first invoice',
-      hint: 'Voucher entry, F8 for Sales',
-      done: false,
-      onClick: () => nav.go({ name: 'voucher-entry', kindHint: 'sales' })
-    }
-  ]
-
-  return (
-    <Panel className="mt-6">
-      <p className="border-b border-line px-5 py-2.5 text-[11px] font-semibold tracking-[0.08em] text-muted uppercase">
-        Set up your books
-      </p>
-      <div>
-        {steps.map((s) => (
-          <button
-            key={s.label}
-            onClick={s.onClick}
-            className="flex w-full items-center gap-3 border-b border-line/40 px-5 py-3 text-left last:border-b-0 hover:bg-panel2"
-          >
-            <span className={`text-[15px] ${s.done ? 'text-amber' : 'text-muted/60'}`}>{s.done ? '✓' : '○'}</span>
-            <span className="flex-1">
-              <span className={`block text-[13.5px] ${s.done ? 'text-muted line-through' : 'text-ink'}`}>{s.label}</span>
-              <span className="block text-[11.5px] text-muted/70">{s.hint}</span>
-            </span>
-          </button>
-        ))}
-      </div>
-    </Panel>
-  )
-}
-
-/** Shared by "Top receivables" / "Top payables" — rows open the ledger's statement, names its edit window. */
-function TopLedgersPanel({ title, rows }: { title: string; rows: TopLedgerRow[] }): React.JSX.Element {
-  return (
-    <Panel className="flex min-h-0 flex-1 flex-col">
-      <p className="shrink-0 border-b border-line px-5 py-2.5 text-[11px] font-semibold tracking-[0.08em] text-muted uppercase">
-        {title}
-      </p>
-      {rows.length === 0 ? (
-        <p className="px-5 py-6 text-center text-[12.5px] text-muted">Nothing outstanding</p>
-      ) : (
-        <ScrollList maxH="340px" className="min-h-0 flex-1">
-          {rows.map((r) => (
-            // Name → the ledger's edit window; the rest of the row → its statement.
-            <div
-              key={r.ledgerId}
-              data-testid="top-ledger"
-              title={`Open ${r.name} statement`}
-              {...drillRowProps(() => openLedgerStatement(r.ledgerId), r.ledgerId)}
-              className="flex w-full cursor-pointer items-center gap-3 border-b border-line/40 px-5 py-2 text-left last:border-b-0 hover:bg-panel2 focus-visible:bg-panel2 focus-visible:outline-none"
-            >
-              <span className="flex-1 truncate text-[13px]">
-                <LedgerLink ledgerId={r.ledgerId} name={r.name} />
-              </span>
-              <Money paise={r.amount} className="text-[13px]" />
-            </div>
-          ))}
-        </ScrollList>
-      )}
-    </Panel>
-  )
-}
-
-/** Inline SVG polyline — no chart library. `viewBox` is normalized to the point count so the
- *  path always fills the panel regardless of how many trailing days actually had data. The
- *  panel row it sits in is fixed-height, so the drawn aspect never shifts as sibling panels'
- *  content grows. Hovering reads out the date + balance under the cursor. */
-function CashSparklinePanel({ points }: { points: CashSparkPoint[] }): React.JSX.Element {
-  const w = 100
-  const h = 32
-  const [hoverIdx, setHoverIdx] = useState<number | null>(null)
-  const values = points.map((p) => p.balance)
-  const min = Math.min(0, ...values)
-  const max = Math.max(0, ...values)
-  const range = max - min || 1
-  const xAt = (i: number): number => (points.length > 1 ? (i / (points.length - 1)) * w : w / 2)
-  const yAt = (i: number): number => h - ((points[i]!.balance - min) / range) * h
-  const coords = points.map((_, i) => `${xAt(i).toFixed(2)},${yAt(i).toFixed(2)}`).join(' ')
-  const readout = hoverIdx != null ? points[hoverIdx] : points[points.length - 1]
-
-  return (
-    <Panel className="flex min-h-0 flex-col p-5">
-      <div className="flex shrink-0 items-center justify-between">
-        <p className="text-[11px] font-semibold tracking-[0.08em] text-muted uppercase">Cash + bank · 30 days</p>
-        {readout && (
-          <p className="num text-[13px]">
-            {hoverIdx != null && <span className="mr-2 text-muted">{toDisplayDate(readout.date)}</span>}
-            <Money paise={readout.balance} />
-          </p>
-        )}
-      </div>
-      {points.length > 0 && (
-        <svg
-          viewBox={`0 0 ${w} ${h}`}
-          preserveAspectRatio="none"
-          className="mt-4 min-h-0 w-full flex-1 text-blue"
-          data-testid="spark-cash"
-          role="img"
-          aria-label="Cash and bank balance, last 30 days"
-          onMouseMove={(e) => {
-            const rect = e.currentTarget.getBoundingClientRect()
-            const frac = rect.width > 0 ? (e.clientX - rect.left) / rect.width : 0
-            const idx = Math.round(frac * (points.length - 1))
-            setHoverIdx(Math.max(0, Math.min(points.length - 1, idx)))
-          }}
-          onMouseLeave={() => setHoverIdx(null)}
-        >
-          {points.length === 1 ? (
-            // A one-point polyline draws nothing — show a flat line at the lone balance instead.
-            <line x1={0} y1={yAt(0)} x2={w} y2={yAt(0)} stroke="currentColor" strokeWidth="1.5" vectorEffect="non-scaling-stroke" />
-          ) : (
-            <polyline points={coords} fill="none" stroke="currentColor" strokeWidth="1.5" vectorEffect="non-scaling-stroke" />
-          )}
-          {hoverIdx != null && (
-            <line
-              x1={xAt(hoverIdx)}
-              y1={0}
-              x2={xAt(hoverIdx)}
-              y2={h}
-              stroke="var(--t-amber)"
-              strokeWidth="1"
-              vectorEffect="non-scaling-stroke"
-            />
-          )}
-        </svg>
-      )}
-    </Panel>
-  )
 }

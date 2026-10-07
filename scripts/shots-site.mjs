@@ -44,7 +44,7 @@ const clickText = async (page, text) => {
 }
 
 // Case-insensitive: CSS text-transform:uppercase on tile labels makes innerText render
-// "CASH IN HAND" even though the JSX literal is "Cash in hand".
+// "CASH & BANK" even though the JSX literal is "Cash & bank".
 const waitForText = async (page, text, timeout = 20000) => {
   await page.waitForFunction(
     (t) => document.body.innerText.toLowerCase().includes(t.toLowerCase()),
@@ -80,7 +80,7 @@ try {
   await waitForText(page, 'Explore with sample data', 15000)
   const clicked = await clickText(page, 'Explore with sample data')
   if (clicked !== 'OK') throw new Error('could not find "Explore with sample data" button')
-  await waitForTextWithLog(page, 'Cash in hand', { intervalMs: 3000, maxIterations: 15, label: 'Cash in hand (Gateway loaded)' })
+  await waitForTextWithLog(page, 'Cash & bank', { intervalMs: 3000, maxIterations: 15, label: 'Cash & bank (Gateway loaded)' })
   await wait(800)
 
   // --- Shot 1: gateway-light.jpg
