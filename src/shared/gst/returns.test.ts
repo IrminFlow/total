@@ -546,7 +546,10 @@ describe('e-invoice — export, service and note details (G6)', () => {
       shipTo: null
     }
     const [doc] = buildEInvoiceJson([exp], ewbCompany) as any[]
-    expect(doc.ExpDtls).toEqual({ ShipBNo: 'SB-77', ShipBDt: '10/07/2026', Port: null, ForCur: null, CntCode: null })
+    // WP 3.5: uncaptured Port/ForCur/CntCode are omitted, not null (the IRN schema types them as strings).
+    expect(doc.ExpDtls).toEqual({ ShipBNo: 'SB-77', ShipBDt: '10/07/2026' })
+    expect(doc.BuyerDtls.Stcd).toBe('96')
+    expect(doc.BuyerDtls.Pin).toBe(999999)
     expect(doc.BuyerDtls.Pos).toBe('96')
     expect(doc.BuyerDtls.Gstin).toBe('URP')
   })
