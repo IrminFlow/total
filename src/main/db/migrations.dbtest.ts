@@ -41,6 +41,7 @@ const EXPECTED_TABLES = [
   'price_list_rates',
   'pay_heads',
   'employee_pay_heads',
+  'manufacture_details',
   'migrations'
 ]
 
@@ -359,6 +360,24 @@ describe('migrate', () => {
       .prepare("INSERT INTO vouchers (voucher_type_id, date, number) VALUES (?, '2025-04-01', '1')")
       .run(vtId).lastInsertRowid
     expect((db.prepare('SELECT is_year_end_close AS f FROM vouchers WHERE id = ?').get(vId) as { f: number }).f).toBe(0)
+  })
+
+  it('019: manufacture_details — one row per voucher, cascades on purge, checks its flags', () => {
+    const db = freshDb()
+    const vtId = db.prepare("INSERT INTO voucher_types (name, kind) VALUES ('SJ (m19)', 'stock_journal')").run().lastInsertRowid
+    const unitId = db.prepare("INSERT INTO units (name, symbol) VALUES ('Nos', 'nos')").run().lastInsertRowid
+    const itemId = db.prepare('INSERT INTO stock_items (name, unit_id) VALUES (?, ?)').run('Chair', unitId).lastInsertRowid
+    const vId = db.prepare("INSERT INTO vouchers (voucher_type_id, date, number) VALUES (?, '2025-06-01', '1')").run(vtId).lastInsertRowid
+    db.prepare('INSERT INTO manufacture_details (voucher_id, finished_item_id, qty_milli, profit_paise) VALUES (?, ?, 1000, -50)').run(vId, itemId)
+    const row = db.prepare('SELECT * FROM manufacture_details WHERE voucher_id = ?').get(vId)
+    expect(row).toMatchObject({ sale_rate_paise: 0, sale_amount: 0, labour_paise: 0, labour_posted: 0, labour_expense_ledger_id: null, profit_paise: -50 })
+    expect(() => db.prepare('INSERT INTO manufacture_details (voucher_id, finished_item_id, qty_milli) VALUES (?, ?, 1)').run(vId, itemId)).toThrow()
+    expect(() => db.prepare('UPDATE manufacture_details SET labour_posted = 2').run()).toThrow()
+    expect(() => db.prepare('UPDATE manufacture_details SET qty_milli = 0').run()).toThrow()
+    const idx = db.prepare("SELECT name FROM sqlite_master WHERE type = 'index' AND tbl_name = 'manufacture_details'").all() as { name: string }[]
+    expect(idx.map((i) => i.name)).toContain('idx_manufacture_details_item')
+    db.prepare('DELETE FROM vouchers WHERE id = ?').run(vId)
+    expect(db.prepare('SELECT COUNT(*) AS n FROM manufacture_details').get()).toEqual({ n: 0 })
   })
 
   it('017: audit_log accepts the expanded action set but still rejects unknown actions', () => {

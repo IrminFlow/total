@@ -63,6 +63,9 @@ const tag = (db: DB, id: number): number | null =>
 describe('migration 020', () => {
   it('is appended after the existing migrations and starts from a fixture without the new tables', () => {
     expect(M020).toBe(MIGRATIONS.length - 1)
+    // Version 20: right after 019 (WP 2.2, manufacture_details).
+    expect(M020 + 1).toBe(20)
+    expect(MIGRATIONS[M020 - 1]).toContain('CREATE TABLE manufacture_details')
     const db = freshPartialDb(BEFORE)
     const tables = (db.prepare("SELECT name FROM sqlite_master WHERE type = 'table'").all() as { name: string }[]).map((t) => t.name)
     expect(tables).not.toContain('tds_section_rates')

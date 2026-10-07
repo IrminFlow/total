@@ -29,6 +29,7 @@ import type {
 } from '@shared/schemas'
 import type { CompanyFeatures } from '@shared/features'
 import type { StockCostPosition, ConsumptionCosting, ProposedOutward } from '@shared/valuation'
+import type { ManufactureDetails, ManufactureInput } from '@shared/manufacture'
 import type { SearchHit, SearchResponse } from '@shared/search'
 import type { ChartGroupNode } from '@shared/chartOfAccounts'
 import type { InvoiceConfig } from '@shared/invoiceConfig'
@@ -372,6 +373,53 @@ export interface StockCostAsOf {
   consumption: ConsumptionCosting | null
 }
 
+/** manufacture:get — a stock journal and its manufacture_details row (null = legacy). */
+export interface ManufactureRecord {
+  voucher: Voucher
+  details: ManufactureDetails | null
+}
+
+/** manufacture:costPreview (mirrors services/manufacture.ts CostPreview). */
+export interface ManufactureCostPreview {
+  lines: { itemId: number; qtyMilli: number; costPaise: number; unitCostPaise: number; onHandQtyMilli: number }[]
+  totalPaise: number
+  saleRate: { ratePaise: number | null; source: 'sales' | 'priceList' | null }
+}
+
+export interface ManufactureRegisterRow {
+  voucherId: number
+  date: string
+  number: string
+  finishedItemId: number
+  itemName: string
+  unitSymbol: string
+  decimals: number
+  qtyMilli: number
+  productionCost: number
+  labourPaise: number
+  saleAmount: number
+  profitPaise: number
+}
+
+/** stock:movements — one item's inventory lines (minimal movement list, WP 2.2). */
+export interface ItemMovementRow {
+  voucherId: number
+  date: string
+  number: string
+  voucherType: string
+  kind: string
+  inQtyMilli: number
+  outQtyMilli: number
+  isAbsolute: boolean
+  amount: number
+}
+
+export type SavedManufacture = Voucher & {
+  duplicateNumber?: boolean
+  warnings: { negativeStock: NegativeStockWarning[] }
+  manufacture: ManufactureDetails
+}
+
 export interface ExpiryAgeingRow extends BatchStockRow {
   bucket: 'none' | 'expired' | 'within30' | 'within90' | 'later'
 }
@@ -482,7 +530,17 @@ export const api = {
      *  item, and the cost proposed outward lines would be charged. Pass `voucherId` when
      *  editing so the voucher's own saved lines are left out. */
     costAsOf: (q: { date: string; voucherId?: number; itemIds?: number[]; lines?: ProposedOutward[] }) =>
-      call<StockCostAsOf>('stock:costAsOf', q)
+      call<StockCostAsOf>('stock:costAsOf', q),
+    movements: (stockItemId: number, from: string, to: string) =>
+      call<ItemMovementRow[]>('stock:movements', { stockItemId, from, to })
+  },
+  manufacture: {
+    get: (id: number) => call<ManufactureRecord | null>('manufacture:get', { id }),
+    save: (data: ManufactureInput, id?: number) => call<SavedManufacture>('manufacture:save', { data, id }),
+    /** Raw rows priced as of the voucher date (+ the finished item's suggested sale rate). */
+    costPreview: (q: { date: string; voucherId?: number; finishedItemId?: number | null; lines: { itemId: number; qtyMilli: number }[] }) =>
+      call<ManufactureCostPreview>('manufacture:costPreview', q),
+    register: (from: string, to: string) => call<ManufactureRegisterRow[]>('manufacture:register', { from, to })
   },
   priceLevels: {
     list: () => call<PriceLevel[]>('master:priceLevels:list'),

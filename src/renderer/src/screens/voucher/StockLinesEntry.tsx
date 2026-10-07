@@ -35,6 +35,7 @@ export function StockLinesEntry({
   voucher,
   initial,
   fallbackReason,
+  legacy = false,
   formName
 }: {
   typeId: number
@@ -42,6 +43,9 @@ export function StockLinesEntry({
   voucher: Voucher
   initial: StockLinesFormState
   fallbackReason: string | null
+  /** A stock journal saved before the Manufacture screen (no manufacture_details row):
+   *  `fallbackReason` is then the banner text itself. */
+  legacy?: boolean
   /** The specialised form this voucher couldn't open in ('manufacture', 'physical-count'). */
   formName: string
 }): React.JSX.Element {
@@ -143,7 +147,15 @@ export function StockLinesEntry({
 
   return (
     <Panel className="p-5">
-      {fallbackReason && (
+      {fallbackReason && legacy && (
+        <p
+          data-testid="banner-stock-lines-legacy"
+          className="mb-4 rounded-md border border-line bg-panel2 px-3 py-2 text-body-sm text-ink"
+        >
+          {fallbackReason}. Every line is kept exactly as saved unless you change it.
+        </p>
+      )}
+      {fallbackReason && !legacy && (
         <p
           data-testid="banner-stock-lines-fallback"
           className="mb-4 rounded-md border border-amber/40 bg-amberbar/10 px-3 py-2 text-body-sm text-ink"

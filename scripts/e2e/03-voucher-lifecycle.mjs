@@ -147,7 +147,9 @@ await scenario('03-voucher-lifecycle', async (h) => {
   const sideTotal = (side) => altered.lines.filter((l) => l.drCr === side).reduce((s, l) => s + l.amount, 0)
   assertEq(sideTotal('cr'), sideTotal('dr'), 'altered invoice balances')
 
-  // Stock journal (manufacture form): produce 2 Chairs from 4 Steel at ₹150 → edit to 3 Chairs.
+  // Legacy stock journal (no manufacture_details row — saved before 0.6.0, or imported): opens
+  // as plain stock lines with the "costed at the saved amounts" banner (WP 2.2), never in the
+  // Manufacture form; the alteration keeps every stored field. (17-manufacture covers the form.)
   const sj = await h.invoke('voucher:save', {
     data: {
       ...blankHeader, voucherTypeId: typeOf('stock_journal').id, date: today, narration: 'Manufactured 2 × E2E Chair',
@@ -158,15 +160,16 @@ await scenario('03-voucher-lifecycle', async (h) => {
       ]
     }
   })
-  await openFromDaybook(sj.id, 'manufacture')
-  await h.page.waitForSelector('[data-testid="rows-manufacture-lines"]', { timeout: 10000 })
-  await h.fill('input-manufacture-qty', '3')
-  await h.click('btn-save-manufacture')
+  await openFromDaybook(sj.id, 'stockLines')
+  const legacyBanner = await h.page.waitForSelector('[data-testid="banner-stock-lines-legacy"]', { timeout: 10000 })
+  assert((await legacyBanner.textContent()).includes('Created before 0.6.0'), 'legacy stock journal banner')
+  await h.page.locator('[data-testid="input-stock-line-qty"]').first().fill('6')
+  await h.click('btn-save-stock-lines')
   await h.waitScreen('daybook')
   const sj2 = await h.invoke('voucher:get', { id: sj.id })
-  assertEq(JSON.stringify(sj2.inventory.map((l) => [l.stockItemId, l.qtyMilli, l.ratePaise, l.direction])),
-    JSON.stringify([[steel.id, 6000, 15000, 'out'], [chair.id, 3000, 30000, 'in']]), 'stock journal altered at the saved component cost')
-  assertEq(sj2.narration, 'Manufactured 3 × E2E Chair', 'automatic narration follows the quantity')
+  assertEq(JSON.stringify(sj2.inventory.map((l) => [l.stockItemId, l.qtyMilli, l.ratePaise, l.amount, l.direction])),
+    JSON.stringify([[steel.id, 6000, 15000, 90000, 'out'], [chair.id, 2000, 30000, 60000, 'in']]), 'legacy stock journal altered line by line')
+  assertEq(sj2.narration, 'Manufactured 2 × E2E Chair', 'legacy narration kept')
 
   // Physical stock: count 50 Steel → re-count 40.
   const ps = await h.invoke('voucher:save', {

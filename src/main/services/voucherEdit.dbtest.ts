@@ -8,15 +8,17 @@ import { seededDb, TEST_INFO } from '../db/testdb'
 import type { DB } from '../db/connection'
 import type { Group, Voucher, VoucherKind } from '@shared/domain'
 import {
-  buildAccountingPayload, buildInvoicePayload, buildManufacturePayload, buildPhysicalPayload, buildStockLinesPayload,
-  derivePartyId, emptyInvoiceState, emptyManufactureState, emptyPhysicalState, planVoucherEdit, taxLedgerIdsFrom,
-  type EditPlan, type EditPlanContext, type VoucherPayload
+  buildAccountingPayload, buildInvoicePayload, buildPhysicalPayload, buildStockLinesPayload,
+  derivePartyId, emptyInvoiceState, emptyPhysicalState, evaluateManufactureForm, planVoucherEdit, taxLedgerIdsFrom,
+  LEGACY_STOCK_JOURNAL_BANNER, type EditPlan, type EditPlanContext, type VoucherPayload
 } from '@shared/voucherEdit'
 import { createBatch, createGodown, createLedger, createStockItem, listGroups, listLedgers, listStockItems } from './masters'
 import { saveVoucher, getVoucher } from './vouchers'
 import { saveCostCentre } from './costCentres'
 import { listSections } from './tds'
-import { getBom, setBom } from './extras'
+import { setBom } from './extras'
+import { costPreview, getManufactureDetails, saveManufacture } from './manufacture'
+import type { ManufactureInput } from '@shared/manufacture'
 import { setBankDate } from './banking'
 
 type LedgerKind = 'Sundry Debtors' | 'Sundry Creditors' | 'Sales Accounts' | 'Purchase Accounts' | 'Duties & Taxes' | 'Indirect Expenses' | 'Bank Accounts'
@@ -89,7 +91,7 @@ function setup(db: DB) {
 }
 
 /** The renderer's planning context, built from the same masters the screens load. */
-function editContext(db: DB): EditPlanContext {
+function editContext(db: DB, voucherId?: number): EditPlanContext {
   const ledgers = listLedgers(db)
   const items = listStockItems(db)
   return {
@@ -99,7 +101,7 @@ function editContext(db: DB): EditPlanContext {
       ledgers: new Map(ledgers.map((l) => [l.id, { stateCode: l.stateCode, gstRate: l.gstRate, tdsPayableSectionId: l.tdsPayableSectionId }]))
     },
     taxLedgers: taxLedgerIdsFrom(ledgers),
-    bomFor: (id) => getBom(db, id),
+    manufacture: voucherId ? getManufactureDetails(db, voucherId) : null,
     itemName: (id) => items.find((i) => i.id === id)?.name ?? ''
   }
 }
@@ -108,11 +110,25 @@ function kindOf(db: DB, v: Voucher): VoucherKind {
   return (db.prepare('SELECT kind FROM voucher_types WHERE id = ?').get(v.voucherTypeId) as { kind: VoucherKind }).kind
 }
 
+/** Exactly what the Manufacture screen posts when the user opens a manufacture and hits Save:
+ *  the reconstructed form, priced by manufacture:costPreview at the voucher's own position. */
+function manufactureEditorInput(db: DB, v: Voucher, plan: EditPlan & { mode: 'manufacture' }): ManufactureInput {
+  const first = evaluateManufactureForm(plan.state, { voucherTypeId: v.voucherTypeId, materialPaise: undefined })
+  const preview = costPreview(db, {
+    date: plan.state.date, voucherId: v.id, finishedItemId: plan.state.finishedItemId,
+    lines: first.input.raw.map((r) => ({ itemId: r.stockItemId, qtyMilli: r.qtyMilli }))
+  })
+  const ev = evaluateManufactureForm(plan.state, { voucherTypeId: v.voucherTypeId, materialPaise: preview.totalPaise, confirmLoss: true })
+  if (ev.issues.length) throw new Error(ev.issues[0]!.message)
+  return ev.input
+}
+
 /** Exactly what the entry screen posts when the user opens `v` and hits Save. */
 function editorPayload(db: DB, v: Voucher): { plan: EditPlan; payload: VoucherPayload } {
   const kind = kindOf(db, v)
-  const ctx = editContext(db)
+  const ctx = editContext(db, v.id)
   const plan = planVoucherEdit(v, kind, ctx)
+  if (plan.mode === 'manufacture') throw new Error('manufacture saves through manufactureEditorInput')
   const ledgers = listLedgers(db)
   const groups = new Map(listGroups(db).map((g) => [g.id, g]))
   const isPartyOrTds = (id: number): boolean => {
@@ -130,9 +146,7 @@ function editorPayload(db: DB, v: Voucher): { plan: EditPlan; payload: VoucherPa
       ? buildInvoicePayload(plan.state, { ...ctx.invoice, kind }, v.voucherTypeId, ctx.taxLedgers)
       : plan.mode === 'accounting'
         ? buildAccountingPayload(plan.state, { kind, voucherTypeId: v.voucherTypeId, derivedPartyId: derivePartyId(plan.state.rows, isPartyOrTds, null) })
-        : plan.mode === 'manufacture'
-          ? buildManufacturePayload(plan.state, { voucherTypeId: v.voucherTypeId, bom: getBom(db, plan.state.producedId!), avgCost: () => 0, itemName: ctx.itemName })
-          : plan.mode === 'physical'
+        : plan.mode === 'physical'
             ? buildPhysicalPayload(plan.state, { voucherTypeId: v.voucherTypeId, itemName: ctx.itemName })
             : buildStockLinesPayload(plan.state, { voucherTypeId: v.voucherTypeId })
   if (!r.ok) throw new Error(`${plan.mode}: ${r.error}`)
@@ -168,18 +182,27 @@ function snapshot(db: DB, id: number): unknown {
     // allocations key on it), never delete + reinsert.
     tds: db
       .prepare('SELECT id, section_id, party_ledger_id, pan, base_amount, tds_amount, is_manual, rate_bp_at, deductee_type_at, certificate_id FROM tds_entries WHERE voucher_id = ?')
-      .all(id)
+      .all(id),
+    manufacture: db.prepare('SELECT * FROM manufacture_details WHERE voucher_id = ?').all(id)
   }
+}
+
+/** Open → save through whichever path the screen uses (manufacture:save or voucher:save). */
+function resave(db: DB, id: number): EditPlan {
+  const v = getVoucher(db, id)!
+  const plan = planVoucherEdit(v, kindOf(db, v), editContext(db, id))
+  if (plan.mode === 'manufacture') saveManufacture(db, manufactureEditorInput(db, v, plan), id)
+  else saveVoucher(db, editorPayload(db, v).payload, id)
+  return plan
 }
 
 function expectRoundTrip(db: DB, id: number, mode: EditPlan['mode']): EditPlan {
   const before = snapshot(db, id)
-  const { plan, payload } = editorPayload(db, getVoucher(db, id)!)
+  const plan = resave(db, id)
   expect(plan.mode).toBe(mode)
-  saveVoucher(db, payload, id)
   expect(snapshot(db, id)).toEqual(before)
   // …and a second pass is just as stable.
-  saveVoucher(db, editorPayload(db, getVoucher(db, id)!).payload, id)
+  resave(db, id)
   expect(snapshot(db, id)).toEqual(before)
   return plan
 }
@@ -254,11 +277,18 @@ describe('voucher editor round-trip (WP 1.4): load → save unchanged stores ide
   it('purchase (invoice form) with TDS: opens in invoice mode, entry and payable credit unchanged', () => {
     // Contractor flagged for the first section (194A, 10%): base = taxable value 5,00,000 paise.
     const taxable = 500000
-    const id = invoiceFrom('purchase', {
+    // Its own item, so the purchase doesn't move the average cost other tests' stock relies on
+    // (a fresh context, since the shared one predates the item).
+    const kit = item(db, 'TDS Service Kit', 18)
+    const fresh = editContext(db)
+    const r = buildInvoicePayload({
+      ...emptyInvoiceState('2025-05-10'),
       partyId: x.contractor, accountId: x.purchases, billName: 'CON-INV-1', billDueDate: '2025-06-10',
-      rows: [{ itemId: x.steel, qtyText: '1', rate: taxable, discount: null, godownId: null, batchId: null }],
+      rows: [{ itemId: kit, qtyText: '1', rate: taxable, discount: null, godownId: null, batchId: null }],
       tds: { sectionId: x.sectionId, baseAmount: taxable, tdsAmount: 50000, isManual: false, payableLedgerId: x.tdsPayable, pending: false }
-    })
+    }, { ...fresh.invoice, kind: 'purchase' }, typeId(db, 'purchase'), fresh.taxLedgers)
+    if (!r.ok) throw new Error(r.error)
+    const id = saveVoucher(db, r.payload).id
     const v = getVoucher(db, id)!
     expect(v.tds).toMatchObject({ tdsAmount: 50000, isManual: false, rateBp: 1000 })
     expect(v.lines[v.lines.length - 1]).toMatchObject({ ledgerId: x.tdsPayable, drCr: 'cr', amount: 50000 })
@@ -319,25 +349,43 @@ describe('voucher editor round-trip (WP 1.4): load → save unchanged stores ide
     expectRoundTrip(db, id, 'accounting')
   })
 
-  it('stock journal created by the manufacture form (with godown/batch on its lines)', () => {
-    const avg = (i: number): number => (i === x.steel ? 15000 : i === x.paint ? 33333 : 0)
-    const r = buildManufacturePayload(
-      {
-        ...emptyManufactureState('2025-05-17'), producedId: x.chair, qtyText: '3', extraPctText: '12.5',
-        componentMeta: { [x.steel]: { godownId: x.godownA, batchId: x.steelBatch } },
-        producedMeta: { itemId: x.chair, godownId: x.godownB, batchId: null }
-      },
-      { voucherTypeId: typeId(db, 'stock_journal'), bom: getBom(db, x.chair), avgCost: avg, itemName: ctx.itemName }
-    )
-    if (!r.ok) throw new Error(r.error)
-    // A batch must hold stock before it can be consumed.
-    saveVoucher(db, {
-      ...header, voucherTypeId: typeId(db, 'stock_journal'), date: '2025-05-01',
-      lines: [], inventory: [{ stockItemId: x.steel, godownId: x.godownA, batchId: x.steelBatch, qtyMilli: 100_000, ratePaise: 15000, amount: 1_500_000, direction: 'in' }]
+  it('manufacture (Manufacture screen): godowns, labour posted, custom narration — opens in the manufacture form', () => {
+    const sj = typeId(db, 'stock_journal')
+    const saved = saveManufacture(db, {
+      date: '2025-05-17', godownId: x.godownB, narration: 'Run #4', finishedItemId: x.chair, qtyMilli: 3000, saleRatePaise: 250000,
+      raw: [{ stockItemId: x.steel, qtyMilli: 6000, godownId: x.godownA }, { stockItemId: x.paint, qtyMilli: 750 }],
+      labourPaise: 12345, labourPosted: true,
+      profitPaise: 750000 - (6000 + 750 + 12345), // opening stock costs ₹10 (1000 paise) per unit for every item
+      voucherTypeId: sj
     })
-    const id = saveVoucher(db, r.payload).id
-    const plan = expectRoundTrip(db, id, 'manufacture')
-    expect(plan.mode === 'manufacture' && plan.state).toMatchObject({ producedId: x.chair, qtyText: '3', extraPctText: '12.5' })
+    const plan = expectRoundTrip(db, saved.id, 'manufacture')
+    expect(plan.mode === 'manufacture' && plan.state).toMatchObject({ finishedItemId: x.chair, qtyText: '3', godownId: x.godownB, narration: 'Run #4', labourPosted: true })
+    // A raw line in a different godown than the header keeps its own.
+    expect(getVoucher(db, saved.id)!.inventory.map((l) => l.godownId)).toEqual([x.godownA, x.godownB, x.godownB])
+  })
+
+  it('manufacture with labour already booked (no ledger lines) — lossless too', () => {
+    const saved = saveManufacture(db, {
+      date: '2025-05-17', finishedItemId: x.chair, qtyMilli: 1000, saleRatePaise: 0,
+      raw: [{ stockItemId: x.paint, qtyMilli: 250 }], labourPaise: 500, labourPosted: false,
+      profitPaise: -(250 + 500), confirmLoss: true
+    })
+    expect(getVoucher(db, saved.id)!.lines).toEqual([])
+    expectRoundTrip(db, saved.id, 'manufacture')
+  })
+
+  it('legacy stock journal (no manufacture_details row) opens as plain stock lines with the 0.6.0 banner', () => {
+    const id = saveVoucher(db, {
+      ...header, voucherTypeId: typeId(db, 'stock_journal'), date: '2025-05-17', narration: 'Manufactured 3 × Chair', lines: [],
+      inventory: [
+        { stockItemId: x.steel, godownId: x.godownA, batchId: null, qtyMilli: 6000, ratePaise: 15000, amount: 90000, direction: 'out' },
+        { stockItemId: x.paint, godownId: null, batchId: null, qtyMilli: 750, ratePaise: 33333, amount: 25000, direction: 'out' },
+        { stockItemId: x.chair, godownId: x.godownB, batchId: null, qtyMilli: 3000, ratePaise: 43125, amount: 129375, direction: 'in' }
+      ]
+    }).id
+    const plan = expectRoundTrip(db, id, 'stockLines')
+    expect(plan).toMatchObject({ legacy: true, fallbackReason: LEGACY_STOCK_JOURNAL_BANNER })
+    expect(getManufactureDetails(db, id)).toBeNull()
   })
 
   it('arbitrary stock journal (godown transfer) falls back to the generic stock-lines editor', () => {

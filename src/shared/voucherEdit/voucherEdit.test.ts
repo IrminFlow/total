@@ -1,12 +1,13 @@
 import { describe, expect, it } from 'vitest'
 import type { Voucher, VoucherKind } from '../domain'
 import {
-  accountingStateFromVoucher, buildAccountingPayload, buildInvoicePayload, buildManufacturePayload, buildPhysicalPayload,
+  accountingStateFromVoucher, buildAccountingPayload, buildInvoicePayload, buildPhysicalPayload,
   buildStockLinesPayload, computeInvoice, diffPayloads, emptyInvoiceState, emptyManufactureState, emptyPhysicalState,
-  invoiceRepresentation, manufactureRepresentation, modeForKind, physicalRepresentation, planVoucherEdit,
-  stockLinesStateFromVoucher, voucherToPayload, applyTdsToAccountingRows, appliedTdsAmount, tdsStateFromSaved,
-  type BomComponent, type EditPlanContext, type InvoiceContext, type InvoiceFormState, type TaxLedgerIds, type VoucherPayload
+  evaluateManufactureForm, invoiceRepresentation, manufactureFormKey, manufactureRepresentation, modeForKind,
+  parseQtyMilli, physicalRepresentation, planVoucherEdit, stockLinesStateFromVoucher, voucherToPayload, applyTdsToAccountingRows, appliedTdsAmount, tdsStateFromSaved,
+  LEGACY_STOCK_JOURNAL_BANNER, type EditPlanContext, type ManufactureFormState, type InvoiceContext, type InvoiceFormState, type TaxLedgerIds, type VoucherPayload
 } from './index'
+import { buildManufactureVoucher, type ManufactureDetails } from '../manufacture'
 
 // ---------- fixtures ----------
 
@@ -306,67 +307,116 @@ describe('accounting mode state ⇄ payload', () => {
   })
 })
 
-// ---------- manufacture ----------
+// ---------- manufacture (WP 2.2) ----------
 
-const BOM: BomComponent[] = [
-  { componentId: PAINT, qtyMilliPerUnit: 250 },
-  { componentId: STEEL, qtyMilliPerUnit: 2000 }
-]
 const names = (id: number): string => ({ [CHAIR]: 'Chair', [STEEL]: 'Steel', [PAINT]: 'Paint' })[id] ?? ''
-const avg = (id: number): number => ({ [STEEL]: 15000, [PAINT]: 33333 })[id] ?? 0
+const LABOUR = 50
+const WAGES = 51
 
-describe('manufacture mode state ⇄ payload', () => {
-  const made = (over: Partial<ReturnType<typeof emptyManufactureState>> = {}): Voucher => {
-    const r = buildManufacturePayload(
-      { ...emptyManufactureState('2025-05-03'), number: 'SJ-1', producedId: CHAIR, qtyText: '3', extraPctText: '12.5', ...over },
-      { voucherTypeId: 9, bom: BOM, avgCost: avg, itemName: names }
-    )
-    if (!r.ok) throw new Error(r.error)
-    return stored(r.payload)
+/** A manufacture as manufacture:save would store it: Chair × 3 from Steel 6 + Paint 0.75,
+ *  ₹200 labour posted, sold at ₹900/unit. Raw costs as the engine priced them. */
+function manufactured(over: Partial<ManufactureFormState> = {}, rawCosts = [90000, 25000]): { v: Voucher; details: ManufactureDetails } {
+  const state: ManufactureFormState = {
+    ...emptyManufactureState('2025-05-03'),
+    number: 'SJ-1', finishedItemId: CHAIR, qtyText: '3', saleRatePaise: 90000, labourPaise: 20000,
+    rows: [{ itemId: STEEL, qtyText: '6', godownId: null }, { itemId: PAINT, qtyText: '0.75', godownId: null }],
+    ...over
   }
+  const material = rawCosts.reduce((a, b) => a + b, 0)
+  const ev = evaluateManufactureForm(state, { voucherTypeId: 9, materialPaise: material, itemName: names })
+  if (ev.issues.length) throw new Error(ev.issues[0]!.message)
+  const posted = ev.input.labourPosted && ev.input.labourPaise > 0
+  const creditId = posted ? (ev.input.labourCreditLedgerId ?? WAGES) : null
+  const payload = buildManufactureVoucher(ev.input, {
+    voucherTypeId: 9, rawCosts, finishedName: names(CHAIR),
+    labourExpenseLedgerId: posted ? LABOUR : null, labourCreditLedgerId: creditId
+  }) as unknown as VoucherPayload
+  const v = stored(payload)
+  return {
+    v,
+    details: {
+      voucherId: v.id, finishedItemId: CHAIR, qtyMilli: ev.input.qtyMilli, saleRatePaise: ev.input.saleRatePaise,
+      saleAmount: ev.totals.saleAmount, labourPaise: ev.input.labourPaise, labourPosted: ev.input.labourPosted,
+      labourExpenseLedgerId: posted ? LABOUR : null, labourCreditLedgerId: creditId, profitPaise: ev.totals.profit
+    }
+  }
+}
 
-  it('reconstructs produced item, qty, overhead % and the saved rates; rebuild is identical', () => {
-    const v = made()
+describe('manufacture mode state ⇄ input ⇄ voucher', () => {
+  it('posts raw materials out at engine cost, the finished item in at materials + labour, labour as Dr/Cr', () => {
+    const { v, details } = manufactured()
     expect(v.narration).toBe('Manufactured 3 × Chair')
-    const rep = manufactureRepresentation(v, { bomFor: () => BOM, itemName: names })
+    expect(v.inventory.map((l) => [l.stockItemId, l.direction, l.qtyMilli, l.ratePaise, l.amount])).toEqual([
+      [STEEL, 'out', 6000, 15000, 90000],
+      [PAINT, 'out', 750, 33333, 25000],
+      [CHAIR, 'in', 3000, 45000, 135000]
+    ])
+    expect(v.lines.map((l) => [l.ledgerId, l.drCr, l.amount])).toEqual([[LABOUR, 'dr', 20000], [WAGES, 'cr', 20000]])
+    // sale 3 × 900 = 2700; production 1150 + 200 = 1350; profit 1350
+    expect(details).toMatchObject({ saleAmount: 270000, profitPaise: 135000 })
+  })
+
+  it('"labour already booked" capitalises labour without ledger lines', () => {
+    const { v, details } = manufactured({ labourPosted: false })
+    expect(v.lines).toEqual([])
+    expect(v.inventory[2]!.amount).toBe(135000)
+    expect(details.labourPosted).toBe(false)
+  })
+
+  it('reconstructs the form from voucher + details; rebuild is identical (custom narration and godowns too)', () => {
+    const { v, details } = manufactured()
+    const rep = manufactureRepresentation(v, details, { itemName: names })
     if (!rep.ok) throw new Error(rep.reason)
-    expect(rep.state).toMatchObject({ producedId: CHAIR, qtyText: '3', extraPctText: '12.5', autoNarration: true, frozenRates: { [STEEL]: 15000, [PAINT]: 33333 } })
+    expect(rep.state).toMatchObject({ finishedItemId: CHAIR, qtyText: '3', saleRatePaise: 90000, labourPaise: 20000, labourPosted: true, narration: '' })
+    expect(rep.state.rows).toHaveLength(10)
+    expect(rep.state.rows.slice(0, 2)).toEqual([{ itemId: STEEL, qtyText: '6', godownId: null }, { itemId: PAINT, qtyText: '0.75', godownId: null }])
+
+    const g = manufactured({ godownId: 4, narration: 'Run #4', rows: [{ itemId: STEEL, qtyText: '6', godownId: 7 }, { itemId: PAINT, qtyText: '0.75', godownId: null }] })
+    expect(g.v.inventory.map((l) => l.godownId)).toEqual([7, 4, 4])
+    const rep2 = manufactureRepresentation(g.v, g.details, { itemName: names })
+    if (!rep2.ok) throw new Error(rep2.reason)
+    expect(rep2.state).toMatchObject({ godownId: 4, narration: 'Run #4' })
+    expect(rep2.state.rows[0]).toEqual({ itemId: STEEL, qtyText: '6', godownId: 7 })
   })
 
-  it('a qty change on a loaded journal re-uses the saved component rates, not today\'s average', () => {
-    const v = made()
-    const rep = manufactureRepresentation(v, { bomFor: () => BOM, itemName: names })
-    if (!rep.ok) throw new Error(rep.reason)
-    const r = buildManufacturePayload({ ...rep.state, qtyText: '4' }, { voucherTypeId: 9, bom: BOM, avgCost: () => 1, itemName: names })
-    if (!r.ok) throw new Error(r.error)
-    expect(r.payload.inventory.map((l) => [l.stockItemId, l.qtyMilli, l.ratePaise])).toEqual([[PAINT, 1000, 33333], [STEEL, 8000, 15000], [CHAIR, 4000, expect.any(Number)]])
-    expect(r.payload.narration).toBe('Manufactured 4 × Chair')
-    expect(r.payload.number).toBe('SJ-1')
+  it('no details row, a tampered line, a batch line or mismatched labour flag is not representable', () => {
+    const { v, details } = manufactured()
+    expect(manufactureRepresentation(v, null, { itemName: names }).ok).toBe(false)
+    const t = manufactured()
+    t.v.inventory[2]!.amount += 1
+    expect(manufactureRepresentation(t.v, t.details, { itemName: names }).ok).toBe(false)
+    const b = manufactured()
+    b.v.inventory[0]!.batchId = 3
+    expect(manufactureRepresentation(b.v, b.details, { itemName: names }).ok).toBe(false)
+    expect(manufactureRepresentation(v, { ...details, labourPosted: false }, { itemName: names }).ok).toBe(false)
   })
 
-  it('keeps godown/batch on components and on the produced line, and a custom narration', () => {
-    const v = made()
-    v.inventory[0]!.batchId = 5
-    v.inventory[2]!.godownId = 2
-    v.narration = 'Batch run #4'
-    const rep = manufactureRepresentation(v, { bomFor: () => BOM, itemName: names })
-    expect(rep.ok).toBe(true)
-  })
-
-  it('transfers, a changed BOM, ledger lines, absolute lines are not manufacture', () => {
-    const transfer = stored({
-      ...voucherToPayload(made()),
-      inventory: [
-        { stockItemId: STEEL, godownId: 1, batchId: null, qtyMilli: 1000, ratePaise: 100, discountPaise: 0, amount: 100, direction: 'out', isAbsolute: false },
-        { stockItemId: STEEL, godownId: 2, batchId: null, qtyMilli: 1000, ratePaise: 100, discountPaise: 0, amount: 100, direction: 'in', isAbsolute: false }
+  it('evaluates the form: blank rows skipped, row issues reported against the visible row', () => {
+    const state: ManufactureFormState = {
+      ...emptyManufactureState('2025-05-03'), finishedItemId: CHAIR, qtyText: '2', saleRatePaise: 1000,
+      rows: [
+        { itemId: STEEL, qtyText: '1', godownId: null },
+        { itemId: null, qtyText: '', godownId: null },
+        { itemId: PAINT, qtyText: '', godownId: null },
+        { itemId: STEEL, qtyText: '2', godownId: null }
       ]
-    })
-    expect(manufactureRepresentation(transfer, { bomFor: () => undefined, itemName: names }).ok).toBe(false)
-    expect(manufactureRepresentation(made(), { bomFor: () => [BOM[1]!], itemName: names }).ok).toBe(false)
-    expect(manufactureRepresentation(made(), { bomFor: () => [{ ...BOM[0]!, qtyMilliPerUnit: 300 }, BOM[1]!], itemName: names }).ok).toBe(false)
-    const withLedger = made()
-    withLedger.lines = [{ id: 1, ledgerId: EXPENSE, drCr: 'dr', amount: 1, bankDate: null, costAllocations: [] }]
-    expect(manufactureRepresentation(withLedger, { bomFor: () => BOM, itemName: names }).ok).toBe(false)
+    }
+    const ev = evaluateManufactureForm(state, { materialPaise: 500, itemName: names })
+    expect(ev.rowIndex).toEqual([0, 2, 3])
+    expect(ev.issues.map((i) => [i.code, i.row])).toEqual([['incomplete_row', 2], ['duplicate_raw', 3]])
+    expect(ev.issues[0]!.message).toBe('Raw material row 3: enter a quantity')
+    expect(ev.issues[1]!.message).toBe('Steel appears in rows 1 and 4 — combine them into one row')
+    expect(ev.totals).toMatchObject({ saleAmount: 2000, productionCost: 500, profit: 1500, rightTotal: 2000 })
+  })
+
+  it('form key ignores profit and trailing blank rows; parseQtyMilli', () => {
+    const s1 = { ...emptyManufactureState('2025-05-03'), finishedItemId: CHAIR, qtyText: '1' }
+    expect(manufactureFormKey(s1)).toBe(manufactureFormKey({ ...s1, rows: [...s1.rows, { itemId: null, qtyText: '', godownId: null }] }))
+    expect(manufactureFormKey(s1)).not.toBe(manufactureFormKey({ ...s1, qtyText: '2' }))
+    expect(parseQtyMilli('2.5')).toBe(2500)
+    expect(parseQtyMilli('')).toBeNull()
+    expect(parseQtyMilli('abc')).toBeNull()
+    expect(parseQtyMilli('.')).toBeNull()
   })
 })
 
@@ -441,7 +491,7 @@ describe('generic stock-lines editor', () => {
 // ---------- routing ----------
 
 describe('planVoucherEdit routes a saved voucher to the mode that creates its kind', () => {
-  const ctx: EditPlanContext = { invoice: baseCtx, taxLedgers: TAX, bomFor: () => BOM, itemName: names }
+  const ctx: EditPlanContext = { invoice: baseCtx, taxLedgers: TAX, itemName: names }
 
   it('new-voucher modes by kind', () => {
     expect(modeForKind('sales')).toBe('invoice')
@@ -459,15 +509,10 @@ describe('planVoucherEdit routes a saved voucher to the mode that creates its ki
     expect(plan).toMatchObject({ mode: 'accounting', fallbackReason: expect.any(String) })
   })
 
-  it('stock journal → manufacture or the generic stock-lines editor; physical → physical or stock lines', () => {
-    const r = buildManufacturePayload(
-      { ...emptyManufactureState('2025-05-03'), producedId: CHAIR, qtyText: '1' },
-      { voucherTypeId: 9, bom: BOM, avgCost: avg, itemName: names }
-    )
-    if (!r.ok) throw new Error(r.error)
-    const sj = stored(r.payload)
-    expect(planVoucherEdit(sj, 'stock_journal', ctx).mode).toBe('manufacture')
-    expect(planVoucherEdit(sj, 'stock_journal', { ...ctx, bomFor: () => undefined }).mode).toBe('stockLines')
+  it('stock journal → manufacture (details row) or the generic stock-lines editor; physical → physical or stock lines', () => {
+    const { v: sj, details } = manufactured()
+    expect(planVoucherEdit(sj, 'stock_journal', { ...ctx, manufacture: details }).mode).toBe('manufacture')
+    expect(planVoucherEdit(sj, 'stock_journal', ctx)).toMatchObject({ mode: 'stockLines', legacy: true, fallbackReason: LEGACY_STOCK_JOURNAL_BANNER })
     const ps = buildPhysicalPayload({ ...emptyPhysicalState('2025-05-04'), rows: [{ itemId: STEEL, qtyText: '1', godownId: null, batchId: null }] }, { voucherTypeId: 10, itemName: names })
     if (!ps.ok) throw new Error(ps.error)
     const pv = stored(ps.payload)
@@ -547,7 +592,7 @@ describe('TDS on a purchase invoice', () => {
     const wrongSection = { ...v, tds: { ...v.tds!, sectionId: 99 } }
     expect(invoiceRepresentation(wrongSection, purchaseCtx, TAX).ok).toBe(false)
     expect(buildInvoicePayload(invoiceState({ tds }), ctxFor('sales'), 1, TAX)).toMatchObject({ ok: false })
-    const plan = planVoucherEdit(v, 'purchase', { invoice: purchaseCtx, taxLedgers: TAX, bomFor: () => undefined, itemName: () => '' })
+    const plan = planVoucherEdit(v, 'purchase', { invoice: purchaseCtx, taxLedgers: TAX, itemName: () => '' })
     expect(plan.mode).toBe('invoice')
   })
 

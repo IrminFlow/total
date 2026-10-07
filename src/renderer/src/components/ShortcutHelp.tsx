@@ -42,6 +42,7 @@ export const SHORTCUT_GROUPS: ShortcutGroup[] = [
       { keys: ['F9'], label: 'Purchase' },
       { keys: ['Ctrl/Alt', 'F8'], label: 'Credit note' },
       { keys: ['Ctrl/Alt', 'F9'], label: 'Debit note' },
+      { keys: ['Alt', 'F7'], label: 'Manufacture (finished goods from raw materials)' },
       { keys: ['⌘', '↵'], label: 'Save the voucher' }
     ]
   },

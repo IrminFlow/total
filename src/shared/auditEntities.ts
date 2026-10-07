@@ -21,6 +21,7 @@ export const AUDIT_ENTITIES = [
   'godown',
   'group',
   'ledger',
+  'manufacture',
   'nic_credentials',
   'pay_head',
   'payroll_run',

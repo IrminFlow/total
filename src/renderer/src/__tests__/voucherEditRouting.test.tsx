@@ -88,6 +88,7 @@ beforeEach(() => {
       case 'master:stockItems:list': return { ok: true, data: ITEMS }
       case 'master:units:list': return { ok: true, data: [{ id: 1, name: 'Numbers', symbol: 'Nos', decimals: 0, uqc: 'NOS' }] }
       case 'bom:get': return { ok: true, data: [] }
+      case 'manufacture:get': return { ok: true, data: { voucher, details: null } }
       case 'voucher:nextNumber': return { ok: true, data: { number: '99' } }
       default: return { ok: false, error: `unmocked ${channel}` }
     }
@@ -139,7 +140,7 @@ describe('VoucherEntry alteration routing', () => {
     expect(screen.getByText(/kept as-is when you save/)).toBeTruthy()
   })
 
-  it('opens a stock journal without a BOM shape in the generic stock-lines editor, and a count in physical mode', async () => {
+  it('opens a legacy stock journal (no manufacture details) in the generic stock-lines editor, and a count in physical mode', async () => {
     const base = asVoucher(7, salesPayload())
     voucher = {
       ...base, voucherTypeId: 3, partyLedgerId: null, lines: [], billRefs: [],
@@ -150,7 +151,7 @@ describe('VoucherEntry alteration routing', () => {
     }
     renderEntry(7)
     expect(await mode()).toBe('stockLines')
-    expect(await screen.findByTestId('banner-stock-lines-fallback')).toBeTruthy()
+    expect((await screen.findByTestId('banner-stock-lines-legacy')).textContent).toContain('Created before 0.6.0 — costed at the saved amounts')
     cleanup()
 
     voucher = {
