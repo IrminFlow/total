@@ -1,25 +1,27 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
-import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { Fragment, useCallback, useEffect, useMemo, useState } from 'react'
+import { useQueryClient } from '@tanstack/react-query'
 import type { Voucher } from '@shared/domain'
 import { formatPaise } from '@shared/money'
 import {
-  blankStockLineRow, buildStockLinesPayload, recomputeStockLineAmount,
+  blankStockLineRow, buildStockLinesPayload, emptyStockLinesState, recomputeStockLineAmount,
   type StockLineRowState, type StockLinesFormState
 } from '@shared/voucherEdit'
 import { api } from '../../lib/client'
 import { useNav, useSession, useToasts } from '../../state/stores'
 import { AmountInput, Button, DateInput, Field, isAnyModalOpen, Panel, TextInput, inputCls } from '../../components/ui'
-import { ItemPicker } from '../../components/pickers'
+import { ItemPicker, useStockItems } from '../../components/pickers'
 import { confirmDialog } from '../../lib/dialogs'
 import { useUnsavedGuard } from '../../lib/useUnsavedGuard'
-import { nextLineKey, useAlterationDirty, useLeaveAfterSave } from './hooks'
+import { nextLineKey, NUMBER_LOADING, useAlterationDirty, useLeaveAfterSave, useVoucherNumberField } from './hooks'
+import { LineDetailToggle, LineStockDetail, LineStockSummary, useLineDetails } from './LineStockDetail'
 
 // ---------- generic stock lines (lossless fallback for stock journals / physical stock) ----------
 // One row per inventory line: item, in/out, qty, rate, amount, godown, batch. Used when a saved
 // stock voucher can't be shown by the manufacture or physical-count form (transfers, imported
-// Tally journals, hand-made lines). Godown and batch are shown, not picked (pickers land with the
-// stock-visibility work); hidden per-line fields (discount, physical-count flag) and any ledger
-// lines ride along untouched. State → payload: @shared/voucherEdit/stockLines.
+// Tally journals, hand-made lines). Godown, batch and serials are picked in each line's detail
+// row (WP 2.3); hidden per-line fields (discount, physical-count flag) and any ledger lines ride
+// along untouched. State → payload: @shared/voucherEdit/stockLines. Also the free-form
+// adjustment mode of the Stock journal screen (screens/StockJournal.tsx) for new vouchers.
 
 interface StockRow extends StockLineRowState {
   key: number
@@ -33,40 +35,46 @@ export function StockLinesEntry({
   typeId,
   voucherId,
   voucher,
-  initial,
-  fallbackReason,
-  formName
+  initial: initialProp,
+  fallbackReason = null,
+  formName = 'manufacture'
 }: {
   typeId: number
-  voucherId: number
-  voucher: Voucher
-  initial: StockLinesFormState
-  fallbackReason: string | null
+  /** Alteration: the saved voucher and its reconstructed state. Omitted = a new free-form stock
+   *  journal (the Stock journal screen's adjustment mode, WP 2.3). */
+  voucherId?: number
+  voucher?: Voucher
+  initial?: StockLinesFormState
+  fallbackReason?: string | null
   /** The specialised form this voucher couldn't open in ('manufacture', 'physical-count'). */
-  formName: string
+  formName?: string
 }): React.JSX.Element {
+  const isEdit = voucherId != null
   const { workingDate, setWorkingDate } = useSession()
   const toast = useToasts()
   const nav = useNav()
   const queryClient = useQueryClient()
+  const [initial] = useState(() => initialProp ?? emptyStockLinesState(workingDate))
   const [date, setDate] = useState(initial.date)
-  const [number, setNumber] = useState(initial.number)
-  const [rows, setRows] = useState<StockRow[]>(() => [...initial.rows.map((r) => ({ ...r, key: nextLineKey(), amountRev: 0 })), blankRow()])
+  const [alterNumber, setNumber] = useState(initial.number)
+  const numberField = useVoucherNumberField(typeId, date, voucherId)
+  const number = isEdit ? alterNumber : numberField.forPayload
+  const [rows, setRows] = useState<StockRow[]>(() =>
+    initialProp ? [...initial.rows.map((r) => ({ ...r, key: nextLineKey(), amountRev: 0 })), blankRow()] : [blankRow()]
+  )
   const [narration, setNarration] = useState(initial.narration)
   const [saving, setSaving] = useState(false)
   const { saved, leave } = useLeaveAfterSave()
 
-  const { data: godowns } = useQuery({ queryKey: ['godowns'], queryFn: api.godowns.list })
-  const { data: batches } = useQuery({ queryKey: ['batches', 'all'], queryFn: () => api.batches.list() })
-  const godownName = (id: number | null): string => (id == null ? '—' : (godowns?.find((g) => g.id === id)?.name ?? `#${id}`))
-  const batchName = (id: number | null): string => (id == null ? '—' : (batches?.find((b) => b.id === id)?.name ?? `#${id}`))
+  const items = useStockItems()
+  const details = useLineDetails()
 
   const formState: StockLinesFormState = useMemo(
     () => ({ ...initial, date, number, narration, rows: rows.map(({ key: _k, amountRev: _r, ...r }) => r) }),
     [initial, date, number, narration, rows]
   )
-  const alterationDirty = useAlterationDirty(voucher, buildStockLinesPayload(formState, { voucherTypeId: typeId }))
-  useUnsavedGuard(!saved && alterationDirty)
+  const alterationDirty = useAlterationDirty(voucher, isEdit ? buildStockLinesPayload(formState, { voucherTypeId: typeId }) : null)
+  useUnsavedGuard(!saved && (isEdit ? alterationDirty : rows.some((r) => r.itemId != null) || narration.trim() !== ''))
 
   const setRow = (i: number, patch: Partial<StockRow>, recompute = false): void => {
     setRows((rs) => {
@@ -100,16 +108,21 @@ export function StockLinesEntry({
         if (!proceed) return
       }
       const result = await api.vouchers.save(built.payload, voucherId)
-      toast.push('success', `${result.number} altered`)
+      toast.push('success', isEdit ? `${result.number} altered` : `Stock journal ${result.number} saved`)
       setWorkingDate(date)
       await queryClient.invalidateQueries()
-      leave()
+      if (isEdit) leave()
+      else {
+        setRows([blankRow()])
+        setNarration('')
+        numberField.reset()
+      }
     } catch (err) {
       toast.push('error', (err as Error).message)
     } finally {
       setSaving(false)
     }
-  }, [saving, formState, typeId, toast, voucherId, setWorkingDate, date, queryClient, leave])
+  }, [saving, formState, typeId, toast, voucherId, isEdit, setWorkingDate, date, queryClient, leave, numberField])
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
@@ -132,7 +145,7 @@ export function StockLinesEntry({
     })
     if (!proceed) return
     try {
-      await api.vouchers.remove(voucherId)
+      await api.vouchers.remove(voucherId!)
       toast.push('success', 'Moved to Bin')
       await queryClient.invalidateQueries()
       leave()
@@ -154,8 +167,14 @@ export function StockLinesEntry({
         </p>
       )}
       <div className="grid grid-cols-4 gap-3">
-        <Field label="No.">
-          <TextInput value={number} onChange={(e) => setNumber(e.target.value)} className="num" />
+        <Field label="No." hint={isEdit || numberField.value === NUMBER_LOADING ? undefined : 'Auto — edit to override'}>
+          <TextInput
+            value={isEdit ? alterNumber : numberField.value === NUMBER_LOADING ? '' : numberField.value}
+            onChange={(e) => (isEdit ? setNumber(e.target.value) : numberField.onChange(e.target.value))}
+            placeholder="Auto"
+            className="num"
+            data-testid="input-stock-lines-number"
+          />
         </Field>
         <Field label="Date">
           <DateInput value={date} context={workingDate} onChange={setDate} />
@@ -175,17 +194,22 @@ export function StockLinesEntry({
             <th className="r w-24">Qty</th>
             <th className="r w-28">Rate</th>
             <th className="r w-32">Amount</th>
-            <th className="w-24">Godown</th>
-            <th className="w-20">Batch</th>
+            <th className="w-48">Godown · batch · serials</th>
+            <th className="w-6"><span className="sr-only">Stock details</span></th>
           </tr>
         </thead>
         <tbody data-testid="rows-stock-lines">
-          {rows.map((r, i) => (
-            <tr key={r.key}>
+          {rows.map((r, i) => {
+            const item = r.itemId != null ? items.find((it) => it.id === r.itemId) : undefined
+            const detailItem = item && r.isAbsolute ? { ...item, trackSerials: false } : item
+            const detailOpen = details.isOpen(r.key, detailItem)
+            return (
+            <Fragment key={r.key}>
+            <tr onKeyDown={details.onRowKeyDown(r.key)}>
               <td>
                 <ItemPicker
                   value={r.itemId}
-                  onPick={(id) => setRow(i, id === r.itemId ? { itemId: id } : { itemId: id, batchId: null })}
+                  onPick={(id) => setRow(i, id === r.itemId ? { itemId: id } : { itemId: id, batchId: null, serials: undefined })}
                 />
                 {r.isAbsolute && <span className="ml-1 text-caption text-muted">counted closing qty</span>}
               </td>
@@ -214,10 +238,28 @@ export function StockLinesEntry({
               <td className="r">
                 <AmountInput key={r.amountRev} paise={r.amount} onPaise={(p) => setRow(i, { amount: p })} testId="input-stock-line-amount" />
               </td>
-              <td className="text-small text-muted">{r.itemId != null ? godownName(r.godownId) : ''}</td>
-              <td className="text-small text-muted">{r.itemId != null ? batchName(r.batchId) : ''}</td>
+              <td>{!detailOpen && <LineStockSummary fields={r} />}</td>
+              <td>
+                <LineDetailToggle open={detailOpen} onToggle={() => details.toggle(r.key)} fields={r} disabled={!item} />
+              </td>
             </tr>
-          ))}
+            {detailOpen && detailItem && (
+              <tr data-testid="row-line-detail">
+                <td colSpan={7} className="!pt-0">
+                  <LineStockDetail
+                    item={detailItem}
+                    direction={r.direction}
+                    qtyMilli={Math.round(parseFloat(r.qtyText || '0') * 1000) || 0}
+                    fields={r}
+                    onChange={(patch) => setRow(i, patch)}
+                    voucherId={voucherId}
+                  />
+                </td>
+              </tr>
+            )}
+            </Fragment>
+            )
+          })}
         </tbody>
       </table>
 
@@ -234,11 +276,11 @@ export function StockLinesEntry({
       </div>
 
       <div className="mt-5 flex justify-between">
-        <Button variant="danger" onClick={() => void remove()}>Delete voucher</Button>
+        <div>{isEdit && <Button variant="danger" onClick={() => void remove()}>Delete voucher</Button>}</div>
         <div className="flex gap-2">
-          <Button onClick={() => nav.back()}>Cancel</Button>
+          {isEdit && <Button onClick={() => nav.back()}>Cancel</Button>}
           <Button variant="primary" data-testid="btn-save-stock-lines" disabled={saving} onClick={() => void save()}>
-            Save changes ⌘↵
+            {isEdit ? 'Save changes' : 'Save'} ⌘↵
           </Button>
         </div>
       </div>

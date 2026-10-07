@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { Fragment, useCallback, useEffect, useMemo, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import type { Voucher } from '@shared/domain'
 import {
@@ -12,6 +12,7 @@ import { ItemPicker, useStockItems } from '../../components/pickers'
 import { confirmDialog } from '../../lib/dialogs'
 import { useUnsavedGuard } from '../../lib/useUnsavedGuard'
 import { nextLineKey, NUMBER_LOADING, useAlterationDirty, useLeaveAfterSave, useVoucherNumberField } from './hooks'
+import { LineDetailToggle, LineStockDetail, LineStockSummary, useLineDetails } from './LineStockDetail'
 
 // ---------- physical stock mode (counted closing quantities, is_absolute lines) ----------
 
@@ -57,6 +58,7 @@ export function PhysicalStockEntry({
   const numberField = useVoucherNumberField(typeId, date, voucherId)
   const [alterNumber, setAlterNumber] = useState(base.number)
   const { saved, leave } = useLeaveAfterSave()
+  const details = useLineDetails()
 
   // Book stock as on the count date, for the counted-vs-book readout per line.
   const { data: stock } = useQuery({
@@ -174,6 +176,7 @@ export function PhysicalStockEntry({
             <th className="r w-32">Book qty</th>
             <th className="r w-32">Counted</th>
             <th className="r w-36">Difference</th>
+            <th className="w-6"><span className="sr-only">Godown and batch</span></th>
           </tr>
         </thead>
         <tbody data-testid="rows-physical-lines">
@@ -182,8 +185,13 @@ export function PhysicalStockEntry({
             const unit = r.itemId != null ? (bookOf.get(r.itemId)?.unitSymbol ?? '') : ''
             const counted = countedMilli(r)
             const diff = book != null && counted != null ? counted - book : null
+            // A count pins quantity — it names no serials, so the detail row shows godown/batch only.
+            const found = r.itemId != null ? items.find((it) => it.id === r.itemId) : undefined
+            const item = found ? { ...found, trackSerials: false } : undefined
+            const detailOpen = details.isOpen(r.key, item)
             return (
-              <tr key={r.key}>
+              <Fragment key={r.key}>
+              <tr onKeyDown={details.onRowKeyDown(r.key)}>
                 <td>
                   {/* A different item can't keep the old line's batch (batches belong to an item). */}
                   <ItemPicker value={r.itemId} onPick={(id) => setRow(i, id === r.itemId ? { itemId: id } : { itemId: id, batchId: null })} />
@@ -207,8 +215,20 @@ export function PhysicalStockEntry({
                       {diff > 0 ? '+' : ''}{diff / 1000} {unit}
                     </span>
                   )}
+                  {!detailOpen && <div><LineStockSummary fields={r} /></div>}
+                </td>
+                <td>
+                  <LineDetailToggle open={detailOpen} onToggle={() => details.toggle(r.key)} fields={r} disabled={!item} />
                 </td>
               </tr>
+              {detailOpen && item && (
+                <tr data-testid="row-line-detail">
+                  <td colSpan={5} className="!pt-0">
+                    <LineStockDetail item={item} direction="out" qtyMilli={0} fields={r} onChange={(patch) => setRow(i, patch)} />
+                  </td>
+                </tr>
+              )}
+              </Fragment>
             )
           })}
         </tbody>

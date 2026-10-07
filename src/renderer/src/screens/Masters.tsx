@@ -5,7 +5,7 @@ import type { Currency, Godown, Ledger, StockGroup, StockItem, Unit, VoucherType
 import { filterLedgers, type ChartGroupNode } from '@shared/chartOfAccounts'
 import { api } from '../lib/client'
 import { useNav, useSession, useToasts, type Screen } from '../state/stores'
-import { AmountInput, Button, DrawerSection, EmptyState, Field, Modal, Page, PageActions, PageHeader, Panel, Select, TextInput } from '../components/ui'
+import { AmountInput, Button, Checkbox, DrawerSection, EmptyState, Field, Modal, Page, PageActions, PageHeader, Panel, Select, TextInput } from '../components/ui'
 import { OptionsTable } from '../components/ScreenOptions'
 import { DataTable, defineColumns } from '../components/table'
 import { formatMilli } from '../lib/table'
@@ -513,7 +513,16 @@ export const ITEM_COLUMNS = defineColumns<ItemRow>([
   // Integer thousandths, shown to the item's unit decimals. Mixed units never total.
   { id: 'openingQty', header: 'Opening qty', kind: 'quantity', value: (i) => i.openingQtyMilli, text: (i) => formatMilli(i.openingQtyMilli, i.unitDecimals), width: 150 },
   { id: 'openingValue', header: 'Opening value', kind: 'money', value: (i) => i.openingValue, aggregate: 'sum', width: 150, defaultHidden: true },
-  { id: 'barcode', header: 'Barcode', kind: 'text', value: (i) => i.barcode ?? '', className: 'num text-muted', width: 140, groupable: false, defaultHidden: true }
+  { id: 'barcode', header: 'Barcode', kind: 'text', value: (i) => i.barcode ?? '', className: 'num text-muted', width: 140, groupable: false, defaultHidden: true },
+  {
+    id: 'valuation',
+    header: 'Valuation',
+    kind: 'enum',
+    value: (i) => i.valuationMethod,
+    options: [{ value: 'weighted_avg', label: 'Weighted average' }, { value: 'fifo', label: 'FIFO' }],
+    width: 150
+  },
+  { id: 'serials', header: 'Serials', kind: 'text', value: (i) => (i.trackSerials ? 'Tracked' : ''), width: 100, defaultHidden: true }
 ])
 
 function ItemsTab({ openItemId }: { openItemId?: number }): React.JSX.Element {
@@ -581,6 +590,10 @@ export function ItemFormModal({ item, onClose }: { item: StockItem | null; onClo
   const [openQty, setOpenQty] = useState(item ? (item.openingQtyMilli / 1000).toString() : '')
   const [openValue, setOpenValue] = useState<number | null>(item?.openingValue ?? null)
   const [barcode, setBarcode] = useState(item?.barcode ?? '')
+  const [reorderText, setReorderText] = useState(item?.reorderLevelMilli != null ? String(item.reorderLevelMilli / 1000) : '')
+  const [valuationMethod, setValuationMethod] = useState<'weighted_avg' | 'fifo'>(item?.valuationMethod ?? 'weighted_avg')
+  const [trackSerials, setTrackSerials] = useState(item?.trackSerials ?? false)
+  const nav = useNav()
 
   const hsnCheck = hsn.trim() ? validateHsn(hsn) : null
   const hsnError = hsnCheck && !hsnCheck.valid ? hsnCheck.error : null
@@ -601,9 +614,11 @@ export function ItemFormModal({ item, onClose }: { item: StockItem | null; onClo
         openingQtyMilli: Math.round(parseFloat(openQty || '0') * 1000),
         openingValue: openValue ?? 0,
         barcode: barcode.trim() || null,
-        // Reorder level has no field in this modal yet (Wave 3); preserve what the item has.
-        reorderLevelMilli: item?.reorderLevelMilli ?? null
+        reorderLevelMilli: reorderText.trim() ? Math.round(parseFloat(reorderText) * 1000) : null,
+        valuationMethod,
+        trackSerials
       }
+      if (data.reorderLevelMilli != null && !(data.reorderLevelMilli >= 0)) return void toast.push('error', 'Reorder level must be a number')
       if (item) await api.stockItems.update(item.id, data)
       else await api.stockItems.create(data)
       if (item && bomRows) {
@@ -675,9 +690,34 @@ export function ItemFormModal({ item, onClose }: { item: StockItem | null; onClo
             <AmountInput paise={openValue} onPaise={setOpenValue} />
           </Field>
         </div>
-        <Field label="Barcode" hint="Scan into this field, or type an SKU">
-          <TextInput value={barcode} onChange={(e) => setBarcode(e.target.value)} className="num" placeholder="Optional" />
-        </Field>
+        <div className="grid grid-cols-3 gap-3">
+          <Field label="Barcode" hint="Scan into this field, or type an SKU">
+            <TextInput value={barcode} onChange={(e) => setBarcode(e.target.value)} className="num" placeholder="Optional" data-testid="input-item-barcode" />
+          </Field>
+          <Field label="Reorder level" hint="Reorder planning lists the item below this">
+            <TextInput value={reorderText} onChange={(e) => setReorderText(e.target.value)} className="num text-right" placeholder="None" data-testid="input-item-reorder" />
+          </Field>
+          <Field
+            label="Valuation"
+            hint={item && valuationMethod !== item.valuationMethod ? 'Applies from the next valuation — every stock figure is re-walked with it' : 'How closing stock is costed'}
+          >
+            <Select value={valuationMethod} onChange={(e) => setValuationMethod(e.target.value as 'weighted_avg' | 'fifo')} data-testid="input-item-valuation">
+              <option value="weighted_avg">Weighted average</option>
+              <option value="fifo">FIFO</option>
+            </Select>
+          </Field>
+        </div>
+        <Checkbox
+          label="Track serial numbers"
+          hint={
+            trackSerials && !item?.trackSerials
+              ? 'Every purchase, sale and transfer of this item will need one serial number per unit. Stock already on hand has none — turn this on before the first purchase.'
+              : 'One serial number per unit on every movement (whole units only).'
+          }
+          checked={trackSerials}
+          onChange={setTrackSerials}
+          testId="input-item-track-serials"
+        />
         {item && (
           <div>
             <span className="mb-1 block text-caption font-semibold tracking-[0.08em] text-muted uppercase">
@@ -723,10 +763,24 @@ export function ItemFormModal({ item, onClose }: { item: StockItem | null; onClo
           </div>
         )}
         <div className="flex justify-between">
-          <div>{item && <Button variant="danger" onClick={() => void remove()}>Delete</Button>}</div>
+          <div className="flex gap-2">
+            {item && <Button variant="danger" onClick={() => void remove()}>Delete</Button>}
+            {item && (
+              <Button
+                variant="ghost"
+                data-testid="btn-item-movements"
+                onClick={() => {
+                  onClose()
+                  nav.go({ name: 'stock-movements', itemId: item.id })
+                }}
+              >
+                Movement register →
+              </Button>
+            )}
+          </div>
           <div className="flex gap-2">
             <Button onClick={onClose}>Cancel</Button>
-            <Button variant="primary" onClick={() => void save()}>
+            <Button variant="primary" onClick={() => void save()} data-testid="btn-item-save">
               Save item
             </Button>
           </div>
