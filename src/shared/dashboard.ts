@@ -98,6 +98,8 @@ export interface DashGst {
   itc: number
   /** Cash payable after set-off, including RCM (netPayable + rcmPayable). */
   payable: number
+  /** WP 3.4 — GSTR-9 / ITC-04 due in the next 45 days (sourced in shared/gst/sources.ts). */
+  annual?: { form: string; title: string; date: string }[]
 }
 
 export interface DashTds {

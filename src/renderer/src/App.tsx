@@ -25,6 +25,9 @@ import { StockReportsScreen } from './screens/StockReports'
 import { LedgerStatementScreen } from './screens/LedgerStatement'
 import { Gstr1Screen, Gstr3bScreen } from './screens/GstReturns'
 import { Gstr2bScreen } from './screens/Gstr2b'
+import { Gstr9Screen } from './screens/gst/Gstr9Screen'
+import { Itc04Screen } from './screens/gst/Itc04Screen'
+import { ItcReversalScreen } from './screens/gst/ItcReversalScreen'
 import { CompanyInfoScreen } from './screens/CompanyInfo'
 import { RegistersScreen } from './screens/Registers'
 import { OutstandingsScreen } from './screens/Outstandings'
@@ -175,7 +178,10 @@ export default function App(): React.JSX.Element {
           {screen.name === 'gstr1' && <Gstr1Screen />}
           {screen.name === 'gstr3b' && <Gstr3bScreen />}
           {screen.name === 'gstr2b' && <Gstr2bScreen />}
-          {screen.name === 'edocs' && <EdocsScreen />}
+          {screen.name === 'edocs' && <EdocsScreen key={screen.tab ?? 'documents'} tab={screen.tab} />}
+          {screen.name === 'gstr9' && <Gstr9Screen />}
+          {screen.name === 'itc04' && <Itc04Screen />}
+          {screen.name === 'itc-reversal' && <ItcReversalScreen />}
           {screen.name === 'registers' && <RegistersScreen />}
           {screen.name === 'outstandings' && <OutstandingsScreen />}
           {screen.name === 'pending-challans' && <TradePendingScreen stage="delivery_note" />}

@@ -3,7 +3,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '../lib/client'
 import { useFeatures } from '../lib/useFeatures'
 import { useNav, useSession, useToasts } from '../state/stores'
-import { AmountInput, Banner, Button, DrawerSection, EmptyState, Money, Page, PageHeader, Panel, Select, SkeletonRows, Spinner } from '../components/ui'
+import { AmountInput, Banner, Button, DrawerSection, EmptyState, Money, Page, PageHeader, Panel, Select, SkeletonRows, Spinner, TabBar } from '../components/ui'
 import { OptionChoice, OptionsTable, useScreenOptions } from '../components/ScreenOptions'
 import { DataTable, defineColumns } from '../components/table'
 import { todayISO } from '@shared/dates'
@@ -115,6 +115,35 @@ export function NoMonths(): React.JSX.Element {
         hint="Check the period (From/To) in the sidebar — it looks empty or reversed."
       />
     </Panel>
+  )
+}
+
+// ---------- the GST returns tab family (WP 3.4) ----------
+
+export type GstReturnTab = 'gstr1' | 'gstr3b' | 'gstr9' | 'itc04' | 'itc-reversal'
+
+const GST_RETURN_TABS: { id: GstReturnTab; label: string }[] = [
+  { id: 'gstr1', label: 'GSTR-1' },
+  { id: 'gstr3b', label: 'GSTR-3B' },
+  { id: 'gstr9', label: 'GSTR-9' },
+  { id: 'itc04', label: 'ITC-04' },
+  { id: 'itc-reversal', label: 'ITC reversal' }
+]
+
+/** The tab row shared by the GST return screens: each tab is its own registry screen, so the
+ *  testids read tab-<current screen>-<tab> (e.g. tab-gstr1-gstr9). */
+export function GstReturnTabs({ current }: { current: GstReturnTab }): React.JSX.Element {
+  const nav = useNav()
+  return (
+    <TabBar
+      screen={current}
+      label="GST returns"
+      tabs={GST_RETURN_TABS}
+      active={current}
+      onSelect={(t) => {
+        if (t !== current) nav.go({ name: t })
+      }}
+    />
   )
 }
 
@@ -256,6 +285,7 @@ export function Gstr1Screen(): React.JSX.Element {
     <Page>
       <PageHeader
         title="GSTR-1 · Outward supplies"
+        tabs={<GstReturnTabs current="gstr1" />}
         controls={<MonthBar months={months} value={monthKey} onChange={setMonthKey} testId="input-gstr1-month" />}
         actions={
           <Button
@@ -355,7 +385,7 @@ export function Gstr1Screen(): React.JSX.Element {
 // ---------- GSTR-3B ----------
 
 const GSTR3B_NOTE =
-  '4(B) reversals and 5.1 interest/late fee are the manual adjustments, persisted per period and folded into the exported JSON. RCM tax (3.1(d)) is payable in cash and simultaneously claimable as ITC under 4(A)(3).'
+  '4(B) reversals, the 4(D)(1) reclaim and 5.1 interest/late fee are the manual adjustments, persisted per period and folded into the exported JSON — the ITC reversal tab computes them. Per Circular 170/02/2022-GST, credit blocked under s.17(5) (parties marked blocked) is availed in 4(A)(5) and reversed in 4(B)(1) automatically. RCM tax (3.1(d)) is payable in cash and simultaneously claimable as ITC under 4(A)(3).'
 
 const INTERSTATE_COLUMNS = defineColumns<Gstr3bResult['interState'][number]>([
   { id: 'pos', header: 'Place of supply', kind: 'text', value: (r) => posLabel(r.pos), hideable: false, groupable: false },
@@ -366,14 +396,16 @@ const INTERSTATE_COLUMNS = defineColumns<Gstr3bResult['interState'][number]>([
 const EMPTY_MANUAL: Gst3bManualInput = {
   itcRevRul: { igst: 0, cgst: 0, sgst: 0, cess: 0 },
   itcRevOth: { igst: 0, cgst: 0, sgst: 0, cess: 0 },
+  itcReclaimed: { igst: 0, cgst: 0, sgst: 0, cess: 0 },
   interest: { igst: 0, cgst: 0, sgst: 0, cess: 0 },
   lateFee: { camt: 0, samt: 0 }
 }
 
-type ManualHead = 'itcRevRul' | 'itcRevOth' | 'interest'
+type ManualHead = 'itcRevRul' | 'itcRevOth' | 'itcReclaimed' | 'interest'
 const MANUAL_HEADS: { key: ManualHead; label: string }[] = [
-  { key: 'itcRevRul', label: '4(B)(1) ITC reversed — rules 38/42/43' },
-  { key: 'itcRevOth', label: '4(B)(2) ITC reversed — others' },
+  { key: 'itcRevRul', label: '4(B)(1) ITC reversed — rules 38/42/43 (s.17(5) credit is added automatically)' },
+  { key: 'itcRevOth', label: '4(B)(2) ITC reversed — others (rule 37, 37A …)' },
+  { key: 'itcReclaimed', label: '4(D)(1) ITC reclaimed (reversed under 4(B)(2) earlier; also added to 4(A)(5))' },
   { key: 'interest', label: '5.1 Interest payable' }
 ]
 
@@ -527,6 +559,7 @@ export function Gstr3bScreen(): React.JSX.Element {
     <Page>
       <PageHeader
         title="GSTR-3B · Summary return"
+        tabs={<GstReturnTabs current="gstr3b" />}
         controls={<MonthBar months={months} value={monthKey} onChange={setMonthKey} testId="input-gstr3b-month" />}
         actions={
           <Button variant="primary" data-testid="btn-gstr3b-export" onClick={() => void doExport()} disabled={!info?.gstin}>
@@ -575,15 +608,11 @@ export function Gstr3bScreen(): React.JSX.Element {
             {row('3.1(d) Inward supplies under RCM', data.rcm)}
             {row('4(A)(1) ITC — import of goods', data.itcParts.impg)}
             {row('4(A)(3) ITC — inward RCM supplies', data.itcParts.isrc)}
-            {row('4(A)(5) ITC — all other', data.itcParts.oth)}
-            {row('4(B) ITC reversed (manual, below)', {
-              igst: data.manual.itcRevRul.igst + data.manual.itcRevOth.igst,
-              cgst: data.manual.itcRevRul.cgst + data.manual.itcRevOth.cgst,
-              sgst: data.manual.itcRevRul.sgst + data.manual.itcRevOth.sgst,
-              cess: data.manual.itcRevRul.cess + data.manual.itcRevOth.cess
-            }, { negative: true })}
+            {row('4(A)(5) ITC — all other (incl. s.17(5) credit and reclaims)', data.itcParts.oth)}
+            {row('4(B)(1) Reversed — rules 38/42/43 and s.17(5)', data.manual.itcRevRul, { negative: true })}
+            {row('4(B)(2) Reversed — others (rule 37 …)', data.manual.itcRevOth, { negative: true })}
             {row('4(C) Net eligible ITC', data.itc, { className: 'total-row' })}
-            {row('4(D)(1) Ineligible / blocked ITC (reported only)', data.itcParts.blocked)}
+            {row('4(D)(1) ITC reclaimed (reversed under 4(B)(2) earlier)', data.itcParts.blocked)}
             {row('5.1 Interest payable (manual, below)', data.manual.interest)}
             {row('5.1 Late fee (manual, below)', { igst: 0, cgst: data.manual.lateFee.camt, sgst: data.manual.lateFee.samt, cess: 0 })}
           </tbody>

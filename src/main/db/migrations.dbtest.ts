@@ -64,6 +64,9 @@ const EXPECTED_TABLES = [
   'fixed_asset_additions',
   'depreciation_runs',
   'depreciation_lines',
+  // 028 (WP 3.4)
+  'gst_ims_actions',
+  'gst_self_invoices',
   'migrations'
 ]
 

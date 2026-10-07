@@ -60,7 +60,10 @@ export function upcomingDeadlines(
   today: string,
   gstRegistrationType: 'regular' | 'composition' | 'unregistered',
   hasPayroll: boolean,
-  horizonDays = 30
+  horizonDays = 30,
+  /** WP 3.4 — annual GST deadlines: GSTR-9 (regular registrations) always; ITC-04 only when the
+   *  company sends goods for job work (`jobWork`), half-yearly or annual per `itc04`. */
+  annual: { jobWork?: boolean; itc04?: 'half_yearly' | 'annual' } = {}
 ): Deadline[] {
   const horizonEnd = addDays(today, horizonDays)
   const { y: ty, m: tm } = parseISO(today)
@@ -130,6 +133,35 @@ export function upcomingDeadlines(
           date,
           kind: 'advance-tax'
         })
+      }
+    }
+  }
+
+  // Annual GST deadlines (WP 3.4), sourced in shared/gst/sources.ts:
+  //  - GSTR-9 by 31 December after the FY (rule 80(1) CGST Rules; optional up to ₹2 crore turnover
+  //    from FY 2024-25, Notification 15/2025-CT — still listed, the screen says it's optional);
+  //  - ITC-04 by the 25th of the month after the specified period (rule 45(3); Notification
+  //    35/2021-CT): 25 October (Apr–Sep) and 25 April (Oct–Mar) half-yearly above ₹5 crore,
+  //    else 25 April (the year).
+  for (let year = ty - 1; year <= hy + 1; year++) {
+    if (gstRegistrationType === 'regular') {
+      const date = ymd(year, 12, 31)
+      const fyLabel = `${year - 1}-${String(year % 100).padStart(2, '0')}`
+      if (inRange(date)) out.push({ id: `gstr9-${year - 1}`, form: 'GSTR-9', title: `GSTR-9 — annual return (FY ${fyLabel})`, date, kind: 'gst' })
+    }
+    if (gstRegistrationType === 'regular' && annual.jobWork) {
+      const apr = ymd(year, 4, 25)
+      const prevFy = `${year - 1}-${String(year % 100).padStart(2, '0')}`
+      if (inRange(apr)) {
+        out.push({
+          id: `itc04-${year}-04`, form: 'ITC-04',
+          title: annual.itc04 === 'half_yearly' ? `ITC-04 — job work (Oct ${year - 1}–Mar ${year})` : `ITC-04 — job work (FY ${prevFy})`,
+          date: apr, kind: 'gst'
+        })
+      }
+      const oct = ymd(year, 10, 25)
+      if (annual.itc04 === 'half_yearly' && inRange(oct)) {
+        out.push({ id: `itc04-${year}-10`, form: 'ITC-04', title: `ITC-04 — job work (Apr–Sep ${year})`, date: oct, kind: 'gst' })
       }
     }
   }

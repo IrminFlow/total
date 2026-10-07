@@ -301,6 +301,18 @@ export function ComplianceCard({
               </div>
             )
           )}
+          {typeof g !== 'string' && g?.annual && g.annual.length > 0 && (
+            <div data-testid="dash-gst-annual" {...drillRowProps(() => nav.go({ name: 'gstr9' }))} className={stackRowCls}>
+              <span className="text-body-sm text-ink">Annual GST</span>
+              <span className="flex flex-wrap gap-1">
+                {g.annual.map((d) => (
+                  <Badge key={`${d.form}-${d.date}`} tone={dueTone(d.date, today)} testId={`chip-${d.form.toLowerCase()}`}>
+                    <span title={d.title}>{d.form} {dueIn(d.date, today)}</span>
+                  </Badge>
+                ))}
+              </span>
+            </div>
+          )}
           {(showAll ? others : others.slice(0, 3)).map((d) => (
             <div key={d.id} className="flex items-center gap-2 border-b border-line/40 px-4 py-[5px] last:border-b-0">
               <span className="num w-[62px] text-caption text-muted">{toDisplayDate(d.date)}</span>
