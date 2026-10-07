@@ -1255,5 +1255,44 @@ export const MIGRATIONS: string[] = [
     'migration', 25,
     'tradeDocTypesSeeded', (SELECT COUNT(*) FROM trade_doc_types)
   ), NULL, NULL);
+  `,
+
+  // 028 (WP 3.4) — GST expansion. Number assigned by the orchestrator (026 = WP 3.6 fixed assets,
+  // 027 = WP 3.3 TCS land on parallel branches); self-contained — it only references vouchers
+  // (001), so it can be renumbered on rebase without touching its content.
+  // - gst_ims_actions: the Invoice Management System action the user decided for one GSTR-2B /
+  //   IMS record (accept / reject / pending), keyed by return period + supplier GSTIN + document
+  //   type + number. record_json keeps the portal figures the decision was taken on (for the
+  //   export); voucher_id the matched purchase, when there was one. Nothing posts from here.
+  // - gst_self_invoices: the self-invoice (s.31(3)(f) CGST Act, rule 47A) raised for an RCM
+  //   purchase from an unregistered supplier — one per purchase voucher, numbered in its own
+  //   consecutive series per financial year (rule 46(b)). Binned purchases keep their row: the
+  //   number was used, the list shows it cancelled.
+  `
+  CREATE TABLE gst_ims_actions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    period TEXT NOT NULL CHECK (length(period) = 6),
+    supplier_gstin TEXT NOT NULL,
+    doc_type TEXT NOT NULL DEFAULT 'INV' CHECK (doc_type IN ('INV', 'CN', 'DN')),
+    doc_no TEXT NOT NULL,
+    doc_date TEXT NOT NULL,
+    action TEXT NOT NULL CHECK (action IN ('accept', 'reject', 'pending')),
+    note TEXT,
+    record_json TEXT,
+    voucher_id INTEGER REFERENCES vouchers(id) ON DELETE SET NULL,
+    decided_at TEXT NOT NULL DEFAULT (datetime('now')),
+    UNIQUE (period, supplier_gstin, doc_type, doc_no)
+  );
+  CREATE INDEX idx_gst_ims_actions_period ON gst_ims_actions(period);
+
+  CREATE TABLE gst_self_invoices (
+    voucher_id INTEGER PRIMARY KEY REFERENCES vouchers(id) ON DELETE CASCADE,
+    number TEXT NOT NULL UNIQUE,
+    date TEXT NOT NULL,
+    fy_start_year INTEGER NOT NULL,
+    seq INTEGER NOT NULL CHECK (seq > 0),
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    UNIQUE (fy_start_year, seq)
+  );
   `
 ]
