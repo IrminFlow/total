@@ -72,6 +72,11 @@ export const ledgerInputSchema = z.object({
   tdsPayableSectionId: id.nullable().optional(),
   /** Expense ledgers: default TDS section for debits to this ledger; absent = keep. */
   tdsDefaultSectionId: id.nullable().optional(),
+  /** TCS (WP 3.3) — absent = keep the stored value: the buyer's collection section, the TCS
+   *  payable tag, and a sales ledger's default section. */
+  tcsSectionId: id.nullable().optional(),
+  tcsPayableSectionId: id.nullable().optional(),
+  tcsDefaultSectionId: id.nullable().optional(),
   creditDays: z.number().int().min(0).max(365).nullable().default(null),
   exportType: z.enum(['sez_wp', 'sez_wop', 'exp_wp', 'exp_wop']).nullable().default(null),
   /** Reverse charge applies to this party's supplies (GSTR-1 rchrg / GSTR-3B 3.1(d)). */
@@ -132,7 +137,9 @@ export const stockItemInputSchema = z.object({
    *  valuation — every report re-walks the movements with the item's current method. */
   valuationMethod: z.enum(['weighted_avg', 'fifo']).optional(),
   /** Serial-number tracking (WP 2.3). Absent = keep existing (update) / off (create). */
-  trackSerials: z.boolean().optional()
+  trackSerials: z.boolean().optional(),
+  /** TCS goods category (WP 3.3). Absent = keep existing (update) / none (create). */
+  tcsSectionId: id.nullable().optional()
 })
 export type StockItemInput = z.infer<typeof stockItemInputSchema>
 
@@ -175,6 +182,18 @@ export const tdsSchema = z.object({
   /** The voucher's lines do NOT include the TDS payable credit: saveVoucher finds (or creates,
    *  inside the save transaction) the ledger tagged for the section and appends a Cr line of
    *  tdsAmount. Lets entry screens apply TDS before the payable ledger exists. */
+  autoPayable: z.boolean().default(false)
+})
+
+/** TCS collected on a sale / receipt (WP 3.3) — the TCS twin of tdsSchema. */
+export const tcsSchema = z.object({
+  sectionId: id,
+  baseAmount: positivePaise,
+  tcsAmount: positivePaise,
+  /** Typed rather than the rate table's figure (saveVoucher skips the rate x base check). */
+  isManual: z.boolean().default(false),
+  /** The lines do NOT include the TCS payable credit: saveVoucher finds (or creates, inside the
+   *  save transaction) the section's tagged TCS payable ledger and appends a Cr of tcsAmount. */
   autoPayable: z.boolean().default(false)
 })
 
@@ -236,6 +255,8 @@ export const voucherInputSchema = z.object({
   inventory: z.array(inventoryLineSchema).max(200).default([]),
   billRefs: z.array(billRefSchema).max(50).default([]),
   tds: tdsSchema.nullable().default(null),
+  /** TCS collected (WP 3.3). Absent = none (never "keep": every editor posts it back). */
+  tcs: tcsSchema.nullable().optional(),
   /** Delivery challan / GRN facts (WP 2.5); only stored for those kinds. */
   trade: z.object({ purpose: z.enum(TRADE_PURPOSES) }).nullable().optional()
 })
@@ -282,7 +303,9 @@ export const openSourceLinesSchema = z.object({
   targetKind: z.union([z.enum(VOUCHER_KINDS), tradeDocKindSchema]),
   linkType: z.enum(['fulfil', 'return']).default('fulfil'),
   /** The voucher being altered: its own links don't count against capacity. */
-  excludeVoucherId: id.optional()
+  excludeVoucherId: id.optional(),
+  /** The order being altered (WP 2.5c): its own links don't count against capacity. */
+  excludeTradeDocId: id.optional()
 })
 export type OpenSourceLinesQuery = z.infer<typeof openSourceLinesSchema>
 
@@ -292,6 +315,72 @@ export const tradePendingSchema = z.object({
   asOn: isoDate
 })
 export type TradePendingQuery = z.infer<typeof tradePendingSchema>
+
+// ---------- quotations / sales orders / purchase orders (WP 2.5c, design §6.2) ----------
+
+/** One quotation / order line. `amount` is the taxable value after discount: the server checks
+ *  amount = round(qty × rate) − discount (the invoice rule). GST rates are snapshotted server-side. */
+export const tradeDocLineSchema = z.object({
+  lineUid: lineUidSchema.optional(),
+  stockItemId: id,
+  description: z.string().trim().max(500).nullable().default(null),
+  godownId: id.nullable().default(null),
+  qtyMilli: z.number().int().positive(),
+  ratePaise: paise.min(0),
+  discountPaise: paise.min(0).default(0),
+  amount: paise.min(0),
+  dueDate: isoDate.nullable().default(null),
+  /** The quotation line this order line converts (doc → doc link, rules.ts). */
+  source: lineSourceSchema.nullable().default(null)
+})
+export type TradeDocLineInput = z.input<typeof tradeDocLineSchema>
+
+export const tradeDocInputSchema = z.object({
+  docTypeId: id,
+  date: isoDate,
+  /** Absent / blank = next auto number of the series. */
+  number: z.string().trim().max(40).optional(),
+  partyLedgerId: id,
+  /** Quotations only: valid until (inclusive). */
+  validUntil: isoDate.nullable().default(null),
+  /** Orders: expected delivery / receipt date. */
+  dueDate: isoDate.nullable().default(null),
+  reference: z.string().trim().max(120).nullable().default(null),
+  terms: z.string().trim().max(4000).nullable().default(null),
+  narration: z.string().trim().max(1000).nullable().default(null),
+  posOverride: stateCodeSchema.nullable().default(null),
+  currencyCode: z.string().trim().length(3).transform((s) => s.toUpperCase()).nullable().default(null),
+  exchangeRate: z.number().positive().max(100000).nullable().default(null),
+  lines: z.array(tradeDocLineSchema).min(1, 'Add at least one item line').max(200)
+})
+export type TradeDocInputParsed = z.infer<typeof tradeDocInputSchema>
+export type TradeDocInput = z.input<typeof tradeDocInputSchema>
+
+export const tradeDocSaveSchema = z.object({ data: tradeDocInputSchema, id: id.optional() })
+
+export const tradeDocListSchema = z.object({
+  kind: tradeDocKindSchema,
+  from: isoDate,
+  to: isoDate,
+  /** Include binned documents (the list's "In the bin" view). */
+  includeBinned: z.boolean().default(false)
+})
+export type TradeDocListQuery = z.input<typeof tradeDocListSchema>
+
+/** close / cancel / reopen / delete / restore. */
+export const tradeDocActionSchema = z.object({ id, reason: z.string().trim().max(300).nullable().default(null) })
+
+/** convert (quotation → sales order) / duplicate: a draft for the entry form, never saved. */
+export const tradeDocConvertSchema = z.object({ id, to: tradeDocKindSchema })
+
+/** trade:pendingOrders — open sales / purchase order lines as on a date. */
+export const pendingOrdersSchema = z.object({ kind: z.enum(['sales_order', 'purchase_order']), asOn: isoDate })
+
+/** trade:quotationPipeline — quotations dated in a period, their outcome as on `asOn`. */
+export const quotationPipelineSchema = z.object({ from: isoDate, to: isoDate, asOn: isoDate })
+
+/** trade:openSalesOrderValue — a party's open sales order value (credit-limit figure). */
+export const openOrderValueSchema = z.object({ partyLedgerId: id })
 
 export const periodSchema = z.object({ from: isoDate, to: isoDate })
 export type Period = z.infer<typeof periodSchema>
@@ -514,7 +603,9 @@ export const tdsRateInputSchema = z
     thresholdBasis: z.enum(['fy', 'month']).default('fy'),
     thresholdExcessOnly: z.boolean().default(false),
     returnCode: z.string().trim().max(10).nullable().default(null),
-    noPanRateBp: basisPoints.default(2000)
+    noPanRateBp: basisPoints.default(2000),
+    /** TCS rows: the base includes GST (WP 3.3). Absent = keep (update) / false (create). */
+    baseIncludesGst: z.boolean().optional()
   })
   .refine((r) => r.effectiveTo == null || r.effectiveTo >= r.effectiveFrom, {
     message: 'Effective-to date is before effective-from',
@@ -611,6 +702,20 @@ export const tdsChallanFromPaymentSchema = z.object({
   autoAllocate: z.boolean().optional()
 })
 export type TdsChallanFromPaymentInput = z.infer<typeof tdsChallanFromPaymentSchema>
+// WP 3.3 — TCS (the kind-agnostic calls reuse the TDS schemas below)
+export const tcsSuggestSchema = z.object({
+  partyLedgerId: id,
+  date: isoDate,
+  voucherKind: z.enum(['sales', 'receipt']),
+  taxablePaise: positivePaise,
+  gstPaise: paise.min(0).optional(),
+  salesLedgerId: id.nullable().optional(),
+  items: z.array(z.object({ stockItemId: id, amount: paise.min(0) })).max(200).optional(),
+  excludeVoucherId: id.optional(),
+  sectionId: id.nullable().optional()
+})
+export type TcsSuggestInputSchema = z.infer<typeof tcsSuggestSchema>
+
 export const tdsChallanRowsSchema = z.object({ fyStartYear: fyStartYearSchema, quarter: quarterSchema.optional(), rateBp: basisPoints.optional() })
 export const tdsChallanInterestSchema = z.object({ challanId: id, rateBp: basisPoints.optional() })
 export const tdsAutoAllocateSchema = z.object({ challanId: id })

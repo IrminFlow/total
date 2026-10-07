@@ -149,16 +149,16 @@ export interface LinkedQty {
 
 /** Live linked quantity per source uid (fulfil and return separately). `excludeVoucherId`
  *  leaves one target voucher's links out (pricing an alteration of it). */
-export function liveLinkQty(db: DB, sourceUids: readonly string[], excludeVoucherId?: number): Map<string, LinkedQty> {
+export function liveLinkQty(db: DB, sourceUids: readonly string[], excludeVoucherId?: number, excludeTradeDocId?: number): Map<string, LinkedQty> {
   const out = new Map<string, LinkedQty>()
   const unique = [...new Set(sourceUids)]
   if (unique.length === 0 || !hasTradeSchema(db)) return out
   const stmt = db.prepare(
     `SELECT ll.link_type AS linkType, COALESCE(SUM(ll.qty_milli), 0) AS q FROM line_links ll
-     WHERE ll.from_line_uid = ? AND ll.to_voucher_id IS NOT ? AND ${LIVE_TARGET} GROUP BY ll.link_type`
+     WHERE ll.from_line_uid = ? AND ll.to_voucher_id IS NOT ? AND ll.to_trade_doc_id IS NOT ? AND ${LIVE_TARGET} GROUP BY ll.link_type`
   )
   for (const uid of unique) {
-    const rows = stmt.all(uid, excludeVoucherId ?? -1) as { linkType: LinkType; q: number }[]
+    const rows = stmt.all(uid, excludeVoucherId ?? -1, excludeTradeDocId ?? -1) as { linkType: LinkType; q: number }[]
     out.set(uid, {
       fulfilMilli: rows.find((r) => r.linkType === 'fulfil')?.q ?? 0,
       returnMilli: rows.find((r) => r.linkType === 'return')?.q ?? 0
@@ -505,6 +505,161 @@ export function assertRestorable(db: DB, voucherId: number): void {
   if (frozen.length > 0) throw new Error(lockedRepricingMessage(frozen[0]!.grn, "this bill can't be restored"))
 }
 
+// ---------- trade documents as targets and sources (WP 2.5c) ----------
+
+/** Links a trade doc owns as the target (an order converting quotation lines). */
+export function docTargetLinksOf(db: DB, docId: number): StoredLink[] {
+  if (!hasTradeSchema(db)) return []
+  return (db.prepare(`SELECT ${LINK_COLS} FROM line_links ll WHERE ll.to_trade_doc_id = ? ORDER BY ll.id`).all(docId) as Parameters<typeof mapLink>[0][]).map(mapLink)
+}
+
+/** Links that draw on a trade doc's lines (orders from a quotation; challans, GRNs, invoices
+ *  and bills from an order), live or dormant alike. */
+export function docSourceLinksOf(db: DB, docId: number): StoredLink[] {
+  if (!hasTradeSchema(db)) return []
+  return (db.prepare(`SELECT ${LINK_COLS} FROM line_links ll WHERE ll.from_trade_doc_id = ? ORDER BY ll.id`).all(docId) as Parameters<typeof mapLink>[0][]).map(mapLink)
+}
+
+/** Does this stored link's target count (I1 "live")? */
+export function linkIsLive(db: DB, l: StoredLink): boolean {
+  return isLiveTarget(db, l)
+}
+
+/** "Sales 40" / "Sales Order SO-4" for a stored link's target. */
+export function linkTargetLabel(db: DB, l: StoredLink): string {
+  return targetLabel(db, l)
+}
+
+export interface DocLinkLine {
+  uid: string
+  stockItemId: number
+  qtyMilli: number
+  source: LineSource | null
+}
+
+export interface SyncDocLinksContext {
+  docId: number
+  kind: TradeDocKind
+  date: string
+  partyLedgerId: number
+  /** The document is (still) live: open or closed, not cancelled, not binned. */
+  live: boolean
+  lines: readonly DocLinkLine[]
+  /** The saved lines before this save (uid → item / qty), for the source-side rules. */
+  before: ReadonlyMap<string, { stockItemId: number; qtyMilli: number; lineNo: number }>
+  beforePartyLedgerId: number | null
+}
+
+/**
+ * The trade-doc save step (inside its transaction, after the lines are written): rewrite the
+ * document's own links (an order's lines converting quotation lines) from its input and check
+ * I1, I2, I4, I5 and I7 on them — the doc → doc counterpart of syncVoucherLinks. Then check the
+ * document's role as a SOURCE (assertDocSourceEditable).
+ */
+export function syncTradeDocLinks(db: DB, ctx: SyncDocLinksContext): LinkWarnings {
+  const warnings: LinkWarnings = { linkDates: [], frozenRepricing: [] }
+  if (!hasTradeSchema(db)) return warnings
+  const previous = new Map(docTargetLinksOf(db, ctx.docId).map((l) => [l.toLineUid, l]))
+  db.prepare('DELETE FROM line_links WHERE to_trade_doc_id = ?').run(ctx.docId)
+  const insert = db.prepare(
+    `INSERT INTO line_links (link_type, from_trade_doc_id, from_voucher_id, from_line_uid, to_trade_doc_id, to_line_uid, qty_milli, reprices)
+     VALUES (?, ?, ?, ?, ?, ?, ?, 0)`
+  )
+  const sources: LinkLine[] = []
+  ctx.lines.forEach((line, i) => {
+    if (!line.source) return
+    const n = `Line ${i + 1}`
+    const source = findLinkLine(db, line.source.lineUid)
+    if (!source) throw new Error(`${n}: the line it was drawn from no longer exists`)
+    if (source.docId === ctx.docId) throw new Error(`${n}: a document can't be linked to its own lines`)
+    const rule = linkRuleFor(source.kind, ctx.kind, line.source.linkType)
+    if (!rule) throw new Error(`${n}: a ${ctx.kind.replace('_', ' ')} line can't ${line.source.linkType} ${source.label}`)
+    // I2
+    if (source.partyLedgerId !== ctx.partyLedgerId) throw new Error(`${n}: ${source.label} belongs to another party`)
+    if (source.stockItemId !== line.stockItemId) throw new Error(`${n}: ${source.label} is for a different item`)
+    // I5 — a new link needs an open source; one that already existed survives a later close.
+    const prev = previous.get(line.uid)
+    const existed = !!prev && prev.fromLineUid === source.uid && prev.linkType === rule.linkType
+    if (source.binned) throw new Error(`${n}: ${source.label} is in the bin`)
+    if (source.cancelled) throw new Error(`${n}: ${source.label} is cancelled`)
+    if (source.closed && !existed) throw new Error(`${n}: ${source.label} is closed`)
+    // I7
+    if (ctx.date < source.date) warnings.linkDates.push(`${n} is dated before ${source.label} (${toDisplayDate(source.date)})`)
+    // I4 — the link quantity is the target line's.
+    insert.run(rule.linkType, source.docId, source.voucherId, source.uid, ctx.docId, line.uid, line.qtyMilli)
+    sources.push(source)
+  })
+  // I1, with the new links in place (a cancelled / binned document's links are dormant).
+  if (ctx.live) assertCapacity(db, sources)
+  assertDocSourceEditable(db, ctx)
+  return warnings
+}
+
+/**
+ * A trade doc as a SOURCE: every line another document links to (live or dormant) must stay,
+ * with the same item and at least the live linked quantity; the party can't change underneath
+ * live links.
+ */
+export function assertDocSourceEditable(db: DB, ctx: SyncDocLinksContext): void {
+  const links = docSourceLinksOf(db, ctx.docId)
+  if (links.length === 0) return
+  const lineByUid = new Map(ctx.lines.map((l) => [l.uid, l]))
+  const checked = new Set<string>()
+  for (const l of links) {
+    const target = targetLabel(db, l)
+    const was = ctx.before.get(l.fromLineUid)
+    const where = was ? `Line ${was.lineNo}` : 'A line'
+    const refuse = (why: string): never => {
+      throw new Error(`${where} is drawn on by ${target} — ${why}; bin that first`)
+    }
+    const now = lineByUid.get(l.fromLineUid)
+    if (!now) refuse("it can't be removed")
+    if (was && now!.stockItemId !== was.stockItemId) refuse("its item can't change")
+    if (isLiveTarget(db, l) && ctx.beforePartyLedgerId != null && ctx.partyLedgerId !== ctx.beforePartyLedgerId) refuse("the party can't change")
+    if (checked.has(l.fromLineUid)) continue
+    checked.add(l.fromLineUid)
+    const used = liveLinkQty(db, [l.fromLineUid]).get(l.fromLineUid)!
+    if (used.fulfilMilli > now!.qtyMilli) refuse(`its quantity can't go below the ${used.fulfilMilli / 1000} already drawn`)
+  }
+}
+
+/** Binning or cancelling a trade doc: refused while a live document draws on its lines. Its own
+ *  links (an order's quotation links) simply go dormant. */
+export function assertDocReleasable(db: DB, docId: number, action: 'bin' | 'cancel'): void {
+  if (!hasTradeSchema(db)) return
+  for (const l of docSourceLinksOf(db, docId)) {
+    if (isLiveTarget(db, l)) {
+      const src = findLinkLine(db, l.fromLineUid)
+      throw new Error(
+        `${src?.label ?? 'A line'} is drawn on by ${targetLabel(db, l)} — ${action === 'bin' ? 'bin' : 'cancel or bin'} that first${action === 'cancel' ? ', or short-close this one instead' : ''}`
+      )
+    }
+  }
+}
+
+/** Restoring / un-cancelling a trade doc (call AFTER the state change, inside the transaction):
+ *  every quotation line it converts must still be there, live and open enough again. */
+export function assertDocRestorable(db: DB, docId: number): void {
+  if (!hasTradeSchema(db)) return
+  const links = docTargetLinksOf(db, docId)
+  if (links.length === 0) return
+  const party = (db.prepare('SELECT party_ledger_id AS p FROM trade_docs WHERE id = ?').get(docId) as { p: number }).p
+  const sources: LinkLine[] = []
+  for (const l of links) {
+    const src = findLinkLine(db, l.fromLineUid)
+    if (!src) throw new Error('A line it was drawn from no longer exists')
+    if (src.binned) throw new Error(`${src.label} is in the bin — restore it first`)
+    if (src.cancelled) throw new Error(`${src.label} is cancelled`)
+    if (src.partyLedgerId !== party) throw new Error(`${src.label} now belongs to another party`)
+    sources.push(src)
+  }
+  const qty = liveLinkQty(db, sources.map((s) => s.uid))
+  for (const s of sources) {
+    const e = capacityError(s, qty.get(s.uid)!)
+    if (e) throw new Error(`${e} — another document has taken that quantity since`)
+  }
+}
+
 // ---------- queries (IPC) ----------
 
 export type { OpenSourceLine, VoucherLinkRow, VoucherLinks }
@@ -535,7 +690,7 @@ export function linksForVoucher(db: DB, voucherId: number): VoucherLinks {
  *  (open sources only, pending > 0). The "Add from…" drawer of WP 2.5b reads this. */
 export function openSourceLines(
   db: DB,
-  q: { partyLedgerId: number; targetKind: TradeSideKind; linkType: LinkType; excludeVoucherId?: number }
+  q: { partyLedgerId: number; targetKind: TradeSideKind; linkType: LinkType; excludeVoucherId?: number; excludeTradeDocId?: number }
 ): OpenSourceLine[] {
   if (!hasTradeSchema(db)) return []
   const kinds = sourceKindsFor(q.targetKind, q.linkType)
@@ -565,7 +720,7 @@ export function openSourceLines(
       .all(q.partyLedgerId, ...docKinds) as (DocLineRow & { ratePaise: number })[]
     for (const r of dr) rows.push({ line: fromDocRow(r), ratePaise: r.ratePaise })
   }
-  const qty = liveLinkQty(db, rows.map((r) => r.line.uid), q.excludeVoucherId)
+  const qty = liveLinkQty(db, rows.map((r) => r.line.uid), q.excludeVoucherId, q.excludeTradeDocId)
   // WP 2.5b: a source line's serials already named by live target lines are spoken for — offer
   // only the rest (the drawer's rows take their serials from here).
   const takenStmt = db.prepare(

@@ -11,10 +11,14 @@ import {
   thresholdPeriod, thresholdStatus, validateTdsEntries,
   type ApplicableRate, type CertificateUse, type DeducteeType, type TdsCertificate, type TdsRateRow
 } from '@shared/tds'
+import { TCS_NO_PAN_MULTIPLE, validateTcsEntries } from '@shared/tcs'
+import { KIND, type WithholdingKind } from './withholdingKind'
 import type { PostingError } from '@shared/posting'
 import { fyFromStartYear, fyOf, todayISO } from '@shared/dates'
 import { priorAggregate, undeductedCreditsBefore } from '@shared/tdsEligibility'
 import { buildEventGroups, ledgerTdsFacts, loadTdsVouchers, partySectionWalk } from './tdsEvents'
+// Function-body use only (the tds <-> tcsEvents cycle is harmless).
+import { tcsPartySectionWalk } from './tcsEvents'
 // Function-body use only (the tds <-> tdsWorkbench cycle is harmless).
 import { form26qData } from './tdsWorkbench'
 import { rowsToCsv } from '@shared/csv'
@@ -35,15 +39,22 @@ interface SectionRow {
   id: number; code: string; description: string; rate: number
   threshold_single: number; threshold_annual: number
   nature: string | null; act: TdsSection['act']; legacy_code: string | null; new_reference: string | null
+  kind: WithholdingKind
 }
 const mapSection = (r: SectionRow): TdsSection => ({
   id: r.id, code: r.code, description: r.description, rate: r.rate,
   thresholdSingle: r.threshold_single, thresholdAnnual: r.threshold_annual,
-  nature: r.nature, act: r.act, legacyCode: r.legacy_code, newReference: r.new_reference
+  nature: r.nature, act: r.act, legacyCode: r.legacy_code, newReference: r.new_reference, kind: r.kind
 })
 
-export function listSections(db: DB): TdsSection[] {
-  return (db.prepare('SELECT * FROM tds_sections ORDER BY code').all() as SectionRow[]).map(mapSection)
+/** The section master of one kind (TDS by default; TCS sections share the table, migration 027). */
+export function listSections(db: DB, kind: WithholdingKind = 'tds'): TdsSection[] {
+  return (db.prepare('SELECT * FROM tds_sections WHERE kind = ? ORDER BY code').all(kind) as SectionRow[]).map(mapSection)
+}
+
+/** Kind of a section (null = no such section). */
+export function sectionKind(db: DB, sectionId: number): WithholdingKind | null {
+  return (db.prepare('SELECT kind FROM tds_sections WHERE id = ?').get(sectionId) as { kind: WithholdingKind } | undefined)?.kind ?? null
 }
 
 function getSectionRow(db: DB, id: number): SectionRow | undefined {
@@ -57,14 +68,14 @@ function getSectionRow(db: DB, id: number): SectionRow | undefined {
  * one from today, so history computed at the old rate stays valid. A new section gets one open
  * 'any' row from 1 Apr 1961 carrying the figures given.
  */
-export function saveSection(db: DB, raw: TdsSectionInput): TdsSection {
+export function saveSection(db: DB, raw: TdsSectionInput, kind: WithholdingKind = 'tds'): TdsSection {
   const input = tdsSectionInputSchema.parse(raw)
   const rateBp = Math.round(input.rate * 100)
   return db.transaction(() => {
     if (input.id) {
       const id = input.id
       const existing = getSectionRow(db, id)
-      if (!existing) throw new Error('TDS section not found')
+      if (!existing || existing.kind !== kind) throw new Error(`${KIND[kind].name} section not found`)
       db.prepare(
         `UPDATE tds_sections SET code = ?, description = ?, rate = ?, threshold_single = ?, threshold_annual = ?,
            nature = ?, legacy_code = ?, new_reference = ? WHERE id = ?`
@@ -88,7 +99,7 @@ export function saveSection(db: DB, raw: TdsSectionInput): TdsSection {
             `INSERT INTO tds_section_rates (section_id, effective_from, effective_to, deductee_type, rate_bp,
                threshold_single_paise, threshold_annual_paise, threshold_basis, no_pan_rate_bp, source)
              VALUES (?, ?, NULL, 'any', ?, ?, ?, ?, ?, NULL)`
-          ).run(id, today, rateBp, input.thresholdSingle, input.thresholdAnnual, open?.threshold_basis ?? 'fy', open?.no_pan_rate_bp ?? 2000)
+          ).run(id, today, rateBp, input.thresholdSingle, input.thresholdAnnual, open?.threshold_basis ?? 'fy', open?.no_pan_rate_bp ?? KIND[kind].defaultNoPanBp)
         }
       }
       const updated = mapSection(getSectionRow(db, id)!)
@@ -97,17 +108,17 @@ export function saveSection(db: DB, raw: TdsSectionInput): TdsSection {
     }
     const res = db
       .prepare(
-        `INSERT INTO tds_sections (code, description, rate, threshold_single, threshold_annual, nature, act, legacy_code, new_reference)
-         VALUES (?, ?, ?, ?, ?, ?, 'it_act_1961', ?, ?)`
+        `INSERT INTO tds_sections (code, description, rate, threshold_single, threshold_annual, nature, act, legacy_code, new_reference, kind)
+         VALUES (?, ?, ?, ?, ?, ?, 'it_act_1961', ?, ?, ?)`
       )
       .run(input.code, input.description, input.rate, input.thresholdSingle, input.thresholdAnnual,
-        input.nature ?? null, input.legacyCode ?? input.code, input.newReference ?? null)
+        input.nature ?? null, input.legacyCode ?? input.code, input.newReference ?? null, kind)
     const id = Number(res.lastInsertRowid)
     db.prepare(
       `INSERT INTO tds_section_rates (section_id, effective_from, effective_to, deductee_type, rate_bp,
          threshold_single_paise, threshold_annual_paise, threshold_basis, no_pan_rate_bp, source)
-       VALUES (?, '1961-04-01', NULL, 'any', ?, ?, ?, 'fy', 2000, NULL)`
-    ).run(id, rateBp, input.thresholdSingle, input.thresholdAnnual)
+       VALUES (?, '1961-04-01', NULL, 'any', ?, ?, ?, 'fy', ?, NULL)`
+    ).run(id, rateBp, input.thresholdSingle, input.thresholdAnnual, KIND[kind].defaultNoPanBp)
     const created = mapSection(getSectionRow(db, id)!)
     writeAudit(db, 'tdsSection', created.id, 'create', null, created)
     return created
@@ -129,20 +140,24 @@ interface RateRow {
   deductee_type: TdsRate['deducteeType']; rate_bp: number
   threshold_single_paise: number; threshold_annual_paise: number; threshold_basis: 'fy' | 'month'
   threshold_excess_only: number; return_code: string | null
-  no_pan_rate_bp: number; source: string | null
+  no_pan_rate_bp: number; base_includes_gst: number; source: string | null
 }
-const mapRate = (r: RateRow): TdsRate & TdsRateRow => ({
+export const mapRate = (r: RateRow): TdsRate & TdsRateRow => ({
   id: r.id, sectionId: r.section_id, effectiveFrom: r.effective_from, effectiveTo: r.effective_to,
   deducteeType: r.deductee_type, rateBp: r.rate_bp,
   thresholdSinglePaise: r.threshold_single_paise, thresholdAnnualPaise: r.threshold_annual_paise,
   thresholdBasis: r.threshold_basis, thresholdExcessOnly: !!r.threshold_excess_only, returnCode: r.return_code,
-  noPanRateBp: r.no_pan_rate_bp, source: r.source
+  noPanRateBp: r.no_pan_rate_bp, baseIncludesGst: !!r.base_includes_gst, source: r.source
 })
 
-export function listRates(db: DB, sectionId?: number): TdsRate[] {
+/** Rate rows of one section, or (no section) of every section of `kind`. */
+export function listRates(db: DB, sectionId?: number, kind: WithholdingKind = 'tds'): TdsRate[] {
   const rows = sectionId
     ? db.prepare('SELECT * FROM tds_section_rates WHERE section_id = ? ORDER BY effective_from, deductee_type').all(sectionId)
-    : db.prepare('SELECT * FROM tds_section_rates ORDER BY section_id, effective_from, deductee_type').all()
+    : db.prepare(
+      `SELECT r.* FROM tds_section_rates r JOIN tds_sections s ON s.id = r.section_id
+       WHERE s.kind = ? ORDER BY r.section_id, r.effective_from, r.deductee_type`
+    ).all(kind)
   return (rows as RateRow[]).map(mapRate)
 }
 
@@ -168,23 +183,24 @@ export function saveRate(db: DB, raw: TdsRateInput): TdsRate {
       db.prepare(
         `UPDATE tds_section_rates SET section_id = ?, effective_from = ?, effective_to = ?, deductee_type = ?, rate_bp = ?,
            threshold_single_paise = ?, threshold_annual_paise = ?, threshold_basis = ?, threshold_excess_only = ?,
-           return_code = ?, no_pan_rate_bp = ?,
+           return_code = ?, no_pan_rate_bp = ?, base_includes_gst = COALESCE(?, base_includes_gst),
            source = CASE WHEN rate_bp = ? AND threshold_single_paise = ? AND threshold_annual_paise = ? AND no_pan_rate_bp = ?
                          THEN source ELSE NULL END
          WHERE id = ?`
       ).run(input.sectionId, input.effectiveFrom, input.effectiveTo, input.deducteeType, input.rateBp,
         input.thresholdSinglePaise, input.thresholdAnnualPaise, input.thresholdBasis, input.thresholdExcessOnly ? 1 : 0,
-        input.returnCode, input.noPanRateBp,
+        input.returnCode, input.noPanRateBp, input.baseIncludesGst == null ? null : input.baseIncludesGst ? 1 : 0,
         input.rateBp, input.thresholdSinglePaise, input.thresholdAnnualPaise, input.noPanRateBp, input.id)
       id = input.id
     } else {
       const res = db.prepare(
         `INSERT INTO tds_section_rates (section_id, effective_from, effective_to, deductee_type, rate_bp,
-           threshold_single_paise, threshold_annual_paise, threshold_basis, threshold_excess_only, return_code, no_pan_rate_bp, source)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)`
+           threshold_single_paise, threshold_annual_paise, threshold_basis, threshold_excess_only, return_code, no_pan_rate_bp,
+           base_includes_gst, source)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)`
       ).run(input.sectionId, input.effectiveFrom, input.effectiveTo, input.deducteeType, input.rateBp,
         input.thresholdSinglePaise, input.thresholdAnnualPaise, input.thresholdBasis, input.thresholdExcessOnly ? 1 : 0,
-        input.returnCode, input.noPanRateBp)
+        input.returnCode, input.noPanRateBp, input.baseIncludesGst ? 1 : 0)
       id = Number(res.lastInsertRowid)
     }
     const after = mapRate(db.prepare('SELECT * FROM tds_section_rates WHERE id = ?').get(id) as RateRow)
@@ -217,29 +233,30 @@ function sectionRules(db: DB, sectionId: number): { id: number; code: string; ra
 
 interface CertRow {
   id: number; ledger_id: number; section_id: number | null; certificate_no: string; rate_bp: number
-  valid_from: string; valid_to: string; cap_paise: number | null
+  valid_from: string; valid_to: string; cap_paise: number | null; kind: WithholdingKind
 }
 const mapCert = (r: CertRow): TdsCertificateRow & TdsCertificate => ({
   id: r.id, ledgerId: r.ledger_id, sectionId: r.section_id, certificateNo: r.certificate_no, rateBp: r.rate_bp,
   validFrom: r.valid_from, validTo: r.valid_to, capPaise: r.cap_paise
 })
 
-export function listCertificates(db: DB, ledgerId?: number): TdsCertificateRow[] {
+/** Lower-rate certificates of one kind: s.197 (TDS) / s.206C(9) (TCS). */
+export function listCertificates(db: DB, ledgerId?: number, kind: WithholdingKind = 'tds'): TdsCertificateRow[] {
   const rows = ledgerId
-    ? db.prepare('SELECT * FROM tds_certificates WHERE ledger_id = ? ORDER BY valid_from DESC').all(ledgerId)
-    : db.prepare('SELECT * FROM tds_certificates ORDER BY ledger_id, valid_from DESC').all()
+    ? db.prepare('SELECT * FROM tds_certificates WHERE ledger_id = ? AND kind = ? ORDER BY valid_from DESC').all(ledgerId, kind)
+    : db.prepare('SELECT * FROM tds_certificates WHERE kind = ? ORDER BY ledger_id, valid_from DESC').all(kind)
   return (rows as CertRow[]).map(mapCert)
 }
 
-export function saveCertificate(db: DB, raw: TdsCertificateInput): TdsCertificateRow {
+export function saveCertificate(db: DB, raw: TdsCertificateInput, kind: WithholdingKind = 'tds'): TdsCertificateRow {
   const input = tdsCertificateInputSchema.parse(raw)
   if (!db.prepare('SELECT 1 FROM ledgers WHERE id = ?').get(input.ledgerId)) throw new Error('Ledger not found')
-  if (input.sectionId != null && !getSectionRow(db, input.sectionId)) throw new Error('TDS section not found')
+  if (input.sectionId != null && getSectionRow(db, input.sectionId)?.kind !== kind) throw new Error(`${KIND[kind].name} section not found`)
   let before: TdsCertificateRow | null = null
   let id: number
   if (input.id) {
     const existing = db.prepare('SELECT * FROM tds_certificates WHERE id = ?').get(input.id) as CertRow | undefined
-    if (!existing) throw new Error('Certificate not found')
+    if (!existing || existing.kind !== kind) throw new Error('Certificate not found')
     before = mapCert(existing)
     db.prepare(
       `UPDATE tds_certificates SET ledger_id = ?, section_id = ?, certificate_no = ?, rate_bp = ?, valid_from = ?, valid_to = ?, cap_paise = ?
@@ -248,9 +265,9 @@ export function saveCertificate(db: DB, raw: TdsCertificateInput): TdsCertificat
     id = input.id
   } else {
     const res = db.prepare(
-      `INSERT INTO tds_certificates (ledger_id, section_id, certificate_no, rate_bp, valid_from, valid_to, cap_paise)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`
-    ).run(input.ledgerId, input.sectionId, input.certificateNo, input.rateBp, input.validFrom, input.validTo, input.capPaise)
+      `INSERT INTO tds_certificates (ledger_id, section_id, certificate_no, rate_bp, valid_from, valid_to, cap_paise, kind)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run(input.ledgerId, input.sectionId, input.certificateNo, input.rateBp, input.validFrom, input.validTo, input.capPaise, kind)
     id = Number(res.lastInsertRowid)
   }
   const after = mapCert(db.prepare('SELECT * FROM tds_certificates WHERE id = ?').get(id) as CertRow)
@@ -268,14 +285,14 @@ export function deleteCertificate(db: DB, id: number): void {
 
 /** The certificate valid for this party/section/date (a section-specific one before a general
  *  one), with the base already deducted under it on other vouchers. */
-function certificateFor(db: DB, ledgerId: number, sectionId: number, dateISO: string, excludeVoucherId?: number): CertificateUse | null {
+function certificateFor(db: DB, ledgerId: number, sectionId: number, dateISO: string, excludeVoucherId?: number, kind: WithholdingKind = 'tds'): CertificateUse | null {
   const row = db
     .prepare(
       `SELECT * FROM tds_certificates
-       WHERE ledger_id = ? AND (section_id = ? OR section_id IS NULL) AND valid_from <= ? AND valid_to >= ?
+       WHERE ledger_id = ? AND (section_id = ? OR section_id IS NULL) AND valid_from <= ? AND valid_to >= ? AND kind = ?
        ORDER BY section_id IS NULL, valid_from DESC, id DESC LIMIT 1`
     )
-    .get(ledgerId, sectionId, dateISO, dateISO) as CertRow | undefined
+    .get(ledgerId, sectionId, dateISO, dateISO, kind) as CertRow | undefined
   if (!row) return null
   const { used } = db
     .prepare(
@@ -291,17 +308,20 @@ function certificateFor(db: DB, ledgerId: number, sectionId: number, dateISO: st
 // ---------------------------------------------------------------------------------------------
 
 const TDS_PAYABLE_GROUP = 'Duties & Taxes'
-const payableLedgerName = (code: string): string => `TDS Payable ${code}`
+const payableLedgerName = (code: string, kind: WithholdingKind = 'tds'): string => KIND[kind].payableName(code)
 
-/** Ledger id → section id for every ledger tagged as a TDS payable ledger. */
-export function payableTagMap(db: DB): Map<number, number> {
-  const rows = db.prepare('SELECT id, tds_payable_section_id AS s FROM ledgers WHERE tds_payable_section_id IS NOT NULL').all() as { id: number; s: number }[]
+/** Ledger id → section id for every ledger tagged as a TDS (or TCS) payable ledger. */
+export function payableTagMap(db: DB, kind: WithholdingKind = 'tds'): Map<number, number> {
+  const col = KIND[kind].payableCol
+  const rows = db.prepare(`SELECT id, ${col} AS s FROM ledgers WHERE ${col} IS NOT NULL`).all() as { id: number; s: number }[]
   return new Map(rows.map((r) => [r.id, r.s]))
 }
 
-/** The (first) ledger tagged as this section's TDS payable ledger, or null. Read-only. */
+/** The (first) ledger tagged as this section's payable ledger (TDS or TCS by the section's
+ *  kind), or null. Read-only. */
 export function findPayableLedger(db: DB, sectionId: number): { id: number; name: string } | null {
-  return (db.prepare('SELECT id, name FROM ledgers WHERE tds_payable_section_id = ? ORDER BY id LIMIT 1').get(sectionId) as
+  const col = KIND[sectionKind(db, sectionId) ?? 'tds'].payableCol
+  return (db.prepare(`SELECT id, name FROM ledgers WHERE ${col} = ? ORDER BY id LIMIT 1`).get(sectionId) as
     | { id: number; name: string }
     | undefined) ?? null
 }
@@ -316,24 +336,26 @@ export function ensureTdsPayableLedger(db: DB, sectionId: number): number {
   if (!section) throw new Error('TDS section not found')
   const tagged = findPayableLedger(db, sectionId)
   if (tagged) return tagged.id
+  const col = KIND[section.kind].payableCol
+  const auditKey = section.kind === 'tcs' ? 'tcsPayableSectionId' : 'tdsPayableSectionId'
   return db.transaction(() => {
-    const name = payableLedgerName(section.code)
-    const byName = db.prepare('SELECT id, tds_payable_section_id AS s FROM ledgers WHERE name = ? COLLATE NOCASE').get(name) as
+    const name = payableLedgerName(section.code, section.kind)
+    const byName = db.prepare(`SELECT id, ${col} AS s FROM ledgers WHERE name = ? COLLATE NOCASE`).get(name) as
       | { id: number; s: number | null }
       | undefined
     if (byName && byName.s == null) {
-      db.prepare('UPDATE ledgers SET tds_payable_section_id = ? WHERE id = ?').run(sectionId, byName.id)
-      writeAudit(db, 'ledger', byName.id, 'update', { tdsPayableSectionId: null }, { tdsPayableSectionId: sectionId })
+      db.prepare(`UPDATE ledgers SET ${col} = ? WHERE id = ?`).run(sectionId, byName.id)
+      writeAudit(db, 'ledger', byName.id, 'update', { [auditKey]: null }, { [auditKey]: sectionId })
       return byName.id
     }
     const group = db.prepare('SELECT id FROM groups WHERE name = ?').get(TDS_PAYABLE_GROUP) as { id: number } | undefined
     if (!group) throw new Error(`Group ${TDS_PAYABLE_GROUP} missing`)
     // The name is taken by a ledger tagged for ANOTHER section (renamed codes) — suffix it.
     const finalName = byName ? `${name} (${section.id})` : name
-    const res = db.prepare('INSERT INTO ledgers (name, group_id, is_system, tds_payable_section_id) VALUES (?, ?, 0, ?)')
+    const res = db.prepare(`INSERT INTO ledgers (name, group_id, is_system, ${col}) VALUES (?, ?, 0, ?)`)
       .run(finalName, group.id, sectionId)
     const id = Number(res.lastInsertRowid)
-    writeAudit(db, 'ledger', id, 'create', null, { id, name: finalName, groupId: group.id, tdsPayableSectionId: sectionId })
+    writeAudit(db, 'ledger', id, 'create', null, { id, name: finalName, groupId: group.id, [auditKey]: sectionId })
     return id
   })()
 }
@@ -372,10 +394,15 @@ export function resolveTds(
   const panAvailable = !!party?.pan
   const deducteeType = party?.deducteeType ?? null
   if (!rules) return { rate: null, tdsPaise: null, deducteeType, panAvailable, priorPaise: 0 }
-  const cert = panAvailable ? certificateFor(db, partyLedgerId, sectionId, dateISO, excludeVoucherId) : null
-  const rate = applicableRate(rules, dateISO, deducteeType, panAvailable, cert)
+  // WP 3.3: the same resolution serves TCS sections — the certificate is a s.206C(9) one, and
+  // without a PAN s.206CC takes the higher of twice the rate and the row's 5% (capped at 20%).
+  const kind = rules.row.kind
+  const cert = panAvailable ? certificateFor(db, partyLedgerId, sectionId, dateISO, excludeVoucherId, kind) : null
+  const rate = applicableRate(rules, dateISO, deducteeType, panAvailable, cert, kind === 'tcs' ? TCS_NO_PAN_OPTS : {})
   if (!rate) return { rate: null, tdsPaise: null, deducteeType, panAvailable, priorPaise: 0 }
-  const priorPaise = priorBase(db, partyLedgerId, sectionId, rate.row.thresholdBasis, dateISO, excludeVoucherId)
+  const priorPaise = kind === 'tcs'
+    ? tcsPriorBase(db, partyLedgerId, sectionId, rate.row.thresholdBasis, dateISO, excludeVoucherId)
+    : priorBase(db, partyLedgerId, sectionId, rate.row.thresholdBasis, dateISO, excludeVoucherId)
   return { rate, tdsPaise: expectedTdsPaise(rate, basePaise, priorPaise), deducteeType, panAvailable, priorPaise }
 }
 
@@ -394,6 +421,17 @@ function priorBase(db: DB, partyLedgerId: number, sectionId: number, basis: 'fy'
   const { results } = partySectionWalk(db, partyLedgerId, sectionId, fy.from, dateISO, excludeVoucherId)
   return priorAggregate(results, basis, dateISO, excludeVoucherId)
 }
+
+/** TCS: the same, over the buyer's sales / receipts (tcsEvents). */
+function tcsPriorBase(db: DB, partyLedgerId: number, sectionId: number, basis: 'fy' | 'month', dateISO: string, excludeVoucherId?: number): number {
+  const fy = fyOf(dateISO)
+  const { results } = tcsPartySectionWalk(db, partyLedgerId, sectionId, fy.from, dateISO, excludeVoucherId)
+  return priorAggregate(results, basis, dateISO, excludeVoucherId)
+}
+
+/** s.206CC(1) / 2025 s.397(2)(b)(ii): "twice the rate ... or five per cent, whichever is higher",
+ *  proviso: "shall not exceed twenty per cent" (citations in migration 027). */
+const TCS_NO_PAN_OPTS = { noPanMultiple: TCS_NO_PAN_MULTIPLE, noPanCapBp: 2000 }
 
 export interface TdsSuggestion {
   sectionId: number
@@ -547,6 +585,8 @@ export function tdsSuggestion(
 
 /** Placeholder ledger id for a payable ledger saveVoucher will create inside its transaction. */
 export const PENDING_PAYABLE_LEDGER = -1
+/** The TCS twin (a voucher never carries both, but the placeholders stay distinct). */
+export const PENDING_TCS_PAYABLE_LEDGER = -2
 
 export interface PreparedTds {
   /** Lines to post (input lines + the auto payable credit, possibly on PENDING_PAYABLE_LEDGER). */
@@ -554,7 +594,7 @@ export interface PreparedTds {
   /** Section whose payable ledger must be created before the lines are inserted, if any. */
   createPayableFor: number | null
   /** Basis to store on the entry. */
-  basis: { rateBp: number | null; deducteeType: DeducteeType | null; certificateId: number | null } | null
+  basis: { rateBp: number | null; deducteeType: DeducteeType | null; certificateId: number | null; gstInBase?: boolean | null } | null
   errors: PostingError[]
 }
 
@@ -565,37 +605,66 @@ export interface PreparedTds {
  * substitute inside the save transaction.
  */
 export function prepareVoucherTds(db: DB, input: VoucherInputParsed, existingId?: number): PreparedTds {
-  const lines = input.lines.map((l) => ({ ...l }))
-  const t = input.tds
-  if (!t) return { lines, createPayableFor: null, basis: null, errors: [] }
-  const rules = sectionRules(db, t.sectionId)
+  return prepareVoucherWithholding(db, 'tds', input, input.lines.map((l) => ({ ...l })), existingId)
+}
+
+/**
+ * The same for either kind (WP 3.3). `lines` is the line set built so far (TCS runs after TDS
+ * on the output of prepareVoucherTds). TDS checks the deduction's payable credit; TCS also that
+ * the buyer's debit includes the collection (src/shared/tcs.ts validateTcsEntries). An entry
+ * under a section of the other kind is refused.
+ */
+export function prepareVoucherWithholding(
+  db: DB, kind: WithholdingKind, input: VoucherInputParsed, lines: VoucherInputParsed['lines'], existingId?: number
+): PreparedTds {
+  const e = kind === 'tds'
+    ? (input.tds ? { sectionId: input.tds.sectionId, baseAmount: input.tds.baseAmount, amount: input.tds.tdsAmount, isManual: input.tds.isManual, autoPayable: input.tds.autoPayable } : null)
+    : (input.tcs ? { sectionId: input.tcs.sectionId, baseAmount: input.tcs.baseAmount, amount: input.tcs.tcsAmount, isManual: input.tcs.isManual, autoPayable: input.tcs.autoPayable } : null)
+  if (!e) return { lines, createPayableFor: null, basis: null, errors: [] }
+  const found = sectionRules(db, e.sectionId)
+  const rules = found && found.row.kind === kind ? found : null
+  const pending = kind === 'tds' ? PENDING_PAYABLE_LEDGER : PENDING_TCS_PAYABLE_LEDGER
   let createPayableFor: number | null = null
-  const tags = payableTagMap(db)
-  if (t.autoPayable && rules) {
-    const payable = findPayableLedger(db, t.sectionId)
-    const ledgerId = payable?.id ?? PENDING_PAYABLE_LEDGER
+  const tags = payableTagMap(db, kind)
+  if (e.autoPayable && rules) {
+    const payable = findPayableLedger(db, e.sectionId)
+    const ledgerId = payable?.id ?? pending
     if (!payable) {
-      createPayableFor = t.sectionId
-      tags.set(PENDING_PAYABLE_LEDGER, t.sectionId)
+      createPayableFor = e.sectionId
+      tags.set(pending, e.sectionId)
     }
-    lines.push({ ledgerId, drCr: 'cr', amount: t.tdsAmount, costAllocations: [] })
+    lines.push({ ledgerId, drCr: 'cr', amount: e.amount, costAllocations: [] })
   }
   let resolved: ResolvedTds | null = null
-  if (rules && input.partyLedgerId != null && t.baseAmount > 0) {
-    resolved = resolveTds(db, t.sectionId, input.partyLedgerId, t.baseAmount, input.date, existingId)
+  if (rules && input.partyLedgerId != null && e.baseAmount > 0) {
+    resolved = resolveTds(db, e.sectionId, input.partyLedgerId, e.baseAmount, input.date, existingId)
   }
-  const errors = validateTdsEntries(
-    { partyLedgerId: input.partyLedgerId, lines },
-    [{ sectionId: t.sectionId, baseAmount: t.baseAmount, tdsAmount: t.tdsAmount, isManual: t.isManual }],
-    tags,
-    () => (rules ? { code: rules.code, expectedTdsPaise: resolved?.tdsPaise ?? null } : null)
-  )
+  const facts = (): { code: string; expectedPaise: number | null } | null =>
+    rules ? { code: rules.code, expectedPaise: resolved?.tdsPaise ?? null } : null
+  let errors: PostingError[]
+  if (kind === 'tds') {
+    errors = validateTdsEntries(
+      { partyLedgerId: input.partyLedgerId, lines },
+      [{ sectionId: e.sectionId, baseAmount: e.baseAmount, tdsAmount: e.amount, isManual: e.isManual }],
+      tags,
+      () => { const f = facts(); return f ? { code: f.code, expectedTdsPaise: f.expectedPaise } : null }
+    )
+  } else {
+    const vk = db.prepare('SELECT kind FROM voucher_types WHERE id = ?').get(input.voucherTypeId) as { kind: VoucherKind } | undefined
+    errors = validateTcsEntries(
+      { kind: vk?.kind ?? 'journal', partyLedgerId: input.partyLedgerId, lines },
+      [{ sectionId: e.sectionId, baseAmount: e.baseAmount, tcsAmount: e.amount, isManual: e.isManual }],
+      tags,
+      facts
+    )
+  }
   const basis = {
-    rateBp: t.isManual || !resolved?.rate
+    rateBp: e.isManual || !resolved?.rate
       ? null
       : resolved.rate.basis === 'certificate' ? resolved.rate.certificateRateBp : resolved.rate.rateBp,
     deducteeType: resolved?.deducteeType ?? null,
-    certificateId: t.isManual ? null : (resolved?.rate?.certificateId ?? null)
+    certificateId: e.isManual ? null : (resolved?.rate?.certificateId ?? null),
+    gstInBase: kind === 'tcs' && resolved?.rate ? !!resolved.rate.row.baseIncludesGst : null
   }
   return { lines, createPayableFor, basis, errors }
 }
@@ -631,7 +700,7 @@ export function tdsSummary(db: DB, fyStartYear: number): TdsSummaryRow[] {
        JOIN vouchers v ON v.id = te.voucher_id
        JOIN tds_sections ts ON ts.id = te.section_id
        LEFT JOIN tds_entry_challans tec ON tec.entry_id = te.id
-       WHERE v.date BETWEEN ? AND ? AND ${IN_BOOKS}`
+       WHERE v.date BETWEEN ? AND ? AND ts.kind = 'tds' AND ${IN_BOOKS}`
     )
     .all(fyFrom, fyTo) as { partyLedgerId: number; base: number; tds: number; sectionCode: string; date: string; allocated: number }[]
   const movements = db
@@ -681,12 +750,12 @@ export function tdsSummary(db: DB, fyStartYear: number): TdsSummaryRow[] {
 interface ChallanRow {
   id: number; date: string; bsr_code: string; challan_no: string; amount_paise: number
   payment_voucher_id: number | null; quarter: 1 | 2 | 3 | 4; fy_start_year: number
-  allocated: number; entries: number
+  allocated: number; entries: number; kind: WithholdingKind
 }
 const mapChallan = (r: ChallanRow): TdsChallan => ({
   id: r.id, date: r.date, bsrCode: r.bsr_code, challanNo: r.challan_no, amountPaise: r.amount_paise,
   paymentVoucherId: r.payment_voucher_id, quarter: r.quarter, fyStartYear: r.fy_start_year,
-  allocatedPaise: r.allocated, entryCount: r.entries
+  allocatedPaise: r.allocated, entryCount: r.entries, kind: r.kind
 })
 
 const CHALLAN_SELECT = `
@@ -700,14 +769,19 @@ function getChallan(db: DB, id: number): TdsChallan | null {
   return r ? mapChallan(r) : null
 }
 
-export function listChallans(db: DB, fyStartYear: number, quarter?: number): TdsChallan[] {
+export function listChallans(db: DB, fyStartYear: number, quarter?: number, kind: WithholdingKind = 'tds'): TdsChallan[] {
   const rows = quarter
-    ? db.prepare(`${CHALLAN_SELECT} WHERE c.fy_start_year = ? AND c.quarter = ? GROUP BY c.id ORDER BY c.date, c.id`).all(fyStartYear, quarter)
-    : db.prepare(`${CHALLAN_SELECT} WHERE c.fy_start_year = ? GROUP BY c.id ORDER BY c.date, c.id`).all(fyStartYear)
+    ? db.prepare(`${CHALLAN_SELECT} WHERE c.fy_start_year = ? AND c.quarter = ? AND c.kind = ? GROUP BY c.id ORDER BY c.date, c.id`).all(fyStartYear, quarter, kind)
+    : db.prepare(`${CHALLAN_SELECT} WHERE c.fy_start_year = ? AND c.kind = ? GROUP BY c.id ORDER BY c.date, c.id`).all(fyStartYear, kind)
   return (rows as ChallanRow[]).map(mapChallan)
 }
 
-export function saveChallan(db: DB, raw: TdsChallanInput): TdsChallan {
+/** Kind of a challan (null = no such challan). */
+export function challanKind(db: DB, challanId: number): WithholdingKind | null {
+  return (db.prepare('SELECT kind FROM tds_challans WHERE id = ?').get(challanId) as { kind: WithholdingKind } | undefined)?.kind ?? null
+}
+
+export function saveChallan(db: DB, raw: TdsChallanInput, kind: WithholdingKind = 'tds'): TdsChallan {
   const input = tdsChallanInputSchema.parse(raw)
   if (input.paymentVoucherId != null) {
     const v = db.prepare(`SELECT 1 FROM vouchers v WHERE v.id = ? AND ${NOT_DELETED}`).get(input.paymentVoucherId)
@@ -718,7 +792,7 @@ export function saveChallan(db: DB, raw: TdsChallanInput): TdsChallan {
     let id: number
     if (input.id) {
       before = getChallan(db, input.id)
-      if (!before) throw new Error('Challan not found')
+      if (!before || before.kind !== kind) throw new Error('Challan not found')
       if (before.allocatedPaise > input.amountPaise) {
         throw new Error(`Challan amount can't be below the TDS already allocated to it (${plainRupees(before.allocatedPaise)})`)
       }
@@ -729,9 +803,9 @@ export function saveChallan(db: DB, raw: TdsChallanInput): TdsChallan {
       id = input.id
     } else {
       const res = db.prepare(
-        `INSERT INTO tds_challans (date, bsr_code, challan_no, amount_paise, payment_voucher_id, quarter, fy_start_year)
-         VALUES (?, ?, ?, ?, ?, ?, ?)`
-      ).run(input.date, input.bsrCode, input.challanNo, input.amountPaise, input.paymentVoucherId, input.quarter, input.fyStartYear)
+        `INSERT INTO tds_challans (date, bsr_code, challan_no, amount_paise, payment_voucher_id, quarter, fy_start_year, kind)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+      ).run(input.date, input.bsrCode, input.challanNo, input.amountPaise, input.paymentVoucherId, input.quarter, input.fyStartYear, kind)
       id = Number(res.lastInsertRowid)
     }
     const after = getChallan(db, id)!
@@ -757,15 +831,19 @@ export function allocateEntries(db: DB, challanId: number, entryIds: number[]): 
   const ids = [...new Set(entryIds)]
   return db.transaction(() => {
     const entryStmt = db.prepare(
-      `SELECT te.id, te.tds_amount AS tds, tec.challan_id AS current
+      `SELECT te.id, te.tds_amount AS tds, tec.challan_id AS current, ts.kind
        FROM tds_entries te JOIN vouchers v ON v.id = te.voucher_id
+       JOIN tds_sections ts ON ts.id = te.section_id
        LEFT JOIN tds_entry_challans tec ON tec.entry_id = te.id
        WHERE te.id = ? AND ${NOT_DELETED}`
     )
     let adding = 0
+    const name = KIND[challan.kind ?? 'tds'].name
     for (const id of ids) {
-      const e = entryStmt.get(id) as { id: number; tds: number; current: number | null } | undefined
-      if (!e) throw new Error(`TDS entry ${id} not found`)
+      const e = entryStmt.get(id) as { id: number; tds: number; current: number | null; kind: WithholdingKind } | undefined
+      if (!e) throw new Error(`${name} entry ${id} not found`)
+      // A TCS collection can't sit on a TDS challan (or vice versa) — they're different deposits.
+      if (e.kind !== (challan.kind ?? 'tds')) throw new Error(`Entry ${id} is not a ${name} entry`)
       if (e.current !== challanId) adding += e.tds
     }
     if (challan.allocatedPaise + adding > challan.amountPaise) {
@@ -816,12 +894,12 @@ export interface TdsEntryRow {
 }
 
 /** Entries (in the books) for an FY / quarter not yet allocated to any challan. */
-export function unallocatedEntries(db: DB, fyStartYear: number, quarter?: 1 | 2 | 3 | 4): TdsEntryRow[] {
+export function unallocatedEntries(db: DB, fyStartYear: number, quarter?: 1 | 2 | 3 | 4, kind: WithholdingKind = 'tds'): TdsEntryRow[] {
   const { from, to } = quarter ? tdsQuarterBounds(fyStartYear, quarter) : fyFromStartYear(fyStartYear)
-  return entriesBetween(db, from, to).filter((e) => e.challanId == null)
+  return entriesBetween(db, from, to, kind).filter((e) => e.challanId == null)
 }
 
-function entriesBetween(db: DB, from: string, to: string): TdsEntryRow[] {
+function entriesBetween(db: DB, from: string, to: string, kind: WithholdingKind): TdsEntryRow[] {
   const rows = db
     .prepare(
       `SELECT te.id AS entryId, v.id AS voucherId, v.number AS voucherNumber, v.date AS date,
@@ -835,10 +913,10 @@ function entriesBetween(db: DB, from: string, to: string): TdsEntryRow[] {
        JOIN ledgers l ON l.id = te.party_ledger_id
        LEFT JOIN employees emp ON emp.id = te.employee_id -- WP 3.7: salary TDS names the employee
        LEFT JOIN tds_entry_challans tec ON tec.entry_id = te.id
-       WHERE v.date BETWEEN ? AND ? AND ${IN_BOOKS}
+       WHERE v.date BETWEEN ? AND ? AND ts.kind = ? AND ${IN_BOOKS}
        ORDER BY v.date, v.id`
     )
-    .all(from, to) as (Omit<TdsEntryRow, 'isManual'> & { isManual: number })[]
+    .all(from, to, kind) as (Omit<TdsEntryRow, 'isManual'> & { isManual: number })[]
   return rows.map((r) => ({ ...r, isManual: !!r.isManual }))
 }
 

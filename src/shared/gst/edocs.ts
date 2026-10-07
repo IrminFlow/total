@@ -86,7 +86,11 @@ export interface EdocInvoice {
   igst: number
   cess: number
   roundOff: number
+  /** Invoice total INCLUDING any TCS (what the buyer owes). */
   total: number
+  /** Income-tax TCS collected on the invoice (WP 3.3) — a line after GST in the totals, reported
+   *  in the e-invoice's ValDtls.OthChrg (part of TotInvVal, not of AssVal / the GST). Absent = none. */
+  tcs?: { amountPaise: number; rateBp: number | null; reference: string } | null
   transporterId: string | null
   vehicleNo: string | null
   distanceKm: number | null
@@ -236,6 +240,10 @@ export function buildEInvoiceJson(invoices: EdocInvoice[], company: EdocCompany)
         IgstVal: toRupees(inv.igst),
         CesVal: toRupees(inv.cess),
         RndOffAmt: toRupees(inv.roundOff),
+        // Income-tax TCS goes in "other charges" (included in TotInvVal, outside AssVal): the
+        // practice the NIC e-invoice schema's OthChrg field is used for — UNVERIFIED against an
+        // NIC FAQ (WP 3.3 report). Emitted only when the invoice carries TCS.
+        ...(inv.tcs && inv.tcs.amountPaise > 0 ? { OthChrg: toRupees(inv.tcs.amountPaise) } : {}),
         TotInvVal: toRupees(inv.total)
       },
       // Export details — mandatory block for EXPWP/EXPWOP. Shipping bill no/date come from

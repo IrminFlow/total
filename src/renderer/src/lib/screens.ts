@@ -89,10 +89,75 @@ export const SCREENS: ScreenDef[] = [
     card: { sub: 'Ledgers, items, groups', key: 'M' },
     invalidates: [
       'ledgers', 'groups', 'chartOfAccounts', 'stockItems', 'units', 'voucherTypes', 'currencies', 'bom',
-      'godowns', 'stockGroups'
+      'godowns', 'stockGroups', 'tradeDocTypes'
     ]
   },
 
+  // WP 2.5c: quotations and orders (non-posting documents) with their pending reports.
+  {
+    name: 'quotations',
+    title: 'Quotations',
+    keywords: ['quote', 'estimate', 'proforma', 'offer'],
+    screen: { name: 'quotations' },
+    navSection: 'trade',
+    feature: 'orders',
+    invalidates: ['tradeDocs', 'tradeDocTypes']
+  },
+  {
+    name: 'sales-orders',
+    title: 'Sales orders',
+    keywords: ['so', 'customer order', 'order book'],
+    screen: { name: 'sales-orders' },
+    navSection: 'trade',
+    feature: 'orders',
+    invalidates: ['tradeDocs', 'tradeDocTypes']
+  },
+  {
+    name: 'purchase-orders',
+    title: 'Purchase orders',
+    keywords: ['po', 'supplier order', 'indent'],
+    screen: { name: 'purchase-orders' },
+    navSection: 'trade',
+    feature: 'orders',
+    invalidates: ['tradeDocs', 'tradeDocTypes']
+  },
+  {
+    name: 'trade-doc',
+    title: 'Quotation / order',
+    screen: null,
+    navSection: null,
+    feature: 'orders',
+    invalidates: ['tradeDoc', 'tradeDocs', 'tradeDocTypes', 'tradeDocNextNumber', 'ledgers', 'stockItems', 'units', 'openSourceLines']
+  },
+  {
+    name: 'pending-sales-orders',
+    title: 'Pending sales orders',
+    navLabel: 'Pending SOs',
+    keywords: ['open orders', 'order backlog', 'to deliver', 'undelivered'],
+    screen: { name: 'pending-sales-orders' },
+    navSection: 'trade',
+    feature: 'orders',
+    invalidates: ['tradePendingOrders']
+  },
+  {
+    name: 'pending-purchase-orders',
+    title: 'Pending purchase orders',
+    navLabel: 'Pending POs',
+    keywords: ['open purchase orders', 'to receive', 'not received'],
+    screen: { name: 'pending-purchase-orders' },
+    navSection: 'trade',
+    feature: 'orders',
+    invalidates: ['tradePendingOrders']
+  },
+  {
+    name: 'quotation-pipeline',
+    title: 'Quotation pipeline',
+    keywords: ['conversion rate', 'win rate', 'quotes won', 'lost quotations'],
+    screen: { name: 'quotation-pipeline' },
+    navSection: 'trade',
+    feature: 'orders',
+    invalidates: ['quotationPipeline']
+  },
   {
     name: 'pending-challans',
     title: 'Pending challans',
@@ -293,6 +358,15 @@ export const SCREENS: ScreenDef[] = [
     navSection: 'gst',
     feature: 'tds',
     invalidates: ['tdsSummary', 'tdsSections']
+  },
+  {
+    name: 'tcs',
+    keywords: ['tax collected at source', '206C', '27EQ', '27D'],
+    title: 'TCS',
+    screen: { name: 'tcs' },
+    navSection: 'gst',
+    feature: 'tcs',
+    invalidates: ['tcs', 'tcsSections', 'tcsRates']
   },
 
   {

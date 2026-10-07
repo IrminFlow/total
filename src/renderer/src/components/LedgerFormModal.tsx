@@ -10,6 +10,7 @@ import { GST_STATES } from '@shared/gst/states'
 import { validateGstin } from '@shared/gst/validate'
 import { GST_RATE_PRESETS } from '@shared/seed'
 import { confirmDialog } from '../lib/dialogs'
+import { useFeatures } from '../lib/useFeatures'
 
 const EXPORT_TYPES: { value: NonNullable<Ledger['exportType']> | ''; label: string }[] = [
   { value: '', label: 'None (domestic)' },
@@ -112,6 +113,8 @@ function LedgerForm({
   const toast = useToasts()
   const queryClient = useQueryClient()
   const { data: tdsSections } = useQuery({ queryKey: ['tdsSections'], queryFn: api.tds.sections })
+  const features = useFeatures()
+  const { data: tcsSections } = useQuery({ queryKey: ['tcsSections'], queryFn: api.tcs.sections, enabled: features.tcs })
   const [name, setName] = useState(ledger?.name ?? '')
   const [groupId, setGroupId] = useState<number>(ledger?.groupId ?? groups.find((g) => g.name === 'Sundry Debtors')?.id ?? groups[0]?.id ?? 1)
   const [opening, setOpening] = useState<number | null>(ledger ? Math.abs(ledger.openingBalance) : null)
@@ -127,6 +130,10 @@ function LedgerForm({
   const [deducteeType, setDeducteeType] = useState<NonNullable<Ledger['deducteeType']> | ''>(ledger?.deducteeType ?? '')
   const [tdsPayableSectionId, setTdsPayableSectionId] = useState<number | ''>(ledger?.tdsPayableSectionId ?? '')
   const [tdsDefaultSectionId, setTdsDefaultSectionId] = useState<number | ''>(ledger?.tdsDefaultSectionId ?? '')
+  // TCS (WP 3.3): the buyer's section, the payable tag, a sales ledger's default section.
+  const [tcsSectionId, setTcsSectionId] = useState<number | ''>(ledger?.tcsSectionId ?? '')
+  const [tcsPayableSectionId, setTcsPayableSectionId] = useState<number | ''>(ledger?.tcsPayableSectionId ?? '')
+  const [tcsDefaultSectionId, setTcsDefaultSectionId] = useState<number | ''>(ledger?.tcsDefaultSectionId ?? '')
   const [creditDays, setCreditDays] = useState(ledger?.creditDays?.toString() ?? '')
   const [exportType, setExportType] = useState<NonNullable<Ledger['exportType']> | ''>(ledger?.exportType ?? '')
   const [rcm, setRcm] = useState<boolean>(ledger?.rcm ?? false)
@@ -166,6 +173,13 @@ function LedgerForm({
         deducteeType: deducteeType || null,
         tdsPayableSectionId: tdsPayableSectionId === '' ? null : tdsPayableSectionId,
         tdsDefaultSectionId: tdsDefaultSectionId === '' ? null : tdsDefaultSectionId,
+        ...(features.tcs
+          ? {
+              tcsSectionId: tcsSectionId === '' ? null : tcsSectionId,
+              tcsPayableSectionId: tcsPayableSectionId === '' ? null : tcsPayableSectionId,
+              tcsDefaultSectionId: tcsDefaultSectionId === '' ? null : tcsDefaultSectionId
+            }
+          : {}),
         creditDays: creditDays.trim() ? Number(creditDays) : null,
         exportType: exportType || null,
         rcm,
@@ -232,7 +246,7 @@ function LedgerForm({
               </button>
             </div>
           </Field>
-          {isTaxLedger && !tdsPayableSectionId && (
+          {isTaxLedger && !tdsPayableSectionId && !tcsPayableSectionId && (
             <Field label="GST component" hint="Marks this ledger for GST computation and ITC">
               <Select value={taxType ?? ''} onChange={(e) => setTaxType(e.target.value as typeof taxType)}>
                 <option value="">Not a GST ledger</option>
@@ -245,7 +259,24 @@ function LedgerForm({
           )}
         </div>
 
-        {isTaxLedger && !taxType && (
+        {isTaxLedger && !taxType && !tdsPayableSectionId && features.tcs && (
+          <Field label="TCS payable for section" hint="Marks this ledger as where that section's TCS collected is credited">
+            <Select
+              data-testid="ledger-tcs-payable-section"
+              value={tcsPayableSectionId}
+              onChange={(e) => setTcsPayableSectionId(e.target.value ? Number(e.target.value) : '')}
+            >
+              <option value="">Not a TCS payable ledger</option>
+              {(tcsSections ?? []).map((s) => (
+                <option key={s.id} value={s.id}>
+                  {s.code} — {s.description}
+                </option>
+              ))}
+            </Select>
+          </Field>
+        )}
+
+        {isTaxLedger && !taxType && !tcsPayableSectionId && (
           <Field label="TDS payable for section" hint="Marks this ledger as where that section's TDS is credited (TDS reports find it by this, not by name)">
             <Select
               data-testid="ledger-tds-payable-section"
@@ -313,6 +344,18 @@ function LedgerForm({
                 ))}
               </Select>
             </Field>
+            {features.tcs && (
+              <Field label="TCS section (buyer)" hint="Sales to this buyer collect TCS under this section (e.g. a motor vehicle above ₹10 lakh)">
+                <Select data-testid="ledger-tcs-section" value={tcsSectionId} onChange={(e) => setTcsSectionId(e.target.value ? Number(e.target.value) : '')}>
+                  <option value="">None — goods / sales ledger decide</option>
+                  {(tcsSections ?? []).map((s) => (
+                    <option key={s.id} value={s.id}>
+                      {s.code} — {s.description}
+                    </option>
+                  ))}
+                </Select>
+              </Field>
+            )}
             <Field label="Export / SEZ type" hint="For e-invoice/e-way classification">
               <Select value={exportType} onChange={(e) => setExportType(e.target.value as typeof exportType)}>
                 {EXPORT_TYPES.map((t) => (
@@ -371,6 +414,22 @@ function LedgerForm({
                 ))}
               </Select>
             </Field>
+            {features.tcs && (
+              <Field label="TCS section (default)" hint="Sales credited to this ledger collect TCS (e.g. Scrap Sales → 206C(1))">
+                <Select
+                  data-testid="ledger-tcs-default-section"
+                  value={tcsDefaultSectionId}
+                  onChange={(e) => setTcsDefaultSectionId(e.target.value ? Number(e.target.value) : '')}
+                >
+                  <option value="">None</option>
+                  {(tcsSections ?? []).map((s) => (
+                    <option key={s.id} value={s.id}>
+                      {s.code} — {s.description}
+                    </option>
+                  ))}
+                </Select>
+              </Field>
+            )}
           </div>
         )}
 

@@ -16,6 +16,8 @@ import {
   addTdsToLines, candidateSections, classifyTdsVoucher, removeTdsFromLines, TDS_KINDS, undeductedCreditsBefore, type TdsLedgerFacts
 } from '@shared/tdsEligibility'
 import { lateDepositInterest, LATE_DEPOSIT_RATE_BP } from '@shared/tdsInterest'
+import { collecteeCodeForReturn, tcsDepositDueDate, TCS_KINDS, TCS_LATE_PAYMENT_RATE_BP } from '@shared/tcs'
+import { KIND, type WithholdingKind } from './withholdingKind'
 import { rateRowOn, tdsQuarterBounds, tdsQuarterOf, IT_ACT_2025_FROM, type DeducteeType } from '@shared/tds'
 import { tdsStateFromSaved, voucherToPayload } from '@shared/voucherEdit'
 import type {
@@ -23,7 +25,7 @@ import type {
   TdsLedgerSummaryRow, TdsPaymentCandidate
 } from '@shared/tdsTypes'
 import { buildEventGroups, ledgerTdsFacts, loadTdsVouchers, partySectionWalk, ratesBySection, walkGroup } from './tdsEvents'
-import { allocateEntries, listChallans, payableTagMap, resolveTds, saveChallan } from './tds'
+import { allocateEntries, challanKind, listChallans, payableTagMap, resolveTds, saveChallan } from './tds'
 import { getLockDate, getVoucher, IN_BOOKS, NOT_DELETED, saveVoucher, YEAR_END_CLOSE_IMMUTABLE } from './vouchers'
 import { writeAudit } from './audit'
 
@@ -93,7 +95,7 @@ interface VoucherHead {
   currencyCode: string | null
 }
 
-function head(db: DB, voucherId: number): VoucherHead {
+export function head(db: DB, voucherId: number): VoucherHead {
   const h = db
     .prepare(
       `SELECT vt.kind, v.is_year_end_close AS isYearEndClose, v.deleted_at AS deletedAt, v.is_optional AS isOptional,
@@ -105,13 +107,16 @@ function head(db: DB, voucherId: number): VoucherHead {
   return h
 }
 
-/** The refusals that apply to every server-side TDS edit, with the reason in words. */
-function assertEditable(db: DB, voucherId: number, date: string, h: VoucherHead): void {
+/** The refusals that apply to every server-side TDS (or, with kind 'tcs', TCS) edit, with the
+ *  reason in words. */
+export function assertEditable(db: DB, voucherId: number, date: string, h: VoucherHead, kind: WithholdingKind = 'tds'): void {
+  const name = KIND[kind].name
+  const noun = kind === 'tcs' ? 'collection' : 'deduction'
   if (h.deletedAt) throw new Error('The voucher is in the bin — restore it first')
   if (h.isYearEndClose) throw new Error(YEAR_END_CLOSE_IMMUTABLE)
-  if (h.isOptional) throw new Error("An optional (memorandum) voucher isn't in the books — TDS can't be moved onto it")
-  if (h.currencyCode) throw new Error('Foreign-currency voucher — add the deduction in the voucher editor, where the rate is visible')
-  if (!TDS_KINDS.includes(h.kind)) throw new Error(`A ${h.kind.replace('_', ' ')} can't carry a TDS deduction`)
+  if (h.isOptional) throw new Error(`An optional (memorandum) voucher isn't in the books — ${name} can't be moved onto it`)
+  if (h.currencyCode) throw new Error(`Foreign-currency voucher — add the ${noun} in the voucher editor, where the rate is visible`)
+  if (!(kind === 'tcs' ? TCS_KINDS : TDS_KINDS).includes(h.kind)) throw new Error(`A ${h.kind.replace('_', ' ')} can't carry a ${name} ${noun}`)
   const lock = getLockDate(db)
   if (lock && date <= lock) throw new Error(`Books are locked up to ${lock} — this voucher can't be changed`)
   const fy = fyOf(date)
@@ -119,7 +124,7 @@ function assertEditable(db: DB, voucherId: number, date: string, h: VoucherHead)
     .prepare(`SELECT 1 FROM vouchers v WHERE ${NOT_DELETED} AND v.is_year_end_close = 1 AND v.date BETWEEN ? AND ? LIMIT 1`)
     .get(fy.from, fy.to)
   if (closed) {
-    throw new Error(`FY ${fy.label} is closed — move its closing journal to the bin to reopen the year, then move TDS onto this voucher`)
+    throw new Error(`FY ${fy.label} is closed — move its closing journal to the bin to reopen the year, then move ${name} onto this voucher`)
   }
 }
 
@@ -155,7 +160,7 @@ export function applyTdsToVoucher(db: DB, input: ApplyTdsInput): ReturnType<type
     if (sectionId == null) throw new Error('Choose a TDS section — the party has none and no bill sets one')
     cls = { ...cls, sectionId }
   }
-  if (!db.prepare('SELECT 1 FROM tds_sections WHERE id = ?').get(sectionId)) throw new Error('TDS section not found')
+  if (!db.prepare("SELECT 1 FROM tds_sections WHERE id = ? AND kind = 'tds'").get(sectionId)) throw new Error('TDS section not found')
 
   // Base from the walk (this voucher included).
   const fy = fyOf(v.date)
@@ -185,7 +190,7 @@ export function applyTdsToVoucher(db: DB, input: ApplyTdsInput): ReturnType<type
   if (!edit.ok) throw new Error(edit.error)
   const sid = sectionId
   return db.transaction(() => {
-    db.prepare('DELETE FROM tds_exemptions WHERE voucher_id = ?').run(v.id)
+    db.prepare("DELETE FROM tds_exemptions WHERE voucher_id = ? AND kind = 'tds'").run(v.id)
     saveVoucher(
       db,
       {
@@ -237,36 +242,38 @@ export function removeTdsFromVoucher(db: DB, voucherId: number): ReturnType<type
   })()
 }
 
-/** "Not applicable": the voucher carries no TDS by the user's decision (reason kept). */
-export function exemptVoucher(db: DB, voucherId: number, reason: string): void {
+/** "Not applicable": the voucher carries no TDS (or TCS) by the user's decision (reason kept). */
+export function exemptVoucher(db: DB, voucherId: number, reason: string, kind: WithholdingKind = 'tds'): void {
   const v = getVoucher(db, voucherId)
   if (!v) throw new Error('Voucher not found')
   if (v.deletedAt) throw new Error('The voucher is in the bin')
-  if (v.tds) throw new Error('This voucher carries a TDS deduction — remove it first')
-  const before = db.prepare('SELECT reason FROM tds_exemptions WHERE voucher_id = ?').get(voucherId) as { reason: string } | undefined
+  if (kind === 'tds' && v.tds) throw new Error('This voucher carries a TDS deduction — remove it first')
+  if (kind === 'tcs' && v.tcs) throw new Error('This voucher carries a TCS collection — remove it first')
+  const before = db.prepare('SELECT reason FROM tds_exemptions WHERE voucher_id = ? AND kind = ?').get(voucherId, kind) as { reason: string } | undefined
   db.prepare(
-    `INSERT INTO tds_exemptions (voucher_id, reason) VALUES (?, ?)
-     ON CONFLICT(voucher_id) DO UPDATE SET reason = excluded.reason`
-  ).run(voucherId, reason)
-  writeAudit(db, 'tdsExemption', voucherId, before ? 'update' : 'create', before ?? null, { voucherId, reason })
+    `INSERT INTO tds_exemptions (voucher_id, kind, reason) VALUES (?, ?, ?)
+     ON CONFLICT(voucher_id, kind) DO UPDATE SET reason = excluded.reason`
+  ).run(voucherId, kind, reason)
+  writeAudit(db, kind === 'tcs' ? 'tcsExemption' : 'tdsExemption', voucherId, before ? 'update' : 'create', before ?? null, { voucherId, reason })
 }
 
-export function unexemptVoucher(db: DB, voucherId: number): void {
-  const before = db.prepare('SELECT reason FROM tds_exemptions WHERE voucher_id = ?').get(voucherId) as { reason: string } | undefined
+export function unexemptVoucher(db: DB, voucherId: number, kind: WithholdingKind = 'tds'): void {
+  const before = db.prepare('SELECT reason FROM tds_exemptions WHERE voucher_id = ? AND kind = ?').get(voucherId, kind) as { reason: string } | undefined
   if (!before) return
-  db.prepare('DELETE FROM tds_exemptions WHERE voucher_id = ?').run(voucherId)
-  writeAudit(db, 'tdsExemption', voucherId, 'delete', { voucherId, reason: before.reason }, null)
+  db.prepare('DELETE FROM tds_exemptions WHERE voucher_id = ? AND kind = ?').run(voucherId, kind)
+  writeAudit(db, kind === 'tcs' ? 'tcsExemption' : 'tdsExemption', voucherId, 'delete', { voucherId, reason: before.reason }, null)
 }
 
-export function exemptionOf(db: DB, voucherId: number): string | null {
-  return (db.prepare('SELECT reason FROM tds_exemptions WHERE voucher_id = ?').get(voucherId) as { reason: string } | undefined)?.reason ?? null
+export function exemptionOf(db: DB, voucherId: number, kind: WithholdingKind = 'tds'): string | null {
+  return (db.prepare('SELECT reason FROM tds_exemptions WHERE voucher_id = ? AND kind = ?').get(voucherId, kind) as { reason: string } | undefined)?.reason ?? null
 }
 
 // ---------------------------------------------------------------------------------------------
 // Deducted
 // ---------------------------------------------------------------------------------------------
 
-export function tdsDeducted(db: DB, from: string, to: string): TdsDeductedRow[] {
+/** Every recorded entry of `kind` in [from, to] (TCS: every collection). */
+export function tdsDeducted(db: DB, from: string, to: string, kind: WithholdingKind = 'tds'): TdsDeductedRow[] {
   const rows = db
     .prepare(
       `SELECT te.id AS entryId, v.id AS voucherId, v.number AS voucherNumber, v.date, vt.kind,
@@ -283,10 +290,10 @@ export function tdsDeducted(db: DB, from: string, to: string): TdsDeductedRow[] 
        LEFT JOIN tds_certificates cert ON cert.id = te.certificate_id
        LEFT JOIN tds_entry_challans tec ON tec.entry_id = te.id
        LEFT JOIN tds_challans c ON c.id = tec.challan_id
-       WHERE v.date BETWEEN ? AND ? AND ${IN_BOOKS}
+       WHERE v.date BETWEEN ? AND ? AND ts.kind = ? AND ${IN_BOOKS}
        ORDER BY v.date, v.id`
     )
-    .all(from, to) as (Omit<TdsDeductedRow, 'isManual' | 'challanStatus'> & { isManual: number; paidBy: number | null })[]
+    .all(from, to, kind) as (Omit<TdsDeductedRow, 'isManual' | 'challanStatus'> & { isManual: number; paidBy: number | null })[]
   return rows.map(({ paidBy, ...r }) => {
     const challanStatus: ChallanStatus = r.challanId == null ? 'unallocated' : paidBy != null ? 'paid' : 'allocated'
     return { ...r, deducteeType: r.deducteeType as DeducteeType | null, isManual: !!r.isManual, challanStatus }
@@ -298,12 +305,13 @@ export function tdsDeducted(db: DB, from: string, to: string): TdsDeductedRow[] 
 // ---------------------------------------------------------------------------------------------
 
 /** Quarter 0 = the whole financial year. */
-export function tdsLedgerSummary(db: DB, fyStartYear: number, quarter: 0 | 1 | 2 | 3 | 4): TdsLedgerSummaryRow[] {
+export function tdsLedgerSummary(db: DB, fyStartYear: number, quarter: 0 | 1 | 2 | 3 | 4, kind: WithholdingKind = 'tds'): TdsLedgerSummaryRow[] {
   const { from, to } = quarter === 0 ? fyFromStartYear(fyStartYear) : tdsQuarterBounds(fyStartYear, quarter)
+  const col = KIND[kind].payableCol
   const ledgers = db
     .prepare(
-      `SELECT l.id, l.name, l.opening_balance AS opening, l.tds_payable_section_id AS sectionId, ts.code
-       FROM ledgers l JOIN tds_sections ts ON ts.id = l.tds_payable_section_id ORDER BY ts.code, l.id`
+      `SELECT l.id, l.name, l.opening_balance AS opening, l.${col} AS sectionId, ts.code
+       FROM ledgers l JOIN tds_sections ts ON ts.id = l.${col} ORDER BY ts.code, l.id`
     )
     .all() as { id: number; name: string; opening: number; sectionId: number; code: string }[]
   const move = db.prepare(
@@ -316,11 +324,12 @@ export function tdsLedgerSummary(db: DB, fyStartYear: number, quarter: 0 | 1 | 2
   )
   const entries = db
     .prepare(
-      `SELECT te.section_id AS sectionId, COALESCE(SUM(te.tds_amount), 0) AS tds, COUNT(DISTINCT CASE WHEN te.employee_id IS NOT NULL THEN 'e' || te.employee_id ELSE 'l' || te.party_ledger_id END) AS deductees
-       FROM tds_entries te JOIN vouchers v ON v.id = te.voucher_id
-       WHERE v.date BETWEEN ? AND ? AND ${IN_BOOKS} GROUP BY te.section_id`
+      `SELECT te.section_id AS sectionId, COALESCE(SUM(te.tds_amount), 0) AS tds,
+              COUNT(DISTINCT CASE WHEN te.employee_id IS NOT NULL THEN 'e' || te.employee_id ELSE 'l' || te.party_ledger_id END) AS deductees
+       FROM tds_entries te JOIN vouchers v ON v.id = te.voucher_id JOIN tds_sections ts ON ts.id = te.section_id
+       WHERE v.date BETWEEN ? AND ? AND ts.kind = ? AND ${IN_BOOKS} GROUP BY te.section_id`
     )
-    .all(from, to) as { sectionId: number; tds: number; deductees: number }[]
+    .all(from, to, kind) as { sectionId: number; tds: number; deductees: number }[]
   const bySection = new Map<number, TdsLedgerSummaryRow>()
   for (const l of ledgers) {
     const m = move.get({ from, to, ledgerId: l.id }) as { crBefore: number; drBefore: number; crIn: number; drIn: number }
@@ -356,16 +365,17 @@ export function tdsLedgerSummary(db: DB, fyStartYear: number, quarter: 0 | 1 | 2
 
 /** Payment vouchers that debit a tagged TDS payable ledger, from the FY start to 30 April after it
  *  (March deductions are deposited by 30 April — rule 30(2), see tdsInterest.ts). */
-export function tdsPaymentCandidates(db: DB, fyStartYear: number): TdsPaymentCandidate[] {
+export function tdsPaymentCandidates(db: DB, fyStartYear: number, kind: WithholdingKind = 'tds'): TdsPaymentCandidate[] {
   const fy = fyFromStartYear(fyStartYear)
+  const col = KIND[kind].payableCol
   const rows = db
     .prepare(
       `SELECT v.id AS voucherId, v.number AS voucherNumber, v.date, SUM(vl.amount) AS amountPaise,
-              GROUP_CONCAT(DISTINCT l.tds_payable_section_id) AS sections,
-              (SELECT MIN(c.id) FROM tds_challans c WHERE c.payment_voucher_id = v.id) AS challanId
+              GROUP_CONCAT(DISTINCT l.${col}) AS sections,
+              (SELECT MIN(c.id) FROM tds_challans c WHERE c.payment_voucher_id = v.id AND c.kind = '${kind}') AS challanId
        FROM vouchers v
        JOIN voucher_lines vl ON vl.voucher_id = v.id AND vl.dr_cr = 'dr'
-       JOIN ledgers l ON l.id = vl.ledger_id AND l.tds_payable_section_id IS NOT NULL
+       JOIN ledgers l ON l.id = vl.ledger_id AND l.${col} IS NOT NULL
        WHERE v.date BETWEEN ? AND ? AND ${IN_BOOKS}
        GROUP BY v.id ORDER BY v.date, v.id`
     )
@@ -378,12 +388,13 @@ export function tdsPaymentCandidates(db: DB, fyStartYear: number): TdsPaymentCan
 }
 
 const challanSections = (db: DB, challanId: number): number[] | null => {
-  const r = db.prepare('SELECT payment_voucher_id AS p FROM tds_challans WHERE id = ?').get(challanId) as { p: number | null } | undefined
+  const r = db.prepare('SELECT payment_voucher_id AS p, kind FROM tds_challans WHERE id = ?').get(challanId) as { p: number | null; kind: WithholdingKind } | undefined
   if (!r?.p) return null
+  const col = KIND[r.kind].payableCol
   return (db
     .prepare(
-      `SELECT DISTINCT l.tds_payable_section_id AS s FROM voucher_lines vl JOIN ledgers l ON l.id = vl.ledger_id
-       WHERE vl.voucher_id = ? AND vl.dr_cr = 'dr' AND l.tds_payable_section_id IS NOT NULL`
+      `SELECT DISTINCT l.${col} AS s FROM voucher_lines vl JOIN ledgers l ON l.id = vl.ledger_id
+       WHERE vl.voucher_id = ? AND vl.dr_cr = 'dr' AND l.${col} IS NOT NULL`
     )
     .all(r.p) as { s: number }[]).map((x) => x.s)
 }
@@ -395,7 +406,7 @@ const challanSections = (db: DB, challanId: number): number[] | null => {
  */
 export function autoAllocate(db: DB, challanId: number): number[] {
   const c = db.prepare('SELECT * FROM tds_challans WHERE id = ?').get(challanId) as
-    | { id: number; amount_paise: number; quarter: 1 | 2 | 3 | 4; fy_start_year: number }
+    | { id: number; amount_paise: number; quarter: 1 | 2 | 3 | 4; fy_start_year: number; kind: WithholdingKind }
     | undefined
   if (!c) throw new Error('Challan not found')
   const allocated = (db
@@ -407,12 +418,12 @@ export function autoAllocate(db: DB, challanId: number): number[] {
   const candidates = db
     .prepare(
       `SELECT te.id, te.tds_amount AS tds, te.section_id AS sectionId FROM tds_entries te
-       JOIN vouchers v ON v.id = te.voucher_id
+       JOIN vouchers v ON v.id = te.voucher_id JOIN tds_sections ts ON ts.id = te.section_id
        LEFT JOIN tds_entry_challans tec ON tec.entry_id = te.id
-       WHERE tec.entry_id IS NULL AND v.date BETWEEN ? AND ? AND ${IN_BOOKS}
+       WHERE tec.entry_id IS NULL AND v.date BETWEEN ? AND ? AND ts.kind = ? AND ${IN_BOOKS}
        ORDER BY v.date, v.id, te.id`
     )
-    .all(from, to) as { id: number; tds: number; sectionId: number }[]
+    .all(from, to, c.kind) as { id: number; tds: number; sectionId: number }[]
   const pick: number[] = []
   for (const e of candidates) {
     if (sections && !sections.includes(e.sectionId)) continue
@@ -441,19 +452,20 @@ export interface ChallanFromPaymentInput {
  * payable ledgers. Quarter default: the quarter of the oldest unallocated entry of those
  * sections dated on or before the payment, else the quarter of the payment.
  */
-export function challanFromPayment(db: DB, input: ChallanFromPaymentInput): TdsChallanRow {
+export function challanFromPayment(db: DB, input: ChallanFromPaymentInput, kind: WithholdingKind = 'tds'): TdsChallanRow {
+  const col = KIND[kind].payableCol
   const v = db
     .prepare(`SELECT v.id, v.date FROM vouchers v WHERE v.id = ? AND ${NOT_DELETED}`)
     .get(input.paymentVoucherId) as { id: number; date: string } | undefined
   if (!v) throw new Error('Payment voucher not found')
   const debits = db
     .prepare(
-      `SELECT l.tds_payable_section_id AS s, vl.amount FROM voucher_lines vl JOIN ledgers l ON l.id = vl.ledger_id
-       WHERE vl.voucher_id = ? AND vl.dr_cr = 'dr' AND l.tds_payable_section_id IS NOT NULL`
+      `SELECT l.${col} AS s, vl.amount FROM voucher_lines vl JOIN ledgers l ON l.id = vl.ledger_id
+       WHERE vl.voucher_id = ? AND vl.dr_cr = 'dr' AND l.${col} IS NOT NULL`
     )
     .all(v.id) as { s: number; amount: number }[]
   const amount = debits.reduce((s, d) => s + d.amount, 0)
-  if (amount <= 0) throw new Error("That voucher doesn't debit a TDS payable ledger — it isn't a TDS deposit")
+  if (amount <= 0) throw new Error(`That voucher doesn't debit a ${KIND[kind].name} payable ledger — it isn't a ${KIND[kind].name} deposit`)
   let quarter = input.quarter ?? null
   let fyStartYear = input.fyStartYear ?? null
   if (quarter == null || fyStartYear == null) {
@@ -473,15 +485,19 @@ export function challanFromPayment(db: DB, input: ChallanFromPaymentInput): TdsC
     const c = saveChallan(db, {
       date: input.date ?? v.date, bsrCode: input.bsrCode, challanNo: input.challanNo, amountPaise: amount,
       paymentVoucherId: v.id, quarter, fyStartYear
-    })
+    }, kind)
     if (input.autoAllocate) autoAllocate(db, c.id)
-    return challanRows(db, fyStartYear!).find((r) => r.id === c.id)!
+    return challanRows(db, fyStartYear!, undefined, undefined, kind).find((r) => r.id === c.id)!
   })()
 }
 
 /** Indicative interest on late deposit for each entry allocated to the challan (s.201(1A)(ii) /
  *  2025 s.398(3)(a)); `rateBp` is the user-editable rate (default 1.5% a month). */
-export function challanInterest(db: DB, challanId: number, rateBp = LATE_DEPOSIT_RATE_BP): TdsChallanEntryInterest[] {
+export function challanInterest(db: DB, challanId: number, rateBp?: number): TdsChallanEntryInterest[] {
+  // TCS: s.206C(7) / 2025 s.398(3)(a) second tier, measured against rule 37CA / rule 218(2).
+  const kind = challanKind(db, challanId) ?? 'tds'
+  const bp = rateBp ?? (kind === 'tcs' ? TCS_LATE_PAYMENT_RATE_BP : LATE_DEPOSIT_RATE_BP)
+  const dueOf = kind === 'tcs' ? tcsDepositDueDate : undefined
   const c = db.prepare('SELECT date FROM tds_challans WHERE id = ?').get(challanId) as { date: string } | undefined
   if (!c) throw new Error('Challan not found')
   const rows = db
@@ -495,14 +511,14 @@ export function challanInterest(db: DB, challanId: number, rateBp = LATE_DEPOSIT
     )
     .all(challanId) as Omit<TdsChallanEntryInterest, 'dueDate' | 'months' | 'interestPaise'>[]
   return rows.map((r) => {
-    const i = lateDepositInterest(r.tdsPaise, r.date, c.date, rateBp)
+    const i = lateDepositInterest(r.tdsPaise, r.date, c.date, bp, dueOf)
     return { ...r, dueDate: i.dueDate!, months: i.months, interestPaise: i.interestPaise }
   })
 }
 
-export function challanRows(db: DB, fyStartYear: number, quarter?: number, rateBp = LATE_DEPOSIT_RATE_BP): TdsChallanRow[] {
+export function challanRows(db: DB, fyStartYear: number, quarter?: number, rateBp?: number, kind: WithholdingKind = 'tds'): TdsChallanRow[] {
   const numberOf = db.prepare('SELECT number FROM vouchers WHERE id = ?')
-  return listChallans(db, fyStartYear, quarter).map((c) => ({
+  return listChallans(db, fyStartYear, quarter, kind).map((c) => ({
     ...c,
     paymentVoucherNumber: c.paymentVoucherId != null ? ((numberOf.get(c.paymentVoucherId) as { number: string } | undefined)?.number ?? null) : null,
     interestPaise: challanInterest(db, c.id, rateBp).reduce((s, e) => s + e.interestPaise, 0)
@@ -528,8 +544,11 @@ export function deducteeCode26q(type: string | null): string {
  * Rules 1962 Form 26Q; https://tinpan.proteantech.in/downloads/e-tds/download/26Q_04012018.pdf,
  * accessed 2026-10-07 via search summary — UNVERIFIED against the current utility).
  */
-export function form26qData(db: DB, fyStartYear: number, quarter: 1 | 2 | 3 | 4): Form26qData {
+export function form26qData(db: DB, fyStartYear: number, quarter: 1 | 2 | 3 | 4, kind: WithholdingKind = 'tds'): Form26qData {
   const { from, to } = tdsQuarterBounds(fyStartYear, quarter)
+  const newAct = from >= IT_ACT_2025_FROM
+  // TDS: 26Q / Form 140 (migration 020); TCS: 27EQ / Form 143 (Income-tax Rules 2026 rule 219, migration 027).
+  const layout: Form26qData['layout'] = kind === 'tcs' ? (newAct ? 'form143' : 'form27eq') : newAct ? 'form140' : 'form26q'
   const rates = ratesBySection(db)
   const entries = db
     .prepare(
@@ -539,21 +558,21 @@ export function form26qData(db: DB, fyStartYear: number, quarter: 1 | 2 | 3 | 4)
               tec.challan_id AS challanId
        FROM tds_entries te JOIN vouchers v ON v.id = te.voucher_id JOIN ledgers l ON l.id = te.party_ledger_id
        JOIN tds_sections ts ON ts.id = te.section_id LEFT JOIN tds_entry_challans tec ON tec.entry_id = te.id
-       WHERE v.date BETWEEN ? AND ? AND ${IN_BOOKS}
+       WHERE v.date BETWEEN ? AND ? AND ts.kind = ? AND ${IN_BOOKS}
          AND te.employee_id IS NULL -- WP 3.7: salary TDS is returned in Form 24Q, not 26Q
        ORDER BY v.date, v.id`
     )
-    .all(from, to) as {
+    .all(from, to, kind) as {
       entryId: number; voucherId: number; date: string; partyLedgerId: number; partyName: string; pan: string | null; sectionId: number
       sectionCode: string; amountPaise: number; tdsPaise: number; rateBp: number | null; deducteeType: DeducteeType | null
       certificateId: number | null; challanId: number | null
     }[]
-  const challans = listChallans(db, fyStartYear, quarter)
+  const challans = listChallans(db, fyStartYear, quarter, kind)
   // Challans of other quarters an entry of this quarter was allocated to (late deposits) list too.
   const extraIds = [...new Set(entries.map((e) => e.challanId).filter((id): id is number => id != null && !challans.some((c) => c.id === id)))]
   for (const id of extraIds) {
     const c = db.prepare('SELECT fy_start_year AS fy, quarter AS q FROM tds_challans WHERE id = ?').get(id) as { fy: number; q: number }
-    const hit = listChallans(db, c.fy, c.q).find((x) => x.id === id)
+    const hit = listChallans(db, c.fy, c.q, kind).find((x) => x.id === id)
     if (hit) challans.push(hit)
   }
   const serialOf = new Map(challans.map((c, i) => [c.id, i + 1]))
@@ -562,7 +581,8 @@ export function form26qData(db: DB, fyStartYear: number, quarter: 1 | 2 | 3 | 4)
     const c = e.challanId != null ? challans.find((x) => x.id === e.challanId) : undefined
     return {
       serial: i + 1, entryId: e.entryId, voucherId: e.voucherId, partyLedgerId: e.partyLedgerId, partyName: e.partyName, pan: e.pan,
-      deducteeCode: deducteeCode26q(e.deducteeType), sectionCode: e.sectionCode, returnCode: row?.returnCode ?? null,
+      deducteeCode: kind === 'tcs' ? collecteeCodeForReturn(e.pan, e.deducteeType, layout === 'form143' ? 'form143' : 'form27eq') : deducteeCode26q(e.deducteeType),
+      sectionCode: e.sectionCode, returnCode: row?.returnCode ?? null,
       paymentDate: e.date, amountPaise: e.amountPaise, tdsPaise: e.tdsPaise, deductionDate: e.date, rateBp: e.rateBp,
       reasonCode: e.certificateId != null ? 'A' : !e.pan ? 'C' : '',
       challanSerial: e.challanId != null ? (serialOf.get(e.challanId) ?? null) : null,
@@ -575,7 +595,7 @@ export function form26qData(db: DB, fyStartYear: number, quarter: 1 | 2 | 3 | 4)
   }))
   return {
     fyStartYear, quarter,
-    layout: from >= IT_ACT_2025_FROM ? 'form140' : 'form26q',
+    layout,
     deductees,
     challans: challanRowsOut,
     totals: {
@@ -595,8 +615,10 @@ export function form26qData(db: DB, fyStartYear: number, quarter: 1 | 2 | 3 | 4)
  * for Form 16A" (form layout UNVERIFIED against the current CBDT notification / its 2025-Act
  * equivalent).
  */
-export function form16aData(db: DB, company: CompanyInfo, fyStartYear: number, quarter: 1 | 2 | 3 | 4, partyLedgerId?: number): Form16aData {
-  const data = form26qData(db, fyStartYear, quarter)
+export function form16aData(
+  db: DB, company: CompanyInfo, fyStartYear: number, quarter: 1 | 2 | 3 | 4, partyLedgerId?: number, kind: WithholdingKind = 'tds'
+): Form16aData {
+  const data = form26qData(db, fyStartYear, quarter, kind)
   const nature = new Map((db.prepare('SELECT id, code, COALESCE(nature, description) AS n FROM tds_sections').all() as { id: number; code: string; n: string }[]).map((s) => [s.code, s.n]))
   const numbers = db.prepare('SELECT number FROM vouchers WHERE id = ?')
   const address = db.prepare('SELECT address FROM ledgers WHERE id = ?')

@@ -113,6 +113,14 @@ export function extractOutwardDocs(db: DB, company: CompanyInfo, from: string, t
   const totalStmt = db.prepare(
     "SELECT COALESCE(SUM(amount), 0) AS t FROM voucher_lines WHERE voucher_id = ? AND dr_cr = 'dr'"
   )
+  // WP 3.3: income-tax TCS on the invoice is part of the invoice value (the buyer's total, as the
+  // e-invoice reports it in OthChrg / TotInvVal) but not of the GST value of supply (CBIC
+  // Circular 76/50/2018-GST corrigendum 7-3-2019 — see services/tcs.ts tcsOnVoucher), so the
+  // value-mismatch check leaves it out.
+  const tcsStmt = db.prepare(
+    `SELECT COALESCE(SUM(te.tds_amount), 0) AS t FROM tds_entries te JOIN tds_sections ts ON ts.id = te.section_id
+     WHERE te.voucher_id = ? AND ts.kind = 'tcs'`
+  )
 
   return vouchers
     .filter((v) => v.kind !== 'debit_note' || outwardDbn.has(v.id))
@@ -213,7 +221,7 @@ export function extractOutwardDocs(db: DB, company: CompanyInfo, from: string, t
         rchrg: !!v.partyRcm,
         shippingBill: isExport ? { num: v.transDocNo, date: v.transDocDate } : null,
         validation: {
-          valDiff: invoiceValue - computedTotal,
+          valDiff: invoiceValue - (tcsStmt.get(v.id) as { t: number }).t - computedTotal,
           missingHsnCount,
           // SEZ/deemed-export registrations always have a GSTIN — flag its absence.
           missingGstin: (invTyp === 'SEWP' || invTyp === 'SEWOP' || invTyp === 'DE') && !v.partyGstin

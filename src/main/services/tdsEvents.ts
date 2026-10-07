@@ -74,7 +74,7 @@ export function loadTdsVouchers(db: DB, from: string, to: string, opts: { partyL
     .prepare(
       `SELECT v.id, v.date, v.number, vt.kind, v.party_ledger_id AS partyLedgerId, x.reason AS exemptReason
        FROM vouchers v JOIN voucher_types vt ON vt.id = v.voucher_type_id
-       LEFT JOIN tds_exemptions x ON x.voucher_id = v.id
+       LEFT JOIN tds_exemptions x ON x.voucher_id = v.id AND x.kind = 'tds'
        WHERE v.date BETWEEN ? AND ? AND vt.kind IN (${kinds}) AND v.id <> ? AND ${IN_BOOKS} AND ${NOT_YEAR_END_CLOSE}
        ${partyClause}
        ORDER BY v.date, v.id`
@@ -93,8 +93,10 @@ export function loadTdsVouchers(db: DB, from: string, to: string, opts: { partyL
     for (const l of lines) byId.get(l.vid)!.lines.push({ ledgerId: l.ledgerId, drCr: l.drCr, amount: l.amount })
     const entries = db
       .prepare(
-        `SELECT id, voucher_id AS vid, section_id AS sectionId, party_ledger_id AS partyLedgerId, base_amount AS baseAmount, tds_amount AS tdsAmount
-         FROM tds_entries WHERE voucher_id IN (${ph}) ORDER BY id`
+        `SELECT te.id, te.voucher_id AS vid, te.section_id AS sectionId, te.party_ledger_id AS partyLedgerId,
+                te.base_amount AS baseAmount, te.tds_amount AS tdsAmount
+         FROM tds_entries te JOIN tds_sections ts ON ts.id = te.section_id
+         WHERE te.voucher_id IN (${ph}) AND ts.kind = 'tds' ORDER BY te.id`
       )
       .all(...chunk) as { id: number; vid: number; sectionId: number; partyLedgerId: number; baseAmount: number; tdsAmount: number }[]
     for (const e of entries) {
@@ -167,7 +169,7 @@ export function ratesBySection(db: DB): Map<number, TdsRateRow[]> {
   const rows = db.prepare('SELECT * FROM tds_section_rates ORDER BY section_id, effective_from').all() as {
     id: number; section_id: number; effective_from: string; effective_to: string | null; deductee_type: TdsRateRow['deducteeType']
     rate_bp: number; threshold_single_paise: number; threshold_annual_paise: number; threshold_basis: 'fy' | 'month'
-    threshold_excess_only: number; return_code: string | null; no_pan_rate_bp: number; source: string | null
+    threshold_excess_only: number; return_code: string | null; no_pan_rate_bp: number; base_includes_gst: number; source: string | null
   }[]
   const out = new Map<number, TdsRateRow[]>()
   for (const r of rows) {
@@ -176,7 +178,7 @@ export function ratesBySection(db: DB): Map<number, TdsRateRow[]> {
       id: r.id, sectionId: r.section_id, effectiveFrom: r.effective_from, effectiveTo: r.effective_to, deducteeType: r.deductee_type,
       rateBp: r.rate_bp, thresholdSinglePaise: r.threshold_single_paise, thresholdAnnualPaise: r.threshold_annual_paise,
       thresholdBasis: r.threshold_basis, thresholdExcessOnly: !!r.threshold_excess_only, returnCode: r.return_code,
-      noPanRateBp: r.no_pan_rate_bp, source: r.source
+      noPanRateBp: r.no_pan_rate_bp, baseIncludesGst: !!r.base_includes_gst, source: r.source
     })
     out.set(r.section_id, list)
   }

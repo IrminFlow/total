@@ -46,6 +46,12 @@ export interface Ledger {
   /** Expense ledgers: the TDS section a debit to this ledger usually attracts (e.g. Rent →
    *  194-I). Used for the suggestion when the party itself has no section. */
   tdsDefaultSectionId: number | null
+  /** TCS (WP 3.3): section this buyer is flagged for collection under (the collectee). */
+  tcsSectionId?: number | null
+  /** Tags this ledger as a TCS section's payable ledger (the TCS mirror of tdsPayableSectionId). */
+  tcsPayableSectionId?: number | null
+  /** Sales ledgers: the TCS section a sale credited here attracts (e.g. "Scrap Sales" → 206C(1)). */
+  tcsDefaultSectionId?: number | null
   /** Default bill-to-bill credit period in days, used when a bill has no explicit due date. */
   creditDays: number | null
   /** SEZ/export classification for GST e-invoicing (task 2.8); null for a normal domestic party. */
@@ -83,6 +89,9 @@ export interface TdsSection {
   legacyCode: string | null
   /** Income-tax Act, 2025 reference (e.g. "393(1) Table Sl. 6(i)"); null when not mapped. */
   newReference: string | null
+  /** 'tds' (deducted by us as payer) or 'tcs' (collected by us as seller, WP 3.3 — migration 027
+   *  shares the section master). Absent on pre-3.3 fixtures = 'tds'. */
+  kind?: 'tds' | 'tcs'
 }
 
 export interface TdsRate {
@@ -101,6 +110,8 @@ export interface TdsRate {
   /** 26Q section code / Form 140 payment code for this period; null = none recorded. */
   returnCode: string | null
   noPanRateBp: number
+  /** TCS rows: the base includes the GST charged (migration 027). Absent = false. */
+  baseIncludesGst?: boolean
   /** Citation for a seeded row; null for rows the user added. */
   source: string | null
 }
@@ -129,6 +140,8 @@ export interface TdsChallan {
   /** Sum of TDS on the entries allocated to this challan. */
   allocatedPaise: number
   entryCount: number
+  /** 'tcs' for a TCS deposit (migration 027); absent on pre-3.3 fixtures = 'tds'. */
+  kind?: 'tds' | 'tcs'
 }
 
 export interface CostCentre {
@@ -271,6 +284,22 @@ export interface VoucherTds {
   entryId?: number
 }
 
+/** TCS collected on this voucher (WP 3.3) — stored in tds_entries under a TCS section. Same
+ *  shape as VoucherTds with the amount named for what it is. */
+export interface VoucherTcs {
+  sectionId: number
+  baseAmount: number
+  tcsAmount: number
+  isManual?: boolean
+  rateBp?: number | null
+  /** Collectee type recorded at save. */
+  deducteeType?: string | null
+  certificateId?: number | null
+  /** The base included the GST charged (recorded at save from the rate row in force). */
+  gstInBase?: boolean | null
+  entryId?: number
+}
+
 export interface InventoryLine {
   id: number
   stockItemId: number
@@ -344,6 +373,9 @@ export interface Voucher {
   billRefs: VoucherBillRef[]
   /** TDS deducted on this voucher, if any. */
   tds: VoucherTds | null
+  /** TCS collected on this voucher, if any (WP 3.3). getVoucher always sets it; optional only so
+   *  hand-built fixtures keep compiling. */
+  tcs?: VoucherTcs | null,
   /** Delivery challan / GRN facts (trade_voucher_details, WP 2.5); null for every other kind.
    *  Optional only so older hand-built fixtures keep compiling. */
   trade?: { purpose: TradePurpose } | null
@@ -410,6 +442,9 @@ export interface StockItem {
   valuationMethod: 'weighted_avg' | 'fifo'
   /** Every movement names one serial number per unit (WP 2.3, src/shared/serials.ts). */
   trackSerials: boolean
+  /** TCS (WP 3.3): goods category — selling this item attracts TCS under this section (scrap,
+   *  timber, minerals, a motor vehicle …). null / absent = none. */
+  tcsSectionId?: number | null
 }
 
 export interface Godown {
@@ -463,6 +498,12 @@ export interface CreditLimitWarning {
   creditLimit: number
   /** Party's outstanding (dr-positive, incl. this voucher), paise. */
   outstanding: number
+  /** WP 2.5c (§9 Q9, Orders & challans on): the party's open sales-order value with GST — a
+   *  separate, warn-only figure (outstandings stay invoice-based). Absent when the flag is off. */
+  openSalesOrders?: number
+  /** True when only outstanding + open orders passes the limit (the outstanding alone doesn't):
+   *  a warning that never blocks, even under enforceCreditLimit. */
+  ordersOnly?: boolean
 }
 
 /** Non-blocking issues detected while saving a voucher. Additive: the saved Voucher rides

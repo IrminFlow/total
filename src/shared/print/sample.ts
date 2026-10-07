@@ -73,6 +73,21 @@ function sampleInvoice(company: CompanyInfo, kind: PrintDocKind): EdocInvoice {
 export function sampleDocument(company: CompanyInfo, kind: PrintDocKind = 'sales'): PrintDocument {
   if (INVOICE_SHAPED_KINDS.includes(kind)) {
     const invoice = sampleInvoice(company, kind)
+    // Quotations / orders (WP 2.5c): their own number, validity / expected date and terms.
+    const tradeNo: Partial<Record<PrintDocKind, string>> = { quotation: 'QT-SAMPLE-1', sales_order: 'SO-SAMPLE-1', purchase_order: 'PO-SAMPLE-1' }
+    if (tradeNo[kind]) {
+      return {
+        shape: 'invoice', kind, company, invoice: { ...invoice, number: tradeNo[kind]!, irn: null, vehicleNo: null },
+        audit: { enteredBy: 'Priya', alteredBy: null },
+        trade: {
+          validUntil: kind === 'quotation' ? '2026-08-28' : null,
+          dueDate: kind === 'quotation' ? null : '2026-08-21',
+          reference: kind === 'quotation' ? null : 'PO/2026/118',
+          terms: '50% advance, balance against delivery. Prices ex-works; freight extra.',
+          narration: null
+        }
+      }
+    }
     return {
       shape: 'invoice',
       kind,

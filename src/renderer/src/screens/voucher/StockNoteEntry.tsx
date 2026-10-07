@@ -14,7 +14,7 @@ import { formatPaise, amountInWords } from '@shared/money'
 import { toDisplayDate } from '@shared/dates'
 import { api } from '../../lib/client'
 import { useNav, useSession, useToasts } from '../../state/stores'
-import { Banner, Button, DateInput, Field, isAnyModalOpen, Money, Panel, Segmented, TextInput } from '../../components/ui'
+import { Banner, Button, DateInput, Field, isAnyModalOpen, Kbd, Money, Panel, Segmented, TextInput } from '../../components/ui'
 import { LedgerPicker, useLedgers, useStockItems } from '../../components/pickers'
 import { VoucherLink } from '../../components/links'
 import { confirmDialog } from '../../lib/dialogs'
@@ -23,6 +23,10 @@ import { nextLineKey, NUMBER_LOADING, useAlterationDirty, useLeaveAfterSave, use
 import { QuickItemModal, QuickLedgerModal } from './modals'
 import { TransportModal } from './TransportModal'
 import { blankItemRow, ItemLineGrid, type ItemRow } from './ItemLineGrid'
+import { AddFromDrawer } from './AddFromDrawer'
+import { useAddFrom } from './useAddFrom'
+import { useFeatures } from '../../lib/useFeatures'
+import type { VoucherDraft } from '../../state/stores'
 
 const TITLE: Record<StockNoteKind, string> = { delivery_note: 'Delivery challan', receipt_note: 'Goods receipt note' }
 
@@ -31,13 +35,16 @@ export function StockNoteEntry({
   kind,
   voucherId,
   voucher,
-  initial
+  initial,
+  draft
 }: {
   typeId: number
   kind: StockNoteKind
   voucherId?: number
   voucher?: Voucher
   initial?: StockNoteFormState
+  /** A new note pre-filled from an order ("Convert to challan / GRN", WP 2.5c). */
+  draft?: VoucherDraft
 }): React.JSX.Element {
   const isEdit = voucherId != null
   const { info, workingDate, setWorkingDate } = useSession()
@@ -50,7 +57,7 @@ export function StockNoteEntry({
 
   const [start] = useState(() => initial ?? emptyStockNoteState(kind, workingDate))
   const [date, setDate] = useState(start.date)
-  const [partyId, setPartyId] = useState<number | null>(start.partyId)
+  const [partyId, setPartyId] = useState<number | null>(initial ? start.partyId : (draft?.partyLedgerId ?? start.partyId))
   const [purpose, setPurpose] = useState<TradePurpose>(start.purpose)
   const [rows, setRows] = useState<ItemRow[]>(() =>
     initial ? [...initial.rows.map((r) => ({ ...r, key: nextLineKey() })), blankItemRow()] : [blankItemRow()]
@@ -69,6 +76,12 @@ export function StockNoteEntry({
   const { saved, leave } = useLeaveAfterSave()
 
   const party = ledgers.find((l) => l.id === partyId) ?? null
+  // WP 2.5c: a challan draws on sales orders, a GRN on purchase orders ("Add from…", ⌥A).
+  const features = useFeatures()
+  const addFrom = useAddFrom({
+    kind, enabled: features.orders && features.inventory, partyId, voucherId, rows, setRows,
+    convertFromTradeDocId: isEdit ? null : draft?.fromTradeDocId ?? null
+  })
 
   // Downstream documents (invoices / bills drawn from this note) — shown on an alteration.
   const { data: links } = useQuery({
@@ -223,7 +236,7 @@ export function StockNoteEntry({
         </Field>
         <Field label={outward ? 'Consignee (party)' : 'Supplier (party)'}>
           <LedgerPicker
-            autoFocus={!isEdit}
+            autoFocus={!isEdit && draft?.fromTradeDocId == null}
             value={partyId}
             onPick={setPartyId}
             placeholder="Party ledger"
@@ -248,13 +261,26 @@ export function StockNoteEntry({
             testId="input-stock-note-purpose"
           />
         </div>
-        {party && (
-          <p className="text-hint text-muted">
-            {party.gstin ? <>GSTIN <span className="num">{party.gstin}</span> · </> : 'Unregistered · '}
-            {computed.supply === 'intra' ? 'Intra-state' : 'Inter-state'}
-            {!taxed && ' · value only, no tax (not a supply)'}
-          </p>
-        )}
+        <div className="flex items-center gap-3">
+          {party && (
+            <p className="text-hint text-muted">
+              {party.gstin ? <>GSTIN <span className="num">{party.gstin}</span> · </> : 'Unregistered · '}
+              {computed.supply === 'intra' ? 'Intra-state' : 'Inter-state'}
+              {!taxed && ' · value only, no tax (not a supply)'}
+            </p>
+          )}
+          {addFrom.addFrom && partyId != null && (
+            <Button
+              variant="ghost"
+              className="px-2 py-1 text-caption"
+              data-testid="btn-add-from"
+              onClick={() => addFrom.setOpen(true)}
+              title={`${addFrom.addFrom.label} (⌥A)`}
+            >
+              {addFrom.addFrom.label} <Kbd>⌥A</Kbd>
+            </Button>
+          )}
+        </div>
       </div>
 
       <ItemLineGrid
@@ -267,7 +293,19 @@ export function StockNoteEntry({
         date={date}
         voucherId={voucherId}
         onCreateItem={(name, row) => setQuickItem({ name, row })}
+        lockedBySource={addFrom.lockedBySource}
+        rowNote={addFrom.rowNote}
+        onRemoveRow={addFrom.removeRow}
       />
+      {addFrom.open && addFrom.addFrom && (
+        <AddFromDrawer
+          title={`${addFrom.addFrom.label.replace('…', '')} — ${party?.name ?? ''}`}
+          lines={addFrom.drawerLines}
+          loading={addFrom.loading}
+          onClose={() => addFrom.setOpen(false)}
+          onInsert={addFrom.insert}
+        />
+      )}
 
       <div className="mt-4 flex items-start justify-between gap-6">
         <div className="flex-1">

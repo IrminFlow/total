@@ -1,5 +1,6 @@
 import { create } from 'zustand'
-import type { CompanyInfo, VoucherKind } from '@shared/domain'
+import type { CompanyInfo, TradeDocKind, VoucherKind } from '@shared/domain'
+import type { TradeDocDraft } from '@shared/tradeCycle/types'
 import { fyOf, todayISO } from '@shared/dates'
 import type { SessionUser } from '../lib/client'
 import { confirmDialog } from '../lib/dialogs'
@@ -16,6 +17,9 @@ export interface VoucherDraft {
   partyLedgerId?: number
   narration?: string
   lines?: { ledgerId: number; drCr: 'dr' | 'cr'; amount: number }[]
+  /** WP 2.5c "Convert to challan / invoice / GRN / bill": draw every pending line of this
+   *  sales / purchase order (the "Add from…" picks, pre-filled). */
+  fromTradeDocId?: number
 }
 
 /**
@@ -71,10 +75,20 @@ export type Screen =
   // WP 2.5b: delivery challans not invoiced / GRNs not billed.
   | { name: 'pending-challans' }
   | { name: 'pending-grns' }
+  // WP 2.5c: quotations / sales orders / purchase orders — lists, the entry form (a saved one by
+  // `id`; a converted / duplicated `draft` for a new one), and their reports.
+  | { name: 'quotations' }
+  | { name: 'sales-orders' }
+  | { name: 'purchase-orders' }
+  | { name: 'trade-doc'; kind: TradeDocKind; id?: number; draft?: TradeDocDraft; draftId?: number }
+  | { name: 'pending-sales-orders' }
+  | { name: 'pending-purchase-orders' }
+  | { name: 'quotation-pipeline' }
   | { name: 'consolidated' }
   | { name: 'banking' }
   | { name: 'payroll' }
   | { name: 'tds' }
+  | { name: 'tcs' }
   | { name: 'cost-centres' }
   | { name: 'budgets' }
   | { name: 'company-info' }

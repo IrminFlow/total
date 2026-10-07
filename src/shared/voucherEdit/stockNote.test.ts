@@ -67,7 +67,7 @@ describe('"Add from…" rows (WP 2.5b)', () => {
     expect(rowsFromSourcePicks([{ line, qtyMilli: 1000 }], { linkType: 'fulfil', fxRate: 80 })[0]!.rate).toBe(125)
   })
   it('names an allowed pair for every trading kind; challan / GRN rows lock their goods, returns do not', () => {
-    for (const k of ['sales', 'purchase', 'credit_note', 'debit_note'] as const) expect(addFromIsAllowed(k)).toBe(true)
+    for (const k of ['sales', 'purchase', 'credit_note', 'debit_note', 'delivery_note', 'receipt_note'] as const) expect(addFromIsAllowed(k)).toBe(true)
     expect(addFromFor('journal')).toBeNull()
     expect(sourceLocksGoods('delivery_note', 'sales', 'fulfil')).toBe(true)
     expect(sourceLocksGoods('receipt_note', 'purchase', 'fulfil')).toBe(true)

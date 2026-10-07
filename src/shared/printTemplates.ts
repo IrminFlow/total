@@ -29,20 +29,27 @@ export const PRINT_TEMPLATES_META_KEY = 'printTemplates'
 
 /** Document kinds a template can apply to. Extensible: append new kinds at the end (stored
  *  templates keep parsing — titles default per kind). `delivery_challan` prints delivery notes
- *  and `goods_receipt` receipt notes (WP 2.5b); `quotation` is still a placeholder (WP 2.5c). */
+ *  and `goods_receipt` receipt notes (WP 2.5b); `quotation`, `sales_order` and `purchase_order`
+ *  print the trade documents (WP 2.5c). */
 export const PRINT_DOC_KINDS = [
   'sales', 'credit_note', 'debit_note', 'purchase', 'receipt', 'payment', 'journal', 'contra',
-  'delivery_challan', 'quotation', 'goods_receipt'
+  'delivery_challan', 'quotation', 'goods_receipt', 'sales_order', 'purchase_order'
 ] as const
 export type PrintDocKind = (typeof PRINT_DOC_KINDS)[number]
 export const printDocKindSchema = z.enum(PRINT_DOC_KINDS)
 
 /** Kinds rendered with the item-table (invoice) layout; the rest print as an accounting voucher
  *  (particulars / debit / credit). */
-export const INVOICE_SHAPED_KINDS: readonly PrintDocKind[] = ['sales', 'credit_note', 'debit_note', 'delivery_challan', 'quotation', 'goods_receipt']
-export const PHASE2_KINDS: readonly PrintDocKind[] = ['quotation']
+export const INVOICE_SHAPED_KINDS: readonly PrintDocKind[] = [
+  'sales', 'credit_note', 'debit_note', 'delivery_challan', 'quotation', 'goods_receipt', 'sales_order', 'purchase_order'
+]
+/** Kinds not printable yet (the designer hides them). Empty since WP 2.5c made quotations live. */
+export const PHASE2_KINDS: readonly PrintDocKind[] = []
 /** Stock notes (WP 2.5b): goods only — no tax-invoice wording, no outstanding, no IRN / bank QR. */
 export const STOCK_NOTE_PRINT_KINDS: readonly PrintDocKind[] = ['delivery_challan', 'goods_receipt']
+/** Quotations and orders (WP 2.5c): commercial documents, not tax documents — no IRN / payment QR,
+ *  no outstanding, no invoice declaration; validity / expected date and the document's terms print. */
+export const TRADE_DOC_PRINT_KINDS: readonly PrintDocKind[] = ['quotation', 'sales_order', 'purchase_order']
 
 export const PRINT_DOC_KIND_LABELS: Record<PrintDocKind, string> = {
   sales: 'Sales invoice',
@@ -55,7 +62,9 @@ export const PRINT_DOC_KIND_LABELS: Record<PrintDocKind, string> = {
   contra: 'Contra voucher',
   delivery_challan: 'Delivery challan',
   quotation: 'Quotation',
-  goods_receipt: 'Goods receipt note'
+  goods_receipt: 'Goods receipt note',
+  sales_order: 'Sales order',
+  purchase_order: 'Purchase order'
 }
 
 export const DEFAULT_TITLES: Record<PrintDocKind, string> = {
@@ -69,7 +78,9 @@ export const DEFAULT_TITLES: Record<PrintDocKind, string> = {
   contra: 'CONTRA VOUCHER',
   delivery_challan: 'DELIVERY CHALLAN',
   quotation: 'QUOTATION',
-  goods_receipt: 'GOODS RECEIPT NOTE'
+  goods_receipt: 'GOODS RECEIPT NOTE',
+  sales_order: 'SALES ORDER',
+  purchase_order: 'PURCHASE ORDER'
 }
 
 /** Voucher kinds whose print kind has another name. */
@@ -82,7 +93,8 @@ const PRINT_KIND_OF_VOUCHER_KIND: Record<string, PrintDocKind> = {
 export function printKindForVoucherKind(kind: string): PrintDocKind | null {
   if (PRINT_KIND_OF_VOUCHER_KIND[kind]) return PRINT_KIND_OF_VOUCHER_KIND[kind]!
   // The print kinds that are not voucher kinds are never matched by name.
-  if (kind === 'delivery_challan' || kind === 'goods_receipt' || kind === 'quotation') return null
+  // Quotations and orders are trade documents, not vouchers (printed by loadTradeDocPrint).
+  if (kind === 'delivery_challan' || kind === 'goods_receipt' || TRADE_DOC_PRINT_KINDS.includes(kind as PrintDocKind)) return null
   return (PRINT_DOC_KINDS as readonly string[]).includes(kind) ? (kind as PrintDocKind) : null
 }
 

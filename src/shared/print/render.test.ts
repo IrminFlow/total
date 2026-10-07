@@ -237,6 +237,16 @@ describe('renderDocument — template options', () => {
     expect(renderDocument(CLASSIC_DEFAULT, { ...doc(INV), outstandingPaise: 250000 })).not.toContain('Balance outstanding')
   })
 
+  it('TCS collected prints as "TCS @ rate u/s …" after GST, inside the total — only when the invoice carries it', () => {
+    const withTcs: EdocInvoice = { ...INV, total: INV.total + 11800, tcs: { amountPaise: 11800, rateBp: 100, reference: '206C(1)' } }
+    const html = renderDocument(CLASSIC_DEFAULT, doc(withTcs))
+    expect(html).toContain('<tr><td>TCS @ 1% u/s 206C(1)</td><td class="r num">118.00</td></tr>')
+    expect(html.indexOf('TCS @ 1%')).toBeGreaterThan(html.indexOf('<td>SGST</td>'))
+    expect(html.indexOf('TCS @ 1%')).toBeLessThan(html.indexOf('<tr class="grand">'))
+    expect(html).toContain('11,918.00')
+    expect(renderDocument(CLASSIC_DEFAULT, doc(INV))).not.toContain('TCS')
+  })
+
   it('escapes template text (no markup injection through labels)', () => {
     const t = withColumns(CLASSIC_DEFAULT, (cols) => cols.map((c) => (c.key === 'item' ? { ...c, label: '<b>x</b>' } : c)))
     expect(renderDocument(t, doc(INV))).toContain('<th>&lt;b&gt;x&lt;/b&gt;</th>')

@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 import { useDeepLinkOpen } from '../lib/useDeepLinkOpen'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import type { Currency, Godown, Ledger, StockGroup, StockItem, Unit, VoucherType } from '@shared/domain'
+import { TRADE_DOC_KINDS, type Currency, type Godown, type Ledger, type StockGroup, type StockItem, type TradeDocType, type Unit, type VoucherType } from '@shared/domain'
 import { filterLedgers, type ChartGroupNode } from '@shared/chartOfAccounts'
 import { api } from '../lib/client'
 import { useNav, useSession, useToasts, type Screen } from '../state/stores'
@@ -16,6 +16,7 @@ import { ChartOfAccounts } from '../components/ChartOfAccounts'
 import { validateHsn } from '@shared/gst/validate'
 import { confirmDialog, promptDialog } from '../lib/dialogs'
 import { ItemLink, LedgerLink } from '../components/links'
+import { useFeatures } from '../lib/useFeatures'
 import { BomVersionsEditor } from '../components/BomEditor'
 import { LedgerPicker } from '../components/pickers'
 
@@ -587,6 +588,10 @@ export function ItemFormModal({ item, onClose }: { item: StockItem | null; onClo
   const [reorderText, setReorderText] = useState(item?.reorderLevelMilli != null ? String(item.reorderLevelMilli / 1000) : '')
   const [valuationMethod, setValuationMethod] = useState<'weighted_avg' | 'fifo'>(item?.valuationMethod ?? 'weighted_avg')
   const [trackSerials, setTrackSerials] = useState(item?.trackSerials ?? false)
+  // TCS goods category (WP 3.3): selling this item collects TCS under the section.
+  const features = useFeatures()
+  const { data: tcsSections } = useQuery({ queryKey: ['tcsSections'], queryFn: api.tcs.sections, enabled: features.tcs })
+  const [tcsSectionId, setTcsSectionId] = useState<number | ''>(item?.tcsSectionId ?? '')
   const nav = useNav()
 
   const hsnCheck = hsn.trim() ? validateHsn(hsn) : null
@@ -610,7 +615,8 @@ export function ItemFormModal({ item, onClose }: { item: StockItem | null; onClo
         barcode: barcode.trim() || null,
         reorderLevelMilli: reorderText.trim() ? Math.round(parseFloat(reorderText) * 1000) : null,
         valuationMethod,
-        trackSerials
+        trackSerials,
+        ...(features.tcs ? { tcsSectionId: tcsSectionId === '' ? null : tcsSectionId } : {})
       }
       if (data.reorderLevelMilli != null && !(data.reorderLevelMilli >= 0)) return void toast.push('error', 'Reorder level must be a number')
       if (item) await api.stockItems.update(item.id, data)
@@ -704,6 +710,18 @@ export function ItemFormModal({ item, onClose }: { item: StockItem | null; onClo
           onChange={setTrackSerials}
           testId="input-item-track-serials"
         />
+        {features.tcs && (
+          <Field label="TCS on sale (goods category)" hint="Sales of this item collect TCS under the section — scrap, timber, minerals, a motor vehicle …">
+            <Select data-testid="input-item-tcs-section" value={tcsSectionId} onChange={(e) => setTcsSectionId(e.target.value ? Number(e.target.value) : '')}>
+              <option value="">None</option>
+              {(tcsSections ?? []).map((s) => (
+                <option key={s.id} value={s.id}>
+                  {s.code} — {s.description}
+                </option>
+              ))}
+            </Select>
+          </Field>
+        )}
         {item && <BomVersionsEditor itemId={item.id} />}
         <div className="flex justify-between">
           <div className="flex gap-2">
@@ -820,9 +838,9 @@ function UnitsTab(): React.JSX.Element {
 
 // ---------- voucher types ----------
 
-const typeFormat = (t: VoucherType): string => `${t.prefix}${'#'.repeat(Math.max(1, t.padWidth))}${t.suffix}`
+const typeFormat = (t: { prefix: string; padWidth: number; suffix: string }): string => `${t.prefix}${'#'.repeat(Math.max(1, t.padWidth))}${t.suffix}`
 
-const TYPE_COLUMNS = defineColumns<VoucherType>([
+const TYPE_COLUMNS = defineColumns<VoucherType | TradeDocType>([
   { id: 'name', header: 'Name', kind: 'text', value: (t) => t.name, hideable: false, groupable: false },
   { id: 'kind', header: 'Kind', kind: 'text', value: (t) => t.kind.replace('_', ' '), className: 'text-muted', width: 150 },
   {
@@ -857,6 +875,7 @@ const TYPE_COLUMNS = defineColumns<VoucherType>([
 
 function TypesTab(): React.JSX.Element {
   const { data: types } = useQuery({ queryKey: ['voucherTypes'], queryFn: api.voucherTypes.list })
+  const features = useFeatures()
   const [editing, setEditing] = useState<VoucherType | 'new' | null>(null)
 
   return (
@@ -890,6 +909,46 @@ function TypesTab(): React.JSX.Element {
         />
       </Panel>
       {editing && <TypeFormModal vt={editing === 'new' ? null : editing} onClose={() => setEditing(null)} />}
+      {features.orders && <TradeDocTypesSection />}
+    </>
+  )
+}
+
+/** WP 2.5c: numbering series of quotations and orders (trade_doc_types) — the same knobs. */
+function TradeDocTypesSection(): React.JSX.Element {
+  const { data: types } = useQuery({ queryKey: ['tradeDocTypes'], queryFn: api.tradeDocTypes.list })
+  const [editing, setEditing] = useState<TradeDocType | 'new' | null>(null)
+  return (
+    <>
+      <div className="mt-section mb-2 flex items-center justify-between">
+        <h2 className="text-subtitle font-semibold text-ink">Quotation &amp; order series</h2>
+        <Button data-testid="btn-masters-new-trade-type" onClick={() => setEditing('new')}>
+          New series
+        </Button>
+      </div>
+      <Panel>
+        <DataTable
+          viewId="masters-trade-types"
+          testId="masters-trade-types"
+          ariaLabel="Quotation and order series"
+          columns={TYPE_COLUMNS}
+          rows={types ?? []}
+          rowKey={(t) => t.id}
+          rowAttrs={(t) => ({ 'data-row-id': t.id })}
+          loading={!types}
+          empty={{ title: 'No series' }}
+          activateOn="dblclick"
+          onRowActivate={(t) => setEditing(t as TradeDocType)}
+          trailing={(t) => (
+            <button type="button" className="text-small text-blue hover:underline" data-testid="btn-masters-edit-trade-type" onClick={() => setEditing(t as TradeDocType)}>
+              Edit
+            </button>
+          )}
+          trailingWidth={72}
+          toolbar={false}
+        />
+      </Panel>
+      {editing && <TypeFormModal vt={editing === 'new' ? null : editing} series="trade" onClose={() => setEditing(null)} />}
     </>
   )
 }
@@ -900,11 +959,23 @@ const VOUCHER_KINDS = [
   'purchase', 'credit_note', 'debit_note', 'stock_journal', 'physical_stock'
 ] as const
 
-function TypeFormModal({ vt, onClose }: { vt: VoucherType | null; onClose: () => void }): React.JSX.Element {
+const TRADE_KIND_LABEL: Record<TradeDocType['kind'], string> = { quotation: 'quotation', sales_order: 'sales order', purchase_order: 'purchase order' }
+
+function TypeFormModal({
+  vt,
+  onClose,
+  series = 'voucher'
+}: {
+  vt: VoucherType | TradeDocType | null
+  onClose: () => void
+  /** 'trade' = a quotation / order series (WP 2.5c), saved through tradeDocTypes:save. */
+  series?: 'voucher' | 'trade'
+}): React.JSX.Element {
   const toast = useToasts()
   const queryClient = useQueryClient()
+  const trade = series === 'trade'
   const [name, setName] = useState(vt?.name ?? '')
-  const [kind, setKind] = useState<VoucherType['kind']>(vt?.kind ?? 'journal')
+  const [kind, setKind] = useState<string>(vt?.kind ?? (trade ? 'quotation' : 'journal'))
   const [numbering, setNumbering] = useState(vt?.numbering ?? 'auto')
   const [prefix, setPrefix] = useState(vt?.prefix ?? '')
   const [suffix, setSuffix] = useState(vt?.suffix ?? '')
@@ -918,8 +989,15 @@ function TypeFormModal({ vt, onClose }: { vt: VoucherType | null; onClose: () =>
 
   const save = async (): Promise<void> => {
     try {
-      if (!name.trim()) return void toast.push('error', 'Name the voucher type')
-      const data = { name: name.trim(), kind, numbering, prefix, suffix, padWidth: pad, restartFy }
+      if (!name.trim()) return void toast.push('error', trade ? 'Name the series' : 'Name the voucher type')
+      if (trade) {
+        const data = { name: name.trim(), kind: kind as TradeDocType['kind'], numbering, prefix, suffix, padWidth: pad, restartFy }
+        await api.tradeDocTypes.save(data, vt?.id)
+        await queryClient.invalidateQueries({ queryKey: ['tradeDocTypes'] })
+        toast.push('success', vt ? `${vt.name} updated` : `${data.name} created`)
+        return onClose()
+      }
+      const data = { name: name.trim(), kind: kind as VoucherType['kind'], numbering, prefix, suffix, padWidth: pad, restartFy }
       if (vt) await api.voucherTypes.update(vt.id, data)
       else await api.voucherTypes.create(data)
       await queryClient.invalidateQueries({ queryKey: ['voucherTypes'] })
@@ -931,16 +1009,16 @@ function TypeFormModal({ vt, onClose }: { vt: VoucherType | null; onClose: () =>
   }
 
   return (
-    <Modal title={vt ? `${vt.name} settings` : 'New voucher type'} onClose={onClose}>
+    <Modal title={vt ? `${vt.name} settings` : trade ? 'New quotation / order series' : 'New voucher type'} onClose={onClose}>
       <div className="grid grid-cols-2 gap-3">
         <Field label="Name" hint={identityLocked ? 'Default types keep their name' : undefined}>
-          <TextInput autoFocus={!vt} value={name} disabled={identityLocked} onChange={(e) => setName(e.target.value)} placeholder="Export Sales" />
+          <TextInput autoFocus={!vt} value={name} disabled={identityLocked} onChange={(e) => setName(e.target.value)} placeholder={trade ? 'Export Quotation' : 'Export Sales'} />
         </Field>
-        <Field label="Behaves like" hint={identityLocked ? undefined : 'Sets the entry screen and posting rules'}>
-          <Select value={kind} disabled={identityLocked} onChange={(e) => setKind(e.target.value as VoucherType['kind'])}>
-            {VOUCHER_KINDS.map((k) => (
+        <Field label={trade ? 'Document' : 'Behaves like'} hint={identityLocked ? undefined : trade ? 'Fixed once the series is used' : 'Sets the entry screen and posting rules'}>
+          <Select value={kind} disabled={identityLocked} onChange={(e) => setKind(e.target.value)}>
+            {(trade ? TRADE_DOC_KINDS : VOUCHER_KINDS).map((k) => (
               <option key={k} value={k}>
-                {k.replace('_', ' ')}
+                {trade ? TRADE_KIND_LABEL[k as TradeDocType['kind']] : k.replace('_', ' ')}
               </option>
             ))}
           </Select>
