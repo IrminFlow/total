@@ -79,6 +79,7 @@ import * as yearEnd from './services/yearEnd'
 import { registerFixedAssetIpc } from './ipcFixedAssets'
 import { registerPayrollStatutoryIpc } from './ipcPayrollStatutory'
 import { registerPricingIpc } from './ipcPricing'
+import { registerCashFinanceIpc } from './ipcCashFinance'
 import { rememberSalePrices } from './services/pricing'
 import { importTallyXml, dryRunTallyXml } from './services/tallyImport'
 import * as importer from './services/importers'
@@ -250,6 +251,8 @@ export function registerIpc(): void {
   // ---------- payroll statutory (WP 3.7) — channels live in ipcPayrollStatutory.ts ----------
   registerPayrollStatutoryIpc(handle, () => requireCompany())
   registerPricingIpc(handle, () => requireCompany())
+  // ---------- cash and finance (WP 4.4) — channels live in ipcCashFinance.ts ----------
+  registerCashFinanceIpc(handle, () => requireCompany())
 
   // ---------- company ----------
   handle('company:list', () => readRegistry())

@@ -161,6 +161,12 @@ export interface BudgetLine {
   month: string | null
   /** Paise. */
   amount: number
+  /** WP 4.4: cost-centre dimension (null = whole ledger / group). */
+  costCentreId: number | null
+  /** WP 4.4: monthly phasing of an annual line ('annual' = original annual-vs-YTD behaviour). */
+  phasing: 'annual' | 'even' | 'seasonal' | 'manual'
+  /** WP 4.4: 12 paise amounts (Apr..Mar) for 'manual' phasing. */
+  monthly: number[] | null
 }
 
 /** A named budget scoped to one financial year, with its lines. */
@@ -169,6 +175,8 @@ export interface Budget {
   name: string
   fyStartYear: number
   lines: BudgetLine[]
+  /** WP 4.4: 12 month weights (Apr..Mar) for seasonal lines; null = even. */
+  seasonal: number[] | null
 }
 
 /** Every voucher kind — mirrors the `voucher_kinds` lookup table (migration 024; a dbtest pins

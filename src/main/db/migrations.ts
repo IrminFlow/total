@@ -2237,5 +2237,164 @@ export const MIGRATIONS: string[] = [
   ), 'system', NULL);
 
   DROP TABLE m031_before;
+  `,
+  // 035 (WP 4.4) — cash and finance. Number assigned by the orchestrator (032–034 belong to the
+  // parallel WP 4.1–4.3 / 3.5 branches; on this branch it is simply appended — dbtests locate it
+  // by content, never by index). Purely additive: new tables and nullable / defaulted columns.
+  // - forecast_items: the user's known recurring flows (rent, salaries, a loan top-up …) and
+  //   one-off manual adjustments for the cash-flow forecast. Paise; an adjustment is signed
+  //   (+ in, − out), inflow / outflow amounts are positive.
+  // - budgets.seasonal_json: the budget's 12 integer month weights (Apr..Mar) for `seasonal`
+  //   phasing (NULL = even). budget_lines.cost_centre_id (the department / cost-centre dimension),
+  //   .phasing ('annual' = the original annual-vs-YTD behaviour, every existing row keeps it),
+  //   .monthly_json (12 paise amounts for `manual` phasing).
+  // - budget_revisions: one row per save of an existing budget — the whole before / after line
+  //   set, who, when and why (the audit log has the same before / after; this is the readable
+  //   revision history the Budgets screen shows).
+  // - loans / loan_prepayments / loan_schedules: the loan terms, prepayments, and the generated
+  //   instalment rows (src/shared/loanSchedule.ts). A posted row keeps its voucher (Post EMI);
+  //   voucher FKs are ON DELETE SET NULL so a purge from the bin never blocks.
+  // - fx_rates: closing rates by date and currency, entered by the user (no network), integer
+  //   micro-rupees per unit. fx_ledger_currency: a ledger kept in a foreign currency (needed for
+  //   bank accounts; party ledgers are detected from their foreign-currency invoices).
+  //   fx_revaluations / fx_revaluation_lines: each closing-rate revaluation journal, its optional
+  //   next-day reversal and the per-ledger working. fx_settlements: a settlement recorded at an
+  //   actual rate — the receipt / payment (its party line carries the foreign amount) and the
+  //   journal booking the realised difference against Realised Forex Gain / Loss.
+  `
+  CREATE TABLE forecast_items (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    amount INTEGER NOT NULL CHECK (amount <> 0),
+    cadence TEXT NOT NULL CHECK (cadence IN ('once', 'weekly', 'monthly', 'quarterly', 'yearly')),
+    start_date TEXT NOT NULL,
+    end_date TEXT,
+    kind TEXT NOT NULL CHECK (kind IN ('inflow', 'outflow', 'adjustment')),
+    active INTEGER NOT NULL DEFAULT 1 CHECK (active IN (0, 1)),
+    note TEXT,
+    CHECK (end_date IS NULL OR end_date >= start_date),
+    CHECK (kind = 'adjustment' OR amount > 0)
+  );
+
+  ALTER TABLE budgets ADD COLUMN seasonal_json TEXT;
+  ALTER TABLE budget_lines ADD COLUMN cost_centre_id INTEGER REFERENCES cost_centres(id);
+  ALTER TABLE budget_lines ADD COLUMN phasing TEXT NOT NULL DEFAULT 'annual'
+    CHECK (phasing IN ('annual', 'even', 'seasonal', 'manual'));
+  ALTER TABLE budget_lines ADD COLUMN monthly_json TEXT;
+  CREATE INDEX idx_budget_lines_cc ON budget_lines(cost_centre_id);
+
+  CREATE TABLE budget_revisions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    budget_id INTEGER NOT NULL REFERENCES budgets(id) ON DELETE CASCADE,
+    revision_no INTEGER NOT NULL,
+    revised_at TEXT NOT NULL DEFAULT (datetime('now')),
+    user_name TEXT,
+    reason TEXT,
+    before_json TEXT NOT NULL,
+    after_json TEXT NOT NULL,
+    total_before INTEGER NOT NULL,
+    total_after INTEGER NOT NULL,
+    UNIQUE (budget_id, revision_no)
+  );
+
+  CREATE TABLE loans (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL UNIQUE COLLATE NOCASE,
+    loan_ledger_id INTEGER NOT NULL REFERENCES ledgers(id),
+    bank_ledger_id INTEGER REFERENCES ledgers(id),
+    interest_ledger_id INTEGER REFERENCES ledgers(id),
+    principal INTEGER NOT NULL CHECK (principal > 0),
+    annual_rate_milli INTEGER NOT NULL CHECK (annual_rate_milli BETWEEN 0 AND 60000),
+    tenure_months INTEGER NOT NULL CHECK (tenure_months BETWEEN 1 AND 600),
+    disbursed_on TEXT NOT NULL,
+    first_due_date TEXT NOT NULL,
+    method TEXT NOT NULL DEFAULT 'reducing' CHECK (method IN ('reducing', 'flat')),
+    moratorium_months INTEGER NOT NULL DEFAULT 0 CHECK (moratorium_months BETWEEN 0 AND 60),
+    moratorium_mode TEXT NOT NULL DEFAULT 'capitalise' CHECK (moratorium_mode IN ('capitalise', 'interest_only')),
+    emi_override INTEGER CHECK (emi_override IS NULL OR emi_override > 0),
+    status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'closed')),
+    notes TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    CHECK (first_due_date > disbursed_on)
+  );
+  CREATE TABLE loan_prepayments (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    loan_id INTEGER NOT NULL REFERENCES loans(id) ON DELETE CASCADE,
+    date TEXT NOT NULL,
+    amount INTEGER NOT NULL CHECK (amount > 0),
+    effect TEXT NOT NULL CHECK (effect IN ('reduce_tenure', 'reduce_emi'))
+  );
+  CREATE INDEX idx_loan_prepayments_loan ON loan_prepayments(loan_id);
+  CREATE TABLE loan_schedules (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    loan_id INTEGER NOT NULL REFERENCES loans(id) ON DELETE CASCADE,
+    seq INTEGER NOT NULL,
+    due_date TEXT NOT NULL,
+    kind TEXT NOT NULL CHECK (kind IN ('emi', 'moratorium', 'prepayment')),
+    opening INTEGER NOT NULL,
+    payment INTEGER NOT NULL CHECK (payment >= 0),
+    interest INTEGER NOT NULL CHECK (interest >= 0),
+    principal INTEGER NOT NULL,
+    closing INTEGER NOT NULL CHECK (closing >= 0),
+    voucher_id INTEGER REFERENCES vouchers(id) ON DELETE SET NULL,
+    posted_at TEXT,
+    UNIQUE (loan_id, seq),
+    CHECK (opening - principal = closing),
+    CHECK (payment = principal + interest)
+  );
+  CREATE INDEX idx_loan_schedules_due ON loan_schedules(due_date);
+  CREATE INDEX idx_loan_schedules_voucher ON loan_schedules(voucher_id);
+
+  CREATE TABLE fx_rates (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    date TEXT NOT NULL,
+    currency_code TEXT NOT NULL,
+    rate_micro INTEGER NOT NULL CHECK (rate_micro > 0),
+    note TEXT,
+    UNIQUE (date, currency_code)
+  );
+  CREATE TABLE fx_ledger_currency (
+    ledger_id INTEGER PRIMARY KEY REFERENCES ledgers(id) ON DELETE CASCADE,
+    currency_code TEXT NOT NULL
+  );
+  CREATE TABLE fx_revaluations (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    as_of TEXT NOT NULL,
+    voucher_id INTEGER REFERENCES vouchers(id) ON DELETE SET NULL,
+    reversal_voucher_id INTEGER REFERENCES vouchers(id) ON DELETE SET NULL,
+    auto_reverse INTEGER NOT NULL DEFAULT 1 CHECK (auto_reverse IN (0, 1)),
+    gain INTEGER NOT NULL DEFAULT 0 CHECK (gain >= 0),
+    loss INTEGER NOT NULL DEFAULT 0 CHECK (loss >= 0),
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+  CREATE INDEX idx_fx_revaluations_voucher ON fx_revaluations(voucher_id);
+  CREATE INDEX idx_fx_revaluations_reversal ON fx_revaluations(reversal_voucher_id);
+  CREATE TABLE fx_revaluation_lines (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    revaluation_id INTEGER NOT NULL REFERENCES fx_revaluations(id) ON DELETE CASCADE,
+    ledger_id INTEGER NOT NULL REFERENCES ledgers(id),
+    currency_code TEXT NOT NULL,
+    fc_balance INTEGER NOT NULL,
+    book_inr INTEGER NOT NULL,
+    rate_micro INTEGER NOT NULL CHECK (rate_micro > 0),
+    target_inr INTEGER NOT NULL,
+    adjustment INTEGER NOT NULL,
+    CHECK (target_inr - book_inr = adjustment)
+  );
+  CREATE INDEX idx_fx_revaluation_lines_rev ON fx_revaluation_lines(revaluation_id);
+  CREATE TABLE fx_settlements (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    voucher_id INTEGER NOT NULL REFERENCES vouchers(id) ON DELETE CASCADE,
+    adjustment_voucher_id INTEGER REFERENCES vouchers(id) ON DELETE SET NULL,
+    party_ledger_id INTEGER NOT NULL REFERENCES ledgers(id),
+    currency_code TEXT NOT NULL,
+    fc_amount INTEGER NOT NULL CHECK (fc_amount > 0),
+    settle_rate_micro INTEGER NOT NULL CHECK (settle_rate_micro > 0),
+    party_inr INTEGER NOT NULL CHECK (party_inr >= 0),
+    bank_inr INTEGER NOT NULL CHECK (bank_inr >= 0),
+    gain_loss INTEGER NOT NULL,
+    UNIQUE (voucher_id, party_ledger_id)
+  );
+  CREATE INDEX idx_fx_settlements_adj ON fx_settlements(adjustment_voucher_id);
   `
 ]

@@ -264,6 +264,24 @@ export const AUDIT_COVERAGE: Record<string, AuditCoverage> = {
   'fa:runPost': a('depreciation_run', 'voucher'),
   'fa:dispose': a('fixed_asset', 'voucher'),
 
+  // ---------- cash and finance (WP 4.4) ----------
+  'forecast:itemSave': a('forecast_item'),
+  'forecast:itemDelete': a('forecast_item'),
+  'loan:save': a('loan'),
+  'loan:delete': a('loan'),
+  'loan:setStatus': a('loan'),
+  'loan:prepaymentAdd': a('loan'),
+  'loan:prepaymentDelete': a('loan'),
+  'loan:postEmi': a('loan', 'voucher'),
+  'fx:rateSave': a('fx_rate'),
+  'fx:rateDelete': a('fx_rate'),
+  'fx:setLedgerCurrency': a('fx_ledger_currency'),
+  'fx:revalue': a('fx_revaluation', 'voucher'),
+  'fx:reverse': a('fx_revaluation', 'voucher'),
+  'fx:settle': a('fx_settlement', 'voucher'),
+  'budget:importCsv': a('budget'),
+  'budget:exportCsv': EXPORT,
+
   // ---------- the audit trail itself (viewer-level, listed for completeness) ----------
   'audit:exportCsv': EXPORT,
   'audit:exportPdf': EXPORT

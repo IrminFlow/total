@@ -32,10 +32,11 @@ beforeEach(() => {
 })
 
 describe('migration 031 backfill', () => {
-  it('is migration 031, after 030 (WP 2.6), and the last', () => {
+  it('is migration 031, after 030 (WP 2.6)', () => {
     expect(M031).toBeGreaterThan(MIGRATIONS.findIndex((sql) => sql.includes('CREATE TABLE price_list_rates_030')))
     expect(M031 + 1).toBe(31)
-    expect(M031).toBe(MIGRATIONS.length - 1)
+    // Phase 4 migrations (032–035) are appended after it.
+    expect(M031).toBeLessThan(MIGRATIONS.length)
   })
 
   it('seals every pre-existing row in id order into a chain that verifies; keeps users as recorded', () => {
