@@ -12,7 +12,7 @@ import { isAnyModalOpen, layerCount, topModalElement, useDialogLayer } from './k
 export { Button, IconButton, buttonClass } from './kit/Button'
 export type { ButtonProps, ButtonVariant, ButtonSize } from './kit/Button'
 export { Kbd, SectionTitle, Money } from './kit/Text'
-export { Field, TextInput, Select, Textarea, Checkbox, inputCls, inputSmCls, useFieldAria } from './kit/Field'
+export { Field, TextInput, Select, Textarea, Checkbox, inputCls, inputSmCls, controlCls, useFieldAria, useInField } from './kit/Field'
 export { Spinner, Skeleton, SkeletonRows, SkeletonTiles, EmptyState, Banner } from './kit/Feedback'
 export type { Tone } from './kit/Feedback'
 export { Badge, Chip } from './kit/Badge'

@@ -3,7 +3,7 @@
 export { Button, IconButton, buttonClass } from './Button'
 export type { ButtonProps, ButtonVariant, ButtonSize } from './Button'
 export { Kbd, SectionTitle, Money } from './Text'
-export { Field, TextInput, Select, Textarea, Checkbox, inputCls, inputSmCls, useFieldAria } from './Field'
+export { Field, TextInput, Select, Textarea, Checkbox, inputCls, inputSmCls, controlCls, useFieldAria, useInField } from './Field'
 export { Spinner, Skeleton, SkeletonRows, SkeletonTiles, EmptyState, Banner } from './Feedback'
 export type { Tone } from './Feedback'
 export { Badge, Chip } from './Badge'

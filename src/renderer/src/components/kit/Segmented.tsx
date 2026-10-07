@@ -29,7 +29,7 @@ export function Segmented<T extends string>({
     ref.current?.querySelectorAll<HTMLButtonElement>('[role="radio"]')[(i + n) % n]?.focus()
   }
   return (
-    <div ref={ref} role="radiogroup" aria-label={label} className="inline-flex rounded-md border border-line bg-panel2 p-0.5">
+    <div ref={ref} role="radiogroup" aria-label={label} className="inline-flex max-w-full flex-wrap rounded-md border border-line bg-panel2 p-0.5">
       {options.map((o, i) => {
         const on = o.value === value
         return (

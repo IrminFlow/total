@@ -310,7 +310,9 @@ export function Gstr1Screen(): React.JSX.Element {
           </div>
         </Panel>
       ) : (
-        <p className="mb-3 text-small text-muted">Validation clean — no issues found in this period. ✓</p>
+        <p className="mb-3 text-small text-success" role="status" data-testid="gstr1-validation-clean">
+          Validation clean — no issues found in this period. ✓
+        </p>
       )}
 
       <Panel>

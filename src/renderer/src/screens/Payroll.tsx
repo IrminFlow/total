@@ -7,7 +7,7 @@ import { api, type EmployeeHeadRow, type PayHead, type PtSummaryRow } from '../l
 import { formatPaise, parseRupees } from '@shared/money'
 import { useNav, useToasts } from '../state/stores'
 import {
-  AmountInput, Button, DrawerSection, EmptyState, Field, Modal, Money, Page, PageHeader, Panel, ScrollList, Select, Spinner, TextInput, inputCls
+  AmountInput, Button, DrawerSection, EmptyState, Field, Modal, Money, Page, PageHeader, Panel, ScrollList, Select, SkeletonRows, Spinner, TextInput, inputCls
 } from '../components/ui'
 import { OptionToggle, OptionsTable, useScreenOptions } from '../components/ScreenOptions'
 import { confirmDialog } from '../lib/dialogs'
@@ -644,9 +644,7 @@ function EmployeeHeadsModal({ employee, onClose }: { employee: Employee; onClose
   return (
     <Modal title={`Pay heads — ${employee.name}`} onClose={onClose} wide dirty={dirty}>
       {!loaded ? (
-        <div className="flex items-center gap-2 py-4 text-detail text-muted">
-          <Spinner /> Loading…
-        </div>
+        <SkeletonRows rows={4} />
       ) : !heads.length ? (
         <EmptyState title="No pay heads defined" hint="Create pay heads first (Employees tab → Pay heads…)" />
       ) : (

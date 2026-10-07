@@ -268,6 +268,12 @@ export function EdocsScreen(): React.JSX.Element {
                 <p className="text-hint text-muted">
                   {live ? 'NIC credentials are set — IRN and e-way bills can be generated per document.' : 'Offline mode: export JSON and upload it on the portals.'}
                 </p>
+                <p className="text-hint text-muted">
+                  Offline route: export JSON for the government offline tools — the period export writes one combined bulk file plus a
+                  per-bill file per consignment. Live route: add your NIC API credentials once, then generate IRNs and e-way bills
+                  directly — needs internet and a registered API user (einvoice1.gst.gov.in → API registration) or GSP credentials.
+                </p>
+
                 <div>
                   <Button size="sm" data-testid="btn-edocs-nic-settings" onClick={() => nav.go({ name: 'settings', tab: 'nic' })}>
                     Configure in Settings →
@@ -384,9 +390,7 @@ export function EdocsScreen(): React.JSX.Element {
           )}
         />
       </Panel>
-      <p className="mt-2 text-hint text-muted">
-        Offline route: export JSON for the government offline tools — the period export writes one combined bulk file plus a per-bill file per consignment. Live route: add your NIC API credentials once, then generate IRNs and e-way bills directly — needs internet and a registered API user (einvoice1.gst.gov.in → API registration) or GSP credentials.
-      </p>
+      <p className="mt-2 text-hint text-muted">Export JSON for the government offline tools, or file live with NIC credentials · F12 for options.</p>
 
       {confirming && (
         <LiveApiConfirmModal

@@ -56,6 +56,10 @@ Contrast is checked on the token values by `__tests__/tokens.test.ts` and on scr
 </Page>
 ```
 
+A sub-view that owns its primary action (each Masters tab's "New …") renders
+`<PageActions><Button variant="primary">New ledger</Button></PageActions>` anywhere inside the
+`Page`; it portals into the header's action area.
+
 The title is the page's `h1` (`data-testid="page-title"`). With `options`, an **Options** button
 (`btn-<screen>-options`, also F12) opens a right `Drawer` (`options-<screen>`) with Reset /
 Done in its footer. Per-screen option state lives in `useScreenOptions` (see
@@ -92,8 +96,17 @@ spinner. `buttonClass(variant, size)` gives the class string for button-looking 
 
 The caption is the control's accessible name; hint/error are linked with
 `aria-describedby`, an error sets `aria-invalid` and announces. Outside a Field use
-`<TextInput invalid />`. `inputCls` / `inputSmCls` style custom controls; `useFieldAria()` gives
-a custom control inside a Field its aria props (AmountInput, DateInput use it).
+`<TextInput invalid />`. `inputCls` / `inputSmCls` style custom controls (`controlCls(className)`
+drops `w-full` when you size the control yourself); `useFieldAria()` gives a custom control inside
+a Field its aria props, and `useInField()` tells it not to add a fallback `aria-label` (AmountInput,
+DateInput and the TypeAhead pickers name themselves "Amount" / "Date" / their placeholder outside
+a Field).
+
+### `Segmented`
+
+`<Segmented label="Density" options={[…]} value={v} onChange={set} testId="btn-density" />` — a
+one-of-N radiogroup of joined buttons (Settings → Appearance, drawer choices). ←/→ move and
+select; testids `<testId>-<value>`. It wraps when narrow.
 
 ### `TabBar` (alias `Tabs`)
 
@@ -129,7 +142,9 @@ lists behind it pause.
 ```
 
 Right-side panel on a scrim. Esc closes the topmost layer only, so a Modal opened from a
-Drawer closes first.
+Drawer closes first. The drawer sits at z-30, under Modal (z-40) and popovers (z-50), so dialogs
+opened from it paint on top.
+
 
 ### `Popover`, `PopoverButton`, `MenuButton`
 
