@@ -24,6 +24,8 @@ export const AUDIT_ENTITIES = [
   'fixed_asset_group',
   'godown',
   'group',
+  'gst_ims',
+  'gst_self_invoice',
   'it_block',
   'it_block_rate',
   'job_work',

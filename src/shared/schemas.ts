@@ -1044,6 +1044,9 @@ const itcPartSchema = z.object({
 export const gst3bManualSchema = z.object({
   itcRevRul: itcPartSchema.default({}),
   itcRevOth: itcPartSchema.default({}),
+  /** 4(D)(1) — ITC reclaimed that was reversed under 4(B)(2) in an earlier period (rule 37 /
+   *  37A re-availment; Circular 170/02/2022-GST): availed again in 4(A)(5) and reported here. */
+  itcReclaimed: itcPartSchema.default({}),
   interest: itcPartSchema.default({}),
   lateFee: z.object({ camt: paise.default(0), samt: paise.default(0) }).default({})
 })

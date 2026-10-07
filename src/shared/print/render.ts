@@ -168,12 +168,14 @@ const DOC_LABEL: Record<PrintDocKind, string> = {
   quotation: 'Quotation',
   goods_receipt: 'Receipt note',
   sales_order: 'Order',
-  purchase_order: 'Purchase order'
+  purchase_order: 'Purchase order',
+  self_invoice: 'Self invoice'
 }
 const PARTY_LABEL: Partial<Record<PrintDocKind, string>> = {
   receipt: 'Received from',
   payment: 'Paid to',
-  purchase: 'Supplier'
+  purchase: 'Supplier',
+  self_invoice: 'Supplier (unregistered)'
 }
 
 /** `#rrggbb` + alpha → rgba() (accent tints). */
@@ -679,7 +681,8 @@ function renderInvoice(c: Ctx, doc: InvoiceDocument, opts: RenderOptions): strin
           <div><i>${esc(amountInWords(inv.total))}</i></div>`
     : ''
 
-  const showQr = t.einvoice.showQr && !notInvoice
+  // No QR on a self-invoice (never e-invoiced, no payment details) or a non-invoice document.
+  const showQr = t.einvoice.showQr && !notInvoice && doc.kind !== 'self_invoice'
   const headerQr = showQr && t.einvoice.qrPlacement === 'header' ? qrBlock(c, company, inv, irn) : ''
   const footerQr = showQr && t.einvoice.qrPlacement === 'footer' ? `<div class="qr-foot">${qrBlock(c, company, inv, irn)}</div>` : ''
   if (footerQr) c.extra.add('qr-foot')
@@ -695,7 +698,8 @@ function renderInvoice(c: Ctx, doc: InvoiceDocument, opts: RenderOptions): strin
       : doc.kind === 'goods_receipt' ? 'Received from'
         : doc.kind === 'purchase_order' ? 'Supplier'
           : doc.kind === 'quotation' ? 'Quoted to'
-            : p.billToLabel
+            : doc.kind === 'self_invoice' ? PARTY_LABEL.self_invoice!
+              : p.billToLabel
   const purposeLine = stockNote && inv.purpose ? `<div>Purpose: ${esc(purposeLabel(inv.purpose))}</div>` : ''
   const tradeLines = trade
     ? [
@@ -742,7 +746,8 @@ function renderInvoice(c: Ctx, doc: InvoiceDocument, opts: RenderOptions): strin
           <div>No: <b class="num">${esc(inv.number)}</b></div>
           <div>Date: <span class="num">${c.date(inv.date)}</span></div>
           ${inv.precedingDoc ? `<div>Against: <span class="num">${esc(inv.precedingDoc.invNo)}</span> dt <span class="num">${c.date(inv.precedingDoc.invDate)}</span></div>` : ''}
-          ${p.showPlaceOfSupply ? `<div>Place of supply: <span class="num">${esc(inv.pos)}-${esc(GST_STATES[inv.pos] ?? '')}</span></div>` : ''}
+          ${p.showPlaceOfSupply ? `<div>Place of supply: <span class="num">${esc(inv.pos)}-${esc(GST_STATES[inv.pos] ?? '')}</span></div>` : ''}${doc.kind === 'self_invoice' ? `
+          <div>Tax payable on reverse charge: <b>Yes</b></div>` : ''}
           ${p.showVehicle && inv.vehicleNo ? `<div>Vehicle: <span class="num">${esc(inv.vehicleNo)}</span></div>` : ''}${purposeLine}${tradeLines}
         </div>
       </div>${einvoiceLine(c, { irn, ackNo: doc.einvoice?.ackNo ?? null, ackDate: doc.einvoice?.ackDate ?? null, ewbNo: doc.einvoice?.ewbNo ?? null })}

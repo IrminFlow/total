@@ -69,7 +69,11 @@ export type Screen =
   | { name: 'gstr1' }
   | { name: 'gstr3b' }
   | { name: 'gstr2b' }
-  | { name: 'edocs' }
+  // WP 3.4 — GST expansion: tabs of the GST returns screen family.
+  | { name: 'gstr9' }
+  | { name: 'itc04' }
+  | { name: 'itc-reversal' }
+  | { name: 'edocs'; tab?: 'documents' | 'self-invoices' }
   | { name: 'registers' }
   | { name: 'outstandings' }
   // WP 2.5b: delivery challans not invoiced / GRNs not billed.

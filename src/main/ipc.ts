@@ -34,6 +34,15 @@ import * as vouchers from './services/vouchers'
 import * as reports from './services/reports'
 import * as dashboard from './services/dashboard'
 import * as gst from './services/gst'
+import * as gstAnnual from './services/gstAnnual'
+import * as gstIms from './services/gstIms'
+import * as gstRcm from './services/gstRcm'
+import * as gstItcRev from './services/gstItcReversal'
+import {
+  fyStartSchema, imsSetSchema, itc04QuerySchema, itcReversalInputsSchema, itcReversalQuerySchema, recon2bTolerancesSchema,
+  selfInvoiceGenerateSchema, selfInvoiceSeriesSchema
+} from '@shared/gst/expansionSchemas'
+import { recon2bOptionsFrom } from '@shared/gst/recon2b'
 import * as intel from './services/intel'
 import * as analysis from './services/analysis'
 import * as banking from './services/banking'
@@ -890,6 +899,8 @@ export function registerIpc(): void {
     const result = gst.gstr1(c.db, c.info, from, to, period)
     const jsonPath = gst.exportReturnJson(c.slug, 'gstr1', period, result.json)
     const csvPath = gst.exportGstr1Csv(c.slug, result)
+    // WP 3.4: what was exported is the "as filed" side of the GSTR-9 comparison.
+    gstAnnual.recordGstr1Export(c.db, period, result.json)
     auditExport(c.db, 'gstr1', { period, path: jsonPath })
     shell.showItemInFolder(jsonPath)
     return { jsonPath, csvPath }
@@ -918,14 +929,100 @@ export function registerIpc(): void {
     gst.assertExportable(c.db, c.info, from, to)
     const result = gst.gstr3b(c.db, c.info, from, to, period)
     const jsonPath = gst.exportReturnJson(c.slug, 'gstr3b', period, result.json)
+    gstAnnual.recordGstr3bExport(c.db, period, result)
     auditExport(c.db, 'gstr3b', { period, path: jsonPath })
     shell.showItemInFolder(jsonPath)
     return { jsonPath }
   })
   handle('gst:recon2b', (p) => {
     const { jsonText, from, to } = gstr2bSchema.parse(p)
-    return gst.recon2b(requireCompany().db, jsonText, from, to)
+    const db = requireCompany().db
+    return gst.recon2b(db, jsonText, from, to, recon2bOptionsFrom(gstIms.getRecon2bTolerances(db)))
   }, 'viewer')
+
+  // ---------- GST expansion (WP 3.4): 2B tolerances + IMS, GSTR-9, ITC-04, RCM self-invoices, ITC reversal ----------
+  handle('gst:recon2bTolerancesGet', () => gstIms.getRecon2bTolerances(requireCompany().db), 'viewer')
+  handle('gst:recon2bTolerancesSet', (p) => gstIms.setRecon2bTolerances(requireCompany().db, recon2bTolerancesSchema.parse(p)))
+  handle('gst:imsList', (p) => {
+    const { period } = z.object({ period: z.string().regex(/^\d{6}$/) }).parse(p)
+    return gstIms.listImsActions(requireCompany().db, period)
+  }, 'viewer')
+  handle('gst:imsSet', (p) => {
+    const { period, decisions } = imsSetSchema.parse(p)
+    return gstIms.setImsActions(requireCompany().db, period, decisions)
+  })
+  handle('gst:imsExport', (p) => {
+    const { period } = z.object({ period: z.string().regex(/^\d{6}$/) }).parse(p)
+    const c = requireCompany()
+    const r = gstIms.exportImsActions(c.db, c.slug, c.info.gstin ?? '', period)
+    auditExport(c.db, 'ims_actions', { period, path: r.jsonPath, count: r.count })
+    shell.showItemInFolder(r.jsonPath)
+    return r
+  }, 'viewer')
+  handle('gst:gstr9', (p) => {
+    const { fyStartYear } = fyStartSchema.parse(p)
+    const c = requireCompany()
+    return gstAnnual.gstr9(c.db, c.info, fyStartYear)
+  }, 'viewer')
+  handle('gst:exportGstr9', (p) => {
+    const { fyStartYear } = fyStartSchema.parse(p)
+    const c = requireCompany()
+    const r = gstAnnual.exportGstr9(c.db, c.info, c.slug, fyStartYear)
+    auditExport(c.db, 'gstr9', { fyStartYear, path: r.jsonPath })
+    shell.showItemInFolder(r.jsonPath)
+    return r
+  }, 'viewer')
+  handle('gst:itc04', (p) => {
+    const q = itc04QuerySchema.parse(p)
+    const c = requireCompany()
+    return gstAnnual.itc04(c.db, c.info, q)
+  }, 'viewer')
+  handle('gst:exportItc04', (p) => {
+    const q = itc04QuerySchema.parse(p)
+    const c = requireCompany()
+    const r = gstAnnual.exportItc04(c.db, c.info, c.slug, q)
+    auditExport(c.db, 'itc04', { ...q, path: r.jsonPath })
+    shell.showItemInFolder(r.jsonPath)
+    return r
+  }, 'viewer')
+  handle('gst:selfInvoices', (p) => {
+    const { from, to } = periodSchema.parse(p)
+    const c = requireCompany()
+    return gstRcm.listSelfInvoices(c.db, c.info, from, to, todayISO())
+  }, 'viewer')
+  handle('gst:selfInvoiceGenerate', (p) => {
+    const { voucherId, date } = selfInvoiceGenerateSchema.parse(p)
+    return gstRcm.generateSelfInvoice(requireCompany().db, voucherId, date)
+  })
+  handle('gst:selfInvoicePdf', async (p) => {
+    const { voucherId } = z.object({ voucherId: z.number().int().positive() }).parse(p)
+    const c = requireCompany()
+    const path = await gstRcm.selfInvoicePdf(c.db, c.info, c.slug, voucherId)
+    auditExport(c.db, 'self_invoice_pdf', { voucherId, path })
+    shell.openPath(path)
+    return { path }
+  }, 'viewer')
+  handle('gst:selfInvoiceSeriesGet', () => gstRcm.getSelfInvoiceSeries(requireCompany().db), 'viewer')
+  handle('gst:selfInvoiceSeriesSet', (p) => gstRcm.setSelfInvoiceSeries(requireCompany().db, selfInvoiceSeriesSchema.parse(p)))
+  handle('gst:itcReversal', (p) => {
+    const { from, to, period, inputs } = itcReversalQuerySchema.parse(p)
+    const c = requireCompany()
+    return gstItcRev.itcReversal(c.db, c.info, from, to, period, inputs)
+  }, 'viewer')
+  handle('gst:itcReversalInputsSet', (p) => {
+    const { period, inputs } = z.object({ period: z.string().regex(/^\d{6}$/), inputs: itcReversalInputsSchema }).parse(p)
+    return gstItcRev.setItcReversalInputs(requireCompany().db, period, inputs)
+  })
+  handle('gst:itcReversalApply', (p) => {
+    const { from, to, period } = itcReversalQuerySchema.parse(p)
+    const c = requireCompany()
+    return gstItcRev.applyItcReversalTo3b(c.db, c.info, from, to, period)
+  })
+  handle('gst:itcReversalPost', (p) => {
+    const { from, to, period } = itcReversalQuerySchema.parse(p)
+    const c = requireCompany()
+    return gstItcRev.postItcReversal(c.db, c.info, from, to, period)
+  })
   handle('gst:recon2bPickFile', async () => {
     const picked = await dialog.showOpenDialog({
       title: 'Choose a GSTR-2B JSON (downloaded from the GST portal)',

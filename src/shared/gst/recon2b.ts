@@ -52,7 +52,13 @@ export interface Recon2bPair {
   /** portal.value - book.invoiceValue, in paise. Null when either side is missing. */
   valueDiffPaise: number | null
   taxDiffPaise: { igst: number; cgst: number; sgst: number; cess: number } | null
+  /** How the pair was found (WP 3.4): the strict normalised number, the fuzzy number core
+   *  (FY tokens / series prefix / leading zeros dropped), the trailing serial within the date
+   *  window, or value + date alone. Absent on leftovers. */
+  matchedBy?: Recon2bMatchedBy
 }
+
+export type Recon2bMatchedBy = 'number' | 'numberCore' | 'serial' | 'valueDate'
 
 export interface Recon2bBucketTotals {
   count: number
@@ -71,6 +77,26 @@ export interface Recon2bResult {
 export interface Recon2bOptions {
   amountTolerancePaise: number
   dateWindowDays: number
+  /** Percent of the document value (and of each tax head) allowed as difference — the LARGER of
+   *  this and amountTolerancePaise applies. Default 0. */
+  amountTolerancePct?: number
+  /** Run the fuzzy invoice-number passes (number core, trailing serial). Default true. */
+  fuzzyNumbers?: boolean
+}
+
+/** Matcher tolerances as stored per company (Options on the GSTR-2B screen; meta
+ *  `gst.recon2b.tolerances`). */
+export interface Recon2bTolerances {
+  amountPaise: number
+  amountPct: number
+  dateDays: number
+  fuzzyNumbers: boolean
+}
+
+export const DEFAULT_RECON2B_TOLERANCES: Recon2bTolerances = { amountPaise: 100, amountPct: 0, dateDays: 7, fuzzyNumbers: true }
+
+export function recon2bOptionsFrom(t: Recon2bTolerances): Recon2bOptions {
+  return { amountTolerancePaise: t.amountPaise, amountTolerancePct: t.amountPct, dateWindowDays: t.dateDays, fuzzyNumbers: t.fuzzyNumbers }
 }
 
 // ---------- number/date/amount tolerance helpers ----------
@@ -87,6 +113,45 @@ export function normalizeInvoiceNumber(raw: string): string {
   const [, prefix, digits] = m as [string, string, string]
   const trimmed = digits.replace(/^0+(?=\d)/, '')
   return prefix + trimmed
+}
+
+/**
+ * Financial-year tokens suppliers embed in invoice numbers: 2024-25, 24-25, 2024-2025, 24/25,
+ * FY24-25. Only CONSECUTIVE years count as a FY token, so a serial like 12-34 survives.
+ */
+function stripFyTokens(upper: string): string {
+  return upper.replace(/(?:FY)?(\d{2,4})\s*[-/]\s*(\d{2,4})/g, (whole, a: string, b: string) => {
+    if (a.length === 3 || b.length === 3) return whole
+    const ya = Number(a.length === 2 ? `20${a}` : a)
+    const yb = Number(b.length === 2 ? `20${b}` : b)
+    return ya >= 2000 && ya <= 2099 && yb === ya + 1 ? ' ' : whole
+  })
+}
+
+/**
+ * The fuzzy "core" of an invoice number (WP 3.4): uppercase, FY tokens dropped, separators
+ * dropped, the leading alphabetic series prefix dropped (INV, TI, GST/, BILL-…), and leading
+ * zeros stripped from EVERY digit run. 'INV/2024-25/0045', 'inv-45', 'TI 045' and '45' all have
+ * core '45'; 'INV-45A' has '45A'. Never empty — falls back to the strict normalisation.
+ */
+export function invoiceNumberCore(raw: string): string {
+  const alnum = stripFyTokens(raw.toUpperCase()).replace(/[^A-Z0-9]/g, '')
+  const noPrefix = alnum.replace(/^[A-Z]+(?=\d)/, '')
+  const core = noPrefix.replace(/\d+/g, (run) => run.replace(/^0+(?=\d)/, ''))
+  return core || normalizeInvoiceNumber(raw)
+}
+
+/** The trailing serial of an invoice number: the LAST digit run (after FY tokens are dropped),
+ *  leading zeros stripped. Null when the number carries no digits. */
+export function invoiceSerial(raw: string): string | null {
+  const runs = stripFyTokens(raw.toUpperCase()).match(/\d+/g)
+  if (!runs || runs.length === 0) return null
+  return runs[runs.length - 1]!.replace(/^0+(?=\d)/, '')
+}
+
+/** GSTINs compare exactly, after trimming and upper-casing (never fuzzily). */
+export function normalizeGstin(raw: string | null | undefined): string {
+  return (raw ?? '').trim().toUpperCase()
 }
 
 function toPaise(x: unknown): number {
@@ -261,21 +326,24 @@ export function parseGstr2b(jsonText: string): ParseGstr2bResult {
 
 // ---------- reconciliation ----------
 
-function classify(p: PortalInvoice, b: PurchaseDoc, tolerance: number): Recon2bBucket {
+/** The allowed difference on an amount: the larger of the paise tolerance and pct% of it. */
+export function toleranceFor(amount: number, paise: number, pct = 0): number {
+  return Math.max(paise, pct > 0 ? Math.floor((Math.abs(amount) * pct) / 100) : 0)
+}
+
+function classify(p: PortalInvoice, b: PurchaseDoc, tolerance: number, pct = 0): Recon2bBucket {
   const valueDiff = Math.abs(p.value - b.invoiceValue)
-  const taxOk =
-    Math.abs(p.igst - b.igst) <= tolerance &&
-    Math.abs(p.cgst - b.cgst) <= tolerance &&
-    Math.abs(p.sgst - b.sgst) <= tolerance &&
-    Math.abs(p.cess - b.cess) <= tolerance
-  if (valueDiff <= tolerance && taxOk) return 'matched'
+  const ok = (portalAmt: number, bookAmt: number): boolean => Math.abs(portalAmt - bookAmt) <= toleranceFor(portalAmt, tolerance, pct)
+  const taxOk = ok(p.igst, b.igst) && ok(p.cgst, b.cgst) && ok(p.sgst, b.sgst) && ok(p.cess, b.cess)
+  if (valueDiff <= toleranceFor(p.value, tolerance, pct) && taxOk) return 'matched'
   if (!taxOk) return 'taxMismatch'
   return 'amountMismatch'
 }
 
-function makePair(bucket: Recon2bBucket, p: PortalInvoice | null, b: PurchaseDoc | null): Recon2bPair {
+function makePair(bucket: Recon2bBucket, p: PortalInvoice | null, b: PurchaseDoc | null, matchedBy?: Recon2bMatchedBy): Recon2bPair {
   return {
     bucket,
+    ...(matchedBy ? { matchedBy } : {}),
     portal: p,
     book: b,
     valueDiffPaise: p && b ? p.value - b.invoiceValue : null,
@@ -294,25 +362,48 @@ const emptyTotals = (): Recon2bBucketTotals => ({ count: 0, taxable: 0, igst: 0,
  */
 export function reconcile2b(portal: PortalInvoice[], books: PurchaseDoc[], opts: Recon2bOptions): Recon2bResult {
   const { amountTolerancePaise: tol, dateWindowDays } = opts
+  const pct = opts.amountTolerancePct ?? 0
+  const fuzzy = opts.fuzzyNumbers ?? true
   const consumedPortal = new Set<PortalInvoice>()
   const consumedBooks = new Set<PurchaseDoc>()
   const pairs: Recon2bPair[] = []
+  // GSTIN is always an EXACT key (trimmed, upper-cased) — never fuzzy.
+  const sameParty = (p: PortalInvoice, b: PurchaseDoc): boolean => normalizeGstin(b.partyGstin) === normalizeGstin(p.gstin)
+  const bookRef = (b: PurchaseDoc): string => b.supplierRef ?? b.number
+  const take = (p: PortalInvoice, b: PurchaseDoc, by: Recon2bMatchedBy): void => {
+    consumedPortal.add(p)
+    consumedBooks.add(b)
+    pairs.push(makePair(classify(p, b, tol, pct), p, b, by))
+  }
+
+  /** One number-keyed pass: each open portal doc takes the open book doc of the same GSTIN and
+   *  kind whose key equals its own (and that passes `extra`) — nearest date first, then the
+   *  order the books came in. */
+  const numberPass = (
+    keyOf: (n: string) => string | null,
+    by: Recon2bMatchedBy,
+    extra: (p: PortalInvoice, b: PurchaseDoc) => boolean = () => true
+  ): void => {
+    for (const p of portal) {
+      if (consumedPortal.has(p)) continue
+      const key = keyOf(p.number)
+      if (key == null) continue
+      let best: PurchaseDoc | null = null
+      for (const b of books) {
+        if (consumedBooks.has(b) || !sameParty(p, b) || !kindsCompatible(p, b) || keyOf(bookRef(b)) !== key || !extra(p, b)) continue
+        if (!best || daysBetween(p.date, b.date) < daysBetween(p.date, best.date)) best = b
+      }
+      if (best) take(p, best, by)
+    }
+  }
 
   // Pass 1: exact normalized-number match within GSTIN, greedy one-to-one.
-  for (const p of portal) {
-    const key = normalizeInvoiceNumber(p.number)
-    const match = books.find(
-      (b) =>
-        !consumedBooks.has(b) &&
-        (b.partyGstin ?? '') === p.gstin &&
-        kindsCompatible(p, b) &&
-        normalizeInvoiceNumber(b.supplierRef ?? b.number) === key
-    )
-    if (match) {
-      consumedPortal.add(p)
-      consumedBooks.add(match)
-      pairs.push(makePair(classify(p, match, tol), p, match))
-    }
+  numberPass(normalizeInvoiceNumber, 'number')
+  if (fuzzy) {
+    // Pass 1b: the same number core (FY tokens, series prefix and leading zeros ignored).
+    numberPass(invoiceNumberCore, 'numberCore')
+    // Pass 1c: the same trailing serial — a weak key, so the date window must corroborate it.
+    numberPass(invoiceSerial, 'serial', (p, b) => daysBetween(p.date, b.date) <= dateWindowDays)
   }
 
   // Pass 2: fuzzy match (date window + value tolerance) among what's left, best-first.
@@ -320,18 +411,16 @@ export function reconcile2b(portal: PortalInvoice[], books: PurchaseDoc[], opts:
   for (const p of portal) {
     if (consumedPortal.has(p)) continue
     for (const b of books) {
-      if (consumedBooks.has(b) || (b.partyGstin ?? '') !== p.gstin || !kindsCompatible(p, b)) continue
+      if (consumedBooks.has(b) || !sameParty(p, b) || !kindsCompatible(p, b)) continue
       const valueDiff = Math.abs(p.value - b.invoiceValue)
       const dateDiff = daysBetween(p.date, b.date)
-      if (valueDiff <= tol && dateDiff <= dateWindowDays) candidates.push({ p, b, valueDiff, dateDiff })
+      if (valueDiff <= toleranceFor(p.value, tol, pct) && dateDiff <= dateWindowDays) candidates.push({ p, b, valueDiff, dateDiff })
     }
   }
   candidates.sort((x, y) => x.valueDiff - y.valueDiff || x.dateDiff - y.dateDiff)
   for (const c of candidates) {
     if (consumedPortal.has(c.p) || consumedBooks.has(c.b)) continue
-    consumedPortal.add(c.p)
-    consumedBooks.add(c.b)
-    pairs.push(makePair(classify(c.p, c.b, tol), c.p, c.b))
+    take(c.p, c.b, 'valueDate')
   }
 
   // Leftovers.

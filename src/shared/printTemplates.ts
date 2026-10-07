@@ -33,7 +33,10 @@ export const PRINT_TEMPLATES_META_KEY = 'printTemplates'
  *  print the trade documents (WP 2.5c). */
 export const PRINT_DOC_KINDS = [
   'sales', 'credit_note', 'debit_note', 'purchase', 'receipt', 'payment', 'journal', 'contra',
-  'delivery_challan', 'quotation', 'goods_receipt', 'sales_order', 'purchase_order'
+  'delivery_challan', 'quotation', 'goods_receipt', 'sales_order', 'purchase_order',
+  // WP 3.4 — the reverse-charge self-invoice (s.31(3)(f) CGST Act) raised on a purchase from an
+  // unregistered supplier; printed from services/gstRcm.ts, not from a voucher kind.
+  'self_invoice'
 ] as const
 export type PrintDocKind = (typeof PRINT_DOC_KINDS)[number]
 export const printDocKindSchema = z.enum(PRINT_DOC_KINDS)
@@ -41,7 +44,7 @@ export const printDocKindSchema = z.enum(PRINT_DOC_KINDS)
 /** Kinds rendered with the item-table (invoice) layout; the rest print as an accounting voucher
  *  (particulars / debit / credit). */
 export const INVOICE_SHAPED_KINDS: readonly PrintDocKind[] = [
-  'sales', 'credit_note', 'debit_note', 'delivery_challan', 'quotation', 'goods_receipt', 'sales_order', 'purchase_order'
+  'sales', 'credit_note', 'debit_note', 'delivery_challan', 'quotation', 'goods_receipt', 'sales_order', 'purchase_order', 'self_invoice'
 ]
 /** Kinds not printable yet (the designer hides them). Empty since WP 2.5c made quotations live. */
 export const PHASE2_KINDS: readonly PrintDocKind[] = []
@@ -64,7 +67,8 @@ export const PRINT_DOC_KIND_LABELS: Record<PrintDocKind, string> = {
   quotation: 'Quotation',
   goods_receipt: 'Goods receipt note',
   sales_order: 'Sales order',
-  purchase_order: 'Purchase order'
+  purchase_order: 'Purchase order',
+  self_invoice: 'Self invoice (reverse charge)'
 }
 
 export const DEFAULT_TITLES: Record<PrintDocKind, string> = {
@@ -80,7 +84,8 @@ export const DEFAULT_TITLES: Record<PrintDocKind, string> = {
   quotation: 'QUOTATION',
   goods_receipt: 'GOODS RECEIPT NOTE',
   sales_order: 'SALES ORDER',
-  purchase_order: 'PURCHASE ORDER'
+  purchase_order: 'PURCHASE ORDER',
+  self_invoice: 'SELF INVOICE'
 }
 
 /** Voucher kinds whose print kind has another name. */
@@ -95,6 +100,8 @@ export function printKindForVoucherKind(kind: string): PrintDocKind | null {
   // The print kinds that are not voucher kinds are never matched by name.
   // Quotations and orders are trade documents, not vouchers (printed by loadTradeDocPrint).
   if (kind === 'delivery_challan' || kind === 'goods_receipt' || TRADE_DOC_PRINT_KINDS.includes(kind as PrintDocKind)) return null
+  // A self-invoice is a separate document ON a purchase voucher, never the voucher's own form.
+  if (kind === 'self_invoice') return null
   return (PRINT_DOC_KINDS as readonly string[]).includes(kind) ? (kind as PrintDocKind) : null
 }
 

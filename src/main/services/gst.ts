@@ -2,8 +2,10 @@ import { writeFileSync } from 'fs'
 import { join } from 'path'
 import type { DB } from '../db/connection'
 import type { CompanyInfo, TradePurpose } from '@shared/domain'
+import type { Gstr3bView } from '@shared/gst/views'
+export type { Gstr3bView }
 import {
-  buildGstr1, buildGstr3b, classifyDoc, isZeroRatedTyp,
+  buildGstr1, buildGstr3b, circular170Inputs, classifyDoc, isZeroRatedTyp,
   type GstAdvanceAgg, type GstDoc, type GstDocRateItem, type GstDocSeries, type GstHsnLine,
   type GstNilLine, type Gstr1Extras, type Gstr1Result, type Gstr3bResult, type InwardSummary,
   type ItcBreakdown, type TaxTotals
@@ -13,7 +15,7 @@ import { toUqc } from '@shared/gst/uqc'
 import { validateGstr1, type GstIssue } from '@shared/gst/validate'
 import { fyOf } from '@shared/dates'
 import { plainRupees } from '@shared/money'
-import { parseGstr2b, reconcile2b, type PurchaseDoc, type Recon2bResult } from '@shared/gst/recon2b'
+import { parseGstr2b, reconcile2b, type PurchaseDoc, type Recon2bOptions, type Recon2bResult } from '@shared/gst/recon2b'
 import { descendantIdsByName } from './masters'
 import { getGst3bManual } from './config'
 import { companyExportsDir } from '../paths'
@@ -242,16 +244,33 @@ const ZERO: InwardSummary = { igst: 0, cgst: 0, sgst: 0, cess: 0 }
  * their own. Outward (sales-side) debit notes are excluded via outwardDebitNoteIds.
  */
 export function rcmInwardSummary(db: DB, company: CompanyInfo, from: string, to: string): TaxTotals {
+  const total: TaxTotals = { taxable: 0, ...ZERO }
+  for (const v of rcmInwardByVoucher(db, company, from, to)) {
+    total.taxable += v.taxable
+    total.igst += v.igst
+    total.cgst += v.cgst
+    total.sgst += v.sgst
+    total.cess += v.cess
+  }
+  return total
+}
+
+/** The same 3.1(d) figures per voucher (signed: purchase returns negative) — rcmInwardSummary is
+ *  their sum, so GSTR-9 Table 4G / 6C / 6D (WP 3.4) tie to the monthly 3B by construction. */
+export function rcmInwardByVoucher(
+  db: DB, company: CompanyInfo, from: string, to: string
+): (TaxTotals & { voucherId: number; kind: 'purchase' | 'debit_note'; partyGstin: string | null })[] {
   const outwardDbn = outwardDebitNoteIds(db, from, to)
   const vouchers = (db
     .prepare(
-      `SELECT v.id, vt.kind, p.state_code AS partyState
+      `SELECT v.id, vt.kind, p.state_code AS partyState, p.gstin AS partyGstin
        FROM vouchers v
        JOIN voucher_types vt ON vt.id = v.voucher_type_id
        JOIN ledgers p ON p.id = v.party_ledger_id
-       WHERE vt.kind IN ('purchase', 'debit_note') AND p.rcm = 1 AND v.date BETWEEN ? AND ? AND ${IN_BOOKS}`
+       WHERE vt.kind IN ('purchase', 'debit_note') AND p.rcm = 1 AND v.date BETWEEN ? AND ? AND ${IN_BOOKS}
+       ORDER BY v.date, v.id`
     )
-    .all(from, to) as { id: number; kind: 'purchase' | 'debit_note'; partyState: string | null }[])
+    .all(from, to) as { id: number; kind: 'purchase' | 'debit_note'; partyState: string | null; partyGstin: string | null }[])
     .filter((v) => v.kind !== 'debit_note' || !outwardDbn.has(v.id))
 
   const purchaseGroupIds = descendantIdsByName(db, ['Purchase Accounts', 'Direct Expenses', 'Indirect Expenses'])
@@ -265,8 +284,8 @@ export function rcmInwardSummary(db: DB, company: CompanyInfo, from: string, to:
      FROM voucher_lines vl JOIN ledgers l ON l.id = vl.ledger_id WHERE vl.voucher_id = ?`
   )
 
-  const total: TaxTotals = { taxable: 0, ...ZERO }
-  for (const v of vouchers) {
+  return vouchers.map((v) => {
+    const total: TaxTotals = { taxable: 0, ...ZERO }
     const supply = supplyTypeFor(company.stateCode, v.partyState ?? company.stateCode)
     // A purchase-return debit note reverses the purchase: negative sign, purchase-side
     // value sits on the CREDIT lines (mirror of extractPurchaseDocs).
@@ -287,8 +306,8 @@ export function rcmInwardSummary(db: DB, company: CompanyInfo, from: string, to:
       total.sgst += sign * g.sgst
       total.cess += sign * g.cess
     }
-  }
-  return total
+    return { ...total, voucherId: v.id, kind: v.kind, partyGstin: v.partyGstin }
+  })
 }
 
 /**
@@ -299,6 +318,29 @@ export function rcmInwardSummary(db: DB, company: CompanyInfo, from: string, to:
  * their tax lines are OUTPUT tax, not ITC (they used to be silently subtracted).
  */
 export function itcBreakdown(db: DB, company: CompanyInfo, from: string, to: string): ItcBreakdown {
+  const result: ItcBreakdown = {
+    impg: { ...ZERO }, isrc: { ...ZERO }, oth: { ...ZERO }, blocked: { ...ZERO }
+  }
+  for (const r of bookedItcByVoucher(db, from, to)) {
+    const bucket = r.bucket === 'blocked' ? result.blocked : r.bucket === 'impg' ? result.impg : result.oth
+    bucket.igst += r.igst
+    bucket.cgst += r.cgst
+    bucket.sgst += r.sgst
+    bucket.cess += r.cess
+  }
+  const rcm = rcmInwardSummary(db, company, from, to)
+  result.isrc = { igst: rcm.igst, cgst: rcm.cgst, sgst: rcm.sgst, cess: rcm.cess }
+  return result
+}
+
+/**
+ * The booked (non-RCM) input-tax lines per purchase-side voucher, bucketed as itcBreakdown
+ * buckets them — itcBreakdown is their sum (WP 3.4: GSTR-9 Table 6 and the ITC-reversal
+ * workings read the same rows, so they tie to the monthly 3B by construction).
+ */
+export function bookedItcByVoucher(
+  db: DB, from: string, to: string
+): (InwardSummary & { voucherId: number; kind: 'purchase' | 'debit_note'; bucket: 'impg' | 'oth' | 'blocked'; itcEligibility: string })[] {
   const outwardDbn = outwardDebitNoteIds(db, from, to)
   const rows = db
     .prepare(
@@ -317,30 +359,23 @@ export function itcBreakdown(db: DB, company: CompanyInfo, from: string, to: str
        LEFT JOIN ledgers p ON p.id = v.party_ledger_id
        WHERE l.tax_type IS NOT NULL AND vt.kind IN ('purchase', 'debit_note')
          AND v.date BETWEEN ? AND ? AND ${IN_BOOKS}
-       GROUP BY v.id, l.tax_type`
+       GROUP BY v.id, l.tax_type
+       ORDER BY v.date, v.id`
     )
     .all(from, to) as {
-      voucherId: number; kind: string; taxType: 'cgst' | 'sgst' | 'igst' | 'cess'; amount: number
+      voucherId: number; kind: 'purchase' | 'debit_note'; taxType: 'cgst' | 'sgst' | 'igst' | 'cess'; amount: number
       partyState: string | null; partyRcm: number; itcEligibility: string
     }[]
-
-  const result: ItcBreakdown = {
-    impg: { ...ZERO }, isrc: { ...ZERO }, oth: { ...ZERO }, blocked: { ...ZERO }
-  }
+  const byVoucher = new Map<number, InwardSummary & { voucherId: number; kind: 'purchase' | 'debit_note'; bucket: 'impg' | 'oth' | 'blocked'; itcEligibility: string }>()
   for (const r of rows) {
     if (r.kind === 'debit_note' && outwardDbn.has(r.voucherId)) continue
     if (r.partyRcm) continue // ISRC — computed from master rates, not booked lines
-    const bucket =
-      r.itcEligibility === 'blocked'
-        ? result.blocked
-        : r.partyState === '96' || r.partyState === '97'
-          ? result.impg
-          : result.oth
-    bucket[r.taxType] += r.amount
+    const bucket = r.itcEligibility === 'blocked' ? 'blocked' : r.partyState === '96' || r.partyState === '97' ? 'impg' : 'oth'
+    const v = byVoucher.get(r.voucherId) ?? { voucherId: r.voucherId, kind: r.kind, bucket, itcEligibility: r.itcEligibility, ...ZERO }
+    v[r.taxType] += r.amount
+    byVoucher.set(r.voucherId, v)
   }
-  const rcm = rcmInwardSummary(db, company, from, to)
-  result.isrc = { igst: rcm.igst, cgst: rcm.cgst, sgst: rcm.sgst, cess: rcm.cess }
-  return result
+  return [...byVoucher.values()]
 }
 
 /** Net booked ITC for the period (legacy shape — the on-screen "Eligible ITC" row). */
@@ -660,11 +695,12 @@ export function recon2b(
   db: DB,
   jsonText: string,
   from: string,
-  to: string
+  to: string,
+  opts: Recon2bOptions = { amountTolerancePaise: 100, dateWindowDays: 7 }
 ): { result: Recon2bResult; errors: string[]; period: string | null } {
   const parsed = parseGstr2b(jsonText)
   const books = extractPurchaseDocs(db, from, to)
-  const result = reconcile2b(parsed.invoices, books, { amountTolerancePaise: 100, dateWindowDays: 7 })
+  const result = reconcile2b(parsed.invoices, books, opts)
   return { result, errors: parsed.errors, period: parsed.period }
 }
 
@@ -675,18 +711,17 @@ export function gstr1(db: DB, company: CompanyInfo, from: string, to: string, pe
   return buildGstr1(docs, company.gstin ?? '', company.stateCode, period, gstr1Extras(db, company, from, to))
 }
 
-export function gstr3b(db: DB, company: CompanyInfo, from: string, to: string, period: string): Gstr3bResult {
+export function gstr3b(db: DB, company: CompanyInfo, from: string, to: string, period: string): Gstr3bView {
   const docs = extractOutwardDocs(db, company, from, to)
-  return buildGstr3b(
-    {
-      docs,
-      itc: itcBreakdown(db, company, from, to),
-      rcmInward: rcmInwardSummary(db, company, from, to),
-      manual: getGst3bManual(db, period)
-    },
+  const books = itcBreakdown(db, company, from, to)
+  const entered = getGst3bManual(db, period)
+  const shaped = circular170Inputs(books, entered, entered.itcReclaimed)
+  const result = buildGstr3b(
+    { docs, itc: shaped.itc, rcmInward: rcmInwardSummary(db, company, from, to), manual: shaped.manual },
     company.gstin ?? '',
     period
   )
+  return { ...result, circular170: { blocked: books.blocked, reclaimed: entered.itcReclaimed, entered } }
 }
 
 /** Pre-export validation over the period's extracted documents (G7 panel + export gate). */
