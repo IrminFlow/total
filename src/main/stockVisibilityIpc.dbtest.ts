@@ -60,8 +60,8 @@ beforeAll(async () => {
 })
 
 describe('stock visibility IPC', () => {
-  it('stock:movements, stock:reorder, stock:expiryReport, serials:* answer', async () => {
-    const reg = await ok<StockMovementRegister>('stock:movements', { itemId: phone, from: '2025-04-01', to: '2026-03-31' })
+  it('stock:register, stock:reorder, stock:expiryReport, serials:* answer', async () => {
+    const reg = await ok<StockMovementRegister>('stock:register', { itemId: phone, from: '2025-04-01', to: '2026-03-31' })
     expect(reg.closing).toEqual({ qtyMilli: 2000, value: 1_000_000 })
     expect(reg.rows[0]!.serials).toEqual(['A', 'B'])
     const reorder = await ok<ReorderRow[]>('stock:reorder', { from: '2025-04-01', to: '2026-03-31' })
@@ -85,8 +85,8 @@ describe('stock visibility IPC', () => {
 
   it('rejects malformed payloads with a Zod error', async () => {
     const bad: [string, unknown][] = [
-      ['stock:movements', { itemId: phone, from: '2025-04-01' }],
-      ['stock:movements', { itemId: -1, from: '2025-04-01', to: '2026-03-31' }],
+      ['stock:register', { itemId: phone, from: '2025-04-01' }],
+      ['stock:register', { itemId: -1, from: '2025-04-01', to: '2026-03-31' }],
       ['stock:reorder', { from: 'x', to: '2026-03-31' }],
       ['stock:expiryReport', { asOn: '2025-06-30', withinDays: -1 }],
       ['stock:labelsHtml', { items: [], date: '2025-06-01' }],
@@ -104,7 +104,7 @@ describe('stock visibility IPC', () => {
     const viewer = await ok<{ id: number }>('users:save', { data: { name: 'Vik', role: 'viewer', pin: '2222' } })
     await ok('auth:logout')
     await ok('auth:login', { userId: viewer.id, pin: '2222' })
-    expect((await call('stock:movements', { itemId: phone, from: '2025-04-01', to: '2026-03-31' })).ok).toBe(true)
+    expect((await call('stock:register', { itemId: phone, from: '2025-04-01', to: '2026-03-31' })).ok).toBe(true)
     expect((await call('serials:list', {})).ok).toBe(true)
     expect((await call('stock:reorder', { from: '2025-04-01', to: '2026-03-31' })).ok).toBe(true)
     const denied = await call('voucher:save', { data: { voucherTypeId: stockJournal, date: '2025-06-03', lines: [], inventory: [] } })

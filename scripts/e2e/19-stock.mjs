@@ -84,7 +84,7 @@ await scenario('19-stock', async (h) => {
   assertEq(legs.length, 3, 'purchase + both transfer legs')
   assert(legs.some((t) => t.includes('Main Store') && t.includes('Stock Journal')), 'outward leg from Main Store')
   assert(legs.some((t) => t.includes('Annex') && t.includes('Stock Journal')), 'inward leg into Annex')
-  const reg = await h.invoke('stock:movements', { itemId: phone.id, from: '2000-01-01', to: today })
+  const reg = await h.invoke('stock:register', { itemId: phone.id, from: '2000-01-01', to: today })
   const jLegs = reg.rows.filter((r) => r.kind === 'stock_journal')
   assertEq(jLegs.length, 2, 'register has two journal legs')
   assertEq(jLegs[0].value, jLegs[1].value, 'transfer legs carry the same value')

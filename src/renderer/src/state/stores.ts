@@ -41,6 +41,9 @@ export type Screen =
   // Like 'settings', the active tab lives in the nav stack (nav.go per tab) so Esc/back
   // retraces tabs and other screens can deep-link straight to one.
   // `itemId` (items tab only) opens that stock item's editor — how search results open an item.
+  // WP 2.2: a new manufacture voucher (saved ones open through voucher-entry, same form).
+  | { name: 'manufacture' }
+  | { name: 'manufacture-register' }
   | { name: 'masters'; tab?: 'ledgers' | 'groups' | 'items' | 'units' | 'types' | 'currencies' | 'godowns' | 'stock-groups'; itemId?: number }
   // Books search results (⌘⇧F, or "See all" in the ⌘K palette): `q` is the query-language
   // string, `kind` the initially selected tab (omitted = all kinds).

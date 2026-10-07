@@ -70,6 +70,10 @@ describe('Stock summary on DataTable', () => {
       { godownId: 7, godownName: 'Main store', stockItemId: 3, name: 'Drill bit', unitSymbol: 'pcs', decimals: 0, closingQtyMilli: 3_000, closingValue: 450_000 }
     ]
     handlers['stock:batches'] = () => []
+    handlers['stock:movements'] = (p) =>
+      (p as { stockItemId: number }).stockItemId === 3
+        ? [{ voucherId: 41, date: '2025-06-10', number: '7', voucherType: 'Stock Journal', kind: 'stock_journal', inQtyMilli: 3_000, outQtyMilli: 0, isAbsolute: false, amount: 450_000 }]
+        : []
   })
 
   it('renders every column with units, keeps the service order, flags negative stock and totals closing value', async () => {
@@ -97,12 +101,14 @@ describe('Stock summary on DataTable', () => {
     renderScreen(<StockSummaryScreen />)
     await waitFor(() => expect(bodyRows('stock-summary')).toHaveLength(3))
     fireEvent.click(bodyRows('stock-summary')[2]!)
-    const detail = await screen.findByTestId('stock-item-detail')
-    expect(detail.textContent).toContain('Main store: 3 pcs')
+    await waitFor(() => expect(screen.getByTestId('stock-item-detail').textContent).toContain('Main store: 3 pcs'))
+    // WP 2.2: the period's movements (minimal register) — the manufacture's inward on its date.
+    expect(screen.getByTestId('stock-item-movements').textContent).toContain('Stock Journal 7')
+    expect(screen.getByTestId('stock-movement-in').textContent).toBe('+3 pcs')
     // Another row replaces it; clicking it again folds it.
     fireEvent.click(bodyRows('stock-summary')[0]!)
-    await waitFor(() => expect(screen.queryByTestId('stock-item-detail')).toBeNull())
     expect(await screen.findByText('No godown or batch breakdown for this item.')).toBeTruthy()
+    expect(screen.queryByText('Main store: 3 pcs')).toBeNull()
     fireEvent.click(bodyRows('stock-summary')[0]!)
     await waitFor(() => expect(screen.queryByText('No godown or batch breakdown for this item.')).toBeNull())
   })

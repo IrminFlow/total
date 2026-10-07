@@ -99,7 +99,7 @@ export function StockMovementsScreen({ itemId, godownId }: { itemId?: number; go
   const opts = useScreenOptions('stock-movements', { showZeroValue: true })
   const { data: reg, isLoading, error } = useQuery({
     queryKey: ['stockMovements', itemId ?? null, from, to, godownId ?? null],
-    queryFn: () => api.stock.movements({ itemId: itemId!, from, to, godownId }),
+    queryFn: () => api.stock.register({ itemId: itemId!, from, to, godownId }),
     enabled: itemId != null
   })
   const columns = useMemo(() => columnsFor(reg), [reg])

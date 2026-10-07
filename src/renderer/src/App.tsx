@@ -15,6 +15,8 @@ import { BalanceSheetScreen } from './screens/BalanceSheet'
 import { CashFlowScreen } from './screens/CashFlow'
 import { ExceptionsScreen } from './screens/Exceptions'
 import { StockSummaryScreen } from './screens/StockSummary'
+import { ManufactureScreen } from './screens/Manufacture'
+import { ManufactureRegisterScreen } from './screens/ManufactureRegister'
 import { StockMovementsScreen } from './screens/StockMovements'
 import { StockJournalScreen } from './screens/StockJournal'
 import { StockReportsScreen } from './screens/StockReports'
@@ -147,6 +149,8 @@ export default function App(): React.JSX.Element {
           {screen.name === 'cash-flow' && <CashFlowScreen />}
           {screen.name === 'exceptions' && <ExceptionsScreen />}
           {screen.name === 'stock-summary' && <StockSummaryScreen />}
+          {screen.name === 'manufacture' && <ManufactureScreen />}
+          {screen.name === 'manufacture-register' && <ManufactureRegisterScreen />}
           {screen.name === 'stock-movements' && (
             <StockMovementsScreen key={`${screen.itemId ?? ''}-${screen.godownId ?? ''}`} itemId={screen.itemId} godownId={screen.godownId} />
           )}

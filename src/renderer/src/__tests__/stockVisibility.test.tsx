@@ -60,7 +60,7 @@ beforeEach(() => {
   saved = null
   invoke.mockImplementation(async (channel: string, payload: Record<string, unknown>) => {
     switch (channel) {
-      case 'stock:movements': return { ok: true, data: { ...REGISTER, godownId: payload.godownId ?? null } }
+      case 'stock:register': return { ok: true, data: { ...REGISTER, godownId: payload.godownId ?? null } }
       case 'master:stockItems:list': return { ok: true, data: ITEMS }
       case 'master:godowns:list': return { ok: true, data: GODOWNS }
       case 'master:batches:list': return { ok: true, data: [] }
@@ -99,7 +99,7 @@ describe('Stock movements screen', () => {
 
     wrap(<StockMovementsScreen itemId={100} />)
     await waitFor(() => expect(rowsOf('stock-movements')).toHaveLength(2), SLOW)
-    expect(invoke).toHaveBeenCalledWith('stock:movements', { itemId: 100, from: '2026-04-01', to: '2027-03-31', godownId: undefined })
+    expect(invoke).toHaveBeenCalledWith('stock:register', { itemId: 100, from: '2026-04-01', to: '2027-03-31', godownId: undefined })
     expect(screen.getByTestId('movements-opening').textContent).toContain('5 nos')
     expect(screen.getByTestId('movements-closing').textContent).toContain('15 nos')
     expect(screen.getByTestId('movements-closing').textContent).toContain('FIFO')
@@ -113,7 +113,7 @@ describe('Stock movements screen', () => {
     localStorage.setItem(screenOptionsKey('acme', 'stock-movements'), JSON.stringify({ showZeroValue: false }))
     wrap(<StockMovementsScreen itemId={100} godownId={2} />)
     await waitFor(() => expect(rowsOf('stock-movements')).toHaveLength(1), SLOW)
-    expect(invoke).toHaveBeenCalledWith('stock:movements', expect.objectContaining({ godownId: 2 }))
+    expect(invoke).toHaveBeenCalledWith('stock:register', expect.objectContaining({ godownId: 2 }))
     const chip = await screen.findByTestId('chip-movements-godown')
     expect(chip.textContent).toContain('Annex')
     fireEvent.click(within(chip).getByRole('button', { name: 'Show all godowns' }))

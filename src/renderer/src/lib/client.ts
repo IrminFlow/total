@@ -27,6 +27,7 @@ import type {
 } from '@shared/schemas'
 import type { CompanyFeatures } from '@shared/features'
 import type { StockCostPosition, ConsumptionCosting, ProposedOutward } from '@shared/valuation'
+import type { ManufactureDetails, ManufactureInput } from '@shared/manufacture'
 import type { ExpiryReportRow, ReorderRow, SerialListRow, StockMovementRegister } from '@shared/stockPlanning'
 import type { SerialStatus } from '@shared/serials'
 
@@ -343,6 +344,53 @@ export interface StockCostAsOf {
   consumption: ConsumptionCosting | null
 }
 
+/** manufacture:get — a stock journal and its manufacture_details row (null = legacy). */
+export interface ManufactureRecord {
+  voucher: Voucher
+  details: ManufactureDetails | null
+}
+
+/** manufacture:costPreview (mirrors services/manufacture.ts CostPreview). */
+export interface ManufactureCostPreview {
+  lines: { itemId: number; qtyMilli: number; costPaise: number; unitCostPaise: number; onHandQtyMilli: number }[]
+  totalPaise: number
+  saleRate: { ratePaise: number | null; source: 'sales' | 'priceList' | null }
+}
+
+export interface ManufactureRegisterRow {
+  voucherId: number
+  date: string
+  number: string
+  finishedItemId: number
+  itemName: string
+  unitSymbol: string
+  decimals: number
+  qtyMilli: number
+  productionCost: number
+  labourPaise: number
+  saleAmount: number
+  profitPaise: number
+}
+
+/** stock:movements — one item's inventory lines (minimal movement list, WP 2.2). */
+export interface ItemMovementRow {
+  voucherId: number
+  date: string
+  number: string
+  voucherType: string
+  kind: string
+  inQtyMilli: number
+  outQtyMilli: number
+  isAbsolute: boolean
+  amount: number
+}
+
+export type SavedManufacture = Voucher & {
+  duplicateNumber?: boolean
+  warnings: { negativeStock: NegativeStockWarning[] }
+  manufacture: ManufactureDetails
+}
+
 export interface ExpiryAgeingRow extends BatchStockRow {
   bucket: 'none' | 'expired' | 'within30' | 'within90' | 'later'
 }
@@ -454,9 +502,12 @@ export const api = {
      *  editing so the voucher's own saved lines are left out. */
     costAsOf: (q: { date: string; voucherId?: number; itemIds?: number[]; lines?: ProposedOutward[] }) =>
       call<StockCostAsOf>('stock:costAsOf', q),
+    /** WP 2.2 — one item's plain inventory lines (the list under a Stock summary row). */
+    movements: (stockItemId: number, from: string, to: string) =>
+      call<ItemMovementRow[]>('stock:movements', { stockItemId, from, to }),
     /** WP 2.3 — one item's movement register with running quantity/value from the pass. */
-    movements: (q: { itemId: number; from: string; to: string; godownId?: number }) =>
-      call<StockMovementRegister>('stock:movements', q),
+    register: (q: { itemId: number; from: string; to: string; godownId?: number }) =>
+      call<StockMovementRegister>('stock:register', q),
     reorder: (from: string, to: string, onlyBelow = true) => call<ReorderRow[]>('stock:reorder', { from, to, onlyBelow }),
     expiryReport: (asOn: string, withinDays: number) => call<ExpiryReportRow[]>('stock:expiryReport', { asOn, withinDays }),
     labelsHtml: (q: StockLabelsQuery) => call<{ html: string }>('stock:labelsHtml', q),
@@ -466,6 +517,14 @@ export const api = {
     list: (q: { stockItemId?: number; status?: SerialStatus } = {}) => call<SerialListRow[]>('serials:list', q),
     /** Serials an outward line may pick (in stock, plus those `voucherId` itself took out). */
     available: (stockItemId: number, voucherId?: number) => call<string[]>('serials:available', { stockItemId, voucherId })
+  },
+  manufacture: {
+    get: (id: number) => call<ManufactureRecord | null>('manufacture:get', { id }),
+    save: (data: ManufactureInput, id?: number) => call<SavedManufacture>('manufacture:save', { data, id }),
+    /** Raw rows priced as of the voucher date (+ the finished item's suggested sale rate). */
+    costPreview: (q: { date: string; voucherId?: number; finishedItemId?: number | null; lines: { itemId: number; qtyMilli: number }[] }) =>
+      call<ManufactureCostPreview>('manufacture:costPreview', q),
+    register: (from: string, to: string) => call<ManufactureRegisterRow[]>('manufacture:register', { from, to })
   },
   priceLevels: {
     list: () => call<PriceLevel[]>('master:priceLevels:list'),

@@ -317,13 +317,16 @@ export function TransferEntry({
 export function StockJournalEntry({
   typeId,
   extraModes,
+  initialMode = 'transfer',
   testId = 'stock-journal-mode'
 }: {
   typeId: number
   extraModes?: { value: string; label: string; render: () => React.ReactNode }[]
+  /** 'transfer' | 'adjust' | an extra mode's value. */
+  initialMode?: string
   testId?: string
 }): React.JSX.Element {
-  const [mode, setMode] = useState<string>('transfer')
+  const [mode, setMode] = useState<string>(initialMode)
   const options = [
     { value: 'transfer', label: 'Godown transfer' },
     { value: 'adjust', label: 'Adjustment (in / out)' },

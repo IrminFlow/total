@@ -62,6 +62,15 @@ export const SCREENS: ScreenDef[] = [
     invalidates: ['voucher', 'nextNumber', 'billsOpen', 'ledgers', 'stockItems', 'units', 'currencies', 'voucherTypes']
   },
   {
+    name: 'manufacture',
+    title: 'Manufacture',
+    keywords: ['production', 'stock journal', 'bom', 'raw material', 'finished goods'],
+    screen: { name: 'manufacture' },
+    navSection: 'top',
+    feature: 'inventory',
+    invalidates: ['manufacturePreview', 'nextNumber', 'stockItems', 'ledgers', 'godowns', 'units', 'bom', 'voucherTypes']
+  },
+  {
     name: 'daybook',
     title: 'Day book',
     screen: { name: 'daybook' },
@@ -121,7 +130,7 @@ export const SCREENS: ScreenDef[] = [
     navSection: 'books',
     feature: 'inventory',
     card: { sub: 'Quantities and value', key: 'S' },
-    invalidates: ['stockSummary', 'stockAgeing', 'stockByGodown', 'stockBatches']
+    invalidates: ['stockSummary', 'stockAgeing', 'stockByGodown', 'stockBatches', 'stockMovements']
   },
   {
     name: 'stock-movements',
@@ -300,6 +309,15 @@ export const SCREENS: ScreenDef[] = [
     screen: null, // needs a ledgerId — reached from ledger lists/search, never bare navigation
     navSection: null,
     invalidates: ['ledgerStatement']
+  },
+  {
+    name: 'manufacture-register',
+    title: 'Manufacture register',
+    keywords: ['production register', 'margin', 'manufacturing profit'],
+    screen: { name: 'manufacture-register' },
+    navSection: null,
+    feature: 'inventory',
+    invalidates: ['manufactureRegister']
   },
   {
     name: 'search',

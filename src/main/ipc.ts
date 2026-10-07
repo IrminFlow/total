@@ -19,7 +19,7 @@ import {
   chequeConfigSchema, companyCreateSchema, consolidatedRunSchema, costCentreInputSchema, exportCsvSchema, godownInputSchema, groupInputSchema, gst3bManualSchema, gstr2bSchema,
   isoDate, ledgerInputSchema, notifyDeadlinesSchema, passphraseSchema, periodSchema, priceLevelInputSchema, priceRateInputSchema, rendererLogSchema, reportPdfSchema,
   searchGlobalSchema, searchQuerySchema, stockGroupInputSchema, stockItemInputSchema, stockQuerySchema, stockCostAsOfSchema,
-  stockMovementsSchema, stockReorderSchema, stockExpiryReportSchema, stockLabelsSchema, serialsListSchema, serialsAvailableSchema, tallyImportSchema, tdsExport26qSchema, tdsEnsurePayableSchema, tdsSectionInputSchema, tdsSuggestSchema,
+  stockRegisterSchema, stockReorderSchema, stockExpiryReportSchema, stockLabelsSchema, serialsListSchema, serialsAvailableSchema, tallyImportSchema, tdsExport26qSchema, tdsEnsurePayableSchema, tdsSectionInputSchema, tdsSuggestSchema,
   tdsSummarySchema, unitInputSchema, voucherInputSchema, voucherTransportSchema, voucherTypeInputSchema
 } from '@shared/schemas'
 import { todayISO } from '@shared/dates'
@@ -43,6 +43,7 @@ import * as nic from './services/nic'
 import * as tds from './services/tds'
 import * as costCentres from './services/costCentres'
 import * as stockAnalysis from './services/stockAnalysis'
+import * as manufacture from './services/manufacture'
 import * as serials from './services/serials'
 import * as priceLevels from './services/priceLevels'
 import * as budgets from './services/budgets'
@@ -51,6 +52,9 @@ import { importTallyXml, dryRunTallyXml } from './services/tallyImport'
 import * as importer from './services/importers'
 import * as agentBridge from './services/agentBridge'
 import { agentBridgeConfigSchema, agentExportSchema } from '@shared/schemas'
+import {
+  manufactureCostPreviewSchema, manufactureRegisterSchema, manufactureSaveSchema, stockMovementsSchema
+} from '@shared/schemas'
 import * as consolidated from './services/consolidated'
 import * as caPack from './services/caPack'
 import { writeExportPdf } from './services/pdf'
@@ -563,8 +567,8 @@ export function registerIpc(): void {
   }, 'viewer')
   handle('stock:costAsOf', (p) => stockAnalysis.costAsOf(requireCompany().db, stockCostAsOfSchema.parse(p)), 'viewer')
   // ---------- stock visibility (WP 2.3) ----------
-  handle('stock:movements', (p) => {
-    const q = stockMovementsSchema.parse(p)
+  handle('stock:register', (p) => {
+    const q = stockRegisterSchema.parse(p)
     return stockAnalysis.stockMovements(requireCompany().db, q.itemId, q.from, q.to, q.godownId)
   }, 'viewer')
   handle('stock:reorder', (p) => {
@@ -593,6 +597,25 @@ export function registerIpc(): void {
     const q = serialsAvailableSchema.parse(p)
     return serials.availableSerials(requireCompany().db, q.stockItemId, q.voucherId)
   }, 'viewer')
+  handle('stock:movements', (p) => {
+    const { stockItemId, from, to } = stockMovementsSchema.parse(p)
+    return stockAnalysis.itemMovements(requireCompany().db, stockItemId, from, to)
+  }, 'viewer')
+
+  // ---------- manufacture voucher (WP 2.2) ----------
+  handle('manufacture:get', (p) => manufacture.getManufacture(requireCompany().db, idSchema.parse(p).id), 'viewer')
+  handle('manufacture:costPreview', (p) => manufacture.costPreview(requireCompany().db, manufactureCostPreviewSchema.parse(p)), 'viewer')
+  handle('manufacture:register', (p) => {
+    const { from, to } = manufactureRegisterSchema.parse(p)
+    return manufacture.manufactureRegister(requireCompany().db, from, to)
+  }, 'viewer')
+  handle('manufacture:save', (p) => {
+    const { data, id } = manufactureSaveSchema.parse(p)
+    const c = requireCompany()
+    const saved = manufacture.saveManufacture(c.db, data, id)
+    if (configSvc.getAgentBridgeEnabled(c.db)) agentBridge.scheduleMirrorRefresh(c.db, c.slug)
+    return saved
+  })
   handle('master:priceLevels:list', () => priceLevels.listPriceLevels(requireCompany().db), 'viewer')
   handle('master:priceLevels:create', (p) => priceLevels.savePriceLevel(requireCompany().db, priceLevelInputSchema.parse(p)))
   handle('master:priceLevels:update', (p) => {

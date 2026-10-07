@@ -2,16 +2,16 @@ import { useEffect, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import type { VoucherKind } from '@shared/domain'
 import { todayISO } from '@shared/dates'
-import { candidateProducedItem, modeForKind, planVoucherEdit, taxLedgerIdsFrom, type EditPlan } from '@shared/voucherEdit'
+import { modeForKind, planVoucherEdit, taxLedgerIdsFrom, type EditPlan } from '@shared/voucherEdit'
 import { api } from '../lib/client'
 import { useSession, type VoucherDraft } from '../state/stores'
 import { Banner, DrawerSection, isAnyModalOpen, Kbd, Page, PageHeader, Panel, SkeletonRows } from '../components/ui'
 import { OptionToggle, useScreenOptions } from '../components/ScreenOptions'
 import { useFeatures } from '../lib/useFeatures'
-import { kindForVoucherKey } from '../lib/voucherKeys'
+import { isManufactureKey, kindForVoucherKey } from '../lib/voucherKeys'
 import { InvoiceEntry } from './voucher/InvoiceEntry'
 import { AccountingEntry } from './voucher/AccountingEntry'
-import { ManufactureEntry } from './voucher/ManufactureEntry'
+import { ManufactureForm } from './Manufacture'
 import { PhysicalStockEntry } from './voucher/PhysicalStockEntry'
 import { StockLinesEntry } from './voucher/StockLinesEntry'
 import { LineDetailOption } from './voucher/LineStockDetail'
@@ -36,6 +36,7 @@ export function VoucherEntry({
   const features = useFeatures()
   const [typeId, setTypeId] = useState<number | null>(null)
   const [hintDismissed, setHintDismissed] = useState(false)
+  const [sjMode, setSjMode] = useState<'transfer' | 'manufacture'>('transfer')
 
   // Same queryKey Gateway uses for report:dashboard — a brand-new company (no vouchers yet) gets a
   // first-time hint here; react-query dedupes the request rather than firing a second round-trip.
@@ -53,17 +54,19 @@ export function VoucherEntry({
   const { data: ledgers } = useQuery({ queryKey: ['ledgers'], queryFn: api.ledgers.list, enabled: !!voucherId })
   const { data: items } = useQuery({ queryKey: ['stockItems'], queryFn: api.stockItems.list, enabled: !!voucherId })
   const existingKind = existing && types?.find((t) => t.id === existing.voucherTypeId)?.kind
-  const producedId = existing && existingKind === 'stock_journal' ? candidateProducedItem(existing) : null
-  const { data: producedBom } = useQuery({
-    queryKey: ['bom', producedId],
-    queryFn: () => api.bom.get(producedId!),
-    enabled: producedId != null
+  // A stock journal opens in the Manufacture form only when it has a manufacture_details row
+  // (WP 2.2); one without (pre-0.6.0) opens as plain stock lines.
+  const isStockJournal = existingKind === 'stock_journal'
+  const { data: mfg } = useQuery({
+    queryKey: ['voucher', voucherId, 'manufacture'],
+    queryFn: () => api.manufacture.get(voucherId!),
+    enabled: !!voucherId && isStockJournal
   })
   const [plan, setPlan] = useState<EditPlan | null>(null)
 
   useEffect(() => {
     if (!voucherId || plan || !existing || !existingKind || !ledgers || !items || !info) return
-    if (producedId != null && producedBom === undefined) return
+    if (isStockJournal && mfg === undefined) return
     setPlan(
       planVoucherEdit(existing, existingKind, {
         invoice: {
@@ -72,11 +75,11 @@ export function VoucherEntry({
           ledgers: new Map(ledgers.map((l) => [l.id, { stateCode: l.stateCode, gstRate: l.gstRate }]))
         },
         taxLedgers: taxLedgerIdsFrom(ledgers),
-        bomFor: (id) => (id === producedId ? producedBom : undefined),
+        manufacture: mfg?.details ?? null,
         itemName: (id) => items.find((i) => i.id === id)?.name ?? ''
       })
     )
-  }, [voucherId, plan, existing, existingKind, ledgers, items, info, producedId, producedBom])
+  }, [voucherId, plan, existing, existingKind, ledgers, items, info, isStockJournal, mfg])
 
   useEffect(() => {
     if (!types || typeId != null) return
@@ -92,19 +95,23 @@ export function VoucherEntry({
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
-      const target = kindForVoucherKey(e)
+      const manufactureKey = isManufactureKey(e)
+      const target = manufactureKey ? 'stock_journal' : kindForVoucherKey(e)
       if (!target || voucherId || !types) return
+      if (target === 'stock_journal' && !features.inventory) return
       // Never switch voucher type underneath an open dialog (quick-create ledger, confirm…).
       if (isAnyModalOpen()) return
       const t = types.find((t) => t.kind === target)
       if (t) {
         e.preventDefault()
         setTypeId(t.id)
+        // WP 2.3: the Stock Journal tab opens on transfers; Alt+F7 asks for Manufacture.
+        if (target === 'stock_journal') setSjMode(manufactureKey ? 'manufacture' : 'transfer')
       }
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [types, voucherId])
+  }, [types, voucherId, features.inventory])
 
   if (!types || (voucherId && (!existing || !plan))) {
     return (
@@ -118,6 +125,7 @@ export function VoucherEntry({
   }
   const currentType = (voucherId ? types.find((t) => t.id === existing!.voucherTypeId) : types.find((t) => t.id === typeId)) ?? types[0]!
   const closingEntry = !!existing?.isYearEndClose
+  const activeMode = voucherId ? plan!.mode : modeForKind(currentType.kind)
 
   const typeTabs = !voucherId ? (
     <div role="tablist" aria-label="Voucher type" className="flex flex-wrap items-center gap-1">
@@ -145,7 +153,7 @@ export function VoucherEntry({
   ) : undefined
 
   return (
-    <Page>
+    <Page width={activeMode === 'manufacture' ? 'wide' : 'standard'}>
       <PageHeader
         title={voucherId ? `Alter voucher ${existing?.number}` : 'Voucher entry'}
         tabs={typeTabs}
@@ -170,6 +178,9 @@ export function VoucherEntry({
                 <ul className="flex flex-col gap-1 text-detail text-ink">
                   <li>
                     <Kbd>F4</Kbd>–<Kbd>F9</Kbd> Contra, Payment, Receipt, Journal, Sales, Purchase
+                  </li>
+                  <li>
+                    <Kbd>Alt</Kbd>+<Kbd>F7</Kbd> Manufacture
                   </li>
                   <li>
                     <Kbd>⌘↵</Kbd> save · <Kbd>Esc</Kbd> back
@@ -197,12 +208,12 @@ export function VoucherEntry({
       {/* A disabled fieldset disables every input and button inside (Save included) for a
           year-end closing entry; the server refuses the edit regardless. */}
       <fieldset disabled={closingEntry} className="m-0 min-w-0 border-0 p-0">
-      <div data-testid="voucher-entry-mode" data-mode={voucherId ? plan!.mode : modeForKind(currentType.kind)}>
+      <div data-testid="voucher-entry-mode" data-mode={activeMode}>
         {voucherId && existing && plan ? (
           plan.mode === 'invoice' ? (
             <InvoiceEntry typeId={currentType.id} kind={currentType.kind} voucherId={voucherId} voucher={existing} initial={plan.state} />
           ) : plan.mode === 'manufacture' ? (
-            <ManufactureEntry typeId={currentType.id} voucherId={voucherId} voucher={existing} initial={plan.state} />
+            <ManufactureForm typeId={currentType.id} voucherId={voucherId} voucher={existing} initial={plan.state} />
           ) : plan.mode === 'physical' ? (
             <PhysicalStockEntry typeId={currentType.id} voucherId={voucherId} voucher={existing} initial={plan.state} />
           ) : plan.mode === 'transfer' ? (
@@ -214,6 +225,7 @@ export function VoucherEntry({
               voucher={existing}
               initial={plan.state}
               fallbackReason={plan.fallbackReason}
+              legacy={!!plan.legacy}
               formName={currentType.kind === 'physical_stock' ? 'physical-count' : 'manufacture'}
             />
           ) : (
@@ -233,10 +245,11 @@ export function VoucherEntry({
           // WP 2.3: a new stock journal opens the transfer / adjustment form; the BOM manufacture
           // form stays one click away (WP 2.2 gives Manufacture its own screen).
           <StockJournalEntry
-            key={currentType.id}
+            key={`${currentType.id}-${sjMode}`}
             typeId={currentType.id}
+            initialMode={sjMode}
             extraModes={[
-              { value: 'manufacture', label: 'Manufacture (BOM)', render: () => <ManufactureEntry key={currentType.id} typeId={currentType.id} /> }
+              { value: 'manufacture', label: 'Manufacture (BOM)', render: () => <ManufactureForm key={currentType.id} typeId={currentType.id} /> }
             ]}
           />
         ) : modeForKind(currentType.kind) === 'physical' ? (

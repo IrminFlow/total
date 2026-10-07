@@ -88,6 +88,7 @@ beforeEach(() => {
       case 'master:stockItems:list': return { ok: true, data: ITEMS }
       case 'master:units:list': return { ok: true, data: [{ id: 1, name: 'Numbers', symbol: 'Nos', decimals: 0, uqc: 'NOS' }] }
       case 'bom:get': return { ok: true, data: [] }
+      case 'manufacture:get': return { ok: true, data: { voucher, details: null } }
       case 'master:godowns:list': return { ok: true, data: [{ id: 1, name: 'Main', address: null }, { id: 2, name: 'Annex', address: null }] }
       case 'master:batches:list': return { ok: true, data: [] }
       case 'stock:byGodown': return { ok: true, data: [] }
@@ -163,7 +164,7 @@ describe('VoucherEntry alteration routing', () => {
     voucher = { ...transfer, id: 17, inventory: [transfer.inventory[0]!, { ...transfer.inventory[1]!, amount: 90, ratePaise: 90 }] }
     renderEntry(17)
     expect(await mode()).toBe('stockLines')
-    expect(await screen.findByTestId('banner-stock-lines-fallback')).toBeTruthy()
+    expect((await screen.findByTestId('banner-stock-lines-legacy')).textContent).toContain('Created before 0.6.0 — costed at the saved amounts')
     cleanup()
 
     voucher = {
