@@ -140,7 +140,7 @@ export function BatchTab({ tabs }: { tabs: ReactNode }): React.JSX.Element {
         actions={
           canWrite && (
             <Button variant="primary" data-testid="btn-payables-batch-preview" disabled={items.length === 0} onClick={() => setPreview(true)}>
-              Preview & post {items.length || ''}…
+              {items.length > 0 ? `Preview & post ${items.length} payment${items.length === 1 ? '' : 's'}…` : 'Preview & post…'}
             </Button>
           )
         }

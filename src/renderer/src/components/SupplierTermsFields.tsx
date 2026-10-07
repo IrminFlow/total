@@ -58,7 +58,7 @@ export function SupplierTermsFields({ value, onChange }: { value: SupplierTermsS
   return (
     <fieldset className="flex flex-col gap-3 rounded-md border border-line px-3 pt-1 pb-3" data-testid="ledger-supplier-terms">
       <legend className="px-1 text-caption text-muted">MSME and payment terms</legend>
-      <div className="grid grid-cols-3 gap-3">
+      <div className="grid grid-cols-[minmax(0,0.9fr)_minmax(0,0.9fr)_minmax(0,1.3fr)] gap-3">
         <Field label="MSME (Udyam)" hint="Registered micro / small / medium enterprise">
           <span className="flex h-[34px] items-center gap-2 text-detail">
             <input type="checkbox" data-testid="ledger-msme-registered" checked={value.msmeRegistered} onChange={(e) => set({ msmeRegistered: e.target.checked })} />

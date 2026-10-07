@@ -233,12 +233,15 @@ export interface Bill43BhResult {
  *    disallowed;
  *  - the period ends after the FY end and has run out → the part of the FY-end balance still
  *    unpaid when it ran out is disallowed (what was paid in time is allowed for the year);
- *  - the period is still running on `today` → at risk (allowed only if paid by payBy).
+ *  - the period is still running on `today`, or the year itself has not ended → at risk.
  * Only amounts claimed as a deduction are affected — a capital purchase on the same supplier
  * ledger is not; the report says to review those.
  */
 export function disallowance43Bh(b: Bill43BhInput, fyEnd: string, today: string): Bill43BhResult {
   if (b.pendingAtFyEnd <= 0) return { status: 'allowed', disallowed: 0, atRisk: 0 }
+  // The year has not ended: a bill paid late but before the year end is still allowed for the
+  // year, so nothing is settled yet — all of it is at risk.
+  if (today <= fyEnd) return { status: 'at_risk', disallowed: 0, atRisk: b.pendingAtFyEnd }
   if (b.payBy <= fyEnd) return { status: 'disallowed', disallowed: b.pendingAtFyEnd, atRisk: 0 }
   if (b.payBy >= today || b.pendingAtPayBy == null) return { status: 'at_risk', disallowed: 0, atRisk: b.pendingAtFyEnd }
   const late = Math.min(b.pendingAtFyEnd, Math.max(0, b.pendingAtPayBy))

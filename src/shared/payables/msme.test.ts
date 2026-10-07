@@ -107,6 +107,9 @@ describe('Income-tax s.43B(h) / 2025 Act s.37(2)(g) — the year-end figure', ()
   it('period still running: at risk, not yet disallowed', () => {
     expect(disallowance43Bh({ pendingAtFyEnd: 50_000, payBy: '2026-10-20', pendingAtPayBy: null }, FY_END, TODAY)).toEqual({ status: 'at_risk', disallowed: 0, atRisk: 50_000 })
   })
+  it('a year still running: everything unpaid is at risk, nothing disallowed yet', () => {
+    expect(disallowance43Bh({ pendingAtFyEnd: 50_000, payBy: '2026-09-10', pendingAtPayBy: null }, '2027-03-31', TODAY)).toEqual({ status: 'at_risk', disallowed: 0, atRisk: 50_000 })
+  })
   it('paid by the year end: nothing', () => {
     expect(disallowance43Bh({ pendingAtFyEnd: 0, payBy: '2026-03-10', pendingAtPayBy: null }, FY_END, TODAY).status).toBe('allowed')
   })

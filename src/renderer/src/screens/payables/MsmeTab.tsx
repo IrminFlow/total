@@ -4,7 +4,7 @@
 // for a half-year (CSV). Sources: src/shared/payables/msmeSources.ts (shown in Options).
 import { useState, type ReactNode } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { fyOf, toDisplayDate } from '@shared/dates'
+import { fyOf, toDisplayDate, todayISO } from '@shared/dates'
 import { formatPaise } from '@shared/money'
 import { formMsme1Period, MSME_AGE_BUCKETS, MSME_AGE_LABELS, MSME_CATEGORY_LABELS, addDays } from '@shared/payables/msme'
 import { disallowanceSection, MSME_SOURCES } from '@shared/payables/msmeSources'
@@ -154,6 +154,9 @@ export function MsmeTab({ tabs }: { tabs: ReactNode }): React.JSX.Element {
   }
 
   const d = data?.disallowance
+  // The year has not ended: nothing is settled as disallowed yet (a late bill paid before the year
+  // end is still allowed for the year).
+  const yearOpen = !!d && d.fyEnd >= todayISO()
   const form = data?.form1
   const s16 = data?.s16RateBp
   return (
@@ -221,10 +224,14 @@ export function MsmeTab({ tabs }: { tabs: ReactNode }): React.JSX.Element {
           loading={isLoading}
         />
         <StatTile
-          label={`Disallowed FY ${fyStartYear}-${String((fyStartYear + 1) % 100).padStart(2, '0')}`}
-          value={formatPaise(d?.disallowed ?? 0, { symbol: true })}
-          tone={(d?.disallowed ?? 0) > 0 ? 'cr' : undefined}
-          hint={`${disallowanceSection(fyStartYear)} · at risk ${formatPaise(d?.atRisk ?? 0)}`}
+          label={`${yearOpen ? 'At risk' : 'Disallowed'} FY ${fyStartYear}-${String((fyStartYear + 1) % 100).padStart(2, '0')}`}
+          value={formatPaise((yearOpen ? d?.atRisk : d?.disallowed) ?? 0, { symbol: true })}
+          tone={(d?.disallowed ?? 0) > 0 ? 'cr' : yearOpen && (d?.atRisk ?? 0) > 0 ? 'amber' : undefined}
+          hint={
+            yearOpen
+              ? `${disallowanceSection(fyStartYear)} · year open: disallowed if still unpaid on ${toDisplayDate(d?.fyEnd ?? asOn)} past the s.15 period`
+              : `${disallowanceSection(fyStartYear)} · still at risk ${formatPaise(d?.atRisk ?? 0)}`
+          }
           testId="msme-tile-disallowed"
           loading={isLoading}
           onClick={() => setView('disallowance')}

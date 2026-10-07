@@ -18,13 +18,13 @@ function LinesTable({ lines, posted }: { lines: PaymentRunLine[]; posted: boolea
     <table className="ledger-table" data-testid={posted ? 'rows-payables-run-summary' : 'rows-payables-run-preview'}>
       <thead>
         <tr>
-          {posted && <th scope="col" className="w-24">Voucher</th>}
+          {posted && <th scope="col" className="w-20">Voucher</th>}
           <th scope="col">Supplier</th>
           <th scope="col">Bills</th>
-          <th scope="col" className="w-32">Pay from</th>
-          <th scope="col" className="r w-32">Settled</th>
-          <th scope="col" className="r w-28">TDS</th>
-          <th scope="col" className="r w-32">Bank pays</th>
+          <th scope="col" className="w-36">Pay from</th>
+          <th scope="col" className="r w-28">Settled</th>
+          <th scope="col" className="r w-24">TDS</th>
+          <th scope="col" className="r w-28">Bank pays</th>
         </tr>
       </thead>
       <tbody>
@@ -35,7 +35,7 @@ function LinesTable({ lines, posted }: { lines: PaymentRunLine[]; posted: boolea
                 <VoucherLink voucherId={l.voucherId} label={<span className="num">{l.voucherNumber}</span>} />
               </td>
             )}
-            <td>
+            <td className="whitespace-nowrap">
               {l.partyName}
               {l.errors.map((e, j) => (
                 <span key={j} className="block text-hint text-cr" data-testid="payables-run-error">
@@ -158,7 +158,8 @@ export function RunPreviewModal({
             <>
               <p className="text-body-sm">
                 {preview.totals.vouchers} payment voucher{preview.totals.vouchers === 1 ? '' : 's'} dated {toDisplayDate(input.date)} · settles{' '}
-                <Money paise={preview.totals.amount} /> · TDS <Money paise={preview.totals.tds} /> · bank pays{' '}
+                <Money paise={preview.totals.amount} />
+                {preview.totals.tds > 0 && <> · TDS <Money paise={preview.totals.tds} /></>} · bank pays{' '}
                 <span className="font-semibold" data-testid="payables-preview-bank-total"><Money paise={preview.totals.bank} /></span>
               </p>
               <LinesTable lines={preview.lines} posted={false} />

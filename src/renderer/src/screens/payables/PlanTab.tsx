@@ -22,51 +22,51 @@ const BASIS_LABEL = { agreed: 'agreed', agreed_capped: 'agreed, capped at 45 d',
 
 export const PLAN_COLUMNS = defineColumns<PayablePlanRow>([
   {
-    id: 'party', header: 'Supplier', kind: 'text', value: (r) => r.partyName, minWidth: 160, hideable: false,
+    id: 'party', header: 'Supplier', kind: 'text', value: (r) => r.partyName, minWidth: 150, hideable: false,
     cell: (r) => <LedgerLink ledgerId={r.ledgerId} name={r.partyName} />
   },
   {
-    id: 'bill', header: 'Bill', kind: 'text', value: (r) => r.number, width: 110,
+    id: 'bill', header: 'Bill', kind: 'text', value: (r) => r.number, width: 96,
     cell: (r) => <VoucherLink voucherId={r.voucherId} label={<span className="num">{r.number}</span>} />
   },
   { id: 'ref', header: 'Supplier inv.', kind: 'text', value: (r) => r.supplierRef ?? '', width: 110, defaultHidden: true },
-  { id: 'date', header: 'Bill date', kind: 'date', value: (r) => r.date, className: 'text-muted' },
+  { id: 'date', header: 'Bill date', kind: 'date', value: (r) => r.date, width: 96, className: 'text-muted' },
   { id: 'due', header: 'Due (terms)', kind: 'date', value: (r) => r.dueDate ?? '', defaultHidden: true },
   {
-    id: 'msme', header: 'MSME', kind: 'enum', value: (r) => r.msme?.category ?? '', width: 84,
+    id: 'msme', header: 'MSME', kind: 'enum', value: (r) => r.msme?.category ?? '', width: 74,
     options: [{ value: 'micro', label: 'Micro' }, { value: 'small', label: 'Small' }, { value: 'medium', label: 'Medium' }],
     cell: (r) => <MsmeBadge msme={r.msme} />
   },
   {
-    id: 's15', header: 's.15 pay by', kind: 'date', value: (r) => r.s15?.payBy ?? '', width: 110,
+    id: 's15', header: 's.15 pay by', kind: 'date', value: (r) => r.s15?.payBy ?? '', width: 100,
     text: (r) => (r.s15 ? `${toDisplayDate(r.s15.payBy)} (${BASIS_LABEL[r.s15.basis]})` : ''),
     cell: (r) => (r.s15 ? <span className="num" title={BASIS_LABEL[r.s15.basis]}>{toDisplayDate(r.s15.payBy)}</span> : null)
   },
-  { id: 'payBy', header: 'Pay by', kind: 'date', value: (r) => r.payBy, className: 'font-medium' },
+  { id: 'payBy', header: 'Pay by', kind: 'date', value: (r) => r.payBy, width: 100, className: 'font-medium' },
   {
-    id: 'bucket', header: 'When', kind: 'enum', value: (r) => r.bucket, width: 120, groupKey: (r) => PLAN_BUCKET_LABELS[r.bucket],
+    id: 'bucket', header: 'When', kind: 'enum', value: (r) => r.bucket, width: 108, groupKey: (r) => PLAN_BUCKET_LABELS[r.bucket],
     options: PLAN_BUCKETS.map((b) => ({ value: b, label: PLAN_BUCKET_LABELS[b] })), text: (r) => PLAN_BUCKET_LABELS[r.bucket],
     cell: (r) => <span className={r.bucket === 'overdue' ? 'text-cr' : r.bucket === 'this_week' ? 'text-amber' : ''}>{PLAN_BUCKET_LABELS[r.bucket]}</span>
   },
   {
-    id: 'days', header: 'Days', kind: 'number', value: (r) => r.daysToPay, width: 72,
-    text: (r) => (r.daysToPay < 0 ? `${-r.daysToPay} late` : `${r.daysToPay}`)
+    id: 'days', header: 'Days', kind: 'number', value: (r) => r.daysToPay, width: 80,
+    text: (r) => (r.daysToPay < 0 ? `${-r.daysToPay} late` : `in ${r.daysToPay}`)
   },
   { id: 'amount', header: 'Bill amount', kind: 'money', value: (r) => r.amount, width: 130, defaultHidden: true },
-  { id: 'pending', header: 'Pending', kind: 'money', value: (r) => r.pending, width: 130, aggregate: 'sum', className: 'font-medium' },
+  { id: 'pending', header: 'Pending', kind: 'money', value: (r) => r.pending, width: 120, aggregate: 'sum', className: 'font-medium' },
   {
-    id: 'discount', header: 'Discount', kind: 'money', value: (r) => (r.discount?.available ? r.discount.paise : null), width: 140,
+    id: 'discount', header: 'Discount', kind: 'money', value: (r) => (r.discount?.available ? r.discount.paise : null), width: 108,
     aggregate: (rows) => rows.reduce((s, r) => s + (r.discount?.available ? r.discount.paise : 0), 0),
     text: (r) => (r.discount ? `${formatPaise(r.discount.paise)} (${pct(r.discount.bp)} by ${toDisplayDate(r.discount.by)})` : ''),
     cell: (r) =>
       r.discount ? (
         <span className={r.discount.available ? 'text-dr' : 'text-muted line-through'} title={`${pct(r.discount.bp)} if paid by ${toDisplayDate(r.discount.by)}`}>
-          {formatPaise(r.discount.paise)} <span className="text-hint">by {toDisplayDate(r.discount.by)}</span>
+          {formatPaise(r.discount.paise)}
         </span>
       ) : null
   },
   {
-    id: 'interest', header: 's.16 interest', kind: 'money', value: (r) => (r.interestIndicative > 0 ? r.interestIndicative : null), width: 120,
+    id: 'interest', header: 's.16 interest', kind: 'money', value: (r) => (r.interestIndicative > 0 ? r.interestIndicative : null), width: 108,
     aggregate: 'sum', className: 'text-cr'
   }
 ])
@@ -262,7 +262,7 @@ export function PlanTab({ tabs }: { tabs: ReactNode }): React.JSX.Element {
                 )
               : undefined
           }
-          leadingWidth={36}
+          leadingWidth={44}
           onRowActivate={planMode ? (r) => toggle(r.key) : undefined}
           toolbarStart={
             <Segmented<Filter>
