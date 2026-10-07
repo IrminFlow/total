@@ -8,6 +8,13 @@ import {
 } from '@shared/valuation'
 import { IN_BOOKS, checkStock } from './vouchers'
 import type { NegativeStockWarning } from '@shared/domain'
+import {
+  averageMonthlyConsumption, daysToExpiry, expiresWithin, isBelowReorder, labelSheetHtml, monthsOfCover, suggestedOrderQty,
+  type ExpiryReportRow, type LabelItem, type ReorderRow, type StockMovementRegister, type StockMovementRow
+} from '@shared/stockPlanning'
+import { formatPaise } from '@shared/money'
+import { parseLineSerials } from './serials'
+import { rateFor } from './priceLevels'
 
 /**
  * Valuation-engine-driven stock reports (lane I; global pass WP 2.1). Unlike the legacy
@@ -194,6 +201,35 @@ function companyPassInput(db: DB, asOn: string): { items: ItemRow[]; rows: Movem
   }
 }
 
+/**
+ * The pass input of ONE godown's view as of `asOn` (stock summary's godown mode, and the movement
+ * register filtered to a godown): only that godown's movements, no openings (they aren't
+ * godown-attributed), and every costed inward line (additional cost, derived manufacture) at the
+ * value the company-wide pass booked for it — valuation is company-wide, the godown is walked alone.
+ */
+function godownPassInput(
+  db: DB,
+  asOn: string,
+  godownId: number,
+  items: ItemRow[],
+  costing: Map<number, VoucherCosting>
+): InventoryPassInput {
+  let godownRows: MovementRow[]
+  let booked: Map<number, number>
+  if ([...costing.values()].some((c) => c.rule === 'derived')) {
+    // Derived values need the company-wide pass.
+    const rows = loadMovements(db, asOn)
+    booked = bookedInwardValues({ items: toItems(items), movements: rows.map((r) => toMovement(r)), costing })
+    godownRows = rows.filter((r) => r.godownId === godownId)
+  } else {
+    // Stored-rule values depend only on each voucher's own lines: no pass needed.
+    const journalInward = costing.size > 0 ? loadMovements(db, asOn, { stockJournalInward: true }) : []
+    booked = bookedInwardValues({ items: [], movements: journalInward.map((r) => toMovement(r)), costing })
+    godownRows = loadMovements(db, asOn, { godownId })
+  }
+  return { items: toItems(items, false), movements: godownRows.map((r) => toMovement(r, booked.get(r.lineId) ?? r.amount)) }
+}
+
 const ZERO: ValuationResult = { closingQtyMilli: 0, closingValue: 0, inwardQtyMilli: 0, outwardQtyMilli: 0, consumedValue: 0 }
 
 export interface StockSummaryOptions {
@@ -211,28 +247,10 @@ export interface StockSummaryOptions {
 export function stockSummary(db: DB, asOn: string, opts: StockSummaryOptions = {}): StockSummaryRow[] {
   const items = listItems(db)
   const costing = voucherCosting(db, asOn)
-  let results: Map<number, ValuationResult>
-  if (opts.godownId) {
-    const godownId = opts.godownId
-    let godownRows: MovementRow[]
-    let booked: Map<number, number>
-    if ([...costing.values()].some((c) => c.rule === 'derived')) {
-      // Derived values need the company-wide pass.
-      const rows = loadMovements(db, asOn)
-      booked = bookedInwardValues({ items: toItems(items), movements: rows.map((r) => toMovement(r)), costing })
-      godownRows = rows.filter((r) => r.godownId === godownId)
-    } else {
-      // Stored-rule values depend only on each voucher's own lines: no pass needed.
-      const journalInward = costing.size > 0 ? loadMovements(db, asOn, { stockJournalInward: true }) : []
-      booked = bookedInwardValues({ items: [], movements: journalInward.map((r) => toMovement(r)), costing })
-      godownRows = loadMovements(db, asOn, { godownId })
-    }
-    const godownMoves = godownRows.map((r) => toMovement(r, booked.get(r.lineId) ?? r.amount))
-    results = runInventoryPass({ items: toItems(items, false), movements: godownMoves }).closing
-  } else {
-    const movements = loadMovements(db, asOn).map((r) => toMovement(r))
-    results = runInventoryPass({ items: toItems(items), movements, costing }).closing
-  }
+  const input = opts.godownId
+    ? godownPassInput(db, asOn, opts.godownId, items, costing)
+    : { items: toItems(items), movements: loadMovements(db, asOn).map((r) => toMovement(r)), costing }
+  const results = runInventoryPass(input).closing
   return items.map((item) => {
     const r = results.get(item.id) ?? ZERO
     const openingQty = opts.godownId ? 0 : item.openingQtyMilli
@@ -472,4 +490,186 @@ export function expiryAgeing(db: DB, asOn: string): ExpiryAgeingRow[] {
     .filter((r) => r.closingQtyMilli > 0 && r.expiryDate !== null)
     .map((r) => ({ ...r, bucket: expiryBucketOf(r.expiryDate, asOn) }))
     .sort((a, b) => (a.expiryDate! < b.expiryDate! ? -1 : a.expiryDate! > b.expiryDate! ? 1 : 0))
+}
+
+// ---------- item movement register (WP 2.3) ----------
+
+interface RegisterLineRow {
+  lineId: number
+  voucherId: number
+  date: string
+  number: string
+  voucherType: string
+  kind: string
+  partyLedgerId: number | null
+  partyName: string | null
+  narration: string | null
+  godownId: number | null
+  godownName: string | null
+  batchId: number | null
+  batchName: string | null
+  expiryDate: string | null
+  ratePaise: number
+  serials: string | null
+}
+
+/**
+ * One item's movements in [from, to] with running quantity and value — read off the SAME pass
+ * the stock summary runs (company-wide, or one godown's view exactly as stockSummary's godown
+ * mode builds it), observed line by line: nothing is re-costed here. In-books semantics are the
+ * pass's own (binned / post-dated / optional vouchers never appear). Opening = the pass position
+ * just before `from`; closing = the position after `to` — equal to stockSummary(db, to) for the
+ * item by construction (dbtest-pinned).
+ */
+export function stockMovements(db: DB, itemId: number, from: string, to: string, godownId?: number): StockMovementRegister {
+  const items = listItems(db)
+  const item = items.find((i) => i.id === itemId)
+  if (!item) throw new Error('Stock item not found')
+  const costing = voucherCosting(db, to)
+  const input = godownId
+    ? godownPassInput(db, to, godownId, items, costing)
+    : { items: toItems(items), movements: loadMovements(db, to).map((r) => toMovement(r)), costing }
+
+  const effects: { lineId: number; date: string; qtyDelta: number; valueDelta: number; qtyAfter: number; valueAfter: number; isAbsolute: boolean; direction: 'in' | 'out' }[] = []
+  const { closing, at } = runInventoryPass(input, [{ date: from, voucherId: 0 }], {
+    itemId,
+    onLine: (e) => {
+      if (e.movement.date < from) return
+      effects.push({
+        lineId: e.movement.lineId!, date: e.movement.date, qtyDelta: e.qtyDelta, valueDelta: e.valueDelta,
+        qtyAfter: e.qtyAfter, valueAfter: e.valueAfter, isAbsolute: !!e.movement.isAbsolute, direction: e.movement.direction
+      })
+    }
+  })
+  const opening = at[0]!.get(itemId) ?? ZERO
+  const end = closing.get(itemId) ?? ZERO
+
+  const meta = new Map(
+    (
+      db
+        .prepare(
+          `SELECT il.id AS lineId, v.id AS voucherId, v.date, v.number, vt.name AS voucherType, vt.kind,
+                  v.party_ledger_id AS partyLedgerId, pl.name AS partyName, v.narration,
+                  il.godown_id AS godownId, g.name AS godownName, il.batch_id AS batchId, b.name AS batchName,
+                  b.expiry_date AS expiryDate, il.rate_paise AS ratePaise, il.serials
+           FROM inventory_lines il
+           JOIN vouchers v ON v.id = il.voucher_id
+           JOIN voucher_types vt ON vt.id = v.voucher_type_id
+           LEFT JOIN ledgers pl ON pl.id = v.party_ledger_id
+           LEFT JOIN godowns g ON g.id = il.godown_id
+           LEFT JOIN batches b ON b.id = il.batch_id
+           WHERE il.stock_item_id = ? AND v.date BETWEEN ? AND ? AND ${IN_BOOKS}`
+        )
+        .all(itemId, from, to) as RegisterLineRow[]
+    ).map((r) => [r.lineId, r])
+  )
+
+  const rows: StockMovementRow[] = []
+  const totals = { inwardQtyMilli: 0, inwardValue: 0, outwardQtyMilli: 0, outwardValue: 0 }
+  for (const e of effects) {
+    const m = meta.get(e.lineId)
+    if (!m) continue
+    const inward = e.isAbsolute ? e.qtyDelta > 0 || (e.qtyDelta === 0 && e.valueDelta > 0) : e.direction === 'in'
+    const inwardQtyMilli = inward ? Math.max(0, e.qtyDelta) : 0
+    const outwardQtyMilli = inward ? 0 : Math.max(0, -e.qtyDelta)
+    const value = inward ? e.valueDelta : -e.valueDelta
+    if (inward) {
+      totals.inwardQtyMilli += inwardQtyMilli
+      totals.inwardValue += value
+    } else {
+      totals.outwardQtyMilli += outwardQtyMilli
+      totals.outwardValue += value
+    }
+    rows.push({
+      lineId: e.lineId, voucherId: m.voucherId, date: m.date, number: m.number, voucherType: m.voucherType, kind: m.kind,
+      particulars: m.partyName ?? m.narration ?? '', partyLedgerId: m.partyLedgerId, narration: m.narration,
+      godownId: m.godownId, godownName: m.godownName, batchId: m.batchId, batchName: m.batchName, expiryDate: m.expiryDate,
+      isAbsolute: e.isAbsolute, inwardQtyMilli, outwardQtyMilli, ratePaise: m.ratePaise, value,
+      runningQtyMilli: e.qtyAfter, runningValue: e.valueAfter, serials: parseLineSerials(m.serials)
+    })
+  }
+  return {
+    item: { id: item.id, name: item.name, unitSymbol: item.unitSymbol, decimals: item.decimals, valuationMethod: item.valuationMethod },
+    from,
+    to,
+    godownId: godownId ?? null,
+    opening: { qtyMilli: opening.closingQtyMilli, value: opening.closingValue },
+    rows,
+    totals,
+    closing: { qtyMilli: end.closingQtyMilli, value: end.closingValue }
+  }
+}
+
+// ---------- reorder planning (WP 2.3) ----------
+
+/**
+ * Items with a reorder level, as of `to`: closing (stock summary), outward quantity over
+ * [from, to] from the valuation pass (periodConsumption), average monthly consumption
+ * (30-day month, src/shared/stockPlanning.ts) and the suggested order for items below their level:
+ * max(0, reorder level × 2 − closing). `onlyBelow` (default) keeps just the items to reorder.
+ */
+export function reorderPlan(db: DB, from: string, to: string, opts: { onlyBelow?: boolean } = {}): ReorderRow[] {
+  const levels = new Map(
+    (db.prepare('SELECT id, reorder_level_milli AS r FROM stock_items WHERE reorder_level_milli IS NOT NULL').all() as { id: number; r: number }[])
+      .map((x) => [x.id, x.r])
+  )
+  if (levels.size === 0) return []
+  const consumption = periodConsumption(db, from, to)
+  const rows: ReorderRow[] = []
+  for (const s of stockSummary(db, to)) {
+    const level = levels.get(s.stockItemId)
+    if (level == null) continue
+    const below = isBelowReorder(s.closingQtyMilli, level)
+    if ((opts.onlyBelow ?? true) && !below) continue
+    const consumedMilli = consumption.get(s.stockItemId)?.outwardQtyMilli ?? 0
+    const avgMonthlyMilli = averageMonthlyConsumption(consumedMilli, from, to)
+    rows.push({
+      stockItemId: s.stockItemId, name: s.name, unitSymbol: s.unitSymbol, decimals: s.decimals, reorderLevelMilli: level,
+      closingQtyMilli: s.closingQtyMilli, consumedMilli, avgMonthlyMilli, monthsOfCover: monthsOfCover(s.closingQtyMilli, avgMonthlyMilli),
+      below, suggestedMilli: below ? suggestedOrderQty(level, s.closingQtyMilli) : 0
+    })
+  }
+  return rows
+}
+
+// ---------- expiry report (WP 2.3) ----------
+
+/** Batches holding stock as of `asOn` that are expired or expire within `withinDays`. */
+export function expiryReport(db: DB, asOn: string, withinDays: number): ExpiryReportRow[] {
+  return batchStock(db, asOn)
+    .filter((r) => r.closingQtyMilli > 0 && r.expiryDate !== null && expiresWithin(r.expiryDate, asOn, withinDays))
+    .map((r) => ({
+      batchId: r.batchId, batchName: r.batchName, stockItemId: r.stockItemId, itemName: r.itemName, unitSymbol: r.unitSymbol,
+      decimals: r.decimals, mfgDate: r.mfgDate, expiryDate: r.expiryDate!, closingQtyMilli: r.closingQtyMilli,
+      daysToExpiry: daysToExpiry(r.expiryDate!, asOn)
+    }))
+    .sort((a, b) => a.daysToExpiry - b.daysToExpiry || a.itemName.localeCompare(b.itemName))
+}
+
+// ---------- barcode labels (WP 2.3) ----------
+
+export interface LabelRequest {
+  items: { itemId: number; copies: number }[]
+  /** Price list to print the rate from (default: the first price list); null = no price. */
+  priceLevelId?: number | null
+  /** Rate effective on this date. */
+  date: string
+  caption?: string
+}
+
+/** The label sheet HTML (shared/stockPlanning.labelSheetHtml) for the requested items. */
+export function labelsHtml(db: DB, req: LabelRequest): string {
+  const level =
+    req.priceLevelId === undefined
+      ? ((db.prepare('SELECT id FROM price_levels ORDER BY id LIMIT 1').get() as { id: number } | undefined)?.id ?? null)
+      : req.priceLevelId
+  const stmt = db.prepare('SELECT id, name, barcode FROM stock_items WHERE id = ?')
+  const labels: LabelItem[] = []
+  for (const it of req.items) {
+    const row = stmt.get(it.itemId) as { id: number; name: string; barcode: string | null } | undefined
+    if (!row) continue
+    const rate = level != null ? rateFor(db, level, row.id, req.date) : null
+    labels.push({ name: row.name, barcode: row.barcode, priceText: rate != null ? formatPaise(rate, { symbol: true }) : null, copies: it.copies })
+  }
+  return labelSheetHtml(labels, { caption: req.caption })
 }

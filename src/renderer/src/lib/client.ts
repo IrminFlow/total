@@ -27,6 +27,16 @@ import type {
 } from '@shared/schemas'
 import type { CompanyFeatures } from '@shared/features'
 import type { StockCostPosition, ConsumptionCosting, ProposedOutward } from '@shared/valuation'
+import type { ExpiryReportRow, ReorderRow, SerialListRow, StockMovementRegister } from '@shared/stockPlanning'
+import type { SerialStatus } from '@shared/serials'
+
+/** stock:labelsHtml / stock:labelsPdf query (mirrors stockLabelsSchema). */
+export interface StockLabelsQuery {
+  items: { itemId: number; copies: number }[]
+  /** Omitted = the first price list; null = print no price. */
+  priceLevelId?: number | null
+  date: string
+}
 import type { SearchHit, SearchResponse } from '@shared/search'
 import type { ChartGroupNode } from '@shared/chartOfAccounts'
 import type { InvoiceConfig } from '@shared/invoiceConfig'
@@ -443,7 +453,19 @@ export const api = {
      *  item, and the cost proposed outward lines would be charged. Pass `voucherId` when
      *  editing so the voucher's own saved lines are left out. */
     costAsOf: (q: { date: string; voucherId?: number; itemIds?: number[]; lines?: ProposedOutward[] }) =>
-      call<StockCostAsOf>('stock:costAsOf', q)
+      call<StockCostAsOf>('stock:costAsOf', q),
+    /** WP 2.3 — one item's movement register with running quantity/value from the pass. */
+    movements: (q: { itemId: number; from: string; to: string; godownId?: number }) =>
+      call<StockMovementRegister>('stock:movements', q),
+    reorder: (from: string, to: string, onlyBelow = true) => call<ReorderRow[]>('stock:reorder', { from, to, onlyBelow }),
+    expiryReport: (asOn: string, withinDays: number) => call<ExpiryReportRow[]>('stock:expiryReport', { asOn, withinDays }),
+    labelsHtml: (q: StockLabelsQuery) => call<{ html: string }>('stock:labelsHtml', q),
+    labelsPdf: (q: StockLabelsQuery) => call<{ path: string }>('stock:labelsPdf', q)
+  },
+  serials: {
+    list: (q: { stockItemId?: number; status?: SerialStatus } = {}) => call<SerialListRow[]>('serials:list', q),
+    /** Serials an outward line may pick (in stock, plus those `voucherId` itself took out). */
+    available: (stockItemId: number, voucherId?: number) => call<string[]>('serials:available', { stockItemId, voucherId })
   },
   priceLevels: {
     list: () => call<PriceLevel[]>('master:priceLevels:list'),
