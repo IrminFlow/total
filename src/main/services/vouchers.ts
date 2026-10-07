@@ -737,7 +737,7 @@ export function restoreVoucher(db: DB, id: number): void {
     // WP 2.3: re-apply its serials — refused (rolled back) if one has moved on meanwhile.
     rebuildItemSerials(db, before.inventory.map((l) => l.stockItemId))
   })()
-  writeAudit(db, 'voucher', id, 'update', before, { restored: true })
+  writeAudit(db, 'voucher', id, 'restore', before, { restored: true })
 }
 
 // ---------- post-dated vouchers (lane I, task 77) ----------
@@ -836,7 +836,7 @@ export function purgeVoucher(db: DB, id: number): void {
     }
     throw err
   }
-  writeAudit(db, 'voucher', id, 'delete', { ...before, purged: true }, null)
+  writeAudit(db, 'voucher', id, 'purge', { ...before, purged: true }, null)
 }
 
 /** Vouchers auto-purged after sitting in the bin longer than `days` (default 30). Returns the
@@ -862,16 +862,20 @@ export function purgeOldDeleted(db: DB, days = 30): number {
     .all(`-${days} days`, lock) as { id: number }[]
   const del = db.prepare('DELETE FROM vouchers WHERE id = ?')
   let purged = 0
+  const purgedIds: number[] = []
   for (const { id } of rows) {
     try {
       del.run(id)
       purged++
+      purgedIds.push(id)
     } catch {
       // e.g. an FK from payroll_runs — leave this voucher in the bin, keep purging the rest.
     }
   }
   if (purged > 0) {
-    writeAudit(db, 'voucher', 0, 'delete', { autoPurgedFromBin: purged, olderThanDays: days }, null)
+    // WP 3.8: the ids too — each voucher's own create/update/delete rows stay in the trail (audit_log
+    // has no foreign key to vouchers), and this row says where they went.
+    writeAudit(db, 'voucher', 0, 'purge', { autoPurgedFromBin: purged, olderThanDays: days, voucherIds: purgedIds }, null)
   }
   return purged
 }

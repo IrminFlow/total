@@ -185,7 +185,8 @@ describe('soft delete + bin', () => {
     const rows = db
       .prepare("SELECT action, after_json FROM audit_log WHERE entity = 'voucher' AND entity_id = ? ORDER BY id")
       .all(v.id) as { action: string; after_json: string | null }[]
-    expect(rows.map((r) => r.action)).toEqual(['create', 'delete', 'update', 'delete', 'delete'])
+    // WP 3.8: bin restore and permanent delete have their own actions (migration 031).
+    expect(rows.map((r) => r.action)).toEqual(['create', 'delete', 'restore', 'delete', 'purge'])
     expect(JSON.parse(rows[2]!.after_json!)).toEqual({ restored: true })
   })
 })

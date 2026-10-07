@@ -15,6 +15,8 @@ import { getVoucher, IN_BOOKS } from './vouchers'
 import { balanceSheet, dayBook, ledgerStatement, profitAndLoss, trialBalance } from './reports'
 import { outstandings } from './analysis'
 import { gstr1 } from './gst'
+import { editLogExport } from './audit'
+import { verificationSummary } from '@shared/auditChain'
 
 // ---------- neutral Tally masters/vouchers, mapped from our schema ----------
 
@@ -294,6 +296,36 @@ export function exportCaPack(db: DB, company: CompanyInfo, slug: string, from: s
   // WP 3.3: TCS collections (27EQ data) ride along when there are any.
   const tcs = tdsCsv(db, from, to, 'tcs')
   if (tcs) writeFileSync(join(dir, 'tcs-27eq.csv'), tcs)
+
+  // WP 3.8: the edit log (rule 11(g) — the auditor reports on the audit trail), plus a
+  // verification summary of the whole company's hash chain. Entries are selected by when they
+  // were WRITTEN: from the period start up to today, so edits made after the year end to that
+  // year's books are in the pack too.
+  const log = editLogExport(db, company, { from })
+  writeFileSync(join(dir, 'audit-trail.csv'), rowsToCsv(log.columns, log.rows))
+  const v = log.verification
+  writeFileSync(
+    join(dir, 'audit-trail-verification.txt'),
+    [
+      'Audit trail (edit log) — verification summary',
+      '',
+      ...log.header,
+      '',
+      `Result: ${v.ok ? 'VERIFIED' : 'BROKEN'}`,
+      `Entries checked (whole company, all periods): ${v.rows}`,
+      `First entry id: ${v.firstId ?? '-'}; chain head id: ${v.headId ?? '-'}`,
+      `Chain head hash (SHA-256): ${v.headHash ?? '-'}`,
+      `Rows removed by recorded retention prunes: ${v.prunedRows}`,
+      ...(v.issues.length ? ['', 'Issues:', ...v.issues.map((i) => `  row ${i.rowId} [${i.kind}] ${i.message}`)] : []),
+      '',
+      verificationSummary(v),
+      '',
+      'Compare the chain head above with the one printed on any later export: if the same id shows a',
+      'different hash, the log was rewritten in between. The chain makes edits to the company file',
+      'evident; it cannot prevent them (the file is an ordinary SQLite database on this machine).',
+      ''
+    ].join('\n')
+  )
 
   if (!existsSync(dir)) throw new Error('CA pack export failed')
   return { path: dir }

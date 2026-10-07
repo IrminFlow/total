@@ -10,6 +10,7 @@ import {
 } from '@shared/importers'
 import { ledgerInputSchema, stockItemInputSchema } from '@shared/schemas'
 import * as masters from './masters'
+import { writeAudit } from './audit'
 
 export type ImportKind = 'ledgers' | 'items' | 'openings'
 
@@ -268,9 +269,11 @@ export function previewImport(db: DB, kind: ImportKind, csvText: string): Import
 }
 
 export function applyImport(db: DB, kind: ImportKind, csvText: string): ImportResult {
-  if (kind === 'ledgers') return importLedgers(db, csvText)
-  if (kind === 'items') return importItems(db, csvText)
-  return importOpenings(db, csvText)
+  const result = kind === 'ledgers' ? importLedgers(db, csvText) : kind === 'items' ? importItems(db, csvText) : importOpenings(db, csvText)
+  // WP 3.8: every ledger/item row is already audited by masters.create*/update*; this one summary
+  // row ties them to the import that caused them.
+  writeAudit(db, 'csv_import', 0, 'import', null, { kind, created: result.created, updated: result.updated, errors: result.errors.length })
+  return result
 }
 
 /** Writes exports/template-<kind>.csv (header + one example row) and returns its path. */
