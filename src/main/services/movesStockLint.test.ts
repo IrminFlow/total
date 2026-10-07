@@ -41,7 +41,10 @@ const ALLOW: { file: string; contains: string; reason: string }[] = [
   { file: 'gstAnnual.ts', contains: 'FROM inventory_lines WHERE voucher_id = ?', reason: 'GSTR-9 Table 6: taxable value of the bill items' },
   { file: 'gstAnnual.ts', contains: "WHERE vt.kind = 'purchase' AND si.hsn IS NOT NULL", reason: 'GSTR-9 Table 18: inward HSN = the bill items' },
   { file: 'gstAnnual.ts', contains: "WHERE vt.kind = 'sales' AND g.kind = 'job_worker'", reason: "ITC-04 5C: the invoice's items supplied from a job worker's godown" },
-  { file: 'gstRcm.ts', contains: 'FROM inventory_lines il JOIN stock_items si ON si.id = il.stock_item_id JOIN units u', reason: 'self-invoice items = the bill items' }
+  { file: 'gstRcm.ts', contains: 'FROM inventory_lines il JOIN stock_items si ON si.id = il.stock_item_id JOIN units u', reason: 'self-invoice items = the bill items' },
+  { file: 'pricing.ts', contains: 'FROM inventory_lines WHERE voucher_id = ? AND is_absolute = 0', reason: "remember last price: the sale's item rates" },
+  { file: 'pricing.ts', contains: "vt.kind = 'purchase' AND il.direction = 'in'", reason: 'last purchase RATE of an item (a price, not a movement)' },
+  { file: 'counter.ts', contains: 'FROM inventory_lines il JOIN stock_items si ON si.id = il.stock_item_id JOIN units u ON u.id = si.unit_id', reason: "day-end items = the counter invoices' items" }
 ]
 
 /** Every string / template literal in a TS source (comments skipped; a template's nested

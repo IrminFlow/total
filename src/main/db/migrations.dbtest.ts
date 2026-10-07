@@ -71,6 +71,11 @@ const EXPECTED_TABLES = [
   'statutory_rates',
   'employee_tax_declarations',
   'statutory_payments',
+  // 030 (WP 2.6)
+  'party_item_rates',
+  'discount_schemes',
+  'discount_scheme_slabs',
+  'counter_sales',
   'migrations'
 ]
 
