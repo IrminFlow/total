@@ -105,10 +105,10 @@ export function PriceListsTab(): React.JSX.Element {
   const columns = useMemo(() => {
     const levelCols: TableColumn<GridRow>[] = levels.map((l) => ({
       id: `level-${l.id}`,
-      header: `${l.name}${l.inclusiveOfTax ? ' (incl. GST)' : ''}${l.isDefault ? ' ★' : ''}`,
+      header: `${l.isDefault ? '★ ' : ''}${l.name}${l.inclusiveOfTax ? ' · incl. GST' : ''}`,
       kind: 'money' as const,
       value: (r: GridRow) => r.rates[l.id]?.rate ?? null,
-      width: 150,
+      width: 180,
       groupable: false,
       cell: (r: GridRow) => {
         const cell = r.rates[l.id] ?? null

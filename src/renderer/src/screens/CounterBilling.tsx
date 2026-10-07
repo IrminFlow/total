@@ -316,7 +316,7 @@ export function CounterBillingScreen(): React.JSX.Element {
       })
       setLastSale(result)
       reset()
-      toast.push('success', `${result.invoiceNumber} — ${formatPaise(result.totalPaise, { symbol: true })}${result.changePaise ? ` · change ${formatPaise(result.changePaise, { symbol: true })}` : ''}`)
+      toast.push('success', `Bill ${result.invoiceNumber} saved — ${formatPaise(result.totalPaise, { symbol: true })}${result.changePaise ? ` · change ${formatPaise(result.changePaise, { symbol: true })}` : ''}`)
       if (result.negativeStock.length) toast.push('warning', `Stock below zero: ${result.negativeStock.map((n) => n.name).join(', ')}`)
       await queryClient.invalidateQueries({ queryKey: ['counterDayEnd'] })
       await queryClient.invalidateQueries({ queryKey: ['nextNumber'] })
@@ -697,7 +697,7 @@ export function CounterBillingScreen(): React.JSX.Element {
               <div className="flex flex-col gap-2">
                 {PAYMENT_MODES.map((m, i) => (
                   <label key={m} className="flex items-center justify-between gap-2 text-detail">
-                    <span>
+                    <span className="flex items-center gap-1.5 whitespace-nowrap">
                       {PAYMENT_MODE_LABELS[m]} <Kbd>F{5 + i}</Kbd>
                     </span>
                     <input
@@ -726,7 +726,7 @@ export function CounterBillingScreen(): React.JSX.Element {
                 ))}
                 {cashPaid > 0 && (
                   <label className="flex items-center justify-between gap-2 text-detail">
-                    <span>Cash tendered</span>
+                    <span className="whitespace-nowrap">Cash tendered</span>
                     <input
                       ref={(el) => {
                         payRefs.current.tendered = el
