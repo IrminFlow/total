@@ -3,31 +3,71 @@
 // bill lines for a credit / debit note — with what is still pending. Tick lines, adjust the
 // quantity (defaults to pending, capped at pending), Insert: the form appends rows that carry
 // their `source`, and the save links them (services/tradeLinks.ts).
+//
+// Returns (WP 2.5d): the same drawer is the "Against…" picker of a credit / debit note and of a
+// rejection GRN / challan. Pick a whole document from "Against" and every returnable line fills
+// in (returnable = sold − already returned, the server's capacity rule I1), or tick lines one by
+// one; a return reason (optional) goes to the voucher's narration — vouchers have no separate
+// reason field, and the returns register reads the narration.
 import { useMemo, useState } from 'react'
+import type { LinkType } from '@shared/domain'
 import { useQuery } from '@tanstack/react-query'
 import { api } from '../../lib/client'
 import type { OpenSourceLine } from '@shared/tradeCycle/types'
 import { formatQtyMilli } from '@shared/money'
 import type { SourcePick } from '@shared/voucherEdit'
-import { Button, Drawer } from '../../components/ui'
+import { Button, Drawer, Field, Select, TextInput } from '../../components/ui'
 import { DataTable, defineColumns } from '../../components/table'
 import { DocLink, ItemLink } from '../../components/links'
 import { useStockItems } from '../../components/pickers'
+
+/** Column headings for a return, by the kind being returned. */
+const RETURN_HEADS: Record<string, { qty: string; done: string }> = {
+  sales: { qty: 'Sold', done: 'Returned' },
+  purchase: { qty: 'Billed', done: 'Returned' },
+  delivery_note: { qty: 'Delivered', done: 'Invoiced / back' },
+  receipt_note: { qty: 'Received', done: 'Billed / back' }
+}
 
 export function AddFromDrawer({
   title,
   lines,
   loading,
   onClose,
-  onInsert
+  onInsert,
+  linkType = 'fulfil'
 }: {
   title: string
   /** Open lines with pending > 0 — already net of what this form holds. */
   lines: OpenSourceLine[]
   loading?: boolean
   onClose: () => void
-  onInsert: (picks: SourcePick[]) => void
+  /** `reason` only in return mode (blank = none). */
+  onInsert: (picks: SourcePick[], reason?: string) => void
+  /** 'return' = the "Against…" picker of a return (WP 2.5d). */
+  linkType?: LinkType
 }): React.JSX.Element {
+  const isReturn = linkType === 'return'
+  const heads = isReturn ? (RETURN_HEADS[lines[0]?.kind ?? 'sales'] ?? RETURN_HEADS.sales!) : { qty: 'On doc.', done: 'Done' }
+  const [reason, setReason] = useState('')
+  const [against, setAgainst] = useState('')
+  // Documents the lines come from, in date order ("Against…" picks a whole one).
+  const docs = useMemo(() => {
+    const seen = new Map<string, { key: string; label: string; date: string; lines: number }>()
+    for (const l of lines) {
+      const key = l.voucherId != null ? `v${l.voucherId}` : `d${l.tradeDocId}`
+      const d = seen.get(key)
+      if (d) d.lines += 1
+      else seen.set(key, { key, label: docOf(l.label), date: l.date, lines: 1 })
+    }
+    return [...seen.values()]
+  }, [lines])
+  const docKey = (l: OpenSourceLine): string => (l.voucherId != null ? `v${l.voucherId}` : `d${l.tradeDocId}`)
+  const pickDoc = (key: string): void => {
+    setAgainst(key)
+    if (!key) return
+    setPicked(new Map(lines.filter((l) => docKey(l) === key).map((l) => [l.lineUid, String(l.pendingMilli / 1000)])))
+  }
   const items = useStockItems()
   const itemName = useMemo(() => new Map(items.map((i) => [i.id, i.name])), [items])
   const { data: units } = useQuery({ queryKey: ['units'], queryFn: api.units.list })
@@ -67,9 +107,9 @@ export function AddFromDrawer({
           id: 'item', header: 'Item', kind: 'text', value: (r) => itemName.get(r.stockItemId) ?? '', minWidth: 120,
           cell: (r) => <ItemLink itemId={r.stockItemId} name={itemName.get(r.stockItemId) ?? `#${r.stockItemId}`} />
         },
-        { id: 'qty', header: 'On doc.', kind: 'quantity', value: (r) => r.qtyMilli, decimals: decimalsOf, width: 84 },
-        { id: 'done', header: 'Done', kind: 'quantity', value: (r) => r.doneMilli, decimals: decimalsOf, width: 76, defaultHidden: true },
-        { id: 'pending', header: 'Pending', kind: 'quantity', value: (r) => r.pendingMilli, decimals: decimalsOf, width: 84 },
+        { id: 'qty', header: heads.qty, kind: 'quantity', value: (r) => r.qtyMilli, decimals: decimalsOf, width: 84 },
+        { id: 'done', header: heads.done, kind: 'quantity', value: (r) => r.doneMilli, decimals: decimalsOf, width: 92, defaultHidden: !isReturn },
+        { id: 'pending', header: isReturn ? 'Returnable' : 'Pending', kind: 'quantity', value: (r) => r.pendingMilli, decimals: decimalsOf, width: 92 },
         { id: 'rate', header: 'Rate', kind: 'money', value: (r) => r.ratePaise, width: 104 },
         {
           id: 'serials', header: 'Serials', kind: 'text', value: (r) => r.serials.join(', '), defaultHidden: r0(lines),
@@ -95,7 +135,7 @@ export function AddFromDrawer({
             )
         }
       ]),
-    [itemName, picked, lines, decimalsOf]
+    [itemName, picked, lines, decimalsOf, heads, isReturn]
   )
 
   const picks: SourcePick[] = lines
@@ -106,7 +146,11 @@ export function AddFromDrawer({
   return (
     <Drawer
       title={title}
-      subtitle="Tick the lines to draw on; the quantity defaults to what is still pending."
+      subtitle={
+        isReturn
+          ? 'Pick the document being returned against — its returnable lines fill in — or tick lines; a return never exceeds what is left to return.'
+          : 'Tick the lines to draw on; the quantity defaults to what is still pending.'
+      }
       onClose={onClose}
       width={900}
       testId="drawer-add-from"
@@ -116,12 +160,35 @@ export function AddFromDrawer({
             {picks.length} line{picks.length === 1 ? '' : 's'} · {formatQtyMilli(picks.reduce((s, p) => s + p.qtyMilli, 0))} units
           </span>
           <Button onClick={onClose}>Cancel</Button>
-          <Button variant="primary" disabled={picks.length === 0} data-testid="btn-add-from-insert" onClick={() => onInsert(picks)}>
+          <Button variant="primary" disabled={picks.length === 0} data-testid="btn-add-from-insert" onClick={() => (isReturn ? onInsert(picks, reason.trim()) : onInsert(picks))}>
             Insert lines
           </Button>
         </>
       }
     >
+      {isReturn && (
+        <div className="mb-3 grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)] gap-3" data-testid="add-from-against">
+          <Field label="Against">
+            <Select value={against} onChange={(e) => pickDoc(e.target.value)} data-testid="input-add-from-against" aria-label="Against document">
+              <option value="">Pick a document…</option>
+              {docs.map((d) => (
+                <option key={d.key} value={d.key}>
+                  {d.label} · {d.date.split('-').reverse().join('/')} · {d.lines} line{d.lines === 1 ? '' : 's'}
+                </option>
+              ))}
+            </Select>
+          </Field>
+          <Field label="Reason" hint="Goes to the narration (if it is empty) and the returns register.">
+            <TextInput
+              value={reason}
+              onChange={(e) => setReason(e.target.value)}
+              placeholder="Damaged, wrong item, excess…"
+              maxLength={200}
+              data-testid="input-add-from-reason"
+            />
+          </Field>
+        </div>
+      )}
       <DataTable
         testId="add-from"
         columns={columns}

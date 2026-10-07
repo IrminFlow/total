@@ -35,6 +35,10 @@ import { TradePendingScreen } from './screens/TradePending'
 import { TradeDocListScreen } from './screens/TradeDocList'
 import { TradeDocEntry } from './screens/TradeDocEntry'
 import { PendingOrdersScreen, QuotationPipelineScreen } from './screens/TradeOrderReports'
+import { ThreeWayMatchScreen } from './screens/ThreeWayMatch'
+import { ItemDemandScreen, OrderBookScreen } from './screens/TradeAnalysis'
+import { TradeReturnsScreen } from './screens/TradeReturns'
+import { StaleDocumentsScreen, UnbilledGoodsScreen } from './screens/TradeUnbilled'
 import { ConsolidatedScreen } from './screens/Consolidated'
 import { BankingScreen } from './screens/Banking'
 import { EdocsScreen } from './screens/Edocs'
@@ -52,6 +56,7 @@ import { ErrorBoundary } from './components/ErrorBoundary'
 import { LockScreen } from './components/LockScreen'
 import { DialogHost } from './components/dialogs'
 import { DrillHost } from './components/DrillHost'
+import { LinkedDocsHost } from './components/LinkedDocs'
 import { invalidationFamilies } from './lib/screens'
 
 export default function App(): React.JSX.Element {
@@ -200,6 +205,12 @@ export default function App(): React.JSX.Element {
           {screen.name === 'pending-sales-orders' && <PendingOrdersScreen kind="sales_order" />}
           {screen.name === 'pending-purchase-orders' && <PendingOrdersScreen kind="purchase_order" />}
           {screen.name === 'quotation-pipeline' && <QuotationPipelineScreen />}
+          {screen.name === 'three-way-match' && <ThreeWayMatchScreen />}
+          {screen.name === 'order-book' && <OrderBookScreen key={screen.tab ?? 'party'} tab={screen.tab} />}
+          {screen.name === 'item-demand' && <ItemDemandScreen />}
+          {screen.name === 'trade-returns' && <TradeReturnsScreen key={screen.tab ?? 'register'} tab={screen.tab} />}
+          {screen.name === 'unbilled-goods' && <UnbilledGoodsScreen />}
+          {screen.name === 'stale-documents' && <StaleDocumentsScreen />}
           {screen.name === 'consolidated' && <ConsolidatedScreen />}
           {screen.name === 'banking' && <BankingScreen />}
           {screen.name === 'payroll' && <PayrollScreen />}
@@ -215,6 +226,7 @@ export default function App(): React.JSX.Element {
       {paletteOpen && <CommandPalette onClose={() => setPaletteOpen(false)} />}
       {helpOpen && <ShortcutHelp onClose={() => setHelpOpen(false)} />}
       <DrillHost />
+      <LinkedDocsHost />
       {integrityModal}
       <DialogHost />
       <Toasts />

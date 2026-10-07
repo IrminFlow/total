@@ -30,6 +30,17 @@ export function addFromFor(kind: TradeSideKind): { linkType: LinkType; sourceKin
   }
 }
 
+/** The rejection picker of a stock note (WP 2.5d): goods sent back against a GRN not yet
+ *  billed go out on a challan; goods coming back against a challan not yet invoiced come in on a
+ *  GRN. Null for every other kind (credit / debit notes use addFromFor's "Against…"). */
+export function rejectionFor(kind: TradeSideKind): { linkType: LinkType; sourceKinds: TradeSideKind[]; label: string } | null {
+  switch (kind) {
+    case 'delivery_note': return { linkType: 'return', sourceKinds: ['receipt_note'], label: 'Against GRN (rejection)…' }
+    case 'receipt_note': return { linkType: 'return', sourceKinds: ['delivery_note'], label: 'Against challan (rejection)…' }
+    default: return null
+  }
+}
+
 /** Sanity: every kind addFromFor names is an allowed link pair (rules.ts is the authority). */
 export function addFromIsAllowed(kind: TradeSideKind): boolean {
   const a = addFromFor(kind)

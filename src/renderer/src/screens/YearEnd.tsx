@@ -238,6 +238,35 @@ export function YearEndScreen(): React.JSX.Element {
         </Banner>
       )}
 
+      {/* WP 2.5d (design §9 Q5): goods received / delivered but not invoiced on 31 March — warn, no journal. */}
+      {preview?.unbilled && !preview.alreadyClosed && (preview.unbilled.grni.value > 0 || preview.unbilled.gdni.value > 0) && (
+        <Banner
+          tone="warning"
+          className="mb-section"
+          testId="year-end-unbilled"
+          title={`Goods not invoiced on ${toDisplayDate(preview.unbilled.asOn)}`}
+          action={
+            <Button size="sm" data-testid="btn-year-end-unbilled" onClick={() => nav.go({ name: 'unbilled-goods' })}>
+              See GRNI / GDNI
+            </Button>
+          }
+        >
+          {preview.unbilled.grni.value > 0 && (
+            <>
+              Received, not billed (GRNI) <Money paise={preview.unbilled.grni.value} /> on {preview.unbilled.grni.notes} GRN
+              {preview.unbilled.grni.notes === 1 ? '' : 's'}: in closing stock with no purchase booked.{' '}
+            </>
+          )}
+          {preview.unbilled.gdni.value > 0 && (
+            <>
+              Delivered, not invoiced (GDNI) <Money paise={preview.unbilled.gdni.value} /> on {preview.unbilled.gdni.notes} challan
+              {preview.unbilled.gdni.notes === 1 ? '' : 's'}: out of stock with no sale booked.{' '}
+            </>
+          )}
+          Nothing is posted for these automatically — book a provision if your CA asks for one, or bill / invoice them before closing.
+        </Banner>
+      )}
+
       {step === 1 && (
         <>
           <Panel className="mb-section">
