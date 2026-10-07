@@ -2,7 +2,8 @@ import { useEffect, useState } from 'react'
 import { keepPreviousData, useQuery } from '@tanstack/react-query'
 import { api } from '../lib/client'
 import { useSession, useToasts } from '../state/stores'
-import { Button, DateInput, Money, Panel, SectionTitle } from '../components/ui'
+import { Button, DateInput, DrawerSection, Money, Page, PageHeader, Panel, SkeletonRows } from '../components/ui'
+import { OptionToggle, OptionsExport, useScreenOptions } from '../components/ScreenOptions'
 import { StatementTree } from '../components/StatementTree'
 import { csvReport, flattenNodes, printReport } from '../lib/reportExport'
 import type { ReportColumn as PdfColumn, ReportRow as PdfRow } from '../lib/client'
@@ -33,7 +34,8 @@ export function ProfitLossScreen(): React.JSX.Element {
     queryFn: () => api.reports.profitLoss(from, to),
     placeholderData: keepPreviousData
   })
-  if (!data) return <p className="text-muted">Loading…</p>
+  const opts = useScreenOptions('profit-loss', { expandAll: false, hideZero: false })
+  if (!data) return <ReportSkeleton title="Profit & Loss" />
 
   const periodLabel = `${toDisplayDate(from)} → ${toDisplayDate(to)}`
   const flat = (label: string, paise: number): PdfRow => ({ cells: [label, formatPaise(paise, { zeroDash: true })], bold: true })
@@ -61,75 +63,130 @@ export function ProfitLossScreen(): React.JSX.Element {
     }
   ]
 
+  const exportPdf = (): void => void printReport({ title: 'Profit & Loss', periodLabel, columns: EXPORT_COLUMNS, rows: exportRows }, toast)
+  const exportCsv = (): void => void csvReport(EXPORT_COLUMNS.map((c) => c.label), exportRows.map((r) => r.cells), 'profit-loss', toast)
+  const treeKey = `${opts.options.expandAll}-${opts.options.hideZero}`
+  const tree = { expandAll: opts.options.expandAll, hideZero: opts.options.hideZero }
+
   return (
-    <div className="mx-auto max-w-5xl">
-      <SectionTitle
-        right={
+    <Page>
+      <PageHeader
+        title="Profit & Loss"
+        controls={
           <div className="flex items-center gap-2">
             {isPlaceholderData && (
-              <span data-testid="pnl-refreshing" className="text-[11px] text-muted" aria-live="polite">
+              <span data-testid="pnl-refreshing" className="text-caption text-muted" aria-live="polite">
                 Updating…
               </span>
             )}
-            <DateInput value={from} context={from} onChange={setFrom} className="w-28" testId="input-pnl-from" />
-            <span className="text-[12px] text-muted">→</span>
-            <DateInput value={to} context={to} onChange={setTo} className="w-28" testId="input-pnl-to" />
-            <Button
-              variant="ghost"
-              onClick={() => void printReport({ title: 'Profit & Loss', periodLabel, columns: EXPORT_COLUMNS, rows: exportRows }, toast)}
-            >
-              PDF
-            </Button>
-            <Button
-              variant="ghost"
-              onClick={() =>
-                void csvReport(EXPORT_COLUMNS.map((c) => c.label), exportRows.map((r) => r.cells), 'profit-loss', toast)
-              }
-            >
-              CSV
-            </Button>
+            <DateInput value={from} context={from} onChange={setFrom} className="w-28" testId="input-pnl-from" ariaLabel="From date" />
+            <span className="text-small text-muted" aria-hidden="true">
+              →
+            </span>
+            <DateInput value={to} context={to} onChange={setTo} className="w-28" testId="input-pnl-to" ariaLabel="To date" />
           </div>
         }
-      >
-        Profit &amp; Loss
-      </SectionTitle>
+        secondary={
+          <>
+            <Button variant="ghost" onClick={exportPdf}>
+              PDF
+            </Button>
+            <Button variant="ghost" onClick={exportCsv}>
+              CSV
+            </Button>
+          </>
+        }
+        options={{
+          onReset: opts.reset,
+          content: (
+            <>
+              <StatementOptions
+                expandAll={opts.options.expandAll}
+                hideZero={opts.options.hideZero}
+                onExpandAll={(v) => opts.set('expandAll', v)}
+                onHideZero={(v) => opts.set('hideZero', v)}
+              />
+              <OptionsExport>
+                <Button size="sm" onClick={exportPdf} data-testid="options-pnl-pdf">
+                  Export PDF
+                </Button>
+                <Button size="sm" onClick={exportCsv} data-testid="options-pnl-csv">
+                  Export CSV
+                </Button>
+              </OptionsExport>
+            </>
+          )
+        }}
+      />
 
       <div className={`grid grid-cols-2 gap-3 transition-opacity ${isPlaceholderData ? 'opacity-60' : ''}`}>
         <Panel className="p-4">
-          <p className="mb-2 text-[11px] font-semibold tracking-[0.08em] text-muted uppercase">Expenses</p>
+          <p className="mb-2 text-caption font-semibold tracking-[0.08em] text-muted uppercase">Expenses</p>
           {data.openingStock !== 0 && <FlatRow name="Opening stock" paise={data.openingStock} />}
-          <StatementTree nodes={data.tradingExpenses} />
+          <StatementTree key={`te-${treeKey}`} nodes={data.tradingExpenses} {...tree} />
           {data.grossProfit > 0 && <FlatRow name="Gross profit c/o" paise={data.grossProfit} strong />}
           <div className="my-2 border-t border-line" />
-          <StatementTree nodes={data.indirectExpenses} />
+          <StatementTree key={`ie-${treeKey}`} nodes={data.indirectExpenses} {...tree} />
           {data.netProfit > 0 && <FlatRow name="Net profit" paise={data.netProfit} strong tone="dr" />}
         </Panel>
 
         <Panel className="p-4">
-          <p className="mb-2 text-[11px] font-semibold tracking-[0.08em] text-muted uppercase">Incomes</p>
-          <StatementTree nodes={data.tradingIncomes} />
+          <p className="mb-2 text-caption font-semibold tracking-[0.08em] text-muted uppercase">Incomes</p>
+          <StatementTree key={`ti-${treeKey}`} nodes={data.tradingIncomes} {...tree} />
           {data.closingStock !== 0 && <FlatRow name="Closing stock" paise={data.closingStock} />}
           {data.grossProfit < 0 && <FlatRow name="Gross loss c/o" paise={-data.grossProfit} strong />}
           <div className="my-2 border-t border-line" />
-          <StatementTree nodes={data.indirectIncomes} />
+          <StatementTree key={`ii-${treeKey}`} nodes={data.indirectIncomes} {...tree} />
           {data.grossProfit > 0 && <FlatRow name="Gross profit b/f" paise={data.grossProfit} />}
           {data.netProfit < 0 && <FlatRow name="Net loss" paise={-data.netProfit} strong tone="cr" />}
         </Panel>
       </div>
 
       <Panel className="mt-3 flex items-center justify-between px-5 py-3">
-        <span className="text-[13.5px] font-medium">{data.netProfit >= 0 ? 'Net profit for the period' : 'Net loss for the period'}</span>
-        <Money paise={Math.abs(data.netProfit)} className={`text-[16px] font-semibold ${data.netProfit >= 0 ? 'text-dr' : 'text-cr'}`} />
+        <span className="text-body font-medium">{data.netProfit >= 0 ? 'Net profit for the period' : 'Net loss for the period'}</span>
+        <Money paise={Math.abs(data.netProfit)} className={`text-title font-semibold ${data.netProfit >= 0 ? 'text-dr' : 'text-cr'}`} />
       </Panel>
-    </div>
+    </Page>
+  )
+}
+
+/** Display options shared by the P&L and Balance sheet drawers. */
+export function StatementOptions({
+  expandAll,
+  hideZero,
+  onExpandAll,
+  onHideZero
+}: {
+  expandAll: boolean
+  hideZero: boolean
+  onExpandAll: (v: boolean) => void
+  onHideZero: (v: boolean) => void
+}): React.JSX.Element {
+  return (
+    <DrawerSection title="Display" testId="options-display">
+      <OptionToggle label="Expand every group" hint="Default shows the top-level groups only." checked={expandAll} onChange={onExpandAll} testId="input-statement-expand-all" />
+      <OptionToggle label="Hide zero-balance groups and ledgers" checked={hideZero} onChange={onHideZero} testId="input-statement-hide-zero" />
+    </DrawerSection>
+  )
+}
+
+/** Header + panel placeholder while a statement report loads (P&L, Balance sheet, Cash flow). */
+export function ReportSkeleton({ title }: { title: string }): React.JSX.Element {
+  return (
+    <Page>
+      <PageHeader title={title} />
+      <Panel>
+        <SkeletonRows />
+      </Panel>
+    </Page>
   )
 }
 
 function FlatRow({ name, paise, strong, tone }: { name: string; paise: number; strong?: boolean; tone?: 'dr' | 'cr' }): React.JSX.Element {
   return (
     <div className={`flex items-center justify-between px-2 py-1 ${strong ? 'font-medium' : ''}`}>
-      <span className={`text-[13px] ${tone === 'dr' ? 'text-dr' : tone === 'cr' ? 'text-cr' : ''}`}>{name}</span>
-      <Money paise={paise} className="text-[13px]" />
+      <span className={`text-detail ${tone === 'dr' ? 'text-dr' : tone === 'cr' ? 'text-cr' : ''}`}>{name}</span>
+      <Money paise={paise} className="text-detail" />
     </div>
   )
 }

@@ -168,7 +168,7 @@ export function ManufactureEntry({
       </div>
 
       {producedId && bom && !bom.length && (
-        <p className="mt-3 text-[12.5px] text-amber">
+        <p className="mt-3 text-body-sm text-amber">
           No bill of materials on this item yet — add components in Masters → Stock items → Edit.
         </p>
       )}
@@ -188,7 +188,7 @@ export function ManufactureEntry({
               <tr key={c.componentId} className={c.rate === 0 ? 'text-cr' : ''}>
                 <td>
                   {bomLine.get(c.componentId)?.componentName}
-                  {c.rate === 0 && <span className="ml-2 text-[11px]">no stock cost — purchase it first</span>}
+                  {c.rate === 0 && <span className="ml-2 text-caption">no stock cost — purchase it first</span>}
                 </td>
                 <td className="r num">{c.useMilli / 1000} {bomLine.get(c.componentId)?.unitSymbol}</td>
                 <td className="r"><Money paise={c.rate} /></td>

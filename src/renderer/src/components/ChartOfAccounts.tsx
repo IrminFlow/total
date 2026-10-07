@@ -105,17 +105,17 @@ function GroupRow({
           onClick={() => onToggle(node.id)}
           className="flex min-w-0 flex-1 items-center gap-1.5 text-left disabled:cursor-default"
         >
-          <span aria-hidden="true" className={`w-3 shrink-0 text-[11px] text-muted ${hasContent ? '' : 'invisible'}`}>
+          <span aria-hidden="true" className={`w-3 shrink-0 text-caption text-muted ${hasContent ? '' : 'invisible'}`}>
             {isOpen ? '▾' : '▸'}
           </span>
-          <span className={`truncate text-[13px] ${depth === 0 ? 'font-semibold text-ink' : 'font-medium text-ink'}`}>{node.name}</span>
-          {depth === 0 && <span className={`text-[10.5px] uppercase tracking-wider ${NATURE_TONE[node.nature]}`}>{node.nature}</span>}
+          <span className={`truncate text-detail ${depth === 0 ? 'font-semibold text-ink' : 'font-medium text-ink'}`}>{node.name}</span>
+          {depth === 0 && <span className={`text-label uppercase tracking-wider ${NATURE_TONE[node.nature]}`}>{node.nature}</span>}
         </button>
         {groupActions && <span className="flex gap-2 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">{groupActions(node)}</span>}
-        <span className="w-20 shrink-0 text-right text-[11.5px] text-muted" data-testid="coa-count">
+        <span className="w-20 shrink-0 text-right text-hint text-muted" data-testid="coa-count">
           {node.ledgerCount} {node.ledgerCount === 1 ? 'ledger' : 'ledgers'}
         </span>
-        <span className="w-40 shrink-0 text-right text-[13px] font-medium" data-testid="coa-balance">
+        <span className="w-40 shrink-0 text-right text-detail font-medium" data-testid="coa-balance">
           <Money paise={node.balance} signed />
         </span>
       </div>
@@ -147,11 +147,11 @@ function LedgerLeaf({ ledger, depth, onOpen }: { ledger: ChartLedgerNode; depth:
       className="flex w-full cursor-pointer items-center gap-2 rounded px-2 py-1 text-left hover:bg-panel2 focus-visible:bg-panel2 focus-visible:outline-none"
       style={{ paddingLeft: `${8 + depth * 18}px` }}
     >
-      <span aria-hidden="true" className="w-3 shrink-0 text-center text-[10px] text-muted/60">•</span>
-      <span className="min-w-0 flex-1 truncate text-[12.5px] text-ink">
+      <span aria-hidden="true" className="w-3 shrink-0 text-center text-micro text-muted">•</span>
+      <span className="min-w-0 flex-1 truncate text-body-sm text-ink">
         <LedgerLink ledgerId={ledger.id} name={ledger.name} />
       </span>
-      <span className="w-40 shrink-0 text-right text-[12.5px]">
+      <span className="w-40 shrink-0 text-right text-body-sm">
         <Money paise={ledger.balance} signed />
       </span>
     </div>

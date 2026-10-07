@@ -126,10 +126,17 @@ describe('Day Book', () => {
   })
 
   it('"All vouchers" shows optional rows but keeps them out of the totals', async () => {
+    useNav.setState({ stack: [{ name: 'daybook' }] })
     renderScreen(<DayBook />)
     await waitFor(() => expect(rowsOf('daybook')).toHaveLength(2), SLOW)
-    fireEvent.change(screen.getByTestId('input-daybook-scope'), { target: { value: 'all' } })
+    // WP 1.10a: the scope moved from the header into the Options drawer (F12); a non-default
+    // scope shows as a removable chip above the table.
+    fireEvent.click(screen.getByTestId('btn-daybook-options'))
+    fireEvent.click(screen.getByTestId('input-daybook-scope-all'))
+    fireEvent.click(screen.getByTestId('options-daybook-done'))
+    expect(screen.getByTestId('daybook-scope-chip').textContent).toContain('All vouchers')
     expect(rowsOf('daybook')).toHaveLength(3)
+
     expect(col('daybook', 3)[2]).toBe('Memo CoOptional')
     const totals = screen.getByTestId('daybook-table-totals').textContent ?? ''
     expect(totals).toContain('Total (in books) · 2 vouchers')

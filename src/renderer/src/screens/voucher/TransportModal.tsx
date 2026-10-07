@@ -119,7 +119,7 @@ export function TransportModal({
       ) : (
         <div className="flex flex-col gap-4">
           <div>
-            <p className="mb-2 text-[11px] font-semibold tracking-[0.08em] text-muted uppercase">Transport</p>
+            <p className="mb-2 text-caption font-semibold tracking-[0.08em] text-muted uppercase">Transport</p>
             <div className="grid grid-cols-4 gap-3">
               <Field label="Mode">
                 <Select
@@ -201,7 +201,7 @@ export function TransportModal({
           </div>
 
           <div>
-            <p className="mb-2 text-[11px] font-semibold tracking-[0.08em] text-muted uppercase">Ship to (when different from buyer)</p>
+            <p className="mb-2 text-caption font-semibold tracking-[0.08em] text-muted uppercase">Ship to (when different from buyer)</p>
             <div className="grid grid-cols-3 gap-3">
               <Field label="Name">
                 <TextInput

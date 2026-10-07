@@ -278,12 +278,15 @@ Mouse controls:
 ## 4. Persistence (`useTableView`)
 
 - Views are stored in localStorage under `total-tableview-<company-slug>-<viewId>`, as
-  `{ v: 1, current, active, saved[] }`. They are display preferences and never go to the company
+  `{ v: 2, current, active, saved[] }`. They are display preferences and never go to the company
   database.
 - A view holds:
   - the column order, hidden columns and widths
   - the sort keys and column filters
-  - the group-by column and density
+  - the group-by column and density. A view's density is `null` by default, which follows the
+    app-wide setting (Settings → Appearance, `useDensity()`); the toolbar toggle stores an explicit
+    density only when it differs from the app's. v1 documents load with their `'comfortable'`
+    (the old default) read as `null`.
 - The quick-filter text and collapsed groups are transient and are not saved.
 - Stored state is parsed defensively:
   - corrupt JSON or a different schema version falls back to the defaults
@@ -308,7 +311,8 @@ key is read only, never deleted. If the old toggle keys don't match the new colu
 - The table renders `<table class="ledger-table data-table">`, so it keeps the hand-ruled
   ledger look. The `.data-table` rules in `app.css` add a fixed layout, single-line cells
   (ellipsis, with a title tooltip on long text), a sticky header, and fixed row heights of 33px
-  (comfortable) or 27px (compact).
+  (comfortable) or 27px (compact). The table sets `data-density` to its effective density, which
+  re-scopes the density variables (`--t-row-h`, `--t-cell-py`, …) inside it.
 - Those rules use child combinators (`.data-table > thead > tr > th`, `> tbody > tr > td`), so a
   table nested in a detail row keeps its own `<thead>`. It doesn't inherit the sticky header or
   the single-line cells. Outstandings' bills list is an example.

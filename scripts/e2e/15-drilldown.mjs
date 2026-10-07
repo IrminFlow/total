@@ -39,7 +39,7 @@ async function nameOpensEdit(h, rowSel, label) {
 /** Assert the ledger statement screen is open for `name`. */
 async function expectStatement(h, name, label) {
   await h.waitScreen('ledger-statement', 20000)
-  const title = await h.page.$eval('[data-screen="ledger-statement"] h2', (el) => el.textContent.trim())
+  const title = await h.page.$eval('[data-screen="ledger-statement"] [data-testid="page-title"]', (el) => el.textContent.trim())
   assert(title === name, `${label}: the statement opened is "${name}" (got "${title}")`)
   await h.shot(`${label}-statement`)
 }
@@ -78,7 +78,7 @@ await scenario('15-drilldown', async (h) => {
   // ---- the statement header: group breadcrumb + Edit opens the same window ----
   const crumb = await h.page.textContent('[data-testid="ledger-statement-breadcrumb"]')
   assert(crumb && crumb.trim().length > 0, `statement shows the ledger's group breadcrumb (got "${crumb}")`)
-  const stTitle = await h.page.$eval('[data-screen="ledger-statement"] h2', (el) => el.textContent.trim())
+  const stTitle = await h.page.$eval('[data-screen="ledger-statement"] [data-testid="page-title"]', (el) => el.textContent.trim())
   await h.click('btn-statement-edit-ledger')
   await h.page.waitForSelector(`[role="dialog"][data-modal="Edit ${stTitle}"]`, { timeout: 10000 })
   await h.page.click('[role="dialog"] [data-testid="modal-close"]')

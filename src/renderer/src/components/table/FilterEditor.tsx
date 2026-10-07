@@ -1,7 +1,7 @@
 import { useId, useState } from 'react'
 import { columnLabel, filterTypeFor, formatRaw, parseFilterValue, type ColumnFilter, type DateOp, type EnumOption, type RangeOp, type TextOp } from '../../lib/table'
 import { toPortalDate } from '@shared/dates'
-import { Button, inputCls } from '../ui'
+import { Button, inputSmCls } from '../ui'
 import type { TableColumn } from './types'
 
 const TEXT_OPS: { value: TextOp; label: string }[] = [
@@ -23,7 +23,7 @@ const DATE_OPS: { value: DateOp; label: string }[] = [
   { value: 'between', label: 'Between' }
 ]
 
-const small = `${inputCls} !py-1 !text-detail`
+const small = `${inputSmCls}`
 
 /**
  * The per-column filter form inside a header's filter popover. Operands are typed as the user
@@ -169,7 +169,7 @@ export function FilterEditor<Row>({
       <div className="mt-1 flex justify-between gap-2">
         <Button
           variant="ghost"
-          className="!px-2 !py-1"
+          size="sm"
           onClick={() => {
             onApply(null)
             close()
@@ -178,7 +178,7 @@ export function FilterEditor<Row>({
         >
           Clear
         </Button>
-        <Button variant="primary" className="!px-2 !py-1" onClick={apply} data-testid={`${testId}-apply`}>
+        <Button variant="primary" size="sm" onClick={apply} data-testid={`${testId}-apply`}>
           Apply
         </Button>
       </div>

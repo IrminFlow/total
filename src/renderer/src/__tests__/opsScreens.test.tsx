@@ -150,7 +150,7 @@ describe('Banking on DataTable', () => {
     expect(columnText('banking', 'particulars')).toEqual(['Acme Traders', 'Office rent', 'Bharat Stores'])
     expect(columnText('banking', 'date')).toEqual(['03-Apr-26', '05-Apr-26', '09-Apr-26'])
     expect(columnText('banking', 'bankDate')).toEqual(['Set date', '06-Apr-26', 'Set date'])
-    expect(bodyRows('banking')[1]!.className).toContain('opacity-60')
+    expect(bodyRows('banking')[1]!.className).toContain('text-muted')
     expect(bodyRows('banking').map((tr) => tr.dataset.rowId)).toEqual(['11', '12', '13'])
     const totals = totalsRow('banking').textContent ?? ''
     expect(totals).toContain('3,250.00')
@@ -236,7 +236,7 @@ describe('Payroll on DataTable', () => {
     renderScreen(<PayrollScreen />)
     await waitFor(() => expect(bodyRows('payroll-employees')).toHaveLength(3))
     expect(columnText('payroll-employees', 'gross')).toEqual(['21,000.00', '16,000.00', '11,000.00'])
-    expect(bodyRows('payroll-employees')[1]!.className).toContain('opacity-50')
+    expect(bodyRows('payroll-employees')[1]!.className).toContain('text-muted')
     const totals = totalsRow('payroll-employees').textContent ?? ''
     expect(totals).toContain('Total (active)')
     expect(totals).toContain('32,000.00') // gross: Asha + Zoya, not Ravi

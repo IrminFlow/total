@@ -66,7 +66,7 @@ export type Screen =
   | { name: 'budgets' }
   | { name: 'company-info' }
   | { name: 'year-end' }
-  | { name: 'settings'; tab?: 'backups' | 'bin' | 'users' | 'audit' | 'nic' | 'features' | 'invoice' | 'agents' | 'about' }
+  | { name: 'settings'; tab?: 'appearance' | 'backups' | 'bin' | 'users' | 'audit' | 'nic' | 'features' | 'invoice' | 'agents' | 'about' }
 
 interface NavState {
   stack: Screen[]
@@ -160,34 +160,144 @@ export const useSession = create<SessionState>((set) => ({
   setIntegrityWarning: (integrityWarning) => set({ integrityWarning })
 }))
 
-// ---------- theme ----------
+// ---------- working-period picker ----------
+
+/** The header's "Working period" modal — opened from the header button, a screen's Options
+ *  drawer, or the command palette. Shell renders it. */
+export const usePeriodPicker = create<{ open: boolean; setOpen: (open: boolean) => void }>((set) => ({
+  open: false,
+  setOpen: (open) => set({ open })
+}))
+
+// ---------- appearance: theme, density, motion ----------
+//
+// Display preferences for the whole app (not per company) — localStorage, applied as attributes
+// on <html>: data-theme (light/dark, resolved from the light/dark/system choice), data-density
+// (comfortable/compact — app.css density variables, DataTable's default row density) and
+// data-motion ("reduce" when the user forces reduced motion; otherwise the OS setting applies).
 
 export type Theme = 'light' | 'dark'
+export type ThemePref = Theme | 'system'
+export type Density = 'comfortable' | 'compact'
+
+const THEME_KEY = 'total-theme'
+const DENSITY_KEY = 'total-density'
+const MOTION_KEY = 'total-reduce-motion'
+
+const readStore = (key: string): string | null => {
+  try {
+    return localStorage.getItem(key)
+  } catch {
+    return null
+  }
+}
+const writeStore = (key: string, value: string): void => {
+  try {
+    localStorage.setItem(key, value)
+  } catch {
+    /* private mode / quota — the choice still applies for this session */
+  }
+}
+
+function systemTheme(): Theme {
+  return typeof window !== 'undefined' && window.matchMedia?.('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
+}
+
+export function resolveTheme(pref: ThemePref): Theme {
+  return pref === 'system' ? systemTheme() : pref
+}
+
+/** Applies a theme choice to <html> and persists it. */
+export function applyTheme(pref: ThemePref): void {
+  document.documentElement.dataset.theme = resolveTheme(pref)
+  writeStore(THEME_KEY, pref)
+}
+
+export function initialTheme(): ThemePref {
+  const stored = readStore(THEME_KEY)
+  return stored === 'dark' || stored === 'system' ? stored : 'light'
+}
+
+export function applyDensity(density: Density): void {
+  document.documentElement.dataset.density = density
+  writeStore(DENSITY_KEY, density)
+}
+
+export function initialDensity(): Density {
+  return readStore(DENSITY_KEY) === 'compact' ? 'compact' : 'comfortable'
+}
+
+export function applyReduceMotion(reduce: boolean): void {
+  if (reduce) document.documentElement.dataset.motion = 'reduce'
+  else delete document.documentElement.dataset.motion
+  writeStore(MOTION_KEY, reduce ? '1' : '0')
+}
+
+export function initialReduceMotion(): boolean {
+  return readStore(MOTION_KEY) === '1'
+}
+
+/** Applies every stored appearance preference — called once at startup (main.tsx). */
+export function applyStoredAppearance(): void {
+  applyTheme(initialTheme())
+  applyDensity(initialDensity())
+  applyReduceMotion(initialReduceMotion())
+}
 
 interface ThemeState {
+  /** The theme in effect (system resolved). */
   theme: Theme
+  /** The user's choice. */
+  pref: ThemePref
+  setPref: (pref: ThemePref) => void
+  /** Header button: flips the theme in effect and makes it an explicit choice. */
   toggle: () => void
+  /** Re-resolve after the OS theme changed (only matters for 'system'). */
+  syncSystem: () => void
 }
 
-export function applyTheme(theme: Theme): void {
-  document.documentElement.dataset.theme = theme
-  localStorage.setItem('total-theme', theme)
-}
-
-export function initialTheme(): Theme {
-  const stored = localStorage.getItem('total-theme')
-  return stored === 'dark' ? 'dark' : 'light'
-}
-
-export const useTheme = create<ThemeState>((set) => ({
-  theme: initialTheme(),
-  toggle: () =>
-    set((s) => {
-      const next: Theme = s.theme === 'light' ? 'dark' : 'light'
-      applyTheme(next)
-      return { theme: next }
-    })
+export const useTheme = create<ThemeState>((set, get) => ({
+  theme: resolveTheme(initialTheme()),
+  pref: initialTheme(),
+  setPref: (pref) => {
+    applyTheme(pref)
+    set({ pref, theme: resolveTheme(pref) })
+  },
+  toggle: () => get().setPref(get().theme === 'light' ? 'dark' : 'light'),
+  syncSystem: () => {
+    if (get().pref !== 'system') return
+    applyTheme('system')
+    set({ theme: resolveTheme('system') })
+  }
 }))
+
+// Follow the OS theme while the choice is 'system'.
+if (typeof window !== 'undefined' && window.matchMedia) {
+  window.matchMedia('(prefers-color-scheme: dark)').addEventListener?.('change', () => useTheme.getState().syncSystem())
+}
+
+interface AppearanceState {
+  density: Density
+  reduceMotion: boolean
+  setDensity: (density: Density) => void
+  setReduceMotion: (reduce: boolean) => void
+}
+
+export const useAppearance = create<AppearanceState>((set) => ({
+  density: initialDensity(),
+  reduceMotion: initialReduceMotion(),
+  setDensity: (density) => {
+    applyDensity(density)
+    set({ density })
+  },
+  setReduceMotion: (reduceMotion) => {
+    applyReduceMotion(reduceMotion)
+    set({ reduceMotion })
+  }
+}))
+
+/** The app-wide density (DataTable's default when its view doesn't pick one). */
+export const useDensity = (): Density => useAppearance((s) => s.density)
 
 // ---------- toasts ----------
 

@@ -10,13 +10,14 @@ import { toDisplayDate, toDisplayDateTime, toMonthLabel, todayISO } from '@share
 import { upcomingDeadlines } from '@shared/compliance'
 import { api } from '../../lib/client'
 import { useNav, useSession } from '../../state/stores'
-import { Money } from '../../components/ui'
+import { Badge, Checklist, Money } from '../../components/ui'
 import { ItemLink, LedgerLink, drillRowProps } from '../../components/links'
 import { openLedgerStatement } from '../../lib/drill'
 import { BarChart, ChartLegend, LineChart, type ChartCategory } from '../../components/charts'
 import { formatMilli } from '../../lib/table'
-import { CardLink, Chip, DashCard, type CardState } from './parts'
-import { onboardingSteps } from './onboarding'
+import { CardLink, DashCard, type CardState } from './parts'
+import { onboardingFromDashSetup } from '@shared/onboarding'
+import { onboardingScreen } from '../../lib/onboarding'
 
 const stackRowCls =
   'flex w-full cursor-pointer flex-col gap-1 border-b border-line/40 px-4 py-2 text-left hover:bg-panel2 focus-visible:bg-panel2 focus-visible:outline-none'
@@ -33,7 +34,7 @@ export function dueIn(date: string, today: string): string {
   return d <= 0 ? 'today' : d === 1 ? 'tomorrow' : `in ${d} days`
 }
 
-const dueTone = (date: string, today: string): 'amber' | 'muted' => (daysUntil(date, today) <= 5 ? 'amber' : 'muted')
+const dueTone = (date: string, today: string): 'amber' | 'neutral' => (daysUntil(date, today) <= 5 ? 'amber' : 'neutral')
 
 function monthCategories(w: DashboardWindow): ChartCategory[] {
   return w.periodMonths.map((m) => ({ key: m, label: toMonthLabel(m), long: toMonthLabel(m, 'long') }))
@@ -63,7 +64,7 @@ export function TradeChartCard({ card, window: w }: { card: CardState<DashTrade>
           <div className="px-3 pt-2 pb-1">
             <div className="flex items-baseline justify-between px-1 pb-1">
               <ChartLegend series={[{ id: 's', label: 'Sales', color: 'blue' }, { id: 'p', label: 'Purchases', color: 'amber' }]} />
-              <p className="num text-[11px] text-muted">
+              <p className="num text-caption text-muted">
                 <span className="text-blue">{formatPaiseCompact(t.periodSales)}</span> · <span className="text-amber">{formatPaiseCompact(t.periodPurchases)}</span>
               </p>
             </div>
@@ -103,8 +104,8 @@ export function ProfitChartCard({ card, window: w }: { card: CardState<DashTrade
         return (
           <div className="px-3 pt-2 pb-1">
             <div className="flex items-baseline justify-between px-1 pb-1">
-              <span className="text-[11px] text-muted">{t.periodNetProfit < 0 ? 'Loss' : 'Profit'} for the period</span>
-              <span className={`num text-[12px] ${tone}`}>{formatPaise(t.periodNetProfit, { symbol: true })}</span>
+              <span className="text-caption text-muted">{t.periodNetProfit < 0 ? 'Loss' : 'Profit'} for the period</span>
+              <span className={`num text-small ${tone}`}>{formatPaise(t.periodNetProfit, { symbol: true })}</span>
             </div>
             <LineChart
               testId="chart-profit"
@@ -131,10 +132,10 @@ function AgeingBars({ a, color, label }: { a: DashAgeing; color: 'blue' | 'amber
   return (
     <div className="min-w-0">
       <div className="flex items-baseline justify-between">
-        <span className="text-[12px] text-ink">{label}</span>
-        <Money paise={a.total} className="text-[12.5px]" />
+        <span className="text-small text-ink">{label}</span>
+        <Money paise={a.total} className="text-body-sm" />
       </div>
-      <table className="mt-1 w-full text-[11px]">
+      <table className="mt-1 w-full text-caption">
         <caption className="sr-only">{label} by days overdue</caption>
         <tbody>
           {a.buckets.map((b, i) => (
@@ -181,8 +182,8 @@ export function AgeingCard({ receivables, payables }: { receivables: CardState<D
     >
       {({ r, p }) => (
         <div className="flex flex-col gap-3 px-4 py-2.5">
-          {typeof r === 'string' ? <p className="text-[12px] text-cr">Receivables unavailable</p> : <AgeingBars a={r} color="blue" label="Receivables" />}
-          {typeof p === 'string' ? <p className="text-[12px] text-cr">Payables unavailable</p> : <AgeingBars a={p} color="amber" label="Payables" />}
+          {typeof r === 'string' ? <p className="text-small text-cr">Receivables unavailable</p> : <AgeingBars a={r} color="blue" label="Receivables" />}
+          {typeof p === 'string' ? <p className="text-small text-cr">Payables unavailable</p> : <AgeingBars a={p} color="amber" label="Payables" />}
         </div>
       )}
     </DashCard>
@@ -194,17 +195,17 @@ export function TopPartiesCard({ title, testId, card, empty }: { title: string; 
     <DashCard title={title} testId={testId} card={card} skeletonRows={5}>
       {(rows) =>
         rows.length === 0 ? (
-          <p className="px-4 py-6 text-center text-[12.5px] text-muted">{empty}</p>
+          <p className="px-4 py-6 text-center text-body-sm text-muted">{empty}</p>
         ) : (
           <div>
             {rows.map((r, i) => (
               // Name → the ledger's edit window; the rest of the row → its statement.
               <div key={r.ledgerId} data-testid="top-ledger" title={`Open ${r.name} statement`} {...drillRowProps(() => openLedgerStatement(r.ledgerId), r.ledgerId)} className={rowCls}>
-                <span className="num w-3 text-[11px] text-muted">{i + 1}</span>
-                <span className="min-w-0 flex-1 truncate text-[12.5px]">
+                <span className="num w-3 text-caption text-muted">{i + 1}</span>
+                <span className="min-w-0 flex-1 truncate text-body-sm">
                   <LedgerLink ledgerId={r.ledgerId} name={r.name} />
                 </span>
-                <Money paise={r.amount} className="text-[12.5px]" />
+                <Money paise={r.amount} className="text-body-sm" />
               </div>
             ))}
           </div>
@@ -267,16 +268,16 @@ export function ComplianceCard({
       {({ gst: g, tds: t }) => (
         <div className="flex flex-col">
           {typeof g === 'string' ? (
-            <p className="px-4 py-2 text-[12px] text-cr">GST unavailable</p>
+            <p className="px-4 py-2 text-small text-cr">GST unavailable</p>
           ) : (
             g && (
               <div data-testid="dash-gst" {...drillRowProps(() => nav.go({ name: 'gstr3b' }))} className={stackRowCls}>
-                <span className="text-[12.5px] text-ink">GST returns · {toMonthLabel(g.period, 'long')}</span>
+                <span className="text-body-sm text-ink">GST returns · {toMonthLabel(g.period, 'long')}</span>
                 <span className="flex flex-wrap gap-1">
-                  {g.gstr1Due && <Chip tone={dueTone(g.gstr1Due, today)} testId="chip-gstr1">GSTR-1 {dueIn(g.gstr1Due, today)}</Chip>}
-                  {g.gstr3bDue && <Chip tone={dueTone(g.gstr3bDue, today)} testId="chip-gstr3b">GSTR-3B {dueIn(g.gstr3bDue, today)}</Chip>}
+                  {g.gstr1Due && <Badge tone={dueTone(g.gstr1Due, today)} testId="chip-gstr1">GSTR-1 {dueIn(g.gstr1Due, today)}</Badge>}
+                  {g.gstr3bDue && <Badge tone={dueTone(g.gstr3bDue, today)} testId="chip-gstr3b">GSTR-3B {dueIn(g.gstr3bDue, today)}</Badge>}
                 </span>
-                <dl className="grid grid-cols-3 gap-2 text-[11px]">
+                <dl className="grid grid-cols-3 gap-2 text-caption">
                   <div><dt className="text-muted">Output tax</dt><dd className="num text-ink">{formatPaiseCompact(g.liability)}</dd></div>
                   <div><dt className="text-muted">ITC</dt><dd className="num text-ink">{formatPaiseCompact(g.itc)}</dd></div>
                   <div><dt className="text-muted">Cash payable</dt><dd className={`num ${g.payable > 0 ? 'text-cr' : 'text-ink'}`} title={formatPaise(g.payable, { symbol: true })}>{formatPaiseCompact(g.payable)}</dd></div>
@@ -285,15 +286,15 @@ export function ComplianceCard({
             )
           )}
           {typeof t === 'string' ? (
-            <p className="px-4 py-2 text-[12px] text-cr">TDS unavailable</p>
+            <p className="px-4 py-2 text-small text-cr">TDS unavailable</p>
           ) : (
             t && (
               <div data-testid="dash-tds" {...drillRowProps(() => nav.go({ name: 'tds' }))} className={stackRowCls}>
                 <div className="flex items-center justify-between gap-2">
-                  <span className="text-[12.5px] text-ink">TDS · {t.quarter}</span>
-                  {t.nextDue && <Chip tone={dueTone(t.nextDue, today)} testId="chip-tds">Challan {dueIn(t.nextDue, today)}</Chip>}
+                  <span className="text-body-sm text-ink">TDS · {t.quarter}</span>
+                  {t.nextDue && <Badge tone={dueTone(t.nextDue, today)} testId="chip-tds">Challan {dueIn(t.nextDue, today)}</Badge>}
                 </div>
-                <dl className="grid grid-cols-3 gap-2 text-[11px]">
+                <dl className="grid grid-cols-3 gap-2 text-caption">
                   <div><dt className="text-muted">This quarter</dt><dd className="num text-ink">{formatPaiseCompact(t.deducted)}</dd></div>
                   <div className="col-span-2"><dt className="text-muted">Not yet deposited</dt><dd className={`num ${t.payable > 0 ? 'text-cr' : 'text-ink'}`}>{formatPaise(t.payable, { symbol: true })}</dd></div>
                 </dl>
@@ -302,16 +303,16 @@ export function ComplianceCard({
           )}
           {(showAll ? others : others.slice(0, 3)).map((d) => (
             <div key={d.id} className="flex items-center gap-2 border-b border-line/40 px-4 py-[5px] last:border-b-0">
-              <span className="num w-[62px] text-[11px] text-muted">{toDisplayDate(d.date)}</span>
-              <span className="min-w-0 flex-1 truncate text-[12px]" title={d.title}>{d.title}</span>
+              <span className="num w-[62px] text-caption text-muted">{toDisplayDate(d.date)}</span>
+              <span className="min-w-0 flex-1 truncate text-small" title={d.title}>{d.title}</span>
             </div>
           ))}
           {others.length > 3 && (
-            <button data-testid="btn-gateway-compliance-all" className="px-4 py-1.5 text-left text-[11.5px] text-blue hover:underline" onClick={() => setShowAll((v) => !v)}>
+            <button data-testid="btn-gateway-compliance-all" className="px-4 py-1.5 text-left text-hint text-blue hover:underline" onClick={() => setShowAll((v) => !v)}>
               {showAll ? 'Show fewer' : `Show all ${others.length}`}
             </button>
           )}
-          {g === null && !t && others.length === 0 && <p className="px-4 py-6 text-center text-[12.5px] text-muted">Nothing due in the next 30 days</p>}
+          {g === null && !t && others.length === 0 && <p className="px-4 py-6 text-center text-body-sm text-muted">Nothing due in the next 30 days</p>}
         </div>
       )}
     </DashCard>
@@ -328,16 +329,16 @@ export function CashCard({ card }: { card: CardState<DashCash> }): React.JSX.Ele
         <div>
           {c.ledgers.map((l) => (
             <div key={l.ledgerId} data-testid="cash-ledger" {...drillRowProps(() => openLedgerStatement(l.ledgerId), l.ledgerId)} className={rowCls}>
-              <span className="w-9 text-[10.5px] text-muted uppercase">{l.kind}</span>
-              <span className="min-w-0 flex-1 truncate text-[12.5px]">
+              <span className="w-9 text-label text-muted uppercase">{l.kind}</span>
+              <span className="min-w-0 flex-1 truncate text-body-sm">
                 <LedgerLink ledgerId={l.ledgerId} name={l.name} />
               </span>
-              <Money paise={l.balance} className={`text-[12.5px] ${l.balance < 0 ? 'text-cr' : ''}`} />
+              <Money paise={l.balance} className={`text-body-sm ${l.balance < 0 ? 'text-cr' : ''}`} />
             </div>
           ))}
-          <div className="flex items-center justify-between px-4 py-1.5 text-[12px]">
+          <div className="flex items-center justify-between px-4 py-1.5 text-small">
             <span className="text-muted">Total</span>
-            <Money paise={c.total} className="text-[12.5px] font-medium" />
+            <Money paise={c.total} className="text-body-sm font-medium" />
           </div>
         </div>
       )}
@@ -355,22 +356,22 @@ export function StockCard({ card }: { card: CardState<DashStock | null> }): Reac
           ...(s?.belowReorder ?? []).filter((r) => !(s?.negative ?? []).some((n) => n.stockItemId === r.stockItemId)).map((r) => ({ ...r, why: 'reorder' as const }))
         ]
         return rows.length === 0 ? (
-          <p className="px-4 py-6 text-center text-[12.5px] text-muted">No negative stock or reorder alerts</p>
+          <p className="px-4 py-6 text-center text-body-sm text-muted">No negative stock or reorder alerts</p>
         ) : (
           <div>
             {rows.slice(0, 6).map((r) => (
               <div key={`${r.why}-${r.stockItemId}`} data-testid="stock-alert" {...drillRowProps(() => nav.go({ name: 'stock-summary' }))} className={rowCls}>
-                <span className="min-w-0 flex-1 truncate text-[12.5px]">
+                <span className="min-w-0 flex-1 truncate text-body-sm">
                   <ItemLink itemId={r.stockItemId} name={r.name} />
                 </span>
-                <span className={`num text-[11.5px] ${r.why === 'negative' ? 'text-cr' : 'text-muted'}`}>
+                <span className={`num text-hint ${r.why === 'negative' ? 'text-cr' : 'text-muted'}`}>
                   {formatMilli(r.closingQtyMilli, r.decimals)} {r.unitSymbol}
                   {r.why === 'reorder' && r.reorderLevelMilli != null && ` / ${formatMilli(r.reorderLevelMilli, r.decimals)}`}
                 </span>
-                <Chip tone={r.why === 'negative' ? 'cr' : 'amber'}>{r.why === 'negative' ? 'Negative' : 'Reorder'}</Chip>
+                <Badge tone={r.why === 'negative' ? 'danger' : 'amber'}>{r.why === 'negative' ? 'Negative' : 'Reorder'}</Badge>
               </div>
             ))}
-            {rows.length > 6 && <p className="px-4 py-1.5 text-[11px] text-muted">+{rows.length - 6} more in Stock summary</p>}
+            {rows.length > 6 && <p className="px-4 py-1.5 text-caption text-muted">+{rows.length - 6} more in Stock summary</p>}
           </div>
         )
       }}
@@ -399,21 +400,21 @@ export function BooksCard({
       {({ a, s }) => (
         <div className="flex flex-col">
           <div {...drillRowProps(() => nav.go({ name: 'daybook' }))} data-testid="dash-daybook" className={rowCls}>
-            <span className="flex-1 text-[12.5px]">Day Book</span>
-            <span className="num text-[12px] text-muted">{a ? `${a.today} today · ${a.week} this week` : 'unavailable'}</span>
+            <span className="flex-1 text-body-sm">Day Book</span>
+            <span className="num text-small text-muted">{a ? `${a.today} today · ${a.week} this week` : 'unavailable'}</span>
           </div>
           <div className="flex items-center gap-3 border-b border-line/40 px-4 py-[5px]">
-            <span className="flex-1 text-[12.5px] whitespace-nowrap">Last backup</span>
-            <span className="num text-[12px] text-muted" data-testid="dash-last-backup">
+            <span className="flex-1 text-body-sm whitespace-nowrap">Last backup</span>
+            <span className="num text-small text-muted" data-testid="dash-last-backup">
               {s?.lastBackup ? toDisplayDateTime(new Date(s.lastBackup.at)) : 'never'}
             </span>
-            <button type="button" data-testid="btn-gateway-backup" disabled={backingUp} onClick={onBackup} className="text-[11.5px] text-blue hover:underline disabled:opacity-50">
+            <button type="button" data-testid="btn-gateway-backup" disabled={backingUp} onClick={onBackup} className="text-hint text-blue hover:underline disabled:opacity-50">
               {backingUp ? 'Backing up…' : 'Back up now'}
             </button>
           </div>
           <div className="flex items-center gap-3 px-4 py-[5px]">
-            <span className="flex-1 text-[12.5px]">Period lock</span>
-            {s?.lockDate ? <Chip tone="muted">Locked to {toDisplayDate(s.lockDate)}</Chip> : <span className="text-[12px] text-muted">Not locked</span>}
+            <span className="flex-1 text-body-sm">Period lock</span>
+            {s?.lockDate ? <Badge tone="neutral">Locked to {toDisplayDate(s.lockDate)}</Badge> : <span className="text-small text-muted">Not locked</span>}
           </div>
         </div>
       )}
@@ -428,7 +429,7 @@ export function RecentCard({ rows }: { rows: DayBookRow[] | undefined }): React.
     <DashCard title="Recent entries" testId="dash-recent" card={card} skeletonRows={6} action={<CardLink onClick={() => nav.go({ name: 'daybook' })}>Day Book →</CardLink>}>
       {(list) =>
         list.length === 0 ? (
-          <p className="px-4 py-6 text-center text-[12.5px] text-muted">No vouchers in this period yet</p>
+          <p className="px-4 py-6 text-center text-body-sm text-muted">No vouchers in this period yet</p>
         ) : (
           <div>
             {list.map((v) => (
@@ -439,15 +440,23 @@ export function RecentCard({ rows }: { rows: DayBookRow[] | undefined }): React.
                 className={rowCls}
                 {...drillRowProps(() => nav.go({ name: 'voucher-entry', voucherId: v.voucherId }), v.accountLedgerId ?? undefined)}
               >
-                <span className="num w-[66px] shrink-0 text-[11.5px] whitespace-nowrap text-muted">{toDisplayDate(v.date)}</span>
-                <span className="w-20 truncate text-[12px] text-muted">{v.voucherType}</span>
-                <span className="num w-12 truncate text-[11.5px] text-muted">{v.number}</span>
-                <span className="min-w-0 flex-1 truncate text-[12.5px]">
+                <span className="num w-[66px] shrink-0 text-hint whitespace-nowrap text-muted">{toDisplayDate(v.date)}</span>
+                <span className="w-20 truncate text-small text-muted">{v.voucherType}</span>
+                <span className="num w-12 truncate text-hint text-muted">{v.number}</span>
+                <span className="min-w-0 flex-1 truncate text-body-sm">
                   <LedgerLink ledgerId={v.accountLedgerId} name={v.account} />
-                  {v.isOptional && <span data-testid="recent-badge-optional" className="ml-2 rounded bg-amber/15 px-1.5 py-0.5 text-[10px] font-medium text-amber">Optional</span>}
-                  {v.postDated && <span data-testid="recent-badge-pdc" className="ml-2 rounded bg-blue/10 px-1.5 py-0.5 text-[10px] font-medium text-blue">PDC</span>}
+                  {v.isOptional && (
+                    <Badge tone="amber" className="ml-2" testId="recent-badge-optional">
+                      Optional
+                    </Badge>
+                  )}
+                  {v.postDated && (
+                    <Badge tone="info" className="ml-2" testId="recent-badge-pdc">
+                      PDC
+                    </Badge>
+                  )}
                 </span>
-                <Money paise={v.debit} className="text-[12.5px]" />
+                <Money paise={v.debit} className="text-body-sm" />
               </div>
             ))}
           </div>
@@ -457,41 +466,33 @@ export function RecentCard({ rows }: { rows: DayBookRow[] | undefined }): React.
   )
 }
 
+/** "Set up your books" — the shared checklist (src/shared/onboarding.ts) from the dashboard's setup
+ *  section, rendered with the kit Checklist inside a dashboard card. Hidden once complete. */
 export function OnboardingCard({ setup }: { setup: DashSetup }): React.JSX.Element | null {
   const nav = useNav()
-  const steps = onboardingSteps(setup)
-  const done = steps.filter((s) => s.done).length
-  if (done === steps.length) return null
+  const checklist = onboardingFromDashSetup(setup)
+  if (checklist.complete) return null
   return (
     <DashCard
       title="Set up your books"
       testId="dash-onboarding"
-      card={{ state: 'ready', data: steps }}
-      action={<span className="num text-[11px] text-muted">{done}/{steps.length} done</span>}
+      card={{ state: 'ready', data: checklist }}
+      action={
+        <span className="num text-caption text-muted">
+          {checklist.doneCount}/{checklist.total} done
+        </span>
+      }
     >
       {(list) => (
-        <ul className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3">
-          {list.map((s) => (
-            <li key={s.id} className="min-w-0">
-              <button
-                type="button"
-                data-testid={`onboarding-${s.id}`}
-                data-done={s.done}
-                onClick={() => nav.go(s.target)}
-                className="flex h-full w-full items-center gap-2.5 border-b border-line/40 px-4 py-[5px] text-left hover:bg-panel2 focus-visible:bg-panel2 focus-visible:outline-none"
-              >
-                <span aria-hidden className={`text-[13px] ${s.done ? 'text-dr' : 'text-muted/60'}`}>{s.done ? '✓' : '○'}</span>
-                <span className="min-w-0 flex-1">
-                  <span className={`block truncate text-[12.5px] ${s.done ? 'text-muted line-through' : 'text-ink'}`}>
-                    {s.label}
-                    <span className="sr-only">{s.done ? ' (done)' : ' (to do)'}</span>
-                  </span>
-                  {!s.done && <span className="block truncate text-[11px] text-muted">{s.hint}</span>}
-                </span>
-              </button>
-            </li>
-          ))}
-        </ul>
+        <Checklist
+          bare
+          title="Set up your books"
+          columns={3}
+          items={list.steps}
+          testId="dash-onboarding-list"
+          itemTestId="onboarding"
+          onOpen={(id) => nav.go(onboardingScreen(list, id))}
+        />
       )}
     </DashCard>
   )

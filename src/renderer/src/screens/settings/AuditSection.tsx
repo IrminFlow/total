@@ -64,7 +64,7 @@ export function AuditSection(): React.JSX.Element {
       <SectionTitle>Audit trail</SectionTitle>
       <div className="mb-3 flex flex-wrap items-end gap-3">
         <div>
-          <span className="mb-1 block text-[11px] font-semibold tracking-[0.08em] text-muted uppercase">Entity</span>
+          <span className="mb-1 block text-caption font-semibold tracking-[0.08em] text-muted uppercase">Entity</span>
           <Select
             data-testid="input-audit-entity"
             value={entity}
@@ -82,7 +82,7 @@ export function AuditSection(): React.JSX.Element {
           </Select>
         </div>
         <div>
-          <span className="mb-1 block text-[11px] font-semibold tracking-[0.08em] text-muted uppercase">From</span>
+          <span className="mb-1 block text-caption font-semibold tracking-[0.08em] text-muted uppercase">From</span>
           <DateInput
             testId="input-audit-from"
             value={from}
@@ -94,7 +94,7 @@ export function AuditSection(): React.JSX.Element {
           />
         </div>
         <div>
-          <span className="mb-1 block text-[11px] font-semibold tracking-[0.08em] text-muted uppercase">To</span>
+          <span className="mb-1 block text-caption font-semibold tracking-[0.08em] text-muted uppercase">To</span>
           <DateInput
             testId="input-audit-to"
             value={to}
@@ -106,7 +106,7 @@ export function AuditSection(): React.JSX.Element {
           />
         </div>
         <div>
-          <span className="mb-1 block text-[11px] font-semibold tracking-[0.08em] text-muted uppercase">Per page</span>
+          <span className="mb-1 block text-caption font-semibold tracking-[0.08em] text-muted uppercase">Per page</span>
           <Select
             data-testid="input-audit-page-size"
             value={pageSize}
@@ -137,7 +137,7 @@ export function AuditSection(): React.JSX.Element {
           expanded={expanded}
           onExpandedChange={setExpanded}
           renderDetail={(r) => (
-            <div className="bg-panel2 px-3 py-2.5 text-[12px]">
+            <div className="bg-panel2 px-3 py-2.5 text-small">
               <AuditDiff row={r} />
             </div>
           )}
@@ -151,12 +151,12 @@ export function AuditSection(): React.JSX.Element {
         />
       </Panel>
       <div className="mt-3 flex items-center justify-between">
-        <p className="text-[11.5px] text-muted">{total} entries</p>
+        <p className="text-hint text-muted">{total} entries</p>
         <div className="flex items-center gap-2">
           <Button data-testid="btn-settings-audit-prev" disabled={page === 0} onClick={() => setPage((p) => p - 1)}>
             Prev
           </Button>
-          <span className="px-2 text-[12px] text-muted">
+          <span className="px-2 text-small text-muted">
             Page {page + 1} of {pageCount}
           </span>
           <Button data-testid="btn-settings-audit-next" disabled={page + 1 >= pageCount} onClick={() => setPage((p) => p + 1)}>

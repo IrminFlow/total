@@ -5,7 +5,8 @@ import { todayISO } from '@shared/dates'
 import { candidateProducedItem, modeForKind, planVoucherEdit, taxLedgerIdsFrom, type EditPlan } from '@shared/voucherEdit'
 import { api } from '../lib/client'
 import { useSession, type VoucherDraft } from '../state/stores'
-import { isAnyModalOpen, Kbd } from '../components/ui'
+import { Banner, DrawerSection, isAnyModalOpen, Kbd, Page, PageHeader, Panel, SkeletonRows } from '../components/ui'
+import { OptionToggle, useScreenOptions } from '../components/ScreenOptions'
 import { useFeatures } from '../lib/useFeatures'
 import { kindForVoucherKey } from '../lib/voucherKeys'
 import { InvoiceEntry } from './voucher/InvoiceEntry'
@@ -40,6 +41,8 @@ export function VoucherEntry({
   const today = todayISO()
   const { data: dash } = useQuery({ queryKey: ['dashboard', today, from], queryFn: () => api.reports.dashboard(today, from) })
   const showFirstVoucherHint = !voucherId && !hintDismissed && dash?.voucherCount === 0
+  const opts = useScreenOptions('voucher-entry', { showShortcuts: true })
+
 
   // ---------- alteration: which mode can show this voucher faithfully ----------
   // Masters for the decision come from the same query keys the entry modes' pickers use, so the
@@ -101,54 +104,88 @@ export function VoucherEntry({
     return () => window.removeEventListener('keydown', onKey)
   }, [types, voucherId])
 
-  if (!types || (voucherId && (!existing || !plan))) return <p className="text-muted">Loading…</p>
+  if (!types || (voucherId && (!existing || !plan))) {
+    return (
+      <Page>
+        <PageHeader title={voucherId ? 'Alter voucher' : 'Voucher entry'} />
+        <Panel>
+          <SkeletonRows rows={6} />
+        </Panel>
+      </Page>
+    )
+  }
   const currentType = (voucherId ? types.find((t) => t.id === existing!.voucherTypeId) : types.find((t) => t.id === typeId)) ?? types[0]!
   const closingEntry = !!existing?.isYearEndClose
 
-  return (
-    <div className="mx-auto max-w-4xl">
-      {showFirstVoucherHint && (
-        <div className="mb-4 flex items-center justify-between gap-4 rounded-md border border-amber/40 bg-amber/10 px-4 py-2.5">
-          <p className="text-[12.5px] text-ink">
-            First voucher? Pick a type above (or <Kbd>F8</Kbd> for Sales), fill in the lines, then{' '}
-            <Kbd>⌘↵</Kbd> to save.
-          </p>
-          <button
-            onClick={() => setHintDismissed(true)}
-            aria-label="Dismiss"
-            className="shrink-0 text-[12px] text-muted hover:text-ink"
-          >
-            Dismiss
-          </button>
-        </div>
-      )}
-      <div className="mb-4 flex items-center gap-2">
-        <h2 className="mr-3 font-serif text-[19px] font-semibold tracking-tight">
-          {voucherId ? `Alter voucher ${existing?.number}` : 'Voucher entry'}
-        </h2>
-        {!voucherId &&
-          types
-            .filter((t) => features.inventory || (t.kind !== 'stock_journal' && t.kind !== 'physical_stock'))
-            .map((t) => (
+  const typeTabs = !voucherId ? (
+    <div role="tablist" aria-label="Voucher type" className="flex flex-wrap items-center gap-1">
+      {types
+        .filter((t) => features.inventory || (t.kind !== 'stock_journal' && t.kind !== 'physical_stock'))
+        .map((t) => {
+          const selected = t.id === currentType.id
+          return (
             <button
               key={t.id}
+              type="button"
+              role="tab"
+              aria-selected={selected}
               data-testid={`tab-voucher-entry-${t.kind}`}
               onClick={() => setTypeId(t.id)}
-              className={`rounded-md px-2.5 py-1 text-[12px] transition-colors ${
-                t.id === currentType.id ? 'bg-amber/20 text-amber' : 'text-muted hover:bg-panel2 hover:text-ink'
+              className={`rounded-md px-2.5 py-1 text-small whitespace-nowrap transition-colors ${
+                selected ? 'bg-amberbar/20 font-medium text-amber' : 'text-muted hover:bg-panel2 hover:text-ink'
               }`}
             >
               {t.name}
             </button>
-          ))}
-      </div>
+          )
+        })}
+    </div>
+  ) : undefined
+
+  return (
+    <Page>
+      <PageHeader
+        title={voucherId ? `Alter voucher ${existing?.number}` : 'Voucher entry'}
+        tabs={typeTabs}
+        options={{
+          onReset: opts.reset,
+          content: (
+            <>
+              <DrawerSection title="Display">
+                <OptionToggle
+                  label="Show the shortcut line under the form"
+                  checked={opts.options.showShortcuts}
+                  onChange={(v) => opts.set('showShortcuts', v)}
+                  testId="input-voucher-entry-shortcuts"
+                />
+              </DrawerSection>
+              <DrawerSection title="Keyboard">
+                <ul className="flex flex-col gap-1 text-detail text-ink">
+                  <li>
+                    <Kbd>F4</Kbd>–<Kbd>F9</Kbd> Contra, Payment, Receipt, Journal, Sales, Purchase
+                  </li>
+                  <li>
+                    <Kbd>⌘↵</Kbd> save · <Kbd>Esc</Kbd> back
+                  </li>
+                  <li>
+                    Dates accept <span className="num">7</span>, <span className="num">7/4</span>, <span className="num">t</span>,{' '}
+                    <span className="num">y</span>
+                  </li>
+                </ul>
+              </DrawerSection>
+            </>
+          )
+        }}
+      />
+      {showFirstVoucherHint && (
+        <Banner tone="info" className="mb-section" onDismiss={() => setHintDismissed(true)} testId="voucher-first-hint">
+          First voucher? Pick a type above (or <Kbd>F8</Kbd> for Sales), fill in the lines, then <Kbd>⌘↵</Kbd> to save.
+        </Banner>
+      )}
       {closingEntry && (
-        <div
-          data-testid="year-end-close-banner"
-          className="mb-4 rounded-md border border-blue/30 bg-blue/10 px-4 py-2.5 text-[12.5px] text-ink"
-        >
+        <Banner tone="info" className="mb-section" testId="year-end-close-banner">
           Year-end closing entry — read-only. Move it to the bin to reopen the year, then close again.
-        </div>
+        </Banner>
       )}
       {/* A disabled fieldset disables every input and button inside (Save included) for a
           year-end closing entry; the server refuses the edit regardless. */}
@@ -192,10 +229,13 @@ export function VoucherEntry({
         )}
       </div>
       </fieldset>
-      <p className="mt-3 text-[11.5px] text-muted">
-        <Kbd>F4</Kbd>–<Kbd>F9</Kbd> switch type · <Kbd>⌘↵</Kbd> save · <Kbd>Esc</Kbd> back · dates accept <span className="num">7</span>, <span className="num">7/4</span>, <span className="num">y</span>
-      </p>
-    </div>
+      {opts.options.showShortcuts && (
+        <p className="mt-3 text-hint text-muted">
+          <Kbd>F4</Kbd>–<Kbd>F9</Kbd> switch type · <Kbd>⌘↵</Kbd> save · <Kbd>Esc</Kbd> back · dates accept <span className="num">7</span>,{' '}
+          <span className="num">7/4</span>, <span className="num">y</span> · <Kbd>F12</Kbd> options
+        </p>
+      )}
+    </Page>
   )
 }
 

@@ -1,9 +1,10 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import type { Group, Ledger, StockItem } from '@shared/domain'
 import { createScanDetector } from '@shared/barcode'
 import { api } from '../lib/client'
 import { inputCls } from './ui'
+import { useInField } from './kit/Field'
 
 export function useLedgers(): Ledger[] {
   const { data } = useQuery({ queryKey: ['ledgers'], queryFn: api.ledgers.list })
@@ -38,7 +39,8 @@ function TypeAhead({
   onCreate,
   className,
   onScan,
-  testId
+  testId,
+  ariaLabel
 }: {
   options: PickerOption[]
   value: number | null
@@ -51,7 +53,11 @@ function TypeAhead({
   onScan?: (e: React.KeyboardEvent<HTMLInputElement>) => boolean
   /** data-testid for the input (lib/testids.ts — `picker-<what>`). */
   testId?: string
+  /** Accessible name (default: the placeholder) — ignored inside a Field, whose label names it. */
+  ariaLabel?: string
 }): React.JSX.Element {
+  const listId = useId()
+  const inField = useInField()
   const selected = options.find((o) => o.id === value) ?? null
   const [text, setText] = useState(selected?.label ?? '')
   const [open, setOpen] = useState(false)
@@ -101,6 +107,12 @@ function TypeAhead({
         data-testid={testId}
         value={text}
         placeholder={placeholder}
+        role="combobox"
+        aria-label={inField ? undefined : (ariaLabel ?? placeholder)}
+        aria-autocomplete="list"
+        aria-expanded={open && (filtered.length > 0 || !!showCreate)}
+        aria-controls={listId}
+        aria-activedescendant={open && filtered[active] ? `${listId}-${filtered[active]!.id}` : undefined}
         autoFocus={autoFocus}
         onFocus={(e) => {
           e.target.select()
@@ -140,11 +152,15 @@ function TypeAhead({
         }}
       />
       {open && (filtered.length > 0 || showCreate) && (
-        <div className="absolute top-full right-0 left-0 z-30 mt-1 max-h-64 overflow-auto rounded-md border border-line bg-panel2 shadow-xl">
+        <div id={listId} role="listbox" className="absolute top-full right-0 left-0 z-30 mt-1 max-h-64 overflow-auto rounded-md border border-line bg-raised shadow-elev-2">
           {filtered.map((o, i) => (
             <div
               key={o.id}
+              id={`${listId}-${o.id}`}
+              role="option"
+              aria-selected={i === active}
               data-active={i === active}
+
               className="kbar-row cursor-pointer px-3 py-1.5"
               onMouseEnter={() => setActive(i)}
               onMouseDown={(e) => {
@@ -152,14 +168,14 @@ function TypeAhead({
                 pick(o)
               }}
             >
-              <span className="text-[13px]">{o.label}</span>
-              {o.sub && <span className="ml-2 text-[11px] text-muted">{o.sub}</span>}
+              <span className="text-detail">{o.label}</span>
+              {o.sub && <span className="ml-2 text-caption text-muted">{o.sub}</span>}
             </div>
           ))}
           {showCreate && (
             <div
               data-active={active === filtered.length}
-              className="kbar-row cursor-pointer border-t border-line px-3 py-1.5 text-[13px] text-amber"
+              className="kbar-row cursor-pointer border-t border-line px-3 py-1.5 text-detail text-amber"
               onMouseEnter={() => setActive(filtered.length)}
               onMouseDown={(e) => {
                 e.preventDefault()

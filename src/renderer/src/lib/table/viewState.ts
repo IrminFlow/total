@@ -16,7 +16,7 @@ export function defaultView<Row>(columns: readonly ColumnDef<Row>[], overrides: 
     sort: [],
     filters: {},
     groupBy: null,
-    density: 'comfortable'
+    density: null // follow the app density
   }
   // Overrides go through reconcile too, so a typo'd id in a screen's defaults can't leak in.
   return reconcileView({ ...base, ...overrides, v: VIEW_STATE_VERSION }, columns)
@@ -75,7 +75,7 @@ export function reconcileView<Row>(view: ViewState, columns: readonly ColumnDef<
     sort,
     filters,
     groupBy: g && isGroupable(g) ? g.id : null,
-    density: view.density === 'compact' ? 'compact' : 'comfortable'
+    density: view.density === 'compact' || view.density === 'comfortable' ? view.density : null
   }
 }
 
@@ -120,7 +120,7 @@ export function parseViewState<Row>(raw: unknown, columns: readonly ColumnDef<Ro
     sort,
     filters,
     groupBy: typeof o.groupBy === 'string' ? o.groupBy : null,
-    density: (o.density === 'compact' || o.density === 'comfortable' ? o.density : fallback.density) as Density
+    density: (o.density === 'compact' || o.density === 'comfortable' ? o.density : o.density === null ? null : fallback.density) as Density | null
   }
   return reconcileView(view, columns)
 }

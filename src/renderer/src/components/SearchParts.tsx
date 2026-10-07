@@ -30,7 +30,7 @@ export function Highlight({ text, terms }: { text: string; terms: string[] }): R
     <>
       {segs.map((s, i) =>
         s.match ? (
-          <mark key={i} className="rounded-sm bg-amber/25 px-px text-ink">
+          <mark key={i} className="rounded-sm bg-amberbar/25 px-px text-ink">
             {s.text}
           </mark>
         ) : (
@@ -60,8 +60,8 @@ export function QueryChips({
         <span
           key={`${c.raw}-${i}`}
           data-chip={c.key}
-          className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11.5px] ${
-            c.key === 'bare-amount' ? 'border-line text-muted' : 'border-amber/40 bg-amber/10 text-ink'
+          className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-hint ${
+            c.key === 'bare-amount' ? 'border-line text-muted' : 'border-amber/40 bg-amberbar/10 text-ink'
           }`}
         >
           {c.label}
@@ -78,7 +78,7 @@ export function QueryChips({
         </span>
       ))}
       {unknown.length > 0 && (
-        <span data-chip="unknown" className="text-[11.5px] text-muted" title="Searched as plain text">
+        <span data-chip="unknown" className="text-hint text-muted" title="Searched as plain text">
           Not a filter: {unknown.join(', ')}
         </span>
       )}
@@ -122,8 +122,8 @@ export function VoucherBadges({ v }: { v: Pick<VoucherResult, 'isOptional' | 'po
   if (!v.isOptional && !v.postDated) return null
   return (
     <>
-      {v.isOptional && <span className="ml-2 rounded bg-amber/15 px-1.5 py-0.5 text-[10px] font-medium text-amber">Optional</span>}
-      {v.postDated && <span className="ml-2 rounded bg-blue/10 px-1.5 py-0.5 text-[10px] font-medium text-blue">PDC</span>}
+      {v.isOptional && <span className="ml-2 rounded bg-amberbar/15 px-1.5 py-0.5 text-micro font-medium text-amber">Optional</span>}
+      {v.postDated && <span className="ml-2 rounded bg-blue/10 px-1.5 py-0.5 text-micro font-medium text-blue">PDC</span>}
     </>
   )
 }

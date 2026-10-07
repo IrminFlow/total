@@ -1,6 +1,7 @@
 import type { Screen } from '../state/stores'
 import { useNav } from '../state/stores'
 import { TabBar } from '../components/TabBar'
+import { Page, PageHeader } from '../components/ui'
 import { BackupsSection } from './settings/BackupsSection'
 import { BinSection } from './settings/BinSection'
 import { UsersSection } from './settings/UsersSection'
@@ -10,6 +11,7 @@ import { FeaturesSection } from './settings/FeaturesSection'
 import { InvoiceConfigSection } from './settings/InvoiceConfigSection'
 import { AgentBridgeSection } from './settings/AgentBridgeSection'
 import { AboutSection } from './settings/AboutSection'
+import { AppearanceSection } from './settings/AppearanceSection'
 
 export type SettingsTab = NonNullable<Extract<Screen, { name: 'settings' }>['tab']>
 
@@ -21,6 +23,7 @@ const TABS: { id: SettingsTab; label: string }[] = [
   { id: 'nic', label: 'NIC live filing' },
   { id: 'features', label: 'Features' },
   { id: 'invoice', label: 'Invoice templates' },
+  { id: 'appearance', label: 'Appearance' },
   { id: 'agents', label: 'Agent access' },
   { id: 'about', label: 'About' }
 ]
@@ -30,32 +33,38 @@ export function Settings({ tab }: { tab?: SettingsTab }): React.JSX.Element {
   const active = tab ?? 'backups'
 
   return (
-    <div className="mx-auto flex max-w-5xl gap-6">
-      <aside className="w-44 shrink-0">
-        <h2 className="mb-3 font-serif text-[19px] font-semibold tracking-tight">Settings</h2>
-        {/* The active tab lives in the nav stack (not local state) so Esc/back retraces tabs
+    <Page>
+      <div className="flex gap-6">
+        <aside className="w-44 shrink-0">
+          {/* The page title sits over the section list, level with each section's own heading. */}
+          <PageHeader title="Settings" className="!mb-3" />
+
+          {/* The active tab lives in the nav stack (not local state) so Esc/back retraces tabs
             and other screens can deep-link straight to a tab. */}
-        <TabBar
-          screen="settings"
-          vertical
-          tabs={TABS}
-          active={active}
-          onSelect={(t) => {
-            if (t !== active) nav.go({ name: 'settings', tab: t })
-          }}
-        />
-      </aside>
-      <div className="min-w-0 flex-1">
-        {active === 'backups' && <BackupsSection />}
-        {active === 'bin' && <BinSection />}
-        {active === 'users' && <UsersSection />}
-        {active === 'audit' && <AuditSection />}
-        {active === 'nic' && <NicSection />}
-        {active === 'features' && <FeaturesSection />}
-        {active === 'invoice' && <InvoiceConfigSection />}
-        {active === 'agents' && <AgentBridgeSection />}
-        {active === 'about' && <AboutSection />}
+          <TabBar
+            screen="settings"
+            vertical
+            label="Settings sections"
+            tabs={TABS}
+            active={active}
+            onSelect={(t) => {
+              if (t !== active) nav.go({ name: 'settings', tab: t })
+            }}
+          />
+        </aside>
+        <div className="min-w-0 flex-1">
+          {active === 'backups' && <BackupsSection />}
+          {active === 'bin' && <BinSection />}
+          {active === 'users' && <UsersSection />}
+          {active === 'audit' && <AuditSection />}
+          {active === 'nic' && <NicSection />}
+          {active === 'features' && <FeaturesSection />}
+          {active === 'invoice' && <InvoiceConfigSection />}
+          {active === 'agents' && <AgentBridgeSection />}
+          {active === 'appearance' && <AppearanceSection />}
+          {active === 'about' && <AboutSection />}
+        </div>
       </div>
-    </div>
+    </Page>
   )
 }
