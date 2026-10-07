@@ -10,25 +10,28 @@ import { gstPeriodOf, toDisplayDate } from '@shared/dates'
 import { TransportModal } from './voucher/TransportModal'
 import { LedgerLink } from '../components/links'
 
-type DocTypeFilter = 'all' | 'INV' | 'CRN' | 'DBN'
+type DocTypeFilter = 'all' | 'INV' | 'CRN' | 'DBN' | 'CHL'
 
 const DOC_TYPE_FILTERS: { value: DocTypeFilter; label: string }[] = [
   { value: 'all', label: 'All documents' },
   { value: 'INV', label: 'Invoices' },
   { value: 'CRN', label: 'Credit notes' },
-  { value: 'DBN', label: 'Debit notes' }
+  { value: 'DBN', label: 'Debit notes' },
+  { value: 'CHL', label: 'Delivery challans' }
 ]
 
-const DOC_TYPE_CLASS: Record<'INV' | 'CRN' | 'DBN', string> = {
+const DOC_TYPE_CLASS: Record<EdocListRow['docType'], string> = {
   INV: 'text-muted',
   CRN: 'text-dr',
-  DBN: 'text-cr'
+  DBN: 'text-cr',
+  CHL: 'text-blue'
 }
 
 const DOC_TYPE_TITLE: Record<EdocListRow['docType'], string> = {
   INV: 'Invoice',
   CRN: 'Credit note',
-  DBN: 'Debit note'
+  DBN: 'Debit note',
+  CHL: 'Delivery challan — e-way bill only (no IRN)'
 }
 
 const irnEwbText = (r: EdocListRow): string => `${r.irn ? 'IRN ✓' : 'no IRN'} · ${r.ewbNo ?? 'no EWB'}`
@@ -339,7 +342,7 @@ export function EdocsScreen(): React.JSX.Element {
           trailingWidth={live ? 300 : 210}
           trailing={(r) => (
             <span className="whitespace-nowrap">
-              {live && r.partyGstin && !r.irn && (
+              {live && r.partyGstin && !r.irn && r.docType !== 'CHL' && (
                 <button
                   className="mr-2 text-small text-blue hover:underline disabled:opacity-40"
                   disabled={busy === r.voucherId}

@@ -6,13 +6,16 @@ import { formatDateAs } from '../dates'
 import { GST_STATES } from '../gst/states'
 import { einvoiceQrPayload } from '../einvoiceQr'
 import {
+  CHALLAN_COPY_LABELS,
   PRINT_COLUMN_DEFS,
+  STOCK_NOTE_PRINT_KINDS,
   type PrintColumn,
   type PrintColumnKey,
   type PrintDocKind,
   type PrintTemplate
 } from '../printTemplates'
 import { taxSummaryForInvoice } from './taxSummary'
+import { purposeLabel } from '../voucherEdit/stockNote'
 
 /**
  * THE document renderer (WP 1.10c): template + document data → one self-contained HTML string
@@ -140,7 +143,8 @@ const DOC_LABEL: Record<PrintDocKind, string> = {
   journal: 'Voucher',
   contra: 'Voucher',
   delivery_challan: 'Challan',
-  quotation: 'Quotation'
+  quotation: 'Quotation',
+  goods_receipt: 'Receipt note'
 }
 const PARTY_LABEL: Partial<Record<PrintDocKind, string>> = {
   receipt: 'Received from',
@@ -400,8 +404,8 @@ function outstandingRow(c: Ctx, outstanding: number | null | undefined): string 
   return `<tr class="due"><td>Balance outstanding</td><td class="r num">${c.money(Math.abs(outstanding))}${side}</td></tr>`
 }
 
-function wrapDocument(c: Ctx, title: string, sheet: string, opts: RenderOptions): string {
-  const copies = c.t.header.copyLabels
+function wrapDocument(c: Ctx, title: string, sheet: string, opts: RenderOptions, copyLabels?: readonly string[]): string {
+  const copies = (copyLabels ?? c.t.header.copyLabels)
     .map(
       (label) => `
       <div class="copy">
@@ -600,6 +604,10 @@ function renderInvoice(c: Ctx, doc: InvoiceDocument, opts: RenderOptions): strin
   const m = c.money
   const legacy = t.style === 'classic'
   const irn = doc.einvoice?.irn ?? inv.irn ?? null
+  // Delivery challan / GRN (WP 2.5b): a goods document, not an invoice — no IRN / payment QR, no
+  // bank details or outstanding; the taxable value (and the tax where the movement is a supply)
+  // still prints, as rule 55(1) CGST Rules requires of a challan.
+  const stockNote = STOCK_NOTE_PRINT_KINDS.includes(doc.kind)
 
   const taxRows = [
     isIntra ? `<tr><td>CGST</td><td class="r num">${m(inv.cgst)}</td></tr>` : '',
@@ -610,7 +618,7 @@ function renderInvoice(c: Ctx, doc: InvoiceDocument, opts: RenderOptions): strin
   ].join('')
 
   const f = t.footer
-  const bankBlock = f.bankDetails
+  const bankBlock = f.bankDetails && !stockNote
     ? `<div style="margin-top:10px" class="lbl">Bank details</div>
        <div style="font-size:${c.px(10.5)}">${esc(f.bankDetails.name)}<br/>A/c ${esc(f.bankDetails.account)} · IFSC ${esc(f.bankDetails.ifsc)}<br/>${esc(f.bankDetails.branch)}</div>`
     : ''
@@ -625,11 +633,11 @@ function renderInvoice(c: Ctx, doc: InvoiceDocument, opts: RenderOptions): strin
           <div style="font-size:${c.px(10.5)}">${esc(f.declaration)}</div>`
       : ''
   const wordsBlock = t.totals.showAmountInWords
-    ? `<div class="lbl">Amount in words</div>
+    ? `<div class="lbl">${stockNote ? 'Value in words' : 'Amount in words'}</div>
           <div><i>${esc(amountInWords(inv.total))}</i></div>`
     : ''
 
-  const showQr = t.einvoice.showQr
+  const showQr = t.einvoice.showQr && !stockNote
   const headerQr = showQr && t.einvoice.qrPlacement === 'header' ? qrBlock(c, company, inv, irn) : ''
   const footerQr = showQr && t.einvoice.qrPlacement === 'footer' ? `<div class="qr-foot">${qrBlock(c, company, inv, irn)}</div>` : ''
   if (footerQr) c.extra.add('qr-foot')
@@ -640,6 +648,12 @@ function renderInvoice(c: Ctx, doc: InvoiceDocument, opts: RenderOptions): strin
 
   const p = t.party
   const label = DOC_LABEL[doc.kind]
+  const partyLabel = doc.kind === 'delivery_challan' ? 'Consignee' : doc.kind === 'goods_receipt' ? 'Received from' : p.billToLabel
+  const purposeLine = stockNote && inv.purpose ? `<div>Purpose: ${esc(purposeLabel(inv.purpose))}</div>` : ''
+  const ruleNote =
+    doc.kind === 'delivery_challan'
+      ? `<div style="margin-top:10px;font-size:${c.px(10)}">Delivery challan issued under rule 55 of the CGST Rules, 2017.</div>`
+      : ''
   const shipTo = p.showShipTo && inv.shipTo && (inv.shipTo.name || inv.shipTo.addr1) ? inv.shipTo : null
   const shipBlock = shipTo
     ? `
@@ -663,7 +677,7 @@ function renderInvoice(c: Ctx, doc: InvoiceDocument, opts: RenderOptions): strin
       </div>
       <div class="meta">
         <div>
-          <div class="lbl">${esc(p.billToLabel)}</div>
+          <div class="lbl">${esc(partyLabel)}</div>
           <div><b>${esc(inv.partyName ?? 'Cash sale')}</b></div>
           ${p.showAddress ? `<div>${esc(inv.partyAddress)}</div>` : ''}
           ${p.showGstin ? `<div class="num">${inv.partyGstin ? 'GSTIN: ' + esc(inv.partyGstin) : 'Unregistered'}</div>` : ''}
@@ -675,7 +689,7 @@ function renderInvoice(c: Ctx, doc: InvoiceDocument, opts: RenderOptions): strin
           <div>Date: <span class="num">${c.date(inv.date)}</span></div>
           ${inv.precedingDoc ? `<div>Against: <span class="num">${esc(inv.precedingDoc.invNo)}</span> dt <span class="num">${c.date(inv.precedingDoc.invDate)}</span></div>` : ''}
           ${p.showPlaceOfSupply ? `<div>Place of supply: <span class="num">${esc(inv.pos)}-${esc(GST_STATES[inv.pos] ?? '')}</span></div>` : ''}
-          ${p.showVehicle && inv.vehicleNo ? `<div>Vehicle: <span class="num">${esc(inv.vehicleNo)}</span></div>` : ''}
+          ${p.showVehicle && inv.vehicleNo ? `<div>Vehicle: <span class="num">${esc(inv.vehicleNo)}</span></div>` : ''}${purposeLine}
         </div>
       </div>${einvoiceLine(c, { irn, ackNo: doc.einvoice?.ackNo ?? null, ackDate: doc.einvoice?.ackDate ?? null, ewbNo: doc.einvoice?.ewbNo ?? null })}
       ${itemsTable(c, inv, isIntra)}
@@ -685,19 +699,24 @@ function renderInvoice(c: Ctx, doc: InvoiceDocument, opts: RenderOptions): strin
           ${wordsBlock}
           ${declarationBlock}
           ${bankBlock}
-          ${termsBlock}
+          ${termsBlock}${ruleNote}
         </div>
         <table class="tot">
           <tr><td>Taxable value</td><td class="r num">${m(inv.taxable)}</td></tr>
           ${taxRows}
-          <tr class="grand"><td>Total</td><td class="r num">${t.formats.currencySymbolOnTotal ? '₹ ' : ''}${m(inv.total)}</td></tr>
-          ${outstandingRow(c, doc.outstandingPaise)}
+          <tr class="grand"><td>${stockNote ? 'Value of goods' : 'Total'}</td><td class="r num">${t.formats.currencySymbolOnTotal ? '₹ ' : ''}${m(inv.total)}</td></tr>
+          ${stockNote ? '' : outstandingRow(c, doc.outstandingPaise)}
         </table>
       </div>${sigBlock(c, company, footerQr)}
       ${auditFoot(c, doc.audit)}${cgNote(c)}
     </div>`
 
-  return wrapDocument(c, `${label} ${inv.number}`, sheet, opts)
+  // Rule 55(2): a challan goes in triplicate — unless the template names its own copies.
+  const challanCopies =
+    doc.kind === 'delivery_challan' && t.header.copyLabels.length === 1 && t.header.copyLabels[0] === 'Original for Recipient'
+      ? [...CHALLAN_COPY_LABELS]
+      : undefined
+  return wrapDocument(c, `${label} ${inv.number}`, sheet, opts, challanCopies)
 }
 
 // ---------------------------------------------------------------- voucher shape

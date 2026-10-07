@@ -1,7 +1,7 @@
 // Shapes the trade-cycle IPC channels return (WP 2.5a) — shared so the renderer's typed client
 // can name them (it can't import main-process modules).
 
-import type { LinkType, VoucherKind } from '../domain'
+import type { LinkType, TradePurpose, VoucherKind } from '../domain'
 import type { TradeSideKind } from './rules'
 
 export interface VoucherKindRow {
@@ -52,4 +52,31 @@ export interface OpenSourceLine {
   pendingMilli: number
   ratePaise: number
   amount: number
+}
+
+/** One open line of a delivery challan not yet invoiced / GRN not yet billed (trade:pending). */
+export interface PendingNoteRow {
+  voucherId: number
+  number: string
+  date: string
+  purpose: TradePurpose
+  partyLedgerId: number | null
+  partyName: string | null
+  lineUid: string
+  /** 1-based line number on the note. */
+  lineNo: number
+  stockItemId: number
+  itemName: string
+  unit: string | null
+  godownId: number | null
+  godownName: string | null
+  qtyMilli: number
+  /** Invoiced / billed (plus returned) by documents dated on or before the as-on date. */
+  doneMilli: number
+  pendingMilli: number
+  ratePaise: number
+  /** Taxable value of the pending quantity (pro rata of the line's value). */
+  pendingValue: number
+  /** Days since the note's date, as on the report date. */
+  ageDays: number
 }
