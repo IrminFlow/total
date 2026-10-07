@@ -3,7 +3,7 @@
 // turns those inputs into ledger + inventory lines lives here so it can be unit-tested and used
 // to decide whether a saved trading voucher can be shown as an invoice at all.
 
-import type { Voucher, VoucherBillRef, VoucherKind } from '../domain'
+import type { LineSource, Voucher, VoucherBillRef, VoucherKind } from '../domain'
 import { computeGst, supplyTypeFor, addBreakups, type GstBreakup, type SupplyType } from '../gst/calc'
 import { roundToRupee } from '../money'
 import type { TdsDeductionState } from './tds'
@@ -24,6 +24,10 @@ export interface InvoiceRowState {
   batchId: number | null
   /** Serial numbers (serial-tracked items) — one per unit. */
   serials?: string[]
+  /** Stable line uid of a saved line (WP 2.5) — carried so an alteration keeps it. */
+  lineUid?: string
+  /** The challan / order / invoice line this row draws on (WP 2.5 links). */
+  source?: LineSource | null
 }
 
 export interface InvoiceFormState {
@@ -106,6 +110,8 @@ export interface InvoiceLineDetail {
   godownId: number | null
   batchId: number | null
   serials?: string[]
+  lineUid?: string
+  source?: LineSource | null
 }
 
 export interface InvoiceComputed {
@@ -150,7 +156,9 @@ export function computeInvoice(state: InvoiceFormState, ctx: InvoiceContext): In
       cessRate: item.cessRate ?? 0,
       godownId: r.godownId,
       batchId: r.batchId,
-      ...(r.serials && r.serials.length > 0 ? { serials: [...r.serials] } : {})
+      ...(r.serials && r.serials.length > 0 ? { serials: [...r.serials] } : {}),
+      ...(r.lineUid ? { lineUid: r.lineUid } : {}),
+      ...(r.source ? { source: { ...r.source } } : {})
     })
   }
 
@@ -252,7 +260,9 @@ export function buildInvoicePayload(
         discountPaise: d.discountPaise,
         amount: d.amount,
         direction: goodsComeIn(ctx.kind) ? ('in' as const) : ('out' as const),
-        ...(d.serials ? { serials: d.serials } : {})
+        ...(d.serials ? { serials: d.serials } : {}),
+        ...(d.lineUid ? { lineUid: d.lineUid } : {}),
+        ...(d.source ? { source: d.source } : {})
       })),
       billRefs:
         isNoteKind(ctx.kind) && !state.manualNewBillMode
@@ -329,7 +339,9 @@ export function invoiceStateFromVoucher(
     discount: l.discountPaise ? toInvoiceCurrency(l.discountPaise) : null,
     godownId: l.godownId,
     batchId: l.batchId,
-    ...(l.serials && l.serials.length > 0 ? { serials: [...l.serials] } : {})
+    ...(l.serials && l.serials.length > 0 ? { serials: [...l.serials] } : {}),
+    ...(l.lineUid ? { lineUid: l.lineUid } : {}),
+    ...(l.source ? { source: { lineUid: l.source.lineUid, linkType: l.source.linkType } } : {})
   }))
 
   let billName = ''

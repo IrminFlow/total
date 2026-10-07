@@ -6,7 +6,7 @@
 // payload with `voucherToPayload(voucher)` — the payload that would re-save the voucher exactly
 // as stored. Pure TypeScript: no React, no DB.
 
-import type { InventoryLine, Voucher, VoucherKind } from '../domain'
+import type { InventoryLine, TradePurpose, Voucher, VoucherKind } from '../domain'
 import type { VoucherInputParsed } from '../schemas'
 
 export type VoucherPayload = VoucherInputParsed
@@ -28,6 +28,8 @@ export interface HeaderPassthrough {
   posOverride: string | null
   currencyCode: string | null
   exchangeRate: number | null
+  /** Delivery challan / GRN purpose (WP 2.5) — present only on those kinds. */
+  trade?: { purpose: TradePurpose } | null
 }
 
 export const EMPTY_PASSTHROUGH: HeaderPassthrough = {
@@ -54,14 +56,19 @@ export function passthroughOf(v: Voucher): HeaderPassthrough {
     transportDistanceKm: v.transportDistanceKm,
     posOverride: v.posOverride,
     currencyCode: v.currencyCode,
-    exchangeRate: v.exchangeRate
+    exchangeRate: v.exchangeRate,
+    ...(v.trade ? { trade: { purpose: v.trade.purpose } } : {})
   }
 }
 
-/** Every stored inventory-line field, verbatim — never drop batch/discount/godown/absolute/serials. */
+/** Every stored inventory-line field, verbatim — never drop batch/discount/godown/absolute/serials,
+ *  nor the line's stable uid and link source (WP 2.5: a dropped uid makes the line look new, and
+ *  a line other documents link to is then refused on save). */
 export function inventoryToPayload(l: InventoryLine): InventoryPayload {
   return {
     ...(l.serials && l.serials.length > 0 ? { serials: [...l.serials] } : {}),
+    ...(l.lineUid ? { lineUid: l.lineUid } : {}),
+    ...(l.source ? { source: { lineUid: l.source.lineUid, linkType: l.source.linkType } } : {}),
     stockItemId: l.stockItemId,
     godownId: l.godownId,
     batchId: l.batchId,
@@ -131,6 +138,7 @@ function canonical(p: VoucherPayload): Record<string, unknown> {
     posOverride: p.posOverride ?? null,
     currencyCode: p.currencyCode ? p.currencyCode.trim().toUpperCase() : null,
     exchangeRate: p.exchangeRate ?? null,
+    trade: p.trade?.purpose ?? null,
     lines: p.lines.map((l) => ({
       ledgerId: l.ledgerId,
       drCr: l.drCr,
@@ -148,7 +156,10 @@ function canonical(p: VoucherPayload): Record<string, unknown> {
       direction: l.direction,
       isAbsolute: l.isAbsolute ?? false,
       // Serial order is significant (stored as given); absent and [] store the same.
-      serials: [...(l.serials ?? [])]
+      serials: [...(l.serials ?? [])],
+      // A link source is part of what is stored; the line uid is compared in diffPayloads (only
+      // when both sides name one — absent means "a new line", which the server numbers).
+      source: l.source ? { lineUid: l.source.lineUid, linkType: l.source.linkType } : null
     })),
     billRefs: (p.billRefs ?? []).map((r) => ({ kind: r.kind, name: r.name.trim(), amount: r.amount, dueDate: r.dueDate ?? null })),
     // autoPayable isn't compared on its own: a payload that leaves the payable credit to the
@@ -183,6 +194,14 @@ export function diffPayloads(a: VoucherPayload, b: VoucherPayload): string[] {
   diffValues(canonical(a), canonical(b), '', out)
   for (const k of ['postDated', 'isOptional'] as const) {
     if (a[k] !== undefined && b[k] !== undefined && a[k] !== b[k]) out.push(k)
+  }
+  const ai = a.inventory ?? []
+  const bi = b.inventory ?? []
+  if (ai.length === bi.length) {
+    ai.forEach((l, i) => {
+      const u = bi[i]!.lineUid
+      if (l.lineUid !== undefined && u !== undefined && l.lineUid !== u) out.push(`inventory[${i}].lineUid`)
+    })
   }
   return out
 }

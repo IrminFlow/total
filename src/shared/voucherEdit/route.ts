@@ -2,7 +2,7 @@
 // creates that kind — but only when it can show the voucher faithfully (reconstruct → rebuild
 // → compare); otherwise the lossless fallback for the kind, with the reason for the banner.
 
-import type { Voucher, VoucherKind } from '../domain'
+import { STOCK_NOTE_KINDS, type Voucher, type VoucherKind } from '../domain'
 import { accountingStateFromVoucher, type AccountingFormState } from './accounting'
 import { invoiceRepresentation, type InvoiceContext, type InvoiceFormState, type TaxLedgerIds } from './invoice'
 import { manufactureRepresentation, type ManufactureFormState } from './manufacture'
@@ -14,10 +14,13 @@ import { TRADING_KINDS } from './payload'
 
 export type EntryMode = 'invoice' | 'accounting' | 'manufacture' | 'physical' | 'stockLines' | 'transfer'
 
-export function modeForKind(kind: VoucherKind): Exclude<EntryMode, 'stockLines' | 'transfer'> {
+export function modeForKind(kind: VoucherKind): Exclude<EntryMode, 'transfer'> {
   if (TRADING_KINDS.includes(kind)) return 'invoice'
   if (kind === 'stock_journal') return 'manufacture'
   if (kind === 'physical_stock') return 'physical'
+  // WP 2.5a: delivery challans / GRNs open in the generic stock-lines editor (party, purpose and
+  // line links ride along verbatim); WP 2.5b gives them their own screen.
+  if (STOCK_NOTE_KINDS.includes(kind)) return 'stockLines'
   return 'accounting'
 }
 
@@ -67,6 +70,8 @@ export function planVoucherEdit(v: Voucher, kind: VoucherKind, ctx: EditPlanCont
       if (r.ok) return { mode: 'physical', state: r.state }
       return { mode: 'stockLines', state: stockLinesStateFromVoucher(v), fallbackReason: r.reason }
     }
+    case 'stockLines':
+      return { mode: 'stockLines', state: stockLinesStateFromVoucher(v), fallbackReason: null }
     default:
       return { mode: 'accounting', state: accountingStateFromVoucher(v), fallbackReason: null }
   }

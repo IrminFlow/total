@@ -20,6 +20,7 @@ import { setBom } from './extras'
 import { costPreview, getManufactureDetails, saveManufacture } from './manufacture'
 import type { ManufactureInput } from '@shared/manufacture'
 import { setBankDate } from './banking'
+import { dc, grn, item as tradeItem, trade, tradeBooks, uid as lineUid } from './tradeFixture.testutil'
 
 type LedgerKind = 'Sundry Debtors' | 'Sundry Creditors' | 'Sales Accounts' | 'Purchase Accounts' | 'Duties & Taxes' | 'Indirect Expenses' | 'Bank Accounts'
 
@@ -185,7 +186,20 @@ function snapshot(db: DB, id: number): unknown {
     tds: db
       .prepare('SELECT id, section_id, party_ledger_id, pan, base_amount, tds_amount, is_manual, rate_bp_at, deductee_type_at, certificate_id FROM tds_entries WHERE voucher_id = ?')
       .all(id),
-    manufacture: db.prepare('SELECT * FROM manufacture_details WHERE voucher_id = ?').all(id)
+    manufacture: db.prepare('SELECT * FROM manufacture_details WHERE voucher_id = ?').all(id),
+    // WP 2.5: stable line uids (except manufactures — manufacture:save rebuilds the journal and
+    // renumbers its lines; they can never be linked), moves_stock, the voucher's links both
+    // ways and the challan / GRN purpose all survive an open → save.
+    lineUids: db.prepare('SELECT 1 FROM manufacture_details WHERE voucher_id = ?').get(id)
+      ? null
+      : db.prepare('SELECT line_uid, moves_stock FROM inventory_lines WHERE voucher_id = ? ORDER BY line_order').all(id),
+    links: db
+      .prepare(
+        `SELECT link_type, from_voucher_id, from_line_uid, to_voucher_id, to_line_uid, qty_milli, reprices FROM line_links
+         WHERE to_voucher_id = ? OR from_voucher_id = ? ORDER BY to_line_uid`
+      )
+      .all(id, id),
+    trade: db.prepare('SELECT purpose, closed_at FROM trade_voucher_details WHERE voucher_id = ?').all(id)
   }
 }
 
@@ -518,5 +532,46 @@ describe('saveVoucher keeps bank reconciliation across an alteration', () => {
     saveVoucher(db, { ...header, voucherTypeId: typeId(db, 'payment'), date: '2025-05-13',
       lines: [{ ledgerId: x.freight, drCr: 'dr', amount: 6000 }, { ledgerId: x.bank, drCr: 'cr', amount: 6000 }] }, id)
     expect(getVoucher(db, id)!.lines[1]!.bankDate).toBeNull()
+  })
+})
+
+describe('voucher editor round-trip (WP 2.5a): challans, GRNs and linked invoices', () => {
+  it('a delivery challan, a GRN and the invoice / bill drawn from them re-save byte-identical', () => {
+    const b = tradeBooks()
+    const db = b.db
+    const w = tradeItem(db, 'Widget', { opening: [20, 20000] })
+    const p = tradeItem(db, 'Phone', { serials: true })
+    trade(b, 'purchase', '2025-04-10', [{ item: p, qty: 2, amount: 20000, godown: b.godown, serials: ['P1', 'P2'] }])
+    const d = dc(b, '2025-05-01', [
+      { item: w, qty: 5, amount: 5000, godown: b.godown },
+      { item: p, qty: 2, amount: 26000, godown: b.godown, serials: ['P1', 'P2'] }
+    ], { purpose: 'approval' })
+    const g = grn(b, '2025-05-02', [{ item: w, qty: 4, amount: 4000, godown: b.godown2 }])
+    const inv = trade(b, 'sales', '2025-05-03', [
+      { item: w, qty: 3, amount: 3600, godown: b.godown, from: lineUid(db, d.id, 0) },
+      { item: p, qty: 1, amount: 13000, godown: b.godown, serials: ['P2'], from: lineUid(db, d.id, 1) },
+      { item: w, qty: 1, amount: 1200 }
+    ])
+    const bill = trade(b, 'purchase', '2025-05-04', [{ item: w, qty: 4, amount: 4400, godown: b.godown2, from: lineUid(db, g.id) }])
+    const cn = trade(b, 'credit_note', '2025-05-06', [{ item: w, qty: 1, amount: 1200, godown: b.godown, from: lineUid(db, inv.id, 2), link: 'return' }])
+    expectRoundTrip(db, d.id, 'stockLines')
+    expectRoundTrip(db, g.id, 'stockLines')
+    expectRoundTrip(db, inv.id, 'accounting') // no GST ledgers on these test lines → the invoice form can't show it
+    expectRoundTrip(db, bill.id, 'accounting')
+    expectRoundTrip(db, cn.id, 'accounting')
+    expect(getVoucher(db, inv.id)!.inventory.map((l) => l.movesStock)).toEqual([false, false, true])
+  })
+
+  it('an invoice-mode sale drawn from a challan keeps its uids and links', () => {
+    const b = tradeBooks()
+    const db = b.db
+    const z = tradeItem(db, 'Zero-rated', { opening: [20, 20000], gstRate: 0 })
+    const d = dc(b, '2025-05-01', [{ item: z, qty: 5, amount: 5000, godown: b.godown }])
+    const inv = trade(b, 'sales', '2025-05-03', [
+      { item: z, qty: 3, amount: 3600, godown: b.godown, from: lineUid(db, d.id) },
+      { item: z, qty: 1, amount: 1200, godown: b.godown }
+    ])
+    expectRoundTrip(db, inv.id, 'invoice')
+    expect(getVoucher(db, inv.id)!.inventory[0]!.source).toEqual({ lineUid: lineUid(db, d.id), linkType: 'fulfil' })
   })
 })
