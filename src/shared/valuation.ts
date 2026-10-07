@@ -246,9 +246,17 @@ export function valueStock(
  *   FIRST by the engine (at each item's position at that point of the pass), and
  *   Σ(that consumed cost) + additional cost is split across the voucher's inward lines pro-rata
  *   by stored amount (by quantity when every stored amount is zero; equally when quantities are
- *   zero too). The stored inward amounts then serve only as split weights.
+ *   zero too). The stored inward amounts then serve only as split weights. WP 2.4: inward lines
+ *   listed in `fixedInwardByLine` (by-products / scrap) are booked at their assigned value FIRST
+ *   and only the remainder is split over the other inward lines (the main finished item) — see
+ *   splitDerivedInward for the rule when the remainder would go negative.
+ * - `'transfer'` (WP 2.4) — a same-item godown transfer: lines are processed in order, every
+ *   outward line is costed by the engine and the next inward line of the same item and quantity
+ *   enters at EXACTLY that cost (an inward line with no such outward partner keeps its stored
+ *   amount). The item's value is conserved at valuation time, so a backdated purchase re-prices
+ *   the transfer instead of leaving its save-time figure behind.
  */
-export type VoucherCostingRule = 'stored' | 'derived'
+export type VoucherCostingRule = 'stored' | 'derived' | 'transfer'
 
 export interface VoucherCosting {
   rule: VoucherCostingRule
@@ -260,6 +268,9 @@ export interface VoucherCosting {
    * `'derived'` it is part of the conserved total.
    */
   additionalCostPaise?: number
+  /** `'derived'` only (WP 2.4 by-products / scrap): inward lineId → its assigned value, paise.
+   *  Booked first; the remainder of the conserved total goes to the other inward lines. */
+  fixedInwardByLine?: ReadonlyMap<number, number>
 }
 
 export interface InventoryItem {
@@ -304,6 +315,33 @@ export interface DerivedVoucherCost {
   additionalCostPaise: number
   /** Σ value booked on its inward lines === consumedValue + additionalCostPaise. */
   inwardValue: number
+  /** Of inwardValue: booked on the fixed (by-product / scrap) lines (WP 2.4; 0 when none). */
+  fixedValue: number
+  /** Of inwardValue: booked on the other inward lines (the main finished item) — the
+   *  production cost net of by-products. inwardValue === fixedValue + mainValue. */
+  mainValue: number
+}
+
+/**
+ * The derived inward split with by-products (WP 2.4). `total` = Σ consumption + additional cost;
+ * `fixed` = the assigned values of the by-product / scrap lines. When total ≥ Σ fixed, every
+ * fixed line gets its assigned value and `remainder` = total − Σ fixed goes to the main line(s).
+ * When a later (backdated) change makes total < Σ fixed, the fixed lines share `total` pro-rata
+ * by their assigned values (allocateExact) and the remainder is 0 — value is conserved and no
+ * inward line is ever booked negative. (The save path rejects a negative remainder outright;
+ * this branch only exists for valuation-time drift.) With no main line at all, the fixed lines
+ * share the whole total.
+ */
+export function splitDerivedInward(
+  total: number,
+  fixed: readonly number[],
+  hasMain = true
+): { fixed: number[]; remainder: number } {
+  const fixedSum = fixed.reduce((s, x) => s + x, 0)
+  if (fixed.length === 0) return { fixed: [], remainder: total }
+  if (!hasMain) return { fixed: allocateExact([...fixed], total), remainder: 0 }
+  if (total >= fixedSum) return { fixed: [...fixed], remainder: total - fixedSum }
+  return { fixed: allocateExact([...fixed], Math.max(0, total)), remainder: Math.min(0, total) }
 }
 
 export interface InventoryPassResult {
@@ -311,8 +349,8 @@ export interface InventoryPassResult {
   closing: Map<number, ValuationResult>
   /** One map per requested checkpoint, aligned with `checkpoints`. */
   at: Map<number, ValuationResult>[]
-  /** Booked value of every inward line of a costed voucher (additional cost or derived), by
-   *  lineId — lines of other vouchers entered at their stored amount. */
+  /** Booked value of every inward line of a costed voucher (additional cost, derived or
+   *  transfer), by lineId — lines of other vouchers entered at their stored amount. */
   inwardValueByLine: Map<number, number>
   /** Per derived voucher: the conserved cost figures. */
   derived: Map<number, DerivedVoucherCost>
@@ -452,6 +490,7 @@ class InventoryPass {
       if (first.voucherId !== skipVoucherId) {
         const c = costing?.get(first.voucherId)
         if (c && c.rule === 'derived') this.applyDerived(moves, i, j, c)
+        else if (c && c.rule === 'transfer') this.applyTransfer(moves, i, j)
         else if (c && (c.additionalCostPaise ?? 0) > 0) this.applyStoredWithExtra(moves, i, j, c.additionalCostPaise!)
         else for (let k = i; k < j; k++) this.step(moves[k]!, (st) => st.apply(moves[k]!))
       }
@@ -479,7 +518,8 @@ class InventoryPass {
     }
   }
 
-  /** Value conservation: outward lines first, then inward lines carry their cost + extra. */
+  /** Value conservation: outward lines first, then inward lines carry their cost + extra
+   *  (by-product / scrap lines at their assigned value, the remainder to the others). */
   private applyDerived(moves: readonly InventoryMovement[], from: number, to: number, c: VoucherCosting): void {
     const inward: InventoryMovement[] = []
     let consumed = 0
@@ -491,18 +531,49 @@ class InventoryPass {
     }
     const additional = c.additionalCostPaise ?? 0
     const total = consumed + additional
-    const byAmount = inward.some((m) => m.amount > 0)
-    const shares = allocateExact(inward.map((m) => (byAmount ? m.amount : m.qtyMilli)), total)
-    inward.forEach((m, n) => {
-      const value = shares[n]!
+    const fixedMap = c.fixedInwardByLine
+    const isFixed = (m: InventoryMovement): boolean => fixedMap !== undefined && m.lineId !== undefined && fixedMap.has(m.lineId)
+    const fixedLines = inward.filter(isFixed)
+    const mainLines = inward.filter((m) => !isFixed(m))
+    const split = splitDerivedInward(total, fixedLines.map((m) => fixedMap!.get(m.lineId!)!), mainLines.length > 0)
+    const values = new Map<InventoryMovement, number>()
+    fixedLines.forEach((m, n) => values.set(m, split.fixed[n]!))
+    const byAmount = mainLines.some((m) => m.amount > 0)
+    const shares = allocateExact(mainLines.map((m) => (byAmount ? m.amount : m.qtyMilli)), split.remainder)
+    mainLines.forEach((m, n) => values.set(m, shares[n]!))
+    for (const m of inward) {
+      const value = values.get(m)!
       this.step(m, (st) => st.inward(m.qtyMilli, value))
       if (m.lineId !== undefined) this.inwardValueByLine.set(m.lineId, value)
-    })
+    }
+    const fixedValue = split.fixed.reduce((s, x) => s + x, 0)
+    const inwardValue = inward.length > 0 ? total : 0
     this.derived.set(moves[from]!.voucherId, {
       consumedValue: consumed,
       additionalCostPaise: additional,
-      inwardValue: inward.length > 0 ? total : 0
+      inwardValue,
+      fixedValue,
+      mainValue: inwardValue - fixedValue
     })
+  }
+
+  /** Same-item transfer: each inward line takes exactly the engine cost of its outward partner
+   *  (the earliest unmatched outward line of the same item and quantity in this voucher). */
+  private applyTransfer(moves: readonly InventoryMovement[], from: number, to: number): void {
+    const pending: { itemId: number; qtyMilli: number; cost: number }[] = []
+    for (let k = from; k < to; k++) {
+      const m = moves[k]!
+      if (m.isAbsolute) {
+        this.step(m, (st) => st.absolute(m.qtyMilli))
+      } else if (m.direction === 'out') {
+        this.step(m, (st) => pending.push({ itemId: m.itemId, qtyMilli: m.qtyMilli, cost: st.outward(m.qtyMilli) }))
+      } else {
+        const at = pending.findIndex((p) => p.itemId === m.itemId && p.qtyMilli === m.qtyMilli)
+        const value = at >= 0 ? pending.splice(at, 1)[0]!.cost : m.amount
+        this.step(m, (st) => st.inward(m.qtyMilli, value))
+        if (m.lineId !== undefined) this.inwardValueByLine.set(m.lineId, value)
+      }
+    }
   }
 }
 
@@ -537,13 +608,13 @@ export function runInventoryPass(
 /**
  * The value booked on each inward line of a costed voucher (as `inwardValueByLine` of
  * runInventoryPass). Stored-rule values depend only on the voucher itself (stored amount + its
- * share of additional cost), so when nothing is `'derived'` no pass is needed and `movements`
+ * share of additional cost), so when nothing is `'derived'` or `'transfer'` no pass is needed and `movements`
  * may hold just the costed vouchers' lines; otherwise this runs the full pass.
  */
 export function bookedInwardValues(input: InventoryPassInput): Map<number, number> {
   const costing = input.costing
   if (!costing || costing.size === 0) return new Map()
-  for (const c of costing.values()) if (c.rule === 'derived') return runInventoryPass(input).inwardValueByLine
+  for (const c of costing.values()) if (c.rule !== 'stored') return runInventoryPass(input).inwardValueByLine
   const byVoucher = new Map<number, InventoryMovement[]>()
   for (const m of input.movements) {
     if (!isPlainInward(m) || !costing.has(m.voucherId)) continue

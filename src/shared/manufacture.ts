@@ -18,6 +18,19 @@
  * Duplicate raw materials are REJECTED (not merged): one row per item keeps "the row you typed
  * is the line that posts" true, makes the per-row average cost unambiguous, and keeps
  * open-and-save lossless.
+ *
+ * WP 2.4 — by-products / scrap: extra inward rows (item, qty, assigned value) posted after the
+ * finished line. Value conservation becomes
+ *     Σ consumption + labour = finished value + Σ by-product values
+ * so the finished item's PRODUCTION COST is net of by-products (materials + labour − by-products)
+ * and profit = sale amount − that net cost. A by-product total above materials + labour (a
+ * negative remainder) is rejected. Stored in `manufacture_outputs` (migration 023).
+ *
+ * WP 2.4 — job work receipt: the same voucher, with raw rows consumed out of a job worker's
+ * godown and the labour row being the job charges (Dr Job Work Charges / Cr the job worker's
+ * party ledger), capitalised into the finished goods by the derived rule; the ITC-04 facts
+ * (job worker's challan no/date, nature of processing, losses) ride in `job_work_challans` /
+ * `job_work_losses` (migration 023).
  */
 
 /** One raw-material row as saved. `godownId` null/absent = the header godown. */
@@ -25,6 +38,33 @@ export interface ManufactureRawInput {
   stockItemId: number
   qtyMilli: number
   godownId?: number | null
+  /** Job-work receipt only (ITC-04 "losses and wastes"): of qtyMilli, how much was lost at the
+   *  job worker. Informational — the whole qtyMilli is consumed. */
+  lossQtyMilli?: number
+}
+
+export type ManufactureOutputKind = 'by_product' | 'scrap'
+
+/** One by-product / scrap row (WP 2.4). `godownId` null/absent = the header godown. */
+export interface ManufactureByProductInput {
+  stockItemId: number
+  qtyMilli: number
+  /** Assigned value, paise — what the row enters stock at; it reduces the finished item's cost. */
+  valuePaise: number
+  kind: ManufactureOutputKind
+  godownId?: number | null
+}
+
+/** Receive-from-job-worker facts (WP 2.4, ITC-04). */
+export interface ManufactureJobWorkInput {
+  /** The job worker's godown (godowns.kind = 'job_worker'): raw rows are consumed from it. */
+  godownId: number
+  /** The job worker's own challan number / date for the goods sent back. */
+  challanNo?: string | null
+  challanDate?: string | null
+  natureOfProcessing?: string | null
+  /** The send challan these goods come back against (optional). */
+  originalChallanVoucherId?: number | null
 }
 
 /** What the Manufacture screen posts (manufacture:save). Amounts in paise, quantities in
@@ -54,9 +94,39 @@ export interface ManufactureInput {
   profitPaise: number
   /** The user confirmed saving at a loss (profit < 0). */
   confirmLoss?: boolean
+  /** WP 2.4: by-products / scrap rows (absent = none). */
+  byProducts?: ManufactureByProductInput[]
+  /** WP 2.4: the BOM version the rows came from (null/absent = none / typed by hand). */
+  bomVersionId?: number | null
+  /** WP 2.4: the rows are the exploded leaves of a multi-level BOM. */
+  bomExploded?: boolean
+  /** WP 2.4: receive-from-job-worker mode (null/absent = an own manufacture). */
+  jobWork?: ManufactureJobWorkInput | null
 }
 
-/** The manufacture_details row (migration 019). */
+/** A saved by-product / scrap row (manufacture_outputs, migration 023). */
+export interface ManufactureOutput {
+  /** inventory_lines.line_order of its inward line. */
+  lineOrder: number
+  stockItemId: number
+  qtyMilli: number
+  valuePaise: number
+  kind: ManufactureOutputKind
+}
+
+/** The job-work receipt row (job_work_challans kind 'receive') + per-raw-row losses. */
+export interface ManufactureJobWork {
+  godownId: number
+  partyLedgerId: number
+  challanNo: string | null
+  challanDate: string | null
+  natureOfProcessing: string | null
+  originalChallanVoucherId: number | null
+  /** raw line_order → loss quantity (thousandths); only non-zero losses are stored. */
+  losses: { lineOrder: number; lossQtyMilli: number }[]
+}
+
+/** The manufacture_details row (migration 019; WP 2.4 adds the version, by-products, job work). */
 export interface ManufactureDetails {
   voucherId: number
   finishedItemId: number
@@ -67,13 +137,21 @@ export interface ManufactureDetails {
   labourPosted: boolean
   labourExpenseLedgerId: number | null
   labourCreditLedgerId: number | null
+  /** sale amount − production cost (net of by-products), at save. */
   profitPaise: number
+  bomVersionId: number | null
+  bomExploded: boolean
+  byProducts: ManufactureOutput[]
+  jobWork: ManufactureJobWork | null
 }
 
 export const LABOUR_EXPENSE_LEDGER = 'Labour Charges'
 export const LABOUR_EXPENSE_GROUP = 'Direct Expenses'
 export const LABOUR_CREDIT_LEDGER = 'Wages Payable'
 export const LABOUR_CREDIT_GROUP = 'Current Liabilities'
+/** Job charges on a receive-from-job-worker manufacture (Dr this / Cr the job worker). */
+export const JOB_CHARGES_LEDGER = 'Job Work Charges'
+export const JOB_CHARGES_GROUP = 'Direct Expenses'
 
 /** Number of raw-material rows the screen shows from the start. */
 export const RAW_ROWS_VISIBLE = 10
@@ -94,7 +172,11 @@ export interface ManufactureTotals {
   /** Σ engine-costed raw materials. */
   materialPaise: number
   labourPaise: number
-  /** materials + labour — the value the finished goods enter stock at. */
+  /** Σ by-product / scrap assigned values. */
+  byProductPaise: number
+  /** materials + labour (before by-products). */
+  grossCost: number
+  /** materials + labour − by-products — the value the finished goods enter stock at. */
   productionCost: number
   /** saleAmount − productionCost (negative = a loss). */
   profit: number
@@ -107,12 +189,21 @@ export function manufactureTotals(p: {
   saleRatePaise: number
   materialPaise: number
   labourPaise: number
+  byProductPaise?: number
 }): ManufactureTotals {
   const saleAmount = lineAmount(p.qtyMilli, p.saleRatePaise)
-  const productionCost = p.materialPaise + p.labourPaise
+  const byProductPaise = p.byProductPaise ?? 0
+  const grossCost = p.materialPaise + p.labourPaise
+  const productionCost = grossCost - byProductPaise
   const profit = saleAmount - productionCost
-  return { saleAmount, materialPaise: p.materialPaise, labourPaise: p.labourPaise, productionCost, profit, rightTotal: productionCost + profit }
+  return {
+    saleAmount, materialPaise: p.materialPaise, labourPaise: p.labourPaise, byProductPaise, grossCost, productionCost, profit,
+    rightTotal: productionCost + profit
+  }
 }
+
+export const byProductTotal = (rows: readonly { valuePaise: number }[] | undefined): number =>
+  (rows ?? []).reduce((s, r) => s + r.valuePaise, 0)
 
 export const autoManufactureNarration = (qtyMilli: number, itemName: string): string =>
   `Manufactured ${qtyMilli / 1000} × ${itemName}`.trim()
@@ -127,12 +218,21 @@ export type ManufactureIssueCode =
   | 'bad_labour'
   | 'bad_sale_rate'
   | 'profit_mismatch'
+  | 'incomplete_byproduct'
+  | 'byproduct_is_finished'
+  | 'duplicate_byproduct'
+  | 'bad_byproduct_value'
+  | 'byproducts_exceed_cost'
+  | 'bad_loss'
+  | 'no_job_worker'
 
 export interface ManufactureIssue {
   code: ManufactureIssueCode
   message: string
   /** Index into `raw` for row-level issues. */
   row?: number
+  /** Index into `byProducts` for by-product row issues. */
+  byProductRow?: number
 }
 
 const isPosInt = (n: unknown): n is number => typeof n === 'number' && Number.isSafeInteger(n) && n > 0
@@ -145,7 +245,7 @@ const isNonNegInt = (n: unknown): n is number => typeof n === 'number' && Number
  * the voucher may be saved (a loss still needs confirmation — see needsLossConfirmation).
  */
 export function validateManufacture(
-  input: Pick<ManufactureInput, 'finishedItemId' | 'qtyMilli' | 'saleRatePaise' | 'raw' | 'labourPaise' | 'profitPaise'>,
+  input: Pick<ManufactureInput, 'finishedItemId' | 'qtyMilli' | 'saleRatePaise' | 'raw' | 'labourPaise' | 'profitPaise' | 'byProducts' | 'jobWork'>,
   consumptionPaise?: number,
   itemName: (id: number) => string = () => 'This item',
   /** Row number shown to the user for raw[i] (default i + 1). */
@@ -179,6 +279,35 @@ export function validateManufacture(
       seen.set(r.stockItemId, i)
     }
   })
+  if (input.jobWork) {
+    if (!isPosInt(input.jobWork.godownId)) issues.push({ code: 'no_job_worker', message: 'Pick the job worker the goods come back from' })
+    input.raw.forEach((r, i) => {
+      const loss = r.lossQtyMilli ?? 0
+      if (!isNonNegInt(loss) || (isPosInt(r.qtyMilli) && loss > r.qtyMilli)) {
+        issues.push({ code: 'bad_loss', row: i, message: `Raw material row ${rowLabel(i)}: the loss must be between 0 and the quantity consumed` })
+      }
+    })
+  }
+  const bps = input.byProducts ?? []
+  const seenBp = new Set<number>()
+  bps.forEach((b, i) => {
+    if (!isPosInt(b.stockItemId) || !isPosInt(b.qtyMilli)) {
+      issues.push({
+        code: 'incomplete_byproduct',
+        byProductRow: i,
+        message: !isPosInt(b.stockItemId) ? `By-product row ${i + 1}: pick an item` : `By-product row ${i + 1}: enter a quantity`
+      })
+      return
+    }
+    if (!isNonNegInt(b.valuePaise)) issues.push({ code: 'bad_byproduct_value', byProductRow: i, message: `By-product row ${i + 1}: the value cannot be negative` })
+    if (b.stockItemId === input.finishedItemId) {
+      issues.push({ code: 'byproduct_is_finished', byProductRow: i, message: `${itemName(b.stockItemId)} is the item being manufactured — it can't also be a by-product` })
+    }
+    if (seenBp.has(b.stockItemId)) {
+      issues.push({ code: 'duplicate_byproduct', byProductRow: i, message: `${itemName(b.stockItemId)} appears twice in by-products — combine the rows` })
+    }
+    seenBp.add(b.stockItemId)
+  })
   if (!isNonNegInt(input.labourPaise)) issues.push({ code: 'bad_labour', message: 'Labour cost cannot be negative' })
   if (!isNonNegInt(input.saleRatePaise)) issues.push({ code: 'bad_sale_rate', message: 'Average price cannot be negative' })
   if (consumptionPaise !== undefined && isNonNegInt(input.labourPaise) && isNonNegInt(input.saleRatePaise) && isPosInt(input.qtyMilli)) {
@@ -186,8 +315,15 @@ export function validateManufacture(
       qtyMilli: input.qtyMilli,
       saleRatePaise: input.saleRatePaise,
       materialPaise: consumptionPaise,
-      labourPaise: input.labourPaise
+      labourPaise: input.labourPaise,
+      byProductPaise: byProductTotal(bps)
     })
+    if (t.productionCost < 0) {
+      issues.push({
+        code: 'byproducts_exceed_cost',
+        message: `By-products are worth more than materials + labour — the finished item can't enter stock below zero`
+      })
+    }
     if (input.profitPaise !== t.profit) {
       issues.push({
         code: 'profit_mismatch',
@@ -237,8 +373,10 @@ export interface ManufactureVoucherPayload {
 
 /**
  * Build the stock_journal a manufacture posts as. `rawCosts[i]` is the engine cost of raw row i
- * (save time; the engine re-derives at valuation time). The finished line carries
- * Σ rawCosts + labour. Labour ledger lines only when posted and non-zero.
+ * (save time; the engine re-derives at valuation time). Line order: raw rows (out), the finished
+ * line (in) carrying Σ rawCosts + labour − Σ by-products, then one inward line per by-product /
+ * scrap row at its assigned value. Labour ledger lines only when posted and non-zero. In job-work
+ * mode raw rows default to the job worker's godown instead of the header godown.
  */
 export function buildManufactureVoucher(
   input: ManufactureInput,
@@ -252,8 +390,10 @@ export function buildManufactureVoucher(
   }
 ): ManufactureVoucherPayload {
   const header = input.godownId ?? null
+  const rawDefault = input.jobWork ? input.jobWork.godownId : header
   const consumption = p.rawCosts.reduce((s, c) => s + c, 0)
-  const finishedValue = consumption + input.labourPaise
+  const byProducts = input.byProducts ?? []
+  const finishedValue = consumption + input.labourPaise - byProductTotal(byProducts)
   const postLabour = input.labourPosted && input.labourPaise > 0
   if (postLabour && (p.labourExpenseLedgerId == null || p.labourCreditLedgerId == null)) {
     throw new Error('Labour ledgers are required to post labour')
@@ -283,7 +423,7 @@ export function buildManufactureVoucher(
     inventory: [
       ...input.raw.map((r, i) => ({
         stockItemId: r.stockItemId,
-        godownId: r.godownId ?? header,
+        godownId: r.godownId ?? rawDefault,
         batchId: null,
         qtyMilli: r.qtyMilli,
         ratePaise: unitRate(p.rawCosts[i] ?? 0, r.qtyMilli),
@@ -302,7 +442,18 @@ export function buildManufactureVoucher(
         amount: finishedValue,
         direction: 'in' as const,
         isAbsolute: false as const
-      }
+      },
+      ...byProducts.map((b) => ({
+        stockItemId: b.stockItemId,
+        godownId: b.godownId ?? header,
+        batchId: null,
+        qtyMilli: b.qtyMilli,
+        ratePaise: unitRate(b.valuePaise, b.qtyMilli),
+        discountPaise: 0,
+        amount: b.valuePaise,
+        direction: 'in' as const,
+        isAbsolute: false as const
+      }))
     ],
     billRefs: [],
     tds: null
