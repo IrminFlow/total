@@ -31,7 +31,7 @@ const GROUPS: Group[] = [
 const ledger = (id: number, name: string, groupId: number): Ledger => ({
   id, name, groupId, openingBalance: 0, gstin: null, stateCode: null, address: null, taxType: null, gstRate: null,
   hsn: null, tdsSectionId: null, pan: null, creditDays: null, exportType: null, rcm: false, itcEligibility: 'eligible',
-  priceLevelId: null, creditLimit: null, isSystem: false
+  priceLevelId: null, creditLimit: null, deducteeType: null, tdsPayableSectionId: null, tdsDefaultSectionId: null, isSystem: false
 })
 const LEDGERS = [ledger(5, 'Cash', 3), ledger(31, 'Zeta Traders', 2), ledger(32, 'Alpha Stores', 2)]
 

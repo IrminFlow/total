@@ -20,7 +20,7 @@ const GROUPS: Group[] = [
 const ledger = (id: number, name: string, groupId: number, over: Partial<Ledger> = {}): Ledger => ({
   id, name, groupId, openingBalance: 0, gstin: null, stateCode: null, address: null, taxType: null, gstRate: null,
   hsn: null, tdsSectionId: null, pan: null, creditDays: null, exportType: null, rcm: false, itcEligibility: 'eligible',
-  priceLevelId: null, creditLimit: null, isSystem: false, ...over
+  priceLevelId: null, creditLimit: null, deducteeType: null, tdsPayableSectionId: null, tdsDefaultSectionId: null, isSystem: false, ...over
 })
 const LEDGERS: Ledger[] = [
   ledger(10, 'Buyer', 1, { stateCode: '27' }),
