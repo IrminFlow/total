@@ -137,7 +137,7 @@ describe('invoice grid pricing (WP 2.6)', () => {
     expect(resolveCalls[0]).toMatchObject({ partyLedgerId: 11, lines: [{ itemId: 101, qtyMilli: 0 }] })
     fireEvent.change(screen.getAllByTestId('input-line-qty')[0]!, { target: { value: '3' } })
     await waitFor(() => expect(screen.getByTestId('line-price-hint').textContent).toBe('Scheme: Notebooks 2+'))
-    expect((screen.getAllByTestId('input-line-discount')[0] as HTMLInputElement).value).toBe('15.00')
+    await waitFor(() => expect((screen.getAllByTestId('input-line-discount')[0] as HTMLInputElement).value).toBe('15.00'))
     // The explanation popover.
     fireEvent.click(screen.getByTestId('line-price-hint'))
     expect((await screen.findByTestId('line-price-explanation')).textContent).toContain('qty ≥ 2: 10% off')
