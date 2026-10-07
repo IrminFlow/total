@@ -180,4 +180,7 @@ await scenario('19-stock', async (h) => {
   await h.page.waitForSelector('[data-testid="row-line-detail"] [data-testid="serial-pick-SN-4"]', { timeout: 10000 })
   await h.click('serial-pick-SN-4')
   await h.shot('13-sale-serial-dark')
+  // Leave the form clean so closing the app doesn't raise the unsaved-changes prompt.
+  await h.page.locator('[data-testid="picker-item"]').first().fill('')
+  await h.goto('gateway')
 })
