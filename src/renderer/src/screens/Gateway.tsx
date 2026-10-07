@@ -82,7 +82,7 @@ export function Gateway(): React.JSX.Element {
       if (isAnyModalOpen()) return
       const tag = (e.target as HTMLElement).tagName
       if (tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA') return
-      const kind = kindForVoucherKey(e)
+      const kind = kindForVoucherKey(e, { stockNotes: features.inventory && features.orders })
       if (kind) {
         e.preventDefault()
         nav.go({ name: 'voucher-entry', kindHint: kind })
@@ -99,7 +99,7 @@ export function Gateway(): React.JSX.Element {
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [nav, shortcuts, features.inventory])
+  }, [nav, shortcuts, features.inventory, features.orders])
 
   const [backingUp, setBackingUp] = useState(false)
   const backupNow = async (): Promise<void> => {

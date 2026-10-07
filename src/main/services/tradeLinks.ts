@@ -566,6 +566,17 @@ export function openSourceLines(
     for (const r of dr) rows.push({ line: fromDocRow(r), ratePaise: r.ratePaise })
   }
   const qty = liveLinkQty(db, rows.map((r) => r.line.uid), q.excludeVoucherId)
+  // WP 2.5b: a source line's serials already named by live target lines are spoken for — offer
+  // only the rest (the drawer's rows take their serials from here).
+  const takenStmt = db.prepare(
+    `SELECT il.serials FROM line_links ll JOIN inventory_lines il ON il.line_uid = ll.to_line_uid
+     WHERE ll.from_line_uid = ? AND ll.to_voucher_id IS NOT ? AND ${LIVE_TARGET}`
+  )
+  const remainingSerials = (line: LinkLine): string[] => {
+    if (line.serials.length === 0) return []
+    const taken = new Set((takenStmt.all(line.uid, q.excludeVoucherId ?? -1) as { serials: string | null }[]).flatMap((r) => parseLineSerials(r.serials)))
+    return line.serials.filter((s) => !taken.has(s))
+  }
   const out: OpenSourceLine[] = []
   for (const { line, ratePaise } of rows) {
     const used = qty.get(line.uid) ?? { fulfilMilli: 0, returnMilli: 0 }
@@ -576,7 +587,7 @@ export function openSourceLines(
     if (pending <= 0) continue
     out.push({
       lineUid: line.uid, voucherId: line.voucherId, tradeDocId: line.docId, kind: line.kind, label: line.label, date: line.date,
-      stockItemId: line.stockItemId, godownId: line.godownId, batchId: line.batchId, serials: line.serials,
+      stockItemId: line.stockItemId, godownId: line.godownId, batchId: line.batchId, serials: remainingSerials(line),
       qtyMilli: line.qtyMilli, doneMilli: done, pendingMilli: pending, ratePaise, amount: line.amount
     })
   }

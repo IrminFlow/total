@@ -7,11 +7,13 @@ import type { CompanyFeatures } from '@shared/features'
  * all derive from this list. Add a screen once here and every surface picks it up.
  */
 
-export type NavSectionId = 'top' | 'books' | 'analysis' | 'banking' | 'payroll' | 'gst' | 'system'
+export type NavSectionId = 'top' | 'trade' | 'books' | 'analysis' | 'banking' | 'payroll' | 'gst' | 'system'
 
 /** Sidebar section order + titles (null = the untitled block at the top). */
 export const NAV_SECTIONS: { id: NavSectionId; title: string | null; feature?: keyof CompanyFeatures }[] = [
   { id: 'top', title: null },
+  // WP 2.5b: challans, GRNs and their pending reports (orders join in WP 2.5c).
+  { id: 'trade', title: 'Orders & challans', feature: 'orders' },
   { id: 'books', title: 'Books' },
   { id: 'analysis', title: 'Analysis' },
   { id: 'banking', title: 'Banking' },
@@ -59,7 +61,7 @@ export const SCREENS: ScreenDef[] = [
     screen: { name: 'voucher-entry' },
     navSection: 'top',
     card: { sub: 'Sales, purchase, payment…', key: 'V' },
-    invalidates: ['voucher', 'nextNumber', 'billsOpen', 'ledgers', 'stockItems', 'units', 'currencies', 'voucherTypes']
+    invalidates: ['voucher', 'nextNumber', 'billsOpen', 'ledgers', 'stockItems', 'units', 'currencies', 'voucherTypes', 'openSourceLines']
   },
   {
     name: 'manufacture',
@@ -89,6 +91,25 @@ export const SCREENS: ScreenDef[] = [
       'ledgers', 'groups', 'chartOfAccounts', 'stockItems', 'units', 'voucherTypes', 'currencies', 'bom',
       'godowns', 'stockGroups'
     ]
+  },
+
+  {
+    name: 'pending-challans',
+    title: 'Pending challans',
+    keywords: ['delivery challan', 'delivered not invoiced', 'gdni', 'challans not invoiced'],
+    screen: { name: 'pending-challans' },
+    navSection: 'trade',
+    feature: 'orders',
+    invalidates: ['tradePending']
+  },
+  {
+    name: 'pending-grns',
+    title: 'Pending GRNs',
+    keywords: ['goods receipt note', 'received not billed', 'grni', 'grn not billed'],
+    screen: { name: 'pending-grns' },
+    navSection: 'trade',
+    feature: 'orders',
+    invalidates: ['tradePending']
   },
 
   {

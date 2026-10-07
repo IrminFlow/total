@@ -21,6 +21,9 @@ export interface CompanyFeatures {
   batches: boolean
   /** Turn credit-limit save warnings into hard blocks. */
   enforceCreditLimit: boolean
+  /** Orders & challans (WP 2.5): delivery challans, goods receipt notes and their pending
+   *  reports in the sidebar. Needs inventory. Off by default (design §9 Q14). */
+  orders: boolean
 }
 
 export const DEFAULT_FEATURES: CompanyFeatures = {
@@ -33,7 +36,8 @@ export const DEFAULT_FEATURES: CompanyFeatures = {
   payroll: true,
   preventNegativeStock: false,
   batches: false,
-  enforceCreditLimit: false
+  enforceCreditLimit: false,
+  orders: false
 }
 
 export const featuresSchema = z.object({
@@ -46,7 +50,8 @@ export const featuresSchema = z.object({
   payroll: z.boolean(),
   preventNegativeStock: z.boolean(),
   batches: z.boolean(),
-  enforceCreditLimit: z.boolean()
+  enforceCreditLimit: z.boolean(),
+  orders: z.boolean()
 })
 
 /**

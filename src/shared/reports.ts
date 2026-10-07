@@ -338,7 +338,8 @@ export interface EdocListRow {
   voucherId: number
   number: string
   date: string
-  docType: 'INV' | 'CRN' | 'DBN'
+  /** 'CHL' = a delivery challan (WP 2.5b): e-way bill only, never an IRN. */
+  docType: 'INV' | 'CRN' | 'DBN' | 'CHL'
   /** The voucher's party ledger; null for a cash sale with no party (WP 1.8 drill-down). */
   partyLedgerId: number | null
   partyName: string | null

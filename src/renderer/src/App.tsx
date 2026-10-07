@@ -28,6 +28,7 @@ import { Gstr2bScreen } from './screens/Gstr2b'
 import { CompanyInfoScreen } from './screens/CompanyInfo'
 import { RegistersScreen } from './screens/Registers'
 import { OutstandingsScreen } from './screens/Outstandings'
+import { TradePendingScreen } from './screens/TradePending'
 import { ConsolidatedScreen } from './screens/Consolidated'
 import { BankingScreen } from './screens/Banking'
 import { EdocsScreen } from './screens/Edocs'
@@ -174,6 +175,8 @@ export default function App(): React.JSX.Element {
           {screen.name === 'edocs' && <EdocsScreen />}
           {screen.name === 'registers' && <RegistersScreen />}
           {screen.name === 'outstandings' && <OutstandingsScreen />}
+          {screen.name === 'pending-challans' && <TradePendingScreen stage="delivery_note" />}
+          {screen.name === 'pending-grns' && <TradePendingScreen stage="receipt_note" />}
           {screen.name === 'consolidated' && <ConsolidatedScreen />}
           {screen.name === 'banking' && <BankingScreen />}
           {screen.name === 'payroll' && <PayrollScreen />}

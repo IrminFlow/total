@@ -68,6 +68,9 @@ export type Screen =
   | { name: 'edocs' }
   | { name: 'registers' }
   | { name: 'outstandings' }
+  // WP 2.5b: delivery challans not invoiced / GRNs not billed.
+  | { name: 'pending-challans' }
+  | { name: 'pending-grns' }
   | { name: 'consolidated' }
   | { name: 'banking' }
   | { name: 'payroll' }

@@ -307,6 +307,13 @@ export const openSourceLinesSchema = z.object({
 })
 export type OpenSourceLinesQuery = z.infer<typeof openSourceLinesSchema>
 
+/** trade:pending (WP 2.5b) — challans not invoiced / GRNs not billed, as on a date. */
+export const tradePendingSchema = z.object({
+  stage: z.enum(['delivery_note', 'receipt_note']),
+  asOn: isoDate
+})
+export type TradePendingQuery = z.infer<typeof tradePendingSchema>
+
 export const periodSchema = z.object({ from: isoDate, to: isoDate })
 export type Period = z.infer<typeof periodSchema>
 

@@ -12,6 +12,8 @@ const DIR = __dirname
 
 /** `file` + a substring unique to the SQL string → why it may read every line. */
 const ALLOW: { file: string; contains: string; reason: string }[] = [
+  { file: 'tradeLinks.ts', contains: 'SELECT il.serials FROM line_links ll JOIN inventory_lines il ON il.line_uid', reason: 'serials already named by the linked (non-moving) target lines' },
+  { file: 'tradeReports.ts', contains: "WHERE vt.kind = ? AND v.date <= ?", reason: 'pending challans / GRNs read the notes\' own lines (a stock note line always moves stock)' },
   { file: 'edocs.ts', contains: 'EXISTS(SELECT 1 FROM inventory_lines il JOIN stock_items si', reason: 'e-invoice eligibility / "has goods" read the invoice items' },
   { file: 'edocs.ts', contains: 'FROM inventory_lines il', reason: 'e-invoice / e-way item list = the invoice items' },
   { file: 'gst.ts', contains: 'FROM inventory_lines il\n', reason: 'GSTR-1 HSN / B2B items = the invoice items' },
