@@ -28,6 +28,7 @@ import type {
   VoucherInputParsed
 } from '@shared/schemas'
 import type { CompanyFeatures } from '@shared/features'
+import type { StockCostPosition, ConsumptionCosting, ProposedOutward } from '@shared/valuation'
 import type { SearchHit, SearchResponse } from '@shared/search'
 import type { ChartGroupNode } from '@shared/chartOfAccounts'
 import type { InvoiceConfig } from '@shared/invoiceConfig'
@@ -365,6 +366,12 @@ export interface BatchStockRow {
   closingQtyMilli: number
 }
 
+/** Mirrors stockAnalysis.CostAsOfResult (main-process only). */
+export interface StockCostAsOf {
+  positions: StockCostPosition[]
+  consumption: ConsumptionCosting | null
+}
+
 export interface ExpiryAgeingRow extends BatchStockRow {
   bucket: 'none' | 'expired' | 'within30' | 'within90' | 'later'
 }
@@ -470,7 +477,12 @@ export const api = {
     byGodown: (asOn: string) => call<GodownStockRow[]>('stock:byGodown', { asOn }),
     batches: (asOn: string, stockItemId?: number) => call<BatchStockRow[]>('stock:batches', { asOn, stockItemId }),
     expiry: (asOn: string) => call<ExpiryAgeingRow[]>('stock:expiry', { asOn }),
-    negative: (asOn: string) => call<NegativeStockWarning[]>('stock:negative', { asOn })
+    negative: (asOn: string) => call<NegativeStockWarning[]>('stock:negative', { asOn }),
+    /** Exact engine cost as of a voucher date (WP 2.1): running average / FIFO next layer per
+     *  item, and the cost proposed outward lines would be charged. Pass `voucherId` when
+     *  editing so the voucher's own saved lines are left out. */
+    costAsOf: (q: { date: string; voucherId?: number; itemIds?: number[]; lines?: ProposedOutward[] }) =>
+      call<StockCostAsOf>('stock:costAsOf', q)
   },
   priceLevels: {
     list: () => call<PriceLevel[]>('master:priceLevels:list'),
