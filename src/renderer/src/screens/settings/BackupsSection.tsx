@@ -21,7 +21,7 @@ const tagLabel = (tag: string): string => {
 }
 
 const BACKUP_COLUMNS = defineColumns<BackupInfo>([
-  { id: 'file', header: 'File', kind: 'text', value: (b) => b.file, className: 'num text-[11.5px] text-muted', hideable: false, groupable: false, minWidth: 220 },
+  { id: 'file', header: 'File', kind: 'text', value: (b) => b.file, className: 'num text-hint text-muted', hideable: false, groupable: false, minWidth: 220 },
   // mtime is epoch ms — sorts numerically, reads as a local date-time.
   { id: 'date', header: 'Date', kind: 'number', value: (b) => b.mtime, text: (b) => formatMtime(b.mtime), align: 'left', className: 'text-muted', width: 170 },
   { id: 'size', header: 'Size', kind: 'number', value: (b) => b.sizeBytes, text: (b) => formatSize(b.sizeBytes), align: 'left', className: 'text-muted', width: 100 },
@@ -34,7 +34,7 @@ const BACKUP_COLUMNS = defineColumns<BackupInfo>([
     groupable: true,
     width: 150,
     cell: (b) => (
-      <span className="rounded-full border border-line bg-panel2 px-2 py-0.5 text-[11px] text-muted">{tagLabel(b.tag)}</span>
+      <span className="rounded-full border border-line bg-panel2 px-2 py-0.5 text-caption text-muted">{tagLabel(b.tag)}</span>
     )
   }
 ])
@@ -124,7 +124,7 @@ export function BackupsSection(): React.JSX.Element {
           trailing={
             isOwner
               ? (b) => (
-                  <button className="text-[12px] text-blue hover:underline" onClick={() => setRestoring(b)}>
+                  <button className="text-small text-blue hover:underline" onClick={() => setRestoring(b)}>
                     Restore…
                   </button>
                 )
@@ -132,7 +132,7 @@ export function BackupsSection(): React.JSX.Element {
           }
         />
       </Panel>
-      <p className="mt-2 text-[11.5px] text-muted">
+      <p className="mt-2 text-hint text-muted">
         Backups live in this company's data folder. A snapshot is also taken automatically on open and before risky
         operations (Tally imports, restores).
       </p>
@@ -180,7 +180,7 @@ function RestoreModal({
 
   return (
     <Modal title="Restore from backup" onClose={onClose}>
-      <p className="text-[13px] text-ink">
+      <p className="text-detail text-ink">
         This replaces the current books with the backup from {dateLabel}. A pre-restore copy is kept.
       </p>
       <div className="mt-4">

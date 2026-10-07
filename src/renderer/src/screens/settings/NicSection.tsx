@@ -37,12 +37,12 @@ export function NicSection(): React.JSX.Element {
   return (
     <div>
       <SectionTitle>NIC live filing</SectionTitle>
-      <div className="mb-4 rounded-md border border-amber/50 bg-amber/10 px-3.5 py-2.5 text-[12.5px] text-amber">
+      <div className="mb-4 rounded-md border border-amber/50 bg-amberbar/10 px-3.5 py-2.5 text-body-sm text-amber">
         Experimental — never tested against the live NIC portal. Verify every document on the portal.
       </div>
 
       {!canEdit && (
-        <div className="mb-4 rounded-md border border-blue/40 bg-blue/10 px-3.5 py-2.5 text-[12.5px] text-blue">
+        <div className="mb-4 rounded-md border border-blue/40 bg-blue/10 px-3.5 py-2.5 text-body-sm text-blue">
           Read-only — only owners can edit NIC credentials. Ask an owner to sign in to change them.
         </div>
       )}
@@ -53,7 +53,7 @@ export function NicSection(): React.JSX.Element {
         </Panel>
       ) : (
         <Panel className="p-5">
-          <p className="mb-4 text-[12.5px] text-muted">
+          <p className="mb-4 text-body-sm text-muted">
             Credentials from your e-invoice API registration (direct access) or your GSP. Sandbox first is a good idea:
             base URL <span className="num">https://einv-apisandbox.nic.in</span>. Everything stays in this company's local
             database.
@@ -108,13 +108,13 @@ export function NicSection(): React.JSX.Element {
                 onChange={(e) => set({ publicKeyPem: e.target.value })}
                 rows={5}
                 disabled={!canEdit}
-                className="num w-full rounded-md border border-line bg-panel2 px-2.5 py-1.5 text-[11px] disabled:opacity-60"
+                className="num w-full rounded-md border border-line bg-panel2 px-2.5 py-1.5 text-caption disabled:opacity-60"
                 placeholder="-----BEGIN PUBLIC KEY-----"
               />
             </Field>
           </div>
           <div className="mt-4 flex items-center justify-end gap-3">
-            {!canEdit && <span className="text-[11.5px] text-muted">Only owners can edit NIC credentials</span>}
+            {!canEdit && <span className="text-hint text-muted">Only owners can edit NIC credentials</span>}
             {canEdit && (
               <Button variant="primary" disabled={busy} onClick={() => void save()}>
                 {busy ? 'Saving…' : 'Save credentials'}

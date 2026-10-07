@@ -3,7 +3,8 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import type { CostCentre } from '@shared/domain'
 import { api, type CcReportRow } from '../lib/client'
 import { useSession, useToasts } from '../state/stores'
-import { Button, Field, Modal, Money, Panel, SectionTitle, Select, Skeleton, TextInput } from '../components/ui'
+import { Button, Checkbox, DrawerSection, Field, Modal, Money, Page, PageHeader, Panel, SectionTitle, Select, Skeleton, TextInput } from '../components/ui'
+import { OptionToggle, OptionsPeriod, OptionsTable, useScreenOptions } from '../components/ScreenOptions'
 import { DataTable, defineColumns, type RowKey } from '../components/table'
 import { toDisplayDate } from '@shared/dates'
 import { confirmDialog } from '../lib/dialogs'
@@ -53,10 +54,14 @@ export function CostCentresScreen(): React.JSX.Element {
     setDrill((cur) => (cur.has(r.costCentreId) ? new Set() : new Set([r.costCentreId])))
   }, [])
 
+  const opts = useScreenOptions('cost-centres', { hideInactive: false })
+  const hideInactive = opts.options.hideInactive
   const centreRows = useMemo<CentreRow[]>(() => {
     const byId = new Map((centres ?? []).map((c) => [c.id, c]))
-    return (centres ?? []).map((c) => ({ ...c, parentName: c.parentId ? (byId.get(c.parentId)?.name ?? '') : '' }))
-  }, [centres])
+    return (centres ?? [])
+      .filter((c) => !hideInactive || c.active)
+      .map((c) => ({ ...c, parentName: c.parentId ? (byId.get(c.parentId)?.name ?? '') : '' }))
+  }, [centres, hideInactive])
 
   const remove = async (cc: CostCentre): Promise<void> => {
     const proceed = await confirmDialog({
@@ -78,18 +83,31 @@ export function CostCentresScreen(): React.JSX.Element {
   const periodLabel = `${toDisplayDate(from)} to ${toDisplayDate(to)}`
 
   return (
-    <div className="mx-auto max-w-4xl">
-      <SectionTitle
-        right={
-          <Button variant="primary" onClick={() => setEditing('new')}>
+    <Page>
+      <PageHeader
+        title="Cost centres"
+        period={`${toDisplayDate(from)} → ${toDisplayDate(to)}`}
+        actions={
+          <Button variant="primary" data-testid="btn-cost-centres-new" onClick={() => setEditing('new')}>
             New cost centre
           </Button>
         }
-      >
-        Cost centres
-      </SectionTitle>
+        options={{
+          onReset: opts.reset,
+          content: (
+            <>
+              <OptionsPeriod note="The P&L by centre covers the working period." />
+              <DrawerSection title="Display">
+                <OptionToggle label="Hide inactive centres" checked={hideInactive} onChange={(v) => opts.set('hideInactive', v)} testId="input-cost-centres-hide-inactive" />
+              </DrawerSection>
+              <OptionsTable area="cost-centres" label="Centres table" />
+              <OptionsTable area="cost-centre-pl" label="P&L by centre table" />
+            </>
+          )
+        }}
+      />
 
-      <Panel className="mb-6">
+      <Panel className="mb-section">
         <DataTable
           viewId="cost-centres"
           testId="cost-centres"
@@ -104,10 +122,10 @@ export function CostCentresScreen(): React.JSX.Element {
           trailingWidth={128}
           trailing={(c) => (
             <>
-              <button className="mr-3 text-[12px] text-blue hover:underline" onClick={() => setEditing(c)}>
+              <button type="button" className="mr-3 text-small text-blue hover:underline" aria-label={`Edit ${c.name}`} onClick={() => setEditing(c)}>
                 Edit
               </button>
-              <button className="text-[12px] text-cr hover:underline" onClick={() => void remove(c)}>
+              <button type="button" className="text-small text-danger hover:underline" aria-label={`Delete ${c.name}`} onClick={() => void remove(c)}>
                 Delete
               </button>
             </>
@@ -116,9 +134,7 @@ export function CostCentresScreen(): React.JSX.Element {
         />
       </Panel>
 
-      <SectionTitle>
-        P&amp;L by centre · {toDisplayDate(from)} → {toDisplayDate(to)}
-      </SectionTitle>
+      <SectionTitle as="h3">P&amp;L by centre</SectionTitle>
       <Panel>
         <DataTable
           viewId="cost-centre-pl"
@@ -143,7 +159,7 @@ export function CostCentresScreen(): React.JSX.Element {
       {editing && (
         <CostCentreFormModal cc={editing === 'new' ? null : editing} centres={centres ?? []} onClose={() => setEditing(null)} />
       )}
-    </div>
+    </Page>
   )
 }
 
@@ -160,9 +176,9 @@ function DrillList({ ccId, from, to }: { ccId: number; from: string; to: string 
       </div>
     )
   }
-  if (!rows.length) return <p className="py-1 text-[12.5px] text-muted">No postings in this period</p>
+  if (!rows.length) return <p className="py-1 text-body-sm text-muted">No postings in this period</p>
   return (
-    <table className="w-full text-[12.5px]" data-testid="cc-drill">
+    <table className="w-full text-body-sm" data-testid="cc-drill">
       <tbody>
         {rows.map((r, i) => (
           <tr key={i}>
@@ -227,10 +243,7 @@ function CostCentreFormModal({
               ))}
           </Select>
         </Field>
-        <label className="flex items-center gap-2 text-[13px] text-ink">
-          <input type="checkbox" checked={active} onChange={(e) => setActive(e.target.checked)} />
-          Active
-        </label>
+        <Checkbox label="Active" checked={active} onChange={setActive} />
         <div className="flex justify-end gap-2">
           <Button onClick={onClose}>Cancel</Button>
           <Button variant="primary" onClick={() => void save()}>

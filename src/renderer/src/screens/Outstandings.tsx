@@ -2,7 +2,8 @@ import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { api } from '../lib/client'
 import { useSession, useToasts, type ToastState } from '../state/stores'
-import { Money, Panel, SectionTitle } from '../components/ui'
+import { DrawerSection, Money, Page, PageHeader, Panel } from '../components/ui'
+import { OptionToggle, OptionsPeriod, OptionsTable, useScreenOptions } from '../components/ScreenOptions'
 import { TabBar } from '../components/TabBar'
 import { DataTable, defineColumns, type RowKey } from '../components/table'
 import { toDisplayDate } from '@shared/dates'
@@ -107,7 +108,9 @@ export function OutstandingsScreen(): React.JSX.Element {
     queryKey: ['outstandings', side, to],
     queryFn: () => api.analysis.outstandings(side, to)
   })
-  const parties = data ?? []
+  const opts = useScreenOptions('outstandings', { overdueOnly: false })
+  // "Over 30 days only": parties with something in the 31–60, 61–90 or 90+ buckets.
+  const parties = (data ?? []).filter((p) => !opts.options.overdueOnly || p.buckets[1] + p.buckets[2] + p.buckets[3] > 0)
   const periodLabel = `as on ${toDisplayDate(to)}`
   const title = side === 'receivable' ? 'Receivables' : 'Payables'
 
@@ -120,9 +123,11 @@ export function OutstandingsScreen(): React.JSX.Element {
     })
 
   return (
-    <div className="mx-auto max-w-5xl">
-      <SectionTitle
-        right={
+    <Page>
+      <PageHeader
+        title={`${title} · ageing`}
+        period={periodLabel}
+        tabs={
           <TabBar
             screen="outstandings"
             tabs={[
@@ -136,9 +141,31 @@ export function OutstandingsScreen(): React.JSX.Element {
             }}
           />
         }
-      >
-        {title} · ageing
-      </SectionTitle>
+        options={{
+          onReset: opts.reset,
+          content: (
+            <>
+              <OptionsPeriod asOn />
+              <DrawerSection title="Display">
+                <OptionToggle
+                  label="Only parties overdue more than 30 days"
+                  checked={opts.options.overdueOnly}
+                  onChange={(v) => opts.set('overdueOnly', v)}
+                  testId="input-outstandings-overdue-only"
+                />
+              </DrawerSection>
+              <OptionsTable area="outstandings" />
+              <DrawerSection title="About the buckets">
+                <p className="text-hint text-muted">
+                  Ageing buckets count days overdue past each bill&apos;s due date (or the bill date when none is set). Receipts
+                  settle the oldest bills first. Click a party row to see its open bills, its name to edit the ledger, or
+                  Statement for its ledger statement; click a bill number to open the voucher.
+                </p>
+              </DrawerSection>
+            </>
+          )
+        }}
+      />
       <Panel>
         <DataTable
           key={side}
@@ -150,7 +177,11 @@ export function OutstandingsScreen(): React.JSX.Element {
           rowKey={(p) => p.ledgerId}
           rowAttrs={(p) => ({ 'data-row-id': p.ledgerId })}
           loading={isLoading}
-          empty={{ title: `Nothing ${side === 'receivable' ? 'to collect' : 'to pay'} as on ${toDisplayDate(to)}` }}
+          empty={{
+            title: opts.options.overdueOnly
+              ? 'No party is overdue more than 30 days'
+              : `Nothing ${side === 'receivable' ? 'to collect' : 'to pay'} as on ${toDisplayDate(to)}`
+          }}
           // Clicking (or Enter on) a party opens its bills, as before; → / ← also expand/collapse.
           onRowActivate={toggle}
           isRowActivatable={(p) => p.bills.length > 0}
@@ -164,7 +195,7 @@ export function OutstandingsScreen(): React.JSX.Element {
               <button
                 type="button"
                 data-testid="btn-outstandings-statement"
-                className="text-[11.5px] text-blue hover:underline"
+                className="text-hint text-blue hover:underline"
                 title={`Open ${p.name} statement`}
                 onClick={() => openLedgerStatement(p.ledgerId)}
               >
@@ -173,7 +204,7 @@ export function OutstandingsScreen(): React.JSX.Element {
               <button
                 type="button"
                 data-testid="btn-outstandings-remind"
-                className="text-[11.5px] text-blue hover:underline"
+                className="text-hint text-blue hover:underline"
                 onClick={() => void remind(info?.name ?? '', p.name, p.bills, toast)}
               >
                 Remind
@@ -185,11 +216,7 @@ export function OutstandingsScreen(): React.JSX.Element {
           exportOptions={{ title: `${title} · ageing`, periodLabel, filename: `outstandings-${side}` }}
         />
       </Panel>
-      <p className="mt-2 text-[11.5px] text-muted">
-        Ageing buckets count days overdue past each bill&apos;s due date (or the bill date when none is set). Receipts settle
-        the oldest bills first. Click a party row to see its open bills, its name to edit the ledger, or Statement for its
-        ledger statement; click a bill number to open the voucher.
-      </p>
-    </div>
+      <p className="mt-2 text-hint text-muted">Buckets are days overdue past each bill&apos;s due date. Click a party to see its open bills · F12 for options.</p>
+    </Page>
   )
 }

@@ -3,7 +3,8 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import type { TdsSection } from '@shared/domain'
 import { api, type TdsSummaryRow } from '../lib/client'
 import { useSession, useToasts } from '../state/stores'
-import { AmountInput, Button, Field, Modal, Money, Panel, SectionTitle, Select, TextInput } from '../components/ui'
+import { AmountInput, Banner, Button, DrawerSection, Field, Modal, Money, Page, PageHeader, Panel, Select, TabBar, TextInput } from '../components/ui'
+import { OptionsTable } from '../components/ScreenOptions'
 import { DataTable, defineColumns } from '../components/table'
 import { useLedgers } from '../components/pickers'
 import { fyOf, fyFromStartYear, todayISO } from '@shared/dates'
@@ -112,47 +113,57 @@ export function TdsScreen(): React.JSX.Element {
   }
 
   return (
-    <div className="mx-auto max-w-4xl">
-      <SectionTitle
-        right={
-          <div className="flex items-center gap-2">
-            <Select value={fyStartYear} onChange={(e) => setFyStartYear(Number(e.target.value))} className="w-36">
-              {years.map((y) => (
-                <option key={y} value={y}>
-                  FY {fyFromStartYear(y).label}
-                </option>
-              ))}
-            </Select>
-            <Button data-testid="btn-tds-sections" onClick={() => setSectionsOpen(true)}>
-              Sections…
-            </Button>
-            <Button data-testid="btn-tds-export" variant="primary" onClick={() => void doExport()}>
-              Export 26Q CSV
-            </Button>
-          </div>
+    <Page>
+      <PageHeader
+        title="TDS"
+        period={qLabel}
+        tabs={
+          <TabBar
+            screen="tds"
+            label="Quarter"
+            tabs={QUARTERS.map((q) => ({ id: `q${q}` as const, label: `Q${q}` }))}
+            active={`q${quarter}` as const}
+            onSelect={(id) => setQuarter(Number(id.slice(1)) as typeof quarter)}
+          />
         }
-      >
-        TDS
-      </SectionTitle>
-
-      <div className="mb-3 flex gap-1">
-        {QUARTERS.map((q) => (
-          <button
-            key={q}
-            data-testid={`tab-tds-q${q}`}
-            onClick={() => setQuarter(q)}
-            className={`rounded-md px-3 py-1 text-[12.5px] ${
-              quarter === q ? 'bg-amberbar/25 font-medium text-ink' : 'text-muted hover:bg-panel2'
-            }`}
-          >
-            Q{q}
-          </button>
-        ))}
-      </div>
+        controls={
+          <Select value={fyStartYear} onChange={(e) => setFyStartYear(Number(e.target.value))} className="w-36" aria-label="Financial year" data-testid="input-tds-fy">
+            {years.map((y) => (
+              <option key={y} value={y}>
+                FY {fyFromStartYear(y).label}
+              </option>
+            ))}
+          </Select>
+        }
+        secondary={
+          <Button data-testid="btn-tds-sections" onClick={() => setSectionsOpen(true)}>
+            Sections…
+          </Button>
+        }
+        actions={
+          <Button data-testid="btn-tds-export" variant="primary" onClick={() => void doExport()}>
+            Export 26Q CSV
+          </Button>
+        }
+        options={{
+          content: (
+            <>
+              <OptionsTable area="tds-summary" label="Summary table" />
+              {flaggedNoPan.length > 0 && <OptionsTable area="tds-nopan" label="Parties without PAN" />}
+              <DrawerSection title="About the 26Q CSV">
+                <p className="text-hint text-muted">
+                  The 26Q CSV lists deductee, PAN, section, voucher and amounts for manual import into NSDL&apos;s Return Preparation
+                  Utility — it is not a ready-to-file FVU.
+                </p>
+              </DrawerSection>
+            </>
+          )
+        }}
+      />
 
       {flaggedNoPan.length > 0 && (
         <Panel className="mb-3">
-          <div className="border-b border-line bg-amber/10 px-3 py-2 text-[12.5px] text-amber">
+          <div className="border-b border-warning/40 bg-warning-soft px-3 py-2 text-body-sm text-warning" role="status">
             {flaggedNoPan.length} part{flaggedNoPan.length > 1 ? 'ies' : 'y'} flagged for TDS with no PAN on file — the
             higher 20% rate applies
           </div>
@@ -184,13 +195,10 @@ export function TdsScreen(): React.JSX.Element {
           exportOptions={{ title: 'TDS by section', periodLabel: qLabel, filename: `tds-q${quarter}-fy${fy.label}` }}
         />
       </Panel>
-      <p className="mt-2 text-[11.5px] text-muted">
-        {qLabel} · The 26Q CSV lists deductee, PAN, section, voucher and amounts for manual import into NSDL's Return
-        Preparation Utility — it is not a ready-to-file FVU.
-      </p>
+      <p className="mt-2 text-hint text-muted">The 26Q CSV is for manual import into NSDL&apos;s RPU — not a ready-to-file FVU.</p>
 
       {sectionsOpen && <SectionsModal sections={sections ?? []} onClose={() => setSectionsOpen(false)} />}
-    </div>
+    </Page>
   )
 }
 
@@ -273,7 +281,7 @@ function SectionsModal({ sections, onClose }: { sections: TdsSection[]; onClose:
             trailing={(s) => (
               <button
                 data-testid={`btn-tds-section-edit-${s.id}`}
-                className="text-[12px] text-blue hover:underline"
+                className="text-small text-blue hover:underline"
                 onClick={() => edit(s)}
               >
                 Edit
@@ -283,7 +291,7 @@ function SectionsModal({ sections, onClose }: { sections: TdsSection[]; onClose:
         </div>
 
         <div>
-          <p className="mb-2 text-[12.5px] font-medium text-ink">{form.id != null ? `Edit ${form.code}` : 'New section'}</p>
+          <p className="mb-2 text-body-sm font-medium text-ink">{form.id != null ? `Edit ${form.code}` : 'New section'}</p>
           <div className="grid grid-cols-3 gap-3">
             <Field label="Code" hint="e.g. 194C">
               <TextInput
@@ -314,7 +322,7 @@ function SectionsModal({ sections, onClose }: { sections: TdsSection[]; onClose:
               <AmountInput paise={form.thresholdAnnual} onPaise={(p) => setForm({ ...form, thresholdAnnual: p })} />
             </Field>
           </div>
-          {error && <p className="mt-2 text-[12.5px] text-cr">{error}</p>}
+          {error && <p className="mt-2 text-body-sm text-cr">{error}</p>}
           <div className="mt-3 flex justify-end gap-2">
             {form.id != null && (
               <Button

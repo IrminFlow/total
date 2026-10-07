@@ -1,6 +1,6 @@
 import { useState, type ReactNode } from 'react'
-import { columnLabel, describeFilter, isGroupable, moveColumn, type TableModel } from '../../lib/table'
-import { Button, inputCls } from '../ui'
+import { columnLabel, describeFilter, isGroupable, moveColumn, type Density, type TableModel } from '../../lib/table'
+import { Button, inputSmCls } from '../ui'
 import { PopoverButton } from './Popover'
 import type { TableColumn } from './types'
 import type { TableViewController } from './useTableView'
@@ -17,7 +17,7 @@ export interface ToolbarFeatures {
 }
 
 const chipCls =
-  'inline-flex items-center gap-1 rounded-full border border-amber/50 bg-amber/10 py-0.5 pr-1 pl-2.5 text-small text-ink'
+  'inline-flex items-center gap-1 rounded-full border border-amber/50 bg-amberbar/10 py-0.5 pr-1 pl-2.5 text-small text-ink'
 
 export function TableToolbar<Row>({
   area,
@@ -29,6 +29,7 @@ export function TableToolbar<Row>({
   features,
   menu,
   setMenu,
+  appDensity = 'comfortable',
   onExportCsv,
   onExportPdf,
   start,
@@ -44,6 +45,8 @@ export function TableToolbar<Row>({
   features: Required<ToolbarFeatures>
   menu: string | null
   setMenu: (m: string | null) => void
+  /** The app-wide density a view with `density: null` follows. */
+  appDensity?: Density
   onExportCsv?: () => void
   onExportPdf?: () => void
   start?: ReactNode
@@ -52,6 +55,7 @@ export function TableToolbar<Row>({
   loading?: boolean
 }): React.JSX.Element {
   const { view, setView } = controller
+  const density: Density = view.density ?? appDensity
   const byId = new Map(columns.map((c) => [c.id, c]))
   const chips = Object.entries(view.filters).filter(([id]) => byId.has(id))
   const groupable = columns.filter((c) => isGroupable(c))
@@ -64,7 +68,7 @@ export function TableToolbar<Row>({
         {features.quickFilter && (
           <input
             type="search"
-            className={`${inputCls} !w-56 !py-1 !text-detail`}
+            className={`${inputSmCls} !w-56`}
             placeholder="Filter rows…"
             aria-label="Filter rows"
             value={quick}
@@ -91,7 +95,7 @@ export function TableToolbar<Row>({
             <label className="flex items-center gap-1 text-small text-muted">
               <span>Group</span>
               <select
-                className={`${inputCls} !w-auto !py-1 !text-small`}
+                className={`${inputSmCls} !w-auto !text-small`}
                 value={view.groupBy ?? ''}
                 onChange={(e) => setView((v) => ({ ...v, groupBy: e.target.value || null }))}
                 data-testid={`${area}-table-group`}
@@ -109,13 +113,17 @@ export function TableToolbar<Row>({
             <button
               type="button"
               className="rounded-md border border-line bg-panel2 px-2 py-1 text-small text-muted hover:border-amber/60 hover:text-ink"
-              aria-pressed={view.density === 'compact'}
+              aria-pressed={density === 'compact'}
               aria-label="Compact rows"
-              title="Compact rows"
-              onClick={() => setView((v) => ({ ...v, density: v.density === 'compact' ? 'comfortable' : 'compact' }))}
+              title={view.density ? 'Compact rows (this table)' : 'Compact rows (following the app setting)'}
+              // Picking the app's own density stores null, so the table follows the setting again.
+              onClick={() => {
+                const next: Density = density === 'compact' ? 'comfortable' : 'compact'
+                setView((v) => ({ ...v, density: next === appDensity ? null : next }))
+              }}
               data-testid={`${area}-table-density`}
             >
-              {view.density === 'compact' ? '☰ Compact' : '☰ Comfortable'}
+              {density === 'compact' ? '☰ Compact' : '☰ Comfortable'}
             </button>
           )}
           {features.columns && (
@@ -148,12 +156,12 @@ export function TableToolbar<Row>({
             </PopoverButton>
           )}
           {features.export && onExportPdf && (
-            <Button variant="ghost" className="!px-2 !py-1 !text-small" onClick={onExportPdf} data-testid={`${area}-table-pdf`}>
+            <Button variant="ghost" size="sm" onClick={onExportPdf} data-testid={`${area}-table-pdf`}>
               PDF
             </Button>
           )}
           {features.export && onExportCsv && (
-            <Button variant="ghost" className="!px-2 !py-1 !text-small" onClick={onExportCsv} data-testid={`${area}-table-csv`}>
+            <Button variant="ghost" size="sm" onClick={onExportCsv} data-testid={`${area}-table-csv`}>
               CSV
             </Button>
           )}
@@ -275,7 +283,7 @@ function ViewsMenu({ controller, close, area }: { controller: TableViewControlle
         </label>
         <input
           id={`${area}-view-name`}
-          className={`${inputCls} !py-1 !text-detail`}
+          className={`${inputSmCls}`}
           value={name}
           onChange={(e) => setName(e.target.value)}
           onKeyDown={(e) => {
@@ -290,12 +298,12 @@ function ViewsMenu({ controller, close, area }: { controller: TableViewControlle
         {mode === 'save' && taken(name) && <span className="text-hint text-muted">Replaces the saved view “{name.trim()}”.</span>}
         {mode === 'rename' && taken(name) && <span className="text-hint text-cr">A view with that name exists.</span>}
         <div className="flex justify-end gap-2">
-          <Button variant="ghost" className="!px-2 !py-1" onClick={() => setMode(null)}>
+          <Button variant="ghost" size="sm" onClick={() => setMode(null)}>
             Cancel
           </Button>
           <Button
             variant="primary"
-            className="!px-2 !py-1"
+            size="sm"
             disabled={!name.trim() || (mode === 'rename' && taken(name))}
             onClick={submit}
             data-testid={`${area}-table-view-save`}

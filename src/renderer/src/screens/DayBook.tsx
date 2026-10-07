@@ -2,7 +2,8 @@ import { useEffect, useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { api } from '../lib/client'
 import { useNav, useSession, useToasts } from '../state/stores'
-import { Panel, SectionTitle, Select } from '../components/ui'
+import { Badge, Chip, Page, PageHeader, Panel } from '../components/ui'
+import { OptionChoice, OptionsPeriod, OptionsTable, useScreenOptions } from '../components/ScreenOptions'
 import { DataTable, defineColumns, type DataTableFooterContext } from '../components/table'
 import { toDisplayDate } from '@shared/dates'
 import type { DayBookRow } from '@shared/reports'
@@ -54,12 +55,20 @@ export const DAYBOOK_COLUMNS = defineColumns<DayBookRow>([
     cell: (r) => (
       <>
         <LedgerLink ledgerId={r.accountLedgerId} name={r.account} />
-        {r.isOptional && <span className="ml-2 rounded bg-amber/15 px-1.5 py-0.5 text-[10px] font-medium text-amber">Optional</span>}
-        {r.postDated && <span className="ml-2 rounded bg-blue/10 px-1.5 py-0.5 text-[10px] font-medium text-blue">PDC</span>}
+        {r.isOptional && (
+          <Badge tone="amber" className="ml-2">
+            Optional
+          </Badge>
+        )}
+        {r.postDated && (
+          <Badge tone="info" className="ml-2">
+            PDC
+          </Badge>
+        )}
         {r.yearEndClose && (
-          <span className="ml-2 rounded bg-blue/10 px-1.5 py-0.5 text-[10px] font-medium text-blue" data-testid="daybook-year-end-chip">
+          <Badge tone="info" className="ml-2" testId="daybook-year-end-chip">
             Year-end closing entry
-          </span>
+          </Badge>
         )}
       </>
     )
@@ -95,7 +104,9 @@ export function DayBook({ month, kind }: { month?: string; kind?: string } = {})
   const { from, to } = useSession()
   const nav = useNav()
   const toast = useToasts()
-  const [scope, setScope] = useState<Scope>('books')
+  // Scope is a saved screen option (Options drawer, F12); a non-default scope shows as a chip.
+  const opts = useScreenOptions('daybook', { scope: 'books' as Scope }, { scope: SCOPE_LABELS.map((s) => s.value) })
+  const scope = opts.options.scope
   // The Registers drill-through hands over a month + kind; keep them as dismissible local state
   // so the chip's ✕ clears the drill without a navigation.
   const [drill, setDrill] = useState<{ month?: string; kind?: string }>({ month, kind })
@@ -120,41 +131,58 @@ export function DayBook({ month, kind }: { month?: string; kind?: string } = {})
 
   const periodLabel = `${toDisplayDate(from)} → ${toDisplayDate(to)}`
 
+  const scopeLabel = SCOPE_LABELS.find((x) => x.value === scope)?.label ?? ''
+
   return (
-    <div className="mx-auto max-w-6xl">
-      <SectionTitle
-        right={
-          // inputCls is w-full — the wrapper sets the width.
-          <div className="w-40">
-            <Select data-testid="input-daybook-scope" value={scope} onChange={(e) => setScope(e.target.value as Scope)} aria-label="Voucher scope">
-              {SCOPE_LABELS.map((s) => (
-                <option key={s.value} value={s.value}>
-                  {s.label}
-                </option>
-              ))}
-            </Select>
-          </div>
-        }
-      >
-        Day book
-      </SectionTitle>
-      {(drill.month || drill.kind) && (
-        <div className="mb-3 flex items-center gap-2">
-          <span className="flex items-center gap-1.5 rounded-full border border-amberbar/50 bg-amberbar/10 px-3 py-1 text-[12px]">
-            {drill.month ? monthLabel(drill.month) : null}
-            {drill.month && drill.kind ? ' · ' : ''}
-            {drill.kind ? <span className="capitalize">{drill.kind.replace('_', ' ')}</span> : null}
-            <button
-              type="button"
-              data-testid="daybook-clear-drill"
-              aria-label="Clear the month/kind filter"
-              className="ml-1 text-muted hover:text-ink"
-              onClick={() => setDrill({})}
-            >
-              ✕
-            </button>
-          </span>
-          <span className="text-[11.5px] text-muted">Filtered from Registers</span>
+    <Page width="wide">
+      <PageHeader
+        title="Day book"
+        period={periodLabel}
+        options={{
+          onReset: opts.reset,
+          content: (
+            <>
+              <OptionsPeriod />
+              <OptionChoice
+                label="Show"
+                value={scope}
+                options={SCOPE_LABELS}
+                onChange={(v) => opts.set('scope', v)}
+                testId="input-daybook-scope"
+              />
+              <div className="mt-5">
+                <OptionsTable area="daybook" />
+              </div>
+            </>
+          )
+        }}
+      />
+      {(scope !== 'books' || drill.month || drill.kind) && (
+        <div className="mb-3 flex flex-wrap items-center gap-2" data-testid="daybook-filters">
+          {scope !== 'books' && (
+            <Chip onRemove={() => opts.set('scope', 'books')} removeLabel={`Show in-books vouchers only (now: ${scopeLabel})`} testId="daybook-scope-chip">
+              {scopeLabel}
+            </Chip>
+          )}
+          {(drill.month || drill.kind) && (
+            <>
+              <span className="flex items-center gap-1.5 rounded-full border border-amberbar/50 bg-amberbar/10 py-0.5 pr-1 pl-2.5 text-small">
+                {drill.month ? monthLabel(drill.month) : null}
+                {drill.month && drill.kind ? ' · ' : ''}
+                {drill.kind ? <span className="capitalize">{drill.kind.replace('_', ' ')}</span> : null}
+                <button
+                  type="button"
+                  data-testid="daybook-clear-drill"
+                  aria-label="Clear the month/kind filter"
+                  className="rounded-full px-1 text-muted hover:text-ink"
+                  onClick={() => setDrill({})}
+                >
+                  ✕
+                </button>
+              </span>
+              <span className="text-hint text-muted">Filtered from Registers</span>
+            </>
+          )}
         </div>
       )}
       <Panel>
@@ -177,7 +205,7 @@ export function DayBook({ month, kind }: { month?: string; kind?: string } = {})
             printKindForVoucherKind(r.kind) ? (
               <button
                 type="button"
-                className="text-[11.5px] text-blue hover:underline"
+                className="text-hint text-blue hover:underline"
                 title={r.kind === 'sales' ? 'Invoice PDF' : 'Print PDF (default template for this kind)'}
                 data-testid="btn-daybook-invoice-pdf"
                 onClick={() => {
@@ -193,6 +221,6 @@ export function DayBook({ month, kind }: { month?: string; kind?: string } = {})
           exportOptions={{ title: 'Day book', periodLabel, filename: 'day-book', totalsLabel: 'Total (in books)' }}
         />
       </Panel>
-    </div>
+    </Page>
   )
 }

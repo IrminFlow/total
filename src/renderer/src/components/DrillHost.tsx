@@ -50,7 +50,7 @@ function ItemById({ itemId, onClose }: { itemId: number; onClose: () => void }):
   if (item) return <ItemFormModal item={item} onClose={onClose} />
   return (
     <Modal title="Edit item" onClose={onClose}>
-      <p className="text-[13px] text-muted">{items.length ? 'Item not found — it may have been deleted.' : 'Loading item…'}</p>
+      <p className="text-detail text-muted">{items.length ? 'Item not found — it may have been deleted.' : 'Loading item…'}</p>
     </Modal>
   )
 }

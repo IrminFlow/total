@@ -135,7 +135,7 @@ export function SlotChart({
                 strokeWidth={1}
                 shapeRendering="crispEdges"
               />
-              <text x={plot.x0 - 6} y={y(t)} dy="0.32em" textAnchor="end" fontSize={10} fill="var(--t-muted)" className="num">
+              <text x={plot.x0 - 6} y={y(t)} dy="0.32em" textAnchor="end" fill="var(--t-muted)" className="num text-micro">
                 {formatPaiseCompact(t)}
               </text>
             </g>
@@ -157,7 +157,7 @@ export function SlotChart({
               x={xs[i]}
               y={height - 6}
               textAnchor="middle"
-              fontSize={10}
+              className="text-micro"
               fill={active === i ? 'var(--t-ink)' : 'var(--t-muted)'}
             >
               {c.label}
@@ -169,7 +169,7 @@ export function SlotChart({
         <div
           role="presentation"
           data-testid={testId ? `${testId}-tooltip` : undefined}
-          className="pointer-events-none absolute top-1 z-10 min-w-[150px] rounded-md border border-line bg-panel px-2.5 py-1.5 text-[11.5px] shadow-md"
+          className="pointer-events-none absolute top-1 z-10 min-w-[150px] rounded-md border border-line bg-panel px-2.5 py-1.5 text-hint shadow-md"
           style={flip ? { right: width - tipLeft + 10 } : { left: tipLeft + 10 }}
         >
           <p className="mb-0.5 font-medium text-ink">{categories[active].long}</p>
@@ -215,7 +215,7 @@ export function SlotChart({
 /** Legend row: colour key + label per series (consistent colours across every chart). */
 export function ChartLegend({ series }: { series: Pick<ChartSeries, 'id' | 'label' | 'color'>[] }): React.JSX.Element {
   return (
-    <div className="flex items-center gap-3 text-[11px] text-muted">
+    <div className="flex items-center gap-3 text-caption text-muted">
       {series.map((s) => (
         <span key={s.id} className="flex items-center gap-1.5">
           <span className="inline-block h-2 w-2 rounded-sm" style={{ background: chartColor(s.color) }} />

@@ -5,7 +5,8 @@ import type { Currency, Godown, Ledger, StockGroup, StockItem, Unit, VoucherType
 import { filterLedgers, type ChartGroupNode } from '@shared/chartOfAccounts'
 import { api } from '../lib/client'
 import { useNav, useSession, useToasts, type Screen } from '../state/stores'
-import { AmountInput, Button, EmptyState, Field, Modal, Panel, Select, TextInput } from '../components/ui'
+import { AmountInput, Button, DrawerSection, EmptyState, Field, Modal, Page, PageActions, PageHeader, Panel, Select, TextInput } from '../components/ui'
+import { OptionsTable } from '../components/ScreenOptions'
 import { DataTable, defineColumns } from '../components/table'
 import { formatMilli } from '../lib/table'
 import { TabBar } from '../components/TabBar'
@@ -33,20 +34,32 @@ export function Masters({ tab, itemId }: { tab?: MastersTab; itemId?: number }):
   const nav = useNav()
   const active = tab ?? 'ledgers'
   return (
-    <div className="mx-auto max-w-4xl">
-      <div className="mb-4 flex items-center gap-1">
-        <h2 className="mr-4 font-serif text-[19px] font-semibold tracking-tight">Masters</h2>
-        {/* Tab lives in the nav stack (not local state) so Esc/back retraces tabs and
-            other screens can deep-link straight to a tab — same pattern as Settings. */}
-        <TabBar
-          screen="masters"
-          tabs={TABS}
-          active={active}
-          onSelect={(t) => {
-            if (t !== active) nav.go({ name: 'masters', tab: t })
-          }}
-        />
-      </div>
+    <Page>
+      <PageHeader
+        title="Masters"
+        // Tab lives in the nav stack (not local state) so Esc/back retraces tabs and other
+        // screens can deep-link straight to a tab — same pattern as Settings. Each tab puts its
+        // own "New …" button into the header with <PageActions>.
+        tabs={
+          <TabBar
+            screen="masters"
+            tabs={TABS}
+            active={active}
+            onSelect={(t) => {
+              if (t !== active) nav.go({ name: 'masters', tab: t })
+            }}
+          />
+        }
+        options={{
+          content: TABLE_AREA[active] ? (
+            <OptionsTable area={TABLE_AREA[active]!} label={`${TABS.find((t) => t.id === active)?.label ?? ''} table`} />
+          ) : (
+            <DrawerSection title="Chart of accounts">
+              <p className="text-hint text-muted">Groups show as a tree with closing balances; type in its filter to find a ledger.</p>
+            </DrawerSection>
+          )
+        }}
+      />
       {active === 'ledgers' && <LedgersTab />}
       {active === 'groups' && <GroupsTab />}
       {active === 'items' && <ItemsTab openItemId={itemId} />}
@@ -55,8 +68,18 @@ export function Masters({ tab, itemId }: { tab?: MastersTab; itemId?: number }):
       {active === 'units' && <UnitsTab />}
       {active === 'types' && <TypesTab />}
       {active === 'currencies' && <CurrenciesTab />}
-    </div>
+    </Page>
   )
+}
+
+/** Each tab's main table (testId area) — for the Options drawer's columns/export section. */
+const TABLE_AREA: Partial<Record<MastersTab, string>> = {
+  ledgers: 'masters-ledgers',
+  items: 'masters-items',
+  units: 'masters-units',
+  types: 'masters-types',
+  godowns: 'masters-godowns',
+  currencies: 'masters-currencies'
 }
 
 // ---------- currencies ----------
@@ -90,11 +113,11 @@ function CurrenciesTab(): React.JSX.Element {
 
   return (
     <>
-      <div className="mb-3 flex justify-end">
+      <PageActions>
         <Button variant="primary" onClick={() => setCreating(true)}>
           Add currency
         </Button>
-      </div>
+      </PageActions>
       <Panel>
         <DataTable
           viewId="masters-currencies"
@@ -108,7 +131,7 @@ function CurrenciesTab(): React.JSX.Element {
           trailing={(c) => (
             <button
               type="button"
-              className="text-[12px] text-cr hover:underline"
+              className="text-small text-cr hover:underline"
               onClick={async () => {
                 try {
                   await api.currencies.remove(c.id)
@@ -193,11 +216,11 @@ function LedgersTab(): React.JSX.Element {
 
   return (
     <>
-      <div className="mb-3 flex justify-end">
-        <Button variant="primary" className="whitespace-nowrap" data-testid="btn-masters-new-ledger" onClick={() => setEditing('new')}>
+      <PageActions>
+        <Button variant="primary" data-testid="btn-masters-new-ledger" onClick={() => setEditing('new')}>
           New ledger
         </Button>
-      </div>
+      </PageActions>
       <Panel>
         <DataTable
           viewId="masters-ledgers"
@@ -237,7 +260,7 @@ function LedgersTab(): React.JSX.Element {
                   onChange={(e) => setFilter(e.target.value)}
                   placeholder="Name, group, GSTIN or PAN…"
                   aria-label="Filter ledgers"
-                  className="!py-1 !text-detail"
+                  className="!min-h-control-sm !py-0.5 !text-detail"
                   data-testid="masters-ledgers-filter"
                 />
               </div>
@@ -246,7 +269,7 @@ function LedgersTab(): React.JSX.Element {
                   value={groupFilter ?? ''}
                   onChange={(e) => setGroupFilter(e.target.value ? Number(e.target.value) : null)}
                   aria-label="Filter by group (includes sub-groups)"
-                  className="!py-1 !text-detail"
+                  className="!min-h-control-sm !py-0.5 !text-detail"
                   data-testid="masters-ledgers-group"
                 >
                   <option value="">All groups</option>
@@ -264,7 +287,7 @@ function LedgersTab(): React.JSX.Element {
             <button
               type="button"
               data-testid="btn-masters-edit-ledger"
-              className="text-[12px] text-blue hover:underline"
+              className="text-small text-blue hover:underline"
               onClick={() => setEditing(l)}
             >
               Edit
@@ -350,11 +373,11 @@ function GroupsTab(): React.JSX.Element {
 
   return (
     <>
-      <div className="mb-3 flex justify-end">
+      <PageActions>
         <Button variant="primary" data-testid="btn-masters-new-group" onClick={() => setCreating(true)}>
           New sub-group
         </Button>
-      </div>
+      </PageActions>
       <Panel>
         <ChartOfAccounts
           tree={tree ?? []}
@@ -362,13 +385,13 @@ function GroupsTab(): React.JSX.Element {
           groupActions={(node) =>
             node.isSystem ? null : (
               <>
-                <button data-testid="btn-masters-group-rename" className="text-[11.5px] text-blue hover:underline" onClick={() => void rename(node)}>
+                <button data-testid="btn-masters-group-rename" className="text-hint text-blue hover:underline" onClick={() => void rename(node)}>
                   Rename
                 </button>
-                <button data-testid="btn-masters-group-move" className="text-[11.5px] text-blue hover:underline" onClick={() => setMoving(node)}>
+                <button data-testid="btn-masters-group-move" className="text-hint text-blue hover:underline" onClick={() => setMoving(node)}>
                   Move
                 </button>
-                <button data-testid="btn-masters-group-delete" className="text-[11.5px] text-cr hover:underline" onClick={() => void remove(node)}>
+                <button data-testid="btn-masters-group-delete" className="text-hint text-cr hover:underline" onClick={() => void remove(node)}>
                   Delete
                 </button>
               </>
@@ -505,11 +528,11 @@ function ItemsTab({ openItemId }: { openItemId?: number }): React.JSX.Element {
 
   return (
     <>
-      <div className="mb-3 flex justify-end">
+      <PageActions>
         <Button variant="primary" data-testid="btn-masters-new-item" onClick={() => setEditing('new')}>
           New item
         </Button>
-      </div>
+      </PageActions>
       <Panel>
         <DataTable
           viewId="masters-items"
@@ -524,7 +547,7 @@ function ItemsTab({ openItemId }: { openItemId?: number }): React.JSX.Element {
           activateOn="dblclick"
           onRowActivate={(i) => setEditing(i)}
           trailing={(i) => (
-            <button type="button" className="text-[12px] text-blue hover:underline" data-testid="btn-masters-edit-item" onClick={() => setEditing(i)}>
+            <button type="button" className="text-small text-blue hover:underline" data-testid="btn-masters-edit-item" onClick={() => setEditing(i)}>
               Edit
             </button>
           )}
@@ -657,7 +680,7 @@ export function ItemFormModal({ item, onClose }: { item: StockItem | null; onClo
         </Field>
         {item && (
           <div>
-            <span className="mb-1 block text-[11px] font-semibold tracking-[0.08em] text-muted uppercase">
+            <span className="mb-1 block text-caption font-semibold tracking-[0.08em] text-muted uppercase">
               Bill of materials — components per 1 unit
             </span>
             {[...effectiveBomRows, { componentId: '' as const, qtyText: '' }].map((row, i) => (
@@ -696,7 +719,7 @@ export function ItemFormModal({ item, onClose }: { item: StockItem | null; onClo
                 )}
               </div>
             ))}
-            <span className="text-[11px] text-muted">Used by the Manufacture voucher to consume inputs automatically.</span>
+            <span className="text-caption text-muted">Used by the Manufacture voucher to consume inputs automatically.</span>
           </div>
         )}
         <div className="flex justify-between">
@@ -745,11 +768,11 @@ function UnitsTab(): React.JSX.Element {
 
   return (
     <>
-      <div className="mb-3 flex justify-end">
+      <PageActions>
         <Button variant="primary" onClick={() => setCreating(true)}>
           New unit
         </Button>
-      </div>
+      </PageActions>
       <Panel>
         <DataTable
           viewId="masters-units"
@@ -829,7 +852,7 @@ const TYPE_COLUMNS = defineColumns<VoucherType>([
     cell: (t) => (
       <>
         {typeFormat(t)}
-        {!t.restartFy && <span className="ml-1 normal-case text-[10px]">(no FY restart)</span>}
+        {!t.restartFy && <span className="ml-1 normal-case text-micro">(no FY restart)</span>}
       </>
     )
   }
@@ -841,11 +864,11 @@ function TypesTab(): React.JSX.Element {
 
   return (
     <>
-      <div className="mb-3 flex justify-end">
+      <PageActions>
         <Button variant="primary" data-testid="btn-masters-new-type" onClick={() => setEditing('new')}>
           New voucher type
         </Button>
-      </div>
+      </PageActions>
       <Panel>
         <DataTable
           viewId="masters-types"
@@ -861,7 +884,7 @@ function TypesTab(): React.JSX.Element {
           activateOn="dblclick"
           onRowActivate={(t) => setEditing(t)}
           trailing={(t) => (
-            <button type="button" className="text-[12px] text-blue hover:underline" data-testid="btn-masters-edit-type" onClick={() => setEditing(t)}>
+            <button type="button" className="text-small text-blue hover:underline" data-testid="btn-masters-edit-type" onClick={() => setEditing(t)}>
               Edit
             </button>
           )}
@@ -941,12 +964,12 @@ function TypeFormModal({ vt, onClose }: { vt: VoucherType | null; onClose: () =>
           <TextInput value={padWidth} onChange={(e) => setPadWidth(e.target.value)} className="num" />
         </Field>
       </div>
-      <label className="mt-3 flex items-center gap-2 text-[12.5px]">
+      <label className="mt-3 flex items-center gap-2 text-body-sm">
         <input type="checkbox" checked={restartFy} onChange={(e) => setRestartFy(e.target.checked)} />
         Restart numbering at 1 each financial year
       </label>
       {numbering === 'auto' && (
-        <p className="mt-3 rounded-md border border-line bg-panel2 px-3 py-2 text-[12px] text-muted">
+        <p className="mt-3 rounded-md border border-line bg-panel2 px-3 py-2 text-small text-muted">
           Preview: <span className="num text-ink">{previewNumber(1)}</span>, <span className="num text-ink">{previewNumber(2)}</span>
           {!restartFy && <span> … continuing across financial years</span>}
         </p>
@@ -974,11 +997,11 @@ function GodownsTab(): React.JSX.Element {
 
   return (
     <>
-      <div className="mb-3 flex justify-end">
+      <PageActions>
         <Button variant="primary" data-testid="btn-masters-new-godown" onClick={() => setEditing('new')}>
           New godown
         </Button>
-      </div>
+      </PageActions>
       <Panel>
         <DataTable
           viewId="masters-godowns"
@@ -993,7 +1016,7 @@ function GodownsTab(): React.JSX.Element {
           activateOn="dblclick"
           onRowActivate={(g) => setEditing(g)}
           trailing={(g) => (
-            <button data-testid="btn-masters-edit-godown" type="button" className="text-[12px] text-blue hover:underline" onClick={() => setEditing(g)}>
+            <button data-testid="btn-masters-edit-godown" type="button" className="text-small text-blue hover:underline" onClick={() => setEditing(g)}>
               Edit
             </button>
           )}
@@ -1113,11 +1136,11 @@ function StockGroupsTab(): React.JSX.Element {
 
   return (
     <>
-      <div className="mb-3 flex justify-end">
+      <PageActions>
         <Button variant="primary" data-testid="btn-masters-new-stock-group" onClick={() => setCreating(true)}>
           New stock group
         </Button>
-      </div>
+      </PageActions>
       <Panel className="p-4">
         {roots.length === 0 ? (
           <EmptyState title="No stock groups yet" hint="Group items (e.g. Raw materials / Finished goods) to organise the stock summary" />
@@ -1130,7 +1153,7 @@ function StockGroupsTab(): React.JSX.Element {
                 className="flex items-center rounded px-2 py-1 hover:bg-panel2"
                 style={{ paddingLeft: `${8 + depth * 18}px` }}
               >
-                <span className={`text-[13px] ${depth === 0 ? '' : 'text-muted'}`}>{group.name}</span>
+                <span className={`text-detail ${depth === 0 ? '' : 'text-muted'}`}>{group.name}</span>
               </div>
             ))}
           </div>

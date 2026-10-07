@@ -2,7 +2,8 @@ import { useMemo, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '../lib/client'
 import { useNav, useSession, useToasts } from '../state/stores'
-import { Button, Modal, Panel, SectionTitle, Select } from '../components/ui'
+import { Badge, Banner, Button, DrawerSection, Modal, Page, PageHeader, Panel, Select } from '../components/ui'
+import { OptionsExport, OptionsPeriod, OptionsTable } from '../components/ScreenOptions'
 import { DataTable, defineColumns } from '../components/table'
 import type { EdocListRow } from '@shared/reports'
 import { gstPeriodOf, toDisplayDate } from '@shared/dates'
@@ -68,14 +69,14 @@ export const EDOC_COLUMNS = defineColumns<EdocListRow>([
     cell: (r) => (
       <>
         <span
-          className={`inline-block rounded border border-line px-1.5 py-0.5 text-[10.5px] font-medium ${DOC_TYPE_CLASS[r.docType]}`}
+          className={`inline-block rounded border border-line px-1.5 py-0.5 text-label font-medium ${DOC_TYPE_CLASS[r.docType]}`}
           title={DOC_TYPE_TITLE[r.docType]}
         >
           {r.docType}
         </span>
         {r.outwardDbn && (
           <span
-            className="ml-1 inline-block rounded border border-amber/50 bg-amber/10 px-1.5 py-0.5 text-[10.5px] font-medium text-amber"
+            className="ml-1 inline-block rounded border border-amber/50 bg-amberbar/10 px-1.5 py-0.5 text-label font-medium text-amber"
             title="Outward debit note — the NIC bulk docType enum has no DBN, so it exports as 'OTH'."
           >
             OTH
@@ -110,7 +111,7 @@ export const EDOC_COLUMNS = defineColumns<EdocListRow>([
     value: irnEwbText,
     width: 124,
     cell: (r) => (
-      <span className="text-[11.5px]">
+      <span className="text-hint">
         {r.irn ? <span className="text-dr" title={r.irn}>IRN ✓</span> : <span className="text-muted">no IRN</span>}
         {' · '}
         {r.ewbNo ? <span className="num text-dr">{r.ewbNo}</span> : <span className="text-muted">no EWB</span>}
@@ -125,9 +126,9 @@ export const EDOC_COLUMNS = defineColumns<EdocListRow>([
     width: 140,
     cell: (r) =>
       r.ewbReason == null ? (
-        <span className="text-[11.5px] text-dr">Eligible</span>
+        <span className="text-hint text-dr">Eligible</span>
       ) : (
-        <span className="text-[11.5px] text-muted" title={r.ewbReason}>
+        <span className="text-hint text-muted" title={r.ewbReason}>
           {r.ewbReason}
         </span>
       )
@@ -231,26 +232,64 @@ export function EdocsScreen(): React.JSX.Element {
   }
 
   return (
-    <div className="mx-auto max-w-6xl">
-      <SectionTitle
-        right={
-          <div className="flex items-center gap-2">
-            <Button onClick={() => nav.go({ name: 'settings', tab: 'nic' })}>
-              {live ? 'Live filing ✓ · Configure in Settings →' : 'Configure in Settings →'}
-            </Button>
-            <Button variant="primary" data-testid="btn-edocs-export-einvoice" onClick={() => void exportEinv()} disabled={!info?.gstin}>
-              Export e-invoice JSON
-            </Button>
-            <Button data-testid="btn-edocs-export-ewb" onClick={() => void exportEwb()} disabled={!info?.gstin}>
-              Export e-way bill JSON
-            </Button>
-          </div>
+    <Page width="wide">
+      <PageHeader
+        title="e-Invoice & e-Way bill"
+        period={`${toDisplayDate(from)} → ${toDisplayDate(to)}`}
+        subtitle={
+          <Badge tone={live ? 'success' : 'neutral'} testId="edocs-live-status">
+            {live ? 'Live filing on' : 'Offline JSON'}
+          </Badge>
         }
-      >
-        e-Invoice &amp; e-Way bill
-      </SectionTitle>
+        secondary={
+          <Button data-testid="btn-edocs-export-ewb" onClick={() => void exportEwb()} disabled={!info?.gstin}>
+            Export e-way bill JSON
+          </Button>
+        }
+        actions={
+          <Button variant="primary" data-testid="btn-edocs-export-einvoice" onClick={() => void exportEinv()} disabled={!info?.gstin}>
+            Export e-invoice JSON
+          </Button>
+        }
+        options={{
+          content: (
+            <>
+              <OptionsPeriod />
+              <OptionsTable area="edocs" label="Documents table" />
+              <OptionsExport>
+                <Button size="sm" onClick={() => void exportEinv()} disabled={!info?.gstin}>
+                  e-Invoice JSON
+                </Button>
+                <Button size="sm" onClick={() => void exportEwb()} disabled={!info?.gstin}>
+                  e-Way bill JSON
+                </Button>
+              </OptionsExport>
+              <DrawerSection title="Live filing (NIC)">
+                <p className="text-hint text-muted">
+                  {live ? 'NIC credentials are set — IRN and e-way bills can be generated per document.' : 'Offline mode: export JSON and upload it on the portals.'}
+                </p>
+                <p className="text-hint text-muted">
+                  Offline route: export JSON for the government offline tools — the period export writes one combined bulk file plus a
+                  per-bill file per consignment. Live route: add your NIC API credentials once, then generate IRNs and e-way bills
+                  directly — needs internet and a registered API user (einvoice1.gst.gov.in → API registration) or GSP credentials.
+                </p>
 
-      {!info?.gstin && <p className="mb-3 text-[12.5px] text-amber">Add the company GSTIN under Company details to enable exports.</p>}
+                <div>
+                  <Button size="sm" data-testid="btn-edocs-nic-settings" onClick={() => nav.go({ name: 'settings', tab: 'nic' })}>
+                    Configure in Settings →
+                  </Button>
+                </div>
+              </DrawerSection>
+            </>
+          )
+        }}
+      />
+
+      {!info?.gstin && (
+        <Banner tone="warning" className="mb-3">
+          Add the company GSTIN under Company details to enable exports.
+        </Banner>
+      )}
 
       <Panel>
         <DataTable
@@ -281,7 +320,7 @@ export function EdocsScreen(): React.JSX.Element {
           // The document-type picker pre-filters the rows (the table's view applies on top).
           toolbarStart={
             <Select
-              className="!w-40 !py-1 !text-detail"
+              className="!w-40 !min-h-control-sm !py-0.5 !text-detail"
               aria-label="Document type"
               data-testid="input-edocs-doctype"
               value={docTypeFilter}
@@ -302,7 +341,7 @@ export function EdocsScreen(): React.JSX.Element {
             <span className="whitespace-nowrap">
               {live && r.partyGstin && !r.irn && (
                 <button
-                  className="mr-2 text-[12px] text-blue hover:underline disabled:opacity-40"
+                  className="mr-2 text-small text-blue hover:underline disabled:opacity-40"
                   disabled={busy === r.voucherId}
                   onClick={() => requestGenerate('irn', r.voucherId)}
                 >
@@ -311,7 +350,7 @@ export function EdocsScreen(): React.JSX.Element {
               )}
               {live && r.irn && !r.ewbNo && (
                 <button
-                  className="mr-2 text-[12px] text-blue hover:underline disabled:opacity-40"
+                  className="mr-2 text-small text-blue hover:underline disabled:opacity-40"
                   disabled={busy === r.voucherId}
                   onClick={() => requestGenerate('ewb', r.voucherId)}
                 >
@@ -320,7 +359,7 @@ export function EdocsScreen(): React.JSX.Element {
               )}
               {r.docType !== 'CRN' && (
                 <button
-                  className="mr-2 text-[12px] text-blue hover:underline disabled:opacity-40"
+                  className="mr-2 text-small text-blue hover:underline disabled:opacity-40"
                   data-testid="btn-edocs-ewb-json"
                   disabled={busy === r.voucherId}
                   title="Write this bill's single-bill EWB JSON (overrides the ₹50,000 threshold)"
@@ -330,30 +369,28 @@ export function EdocsScreen(): React.JSX.Element {
                 </button>
               )}
               <button
-                className="mr-2 text-[12px] text-blue hover:underline"
+                className="mr-2 text-small text-blue hover:underline"
                 data-testid="btn-edocs-transport"
                 onClick={() => setTransportFor({ voucherId: r.voucherId, number: r.number })}
               >
                 Transport
               </button>
               <button
-                className="mr-2 text-[12px] text-blue hover:underline"
+                className="mr-2 text-small text-blue hover:underline"
                 onClick={() => {
                   api.invoice.pdf(r.voucherId).catch((err: Error) => toast.push('error', err.message))
                 }}
               >
                 PDF
               </button>
-              <button className="text-[12px] text-muted hover:text-ink" onClick={() => nav.go({ name: 'voucher-entry', voucherId: r.voucherId })}>
+              <button className="text-small text-muted hover:text-ink" onClick={() => nav.go({ name: 'voucher-entry', voucherId: r.voucherId })}>
                 Open
               </button>
             </span>
           )}
         />
       </Panel>
-      <p className="mt-2 text-[11.5px] text-muted">
-        Offline route: export JSON for the government offline tools — the period export writes one combined bulk file plus a per-bill file per consignment. Live route: add your NIC API credentials once, then generate IRNs and e-way bills directly — needs internet and a registered API user (einvoice1.gst.gov.in → API registration) or GSP credentials.
-      </p>
+      <p className="mt-2 text-hint text-muted">Export JSON for the government offline tools, or file live with NIC credentials · F12 for options.</p>
 
       {confirming && (
         <LiveApiConfirmModal
@@ -377,7 +414,7 @@ export function EdocsScreen(): React.JSX.Element {
           }}
         />
       )}
-    </div>
+    </Page>
   )
 }
 
@@ -394,15 +431,15 @@ function LiveApiConfirmModal({
 
   return (
     <Modal title="Live government API call" onClose={onCancel}>
-      <p className="text-[13px] text-ink">
+      <p className="text-detail text-ink">
         This calls the live NIC e-invoice/e-way bill API — a real document will be generated with the government. This
         integration has never been tested against the live portal; verify the result there afterwards.
       </p>
-      <label className="mt-4 flex items-start gap-2 text-[13px]">
+      <label className="mt-4 flex items-start gap-2 text-detail">
         <input type="checkbox" className="mt-0.5" checked={understood} onChange={(e) => setUnderstood(e.target.checked)} />
         I understand this calls the live government API
       </label>
-      <label className="mt-2 flex items-start gap-2 text-[12px] text-muted">
+      <label className="mt-2 flex items-start gap-2 text-small text-muted">
         <input type="checkbox" className="mt-0.5" checked={dontAskAgain} onChange={(e) => setDontAskAgain(e.target.checked)} />
         Don't ask again this session
       </label>

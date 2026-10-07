@@ -1,94 +1,33 @@
-import { forwardRef, useCallback, useEffect, useId, useRef, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useId, useRef, useState, type ReactNode } from 'react'
 import { formatPaise, parseRupees } from '@shared/money'
 import { parseSmartDate, toDisplayDate } from '@shared/dates'
 import { useToasts } from '../state/stores'
+import { Button, IconButton } from './kit/Button'
+import { Kbd } from './kit/Text'
+import { inputCls, useFieldAria, useInField } from './kit/Field'
+import { isAnyModalOpen, layerCount, topModalElement, useDialogLayer } from './kit/layers'
 
-// ---------- text + labels ----------
-
-export function Kbd({ children }: { children: ReactNode }): React.JSX.Element {
-  return (
-    <kbd className="rounded border border-line bg-panel2 px-1.5 py-0.5 font-mono text-label text-muted">
-      {children}
-    </kbd>
-  )
-}
-
-export function SectionTitle({ children, right }: { children: ReactNode; right?: ReactNode }): React.JSX.Element {
-  return (
-    <div className="mb-3 flex items-baseline justify-between">
-      <h2 className="font-serif text-heading font-semibold tracking-tight whitespace-nowrap">{children}</h2>
-      {right}
-    </div>
-  )
-}
-
-/** Signed paise rendered ledger-style: Dr green / Cr red, mono, dash for zero. */
-export function Money({ paise, signed = false, className = '' }: { paise: number; signed?: boolean; className?: string }): React.JSX.Element {
-  const tone = signed ? (paise > 0 ? 'text-dr' : paise < 0 ? 'text-cr' : 'text-muted') : ''
-  return <span className={`num ${tone} ${className}`}>{formatPaise(signed ? Math.abs(paise) : paise, { zeroDash: true })}{signed && paise !== 0 ? (paise > 0 ? ' Dr' : ' Cr') : ''}</span>
-}
+// The design-system kit lives in components/kit (see kit/README.md). Everything is re-exported
+// here so existing `from '../components/ui'` imports keep working.
+export { Button, IconButton, buttonClass } from './kit/Button'
+export type { ButtonProps, ButtonVariant, ButtonSize } from './kit/Button'
+export { Kbd, SectionTitle, Money } from './kit/Text'
+export { Field, TextInput, Select, Textarea, Checkbox, inputCls, inputSmCls, controlCls, useFieldAria, useInField } from './kit/Field'
+export { Spinner, Skeleton, SkeletonRows, SkeletonTiles, EmptyState, Banner } from './kit/Feedback'
+export type { Tone } from './kit/Feedback'
+export { Badge, Chip } from './kit/Badge'
+export { StatTile, StatGrid } from './kit/StatTile'
+export { Toolbar, ToolbarSpacer } from './kit/Toolbar'
+export { TabBar, Tabs } from './kit/Tabs'
+export type { TabItem } from './kit/Tabs'
+export { Drawer, DrawerSection } from './kit/Drawer'
+export { Page, PageHeader, PageActions } from './kit/PageHeader'
+export type { PageOptions, PageWidth } from './kit/PageHeader'
+export { Segmented } from './kit/Segmented'
+export { Checklist } from './kit/Checklist'
+export { isAnyModalOpen, topModalElement, registerEscapeLayer } from './kit/layers'
 
 // ---------- controls ----------
-
-export const inputCls =
-  'w-full rounded-md border border-line bg-panel2 px-2.5 py-1.5 text-body text-ink placeholder:text-muted/60 focus:border-amber/60'
-
-export function Field({ label, children, hint, error }: { label: string; children: ReactNode; hint?: string; error?: string | null }): React.JSX.Element {
-  return (
-    <label className="block">
-      <span className="mb-1 block text-caption font-semibold tracking-[0.08em] text-muted uppercase">{label}</span>
-      {children}
-      {error ? (
-        <span className="mt-1 block text-hint text-cr">{error}</span>
-      ) : hint ? (
-        <span className="mt-1 block text-hint text-muted/80">{hint}</span>
-      ) : null}
-    </label>
-  )
-}
-
-export const TextInput = forwardRef<HTMLInputElement, React.InputHTMLAttributes<HTMLInputElement>>(
-  function TextInput(props, ref) {
-    return <input ref={ref} {...props} className={`${inputCls} ${props.className ?? ''}`} />
-  }
-)
-
-export function Select(props: React.SelectHTMLAttributes<HTMLSelectElement>): React.JSX.Element {
-  return <select {...props} className={`${inputCls} ${props.className ?? ''}`} />
-}
-
-export function Button({
-  variant = 'default',
-  disabledTitle,
-  ...props
-}: React.ButtonHTMLAttributes<HTMLButtonElement> & {
-  variant?: 'default' | 'primary' | 'danger' | 'ghost'
-  /** Tooltip shown while the button is disabled — rendered on a wrapping span, since a
-   *  pointer-events-none disabled button can't surface `title` itself. */
-  disabledTitle?: string
-}): React.JSX.Element {
-  const styles = {
-    default: 'border border-line bg-panel hover:border-amber/60 text-ink panel-shadow',
-    primary: 'border border-amberbar bg-amberbar/90 text-[#2b2000] hover:bg-amberbar font-semibold',
-    danger: 'border border-cr/50 bg-cr/10 text-cr hover:bg-cr/20',
-    ghost: 'border border-transparent text-muted hover:text-ink hover:border-line'
-  }[variant]
-  const button = (
-    <button
-      type="button"
-      {...props}
-      className={`rounded-md px-3 py-1.5 text-detail transition-colors disabled:opacity-40 disabled:pointer-events-none ${styles} ${props.className ?? ''}`}
-    />
-  )
-  if (props.disabled && disabledTitle) {
-    return (
-      <span title={disabledTitle} className="inline-block cursor-not-allowed">
-        {button}
-      </span>
-    )
-  }
-  return button
-}
 
 /** Rupee amount input that thinks in integer paise. Shows an inline error while the text
  *  doesn't parse as an amount. */
@@ -99,7 +38,8 @@ export function AmountInput({
   autoFocus,
   placeholder,
   className,
-  testId = 'input-amount'
+  testId = 'input-amount',
+  ariaLabel
 }: {
   paise: number | null
   onPaise: (paise: number | null) => void
@@ -109,6 +49,8 @@ export function AmountInput({
   className?: string
   /** data-testid for the input (lib/testids.ts — `input-<what>`). */
   testId?: string
+  /** Accessible name when there's no wrapping Field/label (grid cells, toolbars). */
+  ariaLabel?: string
 }): React.JSX.Element {
   const [text, setText] = useState(paise != null && paise !== 0 ? formatPaise(paise) : '')
   useEffect(() => {
@@ -116,16 +58,20 @@ export function AmountInput({
     if (paise == null || paise === 0) setText((t) => (parseRupees(t) ? t : ''))
   }, [paise])
   const invalid = text.trim() !== '' && parseRupees(text) == null
+  const fieldAria = useFieldAria()
+  const inField = useInField()
   return (
     <span className={`block min-w-0 ${className ?? ''}`}>
       <input
-        className={`${inputCls} num text-right ${invalid ? 'border-cr/70' : ''}`}
+        className={`${inputCls} num text-right ${invalid ? 'border-danger/70' : ''}`}
         data-testid={testId}
         value={text}
         autoFocus={autoFocus}
         placeholder={placeholder ?? '0.00'}
         inputMode="decimal"
-        aria-invalid={invalid || undefined}
+        aria-label={ariaLabel ?? (inField ? undefined : 'Amount')}
+        aria-describedby={fieldAria['aria-describedby']}
+        aria-invalid={invalid || fieldAria['aria-invalid'] || undefined}
         onChange={(e) => {
           setText(e.target.value)
           onPaise(parseRupees(e.target.value))
@@ -138,7 +84,7 @@ export function AmountInput({
           if (e.key === 'Enter' && onEnter) onEnter()
         }}
       />
-      {invalid && <span className="mt-0.5 block text-hint text-cr">Not an amount</span>}
+      {invalid && <span className="mt-0.5 block text-hint text-danger">Not an amount</span>}
     </span>
   )
 }
@@ -150,7 +96,8 @@ export function DateInput({
   context,
   onChange,
   className,
-  testId = 'input-date'
+  testId = 'input-date',
+  ariaLabel
 }: {
   value: string
   context: string
@@ -158,17 +105,24 @@ export function DateInput({
   className?: string
   /** data-testid for the input (lib/testids.ts — `input-<what>`). */
   testId?: string
+  /** Accessible name when there's no wrapping Field/label (toolbars, header controls). */
+  ariaLabel?: string
 }): React.JSX.Element {
   const [text, setText] = useState(toDisplayDate(value))
   const [bad, setBad] = useState(false)
   useEffect(() => setText(toDisplayDate(value)), [value])
+  const fieldAria = useFieldAria()
+  const inField = useInField()
   return (
     <span className={`block min-w-0 ${className ?? ''}`}>
       <input
-        className={`${inputCls} num ${bad ? 'border-cr/70' : ''}`}
+        className={`${inputCls} num ${bad ? 'border-danger/70' : ''}`}
         data-testid={testId}
         value={text}
-        aria-invalid={bad || undefined}
+        aria-label={ariaLabel ?? (inField ? undefined : 'Date')}
+
+        aria-describedby={fieldAria['aria-describedby']}
+        aria-invalid={bad || fieldAria['aria-invalid'] || undefined}
         onChange={(e) => {
           setText(e.target.value)
           if (bad) setBad(false)
@@ -188,7 +142,7 @@ export function DateInput({
           if (e.key === 'Enter') (e.target as HTMLInputElement).blur()
         }}
       />
-      {bad && <span className="mt-0.5 block text-hint text-cr">Try 7, 7/4, t, y or 15-08-2026</span>}
+      {bad && <span className="mt-0.5 block text-hint text-danger">Try 7, 7/4, t, y or 15-08-2026</span>}
     </span>
   )
 }
@@ -259,54 +213,6 @@ export function LineTableScroller({
   )
 }
 
-const FOCUSABLE =
-  'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
-
-/** Stack of mounted modals — only the topmost one responds to Esc/Tab, so stacked modals
- *  (e.g. a ConfirmModal over a form modal) close one at a time. */
-let modalSeq = 0
-const modalStack: number[] = []
-/** Each mounted modal's dialog element (by stack id), so lists and popovers can tell whether
- *  they live inside the topmost one. */
-const modalElements = new Map<number, () => HTMLElement | null>()
-
-/** True while any Modal is mounted — screens use it to suppress their own global shortcuts
- *  (Gateway single-letter keys, VoucherEntry F-keys / ⌘↵) so keys aimed at a dialog never
- *  leak through to the screen underneath. useKeyNav already checks this internally. */
-export function isAnyModalOpen(): boolean {
-  return modalStack.length > 0
-}
-
-/** The topmost open Modal's dialog element, or null when no modal is open. Popovers portal into
- *  it (so they sit inside its focus trap and above its content); keyboard lists inside it keep
- *  working while everything behind it is suspended. */
-export function topModalElement(): HTMLElement | null {
-  const id = modalStack[modalStack.length - 1]
-  return id === undefined ? null : (modalElements.get(id)?.() ?? null)
-}
-
-/**
- * Open "Esc layers" above modals — transient overlays (the table's filter/column/view popovers)
- * that must take Esc before the modal does. The Modal's capture-phase key handler is registered
- * first, so it would otherwise close the whole dialog; while a layer is open it lets Esc through.
- * Returns the unregister function.
- */
-let escapeLayers = 0
-export function registerEscapeLayer(): () => void {
-  escapeLayers++
-  let done = false
-  return () => {
-    if (done) return
-    done = true
-    escapeLayers--
-  }
-}
-
-/** An element (or an ancestor) marked `data-consumes-escape` handles Esc itself first — e.g. the
- *  table's quick filter clears its text — so a Modal doesn't close on that keypress. */
-const consumesEscape = (t: EventTarget | null): boolean =>
-  t instanceof Element && t.closest('[data-consumes-escape]') !== null
-
 export function Modal({
   title,
   onClose,
@@ -341,69 +247,16 @@ export function Modal({
     onCloseRef.current()
   }, [])
 
-  // Focus trap: move focus in on mount (unless a child autoFocus already took it), restore on close.
-  useEffect(() => {
-    const previous = document.activeElement as HTMLElement | null
-    const dialog = dialogRef.current
-    if (dialog && !dialog.contains(document.activeElement)) {
-      const first = dialog.querySelector<HTMLElement>(FOCUSABLE)
-      ;(first ?? dialog).focus()
-    }
-    return () => {
-      previous?.focus?.()
-    }
-  }, [])
-
-  useEffect(() => {
-    const id = ++modalSeq
-    modalStack.push(id)
-    modalElements.set(id, () => dialogRef.current)
-    const isTop = (): boolean => modalStack[modalStack.length - 1] === id
-    const onKey = (e: KeyboardEvent): void => {
-      if (!isTop()) return
-      if (e.key === 'Escape') {
-        // A popover (or a field that clears itself) inside the dialog takes this Esc first.
-        if (escapeLayers > 0 || consumesEscape(e.target)) return
-        e.stopPropagation()
-        if (confirmRef.current) {
-          setConfirmDiscard(false) // Esc on the discard prompt = keep editing
-          return
-        }
-        requestClose()
-      } else if (e.key === 'Tab') {
-        const dialog = dialogRef.current
-        if (!dialog) return
-        const focusables = Array.from(dialog.querySelectorAll<HTMLElement>(FOCUSABLE)).filter(
-          (el) => el.offsetParent !== null || el === document.activeElement
-        )
-        if (focusables.length === 0) {
-          e.preventDefault()
-          return
-        }
-        const first = focusables[0]!
-        const last = focusables[focusables.length - 1]!
-        const inside = dialog.contains(document.activeElement)
-        if (e.shiftKey && (document.activeElement === first || !inside)) {
-          e.preventDefault()
-          last.focus()
-        } else if (!e.shiftKey && (document.activeElement === last || !inside)) {
-          e.preventDefault()
-          first.focus()
-        }
-      }
-    }
-    window.addEventListener('keydown', onKey, true)
-    return () => {
-      window.removeEventListener('keydown', onKey, true)
-      const i = modalStack.indexOf(id)
-      if (i >= 0) modalStack.splice(i, 1)
-      modalElements.delete(id)
-    }
-  }, [requestClose])
+  // Dialog layer (kit/layers.ts): focus in on mount / restore on close, Tab trap, and Esc for the
+  // topmost layer only. Esc on the discard prompt = keep editing.
+  useDialogLayer(dialogRef, () => {
+    if (confirmRef.current) setConfirmDiscard(false)
+    else requestClose()
+  })
 
   return (
     <div
-      className="fixed inset-0 z-40 flex items-start justify-center bg-black/50 pt-[10vh]"
+      className="fixed inset-0 z-40 flex items-start justify-center bg-scrim pt-[10vh]"
       onMouseDown={(e) => {
         overlayMouseDown.current = e.target === e.currentTarget
       }}
@@ -422,7 +275,7 @@ export function Modal({
         aria-labelledby={titleId}
         data-modal={title}
         tabIndex={-1}
-        className={`max-h-[75vh] w-full ${wide ? 'max-w-3xl' : 'max-w-lg'} overflow-auto rounded-xl border border-line bg-panel shadow-2xl outline-none`}
+        className={`max-h-[75vh] w-full ${wide ? 'max-w-3xl' : 'max-w-lg'} overflow-auto rounded-xl border border-line bg-raised shadow-elev-3 outline-none`}
       >
         <div className="flex items-center justify-between border-b border-line px-5 py-3">
           <h3 id={titleId} className="font-serif text-title font-semibold">
@@ -430,20 +283,14 @@ export function Modal({
           </h3>
           <div className="flex items-center gap-2">
             <Kbd>Esc</Kbd>
-            <button
-              type="button"
-              aria-label="Close"
-              data-testid="modal-close"
-              onClick={requestClose}
-              className="rounded-md border border-transparent px-1.5 py-0.5 text-[15px] leading-none text-muted transition-colors hover:border-line hover:text-ink"
-            >
+            <IconButton label="Close" size="sm" data-testid="modal-close" onClick={requestClose}>
               ✕
-            </button>
+            </IconButton>
           </div>
         </div>
         <div className="p-5">{children}</div>
         {confirmDiscard && (
-          <div className="flex items-center justify-between gap-3 border-t border-amber/60 bg-amber/10 px-5 py-3">
+          <div className="flex items-center justify-between gap-3 border-t border-warning/50 bg-warning-soft px-5 py-3">
             <p className="text-detail text-ink">Discard unsaved changes?</p>
             <div className="flex shrink-0 gap-2">
               <Button data-testid="modal-keep-editing" onClick={() => setConfirmDiscard(false)}>
@@ -463,10 +310,10 @@ export function Modal({
 export function Toasts(): React.JSX.Element {
   const { toasts, dismiss, pause, resume } = useToasts()
   const tones = {
-    info: 'border-blue/50 text-blue',
-    success: 'border-dr/50 text-dr',
-    error: 'border-cr/60 text-cr',
-    warning: 'border-amber/60 text-amber'
+    info: 'border-info/50 text-info',
+    success: 'border-success/50 text-success',
+    error: 'border-danger/60 text-danger',
+    warning: 'border-warning/60 text-warning'
   }
   return (
     // Pause/resume live on the container, not the toast: React still fires the container's
@@ -483,37 +330,10 @@ export function Toasts(): React.JSX.Element {
         <button
           key={t.id}
           onClick={() => dismiss(t.id)}
-          className={`pointer-events-auto rounded-lg border bg-panel px-4 py-2.5 text-left text-detail shadow-xl ${tones[t.kind]}`}
+          className={`pointer-events-auto rounded-lg border bg-raised px-4 py-2.5 text-left text-detail shadow-elev-2 ${tones[t.kind]}`}
         >
           {t.text}
         </button>
-      ))}
-    </div>
-  )
-}
-
-// ---------- loading primitives ----------
-
-export function Spinner({ className = '' }: { className?: string }): React.JSX.Element {
-  return (
-    <span
-      role="status"
-      aria-label="Loading"
-      className={`inline-block h-4 w-4 animate-spin rounded-full border-2 border-line border-t-amber ${className}`}
-    />
-  )
-}
-
-export function Skeleton({ className = '' }: { className?: string }): React.JSX.Element {
-  return <span aria-hidden="true" className={`block animate-pulse rounded bg-panel2 ${className}`} />
-}
-
-/** Placeholder rows while a list/report query is in flight — drop inside a Panel. */
-export function SkeletonRows({ rows = 8, className = '' }: { rows?: number; className?: string }): React.JSX.Element {
-  return (
-    <div aria-hidden="true" data-testid="skeleton-rows" className={`flex flex-col gap-2.5 p-4 ${className}`}>
-      {Array.from({ length: rows }, (_, i) => (
-        <Skeleton key={i} className={`h-4 ${i % 3 === 0 ? 'w-2/3' : i % 3 === 1 ? 'w-full' : 'w-5/6'}`} />
       ))}
     </div>
   )
@@ -534,7 +354,7 @@ const keyNavContainers = new Map<number, () => HTMLElement | null>()
  * (and lists without a `claim` container, which can't say where they live) are suspended.
  */
 function keyboardOwner(): number | undefined {
-  if (modalStack.length === 0) return keyNavStack[keyNavStack.length - 1]
+  if (!isAnyModalOpen()) return keyNavStack[keyNavStack.length - 1]
   const modal = topModalElement()
   if (!modal) return undefined
   for (let i = keyNavStack.length - 1; i >= 0; i--) {
@@ -599,7 +419,7 @@ export function useKeyNav(
       const tag = (e.target as HTMLElement).tagName
       if (tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA') return
       // In a dialog, focus usually sits on one of its buttons: Enter belongs to that button.
-      if (e.key === 'Enter' && modalStack.length > 0 && (e.target as Element).closest?.('button, a[href], [role="button"]')) return
+      if (e.key === 'Enter' && layerCount() > 0 && (e.target as Element).closest?.('button, a[href], [role="button"]')) return
       if (e.key === 'ArrowDown') {
         e.preventDefault()
         setActive((a) => Math.min(countRef.current - 1, a + 1))
@@ -654,25 +474,4 @@ export function useKeyNav(
     rows[rows.length - 1]?.scrollIntoView({ block: 'nearest' })
   }, [active, enabled])
   return { active, setActive }
-}
-
-export function EmptyState({
-  title,
-  hint,
-  action,
-  icon
-}: {
-  title: string
-  hint?: string
-  action?: ReactNode
-  icon?: ReactNode
-}): React.JSX.Element {
-  return (
-    <div className="flex flex-col items-center justify-center py-16 text-center">
-      {icon && <div className="mb-3 text-muted/50">{icon}</div>}
-      <p className="text-[14px] text-muted">{title}</p>
-      {hint && <p className="mt-1 text-body-sm text-muted/70">{hint}</p>}
-      {action && <div className="mt-4">{action}</div>}
-    </div>
-  )
 }

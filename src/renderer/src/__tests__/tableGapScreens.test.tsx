@@ -172,7 +172,7 @@ describe('Payroll modal tables', () => {
     const [conv, bonus] = bodyRows('payroll-employee-heads')
     expect(within(conv!).getByLabelText('Assign Conveyance')).toHaveProperty('checked', true)
     expect((within(conv!).getByTestId('input-payroll-override') as HTMLInputElement).value).toBe('2,000.00')
-    expect(bonus!.className).toContain('opacity-50')
+    expect(bonus!.className).toContain('text-muted')
     expect(within(bonus!).queryByTestId('input-payroll-override')).toBeNull()
     fireEvent.click(within(bonus!).getByLabelText('Assign Bonus'))
     expect(within(bodyRows('payroll-employee-heads')[1]!).getByTestId('input-payroll-override')).toBeTruthy()

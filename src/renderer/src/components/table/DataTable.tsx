@@ -51,13 +51,14 @@ import {
   type ViewDefaults
 } from '../../lib/table'
 import { csvReport, PDF_ROW_LIMIT, printReport } from '../../lib/reportExport'
-import { useSession, useToasts } from '../../state/stores'
+import { useDensity, useSession, useToasts } from '../../state/stores'
 import { EmptyState, Money, SkeletonRows, useKeyNav } from '../ui'
 import { FilterEditor } from './FilterEditor'
 import { Popover } from './Popover'
 import { TableToolbar, type ToolbarFeatures } from './TableToolbar'
 import type { TableColumn } from './types'
 import { useTableView, type TableViewController } from './useTableView'
+import { registerTableActions } from './tableActions'
 
 /** Fixed row heights (px) per density — virtualisation relies on every DATA row being this tall
  *  (detail rows are measured). Comfortable matches `.ledger-table td` (6px + 20px line + 6px + 1px). */
@@ -361,8 +362,11 @@ export function DataTable<Row>(props: DataTableProps<Row>): React.JSX.Element {
   /** The scroll area's inner width (excludes its scrollbar); 0 until measured (and in jsdom). */
   const [availableW, setAvailableW] = useState(0)
   const [measuredH, setMeasuredH] = useState<number | null>(null)
-  const rowH = measuredH ?? ROW_HEIGHT[view.density]
-  useEffect(() => setMeasuredH(null), [view.density])
+  // The view's own density, else the app-wide setting (Settings → Appearance).
+  const appDensity = useDensity()
+  const density = view.density ?? appDensity
+  const rowH = measuredH ?? ROW_HEIGHT[density]
+  useEffect(() => setMeasuredH(null), [density])
 
   useLayoutEffect(() => {
     const el = scrollRef.current
@@ -641,6 +645,21 @@ export function DataTable<Row>(props: DataTableProps<Row>): React.JSX.Element {
   // The toolbar stays whenever the table is mounted with columns — while loading and with zero
   // rows too — so screen controls in toolbarStart never vanish and an over-filtered table can
   // always be un-filtered.
+  // Expose columns + export to the screen's Options drawer (tableActions.ts), by testId area.
+  const actionsRef = useRef({ exportPdf, exportCsv, hasRows: rows.length > 0, columns: features.columns && toolbar })
+  actionsRef.current = { exportPdf, exportCsv, hasRows: rows.length > 0, columns: features.columns && toolbar }
+  useEffect(
+    () =>
+      registerTableActions(area, {
+        openColumns: () => {
+          if (actionsRef.current.columns) setMenu('columns')
+        },
+        exportPdf: () => (actionsRef.current.hasRows ? actionsRef.current.exportPdf?.() : undefined),
+        exportCsv: () => (actionsRef.current.hasRows ? actionsRef.current.exportCsv?.() : undefined)
+      }),
+    [area]
+  )
+
   const toolbarEl = toolbar && columns.length > 0 && (
     <TableToolbar
       area={area}
@@ -652,6 +671,7 @@ export function DataTable<Row>(props: DataTableProps<Row>): React.JSX.Element {
       features={features}
       menu={menu}
       setMenu={setMenu}
+      appDensity={appDensity}
       onExportCsv={rows.length > 0 ? exportCsv : undefined}
       onExportPdf={rows.length > 0 ? exportPdf : undefined}
       start={props.toolbarStart}
@@ -817,7 +837,7 @@ export function DataTable<Row>(props: DataTableProps<Row>): React.JSX.Element {
       >
         <table
           className="ledger-table data-table"
-          data-density={view.density}
+          data-density={density}
           data-virtual={virtual || undefined}
           data-testid={props.tableTestId}
           aria-label={props.ariaLabel}
@@ -1099,7 +1119,7 @@ function HeaderCell<Row>({
             {sortDir && (
               <span aria-hidden="true" className="shrink-0 text-amber">
                 {sortDir === 'desc' ? '↓' : '↑'}
-                {multiSort && sortIndex >= 0 && <sup className="num ml-px text-[9px]">{sortIndex + 1}</sup>}
+                {multiSort && sortIndex >= 0 && <sup className="num ml-px text-micro">{sortIndex + 1}</sup>}
               </span>
             )}
           </button>

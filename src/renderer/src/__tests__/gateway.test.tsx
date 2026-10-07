@@ -9,7 +9,7 @@ import { DEFAULT_FEATURES, type CompanyFeatures } from '@shared/features'
 import { fyOf, todayISO } from '@shared/dates'
 import { dashboardWindow, type DashboardSeries } from '@shared/dashboard'
 import type { CompanyInfo } from '@shared/domain'
-import { onboardingSteps } from '../screens/gateway/onboarding'
+import { onboardingFromDashSetup } from '@shared/onboarding'
 
 vi.setConfig({ testTimeout: 30_000 })
 
@@ -204,10 +204,13 @@ describe('Gateway dashboard', () => {
   })
 })
 
-describe('onboardingSteps', () => {
-  it('drops the GSTIN step for unregistered businesses and marks progress', () => {
+describe('onboarding (shared onboardingFromDashSetup)', () => {
+  it('skips the GSTIN step for unregistered businesses and marks progress', () => {
     const base = { companyInfoComplete: false, gstRegistered: false, gstinSet: false, userLedgers: 0, bankLedgers: 0, voucherCount: 0, userBackups: 0 }
-    expect(onboardingSteps(base).map((s) => s.id)).toEqual(['company', 'ledgers', 'bank', 'voucher', 'backup'])
-    expect(onboardingSteps({ ...base, gstRegistered: true, gstinSet: true, voucherCount: 3 }).filter((s) => s.done).map((s) => s.id)).toEqual(['gstin', 'voucher'])
+    const r = onboardingFromDashSetup(base)
+    expect(r.steps.map((s) => s.id)).toEqual(['company', 'gstin', 'ledger', 'bank', 'voucher', 'backup'])
+    expect(r.steps.find((s) => s.id === 'gstin')).toMatchObject({ done: true, skipped: true })
+    const reg = onboardingFromDashSetup({ ...base, gstRegistered: true, gstinSet: true, voucherCount: 3 })
+    expect(reg.steps.filter((s) => s.done).map((s) => s.id)).toEqual(['gstin', 'voucher'])
   })
 })

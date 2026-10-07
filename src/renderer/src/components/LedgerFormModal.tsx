@@ -91,7 +91,7 @@ function LedgerByIdModal({
   if (ledger) return <LedgerForm key={ledger.id} ledger={ledger} onClose={onClose} onOpenStatement={onOpenStatement} />
   return (
     <Modal title="Edit ledger" onClose={onClose}>
-      <p className="text-[13px] text-muted">
+      <p className="text-detail text-muted">
         {isLoading ? 'Loading ledger…' : error ? (error as Error).message : 'Ledger not found — it may have been deleted.'}
       </p>
     </Modal>
@@ -218,7 +218,7 @@ function LedgerForm({
             <div className="flex gap-2">
               <AmountInput paise={opening} onPaise={setOpening} className="flex-1" />
               <button
-                className={`num w-12 rounded-md border border-line text-[12.5px] font-medium ${openingSide === 'dr' ? 'text-dr' : 'text-cr'}`}
+                className={`num w-12 rounded-md border border-line text-body-sm font-medium ${openingSide === 'dr' ? 'text-dr' : 'text-cr'}`}
                 onClick={() => setOpeningSide((s) => (s === 'dr' ? 'cr' : 'dr'))}
               >
                 {openingSide === 'dr' ? 'Dr' : 'Cr'}
@@ -284,7 +284,7 @@ function LedgerForm({
             </Field>
             <div className="grid grid-cols-2 gap-3">
               <Field label="Reverse charge" hint="Supplies from/to this party are under RCM (3B 3.1(d), GSTR-1 rchrg)">
-                <span className="flex h-[34px] items-center gap-2 text-[13px]">
+                <span className="flex h-[34px] items-center gap-2 text-detail">
                   <input type="checkbox" data-testid="ledger-rcm" checked={rcm} onChange={(e) => setRcm(e.target.checked)} />
                   Reverse charge applies
                 </span>

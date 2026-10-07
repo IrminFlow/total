@@ -2,7 +2,9 @@ import { useEffect, useState } from 'react'
 import { keepPreviousData, useQuery } from '@tanstack/react-query'
 import { api } from '../lib/client'
 import { useSession, useToasts } from '../state/stores'
-import { Button, DateInput, Money, Panel, SectionTitle } from '../components/ui'
+import { Banner, Button, DateInput, Money, Page, PageHeader, Panel } from '../components/ui'
+import { OptionsExport, useScreenOptions } from '../components/ScreenOptions'
+import { ReportSkeleton, StatementOptions } from './ProfitLoss'
 import { StatementTree } from '../components/StatementTree'
 import { csvReport, flattenNodes, printReport } from '../lib/reportExport'
 import type { ReportColumn as PdfColumn, ReportRow as PdfRow } from '../lib/client'
@@ -29,7 +31,8 @@ export function BalanceSheetScreen(): React.JSX.Element {
     queryFn: () => api.reports.balanceSheet(asOn),
     placeholderData: keepPreviousData
   })
-  if (!data) return <p className="text-muted">Loading…</p>
+  const opts = useScreenOptions('balance-sheet', { expandAll: false, hideZero: false })
+  if (!data) return <ReportSkeleton title="Balance sheet" />
 
   const balanced = data.totalAssets === data.totalLiabilities
   const periodLabel = `as on ${toDisplayDate(data.asOn)}`
@@ -42,49 +45,70 @@ export function BalanceSheetScreen(): React.JSX.Element {
     { cells: ['Total assets', formatPaise(data.totalAssets, { zeroDash: true })], bold: true, rule: true }
   ]
 
+  const exportPdf = (): void => void printReport({ title: 'Balance sheet', periodLabel, columns: EXPORT_COLUMNS, rows: exportRows }, toast)
+  const exportCsv = (): void => void csvReport(EXPORT_COLUMNS.map((c) => c.label), exportRows.map((r) => r.cells), 'balance-sheet', toast)
+  const treeKey = `${opts.options.expandAll}-${opts.options.hideZero}`
+  const tree = { expandAll: opts.options.expandAll, hideZero: opts.options.hideZero }
+
   return (
-    <div className="mx-auto max-w-5xl">
-      <SectionTitle
-        right={
+    <Page>
+      <PageHeader
+        title="Balance sheet"
+        controls={
           <div className="flex items-center gap-2">
             {isPlaceholderData && (
-              <span data-testid="bs-refreshing" className="text-[11px] text-muted" aria-live="polite">
+              <span data-testid="bs-refreshing" className="text-caption text-muted" aria-live="polite">
                 Updating…
               </span>
             )}
-            <span className="text-[12px] text-muted">as on</span>
-            <DateInput value={asOn} context={asOn} onChange={setAsOn} className="w-28" testId="input-bs-ason" />
-            <Button
-              variant="ghost"
-              onClick={() => void printReport({ title: 'Balance sheet', periodLabel, columns: EXPORT_COLUMNS, rows: exportRows }, toast)}
-            >
-              PDF
-            </Button>
-            <Button
-              variant="ghost"
-              onClick={() =>
-                void csvReport(EXPORT_COLUMNS.map((c) => c.label), exportRows.map((r) => r.cells), 'balance-sheet', toast)
-              }
-            >
-              CSV
-            </Button>
+            <span className="text-small text-muted">as on</span>
+            <DateInput value={asOn} context={asOn} onChange={setAsOn} className="w-28" testId="input-bs-ason" ariaLabel="As on date" />
           </div>
         }
-      >
-        Balance sheet
-      </SectionTitle>
+        secondary={
+          <>
+            <Button variant="ghost" onClick={exportPdf}>
+              PDF
+            </Button>
+            <Button variant="ghost" onClick={exportCsv}>
+              CSV
+            </Button>
+          </>
+        }
+        options={{
+          onReset: opts.reset,
+          content: (
+            <>
+              <StatementOptions
+                expandAll={opts.options.expandAll}
+                hideZero={opts.options.hideZero}
+                onExpandAll={(v) => opts.set('expandAll', v)}
+                onHideZero={(v) => opts.set('hideZero', v)}
+              />
+              <OptionsExport>
+                <Button size="sm" onClick={exportPdf} data-testid="options-bs-pdf">
+                  Export PDF
+                </Button>
+                <Button size="sm" onClick={exportCsv} data-testid="options-bs-csv">
+                  Export CSV
+                </Button>
+              </OptionsExport>
+            </>
+          )
+        }}
+      />
       <div className={`grid grid-cols-2 gap-3 transition-opacity ${isPlaceholderData ? 'opacity-60' : ''}`}>
         <Panel className="p-4">
-          <p className="mb-2 text-[11px] font-semibold tracking-[0.08em] text-muted uppercase">Liabilities</p>
-          <StatementTree nodes={data.liabilities} />
+          <p className="mb-2 text-caption font-semibold tracking-[0.08em] text-muted uppercase">Liabilities</p>
+          <StatementTree key={`l-${treeKey}`} nodes={data.liabilities} {...tree} />
           <div className="total-row mt-2 flex justify-between px-2 pt-1.5 pb-0.5">
             <span>Total</span>
             <Money paise={data.totalLiabilities} />
           </div>
         </Panel>
         <Panel className="p-4">
-          <p className="mb-2 text-[11px] font-semibold tracking-[0.08em] text-muted uppercase">Assets</p>
-          <StatementTree nodes={data.assets} />
+          <p className="mb-2 text-caption font-semibold tracking-[0.08em] text-muted uppercase">Assets</p>
+          <StatementTree key={`a-${treeKey}`} nodes={data.assets} {...tree} />
           <div className="total-row mt-2 flex justify-between px-2 pt-1.5 pb-0.5">
             <span>Total</span>
             <Money paise={data.totalAssets} />
@@ -92,10 +116,10 @@ export function BalanceSheetScreen(): React.JSX.Element {
         </Panel>
       </div>
       {!balanced && (
-        <p className="mt-3 text-[12.5px] text-amber">
-          The two sides differ by {<Money paise={Math.abs(data.totalAssets - data.totalLiabilities)} />} — usually an opening balance entered on one side only.
-        </p>
+        <Banner tone="warning" className="mt-3" testId="bs-unbalanced">
+          The two sides differ by <Money paise={Math.abs(data.totalAssets - data.totalLiabilities)} /> — usually an opening balance entered on one side only.
+        </Banner>
       )}
-    </div>
+    </Page>
   )
 }

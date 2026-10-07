@@ -1,7 +1,9 @@
 import { useQuery } from '@tanstack/react-query'
 import { api } from '../lib/client'
 import { useSession, useToasts } from '../state/stores'
-import { Button, EmptyState, Money, Panel, SectionTitle } from '../components/ui'
+import { Button, EmptyState, Money, Page, PageHeader, Panel, SkeletonRows } from '../components/ui'
+import { OptionToggle, OptionsExport, OptionsPeriod, useScreenOptions } from '../components/ScreenOptions'
+import { DrawerSection } from '../components/kit/Drawer'
 import { csvReport, printReport } from '../lib/reportExport'
 import type { ReportColumn as PdfColumn, ReportRow as PdfRow } from '../lib/client'
 import { toDisplayDate } from '@shared/dates'
@@ -48,7 +50,10 @@ function Section({ title, rows, total, leadRow }: {
 export function CashFlowScreen(): React.JSX.Element {
   const { from, to } = useSession()
   const toast = useToasts()
-  const { data } = useQuery({ queryKey: ['cashFlow', from, to], queryFn: () => api.reports.cashFlow(from, to) })
+  const { data: raw, isLoading } = useQuery({ queryKey: ['cashFlow', from, to], queryFn: () => api.reports.cashFlow(from, to) })
+  const opts = useScreenOptions('cash-flow', { hideZero: false })
+  const nonZero = (rows: CashFlowRow[]): CashFlowRow[] => (opts.options.hideZero ? rows.filter((r) => r.amount !== 0) : rows)
+  const data = raw && { ...raw, operating: nonZero(raw.operating), investing: nonZero(raw.investing), financing: nonZero(raw.financing) }
 
   const periodLabel = `${toDisplayDate(from)} → ${toDisplayDate(to)}`
   const hasAnything =
@@ -77,37 +82,53 @@ export function CashFlowScreen(): React.JSX.Element {
       ]
     : []
 
+  const exportPdf = (): void => void printReport({ title: 'Cash flow statement', periodLabel, columns: exportColumns, rows: exportRows }, toast)
+  const exportCsv = (): void => void csvReport(exportColumns.map((c) => c.label), exportRows.map((r) => r.cells), 'cash-flow', toast)
+
   return (
-    <div className="mx-auto max-w-3xl">
-      <SectionTitle
-        right={
-          <div className="flex items-center gap-2">
-            <span className="num text-[12px] text-muted">{periodLabel}</span>
-            <Button
-              variant="ghost"
-              data-testid="cash-flow-pdf"
-              onClick={() =>
-                void printReport({ title: 'Cash flow statement', periodLabel, columns: exportColumns, rows: exportRows }, toast)
-              }
-            >
+    <Page width="narrow">
+      <PageHeader
+        title="Cash flow statement"
+        period={periodLabel}
+        secondary={
+          <>
+            <Button variant="ghost" data-testid="cash-flow-pdf" onClick={exportPdf} disabled={!hasAnything}>
               PDF
             </Button>
-            <Button
-              variant="ghost"
-              data-testid="cash-flow-csv"
-              onClick={() =>
-                void csvReport(exportColumns.map((c) => c.label), exportRows.map((r) => r.cells), 'cash-flow', toast)
-              }
-            >
+            <Button variant="ghost" data-testid="cash-flow-csv" onClick={exportCsv} disabled={!hasAnything}>
               CSV
             </Button>
-          </div>
+          </>
         }
-      >
-        Cash flow statement
-      </SectionTitle>
+        options={{
+          onReset: opts.reset,
+          content: (
+            <>
+              <OptionsPeriod />
+              <DrawerSection title="Display">
+                <OptionToggle
+                  label="Hide zero-amount lines"
+                  checked={opts.options.hideZero}
+                  onChange={(v) => opts.set('hideZero', v)}
+                  testId="input-cash-flow-hide-zero"
+                />
+              </DrawerSection>
+              <OptionsExport>
+                <Button size="sm" onClick={exportPdf} disabled={!hasAnything}>
+                  Export PDF
+                </Button>
+                <Button size="sm" onClick={exportCsv} disabled={!hasAnything}>
+                  Export CSV
+                </Button>
+              </OptionsExport>
+            </>
+          )
+        }}
+      />
       <Panel>
-        {!data || !hasAnything ? (
+        {isLoading ? (
+          <SkeletonRows />
+        ) : !data || !hasAnything ? (
           <EmptyState title="No cash movement in this period" hint="Post vouchers, then come back" />
         ) : (
           <table className="ledger-table" data-testid="cash-flow-table">
@@ -142,6 +163,6 @@ export function CashFlowScreen(): React.JSX.Element {
           </table>
         )}
       </Panel>
-    </div>
+    </Page>
   )
 }

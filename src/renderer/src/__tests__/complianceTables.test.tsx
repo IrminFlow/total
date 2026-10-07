@@ -241,6 +241,6 @@ describe('GSTR-1 section summary', () => {
     const cells = Array.from(totals.querySelectorAll('td')).map((td) => td.textContent)
     expect(cells[1]).toBe('3') // docs 2 + 1 (+0), not the HSN / doc-issue counts
     // Empty sections are dimmed as before.
-    expect(bodyRows('gstr1')[2]!.className).toContain('opacity-40')
+    expect(bodyRows('gstr1')[2]!.className).toContain('text-muted')
   })
 })
