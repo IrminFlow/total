@@ -16,6 +16,8 @@ import { ChartOfAccounts } from '../components/ChartOfAccounts'
 import { validateHsn } from '@shared/gst/validate'
 import { confirmDialog, promptDialog } from '../lib/dialogs'
 import { ItemLink, LedgerLink } from '../components/links'
+import { BomVersionsEditor } from '../components/BomEditor'
+import { LedgerPicker } from '../components/pickers'
 
 export type MastersTab = NonNullable<Extract<Screen, { name: 'masters' }>['tab']>
 
@@ -572,14 +574,6 @@ function ItemsTab({ openItemId }: { openItemId?: number }): React.JSX.Element {
 export function ItemFormModal({ item, onClose }: { item: StockItem | null; onClose: () => void }): React.JSX.Element {
   const { data: units } = useQuery({ queryKey: ['units'], queryFn: api.units.list })
   const allItems = useStockItems()
-  const { data: bom } = useQuery({
-    queryKey: ['bom', item?.id],
-    queryFn: () => api.bom.get(item!.id),
-    enabled: !!item
-  })
-  const [bomRows, setBomRows] = useState<{ componentId: number | ''; qtyText: string }[] | null>(null)
-  const effectiveBomRows =
-    bomRows ?? (bom ? bom.map((b) => ({ componentId: b.componentId as number | '', qtyText: String(b.qtyMilliPerUnit / 1000) })) : [])
   const toast = useToasts()
   const queryClient = useQueryClient()
   const [name, setName] = useState(item?.name ?? '')
@@ -621,14 +615,6 @@ export function ItemFormModal({ item, onClose }: { item: StockItem | null; onClo
       if (data.reorderLevelMilli != null && !(data.reorderLevelMilli >= 0)) return void toast.push('error', 'Reorder level must be a number')
       if (item) await api.stockItems.update(item.id, data)
       else await api.stockItems.create(data)
-      if (item && bomRows) {
-        await api.bom.set({
-          itemId: item.id,
-          lines: bomRows
-            .filter((r) => r.componentId !== '' && Number(r.qtyText) > 0)
-            .map((r) => ({ componentId: r.componentId as number, qtyMilliPerUnit: Math.round(Number(r.qtyText) * 1000) }))
-        })
-      }
       await queryClient.invalidateQueries()
       toast.push('success', `Item ${item ? 'updated' : 'created'}`)
       onClose()
@@ -718,50 +704,7 @@ export function ItemFormModal({ item, onClose }: { item: StockItem | null; onClo
           onChange={setTrackSerials}
           testId="input-item-track-serials"
         />
-        {item && (
-          <div>
-            <span className="mb-1 block text-caption font-semibold tracking-[0.08em] text-muted uppercase">
-              Bill of materials — components per 1 unit
-            </span>
-            {[...effectiveBomRows, { componentId: '' as const, qtyText: '' }].map((row, i) => (
-              <div key={i} className="mb-1.5 flex gap-2">
-                <Select
-                  value={row.componentId}
-                  onChange={(e) => {
-                    const next = [...effectiveBomRows]
-                    const value = e.target.value ? Number(e.target.value) : ('' as const)
-                    if (i < next.length) next[i] = { ...next[i]!, componentId: value }
-                    else next.push({ componentId: value, qtyText: '1' })
-                    setBomRows(next.filter((r) => r.componentId !== ''))
-                  }}
-                  className="flex-1"
-                >
-                  <option value="">— add component —</option>
-                  {allItems
-                    .filter((si) => si.id !== item.id)
-                    .map((si) => (
-                      <option key={si.id} value={si.id}>
-                        {si.name}
-                      </option>
-                    ))}
-                </Select>
-                {i < effectiveBomRows.length && (
-                  <TextInput
-                    value={row.qtyText}
-                    onChange={(e) => {
-                      const next = [...effectiveBomRows]
-                      next[i] = { ...next[i]!, qtyText: e.target.value }
-                      setBomRows(next)
-                    }}
-                    className="num w-24 text-right"
-                    placeholder="Qty"
-                  />
-                )}
-              </div>
-            ))}
-            <span className="text-caption text-muted">Used by the Manufacture voucher to consume inputs automatically.</span>
-          </div>
-        )}
+        {item && <BomVersionsEditor itemId={item.id} />}
         <div className="flex justify-between">
           <div className="flex gap-2">
             {item && <Button variant="danger" onClick={() => void remove()}>Delete</Button>}
@@ -1042,6 +985,17 @@ function TypeFormModal({ vt, onClose }: { vt: VoucherType | null; onClose: () =>
 
 const GODOWN_COLUMNS = defineColumns<Godown>([
   { id: 'name', header: 'Name', kind: 'text', value: (g) => g.name, hideable: false, groupable: false, width: 260 },
+  {
+    id: 'kind',
+    header: 'Kind',
+    kind: 'enum',
+    value: (g) => g.kind,
+    options: [
+      { value: 'own', label: 'Own' },
+      { value: 'job_worker', label: 'Job worker' }
+    ],
+    width: 130
+  },
   { id: 'address', header: 'Address', kind: 'text', value: (g) => g.address ?? '', className: 'text-muted', groupable: false }
 ])
 
@@ -1088,11 +1042,14 @@ function GodownFormModal({ godown, onClose }: { godown: Godown | null; onClose: 
   const queryClient = useQueryClient()
   const [name, setName] = useState(godown?.name ?? '')
   const [address, setAddress] = useState(godown?.address ?? '')
+  const [kind, setKind] = useState<Godown['kind']>(godown?.kind ?? 'own')
+  const [partyLedgerId, setPartyLedgerId] = useState<number | null>(godown?.partyLedgerId ?? null)
 
   const save = async (): Promise<void> => {
     try {
       if (!name.trim()) return void toast.push('error', 'Name the godown')
-      const data = { name: name.trim(), address: address.trim() || null }
+      if (kind === 'job_worker' && partyLedgerId == null) return void toast.push('error', 'Pick the job worker’s party ledger')
+      const data = { name: name.trim(), address: address.trim() || null, kind, partyLedgerId: kind === 'job_worker' ? partyLedgerId : null }
       if (godown) await api.godowns.update(godown.id, data)
       else await api.godowns.create(data)
       await queryClient.invalidateQueries({ queryKey: ['godowns'] })
@@ -1131,6 +1088,17 @@ function GodownFormModal({ godown, onClose }: { godown: Godown | null; onClose: 
         <Field label="Address">
           <TextInput value={address} onChange={(e) => setAddress(e.target.value)} placeholder="Optional" />
         </Field>
+        <Field label="Kind" hint={kind === 'job_worker' ? 'Material here is still yours, held by a job worker — feeds “Material at job workers” and ITC-04.' : undefined}>
+          <Select value={kind} onChange={(e) => setKind(e.target.value as Godown['kind'])} data-testid="input-godown-kind">
+            <option value="own">Own godown</option>
+            <option value="job_worker">Job worker’s premises</option>
+          </Select>
+        </Field>
+        {kind === 'job_worker' && (
+          <Field label="Job worker (party ledger)">
+            <LedgerPicker value={partyLedgerId} onPick={setPartyLedgerId} placeholder="Party ledger" testId="picker-godown-party" />
+          </Field>
+        )}
         <div className="flex justify-between">
           <div>
             {godown && (

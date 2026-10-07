@@ -12,6 +12,34 @@ import {
   type BuildResult, type HeaderPassthrough, type Representation, type VoucherPayload
 } from './payload'
 
+/**
+ * The shape the engine's 'transfer' costing rule (WP 2.4) applies to: no ledger lines, and the
+ * inventory lines are (out of godown A, into godown B) pairs of the same item, quantity, batch
+ * and amount, A ≠ B, both godowns set — exactly what the transfer form saves. saveVoucher marks
+ * a stock journal of this shape in `stock_transfers`.
+ */
+export function isGodownTransferShape(v: {
+  lines: readonly unknown[]
+  inventory: readonly {
+    stockItemId: number; godownId: number | null; batchId?: number | null; qtyMilli: number; amount: number
+    direction: 'in' | 'out'; isAbsolute?: boolean; discountPaise?: number
+  }[]
+}): boolean {
+  const inv = v.inventory
+  if (v.lines.length > 0 || inv.length === 0 || inv.length % 2 !== 0) return false
+  for (let i = 0; i < inv.length; i += 2) {
+    const out = inv[i]!
+    const into = inv[i + 1]!
+    const ok =
+      out.direction === 'out' && into.direction === 'in' && !out.isAbsolute && !into.isAbsolute &&
+      out.stockItemId === into.stockItemId && out.qtyMilli === into.qtyMilli && (out.batchId ?? null) === (into.batchId ?? null) &&
+      out.amount === into.amount && (out.discountPaise ?? 0) === 0 && (into.discountPaise ?? 0) === 0 &&
+      out.godownId != null && into.godownId != null && out.godownId !== into.godownId && out.qtyMilli > 0
+    if (!ok) return false
+  }
+  return true
+}
+
 export interface TransferRowState {
   itemId: number | null
   fromGodownId: number | null
@@ -22,6 +50,9 @@ export interface TransferRowState {
   /** Alteration only: the saved transfer value (paise) and the item/qty it was priced for —
    *  re-used while those are unchanged so re-saving doesn't revalue the transfer. */
   frozen?: { itemId: number; qtyMilli: number; amount: number } | null
+  /** Stable uids of a saved row's outward / inward line (WP 2.5). */
+  outUid?: string
+  inUid?: string
 }
 
 export interface TransferFormState {
@@ -84,8 +115,8 @@ export function buildTransferPayload(
     const ratePaise = Math.round((value * 1000) / qtyMilli)
     const serials = r.serials && r.serials.length > 0 ? { serials: [...r.serials] } : {}
     const line = { stockItemId: r.itemId!, batchId: r.batchId, qtyMilli, ratePaise, discountPaise: 0, amount: value, isAbsolute: false, ...serials }
-    inventory.push({ ...line, godownId: r.fromGodownId, direction: 'out' as const })
-    inventory.push({ ...line, godownId: r.toGodownId, direction: 'in' as const })
+    inventory.push({ ...line, godownId: r.fromGodownId, direction: 'out' as const, ...(r.outUid ? { lineUid: r.outUid } : {}) })
+    inventory.push({ ...line, godownId: r.toGodownId, direction: 'in' as const, ...(r.inUid ? { lineUid: r.inUid } : {}) })
   }
   return {
     ok: true,
@@ -137,7 +168,9 @@ export function transferRepresentation(v: Voucher): Representation<TransferFormS
       qtyText: qtyText(out.qtyMilli),
       batchId: out.batchId,
       ...(out.serials && out.serials.length > 0 ? { serials: [...out.serials] } : {}),
-      frozen: { itemId: out.stockItemId, qtyMilli: out.qtyMilli, amount: out.amount }
+      frozen: { itemId: out.stockItemId, qtyMilli: out.qtyMilli, amount: out.amount },
+      ...(out.lineUid ? { outUid: out.lineUid } : {}),
+      ...(into.lineUid ? { inUid: into.lineUid } : {})
     })
   }
   const state: TransferFormState = {

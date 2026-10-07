@@ -88,6 +88,8 @@ beforeEach(() => {
       case 'master:stockItems:list': return { ok: true, data: ITEMS }
       case 'master:units:list': return { ok: true, data: [{ id: 1, name: 'Numbers', symbol: 'Nos', decimals: 0, uqc: 'NOS' }] }
       case 'bom:get': return { ok: true, data: [] }
+      case 'bom:versions': return { ok: true, data: [] }
+      case 'jobWork:get': return { ok: true, data: null }
       case 'manufacture:get': return { ok: true, data: { voucher, details: null } }
       case 'master:godowns:list': return { ok: true, data: [{ id: 1, name: 'Main', address: null }, { id: 2, name: 'Annex', address: null }] }
       case 'master:batches:list': return { ok: true, data: [] }

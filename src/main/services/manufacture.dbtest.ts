@@ -110,7 +110,8 @@ describe('saveManufacture — posting', () => {
     expect(grp(wages)).toBe('Current Liabilities')
     expect(getManufactureDetails(db, saved.id)).toEqual({
       voucherId: saved.id, finishedItemId: chair, qtyMilli: 2000, saleRatePaise: 100000, saleAmount: 200000,
-      labourPaise: 30000, labourPosted: true, labourExpenseLedgerId: labour, labourCreditLedgerId: wages, profitPaise: 90000
+      labourPaise: 30000, labourPosted: true, labourExpenseLedgerId: labour, labourCreditLedgerId: wages, profitPaise: 90000,
+      bomVersionId: null, bomExploded: false, byProducts: [], jobWork: null
     })
     // Sale price never posts: no sales ledger line, and stock enters at cost.
     expect(saved.manufacture.profitPaise).toBe(90000)

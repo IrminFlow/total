@@ -17,6 +17,7 @@ import { ExceptionsScreen } from './screens/Exceptions'
 import { StockSummaryScreen } from './screens/StockSummary'
 import { ManufactureScreen } from './screens/Manufacture'
 import { ManufactureRegisterScreen } from './screens/ManufactureRegister'
+import { ManufactureReportsScreen } from './screens/ManufactureReports'
 import { FixedAssetsScreen } from './screens/FixedAssets'
 import { StockMovementsScreen } from './screens/StockMovements'
 import { StockJournalScreen } from './screens/StockJournal'
@@ -150,13 +151,20 @@ export default function App(): React.JSX.Element {
           {screen.name === 'cash-flow' && <CashFlowScreen />}
           {screen.name === 'exceptions' && <ExceptionsScreen />}
           {screen.name === 'stock-summary' && <StockSummaryScreen />}
-          {screen.name === 'manufacture' && <ManufactureScreen />}
+          {screen.name === 'manufacture' && (
+            <ManufactureScreen
+              key={`${screen.jobWork ? 'jw' : 'own'}-${screen.prefill?.itemId ?? ''}-${screen.prefill?.qtyMilli ?? ''}`}
+              jobWork={screen.jobWork}
+              prefill={screen.prefill}
+            />
+          )}
           {screen.name === 'manufacture-register' && <ManufactureRegisterScreen />}
+          {screen.name === 'manufacture-reports' && <ManufactureReportsScreen key={screen.tab ?? 'production'} tab={screen.tab} />}
           {screen.name === 'fixed-assets' && <FixedAssetsScreen tab={screen.tab} />}
           {screen.name === 'stock-movements' && (
             <StockMovementsScreen key={`${screen.itemId ?? ''}-${screen.godownId ?? ''}`} itemId={screen.itemId} godownId={screen.godownId} />
           )}
-          {screen.name === 'stock-journal' && <StockJournalScreen />}
+          {screen.name === 'stock-journal' && <StockJournalScreen key={screen.mode ?? 'transfer'} mode={screen.mode} />}
           {screen.name === 'stock-reports' && <StockReportsScreen key={screen.tab ?? 'reorder'} tab={screen.tab} />}
           {screen.name === 'ledger-statement' && <LedgerStatementScreen ledgerId={screen.ledgerId} />}
           {screen.name === 'gstr1' && <Gstr1Screen />}

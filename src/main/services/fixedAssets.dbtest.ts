@@ -4,7 +4,8 @@
 // the schedule reconciling to ledger balances, the IT block statement and the year-end warning.
 import { describe, it, expect, beforeEach } from 'vitest'
 import type { DB } from '../db/connection'
-import { seededDb } from '../db/testdb'
+import { freshPartialDb, seededDb } from '../db/testdb'
+import { migrate } from '../db/migrate'
 import { MIGRATIONS } from '../db/migrations'
 import { createLedger } from './masters'
 import { deleteVoucher, getVoucher, restoreVoucher, saveVoucher, setLockDate } from './vouchers'
@@ -70,6 +71,17 @@ function laptopInput(over: Partial<FixedAssetInput> = {}): FixedAssetInput {
 }
 
 describe('migration 026', () => {
+  it('is migration 026, appended after 022–025 and self-contained', () => {
+    const at = MIGRATIONS.findIndex((m) => m.includes('CREATE TABLE fixed_assets'))
+    expect(at + 1).toBe(26)
+    const db0 = freshPartialDb(at)
+    db0.prepare("INSERT INTO groups (name, nature) VALUES ('Fixed Assets', 'asset')").run()
+    migrate(db0)
+    expect((db0.prepare('SELECT COUNT(*) AS n FROM fixed_asset_groups').get() as { n: number }).n).toBe(9)
+    expect((db0.prepare('SELECT COUNT(*) AS n FROM it_block_rates').get() as { n: number }).n).toBe(16)
+    expect((db0.prepare('SELECT COUNT(*) AS n FROM ca_asset_classes').get() as { n: number }).n).toBe(28)
+  })
+
   it('creates the register tables and seeds cited, effective-dated master data', () => {
     const tables = (db.prepare("SELECT name FROM sqlite_master WHERE type = 'table'").all() as { name: string }[]).map((t) => t.name)
     for (const t of ['fixed_assets', 'fixed_asset_groups', 'fixed_asset_additions', 'depreciation_runs', 'depreciation_lines', 'it_blocks', 'it_block_rates', 'it_block_openings', 'ca_asset_classes']) {

@@ -9,7 +9,7 @@ import { listGroups } from './masters'
 import { CASH_BANK_GROUPS } from '@shared/seed'
 import { buildChartOfAccounts, type ChartGroupNode, type ChartLedgerInput } from '@shared/chartOfAccounts'
 import { ageStock, buildCashFlow, computeRatios, type CashFlowStatement, type InwardLot } from '@shared/reportMath'
-import { listVouchers, IN_BOOKS, NOT_DELETED, NOT_YEAR_END_CLOSE } from './vouchers'
+import { listVouchers, IN_BOOKS, MOVES_STOCK, NOT_DELETED, NOT_YEAR_END_CLOSE } from './vouchers'
 import * as stockAnalysis from './stockAnalysis'
 import { balanceBasis, periodIncludesStoredPnl, resetsEachYear } from '@shared/yearOpening'
 import { booksFromYear } from './booksStart'
@@ -127,7 +127,7 @@ export function stockAgeing(db: DB, asOn: string): StockAgeingRow[] {
       `SELECT il.stock_item_id AS itemId, v.date, il.direction, il.qty_milli AS qty,
               il.is_absolute AS isAbsolute
        FROM inventory_lines il JOIN vouchers v ON v.id = il.voucher_id
-       WHERE v.date <= ? AND ${IN_BOOKS}
+       WHERE v.date <= ? AND ${IN_BOOKS} AND ${MOVES_STOCK}
        ORDER BY v.date, v.id, il.line_order, il.id`
     )
     .all(asOn) as { itemId: number; date: string; direction: 'in' | 'out'; qty: number; isAbsolute: number }[]

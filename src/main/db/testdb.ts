@@ -36,11 +36,8 @@ export function freshDb(): DB {
 export function freshPartialDb(count: number): DB {
   const db = new Database(':memory:')
   db.pragma('foreign_keys = ON')
-  db.exec('CREATE TABLE IF NOT EXISTS migrations (id INTEGER PRIMARY KEY, applied_at TEXT NOT NULL)')
-  for (let i = 0; i < count && i < MIGRATIONS.length; i++) {
-    db.exec(MIGRATIONS[i]!)
-    db.prepare('INSERT INTO migrations (id, applied_at) VALUES (?, ?)').run(i + 1, new Date().toISOString())
-  }
+  // Through the real runner, so a '-- @foreign-keys-off' migration gets its FK-off handling.
+  migrate(db, MIGRATIONS.slice(0, count))
   return db
 }
 

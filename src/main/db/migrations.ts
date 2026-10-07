@@ -946,11 +946,320 @@ export const MIGRATIONS: string[] = [
   );
   CREATE INDEX idx_serial_numbers_status ON serial_numbers(stock_item_id, status);
   `,
+  // 022 (WP 3.2) — TDS "Not applicable" marks. Number assigned by the orchestrator; appended after
+  // 021 (WP 2.3, serial numbers), whose content it does not depend on — only on vouchers (001).
+  // One row per voucher the user has said carries no TDS (not a sum of that nature, a payee
+  // declaration, below-threshold by agreement …): the Eligible tab skips it and the aggregate
+  // threshold walk leaves it out. Deleting the voucher (purge) cascades.
+  `
+  CREATE TABLE IF NOT EXISTS tds_exemptions (
+    voucher_id INTEGER PRIMARY KEY REFERENCES vouchers(id) ON DELETE CASCADE,
+    reason TEXT NOT NULL CHECK (length(reason) BETWEEN 1 AND 200),
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+  `,
+  // 023 (WP 2.4) — deeper manufacturing. Number assigned by the orchestrator; appended after 022
+  // (WP 3.2, TDS exemptions), whose content it does not depend on.
+  // - BOM versions: bom_versions (named, effective-dated, one default per item) own
+  //   bom_version_lines (per-unit quantity + optional scrap allowance in basis points). Every
+  //   existing item BOM is backfilled as a default version "v1" in force from the beginning.
+  //   bom_lines (003) is REPLACED BY A VIEW of the default versions' lines, same columns
+  //   (id, item_id, component_id, qty_milli_per_unit), so anything still reading it keeps
+  //   working for one release; it is read-only — writes go through services/bom.ts.
+  // - godowns.kind ('own' | 'job_worker') + party_ledger_id (the job worker's party ledger).
+  // - manufacture_details.bom_version_id / bom_exploded: the version the rows came from (the
+  //   material-variance standard) and whether they were the exploded leaves.
+  // - manufacture_outputs: by-product / scrap rows of a manufacture, keyed to their inward
+  //   line by (voucher_id, line_order). The engine books them at value_paise and gives the
+  //   remainder of the conserved cost to the finished item.
+  // - job_work_challans (one per job-work voucher: send / receive / return) + job_work_losses
+  //   (receive: loss per raw line) hold what ITC-04 needs: challan no/date, job worker,
+  //   nature of processing, goods type, the original challan; quantities and values are the
+  //   voucher's own inventory lines.
+  // - stock_transfers: stock journals saved as same-item godown transfers, costed by the
+  //   engine's 'transfer' rule (inward leg = the outward leg's engine cost at valuation time).
+  //   Marked at save time only — no backfill, so no pre-existing journal re-prices on upgrade.
+  `
+  CREATE TABLE bom_versions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    item_id INTEGER NOT NULL REFERENCES stock_items(id) ON DELETE CASCADE,
+    name TEXT NOT NULL COLLATE NOCASE,
+    effective_from TEXT,
+    effective_to TEXT,
+    is_default INTEGER NOT NULL DEFAULT 0 CHECK (is_default IN (0, 1)),
+    UNIQUE (item_id, name),
+    CHECK (effective_from IS NULL OR effective_to IS NULL OR effective_to >= effective_from)
+  );
+  CREATE UNIQUE INDEX idx_bom_versions_one_default ON bom_versions(item_id) WHERE is_default = 1;
+  CREATE TABLE bom_version_lines (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    version_id INTEGER NOT NULL REFERENCES bom_versions(id) ON DELETE CASCADE,
+    component_id INTEGER NOT NULL REFERENCES stock_items(id),
+    qty_milli_per_unit INTEGER NOT NULL CHECK (qty_milli_per_unit > 0),
+    scrap_pct_bp INTEGER CHECK (scrap_pct_bp IS NULL OR scrap_pct_bp >= 0),
+    line_order INTEGER NOT NULL DEFAULT 0,
+    UNIQUE (version_id, component_id)
+  );
+  CREATE INDEX idx_bom_version_lines_component ON bom_version_lines(component_id);
+
+  INSERT INTO bom_versions (item_id, name, effective_from, effective_to, is_default)
+    SELECT DISTINCT item_id, 'v1', NULL, NULL, 1 FROM bom_lines ORDER BY item_id;
+  INSERT INTO bom_version_lines (version_id, component_id, qty_milli_per_unit, scrap_pct_bp, line_order)
+    SELECT bv.id, b.component_id, b.qty_milli_per_unit, NULL,
+           (SELECT COUNT(*) FROM bom_lines b2 WHERE b2.item_id = b.item_id AND b2.id < b.id)
+      FROM bom_lines b JOIN bom_versions bv ON bv.item_id = b.item_id
+     ORDER BY b.item_id, b.id;
+  DROP TABLE bom_lines;
+  CREATE VIEW bom_lines AS
+    SELECT l.id AS id, v.item_id AS item_id, l.component_id AS component_id, l.qty_milli_per_unit AS qty_milli_per_unit
+      FROM bom_version_lines l JOIN bom_versions v ON v.id = l.version_id
+     WHERE v.is_default = 1;
+
+  ALTER TABLE godowns ADD COLUMN kind TEXT NOT NULL DEFAULT 'own' CHECK (kind IN ('own', 'job_worker'));
+  ALTER TABLE godowns ADD COLUMN party_ledger_id INTEGER REFERENCES ledgers(id);
+
+  ALTER TABLE manufacture_details ADD COLUMN bom_version_id INTEGER REFERENCES bom_versions(id) ON DELETE SET NULL;
+  ALTER TABLE manufacture_details ADD COLUMN bom_exploded INTEGER NOT NULL DEFAULT 0 CHECK (bom_exploded IN (0, 1));
+
+  CREATE TABLE manufacture_outputs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    voucher_id INTEGER NOT NULL REFERENCES manufacture_details(voucher_id) ON DELETE CASCADE,
+    line_order INTEGER NOT NULL,
+    stock_item_id INTEGER NOT NULL REFERENCES stock_items(id),
+    qty_milli INTEGER NOT NULL CHECK (qty_milli > 0),
+    value_paise INTEGER NOT NULL CHECK (value_paise >= 0),
+    kind TEXT NOT NULL DEFAULT 'by_product' CHECK (kind IN ('by_product', 'scrap')),
+    UNIQUE (voucher_id, line_order)
+  );
+  CREATE INDEX idx_manufacture_outputs_item ON manufacture_outputs(stock_item_id);
+
+  CREATE TABLE job_work_challans (
+    voucher_id INTEGER PRIMARY KEY REFERENCES vouchers(id) ON DELETE CASCADE,
+    kind TEXT NOT NULL CHECK (kind IN ('send', 'receive', 'return')),
+    godown_id INTEGER NOT NULL REFERENCES godowns(id),
+    party_ledger_id INTEGER NOT NULL REFERENCES ledgers(id),
+    challan_no TEXT,
+    challan_date TEXT,
+    nature_of_processing TEXT,
+    goods_type TEXT NOT NULL DEFAULT 'inputs' CHECK (goods_type IN ('inputs', 'capital_goods')),
+    original_challan_voucher_id INTEGER REFERENCES vouchers(id) ON DELETE SET NULL
+  );
+  CREATE INDEX idx_job_work_challans_godown ON job_work_challans(godown_id);
+  CREATE INDEX idx_job_work_challans_party ON job_work_challans(party_ledger_id);
+  CREATE TABLE job_work_losses (
+    voucher_id INTEGER NOT NULL REFERENCES job_work_challans(voucher_id) ON DELETE CASCADE,
+    line_order INTEGER NOT NULL,
+    loss_qty_milli INTEGER NOT NULL CHECK (loss_qty_milli > 0),
+    PRIMARY KEY (voucher_id, line_order)
+  );
+
+  CREATE TABLE stock_transfers (
+    voucher_id INTEGER PRIMARY KEY REFERENCES vouchers(id) ON DELETE CASCADE
+  );
+  `,
+
+  // 024 (WP 2.5a) — trade cycle, part 1: voucher kinds, stable line ids, the non-moving flag.
+  // Appended after 022 (WP 3.2) and 023 (WP 2.4); self-contained. Design:
+  // docs/superpowers/specs/2026-10-07-wp2.5-trade-cycle-design.md §2.2–2.3, §9 Q7.
+  // - voucher_kinds replaces the CHECK list on voucher_types.kind (SQLite can't alter a CHECK):
+  //   the table is rebuilt with ids, column order and the AUTOINCREMENT high-water mark preserved,
+  //   so every later kind is one INSERT. Runs with foreign keys OFF (the marker on the first
+  //   line; see migrate.ts) — DROP TABLE would otherwise trip vouchers/recurring_templates FKs.
+  // - System types for the new stock-only kinds: the first free name wins (a Tally import may
+  //   already have created a "Delivery Note" type — as a journal — which is left untouched).
+  //   Not in DEFAULT_VOUCHER_TYPES: a fresh company gets them here, before seedCompany runs.
+  // - inventory_lines.line_uid: a stable line identity (saveVoucher re-inserts lines on every
+  //   edit, so ids change); trade links key on it. Backfilled for every existing line.
+  // - inventory_lines.moves_stock: 0 = an invoice/bill line whose goods moved on a challan/GRN
+  //   (server-derived from its link; every stock reader filters MOVES_STOCK). Legacy lines = 1.
+  // - serial_numbers.status gains 'delivered' (out on a delivery challan, not yet invoiced) —
+  //   another CHECK rebuild of the small WP 2.3 projection table.
+  `-- @foreign-keys-off
+  CREATE TABLE voucher_kinds (
+    kind TEXT PRIMARY KEY,
+    stock_only INTEGER NOT NULL CHECK (stock_only IN (0, 1))
+  ) WITHOUT ROWID;
+  INSERT INTO voucher_kinds (kind, stock_only) VALUES
+    ('contra', 0), ('payment', 0), ('receipt', 0), ('journal', 0), ('sales', 0), ('purchase', 0),
+    ('credit_note', 0), ('debit_note', 0), ('stock_journal', 1), ('physical_stock', 1),
+    ('delivery_note', 1), ('receipt_note', 1);
+
+  CREATE TEMP TABLE m024_seq AS SELECT seq FROM sqlite_sequence WHERE name = 'voucher_types';
+
+  CREATE TABLE voucher_types_new (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL UNIQUE COLLATE NOCASE,
+    kind TEXT NOT NULL REFERENCES voucher_kinds(kind),
+    numbering TEXT NOT NULL DEFAULT 'auto' CHECK (numbering IN ('auto','manual')),
+    prefix TEXT NOT NULL DEFAULT '',
+    is_system INTEGER NOT NULL DEFAULT 0,
+    suffix TEXT NOT NULL DEFAULT '',
+    pad_width INTEGER NOT NULL DEFAULT 0,
+    restart_fy INTEGER NOT NULL DEFAULT 1
+  );
+  INSERT INTO voucher_types_new (id, name, kind, numbering, prefix, is_system, suffix, pad_width, restart_fy)
+    SELECT id, name, kind, numbering, prefix, is_system, suffix, pad_width, restart_fy FROM voucher_types ORDER BY id;
+  DROP TABLE voucher_types;
+  ALTER TABLE voucher_types_new RENAME TO voucher_types;
+  -- Keep the AUTOINCREMENT high-water mark: a deleted type's id is never reissued (audit rows name it).
+  INSERT INTO sqlite_sequence (name, seq)
+    SELECT 'voucher_types', 0 WHERE NOT EXISTS (SELECT 1 FROM sqlite_sequence WHERE name = 'voucher_types');
+  UPDATE sqlite_sequence SET seq = MAX(seq, COALESCE((SELECT seq FROM m024_seq), 0)) WHERE name = 'voucher_types';
+  DROP TABLE m024_seq;
+
+  WITH c(o, n) AS (VALUES (1, 'Delivery Note'), (2, 'Delivery Challan'), (3, 'Outward Delivery Note'))
+  INSERT INTO voucher_types (name, kind, numbering, prefix, is_system)
+    SELECT n, 'delivery_note', 'auto', '', 1 FROM c
+     WHERE NOT EXISTS (SELECT 1 FROM voucher_types WHERE name = c.n COLLATE NOCASE) ORDER BY o LIMIT 1;
+  WITH c(o, n) AS (VALUES (1, 'Receipt Note'), (2, 'Goods Receipt Note'), (3, 'Inward Receipt Note'))
+  INSERT INTO voucher_types (name, kind, numbering, prefix, is_system)
+    SELECT n, 'receipt_note', 'auto', '', 1 FROM c
+     WHERE NOT EXISTS (SELECT 1 FROM voucher_types WHERE name = c.n COLLATE NOCASE) ORDER BY o LIMIT 1;
+
+  ALTER TABLE inventory_lines ADD COLUMN line_uid TEXT;
+  UPDATE inventory_lines SET line_uid = lower(hex(randomblob(16)));
+  CREATE UNIQUE INDEX idx_inv_line_uid ON inventory_lines(line_uid);
+  ALTER TABLE inventory_lines ADD COLUMN moves_stock INTEGER NOT NULL DEFAULT 1 CHECK (moves_stock IN (0, 1));
+  CREATE INDEX idx_inv_nonmoving ON inventory_lines(voucher_id) WHERE moves_stock = 0;
+
+  CREATE TABLE serial_numbers_new (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    stock_item_id INTEGER NOT NULL REFERENCES stock_items(id) ON DELETE CASCADE,
+    serial TEXT NOT NULL,
+    batch_id INTEGER REFERENCES batches(id) ON DELETE SET NULL,
+    godown_id INTEGER REFERENCES godowns(id) ON DELETE SET NULL,
+    status TEXT NOT NULL CHECK (status IN ('in_stock', 'sold', 'consumed', 'returned', 'delivered')),
+    inward_line_id INTEGER NOT NULL REFERENCES inventory_lines(id) ON DELETE CASCADE,
+    outward_line_id INTEGER REFERENCES inventory_lines(id) ON DELETE SET NULL,
+    UNIQUE (stock_item_id, serial)
+  );
+  INSERT INTO serial_numbers_new (id, stock_item_id, serial, batch_id, godown_id, status, inward_line_id, outward_line_id)
+    SELECT id, stock_item_id, serial, batch_id, godown_id, status, inward_line_id, outward_line_id FROM serial_numbers ORDER BY id;
+  DROP TABLE serial_numbers;
+  ALTER TABLE serial_numbers_new RENAME TO serial_numbers;
+  CREATE INDEX idx_serial_numbers_status ON serial_numbers(stock_item_id, status);
+
+  INSERT INTO audit_log (entity, entity_id, action, before_json, after_json, user_name, app_version)
+  VALUES ('migration', 24, 'update', NULL, json_object(
+    'migration', 24,
+    'voucherKinds', (SELECT COUNT(*) FROM voucher_kinds),
+    'voucherTypesCreated', json((SELECT json_group_array(json_object('id', id, 'name', name, 'kind', kind))
+                                  FROM (SELECT * FROM voucher_types WHERE kind IN ('delivery_note', 'receipt_note') ORDER BY id))),
+    'lineUidsBackfilled', (SELECT COUNT(*) FROM inventory_lines),
+    'serialsCarried', (SELECT COUNT(*) FROM serial_numbers)
+  ), NULL, NULL);
+  `,
+
+  // 025 (WP 2.5a) — trade cycle, part 2: orders/quotations (tables only; screens in WP 2.5c),
+  // challan/GRN facts, and line links. Design §2.4 and §2.7. line_links lives here (not in 024)
+  // because it references trade_docs: SQLite refuses DML and foreign_key_check against a child
+  // table whose parent table doesn't exist yet.
+  // - trade_doc_types: own numbering series per order/quotation kind (same knobs as voucher types).
+  // - trade_docs / trade_doc_lines: non-posting documents; trade_doc_lines.line_uid is the link key.
+  //   The stored status is only the MANUAL state (closed / cancelled); the shown status is derived.
+  // - trade_voucher_details: facts about a challan / GRN that aren't voucher columns (purpose,
+  //   short-close) — like manufacture_details.
+  // - line_links: one row per target line (to_line_uid UNIQUE → one source each), written by the
+  //   TARGET's save (services/tradeLinks.ts). Purging a target cascades its links away; purging a
+  //   source is blocked (NO ACTION) while any link — live or binned — still points at it.
+  `
+  CREATE TABLE trade_doc_types (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL UNIQUE COLLATE NOCASE,
+    kind TEXT NOT NULL CHECK (kind IN ('quotation', 'sales_order', 'purchase_order')),
+    numbering TEXT NOT NULL DEFAULT 'auto' CHECK (numbering IN ('auto','manual')),
+    prefix TEXT NOT NULL DEFAULT '',
+    suffix TEXT NOT NULL DEFAULT '',
+    pad_width INTEGER NOT NULL DEFAULT 0,
+    restart_fy INTEGER NOT NULL DEFAULT 1,
+    is_system INTEGER NOT NULL DEFAULT 0
+  );
+  INSERT INTO trade_doc_types (name, kind, prefix, is_system) VALUES
+    ('Quotation', 'quotation', 'QT-', 1), ('Sales Order', 'sales_order', 'SO-', 1),
+    ('Purchase Order', 'purchase_order', 'PO-', 1);
+
+  CREATE TABLE trade_docs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    doc_type_id INTEGER NOT NULL REFERENCES trade_doc_types(id),
+    number TEXT NOT NULL,
+    date TEXT NOT NULL,
+    party_ledger_id INTEGER NOT NULL REFERENCES ledgers(id),
+    valid_until TEXT,
+    due_date TEXT,
+    reference TEXT,
+    terms TEXT,
+    narration TEXT,
+    pos_override TEXT,
+    currency_code TEXT,
+    exchange_rate REAL,
+    status TEXT NOT NULL DEFAULT 'open' CHECK (status IN ('open', 'closed', 'cancelled')),
+    closed_at TEXT,
+    close_reason TEXT,
+    deleted_at TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+  CREATE INDEX idx_trade_docs_type_date ON trade_docs(doc_type_id, date);
+  CREATE INDEX idx_trade_docs_party ON trade_docs(party_ledger_id);
+
+  CREATE TABLE trade_doc_lines (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    doc_id INTEGER NOT NULL REFERENCES trade_docs(id) ON DELETE CASCADE,
+    line_uid TEXT NOT NULL UNIQUE,
+    line_order INTEGER NOT NULL DEFAULT 0,
+    stock_item_id INTEGER NOT NULL REFERENCES stock_items(id),
+    description TEXT,
+    godown_id INTEGER REFERENCES godowns(id),
+    qty_milli INTEGER NOT NULL CHECK (qty_milli > 0),
+    rate_paise INTEGER NOT NULL CHECK (rate_paise >= 0),
+    discount_paise INTEGER NOT NULL DEFAULT 0 CHECK (discount_paise >= 0),
+    amount INTEGER NOT NULL CHECK (amount >= 0),
+    gst_rate REAL,
+    cess_rate REAL,
+    due_date TEXT
+  );
+  CREATE INDEX idx_trade_doc_lines_doc ON trade_doc_lines(doc_id);
+  CREATE INDEX idx_trade_doc_lines_item ON trade_doc_lines(stock_item_id);
+
+  CREATE TABLE trade_voucher_details (
+    voucher_id INTEGER PRIMARY KEY REFERENCES vouchers(id) ON DELETE CASCADE,
+    purpose TEXT NOT NULL DEFAULT 'supply'
+      CHECK (purpose IN ('supply', 'job_work', 'approval', 'liquid_gas', 'non_supply', 'purchase', 'return')),
+    closed_at TEXT,
+    close_reason TEXT
+  );
+
+  CREATE TABLE line_links (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    link_type TEXT NOT NULL CHECK (link_type IN ('fulfil', 'return')),
+    from_trade_doc_id INTEGER REFERENCES trade_docs(id),
+    from_voucher_id INTEGER REFERENCES vouchers(id),
+    from_line_uid TEXT NOT NULL,
+    to_trade_doc_id INTEGER REFERENCES trade_docs(id) ON DELETE CASCADE,
+    to_voucher_id INTEGER REFERENCES vouchers(id) ON DELETE CASCADE,
+    to_line_uid TEXT NOT NULL UNIQUE,
+    qty_milli INTEGER NOT NULL CHECK (qty_milli > 0),
+    reprices INTEGER NOT NULL DEFAULT 0 CHECK (reprices IN (0, 1)),
+    CHECK ((from_trade_doc_id IS NULL) <> (from_voucher_id IS NULL)),
+    CHECK ((to_trade_doc_id IS NULL) <> (to_voucher_id IS NULL)),
+    CHECK (from_line_uid <> to_line_uid)
+  );
+  CREATE INDEX idx_line_links_from_uid ON line_links(from_line_uid);
+  CREATE INDEX idx_line_links_from_voucher ON line_links(from_voucher_id) WHERE from_voucher_id IS NOT NULL;
+  CREATE INDEX idx_line_links_from_doc ON line_links(from_trade_doc_id) WHERE from_trade_doc_id IS NOT NULL;
+  CREATE INDEX idx_line_links_to_voucher ON line_links(to_voucher_id) WHERE to_voucher_id IS NOT NULL;
+  CREATE INDEX idx_line_links_to_doc ON line_links(to_trade_doc_id) WHERE to_trade_doc_id IS NOT NULL;
+
+  INSERT INTO audit_log (entity, entity_id, action, before_json, after_json, user_name, app_version)
+  VALUES ('migration', 25, 'update', NULL, json_object(
+    'migration', 25,
+    'tradeDocTypesSeeded', (SELECT COUNT(*) FROM trade_doc_types)
+  ), NULL, NULL);
+  `,
 
   // 026 (WP 3.6) — fixed-asset register and depreciation under the Companies Act, 2013 and the
-  // Income-tax Acts. Assigned number 026: WP branches 022–025 land in parallel, so on this branch
-  // it sits right after 021 and is renumbered on rebase; it is self-contained (creates its own
-  // tables, alters nothing older).
+  // Income-tax Acts. Number assigned by the orchestrator; appended after 022–025 (WP 3.2, 2.4,
+  // 2.5a) and self-contained (creates its own tables, alters nothing older).
   //
   // Tables
   // - ca_asset_classes: Schedule II Part C useful lives (effective-dated, editable, cited).

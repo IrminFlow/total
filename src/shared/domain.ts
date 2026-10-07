@@ -158,17 +158,61 @@ export interface Budget {
   lines: BudgetLine[]
 }
 
-export type VoucherKind =
-  | 'contra'
-  | 'payment'
-  | 'receipt'
-  | 'journal'
-  | 'sales'
-  | 'purchase'
-  | 'credit_note'
-  | 'debit_note'
-  | 'stock_journal'
-  | 'physical_stock'
+/** Every voucher kind — mirrors the `voucher_kinds` lookup table (migration 024; a dbtest pins
+ *  the two equal). Adding a kind = append here + one INSERT INTO voucher_kinds migration. */
+export const VOUCHER_KINDS = [
+  'contra',
+  'payment',
+  'receipt',
+  'journal',
+  'sales',
+  'purchase',
+  'credit_note',
+  'debit_note',
+  'stock_journal',
+  'physical_stock',
+  /** Delivery challan (WP 2.5): goods out, no ledger lines. */
+  'delivery_note',
+  /** Goods receipt note (WP 2.5): goods in, no ledger lines. */
+  'receipt_note'
+] as const
+
+export type VoucherKind = (typeof VOUCHER_KINDS)[number]
+
+/** Kinds that move stock only and post no ledger lines (voucher_kinds.stock_only = 1). */
+export const STOCK_ONLY_KINDS: readonly VoucherKind[] = ['stock_journal', 'physical_stock', 'delivery_note', 'receipt_note']
+
+/** The trade-cycle stock notes (WP 2.5): a party, inventory lines in one direction, no ledger lines. */
+export const STOCK_NOTE_KINDS: readonly VoucherKind[] = ['delivery_note', 'receipt_note']
+
+/** Why goods moved on a delivery challan / GRN (trade_voucher_details.purpose, migration 025). */
+export const TRADE_PURPOSES = ['supply', 'job_work', 'approval', 'liquid_gas', 'non_supply', 'purchase', 'return'] as const
+export type TradePurpose = (typeof TRADE_PURPOSES)[number]
+
+/** Order / quotation kinds (trade_doc_types.kind) — non-posting documents (WP 2.5c screens). */
+export const TRADE_DOC_KINDS = ['quotation', 'sales_order', 'purchase_order'] as const
+export type TradeDocKind = (typeof TRADE_DOC_KINDS)[number]
+
+export type LinkType = 'fulfil' | 'return'
+
+/** Where an inventory line came from (WP 2.5 line_links): the source line's stable uid. */
+export interface LineSource {
+  lineUid: string
+  linkType: LinkType
+}
+
+/** A numbering series for orders / quotations — same knobs as VoucherType. */
+export interface TradeDocType {
+  id: number
+  name: string
+  kind: TradeDocKind
+  numbering: 'auto' | 'manual'
+  prefix: string
+  suffix: string
+  padWidth: number
+  restartFy: boolean
+  isSystem: boolean
+}
 
 export interface VoucherType {
   id: number
@@ -248,6 +292,13 @@ export interface InventoryLine {
   /** Serial numbers this line moves (serial-tracked items, WP 2.3); getVoucher always sets it
    *  ([] when none). Optional only so older hand-built fixtures keep compiling. */
   serials?: string[]
+  /** Stable line identity (migration 024) — survives edits; trade links key on it. getVoucher
+   *  always sets it. Optional only so older hand-built fixtures keep compiling. */
+  lineUid?: string
+  /** false = the goods moved on the linked challan / GRN line (server-derived, WP 2.5). */
+  movesStock?: boolean
+  /** The line this one fulfils / returns (null = none). */
+  source?: LineSource | null
 }
 
 export interface Voucher {
@@ -293,6 +344,9 @@ export interface Voucher {
   billRefs: VoucherBillRef[]
   /** TDS deducted on this voucher, if any. */
   tds: VoucherTds | null
+  /** Delivery challan / GRN facts (trade_voucher_details, WP 2.5); null for every other kind.
+   *  Optional only so older hand-built fixtures keep compiling. */
+  trade?: { purpose: TradePurpose } | null
   createdAt: string
   updatedAt: string
 }
@@ -362,6 +416,10 @@ export interface Godown {
   id: number
   name: string
   address: string | null
+  /** WP 2.4: 'job_worker' = a third party's premises holding our material for job work. */
+  kind: 'own' | 'job_worker'
+  /** The job worker's party ledger (required for kind 'job_worker'; null for own godowns). */
+  partyLedgerId: number | null
 }
 
 /** A batch/lot of a stock item (F11 `batches`), created on the fly from voucher entry. */
@@ -412,6 +470,11 @@ export interface CreditLimitWarning {
 export interface SaveVoucherWarnings {
   negativeStock: NegativeStockWarning[]
   creditLimitExceeded: CreditLimitWarning | null
+  /** WP 2.5 I7: linked lines whose source document is dated after this voucher. */
+  linkDates?: string[]
+  /** WP 2.5 §3.4: GRN lines this bill draws on that sit in a locked period / closed year — the
+   *  price difference is not loaded into stock (the link is frozen, reprices = 0). */
+  frozenRepricing?: string[]
 }
 
 export interface CompanyInfo {
