@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { seededDb } from '../db/testdb'
 import type { DB } from '../db/connection'
-import type { EmployeeInput } from '@shared/schemas'
+import type { EmployeeInputPayload as EmployeeInput } from '@shared/schemas'
 import { setLockDate } from './vouchers'
 import {
   saveEmployee, listEmployees, listPayHeads, savePayHead, deletePayHead,
@@ -97,16 +97,17 @@ describe('commitRun', () => {
     const byName = new Map(lines.map((l) => [l.name, l]))
     expect(byName.get('Salaries')).toMatchObject({ drCr: 'dr', amount: 32_000_00 })
     expect(byName.get('Employer PF Contribution')).toMatchObject({ drCr: 'dr', amount: 1_800_00 })
-    // admin 0.5% + EDLI 0.5% on the capped ₹15,000 wage = ₹75 + ₹75
-    expect(byName.get('PF Admin & EDLI Charges')).toMatchObject({ drCr: 'dr', amount: 150_00 })
-    expect(byName.get('PF Payable')).toMatchObject({ drCr: 'cr', amount: 1_800_00 + 1_800_00 + 150_00 })
+    // admin 0.5% + EDLI 0.5% on the capped ₹15,000 wage = ₹75 + ₹75, and (WP 3.7) the EPFO
+    // minimum admin charge of ₹500 a month per establishment tops admin up by ₹425.
+    expect(byName.get('PF Admin & EDLI Charges')).toMatchObject({ drCr: 'dr', amount: 75_00 + 75_00 + 425_00 })
+    expect(byName.get('PF Payable')).toMatchObject({ drCr: 'cr', amount: 1_800_00 + 1_800_00 + 575_00 })
     const dr = lines.filter((l) => l.drCr === 'dr').reduce((s, l) => s + l.amount, 0)
     const cr = lines.filter((l) => l.drCr === 'cr').reduce((s, l) => s + l.amount, 0)
     expect(dr).toBe(cr)
 
     // Stored line carries the statutory split + head breakdown
     const stored = getRun(db, run.id)!.lines[0]!
-    expect(stored.epsEr).toBe(1_249_50)
+    expect(stored.epsEr).toBe(1_250_00) // 1,249.50 rupee-rounded (EPS 2026 para 4(3))
     expect(stored.pfAdmin).toBe(75_00)
     expect(stored.edli).toBe(75_00)
     expect(stored.headAmounts.length).toBeGreaterThan(0)
@@ -174,7 +175,9 @@ describe('statutory exports', () => {
     const lines = text.split('\n')
     expect(lines[0]).toContain('IP Number')
     expect(lines).toHaveLength(2)
-    expect(lines[1]).toBe('1234567890,Asha Kumar,31,18000,0,')
+    // WP 3.7: from 21-11-2025 ESI wages are Code on Social Security s.2(88) wages — basic +
+    // special 14,000 (HRA 4,000 is excluded and under half of remuneration), not gross 18,000.
+    expect(lines[1]).toBe('1234567890,Asha Kumar,31,14000,0,')
   })
 
   it('ptSummaryForRun groups PT by the employees\' states', () => {

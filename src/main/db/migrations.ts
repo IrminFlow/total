@@ -1525,5 +1525,307 @@ export const MIGRATIONS: string[] = [
     SELECT g.name, c.id, c.life_months, 500, 'slm', b.id, 1
       FROM m026_groups g JOIN ca_asset_classes c ON c.code = g.class JOIN it_blocks b ON b.code = g.block;
   DROP TABLE m026_groups;
+  `,
+  // 029 (WP 3.7) — payroll statutory. Number assigned by the orchestrator (027 TCS and 028 GST
+  // expansion are in flight); appended self-contained — it depends only on 003/005/015/020.
+  //
+  // DATA MODEL
+  // - statutory_rates: effective-dated, user-editable rate rows. kind 'epf' / 'eps' / 'edli' /
+  //   'epf_admin' / 'esi_emp' / 'esi_er' carry rate_bp + ceiling (PF wage ceiling) / threshold (ESI
+  //   coverage ceiling) / min (EPF admin minimum per establishment; ESI: the average daily wage at
+  //   or below which the employee share is nil); variant 'disabled' = the ESI ceiling for persons
+  //   with disability. kind 'pt' rows are slabs per state (slab_to inclusive, NULL = no ceiling),
+  //   on a basis ('month' | 'half_year' | 'year'), optionally restricted to a gender (Maharashtra's
+  //   women's slab), with a special month (Maharashtra / Karnataka February ₹300). kind 'ss_wages'
+  //   switches the Code on Social Security 2020 s.2(88) wage definition on (rate_bp = the 50%
+  //   exclusion cap). `source` cites every seeded row; verified = 1 when read from the official
+  //   text. The engine (src/shared/payrollStatutory.ts) reads them through statutoryRatesOn.
+  // - employees: the statutory profile (PF member id, gender, date of birth, regime, VPF, PF on
+  //   full wages, EPS membership, disability, metro rent, TDS on). PAN / UAN / ESIC number and the
+  //   PT state already existed (003 / 015).
+  // - employee_tax_declarations: investment / income declarations per employee x FY x section.
+  // - pay_heads.in_wages: 1 = the head is "wages" under CoSS s.2(88) (basic, DA, retaining
+  //   allowance and every allowance not excluded); 0 = excluded (HRA, conveyance, overtime,
+  //   commission, bonus …). Seeded: Basic 1, HRA 0, Special Allowance 1.
+  // - payroll_lines: VPF, EPF/EPS/EDLI wages as remitted, ESI coverage flag (contribution-period
+  //   stickiness), salary TDS, the PT state and regime at posting, and the TDS projection JSON.
+  //   payroll_runs.pf_admin_topup: the EPFO minimum admin charge top-up posted on the run.
+  // - ledgers.statutory_kind ('pf' | 'esi' | 'pt' | 'salary') tags the payable ledgers the pay run
+  //   credits (mirrors tds_payable_section_id). Salary TDS is credited to the section-192 TDS
+  //   payable ledger (tds_payable_section_id, seeded section below) — the TDS screen's tag.
+  // - tds_entries.employee_id: a salary TDS entry (party_ledger_id = the Salaries Payable ledger
+  //   the journal credits, PAN = the employee's). Form 26Q/16A skip these; Form 24Q reads them.
+  // - statutory_payments: a month's PF / ESI / PT (per state) / salary TDS deposit, with the
+  //   Payment voucher that booked it.
+  //
+  // SOURCES (all accessed 2026-10-07; "VERIFIED" = read in the official text):
+  //  [EPFS52]  EPF Scheme 1952 (archived official PDF) — para 26A(2) ₹15,000 ceiling from 1-9-2014,
+  //            para 29 rates + rounding, para 38(1) due date — VERIFIED —
+  //            https://web.archive.org/web/2024id_/https://www.epfindia.gov.in/site_docs/PDFs/Downloads_PDFs/EPFScheme.pdf
+  //  [EPFS26]  EPF Scheme 2026, G.S.R. 525(E) 29-6-2026 (supersedes the 1952 Scheme): para 18(2)
+  //            12% of wages, 18(3) ceiling, 18(5) rupee rounding (50 paise up), 19 VPF (employer not
+  //            bound to match), 9(4) joint option above the ceiling, 20(1)/28(3) within 15 days of
+  //            the close of the month, 29(1) admin charges — VERIFIED —
+  //            https://egazette.gov.in/WriteReadData/2026/273957.pdf
+  //  [EPS26]   EPS 2026, G.S.R. 527(E) 29-6-2026: para 4(1) 8.33% of wages up to the ceiling, 4(3)
+  //            rounding, 7(1) membership — VERIFIED — https://egazette.gov.in/WriteReadData/2026/273951.pdf ;
+  //            G.S.R. 847(E) para 7(1)(iii) — https://egazette.gov.in/WriteReadData/2026/276595.pdf
+  //  [SO3582]  S.O. 3582(E) 1-7-2026: 12% under CoSS s.16(1)(a) proviso, deemed from 21-11-2025 —
+  //            VERIFIED — https://egazette.gov.in/WriteReadData/2026/274112.pdf
+  //  [SO5109]  S.O. 5109(E) 17-9-2026: wage ceiling ₹25,000 for Chapter III from 17-9-2026,
+  //            superseding S.O. 2702(E) (₹15,000) — VERIFIED — https://egazette.gov.in/WriteReadData/2026/276299.pdf ;
+  //            press note https://www.labour.gov.in/static/uploads/2026/09/4f607a88c5342aeb980c6b999997caab.pdf
+  //  [EPFRATE] EPFO "Present Rates of Contribution": EDLI 0.5% (EDLI admin nil from 1-4-2017),
+  //            admin 0.50% from 1-6-2018, minimum ₹500 a month (₹75 with no contributing member) —
+  //            VERIFIED — https://web.archive.org/web/2024id_/https://www.epfindia.gov.in/site_docs/PDFs/MiscPDFs/ContributionRate.pdf
+  //  [ECR]     EPFO "Introduction – ECR Version II" field order — VERIFIED —
+  //            https://web.archive.org/web/2024id_/https://www.epfindia.gov.in/site_docs/PDFs/EPFOUnifiedPortal/Introduction_ECR2.0.pdf
+  //  [COSS]    Code on Social Security 2020 — s.2(88) wages (50% rule), s.2(89) wage ceiling,
+  //            s.16(1), s.164(2) — VERIFIED — https://prsindia.org/files/bills_acts/acts_parliament/2020/Code%20On%20Social%20Security,%202020.pdf ;
+  //            in force 21-11-2025 by S.O. 5319(E) (recited in ESIC draft regulations, VERIFIED)
+  //  [ESIC-W]  ESIC circular P-11/12/MinistryMol&E/2024-RevII 11-12-2025: s.2(88) wages apply to
+  //            ESI from 21-11-2025 — VERIFIED — https://esic.gov.in/attachments/circularfile/New_wage_definition_u_s_2_88_of_The_Code_on_Social_Security_2020_1765902209.pdf
+  //  [SSR26]   Social Security (Central) Rules 2026, G.S.R. 344(E) 8-5-2026, rule 19(1): employer
+  //            3.25%, employee 0.75%, "rounded to the next higher rupee" — VERIFIED —
+  //            https://egazette.gov.in/WriteReadData/2026/272366.pdf
+  //  [ESIC-C]  ESIC contribution page: 0.75% / 3.25% from 1-7-2019; daily wage ≤ ₹176 no employee
+  //            share; contribution periods Apr–Sep / Oct–Mar; due within 15 days — VERIFIED (that
+  //            ESIC says so) — https://esic.gov.in/contribution
+  //  [PT-MH]   Maharashtra Profession Tax Act 1975 Schedule I entry 1 (from 1-4-2023) — VERIFIED —
+  //            https://www.mahagst.gov.in/public/uploads/mvatservices/1761635767Rate%20Schedules%20under%20the%20Professions%20Tax%20Act,%201975%201.pdf
+  //  [PT-KA]   Karnataka Tax on Professions (Amendment) Act No. 33 of 2025 (from 1-4-2025), gazette
+  //            scan — VERIFIED (scan hosted at https://taxguru.in/wp-content/uploads/2025/04/Karnataka-PT-Amendment-Act-2025_compressed-1-4.pdf)
+  //  [PT-WB]   West Bengal: schedule w.e.f. 1-4-2014 (https://comtax.wb.gov.in/Ptax-Schedule-New_(w.e.f._1-4-2014).pdf,
+  //            UNVERIFIED); from 1-10-2026 Notification 1407-F.T. 18-8-2026 (draft, VERIFIED) —
+  //            https://comtax.wb.gov.in/pdf/SAR-470_Finance%20Dept(Rev)_1407-FT.pdf — final 1607-F.T.
+  //            16-9-2026 UNVERIFIED
+  //  [PT-TN]   Greater Chennai Corporation half-yearly PT from 1-10-2024 (TN Urban Local Bodies Act
+  //            1998) — UNVERIFIED (secondary: https://akriviahcm.com/resources/wp-content/uploads/2025/02/Revision-of-Chennai-Corporation-Professional-Tax-1.pdf);
+  //            rates differ by local body
+  //  [PT-GJ]   Gujarat Notification GHN-35-PFT-2022-S.3(2)(10)-Th 8-4-2022 — VERIFIED —
+  //            https://commercialtax.gujarat.gov.in/vatwebsite/download/cir_noti/NOTI/Profession_Tax_NOTI_08042022.pdf
+  //  [PT-TS]   Telangana Tax on Professions Act 1987, First Schedule entry 1 — VERIFIED —
+  //            https://www.tgct.gov.in/tgportal/AllActs/APPT/APPTSchedule.aspx
+  //  [PT-AP]   Andhra Pradesh Act 22 of 1987 as amended by Act 12 of 2013 — UNVERIFIED (secondary:
+  //            https://www.legitquest.com/act/andhra-pradesh-tax-on-professions-trades-callings-and-employments-amendment-act-2013/5529)
+  //  [PT-MP]   MP Vritti Kar (Sanshodhan) Adhiniyam 2018 (Act 20 of 2018) — UNVERIFIED (Act text on
+  //            https://www.legitquest.com/act/madhya-pradesh-vritti-kar-sanshodhan-adhiniyam-2018/103BD)
+  //  [A276]    Constitution Article 276(2): PT ≤ ₹2,500 a year — VERIFIED —
+  //            https://www.constitutionofindia.net/articles/article-276-taxes-on-professions-trades-callings-and-employments/
+  //  [IT61]    Income-tax Act 1961 s.192 (salary TDS at the average rate) — https://www.incometaxindia.gov.in
+  //  [ACT25]   Income-tax Act 2025 s.392 (salary) — https://egazette.gov.in/WriteReadData/2025/265620.pdf
+  //  [F24Q]    Protean Form 24Q Regular Q4 file format v7.5 (27-05-2025), Annexure 2 section codes
+  //            92A Govt (non-Union) / 92B non-Govt / 92C Union Govt — VERIFIED —
+  //            https://tinpan.proteantech.in/downloads/e-tds/File_Format_24Q_Regular_Q4_Version_7.5_27052025_201112.xls
+  //  [R26]     Income-tax Rules 2026, G.S.R. 198(E) 20-3-2026: rule 219(1) Sl.1 Form 138 replaces 24Q,
+  //            Annexure I note 1 codes 1001 Govt (non-Union) / 1002 non-Govt / 1003 Union Govt; rule
+  //            219(4) due 31 Jul / 31 Oct / 31 Jan / 31 May; rule 218 deposit by the 7th, March by
+  //            30 April; rule 215(1) Sl.1 Form 130 replaces Form 16 — VERIFIED —
+  //            https://egazette.gov.in/WriteReadData/2026/271092.pdf
+  // NOT MODELLED: the September-2026 split month is handled by day-weighting the ceiling (EPFO
+  // FAQ, UNVERIFIED source); the ESI employer-share waiver for persons with disability (SSR26
+  // r.19(2)); the 10% EPF rate for notified establishments (edit the epf row).
+  `
+  CREATE TABLE statutory_rates (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    kind TEXT NOT NULL CHECK (kind IN ('epf', 'eps', 'edli', 'epf_admin', 'esi_emp', 'esi_er', 'pt', 'ss_wages')),
+    state TEXT,
+    effective_from TEXT NOT NULL,
+    effective_to TEXT,
+    rate_bp INTEGER CHECK (rate_bp IS NULL OR rate_bp BETWEEN 0 AND 10000),
+    ceiling_paise INTEGER CHECK (ceiling_paise IS NULL OR ceiling_paise >= 0),
+    threshold_paise INTEGER CHECK (threshold_paise IS NULL OR threshold_paise >= 0),
+    min_paise INTEGER CHECK (min_paise IS NULL OR min_paise >= 0),
+    slab_from_paise INTEGER CHECK (slab_from_paise IS NULL OR slab_from_paise >= 0),
+    slab_to_paise INTEGER CHECK (slab_to_paise IS NULL OR slab_to_paise >= 0),
+    amount_paise INTEGER CHECK (amount_paise IS NULL OR amount_paise >= 0),
+    basis TEXT NOT NULL DEFAULT 'month' CHECK (basis IN ('month', 'half_year', 'year')),
+    gender TEXT NOT NULL DEFAULT 'any' CHECK (gender IN ('any', 'male', 'female')),
+    variant TEXT NOT NULL DEFAULT 'standard' CHECK (variant IN ('standard', 'disabled')),
+    special_month INTEGER CHECK (special_month IS NULL OR special_month BETWEEN 1 AND 12),
+    special_amount_paise INTEGER CHECK (special_amount_paise IS NULL OR special_amount_paise >= 0),
+    source TEXT NOT NULL,
+    verified INTEGER NOT NULL DEFAULT 0 CHECK (verified IN (0, 1)),
+    is_seeded INTEGER NOT NULL DEFAULT 0,
+    CHECK (effective_to IS NULL OR effective_to >= effective_from),
+    CHECK (kind <> 'pt' OR state IS NOT NULL)
+  );
+  CREATE INDEX idx_statutory_rates_kind ON statutory_rates(kind, state, effective_from);
+
+  -- EPF / EPS / EDLI: ₹15,000 ceiling to 16-9-2026, ₹25,000 from 17-9-2026 [SO5109].
+  INSERT INTO statutory_rates (kind, effective_from, effective_to, rate_bp, ceiling_paise, min_paise, source, verified, is_seeded) VALUES
+    ('epf', '2014-09-01', '2026-09-16', 1200, 1500000, NULL,
+     'EPF Act s.6; EPF Scheme 1952 para 26A(2) ceiling Rs 15,000 from 1-9-2014 [EPFS52]; 12% continued under CoSS s.16(1)(a) by S.O. 3582(E) [SO3582], EPF Scheme 2026 para 18 [EPFS26]; accessed 2026-10-07', 1, 1),
+    ('epf', '2026-09-17', NULL, 1200, 2500000, NULL,
+     'EPF Scheme 2026 para 18(2)-(3) [EPFS26]; 12% per S.O. 3582(E) [SO3582]; ceiling Rs 25,000 from 17-9-2026 per S.O. 5109(E) [SO5109]; accessed 2026-10-07', 1, 1),
+    ('eps', '2014-09-01', '2026-09-16', 833, 1500000, NULL,
+     'EPS 1995 para 3(2) / EPS 2026 para 4(1): 8.33% of pay up to the ceiling [EPS26]; accessed 2026-10-07', 1, 1),
+    ('eps', '2026-09-17', NULL, 833, 2500000, NULL,
+     'EPS 2026 para 4(1) proviso, ceiling Rs 25,000 per S.O. 5109(E) [EPS26][SO5109]; accessed 2026-10-07', 1, 1),
+    ('edli', '2014-09-01', '2026-09-16', 50, 1500000, NULL,
+     'EPFO Present Rates of Contribution: EDLI 0.5% of wages up to the ceiling, EDLI admin nil from 1-4-2017 [EPFRATE]; accessed 2026-10-07', 1, 1),
+    ('edli', '2026-09-17', NULL, 50, 2500000, NULL,
+     'EDLI 0.5% [EPFRATE] on the Rs 25,000 ceiling [SO5109]; EDLI Scheme 2026 (G.S.R. 526(E)) rate notification not read — UNVERIFIED; accessed 2026-10-07', 0, 1),
+    ('epf_admin', '2018-06-01', NULL, 50, NULL, 50000,
+     'EPFO admin charges 0.50% of EPF wages from 1-6-2018, minimum Rs 500 a month per establishment [EPFRATE]; EPF Scheme 2026 para 29(1) [EPFS26]; notification no. (S.O. 2011(E) 21-5-2018) UNVERIFIED; accessed 2026-10-07', 1, 1);
+
+  -- ESI: rates from 1-7-2019 [ESIC-C], restated by SS (Central) Rules 2026 r.19(1) [SSR26].
+  -- threshold = coverage ceiling (Rs 21,000; Rs 25,000 with disability); min = daily wage Rs 176.
+  INSERT INTO statutory_rates (kind, variant, effective_from, effective_to, rate_bp, threshold_paise, min_paise, source, verified, is_seeded) VALUES
+    ('esi_emp', 'standard', '2019-07-01', '2026-05-07', 75, 2100000, 17600,
+     'ESI employee 0.75% from 1-7-2019; ceiling Rs 21,000; no employee share at average daily wage <= Rs 176 [ESIC-C https://esic.gov.in/contribution]; G.S.R. 423(E) 2019 UNVERIFIED; accessed 2026-10-07', 1, 1),
+    ('esi_emp', 'standard', '2026-05-08', NULL, 75, 2100000, 17600,
+     'Social Security (Central) Rules 2026 r.19(1)(b) 0.75%, rounded to the next higher rupee [SSR26]; Rs 21,000 ceiling and Rs 176 exemption per ESIC practice [ESIC-C] — legal basis under the Code UNVERIFIED; accessed 2026-10-07', 0, 1),
+    ('esi_emp', 'disabled', '2017-01-01', NULL, 75, 2500000, 17600,
+     'ESI coverage ceiling Rs 25,000 for persons with disability [ESIC-C]; start date and basis under the Code UNVERIFIED; accessed 2026-10-07', 0, 1),
+    ('esi_er', 'standard', '2019-07-01', '2026-05-07', 325, NULL, NULL,
+     'ESI employer 3.25% from 1-7-2019 [ESIC-C https://esic.gov.in/contribution]; accessed 2026-10-07', 1, 1),
+    ('esi_er', 'standard', '2026-05-08', NULL, 325, NULL, NULL,
+     'Social Security (Central) Rules 2026 r.19(1)(a) 3.25%, rounded to the next higher rupee [SSR26]; accessed 2026-10-07', 1, 1);
+
+  -- Code on Social Security wages (s.2(88), 50% rule) for EPF and ESI from 21-11-2025 [COSS][ESIC-W].
+  INSERT INTO statutory_rates (kind, effective_from, rate_bp, source, verified, is_seeded) VALUES
+    ('ss_wages', '2025-11-21', 5000,
+     'Code on Social Security 2020 s.2(88) wages (basic + DA + retaining allowance + allowances not excluded; excluded items above 50% of remuneration added back) in force 21-11-2025 (S.O. 5319(E)) [COSS]; applies to ESI per ESIC circular 11-12-2025 [ESIC-W] and to EPF per EPF Scheme 2026 para 18(2) [EPFS26]; accessed 2026-10-07', 1, 1);
+
+  -- Professional tax slabs. Paise; slab_to inclusive (NULL = no ceiling); slab_from = display only.
+  CREATE TEMP TABLE m029_pt (state TEXT, eff_from TEXT, eff_to TEXT, gender TEXT, basis TEXT, s_from INTEGER, s_to INTEGER,
+    amount INTEGER, sp_month INTEGER, sp_amount INTEGER, src TEXT, verified INTEGER);
+  INSERT INTO m029_pt VALUES
+    -- Maharashtra, monthly, Schedule I entry 1 from 1-4-2023 [PT-MH]: men <= 7,500 nil; 7,501-10,000 Rs 175; > 10,000 Rs 200 (Feb Rs 300); women <= 25,000 nil, > 25,000 Rs 200 (Feb Rs 300).
+    ('MH', '2023-04-01', NULL, 'any', 'month', 0, 750000, 0, NULL, NULL, 'MH PT Act 1975 Sch. I entry 1 [PT-MH]; accessed 2026-10-07', 1),
+    ('MH', '2023-04-01', NULL, 'any', 'month', 750100, 1000000, 17500, NULL, NULL, 'MH PT Act 1975 Sch. I entry 1 [PT-MH]; accessed 2026-10-07', 1),
+    ('MH', '2023-04-01', NULL, 'any', 'month', 1000100, NULL, 20000, 2, 30000, 'MH PT Act 1975 Sch. I entry 1, Rs 300 in February (Rs 2,500 a year) [PT-MH]; accessed 2026-10-07', 1),
+    ('MH', '2023-04-01', NULL, 'female', 'month', 0, 2500000, 0, NULL, NULL, 'MH PT Act 1975 Sch. I entry 1, women up to Rs 25,000 nil [PT-MH]; accessed 2026-10-07', 1),
+    ('MH', '2023-04-01', NULL, 'female', 'month', 2500100, NULL, 20000, 2, 30000, 'MH PT Act 1975 Sch. I entry 1, women above Rs 25,000 [PT-MH]; accessed 2026-10-07', 1),
+    -- Karnataka, monthly, from 1-4-2025 (Act 33 of 2025) [PT-KA]: below 25,000 nil; 25,000 and above Rs 200 (Feb Rs 300).
+    ('KA', '2025-04-01', NULL, 'any', 'month', 0, 2499999, 0, NULL, NULL, 'Karnataka Tax on Professions Act 1976 Sch. as amended by Act 33 of 2025 [PT-KA]; accessed 2026-10-07', 1),
+    ('KA', '2025-04-01', NULL, 'any', 'month', 2500000, NULL, 20000, 2, 30000, 'Karnataka Tax on Professions Act 1976 Sch. as amended by Act 33 of 2025: Rs 200 a month, Rs 300 in February [PT-KA]; accessed 2026-10-07', 1),
+    -- West Bengal, monthly, schedule w.e.f. 1-4-2014 to 30-9-2026 [PT-WB] (UNVERIFIED).
+    ('WB', '2014-04-01', '2026-09-30', 'any', 'month', 0, 850000, 0, NULL, NULL, 'WB State Tax on Professions Act 1979 schedule w.e.f. 1-4-2014 [PT-WB] — UNVERIFIED; accessed 2026-10-07', 0),
+    ('WB', '2014-04-01', '2026-09-30', 'any', 'month', 850100, 1000000, 9000, NULL, NULL, 'WB schedule w.e.f. 1-4-2014 [PT-WB] — UNVERIFIED; accessed 2026-10-07', 0),
+    ('WB', '2014-04-01', '2026-09-30', 'any', 'month', 1000100, 1500000, 11000, NULL, NULL, 'WB schedule w.e.f. 1-4-2014 [PT-WB] — UNVERIFIED; accessed 2026-10-07', 0),
+    ('WB', '2014-04-01', '2026-09-30', 'any', 'month', 1500100, 2500000, 13000, NULL, NULL, 'WB schedule w.e.f. 1-4-2014 [PT-WB] — UNVERIFIED; accessed 2026-10-07', 0),
+    ('WB', '2014-04-01', '2026-09-30', 'any', 'month', 2500100, 4000000, 15000, NULL, NULL, 'WB schedule w.e.f. 1-4-2014 [PT-WB] — UNVERIFIED; accessed 2026-10-07', 0),
+    ('WB', '2014-04-01', '2026-09-30', 'any', 'month', 4000100, NULL, 20000, NULL, NULL, 'WB schedule w.e.f. 1-4-2014 [PT-WB] — UNVERIFIED; accessed 2026-10-07', 0),
+    -- West Bengal from 1-10-2026 (Notification 1407-F.T. draft, VERIFIED; final 1607-F.T. UNVERIFIED).
+    ('WB', '2026-10-01', NULL, 'any', 'month', 0, 2000000, 0, NULL, NULL, 'WB Notification 1407-F.T. 18-8-2026 (draft; final 1607-F.T. 16-9-2026 UNVERIFIED) [PT-WB]; accessed 2026-10-07', 0),
+    ('WB', '2026-10-01', NULL, 'any', 'month', 2000100, 3000000, 10000, NULL, NULL, 'WB Notification 1407-F.T. [PT-WB]; accessed 2026-10-07', 0),
+    ('WB', '2026-10-01', NULL, 'any', 'month', 3000100, 5000000, 14000, NULL, NULL, 'WB Notification 1407-F.T. [PT-WB]; accessed 2026-10-07', 0),
+    ('WB', '2026-10-01', NULL, 'any', 'month', 5000100, 10000000, 17000, NULL, NULL, 'WB Notification 1407-F.T. [PT-WB]; accessed 2026-10-07', 0),
+    ('WB', '2026-10-01', NULL, 'any', 'month', 10000100, NULL, 20800, NULL, NULL, 'WB Notification 1407-F.T. [PT-WB]; accessed 2026-10-07', 0),
+    -- Tamil Nadu (Greater Chennai Corporation), HALF-YEARLY income, from 1-10-2024 [PT-TN] (UNVERIFIED).
+    ('TN', '2024-10-01', NULL, 'any', 'half_year', 0, 2100000, 0, NULL, NULL, 'Chennai Corporation PT half-yearly from 1-10-2024 [PT-TN] — UNVERIFIED; accessed 2026-10-07', 0),
+    ('TN', '2024-10-01', NULL, 'any', 'half_year', 2100100, 3000000, 18000, NULL, NULL, 'Chennai Corporation PT [PT-TN] — UNVERIFIED; accessed 2026-10-07', 0),
+    ('TN', '2024-10-01', NULL, 'any', 'half_year', 3000100, 4500000, 42500, NULL, NULL, 'Chennai Corporation PT [PT-TN] — UNVERIFIED; accessed 2026-10-07', 0),
+    ('TN', '2024-10-01', NULL, 'any', 'half_year', 4500100, 6000000, 93000, NULL, NULL, 'Chennai Corporation PT [PT-TN] — UNVERIFIED; accessed 2026-10-07', 0),
+    ('TN', '2024-10-01', NULL, 'any', 'half_year', 6000100, 7500000, 102500, NULL, NULL, 'Chennai Corporation PT [PT-TN] — UNVERIFIED; accessed 2026-10-07', 0),
+    ('TN', '2024-10-01', NULL, 'any', 'half_year', 7500100, NULL, 125000, NULL, NULL, 'Chennai Corporation PT [PT-TN] — UNVERIFIED; accessed 2026-10-07', 0),
+    -- Gujarat, monthly, from 1-4-2022 [PT-GJ]: up to 12,000 nil; more than 12,000 Rs 200.
+    ('GJ', '2022-04-01', NULL, 'any', 'month', 0, 1200000, 0, NULL, NULL, 'Gujarat Notification GHN-35-PFT-2022 8-4-2022 [PT-GJ]; accessed 2026-10-07', 1),
+    ('GJ', '2022-04-01', NULL, 'any', 'month', 1200001, NULL, 20000, NULL, NULL, 'Gujarat Notification GHN-35-PFT-2022 8-4-2022: more than Rs 12,000 [PT-GJ]; accessed 2026-10-07', 1),
+    -- Telangana, monthly [PT-TS] (VERIFIED; effective date = state formation, UNVERIFIED).
+    ('TS', '2014-06-02', NULL, 'any', 'month', 0, 1500000, 0, NULL, NULL, 'Telangana Tax on Professions Act 1987 First Sch. entry 1 [PT-TS]; effective date UNVERIFIED; accessed 2026-10-07', 1),
+    ('TS', '2014-06-02', NULL, 'any', 'month', 1500100, 2000000, 15000, NULL, NULL, 'Telangana PT Act 1987 First Sch. entry 1 [PT-TS]; accessed 2026-10-07', 1),
+    ('TS', '2014-06-02', NULL, 'any', 'month', 2000100, NULL, 20000, NULL, NULL, 'Telangana PT Act 1987 First Sch. entry 1 [PT-TS]; accessed 2026-10-07', 1),
+    -- Andhra Pradesh, monthly, Act 12 of 2013 [PT-AP] (UNVERIFIED).
+    ('AP', '2013-02-06', NULL, 'any', 'month', 0, 1500000, 0, NULL, NULL, 'AP Tax on Professions Act 1987 as amended by Act 12 of 2013 [PT-AP] — UNVERIFIED; accessed 2026-10-07', 0),
+    ('AP', '2013-02-06', NULL, 'any', 'month', 1500100, 2000000, 15000, NULL, NULL, 'AP PT Act 1987 [PT-AP] — UNVERIFIED; accessed 2026-10-07', 0),
+    ('AP', '2013-02-06', NULL, 'any', 'month', 2000100, NULL, 20000, NULL, NULL, 'AP PT Act 1987 [PT-AP] — UNVERIFIED; accessed 2026-10-07', 0),
+    -- Madhya Pradesh, ANNUAL salary, deducted monthly (last-month remainder), from 1-4-2018 [PT-MP] (UNVERIFIED).
+    ('MP', '2018-04-01', NULL, 'any', 'year', 0, 22500000, 0, NULL, NULL, 'MP Vritti Kar Adhiniyam 1995 as amended by Act 20 of 2018 [PT-MP] — UNVERIFIED; accessed 2026-10-07', 0),
+    ('MP', '2018-04-01', NULL, 'any', 'year', 22500100, 30000000, 150000, NULL, NULL, 'MP Vritti Kar Act 20 of 2018: Rs 1,500 a year (Rs 125 x 12) [PT-MP] — UNVERIFIED; accessed 2026-10-07', 0),
+    ('MP', '2018-04-01', NULL, 'any', 'year', 30000100, 40000000, 200000, NULL, NULL, 'MP Vritti Kar Act 20 of 2018: Rs 2,000 a year (Rs 166 x 11 + Rs 174) [PT-MP] — UNVERIFIED; accessed 2026-10-07', 0),
+    ('MP', '2018-04-01', NULL, 'any', 'year', 40000100, NULL, 250000, NULL, NULL, 'MP Vritti Kar Act 20 of 2018: Rs 2,500 a year (Rs 208 x 11 + Rs 212) [PT-MP] — UNVERIFIED; accessed 2026-10-07', 0);
+  INSERT INTO statutory_rates (kind, state, effective_from, effective_to, gender, basis, slab_from_paise, slab_to_paise, amount_paise,
+      special_month, special_amount_paise, source, verified, is_seeded)
+    SELECT 'pt', state, eff_from, eff_to, gender, basis, s_from, s_to, amount, sp_month, sp_amount, src, verified, 1 FROM m029_pt;
+  DROP TABLE m029_pt;
+
+  -- Employee statutory profile.
+  ALTER TABLE employees ADD COLUMN pf_number TEXT;
+  ALTER TABLE employees ADD COLUMN gender TEXT CHECK (gender IS NULL OR gender IN ('male', 'female', 'other'));
+  ALTER TABLE employees ADD COLUMN dob TEXT;
+  ALTER TABLE employees ADD COLUMN tax_regime TEXT NOT NULL DEFAULT 'new' CHECK (tax_regime IN ('new', 'old'));
+  ALTER TABLE employees ADD COLUMN vpf_rate_bp INTEGER NOT NULL DEFAULT 0 CHECK (vpf_rate_bp >= 0);
+  ALTER TABLE employees ADD COLUMN pf_full_wage INTEGER NOT NULL DEFAULT 0;
+  ALTER TABLE employees ADD COLUMN eps_eligible INTEGER NOT NULL DEFAULT 1;
+  ALTER TABLE employees ADD COLUMN is_disabled INTEGER NOT NULL DEFAULT 0;
+  ALTER TABLE employees ADD COLUMN metro INTEGER NOT NULL DEFAULT 0;
+  ALTER TABLE employees ADD COLUMN tds_enabled INTEGER NOT NULL DEFAULT 1;
+
+  CREATE TABLE employee_tax_declarations (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    employee_id INTEGER NOT NULL REFERENCES employees(id) ON DELETE CASCADE,
+    fy_start_year INTEGER NOT NULL,
+    section TEXT NOT NULL CHECK (section IN ('80C', '80CCD1B', '80D', '80D_PARENTS', '24B', 'RENT', 'OTHER_INCOME', 'PREV_SALARY', 'PREV_TDS', 'PREV_PT')),
+    amount_paise INTEGER NOT NULL CHECK (amount_paise >= 0),
+    proof_received INTEGER NOT NULL DEFAULT 0 CHECK (proof_received IN (0, 1)),
+    UNIQUE (employee_id, fy_start_year, section)
+  );
+
+  ALTER TABLE pay_heads ADD COLUMN in_wages INTEGER NOT NULL DEFAULT 1 CHECK (in_wages IN (0, 1));
+  UPDATE pay_heads SET in_wages = 0 WHERE name = 'HRA' COLLATE NOCASE;
+
+  ALTER TABLE payroll_runs ADD COLUMN pf_admin_topup INTEGER NOT NULL DEFAULT 0;
+  ALTER TABLE payroll_lines ADD COLUMN vpf INTEGER NOT NULL DEFAULT 0;
+  ALTER TABLE payroll_lines ADD COLUMN epf_wage INTEGER NOT NULL DEFAULT 0;
+  ALTER TABLE payroll_lines ADD COLUMN eps_wage INTEGER NOT NULL DEFAULT 0;
+  ALTER TABLE payroll_lines ADD COLUMN edli_wage INTEGER NOT NULL DEFAULT 0;
+  ALTER TABLE payroll_lines ADD COLUMN esi_covered INTEGER NOT NULL DEFAULT 0;
+  ALTER TABLE payroll_lines ADD COLUMN esi_wage INTEGER NOT NULL DEFAULT 0;
+  ALTER TABLE payroll_lines ADD COLUMN tds INTEGER NOT NULL DEFAULT 0;
+  ALTER TABLE payroll_lines ADD COLUMN pt_state TEXT;
+  ALTER TABLE payroll_lines ADD COLUMN tax_regime TEXT CHECK (tax_regime IS NULL OR tax_regime IN ('new', 'old'));
+  ALTER TABLE payroll_lines ADD COLUMN tds_workings_json TEXT;
+  -- Pre-029 lines: wages as the old engine remitted them (basic capped at Rs 15,000), coverage from the contributions.
+  UPDATE payroll_lines SET
+    epf_wage = CASE WHEN pf_emp > 0 THEN MIN(basic, 1500000) ELSE 0 END,
+    eps_wage = CASE WHEN eps_er > 0 THEN MIN(basic, 1500000) ELSE 0 END,
+    edli_wage = CASE WHEN edli > 0 THEN MIN(basic, 1500000) ELSE 0 END,
+    esi_covered = CASE WHEN esi_emp > 0 OR esi_er > 0 THEN 1 ELSE 0 END,
+    esi_wage = CASE WHEN esi_emp > 0 OR esi_er > 0 THEN gross ELSE 0 END,
+    pt_state = (SELECT e.pt_state FROM employees e WHERE e.id = payroll_lines.employee_id);
+
+  -- Tagged statutory payable ledgers; backfill the names the pay run always created.
+  ALTER TABLE ledgers ADD COLUMN statutory_kind TEXT CHECK (statutory_kind IS NULL OR statutory_kind IN ('pf', 'esi', 'pt', 'salary'));
+  UPDATE ledgers SET statutory_kind = 'pf' WHERE name = 'PF Payable' COLLATE NOCASE;
+  UPDATE ledgers SET statutory_kind = 'esi' WHERE name = 'ESI Payable' COLLATE NOCASE;
+  UPDATE ledgers SET statutory_kind = 'pt' WHERE name = 'Professional Tax Payable' COLLATE NOCASE;
+  UPDATE ledgers SET statutory_kind = 'salary' WHERE name = 'Salaries Payable' COLLATE NOCASE;
+  CREATE INDEX idx_ledgers_statutory_kind ON ledgers(statutory_kind) WHERE statutory_kind IS NOT NULL;
+
+  -- Salary TDS: section 192 (1961) / 392 (2025 Act) [IT61][ACT25]. No flat rate — the payroll engine
+  -- deducts at the average rate on estimated salary; the rate rows carry the return codes only.
+  INSERT OR IGNORE INTO tds_sections (code, description, rate, threshold_single, threshold_annual, nature, act, legacy_code, new_reference) VALUES
+    ('192', 'Salary', 0, 0, 0, 'Salary (deducted by payroll at the average rate of income-tax on estimated salary)', 'it_act_1961', '192', '392');
+  INSERT INTO tds_section_rates (section_id, effective_from, effective_to, deductee_type, rate_bp, threshold_single_paise, threshold_annual_paise,
+      threshold_basis, no_pan_rate_bp, return_code, source)
+    SELECT id, '2025-04-01', '2026-03-31', 'any', 0, 0, 0, 'fy', 2000, '92B',
+      'Income-tax Act 1961 s.192(1) average rate on estimated salary (computed by payroll, not a flat rate); 24Q section code 92B [F24Q]; no PAN s.206AA(1) — 20% or the average rate if higher; accessed 2026-10-07'
+      FROM tds_sections WHERE code = '192';
+  INSERT INTO tds_section_rates (section_id, effective_from, effective_to, deductee_type, rate_bp, threshold_single_paise, threshold_annual_paise,
+      threshold_basis, no_pan_rate_bp, return_code, source)
+    SELECT id, '2026-04-01', NULL, 'any', 0, 0, 0, 'fy', 2000, '1002',
+      'Income-tax Act 2025 s.392(1) salary TDS at the average rate [ACT25]; Form 138 code 1002 (non-Government) per Income-tax Rules 2026 Annexure I note 1 [R26]; accessed 2026-10-07'
+      FROM tds_sections WHERE code = '192';
+
+  ALTER TABLE tds_entries ADD COLUMN employee_id INTEGER REFERENCES employees(id);
+  CREATE INDEX idx_tds_entries_employee ON tds_entries(employee_id) WHERE employee_id IS NOT NULL;
+
+  CREATE TABLE statutory_payments (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    kind TEXT NOT NULL CHECK (kind IN ('pf', 'esi', 'pt', 'tds')),
+    period TEXT NOT NULL,
+    state TEXT,
+    amount_paise INTEGER NOT NULL CHECK (amount_paise > 0),
+    payment_voucher_id INTEGER REFERENCES vouchers(id) ON DELETE SET NULL,
+    reference TEXT,
+    paid_on TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    CHECK (kind = 'pt' OR state IS NULL)
+  );
+  CREATE INDEX idx_statutory_payments_period ON statutory_payments(kind, period);
+  CREATE INDEX idx_statutory_payments_voucher ON statutory_payments(payment_voucher_id);
   `
 ]

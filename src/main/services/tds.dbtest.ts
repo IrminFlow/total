@@ -68,7 +68,9 @@ describe('sections and rates after migration 020', () => {
   it('lists the five original sections plus 194J(a), 194-I(a) and 194Q, with both Act references', () => {
     const db = seededDb()
     const sections = listSections(db)
-    expect(sections.map((s) => s.code).sort()).toEqual(['194A', '194C', '194H', '194I', '194I(A)', '194J', '194J(A)', '194Q'])
+    // '192' (salary, 2025 Act s.392) is seeded by migration 029 (WP 3.7).
+    expect(sections.map((s) => s.code).sort()).toEqual(['192', '194A', '194C', '194H', '194I', '194I(A)', '194J', '194J(A)', '194Q'])
+    expect(sections.find((s) => s.code === '192')).toMatchObject({ legacyCode: '192', newReference: '392' })
     expect(sections.find((s) => s.code === '194C')).toMatchObject({ legacyCode: '194C', newReference: '393(1) Sl. 6(i)', act: 'it_act_1961' })
     // Every cited row names its source; carried rows say they weren't re-verified.
     for (const r of listRates(db)) expect(r.source).toBeTruthy()

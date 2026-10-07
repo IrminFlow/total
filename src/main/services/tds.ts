@@ -825,7 +825,7 @@ function entriesBetween(db: DB, from: string, to: string): TdsEntryRow[] {
   const rows = db
     .prepare(
       `SELECT te.id AS entryId, v.id AS voucherId, v.number AS voucherNumber, v.date AS date,
-              te.party_ledger_id AS partyLedgerId, l.name AS partyName, te.pan AS pan,
+              te.party_ledger_id AS partyLedgerId, COALESCE(emp.name, l.name) AS partyName, te.pan AS pan,
               te.section_id AS sectionId, ts.code AS sectionCode, te.base_amount AS baseAmount, te.tds_amount AS tdsAmount,
               te.rate_bp_at AS rateBp, te.deductee_type_at AS deducteeType, te.is_manual AS isManual,
               tec.challan_id AS challanId
@@ -833,6 +833,7 @@ function entriesBetween(db: DB, from: string, to: string): TdsEntryRow[] {
        JOIN vouchers v ON v.id = te.voucher_id
        JOIN tds_sections ts ON ts.id = te.section_id
        JOIN ledgers l ON l.id = te.party_ledger_id
+       LEFT JOIN employees emp ON emp.id = te.employee_id -- WP 3.7: salary TDS names the employee
        LEFT JOIN tds_entry_challans tec ON tec.entry_id = te.id
        WHERE v.date BETWEEN ? AND ? AND ${IN_BOOKS}
        ORDER BY v.date, v.id`

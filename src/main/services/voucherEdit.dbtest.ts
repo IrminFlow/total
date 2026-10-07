@@ -64,7 +64,7 @@ function setup(db: DB) {
   const igst = ledger(db, 'IGST', 'Duties & Taxes', { taxType: 'igst' })
   const cess = ledger(db, 'Cess', 'Duties & Taxes', { taxType: 'cess' })
   const roundOff = ledger(db, 'Round Off', 'Indirect Expenses')
-  const section = listSections(db)[0]!
+  const section = listSections(db).find((s) => s.code === '194A')! // the first non-salary section (192 is seeded by 029)
   const ids = {
     cgst, sgst, igst, cess, roundOff,
     buyer: ledger(db, 'Buyer MH', 'Sundry Debtors', { stateCode: '27' }),

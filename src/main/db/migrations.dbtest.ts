@@ -64,6 +64,9 @@ const EXPECTED_TABLES = [
   'fixed_asset_additions',
   'depreciation_runs',
   'depreciation_lines',
+  'statutory_rates',
+  'employee_tax_declarations',
+  'statutory_payments',
   'migrations'
 ]
 

@@ -529,6 +529,25 @@ export interface Employee {
   /** Professional-tax state code (PT_SLABS key in src/shared/payroll.ts), e.g. 'MH'. */
   ptState: string
   active: boolean
+  /** WP 3.7 statutory profile (migration 029). */
+  /** EPF member id (establishment code + member number), as on the ECR / pay slip. */
+  pfNumber: string | null
+  gender: 'male' | 'female' | 'other' | null
+  dob: string | null
+  /** Income-tax regime the employee opted for this year (new = default regime). */
+  taxRegime: 'new' | 'old'
+  /** Voluntary PF over the 12%, basis points of PF wages. */
+  vpfRateBp: number
+  /** EPF on actual basic above the ₹15,000 ceiling (joint option, EPF Scheme para 26A(2)). */
+  pfOnFullWage: boolean
+  /** EPS member (false: joined on/after 1-9-2014 above the ceiling, or 58+). */
+  epsEligible: boolean
+  /** Person with disability — ESI ceiling ₹25,000. */
+  disabled: boolean
+  /** Rents in a metro city (HRA exemption 50% vs 40%). */
+  metro: boolean
+  /** Deduct salary TDS in pay runs. */
+  tdsEnabled: boolean
 }
 
 /** One computed pay-head amount on a payroll line (mirrors PayHeadAmount in src/shared/payroll.ts). */
@@ -564,6 +583,36 @@ export interface PayrollLine {
   net: number
   /** Per-head prorated amounts (empty for pre-pay-heads runs). */
   headAmounts: PayrollHeadAmount[]
+  /** WP 3.7 (0 / false / null on lines posted before migration 029). */
+  vpf: number
+  epfWage: number
+  epsWage: number
+  edliWage: number
+  esiCovered: boolean
+  esiWage: number
+  /** Salary TDS deducted this month. */
+  tds: number
+  /** The year's projection the TDS came from (null when TDS is off / pre-029). */
+  tdsWorkings: SalaryWorkingsSnapshot | null
+}
+
+/** The TDS projection behind one month's deduction (mirrors payrollStatutory.SalaryWorkings plus
+ *  the spread inputs). */
+export interface SalaryWorkingsSnapshot {
+  regime: 'new' | 'old'
+  act: '1961' | '2025'
+  gross: number
+  hraExemption: number
+  standardDeduction: number
+  professionalTax: number
+  otherIncome: number
+  housePropertyLoss: number
+  deductionsTotal: number
+  totalIncome: number
+  annualTax: number
+  previousEmployerTds: number
+  deductedBefore: number
+  monthsRemaining: number
 }
 
 export interface PayrollRun {
@@ -571,6 +620,8 @@ export interface PayrollRun {
   month: string
   voucherId: number | null
   createdAt: string
+  /** EPFO minimum admin-charge top-up posted on the run (0 when the 0.5% already exceeds it). */
+  pfAdminTopUp: number
   lines: PayrollLine[]
 }
 

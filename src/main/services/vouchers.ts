@@ -66,6 +66,8 @@ const PURPOSES_FOR: Partial<Record<VoucherKind, readonly TradePurpose[]>> = {
  *  flow, budget actuals) exclude them, so a closed year still reports its real profit. */
 export const NOT_YEAR_END_CLOSE = 'v.is_year_end_close = 0'
 
+export const PAYROLL_VOUCHER_EDIT = 'This is a pay run’s salary journal — delete the pay run on the Payroll screen and post it again'
+
 export const YEAR_END_CLOSE_IMMUTABLE =
   "Year-end closing entries can't be edited. Move it to the bin to reopen the year, then close again."
 
@@ -367,6 +369,9 @@ export function saveVoucher(db: DB, raw: VoucherInput, existingId?: number, hook
     }
     // WP 3.6: depreciation-run and disposal journals belong to the fixed-asset register.
     assertNotFixedAssetVoucher(db, existingId)
+    // WP 3.7: a salary journal belongs to its pay run (payroll lines, statutory dues, salary TDS
+    // entries for 24Q) — an edit here would leave them describing other figures.
+    if (db.prepare('SELECT 1 FROM payroll_runs WHERE voucher_id = ?').get(existingId)) throw new Error(PAYROLL_VOUCHER_EDIT)
   }
   const vt = getVoucherType(db, input.voucherTypeId)
   // TDS (WP 3.1): resolve the payable credit for tds.autoPayable (a ledger that doesn't exist
