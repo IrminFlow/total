@@ -45,6 +45,7 @@ import { CostCentresScreen } from './screens/CostCentres'
 import { BudgetsScreen } from './screens/Budgets'
 import { YearEndScreen } from './screens/YearEnd'
 import { Settings } from './screens/Settings'
+import { EditLogScreen } from './screens/EditLog'
 import { SearchResultsScreen, FOCUS_SEARCH_EVENT } from './screens/SearchResults'
 import { CommandPalette } from './components/CommandPalette'
 import { ShortcutHelp } from './components/ShortcutHelp'
@@ -209,6 +210,7 @@ export default function App(): React.JSX.Element {
           {screen.name === 'budgets' && <BudgetsScreen />}
           {screen.name === 'year-end' && <YearEndScreen />}
           {screen.name === 'company-info' && <CompanyInfoScreen />}
+          {screen.name === 'audit-trail' && <EditLogScreen key={screen.voucherId ?? 'all'} voucherId={screen.voucherId} />}
           {screen.name === 'settings' && <Settings key={screen.tab ?? 'backups'} tab={screen.tab} />}
         </ErrorBoundary>
       </Shell>
