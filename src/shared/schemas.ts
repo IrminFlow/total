@@ -3,6 +3,7 @@ import { GST_STATES } from './gst/states'
 import { validateGstin } from './gst/validate'
 import { isUqc } from './gst/uqc'
 import { PT_STATES } from './payroll'
+import { TRADE_DOC_KINDS, TRADE_PURPOSES, VOUCHER_KINDS } from './domain'
 
 export const isoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Expected YYYY-MM-DD')
 
@@ -173,6 +174,10 @@ export const tdsSchema = z.object({
   autoPayable: z.boolean().default(false)
 })
 
+/** A stable line uid: 32 lowercase hex chars (migration 024 backfill / crypto.randomUUID sans hyphens). */
+export const lineUidSchema = z.string().regex(/^[0-9a-f]{32}$/, 'Expected a 32-hex line uid')
+export const lineSourceSchema = z.object({ lineUid: lineUidSchema, linkType: z.enum(['fulfil', 'return']) })
+
 export const inventoryLineSchema = z
   .object({
     stockItemId: id,
@@ -191,7 +196,12 @@ export const inventoryLineSchema = z
     isAbsolute: z.boolean().optional(),
     /** Serial numbers moved by this line (WP 2.3) — one per unit for serial-tracked items
      *  (src/shared/serials.ts); dropped for items that don't track serials. */
-    serials: z.array(z.string().trim().min(1).max(60)).max(5000).optional()
+    serials: z.array(z.string().trim().min(1).max(60)).max(5000).optional(),
+    /** Stable line identity (WP 2.5): kept only when it belonged to this voucher's saved lines —
+     *  saveVoucher assigns a fresh one otherwise. Absent = a new line. */
+    lineUid: lineUidSchema.optional(),
+    /** The line this one fulfils / returns (WP 2.5 line_links); null/absent = none. */
+    source: lineSourceSchema.nullable().optional()
   })
   .refine((l) => l.isAbsolute || l.qtyMilli > 0, {
     message: 'Inventory quantity must be positive',
@@ -221,7 +231,9 @@ export const voucherInputSchema = z.object({
   lines: z.array(voucherLineSchema).max(200),
   inventory: z.array(inventoryLineSchema).max(200).default([]),
   billRefs: z.array(billRefSchema).max(50).default([]),
-  tds: tdsSchema.nullable().default(null)
+  tds: tdsSchema.nullable().default(null),
+  /** Delivery challan / GRN facts (WP 2.5); only stored for those kinds. */
+  trade: z.object({ purpose: z.enum(TRADE_PURPOSES) }).nullable().optional()
 })
 export type VoucherInputParsed = z.infer<typeof voucherInputSchema>
 /** Unparsed shape (defaults optional) — saveVoucher parses internally. */
@@ -229,10 +241,7 @@ export type VoucherInput = z.input<typeof voucherInputSchema>
 
 export const voucherTypeInputSchema = z.object({
   name: z.string().trim().min(1).max(60),
-  kind: z.enum([
-    'contra', 'payment', 'receipt', 'journal', 'sales',
-    'purchase', 'credit_note', 'debit_note', 'stock_journal', 'physical_stock'
-  ]),
+  kind: z.enum(VOUCHER_KINDS),
   numbering: z.enum(['auto', 'manual']).default('auto'),
   prefix: z.string().trim().max(20).default(''),
   suffix: z.string().trim().max(20).default(''),
@@ -240,6 +249,38 @@ export const voucherTypeInputSchema = z.object({
   restartFy: z.boolean().default(true)
 })
 export type VoucherTypeInput = z.infer<typeof voucherTypeInputSchema>
+
+// ---------- trade cycle (WP 2.5a: links, kinds, numbering series) ----------
+
+export const tradeDocKindSchema = z.enum(TRADE_DOC_KINDS)
+
+/** A quotation / order numbering series (trade_doc_types) — the voucher-type knobs. */
+export const tradeDocTypeInputSchema = z.object({
+  name: z.string().trim().min(1).max(60),
+  kind: tradeDocKindSchema,
+  numbering: z.enum(['auto', 'manual']).default('auto'),
+  prefix: z.string().trim().max(20).default(''),
+  suffix: z.string().trim().max(20).default(''),
+  padWidth: z.number().int().min(0).max(8).default(0),
+  restartFy: z.boolean().default(true)
+})
+export type TradeDocTypeInput = z.infer<typeof tradeDocTypeInputSchema>
+
+export const tradeDocTypeSaveSchema = z.object({ id: id.optional(), data: tradeDocTypeInputSchema })
+
+export const tradeDocNextNumberSchema = z.object({ docTypeId: id, date: isoDate })
+
+export const linksForVoucherSchema = z.object({ voucherId: id })
+
+/** Open source lines a party could draw on for a target kind (the 2.5b "Add from…" drawer). */
+export const openSourceLinesSchema = z.object({
+  partyLedgerId: id,
+  targetKind: z.union([z.enum(VOUCHER_KINDS), tradeDocKindSchema]),
+  linkType: z.enum(['fulfil', 'return']).default('fulfil'),
+  /** The voucher being altered: its own links don't count against capacity. */
+  excludeVoucherId: id.optional()
+})
+export type OpenSourceLinesQuery = z.infer<typeof openSourceLinesSchema>
 
 export const periodSchema = z.object({ from: isoDate, to: isoDate })
 export type Period = z.infer<typeof periodSchema>
@@ -850,6 +891,6 @@ export type StockLabelsInput = z.infer<typeof stockLabelsSchema>
 /** serials:list / serials:available. */
 export const serialsListSchema = z.object({
   stockItemId: id.optional(),
-  status: z.enum(['in_stock', 'sold', 'consumed', 'returned']).optional()
+  status: z.enum(['in_stock', 'sold', 'consumed', 'returned', 'delivered']).optional()
 })
 export const serialsAvailableSchema = z.object({ stockItemId: id, voucherId: id.optional() })

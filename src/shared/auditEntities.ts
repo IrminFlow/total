@@ -35,6 +35,7 @@ export const AUDIT_ENTITIES = [
   'tdsChallan',
   'tdsRate',
   'tdsSection',
+  'tradeDocType',
   'unit',
   'user',
   'voucher',

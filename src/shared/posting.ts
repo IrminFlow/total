@@ -1,4 +1,4 @@
-import type { DrCr, VoucherKind } from './domain'
+import { STOCK_ONLY_KINDS, type DrCr, type LineSource, type VoucherKind } from './domain'
 import { isValidISODate } from './dates'
 
 export interface CostAllocationInput {
@@ -25,6 +25,10 @@ export interface InventoryLineInput {
   direction: 'in' | 'out'
   /** Physical Stock line: qtyMilli is the counted closing quantity (may be 0), not a movement. */
   isAbsolute?: boolean
+  /** Stable line identity (WP 2.5) — the server keeps it only when it was already this voucher's. */
+  lineUid?: string
+  /** The line this one fulfils / returns (WP 2.5 line_links). */
+  source?: LineSource | null
 }
 
 export interface BillRefInput {
@@ -54,6 +58,8 @@ export interface VoucherInput {
   billRefs?: BillRefInput[]
   /** TDS deducted on this voucher, if any. Not yet validated beyond schema-level shape. */
   tds?: TdsInput | null
+  /** Optional (memorandum) voucher — absent = keep the stored flag. */
+  isOptional?: boolean
 }
 
 /** What the validator needs to know about a ledger, resolved by the caller. */
@@ -94,7 +100,7 @@ export function validateVoucher(
     errors.push({ code: 'bad_date', message: `Invalid date: ${input.date}` })
   }
 
-  if (kind === 'physical_stock' || kind === 'stock_journal') {
+  if (STOCK_ONLY_KINDS.includes(kind)) {
     if (input.inventory.length === 0) {
       errors.push({ code: 'no_inventory', message: 'Stock vouchers need at least one stock item line' })
     }
@@ -145,6 +151,38 @@ export function validateVoucher(
       errors.push({ code: 'bad_qty', message: 'Inventory quantity must be positive' })
     }
   })
+
+  // Delivery challan / GRN (WP 2.5): a party's goods moving one way, no books effect at all.
+  if (kind === 'delivery_note' || kind === 'receipt_note') {
+    const label = kind === 'delivery_note' ? 'A delivery note' : 'A receipt note'
+    const want = kind === 'delivery_note' ? 'out' : 'in'
+    if (input.lines.length > 0) {
+      errors.push({ code: 'stock_note_ledger_lines', message: `${label} moves goods only — it can't carry ledger lines` })
+    }
+    if ((input.billRefs ?? []).length > 0 || input.tds) {
+      errors.push({ code: 'stock_note_bills', message: `${label} can't carry bill references or TDS` })
+    }
+    if (input.partyLedgerId === null) {
+      errors.push({ code: 'stock_note_party', message: `${label} needs a party` })
+    }
+    if (input.inventory.some((l) => l.isAbsolute || l.direction !== want)) {
+      errors.push({
+        code: 'stock_note_direction',
+        message: `${label} only takes goods ${want === 'out' ? 'out' : 'in'} (no physical-count lines)`
+      })
+    }
+  }
+
+  // Trade links (WP 2.5): never on memorandum vouchers or plain stock vouchers (I6). The link
+  // rules proper (pairs, capacity, party/item) need the DB — services/tradeLinks.ts.
+  if (input.inventory.some((l) => l.source)) {
+    if (kind === 'stock_journal' || kind === 'physical_stock') {
+      errors.push({ code: 'link_kind', message: 'Stock journals and physical stock vouchers cannot be linked to other documents' })
+    }
+    if (input.isOptional) {
+      errors.push({ code: 'link_optional', message: 'An optional (memorandum) voucher cannot be linked to other documents' })
+    }
+  }
 
   // Double-entry invariant — the one rule that never bends.
   if (kind !== 'physical_stock') {

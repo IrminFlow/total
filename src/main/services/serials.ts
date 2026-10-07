@@ -3,7 +3,8 @@ import { toDisplayDate } from '@shared/dates'
 import { voucherSerialErrors, walkSerials, type SerialEvent, type SerialLine, type SerialStatus } from '@shared/serials'
 import type { VoucherKind } from '@shared/domain'
 import type { SerialListRow } from '@shared/stockPlanning'
-import { NOT_DELETED, NOT_OPTIONAL } from './vouchers'
+import { MOVES_STOCK, NOT_DELETED, NOT_OPTIONAL } from './vouchers'
+import { hasTradeSchema } from './tradeLinks'
 
 /**
  * Serial numbers (WP 2.3). The rules are pure (src/shared/serials.ts); this module persists a
@@ -72,6 +73,9 @@ export function rebuildItemSerials(db: DB, itemIds: readonly number[]): void {
   for (const id of unique) del.run(id)
   if (tracked.size === 0) return
   const ids = [...tracked.keys()]
+  // WP 2.5: an invoice line whose goods moved on its challan names the serials (they print) but
+  // moves none — only stock-moving lines walk.
+  const trade = hasTradeSchema(db)
   const rows = db
     .prepare(
       `SELECT il.id AS lineId, il.voucher_id AS voucherId, il.stock_item_id AS stockItemId, il.direction, il.serials,
@@ -80,7 +84,7 @@ export function rebuildItemSerials(db: DB, itemIds: readonly number[]): void {
        JOIN vouchers v ON v.id = il.voucher_id
        JOIN voucher_types vt ON vt.id = v.voucher_type_id
        WHERE il.stock_item_id IN (${ids.map(() => '?').join(',')}) AND il.serials IS NOT NULL AND il.is_absolute = 0
-         AND ${NOT_DELETED} AND ${NOT_OPTIONAL}
+         AND ${NOT_DELETED} AND ${NOT_OPTIONAL} ${trade ? `AND ${MOVES_STOCK}` : ''}
        ORDER BY v.date, v.id, il.direction = 'in', il.line_order, il.id`
     )
     .all(...ids) as WalkRow[]
@@ -96,6 +100,16 @@ export function rebuildItemSerials(db: DB, itemIds: readonly number[]): void {
   }
   const walk = walkSerials(events, (id) => tracked.get(id) ?? 'Item')
   if (!walk.ok) throw new Error(walk.error)
+  // §9 Q7: out on a challan = 'delivered'; 'sold' once a live invoice line linked to the
+  // challan line names the serial.
+  // A challan that sends rejected goods back to the supplier (a return of a GRN line) → 'returned'.
+  const invoiced = trade ? invoicedSerialKeys(db, ids) : new Set<string>()
+  const rejectedOut = trade ? returnLineIds(db, ids) : new Set<number>()
+  for (const r of walk.records) {
+    if (r.status !== 'delivered') continue
+    if (r.outwardLineId != null && rejectedOut.has(r.outwardLineId)) r.status = 'returned'
+    else if (invoiced.has(`${r.stockItemId}|${r.serial}`)) r.status = 'sold'
+  }
   const ins = db.prepare(
     `INSERT INTO serial_numbers (stock_item_id, serial, batch_id, godown_id, status, inward_line_id, outward_line_id)
      VALUES (?, ?, ?, ?, ?, ?, ?)`
@@ -103,6 +117,35 @@ export function rebuildItemSerials(db: DB, itemIds: readonly number[]): void {
   for (const r of walk.records) {
     ins.run(r.stockItemId, r.serial, r.batchId, r.godownId, r.status, r.inwardLineId, r.outwardLineId)
   }
+}
+
+/** Inventory line ids (of these items) that are the target of a return link. */
+function returnLineIds(db: DB, itemIds: readonly number[]): Set<number> {
+  const rows = db
+    .prepare(
+      `SELECT il.id FROM inventory_lines il JOIN line_links ll ON ll.to_line_uid = il.line_uid AND ll.link_type = 'return'
+       WHERE il.stock_item_id IN (${itemIds.map(() => '?').join(',')}) AND ${MOVES_STOCK}`
+    )
+    .all(...itemIds) as { id: number }[]
+  return new Set(rows.map((r) => r.id))
+}
+
+/** item|serial keys named by live, non-moving sales lines that fulfil a challan line. */
+function invoicedSerialKeys(db: DB, itemIds: readonly number[]): Set<string> {
+  const rows = db
+    .prepare(
+      `SELECT il.stock_item_id AS stockItemId, il.serials
+       FROM inventory_lines il
+       JOIN vouchers v ON v.id = il.voucher_id
+       JOIN voucher_types vt ON vt.id = v.voucher_type_id
+       JOIN line_links ll ON ll.to_line_uid = il.line_uid AND ll.link_type = 'fulfil'
+       WHERE il.moves_stock = 0 AND il.serials IS NOT NULL AND vt.kind = 'sales'
+         AND il.stock_item_id IN (${itemIds.map(() => '?').join(',')}) AND ${NOT_DELETED} AND ${NOT_OPTIONAL}`
+    )
+    .all(...itemIds) as { stockItemId: number; serials: string }[]
+  const out = new Set<string>()
+  for (const r of rows) for (const s of parseLineSerials(r.serials)) out.add(`${r.stockItemId}|${s}`)
+  return out
 }
 
 /**

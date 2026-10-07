@@ -16,7 +16,8 @@
  *     Within one voucher the outward lines are walked before the inward lines, so a godown
  *     transfer (out of A, into B) of the same serial is fine.
  *  4. Status after the last movement: inward → 'in_stock'; outward on a sales voucher → 'sold';
- *     on a debit note (purchase return) → 'returned'; any other outward (stock journal /
+ *     on a debit note (purchase return) → 'returned'; on a delivery challan → 'delivered' (then
+ *     'sold' once a live invoice line drawn from that challan line names it); any other outward (stock journal /
  *     manufacture consumption, journals) → 'consumed'. Only 'in_stock' serials can go out.
  *  5. A binned (soft-deleted) or optional voucher's serials don't count: binning a sale releases
  *     its serials back into stock; restoring it re-applies them (and is refused if one was
@@ -25,7 +26,7 @@
 
 import type { VoucherKind } from './domain'
 
-export type SerialStatus = 'in_stock' | 'sold' | 'consumed' | 'returned'
+export type SerialStatus = 'in_stock' | 'sold' | 'consumed' | 'returned' | 'delivered'
 
 export const SERIAL_MAX_LENGTH = 60
 
@@ -41,6 +42,8 @@ export function parseSerialText(text: string): string[] {
 export function outwardSerialStatus(kind: VoucherKind): SerialStatus {
   if (kind === 'sales') return 'sold'
   if (kind === 'debit_note') return 'returned'
+  // WP 2.5 (§9 Q7): out on a delivery challan; becomes 'sold' once invoiced (services/serials.ts).
+  if (kind === 'delivery_note') return 'delivered'
   return 'consumed'
 }
 

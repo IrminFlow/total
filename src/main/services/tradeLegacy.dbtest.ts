@@ -63,7 +63,9 @@ function legacyCopy(src: DB): DB {
       const cols = (db.prepare(`PRAGMA table_info(${t})`).all() as { name: string }[]).map((c) => c.name)
       const srcCols = new Set((src.prepare(`PRAGMA table_info(${t})`).all() as { name: string }[]).map((c) => c.name))
       const common = cols.filter((c) => srcCols.has(c))
-      const rows = src.prepare(`SELECT ${common.join(', ')} FROM ${t}`).all() as Record<string, unknown>[]
+      // The stock-note voucher types are what migration 024 itself adds — a legacy book has none.
+      const where = t === 'voucher_types' ? " WHERE kind NOT IN ('delivery_note', 'receipt_note')" : ''
+      const rows = src.prepare(`SELECT ${common.join(', ')} FROM ${t}${where}`).all() as Record<string, unknown>[]
       const ins = db.prepare(`INSERT INTO ${t} (${common.join(', ')}) VALUES (${common.map((c) => '@' + c).join(', ')})`)
       for (const r of rows) ins.run(r)
     }
@@ -102,7 +104,11 @@ describe('legacy books are unchanged by WP 2.5a', () => {
 
   it('a legacy copy of Demo Traders, migrated forward, reports the same figures', async () => {
     const legacy = legacyCopy(demo)
+    expect(legacy.prepare("SELECT COUNT(*) AS n FROM voucher_types WHERE name IN ('Delivery Note', 'Receipt Note')").get()).toEqual({ n: 0 })
     migrate(legacy)
+    // The migration really ran on the copy: new kinds seeded, every line given a uid.
+    expect(legacy.prepare("SELECT COUNT(*) AS n FROM voucher_types WHERE kind IN ('delivery_note', 'receipt_note')").get()).toEqual({ n: 2 })
+    expect(legacy.prepare('SELECT COUNT(*) AS n FROM inventory_lines WHERE line_uid IS NULL OR moves_stock <> 1').get()).toEqual({ n: 0 })
     await expect(JSON.stringify(figures(legacy), null, 1)).toMatchFileSnapshot('./__snapshots__/tradeLegacy.demo.json')
     legacy.close()
   })

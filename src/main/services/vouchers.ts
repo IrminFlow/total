@@ -1,17 +1,23 @@
 import type { DB } from '../db/connection'
-import type {
-  Voucher, VoucherLine, InventoryLine, VoucherType, NegativeStockWarning, SaveVoucherWarnings
+import {
+  STOCK_NOTE_KINDS,
+  type Voucher, type VoucherLine, type InventoryLine, type VoucherType, type NegativeStockWarning, type SaveVoucherWarnings,
+  type TradePurpose, type VoucherKind
 } from '@shared/domain'
 import { voucherInputSchema } from '@shared/schemas'
 import type { VoucherInput, VoucherInputParsed } from '@shared/schemas'
 import type { VoucherListRow } from '@shared/reports'
 import { validateVoucher, type LedgerFacts } from '@shared/posting'
 import { fyOf } from '@shared/dates'
+import { nextSeriesNumber } from './numbering'
 import { cashBankGroupIds } from './masters'
 import { getFeatures } from './config'
 import { writeAudit } from './audit'
 import { ensureTdsPayableLedger, PENDING_PAYABLE_LEDGER, prepareVoucherTds } from './tds'
 import { parseLineSerials, rebuildItemSerials, syncVoucherSerials } from './serials'
+import {
+  assertBinnable, assertRestorable, hasTradeSchema, lineSourcesOf, resolveVoucherLines, syncVoucherLinks, type ResolvedLine
+} from './tradeLinks'
 
 interface VoucherRow {
   id: number; voucher_type_id: number; date: string; number: string
@@ -39,6 +45,19 @@ export const NOT_OPTIONAL = 'v.is_optional = 0'
 /** Composite filter: the voucher counts toward the books — not binned, not post-dated, not
  *  optional. New report queries should use this instead of NOT_DELETED alone. */
 export const IN_BOOKS = `${NOT_DELETED} AND ${NOT_POSTDATED} AND ${NOT_OPTIONAL}`
+
+/** Greppable filter for every query reading `inventory_lines` as `il` for STOCK MOVEMENT: an
+ *  invoice / bill line whose goods moved on its linked challan / GRN (moves_stock = 0, WP 2.5)
+ *  is an item line of the invoice, not a second movement. movesStockLint.test.ts checks that
+ *  every inventory_lines query in services either filters this or is allowlisted. */
+export const MOVES_STOCK = 'il.moves_stock = 1'
+
+/** Default purpose of a stock note when the input names none. */
+const DEFAULT_PURPOSE: Partial<Record<VoucherKind, TradePurpose>> = { delivery_note: 'supply', receipt_note: 'purchase' }
+const PURPOSES_FOR: Partial<Record<VoucherKind, readonly TradePurpose[]>> = {
+  delivery_note: ['supply', 'job_work', 'approval', 'liquid_gas', 'non_supply'],
+  receipt_note: ['purchase', 'return', 'job_work']
+}
 
 /** Year-end closing journals (migration 018 flag) are real postings — the trial balance, ledger
  *  statements and balances keep them — but profit-for-a-period reports (P&L, close preview, cash
@@ -93,7 +112,13 @@ export function getVoucher(db: DB, id: number): Voucher | null {
       id: number; stock_item_id: number; godown_id: number | null; batch_id: number | null
       qty_milli: number; rate_paise: number; discount_paise: number; amount: number; direction: 'in' | 'out'; is_absolute: number
       serials?: string | null
+      line_uid?: string | null; moves_stock?: number
     }[]
+  const trade = hasTradeSchema(db)
+  const sources = trade ? lineSourcesOf(db, id) : new Map()
+  const tradeRow = trade
+    ? (db.prepare('SELECT purpose FROM trade_voucher_details WHERE voucher_id = ?').get(id) as { purpose: TradePurpose } | undefined)
+    : undefined
 
   const costAllocRows = lines.length
     ? (db
@@ -165,7 +190,10 @@ export function getVoucher(db: DB, id: number): Voucher | null {
         qtyMilli: l.qty_milli, ratePaise: l.rate_paise, discountPaise: l.discount_paise,
         amount: l.amount, direction: l.direction,
         isAbsolute: !!l.is_absolute,
-        serials: parseLineSerials(l.serials)
+        serials: parseLineSerials(l.serials),
+        ...(l.line_uid != null
+          ? { lineUid: l.line_uid, movesStock: l.moves_stock !== 0, source: sources.get(l.line_uid) ?? null }
+          : {})
       })
     ),
     billRefs: billRefRows.map((r) => ({ kind: r.kind, name: r.name, amount: r.amount, dueDate: r.due_date })),
@@ -175,7 +203,8 @@ export function getVoucher(db: DB, id: number): Voucher | null {
           isManual: !!tdsRow.is_manual, rateBp: tdsRow.rate_bp_at, deducteeType: tdsRow.deductee_type_at,
           certificateId: tdsRow.certificate_id, entryId: tdsRow.id
         }
-      : null
+      : null,
+    trade: tradeRow ? { purpose: tradeRow.purpose } : null
   }
 }
 
@@ -187,35 +216,10 @@ export function getVoucher(db: DB, id: number): Voucher | null {
  * max — same as before this task, deliberately: a deleted number must never be reissued.
  */
 export function nextVoucherNumber(db: DB, voucherTypeId: number, date: string, excludeVoucherId?: number): string {
-  const vt = getVoucherType(db, voucherTypeId)
-  // Strip the suffix then the prefix in SQL (so e.g. "INV-007/24-25" with prefix "INV-" and
-  // suffix "/24-25" reads as 7) and take a single MAX — no more loading every number into JS.
-  // CAST mirrors the old parseInt(..., 10): leading digits parse, anything else reads as 0.
-  const fyClause = vt.restartFy ? 'AND date BETWEEN :from AND :to' : ''
-  const row = db
-    .prepare(
-      `SELECT COALESCE(MAX(CAST(
-         CASE WHEN :plen > 0 AND substr(stripped, 1, :plen) = :prefix
-              THEN substr(stripped, :plen + 1) ELSE stripped END AS INTEGER)), 0) AS maxn
-       FROM (
-         SELECT CASE WHEN :slen > 0 AND substr(number, -:slen) = :suffix
-                     THEN substr(number, 1, length(number) - :slen) ELSE number END AS stripped
-         FROM vouchers
-         WHERE voucher_type_id = :vtId AND id IS NOT :excludeId ${fyClause}
-       )`
-    )
-    .get({
-      vtId: vt.id,
-      excludeId: excludeVoucherId ?? -1,
-      plen: vt.prefix.length,
-      prefix: vt.prefix,
-      slen: vt.suffix.length,
-      suffix: vt.suffix,
-      ...(vt.restartFy ? { from: fyOf(date).from, to: fyOf(date).to } : {})
-    }) as { maxn: number }
-  const seq = Math.max(0, row.maxn) + 1
-  const padded = vt.padWidth > 0 ? String(seq).padStart(vt.padWidth, '0') : String(seq)
-  return `${vt.prefix}${padded}${vt.suffix}`
+  // The series arithmetic lives in numbering.ts (shared with order / quotation series, WP 2.5a).
+  return nextSeriesNumber(db, {
+    table: 'vouchers', typeColumn: 'voucher_type_id', type: getVoucherType(db, voucherTypeId), date, excludeId: excludeVoucherId
+  })
 }
 
 /** True when another live voucher of this type already carries `number` — the renderer's
@@ -296,7 +300,7 @@ export function checkStock(db: DB, stockItemIds: number[], date: string): Negati
   const movementsStmt = db.prepare(
     `SELECT il.qty_milli AS qtyMilli, il.direction, il.is_absolute AS isAbsolute
      FROM inventory_lines il JOIN vouchers v ON v.id = il.voucher_id
-     WHERE il.stock_item_id = ? AND v.date <= ? AND ${IN_BOOKS}
+     WHERE il.stock_item_id = ? AND v.date <= ? AND ${IN_BOOKS} AND ${MOVES_STOCK}
      ORDER BY v.date, v.id, il.line_order, il.id`
   )
   const warnings: NegativeStockWarning[] = []
@@ -378,12 +382,25 @@ export function saveVoucher(db: DB, raw: VoucherInput, existingId?: number, hook
 
   const warnings: SaveVoucherWarnings = { negativeStock: [], creditLimitExceeded: null }
 
+  // Delivery challan / GRN purpose (WP 2.5): absent on the input = keep the stored one.
+  const stockNote = STOCK_NOTE_KINDS.includes(vt.kind)
+  const purpose: TradePurpose | null = stockNote
+    ? (input.trade?.purpose ?? before?.trade?.purpose ?? DEFAULT_PURPOSE[vt.kind]!)
+    : null
+  if (purpose && !PURPOSES_FOR[vt.kind]!.includes(purpose)) {
+    throw new Error(`A ${vt.name} can't have the purpose "${purpose.replace('_', ' ')}"`)
+  }
+  const trade = hasTradeSchema(db)
+
   // Post-dated / optional flags (tasks 77–78): absent on the input = keep the stored value
   // (an edit that doesn't mention them mustn't silently mature a PDC).
   const postDated = input.postDated ?? before?.postDated ?? false
   const isOptional = input.isOptional ?? before?.isOptional ?? false
 
   const run = db.transaction((): number => {
+    // WP 2.5: stable line uids + resolved link sources (refused here — before anything is
+    // written — when a source is unknown, the voucher's own, or not an allowed pair).
+    const resolved: ResolvedLine[] = trade ? resolveVoucherLines(db, input.inventory, { kind: vt.kind, before }) : []
     let voucherId: number
     if (existingId) {
       db.prepare(
@@ -443,13 +460,34 @@ export function saveVoucher(db: DB, raw: VoucherInput, existingId?: number, hook
     })
 
     const insertInv = db.prepare(
-      `INSERT INTO inventory_lines (voucher_id, stock_item_id, godown_id, batch_id, qty_milli, rate_paise, discount_paise, amount, direction, is_absolute, line_order)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      trade
+        ? `INSERT INTO inventory_lines (voucher_id, stock_item_id, godown_id, batch_id, qty_milli, rate_paise, discount_paise, amount, direction, is_absolute, line_order, line_uid, moves_stock)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        : `INSERT INTO inventory_lines (voucher_id, stock_item_id, godown_id, batch_id, qty_milli, rate_paise, discount_paise, amount, direction, is_absolute, line_order)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     )
     input.inventory.forEach((l, i) =>
       insertInv.run(voucherId, l.stockItemId, l.godownId, l.batchId ?? null, l.qtyMilli, l.ratePaise,
-        l.discountPaise ?? 0, l.amount, l.direction, l.isAbsolute ? 1 : 0, i)
+        l.discountPaise ?? 0, l.amount, l.direction, l.isAbsolute ? 1 : 0, i,
+        ...(trade ? [resolved[i]!.uid, resolved[i]!.movesStock ? 1 : 0] : []))
     )
+    if (trade) {
+      // WP 2.5: the voucher's own links (as target) and its role as a source — tradeLinks.ts.
+      const lw = syncVoucherLinks(db, {
+        voucherId, kind: vt.kind, date: input.date, partyLedgerId: input.partyLedgerId, isOptional,
+        lines: input.inventory, resolved, before
+      })
+      if (lw.linkDates.length > 0) warnings.linkDates = lw.linkDates
+      if (lw.frozenRepricing.length > 0) warnings.frozenRepricing = lw.frozenRepricing
+      if (purpose) {
+        db.prepare(
+          `INSERT INTO trade_voucher_details (voucher_id, purpose) VALUES (?, ?)
+           ON CONFLICT(voucher_id) DO UPDATE SET purpose = excluded.purpose`
+        ).run(voucherId, purpose)
+      } else {
+        db.prepare('DELETE FROM trade_voucher_details WHERE voucher_id = ?').run(voucherId)
+      }
+    }
     // WP 2.3: line serials (validated, stored, serial_numbers re-projected) — services/serials.ts.
     syncVoucherSerials(db, voucherId, input.inventory, before?.inventory)
 
@@ -502,13 +540,16 @@ export function saveVoucher(db: DB, raw: VoucherInput, existingId?: number, hook
 
     // Batches: a line's batch must belong to its stock item, and an outward line can't take
     // more out of a batch than it holds (hard errors — a batch is a physical lot).
+    // A line whose goods moved on its linked challan / GRN (WP 2.5) moves nothing here.
+    const moves = (i: number): boolean => !trade || resolved[i]!.movesStock
+    const movingLines = input.inventory.filter((_l, i) => moves(i))
     const batchLines = input.inventory.filter((l) => l.batchId != null && !l.isAbsolute)
     if (batchLines.length > 0) {
       const batchStmt = db.prepare('SELECT id, stock_item_id, name FROM batches WHERE id = ?')
       const balanceStmt = db.prepare(
         `SELECT COALESCE(SUM(CASE WHEN il.direction = 'in' THEN il.qty_milli ELSE -il.qty_milli END), 0) AS bal
          FROM inventory_lines il JOIN vouchers v ON v.id = il.voucher_id
-         WHERE il.batch_id = ? AND il.is_absolute = 0 AND ${IN_BOOKS}`
+         WHERE il.batch_id = ? AND il.is_absolute = 0 AND ${IN_BOOKS} ${trade ? `AND ${MOVES_STOCK}` : ''}`
       )
       for (const line of batchLines) {
         const batch = batchStmt.get(line.batchId) as { id: number; stock_item_id: number; name: string } | undefined
@@ -517,7 +558,9 @@ export function saveVoucher(db: DB, raw: VoucherInput, existingId?: number, hook
           throw new Error(`Batch ${batch.name} belongs to a different stock item`)
         }
       }
-      const outBatchIds = [...new Set(batchLines.filter((l) => l.direction === 'out').map((l) => l.batchId!))]
+      const outBatchIds = [...new Set(
+        movingLines.filter((l) => l.batchId != null && !l.isAbsolute && l.direction === 'out').map((l) => l.batchId!)
+      )]
       for (const batchId of outBatchIds) {
         const { bal } = balanceStmt.get(batchId) as { bal: number }
         if (bal < 0) {
@@ -529,7 +572,7 @@ export function saveVoucher(db: DB, raw: VoucherInput, existingId?: number, hook
 
     // Negative stock — only items this voucher takes out (or recounts) can go negative.
     const outItemIds = [...new Set(
-      input.inventory.filter((l) => l.direction === 'out' && !l.isAbsolute).map((l) => l.stockItemId)
+      movingLines.filter((l) => l.direction === 'out' && !l.isAbsolute).map((l) => l.stockItemId)
     )]
     warnings.negativeStock = checkStock(db, outItemIds, input.date)
     if (features.preventNegativeStock && warnings.negativeStock.length > 0) {
@@ -541,7 +584,8 @@ export function saveVoucher(db: DB, raw: VoucherInput, existingId?: number, hook
     // dr-positive balance IS "outstanding + this invoice". Warn past the ledger's limit;
     // block (roll back) under F11 enforceCreditLimit. Post-dated/optional vouchers are out
     // of the books, so they never trip the limit.
-    if (input.partyLedgerId !== null && !postDated && !isOptional) {
+    // A challan / GRN posts nothing, so it never moves the party's outstanding (WP 2.5).
+    if (input.partyLedgerId !== null && !postDated && !isOptional && !stockNote) {
       const party = db
         .prepare('SELECT id, name, opening_balance, credit_limit FROM ledgers WHERE id = ?')
         .get(input.partyLedgerId) as
@@ -593,6 +637,8 @@ export function deleteVoucher(db: DB, id: number): void {
   const lock = getLockDate(db)
   if (lock && before.date <= lock) throw new Error(`Books are locked up to ${lock}`)
   db.transaction(() => {
+    // WP 2.5: refused while a live document draws on its lines (or it re-prices a frozen GRN).
+    assertBinnable(db, id)
     db.prepare("UPDATE vouchers SET deleted_at = datetime('now') WHERE id = ?").run(id)
     // WP 2.3: a binned voucher's serials no longer count (a sale's go back into stock).
     rebuildItemSerials(db, before.inventory.map((l) => l.stockItemId))
@@ -620,6 +666,8 @@ export function restoreVoucher(db: DB, id: number): void {
   }
   db.transaction(() => {
     db.prepare('UPDATE vouchers SET deleted_at = NULL WHERE id = ?').run(id)
+    // WP 2.5: its links come back to life — re-check their sources and capacity.
+    assertRestorable(db, id)
     // WP 2.3: re-apply its serials — refused (rolled back) if one has moved on meanwhile.
     rebuildItemSerials(db, before.inventory.map((l) => l.stockItemId))
   })()
@@ -712,7 +760,16 @@ export function purgeVoucher(db: DB, id: number): void {
   const before = getVoucher(db, id)
   if (!before) throw new Error('Voucher not found')
   if (!before.deletedAt) throw new Error('Voucher must be in the bin before it can be purged')
-  db.prepare('DELETE FROM vouchers WHERE id = ?').run(id)
+  try {
+    db.prepare('DELETE FROM vouchers WHERE id = ?').run(id)
+  } catch (err) {
+    // WP 2.5: line_links.from_voucher_id has no cascade — a source can't vanish under a link,
+    // even one from a binned target (restoring that target would lose its goods).
+    if (hasTradeSchema(db) && db.prepare('SELECT 1 FROM line_links WHERE from_voucher_id = ? LIMIT 1').get(id)) {
+      throw new Error('Other documents (some possibly in the bin) are linked to this voucher — purge those first')
+    }
+    throw err
+  }
   writeAudit(db, 'voucher', id, 'delete', { ...before, purged: true }, null)
 }
 
