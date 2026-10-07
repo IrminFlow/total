@@ -127,6 +127,10 @@ export const AUDIT_COVERAGE: Record<string, AuditCoverage> = {
   'tradeDocs:convert': r('returns an unsaved draft; saving it is tradeDocs:save / voucher:save'),
   'tradeDocs:duplicate': r('returns an unsaved draft; saving it is tradeDocs:save'),
   'tradeDocs:pdf': EXPORT,
+  // WP 2.5d (merged alongside WP 3.8): challan / GRN short-close and reopen, bulk close of stale quotations
+  'trade:closeVoucher': a('voucher'),
+  'trade:reopenVoucher': a('voucher'),
+  'trade:closeStaleQuotations': a('trade_doc'),
 
   // ---------- banking ----------
   'bank:setBankDate': a('voucher_line'),
