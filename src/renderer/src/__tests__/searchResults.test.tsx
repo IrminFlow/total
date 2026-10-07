@@ -66,7 +66,7 @@ const rowIds = (): string[] =>
   [...screen.getByTestId('rows-search-vouchers').querySelectorAll('tr[data-row-id]')].map((tr) => tr.getAttribute('data-row-id')!)
 
 const pagedOffsets = (): number[] =>
-  invoke.mock.calls.filter(([, p]) => (p as { kind?: string }).kind === 'voucher').map(([, p]) => (p as { offset: number }).offset)
+  invoke.mock.calls.filter(([, p]) => (p as { kind?: string } | undefined)?.kind === 'voucher').map(([, p]) => (p as { offset: number }).offset)
 
 describe('SearchResultsScreen', () => {
   it('shows counts per kind and chips; rows stay in relevance (service) order', async () => {

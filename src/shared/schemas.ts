@@ -316,6 +316,52 @@ export const tradePendingSchema = z.object({
 })
 export type TradePendingQuery = z.infer<typeof tradePendingSchema>
 
+// ---------- reports, returns, closure (WP 2.5d) ----------
+
+/** trade:chain — the linked documents around one voucher or one trade doc (exactly one id). */
+export const tradeChainSchema = z
+  .object({ voucherId: id.optional(), tradeDocId: id.optional() })
+  .refine((q) => (q.voucherId == null) !== (q.tradeDocId == null), 'Give a voucherId or a tradeDocId')
+export type TradeChainQuery = z.infer<typeof tradeChainSchema>
+
+const bp = z.number().int().min(0).max(10_000)
+const orderKindSchema = z.enum(['sales_order', 'purchase_order'])
+const returnSideSchema = z.enum(['sales', 'purchase'])
+
+/** trade:threeWayMatch — tolerances: rate as basis points of the expected amount AND a flat
+ *  amount (both must be exceeded), quantity as basis points of the received quantity. */
+export const threeWayMatchSchema = z.object({
+  from: isoDate,
+  to: isoDate,
+  rateTolBp: bp.default(0),
+  amountTolPaise: z.number().int().min(0).max(100_000_000).default(100),
+  qtyTolBp: bp.default(0),
+  flagGrnWithoutPo: z.boolean().default(true),
+  flagUnmatchedBills: z.boolean().default(false)
+})
+export type ThreeWayMatchQuery = z.input<typeof threeWayMatchSchema>
+
+export const itemDemandSchema = z.object({ asOn: isoDate, onlyOpen: z.boolean().default(true) })
+export const orderBookSchema = z.object({ kind: orderKindSchema, from: isoDate, to: isoDate })
+export const leadTimeSchema = z.object({ kind: orderKindSchema, from: isoDate, to: isoDate, asOn: isoDate })
+export const returnsRegisterSchema = z.object({ side: returnSideSchema, from: isoDate, to: isoDate })
+export const returnsRateSchema = z.object({ side: returnSideSchema, from: isoDate, to: isoDate, by: z.enum(['item', 'party']) })
+export const asOnSchema = z.object({ asOn: isoDate })
+export const staleDocumentsSchema = z.object({
+  asOn: isoDate,
+  orderAgeDays: z.number().int().min(0).max(3650).default(30),
+  noteAgeDays: z.number().int().min(0).max(3650).default(30)
+})
+/** trade:closeVoucher / trade:reopenVoucher — a challan / GRN's doc-level close. */
+export const noteActionSchema = z.object({ voucherId: id, reason: z.string().trim().max(300).nullable().default(null) })
+export const noteClosureSchema = z.object({ voucherId: id })
+/** trade:closeStaleQuotations — all stale quotations as on a date, or only `ids` among them. */
+export const closeStaleQuotationsSchema = z.object({
+  asOn: isoDate,
+  ids: z.array(id).max(1000).optional(),
+  reason: z.string().trim().max(300).nullable().default(null)
+})
+
 // ---------- quotations / sales orders / purchase orders (WP 2.5c, design §6.2) ----------
 
 /** One quotation / order line. `amount` is the taxable value after discount: the server checks

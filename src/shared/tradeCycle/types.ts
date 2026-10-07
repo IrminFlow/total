@@ -270,3 +270,259 @@ export interface QuotationPipeline {
   /** Converted taxable value ÷ quoted taxable value, 0–100; null when nothing was quoted. */
   valueConversionPct: number | null
 }
+
+// ---------- reports, returns, closure (WP 2.5d) ----------
+
+/** A chain node's shown state. Trade docs use their derived status; stock notes the same words
+ *  (open / partly fulfilled / fulfilled / closed); invoices and bills are posted, partly returned
+ *  or returned; anything binned or optional says so. */
+export type ChainNodeStatus = TradeDocStatus | 'posted' | 'partly_returned' | 'returned' | 'binned' | 'optional'
+
+export interface ChainLine {
+  lineUid: string
+  /** 1-based. */
+  lineNo: number
+  stockItemId: number
+  itemName: string
+  decimals: number
+  qtyMilli: number
+  amount: number
+  /** Live quantity drawn from this line by fulfilment / by returns. */
+  fulfilledMilli: number
+  returnedMilli: number
+}
+
+/** One document in a linked-documents chain (trade:chain). */
+export interface ChainNode {
+  /** 'v12' (voucher) or 'd4' (trade doc). */
+  key: string
+  voucherId: number | null
+  tradeDocId: number | null
+  kind: TradeSideKind
+  typeName: string
+  number: string
+  /** "Sales Order SO-4". */
+  label: string
+  date: string
+  partyLedgerId: number | null
+  partyName: string | null
+  /** Σ line quantity and taxable value. */
+  qtyMilli: number
+  value: number
+  status: ChainNodeStatus
+  /** Counts for capacity (not binned / optional / cancelled). */
+  live: boolean
+  closeReason: string | null
+  /** Column in the chain: 0 = the first document upstream; every link goes to a higher level. */
+  level: number
+  isRoot: boolean
+  lines: ChainLine[]
+}
+
+/** The links between two documents of the chain, summed per link type. */
+export interface ChainEdge {
+  from: string
+  to: string
+  linkType: LinkType
+  qtyMilli: number
+  /** Lines linked. */
+  lines: number
+  /** The target counts (not binned / optional / cancelled). */
+  live: boolean
+}
+
+export interface TradeChain {
+  rootKey: string
+  nodes: ChainNode[]
+  edges: ChainEdge[]
+  /** The walk stopped at the node cap (a very large connected set of documents). */
+  truncated: boolean
+}
+
+export type ReturnSide = 'sales' | 'purchase'
+
+/** One returned line (trade:returnsRegister): a credit / debit note line, or a rejection
+ *  GRN / challan line against a challan / GRN. */
+export interface ReturnRow {
+  voucherId: number
+  kind: VoucherKind
+  typeName: string
+  number: string
+  date: string
+  partyLedgerId: number | null
+  partyName: string | null
+  lineUid: string
+  lineNo: number
+  stockItemId: number
+  itemName: string
+  unit: string | null
+  decimals: number
+  qtyMilli: number
+  /** Taxable value of the returned line. */
+  amount: number
+  /** The voucher whose line it returns (null for an unlinked credit / debit note line). */
+  againstVoucherId: number | null
+  againstKind: VoucherKind | null
+  /** "Sales 12". */
+  againstLabel: string | null
+  againstDate: string | null
+  /** Days from the source document to the return. */
+  daysAfter: number | null
+  /** The reason: the voucher's narration (vouchers have no separate reason field). */
+  reason: string | null
+}
+
+/** Returns rate per item or per party (trade:returnsRate). */
+export interface ReturnRateRow {
+  key: string
+  stockItemId: number | null
+  itemName: string | null
+  partyLedgerId: number | null
+  partyName: string | null
+  decimals: number
+  /** Sold (sales side) / bought (purchase side) in the period: invoice / bill lines. */
+  soldQtyMilli: number
+  soldValue: number
+  /** Returned in the period (credit / debit notes and rejection notes). */
+  returnedQtyMilli: number
+  returnedValue: number
+  /** returned ÷ sold, 0–100 to one decimal; null when nothing was sold. */
+  qtyRatePct: number | null
+  valueRatePct: number | null
+}
+
+/** One order in the order book (trade:orderBook). */
+export interface OrderBookRow {
+  docId: number
+  kind: 'sales_order' | 'purchase_order'
+  number: string
+  date: string
+  /** 'YYYY-MM'. */
+  month: string
+  partyLedgerId: number
+  partyName: string
+  status: TradeDocStatus
+  lineCount: number
+  /** Taxable value ordered. */
+  orderedValue: number
+  /** Taxable value delivered / received (live fulfilment, pro rata per line). */
+  fulfilledValue: number
+  /** Still open (open orders only). */
+  pendingValue: number
+  /** Abandoned by a short-close. */
+  shortClosedValue: number
+}
+
+export interface OrderBookSummaryRow {
+  key: string
+  label: string
+  partyLedgerId: number | null
+  month: string | null
+  orders: number
+  orderedValue: number
+  fulfilledValue: number
+  pendingValue: number
+  shortClosedValue: number
+  /** fulfilled ÷ ordered, 0–100 to one decimal; null when nothing was ordered. */
+  fulfilledPct: number | null
+}
+
+/** Fulfilment lead time of one order (trade:leadTime): order → delivery (challan / GRN, or the
+ *  invoice / bill when drawn directly) → invoice / bill. Days are null until the event happens. */
+export interface LeadTimeRow {
+  docId: number
+  kind: 'sales_order' | 'purchase_order'
+  number: string
+  date: string
+  partyLedgerId: number
+  partyName: string
+  status: TradeDocStatus
+  firstDeliveryDate: string | null
+  /** The day the last line was fully delivered; null while anything is undelivered. */
+  fullDeliveryDate: string | null
+  firstInvoiceDate: string | null
+  daysToFirstDelivery: number | null
+  daysToFullDelivery: number | null
+  /** First delivery → first invoice / bill. */
+  daysDeliveryToInvoice: number | null
+  daysOrderToInvoice: number | null
+}
+
+/** Demand vs stock vs on-order per item (trade:itemDemand). */
+export interface ItemDemandRow {
+  stockItemId: number
+  itemName: string
+  unit: string | null
+  decimals: number
+  closingQtyMilli: number
+  /** Pending on open sales orders (to deliver). */
+  openSoMilli: number
+  openSoValue: number
+  /** Pending on open purchase orders (to receive). */
+  openPoMilli: number
+  openPoValue: number
+  /** closing − open SO + open PO. */
+  netMilli: number
+  /** max(0, −net): what still has to be ordered. */
+  shortMilli: number
+  reorderLevelMilli: number | null
+}
+
+/** GRNI / GDNI per party (trade:unbilledGoods). */
+export interface UnbilledPartyRow {
+  side: 'gdni' | 'grni'
+  partyLedgerId: number | null
+  partyName: string | null
+  notes: number
+  lines: number
+  value: number
+  oldestDays: number
+}
+
+export interface UnbilledTotals {
+  value: number
+  notes: number
+  lines: number
+}
+
+export interface UnbilledGoods {
+  asOn: string
+  /** Goods delivered, not invoiced: pending supply / on-approval challans. */
+  gdni: UnbilledTotals
+  /** Goods received, not invoiced: pending purchase GRNs. */
+  grni: UnbilledTotals
+  byParty: UnbilledPartyRow[]
+}
+
+export type StaleReason = 'expired' | 'overdue' | 'aged'
+
+/** A document left open too long (trade:staleDocuments). */
+export interface StaleDocRow {
+  key: string
+  kind: TradeSideKind
+  voucherId: number | null
+  tradeDocId: number | null
+  number: string
+  date: string
+  partyLedgerId: number | null
+  partyName: string | null
+  why: StaleReason
+  /** Valid-until (quotations) / expected date (orders) when that is what made it stale. */
+  dueDate: string | null
+  daysStale: number
+  pendingValue: number
+  status: TradeDocStatus
+}
+
+export interface StaleOptions {
+  /** Orders with no expected date go stale this many days after their date. */
+  orderAgeDays: number
+  /** Pending challans / GRNs go stale this many days after their date. */
+  noteAgeDays: number
+}
+
+/** A challan / GRN's manual closure (trade:noteClosure). */
+export interface NoteClosure {
+  closedAt: string | null
+  closeReason: string | null
+}

@@ -12,11 +12,13 @@ export function isManufactureKey(e: Pick<KeyboardEvent, 'key' | 'ctrlKey' | 'alt
 
 /**
  * The voucher kind an F-key press asks for. Tally-style (design §5.3 / §9 Q10 — the Tally key
- * map is from memory, UNVERIFIED): Ctrl+F8 credit note, Alt+F8 delivery note (challan), Ctrl+F9
- * debit note, Alt+F9 receipt note (GRN). Before WP 2.5b Alt and Ctrl both meant the note; the
- * stock notes only answer when `stockNotes` is on (the challan / GRN screens are available),
- * otherwise Alt keeps its old meaning. Null when the key isn't a voucher key (Ctrl/Alt+F7 is
- * Manufacture, see above).
+ * map is from memory, UNVERIFIED), split in WP 2.5d:
+ *   Ctrl+F8 credit note · Ctrl+F9 debit note
+ *   Alt+F8 delivery note (challan) · Alt+F9 receipt note (GRN)
+ * Before WP 2.5b Alt and Ctrl both meant the note. Alt now only ever means the stock note: with
+ * `stockNotes` off (Orders & challans not on) Alt+F8 / Alt+F9 do nothing rather than open a
+ * credit / debit note. Ctrl+Alt counts as Ctrl. Null when the key isn't a voucher key
+ * (Ctrl/Alt+F7 is Manufacture, see above).
  */
 export function kindForVoucherKey(
   e: Pick<KeyboardEvent, 'key' | 'ctrlKey' | 'altKey'>,
@@ -24,10 +26,10 @@ export function kindForVoucherKey(
 ): VoucherKind | null {
   const kind = VOUCHER_FKEYS[e.key]
   if (!kind || isManufactureKey(e)) return null
-  if (opts.stockNotes && e.altKey && !e.ctrlKey) {
-    if (kind === 'sales') return 'delivery_note'
-    if (kind === 'purchase') return 'receipt_note'
+  if (e.ctrlKey) return kind === 'sales' ? 'credit_note' : kind === 'purchase' ? 'debit_note' : kind
+  if (e.altKey && (kind === 'sales' || kind === 'purchase')) {
+    if (!opts.stockNotes) return null
+    return kind === 'sales' ? 'delivery_note' : 'receipt_note'
   }
-  const withCtrl = e.ctrlKey || e.altKey
-  return withCtrl && kind === 'sales' ? 'credit_note' : withCtrl && kind === 'purchase' ? 'debit_note' : kind
+  return kind
 }

@@ -51,8 +51,10 @@ import type { JobWorkChallanPayload } from '@shared/voucherEdit'
 import type { ExpiryReportRow, ReorderRow, SerialListRow, StockMovementRegister } from '@shared/stockPlanning'
 import type { SerialStatus } from '@shared/serials'
 import type {
-  OpenSourceLine, PendingNoteRow, PendingOrderRow, QuotationPipeline, TradeDoc, TradeDocDraft, TradeDocListRow, VoucherKindRow, VoucherLinks
+  OpenSourceLine, PendingNoteRow, PendingOrderRow, QuotationPipeline, TradeDoc, TradeDocDraft, TradeDocListRow, VoucherKindRow, VoucherLinks,
+  ItemDemandRow, LeadTimeRow, NoteClosure, OrderBookRow, ReturnRateRow, ReturnRow, ReturnSide, StaleDocRow, TradeChain, UnbilledGoods
 } from '@shared/tradeCycle/types'
+import type { MatchRow, MatchTolerances } from '@shared/tradeCycle/match'
 import type { TradeDocKind } from '@shared/domain'
 
 /** stock:labelsHtml / stock:labelsPdf query (mirrors stockLabelsSchema). */
@@ -625,7 +627,25 @@ export const api = {
     /** WP 2.5c — open sales / purchase order lines as on a date. */
     pendingOrders: (kind: 'sales_order' | 'purchase_order', asOn: string) => call<PendingOrderRow[]>('trade:pendingOrders', { kind, asOn }),
     quotationPipeline: (from: string, to: string, asOn: string) => call<QuotationPipeline>('trade:quotationPipeline', { from, to, asOn }),
-    openSalesOrderValue: (partyLedgerId: number) => call<number>('trade:openSalesOrderValue', { partyLedgerId })
+    openSalesOrderValue: (partyLedgerId: number) => call<number>('trade:openSalesOrderValue', { partyLedgerId }),
+    /** WP 2.5d — the linked-documents chain around a voucher or a trade doc. */
+    chain: (q: { voucherId: number } | { tradeDocId: number }) => call<TradeChain>('trade:chain', q),
+    threeWayMatch: (q: { from: string; to: string } & Partial<MatchTolerances>) => call<MatchRow[]>('trade:threeWayMatch', q),
+    itemDemand: (asOn: string, onlyOpen = true) => call<ItemDemandRow[]>('trade:itemDemand', { asOn, onlyOpen }),
+    orderBook: (kind: 'sales_order' | 'purchase_order', from: string, to: string) => call<OrderBookRow[]>('trade:orderBook', { kind, from, to }),
+    leadTime: (kind: 'sales_order' | 'purchase_order', from: string, to: string, asOn: string) =>
+      call<LeadTimeRow[]>('trade:leadTime', { kind, from, to, asOn }),
+    returnsRegister: (side: ReturnSide, from: string, to: string) => call<ReturnRow[]>('trade:returnsRegister', { side, from, to }),
+    returnsRate: (side: ReturnSide, from: string, to: string, by: 'item' | 'party') =>
+      call<ReturnRateRow[]>('trade:returnsRate', { side, from, to, by }),
+    unbilledGoods: (asOn: string) => call<UnbilledGoods>('trade:unbilledGoods', { asOn }),
+    staleDocuments: (asOn: string, orderAgeDays: number, noteAgeDays: number) =>
+      call<StaleDocRow[]>('trade:staleDocuments', { asOn, orderAgeDays, noteAgeDays }),
+    noteClosure: (voucherId: number) => call<NoteClosure>('trade:noteClosure', { voucherId }),
+    closeVoucher: (voucherId: number, reason: string | null) => call<NoteClosure>('trade:closeVoucher', { voucherId, reason }),
+    reopenVoucher: (voucherId: number, reason: string | null) => call<NoteClosure>('trade:reopenVoucher', { voucherId, reason }),
+    closeStaleQuotations: (asOn: string, ids?: number[], reason?: string | null) =>
+      call<{ closed: number[] }>('trade:closeStaleQuotations', { asOn, ...(ids ? { ids } : {}), reason: reason ?? null })
   },
   /** WP 2.5c — quotations, sales orders, purchase orders. */
   tradeDocs: {
@@ -637,7 +657,7 @@ export const api = {
     restore: (id: number) => call<TradeDoc>('tradeDocs:restore', { id }),
     cancel: (id: number, reason: string | null) => call<TradeDoc>('tradeDocs:cancel', { id, reason }),
     close: (id: number, reason: string | null) => call<TradeDoc>('tradeDocs:close', { id, reason }),
-    reopen: (id: number) => call<TradeDoc>('tradeDocs:reopen', { id }),
+    reopen: (id: number, reason: string | null = null) => call<TradeDoc>('tradeDocs:reopen', { id, reason }),
     convert: (id: number, to: TradeDocKind) => call<TradeDocDraft>('tradeDocs:convert', { id, to }),
     duplicate: (id: number) => call<TradeDocDraft>('tradeDocs:duplicate', { id }),
     pdf: (id: number) => call<{ path: string }>('tradeDocs:pdf', { id }),
@@ -1048,7 +1068,7 @@ export const api = {
   },
   yearEnd: {
     preview: (fyStartYear: number) =>
-      call<{ rows: CloseLedgerRow[]; netProfit: number; alreadyClosed: boolean; depreciation?: DepreciationYearStatus }>('yearend:preview', { fyStartYear }),
+      call<{ rows: CloseLedgerRow[]; netProfit: number; alreadyClosed: boolean; depreciation?: DepreciationYearStatus; unbilled?: UnbilledGoods }>('yearend:preview', { fyStartYear }),
     close: (fyStartYear: number) =>
       call<{ voucherId: number; netProfit: number; lockedUpTo: string }>('yearend:close', { fyStartYear })
   },

@@ -9,6 +9,7 @@ import { api } from '../../lib/client'
 import { confirmDialog, promptDialog } from '../../lib/dialogs'
 import { nextDraftId, useNav, useToasts } from '../../state/stores'
 import { Badge } from '../../components/ui'
+import { openLinkedDocs } from '../../components/LinkedDocs'
 import type { BadgeTone } from '../../components/kit/Badge'
 import type { MenuItem } from '../../components/kit/Menu'
 
@@ -116,6 +117,7 @@ export function useTradeDocActions(onDone?: (what: 'deleted' | 'changed') => voi
       }
     }
     if (!d.binned) items.push({ label: 'Print / PDF', onSelect: () => void print(d.id), testId: 'trade-doc-action-pdf' })
+    items.push({ label: 'Linked documents', onSelect: () => openLinkedDocs({ tradeDocId: d.id }), testId: 'trade-doc-action-links' })
     if (!opts.canWrite) return items
     items.push({
       label: 'Duplicate',
@@ -149,7 +151,20 @@ export function useTradeDocActions(onDone?: (what: 'deleted' | 'changed') => voi
       })
     }
     if (d.status === 'closed' || d.status === 'cancelled') {
-      items.push({ label: 'Reopen', testId: 'trade-doc-action-reopen', onSelect: () => void run(() => api.tradeDocs.reopen(d.id), `${name(d)} reopened`) })
+      items.push({
+        label: 'Reopen…',
+        testId: 'trade-doc-action-reopen',
+        onSelect: async () => {
+          const reason = await promptDialog({
+            title: `Reopen ${name(d)}`,
+            message: 'It becomes open again: its remaining quantity is pending and it can be drawn on. The reason goes on the audit trail.',
+            placeholder: 'Reason (optional)',
+            confirmLabel: 'Reopen'
+          })
+          if (reason === null) return
+          await run(() => api.tradeDocs.reopen(d.id, reason.trim() || null), `${name(d)} reopened`)
+        }
+      })
     }
     // Cancelling needs nothing drawn on it (the server checks; partly / fully fulfilled never can).
     if (d.status === 'open' || d.status === 'expired' || d.status === 'closed') {

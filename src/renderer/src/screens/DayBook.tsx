@@ -9,6 +9,8 @@ import { toDisplayDate } from '@shared/dates'
 import type { DayBookRow } from '@shared/reports'
 import { printKindForVoucherKind } from '@shared/printTemplates'
 import { LedgerLink } from '../components/links'
+import { LINKABLE_VOUCHER_KINDS, openLinkedDocs } from '../components/LinkedDocs'
+import { useFeatures } from '../lib/useFeatures'
 
 /** Which vouchers show: the books only (default), everything, or just the out-of-book kinds. */
 type Scope = 'books' | 'all' | 'optional' | 'post-dated'
@@ -104,6 +106,8 @@ export function DayBook({ month, kind }: { month?: string; kind?: string } = {})
   const { from, to } = useSession()
   const nav = useNav()
   const toast = useToasts()
+  // WP 2.5d: trade vouchers get a "Links" action (the linked-documents drawer).
+  const ordersOn = useFeatures().orders
   // Scope is a saved screen option (Options drawer, F12); a non-default scope shows as a chip.
   const opts = useScreenOptions('daybook', { scope: 'books' as Scope }, { scope: SCOPE_LABELS.map((s) => s.value) })
   const scope = opts.options.scope
@@ -201,22 +205,38 @@ export function DayBook({ month, kind }: { month?: string; kind?: string } = {})
             hint: 'Press V for voucher entry'
           }}
           onRowActivate={(r) => nav.go({ name: 'voucher-entry', voucherId: r.voucherId })}
-          trailing={(r) =>
-            printKindForVoucherKind(r.kind) ? (
-              <button
-                type="button"
-                className="text-hint text-blue hover:underline"
-                title={r.kind === 'sales' ? 'Invoice PDF' : 'Print PDF (default template for this kind)'}
-                data-testid="btn-daybook-invoice-pdf"
-                onClick={() => {
-                  api.invoice.pdf(r.voucherId).catch((err: Error) => toast.push('error', err.message))
-                }}
-              >
-                PDF
-              </button>
-            ) : null
-          }
-          trailingWidth={56}
+          trailing={(r) => (
+            <span className="flex items-center justify-end gap-2">
+              {ordersOn && LINKABLE_VOUCHER_KINDS.has(r.kind) && (
+                <button
+                  type="button"
+                  className="text-hint text-blue hover:underline"
+                  title="Linked documents"
+                  data-testid="btn-daybook-links"
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    openLinkedDocs({ voucherId: r.voucherId })
+                  }}
+                >
+                  Links
+                </button>
+              )}
+              {printKindForVoucherKind(r.kind) ? (
+                <button
+                  type="button"
+                  className="text-hint text-blue hover:underline"
+                  title={r.kind === 'sales' ? 'Invoice PDF' : 'Print PDF (default template for this kind)'}
+                  data-testid="btn-daybook-invoice-pdf"
+                  onClick={() => {
+                    api.invoice.pdf(r.voucherId).catch((err: Error) => toast.push('error', err.message))
+                  }}
+                >
+                  PDF
+                </button>
+              ) : null}
+            </span>
+          )}
+          trailingWidth={ordersOn ? 92 : 56}
           totalsLabel={dayBookTotalsLabel}
           exportOptions={{ title: 'Day book', periodLabel, filename: 'day-book', totalsLabel: 'Total (in books)' }}
         />
