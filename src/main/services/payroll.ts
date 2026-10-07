@@ -637,7 +637,10 @@ export async function payslipPdf(db: DB, company: CompanyInfo, slug: string, run
   const customDeductionRows = customHeads.filter((h) => h.kind === 'deduction').map((h) => row(h.name, h.amount)).join('')
   const otherEarningsFallback = customEarningRows === '' ? row('Other allowances', line.otherEarnings) : ''
   const otherDeductionsFallback = customDeductionRows === '' ? row('Other deductions', line.otherDeductions) : ''
-  const totalDeductions = line.pfEmp + line.esiEmp + line.pt + line.otherDeductions
+  const totalDeductions = line.pfEmp + line.vpf + line.esiEmp + line.pt + line.tds + line.otherDeductions
+  const employerRows = [
+    row('Employer PF (EPS + EPF)', line.pfEr), row('EDLI', line.edli), row('PF admin charges', line.pfAdmin), row('Employer ESI', line.esiEr)
+  ].join('')
 
   const html = `<!doctype html><html><head><meta charset="utf-8"><style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -655,6 +658,7 @@ export async function payslipPdf(db: DB, company: CompanyInfo, slug: string, run
     td { padding: 4px 0; } .r { text-align: right; }
     .net { border-top: 1.5px solid #16181f; padding: 12px 18px; display: flex; justify-content: space-between; font-weight: 700; }
     .words { padding: 0 18px 14px; font-style: italic; color: #444; }
+    .emp { border-top: 1px solid #16181f; padding: 10px 18px; }
   </style></head><body><div class="sheet">
     <div class="head">
       <div><h1>${esc(company.name)}</h1><div class="sub">${esc(company.address)}</div></div>
@@ -665,6 +669,7 @@ export async function payslipPdf(db: DB, company: CompanyInfo, slug: string, run
       <div class="sub">Days paid: <span class="num">${line.payableDays}/${line.monthDays}</span></div>
       ${emp?.uan ? `<div class="sub">UAN: <span class="num">${esc(emp.uan)}</span></div>` : ''}
       ${emp?.pan ? `<div class="sub">PAN: <span class="num">${esc(emp.pan)}</span></div>` : ''}
+      ${emp?.esicNo && line.esiCovered ? `<div class="sub">ESI IP: <span class="num">${esc(emp.esicNo)}</span></div>` : ''}
     </div>
     <div class="cols">
       <div><h3>Earnings</h3><table>
@@ -673,13 +678,14 @@ export async function payslipPdf(db: DB, company: CompanyInfo, slug: string, run
         <tr><td><b>Gross</b></td><td class="r num"><b>${money(line.gross)}</b></td></tr>
       </table></div>
       <div><h3>Deductions</h3><table>
-        ${row('Provident fund', line.pfEmp)}${row('ESI', line.esiEmp)}${row('Professional tax', line.pt)}
+        ${row('Provident fund', line.pfEmp)}${row('Voluntary PF', line.vpf)}${row('ESI', line.esiEmp)}${row('Professional tax', line.pt)}${row('Income tax (TDS)', line.tds)}
         ${customDeductionRows}${otherDeductionsFallback}
         <tr><td><b>Total deductions</b></td><td class="r num"><b>${money(totalDeductions)}</b></td></tr>
       </table></div>
     </div>
     <div class="net"><span>Net pay</span><span class="num">₹ ${money(line.net)}</span></div>
     <div class="words">${esc(amountInWords(line.net))}</div>
+    ${employerRows ? `<div class="emp"><h3>Employer contributions (not deducted from pay)</h3><table>${employerRows}</table></div>` : ''}
   </div></body></html>`
 
   const safeName = line.employeeName.replace(/[^a-zA-Z0-9-_]/g, '_')
