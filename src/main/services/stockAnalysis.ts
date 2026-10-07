@@ -156,6 +156,28 @@ export function stockValue(db: DB, asOn: string): number {
   return stockSummary(db, asOn).reduce((s, r) => s + r.closingValue, 0)
 }
 
+/** stockValue at several dates from ONE movement load — each entry equals stockValue(db, d)
+ *  (same items, same in-books movements ≤ d, same valuation). For the dashboard's month-by-month
+ *  P&L, which needs every month boundary's stock and would otherwise re-walk the inventory per
+ *  boundary. A manufacture's additional cost is per-voucher, so loading up to the latest date
+ *  never leaks a later voucher's cost into an earlier date's lines. */
+export function stockValuesAt(db: DB, dates: string[]): Map<string, number> {
+  const result = new Map<string, number>()
+  if (dates.length === 0) return result
+  const latest = dates.reduce((a, b) => (a > b ? a : b))
+  const items = listItems(db)
+  const byItem = movementsByItem(db, latest)
+  for (const d of new Set(dates)) {
+    let total = 0
+    for (const item of items) {
+      const moves = (byItem.get(item.id) ?? []).filter((m) => m.date <= d).map(toMovement)
+      total += valueStock(item.valuationMethod, item.openingQtyMilli, item.openingValue, moves).closingValue
+    }
+    result.set(d, total)
+  }
+  return result
+}
+
 export interface PeriodConsumption {
   /** Engine-valued cost of ALL outward movements dated within the period, paise. */
   consumedValue: number

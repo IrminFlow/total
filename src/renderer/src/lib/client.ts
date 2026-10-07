@@ -12,6 +12,7 @@ import type {
   VoucherListRow
 } from '@shared/reports'
 import type { CashFlowStatement } from '@shared/reportMath'
+import type { DashboardSeries } from '@shared/dashboard'
 import type { Gstr1Result, Gstr3bResult } from '@shared/gst/returns'
 import type { GstIssue } from '@shared/gst/validate'
 import type { Recon2bResult } from '@shared/gst/recon2b'
@@ -476,6 +477,9 @@ export const api = {
     balanceSheet: (asOn: string, comparePrior?: boolean) =>
       call<BalanceSheet>('report:balanceSheet', { asOn, comparePrior }),
     dashboard: (today: string, fyFrom: string) => call<DashboardData>('report:dashboard', { today, fyFrom }),
+    /** Gateway dashboard cards (WP 1.10b) — sectioned: each card's data or its own error. */
+    dashboardSeries: (today: string, from: string, to: string) =>
+      call<DashboardSeries>('report:dashboardSeries', { today, from, to }),
     cashFlow: (from: string, to: string) => call<CashFlowStatement>('report:cashFlow', { from, to }),
     stockAgeing: (asOn: string) => call<StockAgeingRow[]>('report:stockAgeing', { asOn }),
     itemProfitability: (from: string, to: string) => call<ItemProfitRow[]>('report:itemProfitability', { from, to }),

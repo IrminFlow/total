@@ -27,6 +27,7 @@ import * as configSvc from './services/config'
 import * as masters from './services/masters'
 import * as vouchers from './services/vouchers'
 import * as reports from './services/reports'
+import * as dashboard from './services/dashboard'
 import * as gst from './services/gst'
 import * as intel from './services/intel'
 import * as analysis from './services/analysis'
@@ -654,6 +655,13 @@ export function registerIpc(): void {
   handle('report:dashboard', (p) => {
     const { today, fyFrom } = z.object({ today: z.string(), fyFrom: z.string() }).parse(p)
     return reports.dashboard(requireCompany().db, today, fyFrom)
+  }, 'viewer')
+  handle('report:dashboardSeries', (p) => {
+    const { today, from, to } = periodSchema.extend({ today: isoDate }).refine((v) => v.from <= v.to, 'from must be on or before to').parse(p)
+    const c = requireCompany()
+    // Backup status comes from the backups folder (the service itself never touches files).
+    const backups = listBackupsIn(companyBackupsDir(c.slug))
+    return dashboard.dashboardSeries(c.db, c.info, { today, from, to, backups })
   }, 'viewer')
   handle('report:cashFlow', (p) => {
     const { from, to } = periodSchema.parse(p)

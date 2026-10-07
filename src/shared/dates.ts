@@ -55,6 +55,13 @@ export function toDisplayDate(date: string): string {
   return `${d.toString().padStart(2, '0')}-${months[m - 1]}-${(y % 100).toString().padStart(2, '0')}`
 }
 
+/** 'YYYY-MM' → 'Apr' (short) or 'Apr 2026' (long) — chart axes and tooltips. */
+export function toMonthLabel(ym: string, style: 'short' | 'long' = 'short'): string {
+  const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+  const [y, m] = ym.split('-').map(Number) as [number, number]
+  return style === 'short' ? months[m - 1]! : `${months[m - 1]} ${y}`
+}
+
 /** 'DD-MMM-YY HH:MM' (24h, local time) for on-screen timestamps — audit trail, backup list.
  *  Takes a Date so both ISO strings (`new Date(iso)`) and epoch ms (`new Date(mtime)`) share it. */
 export function toDisplayDateTime(d: Date): string {
