@@ -33,7 +33,12 @@ const ALLOW: { file: string; contains: string; reason: string }[] = [
   { file: 'tradeLinks.ts', contains: 'PRAGMA table_info(inventory_lines)', reason: 'schema probe' },
   { file: 'jobWork.ts', contains: 'FROM inventory_lines il JOIN stock_items si ON si.id = il.stock_item_id JOIN units u', reason: "ITC-04: a job-work challan's own lines (a stock journal — always stock-moving)" },
   { file: 'manufactureReports.ts', contains: 'FROM inventory_lines WHERE voucher_id IN', reason: "a manufacture's own lines (stock journals — always stock-moving)" },
-  { file: 'stockAnalysis.ts', contains: 'JOIN inventory_lines il ON il.voucher_id = mo.voucher_id', reason: "maps a manufacture's by-product rows to its own line ids" }
+  { file: 'stockAnalysis.ts', contains: 'JOIN inventory_lines il ON il.voucher_id = mo.voucher_id', reason: "maps a manufacture's by-product rows to its own line ids" },
+  { file: 'gstAnnual.ts', contains: 'SELECT 1 FROM inventory_lines WHERE voucher_id', reason: 'GSTR-9 Table 6: does the bill carry goods (inputs) — the bill items' },
+  { file: 'gstAnnual.ts', contains: 'FROM inventory_lines WHERE voucher_id = ?', reason: 'GSTR-9 Table 6: taxable value of the bill items' },
+  { file: 'gstAnnual.ts', contains: "WHERE vt.kind = 'purchase' AND si.hsn IS NOT NULL", reason: 'GSTR-9 Table 18: inward HSN = the bill items' },
+  { file: 'gstAnnual.ts', contains: "WHERE vt.kind = 'sales' AND g.kind = 'job_worker'", reason: "ITC-04 5C: the invoice's items supplied from a job worker's godown" },
+  { file: 'gstRcm.ts', contains: 'FROM inventory_lines il JOIN stock_items si ON si.id = il.stock_item_id JOIN units u', reason: 'self-invoice items = the bill items' }
 ]
 
 /** Every string / template literal in a TS source (comments skipped; a template's nested

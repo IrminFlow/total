@@ -24,7 +24,9 @@ import { gstPeriodOf } from '@shared/dates'
 import { closingBalances, descendantIdSet, profitAndLoss, stockAgeing } from './reports'
 import { netTradeRows, outstandings } from './analysis'
 import { negativeStock, stockValuesAt } from './stockAnalysis'
-import { gstr3b } from './gst'
+import { gstr3b, turnover } from './gst'
+import { itc04Periodicity } from '@shared/gst/itc04'
+import { fyOf } from '@shared/dates'
 import { tdsSummary } from './tds'
 import { getFeatures } from './config'
 import { listGroups } from './masters'
@@ -39,6 +41,21 @@ export interface DashBackupInput {
 
 /** On-open snapshots are automatic on every company open — they don't count as "you backed up". */
 const AUTOMATIC_TAGS = new Set(['open'])
+
+/**
+ * WP 3.4 — the annual GST deadlines in the next 45 days: GSTR-9 (31 December, rule 80) and, when
+ * the company keeps job-worker godowns, ITC-04 (25 October / 25 April, rule 45(3) + Notification
+ * 35/2021-CT) at the periodicity the preceding FY's turnover gives. Sources: shared/gst/sources.ts.
+ */
+function annualGstDeadlines(db: DB, today: string): { form: string; title: string; date: string }[] {
+  const jobWork = db.prepare("SELECT 1 FROM godowns WHERE kind = 'job_worker' LIMIT 1").get() != null
+  const fy = fyOf(today)
+  const prev = fyOf(`${fy.startYear - 1}-06-01`)
+  const itc04 = jobWork ? itc04Periodicity(turnover(db, prev.from, prev.to)) : undefined
+  return upcomingDeadlines(today, 'regular', false, 45, { jobWork, itc04 })
+    .filter((d) => d.form === 'GSTR-9' || d.form === 'ITC-04')
+    .map((d) => ({ form: d.form, title: d.title, date: d.date }))
+}
 
 function section<T>(fn: () => T): DashSection<T> {
   try {
@@ -171,7 +188,8 @@ function computeSeries(
       gstr3bDue: next3b?.date ?? null,
       liability: sum4(r.outward) + r.zeroRated.igst + r.zeroRated.cess + sum4(r.rcm),
       itc: sum4(r.itc),
-      payable: sum4(r.netPayable) + sum4(r.rcmPayable)
+      payable: sum4(r.netPayable) + sum4(r.rcmPayable),
+      annual: annualGstDeadlines(db, w.today)
     }
   })
 
