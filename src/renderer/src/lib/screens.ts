@@ -399,7 +399,7 @@ export const SCREENS: ScreenDef[] = [
     screen: { name: 'settings' },
     navSection: 'system',
     invalidates: [
-      'backups', 'bin', 'users', 'audit', 'auditVerify', 'nicCreds', 'nicStatus',
+      'backups', 'bin', 'users', 'audit', 'nicCreds', 'nicStatus',
       'features', 'invoiceConfig', 'invoicePreview', 'printTemplates', 'printTemplate', 'printPreview', 'appInfo', 'companyLock', 'agentConfig'
     ]
   },
@@ -410,7 +410,7 @@ export const SCREENS: ScreenDef[] = [
     keywords: ['edit log', 'audit log', 'rule 11(g)', 'mca', 'history', 'who changed', 'tamper', 'hash chain'],
     screen: { name: 'audit-trail' },
     navSection: 'system',
-    invalidates: ['audit', 'auditVerify']
+    invalidates: ['audit']
   },
   {
     name: 'import-tally',

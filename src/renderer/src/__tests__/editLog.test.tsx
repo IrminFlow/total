@@ -68,7 +68,7 @@ function renderUi(ui: React.ReactNode): void {
 
 describe('edit-log report', () => {
   it('is registered under System and refreshes the audit families', () => {
-    expect(SCREENS.find((s) => s.name === 'audit-trail')).toMatchObject({ navSection: 'system', invalidates: ['audit', 'auditVerify'] })
+    expect(SCREENS.find((s) => s.name === 'audit-trail')).toMatchObject({ navSection: 'system', invalidates: ['audit'] })
   })
 
   it('shows date/time with offset, users (OS login spelled out), refs, actions and per-row hash status; expands field-level changes', async () => {
@@ -85,8 +85,8 @@ describe('edit-log report', () => {
     fireEvent.click(row)
     const detail = await screen.findByTestId('audit-detail-12')
     expect(within(detail).getByText('lines[0].amount')).toBeTruthy()
-    expect(within(detail).getByText('5000')).toBeTruthy()
-    expect(within(detail).getByText('6000')).toBeTruthy()
+    expect(within(detail).getByText('5000 (₹50.00)')).toBeTruthy()
+    expect(within(detail).getByText('6000 (₹60.00)')).toBeTruthy()
   })
 
   it('sends the filters (period, entity, action, user, voucher) to audit:list', async () => {

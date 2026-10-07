@@ -1,7 +1,7 @@
 import { createHash } from 'crypto'
 import { userInfo } from 'os'
 import type { DB } from '../db/connection'
-import { AUDIT_ACTIONS, VOUCHER_ENTITIES, auditActionLabel, auditEntityLabel, type AuditAction } from '@shared/auditEntities'
+import { AUDIT_ACTIONS, VOUCHER_ENTITIES, auditActionLabel, auditEntityLabel, auditUserLabel, type AuditAction } from '@shared/auditEntities'
 import {
   GENESIS_HASH, auditRowHash, auditTimestampText, clockSkewNote, localIsoWithOffset, rowStatuses, utcSqlDateTime, verificationSummary,
   verifyAuditChain, type AuditChainRow, type AuditRowStatus, type ChainVerification
@@ -471,6 +471,7 @@ export function editLogExport(
     `Generated: ${auditTimestampText(utcSqlDateTime(now), localIsoWithOffset(now))} by Total ${context.appVersion || ''}`.trim(),
     `Entries in this report: ${rows.length}${rows.length >= AUDIT_EXPORT_MAX ? ' (truncated)' : ''}`,
     verificationSummary(verification),
+    'Amounts in the changes column are as stored: integer paise (2500000 = Rs 25,000.00); quantities in thousandths.',
     'Audit trail per Companies (Accounts) Rules 2014 r.3(1); verification walks the SHA-256 hash chain over every audit entry of the company (rule 11(g) reporting aid). It reveals edits to the file; it cannot prevent them.'
   ]
   const out = rows.map((r) => {
@@ -479,9 +480,9 @@ export function editLogExport(
     return [
       String(r.id),
       auditTimestampText(r.at, r.atIso) + (r.clockSkewNote ? ' (clock went backwards)' : ''),
-      r.userName ?? 'unknown (before user attribution)',
+      r.userName === null ? 'unknown (before user attribution)' : auditUserLabel(r.userName),
       auditEntityLabel(r.entity),
-      r.ref ? `${r.entityId} · ${r.ref}` : String(r.entityId),
+      r.entityId === 0 ? (r.ref ?? '—') : r.ref ? `${r.entityId} · ${r.ref}` : String(r.entityId),
       auditActionLabel(r.action),
       changes || (r.beforeJson === null && r.afterJson === null ? '(no details)' : '(no field changes)'),
       r.appVersion ?? '',

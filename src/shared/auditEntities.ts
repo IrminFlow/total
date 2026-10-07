@@ -156,6 +156,10 @@ export const AUDIT_ENTITY_LABELS: Partial<Record<AuditEntity, string>> = {
 
 export const auditEntityLabel = (entity: string): string => AUDIT_ENTITY_LABELS[entity as AuditEntity] ?? entity
 
+/** 'os:irmin' → 'irmin (OS login)'; null (rows from before user attribution) → 'unknown'. */
+export const auditUserLabel = (u: string | null): string =>
+  u === null ? 'unknown' : u.startsWith('os:') ? `${u.slice(3)} (OS login)` : u
+
 export const auditActionLabel = (a: string): string => (a.charAt(0).toUpperCase() + a.slice(1)).replace(/_/g, ' ')
 
 /** Entities whose rows belong to one voucher: the report's voucher filter matches these by

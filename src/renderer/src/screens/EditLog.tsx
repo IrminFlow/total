@@ -8,7 +8,10 @@ import { DataTable, defineColumns, type RowKey } from '../components/table'
 import { VoucherLink } from '../components/links'
 import { diffJsonDeep } from '@shared/diff'
 import { toDisplayDate } from '@shared/dates'
-import { AUDIT_ACTIONS, AUDIT_ENTITIES, VOUCHER_ENTITIES, auditActionLabel, auditEntityLabel, type AuditEntity } from '@shared/auditEntities'
+import { formatPaise } from '@shared/money'
+import {
+  AUDIT_ACTIONS, AUDIT_ENTITIES, VOUCHER_ENTITIES, auditActionLabel, auditEntityLabel, auditUserLabel, type AuditEntity
+} from '@shared/auditEntities'
 import { auditTimestampText, rowStatuses, type AuditRowStatus } from '@shared/auditChain'
 import { ChainBanner, useAuditVerification } from './audit/ChainBanner'
 
@@ -35,8 +38,7 @@ export function withStatus(rows: readonly AuditRow[], v: ChainVerification | und
   }))
 }
 
-const userText = (u: string | null): string =>
-  u === null ? 'unknown' : u === 'system' ? 'system' : u.startsWith('os:') ? `${u.slice(3)} (OS login)` : u
+const userText = auditUserLabel
 
 export const EDIT_LOG_COLUMNS = defineColumns<EditLogRow>([
   { id: 'id', header: '#', kind: 'number', value: (r) => r.id, width: 70, className: 'num text-muted' },
@@ -52,7 +54,7 @@ export const EDIT_LOG_COLUMNS = defineColumns<EditLogRow>([
         {r.clockSkewNote && <span className="ml-1 text-warning" aria-label="clock went backwards">⚠</span>}
       </span>
     ),
-    width: 190
+    width: 236
   },
   { id: 'user', header: 'User', kind: 'text', value: (r) => r.userName ?? '', text: (r) => userText(r.userName), width: 130 },
   {
@@ -70,6 +72,7 @@ export const EDIT_LOG_COLUMNS = defineColumns<EditLogRow>([
     kind: 'text',
     value: (r) => (r.ref ? `${r.entityId} ${r.ref}` : String(r.entityId)),
     cell: (r) => {
+      if (!r.ref && r.entityId === 0) return <span className="text-muted">—</span>
       const label = r.ref ? `${r.ref}` : `#${r.entityId}`
       const isVoucher = VOUCHER_ENTITIES.includes(r.entity as AuditEntity) && r.entityId > 0 && r.action !== 'purge'
       return (
@@ -114,6 +117,14 @@ export const EDIT_LOG_COLUMNS = defineColumns<EditLogRow>([
   }
 ])
 
+/** Money is stored as integer paise; show the rupee reading next to a paise-valued field. */
+const MONEY_KEY = /(amount|paise|openingBalance|total)$/i
+export function fieldValue(key: string, v: string): string {
+  if (!v) return '—'
+  const leaf = key.replace(/\[\d+\]/g, '').split('.').pop() ?? key
+  return MONEY_KEY.test(leaf) && /^-?\d+$/.test(v) ? `${v} (₹${formatPaise(Number(v))})` : v
+}
+
 export function AuditRowDetail({ row }: { row: EditLogRow }): React.JSX.Element {
   const diffs = diffJsonDeep(row.beforeJson, row.afterJson)
   return (
@@ -135,8 +146,8 @@ export function AuditRowDetail({ row }: { row: EditLogRow }): React.JSX.Element 
             {diffs.slice(0, 200).map((d) => (
               <tr key={d.key} className="align-top">
                 <td className="py-0.5 pr-4 text-muted">{d.key}</td>
-                <td className="py-0.5 pr-4 break-all text-cr">{d.from || '—'}</td>
-                <td className="py-0.5 break-all text-dr">{d.to || '—'}</td>
+                <td className="py-0.5 pr-4 break-all text-cr">{fieldValue(d.key, d.from)}</td>
+                <td className="py-0.5 break-all text-dr">{fieldValue(d.key, d.to)}</td>
               </tr>
             ))}
           </tbody>
@@ -222,7 +233,7 @@ export function EditLogScreen({ voucherId: initialVoucherId }: { voucherId?: num
   )
 
   return (
-    <Page>
+    <Page width="wide">
       <PageHeader
         title="Audit trail (edit log)"
         period={periodLabel}

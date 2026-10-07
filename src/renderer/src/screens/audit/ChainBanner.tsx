@@ -2,8 +2,8 @@ import { useQuery } from '@tanstack/react-query'
 import { api, type ChainVerification } from '../../lib/client'
 import { Banner, Button } from '../../components/ui'
 
-/** Query family for the chain verification (screens.ts invalidates it with 'audit'). */
-export const AUDIT_VERIFY_KEY = ['auditVerify'] as const
+/** Query family for the chain verification (the 'audit' family — every invalidation of the log re-verifies). */
+export const AUDIT_VERIFY_KEY = ['audit', 'verify'] as const
 
 export function useAuditVerification(): { data: ChainVerification | undefined; isFetching: boolean; refetch: () => void } {
   const q = useQuery({ queryKey: AUDIT_VERIFY_KEY, queryFn: api.audit.verify })

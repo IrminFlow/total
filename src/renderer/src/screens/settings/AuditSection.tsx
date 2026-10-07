@@ -87,6 +87,12 @@ export function AuditSection(): React.JSX.Element {
               ? 'Keep every entry forever.'
               : `Entries older than ${keepYears} years are removed when the company opens — never anything from ${toDisplayDate(floor)} on, never migration records, and every removal is itself logged.`}
           </p>
+          {!required && (
+            <p className="mt-1 text-hint text-warning" data-testid="audit-required-off-warning">
+              Only for a business outside the Companies Act (e.g. a proprietorship or firm). GST still needs records for 72 months
+              from the annual-return due date (CGST Act s.36), so the window can never be under {minYears} years.
+            </p>
+          )}
           {!required && isOwner && (
             <div className="mt-3 flex items-end gap-2">
               <div>
