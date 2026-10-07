@@ -7,7 +7,9 @@ import { formatPaise } from '@shared/money'
 import { api } from '../lib/client'
 import { useToasts } from '../state/stores'
 import type { BudgetVarianceRow } from '@shared/budgets'
-import { AmountInput, Button, EmptyState, Field, Modal, Panel, ScrollList, SectionTitle, Select, TextInput, SkeletonRows } from '../components/ui'
+import { AmountInput, Button, EmptyState, Field, Modal, Page, PageHeader, Panel, ScrollList, SectionTitle, Select, TextInput, SkeletonRows } from '../components/ui'
+import { OptionsTable } from '../components/ScreenOptions'
+import { DrawerSection } from '../components/kit/Drawer'
 import { DataTable, defineColumns } from '../components/table'
 import { LedgerPicker, useGroups } from '../components/pickers'
 import { confirmDialog } from '../lib/dialogs'
@@ -225,18 +227,27 @@ export function BudgetsScreen(): React.JSX.Element {
   }
 
   return (
-    <div className="mx-auto max-w-4xl">
-      <SectionTitle
-        right={
-          <Button variant="primary" onClick={() => setNewOpen(true)}>
+    <Page>
+      <PageHeader
+        title="Budgets"
+        subtitle={selected ? `${selected.name} · FY ${fyFromStartYear(selected.fyStartYear).label}` : undefined}
+        actions={
+          <Button variant="primary" data-testid="btn-budgets-new" onClick={() => setNewOpen(true)}>
             New budget
           </Button>
         }
-      >
-        Budgets
-      </SectionTitle>
+        options={{
+          content: selected ? (
+            <OptionsTable area="budget-variance" label="Variance table" />
+          ) : (
+            <DrawerSection title="Variance table">
+              <p className="text-hint text-muted">Create or pick a budget to see its variance.</p>
+            </DrawerSection>
+          )
+        }}
+      />
 
-      <Panel className="mb-6 p-4">
+      <Panel className="mb-section p-panel">
         {budgetsLoading ? (
           <SkeletonRows rows={2} />
         ) : budgets.length === 0 ? (
@@ -245,6 +256,7 @@ export function BudgetsScreen(): React.JSX.Element {
           <div className="flex items-center gap-3">
             <Select
               className="max-w-xs"
+              aria-label="Budget"
               value={selectedId ?? ''}
               onChange={(e) => setSelectedId(e.target.value ? Number(e.target.value) : null)}
             >
@@ -255,7 +267,7 @@ export function BudgetsScreen(): React.JSX.Element {
               ))}
             </Select>
             {selected && (
-              <button className="text-small text-cr hover:underline" onClick={() => void remove(selected)}>
+              <button type="button" className="text-small text-danger hover:underline" onClick={() => void remove(selected)}>
                 Delete budget
               </button>
             )}
@@ -265,7 +277,7 @@ export function BudgetsScreen(): React.JSX.Element {
 
       {selected && (
         <>
-          <Panel className="mb-6">
+          <Panel className="mb-section">
             <ScrollList maxH="50vh">
             <table className="ledger-table">
               <thead>
@@ -282,6 +294,7 @@ export function BudgetsScreen(): React.JSX.Element {
                   <tr key={r.key}>
                     <td>
                       <Select
+                        aria-label="Target type"
                         value={r.targetType}
                         onChange={(e) =>
                           updateRow(r.key, { targetType: e.target.value as 'ledger' | 'group', ledgerId: null, groupId: null })
@@ -296,6 +309,7 @@ export function BudgetsScreen(): React.JSX.Element {
                         <LedgerPicker value={r.ledgerId} onPick={(id) => updateRow(r.key, { ledgerId: id })} />
                       ) : (
                         <Select
+                          aria-label="Group"
                           value={r.groupId ?? ''}
                           onChange={(e) => updateRow(r.key, { groupId: e.target.value ? Number(e.target.value) : null })}
                         >
@@ -309,7 +323,7 @@ export function BudgetsScreen(): React.JSX.Element {
                       )}
                     </td>
                     <td>
-                      <Select value={r.month ?? ''} onChange={(e) => updateRow(r.key, { month: e.target.value || null })}>
+                      <Select aria-label="Month" value={r.month ?? ''} onChange={(e) => updateRow(r.key, { month: e.target.value || null })}>
                         <option value="">All year</option>
                         {months.map((m) => (
                           <option key={m} value={m}>
@@ -319,10 +333,10 @@ export function BudgetsScreen(): React.JSX.Element {
                       </Select>
                     </td>
                     <td>
-                      <AmountInput paise={r.amount} onPaise={(paise) => updateRow(r.key, { amount: paise })} />
+                      <AmountInput paise={r.amount} onPaise={(paise) => updateRow(r.key, { amount: paise })} ariaLabel="Amount" />
                     </td>
                     <td className="r">
-                      <button className="text-small text-muted hover:text-cr" onClick={() => removeRow(r.key)}>
+                      <button type="button" aria-label="Remove line" className="text-small text-muted hover:text-danger" onClick={() => removeRow(r.key)}>
                         ✕
                       </button>
                     </td>
@@ -332,7 +346,7 @@ export function BudgetsScreen(): React.JSX.Element {
             </table>
             </ScrollList>
             {lineErrors.length > 0 && (
-              <div data-testid="budgets-line-errors" className="border-t border-line bg-cr/10 px-3 py-2 text-body-sm text-cr">
+              <div data-testid="budgets-line-errors" className="border-t border-line bg-danger-soft px-3 py-2 text-body-sm text-danger" role="alert">
                 <p className="font-medium">Fix these lines before saving:</p>
                 {lineErrors.map((e, i) => (
                   <p key={i}>{e}</p>
@@ -358,7 +372,7 @@ export function BudgetsScreen(): React.JSX.Element {
 
           <SectionTitle
             right={
-              <Select className="max-w-[10rem]" value={upToMonth} onChange={(e) => setUpToMonth(e.target.value)}>
+              <Select className="max-w-[10rem]" aria-label="Variance through month" value={upToMonth} onChange={(e) => setUpToMonth(e.target.value)}>
                 {months.map((m) => (
                   <option key={m} value={m}>
                     {monthLabel(m)}
@@ -400,7 +414,7 @@ export function BudgetsScreen(): React.JSX.Element {
           }}
         />
       )}
-    </div>
+    </Page>
   )
 }
 

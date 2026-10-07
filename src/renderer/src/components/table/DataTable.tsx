@@ -58,6 +58,7 @@ import { Popover } from './Popover'
 import { TableToolbar, type ToolbarFeatures } from './TableToolbar'
 import type { TableColumn } from './types'
 import { useTableView, type TableViewController } from './useTableView'
+import { registerTableActions } from './tableActions'
 
 /** Fixed row heights (px) per density — virtualisation relies on every DATA row being this tall
  *  (detail rows are measured). Comfortable matches `.ledger-table td` (6px + 20px line + 6px + 1px). */
@@ -644,6 +645,21 @@ export function DataTable<Row>(props: DataTableProps<Row>): React.JSX.Element {
   // The toolbar stays whenever the table is mounted with columns — while loading and with zero
   // rows too — so screen controls in toolbarStart never vanish and an over-filtered table can
   // always be un-filtered.
+  // Expose columns + export to the screen's Options drawer (tableActions.ts), by testId area.
+  const actionsRef = useRef({ exportPdf, exportCsv, hasRows: rows.length > 0, columns: features.columns && toolbar })
+  actionsRef.current = { exportPdf, exportCsv, hasRows: rows.length > 0, columns: features.columns && toolbar }
+  useEffect(
+    () =>
+      registerTableActions(area, {
+        openColumns: () => {
+          if (actionsRef.current.columns) setMenu('columns')
+        },
+        exportPdf: () => (actionsRef.current.hasRows ? actionsRef.current.exportPdf?.() : undefined),
+        exportCsv: () => (actionsRef.current.hasRows ? actionsRef.current.exportCsv?.() : undefined)
+      }),
+    [area]
+  )
+
   const toolbarEl = toolbar && columns.length > 0 && (
     <TableToolbar
       area={area}

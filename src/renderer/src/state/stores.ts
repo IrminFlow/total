@@ -160,6 +160,15 @@ export const useSession = create<SessionState>((set) => ({
   setIntegrityWarning: (integrityWarning) => set({ integrityWarning })
 }))
 
+// ---------- working-period picker ----------
+
+/** The header's "Working period" modal — opened from the header button, a screen's Options
+ *  drawer, or the command palette. Shell renders it. */
+export const usePeriodPicker = create<{ open: boolean; setOpen: (open: boolean) => void }>((set) => ({
+  open: false,
+  setOpen: (open) => set({ open })
+}))
+
 // ---------- appearance: theme, density, motion ----------
 //
 // Display preferences for the whole app (not per company) — localStorage, applied as attributes

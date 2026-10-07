@@ -2,7 +2,8 @@ import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { api } from '../lib/client'
 import { useNav, useSession, useToasts } from '../state/stores'
-import { Button, Money, Panel, SectionTitle } from '../components/ui'
+import { Button, Money, Page, PageHeader, Panel } from '../components/ui'
+import { OptionsExport, OptionsPeriod, OptionsTable, useScreenOptions } from '../components/ScreenOptions'
 import { TabBar } from '../components/TabBar'
 import { DataTable, defineColumns } from '../components/table'
 import { formatMilli } from '../lib/table'
@@ -101,7 +102,10 @@ const TAB_LABELS: Record<Tab, string> = { sales: 'Sales', purchase: 'Purchase', 
 export function RegistersScreen(): React.JSX.Element {
   const { from, to } = useSession()
   const toast = useToasts()
-  const [tab, setTab] = useState<Tab>('sales')
+  // The last register viewed is remembered per company (screen option); tabs stay in the header.
+  const opts = useScreenOptions('registers', { tab: 'sales' as Tab }, { tab: ['sales', 'purchase', 'items'] })
+  const tab = opts.options.tab
+  const setTab = (t: Tab): void => opts.set('tab', t)
   const [busy, setBusy] = useState<'caPack' | 'tallyXml' | null>(null)
   const kind = tab === 'items' ? 'sales' : tab
 
@@ -122,33 +126,52 @@ export function RegistersScreen(): React.JSX.Element {
   const title = tab === 'items' ? 'Item profitability' : tab === 'sales' ? 'Sales register' : 'Purchase register'
 
   return (
-    <div className="mx-auto max-w-5xl">
-      <SectionTitle
-        right={
-          <div className="flex items-center gap-2">
-            <TabBar
-              screen="registers"
-              tabs={(['sales', 'purchase', 'items'] as const).map((k) => ({ id: k, label: TAB_LABELS[k] }))}
-              active={tab}
-              onSelect={setTab}
-            />
-            <Button disabled={busy !== null} onClick={() => void runExport('tallyXml')}>
-              Tally XML
-            </Button>
-            <Button variant="primary" data-testid="btn-registers-ca-pack" disabled={busy !== null} onClick={() => void runExport('caPack')}>
-              CA pack…
-            </Button>
-          </div>
+    <Page>
+      <PageHeader
+        title={title}
+        period={periodLabel}
+        tabs={
+          <TabBar
+            screen="registers"
+            tabs={(['sales', 'purchase', 'items'] as const).map((k) => ({ id: k, label: TAB_LABELS[k] }))}
+            active={tab}
+            onSelect={setTab}
+          />
         }
-      >
-        {title}
-      </SectionTitle>
+        secondary={
+          <Button disabled={busy !== null} loading={busy === 'tallyXml'} onClick={() => void runExport('tallyXml')}>
+            Tally XML
+          </Button>
+        }
+        actions={
+          <Button variant="primary" data-testid="btn-registers-ca-pack" disabled={busy !== null} loading={busy === 'caPack'} onClick={() => void runExport('caPack')}>
+            CA pack…
+          </Button>
+        }
+        options={{
+          onReset: opts.reset,
+          content: (
+            <>
+              <OptionsPeriod />
+              <OptionsTable area={tab === 'items' ? 'registers-items' : 'registers'} />
+              <OptionsExport>
+                <Button size="sm" disabled={busy !== null} onClick={() => void runExport('tallyXml')}>
+                  Tally XML for the period
+                </Button>
+                <Button size="sm" disabled={busy !== null} onClick={() => void runExport('caPack')}>
+                  CA pack…
+                </Button>
+              </OptionsExport>
+            </>
+          )
+        }}
+      />
       {tab === 'items' ? (
         <ItemProfitPanel from={from} to={to} periodLabel={periodLabel} />
       ) : (
         <MonthRegister key={kind} kind={kind} from={from} to={to} title={title} periodLabel={periodLabel} />
       )}
-    </div>
+    </Page>
   )
 }
 

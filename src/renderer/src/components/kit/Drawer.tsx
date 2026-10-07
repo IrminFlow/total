@@ -34,8 +34,11 @@ export function Drawer({
   onCloseRef.current = onClose
   useDialogLayer(panelRef, () => onCloseRef.current())
 
+  // z-30: under Modal (z-40) and popovers (z-50), so a dialog opened from the drawer (Change
+  // period…, Cheque setup…) paints above it — the layer stack already gives it the keyboard.
   return createPortal(
-    <div className="fixed inset-0 z-40 flex justify-end" data-drawer-root="">
+    <div className="fixed inset-0 z-30 flex justify-end" data-drawer-root="">
+
       <div aria-hidden="true" className="absolute inset-0 bg-scrim" onMouseDown={() => onCloseRef.current()} />
       <div
         ref={panelRef}

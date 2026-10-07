@@ -2,7 +2,8 @@ import { useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { api } from '../lib/client'
 import { useSession, useToasts } from '../state/stores'
-import { Button, EmptyState, Money, Panel, ScrollList, SectionTitle, SkeletonRows } from '../components/ui'
+import { Banner, Button, EmptyState, Money, Page, PageHeader, Panel, ScrollList, SkeletonRows, TabBar } from '../components/ui'
+import { OptionsPeriod, OptionsTable } from '../components/ScreenOptions'
 import { DataTable, defineColumns, type TableColumn } from '../components/table'
 import type { ConsolidatedRow } from '@shared/consolidate'
 import { toDisplayDate } from '@shared/dates'
@@ -95,77 +96,77 @@ export function ConsolidatedScreen(): React.JSX.Element {
   const columns = useMemo(() => consolidatedColumns(data?.columns ?? [], openIndex), [data, openIndex])
 
   return (
-    <div className="mx-auto max-w-5xl">
-      <SectionTitle
-        right={
-          <div className="flex items-center gap-3">
-            <div className="flex overflow-hidden rounded-md border border-line">
-              <button
-                data-testid="tab-consolidated-tb"
-                className={`px-3 py-1 text-small transition-colors ${
-                  kind === 'tb' ? 'bg-amberbar/20 font-medium text-ink' : 'text-muted hover:text-ink'
-                }`}
-                onClick={() => setKind('tb')}
-              >
-                Trial balance
-              </button>
-              <button
-                data-testid="tab-consolidated-pnl"
-                className={`border-l border-line px-3 py-1 text-small transition-colors ${
-                  kind === 'pnl' ? 'bg-amberbar/20 font-medium text-ink' : 'text-muted hover:text-ink'
-                }`}
-                onClick={() => setKind('pnl')}
-              >
-                Profit &amp; loss
-              </button>
-            </div>
-            <span className="num text-small text-muted">
-              {toDisplayDate(from)} → {toDisplayDate(to)}
-            </span>
-          </div>
+    <Page>
+      <PageHeader
+        title="Consolidated reports"
+        period={`${toDisplayDate(from)} → ${toDisplayDate(to)}`}
+        tabs={
+          <TabBar
+            screen="consolidated"
+            label="Report"
+            tabs={[
+              { id: 'tb', label: 'Trial balance' },
+              { id: 'pnl', label: 'Profit & loss' }
+            ]}
+            active={kind}
+            onSelect={setKind}
+          />
         }
-      >
-        Consolidated reports
-      </SectionTitle>
+        options={{
+          content: (
+            <>
+              <OptionsPeriod />
+              {data ? (
+                <OptionsTable area="consolidated" />
+              ) : (
+                <p className="text-hint text-muted">Run a consolidation to choose its columns or export it.</p>
+              )}
+            </>
+          )
+        }}
+      />
 
       <Panel className="mb-4">
-        {companies.length === 0 ? (
-          <EmptyState title="No companies yet" hint="Create at least one company to consolidate" />
-        ) : (
-          <ScrollList maxH="40vh" className="flex flex-col gap-1.5">
-            {companies.map((c) => (
-              <label key={c.slug} className="flex items-center gap-2 text-detail">
-                <input
-                  type="checkbox"
-                  data-testid={`check-consolidated-${c.slug}`}
-                  checked={selected.has(c.slug)}
-                  onChange={() => toggle(c.slug)}
-                />
-                {c.name}
-                <span className="num text-caption text-muted">{c.slug}</span>
-              </label>
-            ))}
-          </ScrollList>
-        )}
-        <div className="mt-4 flex items-center gap-2">
-          <Button data-testid="btn-consolidated-run" variant="primary" onClick={() => void run()} disabled={isFetching}>
-            {isFetching ? 'Running…' : 'Run'}
-          </Button>
+        <div className="p-panel">
+          {companies.length === 0 ? (
+            <EmptyState title="No companies yet" hint="Create at least one company to consolidate" />
+          ) : (
+            <ScrollList maxH="40vh" className="flex flex-col gap-1.5">
+              {companies.map((c) => (
+                <label key={c.slug} className="flex items-center gap-2 text-detail">
+                  <input
+                    type="checkbox"
+                    data-testid={`check-consolidated-${c.slug}`}
+                    checked={selected.has(c.slug)}
+                    onChange={() => toggle(c.slug)}
+                  />
+                  {c.name}
+                  <span className="num text-caption text-muted">{c.slug}</span>
+                </label>
+              ))}
+            </ScrollList>
+          )}
+          <div className="mt-4 flex items-center gap-2">
+            <Button data-testid="btn-consolidated-run" variant="primary" onClick={() => void run()} loading={isFetching}>
+              {isFetching ? 'Running…' : 'Run'}
+            </Button>
+            <span className="text-hint text-muted">{selected.size} selected</span>
+          </div>
         </div>
       </Panel>
 
       {ranOnce && error && (
-        <div className="mb-4 rounded-md border border-cr/50 bg-cr/10 px-3 py-2 text-body-sm text-cr">
+        <Banner tone="danger" className="mb-4">
           Couldn&apos;t run the consolidation: {error.message}
-        </div>
+        </Banner>
       )}
 
       {data && data.warnings.length > 0 && (
-        <div className="mb-4 rounded-md border border-amberbar/50 bg-amberbar/10 px-3 py-2 text-body-sm text-ink">
+        <Banner tone="warning" className="mb-4">
           {data.warnings.map((w, i) => (
             <p key={i}>{w}</p>
           ))}
-        </div>
+        </Banner>
       )}
 
       {isFetching && (
@@ -197,6 +198,6 @@ export function ConsolidatedScreen(): React.JSX.Element {
           />
         </Panel>
       )}
-    </div>
+    </Page>
   )
 }

@@ -7,8 +7,9 @@ import { api, type EmployeeHeadRow, type PayHead, type PtSummaryRow } from '../l
 import { formatPaise, parseRupees } from '@shared/money'
 import { useNav, useToasts } from '../state/stores'
 import {
-  AmountInput, Button, EmptyState, Field, Modal, Money, Panel, ScrollList, Select, Spinner, TextInput, inputCls
+  AmountInput, Button, DrawerSection, EmptyState, Field, Modal, Money, Page, PageHeader, Panel, ScrollList, Select, Spinner, TextInput, inputCls
 } from '../components/ui'
+import { OptionToggle, OptionsTable, useScreenOptions } from '../components/ScreenOptions'
 import { confirmDialog } from '../lib/dialogs'
 import { TabBar } from '../components/TabBar'
 import { DataTable, defineColumns, Popover } from '../components/table'
@@ -72,39 +73,44 @@ export const RUN_COLUMNS = defineColumns<PayrollRun>([
   { id: 'net', header: 'Net pay', kind: 'money', value: runNet, aggregate: 'sum', width: 140 }
 ])
 
+const STATUTORY_NOTE =
+  'Statutory defaults: EPF 12% + 12% on basic (₹15,000 ceiling) · ESI 0.75% / 3.25% when gross ≤ ₹21,000 · simplified professional-tax slab. Posting books one Journal voucher: salaries and employer contributions against PF/ESI/PT/Salaries payable.'
+
+/** The Options drawer's note on how payroll is computed (moved off the page). */
+function StatutorySection(): React.JSX.Element {
+  return (
+    <DrawerSection title="How payroll is computed">
+      <p className="text-hint text-muted">{STATUTORY_NOTE}</p>
+    </DrawerSection>
+  )
+}
+
 export function PayrollScreen(): React.JSX.Element {
   const [tab, setTab] = useState<Tab>('employees')
-  return (
-    <div className="mx-auto max-w-5xl">
-      <div className="mb-4 flex items-center gap-1">
-        <h2 className="mr-4 font-serif text-heading font-semibold tracking-tight">Payroll</h2>
-        <TabBar
-          screen="payroll"
-          tabs={[
-            { id: 'employees', label: 'Employees' },
-            { id: 'runs', label: 'Pay runs' }
-          ]}
-          active={tab}
-          onSelect={setTab}
-        />
-      </div>
-      {tab === 'employees' ? <EmployeesTab /> : <RunsTab />}
-      <p className="mt-3 text-hint text-muted">
-        Statutory defaults: EPF 12% + 12% on basic (₹15,000 ceiling) · ESI 0.75% / 3.25% when gross ≤ ₹21,000 · simplified professional-tax slab. Posting books one Journal voucher: salaries and employer contributions against PF/ESI/PT/Salaries payable.
-      </p>
-    </div>
+  const tabs = (
+    <TabBar
+      screen="payroll"
+      tabs={[
+        { id: 'employees', label: 'Employees' },
+        { id: 'runs', label: 'Pay runs' }
+      ]}
+      active={tab}
+      onSelect={setTab}
+    />
   )
+  return <Page>{tab === 'employees' ? <EmployeesTab tabs={tabs} /> : <RunsTab tabs={tabs} />}</Page>
 }
 
 // ---------- employees ----------
 
-function EmployeesTab(): React.JSX.Element {
+function EmployeesTab({ tabs }: { tabs: React.ReactNode }): React.JSX.Element {
   const toast = useToasts()
   const queryClient = useQueryClient()
   const { data: employees, isLoading: employeesLoading } = useQuery({ queryKey: ['employees'], queryFn: api.payroll.employees })
   const [editing, setEditing] = useState<Employee | 'new' | null>(null)
   const [headsOpen, setHeadsOpen] = useState(false)
   const [overridesFor, setOverridesFor] = useState<Employee | null>(null)
+  const opts = useScreenOptions('payroll', { hideInactive: false })
 
   const remove = async (e: Employee): Promise<void> => {
     const proceed = await confirmDialog({
@@ -125,21 +131,39 @@ function EmployeesTab(): React.JSX.Element {
 
   return (
     <>
-      <div className="mb-3 flex justify-end gap-2">
-        <Button data-testid="btn-payroll-pay-heads" onClick={() => setHeadsOpen(true)}>
-          Pay heads…
-        </Button>
-        <Button variant="primary" data-testid="btn-payroll-add-employee" onClick={() => setEditing('new')}>
-          Add employee
-        </Button>
-      </div>
+      <PageHeader
+        title="Payroll"
+        tabs={tabs}
+        secondary={
+          <Button data-testid="btn-payroll-pay-heads" onClick={() => setHeadsOpen(true)}>
+            Pay heads…
+          </Button>
+        }
+        actions={
+          <Button variant="primary" data-testid="btn-payroll-add-employee" onClick={() => setEditing('new')}>
+            Add employee
+          </Button>
+        }
+        options={{
+          onReset: opts.reset,
+          content: (
+            <>
+              <DrawerSection title="Display">
+                <OptionToggle label="Hide inactive employees" checked={opts.options.hideInactive} onChange={(v) => opts.set('hideInactive', v)} testId="input-payroll-hide-inactive" />
+              </DrawerSection>
+              <OptionsTable area="payroll-employees" />
+              <StatutorySection />
+            </>
+          )
+        }}
+      />
       <Panel>
         <DataTable
           viewId="payroll-employees"
           testId="payroll-employees"
           ariaLabel="Employees"
           columns={EMPLOYEE_COLUMNS}
-          rows={employees ?? []}
+          rows={(employees ?? []).filter((e) => !opts.options.hideInactive || e.active)}
           rowKey={(e) => e.id}
           rowAttrs={(e) => ({ 'data-row-id': e.id })}
           rowClassName={(e) => (e.active ? '' : 'opacity-50')}
@@ -151,22 +175,28 @@ function EmployeesTab(): React.JSX.Element {
           trailing={(e) => (
             <>
               <button
+                type="button"
                 className="mr-3 text-small text-muted hover:text-ink"
                 data-testid="btn-payroll-overrides"
+                aria-label={`Pay heads for ${e.name}`}
                 onClick={() => setOverridesFor(e)}
               >
                 Heads
               </button>
               <button
+                type="button"
                 className="mr-3 text-small text-blue hover:underline"
                 data-testid="btn-payroll-edit-employee"
+                aria-label={`Edit ${e.name}`}
                 onClick={() => setEditing(e)}
               >
                 Edit
               </button>
               <button
-                className="text-small text-cr hover:underline"
+                type="button"
+                className="text-small text-danger hover:underline"
                 data-testid="btn-payroll-delete-employee"
+                aria-label={`Delete ${e.name}`}
                 onClick={() => void remove(e)}
               >
                 Delete
@@ -701,7 +731,7 @@ function OverrideInput({
 
 // ---------- pay runs ----------
 
-function RunsTab(): React.JSX.Element {
+function RunsTab({ tabs }: { tabs: React.ReactNode }): React.JSX.Element {
   const toast = useToasts()
   const queryClient = useQueryClient()
   const { data: employees } = useQuery({ queryKey: ['employees'], queryFn: api.payroll.employees })
@@ -782,7 +812,19 @@ function RunsTab(): React.JSX.Element {
 
   return (
     <>
-      <Panel className="mb-4 p-4">
+      <PageHeader
+        title="Payroll"
+        tabs={tabs}
+        options={{
+          content: (
+            <>
+              <OptionsTable area="payroll-runs" label="Posted runs table" />
+              <StatutorySection />
+            </>
+          )
+        }}
+      />
+      <Panel className="mb-section p-panel">
         <div className="mb-3 flex items-end justify-between">
           <Field label="Month">
             <Select value={month} onChange={(e) => setMonth(e.target.value)} className="w-36" data-testid="payroll-month">
@@ -837,11 +879,12 @@ function RunsTab(): React.JSX.Element {
                           step={0.5}
                           data-testid="input-payroll-days"
                           aria-invalid={err ? true : undefined}
-                          className={`num w-16 rounded border px-1.5 py-0.5 text-right text-body-sm bg-panel2 ${err ? 'border-cr/70' : 'border-line'}`}
+                          aria-label={`Days worked by ${e.name}`}
+                          className={`num w-16 rounded border px-1.5 py-0.5 text-right text-body-sm bg-panel2 ${err ? 'border-danger/70' : 'border-line'}`}
                           value={daysOverride[e.id] ?? String(monthDays)}
                           onChange={(ev) => setDaysOverride((d) => ({ ...d, [e.id]: ev.target.value }))}
                         />
-                        {err && <span className="block text-hint text-cr">{err}</span>}
+                        {err && <span className="block text-hint text-danger">{err}</span>}
                       </td>
                       <td className="r">{line ? <Money paise={line.gross} /> : '—'}</td>
                       <td className="r">{line ? <Money paise={line.pfEmp} /> : '—'}</td>

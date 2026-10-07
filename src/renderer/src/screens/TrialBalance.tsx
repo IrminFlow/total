@@ -1,7 +1,8 @@
 import { useQuery } from '@tanstack/react-query'
 import { api } from '../lib/client'
 import { useNav, useSession } from '../state/stores'
-import { Panel, SectionTitle } from '../components/ui'
+import { Page, PageHeader, Panel } from '../components/ui'
+import { OptionToggle, OptionsPeriod, OptionsTable, useScreenOptions } from '../components/ScreenOptions'
 import { DataTable, defineColumns } from '../components/table'
 import { toDisplayDate } from '@shared/dates'
 import type { TrialBalanceRow } from '@shared/reports'
@@ -38,13 +39,37 @@ export function TrialBalanceScreen(): React.JSX.Element {
   const { to } = useSession()
   const nav = useNav()
   const { data, isLoading } = useQuery({ queryKey: ['trialBalance', to], queryFn: () => api.reports.trialBalance(to) })
-  const rows = data?.rows ?? []
+  const opts = useScreenOptions('trial-balance', { hideZeroClosing: false })
+  // The service already drops ledgers with no balance and no movement; this also hides ledgers
+  // that moved in the period but closed at zero. Totals are unaffected (those rows add 0).
+  const rows = (data?.rows ?? []).filter((r) => !opts.options.hideZeroClosing || r.debit !== 0 || r.credit !== 0)
   const matched = !data || data.totalDebit === data.totalCredit
   const periodLabel = `as on ${toDisplayDate(to)}`
 
   return (
-    <div className="mx-auto max-w-5xl">
-      <SectionTitle right={<span className="num text-small text-muted">{periodLabel}</span>}>Trial balance</SectionTitle>
+    <Page>
+      <PageHeader
+        title="Trial balance"
+        period={periodLabel}
+        options={{
+          onReset: opts.reset,
+          content: (
+            <>
+              <OptionsPeriod asOn />
+              <OptionToggle
+                label="Hide ledgers that closed at zero"
+                hint="Ledgers with entries in the period but no closing balance."
+                checked={opts.options.hideZeroClosing}
+                onChange={(v) => opts.set('hideZeroClosing', v)}
+                testId="input-trial-balance-hide-zero"
+              />
+              <div className="mt-5">
+                <OptionsTable area="trial-balance" />
+              </div>
+            </>
+          )
+        }}
+      />
       <Panel>
         <DataTable
           viewId="trial-balance"
@@ -64,6 +89,6 @@ export function TrialBalanceScreen(): React.JSX.Element {
           exportOptions={{ title: 'Trial balance', periodLabel, filename: 'trial-balance' }}
         />
       </Panel>
-    </div>
+    </Page>
   )
 }

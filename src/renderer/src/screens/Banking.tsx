@@ -6,8 +6,9 @@ import { api, type BankImportResult, type BankRuleRecord, type BankSuggestionRow
 import { DataTable, defineColumns, type TableColumn } from '../components/table'
 import { useNav, useSession, useToasts, nextDraftId } from '../state/stores'
 import {
-  Button, DateInput, EmptyState, Field, Modal, Money, Panel, SectionTitle, Select, Spinner, TextInput
+  Button, DateInput, DrawerSection, EmptyState, Field, Modal, Money, Page, PageHeader, Panel, SkeletonRows, Select, Spinner, StatTile, TabBar, TextInput
 } from '../components/ui'
+import { OptionToggle, OptionsPeriod, OptionsTable, useScreenOptions } from '../components/ScreenOptions'
 import { LedgerPicker } from '../components/pickers'
 import { toDisplayDate, todayISO } from '@shared/dates'
 import { suggestPattern } from '@shared/bankRules'
@@ -228,6 +229,7 @@ export function BankingScreen(): React.JSX.Element {
   const [dateEdit, setDateEdit] = useState<{ lineId: number; current: string | null } | null>(null)
   const [importPreview, setImportPreview] = useState<(BankImportResult & { csvText: string }) | null>(null)
   const columns = useMemo(() => reconColumns((r) => setDateEdit({ lineId: r.lineId, current: r.bankDate })), [])
+  const opts = useScreenOptions('banking', { hideCleared: false })
 
   useEffect(() => {
     if (ledgerId == null && ledgers?.length) setLedgerId(ledgers[0]!.id)
@@ -341,87 +343,100 @@ export function BankingScreen(): React.JSX.Element {
 
   if (ledgers && ledgers.length === 0) {
     return (
-      <div className="mx-auto max-w-4xl">
-        <SectionTitle>Banking</SectionTitle>
+      <Page>
+        <PageHeader title="Banking" />
         <Panel>
-          <EmptyState title="No bank ledgers yet" hint="Create a ledger under Bank Accounts in Masters, then reconcile it here" />
+          <EmptyState
+            title="No bank ledgers yet"
+            hint="Create a ledger under Bank Accounts in Masters, then reconcile it here"
+            action={<Button onClick={() => nav.go({ name: 'masters', tab: 'ledgers' })}>Open Masters</Button>}
+          />
         </Panel>
-      </div>
+      </Page>
     )
   }
 
   return (
-    <div className="mx-auto max-w-5xl">
-      <SectionTitle
-        right={
-          <div className="flex items-center gap-2">
-            {tab !== 'pdc' && (
-              <Select
-                value={ledgerId ?? ''}
-                onChange={(e) => setLedgerId(Number(e.target.value))}
-                className="w-52"
-                data-testid="banking-ledger"
-              >
-                {(ledgers ?? []).map((l) => (
-                  <option key={l.id} value={l.id}>
-                    {l.name}
-                  </option>
-                ))}
-              </Select>
-            )}
-            {tab === 'recon' && (
-              <>
-                <Button data-testid="btn-banking-rules" onClick={() => openRules(null)}>
-                  Rules…
-                </Button>
-                {ledgerId != null && (
-                  <Button data-testid="btn-banking-cheque-setup" onClick={() => setChequeSetupOpen(true)}>
-                    Cheque setup…
-                  </Button>
-                )}
-                <Button variant="primary" data-testid="btn-banking-import" onClick={() => void doImport()}>
-                  Import statement CSV
-                </Button>
-              </>
-            )}
-          </div>
+    <Page>
+      <PageHeader
+        title="Banking"
+        period={tab === 'recon' ? `${toDisplayDate(from)} → ${toDisplayDate(to)}` : undefined}
+        tabs={<TabBar screen="banking" label="Banking view" tabs={(['recon', 'brs', 'pdc'] as const).map((t) => ({ id: t, label: TAB_LABELS[t] }))} active={tab} onSelect={setTab} />}
+        controls={
+          tab !== 'pdc' ? (
+            <Select
+              value={ledgerId ?? ''}
+              onChange={(e) => setLedgerId(Number(e.target.value))}
+              className="w-52"
+              aria-label="Bank account"
+              data-testid="banking-ledger"
+            >
+              {(ledgers ?? []).map((l) => (
+                <option key={l.id} value={l.id}>
+                  {l.name}
+                </option>
+              ))}
+            </Select>
+          ) : undefined
         }
-      >
-        Banking
-      </SectionTitle>
+        secondary={
+          tab === 'recon' ? (
+            <Button data-testid="btn-banking-rules" onClick={() => openRules(null)}>
+              Rules…
+            </Button>
+          ) : undefined
+        }
+        actions={
+          tab === 'recon' ? (
+            <Button variant="primary" data-testid="btn-banking-import" onClick={() => void doImport()}>
+              Import statement CSV
+            </Button>
+          ) : undefined
+        }
+        options={{
+          onReset: opts.reset,
+          content: (
+            <>
+              <OptionsPeriod />
+              <DrawerSection title="Reconcile">
+                <OptionToggle
+                  label="Hide entries already cleared"
+                  hint="Cleared rows otherwise show dimmed."
+                  checked={opts.options.hideCleared}
+                  onChange={(v) => opts.set('hideCleared', v)}
+                  testId="input-banking-hide-cleared"
+                />
+              </DrawerSection>
+              {tab === 'recon' && <OptionsTable area="banking" label="Entries table" />}
+              {ledgerId != null && (
+                <DrawerSection title="Cheque printing">
+                  <p className="text-hint text-muted">Cheque layout and printer offsets for this bank account.</p>
+                  <div>
+                    <Button size="sm" data-testid="btn-banking-cheque-setup" onClick={() => setChequeSetupOpen(true)}>
+                      Cheque setup…
+                    </Button>
+                  </div>
+                </DrawerSection>
+              )}
 
-      <div className="mb-3 flex items-center gap-1">
-        {(['recon', 'brs', 'pdc'] as const).map((t) => (
-          <button
-            key={t}
-            data-testid={`tab-banking-${t}`}
-            onClick={() => setTab(t)}
-            className={`rounded-md px-3 py-1.5 text-detail ${tab === t ? 'bg-amberbar/20 font-medium text-ink' : 'text-muted hover:bg-panel2 hover:text-ink'}`}
-          >
-            {TAB_LABELS[t]}
-          </button>
-        ))}
-      </div>
+              <DrawerSection title="About matching">
+                <p className="text-hint text-muted">
+                  Import a statement CSV (date + debit/credit columns) to auto-match by amount and date; anything left over, set the
+                  bank date by hand. Rules turn recurring unmatched lines into vouchers.
+                </p>
+              </DrawerSection>
+            </>
+          )
+        }}
+      />
 
       {tab === 'recon' && recon && (
         <>
-          <div className="mb-3 grid grid-cols-4 gap-3">
-            <Panel className="px-4 py-2.5">
-              <p className="text-label font-semibold tracking-[0.08em] text-muted uppercase">Balance as per books</p>
-              <p className="num mt-1 text-subtitle font-medium"><Money paise={recon.bookBalance} /></p>
-            </Panel>
-            <Panel className="px-4 py-2.5">
-              <p className="text-label font-semibold tracking-[0.08em] text-muted uppercase">Deposits not in bank</p>
-              <p className="num mt-1 text-subtitle font-medium"><Money paise={recon.unreconciledDeposits} /></p>
-            </Panel>
-            <Panel className="px-4 py-2.5">
-              <p className="text-label font-semibold tracking-[0.08em] text-muted uppercase">Withdrawals not in bank</p>
-              <p className="num mt-1 text-subtitle font-medium"><Money paise={recon.unreconciledWithdrawals} /></p>
-            </Panel>
-            <Panel className="px-4 py-2.5">
-              <p className="text-label font-semibold tracking-[0.08em] text-muted uppercase">Balance as per bank</p>
-              <p className="num mt-1 text-subtitle font-medium"><Money paise={recon.bankBalance} /></p>
-            </Panel>
+          <div className="mb-section grid grid-cols-4 gap-3">
+            <StatTile label="Balance as per books" value={<Money paise={recon.bookBalance} />} />
+            <StatTile label="Deposits not in bank" value={<Money paise={recon.unreconciledDeposits} />} />
+            <StatTile label="Withdrawals not in bank" value={<Money paise={recon.unreconciledWithdrawals} />} />
+            <StatTile label="Balance as per bank" value={<Money paise={recon.bankBalance} />} />
           </div>
 
           <Panel>
@@ -430,7 +445,7 @@ export function BankingScreen(): React.JSX.Element {
               testId="banking"
               ariaLabel="Bank entries"
               columns={columns}
-              rows={recon.rows}
+              rows={opts.options.hideCleared ? recon.rows.filter((r) => !r.bankDate) : recon.rows}
               rowKey={(r) => r.lineId}
               rowAttrs={(r) => ({ 'data-row-id': r.lineId })}
               rowClassName={(r) => (r.bankDate ? 'opacity-60' : '')}
@@ -439,8 +454,10 @@ export function BankingScreen(): React.JSX.Element {
               trailingWidth={112}
               trailing={(r) => (
                 <button
+                  type="button"
                   className="text-small text-muted hover:text-ink"
                   data-testid="btn-banking-mark-today"
+                  aria-label={r.bankDate ? `Clear the bank date of ${r.particulars}` : `Mark ${r.particulars} cleared today`}
                   onClick={() => void markToday(r.lineId, r.bankDate)}
                 >
                   {r.bankDate ? 'Clear' : 'Cleared today'}
@@ -453,9 +470,7 @@ export function BankingScreen(): React.JSX.Element {
               }}
             />
           </Panel>
-          <p className="mt-2 text-hint text-muted">
-            Import a statement CSV (date + debit/credit columns) to auto-match by amount and date; anything left over, set the bank date by hand.
-          </p>
+          <p className="mt-2 text-hint text-muted">Import a statement CSV to auto-match by amount and date · F12 for options.</p>
 
           {suggestions && suggestions.length > 0 && (
             <Panel className="mt-3">
@@ -535,7 +550,7 @@ export function BankingScreen(): React.JSX.Element {
           onClose={() => setImportPreview(null)}
         />
       )}
-    </div>
+    </Page>
   )
 }
 
@@ -611,18 +626,9 @@ function ImportPreviewModal({
     <Modal title="Import preview" onClose={onClose} wide>
       <div className="flex flex-col gap-4">
         <div className="grid grid-cols-3 gap-3">
-          <Panel className="px-4 py-2.5">
-            <p className="text-label font-semibold tracking-[0.08em] text-muted uppercase">Will reconcile</p>
-            <p className="num mt-1 text-subtitle font-medium">{preview.matched} <span className="text-caption text-muted">of {preview.statementRows} rows</span></p>
-          </Panel>
-          <Panel className="px-4 py-2.5">
-            <p className="text-label font-semibold tracking-[0.08em] text-muted uppercase">Already reconciled</p>
-            <p className="num mt-1 text-subtitle font-medium">{preview.alreadyReconciled}</p>
-          </Panel>
-          <Panel className="px-4 py-2.5">
-            <p className="text-label font-semibold tracking-[0.08em] text-muted uppercase">Unmatched</p>
-            <p className="num mt-1 text-subtitle font-medium">{preview.unmatched.length}</p>
-          </Panel>
+          <StatTile label="Will reconcile" value={<>{preview.matched} <span className="text-caption text-muted">of {preview.statementRows} rows</span></>} />
+          <StatTile label="Already reconciled" value={preview.alreadyReconciled} />
+          <StatTile label="Unmatched" value={preview.unmatched.length} />
         </div>
 
         {preview.matches.length > 0 && (
@@ -733,28 +739,16 @@ function BrsSection({ ledgerId, defaultAsOn }: { ledgerId: number; defaultAsOn: 
       </div>
 
       {isLoading || !brs ? (
-        <Panel className="flex items-center justify-center py-10">
-          <Spinner />
+        <Panel>
+          <SkeletonRows rows={6} />
         </Panel>
       ) : (
         <>
           <div className="mb-3 grid grid-cols-4 gap-3">
-            <Panel className="px-4 py-2.5">
-              <p className="text-label font-semibold tracking-[0.08em] text-muted uppercase">Balance as per books</p>
-              <p className="num mt-1 text-subtitle font-medium"><Money paise={brs.bookBalance} signed /></p>
-            </Panel>
-            <Panel className="px-4 py-2.5">
-              <p className="text-label font-semibold tracking-[0.08em] text-muted uppercase">Deposited, not credited</p>
-              <p className="num mt-1 text-subtitle font-medium"><Money paise={brs.uncreditedTotal} /></p>
-            </Panel>
-            <Panel className="px-4 py-2.5">
-              <p className="text-label font-semibold tracking-[0.08em] text-muted uppercase">Issued, not presented</p>
-              <p className="num mt-1 text-subtitle font-medium"><Money paise={brs.unpresentedTotal} /></p>
-            </Panel>
-            <Panel className="px-4 py-2.5">
-              <p className="text-label font-semibold tracking-[0.08em] text-muted uppercase">Balance as per bank</p>
-              <p className="num mt-1 text-subtitle font-medium"><Money paise={brs.bankBalance} signed /></p>
-            </Panel>
+            <StatTile label="Balance as per books" value={<Money paise={brs.bookBalance} signed />} />
+            <StatTile label="Deposited, not credited" value={<Money paise={brs.uncreditedTotal} />} />
+            <StatTile label="Issued, not presented" value={<Money paise={brs.unpresentedTotal} />} />
+            <StatTile label="Balance as per bank" value={<Money paise={brs.bankBalance} signed />} />
           </div>
 
           <Panel className="mb-3">

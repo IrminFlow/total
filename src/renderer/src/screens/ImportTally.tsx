@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { api, type TallyImportSummary } from '../lib/client'
 import { useNav, useToasts } from '../state/stores'
-import { Button, Panel, SectionTitle } from '../components/ui'
+import { Button, DrawerSection, Page, PageHeader, Panel } from '../components/ui'
 import { DataTable, defineColumns } from '../components/table'
 import { todayISO, toDisplayDate } from '@shared/dates'
 import type { TrialBalanceRow } from '@shared/reports'
@@ -122,8 +122,21 @@ export function ImportTallyScreen(): React.JSX.Element {
   }
 
   return (
-    <div className="mx-auto max-w-4xl">
-      <SectionTitle>Import from Tally</SectionTitle>
+    <Page width="medium">
+      <PageHeader
+        title="Import from Tally"
+        subtitle={step.kind === 'pick' ? 'Step 1 of 2 · choose a file' : step.kind === 'preview' ? 'Step 2 of 2 · review' : 'Done'}
+        options={{
+          content: (
+            <DrawerSection title="How the import works">
+              <p className="text-hint text-muted">
+                Import the masters export first (groups, ledgers, stock items), then the vouchers export. Nothing is written to your
+                books until you confirm the preview. Existing masters with the same name are reused, not duplicated.
+              </p>
+            </DrawerSection>
+          )
+        }}
+      />
       {step.kind === 'pick' && <PickStep busy={busy} onPick={() => void pickFile()} />}
       {step.kind === 'preview' && (
         <PreviewStep
@@ -134,7 +147,7 @@ export function ImportTallyScreen(): React.JSX.Element {
         />
       )}
       {step.kind === 'done' && <DoneStep summary={step.summary} onGateway={() => nav.home()} />}
-    </div>
+    </Page>
   )
 }
 
@@ -158,9 +171,10 @@ function PickStep({ busy, onPick }: { busy: boolean; onPick: () => void }): Reac
           your books until you confirm on the next screen.
         </p>
         <div className="mt-5 flex justify-center">
-          <Button variant="primary" data-testid="btn-import-tally-pick" disabled={busy} onClick={onPick} className="px-8 py-3 text-lead">
+          <Button variant="primary" data-testid="btn-import-tally-pick" loading={busy} onClick={onPick} className="px-8 py-3 text-lead">
             {busy ? 'Reading…' : 'Choose Tally XML…'}
           </Button>
+
         </div>
       </Panel>
     </>

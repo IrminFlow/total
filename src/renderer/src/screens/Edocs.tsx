@@ -2,7 +2,8 @@ import { useMemo, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '../lib/client'
 import { useNav, useSession, useToasts } from '../state/stores'
-import { Button, Modal, Panel, SectionTitle, Select } from '../components/ui'
+import { Badge, Banner, Button, DrawerSection, Modal, Page, PageHeader, Panel, Select } from '../components/ui'
+import { OptionsExport, OptionsPeriod, OptionsTable } from '../components/ScreenOptions'
 import { DataTable, defineColumns } from '../components/table'
 import type { EdocListRow } from '@shared/reports'
 import { gstPeriodOf, toDisplayDate } from '@shared/dates'
@@ -231,26 +232,58 @@ export function EdocsScreen(): React.JSX.Element {
   }
 
   return (
-    <div className="mx-auto max-w-6xl">
-      <SectionTitle
-        right={
-          <div className="flex items-center gap-2">
-            <Button onClick={() => nav.go({ name: 'settings', tab: 'nic' })}>
-              {live ? 'Live filing ✓ · Configure in Settings →' : 'Configure in Settings →'}
-            </Button>
-            <Button variant="primary" data-testid="btn-edocs-export-einvoice" onClick={() => void exportEinv()} disabled={!info?.gstin}>
-              Export e-invoice JSON
-            </Button>
-            <Button data-testid="btn-edocs-export-ewb" onClick={() => void exportEwb()} disabled={!info?.gstin}>
-              Export e-way bill JSON
-            </Button>
-          </div>
+    <Page width="wide">
+      <PageHeader
+        title="e-Invoice & e-Way bill"
+        period={`${toDisplayDate(from)} → ${toDisplayDate(to)}`}
+        subtitle={
+          <Badge tone={live ? 'success' : 'neutral'} testId="edocs-live-status">
+            {live ? 'Live filing on' : 'Offline JSON'}
+          </Badge>
         }
-      >
-        e-Invoice &amp; e-Way bill
-      </SectionTitle>
+        secondary={
+          <Button data-testid="btn-edocs-export-ewb" onClick={() => void exportEwb()} disabled={!info?.gstin}>
+            Export e-way bill JSON
+          </Button>
+        }
+        actions={
+          <Button variant="primary" data-testid="btn-edocs-export-einvoice" onClick={() => void exportEinv()} disabled={!info?.gstin}>
+            Export e-invoice JSON
+          </Button>
+        }
+        options={{
+          content: (
+            <>
+              <OptionsPeriod />
+              <OptionsTable area="edocs" label="Documents table" />
+              <OptionsExport>
+                <Button size="sm" onClick={() => void exportEinv()} disabled={!info?.gstin}>
+                  e-Invoice JSON
+                </Button>
+                <Button size="sm" onClick={() => void exportEwb()} disabled={!info?.gstin}>
+                  e-Way bill JSON
+                </Button>
+              </OptionsExport>
+              <DrawerSection title="Live filing (NIC)">
+                <p className="text-hint text-muted">
+                  {live ? 'NIC credentials are set — IRN and e-way bills can be generated per document.' : 'Offline mode: export JSON and upload it on the portals.'}
+                </p>
+                <div>
+                  <Button size="sm" data-testid="btn-edocs-nic-settings" onClick={() => nav.go({ name: 'settings', tab: 'nic' })}>
+                    Configure in Settings →
+                  </Button>
+                </div>
+              </DrawerSection>
+            </>
+          )
+        }}
+      />
 
-      {!info?.gstin && <p className="mb-3 text-body-sm text-amber">Add the company GSTIN under Company details to enable exports.</p>}
+      {!info?.gstin && (
+        <Banner tone="warning" className="mb-3">
+          Add the company GSTIN under Company details to enable exports.
+        </Banner>
+      )}
 
       <Panel>
         <DataTable
@@ -281,7 +314,7 @@ export function EdocsScreen(): React.JSX.Element {
           // The document-type picker pre-filters the rows (the table's view applies on top).
           toolbarStart={
             <Select
-              className="!w-40 !py-1 !text-detail"
+              className="!w-40 !min-h-control-sm !py-0.5 !text-detail"
               aria-label="Document type"
               data-testid="input-edocs-doctype"
               value={docTypeFilter}
@@ -377,7 +410,7 @@ export function EdocsScreen(): React.JSX.Element {
           }}
         />
       )}
-    </div>
+    </Page>
   )
 }
 

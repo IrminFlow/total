@@ -79,8 +79,9 @@ await scenario('14-search', async (h) => {
   await h.page.click('[data-testid="palette-see-all-voucher"]')
   await h.waitScreen('search', 15000)
   await h.page.waitForSelector('[data-testid="rows-search-vouchers"] tr', { timeout: 10000 })
-  const tab = await h.page.getAttribute('[data-testid="tab-search-voucher"]', 'aria-current')
-  assert(tab === 'page', 'See all lands on the Vouchers tab')
+  // TabBar is an ARIA tablist since WP 1.10a: the selected tab carries aria-selected.
+  const tab = await h.page.getAttribute('[data-testid="tab-search-voucher"]', 'aria-selected')
+  assert(tab === 'true', 'See all lands on the Vouchers tab')
   await h.page.waitForSelector('[data-testid="search-loaded"]:has-text("Loaded")', { timeout: 10000 })
   const shown = (await h.page.$$('[data-testid="rows-search-vouchers"] tr[data-row-id]')).length
   assert(shown > 20, `the kind tab shows more than the palette's 20 (${shown})`)

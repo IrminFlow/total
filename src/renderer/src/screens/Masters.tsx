@@ -5,7 +5,8 @@ import type { Currency, Godown, Ledger, StockGroup, StockItem, Unit, VoucherType
 import { filterLedgers, type ChartGroupNode } from '@shared/chartOfAccounts'
 import { api } from '../lib/client'
 import { useNav, useSession, useToasts, type Screen } from '../state/stores'
-import { AmountInput, Button, EmptyState, Field, Modal, Panel, Select, TextInput } from '../components/ui'
+import { AmountInput, Button, DrawerSection, EmptyState, Field, Modal, Page, PageActions, PageHeader, Panel, Select, TextInput } from '../components/ui'
+import { OptionsTable } from '../components/ScreenOptions'
 import { DataTable, defineColumns } from '../components/table'
 import { formatMilli } from '../lib/table'
 import { TabBar } from '../components/TabBar'
@@ -33,20 +34,32 @@ export function Masters({ tab, itemId }: { tab?: MastersTab; itemId?: number }):
   const nav = useNav()
   const active = tab ?? 'ledgers'
   return (
-    <div className="mx-auto max-w-4xl">
-      <div className="mb-4 flex items-center gap-1">
-        <h2 className="mr-4 font-serif text-heading font-semibold tracking-tight">Masters</h2>
-        {/* Tab lives in the nav stack (not local state) so Esc/back retraces tabs and
-            other screens can deep-link straight to a tab — same pattern as Settings. */}
-        <TabBar
-          screen="masters"
-          tabs={TABS}
-          active={active}
-          onSelect={(t) => {
-            if (t !== active) nav.go({ name: 'masters', tab: t })
-          }}
-        />
-      </div>
+    <Page>
+      <PageHeader
+        title="Masters"
+        // Tab lives in the nav stack (not local state) so Esc/back retraces tabs and other
+        // screens can deep-link straight to a tab — same pattern as Settings. Each tab puts its
+        // own "New …" button into the header with <PageActions>.
+        tabs={
+          <TabBar
+            screen="masters"
+            tabs={TABS}
+            active={active}
+            onSelect={(t) => {
+              if (t !== active) nav.go({ name: 'masters', tab: t })
+            }}
+          />
+        }
+        options={{
+          content: TABLE_AREA[active] ? (
+            <OptionsTable area={TABLE_AREA[active]!} label={`${TABS.find((t) => t.id === active)?.label ?? ''} table`} />
+          ) : (
+            <DrawerSection title="Chart of accounts">
+              <p className="text-hint text-muted">Groups show as a tree with closing balances; type in its filter to find a ledger.</p>
+            </DrawerSection>
+          )
+        }}
+      />
       {active === 'ledgers' && <LedgersTab />}
       {active === 'groups' && <GroupsTab />}
       {active === 'items' && <ItemsTab openItemId={itemId} />}
@@ -55,8 +68,18 @@ export function Masters({ tab, itemId }: { tab?: MastersTab; itemId?: number }):
       {active === 'units' && <UnitsTab />}
       {active === 'types' && <TypesTab />}
       {active === 'currencies' && <CurrenciesTab />}
-    </div>
+    </Page>
   )
+}
+
+/** Each tab's main table (testId area) — for the Options drawer's columns/export section. */
+const TABLE_AREA: Partial<Record<MastersTab, string>> = {
+  ledgers: 'masters-ledgers',
+  items: 'masters-items',
+  units: 'masters-units',
+  types: 'masters-types',
+  godowns: 'masters-godowns',
+  currencies: 'masters-currencies'
 }
 
 // ---------- currencies ----------
@@ -90,11 +113,11 @@ function CurrenciesTab(): React.JSX.Element {
 
   return (
     <>
-      <div className="mb-3 flex justify-end">
+      <PageActions>
         <Button variant="primary" onClick={() => setCreating(true)}>
           Add currency
         </Button>
-      </div>
+      </PageActions>
       <Panel>
         <DataTable
           viewId="masters-currencies"
@@ -193,11 +216,11 @@ function LedgersTab(): React.JSX.Element {
 
   return (
     <>
-      <div className="mb-3 flex justify-end">
-        <Button variant="primary" className="whitespace-nowrap" data-testid="btn-masters-new-ledger" onClick={() => setEditing('new')}>
+      <PageActions>
+        <Button variant="primary" data-testid="btn-masters-new-ledger" onClick={() => setEditing('new')}>
           New ledger
         </Button>
-      </div>
+      </PageActions>
       <Panel>
         <DataTable
           viewId="masters-ledgers"
@@ -237,7 +260,7 @@ function LedgersTab(): React.JSX.Element {
                   onChange={(e) => setFilter(e.target.value)}
                   placeholder="Name, group, GSTIN or PAN…"
                   aria-label="Filter ledgers"
-                  className="!py-1 !text-detail"
+                  className="!min-h-control-sm !py-0.5 !text-detail"
                   data-testid="masters-ledgers-filter"
                 />
               </div>
@@ -246,7 +269,7 @@ function LedgersTab(): React.JSX.Element {
                   value={groupFilter ?? ''}
                   onChange={(e) => setGroupFilter(e.target.value ? Number(e.target.value) : null)}
                   aria-label="Filter by group (includes sub-groups)"
-                  className="!py-1 !text-detail"
+                  className="!min-h-control-sm !py-0.5 !text-detail"
                   data-testid="masters-ledgers-group"
                 >
                   <option value="">All groups</option>
@@ -350,11 +373,11 @@ function GroupsTab(): React.JSX.Element {
 
   return (
     <>
-      <div className="mb-3 flex justify-end">
+      <PageActions>
         <Button variant="primary" data-testid="btn-masters-new-group" onClick={() => setCreating(true)}>
           New sub-group
         </Button>
-      </div>
+      </PageActions>
       <Panel>
         <ChartOfAccounts
           tree={tree ?? []}
@@ -505,11 +528,11 @@ function ItemsTab({ openItemId }: { openItemId?: number }): React.JSX.Element {
 
   return (
     <>
-      <div className="mb-3 flex justify-end">
+      <PageActions>
         <Button variant="primary" data-testid="btn-masters-new-item" onClick={() => setEditing('new')}>
           New item
         </Button>
-      </div>
+      </PageActions>
       <Panel>
         <DataTable
           viewId="masters-items"
@@ -745,11 +768,11 @@ function UnitsTab(): React.JSX.Element {
 
   return (
     <>
-      <div className="mb-3 flex justify-end">
+      <PageActions>
         <Button variant="primary" onClick={() => setCreating(true)}>
           New unit
         </Button>
-      </div>
+      </PageActions>
       <Panel>
         <DataTable
           viewId="masters-units"
@@ -841,11 +864,11 @@ function TypesTab(): React.JSX.Element {
 
   return (
     <>
-      <div className="mb-3 flex justify-end">
+      <PageActions>
         <Button variant="primary" data-testid="btn-masters-new-type" onClick={() => setEditing('new')}>
           New voucher type
         </Button>
-      </div>
+      </PageActions>
       <Panel>
         <DataTable
           viewId="masters-types"
@@ -974,11 +997,11 @@ function GodownsTab(): React.JSX.Element {
 
   return (
     <>
-      <div className="mb-3 flex justify-end">
+      <PageActions>
         <Button variant="primary" data-testid="btn-masters-new-godown" onClick={() => setEditing('new')}>
           New godown
         </Button>
-      </div>
+      </PageActions>
       <Panel>
         <DataTable
           viewId="masters-godowns"
@@ -1113,11 +1136,11 @@ function StockGroupsTab(): React.JSX.Element {
 
   return (
     <>
-      <div className="mb-3 flex justify-end">
+      <PageActions>
         <Button variant="primary" data-testid="btn-masters-new-stock-group" onClick={() => setCreating(true)}>
           New stock group
         </Button>
-      </div>
+      </PageActions>
       <Panel className="p-4">
         {roots.length === 0 ? (
           <EmptyState title="No stock groups yet" hint="Group items (e.g. Raw materials / Finished goods) to organise the stock summary" />

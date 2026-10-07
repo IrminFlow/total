@@ -21,7 +21,7 @@ export { Toolbar, ToolbarSpacer } from './kit/Toolbar'
 export { TabBar, Tabs } from './kit/Tabs'
 export type { TabItem } from './kit/Tabs'
 export { Drawer, DrawerSection } from './kit/Drawer'
-export { Page, PageHeader } from './kit/PageHeader'
+export { Page, PageHeader, PageActions } from './kit/PageHeader'
 export type { PageOptions, PageWidth } from './kit/PageHeader'
 export { Segmented } from './kit/Segmented'
 export { Checklist } from './kit/Checklist'
@@ -38,7 +38,8 @@ export function AmountInput({
   autoFocus,
   placeholder,
   className,
-  testId = 'input-amount'
+  testId = 'input-amount',
+  ariaLabel
 }: {
   paise: number | null
   onPaise: (paise: number | null) => void
@@ -48,6 +49,8 @@ export function AmountInput({
   className?: string
   /** data-testid for the input (lib/testids.ts — `input-<what>`). */
   testId?: string
+  /** Accessible name when there's no wrapping Field/label (grid cells, toolbars). */
+  ariaLabel?: string
 }): React.JSX.Element {
   const [text, setText] = useState(paise != null && paise !== 0 ? formatPaise(paise) : '')
   useEffect(() => {
@@ -65,6 +68,7 @@ export function AmountInput({
         autoFocus={autoFocus}
         placeholder={placeholder ?? '0.00'}
         inputMode="decimal"
+        aria-label={ariaLabel}
         aria-describedby={fieldAria['aria-describedby']}
         aria-invalid={invalid || fieldAria['aria-invalid'] || undefined}
         onChange={(e) => {
@@ -91,7 +95,8 @@ export function DateInput({
   context,
   onChange,
   className,
-  testId = 'input-date'
+  testId = 'input-date',
+  ariaLabel
 }: {
   value: string
   context: string
@@ -99,6 +104,8 @@ export function DateInput({
   className?: string
   /** data-testid for the input (lib/testids.ts — `input-<what>`). */
   testId?: string
+  /** Accessible name when there's no wrapping Field/label (toolbars, header controls). */
+  ariaLabel?: string
 }): React.JSX.Element {
   const [text, setText] = useState(toDisplayDate(value))
   const [bad, setBad] = useState(false)
@@ -110,6 +117,7 @@ export function DateInput({
         className={`${inputCls} num ${bad ? 'border-danger/70' : ''}`}
         data-testid={testId}
         value={text}
+        aria-label={ariaLabel}
         aria-describedby={fieldAria['aria-describedby']}
         aria-invalid={bad || fieldAria['aria-invalid'] || undefined}
         onChange={(e) => {

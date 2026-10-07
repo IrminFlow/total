@@ -22,6 +22,8 @@ export const SHORTCUT_GROUPS: ShortcutGroup[] = [
       { keys: ['⌘⇧F'], label: 'Search the books (full results)' },
       { keys: ['⌘', '↵'], label: 'In the palette: see all results' },
       { keys: ['Esc'], label: 'Close a dialog, or go back a screen' },
+      { keys: ['F12'], label: "Open the screen's options (period, display, columns, export)" },
+
       { keys: ['?'], label: 'Show this shortcut reference' }
     ]
   },

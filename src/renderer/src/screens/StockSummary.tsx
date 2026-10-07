@@ -2,7 +2,8 @@ import { useCallback, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { api } from '../lib/client'
 import { useSession } from '../state/stores'
-import { Money, Panel, SectionTitle } from '../components/ui'
+import { DrawerSection, Money, Page, PageHeader, Panel, SectionTitle } from '../components/ui'
+import { OptionToggle, OptionsPeriod, OptionsTable, useScreenOptions } from '../components/ScreenOptions'
 import { DataTable, defineColumns, type RowKey } from '../components/table'
 import { formatMilli } from '../lib/table'
 import { toDisplayDate } from '@shared/dates'
@@ -81,7 +82,8 @@ const AGEING_COLUMNS = defineColumns<StockAgeingRow>([
 export function StockSummaryScreen(): React.JSX.Element {
   const { to } = useSession()
   const { data, isLoading } = useQuery({ queryKey: ['stockSummary', to], queryFn: () => api.stock.summary(to) })
-  const rows = data ?? []
+  const opts = useScreenOptions('stock-summary', { hideZero: false, showAnalysis: true })
+  const rows = (data ?? []).filter((r) => !opts.options.hideZero || r.closingQtyMilli !== 0 || r.closingValue !== 0)
   // Expandable item rows (user ask): one item at a time unfolds into its godown- and
   // batch-wise closing position, fetched on demand. A click on the row toggles it; → / ← too.
   const [expanded, setExpanded] = useState<ReadonlySet<RowKey>>(() => new Set())
@@ -97,8 +99,35 @@ export function StockSummaryScreen(): React.JSX.Element {
   const periodLabel = `as on ${toDisplayDate(to)}`
 
   return (
-    <div className="mx-auto max-w-5xl">
-      <SectionTitle right={<span className="num text-small text-muted">{periodLabel}</span>}>Stock summary</SectionTitle>
+    <Page>
+      <PageHeader
+        title="Stock summary"
+        period={periodLabel}
+        options={{
+          onReset: opts.reset,
+          content: (
+            <>
+              <OptionsPeriod asOn />
+              <DrawerSection title="Display">
+                <OptionToggle
+                  label="Hide items with no closing stock"
+                  checked={opts.options.hideZero}
+                  onChange={(v) => opts.set('hideZero', v)}
+                  testId="input-stock-summary-hide-zero"
+                />
+                <OptionToggle
+                  label="Show stock analysis (ageing & reorder)"
+                  hint="Godown- and batch-wise closing open from each item's row."
+                  checked={opts.options.showAnalysis}
+                  onChange={(v) => opts.set('showAnalysis', v)}
+                  testId="input-stock-summary-analysis"
+                />
+              </DrawerSection>
+              <OptionsTable area="stock-summary" />
+            </>
+          )
+        }}
+      />
       <Panel>
         <DataTable
           viewId="stock-summary"
@@ -122,8 +151,8 @@ export function StockSummaryScreen(): React.JSX.Element {
           exportOptions={{ title: 'Stock summary', periodLabel, filename: 'stock-summary' }}
         />
       </Panel>
-      <StockAnalysis asOn={to} />
-    </div>
+      {opts.options.showAnalysis && <StockAnalysis asOn={to} />}
+    </Page>
   )
 }
 
@@ -190,8 +219,10 @@ function StockAnalysis({ asOn }: { asOn: string }): React.JSX.Element | null {
   const rows = (data ?? []).filter((r) => r.closingQtyMilli > 0 || r.belowReorder)
   if (rows.length === 0) return null
   return (
-    <Panel className="mt-4">
-      <p className="mb-2 px-1 text-body font-medium">Stock analysis — ageing &amp; reorder</p>
+    <Panel className="mt-section">
+      <div className="px-3 pt-3">
+        <SectionTitle as="h3">Stock analysis — ageing &amp; reorder</SectionTitle>
+      </div>
       <DataTable
         viewId="stock-ageing"
         testId="stock-ageing"

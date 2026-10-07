@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { api } from '../lib/client'
 import { useNav, useSession, useToasts } from '../state/stores'
-import { Button, Field, Panel, SectionTitle, Select, TextInput } from '../components/ui'
+import { Button, Field, Page, PageHeader, Panel, SectionTitle, Select, TextInput } from '../components/ui'
 import { GST_STATES } from '@shared/gst/states'
 import { gstinErrorMessage } from '../lib/gstinError'
 import { useUnsavedGuard } from '../lib/useUnsavedGuard'
@@ -80,8 +80,8 @@ export function CompanyInfoScreen(): React.JSX.Element {
   }
 
   return (
-    <div className="mx-auto max-w-2xl">
-      <SectionTitle>Company details</SectionTitle>
+    <Page width="narrow">
+      <PageHeader title="Company details" subtitle={info?.gstin ?? undefined} />
       <button
         data-testid="btn-company-info-invoice-layout"
         onClick={() => nav.go({ name: 'settings', tab: 'invoice' })}
@@ -91,7 +91,9 @@ export function CompanyInfoScreen(): React.JSX.Element {
           <span className="block text-lead font-semibold">Invoice layout &amp; contents…</span>
           <span className="block text-hint text-muted">Logo, declaration, bank details, QR, barcode column, copies to print</span>
         </span>
-        <span className="text-subtitle text-amber">→</span>
+        <span aria-hidden="true" className="text-subtitle text-amber">
+          →
+        </span>
       </button>
       <Panel className="flex flex-col gap-4 p-5">
         <Field label="Name">
@@ -148,7 +150,7 @@ export function CompanyInfoScreen(): React.JSX.Element {
         Books from FY {info?.booksFrom}-{((info?.booksFrom ?? 0) + 1) % 100}. Data lives in ~/Documents/total/companies/{slug} — back it up like any folder.
       </p>
       <CsvImportCard />
-    </div>
+    </Page>
   )
 }
 
@@ -234,8 +236,10 @@ function CsvImportCard(): React.JSX.Element {
     : []
 
   return (
-    <Panel className="mt-4 flex flex-col gap-3 p-5">
+    <Panel className="mt-section flex flex-col gap-3 p-5">
       <SectionTitle
+        as="h3"
+
         right={
           <Button variant="ghost" onClick={() => void downloadTemplate()}>
             Download {IMPORT_KINDS.find((k) => k.id === kind)?.label} template

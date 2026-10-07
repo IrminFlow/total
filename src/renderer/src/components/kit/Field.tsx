@@ -8,7 +8,15 @@ import { createContext, forwardRef, useContext, useId, type ReactNode } from 're
 export const inputCls =
   'w-full min-h-control rounded-md border border-line bg-panel2 px-control-x py-1 text-body text-ink placeholder:text-muted focus:border-amber/60 aria-[invalid=true]:border-danger/70'
 
+/** inputCls without its `w-full` when the caller sizes the control itself (`w-40`, `!w-56`) —
+ *  two width utilities would otherwise fight by stylesheet order, not by intent. */
+export function controlCls(className?: string): string {
+  const sized = !!className && /(^|\s)!?w-/.test(className)
+  return `${sized ? inputCls.replace('w-full ', '') : inputCls} ${className ?? ''}`
+}
+
 /** Smaller control for toolbars (the table's quick filter, group-by select). */
+
 export const inputSmCls = `${inputCls} !min-h-control-sm !py-0.5 !text-detail`
 
 /** What a Field tells the control inside it: the ids of its hint/error text and whether it's in error. */
@@ -94,7 +102,7 @@ export const TextInput = forwardRef<HTMLInputElement, React.InputHTMLAttributes<
       aria-describedby={aria['aria-describedby']}
       {...props}
       aria-invalid={invalid || aria['aria-invalid'] || props['aria-invalid'] || undefined}
-      className={`${inputCls} ${props.className ?? ''}`}
+      className={controlCls(props.className)}
     />
   )
 })
@@ -110,7 +118,7 @@ export const Select = forwardRef<HTMLSelectElement, React.SelectHTMLAttributes<H
       aria-describedby={aria['aria-describedby']}
       {...props}
       aria-invalid={invalid || aria['aria-invalid'] || props['aria-invalid'] || undefined}
-      className={`${inputCls} ${props.className ?? ''}`}
+      className={controlCls(props.className)}
     />
   )
 })
@@ -126,7 +134,7 @@ export const Textarea = forwardRef<HTMLTextAreaElement, React.TextareaHTMLAttrib
       aria-describedby={aria['aria-describedby']}
       {...props}
       aria-invalid={invalid || aria['aria-invalid'] || props['aria-invalid'] || undefined}
-      className={`${inputCls} ${props.className ?? ''}`}
+      className={controlCls(props.className)}
     />
   )
 })

@@ -1,8 +1,9 @@
-import { useMemo, useState } from 'react'
+import { useMemo } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { api } from '../lib/client'
 import { useNav, useSession } from '../state/stores'
-import { Button, Money, Panel, SectionTitle, SkeletonRows } from '../components/ui'
+import { Button, Money, Page, PageHeader, Panel, SkeletonRows } from '../components/ui'
+import { OptionChoice, OptionsPeriod, OptionsTable, useScreenOptions } from '../components/ScreenOptions'
 import { TabBar } from '../components/TabBar'
 import { DataTable, defineColumns, type TableColumn } from '../components/table'
 import { slugFilename } from '../lib/reportExport'
@@ -80,7 +81,10 @@ export function LedgerStatementScreen({ ledgerId }: { ledgerId: number }): React
   const { from, to } = useSession()
   const nav = useNav()
   // Columnar month mode (v0.3 #55): one row per month with period totals + closing balance.
-  const [mode, setMode] = useState<Mode>('detail')
+  // The chosen view is remembered per company (screen option) — the tabs stay in the header.
+  const opts = useScreenOptions('ledger-statement', { mode: 'detail' as Mode }, { mode: ['detail', 'monthly'] })
+  const mode = opts.options.mode
+  const setMode = (m: Mode): void => opts.set('mode', m)
   const { data, isLoading } = useQuery({
     queryKey: ['ledgerStatement', ledgerId, from, to, mode],
     queryFn: () => api.reports.ledger(ledgerId, from, to, mode === 'monthly' ? 'month' : undefined)
@@ -100,11 +104,12 @@ export function LedgerStatementScreen({ ledgerId }: { ledgerId: number }): React
 
   if (!data) {
     return (
-      <div className="mx-auto max-w-5xl">
+      <Page>
+        <PageHeader title="Ledger statement" />
         <Panel>
           <SkeletonRows />
         </Panel>
-      </div>
+      </Page>
     )
   }
 
@@ -113,33 +118,52 @@ export function LedgerStatementScreen({ ledgerId }: { ledgerId: number }): React
   const empty = { title: 'No entries for this ledger in the period' }
 
   return (
-    <div className="mx-auto max-w-5xl">
-      {breadcrumb.length > 0 && (
-        <nav className="mb-0.5 text-hint text-muted" aria-label="Ledger group" data-testid="ledger-statement-breadcrumb">
-          {breadcrumb.join(' › ')}
-        </nav>
-      )}
-      <SectionTitle
-        right={
-          <div className="flex items-center gap-3">
-            <TabBar screen="ledger-statement" tabs={MODE_TABS} active={mode} onSelect={setMode} />
-            {canEdit && (
-              <Button data-testid="btn-statement-edit-ledger" title="Edit this ledger (⌘E)" onClick={() => openLedgerEdit(ledgerId)}>
-                Edit
-              </Button>
-            )}
-            <Money paise={data.closing} signed className="text-subtitle" />
-          </div>
+    <Page>
+      <PageHeader
+        title={data.ledgerName}
+        breadcrumb={
+          breadcrumb.length > 0 ? (
+            <nav aria-label="Ledger group" data-testid="ledger-statement-breadcrumb">
+              {breadcrumb.join(' › ')}
+            </nav>
+          ) : undefined
         }
-      >
-        {data.ledgerName}
-      </SectionTitle>
+        period={periodLabel}
+        tabs={<TabBar screen="ledger-statement" tabs={MODE_TABS} active={mode} onSelect={setMode} label="Statement view" />}
+        controls={
+          <span className="flex items-baseline gap-2" data-testid="ledger-statement-closing">
+            <span className="text-small text-muted">Closing</span>
+            <Money paise={data.closing} signed className="text-subtitle" />
+          </span>
+        }
+        secondary={
+          canEdit ? (
+            <Button data-testid="btn-statement-edit-ledger" title="Edit this ledger (⌘E)" onClick={() => openLedgerEdit(ledgerId)}>
+              Edit ledger
+            </Button>
+          ) : undefined
+        }
+        options={{
+          onReset: opts.reset,
+          content: (
+            <>
+              <OptionsPeriod />
+              <OptionChoice label="Show" value={mode} options={[{ value: 'detail', label: 'Vouchers' }, { value: 'monthly', label: 'Monthly' }]} onChange={setMode} testId="input-ledger-statement-mode" />
+              <div className="mt-5">
+                <OptionsTable area={mode === 'monthly' ? 'ledger-statement-monthly' : 'ledger-statement'} />
+              </div>
+            </>
+          )
+        }}
+      />
       <Panel>
         <div className="flex justify-between border-b border-line px-4 py-2 text-small text-muted">
           <span>
             Opening balance · <Money paise={data.opening} signed />
           </span>
-          <span>{periodLabel}</span>
+          <span>
+            Closing balance · <Money paise={data.closing} signed />
+          </span>
         </div>
         {mode === 'monthly' ? (
           <DataTable
@@ -176,6 +200,6 @@ export function LedgerStatementScreen({ ledgerId }: { ledgerId: number }): React
           />
         )}
       </Panel>
-    </div>
+    </Page>
   )
 }

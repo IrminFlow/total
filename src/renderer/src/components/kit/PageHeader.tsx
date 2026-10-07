@@ -1,4 +1,5 @@
-import { useEffect, useState, type ReactNode } from 'react'
+import { createContext, useContext, useEffect, useState, type ReactNode } from 'react'
+import { createPortal } from 'react-dom'
 import { useScreen } from '../../state/stores'
 import { Drawer } from './Drawer'
 import { Button } from './Button'
@@ -17,6 +18,14 @@ const WIDTHS = {
 
 export type PageWidth = keyof typeof WIDTHS
 
+/** Inside an Options drawer: closes it (e.g. before opening the table's column chooser). */
+const OptionsDrawerContext = createContext<{ close: () => void }>({ close: () => {} })
+export const useOptionsDrawer = (): { close: () => void } => useContext(OptionsDrawerContext)
+
+/** The header's action slot, provided by Page — lets a sub-view (a Masters tab) put its own
+ *  primary action into the page header with <PageActions>. */
+const ActionSlotContext = createContext<{ slot: HTMLElement | null; setSlot: (el: HTMLElement | null) => void } | null>(null)
+
 /** The screen container: centred, one of four widths. Every screen renders inside one. */
 export function Page({
   width = 'standard',
@@ -28,11 +37,25 @@ export function Page({
   children: ReactNode
   className?: string
 } & React.HTMLAttributes<HTMLDivElement>): React.JSX.Element {
+  const [slot, setSlot] = useState<HTMLElement | null>(null)
   return (
-    <div {...rest} className={`mx-auto ${WIDTHS[width]} ${className}`}>
-      {children}
-    </div>
+    <ActionSlotContext.Provider value={{ slot, setSlot }}>
+      <div {...rest} className={`mx-auto ${WIDTHS[width]} ${className}`}>
+        {children}
+      </div>
+    </ActionSlotContext.Provider>
   )
+}
+
+/**
+ * Renders its children into the enclosing page header's action area (after `actions`, before
+ * Options). For sub-views that own their primary action — each Masters tab's "New …" button —
+ * so it sits where every other screen's primary action does.
+ */
+export function PageActions({ children }: { children: ReactNode }): React.JSX.Element | null {
+  const ctx = useContext(ActionSlotContext)
+  if (!ctx?.slot) return null
+  return createPortal(children, ctx.slot)
 }
 
 export interface PageOptions {
@@ -102,7 +125,8 @@ export function PageHeader({
     return () => window.removeEventListener('keydown', onKey)
   }, [hasOptions])
 
-  const right = controls || secondary || actions || options
+  const slotCtx = useContext(ActionSlotContext)
+  const right = controls || secondary || actions || options || slotCtx
   return (
     <header className={`mb-section ${className}`} data-testid="page-header">
       {breadcrumb && <div className="mb-0.5 text-hint text-muted">{breadcrumb}</div>}
@@ -124,6 +148,7 @@ export function PageHeader({
             {controls}
             {secondary}
             {actions}
+            {slotCtx && <span ref={slotCtx.setSlot} className="contents" data-testid="page-actions-slot" />}
             {options && (
               <Button
                 variant="ghost"
@@ -159,7 +184,7 @@ export function PageHeader({
             </>
           }
         >
-          {options.content}
+          <OptionsDrawerContext.Provider value={{ close: () => setOpen(false) }}>{options.content}</OptionsDrawerContext.Provider>
         </Drawer>
       )}
     </header>

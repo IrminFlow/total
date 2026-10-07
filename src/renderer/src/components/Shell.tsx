@@ -1,6 +1,6 @@
 import { useState, type ReactNode } from 'react'
 import { useIsFetching } from '@tanstack/react-query'
-import { useNav, useScreen, useSession, useTheme, useToasts } from '../state/stores'
+import { useNav, usePeriodPicker, useScreen, useSession, useTheme, useToasts } from '../state/stores'
 import { api } from '../lib/client'
 import { Button, DateInput, Kbd, Modal } from './ui'
 import { SupportLink } from './SupportLink'
@@ -26,7 +26,7 @@ export function Shell({ children, onOpenPalette }: { children: ReactNode; onOpen
   const nav = useNav()
   const toast = useToasts()
   const { theme, toggle } = useTheme()
-  const [periodOpen, setPeriodOpen] = useState(false)
+  const { open: periodOpen, setOpen: setPeriodOpen } = usePeriodPicker()
   const fetching = useIsFetching()
   const features = useFeatures()
   const sections = useNavSections(screen.name)

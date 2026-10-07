@@ -2,7 +2,8 @@ import { useEffect, useMemo, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '../lib/client'
 import { useNav, useSession, useToasts } from '../state/stores'
-import { AmountInput, Button, EmptyState, Money, Panel, SectionTitle, Select, SkeletonRows, Spinner } from '../components/ui'
+import { AmountInput, Banner, Button, DrawerSection, EmptyState, Money, Page, PageHeader, Panel, Select, SkeletonRows, Spinner } from '../components/ui'
+import { OptionChoice, OptionsTable, useScreenOptions } from '../components/ScreenOptions'
 import { DataTable, defineColumns } from '../components/table'
 import { todayISO } from '@shared/dates'
 import { formatPaise } from '@shared/money'
@@ -60,7 +61,7 @@ export function MonthBar({
   testId?: string
 }): React.JSX.Element {
   return (
-    <Select value={value} onChange={(e) => onChange(e.target.value)} className="w-48" data-testid={testId}>
+    <Select value={value} onChange={(e) => onChange(e.target.value)} className="w-48" data-testid={testId} aria-label="Return period">
       {months.map((m) => (
         <option key={m.key} value={m.key}>
           {m.label}
@@ -70,8 +71,22 @@ export function MonthBar({
   )
 }
 
-export function useDefaultMonth(months: MonthChoice[]): [string, (k: string) => void] {
-  const current = todayISO().slice(0, 7)
+/** Which month a return screen opens on (a screen option): this month, or the previous one —
+ *  the month usually being filed. */
+export type OpenOn = 'current' | 'previous'
+export const OPEN_ON_CHOICES: { value: OpenOn; label: string }[] = [
+  { value: 'current', label: 'This month' },
+  { value: 'previous', label: 'Previous month' }
+]
+
+function previousMonthKey(key: string): string {
+  const [y, m] = key.split('-').map(Number) as [number, number]
+  return m === 1 ? `${y - 1}-12` : `${y}-${String(m - 1).padStart(2, '0')}`
+}
+
+export function useDefaultMonth(months: MonthChoice[], openOn: OpenOn = 'current'): [string, (k: string) => void] {
+  const today = todayISO().slice(0, 7)
+  const current = openOn === 'previous' ? previousMonthKey(today) : today
   const fallback = months.find((m) => m.key === current)?.key ?? months[months.length - 1]?.key ?? current
   const [key, setKey] = useState(fallback)
   return [months.some((m) => m.key === key) ? key : fallback, setKey]
@@ -79,14 +94,14 @@ export function useDefaultMonth(months: MonthChoice[]): [string, (k: string) => 
 
 /** Selected month resolved against the list — null when the period yields no months at all
  *  (item 77 pattern: never `months.find(...)!`). */
-export function useMonth(): {
+export function useMonth(openOn: OpenOn = 'current'): {
   months: MonthChoice[]
   month: MonthChoice | null
   monthKey: string
   setMonthKey: (k: string) => void
 } {
   const months = useMonths()
-  const [monthKey, setMonthKey] = useDefaultMonth(months)
+  const [monthKey, setMonthKey] = useDefaultMonth(months, openOn)
   const month = months.find((m) => m.key === monthKey) ?? months[0] ?? null
   return { months, month, monthKey, setMonthKey }
 }
@@ -103,6 +118,9 @@ export function NoMonths(): React.JSX.Element {
 }
 
 // ---------- GSTR-1 ----------
+
+const GSTR1_NOTE =
+  'The exported JSON matches the GST offline-tool schema — upload it on the portal under Returns → GSTR-1 → Prepare offline. A CSV summary lands beside it in exports/. HSN rows (Table 12) restate the invoice tables and Documents issued (Table 13) counts net series — neither adds to the total.'
 
 type Gstr1SummaryRow = Gstr1Result['summary'][number]
 
@@ -125,8 +143,8 @@ export const GSTR1_COLUMNS = defineColumns<Gstr1SummaryRow>([
 ])
 
 const SEVERITY_CLASS: Record<GstIssue['severity'], string> = {
-  blocking: 'border-cr/50 bg-cr/10 text-cr',
-  warning: 'border-amber/50 bg-amberbar/10 text-amber'
+  blocking: 'border-danger/50 bg-danger-soft text-danger',
+  warning: 'border-warning/50 bg-warning-soft text-warning'
 }
 
 function IssueRow({
@@ -174,8 +192,19 @@ function IssueRow({
   )
 }
 
+/** The return screens' shared options: which month to open on (the month select stays visible). */
+function ReturnOptions({ openOn, onOpenOn }: { openOn: OpenOn; onOpenOn: (v: OpenOn) => void }): React.JSX.Element {
+  return (
+    <DrawerSection title="Return period">
+      <OptionChoice label="Open on" value={openOn} options={OPEN_ON_CHOICES} onChange={onOpenOn} testId="input-return-open-on" />
+      <p className="text-hint text-muted">Months come from the working period. The month picker stays in the header.</p>
+    </DrawerSection>
+  )
+}
+
 export function Gstr1Screen(): React.JSX.Element {
-  const { months, month, monthKey, setMonthKey } = useMonth()
+  const opts = useScreenOptions('gstr1', { openOn: 'current' as OpenOn }, { openOn: ['current', 'previous'] })
+  const { months, month, monthKey, setMonthKey } = useMonth(opts.options.openOn)
   const { info } = useSession()
   const nav = useNav()
   const toast = useToasts()
@@ -214,46 +243,57 @@ export function Gstr1Screen(): React.JSX.Element {
 
   if (!month) {
     return (
-      <div className="mx-auto max-w-5xl">
-        <SectionTitle>GSTR-1 · Outward supplies</SectionTitle>
+      <Page>
+        <PageHeader title="GSTR-1 · Outward supplies" />
         <NoMonths />
-      </div>
+      </Page>
     )
   }
 
   return (
-    <div className="mx-auto max-w-5xl">
-      <SectionTitle
-        right={
-          <div className="flex items-center gap-2">
-            <MonthBar months={months} value={monthKey} onChange={setMonthKey} testId="input-gstr1-month" />
-            <Button
-              variant="primary"
-              data-testid="btn-gstr1-export"
-              onClick={() => void doExport()}
-              disabled={!!exportBlockedReason || validating}
-              title={exportBlockedReason ?? undefined}
-            >
-              Export portal JSON
-            </Button>
-          </div>
+    <Page>
+      <PageHeader
+        title="GSTR-1 · Outward supplies"
+        controls={<MonthBar months={months} value={monthKey} onChange={setMonthKey} testId="input-gstr1-month" />}
+        actions={
+          <Button
+            variant="primary"
+            data-testid="btn-gstr1-export"
+            onClick={() => void doExport()}
+            disabled={!!exportBlockedReason || validating}
+            title={exportBlockedReason ?? undefined}
+          >
+            Export portal JSON
+          </Button>
         }
-      >
-        GSTR-1 · Outward supplies
-      </SectionTitle>
+        options={{
+          onReset: opts.reset,
+          content: (
+            <>
+              <ReturnOptions openOn={opts.options.openOn} onOpenOn={(v) => opts.set('openOn', v)} />
+              <OptionsTable area="gstr1" label="Summary table" />
+              <DrawerSection title="About the export">
+                <p className="text-hint text-muted">{GSTR1_NOTE}</p>
+              </DrawerSection>
+            </>
+          )
+        }}
+      />
 
       {exportBlockedReason && (
-        <p className={`mb-3 text-body-sm ${blocking.length ? 'text-cr' : 'text-amber'}`}>{exportBlockedReason}</p>
+        <Banner tone={blocking.length ? 'danger' : 'warning'} className="mb-3" testId="gstr1-export-blocked">
+          {exportBlockedReason}
+        </Banner>
       )}
 
       {validating ? (
-        <Panel className="mb-4">
+        <Panel className="mb-section">
           <div className="flex items-center gap-2 px-3 py-3 text-body-sm text-muted">
             <Spinner /> Validating period documents…
           </div>
         </Panel>
       ) : issues.length > 0 || roundOff.length > 0 ? (
-        <Panel className="mb-4" scroll={{ maxH: '18rem' }}>
+        <Panel className="mb-section" scroll={{ maxH: '18rem' }}>
           <div data-testid="rows-gstr1-issues">
             {[...blocking, ...warnings].map((issue, i) => (
               <IssueRow key={`${issue.code}-${i}`} severity={issue.severity} message={issue.message} voucherIds={issue.voucherIds} onOpen={openVoucher} />
@@ -295,14 +335,17 @@ export function Gstr1Screen(): React.JSX.Element {
           }}
         />
       </Panel>
-      <p className="mt-3 text-small text-muted">
-        The exported JSON matches the GST offline-tool schema — upload it on the portal under Returns → GSTR-1 → Prepare offline. A CSV summary lands beside it in exports/. HSN rows (Table 12) restate the invoice tables and Documents issued (Table 13) counts net series — neither adds to the total.
+      <p className="mt-2 text-hint text-muted">
+        Upload the JSON on the portal under Returns → GSTR-1 → Prepare offline. HSN (Table 12) and Documents issued (Table 13) don&apos;t add to the total.
       </p>
-    </div>
+    </Page>
   )
 }
 
 // ---------- GSTR-3B ----------
+
+const GSTR3B_NOTE =
+  '4(B) reversals and 5.1 interest/late fee are the manual adjustments, persisted per period and folded into the exported JSON. RCM tax (3.1(d)) is payable in cash and simultaneously claimable as ITC under 4(A)(3).'
 
 const INTERSTATE_COLUMNS = defineColumns<Gstr3bResult['interState'][number]>([
   { id: 'pos', header: 'Place of supply', kind: 'text', value: (r) => posLabel(r.pos), hideable: false, groupable: false },
@@ -418,7 +461,8 @@ function ManualAdjustments({ period }: { period: string }): React.JSX.Element {
 }
 
 export function Gstr3bScreen(): React.JSX.Element {
-  const { months, month, monthKey, setMonthKey } = useMonth()
+  const opts = useScreenOptions('gstr3b', { openOn: 'current' as OpenOn }, { openOn: ['current', 'previous'] })
+  const { months, month, monthKey, setMonthKey } = useMonth(opts.options.openOn)
   const { info } = useSession()
   const toast = useToasts()
   const { data, isLoading } = useQuery({
@@ -459,30 +503,41 @@ export function Gstr3bScreen(): React.JSX.Element {
 
   if (!month) {
     return (
-      <div className="mx-auto max-w-4xl">
-        <SectionTitle>GSTR-3B · Summary return</SectionTitle>
+      <Page>
+        <PageHeader title="GSTR-3B · Summary return" />
         <NoMonths />
-      </div>
+      </Page>
     )
   }
 
   return (
-    <div className="mx-auto max-w-4xl">
-      <SectionTitle
-        right={
-          <div className="flex items-center gap-2">
-            <MonthBar months={months} value={monthKey} onChange={setMonthKey} testId="input-gstr3b-month" />
-            <Button variant="primary" data-testid="btn-gstr3b-export" onClick={() => void doExport()} disabled={!info?.gstin}>
-              Export JSON
-            </Button>
-          </div>
+    <Page>
+      <PageHeader
+        title="GSTR-3B · Summary return"
+        controls={<MonthBar months={months} value={monthKey} onChange={setMonthKey} testId="input-gstr3b-month" />}
+        actions={
+          <Button variant="primary" data-testid="btn-gstr3b-export" onClick={() => void doExport()} disabled={!info?.gstin}>
+            Export JSON
+          </Button>
         }
-      >
-        GSTR-3B · Summary return
-      </SectionTitle>
+        options={{
+          onReset: opts.reset,
+          content: (
+            <>
+              <ReturnOptions openOn={opts.options.openOn} onOpenOn={(v) => opts.set('openOn', v)} />
+              {data && data.interState.length > 0 && <OptionsTable area="gstr3b-interstate" label="3.2 inter-state table" />}
+              <DrawerSection title="About the adjustments">
+                <p className="text-hint text-muted">{GSTR3B_NOTE}</p>
+              </DrawerSection>
+            </>
+          )
+        }}
+      />
 
       {!info?.gstin && (
-        <p className="mb-3 text-body-sm text-amber">Add the company GSTIN under Company details to enable export.</p>
+        <Banner tone="warning" className="mb-3">
+          Add the company GSTIN under Company details to enable export.
+        </Banner>
       )}
 
       <Panel>
@@ -524,7 +579,7 @@ export function Gstr3bScreen(): React.JSX.Element {
       </Panel>
 
       {data && data.interState.length > 0 && (
-        <Panel className="mt-4">
+        <Panel className="mt-section">
           <p className="border-b border-line px-3 py-2 text-body-sm font-medium text-ink">3.2 Inter-state supplies to unregistered persons</p>
           <DataTable
             viewId="gstr3b-interstate"
@@ -544,7 +599,7 @@ export function Gstr3bScreen(): React.JSX.Element {
       )}
 
       {data && (
-        <Panel className="mt-4">
+        <Panel className="mt-section">
           <table className="ledger-table">
             <thead>
               <tr>
@@ -589,13 +644,11 @@ export function Gstr3bScreen(): React.JSX.Element {
         </Panel>
       )}
 
-      <Panel className="mt-4">
+      <Panel className="mt-section">
         <ManualAdjustments period={month.period} />
       </Panel>
 
-      <p className="mt-3 text-small text-muted">
-        4(B) reversals and 5.1 interest/late fee are the manual adjustments above, persisted per period and folded into the exported JSON. RCM tax (3.1(d)) is payable in cash and simultaneously claimable as ITC under 4(A)(3).
-      </p>
-    </div>
+      <p className="mt-2 text-hint text-muted">Manual adjustments are saved per period and folded into the exported JSON · F12 for options.</p>
+    </Page>
   )
 }

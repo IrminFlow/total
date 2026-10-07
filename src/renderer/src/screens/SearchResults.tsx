@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useInfiniteQuery, useQuery } from '@tanstack/react-query'
 import { api } from '../lib/client'
 import { useSession } from '../state/stores'
-import { Button, EmptyState, Kbd, Panel, SectionTitle, SkeletonRows, TextInput } from '../components/ui'
+import { Button, EmptyState, Kbd, Page, PageHeader, Panel, SkeletonRows, TextInput } from '../components/ui'
 import { DataTable, defineColumns, type TableColumn } from '../components/table'
 import { TabBar } from '../components/TabBar'
 import { Highlight, KIND_TITLE, QueryChips, SYNTAX_HINTS, VoucherBadges, matchHint, recentRecordFor, useOpenRecord } from '../components/SearchParts'
@@ -180,14 +180,22 @@ export function SearchResultsScreen({ q = '', kind }: { q?: string; kind?: Searc
   const loadingMore = paged.isFetching && kindRows.length < Math.min(cap, kindTotal)
 
   return (
-    <div className="mx-auto max-w-5xl" data-search-results>
-      <SectionTitle right={<span className="text-small text-muted"><Kbd>⌘⇧F</Kbd> from anywhere</span>}>Search</SectionTitle>
+    <Page data-search-results>
+      <PageHeader
+        title="Search"
+        controls={
+          <span className="text-small text-muted">
+            <Kbd>⌘⇧F</Kbd> from anywhere
+          </span>
+        }
+      />
       <div className="mb-3 flex flex-col gap-2">
         <TextInput
           ref={inputRef}
           autoFocus={!q}
           data-testid="input-search"
           value={input}
+          aria-label="Search the books"
           placeholder="Ledgers, items, vouchers — try amt:>50000, date:apr, gstin:27…, type:sales"
           className="py-2 text-lead"
           onChange={(e) => setInput(e.target.value)}
@@ -204,7 +212,8 @@ export function SearchResultsScreen({ q = '', kind }: { q?: string; kind?: Searc
         />
         <QueryChips chips={parsed.chips} unknown={parsed.unknown} onRemove={(raw) => setInput(removeToken(input, raw))} />
       </div>
-      <TabBar screen="search" tabs={tabs} active={tab} onSelect={setTab} className="mb-3" />
+      <TabBar screen="search" label="Result kind" tabs={tabs} active={tab} onSelect={setTab} className="mb-3" />
+
 
       {!enabled ? (
         <SyntaxHelp onPick={appendToken} />
@@ -283,7 +292,7 @@ export function SearchResultsScreen({ q = '', kind }: { q?: string; kind?: Searc
           </div>
         </Panel>
       )}
-    </div>
+    </Page>
   )
 }
 

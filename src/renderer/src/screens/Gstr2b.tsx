@@ -2,10 +2,11 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { api } from '../lib/client'
 import { useNav, useToasts, nextDraftId } from '../state/stores'
-import { Button, EmptyState, Modal, Money, Panel, SectionTitle } from '../components/ui'
+import { Button, DrawerSection, EmptyState, Modal, Money, Page, PageHeader, Panel, SkeletonRows } from '../components/ui'
+import { OptionChoice, OptionsTable, useScreenOptions } from '../components/ScreenOptions'
 import { DataTable, defineColumns, type TableColumn } from '../components/table'
 import type { Recon2bBucket, Recon2bPair } from '@shared/gst/recon2b'
-import { MonthBar, NoMonths, useMonth } from './GstReturns'
+import { MonthBar, NoMonths, OPEN_ON_CHOICES, useMonth, type OpenOn } from './GstReturns'
 import { LedgerLink, VoucherLink } from '../components/links'
 
 const BUCKETS: { key: Recon2bBucket; label: string }[] = [
@@ -176,7 +177,8 @@ export function pairColumns(onCreatePurchase: (portal: NonNullable<Recon2bPair['
 const BUCKET_LABEL = (b: Recon2bBucket): string => BUCKETS.find((x) => x.key === b)?.label ?? b
 
 export function Gstr2bScreen(): React.JSX.Element {
-  const { months, month, monthKey, setMonthKey } = useMonth()
+  const opts = useScreenOptions('gstr2b', { openOn: 'current' as OpenOn }, { openOn: ['current', 'previous'] })
+  const { months, month, monthKey, setMonthKey } = useMonth(opts.options.openOn)
   const nav = useNav()
   const toast = useToasts()
   const [imported, setImported] = useState<Imported | null>(null)
@@ -240,28 +242,47 @@ export function Gstr2bScreen(): React.JSX.Element {
 
   if (!month) {
     return (
-      <div className="mx-auto max-w-6xl">
-        <SectionTitle>GSTR-2B · Reconciliation</SectionTitle>
+      <Page width="wide">
+        <PageHeader title="GSTR-2B · Reconciliation" />
         <NoMonths />
-      </div>
+      </Page>
     )
   }
 
   return (
-    <div className="mx-auto max-w-6xl">
-      <SectionTitle
-        right={
-          <div className="flex items-center gap-2">
-            <MonthBar months={months} value={monthKey} onChange={setMonthKey} />
-            <Button data-testid="btn-2b-pick" onClick={() => void doPick()}>Pick 2B JSON…</Button>
-            <Button variant="ghost" data-testid="btn-2b-paste" onClick={() => setPasteOpen(true)}>
-              Paste JSON…
-            </Button>
-          </div>
+    <Page width="wide">
+      <PageHeader
+        title="GSTR-2B · Reconciliation"
+        subtitle={imported?.fileName}
+        controls={<MonthBar months={months} value={monthKey} onChange={setMonthKey} testId="input-gstr2b-month" />}
+        secondary={
+          <Button variant="ghost" data-testid="btn-2b-paste" onClick={() => setPasteOpen(true)}>
+            Paste JSON…
+          </Button>
         }
-      >
-        GSTR-2B · Reconciliation
-      </SectionTitle>
+        actions={
+          <Button variant="primary" data-testid="btn-2b-pick" onClick={() => void doPick()}>
+            Pick 2B JSON…
+          </Button>
+        }
+        options={{
+          onReset: opts.reset,
+          content: (
+            <>
+              <DrawerSection title="Return period">
+                <OptionChoice label="Open on" value={opts.options.openOn} options={OPEN_ON_CHOICES} onChange={(v) => opts.set('openOn', v)} testId="input-return-open-on" />
+              </DrawerSection>
+              {result ? (
+                <OptionsTable area="2b-pairs" label="Documents table" />
+              ) : (
+                <DrawerSection title="Documents table">
+                  <p className="text-hint text-muted">Import a 2B JSON to choose columns or export.</p>
+                </DrawerSection>
+              )}
+            </>
+          )
+        }}
+      />
 
       {pasteOpen && (
         <PasteModal
@@ -279,7 +300,7 @@ export function Gstr2bScreen(): React.JSX.Element {
         </Panel>
       ) : isFetching && !result ? (
         <Panel>
-          <EmptyState title="Reconciling…" />
+          <SkeletonRows />
         </Panel>
       ) : result ? (
         <>
@@ -289,10 +310,12 @@ export function Gstr2bScreen(): React.JSX.Element {
               return (
                 <button
                   key={b.key}
+                  type="button"
                   data-testid={`btn-2b-bucket-${b.key}`}
+                  aria-pressed={bucket === b.key}
                   onClick={() => setBucket(b.key)}
                   className={`rounded-md border px-3 py-1.5 text-body-sm ${
-                    bucket === b.key ? 'border-amber/60 bg-amberbar/15 text-amber' : 'border-line text-muted hover:bg-panel2 hover:text-ink'
+                    bucket === b.key ? 'border-amber/60 bg-amberbar/15 font-medium text-amber' : 'border-line text-muted hover:bg-panel2 hover:text-ink'
                   }`}
                 >
                   {b.label} <span className="num">{t.count}</span> · <Money paise={taxTotal(t)} />
@@ -301,10 +324,9 @@ export function Gstr2bScreen(): React.JSX.Element {
             })}
           </div>
 
-          {imported.fileName && (
+          {result.pairs.length > 0 && (
             <p className="mb-2 text-small text-muted">
-              {imported.fileName}
-              {result.pairs.length > 0 && ` · ${result.pairs.length} document${result.pairs.length > 1 ? 's' : ''} compared`}
+              {result.pairs.length} document{result.pairs.length > 1 ? 's' : ''} compared
             </p>
           )}
 
@@ -332,6 +354,6 @@ export function Gstr2bScreen(): React.JSX.Element {
           </Panel>
         </>
       ) : null}
-    </div>
+    </Page>
   )
 }
