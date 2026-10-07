@@ -22,7 +22,8 @@ src/renderer/   React + Tailwind v4 UI. Talks to main ONLY through the typed cli
                 components/kit/ is the component kit (README there); components/table/ is the
                 shared DataTable every list screen uses (README there); components/links.tsx
                 holds LedgerLink/ItemLink/VoucherLink (name click = edit, row = statement).
-docs/superpowers/specs/  The revamp master plan (2026-10-07-total-revamp-roadmap.md).
+docs/superpowers/specs/  The revamp master plan (2026-10-07-total-revamp-roadmap.md) and the
+                trade-cycle design (2026-10-07-wp2.5-trade-cycle-design.md).
 site/           Next.js 16 marketing site (Vercel root directory = site).
 scripts/        e2e/NN-*.mjs — Playwright _electron E2E scenarios (npm run e2e) that launch
                 the BUILT app on scratch data dirs; lib/harness.mjs is the shared driver.
@@ -60,6 +61,13 @@ cd site && npm run dev / npm run build   # marketing site
 - Secrets (NIC credentials, later the AI key) live in `src/main/services/secrets.ts` (safeStorage, `<dataRoot>/secrets.json`), never in a company DB or backup.
 - Every list screen uses `DataTable`; new screens must too (sort/filter/views/keyboard/export come for free). Report rows must carry `ledgerId`/`itemId`/`voucherId` so names can be links.
 - Voucher load/save mapping per entry mode lives in `src/shared/voucherEdit/`; a voucher must round-trip unchanged through its editor (dbtest `voucherEdit.dbtest.ts` enforces it).
+- Inventory valuation is ONE chronological pass (`runInventoryPass` in `src/shared/valuation.ts`, loaded by `stockAnalysis.ts`). Per-voucher costing rules: `stored` (legacy), `derived` (manufacture: finished goods = engine cost of the same voucher's consumption + labour, marked by `manufacture_details`), `transfer` (same-item godown moves), `linked` (GRN re-priced by its bill via `line_links`). Never store or re-derive stock values elsewhere; the legacy snapshot tests (`stockValuation`, `tradeLegacy`) must stay byte-identical.
+- Every stock reader filters `inventory_lines.moves_stock` (`MOVES_STOCK` constant; `movesStockLint.test.ts` fails on a missed one). Invoice lines raised against a challan/GRN do not move stock.
+- Trade documents (quotation/SO/PO) live in `trade_docs`; challans and GRNs are stock-only voucher kinds (`delivery_note`/`receipt_note`, kinds in the `voucher_kinds` table — no CHECK list). Links between lines use `line_links` keyed by `inventory_lines.line_uid`; rules I1–I7 in `src/shared/tradeCycle/rules.ts` and `services/tradeLinks.ts`. Design: `docs/superpowers/specs/2026-10-07-wp2.5-trade-cycle-design.md`.
+- Migrations may start with `-- @foreign-keys-off` (runner turns FKs off outside the transaction and runs `foreign_key_check` before commit) — only for table rebuilds.
+- Withholding taxes: TDS and TCS share `src/shared/withholding.ts`; payable ledgers are tagged (`tds_payable_section_id` / `tcs_payable_section_id`, like GST's `tax_type`); every rate/threshold row is effective-dated and carries a `source` citation; entries are validated against voucher lines at save. **Tax rules are never written from memory** — cite the official text next to the number and list anything unverified.
+- Audit log: every write channel must be mapped in `src/main/auditCoverage.ts` (dbtest enforces it); rows are hash-chained (`row_hash`/`prev_hash`) and never edited or deleted from code except the retention job; write `writeAudit` with before/after JSON.
+- Pricing: `resolvePrice` in `src/shared/pricing.ts` is the only rate resolver (party rate → level → scheme → default level → MRP/last purchase); a user-typed rate is never overridden.
 - Trade cycle (WP 2.5): line links live in `line_links`, owned and rewritten by the TARGET's save (`services/tradeLinks.ts`, invariants I1–I7); allowed pairs are data in `shared/tradeCycle/rules.ts`. Returns (credit / debit notes, rejection GRNs / challans) are `return` links and never re-open an order. Closure is manual and doc-level only (`trade_docs.status`, `trade_voucher_details.closed_at`). Every trade report (`tradeReports.ts`, `tradeAnalysis.ts`, `tradeChain.ts`) is computed from documents + live links at query time; GRNI / GDNI must equal the pending-challan / pending-GRN values (supply / approval / purchase purposes) — the year-end close only warns with them.
 
 ## Gotchas
