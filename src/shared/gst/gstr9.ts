@@ -412,7 +412,7 @@ export function buildGstr9(input: Gstr9Input): Gstr9Result {
     }
     return total
   }
-  const i6B = itcRows('6B', 'Inward supplies (other than imports and inward supplies liable to reverse charge but includes services received from SEZs)', ['domestic'], ['inputs', 'capital_goods', 'input_services'])
+  const i6B = itcRows('6B', 'Inward supplies (other than imports and inward supplies liable to reverse charge but includes services received from SEZs)', ['domestic', 'blocked'], ['inputs', 'capital_goods', 'input_services'])
   const i6C = itcRows('6C', 'Inward supplies received from unregistered persons liable to reverse charge (other than B above) on which tax is paid & ITC availed', ['rcm_unregistered'], ['inputs', 'capital_goods', 'input_services'])
   const i6D = itcRows('6D', 'Inward supplies received from registered persons liable to reverse charge (other than B above) on which tax is paid and ITC availed', ['rcm_registered'], ['inputs', 'capital_goods', 'input_services'])
   const i6E = itcRows('6E', 'Import of goods (including supplies from SEZs)', ['import'], ['inputs', 'capital_goods'])
@@ -439,7 +439,10 @@ export function buildGstr9(input: Gstr9Input): Gstr9Result {
   // is 7H "Other".
   const split = (f: (s: ReversalSplit) => InwardSummary): InwardSummary => sumMonths((m) => (m.reversalSplit ? f(m.reversalSplit) : { igst: 0, cgst: 0, sgst: 0, cess: 0 }))
   const r37 = split((s) => s.rule37), r37A = split((s) => s.rule37A), r42 = split((s) => s.rule42), r43 = split((s) => s.rule43)
-  const r175 = sumMonths((m) => m.gstr3b.blocked175)
+  // 7E from the YEAR's vouchers (the 3B months reversed their own blocked175 — compared below).
+  const blockedDocs = input.itcDocs.filter((x) => x.source === 'blocked')
+  const r175 = addIs(...blockedDocs.map((x) => ({ igst: x.igst, cgst: x.cgst, sgst: x.sgst, cess: x.cess })))
+  const r175Months = sumMonths((m) => m.gstr3b.blocked175)
   const manual4B = sumMonths((m) => addIs(m.gstr3b.manual.itcRevRul, m.gstr3b.manual.itcRevOth))
   const other7H = subIs(manual4B, addIs(r37, r37A, r42, r43))
   const rev = (id: string, label: string, v: InwardSummary, o: { note?: string; source?: Gstr9Source } = {}): void =>
@@ -450,7 +453,9 @@ export function buildGstr9(input: Gstr9Input): Gstr9Result {
   na('7B', '7', 'As per Rule 39', 'Input Service Distributor reversals are not modelled.', false)
   rev('7C', 'As per Rule 42', r42)
   rev('7D', 'As per Rule 43', r43)
-  rev('7E', 'As per section 17(5)', r175, { source: 'books', note: 'Credit of parties marked “blocked” — availed in 3B 4(A)(5) and reversed in 4(B)(1).' })
+  row('7E', '7', 'As per section 17(5)', fromItc(r175), {
+    source: 'books', hasTaxable: false, docs: blockedDocs.map(stripItc), note: 'Credit of parties marked “blocked” — availed in 3B 4(A)(5) and reversed in 4(B)(1).'
+  })
   na('7F', '7', 'Reversal of TRAN-I credit', 'Transition credit is not modelled.', false)
   na('7G', '7', 'Reversal of TRAN-II credit', 'Transition credit is not modelled.', false)
   rev('7H', 'Other reversals (pl. specify)', other7H, { note: '4(B) amounts entered by hand, not split by rule.' })
@@ -553,7 +558,7 @@ export function buildGstr9(input: Gstr9Input): Gstr9Result {
     cmp('3b-nil', 'Nil rated / exempt — 5D to 5F (3B 3.1(c))', { ...ZERO9, taxable: nilYear }, sum3b((g) => ({ ...ZERO9, taxable: g.nilExempt.taxable })), 'GSTR-3B'),
     cmp('3b-rcm', 'Inward reverse charge — 4G (3B 3.1(d))', rcm4G, sum3b((g) => ({ taxable: g.rcm.taxable, igst: g.rcm.igst, cgst: g.rcm.cgst, sgst: g.rcm.sgst, cess: g.rcm.cess })), 'GSTR-3B'),
     cmp('3b-itc', 'ITC availed — 6B to 6H (3B 4(A) = 6A)', fromItc(i6I), fromItc(itc6A), 'GSTR-3B', false),
-    cmp('3b-rev', 'ITC reversed — 7I (3B 4(B))', fromItc(total7I), fromItc(manual4B), 'GSTR-3B', false),
+    cmp('3b-rev', 'ITC reversed — 7I (3B 4(B))', fromItc(total7I), fromItc(addIs(manual4B, r175Months)), 'GSTR-3B', false),
     cmp('3b-paid', 'Tax payable — 4N less 4F (Table 9, Σ 3B)', { ...sub9(total4N, adv4F), taxable: 0 }, { ...ZERO9, ...payable }, 'GSTR-3B', false)
   ]
 

@@ -55,6 +55,9 @@ const EXPECTED_TABLES = [
   'trade_doc_lines',
   'trade_voucher_details',
   'line_links',
+  // 028 (WP 3.4)
+  'gst_ims_actions',
+  'gst_self_invoices',
   'migrations'
 ]
 
