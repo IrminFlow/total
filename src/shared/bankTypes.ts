@@ -55,6 +55,8 @@ export interface WorkspaceEntry {
   amount: number
   particulars: string
   particularsLedgerId: number | null
+  /** Bank side of the entry (open entries; matched summaries omit it). */
+  side?: Side
 }
 
 export interface LineSuggestion {

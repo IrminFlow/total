@@ -10,6 +10,7 @@ import {
 import { formatPaise } from '@shared/money'
 import { toDisplayDate } from '@shared/dates'
 import { api } from '../../lib/client'
+import { bankingApi } from '../../lib/bankingClient'
 import { useNav, useSession, useToasts, type VoucherDraft } from '../../state/stores'
 import { AmountInput, Button, DateInput, Field, isAnyModalOpen, LineTableScroller, Money, Panel, Select, TextInput } from '../../components/ui'
 import { LedgerPicker, useGroups, useLedgers } from '../../components/pickers'
@@ -491,8 +492,11 @@ export function AccountingEntry({
   const printCheque = async (): Promise<void> => {
     if (!voucherId || !bankCrLine) return
     try {
-      const r = await api.cheque.pdf(voucherId, bankCrLine.ledgerId)
-      toast.push('success', `Cheque PDF: ${r.path}`)
+      // WP 4.1: issues the next leaf of the bank's cheque book (or re-uses this voucher's) into
+      // the cheque register, then prints with the bank's layout.
+      const r = await bankingApi.cheques.print(voucherId, bankCrLine.ledgerId)
+      toast.push('success', `Cheque ${r.cheque.number}: ${r.path}`)
+      await queryClient.invalidateQueries({ queryKey: ['chequeRegister'] })
     } catch (err) {
       toast.push('error', (err as Error).message)
     }
@@ -819,7 +823,7 @@ export function AccountingEntry({
         <div className="flex gap-2">
           {voucherId && kind === 'payment' && bankCrLine && (
             <>
-              <Button onClick={() => void printCheque()}>Print cheque</Button>
+              <Button data-testid="btn-voucher-print-cheque" onClick={() => void printCheque()}>Print cheque</Button>
               <Button onClick={() => void printAdvice()}>Payment advice</Button>
             </>
           )}

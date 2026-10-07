@@ -546,3 +546,11 @@ textarea {
 .t-drawer-in {
   animation: t-drawer-in var(--t-duration-slow) ease-out;
 }
+
+/* WP 4.1 cheque layout preview (Banking → Cheques): an SVG drawn in the leaf's own millimetres.
+   Text is set at one user unit and scaled per field to the PRINTED size in mm, so the preview is
+   to scale with the cheque rather than with the UI type scale. */
+.cheque-preview text {
+  font-size: 1px;
+  font-family: 'IBM Plex Mono', ui-monospace, Menlo, monospace;
+}

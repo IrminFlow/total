@@ -1,29 +1,37 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import type { ChequeConfig } from '@shared/schemas'
 import type { BankLineRow } from '@shared/reports'
-import { api, type BankImportResult, type BankRuleRecord, type BankSuggestionRow, type BrsItem, type PdcRow } from '../lib/client'
+import { api, type BrsItem } from '../lib/client'
 import { DataTable, defineColumns, type TableColumn } from '../components/table'
-import { useNav, useSession, useToasts, nextDraftId } from '../state/stores'
+import { useNav, useSession, useToasts } from '../state/stores'
 import {
-  Button, DateInput, DrawerSection, EmptyState, Field, Modal, Money, Page, PageHeader, Panel, SkeletonRows, Select, Spinner, StatTile, TabBar, TextInput
+  Button, DateInput, DrawerSection, EmptyState, Field, Modal, Money, Page, PageHeader, Panel, SkeletonRows, Select, StatTile, TabBar
 } from '../components/ui'
-import { OptionToggle, OptionsPeriod, OptionsTable, useScreenOptions } from '../components/ScreenOptions'
-import { LedgerPicker } from '../components/pickers'
+import { OptionChoice, OptionToggle, OptionsPeriod, OptionsTable, useScreenOptions } from '../components/ScreenOptions'
 import { toDisplayDate, todayISO } from '@shared/dates'
-import { suggestPattern } from '@shared/bankRules'
-import { confirmDialog } from '../lib/dialogs'
-import { useUnsavedGuard } from '../lib/useUnsavedGuard'
-import { FirstLedgerLink, LedgerLink, VoucherLink } from '../components/links'
+import { FirstLedgerLink, VoucherLink } from '../components/links'
+import { ImportTab } from './banking/ImportTab'
+import { RulesTab } from './banking/RulesTab'
+import { ChequeLayoutModal, ChequesTab } from './banking/ChequesTab'
+import { PdcTab } from './banking/PdcTab'
+import { BulkTab } from './banking/BulkTab'
+import { AUTOSELECT_CHOICES, SUGGEST_CHOICES, TOLERANCE_CHOICES, WINDOW_CHOICES, type MatchSettings } from './banking/shared'
 
-type BankTab = 'recon' | 'brs' | 'pdc'
+export type BankTab = 'recon' | 'import' | 'rules' | 'cheques' | 'pdc' | 'bulk' | 'brs'
 
-const TAB_LABELS: Record<BankTab, string> = { recon: 'Reconcile', brs: 'BRS', pdc: 'Post-dated' }
+const TAB_ORDER: BankTab[] = ['recon', 'import', 'rules', 'cheques', 'pdc', 'bulk', 'brs']
+const TAB_LABELS: Record<BankTab, string> = {
+  recon: 'Reconcile',
+  import: 'Import',
+  rules: 'Rules',
+  cheques: 'Cheques',
+  pdc: 'Post-dated',
+  bulk: 'Bulk payments',
+  brs: 'BRS'
+}
+/** Tabs that work on one bank account (the account picker shows for these). */
+const PER_BANK: ReadonlySet<BankTab> = new Set(['recon', 'import', 'cheques', 'bulk', 'brs'])
 
-const DIRECTION_OPTIONS = [
-  { value: 'deposit', label: 'Deposit' },
-  { value: 'withdrawal', label: 'Withdrawal' }
-]
 const STATUS_OPTIONS = [
   { value: 'open', label: 'Unreconciled' },
   { value: 'reconciled', label: 'Reconciled' }
@@ -66,11 +74,7 @@ function reconColumns(onEditBankDate: (r: BankLineRow) => void): TableColumn<Ban
       width: 128,
       groupable: false,
       cell: (r) => (
-        <button
-          className="num text-small text-blue hover:underline"
-          data-testid="btn-banking-edit-bank-date"
-          onClick={() => onEditBankDate(r)}
-        >
+        <button className="num text-small text-blue hover:underline" data-testid="btn-banking-edit-bank-date" onClick={() => onEditBankDate(r)}>
           {r.bankDate ? toDisplayDate(r.bankDate) : 'Set date'}
         </button>
       )
@@ -86,27 +90,6 @@ function reconColumns(onEditBankDate: (r: BankLineRow) => void): TableColumn<Ban
     }
   ])
 }
-
-const SUGGESTION_COLUMNS = defineColumns<BankSuggestionRow>([
-  { id: 'date', header: 'Date', kind: 'date', value: (s) => s.statementRow.date, className: 'text-muted' },
-  { id: 'description', header: 'Description', kind: 'text', value: (s) => s.statementRow.description, hideable: false, groupable: false, minWidth: 160 },
-  { id: 'kind', header: 'Direction', kind: 'enum', value: (s) => s.statementRow.kind, options: DIRECTION_OPTIONS, defaultHidden: true, width: 130 },
-  { id: 'amount', header: 'Amount', kind: 'money', value: (s) => s.statementRow.amount, width: 140 },
-  {
-    id: 'suggestion',
-    header: 'Suggested ledger',
-    kind: 'text',
-    value: (s) => s.suggestion?.ledgerName ?? '',
-    text: (s) => s.suggestion?.ledgerName ?? 'No match',
-    width: 192,
-    cell: (s) =>
-      s.suggestion ? (
-        <span className="rounded px-1.5 py-0.5 text-label bg-blue/10 text-blue">{s.suggestion.ledgerName}</span>
-      ) : (
-        <span className="text-hint text-muted">No match</span>
-      )
-  }
-])
 
 const BRS_COLUMNS = defineColumns<BrsItem>([
   { id: 'date', header: 'Date', kind: 'date', value: (it) => it.date, className: 'text-muted' },
@@ -134,123 +117,45 @@ const BRS_COLUMNS = defineColumns<BrsItem>([
   { id: 'amount', header: 'Amount', kind: 'money', value: (it) => it.amount, aggregate: 'sum', width: 140 }
 ])
 
-const PDC_COLUMNS = defineColumns<PdcRow>([
-  { id: 'date', header: 'Matures', kind: 'date', value: (r) => r.date, width: 120, className: 'text-muted' },
-  {
-    id: 'number',
-    header: 'Number',
-    kind: 'text',
-    value: (r) => r.number,
-    hideable: false,
-    groupable: false,
-    width: 110,
-    className: 'num',
-    cell: (r) => <VoucherLink voucherId={r.id} label={r.number} />
-  },
-  { id: 'type', header: 'Type', kind: 'text', value: (r) => r.voucherTypeName, width: 116, className: 'text-muted' },
-  {
-    id: 'party',
-    header: 'Party',
-    kind: 'text',
-    value: (r) => r.partyName,
-    minWidth: 140,
-    cell: (r) => (r.partyName ? <LedgerLink ledgerId={r.partyLedgerId} name={r.partyName} /> : null)
-  },
-  { id: 'instrument', header: 'Instrument', kind: 'text', value: (r) => r.instrumentNo, width: 140, groupable: false, className: 'num text-muted' },
-  { id: 'instrumentDate', header: 'Instrument date', kind: 'date', value: (r) => r.instrumentDate, defaultHidden: true, width: 176, className: 'text-muted' },
-  { id: 'amount', header: 'Amount', kind: 'money', value: (r) => r.amount, aggregate: 'sum', width: 140 }
-])
+const BANKING_DEFAULTS = { hideCleared: false, tolerance: '0', window: '5', autoSelect: '0.75', suggest: '0.4' }
 
-/** A statement line in the import preview (matched book entry or unmatched line). */
-type ImportPreviewLine = { date: string; description: string; amount: number; kind: 'deposit' | 'withdrawal' }
-
-const IMPORT_LINE_COLUMNS = defineColumns<ImportPreviewLine>([
-  { id: 'date', header: 'Date', kind: 'date', value: (m) => m.date, className: 'text-muted' },
-  { id: 'description', header: 'Description', kind: 'text', value: (m) => m.description, hideable: false, groupable: false, minWidth: 180 },
-  { id: 'kind', header: 'Direction', kind: 'enum', value: (m) => m.kind, options: DIRECTION_OPTIONS, className: 'text-muted' },
-  { id: 'amount', header: 'Amount', kind: 'money', value: (m) => m.amount, width: 140 }
-])
-
-const RULE_KIND_OPTIONS = [
-  { value: 'payment', label: 'Payment' },
-  { value: 'receipt', label: 'Receipt' }
-]
-
-/** Bank rules. The Active cell toggles the rule, so the column set is built around that callback. */
-function ruleColumns(onToggleActive: (r: BankRuleRecord) => void): TableColumn<BankRuleRecord>[] {
-  return defineColumns<BankRuleRecord>([
-    { id: 'pattern', header: 'Pattern', kind: 'text', value: (r) => r.pattern, hideable: false, groupable: false, minWidth: 160 },
-    { id: 'ledger', header: 'Ledger', kind: 'text', value: (r) => r.ledgerName, className: 'text-muted', minWidth: 140 },
-    { id: 'kind', header: 'Kind', kind: 'enum', value: (r) => r.kind, options: RULE_KIND_OPTIONS, width: 110 },
-    { id: 'hits', header: 'Hits', kind: 'number', value: (r) => r.hits, width: 80 },
-    {
-      id: 'active',
-      header: 'Active',
-      kind: 'enum',
-      value: (r) => (r.active ? 'active' : 'paused'),
-      options: [
-        { value: 'active', label: 'Active' },
-        { value: 'paused', label: 'Paused' }
-      ],
-      width: 96,
-      cell: (r) => (
-        <button
-          type="button"
-          className="text-small text-blue hover:underline"
-          onClick={(e) => {
-            e.stopPropagation() // toggling isn't "edit this rule"
-            onToggleActive(r)
-          }}
-        >
-          {r.active ? 'Active' : 'Paused'}
-        </button>
-      )
-    }
-  ])
-}
-
-/** Tables inside dialogs: quick filter, columns and count — no saved views, grouping, density
- *  or export in a modal. */
-const MODAL_TABLE_FEATURES = { groupBy: false, density: false, views: false, export: false } as const
-
-export function BankingScreen(): React.JSX.Element {
+export function BankingScreen({ tab: initialTab }: { tab?: BankTab } = {}): React.JSX.Element {
   const nav = useNav()
   const { from, to } = useSession()
   const toast = useToasts()
   const queryClient = useQueryClient()
   const { data: ledgers } = useQuery({ queryKey: ['bankLedgers'], queryFn: api.bank.ledgers })
-  const [tab, setTab] = useState<BankTab>('recon')
+  const [tab, setTab] = useState<BankTab>(initialTab ?? 'recon')
   const [ledgerId, setLedgerId] = useState<number | null>(null)
-  const [suggestions, setSuggestions] = useState<BankSuggestionRow[] | null>(null)
-  const [rulesOpen, setRulesOpen] = useState(false)
-  const [rulesPrefill, setRulesPrefill] = useState<{ pattern: string; kind: 'payment' | 'receipt' } | null>(null)
-  const [rulesModalKey, setRulesModalKey] = useState(0)
   const [chequeSetupOpen, setChequeSetupOpen] = useState(false)
   const [dateEdit, setDateEdit] = useState<{ lineId: number; current: string | null } | null>(null)
-  const [importPreview, setImportPreview] = useState<(BankImportResult & { csvText: string }) | null>(null)
   const columns = useMemo(() => reconColumns((r) => setDateEdit({ lineId: r.lineId, current: r.bankDate })), [])
-  const opts = useScreenOptions('banking', { hideCleared: false })
+  const opts = useScreenOptions('banking', BANKING_DEFAULTS, {
+    tolerance: TOLERANCE_CHOICES.map((c) => c.value),
+    window: WINDOW_CHOICES.map((c) => c.value),
+    autoSelect: AUTOSELECT_CHOICES.map((c) => c.value),
+    suggest: SUGGEST_CHOICES.map((c) => c.value)
+  })
+  const settings: MatchSettings = {
+    tolerancePaise: Number(opts.options.tolerance),
+    dateWindowDays: Number(opts.options.window),
+    autoSelect: Number(opts.options.autoSelect),
+    minSuggest: Number(opts.options.suggest)
+  }
 
   useEffect(() => {
     if (ledgerId == null && ledgers?.length) setLedgerId(ledgers[0]!.id)
   }, [ledgers, ledgerId])
-
-  // A new bank ledger's statement lines have nothing to do with the last one's suggestions.
-  useEffect(() => {
-    setSuggestions(null)
-  }, [ledgerId])
+  const bankName = (ledgers ?? []).find((l) => l.id === ledgerId)?.name ?? ''
 
   const { data: recon } = useQuery({
     queryKey: ['bankRecon', ledgerId, from, to],
     queryFn: () => api.bank.recon(ledgerId!, from, to),
-    enabled: ledgerId != null
+    enabled: ledgerId != null && tab === 'recon'
   })
 
   const refresh = (): Promise<void> =>
-    Promise.all([
-      queryClient.invalidateQueries({ queryKey: ['bankRecon'] }),
-      queryClient.invalidateQueries({ queryKey: ['brs'] })
-    ]).then(() => undefined)
+    Promise.all([queryClient.invalidateQueries({ queryKey: ['bankRecon'] }), queryClient.invalidateQueries({ queryKey: ['brs'] })]).then(() => undefined)
 
   const markToday = async (lineId: number, current: string | null): Promise<void> => {
     try {
@@ -259,86 +164,6 @@ export function BankingScreen(): React.JSX.Element {
     } catch (err) {
       toast.push('error', (err as Error).message)
     }
-  }
-
-  /** Step 1 of the import: dry-run parse+match, then show the preview modal to confirm. */
-  const doImport = async (): Promise<void> => {
-    if (ledgerId == null) return
-    try {
-      const result = await api.bank.importCsv(ledgerId, { dryRun: true })
-      if (!result) return // file dialog cancelled
-      if (result.statementRows === 0) return void toast.push('warning', 'No statement rows found in that CSV')
-      setImportPreview(result)
-    } catch (err) {
-      toast.push('error', (err as Error).message)
-    }
-  }
-
-  /** Step 2: the user confirmed the preview — apply the same CSV for real. */
-  const applyImport = async (): Promise<void> => {
-    if (ledgerId == null || !importPreview) return
-    let result
-    try {
-      result = await api.bank.importCsv(ledgerId, { csvText: importPreview.csvText, dryRun: false })
-    } catch (err) {
-      toast.push('error', (err as Error).message)
-      return
-    }
-    setImportPreview(null)
-    if (!result) return
-    toast.push(
-      result.matched > 0 ? 'success' : 'warning',
-      `${result.matched} of ${result.statementRows} statement rows matched and reconciled${result.unmatched.length ? `; ${result.unmatched.length} unmatched` : ''}`
-    )
-    await refresh()
-
-    if (result.unmatched.length === 0) {
-      setSuggestions(null)
-      return
-    }
-    try {
-      const rows = await api.bank.suggest(ledgerId, result.csvText)
-      setSuggestions(rows)
-      const withSuggestion = rows.filter((r) => r.suggestion).length
-      if (withSuggestion > 0) toast.push('info', `${withSuggestion} of ${rows.length} unmatched lines have a suggested ledger below`)
-    } catch (err) {
-      toast.push('error', (err as Error).message)
-    }
-  }
-
-  const createFromSuggestion = async (row: BankSuggestionRow): Promise<void> => {
-    if (row.suggestion) {
-      try {
-        await api.bankRules.hit(row.suggestion.ruleId)
-      } catch {
-        // Non-fatal — the draft is still worth opening even if the hit counter didn't update.
-      }
-      nav.go({ name: 'voucher-entry', kindHint: row.suggestion.kind, draft: row.suggestion.voucherDraft, draftId: nextDraftId() })
-      return
-    }
-    if (ledgerId == null) return
-    const isDeposit = row.statementRow.kind === 'deposit'
-    nav.go({
-      name: 'voucher-entry',
-      kindHint: isDeposit ? 'receipt' : 'payment',
-      draft: {
-        date: row.statementRow.date,
-        narration: row.statementRow.description,
-        lines: [{ ledgerId, drCr: isDeposit ? 'dr' : 'cr', amount: row.statementRow.amount }]
-      },
-      draftId: nextDraftId()
-    })
-  }
-
-  const openRules = (prefill: { pattern: string; kind: 'payment' | 'receipt' } | null): void => {
-    setRulesPrefill(prefill)
-    setRulesModalKey((k) => k + 1)
-    setRulesOpen(true)
-  }
-
-  const rememberRule = (row: BankSuggestionRow): void => {
-    const kind: 'payment' | 'receipt' = row.statementRow.kind === 'deposit' ? 'receipt' : 'payment'
-    openRules({ pattern: suggestPattern(row.statementRow.description), kind })
   }
 
   if (ledgers && ledgers.length === 0) {
@@ -360,17 +185,11 @@ export function BankingScreen(): React.JSX.Element {
     <Page>
       <PageHeader
         title="Banking"
-        period={tab === 'recon' ? `${toDisplayDate(from)} → ${toDisplayDate(to)}` : undefined}
-        tabs={<TabBar screen="banking" label="Banking view" tabs={(['recon', 'brs', 'pdc'] as const).map((t) => ({ id: t, label: TAB_LABELS[t] }))} active={tab} onSelect={setTab} />}
+        period={tab === 'recon' || tab === 'bulk' ? `${toDisplayDate(from)} → ${toDisplayDate(to)}` : undefined}
+        tabs={<TabBar screen="banking" label="Banking view" tabs={TAB_ORDER.map((t) => ({ id: t, label: TAB_LABELS[t] }))} active={tab} onSelect={setTab} />}
         controls={
-          tab !== 'pdc' ? (
-            <Select
-              value={ledgerId ?? ''}
-              onChange={(e) => setLedgerId(Number(e.target.value))}
-              className="w-52"
-              aria-label="Bank account"
-              data-testid="banking-ledger"
-            >
+          PER_BANK.has(tab) ? (
+            <Select value={ledgerId ?? ''} onChange={(e) => setLedgerId(Number(e.target.value))} className="w-52" aria-label="Bank account" data-testid="banking-ledger">
               {(ledgers ?? []).map((l) => (
                 <option key={l.id} value={l.id}>
                   {l.name}
@@ -379,17 +198,10 @@ export function BankingScreen(): React.JSX.Element {
             </Select>
           ) : undefined
         }
-        secondary={
-          tab === 'recon' ? (
-            <Button data-testid="btn-banking-rules" onClick={() => openRules(null)}>
-              Rules…
-            </Button>
-          ) : undefined
-        }
         actions={
           tab === 'recon' ? (
-            <Button variant="primary" data-testid="btn-banking-import" onClick={() => void doImport()}>
-              Import statement CSV
+            <Button variant="primary" data-testid="btn-banking-import" onClick={() => setTab('import')}>
+              Import statement…
             </Button>
           ) : undefined
         }
@@ -398,6 +210,27 @@ export function BankingScreen(): React.JSX.Element {
           content: (
             <>
               <OptionsPeriod />
+              <DrawerSection title="Matching" testId="options-banking-matching">
+                <OptionChoice
+                  label="Amount tolerance"
+                  value={opts.options.tolerance}
+                  options={TOLERANCE_CHOICES}
+                  onChange={(v) => opts.set('tolerance', v)}
+                  testId="input-banking-tolerance"
+                />
+                <OptionChoice label="Date window (±)" value={opts.options.window} options={WINDOW_CHOICES} onChange={(v) => opts.set('window', v)} testId="input-banking-window" />
+                <OptionChoice
+                  label="Pre-select proposals that are"
+                  value={opts.options.autoSelect}
+                  options={AUTOSELECT_CHOICES}
+                  onChange={(v) => opts.set('autoSelect', v)}
+                  testId="input-banking-autoselect"
+                />
+                <OptionChoice label="Learned suggestions" value={opts.options.suggest} options={SUGGEST_CHOICES} onChange={(v) => opts.set('suggest', v)} testId="input-banking-suggest" />
+                <p className="text-hint text-muted">
+                  A statement line matches a book entry on the same side whose amount is within the tolerance and whose date is within the window; cheque numbers and party names raise the score.
+                </p>
+              </DrawerSection>
               <DrawerSection title="Reconcile">
                 <OptionToggle
                   label="Hide entries already cleared"
@@ -412,19 +245,12 @@ export function BankingScreen(): React.JSX.Element {
                 <DrawerSection title="Cheque printing">
                   <p className="text-hint text-muted">Cheque layout and printer offsets for this bank account.</p>
                   <div>
-                    <Button size="sm" data-testid="btn-banking-cheque-setup" onClick={() => setChequeSetupOpen(true)}>
-                      Cheque setup…
+                    <Button size="sm" data-testid="btn-banking-cheque-setup-drawer" onClick={() => setChequeSetupOpen(true)}>
+                      Cheque layout…
                     </Button>
                   </div>
                 </DrawerSection>
               )}
-
-              <DrawerSection title="About matching">
-                <p className="text-hint text-muted">
-                  Import a statement CSV (date + debit/credit columns) to auto-match by amount and date; anything left over, set the
-                  bank date by hand. Rules turn recurring unmatched lines into vouchers.
-                </p>
-              </DrawerSection>
             </>
           )
         }}
@@ -470,67 +296,18 @@ export function BankingScreen(): React.JSX.Element {
               }}
             />
           </Panel>
-          <p className="mt-2 text-hint text-muted">Import a statement CSV to auto-match by amount and date · F12 for options.</p>
-
-          {suggestions && suggestions.length > 0 && (
-            <Panel className="mt-3">
-              <div className="border-b border-line px-4 py-2.5">
-                <p className="text-label font-semibold tracking-[0.08em] text-muted uppercase">
-                  Unmatched statement lines · {suggestions.length}
-                </p>
-              </div>
-              <DataTable
-                viewId="banking-unmatched"
-                testId="banking-unmatched"
-                ariaLabel="Unmatched statement lines"
-                columns={SUGGESTION_COLUMNS}
-                rows={suggestions}
-                maxHeight="40vh"
-                trailingWidth={224}
-                trailing={(s) => (
-                  <>
-                    <button
-                      className="mr-3 text-small text-blue hover:underline"
-                      data-testid="btn-banking-create-voucher"
-                      onClick={() => void createFromSuggestion(s)}
-                    >
-                      Create voucher
-                    </button>
-                    <button
-                      className="text-small text-muted hover:text-ink"
-                      data-testid="btn-banking-remember-rule"
-                      onClick={() => rememberRule(s)}
-                    >
-                      Remember as rule
-                    </button>
-                  </>
-                )}
-                exportOptions={{
-                  title: 'Unmatched statement lines',
-                  periodLabel: recon.ledgerName,
-                  filename: 'bank-unmatched-lines'
-                }}
-              />
-
-            </Panel>
-          )}
+          <p className="mt-2 text-hint text-muted">Import a statement to match it line by line · set a bank date by hand here · F12 for options.</p>
         </>
       )}
 
+      {tab === 'import' && ledgerId != null && <ImportTab key={ledgerId} bankLedgerId={ledgerId} bankName={bankName} settings={settings} />}
+      {tab === 'rules' && <RulesTab />}
+      {tab === 'cheques' && ledgerId != null && <ChequesTab key={ledgerId} bankLedgerId={ledgerId} bankName={bankName} />}
+      {tab === 'pdc' && <PdcTab />}
+      {tab === 'bulk' && ledgerId != null && <BulkTab key={ledgerId} bankLedgerId={ledgerId} bankName={bankName} />}
       {tab === 'brs' && ledgerId != null && <BrsSection ledgerId={ledgerId} defaultAsOn={to} />}
 
-      {tab === 'pdc' && <PdcSection />}
-
-      {rulesOpen && (
-        <BankRulesModal key={rulesModalKey} prefill={rulesPrefill} onClose={() => setRulesOpen(false)} />
-      )}
-      {chequeSetupOpen && ledgerId != null && (
-        <ChequeSetupModal
-          bankLedgerId={ledgerId}
-          bankLedgerName={(ledgers ?? []).find((l) => l.id === ledgerId)?.name ?? ''}
-          onClose={() => setChequeSetupOpen(false)}
-        />
-      )}
+      {chequeSetupOpen && ledgerId != null && <ChequeLayoutModal bankLedgerId={ledgerId} bankLedgerName={bankName} onClose={() => setChequeSetupOpen(false)} />}
       {dateEdit && (
         <BankDateModal
           lineId={dateEdit.lineId}
@@ -541,13 +318,6 @@ export function BankingScreen(): React.JSX.Element {
             void refresh()
           }}
           onClose={() => setDateEdit(null)}
-        />
-      )}
-      {importPreview && (
-        <ImportPreviewModal
-          preview={importPreview}
-          onApply={() => void applyImport()}
-          onClose={() => setImportPreview(null)}
         />
       )}
     </Page>
@@ -604,80 +374,6 @@ function BankDateModal({
               Set date
             </Button>
           </span>
-        </div>
-      </div>
-    </Modal>
-  )
-}
-
-/** Dry-run import preview: what will reconcile, what's already done, what stays unmatched —
- *  nothing is written until the user confirms. */
-function ImportPreviewModal({
-  preview,
-  onApply,
-  onClose
-}: {
-  preview: BankImportResult & { csvText: string }
-  onApply: () => void
-  onClose: () => void
-}): React.JSX.Element {
-  const [applying, setApplying] = useState(false)
-  return (
-    <Modal title="Import preview" onClose={onClose} wide>
-      <div className="flex flex-col gap-4">
-        <div className="grid grid-cols-3 gap-3">
-          <StatTile label="Will reconcile" value={<>{preview.matched} <span className="text-caption text-muted">of {preview.statementRows} rows</span></>} />
-          <StatTile label="Already reconciled" value={preview.alreadyReconciled} />
-          <StatTile label="Unmatched" value={preview.unmatched.length} />
-        </div>
-
-        {preview.matches.length > 0 && (
-          <div>
-            <p className="mb-1.5 text-caption font-semibold tracking-[0.08em] text-muted uppercase">Matched book entries</p>
-            <div className="overflow-hidden rounded-md border border-line">
-              <DataTable
-                testId="banking-import-matches"
-                ariaLabel="Matched book entries"
-                columns={IMPORT_LINE_COLUMNS}
-                rows={preview.matches}
-                rowKey={(m) => m.lineId}
-                toolbarFeatures={MODAL_TABLE_FEATURES}
-                maxHeight="30vh"
-              />
-            </div>
-          </div>
-        )}
-
-        {preview.unmatched.length > 0 && (
-          <div>
-            <p className="mb-1.5 text-caption font-semibold tracking-[0.08em] text-muted uppercase">Unmatched statement lines</p>
-            <div className="overflow-hidden rounded-md border border-line">
-              <DataTable
-                testId="banking-import-unmatched"
-                ariaLabel="Unmatched statement lines"
-                columns={IMPORT_LINE_COLUMNS}
-                rows={preview.unmatched}
-                toolbarFeatures={MODAL_TABLE_FEATURES}
-                maxHeight="24vh"
-              />
-            </div>
-            <p className="mt-1 text-hint text-muted">After applying, unmatched lines get ledger suggestions so you can create the missing vouchers.</p>
-          </div>
-        )}
-
-        <div className="flex justify-end gap-2 border-t border-line pt-4">
-          <Button onClick={onClose}>Cancel</Button>
-          <Button
-            variant="primary"
-            disabled={applying || preview.matched === 0}
-            data-testid="btn-banking-apply-import"
-            onClick={() => {
-              setApplying(true)
-              onApply()
-            }}
-          >
-            {preview.matched === 0 ? 'Nothing to reconcile' : `Reconcile ${preview.matched} ${preview.matched === 1 ? 'entry' : 'entries'}`}
-          </Button>
         </div>
       </div>
     </Modal>
@@ -753,406 +449,19 @@ function BrsSection({ ledgerId, defaultAsOn }: { ledgerId: number; defaultAsOn: 
 
           <Panel className="mb-3">
             <div className="border-b border-line px-4 py-2.5">
-              <p className="text-label font-semibold tracking-[0.08em] text-muted uppercase">
-                Deposits not yet credited by the bank · {brs.uncredited.length}
-              </p>
+              <p className="text-label font-semibold tracking-[0.08em] text-muted uppercase">Deposits not yet credited by the bank · {brs.uncredited.length}</p>
             </div>
             {itemTable(brs.uncredited, 'banking-brs-uncredited', 'Deposits not yet credited')}
           </Panel>
 
           <Panel>
             <div className="border-b border-line px-4 py-2.5">
-              <p className="text-label font-semibold tracking-[0.08em] text-muted uppercase">
-                Cheques issued, not yet presented · {brs.unpresented.length}
-              </p>
+              <p className="text-label font-semibold tracking-[0.08em] text-muted uppercase">Cheques issued, not yet presented · {brs.unpresented.length}</p>
             </div>
             {itemTable(brs.unpresented, 'banking-brs-unpresented', 'Cheques issued, not yet presented')}
           </Panel>
         </>
       )}
     </>
-  )
-}
-
-/** Post-dated voucher register: everything waiting to mature, with early-mature and edit actions. */
-function PdcSection(): React.JSX.Element {
-  const nav = useNav()
-  const toast = useToasts()
-  const queryClient = useQueryClient()
-  const { data: rows, isLoading } = useQuery({ queryKey: ['pdc'], queryFn: api.pdc.list })
-
-  const mature = async (id: number, number: string): Promise<void> => {
-    const proceed = await confirmDialog({
-      title: 'Mature now',
-      message: `Bring post-dated voucher ${number} into the books now? It will start counting in reports and balances immediately.`,
-      confirmLabel: 'Mature now'
-    })
-    if (!proceed) return
-    try {
-      await api.pdc.mature(id)
-      await Promise.all([
-        queryClient.invalidateQueries({ queryKey: ['pdc'] }),
-        queryClient.invalidateQueries({ queryKey: ['bankRecon'] }),
-        queryClient.invalidateQueries({ queryKey: ['brs'] })
-      ])
-      toast.push('success', `${number} matured into the books`)
-    } catch (err) {
-      toast.push('error', (err as Error).message)
-    }
-  }
-
-  return (
-    <Panel>
-      <DataTable
-        viewId="banking-pdc"
-        testId="banking-pdc"
-        ariaLabel="Post-dated vouchers"
-        columns={PDC_COLUMNS}
-        rows={rows ?? []}
-        rowKey={(r) => r.id}
-        rowAttrs={(r) => ({ 'data-row-id': r.id })}
-        loading={isLoading}
-        empty={{
-          title: 'No post-dated vouchers',
-          hint: 'Tick “Post-dated” on a payment or receipt to keep it out of the books until its date arrives'
-        }}
-        maxHeight="64vh"
-        trailingWidth={150}
-        trailing={(r) => (
-          <>
-            <button
-              className="mr-3 text-small text-blue hover:underline"
-              data-testid="btn-banking-pdc-mature"
-              onClick={() => void mature(r.id, r.number)}
-            >
-              Mature now
-            </button>
-            <button
-              className="text-small text-muted hover:text-ink"
-              data-testid="btn-banking-pdc-edit"
-              onClick={() => nav.go({ name: 'voucher-entry', voucherId: r.id })}
-            >
-              Edit
-            </button>
-          </>
-        )}
-        exportOptions={{ title: 'Post-dated vouchers', periodLabel: `as on ${toDisplayDate(todayISO())}`, filename: 'post-dated-vouchers' }}
-      />
-    </Panel>
-  )
-}
-
-function BankRulesModal({
-  onClose,
-  prefill
-}: {
-  onClose: () => void
-  prefill: { pattern: string; kind: 'payment' | 'receipt' } | null
-}): React.JSX.Element {
-  const toast = useToasts()
-  const queryClient = useQueryClient()
-  const { data: rules } = useQuery({ queryKey: ['bankRules'], queryFn: api.bankRules.list })
-  const [editingId, setEditingId] = useState<number | null>(null)
-  const [pattern, setPattern] = useState(prefill?.pattern ?? '')
-  const [ledgerId, setLedgerId] = useState<number | null>(null)
-  const [kind, setKind] = useState<'payment' | 'receipt'>(prefill?.kind ?? 'payment')
-  const [active, setActive] = useState(true)
-  const [saving, setSaving] = useState(false)
-
-  const invalidate = (): Promise<void> => queryClient.invalidateQueries({ queryKey: ['bankRules'] }).then(() => undefined)
-
-  const resetForm = (): void => {
-    setEditingId(null)
-    setPattern('')
-    setLedgerId(null)
-    setKind('payment')
-    setActive(true)
-  }
-
-  const edit = (r: BankRuleRecord): void => {
-    setEditingId(r.id)
-    setPattern(r.pattern)
-    setLedgerId(r.ledgerId)
-    setKind(r.kind)
-    setActive(r.active)
-  }
-
-  const save = async (): Promise<void> => {
-    if (pattern.trim().length < 2) return void toast.push('error', 'Pattern needs at least 2 characters')
-    if (ledgerId == null) return void toast.push('error', 'Pick a ledger')
-    setSaving(true)
-    try {
-      await api.bankRules.save({ pattern: pattern.trim(), ledgerId, kind, active }, editingId ?? undefined)
-      await invalidate()
-      toast.push('success', editingId ? 'Rule updated' : 'Rule created')
-      resetForm()
-    } catch (err) {
-      toast.push('error', (err as Error).message)
-    } finally {
-      setSaving(false)
-    }
-  }
-
-  const remove = async (r: BankRuleRecord): Promise<void> => {
-    const proceed = await confirmDialog({
-      title: 'Delete rule',
-      message: `Delete rule "${r.pattern}"?`,
-      confirmLabel: 'Delete',
-      danger: true
-    })
-    if (!proceed) return
-    try {
-      await api.bankRules.remove(r.id)
-      await invalidate()
-      if (editingId === r.id) resetForm()
-      toast.push('success', 'Rule deleted')
-    } catch (err) {
-      toast.push('error', (err as Error).message)
-    }
-  }
-
-  const toggleActive = async (r: BankRuleRecord): Promise<void> => {
-    try {
-      await api.bankRules.save({ pattern: r.pattern, ledgerId: r.ledgerId, kind: r.kind, active: !r.active }, r.id)
-      await invalidate()
-    } catch (err) {
-      toast.push('error', (err as Error).message)
-    }
-  }
-  const toggleRef = useRef(toggleActive)
-  toggleRef.current = toggleActive
-  // Stable columns (the table memoises on their identity); the cell calls the latest handler.
-  const rulesColumns = useMemo(() => ruleColumns((r) => void toggleRef.current(r)), [])
-
-  return (
-    <Modal title="Bank rules" onClose={onClose} wide>
-      <div className="flex flex-col gap-4">
-        <div className="overflow-hidden rounded-md border border-line">
-          <DataTable
-            testId="banking-rules"
-            ariaLabel="Bank rules"
-            columns={rulesColumns}
-            rows={rules ?? []}
-            rowKey={(r) => r.id}
-            rowAttrs={(r) => ({ 'data-row-id': r.id })}
-            loading={rules === undefined}
-            empty={{ title: 'No bank rules yet', hint: 'Add one below, or use "Remember as rule" on an unmatched statement line' }}
-            onRowActivate={edit}
-            toolbarFeatures={MODAL_TABLE_FEATURES}
-            maxHeight="40vh"
-            trailingWidth={120}
-            trailing={(r) => (
-              <>
-                <button className="mr-3 text-small text-blue hover:underline" onClick={() => edit(r)}>
-                  Edit
-                </button>
-                <button className="text-small text-cr hover:underline" onClick={() => void remove(r)}>
-                  Delete
-                </button>
-              </>
-            )}
-          />
-        </div>
-
-        <div className="border-t border-line pt-4">
-          <p className="mb-2 text-caption font-semibold tracking-[0.08em] text-muted uppercase">{editingId ? 'Edit rule' : 'Add rule'}</p>
-          <div className="grid grid-cols-4 gap-3">
-            <Field label="Pattern">
-              <TextInput autoFocus value={pattern} onChange={(e) => setPattern(e.target.value)} placeholder="e.g. ACME SUPPLIES" />
-            </Field>
-            <Field label="Ledger">
-              <LedgerPicker value={ledgerId} onPick={setLedgerId} placeholder="Ledger" />
-            </Field>
-            <Field label="Kind">
-              <Select value={kind} onChange={(e) => setKind(e.target.value as 'payment' | 'receipt')}>
-                <option value="payment">Payment (withdrawal)</option>
-                <option value="receipt">Receipt (deposit)</option>
-              </Select>
-            </Field>
-            <div className="flex items-end pb-1.5">
-              <label className="flex items-center gap-2 text-detail text-ink">
-                <input type="checkbox" checked={active} onChange={(e) => setActive(e.target.checked)} />
-                Active
-              </label>
-            </div>
-          </div>
-          <div className="mt-3 flex justify-end gap-2">
-            {editingId && <Button onClick={resetForm}>Cancel edit</Button>}
-            <Button variant="primary" disabled={saving} data-testid="btn-banking-save-rule" onClick={() => void save()}>
-              {editingId ? 'Save changes' : 'Add rule'}
-            </Button>
-          </div>
-        </div>
-      </div>
-    </Modal>
-  )
-}
-
-/** mm-offset number field — ui-kit TextInput (no rupee/date parsing needed here). */
-function MmField({ label, value, onChange }: { label: string; value: number; onChange: (n: number) => void }): React.JSX.Element {
-  return (
-    <Field label={label}>
-      <TextInput
-        type="number"
-        step="0.5"
-        className="num text-right"
-        value={value}
-        onChange={(e) => onChange(Number(e.target.value) || 0)}
-      />
-    </Field>
-  )
-}
-
-function ChequeSetupModal({
-  bankLedgerId,
-  bankLedgerName,
-  onClose
-}: {
-  bankLedgerId: number
-  bankLedgerName: string
-  onClose: () => void
-}): React.JSX.Element {
-  const toast = useToasts()
-  const {
-    data: saved,
-    error: loadError,
-    refetch
-  } = useQuery({ queryKey: ['chequeConfig', bankLedgerId], queryFn: () => api.cheque.config.get(bankLedgerId) })
-  const [form, setForm] = useState<ChequeConfig | null>(null)
-  const [savedSnapshot, setSavedSnapshot] = useState<ChequeConfig | null>(null)
-  const [saving, setSaving] = useState(false)
-  const [printing, setPrinting] = useState(false)
-
-  useEffect(() => {
-    if (saved && !form) {
-      setForm(saved)
-      setSavedSnapshot(saved)
-    }
-  }, [saved, form])
-
-  const dirty = form != null && savedSnapshot != null && JSON.stringify(form) !== JSON.stringify(savedSnapshot)
-  useUnsavedGuard(dirty)
-
-  const save = async (): Promise<void> => {
-    if (!form) return
-    setSaving(true)
-    try {
-      await api.cheque.config.set(bankLedgerId, form)
-      setSavedSnapshot(form)
-      toast.push('success', 'Cheque layout saved')
-    } catch (err) {
-      toast.push('error', (err as Error).message)
-    } finally {
-      setSaving(false)
-    }
-  }
-
-  const printGrid = async (): Promise<void> => {
-    if (!form) return
-    setPrinting(true)
-    try {
-      // Save first so the printed grid reflects any unsaved edits in the form.
-      await api.cheque.config.set(bankLedgerId, form)
-      setSavedSnapshot(form)
-      const r = await api.cheque.testGrid(bankLedgerId)
-      toast.push('success', `Test grid: ${r.path}`)
-    } catch (err) {
-      toast.push('error', (err as Error).message)
-    } finally {
-      setPrinting(false)
-    }
-  }
-
-  return (
-    <Modal title={`Cheque setup — ${bankLedgerName}`} onClose={onClose} wide dirty={dirty}>
-      {!form ? (
-        loadError ? (
-          // A failed config load used to strand the modal on "Loading…" forever — surface the
-          // error and offer a retry instead.
-          <div className="flex flex-col items-start gap-3">
-            <p className="text-detail text-cr">Couldn’t load the cheque layout: {(loadError as Error).message}</p>
-            <Button data-testid="btn-banking-cheque-retry" onClick={() => void refetch()}>
-              Try again
-            </Button>
-          </div>
-        ) : (
-          <div className="flex items-center gap-2 py-4 text-detail text-muted">
-            <Spinner /> Loading cheque layout…
-          </div>
-        )
-      ) : (
-        <div className="flex flex-col gap-4">
-          <div className="grid grid-cols-4 gap-3">
-            <MmField label="Cheque width (mm)" value={form.widthMm} onChange={(n) => setForm({ ...form, widthMm: n })} />
-            <MmField label="Cheque height (mm)" value={form.heightMm} onChange={(n) => setForm({ ...form, heightMm: n })} />
-            <div className="col-span-2 flex items-end pb-1.5">
-              <label className="flex items-center gap-2 text-detail text-ink">
-                <input
-                  type="checkbox"
-                  checked={form.acPayee}
-                  onChange={(e) => setForm({ ...form, acPayee: e.target.checked })}
-                />
-                Print &quot;A/C Payee only&quot; stamp
-              </label>
-            </div>
-          </div>
-
-          <div>
-            <p className="mb-2 text-caption font-semibold tracking-[0.08em] text-muted uppercase">Date boxes</p>
-            <div className="grid grid-cols-4 gap-3">
-              <MmField label="X (mm)" value={form.date.xMm} onChange={(n) => setForm({ ...form, date: { ...form.date, xMm: n } })} />
-              <MmField label="Y (mm)" value={form.date.yMm} onChange={(n) => setForm({ ...form, date: { ...form.date, yMm: n } })} />
-              <MmField
-                label="Digit gap (mm)"
-                value={form.date.charGapMm}
-                onChange={(n) => setForm({ ...form, date: { ...form.date, charGapMm: n } })}
-              />
-            </div>
-          </div>
-
-          <div>
-            <p className="mb-2 text-caption font-semibold tracking-[0.08em] text-muted uppercase">Payee</p>
-            <div className="grid grid-cols-4 gap-3">
-              <MmField label="X (mm)" value={form.payee.xMm} onChange={(n) => setForm({ ...form, payee: { ...form.payee, xMm: n } })} />
-              <MmField label="Y (mm)" value={form.payee.yMm} onChange={(n) => setForm({ ...form, payee: { ...form.payee, yMm: n } })} />
-            </div>
-          </div>
-
-          <div>
-            <p className="mb-2 text-caption font-semibold tracking-[0.08em] text-muted uppercase">Amount in words</p>
-            <div className="grid grid-cols-4 gap-3">
-              <MmField label="X (mm)" value={form.words.xMm} onChange={(n) => setForm({ ...form, words: { ...form.words, xMm: n } })} />
-              <MmField label="Y (mm)" value={form.words.yMm} onChange={(n) => setForm({ ...form, words: { ...form.words, yMm: n } })} />
-              <MmField label="Width (mm)" value={form.words.wMm} onChange={(n) => setForm({ ...form, words: { ...form.words, wMm: n } })} />
-            </div>
-          </div>
-
-          <div>
-            <p className="mb-2 text-caption font-semibold tracking-[0.08em] text-muted uppercase">Amount in figures</p>
-            <div className="grid grid-cols-4 gap-3">
-              <MmField
-                label="X (mm)"
-                value={form.figures.xMm}
-                onChange={(n) => setForm({ ...form, figures: { ...form.figures, xMm: n } })}
-              />
-              <MmField
-                label="Y (mm)"
-                value={form.figures.yMm}
-                onChange={(n) => setForm({ ...form, figures: { ...form.figures, yMm: n } })}
-              />
-            </div>
-          </div>
-
-          <div className="flex justify-end gap-2 border-t border-line pt-4">
-            <Button disabled={printing} data-testid="btn-banking-cheque-test-grid" onClick={() => void printGrid()}>
-              Print test grid
-            </Button>
-            <Button variant="primary" disabled={saving} data-testid="btn-banking-cheque-save" onClick={() => void save()}>
-              Save
-            </Button>
-          </div>
-        </div>
-      )}
-    </Modal>
   )
 }

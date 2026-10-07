@@ -328,7 +328,7 @@ export function statementWorkspace(db: DB, bankLedgerId: number, q: WorkspaceQue
 
 const stripEntry = (e: WorkspaceEntry): WorkspaceEntry => ({
   voucherId: e.voucherId, lineId: e.lineId, number: e.number, voucherType: e.voucherType, date: e.date, amount: e.amount,
-  particulars: e.particulars, particularsLedgerId: e.particularsLedgerId
+  particulars: e.particulars, particularsLedgerId: e.particularsLedgerId, side: e.side
 })
 
 // ---------- learning ----------
