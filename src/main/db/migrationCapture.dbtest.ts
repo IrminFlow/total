@@ -1,4 +1,4 @@
-// The capture migration (WP 5.4): ai_drafts.source gains 'capture' (table rebuilt for the CHECK,
+// The capture migration (WP 5.4, 045): ai_drafts.source gains 'capture' next to WP 5.5's 'assistant' (rebuilt for the CHECK,
 // every existing draft kept as it was) and the capture_items queue appears. Appended LAST — its
 // number is its position (re-placed when main gains migrations first).
 import { describe, expect, it } from 'vitest'
@@ -30,6 +30,7 @@ describe('capture migration — capture_items and the capture draft source', () 
     expect(trialBalance(db, '2026-03-31')).toEqual(before)
     expect(db.prepare('SELECT id, status, unrequested, source, origin FROM ai_drafts').get()).toEqual({ id: d, status: 'superseded', unrequested: 1, source: 'inbox', origin: 'drop.json' })
     db.prepare("INSERT INTO ai_drafts (kind, summary, payload_json, source) VALUES ('voucher', 'bill', '{}', 'capture')").run()
+    db.prepare("INSERT INTO ai_drafts (kind, summary, payload_json, source) VALUES ('voucher', '2b', '{}', 'assistant')").run()
     expect(() => db.prepare("INSERT INTO ai_drafts (kind, summary, payload_json, source) VALUES ('voucher', 's', '{}', 'email')").run()).toThrow(/CHECK/)
     // mcp_log still points at the rebuilt table.
     db.pragma('foreign_keys = ON')

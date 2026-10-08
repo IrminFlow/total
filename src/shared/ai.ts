@@ -84,10 +84,21 @@ export const aiKeySetSchema = z.object({ key: z.string().trim().min(8).max(400) 
 // aiExplain.ts with the pure builders that share it between the panel and the prompt.
 export { aiContextSchema, type AiContext }
 
+/** WP 5.5 "Run with AI": read tools an assistant screen may run BEFORE the model is asked, so
+ *  the conversation starts with its result as context (stored as an ordinary tool call). */
+export const AI_PRE_CALL_TOOLS = ['close_checklist', 'gst_2b_mismatches', 'find_anomalies', 'build_report'] as const
+
+export const aiPreCallSchema = z.object({
+  tool: z.enum(AI_PRE_CALL_TOOLS),
+  input: z.record(z.string(), z.unknown()).default({})
+})
+export type AiPreCall = z.infer<typeof aiPreCallSchema>
+
 export const aiSendSchema = z.object({
   threadId: z.number().int().positive().optional(),
   text: z.string().trim().min(1).max(8000),
   context: aiContextSchema.optional(),
+  preCall: aiPreCallSchema.optional(),
   /** 'fast' uses the fast model. */
   speed: z.enum(['default', 'fast']).optional()
 })
@@ -181,8 +192,10 @@ export interface AiThreadDto {
 export type AiDraftStatus = 'open' | 'consumed' | 'discarded' | 'superseded'
 
 /** Where a draft came from (WP 5.7): the in-app assistant, a tool call over the MCP server
- *  (`total-cli mcp`), or a file dropped in the company's inbox/ folder. */
-export type AiDraftSource = 'chat' | 'mcp' | 'inbox' | 'capture'
+ *  (`total-cli mcp`), or a file dropped in the company's inbox/ folder; WP 5.5: 'assistant' —
+ *  made from the Assistants screen (a GSTR-2B suggestion) without AI; WP 5.4: 'capture' — a
+ *  captured bill or a categorised bank statement line. */
+export type AiDraftSource = 'chat' | 'mcp' | 'inbox' | 'assistant' | 'capture'
 
 /** Which editor a draft opens in (WP 5.3). Absent on a WP 5.1 draft = plain accounting lines. */
 export type AiDraftForm = 'accounting' | 'invoice' | 'stockNote' | 'manufacture' | 'tradeDoc'

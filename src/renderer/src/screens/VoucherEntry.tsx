@@ -197,7 +197,10 @@ export function VoucherEntry({
   }
   const currentType = (voucherId ? types.find((t) => t.id === existing!.voucherTypeId) : types.find((t) => t.id === typeId)) ?? types.find((t) => !STOCK_NOTE_KINDS.includes(t.kind)) ?? types[0]!
   const closingEntry = !!existing?.isYearEndClose
-  const activeMode = voucherId ? plan!.mode : modeForKind(currentType.kind)
+  // A draft opens in its own form (WP 5.3) — e.g. a GSTR-2B purchase draft (WP 5.5, ledger lines)
+  // in the accounting form, which the mode attribute reports.
+  const aiMode = aiForm && aiForm !== 'tradeDoc' && aiDraft && currentType.id === aiDraft.payload.voucherTypeId ? aiForm : null
+  const activeMode = voucherId ? plan!.mode : (aiMode ?? modeForKind(currentType.kind))
 
   const typeTabs = !voucherId ? (
     <div role="tablist" aria-label="Voucher type" className="flex flex-wrap items-center gap-1">

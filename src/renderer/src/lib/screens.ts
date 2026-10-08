@@ -437,6 +437,17 @@ export const SCREENS: ScreenDef[] = [
     navSection: 'analysis',
     invalidates: ['ratios']
   },
+  // WP 5.5: the assistants — month-end close checklist, GSTR-2B mismatches, anomalies and
+  // duplicates, report from a question. Deterministic (they work with AI off); "Run with AI"
+  // hands a result to the assistant panel.
+  {
+    name: 'assistants',
+    title: 'Assistants',
+    keywords: ['month end', 'close checklist', 'closing', 'gstr-2b mismatch', '2b', 'itc', 'anomalies', 'duplicates', 'unusual entries', 'fraud', 'report from a question', 'natural language report'],
+    screen: { name: 'assistants' },
+    navSection: 'analysis',
+    invalidates: ['assistClose', 'assistAnomalies', 'assistGst2b', 'assistSettings', 'aiSettings']
+  },
   {
     name: 'exceptions',
     keywords: ['exception reports', 'negative stock', 'unreconciled'],

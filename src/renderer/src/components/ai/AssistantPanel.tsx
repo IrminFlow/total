@@ -20,7 +20,7 @@
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState, type ReactNode } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { create } from 'zustand'
-import { formatMicroUsd, memoryDetailsText, memorySourceText, type AiContext, type AiDraftDto, type AiEvent, type AiMemoryDto, type AiMessageDto, type AiSource, type AiThreadDto } from '@shared/ai'
+import { formatMicroUsd, memoryDetailsText, memorySourceText, type AiContext, type AiDraftDto, type AiEvent, type AiMemoryDto, type AiMessageDto, type AiPreCall, type AiSource, type AiThreadDto } from '@shared/ai'
 import { explainContextFor, parseNavIntent, screenContextLines } from '@shared/aiExplain'
 import { fyOf, todayISO, toDisplayDate } from '@shared/dates'
 import type { VoucherKind } from '@shared/domain'
@@ -49,6 +49,8 @@ interface PendingAsk {
   id: number
   text: string
   context?: AiContext
+  /** WP 5.5 "Run with AI": the assistant tool main runs before the model is asked. */
+  preCall?: AiPreCall
 }
 
 interface AssistantStore {
@@ -59,7 +61,7 @@ interface AssistantStore {
   setOpen: (open: boolean) => void
   toggle: () => void
   setWidth: (width: number) => void
-  ask: (text: string, context?: AiContext) => void
+  ask: (text: string, context?: AiContext, preCall?: AiPreCall) => void
   takePending: () => PendingAsk | null
 }
 
@@ -94,8 +96,8 @@ export const useAssistantPanel = create<AssistantStore>((set, get) => ({
     set({ width })
     savePrefs(get())
   },
-  ask: (text, context) => {
-    set({ open: true, pending: { id: ++askSeq, text, context } })
+  ask: (text, context, preCall) => {
+    set({ open: true, pending: { id: ++askSeq, text, context, ...(preCall ? { preCall } : {}) } })
     savePrefs(get())
   },
   takePending: () => {
@@ -259,11 +261,11 @@ export function AssistantDrawer({ onClose }: { onClose: () => void }): React.JSX
   }
 
   const ask = useCallback(
-    async (q: string, ctx: AiContext, threadId: number | null): Promise<void> => {
+    async (q: string, ctx: AiContext, threadId: number | null, preCall?: AiPreCall): Promise<void> => {
       setSending(true)
       if (threadId === null) dispatch({ type: 'awaiting' })
       try {
-        const r = await aiApi.send({ threadId: threadId ?? undefined, text: q, context: ctx })
+        const r = await aiApi.send({ threadId: threadId ?? undefined, text: q, context: ctx, ...(preCall ? { preCall } : {}) })
         // run-start normally arrives before the reply; make sure the thread is adopted either way.
         adopt(r)
         return
@@ -284,7 +286,7 @@ export function AssistantDrawer({ onClose }: { onClose: () => void }): React.JSX
     if (!p) return
     dispatch({ type: 'load', state: emptyPanel() })
     setMode('chat')
-    void ask(p.text, p.context ?? context, null).catch(() => null)
+    void ask(p.text, p.context ?? context, null, p.preCall).catch(() => null)
   }, [pending, ready, sending, state.running, ask, context])
 
   /** "Open the ledger for Acme" → the search service, then navigate. True when handled. */

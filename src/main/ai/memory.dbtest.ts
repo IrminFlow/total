@@ -108,10 +108,9 @@ function deps(f: Fixture, provider: MockProvider, over: Partial<AgentDeps> = {})
 const audits = (db: DB): { action: string; entity_id: number }[] => db.prepare("SELECT action, entity_id FROM audit_log WHERE entity = 'ai_memory' ORDER BY id").all() as { action: string; entity_id: number }[]
 
 describe('migration (WP 5.6)', () => {
-  it('comes just before WP 5.4 capture (the last), rebuilds ai_memory as typed entries and keeps any old row as a fact', () => {
+  it('comes right before the WP 5.5 assistants migration (last), rebuilds ai_memory as typed entries and keeps any old row as a fact', () => {
     const at = MIGRATIONS.findIndex((sql) => sql.includes('CREATE TABLE ai_memory_new'))
-    // WP 5.4 capture (044) is appended after it.
-    expect(at).toBe(MIGRATIONS.findIndex((sql) => sql.includes('CREATE TABLE capture_items')) - 1)
+    expect(at).toBe(MIGRATIONS.findIndex((sql) => sql.includes('CREATE TABLE assistant_marks')) - 1)
     const db = freshPartialDb(at)
     db.prepare("INSERT INTO ai_memory (kind, key, value) VALUES ('note', 'close', 'books close on the 5th')").run()
     migrate(db)
