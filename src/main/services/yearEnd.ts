@@ -11,6 +11,8 @@ import { yearStatus } from './fixedAssets'
 import type { DepreciationYearStatus } from '@shared/fixedAssets'
 import type { UnbilledGoods } from '@shared/tradeCycle/types'
 import { unbilledGoods } from './tradeAnalysis'
+import { msmeYearEndWarning } from './payables'
+import type { MsmeYearEndWarning } from '@shared/payables/types'
 
 /** Marker embedded in the closing journal's narration — for readability (and migration 018's
  *  backfill of pre-flag closes). Status checks use vouchers.is_year_end_close, not this text. */
@@ -28,6 +30,9 @@ export interface ClosePreview {
   /** WP 2.5d (design §9 Q5): goods delivered / received but not invoiced on the FY's last day —
    *  the close screen warns with the values; no provision is posted automatically. */
   unbilled: UnbilledGoods
+  /** WP 4.3: micro / small supplier dues past the MSMED Act s.15 period on the FY's last day (and
+   *  the s.43B(h) / 2025 Act s.37(2)(g) figure) — the close screen warns; nothing is posted. */
+  msme?: MsmeYearEndWarning
 }
 
 /** Signed dr-positive net movement + already-closed check for a financial year's income/expense
@@ -67,7 +72,10 @@ export function closePreview(db: DB, fyStartYear: number, booksFrom: number = bo
     .prepare(`SELECT 1 FROM vouchers v WHERE ${NOT_DELETED} AND v.is_year_end_close = 1 AND v.date BETWEEN ? AND ? LIMIT 1`)
     .get(fy.from, fy.to)
 
-  return { rows, netProfit, alreadyClosed: !!existing, depreciation: yearStatus(db, fyStartYear), unbilled: unbilledGoods(db, fy.to) }
+  return {
+    rows, netProfit, alreadyClosed: !!existing, depreciation: yearStatus(db, fyStartYear), unbilled: unbilledGoods(db, fy.to),
+    msme: msmeYearEndWarning(db, fyStartYear)
+  }
 }
 
 export interface CloseResult {

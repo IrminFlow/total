@@ -110,6 +110,16 @@ export const AUDIT_COVERAGE: Record<string, AuditCoverage> = {
   'counter:recall': a('held_bill'),
   'counter:discardHeld': a('held_bill'),
   'counter:print': EXPORT,
+  // WP 4.2 receivables
+  'receivables:setConfig': a('company'),
+  'receivables:statementPdf': EXPORT,
+  'receivables:statementsBulk': EXPORT,
+  'receivables:remind': a('reminder'),
+  'receivables:remindBulk': a('reminder'),
+  'receivables:postInterest': a('voucher', 'interest_charge', 'ledger'),
+  'receivables:setHold': a('credit_hold'),
+  'receivables:addFollowup': a('bill_followup'),
+  'receivables:deleteFollowup': a('bill_followup'),
   'currency:create': a('currency'),
   'currency:delete': a('currency'),
   'cc:save': a('costCentre'),
@@ -121,7 +131,7 @@ export const AUDIT_COVERAGE: Record<string, AuditCoverage> = {
   'bom:deleteVersion': a('bom'),
 
   // ---------- vouchers ----------
-  'voucher:save': a('voucher'),
+  'voucher:save': a('voucher', 'credit_override'),
   'voucher:delete': a('voucher'),
   'voucher:restore': a('voucher'),
   'voucher:purge': a('voucher'),
@@ -277,6 +287,21 @@ export const AUDIT_COVERAGE: Record<string, AuditCoverage> = {
   'pack:delete': a('report_pack'),
   'pack:runNow': a('report_pack'),
   'pack:chooseFolder': r('opens a folder picker; the chosen path is saved by pack:save'),
+  // ---------- payables (WP 4.3) ----------
+  'payables:plan': QUERY,
+  'payables:msmeDue': QUERY,
+  'payables:previewRun': r('computes what a payment run would post; writes nothing'),
+  'payables:createRun': a('payment_run', 'voucher', 'ledger'),
+  'payables:runs': QUERY,
+  'payables:run': QUERY,
+  'payables:runExportCsv': EXPORT,
+  'payables:msmeReport': QUERY,
+  'payables:msmeForm1Csv': EXPORT,
+  'payables:bankRates': QUERY,
+  'payables:bankRateSave': a('msme_bank_rate'),
+  'payables:bankRateDelete': a('msme_bank_rate'),
+  'payables:supplierStatement': QUERY,
+  'payables:supplierRecon': r('matches a pasted supplier ledger against the books; writes nothing'),
 
   // ---------- the audit trail itself (viewer-level, listed for completeness) ----------
   'audit:exportCsv': EXPORT,

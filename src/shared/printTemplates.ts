@@ -36,7 +36,10 @@ export const PRINT_DOC_KINDS = [
   'delivery_challan', 'quotation', 'goods_receipt', 'sales_order', 'purchase_order',
   // WP 3.4 — the reverse-charge self-invoice (s.31(3)(f) CGST Act) raised on a purchase from an
   // unregistered supplier; printed from services/gstRcm.ts, not from a voucher kind.
-  'self_invoice'
+  'self_invoice',
+  // WP 4.2 — receivables: the statement of account and the payment-reminder letter. Party
+  // documents, not vouchers (printed by services/receivables.ts); never a voucher kind's form.
+  'statement', 'reminder'
 ] as const
 export type PrintDocKind = (typeof PRINT_DOC_KINDS)[number]
 export const printDocKindSchema = z.enum(PRINT_DOC_KINDS)
@@ -53,6 +56,8 @@ export const STOCK_NOTE_PRINT_KINDS: readonly PrintDocKind[] = ['delivery_challa
 /** Quotations and orders (WP 2.5c): commercial documents, not tax documents — no IRN / payment QR,
  *  no outstanding, no invoice declaration; validity / expected date and the document's terms print. */
 export const TRADE_DOC_PRINT_KINDS: readonly PrintDocKind[] = ['quotation', 'sales_order', 'purchase_order']
+/** WP 4.2: party documents — the statement of account and the reminder letter (no items, no tax). */
+export const PARTY_DOC_PRINT_KINDS: readonly PrintDocKind[] = ['statement', 'reminder']
 
 export const PRINT_DOC_KIND_LABELS: Record<PrintDocKind, string> = {
   sales: 'Sales invoice',
@@ -68,7 +73,9 @@ export const PRINT_DOC_KIND_LABELS: Record<PrintDocKind, string> = {
   goods_receipt: 'Goods receipt note',
   sales_order: 'Sales order',
   purchase_order: 'Purchase order',
-  self_invoice: 'Self invoice (reverse charge)'
+  self_invoice: 'Self invoice (reverse charge)',
+  statement: 'Statement of account',
+  reminder: 'Payment reminder'
 }
 
 export const DEFAULT_TITLES: Record<PrintDocKind, string> = {
@@ -85,7 +92,9 @@ export const DEFAULT_TITLES: Record<PrintDocKind, string> = {
   goods_receipt: 'GOODS RECEIPT NOTE',
   sales_order: 'SALES ORDER',
   purchase_order: 'PURCHASE ORDER',
-  self_invoice: 'SELF INVOICE'
+  self_invoice: 'SELF INVOICE',
+  statement: 'STATEMENT OF ACCOUNT',
+  reminder: 'PAYMENT REMINDER'
 }
 
 /** Voucher kinds whose print kind has another name. */
@@ -102,6 +111,8 @@ export function printKindForVoucherKind(kind: string): PrintDocKind | null {
   if (kind === 'delivery_challan' || kind === 'goods_receipt' || TRADE_DOC_PRINT_KINDS.includes(kind as PrintDocKind)) return null
   // A self-invoice is a separate document ON a purchase voucher, never the voucher's own form.
   if (kind === 'self_invoice') return null
+  // WP 4.2: statements and reminders are party documents.
+  if (PARTY_DOC_PRINT_KINDS.includes(kind as PrintDocKind)) return null
   return (PRINT_DOC_KINDS as readonly string[]).includes(kind) ? (kind as PrintDocKind) : null
 }
 

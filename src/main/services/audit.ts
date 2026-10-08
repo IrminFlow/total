@@ -85,6 +85,12 @@ export function setAuditContext(ctx: AuditContext): void {
   context = ctx
 }
 
+/** The name writeAudit would stamp right now (signed-in user, else the OS login) — for tables
+ *  that keep their own "by" column (WP 4.2 reminder_log / bill_followups). */
+export function currentAuditUserName(): string {
+  return context.getUserName() ?? osAuditUser()
+}
+
 /** User name stamped on rows written by migrations and scheduled jobs. */
 export const SYSTEM_AUDIT_USER = 'system'
 

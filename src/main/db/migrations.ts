@@ -2238,9 +2238,145 @@ export const MIGRATIONS: string[] = [
 
   DROP TABLE m031_before;
   `,
+  // 032 (WP 4.2) — receivables. Number assigned by the orchestrator (WP 4.1 banking, still in
+  // progress, takes the next number); appended after 031. Dbtests locate it by content (the
+  // reminder_log table). Additive only:
+  // - ledgers: party email (statements / reminders are "email-ready" via mailto:), the annual
+  //   simple-interest rate on overdue bills in basis points (NULL = no interest) with its
+  //   interest-free grace days, and the credit hold (flag, reason, when) InvoiceEntry enforces.
+  // - reminder_log: one row per reminder letter generated (party, bucket, date, document, channel)
+  //   — the "don't remind twice within N days" check reads it.
+  // - ledgers.cess_rate: compensation-cess rate of a ledger-line (service) supply, read by the
+  //   GST returns / e-docs next to gst_rate — the interest ledgers carry the cess of the supply.
+  // - interest_charges: one row per bill per charged period, owned by the debit note that posted
+  //   it (CASCADE on purge; a binned note's rows stop counting by query) — never double-charge.
+  //   bill_key is the bill's stable identity (v:<voucher id>[#<n-th new ref>], or o:<ref> for an
+  //   opening-balance bill), so renumbering the invoice or renaming its bill ref can't reset it.
+  // - bill_followups: notes and promised payment dates per open bill. Bills are computed, so a
+  //   bill is keyed by (party, voucher, ref name); voucher NULL = the opening balance.
+  `
+  ALTER TABLE ledgers ADD COLUMN email TEXT;
+  ALTER TABLE ledgers ADD COLUMN interest_rate_bp INTEGER CHECK (interest_rate_bp IS NULL OR interest_rate_bp BETWEEN 0 AND 10000);
+  ALTER TABLE ledgers ADD COLUMN interest_grace_days INTEGER NOT NULL DEFAULT 0 CHECK (interest_grace_days BETWEEN 0 AND 365);
+  ALTER TABLE ledgers ADD COLUMN credit_hold INTEGER NOT NULL DEFAULT 0 CHECK (credit_hold IN (0, 1));
+  ALTER TABLE ledgers ADD COLUMN credit_hold_reason TEXT;
+  ALTER TABLE ledgers ADD COLUMN credit_hold_at TEXT;
+  ALTER TABLE ledgers ADD COLUMN cess_rate REAL CHECK (cess_rate IS NULL OR cess_rate >= 0);
+
+  CREATE TABLE reminder_log (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    party_ledger_id INTEGER NOT NULL REFERENCES ledgers(id) ON DELETE CASCADE,
+    bucket TEXT NOT NULL CHECK (bucket IN ('gentle', 'firm', 'final')),
+    date TEXT NOT NULL,
+    amount_paise INTEGER NOT NULL DEFAULT 0,
+    oldest_bill TEXT,
+    max_overdue_days INTEGER NOT NULL DEFAULT 0,
+    document_path TEXT,
+    channel TEXT NOT NULL CHECK (channel IN ('email', 'pdf', 'print', 'phone', 'other')),
+    user_name TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+  CREATE INDEX idx_reminder_log_party ON reminder_log(party_ledger_id, date);
+
+  CREATE TABLE interest_charges (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    party_ledger_id INTEGER NOT NULL REFERENCES ledgers(id),
+    bill_voucher_id INTEGER,
+    bill_ref TEXT NOT NULL,
+    bill_key TEXT NOT NULL,
+    period_from TEXT NOT NULL,
+    period_to TEXT NOT NULL,
+    days INTEGER NOT NULL CHECK (days > 0),
+    principal_paise INTEGER NOT NULL CHECK (principal_paise > 0),
+    rate_bp INTEGER NOT NULL CHECK (rate_bp > 0),
+    interest_paise INTEGER NOT NULL CHECK (interest_paise > 0),
+    gst_paise INTEGER NOT NULL DEFAULT 0 CHECK (gst_paise >= 0),
+    debit_note_voucher_id INTEGER NOT NULL REFERENCES vouchers(id) ON DELETE CASCADE,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    CHECK (period_to >= period_from)
+  );
+  CREATE INDEX idx_interest_charges_bill ON interest_charges(party_ledger_id, bill_key);
+  CREATE INDEX idx_interest_charges_note ON interest_charges(debit_note_voucher_id);
+
+  CREATE TABLE bill_followups (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    party_ledger_id INTEGER NOT NULL REFERENCES ledgers(id) ON DELETE CASCADE,
+    bill_voucher_id INTEGER,
+    bill_ref TEXT NOT NULL,
+    date TEXT NOT NULL,
+    note TEXT NOT NULL DEFAULT '',
+    promised_date TEXT,
+    promised_amount INTEGER CHECK (promised_amount IS NULL OR promised_amount > 0),
+    user_name TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+  CREATE INDEX idx_bill_followups_party ON bill_followups(party_ledger_id, bill_voucher_id, bill_ref);
+  CREATE INDEX idx_bill_followups_promised ON bill_followups(promised_date);
+  `,
+  // 033 (WP 4.3) — payables: MSME tracking, payment planning terms, payment runs. Number assigned
+  // by the orchestrator: appended after 032 (WP 4.2 receivables); WP 4.1 banking takes the next
+  // number. Dbtests locate it by content (the msme_bank_rates table).
+  // - Supplier ledgers gain their MSMED Act 2006 facts: msme_registered (Udyam registration filed —
+  //   s.2(n) "supplier" needs the s.8 memorandum), udyam_no (UDYAM-XX-00-0000000), msme_category
+  //   (micro / small / medium — only micro and small are s.2(n) suppliers, so only they get the
+  //   s.15 deadline, s.16 interest, Income-tax s.43B(h) / 2025 Act s.37(2)(g) and MSME Form 1), and
+  //   msme_registered_from (the date the supplier became a registered micro / small enterprise —
+  //   bills accepted before it are not covered, so a later registration never rewrites past years),
+  //   agreed_credit_days (the period agreed IN WRITING, s.15; the 45-day cap is applied when
+  //   computing, not here, so the agreement is recorded as written). Sources with dates:
+  //   src/shared/payables/msmeSources.ts. The s.43B(h) disallowance is computed, never stored.
+  // - Early-payment discount terms per party (bp of the bill, within N days of the bill date) —
+  //   shown on the planning screen; nothing is posted from them.
+  // - msme_bank_rates: the RBI Bank Rate, effective-dated and user-editable (s.16 = 3 × it). Seeded
+  //   with the rows checked on 2026-10-07; each row carries its source; UNVERIFIED rows say so.
+  // - payment_runs / payment_run_vouchers: a planned or batch payment run and the payment vouchers
+  //   it posted (vouchers keep their own audit rows; deleting a voucher drops it from the run).
+  //   client_run_id: the renderer's idempotency key — a second submit of the same run returns the
+  //   run already posted instead of paying twice.
+  `
+  ALTER TABLE ledgers ADD COLUMN msme_registered INTEGER NOT NULL DEFAULT 0 CHECK (msme_registered IN (0, 1));
+  ALTER TABLE ledgers ADD COLUMN udyam_no TEXT;
+  ALTER TABLE ledgers ADD COLUMN msme_registered_from TEXT;
+  ALTER TABLE ledgers ADD COLUMN msme_category TEXT CHECK (msme_category IN ('micro', 'small', 'medium'));
+  ALTER TABLE ledgers ADD COLUMN agreed_credit_days INTEGER CHECK (agreed_credit_days IS NULL OR agreed_credit_days BETWEEN 0 AND 365);
+  ALTER TABLE ledgers ADD COLUMN early_payment_discount_bp INTEGER CHECK (early_payment_discount_bp IS NULL OR early_payment_discount_bp BETWEEN 0 AND 10000);
+  ALTER TABLE ledgers ADD COLUMN early_payment_discount_days INTEGER CHECK (early_payment_discount_days IS NULL OR early_payment_discount_days BETWEEN 0 AND 365);
+
+  CREATE TABLE msme_bank_rates (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    from_date TEXT NOT NULL UNIQUE,
+    rate_bp INTEGER NOT NULL CHECK (rate_bp BETWEEN 0 AND 5000),
+    source TEXT NOT NULL
+  );
+  INSERT INTO msme_bank_rates (from_date, rate_bp, source) VALUES
+    ('2023-02-08', 675, 'RBI MPC 8 Feb 2023 (repo 6.50 %, Bank Rate 6.75 %) — UNVERIFIED, entered from secondary sources'),
+    ('2025-02-07', 650, 'RBI MPC 7 Feb 2025 (repo 6.25 %, Bank Rate 6.50 %) — UNVERIFIED, entered from secondary sources'),
+    ('2025-04-09', 625, 'RBI MPC 9 Apr 2025 (repo 6.00 %, Bank Rate 6.25 %) — UNVERIFIED, entered from secondary sources'),
+    ('2025-06-06', 575, 'RBI MPC 6 Jun 2025 (repo 5.50 %, Bank Rate 5.75 %) — start date UNVERIFIED; rate confirmed in force by RBI press release prid=61332 (1 Oct 2025)'),
+    ('2025-12-05', 550, 'RBI MPC 5 Dec 2025 (repo 5.25 %, Bank Rate 5.50 %) — confirmed by RBI press releases prid=62169 (6 Feb 2026) and prid=63287 (5 Aug 2026)'),
+    ('2026-10-07', 575, 'RBI press release 2026-2027/1264, 7 Oct 2026 (prid=63742): "the MSF rate and the Bank Rate at 5.75 per cent"');
+
+  CREATE TABLE payment_runs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    run_no TEXT NOT NULL UNIQUE,
+    kind TEXT NOT NULL CHECK (kind IN ('plan', 'batch')),
+    date TEXT NOT NULL,
+    note TEXT,
+    client_run_id TEXT UNIQUE,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+  CREATE TABLE payment_run_vouchers (
+    run_id INTEGER NOT NULL REFERENCES payment_runs(id) ON DELETE CASCADE,
+    voucher_id INTEGER NOT NULL REFERENCES vouchers(id) ON DELETE CASCADE,
+    line_no INTEGER NOT NULL,
+    PRIMARY KEY (run_id, voucher_id)
+  );
+  CREATE INDEX idx_payment_run_vouchers_voucher ON payment_run_vouchers(voucher_id);
+  `,
   // 038 (WP 6.1 / 6.2) — report builder and scheduled report packs. Number assigned by the
-  // orchestrator: 032–037 belong to parallel branches (phases 4, 5.1, 6.3); this one must stay
-  // AFTER them when they merge (renumber the array position, never the content). Self-contained:
+  // orchestrator: 032 receivables and 033 payables are on main; 034–037 (banking, cash/finance,
+  // AI, Excel) are on parallel branches — this one stays LAST when they merge (array position
+  // = migration number; never edit the content). Self-contained:
   // depends only on core tables. Saved reports store the query model only (every figure is
   // computed at query time); a pack lists built-in and saved reports with a period rule, an
   // output folder and a frequency, and keeps a run log.
