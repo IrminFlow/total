@@ -1,5 +1,5 @@
 // Persistence for the agent (WP 5.1): threads, messages, drafts, usage, the outbound log and the
-// pseudonym map — the migration 036 tables. Nothing here touches the books.
+// pseudonym map — the AI migration tables (see migrations.ts, the "WP 5.1" entry). Nothing here touches the books.
 import type { DB } from '../db/connection'
 import type {
   AiDraftDto, AiDraftStatus, AiFigure, AiMessageDto, AiMessageRole, AiOutboundRow, AiSource, AiThreadDto, AiToolCallDto, AiUsageRow, AiVoucherDraftPayload
