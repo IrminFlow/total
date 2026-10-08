@@ -75,7 +75,13 @@ export const AUDIT_ENTITIES = [
   'voucher',
   'voucher_line',
   'voucherType',
-  'year_end'
+  'year_end',
+  // WP 4.2 receivables
+  'bill_followup',
+  'credit_hold',
+  'credit_override',
+  'interest_charge',
+  'reminder'
 ] as const
 
 export type AuditEntity = (typeof AUDIT_ENTITIES)[number]
@@ -167,7 +173,12 @@ export const AUDIT_ENTITY_LABELS: Partial<Record<AuditEntity, string>> = {
   voucher: 'Voucher',
   voucher_line: 'Voucher line',
   voucherType: 'Voucher type',
-  year_end: 'Year-end close'
+  year_end: 'Year-end close',
+  bill_followup: 'Bill follow-up',
+  credit_hold: 'Credit hold',
+  credit_override: 'Credit-hold override',
+  interest_charge: 'Interest charge',
+  reminder: 'Payment reminder'
 }
 
 export const auditEntityLabel = (entity: string): string => AUDIT_ENTITY_LABELS[entity as AuditEntity] ?? entity
@@ -180,4 +191,4 @@ export const auditActionLabel = (a: string): string => (a.charAt(0).toUpperCase(
 
 /** Entities whose rows belong to one voucher: the report's voucher filter matches these by
  *  entity_id, and every other entity by a `voucherId` field in its before/after JSON. */
-export const VOUCHER_ENTITIES: readonly AuditEntity[] = ['voucher', 'manufacture', 'job_work', 'gst_self_invoice', 'counter_sale']
+export const VOUCHER_ENTITIES: readonly AuditEntity[] = ['voucher', 'manufacture', 'job_work', 'gst_self_invoice', 'counter_sale', 'credit_override']

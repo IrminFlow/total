@@ -110,6 +110,16 @@ export const AUDIT_COVERAGE: Record<string, AuditCoverage> = {
   'counter:recall': a('held_bill'),
   'counter:discardHeld': a('held_bill'),
   'counter:print': EXPORT,
+  // WP 4.2 receivables
+  'receivables:setConfig': a('company'),
+  'receivables:statementPdf': EXPORT,
+  'receivables:statementsBulk': EXPORT,
+  'receivables:remind': a('reminder'),
+  'receivables:remindBulk': a('reminder'),
+  'receivables:postInterest': a('voucher', 'interest_charge', 'ledger'),
+  'receivables:setHold': a('credit_hold'),
+  'receivables:addFollowup': a('bill_followup'),
+  'receivables:deleteFollowup': a('bill_followup'),
   'currency:create': a('currency'),
   'currency:delete': a('currency'),
   'cc:save': a('costCentre'),
@@ -121,7 +131,7 @@ export const AUDIT_COVERAGE: Record<string, AuditCoverage> = {
   'bom:deleteVersion': a('bom'),
 
   // ---------- vouchers ----------
-  'voucher:save': a('voucher', 'ai_draft'),
+  'voucher:save': a('voucher', 'credit_override', 'ai_draft'),
   'voucher:delete': a('voucher'),
   'voucher:restore': a('voucher'),
   'voucher:purge': a('voucher'),

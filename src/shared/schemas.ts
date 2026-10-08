@@ -86,7 +86,12 @@ export const ledgerInputSchema = z.object({
   /** Price level whose rates prefill this party's invoice lines; absent/null = item base rate. */
   priceLevelId: id.nullable().optional(),
   /** Credit limit in paise; absent/null = no limit. */
-  creditLimit: paise.min(0).nullable().optional()
+  creditLimit: paise.min(0).nullable().optional(),
+  /** WP 4.2 — absent = keep the stored value: party email, interest rate (bp p.a.) and grace days.
+   *  The credit hold is set through receivables:setHold (with a reason), never here. */
+  email: z.string().trim().max(200).email('Invalid email').nullable().optional(),
+  interestRateBp: z.number().int().min(0).max(10000).nullable().optional(),
+  interestGraceDays: z.number().int().min(0).max(365).optional()
 })
 /** Unparsed shape (defaults optional) — createLedger/updateLedger parse internally, so direct
  *  service callers (tests, importers) don't have to spell out every defaulted field. */

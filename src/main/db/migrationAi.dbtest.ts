@@ -1,29 +1,23 @@
-// Migration 036 (WP 5.1): the AI tables, at their assigned number; 032–035 are no-op placeholders
-// held for the Phase 4 branches, and an existing company upgrades without touching its books.
+// The AI migration (WP 5.1): the AI tables, appended as the LAST migration (its number is its
+// position — renumbered whenever main gains migrations first). An existing company upgrades
+// without touching its books.
 import { describe, expect, it } from 'vitest'
 import { MIGRATIONS } from './migrations'
-import { schemaVersion } from './migrate'
+import { migrate, schemaVersion } from './migrate'
 import { freshPartialDb, TEST_INFO, postSimpleVoucher } from './testdb'
 import { seedCompany } from './seed'
 import { trialBalance } from '../services/reports'
-import { migrate } from './migrate'
 
-const M036 = MIGRATIONS.findIndex((sql) => sql.includes('CREATE TABLE ai_threads'))
+const M_AI = MIGRATIONS.findIndex((sql) => sql.includes('CREATE TABLE ai_threads'))
 
-describe('migration 036 — AI agent tables', () => {
-  it('is migration 036', () => {
-    expect(M036 + 1).toBe(36)
+describe('AI migration — agent tables', () => {
+  it('exists and is the last migration', () => {
+    expect(M_AI).toBeGreaterThan(30)
+    expect(M_AI).toBe(MIGRATIONS.length - 1)
   })
 
-  it('032–035 are comment-only placeholders until their branches merge', () => {
-    for (const i of [31, 32, 33, 34]) {
-      const sql = MIGRATIONS[i]!
-      if (/reserved/.test(sql)) expect(sql.replace(/--[^\n]*/g, '').trim()).toBe('')
-    }
-  })
-
-  it('upgrades a company from 031 with its books unchanged, and the AI tables empty', () => {
-    const db = freshPartialDb(31)
+  it('upgrades a company from the previous schema with its books unchanged and the AI tables empty', () => {
+    const db = freshPartialDb(M_AI)
     seedCompany(db, TEST_INFO)
     postSimpleVoucher(db, { date: '2025-05-01', amount: 123456, kind: 'receipt' })
     const before = trialBalance(db, '2026-03-31')

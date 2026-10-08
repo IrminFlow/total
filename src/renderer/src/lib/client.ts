@@ -755,9 +755,15 @@ export const api = {
     list: (from: string, to: string, voucherTypeId?: number) =>
       call<VoucherListRow[]>('voucher:list', { from, to, voucherTypeId }),
     get: (id: number) => call<Voucher | null>('voucher:get', { id }),
-    /** `aiDraftId` (WP 5.1): the voucher was reviewed from an AI draft — main marks it consumed. */
-    save: (data: VoucherInputParsed, id?: number, aiDraftId?: number) =>
-      call<Voucher & { duplicateNumber?: boolean; warnings?: SaveVoucherWarnings }>('voucher:save', { data, id, ...(aiDraftId ? { aiDraftId } : {}) }),
+    /** `creditHoldOverride` (WP 4.2): an owner's reason for invoicing a party on credit hold.
+     *  `aiDraftId` (WP 5.1): the voucher was reviewed from an AI draft — main marks it consumed. */
+    save: (data: VoucherInputParsed, id?: number, opts?: { creditHoldOverride?: { reason: string }; aiDraftId?: number }) =>
+      call<Voucher & { duplicateNumber?: boolean; warnings?: SaveVoucherWarnings }>('voucher:save', {
+        data,
+        id,
+        ...(opts?.creditHoldOverride ? { creditHoldOverride: opts.creditHoldOverride } : {}),
+        ...(opts?.aiDraftId ? { aiDraftId: opts.aiDraftId } : {})
+      }),
     remove: (id: number) => call<null>('voucher:delete', { id }),
     nextNumber: (voucherTypeId: number, date: string, excludeId?: number) =>
       call<{ number: string }>('voucher:nextNumber', { voucherTypeId, date, excludeId }),

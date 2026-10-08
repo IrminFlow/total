@@ -12,11 +12,11 @@ import { formatPaise, amountInWords } from '@shared/money'
 import { toDisplayDate } from '@shared/dates'
 import { api } from '../../lib/client'
 import { useNav, useSession, useToasts, type VoucherDraft } from '../../state/stores'
-import { AmountInput, Button, DateInput, Field, isAnyModalOpen, Kbd, Money, Panel, Select, TextInput, inputCls } from '../../components/ui'
+import { AmountInput, Banner, Button, DateInput, Field, isAnyModalOpen, Kbd, Money, Panel, Select, TextInput, inputCls } from '../../components/ui'
 import { LedgerPicker, useLedgers, useStockItems, useTaxLedgers } from '../../components/pickers'
 import { LedgerFormModal } from '../../components/LedgerFormModal'
 import { useFeatures } from '../../lib/useFeatures'
-import { confirmDialog } from '../../lib/dialogs'
+import { confirmDialog, promptDialog } from '../../lib/dialogs'
 import { useUnsavedGuard } from '../../lib/useUnsavedGuard'
 import { addDaysLocal, nextLineKey, NUMBER_LOADING, useAlterationDirty, useLeaveAfterSave, useVoucherNumberField } from './hooks'
 import { QuickItemModal, QuickLedgerModal } from './modals'
@@ -55,7 +55,7 @@ export function InvoiceEntry({
   initial?: InvoiceFormState
 }): React.JSX.Element {
   const isEdit = voucherId != null
-  const { info, workingDate, setWorkingDate } = useSession()
+  const { info, workingDate, setWorkingDate, user } = useSession()
   const toast = useToasts()
   const nav = useNav()
   const queryClient = useQueryClient()
@@ -95,6 +95,23 @@ export function InvoiceEntry({
   const { saved, leave } = useLeaveAfterSave()
 
   const party = ledgers.find((l) => l.id === partyId) ?? null
+  // WP 4.2 credit hold: a NEW sales invoice to a party on hold is blocked (saveVoucher refuses
+  // it too); an owner can override it once, with a reason that goes into the audit trail.
+  const onHold = kind === 'sales' && !isEdit && !optionalVoucher && !!party?.creditHold
+  const canOverrideHold = user == null || user.role === 'owner'
+  const [holdOverride, setHoldOverride] = useState<{ partyId: number; reason: string } | null>(null)
+  const overrideReason = holdOverride && holdOverride.partyId === partyId ? holdOverride.reason : null
+  const askOverride = async (): Promise<void> => {
+    const reason = await promptDialog({
+      title: `Override the credit hold on ${party?.name ?? ''}`,
+      message: `${party?.creditHoldReason ? `Held: ${party.creditHoldReason}. ` : ''}This invoice will save; your reason is recorded in the audit trail.`,
+      placeholder: 'Reason, e.g. advance received',
+      confirmLabel: 'Override'
+    })
+    if (reason == null) return
+    if (reason.trim().length < 3) return void toast.push('error', 'Give a reason for the override')
+    if (partyId != null) setHoldOverride({ partyId, reason: reason.trim() })
+  }
   const account = ledgers.find((l) => l.id === accountId) ?? null
 
   // ---------- bill allocation ----------
@@ -302,6 +319,9 @@ export function InvoiceEntry({
     if (!partyId) return void toast.push('error', 'Pick the party account first')
     if (!accountId) return void toast.push('error', `Pick the ${isSalesSide ? 'sales' : 'purchase'} ledger`)
     if (computed.detail.length === 0) return void toast.push('error', 'Add at least one item line')
+    if (onHold && !overrideReason) {
+      return void toast.push('error', `${party?.name ?? 'This party'} is on credit hold${party?.creditHoldReason ? ` (${party.creditHoldReason})` : ''} — ${canOverrideHold ? 'override it with a reason to save' : 'an owner can override it'}`)
+    }
     if (tdsStale) return void toast.push('error', 'The invoice changed since TDS was applied — apply TDS again (or remove it) before saving')
     if (tcsStale) return void toast.push('error', 'The invoice changed since TCS was applied — apply TCS again (or remove it) before saving')
     setSaving(true)
@@ -328,7 +348,7 @@ export function InvoiceEntry({
         })
         if (!proceed) return
       }
-      const result = await api.vouchers.save(input, voucherId)
+      const result = await api.vouchers.save(input, voucherId, onHold && overrideReason ? { creditHoldOverride: { reason: overrideReason } } : undefined)
       if (invoiceKindTakesTds(kind)) await tdsDeduction.afterSave(result.id)
       if (features.tcs && invoiceKindTakesTcs(kind)) await tcsCollection.afterSave(result.id)
       toast.push('success', `${result.number} ${isEdit ? 'altered' : 'saved'} — ${formatPaise(grandTotal, { symbol: true })}`)
@@ -344,6 +364,7 @@ export function InvoiceEntry({
         return
       }
       setPartyId(null)
+      setHoldOverride(null)
       setRows([blankItemRow()])
       setNarration('')
       setVehicleNo('')
@@ -362,7 +383,7 @@ export function InvoiceEntry({
     } finally {
       setSaving(false)
     }
-  }, [saving, partyId, accountId, computed, buildPayload, isSalesSide, kind, typeId, voucherId, isEdit, date, toast, setWorkingDate, queryClient, numberField.reset, leave, tdsDeduction.reset, tdsDeduction.afterSave, tdsStale, tcsStale, tcsCollection.reset, tcsCollection.afterSave, features.tcs, grandTotal])
+  }, [saving, partyId, accountId, computed, buildPayload, isSalesSide, kind, typeId, voucherId, isEdit, date, toast, setWorkingDate, queryClient, numberField.reset, leave, tdsDeduction.reset, tdsDeduction.afterSave, tdsStale, tcsStale, tcsCollection.reset, tcsCollection.afterSave, features.tcs, grandTotal, onHold, overrideReason, canOverrideHold, party])
 
   const remove = async (): Promise<void> => {
     if (!voucherId) return
@@ -543,6 +564,28 @@ export function InvoiceEntry({
         </Field>
       </div>
 
+      {onHold && party && (
+        <Banner
+          tone={overrideReason ? 'warning' : 'danger'}
+          className="mt-2"
+          testId="invoice-credit-hold"
+          title={`${party.name} is on credit hold`}
+          action={
+            canOverrideHold && !overrideReason ? (
+              <Button size="sm" data-testid="btn-credit-override" onClick={() => void askOverride()}>
+                Override…
+              </Button>
+            ) : undefined
+          }
+        >
+          {party.creditHoldReason ? `${party.creditHoldReason}. ` : ''}
+          {overrideReason
+            ? `Owner override: “${overrideReason}” — this invoice will save and the override is audited.`
+            : canOverrideHold
+              ? 'Saving is blocked until the hold is released (Credit control) or you override it with a reason.'
+              : 'Saving is blocked until the hold is released — an owner can override it.'}
+        </Banner>
+      )}
       <div className="mt-2 flex items-center justify-between">
         {party ? (
           <p className="text-hint text-muted">

@@ -76,7 +76,11 @@ const EXPECTED_TABLES = [
   'discount_schemes',
   'discount_scheme_slabs',
   'counter_sales',
-  // 036 (WP 5.1) — the AI agent's tables
+  // 032 (WP 4.2)
+  'reminder_log',
+  'interest_charges',
+  'bill_followups',
+  // WP 5.1 (last) — the AI agent's tables
   'ai_threads',
   'ai_messages',
   'ai_drafts',
@@ -88,6 +92,13 @@ const EXPECTED_TABLES = [
 ]
 
 describe('migrate', () => {
+  // The runner applies every entry above MAX(migrations.id): a no-op placeholder that a later
+  // branch "replaces" would be recorded as done and its real SQL silently skipped. Never reserve.
+  it('has no comment-only (placeholder) migrations', () => {
+    const empty = MIGRATIONS.map((sql, i) => ({ n: i + 1, body: sql.replace(/--[^\n]*/g, '').trim() })).filter((m) => m.body === '')
+    expect(empty.map((m) => m.n)).toEqual([])
+  })
+
   it('applies every migration exactly once and records them all', () => {
     const db = freshDb()
     const row = db.prepare('SELECT COUNT(*) AS n FROM migrations').get() as { n: number }

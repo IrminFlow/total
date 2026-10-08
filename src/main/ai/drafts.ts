@@ -122,6 +122,21 @@ export function consumeDraft(db: DB, draftId: number, voucherId: number): AiDraf
   return after
 }
 
+/** voucher:save with `aiDraftId`: consume the draft when it is still open. A draft discarded or
+ *  deleted (Delete all AI data, thread delete) while the user was reviewing it must not block the
+ *  save — the voucher is the user's own; the audit trail records that the draft was no longer open. */
+export function settleDraftOnSave(db: DB, draftId: number, voucherId: number): void {
+  const d = getDraft(db, draftId)
+  if (d?.status === 'open') {
+    consumeDraft(db, draftId, voucherId)
+    return
+  }
+  writeAudit(db, 'ai_draft', draftId, 'update', d ? { status: d.status } : null, {
+    voucherId,
+    note: d ? `draft no longer open (${d.status}); voucher saved without consuming it` : 'draft no longer exists; voucher saved without it'
+  })
+}
+
 export function discardDraft(db: DB, draftId: number): AiDraftDto {
   const before = getDraft(db, draftId)
   if (!before) throw new Error('AI draft not found')

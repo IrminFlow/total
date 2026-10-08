@@ -71,6 +71,27 @@ export function outwardDebitNoteIds(db: DB, from: string, to: string): Set<numbe
 }
 
 /**
+ * The GST class of an outward document — the one definition extractOutwardDocs uses, shared with
+ * the interest-on-overdue debit notes (WP 4.2), which follow the original invoice's class.
+ */
+export function outwardSupplyClass(
+  company: CompanyInfo,
+  v: { partyExportType: 'sez_wp' | 'sez_wop' | 'exp_wp' | 'exp_wop' | null; partyState: string | null; posOverride: string | null }
+): { invTyp: ReturnType<typeof classifyDoc>; isExport: boolean; pos: string; supply: 'intra' | 'inter'; zeroTax: boolean } {
+  const invTyp = classifyDoc(v.partyExportType, v.partyState)
+  const isExport = invTyp === 'EXPWP' || invTyp === 'EXPWOP'
+  // POS precedence: per-voucher override, then party state, then company state
+  // (exports default to 96 "Other Country" when the party has no state code).
+  const pos = v.posOverride ?? v.partyState ?? (isExport ? '96' : company.stateCode)
+  // SEZ/export supplies are ALWAYS inter-state (sec 7(5)(b) IGST Act) — an SEZ unit in
+  // the company's own state still gets IGST, never CGST/SGST. POS stays the real state.
+  const supply = isZeroRatedTyp(invTyp) ? 'inter' : supplyTypeFor(company.stateCode, pos)
+  // Without-payment zero-rated supplies charge no tax at all.
+  const zeroTax = invTyp === 'SEWOP' || invTyp === 'EXPWOP'
+  return { invTyp, isExport, pos, supply, zeroTax }
+}
+
+/**
  * Extract outward GST documents (sales + credit notes + outward debit notes) for a period.
  *
  * Tax is computed ONCE per line (computeGst on the line's taxable at its master rate) and
@@ -108,7 +129,7 @@ export function extractOutwardDocs(db: DB, company: CompanyInfo, from: string, t
      WHERE il.voucher_id = ? ORDER BY il.line_order, il.id`
   )
   const lineStmt = db.prepare(
-    `SELECT vl.amount, vl.dr_cr AS drCr, l.group_id AS groupId, l.gst_rate AS gstRate, l.hsn, l.name
+    `SELECT vl.amount, vl.dr_cr AS drCr, l.group_id AS groupId, l.gst_rate AS gstRate, l.cess_rate AS cessRate, l.hsn, l.name
      FROM voucher_lines vl JOIN ledgers l ON l.id = vl.ledger_id
      WHERE vl.voucher_id = ? ORDER BY vl.line_order, vl.id`
   )
@@ -127,16 +148,7 @@ export function extractOutwardDocs(db: DB, company: CompanyInfo, from: string, t
   return vouchers
     .filter((v) => v.kind !== 'debit_note' || outwardDbn.has(v.id))
     .map((v) => {
-      const invTyp = classifyDoc(v.partyExportType, v.partyState)
-      const isExport = invTyp === 'EXPWP' || invTyp === 'EXPWOP'
-      // POS precedence: per-voucher override, then party state, then company state
-      // (exports default to 96 "Other Country" when the party has no state code).
-      const pos = v.posOverride ?? v.partyState ?? (isExport ? '96' : company.stateCode)
-      // SEZ/export supplies are ALWAYS inter-state (sec 7(5)(b) IGST Act) — an SEZ unit in
-      // the company's own state still gets IGST, never CGST/SGST. POS stays the real state.
-      const supply = isZeroRatedTyp(invTyp) ? 'inter' : supplyTypeFor(company.stateCode, pos)
-      // Without-payment zero-rated supplies charge no tax at all.
-      const zeroTax = invTyp === 'SEWOP' || invTyp === 'EXPWOP'
+      const { invTyp, isExport, pos, supply, zeroTax } = outwardSupplyClass(company, v)
 
       const inv = invStmt.all(v.id) as {
         qtyMilli: number; amount: number; itemName: string
@@ -191,13 +203,14 @@ export function extractOutwardDocs(db: DB, company: CompanyInfo, from: string, t
         }
       } else {
         const lines = lineStmt.all(v.id) as {
-          amount: number; drCr: 'dr' | 'cr'; groupId: number; gstRate: number | null; hsn: string | null; name: string
+          amount: number; drCr: 'dr' | 'cr'; groupId: number; gstRate: number | null; cessRate: number | null; hsn: string | null; name: string
         }[]
         // Sales side: credit lines on sales/debit notes, debit lines on credit notes.
         const salesSide = v.kind === 'credit_note' ? 'dr' : 'cr'
         for (const line of lines) {
           if (line.drCr !== salesSide || !salesGroupIds.has(line.groupId)) continue
-          addLine(line.amount, line.gstRate ?? 0, 0, line.hsn, line.name, 'OTH', 0)
+          // WP 4.2: a ledger can carry a cess rate (migration 032) — absent = no cess, as before.
+          addLine(line.amount, line.gstRate ?? 0, line.cessRate ?? 0, line.hsn, line.name, 'OTH', 0)
         }
       }
 

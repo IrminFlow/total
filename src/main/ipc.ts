@@ -81,9 +81,11 @@ import { registerPayrollStatutoryIpc } from './ipcPayrollStatutory'
 import { registerPricingIpc } from './ipcPricing'
 import { registerAiIpc, aiRuns } from './ai/ipc'
 import { aiMockAllowed } from './ai/env'
-import { consumeDraft } from './ai/drafts'
+import { settleDraftOnSave } from './ai/drafts'
 import { appSecretStore } from './services/secretStore'
 import type { AiEvent } from '@shared/ai'
+import { registerReceivablesIpc } from './ipcReceivables'
+import { creditOverrideSchema } from '@shared/receivables/schemas'
 import { rememberSalePrices } from './services/pricing'
 import { importTallyXml, dryRunTallyXml } from './services/tallyImport'
 import * as importer from './services/importers'
@@ -267,6 +269,8 @@ export function registerIpc(): void {
     },
     mock: () => aiMockAllowed(process.env, app.isPackaged)
   })
+  // ---------- receivables (WP 4.2) — channels live in ipcReceivables.ts ----------
+  registerReceivablesIpc(handle, () => requireCompany())
 
   // ---------- company ----------
   handle('company:list', () => readRegistry())
@@ -889,19 +893,28 @@ export function registerIpc(): void {
   }, 'viewer')
   handle('voucher:get', (p) => vouchers.getVoucher(requireCompany().db, idSchema.parse(p).id), 'viewer')
   handle('voucher:save', (p) => {
-    const { data, id, aiDraftId } = z
-      .object({ data: voucherInputSchema, id: z.number().int().positive().optional(), aiDraftId: z.number().int().positive().optional() })
+    const { data, id, aiDraftId, creditHoldOverride } = z
+      .object({
+        data: voucherInputSchema,
+        id: z.number().int().positive().optional(),
+        aiDraftId: z.number().int().positive().optional(),
+        creditHoldOverride: creditOverrideSchema.optional()
+      })
       .parse(p)
     const c = requireCompany()
+    // WP 4.2: only an owner may override a credit hold (any user in a company without users).
+    if (creditHoldOverride && c.usersExist && sessionUser?.role !== 'owner') throw new Error('Only an owner can override a credit hold')
+    const saveOpts = creditHoldOverride ? { creditHoldOverride } : {}
     // WP 5.1: a voucher reviewed from an AI draft saves through the normal path; the draft is
-    // marked consumed in the same transaction (audited), so it cannot be saved twice.
+    // settled in the same transaction (consumed when still open; otherwise the save goes ahead
+    // and the audit trail records that the draft was no longer open).
     const saved = aiDraftId
       ? c.db.transaction(() => {
-          const v = vouchers.saveVoucher(c.db, data, id)
-          consumeDraft(c.db, aiDraftId, v.id)
+          const v = vouchers.saveVoucher(c.db, data, id, saveOpts)
+          settleDraftOnSave(c.db, aiDraftId, v.id)
           return v
         })()
-      : vouchers.saveVoucher(c.db, data, id)
+      : vouchers.saveVoucher(c.db, data, id, saveOpts)
     // WP 2.6 "remember last price" (Options toggle; a no-op unless on and this is a sale). Never
     // fails the save it follows.
     try {

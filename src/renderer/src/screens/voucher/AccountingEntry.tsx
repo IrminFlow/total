@@ -418,7 +418,7 @@ export function AccountingEntry({
         })
         if (!proceed) return
       }
-      const saved = await api.vouchers.save(input, voucherId, voucherId ? undefined : draft?.aiDraftId)
+      const saved = await api.vouchers.save(input, voucherId, !voucherId && draft?.aiDraftId ? { aiDraftId: draft.aiDraftId } : undefined)
       await tdsDeduction.afterSave(saved.id)
       if (features.tcs && kind === 'receipt') await tcsCollection.afterSave(saved.id)
       toast.push('success', `${saved.number} ${voucherId ? 'altered' : 'saved'}`)
