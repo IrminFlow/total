@@ -95,7 +95,8 @@ export type Screen =
   | { name: 'quotations' }
   | { name: 'sales-orders' }
   | { name: 'purchase-orders' }
-  | { name: 'trade-doc'; kind: TradeDocKind; id?: number; draft?: TradeDocDraft; draftId?: number }
+  // WP 5.3 `aiDraftId`: a quotation / order drafted by the assistant, opened for review.
+  | { name: 'trade-doc'; kind: TradeDocKind; id?: number; draft?: TradeDocDraft; draftId?: number; aiDraftId?: number }
   | { name: 'pending-sales-orders' }
   | { name: 'pending-purchase-orders' }
   | { name: 'quotation-pipeline' }

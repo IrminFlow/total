@@ -213,9 +213,10 @@ export default function App(): React.JSX.Element {
           {screen.name === 'purchase-orders' && <TradeDocListScreen kind="purchase_order" />}
           {screen.name === 'trade-doc' && (
             <TradeDocEntry
-              key={screen.id ?? (screen.draftId ? `draft-${screen.draftId}` : `new-${screen.kind}`)}
+              key={screen.id ?? (screen.aiDraftId ? `ai-${screen.aiDraftId}` : screen.draftId ? `draft-${screen.draftId}` : `new-${screen.kind}`)}
               kind={screen.kind}
               id={screen.id}
+              aiDraftId={screen.aiDraftId}
               draft={screen.draft}
             />
           )}

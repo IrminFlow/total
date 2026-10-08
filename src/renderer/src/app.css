@@ -554,3 +554,29 @@ textarea {
   font-size: 1px;
   font-family: 'IBM Plex Mono', ui-monospace, Menlo, monospace;
 }
+
+/* WP 5.3 AI draft review: controls and rows the assistant filled (lib/aiHighlights.ts). A dashed
+   amber outline on the control area of a Field, a tinted inset bar on line rows — never ::before on
+   a <tr> (it would render as a phantom first cell). Cleared when the user edits the control. */
+label[data-ai-set] > :not(span:first-child),
+[data-testid][data-ai-set]:not(tr):not(label) {
+  outline: 1.5px dashed var(--t-amber-bar);
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+tr[data-ai-set] > td {
+  background: var(--t-amber-soft);
+}
+tr[data-ai-set] > td:first-child {
+  box-shadow: inset 3px 0 0 0 var(--t-amber-bar);
+}
+.ai-set-swatch {
+  display: inline-block;
+  width: 0.9em;
+  height: 0.9em;
+  vertical-align: -0.1em;
+  border-radius: 3px;
+  outline: 1.5px dashed var(--t-amber-bar);
+  outline-offset: 1px;
+  background: var(--t-amber-soft);
+}

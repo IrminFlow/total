@@ -68,7 +68,8 @@ export function AccountingEntry({
   const [date, setDate] = useState(initial?.date ?? draft?.date ?? workingDate)
   const [rows, setRows] = useState<AcctRow[]>(() =>
     initial
-      ? initial.rows.map((r) => ({ ...r, key: nextLineKey() }))
+      ? // A new voucher from an AI draft (WP 5.3) gets the usual trailing blank row.
+        [...initial.rows.map((r) => ({ ...r, key: nextLineKey() })), ...(voucherId ? [] : [blankAcctRow('cr')])]
       : draft?.lines?.length
         ? [...draft.lines.map((l) => ({ ...l, key: nextLineKey(), costAllocations: [] as AcctRow['costAllocations'] })), blankAcctRow('cr')]
         : [blankAcctRow('dr'), blankAcctRow('cr')]

@@ -32,6 +32,11 @@ export const WRITE_RULE =
   'You can read the books and prepare drafts. You can never save, alter, delete or post anything: ' +
   'a draft is only a proposal that the user opens in the voucher editor, checks and saves themselves.'
 
+export const DRAFTING_RULE =
+  'Pass party, item and ledger names, quantities, amounts and dates exactly as the user said them — the app resolves them and computes tax, totals and bill amounts. ' +
+  'When a draft tool answers needs_clarification, ask the user the question with its candidates and wait; never choose one yourself. ' +
+  'Several entries in one request ("enter these three bills") are several draft calls in the same step.'
+
 export function buildSystemPrompt(ctx: PromptContext): string {
   const c = ctx.company
   const read = ctx.tools.filter((t) => t.kind === 'read').map((t) => t.name)
@@ -61,7 +66,8 @@ export function buildSystemPrompt(ctx: PromptContext): string {
     '',
     '# Tools',
     `Read: ${read.join(', ') || 'none'}`,
-    `Draft (proposals only, never saved): ${draft.join(', ') || 'none — this user cannot draft'}`
+    `Draft (proposals only, never saved): ${draft.join(', ') || 'none — this user cannot draft'}`,
+    draft.length ? `Drafting. ${DRAFTING_RULE}` : null
   ]
   return lines.filter((l): l is string => l !== null).join('\n')
 }
