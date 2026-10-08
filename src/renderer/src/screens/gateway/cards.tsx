@@ -19,6 +19,7 @@ import { CardLink, DashCard, type CardState } from './parts'
 import { onboardingFromDashSetup } from '@shared/onboarding'
 import { onboardingScreen } from '../../lib/onboarding'
 import { PromisedChip } from './PromisedChip'
+import { TasksDueChip } from './TasksDueChip'
 import { MsmeDueLine } from './MsmeDueLine'
 import { FinanceReminderRows } from './FinanceReminders'
 
@@ -309,6 +310,7 @@ export function ComplianceCard({
             )
           )}
           <PromisedChip />
+          <TasksDueChip />
           {typeof g !== 'string' && g?.annual && g.annual.length > 0 && (
             <div data-testid="dash-gst-annual" {...drillRowProps(() => nav.go({ name: 'gstr9' }))} className={stackRowCls}>
               <span className="text-body-sm text-ink">Annual GST</span>

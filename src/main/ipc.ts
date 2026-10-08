@@ -5,13 +5,15 @@ import { join, basename } from 'path'
 import { z } from 'zod'
 import Database from 'better-sqlite3'
 import type { DB } from './db/connection'
-import { backupCompany, closeCompanyDb, openCompanyDb } from './db/connection'
+import { backupCompany, closeCompanyDb, openCompanyDb, stashBackupAttachments } from './db/connection'
+import * as attachments from './services/attachments'
+import { embedAttachments, restoreAttachmentFiles, restoreAttachmentFilesAt, type RestoreFilesResult, type StashResult } from './db/attachmentBackup'
 import { listBackupsIn, restoreCompanyDb, rollbackRestore, snapshotSync, backupStamp, runWeeklyIntegrityCheck, type BackupInfo } from './db/backup'
 import { checkIntegrity } from './db/integrity'
 import { encryptFile, decryptFile } from './db/crypt'
 import { readCompanyInfo, seedCompany, writeCompanyInfo } from './db/seed'
 import { readRegistry, removeCompany, touchLastOpened, upsertCompany } from './registry'
-import { companyBackupsDir, companyDbPath, companyDir, companyExportsDir, dataRoot, ensureCompanyTree, slugify } from './paths'
+import { companyAttachmentsDir, companyBackupAttachmentsDir, companyBackupsDir, companyDbPath, companyDir, companyExportsDir, dataRoot, ensureCompanyTree, slugify } from './paths'
 import { log, revealLogs } from './log'
 import { checkForUpdatesInteractive } from './updater'
 import {
@@ -91,6 +93,7 @@ import { creditOverrideSchema } from '@shared/receivables/schemas'
 import { registerPayablesIpc } from './ipcPayables'
 import { registerBankingIpc } from './ipcBanking'
 import { registerCashFinanceIpc } from './ipcCashFinance'
+import { registerWorkspaceIpc } from './ipcWorkspace'
 import { registerDataImportIpc, clearLoadedImports } from './ipcDataImport'
 import { rememberSalePrices } from './services/pricing'
 import { importTallyXml, dryRunTallyXml } from './services/tallyImport'
@@ -329,6 +332,8 @@ export function registerIpc(): void {
   registerBankingIpc(handle, () => requireCompany())
   // ---------- cash and finance (WP 4.4) — channels live in ipcCashFinance.ts ----------
   registerCashFinanceIpc(handle, () => requireCompany())
+  // ---------- bulk edit, attachments, party notes (WP 6.4) — channels live in ipcWorkspace.ts ----------
+  registerWorkspaceIpc(handle, () => requireCompany())
   // ---------- Excel export, import wizard, books workbook (WP 6.3) — ipcDataImport.ts ----------
   registerDataImportIpc(handle, () => requireCompany(), { canChangeCompanyInfo, userName: () => sessionUser?.name ?? null })
 
@@ -416,6 +421,13 @@ export function registerIpc(): void {
       // e.g. an over-age binned voucher still referenced by payroll_runs — housekeeping must
       // never block opening the company.
       log('warn', 'bin-purge-failed', { slug, error: err instanceof Error ? err.message : String(err) })
+    }
+    // WP 6.4: attachments of purged records (and stored files nothing references) go too.
+    try {
+      const swept = runAsAuditUser(SYSTEM_AUDIT_USER, () => attachments.sweepAttachments(db, companyAttachmentsDir(slug)))
+      if (swept.rowsRemoved || swept.filesRemoved) log('info', 'attachments-sweep', { ...swept })
+    } catch (err) {
+      log('warn', 'attachments-sweep-failed', { slug, error: err instanceof Error ? err.message : String(err) })
     }
     // Post-dated vouchers whose date has arrived flip into the books (audited per voucher).
     // PDCs dated inside a locked period are refused, not silently posted — they stay in the
@@ -524,6 +536,13 @@ export function registerIpc(): void {
     // if the backup fails validation. `current`/`c.db` are still fully intact at that point,
     // since we haven't closed anything yet.
     const { preRestoreSnapshotPath } = restoreCompanyDb(c.db, dbPath, backupPath, companyBackupsDir(slug))
+    // WP 6.4: the pre-restore snapshot's attachments are still in the live store — keep copies,
+    // so restoring that snapshot later brings them back too.
+    try {
+      stashBackupAttachments(slug, preRestoreSnapshotPath)
+    } catch (err) {
+      log('warn', 'backup-restore-stash-failed', { slug, error: err instanceof Error ? err.message : String(err) })
+    }
 
     closeCurrentCompany()
     const reopen = (): OpenCompany => {
@@ -573,13 +592,24 @@ export function registerIpc(): void {
     // then record the restore itself on top of it (the live trail up to the restore survives in
     // the pre-restore snapshot).
     const auditChain = verifyAudit(current.db)
+    // WP 6.4: the restored books' attachments, back into the live store from the backups' copies.
+    let attachmentFiles: RestoreFilesResult = { restored: 0, present: 0, missing: [], refused: [] }
+    try {
+      attachmentFiles = restoreAttachmentFiles(current.db, companyAttachmentsDir(slug), companyBackupAttachmentsDir(slug))
+    } catch (err) {
+      log('warn', 'backup-restore-attachments-failed', { slug, error: err instanceof Error ? err.message : String(err) })
+    }
     writeAudit(current.db, 'backup', 0, 'restore', null, {
       file, preRestoreSnapshot: basename(preRestoreSnapshotPath), chainOk: auditChain.ok, chainRows: auditChain.rows,
-      chainHeadId: auditChain.headId, chainFirstBreak: auditChain.firstBreak?.rowId ?? null
+      chainHeadId: auditChain.headId, chainFirstBreak: auditChain.firstBreak?.rowId ?? null,
+      attachmentsRestored: attachmentFiles.restored, attachmentsMissing: attachmentFiles.missing.length, attachmentsRefused: attachmentFiles.refused.length
     }, { user: restoredBy })
     // closeCurrentCompany() above already cleared sessionUser, so this is realistically always
     // `current.usersExist` — spelled out in full to match the other two locked-flag call sites.
-    return { info: current.info, integrity, locked: current.usersExist && !sessionUser, auditChain }
+    return {
+      info: current.info, integrity, locked: current.usersExist && !sessionUser, auditChain,
+      attachments: { restored: attachmentFiles.restored, missing: attachmentFiles.missing.length, refused: attachmentFiles.refused.length }
+    }
   }, 'owner')
 
   handle('backup:exportEncrypted', async (payload) => {
@@ -587,13 +617,21 @@ export function registerIpc(): void {
     const c = requireCompany()
     const tempPath = join(companyExportsDir(c.slug), `.export-tmp-${backupStamp()}.db`)
     snapshotSync(c.db, tempPath)
+    // WP 6.4: the encrypted file carries the attachments (a blob table inside the snapshot).
+    let embedded: StashResult
+    try {
+      embedded = embedAttachments(tempPath, companyAttachmentsDir(c.slug))
+    } catch (err) {
+      unlinkSync(tempPath)
+      throw err
+    }
     const destPath = join(companyExportsDir(c.slug), `total-${c.slug}-${backupStamp()}.totalbak`)
     try {
       await encryptFile(tempPath, destPath, passphrase)
     } finally {
       unlinkSync(tempPath)
     }
-    auditExport(c.db, 'encrypted_backup', { path: destPath })
+    auditExport(c.db, 'encrypted_backup', { path: destPath, attachments: embedded.copied, attachmentsMissing: embedded.missing.length })
     shell.showItemInFolder(destPath)
     return { path: destPath }
   }, 'owner')
@@ -634,6 +672,13 @@ export function registerIpc(): void {
     let n = 2
     while (existsSync(companyDbPath(slug))) slug = `${slugify(info.name)}-${n++}`
     ensureCompanyTree(slug)
+    // WP 6.4: the embedded attachments (hash-checked) into the new company's store.
+    let importedFiles: RestoreFilesResult = { restored: 0, present: 0, missing: [], refused: [] }
+    try {
+      importedFiles = restoreAttachmentFilesAt(tempDbPath, companyAttachmentsDir(slug), null)
+    } catch (err) {
+      log('warn', 'import-encrypted-attachments-failed', { slug, error: err instanceof Error ? err.message : String(err) })
+    }
 
     const dbPath = companyDbPath(slug)
     try {
@@ -649,7 +694,8 @@ export function registerIpc(): void {
       try {
         const chain = verifyAudit(imported)
         writeAudit(imported, 'backup', 0, 'restore', null, {
-          file: basename(picked.filePaths[0]), encrypted: true, chainOk: chain.ok, chainRows: chain.rows, chainFirstBreak: chain.firstBreak?.rowId ?? null
+          file: basename(picked.filePaths[0]), encrypted: true, chainOk: chain.ok, chainRows: chain.rows, chainFirstBreak: chain.firstBreak?.rowId ?? null,
+          attachmentsRestored: importedFiles.restored, attachmentsMissing: importedFiles.missing.length, attachmentsRefused: importedFiles.refused.length
         }, { user: osAuditUser() })
       } finally {
         closeCompanyDb(imported)
@@ -1009,7 +1055,17 @@ export function registerIpc(): void {
   handle('voucher:delete', (p) => vouchers.deleteVoucher(requireCompany().db, idSchema.parse(p).id))
   handle('voucher:bin', () => vouchers.listBin(requireCompany().db), 'viewer')
   handle('voucher:restore', (p) => vouchers.restoreVoucher(requireCompany().db, idSchema.parse(p).id))
-  handle('voucher:purge', (p) => vouchers.purgeVoucher(requireCompany().db, idSchema.parse(p).id), 'owner')
+  handle('voucher:purge', (p) => {
+    const c = requireCompany()
+    vouchers.purgeVoucher(c.db, idSchema.parse(p).id)
+    // WP 6.4: the purged voucher's attachments (orphan sweep) — never fails the purge itself.
+    try {
+      attachments.sweepAttachments(c.db, companyAttachmentsDir(c.slug))
+    } catch (err) {
+      log('warn', 'attachments-sweep-failed', { slug: c.slug, error: err instanceof Error ? err.message : String(err) })
+    }
+    return null
+  }, 'owner')
   handle('voucher:nextNumber', (p) => {
     const { voucherTypeId, date, excludeId } = z
       .object({ voucherTypeId: z.number().int().positive(), date: z.string(), excludeId: z.number().int().positive().optional() })

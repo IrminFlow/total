@@ -23,6 +23,7 @@ import {
 import { MenuButton } from '../components/kit/Menu'
 import { LedgerPicker, useLedgers, useStockItems } from '../components/pickers'
 import { LinkedDocsButton } from '../components/LinkedDocs'
+import { AttachmentsButton } from '../components/attachments/Attachments'
 import { DocLink } from '../components/links'
 import { confirmDialog } from '../lib/dialogs'
 import { useUnsavedGuard } from '../lib/useUnsavedGuard'
@@ -267,7 +268,15 @@ function TradeDocForm({
             {doc && <TradeStatusBadge kind={doc.kind} status={doc.status} binned={doc.deletedAt != null} />}
           </span>
         }
-        secondary={doc ? <LinkedDocsButton target={{ tradeDocId: doc.id }} /> : undefined}
+        secondary={
+          doc ? (
+            <span className="flex items-center gap-2">
+              <LinkedDocsButton target={{ tradeDocId: doc.id }} />
+              {/* WP 6.4: files on the order / quotation (the customer's PO, a signed quote). */}
+              {doc.deletedAt == null && <AttachmentsButton target={{ entity: 'trade_doc', entityId: doc.id }} title={`Files — ${doc.number}`} />}
+            </span>
+          ) : undefined
+        }
         actions={
           actionDoc ? (
             <MenuButton label="Document actions" testId="trade-doc-actions" items={actions.menu(actionDoc, { canWrite, open: false })}>

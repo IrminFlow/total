@@ -11,6 +11,7 @@ import { aiApi, type AiDraftDto } from '../lib/aiClient'
 import { useNav, useSession, type VoucherDraft } from '../state/stores'
 import { AiDraftReview, screenForDraft } from '../components/ai/AiDraftReview'
 import { useAiFieldHighlights } from '../lib/aiHighlights'
+import { AttachmentsButton } from '../components/attachments/Attachments'
 import { Banner, DrawerSection, isAnyModalOpen, Kbd, Page, PageHeader, Panel, SkeletonRows } from '../components/ui'
 import { OptionToggle, useScreenOptions } from '../components/ScreenOptions'
 import { useFeatures } from '../lib/useFeatures'
@@ -229,7 +230,13 @@ export function VoucherEntry({
         title={voucherId ? `Alter voucher ${existing?.number}` : 'Voucher entry'}
         tabs={typeTabs}
         secondary={
-          voucherId && features.orders && LINKABLE_VOUCHER_KINDS.has(currentType.kind) ? <LinkedDocsButton target={{ voucherId }} /> : undefined
+          voucherId ? (
+            <span className="flex items-center gap-2">
+              {features.orders && LINKABLE_VOUCHER_KINDS.has(currentType.kind) && <LinkedDocsButton target={{ voucherId }} />}
+              {/* WP 6.4: the voucher's attached files (bills, scans) — not while it sits in the bin. */}
+              {!existing?.deletedAt && <AttachmentsButton target={{ entity: 'voucher', entityId: voucherId }} title={`Files — ${currentType.name} ${existing?.number ?? ''}`} />}
+            </span>
+          ) : undefined
         }
         options={{
           onReset: opts.reset,

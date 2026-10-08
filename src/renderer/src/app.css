@@ -469,6 +469,27 @@ tr.kbar-row[data-active='true'] td:first-child {
   padding-left: 8px;
   padding-right: 0;
 }
+/* WP 6.4 multi-select: the checkbox column and selected rows (a tint, never a pseudo-element). */
+.data-table th.dt-select,
+.data-table td.dt-select {
+  padding-left: 10px;
+  padding-right: 0;
+  text-align: left;
+}
+.data-table .dt-check {
+  width: 14px;
+  height: 14px;
+  vertical-align: middle;
+  accent-color: var(--t-amber-bar);
+  cursor: pointer;
+}
+.data-table .dt-check:disabled {
+  cursor: not-allowed;
+  opacity: 0.4;
+}
+.data-table > tbody > tr[data-selected] > td {
+  background: color-mix(in oklab, var(--t-amber-bar) 10%, transparent);
+}
 /* expandable detail rows: free height, wrapping content, no row hover */
 .data-table tr.dt-detail > td {
   white-space: normal;
