@@ -190,6 +190,7 @@ const reportModelBase = z.object({
 export function modelProblems(m: z.output<typeof reportModelBase>): string[] {
   const problems: string[] = []
   const dimKeys = m.dimensions.map((d) => d.key)
+  if (m.measures.length === 0) problems.push('Pick at least one measure')
   for (const d of m.dimensions) {
     if (!DIMENSIONS[d.key].sources.includes(m.source)) problems.push(`${DIMENSIONS[d.key].label} is not available for ${sourceLabel(m.source)}`)
     if (d.level !== undefined && d.key !== 'group') problems.push(`Only the group dimension has a level`)

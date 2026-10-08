@@ -48,6 +48,8 @@ import { TdsScreen } from './screens/Tds'
 import { TcsScreen } from './screens/Tcs'
 import { CostCentresScreen } from './screens/CostCentres'
 import { BudgetsScreen } from './screens/Budgets'
+import { ReportBuilderScreen } from './screens/reportBuilder/ReportBuilder'
+import { RatiosScreen } from './screens/Ratios'
 import { YearEndScreen } from './screens/YearEnd'
 import { Settings } from './screens/Settings'
 import { EditLogScreen } from './screens/EditLog'
@@ -221,6 +223,8 @@ export default function App(): React.JSX.Element {
           {screen.name === 'tcs' && <TcsScreen />}
           {screen.name === 'cost-centres' && <CostCentresScreen />}
           {screen.name === 'budgets' && <BudgetsScreen />}
+          {screen.name === 'report-builder' && <ReportBuilderScreen key={screen.reportId ?? 'new'} reportId={screen.reportId} />}
+          {screen.name === 'ratios' && <RatiosScreen />}
           {screen.name === 'year-end' && <YearEndScreen />}
           {screen.name === 'company-info' && <CompanyInfoScreen />}
           {screen.name === 'audit-trail' && <EditLogScreen key={screen.voucherId ?? 'all'} voucherId={screen.voucherId} />}
