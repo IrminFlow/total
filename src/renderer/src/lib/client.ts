@@ -444,6 +444,8 @@ export interface ImportWizardOptions {
   createMissing: boolean
   openingDifference: 'block' | 'suspense' | 'leave'
   dateOrder: 'dmy' | 'mdy' | 'ymd'
+  /** Numbers use a decimal comma ("1.234,56"). */
+  decimalComma: boolean
   bankLedgerId?: number
   applyBooksFrom: boolean
 }
@@ -489,6 +491,10 @@ export interface ImportRunResult {
   outcomesTruncated: number
   openingCheck: { debit: number; credit: number; difference: number; stockOpening: number } | null
   bank?: { statementRows: number; matched: number; alreadyReconciled: number; unmatched: number }
+  /** The whole run was refused (openings did not tie under "Stop"). */
+  blocked?: string
+  booksFromSet: number | null
+  warnings: string[]
 }
 export interface ImportBatchRow {
   id: number; source: string; profileId: string | null; fileName: string | null; status: 'applied' | 'undone' | 'partly_undone'

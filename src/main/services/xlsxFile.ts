@@ -3,7 +3,9 @@ import { deflateRawSync, inflateRawSync } from 'zlib'
 import { readXlsx, writeXlsx, type Workbook, type XlsxSheet } from '@shared/xlsx'
 
 /** zlib for the pure XLSX layer (src/shared/xlsx): raw DEFLATE, as ZIP stores it. */
-export const zInflate = (b: Uint8Array): Uint8Array => new Uint8Array(inflateRawSync(b))
+export const zInflate = (b: Uint8Array, expectedSize: number): Uint8Array =>
+  // Never inflate past the declared size (+1 so a lying header is caught by readZip's size check).
+  new Uint8Array(inflateRawSync(b, { maxOutputLength: Math.max(1, expectedSize + 1) }))
 export const zDeflate = (b: Uint8Array): Uint8Array => new Uint8Array(deflateRawSync(b, { level: 6 }))
 
 export function readXlsxBytes(bytes: Uint8Array, opts: { onlySheets?: string[] } = {}): Workbook {

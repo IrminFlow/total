@@ -22,9 +22,9 @@ describe('migration 037 — import wizard tables', () => {
       'id', 'name', 'profile_id', 'target', 'header_signature', 'mapping_json', 'options_json', 'created_at', 'updated_at', 'last_used_at'
     ])
     expect(columns(db, 'import_batches')).toEqual([
-      'id', 'source', 'profile_id', 'file_name', 'status', 'options_json', 'summary_json', 'error_count', 'created_at', 'created_by', 'undone_at', 'undo_summary_json'
+      'id', 'source', 'profile_id', 'file_name', 'status', 'options_json', 'summary_json', 'error_count', 'created_at', 'created_by', 'undone_at', 'undo_summary_json', 'last_audit_id'
     ])
-    expect(columns(db, 'import_batch_items')).toEqual(['id', 'batch_id', 'entity', 'entity_id', 'action', 'before_json', 'source_line'])
+    expect(columns(db, 'import_batch_items')).toEqual(['id', 'batch_id', 'entity', 'entity_id', 'action', 'before_json', 'source_line', 'source_key', 'undone_at'])
   })
 
   it('enforces its checks and keys', () => {

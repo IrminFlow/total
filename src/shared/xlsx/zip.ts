@@ -11,7 +11,12 @@
  * fixed (1980-01-01 00:00) so the same input always produces the same bytes.
  */
 
-export type Inflate = (data: Uint8Array) => Uint8Array
+/** Raw-DEFLATE decoder; `expectedSize` is the entry's declared size — implementations must not
+ *  produce more (a zip bomb stops at the cap instead of eating memory). */
+export type Inflate = (data: Uint8Array, expectedSize: number) => Uint8Array
+
+/** Largest total uncompressed size readZip accepts (an .xlsx this big is not a ledger). */
+export const MAX_ZIP_TOTAL_BYTES = 512 * 1024 * 1024
 export type Deflate = (data: Uint8Array) => Uint8Array
 
 export interface ZipEntry {
@@ -72,6 +77,7 @@ export function readZip(bytes: Uint8Array, inflate: Inflate): Map<string, Uint8A
   const cdOffset = u32(bytes, eocd + 16)
   if (count === 0xffff || cdOffset === 0xffffffff) throw new Error('ZIP64 archives are not supported')
   const out = new Map<string, Uint8Array>()
+  let total = 0
   let p = cdOffset
   for (let n = 0; n < count; n++) {
     if (p + 46 > bytes.length || u32(bytes, p) !== SIG_CENTRAL) throw new Error('Corrupt ZIP central directory')
@@ -92,9 +98,11 @@ export function readZip(bytes: Uint8Array, inflate: Inflate): Map<string, Uint8A
     if (u32(bytes, localOffset) !== SIG_LOCAL) throw new Error('Corrupt ZIP local header')
     const dataStart = localOffset + 30 + u16(bytes, localOffset + 26) + u16(bytes, localOffset + 28)
     const raw = bytes.subarray(dataStart, dataStart + compSize)
+    total += size
+    if (total > MAX_ZIP_TOTAL_BYTES) throw new Error('The file unpacks to more than 512 MB — too large to import')
     let data: Uint8Array
     if (method === 0) data = raw
-    else if (method === 8) data = inflate(raw)
+    else if (method === 8) data = inflate(raw, size)
     else throw new Error(`"${name}" uses unsupported ZIP compression method ${method}`)
     if (data.length !== size) throw new Error(`"${name}" is truncated (${data.length} of ${size} bytes)`)
     if (crc32(data) !== crc) throw new Error(`"${name}" failed its CRC check — the file is damaged`)

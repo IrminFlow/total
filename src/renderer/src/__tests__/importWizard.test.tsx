@@ -52,7 +52,7 @@ const LOADED: ImportLoadResult = {
 }
 
 const DRY: ImportRunResult = {
-  dryRun: true, batchId: null, outcomesTruncated: 0, openingCheck: null,
+  dryRun: true, batchId: null, outcomesTruncated: 0, openingCheck: null, booksFromSet: null, warnings: [],
   steps: [{ target: 'vouchers', sheet: 'Invoice', created: 1, updated: 0, skipped: 0, errors: [{ line: 3, message: 'INV-2: Unknown ledger "Nobody"' }], warnings: [] }],
   outcomes: [
     { line: 2, target: 'vouchers', label: 'Sales INV-1 · 2025-06-02', action: 'create' },

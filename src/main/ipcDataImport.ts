@@ -20,23 +20,32 @@ import { parseImportFile, planSteps, sheetSummary, tableSteps, type LoadedFile }
 import { buildBooksWorkbook } from './services/booksExport'
 import { writeXlsxFile } from './services/xlsxFile'
 import { writeAudit } from './services/audit'
+import { readCompanyInfo } from './db/seed'
 
 type Handle = (channel: string, fn: (payload: unknown) => unknown, minRole?: Role) => void
 interface Company { db: DB; info: CompanyInfo; slug: string }
+/** Session facts the import needs from ipc.ts: may this user change company details (books-from,
+ *  owner-only like company:updateInfo), and who is importing (import_batches.created_by). */
+interface SessionFacts { canChangeCompanyInfo: () => boolean; userName: () => string | null }
 
 /** Files kept between the wizard's steps (the renderer only holds the token). */
-const loaded = new Map<string, LoadedFile>()
+const loaded = new Map<string, { file: LoadedFile; slug: string }>()
+
+/** Drop every loaded file (called when the company closes — files never cross companies). */
+export function clearLoadedImports(): void {
+  loaded.clear()
+}
 const KEEP = 4
 
-function remember(f: LoadedFile): void {
-  loaded.set(f.token, f)
+function remember(f: LoadedFile, slug: string): void {
+  loaded.set(f.token, { file: f, slug })
   while (loaded.size > KEEP) loaded.delete(loaded.keys().next().value!)
 }
 
-function fileFor(token: string): LoadedFile {
+function fileFor(token: string, slug: string): LoadedFile {
   const f = loaded.get(token)
-  if (!f) throw new Error('The file is no longer loaded — pick it again')
-  return f
+  if (!f || f.slug !== slug) throw new Error('The file is no longer loaded — pick it again')
+  return f.file
 }
 
 const optionsSchema = z.object({
@@ -44,6 +53,7 @@ const optionsSchema = z.object({
   createMissing: z.boolean().default(true),
   openingDifference: z.enum(['block', 'suspense', 'leave']).default('block'),
   dateOrder: z.enum(['dmy', 'mdy', 'ymd']).default('dmy'),
+  decimalComma: z.boolean().default(false),
   bankLedgerId: z.number().int().positive().optional(),
   applyBooksFrom: z.boolean().default(true)
 })
@@ -71,7 +81,20 @@ function planMeta(f: LoadedFile): dataImport.RunMeta {
   return { source: f.kind === 'books' ? 'total-books' : 'busy-xml', profileId: null, fileName: f.fileName }
 }
 
-export function registerDataImportIpc(handle: Handle, company: () => Company): void {
+export function registerDataImportIpc(handle: Handle, company: () => Company, session: SessionFacts): void {
+  /** Run options from the wizard's + the session's facts. */
+  const runOpts = (o: z.infer<typeof optionsSchema>, f: LoadedFile | null): Partial<dataImport.ImportOptions> => ({
+    duplicate: o.duplicate, createMissing: o.createMissing, openingDifference: o.openingDifference, bankLedgerId: o.bankLedgerId,
+    canSetBooksFrom: session.canChangeCompanyInfo(), userName: session.userName(),
+    applyBooksFrom: f?.manifest && o.applyBooksFrom ? Number(f.manifest.booksFrom) || null : null,
+    sourceNamespace: f?.manifest ? `${String(f.manifest.company)}|${String(f.manifest.gstin ?? '')}` : null,
+    lockDate: f?.manifest && typeof f.manifest.lockDate === 'string' && f.manifest.lockDate ? f.manifest.lockDate : null
+  })
+  /** The run may have set books-from: keep the cached company info in step (company:updateInfo does the same). */
+  const refresh = (c: Company, r: dataImport.ImportRunResult): dataImport.ImportRunResult => {
+    if (r.booksFromSet !== null && !r.dryRun) c.info = readCompanyInfo(c.db)
+    return r
+  }
   // ---------- exports ----------
   handle('export:xlsx', (p) => {
     const { filename, sheets } = exportXlsxSchema.parse(p)
@@ -116,7 +139,7 @@ export function registerDataImportIpc(handle: Handle, company: () => Company): v
       bytes = new Uint8Array(readFileSync(picked.filePaths[0]))
     }
     const f = parseImportFile(fileName, bytes)
-    remember(f)
+    remember(f, c.slug)
     const busy = f.busy
     return {
       token: f.token,
@@ -133,7 +156,7 @@ export function registerDataImportIpc(handle: Handle, company: () => Company): v
   /** Re-read a sheet with another header row (the user corrected the detection). */
   handle('importwiz:sheet', (p) => {
     const q = z.object({ token: z.string().uuid(), sheet: z.string(), headerRow: z.number().int().min(0).optional() }).parse(p)
-    const f = fileFor(q.token)
+    const f = fileFor(q.token, company().slug)
     const s = f.sheets.find((x) => x.name === q.sheet)
     if (!s) throw new Error(`Sheet "${q.sheet}" not found`)
     return sheetSummary(company().db, s, q.headerRow)
@@ -141,20 +164,20 @@ export function registerDataImportIpc(handle: Handle, company: () => Company): v
 
   // ---------- wizard: preview (dry run) / run ----------
   const steps = (q: z.infer<typeof tableRunSchema>, c: Company, f: LoadedFile): ReturnType<typeof tableSteps> =>
-    tableSteps(f, { sheet: q.sheet, headerRow: q.headerRow, profileId: q.profileId, mapping: q.mapping, dateOrder: q.options.dateOrder }, c.info.stateCode)
+    tableSteps(f, { sheet: q.sheet, headerRow: q.headerRow, profileId: q.profileId, mapping: q.mapping, dateOrder: q.options.dateOrder, decimalComma: q.options.decimalComma }, c.info.stateCode)
 
   handle('importwiz:preview', (p) => {
     const q = tableRunSchema.parse(p)
     const c = company()
-    const f = fileFor(q.token)
+    const f = fileFor(q.token, c.slug)
     const { steps: plan, profile } = steps(q, c, f)
-    return dataImport.runImport(c.db, plan, { ...q.options, applyBooksFrom: null }, { source: profile.source, profileId: profile.id, fileName: f.fileName }, true)
+    return dataImport.runImport(c.db, plan, runOpts(q.options, null), { source: profile.source, profileId: profile.id, fileName: f.fileName }, true)
   })
 
   handle('importwiz:run', async (p) => {
     const q = tableRunSchema.parse(p)
     const c = company()
-    const f = fileFor(q.token)
+    const f = fileFor(q.token, c.slug)
     const { steps: plan, profile } = steps(q, c, f)
     if (q.saveTemplate) {
       const table = tableFrom(f.sheets.find((s) => s.name === q.sheet)!.grid, q.headerRow)
@@ -166,27 +189,22 @@ export function registerDataImportIpc(handle: Handle, company: () => Company): v
       })
     }
     await backupCompany(c.db, c.slug, 'pre-import')
-    return dataImport.runImport(c.db, plan, { ...q.options, applyBooksFrom: null }, { source: profile.source, profileId: profile.id, fileName: f.fileName }, false)
-  })
-
-  const planOpts = (f: LoadedFile, o: z.infer<typeof optionsSchema>): Partial<dataImport.ImportOptions> => ({
-    ...o,
-    applyBooksFrom: f.manifest && o.applyBooksFrom ? Number(f.manifest.booksFrom) || null : null
+    return dataImport.runImport(c.db, plan, runOpts(q.options, null), { source: profile.source, profileId: profile.id, fileName: f.fileName }, false)
   })
 
   handle('importwiz:planPreview', (p) => {
     const q = planRunSchema.parse(p)
     const c = company()
-    const f = fileFor(q.token)
-    return dataImport.runImport(c.db, planSteps(f), planOpts(f, q.options), planMeta(f), true)
+    const f = fileFor(q.token, c.slug)
+    return dataImport.runImport(c.db, planSteps(f), runOpts(q.options, f), planMeta(f), true)
   })
 
   handle('importwiz:planRun', async (p) => {
     const q = planRunSchema.parse(p)
     const c = company()
-    const f = fileFor(q.token)
+    const f = fileFor(q.token, c.slug)
     await backupCompany(c.db, c.slug, 'pre-import')
-    return dataImport.runImport(c.db, planSteps(f), planOpts(f, q.options), planMeta(f), false)
+    return refresh(c, dataImport.runImport(c.db, planSteps(f), runOpts(q.options, f), planMeta(f), false))
   })
 
   // ---------- history / undo ----------

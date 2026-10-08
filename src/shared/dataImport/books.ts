@@ -23,23 +23,36 @@ export interface BooksSheetDef {
 
 const c = (field: string, kind: XlsxKind = 'text', decimals?: number): BooksSheetDef['columns'][number] => ({ field, kind, ...(decimals !== undefined ? { decimals } : {}) })
 
-/** Importable sheets, in dependency order (the import runs them top to bottom). */
+/** Importable sheets, in dependency order (the import runs them top to bottom): price levels
+ *  before the ledgers that point at them, ledgers before job-worker godowns, cost centres before
+ *  vouchers, orders before the challans / invoices that draw on them. "… (JSON)" columns carry
+ *  every schema field without a column of its own. */
 export const BOOKS_SHEETS: BooksSheetDef[] = [
   { sheet: 'Groups', target: 'groups', columns: [c('name'), c('parent')] },
   { sheet: 'Units', target: 'units', columns: [c('name'), c('symbol'), c('decimals', 'integer'), c('uqc')] },
   { sheet: 'Stock Groups', target: 'stockGroups', columns: [c('name'), c('parent')] },
-  { sheet: 'Godowns', target: 'godowns', columns: [c('name'), c('address')] },
+  { sheet: 'Price Levels', target: 'priceLevels', columns: [c('name'), c('inclusive'), c('isDefault')] },
   {
     sheet: 'Ledgers', target: 'ledgers',
-    columns: [c('name'), c('group'), c('opening', 'money'), c('gstin'), c('state'), c('pan'), c('creditDays', 'integer'), c('creditLimit', 'money'), c('address'), c('taxType'), c('gstRate', 'percent'), c('hsn')]
+    columns: [c('name'), c('group'), c('opening', 'money'), c('gstin'), c('state'), c('pan'), c('creditDays', 'integer'), c('creditLimit', 'money'), c('address'), c('taxType'), c('gstRate', 'percent'), c('hsn'), c('more')]
   },
+  { sheet: 'Godowns', target: 'godowns', columns: [c('name'), c('address'), c('kind'), c('party')] },
   {
     sheet: 'Stock Items', target: 'items',
-    columns: [c('name'), c('group'), c('unit'), c('hsn'), c('gstRate', 'percent'), c('cessRate', 'percent'), c('openingQty', 'qty', 3), c('openingValue', 'money'), c('mrp', 'money'), c('barcode'), c('reorderLevel', 'qty', 3)]
+    columns: [c('name'), c('group'), c('unit'), c('hsn'), c('gstRate', 'percent'), c('cessRate', 'percent'), c('openingQty', 'qty', 3), c('openingValue', 'money'), c('mrp', 'money'), c('barcode'), c('reorderLevel', 'qty', 3), c('more')]
   },
   { sheet: 'Batches', target: 'batches', columns: [c('item'), c('name'), c('mfgDate', 'date'), c('expiryDate', 'date')] },
-  { sheet: 'Price Lists', target: 'priceLists', columns: [c('level'), c('item'), c('rate', 'money'), c('from', 'date'), c('minQty', 'qty', 3)] },
-  { sheet: 'Voucher Types', target: 'voucherTypes', columns: [c('name'), c('kind'), c('prefix')] },
+  { sheet: 'Price Lists', target: 'priceLists', columns: [c('level'), c('item'), c('rate', 'money'), c('from', 'date'), c('minQty', 'qty', 3), c('more')] },
+  { sheet: 'Voucher Types', target: 'voucherTypes', columns: [c('name'), c('kind'), c('prefix'), c('more')] },
+  { sheet: 'Cost Centres', target: 'costCentres', columns: [c('name'), c('parent'), c('active')] },
+  {
+    sheet: 'Orders', target: 'tradeDocs',
+    columns: [
+      c('key'), c('kind'), c('series'), c('date', 'date'), c('number'), c('party'), c('dueDate', 'date'), c('validUntil', 'date'), c('reference'), c('narration'),
+      c('item'), c('godown'), c('qty', 'qty', 3), c('rate', 'money'), c('discount', 'money'), c('amount', 'money'), c('lineDueDate', 'date'),
+      c('sourceId'), c('dmore'), c('lmore')
+    ]
+  },
   {
     sheet: 'Vouchers', target: 'vouchers',
     columns: [
@@ -47,12 +60,9 @@ export const BOOKS_SHEETS: BooksSheetDef[] = [
       c('item'), c('godown'), c('batch'), c('qty', 'qty', 3), c('rate', 'money'), c('itemAmount', 'money'), c('direction'),
       c('billRef'), c('billKind'), c('billAmount', 'money'), c('dueDate', 'date'),
       c('tdsSection'), c('tdsBase', 'money'), c('tdsAmount', 'money'), c('tcsSection'), c('tcsBase', 'money'), c('tcsAmount', 'money'),
-      c('placeOfSupply'), c('currency'), c('exchangeRate', 'number'), c('optional'), c('postDated')
+      c('placeOfSupply'), c('currency'), c('exchangeRate', 'number'), c('optional'), c('postDated'),
+      c('sourceId'), c('vmore'), c('lmore')
     ]
-  },
-  {
-    sheet: 'Orders', target: 'tradeDocs',
-    columns: [c('key'), c('kind'), c('series'), c('date', 'date'), c('number'), c('party'), c('dueDate', 'date'), c('validUntil', 'date'), c('reference'), c('narration'), c('item'), c('godown'), c('qty', 'qty', 3), c('rate', 'money'), c('discount', 'money'), c('amount', 'money'), c('lineDueDate', 'date')]
   }
 ]
 

@@ -113,7 +113,7 @@ describe('parties, groups, units, godowns, stock groups, items, batches, price l
       'Hex Bolt,Bolts,Nos,7318,18,100,"2,500.00",40',
       'Washer,Washers,Packs,7318,18%,10.5,,',
       'Bad HSN,Bolts,Nos,73A8,18,,,'
-    ].join('\n'))
+    ].join('\n'), { openingDifference: 'leave' })
     expect(items.steps[0]).toMatchObject({ target: 'items', created: 2 })
     expect(items.steps[0]!.errors.map((e) => e.field)).toEqual(['hsn'])
     expect(db.prepare("SELECT name FROM units WHERE name = 'Packs'").get()).toBeTruthy() // auto-created
@@ -160,7 +160,7 @@ describe('opening balances (trial-balance check)', () => {
 
   it('leave: applied with a warning; the opening stock value counts on the Dr side', () => {
     const db = setup()
-    run(db, 'Item,Unit,Opening Qty,Opening Value\nWidget,Nos,10,500')
+    run(db, 'Item,Unit,Opening Qty,Opening Value\nWidget,Nos,10,500', { openingDifference: 'leave' })
     const r = run(db, 'Ledger,Opening Balance\nCapital,500 Cr', { openingDifference: 'leave' }, false, 'generic:openings')
     expect(r.steps[0]!.warnings).toEqual([])
     expect(r.openingCheck).toEqual({ debit: 50000, credit: 50000, difference: 0, stockOpening: 50000 })
@@ -169,7 +169,7 @@ describe('opening balances (trial-balance check)', () => {
   it('stock openings set quantity and value per item; undo restores the previous opening', () => {
     const db = setup()
     run(db, 'Item,Unit\nWidget,Nos')
-    const r = run(db, 'Item,Quantity,Rate\nWidget,12,25', {}, false, 'generic:stockOpenings')
+    const r = run(db, 'Item,Quantity,Rate\nWidget,12,25', { openingDifference: 'leave' }, false, 'generic:stockOpenings')
     expect(r.steps[0]).toMatchObject({ updated: 1 })
     expect(db.prepare("SELECT opening_qty_milli AS q, opening_value AS v FROM stock_items WHERE name = 'Widget'").get()).toEqual({ q: 12000, v: 30000 })
     undoImport(db, r.batchId!)
@@ -195,7 +195,7 @@ function voucherCompany(): DB {
     'Name,Group,Tax Type',
     'Acme Traders,Sundry Debtors,', 'Capital,Capital Account,', 'Sales A/c,Sales Accounts,', 'CGST Output,Duties & Taxes,CGST', 'SGST Output,Duties & Taxes,SGST'
   ].join('\n'))
-  run(db, 'Item,Unit,Opening Qty,Opening Value\nWidget,Nos,50,2500')
+  run(db, 'Item,Unit,Opening Qty,Opening Value\nWidget,Nos,50,2500', { openingDifference: 'leave' })
   return db
 }
 

@@ -1,3 +1,4 @@
+import { decimalToScaled } from './dataImport/values'
 /**
  * Tally XML import: a small tolerant XML parser plus mapping from Tally's
  * TALLYMESSAGE export format (Masters and Daybook/Vouchers) into neutral
@@ -154,6 +155,8 @@ export interface TallyVoucher {
   narration: string | null
   lines: TallyVoucherLine[]
   inventory: TallyInventoryLine[]
+  /** ISOPTIONAL = Yes: a memorandum voucher (never counts in the books). */
+  isOptional?: boolean
 }
 
 /** A Tally Sales / Purchase Order (WP 6.3 → trade_docs). */
@@ -212,7 +215,9 @@ export function parseTallyLooseDate(s: string): string | null {
 export function parseTallyRate(s: string): number | null {
   const m = s.trim().match(/^-?[\d,]*\.?\d+/)
   if (!m) return null
-  return Math.abs(Math.round(Number(m[0].replace(/,/g, '')) * 100))
+  // Integer maths from the decimal text (floats never touch money).
+  const v = decimalToScaled(m[0].replace(/,/g, ''), 2)
+  return v === null ? null : Math.abs(v)
 }
 
 /** Rate / discount / amount for an order line that satisfies trade_docs' rule
@@ -368,6 +373,7 @@ export function parseTallyExport(xml: string): TallyImport {
       number: childText(v, 'VOUCHERNUMBER'),
       party: childText(v, 'PARTYLEDGERNAME') || null,
       narration: childText(v, 'NARRATION') || null,
+      isOptional: childText(v, 'ISOPTIONAL').toLowerCase() === 'yes',
       lines,
       inventory
     })

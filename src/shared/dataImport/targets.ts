@@ -13,7 +13,7 @@ import {
 } from './values'
 
 export const TARGET_IDS = [
-  'groups', 'ledgers', 'parties', 'units', 'stockGroups', 'godowns', 'items', 'batches', 'priceLists',
+  'groups', 'ledgers', 'parties', 'units', 'stockGroups', 'godowns', 'items', 'batches', 'priceLists', 'priceLevels', 'costCentres',
   'openings', 'stockOpenings', 'voucherTypes', 'vouchers', 'tradeDocs', 'bank'
 ] as const
 export type TargetId = (typeof TARGET_IDS)[number]
@@ -59,26 +59,33 @@ export interface LedgerRow {
   taxType: 'cgst' | 'sgst' | 'igst' | 'cess' | null; gstRate: number | null; hsn: string | null
   /** parties only: customer / vendor (decides the default group). */
   partyType?: 'customer' | 'vendor' | null
+  more?: MoreFields | null
 }
 export interface UnitRow { line: number; name: string; symbol: string | null; decimals: number | null; uqc: string | null }
 export interface StockGroupRow { line: number; name: string; parent: string | null }
-export interface GodownRow { line: number; name: string; address: string | null }
+export interface GodownRow { line: number; name: string; address: string | null; kind?: 'own' | 'job_worker' | null; party?: string | null }
+/** Extra columns a Books workbook carries as JSON (every schema field without its own column). */
+export type MoreFields = Record<string, unknown>
+export interface PriceLevelRow { line: number; name: string; inclusive: boolean; isDefault: boolean }
+export interface CostCentreRow { line: number; name: string; parent: string | null; active: boolean }
 export interface ItemRow {
   line: number; name: string; group: string | null; unit: string | null; hsn: string | null; gstRate: number | null
   cessRate: number | null; openingQtyMilli: number | null; openingValue: number | null; openingRate: number | null
   mrpPaise: number | null; barcode: string | null; reorderLevelMilli: number | null
+  more?: MoreFields | null
 }
 export interface BatchRow { line: number; item: string; name: string; mfgDate: string | null; expiryDate: string | null }
-export interface PriceRow { line: number; level: string; item: string; rate: number; from: string | null; minQtyMilli: number | null }
+export interface PriceRow { line: number; level: string; item: string; rate: number; from: string | null; minQtyMilli: number | null; more?: MoreFields | null }
 export interface OpeningRow { line: number; ledger: string; opening: number }
 export interface StockOpeningRow { line: number; item: string; qtyMilli: number; value: number | null; rate: number | null }
-export interface VoucherTypeRow { line: number; name: string; kind: VoucherKind | null; prefix: string | null }
+export interface VoucherTypeRow { line: number; name: string; kind: VoucherKind | null; prefix: string | null; more?: MoreFields | null }
 export interface BankRow { line: number; date: string; description: string; reference: string; deposit: number; withdrawal: number }
 
-export interface VoucherDraftLedgerLine { line: number; ledger: string; drCr: 'dr' | 'cr'; amount: number }
+export interface VoucherDraftLedgerLine { line: number; ledger: string; drCr: 'dr' | 'cr'; amount: number; more?: MoreFields | null }
 export interface VoucherDraftItemLine {
   line: number; item: string; godown: string | null; batch: string | null; qtyMilli: number; ratePaise: number | null
   amount: number | null; direction: 'in' | 'out' | null
+  more?: MoreFields | null
 }
 export interface VoucherDraftBill { line: number; kind: 'new' | 'against'; name: string; amount: number | null; dueDate: string | null }
 
@@ -105,6 +112,10 @@ export interface VoucherDraft {
   isOptional: boolean
   /** Post-dated: kept out of the books until its date (absent = no). */
   postDated?: boolean
+  /** The record's id in the exporting company (Books workbook "Source ID"). */
+  sourceId?: string | null
+  /** Header fields without their own column (Books workbook). */
+  more?: MoreFields | null
   /** Source-specific warnings worth showing (e.g. a Zoho round-off folded into a ledger). */
   notes: string[]
 }
@@ -121,7 +132,9 @@ export interface TradeDocDraft {
   validUntil: string | null
   reference: string | null
   narration: string | null
-  items: { line: number; item: string; godown: string | null; qtyMilli: number; ratePaise: number; discountPaise: number; amount: number; dueDate: string | null }[]
+  items: { line: number; item: string; godown: string | null; qtyMilli: number; ratePaise: number; discountPaise: number; amount: number; dueDate: string | null; more?: MoreFields | null }[]
+  sourceId?: string | null
+  more?: MoreFields | null
 }
 
 export type TargetRows =
@@ -133,6 +146,8 @@ export type TargetRows =
   | { target: 'items'; rows: ItemRow[] }
   | { target: 'batches'; rows: BatchRow[] }
   | { target: 'priceLists'; rows: PriceRow[] }
+  | { target: 'priceLevels'; rows: PriceLevelRow[] }
+  | { target: 'costCentres'; rows: CostCentreRow[] }
   | { target: 'openings'; rows: OpeningRow[] }
   | { target: 'stockOpenings'; rows: StockOpeningRow[] }
   | { target: 'voucherTypes'; rows: VoucherTypeRow[] }
@@ -159,12 +174,13 @@ const LEDGER_FIELDS: FieldDef[] = [
   f('address', 'Address', { aliases: ['billing address', 'address1', 'address 1', 'address line 1'] }),
   f('taxType', 'Tax Type', { aliases: ['duty type', 'type of duty/tax', 'gst type'], hint: 'cgst / sgst / igst / cess — tax ledgers only' }),
   f('gstRate', 'GST Rate', { aliases: ['gst %', 'gst%', 'rate of tax', 'tax rate', 'percentage of calculation'] }),
-  f('hsn', 'HSN', { aliases: ['hsn/sac', 'hsn code', 'sac'] })
+  f('hsn', 'HSN', { aliases: ['hsn/sac', 'hsn code', 'sac'] }),
+  f('more', 'More (JSON)', { hint: 'Books workbook: every other ledger field (TDS/TCS tags, RCM, MSME terms, …)' })
 ]
 
 const PARTY_FIELDS: FieldDef[] = [
   NAME(['party name', 'party', 'customer name', 'vendor name', 'supplier name', 'ledger name', 'account name', 'display name', 'company name']),
-  ...LEDGER_FIELDS.filter((x) => x.key !== 'name' && x.key !== 'taxType' && x.key !== 'gstRate' && x.key !== 'hsn'),
+  ...LEDGER_FIELDS.filter((x) => x.key !== 'name' && x.key !== 'taxType' && x.key !== 'gstRate' && x.key !== 'hsn' && x.key !== 'more'),
   f('partyType', 'Party Type', { aliases: ['contact type', 'customer/vendor', 'type'], hint: 'customer or vendor — picks Sundry Debtors / Creditors when Group is blank' })
 ]
 
@@ -197,7 +213,7 @@ export const TARGETS: Record<TargetId, TargetDef> = {
   godowns: {
     id: 'godowns', label: 'Godowns / locations', section: 'Masters', matchOn: 'name',
     description: 'Storage locations (Busy: material centres).',
-    fields: [NAME(['godown', 'godown name', 'location', 'material centre', 'material center', 'mc name']), f('address', 'Address')]
+    fields: [NAME(['godown', 'godown name', 'location', 'material centre', 'material center', 'mc name']), f('address', 'Address'), f('kind', 'Kind', { hint: 'own / job_worker' }), f('party', 'Party', { hint: 'job worker godowns: the job worker’s ledger' })]
   },
   items: {
     id: 'items', label: 'Stock items', section: 'Masters', matchOn: 'name',
@@ -214,7 +230,8 @@ export const TARGETS: Record<TargetId, TargetDef> = {
       f('openingRate', 'Opening Rate', { aliases: ['rate per unit', 'opening rate per unit'] }),
       f('mrp', 'MRP', { aliases: ['max retail price'] }),
       f('barcode', 'Barcode', { aliases: ['sku', 'ean', 'upc'] }),
-      f('reorderLevel', 'Reorder Level', { aliases: ['reorder point', 'min stock', 'minimum level'] })
+      f('reorderLevel', 'Reorder Level', { aliases: ['reorder point', 'min stock', 'minimum level'] }),
+      f('more', 'More (JSON)', { hint: 'Books workbook: valuation method, serial tracking, TCS section, standard cost, …' })
     ]
   },
   batches: {
@@ -235,8 +252,19 @@ export const TARGETS: Record<TargetId, TargetDef> = {
       f('item', 'Item', { required: true, aliases: ['item name', 'stock item'] }),
       f('rate', 'Rate', { required: true, aliases: ['price', 'selling price', 'sale price'] }),
       f('from', 'From Date', { aliases: ['effective from', 'applicable from', 'date'] }),
-      f('minQty', 'Min Qty', { aliases: ['from qty', 'minimum quantity'] })
+      f('minQty', 'Min Qty', { aliases: ['from qty', 'minimum quantity'] }),
+      f('more', 'More (JSON)', { hint: 'Books workbook: end date, slab discount, currency' })
     ]
+  },
+  priceLevels: {
+    id: 'priceLevels', label: 'Price levels', section: 'Masters', matchOn: 'name',
+    description: 'Price levels (lists) — rates follow in Price lists.',
+    fields: [NAME(['price level', 'price list']), f('inclusive', 'Inclusive of Tax'), f('isDefault', 'Default')]
+  },
+  costCentres: {
+    id: 'costCentres', label: 'Cost centres', section: 'Masters', matchOn: 'name',
+    description: 'Cost centres (nested by "Under").',
+    fields: [NAME(['cost centre', 'cost center']), f('parent', 'Under', { aliases: ['parent'] }), f('active', 'Active')]
   },
   openings: {
     id: 'openings', label: 'Opening balances', section: 'Balances', matchOn: 'ledger',
@@ -262,7 +290,7 @@ export const TARGETS: Record<TargetId, TargetDef> = {
   voucherTypes: {
     id: 'voucherTypes', label: 'Voucher types', section: 'Masters', matchOn: 'name',
     description: 'Extra voucher types (numbering series) of a kind.',
-    fields: [NAME(['voucher type', 'type name']), f('kind', 'Kind', { aliases: ['type of voucher', 'base type'] }), f('prefix', 'Prefix')]
+    fields: [NAME(['voucher type', 'type name']), f('kind', 'Kind', { aliases: ['type of voucher', 'base type'] }), f('prefix', 'Prefix'), f('more', 'More (JSON)', { hint: 'Books workbook: numbering, suffix, width, yearly restart' })]
   },
   vouchers: {
     id: 'vouchers', label: 'Vouchers', section: 'Transactions', matchOn: 'number',
@@ -297,7 +325,10 @@ export const TARGETS: Record<TargetId, TargetDef> = {
       f('currency', 'Currency', { aliases: ['currency code'] }),
       f('exchangeRate', 'Exchange Rate'),
       f('optional', 'Optional', { aliases: ['is optional', 'memorandum'] }),
-      f('postDated', 'Post-dated', { aliases: ['post dated', 'pdc'] })
+      f('postDated', 'Post-dated', { aliases: ['post dated', 'pdc'] }),
+      f('sourceId', 'Source ID', { hint: 'Books workbook: the voucher id in the exporting company — re-imports match on it' }),
+      f('vmore', 'Voucher Details (JSON)'),
+      f('lmore', 'Line Details (JSON)')
     ]
   },
   tradeDocs: {
@@ -320,7 +351,10 @@ export const TARGETS: Record<TargetId, TargetDef> = {
       f('rate', 'Rate', { aliases: ['price'] }),
       f('discount', 'Discount'),
       f('amount', 'Amount', { aliases: ['item amount', 'value'] }),
-      f('lineDueDate', 'Line Due Date')
+      f('lineDueDate', 'Line Due Date'),
+      f('sourceId', 'Source ID'),
+      f('dmore', 'Document Details (JSON)'),
+      f('lmore', 'Line Details (JSON)')
     ]
   },
   bank: {
@@ -428,8 +462,21 @@ function ledgerRow(c: Ctx, party: boolean): LedgerRow {
     taxType: party ? null : take(c, 'taxType', parseTaxType),
     gstRate: party ? null : take(c, 'gstRate', (r) => parsePercent(r)),
     hsn: party ? null : take(c, 'hsn', parseHsn),
-    ...(party ? { partyType: take(c, 'partyType', parsePartyType) } : {})
+    ...(party ? { partyType: take(c, 'partyType', parsePartyType) } : { more: take(c, 'more', parseJsonObject) })
   }
+}
+
+/** A JSON object cell (Books workbook "… (JSON)" columns). */
+export function parseJsonObject(raw: string): Parsed<MoreFields | null> {
+  const t = raw.trim()
+  if (!t) return { ok: null }
+  try {
+    const v = JSON.parse(t) as unknown
+    if (v && typeof v === 'object' && !Array.isArray(v)) return { ok: v as MoreFields }
+  } catch {
+    /* fall through */
+  }
+  return { error: 'Not a JSON object' }
 }
 
 function oneOf<T extends string>(raw: string, options: readonly T[], label: string): Parsed<T | null> {
@@ -475,7 +522,26 @@ export function parseTarget(target: TargetId, records: MappedRecord[], opts: { d
     case 'stockGroups':
       return { result: { target, rows: each((c) => ({ line: c.rec.line, name: need(c, 'name', 'Name'), parent: text(c, 'parent', 120) })) }, errors }
     case 'godowns':
-      return { result: { target, rows: each((c) => ({ line: c.rec.line, name: need(c, 'name', 'Name'), address: text(c, 'address') })) }, errors }
+      return {
+        result: {
+          target,
+          rows: each((c) => ({
+            line: c.rec.line, name: need(c, 'name', 'Name'), address: text(c, 'address'),
+            kind: take(c, 'kind', (r) => oneOf(r, ['own', 'job_worker'] as const, 'Kind')), party: text(c, 'party', 120)
+          }))
+        },
+        errors
+      }
+    case 'priceLevels':
+      return {
+        result: { target, rows: each((c) => ({ line: c.rec.line, name: need(c, 'name', 'Name'), inclusive: take(c, 'inclusive', parseBool) ?? false, isDefault: take(c, 'isDefault', parseBool) ?? false })) },
+        errors
+      }
+    case 'costCentres':
+      return {
+        result: { target, rows: each((c) => ({ line: c.rec.line, name: need(c, 'name', 'Name'), parent: text(c, 'parent', 120), active: take(c, 'active', parseBool) ?? true })) },
+        errors
+      }
     case 'items':
       return {
         result: {
@@ -486,7 +552,7 @@ export function parseTarget(target: TargetId, records: MappedRecord[], opts: { d
               hsn: take(c, 'hsn', parseHsn), gstRate: take(c, 'gstRate', (r) => parsePercent(r)), cessRate: take(c, 'cessRate', (r) => parsePercent(r, 300)),
               openingQtyMilli: take(c, 'openingQty', parseQty), openingValue: take(c, 'openingValue', parseMoney),
               openingRate: take(c, 'openingRate', parseMoney), mrpPaise: take(c, 'mrp', parseMoney), barcode: text(c, 'barcode', 64),
-              reorderLevelMilli: take(c, 'reorderLevel', parseQty)
+              reorderLevelMilli: take(c, 'reorderLevel', parseQty), more: take(c, 'more', parseJsonObject)
             }
             if ((row.openingQtyMilli ?? 0) < 0 || (row.openingValue ?? 0) < 0) {
               c.errors.push({ line: c.rec.line, field: 'openingQty', message: 'Opening stock cannot be negative' })
@@ -512,7 +578,7 @@ export function parseTarget(target: TargetId, records: MappedRecord[], opts: { d
               c.errors.push({ line: c.rec.line, field: 'rate', message: 'Rate is missing' })
               c.bad = true
             }
-            return { line: c.rec.line, level: need(c, 'level', 'Price level'), item: need(c, 'item', 'Item'), rate: rate ?? 0, from: date(c, 'from'), minQtyMilli: take(c, 'minQty', parseQty) }
+            return { line: c.rec.line, level: need(c, 'level', 'Price level'), item: need(c, 'item', 'Item'), rate: rate ?? 0, from: date(c, 'from'), minQtyMilli: take(c, 'minQty', parseQty), more: take(c, 'more', parseJsonObject) }
           })
         },
         errors
@@ -562,7 +628,7 @@ export function parseTarget(target: TargetId, records: MappedRecord[], opts: { d
               c.errors.push({ line: c.rec.line, field: 'kind', message: `Kind "${kindRaw}" is not a voucher kind` })
               c.bad = true
             }
-            return { line: c.rec.line, name, kind, prefix: text(c, 'prefix', 20) }
+            return { line: c.rec.line, name, kind, prefix: text(c, 'prefix', 20), more: take(c, 'more', parseJsonObject) }
           })
         },
         errors
@@ -644,7 +710,8 @@ function groupVoucherRecords(records: MappedRecord[], dateOrder: DateOrder, erro
           ledgerLines: [], items: [], bills: [], tds: null, tcs: null,
           posOverride: take(c, 'placeOfSupply', parseState), currencyCode: g('currency') ? g('currency').toUpperCase() : null,
           exchangeRate: g('exchangeRate') ? Number(g('exchangeRate')) || null : null,
-          isOptional: take(c, 'optional', parseBool) ?? false, postDated: take(c, 'postDated', parseBool) ?? false, notes: []
+          isOptional: take(c, 'optional', parseBool) ?? false, postDated: take(c, 'postDated', parseBool) ?? false, notes: [],
+          sourceId: g('sourceId') || null, more: take(c, 'vmore', parseJsonObject)
         }
         drafts.set(key, d)
         order.push(d)
@@ -678,7 +745,7 @@ function groupVoucherRecords(records: MappedRecord[], dateOrder: DateOrder, erro
       if (!drCr || amount === 0) {
         if (!c.bad) errors.push({ line: rec.line, field: 'amount', message: `Ledger "${g('ledger')}" has no amount` })
         badKeys.add(d.key)
-      } else d.ledgerLines.push({ line: rec.line, ledger: g('ledger'), drCr, amount })
+      } else d.ledgerLines.push({ line: rec.line, ledger: g('ledger'), drCr, amount, more: take(c, 'lmore', parseJsonObject) })
     }
     // Item part
     if (g('item')) {
@@ -696,7 +763,8 @@ function groupVoucherRecords(records: MappedRecord[], dateOrder: DateOrder, erro
       } else {
         d.items.push({
           line: rec.line, item: g('item'), godown: g('godown') || null, batch: g('batch') || null, qtyMilli: qty, ratePaise: rate,
-          amount: amt ?? (rate !== null ? Math.round((qty * rate) / 1000) : null), direction: dir === 'in' || dir === 'out' ? dir : null
+          amount: amt ?? (rate !== null ? Math.round((qty * rate) / 1000) : null), direction: dir === 'in' || dir === 'out' ? dir : null,
+          more: take(c, 'lmore', parseJsonObject)
         })
       }
     }
@@ -748,7 +816,8 @@ function groupTradeDocRecords(records: MappedRecord[], dateOrder: DateOrder, err
       d = {
         key, lines: [], kind: kind ?? 'sales_order', series: g('series') || null, date: date ?? '', number: g('number') || null, party: g('party'),
         dueDate: take(c, 'dueDate', (r) => parseDate(r, dateOrder)), validUntil: take(c, 'validUntil', (r) => parseDate(r, dateOrder)),
-        reference: g('reference') || null, narration: g('narration') || null, items: []
+        reference: g('reference') || null, narration: g('narration') || null, items: [],
+        sourceId: g('sourceId') || null, more: take(c, 'dmore', parseJsonObject)
       }
       docs.set(key, d)
     }
@@ -765,7 +834,8 @@ function groupTradeDocRecords(records: MappedRecord[], dateOrder: DateOrder, err
     const ratePaise = rate ?? (amount !== null ? Math.round(((amount + discount) * 1000) / qty) : 0)
     d.items.push({
       line: rec.line, item: g('item'), godown: g('godown') || null, qtyMilli: qty, ratePaise, discountPaise: discount,
-      amount: amount ?? Math.round((qty * ratePaise) / 1000) - discount, dueDate: take(c, 'lineDueDate', (r) => parseDate(r, dateOrder))
+      amount: amount ?? Math.round((qty * ratePaise) / 1000) - discount, dueDate: take(c, 'lineDueDate', (r) => parseDate(r, dateOrder)),
+      more: take(c, 'lmore', parseJsonObject)
     })
     if (c.bad) bad.add(key)
   }

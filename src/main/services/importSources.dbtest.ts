@@ -4,7 +4,7 @@
 import { describe, expect, it } from 'vitest'
 import { seededDb } from '../db/testdb'
 import type { DB } from '../db/connection'
-import { openingTotals, runImport } from './dataImport'
+import { openingTotals, runImport, type ImportOptions } from './dataImport'
 import { autoPlan, parseImportFile, planSteps } from './importFiles'
 import { getLedger } from './masters'
 import { getVoucher } from './vouchers'
@@ -13,7 +13,9 @@ import { readCompanyInfo } from '../db/seed'
 
 const enc = new TextEncoder()
 
-function load(db: DB, name: string, csv: string, expectProfile: string, opts = {}) {
+// Source files carry openings without their contra (Zoho opening stock, Busy masters): leave the
+// difference — the books-level tests check it explicitly.
+function load(db: DB, name: string, csv: string, expectProfile: string, opts: Partial<ImportOptions> = { openingDifference: 'leave' }) {
   const f = parseImportFile(name, enc.encode(csv))
   const { steps, profile } = autoPlan(db, f, readCompanyInfo(db).stateCode)
   expect(profile.id).toBe(expectProfile)
@@ -221,7 +223,7 @@ describe('Busy', () => {
     const f = parseImportFile('MSAll.xml', enc.encode(BUSY_XML))
     expect(f.kind).toBe('busyXml')
     expect(f.busy!.groups.map((g) => g.name)).toEqual(['Retail Debtors']) // default groups are not re-created
-    const r = runImport(db, planSteps(f), {}, { source: 'busy-xml', profileId: null, fileName: 'MSAll.xml' }, false)
+    const r = runImport(db, planSteps(f), { openingDifference: 'leave' }, { source: 'busy-xml', profileId: null, fileName: 'MSAll.xml' }, false)
     expect(r.steps.flatMap((s) => s.errors)).toEqual([])
     expect(getLedger(db, lid(db, 'Mehta Stores'))).toMatchObject({ openingBalance: 200000, gstin: '27AABCE5678F1ZH' })
     expect(getLedger(db, lid(db, 'Proprietor Capital'))!.openingBalance).toBe(-200000)

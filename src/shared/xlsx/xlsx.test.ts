@@ -5,7 +5,7 @@ import {
   safeSheetNames, serialToISO, writeXlsx, writeZip, type XlsxSheet
 } from './index'
 
-const inflate = (b: Uint8Array): Uint8Array => new Uint8Array(inflateRawSync(b))
+const inflate = (b: Uint8Array, size: number): Uint8Array => new Uint8Array(inflateRawSync(b, { maxOutputLength: size + 1 }))
 const deflate = (b: Uint8Array): Uint8Array => new Uint8Array(deflateRawSync(b))
 const enc = new TextEncoder()
 

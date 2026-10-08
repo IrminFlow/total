@@ -208,7 +208,17 @@ function resolveTarget(target: string): string {
 }
 
 /** Read a workbook from its parts. `onlySheets` limits parsing to the named sheets. */
-export function readWorkbook(getPart: (path: string) => string | undefined, opts: { onlySheets?: string[] } = {}): Workbook {
+/** `<x:row>` → `<row>`: some writers (OpenXML SDK, Power Query) prefix every SpreadsheetML tag
+ *  with a namespace. Attributes (`r:id`) keep their prefix. */
+export function stripTagPrefixes(xml: string): string {
+  return /<\/?[A-Za-z_][\w.-]*:[A-Za-z]/.test(xml) ? xml.replace(/<(\/?)[A-Za-z_][\w.-]*:(?=[A-Za-z])/g, '<$1') : xml
+}
+
+export function readWorkbook(rawGetPart: (path: string) => string | undefined, opts: { onlySheets?: string[] } = {}): Workbook {
+  const getPart = (path: string): string | undefined => {
+    const x = rawGetPart(path)
+    return x === undefined ? undefined : stripTagPrefixes(x)
+  }
   const wb = getPart('xl/workbook.xml')
   if (!wb) throw new Error('Not an Excel workbook (xl/workbook.xml missing) — .xls (Excel 97–2003) files must be re-saved as .xlsx')
   const date1904 = /<workbookPr\b[^>]*date1904\s*=\s*"(1|true)"/.test(wb)

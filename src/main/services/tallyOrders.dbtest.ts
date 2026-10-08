@@ -75,6 +75,13 @@ describe('Tally orders → trade_docs', () => {
     ]))
   })
 
+  it('the same order number in two financial years is two orders (the series restarts each FY)', () => {
+    const db = seededDb()
+    const s = importTallyXml(db, `<ENVELOPE>${MASTERS}${order('Sales Order', 'SO/1', 'Acme Retail')}${order('Sales Order', 'SO/1', 'Acme Retail').replace('20250510', '20260510').replace('15-Jun-2025', '15-Jun-2026')}</ENVELOPE>`)
+    expect(s.orders).toBe(2)
+    expect(db.prepare("SELECT date FROM trade_docs WHERE number = 'SO/1' ORDER BY date").all()).toEqual([{ date: '2025-05-10' }, { date: '2026-05-10' }])
+  })
+
   it('the dry run counts orders without writing', () => {
     const db = seededDb()
     expect(dryRunTallyXml(`<ENVELOPE>${MASTERS}${order('Sales Order', 'SO/1', 'Acme Retail')}</ENVELOPE>`).orders).toBe(1)
@@ -100,13 +107,29 @@ describe('Tally import sets booksFrom', () => {
     expect(db.prepare("SELECT COUNT(*) AS n FROM audit_log WHERE entity = 'company' AND action = 'update'").get()).toEqual({ n: 1 })
   })
 
-  it('from the earliest voucher / order date when the file has no company master', () => {
+  it('from the earliest real voucher when the file has no company master — orders and optional vouchers never count', () => {
+    const voucher = (date: string, optional = false): string => `<TALLYMESSAGE><VOUCHER VCHTYPE="Journal"><DATE>${date}</DATE><VOUCHERNUMBER>J${date}</VOUCHERNUMBER>
+      ${optional ? '<ISOPTIONAL>Yes</ISOPTIONAL>' : ''}
+      <ALLLEDGERENTRIES.LIST><LEDGERNAME>Acme Retail</LEDGERNAME><ISDEEMEDPOSITIVE>Yes</ISDEEMEDPOSITIVE><AMOUNT>-10.00</AMOUNT></ALLLEDGERENTRIES.LIST>
+      <ALLLEDGERENTRIES.LIST><LEDGERNAME>Steel Supplies</LEDGERNAME><ISDEEMEDPOSITIVE>No</ISDEEMEDPOSITIVE><AMOUNT>10.00</AMOUNT></ALLLEDGERENTRIES.LIST>
+    </VOUCHER></TALLYMESSAGE>`
     const db = seededDb()
-    const s = importTallyXml(db, `<ENVELOPE>${MASTERS}${order('Sales Order', 'SO/1', 'Acme Retail')}</ENVELOPE>`.replace('20250510', '20260202'))
-    expect(s.booksFromSet).toBeNull() // FY 2025-26 is already the company's first year
+    // An order in FY 2023-24 and an optional voucher in FY 2022-23 don't move the first year; the
+    // real voucher of 1 Mar 2024 (FY 2023-24) does.
+    const s = importTallyXml(db, `<ENVELOPE>${MASTERS}${order('Sales Order', 'SO/1', 'Acme Retail').replace('20250510', '20230601')}${voucher('20220601', true)}${voucher('20240301')}</ENVELOPE>`)
+    expect(s.booksFromSet).toBe(2023)
+    const optional = db.prepare("SELECT is_optional FROM vouchers WHERE number = 'J20220601'").get() as { is_optional: number }
+    expect(optional.is_optional).toBe(1)
     const db2 = seededDb()
-    importTallyXml(db2, `<ENVELOPE>${MASTERS}${order('Sales Order', 'SO/1', 'Acme Retail')}</ENVELOPE>`.replace('20250510', '20240301'))
-    expect(readCompanyInfo(db2).booksFrom).toBe(2023)
+    expect(importTallyXml(db2, `<ENVELOPE>${MASTERS}${order('Sales Order', 'SO/1', 'Acme Retail').replace('20250510', '20200401')}</ENVELOPE>`).booksFromSet).toBeNull()
+  })
+
+  it('only an owner may change it: others import with a warning', () => {
+    const db = seededDb()
+    const s = importTallyXml(db, `<ENVELOPE>${COMPANY}${MASTERS}</ENVELOPE>`, { canSetBooksFrom: false })
+    expect(s.booksFromSet).toBeNull()
+    expect(readCompanyInfo(db).booksFrom).toBe(2025)
+    expect(s.warnings).toEqual([expect.stringMatching(/only an owner/)])
   })
 
   it('leaves it (with a warning) once the company has vouchers', () => {

@@ -13,7 +13,7 @@ import { PROFILES, profileById, rankProfiles, type ImportProfile } from '@shared
 import { booksPlan, readManifest, MANIFEST_SHEET, type BooksManifest } from '@shared/dataImport/books'
 import { isBusyXml, parseBusyXml, type BusyXmlImport } from '@shared/dataImport/busy'
 import type { RowError } from '@shared/dataImport/targets'
-import type { DateOrder } from '@shared/dataImport/values'
+import { normalizeDecimalComma, type DateOrder } from '@shared/dataImport/values'
 import { listTemplates, type PlanStep } from './dataImport'
 import { readXlsxBytes } from './xlsxFile'
 
@@ -74,6 +74,8 @@ export interface TableRunQuery {
   profileId: string
   mapping: ColumnMapping
   dateOrder: DateOrder
+  /** Numbers in the file use a decimal comma ("1.234,56"): numeric cells are converted first. */
+  decimalComma?: boolean
 }
 
 export function tableSteps(f: LoadedFile, q: TableRunQuery, companyStateCode: string): { steps: PlanStep[]; profile: ImportProfile } {
@@ -84,7 +86,9 @@ export function tableSteps(f: LoadedFile, q: TableRunQuery, companyStateCode: st
   const missing = profile.fields.filter((fd) => fd.required && (q.mapping[fd.key] === null || q.mapping[fd.key] === undefined))
   if (missing.length) throw new Error(`Map the required column${missing.length > 1 ? 's' : ''}: ${missing.map((m) => m.label).join(', ')}`)
   const table = tableFrom(sheet.grid, q.headerRow)
-  const { result, errors } = profile.transform(applyMapping(table, q.mapping), { dateOrder: q.dateOrder, companyStateCode })
+  let records = applyMapping(table, q.mapping)
+  if (q.decimalComma) records = records.map((r) => ({ ...r, values: Object.fromEntries(Object.entries(r.values).map(([k, v]) => [k, normalizeDecimalComma(v)])) }))
+  const { result, errors } = profile.transform(records, { dateOrder: q.dateOrder, companyStateCode })
   return { steps: [{ rows: result, errors, sheet: sheet.name }], profile }
 }
 

@@ -34,7 +34,8 @@ export function isOrderTypeName(name: string): boolean {
  *  the earliest voucher or order in the file. Null when the file has neither. */
 export function tallyBooksFromYear(data: TallyImport): number | null {
   if (data.booksFrom) return fyOf(data.booksFrom).startYear
-  const dates = [...data.vouchers.map((v) => v.date), ...data.orders.map((o) => o.date)].sort()
+  // Books start with the first real voucher: optional (memorandum) vouchers and orders post nothing.
+  const dates = data.vouchers.filter((v) => !v.isOptional).map((v) => v.date).sort()
   return dates[0] ? fyOf(dates[0]).startYear : null
 }
 
@@ -97,11 +98,17 @@ export function dryRunTallyXml(xml: string): ImportSummary {
  *  far, never leaving a half-imported company. Per-voucher validation failures are still soft
  *  (skipped + warned), same as before. A single summary audit row (entity 'tally_import',
  *  action 'import') records the counts. */
-export function importTallyXml(db: DB, xml: string): ImportSummary {
+export interface TallyImportOptions {
+  /** Changing the books-from year is a company-details change: owner only (the IPC layer passes
+   *  the session's right; services and tests default to allowed). */
+  canSetBooksFrom?: boolean
+}
+
+export function importTallyXml(db: DB, xml: string, opts: TallyImportOptions = {}): ImportSummary {
   // Parse outside the transaction — a malformed file fails before any write is attempted.
   const data: TallyImport = parseTallyExport(xml)
   const run = db.transaction((): ImportSummary => {
-    const summary = applyParsedTallyImport(db, data)
+    const summary = applyParsedTallyImport(db, data, opts.canSetBooksFrom !== false)
     writeAudit(db, 'tally_import', 0, 'import', null, {
       groups: summary.groups,
       ledgers: summary.ledgers,
@@ -118,7 +125,7 @@ export function importTallyXml(db: DB, xml: string): ImportSummary {
   return run()
 }
 
-function applyParsedTallyImport(db: DB, data: TallyImport): ImportSummary {
+function applyParsedTallyImport(db: DB, data: TallyImport, canSetBooksFrom: boolean): ImportSummary {
   const warnings = [...data.warnings]
   let counts = { groups: 0, ledgers: 0, units: 0, items: 0, vouchers: 0, orders: 0, skipped: 0 }
 
@@ -130,7 +137,9 @@ function applyParsedTallyImport(db: DB, data: TallyImport): ImportSummary {
   if (fileYear !== null) {
     const info = readCompanyInfo(db)
     if (info.booksFrom !== fileYear) {
-      if (!db.prepare('SELECT 1 FROM vouchers LIMIT 1').get()) {
+      if (!canSetBooksFrom) {
+        warnings.push(`The Tally books start in FY ${fileYear}-${String((fileYear + 1) % 100).padStart(2, '0')} — only an owner can change this company's first year (Company details)`)
+      } else if (!db.prepare('SELECT 1 FROM vouchers LIMIT 1').get()) {
         writeCompanyInfo(db, { ...info, booksFrom: fileYear })
         writeAudit(db, 'company', 0, 'update', info, { ...info, booksFrom: fileYear })
         booksFromSet = fileYear
@@ -252,6 +261,7 @@ function applyParsedTallyImport(db: DB, data: TallyImport): ImportSummary {
         partyLedgerId: v.party ? ledgerId(v.party) : null,
         ...(stockNote ? { trade: { purpose: stockNotePurpose(vt.kind, v.vchType || '') } } : {}),
         narration: v.narration,
+        isOptional: v.isOptional || undefined,
         reference: null,
         instrumentNo: null,
         instrumentDate: null,
@@ -309,7 +319,9 @@ function importTallyOrder(
   // The series with the same name as the Tally type ("Sales Order"), else the kind's first.
   const type = docTypes.find((t) => t.kind === o.kind && t.name.toLowerCase() === o.vchType.toLowerCase()) ?? docTypes.find((t) => t.kind === o.kind)
   if (!type) throw new Error(`no ${o.kind.replace('_', ' ')} series`)
-  if (o.number && db.prepare('SELECT 1 FROM trade_docs WHERE doc_type_id = ? AND number = ? AND deleted_at IS NULL').get(type.id, o.number)) {
+  // A number repeats every FY in a series that restarts numbering: duplicates are per FY then.
+  const fy = fyOf(o.date)
+  if (o.number && db.prepare(`SELECT 1 FROM trade_docs WHERE doc_type_id = ? AND number = ? AND deleted_at IS NULL${type.restartFy ? ' AND date BETWEEN ? AND ?' : ''}`).get(type.id, o.number, ...(type.restartFy ? [fy.from, fy.to] : []))) {
     throw new Error('already imported')
   }
   const godownId = (name: string | null): number | null =>

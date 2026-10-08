@@ -27,7 +27,7 @@ type Step =
   | { kind: 'preview'; file: ImportLoadResult; result: ImportRunResult }
   | { kind: 'done'; file: ImportLoadResult; result: ImportRunResult }
 
-const DEFAULT_OPTS: ImportWizardOptions = { duplicate: 'skip', createMissing: true, openingDifference: 'block', dateOrder: 'dmy', applyBooksFrom: true }
+const DEFAULT_OPTS: ImportWizardOptions = { duplicate: 'skip', createMissing: true, openingDifference: 'block', dateOrder: 'dmy', decimalComma: false, applyBooksFrom: true }
 
 const SOURCE_LABEL: Record<string, string> = { generic: 'Excel / CSV', busy: 'Busy', zoho: 'Zoho Books' }
 const PLAN_SOURCES: Record<string, string> = { 'total-books': 'Total books workbook', 'busy-xml': 'Busy XML export' }
@@ -415,6 +415,15 @@ function OptionsPanel({ opts, onOpts, target, bankLedgers }: { opts: ImportWizar
         </Field>
         <div className="pt-5">
           <Checkbox
+            label="Numbers use a decimal comma"
+            hint="1.234,56 — otherwise such numbers are refused, never misread"
+            checked={opts.decimalComma}
+            onChange={(decimalComma) => onOpts({ ...opts, decimalComma })}
+            testId="import-decimal-comma"
+          />
+        </div>
+        <div className="pt-5">
+          <Checkbox
             label="Create missing masters"
             hint="Units, stock groups, godowns, parties and items named in the file; unknown account groups go to Suspense A/c"
             checked={opts.createMissing}
@@ -521,6 +530,11 @@ function ResultSummary({ result, testId }: { result: ImportRunResult; testId: st
   const oc = result.openingCheck
   return (
     <div className="flex flex-col gap-3" data-testid={testId}>
+      {result.blocked && (
+        <Banner tone="danger" title="Nothing will be imported" testId="import-blocked">
+          {result.blocked}
+        </Banner>
+      )}
       <StatGrid>
         <StatTile label={result.dryRun ? 'Will create' : 'Created'} value={String(t.created)} />
         <StatTile label={result.dryRun ? 'Will update' : 'Updated'} value={String(t.updated)} />
@@ -539,7 +553,7 @@ function ResultSummary({ result, testId }: { result: ImportRunResult; testId: st
           {result.bank.matched} of {result.bank.statementRows} rows match vouchers in the books; {result.bank.unmatched} to reconcile in Banking.
         </Banner>
       )}
-      {result.steps.flatMap((s) => s.warnings).slice(0, 6).map((w, i) => <p key={i} className="text-body-sm text-muted">• {w}</p>)}
+      {[...result.warnings, ...result.steps.flatMap((s) => s.warnings)].slice(0, 8).map((w, i) => <p key={i} className="text-body-sm text-muted">• {w}</p>)}
     </div>
   )
 }
@@ -582,7 +596,7 @@ function PreviewStep(props: { file: ImportLoadResult; result: ImportRunResult; b
           </Field>
         )}
         <Button variant="ghost" onClick={props.onBack}>Back to mapping</Button>
-        <Button variant="primary" data-testid="btn-import-apply" loading={props.busy} disabled={t.created + t.updated === 0 && !result.bank} onClick={props.onImport}>
+        <Button variant="primary" data-testid="btn-import-apply" loading={props.busy} disabled={(t.created + t.updated === 0 && !result.bank) || !!result.blocked} onClick={props.onImport}>
           Import {t.created + t.updated} record{t.created + t.updated === 1 ? '' : 's'}
         </Button>
       </div>

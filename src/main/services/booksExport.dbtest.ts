@@ -58,7 +58,7 @@ describe('Books workbook', () => {
     const db = sourceCompany()
     const { sheets, counts } = buildBooksWorkbook(db, readCompanyInfo(db), '0.0.0-test', AS_ON)
     expect(sheets.map((s) => s.name)).toEqual([
-      'Manifest', 'Groups', 'Units', 'Stock Groups', 'Godowns', 'Ledgers', 'Stock Items', 'Batches', 'Price Lists', 'Voucher Types', 'Vouchers', 'Orders', 'GST (info)', 'Stock (info)'
+      'Manifest', 'Groups', 'Units', 'Stock Groups', 'Price Levels', 'Ledgers', 'Godowns', 'Stock Items', 'Batches', 'Price Lists', 'Voucher Types', 'Cost Centres', 'Orders', 'Vouchers', 'GST (info)', 'Stock (info)'
     ])
     expect(counts.Orders).toBe(1)
     expect(counts.Vouchers).toBeGreaterThan(40)

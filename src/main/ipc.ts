@@ -84,7 +84,7 @@ import { creditOverrideSchema } from '@shared/receivables/schemas'
 import { registerPayablesIpc } from './ipcPayables'
 import { registerBankingIpc } from './ipcBanking'
 import { registerCashFinanceIpc } from './ipcCashFinance'
-import { registerDataImportIpc } from './ipcDataImport'
+import { registerDataImportIpc, clearLoadedImports } from './ipcDataImport'
 import { rememberSalePrices } from './services/pricing'
 import { importTallyXml, dryRunTallyXml } from './services/tallyImport'
 import * as importer from './services/importers'
@@ -143,6 +143,11 @@ const dialogIssuedTallyPaths = new Set<string>()
  *  Cleared whenever the company itself closes (see closeCurrentCompany). */
 let sessionUser: { id: number; name: string; role: Role } | null = null
 
+/** company:updateInfo is owner-only; in a company without users everyone may. */
+function canChangeCompanyInfo(): boolean {
+  return !current?.usersExist || sessionUser?.role === 'owner'
+}
+
 function requireCompany(): OpenCompany {
   if (!current) throw new Error('No company is open')
   return current
@@ -166,6 +171,8 @@ export function closeCurrentCompany(): void {
   agentBridge.syncInboxWatcher(null)
   // The cached NIC login belongs to this company's identity — never carry it into the next one.
   nic.resetNicSession()
+  // WP 6.3: a file loaded into the import wizard never carries over to another company.
+  clearLoadedImports()
   if (current) {
     closeCompanyDb(current.db)
     current = null
@@ -265,7 +272,7 @@ export function registerIpc(): void {
   // ---------- cash and finance (WP 4.4) — channels live in ipcCashFinance.ts ----------
   registerCashFinanceIpc(handle, () => requireCompany())
   // ---------- Excel export, import wizard, books workbook (WP 6.3) — ipcDataImport.ts ----------
-  registerDataImportIpc(handle, () => requireCompany())
+  registerDataImportIpc(handle, () => requireCompany(), { canChangeCompanyInfo, userName: () => sessionUser?.name ?? null })
 
   // ---------- company ----------
   handle('company:list', () => readRegistry())
@@ -1835,7 +1842,11 @@ export function registerIpc(): void {
     // Dry run is parse-only — zero DB writes, so no backup is taken (nothing to roll back to).
     if (dryRun) return { filePath: resolvedPath ?? null, summary: dryRunTallyXml(xml) }
     await backupCompany(c.db, c.slug, 'pre-tally-import')
-    return { filePath: resolvedPath ?? null, summary: importTallyXml(c.db, xml) }
+    // WP 6.3: the import may set booksFrom (owner only — the company:updateInfo rule); keep the
+    // cached company info in step with what it wrote.
+    const summary = importTallyXml(c.db, xml, { canSetBooksFrom: canChangeCompanyInfo() })
+    if (summary.booksFromSet !== null) c.info = readCompanyInfo(c.db)
+    return { filePath: resolvedPath ?? null, summary }
   })
 
   // ---------- report print/export (task 3.6) ----------
@@ -1895,6 +1906,8 @@ export function registerIpc(): void {
     if (incoming.clientSecret === nic.NIC_SECRET_MASK) incoming.clientSecret = existing.clientSecret
     nic.writeNicCredentials(c.db, c.slug, incoming)
     nic.resetNicSession()
+  // WP 6.3: a file loaded into the import wizard never carries over to another company.
+  clearLoadedImports()
     return { configured: nic.nicConfigured(c.db, c.slug) }
   }, 'owner')
   handle('nic:status', () => {

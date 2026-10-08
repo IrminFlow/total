@@ -44,10 +44,31 @@ export function decimalToScaled(raw: string, scale: number): number | null {
   return m[1] ? -units : units
 }
 
+/**
+ * A European-style number ("1.234,56", "12,5", "2,50"): a comma followed by only 1–2 digits at the
+ * end, or a dot used before a final comma. Indian and western grouping never end like that, so the
+ * value is refused rather than misread (12,5 would otherwise become 125). The wizard's "decimal
+ * comma" option converts such cells first (normalizeDecimalComma).
+ */
+export function decimalCommaLike(t: string): boolean {
+  const s = t.trim().replace(/^[(+-]|[)-]$/g, '').replace(/^(rs\.?|inr|₹)\s*/i, '')
+  if (/^\d{1,3}(\.\d{3})+,\d+$/.test(s)) return true
+  return /^\d+,\d{1,2}$/.test(s) || /^[\d.]*\d,\d{1,2}$/.test(s) && s.includes('.')
+}
+const DECIMAL_COMMA_ERROR = (raw: string): string => `"${raw}" looks like a decimal comma — choose "Numbers use a decimal comma" in the options`
+
+/** "1.234,56" → "1234.56" for a numeric cell written with a decimal comma (dates and text untouched). */
+export function normalizeDecimalComma(cell: string): string {
+  const t = cell.trim()
+  if (!/^[(+-]?(rs\.?\s*|inr\s*|₹\s*)?[\d.\s]*\d(,\d+)?[)-]?$/i.test(t) || !t.includes(',')) return cell
+  return t.replace(/[.\s](?=\d{3}\b)/g, '').replace(',', '.')
+}
+
 /** "1,23,456.78" / "₹ 500" / "(500)" / "500-" → paise. Empty → null (no value). */
 export function parseMoney(raw: string): Parsed<number | null> {
   const t = raw.trim()
   if (t === '' || t === '-' || t === '–') return ok(null)
+  if (decimalCommaLike(t)) return err(DECIMAL_COMMA_ERROR(raw))
   const s = cleanAmount(t)
   // Excel can hand back "1234.5000000001" from a formula; parseRupees wants ≤ 2 decimals, so
   // round through the exact decimal path instead.
@@ -90,6 +111,7 @@ export function parseDrCr(raw: string): Parsed<'dr' | 'cr' | null> {
 export function parseQty(raw: string): Parsed<number | null> {
   const t = raw.trim()
   if (t === '') return ok(null)
+  if (decimalCommaLike(t.replace(/\s*[A-Za-z.]*$/, ''))) return err(DECIMAL_COMMA_ERROR(raw))
   const m = /^(-?[\d,]*\.?\d+)\s*[A-Za-z.]*$/.exec(t)
   if (!m) return err(`"${raw}" is not a quantity`)
   const v = decimalToScaled(m[1]!.replace(/,/g, ''), 3)
@@ -135,7 +157,9 @@ function iso(y: number, m: number, d: number): string | null {
  * Apr 15, 2025, yyyymmdd (Tally), and a bare Excel serial number (a date column read as text).
  */
 export function parseDate(raw: string, order: DateOrder = 'dmy'): Parsed<string | null> {
-  const t = raw.trim().replace(/\s+\d{1,2}:\d{2}(:\d{2})?(\s*[ap]m)?$/i, '').replace(/T.*$/, '')
+  // Drop a time: "10:30", "10:30:00 pm", or an ISO "T10:30:00(.000)(Z|+05:30)" — never a bare "T"
+  // (upper-case month names like "15-OCT-2025" contain one).
+  const t = raw.trim().replace(/\s+\d{1,2}:\d{2}(:\d{2})?(\s*[ap]m)?$/i, '').replace(/T\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:?\d{2})?$/i, '')
   if (t === '') return ok(null)
   let m = /^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})$/.exec(t)
   if (m) return wrap(iso(+m[1]!, +m[2]!, +m[3]!), raw)
