@@ -40,7 +40,7 @@ describe('migration 035 — cash and finance', () => {
     expect(cols(db, 'loan_schedules')).toEqual(expect.arrayContaining(['seq', 'due_date', 'opening', 'payment', 'interest', 'principal', 'closing', 'voucher_id']))
     expect(cols(db, 'fx_rates')).toEqual(expect.arrayContaining(['date', 'currency_code', 'rate_micro']))
     expect(cols(db, 'fx_revaluations')).toEqual(expect.arrayContaining(['as_of', 'voucher_id', 'reversal_voucher_id', 'auto_reverse']))
-    expect(cols(db, 'fx_settlements')).toEqual(expect.arrayContaining(['voucher_id', 'adjustment_voucher_id', 'fc_amount', 'gain_loss']))
+    expect(cols(db, 'fx_settlements')).toEqual(expect.arrayContaining(['voucher_id', 'party_ledger_id', 'fc_amount', 'gain_loss']))
 
     // forecast items: inflow / outflow positive, an adjustment may be negative, end ≥ start
     const item = db.prepare('INSERT INTO forecast_items (name, amount, cadence, start_date, end_date, kind) VALUES (?, ?, ?, ?, ?, ?)')

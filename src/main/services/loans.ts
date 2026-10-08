@@ -169,7 +169,15 @@ export function saveLoan(db: DB, raw: LoanInput, id?: number): LoanDetail {
     ]
     let loanId: number
     if (id) {
-      loanRow(db, id)
+      const stored = loanRow(db, id)
+      // Ledgers are fixed once an instalment is posted (the vouchers already name them).
+      if (before!.schedule.some((r) => r.posted)) {
+        const interestAfter = input.interestLedgerId ?? stored.interest_ledger_id
+        if (input.loanLedgerId !== stored.loan_ledger_id || input.bankLedgerId !== stored.bank_ledger_id || interestAfter !== stored.interest_ledger_id) {
+          throw new Error('Instalments are posted — the loan, bank and interest ledgers can no longer change')
+        }
+        vals[3] = interestAfter
+      }
       db.prepare(
         `UPDATE loans SET name = ?, loan_ledger_id = ?, bank_ledger_id = ?, interest_ledger_id = ?, principal = ?, annual_rate_milli = ?,
            tenure_months = ?, disbursed_on = ?, first_due_date = ?, method = ?, moratorium_months = ?, moratorium_mode = ?,
@@ -202,6 +210,9 @@ export function setLoanStatus(db: DB, id: number, status: 'active' | 'closed'): 
 export function deleteLoan(db: DB, id: number): void {
   const detail = getLoan(db, id)
   if (detail.schedule.some((r) => r.posted)) throw new Error('This loan has posted instalments — bin their vouchers first, or mark the loan closed')
+  // Binned instalment vouchers would otherwise be restorable against a loan that no longer exists.
+  const binned = (db.prepare('SELECT COUNT(*) AS n FROM loan_vouchers WHERE loan_id = ?').get(id) as { n: number }).n
+  if (binned > 0) throw new Error(`This loan still has ${binned} instalment voucher${binned === 1 ? '' : 's'} in the bin — purge them first`)
   db.prepare('DELETE FROM loans WHERE id = ?').run(id)
   writeAudit(db, 'loan', id, 'delete', { ...detail.loan, schedule: detail.schedule.length }, null)
 }
@@ -291,7 +302,10 @@ export function postEmi(db: DB, raw: PostEmiInput): LoanScheduleRow {
       tds: null
     })
     db.prepare("UPDATE loan_schedules SET voucher_id = ?, posted_at = datetime('now') WHERE id = ?").run(voucher.id, row.id)
-    writeAudit(db, 'loan', loan.id, 'update', { scheduleId: row.id, posted: false }, { scheduleId: row.id, seq: row.seq, posted: true, voucherId: voucher.id })
+    db.prepare('INSERT INTO loan_vouchers (voucher_id, loan_id, seq, kind) VALUES (?, ?, ?, ?)').run(voucher.id, loan.id, row.seq, row.kind)
+    writeAudit(db, 'loan', loan.id, 'update',
+      { scheduleId: row.id, posted: false, interestLedgerId: loan.interest_ledger_id },
+      { scheduleId: row.id, seq: row.seq, posted: true, voucherId: voucher.id, interestLedgerId })
     return row.id
   })
   const id = run()

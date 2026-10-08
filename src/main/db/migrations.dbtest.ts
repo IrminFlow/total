@@ -87,7 +87,9 @@ const EXPECTED_TABLES = [
   'fx_ledger_currency',
   'fx_revaluations',
   'fx_revaluation_lines',
-  'fx_settlements'
+  'fx_settlements',
+  'fx_settlement_bills',
+  'loan_vouchers'
 ]
 
 describe('migrate', () => {

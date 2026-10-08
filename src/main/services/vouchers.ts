@@ -14,6 +14,7 @@ import { cashBankGroupIds } from './masters'
 import { getFeatures } from './config'
 import { openSalesOrderValue } from './tradeDocs'
 import { writeAudit } from './audit'
+import { assertCashFinanceVoucherEditable, binCashFinancePartners, cashFinanceRestorePlan, restoreCashFinancePartners } from './cashFinanceGuards'
 import { ensureTdsPayableLedger, PENDING_PAYABLE_LEDGER, PENDING_TCS_PAYABLE_LEDGER, prepareVoucherTds, prepareVoucherWithholding } from './tds'
 import { parseLineSerials, rebuildItemSerials, syncVoucherSerials } from './serials'
 import {
@@ -382,6 +383,8 @@ export function saveVoucher(db: DB, raw: VoucherInput, existingId?: number, hook
     // WP 3.7: a salary journal belongs to its pay run (payroll lines, statutory dues, salary TDS
     // entries for 24Q) — an edit here would leave them describing other figures.
     if (db.prepare('SELECT 1 FROM payroll_runs WHERE voucher_id = ?').get(existingId)) throw new Error(PAYROLL_VOUCHER_EDIT)
+    // WP 4.4: loan instalments, forex revaluations / reversals and settlements — bin, don't edit.
+    assertCashFinanceVoucherEditable(db, existingId)
   }
   const vt = getVoucherType(db, input.voucherTypeId)
   // TDS (WP 3.1): resolve the payable credit for tds.autoPayable (a ledger that doesn't exist
@@ -706,6 +709,8 @@ export function deleteVoucher(db: DB, id: number): void {
     db.prepare("UPDATE vouchers SET deleted_at = datetime('now') WHERE id = ?").run(id)
     // WP 2.3: a binned voucher's serials no longer count (a sale's go back into stock).
     rebuildItemSerials(db, before.inventory.map((l) => l.stockItemId))
+    // WP 4.4: a forex revaluation and its reversal go to the bin together.
+    binCashFinancePartners(db, id)
   })()
   writeAudit(db, 'voucher', id, 'delete', before, null)
 }
@@ -730,8 +735,11 @@ export function restoreVoucher(db: DB, id: number): void {
       throw new Error(`FY ${fy.label} already has a year-end closing entry; bin that one first to restore this one`)
     }
   }
+  // WP 4.4: refused when it would double-count a loan instalment / revaluation / settlement.
+  const cashFinancePartners = cashFinanceRestorePlan(db, id)
   db.transaction(() => {
     db.prepare('UPDATE vouchers SET deleted_at = NULL WHERE id = ?').run(id)
+    restoreCashFinancePartners(db, cashFinancePartners, id)
     // WP 2.5: its links come back to life — re-check their sources and capacity.
     assertRestorable(db, id)
     // WP 2.3: re-apply its serials — refused (rolled back) if one has moved on meanwhile.

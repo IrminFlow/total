@@ -26,7 +26,7 @@ import { writeAudit } from './audit'
 import { closingBalances, descendantIdSet } from './reports'
 import { outstandings } from './analysis'
 import { listGroups, descendantIdsByName } from './masters'
-import { pendingOrders } from './tradeReports'
+import { pendingOrders, pendingStockNotes } from './tradeReports'
 import { statutoryDues } from './payrollStatutory'
 import { dueInstalments } from './loans'
 import { IN_BOOKS } from './vouchers'
@@ -227,6 +227,36 @@ function orderFlows(db: DB, asOn: string): ForecastFlow[] {
   return out
 }
 
+/**
+ * Goods delivered on a challan (purpose supply) or received on a GRN (purpose purchase) but not
+ * yet invoiced / billed: the pending taxable value is a receivable / payable in waiting, expected
+ * on the note's date + the party's credit days (receivables also get the median delay and the
+ * first bucket's collection probability). Orders already fulfilled by a challan are not counted
+ * again — tradeReports.pendingOrders treats them as done.
+ */
+function unbilledNoteFlows(db: DB, asOn: string, profile: ReturnType<typeof collectionProfile>): ForecastFlow[] {
+  const creditDays = new Map((db.prepare('SELECT id, credit_days AS d FROM ledgers').all() as { id: number; d: number | null }[]).map((l) => [l.id, l.d ?? 0]))
+  const out: ForecastFlow[] = []
+  for (const stage of ['delivery_note', 'receipt_note'] as const) {
+    const purpose = stage === 'delivery_note' ? 'supply' : 'purchase'
+    const byNote = new Map<number, { number: string; date: string; party: string | null; partyId: number | null; amount: number }>()
+    for (const l of pendingStockNotes(db, stage, asOn)) {
+      if (l.purpose !== purpose) continue
+      const n = byNote.get(l.voucherId) ?? { number: l.number, date: l.date, party: l.partyName, partyId: l.partyLedgerId, amount: 0 }
+      n.amount += l.pendingValue
+      byNote.set(l.voucherId, n)
+    }
+    for (const [voucherId, n] of byNote) {
+      if (n.amount <= 0) continue
+      const due = addDays(n.date, n.partyId != null ? (creditDays.get(n.partyId) ?? 0) : 0)
+      out.push(stage === 'delivery_note'
+        ? { source: 'receivable', direction: 'in', date: addDays(due, profile.medianDelayDays), amount: n.amount, probabilityBp: profile.bucketProbabilityBp[0], label: `${n.party ?? 'Challan'} · challan ${n.number} (not invoiced)`, ledgerId: n.partyId, voucherId, bucket: 0 }
+        : { source: 'payable', direction: 'out', date: due, amount: n.amount, probabilityBp: 10_000, label: `${n.party ?? 'GRN'} · GRN ${n.number} (not billed)`, ledgerId: n.partyId, voucherId })
+    }
+  }
+  return out
+}
+
 // ---------- the base ----------
 
 const toBill = (p: { ledgerId: number; name: string }, b: { voucherId: number | null; number: string; date: string; dueDate: string | null; pending: number; overdueDays: number }): OpenBillInput => ({
@@ -255,6 +285,7 @@ export function forecastBase(db: DB, company: CompanyInfo, asOn: string, to: str
     flows.push(...payableFlows(bills))
   })
   attempt('Open orders', () => flows.push(...orderFlows(db, asOn)))
+  attempt('Unbilled challans and GRNs', () => flows.push(...unbilledNoteFlows(db, asOn, profile)))
   attempt('Known items', () => flows.push(...itemFlows(listForecastItems(db), asOn, to)))
   attempt('Statutory dues', () => flows.push(...statutoryFlows(db, company, asOn)))
   attempt('Loan EMIs', () => {

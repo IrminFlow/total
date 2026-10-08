@@ -387,7 +387,7 @@ export const SCREENS: ScreenDef[] = [
     keywords: ['foreign currency', 'exchange rate', 'revaluation', 'unrealised', 'realised gain', 'usd', 'export receivable'],
     screen: { name: 'forex' },
     navSection: 'analysis',
-    invalidates: ['fxPreview', 'fxRates', 'fxRevaluations', 'fxLedgerCurrencies', 'currencies']
+    invalidates: ['fxPreview', 'fxRates', 'fxRevaluations', 'fxLedgerCurrencies', 'fxOpenBills', 'currencies']
   },
   {
     name: 'exceptions',

@@ -151,8 +151,21 @@ export function generateSchedule(terms: LoanTerms, prepayments: readonly Prepaym
     rows.push({ seq: ++seq, ...r })
   }
 
+  const applyPrepaymentsBefore = (dueDate: string): void => {
+    while (pi < pre.length && pre[pi]!.date < dueDate && balance > 0) {
+      const p = pre[pi++]!
+      const amount = Math.min(p.amount, balance)
+      push({ dueDate: p.date, kind: 'prepayment', opening: balance, payment: amount, interest: 0, principal: amount, closing: balance - amount })
+      balance -= amount
+    }
+  }
+
   for (let k = 0; k < terms.moratoriumMonths; k++) {
     const dueDate = instalmentDate(terms.firstDueDate, k)
+    // A prepayment made during the moratorium reduces the balance that month's interest (and the
+    // later EMI) is worked out on — rows stay in date order.
+    applyPrepaymentsBefore(dueDate)
+    if (balance <= 0) break
     const interest = monthlyInterest(balance, terms.annualRateMilli)
     if (terms.moratoriumMode === 'capitalise') {
       push({ dueDate, kind: 'moratorium', opening: balance, payment: 0, interest, principal: -interest, closing: balance + interest })

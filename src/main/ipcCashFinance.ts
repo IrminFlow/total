@@ -70,8 +70,8 @@ export function registerCashFinanceIpc(handle: Handle, company: () => Company): 
   handle('fx:rateDelete', (p) => forex.deleteRate(db(), idSchema.parse(p).id))
   handle('fx:ledgerCurrencies', () => forex.listLedgerCurrencies(db()), 'viewer')
   handle('fx:setLedgerCurrency', (p) => {
-    const { ledgerId, currencyCode } = fxLedgerCurrencySchema.parse(p)
-    forex.setLedgerCurrency(db(), ledgerId, currencyCode)
+    const { ledgerId, currencyCode, openingFc } = fxLedgerCurrencySchema.parse(p)
+    forex.setLedgerCurrency(db(), ledgerId, currencyCode, openingFc)
     return null
   })
   handle('fx:preview', (p) => forex.revaluationPreview(db(), fxAsOfSchema.parse(p).asOf), 'viewer')
@@ -82,6 +82,10 @@ export function registerCashFinanceIpc(handle: Handle, company: () => Company): 
   })
   handle('fx:revaluations', () => forex.listRevaluations(db()), 'viewer')
   handle('fx:revaluationLines', (p) => forex.revaluationLines(db(), idSchema.parse(p).id), 'viewer')
+  handle('fx:openBills', (p) => {
+    const { ledgerId, asOf } = z.object({ ledgerId: z.number().int().positive(), asOf: isoDate }).parse(p)
+    return forex.openBills(db(), ledgerId, asOf)
+  }, 'viewer')
   handle('fx:settle', (p) => forex.settle(db(), fxSettleInputSchema.parse(p)))
 
   // ---------- budgets (month-by-month, cost centres, revisions, CSV) ----------

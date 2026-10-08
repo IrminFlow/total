@@ -5,7 +5,7 @@
 import { useMemo, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import type { FxExposureRow, FxRate, FxRevaluationRow } from '@shared/cashFinance'
-import { formatFc, microToRateText, parseRateMicro, settlementSplit } from '@shared/forex'
+import { formatFc, microToRateText, parseRateMicro, settleBills } from '@shared/forex'
 import { toDisplayDate, todayISO } from '@shared/dates'
 import { formatPaise } from '@shared/money'
 import { api } from '../lib/client'
@@ -43,7 +43,7 @@ const EXPOSURE_COLUMNS = defineColumns<FxExposureRow>([
     cell: (r) => (r.closingRateMicro ? <span className="num">{microToRateText(r.closingRateMicro)} <span className="text-caption text-muted">{toDisplayDate(r.closingRateDate!)}</span></span> : <Badge tone="warning">No rate</Badge>) },
   { id: 'target', header: 'At closing rate', kind: 'money', value: (r) => r.target, signed: true, aggregate: 'sum', width: 140 },
   { id: 'gain', header: 'Unrealised gain / loss', kind: 'money', value: (r) => r.gainLoss, aggregate: 'sum', width: 160, cell: (r) => <GainLoss paise={r.gainLoss} /> },
-  { id: 'inferred', header: 'Note', kind: 'text', value: (r) => (r.inferredLines > 0 ? 'rupee entries at book rate' : ''), width: 170, defaultHidden: true, className: 'text-caption text-muted' }
+  { id: 'rupee', header: 'Rupee entries', kind: 'number', value: (r) => r.rupeeLines, text: (r) => (r.rupeeLines > 0 ? `${r.rupeeLines} not revalued` : ''), width: 140, defaultHidden: true, className: 'text-caption text-muted' }
 ])
 
 const RATE_COLUMNS = defineColumns<FxRate>([
@@ -152,10 +152,10 @@ export function ForexScreen(): React.JSX.Element {
         </ul>
       )}
 
-      {rows.some((r) => r.inferredLines > 0) && (
-        <Banner tone="info" className="mb-3" testId="forex-inferred">
-          Some rupee receipts or payments carry no foreign amount, so they were taken at the book rate (no gain or loss recorded on them).
-          Record settlements with “Settle at actual rate” to book the realised difference.
+      {rows.some((r) => r.rupeeLines > 0) && (
+        <Banner tone="info" className="mb-3" testId="forex-rupee-lines">
+          Some entries on these ledgers are in rupees (no foreign amount). They are rupee money: left out of the foreign balance and never
+          revalued. Record foreign receipts and payments with “Settle at actual rate” so they relieve the right bills.
         </Banner>
       )}
 
@@ -311,23 +311,33 @@ function SettleModal({ rows, onClose, onDone }: { rows: FxExposureRow[]; onClose
   const party = parties.find((p) => p.ledgerId === ledgerId) ?? null
   const [bank, setBank] = useState<number | null>(null)
   const [date, setDate] = useState(todayISO())
-  const [fcText, setFcText] = useState(party ? (Math.abs(party.fcBalance) / 100).toFixed(2) : '')
   const [rateText, setRateText] = useState('')
-  const fc = /^\d+(\.\d{1,2})?$/.test(fcText.trim()) ? Math.round(Number(fcText.trim()) * 100) : null
+  const { data: open } = useQuery({ queryKey: ['fxOpenBills', ledgerId, date], queryFn: () => cfApi.fx.openBills(ledgerId!, date), enabled: ledgerId != null })
+  const bills = open?.bills ?? []
+  // Per bill: the foreign amount to settle (text, in units). Default: settle every open bill in full.
+  const [amounts, setAmounts] = useState<Record<string, string>>({})
+  const fcOf = (name: string, openFc: number): number | null => {
+    const t = (amounts[name] ?? (openFc / 100).toFixed(2)).trim()
+    if (t === '') return 0
+    return /^\d+(\.\d{1,2})?$/.test(t) ? Math.round(Number(t) * 100) : null
+  }
+  const allocations = bills.map((b) => ({ name: b.name, fc: fcOf(b.name, b.fcOpen) }))
+  const badAmount = allocations.some((a) => a.fc == null)
+  const chosen = allocations.filter((a): a is { name: string; fc: number } => a.fc != null && a.fc > 0)
   const rateMicro = parseRateMicro(rateText)
-  let split: ReturnType<typeof settlementSplit> | null = null
+  let split: ReturnType<typeof settleBills> | null = null
   let splitError: string | null = null
-  if (party && fc && rateMicro) {
+  if (party && open && rateMicro && !badAmount && chosen.length > 0) {
     try {
-      split = settlementSplit(party, fc, rateMicro)
+      split = settleBills(bills, chosen, rateMicro, open.kind === 'payable' ? 'payable' : 'receivable')
     } catch (e) {
       splitError = (e as Error).message
     }
   }
   const post = async (): Promise<void> => {
-    if (!party || !bank || !fc || !rateMicro) return toast.push('error', 'Pick the party and bank, and enter the amount and rate')
+    if (!party || !bank || !split || !rateMicro) return toast.push('error', 'Pick the party and bank, the bills and the rate')
     try {
-      const r = await cfApi.fx.settle({ partyLedgerId: party.ledgerId, bankLedgerId: bank, date, fcAmount: fc, settleRateMicro: rateMicro })
+      const r = await cfApi.fx.settle({ partyLedgerId: party.ledgerId, bankLedgerId: bank, date, bills: chosen, settleRateMicro: rateMicro })
       toast.push('success', r.gainLoss === 0 ? 'Settlement posted' : `Settlement posted with a realised ${r.gainLoss > 0 ? 'gain' : 'loss'} of ${formatPaise(Math.abs(r.gainLoss), { symbol: true })}`)
       await onDone()
     } catch (err) {
@@ -335,31 +345,48 @@ function SettleModal({ rows, onClose, onDone }: { rows: FxExposureRow[]; onClose
     }
   }
   return (
-    <Modal title="Settle at the actual rate" onClose={onClose}>
+    <Modal title="Settle at the actual rate" onClose={onClose} wide>
       <div className="flex flex-col gap-3" data-testid="forex-settle-modal">
-        <Field label="Party">
-          <Select value={ledgerId ?? ''} onChange={(e) => { const id = Number(e.target.value); setLedgerId(id); const p = parties.find((x) => x.ledgerId === id); if (p) setFcText((Math.abs(p.fcBalance) / 100).toFixed(2)) }} data-testid="select-forex-settle-party">
-            {parties.map((p) => <option key={p.ledgerId} value={p.ledgerId}>{p.ledgerName} — {formatFc(p.fcBalance, p.currencyCode)}</option>)}
-          </Select>
-        </Field>
         <div className="grid grid-cols-2 gap-3">
+          <Field label="Party">
+            <Select value={ledgerId ?? ''} onChange={(e) => { setLedgerId(Number(e.target.value)); setAmounts({}) }} data-testid="select-forex-settle-party">
+              {parties.map((p) => <option key={p.ledgerId} value={p.ledgerId}>{p.ledgerName} — {formatFc(p.fcBalance, p.currencyCode)}</option>)}
+            </Select>
+          </Field>
           <Field label="Bank"><LedgerPicker value={bank} onPick={setBank} filter={(l, g) => underGroup(l.groupId, ['Cash-in-Hand', 'Bank Accounts', 'Bank OD A/c'], g)} placeholder="Bank" testId="picker-forex-settle-bank" /></Field>
           <Field label="Date"><DateInput value={date} context={todayISO()} onChange={setDate} testId="input-forex-settle-date" /></Field>
-          <Field label={`Amount (${party?.currencyCode ?? 'foreign'})`}><TextInput value={fcText} onChange={(e) => setFcText(e.target.value)} inputMode="decimal" data-testid="input-forex-settle-fc" /></Field>
           <Field label="Rate (₹ per unit)"><TextInput value={rateText} onChange={(e) => setRateText(e.target.value)} inputMode="decimal" placeholder="84.10" data-testid="input-forex-settle-rate" /></Field>
         </div>
+        <table className="ledger-table" data-testid="forex-settle-bills">
+          <thead><tr><th>Bill</th><th>Date</th><th className="r">Open ({open?.currencyCode ?? ''})</th><th className="r">Book rate</th><th className="r w-36">Settle now</th></tr></thead>
+          <tbody>
+            {bills.map((b) => (
+              <tr key={b.name}>
+                <td>{b.name}</td>
+                <td className="num text-muted">{b.voucherId ? toDisplayDate(b.date) : 'Opening'}</td>
+                <td className="r num">{(b.fcOpen / 100).toFixed(2)}</td>
+                <td className="r num text-muted">{microToRateText(Math.round((b.bookOpen * 1_000_000) / b.fcOpen))}</td>
+                <td className="r">
+                  <TextInput value={amounts[b.name] ?? (b.fcOpen / 100).toFixed(2)} onChange={(e) => setAmounts({ ...amounts, [b.name]: e.target.value })} inputMode="decimal" aria-label={`Settle ${b.name}`} data-testid={`input-forex-settle-bill-${b.name}`} className="text-right" />
+                </td>
+              </tr>
+            ))}
+            {bills.length === 0 && <tr><td colSpan={5} className="text-muted">No open foreign bills on this date</td></tr>}
+          </tbody>
+        </table>
+        {badAmount && <p className="text-small text-danger">Enter amounts like 250 or 250.50</p>}
         {splitError && <p className="text-small text-danger">{splitError}</p>}
         {split && (
           <dl className="grid grid-cols-2 gap-1 rounded-md border border-line bg-panel2 p-3 text-small" data-testid="forex-settle-preview">
-            <dt className="text-muted">{party!.kind === 'payable' ? 'Paid from bank' : 'Received in bank'}</dt><dd className="num text-right">{formatPaise(split.bankInr, { symbol: true })}</dd>
-            <dt className="text-muted">Book value settled</dt><dd className="num text-right">{formatPaise(split.partyInr, { symbol: true })}</dd>
+            <dt className="text-muted">{open!.kind === 'payable' ? 'Paid from bank' : 'Received in bank'}</dt><dd className="num text-right">{formatPaise(split.bankInr, { symbol: true })}</dd>
+            <dt className="text-muted">Book value of the bills (each at its own rate)</dt><dd className="num text-right">{formatPaise(split.partyInr, { symbol: true })}</dd>
             <dt className="text-muted">Realised {split.gainLoss >= 0 ? 'gain' : 'loss'}</dt><dd className="text-right"><GainLoss paise={split.gainLoss} /></dd>
           </dl>
         )}
-        <p className="text-hint text-muted">Posts a {party?.kind === 'payable' ? 'payment' : 'receipt'} at the rupees actually moved and a journal for the difference (Realised Forex Gain / Loss).</p>
+        <p className="text-hint text-muted">One voucher: the bank at the rupees moved, the party at the bills’ book value (with bill references, so Outstandings agree), the difference on Realised Forex Gain / Loss.</p>
         <div className="flex justify-end gap-2">
           <Button onClick={onClose}>Cancel</Button>
-          <Button variant="primary" data-testid="btn-forex-settle-post" onClick={() => void post()} disabled={!split}>Post</Button>
+          <Button variant="primary" data-testid="btn-forex-settle-post" onClick={() => void post()} disabled={!split || !bank}>Post</Button>
         </div>
       </div>
     </Modal>
@@ -371,14 +398,16 @@ function DesignateModal({ codes, onClose, onDone }: { codes: string[]; onClose: 
   const { data: list = [] } = useQuery({ queryKey: ['fxLedgerCurrencies'], queryFn: cfApi.fx.ledgerCurrencies })
   const [ledgerId, setLedgerId] = useState<number | null>(null)
   const [code, setCode] = useState(codes[0] ?? 'USD')
-  const save = async (id: number, c: string | null): Promise<void> => {
+  const [openingText, setOpeningText] = useState('')
+  const save = async (id: number, c: string | null, openingFc: number | null = null): Promise<void> => {
     try {
-      await cfApi.fx.setLedgerCurrency(id, c)
+      await cfApi.fx.setLedgerCurrency(id, c, openingFc)
       await onDone()
     } catch (err) {
       toast.push('error', (err as Error).message)
     }
   }
+  const opening = openingText.trim() === '' ? null : /^-?\d+(\.\d{1,2})?$/.test(openingText.trim()) ? Math.round(Number(openingText.trim()) * 100) : NaN
   return (
     <Modal title="Foreign-currency ledgers" onClose={onClose}>
       <div className="flex flex-col gap-3">
@@ -386,7 +415,7 @@ function DesignateModal({ codes, onClose, onDone }: { codes: string[]; onClose: 
           <ul className="flex flex-col gap-1">
             {list.map((l) => (
               <li key={l.ledgerId} className="flex items-center justify-between text-small">
-                <span>{l.ledgerName} · {l.currencyCode}</span>
+                <span>{l.ledgerName} · {l.currencyCode}{l.openingFc ? ` · opening ${formatFc(l.openingFc, l.currencyCode)} (₹ ${formatPaise(l.openingInr)})` : ''}</span>
                 <button type="button" className="text-muted hover:text-danger" onClick={() => void save(l.ledgerId, null)}>Remove</button>
               </li>
             ))}
@@ -396,9 +425,12 @@ function DesignateModal({ codes, onClose, onDone }: { codes: string[]; onClose: 
           <Field label="Ledger"><LedgerPicker value={ledgerId} onPick={setLedgerId} testId="picker-forex-designate" /></Field>
           <Field label="Currency"><TextInput value={code} onChange={(e) => setCode(e.target.value.toUpperCase().slice(0, 3))} /></Field>
         </div>
+        <Field label="Foreign amount of its opening balance (optional)" hint="For an opening entered in rupees (e.g. imported from Tally): the foreign amount behind it, negative for a credit balance. Leave blank when the opening is rupee money.">
+          <TextInput value={openingText} onChange={(e) => setOpeningText(e.target.value)} inputMode="decimal" placeholder="e.g. 1200.00" data-testid="input-forex-opening-fc" />
+        </Field>
         <div className="flex justify-end gap-2">
           <Button onClick={onClose}>Close</Button>
-          <Button variant="primary" onClick={() => ledgerId && void save(ledgerId, code)} disabled={!ledgerId || code.length !== 3}>Mark</Button>
+          <Button variant="primary" onClick={() => ledgerId && void save(ledgerId, code, Number.isNaN(opening) ? null : opening)} disabled={!ledgerId || code.length !== 3 || Number.isNaN(opening)}>Mark</Button>
         </div>
       </div>
     </Modal>

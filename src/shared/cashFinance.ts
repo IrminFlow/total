@@ -198,7 +198,14 @@ export interface FxRate {
   note: string | null
 }
 
-export const fxLedgerCurrencySchema = z.object({ ledgerId: id, currencyCode: currencyCode.nullable() })
+export const fxLedgerCurrencySchema = z.object({
+  ledgerId: id,
+  currencyCode: currencyCode.nullable(),
+  /** Foreign amount (hundredths, dr-positive) behind the ledger's rupee opening; null = none. */
+  openingFc: z.number().int().safe().nullable().default(null)
+})
+
+export interface FxOpenBill { name: string; voucherId: number | null; date: string; fcOpen: number; bookOpen: number }
 
 export const fxAsOfSchema = z.object({ asOf: isoDate })
 
@@ -212,8 +219,11 @@ export const fxSettleInputSchema = z.object({
   partyLedgerId: id,
   bankLedgerId: id,
   date: isoDate,
-  /** Foreign amount settled, hundredths of the currency (positive). */
-  fcAmount: z.number().int().positive().safe(),
+  /** Foreign amount settled, hundredths of the currency — spread over the open bills oldest
+   *  first when `bills` is empty. */
+  fcAmount: z.number().int().positive().safe().optional(),
+  /** Bill-wise: the foreign amount taken off each open bill (by its name). */
+  bills: z.array(z.object({ name: z.string().min(1).max(80), fc: z.number().int().positive().safe() })).max(100).default([]),
   settleRateMicro: rateMicro,
   narration: z.string().trim().max(200).nullable().default(null)
 })
@@ -235,8 +245,8 @@ export interface FxExposureRow {
   /** Restated value at the closing rate, and the unrealised gain (+) / loss (−). */
   target: number | null
   gainLoss: number | null
-  /** Rupee lines converted at the carrying rate (no realised difference recorded for them). */
-  inferredLines: number
+  /** Rupee lines on the ledger without a foreign amount — not foreign money, never revalued. */
+  rupeeLines: number
 }
 
 export interface FxRevaluationPreview {
@@ -265,10 +275,9 @@ export interface FxRevaluationRow {
 }
 
 export interface FxSettleResult {
-  /** The receipt / payment (bank ↔ party at the actual rate). */
+  /** The one settlement voucher (Receipt / Payment, or Journal when the difference sits on the money side). */
   voucherId: number
-  /** The journal booking the realised difference (null when there is none). */
-  adjustmentVoucherId: number | null
+  bills: { name: string; voucherId: number | null; fc: number; bookInr: number }[]
   bankInr: number
   partyInr: number
   gainLoss: number

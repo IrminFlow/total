@@ -15,19 +15,25 @@
 // - the revaluation journal as on a date: each exposure restated at the closing rate, the
 //   difference Dr/Cr the ledger against Unrealised Forex Gain (Indirect Incomes) / Unrealised
 //   Forex Loss (Indirect Expenses), optionally reversed the next day;
-// - settlement at an actual rate: a receipt / payment (bank ↔ party at the rupees actually moved;
-//   the party line carries the foreign amount settled) plus a journal for the realised difference
-//   against Realised Forex Gain / Loss (a Receipt / Payment voucher cannot carry a P&L ledger on
-//   its money side, so the difference is its own journal).
+// - settlement at an actual rate, BILL BY BILL: each foreign invoice / bill is relieved at its own
+//   book rate (AS 11 para 13 — no weighted average), in ONE voucher: bank at the rupees actually
+//   moved, the party at the bills' book value (with bill references against those bills, so
+//   Outstandings agree), the realised difference on Realised Forex Gain / Loss. A Receipt or
+//   Payment voucher can't carry a P&L ledger on its money side, so a receipt at a loss (or a
+//   payment at a gain) is posted as a Journal.
+// - rupee entries on a foreign party (a rupee sale, a receipt entered without a foreign amount)
+//   are rupee money: they are not part of the foreign balance and are never revalued.
+// - Tally-imported or hand-entered openings: the ledger's rupee opening counts as foreign money
+//   only when its foreign amount is entered on Forex → foreign-currency ledgers (opening_fc).
 import type { DB } from '../db/connection'
 import {
   fxRateInputSchema, fxRevaluePostSchema, fxSettleInputSchema,
   type FxExposureRow, type FxRate, type FxRateInput, type FxRevaluationPreview, type FxRevaluationRow, type FxSettleInput, type FxSettleResult
 } from '@shared/cashFinance'
-import { foldExposure, revalue, settlementSplit, rateToMicro, type FxLine } from '@shared/forex'
+import { allocateFifo, foldExposure, openForeignBills, revalue, settleBills, rateToMicro, fcFromInr, type ForeignBill, type ForeignEntry, type FxLine } from '@shared/forex'
 import { toDisplayDate } from '@shared/dates'
 import { writeAudit } from './audit'
-import { findOrCreateLedger, descendantIdsByName, cashBankGroupIds } from './masters'
+import { descendantIdsByName, cashBankGroupIds } from './masters'
 import { IN_BOOKS, saveVoucher } from './vouchers'
 import { addDays, ledgerInfo, postingBlock, systemVoucherTypeId } from './cashFinanceCommon'
 
@@ -37,6 +43,22 @@ export const REALISED_GAIN = { name: 'Realised Forex Gain', group: 'Indirect Inc
 export const REALISED_LOSS = { name: 'Realised Forex Loss', group: 'Indirect Expenses' }
 
 const isForeign = (code: string | null): code is string => !!code && code.toUpperCase() !== 'INR'
+
+/** The gain / loss ledger: an existing ledger of that name is used only when it sits under an
+ *  income (gain) or expense (loss) group; otherwise a fresh "<name> (forex)" ledger is created
+ *  under the default group, so a same-named balance-sheet ledger never receives P&L entries. */
+export function ensurePlLedger(db: DB, def: { name: string; group: string }): number {
+  const want = def.group === 'Indirect Incomes' ? 'income' : 'expense'
+  for (const name of [def.name, `${def.name} (forex)`]) {
+    const row = db.prepare('SELECT l.id, g.nature FROM ledgers l JOIN groups g ON g.id = l.group_id WHERE l.name = ? COLLATE NOCASE').get(name) as { id: number; nature: string } | undefined
+    if (row && row.nature === want) return row.id
+    if (row) continue
+    const g = db.prepare('SELECT id FROM groups WHERE name = ?').get(def.group) as { id: number } | undefined
+    if (!g) throw new Error(`Group ${def.group} missing`)
+    return Number(db.prepare('INSERT INTO ledgers (name, group_id, is_system) VALUES (?, ?, 0)').run(name, g.id).lastInsertRowid)
+  }
+  throw new Error(`Ledgers named ${def.name} exist outside ${def.group} — rename one`)
+}
 
 // ---------- closing rates ----------
 
@@ -75,28 +97,40 @@ export function rateOn(db: DB, currency: string, asOf: string): { rateMicro: num
 
 // ---------- ledger currency ----------
 
-export function setLedgerCurrency(db: DB, ledgerId: number, currencyCode: string | null): void {
+export function setLedgerCurrency(db: DB, ledgerId: number, currencyCode: string | null, openingFc: number | null = null): void {
   const l = ledgerInfo(db, ledgerId)
   if (!l) throw new Error('Ledger not found')
-  const before = db.prepare('SELECT currency_code AS c FROM fx_ledger_currency WHERE ledger_id = ?').get(ledgerId) as { c: string } | undefined
+  const before = db.prepare('SELECT currency_code AS currencyCode, opening_fc AS openingFc FROM fx_ledger_currency WHERE ledger_id = ?').get(ledgerId) as
+    | { currencyCode: string; openingFc: number | null }
+    | undefined
   if (currencyCode == null) db.prepare('DELETE FROM fx_ledger_currency WHERE ledger_id = ?').run(ledgerId)
   else {
     if (currencyCode === 'INR') throw new Error('Pick a foreign currency')
-    db.prepare('INSERT INTO fx_ledger_currency (ledger_id, currency_code) VALUES (?, ?) ON CONFLICT(ledger_id) DO UPDATE SET currency_code = excluded.currency_code')
-      .run(ledgerId, currencyCode)
+    const ob = (db.prepare('SELECT opening_balance AS ob FROM ledgers WHERE id = ?').get(ledgerId) as { ob: number }).ob
+    if (openingFc != null && (openingFc === 0 || ob === 0 || Math.sign(openingFc) !== Math.sign(ob))) {
+      throw new Error('The foreign opening needs a rupee opening balance on the same side (Dr / Cr)')
+    }
+    db.prepare(
+      `INSERT INTO fx_ledger_currency (ledger_id, currency_code, opening_fc) VALUES (?, ?, ?)
+       ON CONFLICT(ledger_id) DO UPDATE SET currency_code = excluded.currency_code, opening_fc = excluded.opening_fc`
+    ).run(ledgerId, currencyCode, openingFc)
   }
-  writeAudit(db, 'fx_ledger_currency', ledgerId, before ? (currencyCode ? 'update' : 'delete') : 'create', before ? { ledgerId, currencyCode: before.c } : null, currencyCode ? { ledgerId, currencyCode } : null)
+  writeAudit(db, 'fx_ledger_currency', ledgerId, before ? (currencyCode ? 'update' : 'delete') : 'create',
+    before ? { ledgerId, ...before } : null, currencyCode ? { ledgerId, currencyCode, openingFc } : null)
 }
 
-export function listLedgerCurrencies(db: DB): { ledgerId: number; ledgerName: string; currencyCode: string }[] {
+export function listLedgerCurrencies(db: DB): { ledgerId: number; ledgerName: string; currencyCode: string; openingFc: number | null; openingInr: number }[] {
   return db
-    .prepare('SELECT f.ledger_id AS ledgerId, l.name AS ledgerName, f.currency_code AS currencyCode FROM fx_ledger_currency f JOIN ledgers l ON l.id = f.ledger_id ORDER BY l.name')
-    .all() as { ledgerId: number; ledgerName: string; currencyCode: string }[]
+    .prepare(
+      `SELECT f.ledger_id AS ledgerId, l.name AS ledgerName, f.currency_code AS currencyCode, f.opening_fc AS openingFc, l.opening_balance AS openingInr
+       FROM fx_ledger_currency f JOIN ledgers l ON l.id = f.ledger_id ORDER BY l.name`
+    )
+    .all() as { ledgerId: number; ledgerName: string; currencyCode: string; openingFc: number | null; openingInr: number }[]
 }
 
 // ---------- exposures ----------
 
-interface ExposureLedger { ledgerId: number; ledgerName: string; currencyCode: string; kind: FxExposureRow['kind'] }
+interface ExposureLedger { ledgerId: number; ledgerName: string; currencyCode: string; kind: FxExposureRow['kind']; opening: { fc: number; inr: number } | null }
 
 function exposureLedgers(db: DB, asOf: string): ExposureLedger[] {
   const debtors = descendantIdsByName(db, ['Sundry Debtors'])
@@ -110,7 +144,7 @@ function exposureLedgers(db: DB, asOf: string): ExposureLedger[] {
     banks.has(groupId) ? 'bank' : creditors.has(groupId) ? 'payable' : 'receivable'
   for (const d of listLedgerCurrencies(db)) {
     const l = ledgers.get(d.ledgerId)
-    if (l) out.set(d.ledgerId, { ledgerId: d.ledgerId, ledgerName: d.ledgerName, currencyCode: d.currencyCode, kind: kindOf(l.groupId) })
+    if (l) out.set(d.ledgerId, { ledgerId: d.ledgerId, ledgerName: d.ledgerName, currencyCode: d.currencyCode, kind: kindOf(l.groupId), opening: d.openingFc ? { fc: d.openingFc, inr: d.openingInr } : null })
   }
   // Party ledgers: the currency of their most recent foreign-currency voucher.
   const party = db
@@ -125,7 +159,7 @@ function exposureLedgers(db: DB, asOf: string): ExposureLedger[] {
     if (out.has(p.ledgerId)) continue
     const l = ledgers.get(p.ledgerId)
     if (!l || !(debtors.has(l.groupId) || creditors.has(l.groupId))) continue
-    out.set(p.ledgerId, { ledgerId: p.ledgerId, ledgerName: l.name, currencyCode: p.currencyCode.toUpperCase(), kind: kindOf(l.groupId) })
+    out.set(p.ledgerId, { ledgerId: p.ledgerId, ledgerName: l.name, currencyCode: p.currencyCode.toUpperCase(), kind: kindOf(l.groupId), opening: null })
   }
   return [...out.values()]
 }
@@ -137,8 +171,7 @@ function fxLines(db: DB, ledgerId: number, asOf: string): FxLine[] {
       `SELECT v.date, v.id AS voucherId, CASE WHEN vl.dr_cr = 'dr' THEN vl.amount ELSE -vl.amount END AS amount,
               v.currency_code AS currency, v.exchange_rate AS rate,
               (SELECT s.fc_amount FROM fx_settlements s WHERE s.voucher_id = v.id AND s.party_ledger_id = vl.ledger_id) AS settledFc,
-              CASE WHEN EXISTS (SELECT 1 FROM fx_revaluations r WHERE r.voucher_id = v.id OR r.reversal_voucher_id = v.id)
-                     OR EXISTS (SELECT 1 FROM fx_settlements s WHERE s.adjustment_voucher_id = v.id) THEN 1 ELSE 0 END AS neutral
+              CASE WHEN EXISTS (SELECT 1 FROM fx_revaluations r WHERE r.voucher_id = v.id OR r.reversal_voucher_id = v.id) THEN 1 ELSE 0 END AS neutral
        FROM voucher_lines vl JOIN vouchers v ON v.id = vl.voucher_id
        WHERE vl.ledger_id = ? AND v.date <= ? AND ${IN_BOOKS}
        ORDER BY v.date, v.id, vl.id`
@@ -155,11 +188,10 @@ function fxLines(db: DB, ledgerId: number, asOf: string): FxLine[] {
   }))
 }
 
-export function exposure(db: DB, ledgerId: number, asOf: string, currency?: string): ReturnType<typeof foldExposure> & { currencyCode: string } {
+export function exposure(db: DB, ledgerId: number, asOf: string): ReturnType<typeof foldExposure> & { currencyCode: string; kind: FxExposureRow['kind'] } {
   const led = exposureLedgers(db, asOf).find((e) => e.ledgerId === ledgerId)
-  const code = currency ?? led?.currencyCode
-  if (!code) throw new Error('This ledger has no foreign-currency balance')
-  return { ...foldExposure(fxLines(db, ledgerId, asOf), code), currencyCode: code }
+  if (!led) throw new Error('This ledger has no foreign-currency balance')
+  return { ...foldExposure(fxLines(db, ledgerId, asOf), led.currencyCode, led.opening), currencyCode: led.currencyCode, kind: led.kind }
 }
 
 /** Exposures as on `asOf` with the closing rate on or before it and the unrealised difference. */
@@ -167,7 +199,7 @@ export function revaluationPreview(db: DB, asOf: string): FxRevaluationPreview {
   const rows: FxExposureRow[] = []
   const missing = new Set<string>()
   for (const e of exposureLedgers(db, asOf)) {
-    const f = foldExposure(fxLines(db, e.ledgerId, asOf), e.currencyCode)
+    const f = foldExposure(fxLines(db, e.ledgerId, asOf), e.currencyCode, e.opening)
     if (f.fcBalance === 0 && f.inrBook === 0) continue
     const rate = rateOn(db, e.currencyCode, asOf)
     if (!rate) missing.add(e.currencyCode)
@@ -175,7 +207,7 @@ export function revaluationPreview(db: DB, asOf: string): FxRevaluationPreview {
     rows.push({
       ledgerId: e.ledgerId, ledgerName: e.ledgerName, kind: e.kind, currencyCode: e.currencyCode, fcBalance: f.fcBalance, inrBook: f.inrBook,
       carryingRateMicro: f.carryingRateMicro, closingRateMicro: rate?.rateMicro ?? null, closingRateDate: rate?.date ?? null,
-      target: r?.target ?? null, gainLoss: r?.gainLoss ?? null, inferredLines: f.inferredLines
+      target: r?.target ?? null, gainLoss: r?.gainLoss ?? null, rupeeLines: f.rupeeLines
     })
   }
   rows.sort((a, b) => a.currencyCode.localeCompare(b.currencyCode) || a.ledgerName.localeCompare(b.ledgerName))
@@ -226,8 +258,8 @@ export function postRevaluation(db: DB, raw: { asOf: string; autoReverse?: boole
       if (adj === 0) continue
       lines.push({ ledgerId: r.ledgerId, drCr: adj > 0 ? 'dr' : 'cr', amount: Math.abs(adj), costAllocations: [] })
     }
-    if (p.gain > 0) lines.push({ ledgerId: findOrCreateLedger(db, UNREALISED_GAIN.name, UNREALISED_GAIN.group), drCr: 'cr', amount: p.gain, costAllocations: [] })
-    if (p.loss > 0) lines.push({ ledgerId: findOrCreateLedger(db, UNREALISED_LOSS.name, UNREALISED_LOSS.group), drCr: 'dr', amount: p.loss, costAllocations: [] })
+    if (p.gain > 0) lines.push({ ledgerId: ensurePlLedger(db, UNREALISED_GAIN), drCr: 'cr', amount: p.gain, costAllocations: [] })
+    if (p.loss > 0) lines.push({ ledgerId: ensurePlLedger(db, UNREALISED_LOSS), drCr: 'dr', amount: p.loss, costAllocations: [] })
     const currencies = [...new Set(p.rows.map((r) => r.currencyCode))].join(', ')
     const v = journal(db, asOf, `Forex revaluation as on ${toDisplayDate(asOf)} at closing rates (${currencies}) — AS 11 / Ind AS 21: monetary items at the closing rate`, lines)
     let reversalId: number | null = null
@@ -308,65 +340,96 @@ export function revaluedOn(db: DB, asOf: string): boolean {
 
 // ---------- settlement ----------
 
-/** Record a receipt / payment settling foreign units at the actual rate, plus the realised
- *  difference journal (AS 11 para 13 / Ind AS 21 para 28). */
+/** The foreign bills of an exposure still open on `asOf`, oldest first — each with its own book
+ *  rate. A bill is named by its bill reference (else the voucher number, as Outstandings does). */
+export function openBills(db: DB, partyLedgerId: number, asOf: string): { currencyCode: string; kind: FxExposureRow['kind']; bills: ForeignBill[] } {
+  const ex = exposureLedgers(db, asOf).find((e) => e.ledgerId === partyLedgerId)
+  if (!ex) throw new Error('This ledger has no foreign-currency balance')
+  const receivable = ex.kind !== 'payable'
+  const rows = db
+    .prepare(
+      `SELECT v.id AS voucherId, v.date, v.number, v.exchange_rate AS rate,
+              SUM(CASE WHEN vl.dr_cr = 'dr' THEN vl.amount ELSE -vl.amount END) AS amount,
+              (SELECT br.name FROM bill_refs br WHERE br.voucher_id = v.id AND br.party_ledger_id = vl.ledger_id AND br.kind = 'new' ORDER BY br.id LIMIT 1) AS billName
+       FROM voucher_lines vl JOIN vouchers v ON v.id = vl.voucher_id
+       WHERE vl.ledger_id = ? AND v.date <= ? AND ${IN_BOOKS} AND UPPER(v.currency_code) = ? AND v.exchange_rate > 0
+         AND v.id NOT IN (SELECT voucher_id FROM fx_settlements)
+         AND v.id NOT IN (SELECT voucher_id FROM fx_revaluations WHERE voucher_id IS NOT NULL)
+         AND v.id NOT IN (SELECT reversal_voucher_id FROM fx_revaluations WHERE reversal_voucher_id IS NOT NULL)
+       GROUP BY v.id ORDER BY v.date, v.id`
+    )
+    .all(partyLedgerId, asOf, ex.currencyCode) as { voucherId: number; date: string; number: string; rate: number; amount: number; billName: string | null }[]
+  const bills: ForeignEntry[] = []
+  const reductions: { fc: number }[] = []
+  if (ex.opening) bills.push({ name: 'Opening', voucherId: null, date: '0000-01-01', fc: Math.abs(ex.opening.fc), inr: Math.abs(ex.opening.inr) })
+  for (const r of rows) {
+    const fc = Math.abs(fcFromInr(r.amount, rateToMicro(r.rate)))
+    if (fc === 0) continue
+    if ((r.amount > 0) === receivable) bills.push({ name: r.billName ?? r.number, voucherId: r.voucherId, date: r.date, fc, inr: Math.abs(r.amount) })
+    else reductions.push({ fc })
+  }
+  const settled = db
+    .prepare(
+      `SELECT b.bill_name AS name, b.fc_amount AS fc, b.book_inr AS bookInr
+       FROM fx_settlement_bills b JOIN fx_settlements s ON s.id = b.settlement_id JOIN vouchers v ON v.id = s.voucher_id
+       WHERE s.party_ledger_id = ? AND v.date <= ? AND ${IN_BOOKS} ORDER BY v.date, v.id, b.id`
+    )
+    .all(partyLedgerId, asOf) as { name: string; fc: number; bookInr: number }[]
+  return { currencyCode: ex.currencyCode, kind: ex.kind, bills: openForeignBills(bills, reductions, settled) }
+}
+
+/** Record a settlement at the actual rate, bill by bill (AS 11 para 13 / Ind AS 21 para 28): one
+ *  voucher — bank at the rupees moved, the party at the bills' book value with bill references
+ *  against them, the realised difference on Realised Forex Gain / Loss. Without explicit bills the
+ *  foreign amount is spread over the open bills oldest first (each still at its own rate). */
 export function settle(db: DB, raw: FxSettleInput): FxSettleResult {
   const input = fxSettleInputSchema.parse(raw)
   const run = db.transaction((): FxSettleResult & { id: number } => {
     const party = ledgerInfo(db, input.partyLedgerId)
     if (!party) throw new Error('Party ledger not found')
     if (!cashBankGroupIds(db).has(ledgerInfo(db, input.bankLedgerId)?.groupId ?? -1)) throw new Error('Settle through a cash or bank ledger')
-    const ex = exposure(db, input.partyLedgerId, input.date)
-    const split = settlementSplit(ex, input.fcAmount, input.settleRateMicro)
+    const { currencyCode, kind, bills } = openBills(db, input.partyLedgerId, input.date)
+    if (kind === 'bank') throw new Error('Pick a customer or supplier')
+    const allocations = input.bills.length > 0 ? input.bills : allocateFifo(bills, input.fcAmount ?? 0)
+    const split = settleBills(bills, allocations, input.settleRateMicro, kind)
     const block = postingBlock(db, input.date)
     if (block) throw new Error(block)
-    const receivable = ex.fcBalance > 0
+    const receivable = kind === 'receivable'
     const rate = input.settleRateMicro / 1_000_000
-    const fcText = `${(input.fcAmount / 100).toFixed(2)} ${ex.currencyCode}`
+    const fcText = `${(split.fcTotal / 100).toFixed(2)} ${currencyCode}`
+    type L = { ledgerId: number; drCr: 'dr' | 'cr'; amount: number; costAllocations: [] }
+    const lines: L[] = receivable
+      ? [{ ledgerId: input.bankLedgerId, drCr: 'dr', amount: split.bankInr, costAllocations: [] }, { ledgerId: input.partyLedgerId, drCr: 'cr', amount: split.partyInr, costAllocations: [] }]
+      : [{ ledgerId: input.partyLedgerId, drCr: 'dr', amount: split.partyInr, costAllocations: [] }, { ledgerId: input.bankLedgerId, drCr: 'cr', amount: split.bankInr, costAllocations: [] }]
+    const gain = split.gainLoss > 0
+    if (split.gainLoss !== 0) {
+      lines.push({ ledgerId: ensurePlLedger(db, gain ? REALISED_GAIN : REALISED_LOSS), drCr: gain ? 'cr' : 'dr', amount: Math.abs(split.gainLoss), costAllocations: [] })
+    }
+    // Receipt / Payment when the P&L line sits on the non-money side; otherwise a Journal.
+    const voucherKind = split.gainLoss === 0 || (receivable ? gain : !gain) ? (receivable ? 'receipt' : 'payment') : 'journal'
     const v = saveVoucher(db, {
-      voucherTypeId: systemVoucherTypeId(db, receivable ? 'receipt' : 'payment'),
+      voucherTypeId: systemVoucherTypeId(db, voucherKind),
       date: input.date,
       partyLedgerId: input.partyLedgerId,
-      narration: input.narration ?? `${receivable ? 'Received' : 'Paid'} ${fcText} at ₹${rate} — ${party.name}`,
+      narration: input.narration ?? `${receivable ? 'Received' : 'Paid'} ${fcText} at ₹${rate} against ${split.lines.map((l) => l.name).join(', ')} — ${party.name}${split.gainLoss ? ` (realised ${gain ? 'gain' : 'loss'})` : ''}`,
       reference: null,
-      currencyCode: ex.currencyCode,
+      currencyCode,
       exchangeRate: rate,
-      lines: receivable
-        ? [
-            { ledgerId: input.bankLedgerId, drCr: 'dr', amount: split.bankInr, costAllocations: [] },
-            { ledgerId: input.partyLedgerId, drCr: 'cr', amount: split.bankInr, costAllocations: [] }
-          ]
-        : [
-            { ledgerId: input.partyLedgerId, drCr: 'dr', amount: split.bankInr, costAllocations: [] },
-            { ledgerId: input.bankLedgerId, drCr: 'cr', amount: split.bankInr, costAllocations: [] }
-          ],
+      lines,
       inventory: [],
-      billRefs: [],
+      billRefs: split.lines.filter((l) => l.bookInr > 0).map((l) => ({ kind: 'against' as const, name: l.name, amount: l.bookInr, dueDate: null })),
       tds: null
     })
-    let adjId: number | null = null
-    const diff = split.partyInr - split.bankInr // rupees still to take off (+) / put back on (−) the party, receivable sense
-    if (diff !== 0) {
-      const gain = split.gainLoss > 0
-      const pl = findOrCreateLedger(db, gain ? REALISED_GAIN.name : REALISED_LOSS.name, gain ? REALISED_GAIN.group : REALISED_LOSS.group)
-      // Receivable: party relieved by bankInr; carried partyInr. diff > 0 → Cr party more (loss); diff < 0 → Dr party back (gain).
-      // Payable: party debited by bankInr; carried partyInr. diff > 0 → Dr party more (gain); diff < 0 → Cr party back (loss).
-      const partyDr = receivable ? diff < 0 : diff > 0
-      const amt = Math.abs(diff)
-      const lines: Line[] = [
-        { ledgerId: input.partyLedgerId, drCr: partyDr ? 'dr' : 'cr', amount: amt, costAllocations: [] },
-        { ledgerId: pl, drCr: partyDr ? 'cr' : 'dr', amount: amt, costAllocations: [] }
-      ]
-      adjId = journal(db, input.date, `Realised exchange ${gain ? 'gain' : 'loss'} on ${fcText} settled (${v.number}) — ${party.name}`, lines).id
-    }
     const id = Number(db.prepare(
-      `INSERT INTO fx_settlements (voucher_id, adjustment_voucher_id, party_ledger_id, currency_code, fc_amount, settle_rate_micro, party_inr, bank_inr, gain_loss)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
-    ).run(v.id, adjId, input.partyLedgerId, ex.currencyCode, input.fcAmount, input.settleRateMicro, split.partyInr, split.bankInr, split.gainLoss).lastInsertRowid)
-    return { id, voucherId: v.id, adjustmentVoucherId: adjId, ...split }
+      `INSERT INTO fx_settlements (voucher_id, party_ledger_id, currency_code, fc_amount, settle_rate_micro, party_inr, bank_inr, gain_loss)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run(v.id, input.partyLedgerId, currencyCode, split.fcTotal, input.settleRateMicro, split.partyInr, split.bankInr, split.gainLoss).lastInsertRowid)
+    const ins = db.prepare('INSERT INTO fx_settlement_bills (settlement_id, invoice_voucher_id, bill_name, fc_amount, book_inr) VALUES (?, ?, ?, ?, ?)')
+    for (const l of split.lines) ins.run(id, l.voucherId, l.name, l.fc, l.bookInr)
+    return { id, voucherId: v.id, bankInr: split.bankInr, partyInr: split.partyInr, gainLoss: split.gainLoss, bills: split.lines }
   })
   const { id, ...result } = run()
-  writeAudit(db, 'fx_settlement', id, 'create', null, { ...result, partyLedgerId: input.partyLedgerId, fcAmount: input.fcAmount, settleRateMicro: input.settleRateMicro })
+  writeAudit(db, 'fx_settlement', id, 'create', null, { ...result, partyLedgerId: input.partyLedgerId, settleRateMicro: input.settleRateMicro })
   return result
 }
 
@@ -374,7 +437,7 @@ export function settle(db: DB, raw: FxSettleInput): FxSettleResult {
 export function unrevaluedBalances(db: DB, asOf: string): { currencyCode: string; ledgers: number; fcBalance: number }[] {
   const by = new Map<string, { currencyCode: string; ledgers: number; fcBalance: number }>()
   for (const e of exposureLedgers(db, asOf)) {
-    const f = foldExposure(fxLines(db, e.ledgerId, asOf), e.currencyCode)
+    const f = foldExposure(fxLines(db, e.ledgerId, asOf), e.currencyCode, e.opening)
     if (f.fcBalance === 0) continue
     const row = by.get(e.currencyCode) ?? { currencyCode: e.currencyCode, ledgers: 0, fcBalance: 0 }
     row.ledgers++

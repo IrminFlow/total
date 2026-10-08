@@ -2258,9 +2258,9 @@ export const MIGRATIONS: string[] = [
   //   micro-rupees per unit. fx_ledger_currency: a ledger kept in a foreign currency (needed for
   //   bank accounts; party ledgers are detected from their foreign-currency invoices).
   //   fx_revaluations / fx_revaluation_lines: each closing-rate revaluation journal, its optional
-  //   next-day reversal and the per-ledger working. fx_settlements: a settlement recorded at an
-  //   actual rate — the receipt / payment (its party line carries the foreign amount) and the
-  //   journal booking the realised difference against Realised Forex Gain / Loss.
+  //   next-day reversal and the per-ledger working. fx_settlements (+ fx_settlement_bills): a
+  //   settlement at an actual rate, bill by bill — one voucher whose party line carries the
+  //   foreign amount and the bills' book value, the realised difference on its own line.
   `
   CREATE TABLE forecast_items (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -2344,6 +2344,16 @@ export const MIGRATIONS: string[] = [
   );
   CREATE INDEX idx_loan_schedules_due ON loan_schedules(due_date);
   CREATE INDEX idx_loan_schedules_voucher ON loan_schedules(voucher_id);
+  -- Every voucher Post EMI created, kept even after its schedule row is regenerated, so the bin
+  -- can refuse restoring an instalment that was posted again (or no longer exists). Purging the
+  -- voucher drops the row; the loan id has no FK so deleteLoan can refuse while any remain.
+  CREATE TABLE loan_vouchers (
+    voucher_id INTEGER PRIMARY KEY REFERENCES vouchers(id) ON DELETE CASCADE,
+    loan_id INTEGER NOT NULL,
+    seq INTEGER NOT NULL,
+    kind TEXT NOT NULL CHECK (kind IN ('emi', 'moratorium', 'prepayment'))
+  );
+  CREATE INDEX idx_loan_vouchers_loan ON loan_vouchers(loan_id);
 
   CREATE TABLE fx_rates (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -2355,7 +2365,10 @@ export const MIGRATIONS: string[] = [
   );
   CREATE TABLE fx_ledger_currency (
     ledger_id INTEGER PRIMARY KEY REFERENCES ledgers(id) ON DELETE CASCADE,
-    currency_code TEXT NOT NULL
+    currency_code TEXT NOT NULL,
+    -- The foreign amount (hundredths, dr-positive) behind the ledger's rupee opening balance —
+    -- e.g. a Tally-imported debtor's opening. NULL = the opening is not foreign money.
+    opening_fc INTEGER
   );
   CREATE TABLE fx_revaluations (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -2385,7 +2398,6 @@ export const MIGRATIONS: string[] = [
   CREATE TABLE fx_settlements (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     voucher_id INTEGER NOT NULL REFERENCES vouchers(id) ON DELETE CASCADE,
-    adjustment_voucher_id INTEGER REFERENCES vouchers(id) ON DELETE SET NULL,
     party_ledger_id INTEGER NOT NULL REFERENCES ledgers(id),
     currency_code TEXT NOT NULL,
     fc_amount INTEGER NOT NULL CHECK (fc_amount > 0),
@@ -2395,6 +2407,17 @@ export const MIGRATIONS: string[] = [
     gain_loss INTEGER NOT NULL,
     UNIQUE (voucher_id, party_ledger_id)
   );
-  CREATE INDEX idx_fx_settlements_adj ON fx_settlements(adjustment_voucher_id);
+  -- Bill-wise settlement: each foreign bill relieved at its own book rate (AS 11 para 13).
+  -- invoice_voucher_id NULL = the ledger's foreign opening balance (bill name 'Opening').
+  CREATE TABLE fx_settlement_bills (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    settlement_id INTEGER NOT NULL REFERENCES fx_settlements(id) ON DELETE CASCADE,
+    invoice_voucher_id INTEGER REFERENCES vouchers(id) ON DELETE SET NULL,
+    bill_name TEXT NOT NULL,
+    fc_amount INTEGER NOT NULL CHECK (fc_amount > 0),
+    book_inr INTEGER NOT NULL CHECK (book_inr >= 0)
+  );
+  CREATE INDEX idx_fx_settlement_bills_settlement ON fx_settlement_bills(settlement_id);
+  CREATE INDEX idx_fx_settlement_bills_invoice ON fx_settlement_bills(invoice_voucher_id);
   `
 ]

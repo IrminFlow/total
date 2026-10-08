@@ -20,6 +20,8 @@ import { parseRupees, plainRupees } from '@shared/money'
 import { descendantIds } from './masters'
 import { getBudget, saveBudget } from './budgets'
 import { IN_BOOKS, NOT_YEAR_END_CLOSE } from './vouchers'
+import { pnlLedgerAmounts } from './reports'
+import { monthEnd } from '@shared/dashboard'
 
 type Nature = PhasedLine['nature']
 
@@ -88,18 +90,32 @@ const SIGNED = `CASE WHEN g.nature = 'income'
 const signed = (col: string): string => SIGNED.replaceAll('%A', col)
 
 /** Whole-ledger and per-cost-centre actuals for a date range, netted per (ledger, [cc,] month). */
-function monthActuals(db: DB, from: string, to: string): MonthActual[] {
-  const ledgerRows = db
+function monthActuals(db: DB, months: string[], lk: Lookups): MonthActual[] {
+  const from = `${months[0]!}-01`
+  const to = monthEnd(months[months.length - 1]!)
+  // Income / expense ledgers: each month's figure is reports.pnlLedgerAmounts for that month —
+  // the one definition of profit for a period (closing journals out, the books' stored openings in
+  // when the month holds the books' first day), signed to the ledger's natural direction.
+  const ledgerRows: MonthActual[] = []
+  for (const m of months) {
+    const { amounts } = pnlLedgerAmounts(db, `${m}-01`, monthEnd(m))
+    for (const [ledgerId, amount] of amounts) {
+      if (amount === 0) continue
+      ledgerRows.push({ ledgerId, costCentreId: null, month: m, amount: lk.ledgerNature.get(ledgerId) === 'income' ? -amount : amount })
+    }
+  }
+  // Any other target (a balance-sheet ledger or group) nets its in-books lines.
+  ledgerRows.push(...(db
     .prepare(
       `SELECT vl.ledger_id AS ledgerId, NULL AS costCentreId, substr(v.date, 1, 7) AS month, SUM(${signed('vl.amount')}) AS amount
        FROM voucher_lines vl
        JOIN vouchers v ON v.id = vl.voucher_id
        JOIN ledgers l ON l.id = vl.ledger_id
        JOIN groups g ON g.id = l.group_id
-       WHERE v.date BETWEEN ? AND ? AND ${IN_BOOKS} AND ${NOT_YEAR_END_CLOSE}
+       WHERE v.date BETWEEN ? AND ? AND ${IN_BOOKS} AND ${NOT_YEAR_END_CLOSE} AND g.nature NOT IN ('income', 'expense')
        GROUP BY vl.ledger_id, month`
     )
-    .all(from, to) as MonthActual[]
+    .all(from, to) as MonthActual[]))
   const ccRows = db
     .prepare(
       `SELECT vl.ledger_id AS ledgerId, vlca.cost_centre_id AS costCentreId, substr(v.date, 1, 7) AS month, SUM(${signed('vlca.amount')}) AS amount
@@ -136,7 +152,7 @@ export function budgetMonthlyReport(db: DB, budgetId: number, upToMonth: string)
   const fy = fyFromStartYear(budget.fyStartYear)
   const ccSub = new Map<number, Set<number>>()
   for (const l of lines) if (l.costCentreId != null && !ccSub.has(l.costCentreId)) ccSub.set(l.costCentreId, ccSubtreeOf(lk, l.costCentreId))
-  const rows = lines.length === 0 ? [] : monthlyVariance(lines, monthActuals(db, fy.from, fy.to), groupLedgerMap(db, lk, lines), ccSub, months, up)
+  const rows = lines.length === 0 ? [] : monthlyVariance(lines, monthActuals(db, months, lk), groupLedgerMap(db, lk, lines), ccSub, months, up)
   return { budgetId, fyStartYear: budget.fyStartYear, months, upToMonth: up, rows }
 }
 
@@ -245,6 +261,7 @@ export function parseBudgetCsv(db: DB, fyStartYear: number, csvText: string): { 
   const groups = new Map((db.prepare('SELECT id, name FROM groups').all() as { id: number; name: string }[]).map((g) => [g.name.toLowerCase(), g.id]))
   const ccs = new Map((db.prepare('SELECT id, name FROM cost_centres').all() as { id: number; name: string }[]).map((c) => [c.name.toLowerCase(), c.id]))
   const months = fyMonthList(fyStartYear)
+  const seen = new Map<string, number>()
   for (const rec of records.slice(1)) {
     const c = rec.cells.map((x) => x.trim())
     const where = `Line ${rec.line}`
@@ -262,16 +279,27 @@ export function parseBudgetCsv(db: DB, fyStartYear: number, csvText: string): { 
     if (month && !months.includes(month)) { errors.push(`${where}: month ${month} is outside the budget's year`); continue }
     if (!month && !PHASINGS.includes(phasingText as BudgetPhasing)) { errors.push(`${where}: phasing must be annual, even, seasonal or manual`); continue }
     const phasing = (month ? 'annual' : phasingText) as BudgetPhasing
+    // Every month cell must be blank or an amount (a typo is reported, never read as zero).
+    const cells = months.map((_, i) => (c[6 + i] ?? '').trim())
+    const parsed = cells.map((t) => (t === '' ? 0 : parseRupees(t)))
+    const badMonth = parsed.findIndex((v) => v == null)
+    if (badMonth >= 0) { errors.push(`${where}: “${cells[badMonth]}” in ${BUDGET_CSV_HEADER[6 + badMonth]} is not an amount`); continue }
     let monthly: number[] | null = null
     if (phasing === 'manual') {
-      const vals = months.map((_, i) => parseRupees(c[6 + i] ?? '') ?? 0)
+      const vals = parsed as number[]
       if (vals.some((v) => v < 0)) { errors.push(`${where}: monthly amounts cannot be negative`); continue }
       monthly = vals
     }
-    const annualText = c[5] ?? ''
-    const amount = annualText ? parseRupees(annualText) : monthly ? monthly.reduce((s, v) => s + v, 0) : null
+    const annualText = (c[5] ?? '').trim()
+    const annualParsed = annualText ? parseRupees(annualText) : null
+    if (annualText && annualParsed == null) { errors.push(`${where}: “${annualText}” is not an amount`); continue }
+    const amount = annualText ? annualParsed : monthly ? monthly.reduce((s, v) => s + v, 0) : null
     if (amount == null || amount <= 0) { errors.push(`${where}: enter an annual amount above zero`); continue }
     if (monthly && monthly.reduce((s, v) => s + v, 0) !== amount) { errors.push(`${where}: monthly amounts must add up to the annual amount`); continue }
+    const key = `${type}|${ledgerId ?? groupId}|${costCentreId ?? ''}|${month ?? ''}`
+    const dup = seen.get(key)
+    if (dup) { errors.push(`${where}: repeats line ${dup} (same target, cost centre and month)`); continue }
+    seen.set(key, rec.line)
     lines.push({ ledgerId, groupId, month, amount, costCentreId, phasing, monthly })
   }
   return { lines, errors }

@@ -73,45 +73,41 @@ export interface FxLine {
 export interface Exposure {
   /** Signed fc minor (dr-positive): + is owed to us / held, − is owed by us. */
   fcBalance: number
-  /** Signed paise of the exposure lines (dr-positive) — the book value in rupees. */
+  /** Signed paise of the foreign-currency lines only (dr-positive) — their book value in rupees. */
   inrBook: number
   /** inrBook / fcBalance in micro-rupees, null when nothing is open. */
   carryingRateMicro: number | null
-  /** Rupee lines without a foreign amount that were converted at the carrying rate (no realised
-   *  difference recognised for them — record settlements through Forex → Settle instead). */
-  inferredLines: number
+  /** Rupee lines on the ledger that carry no foreign amount. They are NOT foreign money and are
+   *  left out of both the foreign balance and its book value (so they are never revalued). */
+  rupeeLines: number
 }
 
 /**
- * Fold an exposure ledger's lines into its foreign and rupee balances for `currency`:
- * - a line on a voucher in `currency` carries fc = its override, else amount ÷ the voucher rate;
- * - a revaluation line moves rupees only;
- * - any other line (a rupee receipt or payment against the foreign balance) is converted at the
- *   carrying rate just before it — it settles foreign units at book value, so no gain or loss is
- *   inferred for it.
+ * Fold an exposure ledger's lines into its foreign balance and that balance's rupee book value:
+ * - the foreign opening (fx_ledger_currency.opening_fc against the ledger's rupee opening), if any;
+ * - a line on a voucher in `currency` carries fc = its override (a recorded settlement), else
+ *   amount ÷ the voucher rate; its rupees count in the book value;
+ * - a revaluation / reversal line moves the book value only;
+ * - any other line is rupee money: excluded from both figures and counted in `rupeeLines`.
  */
-export function foldExposure(lines: readonly FxLine[], currency: string): Exposure {
-  let fc = 0
-  let inr = 0
-  let inferred = 0
+export function foldExposure(lines: readonly FxLine[], currency: string, opening: { fc: number; inr: number } | null = null): Exposure {
+  let fc = opening?.fc ?? 0
+  let inr = opening?.inr ?? 0
+  let rupee = 0
   for (const l of lines) {
     if (l.revaluation) {
       inr += l.amount
-      continue
-    }
-    if (l.fcOverride != null) {
+    } else if (l.fcOverride != null) {
       fc += l.fcOverride
+      inr += l.amount
     } else if (l.currency === currency && l.rateMicro && l.rateMicro > 0) {
       fc += fcFromInr(l.amount, l.rateMicro)
-    } else if (fc !== 0 && inr !== 0) {
-      fc += mulDivRound(l.amount, fc, inr)
-      inferred++
+      inr += l.amount
     } else {
-      inferred++
+      rupee++
     }
-    inr += l.amount
   }
-  return { fcBalance: fc, inrBook: inr, carryingRateMicro: fc !== 0 ? Math.abs(mulDivRound(inr, 1_000_000, fc)) : null, inferredLines: inferred }
+  return { fcBalance: fc, inrBook: inr, carryingRateMicro: fc !== 0 ? Math.abs(mulDivRound(inr, 1_000_000, fc)) : null, rupeeLines: rupee }
 }
 
 export interface RevaluationLine {
@@ -130,31 +126,105 @@ export function revalue(fcBalance: number, inrBook: number, closingRateMicro: nu
   return { target, adjustment, gainLoss: adjustment }
 }
 
+// ---------- bill-wise settlement ----------
+
+/** One foreign bill (invoice / bill / the opening) still open, in positive magnitudes. */
+export interface ForeignBill {
+  name: string
+  /** The invoice voucher (null = the ledger's foreign opening). */
+  voucherId: number | null
+  date: string
+  /** Foreign amount still open (fc minor). */
+  fcOpen: number
+  /** Its rupee book value at the bill's own rate. */
+  bookOpen: number
+}
+
+export interface ForeignEntry { name: string; voucherId: number | null; date: string; fc: number; inr: number }
+
+/**
+ * Open foreign bills: `bills` (positive, in date order) less `reductions` (foreign-currency credit
+ * notes / returns — FIFO, at each bill's own rate) less earlier settlements by bill name.
+ */
+export function openForeignBills(
+  bills: readonly ForeignEntry[],
+  reductions: readonly { fc: number }[],
+  settled: readonly { name: string; fc: number; bookInr: number }[]
+): ForeignBill[] {
+  const open: ForeignBill[] = bills.map((b) => ({ name: b.name, voucherId: b.voucherId, date: b.date, fcOpen: b.fc, bookOpen: b.inr }))
+  const take = (b: ForeignBill, fc: number, book?: number): void => {
+    const inr = book ?? (fc === b.fcOpen ? b.bookOpen : mulDivRound(b.bookOpen, fc, b.fcOpen))
+    b.fcOpen -= fc
+    b.bookOpen -= inr
+  }
+  for (const s of settled) {
+    const b = open.find((x) => x.name === s.name && x.fcOpen > 0)
+    if (b) take(b, Math.min(s.fc, b.fcOpen), s.fc >= b.fcOpen ? b.bookOpen : s.bookInr)
+  }
+  for (const r of reductions) {
+    let rest = r.fc
+    for (const b of open) {
+      if (rest <= 0) break
+      if (b.fcOpen <= 0) continue
+      const t = Math.min(rest, b.fcOpen)
+      take(b, t)
+      rest -= t
+    }
+  }
+  return open.filter((b) => b.fcOpen > 0)
+}
+
+/** Spread `fcAmount` over the open bills oldest first. */
+export function allocateFifo(bills: readonly ForeignBill[], fcAmount: number): { name: string; fc: number }[] {
+  const out: { name: string; fc: number }[] = []
+  let rest = fcAmount
+  for (const b of bills) {
+    if (rest <= 0) break
+    const t = Math.min(rest, b.fcOpen)
+    out.push({ name: b.name, fc: t })
+    rest -= t
+  }
+  if (rest > 0) throw new Error('More than the open foreign balance')
+  return out
+}
+
+export interface SettlementLine { name: string; voucherId: number | null; fc: number; bookInr: number }
+
 export interface SettlementSplit {
+  lines: SettlementLine[]
+  fcTotal: number
   /** Rupees moved through the bank (positive). */
   bankInr: number
-  /** Rupees taken off the party ledger: the carrying value of the units settled (positive). */
+  /** Book value of the bills relieved, each at its own rate (positive). */
   partyInr: number
   /** + realised gain, − realised loss. */
   gainLoss: number
 }
 
 /**
- * Realised exchange difference on settling `fcAmount` (positive fc minor) of an exposure at
- * `settleRateMicro`. The party ledger is relieved at its carrying value pro rata (all of inrBook
- * when the whole balance is settled, so nothing is left behind); the bank moves fc × settle rate.
- * Receivable: received more rupees than carried = gain. Payable: paid fewer = gain.
+ * Realised exchange difference (AS 11 para 13 / Ind AS 21 para 28), bill by bill: each bill is
+ * relieved at its OWN book rate (all of its book value when settled in full), the bank moves the
+ * total foreign amount × the settlement rate. Receivable: more rupees in than carried = gain.
+ * Payable: fewer rupees out = gain.
  */
-export function settlementSplit(exposure: Pick<Exposure, 'fcBalance' | 'inrBook'>, fcAmount: number, settleRateMicro: number): SettlementSplit {
-  const open = Math.abs(exposure.fcBalance)
-  if (fcAmount <= 0) throw new Error('Settle a positive foreign amount')
-  if (open === 0) throw new Error('Nothing is open in this currency')
-  if (fcAmount > open) throw new Error('More than the open foreign balance')
-  const carried = Math.abs(exposure.inrBook)
-  const partyInr = fcAmount === open ? carried : mulDivRound(carried, fcAmount, open)
-  const bankInr = inrFromFc(fcAmount, settleRateMicro)
-  const receivable = exposure.fcBalance > 0
-  return { bankInr, partyInr, gainLoss: receivable ? bankInr - partyInr : partyInr - bankInr }
+export function settleBills(
+  bills: readonly ForeignBill[],
+  allocations: readonly { name: string; fc: number }[],
+  settleRateMicro: number,
+  side: 'receivable' | 'payable'
+): SettlementSplit {
+  if (allocations.length === 0) throw new Error('Pick at least one bill')
+  const lines: SettlementLine[] = allocations.map((a) => {
+    const b = bills.find((x) => x.name === a.name)
+    if (!b) throw new Error(`Bill ${a.name} is not open`)
+    if (!(a.fc > 0)) throw new Error(`Enter a positive amount for ${a.name}`)
+    if (a.fc > b.fcOpen) throw new Error(`More than is open on ${a.name}`)
+    return { name: b.name, voucherId: b.voucherId, fc: a.fc, bookInr: a.fc === b.fcOpen ? b.bookOpen : mulDivRound(b.bookOpen, a.fc, b.fcOpen) }
+  })
+  const fcTotal = lines.reduce((s, l) => s + l.fc, 0)
+  const partyInr = lines.reduce((s, l) => s + l.bookInr, 0)
+  const bankInr = inrFromFc(fcTotal, settleRateMicro)
+  return { lines, fcTotal, bankInr, partyInr, gainLoss: side === 'receivable' ? bankInr - partyInr : partyInr - bankInr }
 }
 
 /** Format fc minor with two decimals and the code: 1234567 → "12,345.67 USD". */

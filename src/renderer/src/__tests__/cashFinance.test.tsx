@@ -60,7 +60,7 @@ const FX: FxRevaluationPreview = {
   asOf: TODAY,
   rows: [{
     ledgerId: 30, ledgerName: 'Globex Inc', kind: 'receivable', currencyCode: 'USD', fcBalance: 1000_00, inrBook: 82_000_00, carryingRateMicro: 82_000_000,
-    closingRateMicro: 83_250_000, closingRateDate: TODAY, target: 83_250_00, gainLoss: 1_250_00, inferredLines: 0
+    closingRateMicro: 83_250_000, closingRateDate: TODAY, target: 83_250_00, gainLoss: 1_250_00, rupeeLines: 0
   }],
   missingRates: [], gain: 1_250_00, loss: 0, blocked: null
 }

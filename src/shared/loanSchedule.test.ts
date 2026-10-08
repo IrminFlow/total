@@ -87,6 +87,21 @@ describe('moratorium and prepayment', () => {
     expect(emis[3]!.payment).toBeLessThan(8_884_88)
     expect(s.rows.at(-1)!.closing).toBe(0)
   })
+  it('a prepayment inside a capitalised moratorium applies on its date (review case)', () => {
+    // ₹1,00,000 @ 12 %, 3-month capitalised moratorium from 5 May, ₹50,000 prepaid on 20 May.
+    const s = generateSchedule({ ...base, moratoriumMonths: 3 }, [{ date: '2026-05-20', amount: 50_000_00, effect: 'reduce_emi' }])
+    expect(s.rows.slice(0, 4).map((r) => [r.kind, r.dueDate])).toEqual([
+      ['moratorium', '2026-05-05'], ['prepayment', '2026-05-20'], ['moratorium', '2026-06-05'], ['moratorium', '2026-07-05']
+    ])
+    // month 1 interest on 1,00,000; then 1,01,000 − 50,000 = 51,000 earns 510 in month 2
+    expect(s.rows[1]).toMatchObject({ opening: 1_01_000_00, closing: 51_000_00 })
+    expect(s.rows[2]).toMatchObject({ interest: 510_00, closing: 51_510_00 })
+    expect(s.emi).toBe(emiFor(Math.round(51_510_00 * 1.01), 12_000, 12))
+    const dates = s.rows.map((r) => r.dueDate)
+    expect([...dates].sort()).toEqual(dates)
+    expect(s.rows.at(-1)!.closing).toBe(0)
+  })
+
   it('refuses an EMI that does not cover interest', () => {
     expect(() => generateSchedule({ ...base, emiOverride: 500_00 })).toThrow(/does not cover/)
   })

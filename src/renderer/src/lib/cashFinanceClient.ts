@@ -5,7 +5,7 @@ import type { Budget } from '@shared/domain'
 import type { LoanSchedule } from '@shared/loanSchedule'
 import type {
   BudgetCsvResult, BudgetDrillRow, BudgetMonthlyReport, BudgetRevision, CashFinanceCloseWarnings, EmiReminder, FinanceReminders,
-  ForecastBase, ForecastItem, ForecastItemInput, FxRate, FxRateInput, FxRevaluationPreview, FxRevaluationRow, FxSettleInput, FxSettleResult,
+  ForecastBase, ForecastItem, FxOpenBill, ForecastItemInput, FxRate, FxRateInput, FxRevaluationPreview, FxRevaluationRow, FxSettleInput, FxSettleResult,
   LoanDetail, LoanInput, LoanPrepaymentInput, LoanScheduleRow, LoanSummary, PostEmiInput
 } from '@shared/cashFinance'
 
@@ -32,8 +32,9 @@ export const cfApi = {
     rates: () => call<FxRate[]>('fx:rates'),
     rateSave: (data: FxRateInput) => call<FxRate>('fx:rateSave', data),
     rateDelete: (id: number) => call<null>('fx:rateDelete', { id }),
-    ledgerCurrencies: () => call<{ ledgerId: number; ledgerName: string; currencyCode: string }[]>('fx:ledgerCurrencies'),
-    setLedgerCurrency: (ledgerId: number, currencyCode: string | null) => call<null>('fx:setLedgerCurrency', { ledgerId, currencyCode }),
+    ledgerCurrencies: () => call<{ ledgerId: number; ledgerName: string; currencyCode: string; openingFc: number | null; openingInr: number }[]>('fx:ledgerCurrencies'),
+    setLedgerCurrency: (ledgerId: number, currencyCode: string | null, openingFc: number | null = null) => call<null>('fx:setLedgerCurrency', { ledgerId, currencyCode, openingFc }),
+    openBills: (ledgerId: number, asOf: string) => call<{ currencyCode: string; kind: 'receivable' | 'payable' | 'bank'; bills: FxOpenBill[] }>('fx:openBills', { ledgerId, asOf }),
     preview: (asOf: string) => call<FxRevaluationPreview>('fx:preview', { asOf }),
     revalue: (asOf: string, autoReverse: boolean) => call<FxRevaluationRow>('fx:revalue', { asOf, autoReverse }),
     reverse: (id: number, date?: string) => call<FxRevaluationRow>('fx:reverse', { id, date }),
