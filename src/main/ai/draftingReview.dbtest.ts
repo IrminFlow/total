@@ -16,6 +16,7 @@ import type { Role } from '../services/roles'
 import { DraftWork, loadMasters } from './drafting/work'
 import { buildAccountingDraft, buildInvoiceDraft, buildManufactureDraft, buildStockNoteDraft, buildTradeDocDraft } from './drafting/builders'
 import { isRequestedDraft } from './drafting/intent'
+import { exposedTools } from '../mcp/server'
 import { BLANK, INFO, TODAY, db, draft, fixture, ids, invoiceEditorPayload, payloadOf, registry, typeId } from './drafting.testutil'
 
 beforeEach(fixture)
@@ -210,6 +211,15 @@ describe('rehearsals never persist anything (all five tools)', () => {
     })()
     expect(snapshot()).toEqual(before)
     expect(db.prepare("SELECT value FROM meta WHERE key = 'wp53-outer'").get()).toEqual({ value: '1' })
+  })
+})
+
+describe('MCP exposure (WP 5.7)', () => {
+  it('the five draft tools are listed to accountant and owner sessions only — never to a viewer', () => {
+    const DRAFTS = ['draft_voucher', 'draft_invoice', 'draft_stock_note', 'draft_manufacture', 'draft_trade_doc']
+    const names = (role: Role): string[] => exposedTools(registry, { role, userName: null, userId: null }).map((t) => t.name)
+    expect(names('viewer').filter((n) => DRAFTS.includes(n))).toEqual([])
+    for (const role of ['accountant', 'owner'] as Role[]) expect(names(role)).toEqual(expect.arrayContaining(DRAFTS))
   })
 })
 
