@@ -159,10 +159,11 @@ export default function App(): React.JSX.Element {
           {screen.name === 'data-export' && <BooksExportScreen />}
           {screen.name === 'voucher-entry' && (
             <VoucherEntry
-              key={screen.voucherId ?? (screen.draftId ? `draft-${screen.draftId}` : 'new')}
+              key={screen.voucherId ?? (screen.aiDraftId ? `ai-${screen.aiDraftId}` : screen.draftId ? `draft-${screen.draftId}` : 'new')}
               voucherId={screen.voucherId}
               kindHint={screen.kindHint}
               draft={screen.draft}
+              aiDraftId={screen.aiDraftId}
             />
           )}
           {screen.name === 'masters' && (
