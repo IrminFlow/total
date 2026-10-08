@@ -373,7 +373,7 @@ export function parseTallyExport(xml: string): TallyImport {
       number: childText(v, 'VOUCHERNUMBER'),
       party: childText(v, 'PARTYLEDGERNAME') || null,
       narration: childText(v, 'NARRATION') || null,
-      isOptional: childText(v, 'ISOPTIONAL').toLowerCase() === 'yes',
+      ...(childText(v, 'ISOPTIONAL').toLowerCase() === 'yes' ? { isOptional: true } : {}),
       lines,
       inventory
     })
