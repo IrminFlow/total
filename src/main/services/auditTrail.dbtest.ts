@@ -37,6 +37,8 @@ describe('migration 031 backfill', () => {
     expect(M031 + 1).toBe(31)
     // Later migrations (032+) must not rebuild audit_log (a rebuild must recreate both triggers).
     expect(MIGRATIONS.slice(M031 + 1).some((sql) => /\b(DROP|ALTER) TABLE audit_log\b|CREATE TABLE audit_log/.test(sql))).toBe(false)
+    // Phase 4 migrations (032+) append after it; none rebuilds audit_log.
+    for (const later of MIGRATIONS.slice(M031 + 1)) expect(later).not.toMatch(/DROP TABLE audit_log|audit_log_new/)
   })
 
   it('seals every pre-existing row in id order into a chain that verifies; keeps users as recorded', () => {

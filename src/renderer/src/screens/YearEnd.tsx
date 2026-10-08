@@ -267,6 +267,26 @@ export function YearEndScreen(): React.JSX.Element {
         </Banner>
       )}
 
+      {/* WP 4.3: micro / small supplier dues past the MSMED Act s.15 period on 31 March — warn, nothing posted. */}
+      {preview?.msme && !preview.alreadyClosed && preview.msme.overdue > 0 && (
+        <Banner
+          tone="warning"
+          className="mb-section"
+          testId="year-end-msme"
+          title={`MSME dues past the 45-day period on ${toDisplayDate(preview.msme.asOn)}`}
+          action={
+            <Button size="sm" data-testid="btn-year-end-msme" onClick={() => nav.go({ name: 'payables', tab: 'msme' })}>
+              MSME report
+            </Button>
+          }
+        >
+          <Money paise={preview.msme.overdue} /> on {preview.msme.bills} bill{preview.msme.bills === 1 ? '' : 's'} of {preview.msme.parties} micro / small
+          supplier{preview.msme.parties === 1 ? '' : 's'} is unpaid past the MSMED Act s.15 period: interest under s.16 runs and the expense is
+          disallowed for the year until paid ({preview.msme.disallowed > 0 ? <><Money paise={preview.msme.disallowed} /> so far</> : 'see the report'}).
+          Nothing is posted automatically.
+        </Banner>
+      )}
+
       {step === 1 && (
         <>
           <Panel className="mb-section">

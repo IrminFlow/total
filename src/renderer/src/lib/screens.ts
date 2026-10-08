@@ -349,6 +349,14 @@ export const SCREENS: ScreenDef[] = [
     invalidates: ['creditControl', 'promisedWeek', 'reminderCandidates', 'reminderLog', 'interestPreview', 'interestCharges', 'collections', 'topOverdue', 'receivablesConfig']
   },
   {
+    name: 'payables',
+    keywords: ['payment planning', 'msme', 'udyam', '43b', 'msme form 1', 'batch payments', 'payment run', 'supplier reconciliation', 'supplier statement'],
+    title: 'Payables',
+    screen: { name: 'payables' },
+    navSection: 'analysis',
+    invalidates: ['payablesPlan', 'payablesRuns', 'msmeReport', 'msmeBankRates', 'supplierStatement', 'billsOpen']
+  },
+  {
     name: 'consolidated',
     title: 'Consolidated reports',
     screen: { name: 'consolidated' },

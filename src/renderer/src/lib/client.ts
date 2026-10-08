@@ -18,6 +18,7 @@ import type {
 } from '@shared/reports'
 import type { CashFlowStatement } from '@shared/reportMath'
 import type { DashboardSeries } from '@shared/dashboard'
+import type { MsmeYearEndWarning } from '@shared/payables/types'
 import type { Gstr1Result, Gstr3bResult } from '@shared/gst/returns'
 import type { GstIssue } from '@shared/gst/validate'
 import type { Recon2bResult, Recon2bTolerances } from '@shared/gst/recon2b'
@@ -1075,7 +1076,7 @@ export const api = {
   },
   yearEnd: {
     preview: (fyStartYear: number) =>
-      call<{ rows: CloseLedgerRow[]; netProfit: number; alreadyClosed: boolean; depreciation?: DepreciationYearStatus; unbilled?: UnbilledGoods }>('yearend:preview', { fyStartYear }),
+      call<{ rows: CloseLedgerRow[]; netProfit: number; alreadyClosed: boolean; depreciation?: DepreciationYearStatus; unbilled?: UnbilledGoods; msme?: MsmeYearEndWarning }>('yearend:preview', { fyStartYear }),
     close: (fyStartYear: number) =>
       call<{ voucherId: number; netProfit: number; lockedUpTo: string }>('yearend:close', { fyStartYear })
   },

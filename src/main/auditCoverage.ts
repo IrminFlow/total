@@ -288,6 +288,21 @@ export const AUDIT_COVERAGE: Record<string, AuditCoverage> = {
   'ai:cancel': r('stops an in-flight answer; the partial reply is kept in the AI tables only'),
   'ai:draft:discard': a('ai_draft'),
   'ai:data:deleteAll': a('ai_data'),
+  // ---------- payables (WP 4.3) ----------
+  'payables:plan': QUERY,
+  'payables:msmeDue': QUERY,
+  'payables:previewRun': r('computes what a payment run would post; writes nothing'),
+  'payables:createRun': a('payment_run', 'voucher', 'ledger'),
+  'payables:runs': QUERY,
+  'payables:run': QUERY,
+  'payables:runExportCsv': EXPORT,
+  'payables:msmeReport': QUERY,
+  'payables:msmeForm1Csv': EXPORT,
+  'payables:bankRates': QUERY,
+  'payables:bankRateSave': a('msme_bank_rate'),
+  'payables:bankRateDelete': a('msme_bank_rate'),
+  'payables:supplierStatement': QUERY,
+  'payables:supplierRecon': r('matches a pasted supplier ledger against the books; writes nothing'),
 
   // ---------- the audit trail itself (viewer-level, listed for completeness) ----------
   'audit:exportCsv': EXPORT,
