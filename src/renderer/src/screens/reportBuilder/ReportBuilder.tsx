@@ -32,14 +32,24 @@ const sameModel = (a: ReportModel | null | undefined, b: ReportModel | null | un
  * it by name, pin it to the sidebar, duplicate / rename / delete it, share it as JSON. A pinned
  * report opens here with its `reportId`.
  */
-export function ReportBuilderScreen({ reportId }: { reportId?: number }): React.JSX.Element {
+export function ReportBuilderScreen({
+  reportId,
+  initialModel,
+  initialName
+}: {
+  reportId?: number
+  /** WP 5.5: a model built from a question (the assistant's build_report, or Assistants → Report
+   *  from a question) — opens unsaved, pre-filled; Save names it. */
+  initialModel?: ReportModel
+  initialName?: string
+}): React.JSX.Element {
   const { from, to } = useSession()
   const toast = useToasts()
   const nav = useNav()
   const qc = useQueryClient()
   const saved = useQuery({ queryKey: ['savedReport', reportId], queryFn: () => reportsApi.get(reportId!), enabled: !!reportId })
   const { data: savedList } = useSavedReports()
-  const [model, setModel] = useState<ReportModel>(() => defaultModel('accounts'))
+  const [model, setModel] = useState<ReportModel>(() => (initialModel && !reportId ? reportModelSchema.parse(initialModel) : defaultModel('accounts')))
   const [loadedFor, setLoadedFor] = useState<number | null>(null)
   const [showDesign, setShowDesign] = useState(true)
 
@@ -90,7 +100,7 @@ export function ReportBuilderScreen({ reportId }: { reportId?: number }): React.
         toast.push('success', `Saved “${current.name}”`)
         return
       }
-      const name = await promptDialog({ title: asNew ? 'Save as a new report' : 'Save report', message: 'Name the report — it is saved with the company and can be pinned to the sidebar.', initial: current ? `${current.name} (copy)` : '', placeholder: 'e.g. Sales by party by month', confirmLabel: 'Save' })
+      const name = await promptDialog({ title: asNew ? 'Save as a new report' : 'Save report', message: 'Name the report — it is saved with the company and can be pinned to the sidebar.', initial: current ? `${current.name} (copy)` : (initialName ?? ''), placeholder: 'e.g. Sales by party by month', confirmLabel: 'Save' })
       if (!name?.trim()) return
       const created = await reportsApi.save(name.trim(), model)
       await refreshSaved()

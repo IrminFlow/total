@@ -85,6 +85,7 @@ import { registerReportsIpc } from './ipcReports'
 import { registerConsolidationIpc } from './ipcConsolidation'
 import { runDuePacksInBackground } from './packScheduler'
 import { registerAiIpc, aiRuns, type AppKeyAuditEntry } from './ai/ipc'
+import { registerAssistantsIpc } from './ipcAssistants'
 import { aiMockAllowed } from './ai/env'
 import { settleDraftOnSave } from './ai/drafts'
 import * as aiStore from './ai/store'
@@ -330,6 +331,8 @@ export function registerIpc(): void {
     },
     mock: () => aiMockAllowed(process.env, app.isPackaged)
   })
+  // ---------- assistants (WP 5.5): close checklist, anomalies, GSTR-2B mismatches — ipcAssistants.ts ----------
+  registerAssistantsIpc(handle, () => requireCompany(), () => sessionUser?.name ?? osAuditUser())
   // ---------- receivables (WP 4.2) — channels live in ipcReceivables.ts ----------
   registerReceivablesIpc(handle, () => requireCompany())
   // ---------- payables (WP 4.3) — channels live in ipcPayables.ts ----------

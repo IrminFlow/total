@@ -928,3 +928,35 @@ export function buildTradeDocDraft(w: DraftWork, input: TradeDocDraftInput): Bui
 
 // re-exported for tests
 export { isDebtor, isCreditor }
+
+// ---------- WP 5.5: a purchase / debit note from GSTR-2B figures (ledger lines, accounting mode) ----------
+
+/** A trading voucher with no item detail (the 2B document carries only taxable value and tax
+ *  heads): ledger lines in the accounting form — the editor's own fallback mode for a purchase
+ *  without stock lines — rehearsed like every other draft. Amounts are paise, from the document. */
+export interface LedgerInvoiceDraftInput {
+  kind: 'purchase' | 'debit_note'
+  /** ISO date (the document's own). */
+  date: string
+  partyLedgerId: number
+  reference: string
+  narration: string
+  lines: { ledgerId: number; drCr: 'dr' | 'cr'; amount: number; why: string }[]
+  /** Why this party (e.g. "the only ledger with GSTIN …"). */
+  partyWhy: string
+}
+
+export function buildLedgerInvoiceDraft(w: DraftWork, input: LedgerInvoiceDraftInput): BuiltDraft {
+  const m = w.m
+  const type = voucherTypeFor(m, input.kind)
+  const party = m.ledgers.find((l) => l.id === input.partyLedgerId)
+  if (!party) throw new Error(`Ledger #${input.partyLedgerId} does not exist`)
+  w.source({ field: 'party', kind: 'ledger', label: party.name, id: party.id, why: input.partyWhy })
+  const rows: AccountingRowState[] = input.lines.map((l, i) => {
+    w.source({ field: `line:${i}`, kind: 'ledger', label: ledgerName(m, l.ledgerId), id: l.ledgerId, why: l.why })
+    return { drCr: l.drCr, ledgerId: l.ledgerId, amount: l.amount, costAllocations: [] }
+  })
+  w.source({ field: 'date', kind: 'date', label: input.date, why: 'the document date in GSTR-2B' })
+  w.assume('Entered as ledger lines from the GSTR-2B figures (taxable value and tax heads) — the 2B has no item detail; switch to the invoice form to add stock items')
+  return accountingResult(w, type, input.date, rows, { kind: 'journal', narration: input.narration, reference: input.reference }, [], '')
+}

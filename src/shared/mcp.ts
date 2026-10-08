@@ -114,7 +114,8 @@ export function claudeDesktopConfig(o: McpLaunchOptions, needsPin: boolean): str
 }
 
 /** Who proposed a draft, for the voucher editor's banner. */
-export function aiDraftByLabel(d: { source?: 'chat' | 'mcp' | 'inbox'; origin?: string | null }): string {
+export function aiDraftByLabel(d: { source?: 'chat' | 'mcp' | 'inbox' | 'assistant'; origin?: string | null }): string {
+  if (d.source === 'assistant') return `Suggested by ${d.origin ?? 'an assistant'} (Analysis → Assistants)`
   if (d.source === 'mcp') return `Proposed over MCP by ${d.origin ?? 'an MCP client'}`
   if (d.source === 'inbox') return `From ${d.origin ? `the inbox file ${d.origin}` : 'an inbox file'} (not asked for in Total)`
   return 'Drafted by the assistant'
