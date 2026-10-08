@@ -125,8 +125,21 @@ export interface ReminderLogRow {
   createdAt: string
 }
 
+/** A bill's STABLE identity for interest (WP 4.2 review): its voucher — plus which of the
+ *  voucher's new bill refs when it carries several — so renumbering the invoice or renaming its
+ *  bill ref never makes a charged bill look uncharged; the ref name only for opening-balance bills. */
+export function stableBillKey(billVoucherId: number | null, billRef: string, newRefsOfVoucher: readonly string[] = []): string {
+  if (billVoucherId == null) return `o:${billRef}`
+  if (newRefsOfVoucher.length <= 1) return `v:${billVoucherId}`
+  const i = newRefsOfVoucher.indexOf(billRef)
+  return `v:${billVoucherId}#${i >= 0 ? i : billRef}`
+}
+
 export interface InterestRow extends BillKey {
+  /** Row key, unique across parties: `<party id>:<bill key>`. */
   key: string
+  /** stableBillKey — what interest_charges remembers. */
+  billKey: string
   ledgerId: number
   partyName: string
   billDate: string
@@ -144,9 +157,30 @@ export interface InterestRow extends BillKey {
   gstPaise: number
   totalPaise: number
   supply: 'intra' | 'inter'
+  /** The original supply's place of supply and GSTR-1 type (the note follows them). */
+  pos: string
+  invTyp: string
+  /** Zero-rated without payment of tax (SEZ / export WOP): no tax on the interest either. */
+  zeroTax: boolean
+  /** The note's place-of-supply override (the original invoice's), null = none. */
+  notePos: string | null
+  /** Shown in the preview, e.g. "No invoice behind this bill — GST at the default 18%". */
+  warning: string | null
+  /** Why this row can't be posted (null = it can). */
+  blocked: string | null
+}
+
+export interface InterestNote {
+  voucherId: number
+  number: string
+  interestPaise: number
+  gstPaise: number
 }
 
 export interface InterestPostResult {
+  /** One debit note per place-of-supply group (usually one). */
+  notes: InterestNote[]
+  /** The first note's id / every note's number, joined. */
   voucherId: number
   number: string
   interestPaise: number

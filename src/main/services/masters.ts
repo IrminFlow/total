@@ -240,8 +240,17 @@ export function deleteLedger(db: DB, id: number): void {
   if (existing.isSystem) throw new Error('System ledgers cannot be deleted')
   const used = db.prepare('SELECT COUNT(*) AS n FROM voucher_lines WHERE ledger_id = ?').get(id) as { n: number }
   if (used.n > 0) throw new Error('Ledger has vouchers; delete those first')
+  // WP 4.2: its reminder log and bill follow-ups go with it (ON DELETE CASCADE) — the audit row
+  // records how many, so the trail shows what the delete took.
+  const cascaded: Record<string, number> = {}
+  for (const t of ['reminder_log', 'bill_followups']) {
+    if (db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?").get(t)) {
+      const n = (db.prepare(`SELECT COUNT(*) AS n FROM ${t} WHERE party_ledger_id = ?`).get(id) as { n: number }).n
+      if (n > 0) cascaded[t] = n
+    }
+  }
   db.prepare('DELETE FROM ledgers WHERE id = ?').run(id)
-  writeAudit(db, 'ledger', id, 'delete', existing, null)
+  writeAudit(db, 'ledger', id, 'delete', Object.keys(cascaded).length ? { ...existing, cascaded } : existing, null)
 }
 
 /** Closing balances (opening + movements up to `asOn` inclusive), only non-zero unless includeZero. */

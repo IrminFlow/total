@@ -52,11 +52,15 @@ describe('interest maths (actual/365, simple, half-up per bill)', () => {
     expect(lines.map((l) => [l.rate, l.interestPaise])).toEqual([[18, 751], [5, 250]])
     expect(lines.reduce((s, l) => s + l.interestPaise, 0)).toBe(1001)
     const g = computeGst(751, 18, 'intra')
-    expect(lines[0]).toEqual({ rate: 18, interestPaise: 751, cgst: g.cgst, sgst: g.sgst, igst: 0 })
+    expect(lines[0]).toEqual({ rate: 18, cessRate: 0, interestPaise: 751, cgst: g.cgst, sgst: g.sgst, igst: 0, cess: 0 })
+    // Cess classes stay apart and carry their cess; zero-rated without payment keeps rates, no tax.
+    const withCess = splitInterestGst(1000, [{ rate: 28, cessRate: 12, taxablePaise: 500 }, { rate: 28, taxablePaise: 500 }], 'inter', true)
+    expect(withCess.map((l) => [l.rate, l.cessRate, l.interestPaise, l.igst, l.cess])).toEqual([[28, 12, 500, 140, 60], [28, 0, 500, 140, 0]])
+    expect(splitInterestGst(1000, [{ rate: 18, taxablePaise: 1 }], 'inter', true, true)).toEqual([{ rate: 18, cessRate: 0, interestPaise: 1000, cgst: 0, sgst: 0, igst: 0, cess: 0 }])
     expect(splitInterestGst(500, [{ rate: 12, taxablePaise: 9 }], 'inter', true)[0]!.igst).toBe(computeGst(500, 12, 'inter').igst)
     // No supply (opening balance) or GST off → one untaxed line.
-    expect(splitInterestGst(500, [], 'intra', true)).toEqual([{ rate: 0, interestPaise: 500, cgst: 0, sgst: 0, igst: 0 }])
-    expect(splitInterestGst(500, [{ rate: 18, taxablePaise: 9 }], 'intra', false)).toEqual([{ rate: 0, interestPaise: 500, cgst: 0, sgst: 0, igst: 0 }])
+    expect(splitInterestGst(500, [], 'intra', true)).toEqual([{ rate: 0, cessRate: 0, interestPaise: 500, cgst: 0, sgst: 0, igst: 0, cess: 0 }])
+    expect(splitInterestGst(500, [{ rate: 18, taxablePaise: 9 }], 'intra', false)).toEqual([{ rate: 0, cessRate: 0, interestPaise: 500, cgst: 0, sgst: 0, igst: 0, cess: 0 }])
     expect(splitInterestGst(0, [{ rate: 18, taxablePaise: 9 }], 'intra', true)).toEqual([])
   })
 

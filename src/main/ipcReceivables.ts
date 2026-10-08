@@ -3,6 +3,7 @@
 // collection reports. Registered from ipc.ts with its `handle` (role gate + { ok, data | error }
 // envelope); every payload is Zod-parsed here.
 import { dialog, shell } from 'electron'
+import { isAbsolute, relative, resolve } from 'path'
 import { z } from 'zod'
 import type { DB } from './db/connection'
 import type { CompanyInfo } from '@shared/domain'
@@ -19,6 +20,16 @@ import { companyExportsDir } from './paths'
 
 type Handle = (channel: string, fn: (payload: unknown) => unknown, minRole?: Role) => void
 interface Company { db: DB; info: CompanyInfo; slug: string }
+
+/** `path` resolved, when it lies inside `root` (never `root/../x`, never a sibling `root-other`);
+ *  null otherwise. */
+export function insideExports(root: string, path: string): string | null {
+  const base = resolve(root)
+  const target = resolve(base, path)
+  const rel = relative(base, target)
+  if (!rel || rel.startsWith('..') || isAbsolute(rel)) return null
+  return target
+}
 
 export function registerReceivablesIpc(handle: Handle, company: () => Company): void {
   const db = (): DB => company().db
@@ -53,9 +64,9 @@ export function registerReceivablesIpc(handle: Handle, company: () => Company): 
   /** Show a generated statement / reminder in Finder. Only files under the company's exports. */
   handle('receivables:reveal', (p) => {
     const { path } = z.object({ path: z.string().min(1).max(1000) }).parse(p)
-    const root = companyExportsDir(company().slug)
-    if (!path.startsWith(root)) throw new Error('Only files in the exports folder can be shown')
-    shell.showItemInFolder(path)
+    const target = insideExports(companyExportsDir(company().slug), path)
+    if (!target) throw new Error('Only files in the exports folder can be shown')
+    shell.showItemInFolder(target)
     return null
   }, 'viewer')
 
@@ -87,10 +98,11 @@ export function registerReceivablesIpc(handle: Handle, company: () => Company): 
   handle('receivables:interestCharges', (p) => rx.interestCharges(db(), interestChargesSchema.parse(p ?? {}).ledgerId), 'viewer')
 
   // ---------- credit control ----------
+  // Owner only: a hold stops invoicing a customer (and only an owner may override one).
   handle('receivables:setHold', (p) => {
     const q = setHoldSchema.parse(p)
     return rx.setCreditHold(db(), q.ledgerId, q.hold, q.reason)
-  })
+  }, 'owner')
   handle('receivables:creditControl', (p) => rx.creditControl(db(), asOnSchema.parse(p).asOn), 'viewer')
 
   // ---------- follow-ups ----------

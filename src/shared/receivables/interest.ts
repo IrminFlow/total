@@ -64,35 +64,46 @@ export function interestPeriod(billDate: string, dueDate: string | null, graceDa
 export interface RateShare {
   /** GST rate in percent (0 = nil / exempt / non-GST). */
   rate: number
+  /** Compensation-cess rate in percent (0 = none). */
+  cessRate?: number
   taxablePaise: number
 }
 
 export interface InterestGstLine {
   rate: number
+  cessRate: number
   /** Interest apportioned to this rate (the taxable value of the debit-note line). */
   interestPaise: number
   cgst: number
   sgst: number
   igst: number
+  cess: number
 }
 
 /**
- * Split `interest` over the supply's rates in proportion to their taxable values (largest
- * remainder, so the parts add up to the whole exactly), then tax each part at its rate. With no
- * shares (an opening balance, a journal) the whole interest is one rate-0 line.
+ * Split `interest` over the supply's (rate, cess) classes in proportion to their taxable values
+ * (largest remainder, so the parts add up to the whole exactly), then tax each part at its rate
+ * — exactly as the GST returns compute a ledger line (computeGst per line). With no shares (an
+ * opening balance, a journal) or `charge` off, the whole interest is one untaxed rate-0 line.
+ * `zeroTax` (SEZ / export without payment of tax): the rates stay, the tax is nil.
  */
-export function splitInterestGst(interest: number, shares: RateShare[], supply: SupplyType, charge: boolean): InterestGstLine[] {
+export function splitInterestGst(interest: number, shares: RateShare[], supply: SupplyType, charge: boolean, zeroTax = false): InterestGstLine[] {
   const live = shares.filter((s) => s.taxablePaise > 0)
   const total = live.reduce((s, x) => s + x.taxablePaise, 0)
   if (interest <= 0) return []
-  if (!charge || total <= 0) return [{ rate: 0, interestPaise: interest, cgst: 0, sgst: 0, igst: 0 }]
-  // Merge equal rates first.
-  const byRate = new Map<number, number>()
-  for (const s of live) byRate.set(s.rate, (byRate.get(s.rate) ?? 0) + s.taxablePaise)
-  const rates = [...byRate.entries()].sort((a, b) => b[0] - a[0])
-  const parts = rates.map(([rate, taxable]) => {
-    const exact = (BigInt(interest) * BigInt(taxable) * 1000n) / BigInt(total)
-    return { rate, floor: Number(exact / 1000n), rem: Number(exact % 1000n) }
+  if (!charge || total <= 0) return [{ rate: 0, cessRate: 0, interestPaise: interest, cgst: 0, sgst: 0, igst: 0, cess: 0 }]
+  // Merge equal classes first.
+  const byClass = new Map<string, { rate: number; cessRate: number; taxable: number }>()
+  for (const s of live) {
+    const k = `${s.rate}|${s.cessRate ?? 0}`
+    const c = byClass.get(k) ?? { rate: s.rate, cessRate: s.cessRate ?? 0, taxable: 0 }
+    c.taxable += s.taxablePaise
+    byClass.set(k, c)
+  }
+  const classes = [...byClass.values()].sort((a, b) => b.rate - a.rate || b.cessRate - a.cessRate)
+  const parts = classes.map((c) => {
+    const exact = (BigInt(interest) * BigInt(c.taxable) * 1000n) / BigInt(total)
+    return { ...c, floor: Number(exact / 1000n), rem: Number(exact % 1000n) }
   })
   let left = interest - parts.reduce((s, p) => s + p.floor, 0)
   for (const p of [...parts].sort((a, b) => b.rem - a.rem)) {
@@ -103,10 +114,13 @@ export function splitInterestGst(interest: number, shares: RateShare[], supply: 
   return parts
     .filter((p) => p.floor > 0)
     .map((p) => {
-      const g = computeGst(p.floor, p.rate, supply)
-      return { rate: p.rate, interestPaise: p.floor, cgst: g.cgst, sgst: g.sgst, igst: g.igst }
+      const g = zeroTax ? { cgst: 0, sgst: 0, igst: 0, cess: 0 } : computeGst(p.floor, p.rate, supply, p.cessRate)
+      return { rate: p.rate, cessRate: p.cessRate, interestPaise: p.floor, cgst: g.cgst, sgst: g.sgst, igst: g.igst, cess: g.cess }
     })
 }
+
+/** The tax a split carries (CGST + SGST + IGST + cess). */
+export const gstOfLines = (lines: InterestGstLine[]): number => lines.reduce((s, g) => s + g.cgst + g.sgst + g.igst + g.cess, 0)
 
 export interface InterestBillInput {
   billDate: string

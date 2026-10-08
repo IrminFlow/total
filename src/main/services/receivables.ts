@@ -17,8 +17,8 @@ import type { DB } from '../db/connection'
 import type { CompanyInfo } from '@shared/domain'
 import type { OutstandingBill, OutstandingParty } from '@shared/reports'
 import { formatPaise } from '@shared/money'
-import { toDisplayDate } from '@shared/dates'
-import { supplyTypeFor, computeGst, type SupplyType } from '@shared/gst/calc'
+import { todayISO, toDisplayDate } from '@shared/dates'
+import type { SupplyType } from '@shared/gst/calc'
 import { pdfOptionsFor } from '@shared/printTemplates'
 import { renderDocument, type ReminderDocument, type StatementDocument } from '@shared/print/render'
 import {
@@ -26,10 +26,10 @@ import {
   type ReceivablesConfig, type ReminderBucket, type ReminderChannel
 } from '@shared/receivables/config'
 import { ageingBuckets, mailtoLink, mergeTemplate, reminderBucketFor, reminderCadence, reminderFields } from '@shared/receivables/reminders'
-import { addDaysIso, billInterest, splitInterestGst, type RateShare } from '@shared/receivables/interest'
+import { addDaysIso, billInterest, gstOfLines, splitInterestGst, type RateShare } from '@shared/receivables/interest'
 import { collectionMonth, monthEndIso, monthsBetween, monthStartIso, partyDso } from '@shared/receivables/collections'
 import {
-  billKeyOf, type CollectionReport, type CreditControlRow, type FollowupRow, type InterestChargeRow, type InterestPostResult,
+  billKeyOf, stableBillKey, type CollectionReport, type CreditControlRow, type FollowupRow, type InterestChargeRow, type InterestPostResult,
   type InterestRow, type PromisedSummary, type ReminderBulkResult, type ReminderCandidate, type ReminderLogRow, type ReminderResult,
   type StatementData, type StatementPdfResult, type StatementRow, type StatementsBulkResult, type TopOverdueRow
 } from '@shared/receivables/types'
@@ -37,7 +37,8 @@ import type { FollowupInput } from '@shared/receivables/schemas'
 import { followupInputSchema } from '@shared/receivables/schemas'
 import { ledgerStatement } from './reports'
 import { outstandings, partyAllocation, registerVoucherRows } from './analysis'
-import { createLedger, descendantIdsByName } from './masters'
+import { createLedger, descendantIdsByName, getLedger } from './masters'
+import { outwardSupplyClass } from './gst'
 import { extractEdocInvoices } from './edocs'
 import { resolveTemplate } from './printTemplates'
 import { plexFontFaceCss } from './printFonts'
@@ -76,12 +77,13 @@ export function setReceivablesConfig(db: DB, input: unknown): ReceivablesConfig 
 interface PartyRow {
   id: number; name: string; address: string | null; gstin: string | null; email: string | null; stateCode: string | null
   groupId: number; openingBalance: number; creditLimit: number | null; rateBp: number | null; graceDays: number
+  creditDays: number | null; exportType: 'sez_wp' | 'sez_wop' | 'exp_wp' | 'exp_wop' | null
   hold: number; holdReason: string | null; holdAt: string | null
 }
 
 const PARTY_SQL = `SELECT id, name, address, gstin, email, state_code AS stateCode, group_id AS groupId, opening_balance AS openingBalance, credit_limit AS creditLimit,
   interest_rate_bp AS rateBp, interest_grace_days AS graceDays, credit_hold AS hold, credit_hold_reason AS holdReason,
-  credit_hold_at AS holdAt FROM ledgers`
+  credit_hold_at AS holdAt, credit_days AS creditDays, export_type AS exportType FROM ledgers`
 
 function partyRow(db: DB, id: number): PartyRow {
   const p = db.prepare(`${PARTY_SQL} WHERE id = ?`).get(id) as PartyRow | undefined
@@ -329,28 +331,65 @@ function interestNoteIds(db: DB): Set<number> {
   )
 }
 
-/** The last day already charged per bill, on live debit notes only. */
+/** The last day already charged per stable bill key, on live debit notes only. */
 function chargedTo(db: DB, partyId: number): Map<string, string> {
   const rows = db
     .prepare(
-      `SELECT ic.bill_voucher_id AS billVoucherId, ic.bill_ref AS billRef, MAX(ic.period_to) AS upto
+      `SELECT ic.bill_key AS billKey, MAX(ic.period_to) AS upto
        FROM interest_charges ic JOIN vouchers v ON v.id = ic.debit_note_voucher_id
-       WHERE ic.party_ledger_id = ? AND ${NOT_DELETED} GROUP BY ic.bill_voucher_id, ic.bill_ref`
+       WHERE ic.party_ledger_id = ? AND ${NOT_DELETED} GROUP BY ic.bill_key`
     )
-    .all(partyId) as { billVoucherId: number | null; billRef: string; upto: string }[]
-  return new Map(rows.map((r) => [billKeyOf(r), r.upto]))
+    .all(partyId) as { billKey: string; upto: string }[]
+  return new Map(rows.map((r) => [r.billKey, r.upto]))
 }
 
-/** The supply's GST rates (taxable value per rate) of a bill's invoice; [] for a non-invoice bill. */
-function rateShares(db: DB, company: CompanyInfo, voucherId: number | null): RateShare[] {
-  if (voucherId == null) return []
-  const kind = (db.prepare(`SELECT vt.kind FROM vouchers v JOIN voucher_types vt ON vt.id = v.voucher_type_id WHERE v.id = ? AND ${IN_BOOKS}`).get(voucherId) as { kind: string } | undefined)?.kind
-  if (kind !== 'sales' && kind !== 'debit_note') return []
-  const [inv] = extractEdocInvoices(db, company, '0000-01-01', '9999-12-31', voucherId)
-  if (!inv) return []
-  const by = new Map<number, number>()
-  for (const i of inv.items) by.set(i.rate, (by.get(i.rate) ?? 0) + i.taxablePaise)
-  return [...by.entries()].map(([rate, taxablePaise]) => ({ rate, taxablePaise }))
+/** Each voucher's 'new' bill refs for a party, in entry order (stableBillKey's ordinal). */
+function newRefsByVoucher(db: DB, partyId: number): Map<number, string[]> {
+  const out = new Map<number, string[]>()
+  for (const r of db.prepare("SELECT voucher_id AS v, name FROM bill_refs WHERE party_ledger_id = ? AND kind = 'new' ORDER BY id").all(partyId) as { v: number; name: string }[]) {
+    const list = out.get(r.v) ?? []
+    list.push(r.name)
+    out.set(r.v, list)
+  }
+  return out
+}
+
+interface SupplyFacts {
+  /** The original supply's (rate, cess) classes by taxable value; [] = no invoice behind the bill. */
+  shares: RateShare[]
+  pos: string
+  invTyp: string
+  supply: SupplyType
+  zeroTax: boolean
+  /** The original invoice's place-of-supply override (carried onto the note). */
+  posOverride: string | null
+}
+
+/** The GST facts of the supply a bill belongs to: the original invoice's items and its GSTR-1
+ *  class (services/gst.ts outwardSupplyClass — SEZ / export, pos override); a bill with no
+ *  invoice (opening balance, journal) gets the party's class and no shares. */
+function supplyFacts(db: DB, company: CompanyInfo, party: PartyRow, voucherId: number | null): SupplyFacts {
+  const head = voucherId == null
+    ? undefined
+    : (db
+        .prepare(`SELECT vt.kind, v.pos_override AS posOverride FROM vouchers v JOIN voucher_types vt ON vt.id = v.voucher_type_id WHERE v.id = ? AND ${IN_BOOKS}`)
+        .get(voucherId) as { kind: string; posOverride: string | null } | undefined)
+  const isInvoice = !!head && (head.kind === 'sales' || head.kind === 'debit_note')
+  const posOverride = isInvoice ? head!.posOverride : null
+  const cls = outwardSupplyClass(company, { partyExportType: party.exportType, partyState: party.stateCode, posOverride })
+  let shares: RateShare[] = []
+  if (isInvoice) {
+    const [inv] = extractEdocInvoices(db, company, '0000-01-01', '9999-12-31', voucherId!)
+    const by = new Map<string, RateShare>()
+    for (const i of inv?.items ?? []) {
+      const k = `${i.rate}|${i.cessRate ?? 0}`
+      const s = by.get(k) ?? { rate: i.rate, cessRate: i.cessRate ?? 0, taxablePaise: 0 }
+      s.taxablePaise += i.taxablePaise
+      by.set(k, s)
+    }
+    shares = [...by.values()]
+  }
+  return { shares, pos: cls.pos, invTyp: cls.invTyp, supply: cls.supply, zeroTax: cls.zeroTax, posOverride }
 }
 
 function gstApplies(company: CompanyInfo, cfg: ReceivablesConfig, override?: boolean): boolean {
@@ -358,7 +397,15 @@ function gstApplies(company: CompanyInfo, cfg: ReceivablesConfig, override?: boo
   return company.gstRegistrationType === 'regular' && (override ?? cfg.interest.gstOnInterest)
 }
 
-/** Interest due per overdue bill of every party with a rate (or one party) as on `asOn`. */
+const booksBegin = (company: CompanyInfo): string => `${company.booksFrom}-04-01`
+
+/**
+ * Interest due per overdue bill of every party with a rate (or one party) as on `asOn`.
+ * Bills are identified by stableBillKey; an opening-balance bill runs from its true origin — the
+ * books-begin date (+ credit days) — never the current FY start the ageing allocation re-dates it
+ * to, so no year's interest is lost and charging continues from the last charged day.
+ * Fully paid late bills accrue nothing (interest is on the pending amount only).
+ */
 export function interestPreview(db: DB, company: CompanyInfo, asOn: string, ledgerId?: number, gstOnInterest?: boolean): InterestRow[] {
   const cfg = getReceivablesConfig(db)
   const charge = gstApplies(company, cfg, gstOnInterest)
@@ -370,114 +417,159 @@ export function interestPreview(db: DB, company: CompanyInfo, asOn: string, ledg
     const party = parties.get(op.ledgerId)
     if (!party) continue
     const charged = chargedTo(db, party.id)
-    const supply: SupplyType = supplyTypeFor(company.stateCode, party.stateCode ?? company.stateCode)
+    const refs = newRefsByVoucher(db, party.id)
     for (const b of op.bills) {
       if (b.pending <= 0 || (b.voucherId != null && notes.has(b.voucherId))) continue
-      const key = billKeyOf({ billVoucherId: b.voucherId, billRef: b.number })
-      const upto = charged.get(key) ?? null
-      const r = billInterest({ billDate: b.date, dueDate: b.dueDate, pendingPaise: b.pending, rateBp: party.rateBp!, graceDays: party.graceDays, chargedTo: upto }, asOn)
+      const billKey = stableBillKey(b.voucherId, b.number, b.voucherId != null ? refs.get(b.voucherId) : [])
+      const opening = b.voucherId == null
+      const billDate = opening ? booksBegin(company) : b.date
+      const dueDate = opening ? (party.creditDays != null ? addDaysIso(billDate, party.creditDays) : null) : b.dueDate
+      const upto = charged.get(billKey) ?? null
+      const r = billInterest({ billDate, dueDate, pendingPaise: b.pending, rateBp: party.rateBp!, graceDays: party.graceDays, chargedTo: upto }, asOn)
       if (!r.period || r.interestPaise < Math.max(1, cfg.interest.minimumPaise)) continue
-      const gst = splitInterestGst(r.interestPaise, charge ? rateShares(db, company, b.voucherId) : [], supply, charge)
-      const gstPaise = gst.reduce((s, g) => s + g.cgst + g.sgst + g.igst, 0)
+      const facts = supplyFacts(db, company, party, b.voucherId)
+      let shares = facts.shares
+      let warning: string | null = null
+      let blocked: string | null = null
+      if (charge && shares.length === 0) {
+        // sources.ts 'no-invoice-bills'.
+        if (cfg.interest.defaultGstRate != null) {
+          shares = [{ rate: cfg.interest.defaultGstRate, taxablePaise: 1 }]
+          warning = `No invoice behind this bill — GST at the default ${cfg.interest.defaultGstRate}% (Settings → Receivables)`
+        } else {
+          blocked = 'No invoice behind this bill to take a GST rate from — set a default rate in Settings → Receivables, or turn GST on interest off'
+        }
+      }
+      if (charge && facts.zeroTax) warning = `${facts.invTyp === 'SEWOP' ? 'SEZ' : 'Export'} without payment of tax — no GST on the interest`
+      const gst = splitInterestGst(r.interestPaise, charge ? shares : [], facts.supply, charge, facts.zeroTax)
+      const gstPaise = gstOfLines(gst)
       rows.push({
-        key, billVoucherId: b.voucherId, billRef: b.number, ledgerId: party.id, partyName: party.name, billDate: b.date, dueDate: b.dueDate,
-        graceDays: party.graceDays, rateBp: party.rateBp!, pendingPaise: b.pending, chargedTo: upto, from: r.period.from, to: r.period.to,
-        days: r.period.days, interestPaise: r.interestPaise, gst, gstPaise, totalPaise: r.interestPaise + gstPaise, supply
+        key: `${party.id}:${billKey}`, billKey, billVoucherId: b.voucherId, billRef: b.number, ledgerId: party.id, partyName: party.name,
+        billDate, dueDate, graceDays: party.graceDays, rateBp: party.rateBp!, pendingPaise: b.pending, chargedTo: upto,
+        from: r.period.from, to: r.period.to, days: r.period.days, interestPaise: r.interestPaise, gst, gstPaise,
+        totalPaise: r.interestPaise + gstPaise, supply: facts.supply, pos: facts.pos, invTyp: facts.invTyp, zeroTax: facts.zeroTax,
+        notePos: facts.posOverride, warning, blocked
       })
     }
   }
   return rows
 }
 
-function ensureLedger(db: DB, name: string, groupName: string, extra: { gstRate?: number | null; taxType?: 'cgst' | 'sgst' | 'igst' | null } = {}): number {
-  if (extra.taxType) {
-    // Output tax: prefer a ledger named for output (books often tag "CGST Input" too).
-    const tagged = db
-      .prepare("SELECT id FROM ledgers WHERE tax_type = ? ORDER BY (lower(name) LIKE '%output%') DESC, (lower(name) LIKE '%input%') ASC, id LIMIT 1")
-      .get(extra.taxType) as { id: number } | undefined
-    if (tagged) return tagged.id
-  }
-  const found = db.prepare('SELECT id FROM ledgers WHERE name = ?').get(name) as { id: number } | undefined
-  if (found) return found.id
-  const group = db.prepare('SELECT id FROM groups WHERE name = ?').get(groupName) as { id: number } | undefined
-  if (!group) throw new Error(`Group "${groupName}" not found`)
-  return createLedger(db, { name, groupId: group.id, taxType: extra.taxType ?? null, gstRate: extra.gstRate ?? null }).id
+/** An OUTPUT tax ledger: tagged with the tax type and not named Input*, preferring one named
+ *  Output*; with none, "Output CGST" (etc.) is created under Duties & Taxes. */
+function outputTaxLedger(db: DB, t: 'cgst' | 'sgst' | 'igst' | 'cess'): number {
+  const tagged = db
+    .prepare("SELECT id FROM ledgers WHERE tax_type = ? AND lower(name) NOT LIKE '%input%' ORDER BY (lower(name) LIKE '%output%') DESC, id LIMIT 1")
+    .get(t) as { id: number } | undefined
+  if (tagged) return tagged.id
+  const group = db.prepare("SELECT id FROM groups WHERE name = 'Duties & Taxes'").get() as { id: number } | undefined
+  if (!group) throw new Error('Group "Duties & Taxes" not found')
+  const base = `Output ${t.toUpperCase()}`
+  let name = base
+  for (let n = 2; db.prepare('SELECT 1 FROM ledgers WHERE name = ?').get(name); n++) name = `${base} ${n}`
+  return createLedger(db, { name, groupId: group.id, taxType: t }).id
 }
 
-/** The interest income ledger for a GST rate: "<name>" for no GST, "<name> @ 18%" per rate (its
- *  gst_rate makes the GST returns read the note's line at that rate — gst.ts / edocs.ts). */
-function interestLedgerFor(db: DB, cfg: ReceivablesConfig, rate: number): number {
-  const name = rate > 0 ? `${cfg.interest.ledgerName} @ ${rate}%` : cfg.interest.ledgerName
-  return ensureLedger(db, name, 'Indirect Incomes', { gstRate: rate > 0 ? rate : null })
+/** The interest income ledger for a (GST rate, cess) class: "<name>" for no GST, "<name> @ 18%"
+ *  or "<name> @ 28% + cess 12%" — its gst_rate / cess_rate make the GST returns read the note's
+ *  line at that class (gst.ts / edocs.ts); the company's SAC, when set, goes on it as its HSN. */
+function interestLedgerFor(db: DB, cfg: ReceivablesConfig, rate: number, cessRate: number): number {
+  const name = rate > 0 ? `${cfg.interest.ledgerName} @ ${rate}%${cessRate > 0 ? ` + cess ${cessRate}%` : ''}` : cfg.interest.ledgerName
+  const sac = cfg.interest.sac || null
+  const found = db.prepare('SELECT id, hsn FROM ledgers WHERE name = ?').get(name) as { id: number; hsn: string | null } | undefined
+  if (found) {
+    if (sac && !found.hsn) {
+      const before = getLedger(db, found.id)
+      db.prepare('UPDATE ledgers SET hsn = ? WHERE id = ?').run(sac, found.id)
+      writeAudit(db, 'ledger', found.id, 'update', before, getLedger(db, found.id))
+    }
+    return found.id
+  }
+  const group = db.prepare("SELECT id FROM groups WHERE name = 'Indirect Incomes'").get() as { id: number } | undefined
+  if (!group) throw new Error('Group "Indirect Incomes" not found')
+  const id = createLedger(db, { name, groupId: group.id, gstRate: rate > 0 ? rate : null, hsn: sac }).id
+  if (cessRate > 0) db.prepare('UPDATE ledgers SET cess_rate = ? WHERE id = ?').run(cessRate, id)
+  return id
 }
 
 /**
- * Post the interest of one party's chosen bills (all chargeable ones by default) as ONE debit
- * note through saveVoucher: Dr party; Cr the interest ledger per GST rate; Cr CGST + SGST or IGST
- * (computed on each rate's total, as the GST engine computes the note). The bill-periods are
+ * Post the interest of one party's chosen bills (all postable ones by default) through
+ * saveVoucher — one debit note per place-of-supply group (the original invoices' overrides):
+ * Dr party; Cr the interest ledger of each bill's (rate, cess) class, ONE LINE PER BILL PER CLASS
+ * (so the GST returns, which tax per line, land on exactly the stored per-bill figures); Cr
+ * output CGST + SGST or IGST and cess = the sum of those per-bill figures. The bill-periods are
  * recorded in interest_charges inside the same transaction, so a period is never charged twice.
  */
 export function postInterest(
   db: DB, company: CompanyInfo,
-  q: { asOn: string; date?: string; ledgerId: number; keys?: string[]; gstOnInterest?: boolean }
+  q: { asOn: string; date?: string; ledgerId: number; keys?: string[]; gstOnInterest?: boolean },
+  today: string = todayISO()
 ): InterestPostResult {
+  const date = q.date ?? q.asOn
+  if (q.asOn > today) throw new Error('Interest can only be charged up to today')
+  if (date < q.asOn) throw new Error('The debit note can’t be dated before the as-on date')
+  if (date > today) throw new Error('The debit note can’t be dated in the future')
   const cfg = getReceivablesConfig(db)
   const charge = gstApplies(company, cfg, q.gstOnInterest)
   const wanted = q.keys ? new Set(q.keys) : null
-  const rows = interestPreview(db, company, q.asOn, q.ledgerId, charge).filter((r) => !wanted || wanted.has(r.key))
-  if (!rows.length) throw new Error('No interest to charge for this party as on that date')
+  const all = interestPreview(db, company, q.asOn, q.ledgerId, charge).filter((r) => !wanted || wanted.has(r.key) || wanted.has(r.billKey))
+  const rows = all.filter((r) => !r.blocked)
+  if (!rows.length) throw new Error(all.length ? all[0]!.blocked! : 'No interest to charge for this party as on that date')
   const party = partyRow(db, q.ledgerId)
   const vt = db.prepare("SELECT id FROM voucher_types WHERE kind = 'debit_note' ORDER BY id LIMIT 1").get() as { id: number } | undefined
   if (!vt) throw new Error('No debit note voucher type')
-  const supply: SupplyType = supplyTypeFor(company.stateCode, party.stateCode ?? company.stateCode)
-
-  const byRate = new Map<number, number>()
-  for (const r of rows) for (const g of r.gst) byRate.set(g.rate, (byRate.get(g.rate) ?? 0) + g.interestPaise)
-  const interest = rows.reduce((s, r) => s + r.interestPaise, 0)
+  const groups = new Map<string, InterestRow[]>()
+  for (const r of rows) groups.set(r.notePos ?? '', [...(groups.get(r.notePos ?? '') ?? []), r])
 
   return db.transaction((): InterestPostResult => {
-    const credits: { ledgerId: number; amount: number }[] = []
-    const tax = { cgst: 0, sgst: 0, igst: 0 }
-    for (const [rate, amount] of [...byRate.entries()].sort((a, b) => a[0] - b[0])) {
-      credits.push({ ledgerId: interestLedgerFor(db, cfg, rate), amount })
-      if (rate > 0) {
-        const g = computeGst(amount, rate, supply)
-        tax.cgst += g.cgst
-        tax.sgst += g.sgst
-        tax.igst += g.igst
-      }
-    }
-    for (const t of ['cgst', 'sgst', 'igst'] as const) {
-      if (tax[t] > 0) credits.push({ ledgerId: ensureLedger(db, t.toUpperCase(), 'Duties & Taxes', { taxType: t }), amount: tax[t] })
-    }
-    const gstPaise = tax.cgst + tax.sgst + tax.igst
-    const total = interest + gstPaise
-    const desc = rows.map((r) => `${r.billRef} ${toDisplayDate(r.from)}–${toDisplayDate(r.to)} ${r.days}d`).join('; ')
-    const narration = `Interest @ ${(party.rateBp! / 100).toFixed(2).replace(/\.00$/, '')}% p.a. on overdue bills to ${toDisplayDate(q.asOn)}: ${desc}`.slice(0, 1000)
-    const saved = saveVoucher(
-      db,
-      {
-        voucherTypeId: vt.id, date: q.date ?? q.asOn, partyLedgerId: party.id, narration,
-        reference: rows.length === 1 ? rows[0]!.billRef.slice(0, 120) : null,
-        lines: [{ ledgerId: party.id, drCr: 'dr', amount: total }, ...credits.map((c) => ({ ledgerId: c.ledgerId, drCr: 'cr' as const, amount: c.amount }))],
-        inventory: [], billRefs: [], tds: null
-      },
-      undefined,
-      {
-        withinTransaction: (voucherId) => {
-          const ins = db.prepare(
-            `INSERT INTO interest_charges (party_ledger_id, bill_voucher_id, bill_ref, period_from, period_to, days, principal_paise, rate_bp, interest_paise, gst_paise, debit_note_voucher_id)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-          )
-          for (const r of rows) ins.run(party.id, r.billVoucherId, r.billRef, r.from, r.to, r.days, r.pendingPaise, r.rateBp, r.interestPaise, r.gstPaise, voucherId)
+    const notes: InterestPostResult['notes'] = []
+    for (const [pos, group] of groups) {
+      const credits: { ledgerId: number; amount: number }[] = []
+      const tax = { cgst: 0, sgst: 0, igst: 0, cess: 0 }
+      for (const r of group) {
+        for (const g of r.gst) {
+          credits.push({ ledgerId: interestLedgerFor(db, cfg, g.rate, g.cessRate), amount: g.interestPaise })
+          tax.cgst += g.cgst
+          tax.sgst += g.sgst
+          tax.igst += g.igst
+          tax.cess += g.cess
         }
       }
-    )
-    writeAudit(db, 'interest_charge', saved.id, 'create', null, {
-      debitNote: saved.number, ledgerId: party.id, asOn: q.asOn, gstOnInterest: charge, interestPaise: interest, gstPaise,
-      bills: rows.map((r) => ({ bill: r.billRef, billVoucherId: r.billVoucherId, from: r.from, to: r.to, days: r.days, principal: r.pendingPaise, rateBp: r.rateBp, interest: r.interestPaise }))
-    })
-    return { voucherId: saved.id, number: saved.number, interestPaise: interest, gstPaise, charges: rows.length }
+      for (const t of ['cgst', 'sgst', 'igst', 'cess'] as const) if (tax[t] > 0) credits.push({ ledgerId: outputTaxLedger(db, t), amount: tax[t] })
+      const interest = group.reduce((s, r) => s + r.interestPaise, 0)
+      const gstPaise = group.reduce((s, r) => s + r.gstPaise, 0)
+      const desc = group.map((r) => `${r.billRef} ${toDisplayDate(r.from)}–${toDisplayDate(r.to)} ${r.days}d`).join('; ')
+      const narration = `Interest @ ${(party.rateBp! / 100).toFixed(2).replace(/\.00$/, '')}% p.a. on overdue bills to ${toDisplayDate(q.asOn)}: ${desc}`.slice(0, 1000)
+      const saved = saveVoucher(
+        db,
+        {
+          voucherTypeId: vt.id, date, partyLedgerId: party.id, narration,
+          reference: group.length === 1 ? group[0]!.billRef.slice(0, 120) : null,
+          posOverride: pos || null,
+          lines: [{ ledgerId: party.id, drCr: 'dr', amount: interest + gstPaise }, ...credits.map((c) => ({ ledgerId: c.ledgerId, drCr: 'cr' as const, amount: c.amount }))],
+          inventory: [], billRefs: [], tds: null
+        },
+        undefined,
+        {
+          withinTransaction: (voucherId) => {
+            const ins = db.prepare(
+              `INSERT INTO interest_charges (party_ledger_id, bill_voucher_id, bill_ref, bill_key, period_from, period_to, days, principal_paise, rate_bp, interest_paise, gst_paise, debit_note_voucher_id)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+            )
+            for (const r of group) ins.run(party.id, r.billVoucherId, r.billRef, r.billKey, r.from, r.to, r.days, r.pendingPaise, r.rateBp, r.interestPaise, r.gstPaise, voucherId)
+          }
+        }
+      )
+      writeAudit(db, 'interest_charge', saved.id, 'create', null, {
+        debitNote: saved.number, ledgerId: party.id, asOn: q.asOn, gstOnInterest: charge, interestPaise: interest, gstPaise, posOverride: pos || null,
+        bills: group.map((r) => ({ bill: r.billRef, billKey: r.billKey, from: r.from, to: r.to, days: r.days, principal: r.pendingPaise, rateBp: r.rateBp, interest: r.interestPaise, gst: r.gstPaise }))
+      })
+      notes.push({ voucherId: saved.id, number: saved.number, interestPaise: interest, gstPaise })
+    }
+    return {
+      notes, voucherId: notes[0]!.voucherId, number: notes.map((n) => n.number).join(', '),
+      interestPaise: notes.reduce((s, n) => s + n.interestPaise, 0), gstPaise: notes.reduce((s, n) => s + n.gstPaise, 0), charges: rows.length
+    }
   })()
 }
 

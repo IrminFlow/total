@@ -181,8 +181,8 @@ describe('interest on overdue bills', () => {
   })
 })
 
-function pick(g: { cgst: number; sgst: number; igst: number }): { cgst: number; sgst: number; igst: number } {
-  return { cgst: g.cgst, sgst: g.sgst, igst: g.igst }
+function pick(g: { cgst: number; sgst: number; igst: number; cess: number }): { cessRate: number; cgst: number; sgst: number; igst: number; cess: number } {
+  return { cessRate: 0, cgst: g.cgst, sgst: g.sgst, igst: g.igst, cess: g.cess }
 }
 
 describe('credit hold', () => {

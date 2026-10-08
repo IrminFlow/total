@@ -352,6 +352,19 @@ export interface SaveVoucherHooks {
   creditHoldOverride?: { reason: string }
 }
 
+export const INTEREST_NOTE_IMMUTABLE =
+  'This is an interest debit note (Credit control › Interest) — bin it and post the interest again; an edit would leave the charged periods wrong'
+
+const interestTable = new WeakMap<DB, boolean>()
+function hasInterestCharges(db: DB): boolean {
+  let v = interestTable.get(db)
+  if (v === undefined) {
+    v = !!db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'interest_charges'").get()
+    interestTable.set(db, v)
+  }
+  return v
+}
+
 /** WP 4.2 — the error saveVoucher throws for a new sales invoice to a party on credit hold. The
  *  invoice form recognises the prefix and offers the owner override. */
 export const CREDIT_HOLD_PREFIX = 'Credit hold:'
@@ -364,6 +377,29 @@ function hasCreditHold(db: DB): boolean {
     creditHoldColumn.set(db, v)
   }
   return v
+}
+
+/** Voucher kinds a credit hold stops: invoices and the challans goods go out on. */
+const HOLD_KINDS = ['sales', 'delivery_note']
+
+/** The credit a voucher extends to its party: the party's debit lines, or for a challan (which
+ *  posts nothing) the value of its goods. */
+function creditAmount(kind: string, partyId: number | null, lines: { ledgerId: number; drCr: string; amount: number }[], inventory: { amount: number }[]): number {
+  if (kind === 'delivery_note') return inventory.reduce((s, l) => s + l.amount, 0)
+  return lines.filter((l) => l.ledgerId === partyId && l.drCr === 'dr').reduce((s, l) => s + l.amount, 0)
+}
+
+function createsCredit(db: DB, input: VoucherInputParsed, kind: string, before: Voucher | null, postDated: boolean): boolean {
+  if (!before) return true
+  const beforeKind = getVoucherType(db, before.voucherTypeId).kind
+  if (!HOLD_KINDS.includes(beforeKind) || beforeKind !== kind) return true
+  if (before.partyLedgerId !== input.partyLedgerId) return true
+  if (before.isOptional) return true
+  if (before.postDated && !postDated) return true
+  return (
+    creditAmount(kind, input.partyLedgerId, input.lines, input.inventory) >
+    creditAmount(beforeKind, before.partyLedgerId, before.lines, before.inventory)
+  )
 }
 
 /** The party's credit hold (migration 032), or null when it isn't on hold. */
@@ -405,6 +441,11 @@ export function saveVoucher(db: DB, raw: VoucherInput, existingId?: number, hook
     }
     // WP 3.6: depreciation-run and disposal journals belong to the fixed-asset register.
     assertNotFixedAssetVoucher(db, existingId)
+    // WP 4.2: an interest debit note belongs to its interest_charges rows (the bill-periods it
+    // charged) — an edit would leave them describing other figures.
+    if (hasInterestCharges(db) && db.prepare('SELECT 1 FROM interest_charges WHERE debit_note_voucher_id = ?').get(existingId)) {
+      throw new Error(INTEREST_NOTE_IMMUTABLE)
+    }
     // WP 3.7: a salary journal belongs to its pay run (payroll lines, statutory dues, salary TDS
     // entries for 24Q) — an edit here would leave them describing other figures.
     if (db.prepare('SELECT 1 FROM payroll_runs WHERE voucher_id = ?').get(existingId)) throw new Error(PAYROLL_VOUCHER_EDIT)
@@ -459,10 +500,15 @@ export function saveVoucher(db: DB, raw: VoucherInput, existingId?: number, hook
   const postDated = input.postDated ?? before?.postDated ?? false
   const isOptional = input.isOptional ?? before?.isOptional ?? false
 
-  // WP 4.2 credit hold: a NEW in-books sales invoice to a party on hold is refused unless an owner
-  // overrides it with a reason. Edits of existing invoices (fixing a typo) and memorandum /
-  // post-dated vouchers are not new credit, so they pass.
-  const hold = vt.kind === 'sales' && !existingId && !isOptional && input.partyLedgerId !== null ? creditHoldOf(db, input.partyLedgerId) : null
+  // WP 4.2 credit hold: a save that CREATES NEW CREDIT to a party on hold is refused unless an
+  // owner overrides it with a reason. New credit = a sales invoice or delivery challan that is new
+  // (post-dated ones included — they become credit on maturity), moved onto the held party, turned
+  // from another voucher type into one of these, from optional (memorandum) into a real one, from
+  // post-dated into dated, or edited to a larger amount. Optional vouchers never count; an edit that
+  // keeps or lowers the amount (fixing a typo, a narration) passes.
+  const hold = HOLD_KINDS.includes(vt.kind) && !isOptional && input.partyLedgerId !== null && createsCredit(db, input, vt.kind, before, postDated)
+    ? creditHoldOf(db, input.partyLedgerId)
+    : null
   const holdOverride = hold ? hooks.creditHoldOverride?.reason.trim() || null : null
   if (hold && !holdOverride) {
     throw new Error(`${CREDIT_HOLD_PREFIX} ${hold.name} is on credit hold${hold.reason ? ` (${hold.reason})` : ''} — an owner can override with a reason`)

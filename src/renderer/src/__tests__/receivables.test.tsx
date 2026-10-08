@@ -34,9 +34,10 @@ const CAND: ReminderCandidate[] = [
 
 const INTEREST: InterestRow[] = [
   {
-    key: '5|INV-1', billVoucherId: 5, billRef: 'INV-1', ledgerId: 10, partyName: 'Mehta Traders', billDate: '2026-03-01', dueDate: '2026-03-31', graceDays: 5,
+    key: '10:v:5', billKey: 'v:5', billVoucherId: 5, billRef: 'INV-1', ledgerId: 10, partyName: 'Mehta Traders', billDate: '2026-03-01', dueDate: '2026-03-31', graceDays: 5,
     rateBp: 1800, pendingPaise: 590_000, chargedTo: null, from: '2026-04-06', to: '2026-05-05', days: 30, interestPaise: 8729,
-    gst: [{ rate: 18, interestPaise: 8729, cgst: 786, sgst: 786, igst: 0 }], gstPaise: 1572, totalPaise: 10301, supply: 'intra'
+    gst: [{ rate: 18, cessRate: 0, interestPaise: 8729, cgst: 786, sgst: 786, igst: 0, cess: 0 }], gstPaise: 1572, totalPaise: 10301, supply: 'intra',
+    pos: '27', invTyp: 'R', zeroTax: false, notePos: null, warning: null, blocked: null
   }
 ]
 
@@ -65,7 +66,7 @@ beforeEach(() => {
       case 'receivables:reminderLog': return { ok: true, data: [] }
       case 'receivables:interestPreview': return { ok: true, data: INTEREST }
       case 'receivables:interestCharges': return { ok: true, data: [] }
-      case 'receivables:postInterest': return { ok: true, data: { voucherId: 77, number: 'DN-3', interestPaise: 8729, gstPaise: 1572, charges: 1 } }
+      case 'receivables:postInterest': return { ok: true, data: { notes: [{ voucherId: 77, number: 'DN-3', interestPaise: 8729, gstPaise: 1572 }], voucherId: 77, number: 'DN-3', interestPaise: 8729, gstPaise: 1572, charges: 1 } }
       case 'analysis:outstandings': return { ok: true, data: [PARTY] }
       case 'receivables:followups': return { ok: true, data: followups }
       case 'receivables:addFollowup': {
@@ -126,7 +127,7 @@ describe('Credit control', () => {
     fireEvent.click(within(rows).getByTestId('btn-interest-post'))
     fireEvent.click(await screen.findByTestId('confirm-ok'))
     await waitFor(() =>
-      expect(invoke).toHaveBeenCalledWith('receivables:postInterest', { asOn: '2026-05-05', ledgerId: 10, keys: ['5|INV-1'], gstOnInterest: true })
+      expect(invoke).toHaveBeenCalledWith('receivables:postInterest', { asOn: '2026-05-05', ledgerId: 10, keys: ['10:v:5'], gstOnInterest: true })
     )
   })
 })

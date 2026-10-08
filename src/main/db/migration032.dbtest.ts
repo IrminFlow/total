@@ -34,7 +34,7 @@ describe('migration 032 — receivables', () => {
     seedCompany(db, TEST_INFO)
     migrate(db)
     expect(cols(db, 'reminder_log')).toEqual(expect.arrayContaining(['party_ledger_id', 'bucket', 'date', 'document_path', 'channel', 'amount_paise', 'oldest_bill', 'user_name']))
-    expect(cols(db, 'interest_charges')).toEqual(expect.arrayContaining(['party_ledger_id', 'bill_voucher_id', 'bill_ref', 'period_from', 'period_to', 'days', 'principal_paise', 'rate_bp', 'interest_paise', 'gst_paise', 'debit_note_voucher_id']))
+    expect(cols(db, 'interest_charges')).toEqual(expect.arrayContaining(['party_ledger_id', 'bill_voucher_id', 'bill_ref', 'bill_key', 'period_from', 'period_to', 'days', 'principal_paise', 'rate_bp', 'interest_paise', 'gst_paise', 'debit_note_voucher_id']))
     expect(cols(db, 'bill_followups')).toEqual(expect.arrayContaining(['party_ledger_id', 'bill_voucher_id', 'bill_ref', 'date', 'note', 'promised_date', 'promised_amount', 'user_name']))
     const party = Number(db.prepare("INSERT INTO ledgers (name, group_id) VALUES ('P', 1)").run().lastInsertRowid)
     expect(() => db.prepare("INSERT INTO reminder_log (party_ledger_id, bucket, date, channel) VALUES (?, 'soft', '2026-01-01', 'email')").run(party)).toThrow(/CHECK/)
@@ -42,7 +42,7 @@ describe('migration 032 — receivables', () => {
     expect(() => db.prepare("INSERT INTO bill_followups (party_ledger_id, bill_ref, date, promised_amount) VALUES (?, 'X', '2026-01-01', 0)").run(party)).toThrow(/CHECK/)
     // A charge needs a real debit note.
     expect(() =>
-      db.prepare("INSERT INTO interest_charges (party_ledger_id, bill_ref, period_from, period_to, days, principal_paise, rate_bp, interest_paise, debit_note_voucher_id) VALUES (?, 'X', '2026-01-01', '2026-01-31', 31, 100, 1800, 2, 999)").run(party)
+      db.prepare("INSERT INTO interest_charges (party_ledger_id, bill_ref, bill_key, period_from, period_to, days, principal_paise, rate_bp, interest_paise, debit_note_voucher_id) VALUES (?, 'X', 'o:X', '2026-01-01', '2026-01-31', 31, 100, 1800, 2, 999)").run(party)
     ).toThrow(/FOREIGN KEY/)
   })
 })

@@ -90,7 +90,13 @@ export const receivablesConfigSchema = z.object({
       /** sources.ts 'cgst-15-2-d' / 'cgst-12-6': GST on the debit note by default. */
       gstOnInterest: z.boolean().default(true),
       /** Charges below this (paise) are left out of a posting. */
-      minimumPaise: z.number().int().min(0).max(100_000_00).default(100)
+      minimumPaise: z.number().int().min(0).max(100_000_00).default(100),
+      /** GST rate for interest on a bill with no invoice behind it (opening balance, journal)
+       *  when GST on interest is on; null = such bills are not charged (shown with the reason). */
+      defaultGstRate: z.number().min(0).max(40).nullable().default(null),
+      /** SAC / HSN stamped on the interest ledgers (GSTR-1 HSN summary, the note's print);
+       *  '' = none. sources.ts 'sac-of-interest': 9971 is a suggestion, UNVERIFIED. */
+      sac: z.string().trim().regex(/^(\d{4}|\d{6}|\d{8})?$/, 'SAC is 4, 6 or 8 digits').default('')
     })
     .default({})
 }).refine((c) => c.finalFromDays > c.firmFromDays, { message: 'The final letter must start after the firm one', path: ['finalFromDays'] })

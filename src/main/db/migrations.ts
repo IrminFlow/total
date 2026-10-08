@@ -2246,8 +2246,12 @@ export const MIGRATIONS: string[] = [
   //   interest-free grace days, and the credit hold (flag, reason, when) InvoiceEntry enforces.
   // - reminder_log: one row per reminder letter generated (party, bucket, date, document, channel)
   //   — the "don't remind twice within N days" check reads it.
+  // - ledgers.cess_rate: compensation-cess rate of a ledger-line (service) supply, read by the
+  //   GST returns / e-docs next to gst_rate — the interest ledgers carry the cess of the supply.
   // - interest_charges: one row per bill per charged period, owned by the debit note that posted
   //   it (CASCADE on purge; a binned note's rows stop counting by query) — never double-charge.
+  //   bill_key is the bill's stable identity (v:<voucher id>[#<n-th new ref>], or o:<ref> for an
+  //   opening-balance bill), so renumbering the invoice or renaming its bill ref can't reset it.
   // - bill_followups: notes and promised payment dates per open bill. Bills are computed, so a
   //   bill is keyed by (party, voucher, ref name); voucher NULL = the opening balance.
   `
@@ -2257,6 +2261,7 @@ export const MIGRATIONS: string[] = [
   ALTER TABLE ledgers ADD COLUMN credit_hold INTEGER NOT NULL DEFAULT 0 CHECK (credit_hold IN (0, 1));
   ALTER TABLE ledgers ADD COLUMN credit_hold_reason TEXT;
   ALTER TABLE ledgers ADD COLUMN credit_hold_at TEXT;
+  ALTER TABLE ledgers ADD COLUMN cess_rate REAL CHECK (cess_rate IS NULL OR cess_rate >= 0);
 
   CREATE TABLE reminder_log (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -2278,6 +2283,7 @@ export const MIGRATIONS: string[] = [
     party_ledger_id INTEGER NOT NULL REFERENCES ledgers(id),
     bill_voucher_id INTEGER,
     bill_ref TEXT NOT NULL,
+    bill_key TEXT NOT NULL,
     period_from TEXT NOT NULL,
     period_to TEXT NOT NULL,
     days INTEGER NOT NULL CHECK (days > 0),
@@ -2289,7 +2295,7 @@ export const MIGRATIONS: string[] = [
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
     CHECK (period_to >= period_from)
   );
-  CREATE INDEX idx_interest_charges_bill ON interest_charges(party_ledger_id, bill_voucher_id, bill_ref);
+  CREATE INDEX idx_interest_charges_bill ON interest_charges(party_ledger_id, bill_key);
   CREATE INDEX idx_interest_charges_note ON interest_charges(debit_note_voucher_id);
 
   CREATE TABLE bill_followups (

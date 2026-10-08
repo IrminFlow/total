@@ -122,7 +122,13 @@ const INTEREST_COLUMNS = defineColumns<InterestRow>([
   { id: 'gstRate', header: 'GST rate', kind: 'text', value: (r) => r.gst.filter((g) => g.rate > 0).map((g) => `${g.rate}%`).join(' + ') || 'none', width: 80, defaultHidden: true },
   { id: 'gst', header: 'GST', kind: 'money', value: (r) => r.gstPaise, aggregate: 'sum', width: 90 },
   { id: 'total', header: 'Debit note', kind: 'money', value: (r) => r.totalPaise, aggregate: 'sum', width: 110 },
-  { id: 'charged', header: 'Charged to', kind: 'date', value: (r) => r.chargedTo ?? '', width: 110, defaultHidden: true }
+  { id: 'charged', header: 'Charged to', kind: 'date', value: (r) => r.chargedTo ?? '', width: 110, defaultHidden: true },
+  {
+    id: 'note', header: 'Note', kind: 'text', value: (r) => r.blocked ?? r.warning ?? '', minWidth: 120, defaultHidden: false,
+    cell: (r) =>
+      r.blocked ? <span title={r.blocked}><Badge tone="danger" testId="badge-interest-blocked">Not charged</Badge></span>
+        : r.warning ? <span title={r.warning}><Badge tone="warning" testId="badge-interest-warning">Check</Badge></span> : null
+  }
 ])
 
 const CHARGE_COLUMNS = defineColumns<InterestChargeRow>([
@@ -177,6 +183,9 @@ function ControlTab(): React.JSX.Element {
   const toast = useToasts()
   const qc = useQueryClient()
   const features = useFeatures()
+  const { user } = useSession()
+  // Holds are owner-only (receivables:setHold) — any user in a company without users.
+  const canHold = user == null || user.role === 'owner'
   const { data, isLoading } = useQuery({ queryKey: ['creditControl', to], queryFn: () => receivablesApi.creditControl(to) })
   const { data: promised } = useQuery({ queryKey: ['promisedWeek', to], queryFn: () => receivablesApi.promisedThisWeek(to) })
   const rows = data ?? []
@@ -218,11 +227,13 @@ function ControlTab(): React.JSX.Element {
           rowAttrs={(r) => ({ 'data-row-id': r.ledgerId })}
           loading={isLoading}
           empty={{ title: 'No customers with a balance, a limit or a hold' }}
-          trailing={(r) => (
-            <button type="button" data-testid="btn-credit-hold" className="text-hint text-blue hover:underline" onClick={() => void toggleHold(r)}>
-              {r.hold ? 'Release' : 'Hold'}
-            </button>
-          )}
+          trailing={(r) =>
+            canHold ? (
+              <button type="button" data-testid="btn-credit-hold" className="text-hint text-blue hover:underline" onClick={() => void toggleHold(r)}>
+                {r.hold ? 'Release' : 'Hold'}
+              </button>
+            ) : null
+          }
           trailingWidth={80}
           maxHeight="50vh"
           exportOptions={{ title: 'Credit control', periodLabel: `as on ${toDisplayDate(to)}`, filename: 'credit-control' }}
@@ -364,10 +375,12 @@ function InterestTab({ gst }: { gst: boolean }): React.JSX.Element {
   const { data, isLoading } = useQuery({ queryKey: ['interestPreview', to, gst], queryFn: () => receivablesApi.interestPreview(to, gst) })
   const { data: charges } = useQuery({ queryKey: ['interestCharges'], queryFn: () => receivablesApi.interestCharges() })
   const rows = data ?? []
-  const parties = useMemo(() => [...new Set(rows.map((r) => r.ledgerId))], [rows])
+  const postable = rows.filter((r) => !r.blocked)
+  const parties = useMemo(() => [...new Set(rows.filter((r) => !r.blocked).map((r) => r.ledgerId))], [rows])
   const post = async (ledgerIds: number[]): Promise<void> => {
     if (busy || !ledgerIds.length) return
-    const sel = rows.filter((r) => ledgerIds.includes(r.ledgerId))
+    const sel = postable.filter((r) => ledgerIds.includes(r.ledgerId))
+    if (!sel.length) return void toast.push('warning', rows.find((r) => ledgerIds.includes(r.ledgerId))?.blocked ?? 'Nothing to post')
     const total = sel.reduce((s, r) => s + r.totalPaise, 0)
     const ok = await confirmDialog({
       title: 'Post interest',
@@ -376,18 +389,24 @@ function InterestTab({ gst }: { gst: boolean }): React.JSX.Element {
     })
     if (!ok) return
     setBusy(true)
+    const posted: string[] = []
+    const numbers: string[] = []
     try {
-      const numbers: string[] = []
       for (const id of ledgerIds) {
+        const party = sel.find((r) => r.ledgerId === id)?.partyName ?? ''
+        if (!sel.some((r) => r.ledgerId === id)) continue
         const res = await receivablesApi.postInterest({ asOn: to, ledgerId: id, keys: sel.filter((r) => r.ledgerId === id).map((r) => r.key), gstOnInterest: gst })
+        posted.push(party)
         numbers.push(res.number)
       }
       toast.push('success', `Debit note${numbers.length === 1 ? '' : 's'} ${numbers.join(', ')} posted`)
-      await qc.invalidateQueries()
     } catch (err) {
-      toast.push('error', (err as Error).message)
+      // Parties are posted one at a time: say which went through before the failure.
+      toast.push('error', `${(err as Error).message}${posted.length ? ` — already posted: ${posted.join(', ')} (${numbers.join(', ')})` : ''}`)
     } finally {
       setBusy(false)
+      // Refresh either way, so parties already posted leave the list.
+      await qc.invalidateQueries()
     }
   }
   return (
@@ -408,9 +427,9 @@ function InterestTab({ gst }: { gst: boolean }): React.JSX.Element {
           rowKey={(r) => r.key}
           rowAttrs={(r) => ({ 'data-row-id': r.ledgerId })}
           loading={isLoading}
-          empty={{ title: 'No interest due', hint: 'Set an interest rate (and grace days) on a customer ledger; bills past due + grace accrue simple interest.' }}
+          empty={{ title: 'No interest due', hint: 'Set an interest rate (and grace days) on a customer ledger; bills past due + grace accrue simple interest on what is still pending — a bill paid in full, however late, accrues nothing.' }}
           toolbarEnd={
-            <Button size="sm" variant="primary" data-testid="btn-interest-post-all" disabled={busy || !rows.length} onClick={() => void post(parties)}>
+            <Button size="sm" variant="primary" data-testid="btn-interest-post-all" disabled={busy || !postable.length} onClick={() => void post(parties)}>
               Post all
             </Button>
           }
@@ -424,6 +443,10 @@ function InterestTab({ gst }: { gst: boolean }): React.JSX.Element {
           exportOptions={{ title: 'Interest on overdue bills', periodLabel: `as on ${toDisplayDate(to)}`, filename: 'interest-preview' }}
         />
       </Panel>
+      <p className="mt-2 text-hint text-muted" data-testid="interest-hint">
+        Interest is on each bill&apos;s amount still pending — a bill paid in full, however late, accrues nothing. One debit note per party (per place of
+        supply); it can only be binned, not edited. “Not charged” rows need a default GST rate (Settings → Receivables) or GST on interest off.
+      </p>
       <h2 className="mb-2 mt-section text-title font-semibold">Charged</h2>
       <Panel>
         <DataTable

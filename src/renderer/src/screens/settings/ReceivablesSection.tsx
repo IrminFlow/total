@@ -102,6 +102,19 @@ export function ReceivablesSection(): React.JSX.Element {
               <TextInput className="num text-right" value={String(draft.interest.minimumPaise)} onChange={(e) => set((c) => ({ ...c, interest: { ...c.interest, minimumPaise: num(e.target.value, c.interest.minimumPaise) } }))} />
             </Field>
           </div>
+          <div className="grid grid-cols-2 gap-3">
+            <Field label="Default GST rate (%) for bills with no invoice" hint="Opening balances, journals. Blank = such bills aren't charged while GST on interest is on.">
+              <TextInput
+                className="num text-right"
+                data-testid="input-rx-default-gst"
+                value={draft.interest.defaultGstRate == null ? '' : String(draft.interest.defaultGstRate)}
+                onChange={(e) => set((c) => ({ ...c, interest: { ...c.interest, defaultGstRate: e.target.value.trim() === '' || !Number.isFinite(Number(e.target.value)) ? null : Number(e.target.value) } }))}
+              />
+            </Field>
+            <Field label="SAC for interest on delayed payment" hint="Stamped on the interest ledgers (GSTR-1 HSN summary, the note's print). 9971 is a suggestion only — unverified; many report the goods' HSN.">
+              <TextInput className="num" data-testid="input-rx-sac" placeholder="e.g. 9971" value={draft.interest.sac} onChange={(e) => set((c) => ({ ...c, interest: { ...c.interest, sac: e.target.value.trim() } }))} />
+            </Field>
+          </div>
           <Checkbox
             label="Charge GST on the interest, at the original supply's rate"
             hint="CGST Act s.15(2)(d): interest for delayed payment is part of the value of the supply (CBIC Circular 102/21/2019-GST). Timing (s.12(6): on receipt) is unverified practice — see Credit control → Interest → Options."

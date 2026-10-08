@@ -64,6 +64,35 @@ export const RECEIVABLES_SOURCES: readonly RuleSource[] = [
     verified: false
   },
   {
+    id: 'sac-of-interest',
+    rule:
+      'UNVERIFIED: a SAC for the interest ledgers is a company setting (blank by default). 9971 ("Financial and related ' +
+      'services") is offered as a suggestion only; since the interest is part of the value of the original supply ' +
+      '(s.15(2)(d)), many practitioners report it under the HSN of the goods instead. Ask your CA.',
+    citation: 'Scheme of Classification of Services (Notification 11/2017-CT(Rate) Annexure) — heading 9971; not re-read for this point.',
+    url: '',
+    verified: false
+  },
+  {
+    id: 'no-invoice-bills',
+    rule:
+      'A bill with no invoice behind it (opening balance, journal) has no supply rate to follow. With GST on interest on, it ' +
+      'is charged at the company\'s default rate (Settings → Receivables, flagged in the preview) or, with no default set, ' +
+      'not charged — the preview says why.',
+    citation: 'App rule (s.15(2)(d) needs the rate of the supply the interest belongs to).',
+    url: '',
+    verified: true
+  },
+  {
+    id: 'zero-rated',
+    rule:
+      'Interest follows the class of the original invoice: SEZ / export with payment of tax → IGST; without payment → no tax; ' +
+      'the invoice\'s place-of-supply override carries onto the note. The same classification the GSTR-1 extraction uses.',
+    citation: 'IGST Act 2017 s.16 (zero-rated supply) and s.7(5)(b) (supplies to SEZ are inter-state), as already applied in services/gst.ts.',
+    url: '',
+    verified: true
+  },
+  {
     id: 'no-gst-unregistered',
     rule: 'A company that is not a regular GST registrant (composition / unregistered) never charges GST on the interest.',
     citation:
