@@ -4,7 +4,7 @@
  * root on first CLI run so any agent pointed at ~/Documents/total self-discovers the contract;
  * `init-agent-docs` rewrites them unconditionally.
  */
-import { existsSync, mkdirSync, writeFileSync } from 'fs'
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs'
 import { join } from 'path'
 import agentsMd from '../../../agent-skill/AGENTS.md'
 import { dataRoot } from '../paths'
@@ -16,14 +16,15 @@ export function voucherSchemaJsonText(): string {
   return JSON.stringify(voucherJsonSchema(), null, 2) + '\n'
 }
 
-/** Write AGENTS.md + voucher.schema.json into the data root if either is missing. Best-effort. */
+/** Write AGENTS.md + voucher.schema.json into the data root if either is missing (AGENTS.md also when it predates the MCP server). Best-effort. */
 export function ensureAgentDocs(): void {
   try {
     const root = dataRoot()
     mkdirSync(root, { recursive: true })
     const agentsPath = join(root, 'AGENTS.md')
     const schemaPath = join(root, 'voucher.schema.json')
-    if (!existsSync(agentsPath)) writeFileSync(agentsPath, AGENTS_MD)
+    // A pre-0.9 AGENTS.md still says inbox drops are posted — replace it (WP 5.7: they are drafts).
+    if (!existsSync(agentsPath) || !readFileSync(agentsPath, 'utf8').includes('total-cli mcp')) writeFileSync(agentsPath, AGENTS_MD)
     if (!existsSync(schemaPath)) writeFileSync(schemaPath, voucherSchemaJsonText())
   } catch {
     /* docs are a convenience — never block a command on them */
