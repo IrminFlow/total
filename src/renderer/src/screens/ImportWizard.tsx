@@ -30,6 +30,7 @@ type Step =
 const DEFAULT_OPTS: ImportWizardOptions = { duplicate: 'skip', createMissing: true, openingDifference: 'block', dateOrder: 'dmy', applyBooksFrom: true }
 
 const SOURCE_LABEL: Record<string, string> = { generic: 'Excel / CSV', busy: 'Busy', zoho: 'Zoho Books' }
+const PLAN_SOURCES: Record<string, string> = { 'total-books': 'Total books workbook', 'busy-xml': 'Busy XML export' }
 
 export function ImportWizardScreen(): React.JSX.Element {
   const toast = useToasts()
@@ -212,7 +213,7 @@ function RecentImports(): React.JSX.Element | null {
         { id: 'id', header: 'Batch', kind: 'number', value: (r) => r.id, width: 80 },
         { id: 'at', header: 'When', kind: 'text', value: (r) => r.createdAt, width: 170 },
         { id: 'file', header: 'File', kind: 'text', value: (r) => r.fileName ?? '', minWidth: 180 },
-        { id: 'source', header: 'Source', kind: 'text', value: (r) => (r.profileId ? (profileById(r.profileId)?.label ?? r.profileId) : r.source) },
+        { id: 'source', header: 'Source', kind: 'text', value: (r) => (r.profileId ? (profileById(r.profileId)?.label ?? r.profileId) : (PLAN_SOURCES[r.source] ?? r.source)) },
         { id: 'created', header: 'Created', kind: 'number', value: (r) => r.created, width: 90 },
         { id: 'updated', header: 'Updated', kind: 'number', value: (r) => r.updated, width: 90 },
         { id: 'errors', header: 'Errors', kind: 'number', value: (r) => r.errorCount, width: 80 },
@@ -479,7 +480,7 @@ function PlanStep({ file, opts, busy, onOpts, onBack, onNext }: { file: ImportLo
         {isBooks && file.manifest?.booksFrom && (
           <div className="mt-3">
             <Checkbox
-              label={`Start this company's books in FY ${file.manifest.booksFrom} (from the workbook)`}
+              label={`Start this company's books in FY ${file.manifest.booksFrom}-${String((Number(file.manifest.booksFrom) + 1) % 100).padStart(2, '0')} (from the workbook)`}
               hint="Only when the company has no vouchers yet"
               checked={opts.applyBooksFrom}
               onChange={(applyBooksFrom) => onOpts({ ...opts, applyBooksFrom })}
