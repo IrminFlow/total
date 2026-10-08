@@ -221,9 +221,9 @@ describe('conversion into a voucher', () => {
 describe('credit-limit warning text (§9 Q9)', () => {
   it('names the open sales-order value as a separate figure', () => {
     const base = { ledgerId: 10, ledgerName: 'Buyer', creditLimit: 100_000, outstanding: 120_000 }
-    expect(creditLimitWarningText(base)).toBe('Buyer: credit limit ₹1,000.00 exceeded — outstanding ₹1,200.00')
+    expect(creditLimitWarningText(base)).toBe('Buyer: credit limit ₹1,000.00 exceeded — outstanding ₹1,200.00 (with this invoice) is ₹200.00 over the limit')
     expect(creditLimitWarningText({ ...base, outstanding: 50_000, openSalesOrders: 59_000, ordersOnly: true })).toContain(
-      'outstanding ₹500.00 + open sales orders ₹590.00 = ₹1,090.00 (orders not yet invoiced)'
+      'outstanding ₹500.00 + open sales orders ₹590.00 = ₹1,090.00, ₹90.00 over the limit (orders not yet invoiced)'
     )
   })
 })

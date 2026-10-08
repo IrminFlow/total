@@ -27,6 +27,8 @@ interface LedgerRow {
   price_level_id: number | null; credit_limit: number | null
   deductee_type: Ledger['deducteeType']; tds_payable_section_id: number | null; tds_default_section_id: number | null
   tcs_section_id?: number | null; tcs_payable_section_id?: number | null; tcs_default_section_id?: number | null
+  email?: string | null; interest_rate_bp?: number | null; interest_grace_days?: number
+  credit_hold?: number; credit_hold_reason?: string | null; credit_hold_at?: string | null
 }
 const mapLedger = (r: LedgerRow): Ledger => ({
   id: r.id, name: r.name, groupId: r.group_id, openingBalance: r.opening_balance,
@@ -38,7 +40,9 @@ const mapLedger = (r: LedgerRow): Ledger => ({
   deducteeType: r.deductee_type ?? null, tdsPayableSectionId: r.tds_payable_section_id ?? null,
   tdsDefaultSectionId: r.tds_default_section_id ?? null,
   tcsSectionId: r.tcs_section_id ?? null, tcsPayableSectionId: r.tcs_payable_section_id ?? null,
-  tcsDefaultSectionId: r.tcs_default_section_id ?? null
+  tcsDefaultSectionId: r.tcs_default_section_id ?? null,
+  email: r.email ?? null, interestRateBp: r.interest_rate_bp ?? null, interestGraceDays: r.interest_grace_days ?? 0,
+  creditHold: !!r.credit_hold, creditHoldReason: r.credit_hold_reason ?? null, creditHoldAt: r.credit_hold_at ?? null
 })
 
 // ---------- groups ----------
@@ -181,6 +185,12 @@ export function createLedger(db: DB, raw: LedgerInput): Ledger {
       input.priceLevelId ?? null, input.creditLimit ?? null,
       input.deducteeType ?? null, input.tdsPayableSectionId ?? null, input.tdsDefaultSectionId ?? null,
       input.tcsSectionId ?? null, input.tcsPayableSectionId ?? null, input.tcsDefaultSectionId ?? null)
+  // WP 4.2 (migration 032): email / interest terms.
+  if (input.email != null || input.interestRateBp != null || input.interestGraceDays != null) {
+    db.prepare('UPDATE ledgers SET email = ?, interest_rate_bp = ?, interest_grace_days = ? WHERE id = ?').run(
+      input.email ?? null, input.interestRateBp ?? null, input.interestGraceDays ?? 0, Number(res.lastInsertRowid)
+    )
+  }
   const created = getLedger(db, Number(res.lastInsertRowid))!
   writeAudit(db, 'ledger', created.id, 'create', null, created)
   return created
@@ -210,6 +220,15 @@ export function updateLedger(db: DB, id: number, raw: LedgerInput): Ledger {
     input.tcsSectionId === undefined ? (existing.tcsSectionId ?? null) : input.tcsSectionId,
     input.tcsPayableSectionId === undefined ? (existing.tcsPayableSectionId ?? null) : input.tcsPayableSectionId,
     input.tcsDefaultSectionId === undefined ? (existing.tcsDefaultSectionId ?? null) : input.tcsDefaultSectionId, id)
+  // WP 4.2 (migration 032): absent = keep.
+  if (input.email !== undefined || input.interestRateBp !== undefined || input.interestGraceDays !== undefined) {
+    db.prepare('UPDATE ledgers SET email = ?, interest_rate_bp = ?, interest_grace_days = ? WHERE id = ?').run(
+      input.email === undefined ? (existing.email ?? null) : input.email,
+      input.interestRateBp === undefined ? (existing.interestRateBp ?? null) : input.interestRateBp,
+      input.interestGraceDays === undefined ? (existing.interestGraceDays ?? 0) : input.interestGraceDays,
+      id
+    )
+  }
   const updated = getLedger(db, id)!
   writeAudit(db, 'ledger', id, 'update', existing, updated)
   return updated
@@ -221,8 +240,17 @@ export function deleteLedger(db: DB, id: number): void {
   if (existing.isSystem) throw new Error('System ledgers cannot be deleted')
   const used = db.prepare('SELECT COUNT(*) AS n FROM voucher_lines WHERE ledger_id = ?').get(id) as { n: number }
   if (used.n > 0) throw new Error('Ledger has vouchers; delete those first')
+  // WP 4.2: its reminder log and bill follow-ups go with it (ON DELETE CASCADE) — the audit row
+  // records how many, so the trail shows what the delete took.
+  const cascaded: Record<string, number> = {}
+  for (const t of ['reminder_log', 'bill_followups']) {
+    if (db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?").get(t)) {
+      const n = (db.prepare(`SELECT COUNT(*) AS n FROM ${t} WHERE party_ledger_id = ?`).get(id) as { n: number }).n
+      if (n > 0) cascaded[t] = n
+    }
+  }
   db.prepare('DELETE FROM ledgers WHERE id = ?').run(id)
-  writeAudit(db, 'ledger', id, 'delete', existing, null)
+  writeAudit(db, 'ledger', id, 'delete', Object.keys(cascaded).length ? { ...existing, cascaded } : existing, null)
 }
 
 /** Closing balances (opening + movements up to `asOn` inclusive), only non-zero unless includeZero. */

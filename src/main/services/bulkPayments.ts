@@ -1,5 +1,5 @@
 // Bulk NEFT/RTGS payment files (WP 4.1): the beneficiary master (bank details on ledgers,
-// migration 033), user-defined file templates (shared/bulkPayments.ts — bank layouts are mostly
+// migration 034), user-defined file templates (shared/bulkPayments.ts — bank layouts are mostly
 // not public, see there), payment-voucher candidates, and the export itself, which records every
 // file with the vouchers and beneficiary details it carried (audited).
 import type { DB } from '../db/connection'

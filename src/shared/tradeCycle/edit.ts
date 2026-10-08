@@ -252,9 +252,14 @@ export function tradeDocStateFromDraft(draft: TradeDocDraft, date: string): Trad
  *  challans on it names the open sales-order value as a separate figure (§9 Q9, warn-only). */
 export function creditLimitWarningText(w: CreditLimitWarning): string {
   const r = (p: number): string => formatPaise(p, { symbol: true })
+  // WP 4.2: every figure is named — the limit, the outstanding (this invoice included), the open
+  // orders, the exposure they add up to and how far it is over the limit.
   const head = `${w.ledgerName}: credit limit ${r(w.creditLimit)}`
-  if (w.openSalesOrders === undefined || w.openSalesOrders === 0) return `${head} exceeded — outstanding ${r(w.outstanding)}`
-  const exposure = `outstanding ${r(w.outstanding)} + open sales orders ${r(w.openSalesOrders)} = ${r(w.outstanding + w.openSalesOrders)}`
+  if (w.openSalesOrders === undefined || w.openSalesOrders === 0) {
+    return `${head} exceeded — outstanding ${r(w.outstanding)} (with this invoice) is ${r(w.outstanding - w.creditLimit)} over the limit`
+  }
+  const total = w.outstanding + w.openSalesOrders
+  const exposure = `outstanding ${r(w.outstanding)} + open sales orders ${r(w.openSalesOrders)} = ${r(total)}, ${r(total - w.creditLimit)} over the limit`
   return w.ordersOnly ? `${head} — ${exposure} (orders not yet invoiced)` : `${head} exceeded — ${exposure}`
 }
 

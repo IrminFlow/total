@@ -31,6 +31,7 @@ import { tdsSummary } from './tds'
 import { getFeatures } from './config'
 import { listGroups } from './masters'
 import { IN_BOOKS, NOT_DELETED, getLockDate } from './vouchers'
+import { promisedThisWeek } from './receivables'
 import { pdcsMaturing } from './pdc'
 
 /** Mirrors db/backup.ts BackupInfo — passed in by the IPC handler (the service never touches
@@ -376,4 +377,14 @@ function monthEndBalances(
     closing.set(l.id, bal)
   }
   return { ends: result, closing }
+}
+
+/**
+ * WP 4.2 — the Gateway's "promised this week" chip (Compliance card): promises to pay on bills
+ * still open, from the follow-ups (services/receivables.ts). Kept a separate function and a
+ * separate channel (report:dashboardPromised) so the dashboard series stays untouched.
+ */
+export function dashPromisedPayments(db: DB, today: string): { count: number; amount: number; overdueCount: number; weekFrom: string; weekTo: string } {
+  const s = promisedThisWeek(db, today)
+  return { count: s.count, amount: s.amount, overdueCount: s.overdueCount, weekFrom: s.weekFrom, weekTo: s.weekTo }
 }

@@ -1,6 +1,6 @@
 // Post-dated cheque register (WP 4.1), received and issued. A PDC is a post-dated payment or
 // receipt voucher (vouchers.post_dated = 1, out of the books until it matures — vouchers.ts).
-// After maturity it stays in this register through pdc_events (migration 033's trigger records
+// After maturity it stays in this register through pdc_events (migration 034's trigger records
 // every maturity), where a bounce is handled: the entry is reversed by a new voucher (and any
 // bank charges booked by another), all through saveVoucher and audited.
 import type { DB } from '../db/connection'
