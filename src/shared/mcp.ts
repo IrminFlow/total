@@ -112,3 +112,10 @@ export function claudeDesktopConfig(o: McpLaunchOptions, needsPin: boolean): str
   if (Object.keys(env).length) server.env = env
   return JSON.stringify({ mcpServers: { [`total-${o.slug}`]: server } }, null, 2)
 }
+
+/** Who proposed a draft, for the voucher editor's banner. */
+export function aiDraftByLabel(d: { source?: 'chat' | 'mcp' | 'inbox'; origin?: string | null }): string {
+  if (d.source === 'mcp') return `Proposed over MCP by ${d.origin ?? 'an MCP client'}`
+  if (d.source === 'inbox') return `From ${d.origin ? `the inbox file ${d.origin}` : 'an inbox file'} (not asked for in Total)`
+  return 'Drafted by the assistant'
+}
