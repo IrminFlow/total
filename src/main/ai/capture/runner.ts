@@ -70,13 +70,16 @@ export function redraft(env: Pick<CaptureEnv, 'db' | 'company' | 'today'>, id: n
   if (!it.extractionJson) throw new Error('This file has not been read yet')
   if (it.status === 'drafted' || it.status === 'saved') throw new Error(`This file is already ${it.status}`)
   const extraction = JSON.parse(it.extractionJson) as BillExtraction
-  const run = (): CaptureItemRow => {
-    const outcome = draftFromBill({
-      db: env.db, company: env.company, item: { id, fileName: it.fileName }, parsed: parseExtraction(extraction, env.today()), mode: it.review?.mode ?? 'text',
-      mapping: it.mapping ?? {}, today: env.today()
-    })
-    return applyOutcome(env.db, id, outcome)
-  }
+  // The draft and the item's new status commit together (one transaction).
+  const run = (): CaptureItemRow =>
+    env.db.transaction(() => {
+      const parsed = parseExtraction(extraction, env.today())
+      if (it.review?.parsed.gstinCandidates) parsed.gstinCandidates = it.review.parsed.gstinCandidates
+      const outcome = draftFromBill({
+        db: env.db, company: env.company, item: { id, fileName: it.fileName }, parsed, mode: it.review?.mode ?? 'text', mapping: it.mapping ?? {}, today: env.today()
+      })
+      return applyOutcome(env.db, id, outcome)
+    })()
   return user ? runAsAuditUser(user, run) : run()
 }
 
@@ -169,7 +172,7 @@ export class CaptureRunner {
     const db = env.db
     runAsAuditUser(user, () => patchItem(db, item.id, { status: 'processing', attempts: item.attempts + 1, error: null }, false))
     const bytes = readCaptureFile(env.filesDir, item.storedPath, item.sha256)
-    const doc = prepareDocument(bytes, item.mime, item.fileName, env.images)
+    const doc = await prepareDocument(bytes, item.mime, env.images)
     const res = await extractBill(
       { db, provider: env.provider(), settings: env.settings(), today: env.today(), companyGstin: env.company.gstin ?? null, signal },
       doc,
@@ -179,11 +182,14 @@ export class CaptureRunner {
     const current = getItem(db, item.id)
     if (!current || current.status !== 'processing') return // cancelled or removed meanwhile
     const cost = res.costMicroUsd == null ? item.costMicroUsd : (item.costMicroUsd ?? 0) + res.costMicroUsd
-    const outcome = runAsAuditUser(user, () =>
-      draftFromBill({ db, company: env.company, item: { id: item.id, fileName: item.fileName }, parsed: res.parsed, mode: doc.mode, mapping: current.mapping ?? {}, today: env.today() })
+    // The draft and the item's new status commit together. (Evaluated before the optional call:
+    // `f?.(x)` skips evaluating x when f is absent.)
+    const done = runAsAuditUser(user, () =>
+      db.transaction(() => {
+        const outcome = draftFromBill({ db, company: env.company, item: { id: item.id, fileName: item.fileName }, parsed: res.parsed, mode: doc.mode, mapping: current.mapping ?? {}, today: env.today() })
+        return applyOutcome(db, item.id, outcome, { costMicroUsd: cost, extractionJson: JSON.stringify(res.extraction) })
+      })()
     )
-    // (Evaluated first: an optional call `f?.(x)` skips evaluating x when f is absent.)
-    const done = runAsAuditUser(user, () => applyOutcome(db, item.id, outcome, { costMicroUsd: cost, extractionJson: JSON.stringify(res.extraction) }))
     env.onChange?.(done)
   }
 }

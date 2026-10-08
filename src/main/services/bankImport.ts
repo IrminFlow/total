@@ -660,9 +660,9 @@ export function createVouchersFromLines(db: DB, bankLedgerId: number, items: Cre
 }
 
 /**
- * WP 5.4: a voucher saved from a categorised-statement draft reconciles its statement line — the
- * same tail as createVouchersFromLines (bank date = the statement date on the voucher's bank
- * line, a match row marked created-from-the-statement so undoing the import bins it, the line
+ * WP 5.4: a voucher saved from a categorised-statement draft reconciles its statement line (bank
+ * date = the statement date on the voucher's bank line that matches the line's side and amount, a
+ * confirmed match — the user saved the voucher, so undoing the import keeps it — the line
  * audited, the narration taught to the learned rules). Called inside the save's transaction.
  * Refused (returned, never thrown — the user's save stands) when the line is gone, ignored or
  * already matched, or the voucher no longer agrees with it (another bank account, side or amount).
@@ -683,7 +683,10 @@ export function reconcileSavedDraft(db: DB, bankLedgerId: number, statementLineI
        WHERE vl.voucher_id = ? AND vl.ledger_id = ? AND ${IN_BOOKS} ORDER BY vl.id`
     )
     .all(voucherId, bankLedgerId) as { id: number; drCr: 'dr' | 'cr'; amount: number; bankDate: string | null; date: string }[]
-  const entry = entries.find((e) => !e.bankDate)
+  // The voucher's entry on this bank that IS this line: same side and amount, not yet reconciled.
+  const side = sideOf(line)
+  const amount = line.deposit || line.withdrawal
+  const entry = entries.find((e) => !e.bankDate && (e.drCr === 'dr' ? 'deposit' : 'withdrawal') === side && e.amount === amount) ?? entries.find((e) => !e.bankDate)
   if (!entry) return { ok: false, reason: 'the saved voucher has no unreconciled entry on this bank account' }
   const err = validateGroup(
     [{ id: line.id, date: line.date, amount: line.deposit || line.withdrawal, side: sideOf(line), reference: line.reference, description: line.description }],
@@ -694,8 +697,11 @@ export function reconcileSavedDraft(db: DB, bankLedgerId: number, statementLineI
   db.prepare('UPDATE voucher_lines SET bank_date = ? WHERE id = ?').run(line.date, entry.id)
   writeAudit(db, 'voucher_line', entry.id, 'update', { bankDate: null }, { bankDate: line.date, statementLineIds: [line.id] })
   dropBrokenMatches(db, line.id)
-  db.prepare('INSERT INTO bank_statement_matches (statement_line_id, voucher_id, voucher_line_id, created_voucher, prev_bank_date) VALUES (?, ?, ?, 1, NULL)').run(line.id, voucherId, entry.id)
-  writeAudit(db, 'bank_statement_line', line.id, 'update', { matched: [] }, { matched: [voucherId], createdVoucher: voucherId, bankDate: line.date, fromDraft: true })
+  // A CONFIRMED match, not "created from the statement": the user reviewed and saved this voucher
+  // in the editor, so undoing the import must leave it in the books (WP 4.1 rule) and only put
+  // its bank date back.
+  db.prepare('INSERT INTO bank_statement_matches (statement_line_id, voucher_id, voucher_line_id, created_voucher, prev_bank_date) VALUES (?, ?, ?, 0, NULL)').run(line.id, voucherId, entry.id)
+  writeAudit(db, 'bank_statement_line', line.id, 'update', { matched: [] }, { matched: [voucherId], bankDate: line.date, fromDraft: true })
   const facts = voucherFacts(db, voucherId, bankLedgerId)
   if (facts) observe(db, { direction: sideOf(line), narration: line.description, ledgerId: facts.ledgerId, partyLedgerId: facts.partyLedgerId, voucherKind: facts.kind })
   return { ok: true }

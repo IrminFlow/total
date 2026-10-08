@@ -37,16 +37,30 @@ export function normaliseInvoiceNo(s: string): string {
   return (s.toUpperCase().match(/[A-Z]+|\d+/g) ?? []).map((run) => (/^\d+$/.test(run) ? run.replace(/^0+(?=\d)/, '') : run)).join('-')
 }
 
+/** An invoice number the rules can compare (one that normalises to nothing — "-", "/" — is not). */
+export const invoiceNoComparable = (no: string | null | undefined): boolean => !!no && normaliseInvoiceNo(no) !== ''
+
 export function findDuplicates(
-  bill: { partyLedgerId: number; invoiceNo: string | null; date: string | null; total: number | null },
+  bill: {
+    partyLedgerId: number
+    /** Other party ledgers carrying the same GSTIN (one supplier booked under two names). */
+    sameGstinLedgerIds?: readonly number[]
+    invoiceNo: string | null
+    date: string | null
+    total: number | null
+    /** Without a bill date the number is compared within today's FY and the previous one only. */
+    today?: string
+  },
   candidates: readonly DuplicateCandidate[]
 ): DuplicateHit[] {
   const out: DuplicateHit[] = []
+  const parties = new Set([bill.partyLedgerId, ...(bill.sameGstinLedgerIds ?? [])])
   const mine = bill.invoiceNo ? normaliseInvoiceNo(bill.invoiceNo) : ''
   const fy = bill.date ? fyOf(bill.date) : null
+  const window = !fy && bill.today ? { from: fyOf(`${Number(bill.today.slice(0, 4)) - 1}${bill.today.slice(4)}`).from, to: fyOf(bill.today).to } : null
   for (const c of candidates) {
-    if (c.partyLedgerId !== bill.partyLedgerId) continue
-    const sameFy = !fy || (c.date >= fy.from && c.date <= fy.to)
+    if (!parties.has(c.partyLedgerId)) continue
+    const sameFy = fy ? c.date >= fy.from && c.date <= fy.to : window ? c.date >= window.from && c.date <= window.to : true
     if (mine && sameFy && c.invoiceNos.some((n) => n && normaliseInvoiceNo(n) === mine)) {
       out.push({
         kind: 'same_invoice', voucherId: c.voucherId, captureItemId: c.captureItemId ?? null, number: c.number, date: c.date,

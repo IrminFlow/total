@@ -13,9 +13,52 @@
 export type Inflate = (data: Uint8Array) => Uint8Array
 
 export interface PdfText {
-  pageCount: number
+  /** null = the page tree could not be read (the caller must not guess a page count). */
+  pageCount: number | null
   pages: string[]
   encrypted: boolean
+}
+
+/** Hard limits — a hostile or broken PDF fails with PdfBudgetError instead of hanging or
+ *  exhausting memory (the reader runs in main; see main/ai/capture/pdfHost.ts for the worker). */
+export interface PdfLimits {
+  /** Total bytes produced by all decoded streams. */
+  maxDecodedBytes: number
+  maxObjects: number
+  /** Content-stream tokens across all pages. */
+  maxTokens: number
+  /** Wall-clock budget (ms) for the whole read. */
+  maxMs: number
+}
+export const PDF_LIMITS: PdfLimits = { maxDecodedBytes: 64 * 1024 * 1024, maxObjects: 100_000, maxTokens: 3_000_000, maxMs: 10_000 }
+
+export class PdfBudgetError extends Error {
+  constructor(what: string) {
+    super(`This PDF is too complex to read (${what})`)
+    this.name = 'PdfBudgetError'
+  }
+}
+
+class Budget {
+  decoded = 0
+  objects = 0
+  tokens = 0
+  private readonly started = Date.now()
+  constructor(readonly limits: PdfLimits) {}
+  addDecoded(n: number): void {
+    this.decoded += n
+    if (this.decoded > this.limits.maxDecodedBytes) throw new PdfBudgetError('decoded data over the limit')
+  }
+  addObject(): void {
+    if (++this.objects > this.limits.maxObjects) throw new PdfBudgetError('too many objects')
+  }
+  tick(): void {
+    if (++this.tokens > this.limits.maxTokens) throw new PdfBudgetError('too many drawing operations')
+    if ((this.tokens & 0xfff) === 0) this.time()
+  }
+  time(): void {
+    if (Date.now() - this.started > this.limits.maxMs) throw new PdfBudgetError('took too long')
+  }
 }
 
 interface PdfObject {
@@ -31,7 +74,7 @@ const latin1 = (b: Uint8Array, from = 0, to = b.length): string => {
   return s
 }
 
-function decodeStream(o: PdfObject, inflate: Inflate): Uint8Array | null {
+function decodeStream(o: PdfObject, inflate: Inflate, budget: Budget): Uint8Array | null {
   if (!o.stream) return null
   const filter = /\/Filter\s*(\[[^\]]*\]|\/\w+)/.exec(o.dict)?.[1] ?? ''
   const filters = filter.match(/\/\w+/g) ?? []
@@ -43,18 +86,20 @@ function decodeStream(o: PdfObject, inflate: Inflate): Uint8Array | null {
       } catch {
         return null
       }
+      budget.addDecoded(data.length)
     } else return null // images (DCT / JPX / CCITT) and the rest carry no text
   }
   return data
 }
 
 /** Every object in the file, including those packed in object streams. */
-function readObjects(bytes: Uint8Array, inflate: Inflate): Map<number, PdfObject> {
+function readObjects(bytes: Uint8Array, inflate: Inflate, budget: Budget): Map<number, PdfObject> {
   const text = latin1(bytes)
   const objs = new Map<number, PdfObject>()
   const re = /(\d+)\s+(\d+)\s+obj\b/g
   const pendingLength: { o: PdfObject; start: number; ref: number }[] = []
   for (let m = re.exec(text); m; m = re.exec(text)) {
+    budget.addObject()
     const num = Number(m[1])
     const bodyStart = m.index + m[0].length
     const end = text.indexOf('endobj', bodyStart)
@@ -93,16 +138,19 @@ function readObjects(bytes: Uint8Array, inflate: Inflate): Map<number, PdfObject
   // Object streams.
   for (const o of [...objs.values()]) {
     if (!/\/Type\s*\/ObjStm/.test(o.dict)) continue
-    const data = decodeStream(o, inflate)
+    const data = decodeStream(o, inflate, budget)
     if (!data) continue
-    const n = Number(/\/N\s+(\d+)/.exec(o.dict)?.[1] ?? 0)
-    const first = Number(/\/First\s+(\d+)/.exec(o.dict)?.[1] ?? 0)
     const s = latin1(data)
+    const first = Math.min(Number(/\/First\s+(\d+)/.exec(o.dict)?.[1] ?? 0), s.length)
     const head = s.slice(0, first).trim().split(/\s+/).map(Number)
+    // /N is never trusted beyond the pairs the header actually holds.
+    const n = Math.min(Number(/\/N\s+(\d+)/.exec(o.dict)?.[1] ?? 0), Math.floor(head.length / 2))
     for (let i = 0; i < n; i++) {
+      budget.addObject()
       const num = head[i * 2]!
       const off = head[i * 2 + 1]!
       const next = i + 1 < n ? head[(i + 1) * 2 + 1]! : s.length - first
+      if (!Number.isInteger(num) || !Number.isInteger(off) || !Number.isInteger(next) || off < 0 || next < off || first + next > s.length) continue
       if (!objs.has(num)) objs.set(num, { num, dict: s.slice(first + off, first + next).trim(), stream: null })
     }
   }
@@ -198,12 +246,12 @@ export function parseToUnicode(cmap: string): { map: Map<number, string>; bytesP
   return { map, bytesPerCode }
 }
 
-function loadFont(dict: string, objs: Map<number, PdfObject>, inflate: Inflate): Font {
+function loadFont(dict: string, objs: Map<number, PdfObject>, inflate: Inflate, budget: Budget): Font {
   const tu = refIn(dict, 'ToUnicode')
   const isType0 = /\/Subtype\s*\/Type0/.test(dict)
   if (tu != null) {
     const o = objs.get(tu)
-    const data = o ? decodeStream(o, inflate) : null
+    const data = o ? decodeStream(o, inflate, budget) : null
     if (data) {
       const { map, bytesPerCode } = parseToUnicode(latin1(data))
       return { bytesPerCode: isType0 ? 2 : bytesPerCode, map }
@@ -227,10 +275,15 @@ function showText(bytes: number[], font: Font | undefined): string {
 
 type Tok = { t: 'num'; v: number } | { t: 'str'; b: number[] } | { t: 'name'; v: string } | { t: 'op'; v: string } | { t: '[' } | { t: ']' } | { t: 'arr'; items: Tok[] }
 
-function* tokens(s: string): Generator<Tok> {
+export function* tokens(s: string, budget: Budget = new Budget(PDF_LIMITS)): Generator<Tok> {
   const n = s.length
   let i = 0
+  let last = -1
   while (i < n) {
+    // Every branch must advance; a position that does not move on is a bug — never loop.
+    if (i <= last) throw new PdfBudgetError('the drawing operators could not be read')
+    last = i
+    budget.tick()
     const c = s[i]!
     if (c === '%') {
       while (i < n && s[i] !== '\n' && s[i] !== '\r') i++
@@ -330,28 +383,53 @@ function* tokens(s: string): Generator<Tok> {
     const op = s.slice(i, j)
     i = j
     if (op === 'BI') {
-      // Inline image: skip to EI.
-      const ei = s.indexOf('EI', s.indexOf('ID', i))
-      i = ei < 0 ? n : ei + 2
+      // Inline image: skip its data to EI — searching only FORWARD (no ID or no EI after it =
+      // the rest of the stream is image data).
+      const id = s.indexOf('ID', i)
+      let end = n
+      if (id >= 0) {
+        // EI ends the data only as its own word (whitespace before, whitespace / end after).
+        const re = /\sEI(?=\s|$)/g
+        re.lastIndex = id + 2
+        const m = re.exec(s)
+        if (m) end = m.index + 3
+      }
+      i = end
       continue
     }
     yield { t: 'op', v: op }
   }
 }
 
-function pageText(content: string, fonts: Map<string, Font>): string {
+function pageText(content: string, fonts: Map<string, Font>, budget: Budget): string {
   let out = ''
   let font: Font | undefined
   let stack: Tok[] = []
   let arr: Tok[] | null = null
-  let lastY: number | null = null
+  // Text position, approximated in text space: a chunk shown right where the previous one ended
+  // (glyph-by-glyph placement — Td / Tm per character) joins it without a space, so digits and
+  // GSTINs are not split; a real gap (wider than ~a quarter of the font size) is a space.
+  let size = 10
+  let scale = 1
+  let lineX = 0
+  let x = 0
+  let y: number | null = null
+  let lastEnd: number | null = null
   const newline = (): void => {
     if (out && !out.endsWith('\n')) out += '\n'
+    lastEnd = null
   }
-  const space = (): void => {
-    if (out && !/[\s]$/.test(out)) out += ' '
+  const emit = (text: string): void => {
+    if (!text) return
+    if (lastEnd != null && out && !out.endsWith('\n')) {
+      const gap = x - lastEnd
+      if (gap > 0.25 * size * scale && !/\s$/.test(out)) out += ' '
+    }
+    out += text
+    lastEnd = x + [...text].length * size * scale * 0.5
+    x = lastEnd
   }
-  for (const tok of tokens(content)) {
+  for (const tok of tokens(content, budget)) {
     if (tok.t === '[') {
       arr = []
       continue
@@ -369,48 +447,60 @@ function pageText(content: string, fonts: Map<string, Font>): string {
       stack.push(tok)
       continue
     }
-    const nums = stack.filter((x): x is { t: 'num'; v: number } => x.t === 'num').map((x) => x.v)
+    const nums = stack.filter((v): v is { t: 'num'; v: number } => v.t === 'num').map((v) => v.v)
     switch (tok.v) {
       case 'BT':
-        lastY = null
+        lineX = x = 0
+        lastEnd = null
         break
       case 'ET':
         newline()
         break
       case 'Tf': {
-        const name = stack.find((x): x is { t: 'name'; v: string } => x.t === 'name')
+        const name = stack.find((v): v is { t: 'name'; v: string } => v.t === 'name')
         if (name) font = fonts.get(name.v)
+        if (nums.length) size = Math.abs(nums[nums.length - 1]!) || size
         break
       }
       case 'Td':
       case 'TD':
-        if (nums.length >= 2 && nums[1] !== 0) newline()
-        else if (nums.length >= 2 && Math.abs(nums[0]!) > 1) space()
+        if (nums.length >= 2) {
+          if (nums[1] !== 0) newline()
+          lineX += nums[0]! * scale
+          x = lineX
+        }
         break
       case 'Tm': {
-        const y = nums[5]
-        if (y != null && lastY != null && Math.abs(y - lastY) > 0.5) newline()
-        else if (lastY != null) space()
-        if (y != null) lastY = y
+        if (nums.length >= 6) {
+          const ny = nums[5]!
+          if (y != null && Math.abs(ny - y) > 0.5 * size * Math.max(scale, 0.01)) newline()
+          y = ny
+          scale = Math.abs(nums[0]!) || 1
+          lineX = x = nums[4]!
+        }
         break
       }
       case 'T*':
         newline()
+        lineX = x = 0
         break
       case "'":
       case '"':
         newline()
       // falls through
       case 'Tj': {
-        const str = [...stack].reverse().find((x): x is { t: 'str'; b: number[] } => x.t === 'str')
-        if (str) out += showText(str.b, font)
+        const str = [...stack].reverse().find((v): v is { t: 'str'; b: number[] } => v.t === 'str')
+        if (str) emit(showText(str.b, font))
         break
       }
       case 'TJ': {
-        const holder = stack.find((x): x is { t: 'arr'; items: Tok[] } => x.t === 'arr')
+        const holder = stack.find((v): v is { t: 'arr'; items: Tok[] } => v.t === 'arr')
         for (const part of holder?.items ?? []) {
-          if (part.t === 'str') out += showText(part.b, font)
-          else if (part.t === 'num' && part.v < -180) space()
+          if (part.t === 'str') emit(showText(part.b, font))
+          else if (part.t === 'num') {
+            // Kerning in thousandths of the font size: a big negative one is a word gap.
+            x -= (part.v / 1000) * size * scale
+          }
         }
         break
       }
@@ -461,10 +551,13 @@ function orderedPages(objs: Map<number, PdfObject>): PdfObject[] {
   return [...objs.values()].filter(isPage)
 }
 
-export function extractPdfText(bytes: Uint8Array, inflate: Inflate): PdfText {
+export function extractPdfText(bytes: Uint8Array, inflate: Inflate, limits: PdfLimits = PDF_LIMITS): PdfText {
   if (latin1(bytes, 0, Math.min(bytes.length, 1024)).indexOf('%PDF') < 0) throw new Error('Not a PDF file')
-  const objs = readObjects(bytes, inflate)
-  const encrypted = /\/Encrypt\s+\d+\s+\d+\s+R/.test(latin1(bytes, Math.max(0, bytes.length - 4096))) || [...objs.values()].some((o) => /\/Encrypt\s/.test(o.dict) && /\/Root\s/.test(o.dict))
+  const budget = new Budget(limits)
+  const objs = readObjects(bytes, inflate, budget)
+  // Any trailer (classic or incremental update, anywhere in the file) or xref stream naming an
+  // /Encrypt dictionary — by reference or inline.
+  const encrypted = /\/Encrypt\s*(\d+\s+\d+\s+R|<<)/.test(latin1(bytes))
   const pages = orderedPages(objs)
   const fontCache = new Map<number, Font>()
   const texts = encrypted
@@ -475,32 +568,39 @@ export function extractPdfText(bytes: Uint8Array, inflate: Inflate): PdfText {
         const fonts = new Map<string, Font>()
         for (const m of (fontDict ?? '').matchAll(/\/([^\s/<>[\]()]+)\s+(\d+)\s+\d+\s+R/g)) {
           const num = Number(m[2])
-          if (!fontCache.has(num)) fontCache.set(num, loadFont(objs.get(num)?.dict ?? '', objs, inflate))
+          if (!fontCache.has(num)) fontCache.set(num, loadFont(objs.get(num)?.dict ?? '', objs, inflate, budget))
           fonts.set(m[1]!, fontCache.get(num)!)
         }
         const contents = /\/Contents\s*(\[[^\]]*\]|\d+\s+\d+\s+R)/.exec(p.dict)?.[1] ?? ''
         let content = ''
         for (const m of contents.matchAll(/(\d+)\s+\d+\s+R/g)) {
           const o = objs.get(Number(m[1]))
-          const data = o ? decodeStream(o, inflate) : null
+          const data = o ? decodeStream(o, inflate, budget) : null
           if (data) content += `${latin1(data)}\n`
         }
+        budget.time()
         try {
-          return pageText(content, fonts)
-        } catch {
+          return pageText(content, fonts, budget)
+        } catch (err) {
+          if (err instanceof PdfBudgetError) throw err
           return ''
         }
       })
-  return { pageCount: Math.max(1, pages.length), pages: texts, encrypted }
+  return { pageCount: pages.length > 0 ? pages.length : null, pages: texts, encrypted }
 }
 
 /** Whether a text layer is good enough to send instead of the file: enough letters and digits,
- *  mostly printable, and at least one amount-like figure. */
+ *  mostly printable, at least one amount-like figure, mostly real words / numbers (a subset font
+ *  with a custom /Differences encoding reads as gibberish), and a word a bill always carries. */
 export function textLooksUsable(text: string): boolean {
   const t = text.trim()
   if (t.length < 40) return false
   const alnum = (t.match(/[\p{L}\p{N}]/gu) ?? []).length
   const printable = (t.match(/[\p{L}\p{N}\p{P}\p{S}\s]/gu) ?? []).length
   if (alnum < 30 || printable / t.length < 0.9) return false
-  return /\d[\d,]*\.\d{2}\b/.test(t) || /\d{3,}/.test(t)
+  if (!(/\d[\d,]*\.\d{2}\b/.test(t) || /\d{3,}/.test(t))) return false
+  const words = t.split(/[\s:,;|()[\]]+/).filter((w) => w.length >= 2)
+  const sensible = words.filter((w) => /^[A-Za-z][a-z]+$|^[A-Z]{2,}$|^[A-Za-z]*[aeiouAEIOU][A-Za-z]*[.\-/]?$/.test(w) || /^[₹$]?[\d.,/%\-]+$/.test(w) || /^[A-Z0-9/\-]{3,}$/.test(w))
+  if (words.length === 0 || sensible.length / words.length < 0.6) return false
+  return /\b(invoice|bill|total|gst|gstin|tax|amount|qty|quantity|rate|cgst|sgst|igst|receipt|challan)\b/i.test(t)
 }

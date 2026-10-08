@@ -6,9 +6,9 @@ import { deflateSync, inflateSync } from 'zlib'
 import { amountFromText, cleanGstin, dateFromText, parseExtraction, qtyFromText, rateFromText, stateFromText } from './parse'
 import { BILL_EXTRACTION_SCHEMA, readExtraction, type BillExtraction } from './schema'
 import { recomputeBill } from './totals'
-import { findDuplicates, normaliseInvoiceNo, type DuplicateCandidate } from './duplicates'
+import { findDuplicates, invoiceNoComparable, normaliseInvoiceNo, type DuplicateCandidate } from './duplicates'
 import { applyModelPicks, categoriseLines, categoriseResponseSchema, historyVote, narrationPrefix, type CatLedger, type CatLine, type HistoryEntry } from './categorise'
-import { extractPdfText, parseToUnicode, textLooksUsable } from './pdfText'
+import { extractPdfText, parseToUnicode, PdfBudgetError, PDF_LIMITS, textLooksUsable, tokens } from './pdfText'
 import { FIXTURE_BILL_LINES, makeTestPdf } from './pdfFixture.testutil'
 
 const TODAY = '2025-08-20'
@@ -47,7 +47,10 @@ describe('reading printed figures', () => {
     expect(amountFromText('34,240')).toBe(3_424_000)
     expect(amountFromText('-0.40')).toBe(-40)
     expect(amountFromText('(0.40)')).toBe(-40)
-    expect(amountFromText('0.40 Cr')).toBe(40)
+    expect(amountFromText('0.40 Cr')).toBe(-40) // the marker is a sign (dr-positive), never dropped
+    expect(amountFromText('0.40 Dr')).toBe(40)
+    expect(amountFromText('(-)0.40')).toBe(-40)
+    expect(amountFromText('(-) ₹ 1,000.00')).toBe(-100_000)
     expect(amountFromText('1234.5600000001')).toBeNull() // a float artefact is never rounded
     expect(amountFromText('1234.567')).toBeNull()
     expect(amountFromText('12,34,5')).toBeNull()
@@ -149,6 +152,15 @@ describe('duplicate rules', () => {
     expect(findDuplicates(bill, [existing({ date: '2025-03-30' })])).toEqual([])
     expect(findDuplicates(bill, [existing({ partyLedgerId: 6 })])).toEqual([])
   })
+  it('checks every ledger sharing the GSTIN; without a bill date only this FY and the last; an empty number is not comparable', () => {
+    const bill = { partyLedgerId: 5, sameGstinLedgerIds: [8], invoiceNo: 'BSS/2025-26/0142', date: null, total: null, today: '2025-08-20' }
+    expect(findDuplicates(bill, [existing({ partyLedgerId: 8 })])[0]).toMatchObject({ kind: 'same_invoice' })
+    expect(findDuplicates(bill, [existing({ date: '2024-05-01' })])[0]).toMatchObject({ kind: 'same_invoice' }) // previous FY
+    expect(findDuplicates(bill, [existing({ date: '2023-05-01' })])).toEqual([]) // older
+    expect(invoiceNoComparable('-/-')).toBe(false)
+    expect(invoiceNoComparable('INV 7')).toBe(true)
+  })
+
   it('same supplier + amount within ±7 days flags; 8 days does not', () => {
     const bill = { partyLedgerId: 5, invoiceNo: 'X-1', date: '2025-08-12', total: 3_424_000 }
     expect(findDuplicates(bill, [existing({ date: '2025-08-19' })])[0]).toMatchObject({ kind: 'same_amount' })
@@ -248,6 +260,41 @@ describe('PDF text layer', () => {
     const cm = parseToUnicode('1 begincodespacerange <0000> <FFFF> endcodespacerange 1 beginbfrange <0010> <0012> <0041> endbfrange')
     expect(cm.bytesPerCode).toBe(2)
     expect([cm.map.get(0x10), cm.map.get(0x12)]).toEqual(['A', 'C'])
+  })
+
+  it('an inline image with no ID / EI after BI never loops back (the review hang) and every read is budgeted', () => {
+    const t0 = Date.now()
+    const toks = [...tokens('BT /F1 12 Tf (RECEIPT) Tj ET BI /W 1 /H 1')]
+    expect(Date.now() - t0).toBeLessThan(500)
+    expect(toks.filter((x) => x.t === 'op').map((x) => (x as { v: string }).v)).toEqual(['BT', 'Tf', 'Tj', 'ET'])
+    expect([...tokens('BI /W 1 ID xxEIyy EI (A) Tj')].filter((x) => x.t === 'op').map((x) => (x as { v: string }).v)).toEqual(['Tj'])
+    const big = 'BT ' + '(A) Tj '.repeat(5000) + 'ET'
+    expect(() => [...tokens(big, undefined)]).not.toThrow()
+    const pdf = makeTestPdf(['TAX INVOICE total 1,000.00'], { deflate })
+    expect(() => extractPdfText(pdf, inflate, { ...PDF_LIMITS, maxTokens: 3 })).toThrow(PdfBudgetError)
+    expect(() => extractPdfText(pdf, inflate, { ...PDF_LIMITS, maxDecodedBytes: 10 })).toThrow(/decoded data over the limit/)
+    expect(() => extractPdfText(pdf, inflate, { ...PDF_LIMITS, maxObjects: 2 })).toThrow(/too many objects/)
+  })
+
+  it('an object stream claiming more objects than its header holds reads only the real ones', () => {
+    const raw = makeTestPdf(['TAX INVOICE GSTIN 27AABCG3456H1ZN total 1,000.00'], { deflate, objectStream: true })
+    const lied = Buffer.from(Buffer.from(raw).toString('latin1').replace(/\/N (\d+)/, '/N 99999999'), 'latin1')
+    const r = extractPdfText(lied, inflate)
+    expect(r.pages[0]).toContain('27AABCG3456H1ZN')
+  })
+
+  it('glyph-by-glyph placement joins into words and whole GSTINs (so masking and GSTIN lookup work)', () => {
+    const r = extractPdfText(makeTestPdf(['GSTIN 27AABCG3456H1ZN', 'Total Rs. 34,240.00'], { deflate, layout: 'glyphs' }), inflate)
+    expect(r.pages[0]).toBe('GSTIN 27AABCG3456H1ZN\nTotal Rs. 34,240.00')
+  })
+
+  it('gibberish from a subset font, an unreadable page tree and an inline /Encrypt are caught', () => {
+    expect(textLooksUsable('Xqzt Bvkr 1,234.00 Wrtq Pxzl Kjvb 9,999.00 Qwrt Zxcv Bnml Hjkl 4,321.00 Tzvq')).toBe(false)
+    expect(textLooksUsable(FIXTURE_BILL_LINES.join('\n'))).toBe(true)
+    const noTree = Buffer.from(Buffer.from(makeTestPdf(['x'], {})).toString('latin1').replace(/\/Type \/Pages?\b/g, '/Type /Nothing'), 'latin1')
+    expect(extractPdfText(noTree, inflate).pageCount).toBeNull()
+    const enc = Buffer.from(Buffer.from(makeTestPdf(['TAX INVOICE 1,000.00'], {})).toString('latin1').replace('trailer\n<<', 'trailer\n<< /Encrypt << /Filter /Standard /V 2 >>'), 'latin1')
+    expect(extractPdfText(enc, inflate).encrypted).toBe(true)
   })
 
   it('a scan (no text) is not usable; a non-PDF is refused', () => {

@@ -86,6 +86,11 @@ export interface CaptureItemDto {
 
 export interface CaptureEstimate {
   items: number
+  /** The queued files this estimate priced — the approval sends exactly these. */
+  ids: number[]
+  /** Privacy in force (Settings → AI) — the disclosure reflects it. */
+  maskIds: boolean
+  pseudonymise: boolean
   pages: number
   inputTokens: number
   outputTokens: number
@@ -155,6 +160,7 @@ export const captureAddFilesSchema = z.object({
 
 export const captureIdsSchema = z.object({ ids: z.array(id).max(500).optional() }).default({})
 export const captureIdSchema = z.object({ id })
+export const captureProcessSchema = z.object({ ids: z.array(id).min(1).max(500) })
 
 export const captureResolveSchema = z.object({
   id,

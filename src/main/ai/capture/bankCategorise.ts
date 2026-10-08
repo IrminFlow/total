@@ -8,7 +8,7 @@ import type { DB } from '../../db/connection'
 import type { AiSettings } from '@shared/ai'
 import type { CompanyInfo } from '@shared/domain'
 import { formatPaise } from '@shared/money'
-import { applyModelPicks, categoriseLines, categoriseResponseSchema, memoryWhy, type CatLedger, type CatLine, type CategoriseMemory, type CategoryProposal, type RuleHint } from '@shared/capture/categorise'
+import { applyModelPicks, categoriseLines, categoriseResponseSchema, kindFor, memoryWhy, type CatLedger, type CatLine, type CategoriseMemory, type CategoryProposal, type RuleHint } from '@shared/capture/categorise'
 import { getAiSettings } from '../settings'
 import { getMemory, markMemoriesUsed, memoryContextFor } from '../memory'
 import { renderPartyName } from '../memoryRules'
@@ -215,7 +215,10 @@ export function acceptCategories(
       const ledger = ledgers.get(it.ledgerId)
       if (!ledger) throw new Error('Ledger not found')
       if (ledger.id === bankLedgerId) throw new Error('Pick a ledger other than this bank account')
-      const kind = it.kind ?? (ledger.kind === 'cash_bank' ? 'contra' : line.side === 'deposit' ? 'receipt' : 'payment')
+      // The voucher kind follows the line's side and the ledger, decided HERE — never the
+      // renderer's word (a "payment" for a deposit would book money the wrong way).
+      const kind = kindFor(ledger, line.side)
+      if (it.kind && it.kind !== kind) throw new Error(`A ${line.side} to ${ledger.name} is a ${kind}, not a ${it.kind}`)
       const amount = paiseToRupeeText(line.amount)
       const narration = (it.narration ?? line.description).trim().slice(0, 500) || undefined
       const party = ledger.kind === 'debtor' || ledger.kind === 'creditor'
@@ -242,7 +245,10 @@ export function acceptCategories(
       const mem = it.memoryId ? getMemory(db, it.memoryId) : null
       const memUsed = mem && mem.status === 'active' && (mem.data?.partyLedgerId === ledger.id || (mem.kind === 'preference' && mem.data?.ledgerId === ledger.id)) ? mem : null
       const assumptions = [...(built.payload.assumptions ?? []), ...(memUsed ? [memoryWhy({ memoryId: memUsed.id, text: renderPartyName(memUsed.text, memUsed.labels.party ?? null) })] : [])]
-      const payload = { ...built.payload, assumptions, bankLine: { bankLedgerId, statementLineId: line.id } }
+      // The draft must post exactly this line on this bank, on its side (as draft_voucher's
+      // statementLineId does) — checked for every accepted row.
+      const linked = withBankLine(db, built, line.id)
+      const payload = { ...linked.payload, assumptions }
       const d = db.transaction(() => {
         const draft = insertDraft(db, { threadId: null, messageId: null, summary: built.summary, payload, unrequested: false, source: 'capture', origin: `Statement line ${line.date}` })
         writeAudit(db, 'ai_draft', draft.id, 'create', null, { tool: 'categorise_statement', statementLineId: line.id, bankLedgerId, summary: built.summary, payload, source: 'capture' })

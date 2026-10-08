@@ -56,22 +56,34 @@ export interface ParsedBill {
   notes: string | null
   /** What could not be read, in plain words. */
   warnings: string[]
+  /** GSTINs printed on the bill when the supplier's could not be told apart (asked, never guessed). */
+  gstinCandidates?: string[]
 }
 
-/** Printed amount → signed integer paise, or null. Accepts "₹ 1,20,000.00", "Rs. 450/-", "450.00 Dr",
- *  "-0.40", "(0.40)" and Indian / Western grouping; refuses anything parseAmountText refuses
+/** Printed amount → signed integer paise, or null. Accepts "₹ 1,20,000.00", "Rs. 450/-", "-0.40",
+ *  "(0.40)", "(-)0.40", "0.40 Cr" (negative) / "0.40 Dr" (positive) and Indian / Western grouping; refuses anything parseAmountText refuses
  *  (more than two significant decimals, mixed grouping, words). */
 export function amountFromText(input: string | null | undefined): number | null {
   if (input == null) return null
   let t = input.trim().replace(/\s+/g, ' ')
   if (!t || t === '-' || t === '—' || /^nil$/i.test(t)) return null
   let sign = 1
+  // "(-) 0.40" (Tally's printed minus) before the parenthesised-negative form.
+  if (/^\(\s*[-−–]\s*\)/.test(t)) {
+    sign = -1
+    t = t.replace(/^\(\s*[-−–]\s*\)\s*/, '')
+  }
   const paren = /^\((.*)\)$/.exec(t)
   if (paren) {
-    sign = -1
+    sign = -sign
     t = paren[1]!.trim()
   }
-  if (/\s*(cr|dr)\.?$/i.test(t)) t = t.replace(/\s*(cr|dr)\.?$/i, '').trim()
+  // A Dr / Cr marker is a sign, never dropped: dr-positive, as everywhere in the app (CLAUDE.md).
+  const marker = /\s*(cr|dr)\.?$/i.exec(t)
+  if (marker) {
+    if (marker[1]!.toLowerCase() === 'cr') sign = -sign
+    t = t.slice(0, marker.index).trim()
+  }
   if (/^[-−–]/.test(t)) {
     sign = -sign
     t = t.slice(1).trim()

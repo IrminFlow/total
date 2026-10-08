@@ -19,7 +19,7 @@ import type { CompanyInfo, Ledger, StockItem } from '@shared/domain'
 import type { AiDraftDto, AiDraftSourceRef } from '@shared/ai'
 import type { ParsedBill, ParsedBillLine } from '@shared/capture/parse'
 import { recomputeBill } from '@shared/capture/totals'
-import { findDuplicates, type DuplicateCandidate, type DuplicateHit } from '@shared/capture/duplicates'
+import { findDuplicates, invoiceNoComparable, type DuplicateCandidate, type DuplicateHit } from '@shared/capture/duplicates'
 import type { CaptureMapping, CaptureQuestion, CaptureReview } from '@shared/capture/types'
 import { formatPaise, roundToRupee } from '@shared/money'
 import { resolveName } from '@shared/aiResolve'
@@ -37,7 +37,16 @@ import { rehearse } from '../drafting/rehearse'
 
 const rs = (p: number): string => formatPaise(p, { symbol: true })
 /** Paise → the rupee text the draft builders read with parseAmountText (integer maths). */
-const paiseToRupeeText = (p: number): string => `${Math.floor(p / 100)}.${String(p % 100).padStart(2, '0')}`
+const paiseToRupeeText = (p: number): string => {
+  const a = Math.abs(p)
+  return `${p < 0 ? '-' : ''}${Math.floor(a / 100)}.${String(a % 100).padStart(2, '0')}`
+}
+
+/** qty × rate in paise, half away from zero — integer maths (the invoice grid's rounding). */
+function lineGross(qtyMilli: number, ratePaise: number): number {
+  const n = qtyMilli * ratePaise
+  return n >= 0 ? Math.floor((n + 500) / 1000) : -Math.floor((-n + 500) / 1000)
+}
 
 export type BillDraftOutcome =
   | { status: 'drafted'; review: CaptureReview; supplierLedgerId: number; draft: AiDraftDto; duplicate: DuplicateHit | null }
@@ -83,6 +92,25 @@ function resolveSupplier(m: DraftMasters, parsed: ParsedBill, mapping: CaptureMa
       return null
     }
   }
+  // The bill prints GSTINs but which one is the supplier's was not clear: never guessed — a name
+  // match is taken only when that ledger's GSTIN is one of them; otherwise the user is asked.
+  const printed = parsed.supplierGstin ? [] : (parsed.gstinCandidates ?? [])
+  if (printed.length && !mapping.supplierLedgerId) {
+    const holders = parties.filter((l) => l.gstin && printed.includes(l.gstin.toUpperCase()))
+    const byName = parsed.supplierName ? resolveName(parsed.supplierName, holders.map((l) => ({ id: l.id, name: l.name }))) : null
+    if (byName?.status === 'match') {
+      const l = m.ledgers.find((x) => x.id === byName.id)!
+      sources.push({ field: 'party', kind: 'ledger', label: l.name, id: l.id, said: parsed.supplierName ?? undefined, why: `its name and its GSTIN ${l.gstin} are both on the bill` })
+      return l
+    }
+    q.push({
+      field: 'supplier',
+      said: parsed.supplierName ?? '',
+      question: `The bill prints GSTIN ${printed.join(', ')} but it is not clear which is the supplier's — which supplier is it?`,
+      candidates: holders.map((l) => ({ id: l.id, name: l.name, detail: `GSTIN ${l.gstin}` }))
+    })
+    return null
+  }
   const said = parsed.supplierName ?? ''
   const cand = (l: Ledger): { id: number; name: string; keys: (string | null)[]; detail: string } => ({
     id: l.id, name: l.name, keys: [l.gstin, l.pan], detail: [l.gstin ? `GSTIN ${l.gstin}` : null, l.stateCode ? stateName(l.stateCode) : null].filter(Boolean).join(' · ')
@@ -126,6 +154,16 @@ function resolveLines(m: DraftMasters, lines: ParsedBillLine[], mapping: Capture
   const expenseLike = (l: Ledger): boolean => underGroup(m, l, ['Purchase Accounts', 'Direct Expenses', 'Indirect Expenses', 'Fixed Assets'])
   return lines.map((line) => {
     const field = `line:${line.index}`
+    const negative = [line.qtyMilli, line.ratePaise, line.taxablePaise, line.amountPaise].some((v) => v != null && v < 0)
+    if (negative) {
+      q.push({
+        field,
+        said: line.description,
+        question: `Line ${line.index + 1} “${line.description}” prints a negative figure (a return or discount line). Capture books purchases only — enter this bill in the voucher editor.`,
+        candidates: []
+      })
+      return { line, item: null, ledger: null }
+    }
     const answer = mapping.lines?.[String(line.index)]
     if (answer?.itemId) {
       const it = m.items.find((x) => x.id === answer.itemId)
@@ -139,6 +177,7 @@ function resolveLines(m: DraftMasters, lines: ParsedBillLine[], mapping: Capture
       sources.push({ field, kind: 'ledger', label: l.name, id: l.id, said: line.description, why: 'booked to a ledger in the capture review' })
       return { line, item: null, ledger: l }
     }
+    const account = mapping.accountLedgerId ? m.ledgers.find((x) => x.id === mapping.accountLedgerId && expenseLike(x)) : undefined
     const h = hsn4(line.hsn)
     const r = resolveName(
       line.description,
@@ -167,6 +206,10 @@ function resolveLines(m: DraftMasters, lines: ParsedBillLine[], mapping: Capture
         return { line, item: null, ledger: null }
       }
     }
+    if (account) {
+      sources.push({ field, kind: 'ledger', label: account.name, id: account.id, said: line.description, why: 'the ledger picked for the bill in the capture review' })
+      return { line, item: null, ledger: account }
+    }
     const cands = r.status === 'ambiguous' ? r.candidates : r.closest
     q.push({
       field,
@@ -180,7 +223,11 @@ function resolveLines(m: DraftMasters, lines: ParsedBillLine[], mapping: Capture
 }
 
 /** The supplier's purchase vouchers in the books (and open capture drafts) for the duplicate rules. */
-export function duplicateCandidates(db: DB, supplierId: number, exceptItemId: number): DuplicateCandidate[] {
+export function duplicateCandidates(db: DB, supplierIds: readonly number[], exceptItemId: number): DuplicateCandidate[] {
+  return supplierIds.flatMap((id) => duplicateCandidatesFor(db, id, exceptItemId))
+}
+
+function duplicateCandidatesFor(db: DB, supplierId: number, exceptItemId: number): DuplicateCandidate[] {
   const vouchers = db
     .prepare(
       `SELECT v.id, v.number, v.date, v.reference,
@@ -222,7 +269,7 @@ function buildLedgerPurchase(w: DraftWork, party: Ledger, maps: LineMap[], parse
   const byLedger = new Map<number, number>()
   const buckets = new Map<number, number>()
   for (const { line, ledger } of maps) {
-    const taxable = line.qtyMilli != null && line.ratePaise != null ? Math.round((line.qtyMilli * line.ratePaise) / 1000) - (line.discountPaise ?? 0) : (line.taxablePaise ?? line.amountPaise)
+    const taxable = line.qtyMilli != null && line.ratePaise != null ? lineGross(line.qtyMilli, line.ratePaise) - (line.discountPaise ?? 0) : (line.taxablePaise ?? line.amountPaise)
     if (taxable == null || taxable <= 0) throw new Error(`Line ${line.index + 1} has no legible amount to book`)
     let rate = ledger!.gstRate
     if (rate == null) {
@@ -329,7 +376,12 @@ export function draftFromBill(input: BillDraftInput): BillDraftOutcome {
   if (!supplier || review.questions.length) return { status: 'needs_review', review, supplierLedgerId: supplier?.id ?? null }
 
   // Duplicates: refused before anything is built.
-  review.duplicates = findDuplicates({ partyLedgerId: supplier.id, invoiceNo: parsed.invoiceNo, date: parsed.date, total: parsed.total ?? totals.computedTotal }, duplicateCandidates(db, supplier.id, input.item.id))
+  // The same supplier may be booked under two ledgers: every party ledger with its GSTIN counts.
+  const siblings = supplier.gstin ? m.ledgers.filter((l) => l.id !== supplier!.id && isParty(m, l) && (l.gstin ?? '').toUpperCase() === supplier!.gstin!.toUpperCase()).map((l) => l.id) : []
+  review.duplicates = findDuplicates(
+    { partyLedgerId: supplier.id, sameGstinLedgerIds: siblings, invoiceNo: parsed.invoiceNo, date: parsed.date, total: parsed.total ?? totals.computedTotal, today: input.today },
+    duplicateCandidates(db, [supplier.id, ...siblings], input.item.id)
+  )
   const refused = review.duplicates.find((d) => d.kind === 'same_invoice')
   if (refused) return { status: 'duplicate', review, supplierLedgerId: supplier.id, duplicate: refused }
   const flagged = review.duplicates.find((d) => d.kind === 'same_amount') ?? null
@@ -402,7 +454,8 @@ export function draftFromBill(input: BillDraftInput): BillDraftOutcome {
     const c = computeInvoice(built.payload.state as InvoiceFormState, invoiceCtx(m, 'purchase'))
     computedTax = c.gst.cgst + c.gst.sgst + c.gst.igst + c.gst.cess
   } else {
-    computedTax = (built.payload.total ?? 0) - built.payload.lines.filter((l) => l.drCr === 'dr' && !m.ledgers.find((x) => x.id === l.ledgerId)?.taxType).reduce((s, l) => s + l.amount, 0)
+    // The lines posted to tax ledgers (a credited round-off must not read as tax).
+    computedTax = built.payload.lines.filter((l) => !!m.ledgers.find((x) => x.id === l.ledgerId)?.taxType).reduce((s, l) => s + (l.drCr === 'dr' ? l.amount : -l.amount), 0)
   }
   const draftTotal = built.payload.total ?? 0
   review.taxCheck = { computed: computedTax, printed: totals.tax, computedTotal: draftTotal, printedTotal: totals.printedTotal }
@@ -411,6 +464,7 @@ export function draftFromBill(input: BillDraftInput): BillDraftOutcome {
   if (totals.printedTotal != null && totals.printedTotal !== draftTotal) extra.push(`The bill's total is ${rs(totals.printedTotal)}; this draft totals ${rs(draftTotal)} (difference ${rs(totals.printedTotal - draftTotal)})`)
   for (const d of totals.discrepancies) extra.push(`On the bill: ${d}`)
   for (const wmsg of parsed.warnings) extra.push(`Not read: ${wmsg}`)
+  if (!invoiceNoComparable(parsed.invoiceNo)) extra.push(parsed.invoiceNo ? `The invoice number “${parsed.invoiceNo}” cannot be compared — the duplicate check by number was not done (unchecked)` : 'No invoice number on the bill — the duplicate check by number was not done (unchecked)')
   if (parsed.confidence === 'low') extra.push('The reading of this bill is marked low-confidence — compare every line with the file')
   if (flagged) extra.push(`Possible duplicate: ${flagged.why}`)
   const dupSource: AiDraftSourceRef[] = flagged?.voucherId ? [{ field: 'reference', kind: 'voucher', label: `Possible duplicate ${flagged.number} (${flagged.date})`, id: flagged.voucherId, why: flagged.why }] : []

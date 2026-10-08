@@ -86,6 +86,7 @@ import { registerConsolidationIpc } from './ipcConsolidation'
 import { runDuePacksInBackground } from './packScheduler'
 import { registerAiIpc, aiRuns, type AppKeyAuditEntry } from './ai/ipc'
 import { registerCaptureIpc, captureOnCompanyOpen, captureOnCompanyClose, resumeCapture } from './ai/capture/ipc'
+import { dropPendingAttachments, flushCaptureAttachments } from './ai/capture/consume'
 import { aiMockAllowed } from './ai/env'
 import { settleDraftOnSave } from './ai/drafts'
 import * as aiStore from './ai/store'
@@ -1056,13 +1057,21 @@ export function registerIpc(): void {
     // WP 5.1: a voucher reviewed from an AI draft saves through the normal path; the draft is
     // settled in the same transaction (consumed when still open; otherwise the save goes ahead
     // and the audit trail records that the draft was no longer open).
-    const saved = aiDraftId
-      ? c.db.transaction(() => {
+    let saved: ReturnType<typeof vouchers.saveVoucher>
+    if (aiDraftId) {
+      try {
+        saved = c.db.transaction(() => {
           const v = vouchers.saveVoucher(c.db, data, id, saveOpts)
           settleDraftOnSave(c.db, aiDraftId, v.id, 'voucher', { companyDir: companyDir(c.slug) })
           return v
         })()
-      : vouchers.saveVoucher(c.db, data, id, saveOpts)
+      } catch (err) {
+        dropPendingAttachments()
+        throw err
+      }
+      // WP 5.4: a captured bill's file is attached only once the save has committed.
+      flushCaptureAttachments()
+    } else saved = vouchers.saveVoucher(c.db, data, id, saveOpts)
     // WP 2.6 "remember last price" (Options toggle; a no-op unless on and this is a sale). Never
     // fails the save it follows.
     try {

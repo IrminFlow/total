@@ -21,7 +21,15 @@ import { listAttachments } from '../../services/attachments'
 import { descendantIdsByName } from '../../services/masters'
 import { defaultAiSettings } from '../settings'
 import { MockProvider } from '../mockProvider'
-import { settleDraftOnSave } from '../drafts'
+import { discardDraft, settleDraftOnSave } from '../drafts'
+import { dropPendingAttachments, flushCaptureAttachments } from './consume'
+import { unmaskGstin } from './extract'
+import { undoLastImport } from '../../services/bankImport'
+import { lstatSync, mkdirSync, symlinkSync } from 'fs'
+import { parseExtraction } from '@shared/capture/parse'
+import { draftFromBill } from './billDraft'
+import { CANNED_BHARAT_BILL } from './mock'
+const sampleBill = (): typeof CANNED_BHARAT_BILL => structuredClone(CANNED_BHARAT_BILL)
 import * as aiStore from '../store'
 import { captureMockStep } from './mock'
 import { captureFilesDir, captureInboxDir } from './files'
@@ -29,13 +37,14 @@ import { passthroughImages } from './prepare'
 import { addCaptureFile, getItem, listItems, patchItem, recoverQueue } from './store'
 import { CaptureRunner, redraft, type CaptureEnv } from './runner'
 import { acceptCategories, categoriseStatement } from './bankCategorise'
-import { scanCaptureInbox } from './watcher'
+import { newScanState, scanCaptureInbox } from './watcher'
 import { estimateCapture } from './estimate'
 import { createMemory } from '../memory'
 
 const deflate = (b: Uint8Array): Uint8Array => new Uint8Array(deflateSync(b))
 const pdf = (lines: string[]): Buffer => Buffer.from(makeTestPdf(lines, { deflate }))
 // A 1×1 PNG (the content is irrelevant: the mock reads the photo by file name).
+const PHOTO = readFileSync(join(__dirname, '../../../../scripts/e2e/fixtures/bharat-steel-bill-photo.png'))
 const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64')
 
 const settings = (): AiSettings => ({ ...defaultAiSettings(), enabled: true, noticeAcceptedAt: 'x', noticeVersion: 1, prices: { 'gpt-6.1-sol': { inputPerM: 2_000_000, cachedInputPerM: null, outputPerM: 8_000_000 } } })
@@ -70,7 +79,7 @@ async function run(ids_: number[]): Promise<void> {
 /** Save a draft the way its editor would, then settle it (voucher:save's transaction). */
 function saveDraft(draftId: number): number {
   const d = aiStore.getDraft(db, draftId)!
-  return db.transaction(() => {
+  const id = db.transaction(() => {
     let payload
     if (d.payload.form === 'invoice') payload = invoiceEditorPayload(d.payload.state as InvoiceFormState, 'purchase', d.payload.voucherTypeId)
     else {
@@ -85,21 +94,24 @@ function saveDraft(draftId: number): number {
     settleDraftOnSave(db, draftId, v.id, 'voucher', { companyDir: dir })
     return v.id
   })()
+  // voucher:save attaches captured files only after the commit.
+  flushCaptureAttachments()
+  return id
 }
 
 const auditRows = (entity: string): { action: string; after_json: string | null; before_json: string | null }[] =>
   db.prepare('SELECT action, before_json, after_json FROM audit_log WHERE entity = ? ORDER BY id').all(entity) as never
 
 describe('intake', () => {
-  it('checks type by extension AND content, refuses the same file twice, reads pages and the text layer', () => {
-    expect(add('bill.exe', PNG).refusal).toMatch(/only PDF, PNG/)
-    expect(add('bill.pdf', PNG).refusal).toMatch(/not really a .pdf/)
-    expect(add('empty.png', Buffer.alloc(0)).refusal).toMatch(/empty/)
-    const a = add('bill.pdf', pdf(FIXTURE_BILL_LINES))
+  it('checks type by extension AND content, refuses the same file twice, reads pages and the text layer', async () => {
+    expect((await add('bill.exe', PNG)).refusal).toMatch(/only PDF, PNG/)
+    expect((await add('bill.pdf', PNG)).refusal).toMatch(/not really a .pdf/)
+    expect((await add('empty.png', Buffer.alloc(0))).refusal).toMatch(/empty/)
+    const a = await add('bill.pdf', pdf(FIXTURE_BILL_LINES))
     expect(a.item).toMatchObject({ status: 'queued', pages: 1, textLayer: true, mime: 'application/pdf', origin: 'drop' })
-    expect(add('copy.pdf', pdf(FIXTURE_BILL_LINES)).refusal).toMatch(/already in the capture queue \(item #/)
-    expect(add('photo.png', PNG).item).toMatchObject({ textLayer: false, mime: 'image/png' })
-    const scan = add('scan.pdf', Buffer.from(makeTestPdf([' '], {})))
+    expect((await add('copy.pdf', pdf(FIXTURE_BILL_LINES))).refusal).toMatch(/already in the capture queue \(item #/)
+    expect((await add('photo.png', PNG)).item).toMatchObject({ textLayer: false, mime: 'image/png' })
+    const scan = await add('scan.pdf', Buffer.from(makeTestPdf([' '], {})))
     expect(scan.item!.textLayer).toBe(false)
     // Audited with metadata only.
     const rows = auditRows('capture_item')
@@ -117,7 +129,7 @@ describe('intake', () => {
 
 describe('bill → purchase draft', () => {
   it('sends the MASKED text layer once, strictly; resolves the supplier by GSTIN and items by name + HSN; drafts with the editor’s GST', async () => {
-    const { item: it } = add('bharat-0142.pdf', pdf(FIXTURE_BILL_LINES))
+    const { item: it } = await add('bharat-0142.pdf', pdf(FIXTURE_BILL_LINES))
     await run([it!.id])
     const after = getItem(db, it!.id)!
     expect(after).toMatchObject({ status: 'drafted', supplierLedgerId: ids.bharat, invoiceNo: 'BSS/2025-26/0142', invoiceDate: '2025-08-12', total: 3_424_000, attempts: 1, error: null })
@@ -150,7 +162,7 @@ describe('bill → purchase draft', () => {
 
   it('a printed GST / total that disagrees is an assumption on the banner, never a correction', async () => {
     const lines = FIXTURE_BILL_LINES.map((l) => (l.startsWith('Total') ? 'Total Rs. 34,250.00' : l.startsWith('CGST') ? 'CGST 9% 1,805.00   CGST 6% 570.00' : l))
-    const { item: it } = add('wrong-total.pdf', pdf(lines))
+    const { item: it } = await add('wrong-total.pdf', pdf(lines))
     await run([it!.id])
     const d = aiStore.getDraft(db, getItem(db, it!.id)!.draftId!)!
     expect(d.payload.total).toBe(3_424_000) // the editor's computation
@@ -161,7 +173,7 @@ describe('bill → purchase draft', () => {
   })
 
   it('saving the draft books the voucher and attaches the captured file; the same bill again is REFUSED with a link', async () => {
-    const { item: it } = add('bharat-0142.pdf', pdf(FIXTURE_BILL_LINES))
+    const { item: it } = await add('bharat-0142.pdf', pdf(FIXTURE_BILL_LINES))
     await run([it!.id])
     const vId = saveDraft(getItem(db, it!.id)!.draftId!)
     expect(getItem(db, it!.id)).toMatchObject({ status: 'saved', voucherId: vId })
@@ -173,21 +185,25 @@ describe('bill → purchase draft', () => {
     expect(getVoucher(db, vId)!.billRefs[0]).toMatchObject({ kind: 'new', name: 'BSS/2025-26/0142', amount: 3_424_000 })
 
     // A photo of the same bill: same supplier + invoice number in the FY → refused, no draft.
-    const { item: photo } = add('bharat-photo.png', PNG)
+    const { item: photo } = await add('bharat-photo.png', PHOTO)
     await run([photo!.id])
     const p = getItem(db, photo!.id)!
     expect(p).toMatchObject({ status: 'duplicate', duplicateKind: 'same_invoice', duplicateVoucherId: vId, draftId: null })
     expect(p.error).toMatch(/already carries invoice BSS\/2025-26\/0142/)
     expect(aiStore.listOutbound(db)[0]).toMatchObject({ toolResultsSent: ['capture:bill:image'], masked: false })
     expect(JSON.stringify(provider.requests[1]!.input)).toContain('"kind":"image"')
+    // Never the real file name (it can carry a supplier, GSTIN or invoice number).
+    const sentAll = JSON.stringify(provider.requests.map((r) => r.input))
+    expect(sentAll).not.toContain('bharat-0142.pdf')
+    expect(sentAll).not.toContain('bharat-photo.png')
   })
 
   it('same supplier + amount within 7 days is drafted but flagged with a link to the voucher', async () => {
-    const { item: first } = add('a.pdf', pdf(FIXTURE_BILL_LINES))
+    const { item: first } = await add('a.pdf', pdf(FIXTURE_BILL_LINES))
     await run([first!.id])
     const vId = saveDraft(getItem(db, first!.id)!.draftId!)
     const other = FIXTURE_BILL_LINES.map((l) => l.replace('BSS/2025-26/0142', 'BSS/2025-26/0150').replace('12/08/2025', '15/08/2025'))
-    const { item: second } = add('b.pdf', pdf(other))
+    const { item: second } = await add('b.pdf', pdf(other))
     await run([second!.id])
     const s = getItem(db, second!.id)!
     expect(s).toMatchObject({ status: 'drafted', duplicateKind: 'same_amount', duplicateVoucherId: vId })
@@ -198,7 +214,7 @@ describe('bill → purchase draft', () => {
 
   it('an unknown supplier asks (with a create-party suggestion, never created); the answer drafts without another call', async () => {
     const lines = FIXTURE_BILL_LINES.map((l) => l.replace('Bharat Steel Suppliers', 'Navkar Furniture Works').replace('27AABCG3456H1ZN', '27AAACN1234B1Z5'))
-    const { item: it } = add('navkar.pdf', pdf(lines))
+    const { item: it } = await add('navkar.pdf', pdf(lines))
     await run([it!.id])
     const r = getItem(db, it!.id)!
     expect(r.status).toBe('needs_review')
@@ -218,7 +234,7 @@ describe('bill → purchase draft', () => {
       'TAX INVOICE', 'Bharat Steel Suppliers', 'MIDC Bhosari, Pune 411026', 'GSTIN: 27AABCG3456H1ZN', 'Invoice No: BSS/SRV/9    Date: 14/08/2025',
       'Sl  Description            HSN    Qty   Rate       Amount', '1   Welding labour         998873   1     2,000.00   2,000.00', 'CGST 9% 180.00', 'SGST 9% 180.00', 'Total Rs. 2,360.00'
     ]
-    const { item: it } = add('service.pdf', pdf(svc))
+    const { item: it } = await add('service.pdf', pdf(svc))
     await run([it!.id])
     const r = getItem(db, it!.id)!
     expect(r.status).toBe('needs_review')
@@ -242,13 +258,13 @@ describe('bill → purchase draft', () => {
 
     // Several fixture items share HSN 8471: an unclear name asks which (only those, by HSN).
     const ambiguous = svc.map((l) => l.replace('Welding labour         998873', 'Computer accessory     8471').replace('BSS/SRV/9', 'BSS/SRV/10'))
-    const { item: a } = add('hsn.pdf', pdf(ambiguous))
+    const { item: a } = await add('hsn.pdf', pdf(ambiguous))
     await run([a!.id])
     expect(getItem(db, a!.id)!.review!.questions[0]!.candidates.map((c) => c.id).sort((x, y) => x - y)).toEqual([ids.laptop, ids.mouse, ids.rod, ids.chair].sort((x, y) => x - y))
   })
 
   it('not a bill / unreadable figures fail or warn plainly', async () => {
-    const { item: it } = add('menu.pdf', pdf(['Lunch menu', 'Thali 250', 'Dosa 120 and more text to make the layer usable 1234']))
+    const { item: it } = await add('menu.pdf', pdf(['Lunch menu', 'Thali 250', 'Dosa 120 and more text to make the layer usable 1234']))
     await run([it!.id])
     expect(getItem(db, it!.id)).toMatchObject({ status: 'failed', error: 'This does not look like a bill' })
   })
@@ -256,8 +272,8 @@ describe('bill → purchase draft', () => {
 
 describe('the queue survives restarts and can be stopped', () => {
   it('processing → pending on open; stop returns approved items to queued; cancel marks one', async () => {
-    const a = add('a.pdf', pdf(FIXTURE_BILL_LINES)).item!
-    const b = add('b.png', PNG).item!
+    const a = (await add('a.pdf', pdf(FIXTURE_BILL_LINES))).item!
+    const b = (await add('b.png', PNG)).item!
     patchItem(db, a.id, { status: 'processing' }, false)
     patchItem(db, b.id, { status: 'pending' }, false)
     expect(recoverQueue(db)).toBe(1)
@@ -295,20 +311,128 @@ describe('the queue survives restarts and can be stopped', () => {
 })
 
 describe('the capture inbox folder', () => {
-  it('queues dropped files (moved to processed/) and rejects others (failed/ + reason file)', () => {
+  const old = new Date(Date.now() - 5000)
+  const drop = (inbox: string, name: string, data: Buffer | string): void => {
+    writeFileSync(join(inbox, name), data)
+    utimesSync(join(inbox, name), old, old)
+  }
+  it('takes a file only once it is stable over two scans; queues it (processed/) or rejects it (failed/ + reason)', async () => {
     const inbox = captureInboxDir(dir)
-    require('fs').mkdirSync(inbox, { recursive: true })
-    writeFileSync(join(inbox, 'bill.pdf'), pdf(FIXTURE_BILL_LINES))
-    writeFileSync(join(inbox, 'notes.txt'), 'hello')
+    mkdirSync(inbox, { recursive: true })
+    drop(inbox, 'bill.pdf', pdf(FIXTURE_BILL_LINES))
+    drop(inbox, 'notes.txt', 'hello')
     writeFileSync(join(inbox, '.DS_Store'), 'x')
-    const old = new Date(Date.now() - 5000)
-    for (const f of ['bill.pdf', 'notes.txt']) utimesSync(join(inbox, f), old, old)
-    const out = scanCaptureInbox(db, dir)
-    expect(out.map((o) => [o.file, o.ok])).toEqual([['bill.pdf', true], ['notes.txt', false]])
+    symlinkSync(join(inbox, 'bill.pdf'), join(inbox, 'link.pdf'))
+    const state = newScanState()
+    const first = await scanCaptureInbox(db, dir, state)
+    expect(first).toEqual({ outcomes: [], waiting: 2 }) // seen once: not yet
+    const { outcomes } = await scanCaptureInbox(db, dir, state)
+    expect(outcomes.map((o) => [o.file, o.ok])).toEqual([['bill.pdf', true], ['notes.txt', false]])
     expect(readdirSync(join(inbox, 'processed'))[0]).toMatch(/-bill\.pdf$/)
-    expect(readFileSync(join(inbox, 'failed', 'notes.txt.reason.txt'), 'utf8')).toMatch(/only PDF, PNG/)
+    const failed = readdirSync(join(inbox, 'failed'))
+    expect(failed.some((f) => /-notes\.txt\.reason\.txt$/.test(f))).toBe(true)
     expect(existsSync(join(inbox, '.DS_Store'))).toBe(true)
+    expect(lstatSync(join(inbox, 'link.pdf')).isSymbolicLink()).toBe(true) // symlinks are never taken
     expect(listItems(db)[0]).toMatchObject({ origin: 'folder', addedBy: 'capture-inbox', status: 'queued' })
+  })
+
+  it('refuses an oversized file without reading it, and same-name failures never overwrite each other', async () => {
+    const inbox = captureInboxDir(dir)
+    mkdirSync(inbox, { recursive: true })
+    const big = join(inbox, 'huge.pdf')
+    writeFileSync(big, '')
+    require('fs').truncateSync(big, 21 * 1024 * 1024)
+    utimesSync(big, old, old)
+    const r1 = await scanCaptureInbox(db, dir, newScanState(), { requireStable: false })
+    expect(r1.outcomes[0]).toMatchObject({ file: 'huge.pdf', ok: false, detail: expect.stringMatching(/21\.0 MB/) })
+    drop(inbox, 'notes.txt', 'one')
+    await scanCaptureInbox(db, dir, newScanState(), { requireStable: false })
+    await new Promise((r) => setTimeout(r, 5))
+    drop(inbox, 'notes.txt', 'two')
+    await scanCaptureInbox(db, dir, newScanState(), { requireStable: false })
+    const kept = readdirSync(join(inbox, 'failed')).filter((f) => /-notes\.txt$/.test(f))
+    expect(kept).toHaveLength(2)
+  })
+})
+
+describe('review fixes', () => {
+  it('GSTINs: only ones printed in the text; a shared 3-character tail is not guessed; an unclear supplier GSTIN is asked', async () => {
+    expect(unmaskGstin('27AABCG3456H1ZN', ['27AABCG3456H1ZN'], null)).toBe('27AABCG3456H1ZN')
+    expect(unmaskGstin('29AAAAA0000A1ZN', ['27AABCG3456H1ZN'], null)).toBeNull() // not on the bill
+    expect(unmaskGstin('[GSTIN …1ZN]', ['27AABCG3456H1ZN', '24AABCH7890I1ZN'], null)).toBeNull() // tail collision
+    expect(unmaskGstin('[GSTIN …1ZN]', ['27AABCG3456H1ZN', '24AABCH7890I1ZB'], null)).toBe('27AABCG3456H1ZN')
+    // The supplier's GSTIN could not be told apart (only a transporter's is printed): asked, not
+    // assigned; a name match is taken only when that ledger's GSTIN is one of those printed.
+    const parsed = parseExtraction({ ...sampleBill(), supplier: { name: 'Bharat Steel Suppliers', gstin: null, address: null, stateCode: null } }, TODAY)
+    const out = draftFromBill({ db, company: INFO, item: { id: 999, fileName: 'x.pdf' }, parsed: { ...parsed, gstinCandidates: ['24AABCH7890I1ZB'] }, mode: 'text', mapping: {}, today: TODAY })
+    expect(out.status).toBe('needs_review')
+    expect(out.review!.questions[0]!.question).toMatch(/prints GSTIN 24AABCH7890I1ZB but it is not clear which is the supplier/)
+    const named = draftFromBill({ db, company: INFO, item: { id: 998, fileName: 'x.pdf' }, parsed: { ...parsed, gstinCandidates: ['24AABCH7890I1ZB', '27AABCG3456H1ZN'] }, mode: 'text', mapping: {}, today: TODAY })
+    expect(named).toMatchObject({ status: 'drafted', supplierLedgerId: ids.bharat })
+  })
+
+  it('a ledger-line bill with a credited round-off has no false GST mismatch; a negative line is asked about up front', async () => {
+    const labour = ledger('Labour Charges', 'Direct Expenses')
+    const bill = [
+      'TAX INVOICE', 'Bharat Steel Suppliers', 'x', 'GSTIN: 27AABCG3456H1ZN', 'Invoice No: BSS/SRV/77    Date: 14/08/2025',
+      'Sl  Description            HSN    Qty   Rate       Amount', '1   Welding labour         998873   1     1,000.30   1,000.30', 'CGST 9% 90.03', 'SGST 9% 90.03', 'Round off -0.36', 'Total Rs. 1,180.00'
+    ]
+    const { item: it } = await add('ro.pdf', pdf(bill))
+    await run([it!.id])
+    patchItem(db, it!.id, { mapping: { accountLedgerId: labour } }, true) // honoured on the ledger-line path
+    const done = redraft(env, it!.id, 'Arun')
+    expect(done.status).toBe('drafted')
+    const d = aiStore.getDraft(db, done.draftId!)!
+    expect(d.payload.total).toBe(118_000)
+    expect(done.review!.taxCheck).toMatchObject({ computed: 18_006, printed: 18_006 })
+    expect(d.payload.assumptions!.some((a) => /prints GST/.test(a))).toBe(false)
+
+    const neg = sampleBill()
+    neg.lines[1] = { ...neg.lines[1]!, rate: '(9,500.00)', taxable: '(9,500.00)', amount: '-9,500.00' }
+    const r = draftFromBill({ db, company: INFO, item: { id: 997, fileName: 'n.pdf' }, parsed: parseExtraction(neg, TODAY), mode: 'text', mapping: {}, today: TODAY })
+    expect(r.status).toBe('needs_review')
+    expect(r.review!.questions.find((q) => q.field === 'line:1')!.question).toMatch(/prints a negative figure/)
+  })
+
+  it('accepting a statement row re-derives the kind (a forged payment for a deposit is refused) and checks the bank line', async () => {
+    commitStatement(db, ids.bank, { fileName: 'f.csv', text: 'Date,Narration,Chq/Ref No,Withdrawal,Deposit,Balance\n06/08/2025,NEFT-UMBRELLA RETAIL-UTR5,N5,,"321.00",' })
+    const cat = await categoriseStatement({ db, provider: null, settings: null, today: TODAY }, ids.bank)
+    const row = cat.rows[0]!
+    const forged = acceptCategories(db, INFO, TODAY, ids.bank, [{ lineId: row.lineId, ledgerId: ids.umbrella, kind: 'payment' }])
+    expect(forged.failed[0]!.error).toMatch(/is a receipt, not a payment/)
+    const ok = acceptCategories(db, INFO, TODAY, ids.bank, [{ lineId: row.lineId, ledgerId: ids.umbrella }])
+    const d = aiStore.getDraft(db, ok.drafts[0]!.draftId)!
+    expect(d.payload).toMatchObject({ voucherKind: 'receipt', bankLine: { bankLedgerId: ids.bank, statementLineId: row.lineId } })
+    // Saved by the user → a confirmed match: undoing the import keeps the voucher, resets its bank date.
+    const vId = saveDraft(d.id)
+    const imp = statementWorkspace(db, ids.bank, { includeDone: true }).imports[0]!
+    undoLastImport(db, ids.bank, imp.id)
+    const v = getVoucher(db, vId)!
+    expect(v.deletedAt).toBeNull()
+    expect(v.lines.find((l) => l.ledgerId === ids.bank)!.bankDate).toBeNull()
+  })
+
+  it('discarding a bill draft returns its file to needs_review; a rolled-back save attaches nothing', async () => {
+    const { item: it } = await add('b.pdf', pdf(FIXTURE_BILL_LINES))
+    await run([it!.id])
+    const draftId = getItem(db, it!.id)!.draftId!
+    discardDraft(db, draftId)
+    expect(getItem(db, it!.id)).toMatchObject({ status: 'needs_review', draftId: null })
+    // A save that fails after the draft settled: nothing attached, nothing stored.
+    redraft(env, it!.id, 'Arun')
+    const d2 = getItem(db, it!.id)!.draftId!
+    expect(() =>
+      db.transaction(() => {
+        const st = aiStore.getDraft(db, d2)!.payload.state as InvoiceFormState
+        const v = saveVoucher(db, invoiceEditorPayload(st, 'purchase', aiStore.getDraft(db, d2)!.payload.voucherTypeId) as never)
+        settleDraftOnSave(db, d2, v.id, 'voucher', { companyDir: dir })
+        throw new Error('later failure')
+      })()
+    ).toThrow('later failure')
+    dropPendingAttachments()
+    flushCaptureAttachments()
+    expect(existsSync(join(dir, 'attachments'))).toBe(false)
+    expect(getItem(db, it!.id)!.status).toBe('drafted')
   })
 })
 
@@ -358,7 +482,7 @@ describe('bank statement → categorised drafts → save reconciles the line', (
     const vId = saveDraft(receipt.id)
     const line = statementWorkspace(db, ids.bank, { includeDone: true }).lines.find((l) => l.id === by('NEFT').lineId)!
     expect(line.status).toBe('matched')
-    expect(line.matched[0]).toMatchObject({ voucherId: vId, created: true })
+    expect(line.matched[0]).toMatchObject({ voucherId: vId, created: false }) // a confirmed match: the user saved it
     expect(getVoucher(db, vId)!.lines.find((l) => l.ledgerId === ids.bank)!.bankDate).toBe('2025-08-06')
     expect(auditRows('bank_statement_line').at(-1)!.after_json).toContain('"fromDraft":true')
   })

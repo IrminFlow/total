@@ -129,6 +129,22 @@ export function CaptureScreen(): React.JSX.Element {
     }
   }
   const queued = items.filter((i) => i.status === 'queued').length
+  const askEstimate = (ids?: number[]): void => {
+    captureApi
+      .estimate(ids)
+      .then((e) => (e.items ? setEstimate(e) : toast.push('warning', 'Nothing queued to send')))
+      .catch((e: Error) => toast.push('error', e.message))
+  }
+  /** "Send again": back to the queue, then the same estimate + notice as any file. */
+  const sendAgain = async (id: number): Promise<void> => {
+    try {
+      await captureApi.retry(id)
+      await refresh()
+      askEstimate([id])
+    } catch (err) {
+      toast.push('error', (err as Error).message)
+    }
+  }
   const busy = items.some((i) => i.status === 'pending' || i.status === 'processing')
 
   return (
@@ -138,7 +154,17 @@ export function CaptureScreen(): React.JSX.Element {
         subtitle="Bills → purchase drafts you review"
         secondary={
           <>
-            <Button data-testid="btn-capture-inbox" onClick={() => void act(() => captureApi.revealInbox())}>Open inbox folder</Button>
+            <Button
+              data-testid="btn-capture-inbox"
+              onClick={() =>
+                void act(async () => {
+                  const r = canWrite ? await captureApi.watchInbox() : await captureApi.revealInbox()
+                  if (!r.exists) toast.push('info', 'The capture inbox folder has not been set up yet — an accountant can open it')
+                })
+              }
+            >
+              Open inbox folder
+            </Button>
             {busy && canWrite && <Button data-testid="btn-capture-stop" onClick={() => void act(() => captureApi.stop(), 'Stopped — the files are back in the queue')}>Stop</Button>}
           </>
         }
@@ -148,7 +174,7 @@ export function CaptureScreen(): React.JSX.Element {
               variant="primary"
               data-testid="btn-capture-process"
               disabled={queued === 0}
-              onClick={() => void captureApi.estimate().then(setEstimate).catch((e: Error) => toast.push('error', e.message))}
+              onClick={() => askEstimate()}
             >
               Process {queued || ''} queued
             </Button>
@@ -210,7 +236,7 @@ export function CaptureScreen(): React.JSX.Element {
                 items={[
                   ...(i.status === 'needs_review' ? [{ label: 'Answer the questions…', onSelect: () => setReview(i), testId: 'capture-review' }] : []),
                   ...(i.status === 'drafted' && i.draftId ? [{ label: 'Review draft', onSelect: () => openDraft(i.draftId!), testId: 'capture-open-draft' }] : []),
-                  ...(['failed', 'cancelled', 'duplicate', 'needs_review'].includes(i.status) ? [{ label: 'Send again', onSelect: () => void act(() => captureApi.retry(i.id), 'Queued to send again'), testId: 'capture-retry' }] : []),
+                  ...(['failed', 'cancelled', 'duplicate', 'needs_review'].includes(i.status) ? [{ label: 'Send again…', onSelect: () => void sendAgain(i.id), testId: 'capture-retry' }] : []),
                   ...(['queued', 'pending', 'processing', 'needs_review', 'failed'].includes(i.status) ? [{ label: 'Cancel', onSelect: () => void act(() => captureApi.cancel(i.id)), testId: 'capture-cancel' }] : []),
                   ...(i.status !== 'processing' ? [{ label: 'Remove from the queue', danger: true, onSelect: () => void act(() => captureApi.remove(i.id)), testId: 'capture-remove' }] : [])
                 ]}
@@ -232,7 +258,8 @@ export function CaptureScreen(): React.JSX.Element {
           onClose={() => setEstimate(null)}
           onConfirm={() => {
             setEstimate(null)
-            void act(() => captureApi.process(), 'Sending the queue — one file at a time')
+            const ids = estimate.ids
+            void act(() => captureApi.process(ids), 'Sending — one file at a time')
           }}
         />
       )}
@@ -253,10 +280,16 @@ function EstimateModal({ estimate, onClose, onConfirm }: { estimate: CaptureEsti
           <span className="text-hint text-muted">(~{estimate.inputTokens.toLocaleString('en-IN')} input + {estimate.outputTokens.toLocaleString('en-IN')} output tokens)</span>
         </p>
         {estimate.unmaskable > 0 && (
-          <Banner tone="warning">
-            {estimate.unmaskable} {estimate.unmaskable === 1 ? 'file is' : 'files are'} sent as images: GSTINs, PANs and account numbers printed on them cannot be masked. PDFs with a text layer are sent as masked text.
+          <Banner tone="warning" testId="banner-capture-unmaskable">
+            {estimate.unmaskable} {estimate.unmaskable === 1 ? 'file is' : 'files are'} sent as images: GSTINs, PANs and account numbers printed on them cannot be masked.
           </Banner>
         )}
+        <p className="text-hint text-muted" data-testid="text-capture-privacy">
+          {estimate.maskIds
+            ? 'PDFs with a text layer are sent as text with GSTINs, PANs and account numbers masked'
+            : 'Masking is OFF in Settings → AI: PDFs with a text layer are sent with GSTINs, PANs and account numbers in clear'}
+          {estimate.pseudonymise ? '; party names are replaced by aliases.' : '; party names are sent as they are.'}
+        </p>
         {estimate.blocker && <Banner tone="danger">{estimate.blocker}</Banner>}
         <div className="flex justify-end gap-2">
           <Button onClick={onClose}>Cancel</Button>

@@ -9,6 +9,8 @@ export interface FixtureOptions {
   /** Put the font + page objects in an /ObjStm (PDF 1.5 object streams). */
   objectStream?: boolean
   pages?: string[][]
+  /** 'glyphs': every character placed by its own Tm (how some billing software writes text). */
+  layout?: 'lines' | 'glyphs'
 }
 
 const enc = (s: string): Uint8Array => {
@@ -39,7 +41,9 @@ export function makeTestPdf(lines: string[], opts: FixtureOptions = {}): Uint8Ar
   const show = (s: string): string =>
     font === 'cid' ? `<${[...s].map((c) => code.get(c)!.toString(16).padStart(4, '0')).join('')}> Tj` : `(${esc(s)}) Tj`
   const contentOf = (ls: string[]): string =>
-    `BT\n/F1 10 Tf\n50 800 Td\n14 TL\n${ls.map((l, i) => (i === 0 ? `${show(l)}\n` : `T*\n${show(l)}\n`)).join('')}ET\n`
+    opts.layout === 'glyphs'
+      ? `BT\n/F1 10 Tf\n${ls.map((l, li) => [...l].map((c, ci) => `1 0 0 1 ${50 + ci * 6} ${800 - li * 14} Tm ${show(c)}\n`).join('')).join('')}ET\n`
+      : `BT\n/F1 10 Tf\n50 800 Td\n14 TL\n${ls.map((l, i) => (i === 0 ? `${show(l)}\n` : `T*\n${show(l)}\n`)).join('')}ET\n`
 
   // Object numbers: 1 catalog, 2 pages, 3 font, 4 tounicode (cid), 5.. page + content pairs.
   const objects: { num: number; body: string; stream?: Uint8Array; inStm?: boolean }[] = []

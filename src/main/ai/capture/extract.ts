@@ -41,11 +41,15 @@ export function gstinsIn(text: string): string[] {
   return [...new Set((text.match(new RegExp(GSTIN_RE.source, 'gi')) ?? []).map((g) => g.toUpperCase()))]
 }
 
-/** A masked GSTIN token the model copied back ("[GSTIN …1ZN]") → the real one it stands for. */
-export function unmaskGstin(value: string | null, real: readonly string[], exclude: string | null): string | null {
+/** What the model said the supplier's GSTIN is → a GSTIN that is really PRINTED in the text
+ *  layer: a full GSTIN only if it is one of them; a masked token ("[GSTIN …1ZN]") only when
+ *  exactly one printed GSTIN (other than `exclude`) ends that way — a tail two GSTINs share is
+ *  not guessed. In image / file mode there is no text to check against (`real` = null). */
+export function unmaskGstin(value: string | null, real: readonly string[] | null, exclude: string | null): string | null {
   if (!value) return null
   const direct = cleanGstin(value)
-  if (direct) return direct
+  if (direct) return real == null || real.includes(direct) ? direct : null
+  if (real == null) return null
   const tail = /GSTIN …([0-9A-Z]{3})/i.exec(value)?.[1]?.toUpperCase()
   if (!tail) return null
   const hits = real.filter((g) => g.endsWith(tail) && g !== exclude)
@@ -60,7 +64,9 @@ export async function extractBill(deps: ExtractDeps, doc: PreparedDoc, fileName:
     pseudonymiser: settings.privacy.pseudonymiseParties ? store.companyPseudonymiser(db) : null
   }
   const out = (s: string): string => outboundText(s, privacy)
-  const header = `File: ${out(fileName)}\nPages: ${doc.pages}\n`
+  // Never the real file name (it often holds the supplier, a GSTIN or the invoice number).
+  void fileName
+  const header = `File: bill.${doc.mode === 'image' ? 'image' : 'pdf'}\nPages: ${doc.pages}\n`
   const message: ChatItem =
     doc.mode === 'text'
       ? {
@@ -109,11 +115,20 @@ export async function extractBill(deps: ExtractDeps, doc: PreparedDoc, fileName:
   if (res.finish === 'incomplete') throw new Error('The provider stopped before finishing the bill (too long) — try a clearer scan or fewer pages')
   // Aliases back to real names in every string, then the strict reading.
   const extraction = mapStrings(readExtraction(res.text), (s) => inboundText(s, privacy))
+  const company = deps.companyGstin?.toUpperCase() ?? null
+  let gstinCandidates: string[] = []
   if (doc.mode === 'text') {
+    // Only GSTINs printed in the text count; an unclear supplier GSTIN is ASKED, never inferred
+    // from "the other GSTIN on the page" (a transporter's, the company's other registration).
     const real = gstinsIn(doc.text)
-    const company = deps.companyGstin?.toUpperCase() ?? null
-    extraction.supplier.gstin = unmaskGstin(extraction.supplier.gstin, real, company) ?? (real.filter((g) => g !== company).length === 1 ? real.find((g) => g !== company)! : extraction.supplier.gstin)
-    extraction.buyerGstin = unmaskGstin(extraction.buyerGstin, real, extraction.supplier.gstin) ?? extraction.buyerGstin
+    const said = extraction.supplier.gstin
+    extraction.supplier.gstin = unmaskGstin(said, real, company)
+    extraction.buyerGstin = unmaskGstin(extraction.buyerGstin, real, extraction.supplier.gstin)
+    if (!extraction.supplier.gstin) gstinCandidates = real.filter((g) => g !== company && g !== extraction.buyerGstin)
+  } else {
+    extraction.supplier.gstin = unmaskGstin(extraction.supplier.gstin, null, company)
   }
-  return { extraction, parsed: parseExtraction(extraction, deps.today), costMicroUsd: cost, model: res.model }
+  const parsed = parseExtraction(extraction, deps.today)
+  if (gstinCandidates.length) parsed.gstinCandidates = gstinCandidates
+  return { extraction, parsed, costMicroUsd: cost, model: res.model }
 }

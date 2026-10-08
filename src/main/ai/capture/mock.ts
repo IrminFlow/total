@@ -1,9 +1,10 @@
 // WP 5.4 — the TOTAL_AI_MOCK script's capture half: plays the model for the two structured calls
 // capture makes. Bill extraction: a text layer is transcribed with a few fixed patterns (the
 // layout of the e2e / dbtest fixture bills — printed figures copied verbatim, never computed);
-// an image or PDF sent as a file is matched by its file name to a canned extraction. Statement
+// an image or PDF sent as a file is matched by its bytes to a canned extraction. Statement
 // categories: the first candidate of each line whose name shares a word with the narration, else
 // null. Deterministic, offline.
+import { createHash } from 'crypto'
 import type { BillExtraction } from '@shared/capture/schema'
 import type { ChatRequest } from '../types'
 import type { MockStep } from '../mockProvider'
@@ -68,19 +69,23 @@ export function transcribeFixtureText(text: string): BillExtraction {
   })
 }
 
-function userText(req: ChatRequest): { content: string; hasAttachment: boolean } {
-  const m = [...req.input].reverse().find((i) => i.type === 'message' && i.role === 'user') as { content: string; attachments?: unknown[] } | undefined
-  return { content: m?.content ?? '', hasAttachment: !!m?.attachments?.length }
+/** SHA-256 of scripts/e2e/fixtures/bharat-steel-bill-photo.png — the photo the mock "reads"
+ *  (file names are never sent, so the mock recognises the fixture by its bytes). */
+export const FIXTURE_PHOTO_SHA256 = 'ff089ffc7ba871a5dd6f6099e6215afe1dc34916d53073e2d45c192f7966fd64'
+
+function userText(req: ChatRequest): { content: string; attachmentSha: string | null } {
+  const m = [...req.input].reverse().find((i) => i.type === 'message' && i.role === 'user') as { content: string; attachments?: { base64: string }[] } | undefined
+  const a = m?.attachments?.[0]
+  return { content: m?.content ?? '', attachmentSha: a ? createHash('sha256').update(Buffer.from(a.base64, 'base64')).digest('hex') : null }
 }
 
 export function captureMockStep(req: ChatRequest): MockStep | null {
   const name = req.responseFormat?.name
   if (name === 'bill_extraction') {
-    const { content, hasAttachment } = userText(req)
+    const { content, attachmentSha } = userText(req)
     const text = /<<<BILL\n([\s\S]*)\nBILL>>>/.exec(content)?.[1]
     if (text != null) return { text: JSON.stringify(transcribeFixtureText(text)), usage: { inputTokens: 1400, outputTokens: 600 } }
-    const file = /^File: (.*)$/m.exec(content)?.[1] ?? ''
-    if (hasAttachment && /bharat/i.test(file)) return { text: JSON.stringify(CANNED_BHARAT_BILL), usage: { inputTokens: 1800, outputTokens: 600 } }
+    if (attachmentSha === FIXTURE_PHOTO_SHA256) return { text: JSON.stringify(CANNED_BHARAT_BILL), usage: { inputTokens: 1800, outputTokens: 600 } }
     return { text: JSON.stringify(empty({ documentType: 'not_a_bill', confidence: 'low' })), usage: { inputTokens: 1800, outputTokens: 80 } }
   }
   if (name === 'statement_categories') {

@@ -12,7 +12,7 @@ import { writeAudit } from '../services/audit'
 import { getDraft, setDraftStatus } from './store'
 import { DraftWork, NeedsClarification, loadMasters } from './drafting/work'
 import { buildAccountingDraft } from './drafting/builders'
-import { afterDraftSaved, type DraftSaveContext } from './capture/consume'
+import { afterDraftDiscarded, afterDraftSaved, type DraftSaveContext } from './capture/consume'
 import { DRAFTABLE_KINDS, draftVoucherInput, draftVoucherTool, isRequestedDraft, type DraftVoucherInput } from './drafting/tools'
 
 export { DRAFTABLE_KINDS, draftVoucherInput, draftVoucherTool, isRequestedDraft, type DraftVoucherInput }
@@ -95,8 +95,12 @@ export function discardDraft(db: DB, draftId: number): AiDraftDto {
   const before = getDraft(db, draftId)
   if (!before) throw new Error('AI draft not found')
   if (before.status !== 'open') throw new Error(`This draft is already ${before.status}`)
-  setDraftStatus(db, draftId, 'discarded')
-  const after = getDraft(db, draftId)!
-  writeAudit(db, 'ai_draft', draftId, 'update', { status: before.status }, { status: after.status })
-  return after
+  return db.transaction(() => {
+    setDraftStatus(db, draftId, 'discarded')
+    const after = getDraft(db, draftId)!
+    writeAudit(db, 'ai_draft', draftId, 'update', { status: before.status }, { status: after.status })
+    // WP 5.4: a discarded bill draft returns its capture item to 'needs_review'.
+    afterDraftDiscarded(db, before)
+    return after
+  })()
 }

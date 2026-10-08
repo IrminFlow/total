@@ -11,7 +11,7 @@ import type { DB } from '../../db/connection'
 import type { CompanyInfo } from '@shared/domain'
 import type { AiSettings } from '@shared/ai'
 import {
-  CAPTURE_MAX_BYTES, CAPTURE_TYPES, captureAddFilesSchema, captureIdSchema, captureIdsSchema, captureResolveSchema, categoriseAcceptSchema, categoriseSchema,
+  CAPTURE_MAX_BYTES, CAPTURE_TYPES, captureAddFilesSchema, captureIdSchema, captureIdsSchema, captureProcessSchema, captureResolveSchema, categoriseAcceptSchema, categoriseSchema,
   type CaptureEstimate, type CaptureOrigin, type CaptureQueueView
 } from '@shared/capture/types'
 import { todayISO } from '@shared/dates'
@@ -91,10 +91,10 @@ export function registerCaptureIpc(handle: Handle, deps: CaptureIpcDeps): void {
     captureRunner.kick(e)
     return { items: listItems(db()).map(toCaptureDto), running: captureRunner.isRunning(e.slug), blocker: e.blocker(), inboxPath: captureInboxDir(dir()) }
   }
-  const add = (files: { name: string; bytes: Buffer }[], origin: CaptureOrigin): { added: number[]; refused: string[] } => {
+  const add = async (files: { name: string; bytes: Buffer }[], origin: CaptureOrigin): Promise<{ added: number[]; refused: string[] }> => {
     const out = { added: [] as number[], refused: [] as string[] }
     for (const f of files) {
-      const r = addCaptureFile(db(), captureFilesDir(dir()), { name: f.name, bytes: f.bytes, origin, addedBy: deps.session().name })
+      const r = await addCaptureFile(db(), captureFilesDir(dir()), { name: f.name, bytes: f.bytes, origin, addedBy: deps.session().name })
       if (r.item) out.added.push(r.item.id)
       else out.refused.push(r.refusal ?? `${f.name}: not captured`)
     }
@@ -121,29 +121,34 @@ export function registerCaptureIpc(handle: Handle, deps: CaptureIpcDeps): void {
       if (statSync(path).size > CAPTURE_MAX_BYTES) refused.push(`${basename(path)} is larger than ${CAPTURE_MAX_BYTES / 1048576} MB`)
       else files.push({ name: basename(path), bytes: readFileSync(path) })
     }
-    const r = add(files, 'picker')
+    const r = await add(files, 'picker')
     return { added: r.added, refused: [...refused, ...r.refused] }
   })
   handle('capture:addFiles', (p) => {
     const { files } = captureAddFilesSchema.parse(p)
     return add(files.map((f) => ({ name: f.name, bytes: Buffer.from(f.base64, 'base64') })), 'drop')
   })
+  // The estimate names the exact queued files it priced, and the privacy settings in force; the
+  // approval sends only those files (one dropped while the dialog was open waits for its own).
   handle('capture:estimate', (p): CaptureEstimate => {
     const { ids } = captureIdsSchema.parse(p ?? {})
     const s = getAiSettings(db())
-    const items = listItems(db()).filter((i) => (ids?.length ? ids.includes(i.id) : i.status === 'queued'))
+    const items = listItems(db()).filter((i) => i.status === 'queued' && (!ids?.length || ids.includes(i.id)))
     const e = estimateCapture(items, s.prices[s.defaultModel])
-    return { items: items.length, ...e, model: s.defaultModel, blocker: env().blocker() }
+    return { items: items.length, ids: items.map((i) => i.id), ...e, model: s.defaultModel, blocker: env().blocker(), maskIds: s.privacy.maskIds, pseudonymise: s.privacy.pseudonymiseParties }
   }, 'viewer')
   handle('capture:process', (p) => {
-    const { ids } = captureIdsSchema.parse(p ?? {})
+    const { ids } = captureProcessSchema.parse(p)
     const e = env()
     const blocker = e.blocker()
     if (blocker) throw new Error(`${blocker} — the files stay in the queue until then`)
-    const items = listItems(db()).filter((i) => i.status === 'queued' && (!ids?.length || ids.includes(i.id)))
+    const items = listItems(db()).filter((i) => i.status === 'queued' && ids.includes(i.id))
     const user = deps.session().name
+    const s = e.settings()
     db().transaction(() => {
       for (const it of items) patchItem(db(), it.id, { status: 'pending', approvedBy: user, error: null }, true)
+      // What the user agreed to send under: the items and the masking in force at approval.
+      writeAudit(db(), 'capture_item', 0, 'update', null, { approved: items.map((i) => i.id), model: s.defaultModel, maskIds: s.privacy.maskIds, pseudonymise: s.privacy.pseudonymiseParties })
     })()
     captureRunner.kick(e)
     return { approved: items.length }
@@ -163,14 +168,12 @@ export function registerCaptureIpc(handle: Handle, deps: CaptureIpcDeps): void {
     if (it.status === 'processing') captureRunner.cancelCurrent(c.slug, it.id)
     return toCaptureDto(after)
   })
+  // "Send again" only puts the file back in the queue; it is sent after the user confirms its
+  // estimate (and the unmaskable-image notice) like any other file.
   handle('capture:retry', (p) => {
     const it = item(captureIdSchema.parse(p).id)
-    if (!['failed', 'cancelled', 'duplicate', 'needs_review', 'queued'].includes(it.status)) throw new Error(`A ${it.status} file cannot be sent again`)
-    const e = env()
-    const blocker = e.blocker()
-    if (blocker) throw new Error(blocker)
-    const after = patchItem(db(), it.id, { status: 'pending', approvedBy: deps.session().name, error: null, draftId: null, duplicateKind: null, duplicateVoucherId: null }, true)
-    captureRunner.kick(e)
+    if (!['failed', 'cancelled', 'duplicate', 'needs_review'].includes(it.status)) throw new Error(`A ${it.status} file cannot be sent again`)
+    const after = patchItem(db(), it.id, { status: 'queued', approvedBy: null, error: null, draftId: null, duplicateKind: null, duplicateVoucherId: null }, true)
     return toCaptureDto(after)
   })
   handle('capture:resolve', (p) => {
@@ -188,14 +191,20 @@ export function registerCaptureIpc(handle: Handle, deps: CaptureIpcDeps): void {
     if (!fileStillUsed(c.db, before.sha256)) deleteCaptureFile(captureFilesDir(companyDir(c.slug)), before.storedPath)
     return null
   })
+  // Viewers may look at the folder; creating and watching it (which queues files) is capture work.
   handle('capture:revealInbox', async () => {
+    const inbox = captureInboxDir(dir())
+    if (existsSync(inbox)) await shell.openPath(inbox)
+    return { path: inbox, exists: existsSync(inbox) }
+  }, 'viewer')
+  handle('capture:watchInbox', async () => {
     const inbox = captureInboxDir(dir())
     mkdirSync(inbox, { recursive: true })
     const c = deps.company()
     syncCaptureWatcher({ slug: c.slug, db: c.db, dir: companyDir(c.slug) })
     await shell.openPath(inbox)
-    return inbox
-  }, 'viewer')
+    return { path: inbox, exists: true }
+  })
 
   // ---------- bank statement categorisation ----------
   handle('bankImport:categorise', async (p) => {

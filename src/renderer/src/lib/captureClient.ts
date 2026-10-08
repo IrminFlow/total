@@ -14,13 +14,16 @@ export const captureApi = {
   pick: () => call<{ added: number[]; refused: string[] }>('capture:pick'),
   addFiles: (files: { name: string; base64: string }[]) => call<{ added: number[]; refused: string[] }>('capture:addFiles', { files }),
   estimate: (ids?: number[]) => call<CaptureEstimate>('capture:estimate', { ids }),
-  process: (ids?: number[]) => call<{ approved: number }>('capture:process', { ids }),
+  /** Sends exactly the files an estimate priced (CaptureEstimate.ids). */
+  process: (ids: number[]) => call<{ approved: number }>('capture:process', { ids }),
   stop: () => call<{ stopped: number }>('capture:stop'),
   cancel: (id: number) => call<CaptureItemDto>('capture:cancel', { id }),
   retry: (id: number) => call<CaptureItemDto>('capture:retry', { id }),
   resolve: (id: number, mapping: CaptureMapping) => call<CaptureItemDto>('capture:resolve', { id, mapping }),
   remove: (id: number) => call<null>('capture:remove', { id }),
-  revealInbox: () => call<string>('capture:revealInbox'),
+  revealInbox: () => call<{ path: string; exists: boolean }>('capture:revealInbox'),
+  /** Accountant+: create and watch the inbox folder, then open it. */
+  watchInbox: () => call<{ path: string; exists: boolean }>('capture:watchInbox'),
   categorise: (bankLedgerId: number, useAi = true) => call<StatementCategorisation>('bankImport:categorise', { bankLedgerId, useAi }),
   acceptCategories: (bankLedgerId: number, items: { lineId: number; ledgerId: number; kind?: 'payment' | 'receipt' | 'contra'; oldestBillsFirst?: boolean; memoryId?: number }[]) =>
     call<CategoriseAcceptResult>('bankImport:categoriseAccept', { bankLedgerId, items })

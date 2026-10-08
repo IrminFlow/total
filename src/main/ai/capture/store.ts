@@ -128,32 +128,44 @@ export interface IntakeResult {
   refusal: string | null
 }
 
-/** Queue one file: checked (type by extension AND content, size, password-protected PDF), stored
- *  content-addressed, inserted 'queued' (nothing is sent until the user approves the estimate).
- *  The same file twice is refused. */
-export function addCaptureFile(db: DB, filesDir: string, f: { name: string; bytes: Buffer; origin: CaptureOrigin; addedBy: string | null }): IntakeResult {
-  const name = cleanName(f.name)
-  const { refusal, mime } = captureRefusal(name, f.bytes)
-  if (refusal) return { item: null, refusal }
-  let doc: { pages: number; textLayer: boolean }
+export type CheckedFile = { refusal: string } | { refusal: null; name: string; mime: string; pages: number; textLayer: boolean; sha256: string }
+
+/** The async half of intake (the PDF is read off the main thread): type by extension AND
+ *  content, size, password, page count. */
+export async function checkCaptureFile(name: string, bytes: Buffer): Promise<CheckedFile> {
+  const clean = cleanName(name)
+  const { refusal, mime } = captureRefusal(clean, bytes)
+  if (refusal) return { refusal }
   try {
-    doc = inspectDocument(f.bytes, mime)
+    const doc = await inspectDocument(bytes, mime)
+    return { refusal: null, name: clean, mime, pages: doc.pages, textLayer: doc.textLayer, sha256: sha256Of(bytes) }
   } catch (err) {
-    return { item: null, refusal: `${name}: ${(err as Error).message}` }
+    return { refusal: `${clean}: ${(err as Error).message}` }
   }
-  const sha = sha256Of(f.bytes)
+}
+
+/** The sync half: refuse the same file twice, store it content-addressed, insert 'queued'
+ *  (nothing is sent until the user approves the estimate), audited. */
+export function insertCaptureFile(db: DB, filesDir: string, checked: CheckedFile, f: { bytes: Buffer; origin: CaptureOrigin; addedBy: string | null }): IntakeResult {
+  if (checked.refusal !== null) return { item: null, refusal: checked.refusal }
+  const sha = checked.sha256
   const dup = db.prepare('SELECT id, file_name FROM capture_items WHERE sha256 = ? ORDER BY id LIMIT 1').get(sha) as { id: number; file_name: string } | undefined
-  if (dup) return { item: null, refusal: `${name} is already in the capture queue (item #${dup.id}, ${dup.file_name})` }
+  if (dup) return { item: null, refusal: `${checked.name} is already in the capture queue (item #${dup.id}, ${dup.file_name})` }
   const stored = putCaptureFile(filesDir, f.bytes)
   if (stored.rel !== storedRel(sha)) throw new Error('Capture store mismatch')
   const id = Number(
     db
       .prepare('INSERT INTO capture_items (file_name, mime, size, sha256, stored_path, pages, text_layer, origin, added_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
-      .run(name, mime, f.bytes.length, sha, stored.rel, doc.pages, doc.textLayer ? 1 : 0, f.origin, f.addedBy).lastInsertRowid
+      .run(checked.name, checked.mime, f.bytes.length, sha, stored.rel, checked.pages, checked.textLayer ? 1 : 0, f.origin, f.addedBy).lastInsertRowid
   )
   const item = getItem(db, id)!
   writeAudit(db, 'capture_item', id, 'create', null, auditView(item))
   return { item, refusal: null }
+}
+
+/** Queue one file (check, then insert). The same file twice is refused. */
+export async function addCaptureFile(db: DB, filesDir: string, f: { name: string; bytes: Buffer; origin: CaptureOrigin; addedBy: string | null }): Promise<IntakeResult> {
+  return insertCaptureFile(db, filesDir, await checkCaptureFile(f.name, f.bytes), f)
 }
 
 /** Remove an item (and its stored file once no other item uses it). An open draft made from it

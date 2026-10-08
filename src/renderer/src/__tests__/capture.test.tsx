@@ -49,9 +49,14 @@ const QUEUE = [
 
 beforeEach(() => {
   localStorage.clear()
+  invoke.mockClear()
   handlers = {
     'capture:list': () => ({ items: QUEUE, running: false, blocker: null, inboxPath: '/data/companies/demo/capture-inbox' }),
-    'capture:estimate': () => ({ items: 1, pages: 1, inputTokens: 1900, outputTokens: 1200, costMicroUsd: 13_400, model: 'gpt-6.1-sol', unmaskable: 0, blocker: null }),
+    'capture:estimate': (p) => ({
+      items: 1, ids: (p as { ids?: number[] })?.ids ?? [1], pages: 1, inputTokens: 1900, outputTokens: 1200, costMicroUsd: 13_400, model: 'gpt-6.1-sol', unmaskable: 0, blocker: null,
+      maskIds: true, pseudonymise: false
+    }),
+    'capture:retry': () => item({ id: 3, status: 'queued' }),
     'capture:process': () => ({ approved: 1 }),
     'capture:resolve': () => item({ id: 4, status: 'drafted', draftId: 80 }),
     'capture:addFiles': () => ({ added: [5], refused: [] }),
@@ -95,8 +100,32 @@ describe('Capture screen', () => {
     fireEvent.click(screen.getByTestId('btn-capture-process'))
     expect((await screen.findByTestId('text-capture-cost')).textContent).toBe('≈ $0.0134')
     expect(calls('capture:process')).toEqual([])
+    expect(screen.getByTestId('text-capture-privacy').textContent).toMatch(/masked; party names are sent as they are/)
     fireEvent.click(screen.getByTestId('btn-capture-confirm'))
-    await waitFor(() => expect(calls('capture:process')).toHaveLength(1))
+    // Exactly the files the estimate priced — a file dropped meanwhile waits for its own estimate.
+    await waitFor(() => expect(calls('capture:process')).toEqual([{ ids: [1] }]))
+  })
+
+  it('"Send again" re-queues and goes through the same estimate — nothing is sent before the confirm', async () => {
+    renderUi(<CaptureScreen />)
+    await waitFor(() => expect(bodyRows('capture-queue')).toHaveLength(4))
+    fireEvent.click(screen.getByTestId('capture-actions-3'))
+    fireEvent.click(await screen.findByTestId('capture-retry'))
+    await screen.findByTestId('capture-estimate')
+    expect(calls('capture:retry')).toEqual([{ id: 3 }])
+    expect(calls('capture:estimate').at(-1)).toEqual({ ids: [3] })
+    expect(calls('capture:process')).toEqual([])
+    fireEvent.click(screen.getByTestId('btn-capture-confirm'))
+    await waitFor(() => expect(calls('capture:process')).toEqual([{ ids: [3] }]))
+  })
+
+  it('the disclosure says when masking is off', async () => {
+    handlers['capture:estimate'] = () => ({ items: 1, ids: [1], pages: 1, inputTokens: 1, outputTokens: 1, costMicroUsd: null, model: 'm', unmaskable: 1, blocker: null, maskIds: false, pseudonymise: true })
+    renderUi(<CaptureScreen />)
+    await waitFor(() => expect(screen.getByTestId('btn-capture-process')).toHaveProperty('disabled', false))
+    fireEvent.click(screen.getByTestId('btn-capture-process'))
+    expect((await screen.findByTestId('text-capture-privacy')).textContent).toMatch(/Masking is OFF/)
+    expect(screen.getByTestId('banner-capture-unmaskable').textContent).toMatch(/cannot be masked/)
   })
 
   it('says why nothing is sent while AI is off', async () => {
