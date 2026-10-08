@@ -44,6 +44,11 @@ export const EXPLAIN_RULE =
   'and answer from its result: what makes the figure up (the largest vouchers or ledgers), how it compares with the previous period, and anything it flags as unusual. ' +
   'Quote its amounts and percentages as given; do not work any out yourself.'
 
+export const ASSISTANT_RULE =
+  'The assistant tools (close_checklist, gst_2b_mismatches, find_anomalies, build_report) compute statuses, categories and figures in the app; ' +
+  'narrate their results and link the user to the screen they name — never re-derive a status or a figure. A tool result already present when the question starts was run by the app for this question: answer from it. ' +
+  'For a custom report call build_report with ledger, group, party and item names exactly as the books spell them; if it reports problems, fix the request and call it again.'
+
 export function buildSystemPrompt(ctx: PromptContext): string {
   const c = ctx.company
   const read = ctx.tools.filter((t) => t.kind === 'read').map((t) => t.name)
@@ -76,6 +81,7 @@ export function buildSystemPrompt(ctx: PromptContext): string {
     ctx.privacy.pseudonymiseParties ? '9. Party names may be aliases like Party-0001; use the alias exactly as given — the app shows the user the real name.' : null,
     ctx.context?.screen ? `10. Screen. ${SCREEN_RULE}` : null,
     ctx.context?.explain ? `11. Explain. ${EXPLAIN_RULE}` : null,
+    ctx.tools.some((t) => t.name === 'close_checklist' || t.name === 'build_report') ? `12. Assistants. ${ASSISTANT_RULE}` : null,
     '',
     '# Tools',
     `Read: ${read.join(', ') || 'none'}`,

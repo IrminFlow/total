@@ -136,8 +136,11 @@ const EXPECTED_TABLES = [
   'consolidation_members',
   'consolidation_mappings',
   'intercompany_pairs',
-  // WP 5.7 (last) — MCP request log
-  'mcp_log'
+  // WP 5.7 — MCP request log
+  'mcp_log',
+  // WP 5.5 (last; number by position) — assistants
+  'assistant_marks',
+  'gst2b_statements'
 ]
 
 describe('migrate', () => {

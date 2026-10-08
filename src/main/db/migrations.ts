@@ -3195,5 +3195,35 @@ export const MIGRATIONS: string[] = [
     duration_ms INTEGER NOT NULL DEFAULT 0
   );
   CREATE INDEX idx_mcp_log_session ON mcp_log(session_id);
+  `,
+  // WP 5.5 (last; number by position) — the assistants (month-end close checklist, GST 2B
+  // mismatch resolution, anomaly detection). Every figure the assistants show is computed at
+  // query time from the books; only the user's decisions and the imported 2B statement are kept.
+  // - assistant_marks: a check marked done / not applicable for a month, an anomaly dismissed, a
+  //   2B mismatch resolved — keyed by the assistant, its scope ('YYYY-MM' or '' for none) and
+  //   the item's stable key. Audited (entity 'assistant_mark') on every change.
+  // - gst2b_statements: the last GSTR-2B JSON imported for a return period (MMYYYY), so the
+  //   assistant can reconcile it again without the file. Audited ('gst2b_statement').
+  `
+  CREATE TABLE assistant_marks (
+    assistant TEXT NOT NULL CHECK (assistant IN ('close', 'anomaly', 'gst2b')),
+    scope TEXT NOT NULL DEFAULT '',
+    item_key TEXT NOT NULL,
+    status TEXT NOT NULL CHECK (status IN ('done', 'na', 'dismissed', 'resolved')),
+    note TEXT,
+    user_name TEXT,
+    at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    PRIMARY KEY (assistant, scope, item_key)
+  );
+
+  CREATE TABLE gst2b_statements (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    period TEXT NOT NULL UNIQUE CHECK (length(period) = 6),
+    file_name TEXT,
+    json_text TEXT NOT NULL,
+    documents INTEGER NOT NULL DEFAULT 0,
+    imported_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    imported_by TEXT
+  );
   `
 ]

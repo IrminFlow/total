@@ -53,6 +53,7 @@ const ALLOW: { file: string; contains: string; reason: string }[] = [
   { file: 'gstRcm.ts', contains: 'FROM inventory_lines il JOIN stock_items si ON si.id = il.stock_item_id JOIN units u', reason: 'self-invoice items = the bill items' },
   { file: 'pricing.ts', contains: 'FROM inventory_lines WHERE voucher_id = ? AND is_absolute = 0', reason: "remember last price: the sale's item rates" },
   { file: 'pricing.ts', contains: "vt.kind = 'purchase' AND il.direction = 'in'", reason: 'last purchase RATE of an item (a price, not a movement)' },
+  { file: 'assistants.ts', contains: "WHERE vt.kind IN ('sales', 'purchase') AND v.date BETWEEN", reason: 'anomaly GST-rate check: the invoice items and their master rates (a document fact, wherever the goods moved)' },
   { file: 'counter.ts', contains: 'FROM inventory_lines il JOIN stock_items si ON si.id = il.stock_item_id JOIN units u ON u.id = si.unit_id', reason: "day-end items = the counter invoices' items" }
 ]
 

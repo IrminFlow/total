@@ -11,8 +11,8 @@ import { trialBalance } from '../services/reports'
 const M_MCP = MIGRATIONS.findIndex((sql) => sql.includes('CREATE TABLE mcp_log'))
 
 describe('MCP migration — draft source and mcp_log', () => {
-  it('is the last migration', () => {
-    expect(M_MCP).toBe(MIGRATIONS.length - 1)
+  it('comes after the AI tables (the WP 5.5 assistants migration follows it)', () => {
+    expect(M_MCP).toBeGreaterThan(0)
     expect(MIGRATIONS.findIndex((sql) => sql.includes('CREATE TABLE ai_drafts'))).toBeLessThan(M_MCP)
   })
 

@@ -16,7 +16,7 @@ import { createHash, randomUUID } from 'crypto'
 import type { DB } from '../db/connection'
 import type { CompanyInfo } from '@shared/domain'
 import { todayISO } from '@shared/dates'
-import { AI_DATA_NOTICE_VERSION, type AiContext, type AiEvent, type AiMessageDto, type AiSettings, type AiSource } from '@shared/ai'
+import { AI_DATA_NOTICE_VERSION, AI_PRE_CALL_TOOLS, type AiContext, type AiPreCall, type AiEvent, type AiMessageDto, type AiSettings, type AiSource } from '@shared/ai'
 import type { Role } from '../services/roles'
 import { buildSystemPrompt } from './prompt'
 import { mapStrings, outboundText, inboundText, type PrivacyOptions } from './privacy'
@@ -103,6 +103,9 @@ export interface AskInput {
   regenerate?: boolean
   context?: AiContext
   speed?: 'default' | 'fast'
+  /** WP 5.5 "Run with AI": a read tool run before the first model call; its result is stored as
+   *  an ordinary tool call of this turn, so the model starts from it. Ignored with regenerate. */
+  preCall?: AiPreCall
 }
 
 export interface TurnHandle {
@@ -324,6 +327,29 @@ async function runLoop(
     send(store.addMessage(db, { threadId, role: 'assistant', content: partial ? `${partial}\n\n${error}` : error, status: 'error', model }))
     emit({ type: 'error', threadId, runId, error })
     return { status: 'error', error }
+  }
+
+  // WP 5.5: the assistant screen's tool, run first (read tools only, the role still applies).
+  if (input.preCall && !input.regenerate) {
+    const pre = input.preCall
+    if (!(AI_PRE_CALL_TOOLS as readonly string[]).includes(pre.tool) || registry.get(pre.tool)?.kind !== 'read') return failed(`${pre.tool} cannot be run ahead of the question.`)
+    const callId = `pre_${runId.slice(0, 8)}`
+    const holder = store.addMessage(db, { threadId, role: 'assistant', content: '', toolCalls: [{ callId, name: pre.tool, input: pre.input }], model })
+    send(holder)
+    emit({ type: 'tool-start', threadId, runId, callId, name: pre.tool, input: pre.input })
+    const run = await registry.run(pre.tool, JSON.stringify(pre.input), {
+      db, company: deps.company, role, userName: deps.user.name, threadId, messageId: holder.id, today, period, userRequest, screen: input.context ?? null
+    })
+    const output = run.ok ? { ok: true, result: run.data } : { ok: false, error: run.error }
+    const sent = sentToolText(output, privacy, budget)
+    const sources = run.ok ? run.sources : []
+    send(
+      store.addMessage(db, {
+        threadId, role: 'tool', toolCallId: callId, toolName: pre.tool, toolInput: run.input, toolOutput: output, toolOk: run.ok,
+        truncated: sent.truncated, sources, draftId: null, sentText: sent.text, sentPrivacy: sig
+      })
+    )
+    turnSources.push(...sources)
   }
 
   for (let step = 1; step <= settings.maxSteps; step++) {

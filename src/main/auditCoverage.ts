@@ -356,6 +356,18 @@ export const AUDIT_COVERAGE: Record<string, AuditCoverage> = {
   'ai:thread:rename': a('ai_thread'),
   'ai:thread:pin': r('pins a conversation in the panel’s list (a display preference in the AI tables; not the books)'),
   'ai:data:deleteAll': a('ai_data'),
+  // ---------- assistants (WP 5.5) — computed at query time; only marks, settings, the 2B statement and drafts are stored ----------
+  'assist:close': QUERY,
+  'assist:close:mark': a('assistant_mark'),
+  'assist:anomalies': QUERY,
+  'assist:anomaly:dismiss': a('assistant_mark'),
+  'assist:settings:get': QUERY,
+  'assist:settings:set': a('assistant_settings'),
+  'assist:gst2b': QUERY,
+  'assist:gst2b:store': a('gst2b_statement'),
+  'assist:gst2b:resolve': a('assistant_mark'),
+  'assist:gst2b:draft': a('ai_draft'),
+  'assist:nlReport': r('maps a question to a report-builder model (deterministic); runs nothing and writes nothing'),
   // ---------- payables (WP 4.3) ----------
   'payables:plan': QUERY,
   'payables:msmeDue': QUERY,
