@@ -1,4 +1,4 @@
-// WP 4.1 — banking depth: migration 032, statement import + dedupe, matching workspace,
+// WP 4.1 — banking depth: migration 033, statement import + dedupe, matching workspace,
 // learn → suggest, bulk confirm, bulk create, undo import, cheque books + register, PDC
 // register + mature + bounce, bulk payment export, dashboard PDC reminder. Every write audited.
 import { beforeEach, describe, expect, it } from 'vitest'
@@ -77,7 +77,7 @@ beforeEach(() => {
 
 const entities = (d: DB, entity: string): string[] => listAudit(d, { entity }).rows.map((r) => r.action)
 
-describe('migration 032', () => {
+describe('migration 033', () => {
   it('adds the bank-detail columns, the tables, and the PDC maturity trigger', () => {
     const cols = (db.prepare('PRAGMA table_info(ledgers)').all() as { name: string }[]).map((c) => c.name)
     expect(cols).toEqual(expect.arrayContaining(['bank_account_no', 'bank_ifsc', 'bank_account_name', 'bank_email']))

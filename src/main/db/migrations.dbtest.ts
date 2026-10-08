@@ -76,7 +76,7 @@ const EXPECTED_TABLES = [
   'discount_schemes',
   'discount_scheme_slabs',
   'counter_sales',
-  // 032 (WP 4.1)
+  // 033 (WP 4.1)
   'bank_import_profiles',
   'bank_statement_imports',
   'bank_statement_lines',

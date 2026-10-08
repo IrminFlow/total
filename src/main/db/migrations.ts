@@ -2238,7 +2238,8 @@ export const MIGRATIONS: string[] = [
 
   DROP TABLE m031_before;
   `,
-  // 032 — banking depth (WP 4.1).
+  // 033 — banking depth (WP 4.1). Follows 032 (WP 4.2 receivables); until that branch merges this
+  // is the 32nd entry here — keep it after 032 when merging.
   // - ledgers.bank_account_no / bank_ifsc / bank_account_name / bank_email: the beneficiary
   //   master on party ledgers (bulk NEFT/RTGS files) and the company's own account on bank
   //   ledgers (the debit account of those files). Managed from Banking → Bulk payments.
