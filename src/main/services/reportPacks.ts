@@ -31,6 +31,8 @@ import { outstandings } from './analysis'
 import { ratioReport } from './reportAnalytics'
 import { getSavedReport, runReport } from './reportBuilder'
 import { SYSTEM_AUDIT_USER, runAsAuditUser, writeAudit } from './audit'
+import { writeXlsxFile } from './xlsxFile'
+import { displayTableToSheet } from '@shared/xlsx/display'
 
 /** Resolves on the next macrotask (setImmediate), so long pack runs never block the UI's IPC. */
 export const yieldToEventLoop = (): Promise<void> => new Promise((resolve) => setImmediate(resolve))
@@ -309,6 +311,11 @@ export async function runPack(db: DB, slug: string, info: CompanyInfo, packId: n
         if (pack.formats.includes('csv')) {
           const path = join(dir, `${base}.csv`)
           writeFileSync(path, rowsToCsv(t.columns.map((c) => c.label), t.rows.map((r) => r.cells)), 'utf8')
+          files.push(path)
+        }
+        if (pack.formats.includes('xlsx')) {
+          const path = join(dir, `${base}.xlsx`)
+          writeXlsxFile(path, [displayTableToSheet({ title: t.title, columns: t.columns, rows: t.rows }, [info.name, t.title, periodLabel])])
           files.push(path)
         }
         if (pack.formats.includes('pdf')) {

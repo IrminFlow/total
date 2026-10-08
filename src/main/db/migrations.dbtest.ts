@@ -96,7 +96,6 @@ const EXPECTED_TABLES = [
   'bank_payment_templates',
   'bank_payment_batches',
   'bank_payment_batch_items',
-  'migrations',
   // 035 (WP 4.4) — cash and finance
   'forecast_items',
   'budget_revisions',
@@ -122,6 +121,11 @@ const EXPECTED_TABLES = [
   'saved_reports',
   'report_packs',
   'report_pack_runs',
+  // 038 (WP 6.3) — import wizard
+  'import_templates',
+  'import_batches',
+  'import_batch_items',
+  'migrations',
   // WP 6.5 (last; number by position) — group consolidation
   'consolidation_groups',
   'consolidation_members',

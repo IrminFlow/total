@@ -14,22 +14,24 @@ type Step =
   | { kind: 'preview'; filePath: string | null; summary: TallyImportSummary }
   | { kind: 'done'; filePath: string | null; summary: TallyImportSummary }
 
-const COUNT_LABELS: { key: keyof Omit<TallyImportSummary, 'warnings'>; label: string }[] = [
+const COUNT_LABELS: { key: 'groups' | 'ledgers' | 'units' | 'items' | 'vouchers' | 'orders' | 'skipped'; label: string }[] = [
   { key: 'groups', label: 'Groups' },
   { key: 'ledgers', label: 'Ledgers' },
   { key: 'units', label: 'Units' },
   { key: 'items', label: 'Stock items' },
   { key: 'vouchers', label: 'Vouchers' },
+  // WP 6.3: sales / purchase orders → Orders & challans.
+  { key: 'orders', label: 'Orders' },
   { key: 'skipped', label: 'Skipped' }
 ]
 
 function CountsGrid({ summary }: { summary: TallyImportSummary }): React.JSX.Element {
   return (
-    <div className="grid grid-cols-3 gap-3 sm:grid-cols-6">
+    <div className="grid grid-cols-3 gap-3 sm:grid-cols-7">
       {COUNT_LABELS.map(({ key, label }) => (
         <div key={key} className="rounded-md border border-line bg-panel2 px-3 py-2.5 text-center">
           <div className={`num text-heading font-semibold ${key === 'skipped' && summary[key] > 0 ? 'text-cr' : ''}`}>
-            {summary[key]}
+            {summary[key] ?? 0}
           </div>
           <div className="text-caption text-muted uppercase tracking-[0.06em]">{label}</div>
         </div>

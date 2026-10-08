@@ -31,6 +31,7 @@ import {
   buildRowLayout,
   buildTableExport,
   buildTableModel,
+  buildTableXlsx,
   capExportForPdf,
   cellText,
   columnAlign,
@@ -50,7 +51,7 @@ import {
   type MoneyExportFormat,
   type ViewDefaults
 } from '../../lib/table'
-import { csvReport, PDF_ROW_LIMIT, printReport } from '../../lib/reportExport'
+import { csvReport, PDF_ROW_LIMIT, printReport, xlsxReport } from '../../lib/reportExport'
 import { useDensity, useSession, useToasts } from '../../state/stores'
 import { EmptyState, Money, SkeletonRows, useKeyNav } from '../ui'
 import { FilterEditor } from './FilterEditor'
@@ -279,6 +280,7 @@ export function DataTable<Row>(props: DataTableProps<Row>): React.JSX.Element {
   const { view, setView } = controller
   const toast = useToasts()
   const workingDate = useSession((s) => s.workingDate) || todayISO()
+  const companyName = useSession((s) => s.info?.name) ?? ''
 
   const [quick, setQuick] = useState('')
   const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(() => new Set())
@@ -631,6 +633,18 @@ export function DataTable<Row>(props: DataTableProps<Row>): React.JSX.Element {
         void csvReport(ex.header, ex.csvRows, exportOptions.filename ?? exportOptions.title, toast)
       }
     : undefined
+  // WP 6.3: the same view as a typed workbook — money as ₹ numbers, dates as dates.
+  const exportXlsx = exportOptions
+    ? (): void => {
+        const sheet = buildTableXlsx(buildTableModel(rows, columns, view, { quick }), {
+          name: exportOptions.title,
+          preamble: [companyName, exportOptions.title, exportOptions.periodLabel, exportOptions.footNote ?? ''].filter(Boolean),
+          totalsLabel: exportOptions.totalsLabel ?? (typeof totalsLabelNode === 'string' ? totalsLabelNode : 'Total'),
+          includeTotals: showTotals
+        })
+        void xlsxReport(sheet, exportOptions.filename ?? exportOptions.title, toast)
+      }
+    : undefined
 
   const features: Required<ToolbarFeatures> = {
     quickFilter: true,
@@ -646,8 +660,8 @@ export function DataTable<Row>(props: DataTableProps<Row>): React.JSX.Element {
   // rows too — so screen controls in toolbarStart never vanish and an over-filtered table can
   // always be un-filtered.
   // Expose columns + export to the screen's Options drawer (tableActions.ts), by testId area.
-  const actionsRef = useRef({ exportPdf, exportCsv, hasRows: rows.length > 0, columns: features.columns && toolbar })
-  actionsRef.current = { exportPdf, exportCsv, hasRows: rows.length > 0, columns: features.columns && toolbar }
+  const actionsRef = useRef({ exportPdf, exportCsv, exportXlsx, hasRows: rows.length > 0, columns: features.columns && toolbar })
+  actionsRef.current = { exportPdf, exportCsv, exportXlsx, hasRows: rows.length > 0, columns: features.columns && toolbar }
   useEffect(
     () =>
       registerTableActions(area, {
@@ -655,7 +669,8 @@ export function DataTable<Row>(props: DataTableProps<Row>): React.JSX.Element {
           if (actionsRef.current.columns) setMenu('columns')
         },
         exportPdf: () => (actionsRef.current.hasRows ? actionsRef.current.exportPdf?.() : undefined),
-        exportCsv: () => (actionsRef.current.hasRows ? actionsRef.current.exportCsv?.() : undefined)
+        exportCsv: () => (actionsRef.current.hasRows ? actionsRef.current.exportCsv?.() : undefined),
+        exportXlsx: () => (actionsRef.current.hasRows ? actionsRef.current.exportXlsx?.() : undefined)
       }),
     [area]
   )
@@ -674,6 +689,7 @@ export function DataTable<Row>(props: DataTableProps<Row>): React.JSX.Element {
       appDensity={appDensity}
       onExportCsv={rows.length > 0 ? exportCsv : undefined}
       onExportPdf={rows.length > 0 ? exportPdf : undefined}
+      onExportXlsx={rows.length > 0 ? exportXlsx : undefined}
       start={props.toolbarStart}
       end={props.toolbarEnd}
       loading={loading}

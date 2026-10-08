@@ -299,15 +299,23 @@ export interface LinkInputLine {
  * payload can't adopt another voucher's line) and resolve its source: unknown sources,
  * self-links and pairs outside the rules are refused here, before anything is inserted.
  */
+/** True when no voucher or document line carries this uid (an imported uid may be adopted). */
+export function lineUidFree(db: DB, uid: string): boolean {
+  return !db.prepare('SELECT 1 FROM inventory_lines WHERE line_uid = ?').get(uid) && !db.prepare('SELECT 1 FROM trade_doc_lines WHERE line_uid = ?').get(uid)
+}
+
 export function resolveVoucherLines(
   db: DB,
   lines: readonly LinkInputLine[],
-  ctx: { kind: VoucherKind; before: Voucher | null }
+  ctx: { kind: VoucherKind; before: Voucher | null; adoptLineUids?: boolean }
 ): ResolvedLine[] {
   const own = new Set((ctx.before?.inventory ?? []).map((l) => l.lineUid).filter((u): u is string => !!u))
   const used = new Set<string>()
   return lines.map((l, i) => {
-    const uid = l.lineUid && own.has(l.lineUid) && !used.has(l.lineUid) ? l.lineUid : newLineUid()
+    // WP 6.3: the Books import re-creates a voucher with its exported uids (so links to it can be
+    // restored) — only when no line anywhere already carries that uid.
+    const keep = !!l.lineUid && !used.has(l.lineUid) && (own.has(l.lineUid) || (!!ctx.adoptLineUids && lineUidFree(db, l.lineUid)))
+    const uid = keep ? l.lineUid! : newLineUid()
     used.add(uid)
     if (!l.source) return { uid, movesStock: true, link: null }
     const source = findLinkLine(db, l.source.lineUid)
