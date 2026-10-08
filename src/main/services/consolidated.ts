@@ -44,6 +44,27 @@ function flattenPnl(pnl: ProfitAndLoss): ConsolidateInputRow[] {
 }
 
 /**
+ * Run `fn` on another company's DB opened READ-ONLY (safe even while that company is open
+ * read-write elsewhere, thanks to WAL). A read-only connection cannot run migrations, so a file
+ * whose schema is not exactly the current one (older — or newer, from a later build) is never
+ * touched: it is skipped with a warning. Shared by the quick combined view below and the group
+ * consolidation (services/consolidation.ts, WP 6.5).
+ */
+export function withMemberDb<T>(slug: string, label: string, fn: (db: Database.Database) => T): { ok: true; value: T } | { ok: false; warning: string } {
+  let db: Database.Database | undefined
+  try {
+    db = new Database(companyDbPath(slug), { readonly: true, fileMustExist: true })
+    const { n } = db.prepare('SELECT COUNT(*) AS n FROM migrations').get() as { n: number }
+    if (n !== MIGRATIONS.length) return { ok: false, warning: `${label}: schema is out of date and can't be migrated read-only — skipped` }
+    return { ok: true, value: fn(db) }
+  } catch (err) {
+    return { ok: false, warning: `${label}: ${err instanceof Error ? err.message : String(err)} — skipped` }
+  } finally {
+    db?.close()
+  }
+}
+
+/**
  * Read-only, multi-company consolidation: opens each company's DB read-only (safe even
  * if that company is already open read-write elsewhere thanks to WAL), runs the
  * requested report, and merges the results by ledger/line name. A company whose schema
@@ -59,27 +80,16 @@ export function consolidated(slugs: string[], kind: ConsolidatedKind, from: stri
 
   for (const slug of slugs) {
     const label = nameOf(slug)
-    let db: Database.Database | undefined
-    let rows: ConsolidateInputRow[] = []
-    try {
-      db = new Database(companyDbPath(slug), { readonly: true, fileMustExist: true })
-      const { n } = db.prepare('SELECT COUNT(*) AS n FROM migrations').get() as { n: number }
-      if (n !== MIGRATIONS.length) {
-        warnings.push(`${label}: schema is out of date and can't be migrated read-only — skipped`)
-      } else if (kind === 'tb') {
-        const tb = reports.trialBalance(db, to)
-        rows = tb.rows.map((r) => ({
+    const read = withMemberDb(slug, label, (db) => {
+      if (kind === 'tb') {
+        return reports.trialBalance(db, to).rows.map((r) => ({
           group: r.groupName, name: r.ledgerName, dr: r.debit, cr: r.credit, ...(r.ledgerId > 0 ? { ledgerId: r.ledgerId } : {})
         }))
-      } else {
-        rows = flattenPnl(reports.profitAndLoss(db, from, to))
       }
-    } catch (err) {
-      warnings.push(`${label}: ${err instanceof Error ? err.message : String(err)} — skipped`)
-    } finally {
-      db?.close()
-    }
-    perCompany.push({ company: label, rows })
+      return flattenPnl(reports.profitAndLoss(db, from, to))
+    })
+    if (!read.ok) warnings.push(read.warning)
+    perCompany.push({ company: label, rows: read.ok ? read.value : [] })
   }
 
   return {

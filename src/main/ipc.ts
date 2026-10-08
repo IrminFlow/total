@@ -82,6 +82,7 @@ import { registerFixedAssetIpc } from './ipcFixedAssets'
 import { registerPayrollStatutoryIpc } from './ipcPayrollStatutory'
 import { registerPricingIpc } from './ipcPricing'
 import { registerReportsIpc } from './ipcReports'
+import { registerConsolidationIpc } from './ipcConsolidation'
 import { runDuePacksInBackground } from './packScheduler'
 import { registerAiIpc, aiRuns, type AppKeyAuditEntry } from './ai/ipc'
 import { aiMockAllowed } from './ai/env'
@@ -310,6 +311,8 @@ export function registerIpc(): void {
   registerPricingIpc(handle, () => requireCompany())
   // ---------- report builder, comparatives, ratios, scheduled packs (WP 6.1 / 6.2) ----------
   registerReportsIpc(handle, () => requireCompany(), () => sessionUser?.name ?? osAuditUser())
+  // ---------- group consolidation (WP 6.5) — channels live in ipcConsolidation.ts ----------
+  registerConsolidationIpc(handle, () => requireCompany())
   // ---------- AI agent (WP 5.1) — channels live in ai/ipc.ts; events stream on 'total:ai:event' ----------
   registerAiIpc(handle, {
     company: () => requireCompany(),

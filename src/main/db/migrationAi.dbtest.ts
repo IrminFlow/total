@@ -17,8 +17,8 @@ describe('AI migration — agent tables', () => {
     expect(MIGRATIONS.findIndex((sql) => sql.includes('CREATE TABLE fx_settlements'))).toBeLessThan(M_AI)
   })
 
-  it('WP 5.2: the chat-panel migration is last (number by position) and adds thread pins and the outbound context column without touching the books', () => {
-    expect(M_CHAT).toBe(MIGRATIONS.length - 1)
+  it('WP 5.2: the chat-panel migration comes directly before WP 6.5 consolidation (number by position) and adds thread pins and the outbound context column without touching the books', () => {
+    expect(M_CHAT).toBe(MIGRATIONS.findIndex((sql) => sql.includes('CREATE TABLE consolidation_groups')) - 1)
     expect(M_CHAT).toBeGreaterThan(M_AI)
     const db = freshPartialDb(M_CHAT)
     seedCompany(db, TEST_INFO)
