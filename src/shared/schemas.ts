@@ -62,7 +62,7 @@ export const udyamSchema = z
   .refine((s) => s === '' || UDYAM_RE.test(s), 'Udyam number is UDYAM-XX-00-0000000 (state, district, 7 digits)')
   .transform((s) => (s === '' ? null : s))
 
-/** WP 4.3 (migration 034): a supplier's MSME facts and payment terms on its ledger. */
+/** WP 4.3 (migration 033): a supplier's MSME facts and payment terms on its ledger. */
 export const supplierTermsFields = {
   msmeRegistered: z.boolean().optional(),
   /** Registered (as micro / small) from this date; bills accepted earlier are not covered. null = always. */
@@ -108,7 +108,12 @@ export const ledgerInputSchema = z.object({
   priceLevelId: id.nullable().optional(),
   /** Credit limit in paise; absent/null = no limit. */
   creditLimit: paise.min(0).nullable().optional(),
-  // WP 4.3 (migration 034): supplier MSME facts and payment terms — absent = keep the stored value.
+  /** WP 4.2 — absent = keep the stored value: party email, interest rate (bp p.a.) and grace days.
+   *  The credit hold is set through receivables:setHold (with a reason), never here. */
+  email: z.string().trim().max(200).email('Invalid email').nullable().optional(),
+  interestRateBp: z.number().int().min(0).max(10000).nullable().optional(),
+  interestGraceDays: z.number().int().min(0).max(365).optional(),
+  // WP 4.3 (migration 033): supplier MSME facts and payment terms — absent = keep the stored value.
   ...supplierTermsFields
 })
 /** Unparsed shape (defaults optional) — createLedger/updateLedger parse internally, so direct

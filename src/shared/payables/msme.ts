@@ -1,7 +1,7 @@
 /**
  * MSME payment rules (WP 4.3) — pure. The s.15 payment deadline, s.16 interest (INDICATIVE), the
  * Income-tax s.43B(h) disallowance figure and the MSME Form 1 half-years. The bank rate comes in
- * as data (the editable, effective-dated `msme_bank_rates` table, migration 034) — never
+ * as data (the editable, effective-dated `msme_bank_rates` table, migration 033) — never
  * hard-coded here. Every rule cites its text next to the code that applies it; the source list
  * with dates and the UNVERIFIED items is `MSME_SOURCES` in ./msmeSources.ts.
  */
@@ -15,7 +15,7 @@ export type MsmeCategory = (typeof MSME_CATEGORIES)[number]
 
 export const MSME_CATEGORY_LABELS: Record<MsmeCategory, string> = { micro: 'Micro', small: 'Small', medium: 'Medium' }
 
-/** A supplier's MSME facts, as stored on its ledger (migration 034). */
+/** A supplier's MSME facts, as stored on its ledger (migration 033). */
 export interface MsmeTerms {
   registered: boolean
   category: MsmeCategory | null

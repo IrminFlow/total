@@ -43,7 +43,7 @@ export function payByDate(billDate: string, dueDate: string | null, s15PayBy: st
   return s15PayBy != null && s15PayBy < terms ? s15PayBy : terms
 }
 
-/** A supplier's early-payment discount terms (per party, migration 034). */
+/** A supplier's early-payment discount terms (per party, migration 033). */
 export interface EarlyPaymentTerms {
   /** Discount, basis points of the bill (200 = 2 %). */
   bp: number

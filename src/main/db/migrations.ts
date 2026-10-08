@@ -2238,9 +2238,84 @@ export const MIGRATIONS: string[] = [
 
   DROP TABLE m031_before;
   `,
-  // 034 (WP 4.3) — payables: MSME tracking, payment planning terms, payment runs. Number assigned
-  // by the orchestrator (032 / 033 / 035 belong to parallel branches, so on a branch without them
-  // this sits at a lower index — dbtests locate it by content, like 031's).
+  // 032 (WP 4.2) — receivables. Number assigned by the orchestrator (WP 4.1 banking, still in
+  // progress, takes the next number); appended after 031. Dbtests locate it by content (the
+  // reminder_log table). Additive only:
+  // - ledgers: party email (statements / reminders are "email-ready" via mailto:), the annual
+  //   simple-interest rate on overdue bills in basis points (NULL = no interest) with its
+  //   interest-free grace days, and the credit hold (flag, reason, when) InvoiceEntry enforces.
+  // - reminder_log: one row per reminder letter generated (party, bucket, date, document, channel)
+  //   — the "don't remind twice within N days" check reads it.
+  // - ledgers.cess_rate: compensation-cess rate of a ledger-line (service) supply, read by the
+  //   GST returns / e-docs next to gst_rate — the interest ledgers carry the cess of the supply.
+  // - interest_charges: one row per bill per charged period, owned by the debit note that posted
+  //   it (CASCADE on purge; a binned note's rows stop counting by query) — never double-charge.
+  //   bill_key is the bill's stable identity (v:<voucher id>[#<n-th new ref>], or o:<ref> for an
+  //   opening-balance bill), so renumbering the invoice or renaming its bill ref can't reset it.
+  // - bill_followups: notes and promised payment dates per open bill. Bills are computed, so a
+  //   bill is keyed by (party, voucher, ref name); voucher NULL = the opening balance.
+  `
+  ALTER TABLE ledgers ADD COLUMN email TEXT;
+  ALTER TABLE ledgers ADD COLUMN interest_rate_bp INTEGER CHECK (interest_rate_bp IS NULL OR interest_rate_bp BETWEEN 0 AND 10000);
+  ALTER TABLE ledgers ADD COLUMN interest_grace_days INTEGER NOT NULL DEFAULT 0 CHECK (interest_grace_days BETWEEN 0 AND 365);
+  ALTER TABLE ledgers ADD COLUMN credit_hold INTEGER NOT NULL DEFAULT 0 CHECK (credit_hold IN (0, 1));
+  ALTER TABLE ledgers ADD COLUMN credit_hold_reason TEXT;
+  ALTER TABLE ledgers ADD COLUMN credit_hold_at TEXT;
+  ALTER TABLE ledgers ADD COLUMN cess_rate REAL CHECK (cess_rate IS NULL OR cess_rate >= 0);
+
+  CREATE TABLE reminder_log (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    party_ledger_id INTEGER NOT NULL REFERENCES ledgers(id) ON DELETE CASCADE,
+    bucket TEXT NOT NULL CHECK (bucket IN ('gentle', 'firm', 'final')),
+    date TEXT NOT NULL,
+    amount_paise INTEGER NOT NULL DEFAULT 0,
+    oldest_bill TEXT,
+    max_overdue_days INTEGER NOT NULL DEFAULT 0,
+    document_path TEXT,
+    channel TEXT NOT NULL CHECK (channel IN ('email', 'pdf', 'print', 'phone', 'other')),
+    user_name TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+  CREATE INDEX idx_reminder_log_party ON reminder_log(party_ledger_id, date);
+
+  CREATE TABLE interest_charges (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    party_ledger_id INTEGER NOT NULL REFERENCES ledgers(id),
+    bill_voucher_id INTEGER,
+    bill_ref TEXT NOT NULL,
+    bill_key TEXT NOT NULL,
+    period_from TEXT NOT NULL,
+    period_to TEXT NOT NULL,
+    days INTEGER NOT NULL CHECK (days > 0),
+    principal_paise INTEGER NOT NULL CHECK (principal_paise > 0),
+    rate_bp INTEGER NOT NULL CHECK (rate_bp > 0),
+    interest_paise INTEGER NOT NULL CHECK (interest_paise > 0),
+    gst_paise INTEGER NOT NULL DEFAULT 0 CHECK (gst_paise >= 0),
+    debit_note_voucher_id INTEGER NOT NULL REFERENCES vouchers(id) ON DELETE CASCADE,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    CHECK (period_to >= period_from)
+  );
+  CREATE INDEX idx_interest_charges_bill ON interest_charges(party_ledger_id, bill_key);
+  CREATE INDEX idx_interest_charges_note ON interest_charges(debit_note_voucher_id);
+
+  CREATE TABLE bill_followups (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    party_ledger_id INTEGER NOT NULL REFERENCES ledgers(id) ON DELETE CASCADE,
+    bill_voucher_id INTEGER,
+    bill_ref TEXT NOT NULL,
+    date TEXT NOT NULL,
+    note TEXT NOT NULL DEFAULT '',
+    promised_date TEXT,
+    promised_amount INTEGER CHECK (promised_amount IS NULL OR promised_amount > 0),
+    user_name TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+  CREATE INDEX idx_bill_followups_party ON bill_followups(party_ledger_id, bill_voucher_id, bill_ref);
+  CREATE INDEX idx_bill_followups_promised ON bill_followups(promised_date);
+  `,
+  // 033 (WP 4.3) — payables: MSME tracking, payment planning terms, payment runs. Number assigned
+  // by the orchestrator: appended after 032 (WP 4.2 receivables); WP 4.1 banking takes the next
+  // number. Dbtests locate it by content (the msme_bank_rates table).
   // - Supplier ledgers gain their MSMED Act 2006 facts: msme_registered (Udyam registration filed —
   //   s.2(n) "supplier" needs the s.8 memorandum), udyam_no (UDYAM-XX-00-0000000), msme_category
   //   (micro / small / medium — only micro and small are s.2(n) suppliers, so only they get the

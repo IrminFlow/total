@@ -1,4 +1,4 @@
-// Supplier MSME facts and payment terms on the ledger form (WP 4.3, migration 034) — shown for
+// Supplier MSME facts and payment terms on the ledger form (WP 4.3, migration 033) — shown for
 // Sundry Creditors. The MSMED Act s.15 deadline needs: registered on Udyam, category micro / small
 // (medium enterprises are not s.2(n) suppliers), and the credit period agreed in writing.
 import { useState } from 'react'

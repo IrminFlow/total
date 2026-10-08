@@ -79,6 +79,8 @@ import * as yearEnd from './services/yearEnd'
 import { registerFixedAssetIpc } from './ipcFixedAssets'
 import { registerPayrollStatutoryIpc } from './ipcPayrollStatutory'
 import { registerPricingIpc } from './ipcPricing'
+import { registerReceivablesIpc } from './ipcReceivables'
+import { creditOverrideSchema } from '@shared/receivables/schemas'
 import { registerPayablesIpc } from './ipcPayables'
 import { rememberSalePrices } from './services/pricing'
 import { importTallyXml, dryRunTallyXml } from './services/tallyImport'
@@ -251,6 +253,8 @@ export function registerIpc(): void {
   // ---------- payroll statutory (WP 3.7) — channels live in ipcPayrollStatutory.ts ----------
   registerPayrollStatutoryIpc(handle, () => requireCompany())
   registerPricingIpc(handle, () => requireCompany())
+  // ---------- receivables (WP 4.2) — channels live in ipcReceivables.ts ----------
+  registerReceivablesIpc(handle, () => requireCompany())
   // ---------- payables (WP 4.3) — channels live in ipcPayables.ts ----------
   registerPayablesIpc(handle, () => requireCompany())
 
@@ -875,9 +879,13 @@ export function registerIpc(): void {
   }, 'viewer')
   handle('voucher:get', (p) => vouchers.getVoucher(requireCompany().db, idSchema.parse(p).id), 'viewer')
   handle('voucher:save', (p) => {
-    const { data, id } = z.object({ data: voucherInputSchema, id: z.number().int().positive().optional() }).parse(p)
+    const { data, id, creditHoldOverride } = z
+      .object({ data: voucherInputSchema, id: z.number().int().positive().optional(), creditHoldOverride: creditOverrideSchema.optional() })
+      .parse(p)
     const c = requireCompany()
-    const saved = vouchers.saveVoucher(c.db, data, id)
+    // WP 4.2: only an owner may override a credit hold (any user in a company without users).
+    if (creditHoldOverride && c.usersExist && sessionUser?.role !== 'owner') throw new Error('Only an owner can override a credit hold')
+    const saved = vouchers.saveVoucher(c.db, data, id, creditHoldOverride ? { creditHoldOverride } : {})
     // WP 2.6 "remember last price" (Options toggle; a no-op unless on and this is a sale). Never
     // fails the save it follows.
     try {

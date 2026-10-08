@@ -1,4 +1,4 @@
-// WP 4.3 — payables: migration 034, supplier MSME fields on the ledger, payment planning (totals
+// WP 4.3 — payables: migration 033, supplier MSME fields on the ledger, payment planning (totals
 // equal Outstandings), payment runs (balanced vouchers, bill-wise allocation, TDS on payment,
 // audited, all-or-nothing), the MSME report (s.15 / s.16 / s.43B(h) / Form 1), the year-end
 // warning and supplier reconciliation.
@@ -18,7 +18,7 @@ import { closePreview } from './yearEnd'
 
 type DB = ReturnType<typeof seededDb>
 
-const M034 = MIGRATIONS.findIndex((sql) => sql.includes('CREATE TABLE msme_bank_rates'))
+const M033 = MIGRATIONS.findIndex((sql) => sql.includes('CREATE TABLE msme_bank_rates'))
 
 const groupId = (db: DB, name: string): number => (db.prepare('SELECT id FROM groups WHERE name = ?').get(name) as { id: number }).id
 const vt = (db: DB, kind: string): number => (db.prepare('SELECT id FROM voucher_types WHERE kind = ? ORDER BY id LIMIT 1').get(kind) as { id: number }).id
@@ -62,13 +62,13 @@ const balanced = (id: number, db: DB): boolean => {
   return dr === cr && dr > 0
 }
 
-describe('migration 034 — payables', () => {
-  it('appends after 031 (number 034 once 032 / 033 land)', () => {
-    expect(M034).toBeGreaterThanOrEqual(31)
-    expect(M034).toBe(MIGRATIONS.length - 1 - MIGRATIONS.slice(M034 + 1).length)
+describe('migration 033 — payables', () => {
+  it('is migration 033, right after 032 (WP 4.2 receivables)', () => {
+    expect(M033 + 1).toBe(33)
+    expect(M033).toBe(MIGRATIONS.findIndex((sql) => sql.includes('CREATE TABLE reminder_log')) + 1)
   })
   it('adds the supplier columns with defaults that keep existing ledgers as they were', () => {
-    const db = freshPartialDb(M034)
+    const db = freshPartialDb(M033)
     seedCompany(db, TEST_INFO)
     const id = Number(db.prepare("INSERT INTO ledgers (name, group_id) VALUES ('Old Supplier', ?)").run(groupId(db, 'Sundry Creditors')).lastInsertRowid)
     migrate(db)
