@@ -177,7 +177,7 @@ export type AiDraftStatus = 'open' | 'consumed' | 'discarded' | 'superseded'
 
 /** Where a draft came from (WP 5.7): the in-app assistant, a tool call over the MCP server
  *  (`total-cli mcp`), or a file dropped in the company's inbox/ folder. */
-export type AiDraftSource = 'chat' | 'mcp' | 'inbox'
+export type AiDraftSource = 'chat' | 'mcp' | 'inbox' | 'capture'
 
 /** Which editor a draft opens in (WP 5.3). Absent on a WP 5.1 draft = plain accounting lines. */
 export type AiDraftForm = 'accounting' | 'invoice' | 'stockNote' | 'manufacture' | 'tradeDoc'
