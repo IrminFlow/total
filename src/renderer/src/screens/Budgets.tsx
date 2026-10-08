@@ -76,7 +76,8 @@ function summaryColumns(monthTitle: string) {
   ])
 }
 
-function monthColumns(months: string[]) {
+function monthColumns(months: string[], upToMonth: string) {
+  const upIdx = months.indexOf(upToMonth)
   return defineColumns<MonthlyVarianceRow>([
     { id: 'target', header: 'Target', kind: 'text', value: (v) => v.targetName, hideable: false, minWidth: 150 },
     { id: 'cc', header: 'Cost centre', kind: 'text', value: (v) => v.costCentreName ?? '', width: 110, className: 'text-muted' },
@@ -86,7 +87,8 @@ function monthColumns(months: string[]) {
       width: 104,
       cell: (v: MonthlyVarianceRow) => {
         const f = v.months[i]!
-        const tone = f.favourable == null ? 'text-ink' : f.favourable ? 'text-dr' : 'text-cr'
+        // Months after the selected one haven't happened yet: no verdict.
+        const tone = upIdx >= 0 && i > upIdx ? 'text-muted' : f.favourable == null ? 'text-ink' : f.favourable ? 'text-dr' : 'text-cr'
         return (
           <span className="flex flex-col items-end leading-tight" title={`Budget ${f.budget == null ? '—' : formatPaise(f.budget)}`}>
             <span className={`num ${tone}`}>{formatPaise(f.actual)}</span>
@@ -226,7 +228,7 @@ export function BudgetsScreen(): React.JSX.Element {
 
   const months = selected ? fyMonthList(selected.fyStartYear) : []
   const summaryCols = useMemo(() => summaryColumns(monthLabel(upToMonth)), [upToMonth])
-  const monthCols = useMemo(() => monthColumns(months), [months.join()]) // eslint-disable-line react-hooks/exhaustive-deps
+  const monthCols = useMemo(() => monthColumns(months, upToMonth), [months.join(), upToMonth]) // eslint-disable-line react-hooks/exhaustive-deps
   const usesSeasonal = rows.some((r) => r.spread === 'seasonal')
   const hasCc = costCentres.length > 0
 
@@ -389,7 +391,7 @@ export function BudgetsScreen(): React.JSX.Element {
               <table className="ledger-table" data-testid="budget-lines">
                 <thead>
                   <tr>
-                    <th className="w-24">Target</th>
+                    <th className="w-28">Target</th>
                     <th>Ledger / group</th>
                     {hasCc && <th className="w-40">Cost centre</th>}
                     <th className="w-48">Spread</th>
@@ -440,9 +442,11 @@ export function BudgetsScreen(): React.JSX.Element {
 
           <SectionTitle
             right={
-              <span className="flex items-center gap-2">
-                <Segmented label="Variance view" size="sm" options={[{ value: 'summary', label: 'Month & YTD' }, { value: 'months', label: 'By month' }]} value={view} onChange={setView} testId="seg-budget-view" />
-                <Select className="max-w-[10rem]" aria-label="Variance through month" value={upToMonth} onChange={(e) => setUpToMonth(e.target.value)} data-testid="select-budget-month">
+              <span className="flex shrink-0 items-center gap-2 whitespace-nowrap">
+                <span className="shrink-0">
+                  <Segmented label="Variance view" size="sm" options={[{ value: 'summary', label: 'Month & YTD' }, { value: 'months', label: 'By month' }]} value={view} onChange={setView} testId="seg-budget-view" />
+                </span>
+                <Select className="w-40 shrink-0" aria-label="Variance through month" value={upToMonth} onChange={(e) => setUpToMonth(e.target.value)} data-testid="select-budget-month">
                   {months.map((m) => (
                     <option key={m} value={m}>
                       {monthLabel(m)}

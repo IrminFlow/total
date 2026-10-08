@@ -5,7 +5,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import type { ForecastBase, FxRevaluationPreview, LoanDetail, LoanSummary, BudgetMonthlyReport, CashFinanceCloseWarnings, FinanceReminders } from '@shared/cashFinance'
+import type { ForecastBase, FxRevaluationPreview, LoanDetail, LoanSummary, BudgetMonthlyReport, CashFinanceCloseWarnings as CloseWarningsData, FinanceReminders } from '@shared/cashFinance'
 import { DEFAULT_BUCKET_BP, buildForecast, SCENARIO_PRESETS } from '@shared/cashForecast'
 import { figure } from '@shared/budgetPhasing'
 import { CashForecastScreen, periodViews } from '../screens/CashForecast'
@@ -218,7 +218,7 @@ describe('budgets', () => {
 
 describe('year-end and dashboard additions', () => {
   it('warns about unposted EMIs, unrevalued balances and over-budget lines', async () => {
-    const w: CashFinanceCloseWarnings = {
+    const w: CloseWarningsData = {
       unpostedEmis: [{ loanId: 1, loanName: 'HDFC term loan', count: 2, amount: 17_769_76 }],
       unrevalued: [{ currencyCode: 'USD', ledgers: 1, fcBalance: 1000_00 }],
       revaluedOnFyEnd: false,

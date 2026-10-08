@@ -43,7 +43,7 @@ const EXPOSURE_COLUMNS = defineColumns<FxExposureRow>([
     cell: (r) => (r.closingRateMicro ? <span className="num">{microToRateText(r.closingRateMicro)} <span className="text-caption text-muted">{toDisplayDate(r.closingRateDate!)}</span></span> : <Badge tone="warning">No rate</Badge>) },
   { id: 'target', header: 'At closing rate', kind: 'money', value: (r) => r.target, signed: true, aggregate: 'sum', width: 140 },
   { id: 'gain', header: 'Unrealised gain / loss', kind: 'money', value: (r) => r.gainLoss, aggregate: 'sum', width: 160, cell: (r) => <GainLoss paise={r.gainLoss} /> },
-  { id: 'inferred', header: 'Note', kind: 'text', value: (r) => (r.inferredLines > 0 ? 'rupee entries at book rate' : ''), width: 170, defaultHidden: false, className: 'text-caption text-muted' }
+  { id: 'inferred', header: 'Note', kind: 'text', value: (r) => (r.inferredLines > 0 ? 'rupee entries at book rate' : ''), width: 170, defaultHidden: true, className: 'text-caption text-muted' }
 ])
 
 const RATE_COLUMNS = defineColumns<FxRate>([
@@ -188,6 +188,7 @@ export function ForexScreen(): React.JSX.Element {
               rows={rates}
               rowKey={(r) => r.id}
               maxHeight="40vh"
+              toolbar={false}
               trailingWidth={64}
               trailing={(r) => (
                 <button type="button" className="text-small text-muted hover:text-danger" aria-label={`Delete rate ${r.currencyCode} ${r.date}`} onClick={() => void cfApi.fx.rateDelete(r.id).then(refresh, (e: Error) => toast.push('error', e.message))}>
@@ -209,6 +210,7 @@ export function ForexScreen(): React.JSX.Element {
               rows={revals}
               rowKey={(r) => r.id}
               maxHeight="40vh"
+              toolbar={false}
               trailingWidth={84}
               trailing={(r) => (r.live && !r.reversalVoucherId ? (
                 <button type="button" data-testid={`btn-forex-reverse-${r.id}`} className="text-small text-blue hover:underline" onClick={() => void reverse(r)}>Reverse…</button>
@@ -251,7 +253,7 @@ function RateEditor({ codes, defaultDate, onSaved }: { codes: string[]; defaultD
       </Field>
       <datalist id="fx-codes">{codes.map((c) => <option key={c} value={c} />)}</datalist>
       <Field label="₹ per unit" className="w-28"><TextInput value={rateText} onChange={(e) => setRateText(e.target.value)} inputMode="decimal" placeholder="83.25" data-testid="input-fx-rate-value" /></Field>
-      <Field label="Source (optional)" className="min-w-0 flex-1"><TextInput value={note} onChange={(e) => setNote(e.target.value)} placeholder="RBI reference rate" /></Field>
+      <Field label="Source" className="min-w-0 flex-1"><TextInput value={note} onChange={(e) => setNote(e.target.value)} placeholder="RBI reference rate" /></Field>
       <Button size="sm" variant="primary" data-testid="btn-fx-rate-save" onClick={() => void add()}>Save rate</Button>
     </div>
   )

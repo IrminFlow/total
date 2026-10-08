@@ -88,7 +88,7 @@ export function periodViews(periods: ForecastPeriodRow[], contributions: Forecas
 }
 
 const moneyCol = (id: string, header: string, value: (r: PeriodView) => number, group?: string, defaultHidden = false) => ({
-  id, header, kind: 'money' as const, value, aggregate: 'sum' as const, width: 118, group, defaultHidden
+  id, header, kind: 'money' as const, value, aggregate: 'sum' as const, width: 100, group, defaultHidden
 })
 
 const PERIOD_COLUMNS = defineColumns<PeriodView>([
@@ -98,7 +98,8 @@ const PERIOD_COLUMNS = defineColumns<PeriodView>([
       {r.shortfall && <Badge tone="danger">Shortfall</Badge>}
     </span>
   ) },
-  { id: 'opening', header: 'Opening', kind: 'money', value: (r) => r.opening, width: 124, className: 'text-muted' },
+  // Hidden by default (it is the previous period's closing) so all flows + closing fit the width.
+  { id: 'opening', header: 'Opening', kind: 'money', value: (r) => r.opening, width: 120, className: 'text-muted', defaultHidden: true },
   moneyCol('receivable', 'Receivables', (r) => r.bySource.receivable, 'Inflows'),
   moneyCol('salesOrders', 'Sales orders', (r) => r.bySource.sales_order, 'Inflows'),
   moneyCol('otherIn', 'Other', (r) => r.otherIn, 'Inflows'),
@@ -107,9 +108,9 @@ const PERIOD_COLUMNS = defineColumns<PeriodView>([
   moneyCol('statutory', 'Statutory', (r) => r.bySource.statutory, 'Outflows'),
   moneyCol('emi', 'Loan EMIs', (r) => r.bySource.emi, 'Outflows'),
   moneyCol('otherOut', 'Other', (r) => r.otherOut, 'Outflows'),
-  { id: 'net', header: 'Net', kind: 'money', value: (r) => r.net, aggregate: 'sum', width: 124, cell: (r) => <span className={`num ${r.net < 0 ? 'text-cr' : 'text-dr'}`}>{formatPaise(r.net)}</span> },
+  { id: 'net', header: 'Net', kind: 'money', value: (r) => r.net, aggregate: 'sum', width: 112, cell: (r) => (r.net === 0 ? <span className="num text-muted">–</span> : <span className={`num ${r.net < 0 ? 'text-cr' : 'text-dr'}`}>{formatPaise(r.net)}</span>) },
   {
-    id: 'closing', header: 'Closing', kind: 'money', value: (r) => r.closing, width: 132,
+    id: 'closing', header: 'Closing', kind: 'money', value: (r) => r.closing, width: 124,
     cell: (r) => <span className={`num font-medium ${r.shortfall ? 'text-danger' : 'text-ink'}`}>{formatPaise(r.closing)}</span>
   }
 ])
