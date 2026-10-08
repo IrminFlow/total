@@ -196,3 +196,28 @@ export function parseNavIntent(text: string): { kind: NavIntentKind | null; targ
   if (/\b(?:from|last|this|between|since|during|in|on|with|where|which|who|why|how|what|when)\b/i.test(rest)) return null
   return { kind, target: rest.slice(0, 120) }
 }
+
+/** What a navigation request resolves to: the FIRST search hit of the requested kind (the panel
+ *  opens it; the WP 5.8 evals score the same choice). The model is never involved. */
+export interface NavTarget {
+  kind: NavIntentKind
+  id: number
+  label: string
+}
+
+export function pickNavTarget(
+  intent: { kind: NavIntentKind | null },
+  r: {
+    ledgers?: { rows: readonly { id: number; name: string }[] } | null
+    items?: { rows: readonly { id: number; name: string }[] } | null
+    vouchers?: { rows: readonly { id: number; typeName: string; number: string }[] } | null
+  }
+): NavTarget | null {
+  if (intent.kind === 'ledger' && r.ledgers?.rows[0]) return { kind: 'ledger', id: r.ledgers.rows[0].id, label: r.ledgers.rows[0].name }
+  if (intent.kind === 'item' && r.items?.rows[0]) return { kind: 'item', id: r.items.rows[0].id, label: r.items.rows[0].name }
+  if (intent.kind === 'voucher' && r.vouchers?.rows[0]) {
+    const v = r.vouchers.rows[0]
+    return { kind: 'voucher', id: v.id, label: `${v.typeName} ${v.number}` }
+  }
+  return null
+}

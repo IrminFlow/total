@@ -19,7 +19,7 @@ import { useCallback, useEffect, useMemo, useReducer, useRef, useState, type Rea
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { create } from 'zustand'
 import { formatMicroUsd, type AiContext, type AiDraftDto, type AiEvent, type AiMessageDto, type AiSource, type AiThreadDto } from '@shared/ai'
-import { explainContextFor, parseNavIntent, screenContextLines } from '@shared/aiExplain'
+import { explainContextFor, parseNavIntent, pickNavTarget, screenContextLines } from '@shared/aiExplain'
 import { fyOf, todayISO, toDisplayDate } from '@shared/dates'
 import type { VoucherKind } from '@shared/domain'
 import { aiApi, onAiEvent } from '../../lib/aiClient'
@@ -296,17 +296,13 @@ export function AssistantDrawer({ onClose }: { onClose: () => void }): React.JSX
     if (intent.kind === null) return false
     try {
       const r = await api.search.query({ q: intent.target, today: todayISO(), fyStartYear: fyOf(from).startYear, limitPerKind: 3 })
-      if (intent.kind === 'ledger' && r.ledgers?.rows[0]) {
-        openLedgerStatement(r.ledgers.rows[0].id)
-        toast.push('success', `Opened ${r.ledgers.rows[0].name} (found by search)`)
-      } else if (intent.kind === 'item' && r.items?.rows[0]) {
-        nav.go({ name: 'stock-movements', itemId: r.items.rows[0].id })
-        toast.push('success', `Opened ${r.items.rows[0].name} (found by search)`)
-      } else if (intent.kind === 'voucher' && r.vouchers?.rows[0]) {
-        openVoucher(r.vouchers.rows[0].id)
-        toast.push('success', `Opened ${r.vouchers.rows[0].typeName} ${r.vouchers.rows[0].number} (found by search)`)
-      } else {
-        toast.push('error', `Nothing in the books matches “${intent.target}”`)
+      const target = pickNavTarget(intent, r)
+      if (!target) toast.push('error', `Nothing in the books matches “${intent.target}”`)
+      else {
+        if (target.kind === 'ledger') openLedgerStatement(target.id)
+        else if (target.kind === 'item') nav.go({ name: 'stock-movements', itemId: target.id })
+        else openVoucher(target.id)
+        toast.push('success', `Opened ${target.label} (found by search)`)
       }
     } catch (err) {
       toast.push('error', (err as Error).message)
