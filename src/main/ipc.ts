@@ -1,5 +1,5 @@
-import { app, dialog, ipcMain, Notification, shell } from 'electron'
-import { readFileSync, writeFileSync, copyFileSync, rmSync, unlinkSync, mkdtempSync, existsSync } from 'fs'
+import { app, BrowserWindow, dialog, ipcMain, Notification, shell } from 'electron'
+import { readFileSync, writeFileSync, copyFileSync, rmSync, unlinkSync, mkdtempSync, existsSync, appendFileSync } from 'fs'
 import { tmpdir } from 'os'
 import { join, basename } from 'path'
 import { z } from 'zod'
@@ -11,7 +11,7 @@ import { checkIntegrity } from './db/integrity'
 import { encryptFile, decryptFile } from './db/crypt'
 import { readCompanyInfo, seedCompany, writeCompanyInfo } from './db/seed'
 import { readRegistry, removeCompany, touchLastOpened, upsertCompany } from './registry'
-import { companyBackupsDir, companyDbPath, companyDir, companyExportsDir, ensureCompanyTree, slugify } from './paths'
+import { companyBackupsDir, companyDbPath, companyDir, companyExportsDir, dataRoot, ensureCompanyTree, slugify } from './paths'
 import { log, revealLogs } from './log'
 import { checkForUpdatesInteractive } from './updater'
 import {
@@ -79,6 +79,11 @@ import * as yearEnd from './services/yearEnd'
 import { registerFixedAssetIpc } from './ipcFixedAssets'
 import { registerPayrollStatutoryIpc } from './ipcPayrollStatutory'
 import { registerPricingIpc } from './ipcPricing'
+import { registerAiIpc, aiRuns, type AppKeyAuditEntry } from './ai/ipc'
+import { aiMockAllowed } from './ai/env'
+import { settleDraftOnSave } from './ai/drafts'
+import { appSecretStore } from './services/secretStore'
+import type { AiEvent } from '@shared/ai'
 import { registerReceivablesIpc } from './ipcReceivables'
 import { creditOverrideSchema } from '@shared/receivables/schemas'
 import { registerPayablesIpc } from './ipcPayables'
@@ -160,11 +165,35 @@ function renameFile(src: string, dest: string): void {
   unlinkSync(src)
 }
 
+/** Whether a company file (not the open one) has active users — read-only peek for the AI key guard. */
+function companyHasUsers(dbPath: string): boolean {
+  if (!existsSync(dbPath)) return false
+  try {
+    const d = new Database(dbPath, { readonly: true, fileMustExist: true })
+    try {
+      return ((d.prepare('SELECT COUNT(*) AS n FROM users WHERE active = 1').get() as { n: number }).n ?? 0) > 0
+    } finally {
+      d.close()
+    }
+  } catch {
+    // Unreadable (encrypted, older schema): assume users exist — the safe answer for the guard.
+    return true
+  }
+}
+
+/** App-level, append-only record of API key changes (WP 5.1) — beside secrets.json, outside
+ *  every company (the key is shared by all of them). */
+function appendAiKeyAudit(entry: AppKeyAuditEntry): void {
+  appendFileSync(join(dataRoot(), 'ai-key-audit.jsonl'), `${JSON.stringify({ ...entry, appVersion: app.getVersion() })}\n`, { mode: 0o600 })
+}
+
 export function closeCurrentCompany(): void {
   // Stop the inbox watcher + any pending mirror refresh before the handle closes under them.
   agentBridge.syncInboxWatcher(null)
   // The cached NIC login belongs to this company's identity — never carry it into the next one.
   nic.resetNicSession()
+  // In-flight AI answers belong to this company's handle — stop them before it closes.
+  aiRuns.cancelAll()
   if (current) {
     closeCompanyDb(current.db)
     current = null
@@ -255,6 +284,20 @@ export function registerIpc(): void {
   // ---------- payroll statutory (WP 3.7) — channels live in ipcPayrollStatutory.ts ----------
   registerPayrollStatutoryIpc(handle, () => requireCompany())
   registerPricingIpc(handle, () => requireCompany())
+  // ---------- AI agent (WP 5.1) — channels live in ai/ipc.ts; events stream on 'total:ai:event' ----------
+  registerAiIpc(handle, {
+    company: () => requireCompany(),
+    session: () => (sessionUser ? { name: sessionUser.name, role: sessionUser.role } : { name: null, role: 'owner' }),
+    // A company with users and nobody signed in has no role (the run stops at its next tool call).
+    roleNow: () => (sessionUser ? sessionUser.role : current?.usersExist ? null : 'owner'),
+    secrets: () => appSecretStore(),
+    anyCompanyHasUsers: () => readRegistry().companies.some((co) => co.slug !== current?.slug && companyHasUsers(companyDbPath(co.slug))),
+    appAudit: (entry) => appendAiKeyAudit(entry),
+    emit: (e: AiEvent) => {
+      for (const w of BrowserWindow.getAllWindows()) if (!w.isDestroyed()) w.webContents.send('total:ai:event', e)
+    },
+    mock: () => aiMockAllowed(process.env, app.isPackaged)
+  })
   // ---------- receivables (WP 4.2) — channels live in ipcReceivables.ts ----------
   registerReceivablesIpc(handle, () => requireCompany())
   // ---------- payables (WP 4.3) — channels live in ipcPayables.ts ----------
@@ -885,13 +928,28 @@ export function registerIpc(): void {
   }, 'viewer')
   handle('voucher:get', (p) => vouchers.getVoucher(requireCompany().db, idSchema.parse(p).id), 'viewer')
   handle('voucher:save', (p) => {
-    const { data, id, creditHoldOverride } = z
-      .object({ data: voucherInputSchema, id: z.number().int().positive().optional(), creditHoldOverride: creditOverrideSchema.optional() })
+    const { data, id, aiDraftId, creditHoldOverride } = z
+      .object({
+        data: voucherInputSchema,
+        id: z.number().int().positive().optional(),
+        aiDraftId: z.number().int().positive().optional(),
+        creditHoldOverride: creditOverrideSchema.optional()
+      })
       .parse(p)
     const c = requireCompany()
     // WP 4.2: only an owner may override a credit hold (any user in a company without users).
     if (creditHoldOverride && c.usersExist && sessionUser?.role !== 'owner') throw new Error('Only an owner can override a credit hold')
-    const saved = vouchers.saveVoucher(c.db, data, id, creditHoldOverride ? { creditHoldOverride } : {})
+    const saveOpts = creditHoldOverride ? { creditHoldOverride } : {}
+    // WP 5.1: a voucher reviewed from an AI draft saves through the normal path; the draft is
+    // settled in the same transaction (consumed when still open; otherwise the save goes ahead
+    // and the audit trail records that the draft was no longer open).
+    const saved = aiDraftId
+      ? c.db.transaction(() => {
+          const v = vouchers.saveVoucher(c.db, data, id, saveOpts)
+          settleDraftOnSave(c.db, aiDraftId, v.id)
+          return v
+        })()
+      : vouchers.saveVoucher(c.db, data, id, saveOpts)
     // WP 2.6 "remember last price" (Options toggle; a no-op unless on and this is a sale). Never
     // fails the save it follows.
     try {

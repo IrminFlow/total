@@ -20,6 +20,8 @@ export interface VoucherDraft {
   /** WP 2.5c "Convert to challan / invoice / GRN / bill": draw every pending line of this
    *  sales / purchase order (the "Add from…" picks, pre-filled). */
   fromTradeDocId?: number
+  /** WP 5.1: this prefill is an AI draft (ai_drafts.id) — voucher:save marks it consumed. */
+  aiDraftId?: number
 }
 
 /**
@@ -41,7 +43,9 @@ export type Screen =
   | { name: 'import-tally' }
   // `draftId` forces VoucherEntry to remount when a new draft targets the same 'new' voucher slot
   // (e.g. two "Create purchase" nudges in a row) — App.tsx keys the component on it, see there.
-  | { name: 'voucher-entry'; voucherId?: number; kindHint?: VoucherKind; draft?: VoucherDraft; draftId?: number }
+  // WP 5.1 `aiDraftId`: open an ai_drafts row (the assistant's proposal) pre-filled; saving it
+  // goes through voucher:save as usual and marks the draft consumed.
+  | { name: 'voucher-entry'; voucherId?: number; kindHint?: VoucherKind; draft?: VoucherDraft; draftId?: number; aiDraftId?: number }
   // Like 'settings', the active tab lives in the nav stack (nav.go per tab) so Esc/back
   // retraces tabs and other screens can deep-link straight to one.
   // `itemId` (items tab only) opens that stock item's editor — how search results open an item.
@@ -114,7 +118,7 @@ export type Screen =
   | { name: 'year-end' }
   | { name: 'fixed-assets'; tab?: 'register' | 'depreciation' | 'schedule' | 'income-tax' | 'setup' }
   | { name: 'audit-trail'; voucherId?: number }
-  | { name: 'settings'; tab?: 'appearance' | 'backups' | 'bin' | 'users' | 'audit' | 'nic' | 'features' | 'invoice' | 'receivables' | 'agents' | 'about' }
+  | { name: 'settings'; tab?: 'appearance' | 'backups' | 'bin' | 'users' | 'audit' | 'nic' | 'features' | 'invoice' | 'receivables' | 'agents' | 'ai' | 'about' }
 
 interface NavState {
   stack: Screen[]

@@ -9,6 +9,7 @@ import { toDisplayDate, fyOf, fyFromStartYear, todayISO } from '@shared/dates'
 import { useFeatures } from '../lib/useFeatures'
 import { NAV_SECTIONS, SCREENS } from '../lib/screens'
 import { useNavSections } from '../lib/navSections'
+import { AssistantPanel, useAssistantPanel } from './ai/AssistantPanel'
 
 /** Sidebar derived from the single screen registry (lib/screens.ts). */
 const NAV = NAV_SECTIONS.map((section) => ({
@@ -30,6 +31,7 @@ export function Shell({ children, onOpenPalette }: { children: ReactNode; onOpen
   const fetching = useIsFetching()
   const features = useFeatures()
   const sections = useNavSections(screen.name)
+  const toggleAssistant = useAssistantPanel((s) => s.toggle)
   const visibleNav = NAV.filter((s) => !s.feature || features[s.feature]).map((s) => ({
     ...s,
     items: s.items.filter((i) => !i.feature || features[i.feature])
@@ -74,6 +76,16 @@ export function Shell({ children, onOpenPalette }: { children: ReactNode; onOpen
           data-testid="btn-period"
         >
           {toDisplayDate(from)} → {toDisplayDate(to)}
+        </button>
+        <button
+          type="button"
+          data-testid="btn-assistant"
+          className="rounded-md border border-line bg-panel2 px-2.5 py-1 text-small text-muted hover:border-amber/60 hover:text-ink"
+          onClick={toggleAssistant}
+          title="Ask about your books (optional; off until turned on in Settings → AI)"
+          aria-label="Open the assistant"
+        >
+          Assistant
         </button>
         <button
           type="button"
@@ -222,6 +234,7 @@ export function Shell({ children, onOpenPalette }: { children: ReactNode; onOpen
       </div>
 
       {periodOpen && <PeriodModal onClose={() => setPeriodOpen(false)} />}
+      <AssistantPanel />
     </div>
   )
 }

@@ -185,6 +185,10 @@ describe('write channels really write their mapped entities (driven through IPC)
     await expectLogged('audit:exportCsv', { from: '2025-01-01', to: '2030-12-31' })
     await expectLogged('config:audit:required', { required: false })
     await expectLogged('config:audit:required', { required: true })
+    // WP 5.1 AI settings (the key needs a cipher, which this Electron mock does not provide).
+    await expectLogged('ai:notice:accept')
+    await expectLogged('ai:settings:set', { enabled: true, privacy: { maskIds: true } })
+    await expectLogged('ai:data:deleteAll')
 
     // No users yet: attributed to the OS login (not null, not 'system').
     const db = companyDb()
