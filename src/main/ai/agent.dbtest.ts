@@ -17,6 +17,7 @@ import { join } from 'path'
 import { AgentRuns, AI_OFF_MESSAGE, startTurn, type AgentDeps } from './agent'
 import { MockProvider, demoScript, type MockScript } from './mockProvider'
 import { createToolRegistry } from './tools'
+import { READ_TOOLS } from './tools/readTools'
 import { defaultAiSettings, getAiSettings } from './settings'
 import { buildVoucherDraft, consumeDraft, discardDraft, settleDraftOnSave } from './drafts'
 import { registerAiIpc, keyChangeRule, type AppKeyAuditEntry } from './ipc'
@@ -150,7 +151,8 @@ describe('scripted conversation: three read tools, a draft, the answer', () => {
     expect(msgs.map((m) => m.role)).toEqual(['user', 'assistant', 'tool', 'tool', 'assistant', 'tool', 'assistant', 'tool', 'assistant'])
     const final = msgs.at(-1)!
     expect(final.content).toBe('Acme Traders bought ₹1,00,000.00 in July (sales). I drafted the rent payment of ₹25,000.00. Next month may be ₹9,999.00.')
-    expect(final.figures).toEqual([
+    // toMatchObject: WP 5.2 also traces each sourced figure to its row (`source`, asserted in screenTools.dbtest.ts).
+    expect(final.figures).toMatchObject([
       { text: '₹1,00,000.00', paise: 10_000_000, sourced: true, tool: 'profit_and_loss' },
       { text: '₹25,000.00', paise: 2_500_000, sourced: true, tool: 'draft_voucher' },
       { text: '₹9,999.00', paise: 999_900, sourced: false, tool: null }
@@ -361,7 +363,8 @@ describe('every read tool runs on a real company', () => {
       ['gst_summary', { period: '2025-07' }],
       ['tds_summary', { fy: 2025, quarter: 2 }]
     ]
-    expect(calls.map((c) => c[0]).sort()).toEqual(registry.info().filter((t) => t.kind === 'read').map((t) => t.name).sort())
+    // The WP 5.1 read tools (the WP 5.2 screen tools have their own dbtest: screenTools.dbtest.ts).
+    expect(calls.map((c) => c[0]).sort()).toEqual(READ_TOOLS.map((t) => t.name).sort())
     for (const [name, args] of calls) {
       const r = await registry.run(name, JSON.stringify(args), ctx)
       expect(r.ok, `${name}: ${r.ok ? '' : r.error}`).toBe(true)
@@ -546,7 +549,7 @@ describe('review fixes', () => {
     await t.finished
     await startTurn(d, { threadId: t.threadId, text: 'say it again' }).finished
     const last = store.listMessages(f.db, t.threadId).at(-1)!
-    expect(last.figures).toEqual([
+    expect(last.figures).toMatchObject([
       { text: '₹1,50,000.00', paise: 15_000_000, sourced: true, tool: 'trial_balance' },
       { text: '₹1.5L', paise: 15_000_000, sourced: true, tool: 'trial_balance' }
     ])

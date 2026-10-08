@@ -356,6 +356,8 @@ export interface SaveVoucherHooks {
   adoptLineUids?: boolean
 }
 
+export const IRN_RENUMBER_REFUSED = 'This invoice has an e-invoice IRN — its number and voucher type can’t change (cancel the IRN on the portal and enter a new invoice instead)'
+
 export const INTEREST_NOTE_IMMUTABLE =
   'This is an interest debit note (Credit control › Interest) — bin it and post the interest again; an edit would leave the charged periods wrong'
 
@@ -483,6 +485,11 @@ export function saveVoucher(db: DB, raw: VoucherInput, existingId?: number, hook
   const before = existingId ? getVoucher(db, existingId) : null
   if (existingId && !before) throw new Error('Voucher not found')
   if (before?.deletedAt) throw new Error('Voucher is in the bin; restore it first')
+  // WP 6.4 review: an e-invoice's IRN was generated for this type's number — renumbering it (a new
+  // number, or another series) would leave the IRN describing a document that no longer exists.
+  if (before?.irn && (number !== before.number || vt.id !== before.voucherTypeId)) {
+    throw new Error(`${IRN_RENUMBER_REFUSED} (IRN ${before.irn.slice(0, 12)}…)`)
+  }
 
   const lock = getLockDate(db)
   if (lock && (input.date <= lock || (before && before.date <= lock))) {

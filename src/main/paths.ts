@@ -33,6 +33,17 @@ export function companyExportsDir(slug: string): string {
   return join(companyDir(slug), 'exports')
 }
 
+/** WP 6.4: attachment bytes, content-addressed (<sha256[0:2]>/<sha256>) — services/attachments.ts. */
+export function companyAttachmentsDir(slug: string): string {
+  return join(companyDir(slug), 'attachments')
+}
+
+/** WP 6.4: attachment copies kept for the backups in backups/ (same layout), so restoring an
+ *  older backup brings back files removed since — db/attachmentBackup.ts. */
+export function companyBackupAttachmentsDir(slug: string): string {
+  return join(companyBackupsDir(slug), 'attachments')
+}
+
 export function ensureDataTree(): void {
   mkdirSync(companiesDir(), { recursive: true })
 }

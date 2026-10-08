@@ -28,7 +28,7 @@ export const AUDIT_COVERAGE: Record<string, AuditCoverage> = {
   'company:create': a('company'),
   'company:createDemo': a('company', 'ledger', 'stockItem', 'voucher'),
   'company:delete': a('company'),
-  'company:open': a('backup', 'voucher', 'audit_log'),
+  'company:open': a('backup', 'voucher', 'audit_log', 'attachment'),
   'company:close': r('closes the database handle'),
   'company:updateInfo': a('company'),
   'company:lock:set': a('company'),
@@ -156,7 +156,7 @@ export const AUDIT_COVERAGE: Record<string, AuditCoverage> = {
   'voucher:save': a('voucher', 'credit_override', 'ai_draft'),
   'voucher:delete': a('voucher'),
   'voucher:restore': a('voucher'),
-  'voucher:purge': a('voucher'),
+  'voucher:purge': a('voucher', 'attachment'),
   'voucher:nextNumber': QUERY,
   'voucher:numberExists': QUERY,
   'voucher:duplicates': QUERY,
@@ -349,6 +349,11 @@ export const AUDIT_COVERAGE: Record<string, AuditCoverage> = {
   'ai:send': a('ai_draft'),
   'ai:cancel': r('stops an in-flight answer; the partial reply is kept in the AI tables only'),
   'ai:draft:discard': a('ai_draft'),
+  // WP 5.2 — the chat panel. Viewer-level, listed anyway: regenerate re-runs a question (AI tables
+  // only, plus any draft it makes); a rename is audited; a pin is a display preference.
+  'ai:regenerate': a('ai_draft', 'ai_thread'),
+  'ai:thread:rename': a('ai_thread'),
+  'ai:thread:pin': r('pins a conversation in the panel’s list (a display preference in the AI tables; not the books)'),
   'ai:data:deleteAll': a('ai_data'),
   // ---------- payables (WP 4.3) ----------
   'payables:plan': QUERY,
@@ -382,6 +387,17 @@ export const AUDIT_COVERAGE: Record<string, AuditCoverage> = {
   'fx:settle': a('fx_settlement', 'voucher'),
   'budget:importCsv': a('budget'),
   'budget:exportCsv': EXPORT,
+
+  // ---------- bulk edit, attachments, party notes (WP 6.4) ----------
+  'bulk:preview': r('a dry run: every save runs inside a transaction that is rolled back — nothing is kept, not even its audit rows'),
+  'bulk:apply': a('bulk_batch', 'voucher', 'ledger', 'stockItem'),
+  'bulk:undo': a('bulk_batch', 'voucher', 'ledger', 'stockItem'),
+  'attachments:add': a('attachment'),
+  'attachments:remove': a('attachment'),
+  'attachments:setConfig': a('company'),
+  'partyNotes:add': a('party_note'),
+  'partyNotes:update': a('party_note'),
+  'partyNotes:delete': a('party_note'),
 
   // ---------- the audit trail itself (viewer-level, listed for completeness) ----------
   'audit:exportCsv': EXPORT,

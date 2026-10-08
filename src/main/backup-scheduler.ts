@@ -2,7 +2,7 @@
 // app.getVersion() inside log.ts) so the scheduling logic itself stays simple to reason about.
 import { join } from 'path'
 import type { DB } from './db/connection'
-import { backupCompany } from './db/connection'
+import { backupCompany, stashBackupAttachments } from './db/connection'
 import { backupStamp, snapshotSync } from './db/backup'
 import { companyBackupsDir } from './paths'
 import { log } from './log'
@@ -42,6 +42,12 @@ export function backupOnQuit(getCurrent: () => CurrentCompanyLike | null): void 
     if (!current) return
     const dest = join(companyBackupsDir(current.slug), `${backupStamp()}-quit.db`)
     snapshotSync(current.db, dest)
+    // WP 6.4: the quit snapshot's attachments, like every other backup's.
+    try {
+      stashBackupAttachments(current.slug, dest)
+    } catch (err) {
+      log('warn', 'backup-quit-attachments-failed', { error: err instanceof Error ? err.message : String(err) })
+    }
     writeAudit(current.db, 'backup', 0, 'backup', null, { tag: 'quit', file: dest.split(/[\\/]/).pop() }, { user: SYSTEM_AUDIT_USER })
     log('info', 'backup-quit', { slug: current.slug })
   } catch (err) {

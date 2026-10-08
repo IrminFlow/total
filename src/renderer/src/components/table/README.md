@@ -69,6 +69,18 @@ aggregation to `formatPaise`.
   for example, doesn't count optional or post-dated rows:
   `(rows) => rows.filter(inBooks).reduce((s, r) => s + r.debit, 0)`.
 - `className` / `headerClassName`: extra cell classes, for example `'text-muted'`.
+- `explainable` (WP 5.2, additive): "Explain this". While the assistant is on (Settings → AI),
+  an explainable cell with a non-zero value shows a small **AI** action on hover, over the cell's
+  left edge (money is right-aligned, so it never covers the figure). Clicking it asks the
+  assistant to explain the figure from its source — the row's name (first visible text column),
+  the column header, the value as displayed and the row's `voucherId` / `ledgerId` /
+  `partyLedgerId` / `itemId` / `stockItemId` (a voucher first, then a ledger, then an item), plus
+  the screen and period the assistant host adds. Money columns are explainable by default;
+  `explainable: false` opts one out, and a function adds or overrides the source per row or
+  returns `null` for none:
+  `explainable: (r) => (r.kind === 'group' ? { groupName: r.name } : { ledgerId: r.id })`.
+  The action is not a Tab stop (one per cell would bury the toolbar); clicks on it never
+  activate the row. While the assistant is off nothing renders and the table is unchanged.
 
 ## 2. Render it
 
@@ -124,6 +136,24 @@ Useful props (all optional except `columns` and `rows`):
 - **Keyboard.** `keyboard={false}` opts out of keyboard navigation.
 - **External control.** `controller` takes the result of `useTableView(...)` when the screen
   needs to read or set the view itself.
+
+### Multi-select (WP 6.4)
+
+```tsx
+const bulk = useBulkSelection('voucher', 'daybook')   // components/bulk/BulkEdit.tsx
+{bulk.bar}                                             // "3 vouchers selected · Bulk edit… · Clear"
+<DataTable … selection={bulk.selection} toolbarEnd={bulk.historyButton} />
+{bulk.dialogs}                                         // preview → apply, and recent edits with Undo
+```
+
+- `selection={{ selected, onChange, isSelectable?, label? }}` is controlled: the screen owns the
+  set of row keys. A checkbox column appears after the expander (`<area>-select-<key>`), and the
+  header box (`<area>-select-all`) selects or clears every selectable row **in view** (the
+  table's filters and quick filter applied). It shows indeterminate for a partial selection.
+- Shift-click selects the range from the last toggled row, in view order. Space toggles the
+  active row (not while a button, link or input has focus).
+- Selected rows carry `data-selected` and a light amber tint (a `td` background, never a
+  pseudo-element). Day book, Masters → Ledgers / Stock items and Outstandings use it.
 
 ### Expandable detail rows
 

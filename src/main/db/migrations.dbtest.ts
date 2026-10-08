@@ -125,6 +125,11 @@ const EXPECTED_TABLES = [
   'import_templates',
   'import_batches',
   'import_batch_items',
+  // 039 (WP 6.4) — bulk edit, attachments, party notes / tasks
+  'bulk_batches',
+  'bulk_batch_records',
+  'attachments',
+  'party_notes',
   'migrations',
   // WP 6.5 (last; number by position) — group consolidation
   'consolidation_groups',

@@ -9,13 +9,15 @@
 // Dr / Cr suffixed or prefixed figures; and bare integers ≥ 1,000 next to a money word ("balance
 // 25000", "paid 5000"). Bare integers elsewhere (years, counts, ids, days) are not money.
 import { parseRupees } from '@shared/money'
-import type { AiFigure } from '@shared/ai'
+import type { AiFigure, AiSource } from '@shared/ai'
 
 export interface ExtractedFigure {
   text: string
   paise: number
   /** Shorthand (1.2L) — matches a source within half a unit of its last digit. */
   tolerancePaise: number
+  /** Offset of the figure in the text. */
+  index: number
 }
 
 const CURRENCY = String.raw`(?:₹|\bRs\.?|\bINR\b)`
@@ -87,7 +89,7 @@ export function extractFigures(text: string): ExtractedFigure[] {
       paise = parseRupees(numText)
     }
     if (paise === null || !Number.isSafeInteger(paise)) continue
-    out.push({ text: raw.trim(), paise, tolerancePaise: tolerance })
+    out.push({ text: raw.trim(), paise, tolerancePaise: tolerance, index: at + (raw.length - raw.trimStart().length) })
   }
   return out
 }
@@ -100,19 +102,142 @@ export interface SeenResult {
 
 /** Each figure in `answer`, sourced when the same absolute amount (or, for shorthand, one within
  *  its rounding) appears in a result the model saw. */
-export function checkFigures(answer: string, seen: readonly SeenResult[]): AiFigure[] {
+export function checkFigures(answer: string, seen: readonly SeenResult[], origins: readonly FigureOrigin[] = []): AiFigure[] {
   const known: { paise: number; tool: string }[] = []
   for (const r of seen) for (const f of extractFigures(r.text)) known.push({ paise: Math.abs(f.paise), tool: r.name })
   return extractFigures(answer).map((f) => {
     const target = Math.abs(f.paise)
     const exact = known.find((k) => k.paise === target)
     const near = exact ?? (f.tolerancePaise > 0 ? known.find((k) => Math.abs(k.paise - target) <= f.tolerancePaise) : undefined)
+    // Same tool first (newest result first), then any result holding the amount; repeated amounts
+    // are told apart by the label named on the figure's line.
+    const lineStart = answer.lastIndexOf('\n', f.index - 1) + 1
+    const lineEnd = answer.indexOf('\n', f.index)
+    const ctx = { line: answer.slice(lineStart, lineEnd < 0 ? answer.length : lineEnd), at: f.index - lineStart }
+    const loc = near ? locateFigureSource(near.paise, [...origins.filter((o) => o.tool === near.tool), ...origins.filter((o) => o.tool !== near.tool)], ctx) : {}
     return {
       text: f.text,
       paise: f.paise,
       sourced: !!near,
       tool: near?.tool ?? null,
-      ...(near && !exact ? { approximate: true } : {})
+      ...(near && !exact ? { approximate: true } : {}),
+      ...(loc.source ? { source: loc.source } : {}),
+      ...(loc.ambiguous ? { ambiguous: true } : {})
     }
   })
+}
+
+// ---------- where a sourced figure came from (WP 5.2: figures render as chips linking there) ----------
+
+/** A tool result as stored locally: real (unmasked) output and the sources the tool returned. */
+export interface FigureOrigin {
+  tool: string
+  output: unknown
+  sources: readonly AiSource[]
+}
+
+/** `weak`: the amount is only a running balance there (a statement's last row repeats the
+ *  closing balance — the ledger is the better source than that voucher). */
+type Hit = { depth: number; obj: Record<string, unknown>; weak: boolean }
+const RUNNING_KEYS = new Set(['balance', 'running', 'runningBalance'])
+
+function figuresIn(value: unknown): number[] {
+  return typeof value === 'string' ? extractFigures(value).map((f) => Math.abs(f.paise)) : []
+}
+
+/** Objects that hold a string containing the amount directly, with their depth. */
+function objectsWith(value: unknown, paise: number, depth = 0, out: Hit[] = []): Hit[] {
+  if (depth > 12 || value === null || typeof value !== 'object') return out
+  if (Array.isArray(value)) {
+    for (const v of value) objectsWith(v, paise, depth + 1, out)
+    return out
+  }
+  const obj = value as Record<string, unknown>
+  const keys = Object.entries(obj).filter(([, v]) => figuresIn(v).includes(paise)).map(([k]) => k)
+  if (keys.length) out.push({ depth, obj, weak: keys.every((k) => RUNNING_KEYS.has(k)) })
+  for (const v of Object.values(obj)) if (v !== null && typeof v === 'object') objectsWith(v, paise, depth + 1, out)
+  return out
+}
+
+const posInt = (v: unknown): number | null => (typeof v === 'number' && Number.isInteger(v) && v > 0 ? v : null)
+const firstText = (...vs: unknown[]): string | null => {
+  for (const v of vs) if (typeof v === 'string' && v.trim()) return v.trim()
+  return null
+}
+
+/** The voucher / ledger / item a row stands for, labelled from the tool's own sources if listed. */
+function rowSource(obj: Record<string, unknown>, o: FigureOrigin): AiSource | null {
+  const voucherId = posInt(obj.voucherId)
+  if (voucherId) {
+    const known = o.sources.find((s) => s.kind === 'voucher' && s.voucherId === voucherId)
+    const type = firstText(obj.type, obj.voucherType)
+    const number = firstText(obj.number)
+    return { kind: 'voucher', voucherId, label: known?.label ?? (type && number ? `${type} ${number}` : `Voucher ${voucherId}`) }
+  }
+  const ledgerId = posInt(obj.ledgerId)
+  if (ledgerId) {
+    const known = o.sources.find((s) => s.kind === 'ledger' && s.ledgerId === ledgerId)
+    return { kind: 'ledger', ledgerId, label: known?.label ?? firstText(obj.ledger, obj.party, obj.name) ?? `Ledger ${ledgerId}` }
+  }
+  const itemId = posInt(obj.itemId)
+  if (itemId) {
+    const known = o.sources.find((s) => s.kind === 'item' && s.itemId === itemId)
+    return { kind: 'item', itemId, label: known?.label ?? firstText(obj.item, obj.name) ?? `Item ${itemId}` }
+  }
+  return null
+}
+
+const KIND_RANK: Record<AiSource['kind'], number> = { voucher: 0, item: 1, ledger: 2, screen: 3 }
+
+const sourceKey = (s: AiSource): string => (s.kind === 'voucher' ? `v${s.voucherId}` : s.kind === 'ledger' ? `l${s.ledgerId}` : s.kind === 'item' ? `i${s.itemId}` : `s${s.screen}`)
+
+/** Where in the answer a figure sits: its line, and its offset in that line. */
+export interface FigureContext {
+  line: string
+  at: number
+}
+
+/**
+ * The source of the row holding the amount. When several rows hold it (three ₹10,000.00 rent
+ * entries), the one whose label is named on the figure's line in the answer (nearest to the
+ * figure) wins; still several → `ambiguous`, linked to the tool's report rather than a guessed row.
+ * Pure; tested.
+ */
+export function locateFigureSource(paise: number, origins: readonly FigureOrigin[], near?: FigureContext): { source?: AiSource; ambiguous?: boolean } {
+  const target = Math.abs(paise)
+  for (const o of origins) {
+    const hits = objectsWith(o.output, target)
+    if (!hits.length) continue
+    const screen = o.sources.find((s) => s.kind === 'screen') ?? o.sources[0]
+    const strong = hits.filter((h) => !h.weak)
+    const pool = (strong.length ? strong : hits).sort((a, b) => b.depth - a.depth)
+    const candidates: AiSource[] = []
+    for (const h of pool) {
+      const s = rowSource(h.obj, o)
+      if (s && !candidates.some((c) => sourceKey(c) === sourceKey(s))) candidates.push(s)
+    }
+    if (candidates.length === 0) return screen ? { source: screen } : {}
+    if (candidates.length === 1) return { source: candidates[0] }
+    if (near) {
+      const line = near.line.toLowerCase()
+      const named = candidates
+        .map((c) => {
+          const label = c.label.toLowerCase()
+          let best = -1
+          for (let i = line.indexOf(label); i >= 0; i = line.indexOf(label, i + 1)) {
+            if (best < 0 || Math.abs(i - near.at) < Math.abs(best - near.at)) best = i
+          }
+          return { c, distance: best < 0 ? null : Math.abs(best - near.at), length: label.length }
+        })
+        .filter((x) => x.distance !== null)
+        // the most specific kind named (a voucher row over the other-side ledger in the same table
+        // row), then the nearest, then the longer label ("Journal 12" over its prefix "Journal 1")
+        .sort((a, b) => KIND_RANK[a.c.kind] - KIND_RANK[b.c.kind] || a.distance! - b.distance! || b.length - a.length)
+      const top = named[0]
+      const tie = named[1] && KIND_RANK[named[1].c.kind] === KIND_RANK[top!.c.kind] && named[1].distance === top!.distance && named[1].length === top!.length
+      if (top && !tie) return { source: top.c }
+    }
+    return screen ? { source: screen, ambiguous: true } : { ambiguous: true }
+  }
+  return {}
 }

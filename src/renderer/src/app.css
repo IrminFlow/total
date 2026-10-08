@@ -382,6 +382,33 @@ tr.kbar-row[data-active='true'] td:first-child {
   text-overflow: ellipsis;
   line-height: 20px;
 }
+/* WP 5.2 "Explain this" on a money cell: overlays the cell's left edge (money is right-aligned,
+   so it never covers the figure), shown while that cell is hovered or the action has focus. */
+.data-table > tbody > tr > td.dt-explainable {
+  position: relative;
+}
+.data-table .dt-explain {
+  position: absolute;
+  top: 50%;
+  left: 6px;
+  translate: 0 -50%;
+  opacity: 0;
+  transition: opacity 120ms;
+}
+.data-table > tbody > tr > td.dt-explainable:hover .dt-explain,
+.data-table .dt-explain:focus-visible {
+  opacity: 1;
+}
+/* Explain this beside a tile / statement line: revealed while its host is hovered or focused. */
+.t-explain-reveal {
+  opacity: 0;
+  transition: opacity 120ms;
+}
+.t-explain-host:hover .t-explain-reveal,
+.t-explain-host:focus-within .t-explain-reveal,
+.t-explain-reveal:focus-visible {
+  opacity: 1;
+}
 /* Header filter funnel: overlays the header edge (it reserves no width). Hidden until the
    header is hovered or holds keyboard focus; always shown while a filter is set or open. */
 .data-table .dt-filter {
@@ -468,6 +495,27 @@ tr.kbar-row[data-active='true'] td:first-child {
 .data-table td.dt-expander {
   padding-left: 8px;
   padding-right: 0;
+}
+/* WP 6.4 multi-select: the checkbox column and selected rows (a tint, never a pseudo-element). */
+.data-table th.dt-select,
+.data-table td.dt-select {
+  padding-left: 10px;
+  padding-right: 0;
+  text-align: left;
+}
+.data-table .dt-check {
+  width: 14px;
+  height: 14px;
+  vertical-align: middle;
+  accent-color: var(--t-amber-bar);
+  cursor: pointer;
+}
+.data-table .dt-check:disabled {
+  cursor: not-allowed;
+  opacity: 0.4;
+}
+.data-table > tbody > tr[data-selected] > td {
+  background: color-mix(in oklab, var(--t-amber-bar) 10%, transparent);
 }
 /* expandable detail rows: free height, wrapping content, no row hover */
 .data-table tr.dt-detail > td {

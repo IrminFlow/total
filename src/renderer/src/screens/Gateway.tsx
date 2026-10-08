@@ -19,7 +19,8 @@ import { OptionToggle, useScreenOptions } from '../components/ScreenOptions'
 import { fyOf, toDisplayDate, toMonthLabel, todayISO } from '@shared/dates'
 import { formatPaiseCompact } from '@shared/money'
 import type { Deadline } from '@shared/compliance'
-import type { DashAgeing, DashCash, DashSection, DashTrade, DashboardSeries, DashboardWindow } from '@shared/dashboard'
+import { monthSpan, type DashAgeing, type DashCash, type DashSection, type DashTrade, type DashboardSeries, type DashboardWindow } from '@shared/dashboard'
+import type { ExplainInput } from '../lib/explain'
 
 type SectionKey = Exclude<keyof DashboardSeries, 'window'>
 type SectionData<K extends SectionKey> = DashboardSeries[K] extends DashSection<infer D> ? D : never
@@ -189,7 +190,10 @@ export function Gateway(): React.JSX.Element {
 
       {brandNew && setup && <OnboardingCard setup={setup} />}
 
+      {/* A container query, not a viewport one: the docked assistant narrows the screen (WP 5.2). */}
+      <div className="@container">
       <StatTiles window={w} cash={card('cash')} receivables={card('receivables')} payables={card('payables')} trade={card('trade')} />
+      </div>
 
       {opts.options.charts && (
         <div className="grid grid-cols-12 gap-3">
@@ -253,6 +257,24 @@ export function Gateway(): React.JSX.Element {
 }
 
 /** The headline row: six figures with a 6-month trend each, each a click-through. */
+/**
+ * WP 5.2 "Explain this" sources for the key-figure tiles — each over the dates THAT tile shows:
+ * balances as on the window's as-on date (min(today, period end)), the month tiles over the focus
+ * month as the dashboard clips it, Net profit over the period to the as-on date. Pure; tested.
+ */
+export function tileExplainSources(w: Pick<DashboardWindow, 'from' | 'asOn' | 'focusMonth'>): Record<'cash' | 'receivables' | 'payables' | 'sales' | 'purchases' | 'profit', Partial<ExplainInput>> {
+  const asOn = { asOn: w.asOn }
+  const month = monthSpan(w.focusMonth, w) ?? {}
+  return {
+    cash: { groupName: 'Cash-in-Hand + Bank Accounts', ...asOn },
+    receivables: { groupName: 'Sundry Debtors', ...asOn },
+    payables: { groupName: 'Sundry Creditors', ...asOn },
+    sales: { groupName: 'Sales Accounts', ...month },
+    purchases: { groupName: 'Purchase Accounts', ...month },
+    profit: { groupName: 'Sales Accounts + Purchase Accounts + Direct Incomes + Direct Expenses + Indirect Incomes + Indirect Expenses', from: w.from, to: w.asOn }
+  }
+}
+
 function StatTiles({
   window: w,
   cash,
@@ -273,6 +295,7 @@ function StatTiles({
       return row ? pick(row) : 0
     })
   const focus = w && trade.state === 'ready' ? trade.data.months.find((m) => m.month === w.focusMonth) : undefined
+  const ex = w ? tileExplainSources(w) : null
   const focusLabel = w ? `${toMonthLabel(w.focusMonth, 'long')}${w.focusMonth === w.today.slice(0, 7) ? ' to date' : ''}` : ''
   const overdue = (a: CardState<DashAgeing>): string =>
     a.state === 'ready'
@@ -283,12 +306,13 @@ function StatTiles({
   const profitSub = w && fy ? `${w.from === fy.from && w.to === fy.to ? `FY ${fy.label}` : 'Period'} to ${toDisplayDate(w.asOn)}` : ''
 
   return (
-    <ul className="grid grid-cols-3 gap-3 xl:grid-cols-6" aria-label="Key figures">
+    <ul className="grid grid-cols-3 gap-3 @4xl:grid-cols-6" aria-label="Key figures">
       <li className="min-w-0">
         <StatTile
           size="lg"
           label="Cash & bank"
           testId="tile-cash"
+          explain={ex?.cash ?? false}
           loading={cash.state === 'loading'}
           error={err(cash)}
           value={cash.state === 'ready' && <Money paise={cash.data.total} />}
@@ -313,6 +337,7 @@ function StatTiles({
           size="lg"
           label="Receivables"
           testId="tile-receivables"
+          explain={ex?.receivables ?? false}
           loading={rec.state === 'loading'}
           error={err(rec)}
           value={rec.state === 'ready' && <Money paise={rec.data.total} />}
@@ -332,6 +357,7 @@ function StatTiles({
           size="lg"
           label="Payables"
           testId="tile-payables"
+          explain={ex?.payables ?? false}
           loading={pay.state === 'loading'}
           error={err(pay)}
           value={pay.state === 'ready' && <Money paise={pay.data.total} />}
@@ -351,6 +377,7 @@ function StatTiles({
           size="lg"
           label="Month sales"
           testId="tile-sales"
+          explain={ex?.sales ?? false}
           loading={trade.state === 'loading'}
           error={err(trade)}
           value={trade.state === 'ready' && <Money paise={focus?.sales ?? 0} />}
@@ -370,6 +397,7 @@ function StatTiles({
           size="lg"
           label="Month purchases"
           testId="tile-purchases"
+          explain={ex?.purchases ?? false}
           loading={trade.state === 'loading'}
           error={err(trade)}
           value={trade.state === 'ready' && <Money paise={focus?.purchases ?? 0} />}
@@ -389,6 +417,7 @@ function StatTiles({
           size="lg"
           label="Net profit"
           testId="tile-profit"
+          explain={ex?.profit ?? false}
           loading={trade.state === 'loading'}
           error={err(trade)}
           value={

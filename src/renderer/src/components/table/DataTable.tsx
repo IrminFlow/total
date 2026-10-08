@@ -59,6 +59,8 @@ import { Popover } from './Popover'
 import { TableToolbar, type ToolbarFeatures } from './TableToolbar'
 import type { TableColumn } from './types'
 import { useTableView, type TableViewController } from './useTableView'
+import { ExplainButton } from '../kit/ExplainButton'
+import { figureText, rowSourceIds, useAiAffordances, type ExplainInput } from '../../lib/explain'
 import { registerTableActions } from './tableActions'
 
 /** Fixed row heights (px) per density — virtualisation relies on every DATA row being this tall
@@ -70,6 +72,7 @@ const OVERSCAN = 8
 /** Used when the scroller has no layout yet (first paint, jsdom). */
 const FALLBACK_VIEWPORT = 640
 const EXPANDER_WIDTH = 32
+const SELECT_WIDTH = 34
 
 export type RowKey = string | number
 
@@ -101,6 +104,15 @@ export interface DataTableFooterContext<Row> {
   totalCount: number
   /** True when a filter or the quick filter hides some rows. */
   isFiltered: boolean
+}
+
+export interface DataTableSelection<Row> {
+  selected: ReadonlySet<RowKey>
+  onChange: (next: Set<RowKey>) => void
+  /** Rows that can't be selected get a disabled checkbox (default: every row). */
+  isSelectable?: (row: Row) => boolean
+  /** The checkbox's accessible name for a row (default: "Select <first column's text>"). */
+  label?: (row: Row) => string
 }
 
 export interface DataTableProps<Row> {
@@ -139,6 +151,11 @@ export interface DataTableProps<Row> {
   defaultExpanded?: Iterable<RowKey>
   /** Assumed height of a detail row before it has been measured (px). Default 120. */
   detailHeightEstimate?: number
+
+  /** Multi-select (WP 6.4): a checkbox column plus a header checkbox for every row in view (the
+   *  table's filters and quick filter applied). Space toggles the active row; Shift-click selects
+   *  a range. Controlled — the screen owns the set (and usually shows a BulkBar for it). */
+  selection?: DataTableSelection<Row>
 
   /** Row-level action cells before/after the data columns (clicks inside never activate the row). */
   leading?: (row: Row) => ReactNode
@@ -194,6 +211,31 @@ function defaultCell<Row>(col: TableColumn<Row>, row: Row): ReactNode {
   const text = cellText(col, row)
   if (col.kind === 'date' || col.kind === 'quantity' || col.kind === 'number') return <span className="num">{text}</span>
   return text
+}
+
+/** WP 5.2: the column offers "Explain this" on its cells (money columns by default). */
+function explainableColumn<Row>(col: TableColumn<Row>): boolean {
+  if (col.explainable === false) return false
+  return col.explainable !== undefined || col.kind === 'money'
+}
+
+/** The figure a cell's Explain-this describes: the row's name (first visible text column), the
+ *  column, the value as displayed, the row's ids — plus the column's own `explainable(row)` extras. */
+function cellFigure<Row>(col: TableColumn<Row>, row: Row, visible: TableColumn<Row>[]): ExplainInput | null {
+  const extra = typeof col.explainable === 'function' ? col.explainable(row) : {}
+  if (extra === null) return null
+  const v = col.value(row)
+  const paise = col.kind === 'money' && !nil(v) ? Number(v) : undefined
+  const nameCol = visible.find((c) => c.kind === 'text' && c.id !== col.id)
+  const label = (nameCol ? cellText(nameCol, row) : '') || col.header
+  return {
+    label,
+    column: col.header,
+    value: paise !== undefined ? figureText(paise, col.signed) : cellText(col, row),
+    ...(paise !== undefined ? { paise } : {}),
+    ...rowSourceIds(row),
+    ...extra
+  }
 }
 
 function aggregateCell<Row>(col: TableColumn<Row>, v: CellValue): ReactNode {
@@ -270,6 +312,7 @@ export function DataTable<Row>(props: DataTableProps<Row>): React.JSX.Element {
     exportOptions
   } = props
   const area = props.testId ?? props.viewId ?? 'table'
+  const aiOn = useAiAffordances()
   const uid = useId()
   const internal = useTableView<Row>(props.controller ? null : (props.viewId ?? null), columns, {
     defaults: props.viewDefaults,
@@ -345,7 +388,9 @@ export function DataTable<Row>(props: DataTableProps<Row>): React.JSX.Element {
   const hasAggregate = visible.some((c) => c.aggregate)
   const showTotals = !!renderFooter || (totalsMode === 'auto' ? hasAggregate : totalsMode)
   const hasExpander = !!renderDetail
-  const prefixCols = (hasExpander ? 1 : 0) + (leading ? 1 : 0)
+  const selection = props.selection
+  const hasSelect = !!selection
+  const prefixCols = (hasExpander ? 1 : 0) + (hasSelect ? 1 : 0) + (leading ? 1 : 0)
   const colSpan = visible.length + prefixCols + (trailing ? 1 : 0)
   const virtual = maxHeight !== 'none' && (virtualize === true || (virtualize === 'auto' && items.length > VIRTUALIZE_THRESHOLD))
 
@@ -354,6 +399,52 @@ export function DataTable<Row>(props: DataTableProps<Row>): React.JSX.Element {
       !!item && item.type === 'row' && expandable(item.row) && expandedSet.has(keyOf(item.row)),
     [expandable, expandedSet, keyOf]
   )
+
+  // ---------- multi-select ----------
+  const selectable = useCallback((row: Row): boolean => !selection?.isSelectable || selection.isSelectable(row), [selection])
+  const viewRows = model.rows
+  const selectableInView = useMemo(() => (hasSelect ? viewRows.filter(selectable) : []), [hasSelect, viewRows, selectable])
+  const selectedInView = hasSelect ? selectableInView.filter((r) => selection!.selected.has(keyOf(r))).length : 0
+  const lastToggled = useRef<RowKey | null>(null)
+  const toggleRow = useCallback(
+    (row: Row, range: boolean): void => {
+      if (!selection || !selectable(row)) return
+      const key = keyOf(row)
+      const next = new Set(selection.selected)
+      const on = !next.has(key)
+      const anchor = lastToggled.current
+      const from = range && anchor !== null ? viewRows.findIndex((r) => keyOf(r) === anchor) : -1
+      const to = viewRows.indexOf(row)
+      if (from >= 0 && to >= 0) {
+        // Shift-click: the anchor's state across the whole range (rows in view, in view order).
+        const state = next.has(anchor!)
+        for (let i = Math.min(from, to); i <= Math.max(from, to); i++) {
+          const r = viewRows[i]!
+          if (!selectable(r)) continue
+          if (state) next.add(keyOf(r))
+          else next.delete(keyOf(r))
+        }
+      } else if (on) next.add(key)
+      else next.delete(key)
+      lastToggled.current = key
+      selection.onChange(next)
+    },
+    [selection, selectable, keyOf, viewRows]
+  )
+  const toggleAllInView = (): void => {
+    if (!selection) return
+    const next = new Set(selection.selected)
+    const all = selectableInView.length > 0 && selectedInView === selectableInView.length
+    for (const r of selectableInView) {
+      if (all) next.delete(keyOf(r))
+      else next.add(keyOf(r))
+    }
+    selection.onChange(next)
+  }
+  const headerCheckRef = useRef<HTMLInputElement>(null)
+  useEffect(() => {
+    if (headerCheckRef.current) headerCheckRef.current.indeterminate = selectedInView > 0 && selectedInView < selectableInView.length
+  })
 
   // ---------- scrolling + windowing ----------
   const rootRef = useRef<HTMLDivElement>(null)
@@ -467,6 +558,10 @@ export function DataTable<Row>(props: DataTableProps<Row>): React.JSX.Element {
   )
   const itemsRef = useRef(items)
   itemsRef.current = items
+  const selectionRef = useRef(selection)
+  selectionRef.current = selection
+  const toggleRowRef = useRef(toggleRow)
+  toggleRowRef.current = toggleRow
   const activeRef = useRef(0)
   const { active, setActive } = useKeyNav(items.length, (i) => activate(itemsRef.current[i]), keyboard && !menu && !loading, {
     // A page = the items that fit in one viewport above/below the active one (detail rows count
@@ -481,6 +576,14 @@ export function DataTable<Row>(props: DataTableProps<Row>): React.JSX.Element {
     scrollTo: scrollToIndex,
     claim: () => rootRef.current,
     onKey: (e, i) => {
+      if (e.key === ' ' && selectionRef.current) {
+        // Space on a focused control (a link, a button) belongs to that control.
+        if ((e.target as Element).closest?.('button, a[href], [role="button"], input')) return false
+        const it = itemsRef.current[i]
+        if (it?.type !== 'row') return false
+        toggleRowRef.current(it.row, e.shiftKey)
+        return true
+      }
       if (e.key !== 'ArrowRight' && e.key !== 'ArrowLeft') return false
       const item = itemsRef.current[i]
       if (!item) return false
@@ -567,7 +670,7 @@ export function DataTable<Row>(props: DataTableProps<Row>): React.JSX.Element {
   // ---------- column widths (lib/table/layout.ts) ----------
   // Integer px for every column, summing exactly to the table width: spare space goes to the
   // flexible columns (or the last text column), so the browser never splits pixels itself.
-  const fixedW = (hasExpander ? EXPANDER_WIDTH : 0) + (leading ? leadingWidth : 0) + (trailing ? trailingWidth : 0)
+  const fixedW = (hasExpander ? EXPANDER_WIDTH : 0) + (hasSelect ? SELECT_WIDTH : 0) + (leading ? leadingWidth : 0) + (trailing ? trailingWidth : 0)
   const widthSpecs = columnWidthSpecs(visible, { ...view.widths, ...liveWidths })
   const measuredLayout = availableW > 0
   const { widths: colWidths, total: tableWidth } = layoutColumnWidths(widthSpecs, availableW, fixedW)
@@ -768,6 +871,7 @@ export function DataTable<Row>(props: DataTableProps<Row>): React.JSX.Element {
         data-active={isActive}
         aria-rowindex={ariaRow(i)}
         {...props.rowAttrs?.(row)}
+        data-selected={hasSelect && selection!.selected.has(key) ? true : undefined}
         className={`kbar-row dt-row ${clickable ? 'cursor-pointer' : 'dt-inert'} ${props.rowClassName?.(row) ?? ''}`}
         onMouseEnter={() => setActive(i)}
         onClick={activateOn === 'click' && clickable ? () => onRowActivate!(row) : undefined}
@@ -790,6 +894,23 @@ export function DataTable<Row>(props: DataTableProps<Row>): React.JSX.Element {
             )}
           </td>
         )}
+        {hasSelect && (
+          <td className="dt-select" onClick={(e) => e.stopPropagation()} onDoubleClick={(e) => e.stopPropagation()}>
+            <input
+              type="checkbox"
+              className="dt-check"
+              checked={selection!.selected.has(key)}
+              disabled={!selectable(row)}
+              aria-label={selection!.label?.(row) ?? `Select ${visible[0] ? cellText(visible[0], row) : 'row'}`}
+              data-testid={`${area}-select-${String(key)}`}
+              onClick={(e) => {
+                e.stopPropagation()
+                toggleRow(row, e.shiftKey)
+              }}
+              onChange={() => {}}
+            />
+          </td>
+        )}
         {leading && (
           <td onClick={(e) => e.stopPropagation()} onDoubleClick={(e) => e.stopPropagation()}>
             {leading(row)}
@@ -797,13 +918,16 @@ export function DataTable<Row>(props: DataTableProps<Row>): React.JSX.Element {
         )}
         {visible.map((c) => {
           const content = defaultCell(c, row)
+          const v = aiOn && explainableColumn(c) ? c.value(row) : null
+          const explain = aiOn && explainableColumn(c) && !nil(v) && v !== 0
           return (
             <td
               key={c.id}
-              className={`${alignCls(columnAlign(c))} ${c.className ?? ''}`}
+              className={`${alignCls(columnAlign(c))} ${c.className ?? ''}${explain ? ' dt-explainable' : ''}`}
               title={c.kind === 'text' && typeof content === 'string' && content.length > 24 ? content : undefined}
             >
               {content}
+              {explain && <ExplainButton className="dt-explain" testId={`${area}-explain-${c.id}`} figure={() => cellFigure(c, row, visible)} />}
             </td>
           )
         })}
@@ -863,6 +987,7 @@ export function DataTable<Row>(props: DataTableProps<Row>): React.JSX.Element {
           {bands.length === 0 ? (
             <colgroup>
               {hasExpander && <col style={{ width: EXPANDER_WIDTH }} />}
+              {hasSelect && <col style={{ width: SELECT_WIDTH }} />}
               {leading && <col style={{ width: leadingWidth }} />}
               {visible.map((c, i) => {
                 const w = colWidth(i)
@@ -876,6 +1001,7 @@ export function DataTable<Row>(props: DataTableProps<Row>): React.JSX.Element {
               {prefixCols > 0 && (
                 <colgroup>
                   {hasExpander && <col style={{ width: EXPANDER_WIDTH }} />}
+                  {hasSelect && <col style={{ width: SELECT_WIDTH }} />}
                   {leading && <col style={{ width: leadingWidth }} />}
                 </colgroup>
               )}
@@ -923,6 +1049,20 @@ export function DataTable<Row>(props: DataTableProps<Row>): React.JSX.Element {
               {hasExpander && (
                 <th>
                   <span className="sr-only">Details</span>
+                </th>
+              )}
+              {hasSelect && (
+                <th className="dt-select">
+                  <input
+                    ref={headerCheckRef}
+                    type="checkbox"
+                    className="dt-check"
+                    checked={selectableInView.length > 0 && selectedInView === selectableInView.length}
+                    disabled={selectableInView.length === 0}
+                    aria-label={selectedInView === selectableInView.length && selectedInView > 0 ? 'Clear the selection of rows in view' : 'Select every row in view'}
+                    data-testid={`${area}-select-all`}
+                    onChange={toggleAllInView}
+                  />
                 </th>
               )}
               {leading && <th aria-label="Row actions" />}
@@ -1043,6 +1183,7 @@ export function DataTable<Row>(props: DataTableProps<Row>): React.JSX.Element {
               ) : (
                 <tr className="total-row" data-testid={`${area}-table-totals`}>
                   {hasExpander && <td />}
+                  {hasSelect && <td />}
                   {leading && <td />}
                   {visible.map((c, i) => (
                     <td key={c.id} className={alignCls(columnAlign(c))}>

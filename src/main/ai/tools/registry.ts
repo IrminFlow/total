@@ -8,7 +8,7 @@
 import type { z } from 'zod'
 import type { DB } from '../../db/connection'
 import type { CompanyInfo } from '@shared/domain'
-import type { AiSource, AiToolInfo } from '@shared/ai'
+import type { AiContext, AiSource, AiToolInfo } from '@shared/ai'
 import { roleAllows, type Role } from '../../services/roles'
 import { zodToJsonSchema } from '../jsonSchema'
 import type { ToolSpec } from '../types'
@@ -25,6 +25,8 @@ export interface ToolContext {
   period: { from: string; to: string }
   /** The user's question this tool call serves (draft tools flag drafts it did not ask for). */
   userRequest?: string
+  /** WP 5.2: the screen the user is on (screen, period, parameters, a figure to explain). */
+  screen?: AiContext | null
 }
 
 export interface ToolOutput<T = unknown> {

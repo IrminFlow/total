@@ -2994,12 +2994,115 @@ export const MIGRATIONS: string[] = [
   CREATE INDEX idx_import_batch_items_entity ON import_batch_items(entity, entity_id);
   CREATE INDEX idx_import_batch_items_source ON import_batch_items(entity, source_key);
   `,
+  // 039 (WP 6.4) — bulk edit, attachments, party notes / tasks. Positional: appended LAST, after
+  // 036 AI (WP 5.1), 037 report builder (WP 6.1) and 038 import wizard (WP 6.3).
+  // - bulk_batches / bulk_batch_records: one row per bulk edit and one per record it touched, with
+  //   the record's before-image (the payload / master input that re-saves it as it was) and the id
+  //   of the audit row the apply wrote — undo reverts a record only while that row is still its
+  //   latest in the audit trail (nothing changed it since).
+  // - attachments: files on vouchers, ledgers, stock items and trade documents. The bytes live in
+  //   <company folder>/attachments/<sha256[0:2]>/<sha256> (deduplicated by hash); entity_id has no
+  //   foreign key (four parent tables) — the orphan sweep removes rows whose parent was purged.
+  // - party_notes: notes and tasks on a party ledger (party-level; bill-level follow-ups stay in
+  //   bill_followups, migration 032).
+  `
+  CREATE TABLE bulk_batches (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    target TEXT NOT NULL CHECK (target IN ('voucher', 'ledger', 'stockItem')),
+    change_json TEXT NOT NULL,
+    summary TEXT NOT NULL,
+    applied_count INTEGER NOT NULL DEFAULT 0 CHECK (applied_count >= 0),
+    refused_count INTEGER NOT NULL DEFAULT 0 CHECK (refused_count >= 0),
+    status TEXT NOT NULL DEFAULT 'applied' CHECK (status IN ('applied', 'undone', 'partly_undone')),
+    created_by TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    undone_by TEXT,
+    undone_at TEXT
+  );
+  CREATE TABLE bulk_batch_records (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    batch_id INTEGER NOT NULL REFERENCES bulk_batches(id) ON DELETE CASCADE,
+    entity TEXT NOT NULL CHECK (entity IN ('voucher', 'ledger', 'stockItem')),
+    entity_id INTEGER NOT NULL,
+    label TEXT NOT NULL,
+    status TEXT NOT NULL CHECK (status IN ('applied', 'refused', 'unchanged', 'undone', 'undo_refused')),
+    reason TEXT,
+    before_json TEXT,
+    after_audit_id INTEGER,
+    undo_audit_id INTEGER
+  );
+  CREATE INDEX idx_bulk_batch_records_batch ON bulk_batch_records(batch_id);
+  CREATE INDEX idx_bulk_batch_records_entity ON bulk_batch_records(entity, entity_id);
+
+  CREATE TABLE attachments (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    entity TEXT NOT NULL CHECK (entity IN ('voucher', 'ledger', 'stockItem', 'trade_doc')),
+    entity_id INTEGER NOT NULL CHECK (entity_id > 0),
+    file_name TEXT NOT NULL CHECK (length(file_name) BETWEEN 1 AND 255),
+    mime TEXT NOT NULL,
+    size INTEGER NOT NULL CHECK (size >= 0),
+    sha256 TEXT NOT NULL CHECK (length(sha256) = 64),
+    stored_path TEXT NOT NULL,
+    added_by TEXT,
+    added_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+  CREATE INDEX idx_attachments_entity ON attachments(entity, entity_id);
+  CREATE INDEX idx_attachments_sha ON attachments(sha256);
+
+  CREATE TABLE party_notes (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    ledger_id INTEGER NOT NULL REFERENCES ledgers(id) ON DELETE CASCADE,
+    kind TEXT NOT NULL CHECK (kind IN ('note', 'task')),
+    text TEXT NOT NULL CHECK (length(trim(text)) > 0),
+    due_date TEXT,
+    done_at TEXT,
+    created_by TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    CHECK (kind = 'task' OR (due_date IS NULL AND done_at IS NULL))
+  );
+  CREATE INDEX idx_party_notes_ledger ON party_notes(ledger_id);
+  CREATE INDEX idx_party_notes_due ON party_notes(kind, done_at, due_date);
+  `,
+  // WP 5.2 (last; number by position — 040, after WP 6.4 039): the chat panel.
+  // Nothing here touches the books.
+  // - ai_threads.pinned: pinned conversations sort first in the panel's thread list.
+  // - ai_messages.context_json: the screen context a question was asked with (screen, period,
+  //   parameters, the figure being explained) — Regenerate re-asks with it, not with whatever
+  //   screen is open now. Local only, like the message text.
+  // - ai_outbound_log.context_json: the screen context as SENT (masked / pseudonymised) — the
+  //   outbound log shows what context left the machine; never the raw names or identifiers.
+  // - ai_drafts.status gains 'superseded': a draft made by an answer that Regenerate discarded
+  //   (rebuilt for the CHECK; nothing references ai_drafts).
+  `-- @foreign-keys-off
+  ALTER TABLE ai_threads ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0;
+  ALTER TABLE ai_messages ADD COLUMN context_json TEXT;
+  ALTER TABLE ai_outbound_log ADD COLUMN context_json TEXT;
+
+  CREATE TABLE ai_drafts_new (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    thread_id INTEGER REFERENCES ai_threads(id) ON DELETE SET NULL,
+    message_id INTEGER REFERENCES ai_messages(id) ON DELETE SET NULL,
+    kind TEXT NOT NULL CHECK (kind IN ('voucher')),
+    summary TEXT NOT NULL,
+    payload_json TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'open' CHECK (status IN ('open', 'consumed', 'discarded', 'superseded')),
+    voucher_id INTEGER REFERENCES vouchers(id) ON DELETE SET NULL,
+    unrequested INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    consumed_at TEXT
+  );
+  INSERT INTO ai_drafts_new (id, thread_id, message_id, kind, summary, payload_json, status, voucher_id, unrequested, created_at, consumed_at)
+    SELECT id, thread_id, message_id, kind, summary, payload_json, status, voucher_id, unrequested, created_at, consumed_at FROM ai_drafts;
+  DROP TABLE ai_drafts;
+  ALTER TABLE ai_drafts_new RENAME TO ai_drafts;
+  CREATE INDEX idx_ai_drafts_status ON ai_drafts(status);
+  `,
   // WP 6.5 (last; number by position) — group consolidation. Stored in the group (parent)
   // company's own DB; members are other companies by registry slug, read read-only at query time
   // (services/consolidation.ts), so ledger ids here point into OTHER files and carry no FK; the
   // ledger name at save time is kept beside each id only so a run can warn when the id now names
   // a different ledger (restored / replaced file). Only the definition is stored — every consolidated figure is computed at query time. Kept last
-  // when parallel branches' migrations merge (after 038 WP 6.3 import wizard; 6.4 attachments go before it). Never
+  // when parallel branches' migrations merge (after 038 WP 6.3, 039 WP 6.4 and 040 WP 5.2). Never
   // edit the content.
   `
   CREATE TABLE consolidation_groups (

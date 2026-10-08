@@ -27,6 +27,7 @@ import { AiAbortError, type AiProvider, type ChatItem, type ChatResult } from '.
 import type { ToolRegistry } from './tools/registry'
 import { redactSecrets } from './provider'
 import * as store from './store'
+import { writeAudit } from '../services/audit'
 
 // ---------- per-thread runs (keyed by company + thread) ----------
 
@@ -96,7 +97,10 @@ export interface AgentDeps {
 
 export interface AskInput {
   threadId?: number
+  /** Ignored with `regenerate` (the thread's last question is answered again). */
   text: string
+  /** WP 5.2 Regenerate: drop the last answer and answer the last question again. */
+  regenerate?: boolean
   context?: AiContext
   speed?: 'default' | 'fast'
 }
@@ -202,18 +206,42 @@ function dedupeSources(list: readonly AiSource[]): AiSource[] {
   return out
 }
 
-export function startTurn(deps: AgentDeps, input: AskInput): TurnHandle {
+export function startTurn(deps: AgentDeps, askInput: AskInput): TurnHandle {
+  let input = askInput
   const { db, settings } = deps
   const blocker = settingsBlocker(settings)
   if (blocker) throw new Error(blocker === AI_NOTICE_MESSAGE ? AI_OFF_MESSAGE : blocker)
-  const text = input.text.trim()
-  if (!text) throw new Error('Type a question first')
   let threadId = input.threadId ?? null
   if (threadId !== null && !store.threadExists(db, threadId)) throw new Error('Conversation not found')
-  if (threadId === null) threadId = store.createThread(db, text, deps.user.name)
   const scope = deps.scope ?? ''
-  const { runId, signal } = deps.runs.start(threadId, scope)
-  const userMessage = store.toDto(store.addMessage(db, { threadId, role: 'user', content: text }))
+  let text: string
+  let userMessage: AiMessageDto
+  let runId: string
+  let signal: AbortSignal
+  if (input.regenerate) {
+    if (threadId === null) throw new Error('Nothing to regenerate in a new conversation')
+    const last = store.lastUserMessage(db, threadId)
+    if (!last) throw new Error('Nothing to regenerate yet')
+    ;({ runId, signal } = deps.runs.start(threadId, scope))
+    text = last.content
+    const asked = store.getMessage(db, last.id)!
+    // Re-ask with the screen context the question was ASKED with (an explain figure included),
+    // never whatever screen happens to be open now.
+    input = { ...input, context: asked.context ?? undefined }
+    const tid = threadId
+    db.transaction(() => {
+      const removed = store.deleteMessagesAfter(db, tid, last.id)
+      for (const d of removed.supersededDrafts) writeAudit(db, 'ai_draft', d, 'update', { status: 'open' }, { status: 'superseded', note: 'its answer was regenerated' })
+      writeAudit(db, 'ai_thread', tid, 'update', { messageIds: removed.messageIds }, { regenerated: last.id, supersededDrafts: removed.supersededDrafts })
+    })()
+    userMessage = store.toDto(asked)
+  } else {
+    text = input.text.trim()
+    if (!text) throw new Error('Type a question first')
+    if (threadId === null) threadId = store.createThread(db, text, deps.user.name)
+    ;({ runId, signal } = deps.runs.start(threadId, scope))
+    userMessage = store.toDto(store.addMessage(db, { threadId, role: 'user', content: text, context: input.context ?? null }))
+  }
   deps.emit({ type: 'run-start', threadId, runId, userMessage })
   const tid = threadId
   const finished = runLoop(deps, input, tid, runId, signal, text)
@@ -273,6 +301,7 @@ async function runLoop(
       period,
       user: { name: deps.user.name, role },
       screen: input.context?.screen ?? null,
+      context: input.context ?? null,
       tools: tools.map((t) => ({ name: t.name, kind: t.kind })),
       privacy: settings.privacy
     }),
@@ -313,7 +342,9 @@ async function runLoop(
       toolResultsSent: toolResults,
       masked: privacy.maskIds,
       pseudonymised: !!privacy.pseudonymiser,
-      payloadSha256: sha256(payload)
+      payloadSha256: sha256(payload),
+      // What was SENT: the masked / pseudonymised context (never raw party names or identifiers).
+      context: input.context ? mapStrings(input.context, (s) => outboundText(s, privacy)) : null
     })
 
     const reverser = privacy.pseudonymiser?.stream()
@@ -361,8 +392,13 @@ async function runLoop(
     const usageFields = { model: res.model, inputTokens: res.usage.inputTokens, outputTokens: res.usage.outputTokens, costMicroUsd: cost }
 
     if (res.toolCalls.length === 0) {
-      // Figures are checked against what the model actually saw in this conversation.
-      const figures = checkFigures(text, seen)
+      // Figures are checked against what the model actually saw in this conversation, and each
+      // sourced one is traced to the row (voucher / ledger / item) it came from — newest first.
+      const origins = history
+        .filter((m) => m.role === 'tool' && m.toolOk)
+        .reverse()
+        .map((m) => ({ tool: m.toolName ?? '?', output: m.toolOutput, sources: m.sources }))
+      const figures = checkFigures(text, seen, origins)
       const final = store.addMessage(db, { threadId, role: 'assistant', content: text, figures, sources: dedupeSources(turnSources), ...usageFields })
       db.prepare('UPDATE ai_usage SET message_id = ? WHERE id = ?').run(final.id, usageId)
       send(final)
@@ -389,7 +425,8 @@ async function runLoop(
       if (roleNow === null) return failed('Signed out — the assistant stopped.')
       emit({ type: 'tool-start', threadId, runId, callId: c.callId, name: c.name, input: c.input })
       const run = await registry.run(c.name, c.args, {
-        db, company: deps.company, role: roleNow, userName: deps.user.name, threadId, messageId: assistant.id, today, period, userRequest
+        db, company: deps.company, role: roleNow, userName: deps.user.name, threadId, messageId: assistant.id, today, period, userRequest,
+        screen: input.context ?? null
       })
       const output = run.ok ? { ok: true, result: run.data } : { ok: false, error: run.error }
       const sent = sentToolText(output, privacy, budget)

@@ -11,6 +11,9 @@ import { printKindForVoucherKind } from '@shared/printTemplates'
 import { LedgerLink } from '../components/links'
 import { LINKABLE_VOUCHER_KINDS, openLinkedDocs } from '../components/LinkedDocs'
 import { useFeatures } from '../lib/useFeatures'
+import { useBulkSelection } from '../components/bulk/BulkEdit'
+import { AttachmentsModal } from '../components/attachments/Attachments'
+import { attachmentsApi } from '../lib/workspaceClient'
 
 /** Which vouchers show: the books only (default), everything, or just the out-of-book kinds. */
 type Scope = 'books' | 'all' | 'optional' | 'post-dated'
@@ -134,6 +137,12 @@ export function DayBook({ month, kind }: { month?: string; kind?: string } = {})
   }, [data, scope, drill])
 
   const periodLabel = `${toDisplayDate(from)} → ${toDisplayDate(to)}`
+  // WP 6.4: multi-select → bulk edit (preview / apply / undo), and the row's attachments. Only the
+  // rows still listed are edited, and the server refuses vouchers that left the period.
+  const visibleIds = useMemo(() => rows.map((r) => r.voucherId), [rows])
+  const bulk = useBulkSelection('voucher', 'daybook', { visibleIds, scope: { from, to } })
+  const { data: fileCounts } = useQuery({ queryKey: ['attachmentCounts', 'voucher'], queryFn: () => attachmentsApi.counts('voucher') })
+  const [filesFor, setFilesFor] = useState<DayBookRow | null>(null)
 
   const scopeLabel = SCOPE_LABELS.find((x) => x.value === scope)?.label ?? ''
 
@@ -189,6 +198,7 @@ export function DayBook({ month, kind }: { month?: string; kind?: string } = {})
           )}
         </div>
       )}
+      {bulk.bar}
       <Panel>
         <DataTable
           viewId="daybook"
@@ -205,8 +215,22 @@ export function DayBook({ month, kind }: { month?: string; kind?: string } = {})
             hint: 'Press V for voucher entry'
           }}
           onRowActivate={(r) => nav.go({ name: 'voucher-entry', voucherId: r.voucherId })}
+          selection={bulk.selection}
+          toolbarEnd={bulk.historyButton}
           trailing={(r) => (
             <span className="flex items-center justify-end gap-2">
+              <button
+                type="button"
+                className="text-hint text-blue hover:underline"
+                title="Attached files"
+                data-testid="btn-daybook-files"
+                onClick={(e) => {
+                  e.stopPropagation()
+                  setFilesFor(r)
+                }}
+              >
+                Files{fileCounts?.[r.voucherId] ? ` · ${fileCounts[r.voucherId]}` : ''}
+              </button>
               {ordersOn && LINKABLE_VOUCHER_KINDS.has(r.kind) && (
                 <button
                   type="button"
@@ -236,11 +260,19 @@ export function DayBook({ month, kind }: { month?: string; kind?: string } = {})
               ) : null}
             </span>
           )}
-          trailingWidth={ordersOn ? 92 : 56}
+          trailingWidth={ordersOn ? 148 : 112}
           totalsLabel={dayBookTotalsLabel}
           exportOptions={{ title: 'Day book', periodLabel, filename: 'day-book', totalsLabel: 'Total (in books)' }}
         />
       </Panel>
+      {bulk.dialogs}
+      {filesFor && (
+        <AttachmentsModal
+          target={{ entity: 'voucher', entityId: filesFor.voucherId }}
+          title={`Files — ${filesFor.voucherType} ${filesFor.number}`}
+          onClose={() => setFilesFor(null)}
+        />
+      )}
     </Page>
   )
 }
