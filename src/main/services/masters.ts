@@ -272,9 +272,10 @@ export function deleteLedger(db: DB, id: number): void {
   // WP 4.2: its reminder log and bill follow-ups go with it (ON DELETE CASCADE) — the audit row
   // records how many, so the trail shows what the delete took.
   const cascaded: Record<string, number> = {}
-  for (const t of ['reminder_log', 'bill_followups']) {
+  // WP 6.4: so do its party notes / tasks (party_notes.ledger_id).
+  for (const [t, col] of [['reminder_log', 'party_ledger_id'], ['bill_followups', 'party_ledger_id'], ['party_notes', 'ledger_id']] as const) {
     if (db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?").get(t)) {
-      const n = (db.prepare(`SELECT COUNT(*) AS n FROM ${t} WHERE party_ledger_id = ?`).get(id) as { n: number }).n
+      const n = (db.prepare(`SELECT COUNT(*) AS n FROM ${t} WHERE ${col} = ?`).get(id) as { n: number }).n
       if (n > 0) cascaded[t] = n
     }
   }
@@ -390,6 +391,11 @@ const mapItem = (r: StockItemRow): StockItem => ({
 
 export function listStockItems(db: DB): StockItem[] {
   return (db.prepare('SELECT * FROM stock_items ORDER BY name').all() as StockItemRow[]).map(mapItem)
+}
+
+export function getStockItem(db: DB, id: number): StockItem | null {
+  const row = db.prepare('SELECT * FROM stock_items WHERE id = ?').get(id) as StockItemRow | undefined
+  return row ? mapItem(row) : null
 }
 
 export function createStockItem(db: DB, input: StockItemInput): StockItem {
