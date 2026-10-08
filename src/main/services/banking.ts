@@ -90,6 +90,23 @@ export function setBankDate(db: DB, lineId: number, bankDate: string | null): vo
   const res = db.prepare('UPDATE voucher_lines SET bank_date = ? WHERE id = ?').run(bankDate, lineId)
   if (res.changes === 0) throw new Error('Entry not found')
   writeAudit(db, 'voucher_line', lineId, 'update', { bankDate: before.bankDate }, { bankDate })
+  // WP 4.1: clearing a bank date by hand also undoes the statement-line match(es) behind it, so
+  // the Import workspace never shows a line as matched to an entry that is no longer reconciled.
+  if (bankDate === null) {
+    const stale = db
+      .prepare(
+        `SELECT DISTINCT m.statement_line_id AS id FROM bank_statement_matches m
+         JOIN bank_statement_lines sl ON sl.id = m.statement_line_id
+         JOIN voucher_lines vl ON vl.voucher_id = m.voucher_id AND vl.ledger_id = sl.bank_ledger_id
+         WHERE vl.id = ?`
+      )
+      .all(lineId) as { id: number }[]
+    for (const s of stale) {
+      const voucherIds = (db.prepare('SELECT voucher_id AS v FROM bank_statement_matches WHERE statement_line_id = ?').all(s.id) as { v: number }[]).map((r) => r.v)
+      db.prepare('DELETE FROM bank_statement_matches WHERE statement_line_id = ?').run(s.id)
+      writeAudit(db, 'bank_statement_line', s.id, 'update', { matched: voucherIds }, { matched: [], bankDateClearedOnLine: lineId })
+    }
+  }
 }
 
 // ---------- statement CSV import ----------

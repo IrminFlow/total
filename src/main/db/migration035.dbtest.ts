@@ -13,9 +13,10 @@ const cols = (db: ReturnType<typeof freshPartialDb>, table: string): string[] =>
   (db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[]).map((c) => c.name)
 
 describe('migration 035 — cash and finance', () => {
-  it('is appended after the audit-trail migration (031)', () => {
+  it('is migration 035, after 031–034', () => {
     const m031 = MIGRATIONS.findIndex((sql) => sql.includes('CREATE TABLE audit_log_new'))
     expect(M035).toBeGreaterThan(m031)
+    expect(M035 + 1).toBe(35)
   })
 
   it('keeps existing budgets as annual (original behaviour) with no cost centre', () => {

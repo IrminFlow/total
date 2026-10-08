@@ -154,6 +154,16 @@ export interface DashSetup {
   userBackups: number
 }
 
+/** WP 4.1 — post-dated cheques maturing within the next 7 days (and any already due). */
+export interface DashPdc {
+  until: string
+  received: { count: number; amount: number }
+  issued: { count: number; amount: number }
+  /** Due but not matured (their date falls inside the locked period). */
+  overdue: number
+  items: { voucherId: number; number: string; date: string; direction: 'received' | 'issued'; partyName: string | null; amount: number; status: 'pending' | 'due' | 'matured' | 'bounced' }[]
+}
+
 export interface DashboardSeries {
   window: DashboardWindow
   trade: DashSection<DashTrade>
@@ -171,6 +181,8 @@ export interface DashboardSeries {
   activity: DashSection<DashActivity>
   status: DashSection<DashStatus>
   setup: DashSection<DashSetup>
+  /** WP 4.1 — PDC reminders for the compliance card (optional: older fixtures omit it). */
+  pdc?: DashSection<DashPdc>
 }
 
 // ---------- pure month math ----------

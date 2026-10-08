@@ -417,12 +417,15 @@ export const SCREENS: ScreenDef[] = [
 
   {
     name: 'banking',
-    keywords: ['bank reconciliation', 'brs', 'post-dated', 'pdc'],
-    title: 'Banking — reconciliation, BRS & post-dated',
+    keywords: ['bank reconciliation', 'brs', 'post-dated', 'pdc', 'bank statement import', 'mt940', 'camt', 'cheque printing', 'cheque register', 'bulk payments', 'neft', 'rtgs'],
+    title: 'Banking — reconciliation, statements, cheques & PDC',
     screen: { name: 'banking' },
     navSection: 'banking',
     navLabel: 'Reconciliation',
-    invalidates: ['bankLedgers', 'bankRecon', 'bankRules', 'chequeConfig', 'brs', 'pdc']
+    invalidates: [
+      'bankLedgers', 'bankRecon', 'bankRules', 'chequeConfig', 'brs', 'pdc', 'bankWorkspace', 'bankLearned', 'chequeBooks', 'chequeRegister',
+      'bulkTemplates', 'bulkCandidates', 'bulkBeneficiaries', 'bulkBatches'
+    ]
   },
 
   {
