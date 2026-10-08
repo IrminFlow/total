@@ -160,6 +160,8 @@ await scenario('31-banking-depth', async (h) => {
   await h.page.click(`[data-testid="rows-daybook"] [data-row-id="${payment.id}"]`, { timeout: 10000 })
   await h.waitScreen('voucher-entry')
   await h.click('btn-voucher-print-cheque')
+  // The editor reloads the voucher (now carrying the cheque number) before the toast shows.
+  await h.page.waitForFunction(() => document.body.textContent.includes('Cheque 000101:'), null, { timeout: 30000 })
   let reg = []
   for (let i = 0; i < 60 && reg.length === 0; i++) {
     await h.page.waitForTimeout(500)

@@ -20,8 +20,8 @@ function candidateColumns(threshold: number, onFix: (c: PaymentCandidate) => voi
     { id: 'date', header: 'Date', kind: 'date', value: (c) => c.date, width: 104, className: 'text-muted' },
     { id: 'number', header: 'Voucher', kind: 'text', value: (c) => c.number, width: 110, className: 'num' },
     { id: 'payee', header: 'Payee', kind: 'text', value: (c) => c.payeeName, hideable: false, minWidth: 130 },
-    { id: 'account', header: 'Account no.', kind: 'text', value: (c) => c.accountNo, width: 124, className: 'num text-muted' },
-    { id: 'ifsc', header: 'IFSC', kind: 'text', value: (c) => c.ifsc, width: 122, className: 'num text-muted' },
+    { id: 'account', header: 'Account no.', kind: 'text', value: (c) => c.accountNo, width: 138, className: 'num text-muted' },
+    { id: 'ifsc', header: 'IFSC', kind: 'text', value: (c) => c.ifsc, width: 108, className: 'num text-muted' },
     { id: 'amount', header: 'Amount', kind: 'money', value: (c) => c.amount, aggregate: 'sum', width: 130 },
     {
       id: 'mode',

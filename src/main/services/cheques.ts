@@ -204,9 +204,11 @@ export function issueCheque(db: DB, voucherId: number, bankLedgerId: number, num
     const chequeId = Number(res.lastInsertRowid)
     writeAudit(db, 'cheque', chequeId, 'create', null, { bankLedgerId, number: plan.number, voucherId, payee: data.payee, amount: data.amount, chequeDate: data.date })
     if (plan.setInstrument) {
-      const before = getVoucher(db, voucherId)!.instrumentNo
-      db.prepare("UPDATE vouchers SET instrument_no = ?, updated_at = datetime('now') WHERE id = ?").run(plan.number, voucherId)
-      writeAudit(db, 'voucher', voucherId, 'update', { instrumentNo: before }, { instrumentNo: plan.number, chequeIssued: chequeId })
+      const v = getVoucher(db, voucherId)!
+      // The cheque date defaults to the voucher date, as the voucher editor does.
+      const instrumentDate = v.instrumentDate ?? v.date
+      db.prepare("UPDATE vouchers SET instrument_no = ?, instrument_date = ?, updated_at = datetime('now') WHERE id = ?").run(plan.number, instrumentDate, voucherId)
+      writeAudit(db, 'voucher', voucherId, 'update', { instrumentNo: v.instrumentNo, instrumentDate: v.instrumentDate }, { instrumentNo: plan.number, instrumentDate, chequeIssued: chequeId })
     }
     return chequeId
   })()
@@ -224,7 +226,7 @@ export function revokeIssuedCheque(db: DB, chequeId: number, previousInstrumentN
     if (row.voucher_id != null) {
       const v = getVoucher(db, row.voucher_id)
       if (v && v.instrumentNo === row.number && previousInstrumentNo !== row.number) {
-        db.prepare("UPDATE vouchers SET instrument_no = ?, updated_at = datetime('now') WHERE id = ?").run(previousInstrumentNo, row.voucher_id)
+        db.prepare("UPDATE vouchers SET instrument_no = ?, instrument_date = CASE WHEN ? IS NULL THEN NULL ELSE instrument_date END, updated_at = datetime('now') WHERE id = ?").run(previousInstrumentNo, previousInstrumentNo, row.voucher_id)
         writeAudit(db, 'voucher', row.voucher_id, 'update', { instrumentNo: row.number }, { instrumentNo: previousInstrumentNo, chequeRevoked: chequeId })
       }
     }

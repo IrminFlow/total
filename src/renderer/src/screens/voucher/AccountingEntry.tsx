@@ -497,14 +497,15 @@ export function AccountingEntry({
       // WP 4.1: issues the next leaf of the bank's cheque book (or re-uses this voucher's) into
       // the cheque register, then prints with the bank's layout.
       const r = await bankingApi.cheques.print(voucherId, bankCrLine.ledgerId)
-      toast.push('success', r.number ? `Cheque ${r.number}: ${r.path}` : `Cheque PDF: ${r.path}`)
-      // The number may have been written onto the voucher: keep the editor in step so a later
-      // save does not wipe it.
+      // The number may have been written onto the voucher (with the voucher date as the cheque
+      // date, the editor's own default): put it in the field and reload the saved voucher, so the
+      // form and the saved voucher agree and a later save cannot wipe it.
       if (r.number) setInstrumentNo(r.number)
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ['chequeRegister'] }),
         queryClient.invalidateQueries({ queryKey: ['voucher', voucherId], exact: true })
       ])
+      toast.push('success', r.number ? `Cheque ${r.number}: ${r.path}` : `Cheque PDF: ${r.path}`)
     } catch (err) {
       toast.push('error', (err as Error).message)
     }
