@@ -292,7 +292,9 @@ export function describeChange(req: BulkRequest, name: (what: string, id: number
   const c = req.change
   switch (c.field) {
     case 'narration':
-      return `${what}: narration ${c.mode} “${clip(c.text, 40)}”`
+      return c.mode === 'replace'
+        ? `${what}: narration set to “${clip(c.text, 40)}”`
+        : `${what}: “${clip(c.text, 40)}” added to the narration ${c.mode === 'append' ? 'end' : 'start'}`
     case 'date':
       return `${what}: date → ${c.date}`
     case 'voucherType':

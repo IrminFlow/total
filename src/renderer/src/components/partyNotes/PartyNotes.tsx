@@ -112,7 +112,12 @@ export function PartyNotesPanel({
   }
   return (
     <div className="flex flex-col gap-3" data-testid={testId}>
-      <div className="grid grid-cols-[110px_1fr_150px_auto] items-end gap-2">
+      <div className={`grid items-end gap-2 ${ledgerId ? 'grid-cols-[110px_1fr_150px_auto]' : 'grid-cols-[220px_110px_1fr_150px_auto]'}`}>
+        {!ledgerId && (
+          <Field label="Party">
+            <LedgerPicker value={party} onPick={setParty} placeholder="Party" testId={`${testId}-party`} />
+          </Field>
+        )}
         <Field label="Add">
           <Select value={kind} onChange={(e) => setKind(e.target.value as 'note' | 'task')} data-testid={`${testId}-kind`}>
             <option value="note">Note</option>
@@ -120,7 +125,7 @@ export function PartyNotesPanel({
           </Select>
         </Field>
         <Field label={kind === 'task' ? 'Task' : 'Note'}>
-          <Textarea rows={1} value={text} onChange={(e) => setText(e.target.value)} placeholder={kind === 'task' ? 'Call about the March bills' : 'Prefers statements by email'} data-testid={`${testId}-text`} />
+          <Textarea rows={1} value={text} onChange={(e) => setText(e.target.value)} placeholder={kind === 'task' ? 'e.g. call about the March bills' : 'e.g. prefers statements by email'} data-testid={`${testId}-text`} />
         </Field>
         {kind === 'task' ? (
           <Field label="Due">
@@ -133,11 +138,6 @@ export function PartyNotesPanel({
           Add
         </Button>
       </div>
-      {!ledgerId && (
-        <Field label="Party">
-          <LedgerPicker value={party} onPick={setParty} placeholder="Party" testId={`${testId}-party`} />
-        </Field>
-      )}
       <DataTable
         testId={testId}
         ariaLabel={ledgerId ? 'Notes and tasks' : 'Party tasks'}

@@ -6,7 +6,8 @@ import { useMemo, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import type { BulkRecordResult, BulkRequest, BulkResult, BulkTarget, BulkUndoResult, ItemChange, LedgerChange, VoucherChange } from '@shared/bulkEdit'
 import { BULK_MAX_RECORDS } from '@shared/bulkEdit'
-import { toDisplayDate } from '@shared/dates'
+import { toDisplayDateTime } from '@shared/dates'
+import { auditUserLabel } from '@shared/auditEntities'
 import { api } from '../../lib/client'
 import { bulkApi, type BulkBatchRow } from '../../lib/workspaceClient'
 import { useSession, useToasts } from '../../state/stores'
@@ -370,9 +371,10 @@ const BATCH_STATUS: Record<BulkBatchRow['status'], { label: string; tone: 'succe
 }
 
 const BATCH_COLUMNS = defineColumns<BulkBatchRow>([
-  { id: 'at', header: 'When', kind: 'text', value: (b) => b.createdAt, width: 150, className: 'num text-muted', text: (b) => `${toDisplayDate(b.createdAt.slice(0, 10))} ${b.createdAt.slice(11, 16)}` },
+  // created_at is SQLite datetime('now') — UTC; shown in local time.
+  { id: 'at', header: 'When', kind: 'text', value: (b) => b.createdAt, width: 150, className: 'num text-muted', text: (b) => toDisplayDateTime(new Date(`${b.createdAt.replace(' ', 'T')}Z`)) },
   { id: 'summary', header: 'Bulk edit', kind: 'text', value: (b) => b.summary, minWidth: 220 },
-  { id: 'by', header: 'By', kind: 'text', value: (b) => b.createdBy ?? '', width: 110, className: 'text-muted' },
+  { id: 'by', header: 'By', kind: 'text', value: (b) => auditUserLabel(b.createdBy), width: 130, className: 'text-muted' },
   {
     id: 'status',
     header: 'Status',
@@ -444,7 +446,9 @@ export function BulkHistoryModal({ target, onClose }: { target: BulkTarget; onCl
           </div>
         )}
         <div className="flex justify-end">
-          <Button onClick={onClose}>Done</Button>
+          <Button onClick={onClose} data-testid="bulk-history-done">
+            Done
+          </Button>
         </div>
       </div>
     </Modal>
