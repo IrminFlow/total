@@ -9,6 +9,7 @@ import { AmountInput, Button, DateInput, DrawerSection, Money, Page, PageHeader,
 import { OptionToggle, OptionsPeriod, OptionsTable, useScreenOptions } from '../components/ScreenOptions'
 import { TabBar } from '../components/TabBar'
 import { DataTable, defineColumns, type RowKey } from '../components/table'
+import { useBulkSelection } from '../components/bulk/BulkEdit'
 import { fyOf, todayISO, toDisplayDate } from '@shared/dates'
 import { REMINDER_BUCKET_LABELS } from '@shared/receivables/config'
 import { billKeyOf } from '@shared/receivables/types'
@@ -238,6 +239,8 @@ export function OutstandingsScreen(): React.JSX.Element {
   const nav = useNav()
   const [expanded, setExpanded] = useState<Set<RowKey>>(() => new Set())
   const [soa, setSoa] = useState<OutstandingParty | null>(null)
+  // WP 6.4: select parties → bulk edit their credit terms / price level / group (ledger masters).
+  const bulk = useBulkSelection('ledger', 'outstandings')
   const { data, isLoading } = useQuery({
     queryKey: ['outstandings', side, to],
     queryFn: () => api.analysis.outstandings(side, to)
@@ -273,6 +276,7 @@ export function OutstandingsScreen(): React.JSX.Element {
             onSelect={(s) => {
               setSide(s)
               setExpanded(new Set())
+              bulk.setSelected(new Set())
             }}
           />
         }
@@ -329,6 +333,7 @@ export function OutstandingsScreen(): React.JSX.Element {
           )
         }}
       />
+      {bulk.bar}
       <Panel>
         <DataTable
           key={side}
@@ -353,6 +358,8 @@ export function OutstandingsScreen(): React.JSX.Element {
           expanded={expanded}
           onExpandedChange={setExpanded}
           detailHeightEstimate={80}
+          selection={bulk.selection}
+          toolbarEnd={bulk.historyButton}
           trailing={(p) => (
             <span className="flex justify-end gap-3">
               <button
@@ -394,6 +401,7 @@ export function OutstandingsScreen(): React.JSX.Element {
       </Panel>
       <p className="mt-2 text-hint text-muted">Buckets are days overdue past each bill&apos;s due date. Click a party to see its open bills and follow-ups · F12 for options.</p>
       {soa && <StatementModal ledgerId={soa.ledgerId} name={soa.name} onClose={() => setSoa(null)} />}
+      {bulk.dialogs}
     </Page>
   )
 }

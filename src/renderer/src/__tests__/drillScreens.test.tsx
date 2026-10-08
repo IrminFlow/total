@@ -140,7 +140,7 @@ describe('Day book', () => {
     fireEvent.click(within(row).getByTestId('ledger-link'))
     await expectEditWindow('Zeta Traders')
 
-    fireEvent.click(row.querySelectorAll('td')[0]!)
+    fireEvent.click(row.querySelectorAll('td')[1]!) // the date cell (cell 0 is the WP 6.4 select box)
     expect(go).toHaveBeenCalledWith({ name: 'voucher-entry', voucherId: 11 })
   })
 
