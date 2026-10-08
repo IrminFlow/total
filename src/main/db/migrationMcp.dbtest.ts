@@ -11,9 +11,8 @@ import { trialBalance } from '../services/reports'
 const M_MCP = MIGRATIONS.findIndex((sql) => sql.includes('CREATE TABLE mcp_log'))
 
 describe('MCP migration — draft source and mcp_log', () => {
-  it('comes after the AI tables (WP 5.4 capture follows it)', () => {
-    expect(M_MCP).toBeGreaterThan(0)
-    expect(MIGRATIONS.findIndex((sql) => sql.includes('CREATE TABLE capture_items'))).toBeGreaterThan(M_MCP)
+  it('comes directly before WP 5.6 memory, the last migration (number by position)', () => {
+    expect(M_MCP).toBe(MIGRATIONS.findIndex((sql) => sql.includes('CREATE TABLE ai_memory_new')) - 1)
     expect(MIGRATIONS.findIndex((sql) => sql.includes('CREATE TABLE ai_drafts'))).toBeLessThan(M_MCP)
   })
 

@@ -197,8 +197,20 @@ describe('statement categoriser (history first, the model only for the residual)
     const hints = new Map([[3, { source: 'rule' as const, ruleId: 11, ledgerId: 6, partyLedgerId: null, status: 'manual' as const, confidence: 1, why: 'bank rule “SMS”' }]])
     const [c] = categoriseLines([line(3, 'ACH/MSEDCL BILL/1')], { history, ledgers, bankLedgerId: 1, hints })
     expect(c).toMatchObject({ ledgerId: 6, source: 'rule', ruleId: 11 })
-    const [d] = categoriseLines([line(4, 'SOMETHING NEW')], { history, ledgers, bankLedgerId: 1, memory: () => ({ ledgerId: 7, why: 'remembered' }) })
-    expect(d).toMatchObject({ ledgerId: 7, source: 'memory' })
+    // WP 5.6: a party memory for a named party is a default cited as memory; never above a rule.
+    const memory = {
+      party: (id: number) => (id === 5 ? { memoryId: 3, text: 'Umbrella Retail pays by NEFT' } : null),
+      preferred: (side: 'deposit' | 'withdrawal') => (side === 'withdrawal' ? { ledgerId: 6, memoryId: 4, text: 'Expense ledger Bank Charges' } : null)
+    }
+    const [d] = categoriseLines([line(4, 'NEFT-UMBRELLA RETAIL-9', 'deposit')], { history, ledgers, bankLedgerId: 1, memory })
+    expect(d).toMatchObject({ ledgerId: 5, source: 'memory', memoryId: 3, why: 'From memory [M3]: Umbrella Retail pays by NEFT' })
+    const [ruled] = categoriseLines([line(3, 'NEFT-UMBRELLA RETAIL-9', 'deposit')], { history, ledgers, bankLedgerId: 1, memory, hints: new Map([[3, { ...hints.get(3)!, ledgerId: 7 }]]) })
+    expect(ruled).toMatchObject({ ledgerId: 7, source: 'rule' })
+    // The remembered expense ledger only heads the residual's candidates — never applied alone.
+    const [r] = categoriseLines([line(6, 'ZZZ UNKNOWN THING')], { history, ledgers, bankLedgerId: 1, memory })
+    expect(r).toMatchObject({ source: 'none', ledgerId: null })
+    expect(r!.candidates[0]).toMatchObject({ id: 6, memoryId: 4, why: 'From memory [M4]: Expense ledger Bank Charges' })
+    expect(applyModelPicks([r!], [{ lineId: 6, ledgerId: 6, reason: 'charges' }], ledgers).proposals[0]).toMatchObject({ source: 'ai', memoryId: 4 })
     const [e] = categoriseLines([line(5, 'CASH WDL ATM 0042', 'withdrawal')], { history: [{ description: 'CASH WDL ATM 1', side: 'withdrawal', ledgerId: 2, partyLedgerId: null, date: '2025-07-01' }], ledgers, bankLedgerId: 1 })
     expect(e).toMatchObject({ ledgerId: 2, kind: 'contra' })
   })

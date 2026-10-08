@@ -31,6 +31,7 @@ import { CaptureRunner, redraft, type CaptureEnv } from './runner'
 import { acceptCategories, categoriseStatement } from './bankCategorise'
 import { scanCaptureInbox } from './watcher'
 import { estimateCapture } from './estimate'
+import { createMemory } from '../memory'
 
 const deflate = (b: Uint8Array): Uint8Array => new Uint8Array(deflateSync(b))
 const pdf = (lines: string[]): Buffer => Buffer.from(makeTestPdf(lines, { deflate }))
@@ -360,6 +361,35 @@ describe('bank statement → categorised drafts → save reconciles the line', (
     expect(line.matched[0]).toMatchObject({ voucherId: vId, created: true })
     expect(getVoucher(db, vId)!.lines.find((l) => l.ledgerId === ids.bank)!.bankDate).toBe('2025-08-06')
     expect(auditRows('bank_statement_line').at(-1)!.after_json).toContain('"fromDraft":true')
+  })
+
+  it('WP 5.6 memory: a remembered party is a cited default (never over a rule); the remembered expense ledger heads the candidates; accepting cites it and counts its use', async () => {
+    const party = createMemory(db, { kind: 'party', text: 'Umbrella Retail pays by NEFT, settle oldest first', data: { partyLedgerId: ids.umbrella } }, { source: 'user', status: 'active', createdBy: 'Arun' })
+    const pref = createMemory(db, { kind: 'preference', text: 'Expense ledger: Shop Rent', data: { purpose: 'expense', ledgerId: ids.rent } }, { source: 'user', status: 'active', createdBy: 'Arun' })
+    commitStatement(db, ids.bank, {
+      fileName: 'm.csv',
+      text: ['Date,Narration,Chq/Ref No,Withdrawal,Deposit,Balance', '06/08/2025,NEFT-UMBRELLA RETAIL-UTR1,N1,,"500.00",', '07/08/2025,IMPS/ZQX/77,I1,"99.00",,'].join('\n')
+    })
+    const cat = await categoriseStatement({ db, provider: null, settings: null, today: TODAY }, ids.bank)
+    const rec = cat.rows.find((r) => r.description.startsWith('NEFT'))!
+    expect(rec).toMatchObject({ ledgerId: ids.umbrella, source: 'memory', memoryId: party.id })
+    expect(rec.why).toMatch(new RegExp(`^From memory \\[M${party.id}\\]: Umbrella Retail pays by NEFT`))
+    const residual = cat.rows.find((r) => r.description.startsWith('IMPS'))!
+    expect(residual).toMatchObject({ source: 'none', ledgerId: null })
+    expect(residual.candidates[0]).toMatchObject({ id: ids.rent, memoryId: pref.id })
+    const res = acceptCategories(db, INFO, TODAY, ids.bank, [
+      { lineId: rec.lineId, ledgerId: ids.umbrella, memoryId: party.id },
+      { lineId: residual.lineId, ledgerId: ids.rent, memoryId: pref.id }
+    ])
+    expect(res.failed).toEqual([])
+    for (const d of res.drafts) expect(aiStore.getDraft(db, d.draftId)!.payload.assumptions!.some((a) => /^From memory \[M\d+\]/.test(a))).toBe(true)
+    expect((db.prepare('SELECT use_count AS n FROM ai_memory WHERE id = ?').get(party.id) as { n: number }).n).toBe(1)
+    // Memory off in Settings → AI: not consulted.
+    db.prepare("UPDATE meta SET value = json_set(value, '$.useMemory', json('false')) WHERE key = 'ai'").run()
+    db.prepare("INSERT OR IGNORE INTO meta (key, value) VALUES ('ai', '{\"useMemory\":false}')").run()
+    commitStatement(db, ids.bank, { fileName: 'n.csv', text: 'Date,Narration,Chq/Ref No,Withdrawal,Deposit,Balance\n08/08/2025,NEFT-UMBRELLA RETAIL-UTR2,N2,,"700.00",' })
+    const off = await categoriseStatement({ db, provider: null, settings: null, today: TODAY }, ids.bank)
+    expect(off.rows.find((r) => r.description.endsWith('UTR2'))!.source).not.toBe('memory')
   })
 
   it('without AI only the rules run; the residual keeps its candidates', async () => {

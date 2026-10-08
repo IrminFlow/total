@@ -123,7 +123,9 @@ export interface StatementCategoryRow {
   confidence: number
   why: string
   oldestBillsFirst: boolean
-  candidates: { id: number; name: string; why: string }[]
+  candidates: { id: number; name: string; why: string; memoryId?: number }[]
+  /** WP 5.6: the memory the proposal rests on (cited on the draft). */
+  memoryId?: number
 }
 
 export interface StatementCategorisation {
@@ -177,7 +179,8 @@ export const categoriseAcceptSchema = z.object({
           ledgerId: id,
           kind: z.enum(['payment', 'receipt', 'contra']).optional(),
           oldestBillsFirst: z.boolean().optional(),
-          narration: z.string().trim().max(500).optional()
+          narration: z.string().trim().max(500).optional(),
+          memoryId: id.optional()
         })
         .strict()
     )

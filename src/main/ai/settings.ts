@@ -23,7 +23,8 @@ export function defaultAiSettings(): AiSettings {
     fastModel: AI_DEFAULT_FAST_MODEL,
     privacy: { maskIds: true, pseudonymiseParties: false },
     prices: {},
-    maxSteps: 8
+    maxSteps: 8,
+    useMemory: true
   }
 }
 
@@ -56,6 +57,7 @@ export function patchAiSettings(db: DB, raw: AiSettingsPatch): AiSettings {
     ...(patch.defaultModel ? { defaultModel: patch.defaultModel } : {}),
     ...(patch.fastModel ? { fastModel: patch.fastModel } : {}),
     ...(patch.maxSteps ? { maxSteps: patch.maxSteps } : {}),
+    ...(patch.useMemory !== undefined ? { useMemory: patch.useMemory } : {}),
     privacy: { ...before.privacy, ...(patch.privacy ?? {}) },
     prices: patch.prices ? { ...patch.prices } : before.prices
   }

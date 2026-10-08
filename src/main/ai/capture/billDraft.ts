@@ -29,6 +29,8 @@ import { computeInvoice, taxLedgerIdsFrom, type AccountingFormState, type Accoun
 import { saveVoucher, NOT_DELETED } from '../../services/vouchers'
 import { writeAudit } from '../../services/audit'
 import { insertDraft } from '../store'
+import { markMemoriesUsed, memoryContextFor } from '../memory'
+import { getAiSettings } from '../settings'
 import { DraftWork, NeedsClarification, isCreditor, isParty, loadMasters, underGroup, type DraftMasters } from '../drafting/work'
 import { buildInvoiceDraft, finish, invoiceCtx, precheck, rehearsalNumber, saveWarnings, voucherTypeFor, type BuiltDraft } from '../drafting/builders'
 import { rehearse } from '../drafting/rehearse'
@@ -332,7 +334,9 @@ export function draftFromBill(input: BillDraftInput): BillDraftOutcome {
   if (refused) return { status: 'duplicate', review, supplierLedgerId: supplier.id, duplicate: refused }
   const flagged = review.duplicates.find((d) => d.kind === 'same_amount') ?? null
 
-  const w = new DraftWork(m)
+  // WP 5.6: memory supplies defaults for what the bill does not say (the supplier's usual purchase
+  // ledger), each cited as "From memory [Mn]" — never over what the bill or the user gave.
+  const w = new DraftWork(m, memoryContextFor(db, getAiSettings(db).useMemory))
   for (const s of sources) w.source(s)
   for (const a of assumptions) w.assume(a)
   let built: BuiltDraft
@@ -427,6 +431,7 @@ export function draftFromBill(input: BillDraftInput): BillDraftOutcome {
   const draft = db.transaction(() => {
     const d = insertDraft(db, { threadId: null, messageId: null, summary: built.summary, payload, unrequested: false, source: 'capture', origin: input.item.fileName.slice(0, 120) })
     writeAudit(db, 'ai_draft', d.id, 'create', null, { tool: 'capture', captureItemId: input.item.id, summary: built.summary, payload, source: 'capture', origin: d.origin })
+    markMemoriesUsed(db, w.memoryUsed)
     return d
   })()
   return { status: 'drafted', review, supplierLedgerId: supplier.id, draft, duplicate: flagged }

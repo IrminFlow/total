@@ -8,7 +8,10 @@ import type { DB } from '../../db/connection'
 import type { AiSettings } from '@shared/ai'
 import type { CompanyInfo } from '@shared/domain'
 import { formatPaise } from '@shared/money'
-import { applyModelPicks, categoriseLines, categoriseResponseSchema, type CatLedger, type CatLine, type CategoryProposal, type RuleHint } from '@shared/capture/categorise'
+import { applyModelPicks, categoriseLines, categoriseResponseSchema, memoryWhy, type CatLedger, type CatLine, type CategoriseMemory, type CategoryProposal, type RuleHint } from '@shared/capture/categorise'
+import { getAiSettings } from '../settings'
+import { getMemory, markMemoriesUsed, memoryContextFor } from '../memory'
+import { renderPartyName } from '../memoryRules'
 import type { CategoriseAcceptResult, StatementCategorisation, StatementCategoryRow } from '@shared/capture/types'
 import { categoriseInputs } from '../../services/bankImport'
 import { bankLedgers } from '../../services/banking'
@@ -52,8 +55,29 @@ export interface CategoriseDeps {
   settings: AiSettings | null
   today: string
   signal?: AbortSignal
-  /** WP 5.6 hook (optional): a remembered ledger for a narration. */
-  memory?: (line: CatLine) => { ledgerId: number; why: string } | null
+  /** WP 5.6 memory; default = the company's active memories when Settings → AI uses memory. */
+  memory?: CategoriseMemory | null
+}
+
+/** The categoriser's view of WP 5.6 memory: party memories (a named party is a remembered
+ *  default) and the preferred expense / income ledger (heads the residual's candidates). Local
+ *  data — consulted even with AI off, but only while Settings → AI → "use memory" is on. */
+export function categoriseMemory(db: DB): CategoriseMemory | null {
+  if (!getAiSettings(db).useMemory) return null
+  const ctx = memoryContextFor(db, true)
+  if (!ctx.entries.length) return null
+  return {
+    party: (id) => {
+      const m = ctx.forParty(id)
+      return m ? { memoryId: m.id, text: renderPartyName(m.text, m.labels.party ?? null) } : null
+    },
+    preferred: (side) => {
+      const p = ctx.preferredLedger(side === 'withdrawal' ? 'expense' : 'income')
+      if (!p) return null
+      const m = ctx.entries.find((e) => e.id === p.memoryId)
+      return { ledgerId: p.ledgerId, memoryId: p.memoryId, text: m?.text ?? `${side === 'withdrawal' ? 'Expense' : 'Income'} ledger ${p.name ?? ''}`.trim() }
+    }
+  }
 }
 
 function hintsFrom(map: Map<number, { source: 'rule' | 'learned'; ruleId: number; ledgerId: number; partyLedgerId: number | null; status: string; confidence: number; evidence: number }>): Map<number, RuleHint> {
@@ -74,7 +98,9 @@ export async function categoriseStatement(deps: CategoriseDeps, bankLedgerId: nu
   if (!bankLedgers(db).some((b) => b.id === bankLedgerId)) throw new Error('That ledger is not a bank account')
   const inputs = categoriseInputs(db, bankLedgerId, opts.lineIds)
   const ledgers = catLedgers(db)
-  let proposals = categoriseLines(inputs.lines, { history: inputs.history, ledgers, bankLedgerId, hints: hintsFrom(inputs.hints), memory: deps.memory })
+  let proposals = categoriseLines(inputs.lines, {
+    history: inputs.history, ledgers, bankLedgerId, hints: hintsFrom(inputs.hints), memory: (deps.memory === undefined ? categoriseMemory(db) : deps.memory) ?? undefined
+  })
   let aiUsed = false
   let aiNote: string | null = null
   let rejected = 0
@@ -96,7 +122,8 @@ export async function categoriseStatement(deps: CategoriseDeps, bankLedgerId: nu
     return {
       lineId: p.lineId, date: l.date, description: l.description, reference: l.reference, side: l.side, amount: l.amount,
       ledgerId: p.ledgerId, ledgerName: p.ledgerId ? (byId.get(p.ledgerId) ?? null) : null, partyLedgerId: p.partyLedgerId, kind: p.kind,
-      source: p.source, confidence: p.confidence, why: p.why, oldestBillsFirst: p.oldestBillsFirst, candidates: p.candidates
+      source: p.source, confidence: p.confidence, why: p.why, oldestBillsFirst: p.oldestBillsFirst, candidates: p.candidates,
+      ...(p.memoryId ? { memoryId: p.memoryId } : {})
     }
   })
   return { rows, aiUsed, aiNote, rejected }
@@ -173,7 +200,7 @@ export function acceptCategories(
   company: CompanyInfo,
   today: string,
   bankLedgerId: number,
-  items: { lineId: number; ledgerId: number; kind?: 'payment' | 'receipt' | 'contra'; oldestBillsFirst?: boolean; narration?: string }[]
+  items: { lineId: number; ledgerId: number; kind?: 'payment' | 'receipt' | 'contra'; oldestBillsFirst?: boolean; narration?: string; memoryId?: number }[]
 ): CategoriseAcceptResult {
   if (!bankLedgers(db).some((b) => b.id === bankLedgerId)) throw new Error('That ledger is not a bank account')
   const open = new Map(categoriseInputs(db, bankLedgerId).lines.map((l) => [l.id, l]))
@@ -210,10 +237,16 @@ export function acceptCategories(
         if (err instanceof NeedsClarification) throw new Error(w.clarifications.map((c) => c.question).join(' '))
         throw err
       }
-      const payload = { ...built.payload, bankLine: { bankLedgerId, statementLineId: line.id } }
+      // WP 5.6: a proposal resting on a memory cites it on the draft (an assumption the user sees),
+      // only while that memory is active and still points at the ledger accepted.
+      const mem = it.memoryId ? getMemory(db, it.memoryId) : null
+      const memUsed = mem && mem.status === 'active' && (mem.data?.partyLedgerId === ledger.id || (mem.kind === 'preference' && mem.data?.ledgerId === ledger.id)) ? mem : null
+      const assumptions = [...(built.payload.assumptions ?? []), ...(memUsed ? [memoryWhy({ memoryId: memUsed.id, text: renderPartyName(memUsed.text, memUsed.labels.party ?? null) })] : [])]
+      const payload = { ...built.payload, assumptions, bankLine: { bankLedgerId, statementLineId: line.id } }
       const d = db.transaction(() => {
         const draft = insertDraft(db, { threadId: null, messageId: null, summary: built.summary, payload, unrequested: false, source: 'capture', origin: `Statement line ${line.date}` })
         writeAudit(db, 'ai_draft', draft.id, 'create', null, { tool: 'categorise_statement', statementLineId: line.id, bankLedgerId, summary: built.summary, payload, source: 'capture' })
+        if (memUsed) markMemoriesUsed(db, [memUsed.id])
         return draft
       })()
       result.drafts.push({ lineId: line.id, draftId: d.id, summary: built.summary })

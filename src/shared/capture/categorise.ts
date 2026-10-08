@@ -5,12 +5,15 @@
 //
 // Deterministic rules, in order:
 //   1. a manual bank rule or an accepted learned rule (WP 4.1 — the workspace's own suggestion);
-//   2. per-company memory (WP 5.6), when that hook is provided;
+//   2. per-company memory (WP 5.6, when provided): a party named in the narration that the user
+//      keeps a party memory for — recorded as "From memory [Mn]: …" (a default, shown as such);
 //   3. history: the same narration prefix (its first two identifying tokens — bankMatch
 //      narrationTokens drops rail noise, UTRs and IFSCs) on the same side → the ledger used
 //      before, when at least three quarters of those earlier entries agree;
 //   4. a party named in the narration (every identifying word of a debtor / creditor name);
 //   5. a candidate learned rule (a hint learned from one or two matches).
+// The remembered default ledger for the side (preference "expense" for withdrawals, "income" for
+// deposits) is never applied on its own: it heads the residual's candidates, marked as memory.
 // Voucher kind: contra when the ledger is cash / bank, else receipt for a deposit and payment for
 // a withdrawal; a party ledger is allocated oldest bill first (the Outstandings engine does that
 // when the draft is built).
@@ -67,8 +70,18 @@ export interface CategoryProposal {
   /** Allocate against the party's open bills, oldest first. */
   oldestBillsFirst: boolean
   /** For the residual: the ledgers the model may pick from (and the review table offers). */
-  candidates: { id: number; name: string; why: string }[]
+  candidates: { id: number; name: string; why: string; memoryId?: number }[]
   ruleId?: number
+  /** WP 5.6: the memory this proposal rests on (cited on the draft as an assumption). */
+  memoryId?: number
+}
+
+/** WP 5.6 memory as the categoriser consults it (main builds it from the MemoryContext). */
+export interface CategoriseMemory {
+  /** The active party memory for this party ledger. */
+  party(partyLedgerId: number): { memoryId: number; text: string } | null
+  /** The remembered default ledger for withdrawals ('expense') or deposits ('income'). */
+  preferred(side: Side): { ledgerId: number; memoryId: number; text: string } | null
 }
 
 export interface CategoriseOptions {
@@ -76,8 +89,8 @@ export interface CategoriseOptions {
   ledgers: readonly CatLedger[]
   bankLedgerId: number
   hints?: ReadonlyMap<number, RuleHint>
-  /** WP 5.6 hook (optional): a remembered ledger for this narration. */
-  memory?: (line: CatLine) => { ledgerId: number; why: string } | null
+  /** WP 5.6 hook (optional). */
+  memory?: CategoriseMemory
   /** Max candidates per residual line. */
   maxCandidates?: number
 }
@@ -95,6 +108,8 @@ export function kindFor(ledger: CatLedger | undefined, side: Side): 'payment' | 
 
 const isParty = (l: CatLedger | undefined): boolean => l?.kind === 'debtor' || l?.kind === 'creditor'
 
+export const memoryWhy = (m: { memoryId: number; text: string }): string => `From memory [M${m.memoryId}]: ${m.text}`
+
 function proposal(line: CatLine, ledger: CatLedger | undefined, p: Omit<CategoryProposal, 'lineId' | 'kind' | 'oldestBillsFirst' | 'partyLedgerId' | 'candidates'> & { partyLedgerId?: number | null }): CategoryProposal {
   return {
     lineId: line.id,
@@ -106,7 +121,8 @@ function proposal(line: CatLine, ledger: CatLedger | undefined, p: Omit<Category
     why: p.why,
     oldestBillsFirst: isParty(ledger),
     candidates: [],
-    ...(p.ruleId ? { ruleId: p.ruleId } : {})
+    ...(p.ruleId ? { ruleId: p.ruleId } : {}),
+    ...(p.memoryId ? { memoryId: p.memoryId } : {})
   }
 }
 
@@ -141,9 +157,13 @@ export function categoriseLines(lines: readonly CatLine[], opts: CategoriseOptio
     if (hint && hint.ledgerId !== opts.bankLedgerId && (hint.status === 'manual' || hint.status === 'accepted')) {
       return proposal(line, byId.get(hint.ledgerId), { ledgerId: hint.ledgerId, partyLedgerId: hint.partyLedgerId, source: hint.source, confidence: Math.max(hint.confidence, 0.9), why: hint.why, ruleId: hint.ruleId })
     }
-    const mem = opts.memory?.(line)
-    if (mem && byId.has(mem.ledgerId) && mem.ledgerId !== opts.bankLedgerId) {
-      return proposal(line, byId.get(mem.ledgerId), { ledgerId: mem.ledgerId, source: 'memory', confidence: 0.9, why: mem.why })
+    const named = partiesNamed(line, opts.ledgers)
+    if (opts.memory) {
+      const remembered = named.map((l) => ({ l, m: opts.memory!.party(l.id) })).filter((x) => x.m)
+      if (remembered.length === 1) {
+        const { l, m } = remembered[0]!
+        return proposal(line, l, { ledgerId: l.id, source: 'memory', confidence: 0.9, why: memoryWhy(m!), memoryId: m!.memoryId })
+      }
     }
     const vote = historyVote(line, opts.history)
     if (vote && vote.share >= HISTORY_AGREEMENT && byId.has(vote.ledgerId) && vote.ledgerId !== opts.bankLedgerId) {
@@ -153,7 +173,6 @@ export function categoriseLines(lines: readonly CatLine[], opts: CategoriseOptio
         why: `“${narrationPrefix(line.description)}” went to ${l.name} ${vote.count === vote.total ? `all ${vote.count} time${vote.count === 1 ? '' : 's'}` : `${vote.count} of ${vote.total} times`} before`
       })
     }
-    const named = partiesNamed(line, opts.ledgers)
     const preferred = named.filter((l) => (line.side === 'deposit' ? l.kind === 'debtor' : l.kind === 'creditor'))
     const pick = preferred.length === 1 ? preferred[0] : named.length === 1 ? named[0] : undefined
     if (pick) {
@@ -163,11 +182,13 @@ export function categoriseLines(lines: readonly CatLine[], opts: CategoriseOptio
       return proposal(line, byId.get(hint.ledgerId), { ledgerId: hint.ledgerId, partyLedgerId: hint.partyLedgerId, source: hint.source, confidence: hint.confidence, why: hint.why, ruleId: hint.ruleId })
     }
     // Residual: the candidate list the model (and the user) picks from.
-    const cands = new Map<number, { id: number; name: string; why: string }>()
-    const add = (l: CatLedger | undefined, why: string): void => {
+    const cands = new Map<number, { id: number; name: string; why: string; memoryId?: number }>()
+    const add = (l: CatLedger | undefined, why: string, memoryId?: number): void => {
       if (!l || l.id === opts.bankLedgerId || cands.has(l.id) || cands.size >= max) return
-      cands.set(l.id, { id: l.id, name: l.name, why })
+      cands.set(l.id, { id: l.id, name: l.name, why, ...(memoryId ? { memoryId } : {}) })
     }
+    const pref = opts.memory?.preferred(line.side)
+    if (pref) add(byId.get(pref.ledgerId), memoryWhy(pref), pref.memoryId)
     if (hint) add(byId.get(hint.ledgerId), hint.why)
     if (vote) {
       add(byId.get(vote.ledgerId), `used ${vote.count} of ${vote.total} times for “${narrationPrefix(line.description)}”`)
@@ -217,7 +238,8 @@ export function applyModelPicks(
       oldestBillsFirst: isParty(l),
       source: 'ai' as const,
       confidence: 0.5,
-      why: `suggested by the assistant from the candidates${pick.reason ? `: ${pick.reason.slice(0, 160)}` : ''}`
+      why: `suggested by the assistant from the candidates${pick.reason ? `: ${pick.reason.slice(0, 160)}` : ''}`,
+      ...(p.candidates.find((c) => c.id === pick.ledgerId)?.memoryId ? { memoryId: p.candidates.find((c) => c.id === pick.ledgerId)!.memoryId } : {})
     }
   })
   return { proposals: out, rejected }

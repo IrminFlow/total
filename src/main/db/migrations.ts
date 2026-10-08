@@ -3163,7 +3163,7 @@ export const MIGRATIONS: string[] = [
     UNIQUE (group_id, member_a, ledger_a_id, member_b, ledger_b_id, kind)
   );
   `,
-  // WP 5.7 (last; number by position) — the MCP server (`total-cli mcp`) and the inbox-as-drafts.
+  // WP 5.7 (number by position — 042) — the MCP server (`total-cli mcp`) and the inbox-as-drafts.
   // - ai_drafts.source: where a draft came from — 'chat' (the in-app assistant), 'mcp' (a tool
   //   call over the MCP server) or 'inbox' (a file dropped in <company>/inbox/, which is no
   //   longer posted — it becomes a flagged draft for review). origin = the MCP client's name or
@@ -3196,7 +3196,49 @@ export const MIGRATIONS: string[] = [
   );
   CREATE INDEX idx_mcp_log_session ON mcp_log(session_id);
   `,
-  // WP 5.4 (last; number by position) — document capture.
+  // WP 5.6 (number by position — 043, after WP 5.7's 042; WP 5.4 capture follows) — per-company AI memory. ai_memory (created empty by the
+  // WP 5.1 migration with a placeholder key/value shape nothing ever wrote) is rebuilt as typed
+  // entries: kind (preference / style / party / fact), a short text, optional structured
+  // data_json (purpose, ledger / party / item ids), source (user / assistant / derived / mcp — with
+  // the MCP client's name in `origin`), status
+  // (active / suggested / archived), `unrequested` (an assistant proposal the user's question did
+  // not ask for — possible instruction injected via book text), the thread / message that
+  // proposed it, and use counters. `key` marks an accepted or dismissed DERIVED suggestion so the
+  // books-derived proposal (computed at query time, never stored) is not offered again. Any old
+  // rows are kept as facts. ai_messages.memory_ids_json lists the memories an answer used (chips
+  // in the panel); ai_outbound_log.memory_count / memory_bytes record the memory block sent.
+  // Nothing references ai_memory, so no foreign-key pause is needed. Nothing here touches the books.
+  `
+  CREATE TABLE ai_memory_new (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    kind TEXT NOT NULL CHECK (kind IN ('preference', 'style', 'party', 'fact')),
+    key TEXT,
+    text TEXT NOT NULL,
+    data_json TEXT,
+    source TEXT NOT NULL CHECK (source IN ('user', 'assistant', 'derived', 'mcp')),
+    status TEXT NOT NULL CHECK (status IN ('active', 'suggested', 'archived')),
+    unrequested INTEGER NOT NULL DEFAULT 0,
+    thread_id INTEGER REFERENCES ai_threads(id) ON DELETE SET NULL,
+    message_id INTEGER REFERENCES ai_messages(id) ON DELETE SET NULL,
+    created_by TEXT,
+    origin TEXT,
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    last_used_at TEXT,
+    use_count INTEGER NOT NULL DEFAULT 0 CHECK (use_count >= 0)
+  );
+  INSERT INTO ai_memory_new (kind, text, source, status, created_at, updated_at)
+    SELECT 'fact', substr(key || ': ' || value, 1, 300), 'user', 'active', created_at, updated_at FROM ai_memory;
+  DROP TABLE ai_memory;
+  ALTER TABLE ai_memory_new RENAME TO ai_memory;
+  CREATE INDEX idx_ai_memory_status ON ai_memory(status);
+  CREATE INDEX idx_ai_memory_key ON ai_memory(key) WHERE key IS NOT NULL;
+
+  ALTER TABLE ai_messages ADD COLUMN memory_ids_json TEXT;
+  ALTER TABLE ai_outbound_log ADD COLUMN memory_count INTEGER NOT NULL DEFAULT 0;
+  ALTER TABLE ai_outbound_log ADD COLUMN memory_bytes INTEGER NOT NULL DEFAULT 0;
+  `,
+  // WP 5.4 (last; number by position — 044, after WP 5.6's 043) — document capture.
   // - ai_drafts.source gains 'capture': a purchase draft made from a captured bill (or a payment /
   //   receipt drafted from a categorised bank statement line). Rebuilt for the CHECK; mcp_log and
   //   capture_items reference ai_drafts by name, so FKs are off for the swap.

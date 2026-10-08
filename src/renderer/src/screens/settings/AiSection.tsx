@@ -1,7 +1,7 @@
 // Settings → AI (WP 5.1): the data notice (accepted once per company), the per-company switch,
 // the API key (stored by main in the OS-encrypted secret store; only a hint comes back), test
 // connection + model ids, privacy options, the price table, usage/cost by day and conversation,
-// the outbound log, and "Delete all AI data". Everything but viewing is owner-only (main enforces).
+// the outbound log, WP 5.6 memory (AiMemoryPanel), and "Delete all AI data". Everything but viewing is owner-only (main enforces).
 import { useMemo, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
@@ -17,6 +17,7 @@ import { useNav, useSession, useToasts } from '../../state/stores'
 import { confirmDialog } from '../../lib/dialogs'
 import { Badge, Banner, Button, Checkbox, Field, Panel, SectionTitle, Segmented, SkeletonRows, TextInput } from '../../components/ui'
 import { DataTable, defineColumns } from '../../components/table'
+import { AiMemoryPanel } from './AiMemoryPanel'
 
 const fmtInt = (n: number): string => n.toLocaleString('en-IN')
 /** Stored UTC ISO → local display date-time. */
@@ -62,6 +63,11 @@ const OUTBOUND_COLUMNS = defineColumns<AiOutboundRow>([
             .filter(Boolean)
             .join(' · ')
         : ''
+  },
+  // WP 5.6: the memory block that went with the request.
+  {
+    id: 'memory', header: 'Memory', kind: 'number', value: (r) => r.memoryCount ?? 0, width: 110,
+    text: (r) => (r.memoryCount ? `${r.memoryCount} (${fmtInt(r.memoryBytes ?? 0)} B)` : '—')
   },
   {
     id: 'privacy', header: 'Privacy', kind: 'text',
@@ -186,6 +192,7 @@ export function AiSection(): React.JSX.Element {
       </Panel>
 
       <DraftsPanel />
+      <AiMemoryPanel view={view} isOwner={isOwner} />
       <UsagePanel />
       <OutboundPanel />
 
@@ -212,6 +219,7 @@ export function AiSection(): React.JSX.Element {
             await run(async () => {
               await aiApi.deleteAll(false)
               await queryClient.invalidateQueries({ queryKey: ['aiThreads'] })
+              await queryClient.invalidateQueries({ queryKey: ['aiMemory'] })
             }, 'AI data deleted')
           }}
         >

@@ -22,7 +22,7 @@ export const captureApi = {
   remove: (id: number) => call<null>('capture:remove', { id }),
   revealInbox: () => call<string>('capture:revealInbox'),
   categorise: (bankLedgerId: number, useAi = true) => call<StatementCategorisation>('bankImport:categorise', { bankLedgerId, useAi }),
-  acceptCategories: (bankLedgerId: number, items: { lineId: number; ledgerId: number; kind?: 'payment' | 'receipt' | 'contra'; oldestBillsFirst?: boolean }[]) =>
+  acceptCategories: (bankLedgerId: number, items: { lineId: number; ledgerId: number; kind?: 'payment' | 'receipt' | 'contra'; oldestBillsFirst?: boolean; memoryId?: number }[]) =>
     call<CategoriseAcceptResult>('bankImport:categoriseAccept', { bankLedgerId, items })
 }
 

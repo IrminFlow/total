@@ -5,7 +5,7 @@
 // validation error, nothing written), then store ONE ai_drafts row. No tool writes the books.
 import { z } from 'zod'
 import type { DB } from '../../db/connection'
-import type { AiSource, AiVoucherDraftPayload } from '@shared/ai'
+import { AI_MEMORY_PURPOSES, type AiSource, type AiVoucherDraftPayload } from '@shared/ai'
 import { formatPaise } from '@shared/money'
 import { writeAudit } from '../../services/audit'
 import { defineTool, type ToolContext, type ToolOutput } from '../tools/registry'
@@ -59,7 +59,7 @@ const KIND_NAMES: Record<string, string> = {
 
 // ---------- the shared tail: store one draft ----------
 
-function storeDraft(ctx: ToolContext, built: BuiltDraft, tool: string): ToolOutput {
+function storeDraft(ctx: ToolContext, built: BuiltDraft, tool: string, memoryUsed: readonly number[] = []): ToolOutput {
   const { payload, summary } = built
   const unrequested = !(ctx.draftRequested ?? isRequestedDraft(ctx.userRequest))
   const draft = ctx.db.transaction(() => {
@@ -86,6 +86,8 @@ function storeDraft(ctx: ToolContext, built: BuiltDraft, tool: string): ToolOutp
       ...(payload.total != null ? { total: formatPaise(payload.total, { symbol: true }) } : {}),
       assumptions: payload.assumptions ?? [],
       resolved: (payload.sources ?? []).map((s) => ({ field: s.field, picked: s.label, ...(s.said ? { said: s.said } : {}), why: s.why })),
+      // WP 5.6: defaults taken from memory (cite them as [M<id>]).
+      ...(memoryUsed.length ? { fromMemory: memoryUsed.map((id) => `M${id}`) } : {}),
       ...(turn.length > 1
         ? {
             draftsThisAnswer: {
@@ -129,7 +131,7 @@ export function draftSources(db: DB, draftId: number, payload: AiVoucherDraftPay
 
 /** Run a builder; names that need the user's answer come back as a clarification (no draft). */
 export function runDraft(ctx: ToolContext, tool: string, build: (w: DraftWork) => BuiltDraft): ToolOutput {
-  const w = new DraftWork(loadMasters(ctx.db, ctx.company, ctx.workingDate ?? ctx.today))
+  const w = new DraftWork(loadMasters(ctx.db, ctx.company, ctx.workingDate ?? ctx.today), ctx.memory)
   let built: BuiltDraft
   try {
     built = build(w)
@@ -137,7 +139,10 @@ export function runDraft(ctx: ToolContext, tool: string, build: (w: DraftWork) =
     if (err instanceof NeedsClarification) return { data: clarificationResult(w), sources: [] }
     throw err
   }
-  return storeDraft(ctx, built, tool)
+  const out = storeDraft(ctx, built, tool, w.memoryUsed)
+  // WP 5.6: memory defaults count as used only now that the draft is stored.
+  for (const id of w.memoryUsed) ctx.memory?.markUsed(id)
+  return out
 }
 
 const RULES =
@@ -163,6 +168,7 @@ export const draftVoucherInput = z
           .object({
             ledgerId: id.optional().describe('A ledger id from an earlier tool result'),
             ledger: z.string().trim().min(1).max(120).optional().describe('Or the ledger name as the user said it'),
+            preferred: z.enum(AI_MEMORY_PURPOSES).optional().describe('Or use the ledger the memory block remembers for this purpose (e.g. "payment" = the account payments are made from)'),
             drCr: z.enum(['dr', 'cr']),
             amount: amountText
           })

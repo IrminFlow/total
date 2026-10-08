@@ -98,7 +98,8 @@ export function CategoriseModal({ bankLedgerId, onClose, onDone }: { bankLedgerI
       const ledgerId = ledgerOf(r)
       if (!ledgerId) return []
       const edited = r.lineId in edits && edits[r.lineId] !== r.ledgerId
-      return [{ lineId: r.lineId, ledgerId, ...(edited ? {} : { kind: r.kind, oldestBillsFirst: r.oldestBillsFirst }) }]
+      const memoryId = edited ? r.candidates.find((c) => c.id === ledgerId)?.memoryId : r.memoryId
+      return [{ lineId: r.lineId, ledgerId, ...(edited ? {} : { kind: r.kind, oldestBillsFirst: r.oldestBillsFirst }), ...(memoryId ? { memoryId } : {}) }]
     })
     if (!items.length) return
     setBusy(true)
