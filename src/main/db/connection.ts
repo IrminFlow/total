@@ -64,14 +64,27 @@ export async function backupCompany(db: DB, slug: string, tag = 'auto', auditUse
   }
   // WP 6.4: the snapshot's attachments get a copy in backups/attachments/ (shared by every
   // snapshot), and copies no remaining backup needs go with the pruned ones.
-  const stash = stashBackupAttachments(slug, dest)
+  // A failure there (disk full, a read-only folder) never loses the backup or its audit row: it is
+  // recorded on the row instead, like the quit backup does.
+  let stash: StashResult = { copied: 0, missing: [] }
+  let attachmentsError: string | null = null
+  try {
+    stash = stashBackupAttachments(slug, dest)
+  } catch (err) {
+    attachmentsError = err instanceof Error ? err.message : String(err)
+  }
   pruneBackupsIn(companyBackupsDir(slug), MAX_BACKUPS)
-  pruneBackupAttachmentStore(companyBackupsDir(slug), companyBackupAttachmentsDir(slug))
+  try {
+    pruneBackupAttachmentStore(companyBackupsDir(slug), companyBackupAttachmentsDir(slug))
+  } catch {
+    // pruning is housekeeping; the next backup tries again
+  }
   // WP 3.8: every backup is in the trail — it is a full copy of the books AND of this audit log
   // (written after the copy, so the row itself lives only in the live file). Automatic backups
   // (open, every 30 min, pre-import, quit) are 'system'; a manual one names the user.
   writeAudit(db, 'backup', 0, 'backup', null, {
-    tag, file: basename(dest), ...(stash.copied || stash.missing.length ? { attachmentsCopied: stash.copied, attachmentsMissing: stash.missing.length } : {})
+    tag, file: basename(dest), ...(stash.copied || stash.missing.length ? { attachmentsCopied: stash.copied, attachmentsMissing: stash.missing.length } : {}),
+    ...(attachmentsError ? { attachmentsError } : {})
   }, { user: auditUser })
   return dest
 }

@@ -593,7 +593,7 @@ export function registerIpc(): void {
     // the pre-restore snapshot).
     const auditChain = verifyAudit(current.db)
     // WP 6.4: the restored books' attachments, back into the live store from the backups' copies.
-    let attachmentFiles: RestoreFilesResult = { restored: 0, present: 0, missing: [] }
+    let attachmentFiles: RestoreFilesResult = { restored: 0, present: 0, missing: [], refused: [] }
     try {
       attachmentFiles = restoreAttachmentFiles(current.db, companyAttachmentsDir(slug), companyBackupAttachmentsDir(slug))
     } catch (err) {
@@ -602,13 +602,13 @@ export function registerIpc(): void {
     writeAudit(current.db, 'backup', 0, 'restore', null, {
       file, preRestoreSnapshot: basename(preRestoreSnapshotPath), chainOk: auditChain.ok, chainRows: auditChain.rows,
       chainHeadId: auditChain.headId, chainFirstBreak: auditChain.firstBreak?.rowId ?? null,
-      attachmentsRestored: attachmentFiles.restored, attachmentsMissing: attachmentFiles.missing.length
+      attachmentsRestored: attachmentFiles.restored, attachmentsMissing: attachmentFiles.missing.length, attachmentsRefused: attachmentFiles.refused.length
     }, { user: restoredBy })
     // closeCurrentCompany() above already cleared sessionUser, so this is realistically always
     // `current.usersExist` — spelled out in full to match the other two locked-flag call sites.
     return {
       info: current.info, integrity, locked: current.usersExist && !sessionUser, auditChain,
-      attachments: { restored: attachmentFiles.restored, missing: attachmentFiles.missing.length }
+      attachments: { restored: attachmentFiles.restored, missing: attachmentFiles.missing.length, refused: attachmentFiles.refused.length }
     }
   }, 'owner')
 
@@ -673,7 +673,7 @@ export function registerIpc(): void {
     while (existsSync(companyDbPath(slug))) slug = `${slugify(info.name)}-${n++}`
     ensureCompanyTree(slug)
     // WP 6.4: the embedded attachments (hash-checked) into the new company's store.
-    let importedFiles: RestoreFilesResult = { restored: 0, present: 0, missing: [] }
+    let importedFiles: RestoreFilesResult = { restored: 0, present: 0, missing: [], refused: [] }
     try {
       importedFiles = restoreAttachmentFilesAt(tempDbPath, companyAttachmentsDir(slug), null)
     } catch (err) {
@@ -695,7 +695,7 @@ export function registerIpc(): void {
         const chain = verifyAudit(imported)
         writeAudit(imported, 'backup', 0, 'restore', null, {
           file: basename(picked.filePaths[0]), encrypted: true, chainOk: chain.ok, chainRows: chain.rows, chainFirstBreak: chain.firstBreak?.rowId ?? null,
-          attachmentsRestored: importedFiles.restored, attachmentsMissing: importedFiles.missing.length
+          attachmentsRestored: importedFiles.restored, attachmentsMissing: importedFiles.missing.length, attachmentsRefused: importedFiles.refused.length
         }, { user: osAuditUser() })
       } finally {
         closeCompanyDb(imported)

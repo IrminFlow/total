@@ -109,7 +109,8 @@ const RESULT_COLUMNS = defineColumns<BulkRecordResult>([
     id: 'change',
     header: 'Change / reason',
     kind: 'text',
-    value: (r) => (r.status === 'applied' ? `${r.before ?? ''} → ${r.after ?? ''}` : (r.reason ?? '')),
+    value: (r) =>
+      r.status === 'applied' ? `${r.before ?? ''} → ${r.after ?? ''}${r.warnings.length ? ` · ${r.warnings.join('; ')}` : ''}` : (r.reason ?? ''),
     minWidth: 240,
     className: 'text-muted'
   }
@@ -133,11 +134,14 @@ function useNames(target: BulkTarget, field: FieldId) {
 export function BulkEditModal({
   target,
   ids,
+  scope,
   onClose,
   onApplied
 }: {
   target: BulkTarget
   ids: number[]
+  /** Voucher lists: the period shown — the server refuses vouchers no longer in it. */
+  scope?: { from: string; to: string }
   onClose: () => void
   onApplied: (r: BulkResult) => void
 }): React.JSX.Element {
@@ -194,7 +198,7 @@ export function BulkEditModal({
     }
   }, [field, mode, text, date, fromId, toId, num])
 
-  const request = typeof change === 'string' ? null : ({ target, ids, change } as BulkRequest)
+  const request = typeof change === 'string' ? null : ({ target, ids, change, ...(target === 'voucher' && scope ? { scope } : {}) } as BulkRequest)
 
   const runPreview = async (): Promise<void> => {
     if (!request) return void toast.push('error', change as string)
@@ -457,7 +461,16 @@ export function BulkHistoryModal({ target, onClose }: { target: BulkTarget; onCl
 
 /** The selection + dialogs a list screen wires up: `selection` for DataTable, the bar, and the
  *  "Bulk edits" history button for its toolbar. */
-export function useBulkSelection(target: BulkTarget, testId: string) {
+export function useBulkSelection(
+  target: BulkTarget,
+  testId: string,
+  opts: {
+    /** Keys of the rows the list currently shows: a selection is trimmed to them before editing
+     *  (a period or filter change since the rows were ticked). */
+    visibleIds?: readonly number[]
+    scope?: { from: string; to: string }
+  } = {}
+) {
   const [selected, setSelected] = useState<Set<number>>(() => new Set())
   const [editing, setEditing] = useState(false)
   const [history, setHistory] = useState(false)
@@ -478,7 +491,8 @@ export function useBulkSelection(target: BulkTarget, testId: string) {
       {editing && (
         <BulkEditModal
           target={target}
-          ids={[...selected]}
+          ids={opts.visibleIds ? [...selected].filter((id) => opts.visibleIds!.includes(id)) : [...selected]}
+          scope={opts.scope}
           onClose={() => setEditing(false)}
           onApplied={() => {
             setEditing(false)

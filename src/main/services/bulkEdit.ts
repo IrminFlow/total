@@ -17,7 +17,7 @@
  *    reported with who changed them and when.
  */
 import type { DB } from '../db/connection'
-import type { VoucherKind } from '@shared/domain'
+import type { SaveVoucherWarnings, Voucher, VoucherKind } from '@shared/domain'
 import {
   applyItemChange, applyLedgerChange, applyVoucherChange, bulkRequestSchema, describeChange,
   type ApplyOutcome, type BulkBatchDetail, type BulkBatchRow, type BulkRecordResult, type BulkRequest, type BulkResult, type BulkTarget,
@@ -25,7 +25,7 @@ import {
 } from '@shared/bulkEdit'
 import { voucherToPayload, type VoucherPayload } from '@shared/voucherEdit'
 import type { LedgerInput, StockItemInput } from '@shared/schemas'
-import { getVoucher, saveVoucher } from './vouchers'
+import { getVoucher, saveVoucher, voucherNumberExists } from './vouchers'
 import { getLedger, getStockItem, updateLedger, updateStockItem } from './masters'
 import { currentAuditUserName, writeAudit } from './audit'
 
@@ -91,7 +91,7 @@ function voucherLabel(db: DB, v: { voucherTypeId: number; number: string; date: 
 
 function planVoucher(db: DB, req: Extract<BulkRequest, { target: 'voucher' }>, id: number, name: ReturnType<typeof namer>): Planned {
   const v = getVoucher(db, id)
-  const base = { entity: 'voucher' as const, id, before: null, after: null }
+  const base = { entity: 'voucher' as const, id, before: null, after: null, warnings: [] as string[] }
   if (!v) return { result: { ...base, label: `Voucher #${id}`, status: 'refused', reason: 'Voucher not found' }, beforeImage: null, afterAuditId: null }
   const label = voucherLabel(db, v)
   if (v.deletedAt) return { result: { ...base, label, status: 'refused', reason: 'Voucher is in the bin; restore it first' }, beforeImage: null, afterAuditId: null }
@@ -99,42 +99,137 @@ function planVoucher(db: DB, req: Extract<BulkRequest, { target: 'voucher' }>, i
     db.prepare('SELECT kind, numbering FROM voucher_types WHERE id = ?').get(typeId) as { kind: VoucherKind; numbering: 'auto' | 'manual' } | undefined
   const kind = kindOf(v.voucherTypeId)!.kind
   const target = req.change.field === 'voucherType' ? kindOf(req.change.voucherTypeId) : undefined
+  // Re-validated server-side: a voucher that has left the period the list showed is not touched.
+  if (req.scope && (v.date < req.scope.from || v.date > req.scope.to)) {
+    return { result: { ...base, label, status: 'refused', reason: `No longer in the period shown (${req.scope.from} to ${req.scope.to})` }, beforeImage: null, afterAuditId: null }
+  }
   const before = voucherToPayload(v)
-  const outcome = applyVoucherChange(before, req.change, {
+  let outcome = applyVoucherChange(before, req.change, {
     kind,
     targetKind: target?.kind,
     targetNumbering: target?.numbering,
     name: (w, i) => name(w, i)
   })
+  if (outcome.kind === 'changed' && req.change.field === 'party') {
+    const why = partyChangeRefusal(db, v, req.change.to)
+    if (why) outcome = { kind: 'refused', reason: why }
+  }
+  // Duplicate numbers (the editors' check): a number already used in the target series is
+  // renumbered in an auto series (reported) and refused in a manual one.
+  let renumberedFrom: string | null = null
+  if (outcome.kind === 'changed' && (req.change.field === 'date' || req.change.field === 'voucherType')) {
+    const p = outcome.payload
+    if (p.number !== undefined && voucherNumberExists(db, p.voucherTypeId, p.number, id)) {
+      if (kindOf(p.voucherTypeId)!.numbering === 'manual') {
+        outcome = { kind: 'refused', reason: `Number ${p.number} is already used by another ${name('voucherType', p.voucherTypeId)} voucher` }
+      } else {
+        renumberedFrom = p.number
+        outcome = { ...outcome, payload: { ...p, number: undefined } }
+      }
+    } else if (p.number === undefined) {
+      renumberedFrom = v.number
+    }
+  }
   return execute(db, 'voucher', id, label, before, outcome, (p) => {
-    saveVoucher(db, p, id)
+    const saved = saveVoucher(db, p, id)
+    if (saved.duplicateNumber) throw new Error(`Number ${saved.number} is already used by another voucher of this type`)
+    return [...saveWarnings(saved.warnings), ...(renumberedFrom !== null && renumberedFrom !== saved.number ? [`Renumbered ${renumberedFrom} → ${saved.number}`] : [])]
   })
+}
+
+/** saveVoucher's non-blocking warnings, as the batch result's lines. */
+function saveWarnings(w: SaveVoucherWarnings): string[] {
+  const out: string[] = []
+  if (w.negativeStock.length) out.push(`Stock goes negative: ${w.negativeStock.map((x) => x.name).join(', ')}`)
+  if (w.creditLimitExceeded) out.push(`Over the credit limit of ${w.creditLimitExceeded.ledgerName}`)
+  if (w.linkDates?.length) out.push(...w.linkDates)
+  if (w.frozenRepricing?.length) out.push(...w.frozenRepricing)
+  return out
+}
+
+/** Company state for place-of-supply comparisons. */
+function companyState(db: DB): string | null {
+  const r = db.prepare("SELECT value FROM meta WHERE key = 'company'").get() as { value: string } | undefined
+  try {
+    return r ? ((JSON.parse(r.value) as { stateCode?: string }).stateCode ?? null) : null
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Why a party change would leave the voucher wrong, or null. Refused: bills it settles (against
+ * refs — they belong to the old party), bills of its own another voucher already settles, trade
+ * links (orders / challans of the old party), TDS / TCS entries (deducted from the old party), and
+ * GST lines whose supply type (intra / inter-state, export / SEZ) the new party would change — the
+ * tax would have to be recomputed, which a bulk edit doesn't do. Its own 'new' bills move with it.
+ */
+export function partyChangeRefusal(db: DB, v: Voucher, to: number): string | null {
+  if (v.billRefs.some((r) => r.kind === 'against')) return 'It settles bills of the current party (bill references) — change it in the voucher'
+  const own = v.billRefs.filter((r) => r.kind === 'new').map((r) => r.name)
+  if (own.length > 0) {
+    const settled = db
+      .prepare(
+        `SELECT br.name FROM bill_refs br WHERE br.kind = 'against' AND br.party_ledger_id = ? AND br.voucher_id <> ?
+         AND br.name IN (${own.map(() => '?').join(',')}) LIMIT 1`
+      )
+      .get(v.partyLedgerId, v.id, ...own) as { name: string } | undefined
+    if (settled) return `Bill ${settled.name} already has payments or notes against it — move those first`
+  }
+  if (db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'line_links'").get()) {
+    if (db.prepare('SELECT 1 FROM line_links WHERE from_voucher_id = ? OR to_voucher_id = ? LIMIT 1').get(v.id, v.id)) {
+      return 'It is linked to orders / challans of the current party'
+    }
+  }
+  if (v.tds || v.tcs) return `It carries a ${v.tds ? 'TDS' : 'TCS'} entry for the current party`
+  const taxType = db.prepare('SELECT tax_type FROM ledgers WHERE id = ?')
+  const taxLines = v.lines.some((l) => (taxType.get(l.ledgerId) as { tax_type: string | null } | undefined)?.tax_type)
+  if (taxLines && !v.posOverride) {
+    const facts = db.prepare('SELECT state_code AS s, export_type AS e FROM ledgers WHERE id = ?')
+    const party = (pid: number | null): { s: string | null; e: string | null } =>
+      (pid === null ? undefined : (facts.get(pid) as { s: string | null; e: string | null } | undefined)) ?? { s: null, e: null }
+    const home = companyState(db)
+    const a = party(v.partyLedgerId)
+    const b = party(to)
+    const inter = (x: { s: string | null }): boolean => (x.s ?? home) !== home
+    if (inter(a) !== inter(b) || (a.e ?? null) !== (b.e ?? null)) {
+      return 'The new party changes the GST supply type (state / export) — the tax lines would have to be recomputed; change it in the voucher'
+    }
+  }
+  return null
 }
 
 function planLedger(db: DB, req: Extract<BulkRequest, { target: 'ledger' }>, id: number, name: ReturnType<typeof namer>): Planned {
   const l = getLedger(db, id)
-  const base = { entity: 'ledger' as const, id, before: null, after: null }
+  const base = { entity: 'ledger' as const, id, before: null, after: null, warnings: [] as string[] }
   if (!l) return { result: { ...base, label: `Ledger #${id}`, status: 'refused', reason: 'Ledger not found' }, beforeImage: null, afterAuditId: null }
   const before: LedgerInput = { ...l }
   const outcome = applyLedgerChange(before, req.change, { name: (w, i) => name(w, i), isSystem: l.isSystem })
-  return execute(db, 'ledger', id, l.name, before, outcome, (p) => {
+  // Tagged tax ledgers (GST component, TDS / TCS payable) belong under Duties & Taxes — a bulk
+  // move would quietly take them out of the returns' reach.
+  const tagged = l.taxType ? `a ${l.taxType.toUpperCase()} ledger` : l.tdsPayableSectionId ? 'a TDS payable ledger' : l.tcsPayableSectionId ? 'a TCS payable ledger' : null
+  const guarded: ApplyOutcome<LedgerInput> =
+    req.change.field === 'group' && outcome.kind === 'changed' && tagged ? { kind: 'refused', reason: `It is ${tagged} — change its group in the ledger itself` } : outcome
+  return execute(db, 'ledger', id, l.name, before, guarded, (p) => {
     updateLedger(db, id, p)
+    return []
   })
 }
 
 function planItem(db: DB, req: Extract<BulkRequest, { target: 'stockItem' }>, id: number, name: ReturnType<typeof namer>): Planned {
   const i = getStockItem(db, id)
-  const base = { entity: 'stockItem' as const, id, before: null, after: null }
+  const base = { entity: 'stockItem' as const, id, before: null, after: null, warnings: [] as string[] }
   if (!i) return { result: { ...base, label: `Item #${id}`, status: 'refused', reason: 'Stock item not found' }, beforeImage: null, afterAuditId: null }
   const before: StockItemInput = { ...i }
   const outcome = applyItemChange(before, req.change, { name: (w, x) => name(w, x) })
   return execute(db, 'stockItem', id, i.name, before, outcome, (p) => {
     updateStockItem(db, id, p)
+    return []
   })
 }
 
-function execute<P>(db: DB, entity: BulkTarget, id: number, label: string, before: P, outcome: ApplyOutcome<P>, save: (p: P) => void): Planned {
-  const base = { entity, id, label }
+function execute<P>(db: DB, entity: BulkTarget, id: number, label: string, before: P, outcome: ApplyOutcome<P>, save: (p: P) => string[]): Planned {
+  const base = { entity, id, label, warnings: [] as string[] }
   if (outcome.kind !== 'changed') {
     return {
       result: { ...base, status: outcome.kind, reason: outcome.reason, before: null, after: null },
@@ -142,10 +237,13 @@ function execute<P>(db: DB, entity: BulkTarget, id: number, label: string, befor
       afterAuditId: null
     }
   }
-  const refusal = inSavepoint(db, () => save(outcome.payload))
+  let warnings: string[] = []
+  const refusal = inSavepoint(db, () => {
+    warnings = save(outcome.payload)
+  })
   if (refusal) return { result: { ...base, status: 'refused', reason: refusal, before: outcome.before, after: outcome.after }, beforeImage: null, afterAuditId: null }
   return {
-    result: { ...base, status: 'applied', reason: null, before: outcome.before, after: outcome.after },
+    result: { ...base, warnings, status: 'applied', reason: null, before: outcome.before, after: outcome.after },
     beforeImage: before,
     afterAuditId: latestAudit(db, entity, id)?.id ?? null
   }
@@ -238,6 +336,7 @@ export function undoBulk(db: DB, batchId: number): BulkUndoResult {
   if (!b) throw new Error('Bulk edit not found')
   if (b.status === 'undone') throw new Error('This bulk edit has already been undone')
   let out: BulkUndoResult | null = null
+  const name = namer(db)
   db.transaction(() => {
     const recs = db
       .prepare("SELECT id AS rid, entity, entity_id AS id, label, before_json AS beforeJson, after_audit_id AS afterAuditId FROM bulk_batch_records WHERE batch_id = ? AND status IN ('applied', 'undo_refused') ORDER BY id")
@@ -254,6 +353,14 @@ export function undoBulk(db: DB, batchId: number): BulkUndoResult {
           : 'No longer in the books'
       } else if (latest.action === 'delete' || latest.action === 'purge') {
         reason = 'No longer in the books'
+      }
+      if (!reason && r.entity === 'voucher') {
+        // The number the voucher had may have been issued to another voucher since (a type or date
+        // change vacated it) — re-saving would duplicate it.
+        const b = JSON.parse(r.beforeJson!) as VoucherPayload
+        if (b.number && voucherNumberExists(db, b.voucherTypeId, b.number, r.id)) {
+          reason = `Its old number ${b.number} (${name('voucherType', b.voucherTypeId)}) has been used by another voucher since — left as it is`
+        }
       }
       if (!reason) {
         const before = JSON.parse(r.beforeJson!) as unknown

@@ -26,8 +26,8 @@ const DAYBOOK: DayBookRow[] = [1, 2, 3].map((n) => ({
 const PREVIEW: BulkResult = {
   batchId: null, summary: '2 vouchers: narration append “(ok)”', applied: 1, refused: 1, unchanged: 0,
   records: [
-    { entity: 'voucher', id: 11, label: 'Journal 1 · 2026-04-01', status: 'applied', reason: null, before: 'Rent 1', after: 'Rent 1 (ok)' },
-    { entity: 'voucher', id: 12, label: 'Journal 2 · 2026-04-02', status: 'refused', reason: 'Books are locked up to 2026-04-02', before: 'Rent 2', after: 'Rent 2 (ok)' }
+    { entity: 'voucher', id: 11, label: 'Journal 1 · 2026-04-01', status: 'applied', reason: null, before: 'Rent 1', after: 'Rent 1 (ok)', warnings: ['Renumbered 1 → 4'] },
+    { entity: 'voucher', id: 12, label: 'Journal 2 · 2026-04-02', status: 'refused', reason: 'Books are locked up to 2026-04-02', before: 'Rent 2', after: 'Rent 2 (ok)', warnings: [] }
   ]
 }
 
@@ -145,11 +145,11 @@ describe('Day book bulk edit', () => {
     fireEvent.change(within(modal).getByTestId('bulk-narration-text'), { target: { value: '(ok)' } })
     fireEvent.click(within(modal).getByTestId('bulk-preview-run'))
     await waitFor(() =>
-      expect(invoke).toHaveBeenCalledWith('bulk:preview', { target: 'voucher', ids: [11, 12], change: { field: 'narration', mode: 'append', text: '(ok)' } })
+      expect(invoke).toHaveBeenCalledWith('bulk:preview', { target: 'voucher', ids: [11, 12], change: { field: 'narration', mode: 'append', text: '(ok)' }, scope: { from: '2026-04-01', to: '2027-03-31' } })
     )
     const rows = await screen.findByTestId('rows-bulk-preview')
     expect(rows.textContent).toContain('Books are locked up to 2026-04-02')
-    expect(rows.textContent).toContain('Rent 1 → Rent 1 (ok)')
+    expect(rows.textContent).toContain('Rent 1 → Rent 1 (ok) · Renumbered 1 → 4')
     expect(screen.getByTestId('bulk-preview-summary').textContent).toContain('1 will change')
     fireEvent.click(screen.getByTestId('bulk-apply'))
     await waitFor(() => expect(invoke).toHaveBeenCalledWith('bulk:apply', expect.objectContaining({ ids: [11, 12] })))

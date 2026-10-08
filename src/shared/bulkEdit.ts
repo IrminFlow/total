@@ -46,7 +46,13 @@ export type ItemChange = z.infer<typeof itemChangeSchema>
 const ids = z.array(id).min(1).max(BULK_MAX_RECORDS)
 
 export const bulkRequestSchema = z.discriminatedUnion('target', [
-  z.object({ target: z.literal('voucher'), ids, change: voucherChangeSchema }),
+  z.object({
+    target: z.literal('voucher'),
+    ids,
+    change: voucherChangeSchema,
+    /** The period the list showed: vouchers dated outside it by apply time are refused. */
+    scope: z.object({ from: isoDate, to: isoDate }).optional()
+  }),
   z.object({ target: z.literal('ledger'), ids, change: ledgerChangeSchema }),
   z.object({ target: z.literal('stockItem'), ids, change: itemChangeSchema })
 ])
@@ -65,6 +71,8 @@ export interface BulkRecordResult {
   /** Short "before → after" of the edited field, for the preview list. */
   before: string | null
   after: string | null
+  /** The save's non-blocking warnings (renumbered, negative stock, credit limit, …). */
+  warnings: string[]
 }
 
 export interface BulkResult {

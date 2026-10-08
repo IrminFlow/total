@@ -137,8 +137,10 @@ export function DayBook({ month, kind }: { month?: string; kind?: string } = {})
   }, [data, scope, drill])
 
   const periodLabel = `${toDisplayDate(from)} → ${toDisplayDate(to)}`
-  // WP 6.4: multi-select → bulk edit (preview / apply / undo), and the row's attachments.
-  const bulk = useBulkSelection('voucher', 'daybook')
+  // WP 6.4: multi-select → bulk edit (preview / apply / undo), and the row's attachments. Only the
+  // rows still listed are edited, and the server refuses vouchers that left the period.
+  const visibleIds = useMemo(() => rows.map((r) => r.voucherId), [rows])
+  const bulk = useBulkSelection('voucher', 'daybook', { visibleIds, scope: { from, to } })
   const { data: fileCounts } = useQuery({ queryKey: ['attachmentCounts', 'voucher'], queryFn: () => attachmentsApi.counts('voucher') })
   const [filesFor, setFilesFor] = useState<DayBookRow | null>(null)
 

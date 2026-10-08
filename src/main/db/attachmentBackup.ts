@@ -23,7 +23,8 @@ import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, unlinkSync
 import { join } from 'path'
 import type { DB } from './connection'
 import { SHA256_RE } from '@shared/attachments'
-import { putStoredFile, referencedHashes, sha256OfBuffer, sha256OfFile, storedFile } from '../services/attachments'
+import { getAttachmentConfig, putStoredFile, referencedHashes, sha256OfBuffer, sha256OfFile, storedFile } from '../services/attachments'
+import { contentRefusal, openRefusal } from '@shared/attachments'
 
 export const BLOB_TABLE = 'backup_attachment_blobs'
 
@@ -140,52 +141,84 @@ export interface RestoreFilesResult {
   restored: number
   /** Files already there with the right hash. */
   present: number
-  /** Referenced hashes no source could supply (or whose bytes failed the hash check). */
+  /** Referenced hashes no source could supply, whose bytes failed the hash check, or whose write
+   *  failed (each file is tried on its own; one failure never stops the rest). */
   missing: string[]
+  /** Files the type policy refuses (extension not allowed, or a web page / script in a text
+   *  type) — never written; the rows stay, and opening them is refused too. */
+  refused: { sha256: string; fileName: string; reason: string }[]
+}
+
+/** The file's bytes from the blob table or the backups' store, hash-checked; null if neither. */
+function sourceBytes(sha: string, blob: Database.Statement | null, storeDir: string | null): Buffer | null {
+  const b = blob?.get(sha) as { data: Buffer } | undefined
+  if (b && sha256OfBuffer(b.data) === sha) return b.data
+  const src = storeDir ? goodFile(storeDir, sha) : null
+  if (!src) return null
+  const data = readFileSync(src)
+  return sha256OfBuffer(data) === sha ? data : null
 }
 
 /**
  * After a restore / import: make the live store hold every file the (now live) database
  * references — from the embedded blob table when there is one (encrypted import), else from the
- * backups' store — then drop the blob table so the company database is its usual self.
+ * backups' store — running the attachment type policy on each first. The blob table is always
+ * dropped (finally), so the company database is its usual self even when a file fails.
  */
 export function restoreAttachmentFiles(db: DB, liveDir: string, storeDir: string | null): RestoreFilesResult {
-  const out: RestoreFilesResult = { restored: 0, present: 0, missing: [] }
+  const out: RestoreFilesResult = { restored: 0, present: 0, missing: [], refused: [] }
   const hasBlobs = !!db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?").get(BLOB_TABLE)
-  const blob = hasBlobs ? db.prepare(`SELECT data FROM ${BLOB_TABLE} WHERE sha256 = ?`) : null
-  const hashes = referencedHashes(db)
-  if (hashes.length > 0) mkdirSync(liveDir, { recursive: true })
-  for (const sha of hashes) {
-    if (goodFile(liveDir, sha)) {
-      out.present++
-      continue
+  try {
+    const blob = hasBlobs ? db.prepare(`SELECT data FROM ${BLOB_TABLE} WHERE sha256 = ?`) : null
+    const hashes = referencedHashes(db)
+    const cfg = getAttachmentConfig(db)
+    const namesOf = db.prepare('SELECT DISTINCT file_name AS n FROM attachments WHERE sha256 = ? ORDER BY n')
+    for (const sha of hashes) {
+      try {
+        if (goodFile(liveDir, sha)) {
+          out.present++
+          continue
+        }
+        const names = (namesOf.all(sha) as { n: string }[]).map((r) => r.n)
+        const allowed = names.find((n) => !openRefusal(n, cfg))
+        if (!allowed) {
+          out.refused.push({ sha256: sha, fileName: names[0] ?? sha, reason: openRefusal(names[0] ?? '', cfg) ?? 'Not an allowed file type' })
+          continue
+        }
+        const data = sourceBytes(sha, blob, storeDir)
+        if (!data) {
+          out.missing.push(sha)
+          continue
+        }
+        const sniff = names.map((n) => contentRefusal(n, data)).find((x) => x)
+        if (sniff) {
+          out.refused.push({ sha256: sha, fileName: allowed, reason: sniff })
+          continue
+        }
+        mkdirSync(liveDir, { recursive: true })
+        putStoredFile(liveDir, sha, data)
+        out.restored++
+      } catch {
+        out.missing.push(sha) // e.g. a read-only or full store — keep going with the rest
+      }
     }
-    const b = blob?.get(sha) as { data: Buffer } | undefined
-    if (b && sha256OfBuffer(b.data) === sha) {
-      putStoredFile(liveDir, sha, b.data)
-      out.restored++
-      continue
-    }
-    const src = storeDir ? goodFile(storeDir, sha) : null
-    if (src) {
-      putStoredFile(liveDir, sha, { copyFrom: src })
-      out.restored++
-      continue
-    }
-    out.missing.push(sha)
+  } finally {
+    if (hasBlobs) db.exec(`DROP TABLE IF EXISTS ${BLOB_TABLE}`)
   }
-  if (hasBlobs) db.exec(`DROP TABLE ${BLOB_TABLE}`)
   return out
 }
 
-/** restoreAttachmentFiles for a database file that isn't open yet (encrypted import). */
+/** restoreAttachmentFiles for a database file that isn't open yet (encrypted import). The blob
+ *  table is dropped and the file vacuumed even when a file fails. */
 export function restoreAttachmentFilesAt(dbPath: string, liveDir: string, storeDir: string | null): RestoreFilesResult {
   const db = new Database(dbPath, { fileMustExist: true })
   try {
-    const r = restoreAttachmentFiles(db, liveDir, storeDir)
-    db.exec('VACUUM') // the blob table's pages go back to the filesystem
-    return r
+    return restoreAttachmentFiles(db, liveDir, storeDir)
   } finally {
-    db.close()
+    try {
+      db.exec('VACUUM') // the blob table's pages go back to the filesystem
+    } finally {
+      db.close()
+    }
   }
 }

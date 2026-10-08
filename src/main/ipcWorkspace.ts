@@ -20,6 +20,9 @@ import * as att from './services/attachments'
 import * as notes from './services/partyNotes'
 import { companyAttachmentsDir } from './paths'
 import { log } from './log'
+import { rememberSalePrices } from './services/pricing'
+import { getAgentBridgeEnabled } from './services/config'
+import { scheduleMirrorRefresh } from './services/agentBridge'
 
 type Handle = (channel: string, fn: (payload: unknown) => unknown, minRole?: Role) => void
 interface Company { db: DB; info: CompanyInfo; slug: string }
@@ -33,8 +36,29 @@ export function registerWorkspaceIpc(handle: Handle, company: () => Company): vo
   // ---------- bulk edit ----------
   // The preview runs every save inside a transaction it rolls back — it changes nothing.
   handle('bulk:preview', (p) => bulk.previewBulk(db(), bulkRequestSchema.parse(p)))
-  handle('bulk:apply', (p) => bulk.applyBulk(db(), bulkRequestSchema.parse(p)))
-  handle('bulk:undo', (p) => bulk.undoBulk(db(), idSchema.parse(p).id))
+  // After an apply / undo, the same follow-ups the editor's voucher:save runs: "remember last
+  // price" on sales and the agent mirror refresh. Neither ever fails the batch.
+  const afterSaves = (voucherIds: number[]): void => {
+    const c = company()
+    for (const id of voucherIds) {
+      try {
+        rememberSalePrices(c.db, id)
+      } catch (err) {
+        log('warn', 'pricing.rememberSalePrices.failed', { error: (err as Error).message })
+      }
+    }
+    if (voucherIds.length > 0 && getAgentBridgeEnabled(c.db)) scheduleMirrorRefresh(c.db, c.slug)
+  }
+  handle('bulk:apply', (p) => {
+    const r = bulk.applyBulk(db(), bulkRequestSchema.parse(p))
+    afterSaves(r.records.filter((x) => x.entity === 'voucher' && x.status === 'applied').map((x) => x.id))
+    return r
+  })
+  handle('bulk:undo', (p) => {
+    const r = bulk.undoBulk(db(), idSchema.parse(p).id)
+    afterSaves(r.records.filter((x) => x.entity === 'voucher' && x.status === 'undone').map((x) => x.id))
+    return r
+  })
   handle('bulk:list', (p) => {
     const { target } = z.object({ target: z.enum(['voucher', 'ledger', 'stockItem']).optional() }).default({}).parse(p)
     return bulk.listBulkBatches(db(), target)

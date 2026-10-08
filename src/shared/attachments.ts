@@ -25,8 +25,9 @@ export const DEFAULT_ATTACHMENT_MAX_BYTES = 25 * 1024 * 1024
 export const ATTACHMENT_MAX_BYTES_RANGE = { min: 1024 * 1024, max: 200 * 1024 * 1024 } as const
 
 /** Allowed file types: extension → MIME. Documents and images a bill or a KYC file comes as —
- *  nothing executable, no archives (they could hide anything), no HTML (it would run script when
- *  opened). */
+ *  nothing executable, no archives (they could hide anything), no HTML / SVG (they would run script
+ *  when opened), no .eml (mail bodies are HTML). Text types are also content-sniffed
+ *  (contentRefusal) so a web page renamed .xml / .txt is refused too. */
 export const ATTACHMENT_TYPES: Readonly<Record<string, string>> = {
   pdf: 'application/pdf',
   png: 'image/png',
@@ -46,8 +47,7 @@ export const ATTACHMENT_TYPES: Readonly<Record<string, string>> = {
   doc: 'application/msword',
   docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
   odt: 'application/vnd.oasis.opendocument.text',
-  ods: 'application/vnd.oasis.opendocument.spreadsheet',
-  eml: 'message/rfc822'
+  ods: 'application/vnd.oasis.opendocument.spreadsheet'
 }
 export const DEFAULT_ALLOWED_EXTENSIONS: readonly string[] = Object.keys(ATTACHMENT_TYPES)
 
@@ -97,6 +97,26 @@ export function attachmentRefusal(fileName: string, size: number, cfg: Attachmen
   }
   if (size > cfg.maxBytes) return `${name} is ${formatBytes(size)} — the limit is ${formatBytes(cfg.maxBytes)}`
   return null
+}
+
+/** Why a stored file may not be OPENED (or restored) under `cfg`: the same type policy as adding,
+ *  without the size cap (a cap lowered later doesn't lock existing files away). */
+export function openRefusal(fileName: string, cfg: AttachmentConfig): string | null {
+  return attachmentRefusal(fileName, 0, cfg)
+}
+
+/** Text types whose content is sniffed: a web page, SVG or script inside them is refused. */
+export const SNIFFED_EXTENSIONS: readonly string[] = ['txt', 'csv', 'xml', 'json']
+const ACTIVE_CONTENT = /<\s*(html|svg|script|iframe|object|embed|body)\b|<!doctype\s+html|xml-stylesheet|javascript:/i
+
+/** Why the bytes (the first few KB are enough) don't match a safe file of that extension. */
+export function contentRefusal(fileName: string, head: Uint8Array): string | null {
+  const ext = extensionOf(fileName)
+  if (!SNIFFED_EXTENSIONS.includes(ext)) return null
+  let text = ''
+  const n = Math.min(head.length, 16384)
+  for (let i = 0; i < n; i++) text += String.fromCharCode(head[i]!)
+  return ACTIVE_CONTENT.test(text) ? `${cleanFileName(fileName)} looks like a web page or script, not a .${ext} file — refused` : null
 }
 
 export const SHA256_RE = /^[0-9a-f]{64}$/

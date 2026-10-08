@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest'
 import { applyItemChange, applyLedgerChange, applyVoucherChange, typeChangeAllowed, type VoucherChangeContext } from './bulkEdit'
 import type { VoucherPayload } from './voucherEdit/payload'
 import {
-  DEFAULT_ATTACHMENT_CONFIG, attachmentRefusal, cleanFileName, extensionOf, isSafeStoredPath, storedPathFor
+  DEFAULT_ATTACHMENT_CONFIG, attachmentRefusal, cleanFileName, contentRefusal, extensionOf, isSafeStoredPath, openRefusal, storedPathFor
 } from './attachments'
 import { summariseTasks, taskBucket } from './partyNotes'
 
@@ -92,6 +92,23 @@ describe('attachments — rules and layout', () => {
     expect(isSafeStoredPath(`../${sha}`, sha)).toBe(false)
     expect(isSafeStoredPath(`/tmp/${sha}`, sha)).toBe(false)
     expect(() => storedPathFor('../../x')).toThrow()
+  })
+})
+
+describe('attachments — open policy and content sniffing', () => {
+  const bytes = (s: string): Uint8Array => new TextEncoder().encode(s)
+  it('open ignores the size cap but not the type; .eml and .html are never allowed', () => {
+    expect(openRefusal('huge.pdf', DEFAULT_ATTACHMENT_CONFIG)).toBeNull()
+    expect(openRefusal('run.command', DEFAULT_ATTACHMENT_CONFIG)).toMatch(/\.command can't be attached/)
+    expect(openRefusal('mail.eml', DEFAULT_ATTACHMENT_CONFIG)).toMatch(/\.eml can't be attached/)
+    expect(openRefusal('page.html', DEFAULT_ATTACHMENT_CONFIG)).toMatch(/\.html can't be attached/)
+  })
+  it('refuses a page, SVG or script inside a text type; leaves binaries and plain data alone', () => {
+    expect(contentRefusal('a.xml', bytes('<?xml version="1.0"?><svg xmlns="http://www.w3.org/2000/svg"/>'))).toMatch(/web page or script/)
+    expect(contentRefusal('a.csv', bytes('a,b\n<SCRIPT>x</SCRIPT>'))).toMatch(/web page or script/)
+    expect(contentRefusal('a.json', bytes('{"u":"javascript:alert(1)"}'))).toMatch(/web page or script/)
+    expect(contentRefusal('a.xml', bytes('<?xml version="1.0"?><Invoice/>'))).toBeNull()
+    expect(contentRefusal('a.pdf', bytes('<html>'))).toBeNull()
   })
 })
 

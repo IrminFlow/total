@@ -14,21 +14,28 @@
  *  - a stored path is only ever the exact `storedPathFor(sha)` of its own hash (never `..`, never
  *    absolute), and the resolved real path must lie inside the store's real path;
  *  - symlinks are refused both as a source and inside the store (lstat, never stat);
- *  - opening copies the file (hash-checked) to a private temp folder under its own name, so the
- *    system viewer can pick the app by extension and nothing edits the store in place.
+ *  - the type policy (allowed extensions + content sniffing of text types) runs when a file is
+ *    added, again when it is opened and when a backup brings it back;
+ *  - opening copies the file (hash-checked) into this session's private temp folder under its own
+ *    name, so the system viewer can pick the app by extension and nothing edits the store in
+ *    place; the folder is deleted on quit and stale ones (> 1 day, a crash) are swept on start.
+ *
+ * Locked periods: attachments are evidence ABOUT a record, not part of its posting, so adding or
+ * removing one on a voucher inside the locked period is allowed — and audited like every other
+ * change (the edit log shows who attached or removed what, and when).
  *
  * Every add / remove / sweep writes an audit row ('attachment', before/after = the row).
  */
 import { createHash, randomBytes } from 'crypto'
 import {
-  closeSync, copyFileSync, existsSync, fstatSync, lstatSync, mkdirSync, mkdtempSync, openSync,
+  constants as fsConstants, closeSync, copyFileSync, existsSync, fstatSync, lstatSync, mkdirSync, mkdtempSync, openSync,
   readdirSync, readSync, realpathSync, renameSync, rmSync, unlinkSync, writeFileSync
 } from 'fs'
 import { tmpdir } from 'os'
 import { join, relative, isAbsolute, sep } from 'path'
 import type { DB } from '../db/connection'
 import {
-  ATTACHMENT_TYPES, DEFAULT_ATTACHMENT_CONFIG, SHA256_RE, attachmentConfigSchema, attachmentRefusal, cleanFileName, extensionOf,
+  ATTACHMENT_TYPES, DEFAULT_ATTACHMENT_CONFIG, SHA256_RE, attachmentConfigSchema, attachmentRefusal, cleanFileName, contentRefusal, extensionOf, openRefusal,
   isSafeStoredPath, storedPathFor, type Attachment, type AttachmentConfig, type AttachmentEntity, type AttachmentTarget
 } from '@shared/attachments'
 import { currentAuditUserName, writeAudit } from './audit'
@@ -171,11 +178,21 @@ export function addAttachment(db: DB, dir: string, t: AttachmentTarget, sourcePa
   const cfg = getAttachmentConfig(db)
   const refusal = attachmentRefusal(fileName, st.size, cfg)
   if (refusal) throw new Error(refusal)
-  // Read once through one descriptor (size re-checked on it), so what is hashed is what is stored.
-  const fd = openSync(sourcePath, 'r')
+  // Read once through one descriptor opened without following a link (a swap between the lstat
+  // and the open is refused too), checked to be a regular file, size re-checked on it — so what
+  // is hashed is what is stored.
+  let fd: number
+  try {
+    fd = openSync(sourcePath, fsConstants.O_RDONLY | (fsConstants.O_NOFOLLOW ?? 0))
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === 'ELOOP') throw new Error('Pick the file itself, not a link to it')
+    throw err
+  }
   let data: Buffer
   try {
-    const size = fstatSync(fd).size
+    const fst = fstatSync(fd)
+    if (!fst.isFile()) throw new Error('Only a regular file can be attached')
+    const size = fst.size
     if (size > cfg.maxBytes) throw new Error(attachmentRefusal(fileName, size, cfg) ?? 'File too large')
     data = Buffer.alloc(size)
     let off = 0
@@ -188,6 +205,8 @@ export function addAttachment(db: DB, dir: string, t: AttachmentTarget, sourcePa
   } finally {
     closeSync(fd)
   }
+  const sniff = contentRefusal(fileName, data)
+  if (sniff) throw new Error(sniff)
   const sha = sha256OfBuffer(data)
   const dup = db.prepare('SELECT file_name FROM attachments WHERE entity = ? AND entity_id = ? AND sha256 = ?').get(t.entity, t.entityId, sha) as { file_name: string } | undefined
   if (dup) throw new Error(`That file is already attached here (as ${dup.file_name})`)
@@ -245,13 +264,81 @@ export function prepareOpen(db: DB, dir: string, id: number, tempRoot: string = 
   const abs = storedFile(dir, r.sha256)
   if (!abs) throw new Error(`${r.file_name} is missing from the attachments folder — restore a backup that has it`)
   if (sha256OfFile(abs) !== r.sha256) throw new Error(`${r.file_name} has changed on disk since it was attached (hash mismatch) — refusing to open it`)
-  const outDir = mkdtempSync(join(tempRoot, 'total-attachment-'))
+  // The type policy again: a row restored from an old backup, or a file type turned off since.
+  const policy = openRefusal(r.file_name, getAttachmentConfig(db)) ?? contentRefusal(r.file_name, readHead(abs))
+  if (policy) throw new Error(`Not opened: ${policy}`)
+  const outDir = mkdtempSync(join(sessionOpenDir(tempRoot), 'f-'))
   const name = cleanFileName(r.file_name) || `attachment.${extensionOf(r.file_name) || 'bin'}`
   const out = join(outDir, name)
   if (!inside(outDir, out)) throw new Error('Bad attachment name')
   copyFileSync(abs, out)
   if (sha256OfFile(out) !== r.sha256) throw new Error('The copy did not match the attachment — refusing to open it')
   return out
+}
+
+/** The first bytes of a file (for content sniffing). */
+export function readHead(path: string, n = 16384): Buffer {
+  const fd = openSync(path, fsConstants.O_RDONLY | (fsConstants.O_NOFOLLOW ?? 0))
+  try {
+    const buf = Buffer.alloc(n)
+    const got = readSync(fd, buf, 0, n, 0)
+    return buf.subarray(0, got)
+  } finally {
+    closeSync(fd)
+  }
+}
+
+// ---------- opened copies: one private temp folder per app session ----------
+
+const OPEN_PREFIX = 'total-attachment-'
+const sessionDirs = new Map<string, string>()
+
+/** This session's folder for opened copies under `tempRoot` (created on first use). */
+export function sessionOpenDir(tempRoot: string = tmpdir()): string {
+  let d = sessionDirs.get(tempRoot)
+  if (!d || !existsSync(d)) {
+    d = mkdtempSync(join(tempRoot, OPEN_PREFIX))
+    sessionDirs.set(tempRoot, d)
+  }
+  return d
+}
+
+/** On quit: delete every copy this session opened. Never throws. */
+export function cleanupOpenedCopies(): void {
+  for (const d of sessionDirs.values()) {
+    try {
+      rmSync(d, { recursive: true, force: true })
+    } catch {
+      // best-effort
+    }
+  }
+  sessionDirs.clear()
+}
+
+/** On start: delete `total-attachment-*` folders older than `maxAgeMs` (left by a crash or a
+ *  force-quit). Real directories only (never follows a link); this session's own is kept. */
+export function sweepStaleOpenCopies(tempRoot: string = tmpdir(), maxAgeMs = 24 * 60 * 60 * 1000, now = Date.now()): number {
+  let removed = 0
+  let names: string[] = []
+  try {
+    names = readdirSync(tempRoot)
+  } catch {
+    return 0
+  }
+  const mine = new Set(sessionDirs.values())
+  for (const n of names) {
+    if (!n.startsWith(OPEN_PREFIX)) continue
+    const p = join(tempRoot, n)
+    try {
+      const st = lstatSync(p)
+      if (st.isSymbolicLink() || !st.isDirectory() || mine.has(p) || now - st.mtimeMs < maxAgeMs) continue
+      rmSync(p, { recursive: true, force: true })
+      removed++
+    } catch {
+      // someone else's, or already gone
+    }
+  }
+  return removed
 }
 
 export interface SweepResult {
