@@ -17,7 +17,7 @@ import type { CompanyInfo } from '@shared/domain'
 import {
   aiKeySetSchema, aiRegenerateSchema, aiSendSchema, aiSettingsPatchSchema, aiThreadPinSchema, aiThreadRenameSchema, type AiConnectionResult, type AiEvent, type AiSettings, type AiSettingsView
 } from '@shared/ai'
-import type { Role } from '../services/roles'
+import { roleAllows, type Role } from '../services/roles'
 import type { SecretStore } from '../services/secrets'
 import { writeAudit } from '../services/audit'
 import { AgentRuns, AI_OFF_MESSAGE, settingsBlocker, startTurn } from './agent'
@@ -105,6 +105,12 @@ export function keyChangeRule(o: { companyHasUsers: boolean; anyCompanyHasUsers:
   return { ok: true, mode: 'no-users-confirmed' }
 }
 
+/** Who may change a thread: the user who started it, or an accountant / owner. Pure; tested. */
+export function threadAccessAllowed(session: { name: string | null; role: Role }, owner: string | null): boolean {
+  if (roleAllows(session.role, 'accountant')) return true
+  return session.name !== null && owner !== null && session.name === owner
+}
+
 export function registerAiIpc(handle: Handle, deps: AiIpcDeps): void {
   const registry = createToolRegistry()
   const db = (): DB => deps.company().db
@@ -190,14 +196,25 @@ export function registerAiIpc(handle: Handle, deps: AiIpcDeps): void {
     return { threadId: turn.threadId, runId: turn.runId, userMessage: turn.userMessage }
   }
   handle('ai:send', (p) => ask(aiSendSchema.parse(p)), 'viewer')
+  // Threads are shared in a company: changing one (regenerate / rename / pin) takes the user who
+  // started it, or an accountant or owner.
+  const assertThreadAccess = (id: number): void => {
+    if (!store.threadExists(db(), id)) throw new Error('Conversation not found')
+    const s = deps.session()
+    if (threadAccessAllowed(s, store.threadOwner(db(), id))) return
+    throw new Error('Only the user who started this conversation, or an accountant or owner, can change it')
+  }
   // WP 5.2: answer the thread's last question again (the previous answer's messages are removed;
   // its usage rows and any draft it made stay).
   handle('ai:regenerate', (p) => {
     const { threadId, context, speed } = aiRegenerateSchema.parse(p)
+    assertThreadAccess(threadId)
+    // The stored question's own context wins (agent.ts); `context` only covers older messages.
     return ask({ threadId, text: '', regenerate: true, context, speed })
   }, 'viewer')
   handle('ai:thread:rename', (p) => {
     const { id, title } = aiThreadRenameSchema.parse(p)
+    assertThreadAccess(id)
     const thread = store.getThread(db(), id)
     if (!thread) throw new Error('Conversation not found')
     db().transaction(() => {
@@ -208,7 +225,7 @@ export function registerAiIpc(handle: Handle, deps: AiIpcDeps): void {
   }, 'viewer')
   handle('ai:thread:pin', (p) => {
     const { id, pinned } = aiThreadPinSchema.parse(p)
-    if (!store.getThread(db(), id)) throw new Error('Conversation not found')
+    assertThreadAccess(id)
     store.setThreadPinned(db(), id, pinned)
     return store.listThreads(db(), aiRuns.running(scope())).find((t) => t.id === id) ?? null
   }, 'viewer')

@@ -15,7 +15,10 @@ import type { Role } from '../services/roles'
 import { AgentRuns, startTurn, type AgentDeps } from './agent'
 import { MockProvider, demoScript } from './mockProvider'
 import { createToolRegistry } from './tools'
-import { SCREEN_CAPS, SCREEN_TOOLS, changePct, previousPeriod, sharePct } from './tools/screenTools'
+import { SCREEN_CAPS, SCREEN_TOOLS, changePct, naturalChange, previousPeriod, sharePct } from './tools/screenTools'
+import { threadAccessAllowed } from './ipc'
+import { postClose } from '../services/yearEnd'
+import { writeAudit } from '../services/audit'
 import type { ToolContext } from './tools/registry'
 import { defaultAiSettings } from './settings'
 import * as store from './store'
@@ -116,18 +119,20 @@ describe('the WP 5.2 read tools run on a real company — capped, sourced, role-
     expect(p.ok && (p.data as { truncated: string }).truncated).toMatch(/showing 150 of/)
   })
 
-  it('the audit log needs an accountant — refused for a viewer, also through current_screen_data', async () => {
+  it('the audit log: the audit-trail screen’s role (viewer), who / when / what only — never the before / after images', async () => {
     const b = books()
     const registry = createToolRegistry()
-    const viewer = await registry.run('audit_log_recent', '{}', ctxFor(b))
-    expect(viewer.ok).toBe(false)
-    expect(!viewer.ok && viewer.error).toMatch(/needs accountant/)
-    expect(registry.available('viewer').some((t) => t.name === 'audit_log_recent')).toBe(false)
+    const viewer = await registry.run('audit_log_recent', JSON.stringify({ entity: 'voucher', limit: 5 }), ctxFor(b))
+    expect(viewer.ok, viewer.ok ? '' : viewer.error).toBe(true)
+    expect(viewer.ok && (viewer.data as { rows: Data[] }).rows.length).toBe(5)
+    expect(viewer.ok && (viewer.data as { truncated: string }).truncated).toMatch(/showing the latest 5 of/)
+    expect(viewer.ok && JSON.stringify(viewer.data)).not.toMatch(/before_json|beforeJson|afterJson/)
+    // the newest entry comes first (page 0 of the newest-first list)
+    const newest = (b.db.prepare("SELECT MAX(id) AS id FROM audit_log WHERE entity = 'voucher'").get() as { id: number }).id
+    const top = (b.db.prepare('SELECT entity_id AS e FROM audit_log WHERE id = ?').get(newest) as { e: number }).e
+    expect(viewer.ok && (viewer.data as { rows: Data[] }).rows[0]!.entityId).toBe(top)
     const viaScreen = await registry.run('current_screen_data', '{}', ctxFor(b, { screen: { screen: 'audit-trail' } }))
-    expect(!viaScreen.ok && viaScreen.error).toMatch(/accountant/)
-    const acc = await registry.run('audit_log_recent', JSON.stringify({ entity: 'voucher', limit: 5 }), ctxFor(b, { role: 'accountant' }))
-    expect(acc.ok && (acc.data as { rows: Data[] }).rows.length).toBe(5)
-    expect(acc.ok && (acc.data as { truncated: string }).truncated).toMatch(/showing the latest 5 of/)
+    expect(viaScreen.ok && (viaScreen.data as Data).screen).toBe('audit-trail')
   })
 })
 
@@ -170,11 +175,13 @@ describe('explain_figure', () => {
     expect(r.ok, r.ok ? '' : r.error).toBe(true)
     if (!r.ok) return
     const d = r.data as Data
-    expect(d.closing).toBe('₹2,20,000.00 Dr')
+    // An expense ledger: its P&L amount for the period (not a balance).
+    expect(d.periodAmount).toBe('₹2,20,000.00 Dr')
+    expect(d.closing).toBeUndefined()
     const top = d.largestVouchers as Data[]
     expect(top[0]).toMatchObject({ debit: '₹90,000.00', shareOfTurnover: '41%' })
     expect((d.byOtherSide as Data[])[0]).toMatchObject({ name: 'HDFC Current', vouchers: 2, debit: '₹1,80,000.00', ledgerId: b.bank })
-    expect(d.previousPeriod).toMatchObject({ from: '2024-04-01', to: '2025-03-31', closing: '₹16,000.00 Dr', closingChangePct: '1275%' })
+    expect(d.previousPeriod).toMatchObject({ from: '2024-04-01', to: '2025-03-31', periodAmount: '₹16,000.00 Dr', change: 'grew by ₹2,04,000.00', changePct: '+1275%' })
     const anomalies = (d.anomalies as Data[]).map((a) => a.what as string)
     expect(anomalies.some((a) => /at least 5 times the usual entry/.test(a))).toBe(true)
     expect(anomalies.some((a) => /Possible duplicate/.test(a))).toBe(true)
@@ -263,7 +270,9 @@ describe('Explain this, end to end (MockProvider demo script)', () => {
     expect(answer.figures.every((f) => f.sourced)).toBe(true)
     expect(answer.figures.find((f) => f.text.startsWith('₹4,99,400.00'))!.source).toEqual({ kind: 'ledger', ledgerId: b.buyer, label: 'Buyer' })
     // ₹5,00,000.00 is the journal's credit (a voucher row); the closing balance is the ledger's.
-    expect(answer.figures.find((f) => f.text === '₹5,00,000.00')!.source).toMatchObject({ kind: 'voucher', label: 'Journal 1' })
+    // The same amount twice: "credits ₹5,00,000.00" on Buyer's line → the ledger; the table row → Journal 1.
+    const fives = answer.figures.filter((f) => f.text === '₹5,00,000.00')
+    expect(fives.map((f) => f.source)).toMatchObject([{ kind: 'ledger', ledgerId: b.buyer }, { kind: 'voucher', label: 'Journal 1' }])
     expect(answer.sources).toContainEqual({ kind: 'screen', screen: 'ledger-statement', label: 'Buyer statement', params: { ledgerId: b.buyer } })
   })
 
@@ -310,5 +319,140 @@ describe('threads: rename, pin, drafts per thread', () => {
     store.insertDraft(b.db, { threadId: c, messageId: null, summary: 'c', payload })
     expect(store.listDrafts(b.db, undefined, a).map((x) => x.summary)).toEqual(['a'])
     expect(store.listDrafts(b.db, 'open', c).map((x) => x.summary)).toEqual(['c'])
+  })
+})
+
+// ---------- WP 5.2 review ----------
+
+describe('review: change in the ledger’s natural direction', () => {
+  it('pure: a credit-natured ledger grows when its credit grows', () => {
+    expect(naturalChange(-60_000, -10_000, true)).toEqual({ direction: 'grew', by: 50_000, pct: 500 })
+    expect(naturalChange(-6_000, -10_000, true)).toEqual({ direction: 'fell', by: 4_000, pct: 40 })
+    expect(naturalChange(5_000, 2_000, false)).toEqual({ direction: 'grew', by: 3_000, pct: 150 })
+    expect(naturalChange(0, 0, true)).toEqual({ direction: 'unchanged', by: 0, pct: null })
+  })
+
+  it('Sales (income), a creditor and capital read the right way round', async () => {
+    const b = books()
+    const capital = ledger(b.db, 'Capital', 'Capital Account')
+    journal(b, '2024-06-01', b.cash, b.sales, 10_000) // last year's sales ₹100
+    journal(b, '2024-05-10', b.purchases, b.supplier, 100_000)
+    journal(b, '2025-05-10', b.purchases, b.supplier, 300_000)
+    journal(b, '2024-04-02', b.cash, capital, 1_000_000)
+    journal(b, '2025-07-02', capital, b.cash, 400_000) // drawings
+    const registry = createToolRegistry()
+    const prev = async (ledgerId: number): Promise<Data> => {
+      const r = await registry.run('explain_figure', JSON.stringify({ ledgerId, from: '2025-04-01', to: '2026-03-31' }), ctxFor(b))
+      expect(r.ok, r.ok ? '' : r.error).toBe(true)
+      return (r.ok ? (r.data as Data).previousPeriod : {}) as Data
+    }
+    expect(await prev(b.sales)).toMatchObject({ periodAmount: '₹100.00 Cr', change: 'grew by ₹500.00', changePct: '+500%' })
+    expect(await prev(b.supplier)).toMatchObject({ closing: '₹1,000.00 Cr', change: 'grew by ₹3,000.00', changePct: '+300%' })
+    expect(await prev(capital)).toMatchObject({ closing: '₹10,000.00 Cr', change: 'fell by ₹4,000.00', changePct: '-40%' })
+  })
+})
+
+describe('review: an income / expense ledger in a closed year', () => {
+  it('uses the P&L amount and leaves the closing journal out of the entries and anomalies', async () => {
+    const b = books()
+    postClose(b.db, INFO, 2025)
+    const r = await createToolRegistry().run('explain_figure', JSON.stringify({ ledgerId: b.rent, from: '2025-04-01', to: '2026-03-31' }), ctxFor(b))
+    expect(r.ok, r.ok ? '' : r.error).toBe(true)
+    if (!r.ok) return
+    const d = r.data as Data
+    expect(d.periodAmount).toBe('₹2,20,000.00 Dr')
+    expect(d.closingJournalsLeftOut).toBe(1)
+    expect(d.totalCredit).toBe('₹0.00')
+    const closingIds = (b.db.prepare('SELECT id FROM vouchers WHERE is_year_end_close = 1').all() as { id: number }[]).map((x) => x.id)
+    expect((d.largestVouchers as Data[]).some((v) => closingIds.includes(v.voucherId as number))).toBe(false)
+    expect((d.anomalies as Data[]).some((a) => closingIds.includes(a.voucherId as number))).toBe(false)
+    expect(r.sources.some((s) => s.kind === 'voucher' && closingIds.includes(s.voucherId))).toBe(false)
+  })
+})
+
+describe('review: the role table', () => {
+  it('every read tool is open to a viewer (like the screens behind them); drafting needs an accountant', () => {
+    const registry = createToolRegistry()
+    const roles = Object.fromEntries(registry.info().map((t) => [t.name, `${t.kind}:${t.minRole}`]))
+    for (const t of SCREEN_TOOLS) expect(roles[t.name], t.name).toBe('read:viewer')
+    expect(roles.audit_log_recent).toBe('read:viewer') // = audit:list, the audit-trail screen
+    expect(roles.draft_voucher).toBe('draft:accountant')
+    expect(registry.available('viewer').map((t) => t.name)).not.toContain('draft_voucher')
+  })
+
+  it('threads: changed by the user who started them, or an accountant / owner', () => {
+    expect(threadAccessAllowed({ name: 'Asha', role: 'viewer' }, 'Asha')).toBe(true)
+    expect(threadAccessAllowed({ name: 'Ravi', role: 'viewer' }, 'Asha')).toBe(false)
+    expect(threadAccessAllowed({ name: null, role: 'viewer' }, null)).toBe(false)
+    expect(threadAccessAllowed({ name: 'Ravi', role: 'accountant' }, 'Asha')).toBe(true)
+    expect(threadAccessAllowed({ name: null, role: 'owner' }, 'Asha')).toBe(true)
+  })
+
+  it('audit entries about a binned voucher say so and link to its audit trail', async () => {
+    const b = books()
+    const id = b.rentVouchers[0]!
+    writeAudit(b.db, 'voucher', id, 'update', { n: 1 }, { n: 2 })
+    b.db.prepare("UPDATE vouchers SET deleted_at = '2025-10-01T00:00:00Z' WHERE id = ?").run(id)
+    const r = await createToolRegistry().run('audit_log_recent', JSON.stringify({ voucherId: id }), ctxFor(b))
+    expect(r.ok && ((r.data as Data).rows as Data[])[0]).toMatchObject({ voucherId: id, voucherState: 'in the bin' })
+    expect(r.ok && r.sources.some((s) => s.kind === 'screen' && s.params?.voucherId === id && /in the bin/.test(s.label))).toBe(true)
+    expect(r.ok && r.sources.some((s) => s.kind === 'voucher' && s.voucherId === id)).toBe(false)
+  })
+})
+
+describe('review: the outbound log keeps the context as SENT', () => {
+  it('masked and pseudonymised, and dropped by "Delete all AI data"', async () => {
+    const b = books()
+    const provider = new MockProvider(demoScript)
+    const { question, context } = explainContextFor({
+      screen: 'search', label: 'Buyer', value: '₹1.00', ledgerId: b.buyer, params: { q: 'Buyer 29ABCDE1234F2ZV' }, from: PERIOD.from, to: PERIOD.to
+    })
+    const t = startTurn(deps(b, provider), { text: question, context })
+    await t.finished
+    const logged = JSON.stringify(store.listOutbound(b.db).map((o) => o.context))
+    expect(logged).not.toContain('Buyer')
+    expect(logged).not.toContain('29ABCDE1234F2ZV')
+    expect(logged).toMatch(/Party-\d{4}/)
+    expect(logged).toContain(`"ledgerId":${b.buyer}`)
+    // The question itself keeps the real context locally (Regenerate re-asks with it).
+    expect(store.listMessages(b.db, t.threadId)[0]!.context?.explain?.label).toBe('Buyer')
+    store.deleteAllAiData(b.db, false)
+    expect(store.listOutbound(b.db).every((o) => o.context === null)).toBe(true)
+  })
+})
+
+describe('review: Regenerate re-asks with the question’s own context', () => {
+  it('an Explain answer regenerated from another screen still explains the same figure', async () => {
+    const b = books()
+    const provider = new MockProvider(demoScript)
+    const d = deps(b, provider)
+    const { question, context } = explainContextFor({ screen: 'trial-balance', screenLabel: 'Trial balance', label: 'Shop Rent', value: '₹2,20,000.00 Dr', ledgerId: b.rent, asOn: '2026-03-31' })
+    const t = startTurn(d, { text: question, context })
+    await t.finished
+    const firstCalls = provider.requests.length
+    const r = startTurn(d, { threadId: t.threadId, text: '', regenerate: true, context: { screen: 'daybook', label: 'Day book' } })
+    await r.finished
+    const again = provider.requests.slice(firstCalls)
+    expect(again[0]!.instructions).toContain('Screen: Trial balance (trial-balance)')
+    expect(again[0]!.instructions).toContain(`"ledgerId":${b.rent}`)
+    expect(again[0]!.instructions).not.toContain('Day book')
+    const msgs = store.listMessages(b.db, t.threadId)
+    expect(msgs.find((m) => m.toolName === 'explain_figure')!.toolInput).toMatchObject({ ledgerId: b.rent, asOn: '2026-03-31' })
+  })
+
+  it('drafts of the discarded answer become superseded; the removal is audited', async () => {
+    const b = books()
+    const d = deps(b, new MockProvider(demoScript))
+    const t = startTurn(d, { text: 'Pay 1,500 shop rent in cash' })
+    await t.finished
+    const [first] = store.listDrafts(b.db)
+    expect(first!.status).toBe('open')
+    const r = startTurn(d, { threadId: t.threadId, text: '', regenerate: true })
+    await r.finished
+    expect(store.getDraft(b.db, first!.id)!.status).toBe('superseded')
+    expect(store.listDrafts(b.db, 'open')).toHaveLength(1)
+    const audit = b.db.prepare("SELECT entity, entity_id AS id, after_json AS after FROM audit_log WHERE entity IN ('ai_thread', 'ai_draft') ORDER BY id").all() as { entity: string; id: number; after: string }[]
+    expect(audit.some((a) => a.entity === 'ai_draft' && a.id === first!.id && a.after.includes('superseded'))).toBe(true)
+    expect(audit.some((a) => a.entity === 'ai_thread' && a.id === t.threadId && a.after.includes('regenerated'))).toBe(true)
   })
 })

@@ -9,7 +9,7 @@
 import { z } from 'zod'
 import { formatQtyMilli } from '@shared/money'
 import type { AiSource } from '@shared/ai'
-import type { StatementNode } from '@shared/reports'
+import type { LedgerStatementRow as LedgerRow, StatementNode } from '@shared/reports'
 import { addDaysISO as addDays, buildForecast, forecastPeriods, SCENARIO_PRESETS } from '@shared/cashForecast'
 import { descendantIdsByName } from '../../services/masters'
 import { roleAllows } from '../../services/roles'
@@ -41,9 +41,11 @@ const periodOf = (ctx: ToolContext, from?: string, to?: string): { from: string;
 })
 
 /** Whole percent of `part` in `whole` (integer maths; null when whole is 0). */
+/** Signed whole percent of `part` in `whole` (integer maths; null when whole is 0): parts of
+ *  mixed sign (a contra ledger in a group) give negative shares, and the shares still add to 100. */
 export function sharePct(part: number, whole: number): number | null {
   if (whole === 0) return null
-  return Math.round((Math.abs(part) * 100) / Math.abs(whole))
+  return Math.round((part * 100) / whole)
 }
 
 /** Whole-percent change from `prev` to `now` (null when prev is 0). */
@@ -463,10 +465,19 @@ export const auditLogRecentTool = defineTool({
     limit: z.number().int().min(1).max(SCREEN_CAPS.audit).optional()
   }),
   kind: 'read',
-  // The edit log names users and carries before/after images of every record: not for viewers.
-  minRole: 'accountant',
+  // The same role as the audit-trail screen (audit:list is viewer-level). Only who / when / what
+  // and the record's reference are returned — never the before / after images.
+  minRole: 'viewer',
   handler: ({ voucherId, entity, limit = 25 }, ctx) => {
-    const r = listAudit(ctx.db, { voucherId, entity, page: 1, pageSize: Math.min(limit, SCREEN_CAPS.audit) })
+    const r = listAudit(ctx.db, { voucherId, entity, page: 0, pageSize: Math.min(limit, SCREEN_CAPS.audit) })
+    // Vouchers since moved to the bin: said so, and linked to their audit trail, not the editor.
+    const ids = [...new Set(r.rows.filter((a) => a.entity === 'voucher').map((a) => a.entityId))]
+    const binned = new Set(
+      ids.length
+        ? (ctx.db.prepare(`SELECT id FROM vouchers WHERE deleted_at IS NOT NULL AND id IN (${ids.map(() => '?').join(',')})`).all(...ids) as { id: number }[]).map((x) => x.id)
+        : []
+    )
+    const gone = new Set(ids.filter((id) => !(ctx.db.prepare('SELECT 1 FROM vouchers WHERE id = ?').get(id) as unknown)))
     return {
       data: {
         total: r.total,
@@ -478,13 +489,19 @@ export const auditLogRecentTool = defineTool({
           entity: a.entity,
           entityId: a.entityId,
           voucherId: a.entity === 'voucher' ? a.entityId : undefined,
+          voucherState: a.entity !== 'voucher' ? undefined : binned.has(a.entityId) ? 'in the bin' : gone.has(a.entityId) ? 'deleted for good' : undefined,
           action: a.action,
           ref: a.ref ?? undefined
         }))
       },
       sources: [
         { kind: 'screen', screen: 'audit-trail', label: 'Audit trail', ...(voucherId ? { params: { voucherId } } : {}) },
-        ...r.rows.filter((a) => a.entity === 'voucher').slice(0, 8).map((a) => voucherSource(a.entityId, a.ref ? `Voucher ${a.ref}` : `Voucher ${a.entityId}`))
+        ...ids.slice(0, 8).map((id): AiSource => {
+          const a = r.rows.find((x) => x.entity === 'voucher' && x.entityId === id)!
+          const label = a.ref ? `Voucher ${a.ref}` : `Voucher ${id}`
+          if (binned.has(id) || gone.has(id)) return { kind: 'screen', screen: 'audit-trail', label: `${label} (${binned.has(id) ? 'in the bin' : 'deleted'})`, params: { voucherId: id } }
+          return voucherSource(id, label)
+        })
       ]
     }
   }
@@ -545,16 +562,61 @@ function voucherDetail(ctx: ToolContext, voucherId: number): ToolOutput {
 
 // ---------- explain_figure ----------
 
+/** A ledger's natural side: debit for assets / expenses, credit for liabilities / income. */
+function ledgerNature(ctx: ToolContext, ledgerId: number): { nature: 'asset' | 'liability' | 'income' | 'expense'; groupId: number } {
+  const r = ctx.db.prepare('SELECT g.nature, l.group_id AS groupId FROM ledgers l JOIN groups g ON g.id = l.group_id WHERE l.id = ?').get(ledgerId) as
+    | { nature: 'asset' | 'liability' | 'income' | 'expense'; groupId: number }
+    | undefined
+  if (!r) throw new Error(`There is no ledger ${ledgerId}.`)
+  return r
+}
+
+/**
+ * How a balance moved, read in the ledger's natural direction: a credit-natured ledger (sales,
+ * creditors, capital) GROWS when its credit balance grows. `now` / `prev` are dr-positive.
+ * Pure; tested.
+ */
+export function naturalChange(now: number, prev: number, creditNatured: boolean): { direction: 'grew' | 'fell' | 'unchanged'; by: number; pct: number | null } {
+  const n = creditNatured ? -now : now
+  const p = creditNatured ? -prev : prev
+  const by = n - p
+  return { direction: by > 0 ? 'grew' : by < 0 ? 'fell' : 'unchanged', by: Math.abs(by), pct: p === 0 ? null : Math.round((Math.abs(by) * 100) / Math.abs(p)) }
+}
+
+function closingJournalIds(ctx: ToolContext): Set<number> {
+  return new Set((ctx.db.prepare(`SELECT v.id FROM vouchers v WHERE v.is_year_end_close = 1 AND ${NOT_DELETED}`).all() as { id: number }[]).map((r) => r.id))
+}
+
 function explainLedger(ctx: ToolContext, ledgerId: number, from: string, to: string): ToolOutput {
-  const s = reports.ledgerStatement(ctx.db, ledgerId, from, to)
+  const { nature, groupId } = ledgerNature(ctx, ledgerId)
+  const creditNatured = nature === 'liability' || nature === 'income'
+  const pnl = nature === 'income' || nature === 'expense'
   const prev = previousPeriod(from, to)
-  const before = reports.ledgerStatement(ctx.db, ledgerId, prev.from, prev.to)
+  // Year-end closing journals are not activity (CLAUDE.md): never in the entries, and an income /
+  // expense ledger's figure is its P&L amount for the period (pnlLedgerAmounts), not a balance
+  // the closing journal zeroed.
+  const closing = closingJournalIds(ctx)
+  const statement = (f: string, t: string): ReturnType<typeof reports.ledgerStatement> & { activity: LedgerRow[] } => {
+    const s = reports.ledgerStatement(ctx.db, ledgerId, f, t)
+    return { ...s, activity: s.rows.filter((r) => !closing.has(r.voucherId)) }
+  }
+  const s = statement(from, to)
+  const before = statement(prev.from, prev.to)
+  const pnlAmount = (f: string, t: string): number => reports.pnlLedgerAmounts(ctx.db, f, t).amounts.get(ledgerId) ?? 0
+  const figureNow = pnl ? pnlAmount(from, to) : s.closing
+  const figurePrev = pnl ? pnlAmount(prev.from, prev.to) : before.closing
+  const totals = (rows: LedgerRow[]): { debit: number; credit: number } => ({
+    debit: rows.reduce((a, r) => a + r.debit, 0),
+    credit: rows.reduce((a, r) => a + r.credit, 0)
+  })
+  const t = totals(s.activity)
+  const tPrev = totals(before.activity)
   const movement = (r: { debit: number; credit: number }): number => Math.max(r.debit, r.credit)
-  const turnover = s.totalDebit + s.totalCredit
-  const top = [...s.rows].sort((a, b) => movement(b) - movement(a)).slice(0, SCREEN_CAPS.explainTop)
+  const turnover = t.debit + t.credit
+  const top = [...s.activity].sort((a, b) => movement(b) - movement(a)).slice(0, SCREEN_CAPS.explainTop)
   // By the other side of each voucher ("particulars"), largest first.
   const byCounter = new Map<string, { ledgerId: number | null; debit: number; credit: number; vouchers: number }>()
-  for (const r of s.rows) {
+  for (const r of s.activity) {
     const k = r.particulars || '(no other side)'
     const g = byCounter.get(k) ?? { ledgerId: r.particularsLedgerId, debit: 0, credit: 0, vouchers: 0 }
     g.debit += r.debit
@@ -565,7 +627,7 @@ function explainLedger(ctx: ToolContext, ledgerId: number, from: string, to: str
   const counters = [...byCounter.entries()].sort((a, b) => b[1].debit + b[1].credit - (a[1].debit + a[1].credit)).slice(0, SCREEN_CAPS.explainCounter)
 
   const anomalies: { what: string; voucherId?: number; amount?: string }[] = []
-  const amounts = s.rows.map(movement).filter((a) => a > 0)
+  const amounts = s.activity.map(movement).filter((a) => a > 0)
   const med = median(amounts)
   for (const r of top) {
     if (amounts.length >= 4 && med > 0 && movement(r) >= med * 5) {
@@ -573,31 +635,33 @@ function explainLedger(ctx: ToolContext, ledgerId: number, from: string, to: str
     }
   }
   const seen = new Map<string, number>()
-  for (const r of s.rows) {
+  for (const r of s.activity) {
     const k = `${r.date}|${movement(r)}|${r.particulars}`
-    const first = seen.get(k)
-    if (first !== undefined) anomalies.push({ what: `Possible duplicate: two entries on ${r.date} with ${r.particulars} for the same amount`, voucherId: r.voucherId, amount: rupees(movement(r)) })
+    if (seen.has(k)) anomalies.push({ what: `Possible duplicate: two entries on ${r.date} with ${r.particulars} for the same amount`, voucherId: r.voucherId, amount: rupees(movement(r)) })
     else seen.set(k, r.voucherId)
   }
-  const groupId = (ctx.db.prepare('SELECT group_id FROM ledgers WHERE id = ?').get(ledgerId) as { group_id: number } | undefined)?.group_id
-  const isCashOrBank = groupId !== undefined && descendantIdsByName(ctx.db, ['Cash-in-Hand', 'Bank Accounts']).has(groupId)
+  const isCashOrBank = descendantIdsByName(ctx.db, ['Cash-in-Hand', 'Bank Accounts']).has(groupId)
   if (isCashOrBank && s.closing < 0) anomalies.push({ what: `${s.ledgerName} closes with a credit balance — cash or bank cannot be negative unless it is an overdraft`, amount: drCr(s.closing) })
   if (isCashOrBank) {
     const negative = s.rows.find((r) => r.running < 0)
     if (negative && s.closing >= 0) anomalies.push({ what: `The balance went negative on ${negative.date} (${negative.voucherType} ${negative.number})`, voucherId: negative.voucherId, amount: drCr(negative.running) })
   }
-  const prevTurnover = before.totalDebit + before.totalCredit
+  const change = naturalChange(figureNow, figurePrev, creditNatured)
+  const closedOut = s.rows.length - s.activity.length
   return {
     data: {
       figure: 'ledger',
       ledgerId,
       ledger: s.ledgerName,
+      nature,
       period: { from, to },
-      opening: drCr(s.opening),
-      totalDebit: rupees(s.totalDebit),
-      totalCredit: rupees(s.totalCredit),
-      closing: drCr(s.closing),
-      vouchers: s.rows.length,
+      ...(pnl
+        ? { periodAmount: drCr(figureNow), note: 'An income / expense ledger: its figure is the P&L amount for the period (year-end closing journals excluded).' }
+        : { opening: drCr(s.opening), closing: drCr(s.closing) }),
+      totalDebit: rupees(t.debit),
+      totalCredit: rupees(t.credit),
+      vouchers: s.activity.length,
+      closingJournalsLeftOut: closedOut || undefined,
       largestVouchers: top.map((r) => ({
         voucherId: r.voucherId,
         date: r.date,
@@ -619,16 +683,17 @@ function explainLedger(ctx: ToolContext, ledgerId: number, from: string, to: str
       previousPeriod: {
         from: prev.from,
         to: prev.to,
-        closing: drCr(before.closing),
-        totalDebit: rupees(before.totalDebit),
-        totalCredit: rupees(before.totalCredit),
-        vouchers: before.rows.length,
-        closingChange: signedRupees(s.closing - before.closing),
-        closingChangePct: pct(changePct(s.closing, before.closing)),
-        turnoverChangePct: pct(changePct(turnover, prevTurnover))
+        ...(pnl ? { periodAmount: drCr(figurePrev) } : { closing: drCr(before.closing) }),
+        totalDebit: rupees(tPrev.debit),
+        totalCredit: rupees(tPrev.credit),
+        vouchers: before.activity.length,
+        // In the ledger's natural direction: a credit-natured ledger grows when its credit grows.
+        change: change.direction === 'unchanged' ? 'unchanged' : `${change.direction} by ${rupees(change.by)}`,
+        changePct: change.pct === null ? undefined : `${change.direction === 'fell' ? '-' : change.direction === 'grew' ? '+' : ''}${change.pct}%`,
+        turnoverChangePct: pct(changePct(turnover, tPrev.debit + tPrev.credit))
       },
       anomalies: anomalies.slice(0, SCREEN_CAPS.explainAnomalies),
-      note: anomalies.length ? undefined : 'No unusual entries found (largest entry, duplicates, negative cash / bank).'
+      noAnomalies: anomalies.length ? undefined : 'No unusual entries found (largest entry, duplicates, negative cash / bank).'
     },
     sources: [
       { kind: 'screen', screen: 'ledger-statement', label: `${s.ledgerName} statement`, params: { ledgerId } },
@@ -647,31 +712,55 @@ function findNode(nodes: readonly StatementNode[], name: string): StatementNode 
   return null
 }
 
-function explainGroup(ctx: ToolContext, groupName: string, from: string, to: string, asOn: string | undefined): ToolOutput {
+/** One request's report cache: a multi-group tile computes each P&L / balance sheet once. */
+interface ReportMemo {
+  pnl: (from: string, to: string) => StatementNode[]
+  bs: (asOn: string) => StatementNode[]
+}
+
+function reportMemo(ctx: ToolContext): ReportMemo {
+  const booksFrom = `${ctx.company.booksFrom}-04-01`
+  const pnls = new Map<string, StatementNode[]>()
+  const bss = new Map<string, StatementNode[]>()
+  return {
+    pnl: (from, to) => {
+      const k = `${from}|${to}`
+      if (!pnls.has(k)) {
+        const p = reports.profitAndLoss(ctx.db, from, to)
+        pnls.set(k, [...p.tradingIncomes, ...p.tradingExpenses, ...p.indirectIncomes, ...p.indirectExpenses])
+      }
+      return pnls.get(k)!
+    },
+    bs: (on) => {
+      if (!bss.has(on)) {
+        const b = reports.balanceSheet(ctx.db, booksFrom, on)
+        bss.set(on, [...b.liabilities, ...b.assets])
+      }
+      return bss.get(on)!
+    }
+  }
+}
+
+function explainGroup(ctx: ToolContext, groupName: string, from: string, to: string, asOn: string | undefined, memo: ReportMemo = reportMemo(ctx)): ToolOutput {
   // P&L groups are period figures; balance sheet groups are as-on balances — the same reports the
   // screens draw (pnlLedgerAmounts inside profitAndLoss), never re-derived here.
   const booksFrom = `${ctx.company.booksFrom}-04-01`
-  const pnl = reports.profitAndLoss(ctx.db, from, to)
-  const pnlNodes = [...pnl.tradingIncomes, ...pnl.tradingExpenses, ...pnl.indirectIncomes, ...pnl.indirectExpenses]
-  let node = asOn ? null : findNode(pnlNodes, groupName)
+  let node = asOn ? null : findNode(memo.pnl(from, to), groupName)
   const screenName = node ? 'profit-loss' : 'balance-sheet'
   let prevNode: StatementNode | null = null
   let basis: string
   let prevLabel: { from?: string; to?: string; asOn?: string }
   if (node) {
     const prev = previousPeriod(from, to)
-    const p2 = reports.profitAndLoss(ctx.db, prev.from, prev.to)
-    prevNode = findNode([...p2.tradingIncomes, ...p2.tradingExpenses, ...p2.indirectIncomes, ...p2.indirectExpenses], groupName)
+    prevNode = findNode(memo.pnl(prev.from, prev.to), groupName)
     basis = `profit and loss ${from} to ${to}`
     prevLabel = prev
   } else {
     const on = asOn ?? to
-    const bs = reports.balanceSheet(ctx.db, booksFrom, on)
-    node = findNode([...bs.liabilities, ...bs.assets], groupName)
+    node = findNode(memo.bs(on), groupName)
     const prevOn = addDays(fyStartOf(on), -1)
     if (prevOn >= booksFrom) {
-      const b2 = reports.balanceSheet(ctx.db, booksFrom, prevOn)
-      prevNode = findNode([...b2.liabilities, ...b2.assets], groupName)
+      prevNode = findNode(memo.bs(prevOn), groupName)
     }
     basis = `balance sheet as on ${on}`
     prevLabel = { asOn: prevOn }
@@ -741,9 +830,10 @@ export const explainFigureTool = defineTool({
       const parts: unknown[] = []
       const sources: AiSource[] = []
       const missing: string[] = []
+      const memo = reportMemo(ctx)
       for (const g of groupName.split(' + ').map((x) => x.trim()).filter(Boolean).slice(0, 6)) {
         try {
-          const out = explainGroup(ctx, g, range.from, range.to, asOn)
+          const out = explainGroup(ctx, g, range.from, range.to, asOn, memo)
           parts.push(out.data)
           sources.push(...out.sources)
         } catch {

@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import type { ReactNode } from 'react'
-import type { AiEvent, AiMessageDto, AiSettingsView, AiThreadDto } from '@shared/ai'
+import type { AiEvent, AiFigure, AiMessageDto, AiSettingsView, AiThreadDto } from '@shared/ai'
 import type { CompanyInfo } from '@shared/domain'
 import { DEFAULT_FEATURES } from '@shared/features'
 import { parseMarkdown, inlineText } from '../lib/markdown'
@@ -14,7 +14,8 @@ import { looksLikeMoney, nodeText, rowSourceIds, useExplain } from '../lib/expla
 import { screenContextFor } from '../lib/aiContext'
 import { applyAiEvent, loadThread } from '../lib/aiThread'
 import { AssistantDrawer, AssistantPanel, useAssistantPanel } from '../components/ai/AssistantPanel'
-import { AnswerMarkdown } from '../components/ai/Markdown'
+import { AnswerMarkdown, assignFigures } from '../components/ai/Markdown'
+import { tileExplainSources } from '../screens/Gateway'
 import { DataTable, defineColumns } from '../components/table'
 import { StatTile } from '../components/kit'
 import { Money } from '../components/ui'
@@ -33,7 +34,7 @@ function msg(over: Partial<AiMessageDto>): AiMessageDto {
   return {
     id: 1, threadId: 7, role: 'assistant', content: '', status: 'ok', toolCalls: [], toolCallId: null, toolName: null, toolInput: null,
     toolOutput: null, toolOk: null, truncated: false, sources: [], figures: [], model: null, costMicroUsd: null, inputTokens: null,
-    outputTokens: null, draftId: null, createdAt: '2025-08-14T10:00:00Z', ...over
+    outputTokens: null, draftId: null, context: null, createdAt: '2025-08-14T10:00:00Z', ...over
   }
 }
 
@@ -393,5 +394,124 @@ describe('palette: Ask AI', () => {
     fireEvent.change(screen.getByTestId('input-palette'), { target: { value: 'open the ledger for Acme' } })
     await screen.findByTestId('palette-hit-ledger-31')
     expect(invoke.mock.calls.filter((c) => c[0] === 'search:query').at(-1)![1]).toMatchObject({ q: 'Acme' })
+  })
+})
+
+// ---------- WP 5.2 review ----------
+
+describe('review: figures by occurrence, ambiguous chips, code spans', () => {
+  const ten = (voucherId: number): AiFigure => ({ text: '₹10,000.00', paise: 1_000_000, sourced: true, tool: 'explain_figure', source: { kind: 'voucher', voucherId, label: `Journal ${voucherId}` } })
+
+  it('three ₹10,000.00 rows: each chip opens its own voucher; an ambiguous one opens the report', async () => {
+    const amb: AiFigure = { text: '₹10,000.00', paise: 1_000_000, sourced: true, tool: 'explain_figure', ambiguous: true, source: { kind: 'screen', screen: 'ledger-statement', label: 'Rent statement', params: { ledgerId: 7 } } }
+    wrap(<AnswerMarkdown text={'| V | Amount |\n|---|--:|\n| Journal 3 | ₹10,000.00 |\n| Journal 4 | ₹10,000.00 |\n| Journal 5 | ₹10,000.00 |\n\nMedian ₹10,000.00.'} figures={[ten(3), ten(4), ten(5), amb]} />)
+    const chips = screen.getAllByTestId('ai-figure')
+    expect(chips.map((c) => c.getAttribute('data-voucher-id'))).toEqual(['3', '4', '5', null])
+    expect(chips[3]!.getAttribute('data-ambiguous')).toBe('true')
+    fireEvent.click(chips[1]!)
+    await waitFor(() => expect(useNav.getState().stack.at(-1)).toEqual({ name: 'voucher-entry', voucherId: 4 }))
+    fireEvent.click(chips[3]!)
+    await waitFor(() => expect(useNav.getState().stack.at(-1)).toEqual({ name: 'ledger-statement', ledgerId: 7 }))
+  })
+
+  it('an unsourced figure inside a code span is still flagged', () => {
+    wrap(<AnswerMarkdown text={'Total `₹7.00` here.'} figures={[{ text: '₹7.00', paise: 700, sourced: false, tool: null }]} />)
+    const chip = screen.getByTestId('ai-figure')
+    expect(chip.getAttribute('data-sourced')).toBe('false')
+    expect(chip.closest('code')).not.toBeNull()
+  })
+
+  it('assignFigures keeps document order and tolerates extra occurrences', () => {
+    const parts = assignFigures(['a ₹10,000.00 b', '₹10,000.00'], [ten(3), ten(4)])
+    expect(parts.map((p) => p.filter((x) => typeof x !== 'string').map((f) => (f as AiFigure).source))).toEqual([[ten(3).source], [ten(4).source]])
+  })
+})
+
+describe('review: dashboard tiles explain the dates they show', () => {
+  it('balances as on the as-on date, month tiles over the clipped month, Net profit over the period', () => {
+    const w = { from: '2026-04-01', to: '2027-03-31', asOn: '2026-10-08', focusMonth: '2026-10' }
+    const ex = tileExplainSources(w)
+    expect(ex.cash).toEqual({ groupName: 'Cash-in-Hand + Bank Accounts', asOn: '2026-10-08' })
+    expect(ex.receivables).toEqual({ groupName: 'Sundry Debtors', asOn: '2026-10-08' })
+    expect(ex.sales).toEqual({ groupName: 'Sales Accounts', from: '2026-10-01', to: '2026-10-08' })
+    expect(ex.profit).toMatchObject({ from: '2026-04-01', to: '2026-10-08' })
+    // a past period: everything as on its end
+    const past = tileExplainSources({ from: '2025-04-01', asOn: '2026-03-31', focusMonth: '2026-03' })
+    expect(past.profit).toMatchObject({ from: '2025-04-01', to: '2026-03-31' })
+    expect(past.purchases).toMatchObject({ from: '2026-03-01', to: '2026-03-31' })
+  })
+})
+
+describe('review: rename saves once; Esc cancels', () => {
+  it('Enter then blur renames once; Esc then blur does not rename', async () => {
+    wrap(<AssistantDrawer onClose={() => {}} />)
+    fireEvent.click(await screen.findByTestId('btn-ai-threads'))
+    await screen.findByTestId('btn-ai-rename-7')
+    fireEvent.click(screen.getByTestId('btn-ai-rename-7'))
+    let input = screen.getByTestId('input-ai-thread-title')
+    fireEvent.change(input, { target: { value: 'Once' } })
+    fireEvent.keyDown(input, { key: 'Enter' })
+    fireEvent.blur(input)
+    await waitFor(() => expect(invoke.mock.calls.filter((c) => c[0] === 'ai:thread:rename')).toHaveLength(1))
+    await waitFor(() => expect(screen.queryByTestId('input-ai-thread-title')).toBeNull())
+    fireEvent.click(screen.getByTestId('btn-ai-rename-7'))
+    input = screen.getByTestId('input-ai-thread-title')
+    fireEvent.change(input, { target: { value: 'Never' } })
+    fireEvent.keyDown(input, { key: 'Escape' })
+    fireEvent.blur(input)
+    await new Promise((r) => setTimeout(r, 20))
+    expect(invoke.mock.calls.filter((c) => c[0] === 'ai:thread:rename')).toHaveLength(1)
+  })
+})
+
+describe('review: keyboard and regenerate', () => {
+  it('⌘⇧E explains the active table row (the buttons are not Tab stops)', async () => {
+    wrap(
+      <>
+        <AssistantPanel />
+        <DataTable testId="tb" columns={TB_COLUMNS} rows={[{ ledgerId: 5, ledgerName: 'Shop Rent', debit: 22_000_000 }]} rowKey={(r) => r.ledgerId} />
+      </>
+    )
+    const btn = await screen.findByTestId('tb-explain-debit')
+    expect(btn.getAttribute('tabindex')).toBe('-1')
+    btn.closest('tr')!.setAttribute('data-active', 'true')
+    fireEvent.keyDown(window, { key: 'E', metaKey: true, shiftKey: true })
+    await waitFor(() => expect(sends()).toHaveLength(1))
+    expect((sends()[0] as { context: { explain: { ledgerId: number } } }).context.explain.ledgerId).toBe(5)
+  })
+
+  it('Regenerate does not send the current screen (main re-asks with the question’s own context)', async () => {
+    wrap(<AssistantDrawer onClose={() => {}} />)
+    fireEvent.click(await screen.findByTestId('btn-ai-threads'))
+    fireEvent.click(await screen.findByTestId('btn-ai-open-thread-7'))
+    await screen.findByTestId('ai-msg-answer')
+    useNav.setState({ stack: [{ name: 'daybook' }] })
+    fireEvent.click(await screen.findByTestId('btn-ai-regenerate'))
+    await waitFor(() => expect(invoke).toHaveBeenCalledWith('ai:regenerate', { threadId: 7 }))
+  })
+})
+
+describe('review: palette — an exact hit keeps the Enter default', () => {
+  it('"Acme Traders?" matching a ledger: the hit comes first, Ask AI last', async () => {
+    invoke.mockImplementation(async (channel: string) => {
+      if (channel === 'search:query') {
+        return { ok: true, data: { chips: [], unknown: [], terms: [], kinds: ['ledger'], ledgers: { total: 1, offset: 0, rows: [{ kind: 'ledger', id: 31, name: 'Acme Traders', groupName: 'Sundry Debtors', gstin: null, pan: null, matchField: 'name', matchText: 'Acme' }] }, items: null, vouchers: null } }
+      }
+      if (channel === 'ai:settings:get') return { ok: true, data: VIEW }
+      if (channel === 'config:features:get') return { ok: true, data: DEFAULT_FEATURES }
+      return { ok: true, data: [] }
+    })
+    wrap(
+      <>
+        <AssistantPanel />
+        <CommandPalette onClose={() => {}} />
+      </>
+    )
+    await waitFor(() => expect(useExplain.getState().ready).toBe(true))
+    fireEvent.change(screen.getByTestId('input-palette'), { target: { value: 'Acme Traders?' } })
+    await screen.findByTestId('palette-hit-ledger-31')
+    const ask = await screen.findByTestId('palette-ask-ai')
+    const hit = screen.getByTestId('palette-hit-ledger-31')
+    expect(hit.compareDocumentPosition(ask) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
   })
 })

@@ -90,8 +90,23 @@ export function lastUserMessage(db: DB, threadId: number): { id: number; content
 
 /** Removes the answer to be regenerated (every message after `messageId`). Drafts it made keep
  *  their rows (message_id → NULL) — the user still decides on them; usage rows stay too. */
-export function deleteMessagesAfter(db: DB, threadId: number, messageId: number): number {
-  return db.prepare('DELETE FROM ai_messages WHERE thread_id = ? AND id > ?').run(threadId, messageId).changes
+export function deleteMessagesAfter(db: DB, threadId: number, messageId: number): { messageIds: number[]; supersededDrafts: number[] } {
+  const ids = (db.prepare('SELECT id FROM ai_messages WHERE thread_id = ? AND id > ? ORDER BY id').all(threadId, messageId) as { id: number }[]).map((r) => r.id)
+  // Open drafts the discarded answer made can no longer be reviewed from it: superseded (before
+  // the delete, which would null their message_id).
+  const drafts = ids.length
+    ? (db
+        .prepare(`SELECT id FROM ai_drafts WHERE status = 'open' AND message_id IN (${ids.map(() => '?').join(',')})`)
+        .all(...ids) as { id: number }[]).map((r) => r.id)
+    : []
+  for (const d of drafts) setDraftStatus(db, d, 'superseded')
+  db.prepare('DELETE FROM ai_messages WHERE thread_id = ? AND id > ?').run(threadId, messageId)
+  return { messageIds: ids, supersededDrafts: drafts }
+}
+
+/** WP 5.2: who started a thread (rename / pin / regenerate: its owner or an accountant+). */
+export function threadOwner(db: DB, id: number): string | null {
+  return (db.prepare('SELECT user_name FROM ai_threads WHERE id = ?').get(id) as { user_name: string | null } | undefined)?.user_name ?? null
 }
 
 export function deleteThread(db: DB, id: number): void {
@@ -123,6 +138,7 @@ interface MessageRow {
   sent_text: string | null
   sent_privacy: string | null
   reasoning_json: string | null
+  context_json: string | null
   created_at: string
 }
 
@@ -163,6 +179,7 @@ function toMessage(r: MessageRow): StoredMessage {
     inputTokens: r.input_tokens,
     outputTokens: r.output_tokens,
     draftId: r.draft_id,
+    context: parse<AiContext | null>(r.context_json, null),
     createdAt: r.created_at
   }
 }
@@ -189,6 +206,8 @@ export interface NewMessage {
   sentText?: string | null
   sentPrivacy?: string | null
   reasoning?: Record<string, unknown>[]
+  /** User messages: the screen context the question was asked with (Regenerate reuses it). */
+  context?: AiContext | null
 }
 
 export function addMessage(db: DB, m: NewMessage): StoredMessage {
@@ -197,8 +216,8 @@ export function addMessage(db: DB, m: NewMessage): StoredMessage {
       .prepare(
         `INSERT INTO ai_messages (thread_id, role, content, status, tool_calls_json, tool_call_id, tool_name, tool_input_json,
            tool_output_json, tool_ok, truncated, sources_json, figures_json, model, input_tokens, output_tokens, cost_micro_usd, draft_id,
-           sent_text, sent_privacy, reasoning_json)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+           sent_text, sent_privacy, reasoning_json, context_json)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
       .run(
         m.threadId,
@@ -221,7 +240,8 @@ export function addMessage(db: DB, m: NewMessage): StoredMessage {
         m.draftId ?? null,
         m.sentText ?? null,
         m.sentPrivacy ?? null,
-        m.reasoning?.length ? JSON.stringify(m.reasoning) : null
+        m.reasoning?.length ? JSON.stringify(m.reasoning) : null,
+        m.context ? JSON.stringify(m.context) : null
       ).lastInsertRowid
   )
   touchThread(db, m.threadId)
@@ -493,6 +513,8 @@ export function deleteAllAiData(db: DB, includeLogs: boolean): AiDataCounts {
   db.transaction(() => {
     db.exec('DELETE FROM ai_drafts; DELETE FROM ai_messages; DELETE FROM ai_threads; DELETE FROM ai_memory; DELETE FROM ai_pseudonyms;')
     if (includeLogs) db.exec('DELETE FROM ai_usage; DELETE FROM ai_outbound_log;')
+    // Kept logs keep their sizes and fingerprints, not the (masked) screen context that was sent.
+    else db.exec('UPDATE ai_outbound_log SET context_json = NULL WHERE context_json IS NOT NULL;')
   })()
   return before
 }

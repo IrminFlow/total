@@ -62,6 +62,13 @@ await scenario('39-ai-chat', async (h) => {
   const cash = (await h.invoke('master:ledgers:list')).find((l) => l.name === 'Cash').id
   const journalType = (await h.invoke('master:voucherTypes:list')).find((t) => t.kind === 'journal').id
   const fy = await h.page.evaluate(() => (new Date().getMonth() >= 3 ? new Date().getFullYear() : new Date().getFullYear() - 1))
+  // Never future-dated, whatever day the suite runs: a date later than today is moved to today
+  // (the dashboard's balances are as on today; the figures asserted below do not depend on dates).
+  const today = await h.page.evaluate(() => {
+    const d = new Date()
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+  })
+  const day = (iso) => (iso <= today ? iso : today)
   const journal = (date, dr, cr, amount, narration) =>
     h.invoke('voucher:save', {
       data: {
@@ -74,10 +81,10 @@ await scenario('39-ai-chat', async (h) => {
         inventory: [], billRefs: [], tds: null
       }
     })
-  await journal(`${fy}-04-10`, acme.id, sales.id, 50_000_000, 'April sales')
-  await journal(`${fy}-04-20`, cash, acme.id, 30_000_000, 'Collection')
-  for (const m of ['05', '06', '07']) await journal(`${fy}-${m}-01`, rent.id, cash, 1_000_000, `Rent ${m}`)
-  await journal(`${fy}-08-01`, rent.id, cash, 9_000_000, 'Rent with arrears and deposit')
+  await journal(day(`${fy}-04-10`), acme.id, sales.id, 50_000_000, 'April sales')
+  await journal(day(`${fy}-04-20`), cash, acme.id, 30_000_000, 'Collection')
+  for (const m of ['05', '06', '07']) await journal(day(`${fy}-${m}-01`), rent.id, cash, 1_000_000, `Rent ${m}`)
+  await journal(day(`${fy}-08-01`), rent.id, cash, 9_000_000, 'Rent with arrears and deposit')
 
   // ---------- AI off: no affordances ----------
   await h.goto('trial-balance')
@@ -109,7 +116,7 @@ await scenario('39-ai-chat', async (h) => {
   await h.page.waitForSelector('[data-testid="ai-tool-chip"][data-tool="explain_figure"][data-status="ok"]', { timeout: 20000 })
   await waitAnswers(1)
   const answer = await h.page.$eval('[data-testid="ai-msg-answer"]', (el) => el.textContent)
-  assert(answer.includes('Shop Rent closed at ₹1,20,000.00 Dr'), `answer quotes the tool: ${answer}`)
+  assert(answer.includes('Shop Rent comes to ₹1,20,000.00 Dr'), `answer quotes the tool: ${answer}`)
   assert(await h.page.$('[data-testid="ai-msg-answer"] [data-testid="ai-md-table"]'), 'the largest entries render as a table')
   assertEq(await h.page.$('[data-testid="ai-msg-answer"] [data-testid="ai-figure"][data-sourced="false"]'), null, 'every figure is sourced')
   assertEq(await h.page.$('[data-testid="ai-unsourced"]'), null, 'no numbers-rule warning')

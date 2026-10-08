@@ -2,7 +2,7 @@
 // `total:ai:event` push. The renderer never talks to the provider: everything goes through main.
 import { call } from './client'
 import type {
-  AiConnectionResult, AiContext, AiDraftDto, AiEvent, AiMessageDto, AiOutboundRow, AiSendInput, AiSettingsPatch, AiSettingsView, AiThreadDto, AiToolInfo,
+  AiConnectionResult, AiDraftDto, AiEvent, AiMessageDto, AiOutboundRow, AiSendInput, AiSettingsPatch, AiSettingsView, AiThreadDto, AiToolInfo,
   AiUsageRow
 } from '@shared/ai'
 
@@ -22,7 +22,8 @@ export const aiApi = {
   deleteThread: (id: number) => call<null>('ai:thread:delete', { id }),
   send: (input: AiSendInput) => call<{ threadId: number; runId: string; userMessage: AiMessageDto }>('ai:send', input),
   /** WP 5.2: answer the thread's last question again (replaces its answer). */
-  regenerate: (threadId: number, context?: AiContext) => call<{ threadId: number; runId: string; userMessage: AiMessageDto }>('ai:regenerate', { threadId, context }),
+  /** Re-asks with the screen context stored on the question (main), not the current screen. */
+  regenerate: (threadId: number) => call<{ threadId: number; runId: string; userMessage: AiMessageDto }>('ai:regenerate', { threadId }),
   renameThread: (id: number, title: string) => call<AiThreadDto | null>('ai:thread:rename', { id, title }),
   pinThread: (id: number, pinned: boolean) => call<AiThreadDto | null>('ai:thread:pin', { id, pinned }),
   cancel: (threadId: number) => call<{ cancelled: boolean }>('ai:cancel', { threadId }),

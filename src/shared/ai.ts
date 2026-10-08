@@ -119,6 +119,9 @@ export interface AiFigure {
   /** WP 5.2: the ledger / voucher / item (else the screen) the figure was found under in that
    *  tool's result — the panel renders the figure as a chip linking there. */
   source?: AiSource
+  /** Several rows of that result hold the amount and the answer does not say which: `source` is
+   *  the report, not a guessed row. */
+  ambiguous?: boolean
 }
 
 export interface AiToolCallDto {
@@ -152,6 +155,8 @@ export interface AiMessageDto {
   inputTokens: number | null
   outputTokens: number | null
   draftId: number | null
+  /** WP 5.2, user messages: the screen context the question was asked with. */
+  context: AiContext | null
   createdAt: string
 }
 
@@ -167,7 +172,8 @@ export interface AiThreadDto {
   pinned: boolean
 }
 
-export type AiDraftStatus = 'open' | 'consumed' | 'discarded'
+/** 'superseded': made by an answer that Regenerate replaced (WP 5.2). */
+export type AiDraftStatus = 'open' | 'consumed' | 'discarded' | 'superseded'
 
 /** What draft_voucher stores and the voucher editor pre-fills from. Amounts are paise. */
 export interface AiVoucherDraftPayload {

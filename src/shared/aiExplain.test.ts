@@ -74,12 +74,17 @@ describe('parseNavIntent — navigation the app resolves through search, never t
   it.each([
     ['open the ledger for Acme Traders', { kind: 'ledger', target: 'Acme Traders' }],
     ['Go to Acme Traders statement', { kind: 'ledger', target: 'Acme Traders' }],
-    ['show me the statement of Shop Rent?', { kind: 'ledger', target: 'Shop Rent' }],
+    ['go to the statement of Shop Rent', { kind: 'ledger', target: 'Shop Rent' }],
     ['open item Widget', { kind: 'item', target: 'Widget' }],
     ['open invoice S/12', { kind: 'voucher', target: 'S/12' }],
     ['take me to trial balance', { kind: null, target: 'trial balance' }],
     ["open Acme's ledger", { kind: 'ledger', target: 'Acme' }]
   ])('%s', (text, intent) => expect(parseNavIntent(text)).toEqual(intent))
 
-  it.each(['why is rent high?', 'Acme Traders', 'open', 'open the ledger for x'])('%s → none', (text) => expect(parseNavIntent(text)).toBeNull())
+  it.each([
+    'why is rent high?', 'Acme Traders', 'open', 'open the ledger for x',
+    // chat requests stay with the assistant (review): questions, "show …", time / filter phrases, long text
+    'open the ledger for Acme?', 'show payment from Acme last month', 'show me the statement of Shop Rent',
+    'open payments from Acme last month', 'open the biggest expense ledger this year please now'
+  ])('%s → none', (text) => expect(parseNavIntent(text)).toBeNull())
 })

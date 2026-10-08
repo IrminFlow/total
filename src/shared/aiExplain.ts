@@ -160,8 +160,11 @@ export type NavIntentKind = 'ledger' | 'item' | 'voucher'
  * Returns the search text and the kind, or null when the text is not a navigation request.
  */
 export function parseNavIntent(text: string): { kind: NavIntentKind | null; target: string } | null {
-  const t = text.trim().replace(/[?.!]+$/, '').trim()
-  const m = /^(?:please\s+)?(?:open|go\s+to|show(?:\s+me)?|take\s+me\s+to|jump\s+to)\s+(.+)$/i.exec(t)
+  // Only short, explicit "open / go to X" forms: a question ("…?") or a request that reads like
+  // one ("show payments from Acme last month") goes to the assistant, never to search.
+  if (/\?\s*$/.test(text)) return null
+  const t = text.trim().replace(/[.!]+$/, '').trim()
+  const m = /^(?:please\s+)?(?:open|go\s+to|take\s+me\s+to|jump\s+to)\s+(.+)$/i.exec(t)
   if (!m) return null
   let rest = m[1]!.trim().replace(/^(?:the|a|an)\s+/i, '')
   let kind: NavIntentKind | null = null
@@ -185,6 +188,7 @@ export function parseNavIntent(text: string): { kind: NavIntentKind | null; targ
     rest = rest.replace(tail, '').trim()
   }
   rest = rest.replace(/['’]s$/i, '').trim()
-  if (rest.length < 2) return null
+  if (rest.length < 2 || rest.split(/\s+/).length > 5) return null
+  if (/\b(?:from|last|this|between|since|during|in|on|with|where|which|who|why|how|what|when)\b/i.test(rest)) return null
   return { kind, target: rest.slice(0, 120) }
 }

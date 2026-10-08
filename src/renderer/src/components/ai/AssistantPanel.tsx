@@ -25,7 +25,7 @@ import type { VoucherKind } from '@shared/domain'
 import { aiApi, onAiEvent } from '../../lib/aiClient'
 import { applyAiEvent, emptyPanel, loadThread, resultFor, turnCost, type AiPanelState } from '../../lib/aiThread'
 import { AS_ON_SCREENS, screenContextFor, screenTitle, useAiScreenParams } from '../../lib/aiContext'
-import { useExplain, type ExplainInput } from '../../lib/explain'
+import { explainTargetFor, useExplain, type ExplainInput } from '../../lib/explain'
 import { api } from '../../lib/client'
 import { openLedgerStatement, openVoucher } from '../../lib/drill'
 import { SCREENS } from '../../lib/screens'
@@ -127,6 +127,20 @@ export function AssistantPanel(): React.JSX.Element | null {
       useExplain.getState().setReady(false)
       useExplain.getState().setHandler(null)
     }
+  }, [ready])
+
+  // ⌘⇧E: explain the focused row / statement line, or the active table row (WP 5.2 review).
+  useEffect(() => {
+    if (!ready) return
+    const onKey = (e: KeyboardEvent): void => {
+      if (!(e.metaKey || e.ctrlKey) || !e.shiftKey || e.altKey || e.key.toLowerCase() !== 'e') return
+      const target = explainTargetFor(document)
+      if (!target) return
+      e.preventDefault()
+      target.click()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
   }, [ready])
 
   if (!open) return null
@@ -321,7 +335,9 @@ export function AssistantDrawer({ onClose }: { onClose: () => void }): React.JSX
     if (state.threadId === null || state.running || sending) return
     setSending(true)
     try {
-      const r = await aiApi.regenerate(state.threadId, context)
+      // Main re-asks with the context stored on the question (the screen and figure it was asked
+      // with), never the screen open now.
+      const r = await aiApi.regenerate(state.threadId)
       // run-start (streamed before this reply) already dropped the old answer; adopt it either way.
       adopt(r)
     } catch (err) {
@@ -564,13 +580,22 @@ function ThreadList({
   const queryClient = useQueryClient()
   const toast = useToasts()
   const [q, setQ] = useState('')
-  const [renaming, setRenaming] = useState<{ id: number; title: string } | null>(null)
+  const [renaming, setRenamingState] = useState<{ id: number; title: string } | null>(null)
+  // The edit lives in a ref too: Enter then the blur it causes must save once, and Esc must not
+  // be followed by a save from the blur's stale closure.
+  const renamingRef = useRef<{ id: number; title: string } | null>(null)
+  const setRenaming = (v: { id: number; title: string } | null): void => {
+    renamingRef.current = v
+    setRenamingState(v)
+  }
   const shown = threads.filter((t) => t.title.toLowerCase().includes(q.trim().toLowerCase()))
   const saveRename = async (): Promise<void> => {
-    if (!renaming) return
+    const r = renamingRef.current
+    if (!r) return
+    renamingRef.current = null // claimed: a second Enter / the blur do nothing
     try {
-      await aiApi.renameThread(renaming.id, renaming.title)
-      setRenaming(null)
+      await aiApi.renameThread(r.id, r.title)
+      setRenamingState(null)
       await queryClient.invalidateQueries({ queryKey: ['aiThreads'] })
     } catch (err) {
       toast.push('error', (err as Error).message)
@@ -661,8 +686,10 @@ function DraftsList({ drafts }: { drafts: AiDraftDto[] }): React.JSX.Element {
   )
 }
 
+const DRAFT_STATUS: Record<AiDraftDto['status'], string> = { open: 'Not saved', consumed: 'Saved', discarded: 'Discarded', superseded: 'Replaced by a regenerated answer' }
+
 function DraftStatus({ status }: { status: AiDraftDto['status'] }): React.JSX.Element {
-  return <Badge tone={status === 'open' ? 'amber' : status === 'consumed' ? 'success' : 'neutral'}>{status === 'open' ? 'Not saved' : status === 'consumed' ? 'Saved' : 'Discarded'}</Badge>
+  return <Badge tone={status === 'open' ? 'amber' : status === 'consumed' ? 'success' : 'neutral'}>{DRAFT_STATUS[status]}</Badge>
 }
 
 function ReviewDraftButton({ draft, testId, onBeforeNavigate }: { draft: AiDraftDto; testId: string; onBeforeNavigate?: () => void }): React.JSX.Element {

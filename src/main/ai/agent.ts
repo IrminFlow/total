@@ -27,6 +27,7 @@ import { AiAbortError, type AiProvider, type ChatItem, type ChatResult } from '.
 import type { ToolRegistry } from './tools/registry'
 import { redactSecrets } from './provider'
 import * as store from './store'
+import { writeAudit } from '../services/audit'
 
 // ---------- per-thread runs (keyed by company + thread) ----------
 
@@ -205,7 +206,8 @@ function dedupeSources(list: readonly AiSource[]): AiSource[] {
   return out
 }
 
-export function startTurn(deps: AgentDeps, input: AskInput): TurnHandle {
+export function startTurn(deps: AgentDeps, askInput: AskInput): TurnHandle {
+  let input = askInput
   const { db, settings } = deps
   const blocker = settingsBlocker(settings)
   if (blocker) throw new Error(blocker === AI_NOTICE_MESSAGE ? AI_OFF_MESSAGE : blocker)
@@ -222,14 +224,23 @@ export function startTurn(deps: AgentDeps, input: AskInput): TurnHandle {
     if (!last) throw new Error('Nothing to regenerate yet')
     ;({ runId, signal } = deps.runs.start(threadId, scope))
     text = last.content
-    store.deleteMessagesAfter(db, threadId, last.id)
-    userMessage = store.toDto(store.getMessage(db, last.id)!)
+    const asked = store.getMessage(db, last.id)!
+    // Re-ask with the screen context the question was ASKED with (an explain figure included),
+    // never whatever screen happens to be open now.
+    input = { ...input, context: asked.context ?? undefined }
+    const tid = threadId
+    db.transaction(() => {
+      const removed = store.deleteMessagesAfter(db, tid, last.id)
+      for (const d of removed.supersededDrafts) writeAudit(db, 'ai_draft', d, 'update', { status: 'open' }, { status: 'superseded', note: 'its answer was regenerated' })
+      writeAudit(db, 'ai_thread', tid, 'update', { messageIds: removed.messageIds }, { regenerated: last.id, supersededDrafts: removed.supersededDrafts })
+    })()
+    userMessage = store.toDto(asked)
   } else {
     text = input.text.trim()
     if (!text) throw new Error('Type a question first')
     if (threadId === null) threadId = store.createThread(db, text, deps.user.name)
     ;({ runId, signal } = deps.runs.start(threadId, scope))
-    userMessage = store.toDto(store.addMessage(db, { threadId, role: 'user', content: text }))
+    userMessage = store.toDto(store.addMessage(db, { threadId, role: 'user', content: text, context: input.context ?? null }))
   }
   deps.emit({ type: 'run-start', threadId, runId, userMessage })
   const tid = threadId
@@ -332,7 +343,8 @@ async function runLoop(
       masked: privacy.maskIds,
       pseudonymised: !!privacy.pseudonymiser,
       payloadSha256: sha256(payload),
-      context: input.context ?? null
+      // What was SENT: the masked / pseudonymised context (never raw party names or identifiers).
+      context: input.context ? mapStrings(input.context, (s) => outboundText(s, privacy)) : null
     })
 
     const reverser = privacy.pseudonymiser?.stream()

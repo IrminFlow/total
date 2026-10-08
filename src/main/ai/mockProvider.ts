@@ -136,16 +136,18 @@ function explainAnswer(r: Row): string {
     const top = ((r.largestVouchers ?? []) as Row[]).slice(0, 5)
     const anomalies = (r.anomalies ?? []) as Row[]
     const lines = [
-      `**${s(r.ledger)}** closed at ${s(r.closing)} for ${s((r.period as Row)?.from)} to ${s((r.period as Row)?.to)} (opening ${s(r.opening)}, debits ${s(r.totalDebit)}, credits ${s(r.totalCredit)}, ${s(r.vouchers)} vouchers).`,
+      r.periodAmount
+        ? `**${s(r.ledger)}** comes to ${s(r.periodAmount)} for ${s((r.period as Row)?.from)} to ${s((r.period as Row)?.to)} (debits ${s(r.totalDebit)}, credits ${s(r.totalCredit)}, ${s(r.vouchers)} vouchers).`
+        : `**${s(r.ledger)}** closed at ${s(r.closing)} for ${s((r.period as Row)?.from)} to ${s((r.period as Row)?.to)} (opening ${s(r.opening)}, debits ${s(r.totalDebit)}, credits ${s(r.totalCredit)}, ${s(r.vouchers)} vouchers).`,
       '',
       top.length ? 'The largest entries:' : 'There are no entries in the period.',
       ...(top.length
         ? ['', '| Voucher | Date | Other side | Amount | Share |', '|---|---|---|---:|---:|', ...top.map((v) => `| ${s(v.type)} ${s(v.number)} | ${s(v.date)} | ${s(v.particulars)} | ${s(v.debit) || s(v.credit)} | ${s(v.shareOfTurnover)} |`)]
         : []),
       '',
-      `Previous period (${s(prev.from)} to ${s(prev.to)}): closing ${s(prev.closing)}${prev.closingChangePct ? `, a change of ${s(prev.closingChangePct)}` : ''}.`,
+      `Previous period (${s(prev.from)} to ${s(prev.to)}): ${prev.periodAmount ? s(prev.periodAmount) : `closing ${s(prev.closing)}`}; it ${prev.change === 'unchanged' ? 'is unchanged' : s(prev.change)}${prev.changePct ? ` (${s(prev.changePct)})` : ''}.`,
       '',
-      anomalies.length ? `Unusual: ${anomalies.map((a) => s(a.what)).join('; ')}.` : s(r.note) || 'Nothing unusual.'
+      anomalies.length ? `Unusual: ${anomalies.map((a) => s(a.what)).join('; ')}.` : s(r.noAnomalies) || 'Nothing unusual.'
     ]
     return lines.join('\n')
   }

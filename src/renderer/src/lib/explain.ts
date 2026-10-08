@@ -78,3 +78,21 @@ export function looksLikeMoney(text: string): boolean {
   if (/₹|\bRs\.?\s?\d|\bINR\b/.test(t)) return /\d/.test(t)
   return /^-?\d{1,3}(?:,\d{2,3})*\.\d{2}(?:\s?(?:Dr|Cr))?$/.test(t)
 }
+
+/**
+ * ⌘⇧E — the keyboard path to "Explain this" (the buttons stay out of the Tab order): the focused
+ * row or statement line, else the active (amber-bar) table row of the table used last. Returns
+ * the row's first Explain action, or null. Screen-agnostic — reads the DOM like ⌘E does.
+ */
+export function explainTargetFor(doc: Document): HTMLElement | null {
+  const active = doc.activeElement instanceof HTMLElement ? doc.activeElement : null
+  const host = active?.closest('.t-explain-host') ?? active?.closest('tr, [data-drill-row]')
+  const own = host?.querySelector<HTMLElement>('[data-explain]')
+  if (own) return own
+  const rows = [...doc.querySelectorAll<HTMLElement>('tr.kbar-row[data-active="true"]')].reverse()
+  for (const r of rows) {
+    const b = r.querySelector<HTMLElement>('[data-explain]')
+    if (b) return b
+  }
+  return null
+}

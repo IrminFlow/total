@@ -79,7 +79,7 @@ export function CommandPalette({ onClose }: { onClose: () => void }): React.JSX.
   // service, never by the model.
   const question = aiOn ? paletteQuestion(query) : null
   const intent = useMemo(() => parseNavIntent(query), [query])
-  const searchText = intent ? intent.target : /^ask\s*:/i.test(query.trim()) ? '' : query
+  const searchText = intent ? intent.target : /^ask\s*:/i.test(query.trim()) ? '' : query.replace(/\?+\s*$/, '')
 
   const commands = useMemo<Command[]>(() => {
     const go = (screen: Screen) => () => nav.go(screen)
@@ -202,7 +202,15 @@ export function CommandPalette({ onClose }: { onClose: () => void }): React.JSX.
 
   const groups = useMemo<Group[]>(() => {
     const out: Group[] = []
-    if (question) out.push({ key: 'ask', title: 'Assistant', items: [{ type: 'ask', q: question }] })
+    // Ask AI leads — unless the books have an exact match for the text (a ledger, item or voucher
+    // number typed with a "?"): then the hit keeps the Enter default and Ask AI goes last.
+    const bare = query.trim().replace(/\?+$/, '').trim().toLowerCase()
+    const exactHit =
+      !!live &&
+      [...(live.ledgers?.rows ?? []), ...(live.items?.rows ?? [])].some((h) => h.name.toLowerCase() === bare) ||
+      !!live?.vouchers?.rows.some((v) => v.number.toLowerCase() === bare)
+    const askGroup: Group | null = question ? { key: 'ask', title: 'Assistant', items: [{ type: 'ask', q: question }] } : null
+    if (askGroup && !exactHit) out.push(askGroup)
     const empty = query.trim() === ''
     const hasRecents = empty && recents.queries.length + recents.vouchers.length + recents.ledgers.length + recents.items.length > 0
     // Commands always come first, so ⌘K then ↵ still runs what it always ran (New voucher);
@@ -232,6 +240,7 @@ export function CommandPalette({ onClose }: { onClose: () => void }): React.JSX.
         out.push({ key: `kind-${k}`, title: KIND_TITLE[k], count: sec.total, items })
       }
     }
+    if (askGroup && exactHit) out.push(askGroup)
     return out
   }, [query, recents, filtered, live, question, intent])
 

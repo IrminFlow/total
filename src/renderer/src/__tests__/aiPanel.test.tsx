@@ -18,7 +18,7 @@ function msg(over: Partial<AiMessageDto>): AiMessageDto {
   return {
     id: 1, threadId: 7, role: 'assistant', content: '', status: 'ok', toolCalls: [], toolCallId: null, toolName: null, toolInput: null,
     toolOutput: null, toolOk: null, truncated: false, sources: [], figures: [], model: null, costMicroUsd: null, inputTokens: null,
-    outputTokens: null, draftId: null, createdAt: '2025-08-14T10:00:00Z', ...over
+    outputTokens: null, draftId: null, context: null, createdAt: '2025-08-14T10:00:00Z', ...over
   }
 }
 

@@ -189,8 +189,9 @@ describe('WP 5.2 — screen context in the prompt', () => {
   it('adds the context lines and the screen / explain rules only when there is context', () => {
     const p = buildSystemPrompt({ ...CTX, screen: 'trial-balance', context: { screen: 'trial-balance', label: 'Trial balance', from: '2025-04-01', to: '2026-03-31', explain: { label: 'Cash', value: '₹1.00', ledgerId: 3 } } })
     expect(p).toContain('looking at: trial-balance')
-    expect(p).toContain('  Screen: Trial balance (trial-balance)')
-    expect(p).toContain('  Figure to explain (JSON): {"label":"Cash","value":"₹1.00","ledgerId":3}')
+    expect(p).toContain('<<<screen-context\nScreen: Trial balance (trial-balance)')
+    expect(p).toContain('screen-context>>>')
+    expect(p).toContain('Figure to explain (JSON): {"label":"Cash","value":"₹1.00","ledgerId":3}')
     expect(p).toContain(SCREEN_RULE)
     expect(p).toContain(EXPLAIN_RULE)
     expect(EXPLAIN_RULE).toMatch(/do not work any out yourself/)
@@ -216,16 +217,59 @@ describe('WP 5.2 — a sourced figure is traced to the row it came from', () => 
     sources: [{ kind: 'screen' as const, screen: 'ledger-statement', label: 'Rent statement', params: { ledgerId: 7 } }, { kind: 'ledger' as const, ledgerId: 7, label: 'Rent' }]
   }
   it('a row amount → its voucher; a closing balance (repeated as the last running balance) → the ledger', () => {
-    expect(locateFigureSource(200_000, [statement])).toEqual({ kind: 'voucher', voucherId: 12, label: 'Payment 5' })
-    expect(locateFigureSource(300_000, [statement])).toEqual({ kind: 'ledger', ledgerId: 7, label: 'Rent' })
+    expect(locateFigureSource(200_000, [statement]).source).toEqual({ kind: 'voucher', voucherId: 12, label: 'Payment 5' })
+    expect(locateFigureSource(300_000, [statement]).source).toEqual({ kind: 'ledger', ledgerId: 7, label: 'Rent' })
   })
   it('an amount with no id around it → the tool’s screen; unknown → undefined', () => {
     const pnl = { tool: 'profit_and_loss', output: { ok: true, result: { netProfit: '₹9.00' } }, sources: [{ kind: 'screen' as const, screen: 'profit-loss', label: 'P&L' }] }
-    expect(locateFigureSource(900, [pnl])).toEqual({ kind: 'screen', screen: 'profit-loss', label: 'P&L' })
-    expect(locateFigureSource(123, [pnl])).toBeUndefined()
+    expect(locateFigureSource(900, [pnl]).source).toEqual({ kind: 'screen', screen: 'profit-loss', label: 'P&L' })
+    expect(locateFigureSource(123, [pnl])).toEqual({})
   })
   it('checkFigures attaches the source', () => {
     const f = checkFigures('Rent paid ₹2,000.00.', [{ name: 'ledger_statement', text: JSON.stringify(statement.output) }], [statement])
     expect(f).toEqual([{ text: '₹2,000.00', paise: 200_000, sourced: true, tool: 'ledger_statement', source: { kind: 'voucher', voucherId: 12, label: 'Payment 5' } }])
+  })
+})
+
+describe('WP 5.2 review — repeated amounts are not traced to the first matching row', () => {
+  const rent = {
+    tool: 'explain_figure',
+    output: {
+      ok: true,
+      result: {
+        ledgerId: 7, ledger: 'Rent', closing: '₹30,000.00 Dr',
+        largestVouchers: [
+          { voucherId: 3, type: 'Journal', number: '3', debit: '₹10,000.00' },
+          { voucherId: 4, type: 'Journal', number: '4', debit: '₹10,000.00' },
+          { voucherId: 5, type: 'Journal', number: '5', debit: '₹10,000.00' }
+        ]
+      }
+    },
+    sources: [{ kind: 'screen' as const, screen: 'ledger-statement', label: 'Rent statement', params: { ledgerId: 7 } }]
+  }
+  const seen = [{ name: 'explain_figure', text: JSON.stringify(rent.output) }]
+
+  it('three ₹10,000.00 entries: the row named on the figure’s line wins', () => {
+    const answer = '| Journal 3 | ₹10,000.00 |\n| Journal 4 | ₹10,000.00 |\n| Journal 5 | ₹10,000.00 |'
+    expect(checkFigures(answer, seen, [rent]).map((f) => f.source)).toEqual([
+      { kind: 'voucher', voucherId: 3, label: 'Journal 3' },
+      { kind: 'voucher', voucherId: 4, label: 'Journal 4' },
+      { kind: 'voucher', voucherId: 5, label: 'Journal 5' }
+    ])
+  })
+
+  it('no label near it: ambiguous, linked to the report — never a guessed row', () => {
+    const [f] = checkFigures('Rent was ₹10,000.00 a month.', seen, [rent])
+    expect(f).toMatchObject({ sourced: true, ambiguous: true, source: { kind: 'screen', screen: 'ledger-statement' } })
+  })
+
+  it('a longer label is not mistaken for its prefix (Journal 1 vs Journal 12)', () => {
+    const o = {
+      tool: 't',
+      output: { rows: [{ voucherId: 1, type: 'Journal', number: '1', debit: '₹5.00' }, { voucherId: 12, type: 'Journal', number: '12', debit: '₹5.00' }] },
+      sources: [{ kind: 'screen' as const, screen: 'daybook', label: 'Day book' }]
+    }
+    const [f] = checkFigures('Journal 12 was ₹5.00.', [{ name: 't', text: JSON.stringify(o.output) }], [o])
+    expect(f!.source).toEqual({ kind: 'voucher', voucherId: 12, label: 'Journal 12' })
   })
 })
