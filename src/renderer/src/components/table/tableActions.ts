@@ -7,6 +7,7 @@ export interface TableActions {
   openColumns: () => void
   exportPdf?: () => void
   exportCsv?: () => void
+  exportXlsx?: () => void
 }
 
 const registry = new Map<string, TableActions>()

@@ -4,7 +4,8 @@ import { api } from '../lib/client'
 import { useSession, useToasts } from '../state/stores'
 import { Banner, Button, DateInput, Money, Page, PageHeader, Panel } from '../components/ui'
 import { OptionsExport, useScreenOptions } from '../components/ScreenOptions'
-import { ReportSkeleton, StatementOptions } from './ProfitLoss'
+import { ComparativeOptions, ReportSkeleton, StatementOptions } from './ProfitLoss'
+import { ComparativeStatement } from '../components/ComparativeStatement'
 import { StatementTree } from '../components/StatementTree'
 import { csvReport, flattenNodes, printReport } from '../lib/reportExport'
 import type { ReportColumn as PdfColumn, ReportRow as PdfRow } from '../lib/client'
@@ -17,7 +18,7 @@ const EXPORT_COLUMNS: PdfColumn[] = [
 ]
 
 export function BalanceSheetScreen(): React.JSX.Element {
-  const { to: sessionTo } = useSession()
+  const { from: sessionFrom, to: sessionTo } = useSession()
   const toast = useToasts()
   // Local, on-screen as-on date (user ask): seeded from the header period, editable here
   // without touching the global session period other screens read.
@@ -31,7 +32,7 @@ export function BalanceSheetScreen(): React.JSX.Element {
     queryFn: () => api.reports.balanceSheet(asOn),
     placeholderData: keepPreviousData
   })
-  const opts = useScreenOptions('balance-sheet', { expandAll: false, hideZero: false })
+  const opts = useScreenOptions('balance-sheet', { expandAll: false, hideZero: false, comparative: false })
   if (!data) return <ReportSkeleton title="Balance sheet" />
 
   const balanced = data.totalAssets === data.totalLiabilities
@@ -85,6 +86,7 @@ export function BalanceSheetScreen(): React.JSX.Element {
                 onExpandAll={(v) => opts.set('expandAll', v)}
                 onHideZero={(v) => opts.set('hideZero', v)}
               />
+              <ComparativeOptions comparative={opts.options.comparative} onComparative={(v) => opts.set('comparative', v)} />
               <OptionsExport>
                 <Button size="sm" onClick={exportPdf} data-testid="options-bs-pdf">
                   Export PDF
@@ -97,6 +99,9 @@ export function BalanceSheetScreen(): React.JSX.Element {
           )
         }}
       />
+      {opts.options.comparative ? (
+        <ComparativeStatement kind="bs" from={sessionFrom <= asOn ? sessionFrom : asOn} to={asOn} budgetId={null} tree={tree} />
+      ) : (
       <div className={`grid grid-cols-2 gap-3 transition-opacity ${isPlaceholderData ? 'opacity-60' : ''}`}>
         <Panel className="p-4">
           <p className="mb-2 text-caption font-semibold tracking-[0.08em] text-muted uppercase">Liabilities</p>
@@ -115,6 +120,7 @@ export function BalanceSheetScreen(): React.JSX.Element {
           </div>
         </Panel>
       </div>
+      )}
       {!balanced && (
         <Banner tone="warning" className="mt-3" testId="bs-unbalanced">
           The two sides differ by <Money paise={Math.abs(data.totalAssets - data.totalLiabilities)} /> — usually an opening balance entered on one side only.

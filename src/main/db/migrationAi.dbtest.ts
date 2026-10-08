@@ -12,13 +12,14 @@ const M_AI = MIGRATIONS.findIndex((sql) => sql.includes('CREATE TABLE ai_threads
 const M_CHAT = MIGRATIONS.findIndex((sql) => sql.includes('ALTER TABLE ai_threads ADD COLUMN pinned'))
 
 describe('AI migration — agent tables', () => {
-  it('exists and is followed only by the WP 5.2 chat-panel migration (the last)', () => {
+  it('exists after the Phase 4 migrations (later branches — WP 6.1 report builder — append after it)', () => {
     expect(M_AI).toBeGreaterThan(30)
-    expect(M_AI).toBe(MIGRATIONS.length - 2)
-    expect(M_CHAT).toBe(MIGRATIONS.length - 1)
+    expect(MIGRATIONS.findIndex((sql) => sql.includes('CREATE TABLE fx_settlements'))).toBeLessThan(M_AI)
   })
 
-  it('WP 5.2: adds thread pins and the outbound context column without touching the books', () => {
+  it('WP 5.2: the chat-panel migration is last (number by position) and adds thread pins and the outbound context column without touching the books', () => {
+    expect(M_CHAT).toBe(MIGRATIONS.length - 1)
+    expect(M_CHAT).toBeGreaterThan(M_AI)
     const db = freshPartialDb(M_CHAT)
     seedCompany(db, TEST_INFO)
     postSimpleVoucher(db, { date: '2025-05-01', amount: 123456, kind: 'receipt' })

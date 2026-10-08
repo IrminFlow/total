@@ -14,7 +14,8 @@ export function Sparkline({
   color = 'ink',
   negativeColor,
   height = 28,
-  testId
+  testId,
+  formatValue = (v: number) => formatPaise(v, { symbol: true })
 }: {
   values: number[]
   /** What the series is, e.g. "Cash and bank, month-end, last 6 months". */
@@ -23,6 +24,8 @@ export function Sparkline({
   negativeColor?: ChartColor
   height?: number
   testId?: string
+  /** Non-money series: how the accessible name states a value. Default: rupees from paise. */
+  formatValue?: (v: number) => string
 }): React.JSX.Element {
   const [ref, width] = useChartWidth<HTMLDivElement>(120)
   const min = values.length ? Math.min(...values) : 0
@@ -35,7 +38,7 @@ export function Sparkline({
   const aria =
     values.length === 0
       ? `${label}: no data`
-      : `${label}: from ${formatPaise(values[0]!, { symbol: true })} to ${formatPaise(last!, { symbol: true })}`
+      : `${label}: from ${formatValue(values[0]!)} to ${formatValue(last!)}`
   const lastColor = negativeColor && last != null && last < 0 ? negativeColor : color
   return (
     <div ref={ref} className="w-full" data-testid={testId}>

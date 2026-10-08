@@ -1,3 +1,4 @@
+import { decimalToScaled } from './dataImport/values'
 /**
  * Tally XML import: a small tolerant XML parser plus mapping from Tally's
  * TALLYMESSAGE export format (Masters and Daybook/Vouchers) into neutral
@@ -154,6 +155,30 @@ export interface TallyVoucher {
   narration: string | null
   lines: TallyVoucherLine[]
   inventory: TallyInventoryLine[]
+  /** ISOPTIONAL = Yes: a memorandum voucher (never counts in the books). */
+  isOptional?: boolean
+}
+
+/** A Tally Sales / Purchase Order (WP 6.3 → trade_docs). */
+export interface TallyOrderLine {
+  item: string
+  qtyMilli: number
+  /** Paise per unit, as the order states it (RATE "100.00/Nos"); null when absent. */
+  ratePaise: number | null
+  /** Line value (|AMOUNT|), paise. */
+  amount: number
+  godown: string | null
+  dueDate: string | null
+}
+export interface TallyOrder {
+  kind: 'sales_order' | 'purchase_order'
+  vchType: string
+  date: string
+  number: string
+  party: string | null
+  narration: string | null
+  reference: string | null
+  lines: TallyOrderLine[]
 }
 
 export interface TallyImport {
@@ -162,7 +187,49 @@ export interface TallyImport {
   units: TallyUnit[]
   items: TallyItem[]
   vouchers: TallyVoucher[]
+  /** Sales / purchase orders (never vouchers: they post nothing). */
+  orders: TallyOrder[]
+  /** COMPANY BOOKSFROM (else STARTINGFROM) as ISO, when the export carries the company master. */
+  booksFrom: string | null
   warnings: string[]
+}
+
+/** Tally order voucher types (Sales Order, Purchase Order, Job Work In/Out Order). */
+export const TALLY_ORDER_TYPE = /\border\b/i
+
+const MONTHS: Record<string, string> = { jan: '01', feb: '02', mar: '03', apr: '04', may: '05', jun: '06', jul: '07', aug: '08', sep: '09', oct: '10', nov: '11', dec: '12' }
+
+/** Order due dates: "20250415" or the display form "15-Apr-2025" / "1-Apr-25" (the P attribute). */
+export function parseTallyLooseDate(s: string): string | null {
+  const strict = parseTallyDate(s)
+  if (strict) return strict
+  const m = s.trim().match(/^(\d{1,2})-([A-Za-z]{3})[A-Za-z]*-(\d{2}|\d{4})$/)
+  if (!m) return null
+  const mon = MONTHS[m[2]!.toLowerCase()]
+  if (!mon) return null
+  const year = m[3]!.length === 2 ? `20${m[3]}` : m[3]!
+  return `${year}-${mon}-${m[1]!.padStart(2, '0')}`
+}
+
+/** RATE "100.00/Nos" → 10000 paise; "" → null. */
+export function parseTallyRate(s: string): number | null {
+  const m = s.trim().match(/^-?[\d,]*\.?\d+/)
+  if (!m) return null
+  // Integer maths from the decimal text (floats never touch money).
+  const v = decimalToScaled(m[0].replace(/,/g, ''), 2)
+  return v === null ? null : Math.abs(v)
+}
+
+/** Rate / discount / amount for an order line that satisfies trade_docs' rule
+ *  amount = round(qty × rate) − discount, keeping the line's own amount. */
+export function orderLineMoney(qtyMilli: number, ratePaise: number | null, amount: number): { ratePaise: number; discountPaise: number; amount: number } {
+  let rate = ratePaise ?? Math.ceil((amount * 1000) / qtyMilli)
+  let gross = Math.round((qtyMilli * rate) / 1000)
+  if (gross < amount) {
+    rate = Math.ceil((amount * 1000) / qtyMilli)
+    gross = Math.round((qtyMilli * rate) / 1000)
+  }
+  return { ratePaise: rate, discountPaise: Math.max(0, gross - amount), amount }
 }
 
 const nameOf = (n: XNode): string => n.attrs.NAME ?? childText(n, 'NAME')
@@ -175,7 +242,17 @@ export const TALLY_STOCK_NOTE_TYPE = /delivery note|delivery challan|receipt not
 export function parseTallyExport(xml: string): TallyImport {
   const root = parseXml(xml)
   const warnings: string[] = []
-  const result: TallyImport = { groups: [], ledgers: [], units: [], items: [], vouchers: [], warnings }
+  const result: TallyImport = { groups: [], ledgers: [], units: [], items: [], vouchers: [], orders: [], booksFrom: null, warnings }
+
+  // The company master, when the export includes it (Masters export / "All Masters"): BOOKSFROM is
+  // the first day of the books, STARTINGFROM the FY start (Tally company creation fields).
+  for (const c of collect(root, 'COMPANY')) {
+    const d = parseTallyDate(childText(c, 'BOOKSFROM')) ?? parseTallyDate(childText(c, 'STARTINGFROM'))
+    if (d) {
+      result.booksFrom = d
+      break
+    }
+  }
 
   for (const g of collect(root, 'GROUP')) {
     const name = nameOf(g)
@@ -249,6 +326,42 @@ export function parseTallyExport(xml: string): TallyImport {
       })
     }
     const vchType = v.attrs.VCHTYPE ?? childText(v, 'VOUCHERTYPENAME')
+    // Orders post nothing: they go to trade_docs (WP 6.3, design §8 Q8). Each inventory entry is
+    // a line; its BATCHALLOCATIONS carry the godown and ORDERDUEDATE. Job-work orders have no
+    // trade-doc kind and are skipped.
+    if (TALLY_ORDER_TYPE.test(vchType)) {
+      const number = childText(v, 'VOUCHERNUMBER')
+      const kind = /purchase/i.test(vchType) ? 'purchase_order' : /sales/i.test(vchType) ? 'sales_order' : null
+      if (!kind) {
+        warnings.push(`${vchType} ${number || date} skipped: job-work orders are not imported`)
+        continue
+      }
+      const orderLines: TallyOrderLine[] = []
+      for (const inv of v.children.filter((c) => c.tag === 'ALLINVENTORYENTRIES.LIST' || c.tag === 'INVENTORYENTRIES.LIST')) {
+        const item = childText(inv, 'STOCKITEMNAME')
+        const qtyMilli = parseTallyQty(childText(inv, 'ACTUALQTY') || childText(inv, 'BILLEDQTY'))
+        if (!item || qtyMilli <= 0) continue
+        const batch = inv.children.find((c) => c.tag === 'BATCHALLOCATIONS.LIST')
+        const due = batch?.children.find((c) => c.tag === 'ORDERDUEDATE')
+        orderLines.push({
+          item,
+          qtyMilli,
+          ratePaise: parseTallyRate(childText(inv, 'RATE')),
+          amount: Math.abs(parseTallyAmount(childText(inv, 'AMOUNT'))),
+          godown: (batch && childText(batch, 'GODOWNNAME')) || null,
+          dueDate: due ? (parseTallyLooseDate(due.text) ?? parseTallyLooseDate(due.attrs.P ?? '')) : null
+        })
+      }
+      if (orderLines.length === 0) {
+        warnings.push(`${vchType} ${number || date} skipped: an order without item lines`)
+        continue
+      }
+      result.orders.push({
+        kind, vchType, date, number, party: childText(v, 'PARTYLEDGERNAME') || null, narration: childText(v, 'NARRATION') || null,
+        reference: childText(v, 'REFERENCE') || null, lines: orderLines
+      })
+      continue
+    }
     // A delivery / receipt note moves goods only — it legitimately has no ledger entries (WP 2.5).
     if (lines.length === 0 && !(inventory.length > 0 && TALLY_STOCK_NOTE_TYPE.test(vchType))) {
       warnings.push(`Voucher ${childText(v, 'VOUCHERNUMBER') || date} skipped: no ledger entries`)
@@ -260,6 +373,7 @@ export function parseTallyExport(xml: string): TallyImport {
       number: childText(v, 'VOUCHERNUMBER'),
       party: childText(v, 'PARTYLEDGERNAME') || null,
       narration: childText(v, 'NARRATION') || null,
+      ...(childText(v, 'ISOPTIONAL').toLowerCase() === 'yes' ? { isOptional: true } : {}),
       lines,
       inventory
     })

@@ -6,14 +6,42 @@ import { isRealId, openLedgerStatement } from '../lib/drill'
 import { ExplainButton } from './kit/ExplainButton'
 import { figureText, useAiAffordances } from '../lib/explain'
 
+/** An extra figure column (comparatives, WP 6.2): `amountOf` a node, null = blank. */
+export interface StatementColumn {
+  key: string
+  amountOf: (node: StatementNode) => number | null
+  /** Render as a percentage (variance %) rather than money. */
+  percent?: boolean
+}
+
+/** Width of each extra column, so the header row above the tree can line up with it. */
+export const STATEMENT_COLUMN_W = 'w-32'
+
+function ExtraCells({ node, columns }: { node: StatementNode; columns: StatementColumn[] }): React.JSX.Element {
+  return (
+    <>
+      {columns.map((c) => {
+        const v = c.amountOf(node)
+        return (
+          <span key={c.key} className={`${STATEMENT_COLUMN_W} shrink-0 text-right text-detail text-muted`} data-col={c.key}>
+            {v === null ? '' : c.percent ? <span className="num">{`${v > 0 ? '+' : ''}${v.toFixed(1)}%`}</span> : <Money paise={v} className="text-detail" />}
+          </span>
+        )
+      })}
+    </>
+  )
+}
+
 /** Drill-down tree used by P&L and Balance Sheet: groups expand; a ledger leaf's NAME opens its
- *  edit window and the rest of its row opens its statement. WP 5.2: while the assistant is on,
- *  every line's amount has an "Explain this" action (a ledger by id, a group by name). */
+ *  edit window and the rest of its row opens its statement. `columns` adds comparative figures
+ *  after the node's own amount. WP 5.2: while the assistant is on, every line's amount has an
+ *  "Explain this" action (a ledger by id, a group by name). */
 export function StatementTree({
   nodes,
   depth = 0,
   expandAll = false,
-  hideZero = false
+  hideZero = false,
+  columns
 }: {
   nodes: StatementNode[]
   depth?: number
@@ -21,13 +49,14 @@ export function StatementTree({
   expandAll?: boolean
   /** Leave out groups and ledgers whose amount is zero. */
   hideZero?: boolean
+  columns?: StatementColumn[]
 }): React.JSX.Element {
   return (
     <div>
       {nodes
         .filter((n) => !hideZero || n.amount !== 0)
         .map((n) => (
-          <StatementRow key={`${n.kind}-${n.id}-${n.name}`} node={n} depth={depth} expandAll={expandAll} hideZero={hideZero} />
+          <StatementRow key={`${n.kind}-${n.id}-${n.name}`} node={n} depth={depth} expandAll={expandAll} hideZero={hideZero} columns={columns} />
       ))}
     </div>
   )
@@ -39,13 +68,23 @@ function StatementRow({
   node,
   depth,
   expandAll,
-  hideZero
+  hideZero,
+  columns
 }: {
   node: StatementNode
   depth: number
   expandAll: boolean
   hideZero: boolean
+  columns?: StatementColumn[]
 }): React.JSX.Element {
+  const amount = columns ? (
+    <span className="flex shrink-0 items-center">
+      <span className={`${STATEMENT_COLUMN_W} text-right`}><Money paise={node.amount} className="text-detail" /></span>
+      <ExtraCells node={node} columns={columns} />
+    </span>
+  ) : (
+    <Money paise={node.amount} className="text-detail" />
+  )
   const [open, setOpen] = useState(depth === 0 || expandAll)
   const isLeafLedger = node.kind === 'ledger' && isRealId(node.id)
   const style = { paddingLeft: `${8 + depth * 18}px` }
@@ -79,7 +118,7 @@ function StatementRow({
         <span className={`min-w-0 truncate ${nameCls}`}>
           <LedgerLink ledgerId={node.id} name={node.name} />
         </span>
-        <Money paise={node.amount} className="text-detail" />
+        {amount}
       </div>
     )
   }
@@ -103,9 +142,9 @@ function StatementRow({
           )}
           {node.name}
         </span>
-        <Money paise={node.amount} className="text-detail" />
+        {amount}
       </button>)}
-      {open && node.children.length > 0 && <StatementTree nodes={node.children} depth={depth + 1} expandAll={expandAll} hideZero={hideZero} />}
+      {open && node.children.length > 0 && <StatementTree nodes={node.children} depth={depth + 1} expandAll={expandAll} hideZero={hideZero} columns={columns} />}
     </>
   )
 }

@@ -1,6 +1,7 @@
 import { rowsToCsv } from '@shared/csv'
 import { formatPaise } from '@shared/money'
 import type { StatementNode } from '@shared/reports'
+import type { XlsxSheet } from '@shared/xlsx/writer'
 import { api, type ReportColumn, type ReportPdfInput, type ReportRow } from './client'
 import type { ToastState } from '../state/stores'
 
@@ -51,6 +52,17 @@ export async function csvReport(header: string[], rows: string[][], filename: st
   const csv = rowsToCsv(header, rows)
   try {
     const r = await api.exportReport.csv(slugFilename(filename), csv)
+    toast.push('success', `Saved to exports — ${r.path}`)
+  } catch (err) {
+    toast.push('error', (err as Error).message)
+  }
+}
+
+/** Hands a typed sheet (lib/table buildTableXlsx) to export:xlsx, which writes a real .xlsx into
+ *  the company's exports folder (money as ₹ numbers, dates as dates — WP 6.3). */
+export async function xlsxReport(sheet: XlsxSheet, filename: string, toast: ToastState): Promise<void> {
+  try {
+    const r = await api.exportReport.xlsx(slugFilename(filename), [sheet])
     toast.push('success', `Saved to exports — ${r.path}`)
   } catch (err) {
     toast.push('error', (err as Error).message)

@@ -55,7 +55,10 @@ describe('dryRunTallyXml', () => {
       units: 0,
       items: 0,
       vouchers: 1,
+      orders: 0,
       skipped: 0,
+      // WP 6.3: the FY the file's books start in (no COMPANY master → its earliest voucher).
+      booksFromSet: 2026,
       warnings: []
     })
 

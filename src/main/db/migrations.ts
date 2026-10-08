@@ -2884,7 +2884,117 @@ export const MIGRATIONS: string[] = [
     created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
   );
   `,
-  // 037 (WP 5.2, appended last after the WP 5.1 AI tables): the chat panel. Nothing here touches
+  // WP 6.1 / 6.2 (last; number by position) — report builder and scheduled report packs. Kept
+  // last when other branches' migrations merge (the migration number is the array position —
+  // currently 037 after 036 AI; WP 6.3 Excel goes before it if it lands first). Never edit the
+  // content. Self-contained:
+  // depends only on core tables. Saved reports store the query model only (every figure is
+  // computed at query time); a pack lists built-in and saved reports with a period rule, an
+  // output folder and a frequency, and keeps a run log.
+  `
+  CREATE TABLE saved_reports (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL UNIQUE COLLATE NOCASE,
+    model_json TEXT NOT NULL,
+    owner TEXT,
+    pinned INTEGER NOT NULL DEFAULT 0 CHECK (pinned IN (0, 1)),
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+
+  CREATE TABLE report_packs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL UNIQUE COLLATE NOCASE,
+    reports_json TEXT NOT NULL,
+    period_rule TEXT NOT NULL CHECK (period_rule IN ('lastMonth', 'lastQuarter', 'fyToDate')),
+    frequency TEXT NOT NULL CHECK (frequency IN ('daily', 'weekly', 'monthly')),
+    formats_json TEXT NOT NULL DEFAULT '["pdf","csv"]',
+    output_dir TEXT,
+    active INTEGER NOT NULL DEFAULT 1 CHECK (active IN (0, 1)),
+    last_run_at TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+
+  CREATE TABLE report_pack_runs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    pack_id INTEGER NOT NULL REFERENCES report_packs(id) ON DELETE CASCADE,
+    trigger TEXT NOT NULL CHECK (trigger IN ('schedule', 'manual')),
+    started_at TEXT NOT NULL,
+    finished_at TEXT,
+    period_from TEXT NOT NULL,
+    period_to TEXT NOT NULL,
+    status TEXT NOT NULL CHECK (status IN ('ok', 'partial', 'failed')),
+    output_dir TEXT,
+    files_json TEXT NOT NULL DEFAULT '[]',
+    error TEXT
+  );
+  CREATE INDEX idx_report_pack_runs_pack ON report_pack_runs(pack_id, id);
+  `,
+  // 038 (WP 6.3) — Excel / CSV import wizard. Number assigned by the orchestrator: after 032–035
+  // (Phase 4), 036 (WP 5.1 AI) and 037 (WP 6.1 report builder), all on main; kept LAST.
+  // dbtests locate it by content (CREATE TABLE import_batches), never by index.
+  // - import_templates: a remembered column mapping per import profile ('generic:ledgers',
+  //   'zoho:invoices', 'busy:accounts', …). mapping_json maps field key → source HEADER NAME (not
+  //   position), so a template survives re-ordered columns; header_signature (sorted normalised
+  //   headers) lets the wizard offer the template automatically when the same layout comes back.
+  // - import_batches: one row per applied import (a dry run writes nothing) — what file, which
+  //   profile, the counts, and whether it was undone.
+  // - import_batch_items: every record the batch created or updated. Undo bins created vouchers /
+  //   orders, deletes created masters still unused, and restores the before-image of updated
+  //   ledgers / items and full voucher images (before_json), and reverses bank-statement hand-offs
+  //   (bank_date items). source_key = the record id in the exporting company (Books workbook
+  //   "Source ID", namespaced by company) — a re-import matches on it first. undone_at makes undo
+  //   idempotent; last_audit_id (the audit trail high-water mark at import) lets undo skip records
+  //   a user edited afterwards. Rows are never deleted: an undone batch keeps its history.
+  `
+  CREATE TABLE import_templates (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    profile_id TEXT NOT NULL,
+    target TEXT NOT NULL,
+    header_signature TEXT NOT NULL DEFAULT '',
+    mapping_json TEXT NOT NULL,
+    options_json TEXT NOT NULL DEFAULT '{}',
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+    last_used_at TEXT,
+    UNIQUE (profile_id, name)
+  );
+  CREATE INDEX idx_import_templates_signature ON import_templates(header_signature);
+
+  CREATE TABLE import_batches (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    source TEXT NOT NULL,
+    profile_id TEXT,
+    file_name TEXT,
+    status TEXT NOT NULL DEFAULT 'applied' CHECK (status IN ('applied', 'undone', 'partly_undone')),
+    options_json TEXT NOT NULL DEFAULT '{}',
+    summary_json TEXT NOT NULL DEFAULT '{}',
+    error_count INTEGER NOT NULL DEFAULT 0 CHECK (error_count >= 0),
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    created_by TEXT,
+    undone_at TEXT,
+    undo_summary_json TEXT,
+    last_audit_id INTEGER
+  );
+
+  CREATE TABLE import_batch_items (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    batch_id INTEGER NOT NULL REFERENCES import_batches(id),
+    entity TEXT NOT NULL,
+    entity_id INTEGER NOT NULL,
+    action TEXT NOT NULL CHECK (action IN ('create', 'update')),
+    before_json TEXT,
+    source_line INTEGER,
+    source_key TEXT,
+    undone_at TEXT
+  );
+  CREATE INDEX idx_import_batch_items_batch ON import_batch_items(batch_id);
+  CREATE INDEX idx_import_batch_items_entity ON import_batch_items(entity, entity_id);
+  CREATE INDEX idx_import_batch_items_source ON import_batch_items(entity, source_key);
+  `,
+  // WP 5.2 (last; number by position — 039 after WP 6.1 037 and WP 6.3 038): the chat panel. Nothing here touches
   // the books.
   // - ai_threads.pinned: pinned conversations sort first in the panel's thread list.
   // - ai_outbound_log.context_json: the screen context sent with a request (screen, title,

@@ -9,7 +9,9 @@ export function BarChart({
   categories,
   series,
   height = 180,
-  testId
+  testId,
+  formatValue,
+  formatTick
 }: {
   title: string
   summary: string
@@ -17,9 +19,12 @@ export function BarChart({
   series: ChartSeries[]
   height?: number
   testId?: string
+  /** Non-money series (ratios, counts): exact-value and y-tick text. Default: rupees from paise. */
+  formatValue?: (v: number) => string
+  formatTick?: (v: number) => string
 }): React.JSX.Element {
   return (
-    <SlotChart title={title} summary={summary} categories={categories} series={series} height={height} testId={testId}>
+    <SlotChart title={title} summary={summary} categories={categories} series={series} height={height} testId={testId} formatValue={formatValue} formatTick={formatTick}>
       {({ plot, y, active }) => {
         const outer = bandLayout(categories.length, plot.x0, plot.x1, 0.28)
         const inner = series.length > 0 ? outer.band / series.length : 0
