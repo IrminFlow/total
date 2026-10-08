@@ -39,8 +39,13 @@ export interface ConsolidationMember {
   acquiredOn: string | null
   includeFrom: string | null
   includeTo: string | null
-  /** The parent's ledger (in the PARENT member's books) holding the cost of this investment. */
+  /** The parent's ledger (in the PARENT member's books) holding the cost of this investment, the
+   *  parent company it was picked in and its name then (a run warns when either changed). */
   investmentLedgerId: number | null
+  investmentCompanySlug: string | null
+  investmentLedgerName: string | null
+  /** Explicit cost of this investment (paise) — required when subsidiaries share a ledger. */
+  investmentCost: number | null
   /** Override: the member's total equity at acquisition (credit-positive paise). */
   acquisitionEquity: number | null
 }
@@ -50,6 +55,8 @@ export interface ConsolidationMapping {
   companySlug: string
   /** Exactly one of ledgerId / groupName. */
   ledgerId: number | null
+  /** The ledger's name when the mapping was saved (run-time check). */
+  ledgerName: string | null
   groupName: string | null
   targetName: string
   targetNature: Nature | null
@@ -59,8 +66,11 @@ export interface IntercompanyPair {
   id: number
   memberA: string
   ledgerAId: number
+  /** Ledger names when the pair was saved (run-time check). */
+  ledgerAName: string
   memberB: string
   ledgerBId: number
+  ledgerBName: string
   kind: PairKind
   /** Seller margin for unrealised profit on this pair (bp); null = the group's. */
   unrealisedMarginBp: number | null
@@ -118,8 +128,14 @@ export interface MemberInput {
   acquisitionEquity: number | null
   /** Closing stock value on the reporting date and trading purchases of the window (for UPS). */
   closingStock: number
+  /** Purchase Accounts of the window (unrealised-profit denominator). */
   purchases: number
+  /** Trading income and gross profit of the window (caps unrealised profit at the seller's margin). */
+  sales: number
+  grossProfit: number
   investmentLedgerId: number | null
+  /** Explicit cost of this investment (paise); required when an investment ledger is shared. */
+  investmentCost: number | null
 }
 
 export interface PairInput {
@@ -137,7 +153,7 @@ export interface StatementInput {
   kind: StatementKind
   members: MemberInput[]
   pairs: PairInput[]
-  mappings: Omit<ConsolidationMapping, 'id'>[]
+  mappings: Omit<ConsolidationMapping, 'id' | 'ledgerName'>[]
   icTolerance: number
   unrealisedMarginBp: number | null
 }

@@ -55,6 +55,11 @@ function computedLine(code: ComputedCode, nature: Nature, gp: boolean): LineDef 
   return { key: `computed:${code}`, name: COMPUTED_NAMES[code], nature, gp, special: false }
 }
 
+/** True when moving `from` to `to` would move a ledger between the balance sheet and the P&L. */
+export function crossesStatements(from: Nature, to: Nature): boolean {
+  return isBsNature(from) !== isBsNature(to)
+}
+
 /**
  * The group chart line a member ledger maps to: a per-ledger override, else a group override on
  * the ledger's group or its nearest mapped ancestor, else (default) the ledger's own group by
@@ -76,7 +81,11 @@ export function lineForLedger(
     }
   }
   if (target) {
-    const nature = target.targetNature ?? ledger.nature
+    // A mapping may move a ledger between natures of the SAME statement (asset ↔ liability,
+    // income ↔ expense) but never across statements: that would drop it from the balance sheet
+    // or the P&L and unbalance it. Such a nature is ignored here (the service refuses to store
+    // one; consolidateStatement warns).
+    const nature = target.targetNature && !crossesStatements(ledger.nature, target.targetNature) ? target.targetNature : ledger.nature
     return { key: `${nature}:${normKey(target.targetName)}`, name: target.targetName.trim(), nature, gp: nature === ledger.nature ? ledger.gp : false, special: false }
   }
   return { key: `${ledger.nature}:${normKey(ledger.groupName)}`, name: ledger.groupName, nature: ledger.nature, gp: ledger.gp, special: false }
@@ -175,10 +184,19 @@ export function consolidateStatement(input: StatementInput): StatementResult {
     eliminations.push({ ...e, id, postings })
   }
 
+  // 1b. mappings whose nature would cross statements are ignored — say so
+  for (const mp of input.mappings) {
+    if (!mp.targetNature) continue
+    const m = memberOf.get(mp.companySlug)
+    const hit = m?.ledgers.find((l) =>
+      (mp.ledgerId != null ? l.id === mp.ledgerId : l.groupPath.some((g) => normKey(g) === normKey(mp.groupName ?? ''))) && crossesStatements(l.nature, mp.targetNature!))
+    if (m && hit) warnings.push(`${m.name}: the mapping of ${mp.ledgerId != null ? hit.name : `group ${mp.groupName}`} to a ${mp.targetNature} line would move it between the balance sheet and the P&L — its own nature was kept`)
+  }
+
   // 2. inter-company pairs (AS 21 para 16)
   const usedBalance = new Set<string>()
   const usedFlow = new Set<string>()
-  const pairFlowTotals = new Map<number, { seller: MemberInput; buyer: MemberInput; purchases: number; marginBp: number | null }>()
+  const pairFlowTotals = new Map<number, { seller: MemberInput; buyer: MemberInput; purchases: number; sales: number; marginBp: number | null }>()
   const tol = Math.max(0, input.icTolerance)
 
   for (const pair of input.pairs) {
@@ -207,48 +225,51 @@ export function consolidateStatement(input: StatementInput): StatementResult {
       if (usedBalance.has(ka) || usedBalance.has(kb)) {
         skip('a ledger of this pair is already eliminated by another pair')
         continue
-      } else {
-        usedBalance.add(ka); usedBalance.add(kb)
-        const a = rowAmount(ma, la.id), b = rowAmount(mb, lb.id)
-        const diff = a + b
-        const status = Math.abs(diff) <= tol ? 'reconciled' : 'unreconciled'
-        pairs.push({
-          pairId: pair.id, kind: pair.kind, basis: 'balance',
-          a: { slug: ma.slug, ledgerId: la.id, ledgerName: la.name, amount: a },
-          b: { slug: mb.slug, ledgerId: lb.id, ledgerName: lb.name, amount: b },
-          difference: diff, status
-        })
-        addEntry({
-          rule: 'ic_balance', pairId: pair.id, status, source: 'as21-16',
-          title: `Inter-company balance ${ma.name} ↔ ${mb.name}`,
-          detail: `${la.name} (${ma.name}) against ${lb.name} (${mb.name})` +
-            (diff === 0 ? ' — agree' : status === 'reconciled' ? ' — differ within tolerance' : ' — differ; the difference stays as unreconciled'),
-          postings: [
-            memberPosting(ma, la.id, -a), memberPosting(mb, lb.id, -b),
-            specialPosting(status === 'reconciled' ? SPECIAL_LINES.roundingBal : SPECIAL_LINES.unreconciledBal, diff)
-          ]
-        })
       }
+      usedBalance.add(ka); usedBalance.add(kb)
+      const a = rowAmount(ma, la.id), b = rowAmount(mb, lb.id)
+      const diff = a + b
+      const status = Math.abs(diff) <= tol ? 'reconciled' : 'unreconciled'
+      pairs.push({
+        pairId: pair.id, kind: pair.kind, basis: 'balance',
+        a: { slug: ma.slug, ledgerId: la.id, ledgerName: la.name, amount: a },
+        b: { slug: mb.slug, ledgerId: lb.id, ledgerName: lb.name, amount: b },
+        difference: diff, status
+      })
+      addEntry({
+        rule: 'ic_balance', pairId: pair.id, status, source: 'as21-16',
+        title: `Inter-company balance ${ma.name} ↔ ${mb.name}`,
+        detail: `${la.name} (${ma.name}) against ${lb.name} (${mb.name})` +
+          (diff === 0 ? ' — agree' : status === 'reconciled' ? ' — differ within tolerance' : ' — differ; the difference stays as unreconciled'),
+        postings: [
+          memberPosting(ma, la.id, -a), memberPosting(mb, lb.id, -b),
+          specialPosting(status === 'reconciled' ? SPECIAL_LINES.roundingBal : SPECIAL_LINES.unreconciledBal, diff)
+        ]
+      })
     }
 
-    // -- flows: sales / purchases, interest
+    // -- flows: sales / purchases, interest. The service supplies them for the overlap of both
+    //    members' inclusion windows (party-ledger vouchers, or the P&L ledger's own movement);
+    //    without them a P&L ledger's statement amount is used.
     const wantsFlow = bs ? pair.kind === 'sales_purchase' || pair.kind === 'loan' : true
     if (!wantsFlow) continue
-    const flowsA = bs ? pair.flowsA ?? [] : [{ ledgerId: la.id, amount: rowAmount(ma, la.id) }]
-    const flowsB = bs ? pair.flowsB ?? [] : [{ ledgerId: lb.id, amount: rowAmount(mb, lb.id) }]
+    const flowsA = pair.flowsA ?? (bs ? [] : [{ ledgerId: la.id, amount: rowAmount(ma, la.id) }])
+    const flowsB = pair.flowsB ?? (bs ? [] : [{ ledgerId: lb.id, amount: rowAmount(mb, lb.id) }])
     const fa = flowsA.reduce((s, f) => s + f.amount, 0)
     const fb = flowsB.reduce((s, f) => s + f.amount, 0)
-    if (pair.kind === 'sales_purchase') {
-      const [seller, buyer, bought] = fa < 0 && fb > 0 ? [ma, mb, fb] : fb < 0 && fa > 0 ? [mb, ma, fa] : [null, null, 0]
-      if (seller && buyer) pairFlowTotals.set(pair.id, { seller, buyer, purchases: bought, marginBp: pair.unrealisedMarginBp ?? input.unrealisedMarginBp })
-    }
-    if (kind === 'bs' || (bs && fa === 0 && fb === 0 && !flowsA.length && !flowsB.length)) continue
+    if (fa === 0 && fb === 0) continue
     const flowKeys = [...flowsA.map((f) => `${ma.slug}:${f.ledgerId}:${pair.a.ledgerId}`), ...flowsB.map((f) => `${mb.slug}:${f.ledgerId}:${pair.b.ledgerId}`)]
     if (flowKeys.some((k) => usedFlow.has(k))) {
-      skip('these transactions are already eliminated by another pair')
+      if (kind !== 'bs') skip('these transactions are already eliminated by another pair')
       continue
     }
     flowKeys.forEach((k) => usedFlow.add(k))
+    // Unrealised profit is registered only for a flow pair that is actually eliminated (never twice).
+    if (pair.kind === 'sales_purchase') {
+      const [seller, buyer, bought, sold] = fa < 0 && fb > 0 ? [ma, mb, fb, -fa] : fb < 0 && fa > 0 ? [mb, ma, fa, -fb] : [null, null, 0, 0]
+      if (seller && buyer) pairFlowTotals.set(pair.id, { seller, buyer, purchases: bought, sales: sold, marginBp: pair.unrealisedMarginBp ?? input.unrealisedMarginBp })
+    }
+    if (kind === 'bs') continue
     const diff = fa + fb
     const status = Math.abs(diff) <= tol ? 'reconciled' : 'unreconciled'
     pairs.push({
@@ -270,12 +291,21 @@ export function consolidateStatement(input: StatementInput): StatementResult {
     })
   }
 
-  // 3. unrealised profit in the buyer's closing stock (optional)
+  // 3. unrealised profit in the buyer's closing stock (optional), capped at the seller's
+  //    inter-company gross profit at its own gross margin (none when it sold at a loss).
   for (const [pairId, t] of pairFlowTotals) {
     if (!t.marginBp || t.marginBp <= 0) continue
     if (t.buyer.purchases <= 0 || t.buyer.closingStock <= 0) continue
     const held = Math.min(t.buyer.closingStock, mulDiv(t.buyer.closingStock, t.purchases, t.buyer.purchases))
-    const ups = shareOf(held, t.marginBp)
+    let ups = shareOf(held, t.marginBp)
+    let capNote = ''
+    if (t.seller.sales > 0) {
+      const icGrossProfit = Math.max(0, mulDiv(t.sales, t.seller.grossProfit, t.seller.sales))
+      if (ups > icGrossProfit) {
+        ups = icGrossProfit
+        capNote = `; capped at ${t.seller.name}'s inter-company gross profit ${icGrossProfit}`
+      }
+    }
     if (ups === 0) continue
     const postings: Draft[] =
       kind === 'pnl'
@@ -286,18 +316,47 @@ export function consolidateStatement(input: StatementInput): StatementResult {
     addEntry({
       rule: 'unrealised_profit', pairId, source: 'ups-estimate',
       title: `Unrealised profit in ${t.buyer.name}'s closing stock`,
-      detail: `Closing stock ${t.buyer.closingStock} × inter-company purchases ${t.purchases} ÷ purchases ${t.buyer.purchases} = ${held} held; × margin ${(t.marginBp / 100).toFixed(2)} %`,
+      detail: `Closing stock ${t.buyer.closingStock} × inter-company purchases ${t.purchases} ÷ purchases ${t.buyer.purchases} = ${held} held; × margin ${(t.marginBp / 100).toFixed(2)} %${capNote}`,
       postings
     })
   }
 
   // 4. investment vs equity, minority interest (AS 21 para 13), associates (AS 23)
   const parent = input.members.find((m) => m.role === 'parent')
+  const invOkOf = (m: MemberInput): boolean =>
+    m.investmentLedgerId != null && !!parent?.included && parent.ledgers.some((l) => l.id === m.investmentLedgerId)
+  // The cost eliminated per subsidiary. A ledger held by one subsidiary: its balance, or the
+  // member's explicit investment amount. A ledger shared by several: each needs an explicit
+  // amount, and together they never take more than the ledger's balance (allocated by cost).
+  const costOf = new Map<string, number | null>()
+  const subsByLedger = new Map<number, MemberInput[]>()
+  for (const m of input.members) {
+    if (kind === 'pnl' || m.role !== 'subsidiary' || !m.included || !invOkOf(m)) continue
+    subsByLedger.set(m.investmentLedgerId!, [...(subsByLedger.get(m.investmentLedgerId!) ?? []), m])
+  }
+  for (const [ledgerId, subs] of subsByLedger) {
+    const balance = Math.max(0, rowAmount(parent!, ledgerId))
+    const shared = subs.length > 1
+    const wanted = subs.map((m) => m.investmentCost ?? (shared ? null : balance))
+    subs.forEach((m, i) => {
+      if (wanted[i] == null) warnings.push(`${m.name}: its investment ledger ${ledgerName(parent!, ledgerId)} is shared with ${subs.filter((x) => x !== m).map((x) => x.name).join(', ')} — enter this member's investment amount; goodwill not computed`)
+    })
+    const known = subs.map((m, i) => ({ m, cost: wanted[i] })).filter((x): x is { m: MemberInput; cost: number } => x.cost != null)
+    const total = known.reduce((s, x) => s + x.cost, 0)
+    let costs = known.map((x) => x.cost)
+    if (total > balance) {
+      costs = allocate(balance, costs)
+      warnings.push(`${ledgerName(parent!, ledgerId)}: the investment amounts (${total}) exceed the ledger's balance (${balance}) — only the balance is eliminated, allocated by cost`)
+    }
+    subs.forEach((m) => costOf.set(m.slug, null))
+    known.forEach((x, i) => costOf.set(x.m.slug, costs[i]!))
+  }
+
   for (const m of input.members) {
     if (m.role === 'parent' || !m.included) continue
     const p = m.ownershipBp
     const invId = m.investmentLedgerId
-    const invOk = invId != null && parent?.included && parent.ledgers.some((l) => l.id === invId)
+    const invOk = invOkOf(m)
     if (invId != null && !invOk) warnings.push(`${m.name}: the investment ledger was not found in the parent's books — goodwill not computed`)
 
     if (m.role === 'associate') {
@@ -326,33 +385,36 @@ export function consolidateStatement(input: StatementInput): StatementResult {
       continue
     }
 
-    // subsidiary
+    // subsidiary. The minority interest is computed ONCE from the equity on the reporting date
+    // (balance-sheet basis, the same in the TB and the BS); its share of the period's profit
+    // (inclusion window) is shown separately and the rest is its share of the earlier equity.
     const minorityBp = 10000 - p
-    if (kind === 'pnl' || kind === 'tb') {
-      const mp = m.periodProfit - shareOf(m.periodProfit, p)
-      if (mp !== 0) {
-        addEntry({
-          rule: 'minority_profit', memberSlug: m.slug, source: 'as21-13d', title: `Minority share of ${m.name}'s profit`,
-          detail: `${(minorityBp / 100).toFixed(2)} % of its profit for the period`,
-          postings: kind === 'pnl'
-            ? [specialPosting(SPECIAL_LINES.minorityProfit, mp, m)]
-            : [specialPosting(SPECIAL_LINES.minorityProfit, mp, m), specialPosting(SPECIAL_LINES.minorityInterest, -mp, m)]
-        })
-      }
+    const miTotal = m.equityNow - shareOf(m.equityNow, p)
+    const mp = m.periodProfit - shareOf(m.periodProfit, p)
+    if ((kind === 'pnl' || kind === 'tb') && mp !== 0) {
+      addEntry({
+        rule: 'minority_profit', memberSlug: m.slug, source: 'as21-13d', title: `Minority share of ${m.name}'s profit`,
+        detail: `${(minorityBp / 100).toFixed(2)} % of its profit for the period`,
+        postings: kind === 'pnl'
+          ? [specialPosting(SPECIAL_LINES.minorityProfit, mp, m)]
+          : [specialPosting(SPECIAL_LINES.minorityProfit, mp, m), specialPosting(SPECIAL_LINES.minorityInterest, -mp, m)]
+      })
     }
     if (kind === 'pnl') continue
 
     const eqRows = m.rows.filter((r) => r.equity && r.amount !== 0)
     const eqTotal = neg(eqRows.reduce((s, r) => s + r.amount, 0))
-    const mi = eqTotal - shareOf(eqTotal, p)
+    // TB: the profit share is posted above, so the equity rows carry the rest.
+    const mi = kind === 'tb' ? miTotal - mp : miTotal
     const eqPostings = (fraction: 'all' | number): Draft[] => {
       if (fraction === 'all') return eqRows.map((r) => (r.computed ? computedPosting(m, r.computed, r.ledgerId, r.nature, r.gp, -r.amount) : memberPosting(m, r.ledgerId, -r.amount)))
-      const parts = allocate(fraction, eqRows.map((r) => r.amount))
+      // Signed proportions: a loss row takes a negative share (the minority bears its part of the loss).
+      const parts = allocate(fraction, eqRows.map((r) => -r.amount))
       return eqRows.map((r, i) => (r.computed ? computedPosting(m, r.computed, r.ledgerId, r.nature, r.gp, parts[i]!) : memberPosting(m, r.ledgerId, parts[i]!)))
     }
 
-    if (invOk && m.acquisitionEquity != null) {
-      const cost = rowAmount(parent!, invId!)
+    const cost = costOf.get(m.slug)
+    if (invOk && cost != null && m.acquisitionEquity != null) {
       const parentShareE = shareOf(m.acquisitionEquity, p)
       const gw = cost - parentShareE
       const postAcq = eqTotal - mi - parentShareE
@@ -362,7 +424,7 @@ export function consolidateStatement(input: StatementInput): StatementResult {
         rule: 'investment', memberSlug: m.slug, source: src,
         title: `Investment in ${m.name} against its equity`,
         detail: `Cost ${cost}; ${(p / 100).toFixed(2)} % of equity at acquisition ${m.acquisitionEquity} = ${parentShareE}; ` +
-          (gw >= 0 ? `goodwill ${gw}` : `capital reserve ${-gw}`) + (minorityBp ? `; minority ${(minorityBp / 100).toFixed(2)} % of equity ${eqTotal} = ${mi}` : ''),
+          (gw >= 0 ? `goodwill ${gw}` : `capital reserve ${-gw}`) + (minorityBp ? `; minority ${(minorityBp / 100).toFixed(2)} % of equity ${m.equityNow} = ${miTotal}` : ''),
         postings: [
           ...eqPostings('all'),
           memberPosting(parent!, invId!, -cost),
@@ -373,11 +435,11 @@ export function consolidateStatement(input: StatementInput): StatementResult {
       })
     } else {
       if (invId == null) warnings.push(`${m.name}: no investment ledger set — investment vs equity (goodwill / capital reserve) not eliminated`)
-      else if (invOk && m.acquisitionEquity == null) warnings.push(`${m.name}: equity at acquisition unknown — goodwill not computed`)
+      else if (invOk && cost != null && m.acquisitionEquity == null) warnings.push(`${m.name}: equity at acquisition unknown — goodwill not computed`)
       if (mi !== 0) {
         addEntry({
           rule: 'minority_interest', memberSlug: m.slug, source: 'as21-13e', title: `Minority interest in ${m.name}`,
-          detail: `${(minorityBp / 100).toFixed(2)} % of its equity ${eqTotal}`,
+          detail: `${(minorityBp / 100).toFixed(2)} % of its equity ${m.equityNow}`,
           postings: [...eqPostings(mi), specialPosting(SPECIAL_LINES.minorityInterest, -mi, m)]
         })
       }
@@ -427,5 +489,19 @@ export function consolidateStatement(input: StatementInput): StatementResult {
     }
   }
   if (input.members.filter((m) => m.role === 'parent').length !== 1) warnings.push('A group needs exactly one parent')
+  // Self-checks: a statement that does not add up is reported, never shown silently.
+  if (kind === 'bs' && result.balance!.assets !== result.balance!.liabilities) {
+    warnings.push(`The consolidated balance sheet does not balance: assets ${result.balance!.assets}, liabilities ${result.balance!.liabilities}`)
+  }
+  if (kind === 'tb' && result.totals.consolidated !== result.totals.perMember.reduce((s, v) => s + v, 0)) {
+    warnings.push(`The consolidated trial balance is out by ${result.totals.consolidated - result.totals.perMember.reduce((s, v) => s + v, 0)}`)
+  }
+  if (kind === 'pnl') {
+    lineMembers.forEach((m, i) => {
+      if (m.included && result.profit!.perMember[i] !== m.periodProfit) {
+        warnings.push(`${m.name}: its column adds to ${result.profit!.perMember[i]} but its own P&L shows ${m.periodProfit}`)
+      }
+    })
+  }
   return result
 }

@@ -61,7 +61,7 @@ export const CONSOLIDATION_SOURCES = [
   {
     id: 'as21-13e',
     short: 'AS 21 para 13(e), 25',
-    rule: 'Minority interest in net assets = (100% − ownership) × the subsidiary\'s whole equity on the reporting date (its equity at acquisition plus movements since); a separate line, not part of the parent\'s equity.',
+    rule: 'Minority interest in net assets = (100% − ownership) × the subsidiary\'s whole equity on the reporting date (its equity at acquisition plus movements since), computed once and identical in the trial balance and the balance sheet; carved out of each equity line in signed proportion (a loss line takes its share of the loss); a separate line, not part of the parent\'s equity.',
     citation: 'AS 21 para 13(e): minority interests in net assets "consist of: (i) the amount of equity attributable to minorities at the date on which investment in a subsidiary is made; and (ii) the minorities\' share of movements in equity since the date the parent-subsidiary relationship came in existence". Para 25: "Minority interests should be presented in the consolidated balance sheet separately from liabilities and the equity of the parent\'s shareholders."',
     url: AS21_URL,
     verified: true
@@ -77,7 +77,7 @@ export const CONSOLIDATION_SOURCES = [
   {
     id: 'ups-estimate',
     short: 'Estimate (practice)',
-    rule: 'Unrealised profit in closing stock (optional): buyer\'s closing stock × (inter-company purchases ÷ all its trading purchases of the period), capped at 100%, × the configured margin %. It is charged in full to the group (not shared with the minority) and the opening-stock reversal of a prior period is not computed.',
+    rule: 'Unrealised profit in closing stock (optional): buyer\'s closing stock × (inter-company purchases ÷ its Purchase Accounts of the period), capped at 100 %, × the configured margin %, and never more than the seller\'s inter-company sales × its own gross margin for the period (nothing when it sold at a loss). It is charged in full to the group (not shared with the minority) and the opening-stock reversal of a prior period is not computed.',
     citation: 'Practice choice — AS 21 para 16 requires the elimination but gives no measurement method. The proportionate estimate, full charge to the group and no opening reversal are UNVERIFIED simplifications; enter 0% to switch it off.',
     url: '',
     verified: false

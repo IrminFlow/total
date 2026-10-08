@@ -22,6 +22,7 @@ interface MemberDraft {
   includeFrom: string
   includeTo: string
   investmentLedgerId: number | null
+  investmentCost: number | null
   acquisitionEquity: number | null
 }
 
@@ -29,10 +30,10 @@ const toDraft = (g: ConsolidationGroup | null, openSlug: string | null): MemberD
   g
     ? g.members.map((m) => ({
         companySlug: m.companySlug, role: m.role, ownershipPct: bpToPct(m.ownershipBp), acquiredOn: m.acquiredOn ?? '', includeFrom: m.includeFrom ?? '',
-        includeTo: m.includeTo ?? '', investmentLedgerId: m.investmentLedgerId, acquisitionEquity: m.acquisitionEquity
+        includeTo: m.includeTo ?? '', investmentLedgerId: m.investmentLedgerId, investmentCost: m.investmentCost, acquisitionEquity: m.acquisitionEquity
       }))
     : openSlug
-      ? [{ companySlug: openSlug, role: 'parent', ownershipPct: '100', acquiredOn: '', includeFrom: '', includeTo: '', investmentLedgerId: null, acquisitionEquity: null }]
+      ? [{ companySlug: openSlug, role: 'parent', ownershipPct: '100', acquiredOn: '', includeFrom: '', includeTo: '', investmentLedgerId: null, investmentCost: null, acquisitionEquity: null }]
       : []
 
 /** Draft → save payload (exported for the renderer test). */
@@ -45,7 +46,8 @@ export function draftToPayload(name: string, currency: string, tolerance: number
     members: members.map((m) => ({
       companySlug: m.companySlug, role: m.role, ownershipBp: m.role === 'parent' ? 10000 : pctToBp(m.ownershipPct) ?? 10000,
       acquiredOn: m.acquiredOn || null, includeFrom: m.includeFrom || null, includeTo: m.includeTo || null,
-      investmentLedgerId: m.role === 'parent' ? null : m.investmentLedgerId, acquisitionEquity: m.role === 'parent' ? null : m.acquisitionEquity
+      investmentLedgerId: m.role === 'parent' ? null : m.investmentLedgerId, investmentCost: m.role === 'parent' ? null : m.investmentCost,
+      acquisitionEquity: m.role === 'parent' ? null : m.acquisitionEquity
     }))
   }
 }
@@ -133,6 +135,7 @@ export function GroupSetup({ group, openSlug, onSaved, onDeleted }: {
                   <th className="py-1 pr-2 font-semibold">Include from</th>
                   <th className="py-1 pr-2 font-semibold">Include to</th>
                   <th className="py-1 pr-2 font-semibold">Investment ledger (parent)</th>
+                  <th className="py-1 pr-2 font-semibold" title="Needed when subsidiaries share one investment ledger">Investment amount</th>
                   <th className="py-1 pr-2 font-semibold">Equity at acquisition</th>
                   <th />
                 </tr>
@@ -171,6 +174,9 @@ export function GroupSetup({ group, openSlug, onSaved, onDeleted }: {
                       )}
                     </td>
                     <td className="py-1.5 pr-2">
+                      {m.role === 'parent' ? <span className="text-muted">—</span> : <AmountInput testId={`input-consol-cost-${m.companySlug}`} ariaLabel="Investment amount" placeholder="ledger balance" paise={m.investmentCost} onPaise={(v) => patch(i, { investmentCost: v })} />}
+                    </td>
+                    <td className="py-1.5 pr-2">
                       {m.role === 'parent' ? <span className="text-muted">—</span> : <AmountInput testId={`input-consol-equity-${m.companySlug}`} ariaLabel="Equity at acquisition" placeholder="from books" paise={m.acquisitionEquity} onPaise={(v) => patch(i, { acquisitionEquity: v })} />}
                     </td>
                     <td className="py-1.5">
@@ -186,7 +192,7 @@ export function GroupSetup({ group, openSlug, onSaved, onDeleted }: {
           <div className="flex flex-wrap items-center gap-2">
             <Select aria-label="Add a company" data-testid="select-consol-add" className="w-64" value="" onChange={(e) => {
               const slug = e.target.value
-              if (slug) setMembers((ms) => [...ms, { companySlug: slug, role: ms.some((m) => m.role === 'parent') ? 'subsidiary' : 'parent', ownershipPct: '100', acquiredOn: '', includeFrom: '', includeTo: '', investmentLedgerId: null, acquisitionEquity: null }])
+              if (slug) setMembers((ms) => [...ms, { companySlug: slug, role: ms.some((m) => m.role === 'parent') ? 'subsidiary' : 'parent', ownershipPct: '100', acquiredOn: '', includeFrom: '', includeTo: '', investmentLedgerId: null, investmentCost: null, acquisitionEquity: null }])
             }}>
               <option value="">Add a company…</option>
               {addable.map((c) => (
@@ -222,6 +228,8 @@ function PairsPanel({ group, charts }: { group: ConsolidationGroup; charts: Memb
   const qc = useQueryClient()
   const toast = useToasts()
   const [suggestions, setSuggestions] = useState<PairSuggestion[] | null>(null)
+  /** Kinds ticked per suggestion (index → kinds); name-only matches start with none. */
+  const [picked, setPicked] = useState<PairKind[][]>([])
   const [draft, setDraft] = useState<{ a: string; la: string; b: string; lb: string; kind: PairKind; margin: string }>({ a: '', la: '', b: '', lb: '', kind: 'receivable_payable', margin: '' })
   const refresh = (): void => void qc.invalidateQueries({ queryKey: ['consolGroups'] })
   const chartName = (slug: string): string => charts.find((c) => c.slug === slug)?.name ?? slug
@@ -244,15 +252,25 @@ function PairsPanel({ group, charts }: { group: ConsolidationGroup; charts: Memb
       return false
     }
   }
-  const suggest = async (): Promise<void> => setSuggestions(await consolidationApi.suggestPairs(group.id))
-  const accept = async (list: PairSuggestion[]): Promise<void> => {
-    for (const s of list) await add(s)
-    setSuggestions((cur) => {
-      const left = (cur ?? []).filter((x) => !list.includes(x))
-      return left.length ? left : null
-    })
+  const suggest = async (): Promise<void> => {
+    const list = await consolidationApi.suggestPairs(group.id)
+    setPicked(list.map((x) => (x.reason === 'name' ? [] : [...x.kinds])))
+    setSuggestions(list)
+  }
+  const accept = async (indexes: number[]): Promise<void> => {
+    if (!suggestions) return
+    for (const i of indexes) {
+      const s = suggestions[i]!
+      for (const kind of picked[i] ?? []) await add({ memberA: s.memberA, ledgerAId: s.ledgerAId, memberB: s.memberB, ledgerBId: s.ledgerBId, kind })
+    }
+    const keep = suggestions.map((_, i) => i).filter((i) => !indexes.includes(i))
+    setPicked(keep.map((i) => picked[i] ?? []))
+    setSuggestions(keep.length ? keep.map((i) => suggestions[i]!) : null)
     refresh()
   }
+  const togglePick = (i: number, kind: PairKind): void =>
+    setPicked((cur) => cur.map((ks, j) => (j !== i ? ks : ks.includes(kind) ? ks.filter((k) => k !== kind) : [...ks, kind])))
+  const bulk = (suggestions ?? []).map((s, i) => ({ s, i })).filter(({ s, i }) => s.reason !== 'name' && (picked[i]?.length ?? 0) > 0).map(({ i }) => i)
   const addManual = async (): Promise<void> => {
     if (!draft.a || !draft.b || !draft.la || !draft.lb) return toast.push('error', 'Pick both companies and both ledgers')
     if (await add({ memberA: draft.a, ledgerAId: Number(draft.la), memberB: draft.b, ledgerBId: Number(draft.lb), kind: draft.kind, unrealisedMarginBp: pctToBp(draft.margin) })) {
@@ -279,16 +297,25 @@ function PairsPanel({ group, charts }: { group: ConsolidationGroup; charts: Memb
             <div className="rounded-md border border-line bg-panel2 p-3" data-testid="consol-suggestions">
               <div className="mb-2 flex items-center gap-2">
                 <span className="text-detail font-semibold">{suggestions.length} suggested</span>
+                <span className="text-hint text-muted">Tick the kinds to add. Name-only matches are not accepted in bulk — check them first.</span>
                 <span className="flex-1" />
-                <Button size="sm" variant="primary" data-testid="btn-consol-accept-all" onClick={() => void accept(suggestions)}>Accept all</Button>
+                <Button size="sm" variant="primary" data-testid="btn-consol-accept-all" disabled={!bulk.length} disabledTitle="No GSTIN / PAN match with a kind ticked" onClick={() => void accept(bulk)}>
+                  Accept GSTIN / PAN matches
+                </Button>
               </div>
-              <ul className="flex flex-col gap-1 text-detail">
+              <ul className="flex flex-col gap-1.5 text-detail">
                 {suggestions.map((s, i) => (
-                  <li key={i} className="flex items-center gap-2">
-                    <Badge tone="info">{s.reason}</Badge>
-                    <span>{KIND_LABELS[s.kind]}: {chartName(s.memberA)} · {s.ledgerAName} ↔ {chartName(s.memberB)} · {s.ledgerBName}</span>
+                  <li key={i} className="flex flex-wrap items-center gap-2" data-testid={`consol-sugg-${i}`} data-reason={s.reason}>
+                    <Badge tone={s.reason === 'name' ? 'warning' : 'info'}>{s.reason === 'name' ? 'name only' : s.reason}</Badge>
+                    <span>{chartName(s.memberA)} · {s.ledgerAName} ↔ {chartName(s.memberB)} · {s.ledgerBName}</span>
                     <span className="flex-1" />
-                    <Button size="sm" onClick={() => void accept([s])}>Accept</Button>
+                    {s.kinds.map((k) => (
+                      <label key={k} className="flex items-center gap-1 text-hint">
+                        <input type="checkbox" data-testid={`consol-sugg-${i}-${k}`} checked={picked[i]?.includes(k) ?? false} onChange={() => togglePick(i, k)} />
+                        {KIND_LABELS[k]}
+                      </label>
+                    ))}
+                    <Button size="sm" data-testid={`consol-sugg-${i}-accept`} disabled={!(picked[i]?.length)} disabledTitle="Tick a kind first" onClick={() => void accept([i])}>Accept</Button>
                   </li>
                 ))}
               </ul>
@@ -358,6 +385,11 @@ function MappingsPanel({ group, charts }: { group: ConsolidationGroup; charts: M
   const [draft, setDraft] = useState<{ slug: string; by: 'group' | 'ledger'; source: string; target: string; nature: '' | Nature }>({ slug: '', by: 'group', source: '', target: '', nature: '' })
   const refresh = (): void => void qc.invalidateQueries({ queryKey: ['consolGroups'] })
   const chart = charts.find((c) => c.slug === draft.slug)
+  const sourceNature: Nature | undefined = draft.by === 'group'
+    ? chart?.groups.find((g) => g.name === draft.source)?.nature
+    : chart?.ledgers.find((l) => String(l.id) === draft.source)?.nature
+  const bsSource = sourceNature === 'asset' || sourceNature === 'liability'
+  const natureChoices: Nature[] = sourceNature ? (bsSource ? ['asset', 'liability'] : ['income', 'expense']) : []
   const rows: MappingRow[] = group.mappings.map((m) => ({
     ...m,
     company: charts.find((c) => c.slug === m.companySlug)?.name ?? m.companySlug,
@@ -375,7 +407,7 @@ function MappingsPanel({ group, charts }: { group: ConsolidationGroup; charts: M
       await consolidationApi.saveMapping({
         groupId: group.id, companySlug: draft.slug,
         ledgerId: draft.by === 'ledger' ? Number(draft.source) : null, groupName: draft.by === 'group' ? draft.source : null,
-        targetName: draft.target.trim(), targetNature: draft.nature || null
+        targetName: draft.target.trim(), targetNature: draft.nature || null, ...(sourceNature ? { sourceNature } : {})
       })
       setDraft({ ...draft, source: '', target: '' })
       refresh()
@@ -409,13 +441,13 @@ function MappingsPanel({ group, charts }: { group: ConsolidationGroup; charts: M
             </Select>
           </Field>
           <Field label="Map a">
-            <Select value={draft.by} onChange={(e) => setDraft({ ...draft, by: e.target.value as 'group' | 'ledger', source: '' })}>
+            <Select value={draft.by} onChange={(e) => setDraft({ ...draft, by: e.target.value as 'group' | 'ledger', source: '', nature: '' })}>
               <option value="group">Group</option>
               <option value="ledger">Ledger</option>
             </Select>
           </Field>
           <Field label={draft.by === 'group' ? 'Group' : 'Ledger'}>
-            <Select data-testid="select-map-source" value={draft.source} onChange={(e) => setDraft({ ...draft, source: e.target.value })}>
+            <Select data-testid="select-map-source" value={draft.source} onChange={(e) => setDraft({ ...draft, source: e.target.value, nature: '' })}>
               <option value="">—</option>
               {draft.by === 'group'
                 ? chart?.groups.map((g) => <option key={g.name} value={g.name}>{g.name}</option>)
@@ -425,13 +457,10 @@ function MappingsPanel({ group, charts }: { group: ConsolidationGroup; charts: M
           <Field label="Group line">
             <TextInput data-testid="input-map-target" value={draft.target} onChange={(e) => setDraft({ ...draft, target: e.target.value })} placeholder="e.g. Revenue from operations" />
           </Field>
-          <Field label="Nature">
-            <Select value={draft.nature} onChange={(e) => setDraft({ ...draft, nature: e.target.value as '' | Nature })}>
+          <Field label="Nature" hint="Within the same statement only">
+            <Select data-testid="select-map-nature" value={draft.nature} onChange={(e) => setDraft({ ...draft, nature: e.target.value as '' | Nature })}>
               <option value="">Same as source</option>
-              <option value="asset">Asset</option>
-              <option value="liability">Liability</option>
-              <option value="income">Income</option>
-              <option value="expense">Expense</option>
+              {natureChoices.map((n) => <option key={n} value={n}>{n[0]!.toUpperCase() + n.slice(1)}</option>)}
             </Select>
           </Field>
           <Button data-testid="btn-map-add" onClick={() => void add()}>Add mapping</Button>

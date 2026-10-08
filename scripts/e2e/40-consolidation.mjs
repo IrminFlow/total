@@ -77,9 +77,12 @@ await scenario('40-consolidation', async (h) => {
   await h.page.waitForSelector('[data-testid="btn-consol-suggest"]', { timeout: 30000 })
   await h.click('btn-consol-suggest')
   await h.page.waitForSelector('[data-testid="consol-suggestions"]', { timeout: 30000 })
-  const suggestions = await h.page.$$eval('[data-testid="consol-suggestions"] li', (els) => els.map((e) => e.textContent))
-  assertEq(suggestions.length, 2, 'two suggested pairs (balance + sales/purchases) by name')
-  await h.click('btn-consol-accept-all')
+  const suggestions = await h.page.$$eval('[data-testid="consol-suggestions"] li', (els) => els.map((e) => e.getAttribute('data-reason')))
+  assertEq(suggestions.join(','), 'name', 'one suggested ledger pair, matched by name only')
+  // A name-only match is never accepted in bulk: tick the kinds, then accept it.
+  await h.click('consol-sugg-0-receivable_payable')
+  await h.click('consol-sugg-0-sales_purchase')
+  await h.click('consol-sugg-0-accept')
   await h.page.waitForFunction(() => document.querySelectorAll('[data-testid="rows-consol-pairs"] tr.dt-row').length === 2, null, { timeout: 30000 })
   // The investment ledger (in the parent's books) and Beta's equity at acquisition → goodwill.
   const investId = (await h.invoke('master:ledgers:list')).find((l) => l.name === 'Investment in Beta').id

@@ -1,7 +1,10 @@
 /**
  * WP 6.5 — inter-company pair suggestions. A party ledger in A's books "is" company B when it
  * carries B's GSTIN, or B's PAN (directly or as characters 3–12 of its GSTIN), or — weakest — B's
- * name. A pair is suggested when each side has a ledger for the other.
+ * name. A GSTIN / PAN that is also A's own never counts (a ledger carrying the company's own
+ * registration — a branch, a self-invoice ledger — is not the other company). A pair is suggested
+ * when each side has a ledger for the other; each suggestion lists the kinds it could be and the
+ * user picks (name-only matches start with none picked and are never accepted in bulk).
  */
 import type { Nature } from '../domain'
 import { normKey } from './math'
@@ -13,7 +16,8 @@ export type MatchReason = 'gstin' | 'pan' | 'name'
 export interface PairSuggestion {
   memberA: string; ledgerAId: number; ledgerAName: string
   memberB: string; ledgerBId: number; ledgerBName: string
-  kind: PairKind
+  /** Kinds not yet paired for these two ledgers (the user picks which to add). */
+  kinds: PairKind[]
   reason: MatchReason
 }
 
@@ -21,14 +25,17 @@ const RANK: Record<MatchReason, number> = { gstin: 0, pan: 1, name: 2 }
 const up = (s: string | null | undefined): string | null => (s && s.trim() ? s.trim().toUpperCase() : null)
 export const panOfGstin = (gstin: string | null): string | null => (gstin && gstin.length >= 12 ? gstin.slice(2, 12).toUpperCase() : null)
 
-/** How (if at all) ledger `l` identifies company `c`. */
-export function identifies(l: SuggestLedger, c: Pick<SuggestMember, 'name' | 'gstin' | 'pan'>): MatchReason | null {
+/** How (if at all) ledger `l` (in the books of `own`) identifies company `c`. */
+export function identifies(
+  l: SuggestLedger, c: Pick<SuggestMember, 'name' | 'gstin' | 'pan'>, own?: Pick<SuggestMember, 'gstin' | 'pan'>
+): MatchReason | null {
   const cg = up(c.gstin)
   const cp = up(c.pan) ?? panOfGstin(cg)
   const lg = up(l.gstin)
   const lp = up(l.pan) ?? panOfGstin(lg)
-  if (cg && lg === cg) return 'gstin'
-  if (cp && lp === cp) return 'pan'
+  const og = up(own?.gstin), op = up(own?.pan) ?? panOfGstin(og)
+  if (cg && lg === cg && lg !== og) return 'gstin'
+  if (cp && lp === cp && lp !== op) return 'pan'
   if (normKey(l.name) === normKey(c.name)) return 'name'
   return null
 }
@@ -37,7 +44,7 @@ function best(m: SuggestMember, other: SuggestMember): { ledger: SuggestLedger; 
   let out: { ledger: SuggestLedger; reason: MatchReason } | null = null
   for (const l of m.ledgers) {
     if (l.nature !== 'asset' && l.nature !== 'liability') continue
-    const r = identifies(l, other)
+    const r = identifies(l, other, m)
     if (r && (!out || RANK[r] < RANK[out.reason])) out = { ledger: l, reason: r }
   }
   return out
@@ -58,11 +65,11 @@ export function suggestPairs(
       const inA = best(A, B), inB = best(B, A)
       if (!inA || !inB) continue
       const reason = RANK[inA.reason] >= RANK[inB.reason] ? inA.reason : inB.reason
-      for (const kind of ['receivable_payable', 'sales_purchase'] as const) {
-        if (has(A.slug, inA.ledger.id, B.slug, inB.ledger.id, kind)) continue
-        out.push({ memberA: A.slug, ledgerAId: inA.ledger.id, ledgerAName: inA.ledger.name, memberB: B.slug, ledgerBId: inB.ledger.id, ledgerBName: inB.ledger.name, kind, reason })
-      }
+      const kinds = (['receivable_payable', 'sales_purchase'] as const).filter((k) => !has(A.slug, inA.ledger.id, B.slug, inB.ledger.id, k))
+      if (!kinds.length) continue
+      out.push({ memberA: A.slug, ledgerAId: inA.ledger.id, ledgerAName: inA.ledger.name, memberB: B.slug, ledgerBId: inB.ledger.id, ledgerBName: inB.ledger.name, kinds, reason })
     }
   }
-  return out
+  // Registration matches first; name-only matches last.
+  return out.sort((x, y) => RANK[x.reason] - RANK[y.reason])
 }

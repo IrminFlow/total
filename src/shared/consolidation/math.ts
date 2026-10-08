@@ -13,11 +13,13 @@ export function mulDiv(amount: number, num: number, den: number): number {
 /** `bp` basis points of `amount` (10000 = 100 %). */
 export const shareOf = (amount: number, bp: number): number => mulDiv(amount, bp, 10000)
 
-/** Split `total` across `weights` in proportion, by largest remainder, so the parts sum exactly. */
+/** Split `total` across `weights` in SIGNED proportion (a negative weight takes a share of the
+ *  opposite sign), by largest remainder, so the parts sum exactly. With weights summing to zero
+ *  the whole total goes to the first weight. */
 export function allocate(total: number, weights: number[]): number[] {
-  const sumW = weights.reduce((s, w) => s + Math.abs(w), 0)
+  const sumW = weights.reduce((s, w) => s + w, 0)
   if (sumW === 0 || weights.length === 0) return weights.map((_, i) => (i === 0 ? total : 0))
-  const parts = weights.map((w) => mulDiv(total, Math.abs(w), sumW))
+  const parts = weights.map((w) => mulDiv(total, w, sumW))
   let diff = total - parts.reduce((s, p) => s + p, 0)
   const order = weights.map((w, i) => ({ i, w: Math.abs(w) })).sort((x, y) => y.w - x.w)
   const step = diff > 0 ? 1 : -1

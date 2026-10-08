@@ -22,14 +22,21 @@ describe('pair suggestions', () => {
     expect(identifies({ ...A.ledgers[0]!, gstin: null }, B)).toBe('name')
     expect(identifies(A.ledgers[1]!, B)).toBeNull()
   })
-  it('suggests balance and sales/purchase pairs, the weaker reason wins, existing pairs are left out', () => {
+  it('suggests one ledger pair with the kinds still open, the weaker reason wins, existing pairs are left out', () => {
     const s = suggestPairs([A, B], [])
-    expect(s.map((x) => [x.memberA, x.ledgerAId, x.memberB, x.ledgerBId, x.kind, x.reason])).toEqual([
-      ['alpha', 11, 'beta', 21, 'receivable_payable', 'pan'],
-      ['alpha', 11, 'beta', 21, 'sales_purchase', 'pan']
+    expect(s.map((x) => [x.memberA, x.ledgerAId, x.memberB, x.ledgerBId, x.kinds, x.reason])).toEqual([
+      ['alpha', 11, 'beta', 21, ['receivable_payable', 'sales_purchase'], 'pan']
     ])
     const again = suggestPairs([A, B], [{ memberA: 'beta', ledgerAId: 21, memberB: 'alpha', ledgerBId: 11, kind: 'receivable_payable' }])
-    expect(again.map((x) => x.kind)).toEqual(['sales_purchase'])
+    expect(again.map((x) => x.kinds)).toEqual([['sales_purchase']])
+  })
+  it('never matches on a member company’s own GSTIN / PAN, and lists name-only matches last', () => {
+    // Alpha's ledger carries Alpha's OWN PAN (e.g. a branch) — it does not identify Beta even if Beta shared it.
+    const own = { ...A.ledgers[0]!, gstin: null, pan: 'AAACA1234A', name: 'Branch' }
+    expect(identifies(own, { name: 'X', gstin: null, pan: 'AAACA1234A' }, A)).toBeNull()
+    const C: SuggestMember = { slug: 'gamma', name: 'Gamma', gstin: null, pan: null, ledgers: [{ id: 31, name: 'Alpha Pvt Ltd', groupName: 'Sundry Creditors', nature: 'liability', gstin: null, pan: null }] }
+    const A2: SuggestMember = { ...A, ledgers: [...A.ledgers, { id: 13, name: 'Gamma', groupName: 'Sundry Debtors', nature: 'asset', gstin: null, pan: null }] }
+    expect(suggestPairs([A2, C, B], []).map((x) => x.reason)).toEqual(['pan', 'name'])
   })
   it('needs a ledger on both sides and ignores P&L ledgers', () => {
     expect(suggestPairs([A, { ...B, ledgers: [] }], [])).toEqual([])

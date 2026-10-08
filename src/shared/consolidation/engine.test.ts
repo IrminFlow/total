@@ -36,7 +36,7 @@ function member(
   return {
     slug, name: slug.toUpperCase(), role: 'parent', ownershipBp: 10000, included: true, ledgers,
     rows: [...memberRows, ...(computed ?? [])], periodProfit: 0, equityNow: 0, acquisitionEquity: null,
-    closingStock: 0, purchases: 0, investmentLedgerId: null, ...rest
+    closingStock: 0, purchases: 0, sales: 0, grossProfit: 0, investmentLedgerId: null, investmentCost: null, ...rest
   }
 }
 
@@ -290,5 +290,97 @@ describe('investment vs equity and minority interest (AS 21 para 13)', () => {
     expect(line(bs, 'asset:investments')!.consolidated).toBe(900 + 120)
     expect(line(bs, SPECIAL_LINES.postAcq.key)!.consolidated).toBe(-120)
     expect(bs.totals.consolidated).toBe(0)
+  })
+})
+
+// ---------------------------------------------------------------- review fixes
+
+describe('review fixes', () => {
+  it('a mapping that would move a ledger between the BS and the P&L keeps its own nature and warns', () => {
+    const a = member('a', [[1, 'Sales', 'Sales Accounts', -500], [2, 'Cash', 'Cash-in-Hand', 500]], { periodProfit: 500 })
+    const maps = [{ companySlug: 'a', ledgerId: null, groupName: 'Sales Accounts', targetName: 'Reserves', targetNature: 'liability' as const }]
+    expect(lineForLedger('a', a.ledgers[0]!, maps)).toMatchObject({ key: 'income:reserves', nature: 'income' })
+    const pnl = run('pnl', [a], [], { mappings: maps })
+    expect(pnl.profit!.netProfit).toBe(500)
+    expect(pnl.warnings.join(' ')).toMatch(/between the balance sheet and the P&L/)
+    // Within a statement a nature change is allowed (income → expense line).
+    expect(lineForLedger('a', a.ledgers[0]!, [{ ...maps[0]!, targetNature: 'expense' }]).nature).toBe('expense')
+  })
+
+  it('warns when a balance sheet does not balance or a member column does not add to its profit', () => {
+    const bs = run('bs', [member('a', [[1, 'Cash', 'Cash-in-Hand', 500]])])
+    expect(bs.warnings.join(' ')).toMatch(/does not balance/)
+    const pnl = run('pnl', [member('a', [[1, 'Sales', 'Sales Accounts', -500]], { periodProfit: 400 })])
+    expect(pnl.warnings.join(' ')).toMatch(/adds to 500 but its own P&L shows 400/)
+  })
+
+  it('a loss-making 60 %-owned subsidiary: the minority takes 40 % of capital and bears 40 % of the loss', () => {
+    // Capital 1,000 Cr, accumulated loss 400 Dr → equity 600; minority 40 % = 240.
+    const s = member('s', [[1, 'Share capital', 'Capital Account', -1000], [2, 'Cash', 'Cash-in-Hand', 600]], {
+      role: 'subsidiary', ownershipBp: 6000, equityNow: 600, periodProfit: -400, computed: [pnlCurrent(400)]
+    })
+    const r = run('bs', [member('p', [[1, 'Cash', 'Cash-in-Hand', 0]]), s])
+    const e = r.eliminations.find((x) => x.rule === 'minority_interest')!
+    expect(e.postings.map((p) => [p.ledgerId, p.amount])).toEqual([[1, 400], [-3, -160], [null, -240]])
+    expect(line(r, SPECIAL_LINES.minorityInterest.key)!.consolidated).toBe(-240)
+    expect(line(r, 'computed:pnl_current')!.consolidated).toBe(240) // the group's 60 % of the loss
+    expect(r.balance!.assets).toBe(r.balance!.liabilities)
+  })
+
+  describe('a shared investment ledger', () => {
+    const parent = member('p', [[1, 'Investments in subsidiaries', 'Investments', 1000], [2, 'Capital', 'Capital Account', -1000]])
+    const sub = (slug: string, extra: Partial<MemberInput>): MemberInput =>
+      member(slug, [[1, 'Share capital', 'Capital Account', -500], [2, 'Cash', 'Cash-in-Hand', 500]], {
+        role: 'subsidiary', equityNow: 500, acquisitionEquity: 500, investmentLedgerId: 1, ...extra
+      })
+    it('is eliminated once, by each member’s stated cost — no phantom goodwill', () => {
+      const r = run('bs', [parent, sub('s1', { investmentCost: 600 }), sub('s2', { investmentCost: 400 })])
+      expect(line(r, 'asset:investments')!.consolidated).toBe(0)
+      expect(line(r, SPECIAL_LINES.goodwill.key)!.consolidated).toBe(100) // 600 − 500
+      expect(line(r, SPECIAL_LINES.capitalReserve.key)!.consolidated).toBe(-100) // 400 − 500
+      expect(r.balance!.assets).toBe(r.balance!.liabilities)
+    })
+    it('without stated costs it is not eliminated for either member, with a warning', () => {
+      const r = run('bs', [parent, sub('s1', {}), sub('s2', {})])
+      expect(r.eliminations.filter((e) => e.rule === 'investment')).toEqual([])
+      expect(line(r, 'asset:investments')!.consolidated).toBe(1000)
+      expect(r.warnings.filter((w) => /is shared with/.test(w))).toHaveLength(2)
+    })
+    it('stated costs beyond the balance take only the balance, allocated by cost', () => {
+      const r = run('bs', [parent, sub('s1', { investmentCost: 900 }), sub('s2', { investmentCost: 600 })])
+      expect(line(r, 'asset:investments')!.consolidated).toBe(0)
+      expect(r.warnings.join(' ')).toMatch(/exceed the ledger's balance/)
+      expect(r.balance!.assets).toBe(r.balance!.liabilities)
+    })
+  })
+
+  it('unrealised profit is charged once when two pairs share the seller’s ledger', () => {
+    const seller = member('a', [[1, 'Sales', 'Sales Accounts', -10000], [2, 'B Ltd', 'Sundry Debtors', 0], [3, 'B Ltd (2)', 'Sundry Debtors', 0]], { periodProfit: 10000 })
+    const buyer = member('b', [[1, 'Purchases', 'Purchase Accounts', 10000], [2, 'A Ltd', 'Sundry Creditors', 0], [3, 'A Ltd (2)', 'Sundry Creditors', 0]], {
+      role: 'subsidiary', periodProfit: -6000, closingStock: 4000, purchases: 10000, computed: [closingStock(4000, 'pnl')]
+    })
+    const flows = { flowsA: [{ ledgerId: 1, amount: -10000 }], flowsB: [{ ledgerId: 1, amount: 10000 }] }
+    const r = run('pnl', [seller, buyer], [pair(1, 'sales_purchase', ['a', 2], ['b', 2], flows), pair(2, 'sales_purchase', ['a', 2], ['b', 3], flows)], { unrealisedMarginBp: 2500 })
+    expect(r.eliminations.filter((e) => e.rule === 'unrealised_profit')).toHaveLength(1)
+    expect(r.pairs.map((p) => p.status)).toEqual(['reconciled', 'skipped'])
+  })
+
+  it('unrealised profit is capped at the seller’s inter-company gross profit', () => {
+    // Seller margin 10 % (sales 10,000, gross profit 1,000); configured 50 % would charge 2,000.
+    const seller = member('a', [[1, 'Sales', 'Sales Accounts', -10000], [2, 'B Ltd', 'Sundry Debtors', 0]], { periodProfit: 1000, sales: 10000, grossProfit: 1000 })
+    const buyer = member('b', [[1, 'Purchases', 'Purchase Accounts', 10000], [2, 'A Ltd', 'Sundry Creditors', 0]], {
+      role: 'subsidiary', periodProfit: -6000, closingStock: 4000, purchases: 10000, computed: [closingStock(4000, 'pnl')]
+    })
+    const r = run('pnl', [seller, buyer], [pair(1, 'sales_purchase', ['a', 2], ['b', 2], { flowsA: [{ ledgerId: 1, amount: -10000 }], flowsB: [{ ledgerId: 1, amount: 10000 }] })], { unrealisedMarginBp: 5000 })
+    expect(r.eliminations.find((e) => e.rule === 'unrealised_profit')!.postings[0]!.amount).toBe(1000)
+  })
+
+  it('flows supplied for the overlap window replace a P&L ledger’s full amount (pre-acquisition sale)', () => {
+    const a = member('a', [[3, 'Sales to S', 'Sales Accounts', -900]], { periodProfit: 900 })
+    const b = member('b', [[4, 'Purchases from A', 'Purchase Accounts', 0]], { role: 'subsidiary' })
+    const r = run('pnl', [a, b], [pair(1, 'sales_purchase', ['a', 3], ['b', 4], { flowsA: [{ ledgerId: 3, amount: 0 }], flowsB: [{ ledgerId: 4, amount: 0 }] })])
+    expect(r.eliminations).toEqual([])
+    expect(line(r, SPECIAL_LINES.unreconciledFlow.key)).toBeUndefined()
+    expect(r.profit!.netProfit).toBe(900)
   })
 })

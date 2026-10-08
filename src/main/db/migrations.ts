@@ -2996,8 +2996,9 @@ export const MIGRATIONS: string[] = [
   `,
   // WP 6.5 (last; number by position) — group consolidation. Stored in the group (parent)
   // company's own DB; members are other companies by registry slug, read read-only at query time
-  // (services/consolidation.ts), so ledger ids here point into OTHER files and carry no FK. Only
-  // the definition is stored — every consolidated figure is computed at query time. Kept last
+  // (services/consolidation.ts), so ledger ids here point into OTHER files and carry no FK; the
+  // ledger name at save time is kept beside each id only so a run can warn when the id now names
+  // a different ledger (restored / replaced file). Only the definition is stored — every consolidated figure is computed at query time. Kept last
   // when parallel branches' migrations merge (after 038 WP 6.3 import wizard; 6.4 attachments go before it). Never
   // edit the content.
   `
@@ -3020,7 +3021,10 @@ export const MIGRATIONS: string[] = [
     acquired_on TEXT,
     include_from TEXT,
     include_to TEXT,
+    investment_company_slug TEXT,
     investment_ledger_id INTEGER,
+    investment_ledger_name TEXT,
+    investment_cost INTEGER CHECK (investment_cost IS NULL OR investment_cost >= 0),
     acquisition_equity INTEGER,
     sort_order INTEGER NOT NULL DEFAULT 0,
     UNIQUE (group_id, company_slug)
@@ -3032,6 +3036,7 @@ export const MIGRATIONS: string[] = [
     group_id INTEGER NOT NULL REFERENCES consolidation_groups(id) ON DELETE CASCADE,
     company_slug TEXT NOT NULL,
     ledger_id INTEGER,
+    ledger_name TEXT,
     group_name TEXT COLLATE NOCASE,
     target_name TEXT NOT NULL,
     target_nature TEXT CHECK (target_nature IS NULL OR target_nature IN ('asset', 'liability', 'income', 'expense')),
@@ -3045,8 +3050,10 @@ export const MIGRATIONS: string[] = [
     group_id INTEGER NOT NULL REFERENCES consolidation_groups(id) ON DELETE CASCADE,
     member_a TEXT NOT NULL,
     ledger_a_id INTEGER NOT NULL,
+    ledger_a_name TEXT NOT NULL,
     member_b TEXT NOT NULL,
     ledger_b_id INTEGER NOT NULL,
+    ledger_b_name TEXT NOT NULL,
     kind TEXT NOT NULL CHECK (kind IN ('receivable_payable', 'sales_purchase', 'loan', 'other')),
     unrealised_margin_bp INTEGER CHECK (unrealised_margin_bp IS NULL OR unrealised_margin_bp BETWEEN 0 AND 10000),
     CHECK (member_a <> member_b),
