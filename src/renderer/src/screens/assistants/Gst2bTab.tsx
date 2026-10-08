@@ -141,7 +141,7 @@ export function Gst2bTab({ initialPeriod }: { initialPeriod?: string }): React.J
         { id: 'bookValue', header: 'Value', group: 'Books', kind: 'money', value: (m) => m.book?.invoiceValue ?? null, width: 112, aggregate: 'sum' },
         { id: 'bookTax', header: 'Tax', group: 'Books', kind: 'money', value: (m) => taxOf(m.book), width: 100, aggregate: 'sum' },
         { id: 'bookMonth', header: 'Books month', kind: 'text', value: (m) => m.bookMonth ?? '', width: 100, defaultHidden: true },
-        { id: 'flags', header: 'Flags', kind: 'text', value: (m) => [...m.flags, ...(m.reopened ? ['re-opened: figures changed'] : [])].join(', '), width: 140, className: 'text-small text-warning' },
+        { id: 'flags', header: 'Flags', kind: 'text', value: (m) => [...m.flags, ...(m.reopened ? ['re-opened: figures changed'] : [])].join(', '), width: 140, defaultHidden: true },
         { id: 'diff', header: 'Difference', kind: 'money', value: (m) => m.valueDiff, width: 112, defaultHidden: true, cell: (m) => (m.valueDiff ? <Money paise={m.valueDiff} /> : dash) },
         // Exported and filterable; shown in full in the row's detail line.
         { id: 'suggestion', header: 'Suggested action', kind: 'text', value: (m) => m.suggestion, defaultHidden: true }
@@ -239,6 +239,11 @@ export function Gst2bTab({ initialPeriod }: { initialPeriod?: string }): React.J
               rowAttrs={(m) => ({ 'data-row-id': m.key, 'data-category': m.category })}
               renderDetail={(m) => (
                 <p className="px-2 py-1.5 text-small whitespace-normal text-muted" data-testid="assistants-2b-suggestion">
+                  {m.flags.length > 0 && (
+                    <span className="mr-2 font-medium text-warning" data-testid="assistants-2b-flags">
+                      [{m.flags.join(', ')}]
+                    </span>
+                  )}
                   <span className="font-medium text-ink">Suggested: </span>
                   {m.suggestion}
                   {m.resolved ? ` — ${m.resolved.status} by ${m.resolved.by ?? 'a user'}${m.resolved.note ? `: ${m.resolved.note}` : ''}` : ''}
