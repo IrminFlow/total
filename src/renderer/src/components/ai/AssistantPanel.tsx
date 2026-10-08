@@ -108,9 +108,10 @@ export const useAssistantPanel = create<AssistantStore>((set, get) => ({
 /** The current screen's context (nav + period + what the screen registered). */
 export function useCurrentAiContext(): AiContext {
   const screen = useScreen()
-  const { from, to } = useSession()
+  const { from, to, workingDate } = useSession()
   const extra = useAiScreenParams((s) => s.byScreen[screen.name])
-  return useMemo(() => screenContextFor(screen, from, to, extra), [screen, from, to, extra])
+  // WP 5.3: the working date travels with every question — drafts resolve relative dates against it.
+  return useMemo(() => ({ ...screenContextFor(screen, from, to, extra), workingDate }), [screen, from, to, extra, workingDate])
 }
 
 // ---------- the host ----------

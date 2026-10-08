@@ -33,6 +33,9 @@ export interface AccountingFormState {
   tds: AccountingTdsState | null
   /** TCS collected on a receipt (WP 3.3) — `tdsAmount` is the TCS. Absent/null = none. */
   tcs?: AccountingTdsState | null
+  /** A new voucher's reference carried from a draft (the form has no field for it); on
+   *  alteration the stored reference rides in `original`. */
+  reference?: string | null
   /** null for a new voucher. */
   original: AccountingOriginal | null
 }
@@ -108,7 +111,7 @@ export function buildAccountingPayload(
       number: state.number.trim() || undefined,
       partyLedgerId: party,
       narration: state.narration.trim() || null,
-      reference: o?.reference ?? null,
+      reference: o ? o.reference : (state.reference?.trim() || null),
       instrumentNo,
       instrumentDate,
       transporterId: o?.transporterId ?? null,

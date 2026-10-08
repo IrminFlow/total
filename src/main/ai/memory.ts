@@ -21,9 +21,9 @@ import { IN_BOOKS } from '../services/vouchers'
 import { descendantIdsByName } from '../services/masters'
 import { writeAudit } from '../services/audit'
 import { defineTool } from './tools/registry'
-import { matchesIntent } from './drafts'
+import { isRequestedMemory as requestedMemory } from './drafting/intent'
 import {
-  REMEMBER_INTENT, memoryProblems, proposeMemories, type BookStats, type KindLedgerStat, type LedgerClass, type PartyStat
+  memoryProblems, proposeMemories, type BookStats, type KindLedgerStat, type LedgerClass, type PartyStat
 } from './memoryRules'
 
 const parse = <T>(s: string | null, fallback: T): T => {
@@ -343,8 +343,9 @@ export function resolveDerived(db: DB, key: string, accept: boolean, today: stri
 
 // ---------- the assistant's proposal tool ----------
 
+/** The remember-intent check lives with the draft-intent check (drafting/intent.ts). */
 export function isRequestedMemory(userRequest: string | undefined): boolean {
-  return matchesIntent(userRequest, REMEMBER_INTENT)
+  return requestedMemory(userRequest)
 }
 
 export const rememberInput = z.object({

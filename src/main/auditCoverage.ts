@@ -59,6 +59,7 @@ export const AUDIT_COVERAGE: Record<string, AuditCoverage> = {
   'config:audit:set': a('company'),
   'config:audit:required': a('company'),
   'agent:setConfig': a('company'),
+  'agent:mcp:set': a('company'),
   'agent:exportMirror': EXPORT,
   'nic:save': a('nic_credentials'),
   'cheque:config:set': a('cheque_config'),
@@ -162,12 +163,12 @@ export const AUDIT_COVERAGE: Record<string, AuditCoverage> = {
   'voucher:duplicates': QUERY,
   'pdc:mature': a('voucher'),
   'yearend:close': a('year_end', 'voucher', 'ledger', 'company'),
-  'manufacture:save': a('manufacture'),
+  'manufacture:save': a('manufacture', 'ai_draft'),
   'jobWork:saveChallan': a('job_work'),
 
   // ---------- trade cycle ----------
   'tradeDocTypes:save': a('tradeDocType'),
-  'tradeDocs:save': a('trade_doc'),
+  'tradeDocs:save': a('trade_doc', 'ai_draft'),
   'tradeDocs:delete': a('trade_doc'),
   'tradeDocs:restore': a('trade_doc'),
   'tradeDocs:cancel': a('trade_doc'),

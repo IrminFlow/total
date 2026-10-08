@@ -16,6 +16,8 @@ export interface VoucherDraft {
   date?: string
   partyLedgerId?: number
   narration?: string
+  /** Voucher reference carried by a draft (an AI / MCP / inbox draft's `reference`). */
+  reference?: string
   lines?: { ledgerId: number; drCr: 'dr' | 'cr'; amount: number }[]
   /** WP 2.5c "Convert to challan / invoice / GRN / bill": draw every pending line of this
    *  sales / purchase order (the "Add from…" picks, pre-filled). */
@@ -95,7 +97,8 @@ export type Screen =
   | { name: 'quotations' }
   | { name: 'sales-orders' }
   | { name: 'purchase-orders' }
-  | { name: 'trade-doc'; kind: TradeDocKind; id?: number; draft?: TradeDocDraft; draftId?: number }
+  // WP 5.3 `aiDraftId`: a quotation / order drafted by the assistant, opened for review.
+  | { name: 'trade-doc'; kind: TradeDocKind; id?: number; draft?: TradeDocDraft; draftId?: number; aiDraftId?: number }
   | { name: 'pending-sales-orders' }
   | { name: 'pending-purchase-orders' }
   | { name: 'quotation-pipeline' }

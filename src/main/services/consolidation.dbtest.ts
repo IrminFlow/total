@@ -118,9 +118,9 @@ function defineGroup(w: World, extraMembers: { slug: string; role: 'subsidiary' 
 const line = (s: { lines: { key: string }[] }, key: string) => (s.lines as { key: string; consolidated: number; perMember: number[]; elimination: number; sources: { slug: string; ledgerId: number; amount: number }[]; eliminationIds: string[] }[]).find((l) => l.key === key)
 
 describe('group consolidation (WP 6.5)', () => {
-  it('the migration comes directly before WP 5.6 AI memory (number by position) and stores the definition with its constraints', () => {
+  it('the migration follows 040 (only WP 5.7 MCP comes after it) and stores the definition with its constraints', () => {
     const idx = MIGRATIONS.findIndex((sql) => sql.includes('CREATE TABLE consolidation_groups'))
-    expect(idx).toBe(MIGRATIONS.findIndex((sql) => sql.includes('CREATE TABLE ai_memory_new')) - 1)
+    expect(idx).toBe(MIGRATIONS.findIndex((sql) => sql.includes('CREATE TABLE mcp_log')) - 1)
     const w = world()
     const id = defineGroup(w)
     expect(() => w.alpha.prepare("INSERT INTO consolidation_members (group_id, company_slug, role) VALUES (?, 'x', 'parent')").run(id)).toThrow(/UNIQUE/)

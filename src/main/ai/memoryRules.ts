@@ -135,12 +135,6 @@ export function stripMemoryCitations(text: string): string {
   return text.replace(/[ \t]?\[M\d{1,9}\]/g, '')
 }
 
-// ---------- the request-intent check for assistant proposals ----------
-
-/** Words that mean the user asked to keep something in mind. A `remember` call without them was
- *  prompted by something else — e.g. an instruction inside a narration — and is flagged. */
-export const REMEMBER_INTENT = /\b(remember|memori[sz]e|keep in mind|note that|make a note|from now on|always|usually|by default|default|prefer|preferred|every time|whenever|don'?t forget)\b/i
-
 // ---------- derived suggestions ----------
 
 export type LedgerClass = 'cash' | 'bank' | 'party' | 'income' | 'expense' | 'tax' | 'other'
@@ -312,7 +306,8 @@ export function proposeMemories(stats: BookStats, opts: DeriveOptions): AiMemory
  *  active memories of this question, and helpers that record which ones were used. */
 export interface MemoryContext {
   readonly entries: readonly AiMemoryDto[]
-  /** The active preferred ledger for a purpose (most used / most recent first), or null. */
+  /** The active preferred ledger for a purpose (most used / most recent first), or null. A lookup:
+   *  call markUsed when the result is actually used (DraftWork.fromMemory does). */
   preferredLedger(purpose: AiMemoryPurpose): { ledgerId: number; name: string | null; memoryId: number } | null
   /** The active party memory for a party ledger, or null. */
   forParty(partyLedgerId: number): AiMemoryDto | null
@@ -334,13 +329,10 @@ export function createMemoryContext(entries: readonly AiMemoryDto[]): MemoryCont
     preferredLedger(purpose) {
       const m = active.find((e) => e.kind === 'preference' && e.data?.purpose === purpose && e.data.ledgerId)
       if (!m) return null
-      used.add(m.id)
       return { ledgerId: m.data!.ledgerId!, name: m.labels.ledger ?? null, memoryId: m.id }
     },
     forParty(partyLedgerId) {
-      const m = active.find((e) => e.kind === 'party' && e.data?.partyLedgerId === partyLedgerId) ?? null
-      if (m) used.add(m.id)
-      return m
+      return active.find((e) => e.kind === 'party' && e.data?.partyLedgerId === partyLedgerId) ?? null
     }
   }
 }

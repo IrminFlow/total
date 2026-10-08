@@ -3163,7 +3163,40 @@ export const MIGRATIONS: string[] = [
     UNIQUE (group_id, member_a, ledger_a_id, member_b, ledger_b_id, kind)
   );
   `,
-  // WP 5.6 (last; number by position) — per-company AI memory. ai_memory (created empty by the
+  // WP 5.7 (number by position — 042) — the MCP server (`total-cli mcp`) and the inbox-as-drafts.
+  // - ai_drafts.source: where a draft came from — 'chat' (the in-app assistant), 'mcp' (a tool
+  //   call over the MCP server) or 'inbox' (a file dropped in <company>/inbox/, which is no
+  //   longer posted — it becomes a flagged draft for review). origin = the MCP client's name or
+  //   the dropped file's name.
+  // - mcp_log: one row per MCP request (session start, tools/list, tools/call, resources/list,
+  //   resources/read) — like ai_outbound_log, sizes, the privacy flags in force and a SHA-256 of
+  //   the exact response, never the content itself.
+  `
+  ALTER TABLE ai_drafts ADD COLUMN source TEXT NOT NULL DEFAULT 'chat' CHECK (source IN ('chat', 'mcp', 'inbox'));
+  ALTER TABLE ai_drafts ADD COLUMN origin TEXT;
+
+  CREATE TABLE mcp_log (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    session_id TEXT NOT NULL,
+    client_name TEXT,
+    client_version TEXT,
+    role TEXT NOT NULL CHECK (role IN ('viewer', 'accountant', 'owner')),
+    user_name TEXT,
+    method TEXT NOT NULL,
+    target TEXT,
+    ok INTEGER NOT NULL,
+    error TEXT,
+    response_bytes INTEGER NOT NULL DEFAULT 0,
+    response_sha256 TEXT,
+    masked INTEGER NOT NULL,
+    pseudonymised INTEGER NOT NULL,
+    draft_id INTEGER REFERENCES ai_drafts(id) ON DELETE SET NULL,
+    duration_ms INTEGER NOT NULL DEFAULT 0
+  );
+  CREATE INDEX idx_mcp_log_session ON mcp_log(session_id);
+  `,
+  // WP 5.6 (last; number by position — 043, after WP 5.7's 042) — per-company AI memory. ai_memory (created empty by the
   // WP 5.1 migration with a placeholder key/value shape nothing ever wrote) is rebuilt as typed
   // entries: kind (preference / style / party / fact), a short text, optional structured
   // data_json (purpose, ledger / party / item ids), source (user / assistant / derived), status

@@ -64,7 +64,7 @@ beforeEach(() => {
       }
     }
   }
-  useSession.setState({ user: null, from: '2025-04-01', to: '2026-03-31' })
+  useSession.setState({ user: null, from: '2025-04-01', to: '2026-03-31', workingDate: '2025-07-31' })
   useNav.setState({ stack: [{ name: 'gateway' }] })
 })
 
@@ -132,7 +132,7 @@ describe('AssistantDrawer', () => {
     await waitFor(() => expect(isDisabled(input)).toBe(false))
     fireEvent.change(input, { target: { value: 'What were sales in July?' } })
     fireEvent.click(screen.getByTestId('btn-ai-send'))
-    await waitFor(() => expect(invoke).toHaveBeenCalledWith('ai:send', { threadId: undefined, text: 'What were sales in July?', context: { screen: 'gateway', label: 'Gateway', from: '2025-04-01', to: '2026-03-31' } }))
+    await waitFor(() => expect(invoke).toHaveBeenCalledWith('ai:send', { threadId: undefined, text: 'What were sales in July?', context: { screen: 'gateway', label: 'Gateway', from: '2025-04-01', to: '2026-03-31', workingDate: '2025-07-31' } }))
     expect(listener).not.toBeNull()
     await screen.findByTestId('ai-msg-user')
 

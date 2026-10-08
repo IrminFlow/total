@@ -180,15 +180,56 @@ export interface AiThreadDto {
 /** 'superseded': made by an answer that Regenerate replaced (WP 5.2). */
 export type AiDraftStatus = 'open' | 'consumed' | 'discarded' | 'superseded'
 
-/** What draft_voucher stores and the voucher editor pre-fills from. Amounts are paise. */
+/** Where a draft came from (WP 5.7): the in-app assistant, a tool call over the MCP server
+ *  (`total-cli mcp`), or a file dropped in the company's inbox/ folder. */
+export type AiDraftSource = 'chat' | 'mcp' | 'inbox'
+
+/** Which editor a draft opens in (WP 5.3). Absent on a WP 5.1 draft = plain accounting lines. */
+export type AiDraftForm = 'accounting' | 'invoice' | 'stockNote' | 'manufacture' | 'tradeDoc'
+
+/** One entity a draft tool resolved, and why — the review banner lists these and links them. */
+export interface AiDraftSourceRef {
+  /** The draft field it fills (see AiVoucherDraftPayload.fields). */
+  field: string
+  kind: 'ledger' | 'item' | 'bill' | 'voucher' | 'trade_doc' | 'bom' | 'godown' | 'rate' | 'date' | 'amount' | 'tax'
+  label: string
+  /** ledgerId / itemId / voucherId / tradeDocId behind it, when there is one. */
+  id?: number
+  /** What the user said, as the tool got it. */
+  said?: string
+  why: string
+}
+
+/** What a draft tool stores and the editor pre-fills from. Amounts are paise.
+ *  The top-level fields are the WP 5.1 shape (still filled for every form: the ledger lines of
+ *  the payload the save would post — empty for challans / orders). WP 5.3 adds `form` + `state`:
+ *  the editor's own form state (InvoiceFormState, AccountingFormState, StockNoteFormState,
+ *  ManufactureFormState or TradeDocFormState from @shared/voucherEdit / tradeCycle/edit), built by
+ *  the same mapping the editor uses, so the draft opens in its proper mode unchanged. */
 export interface AiVoucherDraftPayload {
   voucherTypeId: number
+  /** A voucher kind, or the trade-document kind for form 'tradeDoc' (quotation / sales_order /
+   *  purchase_order — `voucherTypeId` is then the trade_doc_types id). */
   voucherKind: string
   date: string
   partyLedgerId: number | null
   narration: string | null
   reference: string | null
   lines: { ledgerId: number; drCr: 'dr' | 'cr'; amount: number }[]
+  form?: AiDraftForm
+  /** The editor's form state (see above). */
+  state?: unknown
+  /** The document total the tool computed (paise) — invoice total, payment amount, order value,
+   *  goods value of a challan, production cost of a manufacture. */
+  total?: number
+  /** Bill allocations the tool resolved (payments / receipts / notes). */
+  billRefs?: { kind: 'new' | 'against'; name: string; amount: number; dueDate: string | null }[]
+  sources?: AiDraftSourceRef[]
+  /** Assumptions the tool made ("18% GST from the item master", "rate from the price list"). */
+  assumptions?: string[]
+  /** Fields the model set (highlighted in the editor): 'date', 'party', 'account', 'narration',
+   *  'reference', 'line:N', 'bills', 'purpose', 'finishedItem', 'qty', 'labour', 'validUntil', 'dueDate'. */
+  fields?: string[]
 }
 
 export interface AiDraftDto {
@@ -200,10 +241,17 @@ export interface AiDraftDto {
   status: AiDraftStatus
   voucherId: number | null
   /** Made when the user's question did not ask for a draft (possible instruction injected via
-   *  narration or imported text) — shown with a warning. */
+   *  narration or imported text) — shown with a warning. Inbox drafts are always flagged. */
   unrequested: boolean
+  source: AiDraftSource
+  /** The MCP client's name or the dropped file's name; null for chat drafts. */
+  origin: string | null
   createdAt: string
   consumedAt: string | null
+  /** WP 5.3: the assistant message that made it — drafts sharing one are a draft set. */
+  messageId?: number | null
+  /** WP 5.3: who asked (the conversation's user), for the Settings → AI drafts list. */
+  userName?: string | null
 }
 
 export interface AiUsageRow {

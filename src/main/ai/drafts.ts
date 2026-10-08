@@ -1,200 +1,84 @@
-// Draft tools and the draft lifecycle (WP 5.1). `draft_voucher` validates a proposed accounting
-// voucher exactly as saveVoucher would (voucherInputSchema + validateVoucher + the lock date) and
-// writes an ai_drafts row — it NEVER saves a voucher. The user opens the draft in the voucher
-// editor (VoucherEntry `aiDraftId`), and saving there goes through voucher:save → saveVoucher
-// with all its checks; that save marks the draft consumed (consumeDraft, audited).
-import { z } from 'zod'
+// The draft lifecycle (WP 5.1) and the WP 5.1 entry points kept for callers and tests.
+// The draft tools themselves live in drafting/ (WP 5.3: every voucher kind, name resolution with
+// clarification, the editor's own form state, a rehearsed save). A draft tool NEVER saves a
+// voucher: the user opens the draft in its editor (VoucherEntry / TradeDocEntry `aiDraftId`),
+// and saving there goes through voucher:save / manufacture:save / tradeDocs:save with all their
+// checks; that save marks the draft consumed (settleDraftOnSave, audited).
 import type { DB } from '../db/connection'
-import { parseRupees, formatPaise } from '@shared/money'
-import { isoDate, voucherInputSchema } from '@shared/schemas'
-import { validateVoucher } from '@shared/posting'
-import type { VoucherKind } from '@shared/domain'
-import { AI_MEMORY_PURPOSES, type AiDraftDto, type AiVoucherDraftPayload } from '@shared/ai'
-import type { MemoryContext } from './memoryRules'
-import { getLockDate, ledgerFactsResolver } from '../services/vouchers'
+import type { CompanyInfo } from '@shared/domain'
+import type { AiDraftDto, AiVoucherDraftPayload } from '@shared/ai'
+import { readCompanyInfo } from '../db/seed'
 import { writeAudit } from '../services/audit'
-import { defineTool } from './tools/registry'
-import { getDraft, insertDraft, setDraftStatus } from './store'
+import { getDraft, setDraftStatus } from './store'
+import { DraftWork, NeedsClarification, loadMasters } from './drafting/work'
+import { buildAccountingDraft } from './drafting/builders'
+import { DRAFTABLE_KINDS, draftVoucherInput, draftVoucherTool, isRequestedDraft, type DraftVoucherInput } from './drafting/tools'
 
-/** Accounting kinds the 5.1 drafting covers (invoices with stock lines come with WP 5.3). */
-export const DRAFTABLE_KINDS = ['payment', 'receipt', 'contra', 'journal'] as const
+export { DRAFTABLE_KINDS, draftVoucherInput, draftVoucherTool, isRequestedDraft, type DraftVoucherInput }
 
-const amountText = z
-  .string()
-  .trim()
-  .regex(/^₹?\s?\d[\d,]*(\.\d{1,2})?$/, 'Amount in rupees as text, e.g. "5000" or "5,000.50"')
-  .describe('Amount in rupees exactly as the user gave it, e.g. "5000" or "12,500.50" — never a computed figure')
-
-export const draftVoucherInput = z.object({
-  kind: z.enum(DRAFTABLE_KINDS).describe('payment = money out of cash/bank; receipt = money in; contra = between cash and bank; journal = no cash/bank'),
-  voucherTypeId: z.number().int().positive().optional().describe('A specific voucher type of that kind; omit for the default'),
-  date: isoDate.optional().describe('Voucher date (YYYY-MM-DD); omit for today'),
-  narration: z.string().max(500).optional(),
-  reference: z.string().max(120).optional(),
-  lines: z
-    .array(z.object({ ledgerId: z.number().int().positive(), drCr: z.enum(['dr', 'cr']), amount: amountText }))
-    .min(2)
-    .max(20)
-    .describe('Debit and credit lines; debits must equal credits')
-})
-export type DraftVoucherInput = z.infer<typeof draftVoucherInput>
-
-/** What the tool accepts (WP 5.6): a line may name a remembered purpose instead of a ledger id —
- *  resolved through the turn's MemoryContext (preferredLedger), so a draft can use "the ledger we
- *  usually pay from" the user confirmed, and the answer shows that memory as used. */
-export const draftVoucherToolInput = draftVoucherInput.extend({
-  lines: z
-    .array(
-      z.object({
-        ledgerId: z.number().int().positive().optional().describe('The ledger; omit only when `preferred` is given'),
-        preferred: z.enum(AI_MEMORY_PURPOSES).optional().describe('Use the remembered ledger for this purpose (see the memory block) instead of a ledgerId'),
-        drCr: z.enum(['dr', 'cr']),
-        amount: amountText
-      })
-    )
-    .min(2)
-    .max(20)
-    .describe('Debit and credit lines; debits must equal credits')
-})
-export type DraftVoucherToolInput = z.infer<typeof draftVoucherToolInput>
-
-/** Tool lines → ledger ids: `preferred` resolved through the memory context (marking it used). */
-export function resolvePreferredLines(input: DraftVoucherToolInput, memory: MemoryContext | undefined): { input: DraftVoucherInput; memoryIds: number[] } {
-  const memoryIds: number[] = []
-  const lines = input.lines.map((l, i) => {
-    if (l.ledgerId && l.preferred) throw new Error(`Line ${i + 1}: give either ledgerId or preferred, not both`)
-    if (l.ledgerId) return { ledgerId: l.ledgerId, drCr: l.drCr, amount: l.amount }
-    if (!l.preferred) throw new Error(`Line ${i + 1}: a ledgerId is needed`)
-    const p = memory?.preferredLedger(l.preferred) ?? null
-    if (!p) throw new Error(`Line ${i + 1}: there is no remembered ${l.preferred} ledger — ask the user, or find one with list_ledgers`)
-    if (!memoryIds.includes(p.memoryId)) memoryIds.push(p.memoryId)
-    return { ledgerId: p.ledgerId, drCr: l.drCr, amount: l.amount }
-  })
-  return { input: { ...input, lines }, memoryIds }
-}
-
-function ledgerName(db: DB, id: number): string {
-  return (db.prepare('SELECT name FROM ledgers WHERE id = ?').get(id) as { name: string } | undefined)?.name ?? `#${id}`
-}
-
-/** Validate a proposal and build the stored payload; throws with the reasons when it would not post. */
-export function buildVoucherDraft(db: DB, input: DraftVoucherInput, today: string): { payload: AiVoucherDraftPayload; summary: string } {
-  const type = input.voucherTypeId
-    ? (db.prepare('SELECT id, kind, name FROM voucher_types WHERE id = ?').get(input.voucherTypeId) as { id: number; kind: VoucherKind; name: string } | undefined)
-    : (db.prepare('SELECT id, kind, name FROM voucher_types WHERE kind = ? ORDER BY id LIMIT 1').get(input.kind) as
-        | { id: number; kind: VoucherKind; name: string }
-        | undefined)
-  if (!type) throw new Error(`No ${input.kind} voucher type in this company`)
-  if (type.kind !== input.kind) throw new Error(`Voucher type ${type.name} is a ${type.kind}, not a ${input.kind}`)
-
-  const lines = input.lines.map((l, i) => {
-    const amount = parseRupees(l.amount)
-    if (amount === null || amount <= 0) throw new Error(`Line ${i + 1}: "${l.amount}" is not a positive rupee amount`)
-    return { ledgerId: l.ledgerId, drCr: l.drCr, amount }
-  })
-  const date = input.date ?? today
-  const voucher = voucherInputSchema.parse({
-    voucherTypeId: type.id,
-    date,
-    partyLedgerId: null,
-    narration: input.narration?.trim() || null,
-    reference: input.reference?.trim() || null,
-    lines: lines.map((l) => ({ ...l, costAllocations: [] })),
-    inventory: [],
-    billRefs: [],
-    tds: null
-  })
-  const errors = validateVoucher(voucher, type.kind, ledgerFactsResolver(db))
-  const dr = lines.filter((l) => l.drCr === 'dr').reduce((s, l) => s + l.amount, 0)
-  const cr = lines.filter((l) => l.drCr === 'cr').reduce((s, l) => s + l.amount, 0)
-  if (dr !== cr && !errors.some((e) => e.code === 'unbalanced')) errors.push({ code: 'unbalanced', message: `Debits (${formatPaise(dr)}) and credits (${formatPaise(cr)}) differ` })
-  if (errors.length) throw new Error(errors.map((e) => e.message).join('; '))
-  const lock = getLockDate(db)
-  if (lock && date <= lock) throw new Error(`Books are locked up to ${lock}; pick a later date`)
-
-  const drNames = lines.filter((l) => l.drCr === 'dr').map((l) => ledgerName(db, l.ledgerId))
-  const crNames = lines.filter((l) => l.drCr === 'cr').map((l) => ledgerName(db, l.ledgerId))
-  const summary = `${type.name} of ${formatPaise(dr, { symbol: true })} on ${date}: Dr ${drNames.join(', ')} / Cr ${crNames.join(', ')}`
-  return {
-    payload: { voucherTypeId: type.id, voucherKind: type.kind, date, partyLedgerId: null, narration: voucher.narration, reference: voucher.reference, lines },
-    summary
+/** Validate an accounting proposal and build the stored payload; throws with the reasons when it
+ *  would not post (or needs a clarification). */
+export function buildVoucherDraft(
+  db: DB,
+  input: DraftVoucherInput,
+  today: string,
+  company?: CompanyInfo
+): { payload: AiVoucherDraftPayload; summary: string } {
+  const w = new DraftWork(loadMasters(db, company ?? readCompanyInfo(db), today))
+  try {
+    return buildAccountingDraft(w, draftVoucherInput.parse(input))
+  } catch (err) {
+    if (err instanceof NeedsClarification) throw new Error(w.clarifications.map((c) => c.question).join(' '))
+    throw err
   }
 }
 
-/** Words that mean the user asked for an entry. A draft made without them was prompted by
- *  something else — e.g. an instruction hidden in a narration or imported text — and is flagged. */
-const DRAFT_INTENT = /\b(draft|pay|paid|payment|receipt|receive|received|journal|contra|transfer|record|enter|entry|book|post|voucher|deposit|withdraw|expense)\w*/i
-
-/** The request-intent check (WP 5.2): did the user's own question carry words of this intent? A
- *  proposal made without them was prompted by something else and is flagged `unrequested`.
- *  Shared by drafts and (WP 5.6) memory proposals. */
-export function matchesIntent(userRequest: string | undefined, intent: RegExp): boolean {
-  return !!userRequest && intent.test(userRequest)
+/** What a save produced from a draft: a voucher (every voucher kind, manufacture included) or a
+ *  trade document (quotation / order — ai_drafts.voucher_id stays null; the audit row names it). */
+export interface DraftSaveTarget {
+  voucherId?: number | null
+  tradeDocId?: number | null
 }
 
-export function isRequestedDraft(userRequest: string | undefined): boolean {
-  return matchesIntent(userRequest, DRAFT_INTENT)
+function targetOf(t: number | DraftSaveTarget): DraftSaveTarget {
+  return typeof t === 'number' ? { voucherId: t } : t
 }
 
-export const draftVoucherTool = defineTool({
-  name: 'draft_voucher',
-  description:
-    'Prepare (NOT save) a payment, receipt, contra or journal voucher for the user to review. It is checked like a real save — balanced, known ledgers, not in a locked period — and stored as a draft; the user opens it in the voucher editor and saves it themselves. ' +
-    'A line may say preferred: "payment" (etc.) to use the ledger the memory block remembers for that purpose.',
-  input: draftVoucherToolInput,
-  kind: 'draft',
-  minRole: 'accountant',
-  handler: (raw, ctx) => {
-    const { input, memoryIds } = resolvePreferredLines(raw, ctx.memory)
-    const { payload, summary } = buildVoucherDraft(ctx.db, input, ctx.today)
-    const unrequested = !isRequestedDraft(ctx.userRequest)
-    const draft = ctx.db.transaction(() => {
-      const d = insertDraft(ctx.db, { threadId: ctx.threadId, messageId: ctx.messageId, summary, payload, unrequested })
-      writeAudit(ctx.db, 'ai_draft', d.id, 'create', null, { summary, payload, threadId: ctx.threadId, unrequested })
-      return d
-    })()
-    return {
-      data: {
-        draftId: draft.id,
-        status: 'open',
-        summary,
-        note: unrequested
-          ? 'Draft only, and FLAGGED: the user did not ask for an entry. Tell the user it was prompted by text in the books, not by them.'
-          : 'Draft only — nothing is in the books until the user reviews and saves it.',
-        ...(memoryIds.length ? { fromMemory: memoryIds.map((id) => `M${id}`) } : {})
-      },
-      draftId: draft.id,
-      sources: [
-        { kind: 'screen', screen: 'voucher-entry', label: 'Review draft', params: { aiDraftId: draft.id } },
-        ...payload.lines.map((l) => ({ kind: 'ledger' as const, ledgerId: l.ledgerId, label: ledgerName(ctx.db, l.ledgerId) }))
-      ]
-    }
-  }
-})
-
-/** voucher:save with `aiDraftId`: the saved voucher came from this draft. */
-export function consumeDraft(db: DB, draftId: number, voucherId: number): AiDraftDto {
+/** The save consumed the draft. */
+export function consumeDraft(db: DB, draftId: number, saved: number | DraftSaveTarget): AiDraftDto {
+  const t = targetOf(saved)
   const before = getDraft(db, draftId)
   if (!before) throw new Error('AI draft not found')
   if (before.status !== 'open') throw new Error(`This draft is already ${before.status}`)
-  setDraftStatus(db, draftId, 'consumed', voucherId)
+  setDraftStatus(db, draftId, 'consumed', t.voucherId ?? null)
   const after = getDraft(db, draftId)!
-  writeAudit(db, 'ai_draft', draftId, 'update', { status: before.status }, { status: after.status, voucherId })
+  writeAudit(db, 'ai_draft', draftId, 'update', { status: before.status }, { status: after.status, ...(t.voucherId ? { voucherId: t.voucherId } : {}), ...(t.tradeDocId ? { tradeDocId: t.tradeDocId } : {}) })
   return after
 }
 
-/** voucher:save with `aiDraftId`: consume the draft when it is still open. A draft discarded or
- *  deleted (Delete all AI data, thread delete) while the user was reviewing it must not block the
- *  save — the voucher is the user's own; the audit trail records that the draft was no longer open. */
-export function settleDraftOnSave(db: DB, draftId: number, voucherId: number): void {
+/** Which save channel each draft form is saved through. */
+export type DraftSaveChannel = 'voucher' | 'manufacture' | 'tradeDoc'
+const CHANNEL_OF: Record<string, DraftSaveChannel> = { accounting: 'voucher', invoice: 'voucher', stockNote: 'voucher', manufacture: 'manufacture', tradeDoc: 'tradeDoc' }
+
+/** A save with `aiDraftId` (called inside the save's transaction, after it succeeded): consume
+ *  the draft when it is still open and belongs to this save channel. Nothing happens — no
+ *  consumption, no audit row — for an id that is not a draft or a draft of another kind (a
+ *  manufacture draft cannot be "used up" by an unrelated voucher). A draft discarded or deleted
+ *  while the user was reviewing it must not block the save — the entry is the user's own; the
+ *  audit trail records that the draft was no longer open. */
+export function settleDraftOnSave(db: DB, draftId: number, saved: number | DraftSaveTarget, channel: DraftSaveChannel = 'voucher'): void {
+  const t = targetOf(saved)
   const d = getDraft(db, draftId)
-  if (d?.status === 'open') {
-    consumeDraft(db, draftId, voucherId)
+  if (!d) return
+  if ((CHANNEL_OF[d.payload.form ?? 'accounting'] ?? 'voucher') !== channel) return
+  if (d.status === 'open') {
+    consumeDraft(db, draftId, t)
     return
   }
-  writeAudit(db, 'ai_draft', draftId, 'update', d ? { status: d.status } : null, {
-    voucherId,
-    note: d ? `draft no longer open (${d.status}); voucher saved without consuming it` : 'draft no longer exists; voucher saved without it'
+  writeAudit(db, 'ai_draft', draftId, 'update', { status: d.status }, {
+    ...(t.voucherId ? { voucherId: t.voucherId } : {}),
+    ...(t.tradeDocId ? { tradeDocId: t.tradeDocId } : {}),
+    note: `draft no longer open (${d.status}); saved without consuming it`
   })
 }
 

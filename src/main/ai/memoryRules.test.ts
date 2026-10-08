@@ -4,12 +4,12 @@
 import { describe, expect, it } from 'vitest'
 import type { AiMemoryDto } from '@shared/ai'
 import {
-  MEMORY_IDENTIFIER_ERROR, MEMORY_RULE, REMEMBER_INTENT, buildMemoryBlock, citedMemoryIds, createMemoryContext, derivedKey, memoryLine, memoryProblems,
+  MEMORY_IDENTIFIER_ERROR, MEMORY_RULE, buildMemoryBlock, citedMemoryIds, createMemoryContext, derivedKey, memoryLine, memoryProblems,
   narrationStyle, proposeMemories, stripMemoryCitations, usualDay, type BookStats
 } from './memoryRules'
 import { buildSystemPrompt, type PromptContext } from './prompt'
 import { maskIdentifiers, outboundText } from './privacy'
-import { matchesIntent } from './drafts'
+import { isRequestedMemory } from './drafting/intent'
 
 function mem(over: Partial<AiMemoryDto>): AiMemoryDto {
   return {
@@ -100,10 +100,14 @@ describe('citations and intent', () => {
   })
 
   it('a remember call is requested only when the question says so', () => {
-    expect(matchesIntent('Remember that Ram Traders is always Purchase A/c', REMEMBER_INTENT)).toBe(true)
-    expect(matchesIntent('from now on pay rent from HDFC', REMEMBER_INTENT)).toBe(true)
-    expect(matchesIntent('What is the narration on voucher 12?', REMEMBER_INTENT)).toBe(false)
-    expect(matchesIntent(undefined, REMEMBER_INTENT)).toBe(false)
+    expect(isRequestedMemory('Remember that Ram Traders is always Purchase A/c')).toBe(true)
+    expect(isRequestedMemory('from now on pay rent from HDFC')).toBe(true)
+    expect(isRequestedMemory('We always pay rent from HDFC Bank')).toBe(true)
+    expect(isRequestedMemory('Note that Acme bills on the 5th')).toBe(true)
+    expect(isRequestedMemory('What is the narration on voucher 12?')).toBe(false)
+    expect(isRequestedMemory('Which ledger do we usually pay rent from?')).toBe(false)
+    expect(isRequestedMemory('Show the default sales ledger')).toBe(false)
+    expect(isRequestedMemory(undefined)).toBe(false)
   })
 })
 
@@ -178,6 +182,9 @@ describe('memory context (what tools consult)', () => {
     expect(ctx.preferredLedger('payment')).toEqual({ ledgerId: 5, name: 'HDFC Bank', memoryId: 2 })
     expect(ctx.preferredLedger('receipt')).toBeNull()
     expect(ctx.forParty(20)?.id).toBe(4)
+    expect([...ctx.used]).toEqual([]) // lookups do not count as use
+    ctx.markUsed(2)
+    ctx.markUsed(4)
     ctx.markUsed(3) // archived: not in the context
     expect([...ctx.used].sort()).toEqual([2, 4])
   })

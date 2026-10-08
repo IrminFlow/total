@@ -1,12 +1,14 @@
 /**
  * Agent access layer (lane A): CSV/JSON mirrors of the books under `<company>/agent/`, plus the
- * validated `<company>/inbox/` drop-folder that lets external agents (Claude Code, Codex, ...)
- * post vouchers and masters without touching SQLite directly.
+ * validated `<company>/inbox/` drop-folder for external agents (Claude Code, Codex, ...).
  *
- * Every write goes through the exact same code path as the UI: zod `voucherInputSchema` →
- * `saveVoucher` (which runs `validateVoucher` + the period lock) — the inbox/CLI can never post
- * anything the voucher screen would reject. Reads are recomputed from voucher_lines at export
- * time, never denormalised.
+ * WP 5.7: the MCP server (`total-cli mcp`, src/main/mcp/) is now the way agents read the books
+ * and propose entries, and the inbox follows the same read/draft rule — a voucher drop becomes a
+ * flagged DRAFT for the user to review (ai/inboxDrafts.ts); it is no longer posted. The old
+ * posting path survives only behind `total-cli inbox --legacy-inbox-post` (deprecated), where it
+ * still goes through the UI's code path: zod `voucherInputSchema` → `saveVoucher` (validateVoucher
+ * + the period lock). The mirrors are unchanged; buildMirrorFiles also feeds the MCP resources.
+ * Reads are recomputed from voucher_lines at export time, never denormalised.
  *
  * Concurrency: the app and the CLI may have the same company.db open at once — WAL journal mode
  * + busy_timeout (set in db/connection.ts) make that safe; nothing here takes exclusive locks.
@@ -26,6 +28,7 @@ import { outstandings } from './analysis'
 import { getVoucher, saveVoucher, NOT_DELETED } from './vouchers'
 import { applyImport, type ImportKind, type ImportResult } from './importers'
 import { runAsAuditUser } from './audit'
+import { inboxDraftProposal, insertInboxDrafts } from '../ai/inboxDrafts'
 import { log } from '../log'
 
 /** Bumped whenever the mirror file shapes change incompatibly; stamped into meta.json. */
@@ -61,22 +64,49 @@ function fyLabel(date: string): string {
   return `${startYear}-${String((startYear + 1) % 100).padStart(2, '0')}`
 }
 
+export interface MirrorFile {
+  name: string
+  mimeType: 'text/csv' | 'application/json'
+  content: string
+}
+
+/** Applied to every TEXT value of a mirror, with the field it sits in (names, GSTINs, narrations —
+ *  never amounts, which stay integers): identity for the on-disk mirror; field-aware masking /
+ *  pseudonymisation (mcp/mask.ts) when the MCP server serves the same files. */
+export type MirrorTextTransform = (s: string, key: string | null) => string
+
+const identity: MirrorTextTransform = (s) => s
+
+function mapJsonStrings(value: unknown, fn: MirrorTextTransform, key: string | null = null): unknown {
+  if (typeof value === 'string') return fn(value, key)
+  if (Array.isArray(value)) return value.map((v) => mapJsonStrings(v, fn, key))
+  if (value && typeof value === 'object') {
+    const out: Record<string, unknown> = {}
+    for (const [k, v] of Object.entries(value as Record<string, unknown>)) out[k] = mapJsonStrings(v, fn, k)
+    return out
+  }
+  return value
+}
+
 /**
- * Regenerate the read mirror under `<company>/agent/`:
+ * Build the read mirror in memory:
  *   ledgers.csv, ledgers.json, items.csv, vouchers-<FY>.json, trial-balance.json,
  *   outstandings.json, meta.json (schema version + generated-at + voucher types).
  * Amounts are integer paise, quantities integer milli-units — lossless, same as the DB.
+ * `exportMirror` writes these under `<company>/agent/`; the MCP server serves them as resources
+ * straight from here (computed at request time, never read back from the files).
  */
-export function exportMirror(db: DB, slug: string, opts: MirrorOptions = {}): MirrorResult {
+export function buildMirrorFiles(db: DB, slug: string, opts: MirrorOptions = {}, text: MirrorTextTransform = identity): MirrorFile[] {
   const what = opts.what ?? 'all'
   const format = opts.format ?? 'all'
-  const dir = agentDir(slug)
-  mkdirSync(dir, { recursive: true })
-  const files: string[] = []
-  const writeOut = (name: string, content: string): void => {
-    writeFileSync(join(dir, name), content)
-    files.push(name)
+  const files: MirrorFile[] = []
+  const csv = (name: string, content: string): void => {
+    files.push({ name, mimeType: 'text/csv', content })
   }
+  const json = (name: string, value: unknown): void => {
+    files.push({ name, mimeType: 'application/json', content: JSON.stringify(text === identity ? value : mapJsonStrings(value, text), null, 2) })
+  }
+  const t = (s: string, key: string): string => (s ? text(s, key) : s)
   const wantCsv = format !== 'json'
   const wantJson = format !== 'csv'
   const asOn = opts.to ?? todayISO()
@@ -85,29 +115,29 @@ export function exportMirror(db: DB, slug: string, opts: MirrorOptions = {}): Mi
     const groups = new Map(masters.listGroups(db).map((g) => [g.id, g.name]))
     const ledgers = masters.listLedgers(db).map((l) => ({ ...l, groupName: groups.get(l.groupId) ?? '' }))
     if (wantCsv) {
-      writeOut(
+      csv(
         'ledgers.csv',
         rowsToCsv(
           ['id', 'name', 'group', 'opening_balance_paise', 'gstin', 'state_code', 'hsn', 'gst_rate', 'credit_days'],
           ledgers.map((l) => [
-            String(l.id), l.name, l.groupName, String(l.openingBalance),
-            l.gstin ?? '', l.stateCode ?? '', l.hsn ?? '',
+            String(l.id), t(l.name, 'name'), t(l.groupName, 'group'), String(l.openingBalance),
+            t(l.gstin ?? '', 'gstin'), l.stateCode ?? '', l.hsn ?? '',
             l.gstRate === null ? '' : String(l.gstRate),
             l.creditDays === null ? '' : String(l.creditDays)
           ])
         )
       )
     }
-    if (wantJson) writeOut('ledgers.json', JSON.stringify(ledgers, null, 2))
+    if (wantJson) json('ledgers.json', ledgers)
     if (wantCsv) {
       const units = new Map(masters.listUnits(db).map((u) => [u.id, u.symbol]))
       const stockGroups = new Map(masters.listStockGroups(db).map((g) => [g.id, g.name]))
-      writeOut(
+      csv(
         'items.csv',
         rowsToCsv(
           ['id', 'name', 'group', 'unit', 'hsn', 'gst_rate', 'opening_qty_milli', 'opening_value_paise'],
           masters.listStockItems(db).map((i) => [
-            String(i.id), i.name, i.groupId === null ? '' : (stockGroups.get(i.groupId) ?? ''),
+            String(i.id), t(i.name, 'name'), i.groupId === null ? '' : t(stockGroups.get(i.groupId) ?? '', 'group'),
             units.get(i.unitId) ?? '', i.hsn ?? '',
             i.gstRate === null ? '' : String(i.gstRate),
             String(i.openingQtyMilli), String(i.openingValue)
@@ -133,41 +163,40 @@ export function exportMirror(db: DB, slug: string, opts: MirrorOptions = {}): Mi
       if (v) list.push(v)
       byFy.set(label, list)
     }
-    for (const [label, vouchersOfFy] of byFy) {
-      writeOut(`vouchers-${label}.json`, JSON.stringify(vouchersOfFy, null, 2))
-    }
+    for (const [label, vouchersOfFy] of byFy) json(`vouchers-${label}.json`, vouchersOfFy)
   }
 
   if ((what === 'reports' || what === 'all') && wantJson) {
-    writeOut('trial-balance.json', JSON.stringify({ asOn, ...trialBalance(db, asOn) }, null, 2))
-    writeOut(
-      'outstandings.json',
-      JSON.stringify(
-        { asOn, receivable: outstandings(db, 'receivable', asOn), payable: outstandings(db, 'payable', asOn) },
-        null,
-        2
-      )
-    )
+    json('trial-balance.json', { asOn, ...trialBalance(db, asOn) })
+    json('outstandings.json', { asOn, receivable: outstandings(db, 'receivable', asOn), payable: outstandings(db, 'payable', asOn) })
   }
 
   const voucherTypes = masters.listVoucherTypes(db)
-  writeOut(
-    'meta.json',
-    JSON.stringify(
-      {
-        schemaVersion: MIRROR_SCHEMA_VERSION,
-        generatedAt: new Date().toISOString(),
-        company: slug,
-        amountsUnit: 'paise (integer, 100 paise = 1 rupee)',
-        quantitiesUnit: 'milli-units (integer, 1000 = 1 unit)',
-        voucherTypes,
-        files
-      },
-      null,
-      2
-    )
-  )
-  return { dir, files }
+  json('meta.json', {
+    schemaVersion: MIRROR_SCHEMA_VERSION,
+    generatedAt: new Date().toISOString(),
+    company: slug,
+    amountsUnit: 'paise (integer, 100 paise = 1 rupee)',
+    quantitiesUnit: 'milli-units (integer, 1000 = 1 unit)',
+    voucherTypes,
+    files: files.map((f) => f.name)
+  })
+  return files
+}
+
+/** FY labels ('2025-26') that have vouchers in the books — one vouchers-<FY>.json each. */
+export function mirrorVoucherYears(db: DB): string[] {
+  const rows = db.prepare(`SELECT DISTINCT v.date FROM vouchers v WHERE ${NOT_DELETED} ORDER BY v.date`).all() as { date: string }[]
+  return [...new Set(rows.map((r) => fyLabel(r.date)))]
+}
+
+/** Regenerate the read mirror under `<company>/agent/` (see buildMirrorFiles). */
+export function exportMirror(db: DB, slug: string, opts: MirrorOptions = {}): MirrorResult {
+  const dir = agentDir(slug)
+  mkdirSync(dir, { recursive: true })
+  const files = buildMirrorFiles(db, slug, opts)
+  for (const f of files) writeFileSync(join(dir, f.name), f.content)
+  return { dir, files: files.map((f) => f.name) }
 }
 
 // ---------- debounced auto-refresh after saveVoucher (feature-flag gated in ipc.ts) ----------
@@ -201,10 +230,21 @@ export function cancelMirrorRefresh(): void {
 export interface InboxOutcome {
   file: string
   ok: boolean
-  /** processed: voucher ids posted / masters created+updated. failed: the error message. */
+  /** processed: the drafts created (or, legacy, voucher ids posted / masters created+updated).
+   *  failed: the error message. */
   detail: string
   movedTo: string
 }
+
+export interface InboxOptions {
+  /** Deprecated pre-0.9 behaviour: POST voucher drops and import masters CSVs instead of making
+   *  drafts. Only `total-cli inbox --legacy-inbox-post` sets it; the app's watcher never does. */
+  legacyPost?: boolean
+}
+
+export const LEGACY_INBOX_WARNING =
+  'DEPRECATED: --legacy-inbox-post posts inbox drops straight into the books. The inbox now turns drops into drafts for review ' +
+  '(and agents should use `total-cli mcp`); this flag will be removed in a later release.'
 
 function notify(title: string, body: string): void {
   try {
@@ -252,18 +292,29 @@ class CsvRowErrors extends Error {
 }
 
 /**
- * Validate + apply one dropped file, then move it to `inbox/processed/<ts>-<file>` on success or
- * `inbox/failed/<file>` (+ `<file>.error.txt`) on failure. `*.json` = voucher input (single object
- * or array); `*.csv` = masters import (ledgers/items, sniffed from the header). BOTH kinds apply
- * atomically per file — any bad voucher or bad CSV row rolls back the entire drop, so a failure
- * report always truthfully means "nothing was applied". All writes are audited as user
- * 'agent-inbox' and run through the same validation/period-lock path as the UI.
+ * Validate one dropped file, then move it to `inbox/processed/<ts>-<file>` on success or
+ * `inbox/failed/<file>` (+ `<file>.error.txt`) on failure.
+ *
+ * Default (WP 5.7 — the inbox supersedes nothing into the books any more): a `*.json` voucher drop
+ * (single object or array) becomes DRAFTS — one ai_drafts row per voucher, source 'inbox',
+ * flagged `unrequested`, checked exactly like the assistant's draft_voucher — that the user
+ * reviews and saves in the voucher editor (Settings → Agent access lists them). Nothing is
+ * posted. A `*.csv` masters drop is refused (use Settings → Data import).
+ *
+ * `legacyPost` (only `total-cli inbox --legacy-inbox-post`, deprecated): the pre-0.9 behaviour —
+ * `*.json` vouchers are POSTED via saveVoucher and `*.csv` masters (ledgers/items, sniffed from
+ * the header) are imported.
+ *
+ * Every mode is atomic per file — any bad voucher or bad CSV row rolls back the entire drop, so
+ * a failure report always truthfully means "nothing was applied". All writes are audited as user
+ * 'agent-inbox'.
  *
  * Concurrent writers: agents that write the drop in place (no temp-file-then-rename) can be read
  * mid-write. When the content doesn't parse, the file is re-read after a short pause for as long
  * as it keeps changing (bounded) — a static malformed file costs exactly one extra read.
  */
-export function processInboxFile(db: DB, slug: string, filePath: string): InboxOutcome {
+export function processInboxFile(db: DB, slug: string, filePath: string, opts: InboxOptions = {}): InboxOutcome {
+  const legacyPost = opts.legacyPost === true
   const inbox = inboxDir(slug)
   const name = basename(filePath)
   const processedDir = join(inbox, 'processed')
@@ -278,10 +329,10 @@ export function processInboxFile(db: DB, slug: string, filePath: string): InboxO
     notify('Total — inbox file rejected', `${name}: ${error.slice(0, 180)}`)
     return { file: name, ok: false, detail: error, movedTo: dest }
   }
-  const succeed = (detail: string): InboxOutcome => {
+  const succeed = (detail: string, title = 'Total — inbox file processed'): InboxOutcome => {
     const dest = join(processedDir, `${stamp()}-${name}`)
     renameSync(filePath, dest)
-    notify('Total — inbox file processed', `${name}: ${detail.slice(0, 180)}`)
+    notify(title, `${name}: ${detail.slice(0, 180)}`)
     return { file: name, ok: true, detail, movedTo: dest }
   }
 
@@ -329,6 +380,23 @@ export function processInboxFile(db: DB, slug: string, filePath: string): InboxO
       }
       const items = Array.isArray(parsed) ? parsed : [parsed]
       if (items.length === 0) return fail('Empty voucher array')
+      if (!legacyPost) {
+        // Drafts, never postings: every voucher is validated as a draft proposal first, then all
+        // drafts are written in one transaction — one bad voucher refuses the whole file.
+        const today = todayISO()
+        const proposals = items.map((item, i) => {
+          try {
+            return inboxDraftProposal(db, voucherInputSchema.parse(item), today)
+          } catch (err) {
+            throw new Error(`voucher ${i + 1}: ${zodOrErrorMessage(err)}`)
+          }
+        })
+        const drafts = runAsAuditUser('agent-inbox', () => db.transaction(() => insertInboxDrafts(db, name, proposals))())
+        return succeed(
+          `drafted ${drafts.length} voucher(s) for review — nothing posted: ${drafts.map((d) => `draft #${d.id}`).join(', ')}`,
+          'Total — inbox file turned into drafts'
+        )
+      }
       // All-or-nothing per file: saveVoucher's own transaction nests as a savepoint inside this
       // one, so a failure on voucher 3 of 5 rolls back 1-2 as well — no half-applied drops.
       const posted = runAsAuditUser('agent-inbox', () =>
@@ -342,6 +410,12 @@ export function processInboxFile(db: DB, slug: string, filePath: string): InboxO
       return succeed(`posted ${posted.length} voucher(s): ${posted.map((v) => `#${v.number} (id ${v.id})`).join(', ')}`)
     }
     if (ext === '.csv') {
+      if (!legacyPost) {
+        return fail(
+          'Masters CSV drops are no longer imported from the inbox — nothing was applied. Import masters in Settings → Data import ' +
+            '(preview + undo), or run `total-cli inbox --legacy-inbox-post` (deprecated) to import them the old way.'
+        )
+      }
       for (let attempt = 0; ; attempt++) {
         const kind = sniffCsvKind(text.split('\n')[0] ?? '')
         let result: ImportResult | null = null
@@ -381,21 +455,21 @@ export function processInboxFile(db: DB, slug: string, filePath: string): InboxO
     }
     return fail(`Unsupported file type '${ext}' — drop .json (vouchers) or .csv (masters)`)
   } catch (err) {
-    const message =
-      err && typeof err === 'object' && 'issues' in err
-        ? // ZodError: flatten issues into readable lines.
-          (err as { issues: { path: (string | number)[]; message: string }[] }).issues
-            .map((i) => `${i.path.join('.')}: ${i.message}`)
-            .join('; ')
-        : err instanceof Error
-          ? err.message
-          : String(err)
-    return fail(message)
+    return fail(zodOrErrorMessage(err))
   }
 }
 
+/** A ZodError flattened into readable "path: message" lines; any other error's message. */
+function zodOrErrorMessage(err: unknown): string {
+  return err && typeof err === 'object' && 'issues' in err
+    ? (err as { issues: { path: (string | number)[]; message: string }[] }).issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('; ')
+    : err instanceof Error
+      ? err.message
+      : String(err)
+}
+
 /** Process every pending `*.json`/`*.csv` sitting directly in the inbox (not subfolders). */
-export function scanInbox(db: DB, slug: string): InboxOutcome[] {
+export function scanInbox(db: DB, slug: string, opts: InboxOptions = {}): InboxOutcome[] {
   const inbox = inboxDir(slug)
   if (!existsSync(inbox)) return []
   const outcomes: InboxOutcome[] = []
@@ -410,7 +484,7 @@ export function scanInbox(db: DB, slug: string): InboxOutcome[] {
     if (!isFile) continue
     const ext = extname(name).toLowerCase()
     if (ext !== '.json' && ext !== '.csv') continue
-    outcomes.push(processInboxFile(db, slug, full))
+    outcomes.push(processInboxFile(db, slug, full, opts))
   }
   return outcomes
 }

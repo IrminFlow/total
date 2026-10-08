@@ -91,7 +91,7 @@ beforeEach(() => {
     }
   }
   useSession.getState().setCompany('demo', INFO)
-  useSession.setState({ user: null, from: '2025-04-01', to: '2026-03-31' })
+  useSession.setState({ user: null, from: '2025-04-01', to: '2026-03-31', workingDate: '2025-07-31' })
   useNav.setState({ stack: [{ name: 'trial-balance' }] })
   useAssistantPanel.setState({ open: false, pending: null, width: 460 })
   useExplain.setState({ ready: false, handler: null })
@@ -189,7 +189,7 @@ describe('chat panel', () => {
     fireEvent.keyDown(input, { key: 'Enter', shiftKey: true })
     expect(sends()).toHaveLength(0)
     fireEvent.keyDown(input, { key: 'Enter' })
-    await waitFor(() => expect(sends()).toEqual([{ threadId: undefined, text: 'why is this high?', context: { screen: 'trial-balance', label: 'Trial balance', from: '2025-04-01', to: '2026-03-31' } }]))
+    await waitFor(() => expect(sends()).toEqual([{ threadId: undefined, text: 'why is this high?', context: { screen: 'trial-balance', label: 'Trial balance', from: '2025-04-01', to: '2026-03-31', workingDate: '2025-07-31' } }]))
     fireEvent.keyDown(input, { key: 'Escape' })
     expect(onClose).toHaveBeenCalled()
   })

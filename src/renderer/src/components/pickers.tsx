@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
+import { pickTaxLedger, type TaxSide } from '@shared/voucherEdit'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import type { Group, Ledger, StockItem } from '@shared/domain'
 import { createScanDetector } from '@shared/barcode'
@@ -329,14 +330,16 @@ export function ItemPicker({
 
 /** Find-or-create the CGST/SGST/IGST/Cess ledgers (under Duties & Taxes) and Round Off. */
 export function useTaxLedgers(): {
-  ensure: (taxType: 'cgst' | 'sgst' | 'igst' | 'cess') => Promise<number>
+  /** The component's ledger for the voucher's side (sales → output, purchases → input; see
+   *  pickTaxLedger), created when none of that tax type exists. */
+  ensure: (taxType: 'cgst' | 'sgst' | 'igst' | 'cess', side?: TaxSide) => Promise<number>
   ensureRoundOff: () => Promise<number>
 } {
   const queryClient = useQueryClient()
-  const ensure = async (taxType: 'cgst' | 'sgst' | 'igst' | 'cess'): Promise<number> => {
+  const ensure = async (taxType: 'cgst' | 'sgst' | 'igst' | 'cess', side: TaxSide = 'output'): Promise<number> => {
     const ledgers = await api.ledgers.list()
-    const existing = ledgers.find((l) => l.taxType === taxType)
-    if (existing) return existing.id
+    const existing = pickTaxLedger(ledgers, taxType, side)
+    if (existing != null) return existing
     const groups = await api.groups.list()
     const duties = groups.find((g) => g.name === 'Duties & Taxes')
     if (!duties) throw new Error('Duties & Taxes group missing')

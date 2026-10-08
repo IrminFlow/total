@@ -2,7 +2,7 @@
 // pseudonym map — the AI migration tables (see migrations.ts, the "WP 5.1" entry). Nothing here touches the books.
 import type { DB } from '../db/connection'
 import type {
-  AiContext, AiDraftDto, AiDraftStatus, AiFigure, AiMessageDto, AiMessageRole, AiOutboundRow, AiSource, AiThreadDto, AiToolCallDto, AiUsageRow, AiVoucherDraftPayload
+  AiContext, AiDraftDto, AiDraftSource, AiDraftStatus, AiFigure, AiMessageDto, AiMessageRole, AiOutboundRow, AiSource, AiThreadDto, AiToolCallDto, AiUsageRow, AiVoucherDraftPayload
 } from '@shared/ai'
 import { descendantIdsByName } from '../services/masters'
 import { assignAliases, createPseudonymiser, type Pseudonymiser } from './privacy'
@@ -274,14 +274,28 @@ export function listMessages(db: DB, threadId: number): StoredMessage[] {
 interface DraftRow {
   id: number
   thread_id: number | null
+  message_id: number | null
+  user_name?: string | null
   kind: 'voucher'
   summary: string
   payload_json: string
   status: AiDraftStatus
   voucher_id: number | null
   unrequested: number
+  source: AiDraftSource
+  origin: string | null
   created_at: string
   consumed_at: string | null
+}
+
+/** Where drafts written by this process come from when the caller does not say (WP 5.7): the
+ *  app is 'chat'; the `total-cli mcp` process sets 'mcp' + the client's name once at session
+ *  start, so every draft tool — including ones added later — records its source without
+ *  knowing about MCP. */
+let defaultDraftOrigin: { source: AiDraftSource; origin: () => string | null } = { source: 'chat', origin: () => null }
+
+export function setDefaultDraftOrigin(o: { source: AiDraftSource; origin: () => string | null }): void {
+  defaultDraftOrigin = o
 }
 
 function toDraft(r: DraftRow): AiDraftDto {
@@ -294,40 +308,74 @@ function toDraft(r: DraftRow): AiDraftDto {
     status: r.status,
     voucherId: r.voucher_id,
     unrequested: r.unrequested === 1,
+    source: r.source ?? 'chat',
+    origin: r.origin ?? null,
     createdAt: r.created_at,
-    consumedAt: r.consumed_at
+    consumedAt: r.consumed_at,
+    messageId: r.message_id,
+    userName: r.user_name ?? null
   }
 }
 
+/** Drafts with the thread's user (who asked) — the Settings → AI drafts list and the draft set. */
+const DRAFT_SELECT = 'SELECT d.*, t.user_name FROM ai_drafts d LEFT JOIN ai_threads t ON t.id = d.thread_id'
+
 export function insertDraft(
   db: DB,
-  d: { threadId: number | null; messageId: number | null; summary: string; payload: AiVoucherDraftPayload; unrequested?: boolean }
+  d: {
+    threadId: number | null
+    messageId: number | null
+    summary: string
+    payload: AiVoucherDraftPayload
+    unrequested?: boolean
+    source?: AiDraftSource
+    origin?: string | null
+  }
 ): AiDraftDto {
+  const source = d.source ?? defaultDraftOrigin.source
+  const origin = d.origin !== undefined ? d.origin : d.source ? null : defaultDraftOrigin.origin()
   const id = Number(
     db
-      .prepare("INSERT INTO ai_drafts (thread_id, message_id, kind, summary, payload_json, unrequested) VALUES (?, ?, 'voucher', ?, ?, ?)")
-      .run(d.threadId, d.messageId, d.summary, JSON.stringify(d.payload), d.unrequested ? 1 : 0).lastInsertRowid
+      .prepare(
+        "INSERT INTO ai_drafts (thread_id, message_id, kind, summary, payload_json, unrequested, source, origin) VALUES (?, ?, 'voucher', ?, ?, ?, ?, ?)"
+      )
+      .run(d.threadId, d.messageId, d.summary, JSON.stringify(d.payload), d.unrequested ? 1 : 0, source, origin).lastInsertRowid
   )
   return getDraft(db, id)!
 }
 
 export function getDraft(db: DB, id: number): AiDraftDto | null {
-  const r = db.prepare('SELECT * FROM ai_drafts WHERE id = ?').get(id) as DraftRow | undefined
+  const r = db.prepare(`${DRAFT_SELECT} WHERE d.id = ?`).get(id) as DraftRow | undefined
   return r ? toDraft(r) : null
 }
 
-export function listDrafts(db: DB, status?: AiDraftStatus, threadId?: number): AiDraftDto[] {
+/** The drafts one assistant message made (a multi-draft answer), in order. */
+export function draftSet(db: DB, messageId: number): AiDraftDto[] {
+  return (db.prepare(`${DRAFT_SELECT} WHERE d.message_id = ? ORDER BY d.id`).all(messageId) as DraftRow[]).map(toDraft)
+}
+
+/** Drafts made in a thread since its last user message (this question's drafts). */
+export function draftsThisTurn(db: DB, threadId: number): AiDraftDto[] {
+  const last = db.prepare("SELECT MAX(id) AS id FROM ai_messages WHERE thread_id = ? AND role = 'user'").get(threadId) as { id: number | null }
+  return (db.prepare(`${DRAFT_SELECT} WHERE d.thread_id = ? AND d.message_id > ? ORDER BY d.id`).all(threadId, last.id ?? 0) as DraftRow[]).map(toDraft)
+}
+
+export function listDrafts(db: DB, status?: AiDraftStatus, threadId?: number, sources?: readonly AiDraftSource[]): AiDraftDto[] {
   const where: string[] = []
   const args: (string | number)[] = []
   if (status) {
-    where.push('status = ?')
+    where.push('d.status = ?')
     args.push(status)
   }
   if (threadId !== undefined) {
-    where.push('thread_id = ?')
+    where.push('d.thread_id = ?')
     args.push(threadId)
   }
-  const rows = db.prepare(`SELECT * FROM ai_drafts ${where.length ? `WHERE ${where.join(' AND ')}` : ''} ORDER BY id DESC`).all(...args) as DraftRow[]
+  if (sources?.length) {
+    where.push(`d.source IN (${sources.map(() => '?').join(', ')})`)
+    args.push(...sources)
+  }
+  const rows = db.prepare(`${DRAFT_SELECT} ${where.length ? `WHERE ${where.join(' AND ')}` : ''} ORDER BY d.id DESC`).all(...args) as DraftRow[]
   return rows.map(toDraft)
 }
 
@@ -504,6 +552,10 @@ export interface AiDataCounts {
   usage: number
   outbound: number
   pseudonyms: number
+  /** Drafts proposed over MCP or dropped in the inbox (also deleted with the drafts). */
+  agentDrafts: number
+  /** mcp_log rows — counted for the record, never deleted here (its own retention prunes it). */
+  mcpLog: number
 }
 
 export function aiDataCounts(db: DB): AiDataCounts {
@@ -515,7 +567,9 @@ export function aiDataCounts(db: DB): AiDataCounts {
     memory: n('ai_memory'),
     usage: n('ai_usage'),
     outbound: n('ai_outbound_log'),
-    pseudonyms: n('ai_pseudonyms')
+    pseudonyms: n('ai_pseudonyms'),
+    agentDrafts: (db.prepare("SELECT COUNT(*) AS n FROM ai_drafts WHERE source IN ('mcp', 'inbox')").get() as { n: number }).n,
+    mcpLog: n('mcp_log')
   }
 }
 
@@ -525,6 +579,7 @@ export function deleteAllAiData(db: DB, includeLogs: boolean): AiDataCounts {
   const before = aiDataCounts(db)
   db.transaction(() => {
     db.exec('DELETE FROM ai_drafts; DELETE FROM ai_messages; DELETE FROM ai_threads; DELETE FROM ai_memory; DELETE FROM ai_pseudonyms;')
+    // mcp_log is not an AI-provider log: it stays (pruned after MCP_LOG_KEEP_DAYS by the server).
     if (includeLogs) db.exec('DELETE FROM ai_usage; DELETE FROM ai_outbound_log;')
     // Kept logs keep their sizes and fingerprints, not the (masked) screen context that was sent.
     else db.exec('UPDATE ai_outbound_log SET context_json = NULL WHERE context_json IS NOT NULL;')

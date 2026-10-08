@@ -2,10 +2,15 @@ import { useEffect, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { STOCK_NOTE_KINDS, type VoucherKind } from '@shared/domain'
 import { todayISO } from '@shared/dates'
-import { modeForKind, planVoucherEdit, taxLedgerIdsFrom, type EditPlan } from '@shared/voucherEdit'
+import {
+  modeForKind, planVoucherEdit, taxLedgerIdsFrom,
+  type AccountingFormState, type EditPlan, type InvoiceFormState, type ManufactureFormState, type StockNoteFormState
+} from '@shared/voucherEdit'
 import { api } from '../lib/client'
-import { aiApi } from '../lib/aiClient'
-import { useSession, type VoucherDraft } from '../state/stores'
+import { aiApi, type AiDraftDto } from '../lib/aiClient'
+import { useNav, useSession, type VoucherDraft } from '../state/stores'
+import { AiDraftReview, screenForDraft } from '../components/ai/AiDraftReview'
+import { useAiFieldHighlights } from '../lib/aiHighlights'
 import { AttachmentsButton } from '../components/attachments/Attachments'
 import { Banner, DrawerSection, isAnyModalOpen, Kbd, Page, PageHeader, Panel, SkeletonRows } from '../components/ui'
 import { OptionToggle, useScreenOptions } from '../components/ScreenOptions'
@@ -53,18 +58,34 @@ export function VoucherEntry({
   const features = useFeatures()
   // An AI draft becomes an ordinary VoucherDraft prefill — the entry modes don't know where it
   // came from; only the save carries aiDraftId back so main can mark the draft consumed.
-  const { data: aiDraft, error: aiDraftError } = useQuery({
+  const { data: fetchedDraft, error: aiDraftError } = useQuery({
     queryKey: ['aiDraft', aiDraftId],
     queryFn: () => aiApi.draft(aiDraftId!),
     enabled: !!aiDraftId && !voucherId
   })
+  // The draft as it was when opened: its own save consumes it (a refetch then says "consumed"),
+  // and the editor must stay mounted until it navigates away.
+  const [openedDraft, setOpenedDraft] = useState<AiDraftDto | null>(null)
+  if (fetchedDraft?.status === 'open' && openedDraft == null) setOpenedDraft(fetchedDraft)
+  const aiDraft = openedDraft ?? fetchedDraft
   const aiDraftOpen = aiDraft?.status === 'open'
+  // WP 5.3: drafts carry the editor's own form state (`form` + `state`) — they open in that mode
+  // with `initial`; quotations / orders belong to the trade-document editor.
+  const aiForm = aiDraftOpen && aiDraft.payload.state != null ? (aiDraft.payload.form ?? null) : null
+  const aiTradeDoc = aiDraftOpen && (aiForm === 'tradeDoc' || ['quotation', 'sales_order', 'purchase_order'].includes(aiDraft.payload.voucherKind))
+  const nav = useNav()
+  useEffect(() => {
+    if (aiTradeDoc && aiDraft) nav.replace(screenForDraft(aiDraft))
+  }, [aiTradeDoc, aiDraft, nav])
+  const [editorEl, setEditorEl] = useState<HTMLDivElement | null>(null)
+  useAiFieldHighlights(editorEl, aiDraftOpen ? aiDraft.payload.fields : null)
   const draft: VoucherDraft | undefined =
     aiDraft && aiDraftOpen
       ? {
           date: aiDraft.payload.date,
           partyLedgerId: aiDraft.payload.partyLedgerId ?? undefined,
           narration: aiDraft.payload.narration ?? undefined,
+          reference: aiDraft.payload.reference ?? undefined,
           lines: aiDraft.payload.lines,
           aiDraftId: aiDraft.id
         }
@@ -119,6 +140,7 @@ export function VoucherEntry({
           ledgers: new Map(ledgers.map((l) => [l.id, { stateCode: l.stateCode, gstRate: l.gstRate, tdsPayableSectionId: l.tdsPayableSectionId }]))
         },
         taxLedgers: taxLedgerIdsFrom(ledgers),
+        taxLedgerList: ledgers,
         manufacture: mfg?.details ?? null,
         jobWork: jobWorkChallan ?? null,
         itemName: (id) => items.find((i) => i.id === id)?.name ?? ''
@@ -163,7 +185,7 @@ export function VoucherEntry({
     return () => window.removeEventListener('keydown', onKey)
   }, [types, voucherId, features.inventory, stockNotesOn])
 
-  if (!types || (voucherId && (!existing || !plan)) || waitingForAiDraft || (aiDraftOpen && typeId == null)) {
+  if (!types || (voucherId && (!existing || !plan)) || waitingForAiDraft || aiTradeDoc || (aiDraftOpen && typeId == null)) {
     return (
       <Page>
         <PageHeader title={voucherId ? 'Alter voucher' : 'Voucher entry'} />
@@ -267,11 +289,10 @@ export function VoucherEntry({
           First voucher? Pick a type above (or <Kbd>F8</Kbd> for Sales), fill in the lines, then <Kbd>⌘↵</Kbd> to save.
         </Banner>
       )}
-      {aiDraftId && aiDraft && (
-        <Banner tone={aiDraftOpen ? 'info' : 'warning'} className="mb-section" testId="ai-draft-banner">
-          {aiDraftOpen
-            ? <>Drafted by the assistant: {aiDraft.summary}. Check every line — nothing is in the books until you save.</>
-            : <>This assistant draft is already {aiDraft.status}{aiDraft.voucherId ? ' (saved as a voucher)' : ''}; it is not pre-filled again.</>}
+      {aiDraftId && aiDraft && aiDraftOpen && <AiDraftReview draft={aiDraft} form={aiForm ?? 'accounting'} />}
+      {aiDraftId && aiDraft && !aiDraftOpen && (
+        <Banner tone="warning" className="mb-section" testId="ai-draft-banner">
+          This assistant draft is already {aiDraft.status}{aiDraft.voucherId ? ' (saved as a voucher)' : ''}; it is not pre-filled again.
         </Banner>
       )}
       {aiDraftId && aiDraftError && (
@@ -287,7 +308,7 @@ export function VoucherEntry({
       {/* A disabled fieldset disables every input and button inside (Save included) for a
           year-end closing entry; the server refuses the edit regardless. */}
       <fieldset disabled={closingEntry} className="m-0 min-w-0 border-0 p-0">
-      <div data-testid="voucher-entry-mode" data-mode={activeMode}>
+      <div ref={setEditorEl} data-testid="voucher-entry-mode" data-mode={aiForm === 'stockNote' ? 'stockNote' : aiForm === 'manufacture' ? 'manufacture' : activeMode}>
         {voucherId && existing && plan ? (
           plan.mode === 'invoice' ? (
             <InvoiceEntry typeId={currentType.id} kind={currentType.kind} voucherId={voucherId} voucher={existing} initial={plan.state} />
@@ -327,6 +348,23 @@ export function VoucherEntry({
               initial={plan.state}
               fallbackReason={plan.fallbackReason}
             />
+          )
+        ) : aiForm && aiDraft && currentType.id === aiDraft.payload.voucherTypeId ? (
+          // WP 5.3: the draft's own editor, pre-filled with the state the draft tool built.
+          aiForm === 'invoice' ? (
+            <InvoiceEntry key={`ai-${aiDraft.id}`} typeId={currentType.id} kind={currentType.kind} draft={draft} initial={aiDraft.payload.state as InvoiceFormState} />
+          ) : aiForm === 'manufacture' ? (
+            <ManufactureForm key={`ai-${aiDraft.id}`} typeId={currentType.id} initial={aiDraft.payload.state as ManufactureFormState} aiDraftId={aiDraft.id} />
+          ) : aiForm === 'stockNote' ? (
+            <StockNoteEntry
+              key={`ai-${aiDraft.id}`}
+              typeId={currentType.id}
+              kind={currentType.kind as 'delivery_note' | 'receipt_note'}
+              draft={draft}
+              initial={aiDraft.payload.state as StockNoteFormState}
+            />
+          ) : (
+            <AccountingEntry key={`ai-${aiDraft.id}`} typeId={currentType.id} kind={currentType.kind} draft={draft} initial={aiDraft.payload.state as AccountingFormState} />
           )
         ) : modeForKind(currentType.kind) === 'invoice' ? (
           <InvoiceEntry key={currentType.id} typeId={currentType.id} kind={currentType.kind} draft={draft} />

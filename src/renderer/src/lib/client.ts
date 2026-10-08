@@ -5,6 +5,8 @@ import type {
   Voucher, VoucherTransport, VoucherType, TradeDocType, SaveVoucherWarnings
 } from '@shared/domain'
 import type { BudgetVarianceRow } from '@shared/budgets'
+import type { McpConfig, McpLogRow, McpSettingsView } from '@shared/mcp'
+import type { AiDraftDto, AiDraftStatus } from '@shared/ai'
 import type {
   TdsEligibleRow, TdsDeductedRow, TdsLedgerSummaryRow, TdsPaymentCandidate, TdsChallanRow, TdsChallanEntryInterest,
   Form26qData, Form16aData
@@ -722,8 +724,9 @@ export const api = {
   tradeDocs: {
     list: (q: TradeDocListQuery) => call<TradeDocListRow[]>('tradeDocs:list', q),
     get: (id: number) => call<TradeDoc | null>('tradeDocs:get', { id }),
-    save: (data: TradeDocInputParsed, id?: number) =>
-      call<{ doc: TradeDoc; warnings: { linkDates: string[] } }>('tradeDocs:save', { data, ...(id ? { id } : {}) }),
+    /** `aiDraftId` (WP 5.3): the document was reviewed from an AI draft — main marks it consumed. */
+    save: (data: TradeDocInputParsed, id?: number, opts?: { aiDraftId?: number }) =>
+      call<{ doc: TradeDoc; warnings: { linkDates: string[] } }>('tradeDocs:save', { data, ...(id ? { id } : {}), ...(opts?.aiDraftId ? { aiDraftId: opts.aiDraftId } : {}) }),
     remove: (id: number) => call<null>('tradeDocs:delete', { id }),
     restore: (id: number) => call<TradeDoc>('tradeDocs:restore', { id }),
     cancel: (id: number, reason: string | null) => call<TradeDoc>('tradeDocs:cancel', { id, reason }),
@@ -787,7 +790,9 @@ export const api = {
   },
   manufacture: {
     get: (id: number) => call<ManufactureRecord | null>('manufacture:get', { id }),
-    save: (data: ManufactureInput, id?: number) => call<SavedManufacture>('manufacture:save', { data, id }),
+    /** `aiDraftId` (WP 5.3): reviewed from an AI draft — main marks it consumed. */
+    save: (data: ManufactureInput, id?: number, opts?: { aiDraftId?: number }) =>
+      call<SavedManufacture>('manufacture:save', { data, id, ...(opts?.aiDraftId ? { aiDraftId: opts.aiDraftId } : {}) }),
     /** Raw rows priced as of the voucher date (+ the finished item's suggested sale rate). */
     costPreview: (q: { date: string; voucherId?: number; finishedItemId?: number | null; lines: { itemId: number; qtyMilli: number }[] }) =>
       call<ManufactureCostPreview>('manufacture:costPreview', q),
@@ -1233,7 +1238,12 @@ export const api = {
   agent: {
     exportMirror: (input?: AgentExportInput) => call<{ dir: string; files: string[] }>('agent:exportMirror', input ?? {}),
     getConfig: () => call<{ enabled: boolean }>('agent:getConfig'),
-    setConfig: (enabled: boolean) => call<{ enabled: boolean }>('agent:setConfig', { enabled })
+    setConfig: (enabled: boolean) => call<{ enabled: boolean }>('agent:setConfig', { enabled }),
+    // WP 5.7 — the MCP server's settings, kill switch and log; drafts made over MCP or the inbox.
+    mcp: () => call<McpSettingsView>('agent:mcp:get'),
+    setMcp: (enabled: boolean) => call<McpConfig>('agent:mcp:set', { enabled }),
+    mcpLog: () => call<McpLogRow[]>('agent:mcp:log'),
+    drafts: (status?: AiDraftStatus) => call<AiDraftDto[]>('agent:drafts', status ? { status } : {})
   },
   app: {
     info: () => call<{ version: string; platform: string }>('app:info'),

@@ -8,7 +8,7 @@
 // Data root: TOTAL_DATA_DIR if set, else ~/Documents/total (matches the app).
 import { createRequire } from 'module'
 import { spawnSync } from 'child_process'
-import { mkdirSync } from 'fs'
+import { mkdirSync, renameSync } from 'fs'
 import { homedir } from 'os'
 import { dirname, join, resolve } from 'path'
 import { fileURLToPath } from 'url'
@@ -23,14 +23,22 @@ const outfile = join(root, 'out', 'cli', 'total-cli.cjs')
 mkdirSync(dirname(outfile), { recursive: true })
 
 // Rebundle on every invocation — esbuild does this in tens of milliseconds, and it guarantees the
-// CLI always matches the checked-out sources (no stale-bundle debugging).
+// CLI always matches the checked-out sources (no stale-bundle debugging). Built to a per-process
+// temp file and renamed into place, so MCP clients starting several `total-cli mcp` servers at
+// once never run a half-written bundle.
+//
+// The MCP server (WP 5.7, `mcp` command) bundles @modelcontextprotocol/sdk from here — a
+// devDependency, like esbuild and electron that this launcher already needs: the CLI only runs
+// from a source checkout, so the packaged app never ships the SDK (or the express / hono HTTP
+// stack its HTTP transports depend on). Only the stdio server subpaths are imported.
+const tmpOutfile = `${outfile}.${process.pid}.tmp`
 esbuild.buildSync({
   entryPoints: [join(root, 'src', 'main', 'cli', 'main.ts')],
   bundle: true,
   platform: 'node',
   format: 'cjs',
   target: 'node20',
-  outfile,
+  outfile: tmpOutfile,
   external: ['electron', 'better-sqlite3'],
   alias: {
     '@shared': join(root, 'src', 'shared'),
@@ -39,6 +47,7 @@ esbuild.buildSync({
   loader: { '.md': 'text' },
   logLevel: 'warning'
 })
+renameSync(tmpOutfile, outfile)
 
 const result = spawnSync(electronBinaryPath, [outfile, ...process.argv.slice(2)], {
   stdio: 'inherit',
