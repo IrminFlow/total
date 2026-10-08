@@ -6,13 +6,17 @@
  * the launcher always sets it).
  *
  * Every command prints a single JSON document to stdout; errors go to stderr with exit code 1.
- * All writes are audit-logged with user_name 'agent-cli'.
+ * All writes are audit-logged with user_name 'agent-cli' — except `mcp`, which speaks the MCP
+ * protocol on stdin/stdout (WP 5.7, src/main/mcp/) and attributes its rows to `mcp:<client>`.
  */
 import { readFileSync } from 'fs'
 import { setAuditContext } from '../services/audit'
 import { todayISO } from '@shared/dates'
 import { dataRoot } from '../paths'
-import type { MirrorFormat, MirrorWhat } from '../services/agentBridge'
+import { LEGACY_INBOX_WARNING, scanInbox, type MirrorFormat, type MirrorWhat } from '../services/agentBridge'
+import { runAsAuditUser } from '../services/audit'
+import { runMcpStdio } from '../mcp/stdio'
+import { parseRole } from '../mcp/session'
 import {
   cmdCompanies, cmdCreateCompany, cmdExport, cmdImportMasters, cmdInitAgentDocs, cmdNextNumber,
   cmdPost, cmdTrialBalance, openCompany
@@ -39,6 +43,17 @@ Commands:
          [--from YYYY-MM-DD] [--to YYYY-MM-DD]
                                            Regenerate CSV/JSON mirrors under <company>/agent/.
   init-agent-docs                          Write AGENTS.md + voucher.schema.json into the data root.
+  mcp --company <slug> [--role viewer|accountant|owner] [--user <name>] [--no-mask] [--pseudonymise]
+                                           MCP server on stdio: the in-app assistant's read + draft
+                                           tools and read-only resources. Default role viewer;
+                                           accountant/owner (draft tools) need --role and, when the
+                                           company has users, --user + TOTAL_MCP_PIN. Masking of
+                                           GSTIN/PAN/bank numbers is on unless --no-mask. Nothing
+                                           it does posts to the books.
+  inbox --company <slug> [--legacy-inbox-post]
+                                           Process <company>/inbox/ once: voucher drops become
+                                           drafts for review. --legacy-inbox-post (DEPRECATED)
+                                           posts them / imports masters CSVs as before.
 
 Data root: TOTAL_DATA_DIR (currently ${process.env.TOTAL_DATA_DIR ?? '~/Documents/total'})
 Amounts are integer paise; every voucher must balance (debits == credits) or it is rejected.`
@@ -48,6 +63,9 @@ interface Args {
   flags: Map<string, string>
 }
 
+/** Flags that take no value. */
+const SWITCHES = new Set(['legacy-inbox-post', 'no-mask', 'pseudonymise'])
+
 function parseArgs(argv: string[]): Args {
   const [command, ...rest] = argv
   const flags = new Map<string, string>()
@@ -55,6 +73,10 @@ function parseArgs(argv: string[]): Args {
     const arg = rest[i]!
     if (!arg.startsWith('--')) throw new Error(`Unexpected argument '${arg}' (flags look like --name value)`)
     const key = arg.slice(2)
+    if (SWITCHES.has(key)) {
+      flags.set(key, 'true')
+      continue
+    }
     const value = rest[i + 1]
     if (value === undefined || value.startsWith('--')) throw new Error(`Flag --${key} needs a value`)
     flags.set(key, value)
@@ -83,9 +105,11 @@ function withCompany<T>(args: Args, fn: (db: import('../db/connection').DB, slug
   }
 }
 
-function main(): void {
+const CLI_VERSION = `${process.env.npm_package_version ?? ''}-cli`.replace(/^-/, 'cli')
+
+async function main(): Promise<void> {
   const args = parseArgs(process.argv.slice(2))
-  setAuditContext({ appVersion: `${process.env.npm_package_version ?? ''}-cli`.replace(/^-/, 'cli'), getUserName: () => 'agent-cli' })
+  setAuditContext({ appVersion: CLI_VERSION, getUserName: () => 'agent-cli' })
   // Self-discovery: make sure AGENTS.md exists in the data root from the very first CLI run.
   ensureAgentDocs()
 
@@ -139,6 +163,31 @@ function main(): void {
       )
       return
     }
+    case 'mcp': {
+      const slug = required(args, 'company')
+      const db = openCompany(slug)
+      try {
+        await runMcpStdio({
+          db,
+          slug,
+          role: parseRole(args.flags.get('role')),
+          user: args.flags.get('user') ?? null,
+          pin: process.env.TOTAL_MCP_PIN ?? null,
+          maskIds: !args.flags.has('no-mask'),
+          pseudonymiseParties: args.flags.has('pseudonymise'),
+          version: CLI_VERSION
+        })
+      } finally {
+        db.close()
+      }
+      return
+    }
+    case 'inbox': {
+      const legacyPost = args.flags.has('legacy-inbox-post')
+      if (legacyPost) process.stderr.write(`${LEGACY_INBOX_WARNING}\n`)
+      out(withCompany(args, (db, slug) => runAsAuditUser('agent-inbox', () => scanInbox(db, slug, { legacyPost }))))
+      return
+    }
     case 'init-agent-docs':
       out(cmdInitAgentDocs(AGENTS_MD, voucherSchemaJsonText()))
       return
@@ -151,10 +200,8 @@ function main(): void {
   }
 }
 
-try {
-  main()
-} catch (err) {
+main().catch((err: unknown) => {
   process.stderr.write(`${err instanceof Error ? err.message : String(err)}\n`)
   process.stderr.write(`(data root: ${(() => { try { return dataRoot() } catch { return 'unknown' } })()})\n`)
   process.exit(1)
-}
+})

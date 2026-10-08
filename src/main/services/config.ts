@@ -5,6 +5,7 @@ import { chequeConfigSchema, gst3bManualSchema, mergeChequeConfig, type ChequeCo
 import { getAuditTrailRequired, setAuditTrailRequired, writeAudit } from './audit'
 import { MIN_AUDIT_KEEP_DAYS } from '@shared/auditRetention'
 import { getLegacyConfigView, setLegacyConfig } from './printTemplates'
+import type { McpConfig } from '@shared/mcp'
 
 /** Company-scoped JSON config living in the `meta` table — same pattern as readCompanyInfo/
  *  writeCompanyInfo (db/seed.ts) and the NIC credentials (services/nic.ts). */
@@ -138,6 +139,26 @@ export function setAgentBridgeEnabled(db: DB, enabled: boolean): boolean {
   writeMeta(db, 'agent_bridge', enabled)
   writeAudit(db, 'company', 0, 'update', { agentBridge: before }, { agentBridge: enabled })
   return enabled
+}
+
+// ---------- MCP server kill switch (WP 5.7) ----------
+
+/** Whether `total-cli mcp` may serve this company. Default ON (the server only runs when someone
+ *  with the company's files starts it, as viewer unless they ask for more); the owner can turn it
+ *  off, which refuses new sessions and every request of a running one. Stored in `meta` 'mcp'. */
+export function getMcpConfig(db: DB): McpConfig {
+  const v = readMeta(db, 'mcp') as Partial<McpConfig> | null
+  return { enabled: v?.enabled !== false }
+}
+
+export function setMcpConfig(db: DB, input: McpConfig): McpConfig {
+  const before = getMcpConfig(db)
+  const after: McpConfig = { enabled: input.enabled }
+  db.transaction(() => {
+    writeMeta(db, 'mcp', after)
+    writeAudit(db, 'company', 0, 'update', { mcp: before }, { mcp: after })
+  })()
+  return after
 }
 
 // ---------- compliance-deadline notifications (once-per-day guard) ----------
