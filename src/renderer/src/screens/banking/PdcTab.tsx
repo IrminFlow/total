@@ -49,7 +49,7 @@ const PDC_COLUMNS = defineColumns<PdcRegisterRow>([
     minWidth: 140,
     cell: (r) => (r.partyName ? <LedgerLink ledgerId={r.partyLedgerId} name={r.partyName} /> : null)
   },
-  { id: 'bank', header: 'Bank', kind: 'text', value: (r) => r.bankLedgerName, width: 130, className: 'text-muted' },
+  { id: 'bank', header: 'Bank', kind: 'text', value: (r) => r.bankLedgerName, width: 120, className: 'text-muted', defaultHidden: true },
   { id: 'instrument', header: 'Instrument', kind: 'text', value: (r) => r.instrumentNo, width: 120, groupable: false, className: 'num text-muted' },
   { id: 'instrumentDate', header: 'Instrument date', kind: 'date', value: (r) => r.instrumentDate, defaultHidden: true, width: 150, className: 'text-muted' },
   { id: 'amount', header: 'Amount', kind: 'money', value: (r) => r.amount, aggregate: 'sum', width: 130 },
@@ -132,7 +132,7 @@ export function PdcTab(): React.JSX.Element {
               Show all matured &amp; bounced
             </label>
           }
-          trailingWidth={170}
+          trailingWidth={160}
           trailing={(r) =>
             r.status === 'pending' || r.status === 'due' ? (
               <>

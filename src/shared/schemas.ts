@@ -868,7 +868,7 @@ export const chequeConfigSchema = z.object({
   acPayee: z.boolean(),
   // WP 4.1 layout designer — all defaulted so layouts saved before 0.8 load unchanged.
   /** Where the "A/C PAYEE ONLY" crossing is printed (top-left corner of the stamp). */
-  acPayeePos: z.object({ xMm: mm, yMm: mm }).default({ xMm: 4, yMm: 4 }),
+  acPayeePos: z.object({ xMm: mm, yMm: mm }).default({ xMm: 4, yMm: 14 }),
   /** Paper the leaf is fed on; 0 = exactly the cheque size (leaf fed directly). */
   pageWidthMm: z.number().min(0).max(300).default(0),
   pageHeightMm: z.number().min(0).max(300).default(0),
@@ -889,7 +889,7 @@ export const DEFAULT_CHEQUE_CONFIG: ChequeConfig = {
   words: { xMm: 28, yMm: 32, wMm: 150 },
   figures: { xMm: 158, yMm: 38 },
   acPayee: true,
-  acPayeePos: { xMm: 4, yMm: 4 },
+  acPayeePos: { xMm: 4, yMm: 14 },
   pageWidthMm: 0,
   pageHeightMm: 0,
   offsetXMm: 0,

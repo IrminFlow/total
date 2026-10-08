@@ -2,7 +2,7 @@
 // upload file in your bank's layout (a template — bank corporate layouts are mostly not public,
 // so you build yours from the bank's sample), keep the beneficiaries' bank details, and see the
 // files already exported.
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { PAYMENT_FIELDS, PAYMENT_FIELD_LABELS, paymentTypeFor, type PaymentField, type PaymentTemplate } from '@shared/bulkPayments'
 import { toDisplayDate, todayISO } from '@shared/dates'
@@ -15,12 +15,12 @@ import { MODAL_TABLE_FEATURES, rupees } from './shared'
 
 type Section = 'payments' | 'beneficiaries' | 'templates'
 
-function candidateColumns(threshold: number): ReturnType<typeof defineColumns<PaymentCandidate>> {
+function candidateColumns(threshold: number, onFix: (c: PaymentCandidate) => void): ReturnType<typeof defineColumns<PaymentCandidate>> {
   return defineColumns<PaymentCandidate>([
     { id: 'date', header: 'Date', kind: 'date', value: (c) => c.date, width: 104, className: 'text-muted' },
     { id: 'number', header: 'Voucher', kind: 'text', value: (c) => c.number, width: 110, className: 'num' },
     { id: 'payee', header: 'Payee', kind: 'text', value: (c) => c.payeeName, hideable: false, minWidth: 160 },
-    { id: 'account', header: 'Account no.', kind: 'text', value: (c) => c.accountNo, width: 150, className: 'num text-muted' },
+    { id: 'account', header: 'Account no.', kind: 'text', value: (c) => c.accountNo, width: 140, className: 'num text-muted' },
     { id: 'ifsc', header: 'IFSC', kind: 'text', value: (c) => c.ifsc, width: 120, className: 'num text-muted' },
     { id: 'amount', header: 'Amount', kind: 'money', value: (c) => c.amount, aggregate: 'sum', width: 130 },
     {
@@ -32,7 +32,7 @@ function candidateColumns(threshold: number): ReturnType<typeof defineColumns<Pa
         { value: 'NEFT', label: 'NEFT' },
         { value: 'RTGS', label: 'RTGS' }
       ],
-      width: 90
+      width: 76
     },
     {
       id: 'state',
@@ -42,7 +42,13 @@ function candidateColumns(threshold: number): ReturnType<typeof defineColumns<Pa
       value: (c) => (c.problems.length ? c.problems.join(', ') : c.exportedIn.length ? 'exported' : 'ready'),
       cell: (c) => (
         <span className="flex flex-wrap gap-1">
-          {c.problems.length > 0 ? <Badge tone="danger">{c.problems[0]}</Badge> : <Badge tone="success">Ready</Badge>}
+          {c.problems.length > 0 ? (
+            <button type="button" className="text-left" data-testid="btn-bulk-fix" title={c.problems.join(', ')} onClick={(e) => { e.stopPropagation(); onFix(c) }}>
+              <Badge tone="danger">{c.problems[0]}</Badge> <span className="text-small text-blue hover:underline">Bank details…</span>
+            </button>
+          ) : (
+            <Badge tone="success">Ready</Badge>
+          )}
           {c.exportedIn.length > 0 && <Badge tone="warning">In {c.exportedIn.length === 1 ? 'a file' : `${c.exportedIn.length} files`} already</Badge>}
           {c.chequeNo && <Badge tone="warning">Cheque {c.chequeNo}</Badge>}
           {c.postDated && <Badge tone="info">PDC</Badge>}
@@ -95,7 +101,13 @@ export function BulkTab({ bankLedgerId, bankName }: { bankLedgerId: number; bank
   }, [templates, templateKey])
   const template = templates?.find((t) => t.key === templateKey)
   useEffect(() => setCorporateId(template?.spec.corporateId ?? ''), [template])
-  const columns = useMemo(() => candidateColumns(template?.spec.rtgsThreshold ?? 2_00_000_00), [template])
+  const fixRef = useRef<(c: PaymentCandidate) => void>(() => {})
+  fixRef.current = (c) => {
+    if (c.payeeLedgerId == null) return
+    const b = beneficiaries?.find((x) => x.ledgerId === c.payeeLedgerId)
+    setEditBen(b ?? { ledgerId: c.payeeLedgerId, name: c.payeeName ?? '', groupName: '', isBank: false, accountNo: c.accountNo, ifsc: c.ifsc, accountName: c.accountName, email: c.email, problems: c.problems })
+  }
+  const columns = useMemo(() => candidateColumns(template?.spec.rtgsThreshold ?? 2_00_000_00, (c) => fixRef.current(c)), [template])
   const rows = candidates ?? []
   const selected = rows.filter((c) => picked.has(c.voucherId))
   const own = beneficiaries?.find((b) => b.ledgerId === bankLedgerId)
@@ -204,20 +216,6 @@ export function BulkTab({ bankLedgerId, bankName }: { bankLedgerId: number; bank
                   }
                 />
               )}
-              trailingWidth={110}
-              trailing={(c) =>
-                c.problems.length > 0 && c.payeeLedgerId ? (
-                  <button
-                    className="text-small text-blue hover:underline"
-                    onClick={() => {
-                      const b = beneficiaries?.find((x) => x.ledgerId === c.payeeLedgerId)
-                      setEditBen(b ?? { ledgerId: c.payeeLedgerId!, name: c.payeeName ?? '', groupName: '', isBank: false, accountNo: c.accountNo, ifsc: c.ifsc, accountName: c.accountName, email: c.email, problems: c.problems })
-                    }}
-                  >
-                    Bank details…
-                  </button>
-                ) : null
-              }
               exportOptions={{ title: `Payments — ${bankName}`, periodLabel: `${toDisplayDate(from)} to ${toDisplayDate(to)}`, filename: 'bank-payments' }}
             />
           </Panel>

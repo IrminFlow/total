@@ -155,7 +155,7 @@ export function ChequesTab({ bankLedgerId, bankName }: { bankLedgerId: number; b
               Show unused leaves
             </label>
           }
-          trailingWidth={52}
+          trailingWidth={64}
           trailing={(r) => {
             const items =
               r.status === 'available'
@@ -448,7 +448,7 @@ export function ChequeLayoutModal({ bankLedgerId, bankLedgerName, onClose }: { b
         <div className="grid grid-cols-6 gap-3">
           <MmField label="Leaf width" value={form.widthMm} onChange={(n) => setForm({ ...form, widthMm: n })} testId="input-cheque-width" />
           <MmField label="Leaf height" value={form.heightMm} onChange={(n) => setForm({ ...form, heightMm: n })} />
-          <MmField label="Paper width (0 = leaf)" value={form.pageWidthMm} min={0} onChange={(n) => setForm({ ...form, pageWidthMm: n })} />
+          <MmField label="Paper width" value={form.pageWidthMm} min={0} onChange={(n) => setForm({ ...form, pageWidthMm: n })} />
           <MmField label="Paper height" value={form.pageHeightMm} min={0} onChange={(n) => setForm({ ...form, pageHeightMm: n })} />
           <MmField label="Leaf offset X" value={form.offsetXMm} onChange={(n) => setForm({ ...form, offsetXMm: n })} testId="input-cheque-offset-x" />
           <MmField label="Leaf offset Y" value={form.offsetYMm} onChange={(n) => setForm({ ...form, offsetYMm: n })} />
@@ -473,7 +473,7 @@ export function ChequeLayoutModal({ bankLedgerId, bankLedgerName, onClose }: { b
           <MmField label="Crossing Y" value={form.acPayeePos.yMm} onChange={(n) => pos('acPayeePos', 'yMm', n)} />
         </div>
         <p className="text-hint text-muted">
-          All positions are millimetres from the leaf’s top-left corner ({pageNote}). Print the test grid on plain paper, hold it over a blank leaf against the light, and adjust the offsets until the crosses sit on the printed boxes.
+          All positions are millimetres from the leaf’s top-left corner ({pageNote}; paper 0 × 0 = the leaf itself). Print the test grid on plain paper, hold it over a blank leaf against the light, and adjust the offsets until the crosses sit on the printed boxes.
         </p>
         <div className="flex justify-end gap-2 border-t border-line pt-4">
           <Button disabled={busy} data-testid="btn-banking-cheque-test-grid" onClick={() => void printGrid()}>

@@ -18,6 +18,8 @@ import { useToasts } from '../../state/stores'
 import { confirmDialog } from '../../lib/dialogs'
 import { DIRECTION_OPTIONS, MODAL_TABLE_FEATURES, evidenceText, pct, rupees, type MatchSettings } from './shared'
 
+const signedRupees = (paise: number): string => `${paise < 0 ? '−' : '+'}${rupees(Math.abs(paise))}`
+
 const FORMAT_LABEL: Record<string, string> = { csv: 'CSV / TXT', xlsx: 'Excel', mt940: 'MT940', camt053: 'CAMT.053', pasted: 'Pasted text' }
 
 type PreviewLine = StatementPreview['lines'][number]
@@ -333,6 +335,25 @@ export function ImportTab({ bankLedgerId, bankName, settings }: { bankLedgerId: 
         <StatTile label="Imports" value={String(ws?.imports.length ?? 0)} hint={latest ? `Last: ${latest.fileName || '—'}` : undefined} />
       </StatGrid>
 
+      <div className="mb-2 flex flex-wrap items-center gap-2" data-testid="banking-statement-actions">
+        <span className="text-detail text-muted">{selected.length ? `${selected.length} ticked` : 'Tick lines to act on them together'}</span>
+        <span className="flex-1" />
+        <Button size="sm" variant="primary" disabled={toConfirm.length === 0} data-testid="btn-banking-confirm-matches" onClick={() => void confirmSelected()}>
+          Confirm {toConfirm.length || ''} {toConfirm.length === 1 ? 'match' : 'matches'}
+        </Button>
+        <Button size="sm" disabled={toCreate.length === 0} data-testid="btn-banking-create-vouchers" onClick={() => void createSelected()}>
+          Create {toCreate.length || ''} suggested {toCreate.length === 1 ? 'voucher' : 'vouchers'}
+        </Button>
+        <Button
+          size="sm"
+          variant="ghost"
+          disabled={open.filter((l) => !l.proposal).length === 0}
+          data-testid="btn-banking-create-picked"
+          onClick={() => setCreateFor(selected.filter((l) => l.status === 'open' && !l.proposal).length ? selected.filter((l) => l.status === 'open' && !l.proposal) : open.filter((l) => !l.proposal))}
+        >
+          Create with a ledger…
+        </Button>
+      </div>
       <Panel>
         <DataTable
           viewId="banking-statement"
@@ -369,7 +390,7 @@ export function ImportTab({ bankLedgerId, bankName, settings }: { bankLedgerId: 
               />
             ) : null
           }
-          trailingWidth={52}
+          trailingWidth={64}
           trailing={(l) => (
             <MenuButton
               label={`Actions for ${l.description}`}
@@ -395,25 +416,6 @@ export function ImportTab({ bankLedgerId, bankName, settings }: { bankLedgerId: 
               <input type="checkbox" checked={showDone} onChange={(e) => setShowDone(e.target.checked)} data-testid="input-banking-show-done" />
               Show matched &amp; ignored
             </label>
-          }
-          toolbarEnd={
-            <span className="flex items-center gap-2">
-              <Button size="sm" disabled={toConfirm.length === 0} data-testid="btn-banking-confirm-matches" onClick={() => void confirmSelected()}>
-                Confirm {toConfirm.length || ''} {toConfirm.length === 1 ? 'match' : 'matches'}
-              </Button>
-              <Button size="sm" disabled={toCreate.length === 0} data-testid="btn-banking-create-vouchers" onClick={() => void createSelected()}>
-                Create {toCreate.length || ''} {toCreate.length === 1 ? 'voucher' : 'vouchers'}
-              </Button>
-              <Button
-                size="sm"
-                variant="ghost"
-                disabled={open.filter((l) => !l.proposal).length === 0}
-                data-testid="btn-banking-create-picked"
-                onClick={() => setCreateFor(selected.filter((l) => l.status === 'open' && !l.proposal).length ? selected.filter((l) => l.status === 'open' && !l.proposal) : open.filter((l) => !l.proposal))}
-              >
-                Create with ledger…
-              </Button>
-            </span>
           }
           exportOptions={{ title: `Bank statement lines — ${bankName}`, periodLabel: toDisplayDate(new Date().toISOString().slice(0, 10)), filename: 'bank-statement-lines' }}
         />
@@ -569,7 +571,7 @@ function PreviewPanel({
                 <Select value={profile.dateFormat} data-testid="input-banking-map-dateFormat" onChange={(e) => set('dateFormat', e.target.value as ImportProfile['dateFormat'])}>
                   {DATE_FORMATS.map((f) => (
                     <option key={f} value={f}>
-                      {f === 'auto' ? 'Automatic (day first)' : f}
+                      {f === 'auto' ? 'Auto (day first)' : f}
                     </option>
                   ))}
                 </Select>
@@ -656,10 +658,7 @@ function PreviewPanel({
       <div className="grid grid-cols-3 gap-3">
         <StatTile label="New lines" value={String(preview.newCount)} />
         <StatTile label="Already imported" value={String(preview.duplicateCount)} hint="Same date, amount and narration as a line imported before" />
-        <StatTile
-          label="Deposits − withdrawals"
-          value={<Money paise={preview.lines.reduce((s, l) => s + l.deposit - l.withdrawal, 0)} signed />}
-        />
+        <StatTile label="Net (deposits − withdrawals)" value={signedRupees(preview.lines.reduce((s, l) => s + l.deposit - l.withdrawal, 0))} />
       </div>
 
       <Panel>

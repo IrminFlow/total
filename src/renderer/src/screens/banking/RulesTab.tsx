@@ -45,7 +45,7 @@ const LEARNED_COLUMNS = defineColumns<LearnedRuleRecord>([
       </span>
     )
   },
-  { id: 'direction', header: 'Direction', kind: 'enum', value: (r) => r.direction, options: DIRECTION_OPTIONS, width: 120 },
+  { id: 'direction', header: 'Direction', kind: 'enum', value: (r) => r.direction, options: DIRECTION_OPTIONS, width: 104 },
   {
     id: 'ledger',
     header: 'Ledger',
@@ -55,16 +55,16 @@ const LEARNED_COLUMNS = defineColumns<LearnedRuleRecord>([
     cell: (r) => <LedgerLink ledgerId={r.ledgerId} name={r.ledgerName} />
   },
   { id: 'party', header: 'Party', kind: 'text', value: (r) => r.partyName, width: 140, defaultHidden: true },
-  { id: 'kind', header: 'Voucher', kind: 'enum', value: (r) => r.voucherKind, options: KIND_OPTIONS, width: 110 },
-  { id: 'hits', header: 'Learned from', kind: 'number', value: (r) => r.hits, width: 120, text: (r) => `${r.hits} ${r.hits === 1 ? 'match' : 'matches'}` },
-  { id: 'applied', header: 'Used', kind: 'number', value: (r) => r.applied, width: 80 },
+  { id: 'kind', header: 'Voucher', kind: 'enum', value: (r) => r.voucherKind, options: KIND_OPTIONS, width: 96 },
+  { id: 'hits', header: 'Learned from', kind: 'number', value: (r) => r.hits, width: 112, text: (r) => `${r.hits} ${r.hits === 1 ? 'match' : 'matches'}` },
+  { id: 'applied', header: 'Used', kind: 'number', value: (r) => r.applied, width: 68 },
   { id: 'rejected', header: 'Overruled', kind: 'number', value: (r) => r.rejected, width: 100, defaultHidden: true },
   {
     id: 'confidence',
     header: 'Confidence',
     kind: 'number',
     value: (r) => Math.round(r.confidence * 100),
-    width: 116,
+    width: 100,
     cell: (r) => <Badge tone={r.confidence >= 0.8 ? 'success' : r.confidence >= 0.5 ? 'info' : 'neutral'}>{pct(r.confidence)}</Badge>
   },
   {
@@ -73,7 +73,7 @@ const LEARNED_COLUMNS = defineColumns<LearnedRuleRecord>([
     kind: 'enum',
     value: (r) => r.status,
     options: STATUS_OPTIONS,
-    width: 112,
+    width: 104,
     cell: (r) => <Badge tone={r.status === 'accepted' ? 'success' : r.status === 'ignored' ? 'neutral' : 'info'}>{STATUS_OPTIONS.find((o) => o.value === r.status)?.label}</Badge>
   },
   { id: 'template', header: 'Narration template', kind: 'text', value: (r) => r.narrationTemplate, defaultHidden: true, width: 180 }
@@ -129,7 +129,7 @@ export function RulesTab(): React.JSX.Element {
           maxHeight="44vh"
           onRowActivate={setEditing}
           empty={{ title: 'Nothing learned yet', hint: 'Confirm matches or create vouchers from imported statement lines' }}
-          trailingWidth={52}
+          trailingWidth={60}
           trailing={(r) => (
             <MenuButton
               label={`Actions for rule ${r.tokens.join(' ')}`}

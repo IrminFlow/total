@@ -185,7 +185,6 @@ export function BankingScreen({ tab: initialTab }: { tab?: BankTab } = {}): Reac
     <Page>
       <PageHeader
         title="Banking"
-        period={tab === 'recon' || tab === 'bulk' ? `${toDisplayDate(from)} → ${toDisplayDate(to)}` : undefined}
         tabs={<TabBar screen="banking" label="Banking view" tabs={TAB_ORDER.map((t) => ({ id: t, label: TAB_LABELS[t] }))} active={tab} onSelect={setTab} />}
         controls={
           PER_BANK.has(tab) ? (
