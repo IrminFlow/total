@@ -2384,7 +2384,11 @@ export const MIGRATIONS: string[] = [
   //   profile, the counts, and whether it was undone.
   // - import_batch_items: every record the batch created or updated. Undo bins created vouchers /
   //   orders, deletes created masters still unused, and restores the before-image of updated
-  //   ledgers / items (before_json). Rows are never deleted: an undone batch keeps its history.
+  //   ledgers / items and full voucher images (before_json), and reverses bank-statement hand-offs
+  //   (bank_date items). source_key = the record id in the exporting company (Books workbook
+  //   "Source ID", namespaced by company) — a re-import matches on it first. undone_at makes undo
+  //   idempotent; last_audit_id (the audit trail high-water mark at import) lets undo skip records
+  //   a user edited afterwards. Rows are never deleted: an undone batch keeps its history.
   `
   CREATE TABLE import_templates (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -2413,7 +2417,8 @@ export const MIGRATIONS: string[] = [
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
     created_by TEXT,
     undone_at TEXT,
-    undo_summary_json TEXT
+    undo_summary_json TEXT,
+    last_audit_id INTEGER
   );
 
   CREATE TABLE import_batch_items (
@@ -2423,9 +2428,12 @@ export const MIGRATIONS: string[] = [
     entity_id INTEGER NOT NULL,
     action TEXT NOT NULL CHECK (action IN ('create', 'update')),
     before_json TEXT,
-    source_line INTEGER
+    source_line INTEGER,
+    source_key TEXT,
+    undone_at TEXT
   );
   CREATE INDEX idx_import_batch_items_batch ON import_batch_items(batch_id);
   CREATE INDEX idx_import_batch_items_entity ON import_batch_items(entity, entity_id);
+  CREATE INDEX idx_import_batch_items_source ON import_batch_items(entity, source_key);
   `
 ]
