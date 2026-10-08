@@ -85,6 +85,7 @@ export function VoucherEntry({
           date: aiDraft.payload.date,
           partyLedgerId: aiDraft.payload.partyLedgerId ?? undefined,
           narration: aiDraft.payload.narration ?? undefined,
+          reference: aiDraft.payload.reference ?? undefined,
           lines: aiDraft.payload.lines,
           aiDraftId: aiDraft.id
         }

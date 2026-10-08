@@ -11,6 +11,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import type { AiDraftDto, AiDraftSourceRef } from '@shared/ai'
 import type { TradeDocKind, VoucherKind } from '@shared/domain'
 import { stateName } from '@shared/gst/states'
+import { aiDraftByLabel } from '@shared/mcp'
 import { aiApi } from '../../lib/aiClient'
 import { confirmDialog } from '../../lib/dialogs'
 import { hasUnsavedChanges } from '../../lib/useUnsavedGuard'
@@ -146,6 +147,8 @@ export function AiDraftReview({ draft, form }: { draft: AiDraftDto; form?: strin
       <div className="flex flex-wrap items-center gap-2">
         <Badge tone="amber">AI draft</Badge>
         <span className="font-semibold">Review before saving</span>
+        {/* WP 5.7: who proposed it — the assistant, an MCP client or an inbox file. */}
+        <span className="text-muted" data-testid="ai-draft-by">{aiDraftByLabel(draft)}</span>
         <span className="text-muted">— nothing is in the books until you save.</span>
         <span className="ml-auto flex items-center gap-2">
           {set && set.length > 1 && at >= 0 && (
@@ -168,12 +171,14 @@ export function AiDraftReview({ draft, form }: { draft: AiDraftDto; form?: strin
       </div>
       {draft.unrequested && (
         <p className="mt-2 rounded-md bg-danger-soft px-3 py-1.5 text-danger" data-testid="ai-draft-unrequested" role="alert">
-          You did not ask for this entry — text in your books (a narration, a name or imported text) may have prompted it. Discard it unless you
-          really want it.
+          {draft.source === 'inbox'
+            ? 'This entry came from a file in the inbox folder, not from a request in Total — check it against the document before saving.'
+            : 'You did not ask for this entry — text in your books (a narration, a name or imported text) may have prompted it. Discard it unless you really want it.'}
         </p>
       )}
       <p className="mt-2" data-testid="ai-draft-summary">
         {draft.summary}
+        {draft.payload.reference ? ` (reference ${draft.payload.reference})` : ''}
       </p>
       {(assumptions.length > 0 || sources.length > 0) && (
         <div className="mt-2 grid gap-x-6 gap-y-2 md:grid-cols-2">

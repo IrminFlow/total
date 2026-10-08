@@ -87,6 +87,9 @@ import { runDuePacksInBackground } from './packScheduler'
 import { registerAiIpc, aiRuns, type AppKeyAuditEntry } from './ai/ipc'
 import { aiMockAllowed } from './ai/env'
 import { settleDraftOnSave } from './ai/drafts'
+import * as aiStore from './ai/store'
+import { listMcpLog } from './mcp/log'
+import { mcpConfigSchema, type McpSettingsView } from '@shared/mcp'
 import { appSecretStore } from './services/secretStore'
 import type { AiEvent } from '@shared/ai'
 import { registerReceivablesIpc } from './ipcReceivables'
@@ -2230,6 +2233,29 @@ export function registerIpc(): void {
     agentBridge.syncInboxWatcher(enabled ? { slug: c.slug, db: c.db } : null)
     return { enabled }
   }, 'owner')
+
+  // ---------- MCP server (WP 5.7): settings, kill switch, log, drafts from agents ----------
+  // The server itself runs in the `total-cli mcp` process (src/main/mcp/); the app only reads its
+  // log and the drafts it (or the inbox) made, and owns the per-company kill switch.
+  handle('agent:mcp:get', (): McpSettingsView => {
+    const c = requireCompany()
+    return {
+      config: configSvc.getMcpConfig(c.db),
+      // Where the CLI runs from: the source checkout in development; a packaged app has none.
+      repoDir: app.isPackaged ? null : app.getAppPath(),
+      dataDir: process.env.TOTAL_DATA_DIR ? dataRoot() : null,
+      usersExist: c.usersExist
+    }
+  }, 'viewer')
+  handle('agent:mcp:set', (p) => {
+    const input = mcpConfigSchema.parse(p)
+    return configSvc.setMcpConfig(requireCompany().db, input)
+  }, 'owner')
+  handle('agent:mcp:log', () => listMcpLog(requireCompany().db), 'viewer')
+  handle('agent:drafts', (p) => {
+    const { status } = z.object({ status: z.enum(['open', 'consumed', 'discarded']).optional() }).default({}).parse(p ?? {})
+    return aiStore.listDrafts(requireCompany().db, status, undefined, ['mcp', 'inbox'])
+  }, 'viewer')
 
   // ---------- compliance-deadline notifications ----------
   // The renderer computes *which* deadlines to notify about (pure `src/shared/compliance.ts`,

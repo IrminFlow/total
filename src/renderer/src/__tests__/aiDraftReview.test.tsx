@@ -52,7 +52,7 @@ const STATE: InvoiceFormState = {
 function draftDto(over: Partial<AiDraftDto> = {}): AiDraftDto {
   return {
     id: 7, threadId: 3, kind: 'voucher', status: 'open', voucherId: null, unrequested: false, createdAt: '2026-10-08T05:00:00Z', consumedAt: null,
-    messageId: 12, userName: 'Arun',
+    messageId: 12, userName: 'Arun', source: 'chat', origin: null,
     summary: 'Sales invoice to Umbrella Retail on 2026-10-07: 2 × Laptop 14" @ ₹45,000.00 — taxable ₹90,000.00, CGST ₹8,100.00, SGST ₹8,100.00, total ₹1,06,200.00',
     payload: {
       voucherTypeId: 1, voucherKind: 'sales', date: '2026-10-07', partyLedgerId: 31, narration: null, reference: null, lines: [],

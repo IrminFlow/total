@@ -175,6 +175,10 @@ export interface AiThreadDto {
 /** 'superseded': made by an answer that Regenerate replaced (WP 5.2). */
 export type AiDraftStatus = 'open' | 'consumed' | 'discarded' | 'superseded'
 
+/** Where a draft came from (WP 5.7): the in-app assistant, a tool call over the MCP server
+ *  (`total-cli mcp`), or a file dropped in the company's inbox/ folder. */
+export type AiDraftSource = 'chat' | 'mcp' | 'inbox'
+
 /** Which editor a draft opens in (WP 5.3). Absent on a WP 5.1 draft = plain accounting lines. */
 export type AiDraftForm = 'accounting' | 'invoice' | 'stockNote' | 'manufacture' | 'tradeDoc'
 
@@ -232,8 +236,11 @@ export interface AiDraftDto {
   status: AiDraftStatus
   voucherId: number | null
   /** Made when the user's question did not ask for a draft (possible instruction injected via
-   *  narration or imported text) — shown with a warning. */
+   *  narration or imported text) — shown with a warning. Inbox drafts are always flagged. */
   unrequested: boolean
+  source: AiDraftSource
+  /** The MCP client's name or the dropped file's name; null for chat drafts. */
+  origin: string | null
   createdAt: string
   consumedAt: string | null
   /** WP 5.3: the assistant message that made it — drafts sharing one are a draft set. */
