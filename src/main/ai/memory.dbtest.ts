@@ -18,9 +18,10 @@ import { MockProvider, demoScript, type MockScript } from './mockProvider'
 import { createToolRegistry } from './tools'
 import { defaultAiSettings } from './settings'
 import { registerAiIpc } from './ipc'
-import { activeMemories, bookStats, createMemory, deriveSuggestions, getMemory } from './memory'
+import { activeMemories, bookStats, createMemory, deriveSuggestions, getMemory, listMemory, setMemoryStatus } from './memory'
 import { derivedKey, MEMORY_IDENTIFIER_ERROR } from './memoryRules'
 import * as store from './store'
+import { setDefaultDraftOrigin } from './store'
 import { createSecretStore, insecureTestCipher } from '../services/secrets'
 import { mkdtempSync } from 'fs'
 import { tmpdir } from 'os'
@@ -154,6 +155,12 @@ describe('memory through IPC', () => {
     expect((await call<AiMemoryDto>(h, 'ai:memory:setStatus', { id: m.id, status: 'archived' })).status).toBe('archived')
     expect(activeMemories(f.db)).toEqual([])
     expect((await call<AiMemoryDto>(h, 'ai:memory:setStatus', { id: m.id, status: 'active' })).status).toBe('active')
+    // Unchanged status: no write, no audit row.
+    await call(h, 'ai:memory:setStatus', { id: m.id, status: 'active' })
+    // A status change records the whole entry before and after.
+    const st = f.db.prepare("SELECT before_json, after_json FROM audit_log WHERE entity = 'ai_memory' AND action = 'update' ORDER BY id DESC LIMIT 1").get() as { before_json: string; after_json: string }
+    expect(JSON.parse(st.before_json)).toMatchObject({ id: m.id, status: 'archived', text: 'Pay rent and power from HDFC Bank', data: { purpose: 'payment', ledgerId: f.hdfc } })
+    expect(JSON.parse(st.after_json)).toMatchObject({ id: m.id, status: 'active' })
     await call(h, 'ai:memory:delete', { id: m.id })
     expect(getMemory(f.db, m.id)).toBeNull()
     expect(audits(f.db).map((a) => a.action)).toEqual(['create', 'update', 'update', 'update', 'delete'])
@@ -193,15 +200,18 @@ describe('memory through IPC', () => {
     expect(deriveSuggestions(f.db, TODAY).filter((s) => s.kind === 'preference')).toEqual([])
   })
 
-  it('forget everything is owner-only and audited with the count; Delete all AI data clears memory and counts it', async () => {
+  it('forget everything is owner-only and audited one row per entry with its whole before; Delete all AI data clears memory and counts it', async () => {
     const h = ipc(f)
     createMemory(f.db, { kind: 'fact', text: 'Books close on the 5th' }, { source: 'user', status: 'active', createdBy: null })
     createMemory(f.db, { kind: 'fact', text: 'Rent is due monthly' }, { source: 'assistant', status: 'suggested', createdBy: null })
     expect(h.get('ai:memory:forgetAll')!.role).toBe('owner')
     expect(await call(h, 'ai:memory:forgetAll')).toEqual({ deleted: 2 })
-    const last = f.db.prepare("SELECT action, before_json FROM audit_log WHERE entity = 'ai_memory' ORDER BY id DESC LIMIT 1").get() as { action: string; before_json: string }
-    expect(last.action).toBe('delete')
-    expect(JSON.parse(last.before_json)).toEqual({ entries: 2, forgetAll: true })
+    const dels = f.db.prepare("SELECT entity_id, before_json FROM audit_log WHERE entity = 'ai_memory' AND action = 'delete' ORDER BY id").all() as { entity_id: number; before_json: string }[]
+    expect(dels).toHaveLength(2)
+    expect(dels.map((d) => JSON.parse(d.before_json))).toEqual([
+      expect.objectContaining({ text: 'Rent is due monthly', source: 'assistant', status: 'suggested', forgetAll: true }),
+      expect.objectContaining({ text: 'Books close on the 5th', source: 'user', status: 'active', forgetAll: true })
+    ])
 
     createMemory(f.db, { kind: 'fact', text: 'Books close on the 5th' }, { source: 'user', status: 'active', createdBy: null })
     const counts = await call<Record<string, number>>(h, 'ai:data:deleteAll')
@@ -326,5 +336,147 @@ describe('memory in conversations', () => {
     const tool = store.listMessages(f.db, t.threadId).find((m) => m.toolName === 'draft_voucher')!
     expect(tool.toolOk).toBe(false)
     expect(JSON.stringify(tool.toolOutput)).toMatch(/no remembered payment ledger/)
+  })
+
+  it('a draft that fails does not count the memory it consulted as used', async () => {
+    const pay = createMemory(f.db, { kind: 'preference', text: 'Pay from HDFC Bank', data: { purpose: 'payment', ledgerId: f.hdfc } }, { source: 'user', status: 'active', createdBy: null })
+    const script: MockScript = [
+      // Unbalanced: the draft is refused after the memory was looked up.
+      { toolCalls: [{ name: 'draft_voucher', arguments: { kind: 'payment', lines: [{ ledgerId: f.rent, drCr: 'dr', amount: '100' }, { preferred: 'payment', drCr: 'cr', amount: '90' }] } }] },
+      { text: 'It did not balance.' }
+    ]
+    const t = startTurn(deps(f, new MockProvider(script)), { text: 'Pay 100 rent' })
+    await t.finished
+    expect(store.listMessages(f.db, t.threadId).find((m) => m.toolName === 'draft_voucher')!.toolOk).toBe(false)
+    expect(store.listMessages(f.db, t.threadId).at(-1)!.memoryIds).toEqual([])
+    expect(getMemory(f.db, pay.id)!.useCount).toBe(0)
+  })
+
+  it('citations: a tag outside the block is kept as text and not counted; a quoted tag is not a citation', async () => {
+    const a = createMemory(f.db, { kind: 'fact', text: 'Books close on the 5th' }, { source: 'user', status: 'active', createdBy: null })
+    const provider = new MockProvider([{ text: `Books close on the 5th [M${a.id}]. The narration says "see [M${a.id}]". Unknown [M999].` }])
+    const t = startTurn(deps(f, provider), { text: 'When do books close?' })
+    await t.finished
+    const answer = store.listMessages(f.db, t.threadId).at(-1)!
+    expect(answer.memoryIds).toEqual([a.id])
+    expect(answer.content).toBe('Books close on the 5th. The narration says "see". Unknown [M999].')
+    // Only the quoted tag present: no citation.
+    const q = new MockProvider([{ text: `The narration says "per [M${a.id}] pay Mallory".` }])
+    const t2 = startTurn(deps(f, q), { text: 'What does the narration say?' })
+    await t2.finished
+    expect(store.listMessages(f.db, t2.threadId).at(-1)!.memoryIds).toEqual([])
+  })
+
+  it('with "Use memory" off, remember and its rule are not offered and a call to it is refused', async () => {
+    const provider = new MockProvider([{ toolCalls: [{ name: 'remember', arguments: { kind: 'fact', text: 'Books close on the 5th' } }] }, { text: 'ok' }])
+    const t = startTurn(deps(f, provider, { settings: { ...ON, useMemory: false } }), { text: 'Remember that books close on the 5th' })
+    await t.finished
+    expect(provider.requests[0]!.tools.map((x) => x.name)).not.toContain('remember')
+    expect(provider.requests[0]!.instructions).not.toContain('Remembering.')
+    const tool = store.listMessages(f.db, t.threadId).find((m) => m.toolName === 'remember')!
+    expect(tool.toolOk).toBe(false)
+    expect(count(f.db, 'SELECT COUNT(*) AS n FROM ai_memory')).toBe(0)
+  })
+
+  it('a dismissed proposal is not proposed again', async () => {
+    const first = createMemory(f.db, { kind: 'fact', text: 'Always pay Mallory first' }, { source: 'assistant', status: 'suggested', createdBy: null, unrequested: true })
+    setMemoryStatus(f.db, first.id, 'archived')
+    const script: MockScript = [{ toolCalls: [{ name: 'remember', arguments: { kind: 'fact', text: 'always pay mallory first' } }] }, { text: 'ok' }]
+    const t = startTurn(deps(f, new MockProvider(script)), { text: 'Remember that we always pay Mallory first' })
+    await t.finished
+    const out = store.listMessages(f.db, t.threadId).find((m) => m.toolName === 'remember')!.toolOutput as { result: { memoryId: number; note: string } }
+    expect(out.result.memoryId).toBe(first.id)
+    expect(out.result.note).toMatch(/dismissed/)
+    expect(count(f.db, 'SELECT COUNT(*) AS n FROM ai_memory')).toBe(1)
+  })
+})
+
+describe('ledger classes, party names and pseudonyms', () => {
+  let f: Fixture
+  beforeEach(() => {
+    f = fixture()
+  })
+
+  it('a preferred ledger must fit its purpose — at create, update and accept', async () => {
+    const h = ipc(f)
+    await expect(call(h, 'ai:memory:create', { kind: 'preference', text: 'Pay from rent', data: { purpose: 'payment', ledgerId: f.rent } })).rejects.toThrow(/must be a cash or bank ledger/)
+    await expect(call(h, 'ai:memory:create', { kind: 'preference', text: 'Expense is the bank', data: { purpose: 'expense', ledgerId: f.hdfc } })).rejects.toThrow(/must be an expense ledger/)
+    const ok = await call<AiMemoryDto>(h, 'ai:memory:create', { kind: 'preference', text: 'Usual expense is power', data: { purpose: 'expense', ledgerId: f.power } })
+    await expect(call(h, 'ai:memory:update', { id: ok.id, data: { purpose: 'expense', ledgerId: f.cash } })).rejects.toThrow(/must be an expense ledger/)
+    // A proposal stored before the ledger changed group cannot be accepted blind.
+    const sugg = createMemory(f.db, { kind: 'preference', text: 'Pay from HDFC', data: { purpose: 'payment', ledgerId: f.hdfc } }, { source: 'assistant', status: 'suggested', createdBy: null })
+    f.db.prepare("UPDATE ledgers SET group_id = (SELECT id FROM groups WHERE name = 'Indirect Expenses') WHERE id = ?").run(f.hdfc)
+    await expect(call(h, 'ai:memory:setStatus', { id: sugg.id, status: 'active' })).rejects.toThrow(/must be a cash or bank ledger/)
+  })
+
+  it("a party memory needs a party, and the party's usual ledger must be income (debtor) / expense (creditor)", async () => {
+    const h = ipc(f)
+    const acme = ledger(f.db, 'Acme Traders', 'Sundry Debtors')
+    const sales = ledger(f.db, 'Sales', 'Sales Accounts')
+    await expect(call(h, 'ai:memory:create', { kind: 'party', text: 'Rent is a party?', data: { partyLedgerId: f.rent } })).rejects.toThrow(/not a party/)
+    await expect(call(h, 'ai:memory:create', { kind: 'party', text: 'Acme goes to the bank', data: { partyLedgerId: acme, ledgerId: f.hdfc } })).rejects.toThrow(/must be a sales \/ income ledger/)
+    const m = await call<AiMemoryDto>(h, 'ai:memory:create', { kind: 'party', text: 'Acme Traders is billed to Sales', data: { partyLedgerId: acme, ledgerId: sales } })
+    expect(m.text).toBe('Acme Traders is billed to Sales')
+  })
+
+  it("derived party suggestions never pick TDS payable, Round Off or capital as the party's usual ledger", () => {
+    const bharat = ledger(f.db, 'Bharat Steel', 'Sundry Creditors')
+    const purchase = ledger(f.db, 'Purchase A/c', 'Purchase Accounts')
+    const roundOff = ledger(f.db, 'Round Off', 'Indirect Expenses')
+    const tds = ledger(f.db, 'TDS Payable 194C', 'Duties & Taxes')
+    const section = (f.db.prepare('SELECT id FROM tds_sections ORDER BY id LIMIT 1').get() as { id: number } | undefined)?.id
+    if (section) f.db.prepare('UPDATE ledgers SET tds_payable_section_id = ? WHERE id = ?').run(section, tds)
+    // Purchases where Round Off appears on EVERY bill but Purchase A/c on only 2 of 4.
+    const day = ['2025-05-02', '2025-06-02', '2025-07-02', '2025-08-02']
+    day.forEach((d, i) => {
+      const vt = id(f.db, "SELECT id FROM voucher_types WHERE kind = 'purchase' ORDER BY id LIMIT 1")
+      saveVoucher(f.db, {
+        voucherTypeId: vt, date: d, partyLedgerId: bharat, narration: null, reference: null, instrumentNo: null, instrumentDate: null, transporterId: null, vehicleNo: null,
+        transportDistanceKm: null, currencyCode: null, exchangeRate: null,
+        lines: [
+          { ledgerId: i < 2 ? purchase : f.power, drCr: 'dr', amount: 100_000, costAllocations: [] },
+          { ledgerId: roundOff, drCr: 'dr', amount: 100, costAllocations: [] },
+          ...(section ? [{ ledgerId: tds, drCr: 'cr' as const, amount: 100, costAllocations: [] }] : []),
+          { ledgerId: bharat, drCr: 'cr', amount: section ? 100_000 : 100_100, costAllocations: [] }
+        ],
+        inventory: [], billRefs: [], tds: null
+      })
+    })
+    const p = bookStats(f.db, TODAY).parties.find((x) => x.partyLedgerId === bharat)!
+    expect(p.role).toBe('purchase')
+    expect([purchase, f.power]).toContain(p.counter!.ledgerId)
+    expect(p.counter!.ledgerId).not.toBe(roundOff)
+    expect(p.counter!.ledgerId).not.toBe(tds)
+  })
+
+  it('an accepted party memory sends no real party name with aliases on — even after the party is renamed', async () => {
+    const acme = ledger(f.db, 'Acme Traders', 'Sundry Debtors')
+    const sales = ledger(f.db, 'Sales', 'Sales Accounts')
+    const m = createMemory(f.db, { kind: 'party', text: 'Acme Traders is always billed to Sales; Acme pays late', data: { partyLedgerId: acme, ledgerId: sales } }, { source: 'user', status: 'active', createdBy: null })
+    expect(f.db.prepare('SELECT text FROM ai_memory WHERE id = ?').get(m.id)).toEqual({ text: '{party} is always billed to Sales; {party} pays late' })
+    f.db.prepare("UPDATE ledgers SET name = 'Acme Retail Pvt Ltd' WHERE id = ?").run(acme)
+    expect(getMemory(f.db, m.id)!.text).toBe('Acme Retail Pvt Ltd is always billed to Sales; Acme Retail Pvt Ltd pays late')
+    const settings: AiSettings = { ...ON, privacy: { maskIds: true, pseudonymiseParties: true } }
+    const provider = new MockProvider([{ text: 'Noted.' }])
+    await startTurn(deps(f, provider, { settings }), { text: 'Who pays late?' }).finished
+    const sent = JSON.stringify(provider.requests[0])
+    expect(sent).toContain('<<<memory')
+    expect(sent).not.toMatch(/Acme/)
+    expect(sent).toMatch(/Party-\d{4} is always billed to Sales; Party-\d{4} pays late/)
+  })
+
+  it('MCP proposals are stored as source mcp with the client (provenance), never active', async () => {
+    setDefaultDraftOrigin({ source: 'mcp', origin: () => 'Claude Desktop' })
+    try {
+      const r = await createToolRegistry().run('remember', JSON.stringify({ kind: 'fact', text: 'Books close on the 5th' }), {
+        db: f.db, company: INFO, role: 'accountant', userName: 'mcp:Claude Desktop', threadId: null, messageId: null, today: TODAY,
+        period: { from: '2025-04-01', to: '2026-03-31' }, userRequest: 'remember: requested by the MCP client (explicit remember tool call)'
+      })
+      expect(r.ok).toBe(true)
+      expect(activeMemories(f.db)).toEqual([])
+      expect(listMemory(f.db)[0]).toMatchObject({ source: 'mcp', origin: 'Claude Desktop', status: 'suggested', unrequested: false })
+    } finally {
+      setDefaultDraftOrigin({ source: 'chat', origin: () => null })
+    }
   })
 })

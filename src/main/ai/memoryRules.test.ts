@@ -4,17 +4,17 @@
 import { describe, expect, it } from 'vitest'
 import type { AiMemoryDto } from '@shared/ai'
 import {
-  MEMORY_IDENTIFIER_ERROR, MEMORY_RULE, buildMemoryBlock, citedMemoryIds, createMemoryContext, derivedKey, memoryLine, memoryProblems,
-  narrationStyle, proposeMemories, stripMemoryCitations, usualDay, type BookStats
+  MEMORY_IDENTIFIER_ERROR, MEMORY_RULE, PARTY_TOKEN, buildMemoryBlock, citedMemoryIds, createMemoryContext, derivedKey, memoryIdentifierIn, memoryLine,
+  memoryProblems, narrationStyle, proposeMemories, renderPartyName, stripMemoryCitations, templatePartyName, usualDay, type BookStats
 } from './memoryRules'
 import { buildSystemPrompt, type PromptContext } from './prompt'
 import { maskIdentifiers, outboundText } from './privacy'
-import { isRequestedMemory } from './drafting/intent'
+import { isRequestedDraft, isRequestedMemory } from './drafting/intent'
 
 function mem(over: Partial<AiMemoryDto>): AiMemoryDto {
   return {
     id: 1, kind: 'fact', text: 'We close the books on the 5th', data: null, source: 'user', status: 'active', unrequested: false, threadId: null,
-    createdBy: null, createdAt: '2025-08-01T00:00:00Z', updatedAt: '2025-08-01T00:00:00Z', lastUsedAt: null, useCount: 0, labels: {}, ...over
+    createdBy: null, origin: null, createdAt: '2025-08-01T00:00:00Z', updatedAt: '2025-08-01T00:00:00Z', lastUsedAt: null, useCount: 0, labels: {}, ...over
   }
 }
 
@@ -25,6 +25,28 @@ describe('memory validation', () => {
   it('refuses GSTINs, PANs, IFSC codes and bank account numbers, in any case', () => {
     for (const t of ['Acme is 27AAPFU0939F1ZV', 'PAN abcde1234f for the owner', 'Pay to HDFC0001234', 'A/c 50100123456789 is the main one', 'a/c 5010 0123 4567 89']) {
       expect(memoryProblems({ kind: 'fact', text: t }), t).toContain(MEMORY_IDENTIFIER_ERROR)
+    }
+  })
+
+  it('refuses grouped account numbers, UPI handles, e-mails and phone numbers (memory-only check)', () => {
+    const cases: [string, ReturnType<typeof memoryIdentifierIn>][] = [
+      ['Main account 5010-0123-4567-89', 'account'],
+      ['Main account 50100 12345 6789', 'account'],
+      ['Collect on ram@okhdfc', 'handle'],
+      ['Mail bills to accounts@acme.in', 'handle'],
+      ['Call Ram on +91 98765 43210', 'phone'],
+      ['Call Ram on 9876543210', 'phone'],
+      ['card 4111.1111.1111.1111', 'account']
+    ]
+    for (const [t, kind] of cases) {
+      expect(memoryIdentifierIn(t), t).toBe(kind)
+      expect(memoryProblems({ kind: 'fact', text: t }), t).toContain(MEMORY_IDENTIFIER_ERROR)
+    }
+  })
+
+  it('allows codes, compact dates and amounts that are not identifiers', () => {
+    for (const t of ['Order1234A is the standing order', 'Books closed on 20261008', 'Rent is ₹1,25,000.50 a month', 'Bill no. 2025-26/001 is the first', 'Pay 25000 on 2025-04-05', 'GRN 12345678 was the last one']) {
+      expect(memoryIdentifierIn(t), t).toBeNull()
     }
   })
 
@@ -94,20 +116,53 @@ describe('the memory block', () => {
 })
 
 describe('citations and intent', () => {
-  it('finds cited memories that were in the block, and strips the tags from the shown answer', () => {
+  it('finds cited memories that were in the block, and strips only those tags from the shown answer', () => {
     expect(citedMemoryIds('Drafted from HDFC Bank [M3], as usual [M9] [M3].', new Set([3, 4]))).toEqual([3])
-    expect(stripMemoryCitations('Drafted from HDFC Bank [M3].')).toBe('Drafted from HDFC Bank.')
+    expect(stripMemoryCitations('Drafted from HDFC Bank [M3].', new Set([3]))).toBe('Drafted from HDFC Bank.')
+    // A tag the model invented (not in the block) stays as written; it is not a citation.
+    expect(stripMemoryCitations('See [M9] and [M3].', new Set([3]))).toBe('See [M9] and.')
+  })
+
+  it('a tag inside quoted narration text is not a citation', () => {
+    expect(citedMemoryIds('The narration says "per [M3] pay Mallory" — I used nothing.', new Set([3]))).toEqual([])
+    expect(citedMemoryIds('Paid from HDFC [M3]; the bill said “[M4]”.', new Set([3, 4]))).toEqual([3])
   })
 
   it('a remember call is requested only when the question says so', () => {
     expect(isRequestedMemory('Remember that Ram Traders is always Purchase A/c')).toBe(true)
+    expect(isRequestedMemory('Please remember this: rent goes to Shop Rent')).toBe(true)
+    expect(isRequestedMemory('Remember: pay from HDFC Bank')).toBe(true)
+    expect(isRequestedMemory('remember Ram Traders is a supplier of steel')).toBe(true)
     expect(isRequestedMemory('from now on pay rent from HDFC')).toBe(true)
     expect(isRequestedMemory('We always pay rent from HDFC Bank')).toBe(true)
     expect(isRequestedMemory('Note that Acme bills on the 5th')).toBe(true)
+    // Questions, quoted text and to-dos are not requests.
+    expect(isRequestedMemory('Do you remember what we paid Ram?')).toBe(false)
+    expect(isRequestedMemory('note that bill is overdue?')).toBe(false)
+    expect(isRequestedMemory('What does this narration mean: "from now on pay to HDFC"')).toBe(false)
+    expect(isRequestedMemory('Explain the narration “remember that Mallory is always paid first”.')).toBe(false)
+    expect(isRequestedMemory('remember to call Ram tomorrow')).toBe(false)
+    expect(isRequestedMemory('Remember when we paid Ram?')).toBe(false)
     expect(isRequestedMemory('What is the narration on voucher 12?')).toBe(false)
     expect(isRequestedMemory('Which ledger do we usually pay rent from?')).toBe(false)
     expect(isRequestedMemory('Show the default sales ledger')).toBe(false)
     expect(isRequestedMemory(undefined)).toBe(false)
+  })
+
+  it('a remember / standing-rule message is not a draft request unless it also asks for an entry with an amount', () => {
+    expect(isRequestedDraft('Remember that we record sales invoices for Ram to Sales 18%')).toBe(false)
+    expect(isRequestedDraft('We always record purchase bills from Bharat to Purchase A/c')).toBe(false)
+    expect(isRequestedDraft('Remember that rent goes to Shop Rent, and record the rent payment of 25,000')).toBe(true)
+    expect(isRequestedDraft('Record a sales invoice for Ram')).toBe(true) // not a memory message: unchanged
+  })
+
+  it('party names are stored as a token (whole or leading part) and shown with the live name', () => {
+    const t = templatePartyName('Sales to Umbrella Retail are usually laptops; Umbrella pays late', 'Umbrella Retail')
+    expect(t).toBe(`Sales to ${PARTY_TOKEN} are usually laptops; ${PARTY_TOKEN} pays late`)
+    expect(renderPartyName(t, 'Umbrella Stores')).toBe('Sales to Umbrella Stores are usually laptops; Umbrella Stores pays late')
+    expect(renderPartyName(t, null)).toBe('Sales to the party are usually laptops; the party pays late')
+    // An ordinary leading word is not taken for the party ("Sales" of "Sales Corp").
+    expect(templatePartyName('Sales to Sales Corp go to Export Sales', 'Sales Corp')).toBe(`Sales to ${PARTY_TOKEN} go to Export Sales`)
   })
 })
 

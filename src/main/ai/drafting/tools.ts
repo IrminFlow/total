@@ -138,7 +138,10 @@ export function runDraft(ctx: ToolContext, tool: string, build: (w: DraftWork) =
     if (err instanceof NeedsClarification) return { data: clarificationResult(w), sources: [] }
     throw err
   }
-  return storeDraft(ctx, built, tool, w.memoryUsed)
+  const out = storeDraft(ctx, built, tool, w.memoryUsed)
+  // WP 5.6: memory defaults count as used only now that the draft is stored.
+  for (const id of w.memoryUsed) ctx.memory?.markUsed(id)
+  return out
 }
 
 const RULES =

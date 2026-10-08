@@ -19,7 +19,7 @@ import { todayISO } from '@shared/dates'
 import { AI_DATA_NOTICE_VERSION, type AiContext, type AiEvent, type AiMessageDto, type AiSettings, type AiSource } from '@shared/ai'
 import type { Role } from '../services/roles'
 import { buildSystemPrompt } from './prompt'
-import { draftRequestedInThread } from './drafting/intent'
+import { draftRequestedInThread, isRequestedMemory } from './drafting/intent'
 import { mapStrings, outboundText, inboundText, type PrivacyOptions } from './privacy'
 import { fitToBudget, DEFAULT_TOOL_RESULT_BUDGET } from './truncate'
 import { checkFigures, type SeenResult } from './numbers'
@@ -293,13 +293,19 @@ async function runLoop(
   }
   const sig = privacySignature(privacy, budget)
   const role = deps.user.role
-  const tools = registry.available(role)
-  const specs = registry.specs(role)
+  // WP 5.6: with "Use memory" off, `remember` (and its rule) is not offered at all.
+  const hidden = settings.useMemory ? new Set<string>() : new Set(['remember'])
+  const tools = registry.available(role).filter((t) => !hidden.has(t.name))
+  const specs = registry.specs(role).filter((t) => !hidden.has(t.name))
+  const memoryRequested = isRequestedMemory(userRequest)
   // WP 5.6: active memories go in a capped DATA block (masked with the rest of the prompt) and
   // into the tools' memory context — only while the company's assistant is on and memory is used.
+  // Tools see exactly the entries the model saw (same cap and order), so a draft never cites a
+  // memory that was not in the block.
   const memories = settings.useMemory ? activeMemories(db) : []
   const memoryBlock = buildMemoryBlock(memories)
-  const memory = memories.length ? createMemoryContext(memories) : EMPTY_MEMORY_CONTEXT
+  const inBlock = new Set(memoryBlock.ids)
+  const memory = inBlock.size ? createMemoryContext(memories.filter((m) => inBlock.has(m.id))) : EMPTY_MEMORY_CONTEXT
   const memoryBytes = memoryBlock.lines.length ? Buffer.byteLength(outboundText(memoryBlock.lines.join('\n'), privacy), 'utf8') : 0
   const instructions = outboundText(
     buildSystemPrompt({
@@ -406,8 +412,8 @@ async function runLoop(
     }
     const rawText = inboundText(res.text, privacy)
     // Citations of memories the model saw ([M3]) become chips; the tags leave the shown text.
-    const cited = citedMemoryIds(rawText, new Set(memoryBlock.ids))
-    const text = stripMemoryCitations(rawText)
+    const cited = citedMemoryIds(rawText, inBlock)
+    const text = stripMemoryCitations(rawText, inBlock)
     const usageFields = { model: res.model, inputTokens: res.usage.inputTokens, outputTokens: res.usage.outputTokens, costMicroUsd: cost }
 
     if (res.toolCalls.length === 0) {
@@ -445,10 +451,12 @@ async function runLoop(
       const roleNow = deps.roleNow ? deps.roleNow() : role
       if (roleNow === null) return failed('Signed out — the assistant stopped.')
       emit({ type: 'tool-start', threadId, runId, callId: c.callId, name: c.name, input: c.input })
-      const run = await registry.run(c.name, c.args, {
-        db, company: deps.company, role: roleNow, userName: deps.user.name, threadId, messageId: assistant.id, today, period, userRequest,
-        draftRequested, workingDate, screen: input.context ?? null, memory
-      })
+      const run = hidden.has(c.name)
+        ? { ok: false as const, name: c.name, input: c.input, error: `There is no tool called ${c.name}.` }
+        : await registry.run(c.name, c.args, {
+            db, company: deps.company, role: roleNow, userName: deps.user.name, threadId, messageId: assistant.id, today, period, userRequest,
+            draftRequested, workingDate, screen: input.context ?? null, memory, memoryRequested
+          })
       const output = run.ok ? { ok: true, result: run.data } : { ok: false, error: run.error }
       const sent = sentToolText(output, privacy, budget)
       const sources = run.ok ? run.sources : []

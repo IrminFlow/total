@@ -546,7 +546,7 @@ export function buildInvoiceDraft(w: DraftWork, input: InvoiceDraftInput): Built
   w.memoryBillDay(party, input.date, date)
   const resolved = input.items.map((l, i) => {
     const said = l.itemId != null || !!l.item
-    const item = said ? w.item(`line:${i}`, l.itemId ?? l.item ?? null) : w.memoryPartyItem(`line:${i}`, party)
+    const item = said ? w.item(`line:${i}`, l.itemId ?? l.item ?? null) : w.memoryPartyItem(`line:${i}`, party, kind === 'sales' || kind === 'credit_note' ? 'sales' : 'purchase')
     if (!said && !item) throw new Error(`Line ${i + 1}: give the item (name, barcode or HSN)`)
     return { item, qtyMilli: w.qty(`line:${i}`, l.qty, `Line ${i + 1}`, item), given: l }
   })
@@ -700,7 +700,7 @@ export function buildStockNoteDraft(w: DraftWork, input: StockNoteDraftInput): B
   w.memoryBillDay(party, input.date, date)
   const resolved = input.items.map((l, i) => {
     const said = l.itemId != null || !!l.item
-    const item = said ? w.item(`line:${i}`, l.itemId ?? l.item ?? null) : w.memoryPartyItem(`line:${i}`, party)
+    const item = said ? w.item(`line:${i}`, l.itemId ?? l.item ?? null) : w.memoryPartyItem(`line:${i}`, party, kind === 'delivery_note' ? 'sales' : 'purchase')
     if (!said && !item) throw new Error(`Line ${i + 1}: give the item (name, barcode or HSN)`)
     return { item, qtyMilli: w.qty(`line:${i}`, l.qty, `Line ${i + 1}`, item), given: l }
   })

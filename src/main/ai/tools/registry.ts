@@ -37,6 +37,8 @@ export interface ToolContext {
   /** WP 5.6: this question's active memories — tools consult preferences through it
    *  (preferredLedger(purpose), forParty(id)); what they use shows as memory chips on the answer. */
   memory?: MemoryContext
+  /** WP 5.6: whether the user's message asked to remember something (computed once per turn). */
+  memoryRequested?: boolean
 }
 
 export interface ToolOutput<T = unknown> {

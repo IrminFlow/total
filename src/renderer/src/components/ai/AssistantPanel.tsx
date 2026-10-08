@@ -20,7 +20,7 @@
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState, type ReactNode } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { create } from 'zustand'
-import { formatMicroUsd, type AiContext, type AiDraftDto, type AiEvent, type AiMemoryDto, type AiMessageDto, type AiSource, type AiThreadDto } from '@shared/ai'
+import { formatMicroUsd, memoryDetailsText, memorySourceText, type AiContext, type AiDraftDto, type AiEvent, type AiMemoryDto, type AiMessageDto, type AiSource, type AiThreadDto } from '@shared/ai'
 import { explainContextFor, parseNavIntent, screenContextLines } from '@shared/aiExplain'
 import { fyOf, todayISO, toDisplayDate } from '@shared/dates'
 import type { VoucherKind } from '@shared/domain'
@@ -964,20 +964,20 @@ function useMemoryEntries(): { entries: AiMemoryDto[]; loaded: boolean } {
 }
 
 /** The memories an answer relied on, as chips (click: Settings → AI → Memory). */
-function MemoryChips({ ids }: { ids: number[] }): React.JSX.Element {
+function MemoryChips({ ids }: { ids: number[] }): React.JSX.Element | null {
   const nav = useNav()
   const { entries } = useMemoryEntries()
+  // A memory deleted since (or not loaded yet) shows no chip at all.
+  const found = ids.map((id) => entries.find((e) => e.id === id)).filter((m): m is AiMemoryDto => !!m)
+  if (!found.length) return null
   return (
     <div className="flex flex-wrap items-center gap-1.5 text-caption text-muted" data-testid="ai-memory-chips">
       <span>Used memory:</span>
-      {ids.map((id) => {
-        const m = entries.find((e) => e.id === id)
-        return (
-          <Chip key={id} tone="info" onClick={() => nav.go({ name: 'settings', tab: 'ai' })} testId="ai-memory-chip">
-            {m ? m.text : `Memory ${id}`}
-          </Chip>
-        )
-      })}
+      {found.map((m) => (
+        <Chip key={m.id} tone="info" onClick={() => nav.go({ name: 'settings', tab: 'ai' })} testId="ai-memory-chip">
+          {m.text}
+        </Chip>
+      ))}
     </div>
   )
 }
@@ -1019,7 +1019,17 @@ function MemoryProposalCard({ memoryId }: { memoryId: number }): React.JSX.Eleme
         </Badge>
       </div>
       <p className="mt-1 text-body-sm text-ink">{m.text}</p>
-      {m.labels.ledger && <p className="text-caption text-muted">Ledger: {m.labels.ledger}</p>}
+      {/* What drafting will act on — the structured fields, not the text. */}
+      {memoryDetailsText(m.data, m.labels) && (
+        <p className="text-caption text-muted" data-testid="ai-memory-card-details">
+          {memoryDetailsText(m.data, m.labels)}
+        </p>
+      )}
+      {m.source === 'mcp' && (
+        <p className="text-caption text-muted" data-testid="ai-memory-card-origin">
+          Proposed by {memorySourceText(m)}
+        </p>
+      )}
       {m.unrequested && (
         <p className="mt-1 text-caption text-danger">
           Your question did not ask to remember anything — text in your books may have prompted this. Dismiss it unless you want it.

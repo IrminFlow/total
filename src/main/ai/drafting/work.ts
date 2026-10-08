@@ -15,6 +15,7 @@ import type { DB } from '../../db/connection'
 import type { CompanyInfo, Group, Ledger, StockItem, Unit } from '@shared/domain'
 import { AI_MEMORY_PURPOSE_LABELS, type AiDraftSourceRef, type AiMemoryPurpose } from '@shared/ai'
 import { EMPTY_MEMORY_CONTEXT, type MemoryContext } from '../memoryRules'
+import { ledgerClassifier, partyLedgerFits, purposeFits, type LedgerClassifier } from '../ledgerClass'
 import { formatPaise, parseAmountText } from '@shared/money'
 import { resolveDateText, toDisplayDate } from '@shared/dates'
 import { resolveName, type ResolveCandidate, type ResolveChoice } from '@shared/aiResolve'
@@ -94,13 +95,18 @@ export class DraftWork {
     readonly memory: MemoryContext = EMPTY_MEMORY_CONTEXT
   ) {}
 
-  private useMemory(memoryId: number): void {
-    if (!this.memoryUsed.includes(memoryId)) this.memoryUsed.push(memoryId)
-    this.memory.markUsed(memoryId)
+  private classifier: LedgerClassifier | null = null
+  private classes(): LedgerClassifier {
+    return (this.classifier ??= ledgerClassifier(this.m.db))
   }
 
-  /** A default taken from memory: recorded as a source and an assumption ("From memory: …"),
-   *  and marked used. Callers only reach this when the user left the field unsaid. */
+  /** Recorded on the draft; counted as used (memory.markUsed) only once the draft is stored. */
+  private useMemory(memoryId: number): void {
+    if (!this.memoryUsed.includes(memoryId)) this.memoryUsed.push(memoryId)
+  }
+
+  /** A default taken from memory: recorded as a source and an assumption ("From memory: …").
+   *  Callers only reach this when the user left the field unsaid. */
   fromMemory(field: string, kind: AiDraftSourceRef['kind'], label: string, id: number, memoryId: number, text: string): void {
     this.source({ field, kind, label, id, why: `from memory [M${memoryId}]` })
     this.assume(`From memory [M${memoryId}]: ${text}`)
@@ -111,7 +117,8 @@ export class DraftWork {
   memoryLedger(field: string, purpose: AiMemoryPurpose, filter: (l: Ledger) => boolean = () => true): Ledger | null {
     const p = this.memory.preferredLedger(purpose)
     const l = p ? this.m.ledgers.find((x) => x.id === p.ledgerId) : undefined
-    if (!p || !l || !filter(l)) return null
+    // The same class rule as writing the memory: never a party / bank ledger for 'expense', etc.
+    if (!p || !l || !purposeFits(this.classes().cls(l.id), purpose) || !filter(l)) return null
     this.fromMemory(field, 'ledger', l.name, l.id, p.memoryId, `${AI_MEMORY_PURPOSE_LABELS[purpose]} ${l.name}`)
     return l
   }
@@ -120,14 +127,16 @@ export class DraftWork {
   memoryPartyLedger(field: string, party: Ledger | null, filter: (l: Ledger) => boolean): Ledger | null {
     const pm = party ? this.memory.forParty(party.id) : null
     const l = pm?.data?.ledgerId ? this.m.ledgers.find((x) => x.id === pm.data!.ledgerId) : undefined
-    if (!pm || !l || !filter(l)) return null
+    if (!pm || !l || !partyLedgerFits(this.classes(), party!.id, l.id) || !filter(l)) return null
     this.fromMemory(field, 'ledger', l.name, l.id, pm.id, `${party!.name} is usually booked to ${l.name}`)
     return l
   }
 
-  /** The party's remembered usual item (for a line that names none). */
-  memoryPartyItem(field: string, party: Ledger | null): StockItem | null {
-    const pm = party ? this.memory.forParty(party.id) : null
+  /** The party's remembered usual item (for a line that names none) — only on its own side: a
+   *  debtor's item on a sales document, a creditor's on a purchase one. */
+  memoryPartyItem(field: string, party: Ledger | null, side: 'sales' | 'purchase'): StockItem | null {
+    if (!party || this.classes().cls(party.id) !== (side === 'sales' ? 'debtor' : 'creditor')) return null
+    const pm = this.memory.forParty(party.id)
     const it = pm?.data?.itemId ? this.m.items.find((x) => x.id === pm.data!.itemId) : undefined
     if (!pm || !it) return null
     this.fromMemory(field, 'item', it.name, it.id, pm.id, `${party!.name} usually takes ${it.name}`)

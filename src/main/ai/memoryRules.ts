@@ -16,13 +16,52 @@ import {
   type AiMemoryPurpose, type AiMemorySuggestion
 } from '@shared/ai'
 import { maskIdentifiers } from './privacy'
+import type { LedgerClass } from './ledgerClass'
 
 export const MEMORY_IDENTIFIER_ERROR =
-  'A memory cannot hold a GSTIN, PAN, IFSC code or bank account number — leave the number out (the assistant reads it from the ledger when it needs it).'
+  'A memory cannot hold a GSTIN, PAN, IFSC code, bank account number, UPI handle, e-mail address or phone number — leave it out (the assistant reads such details from the ledger when it needs them).'
 
-/** Does this text carry an identifier the outbound masking would hide? */
+// The memory-specific refusal check (separate from the outbound masking in privacy.ts, which keeps
+// working on what is SENT): what a memory may never store. Stricter than the mask where the mask
+// is lenient (grouped / hyphenated account numbers, UPI handles, e-mails, phones) and more
+// permissive where a memory needs ordinary words (an alphanumeric code like "Order1234A", an
+// 8-digit date like "20261008", amounts with Indian grouping or decimals).
+const GSTIN_IN_TEXT = /(?<![\p{L}\p{N}])\d{2}[A-Z]{5}\d{4}[A-Z][0-9A-Z]Z[0-9A-Z](?![\p{L}\p{N}])/iu
+const PAN_IN_TEXT = /(?<![\p{L}\p{N}])[A-Z]{5}\d{4}[A-Z](?![\p{L}\p{N}])/iu
+const IFSC_IN_TEXT = /(?<![\p{L}\p{N}])[A-Z]{4}0[A-Z0-9]{6}(?![\p{L}\p{N}])/iu
+/** user@handle — UPI ids (x@okhdfc) and e-mail addresses alike. */
+const HANDLE_IN_TEXT = /[\p{L}\p{N}._%+-]+@[\p{L}\p{N}-]+(?:\.[\p{L}\p{N}-]+)*/u
+/** +<country code> followed by digits ("+91 98765 43210", "+1-202-555-0100"). */
+const INTL_PHONE = /\+\d{1,3}[\s-]?\d[\d\s-]{6,}\d/
+/** A run of digits, optionally grouped by single spaces, hyphens or dots, standing alone (not
+ *  inside an alphanumeric code, not part of a comma-grouped amount or a decimal). */
+const DIGIT_RUN = /(?<![\p{L}\p{N},.])\d+(?:[ .-]\d+)*(?![\p{L}\p{N}]|[,.]\d)/gu
+/** A date written with separators is not an account number. */
+const DATE_RUN = /^(?:\d{4}[-.]\d{1,2}[-.]\d{1,2}|\d{1,2}[-.]\d{1,2}[-.]\d{2,4})$/
+
+/** What kind of identifier the text carries, or null. */
+export function memoryIdentifierIn(text: string): 'gstin' | 'pan' | 'ifsc' | 'handle' | 'phone' | 'account' | null {
+  // Identifiers are written in one case (upper, or lower when typed lazily); a mixed-case word that
+  // happens to have the shape ("Order1234A") is an ordinary code.
+  const oneCase = (re: RegExp): boolean => [...text.matchAll(new RegExp(re.source, 'giu'))].some((m) => m[0] === m[0].toUpperCase() || m[0] === m[0].toLowerCase())
+  if (oneCase(GSTIN_IN_TEXT)) return 'gstin'
+  if (oneCase(PAN_IN_TEXT)) return 'pan'
+  if (oneCase(IFSC_IN_TEXT)) return 'ifsc'
+  if (HANDLE_IN_TEXT.test(text)) return 'handle'
+  if (INTL_PHONE.test(text)) return 'phone'
+  for (const m of text.matchAll(DIGIT_RUN)) {
+    const run = m[0]
+    if (DATE_RUN.test(run)) continue
+    const digits = run.replace(/\D/g, '').length
+    // 9+ digits: account numbers (9–18), 10-digit mobiles, card numbers. 8 digits ("20261008") pass.
+    if (digits >= 9) return /^[6-9]\d{9}$/.test(run.replace(/\D/g, '')) ? 'phone' : 'account'
+  }
+  return null
+}
+
+/** Does this text carry something a memory may not store? */
 export function hasMaskedIdentifier(text: string): boolean {
-  return maskIdentifiers(text) !== text
+  return memoryIdentifierIn(text) !== null
 }
 
 /** Problems with an entry, in plain words (empty = fine). Shape (lengths, enums) is Zod's job;
@@ -120,24 +159,61 @@ export const REMEMBER_RULE =
 
 const CITE_RE = /\[M(\d{1,9})\]/g
 
-/** Memory ids an answer cites that were actually in the block it saw. */
+/** Quoted text removed ("…", “…”, ‘…’, '…' around words) — a quote is data (e.g. a narration the
+ *  answer cites), never the answer's own claim or the user's request. */
+export function withoutQuotes(text: string): string {
+  return text.replace(/"[^"\n]*"|“[^”]*”|‘[^’]*’|(?<![\p{L}\p{N}])'[^'\n]*'(?![\p{L}\p{N}])/gu, ' ')
+}
+
+/** Memory ids an answer cites that were actually in the block it saw — never inside quoted text
+ *  (a narration quoted in the answer may carry "[M3]" itself). */
 export function citedMemoryIds(text: string, allowed: ReadonlySet<number>): number[] {
   const out: number[] = []
-  for (const m of text.matchAll(CITE_RE)) {
+  for (const m of withoutQuotes(text).matchAll(CITE_RE)) {
     const id = Number(m[1])
     if (allowed.has(id) && !out.includes(id)) out.push(id)
   }
   return out
 }
 
-/** The answer as shown: citation tags removed (the panel renders the memories as chips instead). */
-export function stripMemoryCitations(text: string): string {
-  return text.replace(/[ \t]?\[M\d{1,9}\]/g, '')
+/** The answer as shown: the tags of memories that WERE in the block are removed (the panel renders
+ *  them as chips); any other "[M…]" text is left as written. */
+export function stripMemoryCitations(text: string, allowed: ReadonlySet<number>): string {
+  return text.replace(/[ \t]?\[M(\d{1,9})\]/g, (whole, id: string) => (allowed.has(Number(id)) ? '' : whole))
+}
+
+// ---------- party names: stored as a token, shown with the live name ----------
+
+export const PARTY_TOKEN = '{party}'
+/** Single words never treated as a party-name prefix (they are ordinary book words). */
+const PREFIX_STOPWORDS = new Set(['sales', 'sale', 'purchase', 'purchases', 'cash', 'bank', 'rent', 'shop', 'the', 'new', 'old', 'india', 'indian', 'general'])
+const reEscape = (s: string): string => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+
+/** A party memory's text with the party's name — whole, or an unambiguous leading part of it
+ *  ("Umbrella" of "Umbrella Retail") — replaced by PARTY_TOKEN, so the stored text never keeps a
+ *  real (or later stale) name; it is shown and sent with the party's current name. */
+export function templatePartyName(text: string, name: string): string {
+  const words = name.trim().split(/\s+/).filter(Boolean)
+  const variants = new Set<string>()
+  if (name.trim().length >= 3) variants.add(name.trim())
+  for (let n = words.length - 1; n >= 1; n--) {
+    const prefix = words.slice(0, n).join(' ').replace(/[\s,.(&-]+$/, '')
+    if (prefix.length < 4) continue
+    if (n === 1 && PREFIX_STOPWORDS.has(prefix.toLowerCase())) continue
+    variants.add(prefix)
+  }
+  if (!variants.size) return text
+  const re = new RegExp(`(?<![\\p{L}\\p{N}])(?:${[...variants].sort((a, b) => b.length - a.length).map(reEscape).join('|')})(?![\\p{L}\\p{N}])`, 'giu')
+  return text.replace(re, PARTY_TOKEN)
+}
+
+export function renderPartyName(text: string, label: string | null): string {
+  return text.split(PARTY_TOKEN).join(label ?? 'the party')
 }
 
 // ---------- derived suggestions ----------
 
-export type LedgerClass = 'cash' | 'bank' | 'party' | 'income' | 'expense' | 'tax' | 'other'
+export type { LedgerClass }
 
 /** How often a ledger appears on one side of a voucher kind (vouchers counted once). */
 export interface KindLedgerStat {

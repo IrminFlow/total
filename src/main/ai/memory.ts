@@ -1,12 +1,14 @@
-// Per-company AI memory (WP 5.6) — the rows (ai_memory, in the company DB like the threads, so
-// backups and the books export carry it unchanged), every write audited (entity 'ai_memory'),
-// the book statistics behind derived suggestions, and the `remember` tool.
+// Per-company AI memory (WP 5.6) — the rows (ai_memory, in the company DB like the threads: a
+// backup copies the file, so it carries them; the books export / import does NOT include AI data),
+// every write audited (entity 'ai_memory'), the book statistics behind derived suggestions, and
+// the `remember` tool.
 //
 // Who writes what:
 //   - the user (Settings → AI → Memory, or the panel's "Remember this?"): creates entries active,
 //     edits, accepts, archives, deletes; an owner may forget everything;
 //   - the assistant (`remember`): only ever a 'suggested' row, flagged `unrequested` when the
-//     user's question did not ask to remember anything (the WP 5.2 request-intent check);
+//     user's message carries no remember intent (drafting/intent.ts isRequestedMemory); over MCP
+//     the row is source 'mcp' with the client's name in `origin` (an explicit tool call);
 //   - the books (proposeMemories): suggestions computed at query time, never stored until the user
 //     accepts (an active 'derived' row) or dismisses them (an archived one, so it is not offered again).
 // The pure rules (identifier refusal, block cap, derivation) live in memoryRules.ts.
@@ -16,14 +18,14 @@ import {
   AI_MEMORY_KINDS, aiMemoryDataSchema, type AiMemoryCreateInput, type AiMemoryData, type AiMemoryDto, type AiMemoryKind, type AiMemoryList,
   type AiMemoryPurpose, type AiMemorySource, type AiMemoryStatus, type AiMemorySuggestion, type AiMemoryUpdateInput
 } from '@shared/ai'
-import { CASH_BANK_GROUPS } from '@shared/seed'
 import { IN_BOOKS } from '../services/vouchers'
-import { descendantIdsByName } from '../services/masters'
 import { writeAudit } from '../services/audit'
 import { defineTool } from './tools/registry'
 import { isRequestedMemory as requestedMemory } from './drafting/intent'
+import { currentDraftOrigin } from './store'
+import { ledgerClassifier, partyLedgerFits, purposeProblem } from './ledgerClass'
 import {
-  memoryProblems, proposeMemories, type BookStats, type KindLedgerStat, type LedgerClass, type PartyStat
+  EMPTY_MEMORY_CONTEXT, buildMemoryBlock, createMemoryContext, memoryProblems, proposeMemories, renderPartyName, type MemoryContext, templatePartyName, type BookStats, type KindLedgerStat, type PartyStat
 } from './memoryRules'
 
 const parse = <T>(s: string | null, fallback: T): T => {
@@ -47,6 +49,7 @@ interface MemoryRow {
   thread_id: number | null
   message_id: number | null
   created_by: string | null
+  origin: string | null
   created_at: string
   updated_at: string
   last_used_at: string | null
@@ -70,13 +73,16 @@ function toDto(db: DB, r: MemoryRow): AiMemoryDto {
   return {
     id: r.id,
     kind: r.kind,
-    text: r.text,
+    // Party names are stored as a token and shown with the party's CURRENT name (a renamed party
+    // never leaves its old name behind, and the live name is pseudonymised like any party name).
+    text: data?.partyLedgerId ? renderPartyName(r.text, labels.party ?? null) : r.text,
     data,
     source: r.source,
     status: r.status,
     unrequested: r.unrequested === 1,
     threadId: r.thread_id,
     createdBy: r.created_by,
+    origin: r.origin,
     createdAt: r.created_at,
     updatedAt: r.updated_at,
     lastUsedAt: r.last_used_at,
@@ -101,13 +107,43 @@ export function activeMemories(db: DB): AiMemoryDto[] {
   return listMemory(db, 'active')
 }
 
-/** The ids the data points at must exist (a typo'd id would make a draft pick the wrong ledger). */
+/** The memory context outside a chat turn (MCP tool calls): the same entries a chat question's
+ *  block would carry (cap and order), and none while "Use memory" is off. */
+export function memoryContextFor(db: DB, useMemory: boolean): MemoryContext {
+  if (!useMemory) return EMPTY_MEMORY_CONTEXT
+  const all = activeMemories(db)
+  const ids = new Set(buildMemoryBlock(all).ids)
+  return createMemoryContext(all.filter((m) => ids.has(m.id)))
+}
+
+/** The ids the data points at must exist and fit (a typo'd id would make a draft pick the wrong
+ *  ledger): a preferred ledger must suit its purpose (cash / bank for payment / receipt, expense
+ *  for expense / purchase, income for sales / income); a party memory's party must be a debtor or
+ *  creditor and its usual ledger an income (debtor) or expense (creditor) ledger. */
 function checkRefs(db: DB, data: AiMemoryData | null | undefined): void {
   if (!data) return
   for (const [k, id] of [['ledgerId', data.ledgerId], ['partyLedgerId', data.partyLedgerId]] as const) {
     if (id && !nameOf(db, 'ledgers', id)) throw new Error(`There is no ledger with id ${id} (${k})`)
   }
   if (data.itemId && !nameOf(db, 'stock_items', data.itemId)) throw new Error(`There is no stock item with id ${data.itemId}`)
+  const c = ledgerClassifier(db)
+  if (data.purpose && data.ledgerId) {
+    const problem = purposeProblem(c, data.ledgerId, data.purpose)
+    if (problem) throw new Error(problem)
+  }
+  if (data.partyLedgerId) {
+    const cls = c.cls(data.partyLedgerId)
+    if (cls !== 'debtor' && cls !== 'creditor') throw new Error(`${c.name(data.partyLedgerId)} is not a party (Sundry Debtors / Creditors)`)
+    if (data.ledgerId && !partyLedgerFits(c, data.partyLedgerId, data.ledgerId)) {
+      throw new Error(`${c.name(data.ledgerId)} cannot be ${c.name(data.partyLedgerId)}'s usual ledger — it must be ${cls === 'debtor' ? 'a sales / income' : 'a purchase / expense'} ledger`)
+    }
+  }
+}
+
+/** The text as stored: a party memory's party name (and its word prefixes) become the token. */
+function storedText(db: DB, text: string, data: AiMemoryData | null | undefined): string {
+  const name = data?.partyLedgerId ? nameOf(db, 'ledgers', data.partyLedgerId) : undefined
+  return name ? templatePartyName(text, name) : text
 }
 
 function validate(db: DB, e: { kind: AiMemoryKind; text: string; data?: AiMemoryData | null }): void {
@@ -124,11 +160,12 @@ export interface NewMemoryMeta {
   threadId?: number | null
   messageId?: number | null
   key?: string | null
+  /** source 'mcp': the client's name. */
+  origin?: string | null
 }
 
-const auditView = (m: AiMemoryDto): Record<string, unknown> => ({
-  kind: m.kind, text: m.text, data: m.data, source: m.source, status: m.status, unrequested: m.unrequested, threadId: m.threadId
-})
+/** The whole entry, as the audit trail records it. */
+const auditView = (m: AiMemoryDto): Record<string, unknown> => ({ ...m })
 
 /** Insert (validated, audited). The caller holds no transaction requirement — this opens one. */
 export function createMemory(db: DB, input: AiMemoryCreateInput, meta: NewMemoryMeta): AiMemoryDto {
@@ -138,12 +175,12 @@ export function createMemory(db: DB, input: AiMemoryCreateInput, meta: NewMemory
     const id = Number(
       db
         .prepare(
-          `INSERT INTO ai_memory (kind, key, text, data_json, source, status, unrequested, thread_id, message_id, created_by)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+          `INSERT INTO ai_memory (kind, key, text, data_json, source, status, unrequested, thread_id, message_id, created_by, origin)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
         )
         .run(
-          input.kind, meta.key ?? null, text, input.data ? JSON.stringify(input.data) : null, meta.source, meta.status, meta.unrequested ? 1 : 0,
-          meta.threadId ?? null, meta.messageId ?? null, meta.createdBy
+          input.kind, meta.key ?? null, storedText(db, text, input.data), input.data ? JSON.stringify(input.data) : null, meta.source, meta.status,
+          meta.unrequested ? 1 : 0, meta.threadId ?? null, meta.messageId ?? null, meta.createdBy, meta.origin ?? null
         ).lastInsertRowid
     )
     const m = getMemory(db, id)!
@@ -161,7 +198,7 @@ export function updateMemory(db: DB, input: AiMemoryUpdateInput): AiMemoryDto {
   validate(db, { kind, text, data })
   return db.transaction(() => {
     db.prepare(`UPDATE ai_memory SET kind = ?, text = ?, data_json = ?, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE id = ?`).run(
-      kind, text, data ? JSON.stringify(data) : null, input.id
+      kind, storedText(db, text, data), data ? JSON.stringify(data) : null, input.id
     )
     const after = getMemory(db, input.id)!
     writeAudit(db, 'ai_memory', input.id, 'update', auditView(before), auditView(after))
@@ -173,11 +210,12 @@ export function updateMemory(db: DB, input: AiMemoryUpdateInput): AiMemoryDto {
 export function setMemoryStatus(db: DB, id: number, status: 'active' | 'archived'): AiMemoryDto {
   const before = getMemory(db, id)
   if (!before) throw new Error('Memory not found')
-  if (status === 'active') validate(db, before) // refs may have gone since it was proposed
+  if (before.status === status) return before // nothing changes: no write, no audit row
+  if (status === 'active') validate(db, before) // refs may have gone (or no longer fit) since it was proposed
   return db.transaction(() => {
     db.prepare(`UPDATE ai_memory SET status = ?, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE id = ?`).run(status, id)
     const after = getMemory(db, id)!
-    writeAudit(db, 'ai_memory', id, 'update', { status: before.status }, { status: after.status })
+    writeAudit(db, 'ai_memory', id, 'update', auditView(before), auditView(after))
     return after
   })()
 }
@@ -191,13 +229,17 @@ export function deleteMemory(db: DB, id: number): void {
   })()
 }
 
-/** Owner: every entry gone (suggestions from the books come back — they are computed). */
+/** Owner: every entry gone (suggestions from the books come back — they are computed). One audit
+ *  row per entry, each with its whole before. */
 export function forgetAllMemory(db: DB): { deleted: number } {
   return db.transaction(() => {
-    const n = (db.prepare('SELECT COUNT(*) AS n FROM ai_memory').get() as { n: number }).n
-    db.prepare('DELETE FROM ai_memory').run()
-    writeAudit(db, 'ai_memory', 0, 'delete', { entries: n, forgetAll: true }, null)
-    return { deleted: n }
+    const all = listMemory(db)
+    const del = db.prepare('DELETE FROM ai_memory WHERE id = ?')
+    for (const m of all) {
+      del.run(m.id)
+      writeAudit(db, 'ai_memory', m.id, 'delete', { ...auditView(m), forgetAll: true }, null)
+    }
+    return { deleted: all.length }
   })()
 }
 
@@ -225,26 +267,9 @@ function minusDays(iso: string, days: number): string {
 
 export function bookStats(db: DB, today: string): BookStats {
   const since = minusDays(today, DERIVE_LOOKBACK_DAYS)
-  const cash = descendantIdsByName(db, ['Cash-in-Hand'])
-  const bank = descendantIdsByName(db, CASH_BANK_GROUPS.filter((g) => g !== 'Cash-in-Hand'))
-  const party = descendantIdsByName(db, ['Sundry Debtors', 'Sundry Creditors'])
-  const debtors = descendantIdsByName(db, ['Sundry Debtors'])
-  const ledgers = new Map(
-    (db.prepare('SELECT l.id, l.name, l.group_id, l.tax_type, g.nature FROM ledgers l JOIN groups g ON g.id = l.group_id').all() as {
-      id: number; name: string; group_id: number; tax_type: string | null; nature: string
-    }[]).map((l) => [l.id, l])
-  )
-  const cls = (id: number): LedgerClass => {
-    const l = ledgers.get(id)
-    if (!l) return 'other'
-    if (cash.has(l.group_id)) return 'cash'
-    if (bank.has(l.group_id)) return 'bank'
-    if (party.has(l.group_id)) return 'party'
-    if (l.tax_type) return 'tax'
-    if (l.nature === 'income') return 'income'
-    if (l.nature === 'expense') return 'expense'
-    return 'other'
-  }
+  const c = ledgerClassifier(db)
+  const cls = c.cls
+  const ledgers = new Map((db.prepare('SELECT id, name FROM ledgers').all() as { id: number; name: string }[]).map((l) => [l.id, l]))
 
   const kindTotals: BookStats['kindTotals'] = {}
   for (const r of db
@@ -266,7 +291,7 @@ export function bookStats(db: DB, today: string): BookStats {
   }))
 
   // Recurring parties: the most frequent party ledgers on sales / purchase vouchers.
-  const partyIds = [...ledgers.values()].filter((l) => party.has(l.group_id)).map((l) => l.id)
+  const partyIds = [...ledgers.values()].filter((l) => cls(l.id) === 'debtor' || cls(l.id) === 'creditor').map((l) => l.id)
   const top = partyIds.length
     ? (db
         .prepare(
@@ -279,15 +304,19 @@ export function bookStats(db: DB, today: string): BookStats {
         .all(since, today, JSON.stringify(partyIds)) as { id: number; n: number }[])
     : []
   const parties: PartyStat[] = top.map((p) => {
+    const role = cls(p.id) === 'debtor' ? 'sales' : 'purchase'
     const vouchers = `SELECT DISTINCT v.id FROM voucher_lines pl JOIN vouchers v ON v.id = pl.voucher_id JOIN voucher_types vt ON vt.id = v.voucher_type_id
        WHERE ${IN_BOOKS} AND vt.kind IN ('sales', 'purchase') AND v.date >= ? AND v.date <= ? AND pl.ledger_id = ?`
     const counters = (db
       .prepare(`SELECT vl.ledger_id AS id, COUNT(DISTINCT vl.voucher_id) AS n FROM voucher_lines vl WHERE vl.voucher_id IN (${vouchers}) AND vl.ledger_id != ? GROUP BY vl.ledger_id`)
       .all(since, today, p.id, p.id) as { id: number; n: number }[])
-      .filter((c) => !['cash', 'bank', 'party', 'tax'].includes(cls(c.id)))
+      // A debtor's usual ledger is an income ledger, a creditor's an expense / purchase ledger —
+      // never cash / bank, GST / TDS / TCS, Round Off, capital or loans.
+      .filter((x) => cls(x.id) === (role === 'sales' ? 'income' : 'expense'))
       .sort((a, b) => b.n - a.n || a.id - b.id)
     // The invoice's own item lines (what the party buys / sells), not stock movement: an invoice
     // raised against a challan has moves_stock = 0 but its items are still what it was billed for.
+    // (Allowlisted in movesStockLint.test.ts.)
     const item = db
       .prepare(
         `SELECT il.stock_item_id AS id, si.name AS name, COUNT(DISTINCT il.voucher_id) AS n FROM inventory_lines il JOIN stock_items si ON si.id = il.stock_item_id
@@ -296,13 +325,13 @@ export function bookStats(db: DB, today: string): BookStats {
       .get(since, today, p.id) as { id: number; name: string; n: number } | undefined
     const days = (db.prepare(`SELECT CAST(substr(v.date, 9, 2) AS INTEGER) AS d FROM vouchers v WHERE v.id IN (${vouchers})`).all(since, today, p.id) as { d: number }[]).map((r) => r.d)
     const l = ledgers.get(p.id)!
-    const c = counters[0]
+    const top1 = counters[0]
     return {
       partyLedgerId: p.id,
       name: l.name,
-      role: debtors.has(l.group_id) ? 'sales' : 'purchase',
+      role,
       vouchers: p.n,
-      counter: c ? { ledgerId: c.id, name: ledgers.get(c.id)?.name ?? `#${c.id}`, vouchers: c.n } : null,
+      counter: top1 ? { ledgerId: top1.id, name: ledgers.get(top1.id)?.name ?? `#${top1.id}`, vouchers: top1.n } : null,
       item: item ? { itemId: item.id, name: item.name, vouchers: item.n } : null,
       days
     }
@@ -363,20 +392,26 @@ export const rememberTool = defineTool({
   kind: 'draft',
   minRole: 'accountant',
   handler: (input, ctx) => {
-    const unrequested = !isRequestedMemory(ctx.userRequest)
+    // Over MCP the client's explicit call is the request; it is recorded as source 'mcp' + client.
+    const origin = currentDraftOrigin()
+    const viaMcp = origin.source === 'mcp'
+    const unrequested = viaMcp ? false : !(ctx.memoryRequested ?? isRequestedMemory(ctx.userRequest))
     const text = input.text.trim()
-    const dup = (db: DB): AiMemoryDto | undefined =>
-      listMemory(db).find((m) => m.status !== 'archived' && m.kind === input.kind && m.text.toLowerCase() === text.toLowerCase())
-    const existing = dup(ctx.db)
+    // The same entry already exists — active, waiting, or dismissed (a dismissed one is not re-proposed).
+    const key = text.toLowerCase()
+    const existing = listMemory(ctx.db).find((m) => m.kind === input.kind && m.text.toLowerCase() === key)
     if (existing) {
+      const note =
+        existing.status === 'active' ? 'Already remembered.' : existing.status === 'suggested' ? 'Already proposed; waiting for the user.' : 'The user dismissed this before — do not propose it again.'
       return {
-        data: { memoryId: existing.id, status: existing.status, note: existing.status === 'active' ? 'Already remembered.' : 'Already proposed; waiting for the user.' },
+        data: { memoryId: existing.id, status: existing.status, note },
         sources: [{ kind: 'screen', screen: 'settings', label: 'Memory', params: { tab: 'ai' } }],
         memoryId: existing.id
       }
     }
     const m = createMemory(ctx.db, { kind: input.kind, text, data: input.data ?? null }, {
-      source: 'assistant', status: 'suggested', createdBy: ctx.userName, unrequested, threadId: ctx.threadId, messageId: ctx.messageId
+      source: viaMcp ? 'mcp' : 'assistant', status: 'suggested', createdBy: ctx.userName, unrequested, threadId: ctx.threadId, messageId: ctx.messageId,
+      origin: viaMcp ? origin.origin() : null
     })
     return {
       data: {

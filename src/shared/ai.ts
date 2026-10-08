@@ -401,13 +401,13 @@ export function aggregateUsage(rows: readonly AiUsageRow[], by: 'day' | 'thread'
 
 export const AI_MEMORY_KINDS = ['preference', 'style', 'party', 'fact'] as const
 export type AiMemoryKind = (typeof AI_MEMORY_KINDS)[number]
-export const AI_MEMORY_SOURCES = ['user', 'assistant', 'derived'] as const
+export const AI_MEMORY_SOURCES = ['user', 'assistant', 'derived', 'mcp'] as const
 export type AiMemorySource = (typeof AI_MEMORY_SOURCES)[number]
 export const AI_MEMORY_STATUSES = ['active', 'suggested', 'archived'] as const
 export type AiMemoryStatus = (typeof AI_MEMORY_STATUSES)[number]
 
 export const AI_MEMORY_KIND_LABELS: Record<AiMemoryKind, string> = { preference: 'Preference', style: 'Style', party: 'Party', fact: 'Fact' }
-export const AI_MEMORY_SOURCE_LABELS: Record<AiMemorySource, string> = { user: 'You', assistant: 'Assistant', derived: 'Books' }
+export const AI_MEMORY_SOURCE_LABELS: Record<AiMemorySource, string> = { user: 'You', assistant: 'Assistant', derived: 'Books', mcp: 'MCP client' }
 export const AI_MEMORY_STATUS_LABELS: Record<AiMemoryStatus, string> = { active: 'Active', suggested: 'Suggested', archived: 'Archived' }
 
 /** What a `preference` is for — the key preferredLedger(purpose) looks up. */
@@ -462,6 +462,8 @@ export interface AiMemoryDto {
   unrequested: boolean
   threadId: number | null
   createdBy: string | null
+  /** source 'mcp': the MCP client's name. */
+  origin: string | null
   createdAt: string
   updatedAt: string
   lastUsedAt: string | null
@@ -480,6 +482,26 @@ export interface AiMemorySuggestion {
   reason: string
   /** Names of the ledgers / item the data points at (resolved when listed). */
   labels?: AiMemoryDto['labels']
+}
+
+/** The structured part of an entry in words ("Pay from: HDFC Bank · Party: Umbrella Retail · Item: …")
+ *  — shown wherever an entry is reviewed (Settings table, the panel's Remember-this card), since
+ *  drafting acts on these fields, not on the text. */
+export function memoryDetailsText(data: AiMemoryData | null | undefined, labels: AiMemoryDto['labels'] = {}): string {
+  if (!data) return ''
+  const parts: string[] = []
+  if (data.purpose) parts.push(`${AI_MEMORY_PURPOSE_LABELS[data.purpose]}: ${labels.ledger ?? `ledger #${data.ledgerId}`}`)
+  if (data.partyLedgerId) parts.push(`Party: ${labels.party ?? `#${data.partyLedgerId}`}`)
+  if (!data.purpose && data.ledgerId) parts.push(`${data.partyLedgerId ? 'Usual ledger' : 'Ledger'}: ${labels.ledger ?? `#${data.ledgerId}`}`)
+  if (data.itemId) parts.push(`Item: ${labels.item ?? `#${data.itemId}`}`)
+  if (data.billDay) parts.push(`Bills around day ${data.billDay}`)
+  if (data.aspect) parts.push(`About: ${data.aspect}`)
+  return parts.join(' · ')
+}
+
+/** Who proposed it, in words ("MCP client Claude Desktop"). */
+export function memorySourceText(m: Pick<AiMemoryDto, 'source' | 'origin'>): string {
+  return m.source === 'mcp' ? `MCP client${m.origin ? ` ${m.origin}` : ''}` : AI_MEMORY_SOURCE_LABELS[m.source]
 }
 
 export interface AiMemoryList {

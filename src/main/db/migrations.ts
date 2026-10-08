@@ -3199,7 +3199,8 @@ export const MIGRATIONS: string[] = [
   // WP 5.6 (last; number by position — 043, after WP 5.7's 042) — per-company AI memory. ai_memory (created empty by the
   // WP 5.1 migration with a placeholder key/value shape nothing ever wrote) is rebuilt as typed
   // entries: kind (preference / style / party / fact), a short text, optional structured
-  // data_json (purpose, ledger / party / item ids), source (user / assistant / derived), status
+  // data_json (purpose, ledger / party / item ids), source (user / assistant / derived / mcp — with
+  // the MCP client's name in `origin`), status
   // (active / suggested / archived), `unrequested` (an assistant proposal the user's question did
   // not ask for — possible instruction injected via book text), the thread / message that
   // proposed it, and use counters. `key` marks an accepted or dismissed DERIVED suggestion so the
@@ -3214,12 +3215,13 @@ export const MIGRATIONS: string[] = [
     key TEXT,
     text TEXT NOT NULL,
     data_json TEXT,
-    source TEXT NOT NULL CHECK (source IN ('user', 'assistant', 'derived')),
+    source TEXT NOT NULL CHECK (source IN ('user', 'assistant', 'derived', 'mcp')),
     status TEXT NOT NULL CHECK (status IN ('active', 'suggested', 'archived')),
     unrequested INTEGER NOT NULL DEFAULT 0,
     thread_id INTEGER REFERENCES ai_threads(id) ON DELETE SET NULL,
     message_id INTEGER REFERENCES ai_messages(id) ON DELETE SET NULL,
     created_by TEXT,
+    origin TEXT,
     created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
     updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
     last_used_at TEXT,

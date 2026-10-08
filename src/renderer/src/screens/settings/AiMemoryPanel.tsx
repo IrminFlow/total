@@ -6,7 +6,7 @@
 import { useMemo, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
-  AI_MEMORY_KIND_LABELS, AI_MEMORY_KINDS, AI_MEMORY_PURPOSE_LABELS, AI_MEMORY_PURPOSES, AI_MEMORY_SOURCE_LABELS, AI_MEMORY_STATUS_LABELS, AI_MEMORY_TEXT_MAX,
+  AI_MEMORY_KIND_LABELS, AI_MEMORY_KINDS, AI_MEMORY_PURPOSE_LABELS, AI_MEMORY_PURPOSES, AI_MEMORY_SOURCE_LABELS, AI_MEMORY_SOURCES, memoryDetailsText, memorySourceText, AI_MEMORY_STATUS_LABELS, AI_MEMORY_TEXT_MAX,
   type AiMemoryData, type AiMemoryDto, type AiMemoryKind, type AiMemoryList, type AiMemoryPurpose, type AiMemorySource, type AiMemoryStatus,
   type AiSettingsView
 } from '@shared/ai'
@@ -17,7 +17,7 @@ import { useSession, useToasts } from '../../state/stores'
 import { Badge, Button, Checkbox, Field, Modal, Panel, SectionTitle, Segmented, Select, TextInput } from '../../components/ui'
 import { DataTable, defineColumns } from '../../components/table'
 import { MenuButton } from '../../components/kit'
-import { TypeAhead, useLedgers } from '../../components/pickers'
+import { TypeAhead, useLedgers, useStockItems } from '../../components/pickers'
 
 /** One table row: a stored entry, or a suggestion derived from the books (not stored yet). */
 export interface MemoryRow {
@@ -28,6 +28,8 @@ export interface MemoryRow {
   text: string
   data: AiMemoryData | null
   source: AiMemorySource
+  /** Who proposed it, in words ("MCP client Claude Desktop"). */
+  sourceText: string
   status: AiMemoryStatus
   unrequested: boolean
   reason: string | null
@@ -36,27 +38,16 @@ export interface MemoryRow {
   useCount: number
 }
 
-function details(data: AiMemoryData | null, labels: AiMemoryDto['labels']): string {
-  if (!data) return ''
-  const parts: string[] = []
-  if (data.purpose) parts.push(`${AI_MEMORY_PURPOSE_LABELS[data.purpose]}: ${labels.ledger ?? `ledger #${data.ledgerId}`}`)
-  else if (data.ledgerId) parts.push(labels.ledger ?? `ledger #${data.ledgerId}`)
-  if (data.partyLedgerId) parts.push(`Party: ${labels.party ?? `#${data.partyLedgerId}`}`)
-  if (data.itemId) parts.push(`Item: ${labels.item ?? `#${data.itemId}`}`)
-  if (data.billDay) parts.push(`Bills around day ${data.billDay}`)
-  return parts.join(' · ')
-}
-
 /** Entries and derived suggestions as rows (pure; tested). */
 export function memoryRows(list: AiMemoryList | null | undefined): MemoryRow[] {
   if (!list) return []
   const stored: MemoryRow[] = (list.entries ?? []).map((m) => ({
     rowKey: `m${m.id}`, id: m.id, derivedKey: null, kind: m.kind, text: m.text, data: m.data, source: m.source, status: m.status, unrequested: m.unrequested,
-    reason: null, details: details(m.data, m.labels), lastUsedAt: m.lastUsedAt, useCount: m.useCount
+    reason: null, details: memoryDetailsText(m.data, m.labels), lastUsedAt: m.lastUsedAt, useCount: m.useCount, sourceText: memorySourceText(m)
   }))
   const derived: MemoryRow[] = (list.suggestions ?? []).map((s) => ({
     rowKey: `d${s.key}`, id: null, derivedKey: s.key, kind: s.kind, text: s.text, data: s.data, source: 'derived', status: 'suggested', unrequested: false,
-    reason: s.reason, details: details(s.data, s.labels ?? {}), lastUsedAt: null, useCount: 0
+    reason: s.reason, details: memoryDetailsText(s.data, s.labels ?? {}), lastUsedAt: null, useCount: 0, sourceText: AI_MEMORY_SOURCE_LABELS.derived
   }))
   return [...derived, ...stored]
 }
@@ -93,8 +84,9 @@ const COLUMNS = defineColumns<MemoryRow>([
     )
   },
   {
-    id: 'source', header: 'Source', kind: 'enum', value: (r) => r.source, width: 110,
-    options: (['user', 'assistant', 'derived'] as const).map((s) => ({ value: s, label: AI_MEMORY_SOURCE_LABELS[s] }))
+    id: 'source', header: 'Source', kind: 'enum', value: (r) => r.source, width: 110, text: (r) => r.sourceText,
+    cell: (r) => <span title={r.sourceText}>{r.source === 'mcp' ? `from ${r.sourceText.replace(/^MCP client ?/, '') || 'MCP'}` : r.sourceText}</span>,
+    options: AI_MEMORY_SOURCES.map((s) => ({ value: s, label: AI_MEMORY_SOURCE_LABELS[s] }))
   },
   {
     id: 'status', header: 'Status', kind: 'enum', value: (r) => r.status, width: 96,
@@ -258,10 +250,9 @@ export function AiMemoryPanel({ view, isOwner }: { view: AiSettingsView; isOwner
         <EditMemoryModal
           row={editing}
           onClose={() => setEditing(null)}
-          onSave={(kind, text) =>
+          onSave={(input) =>
             act(async () => {
-              // A new kind drops the structured part (a purpose belongs to a preference only).
-              await aiApi.updateMemory({ id: editing.id!, kind, text, ...(kind !== editing.kind ? { data: null } : {}) })
+              await aiApi.updateMemory({ id: editing.id!, ...input })
               setEditing(null)
             }, 'Memory updated')
           }
@@ -334,16 +325,39 @@ function AddMemoryForm({ busy, onAdd }: { busy: boolean; onAdd: (input: { kind: 
   )
 }
 
-function EditMemoryModal({ row, onClose, onSave }: { row: MemoryRow; onClose: () => void; onSave: (kind: AiMemoryKind, text: string) => Promise<void> }): React.JSX.Element {
+/** Edit an entry: its text and — for a preference or a party memory — the structured fields
+ *  drafting acts on (purpose + ledger; party, usual ledger, item, bill day). The kind of an entry
+ *  with details cannot change (a purpose belongs to a preference, party fields to a party memory);
+ *  main validates the ledgers' classes on save. */
+function EditMemoryModal({ row, onClose, onSave }: { row: MemoryRow; onClose: () => void; onSave: (input: { kind: AiMemoryKind; text: string; data: AiMemoryData | null }) => Promise<void> }): React.JSX.Element {
+  const ledgers = useLedgers()
+  const items = useStockItems()
   const [kind, setKind] = useState<AiMemoryKind>(row.kind)
   const [text, setText] = useState(row.text)
-  const dirty = kind !== row.kind || text !== row.text
-  const valid = text.trim().length >= 3 && text.trim().length <= AI_MEMORY_TEXT_MAX
+  const [purpose, setPurpose] = useState<AiMemoryPurpose>(row.data?.purpose ?? 'payment')
+  const [ledgerId, setLedgerId] = useState<number | null>(row.data?.ledgerId ?? null)
+  const [partyId, setPartyId] = useState<number | null>(row.data?.partyLedgerId ?? null)
+  const [itemId, setItemId] = useState<number | null>(row.data?.itemId ?? null)
+  const [billDay, setBillDay] = useState(row.data?.billDay ? String(row.data.billDay) : '')
+  const structured = !!row.data && Object.keys(row.data).length > 0
+  const ledgerOptions = useMemo(() => ledgers.map((l) => ({ id: l.id, label: l.name })), [ledgers])
+  const itemOptions = useMemo(() => items.map((i) => ({ id: i.id, label: i.name })), [items])
+  const dayOk = billDay.trim() === '' || (/^\d{1,2}$/.test(billDay.trim()) && Number(billDay) >= 1 && Number(billDay) <= 31)
+  const data: AiMemoryData | null =
+    kind === 'preference' && ledgerId
+      ? { purpose, ledgerId }
+      : kind === 'party' && partyId
+        ? { partyLedgerId: partyId, ...(ledgerId ? { ledgerId } : {}), ...(itemId ? { itemId } : {}), ...(billDay.trim() && dayOk ? { billDay: Number(billDay) } : {}) }
+        : kind === 'style' && row.data?.aspect
+          ? { aspect: row.data.aspect }
+          : null
+  const valid = text.trim().length >= 3 && text.trim().length <= AI_MEMORY_TEXT_MAX && dayOk && !(kind === 'preference' && !ledgerId) && !(kind === 'party' && structured && !partyId)
+  const dirty = kind !== row.kind || text !== row.text || JSON.stringify(data) !== JSON.stringify(row.data ?? null)
   return (
     <Modal title="Edit memory" onClose={onClose} dirty={dirty}>
       <div className="flex flex-col gap-3" data-testid="ai-memory-edit">
-        <Field label="Kind">
-          <Select value={kind} onChange={(e) => setKind(e.target.value as AiMemoryKind)} data-testid="input-ai-memory-edit-kind">
+        <Field label="Kind" hint={structured ? 'An entry with details keeps its kind — delete it and add a new one instead.' : undefined}>
+          <Select value={kind} disabled={structured} onChange={(e) => setKind(e.target.value as AiMemoryKind)} data-testid="input-ai-memory-edit-kind">
             {AI_MEMORY_KINDS.map((k) => (
               <option key={k} value={k}>
                 {AI_MEMORY_KIND_LABELS[k]}
@@ -351,12 +365,44 @@ function EditMemoryModal({ row, onClose, onSave }: { row: MemoryRow; onClose: ()
             ))}
           </Select>
         </Field>
-        <Field label="Memory" hint={row.details || undefined} error={valid ? undefined : `Between 3 and ${AI_MEMORY_TEXT_MAX} characters`}>
+        {kind === 'preference' && (
+          <div className="grid grid-cols-2 gap-3">
+            <Field label="For">
+              <Select value={purpose} onChange={(e) => setPurpose(e.target.value as AiMemoryPurpose)} data-testid="input-ai-memory-edit-purpose">
+                {AI_MEMORY_PURPOSES.map((p) => (
+                  <option key={p} value={p}>
+                    {AI_MEMORY_PURPOSE_LABELS[p]}
+                  </option>
+                ))}
+              </Select>
+            </Field>
+            <Field label="Ledger">
+              <TypeAhead options={ledgerOptions} value={ledgerId} onPick={setLedgerId} placeholder="Pick a ledger" testId="picker-ai-memory-edit-ledger" />
+            </Field>
+          </div>
+        )}
+        {kind === 'party' && (
+          <div className="grid grid-cols-2 gap-3">
+            <Field label="Party">
+              <TypeAhead options={ledgerOptions} value={partyId} onPick={setPartyId} placeholder="Debtor or creditor" testId="picker-ai-memory-edit-party" />
+            </Field>
+            <Field label="Usual ledger" hint="Sales ledger for a customer, purchase / expense ledger for a supplier">
+              <TypeAhead options={ledgerOptions} value={ledgerId} onPick={setLedgerId} placeholder="Optional" testId="picker-ai-memory-edit-ledger" />
+            </Field>
+            <Field label="Usual item">
+              <TypeAhead options={itemOptions} value={itemId} onPick={setItemId} placeholder="Optional" testId="picker-ai-memory-edit-item" />
+            </Field>
+            <Field label="Bills around day" error={dayOk ? undefined : '1 to 31'}>
+              <TextInput value={billDay} inputMode="numeric" onChange={(e) => setBillDay(e.target.value)} placeholder="Optional" data-testid="input-ai-memory-edit-billday" />
+            </Field>
+          </div>
+        )}
+        <Field label="Memory" error={text.trim().length >= 3 && text.trim().length <= AI_MEMORY_TEXT_MAX ? undefined : `Between 3 and ${AI_MEMORY_TEXT_MAX} characters`}>
           <TextInput value={text} onChange={(e) => setText(e.target.value)} data-testid="input-ai-memory-edit-text" />
         </Field>
         <div className="flex justify-end gap-2">
           <Button onClick={onClose}>Cancel</Button>
-          <Button variant="primary" disabled={!dirty || !valid} onClick={() => void onSave(kind, text.trim())} data-testid="btn-ai-memory-save">
+          <Button variant="primary" disabled={!dirty || !valid} onClick={() => void onSave({ kind, text: text.trim(), data })} data-testid="btn-ai-memory-save">
             Save
           </Button>
         </div>

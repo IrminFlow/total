@@ -298,6 +298,11 @@ export function setDefaultDraftOrigin(o: { source: AiDraftSource; origin: () => 
   defaultDraftOrigin = o
 }
 
+/** WP 5.6: the process's origin (memory proposals record 'mcp' + the client the same way). */
+export function currentDraftOrigin(): { source: AiDraftSource; origin: () => string | null } {
+  return defaultDraftOrigin
+}
+
 function toDraft(r: DraftRow): AiDraftDto {
   return {
     id: r.id,

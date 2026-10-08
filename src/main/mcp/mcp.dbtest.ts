@@ -136,9 +136,21 @@ describe('MCP tools — the registry under the read/draft rule', () => {
     const before = booksDigest()
     const r = await call(acct, 'remember', { kind: 'fact', text: 'Books close on the 5th' })
     expect(r.isError).toBe(false)
-    expect(db.prepare('SELECT source, status, unrequested FROM ai_memory').all()).toEqual([{ source: 'assistant', status: 'suggested', unrequested: 0 }])
+    // Provenance is stored: source 'mcp' + the client's name (shown as "from Test Client").
+    expect(db.prepare('SELECT source, origin, status, unrequested FROM ai_memory').all()).toEqual([{ source: 'mcp', origin: 'Test Client', status: 'suggested', unrequested: 0 }])
     expect((await call(acct, 'remember', { kind: 'fact', text: `Our GSTIN is ${GSTIN}` })).isError).toBe(true)
     expect(booksDigest()).toBe(before)
+
+    // Drafts over MCP take memory defaults like the chat: an accepted pay-from ledger fills a
+    // `preferred` line; a suggestion is never used.
+    const banks = (db.prepare("SELECT id FROM groups WHERE name = 'Bank Accounts'").get() as { id: number }).id
+    const hdfc = Number(db.prepare('INSERT INTO ledgers (name, group_id, opening_balance) VALUES (?, ?, 0)').run('HDFC Bank', banks).lastInsertRowid)
+    const expenses = (db.prepare("SELECT id FROM groups WHERE name = 'Indirect Expenses'").get() as { id: number }).id
+    const rent = Number(db.prepare('INSERT INTO ledgers (name, group_id, opening_balance) VALUES (?, ?, 0)').run('Shop Rent', expenses).lastInsertRowid)
+    db.prepare(`INSERT INTO ai_memory (kind, text, data_json, source, status) VALUES ('preference', 'Pay from HDFC Bank', ?, 'user', 'active')`).run(JSON.stringify({ purpose: 'payment', ledgerId: hdfc }))
+    const d = await call(acct, 'draft_voucher', { kind: 'payment', lines: [{ ledgerId: rent, drCr: 'dr', amount: '100' }, { preferred: 'payment', drCr: 'cr', amount: '100' }] })
+    expect(d.isError, d.text).toBe(false)
+    expect(d.text).toContain('From memory [M')
   })
 
   it('a viewer reads (trial balance, ledgers) and is refused a draft tool; nothing is written to the books', async () => {

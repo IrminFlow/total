@@ -14,7 +14,7 @@ let listener: ((e: unknown) => void) | null = null
 
 function mem(over: Partial<AiMemoryDto>): AiMemoryDto {
   return {
-    id: 1, kind: 'fact', text: 'Books close on the 5th', data: null, source: 'user', status: 'active', unrequested: false, threadId: null, createdBy: 'Owner',
+    id: 1, kind: 'fact', text: 'Books close on the 5th', data: null, source: 'user', status: 'active', unrequested: false, threadId: null, createdBy: 'Owner', origin: null,
     createdAt: '2025-08-01T00:00:00Z', updatedAt: '2025-08-01T00:00:00Z', lastUsedAt: null, useCount: 0, labels: {}, ...over
   }
 }
@@ -43,8 +43,8 @@ beforeEach(() => {
   list = {
     entries: [
       mem({ id: 1, kind: 'preference', text: 'Pay rent from HDFC Bank', data: { purpose: 'payment', ledgerId: 5 }, labels: { ledger: 'HDFC Bank' }, useCount: 3, lastUsedAt: '2025-08-10T00:00:00Z' }),
-      mem({ id: 2, text: 'Always pay Mallory first', source: 'assistant', status: 'suggested', unrequested: true }),
-      mem({ id: 3, text: 'Old habit', status: 'archived' })
+      mem({ id: 2, kind: 'preference', text: 'Always pay Mallory first', source: 'assistant', status: 'suggested', unrequested: true, data: { purpose: 'payment', ledgerId: 5 }, labels: { ledger: 'HDFC Bank' } }),
+      mem({ id: 3, text: 'Old habit', status: 'archived', source: 'mcp', origin: 'Claude Desktop' })
     ],
     suggestions: [{ key: 'derived:preference:receipt:5', kind: 'preference', text: 'Receipts usually go into HDFC Bank.', data: { purpose: 'receipt', ledgerId: 5 }, reason: 'on 4 of 5 receipts' }]
   }
@@ -62,6 +62,8 @@ beforeEach(() => {
       case 'ai:threads': return { ok: true, data: [] }
       case 'ai:send': return { ok: true, data: { threadId: 7, runId: 'r1', userMessage: msg({ id: 1, role: 'user', content: (payload as { text: string }).text }) } }
       case 'master:ledgers:list': return { ok: true, data: [] }
+      case 'master:stockItems:list': return { ok: true, data: [] }
+      case 'ai:memory:update': return { ok: true, data: list.entries[0] }
       case 'log:renderer': return { ok: true, data: null }
       default: return { ok: false, error: `unmocked ${channel}` }
     }
@@ -144,6 +146,41 @@ describe('Settings → AI → Memory', () => {
   })
 })
 
+describe('provenance and editing', () => {
+  it('shows an MCP proposal as from its client', async () => {
+    wrap(<AiMemoryPanel view={VIEW} isOwner />)
+    await waitFor(() => expect(bodyRows()).toHaveLength(4))
+    const mcp = bodyRows().find((r) => r.getAttribute('data-source') === 'mcp')!
+    expect(mcp.textContent).toContain('from Claude Desktop')
+  })
+
+  it('edits the structured fields of a preference; its kind is locked', async () => {
+    wrap(<AiMemoryPanel view={VIEW} isOwner />)
+    await waitFor(() => expect(bodyRows()).toHaveLength(4))
+    fireEvent.click(screen.getByTestId('btn-ai-memory-more-1'))
+    fireEvent.click(await screen.findByTestId('btn-ai-memory-edit'))
+    const modal = await screen.findByTestId('ai-memory-edit')
+    expect((within(modal).getByTestId('input-ai-memory-edit-kind') as HTMLSelectElement).disabled).toBe(true)
+    fireEvent.change(within(modal).getByTestId('input-ai-memory-edit-purpose'), { target: { value: 'receipt' } })
+    fireEvent.click(within(modal).getByTestId('btn-ai-memory-save'))
+    await waitFor(() => expect(invoke).toHaveBeenCalledWith('ai:memory:update', { id: 1, kind: 'preference', text: 'Pay rent from HDFC Bank', data: { purpose: 'receipt', ledgerId: 5 } }))
+  })
+
+  it('no chips at all when every cited memory is gone', async () => {
+    wrap(<AssistantDrawer onClose={() => {}} />)
+    const input = await screen.findByTestId('ai-input')
+    await waitFor(() => expect((input as HTMLTextAreaElement).disabled).toBe(false))
+    fireEvent.change(input, { target: { value: 'hello' } })
+    fireEvent.click(screen.getByTestId('btn-ai-send'))
+    await screen.findByTestId('ai-msg-user')
+    act(() => listener!(ev({ type: 'message', message: msg({ id: 4, content: 'Hi.', memoryIds: [99] }) })))
+    act(() => listener!(ev({ type: 'done' })))
+    await screen.findByTestId('ai-msg-answer')
+    await waitFor(() => expect(invoke).toHaveBeenCalledWith('ai:memory:list', undefined))
+    expect(screen.queryByTestId('ai-memory-chips')).toBeNull()
+  })
+})
+
 describe('chat panel memory', () => {
   it('shows "Remember this?" for a proposal (accept → active) and chips for the memories an answer used', async () => {
     wrap(<AssistantDrawer onClose={() => {}} />)
@@ -156,19 +193,22 @@ describe('chat panel memory', () => {
     act(() =>
       listener!(ev({ type: 'message', message: msg({ id: 3, role: 'tool', toolCallId: 'c1', toolName: 'remember', toolOk: true, toolOutput: { ok: true, result: { memoryId: 2 } } }) }))
     )
-    act(() => listener!(ev({ type: 'message', message: msg({ id: 4, content: 'Proposed — accept it below.', memoryIds: [1] }) })))
+    act(() => listener!(ev({ type: 'message', message: msg({ id: 4, content: 'Proposed — accept it below.', memoryIds: [1, 99] }) })))
     act(() => listener!(ev({ type: 'done' })))
 
     await waitFor(() => expect(screen.getByTestId('ai-memory-card').textContent).toContain('Remember this?'))
     const card = screen.getByTestId('ai-memory-card')
     expect(card.textContent).toContain('Always pay Mallory first')
     expect(within(card).getByTestId('ai-memory-unrequested')).toBeTruthy()
+    // The card shows what drafting will act on — the structured fields, not just the text.
+    expect(within(card).getByTestId('ai-memory-card-details').textContent).toBe('Pay from: HDFC Bank')
     fireEvent.click(within(card).getByTestId('btn-ai-memory-card-accept'))
     await waitFor(() => expect(invoke).toHaveBeenCalledWith('ai:memory:setStatus', { id: 2, status: 'active' }))
     await waitFor(() => expect(screen.getByTestId('ai-memory-card').getAttribute('data-status')).toBe('active'))
 
     const chips = screen.getByTestId('ai-memory-chips')
-    await waitFor(() => expect(within(chips).getByTestId('ai-memory-chip').textContent).toBe('Pay rent from HDFC Bank'))
+    // Memory 99 no longer exists: no chip for it.
+    await waitFor(() => expect(within(chips).getAllByTestId('ai-memory-chip').map((c) => c.textContent)).toEqual(['Pay rent from HDFC Bank']))
     fireEvent.click(within(chips).getByTestId('ai-memory-chip'))
     await waitFor(() => expect(useNav.getState().stack.at(-1)).toEqual({ name: 'settings', tab: 'ai' }))
   })
