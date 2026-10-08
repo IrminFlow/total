@@ -164,6 +164,7 @@ export function ConsolidationScreen({ tab: initialTab, groupId: initialGroup }: 
                   renderDetail={(l) => <LineDrill line={l} run={run} st={st} />}
                   isRowExpandable={(l) => l.sources.length > 0 || l.eliminationIds.length > 0}
                   toolbarStart={<Segmented size="sm" label="Statement" testId="consol-kind" options={STATEMENTS} value={kind} onChange={setKind} />}
+                  totalsLabel={kind === 'pnl' ? 'Profit after minority interest (Cr = profit)' : 'Total (nets to zero)'}
                   empty={{ title: 'Nothing to consolidate', hint: 'No member has balances for this period' }}
                   exportOptions={{
                     title: `${STATEMENT_TITLES[kind]} — ${run.group.name}`,
@@ -186,7 +187,7 @@ export function ConsolidationScreen({ tab: initialTab, groupId: initialGroup }: 
                 columns={reconColumns}
                 rows={run.recon}
                 rowKey={(r) => r.pairId}
-                rowAttrs={(r) => ({ 'data-status': r.status, 'data-flow-status': r.flowStatus })}
+                rowAttrs={(r) => ({ 'data-status': r.status, 'data-flow-status': r.flowStatus, 'data-pair-kind': r.kind })}
                 renderDetail={(r) => <ReconDetail r={r} />}
                 empty={{ title: 'No inter-company pairs', hint: 'Add pairs under Groups (Suggest pairs matches GSTIN / PAN)', action: <Button onClick={() => setTab('groups')}>Groups</Button> }}
                 exportOptions={{ title: `Inter-company reconciliation — ${run.group.name}`, periodLabel: `as on ${toDisplayDate(to)}`, filename: 'intercompany-reconciliation', csvMoneyFormat: 'plain' }}

@@ -28,7 +28,7 @@ const SECTION_OPTIONS = SECTION_ORDER.map((s) => ({ value: sectionValue(s), labe
 
 export const RULE_LABELS: Record<Elimination['rule'], string> = {
   ic_balance: 'Inter-company balance',
-  ic_flow: 'Inter-company transactions',
+  ic_flow: 'Inter-company trading',
   unrealised_profit: 'Unrealised profit in stock',
   investment: 'Investment vs equity',
   minority_interest: 'Minority interest',
@@ -123,7 +123,7 @@ export function LineDrill({ line, run, st }: { line: ConsolLine; run: GroupRunRe
 }
 
 export const eliminationColumns = defineColumns<Elimination>([
-  { id: 'rule', header: 'Rule', kind: 'enum', value: (e) => e.rule, options: Object.entries(RULE_LABELS).map(([value, label]) => ({ value, label })), width: 190 },
+  { id: 'rule', header: 'Rule', kind: 'enum', value: (e) => e.rule, options: Object.entries(RULE_LABELS).map(([value, label]) => ({ value, label })), width: 210 },
   { id: 'title', header: 'Elimination', kind: 'text', value: (e) => e.title, hideable: false, minWidth: 240 },
   {
     id: 'status', header: 'Status', kind: 'enum', value: (e) => e.status ?? '', width: 130,
@@ -138,7 +138,7 @@ export const eliminationColumns = defineColumns<Elimination>([
     id: 'credits', header: 'Credits', kind: 'money', width: 150, aggregate: 'sum',
     value: (e) => e.postings.reduce((s, p) => s + Math.max(0, -p.amount), 0)
   },
-  { id: 'source', header: 'Basis', kind: 'text', value: (e) => sourceOf(e.source).id, width: 150, className: 'text-muted' }
+  { id: 'source', header: 'Basis', kind: 'text', value: (e) => sourceOf(e.source).short, width: 170, className: 'text-muted' }
 ])
 
 export function EliminationDetail({ e, run }: { e: Elimination; run: GroupRunResult }): React.JSX.Element {
@@ -168,28 +168,36 @@ export function EliminationDetail({ e, run }: { e: Elimination; run: GroupRunRes
   )
 }
 
+const sideCell = (ledger: string, company: string): React.JSX.Element => (
+  <span className="flex flex-col leading-tight">
+    <span>{ledger}</span>
+    <span className="text-caption text-muted">in {company}</span>
+  </span>
+)
+const statusBadge = (s: IcReconRow['status']): React.JSX.Element =>
+  s === 'n/a' ? <span className="text-muted">—</span> : <Badge tone={s === 'reconciled' ? 'success' : s === 'unreconciled' ? 'warning' : 'neutral'}>{s}</Badge>
+const STATUS_OPTIONS = ['reconciled', 'unreconciled', 'skipped', 'n/a'].map((v) => ({ value: v, label: v }))
+
+/** A pair's headline figures: its balances on the date, else its transactions in the period
+ *  (a loan pair has both — the transactions show in the detail row). */
+export function reconFigures(r: IcReconRow): { basis: 'balance' | 'transactions' | 'none'; a: number | null; b: number | null; difference: number | null; status: IcReconRow['status'] } {
+  if (r.status !== 'n/a') return { basis: 'balance', a: r.balanceA, b: r.balanceB, difference: r.difference, status: r.status }
+  if (r.flowStatus !== 'n/a') return { basis: 'transactions', a: r.flowA, b: r.flowB, difference: r.flowDifference, status: r.flowStatus }
+  return { basis: 'none', a: null, b: null, difference: null, status: 'n/a' }
+}
+
 export const reconColumns = defineColumns<IcReconRow>([
-  { id: 'kind', header: 'Kind', kind: 'enum', value: (r) => r.kind, options: Object.entries(KIND_LABELS).map(([value, label]) => ({ value, label })), width: 170 },
-  { id: 'aName', header: 'Company', group: 'Side A', kind: 'text', value: (r) => r.memberAName, minWidth: 130 },
-  { id: 'aLedger', header: 'Ledger', group: 'Side A', kind: 'text', value: (r) => r.ledgerAName, minWidth: 130 },
-  { id: 'aBal', header: 'Balance', group: 'Side A', kind: 'money', signed: true, value: (r) => r.balanceA, cell: (r) => signed(r.balanceA) },
-  { id: 'bName', header: 'Company', group: 'Side B', kind: 'text', value: (r) => r.memberBName, minWidth: 130 },
-  { id: 'bLedger', header: 'Ledger', group: 'Side B', kind: 'text', value: (r) => r.ledgerBName, minWidth: 130 },
-  { id: 'bBal', header: 'Balance', group: 'Side B', kind: 'money', signed: true, value: (r) => r.balanceB, cell: (r) => signed(r.balanceB) },
-  { id: 'diff', header: 'Difference', kind: 'money', signed: true, value: (r) => r.difference, cell: (r) => signed(r.difference) },
+  { id: 'kind', header: 'Kind', kind: 'enum', value: (r) => r.kind, options: Object.entries(KIND_LABELS).map(([value, label]) => ({ value, label })), width: 160 },
+  { id: 'a', header: 'Side A', kind: 'text', value: (r) => `${r.ledgerAName} in ${r.memberAName}`, cell: (r) => sideCell(r.ledgerAName, r.memberAName), minWidth: 140 },
+  { id: 'b', header: 'Side B', kind: 'text', value: (r) => `${r.ledgerBName} in ${r.memberBName}`, cell: (r) => sideCell(r.ledgerBName, r.memberBName), minWidth: 140 },
   {
-    id: 'status', header: 'Status', kind: 'enum', width: 130, value: (r) => r.status,
-    options: ['reconciled', 'unreconciled', 'skipped', 'n/a'].map((v) => ({ value: v, label: v })),
-    cell: (r) => <Badge tone={r.status === 'reconciled' ? 'success' : r.status === 'unreconciled' ? 'warning' : 'neutral'}>{r.status}</Badge>
+    id: 'basis', header: 'Compares', kind: 'enum', width: 150, value: (r) => reconFigures(r).basis,
+    options: [{ value: 'balance', label: 'Balances on date' }, { value: 'transactions', label: 'Transactions' }, { value: 'none', label: '—' }]
   },
-  { id: 'flowA', header: 'Side A', group: 'Transactions in period', kind: 'money', signed: true, value: (r) => r.flowA, cell: (r) => signed(r.flowA) },
-  { id: 'flowB', header: 'Side B', group: 'Transactions in period', kind: 'money', signed: true, value: (r) => r.flowB, cell: (r) => signed(r.flowB) },
-  { id: 'flowDiff', header: 'Difference', group: 'Transactions in period', kind: 'money', signed: true, value: (r) => r.flowDifference, cell: (r) => signed(r.flowDifference) },
-  {
-    id: 'flowStatus', header: 'Status', group: 'Transactions in period', kind: 'enum', width: 130, value: (r) => r.flowStatus,
-    options: ['reconciled', 'unreconciled', 'skipped', 'n/a'].map((v) => ({ value: v, label: v })),
-    cell: (r) => <Badge tone={r.flowStatus === 'reconciled' ? 'success' : r.flowStatus === 'unreconciled' ? 'warning' : 'neutral'}>{r.flowStatus}</Badge>
-  }
+  { id: 'aAmt', header: 'Side A', group: 'Amounts', kind: 'money', signed: true, width: 130, value: (r) => reconFigures(r).a, cell: (r) => signed(reconFigures(r).a) },
+  { id: 'bAmt', header: 'Side B', group: 'Amounts', kind: 'money', signed: true, width: 130, value: (r) => reconFigures(r).b, cell: (r) => signed(reconFigures(r).b) },
+  { id: 'diff', header: 'Difference', group: 'Amounts', kind: 'money', signed: true, width: 130, value: (r) => reconFigures(r).difference, cell: (r) => signed(reconFigures(r).difference) },
+  { id: 'status', header: 'Status', kind: 'enum', width: 120, value: (r) => reconFigures(r).status, options: STATUS_OPTIONS, cell: (r) => statusBadge(reconFigures(r).status) }
 ])
 
 export function ReconDetail({ r }: { r: IcReconRow }): React.JSX.Element {
@@ -212,9 +220,16 @@ export function ReconDetail({ r }: { r: IcReconRow }): React.JSX.Element {
       )}
     </div>
   )
+  const loan = r.status !== 'n/a' && r.flowStatus !== 'n/a'
   return (
     <div className="flex flex-col gap-2 py-2">
       {r.note && <p className="text-hint text-muted">{r.note}</p>}
+      {loan && (
+        <p className="text-detail">
+          Transactions in the period: <Money paise={r.flowA ?? 0} signed /> against <Money paise={r.flowB ?? 0} signed />, difference{' '}
+          <Money paise={r.flowDifference ?? 0} signed /> {statusBadge(r.flowStatus)}
+        </p>
+      )}
       <div className="grid gap-4 md:grid-cols-2">
         {side(`${r.memberAName} · ${r.ledgerAName}`, r.ageingA)}
         {side(`${r.memberBName} · ${r.ledgerBName}`, r.ageingB)}

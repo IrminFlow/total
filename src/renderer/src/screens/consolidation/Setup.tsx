@@ -142,7 +142,7 @@ export function GroupSetup({ group, openSlug, onSaved, onDeleted }: {
                   <tr key={m.companySlug} data-member={m.companySlug} className="border-t border-line align-top">
                     <td className="py-1.5 pr-2">{nameOf(m.companySlug)}</td>
                     <td className="py-1.5 pr-2">
-                      <Select aria-label="Role" data-testid={`select-consol-role-${m.companySlug}`} value={m.role} onChange={(e) => patch(i, { role: e.target.value as MemberRole })}>
+                      <Select aria-label="Role" className="w-32" data-testid={`select-consol-role-${m.companySlug}`} value={m.role} onChange={(e) => patch(i, { role: e.target.value as MemberRole })}>
                         <option value="parent">Parent</option>
                         <option value="subsidiary">Subsidiary</option>
                         <option value="associate">Associate</option>
@@ -247,7 +247,10 @@ function PairsPanel({ group, charts }: { group: ConsolidationGroup; charts: Memb
   const suggest = async (): Promise<void> => setSuggestions(await consolidationApi.suggestPairs(group.id))
   const accept = async (list: PairSuggestion[]): Promise<void> => {
     for (const s of list) await add(s)
-    setSuggestions((cur) => (cur ?? []).filter((x) => !list.includes(x)))
+    setSuggestions((cur) => {
+      const left = (cur ?? []).filter((x) => !list.includes(x))
+      return left.length ? left : null
+    })
     refresh()
   }
   const addManual = async (): Promise<void> => {
