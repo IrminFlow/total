@@ -11,7 +11,7 @@
  * A DRY RUN executes exactly the same code and then rolls the whole transaction back — the
  * preview's counts and errors are the real ones (posting rules, duplicate numbers, locks), not a
  * guess. An applied run records an import_batches row plus one import_batch_items row per record
- * created or updated (migration 037), and one 'csv_import' summary audit row; undoImport bins /
+ * created or updated (migration 038), and one 'csv_import' summary audit row; undoImport bins /
  * deletes / restores from those items.
  *
  * Opening balances are checked ONCE, after every step of the run (ledgers, parties, openings,

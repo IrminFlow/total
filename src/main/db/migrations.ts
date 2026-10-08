@@ -2884,8 +2884,55 @@ export const MIGRATIONS: string[] = [
     created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
   );
   `,
-  // 037 (WP 6.3) — Excel / CSV import wizard. Number assigned by the orchestrator: after 032–035
-  // (Phase 4) and 036 (WP 5.1 AI), all on main; kept LAST, independent of everything but 001.
+  // WP 6.1 / 6.2 (last; number by position) — report builder and scheduled report packs. Kept
+  // last when other branches' migrations merge (the migration number is the array position —
+  // currently 037 after 036 AI; WP 6.3 Excel goes before it if it lands first). Never edit the
+  // content. Self-contained:
+  // depends only on core tables. Saved reports store the query model only (every figure is
+  // computed at query time); a pack lists built-in and saved reports with a period rule, an
+  // output folder and a frequency, and keeps a run log.
+  `
+  CREATE TABLE saved_reports (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL UNIQUE COLLATE NOCASE,
+    model_json TEXT NOT NULL,
+    owner TEXT,
+    pinned INTEGER NOT NULL DEFAULT 0 CHECK (pinned IN (0, 1)),
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+
+  CREATE TABLE report_packs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL UNIQUE COLLATE NOCASE,
+    reports_json TEXT NOT NULL,
+    period_rule TEXT NOT NULL CHECK (period_rule IN ('lastMonth', 'lastQuarter', 'fyToDate')),
+    frequency TEXT NOT NULL CHECK (frequency IN ('daily', 'weekly', 'monthly')),
+    formats_json TEXT NOT NULL DEFAULT '["pdf","csv"]',
+    output_dir TEXT,
+    active INTEGER NOT NULL DEFAULT 1 CHECK (active IN (0, 1)),
+    last_run_at TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+
+  CREATE TABLE report_pack_runs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    pack_id INTEGER NOT NULL REFERENCES report_packs(id) ON DELETE CASCADE,
+    trigger TEXT NOT NULL CHECK (trigger IN ('schedule', 'manual')),
+    started_at TEXT NOT NULL,
+    finished_at TEXT,
+    period_from TEXT NOT NULL,
+    period_to TEXT NOT NULL,
+    status TEXT NOT NULL CHECK (status IN ('ok', 'partial', 'failed')),
+    output_dir TEXT,
+    files_json TEXT NOT NULL DEFAULT '[]',
+    error TEXT
+  );
+  CREATE INDEX idx_report_pack_runs_pack ON report_pack_runs(pack_id, id);
+  `,
+  // 038 (WP 6.3) — Excel / CSV import wizard. Number assigned by the orchestrator: after 032–035
+  // (Phase 4), 036 (WP 5.1 AI) and 037 (WP 6.1 report builder), all on main; kept LAST.
   // dbtests locate it by content (CREATE TABLE import_batches), never by index.
   // - import_templates: a remembered column mapping per import profile ('generic:ledgers',
   //   'zoho:invoices', 'busy:accounts', …). mapping_json maps field key → source HEADER NAME (not

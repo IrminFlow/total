@@ -1,18 +1,19 @@
-// Migration 037 (WP 6.3): import_templates, import_batches, import_batch_items. Located by
-// content, never by index — 032–036 belong to parallel branches and may land before it.
+// Migration 038 (WP 6.3): import_templates, import_batches, import_batch_items. Located by
+// content, never by index (032–037 landed first; this one is last).
 import { describe, expect, it } from 'vitest'
 import { MIGRATIONS } from './migrations'
 import { freshDb, freshPartialDb, seededDb } from './testdb'
 import { migrate } from './migrate'
 
-const M037 = MIGRATIONS.findIndex((sql) => sql.includes('CREATE TABLE import_batches'))
+const M038 = MIGRATIONS.findIndex((sql) => sql.includes('CREATE TABLE import_batches'))
 
 const columns = (db: ReturnType<typeof freshDb>, table: string): string[] =>
   (db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[]).map((c) => c.name)
 
-describe('migration 037 — import wizard tables', () => {
-  it('exists, once, after the audit-trail rebuild (031)', () => {
-    expect(M037).toBeGreaterThan(MIGRATIONS.findIndex((sql) => sql.includes('audit_log_append_only')))
+describe('migration 038 — import wizard tables', () => {
+  it('exists, once, last, after the report builder (037)', () => {
+    expect(M038).toBeGreaterThan(MIGRATIONS.findIndex((sql) => sql.includes('CREATE TABLE report_packs')))
+    expect(M038).toBe(MIGRATIONS.length - 1)
     expect(MIGRATIONS.filter((sql) => sql.includes('CREATE TABLE import_batches'))).toHaveLength(1)
   })
 
@@ -40,7 +41,7 @@ describe('migration 037 — import wizard tables', () => {
   })
 
   it('applies on top of a company migrated up to the migration before it, data untouched', () => {
-    const db = freshPartialDb(M037)
+    const db = freshPartialDb(M038)
     db.prepare("INSERT INTO meta (key, value) VALUES ('probe', 'kept')").run()
     migrate(db)
     expect(db.prepare("SELECT value FROM meta WHERE key = 'probe'").get()).toEqual({ value: 'kept' })

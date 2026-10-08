@@ -13,7 +13,8 @@
  */
 import { writeZip, type Deflate } from './zip'
 
-export type XlsxKind = 'text' | 'money' | 'date' | 'qty' | 'number' | 'integer' | 'percent'
+/** money: paise with a ₹ format; amount: paise as a plain 2-decimal number (no currency claim). */
+export type XlsxKind = 'text' | 'money' | 'amount' | 'date' | 'qty' | 'number' | 'integer' | 'percent'
 
 export interface XlsxColumn {
   header: string
@@ -24,7 +25,7 @@ export interface XlsxColumn {
   width?: number
 }
 
-/** money: paise; qty: thousandths; date: ISO string; number/integer/percent: number; text: string. */
+/** money / amount: paise; qty: thousandths; date: ISO string; number/integer/percent: number; text: string. */
 export type XlsxCell = string | number | null | undefined
 
 export interface XlsxRow {
@@ -107,6 +108,7 @@ function milliText(milli: number): string {
 /** Number formats: id → code (custom ids start at 164). */
 const FMT = {
   money: { id: 164, code: '"₹"#,##0.00;-"₹"#,##0.00' },
+  amount: { id: 171, code: '#,##0.00' },
   date: { id: 165, code: 'dd-mm-yyyy' },
   qty0: { id: 166, code: '#,##0' },
   qty1: { id: 167, code: '#,##0.0' },
@@ -115,8 +117,8 @@ const FMT = {
   percent: { id: 170, code: '0.00' }
 } as const
 
-type StyleKey = 'text' | 'money' | 'date' | 'qty0' | 'qty1' | 'qty2' | 'qty3' | 'number' | 'percent'
-const STYLE_KEYS: StyleKey[] = ['text', 'money', 'date', 'qty0', 'qty1', 'qty2', 'qty3', 'number', 'percent']
+type StyleKey = 'text' | 'money' | 'date' | 'qty0' | 'qty1' | 'qty2' | 'qty3' | 'number' | 'percent' | 'amount'
+const STYLE_KEYS: StyleKey[] = ['text', 'money', 'date', 'qty0', 'qty1', 'qty2', 'qty3', 'number', 'percent', 'amount']
 /** xf index: 0 = default; then each key normal (1..9) and bold (10..18); 19 = header. */
 function styleIndex(key: StyleKey, bold: boolean): number {
   return 1 + STYLE_KEYS.indexOf(key) + (bold ? STYLE_KEYS.length : 0)
@@ -131,6 +133,8 @@ function numFmtFor(key: StyleKey): number {
       return 0
     case 'money':
       return FMT.money.id
+    case 'amount':
+      return FMT.amount.id
     case 'date':
       return FMT.date.id
     case 'percent':
@@ -168,7 +172,7 @@ function stylesXml(): string {
 
 // ---------- sheets ----------
 
-const DEFAULT_WIDTH: Record<XlsxKind, number> = { text: 24, money: 16, date: 12, qty: 12, number: 10, integer: 10, percent: 9 }
+const DEFAULT_WIDTH: Record<XlsxKind, number> = { text: 24, money: 16, amount: 16, date: 12, qty: 12, number: 10, integer: 10, percent: 9 }
 
 class SharedStrings {
   list: string[] = []
@@ -228,7 +232,8 @@ function sheetXml(sheet: XlsxSheet, sst: SharedStrings): string {
           cells.push(strCell(ref, String(v), styleIndex('text', bold)))
           break
         case 'money':
-          cells.push(`<c r="${ref}" s="${styleIndex('money', bold)}"><v>${paiseText(Number(v))}</v></c>`)
+        case 'amount':
+          cells.push(`<c r="${ref}" s="${styleIndex(col.kind, bold)}"><v>${paiseText(Number(v))}</v></c>`)
           break
         case 'date': {
           const serial = typeof v === 'string' ? isoToSerial(v) : null

@@ -262,7 +262,7 @@ export const SCREENS: ScreenDef[] = [
     screen: { name: 'profit-loss' },
     navSection: 'books',
     card: { sub: 'Trading + P&L account', key: 'P' },
-    invalidates: ['pnl']
+    invalidates: ['pnl', 'pnlComparative', 'budgets', 'budgetAmounts']
   },
   {
     name: 'balance-sheet',
@@ -270,7 +270,7 @@ export const SCREENS: ScreenDef[] = [
     screen: { name: 'balance-sheet' },
     navSection: 'books',
     card: { sub: 'Assets and liabilities', key: 'B' },
-    invalidates: ['balanceSheet']
+    invalidates: ['balanceSheet', 'bsComparative']
   },
   {
     name: 'cash-flow',
@@ -406,6 +406,25 @@ export const SCREENS: ScreenDef[] = [
     navSection: 'analysis',
     invalidates: ['fxPreview', 'fxRates', 'fxRevaluations', 'fxLedgerCurrencies', 'fxOpenBills', 'currencies']
   },
+  // WP 6.1: report builder (pinned saved reports join the Analysis section as dynamic entries —
+  // lib/dynamicNav.ts); WP 6.2: ratio analysis.
+  {
+    name: 'report-builder',
+    title: 'Report builder',
+    keywords: ['custom report', 'pivot', 'analysis', 'dimensions', 'measures', 'saved reports', 'sales by party', 'comparative'],
+    screen: { name: 'report-builder' },
+    navSection: 'analysis',
+    invalidates: ['rbRun', 'savedReports', 'savedReport', 'rbUsers', 'budgets']
+  },
+  {
+    name: 'ratios',
+    title: 'Ratio analysis',
+    navLabel: 'Ratios',
+    keywords: ['current ratio', 'quick ratio', 'debt equity', 'margin', 'return on equity', 'debtor days', 'creditor days', 'inventory turnover', 'working capital', 'cash conversion'],
+    screen: { name: 'ratios' },
+    navSection: 'analysis',
+    invalidates: ['ratios']
+  },
   {
     name: 'exceptions',
     keywords: ['exception reports', 'negative stock', 'unreconciled'],
@@ -520,6 +539,8 @@ export const SCREENS: ScreenDef[] = [
     invalidates: [
       'backups', 'bin', 'users', 'audit', 'nicCreds', 'nicStatus',
       'features', 'invoiceConfig', 'invoicePreview', 'printTemplates', 'printTemplate', 'printPreview', 'appInfo', 'companyLock', 'agentConfig',
+      // WP 6.2 scheduled packs
+      'reportPacks', 'reportPackRuns', 'savedReports',
       'aiSettings', 'aiUsage', 'aiOutbound'
     ]
   },

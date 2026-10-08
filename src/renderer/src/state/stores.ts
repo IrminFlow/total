@@ -113,6 +113,10 @@ export type Screen =
   | { name: 'tcs' }
   | { name: 'cost-centres' }
   | { name: 'budgets' }
+  // WP 6.1: the report builder — a saved report by `reportId` (pinned reports open this way).
+  | { name: 'report-builder'; reportId?: number }
+  // WP 6.2: ratio analysis with monthly trends.
+  | { name: 'ratios' }
   | { name: 'cash-forecast' }
   | { name: 'loans'; loanId?: number }
   | { name: 'forex' }
@@ -120,7 +124,7 @@ export type Screen =
   | { name: 'year-end' }
   | { name: 'fixed-assets'; tab?: 'register' | 'depreciation' | 'schedule' | 'income-tax' | 'setup' }
   | { name: 'audit-trail'; voucherId?: number }
-  | { name: 'settings'; tab?: 'appearance' | 'backups' | 'bin' | 'users' | 'audit' | 'nic' | 'features' | 'invoice' | 'receivables' | 'agents' | 'ai' | 'about' }
+  | { name: 'settings'; tab?: 'appearance' | 'backups' | 'bin' | 'users' | 'audit' | 'nic' | 'features' | 'invoice' | 'receivables' | 'agents' | 'packs' | 'ai' | 'about' }
 
 interface NavState {
   stack: Screen[]

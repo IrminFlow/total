@@ -5,7 +5,7 @@ const cell = z.union([z.string().max(32767), z.number().finite(), z.null()]).opt
 
 export const xlsxColumnSchema = z.object({
   header: z.string().max(255),
-  kind: z.enum(['text', 'money', 'date', 'qty', 'number', 'integer', 'percent']),
+  kind: z.enum(['text', 'money', 'amount', 'date', 'qty', 'number', 'integer', 'percent']),
   decimals: z.number().int().min(0).max(3).optional(),
   width: z.number().min(1).max(255).optional()
 })

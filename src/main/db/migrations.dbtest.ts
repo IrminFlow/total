@@ -117,7 +117,11 @@ const EXPECTED_TABLES = [
   'ai_usage',
   'ai_outbound_log',
   'ai_pseudonyms',
-  // 037 (WP 6.3) — import wizard
+  // WP 6.1 / 6.2 (last; number by position)
+  'saved_reports',
+  'report_packs',
+  'report_pack_runs',
+  // 038 (WP 6.3) — import wizard
   'import_templates',
   'import_batches',
   'import_batch_items',

@@ -73,6 +73,8 @@ export const AUDIT_ENTITIES = [
   'priceLevel',
   'priceRate',
   'recurring_template',
+  'report_pack',
+  'saved_report',
   'statutory_payment',
   'statutory_rate',
   'stockGroup',
