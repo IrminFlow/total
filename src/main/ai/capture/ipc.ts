@@ -27,6 +27,7 @@ import { addCaptureFile, fileStillUsed, getItem, listItems, patchItem, recoverQu
 import { captureRunner, redraft, type CaptureEnv } from './runner'
 import { estimateCapture } from './estimate'
 import { acceptCategories, categoriseStatement } from './bankCategorise'
+import { residualAsker } from './bankCategoriseAi'
 import { syncCaptureWatcher } from './watcher'
 import type { ImageConverter } from './prepare'
 
@@ -212,7 +213,7 @@ export function registerCaptureIpc(handle: Handle, deps: CaptureIpcDeps): void {
     const e = env()
     const ready = e.blocker() === null
     return categoriseStatement(
-      { db: e.db, provider: ready ? e.provider : null, settings: ready ? e.settings() : null, today: e.today() },
+      { db: e.db, today: e.today(), ask: ready ? residualAsker({ db: e.db, provider: e.provider, settings: e.settings(), today: e.today() }) : null },
       bankLedgerId,
       { lineIds, useAi }
     )

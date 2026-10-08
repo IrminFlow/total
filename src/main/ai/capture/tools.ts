@@ -34,7 +34,7 @@ export const categoriseStatementTool = defineTool({
     }
     if (!bank && banks.length === 1) bank = banks[0]
     if (!bank) return { data: { status: 'needs_clarification', question: 'Which bank account?', candidates: banks.map((b) => b.name) }, sources: [] }
-    const res = await categoriseStatement({ db: ctx.db, provider: null, settings: null, today: ctx.today }, bank.id, { useAi: false })
+    const res = await categoriseStatement({ db: ctx.db, today: ctx.today }, bank.id, { useAi: false })
     const rows = res.rows.slice(0, input.limit ?? 40)
     return {
       data: {

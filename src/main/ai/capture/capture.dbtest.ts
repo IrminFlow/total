@@ -37,6 +37,7 @@ import { passthroughImages } from './prepare'
 import { addCaptureFile, getItem, listItems, patchItem, recoverQueue } from './store'
 import { CaptureRunner, redraft, type CaptureEnv } from './runner'
 import { acceptCategories, categoriseStatement } from './bankCategorise'
+import { residualAsker } from './bankCategoriseAi'
 import { newScanState, scanCaptureInbox } from './watcher'
 import { estimateCapture } from './estimate'
 import { createMemory } from '../memory'
@@ -396,7 +397,7 @@ describe('review fixes', () => {
 
   it('accepting a statement row re-derives the kind (a forged payment for a deposit is refused) and checks the bank line', async () => {
     commitStatement(db, ids.bank, { fileName: 'f.csv', text: 'Date,Narration,Chq/Ref No,Withdrawal,Deposit,Balance\n06/08/2025,NEFT-UMBRELLA RETAIL-UTR5,N5,,"321.00",' })
-    const cat = await categoriseStatement({ db, provider: null, settings: null, today: TODAY }, ids.bank)
+    const cat = await categoriseStatement({ db, today: TODAY }, ids.bank)
     const row = cat.rows[0]!
     const forged = acceptCategories(db, INFO, TODAY, ids.bank, [{ lineId: row.lineId, ledgerId: ids.umbrella, kind: 'payment' }])
     expect(forged.failed[0]!.error).toMatch(/is a receipt, not a payment/)
@@ -458,7 +459,7 @@ describe('bank statement → categorised drafts → save reconciles the line', (
         '07/08/2025,IMPS/RENT AUG SHOP/998877,I1,"25,000.00",,'
       ].join('\n')
     })
-    const cat = await categoriseStatement({ db, provider: () => provider, settings: settings(), today: TODAY }, ids.bank)
+    const cat = await categoriseStatement({ db, today: TODAY, ask: residualAsker({ db, provider: () => provider, settings: settings(), today: TODAY }) }, ids.bank)
     expect(cat.aiUsed).toBe(true)
     const by = (d: string) => cat.rows.find((r) => r.description.startsWith(d))!
     expect(by('ACH')).toMatchObject({ ledgerId: ids.power, kind: 'payment', source: 'history' })
@@ -494,7 +495,7 @@ describe('bank statement → categorised drafts → save reconciles the line', (
       fileName: 'm.csv',
       text: ['Date,Narration,Chq/Ref No,Withdrawal,Deposit,Balance', '06/08/2025,NEFT-UMBRELLA RETAIL-UTR1,N1,,"500.00",', '07/08/2025,IMPS/ZQX/77,I1,"99.00",,'].join('\n')
     })
-    const cat = await categoriseStatement({ db, provider: null, settings: null, today: TODAY }, ids.bank)
+    const cat = await categoriseStatement({ db, today: TODAY }, ids.bank)
     const rec = cat.rows.find((r) => r.description.startsWith('NEFT'))!
     expect(rec).toMatchObject({ ledgerId: ids.umbrella, source: 'memory', memoryId: party.id })
     expect(rec.why).toMatch(new RegExp(`^From memory \\[M${party.id}\\]: Umbrella Retail pays by NEFT`))
@@ -512,13 +513,13 @@ describe('bank statement → categorised drafts → save reconciles the line', (
     db.prepare("UPDATE meta SET value = json_set(value, '$.useMemory', json('false')) WHERE key = 'ai'").run()
     db.prepare("INSERT OR IGNORE INTO meta (key, value) VALUES ('ai', '{\"useMemory\":false}')").run()
     commitStatement(db, ids.bank, { fileName: 'n.csv', text: 'Date,Narration,Chq/Ref No,Withdrawal,Deposit,Balance\n08/08/2025,NEFT-UMBRELLA RETAIL-UTR2,N2,,"700.00",' })
-    const off = await categoriseStatement({ db, provider: null, settings: null, today: TODAY }, ids.bank)
+    const off = await categoriseStatement({ db, today: TODAY }, ids.bank)
     expect(off.rows.find((r) => r.description.endsWith('UTR2'))!.source).not.toBe('memory')
   })
 
   it('without AI only the rules run; the residual keeps its candidates', async () => {
     commitStatement(db, ids.bank, { fileName: 's.csv', text: 'Date,Narration,Chq/Ref No,Withdrawal,Deposit,Balance\n05/08/2025,IMPS/SOMETHING/1,X,"10.00",,' })
-    const cat = await categoriseStatement({ db, provider: null, settings: null, today: TODAY }, ids.bank)
+    const cat = await categoriseStatement({ db, today: TODAY }, ids.bank)
     expect(cat).toMatchObject({ aiUsed: false, aiNote: expect.stringMatching(/assistant is off/) })
     expect(cat.rows[0]).toMatchObject({ source: 'none', ledgerId: null })
     expect(cat.rows[0]!.candidates.length).toBeGreaterThan(0)
