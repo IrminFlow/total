@@ -2237,5 +2237,60 @@ export const MIGRATIONS: string[] = [
   ), 'system', NULL);
 
   DROP TABLE m031_before;
+  `,
+  // 037 (WP 6.3) — Excel / CSV import wizard. Number assigned by the orchestrator (032–036 belong
+  // to parallel Phase 4/5 branches); appended after 031 and independent of everything after 001.
+  // dbtests locate it by content (CREATE TABLE import_batches), never by index.
+  // - import_templates: a remembered column mapping per import profile ('generic:ledgers',
+  //   'zoho:invoices', 'busy:accounts', …). mapping_json maps field key → source HEADER NAME (not
+  //   position), so a template survives re-ordered columns; header_signature (sorted normalised
+  //   headers) lets the wizard offer the template automatically when the same layout comes back.
+  // - import_batches: one row per applied import (a dry run writes nothing) — what file, which
+  //   profile, the counts, and whether it was undone.
+  // - import_batch_items: every record the batch created or updated. Undo bins created vouchers /
+  //   orders, deletes created masters still unused, and restores the before-image of updated
+  //   ledgers / items (before_json). Rows are never deleted: an undone batch keeps its history.
+  `
+  CREATE TABLE import_templates (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    profile_id TEXT NOT NULL,
+    target TEXT NOT NULL,
+    header_signature TEXT NOT NULL DEFAULT '',
+    mapping_json TEXT NOT NULL,
+    options_json TEXT NOT NULL DEFAULT '{}',
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+    last_used_at TEXT,
+    UNIQUE (profile_id, name)
+  );
+  CREATE INDEX idx_import_templates_signature ON import_templates(header_signature);
+
+  CREATE TABLE import_batches (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    source TEXT NOT NULL,
+    profile_id TEXT,
+    file_name TEXT,
+    status TEXT NOT NULL DEFAULT 'applied' CHECK (status IN ('applied', 'undone', 'partly_undone')),
+    options_json TEXT NOT NULL DEFAULT '{}',
+    summary_json TEXT NOT NULL DEFAULT '{}',
+    error_count INTEGER NOT NULL DEFAULT 0 CHECK (error_count >= 0),
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    created_by TEXT,
+    undone_at TEXT,
+    undo_summary_json TEXT
+  );
+
+  CREATE TABLE import_batch_items (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    batch_id INTEGER NOT NULL REFERENCES import_batches(id),
+    entity TEXT NOT NULL,
+    entity_id INTEGER NOT NULL,
+    action TEXT NOT NULL CHECK (action IN ('create', 'update')),
+    before_json TEXT,
+    source_line INTEGER
+  );
+  CREATE INDEX idx_import_batch_items_batch ON import_batch_items(batch_id);
+  CREATE INDEX idx_import_batch_items_entity ON import_batch_items(entity, entity_id);
   `
 ]
