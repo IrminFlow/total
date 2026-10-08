@@ -174,7 +174,7 @@ export function GroupSetup({ group, openSlug, onSaved, onDeleted }: {
                       )}
                     </td>
                     <td className="py-1.5 pr-2">
-                      {m.role === 'parent' ? <span className="text-muted">—</span> : <AmountInput testId={`input-consol-cost-${m.companySlug}`} ariaLabel="Investment amount" placeholder="ledger balance" paise={m.investmentCost} onPaise={(v) => patch(i, { investmentCost: v })} />}
+                      {m.role === 'parent' ? <span className="text-muted">—</span> : <AmountInput testId={`input-consol-cost-${m.companySlug}`} ariaLabel="Investment amount" placeholder="balance" paise={m.investmentCost} onPaise={(v) => patch(i, { investmentCost: v })} />}
                     </td>
                     <td className="py-1.5 pr-2">
                       {m.role === 'parent' ? <span className="text-muted">—</span> : <AmountInput testId={`input-consol-equity-${m.companySlug}`} ariaLabel="Equity at acquisition" placeholder="from books" paise={m.acquisitionEquity} onPaise={(v) => patch(i, { acquisitionEquity: v })} />}
