@@ -65,6 +65,30 @@ export interface Ledger {
   /** Credit limit in paise; null = no limit. saveVoucher warns (or blocks, under F11
    *  enforceCreditLimit) when the party's outstanding would exceed it. */
   creditLimit: number | null
+  /** WP 4.2 (migration 032) — party email for statements / reminders (mailto:). */
+  email?: string | null
+  /** Annual simple-interest rate on overdue bills, basis points (1800 = 18%); null = none. */
+  interestRateBp?: number | null
+  /** Interest-free days after a bill's due date. */
+  interestGraceDays?: number
+  /** Credit hold: InvoiceEntry blocks a new sales invoice unless an owner overrides. */
+  creditHold?: boolean
+  creditHoldReason?: string | null
+  creditHoldAt?: string | null
+  /** WP 4.3 (migration 033): the supplier is registered on Udyam (MSMED Act s.2(n), s.8). */
+  msmeRegistered?: boolean
+  /** Registered from this date (bills accepted earlier are not covered); null = no date recorded. */
+  msmeRegisteredFrom?: string | null
+  /** Udyam Registration Number, UDYAM-XX-00-0000000. */
+  udyamNo?: string | null
+  /** Micro / small / medium (s.7). Only micro and small get s.15–16 / s.43B(h) / MSME Form 1. */
+  msmeCategory?: 'micro' | 'small' | 'medium' | null
+  /** Credit period agreed in writing with the supplier (s.15; capped at 45 days); null = none. */
+  agreedCreditDays?: number | null
+  /** Early-payment discount offered by the supplier, basis points of the bill. */
+  earlyPaymentDiscountBp?: number | null
+  /** …if paid within this many days of the bill date. */
+  earlyPaymentDiscountDays?: number | null
   isSystem: boolean
 }
 

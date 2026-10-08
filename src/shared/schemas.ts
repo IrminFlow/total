@@ -4,6 +4,7 @@ import { validateGstin } from './gst/validate'
 import { isUqc } from './gst/uqc'
 import { PT_STATES } from './payroll'
 import { TRADE_DOC_KINDS, TRADE_PURPOSES, VOUCHER_KINDS } from './domain'
+import { MSME_CATEGORIES, normalizeUdyam, UDYAM_RE } from './payables/msme'
 
 export const isoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Expected YYYY-MM-DD')
 
@@ -54,6 +55,26 @@ export const groupInputSchema = z.object({
 })
 export type GroupInput = z.infer<typeof groupInputSchema>
 
+/** WP 4.3: Udyam Registration Number (see src/shared/payables/msme.ts for the format's source). */
+export const udyamSchema = z
+  .string()
+  .transform((s) => normalizeUdyam(s))
+  .refine((s) => s === '' || UDYAM_RE.test(s), 'Udyam number is UDYAM-XX-00-0000000 (state, district, 7 digits)')
+  .transform((s) => (s === '' ? null : s))
+
+/** WP 4.3 (migration 033): a supplier's MSME facts and payment terms on its ledger. */
+export const supplierTermsFields = {
+  msmeRegistered: z.boolean().optional(),
+  /** Registered (as micro / small) from this date; bills accepted earlier are not covered. null = always. */
+  msmeRegisteredFrom: isoDate.nullable().optional(),
+  udyamNo: udyamSchema.nullable().optional(),
+  msmeCategory: z.enum(MSME_CATEGORIES).nullable().optional(),
+  /** Credit period agreed in writing (MSMED Act s.15); null = no written agreement. */
+  agreedCreditDays: z.number().int().min(0).max(365).nullable().optional(),
+  earlyPaymentDiscountBp: z.number().int().min(0).max(10000).nullable().optional(),
+  earlyPaymentDiscountDays: z.number().int().min(0).max(365).nullable().optional()
+}
+
 export const ledgerInputSchema = z.object({
   name: z.string().trim().min(1).max(120),
   groupId: id,
@@ -86,7 +107,14 @@ export const ledgerInputSchema = z.object({
   /** Price level whose rates prefill this party's invoice lines; absent/null = item base rate. */
   priceLevelId: id.nullable().optional(),
   /** Credit limit in paise; absent/null = no limit. */
-  creditLimit: paise.min(0).nullable().optional()
+  creditLimit: paise.min(0).nullable().optional(),
+  /** WP 4.2 — absent = keep the stored value: party email, interest rate (bp p.a.) and grace days.
+   *  The credit hold is set through receivables:setHold (with a reason), never here. */
+  email: z.string().trim().max(200).email('Invalid email').nullable().optional(),
+  interestRateBp: z.number().int().min(0).max(10000).nullable().optional(),
+  interestGraceDays: z.number().int().min(0).max(365).optional(),
+  // WP 4.3 (migration 033): supplier MSME facts and payment terms — absent = keep the stored value.
+  ...supplierTermsFields
 })
 /** Unparsed shape (defaults optional) — createLedger/updateLedger parse internally, so direct
  *  service callers (tests, importers) don't have to spell out every defaulted field. */

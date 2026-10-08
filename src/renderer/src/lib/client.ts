@@ -18,6 +18,7 @@ import type {
 } from '@shared/reports'
 import type { CashFlowStatement } from '@shared/reportMath'
 import type { DashboardSeries } from '@shared/dashboard'
+import type { MsmeYearEndWarning } from '@shared/payables/types'
 import type { Gstr1Result, Gstr3bResult } from '@shared/gst/returns'
 import type { GstIssue } from '@shared/gst/validate'
 import type { Recon2bResult, Recon2bTolerances } from '@shared/gst/recon2b'
@@ -755,8 +756,9 @@ export const api = {
     list: (from: string, to: string, voucherTypeId?: number) =>
       call<VoucherListRow[]>('voucher:list', { from, to, voucherTypeId }),
     get: (id: number) => call<Voucher | null>('voucher:get', { id }),
-    save: (data: VoucherInputParsed, id?: number) =>
-      call<Voucher & { duplicateNumber?: boolean; warnings?: SaveVoucherWarnings }>('voucher:save', { data, id }),
+    /** `creditHoldOverride` (WP 4.2): an owner's reason for invoicing a party on credit hold. */
+    save: (data: VoucherInputParsed, id?: number, opts?: { creditHoldOverride?: { reason: string } }) =>
+      call<Voucher & { duplicateNumber?: boolean; warnings?: SaveVoucherWarnings }>('voucher:save', { data, id, ...(opts?.creditHoldOverride ? { creditHoldOverride: opts.creditHoldOverride } : {}) }),
     remove: (id: number) => call<null>('voucher:delete', { id }),
     nextNumber: (voucherTypeId: number, date: string, excludeId?: number) =>
       call<{ number: string }>('voucher:nextNumber', { voucherTypeId, date, excludeId }),
@@ -1068,7 +1070,7 @@ export const api = {
   },
   yearEnd: {
     preview: (fyStartYear: number) =>
-      call<{ rows: CloseLedgerRow[]; netProfit: number; alreadyClosed: boolean; depreciation?: DepreciationYearStatus; unbilled?: UnbilledGoods }>('yearend:preview', { fyStartYear }),
+      call<{ rows: CloseLedgerRow[]; netProfit: number; alreadyClosed: boolean; depreciation?: DepreciationYearStatus; unbilled?: UnbilledGoods; msme?: MsmeYearEndWarning }>('yearend:preview', { fyStartYear }),
     close: (fyStartYear: number) =>
       call<{ voucherId: number; netProfit: number; lockedUpTo: string }>('yearend:close', { fyStartYear })
   },

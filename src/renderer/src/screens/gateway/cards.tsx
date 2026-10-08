@@ -18,6 +18,8 @@ import { formatMilli } from '../../lib/table'
 import { CardLink, DashCard, type CardState } from './parts'
 import { onboardingFromDashSetup } from '@shared/onboarding'
 import { onboardingScreen } from '../../lib/onboarding'
+import { PromisedChip } from './PromisedChip'
+import { MsmeDueLine } from './MsmeDueLine'
 import { FinanceReminderRows } from './FinanceReminders'
 
 const stackRowCls =
@@ -185,6 +187,7 @@ export function AgeingCard({ receivables, payables }: { receivables: CardState<D
         <div className="flex flex-col gap-3 px-4 py-2.5">
           {typeof r === 'string' ? <p className="text-small text-cr">Receivables unavailable</p> : <AgeingBars a={r} color="blue" label="Receivables" />}
           {typeof p === 'string' ? <p className="text-small text-cr">Payables unavailable</p> : <AgeingBars a={p} color="amber" label="Payables" />}
+          <MsmeDueLine />
         </div>
       )}
     </DashCard>
@@ -302,6 +305,7 @@ export function ComplianceCard({
               </div>
             )
           )}
+          <PromisedChip />
           {typeof g !== 'string' && g?.annual && g.annual.length > 0 && (
             <div data-testid="dash-gst-annual" {...drillRowProps(() => nav.go({ name: 'gstr9' }))} className={stackRowCls}>
               <span className="text-body-sm text-ink">Annual GST</span>

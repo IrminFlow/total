@@ -17,6 +17,8 @@ import {
 } from '../printTemplates'
 import { taxSummaryForInvoice } from './taxSummary'
 import { purposeLabel } from '../voucherEdit/stockNote'
+import type { OutstandingBill } from '../reports'
+import type { StatementData } from '../receivables/types'
 
 /**
  * THE document renderer (WP 1.10c): template + document data → one self-contained HTML string
@@ -120,7 +122,35 @@ export interface VoucherDocument {
   outstandingPaise?: number | null
 }
 
-export type PrintDocument = InvoiceDocument | VoucherDocument
+/** WP 4.2 — statement of account: the party's ledger statement for a period with the bill-wise
+ *  allocation of every voucher, its open bills, their ageing, bank details and a payment request. */
+export interface StatementDocument {
+  shape: 'statement'
+  kind: 'statement'
+  company: CompanyInfo
+  statement: StatementData
+}
+
+/** WP 4.2 — payment-reminder letter (gentle / firm / final). The body is the merged template; a
+ *  `{bills}` line in it prints as the overdue-bills table between `bodyBefore` and `bodyAfter`. */
+export interface ReminderDocument {
+  shape: 'reminder'
+  kind: 'reminder'
+  company: CompanyInfo
+  reminder: {
+    date: string
+    bucketLabel: string
+    party: { name: string; address: string | null; gstin: string | null }
+    subject: string
+    bodyBefore: string
+    /** Null when the template has no {bills} line (no table printed). */
+    bills: OutstandingBill[] | null
+    bodyAfter: string
+    overdue: number
+  }
+}
+
+export type PrintDocument = InvoiceDocument | VoucherDocument | StatementDocument | ReminderDocument
 
 export type PlexFamily = 'plex-sans' | 'plex-serif' | 'plex-mono'
 
@@ -178,7 +208,9 @@ const DOC_LABEL: Record<PrintDocKind, string> = {
   goods_receipt: 'Receipt note',
   sales_order: 'Order',
   purchase_order: 'Purchase order',
-  self_invoice: 'Self invoice'
+  self_invoice: 'Self invoice',
+  statement: 'Statement',
+  reminder: 'Reminder'
 }
 const PARTY_LABEL: Partial<Record<PrintDocKind, string>> = {
   receipt: 'Received from',
@@ -379,7 +411,18 @@ function extraCss(c: Ctx): string {
     due: `table.tot tr.due td { font-size: ${c.px(11)}; color: #444; }`,
     'qr-foot': '.qr-foot { text-align: center; }',
     'cg-note': `.cg-note { padding: 4px 16px 0; text-align: center; font-size: ${c.px(9)}; color: #666; }`,
-    vtotal: 'table.items tr.vt td { font-weight: 700; }'
+    vtotal: 'table.items tr.vt td { font-weight: 700; }',
+    party: [
+      `.sect { padding: 10px 16px; border-top: 1px solid ${c.t.style === 'modern' ? '#e3e6ea' : acc}; page-break-inside: avoid; }`,
+      `.sect h3 { font-size: ${c.px(10)}; text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 4px; }`,
+      `.sub { font-size: ${c.px(10)}; color: #555; }`,
+      '.letter { padding: 14px 16px; white-space: pre-wrap; }',
+      '.letter p.subj { font-weight: 700; margin-bottom: 10px; white-space: normal; }',
+      'table.age { width: 100%; border-collapse: collapse; }',
+      `table.age th { font-size: ${c.px(9.5)}; text-transform: uppercase; letter-spacing: 0.06em; text-align: right; padding: 4px 8px; border-bottom: 1px solid ${acc}; }`,
+      'table.age td { text-align: right; padding: 4px 8px; }',
+      'table.items tr.ob td, table.items tr.cb td { font-weight: 700; }'
+    ].join('\n    ')
   }
   return [...c.extra].map((k) => rules[k] ?? '').filter(Boolean).join('\n    ')
 }
@@ -969,13 +1012,152 @@ function renderVoucher(c: Ctx, doc: VoucherDocument, opts: RenderOptions): strin
   return wrapDocument(c, `${label} ${v.number}`, sheet, opts)
 }
 
+// ---------------------------------------------------------------- party documents (WP 4.2)
+
+function partyHead(c: Ctx, company: CompanyInfo, kind: 'statement' | 'reminder'): string {
+  const logoRight = c.t.header.logoPosition === 'right' ? logoImg(c) : ''
+  const logoCenter = c.t.header.logoPosition === 'center' ? logoImg(c) : ''
+  if (logoCenter) c.extra.add('logo-c')
+  return `${logoCenter ? `
+      <div class="logo-c">${logoCenter}</div>` : ''}
+      <div class="head">${companyBlock(c, company)}
+        <div class="tag">
+          ${logoRight}<b>${esc(c.t.header.titles[kind])}</b>
+        </div>
+      </div>`
+}
+
+function partyCell(label: string, p: { name: string; address: string | null; gstin: string | null }, c: Ctx): string {
+  return `
+        <div>
+          <div class="lbl">${esc(label)}</div>
+          <div><b>${esc(p.name)}</b></div>
+          ${c.t.party.showAddress && p.address ? `<div>${esc(p.address)}</div>` : ''}
+          ${c.t.party.showGstin && p.gstin ? `<div class="num">GSTIN: ${esc(p.gstin)}</div>` : ''}
+        </div>`
+}
+
+/** Dr / Cr suffixed absolute amount. */
+function drcr(c: Ctx, signed: number): string {
+  if (signed === 0) return c.money(0)
+  return `${c.money(Math.abs(signed))} ${signed > 0 ? 'Dr' : 'Cr'}`
+}
+
+function billsTable(c: Ctx, bills: OutstandingBill[]): string {
+  return `
+      <table class="items">
+        <thead><tr>
+          <th>Bill</th><th style="width:90px">Bill date</th><th style="width:90px">Due date</th>
+          <th class="r" style="width:80px">Overdue</th><th class="r" style="width:110px">Bill amount</th><th class="r" style="width:110px">Pending</th>
+        </tr></thead>
+        <tbody>${bills
+          .map(
+            (b) => `
+      <tr>
+        <td class="num">${esc(b.number)}</td>
+        <td class="num">${c.date(b.date)}</td>
+        <td class="num">${b.dueDate ? c.date(b.dueDate) : ''}</td>
+        <td class="r num">${b.overdueDays > 0 ? `${b.overdueDays} d` : '—'}</td>
+        <td class="r num">${c.money(b.amount)}</td>
+        <td class="r num">${c.money(b.pending)}</td>
+      </tr>`
+          )
+          .join('')}
+        </tbody>
+      </table>`
+}
+
+const withSymbol = (c: Ctx, p: number): string => `${c.t.formats.currencySymbolOnTotal ? '₹ ' : ''}${c.money(p)}`
+
+function renderStatement(c: Ctx, doc: StatementDocument, opts: RenderOptions): string {
+  const { company, statement: s } = doc
+  const m = c.money
+  c.extra.add('party')
+  const rows = s.rows
+    .map(
+      (r) => `
+      <tr>
+        <td class="num">${c.date(r.date)}</td>
+        <td>${esc(r.voucherType)} <span class="num">${esc(r.number)}</span>${r.particulars ? `<div class="sub">${esc(r.particulars)}</div>` : ''}${r.allocation ? `<div class="sub">${esc(r.allocation)}</div>` : ''}</td>
+        <td class="r num">${r.debit ? m(r.debit) : ''}</td>
+        <td class="r num">${r.credit ? m(r.credit) : ''}</td>
+        <td class="r num">${drcr(c, r.running)}</td>
+      </tr>`
+    )
+    .join('')
+  const total = s.buckets.reduce((a, b) => a + b, 0)
+  const bank = s.bank && (s.bank.name || s.bank.account)
+    ? `<div class="sub" style="margin-top:6px">Bank: <b>${esc(s.bank.name)}</b>${s.bank.account ? ` · A/c <span class="num">${esc(s.bank.account)}</span>` : ''}${s.bank.ifsc ? ` · IFSC <span class="num">${esc(s.bank.ifsc)}</span>` : ''}${s.bank.branch ? ` · ${esc(s.bank.branch)}` : ''}</div>`
+    : ''
+  const sheet = `
+    <div class="sheet">${partyHead(c, company, 'statement')}
+      <div class="meta">${partyCell('Statement for', s.party, c)}
+        <div>
+          <div class="lbl">Period</div>
+          <div><span class="num">${c.date(s.from)}</span> to <span class="num">${c.date(s.to)}</span></div>
+          <div>Opening: <b class="num">${drcr(c, s.opening)}</b></div>
+          <div>Closing: <b class="num">${drcr(c, s.closing)}</b></div>
+        </div>
+      </div>
+      <table class="items">
+        <thead><tr>
+          <th style="width:80px">Date</th><th>Particulars</th><th class="r" style="width:110px">Debit</th>
+          <th class="r" style="width:110px">Credit</th><th class="r" style="width:120px">Balance</th>
+        </tr></thead>
+        <tbody>
+      <tr class="ob"><td class="num">${c.date(s.from)}</td><td>Opening balance</td><td></td><td></td><td class="r num">${drcr(c, s.opening)}</td></tr>${rows}
+      <tr class="cb"><td></td><td class="r">Totals / closing balance</td><td class="r num">${m(s.totalDebit)}</td><td class="r num">${m(s.totalCredit)}</td><td class="r num">${drcr(c, s.closing)}</td></tr>
+        </tbody>
+      </table>
+      <div class="sect">
+        <h3>Open bills as on ${c.date(s.to)}</h3>
+        ${s.openBills.length ? billsTable(c, s.openBills) : '<div class="sub">No open bills.</div>'}
+        ${s.unapplied > 0 ? `<div class="sub" style="margin-top:4px">Unadjusted receipts (on account): <span class="num">${m(s.unapplied)}</span></div>` : ''}
+      </div>
+      <div class="sect">
+        <h3>Ageing (days overdue)</h3>
+        <table class="age">
+          <thead><tr><th>0–30</th><th>31–60</th><th>61–90</th><th>Over 90</th><th>Total due</th></tr></thead>
+          <tbody><tr>${s.buckets.map((b) => `<td class="num">${m(b)}</td>`).join('')}<td class="num"><b>${withSymbol(c, total)}</b></td></tr></tbody>
+        </table>
+      </div>
+      ${s.paymentRequest || bank ? `<div class="sect">${s.paymentRequest ? `<div>${esc(s.paymentRequest)}</div>` : ''}${bank}</div>` : ''}${sigBlock(c, company, '')}${cgNote(c)}
+    </div>`
+  return wrapDocument(c, `Statement ${s.party.name}`, sheet, opts, [''])
+}
+
+function renderReminder(c: Ctx, doc: ReminderDocument, opts: RenderOptions): string {
+  const { company, reminder: r } = doc
+  c.extra.add('party')
+  const sheet = `
+    <div class="sheet">${partyHead(c, company, 'reminder')}
+      <div class="meta">${partyCell('To', r.party, c)}
+        <div>
+          <div class="lbl">${esc(r.bucketLabel)}</div>
+          <div>Date: <span class="num">${c.date(r.date)}</span></div>
+          <div>Overdue: <b class="num">${withSymbol(c, r.overdue)}</b></div>
+        </div>
+      </div>
+      <div class="letter"><p class="subj">${esc(r.subject)}</p>${esc(r.bodyBefore)}</div>${r.bills ? billsTable(c, r.bills) : ''}${r.bodyAfter ? `
+      <div class="letter">${esc(r.bodyAfter)}</div>` : ''}${sigBlock(c, company, '')}${cgNote(c)}
+    </div>`
+  return wrapDocument(c, `Reminder ${r.party.name}`, sheet, opts, [''])
+}
+
 /** Render a document with a template → self-contained HTML. */
 export function renderDocument(template: PrintTemplate, doc: PrintDocument, opts: RenderOptions = {}): string {
-  // The till-receipt style lays out invoices only; an accounting voucher printed with a receipt
-  // template falls back to the compact voucher layout (same paper, fonts and footer).
-  const c = makeCtx(doc.shape === 'voucher' && template.style === 'receipt' ? { ...template, style: 'compact' } : template)
+  // The till-receipt style lays out invoices only; an accounting voucher (or a party document)
+  // printed with a receipt template falls back to the compact layout (same paper, fonts, footer).
+  const base = doc.shape !== 'invoice' && template.style === 'receipt' ? { ...template, style: 'compact' as const } : template
+  if (doc.shape === 'statement' || doc.shape === 'reminder') {
+    // Party documents print one copy and no receiver's signature.
+    const c = makeCtx({ ...base, footer: { ...base.footer, showReceiverSignature: false } })
+    return doc.shape === 'statement' ? renderStatement(c, doc, opts) : renderReminder(c, doc, opts)
+  }
+  const c = makeCtx(base)
   return doc.shape === 'invoice' ? renderInvoice(c, doc, opts) : renderVoucher(c, doc, opts)
 }
+
 
 /** Whitespace normalisation used by the Classic-equivalence proofs: collapse whitespace runs to
  *  one space and drop whitespace between tags (insignificant in this markup — no inline element

@@ -35,6 +35,8 @@ import { ItcReversalScreen } from './screens/gst/ItcReversalScreen'
 import { CompanyInfoScreen } from './screens/CompanyInfo'
 import { RegistersScreen } from './screens/Registers'
 import { OutstandingsScreen } from './screens/Outstandings'
+import { ReceivablesScreen } from './screens/Receivables'
+import { PayablesScreen } from './screens/Payables'
 import { TradePendingScreen } from './screens/TradePending'
 import { TradeDocListScreen } from './screens/TradeDocList'
 import { TradeDocEntry } from './screens/TradeDocEntry'
@@ -195,6 +197,8 @@ export default function App(): React.JSX.Element {
           {screen.name === 'itc-reversal' && <ItcReversalScreen />}
           {screen.name === 'registers' && <RegistersScreen />}
           {screen.name === 'outstandings' && <OutstandingsScreen />}
+          {screen.name === 'receivables' && <ReceivablesScreen key={screen.tab ?? 'control'} tab={screen.tab} />}
+          {screen.name === 'payables' && <PayablesScreen key={screen.tab ?? 'plan'} tab={screen.tab} />}
           {screen.name === 'pending-challans' && <TradePendingScreen stage="delivery_note" />}
           {screen.name === 'pending-grns' && <TradePendingScreen stage="receipt_note" />}
           {screen.name === 'quotations' && <TradeDocListScreen kind="quotation" />}
