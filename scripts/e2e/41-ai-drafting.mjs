@@ -59,6 +59,8 @@ await scenario('41-ai-drafting', async (h) => {
   await h.invoke('ai:notice:accept')
   await h.invoke('ai:settings:set', { enabled: true })
   assertEq((await h.invoke('ai:settings:get')).ready, true, 'assistant ready on the mock provider')
+  await h.goto('settings') // the settings screen refreshes the cached AI settings
+  await h.goto('gateway')
 
   // ---------- a supplier with two open bills ----------
   const groups = await h.invoke('master:groups:list')
