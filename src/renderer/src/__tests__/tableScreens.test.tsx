@@ -109,14 +109,14 @@ describe('Day Book', () => {
   it('shows in-books vouchers in service order, totals and activation', async () => {
     renderScreen(<DayBook />)
     await waitFor(() => expect(rowsOf('daybook')).toHaveLength(2), SLOW) // the optional voucher is out of the books
-    expect(col('daybook', 3)).toEqual(['Zeta Traders', 'Alpha Rent'])
+    expect(col('daybook', 4)).toEqual(['Zeta Traders', 'Alpha Rent']) // after the WP 6.4 select cell
     const totals = screen.getByTestId('daybook-table-totals')
     expect(totals.textContent).toContain('Total · 2 vouchers')
     expect(totals.textContent).toContain('1,180.00')
     expect(totals.textContent).toContain('500.00')
 
     fireEvent.click(screen.getByTestId('sort-daybook-account'))
-    expect(col('daybook', 3)).toEqual(['Alpha Rent', 'Zeta Traders'])
+    expect(col('daybook', 4)).toEqual(['Alpha Rent', 'Zeta Traders'])
 
     fireEvent.click(rowsOf('daybook')[1]!)
     expect(go).toHaveBeenCalledWith({ name: 'voucher-entry', voucherId: 11 })
@@ -137,7 +137,7 @@ describe('Day Book', () => {
     expect(screen.getByTestId('daybook-scope-chip').textContent).toContain('All vouchers')
     expect(rowsOf('daybook')).toHaveLength(3)
 
-    expect(col('daybook', 3)[2]).toBe('Memo CoOptional')
+    expect(col('daybook', 4)[2]).toBe('Memo CoOptional')
     const totals = screen.getByTestId('daybook-table-totals').textContent ?? ''
     expect(totals).toContain('Total (in books) · 2 vouchers')
     expect(totals).toContain('1,180.00')
@@ -229,7 +229,7 @@ describe('Outstandings', () => {
   it('parties expand to their bills; totals sum every bucket', async () => {
     renderScreen(<OutstandingsScreen />)
     await waitFor(() => expect(rowsOf('outstandings')).toHaveLength(2), SLOW)
-    expect(col('outstandings', 1)).toEqual(['Zeta Traders', 'Alpha Stores']) // after the chevron cell
+    expect(col('outstandings', 2)).toEqual(['Zeta Traders', 'Alpha Stores']) // after the chevron and select cells
     const totals = screen.getByTestId('outstandings-table-totals').textContent ?? ''
     expect(totals).toContain('1,500.00') // 0–30 d
     expect(totals).toContain('3,500.00') // pending
@@ -244,6 +244,6 @@ describe('Outstandings', () => {
     expect(screen.queryByTestId('outstandings-bills-31')).toBeNull()
 
     fireEvent.click(screen.getByTestId('sort-outstandings-pending'))
-    expect(col('outstandings', 1)).toEqual(['Alpha Stores', 'Zeta Traders'])
+    expect(col('outstandings', 2)).toEqual(['Alpha Stores', 'Zeta Traders'])
   })
 })

@@ -137,6 +137,24 @@ Useful props (all optional except `columns` and `rows`):
 - **External control.** `controller` takes the result of `useTableView(...)` when the screen
   needs to read or set the view itself.
 
+### Multi-select (WP 6.4)
+
+```tsx
+const bulk = useBulkSelection('voucher', 'daybook')   // components/bulk/BulkEdit.tsx
+{bulk.bar}                                             // "3 vouchers selected · Bulk edit… · Clear"
+<DataTable … selection={bulk.selection} toolbarEnd={bulk.historyButton} />
+{bulk.dialogs}                                         // preview → apply, and recent edits with Undo
+```
+
+- `selection={{ selected, onChange, isSelectable?, label? }}` is controlled: the screen owns the
+  set of row keys. A checkbox column appears after the expander (`<area>-select-<key>`), and the
+  header box (`<area>-select-all`) selects or clears every selectable row **in view** (the
+  table's filters and quick filter applied). It shows indeterminate for a partial selection.
+- Shift-click selects the range from the last toggled row, in view order. Space toggles the
+  active row (not while a button, link or input has focus).
+- Selected rows carry `data-selected` and a light amber tint (a `td` background, never a
+  pseudo-element). Day book, Masters → Ledgers / Stock items and Outstandings use it.
+
 ### Expandable detail rows
 
 Use these for a party row that opens onto its bills, a voucher onto its lines, or a stock item

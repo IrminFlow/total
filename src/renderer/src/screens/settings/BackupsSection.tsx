@@ -5,6 +5,7 @@ import { useSession, useToasts } from '../../state/stores'
 import { Button, Field, Modal, Panel, SectionTitle, TextInput } from '../../components/ui'
 import { DataTable, defineColumns } from '../../components/table'
 import { toDisplayDateTime } from '@shared/dates'
+import { AttachmentsSettings } from './AttachmentsSettings'
 
 function formatSize(bytes: number): string {
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
@@ -133,7 +134,7 @@ export function BackupsSection(): React.JSX.Element {
         />
       </Panel>
       <p className="mt-2 text-hint text-muted">
-        Backups live in this company's data folder. A snapshot is also taken automatically on open and before risky
+        Backups live in this company's data folder, with the attached files. A snapshot is also taken automatically on open and before risky
         operations (Tally imports, restores).
       </p>
       {restoring && (
@@ -147,6 +148,7 @@ export function BackupsSection(): React.JSX.Element {
         />
       )}
       {exporting && <ExportEncryptedModal onClose={() => setExporting(false)} />}
+      <AttachmentsSettings />
     </div>
   )
 }

@@ -16,6 +16,7 @@ import { useSession, useToasts } from '../state/stores'
 import { useFeatures } from '../lib/useFeatures'
 import { promptDialog, confirmDialog } from '../lib/dialogs'
 import { Badge, Button, DrawerSection, Page, PageHeader, Panel, StatGrid, StatTile, TextInput, Checkbox } from '../components/ui'
+import { PartyNotesPanel } from '../components/partyNotes/PartyNotes'
 import { OptionsPeriod, OptionsTable, useScreenOptions } from '../components/ScreenOptions'
 import { DataTable, defineColumns } from '../components/table'
 import { LedgerLink, VoucherLink } from '../components/links'
@@ -178,7 +179,7 @@ const TOP_COLUMNS = defineColumns<TopOverdueRow>([
 
 // ---------------------------------------------------------------- tabs
 
-function ControlTab(): React.JSX.Element {
+function ControlTab({ showDoneTasks, onShowDoneTasks }: { showDoneTasks: boolean; onShowDoneTasks: (v: boolean) => void }): React.JSX.Element {
   const to = useAsOn()
   const toast = useToasts()
   const qc = useQueryClient()
@@ -254,6 +255,13 @@ function ControlTab(): React.JSX.Element {
           maxHeight="40vh"
           exportOptions={{ title: 'Promised this week', periodLabel: promised ? `${toDisplayDate(promised.weekFrom)} to ${toDisplayDate(promised.weekTo)}` : '', filename: 'promised-this-week' }}
         />
+      </Panel>
+      {/* WP 6.4: party-level follow-ups (tasks on the party itself); bill-level ones stay on the bill. */}
+      <h2 className="mb-2 mt-section text-title font-semibold" id="party-tasks">
+        Party tasks <span className="text-detail font-normal text-muted">follow-ups on the party, not one bill</span>
+      </h2>
+      <Panel className="p-panel">
+        <PartyNotesPanel showDone={showDoneTasks} onShowDone={onShowDoneTasks} testId="cc-tasks" />
       </Panel>
     </>
   )
@@ -533,7 +541,7 @@ export function ReceivablesScreen({ tab: initialTab = 'control' }: { tab?: Recei
   const toast = useToasts()
   const qc = useQueryClient()
   const [tab, setTab] = useState<ReceivablesTab>(initialTab)
-  const opts = useScreenOptions('receivables', {})
+  const opts = useScreenOptions('receivables', { showDoneTasks: false })
   const { data: cfg } = useQuery({ queryKey: ['receivablesConfig'], queryFn: receivablesApi.config })
   const config = cfg?.config
   const [gapText, setGapText] = useState<string | null>(null)
@@ -610,6 +618,16 @@ export function ReceivablesScreen({ tab: initialTab = 'control' }: { tab?: Recei
                 </DrawerSection>
               )}
               {tab === 'control' && (
+                <DrawerSection title="Party tasks" testId="options-party-tasks">
+                  <Checkbox
+                    label="Show done tasks"
+                    checked={opts.options.showDoneTasks}
+                    onChange={(v) => opts.set('showDoneTasks', v)}
+                    testId="input-show-done-tasks"
+                  />
+                </DrawerSection>
+              )}
+              {tab === 'control' && (
                 <DrawerSection title="About exposure">
                   <p className="text-hint text-muted">
                     Exposure is the ledger balance plus the open sales-order value (Orders &amp; challans on). Limit used = exposure ÷ credit limit.
@@ -622,7 +640,7 @@ export function ReceivablesScreen({ tab: initialTab = 'control' }: { tab?: Recei
           )
         }}
       />
-      {tab === 'control' && <ControlTab />}
+      {tab === 'control' && <ControlTab showDoneTasks={opts.options.showDoneTasks} onShowDoneTasks={(v) => opts.set('showDoneTasks', v)} />}
       {tab === 'reminders' && <RemindersTab />}
       {tab === 'interest' && <InterestTab gst={config?.interest.gstOnInterest ?? true} />}
       {tab === 'collections' && <CollectionsTab />}

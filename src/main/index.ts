@@ -9,6 +9,7 @@ import { initUpdater } from './updater'
 import { initLogging, log } from './log'
 import { startBackupScheduler, backupOnQuit } from './backup-scheduler'
 import { startPackScheduler } from './packScheduler'
+import { cleanupOpenedCopies, sweepStaleOpenCopies } from './services/attachments'
 import { syncFolderWarning } from '@shared/syncpath'
 
 // Hermetic scripted runs (smoke/e2e/CI, TOTAL_DATA_DIR set): keep Electron's userData —
@@ -126,6 +127,13 @@ if (gotSingleInstanceLock) {
     startBackupScheduler(getCurrentCompany)
     // WP 6.2: scheduled report packs — hourly due-check (the on-open pass runs from company:open).
     startPackScheduler(getUnlockedCompany)
+    // WP 6.4: opened attachment copies left by a crash (> 1 day old) — this session's go on quit.
+    try {
+      const swept = sweepStaleOpenCopies()
+      if (swept > 0) log('info', 'attachment-copies-swept', { swept })
+    } catch {
+      // housekeeping only
+    }
     createWindow()
     warnIfSyncedFolder()
     initUpdater()
@@ -142,5 +150,6 @@ if (gotSingleInstanceLock) {
   app.on('before-quit', () => {
     backupOnQuit(getCurrentCompany)
     closeCurrentCompany()
+    cleanupOpenedCopies()
   })
 }

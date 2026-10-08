@@ -22,6 +22,8 @@ import { LedgerPicker } from '../components/pickers'
 import { PriceListsTab } from './masters/PriceListsTab'
 import { PartyRatesTab } from './masters/PartyRatesTab'
 import { SchemesTab } from './masters/SchemesTab'
+import { useBulkSelection } from '../components/bulk/BulkEdit'
+import { AttachmentList } from '../components/attachments/Attachments'
 
 export type MastersTab = NonNullable<Extract<Screen, { name: 'masters' }>['tab']>
 
@@ -225,6 +227,8 @@ function LedgersTab(): React.JSX.Element {
   const [groupFilter, setGroupFilter] = useState<number | null>(null)
   const [editing, setEditing] = useState<Ledger | 'new' | null>(null)
   const groupMap = useMemo(() => new Map(groups.map((g) => [g.id, g.name])), [groups])
+  // WP 6.4: multi-select → bulk edit of group / credit terms / price level.
+  const bulk = useBulkSelection('ledger', 'masters-ledgers')
 
   // Name, group, any ancestor group, GSTIN or PAN — so "Sales" finds "Local Sale" under Sales
   // Accounts. This search and the group picker run before the table's own view (sort/filters).
@@ -240,6 +244,7 @@ function LedgersTab(): React.JSX.Element {
           New ledger
         </Button>
       </PageActions>
+      {bulk.bar}
       <Panel>
         <DataTable
           viewId="masters-ledgers"
@@ -302,6 +307,8 @@ function LedgersTab(): React.JSX.Element {
             </>
           }
           onRowActivate={(l) => nav.go({ name: 'ledger-statement', ledgerId: l.id })}
+          selection={bulk.selection}
+          toolbarEnd={bulk.historyButton}
           trailing={(l) => (
             <button
               type="button"
@@ -317,6 +324,7 @@ function LedgersTab(): React.JSX.Element {
         />
       </Panel>
       {editing && <LedgerFormModal ledger={editing === 'new' ? null : editing} onClose={() => setEditing(null)} />}
+      {bulk.dialogs}
     </>
   )
 }
@@ -549,6 +557,8 @@ function ItemsTab({ openItemId }: { openItemId?: number }): React.JSX.Element {
   const { data: units } = useQuery({ queryKey: ['units'], queryFn: api.units.list })
   const [editing, setEditing] = useState<StockItem | 'new' | null>(null)
   useDeepLinkOpen(items, openItemId, setEditing) // search results → this item's editor
+  // WP 6.4: multi-select → bulk edit of GST rate / HSN / stock group.
+  const bulk = useBulkSelection('stockItem', 'masters-items')
   const rows = useMemo<ItemRow[]>(() => {
     const unitMap = new Map((units ?? []).map((u) => [u.id, u]))
     return items.map((i) => ({ ...i, unitSymbol: unitMap.get(i.unitId)?.symbol ?? '', unitDecimals: unitMap.get(i.unitId)?.decimals ?? 3 }))
@@ -561,6 +571,7 @@ function ItemsTab({ openItemId }: { openItemId?: number }): React.JSX.Element {
           New item
         </Button>
       </PageActions>
+      {bulk.bar}
       <Panel>
         <DataTable
           viewId="masters-items"
@@ -574,6 +585,8 @@ function ItemsTab({ openItemId }: { openItemId?: number }): React.JSX.Element {
           // Enter (or a double-click) opens the item, like its Edit button.
           activateOn="dblclick"
           onRowActivate={(i) => setEditing(i)}
+          selection={bulk.selection}
+          toolbarEnd={bulk.historyButton}
           trailing={(i) => (
             <button type="button" className="text-small text-blue hover:underline" data-testid="btn-masters-edit-item" onClick={() => setEditing(i)}>
               Edit
@@ -584,6 +597,7 @@ function ItemsTab({ openItemId }: { openItemId?: number }): React.JSX.Element {
         />
       </Panel>
       {editing && <ItemFormModal item={editing === 'new' ? null : editing} onClose={() => setEditing(null)} />}
+      {bulk.dialogs}
     </>
   )
 }
@@ -752,6 +766,15 @@ export function ItemFormModal({ item, onClose }: { item: StockItem | null; onClo
           </Field>
         )}
         {item && <BomVersionsEditor itemId={item.id} />}
+        {/* WP 6.4: files on the item (spec sheets, certificates, photos). */}
+        {item && (
+          <details className="rounded-md border border-line px-3 py-2" data-testid="item-attachments">
+            <summary className="cursor-pointer text-detail font-medium text-ink">Files</summary>
+            <div className="mt-2">
+              <AttachmentList target={{ entity: 'stockItem', entityId: item.id }} />
+            </div>
+          </details>
+        )}
         <div className="flex justify-between">
           <div className="flex gap-2">
             {item && <Button variant="danger" onClick={() => void remove()}>Delete</Button>}
