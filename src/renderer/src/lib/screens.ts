@@ -376,7 +376,35 @@ export const SCREENS: ScreenDef[] = [
     title: 'Budgets',
     screen: { name: 'budgets' },
     navSection: 'analysis',
-    invalidates: ['budgets', 'budgetVariance']
+    invalidates: ['budgets', 'budgetMonthly', 'budgetRevisions', 'budgetDrill', 'costCentres']
+  },
+  // WP 4.4: cash and finance.
+  {
+    name: 'cash-forecast',
+    title: 'Cash-flow forecast',
+    navLabel: 'Cash forecast',
+    keywords: ['forecast', 'cash flow projection', 'liquidity', 'shortfall', 'runway', 'scenario'],
+    screen: { name: 'cash-forecast' },
+    navSection: 'analysis',
+    invalidates: ['forecastBase', 'forecastItems']
+  },
+  {
+    name: 'loans',
+    title: 'Loans and EMIs',
+    navLabel: 'Loans',
+    keywords: ['emi', 'loan schedule', 'term loan', 'interest', 'amortisation', 'prepayment', 'moratorium'],
+    screen: { name: 'loans' },
+    navSection: 'analysis',
+    invalidates: ['loans', 'loan', 'ledgers']
+  },
+  {
+    name: 'forex',
+    title: 'Forex — exposures and revaluation',
+    navLabel: 'Forex',
+    keywords: ['foreign currency', 'exchange rate', 'revaluation', 'unrealised', 'realised gain', 'usd', 'export receivable'],
+    screen: { name: 'forex' },
+    navSection: 'analysis',
+    invalidates: ['fxPreview', 'fxRates', 'fxRevaluations', 'fxLedgerCurrencies', 'fxOpenBills', 'currencies']
   },
   {
     name: 'exceptions',

@@ -96,7 +96,20 @@ const EXPECTED_TABLES = [
   'bank_payment_templates',
   'bank_payment_batches',
   'bank_payment_batch_items',
-  'migrations'
+  'migrations',
+  // 035 (WP 4.4) — cash and finance
+  'forecast_items',
+  'budget_revisions',
+  'loans',
+  'loan_prepayments',
+  'loan_schedules',
+  'fx_rates',
+  'fx_ledger_currency',
+  'fx_revaluations',
+  'fx_revaluation_lines',
+  'fx_settlements',
+  'fx_settlement_bills',
+  'loan_vouchers'
 ]
 
 describe('migrate', () => {

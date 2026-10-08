@@ -312,6 +312,23 @@ export const AUDIT_COVERAGE: Record<string, AuditCoverage> = {
   'payables:bankRateDelete': a('msme_bank_rate'),
   'payables:supplierStatement': QUERY,
   'payables:supplierRecon': r('matches a pasted supplier ledger against the books; writes nothing'),
+  // ---------- cash and finance (WP 4.4) ----------
+  'forecast:itemSave': a('forecast_item'),
+  'forecast:itemDelete': a('forecast_item'),
+  'loan:save': a('loan'),
+  'loan:delete': a('loan'),
+  'loan:setStatus': a('loan'),
+  'loan:prepaymentAdd': a('loan'),
+  'loan:prepaymentDelete': a('loan'),
+  'loan:postEmi': a('loan', 'voucher'),
+  'fx:rateSave': a('fx_rate'),
+  'fx:rateDelete': a('fx_rate'),
+  'fx:setLedgerCurrency': a('fx_ledger_currency'),
+  'fx:revalue': a('fx_revaluation', 'voucher'),
+  'fx:reverse': a('fx_revaluation', 'voucher'),
+  'fx:settle': a('fx_settlement', 'voucher'),
+  'budget:importCsv': a('budget'),
+  'budget:exportCsv': EXPORT,
 
   // ---------- the audit trail itself (viewer-level, listed for completeness) ----------
   'audit:exportCsv': EXPORT,

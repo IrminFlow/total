@@ -107,6 +107,9 @@ export type Screen =
   | { name: 'tcs' }
   | { name: 'cost-centres' }
   | { name: 'budgets' }
+  | { name: 'cash-forecast' }
+  | { name: 'loans'; loanId?: number }
+  | { name: 'forex' }
   | { name: 'company-info' }
   | { name: 'year-end' }
   | { name: 'fixed-assets'; tab?: 'register' | 'depreciation' | 'schedule' | 'income-tax' | 'setup' }
