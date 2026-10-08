@@ -767,7 +767,7 @@ export function registerIpc(): void {
     if (!aiDraftId || id) return tradeDocs.saveTradeDoc(db, data, id)
     return db.transaction(() => {
       const saved = tradeDocs.saveTradeDoc(db, data)
-      settleDraftOnSave(db, aiDraftId, { tradeDocId: saved.doc.id })
+      settleDraftOnSave(db, aiDraftId, { tradeDocId: saved.doc.id }, 'tradeDoc')
       return saved
     })()
   })
@@ -975,7 +975,7 @@ export function registerIpc(): void {
       aiDraftId && !id
         ? c.db.transaction(() => {
             const v = manufacture.saveManufacture(c.db, data)
-            settleDraftOnSave(c.db, aiDraftId, v.id)
+            settleDraftOnSave(c.db, aiDraftId, v.id, 'manufacture')
             return v
           })()
         : manufacture.saveManufacture(c.db, data, id)

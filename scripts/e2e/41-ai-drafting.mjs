@@ -7,9 +7,9 @@
 //      the draft is consumed and the Day book shows the invoice.
 //   2. "Pay Northwind Supplies against bills NW-101 and NW-102 from HDFC Bank" → the amount is the
 //      bills' pending total (computed by the app), allocated bill-wise → save → both bills settled.
-//   3. "Quotation for Umbrella Retail for 3 Office Chair at 6,500" → reviewed in the quotation editor →
+//   3. "Make a quotation for Umbrella Retail for 3 Office Chair at 6,500" → reviewed in the quotation editor →
 //      saved: the draft is consumed by the new document.
-//   4. "Delivery challan to Umbrella Retail for 1 Laptop 14 at 45,000" → reviewed in the challan editor →
+//   4. "Create a delivery challan to Umbrella Retail for 1 Laptop 14 at 45,000" → reviewed in the challan editor →
 //      Discard draft: nothing saved, the draft is discarded.
 //   5. "Manufacture 2 Steel Filing Cabinet" → raw materials from its BOM in the Manufacture form → saved.
 //   6. Settings → AI lists the drafts with their status.
@@ -171,7 +171,7 @@ await scenario('41-ai-drafting', async (h) => {
     await h.page.click(`[data-testid="ai-draft-card"][data-draft-id="${d.id}"] [data-testid="btn-ai-review-draft"]`)
     return d
   }
-  const quote = await ask('Quotation for Umbrella Retail for 3 Office Chair at 6,500')
+  const quote = await ask('Make a quotation for Umbrella Retail for 3 Office Chair at 6,500')
   assertEq(quote.payload.form, 'tradeDoc', 'a quotation draft')
   await h.waitScreen('trade-doc')
   await h.page.waitForSelector('[data-testid="ai-draft-banner"][data-form="tradeDoc"]', { timeout: 10000 })
@@ -184,7 +184,7 @@ await scenario('41-ai-drafting', async (h) => {
   assertEq((await h.invoke('ai:draft:get', { id: quote.id })).status, 'consumed', 'saving the quotation consumes its draft')
 
   // ---------- 4. a delivery challan → the challan editor → discarded ----------
-  const challan = await ask('Delivery challan to Umbrella Retail for 1 Laptop 14 at 45,000')
+  const challan = await ask('Create a delivery challan to Umbrella Retail for 1 Laptop 14 at 45,000')
   await h.waitScreen('voucher-entry')
   await h.page.waitForSelector('[data-testid="voucher-entry-mode"][data-mode="stockNote"]', { timeout: 10000 })
   await h.page.waitForSelector('[data-testid="ai-draft-banner"][data-form="stockNote"]', { timeout: 10000 })
@@ -222,6 +222,7 @@ await scenario('41-ai-drafting', async (h) => {
   await h.page.waitForSelector('[data-testid="rows-ai-drafts"] [data-draft-id]', { timeout: 10000 })
   const rows = await h.page.$$eval('[data-testid="rows-ai-drafts"] [data-draft-id]', (els) => els.map((e) => e.getAttribute('data-status')))
   assertEq(rows.join(','), 'consumed,discarded,consumed,consumed,consumed', 'every draft listed with its status')
+  assert((await h.invoke('ai:drafts')).every((d) => !d.unrequested), 'every draft was asked for — none carries the unrequested flag')
   await h.page.evaluate(() => document.querySelector('[data-testid="rows-ai-drafts"]')?.scrollIntoView({ block: 'center' }))
   await bothThemes('09-settings-drafts')
 })

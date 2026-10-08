@@ -33,118 +33,9 @@ import { settleDraftOnSave } from './drafts'
 import * as store from './store'
 import type { Role } from '../services/roles'
 
-const INFO: CompanyInfo = { ...TEST_INFO, name: 'Draft Test Co', gstin: '27AAPFU0939F1ZV', stateCode: '27' }
-const TODAY = '2025-08-14' // a Thursday
-
-let db: DB
-type Key = 'cash' | 'sales' | 'purchase' | 'cgst' | 'sgst' | 'igst' | 'bank' | 'rent' | 'power' | 'umbrella' | 'krishnaEnt' | 'krishnaEl' | 'bharat' | 'laptop' | 'mouse' | 'rod' | 'chair'
-const ids = {} as Record<Key, number>
-
-const groupId = (name: string): number => (db.prepare('SELECT id FROM groups WHERE name = ?').get(name) as { id: number }).id
-const typeId = (kind: string): number => (db.prepare('SELECT id FROM voucher_types WHERE kind = ? ORDER BY id').get(kind) as { id: number }).id
-const count = (sql: string): number => (db.prepare(sql).get() as { n: number }).n
-
-function ledger(name: string, group: string, extra: Record<string, unknown> = {}): number {
-  return createLedger(db, {
-    name, groupId: groupId(group), openingBalance: 0, gstin: null, stateCode: null, address: null, taxType: null, gstRate: null, hsn: null,
-    tdsSectionId: null, pan: null, creditDays: null, exportType: null, ...extra
-  }).id
-}
-function item(name: string, gstRate: number | null, opening: [number, number] = [0, 0], extra: Record<string, unknown> = {}): number {
-  const unit = db.prepare("SELECT id FROM units WHERE symbol = 'Nos'").get() as { id: number }
-  return createStockItem(db, stockItemInputSchema.parse({ name, unitId: unit.id, gstRate, hsn: '8471', openingQtyMilli: opening[0], openingValue: opening[1], ...extra })).id
-}
-
-function fixture(): void {
-  db = seededDb()
-  ids.cash = (db.prepare("SELECT id FROM ledgers WHERE name = 'Cash'").get() as { id: number }).id
-  ids.sales = ledger('Sales A/c', 'Sales Accounts')
-  ids.purchase = ledger('Purchase A/c', 'Purchase Accounts')
-  ids.cgst = ledger('CGST', 'Duties & Taxes', { taxType: 'cgst' })
-  ids.sgst = ledger('SGST', 'Duties & Taxes', { taxType: 'sgst' })
-  ids.igst = ledger('IGST', 'Duties & Taxes', { taxType: 'igst' })
-  ids.bank = ledger('HDFC Bank', 'Bank Accounts')
-  ledger('Round Off', 'Indirect Expenses')
-  ids.rent = ledger('Shop Rent', 'Indirect Expenses')
-  ids.power = ledger('Electricity Charges', 'Indirect Expenses')
-  ids.umbrella = ledger('Umbrella Retail', 'Sundry Debtors', { gstin: '27AABCD1234E1Z8', stateCode: '27', creditDays: 30 })
-  ids.krishnaEnt = ledger('Krishna Enterprises', 'Sundry Debtors', { gstin: '29AABCF9012G1ZQ', stateCode: '29' })
-  ids.krishnaEl = ledger('Krishna Electricals', 'Sundry Debtors', { stateCode: '27' })
-  ids.bharat = ledger('Bharat Steel Suppliers', 'Sundry Creditors', { gstin: '27AABCG3456H1ZN', stateCode: '27' })
-  ids.laptop = item('Laptop 14"', 18, [10_000, 40_000_000], { barcode: 'LAP14' })
-  ids.mouse = item('Wireless Mouse', 18, [50_000, 3_000_000])
-  ids.rod = item('Steel Rod', 18, [100_000, 1_500_000])
-  ids.chair = item('Chair', 18)
-  saveBomVersion(db, { itemId: ids.chair, name: 'v1', isDefault: true, lines: [{ componentId: ids.rod, qtyMilliPerUnit: 2000 }] })
-}
-
-function ctx(over: Partial<ToolContext> = {}): ToolContext {
-  return {
-    db, company: INFO, role: 'accountant', userName: 'Arun', threadId: null, messageId: null, today: TODAY,
-    period: { from: '2025-04-01', to: '2026-03-31' }, userRequest: 'record this entry', ...over
-  }
-}
-
-const registry = createToolRegistry()
-async function draft(tool: string, args: Record<string, unknown>, over: Partial<ToolContext> = {}): Promise<{ ok: boolean; data: any; error?: string; draftId: number | null }> {
-  const r = await registry.run(tool, JSON.stringify(args), ctx(over))
-  return r.ok ? { ok: true, data: r.data, draftId: r.draftId } : { ok: false, data: null, error: r.error, draftId: null }
-}
-const payloadOf = (draftId: number): AiVoucherDraftPayload => store.getDraft(db, draftId)!.payload
-
-/** The books' own rows of a voucher, ids and timestamps stripped — "identical rows". */
-function rowsOf(voucherId: number): unknown {
-  const v = getVoucher(db, voucherId)!
-  return {
-    lines: v.lines.map((l) => ({ ledgerId: l.ledgerId, drCr: l.drCr, amount: l.amount })),
-    inventory: v.inventory.map((l) => ({ item: l.stockItemId, qty: l.qtyMilli, rate: l.ratePaise, disc: l.discountPaise, amount: l.amount, dir: l.direction, src: l.source ?? null })),
-    billRefs: v.billRefs.map((b) => ({ kind: b.kind, name: b.name, amount: b.amount, due: b.dueDate })),
-    party: v.partyLedgerId,
-    narration: v.narration,
-    pos: v.posOverride,
-    date: v.date
-  }
-}
-
-function planOf(v: Voucher, kind: Parameters<typeof planVoucherEdit>[1]) {
-  const ledgers = listLedgers(db)
-  const items = listStockItems(db)
-  return planVoucherEdit(v, kind, {
-    invoice: {
-      companyStateCode: INFO.stateCode,
-      items: new Map(items.map((i) => [i.id, { gstRate: i.gstRate, cessRate: i.cessRate }])),
-      ledgers: new Map(ledgers.map((l) => [l.id, { stateCode: l.stateCode, gstRate: l.gstRate, tdsPayableSectionId: l.tdsPayableSectionId }]))
-    },
-    taxLedgers: taxLedgerIdsFrom(ledgers),
-    taxLedgerList: ledgers,
-    manufacture: v.id ? getManufactureDetails(db, v.id) : null,
-    itemName: (id) => items.find((i) => i.id === id)?.name ?? ''
-  })
-}
-
-/** What InvoiceEntry posts for a draft's state: bill name = the auto number, tax ledgers as found. */
-function invoiceEditorPayload(state: InvoiceFormState, kind: 'sales' | 'purchase' | 'credit_note' | 'debit_note', vtId: number): VoucherInputParsed {
-  const ledgers = listLedgers(db)
-  const items = listStockItems(db)
-  const number = nextVoucherNumber(db, vtId, state.date)
-  const r = buildInvoicePayload(
-    { ...state, billName: state.billName || number },
-    {
-      kind, companyStateCode: INFO.stateCode,
-      items: new Map(items.map((i) => [i.id, { gstRate: i.gstRate, cessRate: i.cessRate }])),
-      ledgers: new Map(ledgers.map((l) => [l.id, { stateCode: l.stateCode, gstRate: l.gstRate, tdsPayableSectionId: l.tdsPayableSectionId }]))
-    },
-    vtId,
-    taxLedgerIdsFrom(ledgers, taxSideOf(kind))
-  )
-  if (!r.ok) throw new Error(r.error)
-  return r.payload
-}
-
-const BLANK = {
-  partyLedgerId: null, narration: null, reference: null, instrumentNo: null, instrumentDate: null, transporterId: null, vehicleNo: null,
-  transportDistanceKm: null, posOverride: null, currencyCode: null, exchangeRate: null
-}
+import {
+  BLANK, INFO, TODAY, count, ctx, db, draft, fixture, groupId, ids, invoiceEditorPayload, item, ledger, payloadOf, planOf, registry, rowsOf, typeId
+} from './drafting.testutil'
 
 beforeEach(fixture)
 
@@ -410,7 +301,7 @@ describe('payments and receipts against open bills (outstandings)', () => {
     const adv = await draft('draft_voucher', { kind: 'payment', party: 'Bharat Steel Suppliers', account: 'Cash', amount: '20000', bills: [{ bill: 'P-15' }] })
     expect(payloadOf(adv.draftId!).billRefs).toEqual([
       { kind: 'against', name: 'P-15', amount: 590_000, dueDate: null },
-      { kind: 'new', name: 'Advance', amount: 1_410_000, dueDate: null }
+      { kind: 'new', name: nextVoucherNumber(db, typeId('payment'), TODAY), amount: 1_410_000, dueDate: null }
     ])
     expect((await draft('draft_voucher', { kind: 'payment', party: 'Bharat Steel Suppliers', account: 'Cash', bills: [{ bill: 'P-15', amount: '9000' }] })).error).toMatch(/more than the ₹5,900.00 pending/)
     const unknown = await draft('draft_voucher', { kind: 'payment', party: 'Bharat Steel Suppliers', account: 'Cash', bills: [{ bill: 'P-99' }] })
@@ -472,7 +363,7 @@ describe('notes, challans, manufacture, orders', () => {
     const ev = evaluateManufactureForm(state, { voucherTypeId: p.voucherTypeId, materialPaise: preview.totalPaise })
     const saved = db.transaction(() => {
       const v = saveManufacture(db, { ...ev.input, confirmLoss: true })
-      settleDraftOnSave(db, r.draftId!, v.id)
+      settleDraftOnSave(db, r.draftId!, v.id, 'manufacture')
       return v
     })()
     expect(planOf(getVoucher(db, saved.id)!, 'stock_journal').mode).toBe('manufacture')
@@ -495,7 +386,7 @@ describe('notes, challans, manufacture, orders', () => {
     }, p.voucherTypeId)
     const saved = db.transaction(() => {
       const s = saveTradeDoc(db, built.ok ? built.payload : (null as never))
-      settleDraftOnSave(db, r.draftId!, { tradeDocId: s.doc.id })
+      settleDraftOnSave(db, r.draftId!, { tradeDocId: s.doc.id }, 'tradeDoc')
       return s
     })()
     expect(getTradeDoc(db, saved.doc.id)!.totals.total).toBe(p.total)
@@ -526,7 +417,7 @@ describe('the agent: multi-draft turns, injection, numbers rule on summaries', (
     expect(store.draftSet(db, drafts[0]!.messageId!).map((d) => d.id)).toEqual(drafts.map((d) => d.id))
     expect(drafts.every((d) => !d.unrequested)).toBe(true)
     const last = store.listMessages(db, t.threadId).filter((m) => m.role === 'tool').at(-1)!
-    expect((last.toolOutput as { result: { draftsThisAnswer: unknown } }).result.draftsThisAnswer).toMatchObject({ count: 3, totalOfDrafts: '₹29,950.50' })
+    expect((last.toolOutput as { result: { draftsThisAnswer: unknown } }).result.draftsThisAnswer).toMatchObject({ count: 3, byKind: [{ kind: 'journals', count: 3, total: '₹29,950.50' }] })
   })
 
   it('a narration telling the assistant to draft a payment → at most a FLAGGED unrequested draft', async () => {

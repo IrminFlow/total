@@ -56,20 +56,29 @@ export function consumeDraft(db: DB, draftId: number, saved: number | DraftSaveT
   return after
 }
 
-/** A save with `aiDraftId`: consume the draft when it is still open. A draft discarded or
- *  deleted (Delete all AI data, thread delete) while the user was reviewing it must not block the
- *  save — the entry is the user's own; the audit trail records that the draft was no longer open. */
-export function settleDraftOnSave(db: DB, draftId: number, saved: number | DraftSaveTarget): void {
+/** Which save channel each draft form is saved through. */
+export type DraftSaveChannel = 'voucher' | 'manufacture' | 'tradeDoc'
+const CHANNEL_OF: Record<string, DraftSaveChannel> = { accounting: 'voucher', invoice: 'voucher', stockNote: 'voucher', manufacture: 'manufacture', tradeDoc: 'tradeDoc' }
+
+/** A save with `aiDraftId` (called inside the save's transaction, after it succeeded): consume
+ *  the draft when it is still open and belongs to this save channel. Nothing happens — no
+ *  consumption, no audit row — for an id that is not a draft or a draft of another kind (a
+ *  manufacture draft cannot be "used up" by an unrelated voucher). A draft discarded or deleted
+ *  while the user was reviewing it must not block the save — the entry is the user's own; the
+ *  audit trail records that the draft was no longer open. */
+export function settleDraftOnSave(db: DB, draftId: number, saved: number | DraftSaveTarget, channel: DraftSaveChannel = 'voucher'): void {
   const t = targetOf(saved)
   const d = getDraft(db, draftId)
-  if (d?.status === 'open') {
+  if (!d) return
+  if ((CHANNEL_OF[d.payload.form ?? 'accounting'] ?? 'voucher') !== channel) return
+  if (d.status === 'open') {
     consumeDraft(db, draftId, t)
     return
   }
-  writeAudit(db, 'ai_draft', draftId, 'update', d ? { status: d.status } : null, {
+  writeAudit(db, 'ai_draft', draftId, 'update', { status: d.status }, {
     ...(t.voucherId ? { voucherId: t.voucherId } : {}),
     ...(t.tradeDocId ? { tradeDocId: t.tradeDocId } : {}),
-    note: d ? `draft no longer open (${d.status}); saved without consuming it` : 'draft no longer exists; saved without it'
+    note: `draft no longer open (${d.status}); saved without consuming it`
   })
 }
 

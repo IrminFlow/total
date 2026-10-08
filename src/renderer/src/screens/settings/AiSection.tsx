@@ -459,7 +459,7 @@ const STATUS_LABEL: Record<AiDraftDto['status'], string> = { open: 'Not saved', 
 
 const DRAFT_COLUMNS = defineColumns<AiDraftDto>([
   { id: 'at', header: 'Drafted', kind: 'text', value: (r) => r.createdAt, text: (r) => fmtAt(r.createdAt), className: 'num text-muted', width: 160, hideable: false },
-  { id: 'who', header: 'Asked by', kind: 'text', value: (r) => r.userName ?? '', text: (r) => r.userName ?? 'Owner', width: 84 },
+  { id: 'who', header: 'Asked by', kind: 'text', value: (r) => r.userName ?? '', text: (r) => r.userName ?? '', width: 84 },
   // The summary already starts with the kind ("Sales invoice to…", "Payment of…").
   { id: 'form', header: 'Opens in', kind: 'text', value: (r) => FORM_LABEL[r.payload.form ?? 'accounting'] ?? '', width: 170, defaultHidden: true },
   {

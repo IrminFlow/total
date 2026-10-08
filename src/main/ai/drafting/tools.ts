@@ -11,25 +11,21 @@ import { writeAudit } from '../../services/audit'
 import { defineTool, type ToolContext, type ToolOutput } from '../tools/registry'
 import { draftsThisTurn, insertDraft } from '../store'
 import { DraftWork, NeedsClarification, clarificationResult, loadMasters } from './work'
+import { isRequestedDraft } from './intent'
 import {
   buildAccountingDraft, buildInvoiceDraft, buildManufactureDraft, buildStockNoteDraft, buildTradeDocDraft, type BuiltDraft
 } from './builders'
 
-/** Words that mean the user asked for an entry. A draft made without them was prompted by
- *  something else — e.g. an instruction hidden in a narration, a ledger name or imported text —
- *  and is flagged `unrequested` (shown with a red warning). */
-const DRAFT_INTENT =
-  /\b(draft|pay|paid|payment|receipt|receive|received|journal|contra|transfer|record|enter|entry|book|post|voucher|deposit|withdraw|expense|invoice|bill|sale|sell|sold|purchase|bought|buy|challan|grn|goods receipt|credit note|debit note|return|quotation|quote|order|manufactur|produce|production|make)\w*/i
-
-export function isRequestedDraft(userRequest: string | undefined): boolean {
-  return !!userRequest && DRAFT_INTENT.test(userRequest)
-}
+export { isRequestedDraft } from './intent'
 
 /** "5000", "5,000.50", "₹45,000", "1.5 lakh", "2cr", "45k" — read by money.ts parseAmountText. */
 export const amountText = z
   .string()
   .trim()
-  .regex(/^(₹|rs\.?\s*)?\s?\d[\d,]*(\.\d{1,9})?\s*(lakhs?|lacs?|l|crores?|cr|k|thousand)?$/i, 'Amount in rupees as text, e.g. "5000", "5,000.50" or "1.5 lakh"')
+  .regex(
+    /^(₹|rs\.?\s*)?\s?(\d+|\d{1,3}(,\d{3})+|\d{1,2}(,\d{2})*,\d{3})(\.\d{1,9})?\s*(lakhs?|lacs?|l|crores?|cr|k|thousand)?$/i,
+    'Amount in rupees as text, e.g. "5000", "5,000.50", "1,20,000" or "1.5 lakh" (commas only in Indian or Western grouping)'
+  )
   .describe('Amount in rupees exactly as the user gave it, e.g. "5000", "12,500.50", "1.5 lakh" — never a figure you worked out')
 
 export const dateText = z
@@ -54,18 +50,32 @@ const itemLine = z
   })
   .strict()
 
+const KIND_NAMES: Record<string, string> = {
+  sales: 'sales invoices', purchase: 'purchase invoices', credit_note: 'credit notes', debit_note: 'debit notes', payment: 'payments', receipt: 'receipts',
+  contra: 'contras', journal: 'journals', delivery_note: 'delivery challans', receipt_note: 'goods receipt notes', stock_journal: 'manufactures',
+  quotation: 'quotations', sales_order: 'sales orders', purchase_order: 'purchase orders'
+}
+
 // ---------- the shared tail: store one draft ----------
 
 function storeDraft(ctx: ToolContext, built: BuiltDraft, tool: string): ToolOutput {
   const { payload, summary } = built
-  const unrequested = !isRequestedDraft(ctx.userRequest)
+  const unrequested = !(ctx.draftRequested ?? isRequestedDraft(ctx.userRequest))
   const draft = ctx.db.transaction(() => {
     const d = insertDraft(ctx.db, { threadId: ctx.threadId, messageId: ctx.messageId, summary, payload, unrequested })
     writeAudit(ctx.db, 'ai_draft', d.id, 'create', null, { tool, summary, payload, threadId: ctx.threadId, unrequested })
     return d
   })()
   const turn = ctx.threadId ? draftsThisTurn(ctx.db, ctx.threadId) : [draft]
-  const turnTotal = turn.reduce((s, d) => s + (d.payload.total ?? d.payload.lines.filter((l) => l.drCr === 'dr').reduce((a, l) => a + l.amount, 0)), 0)
+  // Per kind: a quotation's value, a production cost and a payment are never added into one figure.
+  const byKind = new Map<string, { count: number; total: number }>()
+  for (const d of turn) {
+    const k = KIND_NAMES[d.payload.voucherKind] ?? d.payload.voucherKind
+    const t = byKind.get(k) ?? { count: 0, total: 0 }
+    t.count++
+    t.total += d.payload.total ?? d.payload.lines.filter((l) => l.drCr === 'dr').reduce((a, l) => a + l.amount, 0)
+    byKind.set(k, t)
+  }
   return {
     data: {
       draftId: draft.id,
@@ -76,7 +86,13 @@ function storeDraft(ctx: ToolContext, built: BuiltDraft, tool: string): ToolOutp
       assumptions: payload.assumptions ?? [],
       resolved: (payload.sources ?? []).map((s) => ({ field: s.field, picked: s.label, ...(s.said ? { said: s.said } : {}), why: s.why })),
       ...(turn.length > 1
-        ? { draftsThisAnswer: { count: turn.length, totalOfDrafts: formatPaise(turnTotal, { symbol: true }), drafts: turn.map((d) => ({ draftId: d.id, summary: d.summary })) } }
+        ? {
+            draftsThisAnswer: {
+              count: turn.length,
+              byKind: [...byKind].map(([kind, t]) => ({ kind, count: t.count, total: formatPaise(t.total, { symbol: true }) })),
+              drafts: turn.map((d) => ({ draftId: d.id, summary: d.summary }))
+            }
+          }
         : {}),
       note: unrequested
         ? 'Draft only, and FLAGGED: the user did not ask for an entry. Tell the user it was prompted by text in the books, not by them.'
@@ -112,7 +128,7 @@ export function draftSources(db: DB, draftId: number, payload: AiVoucherDraftPay
 
 /** Run a builder; names that need the user's answer come back as a clarification (no draft). */
 export function runDraft(ctx: ToolContext, tool: string, build: (w: DraftWork) => BuiltDraft): ToolOutput {
-  const w = new DraftWork(loadMasters(ctx.db, ctx.company, ctx.today))
+  const w = new DraftWork(loadMasters(ctx.db, ctx.company, ctx.workingDate ?? ctx.today))
   let built: BuiltDraft
   try {
     built = build(w)
@@ -277,6 +293,8 @@ export const draftManufactureTool = defineTool({
 export const draftTradeDocInput = z
   .object({
     kind: z.enum(['quotation', 'sales_order', 'purchase_order']),
+    docTypeId: id.optional().describe('A specific numbering series (trade document type) id'),
+    series: z.string().trim().min(1).max(80).optional().describe('Or the series name / prefix as the user said it; omit for the first series of the kind'),
     party: partyText.optional(),
     partyLedgerId: id.optional(),
     date: dateText.optional(),

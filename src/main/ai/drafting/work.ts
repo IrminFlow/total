@@ -223,6 +223,7 @@ export class DraftWork {
     if (!r) throw new Error(`Could not read the date “${said}” — give it as YYYY-MM-DD or e.g. “yesterday”, “15 Aug”`)
     this.fields.add(field)
     if (r.how !== 'as given') this.source({ field, kind: 'date', label: toDisplayDate(r.date), said, why: r.how })
+    if (r.date > this.m.today) this.assume(`“${said}” is ${toDisplayDate(r.date)} — after the working date ${toDisplayDate(this.m.today)}; check the date`)
     return r.date
   }
 
@@ -242,12 +243,23 @@ export class DraftWork {
     return p
   }
 
-  /** "2", "2.5", "2 nos", "1,000 pcs" → thousandths. */
-  qty(field: string, said: string | number, label: string): number {
-    const text = String(said).trim().toLowerCase().replace(/,/g, '')
-    const m = /^(\d+)(?:\.(\d{1,3}))?(?:\s*[a-z.]+)?$/.exec(text)
-    if (!m) throw new Error(`${label}: “${said}” is not a quantity`)
-    const milli = Number(m[1]) * 1000 + Number((m[2] ?? '').padEnd(3, '0'))
+  /** "2", "2.5", "1,000", or the number followed by the ITEM'S OWN unit ("2 Nos", "3 numbers")
+   *  → thousandths. Anything else — a multiplier ("1 lakh", "10k", "2 dozen") or another unit
+   *  ("1.5 kg" on an item kept in grams) — is refused: the app never converts quantities. */
+  qty(field: string, said: string | number, label: string, item?: StockItem | null): number {
+    const text = String(said).trim()
+    const m = /^(\d+|\d{1,3}(?:,\d{3})+|\d{1,2}(?:,\d{2})*,\d{3})(?:\.(\d{1,3}))?(?:\s*(\p{L}.*))?$/u.exec(text)
+    if (!m) throw new Error(`${label}: “${said}” is not a quantity — give a number`)
+    if (m[3]) {
+      const unit = item ? this.m.units.get(item.unitId) : undefined
+      const ok = !!unit && [unit.symbol, unit.name].some((u) => u && u.trim().toLowerCase().replace(/\.$/, '') === m[3]!.trim().toLowerCase().replace(/\.$/, ''))
+      if (!ok) {
+        throw new Error(
+          `${label}: “${said}” — give the quantity as a plain number${unit ? ` in ${unit.symbol}` : ''}; the app does not convert “${m[3]}”`
+        )
+      }
+    }
+    const milli = Number(m[1]!.replace(/,/g, '')) * 1000 + Number((m[2] ?? '').padEnd(3, '0'))
     if (milli <= 0) throw new Error(`${label}: the quantity must be more than zero`)
     this.fields.add(field)
     return milli

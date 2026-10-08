@@ -8,7 +8,7 @@
 // prices from the pricing resolver (resolvePrice), manufacture costs from the valuation engine
 // (costPreview) — and every figure in a draft summary is formatted from those integers.
 import type { DB } from '../../db/connection'
-import type { Ledger, StockItem, TradeDocKind, VoucherKind, VoucherType } from '@shared/domain'
+import type { Ledger, SaveVoucherWarnings, StockItem, TradeDocKind, VoucherKind, VoucherType } from '@shared/domain'
 import type { AiDraftForm, AiVoucherDraftPayload } from '@shared/ai'
 import { formatPaise, formatQtyMilli } from '@shared/money'
 import { addDaysISO, toDisplayDate } from '@shared/dates'
@@ -26,7 +26,7 @@ import {
   type AccountingFormState, type AccountingRowState, type InvoiceContext, type InvoiceFormState, type InvoiceRowState,
   type ManufactureFormState, type StockNoteFormState, type StockNoteKind, type TaxLedgerIds
 } from '@shared/voucherEdit'
-import { buildTradeDocPayload, computeTradeDoc, emptyTradeDocState, TRADE_DOC_TITLES, tradeDocIsSales, type TradeDocFormState } from '@shared/tradeCycle/edit'
+import { buildTradeDocPayload, computeTradeDoc, creditLimitWarningText, emptyTradeDocState, TRADE_DOC_TITLES, tradeDocIsSales, type TradeDocFormState } from '@shared/tradeCycle/edit'
 import { ledgerFactsResolver, nextVoucherNumber, saveVoucher, NOT_DELETED, getVoucher } from '../../services/vouchers'
 import { createLedger, listVoucherTypes } from '../../services/masters'
 import { openBills } from '../../services/analysis'
@@ -63,6 +63,14 @@ function rehearsalNumber(w: DraftWork, t: VoucherType, date: string): string {
     return 'AI-DRAFT'
   }
   return nextVoucherNumber(w.m.db, t.id, date)
+}
+
+/** The save's warnings (it saves anyway) become assumptions the user sees before saving. */
+function saveWarnings(w: DraftWork, warnings: SaveVoucherWarnings | undefined): void {
+  if (!warnings) return
+  for (const n of warnings.negativeStock) w.assume(`${n.name} goes negative (${formatQtyMilli(n.closingQtyMilli)} ${n.unitSymbol}) on this date`)
+  if (warnings.creditLimitExceeded) w.assume(creditLimitWarningText(warnings.creditLimitExceeded))
+  for (const d of warnings.linkDates ?? []) w.assume(d)
 }
 
 /** Zod + validateVoucher with the save's ledger facts — the clear-message pre-check; the
@@ -128,7 +136,16 @@ function priceLine(
   item: StockItem,
   qtyMilli: number,
   given: LineInput,
-  opts: { date: string; partyId: number | null; supply: 'intra' | 'inter'; fallbackRate?: { ratePaise: number; why: string } | null; zeroOk?: boolean; noCost?: boolean }
+  opts: {
+    date: string
+    partyId: number | null
+    supply: 'intra' | 'inter'
+    fallbackRate?: { ratePaise: number; why: string } | null
+    /** With fallbackRate: the original line's discount for this quantity (a return credits what was charged). */
+    fallbackDiscount?: { discountPaise: number; why: string } | null
+    zeroOk?: boolean
+    noCost?: boolean
+  }
 ): { rate: number; discount: number | null } {
   const field = `line:${i}`
   let rate: number | null = given.rate ? w.amount(field, given.rate, `Line ${i + 1} rate`) : null
@@ -136,6 +153,10 @@ function priceLine(
   if (rate == null && opts.fallbackRate) {
     rate = opts.fallbackRate.ratePaise
     w.assume(`Rate for ${item.name}: ${rs(rate)} ${opts.fallbackRate.why}`)
+    if (opts.fallbackDiscount && opts.fallbackDiscount.discountPaise > 0 && !given.discount && !given.discountPercent) {
+      discount = opts.fallbackDiscount.discountPaise
+      w.assume(`Discount on ${item.name}: ${rs(discount)} ${opts.fallbackDiscount.why}`)
+    }
   }
   if (rate == null) {
     const price = pricingLoader(w.m.db)({ date: opts.date, partyLedgerId: opts.partyId, currency: 'INR', supply: opts.supply }, item.id, qtyMilli)
@@ -257,7 +278,7 @@ export function buildAccountingDraft(w: DraftWork, input: AccountingDraftInput):
       }
     }
     w.settle()
-    const alloc = allocateBills(w, party!, input.kind, date, input.amount ? w.amount('amount', input.amount, 'Amount') : null, input.bills, !!input.oldestBillsFirst)
+    const alloc = allocateBills(w, party!, input.kind, date, input.amount ? w.amount('amount', input.amount, 'Amount') : null, input.bills, !!input.oldestBillsFirst, advanceNameFor(w, type, date))
     const partyRow: AccountingRowState = { drCr: input.kind === 'payment' ? 'dr' : 'cr', ledgerId: party!.id, amount: alloc.total, costAllocations: [] }
     const accountRow: AccountingRowState = { drCr: input.kind === 'payment' ? 'cr' : 'dr', ledgerId: account!.id, amount: alloc.total, costAllocations: [] }
     rows.push(...(input.kind === 'payment' ? [partyRow, accountRow] : [accountRow, partyRow]))
@@ -276,7 +297,7 @@ export function buildAccountingDraft(w: DraftWork, input: AccountingDraftInput):
     }
     const partyTotal = rows.filter((r) => r.ledgerId === party!.id).reduce((s, r) => s + (r.amount ?? 0), 0)
     if (partyTotal === 0) throw new Error(`${party.name} is not on any line`)
-    const alloc = allocateBills(w, party, input.kind, date, partyTotal, input.bills, !!input.oldestBillsFirst)
+    const alloc = allocateBills(w, party, input.kind, date, partyTotal, input.bills, !!input.oldestBillsFirst, advanceNameFor(w, type, date))
     refs = alloc.refs
     note = alloc.note
   }
@@ -315,7 +336,7 @@ function accountingResult(
   const cr = lines.filter((l) => l.drCr === 'cr').reduce((s, l) => s + l.amount, 0)
   const parsed = precheck(m.db, payload, type.kind)
   if (dr !== cr) throw new Error(`Debits (${formatPaise(dr)}) and credits (${formatPaise(cr)}) differ`)
-  rehearse(m.db, () => saveVoucher(m.db, { ...parsed, number: rehearsalNumber(w, type, date) }))
+  saveWarnings(w, rehearse(m.db, () => saveVoucher(m.db, { ...parsed, number: rehearsalNumber(w, type, date) })).warnings)
   const names = (side: 'dr' | 'cr'): string => lines.filter((l) => l.drCr === side).map((l) => ledgerName(m, l.ledgerId)).join(', ')
   const summary = `${type.name} of ${rs(dr)} on ${date}: Dr ${names('dr')} / Cr ${names('cr')}${billNote}`
   return finish(
@@ -327,6 +348,11 @@ function accountingResult(
     },
     summary
   )
+}
+
+/** voucherEdit/accounting.ts names an advance after the voucher number ('Advance' without one). */
+function advanceNameFor(w: DraftWork, t: VoucherType, date: string): string {
+  return t.numbering === 'manual' ? 'Advance' : nextVoucherNumber(w.m.db, t.id, date)
 }
 
 function emptyOriginal(): Omit<NonNullable<AccountingFormState['original']>, 'ledgerIds' | 'inventory'> {
@@ -346,13 +372,22 @@ function allocateBills(
   date: string,
   amount: number | null,
   bills: { bill: string; amount?: string }[] | undefined,
-  oldestFirst: boolean
+  oldestFirst: boolean,
+  /** Name of the 'new' bill an excess becomes — the voucher number, as the accounting form names it. */
+  advanceName: string
 ): { total: number; refs: NonNullable<AiVoucherDraftPayload['billRefs']>; note: string } {
   const open = openBills(w.m.db, party.id, date).filter((b) => b.pending > 0)
+  // A settlement names a bill, and the allocation settles the OLDEST open bill of that name
+  // (shared/outstanding.ts settleNamed): with duplicate names only that one can be targeted.
+  const firstOfName = (j: number): boolean => open.findIndex((x) => x.number === open[j]!.number) === j
   const refs: NonNullable<AiVoucherDraftPayload['billRefs']> = []
   if (bills && bills.length) {
     bills.forEach((b, i) => {
-      const r = resolveName(b.bill, open.map((o, j) => ({ id: j, name: o.number, keys: [o.number], detail: `${toDisplayDate(o.date)} · ${rs(o.pending)} pending` })), { minScore: 90 })
+      const r = resolveName(
+        b.bill,
+        open.flatMap((o, j) => (firstOfName(j) ? [{ id: j, name: o.number, keys: [o.number], detail: `${toDisplayDate(o.date)} · ${rs(o.pending)} pending` }] : [])),
+        { minScore: 90 }
+      )
       if (r.status !== 'match') {
         w.ask({
           field: 'bills',
@@ -366,6 +401,8 @@ function allocateBills(
       const amt = b.amount ? w.amount('bills', b.amount, `Bill ${b.bill}`) : bill.pending
       if (amt > bill.pending) throw new Error(`${rs(amt)} is more than the ${rs(bill.pending)} pending on bill ${bill.number}`)
       if (refs.some((x) => x.name === bill.number)) throw new Error(`Bill ${bill.number} is named twice`)
+      const twins = open.filter((x) => x.number === bill.number).length
+      if (twins > 1) w.assume(`${twins} open bills are named ${bill.number}; a settlement by name applies to the oldest first — the one dated ${toDisplayDate(bill.date)}`)
       refs.push({ kind: 'against', name: bill.number, amount: amt, dueDate: null })
       w.source({
         field: 'bills', kind: 'bill', label: `${bill.number} (${toDisplayDate(bill.date)})`, ...(bill.voucherId ? { id: bill.voucherId } : {}), said: b.bill,
@@ -379,6 +416,7 @@ function allocateBills(
     let left = amount
     for (const bill of [...open].sort((a, b) => a.date.localeCompare(b.date))) {
       if (left <= 0) break
+      if (refs.some((x) => x.name === bill.number)) continue // a duplicate name settles the oldest one only
       const amt = Math.min(left, bill.pending)
       refs.push({ kind: 'against', name: bill.number, amount: amt, dueDate: null })
       w.source({ field: 'bills', kind: 'bill', label: `${bill.number} (${toDisplayDate(bill.date)})`, ...(bill.voucherId ? { id: bill.voucherId } : {}), why: `oldest open bill first; ${rs(bill.pending)} pending` })
@@ -394,8 +432,8 @@ function allocateBills(
   }
   if (allocated > total) throw new Error(`The bills (${rs(allocated)}) are more than the ${kind} (${rs(total)})`)
   if (refs.length && allocated < total) {
-    refs.push({ kind: 'new', name: 'Advance', amount: total - allocated, dueDate: null })
-    w.assume(`${rs(total - allocated)} more than the bills — kept as an advance (new bill “Advance”)`)
+    refs.push({ kind: 'new', name: advanceName, amount: total - allocated, dueDate: null })
+    w.assume(`${rs(total - allocated)} more than the bills — kept as an advance (new bill “${advanceName}”, the voucher number)`)
   }
   if (refs.length) w.fields.add('bills')
   else if (open.length && !bills?.length) w.assume(`Not allocated against ${party.name}'s open bills (on account) — name the bills to settle them`)
@@ -498,7 +536,7 @@ export function buildInvoiceDraft(w: DraftWork, input: InvoiceDraftInput): Built
   const resolved = input.items.map((l, i) => {
     const item = w.item(`line:${i}`, l.itemId ?? l.item ?? null)
     if (l.itemId == null && !l.item) throw new Error(`Line ${i + 1}: give the item (name, barcode or HSN)`)
-    return { item, qtyMilli: w.qty(`line:${i}`, l.qty, `Line ${i + 1}`), given: l }
+    return { item, qtyMilli: w.qty(`line:${i}`, l.qty, `Line ${i + 1}`, item), given: l }
   })
   w.settle()
   const original = (kind === 'credit_note' || kind === 'debit_note') && input.againstInvoice ? findOriginalInvoice(w, kind, party!.id, input.againstInvoice) : null
@@ -506,18 +544,37 @@ export function buildInvoiceDraft(w: DraftWork, input: InvoiceDraftInput): Built
   const originalVoucher = original ? getVoucher(m.db, original.id) : null
   const partyState = pos ?? party!.stateCode ?? m.company.stateCode
   const supply = supplyTypeFor(m.company.stateCode, partyState)
-  const usedUids = new Set<string>()
+  // Quantity already returned against each original line (live notes), plus what this draft takes.
+  const returnedStmt = m.db.prepare(
+    `SELECT COALESCE(SUM(ll.qty_milli), 0) AS q FROM line_links ll JOIN vouchers v ON v.id = ll.to_voucher_id
+     WHERE ll.from_line_uid = ? AND ll.link_type = 'return' AND ${NOT_DELETED}`
+  )
+  const taken = new Map<string, number>()
   const rows: InvoiceRowState[] = resolved.map((r, i) => {
     let source: InvoiceRowState['source'] = null
     let fallbackRate: { ratePaise: number; why: string } | null = null
+    let fallbackDiscount: { discountPaise: number; why: string } | null = null
     if (originalVoucher) {
-      const line = originalVoucher.inventory.find((l) => l.stockItemId === r.item!.id && l.lineUid && !usedUids.has(l.lineUid))
-      if (!line) throw new Error(`${r.item!.name} is not on ${kind === 'credit_note' ? 'sales' : 'purchase'} invoice ${original!.number}`)
-      usedUids.add(line.lineUid!)
+      const lines = originalVoucher.inventory.filter((l) => l.stockItemId === r.item!.id && l.lineUid)
+      if (lines.length === 0) throw new Error(`${r.item!.name} is not on ${kind === 'credit_note' ? 'sales' : 'purchase'} invoice ${original!.number}`)
+      const left = (l: (typeof lines)[number]): number => l.qtyMilli - (returnedStmt.get(l.lineUid) as { q: number }).q - (taken.get(l.lineUid!) ?? 0)
+      const line = lines.find((l) => left(l) >= r.qtyMilli)
+      if (!line) {
+        const most = Math.max(...lines.map(left))
+        throw new Error(
+          `Only ${formatQtyMilli(Math.max(0, most))} ${w.unitOf(r.item!)} of ${r.item!.name} on invoice ${original!.number} is left to return (some was returned already)`
+        )
+      }
+      taken.set(line.lineUid!, (taken.get(line.lineUid!) ?? 0) + r.qtyMilli)
       source = { lineUid: line.lineUid!, linkType: 'return' }
       fallbackRate = { ratePaise: line.ratePaise, why: `— the rate on invoice ${original!.number}` }
+      if (line.discountPaise > 0) {
+        // Pro rata, integer half-up: discount × returned qty ÷ original qty.
+        const d = Math.floor((line.discountPaise * r.qtyMilli * 2 + line.qtyMilli) / (2 * line.qtyMilli))
+        fallbackDiscount = { discountPaise: d, why: `— ${formatQtyMilli(r.qtyMilli)} of ${formatQtyMilli(line.qtyMilli)}'s share of the ${rs(line.discountPaise)} discount on invoice ${original!.number}` }
+      }
     }
-    const { rate, discount } = priceLine(w, i, r.item!, r.qtyMilli, r.given, { date, partyId: party!.id, supply, fallbackRate })
+    const { rate, discount } = priceLine(w, i, r.item!, r.qtyMilli, r.given, { date, partyId: party!.id, supply, fallbackRate, fallbackDiscount })
     w.fields.add(`line:${i}`)
     return { itemId: r.item!.id, qtyText: qtyText(r.qtyMilli), rate, discount, godownId: null, batchId: null, ...(source ? { source } : {}) }
   })
@@ -569,7 +626,8 @@ export function buildInvoiceDraft(w: DraftWork, input: InvoiceDraftInput): Built
     const built = buildInvoicePayload({ ...state, number, billName: state.billName || number }, ctx, type.id, taxLedgers)
     if (!built.ok) throw new Error(built.error)
     const parsed = precheck(m.db, built.payload, kind)
-    saveVoucher(m.db, parsed)
+    const res = saveVoucher(m.db, parsed)
+    saveWarnings(w, res.warnings)
     return built.payload
   })
   // Ledger lines for the 5.1 fields: only ledgers that already exist (a tax ledger the editor will
@@ -627,7 +685,10 @@ export function buildStockNoteDraft(w: DraftWork, input: StockNoteDraftInput): B
   } else {
     w.assume(`Purpose: ${purposes.find((x) => x.value === purpose)!.label} (the default)`)
   }
-  const resolved = input.items.map((l, i) => ({ item: w.item(`line:${i}`, l.itemId ?? l.item ?? null), qtyMilli: w.qty(`line:${i}`, l.qty, `Line ${i + 1}`), given: l }))
+  const resolved = input.items.map((l, i) => {
+    const item = w.item(`line:${i}`, l.itemId ?? l.item ?? null)
+    return { item, qtyMilli: w.qty(`line:${i}`, l.qty, `Line ${i + 1}`, item), given: l }
+  })
   w.settle()
   const supply = supplyTypeFor(m.company.stateCode, party!.stateCode ?? m.company.stateCode)
   const rows: InvoiceRowState[] = resolved.map((r, i) => {
@@ -650,7 +711,7 @@ export function buildStockNoteDraft(w: DraftWork, input: StockNoteDraftInput): B
   const built = buildStockNotePayload(state, ctx, type.id)
   if (!built.ok) throw new Error(built.error)
   const parsed = precheck(m.db, built.payload, kind)
-  rehearse(m.db, () => saveVoucher(m.db, { ...parsed, number: rehearsalNumber(w, type, date) }))
+  saveWarnings(w, rehearse(m.db, () => saveVoucher(m.db, { ...parsed, number: rehearsalNumber(w, type, date) })).warnings)
   const value = parsed.inventory.reduce((s, l) => s + l.amount, 0)
   const summary = `${KIND_LABEL[kind]} ${kind === 'delivery_note' ? 'to' : 'from'} ${party!.name} on ${date} (${purposes.find((x) => x.value === purpose)!.label.toLowerCase()}): ${parsed.inventory
     .map((l) => `${formatQtyMilli(l.qtyMilli)} × ${m.items.find((i) => i.id === l.stockItemId)?.name}`)
@@ -678,7 +739,7 @@ export function buildManufactureDraft(w: DraftWork, input: ManufactureDraftInput
   const date = w.date('date', input.date)
   if (input.item == null && input.itemId == null) throw new Error('Give the item to manufacture')
   const item = w.item('finishedItem', input.itemId ?? input.item ?? null)
-  const qtyMilli = w.qty('qty', input.qty, 'Quantity')
+  const qtyMilli = w.qty('qty', input.qty, 'Quantity', item)
   let godownId: number | null = null
   if (input.godown) {
     const godowns = m.db.prepare("SELECT id, name FROM godowns WHERE kind = 'own' ORDER BY name").all() as { id: number; name: string }[]
@@ -690,7 +751,10 @@ export function buildManufactureDraft(w: DraftWork, input: ManufactureDraftInput
       w.ask({ field: 'godown', said: input.godown, question: `Which godown is “${input.godown}”?`, candidates: (r.status === 'ambiguous' ? r.candidates : godowns.slice(0, 8)).map((g) => ({ id: g.id, name: g.name })) })
     }
   }
-  const comps = (input.components ?? []).map((c, i) => ({ item: w.item(`line:${i}`, c.itemId ?? c.item ?? null), qtyMilli: w.qty(`line:${i}`, c.qty, `Component ${i + 1}`) }))
+  const comps = (input.components ?? []).map((c, i) => {
+    const it = w.item(`line:${i}`, c.itemId ?? c.item ?? null)
+    return { item: it, qtyMilli: w.qty(`line:${i}`, c.qty, `Component ${i + 1}`, it) }
+  })
   w.settle()
   const versions = listBomVersions(m.db)
   let rows: { itemId: number; qtyMilli: number }[]
@@ -756,6 +820,8 @@ export function buildManufactureDraft(w: DraftWork, input: ManufactureDraftInput
 
 export interface TradeDocDraftInput {
   kind: TradeDocKind
+  docTypeId?: number
+  series?: string
   party?: string
   partyLedgerId?: number
   date?: string
@@ -771,14 +837,33 @@ export interface TradeDocDraftInput {
 export function buildTradeDocDraft(w: DraftWork, input: TradeDocDraftInput): BuiltDraft {
   const m = w.m
   const kind = input.kind
-  const docType = listTradeDocTypes(m.db).find((t) => t.kind === kind)
-  if (!docType) throw new Error(`This company has no ${TRADE_DOC_TITLES[kind].toLowerCase()} series`)
+  const series = listTradeDocTypes(m.db).filter((t) => t.kind === kind)
+  if (series.length === 0) throw new Error(`This company has no ${TRADE_DOC_TITLES[kind].toLowerCase()} series`)
+  let docType = series[0]!
+  if (input.docTypeId != null) {
+    const t = series.find((x) => x.id === input.docTypeId)
+    if (!t) throw new Error(`There is no ${TRADE_DOC_TITLES[kind].toLowerCase()} series with id ${input.docTypeId}`)
+    docType = t
+  } else if (input.series) {
+    const r = resolveName(input.series, series.map((t) => ({ id: t.id, name: t.name, keys: [t.prefix] })))
+    if (r.status === 'match') {
+      docType = series.find((t) => t.id === r.id)!
+      w.source({ field: 'series', kind: 'trade_doc', label: docType.name, said: input.series, why: r.why })
+    } else {
+      w.ask({ field: 'series', said: input.series, question: `Which ${TRADE_DOC_TITLES[kind].toLowerCase()} series is “${input.series}”?`, candidates: series.map((t) => ({ id: t.id, name: t.name })) })
+    }
+  } else if (series.length > 1) {
+    w.assume(`Series: ${docType.name} (the first of ${series.length})`)
+  }
   const date = w.date('date', input.date)
   if (input.party == null && input.partyLedgerId == null) throw new Error('Give the party (name, GSTIN or ledgerId)')
   const sales = tradeDocIsSales(kind)
   const party = w.party('party', input.partyLedgerId ?? input.party ?? null, sales ? 'debtor' : 'creditor')
   const pos = input.placeOfSupply ? w.stateCode('pos', input.placeOfSupply) : null
-  const resolved = input.items.map((l, i) => ({ item: w.item(`line:${i}`, l.itemId ?? l.item ?? null), qtyMilli: w.qty(`line:${i}`, l.qty, `Line ${i + 1}`), given: l }))
+  const resolved = input.items.map((l, i) => {
+    const item = w.item(`line:${i}`, l.itemId ?? l.item ?? null)
+    return { item, qtyMilli: w.qty(`line:${i}`, l.qty, `Line ${i + 1}`, item), given: l }
+  })
   w.settle()
   const supply = supplyTypeFor(m.company.stateCode, pos ?? party!.stateCode ?? m.company.stateCode)
   const rows = resolved.map((r, i) => {
@@ -805,7 +890,13 @@ export function buildTradeDocDraft(w: DraftWork, input: TradeDocDraftInput): Bui
   const ctx = { kind, companyStateCode: m.company.stateCode, items: invoiceCtx(m, 'sales').items, ledgers: new Map(m.ledgers.map((l) => [l.id, { stateCode: l.stateCode }])) }
   const built = buildTradeDocPayload(state, ctx, docType.id)
   if (!built.ok) throw new Error(built.error)
-  rehearse(m.db, () => saveTradeDoc(m.db, built.payload))
+  let rehearsalPayload = built.payload
+  if (docType.numbering === 'manual') {
+    w.assume(`${docType.name} is numbered by hand — type the document number before saving`)
+    rehearsalPayload = { ...built.payload, number: 'AI-DRAFT' }
+  }
+  const saved = rehearse(m.db, () => saveTradeDoc(m.db, rehearsalPayload))
+  for (const msg of saved.warnings.linkDates) w.assume(msg)
   const c = computeTradeDoc(state, ctx)
   const g = c.gst
   const tax = [g.cgst ? `CGST ${rs(g.cgst)}` : null, g.sgst ? `SGST ${rs(g.sgst)}` : null, g.igst ? `IGST ${rs(g.igst)}` : null, g.cess ? `cess ${rs(g.cess)}` : null].filter(Boolean)

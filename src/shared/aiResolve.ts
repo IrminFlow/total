@@ -42,15 +42,18 @@ export type Resolution =
 
 const COMPANY_SUFFIXES = /\b(private limited|pvt\.? ltd\.?|pvt|ltd\.?|limited|llp|inc|co\.?|a\/c|ac|account)$/
 
-/** Lower-case, quotes and punctuation dropped, "&" → "and", "M/s" dropped, spaces collapsed,
- *  trailing "a/c" and company suffixes dropped. */
+/** Unicode-aware: NFKC folded, lower-case, quotes and punctuation dropped (letters, combining
+ *  marks and digits of ANY script kept — Devanagari names stay distinct), "&" → "and", "M/s"
+ *  dropped, spaces collapsed, trailing "a/c" and company suffixes dropped. A name made only of
+ *  punctuation or emoji normalises to "" — and "" never matches anything. */
 export function normaliseName(s: string): string {
   let t = s
+    .normalize('NFKC')
     .toLowerCase()
     .replace(/[“”"'‘’`]/g, '')
     .replace(/&/g, ' and ')
     .replace(/^m\/s\.?\s+/, '')
-    .replace(/[^a-z0-9/]+/g, ' ')
+    .replace(/[^\p{L}\p{M}\p{N}/]+/gu, ' ')
     .replace(/\s+/g, ' ')
     .trim()
   for (let i = 0; i < 3; i++) {
@@ -91,11 +94,14 @@ export function scoreName(query: string, name: string): number {
   if (query === name) return 94
   const qw = words(query)
   const nw = words(name)
-  if (name.startsWith(query + ' ') || name.startsWith(query)) return query.length >= 3 ? 82 : 40
+  // A prefix ending on a word boundary ("umbrella" of "umbrella retail") is strong; a mid-word
+  // prefix counts only from five characters ("umbre"), so "umb" or "kri" never auto-picks.
+  if (name.startsWith(query + ' ')) return query.length >= 3 ? 82 : 40
+  if (name.startsWith(query)) return query.length >= 5 ? 80 : 50
   if (query.startsWith(name + ' ')) return 72
   // Every query word is the start of some name word ("umb ret" → "umbrella retail").
   const allPrefix = qw.every((w) => nw.some((n) => n.startsWith(w)))
-  if (allPrefix) return qw.length >= 2 ? 78 : qw[0]!.length >= 4 ? 70 : 50
+  if (allPrefix) return qw.length >= 2 ? 78 : qw[0]!.length >= 5 || nw.includes(qw[0]!) ? 70 : 50
   const d = editDistance(query, name, 2)
   if (d <= 2 && query.length >= 5) return d === 1 ? 74 : 66
   const shared = qw.filter((w) => nw.some((n) => n === w || (w.length >= 4 && editDistance(w, n, 1) <= 1))).length
@@ -129,11 +135,12 @@ export function resolveName(query: string, candidates: readonly ResolveCandidate
     if (byKey.length > 1) return { status: 'ambiguous', candidates: byKey.slice(0, limit).map((c) => choice(c, 100)) }
   }
 
-  // 2. normalised name
+  // 2. normalised name — an empty one (punctuation, emoji) matches nothing
   const q = normaliseName(raw)
+  if (!q) return { status: 'none', closest: [] }
   const exactRaw = candidates.filter((c) => c.name.trim().toLowerCase() === raw.toLowerCase())
   if (exactRaw.length === 1) return { status: 'match', id: exactRaw[0]!.id, name: exactRaw[0]!.name, why: 'exact name', score: 100 }
-  const exact = candidates.filter((c) => normaliseName(c.name) === q)
+  const exact = candidates.filter((c) => { const n = normaliseName(c.name); return n !== '' && n === q })
   if (exact.length === 1) return { status: 'match', id: exact[0]!.id, name: exact[0]!.name, why: 'same name (ignoring case and punctuation)', score: 95 }
   if (exact.length > 1) return { status: 'ambiguous', candidates: exact.slice(0, limit).map((c) => choice(c, 95)) }
 

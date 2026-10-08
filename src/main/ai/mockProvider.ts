@@ -188,7 +188,8 @@ export const demoScript: MockScript = (req) => {
   const { question, results } = sinceLastUser(req.input)
   const q = question.toLowerCase()
   // WP 5.3: drafting questions (sales invoice, payment against bills) — mockDrafting.ts.
-  const drafting = draftingDemoStep(question, results, /Today: (\d{4}-\d{2}-\d{2})/.exec(req.instructions)?.[1])
+  // Undated: the draft tools default to the user's working date (as a model should when no date is said).
+  const drafting = draftingDemoStep(question, results, undefined)
   if (drafting) return drafting
 
   const figure = /Figure to explain \(JSON\): (\{.*\})/.exec(req.instructions)?.[1]

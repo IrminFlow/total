@@ -1,7 +1,7 @@
 // WP 5.3 — the pure drafting helpers: amounts as people type them (money.ts), dates as people
 // say them (dates.ts), and name resolution with disambiguation (aiResolve.ts).
 import { describe, expect, it } from 'vitest'
-import { parseAmountText } from './money'
+import { parseAmountText, validDigitGrouping } from './money'
 import { resolveDateText } from './dates'
 import { editDistance, normaliseName, resolveName, scoreName, type ResolveCandidate } from './aiResolve'
 
@@ -29,6 +29,15 @@ describe('parseAmountText (money.ts)', () => {
     expect(parseAmountText('0.3 lakh')).toBe(3_000_000)
   })
 
+  it('accepts only Indian or Western digit grouping', () => {
+    expect(parseAmountText('1,20,000')).toBe(12_000_000)
+    expect(parseAmountText('120,000')).toBe(12_000_000)
+    expect(parseAmountText('12,34,56,789')).toBe(123_456_789_00)
+    expect(parseAmountText('1,234,567')).toBe(123_456_700)
+    for (const bad of ['45,00', '1,2,3', ',100', '1,0000', '12,345,67', '1,00,0000']) expect(parseAmountText(bad), bad).toBeNull()
+    expect(validDigitGrouping('4500')).toBe(true)
+  })
+
   it('refuses what is not one non-negative amount on whole paise', () => {
     for (const bad of ['', 'ten', '-500', '1.005', '1..5', '12 34', '5 dozen', '1,,000', '1000,', '1.5 lakh rupees extra']) {
       expect(parseAmountText(bad), bad).toBeNull()
@@ -54,6 +63,10 @@ describe('resolveDateText (dates.ts) — against the working date, never the mod
     expect(resolveDateText('thursday', ctx)?.date).toBe('2026-10-08')
     expect(resolveDateText('last thursday', ctx)?.date).toBe('2026-10-01')
     expect(resolveDateText('last thu', ctx)?.date).toBe('2026-10-01')
+    // "this" / "next" look forward
+    expect(resolveDateText('this friday', ctx)?.date).toBe('2026-10-09')
+    expect(resolveDateText('this thursday', ctx)?.date).toBe('2026-10-08')
+    expect(resolveDateText('next thursday', ctx)?.date).toBe('2026-10-15')
   })
 
   it('day + month (financial-year rule without a year), explicit years, month edges', () => {
@@ -113,6 +126,24 @@ describe('resolveName (aiResolve.ts)', () => {
     expect(resolveName('Acme Corp', [{ id: 8, name: 'Acme' }, { id: 10, name: 'Acme Corp' }])).toMatchObject({ status: 'match', id: 10 })
     const dupes = resolveName('acme traders', [{ id: 8, name: 'Acme Traders.' }, { id: 9, name: 'ACME TRADERS (Pune)' }, { id: 11, name: 'Acme-Traders' }])
     expect(dupes.status).toBe('ambiguous')
+  })
+
+  it('Unicode names: Devanagari stays distinct; punctuation / emoji / empty never match', () => {
+    const hindi: ResolveCandidate[] = [{ id: 1, name: 'राम ट्रेडर्स' }, { id: 2, name: 'Ganesh & Sons' }, { id: 3, name: '—' }, { id: 4, name: '🙂' }]
+    expect(normaliseName('श्याम एंटरप्राइजेस')).not.toBe('')
+    expect(resolveName('श्याम एंटरप्राइजेस', hindi).status).toBe('none')
+    expect(resolveName('राम ट्रेडर्स', hindi)).toMatchObject({ status: 'match', id: 1 })
+    expect(resolveName('राम', hindi)).toMatchObject({ status: 'match', id: 1 })
+    for (const q of ['—', '🙂', '  ', '...', '-']) expect(resolveName(q, hindi).status, q).toBe('none')
+    expect(normaliseName('🙂')).toBe('')
+    expect(resolveName('ganesh and sons', hindi)).toMatchObject({ status: 'match', id: 2 })
+  })
+
+  it('a short mid-word prefix never auto-picks', () => {
+    const r = resolveName('Umb', parties)
+    expect(r.status).toBe('ambiguous')
+    expect(r.status === 'ambiguous' && r.candidates.map((c) => c.id)).toEqual([1])
+    expect(resolveName('Umbre', parties)).toMatchObject({ status: 'match', id: 1 })
   })
 
   it('nothing close → none, with hints', () => {

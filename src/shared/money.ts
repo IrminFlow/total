@@ -159,6 +159,13 @@ export function formatQtyMilli(qtyMilli: number): string {
   return `${sign}${whole}${frac ? '.' + frac : ''}`
 }
 
+/** Digits as typed: no commas, or commas only in Indian (12,34,567) or Western (1,234,567)
+ *  grouping — "45,00" or "1,2,3" are refused rather than read as ₹4,500 / ₹123. */
+export function validDigitGrouping(digits: string): boolean {
+  if (!digits.includes(',')) return /^\d+$/.test(digits)
+  return /^\d{1,2}(,\d{2})*,\d{3}$/.test(digits) || /^\d{1,3}(,\d{3})+$/.test(digits)
+}
+
 /** Indian shorthand multipliers in rupees (WP 5.3): "1.5 lakh", "2 cr", "45k". */
 const AMOUNT_UNITS: [RegExp, number][] = [
   [/^(crores?|cr|crs)$/, 1_00_00_000],
@@ -180,8 +187,7 @@ export function parseAmountText(input: string): number | null {
   const m = /^(\d[\d,]*)(?:\.(\d+))?\s*([a-z]+)?$/.exec(t)
   if (!m) return null
   const digits = m[1]!
-  // Commas only as digit-group separators, never doubled or trailing.
-  if (/,,|,$/.test(digits)) return null
+  if (!validDigitGrouping(digits)) return null
   const whole = digits.replace(/,/g, '')
   const frac = m[2] ?? ''
   let unit = 1

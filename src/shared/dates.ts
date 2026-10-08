@@ -172,7 +172,8 @@ function monthIndexOf(word: string): number | null {
  *   ISO "2025-07-31", and everything the date field reads (parseSmartDate: "7", "7/4", "07-04-2025");
  *   "today", "yesterday", "tomorrow", "day before yesterday", "3 days ago", "2 weeks ago";
  *   "friday" — the most recent Friday on or before the working date; "last friday" — the most
- *   recent one strictly before it;
+ *   recent one strictly before it; "this friday" — the coming one (the working date if it is a
+ *   Friday); "next friday" — the coming one strictly after;
  *   "15 aug", "15th of August", "Aug 15" (no year: within the working date's financial year, the
  *   date field's "7/4" rule), "15 aug 2025";
  *   "start of the month", "end of last month", "start of last month", "end of this month".
@@ -190,10 +191,16 @@ export function resolveDateText(input: string, context: string): { date: string;
     const n = Number(m[1]) * (m[2]!.startsWith('week') ? 7 : 1)
     return { date: addDaysISO(context, -n), how: `${n} day${n === 1 ? '' : 's'} before the working date` }
   }
-  m = /^(last |this |previous )?(sun|mon|tue|wed|thu|fri|sat)[a-z]*$/.exec(t)
-  if (m && WEEKDAYS.some((d) => d.toLowerCase().startsWith(t.replace(/^(last |this |previous )/, '')))) {
+  m = /^(last |this |previous |next )?(sun|mon|tue|wed|thu|fri|sat)[a-z]*$/.exec(t)
+  if (m && WEEKDAYS.some((d) => d.toLowerCase().startsWith(t.replace(/^(last |this |previous |next )/, '')))) {
     const target = WEEKDAYS.findIndex((d) => d.toLowerCase().startsWith(m![2]!))
     const today = new Date(context + 'T00:00:00Z').getUTCDay()
+    // "this friday" / "next friday": the coming one (today when it is that day for "this").
+    if (m[1] === 'this ' || m[1] === 'next ') {
+      let ahead = (target - today + 7) % 7
+      if (ahead === 0 && m[1] === 'next ') ahead = 7
+      return { date: addDaysISO(context, ahead), how: ahead === 0 ? 'the working date' : `the coming ${WEEKDAYS[target]} after the working date` }
+    }
     let back = (today - target + 7) % 7
     if (back === 0 && (m[1] === 'last ' || m[1] === 'previous ')) back = 7
     return { date: addDaysISO(context, -back), how: back === 0 ? 'the working date' : `the ${WEEKDAYS[target]} before the working date` }
