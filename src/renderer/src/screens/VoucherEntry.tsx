@@ -139,6 +139,7 @@ export function VoucherEntry({
           ledgers: new Map(ledgers.map((l) => [l.id, { stateCode: l.stateCode, gstRate: l.gstRate, tdsPayableSectionId: l.tdsPayableSectionId }]))
         },
         taxLedgers: taxLedgerIdsFrom(ledgers),
+        taxLedgerList: ledgers,
         manufacture: mfg?.details ?? null,
         jobWork: jobWorkChallan ?? null,
         itemName: (id) => items.find((i) => i.id === id)?.name ?? ''

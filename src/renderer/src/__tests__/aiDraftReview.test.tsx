@@ -30,8 +30,11 @@ const ledger = (id: number, name: string, groupId: number, over: Partial<Ledger>
 const LEDGERS: Ledger[] = [
   ledger(31, 'Umbrella Retail', 1, { stateCode: '27', gstin: '27AABCD1234E1Z8', creditDays: 30 }),
   ledger(20, 'Sales A/c', 2),
-  ledger(40, 'CGST', 3, { taxType: 'cgst' }),
-  ledger(41, 'SGST', 3, { taxType: 'sgst' })
+  // Both sides present, Input first by name: a sale must still post to the OUTPUT ledgers.
+  ledger(38, 'CGST Input', 3, { taxType: 'cgst' }),
+  ledger(39, 'SGST Input', 3, { taxType: 'sgst' }),
+  ledger(40, 'CGST Output', 3, { taxType: 'cgst' }),
+  ledger(41, 'SGST Output', 3, { taxType: 'sgst' })
 ]
 const ITEMS: StockItem[] = [
   { id: 100, name: 'Laptop 14"', groupId: null, unitId: 1, hsn: '8471', gstRate: 18, cessRate: null, openingQtyMilli: 0, openingValue: 0, barcode: 'LAP14', reorderLevelMilli: null, valuationMethod: 'weighted_avg', trackSerials: false }
@@ -168,7 +171,7 @@ describe('an AI invoice draft opens in the invoice editor for review', () => {
     expect(document.querySelector('[data-ai-set="party"]')).not.toBeNull()
   })
 
-  it('Save posts through voucher:save with aiDraftId (the draft is consumed by main)', async () => {
+  it('Save posts through voucher:save with aiDraftId (the draft is consumed by main); sales tax goes to the Output ledgers', async () => {
     renderDraft()
     await waitFor(() => expect((screen.getAllByTestId('input-line-qty')[0] as HTMLInputElement).value).toBe('2'), { timeout: 3000 })
     // The bill name follows the auto number (a draft without a bill no. leaves it to the form).

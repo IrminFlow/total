@@ -4,7 +4,7 @@
 
 import { STOCK_NOTE_KINDS, type Voucher, type VoucherKind } from '../domain'
 import { accountingStateFromVoucher, type AccountingFormState } from './accounting'
-import { invoiceRepresentation, type InvoiceContext, type InvoiceFormState, type TaxLedgerIds } from './invoice'
+import { invoiceRepresentation, taxSideOf, voucherTaxLedgers, type InvoiceContext, type InvoiceFormState, type TaxLedgerIds } from './invoice'
 import { manufactureRepresentation, type ManufactureFormState } from './manufacture'
 import type { ManufactureDetails } from '../manufacture'
 import { physicalRepresentation, type PhysicalFormState } from './physical'
@@ -42,6 +42,9 @@ export const LEGACY_STOCK_JOURNAL_BANNER = 'Created before 0.6.0 — costed at t
 export interface EditPlanContext {
   invoice: Omit<InvoiceContext, 'kind'>
   taxLedgers: TaxLedgerIds
+  /** Every ledger's tax type: when given, an invoice is checked with the tax ledgers it was saved
+   *  with (voucherTaxLedgers — the side's defaults for the rest) instead of `taxLedgers`. */
+  taxLedgerList?: readonly { id: number; name: string; taxType: string | null }[]
   /** The stock journal's manufacture_details row (null = none: a legacy journal). Only read for
    *  stock journals. */
   manufacture?: ManufactureDetails | null
@@ -54,7 +57,8 @@ export interface EditPlanContext {
 export function planVoucherEdit(v: Voucher, kind: VoucherKind, ctx: EditPlanContext): EditPlan {
   switch (modeForKind(kind)) {
     case 'invoice': {
-      const r = invoiceRepresentation(v, { ...ctx.invoice, kind }, ctx.taxLedgers)
+      const tax = ctx.taxLedgerList ? voucherTaxLedgers(v, ctx.taxLedgerList, taxSideOf(kind)) : ctx.taxLedgers
+      const r = invoiceRepresentation(v, { ...ctx.invoice, kind }, tax)
       if (r.ok) return { mode: 'invoice', state: r.state }
       return { mode: 'accounting', state: accountingStateFromVoucher(v), fallbackReason: r.reason }
     }

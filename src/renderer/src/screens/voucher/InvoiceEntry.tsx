@@ -4,7 +4,7 @@ import type { Voucher, VoucherBillRef, VoucherKind } from '@shared/domain'
 import type { OutstandingBill } from '@shared/reports'
 import type { VoucherInputParsed } from '@shared/schemas'
 import {
-  buildInvoicePayload, computeInvoice, invoiceKindTakesTcs, invoiceKindTakesTds, requiredTaxLedgers, taxLedgerIdsFrom,
+  buildInvoicePayload, computeInvoice, invoiceKindTakesTcs, invoiceKindTakesTds, requiredTaxLedgers, taxLedgerIdsFrom, taxSideOf, voucherTaxLedgers,
   type InvoiceContext, type InvoiceFormState, type TaxLedgerIds, type TdsDeductionState
 } from '@shared/voucherEdit'
 import { GST_STATES } from '@shared/gst/states'
@@ -279,7 +279,7 @@ export function InvoiceEntry({
   // resets all of these); an alteration once what it would post differs from the saved voucher.
   const alterationDirty = useAlterationDirty(
     voucher,
-    isEdit ? buildInvoicePayload(formState, ctx, typeId, taxLedgerIdsFrom(ledgers)) : null
+    isEdit ? buildInvoicePayload(formState, ctx, typeId, voucher ? voucherTaxLedgers(voucher, ledgers, taxSideOf(kind)) : taxLedgerIdsFrom(ledgers, taxSideOf(kind))) : null
   )
   useUnsavedGuard(
     !saved && (isEdit ? alterationDirty : partyId != null || rows.some((r) => r.itemId != null) || narration.trim() !== '')
@@ -307,14 +307,18 @@ export function InvoiceEntry({
     if (!partyId || !accountId || computed.detail.length === 0) return null
     // Tax / Round Off ledgers are created on first use, same as before — then the shared
     // builder lays out the lines.
+    // Sales-side tax goes to the output ledgers, purchase-side to input (taxSideOf); an
+    // alteration keeps the tax ledgers the voucher was saved with.
+    const side = taxSideOf(kind)
+    const saved = voucher ? voucherTaxLedgers(voucher, ledgers, side) : null
     const taxLedgers: TaxLedgerIds = { cgst: null, sgst: null, igst: null, cess: null, roundOff: null }
     for (const k of requiredTaxLedgers(computed)) {
-      taxLedgers[k] = k === 'roundOff' ? await ensureRoundOff() : await ensureTax(k)
+      taxLedgers[k] = k === 'roundOff' ? (saved?.roundOff ?? (await ensureRoundOff())) : (saved?.[k] ?? (await ensureTax(k, side)))
     }
     const r = buildInvoicePayload(formState, ctx, typeId, taxLedgers)
     if (!r.ok) throw new Error(r.error)
     return r.payload
-  }, [partyId, accountId, computed, formState, ctx, typeId, ensureTax, ensureRoundOff])
+  }, [partyId, accountId, computed, formState, ctx, typeId, ensureTax, ensureRoundOff, kind, voucher, ledgers])
 
   const save = useCallback(async (andPdf = false): Promise<void> => {
     if (saving) return

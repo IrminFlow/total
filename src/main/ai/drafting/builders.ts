@@ -22,7 +22,7 @@ import { needsLossConfirmation } from '@shared/manufacture'
 import {
   buildAccountingPayload, buildInvoicePayload, buildStockNotePayload, computeInvoice, derivePartyId, emptyInvoiceState,
   emptyManufactureState, emptyStockNoteState, evaluateManufactureForm, padManufactureRows, qtyText, requiredTaxLedgers,
-  STOCK_NOTE_PURPOSES, taxLedgerIdsFrom, DEFAULT_PURPOSE,
+  STOCK_NOTE_PURPOSES, taxLedgerIdsFrom, taxSideOf, DEFAULT_PURPOSE,
   type AccountingFormState, type AccountingRowState, type InvoiceContext, type InvoiceFormState, type InvoiceRowState,
   type ManufactureFormState, type StockNoteFormState, type StockNoteKind, type TaxLedgerIds
 } from '@shared/voucherEdit'
@@ -560,7 +560,7 @@ export function buildInvoiceDraft(w: DraftWork, input: InvoiceDraftInput): Built
   if (!isNote && !input.billNo) w.assume('Bill name: the voucher number (as the form sets it)')
   if (!input.dueDate && !isNote) w.assume(`Due ${toDisplayDate(state.billDueDate)} — ${party!.creditDays ? `${party!.creditDays} days' credit from the party master` : 'no credit days on the party'}`)
 
-  const taxHave = taxLedgerIdsFrom(m.ledgers)
+  const taxHave = taxLedgerIdsFrom(m.ledgers, taxSideOf(kind))
   const need = requiredTaxLedgers(computed)
   for (const k of need) if (taxHave[k] == null) w.assume(`No ${k === 'roundOff' ? 'Round Off' : k.toUpperCase()} ledger yet — the editor creates it when you save`)
   const rehearsed = rehearse(m.db, () => {

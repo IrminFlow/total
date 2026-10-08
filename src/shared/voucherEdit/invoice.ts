@@ -88,9 +88,31 @@ export interface TaxLedgerIds {
   roundOff: number | null
 }
 
-/** Mirrors useTaxLedgers' lookups (first ledger with that taxType; first "Round Off" by name). */
-export function taxLedgerIdsFrom(ledgers: readonly { id: number; name: string; taxType: string | null }[]): TaxLedgerIds {
-  const byTax = (t: string): number | null => ledgers.find((l) => l.taxType === t)?.id ?? null
+/** Which side of GST a trading voucher posts: sales and credit notes charge OUTPUT tax,
+ *  purchases and debit notes claim INPUT tax. */
+export type TaxSide = 'output' | 'input'
+export const taxSideOf = (kind: VoucherKind): TaxSide => (kind === 'purchase' || kind === 'debit_note' ? 'input' : 'output')
+
+const OUTPUT_NAME = /\b(output|payable|out)\b/i
+const INPUT_NAME = /\b(input|itc|receivable|credit)\b/i
+
+type TaxLedgerLike = { id: number; name: string; taxType: string | null }
+
+/** The ledger of one GST component for a side: one named for that side ("CGST Output" /
+ *  "CGST Input", "ITC"), else one not named for the OTHER side, else the first of that taxType.
+ *  A company with both "CGST Input" and "CGST Output" thus posts sales tax to Output and purchase
+ *  tax to Input (not simply the first by name). */
+export function pickTaxLedger(ledgers: readonly TaxLedgerLike[], taxType: string, side: TaxSide): number | null {
+  const all = ledgers.filter((l) => l.taxType === taxType)
+  const mine = side === 'output' ? OUTPUT_NAME : INPUT_NAME
+  const other = side === 'output' ? INPUT_NAME : OUTPUT_NAME
+  return (all.find((l) => mine.test(l.name) && !other.test(l.name)) ?? all.find((l) => !other.test(l.name)) ?? all[0])?.id ?? null
+}
+
+/** Mirrors useTaxLedgers' lookups: each GST component's ledger for `side` (pickTaxLedger) and the
+ *  first "Round Off" by name. */
+export function taxLedgerIdsFrom(ledgers: readonly TaxLedgerLike[], side: TaxSide = 'output'): TaxLedgerIds {
+  const byTax = (t: string): number | null => pickTaxLedger(ledgers, t, side)
   return {
     cgst: byTax('cgst'),
     sgst: byTax('sgst'),
@@ -98,6 +120,22 @@ export function taxLedgerIdsFrom(ledgers: readonly { id: number; name: string; t
     cess: byTax('cess'),
     roundOff: ledgers.find((l) => l.name.toLowerCase() === 'round off')?.id ?? null
   }
+}
+
+/** The tax ledgers a SAVED voucher uses (each GST component's ledger as posted), the side's
+ *  defaults for the rest — so an alteration keeps the ledgers it was saved with, including
+ *  vouchers saved before the side rule (which may carry sales tax on an "Input" ledger). */
+export function voucherTaxLedgers(v: Pick<Voucher, 'lines'>, ledgers: readonly TaxLedgerLike[], side: TaxSide): TaxLedgerIds {
+  const out = taxLedgerIdsFrom(ledgers, side)
+  const seen = new Set<string>()
+  for (const line of v.lines) {
+    const t = ledgers.find((l) => l.id === line.ledgerId)?.taxType
+    if (t && (t === 'cgst' || t === 'sgst' || t === 'igst' || t === 'cess') && !seen.has(t)) {
+      seen.add(t)
+      out[t] = line.ledgerId
+    }
+  }
+  return out
 }
 
 export interface InvoiceContext {

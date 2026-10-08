@@ -13,7 +13,7 @@ import type { AiSettings, AiVoucherDraftPayload } from '@shared/ai'
 import { formatPaise } from '@shared/money'
 import { stockItemInputSchema, type VoucherInputParsed } from '@shared/schemas'
 import {
-  buildAccountingPayload, buildInvoicePayload, buildStockNotePayload, derivePartyId, evaluateManufactureForm, planVoucherEdit, taxLedgerIdsFrom,
+  buildAccountingPayload, buildInvoicePayload, buildStockNotePayload, derivePartyId, evaluateManufactureForm, planVoucherEdit, taxLedgerIdsFrom, taxSideOf,
   type AccountingFormState, type InvoiceFormState, type ManufactureFormState, type StockNoteFormState
 } from '@shared/voucherEdit'
 import { buildTradeDocPayload, type TradeDocFormState } from '@shared/tradeCycle/edit'
@@ -116,6 +116,7 @@ function planOf(v: Voucher, kind: Parameters<typeof planVoucherEdit>[1]) {
       ledgers: new Map(ledgers.map((l) => [l.id, { stateCode: l.stateCode, gstRate: l.gstRate, tdsPayableSectionId: l.tdsPayableSectionId }]))
     },
     taxLedgers: taxLedgerIdsFrom(ledgers),
+    taxLedgerList: ledgers,
     manufacture: v.id ? getManufactureDetails(db, v.id) : null,
     itemName: (id) => items.find((i) => i.id === id)?.name ?? ''
   })
@@ -134,7 +135,7 @@ function invoiceEditorPayload(state: InvoiceFormState, kind: 'sales' | 'purchase
       ledgers: new Map(ledgers.map((l) => [l.id, { stateCode: l.stateCode, gstRate: l.gstRate, tdsPayableSectionId: l.tdsPayableSectionId }]))
     },
     vtId,
-    taxLedgerIdsFrom(ledgers)
+    taxLedgerIdsFrom(ledgers, taxSideOf(kind))
   )
   if (!r.ok) throw new Error(r.error)
   return r.payload
@@ -254,6 +255,32 @@ describe('purchase invoices, debit notes and receipts', () => {
     const built = buildAccountingPayload(rstate, { kind: 'receipt', voucherTypeId: rp.voucherTypeId, derivedPartyId: ids.umbrella })
     saveVoucher(db, built.ok ? built.payload : (null as never))
     expect(openBills(db, ids.umbrella, TODAY).find((b) => b.number === sale.number)?.pending ?? 0).toBe(0)
+  })
+})
+
+describe('tax ledgers by purpose (both Input and Output ledgers present)', () => {
+  it('sales tax → Output ledgers, purchase tax → Input ledgers; a legacy sale on Input ledgers still opens in the invoice editor', async () => {
+    db.prepare("UPDATE ledgers SET name = 'CGST Output' WHERE id = ?").run(ids.cgst)
+    db.prepare("UPDATE ledgers SET name = 'SGST Output' WHERE id = ?").run(ids.sgst)
+    const cgstIn = ledger('CGST Input', 'Duties & Taxes', { taxType: 'cgst' })
+    const sgstIn = ledger('SGST Input', 'Duties & Taxes', { taxType: 'sgst' })
+    const sale = await draft('draft_invoice', { kind: 'sales', party: 'Umbrella Retail', items: [{ item: 'Laptop 14', qty: '1', rate: '45000' }] })
+    expect(payloadOf(sale.draftId!).lines.map((l) => l.ledgerId)).toEqual(expect.arrayContaining([ids.cgst, ids.sgst]))
+    expect(payloadOf(sale.draftId!).lines.map((l) => l.ledgerId)).not.toContain(cgstIn)
+    const pur = await draft('draft_invoice', { kind: 'purchase', party: 'Bharat Steel Suppliers', billNo: 'B-9', items: [{ item: 'Wireless Mouse', qty: '2', rate: '500' }] })
+    const pl = payloadOf(pur.draftId!).lines.map((l) => l.ledgerId)
+    expect(pl).toEqual(expect.arrayContaining([cgstIn, sgstIn]))
+    expect(pl).not.toContain(ids.cgst)
+    // A sale saved before the rule (tax on the Input ledgers) keeps them and still plans as an invoice.
+    const legacy = saveVoucher(db, {
+      ...BLANK, voucherTypeId: typeId('sales'), date: TODAY, partyLedgerId: ids.umbrella,
+      lines: [
+        { ledgerId: ids.umbrella, drCr: 'dr', amount: 5_310_000 }, { ledgerId: ids.sales, drCr: 'cr', amount: 4_500_000 },
+        { ledgerId: cgstIn, drCr: 'cr', amount: 405_000 }, { ledgerId: sgstIn, drCr: 'cr', amount: 405_000 }
+      ],
+      inventory: [{ stockItemId: ids.laptop, godownId: null, qtyMilli: 1000, ratePaise: 4_500_000, amount: 4_500_000, direction: 'out' }]
+    })
+    expect(planOf(getVoucher(db, legacy.id)!, 'sales').mode).toBe('invoice')
   })
 })
 
