@@ -53,10 +53,18 @@ export function ReportBuilderScreen({ reportId }: { reportId?: number }): React.
   const problems = useMemo(() => modelProblems(model), [model])
   const debounced = useDebounced(model, 250)
   const debouncedValid = useMemo(() => reportModelSchema.safeParse(debounced).success, [debounced])
+  // A saved report runs only once its own model has settled through the debounce — never the
+  // starter model's cached result for a moment in between.
+  const [settledFor, setSettledFor] = useState<number | null | undefined>(undefined)
+  const target = reportId ?? null
+  useEffect(() => {
+    if ((!reportId || loadedFor === reportId) && sameModel(debounced, model)) setSettledFor(target)
+  }, [reportId, loadedFor, debounced, model, target])
+  const ready = settledFor === target
   const run = useQuery({
     queryKey: ['rbRun', JSON.stringify(debounced), from, to],
     queryFn: () => reportsApi.run(debounced, { from, to }),
-    enabled: debouncedValid && (!reportId || loadedFor === reportId),
+    enabled: debouncedValid && ready,
     placeholderData: keepPreviousData,
     retry: false
   })
@@ -264,7 +272,7 @@ export function ReportBuilderScreen({ reportId }: { reportId?: number }): React.
             <DesignPanel model={model} onChange={setModel} />
           </Panel>
         )}
-        <div className={`min-w-0 transition-opacity ${run.isPlaceholderData || run.isFetching ? 'opacity-70' : ''}`} data-testid="rb-result" data-state={run.isFetching ? 'loading' : run.data ? 'ready' : 'idle'}>
+        <div className={`min-w-0 transition-opacity ${run.isPlaceholderData || run.isFetching ? 'opacity-70' : ''}`} data-testid="rb-result" data-state={!ready || run.isFetching ? 'loading' : run.data ? 'ready' : 'idle'}>
           {problems.length > 0 ? (
             <Banner tone="warning" title="Finish the design to see the report" testId="rb-problems">
               <ul className="list-disc pl-4">
@@ -274,7 +282,7 @@ export function ReportBuilderScreen({ reportId }: { reportId?: number }): React.
           ) : run.error ? (
             <Banner tone="danger" testId="rb-error">{(run.error as Error).message}</Banner>
           ) : (
-            <ResultView result={run.data} model={debounced} loading={run.isLoading} title={title} periodLabel={periodLabel} />
+            <ResultView result={ready ? run.data : undefined} model={debounced} loading={!ready || run.isLoading} title={title} periodLabel={periodLabel} />
           )}
         </div>
       </div>

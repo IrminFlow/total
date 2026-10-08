@@ -78,6 +78,7 @@ await scenario('37-report-builder', async (h) => {
   await h.click(`nav-report-${saved.id}`)
   await h.waitScreen('report-builder', 30000)
   await waitResult()
+  await h.page.waitForFunction(() => document.querySelectorAll('[data-testid="rows-report-builder"] tr.dt-row').length >= 2, null, { timeout: 30000 })
   const title = await h.page.textContent('[data-testid="page-title"]')
   assertEq(title?.trim(), 'Sales by party by month', 'pinned entry opens the saved report')
   const current = await h.page.getAttribute(`[data-testid="nav-report-${saved.id}"]`, 'aria-current')
@@ -98,7 +99,7 @@ await scenario('37-report-builder', async (h) => {
   assert(added.some((f) => f.endsWith('.csv')), `CSV export written (${added.join(', ')})`)
   assert(added.some((f) => f.endsWith('.pdf')), `PDF export written (${added.join(', ')})`)
   const csv = fs.readFileSync(path.join(exportsDir, added.find((f) => f.endsWith('.csv'))), 'utf8')
-  assert(/Party/.test(csv) && /Total/.test(csv), 'CSV has the pivot header and totals')
+  assert(/Party/.test(csv) && /Total/.test(csv), `CSV has the pivot header and totals:\n${csv.slice(0, 400)}`)
 
   // ---------------- ratios + comparative statements
   await h.page.waitForFunction(() => !document.body.textContent?.includes('Saved to exports'), null, { timeout: 20000 }).catch(() => {})
