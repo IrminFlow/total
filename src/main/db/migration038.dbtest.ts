@@ -1,5 +1,5 @@
 // Migration 038 (WP 6.3): import_templates, import_batches, import_batch_items. Located by
-// content, never by index (032–037 landed first; this one is last).
+// content, never by index (032–037 landed first; 039, WP 6.4, appends after it).
 import { describe, expect, it } from 'vitest'
 import { MIGRATIONS } from './migrations'
 import { freshDb, freshPartialDb, seededDb } from './testdb'
@@ -11,9 +11,9 @@ const columns = (db: ReturnType<typeof freshDb>, table: string): string[] =>
   (db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[]).map((c) => c.name)
 
 describe('migration 038 — import wizard tables', () => {
-  it('exists, once, last, after the report builder (037)', () => {
+  it('exists, once, after the report builder (037) and directly before WP 6.4 (039)', () => {
     expect(M038).toBeGreaterThan(MIGRATIONS.findIndex((sql) => sql.includes('CREATE TABLE report_packs')))
-    expect(M038).toBe(MIGRATIONS.length - 1)
+    expect(M038 + 1).toBe(MIGRATIONS.findIndex((sql) => sql.includes('CREATE TABLE bulk_batches')))
     expect(MIGRATIONS.filter((sql) => sql.includes('CREATE TABLE import_batches'))).toHaveLength(1)
   })
 

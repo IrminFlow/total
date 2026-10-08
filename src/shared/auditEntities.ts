@@ -101,7 +101,11 @@ export const AUDIT_ENTITIES = [
   'credit_hold',
   'credit_override',
   'interest_charge',
-  'reminder'
+  'reminder',
+  // WP 6.4 bulk edit, attachments, party notes / tasks
+  'attachment',
+  'bulk_batch',
+  'party_note'
 ] as const
 
 export type AuditEntity = (typeof AUDIT_ENTITIES)[number]
@@ -214,7 +218,10 @@ export const AUDIT_ENTITY_LABELS: Partial<Record<AuditEntity, string>> = {
   credit_hold: 'Credit hold',
   credit_override: 'Credit-hold override',
   interest_charge: 'Interest charge',
-  reminder: 'Payment reminder'
+  reminder: 'Payment reminder',
+  attachment: 'Attachment',
+  bulk_batch: 'Bulk edit',
+  party_note: 'Party note / task'
 }
 
 export const auditEntityLabel = (entity: string): string => AUDIT_ENTITY_LABELS[entity as AuditEntity] ?? entity
