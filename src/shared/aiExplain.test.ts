@@ -1,6 +1,6 @@
 // WP 5.2 — the pure pieces behind "Explain this", the context strip and the palette's Ask AI row.
 import { describe, expect, it } from 'vitest'
-import { aiContextSchema, explainContextFor, paletteQuestion, parseNavIntent, screenContextLines } from './aiExplain'
+import { aiContextSchema, explainContextFor, paletteQuestion, parseNavIntent, pickNavTarget, screenContextLines } from './aiExplain'
 
 describe('explainContextFor', () => {
   it('names the figure, its screen and period, and carries the ids for the tools', () => {
@@ -87,4 +87,18 @@ describe('parseNavIntent — navigation the app resolves through search, never t
     'open the ledger for Acme?', 'show payment from Acme last month', 'show me the statement of Shop Rent',
     'open payments from Acme last month', 'open the biggest expense ledger this year please now'
   ])('%s → none', (text) => expect(parseNavIntent(text)).toBeNull())
+})
+
+describe('pickNavTarget — the first search hit of the requested kind', () => {
+  const r = {
+    ledgers: { rows: [{ id: 4, name: 'Acme Traders' }] },
+    items: { rows: [] },
+    vouchers: { rows: [{ id: 9, typeName: 'Sales', number: 'S/12' }] }
+  }
+  it('opens the kind asked for, or nothing', () => {
+    expect(pickNavTarget({ kind: 'ledger' }, r)).toEqual({ kind: 'ledger', id: 4, label: 'Acme Traders' })
+    expect(pickNavTarget({ kind: 'voucher' }, r)).toEqual({ kind: 'voucher', id: 9, label: 'Sales S/12' })
+    expect(pickNavTarget({ kind: 'item' }, r)).toBeNull()
+    expect(pickNavTarget({ kind: null }, r)).toBeNull()
+  })
 })

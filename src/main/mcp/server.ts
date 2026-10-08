@@ -13,12 +13,15 @@
 //   - one mcp_log row per request (sizes + SHA-256, never the content); audit rows written by
 //     tools are attributed to `mcp:<client name>`.
 //
-// This file and stdio.ts are the ONLY importers of @modelcontextprotocol/sdk (stdio server
-// subpaths only — the SDK's HTTP transports, and the express / hono stack behind them, are never
+// This file and stdio.ts are the ONLY importers of @modelcontextprotocol/sdk (the server, the
+// client and the in-memory transport — the latter two only for connectInProcess, the WP 5.8
+// parity evals; the SDK's HTTP transports, and the express / hono stack behind them, are never
 // imported). The SDK is a devDependency bundled into the CLI by scripts/total-cli.mjs; the app's
 // main bundle never includes it (mcpBoundary.test.ts).
 import { randomUUID } from 'crypto'
 import { Server } from '@modelcontextprotocol/sdk/server/index.js'
+import { Client } from '@modelcontextprotocol/sdk/client/index.js'
+import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js'
 import {
   CallToolRequestSchema, ErrorCode, ListResourcesRequestSchema, ListToolsRequestSchema, McpError, ReadResourceRequestSchema,
   type CallToolResult, type Tool
@@ -235,4 +238,29 @@ export function installMcpProcessContext(handle: McpServerHandle, appVersion: st
   // for a viewer or a company without users).
   setAuditContext({ appVersion, getUserName: () => handle.auditUser(), getUserId: () => handle.userId })
   setDefaultDraftOrigin({ source: 'mcp', origin: () => handle.clientName() })
+}
+
+export interface InProcessMcpClient {
+  listTools(): Promise<string[]>
+  callTool(name: string, args: Record<string, unknown>): Promise<{ isError: boolean; text: string }>
+  close(): Promise<void>
+}
+
+/** A real MCP client connected to `handle`'s Server over a linked in-memory transport — the same
+ *  request handlers `total-cli mcp` serves on stdio, with no process boundary. Used by the WP 5.8
+ *  MCP-parity evals (CLI and dbtest only), which is why it lives here: this file stays one of the
+ *  two SDK importers. */
+export async function connectInProcess(handle: McpServerHandle, clientName = 'Total evals'): Promise<InProcessMcpClient> {
+  const [clientT, serverT] = InMemoryTransport.createLinkedPair()
+  await handle.server.connect(serverT)
+  const client = new Client({ name: clientName, version: '1.0.0' })
+  await client.connect(clientT)
+  return {
+    listTools: async () => (await client.listTools()).tools.map((t) => t.name),
+    callTool: async (name, args) => {
+      const r = (await client.callTool({ name, arguments: args })) as { isError?: boolean; content: { type: string; text?: string }[] }
+      return { isError: !!r.isError, text: r.content.map((c) => c.text ?? '').join('') }
+    },
+    close: () => client.close()
+  }
 }
