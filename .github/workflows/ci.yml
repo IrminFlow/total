@@ -51,6 +51,14 @@ jobs:
       - name: Build
         run: npm run build
 
+      # WP 5.7: the MCP SDK must stay out of the app's main bundle and the HTTP stack out of the
+      # CLI bundle. `npm test` runs before any build (the bundle checks skip there); here the
+      # built outputs exist and TOTAL_REQUIRE_BUILT makes a missing one fail.
+      - name: MCP packaging boundary (built bundles)
+        run: |
+          TOTAL_DATA_DIR="$RUNNER_TEMP/cli-data" node scripts/total-cli.mjs help > /dev/null
+          TOTAL_REQUIRE_BUILT=1 npx vitest run src/main/mcp/mcpBoundary.test.ts
+
       - name: Hermetic IPC smoke test
         run: npm run smoke
         env:

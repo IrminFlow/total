@@ -2,7 +2,7 @@
 // pseudonym map — the AI migration tables (see migrations.ts, the "WP 5.1" entry). Nothing here touches the books.
 import type { DB } from '../db/connection'
 import type {
-  AiContext, AiDraftDto, AiDraftStatus, AiFigure, AiMessageDto, AiMessageRole, AiOutboundRow, AiSource, AiThreadDto, AiToolCallDto, AiUsageRow, AiVoucherDraftPayload
+  AiContext, AiDraftDto, AiDraftSource, AiDraftStatus, AiFigure, AiMessageDto, AiMessageRole, AiOutboundRow, AiSource, AiThreadDto, AiToolCallDto, AiUsageRow, AiVoucherDraftPayload
 } from '@shared/ai'
 import { descendantIdsByName } from '../services/masters'
 import { assignAliases, createPseudonymiser, type Pseudonymiser } from './privacy'
@@ -275,8 +275,20 @@ interface DraftRow {
   status: AiDraftStatus
   voucher_id: number | null
   unrequested: number
+  source: AiDraftSource
+  origin: string | null
   created_at: string
   consumed_at: string | null
+}
+
+/** Where drafts written by this process come from when the caller does not say (WP 5.7): the
+ *  app is 'chat'; the `total-cli mcp` process sets 'mcp' + the client's name once at session
+ *  start, so every draft tool — including ones added later — records its source without
+ *  knowing about MCP. */
+let defaultDraftOrigin: { source: AiDraftSource; origin: () => string | null } = { source: 'chat', origin: () => null }
+
+export function setDefaultDraftOrigin(o: { source: AiDraftSource; origin: () => string | null }): void {
+  defaultDraftOrigin = o
 }
 
 function toDraft(r: DraftRow): AiDraftDto {
@@ -289,6 +301,8 @@ function toDraft(r: DraftRow): AiDraftDto {
     status: r.status,
     voucherId: r.voucher_id,
     unrequested: r.unrequested === 1,
+    source: r.source ?? 'chat',
+    origin: r.origin ?? null,
     createdAt: r.created_at,
     consumedAt: r.consumed_at
   }
@@ -296,12 +310,24 @@ function toDraft(r: DraftRow): AiDraftDto {
 
 export function insertDraft(
   db: DB,
-  d: { threadId: number | null; messageId: number | null; summary: string; payload: AiVoucherDraftPayload; unrequested?: boolean }
+  d: {
+    threadId: number | null
+    messageId: number | null
+    summary: string
+    payload: AiVoucherDraftPayload
+    unrequested?: boolean
+    source?: AiDraftSource
+    origin?: string | null
+  }
 ): AiDraftDto {
+  const source = d.source ?? defaultDraftOrigin.source
+  const origin = d.origin !== undefined ? d.origin : d.source ? null : defaultDraftOrigin.origin()
   const id = Number(
     db
-      .prepare("INSERT INTO ai_drafts (thread_id, message_id, kind, summary, payload_json, unrequested) VALUES (?, ?, 'voucher', ?, ?, ?)")
-      .run(d.threadId, d.messageId, d.summary, JSON.stringify(d.payload), d.unrequested ? 1 : 0).lastInsertRowid
+      .prepare(
+        "INSERT INTO ai_drafts (thread_id, message_id, kind, summary, payload_json, unrequested, source, origin) VALUES (?, ?, 'voucher', ?, ?, ?, ?, ?)"
+      )
+      .run(d.threadId, d.messageId, d.summary, JSON.stringify(d.payload), d.unrequested ? 1 : 0, source, origin).lastInsertRowid
   )
   return getDraft(db, id)!
 }
@@ -311,7 +337,7 @@ export function getDraft(db: DB, id: number): AiDraftDto | null {
   return r ? toDraft(r) : null
 }
 
-export function listDrafts(db: DB, status?: AiDraftStatus, threadId?: number): AiDraftDto[] {
+export function listDrafts(db: DB, status?: AiDraftStatus, threadId?: number, sources?: readonly AiDraftSource[]): AiDraftDto[] {
   const where: string[] = []
   const args: (string | number)[] = []
   if (status) {
@@ -321,6 +347,10 @@ export function listDrafts(db: DB, status?: AiDraftStatus, threadId?: number): A
   if (threadId !== undefined) {
     where.push('thread_id = ?')
     args.push(threadId)
+  }
+  if (sources?.length) {
+    where.push(`source IN (${sources.map(() => '?').join(', ')})`)
+    args.push(...sources)
   }
   const rows = db.prepare(`SELECT * FROM ai_drafts ${where.length ? `WHERE ${where.join(' AND ')}` : ''} ORDER BY id DESC`).all(...args) as DraftRow[]
   return rows.map(toDraft)
@@ -491,6 +521,10 @@ export interface AiDataCounts {
   usage: number
   outbound: number
   pseudonyms: number
+  /** Drafts proposed over MCP or dropped in the inbox (also deleted with the drafts). */
+  agentDrafts: number
+  /** mcp_log rows — counted for the record, never deleted here (its own retention prunes it). */
+  mcpLog: number
 }
 
 export function aiDataCounts(db: DB): AiDataCounts {
@@ -502,7 +536,9 @@ export function aiDataCounts(db: DB): AiDataCounts {
     memory: n('ai_memory'),
     usage: n('ai_usage'),
     outbound: n('ai_outbound_log'),
-    pseudonyms: n('ai_pseudonyms')
+    pseudonyms: n('ai_pseudonyms'),
+    agentDrafts: (db.prepare("SELECT COUNT(*) AS n FROM ai_drafts WHERE source IN ('mcp', 'inbox')").get() as { n: number }).n,
+    mcpLog: n('mcp_log')
   }
 }
 
@@ -512,6 +548,7 @@ export function deleteAllAiData(db: DB, includeLogs: boolean): AiDataCounts {
   const before = aiDataCounts(db)
   db.transaction(() => {
     db.exec('DELETE FROM ai_drafts; DELETE FROM ai_messages; DELETE FROM ai_threads; DELETE FROM ai_memory; DELETE FROM ai_pseudonyms;')
+    // mcp_log is not an AI-provider log: it stays (pruned after MCP_LOG_KEEP_DAYS by the server).
     if (includeLogs) db.exec('DELETE FROM ai_usage; DELETE FROM ai_outbound_log;')
     // Kept logs keep their sizes and fingerprints, not the (masked) screen context that was sent.
     else db.exec('UPDATE ai_outbound_log SET context_json = NULL WHERE context_json IS NOT NULL;')
