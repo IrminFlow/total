@@ -1,6 +1,6 @@
 import type { DB } from '../db/connection'
 import type { Budget, BudgetLine } from '@shared/domain'
-import type { BudgetInput } from '@shared/schemas'
+import { budgetInputSchema, type BudgetInput } from '@shared/schemas'
 import { budgetVariance, type ActualRow, type BudgetLineRow, type BudgetVarianceRow } from '@shared/budgets'
 import { fyFromStartYear } from '@shared/dates'
 import { descendantIds } from './masters'
@@ -13,6 +13,7 @@ interface BudgetRow {
   id: number
   name: string
   fy_start_year: number
+  seasonal_json: string | null
 }
 
 interface BudgetLineDbRow {
@@ -22,6 +23,9 @@ interface BudgetLineDbRow {
   group_id: number | null
   month: string | null
   amount: number
+  cost_centre_id: number | null
+  phasing: BudgetLine['phasing']
+  monthly_json: string | null
 }
 
 const mapLine = (r: BudgetLineDbRow): BudgetLine => ({
@@ -29,14 +33,23 @@ const mapLine = (r: BudgetLineDbRow): BudgetLine => ({
   ledgerId: r.ledger_id,
   groupId: r.group_id,
   month: r.month,
-  amount: r.amount
+  amount: r.amount,
+  costCentreId: r.cost_centre_id,
+  phasing: r.phasing,
+  monthly: r.monthly_json ? (JSON.parse(r.monthly_json) as number[]) : null
 })
 
-function getBudget(db: DB, id: number): Budget | null {
+export function getBudget(db: DB, id: number): Budget | null {
   const row = db.prepare('SELECT * FROM budgets WHERE id = ?').get(id) as BudgetRow | undefined
   if (!row) return null
   const lines = (db.prepare('SELECT * FROM budget_lines WHERE budget_id = ? ORDER BY id').all(id) as BudgetLineDbRow[]).map(mapLine)
-  return { id: row.id, name: row.name, fyStartYear: row.fy_start_year, lines }
+  return {
+    id: row.id,
+    name: row.name,
+    fyStartYear: row.fy_start_year,
+    lines,
+    seasonal: row.seasonal_json ? (JSON.parse(row.seasonal_json) as number[]) : null
+  }
 }
 
 export function listBudgets(db: DB): Budget[] {
@@ -45,32 +58,60 @@ export function listBudgets(db: DB): Budget[] {
 }
 
 /** Replaces a budget's lines wholesale inside one transaction — simpler and safer than diffing,
- *  and matches how voucher lines are already saved in this codebase. */
-export function saveBudget(db: DB, input: BudgetInput, id?: number): Budget {
+ *  and matches how voucher lines are already saved in this codebase. WP 4.4: every save of an
+ *  existing budget also records a revision (the whole before / after line set, who and why). */
+export function saveBudget(db: DB, raw: BudgetInput, id?: number): Budget {
+  const input = budgetInputSchema.parse(raw)
   const run = db.transaction((): Budget => {
     let budgetId: number
     let before: Budget | null = null
     if (id) {
       before = getBudget(db, id)
       if (!before) throw new Error('Budget not found')
-      db.prepare('UPDATE budgets SET name = ?, fy_start_year = ? WHERE id = ?').run(input.name, input.fyStartYear, id)
+      const seasonal = input.seasonal === undefined ? before.seasonal : input.seasonal
+      db.prepare('UPDATE budgets SET name = ?, fy_start_year = ?, seasonal_json = ? WHERE id = ?')
+        .run(input.name, input.fyStartYear, seasonal ? JSON.stringify(seasonal) : null, id)
       db.prepare('DELETE FROM budget_lines WHERE budget_id = ?').run(id)
       budgetId = id
     } else {
-      const res = db.prepare('INSERT INTO budgets (name, fy_start_year) VALUES (?, ?)').run(input.name, input.fyStartYear)
+      const res = db
+        .prepare('INSERT INTO budgets (name, fy_start_year, seasonal_json) VALUES (?, ?, ?)')
+        .run(input.name, input.fyStartYear, input.seasonal ? JSON.stringify(input.seasonal) : null)
       budgetId = Number(res.lastInsertRowid)
     }
     const insertLine = db.prepare(
-      'INSERT INTO budget_lines (budget_id, ledger_id, group_id, month, amount) VALUES (?, ?, ?, ?, ?)'
+      `INSERT INTO budget_lines (budget_id, ledger_id, group_id, month, amount, cost_centre_id, phasing, monthly_json)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
     )
     for (const line of input.lines) {
-      insertLine.run(budgetId, line.ledgerId, line.groupId, line.month, line.amount)
+      // A single-month line has no phasing of its own.
+      const phasing = line.month ? 'annual' : line.phasing
+      insertLine.run(
+        budgetId, line.ledgerId, line.groupId, line.month, line.amount, line.costCentreId, phasing,
+        phasing === 'manual' && line.monthly ? JSON.stringify(line.monthly) : null
+      )
     }
     const after = getBudget(db, budgetId)!
     writeAudit(db, 'budget', budgetId, id ? 'update' : 'create', before, after)
+    if (before) recordRevision(db, before, after, input.reason ?? null)
     return after
   })
   return run()
+}
+
+const budgetTotal = (b: Budget): number => b.lines.reduce((s, l) => s + l.amount, 0)
+
+/** WP 4.4: one budget_revisions row per update — numbered per budget, attributed to the user the
+ *  audit row just written names (the same attribution as the edit log). */
+function recordRevision(db: DB, before: Budget, after: Budget, reason: string | null): void {
+  const next = (db.prepare('SELECT COALESCE(MAX(revision_no), 0) + 1 AS n FROM budget_revisions WHERE budget_id = ?').get(after.id) as { n: number }).n
+  const user = db
+    .prepare("SELECT user_name AS u FROM audit_log WHERE entity = 'budget' AND entity_id = ? ORDER BY id DESC LIMIT 1")
+    .get(after.id) as { u: string | null } | undefined
+  db.prepare(
+    `INSERT INTO budget_revisions (budget_id, revision_no, user_name, reason, before_json, after_json, total_before, total_after)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+  ).run(after.id, next, user?.u ?? null, reason, JSON.stringify(before), JSON.stringify(after), budgetTotal(before), budgetTotal(after))
 }
 
 export function deleteBudget(db: DB, id: number): void {
@@ -87,6 +128,7 @@ export function deleteBudget(db: DB, id: number): void {
  * to that ledger's natural direction (expense/other natures: dr − cr; income: cr − dr — matching
  * costCentres.ccReport's convention), then hands the netted actuals to the pure budgetVariance
  * engine along with a groupId -> descendant-ledger-ids map for group-targeted lines.
+ * (The original annual-vs-YTD view; WP 4.4's month / cost-centre report is budgetVariance.ts.)
  */
 export function budgetVarianceReport(db: DB, budgetId: number, upToMonth: string): BudgetVarianceRow[] {
   const budget = getBudget(db, budgetId)
