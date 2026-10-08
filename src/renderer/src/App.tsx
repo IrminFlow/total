@@ -46,6 +46,7 @@ import { ItemDemandScreen, OrderBookScreen } from './screens/TradeAnalysis'
 import { TradeReturnsScreen } from './screens/TradeReturns'
 import { StaleDocumentsScreen, UnbilledGoodsScreen } from './screens/TradeUnbilled'
 import { ConsolidatedScreen } from './screens/Consolidated'
+import { ConsolidationScreen } from './screens/consolidation/Consolidation'
 import { BankingScreen } from './screens/Banking'
 import { EdocsScreen } from './screens/Edocs'
 import { PayrollScreen } from './screens/Payroll'
@@ -225,6 +226,7 @@ export default function App(): React.JSX.Element {
           {screen.name === 'unbilled-goods' && <UnbilledGoodsScreen />}
           {screen.name === 'stale-documents' && <StaleDocumentsScreen />}
           {screen.name === 'consolidated' && <ConsolidatedScreen />}
+          {screen.name === 'consolidation' && <ConsolidationScreen key={screen.groupId ?? 0} tab={screen.tab} groupId={screen.groupId} />}
           {screen.name === 'banking' && <BankingScreen key={screen.tab ?? 'recon'} tab={screen.tab} />}
           {screen.name === 'payroll' && <PayrollScreen />}
           {screen.name === 'tds' && <TdsScreen />}
