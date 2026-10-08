@@ -9,6 +9,8 @@ declare global {
     total: {
       platform: string
       invoke: (channel: string, payload?: unknown) => Promise<IpcResult>
+      /** AI agent events (WP 5.1) — the payload is an AiEvent (src/shared/ai.ts). Returns an unsubscribe. */
+      onAiEvent?: (listener: (event: unknown) => void) => () => void
     }
   }
 }

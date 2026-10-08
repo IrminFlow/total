@@ -153,7 +153,7 @@ export const AUDIT_COVERAGE: Record<string, AuditCoverage> = {
   'bom:deleteVersion': a('bom'),
 
   // ---------- vouchers ----------
-  'voucher:save': a('voucher', 'credit_override'),
+  'voucher:save': a('voucher', 'credit_override', 'ai_draft'),
   'voucher:delete': a('voucher'),
   'voucher:restore': a('voucher'),
   'voucher:purge': a('voucher'),
@@ -309,6 +309,20 @@ export const AUDIT_COVERAGE: Record<string, AuditCoverage> = {
   'pack:delete': a('report_pack'),
   'pack:runNow': a('report_pack'),
   'pack:chooseFolder': r('opens a folder picker; the chosen path is saved by pack:save'),
+
+  // ---------- AI agent (WP 5.1) — conversations are not books; settings, drafts and deletions are audited ----------
+  'ai:settings:set': a('ai_settings'),
+  'ai:notice:accept': a('ai_settings'),
+  'ai:key:set': a('ai_settings'),
+  'ai:key:clear': a('ai_settings'),
+  'ai:testConnection': r('lists the provider\'s models over the network; sends no company data and writes nothing'),
+  'ai:thread:delete': a('ai_thread'),
+  // Viewer-level, listed anyway: a question writes only the AI tables (thread, messages, usage,
+  // outbound log) — never the books — and audits any draft a draft tool creates.
+  'ai:send': a('ai_draft'),
+  'ai:cancel': r('stops an in-flight answer; the partial reply is kept in the AI tables only'),
+  'ai:draft:discard': a('ai_draft'),
+  'ai:data:deleteAll': a('ai_data'),
   // ---------- payables (WP 4.3) ----------
   'payables:plan': QUERY,
   'payables:msmeDue': QUERY,

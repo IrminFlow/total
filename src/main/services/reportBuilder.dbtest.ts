@@ -65,12 +65,12 @@ function voucher(
 
 // ---------------------------------------------------------------- migration 038
 
-describe('migration 038 — saved reports and report packs', () => {
-  it('is appended after every earlier migration (assigned number 038; lands after 032–037)', () => {
+describe('report-builder migration (last) — saved reports and report packs', () => {
+  it('is the last migration (number by position)', () => {
     // Array position = migration number − 1. On this branch it follows 031 directly; once the
     // parallel 032–037 merge it must sit after them (numbers are array positions).
     expect(M038).toBe(MIGRATIONS.length - 1)
-    expect(M038 + 1).toBeGreaterThanOrEqual(36) // 032–035 on main; 036–037 not yet
+    expect(M038 + 1).toBeGreaterThanOrEqual(37) // after 032–035 (Phase 4) and 036 (AI)
   })
 
   it('creates the three tables with their constraints, from the previous schema', () => {

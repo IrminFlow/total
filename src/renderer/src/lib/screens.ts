@@ -540,7 +540,8 @@ export const SCREENS: ScreenDef[] = [
       'backups', 'bin', 'users', 'audit', 'nicCreds', 'nicStatus',
       'features', 'invoiceConfig', 'invoicePreview', 'printTemplates', 'printTemplate', 'printPreview', 'appInfo', 'companyLock', 'agentConfig',
       // WP 6.2 scheduled packs
-      'reportPacks', 'reportPackRuns', 'savedReports'
+      'reportPacks', 'reportPackRuns', 'savedReports',
+      'aiSettings', 'aiUsage', 'aiOutbound'
     ]
   },
   {
