@@ -53,7 +53,7 @@ export function CategoriseModal({ bankLedgerId, onClose, onDone }: { bankLedgerI
     () =>
       defineColumns<StatementCategoryRow>([
         { id: 'date', header: 'Date', kind: 'date', value: (r) => r.date, width: 100, className: 'text-muted' },
-        { id: 'narration', header: 'Narration', kind: 'text', value: (r) => r.description, minWidth: 220, hideable: false },
+        { id: 'narration', header: 'Narration', kind: 'text', value: (r) => r.description, minWidth: 200, hideable: false },
         { id: 'amount', header: 'Amount', kind: 'money', value: (r) => (r.side === 'withdrawal' ? -r.amount : r.amount), width: 120 },
         {
           id: 'ledger', header: 'Ledger', kind: 'text', minWidth: 230, value: (r) => r.ledgerName ?? '',
@@ -78,7 +78,7 @@ export function CategoriseModal({ bankLedgerId, onClose, onDone }: { bankLedgerI
         },
         { id: 'kind', header: 'Voucher', kind: 'text', value: (r) => r.kind, width: 96, className: 'text-muted' },
         {
-          id: 'source', header: 'Why', kind: 'text', minWidth: 220, value: (r) => r.why,
+          id: 'source', header: 'Why', kind: 'text', minWidth: 260, value: (r) => r.why,
           cell: (r) => (
             <span className="flex flex-col gap-0.5" data-testid="cell-categorise-source" data-source={r.source}>
               <span className="flex items-center gap-1">
@@ -117,7 +117,7 @@ export function CategoriseModal({ bankLedgerId, onClose, onDone }: { bankLedgerI
   const selected = ready.filter((r) => picked.has(r.lineId))
 
   return (
-    <Modal title="Categorise unmatched statement lines" onClose={result ? onDone : onClose} wide>
+    <Modal title="Categorise unmatched statement lines" onClose={result ? onDone : onClose} extraWide>
       <div className="space-y-3 p-4" data-testid="categorise-modal">
         {error && <Banner tone="danger">{error}</Banner>}
         {!data && !error && <SkeletonRows rows={4} />}

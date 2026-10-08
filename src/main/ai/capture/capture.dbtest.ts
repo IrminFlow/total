@@ -139,7 +139,8 @@ describe('bill → purchase draft', () => {
     const st = d.payload.state as InvoiceFormState
     expect(st.rows.map((r) => [r.itemId, r.qtyText, r.rate])).toEqual([[chairId, '4', 500_000], [cabinetId, '1', 950_000]])
     expect(st.billName).toBe('BSS/2025-26/0142')
-    expect(d.payload.sources!.find((s) => s.field === 'party')?.why).toMatch(/GSTIN is 27AABCG3456H1ZN/)
+    expect(d.payload.sources!.filter((s) => s.field === 'party').map((s) => s.why)).toEqual(['its GSTIN is 27AABCG3456H1ZN'])
+    expect(d.payload.sources!.filter((s) => s.field === 'line:0')).toHaveLength(1)
     expect(after.review!.taxCheck).toEqual({ computed: 474_000, printed: 474_000, computedTotal: 3_424_000, printedTotal: 3_424_000 })
     expect(d.payload.assumptions!.some((a) => /prints GST/.test(a))).toBe(false)
     // Nothing in the books yet.

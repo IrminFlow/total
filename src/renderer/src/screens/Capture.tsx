@@ -43,9 +43,9 @@ function columns(openDraft: (id: number) => void) {
         </span>
       )
     },
-    { id: 'added', header: 'Added', kind: 'date', value: (i) => i.createdAt.slice(0, 10), width: 104, className: 'text-muted' },
+    { id: 'added', header: 'Added', kind: 'date', value: (i) => i.createdAt.slice(0, 10), width: 104, className: 'text-muted', defaultHidden: true },
     {
-      id: 'status', header: 'Status', kind: 'enum', value: (i) => i.status, options: STATUS_OPTIONS, width: 170,
+      id: 'status', header: 'Status', kind: 'enum', value: (i) => i.status, options: STATUS_OPTIONS, width: 180,
       cell: (i) => (
         <span className="flex flex-col gap-0.5" data-testid="cell-capture-status" data-status={i.status}>
           <Badge tone={STATUS[i.status].tone}>{STATUS[i.status].label}</Badge>
@@ -53,12 +53,12 @@ function columns(openDraft: (id: number) => void) {
         </span>
       )
     },
-    { id: 'supplier', header: 'Supplier', kind: 'text', value: (i) => i.supplierName ?? '', minWidth: 160 },
-    { id: 'invoice', header: 'Invoice', kind: 'text', value: (i) => i.invoiceNo ?? '', width: 150, className: 'num' },
+    { id: 'supplier', header: 'Supplier', kind: 'text', value: (i) => i.supplierName ?? '', minWidth: 150 },
+    { id: 'invoice', header: 'Invoice', kind: 'text', value: (i) => i.invoiceNo ?? '', width: 170, className: 'num' },
     { id: 'date', header: 'Bill date', kind: 'date', value: (i) => i.invoiceDate ?? '', width: 104 },
     { id: 'total', header: 'Total', kind: 'money', value: (i) => i.total, width: 130 },
     {
-      id: 'duplicate', header: 'Duplicate?', kind: 'enum', width: 150,
+      id: 'duplicate', header: 'Duplicate?', kind: 'enum', width: 140,
       value: (i) => i.duplicateKind ?? 'none',
       options: [{ value: 'none', label: 'No' }, { value: 'same_invoice', label: 'Same invoice' }, { value: 'same_amount', label: 'Same amount' }],
       cell: (i) =>
@@ -72,7 +72,7 @@ function columns(openDraft: (id: number) => void) {
         )
     },
     {
-      id: 'draft', header: 'Draft', kind: 'text', width: 140, value: (i) => (i.voucherId ? 'saved' : i.draftId ? 'draft' : ''),
+      id: 'draft', header: 'Draft', kind: 'text', width: 120, value: (i) => (i.voucherId ? 'saved' : i.draftId ? 'draft' : ''),
       cell: (i) =>
         i.voucherId ? (
           <VoucherLink voucherId={i.voucherId} label="Saved voucher" className="text-small" />
@@ -97,8 +97,8 @@ export function CaptureScreen(): React.JSX.Element {
   const { data, isLoading } = useQuery({
     queryKey: ['captureQueue'],
     queryFn: () => captureApi.list(),
-    // Poll while something is being sent.
-    refetchInterval: (q) => (q.state.data?.items.some((i) => i.status === 'pending' || i.status === 'processing') ? 1000 : false)
+    // Poll fast while something is being sent; slowly otherwise (files dropped in the inbox folder).
+    refetchInterval: (q) => (q.state.data?.items.some((i) => i.status === 'pending' || i.status === 'processing') ? 1000 : 4000)
   })
   const items = data?.items ?? []
   const refresh = (): Promise<void> => qc.invalidateQueries({ queryKey: ['captureQueue'] })
@@ -249,7 +249,7 @@ function EstimateModal({ estimate, onClose, onConfirm }: { estimate: CaptureEsti
           {estimate.items} {estimate.items === 1 ? 'file' : 'files'}, {estimate.pages} {estimate.pages === 1 ? 'page' : 'pages'}, to {estimate.model}.
         </p>
         <p className="text-body">
-          Estimated cost: <span className="num font-semibold" data-testid="text-capture-cost">{estimate.costMicroUsd == null ? 'not priced (set the model’s price in Settings → AI)' : `≈ ${usd(estimate.costMicroUsd)}`}</span>{' '}
+          Estimated cost: <span className={estimate.costMicroUsd == null ? 'text-muted' : 'num font-semibold'} data-testid="text-capture-cost">{estimate.costMicroUsd == null ? 'not priced (set the model’s price in Settings → AI)' : `≈ ${usd(estimate.costMicroUsd)}`}</span>{' '}
           <span className="text-hint text-muted">(~{estimate.inputTokens.toLocaleString('en-IN')} input + {estimate.outputTokens.toLocaleString('en-IN')} output tokens)</span>
         </p>
         {estimate.unmaskable > 0 && (

@@ -413,7 +413,14 @@ export function draftFromBill(input: BillDraftInput): BillDraftOutcome {
   const payload = {
     ...built.payload,
     assumptions: [...(built.payload.assumptions ?? []), ...extra],
-    sources: [...(built.payload.sources ?? []), ...dupSource],
+    // The builder re-records the ids capture already resolved ("the id from an earlier tool
+    // result") — keep capture's own reason (GSTIN, name + HSN) once per field.
+    sources: [
+      ...(built.payload.sources ?? []).filter(
+        (x, _i, all) => !(x.why === 'the id from an earlier tool result' && all.some((y) => y !== x && y.field === x.field && y.why !== x.why))
+      ),
+      ...dupSource
+    ],
     captureItemId: input.item.id
   }
   review.assumptions = payload.assumptions
