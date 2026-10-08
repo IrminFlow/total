@@ -177,7 +177,7 @@ export function AssistantDrawer({ onClose }: { onClose: () => void }): React.JSX
         >
           Conversations{threads?.length ? ` (${threads.length})` : ''}
         </MenuButton>
-        <Button size="sm" variant="ghost" onClick={newThread} data-testid="btn-ai-new" disabled={state.running}>
+        <Button size="sm" variant="ghost" onClick={newThread} data-testid="btn-ai-new" disabled={state.running || sending}>
           New
         </Button>
         <span className="flex-1" />

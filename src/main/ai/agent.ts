@@ -219,7 +219,18 @@ export function startTurn(deps: AgentDeps, input: AskInput): TurnHandle {
   const finished = runLoop(deps, input, tid, runId, signal, text)
     .catch((err: unknown) => {
       // Defensive: runLoop handles its own failures; this catches the rest (e.g. the company
-      // closed mid-run and its database handle went away).
+      // closed mid-run and its database handle went away, or the thread was deleted between a
+      // check and a write) — reported as stopped, never as a raw database error.
+      let gone = true
+      try {
+        gone = !store.threadExists(db, tid)
+      } catch {
+        /* the handle is closed */
+      }
+      if (gone) {
+        deps.emit({ type: 'cancelled', threadId: tid, runId })
+        return { status: 'cancelled' as const }
+      }
       const error = redactSecrets(err instanceof Error ? err.message : String(err))
       deps.emit({ type: 'error', threadId: tid, runId, error })
       return { status: 'error' as const, error }
@@ -270,6 +281,10 @@ async function runLoop(
   const model = input.speed === 'fast' ? settings.fastModel : settings.defaultModel
   const turnSources: AiSource[] = []
   const send = (m: store.StoredMessage): void => emit({ type: 'message', threadId, runId, message: store.toDto(m) })
+  // A thread can be deleted (thread delete / Delete all AI data) while a call is in flight: its
+  // usage is still recorded — unlinked — and nothing else is written for it.
+  const threadGone = (): boolean => !store.threadExists(db, threadId)
+  const usageThread = (): number | null => (threadGone() ? null : threadId)
 
   const stopped = (partial: string): { status: 'cancelled' } => {
     if (partial.trim()) send(store.addMessage(db, { threadId, role: 'assistant', content: partial, status: 'cancelled', model }))
@@ -316,22 +331,32 @@ async function runLoop(
     } catch (err) {
       const aborted = err instanceof AiAbortError || signal.aborted
       const error = redactSecrets(err instanceof Error ? err.message : String(err))
+      const gone = threadGone()
       store.setOutboundStatus(db, outboundId, aborted ? 'cancelled' : 'error')
       // Failed and stopped calls are counted too (tokens unknown: the provider sends usage only
       // with a completed response).
       store.recordUsage(db, {
-        threadId, messageId: null, provider: provider.name, model, inputTokens: 0, cachedTokens: 0, outputTokens: 0, reasoningTokens: 0,
+        threadId: gone ? null : threadId, messageId: null, provider: provider.name, model, inputTokens: 0, cachedTokens: 0, outputTokens: 0, reasoningTokens: 0,
         costMicroUsd: null, durationMs: now() - t0, ok: false, error: aborted ? 'stopped' : error, day: today
       })
+      if (gone) {
+        emit({ type: 'cancelled', threadId, runId })
+        return { status: 'cancelled' }
+      }
       if (aborted) return stopped(streamed)
       return failed(error, streamed)
     }
     store.setOutboundStatus(db, outboundId, 'ok')
     const cost = estimateCostMicroUsd(res.usage, settings.prices[res.model] ?? settings.prices[model])
+    const usageThreadId = usageThread()
     const usageId = store.recordUsage(db, {
-      threadId, messageId: null, provider: provider.name, model: res.model, inputTokens: res.usage.inputTokens, cachedTokens: res.usage.cachedTokens,
+      threadId: usageThreadId, messageId: null, provider: provider.name, model: res.model, inputTokens: res.usage.inputTokens, cachedTokens: res.usage.cachedTokens,
       outputTokens: res.usage.outputTokens, reasoningTokens: res.usage.reasoningTokens, costMicroUsd: cost, durationMs: now() - t0, ok: true, day: today
     })
+    if (usageThreadId === null) {
+      emit({ type: 'cancelled', threadId, runId })
+      return { status: 'cancelled' }
+    }
     const text = inboundText(res.text, privacy)
     const usageFields = { model: res.model, inputTokens: res.usage.inputTokens, outputTokens: res.usage.outputTokens, costMicroUsd: cost }
 

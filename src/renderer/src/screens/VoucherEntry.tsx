@@ -60,7 +60,13 @@ export function VoucherEntry({
   const aiDraftOpen = aiDraft?.status === 'open'
   const draft: VoucherDraft | undefined =
     aiDraft && aiDraftOpen
-      ? { date: aiDraft.payload.date, narration: aiDraft.payload.narration ?? undefined, lines: aiDraft.payload.lines, aiDraftId: aiDraft.id }
+      ? {
+          date: aiDraft.payload.date,
+          partyLedgerId: aiDraft.payload.partyLedgerId ?? undefined,
+          narration: aiDraft.payload.narration ?? undefined,
+          lines: aiDraft.payload.lines,
+          aiDraftId: aiDraft.id
+        }
       : draftProp
   const waitingForAiDraft = !!aiDraftId && !voucherId && !aiDraft && !aiDraftError
   const [typeId, setTypeId] = useState<number | null>(null)

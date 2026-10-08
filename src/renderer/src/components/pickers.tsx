@@ -93,6 +93,13 @@ export function TypeAhead({
     // eslint-disable-next-line react-hooks/exhaustive-deps -- re-run only when the value's label changes
   }, [selected?.label])
 
+  // The options can be re-ordered (or the value change id) while the list is open: keep the
+  // highlight on the value — but only while the text is the value's label, never over a search.
+  useEffect(() => {
+    if (selected && text.trim().toLowerCase() === selected.label.toLowerCase()) setActive(selectedIndex())
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- deliberately not on every keystroke
+  }, [selected?.id, filtered])
+
   useEffect(() => {
     const onDoc = (e: MouseEvent): void => {
       if (!wrapRef.current?.contains(e.target as Node)) setOpen(false)

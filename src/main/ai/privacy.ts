@@ -97,9 +97,16 @@ function namePrefixes(name: string): string[] {
  *  this long and the prefix of exactly one party (and not itself another party's full name). */
 export const MIN_PREFIX = 4
 
-export function createPseudonymiser(entries: readonly { name: string; alias: string }[]): Pseudonymiser {
+export function createPseudonymiser(
+  entries: readonly { name: string; alias: string }[],
+  /** Names of every NON-party ledger and group. They are never touched: a party prefix that is a
+   *  substring of one is not aliased ("Cash" of "Cash Traders" vs the Cash ledger), and a whole
+   *  reserved name is matched first, so a party name inside it ("Rent" in "Shop Rent") stays. */
+  reserved: readonly string[] = []
+): Pseudonymiser {
   const usable = entries.filter((e) => e.name.trim().length >= MIN_PSEUDONYM_NAME)
   const byName = new Map(usable.map((e) => [e.name.toLowerCase(), e.alias]))
+  const reservedLower = [...new Set(reserved.map((r) => r.trim().toLowerCase()).filter((r) => r.length > 0 && !byName.has(r)))]
   const prefixOwners = new Map<string, Set<string>>()
   for (const e of usable) {
     for (const p of namePrefixes(e.name)) {
@@ -107,14 +114,21 @@ export function createPseudonymiser(entries: readonly { name: string; alias: str
       prefixOwners.set(k, (prefixOwners.get(k) ?? new Set()).add(e.alias))
     }
   }
-  for (const [k, owners] of prefixOwners) if (owners.size === 1 && !byName.has(k)) byName.set(k, [...owners][0]!)
+  for (const [k, owners] of prefixOwners) {
+    if (owners.size !== 1 || byName.has(k)) continue
+    if (reservedLower.some((r) => r.includes(k))) continue
+    byName.set(k, [...owners][0]!)
+  }
+  // Only reserved names that contain something we would replace need protecting.
+  const keys = [...byName.keys()]
+  const shield = new Set(reservedLower.filter((r) => keys.some((k) => r.includes(k))))
   const byAlias = new Map(usable.map((e) => [e.alias, e.name]))
-  const names = [...byName.keys()].sort((a, b) => b.length - a.length)
+  const names = [...byName.keys(), ...shield].sort((a, b) => b.length - a.length)
   const outRe = names.length ? new RegExp(`(?<![\\p{L}\\p{N}])(?:${names.map(escapeRe).join('|')})(?![\\p{L}\\p{N}])`, 'giu') : null
   const inbound = (text: string): string => text.replace(ALIAS_RE, (m) => byAlias.get(m) ?? m)
   return {
     size: usable.length,
-    outbound: (text) => (outRe ? text.replace(outRe, (m) => byName.get(m.toLowerCase()) ?? m) : text),
+    outbound: (text) => (outRe ? text.replace(outRe, (m) => (shield.has(m.toLowerCase()) ? m : (byName.get(m.toLowerCase()) ?? m))) : text),
     inbound,
     stream() {
       let buf = ''

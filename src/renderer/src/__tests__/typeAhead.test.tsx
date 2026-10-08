@@ -44,6 +44,18 @@ describe('TypeAhead with more than 50 options', () => {
     expect(onPick).toHaveBeenLastCalledWith(70)
   })
 
+  it('keeps the highlight on the value when the options are re-ordered while open', () => {
+    const onPick = vi.fn()
+    const { rerender } = render(<TypeAhead options={OPTIONS} value={10} placeholder="Ledger" testId="picker" onPick={onPick} />)
+    const input = screen.getByTestId('picker')
+    fireEvent.focus(input)
+    rerender(<TypeAhead options={[...OPTIONS].reverse()} value={10} placeholder="Ledger" testId="picker" onPick={onPick} />)
+    const active = screen.getAllByRole('option').find((o) => o.getAttribute('aria-selected') === 'true')!
+    expect(active.textContent).toBe('Ledger 10')
+    fireEvent.keyDown(input, { key: 'Enter' })
+    expect(onPick).toHaveBeenLastCalledWith(10)
+  })
+
   it('⌘↵ does not pick the highlighted row', () => {
     const onPick = vi.fn()
     const save = vi.fn()

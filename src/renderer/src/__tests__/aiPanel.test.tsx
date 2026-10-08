@@ -190,6 +190,24 @@ describe('AssistantDrawer', () => {
     await waitFor(() => expect(useNav.getState().stack.at(-1)).toEqual({ name: 'voucher-entry', aiDraftId: 3, kindHint: 'payment' }))
   })
 
+  it('"New" is disabled while a new-thread question is being sent', async () => {
+    let resolveSend!: (v: unknown) => void
+    invoke.mockImplementation(async (channel: string) => {
+      if (channel === 'ai:settings:get') return { ok: true, data: settingsView }
+      if (channel === 'ai:threads') return { ok: true, data: [] }
+      if (channel === 'ai:send') return new Promise((r) => (resolveSend = r))
+      return { ok: true, data: null }
+    })
+    wrap(<AssistantDrawer onClose={() => {}} />)
+    const input = await screen.findByTestId('ai-input')
+    await waitFor(() => expect(isDisabled(input)).toBe(false))
+    fireEvent.change(input, { target: { value: 'q' } })
+    fireEvent.click(screen.getByTestId('btn-ai-send'))
+    await waitFor(() => expect(isDisabled(screen.getByTestId('btn-ai-new'))).toBe(true))
+    await act(async () => resolveSend({ ok: true, data: { threadId: 7, runId: 'r1', userMessage: msg({ id: 1, role: 'user', content: 'q' }) } }))
+    expect(screen.getByTestId('ai-msg-user').textContent).toBe('q')
+  })
+
   it('is off (input disabled, reason shown) until the assistant is ready', async () => {
     settingsView = view({ ready: false, blocker: 'Read and accept the data notice first', keyPresent: false }, { enabled: false, noticeAcceptedAt: null })
     wrap(<AssistantDrawer onClose={() => {}} />)

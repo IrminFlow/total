@@ -71,6 +71,21 @@ describe('pseudonyms', () => {
     expect(q.outbound('Sharma Steel paid; Sharma owes; Mehta is ambiguous')).toBe('Party-0001 paid; Party-0001 owes; Mehta is ambiguous')
   })
 
+  it('never touches non-party ledger or group names (prefixes and names inside them)', () => {
+    const q = createPseudonymiser(
+      [
+        { name: 'Cash Traders', alias: 'Party-0001' },
+        { name: 'Rent', alias: 'Party-0002' },
+        { name: 'Sharma Steel Works', alias: 'Party-0003' }
+      ],
+      ['Cash', 'Shop Rent', 'Cash-in-Hand', 'Sundry Debtors', 'Sales Accounts']
+    )
+    expect(q.outbound('Dr Shop Rent / Cr Cash; Cash Traders owes; Cash-in-Hand')).toBe('Dr Shop Rent / Cr Cash; Party-0001 owes; Cash-in-Hand')
+    expect(q.outbound('Rent paid to Rent')).toBe('Party-0002 paid to Party-0002')
+    expect(q.outbound('Sharma owes')).toBe('Party-0003 owes') // unreserved prefixes still work
+    expect(q.inbound('Party-0001 and Cash')).toBe('Cash Traders and Cash')
+  })
+
   it('maps aliases back, unknown aliases untouched', () => {
     expect(p.inbound('Party-0002 owes ₹5,000.00; Party-0099 unknown')).toBe('Acme Traders (Pune) owes ₹5,000.00; Party-0099 unknown')
     expect(p.inbound(p.outbound('Acme Traders paid Raj & Co.'))).toBe('Acme Traders paid Raj & Co.')

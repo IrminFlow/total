@@ -413,7 +413,11 @@ export function companyPseudonymiser(db: DB): Pseudonymiser {
       }
     })()
   }
-  return createPseudonymiser(parties.map((p) => ({ name: p.name, alias: existing.get(p.id)! })))
+  const others = (db.prepare('SELECT name, group_id FROM ledgers').all() as { name: string; group_id: number }[])
+    .filter((l) => !partyGroups.has(l.group_id))
+    .map((l) => l.name)
+  const groups = (db.prepare('SELECT name FROM groups').all() as { name: string }[]).map((g) => g.name)
+  return createPseudonymiser(parties.map((p) => ({ name: p.name, alias: existing.get(p.id)! })), [...others, ...groups])
 }
 
 // ---------- delete everything ----------

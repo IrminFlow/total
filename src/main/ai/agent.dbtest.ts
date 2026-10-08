@@ -665,6 +665,39 @@ describe('review fixes', () => {
     expect(provider.requests[2]!.input.filter((i) => i.type === 'reasoning')).toEqual([])
   })
 
+  it('a thread deleted mid-call: the usage row is kept (unlinked), the run ends stopped, no database error', async () => {
+    const f = fixture()
+    const provider = new MockProvider([{ text: 'A long answer that keeps going and going and going.' }], { delayMs: 10, chunk: 4 })
+    const d = deps(f, provider)
+    const t = startTurn(d, { text: 'long' })
+    await new Promise((r) => setTimeout(r, 30))
+    // what ai:thread:delete does: stop the run, delete the thread right away
+    d.runs.cancel(t.threadId)
+    store.deleteThread(f.db, t.threadId)
+    expect(await t.finished).toEqual({ status: 'cancelled' })
+    expect(d.events.some((e) => e.type === 'error')).toBe(false)
+    expect(d.events.at(-1)).toMatchObject({ type: 'cancelled' })
+    const usage = store.listUsage(f.db)
+    expect(usage).toHaveLength(1)
+    expect(usage[0]).toMatchObject({ threadId: null, ok: false })
+    expect(store.listOutbound(f.db)[0]!.status).toBe('cancelled')
+  })
+
+  it('a thread deleted while the call completes: usage kept unlinked, nothing else written', async () => {
+    const f = fixture()
+    let release!: () => void
+    const gate = new Promise<void>((r) => (release = r))
+    const slow = new MockProvider(() => ({ text: 'done' }))
+    const provider = { name: 'mock', models: async () => [], chat: async (...a: Parameters<MockProvider['chat']>) => { await gate; return slow.chat(...a) } }
+    const d = deps(f, provider as unknown as MockProvider)
+    const t = startTurn(d, { text: 'q' })
+    store.deleteThread(f.db, t.threadId) // deleted without a cancel: the call still completes
+    release()
+    expect(await t.finished).toEqual({ status: 'cancelled' })
+    expect(store.listUsage(f.db)[0]).toMatchObject({ threadId: null, ok: true })
+    expect(d.events.some((e) => e.type === 'error')).toBe(false)
+  })
+
   it('a draft discarded during review does not block its save; the audit trail says so', () => {
     const f = fixture()
     const { payload, summary } = buildVoucherDraft(f.db, { kind: 'payment', lines: [{ ledgerId: f.rent, drCr: 'dr', amount: '50' }, { ledgerId: f.cash, drCr: 'cr', amount: '50' }] }, '2025-08-14')
