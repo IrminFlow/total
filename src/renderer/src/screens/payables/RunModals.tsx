@@ -43,7 +43,7 @@ function LinesTable({ lines, posted }: { lines: PaymentRunLine[]; posted: boolea
                 </span>
               ))}
             </td>
-            <td className="text-hint text-muted">
+            <td className="text-hint whitespace-nowrap text-muted">
               {l.bills.length > 0 ? l.bills.map((b) => b.name).join(', ') : 'Oldest first'}
               {l.onAccount > 0 && <span className="block">+ {formatPaise(l.onAccount)} on account</span>}
             </td>

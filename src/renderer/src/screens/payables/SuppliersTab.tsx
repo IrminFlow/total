@@ -46,7 +46,7 @@ const RECON_COLUMNS = defineColumns<ReconPair>([
     options: (Object.keys(STATUS) as ReconStatus[]).map((k) => ({ value: k, label: STATUS[k].label })), text: (r) => STATUS[r.status].label,
     cell: (r) => <Badge tone={STATUS[r.status].tone} testId="recon-status">{STATUS[r.status].label}</Badge>
   },
-  { id: 'side', header: 'Kind', kind: 'enum', value: (r) => r.side, width: 90, options: [{ value: 'bill', label: 'Bill' }, { value: 'payment', label: 'Payment / note' }], text: (r) => (r.side === 'bill' ? 'Bill' : 'Payment / note') },
+  { id: 'side', header: 'Kind', kind: 'enum', value: (r) => r.side, width: 90, options: [{ value: 'bill', label: 'Bill' }, { value: 'payment', label: 'Payment' }], text: (r) => (r.side === 'bill' ? 'Bill' : 'Payment') },
   { id: 'sDate', header: 'Date', group: 'Their books', kind: 'date', value: (r) => r.supplier?.date ?? '' },
   { id: 'sDoc', header: 'Doc no.', group: 'Their books', kind: 'text', value: (r) => r.supplier?.docNo ?? '', width: 120, className: 'num' },
   { id: 'sAmt', header: 'Amount', group: 'Their books', kind: 'money', value: (r) => (r.supplier ? r.supplier.debit + r.supplier.credit : null), width: 130 },

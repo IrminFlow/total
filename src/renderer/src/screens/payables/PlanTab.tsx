@@ -22,7 +22,7 @@ const BASIS_LABEL = { agreed: 'agreed', agreed_capped: 'agreed, capped at 45 d',
 
 export const PLAN_COLUMNS = defineColumns<PayablePlanRow>([
   {
-    id: 'party', header: 'Supplier', kind: 'text', value: (r) => r.partyName, minWidth: 150, hideable: false,
+    id: 'party', header: 'Supplier', kind: 'text', value: (r) => r.partyName, minWidth: 140, hideable: false,
     cell: (r) => <LedgerLink ledgerId={r.ledgerId} name={r.partyName} />
   },
   {
@@ -30,10 +30,10 @@ export const PLAN_COLUMNS = defineColumns<PayablePlanRow>([
     cell: (r) => <VoucherLink voucherId={r.voucherId} label={<span className="num">{r.number}</span>} />
   },
   { id: 'ref', header: 'Supplier inv.', kind: 'text', value: (r) => r.supplierRef ?? '', width: 110, defaultHidden: true },
-  { id: 'date', header: 'Bill date', kind: 'date', value: (r) => r.date, width: 96, className: 'text-muted' },
+  { id: 'date', header: 'Bill date', kind: 'date', value: (r) => r.date, width: 104, className: 'text-muted' },
   { id: 'due', header: 'Due (terms)', kind: 'date', value: (r) => r.dueDate ?? '', defaultHidden: true },
   {
-    id: 'msme', header: 'MSME', kind: 'enum', value: (r) => r.msme?.category ?? '', width: 74,
+    id: 'msme', header: 'MSME', kind: 'enum', value: (r) => r.msme?.category ?? '', width: 70,
     options: [{ value: 'micro', label: 'Micro' }, { value: 'small', label: 'Small' }, { value: 'medium', label: 'Medium' }],
     cell: (r) => <MsmeBadge msme={r.msme} />
   },
@@ -44,18 +44,18 @@ export const PLAN_COLUMNS = defineColumns<PayablePlanRow>([
   },
   { id: 'payBy', header: 'Pay by', kind: 'date', value: (r) => r.payBy, width: 100, className: 'font-medium' },
   {
-    id: 'bucket', header: 'When', kind: 'enum', value: (r) => r.bucket, width: 108, groupKey: (r) => PLAN_BUCKET_LABELS[r.bucket],
+    id: 'bucket', header: 'When', kind: 'enum', value: (r) => r.bucket, width: 96, groupKey: (r) => PLAN_BUCKET_LABELS[r.bucket],
     options: PLAN_BUCKETS.map((b) => ({ value: b, label: PLAN_BUCKET_LABELS[b] })), text: (r) => PLAN_BUCKET_LABELS[r.bucket],
     cell: (r) => <span className={r.bucket === 'overdue' ? 'text-cr' : r.bucket === 'this_week' ? 'text-amber' : ''}>{PLAN_BUCKET_LABELS[r.bucket]}</span>
   },
   {
-    id: 'days', header: 'Days', kind: 'number', value: (r) => r.daysToPay, width: 80,
+    id: 'days', header: 'Days', kind: 'number', value: (r) => r.daysToPay, width: 92,
     text: (r) => (r.daysToPay < 0 ? `${-r.daysToPay} late` : `in ${r.daysToPay}`)
   },
   { id: 'amount', header: 'Bill amount', kind: 'money', value: (r) => r.amount, width: 130, defaultHidden: true },
   { id: 'pending', header: 'Pending', kind: 'money', value: (r) => r.pending, width: 120, aggregate: 'sum', className: 'font-medium' },
   {
-    id: 'discount', header: 'Discount', kind: 'money', value: (r) => (r.discount?.available ? r.discount.paise : null), width: 108,
+    id: 'discount', header: 'Discount', kind: 'money', value: (r) => (r.discount?.available ? r.discount.paise : null), width: 96,
     aggregate: (rows) => rows.reduce((s, r) => s + (r.discount?.available ? r.discount.paise : 0), 0),
     text: (r) => (r.discount ? `${formatPaise(r.discount.paise)} (${pct(r.discount.bp)} by ${toDisplayDate(r.discount.by)})` : ''),
     cell: (r) =>
@@ -66,7 +66,7 @@ export const PLAN_COLUMNS = defineColumns<PayablePlanRow>([
       ) : null
   },
   {
-    id: 'interest', header: 's.16 interest', kind: 'money', value: (r) => (r.interestIndicative > 0 ? r.interestIndicative : null), width: 108,
+    id: 'interest', header: 'Interest', kind: 'money', value: (r) => (r.interestIndicative > 0 ? r.interestIndicative : null), width: 100,
     aggregate: 'sum', className: 'text-cr'
   }
 ])
