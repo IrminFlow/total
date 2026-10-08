@@ -715,7 +715,7 @@ export const explainFigureTool = defineTool({
     ledgerId: z.number().int().positive().optional(),
     voucherId: z.number().int().positive().optional(),
     itemId: z.number().int().positive().optional(),
-    groupName: z.string().max(120).optional().describe('A group or report line name, e.g. "Sales Accounts"'),
+    groupName: z.string().max(240).optional().describe('A group or report line name, e.g. "Sales Accounts"; several joined by " + "'),
     from: iso.optional(),
     to: iso.optional(),
     asOn: iso.optional().describe('For balances as on a date (trial balance, balance sheet)')
@@ -736,6 +736,23 @@ export const explainFigureTool = defineTool({
     if (voucherId) return voucherDetail(ctx, voucherId)
     if (ledgerId) return explainLedger(ctx, ledgerId, range.from, range.to)
     if (itemId) return itemMovementsTool.handler({ itemId, from: range.from, to: range.to }, ctx)
+    if (groupName && groupName.includes(' + ')) {
+      // A figure over several groups (a dashboard's "Cash & bank"): each part, side by side.
+      const parts: unknown[] = []
+      const sources: AiSource[] = []
+      const missing: string[] = []
+      for (const g of groupName.split(' + ').map((x) => x.trim()).filter(Boolean).slice(0, 6)) {
+        try {
+          const out = explainGroup(ctx, g, range.from, range.to, asOn)
+          parts.push(out.data)
+          sources.push(...out.sources)
+        } catch {
+          missing.push(g)
+        }
+      }
+      if (!parts.length) throw new Error(`None of these groups has a figure for this period: ${groupName}.`)
+      return { data: { figure: 'groups', parts, notInTheBooks: missing.length ? missing : undefined }, sources }
+    }
     if (groupName) return explainGroup(ctx, groupName, range.from, range.to, asOn)
     throw new Error('Nothing to explain: pass a ledgerId, voucherId, itemId or groupName (or call current_screen_data).')
   }

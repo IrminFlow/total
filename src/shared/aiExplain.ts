@@ -31,7 +31,8 @@ export const aiExplainSchema = z.object({
   ledgerId: id.optional(),
   voucherId: id.optional(),
   itemId: id.optional(),
-  groupName: z.string().max(120).optional(),
+  /** A group / report line; several joined by " + " (a dashboard's "Cash & bank"). */
+  groupName: z.string().max(240).optional(),
   from: iso.optional(),
   to: iso.optional(),
   asOn: iso.optional()
@@ -115,7 +116,7 @@ export function explainContextFor(f: ExplainFigure): { question: string; context
     ...(f.ledgerId ? { ledgerId: f.ledgerId } : {}),
     ...(f.voucherId ? { voucherId: f.voucherId } : {}),
     ...(f.itemId ? { itemId: f.itemId } : {}),
-    ...(f.groupName ? { groupName: f.groupName.slice(0, 120) } : {}),
+    ...(f.groupName ? { groupName: f.groupName.slice(0, 240) } : {}),
     ...(f.asOn ? { asOn: f.asOn } : {}),
     ...(!f.asOn && f.from ? { from: f.from } : {}),
     ...(!f.asOn && f.to ? { to: f.to } : {})

@@ -159,13 +159,11 @@ type Action =
   | { type: 'load'; state: AiPanelState }
   | { type: 'awaiting' }
   | { type: 'error'; error: string | null }
-  | { type: 'truncate'; afterId: number }
 
 function reducer(state: AiPanelState, a: Action): AiPanelState {
   if (a.type === 'event') return applyAiEvent(state, a.event)
   if (a.type === 'load') return a.state
   if (a.type === 'awaiting') return { ...state, awaitingThread: true, error: null }
-  if (a.type === 'truncate') return { ...state, messages: state.messages.filter((m) => m.id <= a.afterId), error: null }
   return { ...state, error: a.error, awaitingThread: false }
 }
 
@@ -195,7 +193,22 @@ export function AssistantDrawer({ onClose }: { onClose: () => void }): React.JSX
     enabled: ready && state.threadId !== null
   })
 
-  useEffect(() => onAiEvent((event) => dispatch({ type: 'event', event })), [])
+  // Runs whose run-start already streamed in: the IPC reply must not start them again (a fast
+  // run may even have finished before the reply arrives).
+  const startedRuns = useRef(new Set<string>())
+  useEffect(
+    () =>
+      onAiEvent((event) => {
+        if (event.type === 'run-start') startedRuns.current.add(event.runId)
+        dispatch({ type: 'event', event })
+      }),
+    []
+  )
+  const adopt = (r: { threadId: number; runId: string; userMessage: AiMessageDto }): void => {
+    if (startedRuns.current.has(r.runId)) return
+    startedRuns.current.add(r.runId)
+    dispatch({ type: 'event', event: { type: 'run-start', threadId: r.threadId, runId: r.runId, userMessage: r.userMessage } })
+  }
   useEffect(() => {
     endRef.current?.scrollIntoView?.({ block: 'end' })
   }, [state.messages.length, state.streaming, state.pendingTools.length])
@@ -232,7 +245,7 @@ export function AssistantDrawer({ onClose }: { onClose: () => void }): React.JSX
       try {
         const r = await aiApi.send({ threadId: threadId ?? undefined, text: q, context: ctx })
         // run-start normally arrives before the reply; make sure the thread is adopted either way.
-        dispatch({ type: 'event', event: { type: 'run-start', threadId: r.threadId, runId: r.runId, userMessage: r.userMessage } })
+        adopt(r)
         return
       } catch (err) {
         dispatch({ type: 'error', error: (err as Error).message })
@@ -309,8 +322,8 @@ export function AssistantDrawer({ onClose }: { onClose: () => void }): React.JSX
     setSending(true)
     try {
       const r = await aiApi.regenerate(state.threadId, context)
-      dispatch({ type: 'truncate', afterId: r.userMessage.id })
-      dispatch({ type: 'event', event: { type: 'run-start', threadId: r.threadId, runId: r.runId, userMessage: r.userMessage } })
+      // run-start (streamed before this reply) already dropped the old answer; adopt it either way.
+      adopt(r)
     } catch (err) {
       dispatch({ type: 'error', error: (err as Error).message })
     } finally {
@@ -338,8 +351,9 @@ export function AssistantDrawer({ onClose }: { onClose: () => void }): React.JSX
   const current = threads?.find((t) => t.id === state.threadId)
   const lastFinal = [...state.messages].reverse().find((m) => m.role === 'assistant' && m.toolCalls.length === 0)
   const subtitle = current ? (
-    <span data-testid="ai-thread-subtitle">
-      {current.title} · <span className="num">{formatMicroUsd(current.costMicroUsd)}</span>
+    <span data-testid="ai-thread-subtitle" className="flex min-w-0" title={current.title}>
+      <span className="min-w-0 truncate">{current.title}</span>
+      <span className="num shrink-0 whitespace-pre" title="Cost of this conversation">{` · ${formatMicroUsd(current.costMicroUsd)}`}</span>
     </span>
   ) : (
     'New conversation'

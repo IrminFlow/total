@@ -126,11 +126,11 @@ export function StatTile({
   // The action sits beside (not inside) the tile, so a clickable tile stays one button; the
   // wrapper takes the tile's layout classes (grid spans) so the row lines up as before.
   return (
-    <div className={`group/tile relative min-w-0 ${className}`}>
+    <div className={`t-explain-host relative h-full min-w-0 ${className}`}>
       {tile}
       <ExplainButton
         testId={testId ? `${testId}-explain` : 'btn-explain-tile'}
-        className="absolute top-2 right-2 opacity-0 group-hover/tile:opacity-100"
+        className="t-explain-reveal absolute -top-1.5 -right-1.5 z-[1] shadow-elev-1"
         focusable
         figure={() => ({ label: nodeText(label).trim() || 'Figure', value: valueText, ...(explain || {}) })}
       />
@@ -140,5 +140,10 @@ export function StatTile({
 
 /** A responsive row of StatTiles (2 → 4 columns). */
 export function StatGrid({ children, className = '' }: { children: ReactNode; className?: string }): React.JSX.Element {
-  return <div className={`grid grid-cols-2 gap-3 lg:grid-cols-4 ${className}`}>{children}</div>
+  // A container query (WP 5.2): the docked assistant narrows the screen without changing the window.
+  return (
+    <div className={`@container ${className}`}>
+      <div className="grid grid-cols-2 gap-3 @2xl:grid-cols-4">{children}</div>
+    </div>
+  )
 }

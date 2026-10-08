@@ -12,6 +12,7 @@ import { DEFAULT_FEATURES } from '@shared/features'
 import { parseMarkdown, inlineText } from '../lib/markdown'
 import { looksLikeMoney, nodeText, rowSourceIds, useExplain } from '../lib/explain'
 import { screenContextFor } from '../lib/aiContext'
+import { applyAiEvent, loadThread } from '../lib/aiThread'
 import { AssistantDrawer, AssistantPanel, useAssistantPanel } from '../components/ai/AssistantPanel'
 import { AnswerMarkdown } from '../components/ai/Markdown'
 import { DataTable, defineColumns } from '../components/table'
@@ -151,6 +152,15 @@ describe('explain helpers', () => {
     })
     const draft = screenContextFor({ name: 'voucher-entry', draft: { lines: [] } as never }, '2025-04-01', '2026-03-31')
     expect(draft.params).toBeUndefined()
+  })
+})
+
+describe('Regenerate in the reducer', () => {
+  it('a run-start for a question already in the list drops its old answer', () => {
+    const s0 = loadThread(7, [msg({ id: 1, role: 'user', content: 'q' }), msg({ id: 2, content: 'old answer' })], false)
+    const s1 = applyAiEvent(s0, ev({ type: 'run-start', runId: 'r2', userMessage: msg({ id: 1, role: 'user', content: 'q' }) }))
+    expect(s1.messages.map((m) => m.id)).toEqual([1])
+    expect(s1.running).toBe(true)
   })
 })
 

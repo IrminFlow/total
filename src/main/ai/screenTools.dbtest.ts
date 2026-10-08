@@ -201,6 +201,11 @@ describe('explain_figure', () => {
     expect(v.ok && ((v.data as Data).lines as Data[]).map((l) => l.ledger)).toEqual(['Shop Rent', 'HDFC Current'])
     const asOn = await registry.run('explain_figure', '{}', ctxFor(b, { screen: { screen: 'trial-balance', explain: { label: 'Shop Rent', value: '₹2,20,000.00 Dr', ledgerId: b.rent, asOn: '2025-12-31' } } }))
     expect(asOn.ok && (asOn.data as Data).period).toEqual({ from: '2025-04-01', to: '2025-12-31' })
+    // A dashboard tile over several groups ("Cash & bank"): each part; a group not in the books is listed.
+    const multi = await registry.run('explain_figure', JSON.stringify({ groupName: 'Cash-in-Hand + Bank Accounts + No Such Group', asOn: '2025-12-31' }), ctxFor(b))
+    expect(multi.ok, multi.ok ? '' : multi.error).toBe(true)
+    expect(multi.ok && ((multi.data as Data).parts as Data[]).map((x) => x.group)).toEqual(['Cash-in-Hand', 'Bank Accounts'])
+    expect(multi.ok && (multi.data as Data).notInTheBooks).toEqual(['No Such Group'])
     const nothing = await registry.run('explain_figure', '{}', ctxFor(b))
     expect(!nothing.ok && nothing.error).toMatch(/Nothing to explain/)
   })

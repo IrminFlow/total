@@ -56,7 +56,7 @@ function StatementRow({
     aiOn && node.amount !== 0 ? (
       <ExplainButton
         testId="statement-explain"
-        className="absolute top-1/2 right-1 -translate-y-1/2 opacity-0 group-hover/line:opacity-100"
+        className="t-explain-reveal absolute top-1/2 right-1 -translate-y-1/2"
         figure={{
           label: node.name,
           value: figureText(node.amount),
@@ -65,7 +65,7 @@ function StatementRow({
         }}
       />
     ) : null
-  const wrap = (row: React.JSX.Element): React.JSX.Element => (explain ? <div className="group/line relative pr-6">{row}{explain}</div> : row)
+  const wrap = (row: React.JSX.Element): React.JSX.Element => (explain ? <div className="t-explain-host relative pr-6">{row}{explain}</div> : row)
 
   if (isLeafLedger) {
     return wrap(

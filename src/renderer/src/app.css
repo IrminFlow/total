@@ -399,6 +399,16 @@ tr.kbar-row[data-active='true'] td:first-child {
 .data-table .dt-explain:focus-visible {
   opacity: 1;
 }
+/* Explain this beside a tile / statement line: revealed while its host is hovered or focused. */
+.t-explain-reveal {
+  opacity: 0;
+  transition: opacity 120ms;
+}
+.t-explain-host:hover .t-explain-reveal,
+.t-explain-host:focus-within .t-explain-reveal,
+.t-explain-reveal:focus-visible {
+  opacity: 1;
+}
 /* Header filter funnel: overlays the header edge (it reserves no width). Hidden until the
    header is hovered or holds keyboard focus; always shown while a filter is set or open. */
 .data-table .dt-filter {

@@ -48,7 +48,11 @@ export function applyAiEvent(state: AiPanelState, e: AiEvent): AiPanelState {
       ...state,
       threadId: e.threadId,
       awaitingThread: false,
-      messages: addMessage(state.messages, e.userMessage),
+      // WP 5.2 Regenerate re-runs a question already in the list: its old answer goes (main
+      // deleted it), whatever this run streams replaces it.
+      messages: state.messages.some((m) => m.id === e.userMessage.id)
+        ? state.messages.filter((m) => m.id <= e.userMessage.id)
+        : addMessage(state.messages, e.userMessage),
       running: true,
       runId: e.runId,
       streaming: '',

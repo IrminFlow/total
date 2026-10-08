@@ -189,7 +189,10 @@ export function Gateway(): React.JSX.Element {
 
       {brandNew && setup && <OnboardingCard setup={setup} />}
 
+      {/* A container query, not a viewport one: the docked assistant narrows the screen (WP 5.2). */}
+      <div className="@container">
       <StatTiles window={w} cash={card('cash')} receivables={card('receivables')} payables={card('payables')} trade={card('trade')} />
+      </div>
 
       {opts.options.charts && (
         <div className="grid grid-cols-12 gap-3">
@@ -273,6 +276,14 @@ function StatTiles({
       return row ? pick(row) : 0
     })
   const focus = w && trade.state === 'ready' ? trade.data.months.find((m) => m.month === w.focusMonth) : undefined
+  // WP 5.2 "Explain this" sources: balances as on today, month figures over the focus month.
+  const asOnToday = w ? { asOn: w.today } : {}
+  const focusRange = w
+    ? (() => {
+        const [y, m] = w.focusMonth.split('-').map(Number) as [number, number]
+        return { from: `${w.focusMonth}-01`, to: `${w.focusMonth}-${String(new Date(Date.UTC(y, m, 0)).getUTCDate()).padStart(2, '0')}` }
+      })()
+    : {}
   const focusLabel = w ? `${toMonthLabel(w.focusMonth, 'long')}${w.focusMonth === w.today.slice(0, 7) ? ' to date' : ''}` : ''
   const overdue = (a: CardState<DashAgeing>): string =>
     a.state === 'ready'
@@ -283,12 +294,13 @@ function StatTiles({
   const profitSub = w && fy ? `${w.from === fy.from && w.to === fy.to ? `FY ${fy.label}` : 'Period'} to ${toDisplayDate(w.asOn)}` : ''
 
   return (
-    <ul className="grid grid-cols-3 gap-3 xl:grid-cols-6" aria-label="Key figures">
+    <ul className="grid grid-cols-3 gap-3 @4xl:grid-cols-6" aria-label="Key figures">
       <li className="min-w-0">
         <StatTile
           size="lg"
           label="Cash & bank"
           testId="tile-cash"
+          explain={{ groupName: 'Cash-in-Hand + Bank Accounts', ...asOnToday }}
           loading={cash.state === 'loading'}
           error={err(cash)}
           value={cash.state === 'ready' && <Money paise={cash.data.total} />}
@@ -313,6 +325,7 @@ function StatTiles({
           size="lg"
           label="Receivables"
           testId="tile-receivables"
+          explain={{ groupName: 'Sundry Debtors', ...asOnToday }}
           loading={rec.state === 'loading'}
           error={err(rec)}
           value={rec.state === 'ready' && <Money paise={rec.data.total} />}
@@ -332,6 +345,7 @@ function StatTiles({
           size="lg"
           label="Payables"
           testId="tile-payables"
+          explain={{ groupName: 'Sundry Creditors', ...asOnToday }}
           loading={pay.state === 'loading'}
           error={err(pay)}
           value={pay.state === 'ready' && <Money paise={pay.data.total} />}
@@ -351,6 +365,7 @@ function StatTiles({
           size="lg"
           label="Month sales"
           testId="tile-sales"
+          explain={{ groupName: 'Sales Accounts', ...focusRange }}
           loading={trade.state === 'loading'}
           error={err(trade)}
           value={trade.state === 'ready' && <Money paise={focus?.sales ?? 0} />}
@@ -370,6 +385,7 @@ function StatTiles({
           size="lg"
           label="Month purchases"
           testId="tile-purchases"
+          explain={{ groupName: 'Purchase Accounts', ...focusRange }}
           loading={trade.state === 'loading'}
           error={err(trade)}
           value={trade.state === 'ready' && <Money paise={focus?.purchases ?? 0} />}
@@ -389,6 +405,7 @@ function StatTiles({
           size="lg"
           label="Net profit"
           testId="tile-profit"
+          explain={{ groupName: 'Sales Accounts + Purchase Accounts + Direct Incomes + Direct Expenses + Indirect Incomes + Indirect Expenses', ...focusRange }}
           loading={trade.state === 'loading'}
           error={err(trade)}
           value={

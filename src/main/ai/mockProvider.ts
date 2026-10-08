@@ -160,6 +160,7 @@ function explainAnswer(r: Row): string {
       prev.amount ? `Previous period: ${s(prev.amount)}${prev.changePct ? ` (${s(prev.changePct)})` : ''}.` : 'No figure for the previous period.'
     ].join('\n')
   }
+  if (r.figure === 'groups') return ((r.parts ?? []) as Row[]).map(explainAnswer).join('\n\n')
   if (r.voucherId && r.lines) {
     const lines = (r.lines as Row[]).slice(0, 8)
     return [`**${s(r.type)} ${s(r.number)}** dated ${s(r.date)} totals ${s(r.total)}:`, '', ...lines.map((l) => `- ${s(l.ledger)} ${s(l.side)} ${s(l.amount)}`)].join('\n')
@@ -170,7 +171,8 @@ function explainAnswer(r: Row): string {
 
 /** "What is on this screen" — a short, quoted summary of current_screen_data. */
 function screenAnswer(r: Row): string {
-  const title = s(r.title) || s(r.screen)
+  const subject = s(r.ledger) || s(r.item) || s(r.bank) || s(r.budget)
+  const title = `${s(r.title) || s(r.screen)}${subject ? ` — ${subject}` : ''}`
   if (r.note) return `${title}: ${s(r.note)}`
   const money = Object.entries(r).filter(([, v]) => typeof v === 'string' && /₹/.test(v)).slice(0, 6)
   const rows = Array.isArray(r.rows) ? (r.rows as Row[]) : []
