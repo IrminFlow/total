@@ -1,10 +1,11 @@
 import Database from 'better-sqlite3'
 import { rmSync } from 'fs'
 import { basename, join } from 'path'
-import { companyBackupsDir, companyDbPath, ensureCompanyTree } from '../paths'
+import { companyAttachmentsDir, companyBackupAttachmentsDir, companyBackupsDir, companyDbPath, ensureCompanyTree } from '../paths'
 import { migrate } from './migrate'
 import { backupStamp, pruneBackupsIn, quickCheckOk, snapshotTo } from './backup'
 import { SYSTEM_AUDIT_USER, writeAudit } from '../services/audit'
+import { pruneBackupAttachmentStore, stashSnapshotAttachments, type StashResult } from './attachmentBackup'
 
 export type DB = Database.Database
 
@@ -61,10 +62,21 @@ export async function backupCompany(db: DB, slug: string, tag = 'auto', auditUse
     rmSync(dest, { force: true })
     throw new Error('Backup verification failed (quick_check) — the snapshot was discarded')
   }
+  // WP 6.4: the snapshot's attachments get a copy in backups/attachments/ (shared by every
+  // snapshot), and copies no remaining backup needs go with the pruned ones.
+  const stash = stashBackupAttachments(slug, dest)
   pruneBackupsIn(companyBackupsDir(slug), MAX_BACKUPS)
+  pruneBackupAttachmentStore(companyBackupsDir(slug), companyBackupAttachmentsDir(slug))
   // WP 3.8: every backup is in the trail — it is a full copy of the books AND of this audit log
   // (written after the copy, so the row itself lives only in the live file). Automatic backups
   // (open, every 30 min, pre-import, quit) are 'system'; a manual one names the user.
-  writeAudit(db, 'backup', 0, 'backup', null, { tag, file: basename(dest) }, { user: auditUser })
+  writeAudit(db, 'backup', 0, 'backup', null, {
+    tag, file: basename(dest), ...(stash.copied || stash.missing.length ? { attachmentsCopied: stash.copied, attachmentsMissing: stash.missing.length } : {})
+  }, { user: auditUser })
   return dest
+}
+
+/** WP 6.4: copy the attachments a snapshot in backups/ references into backups/attachments/. */
+export function stashBackupAttachments(slug: string, snapshotPath: string): StashResult {
+  return stashSnapshotAttachments(snapshotPath, companyAttachmentsDir(slug), companyBackupAttachmentsDir(slug))
 }
