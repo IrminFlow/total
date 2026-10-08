@@ -193,8 +193,9 @@ export type AiDraftStatus = 'open' | 'consumed' | 'discarded' | 'superseded'
 
 /** Where a draft came from (WP 5.7): the in-app assistant, a tool call over the MCP server
  *  (`total-cli mcp`), or a file dropped in the company's inbox/ folder; WP 5.5: 'assistant' —
- *  made from the Assistants screen (a GSTR-2B suggestion) without AI. */
-export type AiDraftSource = 'chat' | 'mcp' | 'inbox' | 'assistant'
+ *  made from the Assistants screen (a GSTR-2B suggestion) without AI; WP 5.4: 'capture' — a
+ *  captured bill or a categorised bank statement line. */
+export type AiDraftSource = 'chat' | 'mcp' | 'inbox' | 'assistant' | 'capture'
 
 /** Which editor a draft opens in (WP 5.3). Absent on a WP 5.1 draft = plain accounting lines. */
 export type AiDraftForm = 'accounting' | 'invoice' | 'stockNote' | 'manufacture' | 'tradeDoc'
@@ -242,6 +243,12 @@ export interface AiVoucherDraftPayload {
   /** Fields the model set (highlighted in the editor): 'date', 'party', 'account', 'narration',
    *  'reference', 'line:N', 'bills', 'purpose', 'finishedItem', 'qty', 'labour', 'validUntil', 'dueDate'. */
   fields?: string[]
+  /** WP 5.4: the capture queue item this draft was made from — its file becomes the voucher's
+   *  attachment when the draft is saved. */
+  captureItemId?: number
+  /** WP 5.4: the bank statement line this payment / receipt / contra draft accounts for — saving
+   *  the draft reconciles the line (bank date set, match recorded) through the statement path. */
+  bankLine?: { bankLedgerId: number; statementLineId: number }
 }
 
 export interface AiDraftDto {

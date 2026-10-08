@@ -16,6 +16,7 @@ import { LedgerPicker } from '../../components/pickers'
 import { VoucherLink } from '../../components/links'
 import { useToasts } from '../../state/stores'
 import { confirmDialog } from '../../lib/dialogs'
+import { CategoriseModal } from './CategoriseModal'
 import { DIRECTION_OPTIONS, MODAL_TABLE_FEATURES, evidenceText, pct, rupees, type MatchSettings } from './shared'
 
 /** A learned voucher kind usable for a voucher made from a statement line (journal is not). */
@@ -147,6 +148,7 @@ export function ImportTab({ bankLedgerId, bankName, settings }: { bankLedgerId: 
   const [picked, setPicked] = useState<Set<number>>(new Set())
   const [createFor, setCreateFor] = useState<WorkspaceLine[] | null>(null)
   const [matchFor, setMatchFor] = useState<WorkspaceLine | null>(null)
+  const [categorising, setCategorising] = useState(false)
 
   const wsKey = ['bankWorkspace', bankLedgerId, showDone, settings.tolerancePaise, settings.dateWindowDays, settings.minSuggest]
   const { data: ws, isLoading } = useQuery({
@@ -351,6 +353,15 @@ export function ImportTab({ bankLedgerId, bankName, settings }: { bankLedgerId: 
         </Button>
         <Button
           size="sm"
+          disabled={open.filter((l) => !l.proposal).length === 0}
+          data-testid="btn-banking-categorise"
+          title="Propose ledgers for the open lines without a match (rules and history first) and turn them into drafts to review"
+          onClick={() => setCategorising(true)}
+        >
+          Categorise unmatched…
+        </Button>
+        <Button
+          size="sm"
           variant="ghost"
           disabled={open.filter((l) => !l.proposal).length === 0}
           data-testid="btn-banking-create-picked"
@@ -445,6 +456,16 @@ export function ImportTab({ bankLedgerId, bankName, settings }: { bankLedgerId: 
           onClose={() => setCreateFor(null)}
           onDone={() => {
             setCreateFor(null)
+            void refresh()
+          }}
+        />
+      )}
+      {categorising && (
+        <CategoriseModal
+          bankLedgerId={bankLedgerId}
+          onClose={() => setCategorising(false)}
+          onDone={() => {
+            setCategorising(false)
             void refresh()
           }}
         />

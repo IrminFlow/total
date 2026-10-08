@@ -154,7 +154,9 @@ export const AUDIT_COVERAGE: Record<string, AuditCoverage> = {
   'bom:deleteVersion': a('bom'),
 
   // ---------- vouchers ----------
-  'voucher:save': a('voucher', 'credit_override', 'ai_draft'),
+  // WP 5.4: saving a capture draft attaches its file and marks the queue item saved; a
+  // statement-line draft reconciles its line (bank date, match, learned rule).
+  'voucher:save': a('voucher', 'credit_override', 'ai_draft', 'attachment', 'capture_item', 'voucher_line', 'bank_statement_line', 'bank_learned_rule'),
   'voucher:delete': a('voucher'),
   'voucher:restore': a('voucher'),
   'voucher:purge': a('voucher', 'attachment'),
@@ -349,7 +351,19 @@ export const AUDIT_COVERAGE: Record<string, AuditCoverage> = {
   // outbound log) — never the books — and audits any draft a draft tool creates.
   'ai:send': a('ai_draft', 'ai_memory'),
   'ai:cancel': r('stops an in-flight answer; the partial reply is kept in the AI tables only'),
-  'ai:draft:discard': a('ai_draft'),
+  'ai:draft:discard': a('ai_draft', 'capture_item'),
+  // ---------- document capture (WP 5.4, ai/capture/ipc.ts) ----------
+  'capture:pick': a('capture_item'),
+  'capture:addFiles': a('capture_item'),
+  'capture:process': a('capture_item'),
+  'capture:stop': a('capture_item'),
+  'capture:cancel': a('capture_item'),
+  'capture:retry': a('capture_item'),
+  'capture:resolve': a('capture_item', 'ai_draft'),
+  'capture:remove': a('capture_item'),
+  'capture:watchInbox': r('creates and watches <company>/capture-inbox (files dropped there are queued and audited as capture_item by the watcher)'),
+  'bankImport:categorise': r('proposes ledgers for open statement lines (the residual may go to the provider — logged in ai_outbound_log / ai_usage, not the books); writes nothing else'),
+  'bankImport:categoriseAccept': a('ai_draft'),
   // WP 5.2 — the chat panel. Viewer-level, listed anyway: regenerate re-runs a question (AI tables
   // only, plus any draft it makes); a rename is audited; a pin is a display preference.
   'ai:regenerate': a('ai_draft', 'ai_thread', 'ai_memory'),

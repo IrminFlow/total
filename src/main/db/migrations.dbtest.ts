@@ -138,9 +138,11 @@ const EXPECTED_TABLES = [
   'intercompany_pairs',
   // WP 5.7 — MCP request log
   'mcp_log',
-  // WP 5.5 (last; number by position) — assistants
+  // WP 5.5 — assistants
   'assistant_marks',
-  'gst2b_statements'
+  'gst2b_statements',
+  // WP 5.4 (last) — the document capture queue
+  'capture_items'
 ]
 
 describe('migrate', () => {

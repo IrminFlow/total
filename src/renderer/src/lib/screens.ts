@@ -470,6 +470,17 @@ export const SCREENS: ScreenDef[] = [
     ]
   },
 
+  // WP 5.4: bills → purchase drafts, the capture queue and inbox folder.
+  {
+    name: 'capture',
+    keywords: ['document capture', 'scan bill', 'bill photo', 'purchase bill', 'ocr', 'pdf bill', 'inbox', 'upload bills', 'receipts'],
+    title: 'Document capture — bills to purchase drafts',
+    screen: { name: 'capture' },
+    navSection: 'banking',
+    navLabel: 'Document capture',
+    invalidates: ['captureQueue']
+  },
+
   {
     name: 'payroll',
     title: 'Payroll — employees & runs',

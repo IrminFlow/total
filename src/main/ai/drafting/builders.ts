@@ -47,7 +47,7 @@ const rs = (p: number): string => formatPaise(p, { symbol: true })
 
 // ---------- shared pieces ----------
 
-function voucherTypeFor(m: DraftMasters, kind: VoucherKind, wanted?: number): VoucherType {
+export function voucherTypeFor(m: DraftMasters, kind: VoucherKind, wanted?: number): VoucherType {
   const types = listVoucherTypes(m.db)
   const t = wanted ? types.find((x) => x.id === wanted) : types.find((x) => x.kind === kind)
   if (!t) throw new Error(wanted ? `There is no voucher type with id ${wanted}` : `This company has no ${kind.replace('_', ' ')} voucher type`)
@@ -57,7 +57,7 @@ function voucherTypeFor(m: DraftMasters, kind: VoucherKind, wanted?: number): Vo
 
 /** The number the rehearsal saves with: the series' next number (what the editor suggests), or a
  *  placeholder for a hand-numbered type (the user types the real one). */
-function rehearsalNumber(w: DraftWork, t: VoucherType, date: string): string {
+export function rehearsalNumber(w: DraftWork, t: VoucherType, date: string): string {
   if (t.numbering === 'manual') {
     w.assume(`${t.name} is numbered by hand — type the voucher number before saving`)
     return 'AI-DRAFT'
@@ -66,7 +66,7 @@ function rehearsalNumber(w: DraftWork, t: VoucherType, date: string): string {
 }
 
 /** The save's warnings (it saves anyway) become assumptions the user sees before saving. */
-function saveWarnings(w: DraftWork, warnings: SaveVoucherWarnings | undefined): void {
+export function saveWarnings(w: DraftWork, warnings: SaveVoucherWarnings | undefined): void {
   if (!warnings) return
   for (const n of warnings.negativeStock) w.assume(`${n.name} goes negative (${formatQtyMilli(n.closingQtyMilli)} ${n.unitSymbol}) on this date`)
   if (warnings.creditLimitExceeded) w.assume(creditLimitWarningText(warnings.creditLimitExceeded))
@@ -75,7 +75,7 @@ function saveWarnings(w: DraftWork, warnings: SaveVoucherWarnings | undefined): 
 
 /** Zod + validateVoucher with the save's ledger facts — the clear-message pre-check; the
  *  rehearsed save then applies everything else. */
-function precheck(db: DB, payload: VoucherInputParsed, kind: VoucherKind): VoucherInputParsed {
+export function precheck(db: DB, payload: VoucherInputParsed, kind: VoucherKind): VoucherInputParsed {
   const parsed = voucherInputSchema.parse(payload)
   const errors = validateVoucher(parsed, kind, ledgerFactsResolver(db))
   if (errors.length) throw new Error(errors.map((e) => e.message).join('; '))
@@ -86,7 +86,7 @@ function ledgerName(m: DraftMasters, id: number): string {
   return m.ledgers.find((l) => l.id === id)?.name ?? `#${id}`
 }
 
-function finish(
+export function finish(
   w: DraftWork,
   base: Omit<AiVoucherDraftPayload, 'sources' | 'assumptions' | 'fields'>,
   summary: string
@@ -100,7 +100,7 @@ function finish(
 /** The editor's tax-ledger lookups, plus — inside a rehearsal only — the ledgers it would create
  *  on first use (pickers.tsx useTaxLedgers: named CGST / SGST / IGST / CESS under Duties & Taxes,
  *  "Round Off" under Indirect Expenses). */
-function ensureTaxLedgers(db: DB, m: DraftMasters, need: (keyof TaxLedgerIds)[], have: TaxLedgerIds): TaxLedgerIds {
+export function ensureTaxLedgers(db: DB, m: DraftMasters, need: (keyof TaxLedgerIds)[], have: TaxLedgerIds): TaxLedgerIds {
   const out = { ...have }
   const groupId = (name: string): number => {
     const g = [...m.groups.values()].find((x) => x.name === name)
@@ -200,7 +200,7 @@ function gstAssumptions(w: DraftWork, items: StockItem[], supply: 'intra' | 'int
   )
 }
 
-function invoiceCtx(m: DraftMasters, kind: VoucherKind): InvoiceContext {
+export function invoiceCtx(m: DraftMasters, kind: VoucherKind): InvoiceContext {
   return {
     kind,
     companyStateCode: m.company.stateCode,

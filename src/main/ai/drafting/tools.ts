@@ -12,6 +12,7 @@ import { defineTool, type ToolContext, type ToolOutput } from '../tools/registry
 import { draftsThisTurn, insertDraft } from '../store'
 import { DraftWork, NeedsClarification, clarificationResult, loadMasters } from './work'
 import { isRequestedDraft } from './intent'
+import { withBankLine } from '../capture/bankCategorise'
 import {
   buildAccountingDraft, buildInvoiceDraft, buildManufactureDraft, buildStockNoteDraft, buildTradeDocDraft, type BuiltDraft
 } from './builders'
@@ -188,7 +189,10 @@ export const draftVoucherInput = z
       .optional()
       .describe("The party's open bills this settles (resolved against its outstandings)"),
     oldestBillsFirst: z.boolean().optional().describe('Allocate the amount to the oldest open bills first'),
-    instrumentNo: z.string().trim().max(40).optional().describe('Cheque / UTR number')
+    instrumentNo: z.string().trim().max(40).optional().describe('Cheque / UTR number'),
+    statementLineId: id
+      .optional()
+      .describe('WP 5.4: the bank statement line (from categorise_statement) this voucher accounts for — it must post that line’s amount on its bank; saving the draft reconciles the line')
   })
   .strict()
 export type DraftVoucherInput = z.infer<typeof draftVoucherInput>
@@ -202,7 +206,10 @@ export const draftVoucherTool = defineTool({
   input: draftVoucherInput,
   kind: 'draft',
   minRole: 'accountant',
-  handler: (input, ctx) => runDraft(ctx, 'draft_voucher', (w) => buildAccountingDraft(w, input))
+  handler: (input, ctx) => {
+    const { statementLineId, ...rest } = input
+    return runDraft(ctx, 'draft_voucher', (w) => (statementLineId ? withBankLine(ctx.db, buildAccountingDraft(w, rest), statementLineId) : buildAccountingDraft(w, rest)))
+  }
 })
 
 // ---------- draft_invoice ----------

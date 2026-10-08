@@ -4,13 +4,19 @@
 
 /** One item of the conversation sent to the model. */
 export type ChatItem =
-  | { type: 'message'; role: 'user' | 'assistant'; content: string }
+  | { type: 'message'; role: 'user' | 'assistant'; content: string; attachments?: ChatAttachment[] }
   | { type: 'tool_call'; callId: string; name: string; arguments: string }
   | { type: 'tool_result'; callId: string; output: string }
   /** A reasoning item from an earlier step of the same question, passed back verbatim (with its
    *  encrypted content — requests are not stored, so this is how the model keeps its reasoning
    *  between tool calls). */
   | { type: 'reasoning'; item: Record<string, unknown> }
+
+/** WP 5.4: a document sent with a user message — a page image, or the file itself (a PDF without
+ *  a usable text layer). Base64, no data-URL prefix. Only document capture sends these. */
+export type ChatAttachment =
+  | { kind: 'image'; mime: 'image/png' | 'image/jpeg' | 'image/webp'; base64: string }
+  | { kind: 'file'; mime: 'application/pdf'; base64: string; filename: string }
 
 export interface ToolSpec {
   name: string

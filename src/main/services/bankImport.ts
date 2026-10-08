@@ -659,6 +659,93 @@ export function createVouchersFromLines(db: DB, bankLedgerId: number, items: Cre
   return result
 }
 
+/**
+ * WP 5.4: a voucher saved from a categorised-statement draft reconciles its statement line (bank
+ * date = the statement date on the voucher's bank line that matches the line's side and amount, a
+ * confirmed match — the user saved the voucher, so undoing the import keeps it — the line
+ * audited, the narration taught to the learned rules). Called inside the save's transaction.
+ * Refused (returned, never thrown — the user's save stands) when the line is gone, ignored or
+ * already matched, or the voucher no longer agrees with it (another bank account, side or amount).
+ */
+export function reconcileSavedDraft(db: DB, bankLedgerId: number, statementLineId: number, voucherId: number): { ok: true } | { ok: false; reason: string } {
+  const line = db
+    .prepare(
+      `SELECT l.id, l.import_id AS importId, l.line_no AS lineNo, l.date, l.value_date AS valueDate, l.description, l.reference,
+              l.deposit, l.withdrawal, l.balance, l.ignored_at AS ignoredAt FROM bank_statement_lines l WHERE l.id = ? AND l.bank_ledger_id = ?`
+    )
+    .get(statementLineId, bankLedgerId) as LineRow | undefined
+  if (!line) return { ok: false, reason: 'the statement line is no longer imported' }
+  if (line.ignoredAt) return { ok: false, reason: 'the statement line was ignored meanwhile' }
+  if (isMatched(db, line.id)) return { ok: false, reason: 'the statement line was matched meanwhile' }
+  const entries = db
+    .prepare(
+      `SELECT vl.id, vl.dr_cr AS drCr, vl.amount, vl.bank_date AS bankDate, v.date FROM voucher_lines vl JOIN vouchers v ON v.id = vl.voucher_id
+       WHERE vl.voucher_id = ? AND vl.ledger_id = ? AND ${IN_BOOKS} ORDER BY vl.id`
+    )
+    .all(voucherId, bankLedgerId) as { id: number; drCr: 'dr' | 'cr'; amount: number; bankDate: string | null; date: string }[]
+  // The voucher's entry on this bank that IS this line: same side and amount, not yet reconciled.
+  const side = sideOf(line)
+  const amount = line.deposit || line.withdrawal
+  const entry = entries.find((e) => !e.bankDate && (e.drCr === 'dr' ? 'deposit' : 'withdrawal') === side && e.amount === amount) ?? entries.find((e) => !e.bankDate)
+  if (!entry) return { ok: false, reason: 'the saved voucher has no unreconciled entry on this bank account' }
+  const err = validateGroup(
+    [{ id: line.id, date: line.date, amount: line.deposit || line.withdrawal, side: sideOf(line), reference: line.reference, description: line.description }],
+    [{ id: entry.id, voucherId, date: entry.date, amount: entry.amount, side: entry.drCr === 'dr' ? 'deposit' : 'withdrawal', instrumentNo: null, partyName: null, partyKey: null }],
+    0
+  )
+  if (err) return { ok: false, reason: `the saved voucher no longer agrees with the statement line (${err})` }
+  db.prepare('UPDATE voucher_lines SET bank_date = ? WHERE id = ?').run(line.date, entry.id)
+  writeAudit(db, 'voucher_line', entry.id, 'update', { bankDate: null }, { bankDate: line.date, statementLineIds: [line.id] })
+  dropBrokenMatches(db, line.id)
+  // A CONFIRMED match, not "created from the statement": the user reviewed and saved this voucher
+  // in the editor, so undoing the import must leave it in the books (WP 4.1 rule) and only put
+  // its bank date back.
+  db.prepare('INSERT INTO bank_statement_matches (statement_line_id, voucher_id, voucher_line_id, created_voucher, prev_bank_date) VALUES (?, ?, ?, 0, NULL)').run(line.id, voucherId, entry.id)
+  writeAudit(db, 'bank_statement_line', line.id, 'update', { matched: [] }, { matched: [voucherId], bankDate: line.date, fromDraft: true })
+  const facts = voucherFacts(db, voucherId, bankLedgerId)
+  if (facts) observe(db, { direction: sideOf(line), narration: line.description, ledgerId: facts.ledgerId, partyLedgerId: facts.partyLedgerId, voucherKind: facts.kind })
+  return { ok: true }
+}
+
+/** WP 5.4: the open statement lines of a bank account and the history the categoriser learns
+ *  from (narrations of lines already matched, with the counter ledger of their voucher). */
+export function categoriseInputs(db: DB, bankLedgerId: number, lineIds?: number[]): {
+  lines: { id: number; date: string; description: string; reference: string; side: Side; amount: number }[]
+  history: { description: string; side: Side; ledgerId: number; partyLedgerId: number | null; date: string }[]
+  hints: Map<number, LineSuggestion>
+} {
+  const ws = statementWorkspace(db, bankLedgerId)
+  const wanted = lineIds?.length ? new Set(lineIds) : null
+  const open = ws.lines.filter((l) => l.status === 'open' && !l.proposal && (!wanted || wanted.has(l.id)))
+  const hints = new Map<number, LineSuggestion>()
+  for (const l of open) if (l.suggestion) hints.set(l.id, l.suggestion)
+  const rows = db
+    .prepare(
+      `SELECT l.description, l.deposit, l.date, m.voucher_id AS voucherId, l.bank_ledger_id AS bank FROM bank_statement_matches m
+       JOIN bank_statement_lines l ON l.id = m.statement_line_id WHERE ${LIVE_MATCH} ORDER BY l.date DESC LIMIT 3000`
+    )
+    .all() as { description: string; deposit: number; date: string; voucherId: number; bank: number }[]
+  const history = rows.flatMap((r) => {
+    const f = voucherFacts(db, r.voucherId, r.bank)
+    return f ? [{ description: r.description, side: (r.deposit > 0 ? 'deposit' : 'withdrawal') as Side, ledgerId: f.ledgerId, partyLedgerId: f.partyLedgerId, date: r.date }] : []
+  })
+  // Vouchers on bank accounts entered by hand carry their own narration history too.
+  const typed = db
+    .prepare(
+      `SELECT v.narration AS description, vl.dr_cr AS drCr, v.date, v.id AS voucherId, vl.ledger_id AS bank
+       FROM voucher_lines vl JOIN vouchers v ON v.id = vl.voucher_id JOIN ledgers b ON b.id = vl.ledger_id
+       WHERE ${IN_BOOKS} AND v.narration IS NOT NULL AND v.narration <> '' AND b.group_id IN (${[...cashBankGroupIds(db)].join(',') || '0'})
+         AND NOT EXISTS (SELECT 1 FROM bank_statement_matches m WHERE m.voucher_id = v.id)
+       ORDER BY v.date DESC LIMIT 3000`
+    )
+    .all() as { description: string; drCr: 'dr' | 'cr'; date: string; voucherId: number; bank: number }[]
+  for (const t of typed) {
+    const f = voucherFacts(db, t.voucherId, t.bank)
+    if (f) history.push({ description: t.description, side: t.drCr === 'dr' ? 'deposit' : 'withdrawal', ledgerId: f.ledgerId, partyLedgerId: f.partyLedgerId, date: t.date })
+  }
+  return { lines: open.map((l) => ({ id: l.id, date: l.date, description: l.description, reference: l.reference, side: l.side, amount: l.amount })), history, hints }
+}
+
 // ---------- undo import ----------
 
 /**
