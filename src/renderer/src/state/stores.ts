@@ -1,3 +1,4 @@
+import type { ReportModel } from '@shared/reportBuilder/model'
 import { create } from 'zustand'
 import type { CompanyInfo, TradeDocKind, VoucherKind } from '@shared/domain'
 import type { TradeDocDraft } from '@shared/tradeCycle/types'
@@ -119,7 +120,9 @@ export type Screen =
   | { name: 'cost-centres' }
   | { name: 'budgets' }
   // WP 6.1: the report builder — a saved report by `reportId` (pinned reports open this way).
-  | { name: 'report-builder'; reportId?: number }
+  | { name: 'report-builder'; reportId?: number; model?: ReportModel; modelName?: string; modelSeq?: number }
+  // WP 5.5: the assistants (close checklist, GST 2B mismatches, anomalies, report from a question).
+  | { name: 'assistants'; tab?: 'close' | 'gst2b' | 'anomalies' | 'report'; period?: string }
   // WP 6.2: ratio analysis with monthly trends.
   | { name: 'ratios' }
   | { name: 'cash-forecast' }

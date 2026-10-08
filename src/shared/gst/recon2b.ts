@@ -20,6 +20,14 @@ export interface PortalInvoice {
   kind: 'b2b' | 'cdnr'
   /** Only set for cdnr entries: 'C' (credit note) or 'D' (debit note), as published by the portal. */
   noteType?: 'C' | 'D'
+  /** WP 5.5: the document is under reverse charge (`rev` = 'Y'). Field name UNVERIFIED — see
+   *  assistantSources 'gstr2bJson'. */
+  reverseCharge?: boolean
+  /** WP 5.5: `itcavl` = 'N' — the portal says the ITC is not available. Absent = not stated. */
+  itcAvailable?: boolean
+  /** WP 5.5: an amendment (b2ba / cdnra) of an earlier document; `originalNumber` is the one it amends. */
+  amendment?: boolean
+  originalNumber?: string
 }
 
 /** One purchase or debit-note voucher from the books, extracted for the same period. */
@@ -175,7 +183,23 @@ function fromPortalDate(s: unknown): string | null {
  * debit note sharing a number) would pair incompatible documents.
  */
 function kindsCompatible(portal: PortalInvoice, book: PurchaseDoc): boolean {
+  // A supplier's DEBIT note (cdnr 'D') raises what is owed — the books record it as a purchase;
+  // a supplier's credit note (cdnr 'C') is the books' debit note (purchase return).
+  if (portal.kind === 'cdnr' && portal.noteType === 'D') return book.kind === 'purchase'
   return (portal.kind === 'b2b' && book.kind === 'purchase') || (portal.kind === 'cdnr' && book.kind === 'debit_note')
+}
+
+/** The WP 5.5 flags a document carries: rev, itcavl and (for amendments) the original number. */
+function docFlags(d: Record<string, unknown>, amendment: boolean, originalKey: string): Pick<PortalInvoice, 'reverseCharge' | 'itcAvailable' | 'amendment' | 'originalNumber'> {
+  const out: Pick<PortalInvoice, 'reverseCharge' | 'itcAvailable' | 'amendment' | 'originalNumber'> = {}
+  if (d.rev === 'Y') out.reverseCharge = true
+  if (d.itcavl === 'N') out.itcAvailable = false
+  else if (d.itcavl === 'Y') out.itcAvailable = true
+  if (amendment) {
+    out.amendment = true
+    if (typeof d[originalKey] === 'string') out.originalNumber = d[originalKey] as string
+  }
+  return out
 }
 
 function daysBetween(a: string, b: string): number {
@@ -240,8 +264,11 @@ export function parseGstr2b(jsonText: string): ParseGstr2bResult {
 
   const invoices: PortalInvoice[] = []
 
-  const b2bGroups = Array.isArray(docdata.b2b) ? docdata.b2b : []
-  for (const grp of b2bGroups) {
+  const b2bGroups = [
+    ...(Array.isArray(docdata.b2b) ? docdata.b2b : []).map((g) => [g, false] as const),
+    ...(Array.isArray(docdata.b2ba) ? docdata.b2ba : []).map((g) => [g, true] as const)
+  ]
+  for (const [grp, amended] of b2bGroups) {
     if (!grp || typeof grp !== 'object') { errors.push('b2b: skipped a malformed supplier group'); continue }
     const g = grp as Record<string, unknown>
     const gstinRaw = typeof g.ctin === 'string' ? g.ctin : typeof g.gstin === 'string' ? g.gstin : null
@@ -270,7 +297,8 @@ export function parseGstr2b(jsonText: string): ParseGstr2bResult {
           cgst: sums.cgst,
           sgst: sums.sgst,
           cess: sums.cess,
-          kind: 'b2b'
+          kind: 'b2b',
+          ...docFlags(iv, amended, 'oinum')
         })
       } catch (err) {
         errors.push(`b2b/${gstin}: ${(err as Error).message}`)
@@ -278,8 +306,11 @@ export function parseGstr2b(jsonText: string): ParseGstr2bResult {
     }
   }
 
-  const cdnrGroups = Array.isArray(docdata.cdnr) ? docdata.cdnr : []
-  for (const grp of cdnrGroups) {
+  const cdnrGroups = [
+    ...(Array.isArray(docdata.cdnr) ? docdata.cdnr : []).map((g) => [g, false] as const),
+    ...(Array.isArray(docdata.cdnra) ? docdata.cdnra : []).map((g) => [g, true] as const)
+  ]
+  for (const [grp, amended] of cdnrGroups) {
     if (!grp || typeof grp !== 'object') { errors.push('cdnr: skipped a malformed supplier group'); continue }
     const g = grp as Record<string, unknown>
     const gstinRaw = typeof g.ctin === 'string' ? g.ctin : typeof g.gstin === 'string' ? g.gstin : null
@@ -313,7 +344,8 @@ export function parseGstr2b(jsonText: string): ParseGstr2bResult {
           sgst: sums.sgst,
           cess: sums.cess,
           kind: 'cdnr',
-          noteType
+          noteType,
+          ...docFlags(n, amended, 'ont_num')
         })
       } catch (err) {
         errors.push(`cdnr/${gstin}: ${(err as Error).message}`)

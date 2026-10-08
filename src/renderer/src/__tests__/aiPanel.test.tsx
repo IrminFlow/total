@@ -18,7 +18,7 @@ function msg(over: Partial<AiMessageDto>): AiMessageDto {
   return {
     id: 1, threadId: 7, role: 'assistant', content: '', status: 'ok', toolCalls: [], toolCallId: null, toolName: null, toolInput: null,
     toolOutput: null, toolOk: null, truncated: false, sources: [], figures: [], model: null, costMicroUsd: null, inputTokens: null,
-    outputTokens: null, draftId: null, context: null, createdAt: '2025-08-14T10:00:00Z', ...over
+    outputTokens: null, draftId: null, context: null, memoryIds: [], createdAt: '2025-08-14T10:00:00Z', ...over
   }
 }
 
@@ -26,7 +26,7 @@ function view(over: Partial<AiSettingsView> = {}, settings: Partial<AiSettingsVi
   return {
     settings: {
       enabled: true, noticeAcceptedAt: '2025-08-01T10:00:00.000Z', noticeAcceptedBy: 'Owner', noticeVersion: 1, defaultModel: 'gpt-6.1-sol', fastModel: 'gpt-6-luna',
-      privacy: { maskIds: true, pseudonymiseParties: false }, prices: {}, maxSteps: 8, ...settings
+      privacy: { maskIds: true, pseudonymiseParties: false }, prices: {}, maxSteps: 8, useMemory: true, ...settings
     },
     keyPresent: true, keyHint: '…WXYZ', secureStorageAvailable: true, mock: false, ready: true, blocker: null, ...over
   }

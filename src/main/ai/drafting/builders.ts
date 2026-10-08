@@ -9,7 +9,7 @@
 // (costPreview) — and every figure in a draft summary is formatted from those integers.
 import type { DB } from '../../db/connection'
 import type { Ledger, SaveVoucherWarnings, StockItem, TradeDocKind, VoucherKind, VoucherType } from '@shared/domain'
-import type { AiDraftForm, AiVoucherDraftPayload } from '@shared/ai'
+import type { AiDraftForm, AiMemoryPurpose, AiVoucherDraftPayload } from '@shared/ai'
 import { formatPaise, formatQtyMilli } from '@shared/money'
 import { addDaysISO, toDisplayDate } from '@shared/dates'
 import { supplyTypeFor } from '@shared/gst/calc'
@@ -219,7 +219,7 @@ export interface AccountingDraftInput {
   date?: string
   narration?: string
   reference?: string
-  lines?: { ledgerId?: number; ledger?: string; drCr: 'dr' | 'cr'; amount: string }[]
+  lines?: { ledgerId?: number; ledger?: string; preferred?: AiMemoryPurpose; drCr: 'dr' | 'cr'; amount: string }[]
   party?: string
   partyLedgerId?: number
   account?: string
@@ -248,6 +248,10 @@ export function buildAccountingDraft(w: DraftWork, input: AccountingDraftInput):
         else rows.push({ drCr: l.drCr, ledgerId: l.ledgerId, amount: w.amount(field, l.amount, `Line ${i + 1}`), costAllocations: [] })
       } else if (l.ledger) {
         ledger = w.ledger(field, l.ledger, { what: 'ledger' })
+      } else if (l.preferred) {
+        // WP 5.6: "the ledger the user asked us to remember for this purpose".
+        ledger = w.memoryLedger(field, l.preferred)
+        if (!ledger) throw new Error(`Line ${i + 1}: there is no remembered ${l.preferred} ledger — ask the user, or give the ledger`)
       } else {
         throw new Error(`Line ${i + 1}: give the ledger (ledger name or ledgerId)`)
       }
@@ -262,6 +266,8 @@ export function buildAccountingDraft(w: DraftWork, input: AccountingDraftInput):
     let account: Ledger | null = null
     if (input.accountLedgerId != null || input.account) {
       account = w.ledger('account', input.accountLedgerId ?? input.account, { what: 'cash or bank ledger', filter: (l) => isCashOrBank(m, l) })
+    } else if ((account = w.memoryLedger('account', input.kind, (l) => isCashOrBank(m, l)))) {
+      // WP 5.6: the remembered pay-from / receive-into ledger (the user named none).
     } else {
       const cb = m.ledgers.filter((l) => isCashOrBank(m, l))
       if (cb.length === 1) {
@@ -472,6 +478,10 @@ function pickAccount(w: DraftWork, kind: InvoiceDraftInput['kind'], said: string
   const group = ACCOUNT_GROUP[kind]
   const pool = (l: Ledger): boolean => underGroup(m, l, [group])
   if (said != null && said !== '') return w.ledger('account', said, { what: `${group.toLowerCase().replace(' accounts', '')} ledger`, filter: pool })
+  // WP 5.6: unsaid → the party's remembered ledger, then the remembered sales / purchase ledger.
+  const party = partyId != null ? (m.ledgers.find((l) => l.id === partyId) ?? null) : null
+  const remembered = w.memoryPartyLedger('account', party, pool) ?? w.memoryLedger('account', group === 'Sales Accounts' ? 'sales' : 'purchase', pool)
+  if (remembered) return remembered
   const cands = m.ledgers.filter(pool)
   if (cands.length === 0) throw new Error(`No ledger under ${group} — create a ${group === 'Sales Accounts' ? 'sales' : 'purchase'} ledger first`)
   if (cands.length === 1) {
@@ -533,9 +543,11 @@ export function buildInvoiceDraft(w: DraftWork, input: InvoiceDraftInput): Built
   if (input.party == null && input.partyLedgerId == null) throw new Error('Give the party (name, GSTIN or ledgerId)')
   const account = pickAccount(w, kind, input.accountLedgerId ?? input.account, party?.id ?? null)
   const pos = input.placeOfSupply ? w.stateCode('pos', input.placeOfSupply) : null
+  w.memoryBillDay(party, input.date, date)
   const resolved = input.items.map((l, i) => {
-    const item = w.item(`line:${i}`, l.itemId ?? l.item ?? null)
-    if (l.itemId == null && !l.item) throw new Error(`Line ${i + 1}: give the item (name, barcode or HSN)`)
+    const said = l.itemId != null || !!l.item
+    const item = said ? w.item(`line:${i}`, l.itemId ?? l.item ?? null) : w.memoryPartyItem(`line:${i}`, party, kind === 'sales' || kind === 'credit_note' ? 'sales' : 'purchase')
+    if (!said && !item) throw new Error(`Line ${i + 1}: give the item (name, barcode or HSN)`)
     return { item, qtyMilli: w.qty(`line:${i}`, l.qty, `Line ${i + 1}`, item), given: l }
   })
   w.settle()
@@ -685,8 +697,11 @@ export function buildStockNoteDraft(w: DraftWork, input: StockNoteDraftInput): B
   } else {
     w.assume(`Purpose: ${purposes.find((x) => x.value === purpose)!.label} (the default)`)
   }
+  w.memoryBillDay(party, input.date, date)
   const resolved = input.items.map((l, i) => {
-    const item = w.item(`line:${i}`, l.itemId ?? l.item ?? null)
+    const said = l.itemId != null || !!l.item
+    const item = said ? w.item(`line:${i}`, l.itemId ?? l.item ?? null) : w.memoryPartyItem(`line:${i}`, party, kind === 'delivery_note' ? 'sales' : 'purchase')
+    if (!said && !item) throw new Error(`Line ${i + 1}: give the item (name, barcode or HSN)`)
     return { item, qtyMilli: w.qty(`line:${i}`, l.qty, `Line ${i + 1}`, item), given: l }
   })
   w.settle()
@@ -913,3 +928,35 @@ export function buildTradeDocDraft(w: DraftWork, input: TradeDocDraftInput): Bui
 
 // re-exported for tests
 export { isDebtor, isCreditor }
+
+// ---------- WP 5.5: a purchase / debit note from GSTR-2B figures (ledger lines, accounting mode) ----------
+
+/** A trading voucher with no item detail (the 2B document carries only taxable value and tax
+ *  heads): ledger lines in the accounting form — the editor's own fallback mode for a purchase
+ *  without stock lines — rehearsed like every other draft. Amounts are paise, from the document. */
+export interface LedgerInvoiceDraftInput {
+  kind: 'purchase' | 'debit_note'
+  /** ISO date (the document's own). */
+  date: string
+  partyLedgerId: number
+  reference: string
+  narration: string
+  lines: { ledgerId: number; drCr: 'dr' | 'cr'; amount: number; why: string }[]
+  /** Why this party (e.g. "the only ledger with GSTIN …"). */
+  partyWhy: string
+}
+
+export function buildLedgerInvoiceDraft(w: DraftWork, input: LedgerInvoiceDraftInput): BuiltDraft {
+  const m = w.m
+  const type = voucherTypeFor(m, input.kind)
+  const party = m.ledgers.find((l) => l.id === input.partyLedgerId)
+  if (!party) throw new Error(`Ledger #${input.partyLedgerId} does not exist`)
+  w.source({ field: 'party', kind: 'ledger', label: party.name, id: party.id, why: input.partyWhy })
+  const rows: AccountingRowState[] = input.lines.map((l, i) => {
+    w.source({ field: `line:${i}`, kind: 'ledger', label: ledgerName(m, l.ledgerId), id: l.ledgerId, why: l.why })
+    return { drCr: l.drCr, ledgerId: l.ledgerId, amount: l.amount, costAllocations: [] }
+  })
+  w.source({ field: 'date', kind: 'date', label: input.date, why: 'the document date in GSTR-2B' })
+  w.assume('Entered as ledger lines from the GSTR-2B figures (taxable value and tax heads) — the 2B has no item detail; switch to the invoice form to add stock items')
+  return accountingResult(w, type, input.date, rows, { kind: 'journal', narration: input.narration, reference: input.reference }, [], '')
+}

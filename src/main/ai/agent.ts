@@ -16,10 +16,10 @@ import { createHash, randomUUID } from 'crypto'
 import type { DB } from '../db/connection'
 import type { CompanyInfo } from '@shared/domain'
 import { todayISO } from '@shared/dates'
-import { AI_DATA_NOTICE_VERSION, type AiContext, type AiEvent, type AiMessageDto, type AiSettings, type AiSource } from '@shared/ai'
+import { AI_DATA_NOTICE_VERSION, AI_PRE_CALL_TOOLS, type AiContext, type AiPreCall, type AiEvent, type AiMessageDto, type AiSettings, type AiSource } from '@shared/ai'
 import type { Role } from '../services/roles'
 import { buildSystemPrompt } from './prompt'
-import { draftRequestedInThread } from './drafting/intent'
+import { draftRequestedInThread, isRequestedMemory } from './drafting/intent'
 import { mapStrings, outboundText, inboundText, type PrivacyOptions } from './privacy'
 import { fitToBudget, DEFAULT_TOOL_RESULT_BUDGET } from './truncate'
 import { checkFigures, type SeenResult } from './numbers'
@@ -29,6 +29,8 @@ import type { ToolRegistry } from './tools/registry'
 import { redactSecrets } from './provider'
 import * as store from './store'
 import { writeAudit } from '../services/audit'
+import { activeMemories, markMemoriesUsed } from './memory'
+import { buildMemoryBlock, citedMemoryIds, createMemoryContext, EMPTY_MEMORY_CONTEXT, stripMemoryCitations } from './memoryRules'
 
 // ---------- per-thread runs (keyed by company + thread) ----------
 
@@ -104,6 +106,9 @@ export interface AskInput {
   regenerate?: boolean
   context?: AiContext
   speed?: 'default' | 'fast'
+  /** WP 5.5 "Run with AI": a read tool run before the first model call; its result is stored as
+   *  an ordinary tool call of this turn, so the model starts from it. Ignored with regenerate. */
+  preCall?: AiPreCall
 }
 
 export interface TurnHandle {
@@ -291,8 +296,20 @@ async function runLoop(
   }
   const sig = privacySignature(privacy, budget)
   const role = deps.user.role
-  const tools = registry.available(role)
-  const specs = registry.specs(role)
+  // WP 5.6: with "Use memory" off, `remember` (and its rule) is not offered at all.
+  const hidden = settings.useMemory ? new Set<string>() : new Set(['remember'])
+  const tools = registry.available(role).filter((t) => !hidden.has(t.name))
+  const specs = registry.specs(role).filter((t) => !hidden.has(t.name))
+  const memoryRequested = isRequestedMemory(userRequest)
+  // WP 5.6: active memories go in a capped DATA block (masked with the rest of the prompt) and
+  // into the tools' memory context — only while the company's assistant is on and memory is used.
+  // Tools see exactly the entries the model saw (same cap and order), so a draft never cites a
+  // memory that was not in the block.
+  const memories = settings.useMemory ? activeMemories(db) : []
+  const memoryBlock = buildMemoryBlock(memories)
+  const inBlock = new Set(memoryBlock.ids)
+  const memory = inBlock.size ? createMemoryContext(memories.filter((m) => inBlock.has(m.id))) : EMPTY_MEMORY_CONTEXT
+  const memoryBytes = memoryBlock.lines.length ? Buffer.byteLength(outboundText(memoryBlock.lines.join('\n'), privacy), 'utf8') : 0
   const instructions = outboundText(
     buildSystemPrompt({
       company: {
@@ -308,7 +325,8 @@ async function runLoop(
       screen: input.context?.screen ?? null,
       context: input.context ?? null,
       tools: tools.map((t) => ({ name: t.name, kind: t.kind })),
-      privacy: settings.privacy
+      privacy: settings.privacy,
+      memory: memoryBlock
     }),
     privacy
   )
@@ -331,6 +349,29 @@ async function runLoop(
     return { status: 'error', error }
   }
 
+  // WP 5.5: the assistant screen's tool, run first (read tools only, the role still applies).
+  if (input.preCall && !input.regenerate) {
+    const pre = input.preCall
+    if (!(AI_PRE_CALL_TOOLS as readonly string[]).includes(pre.tool) || registry.get(pre.tool)?.kind !== 'read') return failed(`${pre.tool} cannot be run ahead of the question.`)
+    const callId = `pre_${runId.slice(0, 8)}`
+    const holder = store.addMessage(db, { threadId, role: 'assistant', content: '', toolCalls: [{ callId, name: pre.tool, input: pre.input }], model })
+    send(holder)
+    emit({ type: 'tool-start', threadId, runId, callId, name: pre.tool, input: pre.input })
+    const run = await registry.run(pre.tool, JSON.stringify(pre.input), {
+      db, company: deps.company, role, userName: deps.user.name, threadId, messageId: holder.id, today, period, userRequest, screen: input.context ?? null
+    })
+    const output = run.ok ? { ok: true, result: run.data } : { ok: false, error: run.error }
+    const sent = sentToolText(output, privacy, budget)
+    const sources = run.ok ? run.sources : []
+    send(
+      store.addMessage(db, {
+        threadId, role: 'tool', toolCallId: callId, toolName: pre.tool, toolInput: run.input, toolOutput: output, toolOk: run.ok,
+        truncated: sent.truncated, sources, draftId: null, sentText: sent.text, sentPrivacy: sig
+      })
+    )
+    turnSources.push(...sources)
+  }
+
   for (let step = 1; step <= settings.maxSteps; step++) {
     if (signal.aborted) return stopped('')
     const history = store.listMessages(db, threadId)
@@ -349,7 +390,9 @@ async function runLoop(
       pseudonymised: !!privacy.pseudonymiser,
       payloadSha256: sha256(payload),
       // What was SENT: the masked / pseudonymised context (never raw party names or identifiers).
-      context: input.context ? mapStrings(input.context, (s) => outboundText(s, privacy)) : null
+      context: input.context ? mapStrings(input.context, (s) => outboundText(s, privacy)) : null,
+      memoryCount: memoryBlock.ids.length,
+      memoryBytes
     })
 
     const reverser = privacy.pseudonymiser?.stream()
@@ -393,7 +436,10 @@ async function runLoop(
       emit({ type: 'cancelled', threadId, runId })
       return { status: 'cancelled' }
     }
-    const text = inboundText(res.text, privacy)
+    const rawText = inboundText(res.text, privacy)
+    // Citations of memories the model saw ([M3]) become chips; the tags leave the shown text.
+    const cited = citedMemoryIds(rawText, inBlock)
+    const text = stripMemoryCitations(rawText, inBlock)
     const usageFields = { model: res.model, inputTokens: res.usage.inputTokens, outputTokens: res.usage.outputTokens, costMicroUsd: cost }
 
     if (res.toolCalls.length === 0) {
@@ -404,7 +450,9 @@ async function runLoop(
         .reverse()
         .map((m) => ({ tool: m.toolName ?? '?', output: m.toolOutput, sources: m.sources }))
       const figures = checkFigures(text, seen, origins)
-      const final = store.addMessage(db, { threadId, role: 'assistant', content: text, figures, sources: dedupeSources(turnSources), ...usageFields })
+      const memoryIds = [...new Set([...cited, ...memory.used])]
+      const final = store.addMessage(db, { threadId, role: 'assistant', content: text, figures, sources: dedupeSources(turnSources), memoryIds, ...usageFields })
+      markMemoriesUsed(db, memoryIds)
       db.prepare('UPDATE ai_usage SET message_id = ? WHERE id = ?').run(final.id, usageId)
       send(final)
       emit({ type: 'done', threadId, runId })
@@ -429,10 +477,12 @@ async function runLoop(
       const roleNow = deps.roleNow ? deps.roleNow() : role
       if (roleNow === null) return failed('Signed out — the assistant stopped.')
       emit({ type: 'tool-start', threadId, runId, callId: c.callId, name: c.name, input: c.input })
-      const run = await registry.run(c.name, c.args, {
-        db, company: deps.company, role: roleNow, userName: deps.user.name, threadId, messageId: assistant.id, today, period, userRequest,
-        draftRequested, workingDate, screen: input.context ?? null
-      })
+      const run = hidden.has(c.name)
+        ? { ok: false as const, name: c.name, input: c.input, error: `There is no tool called ${c.name}.` }
+        : await registry.run(c.name, c.args, {
+            db, company: deps.company, role: roleNow, userName: deps.user.name, threadId, messageId: assistant.id, today, period, userRequest,
+            draftRequested, workingDate, screen: input.context ?? null, memory, memoryRequested
+          })
       const output = run.ok ? { ok: true, result: run.data } : { ok: false, error: run.error }
       const sent = sentToolText(output, privacy, budget)
       const sources = run.ok ? run.sources : []

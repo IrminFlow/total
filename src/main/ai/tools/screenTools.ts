@@ -24,6 +24,7 @@ import { forecastBase } from '../../services/cashForecast'
 import { listAudit } from '../../services/audit'
 import { NOT_DELETED } from '../../services/vouchers'
 import { capRows, drCr, rupees, READ_TOOLS } from './readTools'
+import { closeChecklistTool, findAnomaliesTool, gst2bMismatchesTool } from './assistantTools'
 import { defineTool, type ToolContext, type ToolDef, type ToolOutput } from './registry'
 
 const iso = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Expected YYYY-MM-DD')
@@ -888,7 +889,14 @@ const SCREEN_DATA: Record<string, Runner> = {
   'audit-trail': (ctx, p) => run('audit_log_recent', { voucherId: n(p.voucherId) }, ctx),
   gstr3b: (ctx) => run('gst_summary', { period: periodOf(ctx).to.slice(0, 7) }, ctx),
   'voucher-entry': (ctx, p) => (n(p.voucherId) ? voucherDetail(ctx, n(p.voucherId)!) : null),
-  'company-info': (ctx) => run('get_company_info', {}, ctx)
+  'company-info': (ctx) => run('get_company_info', {}, ctx),
+  // WP 5.5: the Assistants screen — the tab's own assistant.
+  assistants: (ctx, p) => {
+    const t = p.tab === 'gst2b' ? gst2bMismatchesTool : p.tab === 'anomalies' ? findAnomaliesTool : p.tab === 'report' ? null : closeChecklistTool
+    if (!t) return null
+    const input = typeof p.period === 'string' && t !== findAnomaliesTool ? { period: p.period } : {}
+    return t.handler(t.input.parse(input), ctx)
+  }
 }
 
 export const SCREEN_DATA_SCREENS = Object.keys(SCREEN_DATA)

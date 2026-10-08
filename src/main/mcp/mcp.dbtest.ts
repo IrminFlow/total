@@ -127,6 +127,32 @@ describe('MCP tools — the registry under the read/draft rule', () => {
     expect(at.map((t) => t.name).sort()).toEqual(registry.available('accountant').map((t) => t.name).sort())
   })
 
+  it('WP 5.6: remember is offered to accountant+ only and only proposes a suggested memory', async () => {
+    const { client: viewer } = await connect()
+    expect((await viewer.listTools()).tools.map((t) => t.name)).not.toContain('remember')
+    expect((await call(viewer, 'remember', { kind: 'fact', text: 'Books close on the 5th' })).isError).toBe(true)
+    const { client: acct } = await connect({ role: 'accountant' })
+    expect((await acct.listTools()).tools.map((t) => t.name)).toContain('remember')
+    const before = booksDigest()
+    const r = await call(acct, 'remember', { kind: 'fact', text: 'Books close on the 5th' })
+    expect(r.isError).toBe(false)
+    // Provenance is stored: source 'mcp' + the client's name (shown as "from Test Client").
+    expect(db.prepare('SELECT source, origin, status, unrequested FROM ai_memory').all()).toEqual([{ source: 'mcp', origin: 'Test Client', status: 'suggested', unrequested: 0 }])
+    expect((await call(acct, 'remember', { kind: 'fact', text: `Our GSTIN is ${GSTIN}` })).isError).toBe(true)
+    expect(booksDigest()).toBe(before)
+
+    // Drafts over MCP take memory defaults like the chat: an accepted pay-from ledger fills a
+    // `preferred` line; a suggestion is never used.
+    const banks = (db.prepare("SELECT id FROM groups WHERE name = 'Bank Accounts'").get() as { id: number }).id
+    const hdfc = Number(db.prepare('INSERT INTO ledgers (name, group_id, opening_balance) VALUES (?, ?, 0)').run('HDFC Bank', banks).lastInsertRowid)
+    const expenses = (db.prepare("SELECT id FROM groups WHERE name = 'Indirect Expenses'").get() as { id: number }).id
+    const rent = Number(db.prepare('INSERT INTO ledgers (name, group_id, opening_balance) VALUES (?, ?, 0)').run('Shop Rent', expenses).lastInsertRowid)
+    db.prepare(`INSERT INTO ai_memory (kind, text, data_json, source, status) VALUES ('preference', 'Pay from HDFC Bank', ?, 'user', 'active')`).run(JSON.stringify({ purpose: 'payment', ledgerId: hdfc }))
+    const d = await call(acct, 'draft_voucher', { kind: 'payment', lines: [{ ledgerId: rent, drCr: 'dr', amount: '100' }, { preferred: 'payment', drCr: 'cr', amount: '100' }] })
+    expect(d.isError, d.text).toBe(false)
+    expect(d.text).toContain('From memory [M')
+  })
+
   it('a viewer reads (trial balance, ledgers) and is refused a draft tool; nothing is written to the books', async () => {
     const before = booksDigest()
     const { client } = await connect()

@@ -6,6 +6,7 @@
 // `demoScript` is the built-in script behind TOTAL_AI_MOCK=1 (honoured only with TOTAL_DATA_DIR
 // in an unpackaged build — see agentEnv.ts) that the e2e scenario drives: "what were sales in
 // July?" and "pay … in cash" style questions.
+import { parseReportQuestion } from '@shared/reportBuilder/nl'
 import { draftingDemoStep } from './mockDrafting'
 import { AiAbortError, ZERO_USAGE, type AiProvider, type ChatHandlers, type ChatItem, type ChatRequest, type ChatResult, type ChatUsage } from './types'
 
@@ -184,6 +185,80 @@ function screenAnswer(r: Row): string {
   return parts.join('\n')
 }
 
+
+// ---------- WP 5.5: the assistants ----------
+
+/** Quoted summaries of the assistant tools' results (never a computed figure). */
+function assistantAnswer(name: string, r: Row): string {
+  if (name === 'close_checklist') {
+    const checks = ((r.checks ?? []) as Row[]).filter((c) => c.status === 'fail' || c.status === 'warn')
+    return [
+      `**Close checklist — ${s(r.month)}**: ${s(r.progress)}.`,
+      '',
+      checks.length ? 'Still open:' : 'Every check is cleared.',
+      ...checks.slice(0, 8).map((c) => `- ${s(c.status) === 'fail' ? 'FAIL' : 'CHECK'} **${s(c.check)}** — ${s(c.summary)}${c.amount ? ` (${s(c.amount)})` : ''} — fix on ${s(c.fixOn)}`)
+    ].join('\n')
+  }
+  if (name === 'gst_2b_mismatches') {
+    if (r.note) return s(r.note)
+    const sum = ((r.summary ?? []) as Row[]).filter((x) => Number(x.count) > 0)
+    const first = ((r.mismatches ?? []) as Row[]).slice(0, 5)
+    return [
+      `**GSTR-2B ${s(r.returnPeriod)}**: ${s(r.statement)}; ${s(r.matched)} matched.`,
+      '',
+      ...(sum.length ? sum.map((x) => `- ${s(x.category)}: ${s(x.count)} (tax ${s(x.tax)})`) : ['- No mismatches.']),
+      ...(first.length ? ['', 'First to look at:', ...first.map((m) => `- ${s(m.category)} — ${s(m.invoice)} (${s(m.supplier)}): ${s(m.suggestion)}`)] : [])
+    ].join('\n')
+  }
+  if (name === 'find_anomalies') {
+    const list = ((r.anomalies ?? []) as Row[]).slice(0, 8)
+    return [
+      `**${s(r.found)} unusual entries** from ${s(r.from)} to ${s(r.to)}.`,
+      '',
+      ...list.map((a) => `- [${s(a.severity)}] ${s(a.kind)} — ${s(a.voucher) || s(a.item)}: ${s(a.why)}`)
+    ].join('\n')
+  }
+  if (name === 'build_report') {
+    const totals = Object.entries((r.totals ?? {}) as Row).filter(([, v]) => typeof v === 'string')
+    return [
+      `**${s(r.title)}** (${s(r.from)} to ${s(r.to)}, ${s(r.rowCount)} rows).`,
+      '',
+      ...totals.map(([k, v]) => `- Total ${k}: ${s(v)}`),
+      '',
+      'Open it in the report builder from the link below to see every row, change it or save it.'
+    ].join('\n')
+  }
+  return 'The assistant tool returned nothing I can summarise.'
+}
+
+const ASSISTANT_INTENTS: { re: RegExp; tool: string }[] = [
+  { re: /\b(close checklist|month[- ]end|close the month|closing checklist|checklist)\b/, tool: 'close_checklist' },
+  { re: /\b(2b|gstr-?2b|itc mismatch|mismatches)\b/, tool: 'gst_2b_mismatches' },
+  { re: /\b(anomal\w*|duplicates?|unusual|suspicious)\b/, tool: 'find_anomalies' },
+  { re: /\breport\b/, tool: 'build_report' }
+]
+/** WP 5.6: "remember that …" → list_ledgers, then `remember` (a preference when it names a cash /
+ *  bank ledger to pay from, else a fact pointing at the ledger it names). */
+function rememberStep(question: string, results: { name: string; output: string }[]): MockStep {
+  const done = results.find((r) => r.name === 'remember')
+  if (done) {
+    const d = parse(done.output)
+    if (d.error) return { text: `I could not propose that: ${d.error}` }
+    return { text: 'I have proposed remembering that. Accept it on the card above (or in Settings → AI → Memory) — it is not used until you do.' }
+  }
+  const list = results.find((r) => r.name === 'list_ledgers')
+  if (!list) return { text: '', toolCalls: [{ name: 'list_ledgers', arguments: {} }] }
+  const ledgers = ((JSON.parse(list.output) as { result?: { ledgers?: { id: number; name: string; group: string }[] } }).result?.ledgers ?? [])
+  const lower = question.toLowerCase()
+  const named = ledgers.filter((l) => lower.includes(l.name.toLowerCase())).sort((a, b) => b.name.length - a.name.length)[0]
+  const text = question.replace(/^\s*(please\s+)?remember( that)?[:,]?\s*/i, '').replace(/^./, (c) => c.toUpperCase()).slice(0, 300)
+  const payFrom = named && /\bpa(y|id|yment|yments)\b/.test(lower) && /bank|cash/i.test(named.group)
+  const args = payFrom
+    ? { kind: 'preference', text, data: { purpose: 'payment', ledgerId: named.id } }
+    : { kind: 'fact', text, ...(named ? { data: { ledgerId: named.id } } : {}) }
+  return { text: '', toolCalls: [{ name: 'remember', arguments: args }] }
+}
+
 export const demoScript: MockScript = (req) => {
   const { question, results } = sinceLastUser(req.input)
   const q = question.toLowerCase()
@@ -191,6 +266,8 @@ export const demoScript: MockScript = (req) => {
   // Undated: the draft tools default to the user's working date (as a model should when no date is said).
   const drafting = draftingDemoStep(question, results, undefined)
   if (drafting) return drafting
+
+  if (/^\s*(please\s+)?remember\b/.test(q)) return rememberStep(question, results)
 
   const figure = /Figure to explain \(JSON\): (\{.*\})/.exec(req.instructions)?.[1]
   if (figure && /^explain this figure/i.test(question)) {
@@ -210,6 +287,25 @@ export const demoScript: MockScript = (req) => {
     const d = parse(done.output)
     if (d.error || !d.result) return { text: `I could not explain it: ${d.error ?? 'no result'}` }
     return { text: explainAnswer(d.result) }
+  }
+
+  // WP 5.5: an assistant result already in the turn (pre-called by "Run with AI" or asked for).
+  const assistantDone = results.find((r) => ['close_checklist', 'gst_2b_mismatches', 'find_anomalies', 'build_report', 'draft_gst_2b_fix'].includes(r.name))
+  if (assistantDone) {
+    const d = parse(assistantDone.output)
+    if (d.error || !d.result) return { text: `The ${assistantDone.name.replace(/_/g, ' ')} tool could not answer: ${d.error ?? 'no result'}` }
+    if (assistantDone.name === 'draft_gst_2b_fix') return { text: `I drafted it: ${s(d.result.summary)}. Review the draft and save it from the voucher editor — nothing is in the books yet.` }
+    return { text: assistantAnswer(assistantDone.name, d.result) }
+  }
+  const intent = ASSISTANT_INTENTS.find((i) => i.re.test(q))
+  if (intent && !/\b(this screen|this report)\b/.test(q)) {
+    if (intent.tool === 'build_report') {
+      const m = /Working period: (\d{4}-\d{2}-\d{2}) to (\d{4}-\d{2}-\d{2})/.exec(req.instructions)
+      const request = parseReportQuestion(question, m ? { from: m[1]!, to: m[2]! } : undefined)
+      if (!request) return { text: 'Tell me what the report should show, e.g. “report of sales by month” or “report of expenses by ledger last quarter”.' }
+      return { text: '', toolCalls: [{ name: 'build_report', arguments: request as unknown as Record<string, unknown> }] }
+    }
+    return { text: '', toolCalls: [{ name: intent.tool, arguments: {} }] }
   }
 
   if (/\b(this screen|on screen|why is this|what am i looking at|this report)\b/.test(q)) {
@@ -248,7 +344,9 @@ export const demoScript: MockScript = (req) => {
       try {
         const d = JSON.parse(draft.output) as { result?: { draftId?: number; summary?: string }; error?: string }
         if (d.error) return { text: `I could not draft it: ${d.error}` }
-        return { text: `I drafted it: ${d.result?.summary}. Review the draft and save it from the voucher editor — nothing is in the books yet.` }
+        const fromMemory = (d.result as { fromMemory?: string[] } | undefined)?.fromMemory ?? []
+        const cite = fromMemory.length ? ` It pays from the ledger you asked me to remember ${fromMemory.map((m) => `[${m}]`).join(' ')}.` : ''
+        return { text: `I drafted it: ${d.result?.summary}.${cite} Review the draft and save it from the voucher editor — nothing is in the books yet.` }
       } catch {
         return { text: 'The draft tool answered with something I could not read.' }
       }
@@ -260,7 +358,10 @@ export const demoScript: MockScript = (req) => {
     const words = q.split(/[^a-z0-9]+/).filter((w) => w.length > 2 && !['pay', 'paid', 'payment', 'cash', 'for', 'the', 'from', 'draft', 'rupees', 'and', 'with'].includes(w))
     const payee = ledgers.find((l) => l !== cash && words.some((w) => l.name.toLowerCase().includes(w)))
     const amount = /(\d[\d,]*(?:\.\d{1,2})?)/.exec(question)?.[1]?.replace(/,/g, '')
-    if (!cash || !payee || !amount) return { text: 'Tell me who to pay, how much, and from which cash or bank ledger.' }
+    // WP 5.6: a remembered "pay from" ledger wins unless the question names cash.
+    const remembered = /\[M(\d+)\] preference — pay from: ledgerId (\d+)/.exec(req.instructions)
+    const credit = remembered && !/\bcash\b/.test(q) ? { preferred: 'payment' } : cash ? { ledgerId: cash.id } : null
+    if (!credit || !payee || !amount) return { text: 'Tell me who to pay, how much, and from which cash or bank ledger.' }
     return {
       text: '',
       toolCalls: [
@@ -272,7 +373,7 @@ export const demoScript: MockScript = (req) => {
             narration: question.slice(0, 120),
             lines: [
               { ledgerId: payee.id, drCr: 'dr', amount },
-              { ledgerId: cash.id, drCr: 'cr', amount }
+              { ...credit, drCr: 'cr', amount }
             ]
           }
         }
@@ -281,6 +382,6 @@ export const demoScript: MockScript = (req) => {
   }
 
   return {
-    text: 'This is the offline test assistant (TOTAL_AI_MOCK). It only knows "sales in <month>", "pay <amount> <ledger> in cash", "what is on this screen?" and Explain this.'
+    text: 'This is the offline test assistant (TOTAL_AI_MOCK). It only knows "sales in <month>", "pay <amount> <ledger> in cash", "remember that …", "what is on this screen?", Explain this, and the assistants: "month-end checklist", "2B mismatches", "anomalies", "report of <sales by month>".'
   }
 }
