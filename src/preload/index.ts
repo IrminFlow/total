@@ -13,6 +13,14 @@ const api = {
       return Promise.resolve({ ok: false, error: 'Bad channel' })
     }
     return ipcRenderer.invoke(`total:${channel}`, payload) as Promise<IpcResult>
+  },
+  /** AI agent events (WP 5.1), pushed by main while an answer streams. Returns an unsubscribe. */
+  onAiEvent: (listener: (event: unknown) => void): (() => void) => {
+    const wrapped = (_e: unknown, event: unknown): void => listener(event)
+    ipcRenderer.on('total:ai:event', wrapped)
+    return () => {
+      ipcRenderer.removeListener('total:ai:event', wrapped)
+    }
   }
 }
 

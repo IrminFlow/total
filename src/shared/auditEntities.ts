@@ -13,6 +13,10 @@
  * whose feature was removed in 0.5.0).
  */
 export const AUDIT_ENTITIES = [
+  'ai_data',
+  'ai_draft',
+  'ai_settings',
+  'ai_thread',
   'audit_log',
   'backup',
   'bank_import_profile',
@@ -48,6 +52,8 @@ export const AUDIT_ENTITIES = [
   'gst_ims',
   'gst_self_invoice',
   'held_bill',
+  'import_batch',
+  'import_template',
   'it_block',
   'it_block_rate',
   'job_work',
@@ -67,6 +73,8 @@ export const AUDIT_ENTITIES = [
   'priceLevel',
   'priceRate',
   'recurring_template',
+  'report_pack',
+  'saved_report',
   'statutory_payment',
   'statutory_rate',
   'stockGroup',
@@ -127,6 +135,10 @@ export type AuditAction = (typeof AUDIT_ACTIONS)[number]
 
 /** Human labels for the report's entity column/filter; anything missing falls back to the raw key. */
 export const AUDIT_ENTITY_LABELS: Partial<Record<AuditEntity, string>> = {
+  ai_data: 'AI data (deleted)',
+  ai_draft: 'AI draft',
+  ai_settings: 'AI settings',
+  ai_thread: 'AI conversation',
   audit_log: 'Audit log',
   backup: 'Backup',
   bank_import_profile: 'Bank statement mapping',
@@ -149,6 +161,8 @@ export const AUDIT_ENTITY_LABELS: Partial<Record<AuditEntity, string>> = {
   counter_sale: 'Counter sale',
   discountScheme: 'Discount scheme',
   held_bill: 'Held counter bill',
+  import_batch: 'Import batch',
+  import_template: 'Import template',
   partyRate: 'Party rate',
   csv_import: 'CSV import',
   currency: 'Currency',

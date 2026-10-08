@@ -1,7 +1,8 @@
 // The CURRENT view → the display-formatted cells lib/reportExport.ts (printReport/csvReport) takes.
 import { plainRupees } from '@shared/money'
 import type { ReportColumn as PdfColumn, ReportRow as PdfRow } from '../client'
-import { aggregateText, cellText, columnAlign, columnLabel } from './format'
+import type { XlsxColumn, XlsxRow, XlsxSheet } from '@shared/xlsx/writer'
+import { aggregateText, cellText, columnAlign, columnLabel, rowDecimals, rowUnit } from './format'
 import type { TableModel } from './pipeline'
 import type { CellValue, ColumnDef } from './types'
 
@@ -83,4 +84,65 @@ export function capExportForPdf(ex: TableExport, limit: number): { export: Table
     (totals ? '; the totals cover all lines' : '') +
     '. Export CSV for every line.'
   return { export: { ...ex, rows, csvRows: rows.map((r) => r.cells) }, truncated: true, note }
+}
+
+/**
+ * The CURRENT view as a typed XLSX sheet (WP 6.3): money columns are numbers in paise (written as
+ * rupees with a ₹ format), dates are real dates, quantities are numbers with the unit's decimals
+ * (a fixed unit goes into the header; a per-row unit gets its own "… unit" column). Group and
+ * totals rows are bold. Enum and text columns export their display text.
+ */
+export function buildTableXlsx<Row>(
+  model: TableModel<Row, ColumnDef<Row>>,
+  opts: { name: string; preamble?: string[]; totalsLabel?: string; includeTotals?: boolean }
+): XlsxSheet {
+  const cols = model.columns
+  const columns: XlsxColumn[] = []
+  /** One entry per output column; `unitOf` marks the extra per-row unit column. */
+  const out: { col: ColumnDef<Row>; unitOf?: true }[] = []
+  for (const c of cols) {
+    const label = columnLabel(c)
+    if (c.kind === 'money') columns.push({ header: c.signed ? `${label} (Dr + / Cr −)` : label, kind: 'money' })
+    else if (c.kind === 'quantity') {
+      const unit = typeof c.unit === 'string' && c.unit ? ` (${c.unit})` : ''
+      columns.push({ header: label + unit, kind: 'qty', decimals: typeof c.decimals === 'number' ? c.decimals : 3 })
+    } else if (c.kind === 'date') columns.push({ header: label, kind: 'date' })
+    else if (c.kind === 'number') columns.push({ header: label, kind: 'number' })
+    else columns.push({ header: label, kind: 'text' })
+    out.push({ col: c })
+    if (c.kind === 'quantity' && typeof c.unit === 'function') {
+      columns.push({ header: `${label} unit`, kind: 'text', width: 8 })
+      out.push({ col: c, unitOf: true })
+    }
+  }
+  const labelCol = Math.max(0, out.findIndex((o) => !o.unitOf && !o.col.aggregate))
+  const typed = (c: ColumnDef<Row>, v: CellValue, row: Row | null): string | number | null => {
+    if (v === null || v === undefined || v === '') return null
+    if (c.kind === 'money' || c.kind === 'quantity' || c.kind === 'number') return Number.isFinite(Number(v)) ? Number(v) : String(v)
+    if (c.kind === 'date') return String(v)
+    return row ? cellText(c, row) : aggregateText(c, v)
+  }
+  const summary = (totals: Record<string, CellValue>, label: string): XlsxRow => ({
+    bold: true,
+    cells: out.map((o, i) => (o.unitOf ? null : o.col.aggregate ? typed(o.col, totals[o.col.id] ?? null, null) : i === labelCol ? label : null))
+  })
+  const rows: XlsxRow[] = []
+  for (const item of model.items) {
+    if (item.type === 'group') {
+      rows.push(summary(item.totals, `${item.label} (${item.count})`))
+      continue
+    }
+    const qtyDecimals: Record<number, number> = {}
+    const cells = out.map((o, i) => {
+      if (o.unitOf) return rowUnit(o.col, item.row) || null
+      if (o.col.kind === 'quantity') {
+        const d = rowDecimals(o.col, item.row)
+        if (d !== undefined) qtyDecimals[i] = d
+      }
+      return typed(o.col, o.col.value(item.row), item.row)
+    })
+    rows.push({ cells, qtyDecimals })
+  }
+  if (cols.some((c) => c.aggregate) && opts.includeTotals !== false) rows.push(summary(model.totals, opts.totalsLabel ?? 'Total'))
+  return { name: opts.name, columns, rows, preamble: opts.preamble }
 }

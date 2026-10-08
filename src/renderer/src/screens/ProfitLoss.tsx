@@ -2,8 +2,9 @@ import { useEffect, useState } from 'react'
 import { keepPreviousData, useQuery } from '@tanstack/react-query'
 import { api } from '../lib/client'
 import { useSession, useToasts } from '../state/stores'
-import { Button, DateInput, DrawerSection, Money, Page, PageHeader, Panel, SkeletonRows } from '../components/ui'
+import { Button, DateInput, DrawerSection, Money, Page, PageHeader, Panel, Select, SkeletonRows } from '../components/ui'
 import { OptionToggle, OptionsExport, useScreenOptions } from '../components/ScreenOptions'
+import { ComparativeStatement } from '../components/ComparativeStatement'
 import { StatementTree } from '../components/StatementTree'
 import { csvReport, flattenNodes, printReport } from '../lib/reportExport'
 import type { ReportColumn as PdfColumn, ReportRow as PdfRow } from '../lib/client'
@@ -34,7 +35,8 @@ export function ProfitLossScreen(): React.JSX.Element {
     queryFn: () => api.reports.profitLoss(from, to),
     placeholderData: keepPreviousData
   })
-  const opts = useScreenOptions('profit-loss', { expandAll: false, hideZero: false })
+  const opts = useScreenOptions('profit-loss', { expandAll: false, hideZero: false, comparative: false, budgetId: '' })
+  const { data: budgets } = useQuery({ queryKey: ['budgets'], queryFn: api.budget.list })
   if (!data) return <ReportSkeleton title="Profit & Loss" />
 
   const periodLabel = `${toDisplayDate(from)} → ${toDisplayDate(to)}`
@@ -106,6 +108,13 @@ export function ProfitLossScreen(): React.JSX.Element {
                 onExpandAll={(v) => opts.set('expandAll', v)}
                 onHideZero={(v) => opts.set('hideZero', v)}
               />
+              <ComparativeOptions
+                comparative={opts.options.comparative}
+                onComparative={(v) => opts.set('comparative', v)}
+                budgetId={opts.options.budgetId}
+                onBudget={(v) => opts.set('budgetId', v)}
+                budgets={budgets ?? []}
+              />
               <OptionsExport>
                 <Button size="sm" onClick={exportPdf} data-testid="options-pnl-pdf">
                   Export PDF
@@ -119,6 +128,10 @@ export function ProfitLossScreen(): React.JSX.Element {
         }}
       />
 
+      {opts.options.comparative ? (
+        <ComparativeStatement kind="pnl" from={from} to={to} budgetId={opts.options.budgetId ? Number(opts.options.budgetId) : null} tree={tree} />
+      ) : (
+      <>
       <div className={`grid grid-cols-2 gap-3 transition-opacity ${isPlaceholderData ? 'opacity-60' : ''}`}>
         <Panel className="p-4">
           <p className="mb-2 text-caption font-semibold tracking-[0.08em] text-muted uppercase">Expenses</p>
@@ -146,6 +159,8 @@ export function ProfitLossScreen(): React.JSX.Element {
         <span className="text-body font-medium">{data.netProfit >= 0 ? 'Net profit for the period' : 'Net loss for the period'}</span>
         <Money paise={Math.abs(data.netProfit)} className={`text-title font-semibold ${data.netProfit >= 0 ? 'text-dr' : 'text-cr'}`} />
       </Panel>
+      </>
+      )}
     </Page>
   )
 }
@@ -166,6 +181,42 @@ export function StatementOptions({
     <DrawerSection title="Display" testId="options-display">
       <OptionToggle label="Expand every group" hint="Default shows the top-level groups only." checked={expandAll} onChange={onExpandAll} testId="input-statement-expand-all" />
       <OptionToggle label="Hide zero-balance groups and ledgers" checked={hideZero} onChange={onHideZero} testId="input-statement-hide-zero" />
+    </DrawerSection>
+  )
+}
+
+/** "Comparative" drawer section shared by the P&L and Balance sheet (WP 6.2). */
+export function ComparativeOptions({
+  comparative,
+  onComparative,
+  budgetId,
+  onBudget,
+  budgets
+}: {
+  comparative: boolean
+  onComparative: (v: boolean) => void
+  budgetId?: string
+  onBudget?: (v: string) => void
+  budgets?: { id: number; name: string }[]
+}): React.JSX.Element {
+  return (
+    <DrawerSection title="Comparative" testId="options-comparative">
+      <OptionToggle
+        label="Compare periods"
+        hint="This period, the previous period and the same period last year, side by side."
+        checked={comparative}
+        onChange={onComparative}
+        testId="input-statement-comparative"
+      />
+      {comparative && onBudget && budgets && budgets.length > 0 && (
+        <label className="flex flex-col gap-1 text-detail">
+          <span>Budget column</span>
+          <Select value={budgetId ?? ''} onChange={(e) => onBudget(e.target.value)} data-testid="input-statement-budget">
+            <option value="">No budget</option>
+            {budgets.map((b) => <option key={b.id} value={String(b.id)}>{b.name}</option>)}
+          </Select>
+        </label>
+      )}
     </DrawerSection>
   )
 }

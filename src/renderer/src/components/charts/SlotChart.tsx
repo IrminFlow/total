@@ -45,6 +45,8 @@ export function SlotChart({
   height,
   testId,
   includeZero = true,
+  formatValue = (v: number) => formatPaise(v, { symbol: true }),
+  formatTick = formatPaiseCompact,
   children
 }: {
   /** Accessible name of the chart (also the hidden table's caption). */
@@ -56,6 +58,10 @@ export function SlotChart({
   height: number
   testId?: string
   includeZero?: boolean
+  /** Exact value text (tooltip, readout, hidden table). Default: rupees from paise. */
+  formatValue?: (v: number) => string
+  /** Y-axis tick text. Default: compact rupees from paise. */
+  formatTick?: (v: number) => string
   children: (g: SlotGeometry) => React.ReactNode
 }): React.JSX.Element {
   const [ref, width] = useChartWidth<HTMLDivElement>()
@@ -81,7 +87,7 @@ export function SlotChart({
 
   const readout = (i: number): string =>
     `${categories[i]?.long ?? ''}: ` +
-    series.map((s) => `${s.label} ${s.values[i] == null ? 'no data' : formatPaise(s.values[i]!, { symbol: true })}`).join(', ')
+    series.map((s) => `${s.label} ${s.values[i] == null ? 'no data' : formatValue(s.values[i]!)}`).join(', ')
 
   const onKeyDown = (e: React.KeyboardEvent): void => {
     const next = stepIndex(e.key, focus ?? lastWithData, n)
@@ -136,7 +142,7 @@ export function SlotChart({
                 shapeRendering="crispEdges"
               />
               <text x={plot.x0 - 6} y={y(t)} dy="0.32em" textAnchor="end" fill="var(--t-muted)" className="num text-micro">
-                {formatPaiseCompact(t)}
+                {formatTick(t)}
               </text>
             </g>
           ))}
@@ -179,7 +185,7 @@ export function SlotChart({
                 <span className="inline-block h-2 w-2 rounded-sm" style={{ background: chartColor(s.color) }} />
                 {s.label}
               </span>
-              <span className="num text-ink">{s.values[active] == null ? '—' : formatPaise(s.values[active]!, { symbol: true })}</span>
+              <span className="num text-ink">{s.values[active] == null ? '—' : formatValue(s.values[active]!)}</span>
             </p>
           ))}
         </div>
@@ -202,7 +208,7 @@ export function SlotChart({
             <tr key={c.key}>
               <th scope="row">{c.long}</th>
               {series.map((s) => (
-                <td key={s.id}>{s.values[i] == null ? '—' : formatPaise(s.values[i]!, { symbol: true })}</td>
+                <td key={s.id}>{s.values[i] == null ? '—' : formatValue(s.values[i]!)}</td>
               ))}
             </tr>
           ))}

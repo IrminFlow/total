@@ -198,6 +198,9 @@ export function OptionsTable({
             <Button size="sm" variant="ghost" data-testid={`options-${area}-csv`} onClick={() => tableActions(area)?.exportCsv?.()}>
               Export CSV
             </Button>
+            <Button size="sm" variant="ghost" data-testid={`options-${area}-xlsx`} onClick={() => tableActions(area)?.exportXlsx?.()}>
+              Export Excel
+            </Button>
           </>
         )}
       </div>

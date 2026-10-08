@@ -57,6 +57,7 @@ import type {
 } from '@shared/tradeCycle/types'
 import type { MatchRow, MatchTolerances } from '@shared/tradeCycle/match'
 import type { TradeDocKind } from '@shared/domain'
+import type { XlsxSheet } from '@shared/xlsx/writer'
 
 /** stock:labelsHtml / stock:labelsPdf query (mirrors stockLabelsSchema). */
 export interface StockLabelsQuery {
@@ -428,9 +429,78 @@ export interface TallyImportSummary {
   units: number
   items: number
   vouchers: number
+  /** Sales / purchase orders → trade docs (WP 6.3). */
+  orders?: number
   skipped: number
+  /** FY start year the import set as the books' first year (null = unchanged). */
+  booksFromSet?: number | null
   warnings: string[]
 }
+
+// ---------- WP 6.3 import wizard (mirrors src/main/services/dataImport.ts + importFiles.ts) ----------
+
+export interface ImportWizardOptions {
+  duplicate: 'skip' | 'update' | 'create'
+  createMissing: boolean
+  openingDifference: 'block' | 'suspense' | 'leave'
+  dateOrder: 'dmy' | 'mdy' | 'ymd'
+  /** Numbers use a decimal comma ("1.234,56"). */
+  decimalComma: boolean
+  bankLedgerId?: number
+  applyBooksFrom: boolean
+}
+export interface ImportRowError { line: number; field?: string; message: string }
+export interface ImportTemplateRow {
+  id: number; name: string; profileId: string; target: string; headerSignature: string
+  mapping: Record<string, string | null>; options: Record<string, unknown>; updatedAt: string; lastUsedAt: string | null
+}
+export interface ImportSheetSummary {
+  name: string
+  rowCount: number
+  headerRow: number
+  headerLine: number
+  headers: string[]
+  sample: string[][]
+  guesses: { profileId: string; score: number; requiredMissing: string[] }[]
+  templates: ImportTemplateRow[]
+}
+export interface ImportLoadResult {
+  token: string
+  fileName: string
+  kind: 'table' | 'books' | 'busyXml'
+  manifest: Record<string, string | number> | null
+  busy: { groups: number; ledgers: number; units: number; godowns: number; items: number; vouchers: number; warnings: string[] } | null
+  sheets: (ImportSheetSummary | { name: string; rowCount: number })[]
+}
+export interface ImportTableQuery {
+  token: string
+  sheet: string
+  headerRow: number
+  profileId: string
+  mapping: Record<string, number | null>
+  options: Partial<ImportWizardOptions>
+}
+export interface ImportStepResult {
+  target: string; sheet?: string; created: number; updated: number; skipped: number; errors: ImportRowError[]; warnings: string[]
+}
+export interface ImportRunResult {
+  dryRun: boolean
+  batchId: number | null
+  steps: ImportStepResult[]
+  outcomes: { line: number; target: string; label: string; action: 'create' | 'update' | 'skip' | 'error'; message?: string }[]
+  outcomesTruncated: number
+  openingCheck: { debit: number; credit: number; difference: number; stockOpening: number } | null
+  bank?: { statementRows: number; matched: number; alreadyReconciled: number; unmatched: number }
+  /** The whole run was refused (openings did not tie under "Stop"). */
+  blocked?: string
+  booksFromSet: number | null
+  warnings: string[]
+}
+export interface ImportBatchRow {
+  id: number; source: string; profileId: string | null; fileName: string | null; status: 'applied' | 'undone' | 'partly_undone'
+  createdAt: string; createdBy: string | null; undoneAt: string | null; errorCount: number; created: number; updated: number; summary: unknown
+}
+export interface ImportUndoResult { binned: number; deleted: number; restored: number; kept: { entity: string; id: number; reason: string }[] }
 
 /** Mirrors src/main/services/stockAnalysis.ts's row shapes (kept local — main-process only). */
 export interface GodownStockRow {
@@ -756,9 +826,15 @@ export const api = {
     list: (from: string, to: string, voucherTypeId?: number) =>
       call<VoucherListRow[]>('voucher:list', { from, to, voucherTypeId }),
     get: (id: number) => call<Voucher | null>('voucher:get', { id }),
-    /** `creditHoldOverride` (WP 4.2): an owner's reason for invoicing a party on credit hold. */
-    save: (data: VoucherInputParsed, id?: number, opts?: { creditHoldOverride?: { reason: string } }) =>
-      call<Voucher & { duplicateNumber?: boolean; warnings?: SaveVoucherWarnings }>('voucher:save', { data, id, ...(opts?.creditHoldOverride ? { creditHoldOverride: opts.creditHoldOverride } : {}) }),
+    /** `creditHoldOverride` (WP 4.2): an owner's reason for invoicing a party on credit hold.
+     *  `aiDraftId` (WP 5.1): the voucher was reviewed from an AI draft — main marks it consumed. */
+    save: (data: VoucherInputParsed, id?: number, opts?: { creditHoldOverride?: { reason: string }; aiDraftId?: number }) =>
+      call<Voucher & { duplicateNumber?: boolean; warnings?: SaveVoucherWarnings }>('voucher:save', {
+        data,
+        id,
+        ...(opts?.creditHoldOverride ? { creditHoldOverride: opts.creditHoldOverride } : {}),
+        ...(opts?.aiDraftId ? { aiDraftId: opts.aiDraftId } : {})
+      }),
     remove: (id: number) => call<null>('voucher:delete', { id }),
     nextNumber: (voucherTypeId: number, date: string, excludeId?: number) =>
       call<{ number: string }>('voucher:nextNumber', { voucherTypeId, date, excludeId }),
@@ -1080,6 +1156,21 @@ export const api = {
     apply: (filePath?: string) =>
       call<{ filePath: string | null; summary: TallyImportSummary } | null>('tally:import', { filePath, dryRun: false })
   },
+  /** WP 6.3 import wizard + books export (src/main/ipcDataImport.ts). */
+  dataImport: {
+    load: (inline?: { fileName?: string; csvText?: string; xmlText?: string; xlsxBase64?: string }) => call<ImportLoadResult | null>('importwiz:load', inline ?? {}),
+    sheet: (token: string, sheet: string, headerRow?: number) => call<ImportSheetSummary>('importwiz:sheet', { token, sheet, headerRow }),
+    preview: (q: ImportTableQuery) => call<ImportRunResult>('importwiz:preview', q),
+    run: (q: ImportTableQuery & { saveTemplate?: { name: string } | null }) => call<ImportRunResult>('importwiz:run', q),
+    planPreview: (token: string, options: Partial<ImportWizardOptions>) => call<ImportRunResult>('importwiz:planPreview', { token, options }),
+    planRun: (token: string, options: Partial<ImportWizardOptions>) => call<ImportRunResult>('importwiz:planRun', { token, options }),
+    batches: () => call<ImportBatchRow[]>('importwiz:batches'),
+    undo: (batchId: number) => call<ImportUndoResult>('importwiz:undo', { batchId }),
+    templates: (profileId?: string) => call<ImportTemplateRow[]>('importwiz:templates', { profileId }),
+    deleteTemplate: (id: number) => call<null>('importwiz:templateDelete', { id }),
+    sample: (profileId: string) => call<{ path: string }>('importwiz:sample', { profileId }),
+    exportBooks: () => call<{ path: string; counts: Record<string, number> }>('export:books', {})
+  },
   importer: {
     pickCsv: () => call<{ csvText: string; fileName: string } | null>('import:pickCsv'),
     preview: (kind: ImportKind, csvText: string) => call<ImportPreview>('import:preview', { kind, csvText }),
@@ -1092,7 +1183,8 @@ export const api = {
   },
   exportReport: {
     pdf: (input: ReportPdfInput) => call<{ path: string }>('report:pdf', input),
-    csv: (filename: string, csv: string) => call<{ path: string }>('export:csv', { filename, csv })
+    csv: (filename: string, csv: string) => call<{ path: string }>('export:csv', { filename, csv }),
+    xlsx: (filename: string, sheets: XlsxSheet[]) => call<{ path: string }>('export:xlsx', { filename, sheets })
   },
   nic: {
     get: () => call<NicCredentials>('nic:get'),

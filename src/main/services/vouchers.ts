@@ -276,7 +276,7 @@ export function findDuplicates(db: DB, input: VoucherInputParsed, excludeId?: nu
   return rows
 }
 
-function ledgerFactsResolver(db: DB): (id: number) => LedgerFacts {
+export function ledgerFactsResolver(db: DB): (id: number) => LedgerFacts {
   const cashBank = cashBankGroupIds(db)
   const stmt = db.prepare('SELECT group_id, tds_payable_section_id FROM ledgers WHERE id = ?')
   const cache = new Map<number, LedgerFacts>()
@@ -351,6 +351,9 @@ export interface SaveVoucherHooks {
   /** WP 4.2: an owner's override of the party's credit hold, with the reason (audited as
    *  'credit_override'). The IPC layer only passes it for an owner (or a company without users). */
   creditHoldOverride?: { reason: string }
+  /** WP 6.3 Books import: keep the input line uids of a NEW voucher when they are free anywhere
+   *  (so the links of the exported company can be restored). */
+  adoptLineUids?: boolean
 }
 
 export const INTEREST_NOTE_IMMUTABLE =
@@ -520,7 +523,7 @@ export function saveVoucher(db: DB, raw: VoucherInput, existingId?: number, hook
   const run = db.transaction((): number => {
     // WP 2.5: stable line uids + resolved link sources (refused here — before anything is
     // written — when a source is unknown, the voucher's own, or not an allowed pair).
-    const resolved: ResolvedLine[] = trade ? resolveVoucherLines(db, input.inventory, { kind: vt.kind, before }) : []
+    const resolved: ResolvedLine[] = trade ? resolveVoucherLines(db, input.inventory, { kind: vt.kind, before, adoptLineUids: hooks.adoptLineUids }) : []
     let voucherId: number
     if (existingId) {
       db.prepare(

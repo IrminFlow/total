@@ -2763,8 +2763,239 @@ export const MIGRATIONS: string[] = [
   CREATE INDEX idx_fx_settlement_bills_settlement ON fx_settlement_bills(settlement_id);
   CREATE INDEX idx_fx_settlement_bills_invoice ON fx_settlement_bills(invoice_voucher_id);
   `,
-  // 036 (WP 6.4) — bulk edit, attachments, party notes / tasks. Positional: appended LAST (036 AI,
-  // 037 Excel, 038 report builder sit on parallel branches and get re-placed on rebase).
+
+  // 036 (WP 5.1, appended last after the Phase 4 migrations 032–035): the AI agent's own tables. Nothing here touches the books — the agent can only
+  // read reports and write drafts; a draft becomes a voucher only through the normal editor and
+  // saveVoucher (ai_drafts.voucher_id records which one).
+  // - ai_threads / ai_messages: the conversation, stored locally with REAL names (privacy
+  //   transforms apply only to what is sent). Assistant rows carry their tool calls; tool rows
+  //   the call's input, the full local result and the sources the panel links to.
+  //   sent_text / sent_privacy cache the exact (masked, trimmed) text a tool result was sent as,
+  //   so later steps neither re-trim the whole history nor drift from what the model saw;
+  //   reasoning_json keeps the model's encrypted reasoning items for the steps of one question.
+  // - ai_drafts: proposals from draft tools (status open → consumed | discarded); `unrequested`
+  //   flags a draft made when the user's question did not ask for one (possible prompt injection).
+  // - ai_memory: per-company memory (WP 5.6 fills it; created now so the schema is complete).
+  // - ai_usage: one row per model call (tokens in / cached / out, estimated micro-USD cost).
+  // - ai_outbound_log: what left the machine per call — sizes, the tools offered, which tool
+  //   results were included, privacy flags and a SHA-256 of the exact (masked) payload; never
+  //   the payload itself.
+  // - ai_pseudonyms: the stable per-company party-name → alias map ("Party-0007").
+  `
+  CREATE TABLE ai_threads (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    title TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    user_name TEXT
+  );
+
+  CREATE TABLE ai_messages (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    thread_id INTEGER NOT NULL REFERENCES ai_threads(id) ON DELETE CASCADE,
+    role TEXT NOT NULL CHECK (role IN ('user', 'assistant', 'tool')),
+    content TEXT NOT NULL DEFAULT '',
+    status TEXT NOT NULL DEFAULT 'ok' CHECK (status IN ('ok', 'error', 'cancelled')),
+    tool_calls_json TEXT,
+    tool_call_id TEXT,
+    tool_name TEXT,
+    tool_input_json TEXT,
+    tool_output_json TEXT,
+    tool_ok INTEGER,
+    truncated INTEGER NOT NULL DEFAULT 0,
+    sources_json TEXT,
+    figures_json TEXT,
+    model TEXT,
+    input_tokens INTEGER,
+    output_tokens INTEGER,
+    cost_micro_usd INTEGER,
+    draft_id INTEGER,
+    sent_text TEXT,
+    sent_privacy TEXT,
+    reasoning_json TEXT,
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+  );
+  CREATE INDEX idx_ai_messages_thread ON ai_messages(thread_id, id);
+
+  CREATE TABLE ai_drafts (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    thread_id INTEGER REFERENCES ai_threads(id) ON DELETE SET NULL,
+    message_id INTEGER REFERENCES ai_messages(id) ON DELETE SET NULL,
+    kind TEXT NOT NULL CHECK (kind IN ('voucher')),
+    summary TEXT NOT NULL,
+    payload_json TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'open' CHECK (status IN ('open', 'consumed', 'discarded')),
+    voucher_id INTEGER REFERENCES vouchers(id) ON DELETE SET NULL,
+    unrequested INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    consumed_at TEXT
+  );
+  CREATE INDEX idx_ai_drafts_status ON ai_drafts(status);
+
+  CREATE TABLE ai_memory (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    kind TEXT NOT NULL,
+    key TEXT NOT NULL,
+    value TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    UNIQUE (kind, key)
+  );
+
+  CREATE TABLE ai_usage (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    thread_id INTEGER REFERENCES ai_threads(id) ON DELETE SET NULL,
+    message_id INTEGER REFERENCES ai_messages(id) ON DELETE SET NULL,
+    at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    day TEXT NOT NULL,
+    provider TEXT NOT NULL,
+    model TEXT NOT NULL,
+    input_tokens INTEGER NOT NULL DEFAULT 0,
+    cached_tokens INTEGER NOT NULL DEFAULT 0,
+    output_tokens INTEGER NOT NULL DEFAULT 0,
+    reasoning_tokens INTEGER NOT NULL DEFAULT 0,
+    cost_micro_usd INTEGER,
+    duration_ms INTEGER NOT NULL DEFAULT 0,
+    ok INTEGER NOT NULL DEFAULT 1,
+    error TEXT
+  );
+  CREATE INDEX idx_ai_usage_day ON ai_usage(day);
+
+  CREATE TABLE ai_outbound_log (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    thread_id INTEGER REFERENCES ai_threads(id) ON DELETE SET NULL,
+    provider TEXT NOT NULL,
+    model TEXT NOT NULL,
+    request_bytes INTEGER NOT NULL,
+    instructions_bytes INTEGER NOT NULL,
+    message_count INTEGER NOT NULL,
+    tools_offered_json TEXT NOT NULL,
+    tool_results_json TEXT NOT NULL,
+    masked INTEGER NOT NULL,
+    pseudonymised INTEGER NOT NULL,
+    payload_sha256 TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'sent'
+  );
+
+  CREATE TABLE ai_pseudonyms (
+    ledger_id INTEGER PRIMARY KEY REFERENCES ledgers(id) ON DELETE CASCADE,
+    alias TEXT NOT NULL UNIQUE,
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+  );
+  `,
+  // WP 6.1 / 6.2 (last; number by position) — report builder and scheduled report packs. Kept
+  // last when other branches' migrations merge (the migration number is the array position —
+  // currently 037 after 036 AI; WP 6.3 Excel goes before it if it lands first). Never edit the
+  // content. Self-contained:
+  // depends only on core tables. Saved reports store the query model only (every figure is
+  // computed at query time); a pack lists built-in and saved reports with a period rule, an
+  // output folder and a frequency, and keeps a run log.
+  `
+  CREATE TABLE saved_reports (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL UNIQUE COLLATE NOCASE,
+    model_json TEXT NOT NULL,
+    owner TEXT,
+    pinned INTEGER NOT NULL DEFAULT 0 CHECK (pinned IN (0, 1)),
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+
+  CREATE TABLE report_packs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL UNIQUE COLLATE NOCASE,
+    reports_json TEXT NOT NULL,
+    period_rule TEXT NOT NULL CHECK (period_rule IN ('lastMonth', 'lastQuarter', 'fyToDate')),
+    frequency TEXT NOT NULL CHECK (frequency IN ('daily', 'weekly', 'monthly')),
+    formats_json TEXT NOT NULL DEFAULT '["pdf","csv"]',
+    output_dir TEXT,
+    active INTEGER NOT NULL DEFAULT 1 CHECK (active IN (0, 1)),
+    last_run_at TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+
+  CREATE TABLE report_pack_runs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    pack_id INTEGER NOT NULL REFERENCES report_packs(id) ON DELETE CASCADE,
+    trigger TEXT NOT NULL CHECK (trigger IN ('schedule', 'manual')),
+    started_at TEXT NOT NULL,
+    finished_at TEXT,
+    period_from TEXT NOT NULL,
+    period_to TEXT NOT NULL,
+    status TEXT NOT NULL CHECK (status IN ('ok', 'partial', 'failed')),
+    output_dir TEXT,
+    files_json TEXT NOT NULL DEFAULT '[]',
+    error TEXT
+  );
+  CREATE INDEX idx_report_pack_runs_pack ON report_pack_runs(pack_id, id);
+  `,
+  // 038 (WP 6.3) — Excel / CSV import wizard. Number assigned by the orchestrator: after 032–035
+  // (Phase 4), 036 (WP 5.1 AI) and 037 (WP 6.1 report builder), all on main; kept LAST.
+  // dbtests locate it by content (CREATE TABLE import_batches), never by index.
+  // - import_templates: a remembered column mapping per import profile ('generic:ledgers',
+  //   'zoho:invoices', 'busy:accounts', …). mapping_json maps field key → source HEADER NAME (not
+  //   position), so a template survives re-ordered columns; header_signature (sorted normalised
+  //   headers) lets the wizard offer the template automatically when the same layout comes back.
+  // - import_batches: one row per applied import (a dry run writes nothing) — what file, which
+  //   profile, the counts, and whether it was undone.
+  // - import_batch_items: every record the batch created or updated. Undo bins created vouchers /
+  //   orders, deletes created masters still unused, and restores the before-image of updated
+  //   ledgers / items and full voucher images (before_json), and reverses bank-statement hand-offs
+  //   (bank_date items). source_key = the record id in the exporting company (Books workbook
+  //   "Source ID", namespaced by company) — a re-import matches on it first. undone_at makes undo
+  //   idempotent; last_audit_id (the audit trail high-water mark at import) lets undo skip records
+  //   a user edited afterwards. Rows are never deleted: an undone batch keeps its history.
+  `
+  CREATE TABLE import_templates (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    profile_id TEXT NOT NULL,
+    target TEXT NOT NULL,
+    header_signature TEXT NOT NULL DEFAULT '',
+    mapping_json TEXT NOT NULL,
+    options_json TEXT NOT NULL DEFAULT '{}',
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+    last_used_at TEXT,
+    UNIQUE (profile_id, name)
+  );
+  CREATE INDEX idx_import_templates_signature ON import_templates(header_signature);
+
+  CREATE TABLE import_batches (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    source TEXT NOT NULL,
+    profile_id TEXT,
+    file_name TEXT,
+    status TEXT NOT NULL DEFAULT 'applied' CHECK (status IN ('applied', 'undone', 'partly_undone')),
+    options_json TEXT NOT NULL DEFAULT '{}',
+    summary_json TEXT NOT NULL DEFAULT '{}',
+    error_count INTEGER NOT NULL DEFAULT 0 CHECK (error_count >= 0),
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    created_by TEXT,
+    undone_at TEXT,
+    undo_summary_json TEXT,
+    last_audit_id INTEGER
+  );
+
+  CREATE TABLE import_batch_items (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    batch_id INTEGER NOT NULL REFERENCES import_batches(id),
+    entity TEXT NOT NULL,
+    entity_id INTEGER NOT NULL,
+    action TEXT NOT NULL CHECK (action IN ('create', 'update')),
+    before_json TEXT,
+    source_line INTEGER,
+    source_key TEXT,
+    undone_at TEXT
+  );
+  CREATE INDEX idx_import_batch_items_batch ON import_batch_items(batch_id);
+  CREATE INDEX idx_import_batch_items_entity ON import_batch_items(entity, entity_id);
+  CREATE INDEX idx_import_batch_items_source ON import_batch_items(entity, source_key);
+  `,
+  // 039 (WP 6.4) — bulk edit, attachments, party notes / tasks. Positional: appended LAST, after
+  // 036 AI (WP 5.1), 037 report builder (WP 6.1) and 038 import wizard (WP 6.3).
   // - bulk_batches / bulk_batch_records: one row per bulk edit and one per record it touched, with
   //   the record's before-image (the payload / master input that re-saves it as it was) and the id
   //   of the audit row the apply wrote — undo reverts a record only while that row is still its

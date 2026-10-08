@@ -64,13 +64,13 @@ export function TypeAhead({
   const [active, setActive] = useState(0)
   const wrapRef = useRef<HTMLDivElement>(null)
 
-  useEffect(() => {
-    setText(selected?.label ?? '')
-  }, [selected?.label])
-
   const filtered = useMemo(() => {
     const q = text.trim().toLowerCase()
-    if (!q || q === selected?.label.toLowerCase()) return options.slice(0, 50)
+    if (!q || q === selected?.label.toLowerCase()) {
+      // Unfiltered list: the first 50, always including the current value (wherever it sits).
+      const head = options.slice(0, 50)
+      return selected && !head.some((o) => o.id === selected.id) ? [selected, ...head.slice(0, 49)] : head
+    }
     const matches = options.filter(
       (o) => o.label.toLowerCase().includes(q) || (o.barcode ? o.barcode.toLowerCase().includes(q) : false)
     )
@@ -82,6 +82,23 @@ export function TypeAhead({
     })
     return matches.slice(0, 50)
   }, [options, text, selected])
+
+  /** Index of the current value in the rendered list (0 when none). */
+  const selectedIndex = (): number => Math.max(0, selected ? filtered.findIndex((o) => o.id === selected.id) : 0)
+
+  useEffect(() => {
+    setText(selected?.label ?? '')
+    // Options can arrive after an autofocused picker opened: keep the highlight on the value.
+    if (selected) setActive(selectedIndex())
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- re-run only when the value's label changes
+  }, [selected?.label])
+
+  // The options can be re-ordered (or the value change id) while the list is open: keep the
+  // highlight on the value — but only while the text is the value's label, never over a search.
+  useEffect(() => {
+    if (selected && text.trim().toLowerCase() === selected.label.toLowerCase()) setActive(selectedIndex())
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- deliberately not on every keystroke
+  }, [selected?.id, filtered])
 
   useEffect(() => {
     const onDoc = (e: MouseEvent): void => {
@@ -117,7 +134,9 @@ export function TypeAhead({
         onFocus={(e) => {
           e.target.select()
           setOpen(true)
-          setActive(0)
+          // Highlight the current value, not the first option — a pre-filled line (an AI or
+          // GSTR-2B draft) must not change ledger on a stray Enter.
+          setActive(selectedIndex())
         }}
         onChange={(e) => {
           setText(e.target.value)
@@ -127,6 +146,21 @@ export function TypeAhead({
         }}
         onKeyDown={(e) => {
           if (onScan?.(e)) return
+          // ⌘↵ / Ctrl+↵ is the form's save shortcut — never a pick of the highlighted row. But a
+          // name typed exactly and not yet picked is kept: pick it, hold this save back, and
+          // re-send the shortcut once the form has the value.
+          if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+            const typed = text.trim().toLowerCase()
+            const exact = typed && typed !== selected?.label.toLowerCase() ? options.find((o) => o.label.toLowerCase() === typed) : undefined
+            if (exact) {
+              e.preventDefault()
+              e.stopPropagation()
+              pick(exact)
+              const init = { key: 'Enter', metaKey: e.metaKey, ctrlKey: e.ctrlKey, bubbles: true }
+              setTimeout(() => window.dispatchEvent(new KeyboardEvent('keydown', init)), 0)
+            }
+            return
+          }
           if (!open && (e.key === 'ArrowDown' || e.key === 'Enter')) {
             setOpen(true)
             return

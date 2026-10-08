@@ -11,7 +11,7 @@ import type {
 import type { LinkWarnings } from './tradeLinks'
 import {
   assertDocReleasable, assertDocRestorable, docSourceLinksOf, docTargetLinksOf, findLinkLine, hasTradeSchema, linkIsLive,
-  linkTargetLabel, liveLinkQty, newLineUid, syncTradeDocLinks, type StoredLink
+  linkTargetLabel, lineUidFree, liveLinkQty, newLineUid, syncTradeDocLinks, type StoredLink
 } from './tradeLinks'
 import { getTradeDocType, nextTradeDocNumber } from './tradeDocTypes'
 import { writeAudit } from './audit'
@@ -216,7 +216,7 @@ function numberTaken(db: DB, docTypeId: number, number: string, date: string, re
  * links other documents hold on its lines re-checked (tradeLinks.syncTradeDocLinks). Any throw
  * rolls the whole save back. Audit entity 'trade_doc'.
  */
-export function saveTradeDoc(db: DB, raw: TradeDocInput, id?: number): SaveTradeDocResult {
+export function saveTradeDoc(db: DB, raw: TradeDocInput, id?: number, opts: { adoptLineUids?: boolean } = {}): SaveTradeDocResult {
   const input: TradeDocInputParsed = tradeDocInputSchema.parse(raw)
   const type = getTradeDocType(db, input.docTypeId)
   const before = id != null ? getTradeDoc(db, id) : null
@@ -288,7 +288,9 @@ export function saveTradeDoc(db: DB, raw: TradeDocInput, id?: number): SaveTrade
     const own = new Set((before?.lines ?? []).map((l) => l.lineUid))
     const used = new Set<string>()
     const resolved = lines.map((l) => {
-      const uid = l.lineUid && own.has(l.lineUid) && !used.has(l.lineUid) ? l.lineUid : newLineUid()
+      // WP 6.3 Books import: a new line may adopt its exported uid when no line anywhere has it.
+      const keep = !!l.lineUid && !used.has(l.lineUid) && (own.has(l.lineUid) || (!!opts.adoptLineUids && lineUidFree(db, l.lineUid)))
+      const uid = keep ? l.lineUid! : newLineUid()
       used.add(uid)
       return { ...l, uid }
     })

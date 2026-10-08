@@ -1,18 +1,17 @@
-// Migration 036 (WP 6.4): bulk_batches / bulk_batch_records, attachments, party_notes. Located by
-// content and asserted LAST — parallel branches (036 AI, 037 Excel, 038 report builder) re-place
-// their migrations on rebase.
+// Migration 039 (WP 6.4): bulk_batches / bulk_batch_records, attachments, party_notes. Located by
+// content and asserted LAST — after 036 AI, 037 report builder and 038 import wizard.
 import { describe, expect, it } from 'vitest'
 import { MIGRATIONS } from './migrations'
 import { seededDb } from './testdb'
 
-const M036 = MIGRATIONS.findIndex((sql) => sql.includes('CREATE TABLE bulk_batches'))
+const M039 = MIGRATIONS.findIndex((sql) => sql.includes('CREATE TABLE bulk_batches'))
 const cols = (db: ReturnType<typeof seededDb>, t: string): string[] => (db.prepare(`PRAGMA table_info(${t})`).all() as { name: string }[]).map((c) => c.name)
 
-describe('migration 036 — bulk edit, attachments, party notes', () => {
-  it('is the last migration, after 035 (cash and finance)', () => {
-    const m035 = MIGRATIONS.findIndex((sql) => sql.includes('CREATE TABLE forecast_items'))
-    expect(M036).toBeGreaterThan(m035)
-    expect(M036).toBe(MIGRATIONS.length - 1)
+describe('migration 039 — bulk edit, attachments, party notes', () => {
+  it('is the last migration, after 038 (import wizard)', () => {
+    const m038 = MIGRATIONS.findIndex((sql) => sql.includes('CREATE TABLE import_batches'))
+    expect(M039).toBe(m038 + 1)
+    expect(M039).toBe(MIGRATIONS.length - 1)
   })
 
   it('creates the tables with their constraints', () => {

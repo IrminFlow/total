@@ -1,5 +1,5 @@
-import { app, dialog, ipcMain, Notification, shell } from 'electron'
-import { readFileSync, writeFileSync, copyFileSync, rmSync, unlinkSync, mkdtempSync, existsSync } from 'fs'
+import { app, BrowserWindow, dialog, ipcMain, Notification, shell } from 'electron'
+import { readFileSync, writeFileSync, copyFileSync, rmSync, unlinkSync, mkdtempSync, existsSync, appendFileSync } from 'fs'
 import { tmpdir } from 'os'
 import { join, basename } from 'path'
 import { z } from 'zod'
@@ -13,7 +13,7 @@ import { checkIntegrity } from './db/integrity'
 import { encryptFile, decryptFile } from './db/crypt'
 import { readCompanyInfo, seedCompany, writeCompanyInfo } from './db/seed'
 import { readRegistry, removeCompany, touchLastOpened, upsertCompany } from './registry'
-import { companyAttachmentsDir, companyBackupAttachmentsDir, companyBackupsDir, companyDbPath, companyDir, companyExportsDir, ensureCompanyTree, slugify } from './paths'
+import { companyAttachmentsDir, companyBackupAttachmentsDir, companyBackupsDir, companyDbPath, companyDir, companyExportsDir, dataRoot, ensureCompanyTree, slugify } from './paths'
 import { log, revealLogs } from './log'
 import { checkForUpdatesInteractive } from './updater'
 import {
@@ -81,12 +81,20 @@ import * as yearEnd from './services/yearEnd'
 import { registerFixedAssetIpc } from './ipcFixedAssets'
 import { registerPayrollStatutoryIpc } from './ipcPayrollStatutory'
 import { registerPricingIpc } from './ipcPricing'
+import { registerReportsIpc } from './ipcReports'
+import { runDuePacksInBackground } from './packScheduler'
+import { registerAiIpc, aiRuns, type AppKeyAuditEntry } from './ai/ipc'
+import { aiMockAllowed } from './ai/env'
+import { settleDraftOnSave } from './ai/drafts'
+import { appSecretStore } from './services/secretStore'
+import type { AiEvent } from '@shared/ai'
 import { registerReceivablesIpc } from './ipcReceivables'
 import { creditOverrideSchema } from '@shared/receivables/schemas'
 import { registerPayablesIpc } from './ipcPayables'
 import { registerBankingIpc } from './ipcBanking'
 import { registerCashFinanceIpc } from './ipcCashFinance'
 import { registerWorkspaceIpc } from './ipcWorkspace'
+import { registerDataImportIpc, clearLoadedImports } from './ipcDataImport'
 import { rememberSalePrices } from './services/pricing'
 import { importTallyXml, dryRunTallyXml } from './services/tallyImport'
 import * as importer from './services/importers'
@@ -145,6 +153,11 @@ const dialogIssuedTallyPaths = new Set<string>()
  *  Cleared whenever the company itself closes (see closeCurrentCompany). */
 let sessionUser: { id: number; name: string; role: Role } | null = null
 
+/** company:updateInfo is owner-only; in a company without users everyone may. */
+function canChangeCompanyInfo(): boolean {
+  return !current?.usersExist || sessionUser?.role === 'owner'
+}
+
 function requireCompany(): OpenCompany {
   if (!current) throw new Error('No company is open')
   return current
@@ -155,6 +168,17 @@ export function getCurrentCompany(): OpenCompany | null {
   return current
 }
 
+/** Whether background work on the open company (scheduled report packs) may run: never while the
+ *  company is locked — it has users and nobody has signed in. */
+function packsAllowed(): boolean {
+  return !!current && (!current.usersExist || !!sessionUser)
+}
+
+/** The open company when it is unlocked, else null (the pack scheduler's view). */
+export function getUnlockedCompany(): OpenCompany | null {
+  return packsAllowed() ? current : null
+}
+
 /** Move a file into place. Copy+delete rather than fs.renameSync, since the source (os.tmpdir())
  *  and destination (~/Documents/total) may be on different filesystems (EXDEV). */
 function renameFile(src: string, dest: string): void {
@@ -163,11 +187,37 @@ function renameFile(src: string, dest: string): void {
   unlinkSync(src)
 }
 
+/** Whether a company file (not the open one) has active users — read-only peek for the AI key guard. */
+function companyHasUsers(dbPath: string): boolean {
+  if (!existsSync(dbPath)) return false
+  try {
+    const d = new Database(dbPath, { readonly: true, fileMustExist: true })
+    try {
+      return ((d.prepare('SELECT COUNT(*) AS n FROM users WHERE active = 1').get() as { n: number }).n ?? 0) > 0
+    } finally {
+      d.close()
+    }
+  } catch {
+    // Unreadable (encrypted, older schema): assume users exist — the safe answer for the guard.
+    return true
+  }
+}
+
+/** App-level, append-only record of API key changes (WP 5.1) — beside secrets.json, outside
+ *  every company (the key is shared by all of them). */
+function appendAiKeyAudit(entry: AppKeyAuditEntry): void {
+  appendFileSync(join(dataRoot(), 'ai-key-audit.jsonl'), `${JSON.stringify({ ...entry, appVersion: app.getVersion() })}\n`, { mode: 0o600 })
+}
+
 export function closeCurrentCompany(): void {
   // Stop the inbox watcher + any pending mirror refresh before the handle closes under them.
   agentBridge.syncInboxWatcher(null)
   // The cached NIC login belongs to this company's identity — never carry it into the next one.
   nic.resetNicSession()
+  // In-flight AI answers belong to this company's handle — stop them before it closes.
+  aiRuns.cancelAll()
+  // WP 6.3: a file loaded into the import wizard never carries over to another company.
+  clearLoadedImports()
   if (current) {
     closeCompanyDb(current.db)
     current = null
@@ -258,6 +308,22 @@ export function registerIpc(): void {
   // ---------- payroll statutory (WP 3.7) — channels live in ipcPayrollStatutory.ts ----------
   registerPayrollStatutoryIpc(handle, () => requireCompany())
   registerPricingIpc(handle, () => requireCompany())
+  // ---------- report builder, comparatives, ratios, scheduled packs (WP 6.1 / 6.2) ----------
+  registerReportsIpc(handle, () => requireCompany(), () => sessionUser?.name ?? osAuditUser())
+  // ---------- AI agent (WP 5.1) — channels live in ai/ipc.ts; events stream on 'total:ai:event' ----------
+  registerAiIpc(handle, {
+    company: () => requireCompany(),
+    session: () => (sessionUser ? { name: sessionUser.name, role: sessionUser.role } : { name: null, role: 'owner' }),
+    // A company with users and nobody signed in has no role (the run stops at its next tool call).
+    roleNow: () => (sessionUser ? sessionUser.role : current?.usersExist ? null : 'owner'),
+    secrets: () => appSecretStore(),
+    anyCompanyHasUsers: () => readRegistry().companies.some((co) => co.slug !== current?.slug && companyHasUsers(companyDbPath(co.slug))),
+    appAudit: (entry) => appendAiKeyAudit(entry),
+    emit: (e: AiEvent) => {
+      for (const w of BrowserWindow.getAllWindows()) if (!w.isDestroyed()) w.webContents.send('total:ai:event', e)
+    },
+    mock: () => aiMockAllowed(process.env, app.isPackaged)
+  })
   // ---------- receivables (WP 4.2) — channels live in ipcReceivables.ts ----------
   registerReceivablesIpc(handle, () => requireCompany())
   // ---------- payables (WP 4.3) — channels live in ipcPayables.ts ----------
@@ -268,6 +334,8 @@ export function registerIpc(): void {
   registerCashFinanceIpc(handle, () => requireCompany())
   // ---------- bulk edit, attachments, party notes (WP 6.4) — channels live in ipcWorkspace.ts ----------
   registerWorkspaceIpc(handle, () => requireCompany())
+  // ---------- Excel export, import wizard, books workbook (WP 6.3) — ipcDataImport.ts ----------
+  registerDataImportIpc(handle, () => requireCompany(), { canChangeCompanyInfo, userName: () => sessionUser?.name ?? null })
 
   // ---------- company ----------
   handle('company:list', () => readRegistry())
@@ -384,6 +452,10 @@ export function registerIpc(): void {
     touchLastOpened(slug)
     // Agent bridge (feature flag, default OFF): watch <company>/inbox/ for dropped files.
     if (configSvc.getAgentBridgeEnabled(db)) agentBridge.syncInboxWatcher({ slug, db })
+    // WP 6.2: scheduled report packs that came due while the app was closed run once, deferred
+    // past this reply and only while the company is unlocked (a company with users waits for the
+    // sign-in — auth:login starts the pass then).
+    void runDuePacksInBackground({ slug, db, info }, { allowed: packsAllowed, current: getUnlockedCompany })
     return { slug, info, integrity, locked: current.usersExist }
   })
 
@@ -931,13 +1003,28 @@ export function registerIpc(): void {
   }, 'viewer')
   handle('voucher:get', (p) => vouchers.getVoucher(requireCompany().db, idSchema.parse(p).id), 'viewer')
   handle('voucher:save', (p) => {
-    const { data, id, creditHoldOverride } = z
-      .object({ data: voucherInputSchema, id: z.number().int().positive().optional(), creditHoldOverride: creditOverrideSchema.optional() })
+    const { data, id, aiDraftId, creditHoldOverride } = z
+      .object({
+        data: voucherInputSchema,
+        id: z.number().int().positive().optional(),
+        aiDraftId: z.number().int().positive().optional(),
+        creditHoldOverride: creditOverrideSchema.optional()
+      })
       .parse(p)
     const c = requireCompany()
     // WP 4.2: only an owner may override a credit hold (any user in a company without users).
     if (creditHoldOverride && c.usersExist && sessionUser?.role !== 'owner') throw new Error('Only an owner can override a credit hold')
-    const saved = vouchers.saveVoucher(c.db, data, id, creditHoldOverride ? { creditHoldOverride } : {})
+    const saveOpts = creditHoldOverride ? { creditHoldOverride } : {}
+    // WP 5.1: a voucher reviewed from an AI draft saves through the normal path; the draft is
+    // settled in the same transaction (consumed when still open; otherwise the save goes ahead
+    // and the audit trail records that the draft was no longer open).
+    const saved = aiDraftId
+      ? c.db.transaction(() => {
+          const v = vouchers.saveVoucher(c.db, data, id, saveOpts)
+          settleDraftOnSave(c.db, aiDraftId, v.id)
+          return v
+        })()
+      : vouchers.saveVoucher(c.db, data, id, saveOpts)
     // WP 2.6 "remember last price" (Options toggle; a no-op unless on and this is a sale). Never
     // fails the save it follows.
     try {
@@ -1888,7 +1975,11 @@ export function registerIpc(): void {
     // Dry run is parse-only — zero DB writes, so no backup is taken (nothing to roll back to).
     if (dryRun) return { filePath: resolvedPath ?? null, summary: dryRunTallyXml(xml) }
     await backupCompany(c.db, c.slug, 'pre-tally-import')
-    return { filePath: resolvedPath ?? null, summary: importTallyXml(c.db, xml) }
+    // WP 6.3: the import may set booksFrom (owner only — the company:updateInfo rule); keep the
+    // cached company info in step with what it wrote.
+    const summary = importTallyXml(c.db, xml, { canSetBooksFrom: canChangeCompanyInfo() })
+    if (summary.booksFromSet !== null) c.info = readCompanyInfo(c.db)
+    return { filePath: resolvedPath ?? null, summary }
   })
 
   // ---------- report print/export (task 3.6) ----------
@@ -1948,6 +2039,8 @@ export function registerIpc(): void {
     if (incoming.clientSecret === nic.NIC_SECRET_MASK) incoming.clientSecret = existing.clientSecret
     nic.writeNicCredentials(c.db, c.slug, incoming)
     nic.resetNicSession()
+  // WP 6.3: a file loaded into the import wizard never carries over to another company.
+  clearLoadedImports()
     return { configured: nic.nicConfigured(c.db, c.slug) }
   }, 'owner')
   handle('nic:status', () => {
@@ -2050,6 +2143,8 @@ export function registerIpc(): void {
     const c = requireCompany()
     const result = users.login(c.db, userId, pin)
     sessionUser = result
+    // WP 6.2: due report packs wait for the first sign-in of a locked company.
+    void runDuePacksInBackground(c, { allowed: packsAllowed, current: getUnlockedCompany })
     return result
   })
   handle('auth:logout', () => {

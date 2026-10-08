@@ -4,6 +4,7 @@ import { STOCK_NOTE_KINDS, type VoucherKind } from '@shared/domain'
 import { todayISO } from '@shared/dates'
 import { modeForKind, planVoucherEdit, taxLedgerIdsFrom, type EditPlan } from '@shared/voucherEdit'
 import { api } from '../lib/client'
+import { aiApi } from '../lib/aiClient'
 import { useSession, type VoucherDraft } from '../state/stores'
 import { AttachmentsButton } from '../components/attachments/Attachments'
 import { Banner, DrawerSection, isAnyModalOpen, Kbd, Page, PageHeader, Panel, SkeletonRows } from '../components/ui'
@@ -34,11 +35,14 @@ function tabOrder<T extends { kind: VoucherKind }>(types: readonly T[]): T[] {
 export function VoucherEntry({
   voucherId,
   kindHint,
-  draft
+  draft: draftProp,
+  aiDraftId
 }: {
   voucherId?: number
   kindHint?: VoucherKind
   draft?: VoucherDraft
+  /** WP 5.1: pre-fill from this AI draft (ai_drafts.id); saving marks it consumed. */
+  aiDraftId?: number
 }): React.JSX.Element {
   const { data: types } = useQuery({ queryKey: ['voucherTypes'], queryFn: api.voucherTypes.list })
   const { data: existing } = useQuery({
@@ -47,6 +51,25 @@ export function VoucherEntry({
     enabled: !!voucherId
   })
   const features = useFeatures()
+  // An AI draft becomes an ordinary VoucherDraft prefill — the entry modes don't know where it
+  // came from; only the save carries aiDraftId back so main can mark the draft consumed.
+  const { data: aiDraft, error: aiDraftError } = useQuery({
+    queryKey: ['aiDraft', aiDraftId],
+    queryFn: () => aiApi.draft(aiDraftId!),
+    enabled: !!aiDraftId && !voucherId
+  })
+  const aiDraftOpen = aiDraft?.status === 'open'
+  const draft: VoucherDraft | undefined =
+    aiDraft && aiDraftOpen
+      ? {
+          date: aiDraft.payload.date,
+          partyLedgerId: aiDraft.payload.partyLedgerId ?? undefined,
+          narration: aiDraft.payload.narration ?? undefined,
+          lines: aiDraft.payload.lines,
+          aiDraftId: aiDraft.id
+        }
+      : draftProp
+  const waitingForAiDraft = !!aiDraftId && !voucherId && !aiDraft && !aiDraftError
   const [typeId, setTypeId] = useState<number | null>(null)
   const [hintDismissed, setHintDismissed] = useState(false)
   const [sjMode, setSjMode] = useState<'transfer' | 'manufacture'>('transfer')
@@ -106,10 +129,15 @@ export function VoucherEntry({
   useEffect(() => {
     if (!types || typeId != null) return
     if (voucherId) return
+    if (aiDraftId && !aiDraftError) {
+      // Wait for the draft, then open its own voucher type.
+      if (!aiDraft) return
+      if (aiDraftOpen && types.some((t) => t.id === aiDraft.payload.voucherTypeId)) return setTypeId(aiDraft.payload.voucherTypeId)
+    }
     const wanted = kindHint ?? 'journal'
     const t = types.find((t) => t.kind === wanted) ?? types.find((t) => !STOCK_NOTE_KINDS.includes(t.kind)) ?? types[0]
     if (t) setTypeId(t.id)
-  }, [types, typeId, kindHint, voucherId])
+  }, [types, typeId, kindHint, voucherId, aiDraftId, aiDraft, aiDraftOpen, aiDraftError])
 
   useEffect(() => {
     if (existing) setTypeId(existing.voucherTypeId)
@@ -135,7 +163,7 @@ export function VoucherEntry({
     return () => window.removeEventListener('keydown', onKey)
   }, [types, voucherId, features.inventory, stockNotesOn])
 
-  if (!types || (voucherId && (!existing || !plan))) {
+  if (!types || (voucherId && (!existing || !plan)) || waitingForAiDraft || (aiDraftOpen && typeId == null)) {
     return (
       <Page>
         <PageHeader title={voucherId ? 'Alter voucher' : 'Voucher entry'} />
@@ -237,6 +265,18 @@ export function VoucherEntry({
       {showFirstVoucherHint && (
         <Banner tone="info" className="mb-section" onDismiss={() => setHintDismissed(true)} testId="voucher-first-hint">
           First voucher? Pick a type above (or <Kbd>F8</Kbd> for Sales), fill in the lines, then <Kbd>⌘↵</Kbd> to save.
+        </Banner>
+      )}
+      {aiDraftId && aiDraft && (
+        <Banner tone={aiDraftOpen ? 'info' : 'warning'} className="mb-section" testId="ai-draft-banner">
+          {aiDraftOpen
+            ? <>Drafted by the assistant: {aiDraft.summary}. Check every line — nothing is in the books until you save.</>
+            : <>This assistant draft is already {aiDraft.status}{aiDraft.voucherId ? ' (saved as a voucher)' : ''}; it is not pre-filled again.</>}
+        </Banner>
+      )}
+      {aiDraftId && aiDraftError && (
+        <Banner tone="warning" className="mb-section" testId="ai-draft-banner">
+          The assistant draft could not be opened: {(aiDraftError as Error).message}
         </Banner>
       )}
       {closingEntry && (
