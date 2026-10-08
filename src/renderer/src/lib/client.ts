@@ -724,8 +724,9 @@ export const api = {
   tradeDocs: {
     list: (q: TradeDocListQuery) => call<TradeDocListRow[]>('tradeDocs:list', q),
     get: (id: number) => call<TradeDoc | null>('tradeDocs:get', { id }),
-    save: (data: TradeDocInputParsed, id?: number) =>
-      call<{ doc: TradeDoc; warnings: { linkDates: string[] } }>('tradeDocs:save', { data, ...(id ? { id } : {}) }),
+    /** `aiDraftId` (WP 5.3): the document was reviewed from an AI draft — main marks it consumed. */
+    save: (data: TradeDocInputParsed, id?: number, opts?: { aiDraftId?: number }) =>
+      call<{ doc: TradeDoc; warnings: { linkDates: string[] } }>('tradeDocs:save', { data, ...(id ? { id } : {}), ...(opts?.aiDraftId ? { aiDraftId: opts.aiDraftId } : {}) }),
     remove: (id: number) => call<null>('tradeDocs:delete', { id }),
     restore: (id: number) => call<TradeDoc>('tradeDocs:restore', { id }),
     cancel: (id: number, reason: string | null) => call<TradeDoc>('tradeDocs:cancel', { id, reason }),
@@ -789,7 +790,9 @@ export const api = {
   },
   manufacture: {
     get: (id: number) => call<ManufactureRecord | null>('manufacture:get', { id }),
-    save: (data: ManufactureInput, id?: number) => call<SavedManufacture>('manufacture:save', { data, id }),
+    /** `aiDraftId` (WP 5.3): reviewed from an AI draft — main marks it consumed. */
+    save: (data: ManufactureInput, id?: number, opts?: { aiDraftId?: number }) =>
+      call<SavedManufacture>('manufacture:save', { data, id, ...(opts?.aiDraftId ? { aiDraftId: opts.aiDraftId } : {}) }),
     /** Raw rows priced as of the voucher date (+ the finished item's suggested sale rate). */
     costPreview: (q: { date: string; voucherId?: number; finishedItemId?: number | null; lines: { itemId: number; qtyMilli: number }[] }) =>
       call<ManufactureCostPreview>('manufacture:costPreview', q),

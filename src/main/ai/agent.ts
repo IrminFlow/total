@@ -19,6 +19,7 @@ import { todayISO } from '@shared/dates'
 import { AI_DATA_NOTICE_VERSION, type AiContext, type AiEvent, type AiMessageDto, type AiSettings, type AiSource } from '@shared/ai'
 import type { Role } from '../services/roles'
 import { buildSystemPrompt } from './prompt'
+import { draftRequestedInThread } from './drafting/intent'
 import { mapStrings, outboundText, inboundText, type PrivacyOptions } from './privacy'
 import { fitToBudget, DEFAULT_TOOL_RESULT_BUDGET } from './truncate'
 import { checkFigures, type SeenResult } from './numbers'
@@ -278,6 +279,10 @@ async function runLoop(
   const { db, settings, provider, registry, emit } = deps
   const now = deps.now ?? Date.now
   const today = deps.today ?? todayISO()
+  // WP 5.3: drafts date relative to the user's working date (sent with the screen context).
+  const workingDate = input.context?.workingDate ?? today
+  // Decided once per question: did the user ask for an entry (a clarification answer inherits it)?
+  const draftRequested = draftRequestedInThread(db, threadId, userRequest)
   const period = input.context?.from && input.context?.to ? { from: input.context.from, to: input.context.to } : (deps.period ?? fyPeriod(today))
   const budget = deps.toolBudget ?? DEFAULT_TOOL_RESULT_BUDGET
   const privacy: PrivacyOptions = {
@@ -426,7 +431,7 @@ async function runLoop(
       emit({ type: 'tool-start', threadId, runId, callId: c.callId, name: c.name, input: c.input })
       const run = await registry.run(c.name, c.args, {
         db, company: deps.company, role: roleNow, userName: deps.user.name, threadId, messageId: assistant.id, today, period, userRequest,
-        screen: input.context ?? null
+        draftRequested, workingDate, screen: input.context ?? null
       })
       const output = run.ok ? { ok: true, result: run.data } : { ok: false, error: run.error }
       const sent = sentToolText(output, privacy, budget)

@@ -4,7 +4,7 @@ import type { Voucher, VoucherBillRef, VoucherKind } from '@shared/domain'
 import type { OutstandingBill } from '@shared/reports'
 import type { VoucherInputParsed } from '@shared/schemas'
 import {
-  buildInvoicePayload, computeInvoice, invoiceKindTakesTcs, invoiceKindTakesTds, requiredTaxLedgers, taxLedgerIdsFrom,
+  buildInvoicePayload, computeInvoice, invoiceKindTakesTcs, invoiceKindTakesTds, requiredTaxLedgers, taxLedgerIdsFrom, taxSideOf, voucherTaxLedgers,
   type InvoiceContext, type InvoiceFormState, type TaxLedgerIds, type TdsDeductionState
 } from '@shared/voucherEdit'
 import { GST_STATES } from '@shared/gst/states'
@@ -123,7 +123,9 @@ export function InvoiceEntry({
   const [billsOpen, setBillsOpen] = useState(true)
   // An alteration's bill name / due date are what was saved — never re-synced from the number.
   const [billName, setBillName] = useState(initial?.billName ?? '')
-  const [billNameTouched, setBillNameTouched] = useState(!!initial)
+  // A new voucher from an AI draft (WP 5.3) keeps a bill name the draft gave (a supplier's bill
+  // no.); a blank one follows the voucher number like any new entry.
+  const [billNameTouched, setBillNameTouched] = useState(isEdit || !!initial?.billName)
   const [billDueDate, setBillDueDate] = useState(initial ? initial.billDueDate : date)
   const [billDueDateTouched, setBillDueDateTouched] = useState(!!initial)
   const [manualNewBillMode, setManualNewBillMode] = useState(initial?.manualNewBillMode ?? false)
@@ -277,7 +279,7 @@ export function InvoiceEntry({
   // resets all of these); an alteration once what it would post differs from the saved voucher.
   const alterationDirty = useAlterationDirty(
     voucher,
-    isEdit ? buildInvoicePayload(formState, ctx, typeId, taxLedgerIdsFrom(ledgers)) : null
+    isEdit ? buildInvoicePayload(formState, ctx, typeId, voucher ? voucherTaxLedgers(voucher, ledgers, taxSideOf(kind)) : taxLedgerIdsFrom(ledgers, taxSideOf(kind))) : null
   )
   useUnsavedGuard(
     !saved && (isEdit ? alterationDirty : partyId != null || rows.some((r) => r.itemId != null) || narration.trim() !== '')
@@ -305,14 +307,18 @@ export function InvoiceEntry({
     if (!partyId || !accountId || computed.detail.length === 0) return null
     // Tax / Round Off ledgers are created on first use, same as before — then the shared
     // builder lays out the lines.
+    // Sales-side tax goes to the output ledgers, purchase-side to input (taxSideOf); an
+    // alteration keeps the tax ledgers the voucher was saved with.
+    const side = taxSideOf(kind)
+    const saved = voucher ? voucherTaxLedgers(voucher, ledgers, side) : null
     const taxLedgers: TaxLedgerIds = { cgst: null, sgst: null, igst: null, cess: null, roundOff: null }
     for (const k of requiredTaxLedgers(computed)) {
-      taxLedgers[k] = k === 'roundOff' ? await ensureRoundOff() : await ensureTax(k)
+      taxLedgers[k] = k === 'roundOff' ? (saved?.roundOff ?? (await ensureRoundOff())) : (saved?.[k] ?? (await ensureTax(k, side)))
     }
     const r = buildInvoicePayload(formState, ctx, typeId, taxLedgers)
     if (!r.ok) throw new Error(r.error)
     return r.payload
-  }, [partyId, accountId, computed, formState, ctx, typeId, ensureTax, ensureRoundOff])
+  }, [partyId, accountId, computed, formState, ctx, typeId, ensureTax, ensureRoundOff, kind, voucher, ledgers])
 
   const save = useCallback(async (andPdf = false): Promise<void> => {
     if (saving) return
@@ -348,7 +354,11 @@ export function InvoiceEntry({
         })
         if (!proceed) return
       }
-      const result = await api.vouchers.save(input, voucherId, onHold && overrideReason ? { creditHoldOverride: { reason: overrideReason } } : undefined)
+      const aiDraftId = !voucherId ? draft?.aiDraftId : undefined
+      const result = await api.vouchers.save(input, voucherId, {
+        ...(onHold && overrideReason ? { creditHoldOverride: { reason: overrideReason } } : {}),
+        ...(aiDraftId ? { aiDraftId } : {})
+      })
       if (invoiceKindTakesTds(kind)) await tdsDeduction.afterSave(result.id)
       if (features.tcs && invoiceKindTakesTcs(kind)) await tcsCollection.afterSave(result.id)
       toast.push('success', `${result.number} ${isEdit ? 'altered' : 'saved'} — ${formatPaise(grandTotal, { symbol: true })}`)
@@ -358,7 +368,8 @@ export function InvoiceEntry({
         await api.invoice.pdf(result.id)
       }
       setWorkingDate(date)
-      if (isEdit) {
+      // An AI draft is used up by its save — go back to where the user came from.
+      if (isEdit || aiDraftId) {
         await queryClient.invalidateQueries()
         leave()
         return
@@ -383,7 +394,7 @@ export function InvoiceEntry({
     } finally {
       setSaving(false)
     }
-  }, [saving, partyId, accountId, computed, buildPayload, isSalesSide, kind, typeId, voucherId, isEdit, date, toast, setWorkingDate, queryClient, numberField.reset, leave, tdsDeduction.reset, tdsDeduction.afterSave, tdsStale, tcsStale, tcsCollection.reset, tcsCollection.afterSave, features.tcs, grandTotal, onHold, overrideReason, canOverrideHold, party])
+  }, [saving, partyId, accountId, computed, buildPayload, isSalesSide, kind, typeId, voucherId, isEdit, date, toast, setWorkingDate, queryClient, numberField.reset, leave, tdsDeduction.reset, tdsDeduction.afterSave, tdsStale, tcsStale, tcsCollection.reset, tcsCollection.afterSave, features.tcs, grandTotal, onHold, overrideReason, canOverrideHold, party, draft?.aiDraftId])
 
   const remove = async (): Promise<void> => {
     if (!voucherId) return
@@ -530,7 +541,7 @@ export function InvoiceEntry({
         <Field label={isSalesSide ? 'Party (buyer)' : 'Party (supplier)'}>
           <div className="flex items-center gap-1.5">
             <LedgerPicker
-              autoFocus={!isEdit && draft?.fromTradeDocId == null}
+              autoFocus={!isEdit && draft?.fromTradeDocId == null && draft?.aiDraftId == null}
               value={partyId}
               onPick={setPartyId}
               placeholder="Party ledger"

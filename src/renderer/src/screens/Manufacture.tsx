@@ -135,7 +135,8 @@ export function ManufactureForm({
   voucher,
   initial,
   initialJobWork = false,
-  prefill
+  prefill,
+  aiDraftId
 }: {
   typeId: number
   voucherId?: number
@@ -146,6 +147,8 @@ export function ManufactureForm({
   initialJobWork?: boolean
   /** New voucher: start with this item and quantity (a "manufacture the sub-assembly first" link). */
   prefill?: { itemId: number; qtyMilli: number }
+  /** WP 5.3: `initial` is an AI draft's form state (a NEW voucher); saving consumes the draft. */
+  aiDraftId?: number
 }): React.JSX.Element {
   const isEdit = voucherId != null
   const { workingDate, setWorkingDate } = useSession()
@@ -183,7 +186,7 @@ export function ManufactureForm({
   const [saleRate, setSaleRate] = useState<number | null>(base.saleRatePaise)
   /** Bumped to remount the sale-rate AmountInput (it owns its text) after a prefill. */
   const [saleRateRev, setSaleRateRev] = useState(0)
-  const saleRateTouched = useRef(isEdit)
+  const saleRateTouched = useRef(isEdit || (aiDraftId != null && initial?.saleRatePaise != null))
   const [labour, setLabour] = useState<number | null>(base.labourPaise)
   const [labourPosted, setLabourPosted] = useState(base.labourPosted)
   const [creditId, setCreditId] = useState<number | null>(base.labourCreditLedgerId)
@@ -191,10 +194,10 @@ export function ManufactureForm({
   const [bpRows, setBpRows] = useState<BpRow[]>(() => (base.byProducts ?? []).map((b) => ({ ...b, key: nextLineKey() })))
   const [jobWork, setJobWork] = useState<ManufactureJobWorkState | null>(base.jobWork ?? null)
   /** The BOM version picked by the user; undefined = follow the voucher date. */
-  const [pickedVersion, setPickedVersion] = useState<number | null | undefined>(isEdit ? (base.bomVersionId ?? null) : undefined)
+  const [pickedVersion, setPickedVersion] = useState<number | null | undefined>(isEdit || (aiDraftId != null && base.bomVersionId != null) ? (base.bomVersionId ?? null) : undefined)
   const [exploded, setExploded] = useState(base.bomExploded ?? false)
   /** Rows came from the BOM and haven't been edited: a quantity / version change refills them. */
-  const bomRows = useRef(false)
+  const bomRows = useRef(aiDraftId != null && !isEdit && base.bomVersionId != null)
   const [saving, setSaving] = useState(false)
   const { saved, leave } = useLeaveAfterSave()
 
@@ -369,7 +372,11 @@ export function ManufactureForm({
         })
         if (!proceed) return
       }
-      const result = await api.manufacture.save({ ...current.input, ...(confirmLoss ? { confirmLoss: true } : {}) }, voucherId)
+      const result = await api.manufacture.save(
+        { ...current.input, ...(confirmLoss ? { confirmLoss: true } : {}) },
+        voucherId,
+        !voucherId && aiDraftId ? { aiDraftId } : undefined
+      )
       toast.push(
         'success',
         `${jobWork ? 'Job-work receipt' : 'Manufacture'} ${result.number} ${isEdit ? 'altered' : 'saved'} — ${formatPaise(result.manufacture.saleAmount - result.manufacture.profitPaise, { symbol: true })} into stock`
@@ -379,7 +386,8 @@ export function ManufactureForm({
       }
       setWorkingDate(date)
       await queryClient.invalidateQueries()
-      if (isEdit) return leave()
+      // An AI draft is used up by its save — go back to where the user came from.
+      if (isEdit || aiDraftId) return leave()
       resetForm()
     } catch (err) {
       toast.push('error', (err as Error).message)
@@ -387,7 +395,7 @@ export function ManufactureForm({
       setSaving(false)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [saving, state, typeId, materialPaise, itemName, toast, voucherId, isEdit, setWorkingDate, date, queryClient, leave, jobWork])
+  }, [saving, state, typeId, materialPaise, itemName, toast, voucherId, isEdit, setWorkingDate, date, queryClient, leave, jobWork, aiDraftId])
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {

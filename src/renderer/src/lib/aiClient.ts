@@ -31,6 +31,8 @@ export const aiApi = {
   drafts: (status?: 'open' | 'consumed' | 'discarded', threadId?: number) =>
     call<AiDraftDto[]>('ai:drafts', { ...(status ? { status } : {}), ...(threadId ? { threadId } : {}) }),
   discardDraft: (id: number) => call<AiDraftDto>('ai:draft:discard', { id }),
+  /** WP 5.3: the drafts the same answer made (a multi-draft turn), in order. */
+  draftSet: (id: number) => call<AiDraftDto[]>('ai:draft:set', { id }),
   usage: () => call<AiUsageRow[]>('ai:usage'),
   outbound: () => call<AiOutboundRow[]>('ai:outbound'),
   deleteAll: (includeLogs = false) => call<Record<string, number>>('ai:data:deleteAll', { includeLogs })

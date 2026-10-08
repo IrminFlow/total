@@ -48,7 +48,10 @@ export const aiContextSchema = z.object({
   from: iso.optional(),
   to: iso.optional(),
   params: aiScreenParamsSchema.optional(),
-  explain: aiExplainSchema.optional()
+  explain: aiExplainSchema.optional(),
+  /** WP 5.3: the user's working date (the date field's context) — drafts resolve relative dates
+   *  ("yesterday") and default undated entries to it. */
+  workingDate: iso.optional()
 })
 export type AiContext = z.infer<typeof aiContextSchema>
 
@@ -84,6 +87,7 @@ export function screenContextLines(ctx: AiContext | null | undefined): string[] 
   const params = Object.entries(ctx.params ?? {})
   if (params.length) out.push(`Screen parameters: ${params.map(([k, v]) => `${k}=${v}`).join(', ')}`)
   if (ctx.explain) out.push(`Figure to explain (JSON): ${explainSourceJson(ctx.explain)}`)
+  if (ctx.workingDate) out.push(`Working date (entries default to it): ${toDisplayDate(ctx.workingDate)} (${ctx.workingDate})`)
   return out
 }
 

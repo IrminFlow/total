@@ -766,8 +766,16 @@ export function registerIpc(): void {
   handle('tradeDocs:list', (p) => tradeDocs.listTradeDocs(requireCompany().db, tradeDocListSchema.parse(p)), 'viewer')
   handle('tradeDocs:get', (p) => tradeDocs.getTradeDoc(requireCompany().db, idSchema.parse(p).id), 'viewer')
   handle('tradeDocs:save', (p) => {
-    const { data, id } = tradeDocSaveSchema.parse(p)
-    return tradeDocs.saveTradeDoc(requireCompany().db, data, id)
+    const { data, id, aiDraftId } = tradeDocSaveSchema.extend({ aiDraftId: z.number().int().positive().optional() }).parse(p)
+    const db = requireCompany().db
+    // WP 5.3: a document reviewed from an AI draft saves through the normal path; the draft is
+    // settled in the same transaction.
+    if (!aiDraftId || id) return tradeDocs.saveTradeDoc(db, data, id)
+    return db.transaction(() => {
+      const saved = tradeDocs.saveTradeDoc(db, data)
+      settleDraftOnSave(db, aiDraftId, { tradeDocId: saved.doc.id }, 'tradeDoc')
+      return saved
+    })()
   })
   handle('tradeDocs:delete', (p) => tradeDocs.deleteTradeDoc(requireCompany().db, tradeDocActionSchema.parse(p).id))
   handle('tradeDocs:restore', (p) => tradeDocs.restoreTradeDoc(requireCompany().db, tradeDocActionSchema.parse(p).id))
@@ -966,9 +974,17 @@ export function registerIpc(): void {
     return jobWork.itc04Data(requireCompany().db, from, to)
   }, 'viewer')
   handle('manufacture:save', (p) => {
-    const { data, id } = manufactureSaveSchema.parse(p)
+    const { data, id, aiDraftId } = manufactureSaveSchema.extend({ aiDraftId: z.number().int().positive().optional() }).parse(p)
     const c = requireCompany()
-    const saved = manufacture.saveManufacture(c.db, data, id)
+    // WP 5.3: a manufacture reviewed from an AI draft — the draft is settled in the same transaction.
+    const saved =
+      aiDraftId && !id
+        ? c.db.transaction(() => {
+            const v = manufacture.saveManufacture(c.db, data)
+            settleDraftOnSave(c.db, aiDraftId, v.id, 'manufacture')
+            return v
+          })()
+        : manufacture.saveManufacture(c.db, data, id)
     if (configSvc.getAgentBridgeEnabled(c.db)) agentBridge.scheduleMirrorRefresh(c.db, c.slug)
     return saved
   })

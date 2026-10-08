@@ -108,6 +108,24 @@ describe('counter checkout', () => {
   })
 })
 
+describe('tax ledgers by purpose (WP 5.3 review)', () => {
+  it('with Input ledgers older (lower ids) than Output ones, a counter sale still posts to Output', () => {
+    const { db, pen } = pricingFixture()
+    const groupId = (db.prepare("SELECT id FROM groups WHERE name = 'Duties & Taxes'").get() as { id: number }).id
+    // Move the Output ledgers behind newly created Input ledgers by id: re-create Output last.
+    const add = (name: string, taxType: string): number =>
+      Number(db.prepare('INSERT INTO ledgers (name, group_id, tax_type, is_system) VALUES (?, ?, ?, 0)').run(name, groupId, taxType).lastInsertRowid)
+    db.prepare("UPDATE ledgers SET name = 'CGST Input', tax_type = 'cgst' WHERE name = 'CGST Output'").run()
+    db.prepare("UPDATE ledgers SET name = 'SGST Input', tax_type = 'sgst' WHERE name = 'SGST Output'").run()
+    const cgstOut = add('CGST Output', 'cgst')
+    const sgstOut = add('SGST Output', 'sgst')
+    const r = counterCheckout(db, TEST_INFO, { date: DATE, lines: [{ itemId: pen, qtyMilli: 1000, ratePaise: 10000, discountPaise: 0 }], payments: [{ mode: 'cash', amountPaise: 11800 }] })
+    const inv = getVoucher(db, r.invoiceId)!
+    const tax = inv.lines.filter((l) => l.amount === 900).map((l) => l.ledgerId).sort()
+    expect(tax).toEqual([cgstOut, sgstOut].sort())
+  })
+})
+
 describe('held bills', () => {
   it('hold → list → recall (leaves the list) → discard', () => {
     const { db, pen, tea } = pricingFixture()
