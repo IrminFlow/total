@@ -113,14 +113,21 @@ export interface EdocCompany {
 }
 
 /**
- * EWB sub-supply type of a delivery challan by purpose (WP 2.5b, design §4.2). NIC EWB master
- * codes — 1 Supply, 4 Job Work, 8 Others (with subSupplyDesc) — from the NIC e-way bill API
- * master list; UNVERIFIED against the NIC sandbox master (and the allowed docType × subSupplyType
- * combinations): check before relying on a bulk upload.
+ * EWB sub-supply type of a delivery challan by purpose (WP 2.5b, design §4.2). Codes from the
+ * EWB master list — 1 Supply, 4 Job Work, 8 Others (subSupplyDesc ≤ 20 chars) —
+ * https://docs.ewaybillgst.gov.in/apidocs/master-codes-list.html (read 2026-10-07).
+ *
+ * WP 3.5: the published supply-type × document-type mapping
+ * (https://docs.ewaybillgst.gov.in/apidocs/sub-docType-mapping.html, read 2026-10-07) allows an
+ * outward "Supply" only on a Tax Invoice or Bill of Supply — a Delivery Challan (CHL) is allowed
+ * under Job Work, SKD/CKD/Lots, Recipient not known, For own use, Exhibition, Line Sales and
+ * Others. A supply-purpose challan used to go out as 1/CHL, which the EWB system rejects (error
+ * 205 "Document type does not match with transaction & Sub trans type"); it now goes as Others.
+ * UNVERIFIED on the NIC sandbox: whether 'Others' + "Supply on challan" is what the officers expect.
  */
 export function challanSubSupply(purpose: TradePurpose | null | undefined): { type: string; desc: string } {
   switch (purpose ?? 'supply') {
-    case 'supply': return { type: '1', desc: '' }
+    case 'supply': return { type: '8', desc: 'Supply on challan' }
     case 'job_work': return { type: '4', desc: '' }
     case 'approval': return { type: '8', desc: 'Supply on approval' }
     case 'liquid_gas': return { type: '8', desc: 'Liquid gas' }
@@ -170,69 +177,107 @@ export function splitAddress(address: string | null): AddressParts {
   return { addr1, addr2: middle, place }
 }
 
+/** Text field for the IRN schema: the pattern `^([^\\\"])*$` (generate-irn.html#JSONSchema) bars
+ *  backslash and double quote — a `"` (inches: Laptop 14") becomes two single quotes, `\\` a slash —
+ *  then clipped to the field's max length (Addr1/LglNm 100, Loc 50, PrdDesc 300, …). */
+const clip = (raw: string, max: number): string => {
+  const s = raw.replace(/"/g, "''").replace(/\\/g, '/')
+  return s.length > max ? s.slice(0, max).trimEnd() : s
+}
+
+/**
+ * NIC SellerDtls/BuyerDtls address fields from one free-text address: Addr1 (1–100), Addr2
+ * (3–100, omitted when shorter), Loc (3–50 — splitAddress's place, else the first line). Lengths
+ * from https://einv-apisandbox.nic.in/version1.03/generate-irn.html#JSONSchema (read 2026-10-07).
+ * The whole address used to go into Addr1 and Loc, which any address over 50 chars overflows.
+ */
+function nicAddress(address: string | null, fallback: string): { Addr1: string; Addr2?: string; Loc: string } {
+  const parts = splitAddress(address)
+  const addr1 = clip(parts.addr1 || fallback, 100)
+  const addr2 = clip(parts.addr2, 100)
+  const loc = clip(parts.place || addr1, 50)
+  return { Addr1: addr1, ...(addr2.length >= 3 ? { Addr2: addr2 } : {}), Loc: loc }
+}
+
+/** Drop null/undefined/'' members — the NIC schemas type these fields as strings/numbers, so an
+ *  explicit null fails validation where an absent optional field passes. */
+function compact(o: Record<string, unknown>): Record<string, unknown> {
+  return Object.fromEntries(Object.entries(o).filter(([, v]) => v !== null && v !== undefined && v !== ''))
+}
+
 export function buildEInvoiceJson(invoices: EdocInvoice[], company: EdocCompany): Record<string, unknown>[] {
   return invoices.map((inv) => {
     const docType = inv.docType ?? 'INV'
     const supTyp = inv.supTyp ?? 'B2B'
-    // Exports have no Indian buyer GSTIN/POS — NIC schema requires Pos '96' (Other Territory)
-    // and Gstin 'URP' for EXPWP/EXPWOP regardless of any party GSTIN captured locally.
+    // Exports have no Indian buyer GSTIN/POS — Generate IRN validation 21: "Direct export:
+    // recipient GSTIN as URP, state code 96, PIN 999999, POS 96", regardless of any party
+    // GSTIN/state captured locally.
     const isExport = supTyp === 'EXPWP' || supTyp === 'EXPWOP'
     const shipTo = inv.shipTo
+    const buyerPin = isExport ? 999999 : pinFromAddress(inv.partyAddress)
+    const shipPin = shipTo?.pincode && /^\d{6}$/.test(shipTo.pincode) ? Number(shipTo.pincode) : 0
     return {
       Version: '1.1',
       TranDtls: { TaxSch: 'GST', SupTyp: supTyp, RegRev: inv.rchrg ? 'Y' : 'N', IgstOnIntra: 'N' },
       DocDtls: { Typ: docType, No: inv.number, Dt: slashDate(inv.date) },
       SellerDtls: {
         Gstin: company.gstin,
-        LglNm: company.name,
-        Addr1: company.address || company.name,
-        Loc: company.address || company.name,
+        LglNm: clip(company.name, 100),
+        ...nicAddress(company.address, company.name),
         Pin: pinFromAddress(company.address),
         Stcd: company.stateCode
       },
       BuyerDtls: {
         Gstin: isExport ? 'URP' : (inv.partyGstin ?? 'URP'),
-        LglNm: inv.partyName ?? 'Unregistered buyer',
+        LglNm: clip(inv.partyName ?? 'Unregistered buyer', 100),
         Pos: isExport ? '96' : inv.pos,
-        Addr1: inv.partyAddress || inv.partyName || 'NA',
-        Loc: inv.partyAddress || 'NA',
-        Pin: pinFromAddress(inv.partyAddress),
-        Stcd: inv.partyStateCode
+        ...nicAddress(inv.partyAddress, inv.partyName || 'NA'),
+        // Pin is not in BuyerDtls' "required" list but must be 100000–999999 when present —
+        // omitted rather than sent as 0 when the address carries none.
+        ...(buyerPin ? { Pin: buyerPin } : {}),
+        Stcd: isExport ? '96' : inv.partyStateCode
       },
       // Ship-to block (Bill To – Ship To) when goods are delivered elsewhere. DispDtls
       // (dispatch-from) needs a dispatch address the books don't capture — not emitted.
       ...(shipTo && (shipTo.name || shipTo.addr1)
         ? {
             ShipDtls: {
-              Gstin: shipTo.gstin ?? null,
-              LglNm: shipTo.name ?? inv.partyName ?? 'NA',
-              Addr1: shipTo.addr1 || 'NA',
-              ...(shipTo.addr2 ? { Addr2: shipTo.addr2 } : {}),
-              Loc: shipTo.place || 'NA',
-              Pin: shipTo.pincode ? Number(shipTo.pincode) : 0,
+              ...(shipTo.gstin ? { Gstin: shipTo.gstin } : {}),
+              LglNm: clip(shipTo.name ?? inv.partyName ?? 'NA', 100),
+              Addr1: clip(shipTo.addr1 || 'NA', 100),
+              ...(shipTo.addr2 && shipTo.addr2.length >= 3 ? { Addr2: clip(shipTo.addr2, 100) } : {}),
+              Loc: clip(shipTo.place || 'NA', 50),
+              Pin: shipPin,
               Stcd: shipTo.state ?? inv.partyStateCode
             }
           }
         : {}),
-      ItemList: inv.items.map((item, i) => ({
-        SlNo: String(i + 1),
-        PrdDesc: item.name,
-        IsServc: item.isService ? 'Y' : 'N',
-        HsnCd: item.hsn,
-        Qty: item.isService ? 1 : item.qtyMilli / 1000,
-        Unit: item.isService ? 'OTH' : item.uqc,
-        UnitPrice: toRupees(item.isService ? item.taxablePaise : item.unitPricePaise),
-        TotAmt: toRupees(item.taxablePaise),
-        Discount: 0,
-        AssAmt: toRupees(item.taxablePaise),
-        GstRt: item.rate,
-        IgstAmt: toRupees(item.igst),
-        CgstAmt: toRupees(item.cgst),
-        SgstAmt: toRupees(item.sgst),
-        CesRt: item.cessRate,
-        CesAmt: toRupees(item.cess),
-        TotItemVal: toRupees(item.taxablePaise + item.cgst + item.sgst + item.igst + item.cess)
-      })),
+      ItemList: inv.items.map((item, i) => {
+        // TotAmt is the GROSS amount and AssAmt = TotAmt − Discount (generate-irn.html
+        // "Calculation Validations": "Taxable Value = Gross Amount - Discount"). taxablePaise is
+        // already post-discount, so the line discount is added back for the gross.
+        const discount = item.isService ? 0 : Math.max(0, item.discountPaise ?? 0)
+        return {
+          SlNo: String(i + 1),
+          // PrdDesc is optional, but 3–300 chars when present.
+          ...(item.name.trim().length >= 3 ? { PrdDesc: clip(item.name, 300) } : {}),
+          IsServc: item.isService ? 'Y' : 'N',
+          HsnCd: item.hsn,
+          Qty: item.isService ? 1 : item.qtyMilli / 1000,
+          Unit: item.isService ? 'OTH' : item.uqc,
+          UnitPrice: toRupees(item.isService ? item.taxablePaise : item.unitPricePaise),
+          TotAmt: toRupees(item.taxablePaise + discount),
+          Discount: toRupees(discount),
+          AssAmt: toRupees(item.taxablePaise),
+          GstRt: item.rate,
+          IgstAmt: toRupees(item.igst),
+          CgstAmt: toRupees(item.cgst),
+          SgstAmt: toRupees(item.sgst),
+          CesRt: item.cessRate,
+          CesAmt: toRupees(item.cess),
+          TotItemVal: toRupees(item.taxablePaise + item.cgst + item.sgst + item.igst + item.cess)
+        }
+      }),
       ValDtls: {
         AssVal: toRupees(inv.taxable),
         CgstVal: toRupees(inv.cgst),
@@ -246,17 +291,15 @@ export function buildEInvoiceJson(invoices: EdocInvoice[], company: EdocCompany)
         ...(inv.tcs && inv.tcs.amountPaise > 0 ? { OthChrg: toRupees(inv.tcs.amountPaise) } : {}),
         TotInvVal: toRupees(inv.total)
       },
-      // Export details — mandatory block for EXPWP/EXPWOP. Shipping bill no/date come from
-      // voucher_transport (docNo/docDate); currency/country are nullable (not captured).
+      // Export details for EXPWP/EXPWOP. Shipping bill no/date come from voucher_transport
+      // (docNo/docDate); port/currency/country are not captured — omitted, never sent as null
+      // (the schema types them as strings).
       ...(isExport
         ? {
-            ExpDtls: {
-              ShipBNo: inv.transport?.docNo ?? null,
-              ShipBDt: inv.transport?.docDate ? slashDate(inv.transport.docDate) : null,
-              Port: null,
-              ForCur: null,
-              CntCode: null
-            }
+            ExpDtls: compact({
+              ShipBNo: inv.transport?.docNo ? clip(inv.transport.docNo, 20) : null,
+              ShipBDt: inv.transport?.docDate ? slashDate(inv.transport.docDate) : null
+            })
           }
         : {}),
       // Preceding-document reference for credit/debit notes, when voucher.reference resolved
@@ -269,6 +312,35 @@ export function buildEInvoiceJson(invoices: EdocInvoice[], company: EdocCompany)
           }
         : {})
     }
+  })
+}
+
+/**
+ * Payload of the "Generate e-Way Bill by IRN" API, from the invoice's transport details. Fields,
+ * lengths and rules from https://einv-apisandbox.nic.in/version1.03/ewaybill-generation-irn.html
+ * (read 2026-10-07): Distance 0–4000 (0 = the IRP computes PIN-to-PIN, validation 10); TransMode
+ * 1 road / 2 rail / 3 air / 4 ship; "If only Transporter Id is provided, then only Part-A is
+ * generated … Transportation document number and date should be null" (validation 4); "If mode
+ * of transportation is Road, then Vehicle number and vehicle type should be passed. If
+ * Ship/Air/Rail, transport document number and date should be passed" (validation 5). Absent
+ * values are left out rather than sent as null.
+ */
+export function buildEwbByIrnPayload(irn: string, inv: EdocInvoice): Record<string, unknown> {
+  const t = inv.transport
+  const vehicleNo = inv.vehicleNo ? inv.vehicleNo.replace(/[\s-]/g, '').toUpperCase() : null
+  const mode = t?.mode ?? (vehicleNo ? '1' : null)
+  const partAOnly = !vehicleNo && !t?.docNo && !!inv.transporterId
+  const roadOrShip = mode === '1' || mode === '4'
+  return compact({
+    Irn: irn,
+    Distance: Math.max(0, Math.min(4000, inv.distanceKm ?? 0)),
+    TransMode: partAOnly ? null : mode,
+    TransId: inv.transporterId || null,
+    TransName: t?.transporterName && t.transporterName.trim().length >= 3 ? clip(t.transporterName, 100) : null,
+    TransDocNo: partAOnly ? null : (t?.docNo ? clip(t.docNo, 15) : null),
+    TransDocDt: partAOnly || !t?.docDate ? null : slashDate(t.docDate),
+    VehNo: !partAOnly && roadOrShip ? vehicleNo : null,
+    VehType: !partAOnly && roadOrShip && vehicleNo ? (t?.vehicleType ?? 'R') : null
   })
 }
 
