@@ -2883,5 +2883,15 @@ export const MIGRATIONS: string[] = [
     alias TEXT NOT NULL UNIQUE,
     created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
   );
+  `,
+  // 037 (WP 5.2, appended last after the WP 5.1 AI tables): the chat panel. Nothing here touches
+  // the books.
+  // - ai_threads.pinned: pinned conversations sort first in the panel's thread list.
+  // - ai_outbound_log.context_json: the screen context sent with a request (screen, title,
+  //   period, parameters, the figure being explained) — the outbound log shows what context left
+  //   the machine, not only its size. Masking applies to the sent copy; this is the local record.
+  `
+  ALTER TABLE ai_threads ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0;
+  ALTER TABLE ai_outbound_log ADD COLUMN context_json TEXT;
   `
 ]

@@ -1,9 +1,9 @@
 // Pure pieces of the agent core: prompt builder, cost, numbers rule, truncation, zod → JSON Schema.
 import { describe, expect, it } from 'vitest'
 import { z } from 'zod'
-import { buildSystemPrompt, NUMBERS_RULE, UNTRUSTED_TEXT_RULE, WRITE_RULE, type PromptContext } from './prompt'
+import { buildSystemPrompt, EXPLAIN_RULE, NUMBERS_RULE, SCREEN_RULE, UNTRUSTED_TEXT_RULE, WRITE_RULE, type PromptContext } from './prompt'
 import { estimateCostMicroUsd, sumCosts } from './cost'
-import { checkFigures, extractFigures } from './numbers'
+import { checkFigures, extractFigures, locateFigureSource } from './numbers'
 import { fitToBudget, truncationMarker } from './truncate'
 import { zodToJsonSchema } from './jsonSchema'
 import { aiMockAllowed } from './env'
@@ -182,5 +182,50 @@ describe('TOTAL_AI_MOCK switch', () => {
     expect(aiMockAllowed({ TOTAL_AI_MOCK: '1' }, false)).toBe(false)
     expect(aiMockAllowed({ TOTAL_AI_MOCK: '1', TOTAL_DATA_DIR: '/tmp/x' }, true)).toBe(false)
     expect(aiMockAllowed({ TOTAL_AI_MOCK: 'true', TOTAL_DATA_DIR: '/tmp/x' }, false)).toBe(false)
+  })
+})
+
+describe('WP 5.2 — screen context in the prompt', () => {
+  it('adds the context lines and the screen / explain rules only when there is context', () => {
+    const p = buildSystemPrompt({ ...CTX, screen: 'trial-balance', context: { screen: 'trial-balance', label: 'Trial balance', from: '2025-04-01', to: '2026-03-31', explain: { label: 'Cash', value: '₹1.00', ledgerId: 3 } } })
+    expect(p).toContain('looking at: trial-balance')
+    expect(p).toContain('  Screen: Trial balance (trial-balance)')
+    expect(p).toContain('  Figure to explain (JSON): {"label":"Cash","value":"₹1.00","ledgerId":3}')
+    expect(p).toContain(SCREEN_RULE)
+    expect(p).toContain(EXPLAIN_RULE)
+    expect(EXPLAIN_RULE).toMatch(/do not work any out yourself/)
+    const plain = buildSystemPrompt(CTX)
+    expect(plain).not.toContain(SCREEN_RULE)
+    expect(plain).not.toContain(EXPLAIN_RULE)
+  })
+})
+
+describe('WP 5.2 — a sourced figure is traced to the row it came from', () => {
+  const statement = {
+    tool: 'ledger_statement',
+    output: {
+      ok: true,
+      result: {
+        ledgerId: 7, ledger: 'Rent', closing: '₹3,000.00 Dr',
+        rows: [
+          { voucherId: 11, type: 'Payment', number: '4', debit: '₹1,000.00', balance: '₹1,000.00 Dr' },
+          { voucherId: 12, type: 'Payment', number: '5', debit: '₹2,000.00', balance: '₹3,000.00 Dr' }
+        ]
+      }
+    },
+    sources: [{ kind: 'screen' as const, screen: 'ledger-statement', label: 'Rent statement', params: { ledgerId: 7 } }, { kind: 'ledger' as const, ledgerId: 7, label: 'Rent' }]
+  }
+  it('a row amount → its voucher; a closing balance (repeated as the last running balance) → the ledger', () => {
+    expect(locateFigureSource(200_000, [statement])).toEqual({ kind: 'voucher', voucherId: 12, label: 'Payment 5' })
+    expect(locateFigureSource(300_000, [statement])).toEqual({ kind: 'ledger', ledgerId: 7, label: 'Rent' })
+  })
+  it('an amount with no id around it → the tool’s screen; unknown → undefined', () => {
+    const pnl = { tool: 'profit_and_loss', output: { ok: true, result: { netProfit: '₹9.00' } }, sources: [{ kind: 'screen' as const, screen: 'profit-loss', label: 'P&L' }] }
+    expect(locateFigureSource(900, [pnl])).toEqual({ kind: 'screen', screen: 'profit-loss', label: 'P&L' })
+    expect(locateFigureSource(123, [pnl])).toBeUndefined()
+  })
+  it('checkFigures attaches the source', () => {
+    const f = checkFigures('Rent paid ₹2,000.00.', [{ name: 'ledger_statement', text: JSON.stringify(statement.output) }], [statement])
+    expect(f).toEqual([{ text: '₹2,000.00', paise: 200_000, sourced: true, tool: 'ledger_statement', source: { kind: 'voucher', voucherId: 12, label: 'Payment 5' } }])
   })
 })

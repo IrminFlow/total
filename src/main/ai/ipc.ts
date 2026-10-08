@@ -15,7 +15,7 @@ import { z } from 'zod'
 import type { DB } from '../db/connection'
 import type { CompanyInfo } from '@shared/domain'
 import {
-  aiKeySetSchema, aiSendSchema, aiSettingsPatchSchema, type AiConnectionResult, type AiEvent, type AiSettings, type AiSettingsView
+  aiKeySetSchema, aiRegenerateSchema, aiSendSchema, aiSettingsPatchSchema, aiThreadPinSchema, aiThreadRenameSchema, type AiConnectionResult, type AiEvent, type AiSettings, type AiSettingsView
 } from '@shared/ai'
 import type { Role } from '../services/roles'
 import type { SecretStore } from '../services/secrets'
@@ -176,8 +176,7 @@ export function registerAiIpc(handle: Handle, deps: AiIpcDeps): void {
     })()
     return null
   }, 'accountant')
-  handle('ai:send', (p) => {
-    const input = aiSendSchema.parse(p)
+  const ask = (input: Parameters<typeof startTurn>[1]): { threadId: number; runId: string; userMessage: ReturnType<typeof startTurn>['userMessage'] } => {
     const c = deps.company()
     const v = view()
     if (!v.ready) throw new Error(v.blocker ?? AI_OFF_MESSAGE)
@@ -189,6 +188,29 @@ export function registerAiIpc(handle: Handle, deps: AiIpcDeps): void {
       input
     )
     return { threadId: turn.threadId, runId: turn.runId, userMessage: turn.userMessage }
+  }
+  handle('ai:send', (p) => ask(aiSendSchema.parse(p)), 'viewer')
+  // WP 5.2: answer the thread's last question again (the previous answer's messages are removed;
+  // its usage rows and any draft it made stay).
+  handle('ai:regenerate', (p) => {
+    const { threadId, context, speed } = aiRegenerateSchema.parse(p)
+    return ask({ threadId, text: '', regenerate: true, context, speed })
+  }, 'viewer')
+  handle('ai:thread:rename', (p) => {
+    const { id, title } = aiThreadRenameSchema.parse(p)
+    const thread = store.getThread(db(), id)
+    if (!thread) throw new Error('Conversation not found')
+    db().transaction(() => {
+      store.renameThread(db(), id, title)
+      writeAudit(db(), 'ai_thread', id, 'update', { title: thread.title }, { title: store.getThread(db(), id)!.title })
+    })()
+    return store.listThreads(db(), aiRuns.running(scope())).find((t) => t.id === id) ?? null
+  }, 'viewer')
+  handle('ai:thread:pin', (p) => {
+    const { id, pinned } = aiThreadPinSchema.parse(p)
+    if (!store.getThread(db(), id)) throw new Error('Conversation not found')
+    store.setThreadPinned(db(), id, pinned)
+    return store.listThreads(db(), aiRuns.running(scope())).find((t) => t.id === id) ?? null
   }, 'viewer')
   handle('ai:cancel', (p) => {
     const { threadId } = z.object({ threadId: z.number().int().positive() }).parse(p)
@@ -202,8 +224,11 @@ export function registerAiIpc(handle: Handle, deps: AiIpcDeps): void {
     return d
   }, 'viewer')
   handle('ai:drafts', (p) => {
-    const { status } = z.object({ status: z.enum(['open', 'consumed', 'discarded']).optional() }).default({}).parse(p ?? {})
-    return store.listDrafts(db(), status)
+    const { status, threadId } = z
+      .object({ status: z.enum(['open', 'consumed', 'discarded']).optional(), threadId: z.number().int().positive().optional() })
+      .default({})
+      .parse(p ?? {})
+    return store.listDrafts(db(), status, threadId)
   }, 'viewer')
   handle('ai:draft:discard', (p) => discardDraft(db(), idSchema.parse(p).id), 'accountant')
 

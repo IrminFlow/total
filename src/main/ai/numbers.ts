@@ -9,7 +9,7 @@
 // Dr / Cr suffixed or prefixed figures; and bare integers ≥ 1,000 next to a money word ("balance
 // 25000", "paid 5000"). Bare integers elsewhere (years, counts, ids, days) are not money.
 import { parseRupees } from '@shared/money'
-import type { AiFigure } from '@shared/ai'
+import type { AiFigure, AiSource } from '@shared/ai'
 
 export interface ExtractedFigure {
   text: string
@@ -100,19 +100,90 @@ export interface SeenResult {
 
 /** Each figure in `answer`, sourced when the same absolute amount (or, for shorthand, one within
  *  its rounding) appears in a result the model saw. */
-export function checkFigures(answer: string, seen: readonly SeenResult[]): AiFigure[] {
+export function checkFigures(answer: string, seen: readonly SeenResult[], origins: readonly FigureOrigin[] = []): AiFigure[] {
   const known: { paise: number; tool: string }[] = []
   for (const r of seen) for (const f of extractFigures(r.text)) known.push({ paise: Math.abs(f.paise), tool: r.name })
   return extractFigures(answer).map((f) => {
     const target = Math.abs(f.paise)
     const exact = known.find((k) => k.paise === target)
     const near = exact ?? (f.tolerancePaise > 0 ? known.find((k) => Math.abs(k.paise - target) <= f.tolerancePaise) : undefined)
+    // Same tool first (newest result first), then any result holding the amount.
+    const source = near ? locateFigureSource(near.paise, [...origins.filter((o) => o.tool === near.tool), ...origins.filter((o) => o.tool !== near.tool)]) : undefined
     return {
       text: f.text,
       paise: f.paise,
       sourced: !!near,
       tool: near?.tool ?? null,
-      ...(near && !exact ? { approximate: true } : {})
+      ...(near && !exact ? { approximate: true } : {}),
+      ...(source ? { source } : {})
     }
   })
+}
+
+// ---------- where a sourced figure came from (WP 5.2: figures render as chips linking there) ----------
+
+/** A tool result as stored locally: real (unmasked) output and the sources the tool returned. */
+export interface FigureOrigin {
+  tool: string
+  output: unknown
+  sources: readonly AiSource[]
+}
+
+/** `weak`: the amount is only a running balance there (a statement's last row repeats the
+ *  closing balance — the ledger is the better source than that voucher). */
+type Hit = { depth: number; obj: Record<string, unknown>; weak: boolean }
+const RUNNING_KEYS = new Set(['balance', 'running', 'runningBalance'])
+
+function figuresIn(value: unknown): number[] {
+  return typeof value === 'string' ? extractFigures(value).map((f) => Math.abs(f.paise)) : []
+}
+
+/** Objects that hold a string containing the amount directly, with their depth. */
+function objectsWith(value: unknown, paise: number, depth = 0, out: Hit[] = []): Hit[] {
+  if (depth > 12 || value === null || typeof value !== 'object') return out
+  if (Array.isArray(value)) {
+    for (const v of value) objectsWith(v, paise, depth + 1, out)
+    return out
+  }
+  const obj = value as Record<string, unknown>
+  const keys = Object.entries(obj).filter(([, v]) => figuresIn(v).includes(paise)).map(([k]) => k)
+  if (keys.length) out.push({ depth, obj, weak: keys.every((k) => RUNNING_KEYS.has(k)) })
+  for (const v of Object.values(obj)) if (v !== null && typeof v === 'object') objectsWith(v, paise, depth + 1, out)
+  return out
+}
+
+const posInt = (v: unknown): number | null => (typeof v === 'number' && Number.isInteger(v) && v > 0 ? v : null)
+const firstText = (...vs: unknown[]): string | null => {
+  for (const v of vs) if (typeof v === 'string' && v.trim()) return v.trim()
+  return null
+}
+
+/** The source of the deepest row holding the amount — its voucher, ledger or item, labelled from
+ *  the tool's own sources when listed there — else the tool's screen. Pure; tested. */
+export function locateFigureSource(paise: number, origins: readonly FigureOrigin[]): AiSource | undefined {
+  const target = Math.abs(paise)
+  for (const o of origins) {
+    const hits = objectsWith(o.output, target).sort((a, b) => Number(a.weak) - Number(b.weak) || b.depth - a.depth)
+    for (const { obj } of hits) {
+      const voucherId = posInt(obj.voucherId)
+      if (voucherId) {
+        const known = o.sources.find((s) => s.kind === 'voucher' && s.voucherId === voucherId)
+        const type = firstText(obj.type, obj.voucherType)
+        const number = firstText(obj.number)
+        return { kind: 'voucher', voucherId, label: known?.label ?? (type && number ? `${type} ${number}` : `Voucher ${voucherId}`) }
+      }
+      const ledgerId = posInt(obj.ledgerId)
+      if (ledgerId) {
+        const known = o.sources.find((s) => s.kind === 'ledger' && s.ledgerId === ledgerId)
+        return { kind: 'ledger', ledgerId, label: known?.label ?? firstText(obj.ledger, obj.party, obj.name) ?? `Ledger ${ledgerId}` }
+      }
+      const itemId = posInt(obj.itemId)
+      if (itemId) {
+        const known = o.sources.find((s) => s.kind === 'item' && s.itemId === itemId)
+        return { kind: 'item', itemId, label: known?.label ?? firstText(obj.item, obj.name) ?? `Item ${itemId}` }
+      }
+    }
+    if (hits.length) return o.sources.find((s) => s.kind === 'screen') ?? o.sources[0]
+  }
+  return undefined
 }

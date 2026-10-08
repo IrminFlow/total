@@ -309,6 +309,11 @@ export const AUDIT_COVERAGE: Record<string, AuditCoverage> = {
   'ai:send': a('ai_draft'),
   'ai:cancel': r('stops an in-flight answer; the partial reply is kept in the AI tables only'),
   'ai:draft:discard': a('ai_draft'),
+  // WP 5.2 — the chat panel. Viewer-level, listed anyway: regenerate re-runs a question (AI tables
+  // only, plus any draft it makes); a rename is audited; a pin is a display preference.
+  'ai:regenerate': a('ai_draft'),
+  'ai:thread:rename': a('ai_thread'),
+  'ai:thread:pin': r('pins a conversation in the panel’s list (a display preference in the AI tables; not the books)'),
   'ai:data:deleteAll': a('ai_data'),
   // ---------- payables (WP 4.3) ----------
   'payables:plan': QUERY,

@@ -9,11 +9,27 @@ import { seedCompany } from './seed'
 import { trialBalance } from '../services/reports'
 
 const M_AI = MIGRATIONS.findIndex((sql) => sql.includes('CREATE TABLE ai_threads'))
+const M_CHAT = MIGRATIONS.findIndex((sql) => sql.includes('ALTER TABLE ai_threads ADD COLUMN pinned'))
 
 describe('AI migration — agent tables', () => {
-  it('exists and is the last migration', () => {
+  it('exists and is followed only by the WP 5.2 chat-panel migration (the last)', () => {
     expect(M_AI).toBeGreaterThan(30)
-    expect(M_AI).toBe(MIGRATIONS.length - 1)
+    expect(M_AI).toBe(MIGRATIONS.length - 2)
+    expect(M_CHAT).toBe(MIGRATIONS.length - 1)
+  })
+
+  it('WP 5.2: adds thread pins and the outbound context column without touching the books', () => {
+    const db = freshPartialDb(M_CHAT)
+    seedCompany(db, TEST_INFO)
+    postSimpleVoucher(db, { date: '2025-05-01', amount: 123456, kind: 'receipt' })
+    db.prepare("INSERT INTO ai_threads (id, title) VALUES (1, 't')").run()
+    const before = trialBalance(db, '2026-03-31')
+    migrate(db)
+    expect(schemaVersion(db)).toBe(MIGRATIONS.length)
+    expect(trialBalance(db, '2026-03-31')).toEqual(before)
+    expect(db.prepare('SELECT pinned FROM ai_threads WHERE id = 1').get()).toEqual({ pinned: 0 })
+    const cols = (db.prepare('PRAGMA table_info(ai_outbound_log)').all() as { name: string }[]).map((c) => c.name)
+    expect(cols).toContain('context_json')
   })
 
   it('upgrades a company from the previous schema with its books unchanged and the AI tables empty', () => {

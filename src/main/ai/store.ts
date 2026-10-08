@@ -2,7 +2,7 @@
 // pseudonym map — the AI migration tables (see migrations.ts, the "WP 5.1" entry). Nothing here touches the books.
 import type { DB } from '../db/connection'
 import type {
-  AiDraftDto, AiDraftStatus, AiFigure, AiMessageDto, AiMessageRole, AiOutboundRow, AiSource, AiThreadDto, AiToolCallDto, AiUsageRow, AiVoucherDraftPayload
+  AiContext, AiDraftDto, AiDraftStatus, AiFigure, AiMessageDto, AiMessageRole, AiOutboundRow, AiSource, AiThreadDto, AiToolCallDto, AiUsageRow, AiVoucherDraftPayload
 } from '@shared/ai'
 import { descendantIdsByName } from '../services/masters'
 import { assignAliases, createPseudonymiser, type Pseudonymiser } from './privacy'
@@ -26,6 +26,7 @@ interface ThreadRow {
   updated_at: string
   n: number
   cost: number | null
+  pinned: number
 }
 
 export function createThread(db: DB, title: string, userName: string | null): number {
@@ -44,10 +45,10 @@ export function touchThread(db: DB, id: number): void {
 export function listThreads(db: DB, running: ReadonlySet<number> = new Set()): AiThreadDto[] {
   const rows = db
     .prepare(
-      `SELECT t.id, t.title, t.created_at, t.updated_at,
+      `SELECT t.id, t.title, t.created_at, t.updated_at, t.pinned,
               (SELECT COUNT(*) FROM ai_messages m WHERE m.thread_id = t.id AND m.role != 'tool') AS n,
               (SELECT SUM(u.cost_micro_usd) FROM ai_usage u WHERE u.thread_id = t.id) AS cost
-         FROM ai_threads t ORDER BY t.updated_at DESC, t.id DESC`
+         FROM ai_threads t ORDER BY t.pinned DESC, t.updated_at DESC, t.id DESC`
     )
     .all() as ThreadRow[]
   return rows.map((r) => ({
@@ -57,12 +58,40 @@ export function listThreads(db: DB, running: ReadonlySet<number> = new Set()): A
     updatedAt: r.updated_at,
     messageCount: r.n,
     costMicroUsd: r.cost,
-    running: running.has(r.id)
+    running: running.has(r.id),
+    pinned: r.pinned === 1
   }))
 }
 
 export function getThread(db: DB, id: number): { id: number; title: string } | null {
   return (db.prepare('SELECT id, title FROM ai_threads WHERE id = ?').get(id) as { id: number; title: string } | undefined) ?? null
+}
+
+/** WP 5.2: rename (titles are the user's; the first question only seeds it). */
+export function renameThread(db: DB, id: number, title: string): void {
+  const t = title.replace(/\s+/g, ' ').trim().slice(0, 80)
+  if (!t) throw new Error('A conversation needs a title')
+  db.prepare('UPDATE ai_threads SET title = ? WHERE id = ?').run(t, id)
+}
+
+export function setThreadPinned(db: DB, id: number, pinned: boolean): void {
+  db.prepare('UPDATE ai_threads SET pinned = ? WHERE id = ?').run(pinned ? 1 : 0, id)
+}
+
+/** WP 5.2 Regenerate: the thread's last user message, and how many messages follow it. */
+export function lastUserMessage(db: DB, threadId: number): { id: number; content: string; after: number } | null {
+  const r = db.prepare("SELECT id, content FROM ai_messages WHERE thread_id = ? AND role = 'user' ORDER BY id DESC LIMIT 1").get(threadId) as
+    | { id: number; content: string }
+    | undefined
+  if (!r) return null
+  const after = (db.prepare('SELECT COUNT(*) AS n FROM ai_messages WHERE thread_id = ? AND id > ?').get(threadId, r.id) as { n: number }).n
+  return { ...r, after }
+}
+
+/** Removes the answer to be regenerated (every message after `messageId`). Drafts it made keep
+ *  their rows (message_id → NULL) — the user still decides on them; usage rows stay too. */
+export function deleteMessagesAfter(db: DB, threadId: number, messageId: number): number {
+  return db.prepare('DELETE FROM ai_messages WHERE thread_id = ? AND id > ?').run(threadId, messageId).changes
 }
 
 export function deleteThread(db: DB, id: number): void {
@@ -262,10 +291,18 @@ export function getDraft(db: DB, id: number): AiDraftDto | null {
   return r ? toDraft(r) : null
 }
 
-export function listDrafts(db: DB, status?: AiDraftStatus): AiDraftDto[] {
-  const rows = (status
-    ? db.prepare('SELECT * FROM ai_drafts WHERE status = ? ORDER BY id DESC').all(status)
-    : db.prepare('SELECT * FROM ai_drafts ORDER BY id DESC').all()) as DraftRow[]
+export function listDrafts(db: DB, status?: AiDraftStatus, threadId?: number): AiDraftDto[] {
+  const where: string[] = []
+  const args: (string | number)[] = []
+  if (status) {
+    where.push('status = ?')
+    args.push(status)
+  }
+  if (threadId !== undefined) {
+    where.push('thread_id = ?')
+    args.push(threadId)
+  }
+  const rows = db.prepare(`SELECT * FROM ai_drafts ${where.length ? `WHERE ${where.join(' AND ')}` : ''} ORDER BY id DESC`).all(...args) as DraftRow[]
   return rows.map(toDraft)
 }
 
@@ -349,6 +386,8 @@ export interface NewOutbound {
   masked: boolean
   pseudonymised: boolean
   payloadSha256: string
+  /** WP 5.2: the screen context included (local record; the sent copy is masked). */
+  context?: AiContext | null
 }
 
 export function logOutbound(db: DB, o: NewOutbound): number {
@@ -356,11 +395,12 @@ export function logOutbound(db: DB, o: NewOutbound): number {
     db
       .prepare(
         `INSERT INTO ai_outbound_log (thread_id, provider, model, request_bytes, instructions_bytes, message_count, tools_offered_json,
-           tool_results_json, masked, pseudonymised, payload_sha256) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+           tool_results_json, masked, pseudonymised, payload_sha256, context_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
       .run(
         o.threadId, o.provider, o.model, o.requestBytes, o.instructionsBytes, o.messageCount, JSON.stringify(o.toolsOffered),
-        JSON.stringify(o.toolResultsSent), o.masked ? 1 : 0, o.pseudonymised ? 1 : 0, o.payloadSha256
+        JSON.stringify(o.toolResultsSent), o.masked ? 1 : 0, o.pseudonymised ? 1 : 0, o.payloadSha256,
+        o.context ? JSON.stringify(o.context) : null
       ).lastInsertRowid
   )
 }
@@ -372,7 +412,7 @@ export function setOutboundStatus(db: DB, id: number, status: 'sent' | 'ok' | 'e
 export function listOutbound(db: DB, limit = 2000): AiOutboundRow[] {
   const rows = db.prepare('SELECT * FROM ai_outbound_log ORDER BY id DESC LIMIT ?').all(limit) as {
     id: number; at: string; thread_id: number | null; provider: string; model: string; request_bytes: number; message_count: number
-    tools_offered_json: string; tool_results_json: string; masked: number; pseudonymised: number; payload_sha256: string; status: string
+    tools_offered_json: string; tool_results_json: string; masked: number; pseudonymised: number; payload_sha256: string; status: string; context_json: string | null
   }[]
   return rows.map((r) => ({
     id: r.id,
@@ -387,7 +427,8 @@ export function listOutbound(db: DB, limit = 2000): AiOutboundRow[] {
     masked: r.masked === 1,
     pseudonymised: r.pseudonymised === 1,
     payloadSha256: r.payload_sha256,
-    status: r.status
+    status: r.status,
+    context: parse<AiContext | null>(r.context_json, null)
   }))
 }
 
