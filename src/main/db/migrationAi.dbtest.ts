@@ -11,9 +11,9 @@ import { trialBalance } from '../services/reports'
 const M_AI = MIGRATIONS.findIndex((sql) => sql.includes('CREATE TABLE ai_threads'))
 
 describe('AI migration — agent tables', () => {
-  it('exists and is the last migration', () => {
+  it('exists after the Phase 4 migrations (later branches — WP 6.1 report builder — append after it)', () => {
     expect(M_AI).toBeGreaterThan(30)
-    expect(M_AI).toBe(MIGRATIONS.length - 1)
+    expect(MIGRATIONS.findIndex((sql) => sql.includes('CREATE TABLE fx_settlements'))).toBeLessThan(M_AI)
   })
 
   it('upgrades a company from the previous schema with its books unchanged and the AI tables empty', () => {

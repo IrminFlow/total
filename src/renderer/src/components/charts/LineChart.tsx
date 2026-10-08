@@ -10,7 +10,9 @@ export function LineChart({
   series,
   height = 160,
   negativeColor,
-  testId
+  testId,
+  formatValue,
+  formatTick
 }: {
   title: string
   summary: string
@@ -19,9 +21,12 @@ export function LineChart({
   height?: number
   negativeColor?: ChartColor
   testId?: string
+  /** Non-money series (ratios, counts): exact-value and y-tick text. Default: rupees from paise. */
+  formatValue?: (v: number) => string
+  formatTick?: (v: number) => string
 }): React.JSX.Element {
   return (
-    <SlotChart title={title} summary={summary} categories={categories} series={series} height={height} testId={testId}>
+    <SlotChart title={title} summary={summary} categories={categories} series={series} height={height} testId={testId} formatValue={formatValue} formatTick={formatTick}>
       {({ y, xs, active }) =>
         series.map((s) => {
           const pts = s.values.map((v, i) => (v == null ? null : { x: xs[i]!, y: y(v) }))

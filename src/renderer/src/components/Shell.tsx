@@ -9,6 +9,9 @@ import { toDisplayDate, fyOf, fyFromStartYear, todayISO } from '@shared/dates'
 import { useFeatures } from '../lib/useFeatures'
 import { NAV_SECTIONS, SCREENS } from '../lib/screens'
 import { useNavSections } from '../lib/navSections'
+import { useDynamicNav } from '../lib/dynamicNav'
+// Registers the pinned-saved-reports source (WP 6.1) before the first render.
+import '../lib/pinnedReports'
 import { AssistantPanel, useAssistantPanel } from './ai/AssistantPanel'
 
 /** Sidebar derived from the single screen registry (lib/screens.ts). */
@@ -31,11 +34,17 @@ export function Shell({ children, onOpenPalette }: { children: ReactNode; onOpen
   const fetching = useIsFetching()
   const features = useFeatures()
   const sections = useNavSections(screen.name)
+  const dynamicNav = useDynamicNav()
   const toggleAssistant = useAssistantPanel((s) => s.toggle)
   const visibleNav = NAV.filter((s) => !s.feature || features[s.feature]).map((s) => ({
     ...s,
-    items: s.items.filter((i) => !i.feature || features[i.feature])
+    items: s.items.filter((i) => !i.feature || features[i.feature]),
+    dynamic: dynamicNav.get(s.id) ?? []
   }))
+  const navBtnCls = (active: boolean): string =>
+    `block w-full rounded-md px-2.5 py-[5px] text-left text-detail transition-colors ${
+      active ? 'bg-amberbar/20 font-medium text-ink' : 'text-muted hover:bg-panel2 hover:text-ink'
+    }`
 
   return (
     <div className="flex h-full flex-col">
@@ -165,7 +174,9 @@ export function Shell({ children, onOpenPalette }: { children: ReactNode; onOpen
                 {/* Collapsed items stay in the DOM (hidden) so aria-controls always resolves. */}
                 <div id={listId} hidden={!open}>
                   {section.items.map((item) => {
-                    const active = screen.name === item.screen.name
+                    // A dynamic entry (a pinned report) that is the visible screen takes the
+                    // highlight from its registry screen.
+                    const active = screen.name === item.screen.name && !section.dynamic.some((d) => d.isActive(screen))
                     return (
                       <button
                         type="button"
@@ -173,10 +184,25 @@ export function Shell({ children, onOpenPalette }: { children: ReactNode; onOpen
                         data-testid={`nav-${item.screen.name}`}
                         aria-current={active ? 'page' : undefined}
                         onClick={() => nav.go(item.screen)}
-                        className={`block w-full rounded-md px-2.5 py-[5px] text-left text-detail transition-colors ${
-                          active ? 'bg-amberbar/20 font-medium text-ink' : 'text-muted hover:bg-panel2 hover:text-ink'
-                        }`}
+                        className={navBtnCls(active)}
                       >
+                        {item.label}
+                      </button>
+                    )
+                  })}
+                  {section.dynamic.map((item) => {
+                    const active = item.isActive(screen)
+                    return (
+                      <button
+                        type="button"
+                        key={item.key}
+                        data-testid={item.testId}
+                        title={item.title}
+                        aria-current={active ? 'page' : undefined}
+                        onClick={() => nav.go(item.screen)}
+                        className={`${navBtnCls(active)} truncate pl-5`}
+                      >
+                        <span aria-hidden="true" className="mr-1 text-micro text-muted">◆</span>
                         {item.label}
                       </button>
                     )

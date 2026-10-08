@@ -297,6 +297,19 @@ export const AUDIT_COVERAGE: Record<string, AuditCoverage> = {
   'fa:runPost': a('depreciation_run', 'voucher'),
   'fa:dispose': a('fixed_asset', 'voucher'),
 
+  // ---------- report builder, scheduled packs (WP 6.1 / 6.2) ----------
+  'rb:save': a('saved_report'),
+  'rb:rename': a('saved_report'),
+  'rb:pin': a('saved_report'),
+  'rb:duplicate': a('saved_report'),
+  'rb:delete': a('saved_report'),
+  'rb:import': a('saved_report'),
+  'rb:exportJson': EXPORT,
+  'pack:save': a('report_pack'),
+  'pack:delete': a('report_pack'),
+  'pack:runNow': a('report_pack'),
+  'pack:chooseFolder': r('opens a folder picker; the chosen path is saved by pack:save'),
+
   // ---------- AI agent (WP 5.1) — conversations are not books; settings, drafts and deletions are audited ----------
   'ai:settings:set': a('ai_settings'),
   'ai:notice:accept': a('ai_settings'),

@@ -118,6 +118,10 @@ const EXPECTED_TABLES = [
   'ai_usage',
   'ai_outbound_log',
   'ai_pseudonyms',
+  // WP 6.1 / 6.2 (last; number by position)
+  'saved_reports',
+  'report_packs',
+  'report_pack_runs'
 ]
 
 describe('migrate', () => {
