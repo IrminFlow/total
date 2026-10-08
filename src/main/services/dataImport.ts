@@ -45,6 +45,7 @@ import * as priceLevels from './priceLevels'
 import { saveCostCentre } from './costCentres'
 import { importStatement, setBankDate } from './banking'
 import { setCreditHold } from './receivables'
+import { setBankDetails } from './bulkPayments'
 import { markImportedClose } from './yearEnd'
 import { writeAudit } from './audit'
 import { readCompanyInfo, writeCompanyInfo } from '../db/seed'
@@ -393,7 +394,8 @@ function ledgerInput(ctx: Ctx, r: LedgerRow, groupId: number, name: string, exis
     hsn: r.hsn ?? existing?.hsn ?? null,
     tdsSectionId: existing?.tdsSectionId ?? null,
     // A GSTIN's characters 3–12 are the holder's PAN.
-    pan: r.pan ?? existing?.pan ?? (r.gstin ? r.gstin.slice(2, 12) : null),
+    // (Not for a Books workbook: its PAN column is the record, blank included.)
+    pan: r.pan ?? existing?.pan ?? (r.gstin && !ctx.opts.sourceNamespace ? r.gstin.slice(2, 12) : null),
     creditDays: r.creditDays ?? existing?.creditDays ?? null,
     creditLimit: r.creditLimit ?? existing?.creditLimit ?? null,
     exportType: existing?.exportType ?? null,
@@ -410,7 +412,13 @@ function ledgerInput(ctx: Ctx, r: LedgerRow, groupId: number, name: string, exis
 function applyLedgerRest(ctx: Ctx, id: number, rest: MoreFields): void {
   const unknown: string[] = []
   const direct: Record<string, unknown> = {}
+  const bank = ['bank_account_no', 'bank_ifsc', 'bank_account_name', 'bank_email']
+  if (bank.some((k) => str(rest[k]))) {
+    // Beneficiary details through WP 4.1's service (validated, audited).
+    setBankDetails(ctx.db, id, { accountNo: str(rest.bank_account_no), ifsc: str(rest.bank_ifsc), accountName: str(rest.bank_account_name), email: str(rest.bank_email) })
+  }
   for (const [k, v] of Object.entries(rest)) {
+    if (bank.includes(k)) continue
     if (k === 'credit_hold') {
       if (v === true || v === 1 || v === '1') ctx.deferred.creditHolds.push({ ledgerId: id, reason: String(rest.credit_hold_reason ?? 'Imported') })
     } else if (k === 'credit_hold_reason' || k === 'credit_hold_at' || k === 'is_system') {
@@ -1013,9 +1021,14 @@ function findDuplicate(ctx: Ctx, entity: 'voucher' | 'trade_doc', sourceKey: str
   const fy = fyOf(date)
   const table = entity === 'voucher' ? 'vouchers' : 'trade_docs'
   const typeCol = entity === 'voucher' ? 'voucher_type_id' : 'doc_type_id'
+  // A Books row has its own identity (Source ID): when that is new here, only the same number on
+  // the same date is the same record (re-importing into the exporting company itself) — the
+  // source may legitimately hold two vouchers with one number.
+  const window = sourceKey ? ' AND date = ?' : restartFy ? ' AND date BETWEEN ? AND ?' : ''
+  const params = sourceKey ? [date] : restartFy ? [fy.from, fy.to] : []
   const row = ctx.db
-    .prepare(`SELECT id FROM ${table} WHERE ${typeCol} = ? AND number = ? AND deleted_at IS NULL${restartFy ? ' AND date BETWEEN ? AND ?' : ''} ORDER BY id LIMIT 1`)
-    .get(typeId, number, ...(restartFy ? [fy.from, fy.to] : [])) as { id: number } | undefined
+    .prepare(`SELECT id FROM ${table} WHERE ${typeCol} = ? AND number = ? AND deleted_at IS NULL${window} ORDER BY id LIMIT 1`)
+    .get(typeId, number, ...params) as { id: number } | undefined
   return row?.id ?? null
 }
 
