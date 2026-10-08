@@ -19,9 +19,9 @@ function candidateColumns(threshold: number, onFix: (c: PaymentCandidate) => voi
   return defineColumns<PaymentCandidate>([
     { id: 'date', header: 'Date', kind: 'date', value: (c) => c.date, width: 104, className: 'text-muted' },
     { id: 'number', header: 'Voucher', kind: 'text', value: (c) => c.number, width: 110, className: 'num' },
-    { id: 'payee', header: 'Payee', kind: 'text', value: (c) => c.payeeName, hideable: false, minWidth: 160 },
-    { id: 'account', header: 'Account no.', kind: 'text', value: (c) => c.accountNo, width: 140, className: 'num text-muted' },
-    { id: 'ifsc', header: 'IFSC', kind: 'text', value: (c) => c.ifsc, width: 120, className: 'num text-muted' },
+    { id: 'payee', header: 'Payee', kind: 'text', value: (c) => c.payeeName, hideable: false, minWidth: 130 },
+    { id: 'account', header: 'Account no.', kind: 'text', value: (c) => c.accountNo, width: 124, className: 'num text-muted' },
+    { id: 'ifsc', header: 'IFSC', kind: 'text', value: (c) => c.ifsc, width: 122, className: 'num text-muted' },
     { id: 'amount', header: 'Amount', kind: 'money', value: (c) => c.amount, aggregate: 'sum', width: 130 },
     {
       id: 'mode',
@@ -44,7 +44,7 @@ function candidateColumns(threshold: number, onFix: (c: PaymentCandidate) => voi
         <span className="flex flex-wrap gap-1">
           {c.problems.length > 0 ? (
             <button type="button" className="text-left" data-testid="btn-bulk-fix" title={c.problems.join(', ')} onClick={(e) => { e.stopPropagation(); onFix(c) }}>
-              <Badge tone="danger">{c.problems[0]}</Badge> <span className="text-small text-blue hover:underline">Bank details…</span>
+              <Badge tone="danger">{c.problems[0]} · fix…</Badge>
             </button>
           ) : (
             <Badge tone="success">Ready</Badge>
