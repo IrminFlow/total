@@ -337,7 +337,16 @@ export const SCREENS: ScreenDef[] = [
     title: 'Outstandings',
     screen: { name: 'outstandings' },
     navSection: 'analysis',
-    invalidates: ['outstandings']
+    invalidates: ['outstandings', 'followups', 'statement', 'receivablesConfig']
+  },
+  // WP 4.2: receivables — credit control, reminder letters, interest, collection reports.
+  {
+    name: 'receivables',
+    title: 'Credit control',
+    keywords: ['receivables', 'reminders', 'dunning', 'interest on overdue', 'credit hold', 'dso', 'collections', 'promised payments', 'follow-up'],
+    screen: { name: 'receivables' },
+    navSection: 'analysis',
+    invalidates: ['creditControl', 'promisedWeek', 'reminderCandidates', 'reminderLog', 'interestPreview', 'interestCharges', 'collections', 'topOverdue', 'receivablesConfig']
   },
   {
     name: 'consolidated',
