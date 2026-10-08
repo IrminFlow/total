@@ -128,12 +128,12 @@ export function AnomaliesTab(): React.JSX.Element {
     () =>
       defineColumns<AnomalyRow>([
         { id: 'severity', header: 'Severity', kind: 'enum', value: (a) => a.severity, options: SEVERITY_OPTIONS, width: 96, cell: (a) => <SeverityBadge severity={a.severity} /> },
-        { id: 'kind', header: 'Finding', kind: 'enum', value: (a) => a.kind, options: KIND_OPTIONS, width: 230 },
-        { id: 'label', header: 'Voucher / item', kind: 'text', value: (a) => a.label, hideable: false, width: 150, cell: (a) => <RowLink label={a.label} voucherId={a.voucherId} itemId={a.itemId} /> },
+        { id: 'kind', header: 'Finding', kind: 'enum', value: (a) => a.kind, options: KIND_OPTIONS, width: 210 },
+        { id: 'label', header: 'Voucher / item', kind: 'text', value: (a) => a.label, hideable: false, width: 130, cell: (a) => <RowLink label={a.label} voucherId={a.voucherId} itemId={a.itemId} /> },
         { id: 'date', header: 'Date', kind: 'date', value: (a) => a.date, className: 'text-muted' },
-        { id: 'party', header: 'Party', kind: 'text', value: (a) => a.partyName ?? '', minWidth: 140, cell: (a) => (a.partyLedgerId ? <RowLink label={a.partyName ?? ''} ledgerId={a.partyLedgerId} /> : <>{a.partyName}</>) },
-        { id: 'amount', header: 'Amount', kind: 'money', value: (a) => a.amount, width: 132 },
-        { id: 'detail', header: 'Why', kind: 'text', value: (a) => a.detail, minWidth: 340, className: 'text-muted whitespace-normal' },
+        { id: 'party', header: 'Party', kind: 'text', value: (a) => a.partyName ?? '', minWidth: 120, cell: (a) => (a.partyLedgerId ? <RowLink label={a.partyName ?? ''} ledgerId={a.partyLedgerId} /> : <>{a.partyName}</>) },
+        { id: 'amount', header: 'Amount', kind: 'money', value: (a) => a.amount, width: 120 },
+        { id: 'detail', header: 'Why', kind: 'text', value: (a) => a.detail, minWidth: 260, className: 'text-muted whitespace-normal' },
         { id: 'dismissed', header: 'Dismissed', kind: 'text', value: (a) => (a.dismissed ? `${a.dismissed.by ?? '—'}${a.dismissed.note ? `: ${a.dismissed.note}` : ''}` : ''), defaultHidden: !showDismissed, className: 'text-muted' }
       ]),
     [showDismissed]
@@ -181,6 +181,7 @@ export function AnomaliesTab(): React.JSX.Element {
             rowAttrs={(a) => ({ 'data-row-id': a.key, 'data-kind': a.kind })}
             isRowActivatable={(a) => !!a.voucherId}
             onRowActivate={(a) => a.voucherId && nav.go({ name: 'voucher-entry', voucherId: a.voucherId })}
+            trailingWidth={canAct ? 96 : 8}
             trailing={(a) =>
               canAct ? (
                 a.dismissed ? (

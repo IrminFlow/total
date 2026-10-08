@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { STOCK_NOTE_KINDS, type VoucherKind } from '@shared/domain'
 import { todayISO } from '@shared/dates'
@@ -109,6 +109,7 @@ export function VoucherEntry({
     enabled: !!voucherId && isStockJournal
   })
   const [plan, setPlan] = useState<EditPlan | null>(null)
+  const ledgerDraftLatch = useRef<number | null>(null)
 
   useEffect(() => {
     if (!voucherId || plan || !existing || !existingKind || !ledgers || !items || !info) return
@@ -180,7 +181,10 @@ export function VoucherEntry({
   // WP 5.5: an assistant draft of a purchase / debit note carries ledger lines (the 2B assistant's
   // "record the purchase"), not item rows — it opens in accounting mode, like a saved voucher
   // without stock lines does, so no line is lost.
-  const ledgerDraft = !voucherId && !!draft?.aiDraftId && !!draft.lines?.length && modeForKind(currentType.kind) === 'invoice'
+  // Latched: once the draft opened in accounting mode it stays there — its save consumes the draft
+  // and the refetched (no longer open) draft must not swap the form out before it leaves.
+  if (!voucherId && !!draft?.aiDraftId && !!draft.lines?.length && modeForKind(currentType.kind) === 'invoice') ledgerDraftLatch.current = currentType.id
+  const ledgerDraft = !voucherId && ledgerDraftLatch.current === currentType.id
   const activeMode = voucherId ? plan!.mode : ledgerDraft ? 'accounting' : modeForKind(currentType.kind)
 
   const typeTabs = !voucherId ? (

@@ -72,6 +72,9 @@ export function Gst2bTab({ initialPeriod }: { initialPeriod?: string }): React.J
   const [category, setCategory] = useState<MismatchCategory | 'all'>('all')
   const [showResolved, setShowResolved] = useState(false)
   const [pasteOpen, setPasteOpen] = useState(false)
+  // Every row opens onto its suggestion until the user folds one (controlled, so a category
+  // switch shows the new rows' suggestions too).
+  const [folded, setFolded] = useState<Set<string>>(new Set())
   const { data, isLoading, error } = useQuery({ queryKey: ['assistGst2b', period, showResolved], queryFn: () => assistantsApi.gst2b(period, showResolved), enabled: !!month })
   const refresh = (): Promise<void> => qc.invalidateQueries({ queryKey: ['assistGst2b'] })
 
@@ -113,13 +116,13 @@ export function Gst2bTab({ initialPeriod }: { initialPeriod?: string }): React.J
   const columns = useMemo(
     () =>
       defineColumns<Mismatch>([
-        { id: 'category', header: 'Category', kind: 'enum', value: (m) => m.category, options: CATEGORY_OPTIONS, width: 140 },
+        { id: 'category', header: 'Category', kind: 'enum', value: (m) => m.category, options: CATEGORY_OPTIONS, width: 128 },
         {
           id: 'supplier',
           header: 'Supplier',
           kind: 'text',
           value: (m) => m.supplier ?? m.portal?.gstin ?? m.book?.partyGstin ?? '',
-          minWidth: 160,
+          minWidth: 130,
           cell: (m) => (m.ledgerId ? <LedgerLink ledgerId={m.ledgerId} name={m.supplier ?? m.portal?.gstin ?? ''} /> : <span className="num">{m.supplier ?? m.portal?.gstin ?? '—'}</span>)
         },
         { id: 'gstin', header: 'GSTIN', kind: 'text', value: (m) => m.portal?.gstin ?? m.book?.partyGstin ?? '', className: 'num text-muted', defaultHidden: true, width: 160 },
@@ -129,17 +132,18 @@ export function Gst2bTab({ initialPeriod }: { initialPeriod?: string }): React.J
           kind: 'text',
           value: (m) => m.portal?.number ?? m.book?.supplierRef ?? m.book?.number ?? '',
           hideable: false,
-          width: 130,
+          width: 112,
           cell: (m) => (m.book ? <VoucherLink voucherId={m.book.voucherId} label={m.portal?.number ?? m.book.supplierRef ?? m.book.number} /> : <>{m.portal?.number}</>)
         },
         { id: 'date', header: 'Date', kind: 'date', value: (m) => m.portal?.date ?? m.book?.date ?? null, className: 'text-muted' },
-        { id: 'portalValue', header: 'Value', group: 'GSTR-2B', kind: 'money', value: (m) => m.portal?.value ?? null, width: 124, aggregate: 'sum' },
-        { id: 'portalTax', header: 'Tax', group: 'GSTR-2B', kind: 'money', value: (m) => taxOf(m.portal), width: 112, aggregate: 'sum' },
-        { id: 'bookValue', header: 'Value', group: 'Books', kind: 'money', value: (m) => m.book?.invoiceValue ?? null, width: 124, aggregate: 'sum' },
-        { id: 'bookTax', header: 'Tax', group: 'Books', kind: 'money', value: (m) => taxOf(m.book), width: 112, aggregate: 'sum' },
+        { id: 'portalValue', header: 'Value', group: 'GSTR-2B', kind: 'money', value: (m) => m.portal?.value ?? null, width: 112, aggregate: 'sum' },
+        { id: 'portalTax', header: 'Tax', group: 'GSTR-2B', kind: 'money', value: (m) => taxOf(m.portal), width: 100, aggregate: 'sum' },
+        { id: 'bookValue', header: 'Value', group: 'Books', kind: 'money', value: (m) => m.book?.invoiceValue ?? null, width: 112, aggregate: 'sum' },
+        { id: 'bookTax', header: 'Tax', group: 'Books', kind: 'money', value: (m) => taxOf(m.book), width: 100, aggregate: 'sum' },
         { id: 'bookMonth', header: 'Books month', kind: 'text', value: (m) => m.bookMonth ?? '', width: 100, defaultHidden: true },
-        { id: 'diff', header: 'Difference', kind: 'money', value: (m) => m.valueDiff, width: 120, cell: (m) => (m.valueDiff ? <Money paise={m.valueDiff} /> : dash) },
-        { id: 'suggestion', header: 'Suggested action', kind: 'text', value: (m) => m.suggestion, minWidth: 320, className: 'text-muted whitespace-normal' }
+        { id: 'diff', header: 'Difference', kind: 'money', value: (m) => m.valueDiff, width: 112, defaultHidden: true, cell: (m) => (m.valueDiff ? <Money paise={m.valueDiff} /> : dash) },
+        // Exported and filterable; shown in full in the row's detail line.
+        { id: 'suggestion', header: 'Suggested action', kind: 'text', value: (m) => m.suggestion, defaultHidden: true }
       ]),
     []
   )
@@ -232,8 +236,19 @@ export function Gst2bTab({ initialPeriod }: { initialPeriod?: string }): React.J
               rows={rows}
               rowKey={(m) => m.key}
               rowAttrs={(m) => ({ 'data-row-id': m.key, 'data-category': m.category })}
+              renderDetail={(m) => (
+                <p className="px-2 py-1.5 text-small whitespace-normal text-muted" data-testid="assistants-2b-suggestion">
+                  <span className="font-medium text-ink">Suggested: </span>
+                  {m.suggestion}
+                  {m.resolved ? ` — ${m.resolved.status} by ${m.resolved.by ?? 'a user'}${m.resolved.note ? `: ${m.resolved.note}` : ''}` : ''}
+                </p>
+              )}
+              detailHeightEstimate={44}
+              expanded={new Set(rows.map((m) => m.key).filter((k) => !folded.has(k)))}
+              onExpandedChange={(next) => setFolded(new Set(rows.map((m) => m.key).filter((k) => !next.has(k))))}
               isRowActivatable={(m) => !!m.book}
               onRowActivate={(m) => m.book && nav.go({ name: 'voucher-entry', voucherId: m.book.voucherId })}
+              trailingWidth={aiReady ? 300 : 230}
               trailing={(m) => (
                 <span className="flex justify-end gap-1 whitespace-nowrap">
                   {canAct && m.actions.some((a) => a.kind === 'draft') && !m.resolved && (

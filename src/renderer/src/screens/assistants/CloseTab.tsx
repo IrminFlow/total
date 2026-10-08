@@ -94,13 +94,13 @@ export function CloseTab({ initialPeriod }: { initialPeriod?: string }): React.J
     () =>
       defineColumns<CloseCheck>([
         { id: 'status', header: 'Status', kind: 'enum', value: (c) => c.effective, options: STATUS_OPTIONS, width: 96, cell: (c) => <StatusBadge status={c.effective} testId={`close-status-${c.key}`} /> },
-        { id: 'title', header: 'Check', kind: 'text', value: (c) => c.title, hideable: false, minWidth: 220, cell: (c) => <span className="font-medium">{c.title}</span> },
-        { id: 'summary', header: 'Found', kind: 'text', value: (c) => c.summary, minWidth: 280, className: 'text-muted' },
+        { id: 'title', header: 'Check', kind: 'text', value: (c) => c.title, hideable: false, minWidth: 200, cell: (c) => <span className="font-medium">{c.title}</span> },
+        { id: 'summary', header: 'Found', kind: 'text', value: (c) => c.summary, minWidth: 220, className: 'text-muted' },
         { id: 'area', header: 'Area', kind: 'enum', value: (c) => c.area, options: AREAS, width: 104, defaultHidden: true },
-        { id: 'count', header: 'Items', kind: 'number', value: (c) => c.count + c.more, width: 72 },
-        { id: 'amount', header: 'Amount', kind: 'money', value: (c) => c.amount, width: 132, explainable: false },
+        { id: 'count', header: 'Items', kind: 'number', value: (c) => c.count + c.more, width: 64 },
+        { id: 'amount', header: 'Amount', kind: 'money', value: (c) => c.amount, width: 124, explainable: false },
         { id: 'due', header: 'Due', kind: 'date', value: (c) => c.dueDate, width: 104, className: 'text-muted' },
-        { id: 'mark', header: 'Marked', kind: 'text', value: (c) => (c.mark ? `${c.mark.by ?? '—'}${c.mark.note ? `: ${c.mark.note}` : ''}` : ''), defaultHidden: false, className: 'text-muted', width: 160 }
+        { id: 'mark', header: 'Marked', kind: 'text', value: (c) => (c.mark ? `${c.mark.by ?? '—'}${c.mark.note ? `: ${c.mark.note}` : ''}` : ''), className: 'text-muted', width: 140 }
       ]),
     []
   )
@@ -148,20 +148,21 @@ export function CloseTab({ initialPeriod }: { initialPeriod?: string }): React.J
             renderDetail={(c) => <CheckRows check={c} period={list.label} />}
             isRowExpandable={() => true}
             onRowActivate={(c) => nav.go(fixScreen(c))}
+            trailingWidth={canAct ? 176 : 56}
             trailing={(c) => (
               <span className="flex justify-end gap-1 whitespace-nowrap">
-                <Button size="sm" variant="ghost" data-testid={`btn-assistants-close-fix-${c.key}`} onClick={() => nav.go(fixScreen(c))}>
-                  {c.fix.label}
+                <Button size="sm" variant="ghost" data-testid={`btn-assistants-close-fix-${c.key}`} title={c.fix.label} onClick={() => nav.go(fixScreen(c))}>
+                  Fix
                 </Button>
                 {canAct &&
                   (c.mark ? (
                     <Button size="sm" variant="ghost" data-testid={`btn-assistants-close-clear-${c.key}`} onClick={() => void mark(c, null)}>
-                      Undo mark
+                      Undo
                     </Button>
                   ) : c.status !== 'ok' && c.status !== 'na' ? (
                     <>
                       <Button size="sm" data-testid={`btn-assistants-close-done-${c.key}`} onClick={() => void mark(c, 'done')}>
-                        Mark done
+                        Done
                       </Button>
                       <Button size="sm" variant="ghost" data-testid={`btn-assistants-close-na-${c.key}`} onClick={() => void mark(c, 'na')}>
                         N/A
