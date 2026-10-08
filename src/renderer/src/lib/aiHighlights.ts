@@ -8,7 +8,7 @@ import { useEffect } from 'react'
 /** Field caption patterns per draft field (Field renders `<label><span>Caption</span>…</label>`). */
 const CAPTIONS: Record<string, RegExp> = {
   date: /^date$/i,
-  party: /^(party|consignee|supplier|customer)\b/i,
+  party: /^(party|consignee|supplier|customer) \(/i,
   account: /^(sales|purchase) ledger$/i,
   narration: /^narration/i,
   reference: /(ref\.|reference)/i,

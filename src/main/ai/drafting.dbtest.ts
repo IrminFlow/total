@@ -389,6 +389,15 @@ describe('notes, challans, manufacture, orders', () => {
     const v = saveVoucher(db, built.ok ? built.payload : (null as never))
     expect(planOf(getVoucher(db, v.id)!, 'delivery_note').mode).toBe('stockNote')
     expect(getVoucher(db, v.id)!.reference).toBe('PO-77')
+    // No rate given: a challan carries the price-list value, never the cost (last purchase).
+    saveVoucher(db, {
+      ...BLANK, voucherTypeId: typeId('purchase'), date: '2025-08-01', partyLedgerId: ids.bharat,
+      lines: [{ ledgerId: ids.purchase, drCr: 'dr', amount: 200_000 }, { ledgerId: ids.bharat, drCr: 'cr', amount: 200_000 }],
+      inventory: [{ stockItemId: ids.mouse, godownId: null, qtyMilli: 4000, ratePaise: 50_000, amount: 200_000, direction: 'in' }]
+    })
+    const noRate = await draft('draft_stock_note', { kind: 'delivery_note', party: 'Umbrella Retail', items: [{ item: 'Wireless Mouse', qty: '2' }] })
+    expect((payloadOf(noRate.draftId!).state as StockNoteFormState).rows[0]!.rate).toBe(0)
+    expect(payloadOf(noRate.draftId!).assumptions).toContain('No rate for Wireless Mouse in the price lists — valued at ₹0.00; type the rate')
   })
 
   it('manufacture from the BOM: raw rows scaled, costed by the engine, saved through saveManufacture', async () => {

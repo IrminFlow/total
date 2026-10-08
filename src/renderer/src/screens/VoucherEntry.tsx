@@ -7,7 +7,7 @@ import {
   type AccountingFormState, type EditPlan, type InvoiceFormState, type ManufactureFormState, type StockNoteFormState
 } from '@shared/voucherEdit'
 import { api } from '../lib/client'
-import { aiApi } from '../lib/aiClient'
+import { aiApi, type AiDraftDto } from '../lib/aiClient'
 import { useNav, useSession, type VoucherDraft } from '../state/stores'
 import { AiDraftReview, screenForDraft } from '../components/ai/AiDraftReview'
 import { useAiFieldHighlights } from '../lib/aiHighlights'
@@ -57,11 +57,16 @@ export function VoucherEntry({
   const features = useFeatures()
   // An AI draft becomes an ordinary VoucherDraft prefill — the entry modes don't know where it
   // came from; only the save carries aiDraftId back so main can mark the draft consumed.
-  const { data: aiDraft, error: aiDraftError } = useQuery({
+  const { data: fetchedDraft, error: aiDraftError } = useQuery({
     queryKey: ['aiDraft', aiDraftId],
     queryFn: () => aiApi.draft(aiDraftId!),
     enabled: !!aiDraftId && !voucherId
   })
+  // The draft as it was when opened: its own save consumes it (a refetch then says "consumed"),
+  // and the editor must stay mounted until it navigates away.
+  const [openedDraft, setOpenedDraft] = useState<AiDraftDto | null>(null)
+  if (fetchedDraft?.status === 'open' && openedDraft == null) setOpenedDraft(fetchedDraft)
+  const aiDraft = openedDraft ?? fetchedDraft
   const aiDraftOpen = aiDraft?.status === 'open'
   // WP 5.3: drafts carry the editor's own form state (`form` + `state`) — they open in that mode
   // with `initial`; quotations / orders belong to the trade-document editor.

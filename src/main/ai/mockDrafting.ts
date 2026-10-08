@@ -4,6 +4,8 @@
 //   "purchase invoice from X for 3 Y at 500"                                 → draft_invoice
 //   "pay Bharat Steel against bills P-12 and P-15 from HDFC Bank"            → draft_voucher
 //   "receive from X against bill S-3 into Cash"                              → draft_voucher
+//   "quotation for Umbrella Retail for 3 Office Chair at 6,500"              → draft_trade_doc
+//   "delivery challan to Umbrella Retail for 1 Laptop 14 [at 45,000]"        → draft_stock_note
 // passing names, quantities and amounts exactly as typed (the app resolves and computes them),
 // then answers by quoting the tool's summary, or asks the clarification the tool returned.
 import type { MockStep } from './mockProvider'
@@ -70,6 +72,33 @@ export function draftingDemoStep(question: string, results: readonly Result[], t
             ...(today ? { date: today } : {}),
             bills: bills.map((bill) => ({ bill }))
           }
+        }
+      ]
+    }
+  }
+  const doc = /\b(quotation|sales order|purchase order) (?:to|for|from) (.+?) for (\d+(?:\.\d+)?) (.+?) at (₹?\s?[\d,]+(?:\.\d{1,2})?(?:\s*(?:lakh|k))?)\s*$/i.exec(q)
+  if (doc) {
+    if (done) return answerFrom(done)
+    return {
+      text: '',
+      toolCalls: [
+        {
+          name: 'draft_trade_doc',
+          arguments: { kind: doc[1]!.toLowerCase().replace(' ', '_'), party: doc[2]!.trim(), ...(today ? { date: today } : {}), items: [{ item: doc[4]!.trim(), qty: doc[3]!, rate: doc[5]!.trim() }] }
+        }
+      ]
+    }
+  }
+
+  const note = /\b(delivery challan|goods receipt note|grn) (?:to|from) (.+?) for (\d+(?:\.\d+)?) (.+?)(?: at (₹?\s?[\d,]+(?:\.\d{1,2})?))?\s*$/i.exec(q)
+  if (note) {
+    if (done) return answerFrom(done)
+    return {
+      text: '',
+      toolCalls: [
+        {
+          name: 'draft_stock_note',
+          arguments: { kind: /challan/i.test(note[1]!) ? 'delivery_note' : 'receipt_note', party: note[2]!.trim(), ...(today ? { date: today } : {}), items: [{ item: note[4]!.trim(), qty: note[3]!, ...(note[5] ? { rate: note[5].trim() } : {}) }] }
         }
       ]
     }

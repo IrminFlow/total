@@ -579,4 +579,5 @@ tr[data-ai-set] > td:first-child {
   outline: 1.5px dashed var(--t-amber-bar);
   outline-offset: 1px;
   background: var(--t-amber-soft);
+  margin-right: 0.45em;
 }

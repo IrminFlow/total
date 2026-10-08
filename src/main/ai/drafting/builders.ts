@@ -128,7 +128,7 @@ function priceLine(
   item: StockItem,
   qtyMilli: number,
   given: LineInput,
-  opts: { date: string; partyId: number | null; supply: 'intra' | 'inter'; fallbackRate?: { ratePaise: number; why: string } | null; zeroOk?: boolean }
+  opts: { date: string; partyId: number | null; supply: 'intra' | 'inter'; fallbackRate?: { ratePaise: number; why: string } | null; zeroOk?: boolean; noCost?: boolean }
 ): { rate: number; discount: number | null } {
   const field = `line:${i}`
   let rate: number | null = given.rate ? w.amount(field, given.rate, `Line ${i + 1} rate`) : null
@@ -139,7 +139,9 @@ function priceLine(
   }
   if (rate == null) {
     const price = pricingLoader(w.m.db)({ date: opts.date, partyLedgerId: opts.partyId, currency: 'INR', supply: opts.supply }, item.id, qtyMilli)
-    if (price.ratePaise != null && price.ratePaise > 0) {
+    // A challan carries the taxable value — the order / price-list rate, never the cost (rule 55(1);
+    // voucherEdit/stockNote.ts): the resolver's last-purchase fallback is not used there.
+    if (price.ratePaise != null && price.ratePaise > 0 && !(opts.noCost && price.source === 'last_purchase')) {
       rate = price.ratePaise
       w.source({ field, kind: 'rate', label: `${rs(rate)} per ${w.unitOf(item) || 'unit'}`, id: item.id, why: `${price.label || 'the price resolver'} (no rate was given)` })
       w.assume(`Rate for ${item.name}: ${rs(rate)} from ${price.label || 'the price list'} — no rate was given`)
@@ -629,7 +631,7 @@ export function buildStockNoteDraft(w: DraftWork, input: StockNoteDraftInput): B
   w.settle()
   const supply = supplyTypeFor(m.company.stateCode, party!.stateCode ?? m.company.stateCode)
   const rows: InvoiceRowState[] = resolved.map((r, i) => {
-    const { rate, discount } = priceLine(w, i, r.item!, r.qtyMilli, r.given, { date, partyId: party!.id, supply, zeroOk: true })
+    const { rate, discount } = priceLine(w, i, r.item!, r.qtyMilli, r.given, { date, partyId: party!.id, supply, zeroOk: true, noCost: kind === 'delivery_note' })
     w.fields.add(`line:${i}`)
     return { itemId: r.item!.id, qtyText: qtyText(r.qtyMilli), rate, discount, godownId: null, batchId: null }
   })

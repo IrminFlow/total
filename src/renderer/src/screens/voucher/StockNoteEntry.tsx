@@ -290,7 +290,7 @@ export function StockNoteEntry({
         </Field>
         <Field label={outward ? 'Consignee (party)' : 'Supplier (party)'}>
           <LedgerPicker
-            autoFocus={!isEdit && draft?.fromTradeDocId == null}
+            autoFocus={!isEdit && draft?.fromTradeDocId == null && draft?.aiDraftId == null}
             value={partyId}
             onPick={setPartyId}
             placeholder="Party ledger"

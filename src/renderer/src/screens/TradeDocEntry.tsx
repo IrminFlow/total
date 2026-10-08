@@ -337,7 +337,7 @@ function TradeDocForm({
             </Field>
             <Field label={sales ? 'Customer (party)' : 'Supplier (party)'}>
               <LedgerPicker
-                autoFocus={!isEdit && !draft}
+                autoFocus={!isEdit && !draft && !aiDraft}
                 value={partyId}
                 onPick={setPartyId}
                 placeholder="Party ledger"

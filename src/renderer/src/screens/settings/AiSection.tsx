@@ -448,11 +448,12 @@ const FORM_LABEL: Record<string, string> = {
 const STATUS_LABEL: Record<AiDraftDto['status'], string> = { open: 'Not saved', consumed: 'Saved', discarded: 'Discarded' }
 
 const DRAFT_COLUMNS = defineColumns<AiDraftDto>([
-  { id: 'at', header: 'Drafted', kind: 'text', value: (r) => r.createdAt, text: (r) => fmtAt(r.createdAt), className: 'num text-muted', width: 170, hideable: false },
-  { id: 'who', header: 'Asked by', kind: 'text', value: (r) => r.userName ?? '', text: (r) => r.userName ?? 'Owner', width: 110 },
-  { id: 'form', header: 'Kind', kind: 'text', value: (r) => FORM_LABEL[r.payload.form ?? 'accounting'] ?? '', width: 170 },
+  { id: 'at', header: 'Drafted', kind: 'text', value: (r) => r.createdAt, text: (r) => fmtAt(r.createdAt), className: 'num text-muted', width: 160, hideable: false },
+  { id: 'who', header: 'Asked by', kind: 'text', value: (r) => r.userName ?? '', text: (r) => r.userName ?? 'Owner', width: 84 },
+  // The summary already starts with the kind ("Sales invoice to…", "Payment of…").
+  { id: 'form', header: 'Opens in', kind: 'text', value: (r) => FORM_LABEL[r.payload.form ?? 'accounting'] ?? '', width: 170, defaultHidden: true },
   {
-    id: 'summary', header: 'Draft', kind: 'text', value: (r) => r.summary, minWidth: 280,
+    id: 'summary', header: 'Draft', kind: 'text', value: (r) => r.summary, minWidth: 160,
     cell: (r) => (
       <span className="flex items-center gap-2">
         {r.unrequested && <Badge tone="danger" testId="ai-drafts-unrequested">Not asked for</Badge>}
@@ -460,14 +461,14 @@ const DRAFT_COLUMNS = defineColumns<AiDraftDto>([
       </span>
     )
   },
-  { id: 'total', header: 'Amount', kind: 'number', value: (r) => r.payload.total ?? null, text: (r) => (r.payload.total != null ? formatPaise(r.payload.total, { symbol: true }) : ''), width: 130 },
+  { id: 'total', header: 'Amount', kind: 'number', value: (r) => r.payload.total ?? null, text: (r) => (r.payload.total != null ? formatPaise(r.payload.total, { symbol: true }) : ''), width: 140 },
   {
     id: 'status', header: 'Status', kind: 'enum', value: (r) => r.status, text: (r) => STATUS_LABEL[r.status],
-    options: (['open', 'consumed', 'discarded'] as const).map((v) => ({ value: v, label: STATUS_LABEL[v] })), width: 110,
+    options: (['open', 'consumed', 'discarded'] as const).map((v) => ({ value: v, label: STATUS_LABEL[v] })), width: 120,
     cell: (r) => (
       <span className="flex items-center gap-1">
         <Badge tone={r.status === 'open' ? 'amber' : r.status === 'consumed' ? 'success' : 'neutral'}>{STATUS_LABEL[r.status]}</Badge>
-        {r.status === 'consumed' && r.voucherId && <VoucherLink voucherId={r.voucherId} label="open" />}
+        {r.status === 'consumed' && r.voucherId && <VoucherLink voucherId={r.voucherId} label="Open" />}
       </span>
     )
   },
@@ -529,7 +530,7 @@ function DraftsPanel(): React.JSX.Element {
               </span>
             ) : null
           }
-          trailingWidth={150}
+          trailingWidth={120}
           toolbarFeatures={{ groupBy: false, density: false }}
         />
       </Panel>
