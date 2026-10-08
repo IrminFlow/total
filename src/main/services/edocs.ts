@@ -268,7 +268,7 @@ export function extractEdocInvoices(
      WHERE il.voucher_id = ? ORDER BY il.line_order, il.id`
   )
   const lineStmt = db.prepare(
-    `SELECT vl.amount, vl.dr_cr AS drCr, l.group_id AS groupId, l.gst_rate AS gstRate, l.hsn, l.name
+    `SELECT vl.amount, vl.dr_cr AS drCr, l.group_id AS groupId, l.gst_rate AS gstRate, l.cess_rate AS cessRate, l.hsn, l.name
      FROM voucher_lines vl JOIN ledgers l ON l.id = vl.ledger_id
      WHERE vl.voucher_id = ? ORDER BY vl.line_order, vl.id`
   )
@@ -329,13 +329,14 @@ export function extractEdocInvoices(
     if (items.length === 0 && !isNote) {
       const salesSide = v.kind === 'credit_note' ? 'dr' : 'cr'
       const lines = lineStmt.all(v.id) as {
-        amount: number; drCr: 'dr' | 'cr'; groupId: number; gstRate: number | null; hsn: string | null; name: string
+        amount: number; drCr: 'dr' | 'cr'; groupId: number; gstRate: number | null; cessRate: number | null; hsn: string | null; name: string
       }[]
       items = lines
         .filter((l) => l.drCr === salesSide && salesGroupIds.has(l.groupId))
         .map((l) => {
           const rate = l.gstRate ?? 0
-          const g = computeGst(l.amount, rate, supply, 0)
+          const cessRate = l.cessRate ?? 0
+          const g = computeGst(l.amount, rate, supply, cessRate)
           return {
             name: l.name,
             hsn: l.hsn ?? '',
@@ -344,7 +345,7 @@ export function extractEdocInvoices(
             unitPricePaise: l.amount,
             taxablePaise: l.amount,
             rate,
-            cessRate: 0,
+            cessRate,
             cgst: g.cgst,
             sgst: g.sgst,
             igst: withoutPayment ? 0 : g.igst,

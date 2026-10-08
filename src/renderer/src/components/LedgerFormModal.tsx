@@ -12,6 +12,8 @@ import { GST_RATE_PRESETS } from '@shared/seed'
 import { confirmDialog } from '../lib/dialogs'
 import { useFeatures } from '../lib/useFeatures'
 import { PartyRatesModal } from '../screens/masters/PartyRatesTab'
+import { bpToPercent, percentToBp } from '@shared/receivables/interest'
+import { SupplierTermsFields, initialSupplierTerms, supplierTermsError, supplierTermsPayload } from './SupplierTermsFields'
 
 const EXPORT_TYPES: { value: NonNullable<Ledger['exportType']> | ''; label: string }[] = [
   { value: '', label: 'None (domestic)' },
@@ -141,13 +143,25 @@ function LedgerForm({
   const [itcEligibility, setItcEligibility] = useState<Ledger['itcEligibility']>(ledger?.itcEligibility ?? 'eligible')
   // WP 2.6: the party's price level and its party-wise rates.
   const [priceLevelId, setPriceLevelId] = useState<number | ''>(ledger?.priceLevelId ?? '')
+  // WP 4.2: email for statements / reminders, credit limit, interest on overdue bills.
+  const [email, setEmail] = useState(ledger?.email ?? '')
+  const [creditLimit, setCreditLimit] = useState<number | null>(ledger?.creditLimit ?? null)
+  const [interestPct, setInterestPct] = useState(bpToPercent(ledger?.interestRateBp ?? null))
+  const [graceDays, setGraceDays] = useState(ledger?.interestGraceDays ? String(ledger.interestGraceDays) : '')
   const { data: priceLevelList } = useQuery({ queryKey: ['priceLevels'], queryFn: api.priceLevels.list, enabled: features.inventory })
   const [partyRatesOpen, setPartyRatesOpen] = useState(false)
+  // WP 4.3: a supplier's MSME facts and payment terms (creditors only).
+  const [supplierTerms, setSupplierTerms] = useState(() => initialSupplierTerms(ledger))
 
   const ancestry = useMemo(() => groupAncestryNames(groupId, groups), [groupId, groups])
   const isParty = ancestry.some((n) => PARTY_GROUPS.includes(n))
+  const isCreditor = ancestry.includes('Sundry Creditors')
   const isTaxLedger = !isParty && ancestry.some((n) => TAX_GROUPS.includes(n))
   const isTradingLedger = !isParty && !isTaxLedger && ancestry.some((n) => TRADING_GROUPS.includes(n))
+  const isDebtor = ancestry.includes('Sundry Debtors')
+  const interestBp = percentToBp(interestPct)
+  const interestError = Number.isNaN(interestBp) || (interestBp ?? 0) > 10000 ? 'A yearly rate like 18 or 1.5' : null
+  const emailError = email.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim()) ? 'Not an email address' : null
 
   const panError = isParty && pan.trim() && !PAN_RE.test(pan.trim()) ? 'Invalid PAN — format AAAAA9999A' : null
 
@@ -162,6 +176,9 @@ function LedgerForm({
     try {
       if (gstinError) return void toast.push('error', gstinError)
       if (panError) return void toast.push('error', panError)
+      if (isParty && (interestError || emailError)) return void toast.push('error', interestError ?? emailError!)
+      const termsError = isCreditor ? supplierTermsError(supplierTerms) : null
+      if (termsError) return void toast.push('error', termsError)
       const effectiveState = stateCode || (gstinCheck?.valid ? gstinCheck.stateCode : null)
       const data = {
         name: name.trim(),
@@ -190,7 +207,14 @@ function LedgerForm({
         rcm,
         itcEligibility,
         // Sent only where the form shows it; otherwise the server keeps the stored level.
-        ...(features.inventory && isParty ? { priceLevelId: priceLevelId === '' ? null : priceLevelId } : {})
+        ...(features.inventory && isParty ? { priceLevelId: priceLevelId === '' ? null : priceLevelId } : {}),
+        // WP 4.2 — likewise only where shown (absent = keep).
+        ...(isParty ? { email: email.trim() || null } : {}),
+        ...(isDebtor
+          ? { creditLimit: creditLimit && creditLimit > 0 ? creditLimit : null, interestRateBp: interestBp || null, interestGraceDays: graceDays.trim() ? Math.max(0, Math.min(365, Math.trunc(Number(graceDays) || 0))) : 0 }
+          : {}),
+        // Sent only where the form shows it; otherwise the server keeps the stored terms.
+        ...(isCreditor ? supplierTermsPayload(supplierTerms) : {})
       }
       if (ledger) await api.ledgers.update(ledger.id, data)
       else await api.ledgers.create(data)
@@ -416,6 +440,28 @@ function LedgerForm({
             <Field label="Address">
               <TextInput value={address} onChange={(e) => setAddress(e.target.value)} />
             </Field>
+            <Field label="Email" hint="Statements and reminder letters open an email draft to this address" error={emailError}>
+              <TextInput data-testid="ledger-email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="accounts@example.com" />
+            </Field>
+            {isDebtor && (
+              <div className="grid grid-cols-3 gap-3" data-testid="ledger-credit-terms">
+                <Field label="Credit limit" hint="Invoices warn past it (block under F11)">
+                  <AmountInput paise={creditLimit} onPaise={setCreditLimit} testId="ledger-credit-limit" placeholder="No limit" />
+                </Field>
+                <Field label="Interest % a year" hint="Simple, on overdue bills" error={interestError}>
+                  <TextInput data-testid="ledger-interest-rate" className="num text-right" value={interestPct} onChange={(e) => setInterestPct(e.target.value)} placeholder="None" />
+                </Field>
+                <Field label="Grace days" hint="Interest-free after the due date">
+                  <TextInput data-testid="ledger-interest-grace" className="num text-right" value={graceDays} onChange={(e) => setGraceDays(e.target.value)} placeholder="0" />
+                </Field>
+              </div>
+            )}
+            {ledger?.creditHold && (
+              <p className="text-small text-cr" data-testid="ledger-credit-hold">
+                On credit hold{ledger.creditHoldReason ? ` — ${ledger.creditHoldReason}` : ''}. Release it from Credit control.
+              </p>
+            )}
+            {isCreditor && <SupplierTermsFields value={supplierTerms} onChange={setSupplierTerms} />}
           </>
         )}
 

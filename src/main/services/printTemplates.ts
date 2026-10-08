@@ -28,7 +28,7 @@ import {
   type TemplateList,
   type TemplateSummary
 } from '@shared/printTemplates'
-import { renderDocument, type InvoiceAuditTrail, type InvoiceDocument, type PrintCounterInfo, type PrintDocument, type VoucherDocLine } from '@shared/print/render'
+import { renderDocument, type InvoiceAuditTrail, type InvoiceDocument, type PrintCounterInfo, type PrintDocument, type VoucherDocLine, type VoucherDocument } from '@shared/print/render'
 import { sampleDocument } from '@shared/print/sample'
 import type { EdocItem } from '@shared/gst/edocs'
 import { computeGst, supplyTypeFor } from '@shared/gst/calc'
@@ -299,7 +299,7 @@ function voucherHead(db: DB, voucherId: number): VoucherHead {
 
 /** Build the printable document for a voucher. `wantOutstanding` skips the balance query when the
  *  template won't print it. */
-export function loadPrintDocument(db: DB, company: CompanyInfo, voucherId: number, wantOutstanding = true): PrintDocument {
+export function loadPrintDocument(db: DB, company: CompanyInfo, voucherId: number, wantOutstanding = true): InvoiceDocument | VoucherDocument {
   const head = voucherHead(db, voucherId)
   const kind = printKindForVoucherKind(head.kind)
   if (!kind) throw new Error('This voucher type has no printed form')

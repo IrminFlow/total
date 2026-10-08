@@ -79,6 +79,10 @@ export type Screen =
   | { name: 'edocs'; tab?: 'documents' | 'self-invoices' }
   | { name: 'registers' }
   | { name: 'outstandings' }
+  // WP 4.2: credit control, reminders, interest on overdue bills, collection reports.
+  | { name: 'receivables'; tab?: 'control' | 'reminders' | 'interest' | 'collections' }
+  // WP 4.3: payables — planning, batch payments, runs, MSME, supplier reconciliation.
+  | { name: 'payables'; tab?: 'plan' | 'batch' | 'runs' | 'msme' | 'suppliers' }
   // WP 2.5b: delivery challans not invoiced / GRNs not billed.
   | { name: 'pending-challans' }
   | { name: 'pending-grns' }
@@ -109,7 +113,7 @@ export type Screen =
   | { name: 'year-end' }
   | { name: 'fixed-assets'; tab?: 'register' | 'depreciation' | 'schedule' | 'income-tax' | 'setup' }
   | { name: 'audit-trail'; voucherId?: number }
-  | { name: 'settings'; tab?: 'appearance' | 'backups' | 'bin' | 'users' | 'audit' | 'nic' | 'features' | 'invoice' | 'agents' | 'about' }
+  | { name: 'settings'; tab?: 'appearance' | 'backups' | 'bin' | 'users' | 'audit' | 'nic' | 'features' | 'invoice' | 'receivables' | 'agents' | 'about' }
 
 interface NavState {
   stack: Screen[]
