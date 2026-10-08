@@ -15,9 +15,9 @@ import { z } from 'zod'
 import type { DB } from '../db/connection'
 import type { CompanyInfo } from '@shared/domain'
 import {
-  aiKeySetSchema, aiSendSchema, aiSettingsPatchSchema, type AiConnectionResult, type AiEvent, type AiSettings, type AiSettingsView
+  aiKeySetSchema, aiRegenerateSchema, aiSendSchema, aiSettingsPatchSchema, aiThreadPinSchema, aiThreadRenameSchema, type AiConnectionResult, type AiEvent, type AiSettings, type AiSettingsView
 } from '@shared/ai'
-import type { Role } from '../services/roles'
+import { roleAllows, type Role } from '../services/roles'
 import type { SecretStore } from '../services/secrets'
 import { writeAudit } from '../services/audit'
 import { AgentRuns, AI_OFF_MESSAGE, settingsBlocker, startTurn } from './agent'
@@ -105,6 +105,12 @@ export function keyChangeRule(o: { companyHasUsers: boolean; anyCompanyHasUsers:
   return { ok: true, mode: 'no-users-confirmed' }
 }
 
+/** Who may change a thread: the user who started it, or an accountant / owner. Pure; tested. */
+export function threadAccessAllowed(session: { name: string | null; role: Role }, owner: string | null): boolean {
+  if (roleAllows(session.role, 'accountant')) return true
+  return session.name !== null && owner !== null && session.name === owner
+}
+
 export function registerAiIpc(handle: Handle, deps: AiIpcDeps): void {
   const registry = createToolRegistry()
   const db = (): DB => deps.company().db
@@ -176,8 +182,7 @@ export function registerAiIpc(handle: Handle, deps: AiIpcDeps): void {
     })()
     return null
   }, 'accountant')
-  handle('ai:send', (p) => {
-    const input = aiSendSchema.parse(p)
+  const ask = (input: Parameters<typeof startTurn>[1]): { threadId: number; runId: string; userMessage: ReturnType<typeof startTurn>['userMessage'] } => {
     const c = deps.company()
     const v = view()
     if (!v.ready) throw new Error(v.blocker ?? AI_OFF_MESSAGE)
@@ -189,6 +194,40 @@ export function registerAiIpc(handle: Handle, deps: AiIpcDeps): void {
       input
     )
     return { threadId: turn.threadId, runId: turn.runId, userMessage: turn.userMessage }
+  }
+  handle('ai:send', (p) => ask(aiSendSchema.parse(p)), 'viewer')
+  // Threads are shared in a company: changing one (regenerate / rename / pin) takes the user who
+  // started it, or an accountant or owner.
+  const assertThreadAccess = (id: number): void => {
+    if (!store.threadExists(db(), id)) throw new Error('Conversation not found')
+    const s = deps.session()
+    if (threadAccessAllowed(s, store.threadOwner(db(), id))) return
+    throw new Error('Only the user who started this conversation, or an accountant or owner, can change it')
+  }
+  // WP 5.2: answer the thread's last question again (the previous answer's messages are removed;
+  // its usage rows and any draft it made stay).
+  handle('ai:regenerate', (p) => {
+    const { threadId, context, speed } = aiRegenerateSchema.parse(p)
+    assertThreadAccess(threadId)
+    // The stored question's own context wins (agent.ts); `context` only covers older messages.
+    return ask({ threadId, text: '', regenerate: true, context, speed })
+  }, 'viewer')
+  handle('ai:thread:rename', (p) => {
+    const { id, title } = aiThreadRenameSchema.parse(p)
+    assertThreadAccess(id)
+    const thread = store.getThread(db(), id)
+    if (!thread) throw new Error('Conversation not found')
+    db().transaction(() => {
+      store.renameThread(db(), id, title)
+      writeAudit(db(), 'ai_thread', id, 'update', { title: thread.title }, { title: store.getThread(db(), id)!.title })
+    })()
+    return store.listThreads(db(), aiRuns.running(scope())).find((t) => t.id === id) ?? null
+  }, 'viewer')
+  handle('ai:thread:pin', (p) => {
+    const { id, pinned } = aiThreadPinSchema.parse(p)
+    assertThreadAccess(id)
+    store.setThreadPinned(db(), id, pinned)
+    return store.listThreads(db(), aiRuns.running(scope())).find((t) => t.id === id) ?? null
   }, 'viewer')
   handle('ai:cancel', (p) => {
     const { threadId } = z.object({ threadId: z.number().int().positive() }).parse(p)
@@ -202,8 +241,11 @@ export function registerAiIpc(handle: Handle, deps: AiIpcDeps): void {
     return d
   }, 'viewer')
   handle('ai:drafts', (p) => {
-    const { status } = z.object({ status: z.enum(['open', 'consumed', 'discarded']).optional() }).default({}).parse(p ?? {})
-    return store.listDrafts(db(), status)
+    const { status, threadId } = z
+      .object({ status: z.enum(['open', 'consumed', 'discarded']).optional(), threadId: z.number().int().positive().optional() })
+      .default({})
+      .parse(p ?? {})
+    return store.listDrafts(db(), status, threadId)
   }, 'viewer')
   handle('ai:draft:discard', (p) => discardDraft(db(), idSchema.parse(p).id), 'accountant')
   // WP 5.3: the drafts one answer made (a multi-draft turn), for the editor's "draft 2 of 3".

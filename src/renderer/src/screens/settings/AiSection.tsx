@@ -53,6 +53,16 @@ const OUTBOUND_COLUMNS = defineColumns<AiOutboundRow>([
   { id: 'bytes', header: 'Size (bytes)', kind: 'number', value: (r) => r.requestBytes, text: (r) => fmtInt(r.requestBytes), width: 110 },
   { id: 'items', header: 'Items', kind: 'number', value: (r) => r.messageCount, width: 70 },
   { id: 'results', header: 'Tool results sent', kind: 'text', value: (r) => r.toolResultsSent.join(', '), minWidth: 160 },
+  // WP 5.2: the screen context that went with the request (screen, parameters, the figure explained).
+  {
+    id: 'context', header: 'Screen context', kind: 'text', minWidth: 180,
+    value: (r) =>
+      r.context
+        ? [r.context.label ?? r.context.screen, ...Object.entries(r.context.params ?? {}).map(([k, v]) => `${k}=${v}`), r.context.explain ? `explain: ${r.context.explain.label}` : null]
+            .filter(Boolean)
+            .join(' · ')
+        : ''
+  },
   {
     id: 'privacy', header: 'Privacy', kind: 'text',
     value: (r) => [r.masked ? 'IDs masked' : 'IDs in clear', r.pseudonymised ? 'parties aliased' : 'party names in clear'].join(' · '), minWidth: 200
@@ -445,7 +455,7 @@ function priceText(prices: Record<string, AiModelPrice>, extra: string[]): Recor
 const FORM_LABEL: Record<string, string> = {
   invoice: 'Invoice / note', accounting: 'Payment / receipt / journal', stockNote: 'Challan / GRN', manufacture: 'Manufacture', tradeDoc: 'Quotation / order'
 }
-const STATUS_LABEL: Record<AiDraftDto['status'], string> = { open: 'Not saved', consumed: 'Saved', discarded: 'Discarded' }
+const STATUS_LABEL: Record<AiDraftDto['status'], string> = { open: 'Not saved', consumed: 'Saved', discarded: 'Discarded', superseded: 'Replaced' }
 
 const DRAFT_COLUMNS = defineColumns<AiDraftDto>([
   { id: 'at', header: 'Drafted', kind: 'text', value: (r) => r.createdAt, text: (r) => fmtAt(r.createdAt), className: 'num text-muted', width: 160, hideable: false },
@@ -464,7 +474,7 @@ const DRAFT_COLUMNS = defineColumns<AiDraftDto>([
   { id: 'total', header: 'Amount', kind: 'number', value: (r) => r.payload.total ?? null, text: (r) => (r.payload.total != null ? formatPaise(r.payload.total, { symbol: true }) : ''), width: 140 },
   {
     id: 'status', header: 'Status', kind: 'enum', value: (r) => r.status, text: (r) => STATUS_LABEL[r.status],
-    options: (['open', 'consumed', 'discarded'] as const).map((v) => ({ value: v, label: STATUS_LABEL[v] })), width: 120,
+    options: (['open', 'consumed', 'discarded', 'superseded'] as const).map((v) => ({ value: v, label: STATUS_LABEL[v] })), width: 120,
     cell: (r) => (
       <span className="flex items-center gap-1">
         <Badge tone={r.status === 'open' ? 'amber' : r.status === 'consumed' ? 'success' : 'neutral'}>{STATUS_LABEL[r.status]}</Badge>

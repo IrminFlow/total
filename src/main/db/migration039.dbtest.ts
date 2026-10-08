@@ -8,10 +8,11 @@ const M039 = MIGRATIONS.findIndex((sql) => sql.includes('CREATE TABLE bulk_batch
 const cols = (db: ReturnType<typeof seededDb>, t: string): string[] => (db.prepare(`PRAGMA table_info(${t})`).all() as { name: string }[]).map((c) => c.name)
 
 describe('migration 039 — bulk edit, attachments, party notes', () => {
-  it('is the last migration, after 038 (import wizard)', () => {
+  it('follows 038 (import wizard); only the WP 5.2 chat-panel migration (040) comes after it', () => {
     const m038 = MIGRATIONS.findIndex((sql) => sql.includes('CREATE TABLE import_batches'))
     expect(M039).toBe(m038 + 1)
-    expect(M039).toBe(MIGRATIONS.length - 1)
+    expect(M039).toBe(MIGRATIONS.length - 2)
+    expect(MIGRATIONS.findIndex((sql) => sql.includes('ALTER TABLE ai_threads ADD COLUMN pinned'))).toBe(MIGRATIONS.length - 1)
   })
 
   it('creates the tables with their constraints', () => {

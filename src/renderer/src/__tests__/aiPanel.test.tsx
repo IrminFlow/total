@@ -18,7 +18,7 @@ function msg(over: Partial<AiMessageDto>): AiMessageDto {
   return {
     id: 1, threadId: 7, role: 'assistant', content: '', status: 'ok', toolCalls: [], toolCallId: null, toolName: null, toolInput: null,
     toolOutput: null, toolOk: null, truncated: false, sources: [], figures: [], model: null, costMicroUsd: null, inputTokens: null,
-    outputTokens: null, draftId: null, createdAt: '2025-08-14T10:00:00Z', ...over
+    outputTokens: null, draftId: null, context: null, createdAt: '2025-08-14T10:00:00Z', ...over
   }
 }
 
@@ -132,7 +132,7 @@ describe('AssistantDrawer', () => {
     await waitFor(() => expect(isDisabled(input)).toBe(false))
     fireEvent.change(input, { target: { value: 'What were sales in July?' } })
     fireEvent.click(screen.getByTestId('btn-ai-send'))
-    await waitFor(() => expect(invoke).toHaveBeenCalledWith('ai:send', { threadId: undefined, text: 'What were sales in July?', context: { screen: 'gateway', from: '2025-04-01', to: '2026-03-31' } }))
+    await waitFor(() => expect(invoke).toHaveBeenCalledWith('ai:send', { threadId: undefined, text: 'What were sales in July?', context: { screen: 'gateway', label: 'Gateway', from: '2025-04-01', to: '2026-03-31' } }))
     expect(listener).not.toBeNull()
     await screen.findByTestId('ai-msg-user')
 

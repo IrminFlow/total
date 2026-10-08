@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import type { BankLineRow } from '@shared/reports'
 import { api, type BrsItem } from '../lib/client'
+import { useAiScreenContext } from '../lib/aiContext'
 import { DataTable, defineColumns, type TableColumn } from '../components/table'
 import { useNav, useSession, useToasts } from '../state/stores'
 import {
@@ -127,6 +128,8 @@ export function BankingScreen({ tab: initialTab }: { tab?: BankTab } = {}): Reac
   const { data: ledgers } = useQuery({ queryKey: ['bankLedgers'], queryFn: api.bank.ledgers })
   const [tab, setTab] = useState<BankTab>(initialTab ?? 'recon')
   const [ledgerId, setLedgerId] = useState<number | null>(null)
+  // WP 5.2: the assistant's screen context names the bank ledger being reconciled.
+  useAiScreenContext('banking', { ledgerId, tab })
   const [chequeSetupOpen, setChequeSetupOpen] = useState(false)
   const [dateEdit, setDateEdit] = useState<{ lineId: number; current: string | null } | null>(null)
   const columns = useMemo(() => reconColumns((r) => setDateEdit({ lineId: r.lineId, current: r.bankDate })), [])

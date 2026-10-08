@@ -20,6 +20,7 @@ export const SHORTCUT_GROUPS: ShortcutGroup[] = [
     rows: [
       { keys: ['⌘K'], label: 'Open the command palette' },
       { keys: ['⌘⇧F'], label: 'Search the books (full results)' },
+      { keys: ['⌘J'], label: 'Open or close the assistant (when AI is on)' },
       { keys: ['⌘', '↵'], label: 'In the palette: see all results' },
       { keys: ['Esc'], label: 'Close a dialog, or go back a screen' },
       { keys: ['F12'], label: "Open the screen's options (period, display, columns, export)" },
@@ -55,7 +56,8 @@ export const SHORTCUT_GROUPS: ShortcutGroup[] = [
     rows: [
       { keys: ['↑', '↓'], label: 'Move the selection' },
       { keys: ['↵'], label: 'Open the selected row' },
-      { keys: ['⌘E'], label: "Edit the selected row's ledger (or click its name)" }
+      { keys: ['⌘E'], label: "Edit the selected row's ledger (or click its name)" },
+      { keys: ['⌘⇧E'], label: "Explain the selected row's figure with the assistant (when AI is on)" }
     ]
   }
 ]
