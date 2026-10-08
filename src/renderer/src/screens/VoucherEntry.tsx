@@ -177,7 +177,11 @@ export function VoucherEntry({
   }
   const currentType = (voucherId ? types.find((t) => t.id === existing!.voucherTypeId) : types.find((t) => t.id === typeId)) ?? types.find((t) => !STOCK_NOTE_KINDS.includes(t.kind)) ?? types[0]!
   const closingEntry = !!existing?.isYearEndClose
-  const activeMode = voucherId ? plan!.mode : modeForKind(currentType.kind)
+  // WP 5.5: an assistant draft of a purchase / debit note carries ledger lines (the 2B assistant's
+  // "record the purchase"), not item rows — it opens in accounting mode, like a saved voucher
+  // without stock lines does, so no line is lost.
+  const ledgerDraft = !voucherId && !!draft?.aiDraftId && !!draft.lines?.length && modeForKind(currentType.kind) === 'invoice'
+  const activeMode = voucherId ? plan!.mode : ledgerDraft ? 'accounting' : modeForKind(currentType.kind)
 
   const typeTabs = !voucherId ? (
     <div role="tablist" aria-label="Voucher type" className="flex flex-wrap items-center gap-1">
@@ -330,6 +334,8 @@ export function VoucherEntry({
               fallbackReason={plan.fallbackReason}
             />
           )
+        ) : ledgerDraft ? (
+          <AccountingEntry key={currentType.id} typeId={currentType.id} kind={currentType.kind} draft={draft} />
         ) : modeForKind(currentType.kind) === 'invoice' ? (
           <InvoiceEntry key={currentType.id} typeId={currentType.id} kind={currentType.kind} draft={draft} />
         ) : modeForKind(currentType.kind) === 'manufacture' ? (
