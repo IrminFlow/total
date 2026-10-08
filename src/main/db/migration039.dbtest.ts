@@ -9,10 +9,10 @@ const M039 = MIGRATIONS.findIndex((sql) => sql.includes('CREATE TABLE bulk_batch
 const cols = (db: ReturnType<typeof seededDb>, t: string): string[] => (db.prepare(`PRAGMA table_info(${t})`).all() as { name: string }[]).map((c) => c.name)
 
 describe('migration 039 — bulk edit, attachments, party notes', () => {
-  it('follows 038 (import wizard); WP 5.2 chat panel (040), WP 6.5 consolidation (041) and WP 5.7 MCP (last) come after it', () => {
+  it('follows 038 (import wizard); WP 5.2 chat panel (040), WP 6.5 consolidation (041), WP 5.7 MCP (042) and WP 5.4 capture (last) come after it', () => {
     const m038 = MIGRATIONS.findIndex((sql) => sql.includes('CREATE TABLE import_batches'))
     expect(M039).toBe(m038 + 1)
-    expect(M039).toBe(MIGRATIONS.length - 4)
+    expect(M039).toBe(MIGRATIONS.length - 5)
     expect(MIGRATIONS.findIndex((sql) => sql.includes('ALTER TABLE ai_threads ADD COLUMN pinned'))).toBe(MIGRATIONS.findIndex((sql) => sql.includes('CREATE TABLE consolidation_groups')) - 1)
   })
 
