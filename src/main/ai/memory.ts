@@ -56,12 +56,17 @@ interface MemoryRow {
 const nameOf = (db: DB, table: 'ledgers' | 'stock_items', id: number | undefined): string | undefined =>
   id ? ((db.prepare(`SELECT name FROM ${table} WHERE id = ?`).get(id) as { name: string } | undefined)?.name ?? undefined) : undefined
 
-function toDto(db: DB, r: MemoryRow): AiMemoryDto {
-  const data = parse<AiMemoryData | null>(r.data_json, null)
+function labelsFor(db: DB, data: AiMemoryData | null): AiMemoryDto['labels'] {
   const labels: AiMemoryDto['labels'] = {}
   if (data?.ledgerId) labels.ledger = nameOf(db, 'ledgers', data.ledgerId)
   if (data?.partyLedgerId) labels.party = nameOf(db, 'ledgers', data.partyLedgerId)
   if (data?.itemId) labels.item = nameOf(db, 'stock_items', data.itemId)
+  return labels
+}
+
+function toDto(db: DB, r: MemoryRow): AiMemoryDto {
+  const data = parse<AiMemoryData | null>(r.data_json, null)
+  const labels = labelsFor(db, data)
   return {
     id: r.id,
     kind: r.kind,
@@ -325,7 +330,8 @@ export function deriveSuggestions(db: DB, today: string): AiMemorySuggestion[] {
 }
 
 export function memoryList(db: DB, today: string): AiMemoryList {
-  return { entries: listMemory(db), suggestions: deriveSuggestions(db, today) }
+  const suggestions = deriveSuggestions(db, today).map((s) => ({ ...s, labels: labelsFor(db, s.data) }))
+  return { entries: listMemory(db), suggestions }
 }
 
 /** Accept (active 'derived' row) or dismiss (archived row — never offered again) a suggestion. */

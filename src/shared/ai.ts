@@ -359,7 +359,7 @@ export const AI_MEMORY_STATUSES = ['active', 'suggested', 'archived'] as const
 export type AiMemoryStatus = (typeof AI_MEMORY_STATUSES)[number]
 
 export const AI_MEMORY_KIND_LABELS: Record<AiMemoryKind, string> = { preference: 'Preference', style: 'Style', party: 'Party', fact: 'Fact' }
-export const AI_MEMORY_SOURCE_LABELS: Record<AiMemorySource, string> = { user: 'You', assistant: 'Assistant', derived: 'From the books' }
+export const AI_MEMORY_SOURCE_LABELS: Record<AiMemorySource, string> = { user: 'You', assistant: 'Assistant', derived: 'Books' }
 export const AI_MEMORY_STATUS_LABELS: Record<AiMemoryStatus, string> = { active: 'Active', suggested: 'Suggested', archived: 'Archived' }
 
 /** What a `preference` is for — the key preferredLedger(purpose) looks up. */
@@ -430,6 +430,8 @@ export interface AiMemorySuggestion {
   data: AiMemoryData | null
   /** The counts it rests on, e.g. "on 9 of 11 payments". */
   reason: string
+  /** Names of the ledgers / item the data points at (resolved when listed). */
+  labels?: AiMemoryDto['labels']
 }
 
 export interface AiMemoryList {

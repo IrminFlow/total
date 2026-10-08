@@ -16,6 +16,7 @@ import { confirmDialog } from '../../lib/dialogs'
 import { useSession, useToasts } from '../../state/stores'
 import { Badge, Button, Checkbox, Field, Modal, Panel, SectionTitle, Segmented, Select, TextInput } from '../../components/ui'
 import { DataTable, defineColumns } from '../../components/table'
+import { MenuButton } from '../../components/kit'
 import { TypeAhead, useLedgers } from '../../components/pickers'
 
 /** One table row: a stored entry, or a suggestion derived from the books (not stored yet). */
@@ -55,7 +56,7 @@ export function memoryRows(list: AiMemoryList | null | undefined): MemoryRow[] {
   }))
   const derived: MemoryRow[] = (list.suggestions ?? []).map((s) => ({
     rowKey: `d${s.key}`, id: null, derivedKey: s.key, kind: s.kind, text: s.text, data: s.data, source: 'derived', status: 'suggested', unrequested: false,
-    reason: s.reason, details: details(s.data, {}), lastUsedAt: null, useCount: 0
+    reason: s.reason, details: details(s.data, s.labels ?? {}), lastUsedAt: null, useCount: 0
   }))
   return [...derived, ...stored]
 }
@@ -70,14 +71,15 @@ const fmtAt = (iso: string | null): string => {
 
 const COLUMNS = defineColumns<MemoryRow>([
   {
-    id: 'kind', header: 'Kind', kind: 'enum', value: (r) => r.kind, width: 110,
+    id: 'kind', header: 'Kind', kind: 'enum', value: (r) => r.kind, width: 96,
     options: AI_MEMORY_KINDS.map((k) => ({ value: k, label: AI_MEMORY_KIND_LABELS[k] }))
   },
   {
-    id: 'text', header: 'Memory', kind: 'text', value: (r) => r.text, hideable: false, minWidth: 260,
+    id: 'text', header: 'Memory', kind: 'text', value: (r) => r.text, hideable: false, minWidth: 180,
     text: (r) => [r.text, r.details, r.reason].filter(Boolean).join(' — '),
     cell: (r) => (
-      <div className="flex flex-col gap-0.5 py-0.5">
+      // Wraps (the table's cells are single-line; this list is short and not windowed).
+      <div className="flex flex-col gap-0.5 py-1 whitespace-normal">
         <span className="text-ink">
           {r.text}
           {r.unrequested && (
@@ -91,16 +93,19 @@ const COLUMNS = defineColumns<MemoryRow>([
     )
   },
   {
-    id: 'source', header: 'Source', kind: 'enum', value: (r) => r.source, width: 130,
+    id: 'source', header: 'Source', kind: 'enum', value: (r) => r.source, width: 110,
     options: (['user', 'assistant', 'derived'] as const).map((s) => ({ value: s, label: AI_MEMORY_SOURCE_LABELS[s] }))
   },
   {
-    id: 'status', header: 'Status', kind: 'enum', value: (r) => r.status, width: 110,
+    id: 'status', header: 'Status', kind: 'enum', value: (r) => r.status, width: 96,
     options: (['active', 'suggested', 'archived'] as const).map((s) => ({ value: s, label: AI_MEMORY_STATUS_LABELS[s] })),
     cell: (r) => <Badge tone={r.status === 'active' ? 'success' : r.status === 'suggested' ? 'amber' : 'neutral'}>{AI_MEMORY_STATUS_LABELS[r.status]}</Badge>
   },
-  { id: 'lastUsed', header: 'Last used', kind: 'text', value: (r) => r.lastUsedAt ?? '', text: (r) => fmtAt(r.lastUsedAt), className: 'num text-muted', width: 170 },
-  { id: 'uses', header: 'Uses', kind: 'number', value: (r) => r.useCount, width: 70 }
+  {
+    id: 'lastUsed', header: 'Last used', kind: 'text', value: (r) => r.lastUsedAt ?? '', text: (r) => fmtAt(r.lastUsedAt).slice(0, 9), className: 'num text-muted', width: 104,
+    cell: (r) => <span title={fmtAt(r.lastUsedAt)}>{fmtAt(r.lastUsedAt).slice(0, 9)}</span>
+  },
+  { id: 'uses', header: 'Uses', kind: 'number', value: (r) => r.useCount, width: 56 }
 ])
 
 export function AiMemoryPanel({ view, isOwner }: { view: AiSettingsView; isOwner: boolean }): React.JSX.Element {
@@ -174,6 +179,8 @@ export function AiMemoryPanel({ view, isOwner }: { view: AiSettingsView; isOwner
           rowAttrs={(r) => ({ 'data-status': r.status, 'data-source': r.source })}
           loading={isLoading}
           maxHeight="50vh"
+          virtualize={false}
+          trailingWidth={164}
           empty={{
             title: filter === 'suggested' ? 'No suggestions' : 'Nothing remembered yet',
             hint: 'Add a memory above, or ask the assistant to “remember that …”. Suggestions from your books appear once there are enough vouchers.'
@@ -196,26 +203,30 @@ export function AiMemoryPanel({ view, isOwner }: { view: AiSettingsView; isOwner
           toolbarFeatures={{ groupBy: false, density: false }}
           trailing={(r) =>
             canEdit ? (
-              <div className="flex justify-end gap-1 whitespace-nowrap">
+              <div className="flex items-center justify-end gap-1 whitespace-nowrap">
                 {r.status !== 'active' && (
                   <Button size="sm" variant={r.status === 'suggested' ? 'primary' : 'secondary'} disabled={busy} onClick={() => void accept(r)} data-testid="btn-ai-memory-accept">
                     {r.status === 'archived' ? 'Restore' : 'Accept'}
                   </Button>
                 )}
-                {r.status !== 'archived' && (
+                {r.status === 'suggested' && (
                   <Button size="sm" variant="ghost" disabled={busy} onClick={() => void archive(r)} data-testid="btn-ai-memory-archive">
-                    {r.status === 'suggested' ? 'Dismiss' : 'Archive'}
+                    Dismiss
                   </Button>
                 )}
-                {r.id && (
-                  <Button size="sm" variant="ghost" disabled={busy} onClick={() => setEditing(r)} data-testid="btn-ai-memory-edit">
-                    Edit
-                  </Button>
-                )}
-                {r.id && (
-                  <Button size="sm" variant="ghost" disabled={busy} onClick={() => void remove(r)} data-testid="btn-ai-memory-delete">
-                    Delete
-                  </Button>
+                {r.id !== null && (
+                  <MenuButton
+                    label="More actions"
+                    testId={`btn-ai-memory-more-${r.id}`}
+                    width={160}
+                    items={[
+                      { label: 'Edit…', onSelect: () => setEditing(r), testId: 'btn-ai-memory-edit' },
+                      ...(r.status === 'active' ? [{ label: 'Archive', onSelect: () => void archive(r), testId: 'btn-ai-memory-archive' }] : []),
+                      { label: 'Delete…', onSelect: () => void remove(r), danger: true, testId: 'btn-ai-memory-delete' }
+                    ]}
+                  >
+                    ⋯
+                  </MenuButton>
                 )}
               </div>
             ) : null

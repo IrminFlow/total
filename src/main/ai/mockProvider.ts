@@ -190,7 +190,7 @@ function rememberStep(question: string, results: { name: string; output: string 
   if (done) {
     const d = parse(done.output)
     if (d.error) return { text: `I could not propose that: ${d.error}` }
-    return { text: 'I have proposed remembering that. Accept it below (or in Settings → AI → Memory) — it is not used until you do.' }
+    return { text: 'I have proposed remembering that. Accept it on the card above (or in Settings → AI → Memory) — it is not used until you do.' }
   }
   const list = results.find((r) => r.name === 'list_ledgers')
   if (!list) return { text: '', toolCalls: [{ name: 'list_ledgers', arguments: {} }] }
