@@ -2,6 +2,14 @@
  * In-house XLSX support (WP 6.3) — no dependency. Pure: the ZIP container (zip.ts), the
  * SpreadsheetML reader (reader.ts) and writer (writer.ts). zlib is injected by the caller
  * (src/main/services/xlsxFile.ts in the app, node:zlib in tests).
+ *
+ * Why WP 4.1's reader (src/shared/bankFormats/xlsx.ts) is not reused: the two are not equivalent.
+ * That one turns ONE sheet of a bank statement into a string grid (built-in date formats only, a
+ * 200 000-row cap, its own pure inflate). This one reads every sheet of a workbook with sparse
+ * row numbers (the import wizard reports errors by spreadsheet row), custom date formats and the
+ * 1904 system, and carries the WRITER (typed ₹ / date / quantity cells) the exports need. Merging
+ * would mean growing the bank reader into this one; left for a later clean-up rather than changing
+ * WP 4.1's tested import path here.
  */
 import { looksLikeZip, readZip, type Inflate } from './zip'
 import { readWorkbook, type Workbook } from './reader'

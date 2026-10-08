@@ -118,6 +118,19 @@ describe('ImportWizardScreen', () => {
     expect(calls('importwiz:planPreview')[0]).toMatchObject({ token: LOADED.token, options: { applyBooksFrom: true } })
   })
 
+  it('a run refused because openings do not tie shows why and cannot be applied', async () => {
+    handlers['importwiz:load'] = () => LOADED
+    handlers['importwiz:preview'] = () => ({ ...DRY, blocked: 'Opening balances do not tie: difference ₹10.00 Dr. Nothing was imported.', steps: [{ ...DRY.steps[0]!, created: 0, errors: [] }], outcomes: [] })
+    renderScreen(<ImportWizardScreen />)
+    fireEvent.click(screen.getByTestId('btn-import-pick'))
+    await screen.findByTestId('import-mapping')
+    fireEvent.click(screen.getByTestId('import-decimal-comma').querySelector('input') ?? screen.getByTestId('import-decimal-comma'))
+    fireEvent.click(screen.getByTestId('btn-import-preview'))
+    expect((await screen.findByTestId('import-blocked')).textContent).toMatch(/do not tie/)
+    expect((screen.getByTestId('btn-import-apply') as HTMLButtonElement).disabled).toBe(true)
+    expect((calls('importwiz:preview')[0] as { options: { decimalComma: boolean } }).options.decimalComma).toBe(true)
+  })
+
   it('lists recent imports with Undo', async () => {
     handlers['importwiz:batches'] = () => [{ id: 3, source: 'generic', profileId: 'generic:ledgers', fileName: 'ledgers.csv', status: 'applied', createdAt: '2026-10-08 10:00:00', createdBy: null, undoneAt: null, errorCount: 0, created: 12, updated: 0, summary: {} }]
     renderScreen(<ImportWizardScreen />)

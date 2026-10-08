@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { deflateRawSync, inflateRawSync } from 'node:zlib'
 import {
+  stripTagPrefixes, MAX_ZIP_TOTAL_BYTES,
   cellText, colIndex, colName, crc32, isDateFormatCode, isoToSerial, numberText, readWorkbook, readXlsx, readZip,
   safeSheetNames, serialToISO, writeXlsx, writeZip, type XlsxSheet
 } from './index'
@@ -178,4 +179,27 @@ describe('writeXlsx round trip', () => {
     expect(wb.sheets[0]!.rows[50000]!.cells).toEqual([{ date: '2025-04-20' }, 'Party 499', 50498.99, 49.999, 49999])
     expect(elapsed).toBeLessThan(20000)
   }, 30000)
+})
+
+describe('review fixes (WP 6.3)', () => {
+  it('reads namespace-prefixed SpreadsheetML (<x:row>, <x:c>, <x:si>)', () => {
+    expect(stripTagPrefixes('<x:sheetData><x:row r="1"><x:c r="A1" t="s"><x:v>0</x:v></x:c></x:row></x:sheetData>')).toBe('<sheetData><row r="1"><c r="A1" t="s"><v>0</v></c></row></sheetData>')
+    const parts: Record<string, string> = {
+      'xl/workbook.xml': '<x:workbook xmlns:x="m" xmlns:r="r"><x:sheets><x:sheet name="S" sheetId="1" r:id="rId1"/></x:sheets></x:workbook>',
+      'xl/_rels/workbook.xml.rels': '<Relationships><Relationship Id="rId1" Target="worksheets/sheet1.xml"/></Relationships>',
+      'xl/sharedStrings.xml': '<x:sst><x:si><x:t>Name</x:t></x:si></x:sst>',
+      'xl/worksheets/sheet1.xml': '<x:worksheet><x:sheetData><x:row r="1"><x:c r="A1" t="s"><x:v>0</x:v></x:c><x:c r="B1"><x:v>12.5</x:v></x:c></x:row></x:sheetData></x:worksheet>'
+    }
+    const wb = readWorkbook((p) => parts[p])
+    expect(wb.sheets[0]!.rows[0]!.cells).toEqual(['Name', 12.5])
+  })
+  it('never inflates past an entry’s declared size (zip bomb) and caps the total', () => {
+    const big = new Uint8Array(4096)
+    const z = writeZip([{ name: 'a.xml', data: big }], deflate)
+    // Forge the declared size down to 10 bytes in the central directory (offset 24 of the CD entry).
+    const cd = z.length - 22 - (46 + 5)
+    new DataView(z.buffer).setUint32(cd + 24, 10, true)
+    expect(() => readZip(z, inflate)).toThrow()
+    expect(MAX_ZIP_TOTAL_BYTES).toBe(512 * 1024 * 1024)
+  })
 })

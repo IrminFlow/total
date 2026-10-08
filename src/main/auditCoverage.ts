@@ -203,12 +203,12 @@ export const AUDIT_COVERAGE: Record<string, AuditCoverage> = {
   'importwiz:preview': r('dry run: applies inside a transaction that is always rolled back'),
   'importwiz:run': a(
     'csv_import', 'import_template', 'group', 'ledger', 'unit', 'stockGroup', 'godown', 'stockItem', 'batch', 'priceLevel', 'priceRate',
-    'voucherType', 'voucher', 'trade_doc', 'bank_statement', 'backup'
+    'voucherType', 'voucher', 'voucher_line', 'trade_doc', 'bank_statement', 'costCentre', 'company', 'backup'
   ),
   'importwiz:planPreview': r('dry run: applies inside a transaction that is always rolled back'),
-  'importwiz:planRun': a('csv_import', 'company', 'group', 'ledger', 'unit', 'stockGroup', 'godown', 'stockItem', 'batch', 'priceLevel', 'priceRate', 'voucherType', 'voucher', 'trade_doc', 'backup'),
+  'importwiz:planRun': a('csv_import', 'company', 'costCentre', 'voucher_line', 'group', 'ledger', 'unit', 'stockGroup', 'godown', 'stockItem', 'batch', 'priceLevel', 'priceRate', 'voucherType', 'voucher', 'trade_doc', 'backup'),
   'importwiz:batches': QUERY,
-  'importwiz:undo': a('import_batch', 'voucher', 'trade_doc', 'ledger', 'stockItem', 'group', 'unit', 'stockGroup', 'godown', 'batch', 'priceLevel', 'priceRate', 'voucherType', 'backup'),
+  'importwiz:undo': a('import_batch', 'voucher', 'voucher_line', 'costCentre', 'trade_doc', 'ledger', 'stockItem', 'group', 'unit', 'stockGroup', 'godown', 'batch', 'priceLevel', 'priceRate', 'voucherType', 'backup'),
   'importwiz:templates': QUERY,
   'importwiz:templateSave': a('import_template'),
   'importwiz:templateDelete': a('import_template'),

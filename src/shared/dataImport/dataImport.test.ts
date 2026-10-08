@@ -10,6 +10,8 @@ import { BUSY_GROUP_MAP, busySaleType, busyTaxCategoryRate, mapBusyGroup, parseB
 import { zohoTaxRate } from './zoho'
 import { BOOKS_SHEETS, booksHeader, readManifest } from './books'
 import { DEFAULT_GROUPS } from '../seed'
+import { decimalCommaLike, normalizeDecimalComma } from './values'
+import { parseTallyRate } from '../tally'
 
 const ok = <T>(v: T): { ok: T } => ({ ok: v })
 
@@ -204,5 +206,35 @@ describe('books workbook layout', () => {
     for (const d of BOOKS_SHEETS) for (const c of d.columns) expect(booksHeader(d, c.field)).toBeTruthy()
     expect(readManifest({ rows: [{ line: 1, cells: ['Key', 'Value'] }, { line: 2, cells: ['format', 'total-books'] }, { line: 3, cells: ['schemaVersion', '1'] }] })).toMatchObject({ schemaVersion: 1 })
     expect(readManifest({ rows: [{ line: 1, cells: ['format', 'other'] }] })).toBeNull()
+  })
+})
+
+describe('review fixes (WP 6.3)', () => {
+  it('dates with upper-case month names (a "T" is not a time unless it is an ISO time)', () => {
+    expect(parseDate('15-OCT-2025')).toEqual(ok('2025-10-15'))
+    expect(parseDate('1 SEPT 2025')).toEqual(ok('2025-09-01'))
+    expect(parseDate('01-AUG-25')).toEqual(ok('2025-08-01'))
+    expect(parseDate('2025-10-15T10:30:00.000+05:30')).toEqual(ok('2025-10-15'))
+    expect(parseDate('2025-10-15T10:30')).toEqual(ok('2025-10-15'))
+  })
+  it('decimal-comma numbers are refused, never misread — the option converts them', () => {
+    expect(decimalCommaLike('1.234,56')).toBe(true)
+    expect(decimalCommaLike('12,5')).toBe(true)
+    expect(decimalCommaLike('1,50')).toBe(true)
+    expect(decimalCommaLike('1,000')).toBe(false)
+    expect(decimalCommaLike('1,23,456.78')).toBe(false)
+    expect(decimalCommaLike('12,50,000')).toBe(false)
+    expect((parseMoney('12,5') as { error: string }).error).toMatch(/decimal comma/)
+    expect((parseQty('2,5 Kg') as { error: string }).error).toMatch(/decimal comma/)
+    expect(normalizeDecimalComma('1.234,56')).toBe('1234.56')
+    expect(normalizeDecimalComma('12,5')).toBe('12.5')
+    expect(normalizeDecimalComma('15.04.2025')).toBe('15.04.2025') // a date stays a date
+    expect(normalizeDecimalComma('Acme, Pune')).toBe('Acme, Pune')
+    expect(parseMoney(normalizeDecimalComma('1.234,56'))).toEqual(ok(123456))
+  })
+  it('Tally rates are parsed with integer maths', () => {
+    expect(parseTallyRate('0.29/Nos')).toBe(29)
+    expect(parseTallyRate('1,234.565/Kg')).toBe(123457)
+    expect(parseTallyRate('')).toBeNull()
   })
 })
