@@ -201,6 +201,7 @@ export const AUDIT_COVERAGE: Record<string, AuditCoverage> = {
   'edoc:exportEwb': EXPORT,
   'edoc:ewbJson': EXPORT,
   'edoc:transportSet': a('voucher'),
+  'nic:testConnection': r('NIC auth handshake only — files nothing, writes nothing to the books'),
   'nic:generateIrn': a('voucher'),
   'nic:generateEwb': a('voucher'),
   'invoice:pdf': EXPORT,

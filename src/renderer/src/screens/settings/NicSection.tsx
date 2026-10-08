@@ -12,8 +12,11 @@ export function NicSection(): React.JSX.Element {
   const { data: existing } = useQuery({ queryKey: ['nicCreds'], queryFn: api.nic.get })
   const [creds, setCreds] = useState<NicCredentials | null>(null)
   const [busy, setBusy] = useState(false)
+  const [testing, setTesting] = useState(false)
+  const [testResult, setTestResult] = useState<{ ok: boolean; text: string } | null>(null)
   const value = creds ?? existing ?? null
-  const canEdit = user?.role === 'owner'
+  // No users set up (single-user books) = the owner, as the IPC role gate treats it (cf. Users / Bin).
+  const canEdit = user == null || user.role === 'owner'
 
   const set = (patch: Partial<NicCredentials>): void => {
     if (value) setCreds({ ...value, ...patch })
@@ -26,6 +29,8 @@ export function NicSection(): React.JSX.Element {
       const r = await api.nic.save(value)
       await queryClient.invalidateQueries({ queryKey: ['nicStatus'] })
       await queryClient.invalidateQueries({ queryKey: ['nicCreds'] })
+      setCreds(null)
+      setTestResult(null)
       toast.push(r.configured ? 'success' : 'warning', r.configured ? 'Live filing is ready' : 'Saved — some fields are still missing')
     } catch (err) {
       toast.push('error', (err as Error).message)
@@ -34,11 +39,32 @@ export function NicSection(): React.JSX.Element {
     }
   }
 
+  // Connection test (WP 3.5): the NIC auth handshake only, with the SAVED credentials — files
+  // nothing. Unsaved edits must be saved first so the test checks what filing will use.
+  const testConnection = async (): Promise<void> => {
+    setTesting(true)
+    setTestResult(null)
+    try {
+      const r = await api.nic.testConnection()
+      setTestResult({
+        ok: true,
+        text: `Connected to ${r.endpoint}${r.sandbox ? ' (sandbox)' : ''} — login accepted${r.tokenExpiry ? `, session valid until ${r.tokenExpiry} IST` : ''}. Nothing was filed.`
+      })
+    } catch (err) {
+      setTestResult({ ok: false, text: (err as Error).message })
+    } finally {
+      setTesting(false)
+    }
+  }
+
   return (
     <div>
       <SectionTitle>NIC live filing</SectionTitle>
       <div className="mb-4 rounded-md border border-amber/50 bg-amberbar/10 px-3.5 py-2.5 text-body-sm text-amber">
         Experimental — never tested against the live NIC portal. Verify every document on the portal.
+        <div className="mt-1 text-hint" data-testid="nic-spec-note">
+          Tested against the published API spec only (7 Oct 2026) — not yet verified on the NIC sandbox.
+        </div>
       </div>
 
       {!canEdit && (
@@ -55,8 +81,8 @@ export function NicSection(): React.JSX.Element {
         <Panel className="p-5">
           <p className="mb-4 text-body-sm text-muted">
             Credentials from your e-invoice API registration (direct access) or your GSP. Sandbox first is a good idea:
-            base URL <span className="num">https://einv-apisandbox.nic.in</span>. Everything stays in this company's local
-            database.
+            base URL <span className="num">https://einv-apisandbox.nic.in</span>. URLs, username, client ID and key stay in this company's local
+            database; the password and client secret are kept encrypted in this computer's secure storage.
           </p>
           <div className="grid grid-cols-2 gap-3">
             <Field label="e-Invoice base URL">
@@ -113,8 +139,32 @@ export function NicSection(): React.JSX.Element {
               />
             </Field>
           </div>
+          {testResult && (
+            <div
+              role="status"
+              data-testid="nic-connection-result"
+              data-ok={testResult.ok ? 'true' : 'false'}
+              className={`mt-4 rounded-md border px-3.5 py-2.5 text-body-sm ${
+                testResult.ok ? 'border-success/50 bg-success-soft text-success' : 'border-danger/50 bg-danger/10 text-danger'
+              }`}
+            >
+              {testResult.text}
+            </div>
+          )}
           <div className="mt-4 flex items-center justify-end gap-3">
             {!canEdit && <span className="text-hint text-muted">Only owners can edit NIC credentials</span>}
+            {canEdit && creds && <span className="text-hint text-muted">Save to test the new credentials</span>}
+            {canEdit && (
+              <Button
+                variant="secondary"
+                data-testid="nic-test-connection"
+                disabled={testing || busy || !!creds}
+                onClick={() => void testConnection()}
+                title="Logs in to NIC with the saved credentials (no filing)"
+              >
+                {testing ? 'Testing…' : 'Connection test'}
+              </Button>
+            )}
             {canEdit && (
               <Button variant="primary" disabled={busy} onClick={() => void save()}>
                 {busy ? 'Saving…' : 'Save credentials'}
