@@ -3,7 +3,7 @@
 // collection reports. Registered from ipc.ts with its `handle` (role gate + { ok, data | error }
 // envelope); every payload is Zod-parsed here.
 import { dialog, shell } from 'electron'
-import { isAbsolute, relative, resolve } from 'path'
+import nodePath from 'path'
 import { z } from 'zod'
 import type { DB } from './db/connection'
 import type { CompanyInfo } from '@shared/domain'
@@ -23,11 +23,13 @@ interface Company { db: DB; info: CompanyInfo; slug: string }
 
 /** `path` resolved, when it lies inside `root` (never `root/../x`, never a sibling `root-other`);
  *  null otherwise. */
-export function insideExports(root: string, path: string): string | null {
-  const base = resolve(root)
-  const target = resolve(base, path)
-  const rel = relative(base, target)
-  if (!rel || rel.startsWith('..') || isAbsolute(rel)) return null
+export function insideExports(root: string, path: string, p: Pick<typeof nodePath, 'resolve' | 'relative' | 'isAbsolute' | 'sep'> = nodePath): string | null {
+  const base = p.resolve(root)
+  const target = p.resolve(base, path)
+  // relative() handles the platform: on Windows it compares case-insensitively and across drive
+  // letters / UNC shares (a different drive or share comes back absolute).
+  const rel = p.relative(base, target)
+  if (!rel || rel === '..' || rel.startsWith(`..${p.sep}`) || p.isAbsolute(rel)) return null
   return target
 }
 

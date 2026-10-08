@@ -3,7 +3,7 @@
 import { beforeAll, describe, expect, it, vi } from 'vitest'
 import { mkdtempSync } from 'fs'
 import { tmpdir } from 'os'
-import { join } from 'path'
+import path, { join, resolve, sep } from 'path'
 
 const handlers = new Map<string, (event: unknown, payload: unknown) => Promise<{ ok: boolean; data?: unknown; error?: string }>>()
 const revealed: string[] = []
@@ -44,14 +44,31 @@ beforeAll(async () => {
 })
 
 describe('receivables IPC', () => {
-  it('insideExports accepts files under the folder only', () => {
-    const root = '/data/companies/acme/exports'
-    expect(rxIpc.insideExports(root, `${root}/statements/s.pdf`)).toBe(`${root}/statements/s.pdf`)
-    expect(rxIpc.insideExports(root, `${root}/../../x`)).toBeNull()
-    expect(rxIpc.insideExports(root, `${root}/statements/../../company.db`)).toBeNull()
-    expect(rxIpc.insideExports(root, '/data/companies/acme/exports-other/x.pdf')).toBeNull()
+  it('insideExports accepts files under the folder only (this platform)', () => {
+    const root = resolve(tmpdir(), 'data', 'companies', 'acme', 'exports')
+    expect(rxIpc.insideExports(root, join(root, 'statements', 's.pdf'))).toBe(resolve(root, 'statements', 's.pdf'))
+    expect(rxIpc.insideExports(root, join(root, '..', '..', 'x'))).toBeNull()
+    expect(rxIpc.insideExports(root, join(root, 'statements', '..', '..', 'company.db'))).toBeNull()
+    expect(rxIpc.insideExports(root, `${root}-other${sep}x.pdf`)).toBeNull()
     expect(rxIpc.insideExports(root, root)).toBeNull()
-    expect(rxIpc.insideExports(root, '/etc/passwd')).toBeNull()
+    expect(rxIpc.insideExports(root, resolve(tmpdir(), 'elsewhere.txt'))).toBeNull()
+    // A file whose name merely starts with '..' is still inside.
+    expect(rxIpc.insideExports(root, join(root, '..notes.pdf'))).toBe(resolve(root, '..notes.pdf'))
+  })
+
+  it('insideExports on Windows paths: backslashes, drive-letter case, other drives, UNC', () => {
+    const w = path.win32
+    const root = 'C:\\Users\\a\\Documents\\total\\companies\\acme\\exports'
+    expect(rxIpc.insideExports(root, `${root}\\statements\\s.pdf`, w)).toBe(`${root}\\statements\\s.pdf`)
+    expect(rxIpc.insideExports(root, 'c:\\users\\a\\documents\\total\\companies\\acme\\exports\\s.pdf', w)).not.toBeNull()
+    expect(rxIpc.insideExports(root, 'C:/Users/a/Documents/total/companies/acme/exports/statements/s.pdf', w)).not.toBeNull()
+    expect(rxIpc.insideExports(root, `${root}\\..\\company.db`, w)).toBeNull()
+    expect(rxIpc.insideExports(root, `${root}-other\\x.pdf`, w)).toBeNull()
+    expect(rxIpc.insideExports(root, 'D:\\Users\\a\\Documents\\total\\companies\\acme\\exports\\s.pdf', w)).toBeNull()
+    expect(rxIpc.insideExports(root, '\\\\server\\share\\exports\\s.pdf', w)).toBeNull()
+    const unc = '\\\\server\\share\\total\\exports'
+    expect(rxIpc.insideExports(unc, `${unc}\\s.pdf`, w)).toBe(`${unc}\\s.pdf`)
+    expect(rxIpc.insideExports(unc, '\\\\server\\other\\total\\exports\\s.pdf', w)).toBeNull()
   })
 
   it('setHold is owner-only; reveal refuses paths escaping exports', async () => {
