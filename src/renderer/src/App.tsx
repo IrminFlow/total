@@ -7,6 +7,8 @@ import { Shell } from './components/Shell'
 import { Gateway } from './screens/Gateway'
 import { DayBook } from './screens/DayBook'
 import { ImportTallyScreen } from './screens/ImportTally'
+import { ImportWizardScreen } from './screens/ImportWizard'
+import { BooksExportScreen } from './screens/BooksExport'
 import { VoucherEntry } from './screens/VoucherEntry'
 import { Masters } from './screens/Masters'
 import { TrialBalanceScreen } from './screens/TrialBalance'
@@ -148,6 +150,8 @@ export default function App(): React.JSX.Element {
           {screen.name === 'gateway' && <Gateway />}
           {screen.name === 'daybook' && <DayBook month={screen.month} kind={screen.kind} />}
           {screen.name === 'import-tally' && <ImportTallyScreen />}
+          {screen.name === 'data-import' && <ImportWizardScreen />}
+          {screen.name === 'data-export' && <BooksExportScreen />}
           {screen.name === 'voucher-entry' && (
             <VoucherEntry
               key={screen.voucherId ?? (screen.draftId ? `draft-${screen.draftId}` : 'new')}

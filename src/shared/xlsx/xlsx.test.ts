@@ -24,7 +24,7 @@ describe('zip', () => {
   it('rejects non-zips and damaged data', () => {
     expect(() => readZip(enc.encode('not a zip file at all, definitely'), inflate)).toThrow(/Not a ZIP/)
     const z = writeZip([{ name: 'a.txt', data: enc.encode('abcdef') }])
-    z[30 + 5] ^= 0xff // flip a byte of the stored data
+    z[35] = z[35]! ^ 0xff // flip a byte of the stored data
     expect(() => readZip(z, inflate)).toThrow(/CRC/)
   })
   it('refuses .xls with a helpful message', () => {

@@ -39,6 +39,8 @@ export type Screen =
   // 'YYYY-MM' month and/or one voucher-type kind ('sales' | 'purchase' | …).
   | { name: 'daybook'; month?: string; kind?: string }
   | { name: 'import-tally' }
+  | { name: 'data-import' }
+  | { name: 'data-export' }
   // `draftId` forces VoucherEntry to remount when a new draft targets the same 'new' voucher slot
   // (e.g. two "Create purchase" nudges in a row) — App.tsx keys the component on it, see there.
   | { name: 'voucher-entry'; voucherId?: number; kindHint?: VoucherKind; draft?: VoucherDraft; draftId?: number }

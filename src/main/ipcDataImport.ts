@@ -148,7 +148,7 @@ export function registerDataImportIpc(handle: Handle, company: () => Company): v
     const c = company()
     const f = fileFor(q.token)
     const { steps: plan, profile } = steps(q, c, f)
-    return dataImport.runImport(c.db, plan, q.options, { source: profile.source, profileId: profile.id, fileName: f.fileName }, true)
+    return dataImport.runImport(c.db, plan, { ...q.options, applyBooksFrom: null }, { source: profile.source, profileId: profile.id, fileName: f.fileName }, true)
   })
 
   handle('importwiz:run', async (p) => {
@@ -166,7 +166,7 @@ export function registerDataImportIpc(handle: Handle, company: () => Company): v
       })
     }
     await backupCompany(c.db, c.slug, 'pre-import')
-    return dataImport.runImport(c.db, plan, q.options, { source: profile.source, profileId: profile.id, fileName: f.fileName }, false)
+    return dataImport.runImport(c.db, plan, { ...q.options, applyBooksFrom: null }, { source: profile.source, profileId: profile.id, fileName: f.fileName }, false)
   })
 
   const planOpts = (f: LoadedFile, o: z.infer<typeof optionsSchema>): Partial<dataImport.ImportOptions> => ({

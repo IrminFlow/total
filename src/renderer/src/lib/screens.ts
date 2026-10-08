@@ -483,6 +483,25 @@ export const SCREENS: ScreenDef[] = [
     navSection: 'system',
     invalidates: ['audit']
   },
+  // WP 6.3 — kept before "Import from Tally", which stays last in System.
+  {
+    name: 'data-import',
+    title: 'Import from Excel, CSV, Busy or Zoho Books',
+    navLabel: 'Import',
+    keywords: ['excel', 'xlsx', 'csv', 'busy', 'zoho', 'opening balances', 'migrate', 'bulk import', 'undo import'],
+    screen: { name: 'data-import' },
+    navSection: 'system',
+    invalidates: ['importBatches', 'importTemplates']
+  },
+  {
+    name: 'data-export',
+    title: 'Export books to Excel',
+    navLabel: 'Export',
+    keywords: ['excel', 'xlsx', 'workbook', 'backup to excel', 'download data'],
+    screen: { name: 'data-export' },
+    navSection: 'system',
+    invalidates: []
+  },
   {
     name: 'import-tally',
     title: 'Import from Tally',
