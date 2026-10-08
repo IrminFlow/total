@@ -1,6 +1,6 @@
 import type { DB } from '../db/connection'
 import type { CompanyInfo } from '@shared/domain'
-import { fyFromStartYear, todayISO } from '@shared/dates'
+import { fyFromStartYear, fyOf, todayISO } from '@shared/dates'
 import { planClose, type CloseLedgerRow } from '@shared/yearEnd'
 import { findOrCreateLedger } from './masters'
 import { saveVoucher, setLockDate, NOT_DELETED } from './vouchers'
@@ -166,4 +166,40 @@ export function postClose(db: DB, company: CompanyInfo, fyStartYear: number): Cl
     lockedUpTo: closeDate
   })
   return { voucherId, netProfit: plan.netProfit, lockedUpTo: closeDate }
+}
+
+/**
+ * WP 6.3 Books import: flag an imported journal as a year-end closing journal — but ONLY when it is
+ * shaped like one, so a user's file can never make an arbitrary journal immutable and invisible to
+ * the P&L: a live, dated (not optional / post-dated) journal on the last day of its FY, with no
+ * stock or bill lines, at least one income/expense ledger line and at most one other line (the
+ * transfer to retained earnings / capital), and no closing journal already in that FY. Throws the
+ * reason otherwise. The lock date is not touched here (the importer restores the exported one).
+ */
+export function markImportedClose(db: DB, voucherId: number): void {
+  const v = db
+    .prepare(
+      `SELECT v.date, v.is_optional, v.post_dated, v.deleted_at, v.is_year_end_close, vt.kind FROM vouchers v
+         JOIN voucher_types vt ON vt.id = v.voucher_type_id WHERE v.id = ?`
+    )
+    .get(voucherId) as { date: string; is_optional: number; post_dated: number; deleted_at: string | null; is_year_end_close: number; kind: string } | undefined
+  if (!v || v.deleted_at) throw new Error('Voucher not found')
+  if (v.is_year_end_close) return
+  const fy = fyOf(v.date)
+  if (v.kind !== 'journal') throw new Error('A closing entry must be a journal')
+  if (v.is_optional || v.post_dated) throw new Error('A closing entry cannot be optional or post-dated')
+  if (v.date !== fy.to) throw new Error(`A closing entry is dated ${fy.to}, the last day of FY ${fy.label}`)
+  if (db.prepare('SELECT 1 FROM inventory_lines WHERE voucher_id = ?').get(voucherId) || db.prepare('SELECT 1 FROM bill_refs WHERE voucher_id = ?').get(voucherId)) {
+    throw new Error('A closing entry has no stock or bill lines')
+  }
+  const lines = db
+    .prepare('SELECT g.nature FROM voucher_lines vl JOIN ledgers l ON l.id = vl.ledger_id JOIN groups g ON g.id = l.group_id WHERE vl.voucher_id = ?')
+    .all(voucherId) as { nature: string }[]
+  const pnl = lines.filter((l) => l.nature === 'income' || l.nature === 'expense').length
+  if (pnl === 0 || lines.length - pnl > 1) throw new Error('A closing entry moves income and expense ledgers to one transfer ledger')
+  if (db.prepare(`SELECT 1 FROM vouchers v WHERE ${NOT_DELETED} AND v.is_year_end_close = 1 AND v.date BETWEEN ? AND ?`).get(fy.from, fy.to)) {
+    throw new Error(`FY ${fy.label} already has a closing entry`)
+  }
+  db.prepare('UPDATE vouchers SET is_year_end_close = 1 WHERE id = ?').run(voucherId)
+  writeAudit(db, 'voucher', voucherId, 'update', { isYearEndClose: false }, { isYearEndClose: true, via: 'books import' })
 }

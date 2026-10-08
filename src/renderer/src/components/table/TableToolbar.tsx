@@ -32,6 +32,7 @@ export function TableToolbar<Row>({
   appDensity = 'comfortable',
   onExportCsv,
   onExportPdf,
+  onExportXlsx,
   start,
   end,
   loading = false
@@ -49,6 +50,7 @@ export function TableToolbar<Row>({
   appDensity?: Density
   onExportCsv?: () => void
   onExportPdf?: () => void
+  onExportXlsx?: () => void
   start?: ReactNode
   end?: ReactNode
   /** Rows are still loading: the count is withheld (it would read "0 rows"). */
@@ -163,6 +165,11 @@ export function TableToolbar<Row>({
           {features.export && onExportCsv && (
             <Button variant="ghost" size="sm" onClick={onExportCsv} data-testid={`${area}-table-csv`}>
               CSV
+            </Button>
+          )}
+          {features.export && onExportXlsx && (
+            <Button variant="ghost" size="sm" onClick={onExportXlsx} data-testid={`${area}-table-xlsx`} title="Excel workbook — amounts as numbers, dates as dates">
+              Excel
             </Button>
           )}
           {end}

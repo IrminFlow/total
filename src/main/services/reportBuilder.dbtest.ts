@@ -66,11 +66,10 @@ function voucher(
 // ---------------------------------------------------------------- migration 038
 
 describe('report-builder migration (last) — saved reports and report packs', () => {
-  it('is the last migration (number by position)', () => {
-    // Array position = migration number − 1. On this branch it follows 031 directly; once the
-    // parallel 032–037 merge it must sit after them (numbers are array positions).
-    expect(M038).toBe(MIGRATIONS.length - 1)
+  it('is migration 037 (number by position): after 032–036, before WP 6.3’s import wizard (038)', () => {
+    // Array position = migration number − 1. Later branches append after it.
     expect(M038 + 1).toBeGreaterThanOrEqual(37) // after 032–035 (Phase 4) and 036 (AI)
+    expect(M038).toBeLessThan(MIGRATIONS.findIndex((sql) => sql.includes('CREATE TABLE import_batches')))
   })
 
   it('creates the three tables with their constraints, from the previous schema', () => {

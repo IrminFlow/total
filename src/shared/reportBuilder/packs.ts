@@ -23,8 +23,8 @@ export const PACK_PERIOD_RULES = ['lastMonth', 'lastQuarter', 'fyToDate'] as con
 export type PackPeriodRule = (typeof PACK_PERIOD_RULES)[number]
 export const PACK_FREQUENCIES = ['daily', 'weekly', 'monthly'] as const
 export type PackFrequency = (typeof PACK_FREQUENCIES)[number]
-/** XLSX joins when the shared workbook writer (WP 6.3) lands on main; until then PDF + CSV. */
-export const PACK_FORMATS = ['pdf', 'csv'] as const
+/** XLSX: the shared workbook writer (WP 6.3) — amounts as numbers (src/shared/xlsx/display.ts). */
+export const PACK_FORMATS = ['pdf', 'csv', 'xlsx'] as const
 export type PackFormat = (typeof PACK_FORMATS)[number]
 
 export const packReportRefSchema = z.discriminatedUnion('kind', [

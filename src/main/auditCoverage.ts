@@ -194,7 +194,27 @@ export const AUDIT_COVERAGE: Record<string, AuditCoverage> = {
   'import:preview': QUERY,
   'import:apply': a('csv_import', 'ledger', 'stockItem'),
   'import:template': EXPORT,
-  'tally:import': a('tally_import'),
+  // WP 6.3: orders land in trade_docs (saveTradeDoc audits them); booksFrom is company info.
+  'tally:import': a('tally_import', 'trade_doc', 'company'),
+  // WP 6.3 import wizard (ipcDataImport.ts). Every record goes through its own service's audit;
+  // csv_import is the run's summary row; a dry run writes and rolls everything back.
+  'importwiz:load': r('reads a file into memory; writes nothing'),
+  'importwiz:sheet': QUERY,
+  'importwiz:preview': r('dry run: applies inside a transaction that is always rolled back'),
+  'importwiz:run': a(
+    'csv_import', 'import_template', 'group', 'ledger', 'unit', 'stockGroup', 'godown', 'stockItem', 'batch', 'priceLevel', 'priceRate',
+    'voucherType', 'voucher', 'voucher_line', 'trade_doc', 'bank_statement', 'costCentre', 'company', 'backup'
+  ),
+  'importwiz:planPreview': r('dry run: applies inside a transaction that is always rolled back'),
+  'importwiz:planRun': a('csv_import', 'company', 'costCentre', 'voucher_line', 'group', 'ledger', 'unit', 'stockGroup', 'godown', 'stockItem', 'batch', 'priceLevel', 'priceRate', 'voucherType', 'voucher', 'trade_doc', 'backup'),
+  'importwiz:batches': QUERY,
+  'importwiz:undo': a('import_batch', 'voucher', 'voucher_line', 'costCentre', 'trade_doc', 'ledger', 'stockItem', 'group', 'unit', 'stockGroup', 'godown', 'batch', 'priceLevel', 'priceRate', 'voucherType', 'backup'),
+  'importwiz:templates': QUERY,
+  'importwiz:templateSave': a('import_template'),
+  'importwiz:templateDelete': a('import_template'),
+  'importwiz:sample': EXPORT,
+  'export:xlsx': EXPORT,
+  'export:books': EXPORT,
 
   // ---------- GST / e-documents ----------
   'gst:exportGstr1': EXPORT,
