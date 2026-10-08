@@ -16,6 +16,8 @@ export interface VoucherDraft {
   date?: string
   partyLedgerId?: number
   narration?: string
+  /** Voucher reference carried by a draft (an AI / MCP / inbox draft's `reference`). */
+  reference?: string
   lines?: { ledgerId: number; drCr: 'dr' | 'cr'; amount: number }[]
   /** WP 2.5c "Convert to challan / invoice / GRN / bill": draw every pending line of this
    *  sales / purchase order (the "Add from…" picks, pre-filled). */

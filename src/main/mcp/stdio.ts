@@ -7,6 +7,7 @@ import { getMcpConfig } from '../services/config'
 import { runAsAuditUser } from '../services/audit'
 import { createMcpServer, installMcpProcessContext } from './server'
 import { resolveMcpIdentity, type McpSessionRequest } from './session'
+import { pruneMcpLog } from './log'
 
 export interface McpStdioOptions extends McpSessionRequest {
   db: DB
@@ -19,6 +20,7 @@ export interface McpStdioOptions extends McpSessionRequest {
 /** Start the server; resolves when the client disconnects (stdin closes). */
 export async function runMcpStdio(o: McpStdioOptions): Promise<void> {
   if (!getMcpConfig(o.db).enabled) throw new Error(MCP_DISABLED_MESSAGE)
+  pruneMcpLog(o.db) // retention: MCP_LOG_KEEP_DAYS
   // A failed PIN is audited like the lock screen's; the attempt is attributed to the MCP launcher.
   const identity = runAsAuditUser('mcp:startup', () => resolveMcpIdentity(o.db, o))
   const handle = createMcpServer({

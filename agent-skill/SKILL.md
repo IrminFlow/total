@@ -46,10 +46,13 @@ Claude Code: `claude mcp add total-<slug> -- node /path/to/total/scripts/total-c
 `mcpServers` entry with `command: "node"` and the same args. Settings → Agent access in the app
 shows both snippets ready to copy.
 
-The owner can turn MCP off per company (Settings → Agent access → MCP server): the server then
-refuses to start and a running session gets every request refused. Every request is logged
-(Settings → Agent access → MCP request log: tool, size, a hash — never the content); drafts and
-other audit rows are attributed to `mcp:<your client name>`.
+**MCP is off for every company until its owner turns it on** (Settings → Agent access → MCP
+server); while off, the server refuses to start and a running session gets every request refused.
+A PIN in `TOTAL_MCP_PIN` sits in plain text in the client's config; changing the user's PIN ends
+the session. Every request is logged (Settings → Agent access → MCP request log: tool, size, a
+hash — never the content; kept 90 days); drafts and other audit rows are attributed to
+`mcp:<your client name>` with the verified user's id. Masking is by field: GSTIN / PAN / IFSC /
+account-number fields are masked, codes such as HSN and voucher numbers are returned as they are.
 
 ## Non-negotiables
 

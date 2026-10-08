@@ -9,8 +9,10 @@
 //     has users — `--user <name>` plus the PIN in TOTAL_MCP_PIN, verified by users.login (same
 //     throttle, `login` / `login_failed` audit rows), and the user's own role must cover it;
 //   - nothing any role can do over MCP writes the books: draft tools only write ai_drafts.
-// A running session re-checks before every request that the kill switch is still off and that
-// a signed-in user is still active with a role that covers the session's.
+// A running session re-checks before every request that MCP is still allowed for the company and
+// that a signed-in user is still active, with a role that covers the session's and the same PIN
+// (a PIN change ends the session — the old PIN may sit in a client's config file).
+import { createHash } from 'crypto'
 import type { DB } from '../db/connection'
 import { roleAllows, type Role } from '../services/roles'
 import { login, usersExist } from '../services/users'
@@ -29,6 +31,13 @@ export interface McpIdentity {
   /** The verified user, or null (viewer without --user, or a company without users). */
   userName: string | null
   userId: number | null
+  /** Fingerprint of the user's PIN hash at sign-in; a different one later ends the session. */
+  pinStamp?: string | null
+}
+
+const pinStampOf = (db: DB, userId: number): string | null => {
+  const r = db.prepare('SELECT pin_hash FROM users WHERE id = ?').get(userId) as { pin_hash: string } | undefined
+  return r ? createHash('sha256').update(r.pin_hash).digest('hex') : null
 }
 
 export function parseRole(raw: string | undefined): Role {
@@ -62,7 +71,7 @@ export function resolveMcpIdentity(db: DB, req: McpSessionRequest): McpIdentity 
   if (!req.pin) throw new Error(`Set TOTAL_MCP_PIN to ${u.name}'s PIN (it is read from the environment — stdin carries the MCP protocol)`)
   const who = login(db, u.id, req.pin) // throttled + audited exactly like the lock screen
   if (!roleAllows(who.role, req.role)) throw new Error(`${who.name} is ${who.role} — cannot start the MCP server as ${req.role}`)
-  return { role: req.role, userName: who.name, userId: who.id }
+  return { role: req.role, userName: who.name, userId: who.id, pinStamp: pinStampOf(db, who.id) }
 }
 
 /** Before every request: a signed-in user must still be active with a role covering the session. */
@@ -75,5 +84,6 @@ export function identityStillValid(db: DB, id: McpIdentity): string | null {
   const row = db.prepare('SELECT role, active FROM users WHERE id = ?').get(id.userId) as { role: Role; active: number } | undefined
   if (!row || !row.active) return `${id.userName} is no longer an active user`
   if (!roleAllows(row.role, id.role)) return `${id.userName} is now ${row.role} — the session needs ${id.role}`
+  if (id.pinStamp && pinStampOf(db, id.userId) !== id.pinStamp) return `${id.userName}'s PIN has changed — restart the MCP server with the new PIN`
   return null
 }

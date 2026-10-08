@@ -464,6 +464,10 @@ export interface AiDataCounts {
   usage: number
   outbound: number
   pseudonyms: number
+  /** Drafts proposed over MCP or dropped in the inbox (also deleted with the drafts). */
+  agentDrafts: number
+  /** mcp_log rows — counted for the record, never deleted here (its own retention prunes it). */
+  mcpLog: number
 }
 
 export function aiDataCounts(db: DB): AiDataCounts {
@@ -475,7 +479,9 @@ export function aiDataCounts(db: DB): AiDataCounts {
     memory: n('ai_memory'),
     usage: n('ai_usage'),
     outbound: n('ai_outbound_log'),
-    pseudonyms: n('ai_pseudonyms')
+    pseudonyms: n('ai_pseudonyms'),
+    agentDrafts: (db.prepare("SELECT COUNT(*) AS n FROM ai_drafts WHERE source IN ('mcp', 'inbox')").get() as { n: number }).n,
+    mcpLog: n('mcp_log')
   }
 }
 
@@ -485,7 +491,8 @@ export function deleteAllAiData(db: DB, includeLogs: boolean): AiDataCounts {
   const before = aiDataCounts(db)
   db.transaction(() => {
     db.exec('DELETE FROM ai_drafts; DELETE FROM ai_messages; DELETE FROM ai_threads; DELETE FROM ai_memory; DELETE FROM ai_pseudonyms;')
-    if (includeLogs) db.exec('DELETE FROM ai_usage; DELETE FROM ai_outbound_log; DELETE FROM mcp_log;')
+    // mcp_log is not an AI-provider log: it stays (pruned after MCP_LOG_KEEP_DAYS by the server).
+    if (includeLogs) db.exec('DELETE FROM ai_usage; DELETE FROM ai_outbound_log;')
   })()
   return before
 }

@@ -143,12 +143,12 @@ export function setAgentBridgeEnabled(db: DB, enabled: boolean): boolean {
 
 // ---------- MCP server kill switch (WP 5.7) ----------
 
-/** Whether `total-cli mcp` may serve this company. Default ON (the server only runs when someone
- *  with the company's files starts it, as viewer unless they ask for more); the owner can turn it
- *  off, which refuses new sessions and every request of a running one. Stored in `meta` 'mcp'. */
+/** Whether `total-cli mcp` may serve this company. Default OFF, like the in-app assistant: the
+ *  owner turns it on in Settings → Agent access. Off refuses new sessions and every request of a
+ *  running one (the kill switch). Stored in `meta` 'mcp'. */
 export function getMcpConfig(db: DB): McpConfig {
   const v = readMeta(db, 'mcp') as Partial<McpConfig> | null
-  return { enabled: v?.enabled !== false }
+  return { enabled: v?.enabled === true }
 }
 
 export function setMcpConfig(db: DB, input: McpConfig): McpConfig {

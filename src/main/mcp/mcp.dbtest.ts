@@ -17,15 +17,16 @@ import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js'
 import type { DB } from '../db/connection'
 import { seededDb, postSimpleVoucher } from '../db/testdb'
 import { setAuditContext } from '../services/audit'
-import { setMcpConfig } from '../services/config'
+import { getMcpConfig, setMcpConfig } from '../services/config'
 import { saveUser, deactivateUser } from '../services/users'
-import { setDefaultDraftOrigin } from '../ai/store'
+import { aiDataCounts, deleteAllAiData, setDefaultDraftOrigin } from '../ai/store'
 import { createToolRegistry } from '../ai/tools'
 import { MCP_DISABLED_MESSAGE } from '@shared/mcp'
 import { createMcpServer, installMcpProcessContext, type McpServerHandle } from './server'
 import { resolveMcpIdentity, type McpIdentity } from './session'
 import { runMcpStdio } from './stdio'
-import { listMcpLog } from './log'
+import { listMcpLog, logMcp, pruneMcpLog } from './log'
+import { MCP_RESOURCE_BUDGET } from './resources'
 
 const GSTIN = '27AAPFU0939F1ZV'
 const TODAY = '2025-09-30'
@@ -85,9 +86,10 @@ async function call(client: Client, name: string, args: Record<string, unknown> 
 beforeEach(() => {
   db = seededDb()
   const debtors = (db.prepare("SELECT id FROM groups WHERE name = 'Sundry Debtors'").get() as { id: number }).id
-  db.prepare('INSERT INTO ledgers (name, group_id, opening_balance, gstin, state_code) VALUES (?, ?, ?, ?, ?)').run('Acme Traders', debtors, 1234567890, GSTIN, '27')
-  postSimpleVoucher(db, { date: '2025-05-01', amount: 500000, kind: 'receipt' })
-  setMcpConfig(db, { enabled: true })
+  db.prepare('INSERT INTO ledgers (name, group_id, opening_balance, gstin, state_code, hsn) VALUES (?, ?, ?, ?, ?, ?)').run('Acme Traders', debtors, 1234567890, GSTIN, '27', '99831100')
+  const v = postSimpleVoucher(db, { date: '2025-05-01', amount: 500000, kind: 'receipt' })
+  db.prepare("UPDATE vouchers SET number = '2025-26/00012345', reference = 'INV-20250415' WHERE id = ?").run(v.id)
+  setMcpConfig(db, { enabled: true }) // MCP is off by default — every test here turns it on
 })
 
 afterEach(async () => {
@@ -210,6 +212,34 @@ describe('MCP privacy — masking default on, pseudonyms optional', () => {
     expect(listMcpLog(db).every((l) => l.masked)).toBe(true)
   })
 
+  it('masks by field: HSN, voucher number, FY-prefixed number and invoice reference come back intact', async () => {
+    const { client } = await connect()
+    const read = async (uri: string): Promise<string> => ((await client.readResource({ uri })).contents[0] as { text: string }).text
+    const csv = await read('total://mirror/ledgers.csv')
+    expect(csv).toContain('99831100')
+    expect(csv).not.toContain('[A/c')
+    const ledgersJson = await read('total://mirror/ledgers.json')
+    expect(ledgersJson).toContain('"hsn": "99831100"')
+    const vouchers = await read('total://mirror/vouchers-2025-26.json')
+    expect(vouchers).toContain('"number": "2025-26/00012345"')
+    expect(vouchers).toContain('"reference": "INV-20250415"')
+    expect(vouchers).not.toContain('[A/c')
+    const day = await call(client, 'day_book', { from: '2025-04-01', to: '2026-03-31' })
+    expect(day.text).toContain('2025-26/00012345')
+    expect(day.text).not.toContain('[A/c')
+  })
+
+  it('pseudonymises party names in resources too (and never the codes beside them)', async () => {
+    const { client } = await connect({}, { maskIds: true, pseudonymiseParties: true })
+    const csv = ((await client.readResource({ uri: 'total://mirror/ledgers.csv' })).contents[0] as { text: string }).text
+    expect(csv).not.toContain('Acme Traders')
+    expect(csv).toMatch(/Party-\d{4}/)
+    expect(csv).toContain('99831100')
+    const chart = ((await client.readResource({ uri: 'total://chart-of-accounts' })).contents[0] as { text: string }).text
+    expect(chart).not.toContain('Acme Traders')
+    expect(chart).toContain('Sundry Debtors')
+  })
+
   it('returns real identifiers with masking off (--no-mask)', async () => {
     const { client } = await connect({}, { maskIds: false, pseudonymiseParties: false })
     expect((await call(client, 'list_ledgers', { search: 'Acme' })).text).toContain(GSTIN)
@@ -233,9 +263,9 @@ describe('MCP kill switch and identity', () => {
     const { client } = await connect()
     expect((await client.listTools()).tools.length).toBeGreaterThan(0)
     setMcpConfig(db, { enabled: false })
-    await expect(client.listTools()).rejects.toThrow(/MCP access is turned off/)
-    await expect(client.callTool({ name: 'trial_balance', arguments: {} })).rejects.toThrow(/turned off/)
-    await expect(client.readResource({ uri: 'total://company' })).rejects.toThrow(/turned off/)
+    await expect(client.listTools()).rejects.toThrow(/MCP access is off/)
+    await expect(client.callTool({ name: 'trial_balance', arguments: {} })).rejects.toThrow(/is off/)
+    await expect(client.readResource({ uri: 'total://company' })).rejects.toThrow(/is off/)
     const refused = listMcpLog(db).filter((l) => !l.ok && l.error === MCP_DISABLED_MESSAGE)
     expect(refused.length).toBe(3)
     await expect(
@@ -259,7 +289,47 @@ describe('MCP kill switch and identity', () => {
     expect(db.prepare("SELECT action FROM audit_log WHERE entity = 'user' AND entity_id = ? ORDER BY id DESC LIMIT 1").get(asha.id)).toEqual({ action: 'login_failed' })
     expect(() => resolveMcpIdentity(db, { role: 'accountant', user: 'Vik', pin: '1111' })).toThrow(/Vik is viewer/)
     expect(() => resolveMcpIdentity(db, { role: 'owner', user: 'asha', pin: '4321' })).toThrow(/Asha is accountant/)
-    expect(resolveMcpIdentity(db, { role: 'accountant', user: 'asha', pin: '4321' })).toEqual({ role: 'accountant', userName: 'Asha', userId: asha.id })
+    expect(resolveMcpIdentity(db, { role: 'accountant', user: 'asha', pin: '4321' })).toMatchObject({ role: 'accountant', userName: 'Asha', userId: asha.id })
+  })
+
+  it('is off by default for a company (the owner turns it on), and the server refuses to start', async () => {
+    const fresh = seededDb()
+    try {
+      expect(getMcpConfig(fresh).enabled).toBe(false)
+      await expect(
+        runMcpStdio({ db: fresh, slug: 'x', role: 'viewer', user: null, pin: null, maskIds: true, pseudonymiseParties: false, version: 'test' })
+      ).rejects.toThrow(MCP_DISABLED_MESSAGE)
+    } finally {
+      fresh.close()
+    }
+  })
+
+  it('a PIN-verified draft stamps the user id on its audit row (name stays mcp:<client>)', async () => {
+    saveUser(db, { name: 'Owner', role: 'owner', pin: '9999' })
+    const asha = saveUser(db, { name: 'Asha', role: 'accountant', pin: '4321' })
+    const { client } = await connect(resolveMcpIdentity(db, { role: 'accountant', user: 'Asha', pin: '4321' }))
+    const r = await call(client, 'draft_voucher', {
+      kind: 'receipt',
+      lines: [
+        { ledgerId: ledgerId('Cash'), drCr: 'dr', amount: '100' },
+        { ledgerId: ledgerId('Acme Traders'), drCr: 'cr', amount: '100' }
+      ]
+    })
+    expect(r.isError).toBe(false)
+    const id = (r.json as { result: { draftId: number } }).result.draftId
+    expect(db.prepare("SELECT user_name, user_id FROM audit_log WHERE entity = 'ai_draft' AND entity_id = ?").get(id)).toEqual({
+      user_name: 'mcp:test-client',
+      user_id: asha.id
+    })
+  })
+
+  it('a PIN change ends a running session', async () => {
+    saveUser(db, { name: 'Owner', role: 'owner', pin: '9999' })
+    const asha = saveUser(db, { name: 'Asha', role: 'accountant', pin: '4321' })
+    const { client } = await connect(resolveMcpIdentity(db, { role: 'accountant', user: 'Asha', pin: '4321' }))
+    expect((await client.listTools()).tools.length).toBeGreaterThan(0)
+    saveUser(db, { name: 'Asha', role: 'accountant', pin: '5555' }, asha.id)
+    await expect(client.listTools()).rejects.toThrow(/PIN has changed/)
   })
 
   it('a running session stops when its user is deactivated', async () => {
@@ -319,5 +389,69 @@ describe('MCP resources — computed from the books at read time', () => {
     }
     const cols = (db.prepare('PRAGMA table_info(mcp_log)').all() as { name: string }[]).map((c) => c.name)
     expect(cols.some((c) => /content|payload|text|body/.test(c))).toBe(false)
+  })
+})
+
+describe('MCP log hygiene, budgets and Delete all AI data', () => {
+  it('a failing log write never turns a served call into an error', async () => {
+    const { client } = await connect()
+    db.exec('DROP TABLE mcp_log')
+    const r = await call(client, 'list_ledgers', { search: 'Acme' })
+    expect(r.isError).toBe(false)
+    expect(r.text).toContain('Acme Traders')
+  })
+
+  it('masks error text returned and logged', async () => {
+    const { client } = await connect()
+    const r = await call(client, 'ledger_statement', { ledgerId: 999999, from: '2025-04-01', to: '2026-03-31' })
+    expect(r.isError).toBe(true)
+    await expect(client.readResource({ uri: `total://mirror/${GSTIN}.json` })).rejects.toThrow(/\[GSTIN …1ZV\]/)
+    const logged = listMcpLog(db).find((l) => l.method === 'resources/read')!
+    expect(logged.error).not.toContain(GSTIN)
+    expect(logged.error).toContain('[GSTIN …1ZV]')
+  })
+
+  it('caps a large resource with a note pointing at the dated tools', async () => {
+    const vt = (db.prepare("SELECT id FROM voucher_types WHERE kind = 'journal'").get() as { id: number }).id
+    const ins = db.prepare("INSERT INTO vouchers (voucher_type_id, date, number, narration) VALUES (?, '2025-06-01', ?, ?)")
+    const line = db.prepare('INSERT INTO voucher_lines (voucher_id, ledger_id, dr_cr, amount) VALUES (?, ?, ?, 100)')
+    db.transaction(() => {
+      for (let i = 0; i < 700; i++) {
+        const id = Number(ins.run(vt, `J-${i}`, 'x'.repeat(150)).lastInsertRowid)
+        line.run(id, ledgerId('Cash'), 'dr')
+        line.run(id, ledgerId('Acme Traders'), 'cr')
+      }
+    })()
+    const { client } = await connect()
+    const text = ((await client.readResource({ uri: 'total://mirror/vouchers-2025-26.json' })).contents[0] as { text: string }).text
+    expect(text.length).toBeLessThanOrEqual(MCP_RESOURCE_BUDGET)
+    const body = JSON.parse(text) as { truncated: boolean; note: string; data: unknown[] }
+    expect(body.truncated).toBe(true)
+    expect(body.note).toMatch(/day_book/)
+  })
+
+  it('prunes mcp_log rows past the retention window', () => {
+    const base = { sessionId: 's', clientName: 'c', clientVersion: null, role: 'viewer' as const, userName: null, method: 'tools/list', ok: true, masked: true, pseudonymised: false }
+    logMcp(db, base)
+    const old = logMcp(db, base)
+    db.prepare("UPDATE mcp_log SET at = '2020-01-01T00:00:00.000Z' WHERE id = ?").run(old)
+    expect(pruneMcpLog(db, 90)).toBe(1)
+    expect(listMcpLog(db)).toHaveLength(1)
+  })
+
+  it('Delete all AI data counts agent drafts and the MCP log in its audited before-image, and keeps the log', async () => {
+    const { client } = await connect({ role: 'accountant' })
+    await call(client, 'draft_voucher', {
+      kind: 'receipt',
+      lines: [
+        { ledgerId: ledgerId('Cash'), drCr: 'dr', amount: '100' },
+        { ledgerId: ledgerId('Acme Traders'), drCr: 'cr', amount: '100' }
+      ]
+    })
+    const logRows = listMcpLog(db).length
+    const before = aiDataCounts(db)
+    expect(before).toMatchObject({ agentDrafts: 1, mcpLog: logRows })
+    expect(deleteAllAiData(db, true)).toEqual(before)
+    expect(aiDataCounts(db)).toMatchObject({ drafts: 0, agentDrafts: 0, mcpLog: logRows })
   })
 })

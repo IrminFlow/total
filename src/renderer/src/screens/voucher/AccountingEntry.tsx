@@ -86,6 +86,7 @@ export function AccountingEntry({
   const [alterNumber, setAlterNumber] = useState(initial?.number ?? '')
   const numberField = useVoucherNumberField(typeId, date, voucherId)
   const [draftPartyId] = useState(draft?.partyLedgerId ?? null)
+  const [draftReference] = useState(draft?.reference ?? null)
   const { saved, leave } = useLeaveAfterSave()
 
   // ---------- TDS (payment / journal to a party flagged for TDS) ----------
@@ -368,9 +369,10 @@ export function AccountingEntry({
       tcs: tcs
         ? { sectionId: tcs.sectionId, baseAmount: tcs.baseAmount, tdsAmount: tcs.tdsAmount, isManual: tcs.isManual, autoPayable: tcs.pending }
         : null,
+      reference: draftReference,
       original: initial?.original ? { ...initial.original, inventory: stockLines } : null
     }),
-    [date, voucherId, alterNumber, numberField.forPayload, rows, narration, instrumentNo, billRefs, advanceReceipt, optionalVoucher, tds, tcs, initial, stockLines]
+    [date, voucherId, alterNumber, numberField.forPayload, rows, narration, instrumentNo, billRefs, advanceReceipt, optionalVoucher, tds, tcs, initial, stockLines, draftReference]
   )
 
   // Builds the exact VoucherInputParsed shape `save` posts.

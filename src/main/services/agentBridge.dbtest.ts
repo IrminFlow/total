@@ -267,6 +267,39 @@ describe('inbox drop processing — default (WP 5.7): drops become flagged draft
     expect(draftRows().length).toBe(draftsBefore)
   })
 
+  it('keeps the drop’s reference and party, after checking the party is a real party ledger posted on a line', () => {
+    const debtors = (db.prepare("SELECT id FROM groups WHERE name = 'Sundry Debtors'").get() as { id: number }).id
+    const acme = Number(db.prepare('INSERT INTO ledgers (name, group_id) VALUES (?, ?)').run('Inbox Acme', debtors).lastInsertRowid)
+    const drop = (name: string, partyLedgerId: number, crLedger = acme): ReturnType<typeof processInboxFile> => {
+      const file = join(inbox, name)
+      writeFileSync(
+        file,
+        JSON.stringify({
+          voucherTypeId: receiptTypeId(), date: '2025-09-03', partyLedgerId, reference: 'RCPT-77', narration: 'Acme paid',
+          lines: [{ ledgerId: ledgerId('Cash'), drCr: 'dr', amount: 5000 }, { ledgerId: crLedger, drCr: 'cr', amount: 5000 }]
+        })
+      )
+      return processInboxFile(db, slug, file)
+    }
+    const draftsBefore = draftRows().length
+    const missing = drop('party-missing.json', 999999)
+    expect(missing.ok).toBe(false)
+    expect(missing.detail).toMatch(/partyLedgerId 999999 does not exist/)
+    const notParty = drop('party-cash.json', ledgerId('Cash'))
+    expect(notParty.ok).toBe(false)
+    expect(notParty.detail).toMatch(/not a party ledger/)
+    const notPosted = drop('party-unposted.json', acme, ledgerId('Inbox Sales'))
+    expect(notPosted.ok).toBe(false)
+    expect(notPosted.detail).toMatch(/not posted on any line/)
+    expect(draftRows().length).toBe(draftsBefore)
+
+    const good = drop('party-ok.json', acme)
+    expect(good.ok).toBe(true)
+    const d = draftRows()[draftRows().length - 1]!
+    const payload = JSON.parse((db.prepare('SELECT payload_json FROM ai_drafts WHERE id = ?').get(d.id) as { payload_json: string }).payload_json)
+    expect(payload).toMatchObject({ partyLedgerId: acme, reference: 'RCPT-77', narration: 'Acme paid' })
+  })
+
   it('refuses a masters CSV drop (Data import or --legacy-inbox-post instead), applying nothing', () => {
     const file = join(inbox, 'more-masters.csv')
     writeFileSync(file, ['Name,Group,Opening Balance', 'Draft Mode Ledger,Sales Accounts,0'].join('\n'))

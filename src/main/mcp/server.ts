@@ -30,7 +30,8 @@ import { readCompanyInfo } from '../db/seed'
 import { getMcpConfig } from '../services/config'
 import { setAuditContext } from '../services/audit'
 import { zodToJsonSchema } from '../ai/jsonSchema'
-import { inboundText, mapStrings, outboundText, type PrivacyOptions } from '../ai/privacy'
+import { inboundText, mapStrings, type PrivacyOptions } from '../ai/privacy'
+import { cleanClientName, mcpMaskString, mcpMaskValue } from './mask'
 import { fitToBudget } from '../ai/truncate'
 import { companyPseudonymiser, setDefaultDraftOrigin } from '../ai/store'
 import { createToolRegistry } from '../ai/tools'
@@ -72,20 +73,23 @@ export interface McpServerHandle {
   /** `mcp:<client name>` once the client has introduced itself. */
   auditUser(): string
   clientName(): string | null
+  /** The verified user (users.id) the session acts as, or null. */
+  readonly userId: number | null
 }
 
-/** The tools a session may see: registry tools of kind read / draft that its role allows. */
 /** Client arguments → real values: aliases mapped back inside every string (parsed, never on raw
  *  JSON text — the same rule as the in-app agent's inboundArguments). */
 export function inboundArgs(args: Record<string, unknown> | undefined, p: PrivacyOptions): string {
   return JSON.stringify(mapStrings(args ?? {}, (s) => inboundText(s, p)))
 }
 
-/** What a tool result is returned as: strings masked / pseudonymised, then fitted to the budget. */
+/** What a tool result is returned as: strings masked / pseudonymised BY FIELD (mask.ts — codes,
+ *  numbers and ids stay intact), then fitted to the budget. */
 export function outboundResult(output: unknown, p: PrivacyOptions): string {
-  return fitToBudget(mapStrings(output, (s) => outboundText(s, p)), MCP_TOOL_RESULT_BUDGET).text
+  return fitToBudget(mcpMaskValue(output, p), MCP_TOOL_RESULT_BUDGET).text
 }
 
+/** The tools a session may see: registry tools of kind read / draft that its role allows. */
 export function exposedTools(registry: ToolRegistry, identity: McpIdentity): ToolDef[] {
   return registry.available(identity.role).filter((t) => t.kind === 'read' || t.kind === 'draft')
 }
@@ -115,19 +119,27 @@ export function createMcpServer(o: McpServerOptions): McpServerHandle {
   )
   const client = (): { name: string | null; version: string | null } => {
     const v = server.getClientVersion()
-    return { name: v?.name ?? null, version: v?.version ?? null }
+    return { name: cleanClientName(v?.name), version: cleanClientName(v?.version) }
   }
   const privacy = (): PrivacyOptions => ({
     maskIds: o.privacy.maskIds,
     pseudonymiser: o.privacy.pseudonymiseParties ? companyPseudonymiser(o.db) : null
   })
+  /** Error text as returned to the client and logged: masked like any other text, capped. */
+  const cleanError = (e: string): string => mcpMaskString(e, null, privacy()).slice(0, 500)
+  /** Never lets a logging failure turn a served request (e.g. a draft already written) into an
+   *  error for the client — it goes to stderr instead. */
   const log = (entry: { method: string; target?: string | null; ok: boolean; error?: string | null; response?: string | null; draftId?: number | null; t0: number }): void => {
-    const c = client()
-    logMcp(o.db, {
-      sessionId, clientName: c.name, clientVersion: c.version, role: o.identity.role, userName: o.identity.userName, method: entry.method,
-      target: entry.target, ok: entry.ok, error: entry.error, response: entry.response, masked: o.privacy.maskIds,
-      pseudonymised: o.privacy.pseudonymiseParties, draftId: entry.draftId, durationMs: Date.now() - entry.t0
-    })
+    try {
+      const c = client()
+      logMcp(o.db, {
+        sessionId, clientName: c.name, clientVersion: c.version, role: o.identity.role, userName: o.identity.userName, method: entry.method,
+        target: entry.target, ok: entry.ok, error: entry.error ? cleanError(entry.error) : null, response: entry.response, masked: o.privacy.maskIds,
+        pseudonymised: o.privacy.pseudonymiseParties, draftId: entry.draftId, durationMs: Date.now() - entry.t0
+      })
+    } catch (err) {
+      process.stderr.write(`Total MCP: could not write mcp_log (${err instanceof Error ? err.message : String(err)}) for ${entry.method} ${entry.target ?? ''}\n`)
+    }
   }
   /** Kill switch + identity, before every request. Refusals are logged and returned as errors. */
   const gate = (method: string, target: string | null, t0: number): void => {
@@ -173,7 +185,7 @@ export function createMcpServer(o: McpServerOptions): McpServerHandle {
         period: fyOf(today()),
         userRequest: tool.kind === 'draft' ? MCP_DRAFT_REQUEST : undefined
       })
-      output = run.ok ? { ok: true, result: run.data } : { ok: false, error: run.error }
+      output = run.ok ? { ok: true, result: run.data } : { ok: false, error: cleanError(run.error) }
       draftId = run.ok ? run.draftId : null
     }
     const text = outboundResult(output, p)
@@ -195,21 +207,23 @@ export function createMcpServer(o: McpServerOptions): McpServerHandle {
     gate('resources/read', uri, t0)
     const p = privacy()
     try {
-      const r = readMcpResource(o.db, o.slug, uri, (s) => outboundText(s, p), today())
+      const r = readMcpResource(o.db, o.slug, uri, p, today())
       log({ method: 'resources/read', target: uri, ok: true, response: r.text, t0 })
       return { contents: [{ uri, mimeType: r.mimeType, text: r.text }] }
     } catch (err) {
-      const error = err instanceof Error ? err.message : String(err)
+      const error = cleanError(err instanceof Error ? err.message : String(err))
       log({ method: 'resources/read', target: uri, ok: false, error, t0 })
       throw new McpError(ErrorCode.InvalidParams, error)
     }
   })
 
-  return { server, sessionId, auditUser: () => mcpAuditUser(client().name), clientName: () => client().name }
+  return { server, sessionId, auditUser: () => mcpAuditUser(client().name), clientName: () => client().name, userId: o.identity.userId }
 }
 
 /** One MCP session per process: audit rows go to `mcp:<client>`, drafts record source 'mcp'. */
 export function installMcpProcessContext(handle: McpServerHandle, appVersion: string): void {
-  setAuditContext({ appVersion, getUserName: () => handle.auditUser(), getUserId: () => null })
+  // The name says which client wrote the row; the id is the PIN-verified user it acted as (null
+  // for a viewer or a company without users).
+  setAuditContext({ appVersion, getUserName: () => handle.auditUser(), getUserId: () => handle.userId })
   setDefaultDraftOrigin({ source: 'mcp', origin: () => handle.clientName() })
 }

@@ -15,7 +15,7 @@ export const MCP_RESOURCES = {
   mirrorPrefix: 'total://mirror/'
 } as const
 
-/** Company setting (meta 'mcp'): the kill switch. Sessions are refused while `enabled` is false. */
+/** Company setting (meta 'mcp'), default off: sessions are refused while `enabled` is false. */
 export interface McpConfig {
   enabled: boolean
 }
@@ -33,7 +33,7 @@ export interface McpSettingsView {
   usersExist: boolean
 }
 
-export const MCP_DISABLED_MESSAGE = 'MCP access is turned off for this company (Settings → Agent access → MCP server)'
+export const MCP_DISABLED_MESSAGE = 'MCP access is off for this company — the owner turns it on in Settings → Agent access → MCP server'
 
 /** One mcp_log row as the Settings log viewer shows it. Never the content — sizes and a hash. */
 export interface McpLogRow {

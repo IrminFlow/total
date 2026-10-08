@@ -178,8 +178,9 @@ export function AiSection(): React.JSX.Element {
       <Panel className="p-5">
         <h3 className="mb-1 text-detail font-semibold">Delete all AI data</h3>
         <p className="mb-3 text-body-sm text-muted">
-          Removes every conversation, draft, memory and the party alias list from this company. Vouchers you saved from drafts are not touched. The
-          usage and outbound logs are kept as the record of what was spent and sent, and the audit trail’s entries about AI settings and drafts
+          Removes every conversation, draft (including drafts proposed over MCP or dropped in the inbox), memory and the party alias list from
+          this company. Vouchers you saved from drafts are not touched. The MCP request log stays (it is pruned after 90 days). The usage and
+          outbound logs are kept as the record of what was spent and sent, and the audit trail’s entries about AI settings and drafts
           stay: the audit trail is append-only and cannot be purged.
         </p>
         <Button
@@ -189,7 +190,7 @@ export function AiSection(): React.JSX.Element {
           onClick={async () => {
             const ok = await confirmDialog({
               title: 'Delete all AI data',
-              message: 'Delete every conversation, draft and memory of the assistant for this company? This cannot be undone.',
+              message: 'Delete every conversation, draft (including MCP and inbox drafts) and memory of the assistant for this company? This cannot be undone.',
               confirmLabel: 'Delete',
               danger: true
             })

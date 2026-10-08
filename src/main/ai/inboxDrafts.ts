@@ -14,8 +14,13 @@ import type { DB } from '../db/connection'
 import type { VoucherInputParsed } from '@shared/schemas'
 import type { AiDraftDto, AiVoucherDraftPayload } from '@shared/ai'
 import { writeAudit } from '../services/audit'
+import { descendantIdsByName } from '../services/masters'
+import { ledgerFactsResolver } from '../services/vouchers'
+import { validateVoucher } from '@shared/posting'
+import type { VoucherKind } from '@shared/domain'
 import { buildVoucherDraft, DRAFTABLE_KINDS, type DraftVoucherInput } from './drafts'
 import { insertDraft } from './store'
+import { cleanClientName } from '../mcp/mask'
 
 /** Paise → the rupee text draft_voucher takes ("1234.50"); integer maths only. */
 export function paiseToRupeeText(paise: number): string {
@@ -58,15 +63,33 @@ export function inboxDraftProposal(db: DB, v: VoucherInputParsed, today: string)
     reference: v.reference ?? undefined,
     lines: v.lines.map((l) => ({ ledgerId: l.ledgerId, drCr: l.drCr, amount: paiseToRupeeText(l.amount) }))
   }
+  const party = v.partyLedgerId ?? null
+  if (party !== null) checkParty(db, party, v.lines.map((l) => l.ledgerId))
   const { payload, summary } = buildVoucherDraft(db, input, today)
-  return { payload: { ...payload, partyLedgerId: v.partyLedgerId ?? null }, summary }
+  // buildVoucherDraft validates a party-less proposal; validate the voucher again WITH its party,
+  // exactly as it will be saved.
+  const errors = validateVoucher({ ...v, partyLedgerId: party }, type.kind as VoucherKind, ledgerFactsResolver(db))
+  if (errors.length) throw new Error(errors.map((e) => e.message).join('; '))
+  return { payload: { ...payload, partyLedgerId: party }, summary }
+}
+
+/** The drop's partyLedgerId must be an existing Sundry Debtor / Creditor ledger posted on one of
+ *  its lines — never a ledger id stored unchecked. */
+function checkParty(db: DB, partyId: number, lineLedgerIds: number[]): void {
+  const row = db.prepare('SELECT name, group_id FROM ledgers WHERE id = ?').get(partyId) as { name: string; group_id: number } | undefined
+  if (!row) throw new Error(`partyLedgerId ${partyId} does not exist`)
+  if (!descendantIdsByName(db, ['Sundry Debtors', 'Sundry Creditors']).has(row.group_id)) {
+    throw new Error(`partyLedgerId ${partyId} (${row.name}) is not a party ledger (Sundry Debtors / Creditors)`)
+  }
+  if (!lineLedgerIds.includes(partyId)) throw new Error(`partyLedgerId ${partyId} (${row.name}) is not posted on any line`)
 }
 
 /** Store validated proposals as flagged inbox drafts, audited (the caller holds the transaction). */
 export function insertInboxDrafts(db: DB, fileName: string, proposals: readonly { payload: AiVoucherDraftPayload; summary: string }[]): AiDraftDto[] {
+  const origin = cleanClientName(fileName) // printable + capped: it is shown in the editor's banner
   return proposals.map((p) => {
-    const d = insertDraft(db, { threadId: null, messageId: null, summary: p.summary, payload: p.payload, unrequested: true, source: 'inbox', origin: fileName })
-    writeAudit(db, 'ai_draft', d.id, 'create', null, { summary: p.summary, payload: p.payload, source: 'inbox', origin: fileName, unrequested: true })
+    const d = insertDraft(db, { threadId: null, messageId: null, summary: p.summary, payload: p.payload, unrequested: true, source: 'inbox', origin })
+    writeAudit(db, 'ai_draft', d.id, 'create', null, { summary: p.summary, payload: p.payload, source: 'inbox', origin, unrequested: true })
     return d
   })
 }

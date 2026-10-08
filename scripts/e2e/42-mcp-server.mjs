@@ -71,6 +71,20 @@ await scenario('42-mcp-server', async (h) => {
     return { client, stderr: () => stderr }
   }
 
+  // MCP is off until the owner turns it on: the first server refuses to start.
+  const tryStart = async (args) => {
+    try {
+      const c = await startClient(args)
+      await c.client.listTools()
+      await c.client.close()
+      return ''
+    } catch (err) {
+      return String(err?.message ?? err)
+    }
+  }
+  assert((await tryStart([])) !== '', 'MCP is off by default — the server refuses to start')
+  await h.invoke('agent:mcp:set', { enabled: true })
+
   const viewer = await startClient([])
   const viewerTools = (await viewer.client.listTools()).tools.map((t) => t.name)
   assert(viewerTools.includes('trial_balance') && !viewerTools.includes('draft_voucher'), `viewer tools: ${viewerTools.join(', ')}`)
@@ -95,10 +109,13 @@ await scenario('42-mcp-server', async (h) => {
   const inbox = path.join(h.dataDir, 'companies', slug, 'inbox')
   fs.mkdirSync(inbox, { recursive: true })
   const receiptType = types.find((t) => t.kind === 'receipt').id
-  const sales = await ledger('Counter Sales', 'Sales Accounts')
+  const acmeId = (await h.invoke('master:ledgers:list')).find((l) => l.name === 'Acme Traders').id
   fs.writeFileSync(
     path.join(inbox, 'from-script.json'),
-    JSON.stringify({ voucherTypeId: receiptType, date: today, narration: 'Counter takings', lines: [{ ledgerId: cash, drCr: 'dr', amount: 1250000 }, { ledgerId: sales.id, drCr: 'cr', amount: 1250000 }] })
+    JSON.stringify({
+      voucherTypeId: receiptType, date: today, partyLedgerId: acmeId, reference: 'RCPT-77', narration: 'Acme paid on account',
+      lines: [{ ledgerId: cash, drCr: 'dr', amount: 1250000 }, { ledgerId: acmeId, drCr: 'cr', amount: 1250000 }]
+    })
   )
   await h.invoke('agent:setConfig', { enabled: true })
   let drafts = []
@@ -147,6 +164,23 @@ await scenario('42-mcp-server', async (h) => {
   )
   assert(audit.rows.some((r) => r.userName === 'agent-inbox' && r.entityId === inboxDraft.id), 'the inbox draft was audited as agent-inbox')
 
+  // ---------- review the inbox draft → save: reference, party and narration reach the voucher ----------
+  await h.goto('settings')
+  await h.click('tab-settings-agents')
+  await h.page.waitForSelector('[data-testid="rows-agent-drafts"] tr', { timeout: 10000 })
+  await h.page.click(`[data-testid="rows-agent-drafts"] tr:has-text("from-script.json") [data-testid="btn-agent-draft-review"]`)
+  await h.waitScreen('voucher-entry')
+  const inboxBanner = await (await h.page.waitForSelector('[data-testid="ai-draft-banner"]', { timeout: 10000 })).textContent()
+  assert(inboxBanner.includes('from-script.json') && inboxBanner.includes('RCPT-77'), `inbox banner: ${inboxBanner}`)
+  await h.page.keyboard.press('Control+Enter')
+  await h.page.waitForFunction(() => document.querySelector('[data-screen]')?.getAttribute('data-screen') !== 'voucher-entry', null, { timeout: 15000 })
+  const consumed = await h.invoke('ai:draft:get', { id: inboxDraft.id })
+  assertEq(consumed.status, 'consumed', 'saving consumed the inbox draft')
+  const saved = await h.invoke('voucher:get', { id: consumed.voucherId })
+  assertEq(saved.reference, 'RCPT-77', 'the drop’s reference reached the voucher')
+  assertEq(saved.partyLedgerId, acmeId, 'the drop’s party reached the voucher')
+  assertEq(saved.narration, 'Acme paid on account', 'the drop’s narration reached the voucher')
+
   // ---------- kill switch ----------
   await h.goto('settings')
   await h.click('tab-settings-agents')
@@ -155,14 +189,6 @@ await scenario('42-mcp-server', async (h) => {
   await h.page.waitForSelector('[data-testid="mcp-killed"]', { timeout: 10000 })
   await toTop()
   await bothThemes('03-agent-access-mcp-off')
-  let refused = ''
-  try {
-    const c = await startClient([])
-    await c.client.listTools()
-    await c.client.close()
-  } catch (err) {
-    refused = String(err?.message ?? err)
-  }
-  assert(refused !== '', 'a new MCP session is refused while MCP is off')
+  assert((await tryStart([])) !== '', 'a new MCP session is refused once MCP is turned off again')
   assertEq((await h.invoke('agent:mcp:get')).config.enabled, false, 'the kill switch is stored')
 })

@@ -95,8 +95,14 @@ describe('the MCP SDK stays in the CLI', () => {
 
   const HTTP_STACK = /require\(["'](?:express|hono|@hono\/node-server|cors|express-rate-limit)["']\)|node_modules\/(?:express|hono|@hono)\//
 
+  // CI's smoke-mac job runs this file after `npm run build` (and one CLI run) with
+  // TOTAL_REQUIRE_BUILT=1: a missing bundle then fails instead of skipping.
+  const requireBuilt = process.env.TOTAL_REQUIRE_BUILT === '1'
+
   it('the built app main bundle (when present) has no MCP SDK and no HTTP server stack', () => {
-    for (const f of walk(join(ROOT, 'out', 'main'), /\.(c|m)?js$/)) {
+    const files = walk(join(ROOT, 'out', 'main'), /\.(c|m)?js$/)
+    if (requireBuilt) expect(files.length, 'out/main must be built (TOTAL_REQUIRE_BUILT=1)').toBeGreaterThan(0)
+    for (const f of files) {
       const text = readFileSync(f, 'utf8')
       expect(text.includes('@modelcontextprotocol'), rel(f)).toBe(false)
       expect(HTTP_STACK.test(text), rel(f)).toBe(false)
@@ -106,6 +112,7 @@ describe('the MCP SDK stays in the CLI', () => {
 
   it('the CLI bundle (when present) carries the stdio server but no HTTP transport or server stack', () => {
     const cli = join(ROOT, 'out', 'cli', 'total-cli.cjs')
+    if (requireBuilt) expect(existsSync(cli), 'out/cli/total-cli.cjs must exist (run the CLI once; TOTAL_REQUIRE_BUILT=1)').toBe(true)
     if (!existsSync(cli)) return
     const text = readFileSync(cli, 'utf8')
     expect(text).toContain('StdioServerTransport')

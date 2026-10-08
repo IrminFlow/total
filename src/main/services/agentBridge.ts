@@ -70,19 +70,19 @@ export interface MirrorFile {
   content: string
 }
 
-/** Applied to every TEXT value of a mirror (names, GSTINs, narrations — never amounts, which stay
- *  integers): identity for the on-disk mirror; masking / pseudonymisation when the MCP server
- *  serves the same files. */
-export type MirrorTextTransform = (s: string) => string
+/** Applied to every TEXT value of a mirror, with the field it sits in (names, GSTINs, narrations —
+ *  never amounts, which stay integers): identity for the on-disk mirror; field-aware masking /
+ *  pseudonymisation (mcp/mask.ts) when the MCP server serves the same files. */
+export type MirrorTextTransform = (s: string, key: string | null) => string
 
 const identity: MirrorTextTransform = (s) => s
 
-function mapJsonStrings(value: unknown, fn: MirrorTextTransform): unknown {
-  if (typeof value === 'string') return fn(value)
-  if (Array.isArray(value)) return value.map((v) => mapJsonStrings(v, fn))
+function mapJsonStrings(value: unknown, fn: MirrorTextTransform, key: string | null = null): unknown {
+  if (typeof value === 'string') return fn(value, key)
+  if (Array.isArray(value)) return value.map((v) => mapJsonStrings(v, fn, key))
   if (value && typeof value === 'object') {
     const out: Record<string, unknown> = {}
-    for (const [k, v] of Object.entries(value as Record<string, unknown>)) out[k] = mapJsonStrings(v, fn)
+    for (const [k, v] of Object.entries(value as Record<string, unknown>)) out[k] = mapJsonStrings(v, fn, k)
     return out
   }
   return value
@@ -106,7 +106,7 @@ export function buildMirrorFiles(db: DB, slug: string, opts: MirrorOptions = {},
   const json = (name: string, value: unknown): void => {
     files.push({ name, mimeType: 'application/json', content: JSON.stringify(text === identity ? value : mapJsonStrings(value, text), null, 2) })
   }
-  const t = (s: string): string => (s ? text(s) : s)
+  const t = (s: string, key: string): string => (s ? text(s, key) : s)
   const wantCsv = format !== 'json'
   const wantJson = format !== 'csv'
   const asOn = opts.to ?? todayISO()
@@ -120,8 +120,8 @@ export function buildMirrorFiles(db: DB, slug: string, opts: MirrorOptions = {},
         rowsToCsv(
           ['id', 'name', 'group', 'opening_balance_paise', 'gstin', 'state_code', 'hsn', 'gst_rate', 'credit_days'],
           ledgers.map((l) => [
-            String(l.id), t(l.name), t(l.groupName), String(l.openingBalance),
-            t(l.gstin ?? ''), l.stateCode ?? '', l.hsn ?? '',
+            String(l.id), t(l.name, 'name'), t(l.groupName, 'group'), String(l.openingBalance),
+            t(l.gstin ?? '', 'gstin'), l.stateCode ?? '', l.hsn ?? '',
             l.gstRate === null ? '' : String(l.gstRate),
             l.creditDays === null ? '' : String(l.creditDays)
           ])
@@ -137,7 +137,7 @@ export function buildMirrorFiles(db: DB, slug: string, opts: MirrorOptions = {},
         rowsToCsv(
           ['id', 'name', 'group', 'unit', 'hsn', 'gst_rate', 'opening_qty_milli', 'opening_value_paise'],
           masters.listStockItems(db).map((i) => [
-            String(i.id), t(i.name), i.groupId === null ? '' : t(stockGroups.get(i.groupId) ?? ''),
+            String(i.id), t(i.name, 'name'), i.groupId === null ? '' : t(stockGroups.get(i.groupId) ?? '', 'group'),
             units.get(i.unitId) ?? '', i.hsn ?? '',
             i.gstRate === null ? '' : String(i.gstRate),
             String(i.openingQtyMilli), String(i.openingValue)

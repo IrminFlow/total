@@ -82,3 +82,11 @@ export function listMcpLog(db: DB, limit = 2000): McpLogRow[] {
     durationMs: r.duration_ms
   }))
 }
+
+/** Days of mcp_log kept; older rows are pruned when a server starts. */
+export const MCP_LOG_KEEP_DAYS = 90
+
+export function pruneMcpLog(db: DB, keepDays = MCP_LOG_KEEP_DAYS, now = new Date()): number {
+  const cutoff = new Date(now.getTime() - keepDays * 86_400_000).toISOString()
+  return db.prepare('DELETE FROM mcp_log WHERE at < ?').run(cutoff).changes
+}

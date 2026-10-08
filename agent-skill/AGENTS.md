@@ -17,14 +17,16 @@ node scripts/total-cli.mjs mcp --company <slug> [--role viewer|accountant|owner]
 - **Role** — default `viewer` (read tools + resources). `--role accountant` adds the draft tools.
   When the company has users, `accountant` / `owner` also need `--user <name>` and that user's PIN
   in the environment variable `TOTAL_MCP_PIN`; the user's own role must cover the one asked for.
-- **Privacy** — GSTIN, PAN, IFSC and bank account numbers are masked in everything returned unless
+- **Privacy** — GSTIN, PAN, IFSC and bank account numbers are masked (by field — HSN codes and
+  voucher numbers stay as they are) in everything returned unless
   `--no-mask`; `--pseudonymise` replaces party names with stable aliases (`Party-0007`), mapped
   back to real names in the arguments you send.
-- **Kill switch** — the owner can turn MCP off for a company (Settings → Agent access); the server
-  then refuses to start and refuses every request of a running session.
+- **Off by default** — the owner turns MCP on per company (Settings → Agent access); while off the
+  server refuses to start and refuses every request of a running session. The PIN in
+  `TOTAL_MCP_PIN` sits in plain text in the client config; a PIN change ends the session.
 - **Log and audit** — every request is recorded in the company (Settings → Agent access → MCP
-  request log: method, tool or resource, size, SHA-256 — never the content). Drafts and their
-  audit rows are attributed to `mcp:<client name>`.
+  request log: method, tool or resource, size, SHA-256 — never the content; kept 90 days). Drafts
+  and their audit rows are attributed to `mcp:<client name>` with the verified user's id.
 
 Client config:
 

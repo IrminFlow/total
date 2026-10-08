@@ -118,7 +118,7 @@ function McpPanel({ isOwner, slug }: { isOwner: boolean; slug: string }): React.
     try {
       const r = await api.agent.setMcp(!view.config.enabled)
       await queryClient.invalidateQueries({ queryKey: ['agentMcp'] })
-      toast.push('success', r.enabled ? 'MCP access allowed' : 'MCP access turned off — sessions are refused')
+      toast.push('success', r.enabled ? 'MCP server turned on for this company' : 'MCP server turned off — sessions are refused')
     } catch (err) {
       toast.push('error', (err as Error).message)
     } finally {
@@ -153,9 +153,9 @@ function McpPanel({ isOwner, slug }: { isOwner: boolean; slug: string }): React.
         <div className="flex shrink-0 items-center gap-3">
           <span
             data-testid="mcp-status"
-            className={`rounded-full border px-2 py-0.5 text-caption ${enabled ? 'border-dr/40 text-dr' : 'border-danger/50 text-danger'}`}
+            className={`rounded-full border px-2 py-0.5 text-caption ${enabled ? 'border-dr/40 text-dr' : 'border-line text-muted'}`}
           >
-            {enabled ? 'Allowed' : 'Refused'}
+            {enabled ? 'On' : 'Off'}
           </span>
           <Button
             variant={enabled ? 'default' : 'primary'}
@@ -164,13 +164,14 @@ function McpPanel({ isOwner, slug }: { isOwner: boolean; slug: string }): React.
             disabledTitle={!isOwner ? 'Only owners can change agent access' : undefined}
             onClick={() => void toggle()}
           >
-            {saving ? 'Saving…' : enabled ? 'Turn off MCP' : 'Allow MCP'}
+            {saving ? 'Saving…' : enabled ? 'Turn off' : 'Turn on'}
           </Button>
         </div>
       </div>
       {!enabled && (
-        <p className="mt-2 text-small text-danger" data-testid="mcp-killed">
-          Turned off: the server refuses to start for this company, and a running session gets every request refused.
+        <p className="mt-2 text-small text-muted" data-testid="mcp-killed">
+          Off (the default): the server refuses to start for this company and a running session gets every request refused. The snippets below
+          work once an owner turns it on.
         </p>
       )}
 
@@ -202,6 +203,12 @@ function McpPanel({ isOwner, slug }: { isOwner: boolean; slug: string }): React.
           </li>
           {!view.repoDir && <li>The CLI runs from a Total source checkout — replace /path/to/total with where it lives.</li>}
         </ul>
+        {needsPin && (
+          <p className="mt-3 rounded-md border border-warning/50 bg-warning-soft px-3 py-2 text-small text-ink" data-testid="mcp-pin-warning">
+            The PIN goes into the client’s configuration as TOTAL_MCP_PIN, in plain text — anyone who can read that file can draft as this user.
+            Changing the user’s PIN ends any running MCP session.
+          </p>
+        )}
         <CopyBlock label="Claude Code" text={claudeCodeCommand(opts, needsPin)} testId="claude-code" wrap />
         <CopyBlock label="Claude Desktop (claude_desktop_config.json)" text={claudeDesktopConfig(opts, needsPin)} testId="claude-desktop" />
       </div>

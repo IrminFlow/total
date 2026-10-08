@@ -6,6 +6,7 @@
  */
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs'
 import { join } from 'path'
+import { agentsMdAction } from './agentsDoc'
 import agentsMd from '../../../agent-skill/AGENTS.md'
 import { dataRoot } from '../paths'
 import { voucherJsonSchema } from './schemaDoc'
@@ -16,15 +17,17 @@ export function voucherSchemaJsonText(): string {
   return JSON.stringify(voucherJsonSchema(), null, 2) + '\n'
 }
 
-/** Write AGENTS.md + voucher.schema.json into the data root if either is missing (AGENTS.md also when it predates the MCP server). Best-effort. */
+/** Write AGENTS.md + voucher.schema.json into the data root if either is missing; an AGENTS.md
+ *  from an older release is updated, a user-edited one kept (see agentsMdAction). Best-effort. */
 export function ensureAgentDocs(): void {
   try {
     const root = dataRoot()
     mkdirSync(root, { recursive: true })
     const agentsPath = join(root, 'AGENTS.md')
     const schemaPath = join(root, 'voucher.schema.json')
-    // A pre-0.9 AGENTS.md still says inbox drops are posted — replace it (WP 5.7: they are drafts).
-    if (!existsSync(agentsPath) || !readFileSync(agentsPath, 'utf8').includes('total-cli mcp')) writeFileSync(agentsPath, AGENTS_MD)
+    const action = agentsMdAction(existsSync(agentsPath) ? readFileSync(agentsPath, 'utf8') : null, AGENTS_MD)
+    if (action === 'write') writeFileSync(agentsPath, AGENTS_MD)
+    else if (action === 'write-new') writeFileSync(`${agentsPath}.new`, AGENTS_MD)
     if (!existsSync(schemaPath)) writeFileSync(schemaPath, voucherSchemaJsonText())
   } catch {
     /* docs are a convenience — never block a command on them */

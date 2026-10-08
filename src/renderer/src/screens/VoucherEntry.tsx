@@ -66,6 +66,7 @@ export function VoucherEntry({
           date: aiDraft.payload.date,
           partyLedgerId: aiDraft.payload.partyLedgerId ?? undefined,
           narration: aiDraft.payload.narration ?? undefined,
+          reference: aiDraft.payload.reference ?? undefined,
           lines: aiDraft.payload.lines,
           aiDraftId: aiDraft.id
         }
@@ -271,7 +272,7 @@ export function VoucherEntry({
       {aiDraftId && aiDraft && (
         <Banner tone={aiDraftOpen ? 'info' : 'warning'} className="mb-section" testId="ai-draft-banner">
           {aiDraftOpen
-            ? <>{aiDraftByLabel(aiDraft)}: {aiDraft.summary}. Check every line — nothing is in the books until you save.</>
+            ? <>{aiDraftByLabel(aiDraft)}: {aiDraft.summary}{aiDraft.payload.reference ? ` (reference ${aiDraft.payload.reference})` : ''}. Check every line — nothing is in the books until you save.</>
             : <>This assistant draft is already {aiDraft.status}{aiDraft.voucherId ? ' (saved as a voucher)' : ''}; it is not pre-filled again.</>}
         </Banner>
       )}

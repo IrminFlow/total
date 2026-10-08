@@ -7,8 +7,37 @@ import { fyOf, todayISO } from '@shared/dates'
 import { MCP_RESOURCES } from '@shared/mcp'
 import { readCompanyInfo } from '../db/seed'
 import { groupTree, listLedgers } from '../services/masters'
-import { buildMirrorFiles, mirrorVoucherYears, type MirrorOptions, type MirrorTextTransform } from '../services/agentBridge'
+import { buildMirrorFiles, mirrorVoucherYears, type MirrorOptions } from '../services/agentBridge'
 import type { GroupTreeNode } from '@shared/reports'
+import type { PrivacyOptions } from '../ai/privacy'
+import { fitToBudget } from '../ai/truncate'
+import { mcpMaskString, mcpMaskValue } from './mask'
+
+/** Characters per resource read — the same bound as a tool result. A bigger mirror comes back
+ *  trimmed (arrays cut with a marker; CSV rows cut) with a note saying how to get the rest. */
+export const MCP_RESOURCE_BUDGET = 120_000
+export const RESOURCE_TRUNCATED_NOTE =
+  'Truncated to fit — use the ledger_statement / day_book / trial_balance tools with dates (or a narrower FY file) for the full data.'
+
+/** Fit one resource body to the budget: JSON keeps its shape (arrays trimmed, wrapped with a note),
+ *  CSV keeps its header and whole rows, then a comment line. */
+export function fitResource(mimeType: string, text: string, budget = MCP_RESOURCE_BUDGET): string {
+  if (text.length <= budget) return text
+  if (mimeType === 'application/json') {
+    const fitted = fitToBudget(JSON.parse(text) as unknown, budget - 400)
+    return JSON.stringify({ truncated: true, note: RESOURCE_TRUNCATED_NOTE, originalChars: text.length, data: fitted.value }, null, 2)
+  }
+  const lines = text.split('\n')
+  const out: string[] = []
+  let size = 0
+  for (const line of lines) {
+    if (size + line.length + 1 > budget - 300) break
+    out.push(line)
+    size += line.length + 1
+  }
+  out.push(`# ${RESOURCE_TRUNCATED_NOTE} (${lines.length - out.length} of ${lines.length} lines not shown)`)
+  return out.join('\n')
+}
 
 export interface McpResourceInfo {
   uri: string
@@ -75,16 +104,15 @@ function chartOfAccounts(db: DB): ChartNode[] {
   return groupTree(db).map(walk)
 }
 
-function mapStringsDeep(value: unknown, fn: MirrorTextTransform): unknown {
-  if (typeof value === 'string') return fn(value)
-  if (Array.isArray(value)) return value.map((v) => mapStringsDeep(v, fn))
-  if (value && typeof value === 'object') return Object.fromEntries(Object.entries(value as Record<string, unknown>).map(([k, v]) => [k, mapStringsDeep(v, fn)]))
-  return value
+/** Read one resource. Throws for an unknown URI. */
+export function readMcpResource(db: DB, slug: string, uri: string, privacy: PrivacyOptions, today = todayISO()): { mimeType: string; text: string } {
+  const r = readRaw(db, slug, uri, privacy, today)
+  return { mimeType: r.mimeType, text: fitResource(r.mimeType, r.text) }
 }
 
-/** Read one resource. Throws for an unknown URI. */
-export function readMcpResource(db: DB, slug: string, uri: string, text: MirrorTextTransform, today = todayISO()): { mimeType: string; text: string } {
-  const json = (v: unknown): { mimeType: string; text: string } => ({ mimeType: 'application/json', text: JSON.stringify(mapStringsDeep(v, text), null, 2) })
+function readRaw(db: DB, slug: string, uri: string, privacy: PrivacyOptions, today: string): { mimeType: string; text: string } {
+  const json = (v: unknown): { mimeType: string; text: string } => ({ mimeType: 'application/json', text: JSON.stringify(mcpMaskValue(v, privacy), null, 2) })
+  const text = (s: string, key: string | null): string => mcpMaskString(s, key, privacy)
   if (uri === MCP_RESOURCES.company) {
     const c = readCompanyInfo(db)
     return json({
