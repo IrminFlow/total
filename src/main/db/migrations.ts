@@ -2320,7 +2320,11 @@ export const MIGRATIONS: string[] = [
   // - ai_threads / ai_messages: the conversation, stored locally with REAL names (privacy
   //   transforms apply only to what is sent). Assistant rows carry their tool calls; tool rows
   //   the call's input, the full local result and the sources the panel links to.
-  // - ai_drafts: proposals from draft tools (status open → consumed | discarded).
+  //   sent_text / sent_privacy cache the exact (masked, trimmed) text a tool result was sent as,
+  //   so later steps neither re-trim the whole history nor drift from what the model saw;
+  //   reasoning_json keeps the model's encrypted reasoning items for the steps of one question.
+  // - ai_drafts: proposals from draft tools (status open → consumed | discarded); `unrequested`
+  //   flags a draft made when the user's question did not ask for one (possible prompt injection).
   // - ai_memory: per-company memory (WP 5.6 fills it; created now so the schema is complete).
   // - ai_usage: one row per model call (tokens in / cached / out, estimated micro-USD cost).
   // - ai_outbound_log: what left the machine per call — sizes, the tools offered, which tool
@@ -2356,6 +2360,9 @@ export const MIGRATIONS: string[] = [
     output_tokens INTEGER,
     cost_micro_usd INTEGER,
     draft_id INTEGER,
+    sent_text TEXT,
+    sent_privacy TEXT,
+    reasoning_json TEXT,
     created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
   );
   CREATE INDEX idx_ai_messages_thread ON ai_messages(thread_id, id);
@@ -2369,6 +2376,7 @@ export const MIGRATIONS: string[] = [
     payload_json TEXT NOT NULL,
     status TEXT NOT NULL DEFAULT 'open' CHECK (status IN ('open', 'consumed', 'discarded')),
     voucher_id INTEGER REFERENCES vouchers(id) ON DELETE SET NULL,
+    unrequested INTEGER NOT NULL DEFAULT 0,
     created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
     consumed_at TEXT
   );

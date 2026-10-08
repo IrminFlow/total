@@ -9,11 +9,15 @@
 //   aliases replaced back on the way in — in streamed text, in tool-call arguments, in the final
 //   answer — so the user only ever sees real names and the stored conversation holds them too.
 
-export const GSTIN_RE = /\b\d{2}[A-Z]{5}\d{4}[A-Z][0-9A-Z]Z[0-9A-Z]\b/g
-export const PAN_RE = /\b[A-Z]{5}\d{4}[A-Z]\b/g
-export const IFSC_RE = /\b[A-Z]{4}0[A-Z0-9]{6}\b/g
-/** 9–18 bare digits not inside a formatted number (amounts are always grouped/decimal). */
-export const BANK_ACCOUNT_RE = /(?<![\d.,])\d{9,18}(?![\d,]|\.\d)/g
+// Case-insensitive: identifiers typed in lower case are masked too.
+export const GSTIN_RE = /\b\d{2}[A-Z]{5}\d{4}[A-Z][0-9A-Z]Z[0-9A-Z]\b/gi
+export const PAN_RE = /\b[A-Z]{5}\d{4}[A-Z]\b/gi
+export const IFSC_RE = /\b[A-Z]{4}0[A-Z0-9]{6}\b/gi
+/** 8–18 bare digits not inside a formatted number (amounts are always grouped/decimal), also
+ *  written in groups separated by single spaces ("5010 0123 4567 89"). */
+export const BANK_ACCOUNT_RE = /(?<![\d.,])(?:\d{8,18}|\d{2,6}(?: \d{2,6}){1,5})(?![\d,]|\.\d)/g
+
+const digitsIn = (s: string): number => s.replace(/\D/g, '').length
 
 const tail = (s: string, n: number): string => s.slice(-n)
 
@@ -23,7 +27,12 @@ export function maskIdentifiers(text: string): string {
     .replace(GSTIN_RE, (m) => `[GSTIN …${tail(m, 3)}]`)
     .replace(PAN_RE, (m) => `[PAN …${tail(m, 2)}]`)
     .replace(IFSC_RE, (m) => `[IFSC ${m.slice(0, 4)}…]`)
-    .replace(BANK_ACCOUNT_RE, (m) => `[A/c …${tail(m, 4)}]`)
+    .replace(BANK_ACCOUNT_RE, (m) => {
+      const n = digitsIn(m)
+      // A grouped run must still look like an account number (8–18 digits); "2025 07" is not.
+      if (n < 8 || n > 18 || (m.includes(' ') && !/^\d{4} /.test(m))) return m
+      return `[A/c …${tail(m.replace(/\D/g, ''), 4)}]`
+    })
 }
 
 /** Apply `fn` to every string inside a JSON-like value (object keys are left alone). */
@@ -76,9 +85,29 @@ export interface Pseudonymiser {
 /** Names shorter than this are never replaced (too likely to hit ordinary words). */
 export const MIN_PSEUDONYM_NAME = 3
 
+/** Word prefixes of a name ("Acme Traders (Pune)" → "Acme Traders", "Acme"), longest first. */
+function namePrefixes(name: string): string[] {
+  const words = name.trim().split(/\s+/)
+  const out: string[] = []
+  for (let n = words.length - 1; n >= 1; n--) out.push(words.slice(0, n).join(' ').replace(/[\s,.(&-]+$/, ''))
+  return out.filter((p) => p.length >= MIN_PREFIX)
+}
+
+/** A partial name ("Acme" for "Acme Traders") is replaced too, when it is unambiguous: at least
+ *  this long and the prefix of exactly one party (and not itself another party's full name). */
+export const MIN_PREFIX = 4
+
 export function createPseudonymiser(entries: readonly { name: string; alias: string }[]): Pseudonymiser {
   const usable = entries.filter((e) => e.name.trim().length >= MIN_PSEUDONYM_NAME)
   const byName = new Map(usable.map((e) => [e.name.toLowerCase(), e.alias]))
+  const prefixOwners = new Map<string, Set<string>>()
+  for (const e of usable) {
+    for (const p of namePrefixes(e.name)) {
+      const k = p.toLowerCase()
+      prefixOwners.set(k, (prefixOwners.get(k) ?? new Set()).add(e.alias))
+    }
+  }
+  for (const [k, owners] of prefixOwners) if (owners.size === 1 && !byName.has(k)) byName.set(k, [...owners][0]!)
   const byAlias = new Map(usable.map((e) => [e.alias, e.name]))
   const names = [...byName.keys()].sort((a, b) => b.length - a.length)
   const outRe = names.length ? new RegExp(`(?<![\\p{L}\\p{N}])(?:${names.map(escapeRe).join('|')})(?![\\p{L}\\p{N}])`, 'giu') : null

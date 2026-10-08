@@ -12,8 +12,9 @@ export const aiApi = {
   settings: () => call<AiSettingsView>('ai:settings:get'),
   setSettings: (patch: AiSettingsPatch) => call<AiSettingsView>('ai:settings:set', patch),
   acceptNotice: () => call<AiSettingsView>('ai:notice:accept'),
-  setKey: (key: string) => call<AiSettingsView>('ai:key:set', { key }),
-  clearKey: () => call<AiSettingsView>('ai:key:clear'),
+  /** `confirmNoUsers`: no company on this computer has users — the user confirmed that anyone can change the shared key. */
+  setKey: (key: string, confirmNoUsers = false) => call<AiSettingsView>('ai:key:set', { key, confirmNoUsers }),
+  clearKey: (confirmNoUsers = false) => call<AiSettingsView>('ai:key:clear', { confirmNoUsers }),
   testConnection: () => call<AiConnectionResult>('ai:testConnection'),
   tools: () => call<AiToolInfo[]>('ai:tools'),
   threads: () => call<AiThreadDto[]>('ai:threads'),

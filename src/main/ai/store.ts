@@ -91,11 +91,30 @@ interface MessageRow {
   output_tokens: number | null
   cost_micro_usd: number | null
   draft_id: number | null
+  sent_text: string | null
+  sent_privacy: string | null
+  reasoning_json: string | null
   created_at: string
 }
 
-function toMessage(r: MessageRow): AiMessageDto {
+/** A stored message plus the main-only cache columns (never sent to the renderer — see toDto). */
+export interface StoredMessage extends AiMessageDto {
+  sentText: string | null
+  sentPrivacy: string | null
+  reasoning: Record<string, unknown>[]
+}
+
+/** The renderer's view of a message (drops the outbound cache and reasoning items). */
+export function toDto(m: StoredMessage): AiMessageDto {
+  const { sentText: _s, sentPrivacy: _p, reasoning: _r, ...dto } = m
+  return dto
+}
+
+function toMessage(r: MessageRow): StoredMessage {
   return {
+    sentText: r.sent_text,
+    sentPrivacy: r.sent_privacy,
+    reasoning: parse<Record<string, unknown>[]>(r.reasoning_json, []),
     id: r.id,
     threadId: r.thread_id,
     role: r.role,
@@ -138,15 +157,19 @@ export interface NewMessage {
   outputTokens?: number
   costMicroUsd?: number | null
   draftId?: number | null
+  sentText?: string | null
+  sentPrivacy?: string | null
+  reasoning?: Record<string, unknown>[]
 }
 
-export function addMessage(db: DB, m: NewMessage): AiMessageDto {
+export function addMessage(db: DB, m: NewMessage): StoredMessage {
   const id = Number(
     db
       .prepare(
         `INSERT INTO ai_messages (thread_id, role, content, status, tool_calls_json, tool_call_id, tool_name, tool_input_json,
-           tool_output_json, tool_ok, truncated, sources_json, figures_json, model, input_tokens, output_tokens, cost_micro_usd, draft_id)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+           tool_output_json, tool_ok, truncated, sources_json, figures_json, model, input_tokens, output_tokens, cost_micro_usd, draft_id,
+           sent_text, sent_privacy, reasoning_json)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
       .run(
         m.threadId,
@@ -166,7 +189,10 @@ export function addMessage(db: DB, m: NewMessage): AiMessageDto {
         m.inputTokens ?? null,
         m.outputTokens ?? null,
         m.costMicroUsd ?? null,
-        m.draftId ?? null
+        m.draftId ?? null,
+        m.sentText ?? null,
+        m.sentPrivacy ?? null,
+        m.reasoning?.length ? JSON.stringify(m.reasoning) : null
       ).lastInsertRowid
   )
   touchThread(db, m.threadId)
@@ -180,12 +206,12 @@ export function updateMessageUsage(db: DB, id: number, u: { inputTokens: number;
   ).run(u.inputTokens, u.outputTokens, u.costMicroUsd, u.costMicroUsd, u.model, id)
 }
 
-export function getMessage(db: DB, id: number): AiMessageDto | null {
+export function getMessage(db: DB, id: number): StoredMessage | null {
   const r = db.prepare('SELECT * FROM ai_messages WHERE id = ?').get(id) as MessageRow | undefined
   return r ? toMessage(r) : null
 }
 
-export function listMessages(db: DB, threadId: number): AiMessageDto[] {
+export function listMessages(db: DB, threadId: number): StoredMessage[] {
   return (db.prepare('SELECT * FROM ai_messages WHERE thread_id = ? ORDER BY id').all(threadId) as MessageRow[]).map(toMessage)
 }
 
@@ -199,6 +225,7 @@ interface DraftRow {
   payload_json: string
   status: AiDraftStatus
   voucher_id: number | null
+  unrequested: number
   created_at: string
   consumed_at: string | null
 }
@@ -212,16 +239,20 @@ function toDraft(r: DraftRow): AiDraftDto {
     payload: JSON.parse(r.payload_json) as AiVoucherDraftPayload,
     status: r.status,
     voucherId: r.voucher_id,
+    unrequested: r.unrequested === 1,
     createdAt: r.created_at,
     consumedAt: r.consumed_at
   }
 }
 
-export function insertDraft(db: DB, d: { threadId: number | null; messageId: number | null; summary: string; payload: AiVoucherDraftPayload }): AiDraftDto {
+export function insertDraft(
+  db: DB,
+  d: { threadId: number | null; messageId: number | null; summary: string; payload: AiVoucherDraftPayload; unrequested?: boolean }
+): AiDraftDto {
   const id = Number(
     db
-      .prepare("INSERT INTO ai_drafts (thread_id, message_id, kind, summary, payload_json) VALUES (?, ?, 'voucher', ?, ?)")
-      .run(d.threadId, d.messageId, d.summary, JSON.stringify(d.payload)).lastInsertRowid
+      .prepare("INSERT INTO ai_drafts (thread_id, message_id, kind, summary, payload_json, unrequested) VALUES (?, ?, 'voucher', ?, ?, ?)")
+      .run(d.threadId, d.messageId, d.summary, JSON.stringify(d.payload), d.unrequested ? 1 : 0).lastInsertRowid
   )
   return getDraft(db, id)!
 }

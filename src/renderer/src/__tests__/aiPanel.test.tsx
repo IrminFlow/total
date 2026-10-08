@@ -25,7 +25,7 @@ function msg(over: Partial<AiMessageDto>): AiMessageDto {
 function view(over: Partial<AiSettingsView> = {}, settings: Partial<AiSettingsView['settings']> = {}): AiSettingsView {
   return {
     settings: {
-      enabled: true, noticeAcceptedAt: '2025-08-01T10:00:00.000Z', noticeAcceptedBy: 'Owner', defaultModel: 'gpt-6.1-sol', fastModel: 'gpt-6-luna',
+      enabled: true, noticeAcceptedAt: '2025-08-01T10:00:00.000Z', noticeAcceptedBy: 'Owner', noticeVersion: 1, defaultModel: 'gpt-6.1-sol', fastModel: 'gpt-6-luna',
       privacy: { maskIds: true, pseudonymiseParties: false }, prices: {}, maxSteps: 8, ...settings
     },
     keyPresent: true, keyHint: '…WXYZ', secureStorageAvailable: true, mock: false, ready: true, blocker: null, ...over
@@ -81,7 +81,7 @@ function wrap(node: ReactNode): void {
 const DRAFT = {
   id: 3, threadId: 7, kind: 'voucher' as const, summary: 'Payment of ₹1,500.00 on 2025-08-14: Dr Shop Rent / Cr Cash', status: 'open' as const,
   payload: { voucherTypeId: 2, voucherKind: 'payment', date: '2025-08-14', partyLedgerId: null, narration: 'rent', reference: null, lines: [] },
-  voucherId: null, createdAt: '2025-08-14T10:00:00Z', consumedAt: null
+  voucherId: null, unrequested: true, createdAt: '2025-08-14T10:00:00Z', consumedAt: null
 }
 
 const ev = (e: Omit<AiEvent, 'threadId' | 'runId'> & Record<string, unknown>): AiEvent => ({ threadId: 7, runId: 'r1', ...e }) as AiEvent
@@ -184,6 +184,7 @@ describe('AssistantDrawer', () => {
     expect(screen.getByTestId('btn-ai-send')).toBeTruthy()
     const card = await screen.findByTestId('ai-draft-card')
     expect(card.textContent).toContain('Payment of ₹1,500.00')
+    expect(within(card).getByTestId('ai-draft-unrequested').textContent).toBe('You did not ask for this')
 
     fireEvent.click(within(card).getByTestId('btn-ai-review-draft'))
     await waitFor(() => expect(useNav.getState().stack.at(-1)).toEqual({ name: 'voucher-entry', aiDraftId: 3, kindHint: 'payment' }))

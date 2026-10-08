@@ -18,8 +18,15 @@ describe('maskIdentifiers', () => {
   })
 
   it('leaves amounts, dates, short numbers and ids alone', () => {
-    const s = 'Sales ₹1,23,45,678.00 on 2025-07-31, voucher 12345678, qty 3.500, 100000000.00 paid'
+    const s = 'Sales ₹1,23,45,678.00 on 2025-07-31, voucher 1234567, qty 3.500, 100000000.00 paid'
     expect(maskIdentifiers(s)).toBe(s)
+  })
+
+  it('masks lower-case identifiers, 8-digit and space-grouped account numbers', () => {
+    expect(maskIdentifiers('gstin 27aapfu0939f1zv pan abcde1234f ifsc hdfc0001234')).toBe('gstin [GSTIN …1zv] pan [PAN …4f] ifsc [IFSC hdfc…]')
+    expect(maskIdentifiers('a/c 12345678')).toBe('a/c [A/c …5678]')
+    expect(maskIdentifiers('a/c 5010 0123 4567 89 at HDFC')).toBe('a/c [A/c …6789] at HDFC')
+    expect(maskIdentifiers('dated 2025-07-31 and 2025 07')).toBe('dated 2025-07-31 and 2025 07')
   })
 
   it('applies inside JSON-like values via mapStrings, leaving keys and numbers', () => {
@@ -53,6 +60,15 @@ describe('pseudonyms', () => {
   it('does not replace inside longer words or very short names', () => {
     expect(p.outbound('Acme Tradersville')).toBe('Acme Tradersville')
     expect(p.outbound('AB testing')).toBe('AB testing')
+  })
+
+  it('replaces an unambiguous partial name (word prefix) too', () => {
+    const q = createPseudonymiser([
+      { name: 'Sharma Steel Works', alias: 'Party-0001' },
+      { name: 'Mehta Bros', alias: 'Party-0002' },
+      { name: 'Mehta Industries', alias: 'Party-0003' }
+    ])
+    expect(q.outbound('Sharma Steel paid; Sharma owes; Mehta is ambiguous')).toBe('Party-0001 paid; Party-0001 owes; Mehta is ambiguous')
   })
 
   it('maps aliases back, unknown aliases untouched', () => {

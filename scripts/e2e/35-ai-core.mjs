@@ -84,6 +84,8 @@ await scenario('35-ai-core', async (h) => {
   await h.page.waitForFunction(() => document.querySelector('[data-testid="input-ai-enabled"]')?.checked === true, null, { timeout: 10000 })
   await h.fill('input-ai-key', KEY)
   await h.click('btn-ai-save-key')
+  // No company here has users: the shared key needs an explicit confirmation.
+  await h.click('confirm-ok')
   await h.page.waitForFunction(() => document.body.textContent.includes('A key is saved (…WXYZ)'), null, { timeout: 10000 })
   const leaked = await h.page.evaluate((k) => document.documentElement.outerHTML.includes(k), KEY)
   assert(!leaked, 'the API key never appears in the page')

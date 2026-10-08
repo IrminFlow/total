@@ -72,17 +72,46 @@ describe('estimateCostMicroUsd', () => {
 })
 
 describe('numbers rule check', () => {
-  it('extracts money-looking figures but not years, counts, dates or percentages', () => {
-    const f = extractFigures('Sales were ₹1,23,456.00 (18% GST) across 42 bills in 2025; 01.07.2025; Rs. 500 and 1,000 and 99.50 Dr')
-    expect(f.map((x) => x.paise)).toEqual([12345600, 50000, 100000, 9950])
+  const paise = (t: string): number[] => extractFigures(t).map((x) => x.paise)
+
+  it('reads ₹ / Rs / INR, grouping, two decimals and "rupees"', () => {
+    expect(paise('Sales were ₹1,23,456.00 (18% GST) across 42 bills in 2025; 01.07.2025; Rs. 500 and 1,000 and 99.50 Dr')).toEqual([12345600, 50000, 100000, 9950])
+    expect(paise('INR 2500 and 500000 rupees and Rs 750/-')).toEqual([250000, 50000000, 75000])
   })
-  it('marks figures found in tool results as sourced, others not', () => {
-    const tools = [{ name: 'profit_and_loss', text: JSON.stringify({ sales: '₹1,23,456.00', net: '-₹2,000.00' }) }]
-    const figs = checkFigures('Sales were ₹1,23,456 and the loss was ₹2,000.00; I estimate ₹5,000.00 next month.', tools)
+
+  it('reads Indian shorthand: lakh / L / crore / Cr / k / thousand', () => {
+    expect(paise('₹1.2L')).toEqual([12000000])
+    expect(paise('about 1.2 lakh')).toEqual([12000000])
+    expect(paise('3.4Cr this year')).toEqual([3400000000])
+    expect(paise('2 crore')).toEqual([2000000000])
+    expect(paise('Rs 5k')).toEqual([500000])
+    expect(paise('12 thousand')).toEqual([1200000])
+    expect(paise('₹ 2.25 lakhs')).toEqual([22500000])
+  })
+
+  it('reads Dr / Cr suffixed and prefixed figures, and bare integers next to money words', () => {
+    expect(paise('closing 25000 Dr')).toEqual([2500000])
+    expect(paise('₹25,000.00 Cr and 25,000 Cr')).toEqual([2500000, 2500000]) // spaced Cr = credit, not crore
+    expect(paise('Cr 4000 left')).toEqual([400000])
+    expect(paise('balance 125000 as on today')).toEqual([12500000])
+    expect(paise('paid 5000 to rent')).toEqual([500000])
+  })
+
+  it('ignores years, counts, ids, dates, percentages and versions', () => {
+    expect(paise('In 2025 there were 4512 vouchers, voucher 12345, 18% GST, v2.10, 2025-07-31, 31.07.2025, GSTIN 27AAPFU0939F1ZV')).toEqual([])
+    expect(paise('FY 2025 sales')).toEqual([])
+  })
+
+  it('sources against what the model saw; shorthand within rounding is "approximate"', () => {
+    const seen = [{ name: 'profit_and_loss', text: JSON.stringify({ sales: '₹1,23,456.00', net: '-₹2,000.00', cash: '₹25,000.00 Dr' }) }]
+    const figs = checkFigures('Sales were ₹1,23,456 (about ₹1.2L), the loss ₹2,000.00, cash 25000 Dr; I estimate ₹5,000.00 and 1.5 lakh.', seen)
     expect(figs).toEqual([
       { text: '₹1,23,456', paise: 12345600, sourced: true, tool: 'profit_and_loss' },
+      { text: '₹1.2L', paise: 12000000, sourced: true, tool: 'profit_and_loss', approximate: true },
       { text: '₹2,000.00', paise: 200000, sourced: true, tool: 'profit_and_loss' },
-      { text: '₹5,000.00', paise: 500000, sourced: false, tool: null }
+      { text: '25000', paise: 2500000, sourced: true, tool: 'profit_and_loss' },
+      { text: '₹5,000.00', paise: 500000, sourced: false, tool: null },
+      { text: '1.5 lakh', paise: 15000000, sourced: false, tool: null }
     ])
   })
 })

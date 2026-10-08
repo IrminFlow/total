@@ -179,7 +179,8 @@ export function AiSection(): React.JSX.Element {
         <h3 className="mb-1 text-detail font-semibold">Delete all AI data</h3>
         <p className="mb-3 text-body-sm text-muted">
           Removes every conversation, draft, memory and the party alias list from this company. Vouchers you saved from drafts are not touched. The
-          usage and outbound logs are kept as the record of what was spent and sent.
+          usage and outbound logs are kept as the record of what was spent and sent, and the audit trail’s entries about AI settings and drafts
+          stay: the audit trail is append-only and cannot be purged.
         </p>
         <Button
           variant="danger"
@@ -213,6 +214,19 @@ function KeyPanel({ view, isOwner }: { view: AiSettingsView; isOwner: boolean })
   const [busy, setBusy] = useState(false)
   const [test, setTest] = useState<AiConnectionResult | null>(null)
 
+  const { user } = useSession()
+  /** The key is shared by every company: in a company without users, ask first (main refuses
+   *  outright when another company on this computer has users). */
+  const confirmNoUsers = async (): Promise<boolean | null> => {
+    if (user) return false
+    const ok = await confirmDialog({
+      title: 'Shared API key',
+      message:
+        'This company has no users, so anyone using this computer can change the API key shared by all companies here. Continue? (If another company on this computer has users, sign in as its owner there instead.)',
+      confirmLabel: 'Continue'
+    })
+    return ok ? true : null
+  }
   const act = async (fn: () => Promise<unknown>, ok: string): Promise<void> => {
     setBusy(true)
     try {
@@ -255,16 +269,24 @@ function KeyPanel({ view, isOwner }: { view: AiSettingsView; isOwner: boolean })
         <Button
           variant="primary"
           disabled={!isOwner || busy || key.trim().length < 8}
-          onClick={() => void act(async () => {
-            await aiApi.setKey(key.trim())
-            setKey('')
-          }, 'API key saved')}
+          onClick={async () => {
+            const confirmed = await confirmNoUsers()
+            if (confirmed === null) return
+            await act(async () => {
+              await aiApi.setKey(key.trim(), confirmed)
+              setKey('')
+            }, 'API key saved')
+          }}
           data-testid="btn-ai-save-key"
         >
           Save key
         </Button>
         {view.keyPresent && (
-          <Button disabled={!isOwner || busy} onClick={() => void act(aiApi.clearKey, 'API key removed')} data-testid="btn-ai-clear-key">
+          <Button disabled={!isOwner || busy} onClick={async () => {
+              const confirmed = await confirmNoUsers()
+              if (confirmed === null) return
+              await act(() => aiApi.clearKey(confirmed), 'API key removed')
+            }} data-testid="btn-ai-clear-key">
             Remove
           </Button>
         )}

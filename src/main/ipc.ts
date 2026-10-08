@@ -1,5 +1,5 @@
 import { app, BrowserWindow, dialog, ipcMain, Notification, shell } from 'electron'
-import { readFileSync, writeFileSync, copyFileSync, rmSync, unlinkSync, mkdtempSync, existsSync } from 'fs'
+import { readFileSync, writeFileSync, copyFileSync, rmSync, unlinkSync, mkdtempSync, existsSync, appendFileSync } from 'fs'
 import { tmpdir } from 'os'
 import { join, basename } from 'path'
 import { z } from 'zod'
@@ -11,7 +11,7 @@ import { checkIntegrity } from './db/integrity'
 import { encryptFile, decryptFile } from './db/crypt'
 import { readCompanyInfo, seedCompany, writeCompanyInfo } from './db/seed'
 import { readRegistry, removeCompany, touchLastOpened, upsertCompany } from './registry'
-import { companyBackupsDir, companyDbPath, companyDir, companyExportsDir, ensureCompanyTree, slugify } from './paths'
+import { companyBackupsDir, companyDbPath, companyDir, companyExportsDir, dataRoot, ensureCompanyTree, slugify } from './paths'
 import { log, revealLogs } from './log'
 import { checkForUpdatesInteractive } from './updater'
 import {
@@ -79,7 +79,7 @@ import * as yearEnd from './services/yearEnd'
 import { registerFixedAssetIpc } from './ipcFixedAssets'
 import { registerPayrollStatutoryIpc } from './ipcPayrollStatutory'
 import { registerPricingIpc } from './ipcPricing'
-import { registerAiIpc, aiRuns } from './ai/ipc'
+import { registerAiIpc, aiRuns, type AppKeyAuditEntry } from './ai/ipc'
 import { aiMockAllowed } from './ai/env'
 import { settleDraftOnSave } from './ai/drafts'
 import { appSecretStore } from './services/secretStore'
@@ -160,6 +160,28 @@ function renameFile(src: string, dest: string): void {
   rmSync(dest, { force: true })
   copyFileSync(src, dest)
   unlinkSync(src)
+}
+
+/** Whether a company file (not the open one) has active users — read-only peek for the AI key guard. */
+function companyHasUsers(dbPath: string): boolean {
+  if (!existsSync(dbPath)) return false
+  try {
+    const d = new Database(dbPath, { readonly: true, fileMustExist: true })
+    try {
+      return ((d.prepare('SELECT COUNT(*) AS n FROM users WHERE active = 1').get() as { n: number }).n ?? 0) > 0
+    } finally {
+      d.close()
+    }
+  } catch {
+    // Unreadable (encrypted, older schema): assume users exist — the safe answer for the guard.
+    return true
+  }
+}
+
+/** App-level, append-only record of API key changes (WP 5.1) — beside secrets.json, outside
+ *  every company (the key is shared by all of them). */
+function appendAiKeyAudit(entry: AppKeyAuditEntry): void {
+  appendFileSync(join(dataRoot(), 'ai-key-audit.jsonl'), `${JSON.stringify({ ...entry, appVersion: app.getVersion() })}\n`, { mode: 0o600 })
 }
 
 export function closeCurrentCompany(): void {
@@ -263,7 +285,11 @@ export function registerIpc(): void {
   registerAiIpc(handle, {
     company: () => requireCompany(),
     session: () => (sessionUser ? { name: sessionUser.name, role: sessionUser.role } : { name: null, role: 'owner' }),
+    // A company with users and nobody signed in has no role (the run stops at its next tool call).
+    roleNow: () => (sessionUser ? sessionUser.role : current?.usersExist ? null : 'owner'),
     secrets: () => appSecretStore(),
+    anyCompanyHasUsers: () => readRegistry().companies.some((co) => co.slug !== current?.slug && companyHasUsers(companyDbPath(co.slug))),
+    appAudit: (entry) => appendAiKeyAudit(entry),
     emit: (e: AiEvent) => {
       for (const w of BrowserWindow.getAllWindows()) if (!w.isDestroyed()) w.webContents.send('total:ai:event', e)
     },

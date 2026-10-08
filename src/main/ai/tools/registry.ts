@@ -23,6 +23,8 @@ export interface ToolContext {
   messageId: number | null
   today: string
   period: { from: string; to: string }
+  /** The user's question this tool call serves (draft tools flag drafts it did not ask for). */
+  userRequest?: string
 }
 
 export interface ToolOutput<T = unknown> {

@@ -18,6 +18,7 @@ export function defaultAiSettings(): AiSettings {
     enabled: false,
     noticeAcceptedAt: null,
     noticeAcceptedBy: null,
+    noticeVersion: null,
     defaultModel: AI_DEFAULT_MODEL,
     fastModel: AI_DEFAULT_FAST_MODEL,
     privacy: { maskIds: true, pseudonymiseParties: false },
@@ -46,7 +47,9 @@ function writeSettings(db: DB, s: AiSettings): void {
 export function patchAiSettings(db: DB, raw: AiSettingsPatch): AiSettings {
   const patch = aiSettingsPatchSchema.parse(raw)
   const before = getAiSettings(db)
-  if (patch.enabled && !before.noticeAcceptedAt) throw new Error('Read and accept the data notice before turning the assistant on')
+  if (patch.enabled && (!before.noticeAcceptedAt || before.noticeVersion !== AI_DATA_NOTICE_VERSION)) {
+    throw new Error('Read and accept the data notice before turning the assistant on')
+  }
   const after: AiSettings = {
     ...before,
     ...(patch.enabled !== undefined ? { enabled: patch.enabled } : {}),
@@ -65,10 +68,10 @@ export function patchAiSettings(db: DB, raw: AiSettingsPatch): AiSettings {
 
 export function acceptNotice(db: DB, userName: string | null): AiSettings {
   const before = getAiSettings(db)
-  const after: AiSettings = { ...before, noticeAcceptedAt: new Date().toISOString(), noticeAcceptedBy: userName }
+  const after: AiSettings = { ...before, noticeAcceptedAt: new Date().toISOString(), noticeAcceptedBy: userName, noticeVersion: AI_DATA_NOTICE_VERSION }
   db.transaction(() => {
     writeSettings(db, after)
-    writeAudit(db, 'ai_settings', 0, 'update', before, { ...after, noticeVersion: AI_DATA_NOTICE_VERSION })
+    writeAudit(db, 'ai_settings', 0, 'update', before, after)
   })()
   return after
 }

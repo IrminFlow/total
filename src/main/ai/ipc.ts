@@ -2,6 +2,15 @@
 // (role gate + { ok, data | error } envelope); every payload is Zod-parsed here. Streaming goes
 // the other way: the agent's AiEvents are pushed with webContents.send('total:ai:event') by the
 // `emit` the caller passes in (this file never imports Electron, so dbtests drive it directly).
+//
+// The API key is app-wide, so a per-company role is not enough to guard it (a company with no
+// users makes everyone its "owner"). keyChangeRule() below:
+//   - in a company WITH users: its signed-in owner may set / clear the key (handle enforces owner);
+//   - in a company WITHOUT users: refused while any other company on this computer has users
+//     ("sign in as an owner there"); when no company has users at all, allowed only with an
+//     explicit `confirmNoUsers` ("anyone using this computer can change it") — the UI asks.
+// Every key change is audited twice: in the open company's audit_log (as before) and in the
+// app-level, append-only <dataRoot>/ai-key-audit.jsonl (appAudit), which no company owns.
 import { z } from 'zod'
 import type { DB } from '../db/connection'
 import type { CompanyInfo } from '@shared/domain'
@@ -11,7 +20,7 @@ import {
 import type { Role } from '../services/roles'
 import type { SecretStore } from '../services/secrets'
 import { writeAudit } from '../services/audit'
-import { AgentRuns, AI_OFF_MESSAGE, startTurn } from './agent'
+import { AgentRuns, AI_OFF_MESSAGE, settingsBlocker, startTurn } from './agent'
 import { acceptNotice, clearApiKey, getAiSettings, keyHint, patchAiSettings, readApiKey, setApiKey } from './settings'
 import { createToolRegistry } from './tools'
 import { MockProvider, demoScript } from './mockProvider'
@@ -25,21 +34,37 @@ interface Company {
   db: DB
   info: CompanyInfo
   slug: string
+  usersExist: boolean
+}
+
+export interface AppKeyAuditEntry {
+  at: string
+  action: 'set' | 'clear'
+  keyHint: string | null
+  company: string
+  user: string | null
+  mode: 'owner' | 'no-users-confirmed'
 }
 
 export interface AiIpcDeps {
   company: () => Company
-  /** The signed-in user; a company without users acts as its owner. */
+  /** The signed-in user's name and role; a company without users acts as its owner. */
   session: () => { name: string | null; role: Role }
+  /** The role right now, or null when signed out (re-checked at every tool call). */
+  roleNow: () => Role | null
   secrets: () => SecretStore
   emit: (e: AiEvent) => void
   /** TOTAL_AI_MOCK in effect (see env.ts). */
   mock: () => boolean
+  /** Whether any company on this computer has users (the key guard). */
+  anyCompanyHasUsers: () => boolean
+  /** App-level key audit (append-only, outside every company). */
+  appAudit: (entry: AppKeyAuditEntry) => void
   /** Injected by tests; the default builds the OpenAI provider (or the demo mock). */
   providerFactory?: (opts: { apiKey: string | null; mock: boolean }) => AiProvider
 }
 
-/** One registry of in-flight runs for the app (a company close stops them all). */
+/** One registry of in-flight runs for the app, keyed by company + thread (a company close stops them all). */
 export const aiRuns = new AgentRuns()
 
 const defaultProviderFactory = ({ apiKey, mock }: { apiKey: string | null; mock: boolean }): AiProvider => {
@@ -51,13 +76,7 @@ const defaultProviderFactory = ({ apiKey, mock }: { apiKey: string | null; mock:
 export function settingsView(settings: AiSettings, secrets: SecretStore, mock: boolean): AiSettingsView {
   const key = readApiKey(secrets)
   const keyPresent = !!key
-  const blocker = !settings.noticeAcceptedAt
-    ? 'Read and accept the data notice first'
-    : !settings.enabled
-      ? AI_OFF_MESSAGE
-      : !keyPresent && !mock
-        ? 'Add an API key'
-        : null
+  const blocker = settingsBlocker(settings) ?? (!keyPresent && !mock ? 'Add an API key' : null)
   return {
     settings,
     keyPresent,
@@ -69,13 +88,37 @@ export function settingsView(settings: AiSettings, secrets: SecretStore, mock: b
   }
 }
 
+export const KEY_OTHER_COMPANY_HAS_USERS =
+  'The API key is shared by every company on this computer. Another company here has users — open it and sign in as its owner to change the key.'
+export const KEY_CONFIRM_NO_USERS =
+  'No company on this computer has users, so anyone using it can change the shared API key. Confirm to continue.'
+
+/** Who may change the app-wide key — see the header comment. Pure; tested. */
+export function keyChangeRule(o: { companyHasUsers: boolean; anyCompanyHasUsers: boolean; confirmNoUsers: boolean }): {
+  ok: boolean
+  mode?: AppKeyAuditEntry['mode']
+  error?: string
+} {
+  if (o.companyHasUsers) return { ok: true, mode: 'owner' }
+  if (o.anyCompanyHasUsers) return { ok: false, error: KEY_OTHER_COMPANY_HAS_USERS }
+  if (!o.confirmNoUsers) return { ok: false, error: KEY_CONFIRM_NO_USERS }
+  return { ok: true, mode: 'no-users-confirmed' }
+}
+
 export function registerAiIpc(handle: Handle, deps: AiIpcDeps): void {
   const registry = createToolRegistry()
   const db = (): DB => deps.company().db
+  const scope = (): string => deps.company().slug
   const factory = deps.providerFactory ?? defaultProviderFactory
   const view = (): AiSettingsView => settingsView(getAiSettings(db()), deps.secrets(), deps.mock())
   const provider = (): AiProvider => factory({ apiKey: readApiKey(deps.secrets()), mock: deps.mock() })
   const idSchema = z.object({ id: z.number().int().positive() })
+  const guardKey = (confirmNoUsers: boolean): AppKeyAuditEntry['mode'] => {
+    const c = deps.company()
+    const rule = keyChangeRule({ companyHasUsers: c.usersExist, anyCompanyHasUsers: !c.usersExist && deps.anyCompanyHasUsers(), confirmNoUsers })
+    if (!rule.ok) throw new Error(rule.error)
+    return rule.mode!
+  }
 
   // ---------- settings ----------
   handle('ai:settings:get', () => view(), 'viewer')
@@ -88,12 +131,17 @@ export function registerAiIpc(handle: Handle, deps: AiIpcDeps): void {
     return view()
   }, 'owner')
   handle('ai:key:set', (p) => {
-    const { key } = aiKeySetSchema.parse(p)
+    const { key, confirmNoUsers } = aiKeySetSchema.extend({ confirmNoUsers: z.boolean().default(false) }).parse(p)
+    const mode = guardKey(confirmNoUsers)
     setApiKey(db(), deps.secrets(), key)
+    deps.appAudit({ at: new Date().toISOString(), action: 'set', keyHint: keyHint(key), company: scope(), user: deps.session().name, mode })
     return view()
   }, 'owner')
-  handle('ai:key:clear', () => {
+  handle('ai:key:clear', (p) => {
+    const { confirmNoUsers } = z.object({ confirmNoUsers: z.boolean().default(false) }).default({}).parse(p ?? {})
+    const mode = guardKey(confirmNoUsers)
     clearApiKey(db(), deps.secrets())
+    deps.appAudit({ at: new Date().toISOString(), action: 'clear', keyHint: null, company: scope(), user: deps.session().name, mode })
     return view()
   }, 'owner')
   handle('ai:testConnection', async (): Promise<AiConnectionResult> => {
@@ -109,18 +157,18 @@ export function registerAiIpc(handle: Handle, deps: AiIpcDeps): void {
   handle('ai:tools', () => registry.info(), 'viewer')
 
   // ---------- conversations ----------
-  handle('ai:threads', () => store.listThreads(db(), aiRuns.running()), 'viewer')
+  handle('ai:threads', () => store.listThreads(db(), aiRuns.running(scope())), 'viewer')
   handle('ai:thread', (p) => {
     const { id } = idSchema.parse(p)
     const thread = store.getThread(db(), id)
     if (!thread) throw new Error('Conversation not found')
-    return { thread, messages: store.listMessages(db(), id), running: aiRuns.running().has(id) }
+    return { thread, messages: store.listMessages(db(), id).map(store.toDto), running: aiRuns.running(scope()).has(id) }
   }, 'viewer')
   handle('ai:thread:delete', (p) => {
     const { id } = idSchema.parse(p)
     const thread = store.getThread(db(), id)
     if (!thread) throw new Error('Conversation not found')
-    aiRuns.cancel(id)
+    aiRuns.cancel(id, scope())
     const messages = store.listMessages(db(), id).length
     db().transaction(() => {
       store.deleteThread(db(), id)
@@ -134,14 +182,17 @@ export function registerAiIpc(handle: Handle, deps: AiIpcDeps): void {
     const v = view()
     if (!v.ready) throw new Error(v.blocker ?? AI_OFF_MESSAGE)
     const turn = startTurn(
-      { db: c.db, company: c.info, provider: provider(), registry, settings: v.settings, user: deps.session(), emit: deps.emit, runs: aiRuns },
+      {
+        db: c.db, company: c.info, provider: provider(), registry, settings: v.settings, user: deps.session(), roleNow: deps.roleNow,
+        emit: deps.emit, runs: aiRuns, scope: c.slug
+      },
       input
     )
     return { threadId: turn.threadId, runId: turn.runId, userMessage: turn.userMessage }
   }, 'viewer')
   handle('ai:cancel', (p) => {
     const { threadId } = z.object({ threadId: z.number().int().positive() }).parse(p)
-    return { cancelled: aiRuns.cancel(threadId) }
+    return { cancelled: aiRuns.cancel(threadId, scope()) }
   }, 'viewer')
 
   // ---------- drafts ----------
@@ -159,9 +210,11 @@ export function registerAiIpc(handle: Handle, deps: AiIpcDeps): void {
   // ---------- meters and logs ----------
   handle('ai:usage', () => store.listUsage(db()), 'viewer')
   handle('ai:outbound', () => store.listOutbound(db()), 'viewer')
+  // Deletes conversations, drafts, memory and aliases. It cannot (and must not) remove the audit
+  // trail's rows about AI settings and drafts: audit_log is append-only (MCA rule 3(1)).
   handle('ai:data:deleteAll', (p) => {
     const { includeLogs } = z.object({ includeLogs: z.boolean().default(false) }).default({}).parse(p ?? {})
-    aiRuns.cancelAll()
+    for (const t of aiRuns.running(scope())) aiRuns.cancel(t, scope())
     const d = db()
     return d.transaction(() => {
       const before = store.deleteAllAiData(d, includeLogs)

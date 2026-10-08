@@ -36,6 +36,8 @@ export interface AiSettings {
   /** When (ISO) and by whom the data notice was accepted; null = never — AI cannot be turned on. */
   noticeAcceptedAt: string | null
   noticeAcceptedBy: string | null
+  /** AI_DATA_NOTICE_VERSION accepted; a newer notice must be accepted again. */
+  noticeVersion: number | null
   defaultModel: string
   fastModel: string
   privacy: AiPrivacy
@@ -105,6 +107,8 @@ export interface AiFigure {
   sourced: boolean
   /** The tool whose result contains it. */
   tool: string | null
+  /** Shorthand (₹1.2L) matched a source only within its rounding. */
+  approximate?: boolean
 }
 
 export interface AiToolCallDto {
@@ -172,6 +176,9 @@ export interface AiDraftDto {
   payload: AiVoucherDraftPayload
   status: AiDraftStatus
   voucherId: number | null
+  /** Made when the user's question did not ask for a draft (possible instruction injected via
+   *  narration or imported text) — shown with a warning. */
+  unrequested: boolean
   createdAt: string
   consumedAt: string | null
 }

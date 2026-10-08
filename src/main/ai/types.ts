@@ -7,6 +7,10 @@ export type ChatItem =
   | { type: 'message'; role: 'user' | 'assistant'; content: string }
   | { type: 'tool_call'; callId: string; name: string; arguments: string }
   | { type: 'tool_result'; callId: string; output: string }
+  /** A reasoning item from an earlier step of the same question, passed back verbatim (with its
+   *  encrypted content — requests are not stored, so this is how the model keeps its reasoning
+   *  between tool calls). */
+  | { type: 'reasoning'; item: Record<string, unknown> }
 
 export interface ToolSpec {
   name: string
@@ -48,6 +52,8 @@ export interface ChatResult {
   /** The model that actually answered (the provider may resolve an alias). */
   model: string
   finish: 'stop' | 'tool_calls' | 'incomplete'
+  /** Reasoning output items (encrypted), to pass back on the next step. */
+  reasoning: Record<string, unknown>[]
 }
 
 export interface ChatHandlers {

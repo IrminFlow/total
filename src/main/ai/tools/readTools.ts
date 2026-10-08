@@ -23,7 +23,15 @@ export const rupees = (paise: number): string => formatPaise(paise, { symbol: tr
 export const drCr = (signed: number): string => (signed === 0 ? rupees(0) : `${rupees(Math.abs(signed))} ${signed > 0 ? 'Dr' : 'Cr'}`)
 
 const date = (what: string): z.ZodString => isoDate.describe(`${what} (YYYY-MM-DD)`)
-const LIST_CAP = 400
+/** Row caps per tool (WP 5.1 review): results stay compact in storage and on the wire; anything
+ *  cut is said so explicitly in `truncated`, so the model can ask a narrower question. */
+export const ROW_CAPS = { ledgers: 400, statement: 300, trialBalance: 500, dayBook: 300, parties: 150, bills: 25, stock: 300 } as const
+
+/** First `cap` items, plus a marker when rows were left out. */
+export function capRows<T>(list: readonly T[], cap: number, hint: string): { rows: T[]; truncated?: string } {
+  if (list.length <= cap) return { rows: [...list] }
+  return { rows: list.slice(0, cap), truncated: `showing ${cap} of ${list.length} rows — ${hint}` }
+}
 
 function ledgerSources(rows: { id: number | null; name: string }[], cap = 25): AiSource[] {
   const seen = new Set<number>()
@@ -121,7 +129,7 @@ export const listLedgersTool = defineTool({
       .filter((l) => !needle || [l.name, l.group, l.gstin ?? '', l.pan ?? ''].some((v) => v.toLowerCase().includes(needle)))
       .sort((a, b) => a.name.localeCompare(b.name))
     return {
-      data: { count: rows.length, ledgers: rows.slice(0, LIST_CAP) },
+      data: { count: rows.length, ...((c) => ({ ledgers: c.rows, truncated: c.truncated }))(capRows(rows, ROW_CAPS.ledgers, 'search by name or group to narrow it')) },
       // A lookup, not evidence: link the ledger list, and the ledgers only when a search narrowed it.
       sources: [{ kind: 'screen', screen: 'masters', label: 'Ledgers' }, ...(needle || g ? ledgerSources(rows, 8) : [])]
     }
@@ -136,6 +144,7 @@ export const ledgerStatementTool = defineTool({
   minRole: 'viewer',
   handler: ({ ledgerId, from, to }, ctx) => {
     const s = reports.ledgerStatement(ctx.db, ledgerId, from, to)
+    const st = capRows(s.rows, ROW_CAPS.statement, 'ask for a shorter period')
     return {
       data: {
         ledgerId: s.ledgerId,
@@ -147,7 +156,8 @@ export const ledgerStatementTool = defineTool({
         totalCredit: rupees(s.totalCredit),
         closing: drCr(s.closing),
         vouchers: s.rows.length,
-        rows: s.rows.map((r) => ({
+        truncated: st.truncated,
+        rows: st.rows.map((r) => ({
           voucherId: r.voucherId,
           date: r.date,
           type: r.voucherType,
@@ -177,12 +187,14 @@ export const trialBalanceTool = defineTool({
   handler: ({ asOn }, ctx) => {
     const tb = reports.trialBalance(ctx.db, asOn)
     const rows = tb.rows.filter((r) => r.debit !== 0 || r.credit !== 0)
+    const tbCap = capRows(rows, ROW_CAPS.trialBalance, 'the totals cover every ledger; use ledger_statement for the rest')
     return {
       data: {
         asOn,
         totalDebit: rupees(tb.totalDebit),
         totalCredit: rupees(tb.totalCredit),
-        rows: rows.map((r) => ({
+        truncated: tbCap.truncated,
+        rows: tbCap.rows.map((r) => ({
           ledgerId: r.ledgerId,
           ledger: r.ledgerName,
           group: r.groupName,
@@ -252,12 +264,14 @@ export const outstandingsTool = defineTool({
   minRole: 'viewer',
   handler: ({ side, asOn }, ctx) => {
     const parties = outstandingsSvc(ctx.db, side, asOn)
+    const pc = capRows(parties, ROW_CAPS.parties, 'ask about one party for all its bills')
     return {
       data: {
         side,
         asOn,
         parties: parties.length,
-        rows: parties.map((p) => ({
+        truncated: pc.truncated,
+        rows: pc.rows.map((p) => ({
           ledgerId: p.ledgerId,
           party: p.name,
           pending: rupees(p.pending),
@@ -265,7 +279,8 @@ export const outstandingsTool = defineTool({
           '31-60 days': rupees(p.buckets[1]),
           '61-90 days': rupees(p.buckets[2]),
           'over 90 days': rupees(p.buckets[3]),
-          bills: p.bills.map((b) => ({
+          billsTruncated: p.bills.length > ROW_CAPS.bills ? `showing ${ROW_CAPS.bills} of ${p.bills.length} bills` : undefined,
+          bills: p.bills.slice(0, ROW_CAPS.bills).map((b) => ({
             voucherId: b.voucherId ?? undefined,
             bill: b.number,
             date: b.date,
@@ -330,12 +345,14 @@ export const dayBookTool = defineTool({
   minRole: 'viewer',
   handler: ({ from, to }, ctx) => {
     const rows = reports.dayBook(ctx.db, from, to)
+    const dbCap = capRows(rows, ROW_CAPS.dayBook, 'ask for a shorter period or use search_books')
     return {
       data: {
         from,
         to,
         vouchers: rows.length,
-        rows: rows.map((r) => ({
+        truncated: dbCap.truncated,
+        rows: dbCap.rows.map((r) => ({
           voucherId: r.voucherId,
           date: r.date,
           type: r.voucherType,
@@ -358,11 +375,13 @@ export const stockSummaryTool = defineTool({
   minRole: 'viewer',
   handler: ({ asOn }, ctx) => {
     const rows = stockSummarySvc(ctx.db, asOn).filter((r) => r.closingQtyMilli !== 0 || r.closingValue !== 0)
+    const sc = capRows(rows, ROW_CAPS.stock, 'ask about specific items')
     return {
       data: {
         asOn,
         items: rows.length,
-        rows: rows.map((r) => ({
+        truncated: sc.truncated,
+        rows: sc.rows.map((r) => ({
           itemId: r.stockItemId,
           item: r.name,
           closingQty: `${formatQtyMilli(r.closingQtyMilli)} ${r.unitSymbol}`.trim(),

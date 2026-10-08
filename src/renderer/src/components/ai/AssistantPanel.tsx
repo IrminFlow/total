@@ -270,7 +270,8 @@ function MessageView({
       })}
       {unsourced.length > 0 && (
         <Banner tone="warning" testId="ai-unsourced">
-          Not found in the tool results — check before relying on it: {unsourced.map((f) => f.text).join(', ')}
+          Not in any report result the assistant saw in this conversation, so it may be its own calculation — check before relying on it:{' '}
+          {unsourced.map((f) => f.text).join(', ')}
         </Banner>
       )}
       {isFinal && m.sources.length > 0 && <Sources sources={m.sources} onNavigate={onNavigate} />}
@@ -445,11 +446,22 @@ function DraftCard({ draftId, known, onNavigate }: { draftId: number; known?: Ai
     <div className="rounded-md border border-amber/50 bg-amberbar/10 px-3 py-2" data-testid="ai-draft-card" data-draft-id={draft.id} data-status={draft.status}>
       <div className="flex items-center gap-2">
         <span className="text-small font-semibold text-ink">Draft voucher</span>
+        {draft.unrequested && (
+          <Badge tone="danger" testId="ai-draft-unrequested">
+            You did not ask for this
+          </Badge>
+        )}
         <Badge tone={draft.status === 'open' ? 'amber' : draft.status === 'consumed' ? 'success' : 'neutral'}>
           {draft.status === 'open' ? 'Not saved' : draft.status === 'consumed' ? 'Saved' : 'Discarded'}
         </Badge>
       </div>
       <p className="mt-1 text-body-sm text-ink">{draft.summary}</p>
+      {draft.unrequested && (
+        <p className="mt-1 text-caption text-danger">
+          Your question did not ask for an entry — text in your books (a narration or imported note) may have prompted this. Discard it unless you
+          really want it.
+        </p>
+      )}
       {draft.status === 'open' && (
         <div className="mt-2 flex gap-2">
           <Button size="sm" variant="primary" onClick={review} data-testid="btn-ai-review-draft">

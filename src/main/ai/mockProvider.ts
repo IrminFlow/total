@@ -9,8 +9,8 @@
 import { AiAbortError, ZERO_USAGE, type AiProvider, type ChatHandlers, type ChatItem, type ChatRequest, type ChatResult, type ChatUsage } from './types'
 
 export type MockStep =
-  | { text: string; toolCalls?: undefined; usage?: Partial<ChatUsage>; model?: string }
-  | { toolCalls: { name: string; arguments: Record<string, unknown> }[]; text?: string; usage?: Partial<ChatUsage>; model?: string }
+  | { text: string; toolCalls?: undefined; usage?: Partial<ChatUsage>; model?: string; reasoning?: Record<string, unknown>[] }
+  | { toolCalls: { name: string; arguments: Record<string, unknown> | string }[]; text?: string; usage?: Partial<ChatUsage>; model?: string; reasoning?: Record<string, unknown>[] }
   | { error: string }
 
 export type MockScript = readonly MockStep[] | ((req: ChatRequest, callIndex: number) => MockStep)
@@ -52,8 +52,8 @@ export class MockProvider implements AiProvider {
       if (this.opts.delayMs) await new Promise((r) => setTimeout(r, this.opts.delayMs))
     }
     if (req.signal?.aborted) throw new AiAbortError()
-    const toolCalls = (step.toolCalls ?? []).map((c, i) => ({ callId: `call_${index + 1}_${i + 1}`, name: c.name, arguments: JSON.stringify(c.arguments) }))
-    return { text, toolCalls, usage, model: step.model ?? req.model, finish: toolCalls.length ? 'tool_calls' : 'stop' }
+    const toolCalls = (step.toolCalls ?? []).map((c, i) => ({ callId: `call_${index + 1}_${i + 1}`, name: c.name, arguments: typeof c.arguments === 'string' ? c.arguments : JSON.stringify(c.arguments) }))
+    return { text, toolCalls, usage, model: step.model ?? req.model, finish: toolCalls.length ? 'tool_calls' : 'stop', reasoning: step.reasoning ?? [] }
   }
 
   async models(): Promise<string[]> {

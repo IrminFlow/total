@@ -88,7 +88,8 @@ describe('OpenAiProvider', () => {
       toolCalls: [{ callId: 'call_9', name: 'trial_balance', arguments: '{"asOn":"2025-07-31"}' }],
       usage: { inputTokens: 1200, cachedTokens: 1000, outputTokens: 80, reasoningTokens: 30 },
       model: 'gpt-6.1-sol-2026',
-      finish: 'tool_calls'
+      finish: 'tool_calls',
+      reasoning: []
     })
   })
 
@@ -142,6 +143,51 @@ describe('OpenAiProvider', () => {
         })()
     ])
     await expect(new OpenAiProvider({ apiKey: KEY, client }).chat({ ...REQ, signal: ctrl.signal })).rejects.toBeInstanceOf(AiAbortError)
+  })
+
+  it('aborts a silent stream after the idle timeout and fails the call (watchdog)', async () => {
+    let sawAbort = false
+    const hang = (signal?: AbortSignal): AsyncIterable<Record<string, unknown>> =>
+      (async function* () {
+        yield { type: 'response.output_text.delta', delta: 'Partial' }
+        await new Promise<void>((resolve) => signal?.addEventListener('abort', () => { sawAbort = true; resolve() }))
+        // a misbehaving stream that ignores the abort would hang here; the race still ends it
+        await new Promise(() => {})
+      })()
+    const client = fakeClient([(_b, signal) => hang(signal)])
+    const p = new OpenAiProvider({ apiKey: KEY, client, idleTimeoutMs: 40, sleep: async () => {} })
+    const err = await p.chat(REQ).catch((e: Error) => e)
+    expect(err).toBeInstanceOf(AiProviderError)
+    expect((err as Error).message).toMatch(/sent nothing for 0 s/)
+    expect(sawAbort).toBe(true)
+    expect(client.bodies).toHaveLength(1) // text had streamed — no retry
+  })
+
+  it('a silent stream before any text is retried', async () => {
+    const client = fakeClient([
+      (_b, signal) => (async function* () { await new Promise<void>((r) => signal?.addEventListener('abort', () => r())); yield* [] })(),
+      () => events([{ type: 'response.output_text.delta', delta: 'ok' }, COMPLETED])
+    ])
+    const r = await new OpenAiProvider({ apiKey: KEY, client, idleTimeoutMs: 30, sleep: async () => {} }).chat(REQ)
+    expect(r.text).toBe('ok')
+  })
+
+  it('requests encrypted reasoning, returns reasoning items, passes them back; drops the option if refused', async () => {
+    const item = { type: 'reasoning', id: 'rs_1', encrypted_content: 'gAAA…' }
+    const client = fakeClient([() => events([{ type: 'response.output_item.done', item }, COMPLETED])])
+    const p = new OpenAiProvider({ apiKey: KEY, client })
+    const r = await p.chat(REQ)
+    expect(r.reasoning).toEqual([item])
+    expect(client.bodies[0]!.include).toEqual(['reasoning.encrypted_content'])
+    expect(buildResponsesBody({ ...REQ, input: [{ type: 'reasoning', item }] }).input).toEqual([item])
+
+    const refusing = fakeClient([
+      () => events([], { failAfter: 0, err: new OpenAI.BadRequestError(400, { message: 'include reasoning.encrypted_content is not supported for this model' }, undefined, new Headers()) }),
+      () => events([COMPLETED])
+    ])
+    await new OpenAiProvider({ apiKey: KEY, client: refusing, sleep: async () => {} }).chat(REQ)
+    expect(refusing.bodies[0]!.include).toBeDefined()
+    expect(refusing.bodies[1]!.include).toBeUndefined()
   })
 
   it('lists models (sorted)', async () => {
