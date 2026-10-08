@@ -76,6 +76,10 @@ export interface EvalExpect {
   draftToolsOffered?: boolean
   /** A tool call must have been refused with an error matching this. */
   toolRefused?: RegExp
+  /** WP 5.6: the memory proposals this case must create (exactly these; none = []). */
+  memories?: (f: EvalFixture) => { kind?: string; status: string; unrequested: boolean }[]
+  /** Text the system prompt sent must contain (e.g. the memory block). */
+  promptIncludes?: (f: EvalFixture) => string[]
 }
 
 interface CaseBase {

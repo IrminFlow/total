@@ -72,7 +72,7 @@ describe('the mocked evaluation suite', () => {
     const failed = report.results.filter((r) => r.status !== 'pass')
     if (failed.length) console.log(reportMarkdown(report))
     expect(failed.map((r) => r.id)).toEqual([])
-    expect(report.totals.cases).toBeGreaterThanOrEqual(80)
+    expect(report.totals.cases).toBeGreaterThanOrEqual(100)
     expect(report.thresholdMet).toBe(true)
     expect(booksDigest(fx.db)).toBe(digest)
     expect(report.usage.calls).toBeGreaterThan(50)

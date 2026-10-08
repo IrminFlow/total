@@ -12,8 +12,8 @@ const PREFIX: Record<string, string> = {
 }
 
 describe('the evaluation catalogue', () => {
-  it('has ≥ 80 cases with unique, prefixed, stable ids', () => {
-    expect(EVAL_CASES.length).toBeGreaterThanOrEqual(80)
+  it('has ≥ 100 cases with unique, prefixed, stable ids', () => {
+    expect(EVAL_CASES.length).toBeGreaterThanOrEqual(100)
     const ids = EVAL_CASES.map((c) => c.id)
     expect(new Set(ids).size).toBe(ids.length)
     for (const c of EVAL_CASES) {

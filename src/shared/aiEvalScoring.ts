@@ -189,6 +189,8 @@ export interface DraftSeen {
   billRefs: { kind: string; name: string; amount: number }[]
   unrequested: boolean
   status: string
+  /** The tool's stated assumptions ("From memory [M3]: …"). */
+  assumptions?: string[]
 }
 
 export interface ExpectedDraft {
@@ -202,6 +204,8 @@ export interface ExpectedDraft {
   /** Bill names allocated (any order), with amounts when given. */
   bills?: { name: string; amount?: number }[]
   unrequested?: boolean
+  /** Each must be a substring of one of the draft's assumptions. */
+  assumptionsInclude?: string[]
 }
 
 /** Field-by-field differences between a draft and what was expected ([] = valid). */
@@ -222,6 +226,9 @@ export function draftDiff(actual: DraftSeen, want: ExpectedDraft): string[] {
     const hit = actual.billRefs.find((x) => x.name === b.name)
     if (!hit) d.push(`bill ${b.name}: not allocated (bills: ${actual.billRefs.map((x) => x.name).join(', ') || 'none'})`)
     else if (b.amount !== undefined && hit.amount !== b.amount) d.push(`bill ${b.name}: expected ${paiseText(b.amount)}, got ${paiseText(hit.amount)}`)
+  }
+  for (const a of want.assumptionsInclude ?? []) {
+    if (!(actual.assumptions ?? []).some((x) => x.includes(a))) d.push(`assumption "${a}" not stated (assumptions: ${(actual.assumptions ?? []).join(' | ') || 'none'})`)
   }
   eq('unrequested', actual.unrequested, want.unrequested ?? false)
   return d
