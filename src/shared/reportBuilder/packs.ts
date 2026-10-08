@@ -104,5 +104,10 @@ export function nextDueAt(frequency: PackFrequency, baseline: string): number {
 /** Whether an active pack should run at `now` (missed periods collapse into one run). */
 export function packDue(pack: { active: boolean; frequency: PackFrequency; lastRunAt: string | null; createdAt: string }, now: Date): boolean {
   if (!pack.active) return false
-  return now.getTime() >= nextDueAt(pack.frequency, pack.lastRunAt ?? pack.createdAt)
+  const baseline = pack.lastRunAt ?? pack.createdAt
+  const t = parseStamp(baseline)
+  // A last run "in the future" (the clock was set back, or bad data) must not stall the pack
+  // until then — treat it as due. An unreadable stamp is due too.
+  if (Number.isNaN(t) || t > now.getTime()) return true
+  return now.getTime() >= nextDueAt(pack.frequency, baseline)
 }

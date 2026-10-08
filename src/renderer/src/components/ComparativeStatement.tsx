@@ -3,7 +3,7 @@ import { useQuery } from '@tanstack/react-query'
 import type { BalanceSheet, ProfitAndLoss, StatementNode } from '@shared/reports'
 import { variance } from '@shared/reportBuilder/shape'
 import { toDisplayDate } from '@shared/dates'
-import { reportsApi, type BudgetAmounts, type ComparativeColumn } from '../lib/reportsClient'
+import { reportsApi, type ComparativeColumn } from '../lib/reportsClient'
 import { Money, Panel, SkeletonRows } from './ui'
 import { STATEMENT_COLUMN_W, StatementTree, type StatementColumn } from './StatementTree'
 
@@ -44,12 +44,7 @@ export function amountIndex(nodes: StatementNode[], out = new Map<string, number
   return out
 }
 
-/** A node's budget: a ledger's own lines; a group's own lines plus everything under it. */
-export function budgetOf(node: StatementNode, b: BudgetAmounts): number {
-  if (node.kind === 'ledger') return b.ledgers[node.id] ?? 0
-  if (node.kind !== 'group') return 0
-  return (b.groups[node.id] ?? 0) + node.children.reduce((s, c) => s + budgetOf(c, b), 0)
-}
+const sum = (nodes: StatementNode[]): number => nodes.reduce((t, n) => t + n.amount, 0)
 
 // ---------------------------------------------------------------- view
 
@@ -85,23 +80,27 @@ function Line({ line }: { line: FlatLine }): React.JSX.Element {
   )
 }
 
-function Section({ title, trees, columns, budget, tree, labels }: {
+function Section({ title, trees, columns, budgetTree, tree, labels }: {
   title: string
   trees: StatementNode[][]
   columns: ComparativeColumn[]
-  budget: BudgetAmounts | null
+  /** The budget's tree for this section (budgeted ledgers with no actuals join the tree). */
+  budgetTree: StatementNode[] | null
   tree: { expandAll: boolean; hideZero: boolean }
   labels: string[]
 }): React.JSX.Element | null {
-  const merged = useMemo(() => unionTrees(trees), [trees])
+  const merged = useMemo(() => unionTrees(budgetTree ? [...trees, budgetTree] : trees), [trees, budgetTree])
   const extra = useMemo<StatementColumn[]>(() => {
     const idx = trees.slice(1).map((t) => amountIndex(t))
     const cols: StatementColumn[] = idx.map((m, i) => ({ key: columns[i + 1]!.key, amountOf: (n) => m.get(nodeKey(n)) ?? 0 }))
-    if (budget) cols.push({ key: 'budget', amountOf: (n) => budgetOf(n, budget) })
+    if (budgetTree) {
+      const b = amountIndex(budgetTree)
+      cols.push({ key: 'budget', amountOf: (n) => b.get(nodeKey(n)) ?? 0 })
+    }
     const ly = idx[1]
     cols.push({ key: 'change', percent: true, amountOf: (n) => variance(n.amount, ly?.get(nodeKey(n)) ?? 0).pct })
     return cols
-  }, [trees, columns, budget])
+  }, [trees, columns, budgetTree])
   if (merged.length === 0) return null
   return (
     <div className="mb-3">
@@ -154,21 +153,21 @@ export function ComparativeStatement({
       {kind === 'pnl' ? (
         <>
           {(data.statements as ProfitAndLoss[]).some((s) => s.openingStock) && <Line line={flat('Opening stock', (s) => s.openingStock)} />}
-          <Section title="Trading incomes" trees={(data.statements as ProfitAndLoss[]).map((s) => s.tradingIncomes)} columns={data.columns} budget={budget} tree={tree} labels={labels} />
-          <Section title="Trading expenses" trees={(data.statements as ProfitAndLoss[]).map((s) => s.tradingExpenses)} columns={data.columns} budget={budget} tree={tree} labels={labels} />
+          <Section title="Trading incomes" trees={(data.statements as ProfitAndLoss[]).map((s) => s.tradingIncomes)} columns={data.columns} budgetTree={budget ? budget.pnl.tradingIncomes : null} tree={tree} labels={labels} />
+          <Section title="Trading expenses" trees={(data.statements as ProfitAndLoss[]).map((s) => s.tradingExpenses)} columns={data.columns} budgetTree={budget ? budget.pnl.tradingExpenses : null} tree={tree} labels={labels} />
           {(data.statements as ProfitAndLoss[]).some((s) => s.closingStock) && <Line line={flat('Closing stock', (s) => s.closingStock)} />}
-          <Line line={flat('Gross profit', (s) => s.grossProfit, true)} />
-          <Section title="Indirect incomes" trees={(data.statements as ProfitAndLoss[]).map((s) => s.indirectIncomes)} columns={data.columns} budget={budget} tree={tree} labels={labels} />
-          <Section title="Indirect expenses" trees={(data.statements as ProfitAndLoss[]).map((s) => s.indirectExpenses)} columns={data.columns} budget={budget} tree={tree} labels={labels} />
+          <Line line={flat('Gross profit', (s) => s.grossProfit, true, budget ? sum(budget.pnl.tradingIncomes) - sum(budget.pnl.tradingExpenses) : null)} />
+          <Section title="Indirect incomes" trees={(data.statements as ProfitAndLoss[]).map((s) => s.indirectIncomes)} columns={data.columns} budgetTree={budget ? budget.pnl.indirectIncomes : null} tree={tree} labels={labels} />
+          <Section title="Indirect expenses" trees={(data.statements as ProfitAndLoss[]).map((s) => s.indirectExpenses)} columns={data.columns} budgetTree={budget ? budget.pnl.indirectExpenses : null} tree={tree} labels={labels} />
           <div className="mt-2 border-t border-line pt-1">
-            <Line line={flat('Net profit', (s) => s.netProfit, true)} />
+            <Line line={flat('Net profit', (s) => s.netProfit, true, budget ? sum(budget.pnl.tradingIncomes) - sum(budget.pnl.tradingExpenses) + sum(budget.pnl.indirectIncomes) - sum(budget.pnl.indirectExpenses) : null)} />
           </div>
         </>
       ) : (
         <>
-          <Section title="Liabilities" trees={(data.statements as BalanceSheet[]).map((s) => s.liabilities)} columns={data.columns} budget={null} tree={tree} labels={labels} />
+          <Section title="Liabilities" trees={(data.statements as BalanceSheet[]).map((s) => s.liabilities)} columns={data.columns} budgetTree={null} tree={tree} labels={labels} />
           <Line line={{ label: 'Total liabilities', strong: true, values: [...(data.statements as BalanceSheet[]).map((s) => s.totalLiabilities), null] }} />
-          <Section title="Assets" trees={(data.statements as BalanceSheet[]).map((s) => s.assets)} columns={data.columns} budget={null} tree={tree} labels={labels} />
+          <Section title="Assets" trees={(data.statements as BalanceSheet[]).map((s) => s.assets)} columns={data.columns} budgetTree={null} tree={tree} labels={labels} />
           <Line line={{ label: 'Total assets', strong: true, values: [...(data.statements as BalanceSheet[]).map((s) => s.totalAssets), null] }} />
         </>
       )}

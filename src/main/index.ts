@@ -3,7 +3,7 @@ import { join } from 'path'
 import { existsSync } from 'fs'
 import { homedir } from 'os'
 import { electronApp, is, optimizer } from '@electron-toolkit/utils'
-import { registerIpc, closeCurrentCompany, getCurrentCompany } from './ipc'
+import { registerIpc, closeCurrentCompany, getCurrentCompany, getUnlockedCompany } from './ipc'
 import { ensureDataTree, dataRoot } from './paths'
 import { initUpdater } from './updater'
 import { initLogging, log } from './log'
@@ -125,7 +125,7 @@ if (gotSingleInstanceLock) {
     registerIpc()
     startBackupScheduler(getCurrentCompany)
     // WP 6.2: scheduled report packs — hourly due-check (the on-open pass runs from company:open).
-    startPackScheduler(getCurrentCompany)
+    startPackScheduler(getUnlockedCompany)
     createWindow()
     warnIfSyncedFolder()
     initUpdater()

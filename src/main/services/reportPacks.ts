@@ -32,6 +32,9 @@ import { ratioReport } from './reportAnalytics'
 import { getSavedReport, runReport } from './reportBuilder'
 import { SYSTEM_AUDIT_USER, runAsAuditUser, writeAudit } from './audit'
 
+/** Resolves on the next macrotask (setImmediate), so long pack runs never block the UI's IPC. */
+export const yieldToEventLoop = (): Promise<void> => new Promise((resolve) => setImmediate(resolve))
+
 export type RenderPdf = (html: string, opts: { landscape: boolean }) => Promise<Buffer>
 
 // ---------------------------------------------------------------- CRUD
@@ -198,17 +201,22 @@ function builtinTable(db: DB, info: CompanyInfo, key: keyof typeof BUILTIN_PACK_
       }
     }
     case 'gstSummary': {
-      const result = runReport(
-        db,
-        {
-          source: 'accounts',
-          dimensions: [{ key: 'voucherType' }],
-          measures: ['taxable', 'cgst', 'sgst', 'igst', 'cess', 'gst'],
-          filters: { voucherKinds: ['sales', 'purchase', 'credit_note', 'debit_note'] }
-        },
-        { working: range, today, range }
-      )
-      return tableFromFlat({ ...base, landscape: true }, flattenResult(result, null))
+      // Output and input tax are shown apart and netted — never added together.
+      const run = (kinds: string[]) =>
+        runReport(db, { source: 'accounts', measures: ['taxable', 'cgst', 'sgst', 'igst', 'cess', 'gst'], filters: { voucherKinds: kinds } }, { working: range, today, range }).totals.map((v) => v ?? 0)
+      const out = run(['sales', 'credit_note'])
+      const inp = run(['purchase', 'debit_note'])
+      const net = out.map((v, i) => v - inp[i]!)
+      return {
+        ...base,
+        landscape: true,
+        columns: ['Particulars', 'Taxable value', 'CGST', 'SGST', 'IGST', 'Cess', 'GST total'].map((label, i) => ({ label, align: i === 0 ? 'l' : 'r' })) as ReportColumnSpec[],
+        rows: [
+          { cells: ['Output tax (sales less credit notes)', ...out.map(money)] },
+          { cells: ['Input tax (purchases less debit notes)', ...inp.map(money)] },
+          { cells: ['Net tax (output − input)', '', ...net.slice(1).map(money)], bold: true, rule: true }
+        ]
+      }
     }
     case 'ratios': {
       const r = ratioReport(db, range.from, range.to)
@@ -291,6 +299,8 @@ export async function runPack(db: DB, slug: string, info: CompanyInfo, packId: n
     const periodLabel = `${toDisplayDate(range.from)} to ${toDisplayDate(range.to)}`
     const used = new Set<string>()
     for (const [i, ref] of pack.reports.entries()) {
+      // Let the event loop breathe between reports — a pack must never freeze the app.
+      await yieldToEventLoop()
       try {
         const t = packTable(db, info, ref, range, today)
         let base = `${String(i + 1).padStart(2, '0')}-${t.filename || 'report'}`
@@ -337,6 +347,7 @@ export async function runDuePacks(db: DB, slug: string, info: CompanyInfo, opts:
   const runs: PackRun[] = []
   for (const pack of listPacks(db)) {
     if (!packDue(pack, now)) continue
+    await yieldToEventLoop()
     runs.push(await runPack(db, slug, info, pack.id, { ...opts, trigger: 'schedule', now }))
   }
   return runs

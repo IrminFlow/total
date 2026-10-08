@@ -13,6 +13,8 @@
  *         — explains the numerator / denominator of each Schedule III ratio.
  *   [FM]  ICAI study material, Financial Management — "Ratio Analysis" chapter (quick ratio,
  *         cash ratio, debtor / creditor / inventory days, cash conversion cycle).
+ * Working-capital days are the period's days ÷ the matching average-based turnover, so they agree
+ * with the efficiency ratios (the dashboard panel keeps its closing-balance debtor / creditor days).
  * Unverified (we have not checked the exact paragraph numbering of [S3]/[GN] against the
  * official text): the citation labels; the formulas themselves are the textbook forms. Where a
  * Schedule III ratio needs data the books don't identify (interest, debt service, EBIT,
@@ -26,7 +28,8 @@
 import { computeRatios } from './reportMath'
 
 export interface RatioSetInput {
-  /** Positions at the end of the period (paise; liabilities credit-positive). */
+  /** Positions at the end of the period (paise; liabilities credit-positive). Bank overdrafts are
+   *  in `currentLiabilities`, not netted off `cashBank`. */
   currentAssets: number
   currentLiabilities: number
   stock: number
@@ -90,7 +93,7 @@ export interface RatioDef {
 export const RATIO_DEFS: RatioDef[] = [
   { key: 'currentRatio', label: 'Current ratio', category: 'liquidity', unit: 'x', formula: 'Current assets ÷ Current liabilities', explain: 'How many times short-term assets cover short-term dues. Around 1.5–2 is comfortable for a trading business; below 1 means dues exceed liquid assets.', source: '[S3] [GN]', higherIsBetter: true },
   { key: 'quickRatio', label: 'Quick ratio', category: 'liquidity', unit: 'x', formula: '(Current assets − Inventories) ÷ Current liabilities', explain: 'The current ratio without stock, which may take time to sell. Shows whether dues can be met from cash, bank and receivables alone.', source: '[FM]', higherIsBetter: true },
-  { key: 'cashRatio', label: 'Cash ratio', category: 'liquidity', unit: 'x', formula: 'Cash and bank ÷ Current liabilities', explain: 'The strictest liquidity test: cash and bank balances against everything due within a year.', source: '[FM]', higherIsBetter: true },
+  { key: 'cashRatio', label: 'Cash ratio', category: 'liquidity', unit: 'x', formula: 'Cash and bank (excluding overdrafts) ÷ Current liabilities (including bank overdrafts)', explain: 'The strictest liquidity test: cash and bank balances against everything due within a year. An overdraft is a short-term borrowing, so it counts as a liability, not as negative cash.', source: '[FM]', higherIsBetter: true },
   { key: 'grossMarginPct', label: 'Gross margin', category: 'profitability', unit: '%', formula: 'Gross profit ÷ Net sales × 100', explain: 'What is left of each rupee of sales after the cost of goods sold and direct expenses.', source: '[FM]', higherIsBetter: true },
   { key: 'netMarginPct', label: 'Net profit ratio', category: 'profitability', unit: '%', formula: 'Net profit ÷ Net sales × 100', explain: 'Profit after every expense, per rupee of sales.', source: '[S3] [GN]', higherIsBetter: true },
   { key: 'returnOnEquityPct', label: 'Return on equity', category: 'profitability', unit: '%', formula: 'Net profit ÷ Average owners’ funds × 100', explain: 'Profit earned on the owners’ money in the business over the period (not annualised).', source: '[S3] [GN]', higherIsBetter: true },
@@ -102,9 +105,9 @@ export const RATIO_DEFS: RatioDef[] = [
   { key: 'payablesTurnover', label: 'Trade payables turnover', category: 'efficiency', unit: 'x', formula: 'Net purchases ÷ Average trade payables', explain: 'How many times suppliers were paid off in the period. All purchases are treated as credit purchases.', source: '[S3] [GN]', higherIsBetter: null },
   { key: 'netCapitalTurnover', label: 'Net capital turnover', category: 'efficiency', unit: 'x', formula: 'Net sales ÷ Working capital (Current assets − Current liabilities)', explain: 'Sales generated per rupee of working capital.', source: '[S3] [GN]', higherIsBetter: true },
   { key: 'assetTurnover', label: 'Asset turnover', category: 'efficiency', unit: 'x', formula: 'Net sales ÷ Average total assets', explain: 'Sales generated per rupee of total assets.', source: '[FM]', higherIsBetter: true },
-  { key: 'debtorDays', label: 'Debtor days', category: 'workingCapital', unit: 'days', formula: 'Closing trade receivables ÷ Net sales × Days in period', explain: 'Average days customers take to pay.', source: '[FM]', higherIsBetter: false },
-  { key: 'creditorDays', label: 'Creditor days', category: 'workingCapital', unit: 'days', formula: 'Closing trade payables ÷ Net purchases × Days in period', explain: 'Average days taken to pay suppliers.', source: '[FM]', higherIsBetter: null },
-  { key: 'inventoryDays', label: 'Inventory days', category: 'workingCapital', unit: 'days', formula: 'Average inventory ÷ Cost of goods sold × Days in period', explain: 'Average days stock is held before it is sold.', source: '[FM]', higherIsBetter: false },
+  { key: 'debtorDays', label: 'Debtor days', category: 'workingCapital', unit: 'days', formula: 'Days in period ÷ Trade receivables turnover', explain: 'Average days customers take to pay — the receivables turnover expressed in days.', source: '[FM]', higherIsBetter: false },
+  { key: 'creditorDays', label: 'Creditor days', category: 'workingCapital', unit: 'days', formula: 'Days in period ÷ Trade payables turnover', explain: 'Average days taken to pay suppliers — the payables turnover expressed in days.', source: '[FM]', higherIsBetter: null },
+  { key: 'inventoryDays', label: 'Inventory days', category: 'workingCapital', unit: 'days', formula: 'Days in period ÷ Inventory turnover', explain: 'Average days stock is held before it is sold — the inventory turnover expressed in days.', source: '[FM]', higherIsBetter: false },
   { key: 'cashConversionDays', label: 'Cash conversion cycle', category: 'workingCapital', unit: 'days', formula: 'Debtor days + Inventory days − Creditor days', explain: 'Days between paying for stock and collecting from customers; the shorter, the less working capital is tied up.', source: '[FM]', higherIsBetter: false }
 ]
 
@@ -134,11 +137,16 @@ export function computeRatioSet(i: RatioSetInput): RatioSet {
   const avgPayables = (i.openingPayables + i.payables) / 2
   const avgAssets = (i.openingTotalAssets + i.totalAssets) / 2
   const avgEquity = (i.openingEquity + i.equity) / 2
-  const inventoryDays = cogs === 0 ? null : round2((avgStock / cogs) * i.periodDays)
-  const cashConversionDays =
-    base.debtorDays === null || inventoryDays === null || base.creditorDays === null
-      ? null
-      : round2(base.debtorDays + inventoryDays - base.creditorDays)
+  // Days = days in the period ÷ the same (average-based) turnover the efficiency group shows, so
+  // the two groups never disagree; null whenever that turnover is null.
+  const receivablesTurnover = avgReceivables === 0 ? null : i.sales / avgReceivables
+  const payablesTurnover = avgPayables === 0 ? null : i.purchases / avgPayables
+  const inventoryTurnover = avgStock === 0 ? null : cogs / avgStock
+  const daysOf = (turnover: number | null): number | null => (turnover === null || turnover === 0 ? null : round2(i.periodDays / turnover))
+  const debtorDays = daysOf(receivablesTurnover)
+  const creditorDays = daysOf(payablesTurnover)
+  const inventoryDays = daysOf(inventoryTurnover)
+  const cashConversionDays = debtorDays === null || inventoryDays === null || creditorDays === null ? null : round2(debtorDays + inventoryDays - creditorDays)
   return {
     currentRatio: base.currentRatio,
     quickRatio: base.quickRatio,
@@ -154,8 +162,8 @@ export function computeRatioSet(i: RatioSetInput): RatioSet {
     payablesTurnover: div(i.purchases, avgPayables),
     netCapitalTurnover: div(i.sales, i.currentAssets - i.currentLiabilities),
     assetTurnover: div(i.sales, avgAssets),
-    debtorDays: base.debtorDays,
-    creditorDays: base.creditorDays,
+    debtorDays,
+    creditorDays,
     inventoryDays,
     cashConversionDays
   }

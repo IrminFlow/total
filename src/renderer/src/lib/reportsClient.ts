@@ -5,7 +5,7 @@ import { call } from './client'
 import type { ReportModel, ReportModelInput, ReportResult } from '@shared/reportBuilder/model'
 import type { PackInputPayload, PackRun, ReportPack } from '@shared/reportBuilder/packs'
 import type { RatioReport } from '@shared/ratios'
-import type { BalanceSheet, ProfitAndLoss } from '@shared/reports'
+import type { BalanceSheet, ProfitAndLoss, StatementNode } from '@shared/reports'
 
 /** Mirrors reportBuilder.SavedReport (main-process only). */
 export interface SavedReport {
@@ -31,6 +31,7 @@ export interface BudgetAmounts {
   name: string
   ledgers: Record<number, number>
   groups: Record<number, number>
+  pnl: { tradingIncomes: StatementNode[]; tradingExpenses: StatementNode[]; indirectIncomes: StatementNode[]; indirectExpenses: StatementNode[] }
 }
 
 export const reportsApi = {

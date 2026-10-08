@@ -9,7 +9,7 @@ import { useNav, useSession } from '../state/stores'
 import { ReportBuilderScreen } from '../screens/reportBuilder/ReportBuilder'
 import { Shell } from '../components/Shell'
 import { DialogHost } from '../components/dialogs'
-import { amountIndex, budgetOf, unionTrees } from '../components/ComparativeStatement'
+import { amountIndex, unionTrees } from '../components/ComparativeStatement'
 
 const invoke = vi.fn()
 let handlers: Record<string, (payload: unknown) => unknown> = {}
@@ -135,8 +135,12 @@ describe('comparative statement trees', () => {
     expect(u[0]!.children.map((c) => [c.name, c.amount])).toEqual([['Sales', 500], ['Export sales', 0]])
     expect(amountIndex(last).get('ledger:11:')).toBe(80)
   })
-  it('rolls budgets up groups: own group lines plus everything below', () => {
-    const tree = group(1, 'Indirect Expenses', [leaf(20, 'Rent', 0), group(2, 'Travel', [leaf(21, 'Taxi', 0)])])
-    expect(budgetOf(tree, { budgetId: 1, name: 'B', ledgers: { 20: 1000, 21: 50 }, groups: { 2: 200, 1: 7 } })).toBe(1257)
+  it('a budgeted ledger with no actuals joins the tree (zero actual, its budget in the budget column)', () => {
+    const actual = [group(30, 'Indirect Expenses', [leaf(20, 'Rent', 900)])]
+    const budget = [group(30, 'Indirect Expenses', [leaf(20, 'Rent', 1000), leaf(22, 'Advertising', 500)])]
+    const u = unionTrees([actual, budget])
+    expect(u[0]!.children.map((c) => [c.name, c.amount])).toEqual([['Rent', 900], ['Advertising', 0]])
+    expect(amountIndex(budget).get('ledger:22:')).toBe(500)
+    expect(amountIndex(budget).get('group:30:')).toBe(1500)
   })
 })

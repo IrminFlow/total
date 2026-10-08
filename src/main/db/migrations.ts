@@ -2387,7 +2387,6 @@ export const MIGRATIONS: string[] = [
     model_json TEXT NOT NULL,
     owner TEXT,
     pinned INTEGER NOT NULL DEFAULT 0 CHECK (pinned IN (0, 1)),
-    schedule_json TEXT,
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at TEXT NOT NULL DEFAULT (datetime('now'))
   );

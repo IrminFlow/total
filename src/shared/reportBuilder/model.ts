@@ -78,7 +78,7 @@ export const MEASURES: Record<MeasureKey, MeasureDef> = {
   debit: { key: 'debit', label: 'Debit', sources: ['accounts'], kind: 'money', hint: 'Debit side of the lines' },
   credit: { key: 'credit', label: 'Credit', sources: ['accounts'], kind: 'money', hint: 'Credit side of the lines' },
   net: { key: 'net', label: 'Net (Dr − Cr)', sources: ['accounts'], kind: 'money', signed: true, hint: 'Debit minus credit; a positive figure is a debit' },
-  count: { key: 'count', label: 'Vouchers', sources: ['accounts', 'inventory'], kind: 'number', hint: 'Number of distinct vouchers' },
+  count: { key: 'count', label: 'Vouchers', sources: ['accounts', 'inventory'], kind: 'number', hint: 'Distinct vouchers touching each row (one voucher can touch several ledgers); the total counts each voucher once' },
   taxable: { key: 'taxable', label: 'Taxable value', sources: ['accounts'], kind: 'money', hint: 'As the sales / purchase registers count it: sales-side lines of sales vouchers, purchase-side lines of purchase vouchers, credit / debit notes signed' },
   cgst: { key: 'cgst', label: 'CGST', sources: ['accounts'], kind: 'money', hint: 'Lines on CGST ledgers, register-signed' },
   sgst: { key: 'sgst', label: 'SGST', sources: ['accounts'], kind: 'money', hint: 'Lines on SGST ledgers, register-signed' },
@@ -220,6 +220,8 @@ export function modelProblems(m: z.output<typeof reportModelBase>): string[] {
     if (m.source !== 'accounts') problems.push('Budgets compare against accounts only')
     if (m.comparative.budgetId === null) problems.push('Choose the budget to compare against')
     if (m.measures[0] !== 'net' && m.measures[0] !== 'profit') problems.push('A budget compares against the first measure, which must be Net or Profit')
+    const vf = voucherLevelFilters(m.filters)
+    if (vf.length) problems.push(`A budget has no party, voucher or narration — remove the voucher filters (${vf.join(', ')}) to compare with it`)
     const bad = dimKeys.filter((k) => !BUDGET_DIMENSIONS.includes(k))
     if (bad.length) problems.push(`A budget is set per ledger / group and month — it can’t be split by ${bad.map((k) => DIMENSIONS[k].label.toLowerCase()).join(', ')}`)
   }
@@ -273,11 +275,16 @@ export interface DimValue {
   label: string
 }
 
+/** A figure, or null for "no figure" (no comparative counterpart; a voucher count that can't be
+ *  added across the rows it would total). */
+export type Cell = number | null
+
 export interface ResultRow {
   keys: DimValue[]
-  values: number[]
-  /** Comparative figure per measure (null = not compared). Present only with a comparative. */
-  compare?: (number | null)[]
+  values: Cell[]
+  /** Comparative figure per measure (null = nothing to compare with). Present only with a
+   *  comparative. */
+  compare?: Cell[]
 }
 
 export interface ResultColumnDim {
@@ -299,10 +306,12 @@ export interface ReportResult {
   dims: ResultColumnDim[]
   measures: ResultColumnMeasure[]
   rows: ResultRow[]
-  totals: number[]
+  /** Report totals, computed by the database over the whole result (not the shown rows): a voucher
+   *  count is COUNT(DISTINCT voucher), a closing balance is the balance at the period end. */
+  totals: Cell[]
   /** What the comparative columns hold, or null. */
   compare: { kind: Exclude<ComparativeKind, 'none'>; label: string; from: string; to: string } | null
-  compareTotals: (number | null)[] | null
+  compareTotals: Cell[] | null
   /** Rows dropped by the row cap (the query stopped at `rowCap`). */
   truncated: boolean
   rowCap: number
@@ -314,7 +323,9 @@ export function dimColumn(spec: DimensionSpec): ResultColumnDim {
   return { key: spec.key, label: spec.key === 'group' && spec.level && spec.level > 1 ? `Group (level ${spec.level})` : def.label, link: def.link }
 }
 
-export function measureColumn(key: MeasureKey): ResultColumnMeasure {
+/** A column for a measure. A voucher count beside a ledger-like dimension says what it counts. */
+export function measureColumn(key: MeasureKey, dimKeys: readonly DimensionKey[] = []): ResultColumnMeasure {
   const def = MEASURES[key]
-  return { key, label: def.label, kind: def.kind, signed: !!def.signed }
+  const touching = key === 'count' && dimKeys.some((d) => !['party', 'voucherType', 'voucher', 'month', 'quarter', 'fy', 'day', 'user'].includes(d))
+  return { key, label: touching ? 'Vouchers touching row' : def.label, kind: def.kind, signed: !!def.signed }
 }

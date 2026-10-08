@@ -1,6 +1,6 @@
 import { useMemo } from 'react'
 import { isPeriodDimension, type DimValue, type ReportModel, type ReportResult, type ResultColumnDim, type ResultColumnMeasure } from '@shared/reportBuilder/model'
-import { chartSeries, pivotResult, rowKey, variance } from '@shared/reportBuilder/shape'
+import { chartSeries, countAdditive, pivotResult, rowKey, variance } from '@shared/reportBuilder/shape'
 import { formatPaise, formatPaiseCompact, formatQtyMilli } from '@shared/money'
 import { toDisplayDate, toMonthLabel } from '@shared/dates'
 import { DataTable, type TableColumn } from '../../components/table'
@@ -22,12 +22,21 @@ interface TableRow {
 
 const numKind = (m: ResultColumnMeasure): 'money' | 'quantity' | 'number' => m.kind
 
-/** Footer total of a closing balance with a date dimension = the last bucket's rows. */
-function balanceAware(id: string, isBalance: boolean, hasBucket: boolean): 'sum' | ((rows: TableRow[]) => number) {
-  if (!isBalance || !hasBucket) return 'sum'
+/**
+ * Footer total of a figure column. Unfiltered, it is the report's own total from the database
+ * (`whole` — a voucher count counts each voucher once, nothing depends on the row cap). Filtered
+ * in the table, it adds the rows in view — a closing balance with a date dimension takes the last
+ * bucket's rows, and a voucher count that can't be added across these rows shows "—".
+ */
+function footerTotal(id: string, opts: { isBalance: boolean; hasBucket: boolean; additive: boolean; whole: number | null | undefined; allRows: number }): (rows: TableRow[]) => number | null {
   return (rows) => {
-    const last = rows.reduce<string | null>((m, r) => (r.bucket !== null && (m === null || r.bucket > m) ? r.bucket : m), null)
-    return rows.filter((r) => r.bucket === last).reduce((s, r) => s + (r.cells[id] ?? 0), 0)
+    if (rows.length === opts.allRows && opts.whole !== undefined) return opts.whole
+    if (!opts.additive) return null
+    if (opts.isBalance && opts.hasBucket) {
+      const last = rows.reduce<string | null>((m, r) => (r.bucket !== null && (m === null || r.bucket > m) ? r.bucket : m), null)
+      return rows.filter((r) => r.bucket === last).reduce((s, r) => s + (r.cells[id] ?? 0), 0)
+    }
+    return rows.some((r) => r.cells[id] !== null && r.cells[id] !== undefined) ? rows.reduce((s, r) => s + (r.cells[id] ?? 0), 0) : null
   }
 }
 
@@ -72,7 +81,7 @@ export function useResultTable(result: ReportResult | undefined, model: ReportMo
             kind: numKind(m),
             signed: m.signed,
             value: (r) => r.cells[id] ?? null,
-            aggregate: 'sum',
+            aggregate: footerTotal(id, { isBalance: false, hasBucket: false, additive: m.key !== 'count' || countAdditive(p.rowDims.map((d) => d.key)), whole: p.columnTotals[ci]![mi], allRows: p.rows.length }),
             width: 132
           })
         })
@@ -84,7 +93,7 @@ export function useResultTable(result: ReportResult | undefined, model: ReportMo
           kind: numKind(m),
           signed: m.signed,
           value: (r) => r.cells[`t${mi}`] ?? null,
-          aggregate: 'sum',
+          aggregate: footerTotal(`t${mi}`, { isBalance: false, hasBucket: false, additive: m.key !== 'count', whole: result.totals[mi] ?? null, allRows: p.rows.length }),
           className: 'font-medium',
           width: 140
         })
@@ -100,12 +109,17 @@ export function useResultTable(result: ReportResult | undefined, model: ReportMo
 
     const columns: TableColumn<TableRow>[] = [...dimColumns(result.dims)]
     const cmp = result.compare
+    const dimKeys = result.dims.map((d) => d.key)
+    const allRows = result.rows.length
     result.measures.forEach((m, mi) => {
       const isBal = m.key === 'balance'
-      columns.push({ id: `m${mi}`, header: m.label, kind: numKind(m), signed: m.signed, value: (r) => r.cells[`m${mi}`] ?? null, aggregate: balanceAware(`m${mi}`, isBal, pi >= 0), width: 150 })
+      const additive = m.key !== 'count' || countAdditive(dimKeys)
+      const agg = (id: string, whole: number | null | undefined) => footerTotal(id, { isBalance: isBal, hasBucket: pi >= 0, additive, whole, allRows })
+      const wholeVar = cmp ? variance(result.totals[mi] ?? null, result.compareTotals?.[mi] ?? null).abs : null
+      columns.push({ id: `m${mi}`, header: m.label, kind: numKind(m), signed: m.signed, value: (r) => r.cells[`m${mi}`] ?? null, aggregate: agg(`m${mi}`, result.totals[mi] ?? null), width: 150 })
       if (cmp) {
-        columns.push({ id: `c${mi}`, header: cmp.kind === 'budget' ? 'Budget' : cmp.label, group: m.label, kind: numKind(m), signed: m.signed, value: (r) => r.cells[`c${mi}`] ?? null, aggregate: balanceAware(`c${mi}`, isBal, pi >= 0), width: 140, className: 'text-muted', defaultHidden: cmp.kind === 'budget' && mi > 0 })
-        columns.push({ id: `v${mi}`, header: 'Change', group: m.label, kind: numKind(m), value: (r) => r.cells[`v${mi}`] ?? null, aggregate: balanceAware(`v${mi}`, isBal, pi >= 0), width: 130, defaultHidden: cmp.kind === 'budget' && mi > 0 })
+        columns.push({ id: `c${mi}`, header: cmp.kind === 'budget' ? 'Budget' : cmp.label, group: m.label, kind: numKind(m), signed: m.signed, value: (r) => r.cells[`c${mi}`] ?? null, aggregate: agg(`c${mi}`, result.compareTotals?.[mi] ?? null), width: 140, className: 'text-muted', defaultHidden: cmp.kind === 'budget' && mi > 0 })
+        columns.push({ id: `v${mi}`, header: 'Change', group: m.label, kind: numKind(m), value: (r) => r.cells[`v${mi}`] ?? null, aggregate: agg(`v${mi}`, wholeVar), width: 130, defaultHidden: cmp.kind === 'budget' && mi > 0 })
         columns.push({
           id: `x${mi}`, header: 'Change %', group: m.label, kind: 'number',
           value: (r) => r.cells[`x${mi}`] ?? null,

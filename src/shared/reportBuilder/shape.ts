@@ -1,16 +1,31 @@
 /**
  * Shaping a computed report (pure): running balances across date buckets, comparative merge and
- * variance, sorting, top-N, totals, pivoting one dimension into columns, and flattening any of it
- * into header + string rows for CSV / PDF. Shared by the main process (scheduled packs) and the
- * builder screen, so a report reads the same on screen and in a pack.
+ * variance, sorting, top-N (with an "All others" row), totals, pivoting one dimension into
+ * columns, and flattening any of it into header + string rows for CSV / PDF. Shared by the main
+ * process (scheduled packs) and the builder screen, so a report reads the same on screen and in a
+ * pack.
+ *
+ * A cell is `number | null`: null means "no figure" — a comparison with no counterpart, or a
+ * voucher count that cannot be added across rows (a voucher touches several ledgers, so summing
+ * per-ledger counts would count it more than once; those totals come from the database instead).
  */
 import { formatPaise, formatQtyMilli, plainMilli, plainRupees } from '../money'
 import { toDisplayDate } from '../dates'
-import { isPeriodDimension, type DimValue, type ReportModel, type ReportResult, type ResultColumnMeasure, type ResultRow } from './model'
+import {
+  isPeriodDimension, type Cell, type DimValue, type DimensionKey, type ReportModel, type ReportResult, type ResultColumnMeasure, type ResultRow
+} from './model'
 import { periodKeysBetween, periodLabel, shiftPeriodKey } from './period'
 
 /** Stable identity of a row's dimension cells. */
 export const rowKey = (keys: DimValue[]): string => keys.map((k) => (k.id === null ? `∅${k.label}` : String(k.id))).join('\u0001')
+
+/** Dimensions with exactly one value per voucher: voucher counts add up across them. */
+const VOUCHER_LEVEL: readonly string[] = ['party', 'voucherType', 'voucher', 'month', 'quarter', 'fy', 'day', 'user']
+
+/** Whether per-row voucher counts can be summed across rows that differ in `dims`. */
+export const countAdditive = (dims: readonly string[]): boolean => dims.every((d) => VOUCHER_LEVEL.includes(d))
+
+const add = (a: Cell, b: Cell): Cell => (a === null || b === null ? null : a + b)
 
 // ---------------------------------------------------------------- running balance
 
@@ -22,9 +37,9 @@ export const rowKey = (keys: DimValue[]): string => keys.map((k) => (k.id === nu
  */
 export function accumulateBalance(rows: ResultRow[], dimKeys: string[], measureKeys: string[], from: string, to: string): ResultRow[] {
   const bi = measureKeys.indexOf('balance')
-  const pi = dimKeys.findIndex((k) => isPeriodDimension(k as never))
+  const pi = dimKeys.findIndex((k) => isPeriodDimension(k as DimensionKey))
   if (bi < 0 || pi < 0) return rows
-  const dim = dimKeys[pi] as never
+  const dim = dimKeys[pi] as DimensionKey
   const buckets = periodKeysBetween(from, to, dim)
   const groups = new Map<string, { sample: DimValue[]; byBucket: Map<string, ResultRow> }>()
   for (const r of rows) {
@@ -39,9 +54,9 @@ export function accumulateBalance(rows: ResultRow[], dimKeys: string[], measureK
     let running = 0
     for (const b of buckets) {
       const r = g.byBucket.get(b)
-      running += r ? r.values[bi]! : 0
+      running += r ? (r.values[bi] ?? 0) : 0
       const keys = g.sample.map((k, i) => (i === pi ? { id: b, label: periodLabel(b, dim) } : k))
-      const values = r ? [...r.values] : measureKeys.map(() => 0)
+      const values: Cell[] = r ? [...r.values] : measureKeys.map(() => 0)
       values[bi] = running
       out.push({ keys, values })
     }
@@ -53,44 +68,48 @@ export function accumulateBalance(rows: ResultRow[], dimKeys: string[], measureK
 
 /** Variance of a figure against its comparative: absolute (paise / units) and percent of the
  *  comparative's magnitude (one decimal; null when the comparative is zero or missing). */
-export function variance(current: number, compare: number | null): { abs: number | null; pct: number | null } {
-  if (compare === null) return { abs: null, pct: null }
+export function variance(current: Cell, compare: Cell): { abs: number | null; pct: number | null } {
+  if (compare === null || current === null) return { abs: null, pct: null }
   const abs = current - compare
   if (compare === 0) return { abs, pct: null }
   return { abs, pct: Math.round((abs * 1000) / Math.abs(compare)) / 10 }
 }
 
+/** How the comparative's date buckets map onto the current ones. `shift`: the same calendar
+ *  bucket N months later (previous year, whole-month previous periods). `ordinal`: the k-th bucket
+ *  of the comparative range ↔ the k-th of the current range (a previous period of the same length
+ *  in days that does not start on a month boundary). */
+export type BucketAlignment = { kind: 'shift'; months: number } | { kind: 'ordinal'; current: string[]; prior: string[] }
+
 /**
- * Lines up a comparative run with the current one by dimension keys. Date buckets of the
- * comparative are re-keyed `shiftMonths` later first (last year's May → this year's May). Rows
- * only in the comparative are kept with zero current figures, so a party that dropped away still
- * shows.
+ * Lines up a comparative run with the current one by dimension keys, re-keying the comparative's
+ * date buckets first. A current row with no counterpart gets NO comparative (null — shown as "—"),
+ * never a made-up zero; a row only in the comparative is kept (current figures 0), so a party that
+ * dropped away still shows.
  */
-export function mergeComparative(
-  current: ResultRow[],
-  prior: ResultRow[],
-  dimKeys: string[],
-  shiftMonths: number | null
-): ResultRow[] {
-  const pi = dimKeys.findIndex((k) => isPeriodDimension(k as never))
-  const rekey = (r: ResultRow): ResultRow => {
-    if (pi < 0 || shiftMonths === null) return r
-    const dim = dimKeys[pi] as never
-    const id = shiftPeriodKey(String(r.keys[pi]!.id), dim, shiftMonths)
+export function mergeComparative(current: ResultRow[], prior: ResultRow[], dimKeys: string[], align: BucketAlignment | null): ResultRow[] {
+  const pi = dimKeys.findIndex((k) => isPeriodDimension(k as DimensionKey))
+  const ordinal = align?.kind === 'ordinal' ? new Map(align.prior.map((k, i) => [k, align.current[i] ?? null])) : null
+  const rekey = (r: ResultRow): ResultRow | null => {
+    if (pi < 0 || !align) return r
+    const dim = dimKeys[pi] as DimensionKey
+    const from = String(r.keys[pi]!.id)
+    const id = align.kind === 'shift' ? shiftPeriodKey(from, dim, align.months) : (ordinal!.get(from) ?? null)
+    if (id === null) return null
     return { ...r, keys: r.keys.map((k, i) => (i === pi ? { id, label: periodLabel(id, dim) } : k)) }
   }
-  const byKey = new Map(prior.map((r) => { const rk = rekey(r); return [rowKey(rk.keys), rk] as const }))
-  const out: ResultRow[] = current.map((r) => {
-    const p = byKey.get(rowKey(r.keys))
-    byKey.delete(rowKey(r.keys))
-    return { ...r, compare: p ? [...p.values] : r.values.map(() => 0) }
-  })
-  for (const p of byKey.values()) {
-    // A prior date bucket that has no counterpart in the current range (unaligned periods) is
-    // dropped rather than shown against the wrong period.
-    if (pi >= 0 && shiftMonths === null) continue
-    out.push({ keys: p.keys, values: p.values.map(() => 0), compare: [...p.values] })
+  const byKey = new Map<string, ResultRow>()
+  for (const p of prior) {
+    const rk = rekey(p)
+    if (rk) byKey.set(rowKey(rk.keys), rk)
   }
+  const out: ResultRow[] = current.map((r) => {
+    const k = rowKey(r.keys)
+    const p = byKey.get(k)
+    byKey.delete(k)
+    return { ...r, compare: p ? [...p.values] : r.values.map(() => null) }
+  })
+  for (const p of byKey.values()) out.push({ keys: p.keys, values: p.values.map(() => 0), compare: [...p.values] })
   return out
 }
 
@@ -108,32 +127,104 @@ function compareKeys(a: DimValue[], b: DimValue[]): number {
   return 0
 }
 
-/** Sort by the dimensions (date buckets chronologically, names alphabetically) or by a measure,
- *  then keep the top N. Ties fall back to the dimension order, so the result is deterministic. */
-export function sortRows(rows: ResultRow[], model: Pick<ReportModel, 'sort' | 'measures' | 'topN'>): ResultRow[] {
+/** Sort by the dimensions (date buckets chronologically, names alphabetically) or by a measure.
+ *  Ties fall back to the dimension order, so the result is deterministic. */
+export function sortRows(rows: ResultRow[], model: Pick<ReportModel, 'sort' | 'measures'>): ResultRow[] {
   const mi = model.sort.by === 'dimension' ? -1 : model.measures.indexOf(model.sort.by)
   const dir = model.sort.dir === 'desc' ? -1 : 1
-  const sorted = [...rows].sort((a, b) => {
+  return [...rows].sort((a, b) => {
     if (mi >= 0) {
-      const d = (a.values[mi]! - b.values[mi]!) * dir
+      const d = ((a.values[mi] ?? 0) - (b.values[mi] ?? 0)) * dir
       if (d !== 0) return d
     }
     return compareKeys(a.keys, b.keys) * (mi >= 0 ? 1 : dir)
   })
-  return model.topN ? sorted.slice(0, model.topN) : sorted
+}
+
+/** The dimension top-N keeps whole: the pivot, else a date dimension next to other dimensions. */
+export function topNSpreadIndex(dimKeys: string[], pivot: string | null): number {
+  if (pivot) return dimKeys.indexOf(pivot)
+  return dimKeys.length > 1 ? dimKeys.findIndex((k) => isPeriodDimension(k as DimensionKey)) : -1
+}
+
+/**
+ * Orders rows and keeps the top N, adding up the rest into "All others" rows so totals still tie.
+ * With a pivot (or a date dimension beside others) top-N ranks the ROW entities — the combinations
+ * of the other dimensions — by their total over every column / bucket, keeps all columns of the
+ * kept entities, and gives "All others" one row per column / bucket.
+ */
+export function applyTopN(rows: ResultRow[], model: Pick<ReportModel, 'sort' | 'measures' | 'topN' | 'pivot'>, dimKeys: string[]): ResultRow[] {
+  const measureKeys = model.measures
+  const g = topNSpreadIndex(dimKeys, model.pivot)
+  const others = (dropped: ResultRow[], keysFor: (sample: DimValue[]) => DimValue[], varying: string[]): ResultRow => ({
+    keys: keysFor(dropped[0]!.keys),
+    values: measureKeys.map((k, mi) =>
+      k === 'count' && !countAdditive(varying) ? null : dropped.reduce<Cell>((s, r) => add(s, r.values[mi] ?? null), 0)
+    ),
+    ...(dropped.some((r) => r.compare)
+      ? { compare: measureKeys.map((k, mi) => (k === 'count' && !countAdditive(varying) ? null : dropped.reduce<Cell>((s, r) => (r.compare?.[mi] === null || r.compare?.[mi] === undefined ? s : add(s, r.compare[mi]!)), 0))) }
+      : {})
+  })
+  if (g < 0) {
+    const sorted = sortRows(rows, model)
+    if (!model.topN || sorted.length <= model.topN) return sorted
+    const dropped = sorted.slice(model.topN)
+    return [...sorted.slice(0, model.topN), others(dropped, (s) => s.map((_, i) => ({ id: null, label: i === 0 ? `All others (${dropped.length})` : '' })), dimKeys)]
+  }
+  // Rank entities (the keys without the spread dimension).
+  const mi = model.sort.by === 'dimension' ? -1 : measureKeys.indexOf(model.sort.by)
+  const dir = model.sort.dir === 'desc' ? -1 : 1
+  const entities = new Map<string, { keys: DimValue[]; rows: ResultRow[]; score: number; last: string }>()
+  for (const r of rows) {
+    const keys = r.keys.filter((_, i) => i !== g)
+    const k = rowKey(keys)
+    const e = entities.get(k) ?? { keys, rows: [], score: 0, last: '' }
+    e.rows.push(r)
+    if (mi >= 0) {
+      const bucket = String(r.keys[g]!.id ?? '')
+      // A closing balance ranks by its latest bucket; everything else by its total.
+      if (measureKeys[mi] === 'balance' && isPeriodDimension(dimKeys[g] as DimensionKey)) {
+        if (bucket >= e.last) { e.last = bucket; e.score = r.values[mi] ?? 0 }
+      } else e.score += r.values[mi] ?? 0
+    }
+    entities.set(k, e)
+  }
+  const ranked = [...entities.values()].sort((a, b) => {
+    if (mi >= 0 && a.score !== b.score) return (a.score - b.score) * dir
+    return compareKeys(a.keys, b.keys) * (mi >= 0 ? 1 : dir)
+  })
+  const byBucket = (a: ResultRow, b: ResultRow): number => compareKeys([a.keys[g]!], [b.keys[g]!])
+  const kept = model.topN ? ranked.slice(0, model.topN) : ranked
+  const out = kept.flatMap((e) => [...e.rows].sort(byBucket))
+  const dropped = model.topN ? ranked.slice(model.topN) : []
+  if (dropped.length) {
+    const perBucket = new Map<string, ResultRow[]>()
+    for (const r of dropped.flatMap((e) => e.rows)) {
+      const bk = rowKey([r.keys[g]!])
+      perBucket.set(bk, [...(perBucket.get(bk) ?? []), r])
+    }
+    const varying = dimKeys.filter((_, i) => i !== g)
+    const rest = [...perBucket.values()].map((rs) =>
+      others(rs, (s) => s.map((k, i) => (i === g ? k : { id: null, label: i === (g === 0 ? 1 : 0) ? `All others (${dropped.length})` : '' })), varying)
+    )
+    out.push(...rest.sort(byBucket))
+  }
+  return out
 }
 
 /** Column totals. A closing balance with a date dimension totals only the last bucket (the
- *  balances at the end of the period); everything else sums. */
-export function totalsOf(rows: ResultRow[], dimKeys: string[], measureKeys: string[], pick: (r: ResultRow) => (number | null)[] = (r) => r.values): number[] {
-  const pi = dimKeys.findIndex((k) => isPeriodDimension(k as never))
+ *  balances at the end of the period); a voucher count only adds up across voucher-level
+ *  dimensions (null otherwise — its total comes from the database); everything else sums. */
+export function totalsOf(rows: ResultRow[], dimKeys: string[], measureKeys: string[], pick: (r: ResultRow) => Cell[] = (r) => r.values): Cell[] {
+  const pi = dimKeys.findIndex((k) => isPeriodDimension(k as DimensionKey))
   const lastBucket = pi >= 0 ? rows.reduce<string | null>((m, r) => { const id = String(r.keys[pi]!.id); return m === null || id > m ? id : m }, null) : null
-  return measureKeys.map((k, mi) =>
-    rows.reduce((s, r) => {
+  return measureKeys.map((k, mi) => {
+    if (k === 'count' && !countAdditive(dimKeys)) return null
+    return rows.reduce((s, r) => {
       if (k === 'balance' && pi >= 0 && String(r.keys[pi]!.id) !== lastBucket) return s
       return s + (pick(r)[mi] ?? 0)
     }, 0)
-  )
+  })
 }
 
 // ---------------------------------------------------------------- pivot
@@ -146,9 +237,10 @@ export interface PivotColumn {
 export interface PivotRow {
   keys: DimValue[]
   /** cells[columnIndex][measureIndex]; null = no figure in that column. */
-  cells: (number | null)[][]
-  /** Per measure: the row total (a closing balance takes its last column). */
-  total: number[]
+  cells: Cell[][]
+  /** Per measure: the row total (a closing balance takes its last column; a count across a
+   *  non-voucher-level pivot is null). */
+  total: Cell[]
 }
 
 export interface PivotTable {
@@ -158,16 +250,18 @@ export interface PivotTable {
   columns: PivotColumn[]
   measures: ResultColumnMeasure[]
   rows: PivotRow[]
-  columnTotals: number[][]
-  grandTotal: number[]
+  columnTotals: Cell[][]
+  grandTotal: Cell[]
 }
 
 /** Spreads one dimension across columns. Columns come in the pivot dimension's own order (date
- *  buckets chronologically, others by label); rows keep the result's order. */
-export function pivotResult(result: Pick<ReportResult, 'dims' | 'measures' | 'rows'>, pivotKey: string): PivotTable {
+ *  buckets chronologically, others by label); rows keep the result's order. The grand total is the
+ *  result's own totals when given (so it always equals the flat report's). */
+export function pivotResult(result: Pick<ReportResult, 'dims' | 'measures' | 'rows'> & { totals?: Cell[] }, pivotKey: string): PivotTable {
   const pivotIndex = result.dims.findIndex((d) => d.key === pivotKey)
   if (pivotIndex < 0) throw new Error(`pivot dimension ${pivotKey} is not in the report`)
-  const isDate = isPeriodDimension(pivotKey as never)
+  const isDate = isPeriodDimension(pivotKey as DimensionKey)
+  const rowDimKeys = result.dims.filter((_, i) => i !== pivotIndex).map((d) => d.key)
   const colMap = new Map<string, PivotColumn>()
   for (const r of result.rows) {
     const k = r.keys[pivotIndex]!
@@ -186,13 +280,13 @@ export function pivotResult(result: Pick<ReportResult, 'dims' | 'measures' | 'ro
     const rk = rowKey(keys)
     let pr = rowMap.get(rk)
     if (!pr) {
-      pr = { keys, cells: columns.map(() => Array<number | null>(nm).fill(null)), total: Array<number>(nm).fill(0) }
+      pr = { keys, cells: columns.map(() => Array<Cell>(nm).fill(null)), total: Array<Cell>(nm).fill(0) }
       rowMap.set(rk, pr)
       order.push(rk)
     }
     const k = r.keys[pivotIndex]!
     const ci = colIndex.get(k.id === null ? `∅${k.label}` : String(k.id))!
-    pr.cells[ci] = r.values.map((v, mi) => (pr!.cells[ci]![mi] ?? 0) + v)
+    pr.cells[ci] = r.values.map((v, mi) => (pr!.cells[ci]![mi] === null ? v : add(pr!.cells[ci]![mi]!, v)))
   }
   const rows = order.map((k) => rowMap.get(k)!)
   for (const pr of rows) {
@@ -201,11 +295,14 @@ export function pivotResult(result: Pick<ReportResult, 'dims' | 'measures' | 'ro
         for (let ci = columns.length - 1; ci >= 0; ci--) if (pr.cells[ci]![mi] !== null) return pr.cells[ci]![mi]!
         return 0
       }
-      return pr.cells.reduce((s, c) => s + (c[mi] ?? 0), 0)
+      if (m.key === 'count' && !countAdditive([pivotKey])) return null
+      return pr.cells.reduce<Cell>((s, c) => add(s, c[mi] ?? 0), 0)
     })
   }
-  const columnTotals = columns.map((_, ci) => result.measures.map((_, mi) => rows.reduce((s, r) => s + (r.cells[ci]![mi] ?? 0), 0)))
-  const grandTotal = result.measures.map((_, mi) => rows.reduce((s, r) => s + r.total[mi]!, 0))
+  const columnTotals = columns.map((_, ci) =>
+    result.measures.map((m, mi) => (m.key === 'count' && !countAdditive(rowDimKeys) ? null : rows.reduce<Cell>((s, r) => add(s, r.cells[ci]![mi] ?? 0), 0)))
+  )
+  const grandTotal = result.totals ?? result.measures.map((m, mi) => (m.key === 'count' ? null : rows.reduce<Cell>((s, r) => add(s, r.total[mi] ?? 0), 0)))
   return { pivotIndex, rowDims: result.dims.filter((_, i) => i !== pivotIndex), columns, measures: result.measures, rows, columnTotals, grandTotal }
 }
 
@@ -213,8 +310,8 @@ export function pivotResult(result: Pick<ReportResult, 'dims' | 'measures' | 'ro
 
 export type MoneyFormat = 'display' | 'plain'
 
-export function formatMeasure(value: number | null, m: Pick<ResultColumnMeasure, 'kind' | 'signed'>, fmt: MoneyFormat = 'display'): string {
-  if (value === null) return ''
+export function formatMeasure(value: Cell, m: Pick<ResultColumnMeasure, 'kind' | 'signed'>, fmt: MoneyFormat = 'display'): string {
+  if (value === null) return fmt === 'plain' ? '' : '—'
   if (m.kind === 'money') {
     if (fmt === 'plain') return plainRupees(value)
     if (m.signed) return value === 0 ? '—' : `${formatPaise(Math.abs(value))} ${value > 0 ? 'Dr' : 'Cr'}`
@@ -279,13 +376,13 @@ export function flattenResult(result: ReportResult, pivot: string | null, fmt: M
   const lead = result.dims.length === 0 ? 1 : 0
   if (lead) header.unshift('')
   const align: ('l' | 'r')[] = header.map((_, i) => (i < result.dims.length + lead ? 'l' : 'r'))
-  const cellsFor = (values: number[], compare: (number | null)[] | null | undefined): string[] =>
+  const cellsFor = (values: Cell[], compare: Cell[] | null | undefined): string[] =>
     result.measures.flatMap((m, mi) => {
-      const v = values[mi]!
+      const v = values[mi] ?? null
       if (!compareLabel) return [formatMeasure(v, m, fmt)]
       const c = compare?.[mi] ?? null
       const va = variance(v, c)
-      return [formatMeasure(v, m, fmt), formatMeasure(c, m, fmt), formatMeasure(va.abs, { kind: m.kind, signed: false }, fmt), formatPct(va.pct)]
+      return [formatMeasure(v, m, fmt), formatMeasure(c, m, fmt), va.abs === null ? (fmt === 'plain' ? '' : '—') : formatMeasure(va.abs, { kind: m.kind, signed: false }, fmt), formatPct(va.pct)]
     })
   const rows = result.rows.map((r) => [...(lead ? [''] : []), ...r.keys.map((k, i) => dimText(k, result.dims[i]!.key)), ...cellsFor(r.values, r.compare)])
   const totals = [
@@ -296,16 +393,18 @@ export function flattenResult(result: ReportResult, pivot: string | null, fmt: M
 }
 
 /** Chart-ready series for the first measure: one point per value of the first date dimension
- *  (or of the first dimension when there is none), summed over the other dimensions. */
+ *  (or of the first dimension when there is none), summed over the other dimensions. A voucher
+ *  count that can't be summed over those dimensions has no chart (null). */
 export function chartSeries(result: ReportResult): { categories: { key: string; label: string }[]; values: number[]; compare: (number | null)[] | null } | null {
   if (result.measures.length === 0 || result.dims.length === 0) return null
   const di = Math.max(0, result.dims.findIndex((d) => isPeriodDimension(d.key)))
+  if (result.measures[0]!.key === 'count' && !countAdditive(result.dims.filter((_, i) => i !== di).map((d) => d.key))) return null
   const cats = new Map<string, { key: string; label: string; v: number; c: number | null }>()
   for (const r of result.rows) {
     const k = r.keys[di]!
     const id = k.id === null ? `∅${k.label}` : String(k.id)
     const cur = cats.get(id) ?? { key: id, label: k.label, v: 0, c: r.compare ? 0 : null }
-    cur.v += r.values[0]!
+    cur.v += r.values[0] ?? 0
     if (r.compare && cur.c !== null) cur.c += r.compare[0] ?? 0
     cats.set(id, cur)
   }

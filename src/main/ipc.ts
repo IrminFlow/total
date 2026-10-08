@@ -152,6 +152,17 @@ export function getCurrentCompany(): OpenCompany | null {
   return current
 }
 
+/** Whether background work on the open company (scheduled report packs) may run: never while the
+ *  company is locked — it has users and nobody has signed in. */
+function packsAllowed(): boolean {
+  return !!current && (!current.usersExist || !!sessionUser)
+}
+
+/** The open company when it is unlocked, else null (the pack scheduler's view). */
+export function getUnlockedCompany(): OpenCompany | null {
+  return packsAllowed() ? current : null
+}
+
 /** Move a file into place. Copy+delete rather than fs.renameSync, since the source (os.tmpdir())
  *  and destination (~/Documents/total) may be on different filesystems (EXDEV). */
 function renameFile(src: string, dest: string): void {
@@ -370,9 +381,10 @@ export function registerIpc(): void {
     touchLastOpened(slug)
     // Agent bridge (feature flag, default OFF): watch <company>/inbox/ for dropped files.
     if (configSvc.getAgentBridgeEnabled(db)) agentBridge.syncInboxWatcher({ slug, db })
-    // WP 6.2: scheduled report packs that came due while the app was closed run once, in the
-    // background — never blocking or failing the open.
-    void runDuePacksInBackground({ slug, db, info })
+    // WP 6.2: scheduled report packs that came due while the app was closed run once, deferred
+    // past this reply and only while the company is unlocked (a company with users waits for the
+    // sign-in — auth:login starts the pass then).
+    void runDuePacksInBackground({ slug, db, info }, { allowed: packsAllowed, current: getUnlockedCompany })
     return { slug, info, integrity, locked: current.usersExist }
   })
 
@@ -1995,6 +2007,8 @@ export function registerIpc(): void {
     const c = requireCompany()
     const result = users.login(c.db, userId, pin)
     sessionUser = result
+    // WP 6.2: due report packs wait for the first sign-in of a locked company.
+    void runDuePacksInBackground(c, { allowed: packsAllowed, current: getUnlockedCompany })
     return result
   })
   handle('auth:logout', () => {

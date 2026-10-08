@@ -5,7 +5,7 @@
  * so a comparative column or a ratio input always equals the statement it came from.
  */
 import type { DB } from '../db/connection'
-import type { BalanceSheet, ProfitAndLoss } from '@shared/reports'
+import type { BalanceSheet, ProfitAndLoss, StatementNode } from '@shared/reports'
 import { CASH_BANK_GROUPS } from '@shared/seed'
 import { fyFromStartYear } from '@shared/dates'
 import { computeRatioSet, type RatioPoint, type RatioReport, type RatioSetInput } from '@shared/ratios'
@@ -65,6 +65,10 @@ export interface BudgetAmounts {
    *  of the period. Direct targets only — the caller rolls group totals up its tree. */
   ledgers: Record<number, number>
   groups: Record<number, number>
+  /** The budget as P&L-shaped trees (every budgeted ledger and group, actuals or not): a ledger
+   *  node carries its own lines, a group node its own lines plus everything under it. The
+   *  comparative P&L unions these into its tree so a budgeted ledger with no actuals still shows. */
+  pnl: { tradingIncomes: StatementNode[]; tradingExpenses: StatementNode[]; indirectIncomes: StatementNode[]; indirectExpenses: StatementNode[] }
 }
 
 /** A budget's figures for [from, to]: monthly lines in the range, annual lines spread evenly
@@ -78,7 +82,7 @@ export function budgetAmounts(db: DB, budgetId: number, from: string, to: string
   const fy = fyFromStartYear(budget.fy)
   const fyMonths = periodKeysBetween(fy.from, fy.to, 'month')
   const inRange = new Set(periodKeysBetween(from, to, 'month'))
-  const out: BudgetAmounts = { budgetId, name: budget.name, ledgers: {}, groups: {} }
+  const out: BudgetAmounts = { budgetId, name: budget.name, ledgers: {}, groups: {}, pnl: { tradingIncomes: [], tradingExpenses: [], indirectIncomes: [], indirectExpenses: [] } }
   for (const l of lines) {
     let amount = 0
     if (l.month) amount = inRange.has(l.month) ? l.amount : 0
@@ -87,7 +91,30 @@ export function budgetAmounts(db: DB, budgetId: number, from: string, to: string
     if (l.ledgerId !== null) out.ledgers[l.ledgerId] = (out.ledgers[l.ledgerId] ?? 0) + amount
     else if (l.groupId !== null) out.groups[l.groupId] = (out.groups[l.groupId] ?? 0) + amount
   }
+  out.pnl = budgetTrees(db, out.ledgers, out.groups)
   return out
+}
+
+/** Budget figures as the P&L's four statement trees (same grouping rules as profitAndLoss). */
+function budgetTrees(db: DB, ledgerAmounts: Record<number, number>, groupAmounts: Record<number, number>): BudgetAmounts['pnl'] {
+  const groups = listGroups(db)
+  const ledgers = db.prepare('SELECT id, name, group_id AS groupId FROM ledgers').all() as { id: number; name: string; groupId: number }[]
+  const byParent = new Map<number | null, typeof groups>()
+  for (const g of groups) byParent.set(g.parentId, [...(byParent.get(g.parentId) ?? []), g])
+  const ledgersByGroup = new Map<number, typeof ledgers>()
+  for (const l of ledgers) if (ledgerAmounts[l.id]) ledgersByGroup.set(l.groupId, [...(ledgersByGroup.get(l.groupId) ?? []), l])
+  const node = (g: (typeof groups)[number]): StatementNode | null => {
+    const children: StatementNode[] = [
+      ...(ledgersByGroup.get(g.id) ?? []).map((l) => ({ id: l.id, kind: 'ledger' as const, name: l.name, amount: ledgerAmounts[l.id]!, children: [] })),
+      ...(byParent.get(g.id) ?? []).map(node).filter((n): n is StatementNode => n !== null)
+    ].sort((a, b) => a.name.localeCompare(b.name))
+    const own = groupAmounts[g.id] ?? 0
+    if (!children.length && !own) return null
+    return { id: g.id, kind: 'group', name: g.name, amount: own + children.reduce((s, c) => s + c.amount, 0), children }
+  }
+  const top = (nature: string, gp: boolean): StatementNode[] =>
+    (byParent.get(null) ?? []).filter((g) => g.nature === nature && g.affectsGrossProfit === gp).map(node).filter((n): n is StatementNode => n !== null)
+  return { tradingIncomes: top('income', true), tradingExpenses: top('expense', true), indirectIncomes: top('income', false), indirectExpenses: top('expense', false) }
 }
 
 // ---------------------------------------------------------------- ratios
@@ -121,7 +148,9 @@ export function ratioReport(db: DB, from: string, to: string): RatioReport {
   const set = (names: string[]): Set<number> => descendantIdSet(groups, names)
   const ca = set(['Current Assets'])
   const cl = set(['Current Liabilities'])
-  const cash = set(CASH_BANK_GROUPS)
+  // Cash and bank without overdrafts; an overdraft is a current liability (cash ratio, CL).
+  const cash = set(CASH_BANK_GROUPS.filter((n) => n !== 'Bank OD A/c'))
+  const od = set(['Bank OD A/c'])
   const debtors = set(['Sundry Debtors'])
   const creditors = set(['Sundry Creditors'])
   const capital = set(['Capital Account'])
@@ -164,7 +193,7 @@ export function ratioReport(db: DB, from: string, to: string): RatioReport {
     const totalAssets = assets + extraStock
     const p: Position = {
       currentAssets: sum(ca, 1) + extraStock,
-      currentLiabilities: sum(cl, -1),
+      currentLiabilities: sum(cl, -1) + sum(od, -1, true),
       stock,
       cashBank: sum(cash, 1),
       receivables: sum(debtors, 1, true),

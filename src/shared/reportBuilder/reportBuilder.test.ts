@@ -4,7 +4,7 @@ import {
   addMonths, comparativeShiftMonths, fyQuarterOf, fyStartsWithin, periodKey, periodKeysBetween, periodLabel, previousPeriod,
   previousYear, relativePeriod, resolvePeriod, shiftPeriodKey
 } from './period'
-import { accumulateBalance, chartSeries, flattenResult, mergeComparative, pivotResult, sortRows, totalsOf, variance } from './shape'
+import { accumulateBalance, applyTopN, chartSeries, countAdditive, flattenResult, mergeComparative, pivotResult, sortRows, totalsOf, variance } from './shape'
 
 const parse = (m: unknown) => reportModelSchema.safeParse(m)
 const problems = (m: unknown): string[] => {
@@ -123,6 +123,11 @@ const row = (keys: [string | number | null, string][], values: number[], compare
   ...(compare ? { compare } : {})
 })
 
+const BASE: ReportResult = {
+  from: '2026-04-01', to: '2026-10-08', dims: [], measures: [{ key: 'taxable', label: 'Taxable value', kind: 'money', signed: false }],
+  rows: [], totals: [0], compare: null, compareTotals: null, truncated: false, rowCap: 20000, warnings: []
+}
+
 describe('shaping: running balance, comparatives, sort, totals, pivot', () => {
   it('accumulates closing balances across every date bucket, filling the gaps', () => {
     const rows = [
@@ -136,7 +141,7 @@ describe('shaping: running balance, comparatives, sort, totals, pivot', () => {
     const bank = out.filter((r) => r.keys[0]!.id === 2).map((r) => r.values[0])
     expect(bank).toEqual([0, 500, 500])
     // Totals of a closing balance with a date dimension = the last bucket only.
-    expect(totalsOf(out, ['ledger', 'month'], ['balance', 'count'])).toEqual([1200, 4])
+    expect(totalsOf(out, ['ledger', 'month'], ['balance', 'count'])).toEqual([1200, null]) // count across ledgers: not additive
   })
 
   it('variance: absolute and percent of the comparative magnitude', () => {
@@ -150,19 +155,57 @@ describe('shaping: running balance, comparatives, sort, totals, pivot', () => {
   it('merges a previous-year run by re-keyed month and keeps rows that dropped away', () => {
     const cur = [row([[7, 'Acme'], ['2025-05', 'May 2025']], [900])]
     const prior = [row([[7, 'Acme'], ['2024-05', 'May 2024']], [600]), row([[8, 'Gone'], ['2024-06', 'Jun 2024']], [50])]
-    const merged = mergeComparative(cur, prior, ['party', 'month'], 12)
+    const merged = mergeComparative(cur, prior, ['party', 'month'], { kind: 'shift', months: 12 })
     expect(merged).toEqual([
       { keys: [{ id: 7, label: 'Acme' }, { id: '2025-05', label: 'May 2025' }], values: [900], compare: [600] },
       { keys: [{ id: 8, label: 'Gone' }, { id: '2025-06', label: 'Jun 2025' }], values: [0], compare: [50] }
     ])
   })
 
-  it('sorts by a measure (ties by dimension) and keeps the top N', () => {
+  it('sorts by a measure (ties by dimension) and keeps the top N plus an "All others" row', () => {
     const rows = [row([[1, 'B']], [10]), row([[2, 'A']], [30]), row([[3, 'C']], [10]), row([[null, '(no party)']], [99])]
-    const sorted = sortRows(rows, { sort: { by: 'net', dir: 'desc' }, measures: ['net'], topN: 3 })
-    expect(sorted.map((r) => r.keys[0]!.label)).toEqual(['(no party)', 'A', 'B'])
-    const byName = sortRows(rows, { sort: { by: 'dimension', dir: 'asc' }, measures: ['net'], topN: null })
+    const sorted = applyTopN(rows, { sort: { by: 'net', dir: 'desc' }, measures: ['net'], topN: 3, pivot: null }, ['party'])
+    expect(sorted.map((r) => [r.keys[0]!.label, r.values[0]])).toEqual([['(no party)', 99], ['A', 30], ['B', 10], ['All others (1)', 10]])
+    const byName = sortRows(rows, { sort: { by: 'dimension', dir: 'asc' }, measures: ['net'] })
     expect(byName.map((r) => r.keys[0]!.label)).toEqual(['A', 'B', 'C', '(no party)'])
+  })
+
+  it('a missing comparison is null ("—"), never zero; ordinal alignment for an unaligned previous period', () => {
+    const cur = [row([[7, 'Acme'], ['2026-04', 'Apr 2026']], [100]), row([[7, 'Acme'], ['2026-10', 'Oct 2026']], [40])]
+    // Previous period of FY-to-date 1 Apr – 8 Oct 2026 (191 days) = 22 Sep 2025 – 31 Mar 2026.
+    const prior = [row([[7, 'Acme'], ['2025-09', 'Sep 2025']], [70])]
+    const align = { kind: 'ordinal' as const, current: periodKeysBetween('2026-04-01', '2026-10-08', 'month'), prior: periodKeysBetween('2025-09-22', '2026-03-31', 'month') }
+    const merged = mergeComparative(cur, prior, ['party', 'month'], align)
+    expect(merged.map((r) => [r.keys[1]!.id, r.values[0], r.compare![0]])).toEqual([['2026-04', 100, 70], ['2026-10', 40, null]])
+    const flat = flattenResult({ ...BASE, dims: [{ key: 'month', label: 'Month', link: 'month' }], rows: [row([['2026-10', 'Oct 2026']], [40], [null])], totals: [40], compareTotals: [0], compare: { kind: 'previousPeriod', label: 'Previous period', from: '2025-09-22', to: '2026-03-31' } }, null)
+    expect(flat.rows[0]).toEqual(['Oct 2026', '0.40', '—', '—', ''])
+  })
+
+  it('top-N with a pivot ranks row entities over every column and keeps all columns; "All others" per column; grand total = result totals', () => {
+    const rows = [
+      row([[1, 'Acme'], ['2026-04', 'Apr']], [50]), row([[1, 'Acme'], ['2026-05', 'May']], [60]),
+      row([[2, 'Bolt'], ['2026-04', 'Apr']], [100]),
+      row([[3, 'Cord'], ['2026-05', 'May']], [5]), row([[4, 'Dyn'], ['2026-04', 'Apr']], [7])
+    ]
+    const model = { sort: { by: 'taxable' as const, dir: 'desc' as const }, measures: ['taxable' as const], topN: 2, pivot: 'month' as const }
+    const out = applyTopN(rows, model, ['party', 'month'])
+    expect(out.map((r) => [r.keys[0]!.label, r.keys[1]!.id, r.values[0]])).toEqual([
+      ['Acme', '2026-04', 50], ['Acme', '2026-05', 60], ['Bolt', '2026-04', 100],
+      ['All others (2)', '2026-04', 7], ['All others (2)', '2026-05', 5]
+    ])
+    const p = pivotResult({ dims: [{ key: 'party', label: 'Party', link: 'ledger' }, { key: 'month', label: 'Month', link: 'month' }], measures: [{ key: 'taxable', label: 'Taxable value', kind: 'money', signed: false }], rows: out, totals: [222] }, 'month')
+    expect(p.rows.map((r) => r.total[0])).toEqual([110, 100, 12])
+    expect(p.grandTotal).toEqual([222])
+    expect(p.rows.reduce((s, r) => s + (r.total[0] ?? 0), 0)).toBe(222)
+  })
+
+  it('voucher counts never add up across ledger-like rows (null), only across voucher-level dimensions', () => {
+    expect(countAdditive(['party', 'month'])).toBe(true)
+    expect(countAdditive(['ledger'])).toBe(false)
+    expect(totalsOf([row([[1, 'Sales']], [1]), row([[2, 'CGST']], [1])], ['ledger'], ['count'])).toEqual([null])
+    expect(totalsOf([row([[1, 'Acme']], [2]), row([[2, 'Bolt']], [1])], ['party'], ['count'])).toEqual([3])
+    const out = applyTopN([row([[1, 'Sales']], [3]), row([[2, 'CGST']], [3]), row([[3, 'SGST']], [3])], { sort: { by: 'count', dir: 'desc' }, measures: ['count'], topN: 1, pivot: null }, ['ledger'])
+    expect(out.at(-1)!.values).toEqual([null])
   })
 
   it('pivots one dimension into columns with row, column and grand totals', () => {

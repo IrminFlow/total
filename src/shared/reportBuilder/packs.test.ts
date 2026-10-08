@@ -19,6 +19,9 @@ describe('pack schedule', () => {
     expect(packDue(p, at('2025-06-03T00:00:00Z'))).toBe(true)
     expect(packDue({ ...p, active: false }, at('2026-01-01T00:00:00Z'))).toBe(false)
   })
+  it('a last run in the future (clock set back) is due, not stalled', () => {
+    expect(packDue({ active: true, frequency: 'monthly', lastRunAt: '2030-01-01T00:00:00Z', createdAt: '2025-01-01 00:00:00' }, at('2025-06-03T00:00:00Z'))).toBe(true)
+  })
   it('parses SQLite and ISO stamps as UTC', () => {
     expect(parseStamp('2025-06-03 10:00:00')).toBe(Date.parse('2025-06-03T10:00:00Z'))
     expect(parseStamp('2025-06-03T10:00:00.000Z')).toBe(Date.parse('2025-06-03T10:00:00Z'))
@@ -46,7 +49,7 @@ describe('ratio set', () => {
       debtEquity: 0.33, equityRatio: 0.6,
       // COGS = 100,000 + 800,000 − 300,000 = 600,000; average stock 200,000.
       inventoryTurnover: 3, receivablesTurnover: 3, payablesTurnover: 2.67, netCapitalTurnover: 0.86, assetTurnover: 0.67,
-      debtorDays: 37.5, creditorDays: 45, inventoryDays: 30, cashConversionDays: 22.5
+      debtorDays: 30, creditorDays: 33.75, inventoryDays: 30, cashConversionDays: 26.25
     })
   })
   it('null when a denominator is zero or owners’ funds are not positive', () => {
@@ -56,6 +59,10 @@ describe('ratio set', () => {
     expect(r.debtEquity).toBeNull()
     expect(r.returnOnEquityPct).toBeNull()
     expect(r.cashConversionDays).toBeNull()
+    // No stock either side → no inventory turnover → no inventory days (not 0).
+    const noStock = computeRatioSet({ ...base, openingStock: 0, closingStock: 0, stock: 0 })
+    expect(noStock.inventoryTurnover).toBeNull()
+    expect(noStock.inventoryDays).toBeNull()
   })
   it('every ratio has a definition with a formula, an explanation and a source', () => {
     expect(RATIO_DEFS.map((d) => d.key).sort()).toEqual([...RATIO_KEYS].sort())

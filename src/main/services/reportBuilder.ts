@@ -23,13 +23,13 @@ import type { DB } from '../db/connection'
 import {
   DIMENSIONS, dimColumn, isPeriodDimension, measureColumn, reportModelSchema, voucherLevelFilters,
   type DimensionKey, type DimensionSpec, type DimValue, type MeasureKey, type ReportModel, type ReportModelInput,
-  type ReportResult, type ResultRow
+  type ReportResult, type ResultRow, type Cell
 } from '@shared/reportBuilder/model'
 import {
   comparativeShiftMonths, fyStartsWithin, periodKey, periodLabel, previousPeriod, previousYear, resolvePeriod, addDays,
-  periodKeysBetween, type DateRange
+  periodKeysBetween, monthEnd, addMonths, type DateRange
 } from '@shared/reportBuilder/period'
-import { accumulateBalance, mergeComparative, rowKey, sortRows, totalsOf } from '@shared/reportBuilder/shape'
+import { accumulateBalance, applyTopN, mergeComparative, rowKey, topNSpreadIndex, totalsOf, type BucketAlignment } from '@shared/reportBuilder/shape'
 import { fyFromStartYear, fyOf } from '@shared/dates'
 import { periodIncludesStoredPnl } from '@shared/yearOpening'
 import { IN_BOOKS, MOVES_STOCK, NOT_YEAR_END_CLOSE } from './vouchers'
@@ -54,6 +54,8 @@ export interface CompileContext {
   salesRootGroupIds: number[]
   purchaseRootGroupIds: number[]
   booksFromYear: number
+  /** Some line carries more cost-centre allocation than its amount (warned; scaled down). */
+  overAllocated?: boolean
 }
 
 function descendants(nodes: TreeNode[], roots: number[]): number[] {
@@ -103,7 +105,10 @@ export function loadContext(db: DB): CompileContext {
     stockGroups,
     salesRootGroupIds: descendants(groups, rootIds(REGISTER_ROOTS.sales)),
     purchaseRootGroupIds: descendants(groups, rootIds(REGISTER_ROOTS.purchase)),
-    booksFromYear: booksFromYear(db)
+    booksFromYear: booksFromYear(db),
+    overAllocated: !!db
+      .prepare('SELECT 1 FROM voucher_lines vl JOIN (SELECT voucher_line_id, SUM(amount) AS alloc FROM voucher_line_cost_allocations GROUP BY voucher_line_id) ua ON ua.voucher_line_id = vl.id WHERE ua.alloc > vl.amount LIMIT 1')
+      .get()
   }
 }
 
@@ -292,6 +297,14 @@ function voucherFilterSql(m: ReportModel, p: Params, amountCol: string): string[
   return c
 }
 
+/** ORDER BY for the grouped query: by the sort measure when rows are ranked by it (so the row
+ *  cap keeps the largest), then by the dimensions. */
+function orderBy(model: ReportModel, groupBy: string[]): string {
+  const mi = model.sort.by === 'dimension' ? -1 : model.measures.indexOf(model.sort.by)
+  const spread = topNSpreadIndex(model.dimensions.map((d) => d.key), model.pivot)
+  return mi >= 0 && spread < 0 ? [`m${mi} ${model.sort.dir === 'desc' ? 'DESC' : 'ASC'}`, ...groupBy].join(', ') : groupBy.join(', ')
+}
+
 export interface CompiledQuery {
   sql: string
   params: Record<string, string | number>
@@ -334,7 +347,7 @@ JOIN vouchers v ON v.id = il.voucher_id
 JOIN stock_items si ON si.id = il.stock_item_id
 ${joins.join('\n')}
 WHERE v.date BETWEEN @from AND @to AND ${IN_BOOKS} AND ${MOVES_STOCK} AND il.is_absolute = 0${where.map((w) => `\n  AND ${w}`).join('')}
-${groupBy.length ? `GROUP BY ${groupBy.join(', ')}\nORDER BY ${groupBy.join(', ')}` : ''}
+${groupBy.length ? `GROUP BY ${groupBy.join(', ')}\nORDER BY ${orderBy(model, groupBy)}` : ''}
 LIMIT ${rowCap + 1}`
     return { sql, params: p.values, warnings }
   }
@@ -358,16 +371,23 @@ LIMIT ${rowCap + 1}`
   FROM voucher_lines vl JOIN vouchers v ON v.id = vl.voucher_id
   WHERE ${lineWhere}`)
   } else {
-    branches.push(`SELECT ${factCols('a.amount', 'a.cost_centre_id')}
+    // A line allocated beyond its amount (legacy / imported data) has its allocations scaled down
+    // pro rata (integer division — never above the line), so no centre ever exceeds the books.
+    const allocSum = '(SELECT voucher_line_id, SUM(amount) AS alloc FROM voucher_line_cost_allocations GROUP BY voucher_line_id) ua ON ua.voucher_line_id = vl.id'
+    branches.push(`SELECT ${factCols('CASE WHEN ua.alloc > vl.amount THEN (a.amount * vl.amount) / ua.alloc ELSE a.amount END', 'a.cost_centre_id')}
   FROM voucher_lines vl JOIN vouchers v ON v.id = vl.voucher_id
   JOIN voucher_line_cost_allocations a ON a.voucher_line_id = vl.id
+  JOIN ${allocSum}
   WHERE ${lineWhere}${ccFilter ? ` AND a.cost_centre_id IN ${ints(f.costCentreIds)}` : ''}`)
     if (!ccFilter) {
       // The part of each line no cost centre carries, so totals still tie to the books.
-      branches.push(`SELECT ${factCols('vl.amount - COALESCE(ua.alloc, 0)', 'NULL')}
+      const carried = `CASE WHEN COALESCE(ua.alloc, 0) > vl.amount
+        THEN (SELECT SUM((a2.amount * vl.amount) / ua.alloc) FROM voucher_line_cost_allocations a2 WHERE a2.voucher_line_id = vl.id)
+        ELSE COALESCE(ua.alloc, 0) END`
+      branches.push(`SELECT ${factCols(`vl.amount - (${carried})`, 'NULL')}
   FROM voucher_lines vl JOIN vouchers v ON v.id = vl.voucher_id
-  LEFT JOIN (SELECT voucher_line_id, SUM(amount) AS alloc FROM voucher_line_cost_allocations GROUP BY voucher_line_id) ua ON ua.voucher_line_id = vl.id
-  WHERE ${lineWhere} AND vl.amount > COALESCE(ua.alloc, 0)`)
+  LEFT JOIN ${allocSum}
+  WHERE ${lineWhere} AND vl.amount > (${carried})`)
     }
   }
 
@@ -453,7 +473,7 @@ SELECT ${select.join(',\n  ')}
 FROM facts f
 ${joins.join('\n')}
 ${where.length ? `WHERE ${where.join(' AND ')}` : ''}
-${groupBy.length ? `GROUP BY ${groupBy.join(', ')}\nORDER BY ${groupBy.join(', ')}` : ''}
+${groupBy.length ? `GROUP BY ${groupBy.join(', ')}\nORDER BY ${orderBy(model, groupBy)}` : ''}
 LIMIT ${rowCap + 1}`
   return { sql, params: p.values, warnings }
 }
@@ -476,9 +496,68 @@ function execute(db: DB, model: ReportModel, ctx: CompileContext, range: DateRan
     }),
     values: model.measures.map((_, j) => Number(r[`m${j}`] ?? 0))
   }))
-  // A report with no dimensions over no facts still returns its one (zero) row; with dimensions
-  // and no facts the result is simply empty.
   return { rows, truncated, warnings: q.warnings }
+}
+
+/** The report's totals straight from the database — the same model with no dimensions, so a
+ *  voucher count is COUNT(DISTINCT voucher) and nothing depends on the row cap or top-N. */
+function scalarTotals(db: DB, model: ReportModel, ctx: CompileContext, range: DateRange): number[] {
+  const scalar: ReportModel = { ...model, dimensions: [], pivot: null, topN: null, sort: { by: 'dimension', dir: 'asc' } }
+  return execute(db, scalar, ctx, range, 1).rows[0]?.values.map((v) => v ?? 0) ?? model.measures.map(() => 0)
+}
+
+/** Last date of a date bucket, clamped to the period end. */
+function bucketEnd(key: string, dim: DimensionKey, to: string): string {
+  let end: string
+  if (dim === 'day') end = key
+  else if (dim === 'month') end = monthEnd(`${key}-01`)
+  else if (dim === 'fy') end = `${Number(key) + 1}-03-31`
+  else end = monthEnd(addMonths(`${key.slice(0, 4)}-04-01`, (Number(key.slice(-1)) - 1) * 3 + 2))
+  return end > to ? to : end
+}
+
+/**
+ * "Profit & Loss A/c (opening)" for closing balances, like the trial balance: the earlier years'
+ * income/expense that the year-opening rule drops from the P&L ledgers (where no closing journal
+ * carried it to Retained Earnings). As on a date D it is the stored income/expense openings
+ * (unless D is in the books' first year) plus every income/expense movement before D's financial
+ * year — one figure per date bucket. Added only when no ledger-level filter is set, so balances
+ * over all ledgers still net to zero.
+ */
+function pnlOpeningRows(db: DB, model: ReportModel, ctx: CompileContext, range: DateRange): ResultRow[] {
+  const f = model.filters
+  if (!model.measures.includes('balance') || f.ledgerIds.length || f.groupIds.length || f.gstRate !== null) return []
+  const dims = model.dimensions.map((d) => d.key)
+  const pi = dims.findIndex(isPeriodDimension)
+  const ends = pi >= 0
+    ? periodKeysBetween(range.from, range.to, dims[pi]!).map((k) => ({ key: k as string | null, end: bucketEnd(k, dims[pi]!, range.to) }))
+    : [{ key: null as string | null, end: range.to }]
+  const stored = (db.prepare("SELECT COALESCE(SUM(l.opening_balance), 0) AS s FROM ledgers l JOIN groups g ON g.id = l.group_id WHERE g.nature IN ('income', 'expense')").get() as { s: number }).s
+  const before = db.prepare(
+    `SELECT COALESCE(SUM(CASE WHEN vl.dr_cr = 'dr' THEN vl.amount ELSE -vl.amount END), 0) AS m
+     FROM voucher_lines vl JOIN vouchers v ON v.id = vl.voucher_id JOIN ledgers l ON l.id = vl.ledger_id JOIN groups g ON g.id = l.group_id
+     WHERE g.nature IN ('income', 'expense') AND v.date < ? AND ${IN_BOOKS}`
+  )
+  const cache = new Map<string, number>()
+  const valueAt = (date: string): number => {
+    const fy = fyOf(date)
+    const hit = cache.get(fy.from)
+    if (hit !== undefined) return hit
+    const v = (fy.startYear === ctx.booksFromYear ? 0 : stored) + (before.get(fy.from) as { m: number }).m
+    cache.set(fy.from, v)
+    return v
+  }
+  const points = ends.map((e) => ({ key: e.key, value: valueAt(e.end) }))
+  if (points.every((pt) => pt.value === 0)) return []
+  const bi = model.measures.indexOf('balance')
+  return points.map((pt) => ({
+    keys: model.dimensions.map((d, i) =>
+      i === pi && pt.key !== null
+        ? { id: pt.key, label: periodLabel(pt.key, d.key) }
+        : { id: null, label: d.key === 'group' ? 'Profit & Loss A/c' : 'Profit & Loss A/c (opening)' }
+    ),
+    values: model.measures.map((_, j) => (j === bi ? pt.value : 0))
+  }))
 }
 
 export interface RunOptions {
@@ -498,49 +577,62 @@ export function runReport(db: DB, input: ReportModelInput, opts: RunOptions): Re
   const dimKeys = model.dimensions.map((d) => d.key)
   const cur = execute(db, model, ctx, range, rowCap)
   const warnings = [...cur.warnings]
-  let rows = accumulateBalance(cur.rows, dimKeys, model.measures, range.from, range.to)
+  const pnlOpen = pnlOpeningRows(db, model, ctx, range)
+  let rows = [...accumulateBalance(cur.rows, dimKeys, model.measures, range.from, range.to), ...pnlOpen]
   let truncated = cur.truncated
+  const bi = model.measures.indexOf('balance')
+  const pnlOpenAtEnd = pnlOpen.length ? (pnlOpen[pnlOpen.length - 1]!.values[bi] ?? 0) : 0
+  const totals: Cell[] = scalarTotals(db, model, ctx, range).map((v, j) => (j === bi ? v + pnlOpenAtEnd : v))
+  if (ctx.overAllocated && (dimKeys.includes('costCentre') || model.filters.costCentreIds.length)) {
+    warnings.push('Some lines carry more cost-centre allocation than their amount — those allocations are scaled down to the line, so totals never exceed the books')
+  }
 
   let compare: ReportResult['compare'] = null
+  let compareTotals: Cell[] | null = null
   const ck = model.comparative.kind
   if (ck === 'previousPeriod' || ck === 'previousYear') {
     const prior = ck === 'previousYear' ? previousYear(range.from, range.to) : previousPeriod(range.from, range.to)
     const prev = execute(db, model, ctx, prior, rowCap)
     truncated = truncated || prev.truncated
-    const prevRows = accumulateBalance(prev.rows, dimKeys, model.measures, prior.from, prior.to)
-    rows = mergeComparative(rows, prevRows, dimKeys, comparativeShiftMonths(ck, range.from, range.to))
+    const prevOpen = pnlOpeningRows(db, model, ctx, prior)
+    const prevRows = [...accumulateBalance(prev.rows, dimKeys, model.measures, prior.from, prior.to), ...prevOpen]
+    const months = comparativeShiftMonths(ck, range.from, range.to)
+    const pi = dimKeys.findIndex(isPeriodDimension)
+    const align: BucketAlignment | null =
+      pi < 0
+        ? null
+        : months !== null
+          ? { kind: 'shift', months }
+          : { kind: 'ordinal', current: periodKeysBetween(range.from, range.to, dimKeys[pi]!), prior: periodKeysBetween(prior.from, prior.to, dimKeys[pi]!) }
+    rows = mergeComparative(rows, prevRows, dimKeys, align)
+    const prevOpenAtEnd = prevOpen.length ? (prevOpen[prevOpen.length - 1]!.values[bi] ?? 0) : 0
+    compareTotals = scalarTotals(db, model, ctx, prior).map((v, j) => (j === bi ? v + prevOpenAtEnd : v))
     compare = { kind: ck, label: ck === 'previousYear' ? 'Previous year' : 'Previous period', ...prior }
+    if (ck === 'previousPeriod' && months === null) {
+      const days = Math.round((Date.parse(range.to) - Date.parse(range.from)) / 86_400_000) + 1
+      warnings.push(
+        `Previous period = the ${days} days before this one (${prior.from} to ${prior.to}), as the period doesn’t run over whole months${pi >= 0 ? '; date buckets are matched in order' : ''}. Rows with nothing to compare show “—”.`
+      )
+    }
   } else if (ck === 'budget' && model.comparative.budgetId !== null) {
     const b = budgetRows(db, model, ctx, range, model.comparative.budgetId)
-    rows = mergeComparative(rows, b.rows, dimKeys, 0).map((r) => ({ ...r, compare: r.compare!.map((v, i) => (i === 0 ? v : null)) }))
+    compareTotals = totalsOf(b.rows, dimKeys, model.measures).map((v, i) => (i === 0 ? v : null))
+    rows = mergeComparative(rows, b.rows, dimKeys, { kind: 'shift', months: 0 }).map((r) => ({ ...r, compare: r.compare!.map((v, i) => (i === 0 ? v : null)) }))
     compare = { kind: 'budget', label: `Budget: ${b.name}`, ...range }
     if (b.unassigned) warnings.push('Some budget lines are set on a group the chosen dimensions can’t split — they show as group-budget rows')
   }
 
-  if (truncated) warnings.push(`Showing the first ${rowCap.toLocaleString('en-IN')} rows — narrow the period or add filters to see everything`)
-
-  const totals = totalsOf(rows, dimKeys, model.measures)
-  const compareTotals = compare ? totalsOf(rows, dimKeys, model.measures, (r) => r.compare ?? []) : null
-  let shown = sortRows(rows, model)
-  if (model.topN !== null && rows.length > shown.length && model.pivot === null && !dimKeys.some(isPeriodDimension)) {
-    // Top-N keeps the totals honest with one "all others" row.
-    const kept = new Set(shown.map((r) => rowKey(r.keys)))
-    const rest = rows.filter((r) => !kept.has(rowKey(r.keys)))
-    shown = [
-      ...shown,
-      {
-        keys: model.dimensions.map((_, i) => ({ id: null, label: i === 0 ? `All others (${rest.length})` : '' })),
-        values: model.measures.map((_, j) => rest.reduce((s, r) => s + r.values[j]!, 0)),
-        ...(compare ? { compare: model.measures.map((_, j) => rest.reduce((s, r) => s + (r.compare?.[j] ?? 0), 0)) } : {})
-      }
-    ]
+  if (truncated) {
+    warnings.push(
+      `Only the first ${rowCap.toLocaleString('en-IN')} rows are shown${model.sort.by !== 'dimension' && topNSpreadIndex(dimKeys, model.pivot) < 0 ? ' (the largest by the sort measure)' : ''} — the totals still cover everything; narrow the period or add filters to see every row`
+    )
   }
   return {
     from: range.from,
     to: range.to,
     dims: model.dimensions.map(dimColumn),
-    measures: model.measures.map(measureColumn),
-    rows: shown,
+    measures: model.measures.map((k) => measureColumn(k, dimKeys)),
+    rows: applyTopN(rows, model, dimKeys),
     totals,
     compare,
     compareTotals,

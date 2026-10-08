@@ -79,10 +79,12 @@ describe('report builder compile', () => {
   it('cost-centre dimension splits lines by allocation and keeps the unallocated rest', () => {
     const { sql } = sqlOf({ source: 'accounts', dimensions: [{ key: 'costCentre' }], measures: ['profit'] })
     expect(sql).toContain('JOIN voucher_line_cost_allocations a ON a.voucher_line_id = vl.id')
-    expect(sql).toContain('vl.amount > COALESCE(ua.alloc, 0)')
+    expect(sql).toContain('vl.amount > (CASE WHEN COALESCE(ua.alloc, 0) > vl.amount')
+    // Over-allocated lines are scaled down to the line amount.
+    expect(sql).toContain('CASE WHEN ua.alloc > vl.amount THEN (a.amount * vl.amount) / ua.alloc ELSE a.amount END')
     const only = sqlOf({ source: 'accounts', dimensions: [{ key: 'costCentre' }], measures: ['profit'], filters: { costCentreIds: [4] } }).sql
     expect(only).toContain('a.cost_centre_id IN (4)')
-    expect(only).not.toContain('ua.alloc')
+    expect(only).not.toContain('vl.amount > (CASE')
   })
 
   it('filters: group subtree, ledgers, parties, kinds, amount, narration, state, users, GST rate', () => {
@@ -117,6 +119,12 @@ describe('report builder compile', () => {
     expect(groupAtLevel(CTX.groups, 2, 3)).toBe(2)
     const { sql } = sqlOf({ source: 'accounts', dimensions: [{ key: 'group', level: 2 }], measures: ['net'] })
     expect(sql).toContain('gl(group_id, lvl_id) AS (VALUES (1, 1), (2, 2), (3, 2), (10, 10), (11, 11))')
+  })
+
+  it('orders by the sort measure so the row cap keeps the largest rows', () => {
+    expect(sqlOf({ source: 'accounts', dimensions: [{ key: 'party' }], measures: ['net', 'debit'], sort: { by: 'debit', dir: 'desc' } }).sql).toContain('ORDER BY m1 DESC, d0_id, d0_label')
+    // With a pivot, rows rank by entity totals after the query — the SQL keeps the dimension order.
+    expect(sqlOf({ source: 'accounts', dimensions: [{ key: 'party' }, { key: 'month' }], measures: ['net'], sort: { by: 'net', dir: 'desc' }, pivot: 'month' }).sql).toContain('ORDER BY d0_id, d0_label, d1_id, d1_label')
   })
 
   it('caps rows: asks for one more than the cap', () => {

@@ -19,7 +19,7 @@ import { createLedger, createStockItem } from './masters'
 import { saveVoucher } from './vouchers'
 import { saveCostCentre, ccReport } from './costCentres'
 import { saveBudget } from './budgets'
-import { pnlLedgerAmounts, profitAndLoss, trialBalance } from './reports'
+import { balanceSheet, pnlLedgerAmounts, profitAndLoss, stockValue, trialBalance } from './reports'
 import { registerByMonth } from './analysis'
 import { stockSummary } from './stockAnalysis'
 import { createDemoCompany } from './demo'
@@ -27,7 +27,10 @@ import {
   deleteReport, duplicateReport, getSavedReport, listSavedReports, renameReport, runReport, saveReport, setReportPinned
 } from './reportBuilder'
 import { budgetAmounts, comparativePnl, ratioReport } from './reportAnalytics'
-import { listRuns, runDuePacks, runPack, savePack } from './reportPacks'
+import { listRuns, packTable, runDuePacks, runPack, savePack } from './reportPacks'
+import { runDuePacksInBackground } from '../packScheduler'
+import { postClose } from './yearEnd'
+import { noteVoucherRows } from './analysis'
 
 const M038 = MIGRATIONS.findIndex((sql) => sql.includes('CREATE TABLE saved_reports'))
 
@@ -66,8 +69,8 @@ describe('migration 038 — saved reports and report packs', () => {
   it('is appended after every earlier migration (assigned number 038; lands after 032–037)', () => {
     // Array position = migration number − 1. On this branch it follows 031 directly; once the
     // parallel 032–037 merge it must sit after them (numbers are array positions).
-    expect(M038).toBeGreaterThanOrEqual(31)
-    expect(MIGRATIONS.slice(M038 + 1).some((sql) => sql.includes('saved_reports'))).toBe(false)
+    expect(M038).toBe(MIGRATIONS.length - 1)
+    expect(M038 + 1).toBeGreaterThanOrEqual(32)
   })
 
   it('creates the three tables with their constraints, from the previous schema', () => {
@@ -77,7 +80,8 @@ describe('migration 038 — saved reports and report packs', () => {
     db.prepare("INSERT INTO saved_reports (name, model_json) VALUES ('Sales', '{}')").run()
     expect(() => db.prepare("INSERT INTO saved_reports (name, model_json) VALUES ('sales', '{}')").run()).toThrow(/UNIQUE/)
     expect(() => db.prepare("INSERT INTO saved_reports (name, model_json, pinned) VALUES ('X', '{}', 2)").run()).toThrow(/CHECK/)
-    expect(db.prepare('SELECT pinned, schedule_json FROM saved_reports').get()).toEqual({ pinned: 0, schedule_json: null })
+    expect(db.prepare('SELECT pinned FROM saved_reports').get()).toEqual({ pinned: 0 })
+    expect((db.prepare('PRAGMA table_info(saved_reports)').all() as { name: string }[]).map((c) => c.name)).not.toContain('schedule_json')
     db.prepare("INSERT INTO report_packs (name, reports_json, period_rule, frequency) VALUES ('Monthly', '[]', 'lastMonth', 'monthly')").run()
     expect(() => db.prepare("INSERT INTO report_packs (name, reports_json, period_rule, frequency) VALUES ('B', '[]', 'nextYear', 'monthly')").run()).toThrow(/CHECK/)
     expect(db.prepare('SELECT formats_json, active, output_dir FROM report_packs').get()).toEqual({ formats_json: '["pdf","csv"]', active: 1, output_dir: null })
@@ -122,7 +126,7 @@ describe('builder equals the existing reports (demo company)', () => {
     const r = run(db, { source: 'accounts', dimensions: [{ key: 'ledger' }], measures: ['debit', 'credit'] }, fy.from, today)
     const dr = byId(r, 0)
     const cr = byId(r, 1)
-    for (const row of tb.rows.filter((x) => x.ledgerId > 0 && x.groupName !== 'Sales Accounts' && x.groupName !== 'Purchase Accounts')) {
+    for (const row of tb.rows.filter((x) => x.ledgerId > 0)) {
       // Asset/liability TB movements are cumulative; demo vouchers all fall inside this FY.
       expect(dr.get(row.ledgerId) ?? 0).toBe(row.movementDebit)
       expect(cr.get(row.ledgerId) ?? 0).toBe(row.movementCredit)
@@ -235,10 +239,14 @@ describe('builder on hand-built books', () => {
     const fees = ledger(db, 'Fees', 'Direct Incomes')
     voucher(db, 'receipt', '2025-05-01', [[cash, 'dr', 1_000], [fees, 'cr', 1_000]])
     voucher(db, 'receipt', '2025-05-02', [[cash, 'dr', 2_000], [fees, 'cr', 2_000]], { isOptional: true })
+    const pdc = voucher(db, 'receipt', '2026-03-20', [[cash, 'dr', 8_000], [fees, 'cr', 8_000]], { postDated: true })
+    expect((db.prepare('SELECT post_dated FROM vouchers WHERE id = ?').get(pdc) as { post_dated: number }).post_dated).toBe(1)
     const binned = voucher(db, 'receipt', '2025-05-03', [[cash, 'dr', 4_000], [fees, 'cr', 4_000]])
     db.prepare("UPDATE vouchers SET deleted_at = datetime('now') WHERE id = ?").run(binned)
     const r = run(db, { source: 'accounts', measures: ['credit', 'count'], filters: { ledgerIds: [fees] } }, '2025-04-01', '2026-03-31')
     expect(r.totals).toEqual([1_000, 1])
+    const stock = run(db, { source: 'accounts', dimensions: [{ key: 'ledger' }], measures: ['balance'], filters: { ledgerIds: [cash] } }, '2025-04-01', '2026-03-31')
+    expect(stock.totals).toEqual([1_000])
   })
 
   it('previous-year comparative lines months up; budget comparative splits annual lines by month', () => {
@@ -289,7 +297,7 @@ describe('builder on hand-built books', () => {
       grossMarginPct: 33.33, netMarginPct: 33.33, returnOnEquityPct: 18.18, returnOnAssetsPct: 14.29,
       debtEquity: 0.17, equityRatio: 0.67,
       inventoryTurnover: null, receivablesTurnover: 2.4, payablesTurnover: 2, netCapitalTurnover: 0.43, assetTurnover: 0.43,
-      debtorDays: 25.83, creditorDays: 31, inventoryDays: 0, cashConversionDays: -5.17
+      debtorDays: 12.92, creditorDays: 15.5, inventoryDays: null, cashConversionDays: null
     })
     const months = ratioReport(db, '2025-04-01', '2025-06-30').months
     expect(months.map((m) => m.key)).toEqual(['2025-04', '2025-05', '2025-06'])
@@ -370,6 +378,256 @@ describe('saved reports and scheduled packs', () => {
       const run1 = await runPack(db, 'test-co', TEST_INFO, pack.id, { trigger: 'manual', renderPdf: async () => { throw new Error('printer on fire') } })
       expect(run1.status).toBe('partial')
       expect(run1.error).toMatch(/printer on fire/)
+    } finally {
+      rmSync(out, { recursive: true, force: true })
+    }
+  })
+})
+
+// ---------------------------------------------------------------- review round (WP 6.1 fixes)
+
+describe('review round: comparatives, top-N, counts, balances, measures', () => {
+  let dataDir: string
+  let db: DB
+  const today = todayISO()
+  const fy = fyOf(today)
+
+  beforeAll(() => {
+    dataDir = mkdtempSync(join(tmpdir(), 'total-rb2-'))
+    process.env.TOTAL_DATA_DIR = dataDir
+    const { slug } = createDemoCompany()
+    db = openCompanyDb(slug)
+  })
+  afterAll(() => {
+    db.close()
+    delete process.env.TOTAL_DATA_DIR
+    rmSync(dataDir, { recursive: true, force: true })
+  })
+
+  it('top-N with a party × month pivot keeps whole parties, adds "All others" per month, and totals still equal the register', () => {
+    const reg = registerByMonth(db, 'sales', fy.from, today)
+    const r = run(db, {
+      source: 'accounts', dimensions: [{ key: 'party' }, { key: 'month' }], measures: ['taxable'], filters: { voucherKinds: ['sales'] },
+      pivot: 'month', topN: 2, sort: { by: 'taxable', dir: 'desc' }
+    }, fy.from, today)
+    const parties = [...new Set(r.rows.filter((x) => x.keys[0]!.id !== null).map((x) => x.keys[0]!.id))]
+    expect(parties).toHaveLength(2)
+    expect(r.rows.some((x) => /^All others/.test(x.keys[0]!.label))).toBe(true)
+    const sum = r.rows.reduce((s, x) => s + (x.values[0] ?? 0), 0)
+    expect(sum).toBe(reg.reduce((s, m) => s + m.taxable, 0))
+    expect(r.totals[0]).toBe(sum)
+  })
+
+  it('closing balance by group (level 1) matches the balance sheet; every balance incl. P&L opening nets to zero', () => {
+    const bs = balanceSheet(db, `${fy.startYear}-04-01`, today)
+    const r = run(db, { source: 'accounts', dimensions: [{ key: 'group', level: 1 }], measures: ['balance'] }, fy.from, today)
+    const built = byId(r)
+    const stock = stockValue(db, today)
+    for (const n of bs.assets.filter((x) => x.kind === 'group')) {
+      const computedStock = n.children.some((c) => c.kind === 'computed') || n.children.some((c) => c.children.some((cc) => cc.kind === 'computed')) ? stock : 0
+      expect(built.get(n.id) ?? 0, n.name).toBe(n.amount - computedStock)
+    }
+    for (const n of bs.liabilities.filter((x) => x.kind === 'group')) expect(built.get(n.id) ?? 0, n.name).toBe(-n.amount)
+    expect(r.rows.reduce((s, x) => s + (x.values[0] ?? 0), 0)).toBe(0)
+  })
+
+  it('stock line value and item filters read the stock-moving lines', () => {
+    const item = (db.prepare('SELECT id FROM stock_items ORDER BY id LIMIT 1').get() as { id: number }).id
+    const direct = db.prepare(
+      `SELECT COALESCE(SUM(il.amount), 0) AS v, COALESCE(SUM(CASE WHEN il.direction = 'in' THEN il.qty_milli ELSE 0 END), 0) AS q
+       FROM inventory_lines il JOIN vouchers v ON v.id = il.voucher_id WHERE il.stock_item_id = ? AND v.deleted_at IS NULL AND v.post_dated = 0 AND v.is_optional = 0 AND il.moves_stock = 1`
+    ).get(item) as { v: number; q: number }
+    const r = run(db, { source: 'inventory', measures: ['value', 'qtyIn'], filters: { itemIds: [item] } }, '2000-01-01', today)
+    expect(r.totals).toEqual([direct.v, direct.q])
+  })
+
+  it('"entered by" groups every voucher under its creator from the audit trail', () => {
+    const r = run(db, { source: 'accounts', dimensions: [{ key: 'user' }], measures: ['count'] }, fy.from, today)
+    const all = run(db, { source: 'accounts', measures: ['count'] }, fy.from, today)
+    expect(r.rows.reduce((s, x) => s + (x.values[0] ?? 0), 0)).toBe(all.totals[0])
+    expect(r.rows.every((x) => typeof x.keys[0]!.label === 'string' && x.keys[0]!.label.length > 0)).toBe(true)
+  })
+
+  it('row cap: totals still cover every row', () => {
+    const full = run(db, { source: 'accounts', dimensions: [{ key: 'voucher' }], measures: ['debit', 'count'] }, fy.from, today)
+    const capped = runReport(db, { source: 'accounts', dimensions: [{ key: 'voucher' }], measures: ['debit', 'count'], sort: { by: 'debit', dir: 'desc' } }, { working: { from: fy.from, to: today }, today, rowCap: 3 })
+    expect(capped.truncated).toBe(true)
+    expect(capped.totals).toEqual(full.totals)
+    // The cap keeps the largest by the sort measure.
+    const top3 = [...full.rows].sort((a, b) => (b.values[0] ?? 0) - (a.values[0] ?? 0)).slice(0, 3).map((x) => x.values[0])
+    expect(capped.rows.map((x) => x.values[0])).toEqual(top3)
+  })
+})
+
+describe('review round: hand-built books', () => {
+  it('a voucher count totals each voucher once across ledger rows', () => {
+    const db = seededDb()
+    const party = ledger(db, 'Asha Stores', 'Sundry Debtors')
+    const sales = ledger(db, 'Sales', 'Sales Accounts')
+    const cgst = ledger(db, 'CGST', 'Duties & Taxes', 0, { taxType: 'cgst' })
+    const sgst = ledger(db, 'SGST', 'Duties & Taxes', 0, { taxType: 'sgst' })
+    voucher(db, 'sales', '2025-05-10', [[party, 'dr', 11_800], [sales, 'cr', 10_000], [cgst, 'cr', 900], [sgst, 'cr', 900]], { partyLedgerId: party })
+    const r = run(db, { source: 'accounts', dimensions: [{ key: 'ledger' }], measures: ['count', 'taxable', 'cgst', 'gst'] }, '2025-04-01', '2026-03-31')
+    expect(r.rows.map((x) => x.values[0])).toEqual([1, 1, 1, 1])
+    expect(r.totals).toEqual([1, 10_000, 900, 1_800])
+    expect(r.measures[0]!.label).toBe('Vouchers touching row')
+    const top = run(db, { source: 'accounts', dimensions: [{ key: 'ledger' }], measures: ['count'], topN: 1, sort: { by: 'count', dir: 'desc' } }, '2025-04-01', '2026-03-31')
+    expect(top.rows.at(-1)!.values).toEqual([null])
+    expect(top.totals).toEqual([1])
+  })
+
+  it('previous period of an unaligned range (FY-to-date to 8 Oct) compares by the same number of days, never a made-up zero', () => {
+    const db = seededDb()
+    const cash = ledger(db, 'Till', 'Cash-in-Hand')
+    const fees = ledger(db, 'Fees', 'Direct Incomes')
+    voucher(db, 'receipt', '2025-09-25', [[cash, 'dr', 7_000], [fees, 'cr', 7_000]])
+    voucher(db, 'receipt', '2026-01-15', [[cash, 'dr', 3_000], [fees, 'cr', 3_000]])
+    voucher(db, 'receipt', '2026-04-10', [[cash, 'dr', 10_000], [fees, 'cr', 10_000]])
+    voucher(db, 'receipt', '2026-10-05', [[cash, 'dr', 4_000], [fees, 'cr', 4_000]])
+    const flat = run(db, { source: 'accounts', measures: ['profit'], comparative: { kind: 'previousPeriod' } }, '2026-04-01', '2026-10-08')
+    expect(flat.compare).toMatchObject({ from: '2025-09-22', to: '2026-03-31' })
+    expect(flat.totals).toEqual([14_000])
+    expect(flat.compareTotals).toEqual([10_000])
+    expect(flat.rows[0]!.compare).toEqual([10_000])
+    expect(flat.warnings.join(' ')).toMatch(/191 days before/)
+    const byMonth = run(db, { source: 'accounts', dimensions: [{ key: 'month' }], measures: ['profit'], comparative: { kind: 'previousPeriod' } }, '2026-04-01', '2026-10-08')
+    // Ordinal buckets: Sep 2025 ↔ Apr 2026, Jan 2026 ↔ Aug 2026 (5th bucket); Oct 2026 has no prior bucket.
+    const cmp = new Map(byMonth.rows.map((x) => [x.keys[0]!.id, [x.values[0], x.compare![0]]]))
+    expect(cmp.get('2026-04')).toEqual([10_000, 7_000])
+    expect(cmp.get('2026-08')).toEqual([0, 3_000])
+    expect(cmp.get('2026-10')).toEqual([4_000, null])
+    expect(byMonth.compareTotals).toEqual([10_000])
+  })
+
+  it('closing journals: profit leaves them out, balances include them (TB), and a later year without a close shows the P&L opening row', () => {
+    const db = seededDb()
+    const cash = ledger(db, 'Till', 'Cash-in-Hand', 50_000)
+    ledger(db, 'Owner', 'Capital Account', -50_000)
+    const fees = ledger(db, 'Fees', 'Direct Incomes')
+    const rent = ledger(db, 'Rent', 'Indirect Expenses')
+    voucher(db, 'receipt', '2025-06-01', [[cash, 'dr', 20_000], [fees, 'cr', 20_000]])
+    voucher(db, 'payment', '2025-07-01', [[rent, 'dr', 5_000], [cash, 'cr', 5_000]])
+    voucher(db, 'receipt', '2026-06-01', [[cash, 'dr', 1_000], [fees, 'cr', 1_000]])
+    voucher(db, 'receipt', '2027-05-01', [[cash, 'dr', 2_000], [fees, 'cr', 2_000]])
+    // FY 2025-26 closed; FY 2026-27 left open.
+    postClose(db, TEST_INFO, 2025)
+    const { amounts } = pnlLedgerAmounts(db, '2025-04-01', '2026-03-31')
+    const p = run(db, { source: 'accounts', dimensions: [{ key: 'ledger' }], measures: ['profit'] }, '2025-04-01', '2026-03-31')
+    for (const [id, amount] of amounts) expect(byId(p).get(id) ?? 0).toBe(-amount)
+    expect(p.totals[0]).toBe(15_000)
+    for (const asOn of ['2026-03-31', '2027-06-30']) {
+      const tb = trialBalance(db, asOn)
+      const b = run(db, { source: 'accounts', dimensions: [{ key: 'ledger' }], measures: ['balance'] }, '2025-04-01', asOn)
+      const built = byId(b)
+      for (const row of tb.rows) {
+        const key = row.ledgerId > 0 ? row.ledgerId : row.ledgerId === -5 ? null : undefined
+        if (key === undefined) continue
+        expect(built.get(key) ?? 0, `${row.ledgerName} @ ${asOn}`).toBe(row.debit - row.credit)
+      }
+      expect(b.rows.reduce((s, x) => s + (x.values[0] ?? 0), 0)).toBe(0)
+      expect(b.totals[0]).toBe(0)
+    }
+    // Multi-FY month series: the P&L opening row steps up when the open FY 2026-27 ends.
+    const series = run(db, { source: 'accounts', dimensions: [{ key: 'ledger' }, { key: 'fy' }], measures: ['balance'] }, '2025-04-01', '2027-06-30')
+    const opening = series.rows.filter((x) => x.keys[0]!.id === null).map((x) => [x.keys[1]!.id, x.values[0]])
+    // FY 2025-26 closed → nothing carried into 2026-27; 2026-27 left open → its ₹10 profit sits in the P&L opening of 2027-28.
+    expect(opening).toEqual([['2025', 0], ['2026', 0], ['2027', -1_000]])
+  })
+
+  it('TDS / TCS measures read the tagged payable ledgers; notes sign taxable and GST like the registers', () => {
+    const db = seededDb()
+    const section = (db.prepare('SELECT id FROM tds_sections LIMIT 1').get() as { id: number }).id
+    const cash = ledger(db, 'Till', 'Cash-in-Hand')
+    const tdsPayable = ledger(db, 'TDS 194C', 'Duties & Taxes')
+    const tcsPayable = ledger(db, 'TCS 206C', 'Duties & Taxes')
+    db.prepare('UPDATE ledgers SET tds_payable_section_id = ? WHERE id = ?').run(section, tdsPayable)
+    db.prepare('UPDATE ledgers SET tcs_payable_section_id = ? WHERE id = ?').run(section, tcsPayable)
+    voucher(db, 'journal', '2025-05-01', [[cash, 'dr', 300], [tdsPayable, 'cr', 200], [tcsPayable, 'cr', 100]])
+    const w = run(db, { source: 'accounts', measures: ['tds', 'tcs'] }, '2025-04-01', '2026-03-31')
+    expect(w.totals).toEqual([200, 100])
+
+    const party = ledger(db, 'Asha Stores', 'Sundry Debtors')
+    const sales = ledger(db, 'Sales', 'Sales Accounts')
+    const cgst = ledger(db, 'CGST', 'Duties & Taxes', 0, { taxType: 'cgst' })
+    voucher(db, 'sales', '2025-06-01', [[party, 'dr', 10_900], [sales, 'cr', 10_000], [cgst, 'cr', 900]], { partyLedgerId: party })
+    voucher(db, 'credit_note', '2025-06-10', [[sales, 'dr', 1_000], [cgst, 'dr', 90], [party, 'cr', 1_090]], { partyLedgerId: party })
+    const n = run(db, { source: 'accounts', dimensions: [{ key: 'voucherType' }], measures: ['taxable', 'cgst'], filters: { voucherKinds: ['credit_note'] } }, '2025-04-01', '2026-03-31')
+    expect(n.totals).toEqual([-1_000, -90])
+    expect(noteVoucherRows(db, '2025-04-01', '2026-03-31').reduce((s, r) => s + r.sales, 0)).toBe(-1_000)
+    const both = run(db, { source: 'accounts', measures: ['taxable', 'cgst'], filters: { voucherKinds: ['sales', 'credit_note'] } }, '2025-04-01', '2026-03-31')
+    expect(both.totals).toEqual([9_000, 810])
+  })
+
+  it('over-allocated cost-centre lines are scaled down so no total exceeds the books, with a warning', () => {
+    const db = seededDb()
+    const cc = saveCostCentre(db, { name: 'North', parentId: null, active: true })
+    const cash = ledger(db, 'Till', 'Cash-in-Hand')
+    const travel = ledger(db, 'Travel', 'Indirect Expenses')
+    const v = voucher(db, 'journal', '2025-05-01', [[travel, 'dr', 1_000, [{ costCentreId: cc.id, amount: 1_000 }]], [cash, 'cr', 1_000]])
+    const lineId = (db.prepare('SELECT id FROM voucher_lines WHERE voucher_id = ? AND ledger_id = ?').get(v, travel) as { id: number }).id
+    db.prepare('INSERT INTO voucher_line_cost_allocations (voucher_line_id, cost_centre_id, amount) VALUES (?, ?, 500)').run(lineId, cc.id)
+    const r = run(db, { source: 'accounts', dimensions: [{ key: 'costCentre' }], measures: ['debit'], filters: { ledgerIds: [travel] } }, '2025-04-01', '2026-03-31')
+    expect(r.rows.reduce((s, x) => s + (x.values[0] ?? 0), 0)).toBe(1_000)
+    // 1,000 × 1,000/1,500 + 500 × 1,000/1,500 = 666 + 333 = 999 on the centre; the 1 left over stays unallocated.
+    expect(byId(r).get(cc.id)).toBe(999)
+    expect(byId(r).get(null)).toBe(1)
+    expect(r.warnings.join(' ')).toMatch(/more cost-centre allocation/)
+  })
+
+  it('budget comparative refuses voucher filters; the budget tree carries budgeted ledgers with no actuals', () => {
+    const db = seededDb()
+    const rent = ledger(db, 'Rent', 'Indirect Expenses')
+    const ads = ledger(db, 'Advertising', 'Indirect Expenses')
+    const cash = ledger(db, 'Till', 'Cash-in-Hand')
+    voucher(db, 'payment', '2026-05-06', [[rent, 'dr', 9_000], [cash, 'cr', 9_000]])
+    const budget = saveBudget(db, { name: 'FY26', fyStartYear: 2026, lines: [{ ledgerId: rent, groupId: null, month: '2026-05', amount: 10_000 }, { ledgerId: ads, groupId: null, month: '2026-05', amount: 4_000 }] })
+    expect(() => run(db, { source: 'accounts', dimensions: [{ key: 'ledger' }], measures: ['profit'], comparative: { kind: 'budget', budgetId: budget.id }, filters: { partyIds: [rent] } }, '2026-04-01', '2026-06-30')).toThrow(/remove the voucher filters/)
+    const b = budgetAmounts(db, budget.id, '2026-04-01', '2026-06-30')
+    const ie = b.pnl.indirectExpenses[0]!
+    expect(ie.amount).toBe(14_000)
+    expect(ie.children.map((c) => [c.name, c.amount])).toEqual([['Advertising', 4_000], ['Rent', 10_000]])
+    expect(comparativePnl(db, '2026-04-01', '2026-06-30').statements[0]!.indirectExpenses[0]!.children.map((c) => c.name)).toEqual(['Rent'])
+  })
+
+  it('GST summary pack shows output and input tax apart and nets them', () => {
+    const db = seededDb()
+    const party = ledger(db, 'Asha Stores', 'Sundry Debtors')
+    const supplier = ledger(db, 'Bharat Mills', 'Sundry Creditors')
+    const sales = ledger(db, 'Sales', 'Sales Accounts')
+    const purchase = ledger(db, 'Purchases', 'Purchase Accounts')
+    const out = ledger(db, 'Output IGST', 'Duties & Taxes', 0, { taxType: 'igst' })
+    const inp = ledger(db, 'Input IGST', 'Duties & Taxes', 0, { taxType: 'igst' })
+    voucher(db, 'sales', '2025-05-01', [[party, 'dr', 11_800], [sales, 'cr', 10_000], [out, 'cr', 1_800]], { partyLedgerId: party })
+    voucher(db, 'purchase', '2025-05-02', [[purchase, 'dr', 5_000], [inp, 'dr', 900], [supplier, 'cr', 5_900]], { partyLedgerId: supplier })
+    const t = packTable(db, TEST_INFO, { kind: 'builtin', key: 'gstSummary' }, { from: '2025-05-01', to: '2025-05-31' }, '2025-06-03')
+    expect(t.rows.map((r) => [r.cells[0], r.cells[4], r.cells[6]])).toEqual([
+      ['Output tax (sales less credit notes)', '18.00', '18.00'],
+      ['Input tax (purchases less debit notes)', '9.00', '9.00'],
+      ['Net tax (output − input)', '9.00', '9.00']
+    ])
+  })
+})
+
+describe('review round: the pack scheduler', () => {
+  it('defers the pass past the caller, and never runs while the company is locked', async () => {
+    const db = seededDb()
+    const out = mkdtempSync(join(tmpdir(), 'total-pack-'))
+    try {
+      const pack = savePack(db, { name: 'CSV only', reports: [{ kind: 'builtin', key: 'trialBalance' }], periodRule: 'lastMonth', frequency: 'daily', formats: ['csv'], outputDir: out })
+      db.prepare("UPDATE report_packs SET created_at = '2020-01-01 00:00:00' WHERE id = ?").run(pack.id)
+      const company = { slug: 'test-co', db, info: TEST_INFO }
+      const renderPdf = async (): Promise<Buffer> => Buffer.from('')
+      const locked = runDuePacksInBackground(company, { allowed: () => false, renderPdf })
+      expect(listRuns(db, pack.id)).toHaveLength(0)
+      await locked
+      expect(listRuns(db, pack.id)).toHaveLength(0)
+      const pass = runDuePacksInBackground(company, { allowed: () => true, renderPdf })
+      // Nothing has run synchronously — the open has answered before any pack starts.
+      expect(listRuns(db, pack.id)).toHaveLength(0)
+      // A second trigger for the same company joins the pass in flight.
+      expect(runDuePacksInBackground(company, { renderPdf })).toBe(pass)
+      await pass
+      expect(listRuns(db, pack.id)).toHaveLength(1)
     } finally {
       rmSync(out, { recursive: true, force: true })
     }
