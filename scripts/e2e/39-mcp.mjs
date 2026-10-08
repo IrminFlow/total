@@ -1,4 +1,4 @@
-// Scenario 38 — MCP server and agent drafts (WP 5.7). While the app is open, a real MCP client
+// Scenario 39 — MCP server and agent drafts (WP 5.7). While the app is open, a real MCP client
 // (the official SDK over stdio) starts `total-cli mcp` against the same scratch data dir: it lists
 // the tools, reads a resource, and — as accountant — drafts a rent payment. An inbox drop becomes a
 // flagged draft instead of a posting. Settings → Agent access shows the MCP section (snippets,
@@ -14,7 +14,7 @@ const require = createRequire(import.meta.url)
 const { Client } = require('@modelcontextprotocol/sdk/client/index.js')
 const { StdioClientTransport } = require('@modelcontextprotocol/sdk/client/stdio.js')
 
-await scenario('38-mcp', async (h) => {
+await scenario('39-mcp', async (h) => {
   await h.createCompanyUI('MCP Co')
   const slug = 'mcp-co'
   const extraShots = process.env.WP57_SHOTS
