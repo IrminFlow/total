@@ -1,6 +1,7 @@
 // WP 2.5a — the Tally import voucher-type mapping bug: "Receipt Note" used to become a cash/bank
 // receipt and "Delivery Note" a journal; "Sales Order" / "Purchase Order" became real sales and
-// purchases. Now: the notes map to the stock-only kinds, orders are skipped with a warning.
+// purchases. Now: the notes map to the stock-only kinds; orders never post (WP 6.3 imports the
+// ones with item lines into trade_docs).
 import { describe, it, expect } from 'vitest'
 import { seededDb } from '../db/testdb'
 import { importTallyXml, kindForName, isOrderTypeName } from './tallyImport'
@@ -93,12 +94,14 @@ describe('Tally voucher-type mapping', () => {
     expect(getVoucher(db, rj.id)!.trade).toEqual({ purpose: 'return' })
   })
 
-  it('skips Tally sales / purchase orders with a warning instead of posting them', () => {
+  it('never posts Tally sales / purchase orders (orders without item lines are skipped with a warning)', () => {
+    // WP 6.3: orders WITH item lines import into trade_docs (tallyOrders.dbtest.ts); these carry
+    // only ledger entries, which an order never posts.
     const db = seededDb()
     const summary = importTallyXml(db, `<ENVELOPE>${MASTERS}${order('Sales Order')}${order('Purchase Order')}</ENVELOPE>`)
     expect(summary.vouchers).toBe(0)
-    expect(summary.skipped).toBe(2)
-    expect(summary.warnings.filter((w) => /is an order/.test(w))).toHaveLength(2)
+    expect(summary.orders).toBe(0)
+    expect(summary.warnings.filter((w) => /order without item lines/.test(w))).toHaveLength(2)
     expect(db.prepare('SELECT COUNT(*) AS n FROM vouchers').get()).toEqual({ n: 0 })
     expect(kindOf(db, 'Sales Order')).toBeUndefined()
   })

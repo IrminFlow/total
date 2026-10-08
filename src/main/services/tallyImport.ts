@@ -1,8 +1,12 @@
 import type { DB } from '../db/connection'
-import { parseTallyExport, type TallyImport } from '@shared/tally'
+import { orderLineMoney, parseTallyExport, TALLY_ORDER_TYPE, type TallyImport, type TallyOrder } from '@shared/tally'
 import { GST_STATES } from '@shared/gst/states'
+import { fyOf } from '@shared/dates'
 import { saveVoucher } from './vouchers'
+import { saveTradeDoc } from './tradeDocs'
+import { listTradeDocTypes } from './tradeDocTypes'
 import { writeAudit } from './audit'
+import { readCompanyInfo, writeCompanyInfo } from '../db/seed'
 import type { TradePurpose, VoucherKind } from '@shared/domain'
 
 export interface ImportSummary {
@@ -11,15 +15,27 @@ export interface ImportSummary {
   units: number
   items: number
   vouchers: number
+  /** Sales / purchase orders imported into trade_docs (WP 6.3). */
+  orders: number
   skipped: number
+  /** The books-from FY start year the import set on the company (null = left as it was). */
+  booksFromSet: number | null
   warnings: string[]
 }
 
 /** Tally order voucher types (Sales Order, Purchase Order, Job Work In/Out Order): not books
- *  documents, so not vouchers. Skipped with a warning until orders import into trade_docs
- *  (design Q8). */
+ *  documents, so never vouchers. The parser hands sales / purchase orders over as `orders`,
+ *  which import into trade_docs (WP 6.3, design §8 Q8); job-work orders are skipped. */
 export function isOrderTypeName(name: string): boolean {
-  return /\border\b/i.test(name)
+  return TALLY_ORDER_TYPE.test(name)
+}
+
+/** The FY the books start in: the company master's BOOKSFROM when the file has it, else the FY of
+ *  the earliest voucher or order in the file. Null when the file has neither. */
+export function tallyBooksFromYear(data: TallyImport): number | null {
+  if (data.booksFrom) return fyOf(data.booksFrom).startYear
+  const dates = [...data.vouchers.map((v) => v.date), ...data.orders.map((o) => o.date)].sort()
+  return dates[0] ? fyOf(dates[0]).startYear : null
 }
 
 /** Map a Tally voucher-type name to one of our kinds. The stock notes are matched FIRST —
@@ -68,7 +84,9 @@ export function dryRunTallyXml(xml: string): ImportSummary {
     units: data.units.length,
     items: data.items.length,
     vouchers: data.vouchers.length,
+    orders: data.orders.length,
     skipped: 0,
+    booksFromSet: tallyBooksFromYear(data),
     warnings: [...data.warnings]
   }
 }
@@ -90,7 +108,9 @@ export function importTallyXml(db: DB, xml: string): ImportSummary {
       units: summary.units,
       items: summary.items,
       vouchers: summary.vouchers,
+      orders: summary.orders,
       skipped: summary.skipped,
+      booksFromSet: summary.booksFromSet,
       warnings: summary.warnings.length
     })
     return summary
@@ -100,7 +120,25 @@ export function importTallyXml(db: DB, xml: string): ImportSummary {
 
 function applyParsedTallyImport(db: DB, data: TallyImport): ImportSummary {
   const warnings = [...data.warnings]
-  let counts = { groups: 0, ledgers: 0, units: 0, items: 0, vouchers: 0, skipped: 0 }
+  let counts = { groups: 0, ledgers: 0, units: 0, items: 0, vouchers: 0, orders: 0, skipped: 0 }
+
+  // Books-from (Phase 1 gap): a company being migrated from Tally starts its books where Tally's
+  // did — set it while the company has no vouchers yet (stored openings belong to that FY, the
+  // WP 1.3 year-opening rule). Afterwards it is the user's call (Company details), so only warn.
+  let booksFromSet: number | null = null
+  const fileYear = tallyBooksFromYear(data)
+  if (fileYear !== null) {
+    const info = readCompanyInfo(db)
+    if (info.booksFrom !== fileYear) {
+      if (!db.prepare('SELECT 1 FROM vouchers LIMIT 1').get()) {
+        writeCompanyInfo(db, { ...info, booksFrom: fileYear })
+        writeAudit(db, 'company', 0, 'update', info, { ...info, booksFrom: fileYear })
+        booksFromSet = fileYear
+      } else {
+        warnings.push(`The Tally books start in FY ${fileYear}-${String((fileYear + 1) % 100).padStart(2, '0')}, this company's in ${info.booksFrom}-${String((info.booksFrom + 1) % 100).padStart(2, '0')} — left unchanged because the company already has vouchers`)
+      }
+    }
+  }
 
   const groupId = (name: string): number | null => {
     const row = db.prepare('SELECT id FROM groups WHERE name = ? COLLATE NOCASE').get(name) as { id: number } | undefined
@@ -243,5 +281,56 @@ function applyParsedTallyImport(db: DB, data: TallyImport): ImportSummary {
     }
   }
 
-  return { ...counts, warnings }
+  // Orders → trade_docs (WP 6.3). Each in its own savepoint: a bad order is skipped and warned.
+  const docTypes = listTradeDocTypes(db)
+  for (const o of data.orders) {
+    try {
+      db.transaction(() => importTallyOrder(db, o, docTypes, ledgerId, itemId))()
+      counts.orders++
+    } catch (err) {
+      warnings.push(`${o.vchType} ${o.number || o.date} skipped: ${(err as Error).message}`)
+      counts.skipped++
+    }
+  }
+
+  return { ...counts, booksFromSet, warnings }
+}
+
+function importTallyOrder(
+  db: DB,
+  o: TallyOrder,
+  docTypes: ReturnType<typeof listTradeDocTypes>,
+  ledgerId: (name: string) => number | null,
+  itemId: (name: string) => number | null
+): void {
+  if (!o.party) throw new Error('no party ledger')
+  const partyId = ledgerId(o.party)
+  if (!partyId) throw new Error(`unknown party "${o.party}" (import masters first)`)
+  // The series with the same name as the Tally type ("Sales Order"), else the kind's first.
+  const type = docTypes.find((t) => t.kind === o.kind && t.name.toLowerCase() === o.vchType.toLowerCase()) ?? docTypes.find((t) => t.kind === o.kind)
+  if (!type) throw new Error(`no ${o.kind.replace('_', ' ')} series`)
+  if (o.number && db.prepare('SELECT 1 FROM trade_docs WHERE doc_type_id = ? AND number = ? AND deleted_at IS NULL').get(type.id, o.number)) {
+    throw new Error('already imported')
+  }
+  const godownId = (name: string | null): number | null =>
+    name ? ((db.prepare('SELECT id FROM godowns WHERE name = ? COLLATE NOCASE').get(name) as { id: number } | undefined)?.id ?? null) : null
+  const dues = o.lines.map((l) => l.dueDate).filter((d): d is string => !!d && d >= o.date).sort()
+  saveTradeDoc(db, {
+    docTypeId: type.id,
+    date: o.date,
+    number: o.number || undefined,
+    partyLedgerId: partyId,
+    dueDate: dues[dues.length - 1] ?? null,
+    reference: o.reference ? o.reference.slice(0, 120) : null,
+    narration: o.narration ? o.narration.slice(0, 1000) : null,
+    lines: o.lines.map((l) => {
+      const id = itemId(l.item)
+      if (!id) throw new Error(`unknown stock item "${l.item}" (import masters first)`)
+      const money = orderLineMoney(l.qtyMilli, l.ratePaise, l.amount)
+      return {
+        stockItemId: id, godownId: godownId(l.godown), qtyMilli: l.qtyMilli, ...money,
+        dueDate: l.dueDate && l.dueDate >= o.date ? l.dueDate : null
+      }
+    })
+  })
 }
