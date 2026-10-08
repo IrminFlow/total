@@ -82,6 +82,7 @@ import { registerPricingIpc } from './ipcPricing'
 import { registerReceivablesIpc } from './ipcReceivables'
 import { creditOverrideSchema } from '@shared/receivables/schemas'
 import { registerPayablesIpc } from './ipcPayables'
+import { registerBankingIpc } from './ipcBanking'
 import { rememberSalePrices } from './services/pricing'
 import { importTallyXml, dryRunTallyXml } from './services/tallyImport'
 import * as importer from './services/importers'
@@ -257,6 +258,8 @@ export function registerIpc(): void {
   registerReceivablesIpc(handle, () => requireCompany())
   // ---------- payables (WP 4.3) — channels live in ipcPayables.ts ----------
   registerPayablesIpc(handle, () => requireCompany())
+  // ---------- banking depth (WP 4.1) — channels live in ipcBanking.ts ----------
+  registerBankingIpc(handle, () => requireCompany())
 
   // ---------- company ----------
   handle('company:list', () => readRegistry())

@@ -893,7 +893,17 @@ export const chequeConfigSchema = z.object({
   payee: z.object({ xMm: mm, yMm: mm }),
   words: z.object({ xMm: mm, yMm: mm, wMm: mm }),
   figures: z.object({ xMm: mm, yMm: mm }),
-  acPayee: z.boolean()
+  acPayee: z.boolean(),
+  // WP 4.1 layout designer — all defaulted so layouts saved before 0.8 load unchanged.
+  /** Where the "A/C PAYEE ONLY" crossing is printed (top-left corner of the stamp). */
+  acPayeePos: z.object({ xMm: mm, yMm: mm }).default({ xMm: 4, yMm: 14 }),
+  /** Paper the leaf is fed on; 0 = exactly the cheque size (leaf fed directly). */
+  pageWidthMm: z.number().min(0).max(300).default(0),
+  pageHeightMm: z.number().min(0).max(300).default(0),
+  /** Where the leaf sits on that paper, and any printer drift to correct (mm, may be negative). */
+  offsetXMm: z.number().min(-50).max(250).default(0),
+  offsetYMm: z.number().min(-50).max(250).default(0),
+  fontPt: z.number().min(6).max(18).default(11)
 })
 export type ChequeConfig = z.infer<typeof chequeConfigSchema>
 
@@ -906,7 +916,13 @@ export const DEFAULT_CHEQUE_CONFIG: ChequeConfig = {
   payee: { xMm: 18, yMm: 22 },
   words: { xMm: 28, yMm: 32, wMm: 150 },
   figures: { xMm: 158, yMm: 38 },
-  acPayee: true
+  acPayee: true,
+  acPayeePos: { xMm: 4, yMm: 14 },
+  pageWidthMm: 0,
+  pageHeightMm: 0,
+  offsetXMm: 0,
+  offsetYMm: 0,
+  fontPt: 11
 }
 
 /** Merge a partial/unknown-shaped object over the defaults, then validate. Never throws — falls

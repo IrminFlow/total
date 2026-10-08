@@ -16,7 +16,7 @@ import {
   dashboardWindow, monthOf, monthSpan, addDays, addMonths, weekStart, monthEnd,
   type DashAgeing, type DashCash, type DashCashLedger, type DashGst, type DashMonth, type DashParty,
   type DashSection, type DashSetup, type DashStatus, type DashStock, type DashStockAlert, type DashTds,
-  type DashTrade, type DashTrendPoint, type DashboardSeries, type DashboardWindow, type DashActivity
+  type DashTrade, type DashTrendPoint, type DashboardSeries, type DashboardWindow, type DashActivity, type DashPdc
 } from '@shared/dashboard'
 import { upcomingDeadlines } from '@shared/compliance'
 import { tdsQuarterOf } from '@shared/tds'
@@ -32,6 +32,7 @@ import { getFeatures } from './config'
 import { listGroups } from './masters'
 import { IN_BOOKS, NOT_DELETED, getLockDate } from './vouchers'
 import { promisedThisWeek } from './receivables'
+import { pdcsMaturing } from './pdc'
 
 /** Mirrors db/backup.ts BackupInfo — passed in by the IPC handler (the service never touches
  *  the filesystem, so dbtests can hand it a list). */
@@ -274,7 +275,10 @@ function computeSeries(
     }
   })
 
-  return { window: w, trade, cash, receivables, payables, topCustomers, topSuppliers, gst, tds, stock, activity, status, setup }
+  // WP 4.1: PDCs maturing this week — reminder row on the compliance card.
+  const pdc = section((): DashPdc => pdcsMaturing(db, w.today, 7))
+
+  return { window: w, trade, cash, receivables, payables, topCustomers, topSuppliers, gst, tds, stock, activity, status, setup, pdc }
 }
 
 /** Earliest date any series needs: the period start or the first spark month, whichever is first. */

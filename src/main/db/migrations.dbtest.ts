@@ -84,6 +84,18 @@ const EXPECTED_TABLES = [
   'msme_bank_rates',
   'payment_runs',
   'payment_run_vouchers',
+  // 034 (WP 4.1)
+  'bank_import_profiles',
+  'bank_statement_imports',
+  'bank_statement_lines',
+  'bank_statement_matches',
+  'bank_learned_rules',
+  'cheque_books',
+  'cheques',
+  'pdc_events',
+  'bank_payment_templates',
+  'bank_payment_batches',
+  'bank_payment_batch_items',
   'migrations'
 ]
 
