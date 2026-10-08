@@ -10,6 +10,7 @@ import {
 import { formatPaise } from '@shared/money'
 import { toDisplayDate } from '@shared/dates'
 import { api } from '../../lib/client'
+import { bankingApi } from '../../lib/bankingClient'
 import { useNav, useSession, useToasts, type VoucherDraft } from '../../state/stores'
 import { AmountInput, Button, DateInput, Field, isAnyModalOpen, LineTableScroller, Money, Panel, Select, TextInput } from '../../components/ui'
 import { LedgerPicker, useGroups, useLedgers } from '../../components/pickers'
@@ -491,9 +492,21 @@ export function AccountingEntry({
 
   const printCheque = async (): Promise<void> => {
     if (!voucherId || !bankCrLine) return
+    // The cheque is printed from the SAVED voucher — an unsaved instrument number would not match.
+    if (instrumentNo.trim() !== (voucher?.instrumentNo ?? '').trim()) return void toast.push('error', 'Save the voucher first — its cheque number has unsaved changes')
     try {
-      const r = await api.cheque.pdf(voucherId, bankCrLine.ledgerId)
-      toast.push('success', `Cheque PDF: ${r.path}`)
+      // WP 4.1: issues the next leaf of the bank's cheque book (or re-uses this voucher's) into
+      // the cheque register, then prints with the bank's layout.
+      const r = await bankingApi.cheques.print(voucherId, bankCrLine.ledgerId)
+      // The number may have been written onto the voucher (with the voucher date as the cheque
+      // date, the editor's own default): put it in the field and reload the saved voucher, so the
+      // form and the saved voucher agree and a later save cannot wipe it.
+      if (r.number) setInstrumentNo(r.number)
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['chequeRegister'] }),
+        queryClient.invalidateQueries({ queryKey: ['voucher', voucherId], exact: true })
+      ])
+      toast.push('success', r.number ? `Cheque ${r.number}: ${r.path}` : `Cheque PDF: ${r.path}`)
     } catch (err) {
       toast.push('error', (err as Error).message)
     }
@@ -820,7 +833,7 @@ export function AccountingEntry({
         <div className="flex gap-2">
           {voucherId && kind === 'payment' && bankCrLine && (
             <>
-              <Button onClick={() => void printCheque()}>Print cheque</Button>
+              <Button data-testid="btn-voucher-print-cheque" onClick={() => void printCheque()}>Print cheque</Button>
               <Button onClick={() => void printAdvice()}>Payment advice</Button>
             </>
           )}

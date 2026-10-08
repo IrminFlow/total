@@ -224,6 +224,7 @@ export function Gateway(): React.JSX.Element {
               tds={features.tds ? card('tds') : null}
               hasPayroll={hasPayroll}
               dashboardLoaded={dashQ.data !== undefined}
+              pdc={s?.pdc?.ok ? s.pdc.data : null}
             />
           </div>
         </div>

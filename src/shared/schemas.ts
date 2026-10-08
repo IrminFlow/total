@@ -840,20 +840,36 @@ export const budgetLineInputSchema = z
       .regex(/^\d{4}-\d{2}$/, 'Expected YYYY-MM')
       .nullable()
       .default(null),
-    amount: positivePaise
+    amount: positivePaise,
+    /** WP 4.4: department / cost-centre dimension (null = the whole ledger / group). */
+    costCentreId: id.nullable().default(null),
+    /** WP 4.4: how an annual line (month null) is spread over the year — 'annual' keeps the
+     *  original annual-vs-FY-to-date comparison. Ignored for a single-month line. */
+    phasing: z.enum(['annual', 'even', 'seasonal', 'manual']).default('annual'),
+    /** WP 4.4: twelve paise amounts (Apr..Mar) for 'manual' phasing; they must add up to `amount`. */
+    monthly: z.array(paise.min(0)).length(12).nullable().default(null)
   })
   .refine((v) => (v.ledgerId == null) !== (v.groupId == null), {
     message: 'Each budget line must target exactly one of a ledger or a group',
     path: ['ledgerId']
   })
-export type BudgetLineInput = z.infer<typeof budgetLineInputSchema>
+  .refine((v) => v.month != null || v.phasing !== 'manual' || (v.monthly != null && v.monthly.reduce((s, x) => s + x, 0) === v.amount), {
+    message: 'Manual monthly amounts must add up to the annual amount',
+    path: ['monthly']
+  })
+export type BudgetLineInput = z.input<typeof budgetLineInputSchema>
 
 export const budgetInputSchema = z.object({
   name: z.string().trim().min(1).max(60),
   fyStartYear: z.number().int().min(1990).max(2100),
-  lines: z.array(budgetLineInputSchema).max(200)
+  lines: z.array(budgetLineInputSchema).max(500),
+  /** WP 4.4: 12 whole-number month weights (Apr..Mar) for 'seasonal' lines; null = even. Omitted = keep. */
+  seasonal: z.array(z.number().int().min(0).max(1000)).length(12).nullable().optional(),
+  /** WP 4.4: why the budget was revised (kept in the revision history). */
+  reason: z.string().trim().max(200).nullable().optional()
 })
-export type BudgetInput = z.infer<typeof budgetInputSchema>
+export type BudgetInput = z.input<typeof budgetInputSchema>
+export type BudgetInputParsed = z.infer<typeof budgetInputSchema>
 
 export const budgetVarianceSchema = z.object({
   budgetId: id,
@@ -893,7 +909,17 @@ export const chequeConfigSchema = z.object({
   payee: z.object({ xMm: mm, yMm: mm }),
   words: z.object({ xMm: mm, yMm: mm, wMm: mm }),
   figures: z.object({ xMm: mm, yMm: mm }),
-  acPayee: z.boolean()
+  acPayee: z.boolean(),
+  // WP 4.1 layout designer — all defaulted so layouts saved before 0.8 load unchanged.
+  /** Where the "A/C PAYEE ONLY" crossing is printed (top-left corner of the stamp). */
+  acPayeePos: z.object({ xMm: mm, yMm: mm }).default({ xMm: 4, yMm: 14 }),
+  /** Paper the leaf is fed on; 0 = exactly the cheque size (leaf fed directly). */
+  pageWidthMm: z.number().min(0).max(300).default(0),
+  pageHeightMm: z.number().min(0).max(300).default(0),
+  /** Where the leaf sits on that paper, and any printer drift to correct (mm, may be negative). */
+  offsetXMm: z.number().min(-50).max(250).default(0),
+  offsetYMm: z.number().min(-50).max(250).default(0),
+  fontPt: z.number().min(6).max(18).default(11)
 })
 export type ChequeConfig = z.infer<typeof chequeConfigSchema>
 
@@ -906,7 +932,13 @@ export const DEFAULT_CHEQUE_CONFIG: ChequeConfig = {
   payee: { xMm: 18, yMm: 22 },
   words: { xMm: 28, yMm: 32, wMm: 150 },
   figures: { xMm: 158, yMm: 38 },
-  acPayee: true
+  acPayee: true,
+  acPayeePos: { xMm: 4, yMm: 14 },
+  pageWidthMm: 0,
+  pageHeightMm: 0,
+  offsetXMm: 0,
+  offsetYMm: 0,
+  fontPt: 11
 }
 
 /** Merge a partial/unknown-shaped object over the defaults, then validate. Never throws — falls
