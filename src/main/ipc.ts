@@ -1890,11 +1890,7 @@ export function registerIpc(): void {
     // Never send live secrets back to the UI in full — password AND clientSecret are the two
     // halves of the NIC auth credential pair (username/password + client_id/client_secret),
     // and nic:get is viewer-gated (v0.3 review F3).
-    return {
-      ...creds,
-      password: creds.password ? '••••••••' : '',
-      clientSecret: creds.clientSecret ? '••••••••' : ''
-    }
+    return nic.maskNicCredentials(creds)
   }, 'viewer')
   handle('nic:save', (p) => {
     const c = requireCompany()
@@ -1902,8 +1898,8 @@ export function registerIpc(): void {
     const existing = nic.readNicCredentials(c.db, c.slug)
     // Re-saving the mask sentinel means "keep what's stored" — the settings form round-trips
     // nic:get values verbatim when the owner doesn't retype them.
-    if (incoming.password === '••••••••') incoming.password = existing.password
-    if (incoming.clientSecret === '••••••••') incoming.clientSecret = existing.clientSecret
+    if (incoming.password === nic.NIC_SECRET_MASK) incoming.password = existing.password
+    if (incoming.clientSecret === nic.NIC_SECRET_MASK) incoming.clientSecret = existing.clientSecret
     nic.writeNicCredentials(c.db, c.slug, incoming)
     nic.resetNicSession()
     return { configured: nic.nicConfigured(c.db, c.slug) }
@@ -1912,6 +1908,12 @@ export function registerIpc(): void {
     const c = requireCompany()
     return { configured: nic.nicConfigured(c.db, c.slug) }
   }, 'viewer')
+  // Settings → NIC "Connection test" (WP 3.5): the auth handshake only — files nothing and
+  // writes nothing to the books; the outcome (or the mapped NIC error) goes back to the UI.
+  handle('nic:testConnection', async () => {
+    const c = requireCompany()
+    return nic.testNicConnection(c.db, c.slug, c.info)
+  }, 'owner')
   handle('nic:generateIrn', async (p) => {
     const { voucherId } = z.object({ voucherId: z.number().int().positive() }).parse(p)
     const c = requireCompany()

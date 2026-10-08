@@ -260,7 +260,7 @@ export function extractEdocInvoices(
   const salesGroupIds = descendantIdsByName(db, ['Sales Accounts', 'Direct Incomes', 'Indirect Incomes'])
 
   const invStmt = db.prepare(
-    `SELECT il.qty_milli AS qtyMilli, il.rate_paise AS ratePaise, il.amount,
+    `SELECT il.qty_milli AS qtyMilli, il.rate_paise AS ratePaise, il.amount, il.discount_paise AS discountPaise,
             si.name, si.hsn, si.gst_rate AS gstRate, si.cess_rate AS cessRate, si.barcode, u.uqc
      FROM inventory_lines il
      JOIN stock_items si ON si.id = il.stock_item_id
@@ -288,11 +288,17 @@ export function extractEdocInvoices(
     // SEZ/export supplies are ALWAYS inter-state (sec 7(5)(b) IGST Act): a same-state SEZ
     // unit must be billed IGST — the IRP rejects SEZWP/SEZWOP payloads carrying CGST/SGST.
     const supply = supTyp !== 'B2B' ? 'inter' : supplyTypeFor(company.stateCode, pos)
+    // WP 3.5: a ledger explicitly flagged export / SEZ *without payment* (LUT/bond) carries no IGST
+    // or cess — the rate stays (GstRt), the amounts are zero. Generate IRN validation: "EXPWOP/SEZWOP:
+    // IGST validation skipped if passed value is ZERO" (einv-apisandbox.nic.in/version1.03/
+    // generate-irn.html, read 2026-10-07). An unflagged foreign party (state 96/97 → EXPWOP by
+    // default) keeps the computed IGST, which that validation also accepts.
+    const withoutPayment = v.partyExportType === 'exp_wop' || v.partyExportType === 'sez_wop'
     const isNote = v.kind === 'delivery_note' || v.kind === 'receipt_note'
     // A challan carries tax only "where the transportation is for supply" (rule 55(1)(vii)).
     const taxed = !isNote || purposeIsTaxed(v.purpose ?? (v.kind === 'delivery_note' ? 'supply' : 'purchase'))
     const rawItems = invStmt.all(v.id) as {
-      qtyMilli: number; ratePaise: number; amount: number
+      qtyMilli: number; ratePaise: number; amount: number; discountPaise: number
       name: string; hsn: string | null; gstRate: number | null; cessRate: number | null; barcode: string | null; uqc: string
     }[]
     let items: EdocItem[] = rawItems.map((item) => {
@@ -311,10 +317,11 @@ export function extractEdocInvoices(
         cessRate,
         cgst: g.cgst,
         sgst: g.sgst,
-        igst: g.igst,
-        cess: g.cess,
+        igst: withoutPayment ? 0 : g.igst,
+        cess: withoutPayment ? 0 : g.cess,
         isService: false,
-        barcode: item.barcode
+        barcode: item.barcode,
+        discountPaise: item.discountPaise
       }
     })
     // Service invoices book no inventory lines — build items from the income-side ledger
@@ -340,8 +347,8 @@ export function extractEdocInvoices(
             cessRate: 0,
             cgst: g.cgst,
             sgst: g.sgst,
-            igst: g.igst,
-            cess: g.cess,
+            igst: withoutPayment ? 0 : g.igst,
+            cess: withoutPayment ? 0 : g.cess,
             isService: true,
             barcode: null
           }

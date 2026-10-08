@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { computeInvoice, emptyInvoiceState, type InvoiceContext } from '@shared/voucherEdit'
 import { supplyTypeFor } from '@shared/gst/calc'
@@ -111,8 +111,13 @@ export function CounterBillingScreen(): React.JSX.Element {
   const [modal, setModal] = useState<'party' | 'held' | 'dayEnd' | null>(null)
   const searchRef = useRef<HTMLInputElement>(null)
   const payRefs = useRef<Record<PaymentMode | 'tendered', HTMLInputElement | null>>({ cash: null, upi: null, card: null, tendered: null })
-  // Latency of the last scan: keydown → the line on screen with its price (data-scan-ms).
+  // Latency of the last scan: keydown → the line on screen with its price. Written straight onto
+  // the screen root (data-scan-ms + a data-scan-seq counter) in a layout effect — i.e. in the
+  // same commit that first shows the priced line — so a driver that sees the rate also sees its
+  // sample (e2e 29); the footer shows it via state.
   const scanStart = useRef<{ key: number; at: number } | null>(null)
+  const scanSeq = useRef(0)
+  const rootRef = useRef<HTMLDivElement>(null)
   const [scanMs, setScanMs] = useState<number | null>(null)
 
   const party = partyId != null ? (ledgers.find((l) => l.id === partyId) ?? null) : null
@@ -129,13 +134,19 @@ export function CounterBillingScreen(): React.JSX.Element {
   )
   const { resetRow } = useLinePricing(lines, setLines, pricingCtx)
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     const s = scanStart.current
     if (!s) return
     const line = lines.find((l) => l.key === s.key)
     if (line && line.rate != null) {
       scanStart.current = null
-      setScanMs(Math.round(performance.now() - s.at))
+      const ms = Math.round((performance.now() - s.at) * 10) / 10
+      const el = rootRef.current
+      if (el) {
+        el.dataset.scanMs = String(ms)
+        el.dataset.scanSeq = String(++scanSeq.current)
+      }
+      setScanMs(Math.round(ms))
     }
   }, [lines])
 
@@ -507,7 +518,7 @@ export function CounterBillingScreen(): React.JSX.Element {
           </span>
         </Banner>
       )}
-      <div className="grid grid-cols-[minmax(0,1fr)_22rem] gap-section" data-testid="counter-billing" data-scan-ms={scanMs ?? undefined}>
+      <div className="grid grid-cols-[minmax(0,1fr)_22rem] gap-section" data-testid="counter-billing" ref={rootRef}>
         <Panel className="flex min-h-[28rem] flex-col p-panel">
           <div className="relative">
             <input
