@@ -2,7 +2,7 @@
 // pseudonym map — the AI migration tables (see migrations.ts, the "WP 5.1" entry). Nothing here touches the books.
 import type { DB } from '../db/connection'
 import type {
-  AiDraftDto, AiDraftStatus, AiFigure, AiMessageDto, AiMessageRole, AiOutboundRow, AiSource, AiThreadDto, AiToolCallDto, AiUsageRow, AiVoucherDraftPayload
+  AiDraftDto, AiDraftSource, AiDraftStatus, AiFigure, AiMessageDto, AiMessageRole, AiOutboundRow, AiSource, AiThreadDto, AiToolCallDto, AiUsageRow, AiVoucherDraftPayload
 } from '@shared/ai'
 import { descendantIdsByName } from '../services/masters'
 import { assignAliases, createPseudonymiser, type Pseudonymiser } from './privacy'
@@ -226,8 +226,20 @@ interface DraftRow {
   status: AiDraftStatus
   voucher_id: number | null
   unrequested: number
+  source: AiDraftSource
+  origin: string | null
   created_at: string
   consumed_at: string | null
+}
+
+/** Where drafts written by this process come from when the caller does not say (WP 5.7): the
+ *  app is 'chat'; the `total-cli mcp` process sets 'mcp' + the client's name once at session
+ *  start, so every draft tool — including ones added later — records its source without
+ *  knowing about MCP. */
+let defaultDraftOrigin: { source: AiDraftSource; origin: () => string | null } = { source: 'chat', origin: () => null }
+
+export function setDefaultDraftOrigin(o: { source: AiDraftSource; origin: () => string | null }): void {
+  defaultDraftOrigin = o
 }
 
 function toDraft(r: DraftRow): AiDraftDto {
@@ -240,6 +252,8 @@ function toDraft(r: DraftRow): AiDraftDto {
     status: r.status,
     voucherId: r.voucher_id,
     unrequested: r.unrequested === 1,
+    source: r.source ?? 'chat',
+    origin: r.origin ?? null,
     createdAt: r.created_at,
     consumedAt: r.consumed_at
   }
@@ -247,12 +261,24 @@ function toDraft(r: DraftRow): AiDraftDto {
 
 export function insertDraft(
   db: DB,
-  d: { threadId: number | null; messageId: number | null; summary: string; payload: AiVoucherDraftPayload; unrequested?: boolean }
+  d: {
+    threadId: number | null
+    messageId: number | null
+    summary: string
+    payload: AiVoucherDraftPayload
+    unrequested?: boolean
+    source?: AiDraftSource
+    origin?: string | null
+  }
 ): AiDraftDto {
+  const source = d.source ?? defaultDraftOrigin.source
+  const origin = d.origin !== undefined ? d.origin : d.source ? null : defaultDraftOrigin.origin()
   const id = Number(
     db
-      .prepare("INSERT INTO ai_drafts (thread_id, message_id, kind, summary, payload_json, unrequested) VALUES (?, ?, 'voucher', ?, ?, ?)")
-      .run(d.threadId, d.messageId, d.summary, JSON.stringify(d.payload), d.unrequested ? 1 : 0).lastInsertRowid
+      .prepare(
+        "INSERT INTO ai_drafts (thread_id, message_id, kind, summary, payload_json, unrequested, source, origin) VALUES (?, ?, 'voucher', ?, ?, ?, ?, ?)"
+      )
+      .run(d.threadId, d.messageId, d.summary, JSON.stringify(d.payload), d.unrequested ? 1 : 0, source, origin).lastInsertRowid
   )
   return getDraft(db, id)!
 }
@@ -262,11 +288,19 @@ export function getDraft(db: DB, id: number): AiDraftDto | null {
   return r ? toDraft(r) : null
 }
 
-export function listDrafts(db: DB, status?: AiDraftStatus): AiDraftDto[] {
-  const rows = (status
-    ? db.prepare('SELECT * FROM ai_drafts WHERE status = ? ORDER BY id DESC').all(status)
-    : db.prepare('SELECT * FROM ai_drafts ORDER BY id DESC').all()) as DraftRow[]
-  return rows.map(toDraft)
+export function listDrafts(db: DB, status?: AiDraftStatus, sources?: readonly AiDraftSource[]): AiDraftDto[] {
+  const conds: string[] = []
+  const params: string[] = []
+  if (status) {
+    conds.push('status = ?')
+    params.push(status)
+  }
+  if (sources?.length) {
+    conds.push(`source IN (${sources.map(() => '?').join(', ')})`)
+    params.push(...sources)
+  }
+  const where = conds.length ? `WHERE ${conds.join(' AND ')}` : ''
+  return (db.prepare(`SELECT * FROM ai_drafts ${where} ORDER BY id DESC`).all(...params) as DraftRow[]).map(toDraft)
 }
 
 export function setDraftStatus(db: DB, id: number, status: AiDraftStatus, voucherId: number | null = null): void {
@@ -451,7 +485,7 @@ export function deleteAllAiData(db: DB, includeLogs: boolean): AiDataCounts {
   const before = aiDataCounts(db)
   db.transaction(() => {
     db.exec('DELETE FROM ai_drafts; DELETE FROM ai_messages; DELETE FROM ai_threads; DELETE FROM ai_memory; DELETE FROM ai_pseudonyms;')
-    if (includeLogs) db.exec('DELETE FROM ai_usage; DELETE FROM ai_outbound_log;')
+    if (includeLogs) db.exec('DELETE FROM ai_usage; DELETE FROM ai_outbound_log; DELETE FROM mcp_log;')
   })()
   return before
 }

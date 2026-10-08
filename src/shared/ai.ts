@@ -157,6 +157,10 @@ export interface AiThreadDto {
 
 export type AiDraftStatus = 'open' | 'consumed' | 'discarded'
 
+/** Where a draft came from (WP 5.7): the in-app assistant, a tool call over the MCP server
+ *  (`total-cli mcp`), or a file dropped in the company's inbox/ folder. */
+export type AiDraftSource = 'chat' | 'mcp' | 'inbox'
+
 /** What draft_voucher stores and the voucher editor pre-fills from. Amounts are paise. */
 export interface AiVoucherDraftPayload {
   voucherTypeId: number
@@ -177,8 +181,11 @@ export interface AiDraftDto {
   status: AiDraftStatus
   voucherId: number | null
   /** Made when the user's question did not ask for a draft (possible instruction injected via
-   *  narration or imported text) — shown with a warning. */
+   *  narration or imported text) — shown with a warning. Inbox drafts are always flagged. */
   unrequested: boolean
+  source: AiDraftSource
+  /** The MCP client's name or the dropped file's name; null for chat drafts. */
+  origin: string | null
   createdAt: string
   consumedAt: string | null
 }

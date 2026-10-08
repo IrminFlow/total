@@ -125,6 +125,8 @@ const EXPECTED_TABLES = [
   'import_templates',
   'import_batches',
   'import_batch_items',
+  // WP 5.7 (last) — MCP request log
+  'mcp_log',
   'migrations'
 ]
 
