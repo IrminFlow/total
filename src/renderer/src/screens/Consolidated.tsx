@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { api } from '../lib/client'
-import { useSession, useToasts } from '../state/stores'
+import { useNav, useSession, useToasts } from '../state/stores'
 import { Banner, Button, EmptyState, Money, Page, PageHeader, Panel, ScrollList, SkeletonRows, TabBar } from '../components/ui'
 import { OptionsPeriod, OptionsTable } from '../components/ScreenOptions'
 import { DataTable, defineColumns, type TableColumn } from '../components/table'
@@ -54,6 +54,7 @@ export function consolidatedColumns(companies: string[], openIndex = -1): TableC
 export function ConsolidatedScreen(): React.JSX.Element {
   const { from, to, slug: openSlug } = useSession()
   const toast = useToasts()
+  const nav = useNav()
   const { data: registry } = useQuery({ queryKey: ['company-registry'], queryFn: api.company.list })
   const companies = registry?.companies ?? []
 
@@ -99,6 +100,8 @@ export function ConsolidatedScreen(): React.JSX.Element {
     <Page>
       <PageHeader
         title="Consolidated reports"
+        subtitle="Quick combined view by ledger name — no inter-company eliminations"
+        secondary={<Button size="sm" variant="ghost" data-testid="btn-consolidated-groups" onClick={() => nav.go({ name: 'consolidation' })}>Group consolidation</Button>}
         period={`${toDisplayDate(from)} → ${toDisplayDate(to)}`}
         tabs={
           <TabBar

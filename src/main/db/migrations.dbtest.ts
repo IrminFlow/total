@@ -130,7 +130,12 @@ const EXPECTED_TABLES = [
   'bulk_batch_records',
   'attachments',
   'party_notes',
-  'migrations'
+  'migrations',
+  // WP 6.5 (last; number by position) — group consolidation
+  'consolidation_groups',
+  'consolidation_members',
+  'consolidation_mappings',
+  'intercompany_pairs'
 ]
 
 describe('migrate', () => {
