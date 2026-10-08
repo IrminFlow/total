@@ -354,3 +354,161 @@ describe('supplier statement and reconciliation', () => {
     expect(r.difference).toBe(590_000 - 895_000)
   })
 })
+
+// ---------------------------------------------------------------------------------------------
+// Review fixes (PR #55): TDS at credit, duplicate suppliers, idempotency, refusals, s.43B(h)
+// scope, Form 1 counting, MSME registration date, exact s.16 interest.
+// ---------------------------------------------------------------------------------------------
+
+describe('payment runs — review fixes', () => {
+  function contractorBooks(): { db: DB; contractor: number; bank: number; expense: number; s194c: number } {
+    const { db, bank, expense } = setup()
+    const s194c = (db.prepare("SELECT id FROM tds_sections WHERE code = '194C'").get() as { id: number }).id
+    const contractor = createLedger(db, { name: 'Site Builders Pvt Ltd', groupId: groupId(db, 'Sundry Creditors'), tdsSectionId: s194c, pan: 'AABCS1234F' }).id
+    // Bill A: TDS deducted when booked (Dr 50,000 / Cr supplier 49,000 / Cr TDS payable 1,000).
+    saveVoucher(db, {
+      voucherTypeId: vt(db, 'purchase'), date: '2026-09-01', partyLedgerId: contractor,
+      lines: [{ ledgerId: expense, drCr: 'dr', amount: 5_000_000 }, { ledgerId: contractor, drCr: 'cr', amount: 4_900_000 }],
+      billRefs: [{ kind: 'new', name: 'A', amount: 4_900_000, dueDate: null }],
+      tds: { sectionId: s194c, baseAmount: 5_000_000, tdsAmount: 100_000, autoPayable: true }
+    })
+    // Bill B: booked without TDS.
+    bill(db, contractor, expense, '2026-09-05', 'B', 5_000_000)
+    return { db, contractor, bank, expense, s194c }
+  }
+  const run = (contractor: number, bank: number, bills: { name: string; amount: number }[]) => ({
+    date: '2026-10-07', kind: 'plan' as const,
+    items: [{ partyLedgerId: contractor, bankLedgerId: bank, amount: bills.reduce((s, b) => s + b.amount, 0), bills }]
+  })
+
+  it('TDS on payment covers only bills not deducted at credit', () => {
+    const { db, contractor, bank } = contractorBooks()
+    expect(previewPaymentRun(db, run(contractor, bank, [{ name: 'A', amount: 4_900_000 }])).lines[0]!.tds).toBeNull()
+    expect(previewPaymentRun(db, run(contractor, bank, [{ name: 'B', amount: 5_000_000 }])).lines[0]!.tds).toMatchObject({ base: 5_000_000, amount: 100_000 })
+    const both = previewPaymentRun(db, run(contractor, bank, [{ name: 'A', amount: 4_900_000 }, { name: 'B', amount: 5_000_000 }])).lines[0]!
+    expect(both.tds).toMatchObject({ base: 5_000_000, amount: 100_000 })
+    // Paying with no bills picked settles the oldest first (A, deducted) — then B in part.
+    const fifo = previewPaymentRun(db, { ...run(contractor, bank, []), items: [{ partyLedgerId: contractor, bankLedgerId: bank, amount: 6_000_000, bills: [] }] }).lines[0]!
+    expect(fifo.tds).toMatchObject({ base: 1_100_000 })
+    // Posted: the voucher carries TDS on B only and balances.
+    const posted = createPaymentRun(db, run(contractor, bank, [{ name: 'A', amount: 4_900_000 }, { name: 'B', amount: 5_000_000 }]))
+    const v = getVoucher(db, posted.lines[0]!.voucherId!)!
+    expect(v.tds).toMatchObject({ baseAmount: 5_000_000, tdsAmount: 100_000 })
+    expect(balanced(v.id, db)).toBe(true)
+  })
+
+  it('refuses the same supplier twice in a run (grouping cannot change the tax)', () => {
+    const { db, contractor, bank } = contractorBooks()
+    const twice = {
+      date: '2026-10-07', kind: 'batch' as const,
+      items: [
+        { partyLedgerId: contractor, bankLedgerId: bank, amount: 4_900_000, bills: [{ name: 'A', amount: 4_900_000 }] },
+        { partyLedgerId: contractor, bankLedgerId: bank, amount: 5_000_000, bills: [{ name: 'B', amount: 5_000_000 }] }
+      ]
+    }
+    expect(() => previewPaymentRun(db, twice)).toThrow(/only once in a run/)
+    expect(() => createPaymentRun(db, twice)).toThrow(/only once in a run/)
+    const combined = previewPaymentRun(db, run(contractor, bank, [{ name: 'A', amount: 4_900_000 }, { name: 'B', amount: 5_000_000 }]))
+    expect(combined.totals.tds).toBe(100_000)
+  })
+
+  it('a double submit with the same client run id posts once', () => {
+    const { db, micro, bank, expense } = setup()
+    bill(db, micro, expense, '2026-09-01', 'MC-1', 1_000_000)
+    const input = { date: '2026-10-07', kind: 'batch' as const, clientRunId: 'run-7f3a9c21', items: [{ partyLedgerId: micro, bankLedgerId: bank, amount: 400_000 }] }
+    const first = createPaymentRun(db, input)
+    const second = createPaymentRun(db, input)
+    expect(second.id).toBe(first.id)
+    expect(db.prepare('SELECT COUNT(*) AS n FROM payment_run_vouchers').get()).toEqual({ n: 1 })
+    expect(openBills(db, micro, '2026-10-07')[0]!.pending).toBe(600_000)
+  })
+
+  it('refuses foreign-currency bills, non-suppliers and bill names two open bills share', () => {
+    const { db, micro, plain, bank, expense } = setup()
+    saveVoucher(db, {
+      voucherTypeId: vt(db, 'purchase'), date: '2026-09-01', partyLedgerId: plain, currencyCode: 'USD', exchangeRate: 83,
+      lines: [{ ledgerId: expense, drCr: 'dr', amount: 830_000 }, { ledgerId: plain, drCr: 'cr', amount: 830_000 }],
+      billRefs: [{ kind: 'new', name: 'US-1', amount: 830_000, dueDate: null }]
+    })
+    const fx = previewPaymentRun(db, { date: '2026-10-07', kind: 'batch', items: [{ partyLedgerId: plain, bankLedgerId: bank, amount: 830_000, bills: [{ name: 'US-1', amount: 830_000 }] }] })
+    expect(fx.lines[0]!.errors.join()).toMatch(/US-1 is in USD/)
+    const customer = createLedger(db, { name: 'A Customer', groupId: groupId(db, 'Sundry Debtors') }).id
+    const notSupplier = previewPaymentRun(db, { date: '2026-10-07', kind: 'batch', items: [{ partyLedgerId: customer, bankLedgerId: bank, amount: 100 }] })
+    expect(notSupplier.lines[0]!.errors.join()).toMatch(/not a supplier/)
+    bill(db, micro, expense, '2026-09-01', 'DUP', 100_000)
+    bill(db, micro, expense, '2026-09-02', 'DUP', 200_000)
+    const dup = previewPaymentRun(db, { date: '2026-10-07', kind: 'batch', items: [{ partyLedgerId: micro, bankLedgerId: bank, amount: 100_000, bills: [{ name: 'DUP', amount: 100_000 }] }] })
+    expect(dup.lines[0]!.errors.join()).toMatch(/2 open bills are named DUP/)
+  })
+})
+
+describe('MSME — review fixes', () => {
+  it('s.16 interest is the exact compound figure (7 monthly rests + 21 days at 3 × 5.50 %)', () => {
+    const { db, micro, expense } = setup()
+    bill(db, micro, expense, '2026-02-01', 'MC-A', 400_000) // pay by 16 Feb, interest from 17 Feb
+    const row = msmeReport(db, { asOn: '2026-10-07', today: '2026-10-07' }).rows.find((r) => r.number === 'MC-A')!
+    expect(row.interest).toEqual({ paise: 44_304, rateBp: 1650, months: 7, days: 233 })
+  })
+
+  it('s.43B(h): only bills booked in the year; earlier bills and openings are carried, GST credit left out; the deadline exactly on 31 March counts', () => {
+    const { db, expense } = setup()
+    const supplier = createLedger(db, {
+      name: 'Micro Valves', groupId: groupId(db, 'Sundry Creditors'), openingBalance: -500_000, msmeRegistered: true, msmeCategory: 'micro', udyamNo: 'UDYAM-MH-01-0000001'
+    }).id
+    const igst = createLedger(db, { name: 'IGST Input', groupId: groupId(db, 'Duties & Taxes'), taxType: 'igst' }).id
+    bill(db, supplier, expense, '2026-02-01', 'PRIOR', 300_000) // FY 2025-26: not FY 2026-27's deduction
+    bill(db, supplier, expense, '2027-03-16', 'EDGE', 100_000) // s.15: pay by 31 Mar 2027 exactly
+    saveVoucher(db, {
+      voucherTypeId: vt(db, 'purchase'), date: '2027-01-02', partyLedgerId: supplier,
+      lines: [{ ledgerId: expense, drCr: 'dr', amount: 1_000_000 }, { ledgerId: igst, drCr: 'dr', amount: 180_000 }, { ledgerId: supplier, drCr: 'cr', amount: 1_180_000 }],
+      billRefs: [{ kind: 'new', name: 'GST-1', amount: 1_180_000, dueDate: null }]
+    })
+    const d = msmeReport(db, { asOn: '2027-06-01', fyStartYear: 2026, today: '2027-06-01' }).disallowance
+    expect(d.bills.map((b) => b.number).sort()).toEqual(['EDGE', 'GST-1'])
+    expect(d.carriedFromEarlier).toEqual({ bills: 2, amount: 800_000 })
+    const by = (n: string) => d.bills.find((b) => b.number === n)!
+    expect(by('EDGE')).toMatchObject({ payBy: '2027-03-31', status: 'disallowed', disallowed: 100_000 })
+    expect(by('GST-1')).toMatchObject({ status: 'disallowed', disallowed: 1_000_000, gstExcluded: 180_000 })
+    expect(d.disallowed).toBe(1_100_000)
+    const w = msmeYearEndWarning(db, 2026, '2027-06-01')
+    expect(w).toMatchObject({ overdue: 1_280_000, bills: 2, parties: 1, disallowed: 1_100_000 })
+  })
+
+  it('bills accepted before the supplier\'s registration date are not covered', () => {
+    const { db, expense } = setup()
+    const late = createLedger(db, {
+      name: 'Newly Registered', groupId: groupId(db, 'Sundry Creditors'), msmeRegistered: true, msmeCategory: 'small',
+      udyamNo: 'UDYAM-DL-02-0000002', msmeRegisteredFrom: '2026-09-15'
+    }).id
+    bill(db, late, expense, '2026-09-01', 'OLD', 100_000)
+    bill(db, late, expense, '2026-09-20', 'NEW', 100_000)
+    const rows = payablesPlan(db, '2026-10-07').rows.filter((r) => r.ledgerId === late)
+    expect(rows.find((r) => r.number === 'OLD')!.s15).toBeNull()
+    expect(rows.find((r) => r.number === 'NEW')!.s15).toMatchObject({ payBy: '2026-10-05' })
+    expect(msmeReport(db, { asOn: '2026-10-07' }).rows.filter((r) => r.ledgerId === late).map((r) => r.number)).toEqual(['NEW'])
+  })
+
+  it('Form 1: same-day bill and payment counted; debit notes apart; part in time / part late counted once (after 45 days)', () => {
+    const { db, bank, expense } = setup()
+    const s = createLedger(db, { name: 'Small Presswork', groupId: groupId(db, 'Sundry Creditors'), pan: 'AAAPP1111P', msmeRegistered: true, msmeCategory: 'small', udyamNo: 'UDYAM-TN-04-0000004' }).id
+    bill(db, s, expense, '2026-05-01', 'X', 100_000)
+    pay(db, s, bank, '2026-05-01', 100_000, 'X')
+    bill(db, s, expense, '2026-04-01', 'Y', 200_000)
+    pay(db, s, bank, '2026-04-20', 50_000, 'Y')
+    pay(db, s, bank, '2026-06-30', 150_000, 'Y')
+    bill(db, s, expense, '2026-05-10', 'Z', 30_000)
+    saveVoucher(db, {
+      voucherTypeId: vt(db, 'debit_note'), date: '2026-05-20', partyLedgerId: s,
+      lines: [{ ledgerId: s, drCr: 'dr', amount: 30_000 }, { ledgerId: expense, drCr: 'cr', amount: 30_000 }],
+      billRefs: [{ kind: 'against', name: 'Z', amount: 30_000, dueDate: null }]
+    })
+    const f = msmeReport(db, { asOn: '2026-10-07', formPeriodDate: '2026-06-01' }).form1.suppliers.find((x) => x.ledgerId === s)!
+    expect(f).toMatchObject({
+      paidWithin45: { count: 1, amount: 150_000 },
+      paidAfter45: { count: 1, amount: 150_000 },
+      debitNotes: { count: 1, amount: 30_000 },
+      outstandingUpTo45: 0,
+      outstandingOver45: 0
+    })
+  })
+})

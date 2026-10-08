@@ -120,6 +120,8 @@ export function BatchTab({ tabs }: { tabs: ReactNode }): React.JSX.Element {
   const effective = rows.map((r) => ({ ...r, bankLedgerId: r.bankLedgerId === '' ? defaultBank : r.bankLedgerId }))
   const ready = effective.filter((r) => r.partyLedgerId != null && (r.amount ?? 0) > 0 && r.bankLedgerId !== '')
   const total = ready.reduce((s, r) => s + (r.amount ?? 0), 0)
+  // One payment per supplier per run (TDS on payment is worked out per supplier from the books).
+  const dupIds = new Set(ready.map((r) => r.partyLedgerId).filter((id, i, all) => all.indexOf(id) !== i))
   const items = useMemo(
     () =>
       ready.map((r) => ({
@@ -139,7 +141,7 @@ export function BatchTab({ tabs }: { tabs: ReactNode }): React.JSX.Element {
         controls={<DateInput value={date} context={date} onChange={setDate} testId="input-payables-batch-date" ariaLabel="Payment date" className="w-32" />}
         actions={
           canWrite && (
-            <Button variant="primary" data-testid="btn-payables-batch-preview" disabled={items.length === 0} onClick={() => setPreview(true)}>
+            <Button variant="primary" data-testid="btn-payables-batch-preview" disabled={items.length === 0 || dupIds.size > 0} onClick={() => setPreview(true)}>
               {items.length > 0 ? `Preview & post ${items.length} payment${items.length === 1 ? '' : 's'}…` : 'Preview & post…'}
             </Button>
           )
@@ -249,6 +251,11 @@ export function BatchTab({ tabs }: { tabs: ReactNode }): React.JSX.Element {
           </tfoot>
         </table>
       </Panel>
+      {dupIds.size > 0 && (
+        <p className="mt-2 text-hint text-cr" data-testid="payables-batch-duplicate">
+          A supplier appears on more than one row — combine its bills into one row (one payment per supplier per run).
+        </p>
+      )}
       <p className="mt-2 text-hint text-muted">One payment voucher per row · TDS on payment where due · the batch posts all-or-nothing · F12 for options.</p>
       {editing && editing.partyLedgerId != null && (
         <BillsModal

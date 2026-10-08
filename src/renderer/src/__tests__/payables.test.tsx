@@ -31,7 +31,7 @@ const GROUPS: Group[] = [
 
 const row = (over: Partial<PayablePlanRow>): PayablePlanRow => ({
   key: '7|101|MC-1', ledgerId: 7, partyName: 'Micro Castings', voucherId: 101, number: 'MC-1', supplierRef: 'INV-9', date: '2026-09-01',
-  amount: 1_000_000, pending: 1_000_000, dueDate: '2026-10-31', msme: { category: 'micro', udyamNo: 'UDYAM-MH-33-0012345', covered: true, agreedCreditDays: null },
+  amount: 1_000_000, pending: 1_000_000, dueDate: '2026-10-31', msme: { category: 'micro', udyamNo: 'UDYAM-MH-33-0012345', covered: true, registeredFrom: null, agreedCreditDays: null },
   s15: { payBy: '2026-09-16', interestFrom: '2026-09-17', days: 15, basis: 'no_agreement' }, payBy: '2026-09-16', bucket: 'overdue', daysToPay: -21,
   discount: null, interestIndicative: 9_876, ...over
 })
@@ -149,11 +149,11 @@ describe('Payables → MSME', () => {
     buckets: { within: 0, late_1_30: 1_000_000, late_31_60: 0, late_61_plus: 0 },
     totalPending: 1_000_000, totalInterest: 9_876,
     bankRate: { fromDate: '2026-10-07', rateBp: 575, source: 'RBI' }, s16RateBp: 1725,
-    disallowance: { fyStartYear: 2026, fyEnd: '2027-03-31', disallowed: 0, atRisk: 0, bills: [] },
+    disallowance: { fyStartYear: 2026, fyEnd: '2027-03-31', disallowed: 0, atRisk: 0, bills: [], carriedFromEarlier: { bills: 0, amount: 0 } },
     form1: {
       period: { label: 'Apr–Sep 2026', from: '2026-04-01', to: '2026-09-30', dueDate: '2026-10-31', half: 'H1' },
       rows: [], total: 0, mustFile: false,
-      suppliers: [{ ledgerId: 7, partyName: 'Micro Castings', pan: 'AAAPM1234C', udyamNo: null, paidWithin45: { count: 2, amount: 300_000 }, paidAfter45: { count: 0, amount: 0 }, outstandingUpTo45: 1_000_000, outstandingOver45: 0 }]
+      suppliers: [{ ledgerId: 7, partyName: 'Micro Castings', pan: 'AAAPM1234C', udyamNo: null, paidWithin45: { count: 2, amount: 300_000 }, paidAfter45: { count: 0, amount: 0 }, debitNotes: { count: 0, amount: 0 }, outstandingUpTo45: 1_000_000, outstandingOver45: 0 }]
     },
     gaps: [{ ledgerId: 9, name: 'Unclassified MSME', issue: 'No Udyam registration number' }]
   }
@@ -231,7 +231,7 @@ describe('ledger form: supplier MSME and payment terms', () => {
   })
   it('helpers: blank terms, a bad Udyam number', () => {
     expect(supplierTermsPayload(initialSupplierTerms(null))).toEqual({
-      msmeRegistered: false, udyamNo: null, msmeCategory: null, agreedCreditDays: null, earlyPaymentDiscountBp: null, earlyPaymentDiscountDays: null
+      msmeRegistered: false, msmeRegisteredFrom: null, udyamNo: null, msmeCategory: null, agreedCreditDays: null, earlyPaymentDiscountBp: null, earlyPaymentDiscountDays: null
     })
     expect(supplierTermsError({ ...initialSupplierTerms(null), udyamNo: 'UDYAM-12' })).toMatch(/UDYAM-XX-00-0000000/)
   })

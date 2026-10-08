@@ -65,6 +65,8 @@ export const udyamSchema = z
 /** WP 4.3 (migration 034): a supplier's MSME facts and payment terms on its ledger. */
 export const supplierTermsFields = {
   msmeRegistered: z.boolean().optional(),
+  /** Registered (as micro / small) from this date; bills accepted earlier are not covered. null = always. */
+  msmeRegisteredFrom: isoDate.nullable().optional(),
   udyamNo: udyamSchema.nullable().optional(),
   msmeCategory: z.enum(MSME_CATEGORIES).nullable().optional(),
   /** Credit period agreed in writing (MSMED Act s.15); null = no written agreement. */

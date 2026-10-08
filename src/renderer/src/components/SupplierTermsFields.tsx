@@ -4,10 +4,13 @@
 import { useState } from 'react'
 import type { Ledger } from '@shared/domain'
 import { isValidUdyam, MSME_CATEGORIES, MSME_CATEGORY_LABELS, normalizeUdyam, S15_MAX_AGREED_DAYS, type MsmeCategory } from '@shared/payables/msme'
-import { Field, Select, TextInput } from './ui'
+import { DateInput, Field, Select, TextInput } from './ui'
+import { todayISO } from '@shared/dates'
 
 export interface SupplierTermsState {
   msmeRegistered: boolean
+  /** ISO date or ''. */
+  registeredFrom: string
   udyamNo: string
   msmeCategory: MsmeCategory | ''
   agreedCreditDays: string
@@ -18,6 +21,7 @@ export interface SupplierTermsState {
 export function initialSupplierTerms(l: Ledger | null): SupplierTermsState {
   return {
     msmeRegistered: l?.msmeRegistered ?? false,
+    registeredFrom: l?.msmeRegisteredFrom ?? '',
     udyamNo: l?.udyamNo ?? '',
     msmeCategory: l?.msmeCategory ?? '',
     agreedCreditDays: l?.agreedCreditDays?.toString() ?? '',
@@ -36,11 +40,12 @@ export function supplierTermsError(s: SupplierTermsState): string | null {
 
 /** The ledger payload fields (all sent: the form shows them for creditors only). */
 export function supplierTermsPayload(s: SupplierTermsState): Pick<
-  Ledger, 'msmeRegistered' | 'udyamNo' | 'msmeCategory' | 'agreedCreditDays' | 'earlyPaymentDiscountBp' | 'earlyPaymentDiscountDays'
+  Ledger, 'msmeRegistered' | 'msmeRegisteredFrom' | 'udyamNo' | 'msmeCategory' | 'agreedCreditDays' | 'earlyPaymentDiscountBp' | 'earlyPaymentDiscountDays'
 > {
   const pct = s.discountPct.trim() ? Math.round(Number(s.discountPct) * 100) : null
   return {
     msmeRegistered: s.msmeRegistered,
+    msmeRegisteredFrom: s.msmeRegistered && s.registeredFrom ? s.registeredFrom : null,
     udyamNo: s.udyamNo.trim() ? normalizeUdyam(s.udyamNo) : null,
     msmeCategory: s.msmeCategory || null,
     agreedCreditDays: s.agreedCreditDays.trim() ? Number(s.agreedCreditDays) : null,
@@ -87,7 +92,10 @@ export function SupplierTermsFields({ value, onChange }: { value: SupplierTermsS
           />
         </Field>
       </div>
-      <div className="grid grid-cols-3 gap-3">
+      <div className="grid grid-cols-4 gap-3">
+        <Field label="Registered from" hint="Bills before it are not covered">
+          <DateInput value={value.registeredFrom} context={value.registeredFrom || todayISO()} onChange={(v) => set({ registeredFrom: v })} allowEmpty testId="ledger-msme-from" />
+        </Field>
         <Field label="Agreed days (in writing)" hint={capNote ?? 'Blank = no written agreement: 15 days'}>
           <TextInput data-testid="ledger-agreed-days" value={value.agreedCreditDays} onChange={(e) => set({ agreedCreditDays: e.target.value })} className="num text-right" placeholder="—" />
         </Field>

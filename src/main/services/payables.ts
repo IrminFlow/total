@@ -26,7 +26,8 @@ import type {
   PaymentRun, PaymentRunLine, PaymentRunPreview, PlanCashLedger, SupplierMsmeFacts, SupplierReconResult, SupplierStatement
 } from '@shared/payables/types'
 import { bankRateInputSchema, paymentRunSchema, type PaymentRunInput } from '@shared/payables/schemas'
-import { outstandings, openBills } from './analysis'
+import { outstandings, openBills, partyBillEvents } from './analysis'
+import { settlementTimeline } from '@shared/payables/settlements'
 import { descendantIdsByName } from './masters'
 import { saveVoucher, IN_BOOKS, NOT_DELETED } from './vouchers'
 import { ledgerStatement } from './reports'
@@ -45,11 +46,13 @@ interface SupplierRow {
   creditDays: number | null
   msme: SupplierMsmeFacts | null
   discount: { bp: number; days: number } | null
+  /** ITC on this supplier's bills is blocked (GST is then part of the cost). */
+  itcBlocked: boolean
 }
 
 interface LedgerTermsRow {
   id: number; name: string; pan: string | null; credit_days: number | null
-  msme_registered: number; udyam_no: string | null; msme_category: MsmeCategory | null; agreed_credit_days: number | null
+  msme_registered: number; msme_registered_from: string | null; itc_eligibility: string | null; udyam_no: string | null; msme_category: MsmeCategory | null; agreed_credit_days: number | null
   early_payment_discount_bp: number | null; early_payment_discount_days: number | null
 }
 
@@ -57,7 +60,7 @@ interface LedgerTermsRow {
 function supplierFacts(db: DB): Map<number, SupplierRow> {
   const rows = db
     .prepare(
-      `SELECT id, name, pan, credit_days, msme_registered, udyam_no, msme_category, agreed_credit_days,
+      `SELECT id, name, pan, credit_days, msme_registered, msme_registered_from, itc_eligibility, udyam_no, msme_category, agreed_credit_days,
               early_payment_discount_bp, early_payment_discount_days FROM ledgers`
     )
     .all() as LedgerTermsRow[]
@@ -74,9 +77,11 @@ function supplierFacts(db: DB): Map<number, SupplierRow> {
             category: r.msme_category,
             udyamNo: r.udyam_no,
             covered: isMsmeCovered({ registered, category: r.msme_category }),
+            registeredFrom: r.msme_registered_from,
             agreedCreditDays: r.agreed_credit_days
           }
         : null,
+      itcBlocked: r.itc_eligibility === 'blocked',
       discount: r.early_payment_discount_bp && r.early_payment_discount_bp > 0
         ? { bp: r.early_payment_discount_bp, days: r.early_payment_discount_days ?? 0 }
         : null
@@ -98,6 +103,11 @@ function referencesFor(db: DB, voucherIds: (number | null)[]): Map<number, strin
   }
   return out
 }
+
+/** The supplier is a covered (micro / small, registered) s.2(n) supplier for a bill accepted on
+ *  `billDate` — bills accepted before the recorded registration date are not covered. */
+const coveredOn = (f: SupplierRow | undefined, billDate: string): boolean =>
+  !!f?.msme?.covered && (f.msme.registeredFrom == null || billDate >= f.msme.registeredFrom)
 
 const billKey = (ledgerId: number, b: Pick<OutstandingBill, 'voucherId' | 'number'>): string => `${ledgerId}|${b.voucherId ?? 'open'}|${b.number}`
 
@@ -181,8 +191,7 @@ export function payablesPlan(db: DB, asOn: string): PayablesPlan {
   for (const p of parties) {
     const f = facts.get(p.ledgerId)
     for (const b of p.bills) {
-      const covered = f?.msme?.covered ? f.msme : null
-      const s15 = covered ? s15Deadline(b.date, covered.agreedCreditDays) : null
+      const s15 = coveredOn(f, b.date) ? s15Deadline(b.date, f!.msme!.agreedCreditDays) : null
       const payBy = payByDate(b.date, b.dueDate, s15?.payBy ?? null)
       const interest = s15 && asOn >= s15.interestFrom ? s16Interest(b.pending, s15.interestFrom, asOn, rates).interestPaise : 0
       rows.push({
@@ -255,6 +264,17 @@ function nextRunNo(db: DB): string {
   return `PR-${String((row.n ?? 0) + 1).padStart(4, '0')}`
 }
 
+/** The voucher's currency when it is not rupees, else null. */
+function foreignCurrency(db: DB, voucherId: number): string | null {
+  const r = db.prepare('SELECT currency_code AS c FROM vouchers WHERE id = ?').get(voucherId) as { c: string | null } | undefined
+  return r?.c && r.c !== 'INR' ? r.c : null
+}
+
+/** TDS was deducted on the bill itself (a tds_entries row for this party on the bill's voucher). */
+function deductedAtCredit(db: DB, voucherId: number, partyLedgerId: number): boolean {
+  return !!db.prepare('SELECT 1 FROM tds_entries WHERE voucher_id = ? AND party_ledger_id = ?').get(voucherId, partyLedgerId)
+}
+
 interface PreparedLine extends PaymentRunLine {
   narration: string | null
   instrumentDate: string | null
@@ -265,45 +285,71 @@ function prepareRun(db: DB, input: ReturnType<typeof paymentRunSchema.parse>, ru
   const byId = new Map(ledgerRows.map((l) => [l.id, l]))
   const cashBank = descendantIdsByName(db, ['Cash-in-Hand', 'Bank Accounts', 'Bank OD A/c'])
   const tdsOn = input.applyTds && getFeatures(db).tds
-  const openCache = new Map<number, OutstandingBill[]>()
-  const usedOnBill = new Map<string, number>()
+  const creditors = descendantIdsByName(db, ['Sundry Creditors'])
   const lines: PreparedLine[] = []
+  const seen = new Set<number>()
 
   for (const item of input.items) {
     const party = byId.get(item.partyLedgerId)
     const bank = byId.get(item.bankLedgerId)
     const errors: string[] = []
     if (!party) errors.push('Supplier ledger not found')
+    else if (!creditors.has(party.groupId)) errors.push(`${party.name} is not a supplier (Sundry Creditors)`)
     if (!bank) errors.push('Bank ledger not found')
     else if (!cashBank.has(bank.groupId)) errors.push(`${bank.name} is not a cash or bank ledger`)
     if (item.partyLedgerId === item.bankLedgerId) errors.push('The supplier and the bank are the same ledger')
+    // One payment per supplier per run: TDS on payment is worked out from the books before the run,
+    // so a second line for the same supplier would deduct again on the same bills.
+    if (seen.has(item.partyLedgerId)) errors.push('This supplier is already in the run — one payment per supplier')
+    seen.add(item.partyLedgerId)
 
-    // Bill-wise allocation: every bill named must be open on the payment date with enough pending
-    // (across all lines of the run for the same supplier).
-    const open = openCache.get(item.partyLedgerId) ?? openBills(db, item.partyLedgerId, input.date)
-    openCache.set(item.partyLedgerId, open)
+    // Which bills this payment settles: the ones picked (bill-wise refs settle by NAME — so a name
+    // two open bills share is ambiguous and refused), or, with none picked, the oldest open bills
+    // first exactly as the Outstandings allocation will; anything beyond them is an advance.
+    const open = openBills(db, item.partyLedgerId, input.date)
+    const settled: { bill: OutstandingBill; amount: number }[] = []
     for (const b of item.bills) {
-      const key = `${item.partyLedgerId}|${b.name}`
-      const pending = open.filter((o) => o.number === b.name).reduce((s, o) => s + o.pending, 0)
-      const used = (usedOnBill.get(key) ?? 0) + b.amount
-      usedOnBill.set(key, used)
-      if (pending === 0) errors.push(`Bill ${b.name} is not open on ${input.date}`)
-      else if (used > pending) errors.push(`Bill ${b.name}: paying ${plainRupees(used)} but only ${plainRupees(pending)} is pending`)
+      const named = open.filter((o) => o.number === b.name)
+      if (named.length === 0) errors.push(`Bill ${b.name} is not open on ${input.date}`)
+      else if (named.length > 1) errors.push(`${named.length} open bills are named ${b.name} — settle them from voucher entry`)
+      else if (b.amount > named[0]!.pending) errors.push(`Bill ${b.name}: paying ${plainRupees(b.amount)} but only ${plainRupees(named[0]!.pending)} is pending`)
+      else settled.push({ bill: named[0]!, amount: b.amount })
     }
+    if (new Set(item.bills.map((b) => b.name)).size !== item.bills.length) errors.push('A bill is picked twice')
     // Bills picked must account for the whole payment: a 'new' on-account ref would open a bill
-    // (allocateBills treats every 'new' ref as one), so paying on account = picking no bills
-    // (the oldest open bills settle first and any excess sits as an advance).
+    // (allocateBills treats every 'new' ref as one), so paying on account = picking no bills.
     const billsTotal = item.bills.reduce((s, b) => s + b.amount, 0)
     if (item.bills.length > 0 && billsTotal !== item.amount) {
       errors.push(`The bills picked add up to ${plainRupees(billsTotal)}, not ${plainRupees(item.amount)} — match them, or pick no bills to pay oldest first`)
     }
+    if (item.bills.length === 0) {
+      let left = item.amount
+      for (const o of open) {
+        if (left <= 0) break
+        const take = Math.min(o.pending, left)
+        settled.push({ bill: o, amount: take })
+        left -= take
+      }
+    }
+    const advance = Math.max(0, item.amount - settled.reduce((s, x) => s + x.amount, 0))
+
+    // Foreign-currency bills are refused until WP 4.4's forex handling (a run posts in INR only).
+    for (const x of settled) {
+      const cur = x.bill.voucherId != null ? foreignCurrency(db, x.bill.voucherId) : null
+      if (cur) errors.push(`Bill ${x.bill.number} is in ${cur} — pay it from voucher entry`)
+    }
 
     let tds: PaymentRunLine['tds'] = null
     if (tdsOn && party) {
-      const s = tdsSuggestion(db, item.partyLedgerId, item.amount, input.date, { voucherKind: 'payment' })
-      // WP 3.2's rule on a payment: deduct only on the bills not deducted when booked plus any
-      // advance (first of credit or payment), and only once the threshold is crossed.
-      if (s && s.tdsPaise > 0 && s.thresholdCrossed) {
+      // WP 3.2's rule on a payment: TDS is due at credit or payment, whichever is earlier — so
+      // only the part settling bills NOT deducted when booked, plus any advance, is a TDS event.
+      // An opening-balance bill (no voucher) is not one either.
+      const candidate =
+        settled
+          .filter((x) => x.bill.voucherId != null && !deductedAtCredit(db, x.bill.voucherId, item.partyLedgerId))
+          .reduce((s, x) => s + x.amount, 0) + advance
+      const s = candidate > 0 ? tdsSuggestion(db, item.partyLedgerId, candidate, input.date, { voucherKind: 'payment' }) : null
+      if (s && s.tdsPaise > 0 && s.thresholdCrossed && s.basePaise <= candidate) {
         tds = { sectionId: s.sectionId, code: s.code, base: s.basePaise, amount: s.tdsPaise }
         if (s.tdsPaise >= item.amount) errors.push('TDS would exceed the payment')
       }
@@ -364,12 +410,18 @@ export function createPaymentRun(db: DB, raw: PaymentRunInput): PaymentRun {
   const input = paymentRunSchema.parse(raw)
   const voucherTypeId = paymentVoucherTypeId(db, input.voucherTypeId)
   return db.transaction(() => {
+    // Idempotency: the same submit twice (a double click, a retry after a slow reply) posts once.
+    if (input.clientRunId) {
+      const done = db.prepare('SELECT id FROM payment_runs WHERE client_run_id = ?').get(input.clientRunId) as { id: number } | undefined
+      if (done) return getPaymentRun(db, done.id)!
+    }
     const runNo = nextRunNo(db)
     const { lines, preview } = prepareRun(db, input, runNo)
     const problems = lines.flatMap((l) => l.errors.map((e) => `${l.partyName}: ${e}`))
     if (problems.length > 0) throw new Error(problems.join('; '))
     const runId = Number(
-      db.prepare('INSERT INTO payment_runs (run_no, kind, date, note) VALUES (?, ?, ?, ?)').run(runNo, input.kind, input.date, input.note).lastInsertRowid
+      db.prepare('INSERT INTO payment_runs (run_no, kind, date, note, client_run_id) VALUES (?, ?, ?, ?, ?)')
+        .run(runNo, input.kind, input.date, input.note, input.clientRunId ?? null).lastInsertRowid
     )
     const link = db.prepare('INSERT INTO payment_run_vouchers (run_id, voucher_id, line_no) VALUES (?, ?, ?)')
     lines.forEach((l, i) => {
@@ -500,29 +552,67 @@ function billsCache(db: DB): (ledgerId: number, date: string) => OutstandingBill
   }
 }
 
-/** s.43B(h) for a financial year — bill by bill (see disallowance43Bh). */
+/** The share of a bill that is an expense for s.43B(h): the supplier's credit less the GST taken
+ *  as input tax credit (tax-tagged debit lines on the bill), unless the supplier's ITC is blocked.
+ *  Returns [numerator, denominator] for a pro-rata split of what is unpaid. */
+function deductibleShare(db: DB, voucherId: number, partyLedgerId: number, itcBlocked: boolean): [number, number] {
+  const rows = db
+    .prepare(
+      `SELECT vl.ledger_id AS ledgerId, vl.dr_cr AS drCr, vl.amount, l.tax_type AS taxType
+       FROM voucher_lines vl JOIN ledgers l ON l.id = vl.ledger_id WHERE vl.voucher_id = ?`
+    )
+    .all(voucherId) as { ledgerId: number; drCr: 'dr' | 'cr'; amount: number; taxType: string | null }[]
+  const total = rows.filter((x) => x.ledgerId === partyLedgerId && x.drCr === 'cr').reduce((a, x) => a + x.amount, 0)
+  const gst = itcBlocked ? 0 : rows.filter((x) => x.taxType && x.drCr === 'dr').reduce((a, x) => a + x.amount, 0)
+  if (total <= 0) return [1, 1]
+  return [Math.max(0, total - gst), total]
+}
+
+const share = (amount: number, [num, den]: [number, number]): number => (den === 0 ? amount : Math.round((amount * num) / den))
+
+/**
+ * s.43B(h) / 2025 Act s.37(2)(g) for a financial year — bill by bill (see disallowance43Bh). Only
+ * bills BOOKED IN THE YEAR count (a bill from an earlier year, or an opening balance, was that
+ * year's deduction — listed as carried, never added). Only the expense part counts: GST taken as
+ * input tax credit is excluded pro rata. Bills accepted before the supplier's recorded
+ * registration date are not covered.
+ */
 function disallowanceForFy(db: DB, suppliers: SupplierRow[], fyStartYear: number, today: string, bills: ReturnType<typeof billsCache>): MsmeReport['disallowance'] {
   const fy = fyFromStartYear(fyStartYear)
   const out: MsmeBill43Bh[] = []
+  const carried = { bills: 0, amount: 0 }
   for (const s of suppliers) {
     for (const b of bills(s.id, fy.to)) {
+      if (b.voucherId == null || b.date < fy.from) {
+        carried.bills++
+        carried.amount += b.pending
+        continue
+      }
+      if (!coveredOn(s, b.date)) continue
       const s15 = s15Deadline(b.date, s.msme!.agreedCreditDays)
       let pendingAtPayBy: number | null = null
       if (s15.payBy > fy.to && s15.payBy < today) {
         const at = bills(s.id, s15.payBy).find((x) => billKey(s.id, x) === billKey(s.id, b))
         pendingAtPayBy = at?.pending ?? 0
       }
-      const r = disallowance43Bh({ pendingAtFyEnd: b.pending, payBy: s15.payBy, pendingAtPayBy }, fy.to, today)
+      const part = deductibleShare(db, b.voucherId, s.id, s.itcBlocked)
+      const expensePending = share(b.pending, part)
+      const res = disallowance43Bh(
+        { pendingAtFyEnd: expensePending, payBy: s15.payBy, pendingAtPayBy: pendingAtPayBy == null ? null : share(pendingAtPayBy, part) },
+        fy.to,
+        today
+      )
       out.push({
         key: billKey(s.id, b), ledgerId: s.id, partyName: s.name, voucherId: b.voucherId, number: b.number, date: b.date,
-        payBy: s15.payBy, pendingAtFyEnd: b.pending, status: r.status, disallowed: r.disallowed, atRisk: r.atRisk
+        payBy: s15.payBy, pendingAtFyEnd: b.pending, gstExcluded: b.pending - expensePending,
+        status: res.status, disallowed: res.disallowed, atRisk: res.atRisk
       })
     }
   }
   return {
-    fyStartYear, fyEnd: fy.to, bills: out,
-    disallowed: out.reduce((s, b) => s + b.disallowed, 0),
-    atRisk: out.reduce((s, b) => s + b.atRisk, 0)
+    fyStartYear, fyEnd: fy.to, bills: out, carriedFromEarlier: carried,
+    disallowed: out.reduce((a, b) => a + b.disallowed, 0),
+    atRisk: out.reduce((a, b) => a + b.atRisk, 0)
   }
 }
 
@@ -542,6 +632,7 @@ export function msmeReport(
     const open = bills(s.id, asOn)
     for (const [k, v] of referencesFor(db, open.map((b) => b.voucherId))) refs.set(k, v)
     for (const b of open) {
+      if (!coveredOn(s, b.date)) continue
       const s15 = s15Deadline(b.date, s.msme!.agreedCreditDays)
       const { bucket, daysLate } = msmeAgeBucket(s15.payBy, asOn)
       const i = s16Interest(b.pending, s15.interestFrom, asOn, rates)
@@ -565,6 +656,7 @@ export function msmeReport(
     const open = bills(s.id, period.to)
     const formRefs = referencesFor(db, open.map((b) => b.voucherId))
     for (const b of open) {
+      if (!coveredOn(s, b.date)) continue
       const days = daysBetween(b.date, period.to)
       if (days <= FORM_MSME1_DAYS) continue
       const s15 = s15Deadline(b.date, s.msme!.agreedCreditDays)
@@ -577,7 +669,7 @@ export function msmeReport(
   }
   formRows.sort((a, b) => a.partyName.localeCompare(b.partyName) || a.date.localeCompare(b.date))
   const formSuppliers = suppliers.map((s) => form1Supplier(db, s, period.from, period.to, bills)).filter(
-    (f) => f.paidWithin45.amount + f.paidAfter45.amount + f.outstandingUpTo45 + f.outstandingOver45 > 0
+    (f) => f.paidWithin45.amount + f.paidAfter45.amount + f.debitNotes.amount + f.outstandingUpTo45 + f.outstandingOver45 > 0
   )
 
   const gaps: MsmeReport['gaps'] = []
@@ -608,46 +700,49 @@ export function msmeReport(
 /**
  * One supplier's line of the revised MSME Form 1 for a half-year: settlements in the half-year
  * split by whether they came within 45 days of acceptance (the bill date), and what is
- * outstanding at its end, up to / over 45 days old. Settlements are found by diffing the open
- * bills before and after each date the supplier's ledger moved (the Outstandings allocation).
+ * outstanding at its end, up to / over 45 days old. Settlements come from replaying the
+ * Outstandings allocation event by event (settlementTimeline), so a bill and its payment on the
+ * same day are both seen; settlements by debit note are counted apart (they are not payments);
+ * a bill paid partly in time and partly late counts once, in "after 45 days" (its amounts split).
  */
 function form1Supplier(
   db: DB, s: SupplierRow, from: string, to: string, bills: ReturnType<typeof billsCache>
 ): MsmeForm1Supplier {
-  const out = {
+  const out: MsmeForm1Supplier = {
     ledgerId: s.id, partyName: s.name, pan: s.pan, udyamNo: s.msme?.udyamNo ?? null,
-    paidWithin45: { count: 0, amount: 0 }, paidAfter45: { count: 0, amount: 0 }, outstandingUpTo45: 0, outstandingOver45: 0
+    paidWithin45: { count: 0, amount: 0 }, paidAfter45: { count: 0, amount: 0 }, debitNotes: { count: 0, amount: 0 },
+    outstandingUpTo45: 0, outstandingOver45: 0
   }
-  const dates = (
-    db.prepare(
-      `SELECT DISTINCT v.date FROM voucher_lines vl JOIN vouchers v ON v.id = vl.voucher_id
-       WHERE vl.ledger_id = ? AND v.date BETWEEN ? AND ? AND ${IN_BOOKS} ORDER BY v.date`
-    ).all(s.id, from, to) as { date: string }[]
-  ).map((r) => r.date)
-  const dayBefore = new Date(`${from}T00:00:00Z`)
-  dayBefore.setUTCDate(dayBefore.getUTCDate() - 1)
-  let prev = new Map(bills(s.id, dayBefore.toISOString().slice(0, 10)).map((b) => [billKey(s.id, b), b]))
-  const within = new Set<string>()
-  const after = new Set<string>()
-  for (const d of dates) {
-    const cur = new Map(bills(s.id, d).map((b) => [billKey(s.id, b), b]))
-    const seen = new Set([...prev.keys(), ...cur.keys()])
-    for (const k of seen) {
-      const was = prev.get(k)?.pending ?? cur.get(k)?.amount ?? 0
-      const now = cur.get(k)?.pending ?? 0
-      const paid = was - now
-      if (paid <= 0) continue
-      const billDate = (prev.get(k) ?? cur.get(k))!.date
-      const late = daysBetween(billDate, d) > FORM_MSME1_DAYS
-      const bucket = late ? out.paidAfter45 : out.paidWithin45
-      bucket.amount += paid
-      ;(late ? after : within).add(k)
+  const { events, creditDays } = partyBillEvents(db, s.id, to)
+  const timeline = settlementTimeline(events, to, creditDays, from).filter((x) => x.date >= from && x.date <= to && coveredOn(s, x.billDate))
+  const kinds = new Map<number, string>()
+  const ids = [...new Set(timeline.map((x) => x.byVoucherId).filter((v): v is number => v != null))]
+  for (let i = 0; i < ids.length; i += 500) {
+    const chunk = ids.slice(i, i + 500)
+    for (const row of db
+      .prepare(`SELECT v.id, vt.kind FROM vouchers v JOIN voucher_types vt ON vt.id = v.voucher_type_id WHERE v.id IN (${chunk.map(() => '?').join(',')})`)
+      .all(...chunk) as { id: number; kind: string }[]) kinds.set(row.id, row.kind)
+  }
+  const late = new Set<string>()
+  const paid = new Set<string>()
+  const dn = new Set<string>()
+  for (const x of timeline) {
+    if (x.byVoucherId != null && kinds.get(x.byVoucherId) === 'debit_note') {
+      out.debitNotes.amount += x.amount
+      dn.add(x.billKey)
+      continue
     }
-    prev = cur
+    paid.add(x.billKey)
+    if (daysBetween(x.billDate, x.date) > FORM_MSME1_DAYS) {
+      out.paidAfter45.amount += x.amount
+      late.add(x.billKey)
+    } else out.paidWithin45.amount += x.amount
   }
-  out.paidWithin45.count = within.size
-  out.paidAfter45.count = after.size
+  out.paidAfter45.count = late.size
+  out.paidWithin45.count = [...paid].filter((k) => !late.has(k)).length
+  out.debitNotes.count = dn.size
   for (const b of bills(s.id, to)) {
+    if (!coveredOn(s, b.date)) continue
     if (daysBetween(b.date, to) > FORM_MSME1_DAYS) out.outstandingOver45 += b.pending
     else out.outstandingUpTo45 += b.pending
   }
@@ -679,25 +774,20 @@ export function msmeForm1Csv(db: DB, opts: { asOn: string; formPeriodDate?: stri
   return { csv, filename: `msme-form-1-${r.form1.period.from}-${r.form1.period.to}.csv`, rows: formRows.length }
 }
 
-/** Year-end close warning: micro / small dues past the s.15 period on the FY's last day. */
+/** Year-end close warning: micro / small dues booked in the year and unpaid past the s.15 period
+ *  on its last day — the same bills and the same boundary (payBy ≤ year end) as the s.43B(h)
+ *  figure, so the warning and the report always agree. */
 export function msmeYearEndWarning(db: DB, fyStartYear: number, today: string = todayISO()): MsmeYearEndWarning {
   const fy = fyFromStartYear(fyStartYear)
-  const suppliers = coveredSuppliers(db)
-  const bills = billsCache(db)
-  let overdue = 0
-  let n = 0
-  const parties = new Set<number>()
-  for (const s of suppliers) {
-    for (const b of bills(s.id, fy.to)) {
-      if (s15Deadline(b.date, s.msme!.agreedCreditDays).payBy < fy.to) {
-        overdue += b.pending
-        n++
-        parties.add(s.id)
-      }
-    }
+  const d = disallowanceForFy(db, coveredSuppliers(db), fyStartYear, today, billsCache(db))
+  const late = d.bills.filter((b) => b.payBy <= fy.to)
+  return {
+    asOn: fy.to,
+    overdue: late.reduce((a, b) => a + b.pendingAtFyEnd, 0),
+    bills: late.length,
+    parties: new Set(late.map((b) => b.ledgerId)).size,
+    disallowed: d.disallowed
   }
-  const d = disallowanceForFy(db, suppliers, fyStartYear, today, bills)
-  return { asOn: fy.to, overdue, bills: n, parties: parties.size, disallowed: d.disallowed }
 }
 
 // ---------------------------------------------------------------------------------------------

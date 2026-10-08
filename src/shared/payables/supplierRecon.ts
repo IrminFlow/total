@@ -81,15 +81,26 @@ const bookAmount = (side: 'bill' | 'payment', b: BookLedgerLine): number => (sid
 const supplierSide = (s: SupplierLedgerLine): 'bill' | 'payment' => (s.debit - s.credit >= 0 ? 'bill' : 'payment')
 const bookSide = (b: BookLedgerLine): 'bill' | 'payment' => (b.credit - b.debit >= 0 ? 'bill' : 'payment')
 
+/** Share of an amount within which a number-matched pair is reported as "amount differs" (the
+ *  same document booked at another figure) rather than left unmatched. */
+const AMOUNT_DIFF_BAND_PCT = 25
+
+/** The alphabetic series prefix of an invoice number ("INV" in INV/26-27/0102), '' when none. */
+export function seriesPrefix(raw: string): string {
+  return normalizeInvoiceNumber(raw).match(/^[A-Z]+/)?.[0] ?? ''
+}
+
 /**
- * Match the supplier's lines against ours, one-to-one, within the same side:
- *  1. strict invoice number (normalised) — the supplier's doc no. against our supplier ref, then
- *     our own voucher number;
- *  2. the fuzzy number core (FY tokens, series prefixes, leading zeros dropped);
- *  3. amount within tolerance and date within ±dateDays (closest date first) — how payments
- *     usually pair, since the supplier's receipt number is never ours.
- * A number match with an amount beyond tolerance is 'amount_diff'; leftovers are 'only_supplier'
- * (in their books, not ours) or 'only_books'.
+ * Match the supplier's lines against ours, one-to-one, within the same side (bill / payment).
+ * Their document number is compared only with the supplier's invoice number we recorded
+ * (vouchers.reference) — never with our own voucher numbers, which are a different series. Every
+ * pass needs the dates within ±dateDays:
+ *  1. strict invoice number and amount within tolerance → matched;
+ *  2. amount within tolerance, closest date first → matched (how payments pair);
+ *  3. fuzzy number core (FY tokens, leading zeros dropped) with the SAME series prefix, amount
+ *     within tolerance → matched — a bare number never matches on its own ("RCPT-2" ≠ "2");
+ *  4. strict or same-series fuzzy number with the amount within 25 % → amount differs.
+ * Leftovers are 'only_supplier' (in their books, not ours) or 'only_books'.
  */
 export function reconcileSupplier(
   supplierLines: readonly SupplierLedgerLine[],
@@ -100,6 +111,7 @@ export function reconcileSupplier(
   const usedS = new Set<number>()
   const usedB = new Set<number>()
   const within = (a: number, b: number): boolean => Math.abs(a - b) <= toleranceFor(a, tol.amountPaise)
+  const inBand = (a: number, b: number): boolean => Math.abs(a - b) <= Math.floor((Math.abs(a) * AMOUNT_DIFF_BAND_PCT) / 100)
 
   const pair = (si: number, bi: number, by: ReconMatchedBy): void => {
     const s = supplierLines[si]!
@@ -120,53 +132,40 @@ export function reconcileSupplier(
     })
   }
 
-  const numberPass = (norm: (raw: string) => string, by: ReconMatchedBy): void => {
+  const strictHit = (s: SupplierLedgerLine, b: BookLedgerLine): boolean =>
+    !!s.docNo.trim() && !!b.supplierRef?.trim() && normalizeInvoiceNumber(s.docNo) === normalizeInvoiceNumber(b.supplierRef)
+  const fuzzyHit = (s: SupplierLedgerLine, b: BookLedgerLine): boolean => {
+    if (!s.docNo.trim() || !b.supplierRef?.trim()) return false
+    const prefix = seriesPrefix(s.docNo)
+    return prefix !== '' && prefix === seriesPrefix(b.supplierRef) && invoiceNumberCore(s.docNo) === invoiceNumberCore(b.supplierRef)
+  }
+
+  /** Greedy one-to-one pass: candidates (same side, dates in the window, `ok`) closest amount, then date, first. */
+  const pass = (ok: (s: SupplierLedgerLine, b: BookLedgerLine, sa: number, ba: number) => boolean, by: ReconMatchedBy): void => {
+    const cands: { si: number; bi: number; amt: number; days: number }[] = []
     for (let si = 0; si < supplierLines.length; si++) {
       if (usedS.has(si)) continue
       const s = supplierLines[si]!
-      if (!s.docNo.trim()) continue
-      const key = norm(s.docNo)
-      if (!key) continue
       const side = supplierSide(s)
-      let best = -1
-      let bestScore = Infinity
       for (let bi = 0; bi < bookLines.length; bi++) {
         if (usedB.has(bi)) continue
         const b = bookLines[bi]!
         if (bookSide(b) !== side) continue
-        const refHit = b.supplierRef != null && b.supplierRef.trim() !== '' && norm(b.supplierRef) === key
-        const numHit = norm(b.number) === key
-        if (!refHit && !numHit) continue
-        // Prefer the supplier-ref hit, then the closest amount, then the closest date.
-        const score = (refHit ? 0 : 1e15) + Math.abs(lineAmount(side, s) - bookAmount(side, b)) * 1000 + Math.abs(daysBetween(s.date, b.date))
-        if (score < bestScore) {
-          bestScore = score
-          best = bi
-        }
+        const days = Math.abs(daysBetween(s.date, b.date))
+        if (days > tol.dateDays) continue
+        const sa = lineAmount(side, s)
+        const ba = bookAmount(side, b)
+        if (ok(s, b, sa, ba)) cands.push({ si, bi, amt: Math.abs(sa - ba), days })
       }
-      if (best !== -1) pair(si, best, by)
     }
+    cands.sort((a, b) => a.amt - b.amt || a.days - b.days || a.si - b.si || a.bi - b.bi)
+    for (const c of cands) if (!usedS.has(c.si) && !usedB.has(c.bi)) pair(c.si, c.bi, by)
   }
 
-  numberPass(normalizeInvoiceNumber, 'number')
-  numberPass(invoiceNumberCore, 'number_core')
-
-  // Pass 3: amount + date window, greedily closest date first.
-  const candidates: { si: number; bi: number; days: number }[] = []
-  for (let si = 0; si < supplierLines.length; si++) {
-    if (usedS.has(si)) continue
-    const s = supplierLines[si]!
-    const side = supplierSide(s)
-    for (let bi = 0; bi < bookLines.length; bi++) {
-      if (usedB.has(bi)) continue
-      const b = bookLines[bi]!
-      if (bookSide(b) !== side) continue
-      const days = Math.abs(daysBetween(s.date, b.date))
-      if (days <= tol.dateDays && within(lineAmount(side, s), bookAmount(side, b))) candidates.push({ si, bi, days })
-    }
-  }
-  candidates.sort((a, b) => a.days - b.days || a.si - b.si || a.bi - b.bi)
-  for (const c of candidates) if (!usedS.has(c.si) && !usedB.has(c.bi)) pair(c.si, c.bi, 'amount_date')
+  pass((s, b, sa, ba) => strictHit(s, b) && within(sa, ba), 'number')
+  pass((_s, _b, sa, ba) => within(sa, ba), 'amount_date')
+  pass((s, b, sa, ba) => fuzzyHit(s, b) && within(sa, ba), 'number_core')
+  pass((s, b, sa, ba) => (strictHit(s, b) || fuzzyHit(s, b)) && inBand(sa, ba), 'number')
 
   supplierLines.forEach((s, si) => {
     if (!usedS.has(si)) pairs.push({ status: 'only_supplier', matchedBy: null, supplier: s, book: null, side: supplierSide(s), amountDiff: null, dateDiffDays: null })
@@ -286,8 +285,9 @@ export function parseSupplierStatementCsv(text: string): ParseSupplierCsvResult 
         skipped.push({ line: rec.line, reason: 'unreadable amount' })
         continue
       }
-      debit = Math.abs(d)
-      credit = Math.abs(c)
+      // Signs are kept: a negative debit / credit is a reversal of that side.
+      debit = d
+      credit = c
     } else {
       const rawAmt = cell(cols.amount)
       const a = amountOf(rawAmt)
@@ -296,9 +296,12 @@ export function parseSupplierStatementCsv(text: string): ParseSupplierCsvResult 
         continue
       }
       const tag = (cell(cols.drCr) || (rawAmt.match(/(dr|cr)\.?$/i)?.[1] ?? '')).toLowerCase()
-      const isCr = tag.startsWith('c') || (tag === '' && a < 0)
-      if (isCr) credit = Math.abs(a)
-      else debit = Math.abs(a)
+      // With a Dr / Cr tag the sign is kept (a negative tagged amount is a reversal); with none, a
+      // negative amount reads as a credit.
+      if (tag.startsWith('c')) credit = a
+      else if (tag.startsWith('d')) debit = a
+      else if (a < 0) credit = -a
+      else debit = a
     }
     if (debit === 0 && credit === 0) {
       skipped.push({ line: rec.line, reason: 'zero amount' })

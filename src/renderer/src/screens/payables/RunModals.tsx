@@ -124,6 +124,8 @@ export function RunPreviewModal({
   const [applyTds, setApplyTds] = useState(input.applyTds ?? true)
   const [posting, setPosting] = useState(false)
   const [run, setRun] = useState<PaymentRun | null>(null)
+  // Idempotency key for this run: a double submit (or a retry after a slow reply) posts once.
+  const [clientRunId] = useState(() => crypto.randomUUID())
   const payload = { ...input, applyTds }
   const { data: preview, isLoading, error } = useQuery({
     queryKey: ['payablesRunPreview', JSON.stringify(payload)],
@@ -134,7 +136,7 @@ export function RunPreviewModal({
   const post = async (): Promise<void> => {
     setPosting(true)
     try {
-      const r = await payablesApi.createRun(payload)
+      const r = await payablesApi.createRun({ ...payload, clientRunId })
       setRun(r)
       onPosted?.(r)
       await qc.invalidateQueries()

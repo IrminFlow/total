@@ -8,6 +8,8 @@ export interface SupplierMsmeFacts {
   udyamNo: string | null
   /** Micro / small and registered: s.15–16, s.43B(h) and Form 1 apply. */
   covered: boolean
+  /** Registered from this date — bills accepted earlier are not covered; null = no date recorded. */
+  registeredFrom: string | null
   agreedCreditDays: number | null
 }
 
@@ -128,6 +130,8 @@ export interface MsmeBill43Bh {
   date: string
   payBy: string
   pendingAtFyEnd: number
+  /** GST on the bill credited as input tax (ITC) — not an expense, so out of the figure (pro rata). */
+  gstExcluded: number
   status: Disallowance43BhStatus
   disallowed: number
   atRisk: number
@@ -162,6 +166,8 @@ export interface MsmeForm1Supplier {
   udyamNo: string | null
   paidWithin45: { count: number; amount: number }
   paidAfter45: { count: number; amount: number }
+  /** Settled by debit note (returns / rate differences) — not a payment, kept out of both paid columns. */
+  debitNotes: { count: number; amount: number }
   outstandingUpTo45: number
   outstandingOver45: number
 }
@@ -182,6 +188,9 @@ export interface MsmeReport {
     disallowed: number
     atRisk: number
     bills: MsmeBill43Bh[]
+    /** Unpaid bills booked before the year (incl. opening balances): not this year's deduction —
+     *  listed so they can be checked, never added to the figure. */
+    carriedFromEarlier: { bills: number; amount: number }
   }
   /** MSME Form 1 data for the half-year requested (default: the last completed half-year):
    *  the revised form's per-supplier lines (S.O. 2751(E), 15 Jul 2024) and the bill detail behind

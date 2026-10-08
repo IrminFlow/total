@@ -2245,6 +2245,8 @@ export const MIGRATIONS: string[] = [
   //   s.2(n) "supplier" needs the s.8 memorandum), udyam_no (UDYAM-XX-00-0000000), msme_category
   //   (micro / small / medium — only micro and small are s.2(n) suppliers, so only they get the
   //   s.15 deadline, s.16 interest, Income-tax s.43B(h) / 2025 Act s.37(2)(g) and MSME Form 1), and
+  //   msme_registered_from (the date the supplier became a registered micro / small enterprise —
+  //   bills accepted before it are not covered, so a later registration never rewrites past years),
   //   agreed_credit_days (the period agreed IN WRITING, s.15; the 45-day cap is applied when
   //   computing, not here, so the agreement is recorded as written). Sources with dates:
   //   src/shared/payables/msmeSources.ts. The s.43B(h) disallowance is computed, never stored.
@@ -2254,9 +2256,12 @@ export const MIGRATIONS: string[] = [
   //   with the rows checked on 2026-10-07; each row carries its source; UNVERIFIED rows say so.
   // - payment_runs / payment_run_vouchers: a planned or batch payment run and the payment vouchers
   //   it posted (vouchers keep their own audit rows; deleting a voucher drops it from the run).
+  //   client_run_id: the renderer's idempotency key — a second submit of the same run returns the
+  //   run already posted instead of paying twice.
   `
   ALTER TABLE ledgers ADD COLUMN msme_registered INTEGER NOT NULL DEFAULT 0 CHECK (msme_registered IN (0, 1));
   ALTER TABLE ledgers ADD COLUMN udyam_no TEXT;
+  ALTER TABLE ledgers ADD COLUMN msme_registered_from TEXT;
   ALTER TABLE ledgers ADD COLUMN msme_category TEXT CHECK (msme_category IN ('micro', 'small', 'medium'));
   ALTER TABLE ledgers ADD COLUMN agreed_credit_days INTEGER CHECK (agreed_credit_days IS NULL OR agreed_credit_days BETWEEN 0 AND 365);
   ALTER TABLE ledgers ADD COLUMN early_payment_discount_bp INTEGER CHECK (early_payment_discount_bp IS NULL OR early_payment_discount_bp BETWEEN 0 AND 10000);
@@ -2282,6 +2287,7 @@ export const MIGRATIONS: string[] = [
     kind TEXT NOT NULL CHECK (kind IN ('plan', 'batch')),
     date TEXT NOT NULL,
     note TEXT,
+    client_run_id TEXT UNIQUE,
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
   );
   CREATE TABLE payment_run_vouchers (

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { parseStatementDate, parseSupplierStatementCsv, reconcileSupplier, type BookLedgerLine, type SupplierLedgerLine } from './supplierRecon'
+import { parseStatementDate, parseSupplierStatementCsv, reconcileSupplier, seriesPrefix, type BookLedgerLine, type SupplierLedgerLine } from './supplierRecon'
 
 const S = (line: number, date: string, docNo: string, debit: number, credit = 0): SupplierLedgerLine => ({ line, date, docNo, narration: '', debit, credit })
 const B = (voucherId: number, date: string, number: string, supplierRef: string | null, debit: number, credit: number): BookLedgerLine => ({
@@ -61,7 +61,7 @@ describe('supplier reconciliation matcher', () => {
     const r = reconcileSupplier(supplier, books, { amountPaise: 100, dateDays: 7 })
     const by = (doc: string) => r.pairs.find((p) => p.supplier?.docNo === doc)!
     expect(by('INV-101')).toMatchObject({ status: 'matched', matchedBy: 'number', book: { voucherId: 11 }, dateDiffDays: 1 })
-    expect(by('TT/2026-27/0102')).toMatchObject({ status: 'matched', matchedBy: 'number_core', book: { voucherId: 12 } })
+    expect(by('TT/2026-27/0102')).toMatchObject({ status: 'matched', book: { voucherId: 12 } })
     expect(by('RCPT-7')).toMatchObject({ status: 'matched', matchedBy: 'amount_date', book: { voucherId: 13 }, side: 'payment' })
     expect(by('INV-104')).toMatchObject({ status: 'amount_diff', amountDiff: 1_000 })
     expect(by('INV-103')).toMatchObject({ status: 'only_supplier', book: null })
@@ -81,5 +81,40 @@ describe('supplier reconciliation matcher', () => {
     expect(r.counts.matched).toBe(0)
     const r2 = reconcileSupplier([S(1, '2026-04-01', '', 0, 10_050)], [B(1, '2026-04-03', 'PMT', null, 10_000, 0)], { amountPaise: 100, dateDays: 7 })
     expect(r2.counts.matched).toBe(1)
+  })
+})
+
+describe('number collisions (review of WP 4.3)', () => {
+  it('a receipt number never pairs with our voucher number, nor a bare number with another series', () => {
+    // Their payment receipt RCPT-2 (₹5,000) and our bill voucher "2" (₹8,000, ref INV-2): unrelated.
+    const r = reconcileSupplier(
+      [S(1, '2026-04-10', 'RCPT-2', 0, 500_000), S(2, '2026-04-10', '2', 800_000)],
+      [B(2, '2026-04-10', '2', 'INV-2', 0, 800_000), B(3, '2026-06-30', 'PMT-3', null, 500_000, 0)],
+      { amountPaise: 100, dateDays: 7 }
+    )
+    expect(r.counts).toEqual({ matched: 1, amount_diff: 0, only_supplier: 1, only_books: 1 })
+    // "2" vs INV-2 pairs only on amount + date (same figure, same day) — not by number.
+    expect(r.pairs.find((p) => p.status === 'matched')).toMatchObject({ matchedBy: 'amount_date', supplier: { docNo: '2' } })
+    expect(r.pairs.find((p) => p.supplier?.docNo === 'RCPT-2')!.status).toBe('only_supplier')
+  })
+  it('the same invoice number far apart in time, or at a very different amount, is not a pair', () => {
+    const far = reconcileSupplier([S(1, '2026-04-01', 'INV-9', 100_000)], [B(1, '2026-09-01', 'P-1', 'INV-9', 0, 100_000)], { amountPaise: 100, dateDays: 7 })
+    expect(far.counts.matched + far.counts.amount_diff).toBe(0)
+    const off = reconcileSupplier([S(1, '2026-04-01', 'INV-9', 100_000)], [B(1, '2026-04-01', 'P-1', 'INV-9', 0, 300_000)], { amountPaise: 100, dateDays: 7 })
+    expect(off.counts.amount_diff).toBe(0)
+    const near = reconcileSupplier([S(1, '2026-04-01', 'INV-9', 100_000)], [B(1, '2026-04-02', 'P-1', 'INV-9', 0, 96_000)], { amountPaise: 100, dateDays: 7 })
+    expect(near.pairs[0]).toMatchObject({ status: 'amount_diff', amountDiff: 4_000 })
+  })
+  it('fuzzy numbers need the same series prefix', () => {
+    expect(seriesPrefix('INV/26-27/0102')).toBe('INV')
+    expect(seriesPrefix('0102')).toBe('')
+    const r = reconcileSupplier([S(1, '2026-04-01', 'INV/26-27/0102', 100_000)], [B(1, '2026-04-02', 'P-1', 'INV-102', 0, 96_000)], { amountPaise: 100, dateDays: 7 })
+    expect(r.pairs[0]).toMatchObject({ status: 'amount_diff' })
+    const r2 = reconcileSupplier([S(1, '2026-04-01', 'BILL-102', 100_000)], [B(1, '2026-04-02', 'P-1', 'INV-102', 0, 96_000)], { amountPaise: 100, dateDays: 7 })
+    expect(r2.counts.amount_diff).toBe(0)
+  })
+  it('keeps the sign of reversals in the CSV', () => {
+    const r = parseSupplierStatementCsv('Date,Ref,Debit,Credit\n2026-04-05,INV-1,-500.00,\n2026-04-06,P-1,,-200.00\n')
+    expect(r.lines.map((l) => [l.debit, l.credit])).toEqual([[-50_000, 0], [0, -20_000]])
   })
 })

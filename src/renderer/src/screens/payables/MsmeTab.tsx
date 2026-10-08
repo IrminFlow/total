@@ -50,6 +50,7 @@ const DISALLOW_COLUMNS = defineColumns<MsmeBill43Bh>([
   { id: 'date', header: 'Accepted', kind: 'date', value: (r) => r.date, className: 'text-muted' },
   { id: 'payBy', header: 's.15 pay by', kind: 'date', value: (r) => r.payBy },
   { id: 'pending', header: 'Unpaid at year end', kind: 'money', value: (r) => r.pendingAtFyEnd, width: 150, aggregate: 'sum' },
+  { id: 'gst', header: 'GST (ITC) out', kind: 'money', value: (r) => r.gstExcluded || null, width: 120, aggregate: 'sum', className: 'text-muted' },
   {
     id: 'status', header: 'Status', kind: 'enum', value: (r) => r.status, width: 170, text: (r) => DISALLOW_LABEL[r.status],
     options: (Object.keys(DISALLOW_LABEL) as (keyof typeof DISALLOW_LABEL)[]).map((k) => ({ value: k, label: DISALLOW_LABEL[k] }))
@@ -65,6 +66,7 @@ const FORM_COLUMNS = defineColumns<MsmeForm1Supplier>([
   { id: 'within', header: 'Amount', group: 'Paid ≤ 45 d', kind: 'money', value: (r) => r.paidWithin45.amount, width: 120, aggregate: 'sum' },
   { id: 'afterN', header: 'No.', group: 'Paid > 45 d', kind: 'number', value: (r) => r.paidAfter45.count, width: 60 },
   { id: 'after', header: 'Amount', group: 'Paid > 45 d', kind: 'money', value: (r) => r.paidAfter45.amount, width: 120, aggregate: 'sum' },
+  { id: 'dn', header: 'By debit note', kind: 'money', value: (r) => r.debitNotes.amount || null, width: 120, aggregate: 'sum', defaultHidden: true },
   { id: 'outLe', header: '≤ 45 d', group: 'Outstanding', kind: 'money', value: (r) => r.outstandingUpTo45, width: 120, aggregate: 'sum' },
   { id: 'outGt', header: '> 45 d', group: 'Outstanding', kind: 'money', value: (r) => r.outstandingOver45, width: 130, aggregate: 'sum', className: 'text-cr font-medium' }
 ])
@@ -305,7 +307,9 @@ export function MsmeTab({ tabs }: { tabs: ReactNode }): React.JSX.Element {
       </Panel>
       <p className="mt-2 text-hint text-muted">
         {view === 'disallowance'
-          ? 'Unpaid at year end and not paid within the s.15 period: added back for the year, allowed when paid. Review capital purchases separately.'
+          ? `Bills booked in the year, unpaid at its end and not paid within the s.15 period: added back for the year, allowed when paid. GST taken as input tax credit is left out (pro rata); capital purchases need a separate review.${
+              (d?.carriedFromEarlier.bills ?? 0) > 0 ? ` ${d!.carriedFromEarlier.bills} unpaid bill(s) from earlier years / opening balances (${formatPaise(d!.carriedFromEarlier.amount)}) are not this year's figure — check them.` : ''
+            }`
           : view === 'form1'
             ? 'Revised MSME Form 1 (S.O. 2751(E), 15 Jul 2024): only companies with amounts outstanding more than 45 days file. The CSV adds the bills behind the > 45 d column.'
             : 'Acceptance is the bill date. Interest is indicative · F12 for the bank rate table and the sources.'}

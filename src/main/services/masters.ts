@@ -27,7 +27,7 @@ interface LedgerRow {
   price_level_id: number | null; credit_limit: number | null
   deductee_type: Ledger['deducteeType']; tds_payable_section_id: number | null; tds_default_section_id: number | null
   tcs_section_id?: number | null; tcs_payable_section_id?: number | null; tcs_default_section_id?: number | null
-  msme_registered?: number | null; udyam_no?: string | null; msme_category?: Ledger['msmeCategory']; agreed_credit_days?: number | null
+  msme_registered?: number | null; msme_registered_from?: string | null; udyam_no?: string | null; msme_category?: Ledger['msmeCategory']; agreed_credit_days?: number | null
   early_payment_discount_bp?: number | null; early_payment_discount_days?: number | null
 }
 const mapLedger = (r: LedgerRow): Ledger => ({
@@ -41,7 +41,7 @@ const mapLedger = (r: LedgerRow): Ledger => ({
   tdsDefaultSectionId: r.tds_default_section_id ?? null,
   tcsSectionId: r.tcs_section_id ?? null, tcsPayableSectionId: r.tcs_payable_section_id ?? null,
   tcsDefaultSectionId: r.tcs_default_section_id ?? null,
-  msmeRegistered: !!r.msme_registered, udyamNo: r.udyam_no ?? null, msmeCategory: r.msme_category ?? null,
+  msmeRegistered: !!r.msme_registered, msmeRegisteredFrom: r.msme_registered_from ?? null, udyamNo: r.udyam_no ?? null, msmeCategory: r.msme_category ?? null,
   agreedCreditDays: r.agreed_credit_days ?? null,
   earlyPaymentDiscountBp: r.early_payment_discount_bp ?? null, earlyPaymentDiscountDays: r.early_payment_discount_days ?? null
 })
@@ -230,10 +230,11 @@ function writeSupplierTerms(db: DB, id: number, input: ReturnType<typeof ledgerI
   const keep = <T>(v: T | undefined, old: T): T => (v === undefined ? old : v)
   const registered = keep(input.msmeRegistered, existing?.msmeRegistered ?? false)
   db.prepare(
-    `UPDATE ledgers SET msme_registered = ?, udyam_no = ?, msme_category = ?, agreed_credit_days = ?,
+    `UPDATE ledgers SET msme_registered = ?, msme_registered_from = ?, udyam_no = ?, msme_category = ?, agreed_credit_days = ?,
        early_payment_discount_bp = ?, early_payment_discount_days = ? WHERE id = ?`
   ).run(
     registered ? 1 : 0,
+    keep(input.msmeRegisteredFrom, existing?.msmeRegisteredFrom ?? null),
     keep(input.udyamNo, existing?.udyamNo ?? null),
     keep(input.msmeCategory, existing?.msmeCategory ?? null),
     keep(input.agreedCreditDays, existing?.agreedCreditDays ?? null),

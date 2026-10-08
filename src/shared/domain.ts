@@ -67,6 +67,8 @@ export interface Ledger {
   creditLimit: number | null
   /** WP 4.3 (migration 034): the supplier is registered on Udyam (MSMED Act s.2(n), s.8). */
   msmeRegistered?: boolean
+  /** Registered from this date (bills accepted earlier are not covered); null = no date recorded. */
+  msmeRegisteredFrom?: string | null
   /** Udyam Registration Number, UDYAM-XX-00-0000000. */
   udyamNo?: string | null
   /** Micro / small / medium (s.7). Only micro and small get s.15–16 / s.43B(h) / MSME Form 1. */

@@ -248,3 +248,16 @@ export function openBills(db: DB, partyLedgerId: number, asOn: string): Outstand
   const events = [...openingEvent(asOn, ledger.opening_balance, sign), ...(eventsByParty.get(partyLedgerId) ?? [])]
   return allocateBills(events, asOn, ledger.credit_days).bills
 }
+
+/** A party's bill events (opening balance first, then its in-books vouchers to `asOn`) in the
+ *  allocation's sign convention (+ = raises what is outstanding on that side) — for callers that
+ *  replay the allocation event by event (WP 4.3's MSME Form 1 settlement timeline). */
+export function partyBillEvents(db: DB, partyLedgerId: number, asOn: string): { events: BillEvent[]; creditDays: number | null } {
+  const ledger = db.prepare('SELECT group_id, opening_balance, credit_days FROM ledgers WHERE id = ?').get(partyLedgerId) as
+    | { group_id: number; opening_balance: number; credit_days: number | null }
+    | undefined
+  if (!ledger) return { events: [], creditDays: null }
+  const sign = descendantIdsByName(db, ['Sundry Debtors']).has(ledger.group_id) ? 1 : -1
+  const events = [...openingEvent(asOn, ledger.opening_balance, sign), ...(partyEventsBatch(db, [partyLedgerId], asOn, sign).get(partyLedgerId) ?? [])]
+  return { events, creditDays: ledger.credit_days }
+}
