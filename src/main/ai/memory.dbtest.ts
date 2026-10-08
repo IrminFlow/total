@@ -79,13 +79,15 @@ function fixture(): Fixture {
 type H = (p: unknown) => unknown
 function ipc(f: Fixture, session: { name: string | null; role: Role } = { name: 'Owner', role: 'owner' }): Map<string, { fn: H; role: Role }> {
   const handlers = new Map<string, { fn: H; role: Role }>()
+  const file = join(mkdtempSync(join(tmpdir(), 'total-mem-secrets-')), 'secrets.json')
+  const secrets = createSecretStore({ filePath: () => file, cipher: insecureTestCipher() })
   registerAiIpc((ch, fn, role = 'accountant') => handlers.set(ch, { fn: fn as H, role }), {
     company: () => ({ db: f.db, info: INFO, slug: 'memory-test', usersExist: false }),
     session: () => session,
     roleNow: () => session.role,
     anyCompanyHasUsers: () => false,
     appAudit: () => {},
-    secrets: () => createSecretStore({ filePath: join(mkdtempSync(join(tmpdir(), 'total-mem-secrets-')), 'secrets.json'), cipher: insecureTestCipher }),
+    secrets: () => secrets,
     emit: () => {},
     mock: () => true,
     today: () => TODAY

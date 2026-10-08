@@ -2,7 +2,7 @@
 // `total:ai:event` push. The renderer never talks to the provider: everything goes through main.
 import { call } from './client'
 import type {
-  AiConnectionResult, AiDraftDto, AiEvent, AiMessageDto, AiOutboundRow, AiSendInput, AiSettingsPatch, AiSettingsView, AiThreadDto, AiToolInfo,
+  AiConnectionResult, AiDraftDto, AiMemoryCreateInput, AiMemoryDto, AiMemoryList, AiMemoryUpdateInput, AiEvent, AiMessageDto, AiOutboundRow, AiSendInput, AiSettingsPatch, AiSettingsView, AiThreadDto, AiToolInfo,
   AiUsageRow
 } from '@shared/ai'
 
@@ -33,7 +33,17 @@ export const aiApi = {
   discardDraft: (id: number) => call<AiDraftDto>('ai:draft:discard', { id }),
   usage: () => call<AiUsageRow[]>('ai:usage'),
   outbound: () => call<AiOutboundRow[]>('ai:outbound'),
-  deleteAll: (includeLogs = false) => call<Record<string, number>>('ai:data:deleteAll', { includeLogs })
+  deleteAll: (includeLogs = false) => call<Record<string, number>>('ai:data:deleteAll', { includeLogs }),
+  // WP 5.6 memory
+  memory: () => call<AiMemoryList>('ai:memory:list'),
+  createMemory: (input: AiMemoryCreateInput) => call<AiMemoryDto>('ai:memory:create', input),
+  updateMemory: (input: AiMemoryUpdateInput) => call<AiMemoryDto>('ai:memory:update', input),
+  /** Accept (→ active) or archive. */
+  setMemoryStatus: (id: number, status: 'active' | 'archived') => call<AiMemoryDto>('ai:memory:setStatus', { id, status }),
+  deleteMemory: (id: number) => call<null>('ai:memory:delete', { id }),
+  /** Accept or dismiss a suggestion derived from the books. */
+  resolveDerivedMemory: (key: string, accept: boolean) => call<AiMemoryDto>('ai:memory:resolveDerived', { key, accept }),
+  forgetAllMemory: () => call<{ deleted: number }>('ai:memory:forgetAll')
 }
 
 /** Subscribe to the agent's streamed events; returns the unsubscribe. A no-op where the preload
