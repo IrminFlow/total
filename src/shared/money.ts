@@ -158,3 +158,44 @@ export function formatQtyMilli(qtyMilli: number): string {
   const frac = (abs % 1000).toString().padStart(3, '0').replace(/0+$/, '')
   return `${sign}${whole}${frac ? '.' + frac : ''}`
 }
+
+/** Indian shorthand multipliers in rupees (WP 5.3): "1.5 lakh", "2 cr", "45k". */
+const AMOUNT_UNITS: [RegExp, number][] = [
+  [/^(crores?|cr|crs)$/, 1_00_00_000],
+  [/^(lakhs?|lacs?|lakh|l)$/, 1_00_000],
+  [/^(thousands?|k)$/, 1_000]
+]
+
+/**
+ * Parse an amount as a person types it into paise (WP 5.3 drafting): "45,000", "₹45,000.50",
+ * "Rs. 45000/-", "INR 1,20,000", "1.5 lakh", "1.5L", "2 crore", "2cr", "45k". Integer string
+ * maths only — the fraction is scaled by the unit and must land on whole paise ("1.234 lakh" is
+ * ₹1,23,400.00; "1.005" rupees is refused). Returns null for anything else (negative, empty,
+ * words like "ten", two numbers).
+ */
+export function parseAmountText(input: string): number | null {
+  let t = input.trim().toLowerCase()
+  t = t.replace(/^(₹|rs\.?|inr|rupees?)\s*/, '')
+  t = t.replace(/\s*\/-$/, '').replace(/\s+(rupees?|only|rs\.?|inr)$/, '').trim()
+  const m = /^(\d[\d,]*)(?:\.(\d+))?\s*([a-z]+)?$/.exec(t)
+  if (!m) return null
+  const digits = m[1]!
+  // Commas only as digit-group separators, never doubled or trailing.
+  if (/,,|,$/.test(digits)) return null
+  const whole = digits.replace(/,/g, '')
+  const frac = m[2] ?? ''
+  let unit = 1
+  if (m[3]) {
+    const u = AMOUNT_UNITS.find(([re]) => re.test(m[3]!))
+    if (!u) return null
+    unit = u[1]
+  }
+  // paise = (whole + frac / 10^n) × unit × 100, exactly — or refused.
+  const scale = unit * 100
+  if (frac.length > 9) return null
+  const fracDen = 10 ** frac.length
+  const fracNum = frac === '' ? 0 : parseInt(frac, 10)
+  if ((fracNum * scale) % fracDen !== 0) return null
+  const paise = parseInt(whole, 10) * scale + (fracNum * scale) / fracDen
+  return Number.isSafeInteger(paise) ? paise : null
+}

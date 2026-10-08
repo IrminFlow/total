@@ -141,3 +141,97 @@ export function formatDateAs(date: string, format: DocDateFormat): string {
       return `${Number(d)} ${long[mi]} ${y}`
   }
 }
+
+// ---------- plain-language dates (WP 5.3 drafting) ----------
+
+const WEEKDAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
+const MONTH_NAMES = ['january', 'february', 'march', 'april', 'may', 'june', 'july', 'august', 'september', 'october', 'november', 'december']
+
+/** ISO date `days` days after `date` (negative = before). */
+export function addDaysISO(date: string, days: number): string {
+  const dt = new Date(date + 'T00:00:00Z')
+  dt.setUTCDate(dt.getUTCDate() + days)
+  return dt.toISOString().slice(0, 10)
+}
+
+function lastDayOfMonthISO(y: number, m: number): string {
+  const d = new Date(Date.UTC(y, m, 0)).getUTCDate()
+  return `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`
+}
+
+function monthIndexOf(word: string): number | null {
+  const w = word.toLowerCase().replace(/\.$/, '')
+  if (w.length < 3) return null
+  const i = MONTH_NAMES.findIndex((m) => m.startsWith(w) || (w === 'sept' && m === 'september'))
+  return i >= 0 ? i + 1 : null
+}
+
+/**
+ * Resolve a date the way a person says it, against the working date `context` — never the AI
+ * model's idea of today (WP 5.3). Returns the ISO date and how it was read, or null. Reads:
+ *   ISO "2025-07-31", and everything the date field reads (parseSmartDate: "7", "7/4", "07-04-2025");
+ *   "today", "yesterday", "tomorrow", "day before yesterday", "3 days ago", "2 weeks ago";
+ *   "friday" — the most recent Friday on or before the working date; "last friday" — the most
+ *   recent one strictly before it;
+ *   "15 aug", "15th of August", "Aug 15" (no year: within the working date's financial year, the
+ *   date field's "7/4" rule), "15 aug 2025";
+ *   "start of the month", "end of last month", "start of last month", "end of this month".
+ */
+export function resolveDateText(input: string, context: string): { date: string; how: string } | null {
+  const t = input.trim().toLowerCase().replace(/,/g, ' ').replace(/\s+/g, ' ').replace(/^on /, '').trim()
+  if (t === '') return null
+  if (isValidISODate(t)) return { date: t, how: 'as given' }
+  if (t === 'today' || t === 'now') return { date: context, how: 'today (the working date)' }
+  if (t === 'yesterday') return { date: addDaysISO(context, -1), how: 'the day before the working date' }
+  if (t === 'tomorrow') return { date: addDaysISO(context, 1), how: 'the day after the working date' }
+  if (t === 'day before yesterday') return { date: addDaysISO(context, -2), how: 'two days before the working date' }
+  let m = /^(\d{1,3}) (day|days|week|weeks) ago$/.exec(t)
+  if (m) {
+    const n = Number(m[1]) * (m[2]!.startsWith('week') ? 7 : 1)
+    return { date: addDaysISO(context, -n), how: `${n} day${n === 1 ? '' : 's'} before the working date` }
+  }
+  m = /^(last |this |previous )?(sun|mon|tue|wed|thu|fri|sat)[a-z]*$/.exec(t)
+  if (m && WEEKDAYS.some((d) => d.toLowerCase().startsWith(t.replace(/^(last |this |previous )/, '')))) {
+    const target = WEEKDAYS.findIndex((d) => d.toLowerCase().startsWith(m![2]!))
+    const today = new Date(context + 'T00:00:00Z').getUTCDay()
+    let back = (today - target + 7) % 7
+    if (back === 0 && (m[1] === 'last ' || m[1] === 'previous ')) back = 7
+    return { date: addDaysISO(context, -back), how: back === 0 ? 'the working date' : `the ${WEEKDAYS[target]} before the working date` }
+  }
+  const [cy, cm] = context.split('-').map(Number) as [number, number]
+  m = /^(start|beginning|first day|first|end|last day) of (the |this |last |previous )?month$/.exec(t)
+  if (m) {
+    const prev = m[2] === 'last ' || m[2] === 'previous '
+    const y = prev && cm === 1 ? cy - 1 : cy
+    const mo = prev ? (cm === 1 ? 12 : cm - 1) : cm
+    const start = /^(start|beginning|first day|first)$/.test(m[1]!)
+    const date = start ? `${y}-${String(mo).padStart(2, '0')}-01` : lastDayOfMonthISO(y, mo)
+    return { date, how: `the ${start ? 'first' : 'last'} day of ${prev ? 'the month before the working date' : 'the working month'}` }
+  }
+  let day: number | null = null
+  let month: number | null = null
+  let year: number | null = null
+  m = /^(\d{1,2})(?:st|nd|rd|th)? (?:of )?([a-z]+\.?)(?: (\d{2}|\d{4}))?$/.exec(t)
+  if (m) {
+    day = Number(m[1])
+    month = monthIndexOf(m[2]!)
+    year = m[3] ? Number(m[3]) : null
+  } else {
+    const n = /^([a-z]+\.?) (\d{1,2})(?:st|nd|rd|th)?(?: (\d{2}|\d{4}))?$/.exec(t)
+    if (n) {
+      month = monthIndexOf(n[1]!)
+      day = Number(n[2])
+      year = n[3] ? Number(n[3]) : null
+    }
+  }
+  if (day != null && month != null) {
+    const fy = fyOf(context)
+    const y = year != null ? (year < 100 ? 2000 + year : year) : month >= 4 ? fy.startYear : fy.startYear + 1
+    const date = `${y}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`
+    if (!isValidISODate(date)) return null
+    return { date, how: year != null ? 'as given' : `in FY ${fy.label}, the working date's financial year` }
+  }
+  const smart = parseSmartDate(t, context)
+  if (smart) return { date: smart, how: 'read as the date field reads it' }
+  return null
+}
