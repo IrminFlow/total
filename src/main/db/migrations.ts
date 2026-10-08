@@ -3062,5 +3062,39 @@ export const MIGRATIONS: string[] = [
   );
   CREATE INDEX idx_party_notes_ledger ON party_notes(ledger_id);
   CREATE INDEX idx_party_notes_due ON party_notes(kind, done_at, due_date);
+  `,
+  // WP 5.2 (last; number by position — 040, after WP 6.4 039): the chat panel.
+  // Nothing here touches the books.
+  // - ai_threads.pinned: pinned conversations sort first in the panel's thread list.
+  // - ai_messages.context_json: the screen context a question was asked with (screen, period,
+  //   parameters, the figure being explained) — Regenerate re-asks with it, not with whatever
+  //   screen is open now. Local only, like the message text.
+  // - ai_outbound_log.context_json: the screen context as SENT (masked / pseudonymised) — the
+  //   outbound log shows what context left the machine; never the raw names or identifiers.
+  // - ai_drafts.status gains 'superseded': a draft made by an answer that Regenerate discarded
+  //   (rebuilt for the CHECK; nothing references ai_drafts).
+  `-- @foreign-keys-off
+  ALTER TABLE ai_threads ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0;
+  ALTER TABLE ai_messages ADD COLUMN context_json TEXT;
+  ALTER TABLE ai_outbound_log ADD COLUMN context_json TEXT;
+
+  CREATE TABLE ai_drafts_new (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    thread_id INTEGER REFERENCES ai_threads(id) ON DELETE SET NULL,
+    message_id INTEGER REFERENCES ai_messages(id) ON DELETE SET NULL,
+    kind TEXT NOT NULL CHECK (kind IN ('voucher')),
+    summary TEXT NOT NULL,
+    payload_json TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'open' CHECK (status IN ('open', 'consumed', 'discarded', 'superseded')),
+    voucher_id INTEGER REFERENCES vouchers(id) ON DELETE SET NULL,
+    unrequested INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    consumed_at TEXT
+  );
+  INSERT INTO ai_drafts_new (id, thread_id, message_id, kind, summary, payload_json, status, voucher_id, unrequested, created_at, consumed_at)
+    SELECT id, thread_id, message_id, kind, summary, payload_json, status, voucher_id, unrequested, created_at, consumed_at FROM ai_drafts;
+  DROP TABLE ai_drafts;
+  ALTER TABLE ai_drafts_new RENAME TO ai_drafts;
+  CREATE INDEX idx_ai_drafts_status ON ai_drafts(status);
   `
 ]

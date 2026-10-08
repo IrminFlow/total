@@ -145,6 +145,20 @@ Right-side panel on a scrim. Esc closes the topmost layer only, so a Modal opene
 Drawer closes first. The drawer sits at z-30, under Modal (z-40) and popovers (z-50), so dialogs
 opened from it paint on top.
 
+### `DockedDrawer` (WP 5.2)
+
+The assistant's panel: docked BESIDE the screen (the layout narrows; no scrim, not a dialog layer),
+so the screen stays usable while it is open. Esc inside it calls `onClose`; keys typed in it never
+reach screen shortcuts (⌘/Ctrl chords still do). `width` + `onResize` make the left edge a resize
+handle (drag, ←/→, double-click resets) — the caller remembers the width.
+
+### `ExplainButton` (WP 5.2)
+
+The "Explain this" AI action on a money figure: `figure` (label, value, ids, period — or a function
+read at click time) goes to the assistant host (`lib/explain.ts`), which adds the screen and asks.
+Renders nothing while the assistant is off. `StatTile` (money values), `StatementTree` lines and
+DataTable money cells (`explainable` on columns, see the table README) show it automatically.
+
 
 ### `Popover`, `PopoverButton`, `MenuButton`
 
@@ -163,7 +177,7 @@ The table platform's anchored popover, exported under kit names. `MenuButton` is
 | `Badge tone="neutral\|info\|success\|warning\|danger\|amber"` | inline status label: Optional, PDC, Filed |
 | `Chip onRemove / onClick selected` | applied filter pill, toggle token |
 | `Banner tone title action onDismiss` | message strip above content; danger/warning are alerts |
-| `StatTile label value delta deltaTone sparkline tone onClick` + `StatGrid` | headline figures (the sparkline slot takes WP 1.10b's chart components) |
+| `StatTile label value delta deltaTone sparkline tone onClick explain` + `StatGrid` | headline figures (the sparkline slot takes WP 1.10b's chart components); money tiles get Explain-this while the assistant is on (`explain` adds ids, `false` opts out) |
 | `Money paise signed` | ledger amount: mono, Dr green / Cr red, dash for zero |
 | `EmptyState title hint action compact` | the one "nothing here" state |
 | `Spinner`, `Skeleton`, `SkeletonRows`, `SkeletonTiles` | loading |
