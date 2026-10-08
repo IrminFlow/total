@@ -101,7 +101,7 @@ export type Screen =
   | { name: 'unbilled-goods' }
   | { name: 'stale-documents' }
   | { name: 'consolidated' }
-  | { name: 'banking' }
+  | { name: 'banking'; tab?: 'recon' | 'import' | 'rules' | 'cheques' | 'pdc' | 'bulk' | 'brs' }
   | { name: 'payroll' }
   | { name: 'tds' }
   | { name: 'tcs' }
@@ -111,6 +111,9 @@ export type Screen =
   | { name: 'report-builder'; reportId?: number }
   // WP 6.2: ratio analysis with monthly trends.
   | { name: 'ratios' }
+  | { name: 'cash-forecast' }
+  | { name: 'loans'; loanId?: number }
+  | { name: 'forex' }
   | { name: 'company-info' }
   | { name: 'year-end' }
   | { name: 'fixed-assets'; tab?: 'register' | 'depreciation' | 'schedule' | 'income-tax' | 'setup' }

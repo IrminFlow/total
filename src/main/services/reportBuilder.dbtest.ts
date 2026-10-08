@@ -70,7 +70,7 @@ describe('migration 038 — saved reports and report packs', () => {
     // Array position = migration number − 1. On this branch it follows 031 directly; once the
     // parallel 032–037 merge it must sit after them (numbers are array positions).
     expect(M038).toBe(MIGRATIONS.length - 1)
-    expect(M038 + 1).toBeGreaterThanOrEqual(32)
+    expect(M038 + 1).toBeGreaterThanOrEqual(36) // 032–035 on main; 036–037 not yet
   })
 
   it('creates the three tables with their constraints, from the previous schema', () => {

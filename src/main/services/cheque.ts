@@ -35,6 +35,7 @@ export interface ChequeData {
 export function chequeData(db: DB, voucherId: number, bankLedgerId: number): ChequeData {
   const voucher = getVoucher(db, voucherId)
   if (!voucher) throw new Error('Voucher not found')
+  if (voucher.deletedAt) throw new Error('This voucher is in the bin')
 
   const vt = db.prepare('SELECT kind FROM voucher_types WHERE id = ?').get(voucher.voucherTypeId) as
     | { kind: string }
@@ -75,13 +76,29 @@ export function chequeData(db: DB, voucherId: number, bankLedgerId: number): Che
 /** printToPDF's custom pageSize wants inches (mmToInches — see @shared/cheque); the HTML body
  *  itself stays in CSS mm throughout (Chromium maps CSS mm correctly regardless of page size), so
  *  a misbehaving/clamped custom page size just prints the same mm layout with extra/less margin
- *  around it, never shifted content. */
-function chequePageSize(config: ChequeConfig): { width: number; height: number } {
-  return { width: mmToInches(config.widthMm), height: mmToInches(config.heightMm) }
+ *  around it, never shifted content. WP 4.1: the paper may be larger than the leaf (a carrier
+ *  sheet, or A4 with the leaf taped on) — pageWidthMm/pageHeightMm, 0 = the leaf itself. */
+export function chequePage(config: ChequeConfig): { widthMm: number; heightMm: number } {
+  return {
+    widthMm: config.pageWidthMm > 0 ? config.pageWidthMm : config.widthMm,
+    heightMm: config.pageHeightMm > 0 ? config.pageHeightMm : config.heightMm
+  }
 }
 
-/** Absolutely-positioned mm layout, printed onto a page sized to match (see chequePageSize). */
-function buildChequeHtml(config: ChequeConfig, fields: ChequeFields): string {
+function chequePageSize(config: ChequeConfig): { width: number; height: number } {
+  const page = chequePage(config)
+  return { width: mmToInches(page.widthMm), height: mmToInches(page.heightMm) }
+}
+
+const pageCss = (config: ChequeConfig): string => {
+  const page = chequePage(config)
+  return `html, body { width: ${page.widthMm}mm; height: ${page.heightMm}mm; }
+    .leaf { position: absolute; left: ${config.offsetXMm}mm; top: ${config.offsetYMm}mm; width: ${config.widthMm}mm; height: ${config.heightMm}mm; }`
+}
+
+/** Absolutely-positioned mm layout inside the leaf box; the leaf sits on the page at the
+ *  calibration offset. Exported for the layout tests. */
+export function buildChequeHtml(config: ChequeConfig, fields: ChequeFields): string {
   const dateDigits = fields.dateBoxes
     .split('')
     .map(
@@ -91,28 +108,28 @@ function buildChequeHtml(config: ChequeConfig, fields: ChequeFields): string {
     .join('')
 
   const acPayee = config.acPayee
-    ? `<div class="acpayee">A/C PAYEE ONLY</div>`
+    ? `<div class="acpayee" style="left:${config.acPayeePos.xMm}mm; top:${config.acPayeePos.yMm}mm;">A/C PAYEE ONLY</div>`
     : ''
 
   return `<!doctype html><html><head><meta charset="utf-8"><style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
-    html, body { width: ${config.widthMm}mm; height: ${config.heightMm}mm; }
-    body { position: relative; font: 11pt 'SF Mono', Menlo, monospace; color: #101010; }
+    ${pageCss(config)}
+    body { position: relative; font: ${config.fontPt}pt 'SF Mono', Menlo, monospace; color: #101010; }
     .abs { position: absolute; white-space: nowrap; }
     .acpayee {
-      position: absolute; left: 4mm; top: 4mm; width: 44mm;
+      position: absolute; width: 44mm;
       transform: rotate(-12deg); transform-origin: left top;
       font-size: 8.5pt; font-weight: 700; letter-spacing: 0.05em; text-align: center;
       border-top: 1.2pt double #101010; border-bottom: 1.2pt double #101010;
       padding: 1mm 0;
     }
-  </style></head><body>
+  </style></head><body><div class="leaf">
     ${acPayee}
     ${dateDigits}
     <div class="abs" style="left:${config.payee.xMm}mm; top:${config.payee.yMm}mm;">${esc(fields.payee)}</div>
     <div class="abs" style="left:${config.words.xMm}mm; top:${config.words.yMm}mm; width:${config.words.wMm}mm; white-space: normal;">${esc(fields.words)}</div>
     <div class="abs" style="left:${config.figures.xMm}mm; top:${config.figures.yMm}mm;">${esc(fields.figures)}</div>
-  </body></html>`
+  </div></body></html>`
 }
 
 /** Render + save the cheque PDF, then reveal it in Finder (loaded straight into the printer tray
@@ -122,13 +139,14 @@ export async function chequePdf(
   company: CompanyInfo,
   slug: string,
   voucherId: number,
-  bankLedgerId: number
+  bankLedgerId: number,
+  chequeNo?: string
 ): Promise<string> {
   const data = chequeData(db, voucherId, bankLedgerId)
   const config = getChequeConfig(db, bankLedgerId)
   const fields = chequeFields({ date: data.date, payee: data.payee, amount: data.amount })
   const html = buildChequeHtml(config, fields)
-  const safe = data.voucherNumber.replace(/[^a-zA-Z0-9-_]/g, '_')
+  const safe = (chequeNo ? `${data.voucherNumber}-${chequeNo}` : data.voucherNumber).replace(/[^a-zA-Z0-9-_]/g, '_')
   const path = await writeExportPdf(slug, `cheque-${safe}.pdf`, html, {
     pageSize: chequePageSize(config),
     margins: 'none'
@@ -141,10 +159,14 @@ const GRID_FIELDS = (config: ChequeConfig): { x: number; y: number; label: strin
   { x: config.date.xMm, y: config.date.yMm, label: 'date' },
   { x: config.payee.xMm, y: config.payee.yMm, label: 'payee' },
   { x: config.words.xMm, y: config.words.yMm, label: 'words' },
-  { x: config.figures.xMm, y: config.figures.yMm, label: 'figures' }
+  { x: config.figures.xMm, y: config.figures.yMm, label: 'figures' },
+  ...(config.acPayee ? [{ x: config.acPayeePos.xMm, y: config.acPayeePos.yMm, label: 'a/c payee' }] : [])
 ]
 
-function buildGridHtml(config: ChequeConfig): string {
+/** Calibration sheet: a 1 / 5 / 10 mm grid over the whole page with numbered rulers, the leaf
+ *  outline at its offset, and a cross + label at every field position. Exported for tests. */
+export function buildGridHtml(config: ChequeConfig): string {
+  const page = chequePage(config)
   const crosses = GRID_FIELDS(config)
     .map(
       (c) => `
@@ -153,23 +175,35 @@ function buildGridHtml(config: ChequeConfig): string {
       <div class="abs label" style="left:${c.x + 2.5}mm; top:${c.y - 3.5}mm;">${esc(c.label)} (${c.x}, ${c.y})</div>`
     )
     .join('')
+  const rulerX = Array.from({ length: Math.floor(page.widthMm / 10) + 1 }, (_, i) => i * 10)
+    .map((x) => `<div class="abs ruler" style="left:${x + 0.6}mm; top:0.6mm;">${x}</div>`)
+    .join('')
+  const rulerY = Array.from({ length: Math.floor(page.heightMm / 10) }, (_, i) => (i + 1) * 10)
+    .map((y) => `<div class="abs ruler" style="left:0.6mm; top:${y + 0.4}mm;">${y}</div>`)
+    .join('')
 
   return `<!doctype html><html><head><meta charset="utf-8"><style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
-    html, body { width: ${config.widthMm}mm; height: ${config.heightMm}mm; }
+    ${pageCss(config)}
     body {
       position: relative;
       background-image:
-        repeating-linear-gradient(to right, #ccc 0, #ccc 0.15mm, transparent 0.15mm, transparent 5mm),
-        repeating-linear-gradient(to bottom, #ccc 0, #ccc 0.15mm, transparent 0.15mm, transparent 5mm);
+        repeating-linear-gradient(to right, #999 0, #999 0.2mm, transparent 0.2mm, transparent 10mm),
+        repeating-linear-gradient(to bottom, #999 0, #999 0.2mm, transparent 0.2mm, transparent 10mm),
+        repeating-linear-gradient(to right, #ccc 0, #ccc 0.12mm, transparent 0.12mm, transparent 5mm),
+        repeating-linear-gradient(to bottom, #ccc 0, #ccc 0.12mm, transparent 0.12mm, transparent 5mm),
+        repeating-linear-gradient(to right, #eee 0, #eee 0.08mm, transparent 0.08mm, transparent 1mm),
+        repeating-linear-gradient(to bottom, #eee 0, #eee 0.08mm, transparent 0.08mm, transparent 1mm);
     }
+    .leaf { outline: 0.3mm dashed #06c; }
     .abs { position: absolute; }
     .label { font: 6.5pt 'SF Mono', Menlo, monospace; color: #c00; white-space: nowrap; }
-  </style></head><body>${crosses}</body></html>`
+    .ruler { font: 5pt 'SF Mono', Menlo, monospace; color: #555; }
+  </style></head><body>${rulerX}${rulerY}<div class="leaf">${crosses}</div></body></html>`
 }
 
-/** A 5mm-gridded calibration printout with crosses at every configured field position — print
- *  onto the same physical stationery to check the offsets before printing a real cheque. */
+/** A gridded calibration printout with crosses at every configured field position — print onto
+ *  the same physical stationery to check the offsets before printing a real cheque. */
 export async function testGridPdf(db: DB, company: CompanyInfo, slug: string, bankLedgerId: number): Promise<string> {
   const config = getChequeConfig(db, bankLedgerId)
   const html = buildGridHtml(config)

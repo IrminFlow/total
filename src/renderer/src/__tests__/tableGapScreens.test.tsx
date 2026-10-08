@@ -66,58 +66,64 @@ const RULES: BankRuleRecord[] = [
   { id: 2, pattern: 'RENT', matchField: 'description', ledgerId: 8, ledgerName: 'Rent', kind: 'payment', minAmount: null, maxAmount: null, autoApply: false, active: false, hits: 1 }
 ]
 
-describe('Banking modal tables', () => {
+describe('Banking tab tables', () => {
   beforeEach(() => {
     handlers['bank:ledgers'] = () => [{ id: 5, name: 'HDFC Bank' }]
     handlers['bank:recon'] = () => RECON
     handlers['bankrule:list'] = () => RULES
+    handlers['bankLearned:list'] = () => []
     handlers['master:ledgers:list'] = () => []
-    handlers['bank:importCsv'] = () => ({
-      statementRows: 3,
-      matched: 2,
-      alreadyReconciled: 0,
-      csvText: 'x',
-      autoCreated: [],
-      matches: [
-        { date: '2026-04-03', description: 'NEFT ACME', amount: 250_000, kind: 'deposit', lineId: 11 },
-        { date: '2026-04-05', description: 'CHQ 445 RENT', amount: 40_000, kind: 'withdrawal', lineId: 12 }
+    handlers['master:groups:list'] = () => []
+    handlers['bankImport:workspace'] = () => ({ lines: [], imports: [], openEntries: [] })
+    handlers['bankImport:pickFile'] = () => ({ fileName: 'stmt.csv', base64: 'eA==' })
+    handlers['bankImport:preview'] = () => ({
+      fileName: 'stmt.csv',
+      format: 'csv',
+      profile: {
+        delimiter: ',', encoding: 'utf-8', headerRow: 1, dateFormat: 'auto', dateCol: 0, valueDateCol: null, descCols: [1], refCol: null,
+        amountMode: 'split', debitCol: 2, creditCol: 3, amountCol: null, flagCol: null, balanceCol: null, signedNegativeIsDeposit: false
+      },
+      profileSource: 'detected',
+      grid: [['Date', 'Narration', 'Debit', 'Credit'], ['03/04/2026', 'NEFT ACME', '', '2500.00'], ['05/04/2026', 'CHQ 445 RENT', '400.00', '']],
+      lines: [
+        { lineNo: 1, hash: 'a', duplicate: false, date: '2026-04-03', valueDate: null, description: 'NEFT ACME', reference: '', deposit: 250_000, withdrawal: 0, balance: null },
+        { lineNo: 2, hash: 'b', duplicate: true, date: '2026-04-05', valueDate: null, description: 'CHQ 445 RENT', reference: '', deposit: 0, withdrawal: 40_000, balance: null }
       ],
-      unmatched: [{ date: '2026-04-09', description: 'BANK CHARGES', reference: '', amount: 590, kind: 'withdrawal' }]
+      newCount: 1,
+      duplicateCount: 1,
+      warnings: [],
+      account: null,
+      openingBalance: null,
+      closingBalance: null
     })
   })
 
-  it('import preview: both lists are DataTables inside the modal, keyboard-navigable', async () => {
+  it('import preview: the raw grid, the mapping and the lines (a DataTable, sortable, duplicates marked)', async () => {
     renderScreen(<BankingScreen />)
     await waitFor(() => expect(bodyRows('banking')).toHaveLength(1))
     fireEvent.click(screen.getByTestId('btn-banking-import'))
-    await waitFor(() => expect(screen.getByTestId('rows-banking-import-matches')).toBeTruthy())
-    const modal = dialog('Import preview')
-    expect(within(modal).getByTestId('banking-import-matches-table')).toBeTruthy()
-    expect(bodyRows('banking-import-matches').map((r) => r.querySelectorAll('td')[1]!.textContent)).toEqual(['NEFT ACME', 'CHQ 445 RENT'])
-    expect(bodyRows('banking-import-unmatched')).toHaveLength(1)
-    // The table the user last pointed at owns the arrows; the screen's table behind is suspended.
-    act(() => {
-      bodyRows('banking-import-matches')[0]!.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true }))
-    })
-    press('ArrowDown')
-    expect(activeIndex('banking-import-matches')).toBe(1)
-    expect(activeIndex('banking')).toBe(0)
-    fireEvent.click(screen.getByTestId('sort-banking-import-matches-amount'))
-    expect(bodyRows('banking-import-matches')[0]!.textContent).toContain('CHQ 445 RENT')
+    fireEvent.click(await screen.findByTestId('btn-banking-pick-statement'))
+    await waitFor(() => expect(screen.getByTestId('rows-banking-import-lines')).toBeTruthy())
+    expect(screen.getByTestId('banking-import-grid').textContent).toContain('CHQ 445 RENT')
+    expect(bodyRows('banking-import-lines').map((r) => r.querySelectorAll('td')[1]!.textContent)).toEqual(['NEFT ACME', 'CHQ 445 RENT'])
+    expect(bodyRows('banking-import-lines')[1]!.textContent).toContain('Already imported')
+    fireEvent.click(screen.getByTestId('sort-banking-import-lines-withdrawal'))
+    fireEvent.click(screen.getByTestId('sort-banking-import-lines-withdrawal'))
+    expect(bodyRows('banking-import-lines')[0]!.textContent).toContain('CHQ 445 RENT')
+    expect(screen.getByTestId('btn-banking-commit-import').textContent).toBe('Import 1 line')
+    // Changing the mapping requires applying it before importing.
+    fireEvent.change(screen.getByTestId('input-banking-map-dateFormat'), { target: { value: 'DD/MM/YYYY' } })
+    expect(screen.getByTestId('btn-banking-commit-import').textContent).toBe('Apply the mapping first')
   })
 
-  it('bank rules: a DataTable whose filter popover closes on Esc without closing the modal; a row loads the rule into the form', async () => {
-    renderScreen(<BankingScreen />)
-    await waitFor(() => expect(bodyRows('banking')).toHaveLength(1))
-    fireEvent.click(screen.getByTestId('btn-banking-rules'))
+  it('bank rules: a DataTable whose filter popover closes on Esc; a row loads the rule into the form; Active toggles', async () => {
+    renderScreen(<BankingScreen tab="rules" />)
     await waitFor(() => expect(bodyRows('banking-rules')).toHaveLength(2))
     expect(bodyRows('banking-rules').map((r) => r.dataset.rowId)).toEqual(['1', '2'])
     fireEvent.click(screen.getByTestId('filter-banking-rules-pattern'))
-    const pop = document.querySelector('[data-table-popover]')!
-    expect(dialog('Bank rules').contains(pop)).toBe(true)
+    expect(document.querySelector('[data-table-popover]')).toBeTruthy()
     press('Escape')
     expect(document.querySelector('[data-table-popover]')).toBeNull()
-    expect(document.querySelector('[data-modal="Bank rules"]')).toBeTruthy()
     // Toggling Active is not an edit; clicking the row is.
     fireEvent.click(within(bodyRows('banking-rules')[1]!).getByText('Paused'))
     await waitFor(() => expect(invoke).toHaveBeenCalledWith('bankrule:save', expect.objectContaining({ id: 2, data: expect.objectContaining({ active: true }) })))

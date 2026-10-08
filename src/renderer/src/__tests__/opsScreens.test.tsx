@@ -7,7 +7,8 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testi
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import type { Employee, PayrollRun } from '@shared/domain'
 import type { BankRecon, StockSummaryRow } from '@shared/reports'
-import type { CcReportRow, PdcRow } from '../lib/client'
+import type { CcReportRow } from '../lib/client'
+import type { PdcRegisterRow } from '../lib/bankingClient'
 import { useNav, useSession } from '../state/stores'
 import { StockSummaryScreen } from '../screens/StockSummary'
 import { BankingScreen } from '../screens/Banking'
@@ -138,16 +139,21 @@ const RECON: BankRecon = {
   ]
 }
 
-const PDC: PdcRow[] = [
-  { id: 201, date: '2026-05-01', number: 'P9', voucherTypeName: 'Payment', partyLedgerId: 34, partyName: 'Landlord', instrumentNo: '445', instrumentDate: '2026-05-01', amount: 40_000 },
-  { id: 202, date: '2026-05-10', number: 'R7', voucherTypeName: 'Receipt', partyLedgerId: 31, partyName: 'Acme Traders', instrumentNo: null, instrumentDate: null, amount: 90_000 }
+const pdcRow = (o: Partial<PdcRegisterRow> & Pick<PdcRegisterRow, 'voucherId' | 'date' | 'number' | 'amount'>): PdcRegisterRow => ({
+  voucherTypeName: 'Payment', direction: 'issued', partyLedgerId: null, partyName: null, bankLedgerId: 5, bankLedgerName: 'HDFC Bank',
+  instrumentNo: null, instrumentDate: null, status: 'pending', maturedAt: null, bouncedOn: null, bounceVoucherId: null, bounceCharges: null, bounceReason: null,
+  ...o
+})
+const PDC: PdcRegisterRow[] = [
+  pdcRow({ voucherId: 201, date: '2026-05-01', number: 'P9', partyLedgerId: 34, partyName: 'Landlord', instrumentNo: '445', instrumentDate: '2026-05-01', amount: 40_000 }),
+  pdcRow({ voucherId: 202, date: '2026-05-10', number: 'R7', voucherTypeName: 'Receipt', direction: 'received', partyLedgerId: 31, partyName: 'Acme Traders', amount: 90_000 })
 ]
 
 describe('Banking on DataTable', () => {
   beforeEach(() => {
     handlers['bank:ledgers'] = () => [{ id: 5, name: 'HDFC Bank' }]
     handlers['bank:recon'] = () => RECON
-    handlers['pdc:list'] = () => PDC
+    handlers['pdc:register'] = () => PDC
   })
 
   it('reconcile list: columns, date order, reconciled rows dimmed, deposit/withdrawal totals', async () => {

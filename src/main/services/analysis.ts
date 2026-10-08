@@ -5,6 +5,13 @@ import { fyOf } from '@shared/dates'
 import { descendantIdsByName } from './masters'
 import { IN_BOOKS } from './vouchers'
 
+/** WP 4.4: forex revaluation journals and their reversals restate a foreign balance at a closing
+ *  rate; they are not bills or payments, so they stay out of the bill events (otherwise the
+ *  journal opens a phantom bill and its reversal pays off the oldest real one). Bills are aged at
+ *  their book value; an un-reversed revaluation shows only in the ledger balance. */
+export const NOT_FX_REVALUATION = `v.id NOT IN (SELECT voucher_id FROM fx_revaluations WHERE voucher_id IS NOT NULL
+  UNION SELECT reversal_voucher_id FROM fx_revaluations WHERE reversal_voucher_id IS NOT NULL)`
+
 /** Account roots whose lines make up a register's taxable value — the Registers screen's
  *  definition, shared with the dashboard's net-of-notes trade series below. */
 export const REGISTER_ROOTS: Record<'sales' | 'purchase', string[]> = {
@@ -146,7 +153,7 @@ function partyEventsBatch(db: DB, partyIds: number[], asOn: string, sign: number
       `SELECT vl.ledger_id AS partyId, v.id AS voucherId, v.date, v.number,
               SUM(CASE WHEN vl.dr_cr = 'dr' THEN vl.amount ELSE -vl.amount END) AS net
        FROM voucher_lines vl CROSS JOIN vouchers v ON v.id = vl.voucher_id
-       WHERE vl.ledger_id IN (${placeholders}) AND v.date <= ? AND ${IN_BOOKS}
+       WHERE vl.ledger_id IN (${placeholders}) AND v.date <= ? AND ${IN_BOOKS} AND ${NOT_FX_REVALUATION}
        GROUP BY vl.ledger_id, v.id ORDER BY vl.ledger_id, v.date, v.id`
       // CROSS JOIN pins voucher_lines as the outer loop (SQLite never reorders it): drive the
       // party-ledger index, then look each voucher up by id. Left to itself the planner scanned

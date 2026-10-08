@@ -376,7 +376,35 @@ export const SCREENS: ScreenDef[] = [
     title: 'Budgets',
     screen: { name: 'budgets' },
     navSection: 'analysis',
-    invalidates: ['budgets', 'budgetVariance']
+    invalidates: ['budgets', 'budgetMonthly', 'budgetRevisions', 'budgetDrill', 'costCentres']
+  },
+  // WP 4.4: cash and finance.
+  {
+    name: 'cash-forecast',
+    title: 'Cash-flow forecast',
+    navLabel: 'Cash forecast',
+    keywords: ['forecast', 'cash flow projection', 'liquidity', 'shortfall', 'runway', 'scenario'],
+    screen: { name: 'cash-forecast' },
+    navSection: 'analysis',
+    invalidates: ['forecastBase', 'forecastItems']
+  },
+  {
+    name: 'loans',
+    title: 'Loans and EMIs',
+    navLabel: 'Loans',
+    keywords: ['emi', 'loan schedule', 'term loan', 'interest', 'amortisation', 'prepayment', 'moratorium'],
+    screen: { name: 'loans' },
+    navSection: 'analysis',
+    invalidates: ['loans', 'loan', 'ledgers']
+  },
+  {
+    name: 'forex',
+    title: 'Forex — exposures and revaluation',
+    navLabel: 'Forex',
+    keywords: ['foreign currency', 'exchange rate', 'revaluation', 'unrealised', 'realised gain', 'usd', 'export receivable'],
+    screen: { name: 'forex' },
+    navSection: 'analysis',
+    invalidates: ['fxPreview', 'fxRates', 'fxRevaluations', 'fxLedgerCurrencies', 'fxOpenBills', 'currencies']
   },
   // WP 6.1: report builder (pinned saved reports join the Analysis section as dynamic entries —
   // lib/dynamicNav.ts); WP 6.2: ratio analysis.
@@ -408,12 +436,15 @@ export const SCREENS: ScreenDef[] = [
 
   {
     name: 'banking',
-    keywords: ['bank reconciliation', 'brs', 'post-dated', 'pdc'],
-    title: 'Banking — reconciliation, BRS & post-dated',
+    keywords: ['bank reconciliation', 'brs', 'post-dated', 'pdc', 'bank statement import', 'mt940', 'camt', 'cheque printing', 'cheque register', 'bulk payments', 'neft', 'rtgs'],
+    title: 'Banking — reconciliation, statements, cheques & PDC',
     screen: { name: 'banking' },
     navSection: 'banking',
     navLabel: 'Reconciliation',
-    invalidates: ['bankLedgers', 'bankRecon', 'bankRules', 'chequeConfig', 'brs', 'pdc']
+    invalidates: [
+      'bankLedgers', 'bankRecon', 'bankRules', 'chequeConfig', 'brs', 'pdc', 'bankWorkspace', 'bankLearned', 'chequeBooks', 'chequeRegister',
+      'bulkTemplates', 'bulkCandidates', 'bulkBeneficiaries', 'bulkBatches'
+    ]
   },
 
   {

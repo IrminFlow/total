@@ -2373,10 +2373,400 @@ export const MIGRATIONS: string[] = [
   );
   CREATE INDEX idx_payment_run_vouchers_voucher ON payment_run_vouchers(voucher_id);
   `,
+  // 034 — banking depth (WP 4.1). Number assigned by the orchestrator: after 032 (WP 4.2
+  // receivables) and 033 (WP 4.3 payables).
+  // - ledgers.bank_account_no / bank_ifsc / bank_account_name / bank_email: the beneficiary
+  //   master on party ledgers (bulk NEFT/RTGS files) and the company's own account on bank
+  //   ledgers (the debit account of those files). Managed from Banking → Bulk payments.
+  // - bank_import_profiles: the column mapping for tabular statements (CSV/TXT, XLSX),
+  //   remembered per bank ledger and format (delimiter, encoding, header row, date format,
+  //   debit/credit columns or one signed column or amount + Dr/Cr flag column).
+  // - bank_statement_imports / bank_statement_lines: imported statements are kept. A line's
+  //   import_hash (date, signed amount, normalised narration, n-th identical line that day —
+  //   shared/bankFormats/quirks.ts importHashes) is unique per bank ledger, so re-importing the
+  //   same file or an overlapping one skips what is already there. A line's state is derived:
+  //   matched = has bank_statement_matches rows; ignored = ignored_at set; else open.
+  // - bank_statement_matches: confirmed matches between statement lines and vouchers (keyed by
+  //   voucher, not voucher line — a voucher edit rewrites its lines; voucher_line_id remembers the
+  //   exact bank line matched while it still exists). A match whose voucher is out of the books
+  //   (binned) counts as broken: the line shows unmatched again, and the match revives if the
+  //   voucher is restored while the line is still free. Many-to-one and one-to-many are several rows. created_voucher marks a voucher made from the statement line
+  //   (undo import bins it); prev_bank_date is what the bank line had before, restored on undo.
+  // - bank_learned_rules: rules learned from confirmed matches / created vouchers (narration
+  //   tokens → ledger, party, voucher kind, narration template) with hit / applied / rejected
+  //   counts; confidence is computed from those (shared/bankMatch.ts ruleConfidence).
+  // - cheque_books / cheques: cheque register. A leaf gets a cheques row when issued, cancelled
+  //   or stopped; "cleared" is derived from the voucher's bank date, never stored.
+  // - pdc_events: post-dated cheques after maturity (the voucher's post_dated flag goes to 0,
+  //   so this keeps them in the PDC register) and bounces (reversal voucher + charges). The
+  //   trigger records every 1 → 0 flip of vouchers.post_dated (automatic maturity on company
+  //   open, "Mature now", or an edit), and the backfill picks up maturities already in the audit
+  //   log (after_json.matured = true).
+  // - bank_payment_templates / bank_payment_batches / bank_payment_batch_items: user-defined
+  //   bulk payment file layouts (JSON spec, shared/bulkPayments.ts) and every exported file
+  //   with one item per payee debit line (voucher + ledger) and the beneficiary details it carried.
+  `
+  ALTER TABLE ledgers ADD COLUMN bank_account_no TEXT;
+  ALTER TABLE ledgers ADD COLUMN bank_ifsc TEXT;
+  ALTER TABLE ledgers ADD COLUMN bank_account_name TEXT;
+  ALTER TABLE ledgers ADD COLUMN bank_email TEXT;
+
+  CREATE TABLE bank_import_profiles (
+    id INTEGER PRIMARY KEY,
+    bank_ledger_id INTEGER NOT NULL REFERENCES ledgers(id) ON DELETE CASCADE,
+    format TEXT NOT NULL CHECK (format IN ('csv', 'xlsx')),
+    delimiter TEXT NOT NULL DEFAULT 'auto' CHECK (delimiter IN ('auto', ',', ';', char(9), '|')),
+    encoding TEXT NOT NULL DEFAULT 'utf-8' CHECK (encoding IN ('utf-8', 'utf-16le', 'windows-1252')),
+    header_row INTEGER NOT NULL DEFAULT 1 CHECK (header_row >= 0),
+    date_format TEXT NOT NULL DEFAULT 'auto',
+    date_col INTEGER NOT NULL,
+    value_date_col INTEGER,
+    desc_cols TEXT NOT NULL DEFAULT '[]',
+    ref_col INTEGER,
+    amount_mode TEXT NOT NULL CHECK (amount_mode IN ('split', 'signed', 'flag')),
+    debit_col INTEGER,
+    credit_col INTEGER,
+    amount_col INTEGER,
+    flag_col INTEGER,
+    balance_col INTEGER,
+    signed_negative_is_deposit INTEGER NOT NULL DEFAULT 0,
+    updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+    UNIQUE (bank_ledger_id, format)
+  );
+
+  CREATE TABLE bank_statement_imports (
+    id INTEGER PRIMARY KEY,
+    bank_ledger_id INTEGER NOT NULL REFERENCES ledgers(id),
+    format TEXT NOT NULL,
+    file_name TEXT NOT NULL DEFAULT '',
+    imported_at TEXT NOT NULL DEFAULT (datetime('now')),
+    line_count INTEGER NOT NULL DEFAULT 0,
+    duplicate_count INTEGER NOT NULL DEFAULT 0,
+    account TEXT,
+    opening_balance INTEGER,
+    closing_balance INTEGER
+  );
+  CREATE INDEX idx_bsi_ledger ON bank_statement_imports(bank_ledger_id);
+
+  CREATE TABLE bank_statement_lines (
+    id INTEGER PRIMARY KEY,
+    import_id INTEGER NOT NULL REFERENCES bank_statement_imports(id) ON DELETE CASCADE,
+    bank_ledger_id INTEGER NOT NULL REFERENCES ledgers(id),
+    line_no INTEGER NOT NULL,
+    date TEXT NOT NULL,
+    value_date TEXT,
+    description TEXT NOT NULL DEFAULT '',
+    reference TEXT NOT NULL DEFAULT '',
+    deposit INTEGER NOT NULL DEFAULT 0 CHECK (deposit >= 0),
+    withdrawal INTEGER NOT NULL DEFAULT 0 CHECK (withdrawal >= 0),
+    balance INTEGER,
+    import_hash TEXT NOT NULL,
+    ignored_at TEXT,
+    CHECK ((deposit > 0) <> (withdrawal > 0)),
+    UNIQUE (bank_ledger_id, import_hash)
+  );
+  CREATE INDEX idx_bsl_import ON bank_statement_lines(import_id);
+  CREATE INDEX idx_bsl_ledger_date ON bank_statement_lines(bank_ledger_id, date);
+
+  CREATE TABLE bank_statement_matches (
+    id INTEGER PRIMARY KEY,
+    statement_line_id INTEGER NOT NULL REFERENCES bank_statement_lines(id) ON DELETE CASCADE,
+    voucher_id INTEGER NOT NULL REFERENCES vouchers(id) ON DELETE CASCADE,
+    voucher_line_id INTEGER,
+    created_voucher INTEGER NOT NULL DEFAULT 0,
+    prev_bank_date TEXT,
+    confirmed_at TEXT NOT NULL DEFAULT (datetime('now')),
+    UNIQUE (statement_line_id, voucher_id)
+  );
+  CREATE INDEX idx_bsm_voucher ON bank_statement_matches(voucher_id);
+
+  CREATE TABLE bank_learned_rules (
+    id INTEGER PRIMARY KEY,
+    direction TEXT NOT NULL CHECK (direction IN ('deposit', 'withdrawal')),
+    tokens TEXT NOT NULL,
+    ledger_id INTEGER NOT NULL REFERENCES ledgers(id) ON DELETE CASCADE,
+    party_ledger_id INTEGER REFERENCES ledgers(id) ON DELETE SET NULL,
+    voucher_kind TEXT NOT NULL DEFAULT 'payment' CHECK (voucher_kind IN ('payment', 'receipt', 'contra', 'journal')),
+    narration_template TEXT,
+    hits INTEGER NOT NULL DEFAULT 0,
+    applied INTEGER NOT NULL DEFAULT 0,
+    rejected INTEGER NOT NULL DEFAULT 0,
+    status TEXT NOT NULL DEFAULT 'candidate' CHECK (status IN ('candidate', 'accepted', 'ignored')),
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+  CREATE INDEX idx_blr_ledger ON bank_learned_rules(ledger_id);
+
+  CREATE TABLE cheque_books (
+    id INTEGER PRIMARY KEY,
+    bank_ledger_id INTEGER NOT NULL REFERENCES ledgers(id),
+    name TEXT NOT NULL DEFAULT '',
+    from_no INTEGER NOT NULL CHECK (from_no >= 0),
+    to_no INTEGER NOT NULL,
+    width INTEGER NOT NULL DEFAULT 6 CHECK (width BETWEEN 1 AND 12),
+    received_on TEXT,
+    active INTEGER NOT NULL DEFAULT 1,
+    CHECK (to_no >= from_no AND to_no - from_no < 10000)
+  );
+  CREATE INDEX idx_cheque_books_ledger ON cheque_books(bank_ledger_id);
+
+  CREATE TABLE cheques (
+    id INTEGER PRIMARY KEY,
+    bank_ledger_id INTEGER NOT NULL REFERENCES ledgers(id),
+    cheque_book_id INTEGER REFERENCES cheque_books(id),
+    number TEXT NOT NULL,
+    leaf INTEGER,
+    status TEXT NOT NULL CHECK (status IN ('issued', 'cancelled', 'stopped')),
+    voucher_id INTEGER REFERENCES vouchers(id) ON DELETE SET NULL,
+    payee TEXT,
+    amount INTEGER,
+    cheque_date TEXT,
+    note TEXT,
+    printed_count INTEGER NOT NULL DEFAULT 0,
+    last_printed_at TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+    UNIQUE (bank_ledger_id, number)
+  );
+  CREATE INDEX idx_cheques_voucher ON cheques(voucher_id);
+  CREATE INDEX idx_cheques_book ON cheques(cheque_book_id);
+
+  CREATE TABLE pdc_events (
+    voucher_id INTEGER PRIMARY KEY REFERENCES vouchers(id) ON DELETE CASCADE,
+    matured_at TEXT,
+    bounced_on TEXT,
+    bounce_voucher_id INTEGER REFERENCES vouchers(id) ON DELETE SET NULL,
+    bounce_charges INTEGER,
+    bounce_reason TEXT
+  );
+  CREATE TRIGGER pdc_mark_matured AFTER UPDATE OF post_dated ON vouchers
+    WHEN OLD.post_dated = 1 AND NEW.post_dated = 0
+  BEGIN
+    INSERT INTO pdc_events (voucher_id, matured_at) VALUES (NEW.id, datetime('now'))
+      ON CONFLICT(voucher_id) DO UPDATE SET matured_at = excluded.matured_at;
+  END;
+  INSERT OR IGNORE INTO pdc_events (voucher_id, matured_at)
+    SELECT a.entity_id, MIN(a.at) FROM audit_log a
+    WHERE a.entity = 'voucher'
+      AND (CASE WHEN json_valid(a.after_json) THEN json_extract(a.after_json, '$.matured') END) = 1
+      AND a.entity_id IN (SELECT id FROM vouchers)
+    GROUP BY a.entity_id;
+
+  CREATE TABLE bank_payment_templates (
+    id INTEGER PRIMARY KEY,
+    name TEXT NOT NULL UNIQUE COLLATE NOCASE,
+    spec TEXT NOT NULL,
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+
+  CREATE TABLE bank_payment_batches (
+    id INTEGER PRIMARY KEY,
+    bank_ledger_id INTEGER NOT NULL REFERENCES ledgers(id),
+    template_name TEXT NOT NULL,
+    file_name TEXT NOT NULL,
+    voucher_count INTEGER NOT NULL,
+    total INTEGER NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+
+  CREATE TABLE bank_payment_batch_items (
+    batch_id INTEGER NOT NULL REFERENCES bank_payment_batches(id) ON DELETE CASCADE,
+    voucher_id INTEGER NOT NULL REFERENCES vouchers(id) ON DELETE CASCADE,
+    ledger_id INTEGER NOT NULL REFERENCES ledgers(id),
+    amount INTEGER NOT NULL,
+    beneficiary_name TEXT NOT NULL,
+    beneficiary_account TEXT NOT NULL,
+    beneficiary_ifsc TEXT NOT NULL,
+    PRIMARY KEY (batch_id, voucher_id, ledger_id)
+  );
+  CREATE INDEX idx_bpbi_voucher ON bank_payment_batch_items(voucher_id);
+  `,
+  // 035 (WP 4.4) — cash and finance. Number assigned by the orchestrator: after 032 (WP 4.2
+  // receivables), 033 (WP 4.3 payables) and 034 (WP 4.1 banking); the last migration. Dbtests
+  // locate it by content and check it is the 35th. Purely additive: new tables and nullable / defaulted columns.
+  // - forecast_items: the user's known recurring flows (rent, salaries, a loan top-up …) and
+  //   one-off manual adjustments for the cash-flow forecast. Paise; an adjustment is signed
+  //   (+ in, − out), inflow / outflow amounts are positive.
+  // - budgets.seasonal_json: the budget's 12 integer month weights (Apr..Mar) for `seasonal`
+  //   phasing (NULL = even). budget_lines.cost_centre_id (the department / cost-centre dimension),
+  //   .phasing ('annual' = the original annual-vs-YTD behaviour, every existing row keeps it),
+  //   .monthly_json (12 paise amounts for `manual` phasing).
+  // - budget_revisions: one row per save of an existing budget — the whole before / after line
+  //   set, who, when and why (the audit log has the same before / after; this is the readable
+  //   revision history the Budgets screen shows).
+  // - loans / loan_prepayments / loan_schedules: the loan terms, prepayments, and the generated
+  //   instalment rows (src/shared/loanSchedule.ts). A posted row keeps its voucher (Post EMI);
+  //   voucher FKs are ON DELETE SET NULL so a purge from the bin never blocks.
+  // - fx_rates: closing rates by date and currency, entered by the user (no network), integer
+  //   micro-rupees per unit. fx_ledger_currency: a ledger kept in a foreign currency (needed for
+  //   bank accounts; party ledgers are detected from their foreign-currency invoices).
+  //   fx_revaluations / fx_revaluation_lines: each closing-rate revaluation journal, its optional
+  //   next-day reversal and the per-ledger working. fx_settlements (+ fx_settlement_bills): a
+  //   settlement at an actual rate, bill by bill — one voucher whose party line carries the
+  //   foreign amount and the bills' book value, the realised difference on its own line.
+  `
+  CREATE TABLE forecast_items (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    amount INTEGER NOT NULL CHECK (amount <> 0),
+    cadence TEXT NOT NULL CHECK (cadence IN ('once', 'weekly', 'monthly', 'quarterly', 'yearly')),
+    start_date TEXT NOT NULL,
+    end_date TEXT,
+    kind TEXT NOT NULL CHECK (kind IN ('inflow', 'outflow', 'adjustment')),
+    active INTEGER NOT NULL DEFAULT 1 CHECK (active IN (0, 1)),
+    note TEXT,
+    CHECK (end_date IS NULL OR end_date >= start_date),
+    CHECK (kind = 'adjustment' OR amount > 0)
+  );
+
+  ALTER TABLE budgets ADD COLUMN seasonal_json TEXT;
+  ALTER TABLE budget_lines ADD COLUMN cost_centre_id INTEGER REFERENCES cost_centres(id);
+  ALTER TABLE budget_lines ADD COLUMN phasing TEXT NOT NULL DEFAULT 'annual'
+    CHECK (phasing IN ('annual', 'even', 'seasonal', 'manual'));
+  ALTER TABLE budget_lines ADD COLUMN monthly_json TEXT;
+  CREATE INDEX idx_budget_lines_cc ON budget_lines(cost_centre_id);
+
+  CREATE TABLE budget_revisions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    budget_id INTEGER NOT NULL REFERENCES budgets(id) ON DELETE CASCADE,
+    revision_no INTEGER NOT NULL,
+    revised_at TEXT NOT NULL DEFAULT (datetime('now')),
+    user_name TEXT,
+    reason TEXT,
+    before_json TEXT NOT NULL,
+    after_json TEXT NOT NULL,
+    total_before INTEGER NOT NULL,
+    total_after INTEGER NOT NULL,
+    UNIQUE (budget_id, revision_no)
+  );
+
+  CREATE TABLE loans (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL UNIQUE COLLATE NOCASE,
+    loan_ledger_id INTEGER NOT NULL REFERENCES ledgers(id),
+    bank_ledger_id INTEGER REFERENCES ledgers(id),
+    interest_ledger_id INTEGER REFERENCES ledgers(id),
+    principal INTEGER NOT NULL CHECK (principal > 0),
+    annual_rate_milli INTEGER NOT NULL CHECK (annual_rate_milli BETWEEN 0 AND 60000),
+    tenure_months INTEGER NOT NULL CHECK (tenure_months BETWEEN 1 AND 600),
+    disbursed_on TEXT NOT NULL,
+    first_due_date TEXT NOT NULL,
+    method TEXT NOT NULL DEFAULT 'reducing' CHECK (method IN ('reducing', 'flat')),
+    moratorium_months INTEGER NOT NULL DEFAULT 0 CHECK (moratorium_months BETWEEN 0 AND 60),
+    moratorium_mode TEXT NOT NULL DEFAULT 'capitalise' CHECK (moratorium_mode IN ('capitalise', 'interest_only')),
+    emi_override INTEGER CHECK (emi_override IS NULL OR emi_override > 0),
+    status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'closed')),
+    notes TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    CHECK (first_due_date > disbursed_on)
+  );
+  CREATE TABLE loan_prepayments (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    loan_id INTEGER NOT NULL REFERENCES loans(id) ON DELETE CASCADE,
+    date TEXT NOT NULL,
+    amount INTEGER NOT NULL CHECK (amount > 0),
+    effect TEXT NOT NULL CHECK (effect IN ('reduce_tenure', 'reduce_emi'))
+  );
+  CREATE INDEX idx_loan_prepayments_loan ON loan_prepayments(loan_id);
+  CREATE TABLE loan_schedules (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    loan_id INTEGER NOT NULL REFERENCES loans(id) ON DELETE CASCADE,
+    seq INTEGER NOT NULL,
+    due_date TEXT NOT NULL,
+    kind TEXT NOT NULL CHECK (kind IN ('emi', 'moratorium', 'prepayment')),
+    opening INTEGER NOT NULL,
+    payment INTEGER NOT NULL CHECK (payment >= 0),
+    interest INTEGER NOT NULL CHECK (interest >= 0),
+    principal INTEGER NOT NULL,
+    closing INTEGER NOT NULL CHECK (closing >= 0),
+    voucher_id INTEGER REFERENCES vouchers(id) ON DELETE SET NULL,
+    posted_at TEXT,
+    UNIQUE (loan_id, seq),
+    CHECK (opening - principal = closing),
+    CHECK (payment = principal + interest)
+  );
+  CREATE INDEX idx_loan_schedules_due ON loan_schedules(due_date);
+  CREATE INDEX idx_loan_schedules_voucher ON loan_schedules(voucher_id);
+  -- Every voucher Post EMI created, kept even after its schedule row is regenerated, so the bin
+  -- can refuse restoring an instalment that was posted again (or no longer exists). Purging the
+  -- voucher drops the row; the loan id has no FK so deleteLoan can refuse while any remain.
+  CREATE TABLE loan_vouchers (
+    voucher_id INTEGER PRIMARY KEY REFERENCES vouchers(id) ON DELETE CASCADE,
+    loan_id INTEGER NOT NULL,
+    seq INTEGER NOT NULL,
+    kind TEXT NOT NULL CHECK (kind IN ('emi', 'moratorium', 'prepayment'))
+  );
+  CREATE INDEX idx_loan_vouchers_loan ON loan_vouchers(loan_id);
+
+  CREATE TABLE fx_rates (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    date TEXT NOT NULL,
+    currency_code TEXT NOT NULL,
+    rate_micro INTEGER NOT NULL CHECK (rate_micro > 0),
+    note TEXT,
+    UNIQUE (date, currency_code)
+  );
+  CREATE TABLE fx_ledger_currency (
+    ledger_id INTEGER PRIMARY KEY REFERENCES ledgers(id) ON DELETE CASCADE,
+    currency_code TEXT NOT NULL,
+    -- The foreign amount (hundredths, dr-positive) behind the ledger's rupee opening balance —
+    -- e.g. a Tally-imported debtor's opening. NULL = the opening is not foreign money.
+    opening_fc INTEGER
+  );
+  CREATE TABLE fx_revaluations (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    as_of TEXT NOT NULL,
+    voucher_id INTEGER REFERENCES vouchers(id) ON DELETE SET NULL,
+    reversal_voucher_id INTEGER REFERENCES vouchers(id) ON DELETE SET NULL,
+    auto_reverse INTEGER NOT NULL DEFAULT 1 CHECK (auto_reverse IN (0, 1)),
+    gain INTEGER NOT NULL DEFAULT 0 CHECK (gain >= 0),
+    loss INTEGER NOT NULL DEFAULT 0 CHECK (loss >= 0),
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+  CREATE INDEX idx_fx_revaluations_voucher ON fx_revaluations(voucher_id);
+  CREATE INDEX idx_fx_revaluations_reversal ON fx_revaluations(reversal_voucher_id);
+  CREATE TABLE fx_revaluation_lines (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    revaluation_id INTEGER NOT NULL REFERENCES fx_revaluations(id) ON DELETE CASCADE,
+    ledger_id INTEGER NOT NULL REFERENCES ledgers(id),
+    currency_code TEXT NOT NULL,
+    fc_balance INTEGER NOT NULL,
+    book_inr INTEGER NOT NULL,
+    rate_micro INTEGER NOT NULL CHECK (rate_micro > 0),
+    target_inr INTEGER NOT NULL,
+    adjustment INTEGER NOT NULL,
+    CHECK (target_inr - book_inr = adjustment)
+  );
+  CREATE INDEX idx_fx_revaluation_lines_rev ON fx_revaluation_lines(revaluation_id);
+  CREATE TABLE fx_settlements (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    voucher_id INTEGER NOT NULL REFERENCES vouchers(id) ON DELETE CASCADE,
+    party_ledger_id INTEGER NOT NULL REFERENCES ledgers(id),
+    currency_code TEXT NOT NULL,
+    fc_amount INTEGER NOT NULL CHECK (fc_amount > 0),
+    settle_rate_micro INTEGER NOT NULL CHECK (settle_rate_micro > 0),
+    party_inr INTEGER NOT NULL CHECK (party_inr >= 0),
+    bank_inr INTEGER NOT NULL CHECK (bank_inr >= 0),
+    gain_loss INTEGER NOT NULL,
+    UNIQUE (voucher_id, party_ledger_id)
+  );
+  -- Bill-wise settlement: each foreign bill relieved at its own book rate (AS 11 para 13).
+  -- invoice_voucher_id NULL = the ledger's foreign opening balance (bill name 'Opening').
+  CREATE TABLE fx_settlement_bills (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    settlement_id INTEGER NOT NULL REFERENCES fx_settlements(id) ON DELETE CASCADE,
+    invoice_voucher_id INTEGER REFERENCES vouchers(id) ON DELETE SET NULL,
+    bill_name TEXT NOT NULL,
+    fc_amount INTEGER NOT NULL CHECK (fc_amount > 0),
+    book_inr INTEGER NOT NULL CHECK (book_inr >= 0)
+  );
+  CREATE INDEX idx_fx_settlement_bills_settlement ON fx_settlement_bills(settlement_id);
+  CREATE INDEX idx_fx_settlement_bills_invoice ON fx_settlement_bills(invoice_voucher_id);
+  `,
   // 038 (WP 6.1 / 6.2) — report builder and scheduled report packs. Number assigned by the
-  // orchestrator: 032 receivables and 033 payables are on main; 034–037 (banking, cash/finance,
-  // AI, Excel) are on parallel branches — this one stays LAST when they merge (array position
-  // = migration number; never edit the content). Self-contained:
+  // orchestrator: 032–035 (Phase 4) are on main; 036 (AI) and 037 (Excel) are on parallel
+  // branches — this one stays LAST when they merge (array position = migration number; never
+  // edit the content). Self-contained:
   // depends only on core tables. Saved reports store the query model only (every figure is
   // computed at query time); a pack lists built-in and saved reports with a period rule, an
   // output folder and a frequency, and keeps a run log.
