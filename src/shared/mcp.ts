@@ -114,7 +114,9 @@ export function claudeDesktopConfig(o: McpLaunchOptions, needsPin: boolean): str
 }
 
 /** Who proposed a draft, for the voucher editor's banner. */
-export function aiDraftByLabel(d: { source?: 'chat' | 'mcp' | 'inbox'; origin?: string | null }): string {
+export function aiDraftByLabel(d: { source?: 'chat' | 'mcp' | 'inbox' | 'capture'; origin?: string | null }): string {
+  // WP 5.4: a captured bill, or a categorised bank statement line.
+  if (d.source === 'capture') return d.origin?.startsWith('Statement line') ? `From the bank statement (${d.origin.toLowerCase()})` : `Read from the captured file ${d.origin ?? ''}`.trim()
   if (d.source === 'mcp') return `Proposed over MCP by ${d.origin ?? 'an MCP client'}`
   if (d.source === 'inbox') return `From ${d.origin ? `the inbox file ${d.origin}` : 'an inbox file'} (not asked for in Total)`
   return 'Drafted by the assistant'

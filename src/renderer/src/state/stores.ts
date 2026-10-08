@@ -113,6 +113,8 @@ export type Screen =
   // WP 6.5: group consolidation (statements, inter-company, eliminations, group definition).
   | { name: 'consolidation'; tab?: 'statements' | 'intercompany' | 'eliminations' | 'groups'; groupId?: number }
   | { name: 'banking'; tab?: 'recon' | 'import' | 'rules' | 'cheques' | 'pdc' | 'bulk' | 'brs' }
+  // WP 5.4: document capture (bill photos / PDFs → purchase drafts).
+  | { name: 'capture' }
   | { name: 'payroll' }
   | { name: 'tds' }
   | { name: 'tcs' }

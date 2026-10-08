@@ -268,10 +268,7 @@ describe('the queue survives restarts and can be stopped', () => {
 
     // A slow provider: cancel the item in flight; the run goes on with the next.
     let release: () => void = () => {}
-    const slow = new MockProvider(async (req) => {
-      if (req.signal?.aborted) throw new Error('aborted')
-      return captureMockStep(req)!
-    })
+    const slow = new MockProvider((req) => captureMockStep(req)!)
     const gate = new Promise<void>((r) => (release = r))
     const original = slow.chat.bind(slow)
     let calls = 0
