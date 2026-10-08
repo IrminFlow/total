@@ -28,6 +28,8 @@ import type { ToolRegistry } from './tools/registry'
 import { redactSecrets } from './provider'
 import * as store from './store'
 import { writeAudit } from '../services/audit'
+import { activeMemories, markMemoriesUsed } from './memory'
+import { buildMemoryBlock, citedMemoryIds, createMemoryContext, EMPTY_MEMORY_CONTEXT, stripMemoryCitations } from './memoryRules'
 
 // ---------- per-thread runs (keyed by company + thread) ----------
 
@@ -288,6 +290,12 @@ async function runLoop(
   const role = deps.user.role
   const tools = registry.available(role)
   const specs = registry.specs(role)
+  // WP 5.6: active memories go in a capped DATA block (masked with the rest of the prompt) and
+  // into the tools' memory context — only while the company's assistant is on and memory is used.
+  const memories = settings.useMemory ? activeMemories(db) : []
+  const memoryBlock = buildMemoryBlock(memories)
+  const memory = memories.length ? createMemoryContext(memories) : EMPTY_MEMORY_CONTEXT
+  const memoryBytes = memoryBlock.lines.length ? Buffer.byteLength(outboundText(memoryBlock.lines.join('\n'), privacy), 'utf8') : 0
   const instructions = outboundText(
     buildSystemPrompt({
       company: {
@@ -303,7 +311,8 @@ async function runLoop(
       screen: input.context?.screen ?? null,
       context: input.context ?? null,
       tools: tools.map((t) => ({ name: t.name, kind: t.kind })),
-      privacy: settings.privacy
+      privacy: settings.privacy,
+      memory: memoryBlock
     }),
     privacy
   )
@@ -344,7 +353,9 @@ async function runLoop(
       pseudonymised: !!privacy.pseudonymiser,
       payloadSha256: sha256(payload),
       // What was SENT: the masked / pseudonymised context (never raw party names or identifiers).
-      context: input.context ? mapStrings(input.context, (s) => outboundText(s, privacy)) : null
+      context: input.context ? mapStrings(input.context, (s) => outboundText(s, privacy)) : null,
+      memoryCount: memoryBlock.ids.length,
+      memoryBytes
     })
 
     const reverser = privacy.pseudonymiser?.stream()
@@ -388,7 +399,10 @@ async function runLoop(
       emit({ type: 'cancelled', threadId, runId })
       return { status: 'cancelled' }
     }
-    const text = inboundText(res.text, privacy)
+    const rawText = inboundText(res.text, privacy)
+    // Citations of memories the model saw ([M3]) become chips; the tags leave the shown text.
+    const cited = citedMemoryIds(rawText, new Set(memoryBlock.ids))
+    const text = stripMemoryCitations(rawText)
     const usageFields = { model: res.model, inputTokens: res.usage.inputTokens, outputTokens: res.usage.outputTokens, costMicroUsd: cost }
 
     if (res.toolCalls.length === 0) {
@@ -399,7 +413,9 @@ async function runLoop(
         .reverse()
         .map((m) => ({ tool: m.toolName ?? '?', output: m.toolOutput, sources: m.sources }))
       const figures = checkFigures(text, seen, origins)
-      const final = store.addMessage(db, { threadId, role: 'assistant', content: text, figures, sources: dedupeSources(turnSources), ...usageFields })
+      const memoryIds = [...new Set([...cited, ...memory.used])]
+      const final = store.addMessage(db, { threadId, role: 'assistant', content: text, figures, sources: dedupeSources(turnSources), memoryIds, ...usageFields })
+      markMemoriesUsed(db, memoryIds)
       db.prepare('UPDATE ai_usage SET message_id = ? WHERE id = ?').run(final.id, usageId)
       send(final)
       emit({ type: 'done', threadId, runId })
@@ -426,7 +442,7 @@ async function runLoop(
       emit({ type: 'tool-start', threadId, runId, callId: c.callId, name: c.name, input: c.input })
       const run = await registry.run(c.name, c.args, {
         db, company: deps.company, role: roleNow, userName: deps.user.name, threadId, messageId: assistant.id, today, period, userRequest,
-        screen: input.context ?? null
+        screen: input.context ?? null, memory
       })
       const output = run.ok ? { ok: true, result: run.data } : { ok: false, error: run.error }
       const sent = sentToolText(output, privacy, budget)

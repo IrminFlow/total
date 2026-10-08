@@ -183,9 +183,33 @@ function screenAnswer(r: Row): string {
   return parts.join('\n')
 }
 
+/** WP 5.6: "remember that …" → list_ledgers, then `remember` (a preference when it names a cash /
+ *  bank ledger to pay from, else a fact pointing at the ledger it names). */
+function rememberStep(question: string, results: { name: string; output: string }[]): MockStep {
+  const done = results.find((r) => r.name === 'remember')
+  if (done) {
+    const d = parse(done.output)
+    if (d.error) return { text: `I could not propose that: ${d.error}` }
+    return { text: 'I have proposed remembering that. Accept it below (or in Settings → AI → Memory) — it is not used until you do.' }
+  }
+  const list = results.find((r) => r.name === 'list_ledgers')
+  if (!list) return { text: '', toolCalls: [{ name: 'list_ledgers', arguments: {} }] }
+  const ledgers = ((JSON.parse(list.output) as { result?: { ledgers?: { id: number; name: string; group: string }[] } }).result?.ledgers ?? [])
+  const lower = question.toLowerCase()
+  const named = ledgers.filter((l) => lower.includes(l.name.toLowerCase())).sort((a, b) => b.name.length - a.name.length)[0]
+  const text = question.replace(/^\s*(please\s+)?remember( that)?[:,]?\s*/i, '').replace(/^./, (c) => c.toUpperCase()).slice(0, 300)
+  const payFrom = named && /\bpa(y|id|yment|yments)\b/.test(lower) && /bank|cash/i.test(named.group)
+  const args = payFrom
+    ? { kind: 'preference', text, data: { purpose: 'payment', ledgerId: named.id } }
+    : { kind: 'fact', text, ...(named ? { data: { ledgerId: named.id } } : {}) }
+  return { text: '', toolCalls: [{ name: 'remember', arguments: args }] }
+}
+
 export const demoScript: MockScript = (req) => {
   const { question, results } = sinceLastUser(req.input)
   const q = question.toLowerCase()
+
+  if (/^\s*(please\s+)?remember\b/.test(q)) return rememberStep(question, results)
 
   const figure = /Figure to explain \(JSON\): (\{.*\})/.exec(req.instructions)?.[1]
   if (figure && /^explain this figure/i.test(question)) {
@@ -243,7 +267,9 @@ export const demoScript: MockScript = (req) => {
       try {
         const d = JSON.parse(draft.output) as { result?: { draftId?: number; summary?: string }; error?: string }
         if (d.error) return { text: `I could not draft it: ${d.error}` }
-        return { text: `I drafted it: ${d.result?.summary}. Review the draft and save it from the voucher editor — nothing is in the books yet.` }
+        const fromMemory = (d.result as { fromMemory?: string[] } | undefined)?.fromMemory ?? []
+        const cite = fromMemory.length ? ` It pays from the ledger you asked me to remember ${fromMemory.map((m) => `[${m}]`).join(' ')}.` : ''
+        return { text: `I drafted it: ${d.result?.summary}.${cite} Review the draft and save it from the voucher editor — nothing is in the books yet.` }
       } catch {
         return { text: 'The draft tool answered with something I could not read.' }
       }
@@ -255,7 +281,10 @@ export const demoScript: MockScript = (req) => {
     const words = q.split(/[^a-z0-9]+/).filter((w) => w.length > 2 && !['pay', 'paid', 'payment', 'cash', 'for', 'the', 'from', 'draft', 'rupees', 'and', 'with'].includes(w))
     const payee = ledgers.find((l) => l !== cash && words.some((w) => l.name.toLowerCase().includes(w)))
     const amount = /(\d[\d,]*(?:\.\d{1,2})?)/.exec(question)?.[1]?.replace(/,/g, '')
-    if (!cash || !payee || !amount) return { text: 'Tell me who to pay, how much, and from which cash or bank ledger.' }
+    // WP 5.6: a remembered "pay from" ledger wins unless the question names cash.
+    const remembered = /\[M(\d+)\] preference — pay from: ledgerId (\d+)/.exec(req.instructions)
+    const credit = remembered && !/\bcash\b/.test(q) ? { preferred: 'payment' } : cash ? { ledgerId: cash.id } : null
+    if (!credit || !payee || !amount) return { text: 'Tell me who to pay, how much, and from which cash or bank ledger.' }
     return {
       text: '',
       toolCalls: [
@@ -267,7 +296,7 @@ export const demoScript: MockScript = (req) => {
             narration: question.slice(0, 120),
             lines: [
               { ledgerId: payee.id, drCr: 'dr', amount },
-              { ledgerId: cash.id, drCr: 'cr', amount }
+              { ...credit, drCr: 'cr', amount }
             ]
           }
         }
@@ -276,6 +305,6 @@ export const demoScript: MockScript = (req) => {
   }
 
   return {
-    text: 'This is the offline test assistant (TOTAL_AI_MOCK). It only knows "sales in <month>", "pay <amount> <ledger> in cash", "what is on this screen?" and Explain this.'
+    text: 'This is the offline test assistant (TOTAL_AI_MOCK). It only knows "sales in <month>", "pay <amount> <ledger> in cash", "remember that …", "what is on this screen?" and Explain this.'
   }
 }

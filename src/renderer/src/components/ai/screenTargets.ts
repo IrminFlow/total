@@ -24,6 +24,9 @@ export function screenFor(s: Extract<AiSource, { kind: 'screen' }>): Screen | nu
       return { name: 'audit-trail', ...(typeof p.voucherId === 'number' ? { voucherId: p.voucherId } : {}) }
     case 'masters':
       return { name: 'masters', tab: 'ledgers' }
+    case 'settings':
+      // WP 5.6: the `remember` tool links to Settings → AI (the Memory table).
+      return { name: 'settings', tab: 'ai' }
     default:
       return PLAIN.includes(s.screen) ? ({ name: s.screen } as Screen) : null
   }

@@ -15,7 +15,7 @@ import { z } from 'zod'
 import type { DB } from '../db/connection'
 import type { CompanyInfo } from '@shared/domain'
 import {
-  aiKeySetSchema, aiRegenerateSchema, aiSendSchema, aiSettingsPatchSchema, aiThreadPinSchema, aiThreadRenameSchema, type AiConnectionResult, type AiEvent, type AiSettings, type AiSettingsView
+  aiKeySetSchema, aiMemoryCreateSchema, aiMemoryDerivedSchema, aiMemoryStatusSchema, aiMemoryUpdateSchema, aiRegenerateSchema, aiSendSchema, aiSettingsPatchSchema, aiThreadPinSchema, aiThreadRenameSchema, type AiConnectionResult, type AiEvent, type AiSettings, type AiSettingsView
 } from '@shared/ai'
 import { roleAllows, type Role } from '../services/roles'
 import type { SecretStore } from '../services/secrets'
@@ -26,6 +26,8 @@ import { createToolRegistry } from './tools'
 import { MockProvider, demoScript } from './mockProvider'
 import { OpenAiProvider, redactSecrets } from './provider'
 import { discardDraft } from './drafts'
+import { createMemory, deleteMemory, forgetAllMemory, getMemory, memoryList, resolveDerived, setMemoryStatus, updateMemory } from './memory'
+import { todayISO } from '@shared/dates'
 import * as store from './store'
 import type { AiProvider } from './types'
 
@@ -60,6 +62,8 @@ export interface AiIpcDeps {
   anyCompanyHasUsers: () => boolean
   /** App-level key audit (append-only, outside every company). */
   appAudit: (entry: AppKeyAuditEntry) => void
+  /** Today (local ISO date) — injected by tests; derived memory looks back a year from it. */
+  today?: () => string
   /** Injected by tests; the default builds the OpenAI provider (or the demo mock). */
   providerFactory?: (opts: { apiKey: string | null; mock: boolean }) => AiProvider
 }
@@ -116,6 +120,7 @@ export function registerAiIpc(handle: Handle, deps: AiIpcDeps): void {
   const db = (): DB => deps.company().db
   const scope = (): string => deps.company().slug
   const factory = deps.providerFactory ?? defaultProviderFactory
+  const today = deps.today ?? todayISO
   const view = (): AiSettingsView => settingsView(getAiSettings(db()), deps.secrets(), deps.mock())
   const provider = (): AiProvider => factory({ apiKey: readApiKey(deps.secrets()), mock: deps.mock() })
   const idSchema = z.object({ id: z.number().int().positive() })
@@ -248,6 +253,29 @@ export function registerAiIpc(handle: Handle, deps: AiIpcDeps): void {
     return store.listDrafts(db(), status, threadId)
   }, 'viewer')
   handle('ai:draft:discard', (p) => discardDraft(db(), idSchema.parse(p).id), 'accountant')
+
+  // ---------- memory (WP 5.6) ----------
+  // Viewing is open to every role (it is what the assistant is told); changing it takes an
+  // accountant (the role that may draft), forgetting everything an owner. Every write is audited
+  // (entity 'ai_memory'); the assistant itself can only propose, through the `remember` tool.
+  handle('ai:memory:list', () => memoryList(db(), today()), 'viewer')
+  handle('ai:memory:create', (p) => createMemory(db(), aiMemoryCreateSchema.parse(p), { source: 'user', status: 'active', createdBy: deps.session().name }), 'accountant')
+  handle('ai:memory:update', (p) => updateMemory(db(), aiMemoryUpdateSchema.parse(p)), 'accountant')
+  handle('ai:memory:setStatus', (p) => {
+    const { id, status } = aiMemoryStatusSchema.parse(p)
+    return setMemoryStatus(db(), id, status)
+  }, 'accountant')
+  handle('ai:memory:delete', (p) => {
+    const { id } = idSchema.parse(p)
+    if (!getMemory(db(), id)) throw new Error('Memory not found')
+    deleteMemory(db(), id)
+    return null
+  }, 'accountant')
+  handle('ai:memory:resolveDerived', (p) => {
+    const { key, accept } = aiMemoryDerivedSchema.parse(p)
+    return resolveDerived(db(), key, accept, today(), deps.session().name)
+  }, 'accountant')
+  handle('ai:memory:forgetAll', () => forgetAllMemory(db()), 'owner')
 
   // ---------- meters and logs ----------
   handle('ai:usage', () => store.listUsage(db()), 'viewer')
