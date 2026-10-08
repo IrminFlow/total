@@ -148,7 +148,7 @@ describe('Cheque layout preview', () => {
     const svg = screen.getByTestId('banking-cheque-preview')
     expect(svg.getAttribute('viewBox')).toBe('-6 -6 214 104')
     expect(svg.textContent).toContain('Twelve Thousand Three Hundred')
-    expect(svg.textContent).toContain('Fifty Paise Only')
+    expect(svg.textContent).toContain('Rupees and Fifty Paise')
     expect(svg.textContent).toContain('12,345.50/-')
     expect(svg.textContent).toContain('A/C PAYEE ONLY')
     expect(svg.querySelector('g')!.getAttribute('transform')).toBe('translate(9 7) rotate(-12)')
