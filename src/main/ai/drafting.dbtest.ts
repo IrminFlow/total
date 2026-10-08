@@ -223,6 +223,40 @@ describe('sales invoice: draft → invoice editor → saveVoucher, same rows as 
   })
 })
 
+describe('purchase invoices, debit notes and receipts', () => {
+  it("purchase invoice: the supplier's bill no. is the bill name; a debit note returns against it; a receipt settles a sales bill", async () => {
+    const pur = await draft('draft_invoice', { kind: 'purchase', party: 'bharat steel', billNo: 'BS/778', items: [{ item: 'Wireless Mouse', qty: '10', rate: '500' }] })
+    expect(pur.ok, pur.error).toBe(true)
+    const pp = payloadOf(pur.draftId!)
+    expect(pp).toMatchObject({ voucherKind: 'purchase', total: 590_000, partyLedgerId: ids.bharat })
+    const pstate = pp.state as InvoiceFormState
+    expect(pstate.billName).toBe('BS/778')
+    const bill = saveVoucher(db, invoiceEditorPayload(pstate, 'purchase', pp.voucherTypeId))
+    expect(getVoucher(db, bill.id)!.billRefs).toEqual([{ kind: 'new', name: 'BS/778', amount: 590_000, dueDate: TODAY }])
+    expect(planOf(getVoucher(db, bill.id)!, 'purchase').mode).toBe('invoice')
+
+    const dn = await draft('draft_invoice', { kind: 'debit_note', party: 'Bharat Steel Suppliers', againstInvoice: 'BS/778', items: [{ item: 'Wireless Mouse', qty: '2' }] })
+    expect(dn.ok, dn.error).toBe(true)
+    const dstate = payloadOf(dn.draftId!).state as InvoiceFormState
+    expect(dstate.rows[0]).toMatchObject({ rate: 50_000, source: { linkType: 'return' } })
+    expect(dstate.noteBillRefs).toEqual([{ kind: 'against', name: 'BS/778', amount: 118_000, dueDate: null }])
+    saveVoucher(db, invoiceEditorPayload(dstate, 'debit_note', typeId('debit_note')))
+    expect(openBills(db, ids.bharat, TODAY).find((b) => b.number === 'BS/778')?.pending).toBe(472_000)
+
+    const inv = await draft('draft_invoice', { kind: 'sales', party: 'Umbrella Retail', items: [{ item: 'Laptop 14', qty: '1', rate: '45000' }] })
+    const sale = saveVoucher(db, invoiceEditorPayload(payloadOf(inv.draftId!).state as InvoiceFormState, 'sales', typeId('sales')))
+    const rec = await draft('draft_voucher', { kind: 'receipt', party: 'Umbrella Retail', account: 'HDFC Bank', bills: [{ bill: sale.number }], instrumentNo: 'UTR998' })
+    expect(rec.ok, rec.error).toBe(true)
+    const rp = payloadOf(rec.draftId!)
+    expect(rp).toMatchObject({ total: 5_310_000, billRefs: [{ kind: 'against', name: sale.number, amount: 5_310_000, dueDate: null }] })
+    const rstate = rp.state as AccountingFormState
+    expect(rstate.instrumentNo).toBe('UTR998')
+    const built = buildAccountingPayload(rstate, { kind: 'receipt', voucherTypeId: rp.voucherTypeId, derivedPartyId: ids.umbrella })
+    saveVoucher(db, built.ok ? built.payload : (null as never))
+    expect(openBills(db, ids.umbrella, TODAY).find((b) => b.number === sale.number)?.pending ?? 0).toBe(0)
+  })
+})
+
 describe('validation errors surface (never bypassed)', () => {
   it('credit hold, lock date, an unknown ledger id, stock rules', async () => {
     db.prepare("UPDATE ledgers SET credit_hold = 1, credit_hold_reason = 'overdue 90 days' WHERE id = ?").run(ids.umbrella)

@@ -11,7 +11,8 @@
 //      saved: the draft is consumed by the new document.
 //   4. "Delivery challan to Umbrella Retail for 1 Laptop 14 at 45,000" → reviewed in the challan editor →
 //      Discard draft: nothing saved, the draft is discarded.
-//   5. Settings → AI lists the drafts with their status.
+//   5. "Manufacture 2 Steel Filing Cabinet" → raw materials from its BOM in the Manufacture form → saved.
+//   6. Settings → AI lists the drafts with their status.
 // Nothing reaches the books before each save. Every view is shot in both themes; set
 // WP53_SHOTS=/tmp/wp53 to also copy the screenshots there.
 import fs from 'node:fs'
@@ -195,12 +196,32 @@ await scenario('41-ai-drafting', async (h) => {
   assertEq((await h.invoke('ai:draft:get', { id: challan.id })).status, 'discarded', 'Discard draft discards it')
   assertEq((await h.invoke('voucher:list', period)).length, before, 'nothing saved from a discarded draft')
 
-  // ---------- 5. Settings → AI: the drafts list ----------
+  // ---------- 5. a manufacture from the bill of materials ----------
+  const items = await h.invoke('master:stockItems:list')
+  const cabinet = items.find((i) => i.name === 'Steel Filing Cabinet').id
+  const paper = items.find((i) => i.name === 'A4 Paper Ream').id
+  await h.invoke('bom:saveVersion', { itemId: cabinet, name: 'v1', isDefault: true, lines: [{ componentId: paper, qtyMilliPerUnit: 3000 }] })
+  const make = await ask('Manufacture 2 Steel Filing Cabinet')
+  assertEq(make.payload.form, 'manufacture', 'a manufacture draft')
+  await h.waitScreen('voucher-entry')
+  await h.page.waitForSelector('[data-testid="ai-draft-banner"][data-form="manufacture"]', { timeout: 10000 })
+  await h.page.waitForSelector('[data-testid="manufacture-form"]', { timeout: 10000 })
+  await h.page.waitForFunction(() => document.querySelector('[data-testid="input-manufacture-raw-qty-0"]')?.value === '6', null, { timeout: 10000 })
+  await bothThemes('08-review-manufacture')
+  await h.page.click('[data-testid="ai-draft-summary"]')
+  await h.page.keyboard.press('Control+Enter')
+  await h.page.waitForFunction(() => document.querySelector('[data-screen]')?.getAttribute('data-screen') !== 'voucher-entry', null, { timeout: 15000 })
+  const madeAfter = await h.invoke('ai:draft:get', { id: make.id })
+  assertEq(madeAfter.status, 'consumed', 'saving the manufacture consumes its draft')
+  const mfg = await h.invoke('manufacture:get', { id: madeAfter.voucherId })
+  assert(mfg && mfg.details && mfg.details.qtyMilli === 2000, 'manufacture saved with its details row')
+
+  // ---------- 6. Settings → AI: the drafts list ----------
   await h.goto('settings')
   await h.click('tab-settings-ai')
   await h.page.waitForSelector('[data-testid="rows-ai-drafts"] [data-draft-id]', { timeout: 10000 })
   const rows = await h.page.$$eval('[data-testid="rows-ai-drafts"] [data-draft-id]', (els) => els.map((e) => e.getAttribute('data-status')))
-  assertEq(rows.join(','), 'discarded,consumed,consumed,consumed', 'every draft listed with its status')
+  assertEq(rows.join(','), 'consumed,discarded,consumed,consumed,consumed', 'every draft listed with its status')
   await h.page.evaluate(() => document.querySelector('[data-testid="rows-ai-drafts"]')?.scrollIntoView({ block: 'center' }))
-  await bothThemes('08-settings-drafts')
+  await bothThemes('09-settings-drafts')
 })

@@ -6,6 +6,7 @@
 //   "receive from X against bill S-3 into Cash"                              → draft_voucher
 //   "quotation for Umbrella Retail for 3 Office Chair at 6,500"              → draft_trade_doc
 //   "delivery challan to Umbrella Retail for 1 Laptop 14 [at 45,000]"        → draft_stock_note
+//   "manufacture 2 Steel Filing Cabinet"                                      → draft_manufacture
 // passing names, quantities and amounts exactly as typed (the app resolves and computes them),
 // then answers by quoting the tool's summary, or asks the clarification the tool returned.
 import type { MockStep } from './mockProvider'
@@ -102,6 +103,11 @@ export function draftingDemoStep(question: string, results: readonly Result[], t
         }
       ]
     }
+  }
+  const make = /\bmanufacture (\d+(?:\.\d+)?) (.+?)\s*$/i.exec(q)
+  if (make) {
+    if (done) return answerFrom(done)
+    return { text: '', toolCalls: [{ name: 'draft_manufacture', arguments: { item: make[2]!.trim(), qty: make[1]!, ...(today ? { date: today } : {}) } }] }
   }
   return null
 }
