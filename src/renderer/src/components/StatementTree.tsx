@@ -3,6 +3,8 @@ import type { StatementNode } from '@shared/reports'
 import { Money } from './ui'
 import { LedgerLink, drillRowProps } from './links'
 import { isRealId, openLedgerStatement } from '../lib/drill'
+import { ExplainButton } from './kit/ExplainButton'
+import { figureText, useAiAffordances } from '../lib/explain'
 
 /** An extra figure column (comparatives, WP 6.2): `amountOf` a node, null = blank. */
 export interface StatementColumn {
@@ -32,7 +34,8 @@ function ExtraCells({ node, columns }: { node: StatementNode; columns: Statement
 
 /** Drill-down tree used by P&L and Balance Sheet: groups expand; a ledger leaf's NAME opens its
  *  edit window and the rest of its row opens its statement. `columns` adds comparative figures
- *  after the node's own amount. */
+ *  after the node's own amount. WP 5.2: while the assistant is on, every line's amount has an
+ *  "Explain this" action (a ledger by id, a group by name). */
 export function StatementTree({
   nodes,
   depth = 0,
@@ -86,9 +89,25 @@ function StatementRow({
   const isLeafLedger = node.kind === 'ledger' && isRealId(node.id)
   const style = { paddingLeft: `${8 + depth * 18}px` }
   const nameCls = `text-detail ${depth === 0 ? 'font-medium' : isLeafLedger ? 'text-muted' : ''}`
+  const aiOn = useAiAffordances()
+  // The action sits beside the row (a group row is a button), right of the amount.
+  const explain =
+    aiOn && node.amount !== 0 ? (
+      <ExplainButton
+        testId="statement-explain"
+        className="t-explain-reveal absolute top-1/2 right-1 -translate-y-1/2"
+        figure={{
+          label: node.name,
+          value: figureText(node.amount),
+          paise: node.amount,
+          ...(isLeafLedger ? { ledgerId: node.id } : { groupName: node.name })
+        }}
+      />
+    ) : null
+  const wrap = (row: React.JSX.Element): React.JSX.Element => (explain ? <div className="t-explain-host relative pr-6">{row}{explain}</div> : row)
 
   if (isLeafLedger) {
-    return (
+    return wrap(
       <div
         className={`${ROW_CLS} cursor-pointer focus-visible:bg-panel2 focus-visible:outline-none`}
         style={style}
@@ -106,7 +125,7 @@ function StatementRow({
 
   return (
     <>
-      <button
+      {wrap(<button
         type="button"
         className={ROW_CLS}
         style={style}
@@ -124,7 +143,7 @@ function StatementRow({
           {node.name}
         </span>
         {amount}
-      </button>
+      </button>)}
       {open && node.children.length > 0 && <StatementTree nodes={node.children} depth={depth + 1} expandAll={expandAll} hideZero={hideZero} columns={columns} />}
     </>
   )

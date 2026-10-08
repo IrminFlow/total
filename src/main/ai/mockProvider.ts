@@ -116,9 +116,104 @@ function findNode(nodes: PnlNodeOut[] | undefined, re: RegExp): PnlNodeOut | nul
   return null
 }
 
+// ---------- WP 5.2: "Explain this" and screen questions ----------
+
+const parse = (text: string): { result?: Record<string, unknown>; error?: string } => {
+  try {
+    return JSON.parse(text) as { result?: Record<string, unknown>; error?: string }
+  } catch {
+    return { error: 'unreadable result' }
+  }
+}
+
+type Row = Record<string, unknown>
+const s = (v: unknown): string => (typeof v === 'string' ? v : v == null ? '' : String(v))
+
+/** The answer to an explain_figure result — quoted from it, a markdown table of the largest entries. */
+function explainAnswer(r: Row): string {
+  if (r.figure === 'ledger') {
+    const prev = (r.previousPeriod ?? {}) as Row
+    const top = ((r.largestVouchers ?? []) as Row[]).slice(0, 5)
+    const anomalies = (r.anomalies ?? []) as Row[]
+    const lines = [
+      r.periodAmount
+        ? `**${s(r.ledger)}** comes to ${s(r.periodAmount)} for ${s((r.period as Row)?.from)} to ${s((r.period as Row)?.to)} (debits ${s(r.totalDebit)}, credits ${s(r.totalCredit)}, ${s(r.vouchers)} vouchers).`
+        : `**${s(r.ledger)}** closed at ${s(r.closing)} for ${s((r.period as Row)?.from)} to ${s((r.period as Row)?.to)} (opening ${s(r.opening)}, debits ${s(r.totalDebit)}, credits ${s(r.totalCredit)}, ${s(r.vouchers)} vouchers).`,
+      '',
+      top.length ? 'The largest entries:' : 'There are no entries in the period.',
+      ...(top.length
+        ? ['', '| Voucher | Date | Other side | Amount | Share |', '|---|---|---|---:|---:|', ...top.map((v) => `| ${s(v.type)} ${s(v.number)} | ${s(v.date)} | ${s(v.particulars)} | ${s(v.debit) || s(v.credit)} | ${s(v.shareOfTurnover)} |`)]
+        : []),
+      '',
+      `Previous period (${s(prev.from)} to ${s(prev.to)}): ${prev.periodAmount ? s(prev.periodAmount) : `closing ${s(prev.closing)}`}; it ${prev.change === 'unchanged' ? 'is unchanged' : s(prev.change)}${prev.changePct ? ` (${s(prev.changePct)})` : ''}.`,
+      '',
+      anomalies.length ? `Unusual: ${anomalies.map((a) => s(a.what)).join('; ')}.` : s(r.noAnomalies) || 'Nothing unusual.'
+    ]
+    return lines.join('\n')
+  }
+  if (r.figure === 'group') {
+    const kids = ((r.madeUpOf ?? []) as Row[]).slice(0, 6)
+    const prev = (r.previousPeriod ?? {}) as Row
+    return [
+      `**${s(r.group)}** is ${s(r.amount)} on the ${s(r.basis)}. It is made up of:`,
+      '',
+      ...kids.map((k) => `- ${s(k.name)}: ${s(k.amount)}${k.share ? ` (${s(k.share)})` : ''}`),
+      '',
+      prev.amount ? `Previous period: ${s(prev.amount)}${prev.changePct ? ` (${s(prev.changePct)})` : ''}.` : 'No figure for the previous period.'
+    ].join('\n')
+  }
+  if (r.figure === 'groups') return ((r.parts ?? []) as Row[]).map(explainAnswer).join('\n\n')
+  if (r.voucherId && r.lines) {
+    const lines = (r.lines as Row[]).slice(0, 8)
+    return [`**${s(r.type)} ${s(r.number)}** dated ${s(r.date)} totals ${s(r.total)}:`, '', ...lines.map((l) => `- ${s(l.ledger)} ${s(l.side)} ${s(l.amount)}`)].join('\n')
+  }
+  if (r.item) return `**${s(r.item)}**: opening ${s((r.opening as Row)?.value)}, inward ${s((r.inward as Row)?.value)}, outward ${s((r.outward as Row)?.value)}, closing ${s((r.closing as Row)?.value)}.`
+  return 'The explanation tool returned nothing I can summarise.'
+}
+
+/** "What is on this screen" — a short, quoted summary of current_screen_data. */
+function screenAnswer(r: Row): string {
+  const subject = s(r.ledger) || s(r.item) || s(r.bank) || s(r.budget)
+  const title = `${s(r.title) || s(r.screen)}${subject ? ` — ${subject}` : ''}`
+  if (r.note) return `${title}: ${s(r.note)}`
+  const money = Object.entries(r).filter(([, v]) => typeof v === 'string' && /₹/.test(v)).slice(0, 6)
+  const rows = Array.isArray(r.rows) ? (r.rows as Row[]) : []
+  const parts = [`**${title}**${money.length ? ':' : ''}`, ...money.map(([k, v]) => `- ${k}: ${s(v)}`)]
+  if (rows.length) parts.push('', `It lists ${rows.length} rows${r.truncated ? ` (${s(r.truncated)})` : ''}.`)
+  return parts.join('\n')
+}
+
 export const demoScript: MockScript = (req) => {
   const { question, results } = sinceLastUser(req.input)
   const q = question.toLowerCase()
+
+  const figure = /Figure to explain \(JSON\): (\{.*\})/.exec(req.instructions)?.[1]
+  if (figure && /^explain this figure/i.test(question)) {
+    const done = results.find((r) => r.name === 'explain_figure')
+    if (!done) {
+      let f: Row = {}
+      try {
+        f = JSON.parse(figure) as Row
+      } catch {
+        /* fall through with no ids */
+      }
+      const args: Row = {}
+      for (const k of ['ledgerId', 'voucherId', 'itemId', 'groupName', 'from', 'to', 'asOn']) if (f[k] !== undefined) args[k] = f[k]
+      if (!args.ledgerId && !args.voucherId && !args.itemId && !args.groupName) args.groupName = f.label
+      return { text: '', toolCalls: [{ name: 'explain_figure', arguments: args }] }
+    }
+    const d = parse(done.output)
+    if (d.error || !d.result) return { text: `I could not explain it: ${d.error ?? 'no result'}` }
+    return { text: explainAnswer(d.result) }
+  }
+
+  if (/\b(this screen|on screen|why is this|what am i looking at|this report)\b/.test(q)) {
+    const done = results.find((r) => r.name === 'current_screen_data')
+    if (!done) return { text: '', toolCalls: [{ name: 'current_screen_data', arguments: {} }] }
+    const d = parse(done.output)
+    if (d.error || !d.result) return { text: `I could not read the screen: ${d.error ?? 'no result'}` }
+    return { text: screenAnswer(d.result) }
+  }
 
   if (/\bsales?\b/.test(q)) {
     const monthIdx = MONTHS.findIndex((m) => q.includes(m) || q.includes(m.slice(0, 3) + ' '))
@@ -180,5 +275,7 @@ export const demoScript: MockScript = (req) => {
     }
   }
 
-  return { text: 'This is the offline test assistant (TOTAL_AI_MOCK). It only knows "sales in <month>" and "pay <amount> <ledger> in cash".' }
+  return {
+    text: 'This is the offline test assistant (TOTAL_AI_MOCK). It only knows "sales in <month>", "pay <amount> <ledger> in cash", "what is on this screen?" and Explain this.'
+  }
 }

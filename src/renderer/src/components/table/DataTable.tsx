@@ -59,6 +59,8 @@ import { Popover } from './Popover'
 import { TableToolbar, type ToolbarFeatures } from './TableToolbar'
 import type { TableColumn } from './types'
 import { useTableView, type TableViewController } from './useTableView'
+import { ExplainButton } from '../kit/ExplainButton'
+import { figureText, rowSourceIds, useAiAffordances, type ExplainInput } from '../../lib/explain'
 import { registerTableActions } from './tableActions'
 
 /** Fixed row heights (px) per density — virtualisation relies on every DATA row being this tall
@@ -211,6 +213,31 @@ function defaultCell<Row>(col: TableColumn<Row>, row: Row): ReactNode {
   return text
 }
 
+/** WP 5.2: the column offers "Explain this" on its cells (money columns by default). */
+function explainableColumn<Row>(col: TableColumn<Row>): boolean {
+  if (col.explainable === false) return false
+  return col.explainable !== undefined || col.kind === 'money'
+}
+
+/** The figure a cell's Explain-this describes: the row's name (first visible text column), the
+ *  column, the value as displayed, the row's ids — plus the column's own `explainable(row)` extras. */
+function cellFigure<Row>(col: TableColumn<Row>, row: Row, visible: TableColumn<Row>[]): ExplainInput | null {
+  const extra = typeof col.explainable === 'function' ? col.explainable(row) : {}
+  if (extra === null) return null
+  const v = col.value(row)
+  const paise = col.kind === 'money' && !nil(v) ? Number(v) : undefined
+  const nameCol = visible.find((c) => c.kind === 'text' && c.id !== col.id)
+  const label = (nameCol ? cellText(nameCol, row) : '') || col.header
+  return {
+    label,
+    column: col.header,
+    value: paise !== undefined ? figureText(paise, col.signed) : cellText(col, row),
+    ...(paise !== undefined ? { paise } : {}),
+    ...rowSourceIds(row),
+    ...extra
+  }
+}
+
 function aggregateCell<Row>(col: TableColumn<Row>, v: CellValue): ReactNode {
   if (nil(v)) return ''
   if (col.kind === 'money') return <Money paise={Number(v)} signed={col.signed} />
@@ -285,6 +312,7 @@ export function DataTable<Row>(props: DataTableProps<Row>): React.JSX.Element {
     exportOptions
   } = props
   const area = props.testId ?? props.viewId ?? 'table'
+  const aiOn = useAiAffordances()
   const uid = useId()
   const internal = useTableView<Row>(props.controller ? null : (props.viewId ?? null), columns, {
     defaults: props.viewDefaults,
@@ -890,13 +918,16 @@ export function DataTable<Row>(props: DataTableProps<Row>): React.JSX.Element {
         )}
         {visible.map((c) => {
           const content = defaultCell(c, row)
+          const v = aiOn && explainableColumn(c) ? c.value(row) : null
+          const explain = aiOn && explainableColumn(c) && !nil(v) && v !== 0
           return (
             <td
               key={c.id}
-              className={`${alignCls(columnAlign(c))} ${c.className ?? ''}`}
+              className={`${alignCls(columnAlign(c))} ${c.className ?? ''}${explain ? ' dt-explainable' : ''}`}
               title={c.kind === 'text' && typeof content === 'string' && content.length > 24 ? content : undefined}
             >
               {content}
+              {explain && <ExplainButton className="dt-explain" testId={`${area}-explain-${c.id}`} figure={() => cellFigure(c, row, visible)} />}
             </td>
           )
         })}

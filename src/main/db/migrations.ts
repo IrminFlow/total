@@ -3063,6 +3063,106 @@ export const MIGRATIONS: string[] = [
   CREATE INDEX idx_party_notes_ledger ON party_notes(ledger_id);
   CREATE INDEX idx_party_notes_due ON party_notes(kind, done_at, due_date);
   `,
+  // WP 5.2 (last; number by position — 040, after WP 6.4 039): the chat panel.
+  // Nothing here touches the books.
+  // - ai_threads.pinned: pinned conversations sort first in the panel's thread list.
+  // - ai_messages.context_json: the screen context a question was asked with (screen, period,
+  //   parameters, the figure being explained) — Regenerate re-asks with it, not with whatever
+  //   screen is open now. Local only, like the message text.
+  // - ai_outbound_log.context_json: the screen context as SENT (masked / pseudonymised) — the
+  //   outbound log shows what context left the machine; never the raw names or identifiers.
+  // - ai_drafts.status gains 'superseded': a draft made by an answer that Regenerate discarded
+  //   (rebuilt for the CHECK; nothing references ai_drafts).
+  `-- @foreign-keys-off
+  ALTER TABLE ai_threads ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0;
+  ALTER TABLE ai_messages ADD COLUMN context_json TEXT;
+  ALTER TABLE ai_outbound_log ADD COLUMN context_json TEXT;
+
+  CREATE TABLE ai_drafts_new (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    thread_id INTEGER REFERENCES ai_threads(id) ON DELETE SET NULL,
+    message_id INTEGER REFERENCES ai_messages(id) ON DELETE SET NULL,
+    kind TEXT NOT NULL CHECK (kind IN ('voucher')),
+    summary TEXT NOT NULL,
+    payload_json TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'open' CHECK (status IN ('open', 'consumed', 'discarded', 'superseded')),
+    voucher_id INTEGER REFERENCES vouchers(id) ON DELETE SET NULL,
+    unrequested INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    consumed_at TEXT
+  );
+  INSERT INTO ai_drafts_new (id, thread_id, message_id, kind, summary, payload_json, status, voucher_id, unrequested, created_at, consumed_at)
+    SELECT id, thread_id, message_id, kind, summary, payload_json, status, voucher_id, unrequested, created_at, consumed_at FROM ai_drafts;
+  DROP TABLE ai_drafts;
+  ALTER TABLE ai_drafts_new RENAME TO ai_drafts;
+  CREATE INDEX idx_ai_drafts_status ON ai_drafts(status);
+  `,
+  // WP 6.5 (last; number by position) — group consolidation. Stored in the group (parent)
+  // company's own DB; members are other companies by registry slug, read read-only at query time
+  // (services/consolidation.ts), so ledger ids here point into OTHER files and carry no FK; the
+  // ledger name at save time is kept beside each id only so a run can warn when the id now names
+  // a different ledger (restored / replaced file). Only the definition is stored — every consolidated figure is computed at query time. Kept last
+  // when parallel branches' migrations merge (after 038 WP 6.3, 039 WP 6.4 and 040 WP 5.2). Never
+  // edit the content.
+  `
+  CREATE TABLE consolidation_groups (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL UNIQUE COLLATE NOCASE,
+    presentation_currency TEXT NOT NULL DEFAULT 'INR',
+    ic_tolerance INTEGER NOT NULL DEFAULT 100 CHECK (ic_tolerance >= 0),
+    unrealised_margin_bp INTEGER CHECK (unrealised_margin_bp IS NULL OR unrealised_margin_bp BETWEEN 0 AND 10000),
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+
+  CREATE TABLE consolidation_members (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    group_id INTEGER NOT NULL REFERENCES consolidation_groups(id) ON DELETE CASCADE,
+    company_slug TEXT NOT NULL,
+    role TEXT NOT NULL CHECK (role IN ('parent', 'subsidiary', 'associate')),
+    ownership_bp INTEGER NOT NULL DEFAULT 10000 CHECK (ownership_bp BETWEEN 0 AND 10000),
+    acquired_on TEXT,
+    include_from TEXT,
+    include_to TEXT,
+    investment_company_slug TEXT,
+    investment_ledger_id INTEGER,
+    investment_ledger_name TEXT,
+    investment_cost INTEGER CHECK (investment_cost IS NULL OR investment_cost >= 0),
+    acquisition_equity INTEGER,
+    sort_order INTEGER NOT NULL DEFAULT 0,
+    UNIQUE (group_id, company_slug)
+  );
+  CREATE UNIQUE INDEX ux_consolidation_members_parent ON consolidation_members(group_id) WHERE role = 'parent';
+
+  CREATE TABLE consolidation_mappings (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    group_id INTEGER NOT NULL REFERENCES consolidation_groups(id) ON DELETE CASCADE,
+    company_slug TEXT NOT NULL,
+    ledger_id INTEGER,
+    ledger_name TEXT,
+    group_name TEXT COLLATE NOCASE,
+    target_name TEXT NOT NULL,
+    target_nature TEXT CHECK (target_nature IS NULL OR target_nature IN ('asset', 'liability', 'income', 'expense')),
+    CHECK ((ledger_id IS NULL) <> (group_name IS NULL))
+  );
+  CREATE UNIQUE INDEX ux_consolidation_mappings_ledger ON consolidation_mappings(group_id, company_slug, ledger_id) WHERE ledger_id IS NOT NULL;
+  CREATE UNIQUE INDEX ux_consolidation_mappings_group ON consolidation_mappings(group_id, company_slug, group_name) WHERE group_name IS NOT NULL;
+
+  CREATE TABLE intercompany_pairs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    group_id INTEGER NOT NULL REFERENCES consolidation_groups(id) ON DELETE CASCADE,
+    member_a TEXT NOT NULL,
+    ledger_a_id INTEGER NOT NULL,
+    ledger_a_name TEXT NOT NULL,
+    member_b TEXT NOT NULL,
+    ledger_b_id INTEGER NOT NULL,
+    ledger_b_name TEXT NOT NULL,
+    kind TEXT NOT NULL CHECK (kind IN ('receivable_payable', 'sales_purchase', 'loan', 'other')),
+    unrealised_margin_bp INTEGER CHECK (unrealised_margin_bp IS NULL OR unrealised_margin_bp BETWEEN 0 AND 10000),
+    CHECK (member_a <> member_b),
+    UNIQUE (group_id, member_a, ledger_a_id, member_b, ledger_b_id, kind)
+  );
+  `,
   // WP 5.7 (last; number by position) — the MCP server (`total-cli mcp`) and the inbox-as-drafts.
   // - ai_drafts.source: where a draft came from — 'chat' (the in-app assistant), 'mcp' (a tool
   //   call over the MCP server) or 'inbox' (a file dropped in <company>/inbox/, which is no

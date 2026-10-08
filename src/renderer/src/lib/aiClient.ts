@@ -21,9 +21,15 @@ export const aiApi = {
   thread: (id: number) => call<{ thread: { id: number; title: string }; messages: AiMessageDto[]; running: boolean }>('ai:thread', { id }),
   deleteThread: (id: number) => call<null>('ai:thread:delete', { id }),
   send: (input: AiSendInput) => call<{ threadId: number; runId: string; userMessage: AiMessageDto }>('ai:send', input),
+  /** WP 5.2: answer the thread's last question again (replaces its answer). */
+  /** Re-asks with the screen context stored on the question (main), not the current screen. */
+  regenerate: (threadId: number) => call<{ threadId: number; runId: string; userMessage: AiMessageDto }>('ai:regenerate', { threadId }),
+  renameThread: (id: number, title: string) => call<AiThreadDto | null>('ai:thread:rename', { id, title }),
+  pinThread: (id: number, pinned: boolean) => call<AiThreadDto | null>('ai:thread:pin', { id, pinned }),
   cancel: (threadId: number) => call<{ cancelled: boolean }>('ai:cancel', { threadId }),
   draft: (id: number) => call<AiDraftDto>('ai:draft:get', { id }),
-  drafts: (status?: 'open' | 'consumed' | 'discarded') => call<AiDraftDto[]>('ai:drafts', status ? { status } : {}),
+  drafts: (status?: 'open' | 'consumed' | 'discarded', threadId?: number) =>
+    call<AiDraftDto[]>('ai:drafts', { ...(status ? { status } : {}), ...(threadId ? { threadId } : {}) }),
   discardDraft: (id: number) => call<AiDraftDto>('ai:draft:discard', { id }),
   usage: () => call<AiUsageRow[]>('ai:usage'),
   outbound: () => call<AiOutboundRow[]>('ai:outbound'),

@@ -2,7 +2,7 @@
 // pseudonym map — the AI migration tables (see migrations.ts, the "WP 5.1" entry). Nothing here touches the books.
 import type { DB } from '../db/connection'
 import type {
-  AiDraftDto, AiDraftSource, AiDraftStatus, AiFigure, AiMessageDto, AiMessageRole, AiOutboundRow, AiSource, AiThreadDto, AiToolCallDto, AiUsageRow, AiVoucherDraftPayload
+  AiContext, AiDraftDto, AiDraftSource, AiDraftStatus, AiFigure, AiMessageDto, AiMessageRole, AiOutboundRow, AiSource, AiThreadDto, AiToolCallDto, AiUsageRow, AiVoucherDraftPayload
 } from '@shared/ai'
 import { descendantIdsByName } from '../services/masters'
 import { assignAliases, createPseudonymiser, type Pseudonymiser } from './privacy'
@@ -26,6 +26,7 @@ interface ThreadRow {
   updated_at: string
   n: number
   cost: number | null
+  pinned: number
 }
 
 export function createThread(db: DB, title: string, userName: string | null): number {
@@ -44,10 +45,10 @@ export function touchThread(db: DB, id: number): void {
 export function listThreads(db: DB, running: ReadonlySet<number> = new Set()): AiThreadDto[] {
   const rows = db
     .prepare(
-      `SELECT t.id, t.title, t.created_at, t.updated_at,
+      `SELECT t.id, t.title, t.created_at, t.updated_at, t.pinned,
               (SELECT COUNT(*) FROM ai_messages m WHERE m.thread_id = t.id AND m.role != 'tool') AS n,
               (SELECT SUM(u.cost_micro_usd) FROM ai_usage u WHERE u.thread_id = t.id) AS cost
-         FROM ai_threads t ORDER BY t.updated_at DESC, t.id DESC`
+         FROM ai_threads t ORDER BY t.pinned DESC, t.updated_at DESC, t.id DESC`
     )
     .all() as ThreadRow[]
   return rows.map((r) => ({
@@ -57,12 +58,55 @@ export function listThreads(db: DB, running: ReadonlySet<number> = new Set()): A
     updatedAt: r.updated_at,
     messageCount: r.n,
     costMicroUsd: r.cost,
-    running: running.has(r.id)
+    running: running.has(r.id),
+    pinned: r.pinned === 1
   }))
 }
 
 export function getThread(db: DB, id: number): { id: number; title: string } | null {
   return (db.prepare('SELECT id, title FROM ai_threads WHERE id = ?').get(id) as { id: number; title: string } | undefined) ?? null
+}
+
+/** WP 5.2: rename (titles are the user's; the first question only seeds it). */
+export function renameThread(db: DB, id: number, title: string): void {
+  const t = title.replace(/\s+/g, ' ').trim().slice(0, 80)
+  if (!t) throw new Error('A conversation needs a title')
+  db.prepare('UPDATE ai_threads SET title = ? WHERE id = ?').run(t, id)
+}
+
+export function setThreadPinned(db: DB, id: number, pinned: boolean): void {
+  db.prepare('UPDATE ai_threads SET pinned = ? WHERE id = ?').run(pinned ? 1 : 0, id)
+}
+
+/** WP 5.2 Regenerate: the thread's last user message, and how many messages follow it. */
+export function lastUserMessage(db: DB, threadId: number): { id: number; content: string; after: number } | null {
+  const r = db.prepare("SELECT id, content FROM ai_messages WHERE thread_id = ? AND role = 'user' ORDER BY id DESC LIMIT 1").get(threadId) as
+    | { id: number; content: string }
+    | undefined
+  if (!r) return null
+  const after = (db.prepare('SELECT COUNT(*) AS n FROM ai_messages WHERE thread_id = ? AND id > ?').get(threadId, r.id) as { n: number }).n
+  return { ...r, after }
+}
+
+/** Removes the answer to be regenerated (every message after `messageId`). Drafts it made keep
+ *  their rows (message_id → NULL) — the user still decides on them; usage rows stay too. */
+export function deleteMessagesAfter(db: DB, threadId: number, messageId: number): { messageIds: number[]; supersededDrafts: number[] } {
+  const ids = (db.prepare('SELECT id FROM ai_messages WHERE thread_id = ? AND id > ? ORDER BY id').all(threadId, messageId) as { id: number }[]).map((r) => r.id)
+  // Open drafts the discarded answer made can no longer be reviewed from it: superseded (before
+  // the delete, which would null their message_id).
+  const drafts = ids.length
+    ? (db
+        .prepare(`SELECT id FROM ai_drafts WHERE status = 'open' AND message_id IN (${ids.map(() => '?').join(',')})`)
+        .all(...ids) as { id: number }[]).map((r) => r.id)
+    : []
+  for (const d of drafts) setDraftStatus(db, d, 'superseded')
+  db.prepare('DELETE FROM ai_messages WHERE thread_id = ? AND id > ?').run(threadId, messageId)
+  return { messageIds: ids, supersededDrafts: drafts }
+}
+
+/** WP 5.2: who started a thread (rename / pin / regenerate: its owner or an accountant+). */
+export function threadOwner(db: DB, id: number): string | null {
+  return (db.prepare('SELECT user_name FROM ai_threads WHERE id = ?').get(id) as { user_name: string | null } | undefined)?.user_name ?? null
 }
 
 export function deleteThread(db: DB, id: number): void {
@@ -94,6 +138,7 @@ interface MessageRow {
   sent_text: string | null
   sent_privacy: string | null
   reasoning_json: string | null
+  context_json: string | null
   created_at: string
 }
 
@@ -134,6 +179,7 @@ function toMessage(r: MessageRow): StoredMessage {
     inputTokens: r.input_tokens,
     outputTokens: r.output_tokens,
     draftId: r.draft_id,
+    context: parse<AiContext | null>(r.context_json, null),
     createdAt: r.created_at
   }
 }
@@ -160,6 +206,8 @@ export interface NewMessage {
   sentText?: string | null
   sentPrivacy?: string | null
   reasoning?: Record<string, unknown>[]
+  /** User messages: the screen context the question was asked with (Regenerate reuses it). */
+  context?: AiContext | null
 }
 
 export function addMessage(db: DB, m: NewMessage): StoredMessage {
@@ -168,8 +216,8 @@ export function addMessage(db: DB, m: NewMessage): StoredMessage {
       .prepare(
         `INSERT INTO ai_messages (thread_id, role, content, status, tool_calls_json, tool_call_id, tool_name, tool_input_json,
            tool_output_json, tool_ok, truncated, sources_json, figures_json, model, input_tokens, output_tokens, cost_micro_usd, draft_id,
-           sent_text, sent_privacy, reasoning_json)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+           sent_text, sent_privacy, reasoning_json, context_json)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
       .run(
         m.threadId,
@@ -192,7 +240,8 @@ export function addMessage(db: DB, m: NewMessage): StoredMessage {
         m.draftId ?? null,
         m.sentText ?? null,
         m.sentPrivacy ?? null,
-        m.reasoning?.length ? JSON.stringify(m.reasoning) : null
+        m.reasoning?.length ? JSON.stringify(m.reasoning) : null,
+        m.context ? JSON.stringify(m.context) : null
       ).lastInsertRowid
   )
   touchThread(db, m.threadId)
@@ -288,19 +337,23 @@ export function getDraft(db: DB, id: number): AiDraftDto | null {
   return r ? toDraft(r) : null
 }
 
-export function listDrafts(db: DB, status?: AiDraftStatus, sources?: readonly AiDraftSource[]): AiDraftDto[] {
-  const conds: string[] = []
-  const params: string[] = []
+export function listDrafts(db: DB, status?: AiDraftStatus, threadId?: number, sources?: readonly AiDraftSource[]): AiDraftDto[] {
+  const where: string[] = []
+  const args: (string | number)[] = []
   if (status) {
-    conds.push('status = ?')
-    params.push(status)
+    where.push('status = ?')
+    args.push(status)
+  }
+  if (threadId !== undefined) {
+    where.push('thread_id = ?')
+    args.push(threadId)
   }
   if (sources?.length) {
-    conds.push(`source IN (${sources.map(() => '?').join(', ')})`)
-    params.push(...sources)
+    where.push(`source IN (${sources.map(() => '?').join(', ')})`)
+    args.push(...sources)
   }
-  const where = conds.length ? `WHERE ${conds.join(' AND ')}` : ''
-  return (db.prepare(`SELECT * FROM ai_drafts ${where} ORDER BY id DESC`).all(...params) as DraftRow[]).map(toDraft)
+  const rows = db.prepare(`SELECT * FROM ai_drafts ${where.length ? `WHERE ${where.join(' AND ')}` : ''} ORDER BY id DESC`).all(...args) as DraftRow[]
+  return rows.map(toDraft)
 }
 
 export function setDraftStatus(db: DB, id: number, status: AiDraftStatus, voucherId: number | null = null): void {
@@ -383,6 +436,8 @@ export interface NewOutbound {
   masked: boolean
   pseudonymised: boolean
   payloadSha256: string
+  /** WP 5.2: the screen context included (local record; the sent copy is masked). */
+  context?: AiContext | null
 }
 
 export function logOutbound(db: DB, o: NewOutbound): number {
@@ -390,11 +445,12 @@ export function logOutbound(db: DB, o: NewOutbound): number {
     db
       .prepare(
         `INSERT INTO ai_outbound_log (thread_id, provider, model, request_bytes, instructions_bytes, message_count, tools_offered_json,
-           tool_results_json, masked, pseudonymised, payload_sha256) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+           tool_results_json, masked, pseudonymised, payload_sha256, context_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
       .run(
         o.threadId, o.provider, o.model, o.requestBytes, o.instructionsBytes, o.messageCount, JSON.stringify(o.toolsOffered),
-        JSON.stringify(o.toolResultsSent), o.masked ? 1 : 0, o.pseudonymised ? 1 : 0, o.payloadSha256
+        JSON.stringify(o.toolResultsSent), o.masked ? 1 : 0, o.pseudonymised ? 1 : 0, o.payloadSha256,
+        o.context ? JSON.stringify(o.context) : null
       ).lastInsertRowid
   )
 }
@@ -406,7 +462,7 @@ export function setOutboundStatus(db: DB, id: number, status: 'sent' | 'ok' | 'e
 export function listOutbound(db: DB, limit = 2000): AiOutboundRow[] {
   const rows = db.prepare('SELECT * FROM ai_outbound_log ORDER BY id DESC LIMIT ?').all(limit) as {
     id: number; at: string; thread_id: number | null; provider: string; model: string; request_bytes: number; message_count: number
-    tools_offered_json: string; tool_results_json: string; masked: number; pseudonymised: number; payload_sha256: string; status: string
+    tools_offered_json: string; tool_results_json: string; masked: number; pseudonymised: number; payload_sha256: string; status: string; context_json: string | null
   }[]
   return rows.map((r) => ({
     id: r.id,
@@ -421,7 +477,8 @@ export function listOutbound(db: DB, limit = 2000): AiOutboundRow[] {
     masked: r.masked === 1,
     pseudonymised: r.pseudonymised === 1,
     payloadSha256: r.payload_sha256,
-    status: r.status
+    status: r.status,
+    context: parse<AiContext | null>(r.context_json, null)
   }))
 }
 
@@ -493,6 +550,8 @@ export function deleteAllAiData(db: DB, includeLogs: boolean): AiDataCounts {
     db.exec('DELETE FROM ai_drafts; DELETE FROM ai_messages; DELETE FROM ai_threads; DELETE FROM ai_memory; DELETE FROM ai_pseudonyms;')
     // mcp_log is not an AI-provider log: it stays (pruned after MCP_LOG_KEEP_DAYS by the server).
     if (includeLogs) db.exec('DELETE FROM ai_usage; DELETE FROM ai_outbound_log;')
+    // Kept logs keep their sizes and fingerprints, not the (masked) screen context that was sent.
+    else db.exec('UPDATE ai_outbound_log SET context_json = NULL WHERE context_json IS NOT NULL;')
   })()
   return before
 }

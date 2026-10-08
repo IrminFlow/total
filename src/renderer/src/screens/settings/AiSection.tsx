@@ -50,6 +50,16 @@ const OUTBOUND_COLUMNS = defineColumns<AiOutboundRow>([
   { id: 'bytes', header: 'Size (bytes)', kind: 'number', value: (r) => r.requestBytes, text: (r) => fmtInt(r.requestBytes), width: 110 },
   { id: 'items', header: 'Items', kind: 'number', value: (r) => r.messageCount, width: 70 },
   { id: 'results', header: 'Tool results sent', kind: 'text', value: (r) => r.toolResultsSent.join(', '), minWidth: 160 },
+  // WP 5.2: the screen context that went with the request (screen, parameters, the figure explained).
+  {
+    id: 'context', header: 'Screen context', kind: 'text', minWidth: 180,
+    value: (r) =>
+      r.context
+        ? [r.context.label ?? r.context.screen, ...Object.entries(r.context.params ?? {}).map(([k, v]) => `${k}=${v}`), r.context.explain ? `explain: ${r.context.explain.label}` : null]
+            .filter(Boolean)
+            .join(' · ')
+        : ''
+  },
   {
     id: 'privacy', header: 'Privacy', kind: 'text',
     value: (r) => [r.masked ? 'IDs masked' : 'IDs in clear', r.pseudonymised ? 'parties aliased' : 'party names in clear'].join(' · '), minWidth: 200

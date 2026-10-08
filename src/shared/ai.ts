@@ -8,6 +8,7 @@
  * ever touches a stored figure.
  */
 import { z } from 'zod'
+import { aiContextSchema, type AiContext } from './aiExplain'
 
 /** Defaults from the revamp plan. NOT verified against the provider's model list — the
  *  Settings "Test connection" lists the models the key can use and flags an id that is missing. */
@@ -76,13 +77,9 @@ export type AiSettingsPatch = z.infer<typeof aiSettingsPatchSchema>
 
 export const aiKeySetSchema = z.object({ key: z.string().trim().min(8).max(400) })
 
-/** What the screen the user is on can tell the agent (WP 5.2 widens this). */
-export const aiContextSchema = z.object({
-  screen: z.string().max(60).optional(),
-  from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
-  to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional()
-})
-export type AiContext = z.infer<typeof aiContextSchema>
+// The screen context (WP 5.2: screen, title, period, parameters, the figure to explain) lives in
+// aiExplain.ts with the pure builders that share it between the panel and the prompt.
+export { aiContextSchema, type AiContext }
 
 export const aiSendSchema = z.object({
   threadId: z.number().int().positive().optional(),
@@ -92,6 +89,16 @@ export const aiSendSchema = z.object({
   speed: z.enum(['default', 'fast']).optional()
 })
 export type AiSendInput = z.infer<typeof aiSendSchema>
+
+/** Regenerate: answer the thread's last question again (its previous answer is replaced). */
+export const aiRegenerateSchema = z.object({
+  threadId: z.number().int().positive(),
+  context: aiContextSchema.optional(),
+  speed: z.enum(['default', 'fast']).optional()
+})
+
+export const aiThreadRenameSchema = z.object({ id: z.number().int().positive(), title: z.string().trim().min(1).max(80) })
+export const aiThreadPinSchema = z.object({ id: z.number().int().positive(), pinned: z.boolean() })
 
 /** Where a figure or a row came from — the panel renders these as links. */
 export type AiSource =
@@ -109,6 +116,12 @@ export interface AiFigure {
   tool: string | null
   /** Shorthand (₹1.2L) matched a source only within its rounding. */
   approximate?: boolean
+  /** WP 5.2: the ledger / voucher / item (else the screen) the figure was found under in that
+   *  tool's result — the panel renders the figure as a chip linking there. */
+  source?: AiSource
+  /** Several rows of that result hold the amount and the answer does not say which: `source` is
+   *  the report, not a guessed row. */
+  ambiguous?: boolean
 }
 
 export interface AiToolCallDto {
@@ -142,6 +155,8 @@ export interface AiMessageDto {
   inputTokens: number | null
   outputTokens: number | null
   draftId: number | null
+  /** WP 5.2, user messages: the screen context the question was asked with. */
+  context: AiContext | null
   createdAt: string
 }
 
@@ -153,9 +168,12 @@ export interface AiThreadDto {
   messageCount: number
   costMicroUsd: number | null
   running: boolean
+  /** WP 5.2: pinned conversations sort first. */
+  pinned: boolean
 }
 
-export type AiDraftStatus = 'open' | 'consumed' | 'discarded'
+/** 'superseded': made by an answer that Regenerate replaced (WP 5.2). */
+export type AiDraftStatus = 'open' | 'consumed' | 'discarded' | 'superseded'
 
 /** Where a draft came from (WP 5.7): the in-app assistant, a tool call over the MCP server
  *  (`total-cli mcp`), or a file dropped in the company's inbox/ folder. */
@@ -219,6 +237,8 @@ export interface AiOutboundRow {
   pseudonymised: boolean
   payloadSha256: string
   status: string
+  /** WP 5.2: the screen context included in the request (screen, period, parameters, figure). */
+  context: AiContext | null
 }
 
 export interface AiSettingsView {
