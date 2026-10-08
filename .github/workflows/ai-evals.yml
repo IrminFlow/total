@@ -1,0 +1,71 @@
+# WP 5.8 — live-model AI evaluation. Manually triggered only; never runs on push / PR (the mocked
+# suite already runs in CI.yml through `npm run test:db`). Sends ONLY the synthetic Eval Traders
+# fixture to the provider. Accuracy is reported, never enforced: the job fails only when the run
+# itself errors (no key, model not listed by the key, provider / runner errors).
+name: AI evals (live model)
+
+on:
+  workflow_dispatch:
+    inputs:
+      model:
+        description: 'Model id (must be on the key''s model list; the defaults gpt-6.1-sol / gpt-6-luna are unverified)'
+        required: true
+        default: 'gpt-6.1-sol'
+      sample:
+        description: 'Number of cases (0 = all)'
+        required: true
+        default: '0'
+      cases:
+        description: 'Optional case filter, e.g. "acc.*" (empty = all)'
+        required: false
+        default: ''
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ai-evals
+  cancel-in-progress: false
+
+jobs:
+  live:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run the live evaluation
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          MODEL: ${{ inputs.model }}
+          SAMPLE: ${{ inputs.sample }}
+          CASES: ${{ inputs.cases }}
+        run: |
+          set -o pipefail
+          ARGS=(--live --model "$MODEL" --sample "$SAMPLE" --out "$RUNNER_TEMP/ai-evals")
+          if [ -n "$CASES" ]; then ARGS+=(--case "$CASES"); fi
+          npm run ai:evals -- "${ARGS[@]}" | tee "$RUNNER_TEMP/ai-evals.log"
+
+      - name: Summary
+        if: always()
+        run: |
+          if [ -f "$RUNNER_TEMP/ai-evals/report.md" ]; then sed '/^## Failures/,$d' "$RUNNER_TEMP/ai-evals/report.md" >> "$GITHUB_STEP_SUMMARY"; fi
+
+      - name: Upload the report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ai-evals-${{ inputs.model }}-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/ai-evals/report.json
+            ${{ runner.temp }}/ai-evals/report.md
+          if-no-files-found: warn
+          retention-days: 30
