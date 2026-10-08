@@ -29,6 +29,8 @@ interface LedgerRow {
   tcs_section_id?: number | null; tcs_payable_section_id?: number | null; tcs_default_section_id?: number | null
   email?: string | null; interest_rate_bp?: number | null; interest_grace_days?: number
   credit_hold?: number; credit_hold_reason?: string | null; credit_hold_at?: string | null
+  msme_registered?: number | null; msme_registered_from?: string | null; udyam_no?: string | null; msme_category?: Ledger['msmeCategory']; agreed_credit_days?: number | null
+  early_payment_discount_bp?: number | null; early_payment_discount_days?: number | null
 }
 const mapLedger = (r: LedgerRow): Ledger => ({
   id: r.id, name: r.name, groupId: r.group_id, openingBalance: r.opening_balance,
@@ -42,7 +44,10 @@ const mapLedger = (r: LedgerRow): Ledger => ({
   tcsSectionId: r.tcs_section_id ?? null, tcsPayableSectionId: r.tcs_payable_section_id ?? null,
   tcsDefaultSectionId: r.tcs_default_section_id ?? null,
   email: r.email ?? null, interestRateBp: r.interest_rate_bp ?? null, interestGraceDays: r.interest_grace_days ?? 0,
-  creditHold: !!r.credit_hold, creditHoldReason: r.credit_hold_reason ?? null, creditHoldAt: r.credit_hold_at ?? null
+  creditHold: !!r.credit_hold, creditHoldReason: r.credit_hold_reason ?? null, creditHoldAt: r.credit_hold_at ?? null,
+  msmeRegistered: !!r.msme_registered, msmeRegisteredFrom: r.msme_registered_from ?? null, udyamNo: r.udyam_no ?? null, msmeCategory: r.msme_category ?? null,
+  agreedCreditDays: r.agreed_credit_days ?? null,
+  earlyPaymentDiscountBp: r.early_payment_discount_bp ?? null, earlyPaymentDiscountDays: r.early_payment_discount_days ?? null
 })
 
 // ---------- groups ----------
@@ -191,6 +196,7 @@ export function createLedger(db: DB, raw: LedgerInput): Ledger {
       input.email ?? null, input.interestRateBp ?? null, input.interestGraceDays ?? 0, Number(res.lastInsertRowid)
     )
   }
+  writeSupplierTerms(db, Number(res.lastInsertRowid), input, null)
   const created = getLedger(db, Number(res.lastInsertRowid))!
   writeAudit(db, 'ledger', created.id, 'create', null, created)
   return created
@@ -229,9 +235,32 @@ export function updateLedger(db: DB, id: number, raw: LedgerInput): Ledger {
       id
     )
   }
+  writeSupplierTerms(db, id, input, existing)
   const updated = getLedger(db, id)!
   writeAudit(db, 'ledger', id, 'update', existing, updated)
   return updated
+}
+
+/** WP 4.3 (migration 033): supplier MSME facts / payment terms — each field absent = keep. Runs
+ *  inside create/update, before the audit row is written, so the audit's after-image has them. */
+function writeSupplierTerms(db: DB, id: number, input: ReturnType<typeof ledgerInputSchema.parse>, existing: Ledger | null): void {
+  // A migration-slice test DB (pre-033) has no such columns — nothing to write there.
+  if (!db.prepare("SELECT 1 FROM pragma_table_info('ledgers') WHERE name = 'msme_registered'").get()) return
+  const keep = <T>(v: T | undefined, old: T): T => (v === undefined ? old : v)
+  const registered = keep(input.msmeRegistered, existing?.msmeRegistered ?? false)
+  db.prepare(
+    `UPDATE ledgers SET msme_registered = ?, msme_registered_from = ?, udyam_no = ?, msme_category = ?, agreed_credit_days = ?,
+       early_payment_discount_bp = ?, early_payment_discount_days = ? WHERE id = ?`
+  ).run(
+    registered ? 1 : 0,
+    keep(input.msmeRegisteredFrom, existing?.msmeRegisteredFrom ?? null),
+    keep(input.udyamNo, existing?.udyamNo ?? null),
+    keep(input.msmeCategory, existing?.msmeCategory ?? null),
+    keep(input.agreedCreditDays, existing?.agreedCreditDays ?? null),
+    keep(input.earlyPaymentDiscountBp, existing?.earlyPaymentDiscountBp ?? null),
+    keep(input.earlyPaymentDiscountDays, existing?.earlyPaymentDiscountDays ?? null),
+    id
+  )
 }
 
 export function deleteLedger(db: DB, id: number): void {

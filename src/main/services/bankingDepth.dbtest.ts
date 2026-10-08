@@ -21,6 +21,7 @@ import { getChequeConfig, setChequeConfig } from './config'
 import { chequeFields } from '@shared/cheque'
 import { BUILTIN_PAYMENT_TEMPLATES } from '@shared/bulkPayments'
 import type { DB } from '../db/connection'
+import { MIGRATIONS } from '../db/migrations'
 
 type Db = ReturnType<typeof seededDb>
 
@@ -79,6 +80,12 @@ beforeEach(() => {
 const entities = (d: DB, entity: string): string[] => listAudit(d, { entity }).rows.map((r) => r.action)
 
 describe('migration 034', () => {
+  it('is migration 034, after 033 (WP 4.3 payables)', () => {
+    const M034 = MIGRATIONS.findIndex((sql) => sql.includes('CREATE TABLE bank_statement_lines'))
+    expect(M034 + 1).toBe(34)
+    expect(M034).toBe(MIGRATIONS.findIndex((sql) => sql.includes('CREATE TABLE msme_bank_rates')) + 1)
+  })
+
   it('adds the bank-detail columns, the tables, and the PDC maturity trigger', () => {
     const cols = (db.prepare('PRAGMA table_info(ledgers)').all() as { name: string }[]).map((c) => c.name)
     expect(cols).toEqual(expect.arrayContaining(['bank_account_no', 'bank_ifsc', 'bank_account_name', 'bank_email']))

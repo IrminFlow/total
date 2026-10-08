@@ -80,6 +80,10 @@ const EXPECTED_TABLES = [
   'reminder_log',
   'interest_charges',
   'bill_followups',
+  // 033 (WP 4.3)
+  'msme_bank_rates',
+  'payment_runs',
+  'payment_run_vouchers',
   // 034 (WP 4.1)
   'bank_import_profiles',
   'bank_statement_imports',

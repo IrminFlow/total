@@ -79,6 +79,8 @@ export type Screen =
   | { name: 'outstandings' }
   // WP 4.2: credit control, reminders, interest on overdue bills, collection reports.
   | { name: 'receivables'; tab?: 'control' | 'reminders' | 'interest' | 'collections' }
+  // WP 4.3: payables — planning, batch payments, runs, MSME, supplier reconciliation.
+  | { name: 'payables'; tab?: 'plan' | 'batch' | 'runs' | 'msme' | 'suppliers' }
   // WP 2.5b: delivery challans not invoiced / GRNs not billed.
   | { name: 'pending-challans' }
   | { name: 'pending-grns' }

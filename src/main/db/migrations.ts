@@ -2313,9 +2313,68 @@ export const MIGRATIONS: string[] = [
   CREATE INDEX idx_bill_followups_party ON bill_followups(party_ledger_id, bill_voucher_id, bill_ref);
   CREATE INDEX idx_bill_followups_promised ON bill_followups(promised_date);
   `,
+  // 033 (WP 4.3) — payables: MSME tracking, payment planning terms, payment runs. Number assigned
+  // by the orchestrator: appended after 032 (WP 4.2 receivables); WP 4.1 banking takes the next
+  // number. Dbtests locate it by content (the msme_bank_rates table).
+  // - Supplier ledgers gain their MSMED Act 2006 facts: msme_registered (Udyam registration filed —
+  //   s.2(n) "supplier" needs the s.8 memorandum), udyam_no (UDYAM-XX-00-0000000), msme_category
+  //   (micro / small / medium — only micro and small are s.2(n) suppliers, so only they get the
+  //   s.15 deadline, s.16 interest, Income-tax s.43B(h) / 2025 Act s.37(2)(g) and MSME Form 1), and
+  //   msme_registered_from (the date the supplier became a registered micro / small enterprise —
+  //   bills accepted before it are not covered, so a later registration never rewrites past years),
+  //   agreed_credit_days (the period agreed IN WRITING, s.15; the 45-day cap is applied when
+  //   computing, not here, so the agreement is recorded as written). Sources with dates:
+  //   src/shared/payables/msmeSources.ts. The s.43B(h) disallowance is computed, never stored.
+  // - Early-payment discount terms per party (bp of the bill, within N days of the bill date) —
+  //   shown on the planning screen; nothing is posted from them.
+  // - msme_bank_rates: the RBI Bank Rate, effective-dated and user-editable (s.16 = 3 × it). Seeded
+  //   with the rows checked on 2026-10-07; each row carries its source; UNVERIFIED rows say so.
+  // - payment_runs / payment_run_vouchers: a planned or batch payment run and the payment vouchers
+  //   it posted (vouchers keep their own audit rows; deleting a voucher drops it from the run).
+  //   client_run_id: the renderer's idempotency key — a second submit of the same run returns the
+  //   run already posted instead of paying twice.
+  `
+  ALTER TABLE ledgers ADD COLUMN msme_registered INTEGER NOT NULL DEFAULT 0 CHECK (msme_registered IN (0, 1));
+  ALTER TABLE ledgers ADD COLUMN udyam_no TEXT;
+  ALTER TABLE ledgers ADD COLUMN msme_registered_from TEXT;
+  ALTER TABLE ledgers ADD COLUMN msme_category TEXT CHECK (msme_category IN ('micro', 'small', 'medium'));
+  ALTER TABLE ledgers ADD COLUMN agreed_credit_days INTEGER CHECK (agreed_credit_days IS NULL OR agreed_credit_days BETWEEN 0 AND 365);
+  ALTER TABLE ledgers ADD COLUMN early_payment_discount_bp INTEGER CHECK (early_payment_discount_bp IS NULL OR early_payment_discount_bp BETWEEN 0 AND 10000);
+  ALTER TABLE ledgers ADD COLUMN early_payment_discount_days INTEGER CHECK (early_payment_discount_days IS NULL OR early_payment_discount_days BETWEEN 0 AND 365);
+
+  CREATE TABLE msme_bank_rates (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    from_date TEXT NOT NULL UNIQUE,
+    rate_bp INTEGER NOT NULL CHECK (rate_bp BETWEEN 0 AND 5000),
+    source TEXT NOT NULL
+  );
+  INSERT INTO msme_bank_rates (from_date, rate_bp, source) VALUES
+    ('2023-02-08', 675, 'RBI MPC 8 Feb 2023 (repo 6.50 %, Bank Rate 6.75 %) — UNVERIFIED, entered from secondary sources'),
+    ('2025-02-07', 650, 'RBI MPC 7 Feb 2025 (repo 6.25 %, Bank Rate 6.50 %) — UNVERIFIED, entered from secondary sources'),
+    ('2025-04-09', 625, 'RBI MPC 9 Apr 2025 (repo 6.00 %, Bank Rate 6.25 %) — UNVERIFIED, entered from secondary sources'),
+    ('2025-06-06', 575, 'RBI MPC 6 Jun 2025 (repo 5.50 %, Bank Rate 5.75 %) — start date UNVERIFIED; rate confirmed in force by RBI press release prid=61332 (1 Oct 2025)'),
+    ('2025-12-05', 550, 'RBI MPC 5 Dec 2025 (repo 5.25 %, Bank Rate 5.50 %) — confirmed by RBI press releases prid=62169 (6 Feb 2026) and prid=63287 (5 Aug 2026)'),
+    ('2026-10-07', 575, 'RBI press release 2026-2027/1264, 7 Oct 2026 (prid=63742): "the MSF rate and the Bank Rate at 5.75 per cent"');
+
+  CREATE TABLE payment_runs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    run_no TEXT NOT NULL UNIQUE,
+    kind TEXT NOT NULL CHECK (kind IN ('plan', 'batch')),
+    date TEXT NOT NULL,
+    note TEXT,
+    client_run_id TEXT UNIQUE,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+  CREATE TABLE payment_run_vouchers (
+    run_id INTEGER NOT NULL REFERENCES payment_runs(id) ON DELETE CASCADE,
+    voucher_id INTEGER NOT NULL REFERENCES vouchers(id) ON DELETE CASCADE,
+    line_no INTEGER NOT NULL,
+    PRIMARY KEY (run_id, voucher_id)
+  );
+  CREATE INDEX idx_payment_run_vouchers_voucher ON payment_run_vouchers(voucher_id);
+  `,
   // 034 — banking depth (WP 4.1). Number assigned by the orchestrator: after 032 (WP 4.2
-  // receivables) and 033 (WP 4.3 payables). Until 033 merges this is the 33rd entry — keep it last,
-  // after 033, when merging.
+  // receivables) and 033 (WP 4.3 payables).
   // - ledgers.bank_account_no / bank_ifsc / bank_account_name / bank_email: the beneficiary
   //   master on party ledgers (bulk NEFT/RTGS files) and the company's own account on bank
   //   ledgers (the debit account of those files). Managed from Banking → Bulk payments.
