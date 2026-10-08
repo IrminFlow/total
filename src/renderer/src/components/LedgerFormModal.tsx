@@ -12,6 +12,9 @@ import { GST_RATE_PRESETS } from '@shared/seed'
 import { confirmDialog } from '../lib/dialogs'
 import { useFeatures } from '../lib/useFeatures'
 import { PartyRatesModal } from '../screens/masters/PartyRatesTab'
+import { TabBar } from './TabBar'
+import { PartyNotesPanel } from './partyNotes/PartyNotes'
+import { AttachmentList } from './attachments/Attachments'
 import { bpToPercent, percentToBp } from '@shared/receivables/interest'
 import { SupplierTermsFields, initialSupplierTerms, supplierTermsError, supplierTermsPayload } from './SupplierTermsFields'
 
@@ -115,6 +118,8 @@ function LedgerForm({
   const groups = useGroups()
   const toast = useToasts()
   const queryClient = useQueryClient()
+  const [tab, setTab] = useState<'details' | 'notes' | 'files'>('details')
+  const [showDone, setShowDone] = useState(false)
   const { data: tdsSections } = useQuery({ queryKey: ['tdsSections'], queryFn: api.tds.sections })
   const features = useFeatures()
   const { data: tcsSections } = useQuery({ queryKey: ['tcsSections'], queryFn: api.tcs.sections, enabled: features.tcs })
@@ -249,8 +254,25 @@ function LedgerForm({
   }
 
   return (
-    <Modal title={ledger ? `Edit ${ledger.name}` : 'New ledger'} onClose={onClose}>
-      <div className="flex flex-col gap-3">
+    <Modal title={ledger ? `Edit ${ledger.name}` : 'New ledger'} onClose={onClose} wide={!!ledger && tab !== 'details'}>
+      {/* WP 6.4: an existing ledger's window also carries its notes / tasks and attached files. */}
+      {ledger && (
+        <div className="mb-3">
+          <TabBar
+            screen="ledger-form"
+            tabs={[
+              { id: 'details', label: 'Details' },
+              { id: 'notes', label: 'Notes & tasks' },
+              { id: 'files', label: 'Files' }
+            ]}
+            active={tab}
+            onSelect={setTab}
+          />
+        </div>
+      )}
+      {ledger && tab === 'notes' && <PartyNotesPanel ledgerId={ledger.id} showDone={showDone} onShowDone={setShowDone} testId="ledger-notes" />}
+      {ledger && tab === 'files' && <AttachmentList target={{ entity: 'ledger', entityId: ledger.id }} />}
+      <div className="flex flex-col gap-3" hidden={!!ledger && tab !== 'details'}>
         <div className="grid grid-cols-2 gap-3">
           <Field label="Name">
             <TextInput autoFocus value={name} onChange={(e) => setName(e.target.value)} />

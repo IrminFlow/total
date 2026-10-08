@@ -90,6 +90,10 @@ export interface BulkBatchRow {
   undoneAt: string | null
 }
 
+export interface BulkBatchDetail extends BulkBatchRow {
+  records: { entity: BulkTarget; id: number; label: string; status: string; reason: string | null }[]
+}
+
 export interface BulkUndoRecord {
   entity: BulkTarget
   id: number

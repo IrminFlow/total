@@ -20,7 +20,7 @@ import type { DB } from '../db/connection'
 import type { VoucherKind } from '@shared/domain'
 import {
   applyItemChange, applyLedgerChange, applyVoucherChange, bulkRequestSchema, describeChange,
-  type ApplyOutcome, type BulkBatchRow, type BulkRecordResult, type BulkRequest, type BulkResult, type BulkTarget,
+  type ApplyOutcome, type BulkBatchDetail, type BulkBatchRow, type BulkRecordResult, type BulkRequest, type BulkResult, type BulkTarget,
   type BulkUndoRecord, type BulkUndoResult
 } from '@shared/bulkEdit'
 import { voucherToPayload, type VoucherPayload } from '@shared/voucherEdit'
@@ -216,10 +216,6 @@ export function listBulkBatches(db: DB, target?: BulkTarget): BulkBatchRow[] {
     .prepare(`SELECT * FROM bulk_batches ${target ? 'WHERE target = ?' : ''} ORDER BY id DESC LIMIT 100`)
     .all(...(target ? [target] : [])) as BatchDbRow[]
   return rows.map(mapBatch)
-}
-
-export interface BulkBatchDetail extends BulkBatchRow {
-  records: { entity: BulkTarget; id: number; label: string; status: string; reason: string | null }[]
 }
 
 export function getBulkBatch(db: DB, id: number): BulkBatchDetail {
