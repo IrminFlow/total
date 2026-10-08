@@ -13,6 +13,7 @@ import { confirmDialog } from '../lib/dialogs'
 import { useFeatures } from '../lib/useFeatures'
 import { PartyRatesModal } from '../screens/masters/PartyRatesTab'
 import { bpToPercent, percentToBp } from '@shared/receivables/interest'
+import { SupplierTermsFields, initialSupplierTerms, supplierTermsError, supplierTermsPayload } from './SupplierTermsFields'
 
 const EXPORT_TYPES: { value: NonNullable<Ledger['exportType']> | ''; label: string }[] = [
   { value: '', label: 'None (domestic)' },
@@ -149,9 +150,12 @@ function LedgerForm({
   const [graceDays, setGraceDays] = useState(ledger?.interestGraceDays ? String(ledger.interestGraceDays) : '')
   const { data: priceLevelList } = useQuery({ queryKey: ['priceLevels'], queryFn: api.priceLevels.list, enabled: features.inventory })
   const [partyRatesOpen, setPartyRatesOpen] = useState(false)
+  // WP 4.3: a supplier's MSME facts and payment terms (creditors only).
+  const [supplierTerms, setSupplierTerms] = useState(() => initialSupplierTerms(ledger))
 
   const ancestry = useMemo(() => groupAncestryNames(groupId, groups), [groupId, groups])
   const isParty = ancestry.some((n) => PARTY_GROUPS.includes(n))
+  const isCreditor = ancestry.includes('Sundry Creditors')
   const isTaxLedger = !isParty && ancestry.some((n) => TAX_GROUPS.includes(n))
   const isTradingLedger = !isParty && !isTaxLedger && ancestry.some((n) => TRADING_GROUPS.includes(n))
   const isDebtor = ancestry.includes('Sundry Debtors')
@@ -173,6 +177,8 @@ function LedgerForm({
       if (gstinError) return void toast.push('error', gstinError)
       if (panError) return void toast.push('error', panError)
       if (isParty && (interestError || emailError)) return void toast.push('error', interestError ?? emailError!)
+      const termsError = isCreditor ? supplierTermsError(supplierTerms) : null
+      if (termsError) return void toast.push('error', termsError)
       const effectiveState = stateCode || (gstinCheck?.valid ? gstinCheck.stateCode : null)
       const data = {
         name: name.trim(),
@@ -206,7 +212,9 @@ function LedgerForm({
         ...(isParty ? { email: email.trim() || null } : {}),
         ...(isDebtor
           ? { creditLimit: creditLimit && creditLimit > 0 ? creditLimit : null, interestRateBp: interestBp || null, interestGraceDays: graceDays.trim() ? Math.max(0, Math.min(365, Math.trunc(Number(graceDays) || 0))) : 0 }
-          : {})
+          : {}),
+        // Sent only where the form shows it; otherwise the server keeps the stored terms.
+        ...(isCreditor ? supplierTermsPayload(supplierTerms) : {})
       }
       if (ledger) await api.ledgers.update(ledger.id, data)
       else await api.ledgers.create(data)
@@ -453,6 +461,7 @@ function LedgerForm({
                 On credit hold{ledger.creditHoldReason ? ` — ${ledger.creditHoldReason}` : ''}. Release it from Credit control.
               </p>
             )}
+            {isCreditor && <SupplierTermsFields value={supplierTerms} onChange={setSupplierTerms} />}
           </>
         )}
 
