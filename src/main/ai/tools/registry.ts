@@ -25,6 +25,12 @@ export interface ToolContext {
   period: { from: string; to: string }
   /** The user's question this tool call serves (draft tools flag drafts it did not ask for). */
   userRequest?: string
+  /** WP 5.3: whether the question (or the request a clarification answers) asked for an entry —
+   *  decided once per question by the agent (drafting/intent.ts); absent = judge `userRequest`. */
+  draftRequested?: boolean
+  /** WP 5.3: the user's working date (the date field's context). Relative dates in drafts and
+   *  undated drafts use it; absent = `today`. */
+  workingDate?: string
   /** WP 5.2: the screen the user is on (screen, period, parameters, a figure to explain). */
   screen?: AiContext | null
 }

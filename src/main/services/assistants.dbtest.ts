@@ -206,6 +206,11 @@ describe('GSTR-2B mismatches', () => {
       { ledgerId: b.vendor, drCr: 'cr', amount: 5_900_00 }
     ])
 
+    // A WP 5.3 draft: the accounting form's own state, rehearsed, with sources and assumptions.
+    expect(draft.payload.form).toBe('accounting')
+    expect(draft.payload.state).toBeTruthy()
+    expect((draft.payload.sources ?? []).map((x) => x.field)).toEqual(expect.arrayContaining(['party', 'line:0', 'date']))
+    expect((draft.payload.assumptions ?? []).join(' ')).toMatch(/no item detail/)
     // The user saves it through the normal path → the mismatch is gone.
     const saved = saveVoucher(b.db, {
       ...header, voucherTypeId: draft.payload.voucherTypeId, date: draft.payload.date, partyLedgerId: draft.payload.partyLedgerId, narration: draft.payload.narration, reference: draft.payload.reference,
@@ -228,10 +233,21 @@ describe('GSTR-2B mismatches', () => {
     const m = assist.gst2bMismatches(b.db, '2025-05').rows.find((x) => x.category === 'missing_in_books')!
     const plan = m.actions.find((a) => a.kind === 'draft')!
     if (plan.kind !== 'draft') throw new Error('no plan')
-    const d = insertPlanDraft(b.db, plan.plan, { threadId: null, messageId: null, source: 'chat', origin: 'GST 2B assistant' })
+    const d = insertPlanDraft(b.db, INFO, TODAY, plan.plan, { threadId: null, messageId: null, origin: 'GST 2B assistant' })
     expect(d).toMatchObject({ source: 'chat', origin: 'GST 2B assistant', status: 'open' })
     b.db.prepare("INSERT INTO meta (key, value) VALUES ('lock_before', '2025-05-31') ON CONFLICT(key) DO UPDATE SET value = excluded.value").run()
-    expect(() => insertPlanDraft(b.db, plan.plan, { threadId: null, messageId: null })).toThrow(/locked up to 2025-05-31/)
+    expect(() => insertPlanDraft(b.db, INFO, TODAY, plan.plan, { threadId: null, messageId: null })).toThrow(/lock/i)
+  })
+})
+
+describe('MCP exposure', () => {
+  it('draft_gst_2b_fix is listed for accountants and owners only; the read assistants for viewers too', async () => {
+    const { exposedTools } = await import('../mcp/server')
+    const names = (role: Role): string[] => exposedTools(createToolRegistry(), { role, userName: null } as never).map((t) => t.name)
+    expect(names('viewer')).toEqual(expect.arrayContaining(['close_checklist', 'gst_2b_mismatches', 'find_anomalies', 'build_report']))
+    expect(names('viewer')).not.toContain('draft_gst_2b_fix')
+    expect(names('accountant')).toContain('draft_gst_2b_fix')
+    expect(names('owner')).toContain('draft_gst_2b_fix')
   })
 })
 

@@ -7,6 +7,7 @@
 // in an unpackaged build — see agentEnv.ts) that the e2e scenario drives: "what were sales in
 // July?" and "pay … in cash" style questions.
 import { parseReportQuestion } from '@shared/reportBuilder/nl'
+import { draftingDemoStep } from './mockDrafting'
 import { AiAbortError, ZERO_USAGE, type AiProvider, type ChatHandlers, type ChatItem, type ChatRequest, type ChatResult, type ChatUsage } from './types'
 
 export type MockStep =
@@ -240,6 +241,10 @@ const ASSISTANT_INTENTS: { re: RegExp; tool: string }[] = [
 export const demoScript: MockScript = (req) => {
   const { question, results } = sinceLastUser(req.input)
   const q = question.toLowerCase()
+  // WP 5.3: drafting questions (sales invoice, payment against bills) — mockDrafting.ts.
+  // Undated: the draft tools default to the user's working date (as a model should when no date is said).
+  const drafting = draftingDemoStep(question, results, undefined)
+  if (drafting) return drafting
 
   const figure = /Figure to explain \(JSON\): (\{.*\})/.exec(req.instructions)?.[1]
   if (figure && /^explain this figure/i.test(question)) {

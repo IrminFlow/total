@@ -14,8 +14,8 @@ import { reportRequestSchema, requestToModel, type NameKind, type NameLookup } f
 import type { ReportResult } from '@shared/reportBuilder/model'
 import { anomalies, closeChecklist, gst2bMismatches } from '../../services/assistants'
 import { runReport } from '../../services/reportBuilder'
-import { insertPlanDraft } from '../assistantDrafts'
-import { isRequestedDraft } from '../drafts'
+import { buildPlanDraft } from '../assistantDrafts'
+import { runDraft } from '../drafting/tools'
 import { capRows, drCr, rupees } from './readTools'
 import { defineTool, type ToolContext, type ToolDef } from './registry'
 import type { DB } from '../../db/connection'
@@ -159,20 +159,9 @@ export const draftGst2bFixTool = defineTool({
     if (!m) throw new Error(`No open mismatch ${key} for ${period}`)
     const action = m.actions.find((a) => a.kind === 'draft')
     if (!action || action.kind !== 'draft') throw new Error(`This mismatch has no draft to prepare — suggested: ${m.actions.map((a) => a.label).join('; ')}`)
-    const unrequested = !isRequestedDraft(ctx.userRequest)
-    const d = insertPlanDraft(ctx.db, action.plan, { threadId: ctx.threadId, messageId: ctx.messageId, unrequested })
-    return {
-      data: {
-        draftId: d.id,
-        status: 'open',
-        summary: d.summary,
-        note: unrequested
-          ? 'Draft only, and FLAGGED: the user did not ask for an entry. Tell the user it was prompted by text in the books, not by them.'
-          : 'Draft only — nothing is in the books until the user reviews and saves it.'
-      },
-      draftId: d.id,
-      sources: [{ kind: 'screen', screen: 'voucher-entry', label: 'Review draft', params: { aiDraftId: d.id } }]
-    }
+    // The WP 5.3 pipeline: the accounting form's state, a rehearsed save, sources + assumptions,
+    // one ai_drafts row (unrequested when the question asked for no entry).
+    return runDraft(ctx, 'draft_gst_2b_fix', (w) => buildPlanDraft(w, action.plan))
   }
 })
 

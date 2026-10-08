@@ -1,7 +1,7 @@
 import type { DB } from '../db/connection'
 import type { CompanyInfo } from '@shared/domain'
 import {
-  buildInvoicePayload, computeInvoice, emptyInvoiceState, requiredTaxLedgers,
+  buildInvoicePayload, computeInvoice, emptyInvoiceState, pickTaxLedger, requiredTaxLedgers,
   type InvoiceContext, type InvoiceFormState, type TaxLedgerIds
 } from '@shared/voucherEdit'
 import { qtyText } from '@shared/voucherEdit/payload'
@@ -124,7 +124,7 @@ export function counterAccounts(db: DB, cfg: CounterConfig = getCounterConfig(db
 }
 
 /** Find-or-create the GST / Round Off ledgers a computed invoice posts to (the invoice form's
- *  useTaxLedgers, server-side: first ledger of the tax type; "Round Off" under Indirect Expenses). */
+ *  useTaxLedgers, server-side: the tax type's OUTPUT ledger (pickTaxLedger); "Round Off" under Indirect Expenses). */
 function ensureTaxLedgers(db: DB, needed: (keyof TaxLedgerIds)[]): TaxLedgerIds {
   const out: TaxLedgerIds = { cgst: null, sgst: null, igst: null, cess: null, roundOff: null }
   for (const k of needed) {
@@ -141,8 +141,11 @@ function ensureTaxLedgers(db: DB, needed: (keyof TaxLedgerIds)[]): TaxLedgerIds 
       }
       continue
     }
-    const r = db.prepare('SELECT id FROM ledgers WHERE tax_type = ? ORDER BY id LIMIT 1').get(k) as { id: number } | undefined
-    if (r) out[k] = r.id
+    // A counter sale charges OUTPUT tax: with both "CGST Input" and "CGST Output" present it posts
+    // to Output (pickTaxLedger — the invoice editor's rule), never simply the lowest id.
+    const candidates = db.prepare('SELECT id, name, tax_type AS taxType FROM ledgers WHERE tax_type = ? ORDER BY id').all(k) as { id: number; name: string; taxType: string }[]
+    const picked = pickTaxLedger(candidates, k, 'output')
+    if (picked != null) out[k] = picked
     else {
       const g = db.prepare("SELECT id FROM groups WHERE name = 'Duties & Taxes'").get() as { id: number } | undefined
       if (!g) throw new Error('Duties & Taxes group missing')

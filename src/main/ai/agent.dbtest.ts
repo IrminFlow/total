@@ -717,10 +717,11 @@ describe('review fixes', () => {
     expect(store.getDraft(f.db, d.id)).toMatchObject({ status: 'discarded', voucherId: null })
     const note = f.db.prepare("SELECT after_json FROM audit_log WHERE entity = 'ai_draft' ORDER BY id DESC LIMIT 1").get() as { after_json: string }
     expect(note.after_json).toContain('draft no longer open (discarded)')
-    // a draft that no longer exists at all
+    // a draft that no longer exists at all: the save goes ahead and no ai_draft audit row is
+    // written for an id that is not a draft (WP 5.3 review)
     store.deleteAllAiData(f.db, false)
+    const auditRows = (f.db.prepare("SELECT COUNT(*) AS n FROM audit_log WHERE entity = 'ai_draft'").get() as { n: number }).n
     expect(save()).toBeGreaterThan(vid)
-    const gone = f.db.prepare("SELECT after_json FROM audit_log WHERE entity = 'ai_draft' ORDER BY id DESC LIMIT 1").get() as { after_json: string }
-    expect(gone.after_json).toContain('draft no longer exists')
+    expect((f.db.prepare("SELECT COUNT(*) AS n FROM audit_log WHERE entity = 'ai_draft'").get() as { n: number }).n).toBe(auditRows)
   })
 })

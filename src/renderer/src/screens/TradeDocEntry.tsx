@@ -34,15 +34,24 @@ import { QuickItemModal, QuickLedgerModal } from './voucher/modals'
 import { AddFromDrawer } from './voucher/AddFromDrawer'
 import { useAddFrom } from './voucher/useAddFrom'
 import { LIST_SCREEN, TradeStatusBadge, useTradeDocActions } from './trade/tradeDocShared'
+import { aiApi, type AiDraftDto } from '../lib/aiClient'
+import { AiDraftReview } from '../components/ai/AiDraftReview'
+import { useAiFieldHighlights } from '../lib/aiHighlights'
 
-export function TradeDocEntry({ kind, id, draft }: { kind: TradeDocKind; id?: number; draft?: TradeDocDraft }): React.JSX.Element {
+export function TradeDocEntry({ kind, id, draft, aiDraftId }: { kind: TradeDocKind; id?: number; draft?: TradeDocDraft; aiDraftId?: number }): React.JSX.Element {
   const { data: doc, isLoading } = useQuery({
     queryKey: ['tradeDoc', id],
     queryFn: () => api.tradeDocs.get(id!),
     enabled: id != null
   })
   const { data: types } = useQuery({ queryKey: ['tradeDocTypes'], queryFn: api.tradeDocTypes.list })
-  if ((id != null && (isLoading || !doc)) || !types) {
+  // WP 5.3: an assistant draft opens pre-filled with the form state the draft tool built.
+  const { data: aiDraft, error: aiDraftError } = useQuery({
+    queryKey: ['aiDraft', aiDraftId],
+    queryFn: () => aiApi.draft(aiDraftId!),
+    enabled: !!aiDraftId && id == null
+  })
+  if ((id != null && (isLoading || !doc)) || !types || (!!aiDraftId && id == null && !aiDraft && !aiDraftError)) {
     return (
       <Page>
         <PageHeader title={id != null ? `${TRADE_DOC_TITLES[kind]}` : `New ${TRADE_DOC_TITLES[kind].toLowerCase()}`} />
@@ -51,18 +60,39 @@ export function TradeDocEntry({ kind, id, draft }: { kind: TradeDocKind; id?: nu
     )
   }
   // One form instance per loaded document version (a reopen / restore refetches it).
-  return <TradeDocForm key={doc ? `${doc.id}-${doc.updatedAt}-${doc.manualStatus}-${doc.deletedAt ?? ''}` : 'new'} kind={doc?.kind ?? kind} doc={doc ?? undefined} draft={draft} types={types} />
+  const reviewing = aiDraft?.status === 'open' && aiDraft.payload.form === 'tradeDoc' ? aiDraft : undefined
+  const aiNotice = aiDraftId && aiDraftError
+    ? `The assistant draft could not be opened: ${(aiDraftError as Error).message}`
+    : aiDraftId && aiDraft && !reviewing
+      ? `This assistant draft is already ${aiDraft.status}; it is not pre-filled again.`
+      : null
+  return (
+    <TradeDocForm
+      key={doc ? `${doc.id}-${doc.updatedAt}-${doc.manualStatus}-${doc.deletedAt ?? ''}` : reviewing ? `ai-${reviewing.id}` : 'new'}
+      kind={doc?.kind ?? (reviewing ? (reviewing.payload.voucherKind as TradeDocKind) : kind)}
+      doc={doc ?? undefined}
+      draft={draft}
+      aiDraft={reviewing}
+      aiNotice={aiNotice}
+      types={types}
+    />
+  )
 }
 
 function TradeDocForm({
   kind,
   doc,
   draft,
+  aiDraft,
+  aiNotice,
   types
 }: {
   kind: TradeDocKind
   doc?: TradeDoc
   draft?: TradeDocDraft
+  /** WP 5.3: an open AI draft — its form state pre-fills the form; saving consumes it. */
+  aiDraft?: AiDraftDto
+  aiNotice?: string | null
   types: { id: number; name: string; kind: TradeDocKind; numbering: 'auto' | 'manual' }[]
 }): React.JSX.Element {
   const isEdit = doc != null
@@ -80,9 +110,17 @@ function TradeDocForm({
 
   const series = types.filter((t) => t.kind === kind)
   const [start] = useState<TradeDocFormState>(() =>
-    doc ? tradeDocStateFromDoc(doc) : draft ? tradeDocStateFromDraft(draft, workingDate) : emptyTradeDocState(kind, workingDate)
+    doc
+      ? tradeDocStateFromDoc(doc)
+      : aiDraft
+        ? (aiDraft.payload.state as TradeDocFormState)
+        : draft
+          ? tradeDocStateFromDraft(draft, workingDate)
+          : emptyTradeDocState(kind, workingDate)
   )
-  const [docTypeId, setDocTypeId] = useState<number>(doc?.docTypeId ?? series[0]?.id ?? 0)
+  const [docTypeId, setDocTypeId] = useState<number>(doc?.docTypeId ?? (aiDraft && series.some((t) => t.id === aiDraft.payload.voucherTypeId) ? aiDraft.payload.voucherTypeId : series[0]?.id) ?? 0)
+  const [formEl, setFormEl] = useState<HTMLDivElement | null>(null)
+  useAiFieldHighlights(formEl, aiDraft?.payload.fields)
   const [date, setDate] = useState(start.date)
   const [number, setNumber] = useState(start.number)
   const [partyId, setPartyId] = useState<number | null>(start.partyId)
@@ -168,7 +206,7 @@ function TradeDocForm({
     if (!r.ok) return void toast.push('error', r.error)
     setSaving(true)
     try {
-      const result = await api.tradeDocs.save(r.payload, doc?.id)
+      const result = await api.tradeDocs.save(r.payload, doc?.id, !doc && aiDraft ? { aiDraftId: aiDraft.id } : undefined)
       toast.push('success', `${title} ${result.doc.number} ${isEdit ? 'altered' : 'saved'} — ${formatPaise(result.doc.totals.total, { symbol: true })}`)
       for (const w of result.warnings.linkDates) toast.push('warning', w)
       if (andPdf) await api.tradeDocs.pdf(result.doc.id).catch((err: Error) => toast.push('error', err.message))
@@ -182,7 +220,7 @@ function TradeDocForm({
     } finally {
       setSaving(false)
     }
-  }, [saving, readOnly, formState, ctx, docTypeId, toast, doc, title, isEdit, setWorkingDate, date, queryClient, nav, kind])
+  }, [saving, readOnly, formState, ctx, docTypeId, toast, doc, title, isEdit, setWorkingDate, date, queryClient, nav, kind, aiDraft])
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
@@ -284,7 +322,14 @@ function TradeDocForm({
           )}
         </Banner>
       )}
+      {aiDraft && <AiDraftReview draft={aiDraft} form="tradeDoc" />}
+      {aiNotice && (
+        <Banner tone="warning" className="mb-section" testId="ai-draft-banner">
+          {aiNotice}
+        </Banner>
+      )}
       <fieldset disabled={readOnly} className="m-0 min-w-0 border-0 p-0">
+        <div ref={setFormEl} data-testid="trade-doc-form">
         <Panel className="p-5" testId={`trade-doc-${kind}`}>
           <div className="grid grid-cols-4 gap-3">
             <Field label="No." hint={isEdit ? undefined : type?.numbering === 'manual' ? 'Numbered by hand' : 'Auto — edit to override'}>
@@ -301,7 +346,7 @@ function TradeDocForm({
             </Field>
             <Field label={sales ? 'Customer (party)' : 'Supplier (party)'}>
               <LedgerPicker
-                autoFocus={!isEdit && !draft}
+                autoFocus={!isEdit && !draft && !aiDraft}
                 value={partyId}
                 onPick={setPartyId}
                 placeholder="Party ledger"
@@ -430,6 +475,7 @@ function TradeDocForm({
             </div>
           </div>
         </Panel>
+        </div>
       </fieldset>
 
       {addFrom.open && addFrom.addFrom && (

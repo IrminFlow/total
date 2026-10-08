@@ -5,12 +5,15 @@
 import { useMemo, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
-  aggregateUsage, aiModelIdSchema, formatMicroUsd, microToUsdText, parseUsdToMicro, type AiConnectionResult, type AiModelPrice, type AiOutboundRow,
+  aggregateUsage, aiModelIdSchema, formatMicroUsd, microToUsdText, parseUsdToMicro, type AiConnectionResult, type AiDraftDto, type AiModelPrice, type AiOutboundRow,
   type AiSettingsView, type AiUsageAggregate, type AiUsageRow
 } from '@shared/ai'
+import { formatPaise } from '@shared/money'
+import { screenForDraft } from '../../components/ai/AiDraftReview'
+import { VoucherLink } from '../../components/links'
 import { aiApi } from '../../lib/aiClient'
 import { toDisplayDateTime } from '@shared/dates'
-import { useSession, useToasts } from '../../state/stores'
+import { useNav, useSession, useToasts } from '../../state/stores'
 import { confirmDialog } from '../../lib/dialogs'
 import { Badge, Banner, Button, Checkbox, Field, Panel, SectionTitle, Segmented, SkeletonRows, TextInput } from '../../components/ui'
 import { DataTable, defineColumns } from '../../components/table'
@@ -182,6 +185,7 @@ export function AiSection(): React.JSX.Element {
         </div>
       </Panel>
 
+      <DraftsPanel />
       <UsagePanel />
       <OutboundPanel />
 
@@ -445,6 +449,104 @@ function priceText(prices: Record<string, AiModelPrice>, extra: string[]): Recor
     out[m] = { inputPerM: microToUsdText(p?.inputPerM), cachedInputPerM: microToUsdText(p?.cachedInputPerM), outputPerM: microToUsdText(p?.outputPerM) }
   }
   return out
+}
+
+// ---------- drafts (WP 5.3) ----------
+
+const FORM_LABEL: Record<string, string> = {
+  invoice: 'Invoice / note', accounting: 'Payment / receipt / journal', stockNote: 'Challan / GRN', manufacture: 'Manufacture', tradeDoc: 'Quotation / order'
+}
+const STATUS_LABEL: Record<AiDraftDto['status'], string> = { open: 'Not saved', consumed: 'Saved', discarded: 'Discarded', superseded: 'Replaced' }
+
+const DRAFT_COLUMNS = defineColumns<AiDraftDto>([
+  { id: 'at', header: 'Drafted', kind: 'text', value: (r) => r.createdAt, text: (r) => fmtAt(r.createdAt), className: 'num text-muted', width: 160, hideable: false },
+  { id: 'who', header: 'Asked by', kind: 'text', value: (r) => r.userName ?? '', text: (r) => r.userName ?? '', width: 84 },
+  // The summary already starts with the kind ("Sales invoice to…", "Payment of…").
+  { id: 'form', header: 'Opens in', kind: 'text', value: (r) => FORM_LABEL[r.payload.form ?? 'accounting'] ?? '', width: 170, defaultHidden: true },
+  {
+    id: 'summary', header: 'Draft', kind: 'text', value: (r) => r.summary, minWidth: 160,
+    cell: (r) => (
+      <span className="flex items-center gap-2">
+        {r.unrequested && <Badge tone="danger" testId="ai-drafts-unrequested">Not asked for</Badge>}
+        <span className="truncate" title={r.summary}>{r.summary}</span>
+      </span>
+    )
+  },
+  { id: 'total', header: 'Amount', kind: 'number', value: (r) => r.payload.total ?? null, text: (r) => (r.payload.total != null ? formatPaise(r.payload.total, { symbol: true }) : ''), width: 140 },
+  {
+    id: 'status', header: 'Status', kind: 'enum', value: (r) => r.status, text: (r) => STATUS_LABEL[r.status],
+    options: (['open', 'consumed', 'discarded', 'superseded'] as const).map((v) => ({ value: v, label: STATUS_LABEL[v] })), width: 120,
+    cell: (r) => (
+      <span className="flex items-center gap-1">
+        <Badge tone={r.status === 'open' ? 'amber' : r.status === 'consumed' ? 'success' : 'neutral'}>{STATUS_LABEL[r.status]}</Badge>
+        {r.status === 'consumed' && r.voucherId && <VoucherLink voucherId={r.voucherId} label="Open" />}
+      </span>
+    )
+  },
+  { id: 'when', header: 'Settled', kind: 'text', value: (r) => r.consumedAt ?? '', text: (r) => (r.consumedAt ? fmtAt(r.consumedAt) : ''), className: 'num text-muted', width: 170, defaultHidden: true }
+])
+
+/** Every draft the assistant made in this company: open ones open in their editor for review
+ *  (or are discarded here); saved ones link to the voucher. */
+function DraftsPanel(): React.JSX.Element {
+  const nav = useNav()
+  const toast = useToasts()
+  const queryClient = useQueryClient()
+  const { user } = useSession()
+  const canDiscard = user == null || user.role !== 'viewer'
+  const { data: rows = [], isLoading } = useQuery({ queryKey: ['aiDrafts'], queryFn: () => aiApi.drafts() })
+  const discard = async (d: AiDraftDto): Promise<void> => {
+    const ok = await confirmDialog({ title: 'Discard this draft?', message: d.summary, confirmLabel: 'Discard draft', danger: true })
+    if (!ok) return
+    try {
+      await aiApi.discardDraft(d.id)
+      await queryClient.invalidateQueries({ queryKey: ['aiDrafts'] })
+      await queryClient.invalidateQueries({ queryKey: ['aiDraft'] })
+      toast.push('success', 'Draft discarded')
+    } catch (err) {
+      toast.push('error', (err as Error).message)
+    }
+  }
+  return (
+    <div>
+      <SectionTitle right={<span className="text-body-sm text-muted">{rows.filter((r) => r.status === 'open').length} open</span>}>Drafts</SectionTitle>
+      <p className="mb-2 text-body-sm text-muted">
+        Entries the assistant prepared. Nothing here is in the books: open a draft to review it in its editor and save it there, or discard it.
+      </p>
+      <Panel>
+        <DataTable
+          viewId="settings-ai-drafts"
+          testId="ai-drafts"
+          ariaLabel="AI drafts"
+          columns={DRAFT_COLUMNS}
+          rows={rows}
+          rowKey={(r) => r.id}
+          loading={isLoading}
+          maxHeight="50vh"
+          empty={{ title: 'No drafts yet', hint: 'Ask the assistant to “record a sales invoice…” or “pay … against bills …”.' }}
+          onRowActivate={(r) => nav.go(screenForDraft(r))}
+          isRowActivatable={(r) => r.status === 'open'}
+          rowAttrs={(r) => ({ 'data-draft-id': r.id, 'data-status': r.status })}
+          trailing={(r) =>
+            r.status === 'open' ? (
+              <span className="flex gap-1">
+                <Button size="sm" variant="ghost" onClick={() => nav.go(screenForDraft(r))} data-testid="btn-ai-drafts-open">
+                  Open
+                </Button>
+                {canDiscard && (
+                  <Button size="sm" variant="ghost" onClick={() => void discard(r)} data-testid="btn-ai-drafts-discard">
+                    Discard
+                  </Button>
+                )}
+              </span>
+            ) : null
+          }
+          trailingWidth={120}
+          toolbarFeatures={{ groupBy: false, density: false }}
+        />
+      </Panel>
+    </div>
+  )
 }
 
 function UsagePanel(): React.JSX.Element {

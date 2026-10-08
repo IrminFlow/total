@@ -189,13 +189,15 @@ export function StockNoteEntry({
         })
         if (!proceed) return
       }
-      const result = await api.vouchers.save(input, voucherId)
+      const aiDraftId = !voucherId ? draft?.aiDraftId : undefined
+      const result = await api.vouchers.save(input, voucherId, aiDraftId ? { aiDraftId } : undefined)
       toast.push('success', `${TITLE[kind]} ${result.number} ${isEdit ? 'altered' : 'saved'} — ${formatPaise(value, { symbol: true })}`)
       for (const w of result.warnings?.linkDates ?? []) toast.push('warning', w)
       if (andPrint) await api.invoice.pdf(result.id)
       setWorkingDate(date)
       await queryClient.invalidateQueries()
-      if (isEdit) return void leave()
+      // An AI draft (WP 5.3) is used up by its save — go back to where the user came from.
+      if (isEdit || aiDraftId) return void leave()
       setPartyId(null)
       setRows([blankItemRow()])
       setNarration('')
@@ -209,7 +211,7 @@ export function StockNoteEntry({
     } finally {
       setSaving(false)
     }
-  }, [saving, formState, ctx, typeId, toast, voucherId, kind, isEdit, value, setWorkingDate, date, queryClient, leave, numberField])
+  }, [saving, formState, ctx, typeId, toast, voucherId, kind, isEdit, value, setWorkingDate, date, queryClient, leave, numberField, draft?.aiDraftId])
 
   const remove = async (): Promise<void> => {
     if (!voucherId) return
@@ -288,7 +290,7 @@ export function StockNoteEntry({
         </Field>
         <Field label={outward ? 'Consignee (party)' : 'Supplier (party)'}>
           <LedgerPicker
-            autoFocus={!isEdit && draft?.fromTradeDocId == null}
+            autoFocus={!isEdit && draft?.fromTradeDocId == null && draft?.aiDraftId == null}
             value={partyId}
             onPick={setPartyId}
             placeholder="Party ledger"

@@ -62,7 +62,7 @@ export function registerAssistantsIpc(handle: Handle, company: () => Company, us
     if (!m) throw new Error('That mismatch is no longer open — refresh')
     const action = m.actions.find((a) => a.kind === 'draft')
     if (!action || action.kind !== 'draft') throw new Error('This mismatch has no draft to prepare')
-    return insertPlanDraft(db(), action.plan, { threadId: null, messageId: null, source: 'chat', origin: 'GST 2B assistant' })
+    return insertPlanDraft(db(), company().info, todayISO(), action.plan, { threadId: null, messageId: null, origin: 'GST 2B assistant' })
   })
 
   // ---------- report from a question (deterministic — no AI) ----------

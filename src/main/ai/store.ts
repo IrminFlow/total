@@ -269,6 +269,8 @@ export function listMessages(db: DB, threadId: number): StoredMessage[] {
 interface DraftRow {
   id: number
   thread_id: number | null
+  message_id: number | null
+  user_name?: string | null
   kind: 'voucher'
   summary: string
   payload_json: string
@@ -304,9 +306,14 @@ function toDraft(r: DraftRow): AiDraftDto {
     source: r.source ?? 'chat',
     origin: r.origin ?? null,
     createdAt: r.created_at,
-    consumedAt: r.consumed_at
+    consumedAt: r.consumed_at,
+    messageId: r.message_id,
+    userName: r.user_name ?? null
   }
 }
+
+/** Drafts with the thread's user (who asked) — the Settings → AI drafts list and the draft set. */
+const DRAFT_SELECT = 'SELECT d.*, t.user_name FROM ai_drafts d LEFT JOIN ai_threads t ON t.id = d.thread_id'
 
 export function insertDraft(
   db: DB,
@@ -333,26 +340,37 @@ export function insertDraft(
 }
 
 export function getDraft(db: DB, id: number): AiDraftDto | null {
-  const r = db.prepare('SELECT * FROM ai_drafts WHERE id = ?').get(id) as DraftRow | undefined
+  const r = db.prepare(`${DRAFT_SELECT} WHERE d.id = ?`).get(id) as DraftRow | undefined
   return r ? toDraft(r) : null
+}
+
+/** The drafts one assistant message made (a multi-draft answer), in order. */
+export function draftSet(db: DB, messageId: number): AiDraftDto[] {
+  return (db.prepare(`${DRAFT_SELECT} WHERE d.message_id = ? ORDER BY d.id`).all(messageId) as DraftRow[]).map(toDraft)
+}
+
+/** Drafts made in a thread since its last user message (this question's drafts). */
+export function draftsThisTurn(db: DB, threadId: number): AiDraftDto[] {
+  const last = db.prepare("SELECT MAX(id) AS id FROM ai_messages WHERE thread_id = ? AND role = 'user'").get(threadId) as { id: number | null }
+  return (db.prepare(`${DRAFT_SELECT} WHERE d.thread_id = ? AND d.message_id > ? ORDER BY d.id`).all(threadId, last.id ?? 0) as DraftRow[]).map(toDraft)
 }
 
 export function listDrafts(db: DB, status?: AiDraftStatus, threadId?: number, sources?: readonly AiDraftSource[]): AiDraftDto[] {
   const where: string[] = []
   const args: (string | number)[] = []
   if (status) {
-    where.push('status = ?')
+    where.push('d.status = ?')
     args.push(status)
   }
   if (threadId !== undefined) {
-    where.push('thread_id = ?')
+    where.push('d.thread_id = ?')
     args.push(threadId)
   }
   if (sources?.length) {
-    where.push(`source IN (${sources.map(() => '?').join(', ')})`)
+    where.push(`d.source IN (${sources.map(() => '?').join(', ')})`)
     args.push(...sources)
   }
-  const rows = db.prepare(`SELECT * FROM ai_drafts ${where.length ? `WHERE ${where.join(' AND ')}` : ''} ORDER BY id DESC`).all(...args) as DraftRow[]
+  const rows = db.prepare(`${DRAFT_SELECT} ${where.length ? `WHERE ${where.join(' AND ')}` : ''} ORDER BY d.id DESC`).all(...args) as DraftRow[]
   return rows.map(toDraft)
 }
 
