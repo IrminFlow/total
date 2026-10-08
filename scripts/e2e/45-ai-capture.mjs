@@ -73,7 +73,9 @@ await scenario('45-ai-capture', async (h) => {
   assertEq((await h.invoke('ai:settings:get')).ready, true, 'assistant ready on the mock provider')
 
   // ---------- 1. the inbox folder → queued → estimate → purchase draft ----------
-  const inbox = await h.invoke('capture:revealInbox') // creates + watches <company>/capture-inbox
+  // A viewer-safe reveal does not create the folder; the accountant's watch does (and watches it).
+  assertEq((await h.invoke('capture:revealInbox')).exists, false, 'no inbox folder until someone sets it up')
+  const inbox = (await h.invoke('capture:watchInbox')).path
   assert(inbox.endsWith(path.join(slug, 'capture-inbox')), `inbox is the company's capture-inbox: ${inbox}`)
   const pdfPath = path.join(inbox, 'bharat-steel-bill.pdf')
   fs.copyFileSync(path.join(fixtures, 'bharat-steel-bill.pdf'), pdfPath)
