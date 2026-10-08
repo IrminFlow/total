@@ -347,12 +347,12 @@ export const AUDIT_COVERAGE: Record<string, AuditCoverage> = {
   'ai:thread:delete': a('ai_thread'),
   // Viewer-level, listed anyway: a question writes only the AI tables (thread, messages, usage,
   // outbound log) — never the books — and audits any draft a draft tool creates.
-  'ai:send': a('ai_draft'),
+  'ai:send': a('ai_draft', 'ai_memory'),
   'ai:cancel': r('stops an in-flight answer; the partial reply is kept in the AI tables only'),
   'ai:draft:discard': a('ai_draft'),
   // WP 5.2 — the chat panel. Viewer-level, listed anyway: regenerate re-runs a question (AI tables
   // only, plus any draft it makes); a rename is audited; a pin is a display preference.
-  'ai:regenerate': a('ai_draft', 'ai_thread'),
+  'ai:regenerate': a('ai_draft', 'ai_thread', 'ai_memory'),
   'ai:thread:rename': a('ai_thread'),
   'ai:thread:pin': r('pins a conversation in the panel’s list (a display preference in the AI tables; not the books)'),
   'ai:data:deleteAll': a('ai_data'),
@@ -368,6 +368,15 @@ export const AUDIT_COVERAGE: Record<string, AuditCoverage> = {
   'assist:gst2b:resolve': a('assistant_mark'),
   'assist:gst2b:draft': a('ai_draft'),
   'assist:nlReport': r('maps a question to a report-builder model (deterministic); runs nothing and writes nothing'),
+  // WP 5.6 — memory. Every change is audited with the whole before/after; `remember` (a tool run
+  // by ai:send / ai:regenerate) only proposes and audits the suggested row.
+  'ai:memory:list': QUERY,
+  'ai:memory:create': a('ai_memory'),
+  'ai:memory:update': a('ai_memory'),
+  'ai:memory:setStatus': a('ai_memory'),
+  'ai:memory:delete': a('ai_memory'),
+  'ai:memory:resolveDerived': a('ai_memory'),
+  'ai:memory:forgetAll': a('ai_memory'),
   // ---------- payables (WP 4.3) ----------
   'payables:plan': QUERY,
   'payables:msmeDue': QUERY,

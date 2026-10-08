@@ -45,6 +45,9 @@ export function screenFor(s: Extract<AiSource, { kind: 'screen' }>): Screen | nu
       const tab = p.tab === 'gst2b' || p.tab === 'anomalies' || p.tab === 'report' ? p.tab : 'close'
       return { name: 'assistants', tab, ...(typeof p.period === 'string' ? { period: p.period } : {}) }
     }
+    case 'settings':
+      // WP 5.6: the `remember` tool links to Settings → AI (the Memory table).
+      return { name: 'settings', tab: 'ai' }
     default:
       return PLAIN.includes(s.screen) ? ({ name: s.screen } as Screen) : null
   }

@@ -15,6 +15,7 @@
 export const AUDIT_ENTITIES = [
   'ai_data',
   'ai_draft',
+  'ai_memory',
   'ai_settings',
   'ai_thread',
   'assistant_mark',
@@ -143,6 +144,7 @@ export type AuditAction = (typeof AUDIT_ACTIONS)[number]
 export const AUDIT_ENTITY_LABELS: Partial<Record<AuditEntity, string>> = {
   ai_data: 'AI data (deleted)',
   ai_draft: 'AI draft',
+  ai_memory: 'AI memory',
   ai_settings: 'AI settings',
   ai_thread: 'AI conversation',
   assistant_mark: 'Assistant mark (close check / anomaly / 2B)',

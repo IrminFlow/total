@@ -188,6 +188,9 @@ describe('write channels really write their mapped entities (driven through IPC)
     // WP 5.1 AI settings (the key needs a cipher, which this Electron mock does not provide).
     await expectLogged('ai:notice:accept')
     await expectLogged('ai:settings:set', { enabled: true, privacy: { maskIds: true } })
+    // WP 5.6 memory: a user entry and forget-everything are audited.
+    await expectLogged('ai:memory:create', { kind: 'fact', text: 'Books close on the 5th' })
+    await expectLogged('ai:memory:forgetAll')
     await expectLogged('ai:data:deleteAll')
 
     // No users yet: attributed to the OS login (not null, not 'system').

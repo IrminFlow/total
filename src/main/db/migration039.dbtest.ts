@@ -1,6 +1,6 @@
 // Migration 039 (WP 6.4): bulk_batches / bulk_batch_records, attachments, party_notes. Located by
 // content; appended after 036 AI, 037 report builder and 038 import wizard (WP 5.7's MCP migration
-// came after it and is now the last one).
+// and WP 5.6's memory migration, now the last one, came after it).
 import { describe, expect, it } from 'vitest'
 import { MIGRATIONS } from './migrations'
 import { seededDb } from './testdb'
@@ -9,7 +9,7 @@ const M039 = MIGRATIONS.findIndex((sql) => sql.includes('CREATE TABLE bulk_batch
 const cols = (db: ReturnType<typeof seededDb>, t: string): string[] => (db.prepare(`PRAGMA table_info(${t})`).all() as { name: string }[]).map((c) => c.name)
 
 describe('migration 039 — bulk edit, attachments, party notes', () => {
-  it('follows 038 (import wizard); WP 5.2 chat panel (040), WP 6.5 consolidation (041) and WP 5.7 MCP (042) and the WP 5.5 assistants (last) come after it', () => {
+  it('follows 038 (import wizard); WP 5.2 chat panel (040), WP 6.5 consolidation (041), WP 5.7 MCP (042), WP 5.6 memory (043) and the WP 5.5 assistants (044, last) come after it', () => {
     const m038 = MIGRATIONS.findIndex((sql) => sql.includes('CREATE TABLE import_batches'))
     expect(M039).toBe(m038 + 1)
     expect(M039).toBe(MIGRATIONS.findIndex((sql) => sql.includes('CREATE TABLE mcp_log')) - 3)

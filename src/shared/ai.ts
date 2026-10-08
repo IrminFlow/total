@@ -46,6 +46,8 @@ export interface AiSettings {
   prices: Record<string, AiModelPrice>
   /** Max agent steps (model calls) per question. */
   maxSteps: number
+  /** WP 5.6: send the active memories with each question (a DATA block in the system prompt). */
+  useMemory: boolean
 }
 
 export const AI_DATA_NOTICE_VERSION = 1
@@ -70,7 +72,8 @@ export const aiSettingsPatchSchema = z
     fastModel: aiModelIdSchema.optional(),
     privacy: z.object({ maskIds: z.boolean(), pseudonymiseParties: z.boolean() }).partial().optional(),
     prices: z.record(aiModelIdSchema, aiPriceSchema).optional(),
-    maxSteps: z.number().int().min(1).max(20).optional()
+    maxSteps: z.number().int().min(1).max(20).optional(),
+    useMemory: z.boolean().optional()
   })
   .strict()
 export type AiSettingsPatch = z.infer<typeof aiSettingsPatchSchema>
@@ -168,6 +171,8 @@ export interface AiMessageDto {
   draftId: number | null
   /** WP 5.2, user messages: the screen context the question was asked with. */
   context: AiContext | null
+  /** WP 5.6, final answers: the memories the answer relied on (cited, or consulted by a tool). */
+  memoryIds: number[]
   createdAt: string
 }
 
@@ -292,6 +297,9 @@ export interface AiOutboundRow {
   status: string
   /** WP 5.2: the screen context included in the request (screen, period, parameters, figure). */
   context: AiContext | null
+  /** WP 5.6: memories in the request's memory block, and the block's size as sent. */
+  memoryCount: number
+  memoryBytes: number
 }
 
 export interface AiSettingsView {
@@ -392,4 +400,123 @@ export function aggregateUsage(rows: readonly AiUsageRow[], by: 'day' | 'thread'
     else g.costMicroUsd = (g.costMicroUsd ?? 0) + r.costMicroUsd
   }
   return [...groups.values()].sort((a, b) => (by === 'day' ? b.key.localeCompare(a.key) : b.calls - a.calls))
+}
+
+// ---------- WP 5.6: per-company memory ----------
+//
+// What the assistant keeps in mind for this company: preferred ledgers per purpose, narration
+// style, recurring parties and their usual ledgers / items, and facts the user confirmed. Only
+// ACTIVE entries are ever sent (a delimited DATA block in the system prompt, masked like everything
+// else). The assistant may only PROPOSE ('suggested'); suggestions derived from the books are
+// computed at query time and become rows only when the user accepts or dismisses them. Entries
+// never hold GSTINs, PANs, IFSC codes or bank account numbers (refused on write).
+
+export const AI_MEMORY_KINDS = ['preference', 'style', 'party', 'fact'] as const
+export type AiMemoryKind = (typeof AI_MEMORY_KINDS)[number]
+export const AI_MEMORY_SOURCES = ['user', 'assistant', 'derived', 'mcp'] as const
+export type AiMemorySource = (typeof AI_MEMORY_SOURCES)[number]
+export const AI_MEMORY_STATUSES = ['active', 'suggested', 'archived'] as const
+export type AiMemoryStatus = (typeof AI_MEMORY_STATUSES)[number]
+
+export const AI_MEMORY_KIND_LABELS: Record<AiMemoryKind, string> = { preference: 'Preference', style: 'Style', party: 'Party', fact: 'Fact' }
+export const AI_MEMORY_SOURCE_LABELS: Record<AiMemorySource, string> = { user: 'You', assistant: 'Assistant', derived: 'Books', mcp: 'MCP client' }
+export const AI_MEMORY_STATUS_LABELS: Record<AiMemoryStatus, string> = { active: 'Active', suggested: 'Suggested', archived: 'Archived' }
+
+/** What a `preference` is for — the key preferredLedger(purpose) looks up. */
+export const AI_MEMORY_PURPOSES = ['payment', 'receipt', 'sales', 'purchase', 'expense', 'income', 'cash', 'bank'] as const
+export type AiMemoryPurpose = (typeof AI_MEMORY_PURPOSES)[number]
+export const AI_MEMORY_PURPOSE_LABELS: Record<AiMemoryPurpose, string> = {
+  payment: 'Pay from',
+  receipt: 'Receive into',
+  sales: 'Sales ledger',
+  purchase: 'Purchase ledger',
+  expense: 'Expense ledger',
+  income: 'Income ledger',
+  cash: 'Cash ledger',
+  bank: 'Bank account'
+}
+
+export const AI_MEMORY_TEXT_MAX = 300
+
+export const aiMemoryDataSchema = z
+  .object({
+    purpose: z.enum(AI_MEMORY_PURPOSES).optional().describe('preference: what the ledger is for (payment = the cash/bank ledger payments are made from)'),
+    ledgerId: z.number().int().positive().optional().describe('The ledger it is about: the preferred ledger, or a party’s usual ledger'),
+    partyLedgerId: z.number().int().positive().optional().describe('party: the party ledger'),
+    itemId: z.number().int().positive().optional().describe('party: the usual stock item'),
+    billDay: z.number().int().min(1).max(31).optional().describe('party: the usual day of the month it bills'),
+    aspect: z.enum(['narration', 'dates', 'numbers', 'tone']).optional().describe('style: what the style is about')
+  })
+  .strict()
+export type AiMemoryData = z.infer<typeof aiMemoryDataSchema>
+
+const memoryText = z.string().trim().min(3, 'Write at least a few words').max(AI_MEMORY_TEXT_MAX, `At most ${AI_MEMORY_TEXT_MAX} characters`)
+
+export const aiMemoryCreateSchema = z.object({ kind: z.enum(AI_MEMORY_KINDS), text: memoryText, data: aiMemoryDataSchema.nullable().optional() }).strict()
+export type AiMemoryCreateInput = z.infer<typeof aiMemoryCreateSchema>
+export const aiMemoryUpdateSchema = z
+  .object({ id: z.number().int().positive(), kind: z.enum(AI_MEMORY_KINDS).optional(), text: memoryText.optional(), data: aiMemoryDataSchema.nullable().optional() })
+  .strict()
+export type AiMemoryUpdateInput = z.infer<typeof aiMemoryUpdateSchema>
+/** Accept (→ active) or archive an entry; archived entries are never sent. */
+export const aiMemoryStatusSchema = z.object({ id: z.number().int().positive(), status: z.enum(['active', 'archived']) }).strict()
+/** Accept or dismiss a suggestion derived from the books (by its key). */
+export const aiMemoryDerivedSchema = z.object({ key: z.string().min(3).max(120), accept: z.boolean() }).strict()
+
+export interface AiMemoryDto {
+  id: number
+  kind: AiMemoryKind
+  text: string
+  data: AiMemoryData | null
+  source: AiMemorySource
+  status: AiMemoryStatus
+  /** An assistant proposal made when the user's question did not ask to remember anything. */
+  unrequested: boolean
+  threadId: number | null
+  createdBy: string | null
+  /** source 'mcp': the MCP client's name. */
+  origin: string | null
+  createdAt: string
+  updatedAt: string
+  lastUsedAt: string | null
+  useCount: number
+  /** Names of the ledgers / item the data points at, resolved when listed. */
+  labels: { ledger?: string; party?: string; item?: string }
+}
+
+/** A memory proposed from the books (computed at query time; stored only once accepted or dismissed). */
+export interface AiMemorySuggestion {
+  key: string
+  kind: AiMemoryKind
+  text: string
+  data: AiMemoryData | null
+  /** The counts it rests on, e.g. "on 9 of 11 payments". */
+  reason: string
+  /** Names of the ledgers / item the data points at (resolved when listed). */
+  labels?: AiMemoryDto['labels']
+}
+
+/** The structured part of an entry in words ("Pay from: HDFC Bank · Party: Umbrella Retail · Item: …")
+ *  — shown wherever an entry is reviewed (Settings table, the panel's Remember-this card), since
+ *  drafting acts on these fields, not on the text. */
+export function memoryDetailsText(data: AiMemoryData | null | undefined, labels: AiMemoryDto['labels'] = {}): string {
+  if (!data) return ''
+  const parts: string[] = []
+  if (data.purpose) parts.push(`${AI_MEMORY_PURPOSE_LABELS[data.purpose]}: ${labels.ledger ?? `ledger #${data.ledgerId}`}`)
+  if (data.partyLedgerId) parts.push(`Party: ${labels.party ?? `#${data.partyLedgerId}`}`)
+  if (!data.purpose && data.ledgerId) parts.push(`${data.partyLedgerId ? 'Usual ledger' : 'Ledger'}: ${labels.ledger ?? `#${data.ledgerId}`}`)
+  if (data.itemId) parts.push(`Item: ${labels.item ?? `#${data.itemId}`}`)
+  if (data.billDay) parts.push(`Bills around day ${data.billDay}`)
+  if (data.aspect) parts.push(`About: ${data.aspect}`)
+  return parts.join(' · ')
+}
+
+/** Who proposed it, in words ("MCP client Claude Desktop"). */
+export function memorySourceText(m: Pick<AiMemoryDto, 'source' | 'origin'>): string {
+  return m.source === 'mcp' ? `MCP client${m.origin ? ` ${m.origin}` : ''}` : AI_MEMORY_SOURCE_LABELS[m.source]
+}
+
+export interface AiMemoryList {
+  entries: AiMemoryDto[]
+  suggestions: AiMemorySuggestion[]
 }

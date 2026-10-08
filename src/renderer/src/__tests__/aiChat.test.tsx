@@ -34,14 +34,14 @@ function msg(over: Partial<AiMessageDto>): AiMessageDto {
   return {
     id: 1, threadId: 7, role: 'assistant', content: '', status: 'ok', toolCalls: [], toolCallId: null, toolName: null, toolInput: null,
     toolOutput: null, toolOk: null, truncated: false, sources: [], figures: [], model: null, costMicroUsd: null, inputTokens: null,
-    outputTokens: null, draftId: null, context: null, createdAt: '2025-08-14T10:00:00Z', ...over
+    outputTokens: null, draftId: null, context: null, memoryIds: [], createdAt: '2025-08-14T10:00:00Z', ...over
   }
 }
 
 const VIEW: AiSettingsView = {
   settings: {
     enabled: true, noticeAcceptedAt: '2025-08-01T10:00:00.000Z', noticeAcceptedBy: 'Owner', noticeVersion: 1, defaultModel: 'gpt-6.1-sol', fastModel: 'gpt-6-luna',
-    privacy: { maskIds: true, pseudonymiseParties: true }, prices: {}, maxSteps: 8
+    privacy: { maskIds: true, pseudonymiseParties: true }, prices: {}, maxSteps: 8, useMemory: true
   },
   keyPresent: true, keyHint: '…WXYZ', secureStorageAvailable: true, mock: false, ready: true, blocker: null
 }

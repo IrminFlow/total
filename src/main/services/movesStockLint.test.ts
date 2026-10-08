@@ -1,5 +1,5 @@
 // Pure lint (plain-Node vitest — reads source text, never imports a service): every SQL string in
-// src/main/services/*.ts that mentions `inventory_lines` must filter stock movement with
+// src/main/services/*.ts and src/main/ai/**/*.ts (keyed 'ai/…') that mentions `inventory_lines` must filter stock movement with
 // MOVES_STOCK / moves_stock (WP 2.5: an invoice line whose goods moved on its challan is NOT a
 // second movement), or sit on the allowlist below with the reason it wants invoice ITEMS rather
 // than stock movements. A new stock reader that forgets the filter double-counts stock — this
@@ -9,6 +9,8 @@ import { readdirSync, readFileSync } from 'fs'
 import { join } from 'path'
 
 const DIR = __dirname
+/** WP 5.6: the AI code reads the books too (memory statistics, drafting) — scanned as 'ai/<path>'. */
+const AI_DIR = join(__dirname, '..', 'ai')
 
 /** `file` + a substring unique to the SQL string → why it may read every line. */
 const ALLOW: { file: string; contains: string; reason: string }[] = [
@@ -54,6 +56,7 @@ const ALLOW: { file: string; contains: string; reason: string }[] = [
   { file: 'pricing.ts', contains: 'FROM inventory_lines WHERE voucher_id = ? AND is_absolute = 0', reason: "remember last price: the sale's item rates" },
   { file: 'pricing.ts', contains: "vt.kind = 'purchase' AND il.direction = 'in'", reason: 'last purchase RATE of an item (a price, not a movement)' },
   { file: 'assistants.ts', contains: "WHERE vt.kind IN ('sales', 'purchase') AND v.date BETWEEN", reason: 'anomaly GST-rate check: the invoice items and their master rates (a document fact, wherever the goods moved)' },
+  { file: 'ai/memory.ts', contains: 'SELECT il.stock_item_id AS id, si.name AS name, COUNT(DISTINCT il.voucher_id) AS n FROM inventory_lines il', reason: "a party's usual item = the items it was billed for (invoice items), wherever the goods moved" },
   { file: 'counter.ts', contains: 'FROM inventory_lines il JOIN stock_items si ON si.id = il.stock_item_id JOIN units u ON u.id = si.unit_id', reason: "day-end items = the counter invoices' items" }
 ]
 
@@ -110,7 +113,10 @@ export function sqlStrings(src: string): string[] {
   return out
 }
 
-const files = readdirSync(DIR).filter((f) => f.endsWith('.ts') && !/\.(test|dbtest|testutil|perf\.dbtest)\.ts$/.test(f) && !f.endsWith('.testutil.ts'))
+const isSource = (f: string): boolean => f.endsWith('.ts') && !/\.(test|dbtest|testutil|perf\.dbtest)\.ts$/.test(f) && !f.endsWith('.testutil.ts')
+const aiFiles = (readdirSync(AI_DIR, { recursive: true }) as string[]).filter(isSource).map((f) => `ai/${f.split('\\').join('/')}`)
+const files = [...readdirSync(DIR).filter(isSource), ...aiFiles]
+const pathOf = (f: string): string => (f.startsWith('ai/') ? join(AI_DIR, f.slice(3)) : join(DIR, f))
 
 describe('MOVES_STOCK lint', () => {
   it('the scanner sees nested templates and skips comments', () => {
@@ -122,7 +128,7 @@ describe('MOVES_STOCK lint', () => {
     const offenders: string[] = []
     const used = new Set<number>()
     for (const f of files) {
-      const src = readFileSync(join(DIR, f), 'utf8')
+      const src = readFileSync(pathOf(f), 'utf8')
       for (const s of sqlStrings(src)) {
         if (!s.includes('inventory_lines')) continue
         if (s.includes('MOVES_STOCK') || s.includes('moves_stock')) continue
