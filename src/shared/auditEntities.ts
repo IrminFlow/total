@@ -26,6 +26,7 @@ export const AUDIT_ENTITIES = [
   'bank_statement_line',
   'batch',
   'bom',
+  'capture_item',
   'budget',
   'ca_asset_class',
   'cheque',

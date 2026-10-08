@@ -12,6 +12,7 @@ import { writeAudit } from '../services/audit'
 import { getDraft, setDraftStatus } from './store'
 import { DraftWork, NeedsClarification, loadMasters } from './drafting/work'
 import { buildAccountingDraft } from './drafting/builders'
+import { afterDraftSaved, type DraftSaveContext } from './capture/consume'
 import { DRAFTABLE_KINDS, draftVoucherInput, draftVoucherTool, isRequestedDraft, type DraftVoucherInput } from './drafting/tools'
 
 export { DRAFTABLE_KINDS, draftVoucherInput, draftVoucherTool, isRequestedDraft, type DraftVoucherInput }
@@ -66,13 +67,21 @@ const CHANNEL_OF: Record<string, DraftSaveChannel> = { accounting: 'voucher', in
  *  manufacture draft cannot be "used up" by an unrelated voucher). A draft discarded or deleted
  *  while the user was reviewing it must not block the save — the entry is the user's own; the
  *  audit trail records that the draft was no longer open. */
-export function settleDraftOnSave(db: DB, draftId: number, saved: number | DraftSaveTarget, channel: DraftSaveChannel = 'voucher'): void {
+export function settleDraftOnSave(
+  db: DB,
+  draftId: number,
+  saved: number | DraftSaveTarget,
+  channel: DraftSaveChannel = 'voucher',
+  ctx: DraftSaveContext = {}
+): void {
   const t = targetOf(saved)
   const d = getDraft(db, draftId)
   if (!d) return
   if ((CHANNEL_OF[d.payload.form ?? 'accounting'] ?? 'voucher') !== channel) return
   if (d.status === 'open') {
     consumeDraft(db, draftId, t)
+    // WP 5.4: a capture draft attaches its file; a statement-line draft reconciles its line.
+    if (t.voucherId && (d.payload.captureItemId || d.payload.bankLine)) afterDraftSaved(db, d, t.voucherId, ctx)
     return
   }
   writeAudit(db, 'ai_draft', draftId, 'update', { status: d.status }, {

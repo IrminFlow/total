@@ -225,6 +225,12 @@ export interface AiVoucherDraftPayload {
   /** Fields the model set (highlighted in the editor): 'date', 'party', 'account', 'narration',
    *  'reference', 'line:N', 'bills', 'purpose', 'finishedItem', 'qty', 'labour', 'validUntil', 'dueDate'. */
   fields?: string[]
+  /** WP 5.4: the capture queue item this draft was made from — its file becomes the voucher's
+   *  attachment when the draft is saved. */
+  captureItemId?: number
+  /** WP 5.4: the bank statement line this payment / receipt / contra draft accounts for — saving
+   *  the draft reconciles the line (bank date set, match recorded) through the statement path. */
+  bankLine?: { bankLedgerId: number; statementLineId: number }
 }
 
 export interface AiDraftDto {

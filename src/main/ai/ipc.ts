@@ -67,7 +67,7 @@ export interface AiIpcDeps {
 /** One registry of in-flight runs for the app, keyed by company + thread (a company close stops them all). */
 export const aiRuns = new AgentRuns()
 
-const defaultProviderFactory = ({ apiKey, mock }: { apiKey: string | null; mock: boolean }): AiProvider => {
+export const defaultProviderFactory = ({ apiKey, mock }: { apiKey: string | null; mock: boolean }): AiProvider => {
   if (mock) return new MockProvider(demoScript, { models: ['gpt-6.1-sol', 'gpt-6-luna', 'mock-model'], delayMs: 20, chunk: 6 })
   if (!apiKey) throw new Error('No API key — add one in Settings → AI')
   return new OpenAiProvider({ apiKey })
