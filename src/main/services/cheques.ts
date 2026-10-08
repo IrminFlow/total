@@ -131,55 +131,104 @@ export function nextChequeNumber(db: DB, bankLedgerId: number): { bookId: number
   return nextAvailableLeaf(books, usedLeaves(db, bankLedgerId))
 }
 
+export type ChequePlan =
+  /** No cheque book for this bank: print with the voucher's own instrument number, record nothing. */
+  | { mode: 'unregistered'; number: string | null }
+  /** The voucher already has an issued cheque: re-print it. */
+  | { mode: 'existing'; chequeId: number; number: string }
+  /** Issue this exact leaf (and write it on the voucher when it carries none). */
+  | { mode: 'issue'; bookId: number; leaf: number; number: string; setInstrument: boolean }
+
 /**
- * Issue (or re-use) the register entry for a payment voucher's cheque. Number: the one given, else
- * the voucher's instrument number when it's a free leaf, else the next available leaf. When the
- * voucher carries no instrument number yet (and is outside the lock), it gets this one — audited
- * as a voucher update. Returns the register row.
+ * What printing this payment's cheque would do — validated, nothing written. Rules:
+ *  - no cheque book for the bank → the pre-0.8 behaviour: print with the voucher's instrument
+ *    number, nothing goes into the register;
+ *  - the voucher already has an issued cheque → re-print that one;
+ *  - the voucher carries an instrument number → it must be a free leaf of one of the bank's
+ *    books (never a silent substitute); outside every range or already used → refused;
+ *  - no instrument number → the next free leaf, written onto the voucher (refused when the voucher
+ *    is inside the locked period, since the voucher could not then carry the number).
+ * Register, printed cheque and voucher therefore always agree.
  */
-export function issueCheque(db: DB, voucherId: number, bankLedgerId: number, number?: string | null): ChequeRegisterRow {
-  const data = chequeData(db, voucherId, bankLedgerId)
-  const run = db.transaction(() => {
-    const existing = db.prepare("SELECT * FROM cheques WHERE voucher_id = ? AND bank_ledger_id = ? AND status = 'issued'").get(voucherId, bankLedgerId) as ChequeRow | undefined
-    if (existing && (!number || existing.number === number)) return existing.id
-    if (existing) throw new Error(`This voucher already has cheque ${existing.number} — cancel it first to use another leaf`)
-    const voucher = getVoucher(db, voucherId)!
-    const books = (db.prepare('SELECT * FROM cheque_books WHERE bank_ledger_id = ?').all(bankLedgerId) as BookRow[]).map(toRange)
-    const used = usedLeaves(db, bankLedgerId)
-    let label = (number ?? '').trim()
-    if (!label) {
-      const inst = leafValue(voucher.instrumentNo)
-      const instBook = inst != null ? bookFor(books, inst) : null
-      if (inst != null && instBook && !used.has(inst)) label = voucher.instrumentNo!.trim()
-      else {
-        const next = nextAvailableLeaf(books, used)
-        if (!next) throw new Error('No cheque leaves left — add a cheque book for this bank account (Banking → Cheques)')
-        label = next.label
-      }
-    }
-    const leaf = leafValue(label)
+export function planCheque(db: DB, voucherId: number, bankLedgerId: number, number?: string | null): ChequePlan {
+  chequeData(db, voucherId, bankLedgerId)
+  const voucher = getVoucher(db, voucherId)!
+  const bankName = assertBank(db, bankLedgerId)
+  const existing = db.prepare("SELECT * FROM cheques WHERE voucher_id = ? AND bank_ledger_id = ? AND status = 'issued'").get(voucherId, bankLedgerId) as ChequeRow | undefined
+  if (existing) {
+    if (number && number.trim() !== existing.number) throw new Error(`This voucher already has cheque ${existing.number} — cancel it first to use another leaf`)
+    return { mode: 'existing', chequeId: existing.id, number: existing.number }
+  }
+  const rows = db.prepare('SELECT * FROM cheque_books WHERE bank_ledger_id = ?').all(bankLedgerId) as BookRow[]
+  if (rows.length === 0) return { mode: 'unregistered', number: voucher.instrumentNo }
+  const books = rows.map(toRange)
+  const used = usedLeaves(db, bankLedgerId)
+  const wanted = (number ?? '').trim() || (voucher.instrumentNo ?? '').trim()
+  if (wanted) {
+    const leaf = leafValue(wanted)
     const book = leaf != null ? bookFor(books, leaf) : null
-    const finalLabel = book && leaf != null ? formatLeaf(leaf, book.width) : label
-    const taken = db.prepare('SELECT status, voucher_id FROM cheques WHERE bank_ledger_id = ? AND (number = ? OR (leaf IS NOT NULL AND leaf = ?))').get(bankLedgerId, finalLabel, leaf ?? -1) as { status: string } | undefined
-    if (taken) throw new Error(`Cheque ${finalLabel} is already in the register (${taken.status})`)
+    if (leaf == null || !book) {
+      throw new Error(`Cheque number ${wanted} on this voucher is not in any cheque book of ${bankName} — correct the voucher's instrument number or add the book`)
+    }
+    if (!book.active) throw new Error(`Cheque ${wanted} belongs to an inactive cheque book of ${bankName}`)
+    if (used.has(leaf)) {
+      const taken = db.prepare('SELECT status FROM cheques WHERE bank_ledger_id = ? AND leaf = ?').get(bankLedgerId, leaf) as { status: string } | undefined
+      throw new Error(`Cheque ${formatLeaf(leaf, book.width)} is already in the register (${taken?.status ?? 'used'}) — put the right number on the voucher`)
+    }
+    return { mode: 'issue', bookId: book.id, leaf, number: formatLeaf(leaf, book.width), setInstrument: !voucher.instrumentNo || voucher.instrumentNo.trim() !== formatLeaf(leaf, book.width) }
+  }
+  const next = nextAvailableLeaf(books, used)
+  if (!next) throw new Error(`No cheque leaves left for ${bankName} — add a cheque book (Banking → Cheques)`)
+  const lock = getLockDate(db)
+  if (lock && voucher.date <= lock) throw new Error(`The voucher is inside the locked period (up to ${lock}), so it can't take a cheque number — unlock or type the number on it first`)
+  return { mode: 'issue', bookId: next.bookId, leaf: next.leaf, number: next.label, setInstrument: true }
+}
+
+/**
+ * Carry out a plan (re-validated inside the transaction). Returns the register row, or null when
+ * the bank has no cheque book (nothing is recorded). When the voucher's instrument number is
+ * filled or normalised (457 → 000457) the change is audited as a voucher update.
+ */
+export function issueCheque(db: DB, voucherId: number, bankLedgerId: number, number?: string | null): ChequeRegisterRow | null {
+  const data = chequeData(db, voucherId, bankLedgerId)
+  const id = db.transaction((): number | null => {
+    const plan = planCheque(db, voucherId, bankLedgerId, number)
+    if (plan.mode === 'unregistered') return null
+    if (plan.mode === 'existing') return plan.chequeId
     const res = db
       .prepare(
         `INSERT INTO cheques (bank_ledger_id, cheque_book_id, number, leaf, status, voucher_id, payee, amount, cheque_date)
          VALUES (?, ?, ?, ?, 'issued', ?, ?, ?, ?)`
       )
-      .run(bankLedgerId, book?.id ?? null, finalLabel, leaf, voucherId, data.payee, data.amount, data.date)
-    const id = Number(res.lastInsertRowid)
-    writeAudit(db, 'cheque', id, 'create', null, { bankLedgerId, number: finalLabel, voucherId, payee: data.payee, amount: data.amount, chequeDate: data.date })
-    const lock = getLockDate(db)
-    if (!voucher.instrumentNo && !(lock && voucher.date <= lock)) {
-      db.prepare("UPDATE vouchers SET instrument_no = ?, updated_at = datetime('now') WHERE id = ?").run(finalLabel, voucherId)
-      writeAudit(db, 'voucher', voucherId, 'update', { instrumentNo: null }, { instrumentNo: finalLabel, chequeIssued: id })
+      .run(bankLedgerId, plan.bookId, plan.number, plan.leaf, voucherId, data.payee, data.amount, data.date)
+    const chequeId = Number(res.lastInsertRowid)
+    writeAudit(db, 'cheque', chequeId, 'create', null, { bankLedgerId, number: plan.number, voucherId, payee: data.payee, amount: data.amount, chequeDate: data.date })
+    if (plan.setInstrument) {
+      const before = getVoucher(db, voucherId)!.instrumentNo
+      db.prepare("UPDATE vouchers SET instrument_no = ?, updated_at = datetime('now') WHERE id = ?").run(plan.number, voucherId)
+      writeAudit(db, 'voucher', voucherId, 'update', { instrumentNo: before }, { instrumentNo: plan.number, chequeIssued: chequeId })
     }
-    return id
-  })
-  const id = run()
-  const number_ = (db.prepare('SELECT number FROM cheques WHERE id = ?').get(id) as { number: string }).number
-  return chequeRegister(db, bankLedgerId, false).find((r) => r.number === number_)!
+    return chequeId
+  })()
+  if (id == null) return null
+  return chequeRegister(db, bankLedgerId, false).find((r) => r.chequeId === id)!
+}
+
+/** Undo an issue whose PDF could not be written (the leaf goes back to the book). Audited. */
+export function revokeIssuedCheque(db: DB, chequeId: number, previousInstrumentNo: string | null): void {
+  const row = db.prepare('SELECT * FROM cheques WHERE id = ?').get(chequeId) as ChequeRow | undefined
+  if (!row) return
+  db.transaction(() => {
+    db.prepare('DELETE FROM cheques WHERE id = ?').run(chequeId)
+    writeAudit(db, 'cheque', chequeId, 'delete', row, { reason: 'cheque PDF could not be written' })
+    if (row.voucher_id != null) {
+      const v = getVoucher(db, row.voucher_id)
+      if (v && v.instrumentNo === row.number && previousInstrumentNo !== row.number) {
+        db.prepare("UPDATE vouchers SET instrument_no = ?, updated_at = datetime('now') WHERE id = ?").run(previousInstrumentNo, row.voucher_id)
+        writeAudit(db, 'voucher', row.voucher_id, 'update', { instrumentNo: row.number }, { instrumentNo: previousInstrumentNo, chequeRevoked: chequeId })
+      }
+    }
+  })()
 }
 
 /** Count a print of an issued cheque (the PDF itself is audited as an export by the IPC). */

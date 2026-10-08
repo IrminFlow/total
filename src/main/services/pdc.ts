@@ -74,6 +74,30 @@ export function pdcsMaturing(db: DB, today: string, days = 7): PdcDue {
 
 
 
+/**
+ * Bill-wise references that undo the original's: each bill the cheque settled ('against') is
+ * opened again ('new', same name, its original due date — so it is overdue from the same day as
+ * before), and each on-account / advance bill the cheque opened ('new') is settled ('against').
+ * The bill's age counts from the reversal date (bill_refs carry no bill date of their own); its
+ * overdue days follow the original due date.
+ */
+function reversedBillRefs(db: DB, v: NonNullable<ReturnType<typeof getVoucher>>): { kind: 'new' | 'against'; name: string; amount: number; dueDate: string | null }[] {
+  if (v.partyLedgerId == null) return []
+  const creditDays = (db.prepare('SELECT credit_days AS d FROM ledgers WHERE id = ?').get(v.partyLedgerId) as { d: number | null } | undefined)?.d ?? null
+  return v.billRefs.map((r) => {
+    if (r.kind === 'new') return { kind: 'against' as const, name: r.name, amount: r.amount, dueDate: null }
+    const opened = db
+      .prepare(
+        `SELECT br.due_date AS dueDate, v.date FROM bill_refs br JOIN vouchers v ON v.id = br.voucher_id
+         WHERE br.party_ledger_id = ? AND br.kind = 'new' AND br.name = ? AND v.deleted_at IS NULL ORDER BY v.date, v.id LIMIT 1`
+      )
+      .get(v.partyLedgerId, r.name) as { dueDate: string | null; date: string } | undefined
+    let dueDate = opened?.dueDate ?? null
+    if (!dueDate && opened) dueDate = creditDays != null ? addDays(opened.date, creditDays) : opened.date
+    return { kind: 'new' as const, name: r.name, amount: r.amount, dueDate }
+  })
+}
+
 function systemType(db: DB, kind: string): number {
   const vt = db.prepare('SELECT id FROM voucher_types WHERE kind = ? AND is_system = 1 ORDER BY id LIMIT 1').get(kind) as { id: number } | undefined
   if (!vt) throw new Error(`No ${kind} voucher type`)
@@ -93,8 +117,13 @@ export function bouncePdc(db: DB, input: BounceInput): BounceResult {
   if (v.deletedAt) throw new Error('Voucher is in the bin')
   if (v.postDated) throw new Error('This cheque has not matured yet — it is not in the books, so there is nothing to reverse (edit or bin the voucher instead)')
   if (input.date < v.date) throw new Error('The cheque cannot bounce before its date')
+  const kind = (db.prepare('SELECT kind FROM voucher_types WHERE id = ?').get(v.voucherTypeId) as { kind: string } | undefined)?.kind
+  if (kind !== 'receipt' && kind !== 'payment') throw new Error('Only a receipt or payment cheque can bounce')
   const event = db.prepare('SELECT * FROM pdc_events WHERE voucher_id = ?').get(input.voucherId) as { bounced_on: string | null } | undefined
-  if (event?.bounced_on) throw new Error('This cheque is already marked bounced')
+  // Only post-dated cheques are tracked here (pdc_events is written when a PDC matures); any other
+  // cheque that bounces is reversed by an ordinary voucher.
+  if (!event) throw new Error('This voucher is not a matured post-dated cheque')
+  if (event.bounced_on) throw new Error('This cheque is already marked bounced')
   const banks = new Set(bankLedgers(db).map((b) => b.id))
   const bankLines = v.lines.filter((l) => banks.has(l.ledgerId))
   if (bankLines.length === 0) throw new Error('This voucher has no bank entry to reverse')
@@ -115,7 +144,13 @@ export function bouncePdc(db: DB, input: BounceInput): BounceResult {
       narration: `Cheque ${v.instrumentNo ?? ''} bounced — reversal of ${v.number}${reason ? `: ${reason}` : ''}`.replace(/\s+/g, ' ').slice(0, 1000),
       reference: v.number,
       instrumentNo: v.instrumentNo,
-      lines: v.lines.map((l) => ({ ledgerId: l.ledgerId, drCr: l.drCr === 'dr' ? ('cr' as const) : ('dr' as const), amount: l.amount, costAllocations: [] }))
+      lines: v.lines.map((l) => ({
+        ledgerId: l.ledgerId,
+        drCr: l.drCr === 'dr' ? ('cr' as const) : ('dr' as const),
+        amount: l.amount,
+        costAllocations: l.costAllocations.map((c) => ({ costCentreId: c.costCentreId, amount: c.amount }))
+      })),
+      billRefs: reversedBillRefs(db, v)
     })
     let chargesVoucherId: number | null = null
     if (input.charges > 0) {

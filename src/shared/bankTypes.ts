@@ -133,6 +133,8 @@ export interface CreateFromLineInput {
 export interface MatchGroupInput {
   lineIds: number[]
   voucherIds: number[]
+  /** The exact bank-ledger voucher lines proposed / picked (a voucher may have two on one bank). */
+  voucherLineIds?: number[]
 }
 
 export interface WorkspaceQuery {
@@ -279,6 +281,8 @@ export interface PaymentTemplateRecord {
 }
 
 export interface PaymentCandidate {
+  /** `${voucherId}:${payeeLedgerId}` — one row per payee debit line. */
+  key: string
   voucherId: number
   number: string
   date: string
@@ -300,11 +304,14 @@ export interface PaymentCandidate {
 
 export interface ExportBatchInput {
   bankLedgerId: number
-  voucherIds: number[]
+  /** One entry per payee debit line (see PaymentCandidate.key). */
+  items: { voucherId: number; ledgerId: number }[]
   templateKey: string
   date: string
   corporateId?: string | null
   remarks?: string | null
+  /** Export payments already in a file / paid by cheque anyway (the user confirmed). */
+  allowRepeat?: boolean
 }
 
 export interface ExportBatchResult {

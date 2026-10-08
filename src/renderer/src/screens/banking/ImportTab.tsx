@@ -18,6 +18,9 @@ import { useToasts } from '../../state/stores'
 import { confirmDialog } from '../../lib/dialogs'
 import { DIRECTION_OPTIONS, MODAL_TABLE_FEATURES, evidenceText, pct, rupees, type MatchSettings } from './shared'
 
+/** A learned voucher kind usable for a voucher made from a statement line (journal is not). */
+const voucherKindOf = (k: string): 'payment' | 'receipt' | 'contra' | undefined => (k === 'payment' || k === 'receipt' || k === 'contra' ? k : undefined)
+
 const signedRupees = (paise: number): string => `${paise < 0 ? '−' : '+'}${rupees(Math.abs(paise))}`
 
 const FORMAT_LABEL: Record<string, string> = { csv: 'CSV / TXT', xlsx: 'Excel', mt940: 'MT940', camt053: 'CAMT.053', pasted: 'Pasted text' }
@@ -225,7 +228,7 @@ export function ImportTab({ bankLedgerId, bankName, settings }: { bankLedgerId: 
       const key = l.proposal!.lineIds.join(',')
       if (seen.has(key)) return []
       seen.add(key)
-      return [{ lineIds: l.proposal!.lineIds, voucherIds: l.proposal!.entries.map((e) => e.voucherId) }]
+      return [{ lineIds: l.proposal!.lineIds, voucherIds: l.proposal!.entries.map((e) => e.voucherId), voucherLineIds: l.proposal!.entries.map((e) => e.lineId) }]
     })
     try {
       const r = await bankingApi.import.confirm(bankLedgerId, groups, settings.tolerancePaise)
@@ -244,6 +247,7 @@ export function ImportTab({ bankLedgerId, bankName, settings }: { bankLedgerId: 
           lineId: l.id,
           ledgerId: l.suggestion!.ledgerId,
           partyLedgerId: l.suggestion!.partyLedgerId,
+          voucherKind: voucherKindOf(l.suggestion!.voucherKind),
           narration: l.suggestion!.narration,
           source: { kind: l.suggestion!.source, ruleId: l.suggestion!.ruleId }
         }))
@@ -288,6 +292,7 @@ export function ImportTab({ bankLedgerId, bankName, settings }: { bankLedgerId: 
     try {
       const r = await bankingApi.import.undo(bankLedgerId, latest.id)
       toast.push('success', `Import undone: ${r.removedLines} lines removed, ${r.binned} vouchers binned, ${r.unmatched} matches undone`)
+      if (r.keptEdited.length) toast.push('warning', `Changed since the import, so left as they are: ${r.keptEdited.map((v) => v.number).join(', ')}`)
       await refresh()
     } catch (err) {
       toast.push('error', (err as Error).message)
@@ -737,6 +742,9 @@ function CreateModal({
         lines.map((l) => ({
           lineId: l.id,
           ledgerId,
+          // The learned party / voucher kind ride along when the suggested ledger is kept.
+          partyLedgerId: l.suggestion && l.suggestion.ledgerId === ledgerId ? l.suggestion.partyLedgerId : null,
+          voucherKind: l.suggestion && l.suggestion.ledgerId === ledgerId ? voucherKindOf(l.suggestion.voucherKind) : undefined,
           narration: lines.length === 1 ? narration : null,
           source: l.suggestion && l.suggestion.ledgerId === ledgerId ? { kind: l.suggestion.source, ruleId: l.suggestion.ruleId } : null
         }))
@@ -817,7 +825,11 @@ function MatchModal({
   const diff = line.amount - sum
   const save = async (): Promise<void> => {
     try {
-      await bankingApi.import.confirm(bankLedgerId, [{ lineIds: [line.id], voucherIds: [...chosen] }], tolerance)
+      await bankingApi.import.confirm(
+        bankLedgerId,
+        [{ lineIds: [line.id], voucherIds: [...chosen], voucherLineIds: sideEntries.filter((e) => chosen.has(e.voucherId)).map((e) => e.lineId) }],
+        tolerance
+      )
       toast.push('success', 'Matched and reconciled')
       onDone()
     } catch (err) {

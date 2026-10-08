@@ -90,12 +90,12 @@ describe('Import tab workspace', () => {
     expect(within(r2!).getByTestId('text-banking-evidence').textContent).toBe('Suggested from 12 earlier matches')
     expect(within(r3!).queryByTestId('input-banking-line-pick')).toBeNull()
     fireEvent.click(screen.getByTestId('btn-banking-confirm-matches'))
-    await waitFor(() => expect(calls('bankImport:confirm')).toEqual([{ bankLedgerId: 5, groups: [{ lineIds: [1], voucherIds: [101] }], tolerance: 0 }]))
+    await waitFor(() => expect(calls('bankImport:confirm')).toEqual([{ bankLedgerId: 5, groups: [{ lineIds: [1], voucherIds: [101], voucherLineIds: [1010] }], tolerance: 0 }]))
     fireEvent.click(within(r2!).getByTestId('input-banking-line-pick'))
     fireEvent.click(screen.getByTestId('btn-banking-create-vouchers'))
     await waitFor(() =>
       expect(calls('bankImport:createVouchers')).toEqual([
-        { bankLedgerId: 5, items: [{ lineId: 2, ledgerId: 40, partyLedgerId: null, narration: 'UPI RAVI KUMAR RENT', source: { kind: 'learned', ruleId: 9 } }] }
+        { bankLedgerId: 5, items: [{ lineId: 2, ledgerId: 40, partyLedgerId: null, voucherKind: 'payment', narration: 'UPI RAVI KUMAR RENT', source: { kind: 'learned', ruleId: 9 } }] }
       ])
     )
   })
@@ -158,7 +158,7 @@ describe('Cheque layout preview', () => {
 describe('Bulk payments tab', () => {
   it('exports the selected ready payments with the chosen template', async () => {
     const cand = (o: Partial<PaymentCandidate>): PaymentCandidate => ({
-      voucherId: 1, number: 'P1', date: '2026-08-12', amount: 1_234_550, payeeLedgerId: 7, payeeName: 'Shree', narration: null, accountNo: '1111', ifsc: 'ICIC0000001',
+      key: `${o.voucherId ?? 1}:7`, voucherId: 1, number: 'P1', date: '2026-08-12', amount: 1_234_550, payeeLedgerId: 7, payeeName: 'Shree', narration: null, accountNo: '1111', ifsc: 'ICIC0000001',
       accountName: 'Shree', email: null, problems: [], postDated: false, exportedIn: [], chequeNo: null, ...o
     })
     handlers['bulkPay:templates'] = () => BUILTIN_PAYMENT_TEMPLATES.map(({ key, source, ...spec }) => ({ id: null, key: `builtin:${key}`, builtin: true, source, spec }))
@@ -173,7 +173,7 @@ describe('Bulk payments tab', () => {
     fireEvent.change(screen.getByTestId('input-bulk-corporate'), { target: { value: 'DEMOCORP' } })
     fireEvent.click(screen.getByTestId('btn-bulk-export'))
     await waitFor(() => expect(calls('bulkPay:export')).toHaveLength(1))
-    expect(calls('bulkPay:export')[0]).toMatchObject({ bankLedgerId: 5, voucherIds: [1], templateKey: 'builtin:unionbank-neft-rtgs', corporateId: 'DEMOCORP' })
+    expect(calls('bulkPay:export')[0]).toMatchObject({ bankLedgerId: 5, items: [{ voucherId: 1, ledgerId: 7 }], templateKey: 'builtin:unionbank-neft-rtgs', corporateId: 'DEMOCORP', allowRepeat: false })
   })
 })
 

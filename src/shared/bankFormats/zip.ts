@@ -86,12 +86,14 @@ function fixedTables(): [Huffman, Huffman] {
   return [fixedLit, fixedDist]
 }
 
-/** Decompress a raw DEFLATE stream (RFC 1951, no zlib/gzip wrapper). */
-export function inflateRaw(data: Uint8Array, expectedSize = 0): Uint8Array {
+/** Decompress a raw DEFLATE stream (RFC 1951, no zlib/gzip wrapper). `limit` (bytes, 0 = none)
+ *  stops a stream that inflates past its declared size — a zip bomb never fills memory. */
+export function inflateRaw(data: Uint8Array, expectedSize = 0, limit = 0): Uint8Array {
   const br = new BitReader(data)
   let out = new Uint8Array(Math.max(expectedSize, 1024))
   let len = 0
   const ensure = (extra: number): void => {
+    if (limit > 0 && len + extra > limit) throw new Error('Corrupt or oversized ZIP entry (inflates past its declared size)')
     if (len + extra <= out.length) return
     let size = out.length * 2
     while (size < len + extra) size *= 2
@@ -169,6 +171,9 @@ export function inflateRaw(data: Uint8Array, expectedSize = 0): Uint8Array {
   return out.slice(0, len)
 }
 
+/** Largest single unpacked part accepted (a year of daily statement rows is a few MB). */
+export const MAX_ENTRY_BYTES = 64 * 1024 * 1024
+
 export interface ZipEntry {
   name: string
   method: number
@@ -222,7 +227,8 @@ export function zipRead(buf: Uint8Array, entry: ZipEntry): Uint8Array {
   const start = p + 30 + u16(buf, p + 26) + u16(buf, p + 28)
   const raw = buf.subarray(start, start + entry.compressedSize)
   if (entry.method === 0) return raw.slice()
-  if (entry.method === 8) return inflateRaw(raw, entry.size)
+  if (entry.size > MAX_ENTRY_BYTES) throw new Error(`${entry.name} is ${Math.round(entry.size / 1048576)} MB unpacked — too large for a bank statement (limit ${MAX_ENTRY_BYTES / 1048576} MB)`)
+  if (entry.method === 8) return inflateRaw(raw, entry.size, entry.size)
   throw new Error(`Unsupported ZIP compression method ${entry.method}`)
 }
 

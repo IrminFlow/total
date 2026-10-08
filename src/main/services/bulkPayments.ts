@@ -102,54 +102,78 @@ export function deletePaymentTemplate(db: DB, id: number): void {
 // ---------- candidates + export ----------
 
 
-/** Payment vouchers crediting the bank account in the period (post-dated included — a payment
- *  file is often prepared ahead; optional and binned vouchers excluded). */
+/**
+ * Payment vouchers crediting the bank account in the period (post-dated included — a payment
+ * file is often prepared ahead; optional and binned vouchers excluded), as ONE ROW PER PAYEE:
+ * each debit line to a party (Sundry Creditors / Debtors, or any ledger carrying bank details)
+ * is one transfer of that line's amount. Debits to other ledgers (bank charges, TDS adjustments)
+ * are not transfers and are left out. A voucher with no such line but a single debit pays that
+ * ledger. A single payee's transfer is capped at what the bank actually paid (a TDS deduction
+ * credited on the same voucher lowers it); several payees whose debits exceed the bank credit are
+ * flagged rather than guessed at.
+ */
 export function paymentCandidates(db: DB, bankLedgerId: number, from: string, to: string): PaymentCandidate[] {
   if (!bankLedgers(db).some((b) => b.id === bankLedgerId)) throw new Error('That ledger is not a bank account')
-  const rows = db
+  const parties = descendantIdsByName(db, ['Sundry Creditors', 'Sundry Debtors'])
+  const vouchers = db
     .prepare(
       `SELECT v.id AS voucherId, v.number, v.date, v.narration, v.post_dated AS postDated,
-              (SELECT COALESCE(SUM(vl.amount), 0) FROM voucher_lines vl WHERE vl.voucher_id = v.id AND vl.ledger_id = ? AND vl.dr_cr = 'cr') AS amount,
-              COALESCE(v.party_ledger_id, (SELECT vl.ledger_id FROM voucher_lines vl WHERE vl.voucher_id = v.id AND vl.dr_cr = 'dr' ORDER BY vl.amount DESC, vl.id LIMIT 1)) AS payeeLedgerId
+              (SELECT COALESCE(SUM(vl.amount), 0) FROM voucher_lines vl WHERE vl.voucher_id = v.id AND vl.ledger_id = ? AND vl.dr_cr = 'cr') AS bankPaid
        FROM vouchers v JOIN voucher_types vt ON vt.id = v.voucher_type_id
        WHERE vt.kind = 'payment' AND v.date BETWEEN ? AND ? AND ${NOT_DELETED} AND ${NOT_OPTIONAL}
          AND EXISTS (SELECT 1 FROM voucher_lines vl WHERE vl.voucher_id = v.id AND vl.ledger_id = ? AND vl.dr_cr = 'cr')
        ORDER BY v.date, v.id`
     )
-    .all(bankLedgerId, from, to, bankLedgerId) as { voucherId: number; number: string; date: string; narration: string | null; postDated: number; amount: number; payeeLedgerId: number | null }[]
+    .all(bankLedgerId, from, to, bankLedgerId) as { voucherId: number; number: string; date: string; narration: string | null; postDated: number; bankPaid: number }[]
+  const debitLines = db.prepare(
+    `SELECT vl.ledger_id AS ledgerId, SUM(vl.amount) AS amount, l.group_id AS groupId, l.bank_account_no AS accountNo
+     FROM voucher_lines vl JOIN ledgers l ON l.id = vl.ledger_id
+     WHERE vl.voucher_id = ? AND vl.dr_cr = 'dr' GROUP BY vl.ledger_id ORDER BY MIN(vl.id)`
+  )
   const batches = db.prepare(
     `SELECT b.id AS batchId, b.file_name AS fileName, b.created_at AS createdAt FROM bank_payment_batch_items i JOIN bank_payment_batches b ON b.id = i.batch_id
-     WHERE i.voucher_id = ? ORDER BY b.id`
+     WHERE i.voucher_id = ? AND i.ledger_id = ? ORDER BY b.id`
   )
   const cheque = db.prepare("SELECT number FROM cheques WHERE voucher_id = ? AND status = 'issued' LIMIT 1")
-  return rows.map((r) => {
-    const d = r.payeeLedgerId != null ? details(db, r.payeeLedgerId) : undefined
-    return {
-      voucherId: r.voucherId, number: r.number, date: r.date, amount: r.amount, narration: r.narration, postDated: !!r.postDated,
-      payeeLedgerId: r.payeeLedgerId, payeeName: d?.name ?? null, accountNo: d?.accountNo ?? null, ifsc: d?.ifsc ?? null,
-      accountName: d?.accountName ?? null, email: d?.email ?? null,
-      problems: d ? beneficiaryProblems({ accountNo: d.accountNo, ifsc: d.ifsc, accountName: d.accountName ?? d.name }) : ['no payee ledger'],
-      exportedIn: batches.all(r.voucherId) as PaymentCandidate['exportedIn'],
-      chequeNo: (cheque.get(r.voucherId) as { number: string } | undefined)?.number ?? null
+  const out: PaymentCandidate[] = []
+  for (const v of vouchers) {
+    const debits = debitLines.all(v.voucherId) as { ledgerId: number; amount: number; groupId: number; accountNo: string | null }[]
+    let payees = debits.filter((d) => parties.has(d.groupId) || !!d.accountNo)
+    if (payees.length === 0 && debits.length === 1) payees = debits
+    const sum = payees.reduce((s, d) => s + d.amount, 0)
+    const overpaid = payees.length > 1 && sum > v.bankPaid
+    for (const p of payees) {
+      const d = details(db, p.ledgerId)!
+      const amount = payees.length === 1 ? Math.min(p.amount, v.bankPaid) : p.amount
+      const problems = beneficiaryProblems({ accountNo: d.accountNo, ifsc: d.ifsc, accountName: d.accountName ?? d.name })
+      if (overpaid) problems.unshift('payee debits exceed what the bank paid — split the voucher')
+      out.push({
+        key: `${v.voucherId}:${p.ledgerId}`,
+        voucherId: v.voucherId, number: v.number, date: v.date, amount, narration: v.narration, postDated: !!v.postDated,
+        payeeLedgerId: p.ledgerId, payeeName: d.name, accountNo: d.accountNo, ifsc: d.ifsc, accountName: d.accountName, email: d.email,
+        problems,
+        exportedIn: batches.all(v.voucherId, p.ledgerId) as PaymentCandidate['exportedIn'],
+        chequeNo: (cheque.get(v.voucherId) as { number: string } | undefined)?.number ?? null
+      })
     }
-  })
+  }
+  return out
 }
 
-
-
 /** Build the upload file and record the batch. Refuses (listing every problem) when any
- *  beneficiary or the debit account is incomplete. The caller writes the file to disk. */
+ *  beneficiary or the debit account is incomplete, and — unless `allowRepeat` — when a payment
+ *  is already in an exported file or already paid by a cheque. The caller writes the file. */
 export function exportPaymentBatch(db: DB, input: ExportBatchInput): ExportBatchResult {
   const bank = bankLedgers(db).find((b) => b.id === input.bankLedgerId)
   if (!bank) throw new Error('That ledger is not a bank account')
   const template = listPaymentTemplates(db).find((t) => t.key === input.templateKey)
   if (!template) throw new Error('Payment file template not found')
-  const ids = [...new Set(input.voucherIds)]
-  if (ids.length === 0) throw new Error('Select at least one payment voucher')
-  const all = new Map(paymentCandidates(db, input.bankLedgerId, '0000-01-01', '9999-12-31').map((c) => [c.voucherId, c]))
-  const picked = ids.map((id) => {
-    const c = all.get(id)
-    if (!c) throw new Error('A selected voucher is not a payment from this bank account')
+  const keys = [...new Set(input.items.map((i) => `${i.voucherId}:${i.ledgerId}`))]
+  if (keys.length === 0) throw new Error('Select at least one payment')
+  const all = new Map(paymentCandidates(db, input.bankLedgerId, '0000-01-01', '9999-12-31').map((c) => [c.key, c]))
+  const picked = keys.map((k) => {
+    const c = all.get(k)
+    if (!c) throw new Error('A selected payment is not a transfer from this bank account')
     return c
   })
   const problems = picked.filter((c) => c.problems.length > 0).map((c) => `${c.number} (${c.payeeName ?? 'no payee'}): ${c.problems.join(', ')}`)
@@ -158,6 +182,12 @@ export function exportPaymentBatch(db: DB, input: ExportBatchInput): ExportBatch
   if (usesDebit && !own.accountNo) problems.push(`${bank.name}: set this bank account's own account number (Beneficiaries)`)
   if (template.spec.columns.some((c) => c.field === 'debit_ifsc') && !own.ifsc) problems.push(`${bank.name}: set this bank account's IFSC (Beneficiaries)`)
   if (problems.length) throw new Error(`Fix these before exporting — ${problems.join('; ')}`)
+  if (!input.allowRepeat) {
+    const repeats = picked
+      .filter((c) => c.exportedIn.length > 0 || c.chequeNo)
+      .map((c) => `${c.number} (${c.payeeName}): ${c.exportedIn.length ? `already in ${c.exportedIn[0]!.fileName}` : `cheque ${c.chequeNo} issued`}`)
+    if (repeats.length) throw new Error(`These may be paid twice — ${repeats.join('; ')}. Confirm to export them again.`)
+  }
 
   const run = db.transaction((): ExportBatchResult => {
     const batchNo = ((db.prepare('SELECT COUNT(*) AS n FROM bank_payment_batches WHERE bank_ledger_id = ?').get(input.bankLedgerId) as { n: number }).n) + 1
@@ -176,17 +206,18 @@ export function exportPaymentBatch(db: DB, input: ExportBatchInput): ExportBatch
       .prepare('INSERT INTO bank_payment_batches (bank_ledger_id, template_name, file_name, voucher_count, total) VALUES (?, ?, ?, ?, ?)')
       .run(input.bankLedgerId, template.spec.name, fileName, rows.length, total)
     const batchId = Number(res.lastInsertRowid)
-    const ins = db.prepare('INSERT INTO bank_payment_batch_items (batch_id, voucher_id, amount, beneficiary_name, beneficiary_account, beneficiary_ifsc) VALUES (?, ?, ?, ?, ?, ?)')
-    for (const r of rows) ins.run(batchId, r.voucherId, r.amount, r.beneficiaryName, r.accountNo, r.ifsc)
+    const ins = db.prepare(
+      'INSERT INTO bank_payment_batch_items (batch_id, voucher_id, ledger_id, amount, beneficiary_name, beneficiary_account, beneficiary_ifsc) VALUES (?, ?, ?, ?, ?, ?, ?)'
+    )
+    picked.forEach((c, i) => ins.run(batchId, c.voucherId, c.payeeLedgerId, rows[i]!.amount, rows[i]!.beneficiaryName, rows[i]!.accountNo, rows[i]!.ifsc))
     writeAudit(db, 'payment_batch', batchId, 'create', null, {
-      bankLedgerId: input.bankLedgerId, template: template.spec.name, fileName, count: rows.length, total,
-      vouchers: rows.map((r) => ({ voucherId: r.voucherId, amount: r.amount, account: r.accountNo, ifsc: r.ifsc }))
+      bankLedgerId: input.bankLedgerId, template: template.spec.name, fileName, count: rows.length, total, repeatAllowed: !!input.allowRepeat,
+      payments: picked.map((c, i) => ({ voucherId: c.voucherId, ledgerId: c.payeeLedgerId, amount: rows[i]!.amount, account: rows[i]!.accountNo, ifsc: rows[i]!.ifsc }))
     })
     return { batchId, fileName, text, count: rows.length, total }
   })
   return run()
 }
-
 
 export function listPaymentBatches(db: DB, bankLedgerId: number): PaymentBatchRow[] {
   return db

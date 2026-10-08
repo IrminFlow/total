@@ -35,6 +35,7 @@ export interface ChequeData {
 export function chequeData(db: DB, voucherId: number, bankLedgerId: number): ChequeData {
   const voucher = getVoucher(db, voucherId)
   if (!voucher) throw new Error('Voucher not found')
+  if (voucher.deletedAt) throw new Error('This voucher is in the bin')
 
   const vt = db.prepare('SELECT kind FROM voucher_types WHERE id = ?').get(voucher.voucherTypeId) as
     | { kind: string }

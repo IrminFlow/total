@@ -491,12 +491,20 @@ export function AccountingEntry({
 
   const printCheque = async (): Promise<void> => {
     if (!voucherId || !bankCrLine) return
+    // The cheque is printed from the SAVED voucher — an unsaved instrument number would not match.
+    if (instrumentNo.trim() !== (voucher?.instrumentNo ?? '').trim()) return void toast.push('error', 'Save the voucher first — its cheque number has unsaved changes')
     try {
       // WP 4.1: issues the next leaf of the bank's cheque book (or re-uses this voucher's) into
       // the cheque register, then prints with the bank's layout.
       const r = await bankingApi.cheques.print(voucherId, bankCrLine.ledgerId)
-      toast.push('success', `Cheque ${r.cheque.number}: ${r.path}`)
-      await queryClient.invalidateQueries({ queryKey: ['chequeRegister'] })
+      toast.push('success', r.number ? `Cheque ${r.number}: ${r.path}` : `Cheque PDF: ${r.path}`)
+      // The number may have been written onto the voucher: keep the editor in step so a later
+      // save does not wipe it.
+      if (r.number) setInstrumentNo(r.number)
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['chequeRegister'] }),
+        queryClient.invalidateQueries({ queryKey: ['voucher', voucherId], exact: true })
+      ])
     } catch (err) {
       toast.push('error', (err as Error).message)
     }

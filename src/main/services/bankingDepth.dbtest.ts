@@ -4,14 +4,15 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import { seededDb } from '../db/testdb'
 import { createLedger } from './masters'
-import { saveVoucher, getVoucher, maturePdcNow, maturePostDated } from './vouchers'
+import { saveVoucher, getVoucher, maturePdcNow, maturePostDated, deleteVoucher, restoreVoucher } from './vouchers'
 import { listAudit, setAuditContext } from './audit'
-import { bankRecon, saveRule } from './banking'
+import { bankRecon, saveRule, setBankDate } from './banking'
+import { outstandings } from './analysis'
 import {
   commitStatement, confirmMatches, createVouchersFromLines, deleteLearnedRule, getImportProfile, listLearnedRules, previewStatement, setLineIgnored,
   statementWorkspace, undoLastImport, unmatchLine, updateLearnedRule
 } from './bankImport'
-import { chequeRegister, deleteChequeBook, issueCheque, nextChequeNumber, saveChequeBook, setChequeStatus } from './cheques'
+import { chequeRegister, deleteChequeBook, issueCheque, nextChequeNumber, planCheque, revokeIssuedCheque, saveChequeBook, setChequeStatus } from './cheques'
 import { bouncePdc, pdcRegisterFull, pdcsMaturing } from './pdc'
 import { exportPaymentBatch, listBeneficiaries, listPaymentTemplates, paymentCandidates, savePaymentTemplate, setBankDetails } from './bulkPayments'
 import { dashboardSeries } from './dashboard'
@@ -262,7 +263,7 @@ describe('undo last import', () => {
     const made = createVouchersFromLines(db, hdfc, [{ lineId: feeLine.id, ledgerId: charges }]).created[0]!
     expect(() => undoLastImport(db, hdfc, first.importId! - 1)).toThrow(/latest/)
     const res = undoLastImport(db, hdfc, first.importId!)
-    expect(res).toEqual({ binned: 1, unmatched: 1, removedLines: 2 })
+    expect(res).toEqual({ binned: 1, unmatched: 1, removedLines: 2, keptEdited: [] })
     expect(getVoucher(db, made.voucherId)!.deletedAt).not.toBeNull()
     expect(getVoucher(db, existing.id)!.lines.find((l) => l.ledgerId === hdfc)!.bankDate).toBeNull()
     expect(statementWorkspace(db, hdfc, { includeDone: true }).lines.map((l) => l.description)).toEqual(['OLD'])
@@ -279,10 +280,10 @@ describe('cheque books, register, printing layout', () => {
     expect(book.leaves).toBe(4)
     expect(() => saveChequeBook(db, { bankLedgerId: hdfc, name: 'Clash', fromNo: 460, toNo: 470, width: 6, receivedOn: null, active: true })).toThrow(/overlap/)
     const v = pay(db, { bank: hdfc, to: acme, party: acme, amount: 1234550, date: '2026-08-05' })
-    const row = issueCheque(db, v.id, hdfc)
+    const row = issueCheque(db, v.id, hdfc)!
     expect(row).toMatchObject({ number: '000457', status: 'issued', payee: 'Acme Traders', amount: 1234550, voucherId: v.id })
     expect(getVoucher(db, v.id)!.instrumentNo).toBe('000457')
-    expect(issueCheque(db, v.id, hdfc).chequeId).toBe(row.chequeId) // re-print re-uses the leaf
+    expect(issueCheque(db, v.id, hdfc)!.chequeId).toBe(row.chequeId) // re-print re-uses the leaf
     expect(nextChequeNumber(db, hdfc)?.label).toBe('000458')
     setChequeStatus(db, { bankLedgerId: hdfc, number: '458', status: 'cancelled', note: 'spoilt' })
     setChequeStatus(db, { bankLedgerId: hdfc, number: '000459', status: 'stopped', note: 'lost' })
@@ -296,11 +297,36 @@ describe('cheque books, register, printing layout', () => {
     expect(entities(db, 'cheque_book')).toEqual(['create'])
   })
 
-  it('a voucher instrument number that is a free leaf is used; no books → a clear error', () => {
+  it('no cheque book: prints with the voucher\'s own number and records nothing (pre-0.8 behaviour)', () => {
     const v = pay(db, { bank: hdfc, to: acme, party: acme, amount: 100, date: '2026-08-05', instrumentNo: '000777' })
-    expect(() => issueCheque(db, v.id, hdfc)).toThrow(/add a cheque book/)
+    expect(planCheque(db, v.id, hdfc)).toEqual({ mode: 'unregistered', number: '000777' })
+    expect(issueCheque(db, v.id, hdfc)).toBeNull()
+    expect(chequeRegister(db, hdfc)).toEqual([])
+    expect(getVoucher(db, v.id)!.instrumentNo).toBe('000777')
+  })
+
+  it('a book exists: the voucher\'s number inside a range is that exact leaf; outside or used → refused, nothing consumed', () => {
     saveChequeBook(db, { bankLedgerId: hdfc, name: '', fromNo: 770, toNo: 779, width: 6, receivedOn: null, active: true })
-    expect(issueCheque(db, v.id, hdfc).number).toBe('000777')
+    const inRange = pay(db, { bank: hdfc, to: acme, party: acme, amount: 100, date: '2026-08-05', instrumentNo: '773' })
+    const row = issueCheque(db, inRange.id, hdfc)!
+    expect(row.number).toBe('000773')
+    expect(getVoucher(db, inRange.id)!.instrumentNo).toBe('000773') // normalised to the leaf, register = voucher
+    const outside = pay(db, { bank: hdfc, to: acme, party: acme, amount: 100, date: '2026-08-05', instrumentNo: '900123' })
+    expect(() => issueCheque(db, outside.id, hdfc)).toThrow(/not in any cheque book/)
+    const reused = pay(db, { bank: hdfc, to: acme, party: acme, amount: 100, date: '2026-08-05', instrumentNo: '000773' })
+    expect(() => issueCheque(db, reused.id, hdfc)).toThrow(/already in the register/)
+    expect(chequeRegister(db, hdfc, false).map((r) => r.number)).toEqual(['000773'])
+    expect(getVoucher(db, outside.id)!.instrumentNo).toBe('900123')
+    // A failed print gives the leaf back.
+    const fresh = pay(db, { bank: hdfc, to: acme, party: acme, amount: 100, date: '2026-08-05' })
+    const issued = issueCheque(db, fresh.id, hdfc)!
+    expect(issued.number).toBe('000770')
+    revokeIssuedCheque(db, issued.chequeId!, null)
+    expect(getVoucher(db, fresh.id)!.instrumentNo).toBeNull()
+    expect(nextChequeNumber(db, hdfc)?.label).toBe('000770')
+    // binned vouchers never print
+    deleteVoucher(db, fresh.id)
+    expect(() => issueCheque(db, fresh.id, hdfc)).toThrow(/bin/)
   })
 
   it('layout: amount in words (Indian numbering), offsets and page size in the printed HTML', () => {
@@ -351,8 +377,11 @@ describe('post-dated cheques', () => {
     expect(recon.bookBalance).toBe(-59000)
   })
 
-  it('an issued cheque bounce becomes a receipt back into the bank; charges need a ledger', () => {
-    const p = pay(db, { bank: hdfc, to: rent, amount: 200000, date: '2026-08-05', instrumentNo: '222' })
+  it('an issued cheque bounce becomes a receipt back into the bank; charges need a ledger; only PDCs bounce here', () => {
+    const plain = pay(db, { bank: hdfc, to: rent, amount: 100, date: '2026-08-05' })
+    expect(() => bouncePdc(db, { voucherId: plain.id, date: '2026-08-07', charges: 0, chargesLedgerId: null, recoverChargesFromParty: false, reason: '' })).toThrow(/post-dated/)
+    const p = pay(db, { bank: hdfc, to: rent, amount: 200000, date: '2026-08-05', instrumentNo: '222', postDated: true })
+    maturePdcNow(db, p.id)
     expect(() => bouncePdc(db, { voucherId: p.id, date: '2026-08-07', charges: 100, chargesLedgerId: null, recoverChargesFromParty: false, reason: '' })).toThrow(/ledger/)
     const res = bouncePdc(db, { voucherId: p.id, date: '2026-08-07', charges: 100, chargesLedgerId: charges, recoverChargesFromParty: false, reason: '' })
     expect(getVoucher(db, res.reversalVoucherId)!.lines.map((l) => [l.ledgerId, l.drCr])).toEqual([[rent, 'cr'], [hdfc, 'dr']])
@@ -368,13 +397,13 @@ describe('bulk payment files', () => {
     const cands = paymentCandidates(db, hdfc, '2026-08-01', '2026-08-31')
     expect(cands.map((c) => [c.number, c.problems.length > 0])).toEqual([[v1.number, true], [v2.number, true]])
     const key = 'builtin:unionbank-neft-rtgs'
-    expect(() => exportPaymentBatch(db, { bankLedgerId: hdfc, voucherIds: [v1.id], templateKey: key, date: '2026-08-12' })).toThrow(/Fix these/)
+    expect(() => exportPaymentBatch(db, { bankLedgerId: hdfc, items: [{ voucherId: v1.id, ledgerId: shree }], templateKey: key, date: '2026-08-12' })).toThrow(/Fix these/)
     expect(() => setBankDetails(db, shree, { accountNo: '1111', ifsc: 'BAD', accountName: null, email: null })).toThrow(/IFSC/)
     setBankDetails(db, shree, { accountNo: '1111 2222 3333', ifsc: 'icic0000001', accountName: 'Shree Packaging', email: 'a@b.in' })
     setBankDetails(db, rent, { accountNo: '22222222222', ifsc: 'UTIB0000002', accountName: 'Landlord', email: null })
     setBankDetails(db, hdfc, { accountNo: '566802070000001', ifsc: 'UBIN0556688', accountName: null, email: null })
     expect(listBeneficiaries(db).find((b) => b.ledgerId === shree)).toMatchObject({ accountNo: '111122223333', ifsc: 'ICIC0000001', problems: [] })
-    const out = exportPaymentBatch(db, { bankLedgerId: hdfc, voucherIds: [v1.id, v2.id], templateKey: key, date: '2026-08-12', corporateId: 'DEMOCORP', remarks: 'AUG' })
+    const out = exportPaymentBatch(db, { bankLedgerId: hdfc, items: [{ voucherId: v1.id, ledgerId: shree }, { voucherId: v2.id, ledgerId: rent }], templateKey: key, date: '2026-08-12', corporateId: 'DEMOCORP', remarks: 'AUG' })
     expect(out.text.split('\r\n')).toEqual([
       'FILEHDR|DEMOCORP|1|N|AUG',
       'NEFT|UBIN0556688|566802070000001|ICIC0000001|111122223333|INR|12345.50|July bill|Shree Packaging|a@b.in|',
@@ -383,7 +412,10 @@ describe('bulk payment files', () => {
     ])
     expect(out.fileName).toBe('bulk-payments-hdfc-bank-2026-08-12-1.txt')
     expect(paymentCandidates(db, hdfc, '2026-08-01', '2026-08-31')[0]!.exportedIn).toHaveLength(1)
-    expect(entities(db, 'payment_batch')).toEqual(['create'])
+    // Exporting the same payment again needs the explicit override.
+    expect(() => exportPaymentBatch(db, { bankLedgerId: hdfc, items: [{ voucherId: v1.id, ledgerId: shree }], templateKey: key, date: '2026-08-12' })).toThrow(/paid twice/)
+    expect(exportPaymentBatch(db, { bankLedgerId: hdfc, items: [{ voucherId: v1.id, ledgerId: shree }], templateKey: key, date: '2026-08-12', allowRepeat: true }).count).toBe(1)
+    expect(entities(db, 'payment_batch')).toEqual(['create', 'create'])
     expect(entities(db, 'ledger').filter((a) => a === 'update')).toHaveLength(3)
   })
 
@@ -394,5 +426,121 @@ describe('bulk payment files', () => {
     const t = savePaymentTemplate(db, { ...spec, name: 'HDFC ENet (mine)' })
     expect(listPaymentTemplates(db).map((x) => x.key)).toContain(`user:${t.id}`)
     expect(entities(db, 'payment_template')).toEqual(['create'])
+  })
+})
+
+describe('review fixes (WP 4.1)', () => {
+  it('bounce reopens the invoice the cheque settled (bill-wise) and keeps cost allocations', () => {
+    const sales = ledger(db, 'Sales', 'Sales Accounts')
+    const inv = saveVoucher(db, {
+      voucherTypeId: vtId(db, 'sales'), date: '2026-07-01', partyLedgerId: acme,
+      lines: [{ ledgerId: acme, drCr: 'dr', amount: 500000, costAllocations: [] }, { ledgerId: sales, drCr: 'cr', amount: 500000, costAllocations: [] }],
+      billRefs: [{ kind: 'new', name: 'INV-1', amount: 500000, dueDate: '2026-07-31' }]
+    })
+    const r = saveVoucher(db, {
+      voucherTypeId: vtId(db, 'receipt'), date: '2026-08-10', partyLedgerId: acme, instrumentNo: '111', postDated: true,
+      lines: [{ ledgerId: hdfc, drCr: 'dr', amount: 500000, costAllocations: [] }, { ledgerId: acme, drCr: 'cr', amount: 500000, costAllocations: [] }],
+      billRefs: [{ kind: 'against', name: 'INV-1', amount: 500000, dueDate: null }]
+    })
+    maturePdcNow(db, r.id)
+    const open = (asOn: string) => outstandings(db, 'receivable', asOn).flatMap((p) => p.bills).filter((b) => b.number === 'INV-1')
+    expect(open('2026-08-11')).toEqual([])
+    const res = bouncePdc(db, { voucherId: r.id, date: '2026-08-12', charges: 0, chargesLedgerId: null, recoverChargesFromParty: false, reason: '' })
+    expect(getVoucher(db, res.reversalVoucherId)!.billRefs).toEqual([{ kind: 'new', name: 'INV-1', amount: 500000, dueDate: '2026-07-31' }])
+    const back = open('2026-08-20')
+    expect(back).toHaveLength(1)
+    expect(back[0]).toMatchObject({ pending: 500000, dueDate: '2026-07-31', overdueDays: 20 })
+    expect(inv.id).toBeGreaterThan(0)
+  })
+
+  it('bulk file: one transfer per party debit line; bank charges are not a transfer', () => {
+    const a = ledger(db, 'Supplier A', 'Sundry Creditors')
+    const b = ledger(db, 'Supplier B', 'Sundry Creditors')
+    for (const [id, acc, ifsc] of [[a, '11111111', 'HDFC0000001'], [b, '22222222', 'ICIC0000002']] as const) setBankDetails(db, id, { accountNo: acc, ifsc, accountName: null, email: null })
+    setBankDetails(db, hdfc, { accountNo: '566802070000001', ifsc: 'UBIN0556688', accountName: null, email: null })
+    const two = saveVoucher(db, {
+      voucherTypeId: vtId(db, 'payment'), date: '2026-08-12', partyLedgerId: null,
+      lines: [
+        { ledgerId: a, drCr: 'dr', amount: 30000, costAllocations: [] },
+        { ledgerId: b, drCr: 'dr', amount: 70000, costAllocations: [] },
+        { ledgerId: hdfc, drCr: 'cr', amount: 100000, costAllocations: [] }
+      ]
+    })
+    const withCharges = saveVoucher(db, {
+      voucherTypeId: vtId(db, 'payment'), date: '2026-08-12', partyLedgerId: a,
+      lines: [
+        { ledgerId: a, drCr: 'dr', amount: 50000, costAllocations: [] },
+        { ledgerId: charges, drCr: 'dr', amount: 1770, costAllocations: [] },
+        { ledgerId: hdfc, drCr: 'cr', amount: 51770, costAllocations: [] }
+      ]
+    })
+    const cands = paymentCandidates(db, hdfc, '2026-08-01', '2026-08-31')
+    expect(cands.map((c) => [c.voucherId, c.payeeName, c.amount])).toEqual([
+      [two.id, 'Supplier A', 30000], [two.id, 'Supplier B', 70000], [withCharges.id, 'Supplier A', 50000]
+    ])
+    const out = exportPaymentBatch(db, { bankLedgerId: hdfc, items: cands.map((c) => ({ voucherId: c.voucherId, ledgerId: c.payeeLedgerId! })), templateKey: 'builtin:generic-csv', date: '2026-08-12' })
+    expect(out.count).toBe(3)
+    expect(out.total).toBe(150000)
+    expect(out.text).not.toContain('517.70')
+  })
+
+  it('undo leaves vouchers edited since the import alone and reports them', () => {
+    commitStatement(db, hdfc, csv(['02/08/2026,FEE,F,"20.00",,', '02/08/2026,RENT,R,"500.00",,']))
+    const [fee, rentLine] = statementWorkspace(db, hdfc).lines
+    const made = createVouchersFromLines(db, hdfc, [{ lineId: fee!.id, ledgerId: charges }, { lineId: rentLine!.id, ledgerId: rent }]).created
+    const edited = getVoucher(db, made[1]!.voucherId)!
+    saveVoucher(db, { voucherTypeId: edited.voucherTypeId, date: edited.date, partyLedgerId: null, narration: 'edited by hand', lines: edited.lines.map((l) => ({ ledgerId: l.ledgerId, drCr: l.drCr, amount: l.amount, costAllocations: [] })) }, edited.id)
+    const imp = statementWorkspace(db, hdfc, { includeDone: true }).imports[0]!
+    const res = undoLastImport(db, hdfc, imp.id)
+    expect(res.binned).toBe(1)
+    expect(res.keptEdited).toEqual([{ voucherId: edited.id, number: edited.number }])
+    expect(getVoucher(db, made[0]!.voucherId)!.deletedAt).not.toBeNull()
+    expect(getVoucher(db, edited.id)!.deletedAt).toBeNull()
+  })
+
+  it('a line matched to a voucher that is later binned shows unmatched again; restore re-links while it is free', () => {
+    const v = pay(db, { bank: hdfc, to: rent, amount: 50000, date: '2026-08-01' })
+    commitStatement(db, hdfc, csv(['02/08/2026,RENT,R,"500.00",,']))
+    const line = statementWorkspace(db, hdfc).lines[0]!
+    confirmMatches(db, hdfc, [{ lineIds: [line.id], voucherIds: [v.id] }])
+    expect(statementWorkspace(db, hdfc).lines).toEqual([])
+    deleteVoucher(db, v.id)
+    const again = statementWorkspace(db, hdfc).lines
+    expect(again.map((l) => [l.id, l.status])).toEqual([[line.id, 'open']])
+    restoreVoucher(db, v.id)
+    expect(statementWorkspace(db, hdfc, { includeDone: true }).lines.map((l) => l.status)).toEqual(['matched'])
+    // Binned again and the line matched to something else meanwhile → the old match is gone for good.
+    deleteVoucher(db, v.id)
+    const other = pay(db, { bank: hdfc, to: rent, amount: 50000, date: '2026-08-02' })
+    confirmMatches(db, hdfc, [{ lineIds: [line.id], voucherIds: [other.id] }])
+    restoreVoucher(db, v.id)
+    expect(statementWorkspace(db, hdfc, { includeDone: true }).lines[0]!.matched.map((m) => m.voucherId)).toEqual([other.id])
+  })
+
+  it('clearing a bank date by hand also unmatches the statement line', () => {
+    const v = pay(db, { bank: hdfc, to: rent, amount: 50000, date: '2026-08-01' })
+    commitStatement(db, hdfc, csv(['02/08/2026,RENT,R,"500.00",,']))
+    const line = statementWorkspace(db, hdfc).lines[0]!
+    confirmMatches(db, hdfc, [{ lineIds: [line.id], voucherIds: [v.id] }])
+    const bankLine = getVoucher(db, v.id)!.lines.find((l) => l.ledgerId === hdfc)!
+    setBankDate(db, bankLine.id, null)
+    expect(statementWorkspace(db, hdfc).lines.map((l) => l.id)).toEqual([line.id])
+  })
+
+  it('confirm uses the proposed bank line when a voucher has two on the same bank ledger', () => {
+    const v = saveVoucher(db, {
+      voucherTypeId: vtId(db, 'payment'), date: '2026-08-01', partyLedgerId: null,
+      lines: [
+        { ledgerId: rent, drCr: 'dr', amount: 30000, costAllocations: [] },
+        { ledgerId: hdfc, drCr: 'cr', amount: 10000, costAllocations: [] },
+        { ledgerId: hdfc, drCr: 'cr', amount: 20000, costAllocations: [] }
+      ]
+    })
+    commitStatement(db, hdfc, csv(['02/08/2026,PART 2,R,"200.00",,']))
+    const line = statementWorkspace(db, hdfc).lines[0]!
+    expect(line.proposal!.entries[0]!.amount).toBe(20000)
+    const second = getVoucher(db, v.id)!.lines.filter((l) => l.ledgerId === hdfc)[1]!
+    confirmMatches(db, hdfc, [{ lineIds: [line.id], voucherIds: [v.id], voucherLineIds: [second.id] }])
+    expect(getVoucher(db, v.id)!.lines.filter((l) => l.ledgerId === hdfc).map((l) => l.bankDate)).toEqual([null, '2026-08-02'])
   })
 })

@@ -43,7 +43,10 @@ export function parsePastedStatement(text: string, dateFormat: DateFormat = 'aut
     const dm = line.match(DATE_RE)
     const date = dm ? parseBankDate(dm[1]!, dateFormat) : null
     if (!date) {
-      if (FURNITURE.test(line) || /^(closing|carried forward|c\/f|total)\b/i.test(line)) {
+      // Page furniture between a transaction and the rest of its narration (a page break) is
+      // skipped without ending the transaction, so the narration joins up across the break.
+      if (FURNITURE.test(line)) continue
+      if (/^(closing|carried forward|c\/f|total)\b/i.test(line)) {
         lastWasTxn = false
         continue
       }

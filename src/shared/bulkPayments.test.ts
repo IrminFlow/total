@@ -52,6 +52,21 @@ describe('bulk payment files', () => {
   })
 })
 
+describe('bulk payment file safety (review)', () => {
+  const t = BUILTIN_PAYMENT_TEMPLATES.find((x) => x.key === 'unionbank-neft-rtgs')!
+  it('header placeholders are cleaned: no delimiter or line break can leak in', () => {
+    const text = renderPaymentFile(t, rows.slice(0, 1), { ...ctx, corporateId: 'A|B', remarks: 'line1\nline2|x' })
+    expect(text.split('\r\n')[0]).toBe('FILEHDR|A B|1|N|line1 line2 x')
+  })
+  it('an over-length account number / IFSC / amount is refused, never truncated', () => {
+    const long = [{ ...rows[0]!, accountNo: '1'.repeat(30) }]
+    expect(() => renderPaymentFile(t, long, ctx)).toThrow(/longer than the template's 24 characters/)
+    // names are trimmed to the field size instead
+    const name = renderPaymentFile(t, [{ ...rows[0]!, beneficiaryName: 'N'.repeat(60) }], ctx)
+    expect(name).toContain(`|${'N'.repeat(40)}|`)
+  })
+})
+
 describe('cheque register helpers', () => {
   const books = [
     { id: 1, fromNo: 457, toNo: 459, width: 6, active: true },

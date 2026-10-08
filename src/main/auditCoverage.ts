@@ -172,7 +172,7 @@ export const AUDIT_COVERAGE: Record<string, AuditCoverage> = {
   'trade:closeStaleQuotations': a('trade_doc'),
 
   // ---------- banking ----------
-  'bank:setBankDate': a('voucher_line'),
+  'bank:setBankDate': a('voucher_line', 'bank_statement_line'),
   'bank:importCsv': a('bank_statement', 'voucher'),
   'bankrule:save': a('bank_rule'),
   'bankrule:delete': a('bank_rule'),

@@ -15,6 +15,9 @@
 import { child, childrenOf, descendants, parseXml, textOf, type XmlNode } from './xml'
 import { unzipText } from './zip'
 
+/** Rows read from one sheet (a bank statement never needs more). */
+export const MAX_ROWS = 200_000
+
 const BUILTIN_DATE_FMTS = new Set([14, 15, 16, 17, 18, 19, 20, 21, 22, 45, 46, 47])
 
 /** 'B12' → 1 (0-based column index). */
@@ -93,8 +96,11 @@ export function readXlsx(bytes: Uint8Array, sheetName?: string): XlsxSheet {
   const rows: string[][] = []
   const data = child(parseXml(sheetXml), 'sheetData')
   let nextRow = 0
-  for (const row of childrenOf(data, 'row')) {
+  const xmlRows = childrenOf(data, 'row')
+  if (xmlRows.length > MAX_ROWS) throw new Error(`The sheet has ${xmlRows.length} rows — split the statement (limit ${MAX_ROWS})`)
+  for (const row of xmlRows) {
     const r = row.attrs['r'] ? Number(row.attrs['r']) - 1 : nextRow
+    if (r >= MAX_ROWS) throw new Error(`The sheet goes past row ${MAX_ROWS} — split the statement`)
     nextRow = r + 1
     const cells: string[] = []
     let nextCol = 0

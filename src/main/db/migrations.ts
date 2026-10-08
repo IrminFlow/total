@@ -2252,8 +2252,10 @@ export const MIGRATIONS: string[] = [
   //   same file or an overlapping one skips what is already there. A line's state is derived:
   //   matched = has bank_statement_matches rows; ignored = ignored_at set; else open.
   // - bank_statement_matches: confirmed matches between statement lines and vouchers (keyed by
-  //   voucher, not voucher line — a voucher edit rewrites its lines). Many-to-one and
-  //   one-to-many are several rows. created_voucher marks a voucher made from the statement line
+  //   voucher, not voucher line — a voucher edit rewrites its lines; voucher_line_id remembers the
+  //   exact bank line matched while it still exists). A match whose voucher is out of the books
+  //   (binned) counts as broken: the line shows unmatched again, and the match revives if the
+  //   voucher is restored while the line is still free. Many-to-one and one-to-many are several rows. created_voucher marks a voucher made from the statement line
   //   (undo import bins it); prev_bank_date is what the bank line had before, restored on undo.
   // - bank_learned_rules: rules learned from confirmed matches / created vouchers (narration
   //   tokens → ledger, party, voucher kind, narration template) with hit / applied / rejected
@@ -2267,7 +2269,7 @@ export const MIGRATIONS: string[] = [
   //   log (after_json.matured = true).
   // - bank_payment_templates / bank_payment_batches / bank_payment_batch_items: user-defined
   //   bulk payment file layouts (JSON spec, shared/bulkPayments.ts) and every exported file
-  //   with the vouchers and the beneficiary details it carried.
+  //   with one item per payee debit line (voucher + ledger) and the beneficiary details it carried.
   `
   ALTER TABLE ledgers ADD COLUMN bank_account_no TEXT;
   ALTER TABLE ledgers ADD COLUMN bank_ifsc TEXT;
@@ -2335,6 +2337,7 @@ export const MIGRATIONS: string[] = [
     id INTEGER PRIMARY KEY,
     statement_line_id INTEGER NOT NULL REFERENCES bank_statement_lines(id) ON DELETE CASCADE,
     voucher_id INTEGER NOT NULL REFERENCES vouchers(id) ON DELETE CASCADE,
+    voucher_line_id INTEGER,
     created_voucher INTEGER NOT NULL DEFAULT 0,
     prev_bank_date TEXT,
     confirmed_at TEXT NOT NULL DEFAULT (datetime('now')),
@@ -2434,11 +2437,12 @@ export const MIGRATIONS: string[] = [
   CREATE TABLE bank_payment_batch_items (
     batch_id INTEGER NOT NULL REFERENCES bank_payment_batches(id) ON DELETE CASCADE,
     voucher_id INTEGER NOT NULL REFERENCES vouchers(id) ON DELETE CASCADE,
+    ledger_id INTEGER NOT NULL REFERENCES ledgers(id),
     amount INTEGER NOT NULL,
     beneficiary_name TEXT NOT NULL,
     beneficiary_account TEXT NOT NULL,
     beneficiary_ifsc TEXT NOT NULL,
-    PRIMARY KEY (batch_id, voucher_id)
+    PRIMARY KEY (batch_id, voucher_id, ledger_id)
   );
   CREATE INDEX idx_bpbi_voucher ON bank_payment_batch_items(voucher_id);
   `

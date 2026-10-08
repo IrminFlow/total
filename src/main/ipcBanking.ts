@@ -131,11 +131,22 @@ export function registerBankingIpc(handle: Handle, company: () => Company): void
   handle('cheques:print', async (p) => {
     const { voucherId, bankLedgerId, number } = z.object({ voucherId: id, bankLedgerId: id, number: z.string().trim().max(20).nullable().optional() }).parse(p)
     const c = company()
+    // Validate first (refusals never consume a leaf), issue, then render; a failed PDF puts the
+    // leaf back so the register never shows a cheque that was not printed.
+    const plan = cheques.planCheque(c.db, voucherId, bankLedgerId, number ?? null)
+    const instrumentBefore = plan.mode === 'issue' ? (c.db.prepare('SELECT instrument_no AS n FROM vouchers WHERE id = ?').get(voucherId) as { n: string | null }).n : null
     const row = cheques.issueCheque(c.db, voucherId, bankLedgerId, number ?? null)
-    const path = await cheque.chequePdf(c.db, c.info, c.slug, voucherId, bankLedgerId, row.number)
-    cheques.recordChequePrint(c.db, row.chequeId!)
-    writeAudit(c.db, 'export', 0, 'export', null, { kind: 'cheque_pdf', voucherId, bankLedgerId, chequeNo: row.number, path })
-    return { path, cheque: row }
+    let path: string
+    try {
+      path = await cheque.chequePdf(c.db, c.info, c.slug, voucherId, bankLedgerId, row?.number ?? plan.number ?? undefined)
+    } catch (err) {
+      if (plan.mode === 'issue' && row?.chequeId) cheques.revokeIssuedCheque(c.db, row.chequeId, instrumentBefore)
+      throw err
+    }
+    if (row?.chequeId) cheques.recordChequePrint(c.db, row.chequeId)
+    const chequeNo = row?.number ?? plan.number ?? null
+    writeAudit(c.db, 'export', 0, 'export', null, { kind: 'cheque_pdf', voucherId, bankLedgerId, chequeNo, registered: row != null, path })
+    return { path, cheque: row, number: chequeNo }
   })
 
   // ---------- post-dated cheques ----------

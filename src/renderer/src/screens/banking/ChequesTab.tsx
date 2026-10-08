@@ -87,7 +87,7 @@ export function ChequesTab({ bankLedgerId, bankName }: { bankLedgerId: number; b
     if (!r.voucherId) return
     try {
       const res = await bankingApi.cheques.print(r.voucherId, bankLedgerId, r.number)
-      toast.push('success', `Cheque ${res.cheque.number}: ${res.path}`)
+      toast.push('success', `Cheque ${res.number ?? ''}: ${res.path}`)
       await invalidate()
     } catch (err) {
       toast.push('error', (err as Error).message)

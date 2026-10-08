@@ -29,7 +29,7 @@ export const bankingApi = {
     ignore: (bankLedgerId: number, lineId: number, ignored: boolean) => call<null>('bankImport:ignore', { bankLedgerId, lineId, ignored }),
     createVouchers: (bankLedgerId: number, items: CreateFromLineInput[]) => call<CreateResult>('bankImport:createVouchers', { bankLedgerId, items }),
     undo: (bankLedgerId: number, importId: number) =>
-      call<{ binned: number; unmatched: number; removedLines: number }>('bankImport:undo', { bankLedgerId, importId })
+      call<{ binned: number; unmatched: number; removedLines: number; keptEdited: { voucherId: number; number: string }[] }>('bankImport:undo', { bankLedgerId, importId })
   },
   learned: {
     list: () => call<LearnedRuleRecord[]>('bankLearned:list'),
@@ -44,7 +44,7 @@ export const bankingApi = {
     next: (bankLedgerId: number) => call<{ bookId: number; leaf: number; label: string } | null>('cheques:next', { bankLedgerId }),
     setStatus: (input: ChequeStatusInput) => call<ChequeRegisterRow>('cheques:setStatus', input),
     print: (voucherId: number, bankLedgerId: number, number?: string | null) =>
-      call<{ path: string; cheque: ChequeRegisterRow }>('cheques:print', { voucherId, bankLedgerId, number })
+      call<{ path: string; cheque: ChequeRegisterRow | null; number: string | null }>('cheques:print', { voucherId, bankLedgerId, number })
   },
   pdc: {
     register: (today?: string) => call<PdcRegisterRow[]>('pdc:register', { today }),

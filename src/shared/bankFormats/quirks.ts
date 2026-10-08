@@ -21,7 +21,10 @@ const year4 = (y: string): number => (y.length === 2 ? 2000 + Number(y) : Number
 
 /**
  * Parse a statement date cell to ISO. 'auto' prefers day-first for ambiguous numeric dates (the
- * Indian convention) — pass 'MM/DD/YYYY' for US-style exports. Time-of-day suffixes are ignored.
+ * Indian convention) — pass 'MM/DD/YYYY' for US-style exports (tabular imports infer the order per
+ * file, see tabular.ts inferDateOrder). Time-of-day suffixes are ignored. Two-digit years are
+ * always 20YY — there is no 19xx pivot, statements are recent (MT940's own YYMMDD keeps SWIFT's
+ * 70–99 → 19xx rule in mt940.ts).
  */
 export function parseBankDate(cell: string, format: DateFormat = 'auto'): string | null {
   const t = cell.trim().replace(/^"|"$/g, '').replace(/\s+\d{1,2}:\d{2}(:\d{2})?(\s*[AP]M)?$/i, '').replace(/T\d{2}:\d{2}.*$/, '').trim()
@@ -131,6 +134,9 @@ export function stableHash(s: string): string {
  * keeps two genuine identical charges apart while making a re-import — or an overlapping
  * statement that covers the same day in full — produce the same keys, which the
  * `bank_statement_lines (bank_ledger_id, import_hash)` unique index then rejects.
+ * Limits: the same day exported in two DIFFERENT formats (a CSV and an MT940 of one period) is not
+ * recognised as a duplicate — banks word the narration differently per format — so import one
+ * format per account; and a statement that covers only part of a day restarts the occurrence count.
  */
 export function importHashes(lines: { date: string; deposit: number; withdrawal: number; description: string }[]): string[] {
   const seen = new Map<string, number>()

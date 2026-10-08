@@ -89,7 +89,7 @@ export function BulkTab({ bankLedgerId, bankName }: { bankLedgerId: number; bank
   const { data: beneficiaries } = useQuery({ queryKey: ['bulkBeneficiaries'], queryFn: bankingApi.bulk.beneficiaries })
   const { data: batches } = useQuery({ queryKey: ['bulkBatches', bankLedgerId], queryFn: () => bankingApi.bulk.batches(bankLedgerId) })
   const [templateKey, setTemplateKey] = useState<string>('')
-  const [picked, setPicked] = useState<Set<number>>(new Set())
+  const [picked, setPicked] = useState<Set<string>>(new Set())
   const [corporateId, setCorporateId] = useState('')
   const [remarks, setRemarks] = useState('')
   const [date, setDate] = useState(todayISO())
@@ -109,7 +109,7 @@ export function BulkTab({ bankLedgerId, bankName }: { bankLedgerId: number; bank
   }
   const columns = useMemo(() => candidateColumns(template?.spec.rtgsThreshold ?? 2_00_000_00, (c) => fixRef.current(c)), [template])
   const rows = candidates ?? []
-  const selected = rows.filter((c) => picked.has(c.voucherId))
+  const selected = rows.filter((c) => picked.has(c.key))
   const own = beneficiaries?.find((b) => b.ledgerId === bankLedgerId)
 
   const invalidate = (): Promise<unknown> =>
@@ -117,16 +117,19 @@ export function BulkTab({ bankLedgerId, bankName }: { bankLedgerId: number; bank
 
   const exportFile = async (): Promise<void> => {
     if (!template) return
-    if (selected.some((c) => c.exportedIn.length > 0 || c.chequeNo)) {
+    const repeat = selected.some((c) => c.exportedIn.length > 0 || c.chequeNo)
+    if (repeat) {
       const ok = await confirmDialog({
         title: 'Some payments may go out twice',
-        message: 'Some selected vouchers are already in an exported file or have a cheque issued. Export them again?',
+        message: 'Some selected payments are already in an exported file or their voucher has a cheque issued. Export them again?',
         confirmLabel: 'Export anyway'
       })
       if (!ok) return
     }
     try {
-      const r = await bankingApi.bulk.export({ bankLedgerId, voucherIds: selected.map((c) => c.voucherId), templateKey: template.key, date, corporateId, remarks })
+      const r = await bankingApi.bulk.export({
+        bankLedgerId, items: selected.map((c) => ({ voucherId: c.voucherId, ledgerId: c.payeeLedgerId! })), templateKey: template.key, date, corporateId, remarks, allowRepeat: repeat
+      })
       toast.push('success', `${r.count} payments · ${rupees(r.total)} → ${r.path}`)
       setPicked(new Set())
       await invalidate()
@@ -193,8 +196,8 @@ export function BulkTab({ bankLedgerId, bankName }: { bankLedgerId: number; bank
               ariaLabel="Payment vouchers"
               columns={columns}
               rows={rows}
-              rowKey={(c) => c.voucherId}
-              rowAttrs={(c) => ({ 'data-row-id': c.voucherId, 'data-ready': c.problems.length ? '0' : '1' })}
+              rowKey={(c) => c.key}
+              rowAttrs={(c) => ({ 'data-row-id': c.key, 'data-voucher-id': c.voucherId, 'data-ready': c.problems.length ? '0' : '1' })}
               loading={isLoading}
               maxHeight="50vh"
               empty={{ title: 'No payments from this bank account in the period', hint: 'Payment vouchers crediting the bank appear here' }}
@@ -204,13 +207,13 @@ export function BulkTab({ bankLedgerId, bankName }: { bankLedgerId: number; bank
                   type="checkbox"
                   aria-label={`Select ${c.number}`}
                   data-testid="input-bulk-pick"
-                  checked={picked.has(c.voucherId)}
+                  checked={picked.has(c.key)}
                   onClick={(e) => e.stopPropagation()}
                   onChange={(e) =>
                     setPicked((s) => {
                       const next = new Set(s)
-                      if (e.target.checked) next.add(c.voucherId)
-                      else next.delete(c.voucherId)
+                      if (e.target.checked) next.add(c.key)
+                      else next.delete(c.key)
                       return next
                     })
                   }

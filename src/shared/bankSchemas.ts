@@ -52,7 +52,10 @@ export const workspaceQuerySchema = z.object({
 
 export const confirmMatchesSchema = z.object({
   bankLedgerId: id,
-  groups: z.array(z.object({ lineIds: z.array(id).min(1).max(20), voucherIds: z.array(id).min(1).max(20) })).min(1).max(500),
+  groups: z
+    .array(z.object({ lineIds: z.array(id).min(1).max(20), voucherIds: z.array(id).min(1).max(20), voucherLineIds: z.array(id).max(20).optional() }))
+    .min(1)
+    .max(500),
   tolerance: z.number().int().min(0).max(100_000_00).default(0)
 })
 
@@ -142,9 +145,10 @@ export const paymentTemplateSchema = z.object({
 
 export const exportBatchSchema = z.object({
   bankLedgerId: id,
-  voucherIds: z.array(id).min(1).max(1000),
+  items: z.array(z.object({ voucherId: id, ledgerId: id })).min(1).max(1000),
   templateKey: z.string().max(40),
   date: isoDate,
   corporateId: z.string().trim().max(40).nullable().optional(),
-  remarks: z.string().trim().max(200).nullable().optional()
+  remarks: z.string().trim().max(200).nullable().optional(),
+  allowRepeat: z.boolean().optional()
 })

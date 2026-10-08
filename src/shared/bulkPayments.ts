@@ -196,6 +196,8 @@ export function formatPaymentAmount(paise: number, f: PaymentTemplate['amountFor
 
 export const paymentTypeFor = (paise: number, threshold: number): 'NEFT' | 'RTGS' => (paise >= threshold ? 'RTGS' : 'NEFT')
 
+const STRICT_FIELDS: ReadonlySet<PaymentField> = new Set(['beneficiary_account', 'beneficiary_ifsc', 'amount', 'debit_account', 'debit_ifsc'])
+
 /** Make a value safe for an unquoted delimited bank file: no delimiter, no line breaks, no
  *  leading formula characters. */
 function clean(v: string, delimiter: string, quoteAll: boolean): string {
@@ -211,14 +213,18 @@ export function renderPaymentFile(t: PaymentTemplate, rows: PaymentRow[], ctx: B
   const out: string[] = []
   const total = rows.reduce((s, r) => s + r.amount, 0)
   if (t.headerLine && t.headerLine.trim()) {
+    // Placeholder values are cleaned like any field (no delimiter, no line breaks) so a remark
+    // can't add a column or a record to the header line.
+    const v = (x: string): string => clean(x, t.delimiter, false)
     out.push(
       t.headerLine
-        .replace(/\{corporateId\}/g, ctx.corporateId)
+        .replace(/[\r\n]+/g, ' ')
+        .replace(/\{corporateId\}/g, v(ctx.corporateId))
         .replace(/\{batchNo\}/g, String(ctx.batchNo))
         .replace(/\{date\}/g, formatPaymentDate(ctx.date, t.dateFormat))
         .replace(/\{count\}/g, String(rows.length))
         .replace(/\{total\}/g, formatPaymentAmount(total, t.amountFormat === 'rupees_int' ? 'rupees' : t.amountFormat))
-        .replace(/\{remarks\}/g, ctx.remarks)
+        .replace(/\{remarks\}/g, v(ctx.remarks))
     )
   }
   if (t.includeHeader) out.push(t.columns.map((c) => clean(c.header, t.delimiter, t.quoteAll)).join(t.delimiter))
@@ -242,7 +248,12 @@ export function renderPaymentFile(t: PaymentTemplate, rows: PaymentRow[], ctx: B
         case 'constant': v = c.value ?? ''; break
         case 'blank': v = ''; break
       }
-      if (c.maxLength && v.length > c.maxLength) v = v.slice(0, c.maxLength)
+      if (c.maxLength && v.length > c.maxLength) {
+        // Money and account identifiers are never cut short — a truncated account number pays
+        // someone else. Names and remarks are trimmed to the bank's field size.
+        if (STRICT_FIELDS.has(c.field)) throw new Error(`${r.voucherNumber}: ${PAYMENT_FIELD_LABELS[c.field]} “${v}” is longer than the template's ${c.maxLength} characters`)
+        v = v.slice(0, c.maxLength)
+      }
       return clean(v, t.delimiter, t.quoteAll)
     })
     out.push(cells.join(t.delimiter))

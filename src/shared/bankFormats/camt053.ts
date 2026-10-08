@@ -24,10 +24,19 @@ export function looksLikeCamt053(text: string): boolean {
   return /<([\w]+:)?BkToCstmrStmt[\s>]/.test(text)
 }
 
-const dateOf = (n: XmlNode | undefined): string | null => {
-  const s = textOf(child(n, 'Dt') ?? child(n, 'DtTm')).trim()
-  return /^\d{4}-\d{2}-\d{2}/.test(s) ? s.slice(0, 10) : null
+/** ISODate as is; ISODateTime with a zone (Z / ±hh:mm) converted to this machine's local date (a
+ *  late-evening UTC booking is the next day in India); without a zone it is the bank's local time. */
+export function camtDate(s: string): string | null {
+  const t = s.trim()
+  if (!/^\d{4}-\d{2}-\d{2}/.test(t)) return null
+  if (/T.*(Z|[+-]\d{2}:?\d{2})$/.test(t)) {
+    const d = new Date(t)
+    if (!Number.isNaN(d.getTime())) return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+  }
+  return t.slice(0, 10)
 }
+
+const dateOf = (n: XmlNode | undefined): string | null => camtDate(textOf(child(n, 'Dt') ?? child(n, 'DtTm')))
 
 function balanceOf(stmt: XmlNode, code: string): number | null {
   for (const bal of childrenOf(stmt, 'Bal')) {

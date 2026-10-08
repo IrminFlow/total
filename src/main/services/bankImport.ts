@@ -4,12 +4,13 @@
 // create vouchers in bulk from unmatched lines through saveVoucher, learn rules from both, and
 // undo the last import. The stateless CSV import in banking.ts stays for the older flow.
 import type { DB } from '../db/connection'
+import { stableHash } from '@shared/bankFormats/quirks'
 import type { PreviewLine, StatementPreview, CommitResult, ImportSummary, WorkspaceEntry, LineSuggestion, WorkspaceLine, Workspace, LearnedRuleRecord, CreateResult, LearnedRuleEdit, CreateFromLineInput, MatchGroupInput, WorkspaceQuery, StatementSource } from '@shared/bankTypes'
 import {
-  base64ToBytes, importHashes, parseStatementFile, type BankFormatId, type ImportProfile, type ParsedStatement, type StatementLine
+  base64ToBytes, detectFormat, importHashes, parseStatementFile, type BankFormatId, type ImportProfile, type ParsedStatement, type StatementLine
 } from '@shared/bankFormats'
 import {
-  DEFAULT_MATCH_OPTIONS, learn, proposeMatches, renderNarration, ruleConfidence, suggestLearned, validateGroup,
+  DEFAULT_MATCH_OPTIONS, learn, narrationTokens, proposeMatches, renderNarration, ruleConfidence, suggestLearned, validateGroup,
   type LearnedRule, type LearnedStatus, type MatchEntry, type MatchLine, type MatchOptions, type MatchProposal, type Side
 } from '@shared/bankMatch'
 import { matchRules, type RuleRow } from '@shared/bankRules'
@@ -17,6 +18,9 @@ import { writeAudit } from './audit'
 import { bankLedgers, listRules, recordRuleHit } from './banking'
 import { cashBankGroupIds } from './masters'
 import { IN_BOOKS, deleteVoucher, getVoucher, saveVoucher } from './vouchers'
+
+/** A match counts only while its voucher is in the books; a binned voucher's match is broken. */
+const LIVE_MATCH = `EXISTS (SELECT 1 FROM vouchers v WHERE v.id = m.voucher_id AND ${IN_BOOKS})`
 
 // ---------- profiles ----------
 
@@ -79,12 +83,28 @@ function assertBankLedger(db: DB, id: number): void {
 
 
 
-function parseSource(db: DB, bankLedgerId: number, src: StatementSource): { parsed: ParsedStatement & { grid: string[][] | null; profile: ImportProfile | null }; profileSource: StatementPreview['profileSource'] } {
+type Parsed = { parsed: ParsedStatement & { grid: string[][] | null; profile: ImportProfile | null }; profileSource: StatementPreview['profileSource'] }
+
+/** The last parse, keyed by (bank, file content, format, mapping): preview → commit of the same
+ *  file parses once. One entry only — statements can be large. */
+let lastParse: { key: string; value: Parsed } | null = null
+
+function parseSource(db: DB, bankLedgerId: number, src: StatementSource): Parsed {
+  const savedSig = JSON.stringify([getImportProfile(db, bankLedgerId, 'csv'), getImportProfile(db, bankLedgerId, 'xlsx')])
+  const key = `${bankLedgerId}|${src.format ?? ''}|${JSON.stringify(src.profile ?? null)}|${savedSig}|${src.fileName}|${stableHash(src.base64 ?? src.text ?? '')}|${(src.base64 ?? src.text ?? '').length}`
+  if (lastParse?.key === key) return lastParse.value
+  const value = parseSourceUncached(db, bankLedgerId, src)
+  lastParse = { key, value }
+  return value
+}
+
+function parseSourceUncached(db: DB, bankLedgerId: number, src: StatementSource): Parsed {
   const bytes = src.base64 != null ? base64ToBytes(src.base64) : undefined
   let profileSource: StatementPreview['profileSource'] = src.profile ? 'given' : null
   let profile = src.profile ?? null
   // A saved mapping applies when the payload doesn't bring one (tabular formats only).
-  const probe = (): BankFormatId => src.format ?? parseStatementFile({ fileName: src.fileName, bytes, text: bytes ? undefined : src.text, format: undefined, profile: null }).format
+  // Cheap format sniff (no full parse) to know whether a saved mapping applies.
+  const probe = (): BankFormatId => src.format ?? detectFormat(src.fileName, bytes ?? new TextEncoder().encode((src.text ?? '').slice(0, 65536)))
   if (!profile && (src.format ?? null) !== 'pasted') {
     const format = probe()
     if (format === 'csv' || format === 'xlsx') {
@@ -165,8 +185,8 @@ export function listImports(db: DB, bankLedgerId: number): ImportSummary[] {
   return db
     .prepare(
       `SELECT i.id, i.imported_at AS importedAt, i.file_name AS fileName, i.format, i.line_count AS lineCount, i.duplicate_count AS duplicateCount,
-              (SELECT COUNT(DISTINCT m.statement_line_id) FROM bank_statement_matches m JOIN bank_statement_lines l ON l.id = m.statement_line_id WHERE l.import_id = i.id) AS matched,
-              (SELECT COUNT(*) FROM bank_statement_matches m JOIN bank_statement_lines l ON l.id = m.statement_line_id WHERE l.import_id = i.id AND m.created_voucher = 1) AS created
+              (SELECT COUNT(DISTINCT m.statement_line_id) FROM bank_statement_matches m JOIN bank_statement_lines l ON l.id = m.statement_line_id WHERE l.import_id = i.id AND ${LIVE_MATCH}) AS matched,
+              (SELECT COUNT(*) FROM bank_statement_matches m JOIN bank_statement_lines l ON l.id = m.statement_line_id WHERE l.import_id = i.id AND m.created_voucher = 1 AND ${LIVE_MATCH}) AS created
        FROM bank_statement_imports i WHERE i.bank_ledger_id = ? ORDER BY i.id DESC`
     )
     .all(bankLedgerId) as ImportSummary[]
@@ -259,7 +279,7 @@ export function statementWorkspace(db: DB, bankLedgerId: number, q: WorkspaceQue
   const matchRows = db
     .prepare(
       `SELECT m.statement_line_id AS lineId, m.voucher_id AS voucherId, m.created_voucher AS created FROM bank_statement_matches m
-       JOIN bank_statement_lines l ON l.id = m.statement_line_id WHERE l.bank_ledger_id = ?`
+       JOIN bank_statement_lines l ON l.id = m.statement_line_id WHERE l.bank_ledger_id = ? AND ${LIVE_MATCH}`
     )
     .all(bankLedgerId) as { lineId: number; voucherId: number; created: number }[]
   const matchesByLine = new Map<number, { voucherId: number; created: boolean }[]>()
@@ -282,7 +302,12 @@ export function statementWorkspace(db: DB, bankLedgerId: number, q: WorkspaceQue
     .map((r) => ({ id: r.id, pattern: r.pattern, ledgerId: r.ledgerId, kind: r.kind, matchField: r.matchField === 'reference' ? 'reference' : 'description', minAmount: r.minAmount, maxAmount: r.maxAmount }))
   const learned = learnedRules(db)
 
+  const summaryCache = new Map<number, WorkspaceEntry | null>()
   const voucherSummary = (voucherId: number): WorkspaceEntry | null => {
+    if (!summaryCache.has(voucherId)) summaryCache.set(voucherId, voucherSummaryUncached(voucherId))
+    return summaryCache.get(voucherId)!
+  }
+  const voucherSummaryUncached = (voucherId: number): WorkspaceEntry | null => {
     const v = db
       .prepare(
         `SELECT v.id AS voucherId, v.number, vt.name AS voucherType, v.date,
@@ -433,7 +458,29 @@ function lineRows(db: DB, bankLedgerId: number, ids: number[]): LineRow[] {
   return rows as LineRow[]
 }
 
-const isMatched = (db: DB, lineId: number): boolean => !!db.prepare('SELECT 1 FROM bank_statement_matches WHERE statement_line_id = ?').get(lineId)
+const isMatched = (db: DB, lineId: number): boolean =>
+  !!db.prepare(`SELECT 1 FROM bank_statement_matches m WHERE m.statement_line_id = ? AND ${LIVE_MATCH}`).get(lineId)
+
+/** Forget broken matches of a line (their vouchers left the books) before it is matched again. */
+function dropBrokenMatches(db: DB, lineId: number): void {
+  db.prepare(`DELETE FROM bank_statement_matches AS m WHERE m.statement_line_id = ? AND NOT ${LIVE_MATCH}`).run(lineId)
+}
+
+/** The voucher's line on this bank ledger: the remembered one while it exists (a voucher edit
+ *  rewrites line ids), else the one carrying `bankDate`, else the first. */
+function bankLineOf(db: DB, voucherId: number, bankLedgerId: number, preferredId: number | null, bankDate: string | null): { id: number; bankDate: string | null } | undefined {
+  const lines = db.prepare('SELECT id, bank_date AS bankDate FROM voucher_lines WHERE voucher_id = ? AND ledger_id = ? ORDER BY id').all(voucherId, bankLedgerId) as { id: number; bankDate: string | null }[]
+  return lines.find((l) => l.id === preferredId) ?? lines.find((l) => bankDate != null && l.bankDate === bankDate) ?? lines[0]
+}
+
+/** True when the voucher was changed after audit row `sinceAuditId` (an edit, a cheque number…). */
+function editedSince(db: DB, voucherId: number, sinceAuditId: number): boolean {
+  return !!db.prepare("SELECT 1 FROM audit_log WHERE entity = 'voucher' AND entity_id = ? AND action <> 'create' AND id > ?").get(voucherId, sinceAuditId)
+}
+
+/** The audit row written when this statement line was last matched (0 if none). */
+const matchAuditId = (db: DB, lineId: number): number =>
+  (db.prepare("SELECT COALESCE(MAX(id), 0) AS id FROM audit_log WHERE entity = 'bank_statement_line' AND entity_id = ?").get(lineId) as { id: number }).id
 
 /**
  * Confirm matches (bulk). Each group is one-to-one, several vouchers ↔ one line, or one voucher
@@ -452,13 +499,16 @@ export function confirmMatches(db: DB, bankLedgerId: number, groups: MatchGroupI
         if (l.ignoredAt) throw new Error(`Statement line of ${l.date} is ignored — restore it first`)
         if (isMatched(db, l.id)) throw new Error(`Statement line of ${l.date} (${(Math.max(l.deposit, l.withdrawal) / 100).toFixed(2)}) is already matched`)
       }
+      const wantedLines = new Set(g.voucherLineIds ?? [])
       const entries = [...new Set(g.voucherIds)].map((voucherId) => {
-        const bankLine = db
+        const candidates = db
           .prepare(
             `SELECT vl.id, vl.dr_cr AS drCr, vl.amount, vl.bank_date AS bankDate, v.date FROM voucher_lines vl JOIN vouchers v ON v.id = vl.voucher_id
-             WHERE vl.voucher_id = ? AND vl.ledger_id = ? AND ${IN_BOOKS} ORDER BY vl.bank_date IS NOT NULL, vl.id LIMIT 1`
+             WHERE vl.voucher_id = ? AND vl.ledger_id = ? AND ${IN_BOOKS} ORDER BY vl.bank_date IS NOT NULL, vl.id`
           )
-          .get(voucherId, bankLedgerId) as { id: number; drCr: 'dr' | 'cr'; amount: number; bankDate: string | null; date: string } | undefined
+          .all(voucherId, bankLedgerId) as { id: number; drCr: 'dr' | 'cr'; amount: number; bankDate: string | null; date: string }[]
+        // The proposed / picked bank line when the voucher has several on this bank ledger.
+        const bankLine = candidates.find((c) => wantedLines.has(c.id)) ?? candidates[0]
         if (!bankLine) throw new Error('That voucher has no entry on this bank account (or is out of the books)')
         if (bankLine.bankDate) throw new Error('That voucher is already reconciled')
         return { voucherId, ...bankLine }
@@ -475,8 +525,9 @@ export function confirmMatches(db: DB, bankLedgerId: number, groups: MatchGroupI
         writeAudit(db, 'voucher_line', e.id, 'update', { bankDate: e.bankDate }, { bankDate, statementLineIds: lines.map((l) => l.id) })
       }
       for (const l of lines) {
+        dropBrokenMatches(db, l.id)
         for (const e of entries) {
-          db.prepare('INSERT INTO bank_statement_matches (statement_line_id, voucher_id, created_voucher, prev_bank_date) VALUES (?, ?, 0, ?)').run(l.id, e.voucherId, e.bankDate)
+          db.prepare('INSERT INTO bank_statement_matches (statement_line_id, voucher_id, voucher_line_id, created_voucher, prev_bank_date) VALUES (?, ?, ?, 0, ?)').run(l.id, e.voucherId, e.id, e.bankDate)
         }
         writeAudit(db, 'bank_statement_line', l.id, 'update', { matched: [] }, { matched: entries.map((e) => e.voucherId), bankDate })
         confirmed++
@@ -497,18 +548,30 @@ export function confirmMatches(db: DB, bankLedgerId: number, groups: MatchGroupI
 /** Undo a confirmed match: bank dates go back to what they were; vouchers created from the line
  *  stay (bin them yourself, or undo the whole import). Audited. */
 export function unmatchLine(db: DB, bankLedgerId: number, lineId: number): void {
-  lineRows(db, bankLedgerId, [lineId])
+  const [stmt] = lineRows(db, bankLedgerId, [lineId])
   const run = db.transaction(() => {
-    const matches = db.prepare('SELECT voucher_id AS voucherId, prev_bank_date AS prev FROM bank_statement_matches WHERE statement_line_id = ?').all(lineId) as { voucherId: number; prev: string | null }[]
+    const matches = db
+      .prepare(`SELECT m.voucher_id AS voucherId, m.voucher_line_id AS lineRef, m.prev_bank_date AS prev, l.date AS stmtDate FROM bank_statement_matches m JOIN bank_statement_lines l ON l.id = m.statement_line_id WHERE m.statement_line_id = ? AND ${LIVE_MATCH}`)
+      .all(lineId) as { voucherId: number; lineRef: number | null; prev: string | null; stmtDate: string }[]
     if (matches.length === 0) throw new Error('That statement line is not matched')
     for (const m of matches) {
       // Only reset the bank date when no OTHER statement line still holds this voucher.
       const others = db.prepare('SELECT 1 FROM bank_statement_matches WHERE voucher_id = ? AND statement_line_id <> ?').get(m.voucherId, lineId)
       if (others) continue
-      const vl = db.prepare('SELECT id, bank_date AS bankDate FROM voucher_lines WHERE voucher_id = ? AND ledger_id = ? ORDER BY bank_date IS NULL, id LIMIT 1').get(m.voucherId, bankLedgerId) as { id: number; bankDate: string | null } | undefined
+      const vl = bankLineOf(db, m.voucherId, bankLedgerId, m.lineRef, null)
       if (vl) {
         db.prepare('UPDATE voucher_lines SET bank_date = ? WHERE id = ?').run(m.prev, vl.id)
         writeAudit(db, 'voucher_line', vl.id, 'update', { bankDate: vl.bankDate }, { bankDate: m.prev })
+      }
+    }
+    // The match taught a rule; undoing it counts against that rule (its confidence drops).
+    const tokens = narrationTokens(stmt!.description)
+    for (const ledgerId of new Set(matches.map((m) => voucherFacts(db, m.voucherId, bankLedgerId)?.ledgerId).filter((x): x is number => x != null))) {
+      for (const r of learnedRules(db)) {
+        if (r.direction !== sideOf(stmt!) || r.ledgerId !== ledgerId || r.tokens.some((t) => !tokens.includes(t))) continue
+        const before = db.prepare('SELECT * FROM bank_learned_rules WHERE id = ?').get(r.id)
+        db.prepare("UPDATE bank_learned_rules SET rejected = rejected + 1, updated_at = datetime('now') WHERE id = ?").run(r.id)
+        writeAudit(db, 'bank_learned_rule', r.id, 'update', before, db.prepare('SELECT * FROM bank_learned_rules WHERE id = ?').get(r.id))
       }
     }
     db.prepare('DELETE FROM bank_statement_matches WHERE statement_line_id = ?').run(lineId)
@@ -570,7 +633,8 @@ export function createVouchersFromLines(db: DB, bankLedgerId: number, items: Cre
         if (bankLine) {
           db.prepare('UPDATE voucher_lines SET bank_date = ? WHERE id = ?').run(line.date, bankLine.id)
         }
-        db.prepare('INSERT INTO bank_statement_matches (statement_line_id, voucher_id, created_voucher, prev_bank_date) VALUES (?, ?, 1, NULL)').run(line.id, voucher.id)
+        dropBrokenMatches(db, line.id)
+        db.prepare('INSERT INTO bank_statement_matches (statement_line_id, voucher_id, voucher_line_id, created_voucher, prev_bank_date) VALUES (?, ?, ?, 1, NULL)').run(line.id, voucher.id, bankLine?.id ?? null)
         writeAudit(db, 'bank_statement_line', line.id, 'update', { matched: [] }, { matched: [voucher.id], createdVoucher: voucher.id, bankDate: line.date })
         if (item.source?.kind === 'learned') {
           const before = db.prepare('SELECT * FROM bank_learned_rules WHERE id = ?').get(item.source.ruleId) as LearnedRow | undefined
@@ -603,7 +667,15 @@ export function createVouchersFromLines(db: DB, bankLedgerId: number, items: Cre
  * confirmed matches set, and removes its lines. Only the latest import can be undone, so an
  * older statement's lines are never pulled out from under newer matches.
  */
-export function undoLastImport(db: DB, bankLedgerId: number, importId: number): { binned: number; unmatched: number; removedLines: number } {
+export interface UndoImportResult {
+  binned: number
+  unmatched: number
+  removedLines: number
+  /** Vouchers changed since the import touched them: left as they are (not binned, bank date kept). */
+  keptEdited: { voucherId: number; number: string }[]
+}
+
+export function undoLastImport(db: DB, bankLedgerId: number, importId: number): UndoImportResult {
   assertBankLedger(db, bankLedgerId)
   const last = db.prepare('SELECT * FROM bank_statement_imports WHERE bank_ledger_id = ? ORDER BY id DESC LIMIT 1').get(bankLedgerId) as { id: number } | undefined
   if (!last) throw new Error('Nothing to undo — no statement imported for this bank account')
@@ -612,22 +684,32 @@ export function undoLastImport(db: DB, bankLedgerId: number, importId: number): 
   const run = db.transaction(() => {
     const matches = db
       .prepare(
-        `SELECT m.statement_line_id AS lineId, m.voucher_id AS voucherId, m.created_voucher AS created, m.prev_bank_date AS prev
+        `SELECT m.statement_line_id AS lineId, m.voucher_id AS voucherId, m.voucher_line_id AS lineRef, m.created_voucher AS created, m.prev_bank_date AS prev, l.date AS stmtDate
          FROM bank_statement_matches m JOIN bank_statement_lines l ON l.id = m.statement_line_id WHERE l.import_id = ?`
       )
-      .all(importId) as { lineId: number; voucherId: number; created: number; prev: string | null }[]
+      .all(importId) as { lineId: number; voucherId: number; lineRef: number | null; created: number; prev: string | null; stmtDate: string }[]
     let binned = 0
     let unmatched = 0
-    const binnedIds = new Set<number>()
+    const done = new Set<number>()
+    const keptEdited: UndoImportResult['keptEdited'] = []
     for (const m of matches) {
+      if (done.has(m.voucherId)) continue
+      const v = getVoucher(db, m.voucherId)
+      if (!v || v.deletedAt) {
+        done.add(m.voucherId)
+        continue
+      }
+      // Changed since this import matched / created it (an edit, a cheque number): the user's
+      // later work wins — the voucher is left exactly as it is and reported.
+      if (editedSince(db, m.voucherId, matchAuditId(db, m.lineId))) {
+        keptEdited.push({ voucherId: v.id, number: v.number })
+        done.add(m.voucherId)
+        continue
+      }
       if (m.created) {
-        if (binnedIds.has(m.voucherId)) continue
-        const v = getVoucher(db, m.voucherId)
-        if (v && !v.deletedAt) {
-          deleteVoucher(db, m.voucherId)
-          binned++
-        }
-        binnedIds.add(m.voucherId)
+        deleteVoucher(db, m.voucherId)
+        binned++
+        done.add(m.voucherId)
       } else {
         const others = db
           .prepare(
@@ -636,19 +718,20 @@ export function undoLastImport(db: DB, bankLedgerId: number, importId: number): 
           )
           .get(m.voucherId, importId)
         if (!others) {
-          const vl = db.prepare('SELECT id, bank_date AS bankDate FROM voucher_lines WHERE voucher_id = ? AND ledger_id = ? ORDER BY bank_date IS NULL, id LIMIT 1').get(m.voucherId, bankLedgerId) as { id: number; bankDate: string | null } | undefined
+          const vl = bankLineOf(db, m.voucherId, bankLedgerId, m.lineRef, m.stmtDate)
           if (vl && vl.bankDate !== m.prev) {
             db.prepare('UPDATE voucher_lines SET bank_date = ? WHERE id = ?').run(m.prev, vl.id)
             writeAudit(db, 'voucher_line', vl.id, 'update', { bankDate: vl.bankDate }, { bankDate: m.prev, undoImport: importId })
           }
         }
         unmatched++
+        done.add(m.voucherId)
       }
     }
     const removedLines = (db.prepare('SELECT COUNT(*) AS n FROM bank_statement_lines WHERE import_id = ?').get(importId) as { n: number }).n
     db.prepare('DELETE FROM bank_statement_imports WHERE id = ?').run(importId)
-    writeAudit(db, 'bank_statement', importId, 'delete', before, { undone: true, vouchersBinned: binned, matchesUndone: unmatched, linesRemoved: removedLines })
-    return { binned, unmatched, removedLines }
+    writeAudit(db, 'bank_statement', importId, 'delete', before, { undone: true, vouchersBinned: binned, matchesUndone: unmatched, linesRemoved: removedLines, keptEdited })
+    return { binned, unmatched, removedLines, keptEdited }
   })
   return run()
 }

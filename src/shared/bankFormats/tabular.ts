@@ -8,7 +8,8 @@
  * resolved into deposit / withdrawal.
  */
 import { parseBankAmount, parseBankDate } from './quirks'
-import type { Delimiter, ImportProfile, ParsedStatement, StatementLine } from './types'
+import type { DateFormat, Delimiter, ImportProfile, ParsedStatement, StatementLine } from './types'
+import { excelSerialToISO } from './xlsx'
 
 /** Split delimited text into a grid, honouring RFC 4180 quoting (embedded delimiters, doubled
  *  quotes and line breaks inside quoted cells). */
@@ -139,6 +140,30 @@ export function detectProfile(grid: string[][], base: Partial<ImportProfile> = {
   }
 }
 
+/**
+ * File-level day/month order for 'auto' dates written as numbers (15/08/2026 vs 08/15/2026): any
+ * first part above 12 → day-first; any second part above 12 → month-first; both seen → the file
+ * is inconsistent (day-first, with a warning); neither → ambiguous, read day-first (the Indian
+ * convention) with a warning to pick the format in the mapping if the bank writes month first.
+ */
+export function inferDateOrder(cells: string[], warnings: string[]): DateFormat {
+  let dayFirst = false
+  let monthFirst = false
+  let numeric = 0
+  for (const c of cells) {
+    const m = c.trim().match(/^(\d{1,2})[/.-](\d{1,2})[/.-](\d{2}|\d{4})\b/)
+    if (!m) continue
+    numeric++
+    if (Number(m[1]) > 12) dayFirst = true
+    if (Number(m[2]) > 12) monthFirst = true
+  }
+  if (numeric === 0) return 'auto'
+  if (monthFirst && !dayFirst) return 'MM/DD/YYYY'
+  if (dayFirst && monthFirst) warnings.push('Dates mix day-first and month-first — read day-first; check the date format in the mapping')
+  else if (!dayFirst) warnings.push('Every date could be day-first or month-first (no day above 12) — read day-first; pick MM/DD/YYYY in the mapping if this bank writes the month first')
+  return 'auto'
+}
+
 const SKIP_DESC = /^(opening|closing|brought forward|carried forward|b\/f|c\/f|total|grand total|statement summary)\b/i
 
 /** Apply a mapping to a grid. Pure; reports skipped rows as warnings. */
@@ -148,11 +173,18 @@ export function gridToStatement(grid: string[][], profile: ImportProfile, format
   const cell = (row: string[], i: number | null): string => (i == null ? '' : (row[i] ?? '').trim())
   let skipped = 0
   let continuation = 0
+  const rejected: string[] = []
   const start = profile.headerRow > 0 ? profile.headerRow : 0
+  const dateFormat = profile.dateFormat === 'auto' ? inferDateOrder(grid.slice(start).map((row) => cell(row, profile.dateCol)), warnings) : profile.dateFormat
+  const dateOf = (raw: string): string | null => {
+    // Excel cells without a date style arrive as serial numbers; in the date column they are dates.
+    if (format === 'xlsx' && /^\d{5}(\.\d+)?$/.test(raw) && Number(raw) > 20000 && Number(raw) < 80000) return excelSerialToISO(Number(raw))
+    return parseBankDate(raw, dateFormat)
+  }
   for (let r = start; r < grid.length; r++) {
     const row = grid[r]!
     if (row.every((c) => c.trim() === '')) continue
-    const date = parseBankDate(cell(row, profile.dateCol), profile.dateFormat)
+    const date = dateOf(cell(row, profile.dateCol))
     const desc = profile.descCols.map((i) => cell(row, i)).filter(Boolean).join(' ')
     if (!date) {
       // Narration continuation: no date, no amounts, some text — belongs to the line above.
@@ -169,12 +201,19 @@ export function gridToStatement(grid: string[][], profile: ImportProfile, format
     let deposit = 0
     let withdrawal = 0
     if (profile.amountMode === 'split') {
-      const dr = parseBankAmount(cell(row, profile.debitCol))
-      const cr = parseBankAmount(cell(row, profile.creditCol))
-      withdrawal = Math.abs(dr?.paise ?? 0)
-      deposit = Math.abs(cr?.paise ?? 0)
-      // A negative in a single column (some exports put reversals there) moves it across.
-      if (dr && dr.paise < 0 && !cr?.paise) [deposit, withdrawal] = [withdrawal, 0]
+      const dr = parseBankAmount(cell(row, profile.debitCol))?.paise ?? 0
+      const cr = parseBankAmount(cell(row, profile.creditCol))?.paise ?? 0
+      if (dr !== 0 && cr !== 0) {
+        // Both columns filled: no bank format we know does this, so it is not netted — the row is
+        // left out and named, never allowed to fail the whole import.
+        rejected.push(`row ${r + 1} (${cell(row, profile.dateCol)} ${desc.slice(0, 40)}): both a withdrawal and a deposit`)
+        continue
+      }
+      // Signs are symmetric: a negative withdrawal is money in, a negative deposit money out
+      // (some exports book reversals that way).
+      const net = cr - dr
+      deposit = net > 0 ? net : 0
+      withdrawal = net < 0 ? -net : 0
     } else {
       const amt = parseBankAmount(cell(row, profile.amountCol))
       if (amt) {
@@ -199,7 +238,7 @@ export function gridToStatement(grid: string[][], profile: ImportProfile, format
     const bal = parseBankAmount(cell(row, profile.balanceCol))
     lines.push({
       date,
-      valueDate: parseBankDate(cell(row, profile.valueDateCol), profile.dateFormat),
+      valueDate: profile.valueDateCol == null ? null : dateOf(cell(row, profile.valueDateCol)),
       description: desc,
       reference: cell(row, profile.refCol),
       deposit,
@@ -208,6 +247,9 @@ export function gridToStatement(grid: string[][], profile: ImportProfile, format
     })
   }
   if (continuation) warnings.push(`${continuation} narration continuation ${continuation === 1 ? 'line was' : 'lines were'} joined to the line above`)
+  if (rejected.length) {
+    warnings.push(`${rejected.length} ${rejected.length === 1 ? 'row was' : 'rows were'} left out — ${rejected.slice(0, 5).join('; ')}${rejected.length > 5 ? '; …' : ''}`)
+  }
   if (skipped) warnings.push(`${skipped} ${skipped === 1 ? 'row' : 'rows'} without a date or an amount skipped`)
   return { format, lines, warnings, account: null, currency: null, openingBalance: null, closingBalance: null }
 }
