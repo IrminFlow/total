@@ -201,11 +201,12 @@ export function AssistantDrawer({ onClose }: { onClose: () => void }): React.JSX
   const endRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
   const ready = !!view?.ready
-  const { data: drafts = [] } = useQuery({
+  const { data: draftRows } = useQuery({
     queryKey: ['aiDrafts', state.threadId],
     queryFn: () => aiApi.drafts(undefined, state.threadId!),
     enabled: ready && state.threadId !== null
   })
+  const drafts = draftRows ?? [] // a null reply (no list) renders as no drafts
 
   // Runs whose run-start already streamed in: the IPC reply must not start them again (a fast
   // run may even have finished before the reply arrives).
