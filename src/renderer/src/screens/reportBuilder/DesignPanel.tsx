@@ -260,7 +260,7 @@ export function DesignPanel({ model, onChange }: { model: ReportModel; onChange:
         <div className="grid grid-cols-[1fr_auto] gap-2">
           <Field label="Sort by">
             <Select value={model.sort.by} onChange={(e) => set({ sort: { ...model.sort, by: e.target.value as ReportModel['sort']['by'] } })} data-testid="rb-sort">
-              <option value="dimension">Rows (A–Z, dates in order)</option>
+              <option value="dimension">Row order</option>
               {model.measures.map((k) => <option key={k} value={k}>{MEASURES[k].label}</option>)}
             </Select>
           </Field>

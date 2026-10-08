@@ -185,7 +185,7 @@ export function ResultView({
         <Banner key={w} tone="warning" testId="rb-warning">{w}</Banner>
       ))}
       {chart && first && chart.categories.length > 1 && (
-        <Panel className="p-4" data-testid="rb-chart-panel">
+        <Panel className="p-4" testId="rb-chart-panel">
           {model.chart === 'line' ? (
             <LineChart
               title={`${first.label} by ${result!.dims.find((d) => isPeriodDimension(d.key))?.label ?? result!.dims[0]!.label}`}

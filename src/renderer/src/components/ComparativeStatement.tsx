@@ -145,7 +145,7 @@ export function ComparativeStatement({
   }
 
   return (
-    <Panel className="p-4" data-testid={`comparative-${kind}`}>
+    <Panel className="p-4" testId={`comparative-${kind}`}>
       <p className="mb-2 text-small text-muted">
         {data.columns.map((c) => `${c.label}: ${toDisplayDate(c.from)} → ${toDisplayDate(c.to)}`).join(' · ')}
         {budget && ` · Budget: ${budget.name}`}

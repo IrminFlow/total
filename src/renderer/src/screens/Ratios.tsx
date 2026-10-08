@@ -115,7 +115,7 @@ export function RatiosScreen(): React.JSX.Element {
             </table>
           </Panel>
           <div className="flex flex-col gap-3">
-            <Panel className="p-4" data-testid="ratio-detail">
+            <Panel className="p-4" testId="ratio-detail">
               <p className="text-caption font-semibold tracking-[0.08em] text-muted uppercase">{RATIO_CATEGORIES.find((c) => c.id === focusDef.category)?.label}</p>
               <h2 className="mt-1 font-serif text-subtitle font-semibold">{focusDef.label}</h2>
               <p className="num mt-1 text-heading">{formatRatio(data.period.ratios[focus], focusDef.unit)}</p>
@@ -163,7 +163,8 @@ export function RatiosScreen(): React.JSX.Element {
 }
 
 function RatioRow({ def, report, active, onFocus }: { def: RatioDef; report: RatioReport; active: boolean; onFocus: () => void }): React.JSX.Element {
-  const values = trendOf(report, def.key).map((v) => v ?? 0)
+  // Months without a figure (zero denominator) are left out rather than drawn as zero.
+  const values = trendOf(report, def.key).filter((v): v is number => v !== null)
   return (
     <tr
       className={`kbar-row cursor-pointer ${active ? 'bg-panel2' : ''}`}
@@ -180,7 +181,7 @@ function RatioRow({ def, report, active, onFocus }: { def: RatioDef; report: Rat
     >
       <td className="font-medium">{def.label}</td>
       <td className="num text-right">{formatRatio(report.period.ratios[def.key], def.unit)}</td>
-      <td>{report.months.length > 1 ? <div className="w-32"><Sparkline values={values} label={`${def.label} by month`} height={24} color="blue" formatValue={(v) => formatRatio(v / 100, def.unit)} /></div> : <span className="text-muted">—</span>}</td>
+      <td>{values.length > 1 ? <div className="w-32"><Sparkline values={values} label={`${def.label} by month`} height={24} color="blue" formatValue={(v) => formatRatio(v / 100, def.unit)} /></div> : <span className="text-muted">—</span>}</td>
       <td className="text-small text-muted">{def.formula}</td>
     </tr>
   )
