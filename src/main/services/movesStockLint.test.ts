@@ -20,6 +20,8 @@ const ALLOW: { file: string; contains: string; reason: string }[] = [
   { file: 'gst.ts', contains: 'FROM inventory_lines il JOIN stock_items si', reason: 'RCM / inward HSN = the bill items' },
   { file: 'gst.ts', contains: 'SELECT il.amount FROM inventory_lines il WHERE il.voucher_id', reason: 'purchase-doc taxable value = the bill items' },
   { file: 'manufacture.ts', contains: 'FROM inventory_lines il', reason: 'suggestedSaleRate reads sale prices off invoice items' },
+  { file: 'booksExport.ts', contains: 'b.name AS batch, il.qty_milli, il.rate_paise, il.amount, il.direction', reason: 'the Books workbook exports every voucher\'s item lines as entered (WP 6.3)' },
+  { file: 'dataImport.ts', contains: 'SELECT 1 FROM inventory_lines WHERE batch_id', reason: 'undo: is the imported batch referenced by any line at all (existence, not stock)' },
   { file: 'masters.ts', contains: 'FROM inventory_lines WHERE stock_item_id', reason: 'usage count (delete guard) — any line uses the item' },
   { file: 'masters.ts', contains: 'FROM inventory_lines WHERE godown_id', reason: 'usage count (delete guard) — any line uses the godown' },
   { file: 'printTemplates.ts', contains: 'FROM inventory_lines WHERE voucher_id', reason: 'print: every item line of the invoice' },

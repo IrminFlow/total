@@ -769,7 +769,8 @@ function applyTradeDocs(ctx: Ctx, drafts: TradeDocDraft[]): void {
 
 function applyBank(ctx: Ctx, rows: { line: number; date: string; description: string; reference: string; deposit: number; withdrawal: number }[], result: ImportRunResult): void {
   if (!ctx.opts.bankLedgerId) throw new Error('Choose the bank ledger the statement belongs to')
-  const q = (s: string): string => `"${s.replace(/"/g, '""')}"`
+  const DQ = String.fromCharCode(34) // a double quote (CSV field quoting)
+  const q = (s: string): string => DQ + s.split(DQ).join(DQ + DQ) + DQ
   const plain = (p: number): string => (p ? (p / 100).toFixed(2) : '')
   // The banking service's own statement format (banking.parseStatementCsv): Date, Description,
   // Reference, Withdrawal, Deposit — ISO dates, plain decimals.
