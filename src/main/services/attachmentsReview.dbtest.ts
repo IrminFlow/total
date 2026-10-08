@@ -1,11 +1,12 @@
 // WP 6.4 review round (PR #65), attachments: the type policy at open and at restore (a
 // `run.command` row injected into a backup), content sniffing of text types, the opened-copy temp
 // folder (one per session, deleted on quit, stale ones swept), per-file restore errors with the
-// blob table always dropped (a read-only store), and backupCompany never losing its backup or its
-// audit row when the attachment copy fails.
-import { afterAll, describe, expect, it } from 'vitest'
+// blob table always dropped (an unwritable store), and backupCompany never losing its backup or its
+// audit row when the attachment copy fails. The write failures are injected by putting a FILE
+// where the store folder should be — that fails on every OS (chmod is a no-op on Windows).
+import { describe, expect, it } from 'vitest'
 import Database from 'better-sqlite3'
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, symlinkSync, utimesSync, writeFileSync } from 'fs'
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, symlinkSync, utimesSync, writeFileSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import { createHash } from 'crypto'
@@ -21,10 +22,6 @@ import { storedPathFor } from '@shared/attachments'
 
 const tmp = (p = 'total-attr-'): string => mkdtempSync(join(tmpdir(), p))
 const sha = (b: string | Buffer): string => createHash('sha256').update(b).digest('hex')
-const readOnly: string[] = []
-afterAll(() => {
-  for (const d of readOnly) chmodSync(d, 0o755)
-})
 
 function setup() {
   const db = seededDb()
@@ -134,17 +131,15 @@ describe('opened copies', () => {
 })
 
 describe('restore errors', () => {
-  it('a read-only store: every file is tried, missing is accurate, the blob table is dropped', () => {
+  it('an unwritable store: every file is tried, missing is accurate, the blob table is dropped', () => {
     const { db, store, v, file, root } = setup()
     addAttachment(db, store, { entity: 'voucher', entityId: v.id }, file('one.pdf', '%PDF one'))
     addAttachment(db, store, { entity: 'voucher', entityId: v.id }, file('two.pdf', '%PDF two'))
     const snap = join(root, 'snap.db')
     snapshotSync(db, snap)
     expect(embedAttachments(snap, store).copied).toBe(2)
-    const target = join(root, 'readonly-store')
-    mkdirSync(target)
-    chmodSync(target, 0o555)
-    readOnly.push(target)
+    const target = join(root, 'blocked-store')
+    writeFileSync(target, 'not a folder') // the store folder can't be created or written into
     const r = restoreAttachmentFilesAt(snap, target, null)
     expect(r.restored).toBe(0)
     expect(r.missing.sort()).toEqual([sha('%PDF one'), sha('%PDF two')].sort())
@@ -167,15 +162,13 @@ describe('backupCompany', () => {
     writeFileSync(join(src, 'bill.pdf'), '%PDF bill')
     addAttachment(db, companyAttachmentsDir('acme'), { entity: 'voucher', entityId: v.id }, join(src, 'bill.pdf'))
     const bstore = companyBackupAttachmentsDir('acme')
-    mkdirSync(bstore, { recursive: true })
-    chmodSync(bstore, 0o555)
-    readOnly.push(bstore)
+    writeFileSync(bstore, 'not a folder') // the backups' attachment store can't be created
     const dest = await backupCompany(db, 'acme', 'manual')
     expect(existsSync(dest)).toBe(true)
     const row = db.prepare("SELECT after_json FROM audit_log WHERE entity = 'backup' ORDER BY id DESC LIMIT 1").get() as { after_json: string }
     const after = JSON.parse(row.after_json) as { tag: string; attachmentsError?: string }
     expect(after.tag).toBe('manual')
-    expect(after.attachmentsError).toMatch(/EACCES|permission/i)
+    expect(after.attachmentsError).toMatch(/EEXIST|ENOTDIR|EISDIR|exists|not a directory/i)
     db.close()
   })
 })
