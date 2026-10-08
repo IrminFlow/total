@@ -130,6 +130,29 @@ describe('forex revaluation pairs', () => {
   })
 })
 
+describe('revaluations leave bill-wise ageing alone', () => {
+  it('revaluation + reversal on a bill-tracked customer: Outstandings bills and buckets unchanged', () => {
+    const { db, cust, sales } = usdBooks()
+    usdInvoice(db, cust, sales, '2026-01-10', 80_000_00, 80, 'E1')
+    usdInvoice(db, cust, sales, '2026-03-10', 82_000_00, 82, 'E2')
+    const snap = (asOn: string) => {
+      const p = outstandings(db, 'receivable', asOn).find((x) => x.ledgerId === cust)!
+      return { bills: p.bills.map((b) => [b.number, b.date, b.pending]), buckets: p.buckets, pending: p.pending }
+    }
+    const before31 = snap('2026-03-31')
+    const beforeApr = snap('2026-04-15')
+    saveRate(db, { date: '2026-03-31', currencyCode: 'USD', rateMicro: 83_000_000 })
+    const rev = postRevaluation(db, { asOf: '2026-03-31', autoReverse: true })
+    expect(rev.gain).toBe(1_000_00 + 3_000_00)
+    expect(snap('2026-03-31')).toEqual(before31)
+    expect(snap('2026-04-15')).toEqual(beforeApr)
+    expect(snap('2026-04-15').bills).toEqual([['E1', '2026-01-10', 80_000_00], ['E2', '2026-03-10', 82_000_00]])
+    // the ledger itself is restated on 31 March and back the next day
+    expect(closingBalances(db, '2026-03-31').get(cust)).toBe(1_66_000_00)
+    expect(closingBalances(db, '2026-04-15').get(cust)).toBe(1_62_000_00)
+  })
+})
+
 describe('rupee entries and foreign openings', () => {
   it('a rupee sale before the USD invoice is not revalued (review case)', () => {
     const { db, cust, sales } = usdBooks()

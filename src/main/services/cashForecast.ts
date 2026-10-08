@@ -24,7 +24,7 @@ import { forecastItemInputSchema, type ForecastBase, type ForecastCashLedger, ty
 import { fyOf } from '@shared/dates'
 import { writeAudit } from './audit'
 import { closingBalances, descendantIdSet } from './reports'
-import { outstandings } from './analysis'
+import { NOT_FX_REVALUATION, outstandings } from './analysis'
 import { listGroups, descendantIdsByName } from './masters'
 import { pendingOrders, pendingStockNotes } from './tradeReports'
 import { statutoryDues } from './payrollStatutory'
@@ -101,7 +101,7 @@ export function receivableHistory(db: DB, asOn: string): HistoryBill[] {
       `SELECT vl.ledger_id AS partyId, v.id AS voucherId, v.date, v.number,
               SUM(CASE WHEN vl.dr_cr = 'dr' THEN vl.amount ELSE -vl.amount END) AS net
        FROM voucher_lines vl CROSS JOIN vouchers v ON v.id = vl.voucher_id
-       WHERE vl.ledger_id IN (${ph}) AND v.date <= ? AND ${IN_BOOKS}
+       WHERE vl.ledger_id IN (${ph}) AND v.date <= ? AND ${IN_BOOKS} AND ${NOT_FX_REVALUATION}
        GROUP BY vl.ledger_id, v.id ORDER BY vl.ledger_id, v.date, v.id`
     )
     .all(...parties.map((p) => p.id), asOn) as { partyId: number; voucherId: number; date: string; number: string; net: number }[]
