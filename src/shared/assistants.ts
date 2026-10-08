@@ -73,7 +73,8 @@ export const anomalyDismissSchema = z.object({
 export const gstPeriodSchema = z.string().regex(/^(0[1-9]|1[0-2])\d{4}$/, 'Expected MMYYYY')
 
 export const gst2bStoreSchema = z.object({
-  jsonText: z.string().min(2).max(50_000_000),
+  /** A monthly 2B runs to a few MB even for large buyers; 20 MB is the cap. */
+  jsonText: z.string().min(2).max(20_000_000, 'The GSTR-2B file is larger than 20 MB'),
   fileName: z.string().trim().max(200).optional(),
   /** The month the user imported it for (YYYY-MM) — used when the JSON carries no rtnprd. */
   period: periodSchema

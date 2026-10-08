@@ -67,12 +67,44 @@ describe('buildCloseChecklist', () => {
 
   it('TDS outstanding: warn before the 7th, fail after; March is due 30 April', () => {
     const f = clean()
-    f.withholding = [{ kind: 'tds', ledgerId: 30, name: 'TDS Payable 194C', outstanding: 2000_00 }]
+    f.withholding = [{ kind: 'tds', ledgerId: 30, name: 'TDS Payable 194C', deducted: [{ month: '2026-05', amount: 2000_00 }], paid: 0 }]
     expect(status(buildCloseChecklist(f, { period: '2026-05', today: '2026-06-06' }), 'withholding')).toBe('warn')
     expect(status(buildCloseChecklist(f, { period: '2026-05', today: '2026-06-08' }), 'withholding')).toBe('fail')
+    f.withholding[0]!.deducted = [{ month: '2026-03', amount: 2000_00 }]
     const march = buildCloseChecklist(f, { period: '2026-03', today: '2026-04-20' })
     expect(march.checks.find((x) => x.key === 'withholding')!.dueDate).toBe('2026-04-30')
     expect(status(march, 'withholding')).toBe('warn')
+  })
+
+  it('TDS deposited next month clears the month (oldest deductions first); each part keeps its own due date', () => {
+    const f = clean()
+    f.withholding = [{ kind: 'tds', ledgerId: 30, name: 'TDS Payable 194C', deducted: [{ month: '2026-04', amount: 1000_00 }, { month: '2026-05', amount: 2000_00 }], paid: 3000_00 }]
+    expect(status(buildCloseChecklist(f, { period: '2026-05', today: '2026-07-15' }), 'withholding')).toBe('ok')
+    // Paid only April's: May's is unpaid and dated by May's due date (7 June), not carried.
+    f.withholding[0]!.paid = 1000_00
+    const c = buildCloseChecklist(f, { period: '2026-05', today: '2026-06-05' }).checks.find((x) => x.key === 'withholding')!
+    expect(c).toMatchObject({ effective: 'warn', amount: 2000_00, dueDate: '2026-06-07' })
+    // Part paid: April's leftover is overdue, May's is not yet due.
+    f.withholding[0]!.paid = 500_00
+    const d = buildCloseChecklist(f, { period: '2026-05', today: '2026-06-05' }).checks.find((x) => x.key === 'withholding')!
+    expect(d.effective).toBe('fail')
+    expect(d.rows.map((r) => [r.date, r.amount])).toEqual([['2026-05-07', 500_00], ['2026-06-07', 2000_00]])
+    // A later month's deduction is not this month's business.
+    f.withholding[0]!.deducted.push({ month: '2026-06', amount: 700_00 })
+    f.withholding[0]!.paid = 3000_00
+    expect(status(buildCloseChecklist(f, { period: '2026-05', today: '2026-06-05' }), 'withholding')).toBe('ok')
+  })
+
+  it('a mark lapses when the finding changes (the check re-opens)', () => {
+    const f = clean()
+    f.negativeStock = [{ itemId: 4, name: 'Widget', qtyText: '-2 nos' }]
+    const first = buildCloseChecklist(f, { period: '2026-05', today: '2026-06-02' })
+    const fp = first.checks.find((x) => x.key === 'negative_stock')!.fingerprint
+    const marks = new Map([['negative_stock', { status: 'done' as const, note: null, by: 'Priya', at: 'x', fingerprint: fp }]])
+    expect(status(buildCloseChecklist(f, { period: '2026-05', today: '2026-06-02' }, marks), 'negative_stock')).toBe('done')
+    f.negativeStock.push({ itemId: 5, name: 'Gadget', qtyText: '-1 nos' })
+    const again = buildCloseChecklist(f, { period: '2026-05', today: '2026-06-02' }, marks).checks.find((x) => x.key === 'negative_stock')!
+    expect(again).toMatchObject({ effective: 'fail', reopened: true })
   })
 
   it('depreciation: monthly pattern missing this month fails; yearly is fine until March', () => {

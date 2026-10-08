@@ -76,6 +76,14 @@ export const ASSISTANT_SOURCES = {
     verified: false,
     note: 'The 11th comes from the extending notification (Notification 83/2020-CT as understood) — the notification text itself was not read; the app’s compliance calendar (src/shared/compliance.ts) already uses the 11th.'
   },
+  rule46: {
+    id: 'rule46',
+    title: 'Rule 46(b) CGST Rules — a tax invoice carries a consecutive serial number unique for a financial year',
+    url: 'https://taxinformation.cbic.gov.in/content/html/tax_repository/gst/rules/cgst_rules/active/chapter6/rule46_v1.00.html',
+    accessed: '2026-10-07',
+    verified: true,
+    note: 'Read for WP 3.4 (src/shared/gst/sources.ts rule46). Why a bill number repeats only within one FY count as duplicates.'
+  },
   rule61: {
     id: 'rule61',
     title: 'Rule 61 CGST Rules — GSTR-3B by the 20th of the next month (monthly filers)',
@@ -90,7 +98,7 @@ export const ASSISTANT_SOURCES = {
     url: 'https://tutorial.gst.gov.in/userguide/returns/index.htm#t=Manual_GSTR2B.htm',
     accessed: ACCESSED,
     verified: false,
-    note: 'GSTN publishes the 2B JSON schema only on the API developer portal (login); the field names are the ones the WP 3.4 parser (src/shared/gst/recon2b.ts) reads from real downloads. The user-guide page did not load (HTTP 404) on 2026-10-08.'
+    note: 'GSTN publishes the 2B JSON schema only on the API developer portal (login); the field names are the ones the WP 3.4 parser (src/shared/gst/recon2b.ts) reads from real downloads. The user-guide page did not load (HTTP 404) on 2026-10-08. WP 5.5 also reads rev (reverse charge, Y/N), itcavl (ITC available, Y/N) and the amendment sections b2ba (oinum) / cdnra (ont_num) — names as commonly seen in 2B downloads, NOT confirmed against the schema.'
   }
 } satisfies Record<string, AssistantSource>
 
@@ -100,6 +108,8 @@ export const ASSISTANT_UNVERIFIED: { id: string; text: string; sources: Assistan
   { id: 'gstr1-11th', text: 'GSTR-1 due on the 11th (monthly) rests on the extending notification, not read here; quarterly filers are not modelled.', sources: ['gstr1_11th', 's37_1'] },
   { id: 'gstr3b-qrmp', text: 'GSTR-3B due on the 20th applies to monthly filers; QRMP due dates (22nd / 24th) are not modelled.', sources: ['rule61'] },
   { id: 'gstr2b-schema', text: 'The GSTR-2B JSON field names follow real downloads; the official schema (API portal) was not read.', sources: ['gstr2bJson'] },
+  { id: 'gstr2b-flags', text: 'The 2B fields rev (reverse charge), itcavl (ITC available) and the amendment sections b2ba / cdnra (original number oinum / ont_num) are read by name without the official schema; a file that names them differently shows no flag.', sources: ['gstr2bJson'] },
+  { id: 's16-4-annual-return', text: 's.16(4) time bar uses 30 November after the FY only; the earlier "furnishing of the relevant annual return" limb is not known to the app.', sources: ['s16_4'] },
   { id: '2b-actions', text: 'Suggested 2B actions (record the purchase, debit note for an overstated entry, follow up the supplier) are bookkeeping suggestions, not tax advice — the ITC conditions are s.16(2)(aa) and rule 36(4).', sources: ['s16_2aa', 'rule36_4'] }
 ]
 

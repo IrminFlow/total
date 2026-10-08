@@ -7,11 +7,11 @@
 // same functions, so the screen and the assistant always agree.
 import type { DB } from '../db/connection'
 import type { CompanyInfo } from '@shared/domain'
-import { fyOf, gstPeriodOf } from '@shared/dates'
+import { fyOf, gstPeriodOf, todayISO } from '@shared/dates'
 import { formatQtyMilli } from '@shared/money'
 import { buildCloseChecklist, missingRegulars, monthBounds, addMonths, type CloseChecklist, type CloseFacts, type CloseMark, type CloseCheckKey } from '@shared/closeChecklist'
 import { findAnomalies, type AnomalyVoucher, type LedgerRole } from '@shared/anomalies'
-import { categoriseMismatches, summariseMismatches, type Mismatch } from '@shared/gst/mismatch2b'
+import { categoriseMismatches, netLinkedDebitNotes, summariseMismatches, type Mismatch } from '@shared/gst/mismatch2b'
 import { parseGstr2b, reconcile2b, recon2bOptionsFrom } from '@shared/gst/recon2b'
 import {
   DEFAULT_ASSISTANT_SETTINGS, type AnomalyReport, type AnomalyRow, type AssistantKind, type AssistantSettings, type Gst2bMismatchReport, type Gst2bStatementInfo
@@ -39,19 +39,21 @@ export interface MarkRow {
   note: string | null
   by: string | null
   at: string
+  /** The figures the mark was made on (null = not recorded). */
+  fingerprint: string | null
 }
 
 export function listMarks(db: DB, assistant: AssistantKind, scope: string): Map<string, MarkRow> {
   const rows = db
-    .prepare('SELECT item_key AS k, status, note, user_name AS by, at FROM assistant_marks WHERE assistant = ? AND scope = ?')
-    .all(assistant, scope) as { k: string; status: string; note: string | null; by: string | null; at: string }[]
-  return new Map(rows.map((r) => [r.k, { status: r.status, note: r.note, by: r.by, at: r.at }]))
+    .prepare('SELECT item_key AS k, status, note, fingerprint, user_name AS by, at FROM assistant_marks WHERE assistant = ? AND scope = ?')
+    .all(assistant, scope) as { k: string; status: string; note: string | null; fingerprint: string | null; by: string | null; at: string }[]
+  return new Map(rows.map((r) => [r.k, { status: r.status, note: r.note, by: r.by, at: r.at, fingerprint: r.fingerprint }]))
 }
 
 /** Set or clear (status null) one mark; audited with the whole before / after. */
 export function setMark(
   db: DB,
-  m: { assistant: AssistantKind; scope: string; key: string; status: 'done' | 'na' | 'dismissed' | 'resolved' | null; note?: string | null },
+  m: { assistant: AssistantKind; scope: string; key: string; status: 'done' | 'na' | 'dismissed' | 'resolved' | null; note?: string | null; fingerprint?: string | null },
   user: string | null
 ): MarkRow | null {
   return db.transaction(() => {
@@ -64,9 +66,9 @@ export function setMark(
       db.prepare('DELETE FROM assistant_marks WHERE assistant = ? AND scope = ? AND item_key = ?').run(m.assistant, m.scope, m.key)
     } else {
       db.prepare(
-        `INSERT INTO assistant_marks (assistant, scope, item_key, status, note, user_name, at) VALUES (?, ?, ?, ?, ?, ?, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
-         ON CONFLICT (assistant, scope, item_key) DO UPDATE SET status = excluded.status, note = excluded.note, user_name = excluded.user_name, at = excluded.at`
-      ).run(m.assistant, m.scope, m.key, m.status, m.note?.trim() || null, user)
+        `INSERT INTO assistant_marks (assistant, scope, item_key, status, note, fingerprint, user_name, at) VALUES (?, ?, ?, ?, ?, ?, ?, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+         ON CONFLICT (assistant, scope, item_key) DO UPDATE SET status = excluded.status, note = excluded.note, fingerprint = excluded.fingerprint, user_name = excluded.user_name, at = excluded.at`
+      ).run(m.assistant, m.scope, m.key, m.status, m.note?.trim() || null, m.fingerprint ?? null, user)
     }
     const after = m.status === null ? null : (listMarks(db, m.assistant, m.scope).get(m.key) ?? null)
     const rowId = rowIdOf() ?? beforeId ?? 0
@@ -110,8 +112,9 @@ export function setAssistantSettings(db: DB, patch: Partial<AssistantSettings>):
 
 type VRow = { voucherId: number; label: string; date: string; amount: number; ledgerId?: number; detail?: string }
 
-const exceptionRows = (rows: { label: string; detail: string; voucherId?: number; amount?: number }[]): VRow[] =>
-  rows.filter((r) => r.voucherId).map((r) => ({ voucherId: r.voucherId!, label: r.label, date: r.detail.slice(0, 10), amount: r.amount ?? 0 }))
+/** The round-off ledger has no tax_type / flag in the schema: it is found by name, the variants
+ *  the app and Tally use ("Round Off", "Rounding Off", "Round-off", "Rounded Off"). */
+const ROUND_OFF_NAME_SQL = `replace(replace(lower(trim(l.name)), '-', ' '), '  ', ' ') IN ('round off', 'rounding off', 'rounded off', 'round offs', 'rounding')`
 
 /** Monthly net (dr − cr) per ledger in [from, to], P&L ledgers only (closing journals out). */
 function monthlyNets(db: DB, ledgerIds: ReadonlySet<number>, from: string, to: string): Map<number, Map<string, number>> {
@@ -186,13 +189,25 @@ export function closeFacts(db: DB, company: CompanyInfo, period: string, today: 
   }
   const gst = company.gstRegistrationType === 'regular' && company.gstin ? { gstr1ExportedAt: snapAt('gstr1'), gstr3bExportedAt: snapAt('gstr3b') } : null
 
-  // TDS / TCS: credit balance left on the tagged payable ledgers at the month end.
+  // TDS / TCS: per tagged payable ledger, what was deducted each month (credits, by voucher date)
+  // up to TODAY — the check reports the months up to this one — and everything paid out of it
+  // (debits) up to today, so a deposit made next month settles this month's deduction.
   const withholding: CloseFacts['withholding'] = []
+  const credits = db.prepare(
+    `SELECT substr(v.date, 1, 7) AS month, SUM(vl.amount) AS amount FROM voucher_lines vl JOIN vouchers v ON v.id = vl.voucher_id
+     WHERE vl.ledger_id = ? AND vl.dr_cr = 'cr' AND v.date <= ? AND ${IN_BOOKS} GROUP BY month ORDER BY month`
+  )
+  const debits = db.prepare(
+    `SELECT COALESCE(SUM(vl.amount), 0) AS t FROM voucher_lines vl JOIN vouchers v ON v.id = vl.voucher_id
+     WHERE vl.ledger_id = ? AND vl.dr_cr = 'dr' AND v.date <= ? AND ${IN_BOOKS}`
+  )
+  const upTo = today > to ? today : to
   for (const l of ledgers) {
     const kind = l.tdsPayableSectionId != null ? 'tds' : l.tcsPayableSectionId != null ? 'tcs' : null
     if (!kind) continue
-    const bal = balances.get(l.id) ?? 0
-    withholding.push({ kind, ledgerId: l.id, name: l.name, outstanding: bal < 0 ? -bal : 0 })
+    const deducted: CloseFacts['withholding'][number]['deducted'] = (credits.all(l.id, upTo) as { month: string; amount: number }[]).map((r) => ({ month: r.month, amount: r.amount }))
+    if (l.openingBalance < 0) deducted.unshift({ month: null, amount: -l.openingBalance })
+    withholding.push({ kind, ledgerId: l.id, name: l.name, deducted, paid: (debits.get(l.id, upTo) as { t: number }).t })
   }
   const withholdingMissed = tdsEligible(db, from, to).map((r) => ({
     voucherId: r.voucherId, label: `${r.partyName} — ${r.voucherNumber}`, date: r.date, amount: r.basePaise, ledgerId: r.partyLedgerId, detail: `section ${r.sectionCode}: TDS looks applicable but none was deducted`
@@ -226,14 +241,27 @@ export function closeFacts(db: DB, company: CompanyInfo, period: string, today: 
   const pnlLedgers = new Set(ledgers.filter((l) => pnlGroups.has(l.groupId)).map((l) => l.id))
   const accruals = missingRegulars(period, monthlyNets(db, pnlLedgers, monthBounds(addMonths(period, -3)).from, to), name)
 
-  const ex = exceptions(db, from, to)
-  const section = (key: string): VRow[] => exceptionRows(ex.sections.find((s) => s.key === key)?.rows ?? [])
+  // The month's own vouchers (closing journals out), every row — the engine caps what it shows
+  // but counts them all.
+  const monthVouchers = (where: string): VRow[] =>
+    db
+      .prepare(
+        `SELECT v.id AS voucherId, vt.name || ' ' || v.number AS label, v.date,
+                COALESCE((SELECT SUM(amount) FROM voucher_lines WHERE voucher_id = v.id AND dr_cr = 'dr'), 0) AS amount
+         FROM vouchers v JOIN voucher_types vt ON vt.id = v.voucher_type_id
+         WHERE v.date BETWEEN ? AND ? AND ${IN_BOOKS} AND ${NOT_YEAR_END_CLOSE} AND ${where} ORDER BY v.date, v.id`
+      )
+      .all(from, to) as VRow[]
+  const blankNarration = monthVouchers(`(v.narration IS NULL OR TRIM(v.narration) = '')`)
+  const unbalanced = monthVouchers(
+    `vt.kind <> 'physical_stock' AND (SELECT COALESCE(SUM(CASE WHEN dr_cr = 'dr' THEN amount ELSE -amount END), 0) FROM voucher_lines WHERE voucher_id = v.id) <> 0`
+  )
 
   const roundOff = (db
     .prepare(
       `SELECT v.id AS voucherId, vt.name || ' ' || v.number AS label, v.date, vl.amount
        FROM voucher_lines vl JOIN vouchers v ON v.id = vl.voucher_id JOIN voucher_types vt ON vt.id = v.voucher_type_id JOIN ledgers l ON l.id = vl.ledger_id
-       WHERE lower(l.name) = 'round off' AND vl.amount > 100 AND v.date BETWEEN ? AND ? AND ${IN_BOOKS}
+       WHERE ${ROUND_OFF_NAME_SQL} AND vl.amount > 100 AND v.date BETWEEN ? AND ? AND ${IN_BOOKS} AND ${NOT_YEAR_END_CLOSE}
        ORDER BY v.date, v.id`
     )
     .all(from, to) as VRow[])
@@ -261,9 +289,9 @@ export function closeFacts(db: DB, company: CompanyInfo, period: string, today: 
     pdcs,
     depreciation,
     accruals,
-    blankNarration: section('missingNarration'),
+    blankNarration,
     roundOff,
-    unbalanced: section('unbalanced'),
+    unbalanced,
     drafts,
     optionalVouchers,
     lockDate: getLockDate(db)
@@ -272,12 +300,15 @@ export function closeFacts(db: DB, company: CompanyInfo, period: string, today: 
 
 export function closeChecklist(db: DB, company: CompanyInfo, period: string, today: string): CloseChecklist {
   const marks = new Map<string, CloseMark>()
-  for (const [k, m] of listMarks(db, 'close', period)) if (m.status === 'done' || m.status === 'na') marks.set(k, { status: m.status, note: m.note, by: m.by, at: m.at })
+  for (const [k, m] of listMarks(db, 'close', period)) if (m.status === 'done' || m.status === 'na') marks.set(k, { status: m.status, note: m.note, by: m.by, at: m.at, fingerprint: m.fingerprint })
   return buildCloseChecklist(closeFacts(db, company, period, today), { period, today }, marks)
 }
 
-export function markCloseCheck(db: DB, period: string, key: CloseCheckKey, status: 'done' | 'na' | null, note: string | null, user: string | null): MarkRow | null {
-  return setMark(db, { assistant: 'close', scope: period, key, status, note }, user)
+/** Mark a check done / not applicable on what it finds NOW (the fingerprint is computed here,
+ *  never taken from the caller) — the mark lapses when the finding changes. */
+export function markCloseCheck(db: DB, company: CompanyInfo, period: string, key: CloseCheckKey, status: 'done' | 'na' | null, note: string | null, user: string | null, today: string): MarkRow | null {
+  const fingerprint = status ? (closeChecklist(db, company, period, today).checks.find((c) => c.key === key)?.fingerprint ?? null) : null
+  return setMark(db, { assistant: 'close', scope: period, key, status, note, fingerprint }, user)
 }
 
 // ---------------------------------------------------------------- anomalies
@@ -311,7 +342,20 @@ export function anomalyInput(db: DB, from: string, to: string): { vouchers: Anom
        WHERE v.date BETWEEN ? AND ? AND ${IN_BOOKS} AND ${NOT_YEAR_END_CLOSE} ORDER BY vl.voucher_id, vl.line_order, vl.id`
     )
     .all(historyFrom, to) as { v: number; ledgerId: number; drCr: 'dr' | 'cr'; amount: number }[]
-  const gstIds = new Set((db.prepare('SELECT id FROM ledgers WHERE tax_type IS NOT NULL').all() as { id: number }[]).map((r) => r.id))
+  // GST heads only (cess compared separately — not at all here): IGST / CGST / SGST ledgers.
+  const gstIds = new Set((db.prepare("SELECT id FROM ledgers WHERE tax_type IN ('igst', 'cgst', 'sgst')").all() as { id: number }[]).map((r) => r.id))
+  const ledgerRate = new Map((db.prepare('SELECT id, gst_rate AS rate FROM ledgers').all() as { id: number; rate: number | null }[]).map((r) => [r.id, r.rate == null ? null : Math.round(r.rate * 100)]))
+  // Vouchers an import created (their created_at is the import time): import batches, and a
+  // Tally import (one transaction, audited once at its end — vouchers created up to 10 minutes
+  // before that row).
+  const imported = new Set((db.prepare("SELECT entity_id AS id FROM import_batch_items WHERE entity = 'voucher' AND action = 'create' AND undone_at IS NULL").all() as { id: number }[]).map((r) => r.id))
+  for (const r of db
+    .prepare(
+      `SELECT v.id FROM vouchers v WHERE v.date BETWEEN ? AND ? AND EXISTS (SELECT 1 FROM audit_log a WHERE a.entity = 'tally_import' AND a.action = 'import'
+         AND a.at >= v.created_at AND a.at <= datetime(v.created_at, '+10 minutes'))`
+    )
+    .all(from, to) as { id: number }[])
+    imported.add(r.id)
   const byVoucher = new Map<number, AnomalyVoucher['lines']>()
   for (const l of lines) {
     const list = byVoucher.get(l.v) ?? []
@@ -335,13 +379,66 @@ export function anomalyInput(db: DB, from: string, to: string): { vouchers: Anom
   const vouchers = vs.map((v) => {
     const ls = byVoucher.get(v.voucherId) ?? []
     const sl = stockBy.get(v.voucherId)
-    const tax = sl ? ls.filter((l) => gstIds.has(l.ledgerId)).reduce((s, l) => s + l.amount, 0) : undefined
-    return { ...v, amount: ls.filter((l) => l.drCr === 'dr').reduce((s, l) => s + l.amount, 0), lines: ls, ...(sl ? { stockLines: sl, taxPaise: tax } : {}) }
+    // The goods side: Dr for a purchase, Cr for a sale. A reverse-charge purchase also credits an
+    // output tax ledger — the other side, not counted.
+    const goodsSide = v.kind === 'purchase' ? 'dr' : 'cr'
+    const tax = sl ? ls.filter((l) => gstIds.has(l.ledgerId) && l.drCr === goodsSide).reduce((s, l) => s + l.amount, 0) : undefined
+    const taxableLines = sl
+      ? ls.filter((l) => l.drCr === goodsSide && ledgers.get(l.ledgerId)?.role === 'other').map((l) => ({ ledgerId: l.ledgerId, amount: l.amount, rateBp: ledgerRate.get(l.ledgerId) ?? null }))
+      : undefined
+    // An invoice's own sales / purchase ledger line carries the item value already; only ledger
+    // lines beyond the item total (freight, services) are extra taxable value.
+    const itemTotal = sl ? sl.reduce((s, x) => s + x.amount, 0) : 0
+    const extra = taxableLines ? dropItemValueLine(taxableLines, itemTotal) : undefined
+    return {
+      ...v,
+      amount: ls.filter((l) => l.drCr === 'dr').reduce((s, l) => s + l.amount, 0),
+      lines: ls,
+      ...(imported.has(v.voucherId) ? { imported: true } : {}),
+      ...(sl ? { stockLines: sl, taxPaise: tax, taxableLines: extra } : {})
+    }
   })
   return { vouchers, historyFrom, ledgers }
 }
 
+/** The invoice's account line(s) holding the item value are not extra taxable value: drop the
+ *  ledger line(s) whose amounts make up the item total (the largest first). */
+function dropItemValueLine<T extends { amount: number }>(lines: T[], itemTotal: number): T[] {
+  let left = itemTotal
+  const sorted = [...lines].sort((a, b) => b.amount - a.amount)
+  const keep: T[] = []
+  for (const l of sorted) {
+    if (left > 0 && l.amount <= left) {
+      left -= l.amount
+      continue
+    }
+    keep.push(l)
+  }
+  return keep
+}
+
+/** Lock dates as they were set, from the audit trail (company updates carrying lockBefore). */
+export function lockHistory(db: DB): { setOn: string; lockDate: string }[] {
+  const rows = db.prepare("SELECT at, after_json AS a FROM audit_log WHERE entity = 'company' AND after_json LIKE '%lockBefore%' ORDER BY id").all() as { at: string; a: string }[]
+  const out: { setOn: string; lockDate: string }[] = []
+  for (const r of rows) {
+    try {
+      const lock = (JSON.parse(r.a) as { lockBefore?: string | null }).lockBefore
+      if (lock) out.push({ setOn: r.at.slice(0, 10), lockDate: lock })
+    } catch {
+      /* not a lock row */
+    }
+  }
+  return out
+}
+
+/** The longest period anomalies run over (the history window comes on top). */
+export const ANOMALY_MAX_DAYS = 400
+
 export function anomalies(db: DB, from: string, to: string, opts: { includeDismissed?: boolean } = {}): AnomalyReport {
+  if (Math.round((Date.parse(`${to}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)) / 86_400_000) > ANOMALY_MAX_DAYS) {
+    throw new Error('Choose a period of at most a year for anomalies')
+  }
   const settings = getAssistantSettings(db)
   const { vouchers, historyFrom, ledgers } = anomalyInput(db, from, to)
   const items = (db.prepare('SELECT id AS itemId, name, hsn, gst_rate AS rate FROM stock_items').all() as { itemId: number; name: string; hsn: string | null; rate: number | null }[]).map((i) => ({
@@ -359,7 +456,7 @@ export function anomalies(db: DB, from: string, to: string, opts: { includeDismi
       zThresholdMilli: settings.zThresholdMilli,
       weekendDays: settings.weekendDays,
       holidays: settings.holidays,
-      lockDate: getLockDate(db),
+      lockHistory: lockHistory(db),
       closedPeriods
     }
   )
@@ -416,7 +513,8 @@ export function store2bStatement(db: DB, input: { jsonText: string; fileName?: s
 /** The month (YYYY-MM) a MMYYYY return period stands for. */
 const monthOfReturn = (rp: string): string => `${rp.slice(2)}-${rp.slice(0, 2)}`
 
-export function gst2bMismatches(db: DB, period: string, opts: { includeResolved?: boolean } = {}): Gst2bMismatchReport {
+export function gst2bMismatches(db: DB, period: string, opts: { includeResolved?: boolean; today?: string } = {}): Gst2bMismatchReport {
+  const today = opts.today ?? todayISO()
   const { from, to } = monthBounds(period)
   const returnPeriod = gstPeriodOf(from)
   const st = getStatement(db, returnPeriod)
@@ -424,19 +522,27 @@ export function gst2bMismatches(db: DB, period: string, opts: { includeResolved?
   if (!st) return empty
   const parsed = parseGstr2b(st.jsonText)
   const tol = getRecon2bTolerances(db)
-  const books = extractPurchaseDocs(db, from, to)
+  // Every purchase-side document from a year before to today (or two months after): a debit
+  // note raised against a purchase (same party, reference = the purchase's) is netted into it
+  // wherever it is dated, so "purchase + its note" is one book document.
+  const windowFrom = monthBounds(addMonths(period, -12)).from
+  const windowTo = [monthBounds(addMonths(period, 2)).to, today].sort()[1]!
+  const netted = netLinkedDebitNotes(extractPurchaseDocs(db, windowFrom, windowTo)).docs
+  const books = netted.filter((d) => d.date >= from && d.date <= to)
   const result = reconcile2b(parsed.invoices, books, recon2bOptionsFrom(tol))
   // Purchase documents of the months around this one tell "period differs" from "missing".
-  const around = [
-    ...extractPurchaseDocs(db, monthBounds(addMonths(period, -6)).from, monthBounds(addMonths(period, -1)).to),
-    ...extractPurchaseDocs(db, monthBounds(addMonths(period, 1)).from, monthBounds(addMonths(period, 2)).to)
-  ]
+  const aroundFrom = monthBounds(addMonths(period, -6)).from
+  const aroundTo = monthBounds(addMonths(period, 2)).to
+  const around = netted.filter((d) => (d.date < from || d.date > to) && d.date >= aroundFrom && d.date <= aroundTo)
   const suppliers = listLedgers(db).map((l) => ({ ledgerId: l.id, name: l.name, gstin: l.gstin }))
-  const list = categoriseMismatches(result, around, suppliers, { amountTolerancePaise: tol.amountPaise, amountTolerancePct: tol.amountPct })
+  const list = categoriseMismatches(result, around, suppliers, { amountTolerancePaise: tol.amountPaise, amountTolerancePct: tol.amountPct }, today)
   const marks = listMarks(db, 'gst2b', period)
   const rows: Mismatch[] = list.map((m) => {
     const mk = marks.get(m.key)
-    return mk && (mk.status === 'resolved' || mk.status === 'dismissed') ? { ...m, resolved: { status: mk.status, note: mk.note, by: mk.by, at: mk.at } } : m
+    if (!mk || (mk.status !== 'resolved' && mk.status !== 'dismissed')) return m
+    // A resolution holds while the figures are the ones it was made on; changed figures re-open it.
+    if (mk.fingerprint != null && mk.fingerprint !== m.fingerprint) return { ...m, reopened: { previous: mk.status, by: mk.by, at: mk.at } }
+    return { ...m, resolved: { status: mk.status as 'resolved' | 'dismissed', note: mk.note, by: mk.by, at: mk.at } }
   })
   return {
     period,
@@ -449,8 +555,11 @@ export function gst2bMismatches(db: DB, period: string, opts: { includeResolved?
   }
 }
 
+/** Resolve on the figures as they are NOW (the fingerprint is computed here). */
 export function resolve2bMismatch(db: DB, period: string, key: string, status: 'resolved' | 'dismissed' | null, note: string | null, user: string | null): MarkRow | null {
-  return setMark(db, { assistant: 'gst2b', scope: period, key, status, note }, user)
+  const fingerprint = status ? (gst2bMismatches(db, period, { includeResolved: true }).rows.find((m) => m.key === key)?.fingerprint ?? null) : null
+  if (status && fingerprint === null) throw new Error('That mismatch is no longer open — refresh')
+  return setMark(db, { assistant: 'gst2b', scope: period, key, status, note, fingerprint }, user)
 }
 
 export { monthOfReturn }

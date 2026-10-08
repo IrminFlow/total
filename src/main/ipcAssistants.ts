@@ -29,7 +29,7 @@ export function registerAssistantsIpc(handle: Handle, company: () => Company, us
   handle('assist:close', (p) => assist.closeChecklist(db(), company().info, closeQuerySchema.parse(p).period, todayISO()), 'viewer')
   handle('assist:close:mark', (p) => {
     const m = closeMarkSchema.parse(p)
-    assist.markCloseCheck(db(), m.period, m.key, m.status, m.note ?? null, userName())
+    assist.markCloseCheck(db(), company().info, m.period, m.key, m.status, m.note ?? null, userName(), todayISO())
     return assist.closeChecklist(db(), company().info, m.period, todayISO())
   })
 
@@ -44,7 +44,7 @@ export function registerAssistantsIpc(handle: Handle, company: () => Company, us
     return assist.dismissAnomaly(db(), d.key, d.dismissed, d.note ?? null, userName())
   })
   handle('assist:settings:get', () => assist.getAssistantSettings(db()), 'viewer')
-  handle('assist:settings:set', (p) => assist.setAssistantSettings(db(), assistantSettingsSchema.parse(p)))
+  handle('assist:settings:set', (p) => assist.setAssistantSettings(db(), assistantSettingsSchema.parse(p)), 'owner')
 
   // ---------- GSTR-2B mismatches ----------
   handle('assist:gst2b', (p) => {

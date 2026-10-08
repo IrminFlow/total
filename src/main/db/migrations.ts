@@ -3201,16 +3201,21 @@ export const MIGRATIONS: string[] = [
   // query time from the books; only the user's decisions and the imported 2B statement are kept.
   // - assistant_marks: a check marked done / not applicable for a month, an anomaly dismissed, a
   //   2B mismatch resolved — keyed by the assistant, its scope ('YYYY-MM' or '' for none) and
-  //   the item's stable key. Audited (entity 'assistant_mark') on every change.
+  //   the item's stable key; `fingerprint` is the figure the mark was made on (the row re-opens
+  //   when it changes). Audited (entity 'assistant_mark') on every change.
   // - gst2b_statements: the last GSTR-2B JSON imported for a return period (MMYYYY), so the
-  //   assistant can reconcile it again without the file. Audited ('gst2b_statement').
-  `
+  //   assistant can reconcile it again without the file. Audited ('gst2b_statement'). It is in
+  //   the company file, so it travels with backups like the books.
+  // - ai_drafts.source gains 'assistant' (drafts made from the Assistants screen without AI);
+  //   rebuilt for the CHECK (mcp_log.draft_id refers to it by name — kept with FKs off).
+  `-- @foreign-keys-off
   CREATE TABLE assistant_marks (
     assistant TEXT NOT NULL CHECK (assistant IN ('close', 'anomaly', 'gst2b')),
     scope TEXT NOT NULL DEFAULT '',
     item_key TEXT NOT NULL,
     status TEXT NOT NULL CHECK (status IN ('done', 'na', 'dismissed', 'resolved')),
     note TEXT,
+    fingerprint TEXT,
     user_name TEXT,
     at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
     PRIMARY KEY (assistant, scope, item_key)
@@ -3225,5 +3230,26 @@ export const MIGRATIONS: string[] = [
     imported_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
     imported_by TEXT
   );
+
+  CREATE TABLE ai_drafts_new (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    thread_id INTEGER REFERENCES ai_threads(id) ON DELETE SET NULL,
+    message_id INTEGER REFERENCES ai_messages(id) ON DELETE SET NULL,
+    kind TEXT NOT NULL CHECK (kind IN ('voucher')),
+    summary TEXT NOT NULL,
+    payload_json TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'open' CHECK (status IN ('open', 'consumed', 'discarded', 'superseded')),
+    voucher_id INTEGER REFERENCES vouchers(id) ON DELETE SET NULL,
+    unrequested INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    consumed_at TEXT,
+    source TEXT NOT NULL DEFAULT 'chat' CHECK (source IN ('chat', 'mcp', 'inbox', 'assistant')),
+    origin TEXT
+  );
+  INSERT INTO ai_drafts_new (id, thread_id, message_id, kind, summary, payload_json, status, voucher_id, unrequested, created_at, consumed_at, source, origin)
+    SELECT id, thread_id, message_id, kind, summary, payload_json, status, voucher_id, unrequested, created_at, consumed_at, source, origin FROM ai_drafts;
+  DROP TABLE ai_drafts;
+  ALTER TABLE ai_drafts_new RENAME TO ai_drafts;
+  CREATE INDEX idx_ai_drafts_status ON ai_drafts(status);
   `
 ]

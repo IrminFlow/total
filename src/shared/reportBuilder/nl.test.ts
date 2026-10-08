@@ -44,6 +44,11 @@ describe('requestToModel', () => {
     expect(r).toEqual({ ok: false, problems: ['“Acme” matches several parties: Acme Traders, Acme Exports — use the exact name', 'No party called “Nobody”'] })
   })
 
+  it('a single partial match is asked about, never picked', () => {
+    const r = requestToModel({ title: 'x', source: 'accounts', measures: ['net'], parties: ['Traders'] }, lookup)
+    expect(r).toEqual({ ok: false, problems: ['No party called “Traders” — did you mean “Acme Traders”? Use the exact name'] })
+  })
+
   it('rejects a model the builder would refuse (the WP 6.1 rules apply)', () => {
     const bad = requestToModel({ title: 'x', source: 'inventory', dimensions: [{ key: 'ledger' }], measures: ['debit'] }, lookup)
     expect(bad.ok).toBe(false)

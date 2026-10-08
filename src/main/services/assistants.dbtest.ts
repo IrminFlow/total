@@ -8,7 +8,7 @@ import type { CompanyInfo } from '@shared/domain'
 import type { AiEvent, AiSettings } from '@shared/ai'
 import { TEST_INFO } from '../db/testdb'
 import { createLedger } from './masters'
-import { saveVoucher, deleteVoucher } from './vouchers'
+import { saveVoucher, deleteVoucher, setLockDate } from './vouchers'
 import { runReport } from './reportBuilder'
 import { tradeBooks, item, ledger, trade, typeId, type TradeBooks } from './tradeFixture.testutil'
 import * as assist from './assistants'
@@ -16,8 +16,8 @@ import { createToolRegistry } from '../ai/tools'
 import { AgentRuns, startTurn } from '../ai/agent'
 import { MockProvider, demoScript } from '../ai/mockProvider'
 import { defaultAiSettings } from '../ai/settings'
-import { insertPlanDraft } from '../ai/assistantDrafts'
-import { consumeDraft } from '../ai/drafts'
+import { guardDuplicate, insertPlanDraft } from '../ai/assistantDrafts'
+import { consumeDraft, discardDraft } from '../ai/drafts'
 import * as store from '../ai/store'
 import type { ToolContext } from '../ai/tools/registry'
 import type { Role } from './roles'
@@ -103,11 +103,11 @@ describe('month-end close checklist', () => {
     expect(out.data.checks.map((x) => [x.key, x.status])).toEqual(c.checks.map((x) => [x.key, x.effective]))
 
     // Mark done (audited, with the note), then undo (audited delete).
-    assist.markCloseCheck(b.db, '2025-05', 'negative_stock', 'done', 'GRN entered late', 'Priya')
+    assist.markCloseCheck(b.db, INFO, '2025-05', 'negative_stock', 'done', 'GRN entered late', 'Priya', TODAY)
     const after = assist.closeChecklist(b.db, INFO, '2025-05', TODAY)
     expect(after.checks.find((x) => x.key === 'negative_stock')).toMatchObject({ status: 'fail', effective: 'done', mark: { by: 'Priya', note: 'GRN entered late' } })
     expect(after.progress.cleared).toBe(c.progress.cleared + 1)
-    assist.markCloseCheck(b.db, '2025-05', 'negative_stock', null, null, 'Priya')
+    assist.markCloseCheck(b.db, INFO, '2025-05', 'negative_stock', null, null, 'Priya', TODAY)
     expect(assist.closeChecklist(b.db, INFO, '2025-05', TODAY).checks.find((x) => x.key === 'negative_stock')!.mark).toBeNull()
     expect(audits(b, 'assistant_mark').map((a) => a.action)).toEqual(['create', 'delete'])
     expect(JSON.parse(audits(b, 'assistant_mark')[0]!.after_json!)).toMatchObject({ assistant: 'close', scope: '2025-05', key: 'negative_stock', status: 'done' })
@@ -178,7 +178,7 @@ describe('GSTR-2B mismatches', () => {
     expect(audits(b, 'gst2b_statement').map((a) => a.action)).toEqual(['create'])
     expect(audits(b, 'gst2b_statement')[0]!.after_json).not.toContain('docdata') // the JSON itself is not copied into the audit trail
 
-    const r = assist.gst2bMismatches(b.db, '2025-05')
+    const r = assist.gst2bMismatches(b.db, '2025-05', { today: TODAY })
     expect(r.matched).toBe(1)
     expect(r.rows.map((m) => m.category).sort()).toEqual(['missing_in_2b', 'missing_in_books'])
     expect(r.rows.find((m) => m.category === 'missing_in_2b')!.book!.voucherId).toBe(extra)
@@ -217,7 +217,7 @@ describe('GSTR-2B mismatches', () => {
       lines: draft.payload.lines.map((l) => ({ ...l, costAllocations: [] })), inventory: [], billRefs: [], tds: null
     })
     consumeDraft(b.db, draft.id, saved.id)
-    const after = assist.gst2bMismatches(b.db, '2025-05')
+    const after = assist.gst2bMismatches(b.db, '2025-05', { today: TODAY })
     expect(after.matched).toBe(2)
     expect(after.rows.map((m) => m.category)).toEqual(['missing_in_2b'])
 
@@ -227,16 +227,163 @@ describe('GSTR-2B mismatches', () => {
     expect(assist.gst2bMismatches(b.db, '2025-05', { includeResolved: true }).rows[0]!.resolved).toMatchObject({ status: 'resolved', by: 'Priya' })
   })
 
-  it('a screen draft (no AI) is a chat-source draft named for the assistant; a lock date refuses it', () => {
+  it('a screen draft (no AI) is an assistant-source draft; a second one for the same document and a lock date are refused', () => {
     const b = books()
     assist.store2bStatement(b.db, { jsonText: TWO_B, period: '2025-05' }, null)
-    const m = assist.gst2bMismatches(b.db, '2025-05').rows.find((x) => x.category === 'missing_in_books')!
+    const m = assist.gst2bMismatches(b.db, '2025-05', { today: TODAY }).rows.find((x) => x.category === 'missing_in_books')!
     const plan = m.actions.find((a) => a.kind === 'draft')!
     if (plan.kind !== 'draft') throw new Error('no plan')
     const d = insertPlanDraft(b.db, INFO, TODAY, plan.plan, { threadId: null, messageId: null, origin: 'GST 2B assistant' })
-    expect(d).toMatchObject({ source: 'chat', origin: 'GST 2B assistant', status: 'open' })
+    expect(d).toMatchObject({ source: 'assistant', origin: 'GST 2B assistant', status: 'open' })
+    expect(() => insertPlanDraft(b.db, INFO, TODAY, plan.plan, { threadId: null, messageId: null })).toThrow(/open draft \(#\d+\) already records A-\d/)
+    discardDraft(b.db, d.id)
     b.db.prepare("INSERT INTO meta (key, value) VALUES ('lock_before', '2025-05-31') ON CONFLICT(key) DO UPDATE SET value = excluded.value").run()
     expect(() => insertPlanDraft(b.db, INFO, TODAY, plan.plan, { threadId: null, messageId: null })).toThrow(/lock/i)
+  })
+
+  it('refuses to draft a bill already in the books (same supplier + normalised number, this or the previous FY)', () => {
+    const b = books()
+    voucher(b, 'purchase', '2025-04-02', [[b.purchases, 'dr', 5_000_00], [b.cgst, 'dr', 450_00], [b.sgst, 'dr', 450_00], [b.vendor, 'cr', 5_900_00]], { party: b.vendor, reference: 'a/02' })
+    expect(() => guardDuplicate(b.db, { kind: 'purchase', date: '2025-05-12', partyLedgerId: b.vendor, reference: 'A-2', narration: 'n', split: { taxable: 1, igst: 0, cgst: 0, sgst: 0, cess: 0 } })).toThrow(/already in the books/)
+  })
+
+  it('under default privacy (masked ids) the assistant drafts by the key it saw; MCP too', async () => {
+    const b = books()
+    assist.store2bStatement(b.db, { jsonText: TWO_B, period: '2025-05' }, null)
+    const masked: AiSettings = { ...defaultAiSettings(), enabled: true, noticeAcceptedAt: '2025-06-01T00:00:00.000Z', noticeAcceptedBy: 'Owner', noticeVersion: 1, privacy: { maskIds: true, pseudonymiseParties: false } }
+    const lastResult = (req: { input: { type: string; output?: string }[] }): string => [...req.input].reverse().find((i) => i.type === 'tool_result')!.output!
+    const provider = new MockProvider((req, i) => {
+      if (i === 0) return { toolCalls: [{ name: 'gst_2b_mismatches', arguments: { period: '2025-05' } }] }
+      if (i === 1) {
+        const out = lastResult(req)
+        expect(out).toContain('[GSTIN')
+        expect(out).not.toContain(GSTIN)
+        const key = (JSON.parse(out) as { result: { mismatches: { key: string; category: string }[] } }).result.mismatches.find((m) => m.category === 'Missing in books')!.key
+        return { toolCalls: [{ name: 'draft_gst_2b_fix', arguments: { period: '2025-05', key } }] }
+      }
+      return { text: 'Drafted.' }
+    })
+    const events: AiEvent[] = []
+    const t = startTurn(
+      { db: b.db, company: INFO, provider, registry: createToolRegistry(), settings: masked, user: { name: 'Arun', role: 'accountant' }, emit: (e) => events.push(e), runs: new AgentRuns(), today: TODAY, period: PERIOD },
+      { text: 'Draft the purchase entry for the invoice missing from my books' }
+    )
+    expect(await t.finished).toEqual({ status: 'done' })
+    const tool = store.listMessages(b.db, t.threadId).find((m) => m.toolName === 'draft_gst_2b_fix')!
+    expect(tool.toolOk).toBe(true)
+    const draftId = tool.draftId!
+    expect(store.getDraft(b.db, draftId)).toMatchObject({ status: 'open', payload: { voucherKind: 'purchase', partyLedgerId: b.vendor } })
+    discardDraft(b.db, draftId)
+
+    // MCP: masked by field — the key survives the round trip.
+    const { createMcpServer } = await import('../mcp/server')
+    const { setMcpConfig } = await import('./config')
+    const { Client } = await import('@modelcontextprotocol/sdk/client/index.js')
+    const { InMemoryTransport } = await import('@modelcontextprotocol/sdk/inMemory.js')
+    setMcpConfig(b.db, { enabled: true })
+    const handle = createMcpServer({ db: b.db, slug: 'assist', identity: { role: 'accountant', userName: null, userId: null }, privacy: { maskIds: true, pseudonymiseParties: false }, version: 'test', today: () => TODAY })
+    const [ct, st] = InMemoryTransport.createLinkedPair()
+    await handle.server.connect(st)
+    const client = new Client({ name: 'Assist Test', version: '1' })
+    await client.connect(ct)
+    const text = async (name: string, args: Record<string, unknown>): Promise<{ isError: boolean; text: string }> => {
+      const r = (await client.callTool({ name, arguments: args })) as { isError?: boolean; content: { text: string }[] }
+      return { isError: !!r.isError, text: r.content.map((c) => c.text).join('') }
+    }
+    const list = await text('gst_2b_mismatches', { period: '2025-05' })
+    expect(list.text).not.toContain(GSTIN)
+    const key = (JSON.parse(list.text) as { result: { mismatches: { key: string; category: string }[] } }).result.mismatches.find((m) => m.category === 'Missing in books')!.key
+    const drafted = await text('draft_gst_2b_fix', { period: '2025-05', key })
+    expect(drafted.isError).toBe(false)
+    await client.close()
+  })
+
+  it('a saved debit-note draft (dated today) pairs with its purchase: the amount difference and the note both clear', () => {
+    const b = books()
+    // Books: 11,000 + 990 + 990; the supplier reported 10,000 + 900 + 900 (A-1 in TWO_B).
+    voucher(b, 'purchase', '2025-05-10', [[b.purchases, 'dr', 11_000_00], [b.cgst, 'dr', 990_00], [b.sgst, 'dr', 990_00], [b.vendor, 'cr', 12_980_00]], { party: b.vendor, reference: 'A-1' })
+    assist.store2bStatement(b.db, { jsonText: JSON.stringify({ data: { rtnprd: '052025', docdata: { b2b: [{ ctin: GSTIN, inv: [{ inum: 'A-1', idt: '10-05-2025', val: 11800, items: [{ txval: 10000, camt: 900, samt: 900 }] }] }] } } }), period: '2025-05' }, null)
+    const r = assist.gst2bMismatches(b.db, '2025-05', { today: TODAY })
+    const m = r.rows.find((x) => x.category === 'amount_differs')!
+    expect(r.summary.find((x) => x.category === 'amount_differs')!.tax).toBe(-180_00) // 2B − books
+    const plan = m.actions.find((a) => a.kind === 'draft')!
+    if (plan.kind !== 'draft') throw new Error('no plan')
+    expect(plan.plan).toMatchObject({ kind: 'debit_note', date: TODAY })
+    const d = insertPlanDraft(b.db, INFO, TODAY, plan.plan, { threadId: null, messageId: null, origin: 'GST 2B assistant' })
+    const saved = saveVoucher(b.db, {
+      ...header, voucherTypeId: d.payload.voucherTypeId, date: d.payload.date, partyLedgerId: d.payload.partyLedgerId, narration: d.payload.narration, reference: d.payload.reference,
+      lines: d.payload.lines.map((l) => ({ ...l, costAllocations: [] })), inventory: [], billRefs: [], tds: null
+    })
+    consumeDraft(b.db, d.id, saved.id)
+    const after = assist.gst2bMismatches(b.db, '2025-05', { today: TODAY })
+    expect(after.matched).toBe(1)
+    expect(after.rows).toEqual([])
+    // The note's own month does not list it as missing in 2B either.
+    b.db.prepare("INSERT INTO gst2b_statements (period, json_text) VALUES ('062025', ?)").run(JSON.stringify({ data: { rtnprd: '062025', docdata: {} } }))
+    expect(assist.gst2bMismatches(b.db, '2025-06', { today: TODAY }).rows).toEqual([])
+  })
+
+  it('a resolution re-opens when the figures change', () => {
+    const b = books()
+    const v = voucher(b, 'purchase', '2025-05-20', [[b.purchases, 'dr', 2_000_00], [b.cgst, 'dr', 180_00], [b.sgst, 'dr', 180_00], [b.vendor, 'cr', 2_360_00]], { party: b.vendor, reference: 'B-5' })
+    assist.store2bStatement(b.db, { jsonText: TWO_B, period: '2025-05' }, null)
+    const m = assist.gst2bMismatches(b.db, '2025-05', { today: TODAY }).rows.find((x) => x.category === 'missing_in_2b')!
+    assist.resolve2bMismatch(b.db, '2025-05', m.key, 'resolved', 'supplier files late', 'Priya')
+    expect(assist.gst2bMismatches(b.db, '2025-05', { today: TODAY }).rows.some((x) => x.key === m.key)).toBe(false)
+    // The purchase is edited: same key, new figures → back in the list, flagged, and in the summary.
+    b.db.prepare('UPDATE voucher_lines SET amount = amount * 2 WHERE voucher_id = ?').run(v)
+    const again = assist.gst2bMismatches(b.db, '2025-05', { today: TODAY })
+    expect(again.rows.find((x) => x.key === m.key)).toMatchObject({ reopened: { previous: 'resolved', by: 'Priya' }, resolved: null })
+    expect(again.summary.find((x) => x.category === 'missing_in_2b')!.count).toBe(1)
+  })
+})
+
+describe('close checklist — review fixes', () => {
+  it('TDS deducted in May and deposited in June clears May; an undeposited deduction is dated by its own month', () => {
+    const b = books()
+    const sec = (b.db.prepare("SELECT id FROM tds_sections WHERE code = '194C'").get() as { id: number }).id
+    const g = (b.db.prepare("SELECT id FROM groups WHERE name = 'Duties & Taxes'").get() as { id: number }).id
+    const tdsPay = createLedger(b.db, { name: 'TDS Payable 194C', groupId: g, openingBalance: 0, gstin: null, stateCode: null, address: null, taxType: null, gstRate: null, hsn: null, tdsSectionId: null, pan: null, creditDays: null, exportType: null, tdsPayableSectionId: sec } as never).id
+    voucher(b, 'journal', '2025-05-20', [[b.rent, 'dr', 1_000_00], [tdsPay, 'cr', 1_000_00]])
+    const status = (today: string): string => assist.closeChecklist(b.db, INFO, '2025-05', today).checks.find((c) => c.key === 'withholding')!.effective
+    expect(status('2025-06-05')).toBe('warn')
+    expect(status('2025-06-09')).toBe('fail')
+    voucher(b, 'payment', '2025-06-06', [[tdsPay, 'dr', 1_000_00], [b.bank, 'cr', 1_000_00]])
+    expect(status('2025-06-09')).toBe('ok')
+    expect(status('2025-07-20')).toBe('ok')
+  })
+
+  it('rounding ignores closing journals and finds the round-off ledger by its name variants; the month only', () => {
+    const b = books()
+    const g = (b.db.prepare("SELECT id FROM groups WHERE name = 'Indirect Expenses'").get() as { id: number }).id
+    const ro = createLedger(b.db, { name: 'Rounding Off', groupId: g, openingBalance: 0, gstin: null, stateCode: null, address: null, taxType: null, gstRate: null, hsn: null, tdsSectionId: null, pan: null, creditDays: null, exportType: null }).id
+    const close = voucher(b, 'journal', '2026-03-31', [[ro, 'dr', 5_00], [b.cash, 'cr', 5_00]])
+    b.db.prepare('UPDATE vouchers SET is_year_end_close = 1 WHERE id = ?').run(close)
+    const roundOff = (p: string) => assist.closeChecklist(b.db, INFO, p, '2026-04-10').checks.find((c) => c.key === 'rounding')!
+    expect(roundOff('2026-03').effective).toBe('ok')
+    voucher(b, 'journal', '2026-03-20', [[ro, 'dr', 3_00], [b.cash, 'cr', 3_00]])
+    expect(roundOff('2026-03')).toMatchObject({ effective: 'warn', count: 1 })
+    expect(roundOff('2026-02').effective).toBe('ok')
+  })
+})
+
+describe('anomalies — review fixes', () => {
+  it('a voucher entered before the lock was set is late, not "into a locked period"; imported vouchers are skipped', () => {
+    const b = books()
+    const late = voucher(b, 'journal', '2025-05-05', [[b.rent, 'dr', 1_00], [b.cash, 'cr', 1_00]])
+    b.db.prepare("UPDATE vouchers SET created_at = '2025-06-20 10:00:00' WHERE id = ?").run(late)
+    const imported = voucher(b, 'journal', '2025-05-07', [[b.rent, 'dr', 2_00], [b.cash, 'cr', 2_00]])
+    setLockDate(b.db, '2025-05-31') // set today (audit trail) — after both entries
+    b.db.prepare("UPDATE vouchers SET created_at = '2025-08-01 10:00:00' WHERE id = ?").run(imported)
+    const batch = Number(b.db.prepare("INSERT INTO import_batches (source) VALUES ('generic')").run().lastInsertRowid)
+    b.db.prepare("INSERT INTO import_batch_items (batch_id, entity, entity_id, action) VALUES (?, 'voucher', ?, 'create')").run(batch, imported)
+    const rows = assist.anomalies(b.db, '2025-05-01', '2025-05-31').rows.filter((r) => r.kind === 'backdated')
+    expect(rows.map((r) => [r.voucherId, r.severity])).toEqual([[late, 'medium']])
+  })
+
+  it('refuses a period longer than a year', () => {
+    const b = books()
+    expect(() => assist.anomalies(b.db, '2024-04-01', '2025-09-30')).toThrow(/at most a year/)
   })
 })
 

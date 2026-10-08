@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '../lib/client'
 import { assistantsApi } from '../lib/assistantsClient'
-import { useNav, useToasts, nextDraftId } from '../state/stores'
+import { useNav, useSession, useToasts, nextDraftId } from '../state/stores'
 import { AmountInput, Button, Checkbox, DrawerSection, EmptyState, Field, Modal, Money, Page, PageHeader, Panel, SkeletonRows, TabBar, TextInput } from '../components/ui'
 import { OptionChoice, OptionsTable, useScreenOptions } from '../components/ScreenOptions'
 import { DataTable, defineColumns, type TableColumn } from '../components/table'
@@ -273,11 +273,15 @@ export function Gstr2bScreen(): React.JSX.Element {
   // WP 5.5: keep a copy of the imported statement for the GST 2B assistant (Analysis →
   // Assistants, and the assistant's gst_2b_mismatches). Best-effort: a viewer cannot store it.
   const storedRef = useRef<string | null>(null)
+  const canStore = useSession((s) => s.user == null || s.user.role !== 'viewer')
   useEffect(() => {
     if (!data || !imported || !month || storedRef.current === imported.jsonText) return
     storedRef.current = imported.jsonText
-    if (data.result.pairs.some((p) => p.portal)) void assistantsApi.store2b(imported.jsonText, month.key, imported.fileName).catch(() => null)
-  }, [data, imported, month])
+    // A viewer cannot store it (silently skipped); anyone else hears about a failure.
+    if (data.result.pairs.some((p) => p.portal) && canStore) {
+      void assistantsApi.store2b(imported.jsonText, month.key, imported.fileName).catch((err: Error) => toast.push('warning', `The 2B could not be kept for the assistant: ${err.message}`))
+    }
+  }, [data, imported, month, canStore, toast])
 
   const doPick = async (): Promise<void> => {
     try {

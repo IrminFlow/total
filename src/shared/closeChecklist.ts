@@ -59,6 +59,8 @@ export interface CloseMark {
   note: string | null
   by: string | null
   at: string
+  /** The check's figures when it was marked (see checkFingerprint); null = not recorded. */
+  fingerprint?: string | null
 }
 
 export interface CloseCheck {
@@ -79,6 +81,10 @@ export interface CloseCheck {
   sources: AssistantSourceId[]
   mark: CloseMark | null
   effective: CheckEffective
+  /** What the check found, as a fingerprint — a mark made on other figures no longer applies. */
+  fingerprint: string
+  /** The check was marked, but what it finds has changed since: the mark no longer counts. */
+  reopened: boolean
 }
 
 export interface CloseProgress {
@@ -122,7 +128,10 @@ export interface CloseFacts {
   overdue: { ledgerId: number; name: string; side: 'receivable' | 'payable'; voucherId: number | null; bill: string; date: string; pending: number; overdueDays: number }[]
   /** null = not a regular GST registration (no GSTR-1 / 3B). */
   gst: { gstr1ExportedAt: string | null; gstr3bExportedAt: string | null } | null
-  withholding: { kind: 'tds' | 'tcs'; ledgerId: number; name: string; outstanding: number }[]
+  /** Each tagged TDS / TCS payable ledger: what was deducted per month (credits; `month` null =
+   *  the opening balance) up to the month end, and what was paid out of it (debits) up to today —
+   *  deposits made next month count against the month they were deducted in (oldest first). */
+  withholding: { kind: 'tds' | 'tcs'; ledgerId: number; name: string; deducted: { month: string | null; amount: number }[]; paid: number }[]
   /** Vouchers where TDS looks applicable but none was deducted (the TDS workbench). */
   withholdingMissed: VRow[]
   negativeStock: { itemId: number; name: string; qtyText: string }[]
@@ -271,24 +280,26 @@ export const CLOSE_CHECK_DEFS: Record<CloseCheckKey, Def> = {
     title: 'TDS / TCS deposited',
     area: 'TDS / TCS',
     fix: { screen: 'tds', label: 'Open TDS' },
-    help: 'Tax deducted or collected sits in its payable ledger until deposited: by the 7th of the next month (March: 30 April). Vouchers where TDS looks missed are listed too.',
+    help: 'Tax deducted or collected sits in its payable ledger until deposited: by the 7th of the next month (March: 30 April). Deposits count against the oldest deductions first, whenever they were made (up to today). Vouchers where TDS looks missed are listed too.',
     build: (f, c) => {
-      const due = { tds: depositDueDate(c.to), tcs: tcsDepositDueDate(c.to) }
-      const pending = f.withholding.filter((w) => w.outstanding > 0)
+      // Months after this one are the next checklists' business.
+      const pending = f.withholding.flatMap((w) => withholdingUnpaid(w, c.today).filter((u) => u.month === null || u.month <= c.period).map((u) => ({ ...u, w })))
       const rows: CheckRow[] = [
-        ...pending.map((w) => ({ label: w.name, detail: `${w.kind.toUpperCase()} not yet deposited — due ${due[w.kind]}`, amount: w.outstanding, ledgerId: w.ledgerId, date: due[w.kind] })),
+        ...pending.map((u) => ({
+          label: u.w.name,
+          detail: u.month ? `${u.w.kind.toUpperCase()} deducted in ${u.month} not deposited — due ${u.dueDate}${u.late ? ', OVERDUE' : ''}` : `${u.w.kind.toUpperCase()} opening balance not deposited`,
+          amount: u.unpaid,
+          ledgerId: u.w.ledgerId,
+          date: u.dueDate
+        })),
         ...vrows(f.withholdingMissed, 'TDS looks applicable but none was deducted')
       ]
-      const late = pending.some((w) => c.today > due[w.kind])
-      if (!f.withholding.length && !f.withholdingMissed.length) return { status: 'ok', summary: 'Nothing deducted or collected this month.', rows: [] }
-      const parts = [pending.length ? `${rupeeText(sum(pending.map((w) => ({ amount: w.outstanding }))))} not deposited${late ? ' (past the due date)' : ''}` : null, f.withholdingMissed.length ? `${plural(f.withholdingMissed.length, 'voucher')} where TDS looks missed` : null].filter(Boolean)
-      return {
-        status: late ? 'fail' : rows.length ? 'warn' : 'ok',
-        summary: parts.length ? `${parts.join('; ')}.` : 'Everything deducted is deposited.',
-        rows,
-        amount: pending.reduce((s, w) => s + w.outstanding, 0),
-        dueDate: pending.length ? due[pending[0]!.kind] : null
-      }
+      const late = pending.some((u) => u.late)
+      if (!pending.length && !f.withholdingMissed.length) return { status: 'ok', summary: f.withholding.length ? 'Everything deducted is deposited.' : 'Nothing deducted or collected.', rows: [] }
+      const total = pending.reduce((s, u) => s + u.unpaid, 0)
+      const parts = [pending.length ? `${rupeeText(total)} not deposited${late ? ' (past the due date)' : ''}` : null, f.withholdingMissed.length ? `${plural(f.withholdingMissed.length, 'voucher')} where TDS looks missed` : null].filter(Boolean)
+      const dues = pending.map((u) => u.dueDate).filter((d): d is string => !!d).sort()
+      return { status: late ? 'fail' : 'warn', summary: `${parts.join('; ')}.`, rows, amount: total, dueDate: dues[0] ?? null }
     }
   },
   negative_stock: {
@@ -378,6 +389,7 @@ export const CLOSE_CHECK_DEFS: Record<CloseCheckKey, Def> = {
     help: 'Every voucher must balance; a round-off line above ₹1 usually hides a wrong rate or amount.',
     build: (f) => {
       const rows = [...vrows(f.unbalanced, 'debits and credits differ'), ...vrows(f.roundOff, 'round-off above ₹1')]
+      // (closing journals are excluded by the service; the month's own vouchers only)
       return {
         status: f.unbalanced.length ? 'fail' : f.roundOff.length ? 'warn' : 'ok',
         summary: rows.length ? [f.unbalanced.length ? `${plural(f.unbalanced.length, 'voucher')} not balanced` : null, f.roundOff.length ? `${plural(f.roundOff.length, 'voucher')} with round-off above ₹1` : null].filter(Boolean).join('; ') + '.' : 'Every voucher balances; round-off within ₹1.',
@@ -409,6 +421,29 @@ export const CLOSE_CHECK_DEFS: Record<CloseCheckKey, Def> = {
     }
   }
 }
+
+/** Deducted amounts still unpaid, oldest first (FIFO against everything paid up to today), each
+ *  with its deposit due date (TDS: rule 30(2) 1962 Rules via depositDueDate; TCS: tcsDepositDueDate). */
+export function withholdingUnpaid(
+  w: CloseFacts['withholding'][number],
+  today: string
+): { month: string | null; unpaid: number; dueDate: string | null; late: boolean }[] {
+  const buckets = [...w.deducted].sort((a, b) => (a.month ?? '').localeCompare(b.month ?? ''))
+  let paid = w.paid
+  const out: { month: string | null; unpaid: number; dueDate: string | null; late: boolean }[] = []
+  for (const b of buckets) {
+    const used = Math.min(paid, b.amount)
+    paid -= used
+    const unpaid = b.amount - used
+    if (unpaid <= 0) continue
+    const dueDate = b.month ? (w.kind === 'tds' ? depositDueDate(`${b.month}-15`) : tcsDepositDueDate(`${b.month}-15`)) : null
+    out.push({ month: b.month, unpaid, dueDate, late: dueDate === null || today > dueDate })
+  }
+  return out
+}
+
+/** What a check found, as a string a mark can be compared with. */
+export const checkFingerprint = (c: Pick<CloseCheck, 'status' | 'count' | 'more' | 'amount'>): string => `${c.status}|${c.count + c.more}|${c.amount ?? ''}`
 
 export function checkCleared(e: CheckEffective): boolean {
   return e === 'ok' || e === 'done' || e === 'na'
@@ -442,8 +477,11 @@ export function buildCloseChecklist(
     const def = CLOSE_CHECK_DEFS[key]
     const b = def.build(facts, c)
     const mark = marks.get(key) ?? null
-    // A computed "not applicable" stays so; a user's mark overrides anything else.
-    const effective: CheckEffective = mark ? (mark.status === 'na' ? 'na' : 'done') : b.status
+    const fingerprint = checkFingerprint({ status: b.status, count: b.count ?? b.rows.length, more: 0, amount: b.amount ?? null })
+    // A mark counts while the check finds what it found when marked; a changed finding that
+    // still needs attention re-opens it (an old mark without a fingerprint keeps counting).
+    const reopened = !!mark && mark.fingerprint != null && mark.fingerprint !== fingerprint && (b.status === 'warn' || b.status === 'fail')
+    const effective: CheckEffective = mark && !reopened ? (mark.status === 'na' ? 'na' : 'done') : b.status
     return {
       key,
       title: def.title,
@@ -459,7 +497,9 @@ export function buildCloseChecklist(
       help: def.help,
       sources: def.sources ?? [],
       mark,
-      effective
+      effective,
+      fingerprint,
+      reopened
     }
   })
   return { period: ctx.period, label: periodLabel(ctx.period), from, to, today: ctx.today, checks, progress: progressOf(checks) }

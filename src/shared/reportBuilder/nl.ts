@@ -77,11 +77,13 @@ export function requestToModel(req: ReportRequest, lookup: NameLookup): RequestR
     for (const asked of list ?? []) {
       const hits = lookup(kind, asked)
       const exact = hits.filter((h) => h.name.toLowerCase() === asked.trim().toLowerCase())
-      const pick = exact.length === 1 ? exact[0]! : hits.length === 1 ? hits[0]! : null
+      // Only an exact (case-insensitive) name is taken; a partial match is asked about, never picked.
+      const pick = exact.length === 1 ? exact[0]! : null
       if (pick) {
         out.push(pick.id)
         resolved.push({ kind, asked, id: pick.id, name: pick.name })
       } else if (!hits.length) problems.push(`No ${KIND_WORD[kind]} called “${asked}”`)
+      else if (hits.length === 1) problems.push(`No ${KIND_WORD[kind]} called “${asked}” — did you mean “${hits[0]!.name}”? Use the exact name`)
       else problems.push(`“${asked}” matches several ${KIND_PLURAL[kind]}: ${hits.slice(0, 6).map((h) => h.name).join(', ')} — use the exact name`)
     }
     return [...new Set(out)]

@@ -19,6 +19,7 @@ import { runDraft } from '../drafting/tools'
 import { capRows, drCr, rupees } from './readTools'
 import { defineTool, type ToolContext, type ToolDef } from './registry'
 import type { DB } from '../../db/connection'
+import { descendantIdsByName } from '../../services/masters'
 
 const month = z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/, 'Expected YYYY-MM')
 const iso = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Expected YYYY-MM-DD')
@@ -107,7 +108,7 @@ export const gst2bMismatchesTool = defineTool({
   minRole: 'viewer',
   handler: ({ period, category }, ctx) => {
     const p = period ?? defaultMonth(ctx)
-    const r = gst2bMismatches(ctx.db, p)
+    const r = gst2bMismatches(ctx.db, p, { today: ctx.today })
     const screen = assistantsScreen('gst2b', `GSTR-2B mismatches ${p}`, { period: p })
     if (!r.statement) {
       return { data: { period: p, note: `No GSTR-2B JSON has been imported for ${p}. Import it on the GSTR-2B screen or Assistants → GST 2B.` }, sources: [screen] }
@@ -138,6 +139,8 @@ export const gst2bMismatchesTool = defineTool({
           inBooks: m.book ? { voucherId: m.book.voucherId, value: rupees(m.book.invoiceValue), tax: rupees(m.book.igst + m.book.cgst + m.book.sgst + m.book.cess), month: m.bookMonth ?? undefined } : undefined,
           valueDifference: m.valueDiff ? rupees(m.valueDiff) : undefined,
           suggestion: m.suggestion,
+          flags: m.flags.length ? m.flags : undefined,
+          reopened: m.reopened ? `figures changed since it was ${m.reopened.previous}` : undefined,
           actions: m.actions.map((a) => a.label),
           canDraft: m.actions.some((a) => a.kind === 'draft') || undefined
         }))
@@ -155,7 +158,7 @@ export const draftGst2bFixTool = defineTool({
   kind: 'draft',
   minRole: 'accountant',
   handler: ({ period, key }, ctx) => {
-    const m = gst2bMismatches(ctx.db, period).rows.find((x) => x.key === key)
+    const m = gst2bMismatches(ctx.db, period, { today: ctx.today }).rows.find((x) => x.key === key)
     if (!m) throw new Error(`No open mismatch ${key} for ${period}`)
     const action = m.actions.find((a) => a.kind === 'draft')
     if (!action || action.kind !== 'draft') throw new Error(`This mismatch has no draft to prepare — suggested: ${m.actions.map((a) => a.label).join('; ')}`)
@@ -218,11 +221,13 @@ export const findAnomaliesTool = defineTool({
 
 // ---------- build_report ----------
 
-/** Names → ids over the masters: exact (case-insensitive) first, else contains. */
+/** Names → ids over the masters: exact (case-insensitive) first, else contains (the request is
+ *  then refused with the candidates). Parties are the ledgers under Sundry Debtors / Creditors. */
 export function nameLookup(db: DB): NameLookup {
+  const partyGroups = [...descendantIdsByName(db, ['Sundry Debtors', 'Sundry Creditors'])]
   const tables: Record<NameKind, string> = {
     ledger: 'SELECT id, name FROM ledgers',
-    party: 'SELECT id, name FROM ledgers',
+    party: partyGroups.length ? `SELECT id, name FROM ledgers WHERE group_id IN (${partyGroups.join(',')})` : 'SELECT id, name FROM ledgers WHERE 0',
     group: 'SELECT id, name FROM groups',
     item: 'SELECT id, name FROM stock_items'
   }

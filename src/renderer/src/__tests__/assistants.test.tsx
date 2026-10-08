@@ -37,7 +37,7 @@ const checklist = (marked = false) =>
 const G = '27AAPFU0939F1ZV'
 const twoB = (): Gst2bMismatchReport => {
   const r = reconcile2b([{ gstin: G, number: 'A-2', date: `${MONTH}-12`, value: 5900_00, taxable: 5000_00, igst: 0, cgst: 450_00, sgst: 450_00, cess: 0, kind: 'b2b' }], [], { amountTolerancePaise: 100, dateWindowDays: 7 })
-  const rows = categoriseMismatches(r, [], [{ ledgerId: 9, name: 'Acme Supplies', gstin: G }], { amountTolerancePaise: 100 })
+  const rows = categoriseMismatches(r, [], [{ ledgerId: 9, name: 'Acme Supplies', gstin: G }], { amountTolerancePaise: 100 }, `${MONTH}-28`)
   return { period: MONTH, returnPeriod: '000000', statement: { period: '000000', fileName: '2b.json', documents: 1, importedAt: '2026-10-01T00:00:00Z', importedBy: null }, errors: [], matched: 0, summary: summariseMismatches(rows), rows }
 }
 const anomalies: AnomalyReport = {

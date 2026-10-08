@@ -66,6 +66,10 @@ describe('integer helpers', () => {
     expect(rupeeText(123456789)).toBe('₹12,34,567.89')
     expect(rupeeText(5)).toBe('₹0.05')
     expect(normaliseBillNo('inv-007')).toBe(normaliseBillNo('INV7'))
+    // No collisions (the review's cases): the last digit run only loses LEADING zeros.
+    expect(normaliseBillNo('INV-100')).not.toBe(normaliseBillNo('INV-10'))
+    expect(normaliseBillNo('1050')).not.toBe(normaliseBillNo('150'))
+    expect(normaliseBillNo('2024/0001')).not.toBe(normaliseBillNo('2240001'))
   })
 })
 
@@ -77,7 +81,7 @@ describe('findAnomalies', () => {
     const out = findAnomalies(input([a, b, c]))
     const dup = out.filter((x) => x.kind === 'duplicate_party_amount')
     expect(dup).toHaveLength(1)
-    expect(dup[0]).toMatchObject({ voucherId: b.voucherId, relatedVoucherIds: [a.voucherId], severity: 'high', key: `duplicate_party_amount:${a.voucherId}:${b.voucherId}` })
+    expect(dup[0]).toMatchObject({ voucherId: b.voucherId, relatedVoucherIds: [a.voucherId], severity: 'high', key: `duplicate_party_amount:${a.voucherId}:${b.voucherId}:${b.amount}` })
   })
 
   it('flags a bill number entered twice for the same supplier (normalised)', () => {
@@ -171,5 +175,62 @@ describe('findAnomalies', () => {
     const a = findAnomalies(input([before, inside]))
     expect(a.every((x) => !x.date || (x.date >= '2026-05-01' && x.date <= '2026-05-31'))).toBe(true)
     expect(findAnomalies(input([before, inside])).map((x) => x.key)).toEqual(a.map((x) => x.key))
+  })
+})
+
+describe('WP 5.5 review fixes', () => {
+  it('bill numbers repeat only within one financial year (rule 46(b))', () => {
+    const a = v({ date: '2025-03-20', amount: 1000_00, partyLedgerId: 3, kind: 'purchase', typeName: 'Purchase', reference: '1' })
+    const b = v({ date: '2026-05-10', amount: 1200_00, partyLedgerId: 3, kind: 'purchase', typeName: 'Purchase', reference: '1' })
+    expect(findAnomalies(input([a, b])).some((x) => x.kind === 'duplicate_bill_number')).toBe(false)
+    const c = v({ date: '2026-04-10', amount: 900_00, partyLedgerId: 3, kind: 'purchase', typeName: 'Purchase', reference: '001' })
+    expect(findAnomalies(input([a, b, c])).find((x) => x.kind === 'duplicate_bill_number')).toMatchObject({ voucherId: b.voucherId, relatedVoucherIds: [c.voucherId] })
+  })
+
+  it('back-dated into a locked period only when entered after the lock was set; imports are skipped', () => {
+    const before = v({ date: '2026-05-05', amount: 10_00, createdOn: '2026-05-06' })
+    const after = v({ date: '2026-05-07', amount: 10_00, createdOn: '2026-06-10' })
+    const imported = v({ date: '2026-05-08', amount: 10_00, createdOn: '2026-09-01', imported: true })
+    const lock = { lockHistory: [{ setOn: '2026-06-05', lockDate: '2026-05-31' }], backdatedDays: 60 }
+    const out = findAnomalies(input([before, after, imported]), lock).filter((x) => x.kind === 'backdated')
+    expect(out.map((x) => [x.voucherId, x.severity])).toEqual([[after.voucherId, 'high']])
+  })
+
+  it('GST rate: cess left out, the goods side only (RCM), taxable ledger lines in the base', () => {
+    const items = (rateBp: number) => [{ itemId: 1, itemName: 'Cigarettes', hsn: '2402', amount: 1000_00, rateBp }]
+    // 28% + 12% cess: the voucher's GST (cess not counted) is 28% — fine.
+    const cess = v({ date: '2026-05-07', amount: 1400_00, kind: 'sales', typeName: 'Sales', taxPaise: 280_00, stockLines: items(2800) })
+    // RCM purchase: only the input (Dr) side is counted by the service; 18% — fine.
+    const rcm = v({ date: '2026-05-08', amount: 1000_00, kind: 'purchase', typeName: 'Purchase', taxPaise: 180_00, stockLines: items(1800) })
+    // Freight at 18% on a 5% item: 50 + 18 = 68 on 1,100 — the blended expected rate, not a deviation.
+    const freight = v({ date: '2026-05-09', amount: 1168_00, kind: 'sales', typeName: 'Sales', taxPaise: 68_00, stockLines: items(500), taxableLines: [{ ledgerId: 9, amount: 100_00, rateBp: 1800 }] })
+    const out = findAnomalies(input([cess, rcm, freight])).filter((x) => x.kind === 'gst_rate_deviation')
+    expect(out).toEqual([])
+    // The same freight voucher ignoring the freight line WOULD have looked wrong.
+    const bad = v({ date: '2026-05-10', amount: 1168_00, kind: 'sales', typeName: 'Sales', taxPaise: 68_00, stockLines: items(500) })
+    expect(findAnomalies(input([bad])).some((x) => x.kind === 'gst_rate_deviation')).toBe(true)
+  })
+
+  it('outliers: identical history still has a yardstick; near-zero spread is floored; 1–2 samples never flag', () => {
+    const rent = (date: string, amount: number) => v({ date, amount, lines: [{ ledgerId: 4, drCr: 'dr', amount }, { ledgerId: 1, drCr: 'cr', amount }] })
+    const months = ['2025-05', '2025-06', '2025-07', '2025-08', '2025-09', '2025-10', '2025-11', '2025-12', '2026-01', '2026-02', '2026-03', '2026-04']
+    const hist = months.map((m) => rent(`${m}-01`, 20_000_00))
+    const ten = rent('2026-05-01', 2_00_000_00)
+    const same = rent('2026-05-15', 20_000_00)
+    const out = findAnomalies(input([...hist, ten, same])).filter((x) => x.kind === 'amount_outlier')
+    expect(out.map((x) => x.voucherId)).toEqual([ten.voucherId])
+    // Near-zero spread (₹1 apart): a ₹50 rise is NOT 50σ — the floor (10% of the mean) applies.
+    const near = months.map((m, i) => rent(`${m}-02`, 20_000_00 + (i % 2) * 100))
+    const rise = rent('2026-05-02', 20_050_00)
+    expect(findAnomalies(input([...near, rise])).filter((x) => x.kind === 'amount_outlier')).toEqual([])
+    // Too little history.
+    expect(findAnomalies(input([rent('2026-04-01', 100_00), rent('2026-05-01', 100_000_00)])).filter((x) => x.kind === 'amount_outlier')).toEqual([])
+  })
+
+  it('an edited amount changes the key (a dismissal does not hide the new figure)', () => {
+    const a = v({ date: '2026-05-12', amount: 5_00_000_00, kind: 'journal', typeName: 'Journal' })
+    const k1 = findAnomalies(input([a])).find((x) => x.kind === 'round_amount')!.key
+    const k2 = findAnomalies(input([{ ...a, amount: 6_00_000_00 }])).find((x) => x.kind === 'round_amount')!.key
+    expect(k1).not.toBe(k2)
   })
 })

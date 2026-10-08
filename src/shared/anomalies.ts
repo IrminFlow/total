@@ -38,6 +38,9 @@ export const ANOMALY_LABELS: Record<AnomalyKind, string> = {
   hsn_rate_mismatch: 'Same HSN, different GST rates'
 }
 
+import { fyOf } from './dates'
+import { normalizeInvoiceNumber } from './gst/recon2b'
+
 /** How the ledger behaves, for pairing and outlier baselines. */
 export type LedgerRole = 'party' | 'cashBank' | 'tax' | 'other'
 
@@ -64,8 +67,13 @@ export interface AnomalyVoucher {
   /** ISO date (YYYY-MM-DD) the voucher was first saved (audit trail); null = unknown. */
   createdOn: string | null
   lines: AnomalyLine[]
-  /** GST tax lines total (paise) and taxable value of the stock lines — for the rate check. */
+  /** GST (IGST + CGST + SGST, cess left out) on the GOODS side only — Dr for a purchase, Cr for a
+   *  sale — so a reverse-charge voucher's output-side entry is not counted twice. Paise. */
   taxPaise?: number
+  /** Taxable ledger lines on the goods side (freight, services) with their ledger's rate (bp). */
+  taxableLines?: { ledgerId: number; amount: number; rateBp: number | null }[]
+  /** Created by an import batch / Tally import (its created_at is the import time, not entry). */
+  imported?: boolean
   /** Stock lines: amount (paise) and the item's master rate in basis points (1800 = 18%). */
   stockLines?: { itemId: number; itemName: string; hsn: string | null; amount: number; rateBp: number | null }[]
 }
@@ -104,12 +112,17 @@ export interface AnomalyOptions {
   weekendDays: readonly number[]
   /** Holiday dates (YYYY-MM-DD). */
   holidays: readonly string[]
-  /** The books' lock date (entries on or before it were locked). */
-  lockDate: string | null
+  /** Every lock date set, with the day it was set (audit trail): an entry is "into a locked
+   *  period" only when it was created AFTER a lock covering its date was set. */
+  lockHistory: readonly { setOn: string; lockDate: string }[]
   /** Months marked closed in the close checklist: entries into them saved after closing are high. */
   closedPeriods: readonly { period: string; closedOn: string }[]
   /** Tolerance on the effective GST rate (basis points). */
   gstRateToleranceBp: number
+  /** Smallest spread an outlier is measured against: this percent of the mean … */
+  minSpreadPct: number
+  /** … and at least this many paise (so identical history still has a yardstick). */
+  minSpreadPaise: number
 }
 
 export const DEFAULT_ANOMALY_OPTIONS: AnomalyOptions = {
@@ -121,9 +134,11 @@ export const DEFAULT_ANOMALY_OPTIONS: AnomalyOptions = {
   backdatedDays: 30,
   weekendDays: [0],
   holidays: [],
-  lockDate: null,
+  lockHistory: [],
   closedPeriods: [],
-  gstRateToleranceBp: 50
+  gstRateToleranceBp: 50,
+  minSpreadPct: 10,
+  minSpreadPaise: 100_00
 }
 
 export interface Anomaly {
@@ -170,28 +185,47 @@ export function isqrt(n: bigint): bigint {
   return x
 }
 
+/** Running sums of a history (n, Σa, Σa², max) — BigInt, so squared paise never overflow. */
+export interface Spread {
+  n: number
+  s: bigint
+  q: bigint
+  max: number
+}
+export const emptySpread = (): Spread => ({ n: 0, s: 0n, q: 0n, max: 0 })
+export function addToSpread(h: Spread, a: number): void {
+  const b = BigInt(a)
+  h.n++
+  h.s += b
+  h.q += b * b
+  if (a > h.max) h.max = a
+}
+
 /**
- * How far `x` sits above the mean of `history`, in thousandths of a standard deviation
- * (population SD), or null when there is no spread. Exact integer maths:
- *   z = (x − S/n) / sqrt(Q/n − (S/n)²) = (n·x − S) / sqrt(n·Q − S²)
- * floored to thousandths,
- * with S = Σa, Q = Σa², all BigInt.
+ * How far `x` sits above the mean of a history, in thousandths of a standard deviation, with the
+ * deviation floored at max(sd, pct% of the mean, floorPaise) — a run of identical amounts still
+ * has a yardstick, so 10× the usual rent IS an outlier. Exact integer maths:
+ *   z = (n·x − S) / max(sqrt(n·Q − S²), pct·S/100, floor·n)
+ * floored to thousandths. Null below two samples.
  */
-export function zScoreMilli(x: number, history: readonly number[]): number | null {
-  const n = BigInt(history.length)
-  if (n < 2n) return null
-  let s = 0n
-  let q = 0n
-  for (const a of history) {
-    const b = BigInt(a)
-    s += b
-    q += b * b
-  }
-  const v = n * q - s * s
-  if (v <= 0n) return null
-  const d = n * BigInt(x) - s
-  // z·1000 = sqrt(d²·10⁶ / v), signed — one square root of the scaled ratio keeps every digit.
-  const mag = isqrt((d * d * 1_000_000n) / v)
+export function zScoreMilli(x: number, h: Spread | readonly number[], floor: { pct: number; paise: number } = { pct: 0, paise: 0 }): number | null {
+  let st: Spread
+  if (Array.isArray(h)) {
+    st = emptySpread()
+    for (const a of h as readonly number[]) addToSpread(st, a)
+  } else st = h as Spread
+  if (st.n < 2) return null
+  const n = BigInt(st.n)
+  const v = n * st.q - st.s * st.s // (n·sd)²
+  const pctTerm = (BigInt(floor.pct) * st.s) / 100n // n·(pct% of mean)
+  const floorTerm = BigInt(floor.paise) * n
+  let a = v > 0n ? v : 0n
+  if (pctTerm * pctTerm > a) a = pctTerm * pctTerm
+  if (floorTerm * floorTerm > a) a = floorTerm * floorTerm
+  if (a === 0n) return null
+  const d = n * BigInt(x) - st.s
+  // z·1000 = sqrt(d²·10⁶ / a), signed — one square root of the scaled ratio keeps every digit.
+  const mag = isqrt((d * d * 1_000_000n) / a)
   return Number(d < 0n ? -mag : mag)
 }
 
@@ -211,12 +245,9 @@ export const rateText = (bp: number): string => {
 /** "4.2σ" from thousandths. */
 export const sigmaText = (milli: number): string => `${Math.trunc(milli / 1000)}.${Math.trunc(Math.abs(milli % 1000) / 100)}σ`
 
-/** Invoice-number normalisation for duplicates: upper-case letters and digits only, leading zeros
- *  of the last digit run dropped ("INV-007" = "inv7"). */
-export function normaliseBillNo(raw: string): string {
-  const s = raw.toUpperCase().replace(/[^A-Z0-9]/g, '')
-  return s.replace(/0+(\d+)$/, (_m, d: string) => d)
-}
+/** Invoice-number normalisation for duplicates — the GSTR-2B matcher's own (recon2b.ts): letters
+ *  and digits, leading zeros of the LAST digit run dropped ("INV-007" = "inv7", "INV-100" ≠ "INV-10"). */
+export const normaliseBillNo = normalizeInvoiceNumber
 
 const normaliseNarration = (raw: string): string => raw.toLowerCase().replace(/\s+/g, ' ').replace(/[^a-z0-9 ]/g, '').trim()
 
@@ -240,7 +271,7 @@ const BILL_KINDS = new Set(['purchase', 'debit_note', 'credit_note', 'sales'])
 
 function base(v: AnomalyVoucher, kind: AnomalyKind, severity: AnomalySeverity, detail: string, extra: Partial<Anomaly> = {}): Anomaly {
   return {
-    key: `${kind}:${v.voucherId}`,
+    key: `${kind}:${v.voucherId}:${v.amount}`,
     kind,
     severity,
     voucherId: v.voucherId,
@@ -279,7 +310,7 @@ function duplicates(vs: readonly AnomalyVoucher[], input: AnomalyInput, o: Anoma
       const first = earlier[earlier.length - 1]!
       out.push(
         base(v, 'duplicate_party_amount', 'high', `${rupeeText(v.amount)} to ${v.partyName ?? 'the same party'} on ${v.date}, and ${label(first)} for the same amount on ${first.date} (${daysBetween(first.date, v.date)} days apart)`, {
-          key: `duplicate_party_amount:${first.voucherId}:${v.voucherId}`,
+          key: `duplicate_party_amount:${first.voucherId}:${v.voucherId}:${v.amount}`,
           relatedVoucherIds: earlier.map((e) => e.voucherId),
           metric: daysBetween(first.date, v.date)
         })
@@ -292,7 +323,9 @@ function duplicates(vs: readonly AnomalyVoucher[], input: AnomalyInput, o: Anoma
     if (!v.reference || v.partyLedgerId == null || !BILL_KINDS.has(v.kind)) continue
     const n = normaliseBillNo(v.reference)
     if (!n) continue
-    const k = `${v.partyLedgerId}|${v.kind}|${n}`
+    // Rule 46(b) CGST Rules: a serial number unique for a financial year — the same number in
+    // another FY is a different invoice.
+    const k = `${v.partyLedgerId}|${v.kind}|${fyOf(v.date).startYear}|${n}`
     const list = byBill.get(k) ?? []
     list.push(v)
     byBill.set(k, list)
@@ -303,8 +336,8 @@ function duplicates(vs: readonly AnomalyVoucher[], input: AnomalyInput, o: Anoma
       if (!inPeriod(v, input.from, input.to)) continue
       const first = list[0]!
       out.push(
-        base(v, 'duplicate_bill_number', 'high', `Bill “${v.reference}” from ${v.partyName ?? 'this party'} is also on ${label(first)} dated ${first.date}`, {
-          key: `duplicate_bill_number:${first.voucherId}:${v.voucherId}`,
+        base(v, 'duplicate_bill_number', 'high', `Bill “${v.reference}” from ${v.partyName ?? 'this party'} is also on ${label(first)} dated ${first.date} — invoice numbers are unique within a financial year (rule 46(b))`, {
+          key: `duplicate_bill_number:${first.voucherId}:${v.voucherId}:${v.amount}`,
           relatedVoucherIds: list.slice(0, i).map((e) => e.voucherId)
         })
       )
@@ -330,7 +363,7 @@ function duplicates(vs: readonly AnomalyVoucher[], input: AnomalyInput, o: Anoma
       const first = earlier[earlier.length - 1]!
       out.push(
         base(v, 'duplicate_narration', 'medium', `Same narration and amount (${rupeeText(v.amount)}) as ${label(first)} on ${first.date}`, {
-          key: `duplicate_narration:${first.voucherId}:${v.voucherId}`,
+          key: `duplicate_narration:${first.voucherId}:${v.voucherId}:${v.amount}`,
           relatedVoucherIds: earlier.map((e) => e.voucherId)
         })
       )
@@ -361,8 +394,9 @@ function baselines(vs: readonly AnomalyVoucher[], input: AnomalyInput, o: Anomal
   const seenPairs = new Set<string>()
   const ledgerUse = new Map<number, number>()
   // Outliers: party amounts per (party, kind); 'other' ledger amounts per (ledger, side).
-  const partyHist = new Map<string, number[]>()
-  const ledgerHist = new Map<string, number[]>()
+  const partyHist = new Map<string, Spread>()
+  const ledgerHist = new Map<string, Spread>()
+  const floor = { pct: o.minSpreadPct, paise: o.minSpreadPaise }
   for (const v of sorted) {
     const pair = mainPair(v, input.ledgers)
     if (inPeriod(v, input.from, input.to)) {
@@ -371,19 +405,19 @@ function baselines(vs: readonly AnomalyVoucher[], input: AnomalyInput, o: Anomal
         if ((ledgerUse.get(d) ?? 0) >= o.minHistory && (ledgerUse.get(c) ?? 0) >= o.minHistory) {
           out.push(
             base(v, 'unusual_pairing', 'medium', `Dr ${name(d)} / Cr ${name(c)} has not been used together before (both ledgers have ${o.minHistory}+ earlier vouchers)`, {
-              key: `unusual_pairing:${v.voucherId}`,
+              key: `unusual_pairing:${v.voucherId}:${v.amount}`,
               ledgerId: d
             })
           )
         }
       }
       if (v.partyLedgerId != null && PARTY_KINDS.has(v.kind)) {
-        const hist = partyHist.get(`${v.partyLedgerId}|${v.kind}`) ?? []
-        const z = hist.length >= o.minHistory ? zScoreMilli(v.amount, hist) : null
+        const hist = partyHist.get(`${v.partyLedgerId}|${v.kind}`) ?? emptySpread()
+        const z = hist.n >= o.minHistory ? zScoreMilli(v.amount, hist, floor) : null
         if (z !== null && z >= o.zThresholdMilli) {
           out.push(
-            base(v, 'amount_outlier', z >= o.zThresholdMilli * 2 ? 'high' : 'medium', `${rupeeText(v.amount)} is ${sigmaText(z)} above ${v.partyName ?? 'this party'}’s usual ${v.typeName.toLowerCase()} amounts (${hist.length} earlier vouchers, largest ${rupeeText(Math.max(...hist))})`, {
-              key: `amount_outlier:${v.voucherId}`,
+            base(v, 'amount_outlier', z >= o.zThresholdMilli * 2 ? 'high' : 'medium', `${rupeeText(v.amount)} is ${sigmaText(z)} above ${v.partyName ?? 'this party'}’s usual ${v.typeName.toLowerCase()} amounts (${hist.n} earlier vouchers, largest ${rupeeText(hist.max)})`, {
+              key: `amount_outlier:${v.voucherId}:${v.amount}`,
               metric: z
             })
           )
@@ -391,12 +425,12 @@ function baselines(vs: readonly AnomalyVoucher[], input: AnomalyInput, o: Anomal
       } else {
         for (const l of v.lines) {
           if (input.ledgers.get(l.ledgerId)?.role !== 'other') continue
-          const hist = ledgerHist.get(`${l.ledgerId}|${l.drCr}`) ?? []
-          const z = hist.length >= o.minHistory ? zScoreMilli(l.amount, hist) : null
+          const hist = ledgerHist.get(`${l.ledgerId}|${l.drCr}`) ?? emptySpread()
+          const z = hist.n >= o.minHistory ? zScoreMilli(l.amount, hist, floor) : null
           if (z !== null && z >= o.zThresholdMilli) {
             out.push(
-              base(v, 'amount_outlier', z >= o.zThresholdMilli * 2 ? 'high' : 'medium', `${rupeeText(l.amount)} on ${name(l.ledgerId)} is ${sigmaText(z)} above its usual ${l.drCr === 'dr' ? 'debits' : 'credits'} (${hist.length} earlier entries, largest ${rupeeText(Math.max(...hist))})`, {
-                key: `amount_outlier:${v.voucherId}:${l.ledgerId}`,
+              base(v, 'amount_outlier', z >= o.zThresholdMilli * 2 ? 'high' : 'medium', `${rupeeText(l.amount)} on ${name(l.ledgerId)} is ${sigmaText(z)} above its usual ${l.drCr === 'dr' ? 'debits' : 'credits'} (${hist.n} earlier entries, largest ${rupeeText(hist.max)})`, {
+                key: `amount_outlier:${v.voucherId}:${l.ledgerId}:${l.amount}`,
                 ledgerId: l.ledgerId,
                 amount: l.amount,
                 metric: z
@@ -412,13 +446,15 @@ function baselines(vs: readonly AnomalyVoucher[], input: AnomalyInput, o: Anomal
     for (const id of new Set(v.lines.map((l) => l.ledgerId))) ledgerUse.set(id, (ledgerUse.get(id) ?? 0) + 1)
     if (v.partyLedgerId != null && PARTY_KINDS.has(v.kind)) {
       const k = `${v.partyLedgerId}|${v.kind}`
-      partyHist.set(k, [...(partyHist.get(k) ?? []), v.amount])
+      const h = partyHist.get(k) ?? emptySpread()
+      addToSpread(h, v.amount)
+      partyHist.set(k, h)
     } else {
       for (const l of v.lines) {
         if (input.ledgers.get(l.ledgerId)?.role !== 'other') continue
         const k = `${l.ledgerId}|${l.drCr}`
-        const h = ledgerHist.get(k) ?? []
-        h.push(l.amount)
+        const h = ledgerHist.get(k) ?? emptySpread()
+        addToSpread(h, l.amount)
         ledgerHist.set(k, h)
       }
     }
@@ -436,33 +472,37 @@ function perVoucher(vs: readonly AnomalyVoucher[], input: AnomalyInput, o: Anoma
     }
     if (holidays.has(v.date)) out.push(base(v, 'holiday_posting', 'low', `Dated ${v.date}, a holiday in the company calendar`))
     else if (o.weekendDays.includes(weekday(v.date))) out.push(base(v, 'weekend_posting', 'low', `Dated ${v.date}, a weekly off day`))
-    if (v.createdOn && v.createdOn > v.date) {
+    // An imported voucher's created_at is the import time, not when it was entered: skipped.
+    if (v.createdOn && v.createdOn > v.date && !v.imported) {
       const late = daysBetween(v.createdOn, v.date)
       const closed = o.closedPeriods.find((p) => p.period === v.date.slice(0, 7) && v.createdOn! > p.closedOn)
-      const locked = o.lockDate !== null && v.date <= o.lockDate
+      const lock = o.lockHistory.find((l) => l.lockDate >= v.date && v.createdOn! > l.setOn)
+      const locked = !!lock
       if (closed || locked || late >= o.backdatedDays) {
         const why = closed
           ? `entered on ${v.createdOn}, after ${v.date.slice(0, 7)} was marked closed (${closed.closedOn})`
           : locked
-            ? `entered on ${v.createdOn} into the period now locked up to ${o.lockDate}`
+            ? `entered on ${v.createdOn}, after the books were locked up to ${lock!.lockDate} (on ${lock!.setOn})`
             : `entered on ${v.createdOn}, ${late} days after its date`
         out.push(base(v, 'backdated', closed || locked ? 'high' : 'medium', `Dated ${v.date} but ${why}`, { metric: late }))
       }
     }
-    // GST charged vs the items' rates (stock vouchers with tax lines).
+    // GST charged vs the items' / ledgers' rates (cess left out; goods side only).
     if (v.stockLines?.length && v.taxPaise !== undefined && (v.kind === 'sales' || v.kind === 'purchase')) {
-      const rated = v.stockLines.filter((l) => l.rateBp !== null)
-      const taxable = v.stockLines.reduce((s, l) => s + l.amount, 0)
-      if (rated.length === v.stockLines.length && taxable > 0) {
-        // Expected rate = item rates weighted by line value (BigInt, rounded) — basis points.
+      // Ledger lines without a GST rate (round-off, non-taxable charges) are left out.
+      const parts = [...v.stockLines.map((l) => ({ amount: l.amount, rateBp: l.rateBp })), ...(v.taxableLines ?? []).filter((l) => l.rateBp !== null)]
+      const taxable = parts.reduce((s, l) => s + l.amount, 0)
+      if (parts.every((l) => l.rateBp !== null) && taxable > 0) {
+        // Expected rate = rates weighted by line value (BigInt, rounded) — basis points.
         let w = 0n
-        for (const l of rated) w += BigInt(l.amount) * BigInt(l.rateBp!)
+        for (const l of parts) w += BigInt(l.amount) * BigInt(l.rateBp!)
         const expected = Number((w * 2n + BigInt(taxable)) / (2n * BigInt(taxable)))
         const effective = bpOf(v.taxPaise, taxable)!
         if (Math.abs(effective - expected) > o.gstRateToleranceBp) {
           const hsn = [...new Set(v.stockLines.map((l) => l.hsn).filter(Boolean))].join(', ')
           out.push(
-            base(v, 'gst_rate_deviation', 'medium', `GST charged is ${rateText(effective)} of the taxable value ${rupeeText(taxable)}; the items’ rates give ${rateText(expected)}${hsn ? ` (HSN ${hsn})` : ''}`, {
+            base(v, 'gst_rate_deviation', 'medium', `GST charged (cess aside) is ${rateText(effective)} of the taxable value ${rupeeText(taxable)}; the item and ledger rates give ${rateText(expected)}${hsn ? ` (HSN ${hsn})` : ''}`, {
+              key: `gst_rate_deviation:${v.voucherId}:${v.taxPaise}:${taxable}`,
               itemId: v.stockLines[0]!.itemId,
               metric: effective - expected
             })
@@ -491,7 +531,7 @@ function hsnRates(items: readonly AnomalyItem[]): Anomaly[] {
     for (const i of list) {
       if (i.rateBp === usual) continue
       out.push({
-        key: `hsn_rate_mismatch:${i.itemId}`,
+        key: `hsn_rate_mismatch:${i.itemId}:${i.rateBp}`,
         kind: 'hsn_rate_mismatch',
         severity: 'medium',
         voucherId: null,

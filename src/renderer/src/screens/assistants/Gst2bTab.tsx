@@ -141,6 +141,7 @@ export function Gst2bTab({ initialPeriod }: { initialPeriod?: string }): React.J
         { id: 'bookValue', header: 'Value', group: 'Books', kind: 'money', value: (m) => m.book?.invoiceValue ?? null, width: 112, aggregate: 'sum' },
         { id: 'bookTax', header: 'Tax', group: 'Books', kind: 'money', value: (m) => taxOf(m.book), width: 100, aggregate: 'sum' },
         { id: 'bookMonth', header: 'Books month', kind: 'text', value: (m) => m.bookMonth ?? '', width: 100, defaultHidden: true },
+        { id: 'flags', header: 'Flags', kind: 'text', value: (m) => [...m.flags, ...(m.reopened ? ['re-opened: figures changed'] : [])].join(', '), width: 140, className: 'text-small text-warning' },
         { id: 'diff', header: 'Difference', kind: 'money', value: (m) => m.valueDiff, width: 112, defaultHidden: true, cell: (m) => (m.valueDiff ? <Money paise={m.valueDiff} /> : dash) },
         // Exported and filterable; shown in full in the row's detail line.
         { id: 'suggestion', header: 'Suggested action', kind: 'text', value: (m) => m.suggestion, defaultHidden: true }
@@ -241,6 +242,7 @@ export function Gst2bTab({ initialPeriod }: { initialPeriod?: string }): React.J
                   <span className="font-medium text-ink">Suggested: </span>
                   {m.suggestion}
                   {m.resolved ? ` — ${m.resolved.status} by ${m.resolved.by ?? 'a user'}${m.resolved.note ? `: ${m.resolved.note}` : ''}` : ''}
+                  {m.reopened ? ` — re-opened: it was ${m.reopened.previous} by ${m.reopened.by ?? 'a user'}, but its figures have changed since.` : ''}
                 </p>
               )}
               detailHeightEstimate={44}

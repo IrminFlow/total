@@ -100,7 +100,7 @@ export function CloseTab({ initialPeriod }: { initialPeriod?: string }): React.J
         { id: 'count', header: 'Items', kind: 'number', value: (c) => c.count + c.more, width: 64 },
         { id: 'amount', header: 'Amount', kind: 'money', value: (c) => c.amount, width: 124, explainable: false },
         { id: 'due', header: 'Due', kind: 'date', value: (c) => c.dueDate, width: 104, className: 'text-muted' },
-        { id: 'mark', header: 'Marked', kind: 'text', value: (c) => (c.mark ? `${c.mark.by ?? '—'}${c.mark.note ? `: ${c.mark.note}` : ''}` : ''), className: 'text-muted', width: 140 }
+        { id: 'mark', header: 'Marked', kind: 'text', value: (c) => (c.mark ? `${c.reopened ? 'RE-OPENED (findings changed) · ' : ''}${c.mark.by ?? '—'}${c.mark.note ? `: ${c.mark.note}` : ''}` : ''), className: 'text-muted', width: 140 }
       ]),
     []
   )
