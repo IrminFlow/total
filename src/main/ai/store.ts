@@ -139,6 +139,7 @@ interface MessageRow {
   sent_privacy: string | null
   reasoning_json: string | null
   context_json: string | null
+  memory_ids_json: string | null
   created_at: string
 }
 
@@ -180,6 +181,7 @@ function toMessage(r: MessageRow): StoredMessage {
     outputTokens: r.output_tokens,
     draftId: r.draft_id,
     context: parse<AiContext | null>(r.context_json, null),
+    memoryIds: parse<number[]>(r.memory_ids_json, []),
     createdAt: r.created_at
   }
 }
@@ -208,6 +210,8 @@ export interface NewMessage {
   reasoning?: Record<string, unknown>[]
   /** User messages: the screen context the question was asked with (Regenerate reuses it). */
   context?: AiContext | null
+  /** WP 5.6, final answers: the memories it relied on. */
+  memoryIds?: number[]
 }
 
 export function addMessage(db: DB, m: NewMessage): StoredMessage {
@@ -216,8 +220,8 @@ export function addMessage(db: DB, m: NewMessage): StoredMessage {
       .prepare(
         `INSERT INTO ai_messages (thread_id, role, content, status, tool_calls_json, tool_call_id, tool_name, tool_input_json,
            tool_output_json, tool_ok, truncated, sources_json, figures_json, model, input_tokens, output_tokens, cost_micro_usd, draft_id,
-           sent_text, sent_privacy, reasoning_json, context_json)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+           sent_text, sent_privacy, reasoning_json, context_json, memory_ids_json)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
       .run(
         m.threadId,
@@ -241,7 +245,8 @@ export function addMessage(db: DB, m: NewMessage): StoredMessage {
         m.sentText ?? null,
         m.sentPrivacy ?? null,
         m.reasoning?.length ? JSON.stringify(m.reasoning) : null,
-        m.context ? JSON.stringify(m.context) : null
+        m.context ? JSON.stringify(m.context) : null,
+        m.memoryIds?.length ? JSON.stringify(m.memoryIds) : null
       ).lastInsertRowid
   )
   touchThread(db, m.threadId)
@@ -291,6 +296,11 @@ let defaultDraftOrigin: { source: AiDraftSource; origin: () => string | null } =
 
 export function setDefaultDraftOrigin(o: { source: AiDraftSource; origin: () => string | null }): void {
   defaultDraftOrigin = o
+}
+
+/** WP 5.6: the process's origin (memory proposals record 'mcp' + the client the same way). */
+export function currentDraftOrigin(): { source: AiDraftSource; origin: () => string | null } {
+  return defaultDraftOrigin
 }
 
 function toDraft(r: DraftRow): AiDraftDto {
@@ -456,6 +466,9 @@ export interface NewOutbound {
   payloadSha256: string
   /** WP 5.2: the screen context included (local record; the sent copy is masked). */
   context?: AiContext | null
+  /** WP 5.6: entries in the memory block and its size as sent. */
+  memoryCount?: number
+  memoryBytes?: number
 }
 
 export function logOutbound(db: DB, o: NewOutbound): number {
@@ -463,12 +476,14 @@ export function logOutbound(db: DB, o: NewOutbound): number {
     db
       .prepare(
         `INSERT INTO ai_outbound_log (thread_id, provider, model, request_bytes, instructions_bytes, message_count, tools_offered_json,
-           tool_results_json, masked, pseudonymised, payload_sha256, context_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+           tool_results_json, masked, pseudonymised, payload_sha256, context_json, memory_count, memory_bytes) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
       .run(
         o.threadId, o.provider, o.model, o.requestBytes, o.instructionsBytes, o.messageCount, JSON.stringify(o.toolsOffered),
         JSON.stringify(o.toolResultsSent), o.masked ? 1 : 0, o.pseudonymised ? 1 : 0, o.payloadSha256,
-        o.context ? JSON.stringify(o.context) : null
+        o.context ? JSON.stringify(o.context) : null,
+        o.memoryCount ?? 0,
+        o.memoryBytes ?? 0
       ).lastInsertRowid
   )
 }
@@ -481,6 +496,7 @@ export function listOutbound(db: DB, limit = 2000): AiOutboundRow[] {
   const rows = db.prepare('SELECT * FROM ai_outbound_log ORDER BY id DESC LIMIT ?').all(limit) as {
     id: number; at: string; thread_id: number | null; provider: string; model: string; request_bytes: number; message_count: number
     tools_offered_json: string; tool_results_json: string; masked: number; pseudonymised: number; payload_sha256: string; status: string; context_json: string | null
+    memory_count: number; memory_bytes: number
   }[]
   return rows.map((r) => ({
     id: r.id,
@@ -496,7 +512,9 @@ export function listOutbound(db: DB, limit = 2000): AiOutboundRow[] {
     pseudonymised: r.pseudonymised === 1,
     payloadSha256: r.payload_sha256,
     status: r.status,
-    context: parse<AiContext | null>(r.context_json, null)
+    context: parse<AiContext | null>(r.context_json, null),
+    memoryCount: r.memory_count,
+    memoryBytes: r.memory_bytes
   }))
 }
 

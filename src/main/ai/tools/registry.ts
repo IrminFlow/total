@@ -12,6 +12,7 @@ import type { AiContext, AiSource, AiToolInfo } from '@shared/ai'
 import { roleAllows, type Role } from '../../services/roles'
 import { zodToJsonSchema } from '../jsonSchema'
 import type { ToolSpec } from '../types'
+import type { MemoryContext } from '../memoryRules'
 
 export interface ToolContext {
   db: DB
@@ -33,6 +34,11 @@ export interface ToolContext {
   workingDate?: string
   /** WP 5.2: the screen the user is on (screen, period, parameters, a figure to explain). */
   screen?: AiContext | null
+  /** WP 5.6: this question's active memories — tools consult preferences through it
+   *  (preferredLedger(purpose), forParty(id)); what they use shows as memory chips on the answer. */
+  memory?: MemoryContext
+  /** WP 5.6: whether the user's message asked to remember something (computed once per turn). */
+  memoryRequested?: boolean
 }
 
 export interface ToolOutput<T = unknown> {
@@ -40,6 +46,8 @@ export interface ToolOutput<T = unknown> {
   sources: AiSource[]
   /** Set by draft tools: the ai_drafts row created. */
   draftId?: number
+  /** Set by `remember`: the ai_memory row proposed. */
+  memoryId?: number
 }
 
 export interface ToolDef<S extends z.ZodTypeAny = z.ZodTypeAny> {
@@ -59,7 +67,7 @@ export function defineTool<S extends z.ZodTypeAny>(def: ToolDef<S>): ToolDef {
 }
 
 export type ToolRun =
-  | { ok: true; name: string; input: unknown; data: unknown; sources: AiSource[]; draftId: number | null }
+  | { ok: true; name: string; input: unknown; data: unknown; sources: AiSource[]; draftId: number | null; memoryId: number | null }
   | { ok: false; name: string; input: unknown; error: string }
 
 export class ToolRegistry {
@@ -108,7 +116,7 @@ export class ToolRegistry {
     }
     try {
       const out = await tool.handler(parsed.data, ctx)
-      return { ok: true, name, input: parsed.data, data: out.data, sources: out.sources, draftId: out.draftId ?? null }
+      return { ok: true, name, input: parsed.data, data: out.data, sources: out.sources, draftId: out.draftId ?? null, memoryId: out.memoryId ?? null }
     } catch (err) {
       return { ok: false, name, input: parsed.data, error: err instanceof Error ? err.message : String(err) }
     }

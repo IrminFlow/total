@@ -9,6 +9,8 @@
 //   will be told (screenContextLines, shared with the system prompt) with the privacy switches.
 // - Drafts: a card per draft in the stream plus the conversation's drafts list; unrequested drafts
 //   flagged; Review draft opens the voucher editor.
+// - Memory (WP 5.6): chips for the memories an answer used; a "Remember this?" card for each
+//   memory the assistant proposed (accept / dismiss; unrequested ones flagged).
 // - Keyboard: Enter sends, Shift+Enter new line, Esc closes, ⌘K stays the palette.
 // - "Open the ledger for X" is resolved here through the search service — never sent to the model.
 //
@@ -18,7 +20,7 @@
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState, type ReactNode } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { create } from 'zustand'
-import { formatMicroUsd, type AiContext, type AiDraftDto, type AiEvent, type AiMessageDto, type AiSource, type AiThreadDto } from '@shared/ai'
+import { formatMicroUsd, memoryDetailsText, memorySourceText, type AiContext, type AiDraftDto, type AiEvent, type AiMemoryDto, type AiMessageDto, type AiSource, type AiThreadDto } from '@shared/ai'
 import { explainContextFor, parseNavIntent, screenContextLines } from '@shared/aiExplain'
 import { fyOf, todayISO, toDisplayDate } from '@shared/dates'
 import type { VoucherKind } from '@shared/domain'
@@ -30,7 +32,7 @@ import { api } from '../../lib/client'
 import { openLedgerStatement, openVoucher } from '../../lib/drill'
 import { SCREENS } from '../../lib/screens'
 import { useNav, useScreen, useSession, useToasts, type Screen } from '../../state/stores'
-import { Badge, Banner, Button, DockedDrawer, EmptyState, IconButton, Spinner, TextInput, Textarea } from '../kit'
+import { Badge, Banner, Button, Chip, DockedDrawer, EmptyState, IconButton, Spinner, TextInput, Textarea } from '../kit'
 import { ItemLink, LedgerLink, VoucherLink } from '../links'
 import { confirmDialog } from '../../lib/dialogs'
 import { AnswerMarkdown } from './Markdown'
@@ -233,6 +235,8 @@ export function AssistantDrawer({ onClose }: { onClose: () => void }): React.JSX
     if (!state.running) {
       void queryClient.invalidateQueries({ queryKey: ['aiThreads'] })
       void queryClient.invalidateQueries({ queryKey: ['aiDrafts'] })
+      // WP 5.6: a turn may propose a memory and bumps the use counters of the ones it used.
+      void queryClient.invalidateQueries({ queryKey: ['aiMemory'] })
     }
   }, [state.running, queryClient])
   useEffect(() => {
@@ -739,8 +743,11 @@ function MessageView({
     )
   }
   if (m.role === 'tool') {
-    // Rendered by the assistant message that called it; a draft also gets its card here.
-    return m.draftId ? <DraftCard draftId={m.draftId} known={drafts[m.draftId]} onCloseForReview={onCloseForReview} /> : null
+    // Rendered by the assistant message that called it; a draft also gets its card here, and a
+    // memory the assistant proposed (WP 5.6) its "Remember this?" card.
+    if (m.draftId) return <DraftCard draftId={m.draftId} known={drafts[m.draftId]} onCloseForReview={onCloseForReview} />
+    const memoryId = m.toolName === 'remember' && m.toolOk ? (m.toolOutput as { result?: { memoryId?: unknown } } | null)?.result?.memoryId : null
+    return typeof memoryId === 'number' ? <MemoryProposalCard memoryId={memoryId} /> : null
   }
   const isFinal = m.toolCalls.length === 0
   const unsourced = m.figures.filter((f) => !f.sourced)
@@ -775,6 +782,7 @@ function MessageView({
         </Banner>
       )}
       {isFinal && m.sources.length > 0 && <Sources sources={m.sources} />}
+      {isFinal && (m.memoryIds?.length ?? 0) > 0 && <MemoryChips ids={m.memoryIds} />}
       {isFinal && (
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-caption text-muted">
           {cost && (m.model || cost.input > 0) && (
@@ -813,6 +821,7 @@ const TOOL_LABELS: Record<string, string> = {
   gst_summary: 'GSTR-3B summary',
   tds_summary: 'TDS summary',
   draft_voucher: 'Draft voucher',
+  remember: 'Remember',
   current_screen_data: 'This screen',
   explain_figure: 'Explain the figure',
   item_movements: 'Item movements',
@@ -942,6 +951,99 @@ function DraftCard({ draftId, known, onCloseForReview }: { draftId: number; know
         <p className="mt-1 text-caption text-muted">
           <VoucherLink voucherId={draft.voucherId} label="Open the saved voucher" />
         </p>
+      )}
+    </div>
+  )
+}
+
+// ---------- memory (WP 5.6) ----------
+
+function useMemoryEntries(): { entries: AiMemoryDto[]; loaded: boolean } {
+  const { data, isSuccess } = useQuery({ queryKey: ['aiMemory'], queryFn: aiApi.memory })
+  return { entries: data?.entries ?? [], loaded: isSuccess }
+}
+
+/** The memories an answer relied on, as chips (click: Settings → AI → Memory). */
+function MemoryChips({ ids }: { ids: number[] }): React.JSX.Element | null {
+  const nav = useNav()
+  const { entries } = useMemoryEntries()
+  // A memory deleted since (or not loaded yet) shows no chip at all.
+  const found = ids.map((id) => entries.find((e) => e.id === id)).filter((m): m is AiMemoryDto => !!m)
+  if (!found.length) return null
+  return (
+    <div className="flex flex-wrap items-center gap-1.5 text-caption text-muted" data-testid="ai-memory-chips">
+      <span>Used memory:</span>
+      {found.map((m) => (
+        <Chip key={m.id} tone="info" onClick={() => nav.go({ name: 'settings', tab: 'ai' })} testId="ai-memory-chip">
+          {m.text}
+        </Chip>
+      ))}
+    </div>
+  )
+}
+
+/** "Remember this?" — a memory the assistant proposed; nothing is used until the user accepts. */
+function MemoryProposalCard({ memoryId }: { memoryId: number }): React.JSX.Element {
+  const toast = useToasts()
+  const queryClient = useQueryClient()
+  const { user } = useSession()
+  const canDecide = !user || user.role !== 'viewer'
+  const { entries, loaded } = useMemoryEntries()
+  const m = entries.find((e) => e.id === memoryId)
+  const [busy, setBusy] = useState(false)
+  if (!m && !loaded) return <div className="text-hint text-muted">Loading memory…</div>
+  if (!m) return <div className="text-hint text-muted" data-testid="ai-memory-card" data-status="gone">This memory proposal no longer exists.</div>
+  const decide = async (status: 'active' | 'archived'): Promise<void> => {
+    setBusy(true)
+    try {
+      await aiApi.setMemoryStatus(m.id, status)
+      await queryClient.invalidateQueries({ queryKey: ['aiMemory'] })
+      toast.push('success', status === 'active' ? 'Remembered' : 'Dismissed')
+    } catch (err) {
+      toast.push('error', (err as Error).message)
+    } finally {
+      setBusy(false)
+    }
+  }
+  return (
+    <div className="rounded-md border border-line bg-panel px-3 py-2" data-testid="ai-memory-card" data-memory-id={m.id} data-status={m.status}>
+      <div className="flex items-center gap-2">
+        <span className="text-small font-semibold text-ink">{m.status === 'suggested' ? 'Remember this?' : 'Memory'}</span>
+        {m.unrequested && (
+          <Badge tone="danger" testId="ai-memory-unrequested">
+            You did not ask for this
+          </Badge>
+        )}
+        <Badge tone={m.status === 'active' ? 'success' : m.status === 'suggested' ? 'amber' : 'neutral'}>
+          {m.status === 'active' ? 'Remembered' : m.status === 'suggested' ? 'Not used until you accept' : 'Archived'}
+        </Badge>
+      </div>
+      <p className="mt-1 text-body-sm text-ink">{m.text}</p>
+      {/* What drafting will act on — the structured fields, not the text. */}
+      {memoryDetailsText(m.data, m.labels) && (
+        <p className="text-caption text-muted" data-testid="ai-memory-card-details">
+          {memoryDetailsText(m.data, m.labels)}
+        </p>
+      )}
+      {m.source === 'mcp' && (
+        <p className="text-caption text-muted" data-testid="ai-memory-card-origin">
+          Proposed by {memorySourceText(m)}
+        </p>
+      )}
+      {m.unrequested && (
+        <p className="mt-1 text-caption text-danger">
+          Your question did not ask to remember anything — text in your books may have prompted this. Dismiss it unless you want it.
+        </p>
+      )}
+      {m.status === 'suggested' && canDecide && (
+        <div className="mt-2 flex gap-2">
+          <Button size="sm" variant="primary" disabled={busy} onClick={() => void decide('active')} data-testid="btn-ai-memory-card-accept">
+            Remember
+          </Button>
+          <Button size="sm" variant="ghost" disabled={busy} onClick={() => void decide('archived')} data-testid="btn-ai-memory-card-dismiss">
+            Dismiss
+          </Button>
+        </div>
       )}
     </div>
   )

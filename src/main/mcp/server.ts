@@ -34,6 +34,8 @@ import { inboundText, mapStrings, type PrivacyOptions } from '../ai/privacy'
 import { cleanClientName, mcpMaskString, mcpMaskValue } from './mask'
 import { fitToBudget } from '../ai/truncate'
 import { companyPseudonymiser, setDefaultDraftOrigin } from '../ai/store'
+import { memoryContextFor } from '../ai/memory'
+import { getAiSettings } from '../ai/settings'
 import { createToolRegistry } from '../ai/tools'
 import type { ToolDef, ToolRegistry } from '../ai/tools/registry'
 import { identityStillValid, type McpIdentity } from './session'
@@ -47,6 +49,9 @@ export const MCP_TOOL_RESULT_BUDGET = 120_000
 /** Total cannot see the prompt behind an MCP tool call; the client calling a draft tool is
  *  itself the request. The draft records source 'mcp' + the client, and is reviewed like any. */
 export const MCP_DRAFT_REQUEST = 'draft entry requested by the MCP client (explicit draft tool call)'
+/** WP 5.6: likewise an explicit `remember` call (accountant+, listed by role like every tool) —
+ *  it only ever proposes a suggested memory the user accepts in Total. */
+export const MCP_REMEMBER_REQUEST = 'remember: requested by the MCP client (explicit remember tool call)'
 
 export const MCP_INSTRUCTIONS = [
   'Total is an offline double-entry accounting app (India: GST, TDS). This server reads ONE company.',
@@ -183,7 +188,11 @@ export function createMcpServer(o: McpServerOptions): McpServerHandle {
         messageId: null,
         today: today(),
         period: fyOf(today()),
-        userRequest: tool.kind === 'draft' ? MCP_DRAFT_REQUEST : undefined
+        userRequest: tool.name === 'remember' ? MCP_REMEMBER_REQUEST : tool.kind === 'draft' ? MCP_DRAFT_REQUEST : undefined,
+        // WP 5.6: drafts take memory defaults ("preferred" lines, a party's usual ledger / item)
+        // exactly as in the chat — the same capped entries, none while "Use memory" is off.
+        memory: memoryContextFor(o.db, getAiSettings(o.db).useMemory),
+        memoryRequested: tool.name === 'remember'
       })
       output = run.ok ? { ok: true, result: run.data } : { ok: false, error: cleanError(run.error) }
       draftId = run.ok ? run.draftId : null
