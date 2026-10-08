@@ -337,7 +337,11 @@ function zohoPayments(records: MappedRecord[], ctx: ProfileContext, kind: 'recei
     const bills = rows
       .filter((r) => g(r, 'billNumber'))
       .map((r) => ({ line: r.line, kind: 'against' as const, name: g(r, 'billNumber'), amount: val(errors, r.line, 'applied', parseMoney(g(r, 'applied'))), dueDate: null }))
-      .filter((b) => b.amount === null || b.amount > 0)
+      .filter((b) => b.amount === null || b.amount > 0) as VoucherDraft['bills']
+    // Zoho's "Unused Amount" (paid in excess of the invoices applied) stays on account as an
+    // advance — a new reference named after the payment, so the bill refs equal the amount.
+    const applied = bills.reduce((s, b) => s + (b.amount ?? 0), 0)
+    if (bills.length && applied < amount) bills.push({ line: h.line, kind: 'new', name: `Advance ${g(h, 'number')}`, amount: amount - applied, dueDate: null })
     const partySide = kind === 'receipt' ? 'cr' : 'dr'
     drafts.push({
       key: `zoho:${kind}:${key}`, lines: rows.map((r) => r.line), typeName: kind === 'receipt' ? 'Receipt' : 'Payment', kind, date,

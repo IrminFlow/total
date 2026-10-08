@@ -702,6 +702,7 @@ function groupVoucherRecords(records: MappedRecord[], dateOrder: DateOrder, erro
     }
     // Bill part
     if (g('billRef')) {
+      if (!d.party && g('ledger')) d.party = g('ledger') // the ledger line carrying the bill is the party
       const kindRaw = g('billKind').toLowerCase()
       const kind: 'new' | 'against' =
         /agst|against|adj/.test(kindRaw) ? 'against' : /new/.test(kindRaw) ? 'new' : d.kind === 'receipt' || d.kind === 'payment' ? 'against' : 'new'

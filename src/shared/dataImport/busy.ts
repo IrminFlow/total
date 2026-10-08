@@ -330,7 +330,11 @@ function busyAccVouchers(records: MappedRecord[], ctx: ProfileContext): { result
     }
     if (!amount) continue
     d.ledgerLines.push({ line: r.line, ledger: g(r, 'account'), drCr: side, amount })
-    if (g(r, 'billRef')) d.bills.push({ line: r.line, kind: /new/i.test(g(r, 'billKind')) ? 'new' : 'against', name: g(r, 'billRef'), amount, dueDate: null })
+    if (g(r, 'billRef')) {
+      // The account carrying the bill reference is the voucher's party.
+      d.party ??= g(r, 'account')
+      d.bills.push({ line: r.line, kind: /new/i.test(g(r, 'billKind')) ? 'new' : 'against', name: g(r, 'billRef'), amount, dueDate: null })
+    }
   }
   return { result: { target: 'vouchers', rows: [...map.values()] }, errors }
 }
