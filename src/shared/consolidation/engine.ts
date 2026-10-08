@@ -17,6 +17,8 @@ import type {
 import type { ConsolidationSourceId } from './sources'
 
 const isBsNature = (n: Nature): boolean => n === 'asset' || n === 'liability'
+/** Negate without producing -0. */
+const neg = (x: number): number => (x === 0 ? 0 : -x)
 
 // ---------------------------------------------------------------- group chart lines
 
@@ -341,7 +343,7 @@ export function consolidateStatement(input: StatementInput): StatementResult {
     if (kind === 'pnl') continue
 
     const eqRows = m.rows.filter((r) => r.equity && r.amount !== 0)
-    const eqTotal = -eqRows.reduce((s, r) => s + r.amount, 0)
+    const eqTotal = neg(eqRows.reduce((s, r) => s + r.amount, 0))
     const mi = eqTotal - shareOf(eqTotal, p)
     const eqPostings = (fraction: 'all' | number): Draft[] => {
       if (fraction === 'all') return eqRows.map((r) => (r.computed ? computedPosting(m, r.computed, r.ledgerId, r.nature, r.gp, -r.amount) : memberPosting(m, r.ledgerId, -r.amount)))
@@ -414,14 +416,14 @@ export function consolidateStatement(input: StatementInput): StatementResult {
   }
   if (kind === 'pnl') {
     const pl = out.filter((l) => l.section !== 'appropriation')
-    const netProfit = -sumBy((l) => l.consolidated, pl)
+    const netProfit = neg(sumBy((l) => l.consolidated, pl))
     const minorityInterest = sumBy((l) => l.consolidated, out.filter((l) => l.section === 'appropriation'))
-    result.profit = { perMember: lineMembers.map((_, i) => -sumBy((l) => l.perMember[i]!, pl)), netProfit, minorityInterest, ownersProfit: netProfit - minorityInterest }
+    result.profit = { perMember: lineMembers.map((_, i) => neg(sumBy((l) => l.perMember[i]!, pl))), netProfit, minorityInterest, ownersProfit: netProfit - minorityInterest }
   }
   if (kind === 'bs') {
     result.balance = {
       assets: sumBy((l) => l.consolidated, out.filter((l) => l.nature === 'asset')),
-      liabilities: -sumBy((l) => l.consolidated, out.filter((l) => l.nature === 'liability'))
+      liabilities: neg(sumBy((l) => l.consolidated, out.filter((l) => l.nature === 'liability')))
     }
   }
   if (input.members.filter((m) => m.role === 'parent').length !== 1) warnings.push('A group needs exactly one parent')

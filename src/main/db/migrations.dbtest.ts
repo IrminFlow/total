@@ -121,7 +121,12 @@ const EXPECTED_TABLES = [
   // WP 6.1 / 6.2 (last; number by position)
   'saved_reports',
   'report_packs',
-  'report_pack_runs'
+  'report_pack_runs',
+  // WP 6.5 (last; number by position) — group consolidation
+  'consolidation_groups',
+  'consolidation_members',
+  'consolidation_mappings',
+  'intercompany_pairs'
 ]
 
 describe('migrate', () => {

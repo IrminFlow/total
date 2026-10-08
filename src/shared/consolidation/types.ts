@@ -224,3 +224,65 @@ export interface StatementResult {
   balance?: { assets: number; liabilities: number }
   warnings: string[]
 }
+
+// ---------------------------------------------------------------- service result
+
+export interface IcReconRow {
+  pairId: number
+  kind: PairKind
+  memberA: string
+  memberAName: string
+  ledgerAId: number
+  ledgerAName: string
+  memberB: string
+  memberBName: string
+  ledgerBId: number
+  ledgerBName: string
+  /** Balances on the reporting date (dr-positive); null when the pair is not a balance pair. */
+  balanceA: number | null
+  balanceB: number | null
+  difference: number | null
+  status: 'reconciled' | 'unreconciled' | 'skipped' | 'n/a'
+  /** Inter-company transactions of the period (dr-positive); null when not a flow pair. */
+  flowA: number | null
+  flowB: number | null
+  flowDifference: number | null
+  flowStatus: 'reconciled' | 'unreconciled' | 'skipped' | 'n/a'
+  /** Ageing of each side's balance (AGEING_BUCKETS), signed. */
+  ageingA: number[]
+  ageingB: number[]
+  note: string | null
+}
+
+export interface GroupRunResult {
+  group: { id: number; name: string; presentationCurrency: string; icTolerance: number; unrealisedMarginBp: number | null }
+  period: { from: string; to: string }
+  /** The open company's slug — only its ledger ids can be opened from here. */
+  openSlug: string | null
+  tb: StatementResult
+  pnl: StatementResult
+  bs: StatementResult
+  recon: IcReconRow[]
+  warnings: string[]
+  /** Same group for the period one year earlier (consolidated column by line key). */
+  prior?: {
+    period: { from: string; to: string }
+    tb: Record<string, number>
+    pnl: Record<string, number>
+    bs: Record<string, number>
+    netProfit: number
+    ownersProfit: number
+  }
+}
+
+/** A member's chart for the mapping / pair pickers (read from its books, read-only). */
+export interface MemberChart {
+  slug: string
+  name: string
+  available: boolean
+  warning: string | null
+  gstin: string | null
+  pan: string | null
+  ledgers: { id: number; name: string; groupName: string; nature: Nature; gstin: string | null; pan: string | null }[]
+  groups: { name: string; nature: Nature }[]
+}

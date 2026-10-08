@@ -2930,5 +2930,64 @@ export const MIGRATIONS: string[] = [
     error TEXT
   );
   CREATE INDEX idx_report_pack_runs_pack ON report_pack_runs(pack_id, id);
+  `,
+  // WP 6.5 (last; number by position) — group consolidation. Stored in the group (parent)
+  // company's own DB; members are other companies by registry slug, read read-only at query time
+  // (services/consolidation.ts), so ledger ids here point into OTHER files and carry no FK. Only
+  // the definition is stored — every consolidated figure is computed at query time. Kept last
+  // when parallel branches' migrations merge (6.3 Excel, 6.4 attachments go before it). Never
+  // edit the content.
+  `
+  CREATE TABLE consolidation_groups (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL UNIQUE COLLATE NOCASE,
+    presentation_currency TEXT NOT NULL DEFAULT 'INR',
+    ic_tolerance INTEGER NOT NULL DEFAULT 100 CHECK (ic_tolerance >= 0),
+    unrealised_margin_bp INTEGER CHECK (unrealised_margin_bp IS NULL OR unrealised_margin_bp BETWEEN 0 AND 10000),
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+
+  CREATE TABLE consolidation_members (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    group_id INTEGER NOT NULL REFERENCES consolidation_groups(id) ON DELETE CASCADE,
+    company_slug TEXT NOT NULL,
+    role TEXT NOT NULL CHECK (role IN ('parent', 'subsidiary', 'associate')),
+    ownership_bp INTEGER NOT NULL DEFAULT 10000 CHECK (ownership_bp BETWEEN 0 AND 10000),
+    acquired_on TEXT,
+    include_from TEXT,
+    include_to TEXT,
+    investment_ledger_id INTEGER,
+    acquisition_equity INTEGER,
+    sort_order INTEGER NOT NULL DEFAULT 0,
+    UNIQUE (group_id, company_slug)
+  );
+  CREATE UNIQUE INDEX ux_consolidation_members_parent ON consolidation_members(group_id) WHERE role = 'parent';
+
+  CREATE TABLE consolidation_mappings (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    group_id INTEGER NOT NULL REFERENCES consolidation_groups(id) ON DELETE CASCADE,
+    company_slug TEXT NOT NULL,
+    ledger_id INTEGER,
+    group_name TEXT COLLATE NOCASE,
+    target_name TEXT NOT NULL,
+    target_nature TEXT CHECK (target_nature IS NULL OR target_nature IN ('asset', 'liability', 'income', 'expense')),
+    CHECK ((ledger_id IS NULL) <> (group_name IS NULL))
+  );
+  CREATE UNIQUE INDEX ux_consolidation_mappings_ledger ON consolidation_mappings(group_id, company_slug, ledger_id) WHERE ledger_id IS NOT NULL;
+  CREATE UNIQUE INDEX ux_consolidation_mappings_group ON consolidation_mappings(group_id, company_slug, group_name) WHERE group_name IS NOT NULL;
+
+  CREATE TABLE intercompany_pairs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    group_id INTEGER NOT NULL REFERENCES consolidation_groups(id) ON DELETE CASCADE,
+    member_a TEXT NOT NULL,
+    ledger_a_id INTEGER NOT NULL,
+    member_b TEXT NOT NULL,
+    ledger_b_id INTEGER NOT NULL,
+    kind TEXT NOT NULL CHECK (kind IN ('receivable_payable', 'sales_purchase', 'loan', 'other')),
+    unrealised_margin_bp INTEGER CHECK (unrealised_margin_bp IS NULL OR unrealised_margin_bp BETWEEN 0 AND 10000),
+    CHECK (member_a <> member_b),
+    UNIQUE (group_id, member_a, ledger_a_id, member_b, ledger_b_id, kind)
+  );
   `
 ]

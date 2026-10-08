@@ -308,6 +308,13 @@ export const AUDIT_COVERAGE: Record<string, AuditCoverage> = {
   'pack:save': a('report_pack'),
   'pack:delete': a('report_pack'),
   'pack:runNow': a('report_pack'),
+  // ---------- group consolidation (WP 6.5) — the definition lives in this company; members are read read-only ----------
+  'consolGroup:save': a('consolidation_group'),
+  'consolGroup:delete': a('consolidation_group'),
+  'consolMapping:save': a('consolidation_mapping'),
+  'consolMapping:delete': a('consolidation_mapping'),
+  'consolPair:save': a('intercompany_pair'),
+  'consolPair:delete': a('intercompany_pair'),
   'pack:chooseFolder': r('opens a folder picker; the chosen path is saved by pack:save'),
 
   // ---------- AI agent (WP 5.1) — conversations are not books; settings, drafts and deletions are audited ----------

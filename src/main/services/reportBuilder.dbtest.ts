@@ -65,11 +65,10 @@ function voucher(
 
 // ---------------------------------------------------------------- migration 038
 
-describe('report-builder migration (last) — saved reports and report packs', () => {
-  it('is the last migration (number by position)', () => {
-    // Array position = migration number − 1. On this branch it follows 031 directly; once the
-    // parallel 032–037 merge it must sit after them (numbers are array positions).
-    expect(M038).toBe(MIGRATIONS.length - 1)
+describe('report-builder migration — saved reports and report packs', () => {
+  it('follows the Phase 4 and AI migrations (number by position)', () => {
+    // Array position = migration number − 1. WP 6.5 (consolidation) appends after it.
+    expect(M038).toBeLessThan(MIGRATIONS.length)
     expect(M038 + 1).toBeGreaterThanOrEqual(37) // after 032–035 (Phase 4) and 036 (AI)
   })
 
