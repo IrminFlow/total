@@ -1,25 +1,24 @@
-// Migration 033 (WP 4.2): receivables — ledger email / interest terms / credit hold columns, and
-// the reminder_log, interest_charges and bill_followups tables. Located by content (032 is a
-// parallel branch, so the index differs between branches); it is the last migration here.
+// Migration 032 (WP 4.2): receivables — ledger email / interest terms / credit hold columns, and
+// the reminder_log, interest_charges and bill_followups tables. Located by content.
 import { describe, it, expect } from 'vitest'
 import { migrate } from './migrate'
 import { MIGRATIONS } from './migrations'
 import { freshPartialDb, TEST_INFO } from './testdb'
 import { seedCompany } from './seed'
 
-const M033 = MIGRATIONS.findIndex((sql) => sql.includes('CREATE TABLE reminder_log'))
+const M032 = MIGRATIONS.findIndex((sql) => sql.includes('CREATE TABLE reminder_log'))
 
 const cols = (db: ReturnType<typeof freshPartialDb>, table: string): string[] =>
   (db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[]).map((c) => c.name)
 
-describe('migration 033 — receivables', () => {
-  it('is appended after every earlier migration', () => {
-    expect(M033).toBeGreaterThanOrEqual(30)
-    expect(MIGRATIONS.findIndex((sql) => sql.includes('CREATE TABLE audit_log_new'))).toBeLessThan(M033)
+describe('migration 032 — receivables', () => {
+  it('is migration 032, after 031 (WP 3.8)', () => {
+    expect(M032 + 1).toBe(32)
+    expect(MIGRATIONS.findIndex((sql) => sql.includes('CREATE TABLE audit_log_new'))).toBeLessThan(M032)
   })
 
   it('gives existing ledgers no interest, no grace and no hold', () => {
-    const db = freshPartialDb(M033)
+    const db = freshPartialDb(M032)
     seedCompany(db, TEST_INFO)
     db.prepare("INSERT INTO ledgers (name, group_id) VALUES ('Old Party', 1)").run()
     migrate(db)
@@ -31,7 +30,7 @@ describe('migration 033 — receivables', () => {
   })
 
   it('creates the three tables with their constraints', () => {
-    const db = freshPartialDb(M033)
+    const db = freshPartialDb(M032)
     seedCompany(db, TEST_INFO)
     migrate(db)
     expect(cols(db, 'reminder_log')).toEqual(expect.arrayContaining(['party_ledger_id', 'bucket', 'date', 'document_path', 'channel', 'amount_paise', 'oldest_bill', 'user_name']))

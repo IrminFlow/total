@@ -7,7 +7,7 @@
  * and the collection reports all read analysis.outstandings at query time. The only rows this
  * module owns are facts that are not derivable: reminder_log (what was sent), interest_charges
  * (which bill-period a debit note charged — so a period is never charged twice), bill_followups
- * (notes and promises) and the credit hold on the ledger (migration 033).
+ * (notes and promises) and the credit hold on the ledger (migration 032).
  *
  * Tax rules (GST on interest) — src/shared/receivables/sources.ts.
  */

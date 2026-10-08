@@ -185,7 +185,7 @@ export function createLedger(db: DB, raw: LedgerInput): Ledger {
       input.priceLevelId ?? null, input.creditLimit ?? null,
       input.deducteeType ?? null, input.tdsPayableSectionId ?? null, input.tdsDefaultSectionId ?? null,
       input.tcsSectionId ?? null, input.tcsPayableSectionId ?? null, input.tcsDefaultSectionId ?? null)
-  // WP 4.2 (migration 033): email / interest terms.
+  // WP 4.2 (migration 032): email / interest terms.
   if (input.email != null || input.interestRateBp != null || input.interestGraceDays != null) {
     db.prepare('UPDATE ledgers SET email = ?, interest_rate_bp = ?, interest_grace_days = ? WHERE id = ?').run(
       input.email ?? null, input.interestRateBp ?? null, input.interestGraceDays ?? 0, Number(res.lastInsertRowid)
@@ -220,7 +220,7 @@ export function updateLedger(db: DB, id: number, raw: LedgerInput): Ledger {
     input.tcsSectionId === undefined ? (existing.tcsSectionId ?? null) : input.tcsSectionId,
     input.tcsPayableSectionId === undefined ? (existing.tcsPayableSectionId ?? null) : input.tcsPayableSectionId,
     input.tcsDefaultSectionId === undefined ? (existing.tcsDefaultSectionId ?? null) : input.tcsDefaultSectionId, id)
-  // WP 4.2 (migration 033): absent = keep.
+  // WP 4.2 (migration 032): absent = keep.
   if (input.email !== undefined || input.interestRateBp !== undefined || input.interestGraceDays !== undefined) {
     db.prepare('UPDATE ledgers SET email = ?, interest_rate_bp = ?, interest_grace_days = ? WHERE id = ?').run(
       input.email === undefined ? (existing.email ?? null) : input.email,

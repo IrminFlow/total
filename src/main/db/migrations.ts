@@ -2238,9 +2238,9 @@ export const MIGRATIONS: string[] = [
 
   DROP TABLE m031_before;
   `,
-  // 033 (WP 4.2) — receivables. Number assigned by the orchestrator: 032 is a parallel branch
-  // (WP 4.1 banking), so on a branch without it this runs as the 32nd migration — dbtests locate
-  // it by content (the reminder_log table), never by index. Additive only:
+  // 032 (WP 4.2) — receivables. Number assigned by the orchestrator (WP 4.1 banking, still in
+  // progress, takes the next number); appended after 031. Dbtests locate it by content (the
+  // reminder_log table). Additive only:
   // - ledgers: party email (statements / reminders are "email-ready" via mailto:), the annual
   //   simple-interest rate on overdue bills in basis points (NULL = no interest) with its
   //   interest-free grace days, and the credit hold (flag, reason, when) InvoiceEntry enforces.

@@ -366,7 +366,7 @@ function hasCreditHold(db: DB): boolean {
   return v
 }
 
-/** The party's credit hold (migration 033), or null when it isn't on hold. */
+/** The party's credit hold (migration 032), or null when it isn't on hold. */
 export function creditHoldOf(db: DB, ledgerId: number): { name: string; reason: string | null; at: string | null } | null {
   if (!hasCreditHold(db)) return null
   const r = db.prepare('SELECT name, credit_hold AS hold, credit_hold_reason AS reason, credit_hold_at AS at FROM ledgers WHERE id = ?').get(ledgerId) as
