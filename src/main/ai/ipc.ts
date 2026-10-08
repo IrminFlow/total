@@ -206,6 +206,12 @@ export function registerAiIpc(handle: Handle, deps: AiIpcDeps): void {
     return store.listDrafts(db(), status)
   }, 'viewer')
   handle('ai:draft:discard', (p) => discardDraft(db(), idSchema.parse(p).id), 'accountant')
+  // WP 5.3: the drafts one answer made (a multi-draft turn), for the editor's "draft 2 of 3".
+  handle('ai:draft:set', (p) => {
+    const d = store.getDraft(db(), idSchema.parse(p).id)
+    if (!d) throw new Error('AI draft not found')
+    return d.messageId ? store.draftSet(db(), d.messageId) : [d]
+  }, 'viewer')
 
   // ---------- meters and logs ----------
   handle('ai:usage', () => store.listUsage(db()), 'viewer')

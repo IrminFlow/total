@@ -6,6 +6,7 @@
 // `demoScript` is the built-in script behind TOTAL_AI_MOCK=1 (honoured only with TOTAL_DATA_DIR
 // in an unpackaged build — see agentEnv.ts) that the e2e scenario drives: "what were sales in
 // July?" and "pay … in cash" style questions.
+import { draftingDemoStep } from './mockDrafting'
 import { AiAbortError, ZERO_USAGE, type AiProvider, type ChatHandlers, type ChatItem, type ChatRequest, type ChatResult, type ChatUsage } from './types'
 
 export type MockStep =
@@ -119,6 +120,9 @@ function findNode(nodes: PnlNodeOut[] | undefined, re: RegExp): PnlNodeOut | nul
 export const demoScript: MockScript = (req) => {
   const { question, results } = sinceLastUser(req.input)
   const q = question.toLowerCase()
+  // WP 5.3: drafting questions (sales invoice, payment against bills) — mockDrafting.ts.
+  const drafting = draftingDemoStep(question, results, /Today: (\d{4}-\d{2}-\d{2})/.exec(req.instructions)?.[1])
+  if (drafting) return drafting
 
   if (/\bsales?\b/.test(q)) {
     const monthIdx = MONTHS.findIndex((m) => q.includes(m) || q.includes(m.slice(0, 3) + ' '))

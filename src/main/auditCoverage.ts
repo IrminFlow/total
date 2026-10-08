@@ -162,12 +162,12 @@ export const AUDIT_COVERAGE: Record<string, AuditCoverage> = {
   'voucher:duplicates': QUERY,
   'pdc:mature': a('voucher'),
   'yearend:close': a('year_end', 'voucher', 'ledger', 'company'),
-  'manufacture:save': a('manufacture'),
+  'manufacture:save': a('manufacture', 'ai_draft'),
   'jobWork:saveChallan': a('job_work'),
 
   // ---------- trade cycle ----------
   'tradeDocTypes:save': a('tradeDocType'),
-  'tradeDocs:save': a('trade_doc'),
+  'tradeDocs:save': a('trade_doc', 'ai_draft'),
   'tradeDocs:delete': a('trade_doc'),
   'tradeDocs:restore': a('trade_doc'),
   'tradeDocs:cancel': a('trade_doc'),
