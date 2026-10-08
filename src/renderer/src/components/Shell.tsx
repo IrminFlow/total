@@ -32,6 +32,7 @@ export function Shell({ children, onOpenPalette }: { children: ReactNode; onOpen
   const features = useFeatures()
   const sections = useNavSections(screen.name)
   const toggleAssistant = useAssistantPanel((s) => s.toggle)
+  const assistantOpen = useAssistantPanel((s) => s.open)
   const visibleNav = NAV.filter((s) => !s.feature || features[s.feature]).map((s) => ({
     ...s,
     items: s.items.filter((i) => !i.feature || features[i.feature])
@@ -83,9 +84,12 @@ export function Shell({ children, onOpenPalette }: { children: ReactNode; onOpen
           className="rounded-md border border-line bg-panel2 px-2.5 py-1 text-small text-muted hover:border-amber/60 hover:text-ink"
           onClick={toggleAssistant}
           title="Ask about your books (optional; off until turned on in Settings → AI)"
-          aria-label="Open the assistant"
+          aria-label={assistantOpen ? 'Close the assistant (⌘J)' : 'Open the assistant (⌘J)'}
+          aria-pressed={assistantOpen}
         >
-          Assistant
+          <span className="flex items-center gap-2">
+            Assistant <Kbd>⌘J</Kbd>
+          </span>
         </button>
         <button
           type="button"
@@ -231,10 +235,11 @@ export function Shell({ children, onOpenPalette }: { children: ReactNode; onOpen
         >
           {children}
         </main>
+        {/* WP 5.2: docked beside the screen (the screen narrows), on every screen. */}
+        <AssistantPanel />
       </div>
 
       {periodOpen && <PeriodModal onClose={() => setPeriodOpen(false)} />}
-      <AssistantPanel />
     </div>
   )
 }

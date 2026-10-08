@@ -69,6 +69,18 @@ aggregation to `formatPaise`.
   for example, doesn't count optional or post-dated rows:
   `(rows) => rows.filter(inBooks).reduce((s, r) => s + r.debit, 0)`.
 - `className` / `headerClassName`: extra cell classes, for example `'text-muted'`.
+- `explainable` (WP 5.2, additive): "Explain this". While the assistant is on (Settings → AI),
+  an explainable cell with a non-zero value shows a small **AI** action on hover, over the cell's
+  left edge (money is right-aligned, so it never covers the figure). Clicking it asks the
+  assistant to explain the figure from its source — the row's name (first visible text column),
+  the column header, the value as displayed and the row's `voucherId` / `ledgerId` /
+  `partyLedgerId` / `itemId` / `stockItemId` (a voucher first, then a ledger, then an item), plus
+  the screen and period the assistant host adds. Money columns are explainable by default;
+  `explainable: false` opts one out, and a function adds or overrides the source per row or
+  returns `null` for none:
+  `explainable: (r) => (r.kind === 'group' ? { groupName: r.name } : { ledgerId: r.id })`.
+  The action is not a Tab stop (one per cell would bury the toolbar); clicks on it never
+  activate the row. While the assistant is off nothing renders and the table is unchanged.
 
 ## 2. Render it
 

@@ -22,6 +22,9 @@ import type { CompanyFeatures } from '@shared/features'
 import type { SearchResult, SearchSection } from '@shared/search'
 import { isEmptyQuery, parseSearchQuery, type SearchKind } from '@shared/searchQuery'
 import { fyOf, todayISO, toDisplayDate } from '@shared/dates'
+import { paletteQuestion, parseNavIntent } from '@shared/aiExplain'
+import { useAiAffordances } from '../lib/explain'
+import { useAssistantPanel, useCurrentAiContext } from './ai/AssistantPanel'
 
 interface Command {
   label: string
@@ -41,6 +44,8 @@ type NavItem =
   | { type: 'see-all'; kind: SearchKind; total: number }
   | { type: 'recent-query'; q: string }
   | { type: 'recent-record'; kind: RecentKind; rec: RecentRecord }
+  /** WP 5.2: a natural-language question ("…?" or "ask: …") → the assistant panel. */
+  | { type: 'ask'; q: string }
 
 /** A titled run of NavItems (rendered with a header). */
 interface Group {
@@ -67,6 +72,14 @@ export function CommandPalette({ onClose }: { onClose: () => void }): React.JSX.
   const { recents, addQuery } = useSearchRecents()
   const openRecord = useOpenRecord()
   const ctx = useMemo(() => ({ today: todayISO(), fyStartYear: fyOf(from).startYear }), [from])
+  const aiOn = useAiAffordances()
+  const aiContext = useCurrentAiContext()
+  // WP 5.2: "why is rent high?" / "ask: …" offers Ask AI (only while the assistant is on);
+  // "open the ledger for Acme" searches for "Acme" — navigation is resolved by the search
+  // service, never by the model.
+  const question = aiOn ? paletteQuestion(query) : null
+  const intent = useMemo(() => parseNavIntent(query), [query])
+  const searchText = intent ? intent.target : /^ask\s*:/i.test(query.trim()) ? '' : query
 
   const commands = useMemo<Command[]>(() => {
     const go = (screen: Screen) => () => nav.go(screen)
@@ -162,12 +175,12 @@ export function CommandPalette({ onClose }: { onClose: () => void }): React.JSX.
 
   const filtered = useMemo(() => {
     const visible = commands.filter((c) => !c.feature || features[c.feature])
-    const q = query.trim().toLowerCase()
-    if (!q) return visible
+    const q = searchText.trim().toLowerCase()
+    if (!q) return query.trim() && !intent ? [] : visible
     return visible.filter(
       (c) => c.label.toLowerCase().includes(q) || c.keywords?.some((k) => k.toLowerCase().includes(q))
     )
-  }, [commands, query, features])
+  }, [commands, query, searchText, intent, features])
 
   // Chips come from a local parse (instant, no round-trip); the IPC re-parses the same string.
   const parsed = useMemo(() => parseSearchQuery(query, ctx), [query, ctx])
@@ -175,9 +188,9 @@ export function CommandPalette({ onClose }: { onClose: () => void }): React.JSX.
   // Books search: debounced 150ms, only fires once the query is meaningfully specific (2+ chars).
   const [debounced, setDebounced] = useState('')
   useEffect(() => {
-    const t = setTimeout(() => setDebounced(query.trim()), 150)
+    const t = setTimeout(() => setDebounced(searchText.trim()), 150)
     return () => clearTimeout(t)
-  }, [query])
+  }, [searchText])
   const searchEnabled = debounced.length >= 2 && !isEmptyQuery(parseSearchQuery(debounced, ctx))
   const { data: results } = useQuery({
     queryKey: ['search', debounced, ctx.today, ctx.fyStartYear],
@@ -189,6 +202,7 @@ export function CommandPalette({ onClose }: { onClose: () => void }): React.JSX.
 
   const groups = useMemo<Group[]>(() => {
     const out: Group[] = []
+    if (question) out.push({ key: 'ask', title: 'Assistant', items: [{ type: 'ask', q: question }] })
     const empty = query.trim() === ''
     const hasRecents = empty && recents.queries.length + recents.vouchers.length + recents.ledgers.length + recents.items.length > 0
     // Commands always come first, so ⌘K then ↵ still runs what it always ran (New voucher);
@@ -208,7 +222,9 @@ export function CommandPalette({ onClose }: { onClose: () => void }): React.JSX.
       if (recentRecords.length) out.push({ key: 'recent-r', title: 'Recently opened', items: recentRecords })
     }
     if (live) {
-      for (const k of KINDS) {
+      // "open the ledger for X": the asked-for kind first.
+      const order = intent?.kind ? [intent.kind, ...KINDS.filter((k) => k !== intent.kind)] : KINDS
+      for (const k of order) {
         const sec = live[SECTION_KEY[k]] as SearchSection<SearchResult> | null
         if (!sec || sec.total === 0) continue
         const items: NavItem[] = sec.rows.map((hit) => ({ type: 'hit', hit }))
@@ -217,7 +233,7 @@ export function CommandPalette({ onClose }: { onClose: () => void }): React.JSX.
       }
     }
     return out
-  }, [query, recents, filtered, live])
+  }, [query, recents, filtered, live, question, intent])
 
   const navItems = useMemo(() => groups.flatMap((g) => g.items), [groups])
   const { active, setActive } = useKeyNav(navItems.length, () => {}, false)
@@ -255,6 +271,10 @@ export function CommandPalette({ onClose }: { onClose: () => void }): React.JSX.
       case 'command':
         onClose()
         void item.cmd.run()
+        return
+      case 'ask':
+        onClose()
+        useAssistantPanel.getState().ask(item.q, aiContext)
         return
       case 'recent-query':
         setQuery(item.q)
@@ -377,6 +397,7 @@ function rowKey(item: NavItem): string {
     case 'see-all': return `all-${item.kind}`
     case 'recent-query': return `rq-${item.q}`
     case 'recent-record': return `rr-${item.kind}-${item.rec.id}`
+    case 'ask': return 'ask'
   }
 }
 
@@ -409,6 +430,16 @@ function PaletteRow({
   const base = 'kbar-row flex cursor-pointer items-center justify-between gap-3 px-5 py-2 text-body'
   const common = { 'data-active': active, onMouseEnter: onHover, onClick: onRun }
   switch (item.type) {
+    case 'ask':
+      return (
+        <div {...common} data-testid="palette-ask-ai" className={base}>
+          <span className="flex min-w-0 items-center gap-2">
+            <span className="shrink-0 rounded-sm border border-amber/50 px-1 text-micro font-semibold text-amber">AI</span>
+            <span className="truncate">Ask AI: {item.q}</span>
+          </span>
+          <span className="shrink-0 text-caption text-muted">opens the assistant</span>
+        </div>
+      )
     case 'command':
       return (
         <div {...common} className={base}>

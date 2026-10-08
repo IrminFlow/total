@@ -382,6 +382,23 @@ tr.kbar-row[data-active='true'] td:first-child {
   text-overflow: ellipsis;
   line-height: 20px;
 }
+/* WP 5.2 "Explain this" on a money cell: overlays the cell's left edge (money is right-aligned,
+   so it never covers the figure), shown while that cell is hovered or the action has focus. */
+.data-table > tbody > tr > td.dt-explainable {
+  position: relative;
+}
+.data-table .dt-explain {
+  position: absolute;
+  top: 50%;
+  left: 6px;
+  translate: 0 -50%;
+  opacity: 0;
+  transition: opacity 120ms;
+}
+.data-table > tbody > tr > td.dt-explainable:hover .dt-explain,
+.data-table .dt-explain:focus-visible {
+  opacity: 1;
+}
 /* Header filter funnel: overlays the header edge (it reserves no width). Hidden until the
    header is hovered or holds keyboard focus; always shown while a filter is set or open. */
 .data-table .dt-filter {

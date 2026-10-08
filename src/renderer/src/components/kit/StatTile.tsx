@@ -1,5 +1,7 @@
 import type { ReactNode } from 'react'
 import { Skeleton } from './Feedback'
+import { ExplainButton } from './ExplainButton'
+import { looksLikeMoney, nodeText, useAiAffordances, type ExplainInput } from '../../lib/explain'
 
 /**
  * A headline figure: uppercase label, a large mono value, an optional delta / hint line and a
@@ -10,6 +12,11 @@ import { Skeleton } from './Feedback'
  *
  * With a testId the value carries id `<testId>-value` (the tile's aria-describedby), so drivers
  * can read the figure alone.
+ *
+ * WP 5.2 "Explain this": while the assistant is on, a tile whose value is money gets a small AI
+ * action (top right) that asks the assistant to explain it — label, value, screen and period.
+ * `explain` adds the figure's source ids (ledgerId, groupName …) or, with `false`, opts out.
+ * While the assistant is off the tile renders exactly as before.
  */
 export function StatTile({
   label,
@@ -27,7 +34,8 @@ export function StatTile({
   onClick,
   openLabel,
   testId,
-  className = ''
+  className = '',
+  explain
 }: {
   label: ReactNode
   value: ReactNode
@@ -52,7 +60,10 @@ export function StatTile({
   openLabel?: string
   testId?: string
   className?: string
+  /** Extra source for "Explain this" (ids, period), or false for none. Default: label + value. */
+  explain?: Partial<ExplainInput> | false
 }): React.JSX.Element {
+  const aiOn = useAiAffordances()
   const deltaCls = {
     neutral: 'text-muted',
     up: 'text-success',
@@ -88,10 +99,13 @@ export function StatTile({
       {footer !== undefined && <span className="mt-0.5 block truncate text-label text-muted">{ready && footer ? footer : ' '}</span>}
     </>
   )
+  const valueText = ready && aiOn && explain !== false ? nodeText(value).trim() : ''
+  const explainable = valueText !== '' && looksLikeMoney(valueText)
+  // With the explain action the wrapper carries the caller's layout classes (see below).
   const cls = `block min-w-0 rounded-lg border border-line bg-panel text-left shadow-elev-1 ${
     size === 'lg' ? 'px-3.5 pt-2.5 pb-2' : 'p-panel'
-  } ${className}`
-  return onClick ? (
+  } ${explainable ? 'h-full' : className}`
+  const tile = onClick ? (
     <button
       type="button"
       data-testid={testId}
@@ -106,6 +120,20 @@ export function StatTile({
   ) : (
     <div data-testid={testId} className={cls}>
       {body}
+    </div>
+  )
+  if (!explainable) return tile
+  // The action sits beside (not inside) the tile, so a clickable tile stays one button; the
+  // wrapper takes the tile's layout classes (grid spans) so the row lines up as before.
+  return (
+    <div className={`group/tile relative min-w-0 ${className}`}>
+      {tile}
+      <ExplainButton
+        testId={testId ? `${testId}-explain` : 'btn-explain-tile'}
+        className="absolute top-2 right-2 opacity-0 group-hover/tile:opacity-100"
+        focusable
+        figure={() => ({ label: nodeText(label).trim() || 'Figure', value: valueText, ...(explain || {}) })}
+      />
     </div>
   )
 }

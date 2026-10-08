@@ -58,6 +58,7 @@ import { Settings } from './screens/Settings'
 import { EditLogScreen } from './screens/EditLog'
 import { SearchResultsScreen, FOCUS_SEARCH_EVENT } from './screens/SearchResults'
 import { CommandPalette } from './components/CommandPalette'
+import { useAssistantPanel } from './components/ai/AssistantPanel'
 import { ShortcutHelp } from './components/ShortcutHelp'
 import { ErrorBoundary } from './components/ErrorBoundary'
 import { LockScreen } from './components/LockScreen'
@@ -82,6 +83,13 @@ export default function App(): React.JSX.Element {
         // reachable — opening the palette over it would let the user navigate around it.
         if (integrityWarning) return
         setPaletteOpen((v) => !v)
+        return
+      }
+      // ⌘J — the assistant's panel (WP 5.2), on every screen of an open company.
+      if ((e.metaKey || e.ctrlKey) && !e.shiftKey && !e.altKey && e.key.toLowerCase() === 'j') {
+        e.preventDefault()
+        if (integrityWarning || !useSession.getState().slug || useSession.getState().locked) return
+        useAssistantPanel.getState().toggle()
         return
       }
       // ⌘⇧F — the full Search results screen (focuses its query box when already there).

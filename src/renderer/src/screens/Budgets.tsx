@@ -22,6 +22,7 @@ import { DataTable, defineColumns } from '../components/table'
 import { LedgerPicker, useGroups } from '../components/pickers'
 import { confirmDialog, promptDialog } from '../lib/dialogs'
 import { useUnsavedGuard } from '../lib/useUnsavedGuard'
+import { useAiScreenContext } from '../lib/aiContext'
 import { LedgerLink, VoucherLink } from '../components/links'
 
 const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
@@ -199,6 +200,7 @@ export function BudgetsScreen(): React.JSX.Element {
 
   const budgets = budgetList ?? []
   const selected = budgets.find((b) => b.id === selectedId) ?? null
+  useAiScreenContext('budgets', { budgetId: selected?.id }) // WP 5.2: the assistant's screen context
 
   useEffect(() => {
     if (!selectedId && budgets.length > 0) setSelectedId(budgets[0]!.id)
