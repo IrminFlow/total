@@ -1,0 +1,355 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`accountant sidebar (unchanged from 0.10) > default features 1`] = `
+[
+  {
+    "footer": "Total",
+  },
+  {
+    "expanded": "always",
+    "items": [
+      "nav-gateway | Gateway",
+      "nav-voucher-entry | Voucher entry",
+      "nav-manufacture | Manufacture",
+      "nav-counter-billing | Counter",
+      "nav-daybook | Day book",
+      "nav-masters | Masters",
+    ],
+    "section": "nav-list-top",
+    "title": null,
+  },
+  {
+    "expanded": "true",
+    "items": [
+      "nav-trial-balance | Trial balance",
+      "nav-profit-loss | Profit & Loss",
+      "nav-balance-sheet | Balance sheet",
+      "nav-cash-flow | Cash flow",
+      "nav-stock-summary | Stock summary",
+      "nav-stock-movements | Stock movements",
+      "nav-stock-journal | Stock journal",
+      "nav-fixed-assets | Fixed assets",
+      "nav-year-end | Year-end close",
+    ],
+    "section": "nav-list-books",
+    "title": "Books▾",
+  },
+  {
+    "expanded": "false",
+    "items": [
+      "nav-registers | Registers",
+      "nav-outstandings | Outstandings",
+      "nav-receivables | Credit control",
+      "nav-payables | Payables",
+      "nav-consolidation | Group consolidation",
+      "nav-consolidated | Combined view",
+      "nav-cost-centres | Cost centres",
+      "nav-budgets | Budgets",
+      "nav-cash-forecast | Cash forecast",
+      "nav-loans | Loans",
+      "nav-forex | Forex",
+      "nav-report-builder | Report builder",
+      "nav-ratios | Ratios",
+      "nav-assistants | Assistants",
+      "nav-exceptions | Exceptions",
+    ],
+    "section": "nav-list-analysis",
+    "title": "Analysis▸",
+  },
+  {
+    "expanded": "false",
+    "items": [
+      "nav-banking | Reconciliation",
+      "nav-capture | Document capture",
+    ],
+    "section": "nav-list-banking",
+    "title": "Banking▸",
+  },
+  {
+    "expanded": "false",
+    "items": [
+      "nav-payroll | Employees & runs",
+    ],
+    "section": "nav-list-payroll",
+    "title": "Payroll▸",
+  },
+  {
+    "expanded": "false",
+    "items": [
+      "nav-gstr1 | GSTR-1",
+      "nav-gstr3b | GSTR-3B",
+      "nav-gstr2b | GSTR-2B recon",
+      "nav-edocs | e-Invoice & e-Way",
+      "nav-tds | TDS",
+      "nav-tcs | TCS",
+    ],
+    "section": "nav-list-gst",
+    "title": "GST▸",
+  },
+  {
+    "expanded": "false",
+    "items": [
+      "nav-settings | Settings",
+      "nav-audit-trail | Audit trail",
+      "nav-data-import | Import",
+      "nav-data-export | Export",
+      "nav-import-tally | Import from Tally",
+    ],
+    "section": "nav-list-system",
+    "title": "System▸",
+  },
+  {
+    "footer": "",
+  },
+  {
+    "footer": "Back up now",
+  },
+  {
+    "footer": "Switch company",
+  },
+  {
+    "footer": "Support · total@irminflow.com",
+  },
+]
+`;
+
+exports[`accountant sidebar (unchanged from 0.10) > default features 2`] = `
+[
+  "- | Acct Co — company details | Acct Co",
+  "btn-period | Working period 01-Apr-26 to 31-Mar-27 — change | 01-Apr-26 → 31-Mar-27",
+  "btn-assistant | Open the assistant (⌘J) | Assistant ⌘J",
+  "btn-theme | Switch to the dark theme | Dark",
+  "- | Go anywhere (command palette, ⌘K) | Anywhere ⌘K",
+]
+`;
+
+exports[`accountant sidebar (unchanged from 0.10) > every feature on 1`] = `
+[
+  {
+    "footer": "Total",
+  },
+  {
+    "expanded": "always",
+    "items": [
+      "nav-gateway | Gateway",
+      "nav-voucher-entry | Voucher entry",
+      "nav-manufacture | Manufacture",
+      "nav-counter-billing | Counter",
+      "nav-daybook | Day book",
+      "nav-masters | Masters",
+    ],
+    "section": "nav-list-top",
+    "title": null,
+  },
+  {
+    "expanded": "true",
+    "items": [
+      "nav-quotations | Quotations",
+      "nav-sales-orders | Sales orders",
+      "nav-purchase-orders | Purchase orders",
+      "nav-pending-sales-orders | Pending SOs",
+      "nav-pending-purchase-orders | Pending POs",
+      "nav-quotation-pipeline | Quotation pipeline",
+      "nav-pending-challans | Pending challans",
+      "nav-pending-grns | Pending GRNs",
+      "nav-three-way-match | Three-way match",
+      "nav-item-demand | Demand vs stock",
+      "nav-order-book | Order book",
+      "nav-trade-returns | Returns",
+      "nav-unbilled-goods | GRNI / GDNI",
+      "nav-stale-documents | Stale documents",
+    ],
+    "section": "nav-list-trade",
+    "title": "Orders & challans▾",
+  },
+  {
+    "expanded": "true",
+    "items": [
+      "nav-trial-balance | Trial balance",
+      "nav-profit-loss | Profit & Loss",
+      "nav-balance-sheet | Balance sheet",
+      "nav-cash-flow | Cash flow",
+      "nav-stock-summary | Stock summary",
+      "nav-stock-movements | Stock movements",
+      "nav-stock-journal | Stock journal",
+      "nav-fixed-assets | Fixed assets",
+      "nav-year-end | Year-end close",
+    ],
+    "section": "nav-list-books",
+    "title": "Books▾",
+  },
+  {
+    "expanded": "false",
+    "items": [
+      "nav-registers | Registers",
+      "nav-outstandings | Outstandings",
+      "nav-receivables | Credit control",
+      "nav-payables | Payables",
+      "nav-consolidation | Group consolidation",
+      "nav-consolidated | Combined view",
+      "nav-cost-centres | Cost centres",
+      "nav-budgets | Budgets",
+      "nav-cash-forecast | Cash forecast",
+      "nav-loans | Loans",
+      "nav-forex | Forex",
+      "nav-report-builder | Report builder",
+      "nav-ratios | Ratios",
+      "nav-assistants | Assistants",
+      "nav-exceptions | Exceptions",
+    ],
+    "section": "nav-list-analysis",
+    "title": "Analysis▸",
+  },
+  {
+    "expanded": "false",
+    "items": [
+      "nav-banking | Reconciliation",
+      "nav-capture | Document capture",
+    ],
+    "section": "nav-list-banking",
+    "title": "Banking▸",
+  },
+  {
+    "expanded": "false",
+    "items": [
+      "nav-payroll | Employees & runs",
+    ],
+    "section": "nav-list-payroll",
+    "title": "Payroll▸",
+  },
+  {
+    "expanded": "false",
+    "items": [
+      "nav-gstr1 | GSTR-1",
+      "nav-gstr3b | GSTR-3B",
+      "nav-gstr2b | GSTR-2B recon",
+      "nav-edocs | e-Invoice & e-Way",
+      "nav-tds | TDS",
+      "nav-tcs | TCS",
+    ],
+    "section": "nav-list-gst",
+    "title": "GST▸",
+  },
+  {
+    "expanded": "false",
+    "items": [
+      "nav-settings | Settings",
+      "nav-audit-trail | Audit trail",
+      "nav-data-import | Import",
+      "nav-data-export | Export",
+      "nav-import-tally | Import from Tally",
+    ],
+    "section": "nav-list-system",
+    "title": "System▸",
+  },
+  {
+    "footer": "",
+  },
+  {
+    "footer": "Back up now",
+  },
+  {
+    "footer": "Switch company",
+  },
+  {
+    "footer": "Support · total@irminflow.com",
+  },
+]
+`;
+
+exports[`accountant sidebar (unchanged from 0.10) > inventory, payroll, TDS / TCS and cost centres off 1`] = `
+[
+  {
+    "footer": "Total",
+  },
+  {
+    "expanded": "always",
+    "items": [
+      "nav-gateway | Gateway",
+      "nav-voucher-entry | Voucher entry",
+      "nav-daybook | Day book",
+      "nav-masters | Masters",
+    ],
+    "section": "nav-list-top",
+    "title": null,
+  },
+  {
+    "expanded": "true",
+    "items": [
+      "nav-trial-balance | Trial balance",
+      "nav-profit-loss | Profit & Loss",
+      "nav-balance-sheet | Balance sheet",
+      "nav-cash-flow | Cash flow",
+      "nav-fixed-assets | Fixed assets",
+      "nav-year-end | Year-end close",
+    ],
+    "section": "nav-list-books",
+    "title": "Books▾",
+  },
+  {
+    "expanded": "false",
+    "items": [
+      "nav-registers | Registers",
+      "nav-outstandings | Outstandings",
+      "nav-receivables | Credit control",
+      "nav-payables | Payables",
+      "nav-consolidation | Group consolidation",
+      "nav-consolidated | Combined view",
+      "nav-budgets | Budgets",
+      "nav-cash-forecast | Cash forecast",
+      "nav-loans | Loans",
+      "nav-forex | Forex",
+      "nav-report-builder | Report builder",
+      "nav-ratios | Ratios",
+      "nav-assistants | Assistants",
+      "nav-exceptions | Exceptions",
+    ],
+    "section": "nav-list-analysis",
+    "title": "Analysis▸",
+  },
+  {
+    "expanded": "false",
+    "items": [
+      "nav-banking | Reconciliation",
+      "nav-capture | Document capture",
+    ],
+    "section": "nav-list-banking",
+    "title": "Banking▸",
+  },
+  {
+    "expanded": "false",
+    "items": [
+      "nav-gstr1 | GSTR-1",
+      "nav-gstr3b | GSTR-3B",
+      "nav-gstr2b | GSTR-2B recon",
+      "nav-edocs | e-Invoice & e-Way",
+    ],
+    "section": "nav-list-gst",
+    "title": "GST▸",
+  },
+  {
+    "expanded": "false",
+    "items": [
+      "nav-settings | Settings",
+      "nav-audit-trail | Audit trail",
+      "nav-data-import | Import",
+      "nav-data-export | Export",
+      "nav-import-tally | Import from Tally",
+    ],
+    "section": "nav-list-system",
+    "title": "System▸",
+  },
+  {
+    "footer": "",
+  },
+  {
+    "footer": "Back up now",
+  },
+  {
+    "footer": "Switch company",
+  },
+  {
+    "footer": "Support · total@irminflow.com",
+  },
+]
+`;
