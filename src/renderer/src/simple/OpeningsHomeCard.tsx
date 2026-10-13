@@ -6,19 +6,19 @@ import { useNav, useToasts } from '../state/stores'
 import { Button } from '../components/ui'
 import { formatPaise } from '@shared/money'
 import { toPlainDate } from '@shared/dates'
-import type { DashboardSeries } from '@shared/dashboard'
 import type { Screen } from '../state/stores'
 
-const FROM_HOME: Screen = { name: 'simple-openings', from: 'home' } // i18n-technical
+export const OPENINGS_FROM_HOME: Screen = { name: 'simple-openings', from: 'home' } // i18n-technical
 
 /**
  * WP 8.7: Home's setup step "Enter what you had on day one" for a business that was already
  * running (setup's "continuing" answer, meta ui.startedFresh = false), with how many parts hold a
  * figure; "I started fresh" skips it. Once the figures are confirmed it says what customers owe
- * and what you owe suppliers (the dashboard's Outstandings totals). Not shown for a fresh start
- * or a company setup never asked (accountant companies switched to simple).
+ * and what you owe suppliers — `owed`, the simple Home's own tiles (simple:home, the Outstandings
+ * allocation as on today, which reads opening bills through services/openingBills.ts). Not shown
+ * for a fresh start or a company setup never asked (accountant companies switched to simple).
  */
-export function OpeningsHomeCard({ series }: { series: DashboardSeries | undefined }): React.JSX.Element | null {
+export function OpeningsHomeCard({ owed }: { owed: { receivables: number; payables: number } | null | undefined }): React.JSX.Element | null {
   const t = useT()
   const nav = useNav()
   const toast = useToasts()
@@ -27,12 +27,12 @@ export function OpeningsHomeCard({ series }: { series: DashboardSeries | undefin
   const [busy, setBusy] = useState(false)
   if (!state) return null
   if (!state.appliedAt && state.startedFresh !== false) return null
-  const open = (): void => nav.go(FROM_HOME)
+  const open = (): void => nav.go(OPENINGS_FROM_HOME)
   const date = toPlainDate(state.booksBegin)
 
   if (state.appliedAt) {
-    const owed = series?.receivables.ok ? series.receivables.data.total : null
-    const owe = series?.payables.ok ? series.payables.data.total : null
+    const owedToYou = owed?.receivables ?? null
+    const owe = owed?.payables ?? null
     return (
       <section data-testid="simple-home-openings" data-done="true" className="mt-5 rounded-lg border border-line bg-panel p-panel shadow-elev-1">
         <div className="flex items-baseline justify-between gap-3">
@@ -47,7 +47,7 @@ export function OpeningsHomeCard({ series }: { series: DashboardSeries | undefin
           </button>
         </div>
         <div className="mt-2 flex flex-wrap gap-x-8 gap-y-1 text-body text-ink">
-          {owed != null && <p data-testid="simple-home-customers-owe">{t('simple.openings.home.customersOwe', { amount: formatPaise(owed, { symbol: true }) })}</p>}
+          {owedToYou != null && <p data-testid="simple-home-customers-owe">{t('simple.openings.home.customersOwe', { amount: formatPaise(owedToYou, { symbol: true }) })}</p>}
           {owe != null && <p data-testid="simple-home-you-owe">{t('simple.openings.home.youOwe', { amount: formatPaise(owe, { symbol: true }) })}</p>}
         </div>
       </section>

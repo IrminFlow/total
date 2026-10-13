@@ -10,7 +10,6 @@ import { Openings } from '../simple/Openings'
 import { OpeningsHomeCard } from '../simple/OpeningsHomeCard'
 import { bannedWordsIn } from '@shared/simple/bannedWords'
 import type { OpeningsResult, OpeningsState, SimpleOpeningsInput } from '@shared/simple/openings'
-import type { DashboardSeries } from '@shared/dashboard'
 
 const invoke = vi.fn()
 
@@ -228,10 +227,10 @@ describe('opening setup screen', () => {
 })
 
 describe('Home: enter what you had on day one', () => {
-  const series = { receivables: { ok: true, data: { total: 4_500_00 } }, payables: { ok: true, data: { total: 8_000_00 } } } as unknown as DashboardSeries
+  const owed = { receivables: 4_500_00, payables: 8_000_00 }
 
   it('shows progress for a continuing business; "I started fresh" skips it', async () => {
-    render(withClient(<OpeningsHomeCard series={series} />))
+    render(withClient(<OpeningsHomeCard owed={owed} />))
     await waitFor(() => expect(screen.getByTestId('simple-home-openings').getAttribute('data-done')).toBe('false'))
     expect(screen.getByTestId('simple-home-openings-progress').textContent).toBe('0 of 4 parts entered')
     expect(screen.getByTestId('simple-home-openings').textContent).toContain('Enter what you had on day one')
@@ -244,14 +243,14 @@ describe('Home: enter what you had on day one', () => {
     invoke.mockImplementation(async (channel: string) =>
       channel === 'simple:openings:get' ? { ok: true, data: { ...STATE, startedFresh: true } } : { ok: false, error: 'unmocked' }
     )
-    const { container } = render(withClient(<OpeningsHomeCard series={series} />))
+    const { container } = render(withClient(<OpeningsHomeCard owed={owed} />))
     await waitFor(() => expect(invoke).toHaveBeenCalled())
     expect(container.querySelector('[data-testid="simple-home-openings"]')).toBeNull()
     cleanup()
     invoke.mockImplementation(async (channel: string) =>
       channel === 'simple:openings:get' ? { ok: true, data: { ...STATE, appliedAt: '2026-10-13T10:00:00Z' } } : { ok: false, error: 'unmocked' }
     )
-    render(withClient(<OpeningsHomeCard series={series} />))
+    render(withClient(<OpeningsHomeCard owed={owed} />))
     await waitFor(() => expect(screen.getByTestId('simple-home-openings').getAttribute('data-done')).toBe('true'))
     expect(screen.getByTestId('simple-home-customers-owe').textContent).toBe('Customers owe you ₹4,500.00')
     expect(screen.getByTestId('simple-home-you-owe').textContent).toBe('You owe suppliers ₹8,000.00')

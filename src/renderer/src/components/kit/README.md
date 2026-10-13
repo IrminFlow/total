@@ -192,6 +192,16 @@ read at click time) goes to the assistant host (`lib/explain.ts`), which adds th
 Renders nothing while the assistant is off. `StatTile` (money values), `StatementTree` lines and
 DataTable money cells (`explainable` on columns, see the table README) show it automatically.
 
+### `Why` (WP 8.6)
+
+The deterministic "Why?" popover beside a simple-mode figure: `sentence` comes from
+`shared/simple/explain.ts` (computed from the service's figures, never written by a model),
+`link` opens the full report. Every word is a prop, so simple screens pass `t()` text.
+
+```tsx
+<Why label={t('common.why')} ariaLabel={…} sentence={receivablesWhy(home.receivables, t)} link={{ label: t('simple.home.seeReport'), onOpen: () => nav.go({ name: 'outstandings' }) }} />
+```
+
 
 ### `Popover`, `PopoverButton`, `MenuButton`
 

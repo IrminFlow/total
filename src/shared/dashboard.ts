@@ -88,12 +88,23 @@ export interface DashParty {
 }
 
 export interface DashGst {
-  /** 'YYYY-MM' the next GSTR-3B covers. */
+  /** 'YYYY-MM' the next GSTR-3B covers (a quarterly filer: the last month of its quarter). */
   period: string
+  /** WP 8.6: the dates the figures cover — one month, or (quarterly filer, meta gstProfile) the
+   *  whole quarter; `soFar` = the quarter is still running (its GSTR-3B is more than 45 days off),
+   *  so the figures run from the quarter's start to today. */
+  from?: string
+  to?: string
+  quarterly?: boolean
+  soFar?: boolean
   gstr1Due: string | null
   gstr3bDue: string | null
   /** Output tax + RCM liability for the period (3.1 + 3.1(d)). */
   liability: number
+  /** WP 8.6: the part of `liability` charged on sales (3.1(a)–(c), zero-rated included) and the
+   *  reverse-charge part (3.1(d)) — liability = outwardTax + rcmTax. */
+  outwardTax?: number
+  rcmTax?: number
   /** Net eligible ITC (4A − 4B). */
   itc: number
   /** Cash payable after set-off, including RCM (netPayable + rcmPayable). */

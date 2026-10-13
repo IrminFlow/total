@@ -45,6 +45,9 @@ export const AUDIT_COVERAGE: Record<string, AuditCoverage> = {
   // WP 8.1: the company mode (meta `ui`).
   'ui:get': QUERY,
   'ui:mode:set': a('company'),
+  // WP 8.6: the simple Home (every figure computed at query time).
+  'simple:home': QUERY,
+  'simple:homeAttention': QUERY,
   'app:info': QUERY,
   'log:renderer': r('writes the app log file (outside the books)'),
   'log:reveal': r('opens the logs folder'),

@@ -289,7 +289,7 @@ export function ComplianceCard({
           ) : (
             g && (
               <div data-testid="dash-gst" {...drillRowProps(() => nav.go({ name: 'gstr3b' }))} className={stackRowCls}>
-                <span className="text-body-sm text-ink">GST returns · {toMonthLabel(g.period, 'long')}</span>
+                <span className="text-body-sm text-ink">GST returns · {g.quarterly && g.from ? `${toMonthLabel(g.from.slice(0, 7))}–${toMonthLabel(g.period, 'long')}${g.soFar ? ' so far' : ''}` : toMonthLabel(g.period, 'long')}</span>
                 <span className="flex flex-wrap gap-1">
                   {g.gstr1Due && (
                     <span title={COMPLIANCE_UNVERIFIED[0]} data-testid="chip-gstr1-note">

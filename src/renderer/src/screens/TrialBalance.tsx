@@ -35,21 +35,25 @@ export const TRIAL_BALANCE_COLUMNS = defineColumns<TrialBalanceRow>([
 /** Synthetic rows (e.g. the computed "Profit & Loss A/c (opening)") carry ledgerId <= 0 — no statement to open. */
 const isLedgerRow = (r: TrialBalanceRow): boolean => r.ledgerId > 0
 
-export function TrialBalanceScreen(): React.JSX.Element {
-  const { to } = useSession()
+/** `asOn` / `ledgerIds` (WP 8.6): opened from the simple Home's Cash and bank tile — the balances
+ *  of those accounts as on that date (the tile's figures); without them, the usual screen. */
+export function TrialBalanceScreen({ asOn, ledgerIds }: { asOn?: string; ledgerIds?: number[] } = {}): React.JSX.Element {
+  const { to: periodTo } = useSession()
+  const to = asOn ?? periodTo
+  const only = ledgerIds ? new Set(ledgerIds) : null
   const nav = useNav()
   const { data, isLoading } = useQuery({ queryKey: ['trialBalance', to], queryFn: () => api.reports.trialBalance(to) })
   const opts = useScreenOptions('trial-balance', { hideZeroClosing: false })
   // The service already drops ledgers with no balance and no movement; this also hides ledgers
   // that moved in the period but closed at zero. Totals are unaffected (those rows add 0).
-  const rows = (data?.rows ?? []).filter((r) => !opts.options.hideZeroClosing || r.debit !== 0 || r.credit !== 0)
-  const matched = !data || data.totalDebit === data.totalCredit
+  const rows = (data?.rows ?? []).filter((r) => (!only || only.has(r.ledgerId)) && (!opts.options.hideZeroClosing || r.debit !== 0 || r.credit !== 0))
+  const matched = only != null || !data || data.totalDebit === data.totalCredit
   const periodLabel = `as on ${toDisplayDate(to)}`
 
   return (
     <Page>
       <PageHeader
-        title="Trial balance"
+        title={only ? 'Trial balance · cash and bank' : 'Trial balance'}
         period={periodLabel}
         options={{
           onReset: opts.reset,

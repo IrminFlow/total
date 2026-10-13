@@ -178,7 +178,7 @@ export default function App(): React.JSX.Element {
           {screen.name === 'simple-looks' && <SimpleLooks />}
           {screen.name === 'simple-features' && <SimpleFeatures />}
           {screen.name === 'simple-openings' && <Openings />}
-          {screen.name === 'daybook' && <DayBook month={screen.month} kind={screen.kind} />}
+          {screen.name === 'daybook' && <DayBook month={screen.month} kind={screen.kind} date={screen.date} />}
           {screen.name === 'import-tally' && <ImportTallyScreen />}
           {screen.name === 'data-import' && <ImportWizardScreen />}
           {screen.name === 'data-export' && <BooksExportScreen />}
@@ -195,7 +195,7 @@ export default function App(): React.JSX.Element {
             <Masters key={`${screen.tab ?? 'ledgers'}-${screen.itemId ?? ''}${screen.parties ? '-parties' : ''}`} tab={screen.tab} itemId={screen.itemId} parties={screen.parties} />
           )}
           {screen.name === 'search' && <SearchResultsScreen key={`${screen.q ?? ''}|${screen.kind ?? ''}`} q={screen.q} kind={screen.kind} />}
-          {screen.name === 'trial-balance' && <TrialBalanceScreen />}
+          {screen.name === 'trial-balance' && <TrialBalanceScreen asOn={screen.asOn} ledgerIds={screen.ledgerIds} />}
           {screen.name === 'profit-loss' && <ProfitLossScreen />}
           {screen.name === 'balance-sheet' && <BalanceSheetScreen />}
           {screen.name === 'cash-flow' && <CashFlowScreen />}
@@ -219,14 +219,14 @@ export default function App(): React.JSX.Element {
           {screen.name === 'stock-reports' && <StockReportsScreen key={screen.tab ?? 'reorder'} tab={screen.tab} />}
           {screen.name === 'ledger-statement' && <LedgerStatementScreen ledgerId={screen.ledgerId} />}
           {screen.name === 'gstr1' && <Gstr1Screen />}
-          {screen.name === 'gstr3b' && <Gstr3bScreen />}
+          {screen.name === 'gstr3b' && <Gstr3bScreen initialMonth={screen.month} />}
           {screen.name === 'gstr2b' && <Gstr2bScreen />}
           {screen.name === 'edocs' && <EdocsScreen key={screen.tab ?? 'documents'} tab={screen.tab} />}
           {screen.name === 'gstr9' && <Gstr9Screen />}
           {screen.name === 'itc04' && <Itc04Screen />}
           {screen.name === 'itc-reversal' && <ItcReversalScreen />}
           {screen.name === 'registers' && <RegistersScreen key={screen.tab ?? 'last'} tab={screen.tab} />}
-          {screen.name === 'outstandings' && <OutstandingsScreen />}
+          {screen.name === 'outstandings' && <OutstandingsScreen initialSide={screen.side} />}
           {screen.name === 'receivables' && <ReceivablesScreen key={screen.tab ?? 'control'} tab={screen.tab} />}
           {screen.name === 'payables' && <PayablesScreen key={screen.tab ?? 'plan'} tab={screen.tab} />}
           {screen.name === 'pending-challans' && <TradePendingScreen stage="delivery_note" />}

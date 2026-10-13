@@ -105,7 +105,8 @@ function dayBookTotalsLabel({ rows }: DataTableFooterContext<DayBookRow>): strin
   return `Total${bookCount !== rows.length ? ' (in books)' : ''} · ${bookCount} vouchers`
 }
 
-export function DayBook({ month, kind }: { month?: string; kind?: string } = {}): React.JSX.Element {
+/** `date` (WP 8.6): one day's entries — the simple Home's Money in / out today. */
+export function DayBook({ month, kind, date }: { month?: string; kind?: string; date?: string } = {}): React.JSX.Element {
   const { from, to } = useSession()
   const nav = useNav()
   const toast = useToasts()
@@ -116,10 +117,10 @@ export function DayBook({ month, kind }: { month?: string; kind?: string } = {})
   const scope = opts.options.scope
   // The Registers drill-through hands over a month + kind; keep them as dismissible local state
   // so the chip's ✕ clears the drill without a navigation.
-  const [drill, setDrill] = useState<{ month?: string; kind?: string }>({ month, kind })
+  const [drill, setDrill] = useState<{ month?: string; kind?: string; date?: string }>({ month, kind, date })
   useEffect(() => {
-    setDrill({ month, kind })
-  }, [month, kind])
+    setDrill({ month, kind, date })
+  }, [month, kind, date])
   const { data, isLoading } = useQuery({
     queryKey: ['daybook', from, to, 'all'],
     queryFn: () => api.reports.dayBook(from, to, true)
@@ -133,6 +134,7 @@ export function DayBook({ month, kind }: { month?: string; kind?: string } = {})
     else if (scope === 'post-dated') all = all.filter((r) => r.postDated)
     if (drill.month) all = all.filter((r) => r.date.startsWith(drill.month!))
     if (drill.kind) all = all.filter((r) => r.kind === drill.kind)
+    if (drill.date) all = all.filter((r) => r.date === drill.date)
     return all
   }, [data, scope, drill])
 
@@ -170,30 +172,31 @@ export function DayBook({ month, kind }: { month?: string; kind?: string } = {})
           )
         }}
       />
-      {(scope !== 'books' || drill.month || drill.kind) && (
+      {(scope !== 'books' || drill.month || drill.kind || drill.date) && (
         <div className="mb-3 flex flex-wrap items-center gap-2" data-testid="daybook-filters">
           {scope !== 'books' && (
             <Chip onRemove={() => opts.set('scope', 'books')} removeLabel={`Show in-books vouchers only (now: ${scopeLabel})`} testId="daybook-scope-chip">
               {scopeLabel}
             </Chip>
           )}
-          {(drill.month || drill.kind) && (
+          {(drill.month || drill.kind || drill.date) && (
             <>
               <span className="flex items-center gap-1.5 rounded-full border border-amberbar/50 bg-amberbar/10 py-0.5 pr-1 pl-2.5 text-small">
+                {drill.date ? <span data-testid="daybook-date-chip">{toDisplayDate(drill.date)}</span> : null}
                 {drill.month ? monthLabel(drill.month) : null}
                 {drill.month && drill.kind ? ' · ' : ''}
                 {drill.kind ? <span className="capitalize">{drill.kind.replace('_', ' ')}</span> : null}
                 <button
                   type="button"
                   data-testid="daybook-clear-drill"
-                  aria-label="Clear the month/kind filter"
+                  aria-label="Clear the date/month/kind filter"
                   className="rounded-full px-1 text-muted hover:text-ink"
                   onClick={() => setDrill({})}
                 >
                   ✕
                 </button>
               </span>
-              <span className="text-hint text-muted">Filtered from Registers</span>
+              {!drill.date && <span className="text-hint text-muted">Filtered from Registers</span>}
             </>
           )}
         </div>

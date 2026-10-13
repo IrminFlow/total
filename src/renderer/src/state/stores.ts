@@ -44,7 +44,7 @@ export type Screen =
   | { name: 'gateway' }
   // Optional drill params (Registers month rows → filtered Day Book): restrict to one
   // 'YYYY-MM' month and/or one voucher-type kind ('sales' | 'purchase' | …).
-  | { name: 'daybook'; month?: string; kind?: string }
+  | { name: 'daybook'; month?: string; kind?: string; date?: string }
   | { name: 'import-tally' }
   | { name: 'data-import' }
   | { name: 'data-export' }
@@ -73,7 +73,7 @@ export type Screen =
   // Books search results (⌘⇧F, or "See all" in the ⌘K palette): `q` is the query-language
   // string, `kind` the initially selected tab (omitted = all kinds).
   | { name: 'search'; q?: string; kind?: 'ledger' | 'item' | 'voucher' }
-  | { name: 'trial-balance' }
+  | { name: 'trial-balance'; asOn?: string; ledgerIds?: number[] }
   | { name: 'profit-loss' }
   | { name: 'balance-sheet' }
   | { name: 'cash-flow' }
@@ -85,7 +85,7 @@ export type Screen =
   | { name: 'stock-reports'; tab?: 'reorder' | 'ageing' | 'expiry' | 'serials' | 'labels' }
   | { name: 'ledger-statement'; ledgerId: number }
   | { name: 'gstr1' }
-  | { name: 'gstr3b' }
+  | { name: 'gstr3b'; month?: string }
   | { name: 'gstr2b' }
   // WP 3.4 — GST expansion: tabs of the GST returns screen family.
   | { name: 'gstr9' }
@@ -93,7 +93,7 @@ export type Screen =
   | { name: 'itc-reversal' }
   | { name: 'edocs'; tab?: 'documents' | 'self-invoices' }
   | { name: 'registers'; tab?: 'sales' | 'purchase' | 'items' }
-  | { name: 'outstandings' }
+  | { name: 'outstandings'; side?: 'receivable' | 'payable' }
   // WP 4.2: credit control, reminders, interest on overdue bills, collection reports.
   | { name: 'receivables'; tab?: 'control' | 'reminders' | 'interest' | 'collections' }
   // WP 4.3: payables — planning, batch payments, runs, MSME, supplier reconciliation.

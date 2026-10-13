@@ -505,9 +505,14 @@ function ManualAdjustments({ period }: { period: string }): React.JSX.Element {
   )
 }
 
-export function Gstr3bScreen(): React.JSX.Element {
+/** `initialMonth` (WP 8.6, 'YYYY-MM'): opened from the simple Home's GST tile on its period. */
+export function Gstr3bScreen({ initialMonth }: { initialMonth?: string } = {}): React.JSX.Element {
   const opts = useScreenOptions('gstr3b', { openOn: 'current' as OpenOn }, { openOn: ['current', 'previous'] })
   const { months, month, monthKey, setMonthKey } = useMonth(opts.options.openOn)
+  useEffect(() => {
+    if (initialMonth && months.some((m) => m.key === initialMonth)) setMonthKey(initialMonth)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialMonth, months])
   const { info } = useSession()
   const toast = useToasts()
   const { data, isLoading } = useQuery({
