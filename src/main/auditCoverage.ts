@@ -115,6 +115,8 @@ export const AUDIT_COVERAGE: Record<string, AuditCoverage> = {
   'master:units:create': a('unit'),
   'master:stockGroups:create': a('stockGroup'),
   'master:stockItems:create': a('stockItem'),
+  // WP 8.4: item + (optional) default price level + its selling-price row.
+  'master:stockItems:quickCreate': a('stockItem', 'priceLevel', 'priceRate'),
   'master:stockItems:update': a('stockItem'),
   'master:stockItems:delete': a('stockItem'),
   'master:godowns:create': a('godown'),

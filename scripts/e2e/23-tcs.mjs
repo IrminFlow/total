@@ -5,7 +5,7 @@
 // deposit (a payment voucher) becomes a challan with both collections allocated → Returns shows
 // the Form 143 / 27EQ collectee rows and exports the CSV → deleting a collection leaves the sale
 // balanced.
-import { scenario, assert, assertEq } from '../lib/harness.mjs'
+import { scenario, assert, assertEq, PICKER_OPTION } from '../lib/harness.mjs'
 
 await scenario('23-tcs', async (h) => {
   // GST-registered: the scenario posts CGST / SGST (WP 8.0 refuses tax lines when unregistered).
@@ -107,14 +107,14 @@ await scenario('23-tcs', async (h) => {
     const input = page.locator(`[data-testid="${testId}"]`).first()
     await input.click()
     await input.fill(text)
-    await page.waitForSelector('[role="listbox"] [role="option"]', { timeout: 5000 })
+    await page.waitForSelector(PICKER_OPTION, { timeout: 5000 })
     await input.press('Enter')
   }
   await pick('picker-party', 'E2E Car Buyer')
   const salesPicker = page.locator('input[placeholder="e.g. Sales"]')
   await salesPicker.click()
   await salesPicker.fill('E2E Vehicle Sales')
-  await page.waitForSelector('[role="listbox"] [role="option"]', { timeout: 5000 })
+  await page.waitForSelector(PICKER_OPTION, { timeout: 5000 })
   await salesPicker.press('Enter')
   await pick('picker-item', 'E2E Sedan')
   await page.locator('[data-testid="input-line-qty"]').first().fill('1')
@@ -201,7 +201,7 @@ await scenario('23-tcs', async (h) => {
   await pick('picker-party', 'E2E Car Buyer')
   await salesPicker.click()
   await salesPicker.fill('E2E Vehicle Sales')
-  await page.waitForSelector('[role="listbox"] [role="option"]', { timeout: 5000 })
+  await page.waitForSelector(PICKER_OPTION, { timeout: 5000 })
   await salesPicker.press('Enter')
   await pick('picker-item', 'E2E Sedan')
   await page.locator('[data-testid="input-line-qty"]').first().fill('1')
