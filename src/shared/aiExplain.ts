@@ -196,3 +196,58 @@ export function parseNavIntent(text: string): { kind: NavIntentKind | null; targ
   if (/\b(?:from|last|this|between|since|during|in|on|with|where|which|who|why|how|what|when)\b/i.test(rest)) return null
   return { kind, target: rest.slice(0, 120) }
 }
+
+/** What a navigation request resolves to: the FIRST search hit of the requested kind (the panel
+ *  opens it; the WP 5.8 evals score the same choice). The model is never involved. */
+export interface NavTarget {
+  kind: NavIntentKind
+  id: number
+  label: string
+}
+
+export function pickNavTarget(
+  intent: { kind: NavIntentKind | null },
+  r: {
+    ledgers?: { rows: readonly { id: number; name: string }[] } | null
+    items?: { rows: readonly { id: number; name: string }[] } | null
+    vouchers?: { rows: readonly { id: number; typeName: string; number: string }[] } | null
+  }
+): NavTarget | null {
+  if (intent.kind === 'ledger' && r.ledgers?.rows[0]) return { kind: 'ledger', id: r.ledgers.rows[0].id, label: r.ledgers.rows[0].name }
+  if (intent.kind === 'item' && r.items?.rows[0]) return { kind: 'item', id: r.items.rows[0].id, label: r.items.rows[0].name }
+  if (intent.kind === 'voucher' && r.vouchers?.rows[0]) {
+    const v = r.vouchers.rows[0]
+    return { kind: 'voucher', id: v.id, label: `${v.typeName} ${v.number}` }
+  }
+  return null
+}
+
+type NavSearchResult = Parameters<typeof pickNavTarget>[1]
+
+/** What the panel does with typed text before (instead of) asking the assistant. */
+export type NavDecision<S> =
+  | { to: 'screen'; screen: S; title: string }
+  | { to: 'target'; target: NavTarget }
+  /** A navigation request nothing in the books matches. */
+  | { to: 'nothing'; target: string }
+
+/**
+ * The assistant panel's routing of typed text (WP 5.2), shared so the WP 5.8 evals run the same
+ * path: an "open / go to" request is resolved by the app — a screen by its title, else the search
+ * service's first hit of the requested kind — and never reaches the model; null = not navigation
+ * (the text goes to the assistant). `search` is the search service (IPC in the renderer, the
+ * service in main).
+ */
+export async function routeNavigation<S>(
+  text: string,
+  screens: readonly { screen?: S | null; title: string }[],
+  search: (target: string) => Promise<NavSearchResult> | NavSearchResult
+): Promise<NavDecision<S> | null> {
+  const intent = parseNavIntent(text)
+  if (!intent) return null
+  const screenDef = intent.kind === null ? screens.find((s) => s.screen && s.title.toLowerCase() === intent.target.toLowerCase()) : undefined
+  if (screenDef?.screen) return { to: 'screen', screen: screenDef.screen, title: screenDef.title }
+  if (intent.kind === null) return null
+  const target = pickNavTarget(intent, await search(intent.target))
+  return target ? { to: 'target', target } : { to: 'nothing', target: intent.target }
+}
