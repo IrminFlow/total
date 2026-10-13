@@ -63,7 +63,8 @@ const CREDS = {
 }
 
 await scenario('13-nic-masking', async (h) => {
-  await h.createCompanyUI('NIC Co')
+  // GST-registered: e-invoicing is for registered persons (WP 8.0 hides it when unregistered).
+  await h.createCompanyUI('NIC Co', { gstin: '27AAPFU0939F1ZV' })
 
   const st0 = await h.invoke('nic:status')
   assertEq(st0.configured, false, 'fresh company has no NIC credentials')

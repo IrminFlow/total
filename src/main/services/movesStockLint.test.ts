@@ -22,6 +22,7 @@ const ALLOW: { file: string; contains: string; reason: string }[] = [
   { file: 'gst.ts', contains: 'FROM inventory_lines il JOIN stock_items si', reason: 'RCM / inward HSN = the bill items' },
   { file: 'gst.ts', contains: 'SELECT il.amount FROM inventory_lines il WHERE il.voucher_id', reason: 'purchase-doc taxable value = the bill items' },
   { file: 'manufacture.ts', contains: 'FROM inventory_lines il', reason: 'suggestedSaleRate reads sale prices off invoice items' },
+  { file: 'vouchers.ts', contains: 'SELECT v.id, v.date FROM inventory_lines il JOIN vouchers v', reason: 'WP 8.0: a note\'s return line → its original invoice (by line uid), not a stock reading' },
   { file: 'tradeLinks.ts', contains: 'SELECT 1 FROM inventory_lines WHERE line_uid = ?', reason: 'lineUidFree: is the uid used by any line at all (identity, not stock)' },
   { file: 'yearEnd.ts', contains: 'SELECT 1 FROM inventory_lines WHERE voucher_id = ?', reason: 'markImportedClose: a closing entry has no item lines at all (shape, not stock)' },
   { file: 'dataImport.ts', contains: 'SELECT 1 FROM inventory_lines WHERE batch_id', reason: 'undo: is the imported batch referenced by any line at all (existence, not stock)' },

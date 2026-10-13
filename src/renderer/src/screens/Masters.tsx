@@ -24,6 +24,7 @@ import { PartyRatesTab } from './masters/PartyRatesTab'
 import { SchemesTab } from './masters/SchemesTab'
 import { useBulkSelection } from '../components/bulk/BulkEdit'
 import { AttachmentList } from '../components/attachments/Attachments'
+import { defaultUnitId, itemShowsGst, itemShowsHsn, newItemGstRateError } from '../lib/itemDefaults'
 
 export type MastersTab = NonNullable<Extract<Screen, { name: 'masters' }>['tab']>
 
@@ -626,21 +627,32 @@ export function ItemFormModal({ item, onClose }: { item: StockItem | null; onClo
   const [mrp, setMrp] = useState<number | null>(item?.mrpPaise ?? null)
   const [stdCost, setStdCost] = useState<number | null>(item?.standardCostPaise ?? null)
   const nav = useNav()
+  // WP 8.0: GST rates only in a regular registration; a new item's rate starts blank and is required.
+  const regType = useSession((s) => s.info?.gstRegistrationType ?? 'regular')
+  const showGst = itemShowsGst(regType)
+  const [gstTried, setGstTried] = useState(false)
+  const gstError = !item && gstTried ? newItemGstRateError(regType, gstRate) : null
 
   const hsnCheck = hsn.trim() ? validateHsn(hsn) : null
   const hsnError = hsnCheck && !hsnCheck.valid ? hsnCheck.error : null
 
-  if (units && unitId == null && units.length > 0) setUnitId(units[0]!.id)
+  if (units && unitId == null && units.length > 0) setUnitId(defaultUnitId(units))
 
   const save = async (): Promise<void> => {
     try {
       if (!unitId) return void toast.push('error', 'Pick a unit')
       if (hsnError) return void toast.push('error', hsnError)
+      const rateError = item ? null : newItemGstRateError(regType, gstRate)
+      if (rateError) {
+        setGstTried(true)
+        return void toast.push('error', rateError)
+      }
       const data = {
         name: name.trim(),
         groupId: item?.groupId ?? null,
         unitId,
         hsn: hsn.trim() || null,
+        // Hidden GST fields keep what an existing item has stored (a new one gets none).
         gstRate: gstRate.trim() ? Number(gstRate) : null,
         cessRate: cessRate.trim() ? Number(cessRate) : null,
         openingQtyMilli: Math.round(parseFloat(openQty || '0') * 1000),
@@ -699,17 +711,23 @@ export function ItemFormModal({ item, onClose }: { item: StockItem | null; onClo
               ))}
             </Select>
           </Field>
-          <Field label="HSN" error={hsnError}>
-            <TextInput value={hsn} onChange={(e) => setHsn(e.target.value)} className="num" />
-          </Field>
-          <Field label="GST %">
-            <TextInput value={gstRate} onChange={(e) => setGstRate(e.target.value)} className="num" placeholder="18" />
-          </Field>
+          {(itemShowsHsn(regType) || !!item?.hsn) && (
+            <Field label="HSN" error={hsnError}>
+              <TextInput value={hsn} onChange={(e) => setHsn(e.target.value)} className="num" />
+            </Field>
+          )}
+          {showGst && (
+            <Field label="GST %" error={gstError}>
+              <TextInput value={gstRate} onChange={(e) => setGstRate(e.target.value)} className="num" placeholder="Pick a rate" data-testid="input-item-gst-rate" />
+            </Field>
+          )}
         </div>
         <div className="grid grid-cols-3 gap-3">
-          <Field label="Cess %">
-            <TextInput value={cessRate} onChange={(e) => setCessRate(e.target.value)} className="num" placeholder="0" />
-          </Field>
+          {showGst && (
+            <Field label="Cess %">
+              <TextInput value={cessRate} onChange={(e) => setCessRate(e.target.value)} className="num" placeholder="0" />
+            </Field>
+          )}
           <Field label="Opening qty">
             <TextInput value={openQty} onChange={(e) => setOpenQty(e.target.value)} className="num text-right" placeholder="0" />
           </Field>

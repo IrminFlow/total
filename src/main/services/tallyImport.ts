@@ -283,7 +283,7 @@ function applyParsedTallyImport(db: DB, data: TallyImport, canSetBooksFrom: bool
           })),
         billRefs: [],
         tds: null
-      })
+      }, undefined, { historicImport: true })
       counts.vouchers++
     } catch (err) {
       warnings.push(`Voucher ${v.number || v.date} skipped: ${(err as Error).message}`)

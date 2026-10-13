@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { gstRegistrationOf } from '@shared/gst/registration'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { computeInvoice, emptyInvoiceState, type InvoiceContext } from '@shared/voucherEdit'
 import { supplyTypeFor } from '@shared/gst/calc'
@@ -155,6 +156,7 @@ export function CounterBillingScreen(): React.JSX.Element {
     () => ({
       kind: 'sales',
       companyStateCode: info!.stateCode,
+      ...gstRegistrationOf(info!),
       items: new Map(items.map((i) => [i.id, { gstRate: i.gstRate, cessRate: i.cessRate }])),
       ledgers: new Map(ledgers.map((l) => [l.id, { stateCode: l.stateCode, gstRate: l.gstRate }]))
     }),

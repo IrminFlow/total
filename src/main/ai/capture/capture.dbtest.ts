@@ -6,6 +6,7 @@
 // queue persistence (restart / stop / cancel), the capture inbox folder, and statement
 // categorisation → drafts → save reconciles the line. Audit rows never carry file content.
 import { beforeEach, describe, expect, it } from 'vitest'
+import { writeCompanyInfo } from '../../db/seed'
 import { deflateSync } from 'zlib'
 import { existsSync, mkdtempSync, readdirSync, readFileSync, utimesSync, writeFileSync } from 'fs'
 import { tmpdir } from 'os'
@@ -523,5 +524,48 @@ describe('bank statement → categorised drafts → save reconciles the line', (
     expect(cat).toMatchObject({ aiUsed: false, aiNote: expect.stringMatching(/assistant is off/) })
     expect(cat.rows[0]).toMatchObject({ source: 'none', ledgerId: null })
     expect(cat.rows[0]!.candidates.length).toBeGreaterThan(0)
+  })
+})
+
+describe('WP 8.0: a company that cannot claim GST', () => {
+  const unregistered = (): void => {
+    const un = { ...INFO, gstin: null, gstRegistrationType: 'unregistered' as const }
+    writeCompanyInfo(db, un)
+    env = { ...env, company: un }
+  }
+  const supplierBalance = (vId: number): number => getVoucher(db, vId)!.lines.filter((l) => l.ledgerId === ids.bharat).reduce((s, l) => s + (l.drCr === 'cr' ? l.amount : -l.amount), 0)
+
+  it('an item bill: each line costs taxable + the supplier’s GST, the supplier is owed the bill total, no input-tax line', async () => {
+    unregistered()
+    const { item: it } = await add('bharat-0142.pdf', pdf(FIXTURE_BILL_LINES))
+    await run([it!.id])
+    const after = getItem(db, it!.id)!
+    expect(after.status).toBe('drafted')
+    const d = aiStore.getDraft(db, after.draftId!)!
+    expect(d.payload.total).toBe(3_424_000)
+    expect(d.payload.assumptions!.join('\n')).toMatch(/Line 1: the supplier's GST of ₹3,600.00 is part of the cost \(₹23,600.00\)/)
+    expect(d.payload.assumptions!.some((a) => /prints GST/.test(a))).toBe(false)
+    const vId = saveDraft(d.id)
+    const v = getVoucher(db, vId)!
+    expect(supplierBalance(vId)).toBe(3_424_000)
+    expect(v.inventory.map((l) => [l.stockItemId, l.amount])).toEqual([[chairId, 2_360_000], [cabinetId, 1_064_000]])
+    expect(v.lines.some((l) => [ids.cgst, ids.sgst, ids.igst].includes(l.ledgerId))).toBe(false)
+  })
+
+  it('a ledger-line bill: the expense carries the GST, the supplier is owed the bill total', async () => {
+    unregistered()
+    const svc = [
+      'TAX INVOICE', 'Bharat Steel Suppliers', 'MIDC Bhosari, Pune 411026', 'GSTIN: 27AABCG3456H1ZN', 'Invoice No: BSS/SRV/91    Date: 14/08/2025',
+      'Sl  Description            HSN    Qty   Rate       Amount', '1   Welding labour         998873   1     2,000.00   2,000.00', 'CGST 9% 180.00', 'SGST 9% 180.00', 'Total Rs. 2,360.00'
+    ]
+    const { item: it } = await add('service.pdf', pdf(svc))
+    await run([it!.id])
+    const labour = ledger('Labour Charges', 'Direct Expenses')
+    patchItem(db, it!.id, { mapping: { lines: { '0': { ledgerId: labour } } } }, true)
+    const done = redraft(env, it!.id, 'Arun')
+    expect(done.status).toBe('drafted')
+    const d = aiStore.getDraft(db, done.draftId!)!
+    expect(d.payload.lines).toEqual([{ ledgerId: labour, drCr: 'dr', amount: 236_000 }, { ledgerId: ids.bharat, drCr: 'cr', amount: 236_000 }])
+    expect(supplierBalance(saveDraft(d.id))).toBe(236_000)
   })
 })

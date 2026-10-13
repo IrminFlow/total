@@ -40,6 +40,9 @@ export const companyCreateSchema = z.object({
   stateCode: stateCodeSchema,
   gstin: gstinSchema.nullable(),
   gstRegistrationType: z.enum(['regular', 'composition', 'unregistered']),
+  /** WP 8.0: the date a CHANGED registration takes effect (company:updateInfo; default today). */
+  gstRegistrationSince: isoDate.nullable().optional(),
+  gstPreviousRegistrationType: z.enum(['regular', 'composition', 'unregistered']).nullable().optional(),
   address: z.string().trim().max(500).default(''),
   booksFrom: z.number().int().min(1990).max(2100),
   email: z.string().trim().email().nullable(),

@@ -261,7 +261,7 @@ describe('tax-inclusive prices', () => {
 
   it('the invoice (computeInvoice) of a one-line inclusive sale totals the inclusive price', () => {
     const invCtx = (g: number, c: number): InvoiceContext => ({
-      kind: 'sales', companyStateCode: '27', items: new Map([[7, { gstRate: g, cessRate: c }]]),
+      kind: 'sales', companyStateCode: '27', gstRegistrationType: 'regular', items: new Map([[7, { gstRate: g, cessRate: c }]]),
       ledgers: new Map([[1, { stateCode: '27', gstRate: null }], [2, { stateCode: null, gstRate: null }]])
     })
     for (const [g, c] of ratesWithCess) {

@@ -129,6 +129,7 @@ describe('useTdsDeduction — invoice mode (purchase invoice)', () => {
   const ctx: InvoiceContext = {
     kind: 'purchase',
     companyStateCode: '27',
+    gstRegistrationType: 'regular',
     items: new Map([[ITEM, { gstRate: 18, cessRate: null }]]),
     ledgers: new Map([
       [VENDOR, { stateCode: '27', gstRate: null }],

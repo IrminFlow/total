@@ -10,7 +10,8 @@
 import { scenario, assert, assertEq } from '../lib/harness.mjs'
 
 await scenario('03-voucher-lifecycle', async (h) => {
-  await h.createCompanyUI('Lifecycle Books')
+  // GST-registered: the scenario posts CGST / SGST (WP 8.0 refuses tax lines when unregistered).
+  await h.createCompanyUI('Lifecycle Books', { gstin: '27AAPFU0939F1ZV' })
 
   const ledgers = await h.invoke('master:ledgers:list')
   const cash = ledgers.find((l) => l.name === 'Cash')

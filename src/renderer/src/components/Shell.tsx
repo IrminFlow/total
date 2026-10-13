@@ -7,7 +7,7 @@ import { SupportLink } from './SupportLink'
 import { TotalLogo } from './TotalLogo'
 import { toDisplayDate, fyOf, fyFromStartYear, todayISO } from '@shared/dates'
 import { useFeatures } from '../lib/useFeatures'
-import { NAV_SECTIONS, SCREENS } from '../lib/screens'
+import { NAV_SECTIONS, SCREENS, screenApplies } from '../lib/screens'
 import { useNavSections } from '../lib/navSections'
 import { useDynamicNav } from '../lib/dynamicNav'
 // Registers the pinned-saved-reports source (WP 6.1) before the first render.
@@ -20,7 +20,8 @@ const NAV = NAV_SECTIONS.map((section) => ({
   items: SCREENS.filter((s) => s.navSection === section.id && s.screen != null).map((s) => ({
     label: s.navLabel ?? s.title,
     screen: s.screen!,
-    feature: s.feature
+    feature: s.feature,
+    requiresGstRegistration: s.requiresGstRegistration
   }))
 }))
 
@@ -39,7 +40,7 @@ export function Shell({ children, onOpenPalette }: { children: ReactNode; onOpen
   const assistantOpen = useAssistantPanel((s) => s.open)
   const visibleNav = NAV.filter((s) => !s.feature || features[s.feature]).map((s) => ({
     ...s,
-    items: s.items.filter((i) => !i.feature || features[i.feature]),
+    items: s.items.filter((i) => (!i.feature || features[i.feature]) && screenApplies(i, info?.gstRegistrationType)),
     dynamic: dynamicNav.get(s.id) ?? []
   }))
   const navBtnCls = (active: boolean): string =>

@@ -18,7 +18,7 @@ import {
   type DashSection, type DashSetup, type DashStatus, type DashStock, type DashStockAlert, type DashTds,
   type DashTrade, type DashTrendPoint, type DashboardSeries, type DashboardWindow, type DashActivity, type DashPdc
 } from '@shared/dashboard'
-import { upcomingDeadlines } from '@shared/compliance'
+import { complianceApplicability, upcomingDeadlines } from '@shared/compliance'
 import { tdsQuarterOf } from '@shared/tds'
 import { gstPeriodOf } from '@shared/dates'
 import { closingBalances, descendantIdSet, profitAndLoss, stockAgeing } from './reports'
@@ -206,7 +206,13 @@ function computeSeries(
       .filter((l) => dutiesIds.has(l.groupId) && l.name.startsWith('TDS Payable'))
       .map((l) => ({ ledgerId: l.id, name: l.name, balance: -(bal.get(l.id) ?? 0) }))
       .filter((l) => l.balance !== 0)
-    const nextDue = upcomingDeadlines(w.today, company.gstRegistrationType, false, 45).find((d) => d.kind === 'tds')?.date ?? null
+    // WP 8.0: no TDS row (or TDS deadline) for a company that has never deducted anything.
+    const everDeducted = !!db.prepare(`SELECT 1 FROM tds_entries te JOIN vouchers v ON v.id = te.voucher_id WHERE ${IN_BOOKS} LIMIT 1`).get()
+    const applies = complianceApplicability({
+      gstRegistrationType: company.gstRegistrationType, tdsOn: features.tds, tdsActivity: everDeducted || payableLedgers.length > 0, hasPayroll: false
+    })
+    if (!applies.tds) return null
+    const nextDue =upcomingDeadlines(w.today, company.gstRegistrationType, false, 45).find((d) => d.kind === 'tds')?.date ?? null
     return { quarter: q.label, deducted, payable: payableLedgers.reduce((s, l) => s + l.balance, 0), payableLedgers, nextDue }
   })
 

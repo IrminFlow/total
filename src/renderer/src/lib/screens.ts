@@ -34,6 +34,9 @@ export interface ScreenDef {
   navLabel?: string
   /** Hidden everywhere (render-only) when this feature is off. */
   feature?: keyof CompanyFeatures
+  /** WP 8.0: hidden from the sidebar / palette / Gateway when the company is unregistered (no GST
+   *  returns or e-documents to file). The screen still opens by link and says so. */
+  requiresGstRegistration?: boolean
   /** Gateway card: subtitle + single-letter shortcut (also ShortcutHelp's Gateway group). */
   card?: { sub: string; key: string }
   /** Extra command-palette search terms beyond the title. */
@@ -493,6 +496,7 @@ export const SCREENS: ScreenDef[] = [
 
   {
     name: 'gstr1',
+    requiresGstRegistration: true,
     title: 'GSTR-1',
     screen: { name: 'gstr1' },
     navSection: 'gst',
@@ -501,6 +505,7 @@ export const SCREENS: ScreenDef[] = [
   },
   {
     name: 'gstr3b',
+    requiresGstRegistration: true,
     title: 'GSTR-3B',
     screen: { name: 'gstr3b' },
     navSection: 'gst',
@@ -509,6 +514,7 @@ export const SCREENS: ScreenDef[] = [
   },
   {
     name: 'gstr9',
+    requiresGstRegistration: true,
     title: 'GSTR-9 annual workings',
     keywords: ['annual return', 'gstr-9', 'gstr9c', 'reconciliation'],
     screen: { name: 'gstr9' },
@@ -517,6 +523,7 @@ export const SCREENS: ScreenDef[] = [
   },
   {
     name: 'itc04',
+    requiresGstRegistration: true,
     title: 'ITC-04 · job work',
     keywords: ['job work', 'itc-04', 'challan'],
     screen: { name: 'itc04' },
@@ -525,6 +532,7 @@ export const SCREENS: ScreenDef[] = [
   },
   {
     name: 'itc-reversal',
+    requiresGstRegistration: true,
     title: 'ITC reversal workings',
     keywords: ['rule 42', 'rule 43', 'rule 37', '17(5)', 'blocked credit', 'reversal'],
     screen: { name: 'itc-reversal' },
@@ -533,6 +541,7 @@ export const SCREENS: ScreenDef[] = [
   },
   {
     name: 'gstr2b',
+    requiresGstRegistration: true,
     keywords: ['reconciliation', 'itc'],
     title: 'GSTR-2B recon',
     screen: { name: 'gstr2b' },
@@ -541,6 +550,7 @@ export const SCREENS: ScreenDef[] = [
   },
   {
     name: 'edocs',
+    requiresGstRegistration: true,
     keywords: ['e-invoice', 'e-way bill', 'irn', 'ewb'],
     title: 'e-Invoice & e-Way',
     screen: { name: 'edocs' },
@@ -683,3 +693,7 @@ export const CARD_SCREENS: (ScreenDef & { card: NonNullable<ScreenDef['card']>; 
 export function invalidationFamilies(name: Screen['name']): string[] {
   return byName.get(name)?.invalidates ?? []
 }
+
+/** WP 8.0: is a registry entry shown for this company? */
+export const screenApplies = (s: { requiresGstRegistration?: boolean }, gstRegistrationType: string | undefined): boolean =>
+  !s.requiresGstRegistration || gstRegistrationType !== 'unregistered'

@@ -14,6 +14,7 @@ import { formatPaise, formatQtyMilli } from '@shared/money'
 import { addDaysISO, toDisplayDate } from '@shared/dates'
 import { supplyTypeFor } from '@shared/gst/calc'
 import { stateName } from '@shared/gst/states'
+import { chargesGstOn, gstRegistrationOf, NON_CLAIMABLE_RATE_HINT, registrationOn } from '@shared/gst/registration'
 import { voucherInputSchema, type VoucherInputParsed } from '@shared/schemas'
 import { validateVoucher } from '@shared/posting'
 import { resolveName } from '@shared/aiResolve'
@@ -22,7 +23,7 @@ import { needsLossConfirmation } from '@shared/manufacture'
 import {
   buildAccountingPayload, buildInvoicePayload, buildStockNotePayload, computeInvoice, derivePartyId, emptyInvoiceState,
   emptyManufactureState, emptyStockNoteState, evaluateManufactureForm, padManufactureRows, qtyText, requiredTaxLedgers,
-  STOCK_NOTE_PURPOSES, taxLedgerIdsFrom, taxSideOf, DEFAULT_PURPOSE,
+  STOCK_NOTE_PURPOSES, taxLedgerIdsFrom, taxSideOf, DEFAULT_PURPOSE, voucherCarriesGst, voucherTaxLedgers,
   type AccountingFormState, type AccountingRowState, type InvoiceContext, type InvoiceFormState, type InvoiceRowState,
   type ManufactureFormState, type StockNoteFormState, type StockNoteKind, type TaxLedgerIds
 } from '@shared/voucherEdit'
@@ -189,7 +190,18 @@ function priceLine(
   return { rate, discount: discount && discount > 0 ? discount : null }
 }
 
-function gstAssumptions(w: DraftWork, items: StockItem[], supply: 'intra' | 'inter', partyState: string | null, pos: string | null): void {
+function gstAssumptions(
+  w: DraftWork, items: StockItem[], supply: 'intra' | 'inter', partyState: string | null, pos: string | null,
+  invoice: { date: string; kind: VoucherKind; taxedOriginal: boolean } | null
+): void {
+  // WP 8.0: the editor's rule — a bill dated while the company is composition / unregistered
+  // charges no GST (a note against a GST-charging bill follows that bill).
+  if (invoice && !invoice.taxedOriginal && !chargesGstOn(w.m.company, invoice.date)) {
+    const type = registrationOn(w.m.company, invoice.date)
+    w.assume(type === 'composition' ? 'No GST — the company is under the composition scheme (bill of supply)' : 'No GST — the company is not GST-registered')
+    if (invoice.kind === 'purchase' || invoice.kind === 'debit_note') w.assume(NON_CLAIMABLE_RATE_HINT)
+    return
+  }
   for (const it of items) {
     if (it.gstRate != null) w.assume(`${it.gstRate}% GST on ${it.name} from the item master${it.cessRate ? ` (+ ${it.cessRate}% cess)` : ''}`)
     else w.assume(`${it.name} has no GST rate in the item master — the ledger's rate (or 0%) applies`)
@@ -204,6 +216,7 @@ export function invoiceCtx(m: DraftMasters, kind: VoucherKind): InvoiceContext {
   return {
     kind,
     companyStateCode: m.company.stateCode,
+    ...gstRegistrationOf(m.company),
     items: new Map(m.items.map((i) => [i.id, { gstRate: i.gstRate, cessRate: i.cessRate }])),
     ledgers: new Map(
       m.ledgers.map((l) => [l.id, { stateCode: l.stateCode, gstRate: l.gstRate, tdsPayableSectionId: l.tdsPayableSectionId, tcsPayableSectionId: l.tcsPayableSectionId ?? null }])
@@ -591,7 +604,10 @@ export function buildInvoiceDraft(w: DraftWork, input: InvoiceDraftInput): Built
     return { itemId: r.item!.id, qtyText: qtyText(r.qtyMilli), rate, discount, godownId: null, batchId: null, ...(source ? { source } : {}) }
   })
   w.settle()
-  gstAssumptions(w, [...new Map(resolved.map((r) => [r.item!.id, r.item!])).values()], supply, party!.stateCode, pos)
+  // A note against an invoice of a GST-charging period (or one that carries tax) keeps its GST.
+  const taxedOriginal = !!originalVoucher && !chargesGstOn(m.company, date) &&
+    (chargesGstOn(m.company, originalVoucher.date) || voucherCarriesGst(originalVoucher, voucherTaxLedgers(originalVoucher, m.ledgers, taxSideOf(kind))))
+  gstAssumptions(w, [...new Map(resolved.map((r) => [r.item!.id, r.item!])).values()], supply, party!.stateCode, pos, { date, kind, taxedOriginal })
 
   const isNote = kind === 'credit_note' || kind === 'debit_note'
   const dueGiven = w.optionalDate('dueDate', input.dueDate)
@@ -603,7 +619,8 @@ export function buildInvoiceDraft(w: DraftWork, input: InvoiceDraftInput): Built
     narration: input.narration?.trim() ?? '',
     posOverride: pos && pos !== party!.stateCode ? pos : null,
     billName: !isNote && input.billNo ? input.billNo.trim() : '',
-    billDueDate: dueGiven ?? addDaysISO(date, party!.creditDays ?? 0)
+    billDueDate: dueGiven ?? addDaysISO(date, party!.creditDays ?? 0),
+    ...(taxedOriginal ? { taxedOriginal: true } : {})
   }
   if (input.narration) w.fields.add('narration')
   if (input.billNo && !isNote) w.fields.add('bills')
@@ -887,7 +904,7 @@ export function buildTradeDocDraft(w: DraftWork, input: TradeDocDraftInput): Bui
     return { itemId: r.item!.id, qtyText: qtyText(r.qtyMilli), rate, discount, godownId: null, batchId: null }
   })
   w.settle()
-  gstAssumptions(w, [...new Map(resolved.map((r) => [r.item!.id, r.item!])).values()], supply, party!.stateCode, pos)
+  gstAssumptions(w, [...new Map(resolved.map((r) => [r.item!.id, r.item!])).values()], supply, party!.stateCode, pos, null)
   const validUntil = kind === 'quotation' ? w.optionalDate('validUntil', input.validUntil) : null
   const dueDate = kind !== 'quotation' ? w.optionalDate('dueDate', input.dueDate) : null
   for (const [k, v] of [['reference', input.reference], ['terms', input.terms], ['narration', input.narration]] as const) if (v) w.fields.add(k)

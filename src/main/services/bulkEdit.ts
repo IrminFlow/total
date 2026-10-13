@@ -365,7 +365,7 @@ export function undoBulk(db: DB, batchId: number): BulkUndoResult {
       if (!reason) {
         const before = JSON.parse(r.beforeJson!) as unknown
         reason = inSavepoint(db, () => {
-          if (r.entity === 'voucher') saveVoucher(db, before as VoucherPayload, r.id)
+          if (r.entity === 'voucher') saveVoucher(db, before as VoucherPayload, r.id, { historicImport: true }) // restore exactly (WP 8.0)
           else if (r.entity === 'ledger') updateLedger(db, r.id, before as LedgerInput)
           else updateStockItem(db, r.id, before as StockItemInput)
         })
