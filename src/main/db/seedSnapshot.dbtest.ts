@@ -1,6 +1,6 @@
 // WP 8.3: the accountant path's seed is frozen. `seedCompany` on a migrated database must dump
 // exactly what main produced before the setup wizard existed — the snapshot next to this file
-// was generated from origin/main's code (seed.ts + migrations.ts at 070556b0) and is never to be
+// was generated from origin/main's code (seed.ts + migrations.ts at d32eadb1, before WP 8.3) and is never to be
 // regenerated to make a change pass. The only column WP 8.3 adds to a seeded row
 // (`ledgers.simple_category`, migration "simple_category") is asserted NULL and left out of the
 // comparison, so the snapshot stays the pre-8.3 bytes.
@@ -21,7 +21,10 @@ describe('accountant seed (seedCompany) is unchanged', () => {
       delete r.simple_category
       return JSON.stringify(r)
     })
-    expect(dump).toMatchSnapshot()
+    // Only the rows the seed writes are frozen — a later migration's new (empty) table is not a
+    // change to the seed.
+    const seeded = Object.fromEntries(Object.entries(dump).filter(([, rows]) => rows.length > 0))
+    expect(seeded).toMatchSnapshot()
     expect(db.prepare('SELECT key FROM meta ORDER BY key').all()).toEqual([{ key: 'company' }])
   })
 })
