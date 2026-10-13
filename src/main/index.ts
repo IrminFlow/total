@@ -11,6 +11,7 @@ import { startBackupScheduler, backupOnQuit } from './backup-scheduler'
 import { startPackScheduler } from './packScheduler'
 import { cleanupOpenedCopies, sweepStaleOpenCopies } from './services/attachments'
 import { syncFolderWarning } from '@shared/syncpath'
+import { configureI18n } from '@shared/i18n'
 
 // Hermetic scripted runs (smoke/e2e/CI, TOTAL_DATA_DIR set): keep Electron's userData —
 // localStorage (theme, sidebar sections, report columns), caches, the single-instance lock —
@@ -118,6 +119,7 @@ if (gotSingleInstanceLock) {
 
   app.whenReady().then(() => {
     initLogging()
+    configureI18n({ dev: !app.isPackaged })
     log('info', 'app-start', { version: app.getVersion(), platform: process.platform })
     electronApp.setAppUserModelId('com.irminlabs.total')
     if (process.platform === 'darwin') app.dock?.setIcon(appIconPath)
