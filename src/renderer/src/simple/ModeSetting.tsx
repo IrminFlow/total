@@ -2,7 +2,8 @@ import { useState } from 'react'
 import { api } from '../lib/client'
 import { useT } from '../lib/i18n'
 import { useCanSetMode, useMode } from '../lib/mode'
-import { useSession, useToasts } from '../state/stores'
+import { useNav, useScreen, useSession, useToasts, type Screen } from '../state/stores'
+import { screenDef } from '../lib/screens'
 import { UI_MODES, type UiMode } from '@shared/simple/uiMode'
 
 /**
@@ -10,8 +11,12 @@ import { UI_MODES, type UiMode } from '@shared/simple/uiMode'
  * without users) — `ui:mode:set` refuses anyone else; others see the choice read-only. One plain line
  * explains each mode. Switching writes meta `ui` (audited) and the shell follows at once.
  */
+const LOOKS: Screen = { name: 'simple-looks' }
+
 export function ModeSetting(): React.JSX.Element {
   const t = useT()
+  const nav = useNav()
+  const screen = useScreen()
   const mode = useMode()
   const canSet = useCanSetMode()
   const setUi = useSession((s) => s.setUi)
@@ -24,6 +29,9 @@ export function ModeSetting(): React.JSX.Element {
     try {
       const ui = await api.ui.set({ mode: next })
       setUi(ui)
+      // Switched to simple on the full Settings (which has no simple view yet): land on the same
+      // control in the simple shell, so the switch is visible at once.
+      if (ui.mode === 'simple' && !screenDef(screen.name)?.modes.includes('simple')) nav.replace(LOOKS)
       toast.push('success', t('simple.settings.mode.switched', { mode: ui.mode }))
     } catch (err) {
       toast.push('error', (err as Error).message)

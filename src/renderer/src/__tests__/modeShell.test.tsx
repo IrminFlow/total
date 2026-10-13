@@ -223,11 +223,14 @@ describe('Registers honours a requested tab (Purchase list)', () => {
 describe('Settings → How Total looks → mode', () => {
   it('the owner switches (ui:mode:set) and the session follows', async () => {
     setSession({ mode: 'accountant' }, { id: 1, name: 'Owner', role: 'owner' })
+    act(() => useNav.setState({ stack: [{ name: 'gateway' }, { name: 'settings', tab: 'appearance' }] }))
     render(withClient(<ModeSetting />))
     expect(screen.getByTestId('btn-mode-accountant').getAttribute('aria-checked')).toBe('true')
     fireEvent.click(screen.getByTestId('btn-mode-simple'))
     await waitFor(() => expect(useSession.getState().ui.mode).toBe('simple'))
     expect(invoke).toHaveBeenCalledWith('ui:mode:set', { mode: 'simple' })
+    // From the full Settings it lands on the same control in the simple shell.
+    await waitFor(() => expect(useNav.getState().stack.at(-1)).toEqual({ name: 'simple-looks' }))
   })
 
   it('anyone but the owner sees it read-only', () => {
