@@ -1,7 +1,10 @@
-// Answer accuracy: every expected figure is computed from the services at seed time (facts) and
-// must appear in the answer, sourced from a tool result the model saw (numbers.ts).
+// Answer accuracy: the expected figures are the HAND-WORKED constants in data.ts (EXPECTED, the
+// arithmetic shown there) — not the services' own output — so a wrong report figure fails here.
+// Each must appear in the answer, sourced from a tool result the model saw (numbers.ts); a P&L
+// result is compared WITH its sign (a loss is a loss).
+import { EXPECTED } from '../data'
 import type { EvalCase } from '../types'
-import { FY, TODAY, nodeOf, qa, rowOf } from './util'
+import { FY, TODAY, nodeOf, qa, rowOf, say, step, call } from './util'
 
 const month = (ym: string): { from: string; to: string } => {
   const [y, m] = ym.split('-').map(Number) as [number, number]
@@ -13,57 +16,58 @@ export const ACCURACY_CASES: EvalCase[] = [
     id: 'acc.net-profit-fy', category: 'accuracy', title: 'Net profit for the year',
     question: 'What was our net profit for FY 2025-26?',
     tool: 'profit_and_loss', args: () => ({ ...FY }),
-    answer: (r) => `The profit and loss for ${r.period?.from} to ${r.period?.to} shows a net result of ${r.netProfit} (a negative figure is a loss).`,
-    figures: (f) => [f.facts.netProfitFy]
+    answer: (r) => `The profit and loss for ${r.period?.from} to ${r.period?.to} shows a net ${String(r.netProfit).startsWith('-') ? 'loss' : 'profit'}: ${r.netProfit}.`,
+    figures: () => [{ paise: EXPECTED.netProfitFy, signed: true }],
+    includes: () => ['loss']
   }),
   qa({
     id: 'acc.gross-profit-fy', category: 'accuracy', title: 'Gross profit for the year',
     question: 'What is the gross profit this financial year?',
     tool: 'profit_and_loss', args: () => ({ ...FY }),
     answer: (r) => `Gross profit for FY 2025-26 is ${r.grossProfit}.`,
-    figures: (f) => [f.facts.grossProfitFy]
+    figures: () => [{ paise: EXPECTED.grossProfitFy, signed: true }]
   }),
   qa({
     id: 'acc.sales-july', category: 'accuracy', title: 'Sales in one month',
     question: 'What were sales in July 2025?',
     tool: 'profit_and_loss', args: () => month('2025-07'),
     answer: (r, c) => `Sales in July 2025 were ${nodeOf(r.tradingIncomes, c.f.ids.sales)?.amount} (Sales A/c, profit and loss).`,
-    figures: (f) => [f.facts.salesByMonth['2025-07']!]
+    figures: () => [EXPECTED.salesJuly]
   }),
   qa({
     id: 'acc.sales-june', category: 'accuracy', title: 'Sales in June (inter-state month)',
     question: 'How much did we sell in June 2025?',
     tool: 'profit_and_loss', args: () => month('2025-06'),
     answer: (r, c) => `Sales for June 2025: ${nodeOf(r.tradingIncomes, c.f.ids.sales)?.amount}.`,
-    figures: (f) => [f.facts.salesByMonth['2025-06']!]
+    figures: () => [EXPECTED.salesJune]
   }),
   qa({
     id: 'acc.closing-stock', category: 'accuracy', title: 'Closing stock value',
     question: 'What is the value of closing stock for this year?',
     tool: 'profit_and_loss', args: () => ({ ...FY }),
     answer: (r) => `Closing stock is valued at ${r.closingStock} in the profit and loss for FY 2025-26.`,
-    figures: (f) => [f.facts.closingStockFy]
+    figures: () => [EXPECTED.closingStock]
   }),
   qa({
     id: 'acc.cash-balance', category: 'accuracy', title: 'Cash balance',
     question: 'What is our cash balance today?',
     tool: 'ledger_statement', args: (f) => ({ ledgerId: f.ids.cash, from: FY.from, to: TODAY }),
     answer: (r) => `Cash closes at ${r.closing} on ${r.to} (opening ${r.opening}).`,
-    figures: (f) => [f.facts.closing.cash]
+    figures: () => [EXPECTED.cash]
   }),
   qa({
     id: 'acc.bank-balance', category: 'accuracy', title: 'Bank balance',
     question: 'How much is in HDFC Bank as of today?',
     tool: 'ledger_statement', args: (f) => ({ ledgerId: f.ids.hdfc, from: FY.from, to: TODAY }),
     answer: (r) => `HDFC Bank's book balance is ${r.closing} as on ${r.to}.`,
-    figures: (f) => [f.facts.closing.hdfc]
+    figures: () => [EXPECTED.hdfc]
   }),
   qa({
     id: 'acc.umbrella-owes', category: 'accuracy', title: 'What one customer owes',
     question: 'How much does Umbrella Retail owe us?',
     tool: 'outstandings', args: () => ({ side: 'receivable', asOn: TODAY }),
     answer: (r, c) => `Umbrella Retail owes ${rowOf<{ pending: string }>(r.rows, 'ledgerId', c.f.ids.umbrella)?.pending} as on ${r.asOn}.`,
-    figures: (f) => [f.facts.receivablePending.umbrella!]
+    figures: () => [EXPECTED.umbrellaReceivable]
   }),
   qa({
     id: 'acc.krishna-bill', category: 'accuracy', title: 'Pending on one bill (partly received)',
@@ -74,14 +78,14 @@ export const ACCURACY_CASES: EvalCase[] = [
       const b = p?.bills.find((x) => x.bill === 'EV/S/0003')
       return `Invoice EV/S/0003 (${b?.amount}) has ${b?.pending} pending.`
     },
-    figures: (f) => [f.facts.billPending['EV/S/0003']!]
+    figures: () => [EXPECTED.krishnaJuneBill]
   }),
   qa({
     id: 'acc.sharma-steel-payable', category: 'accuracy', title: 'What we owe one supplier',
     question: 'How much do we owe Sharma Steel?',
     tool: 'outstandings', args: () => ({ side: 'payable', asOn: TODAY }),
     answer: (r, c) => `We owe Sharma Steel ${rowOf<{ pending: string }>(r.rows, 'ledgerId', c.f.ids.sharmaSteel)?.pending}.`,
-    figures: (f) => [f.facts.payablePending.sharmaSteel!]
+    figures: () => [EXPECTED.sharmaSteelPayable]
   }),
   qa({
     id: 'acc.tb-total', category: 'accuracy', title: 'Trial balance totals',
@@ -95,14 +99,14 @@ export const ACCURACY_CASES: EvalCase[] = [
     question: 'How much CGST did we charge on sales in July 2025?',
     tool: 'gst_summary', args: () => ({ period: '2025-07' }),
     answer: (r) => `GSTR-3B for July 2025: outward taxable value ${r.outwardTaxable.taxable}, CGST ${r.outwardTaxable.cgst}, SGST ${r.outwardTaxable.sgst}.`,
-    figures: (f) => [f.facts.gst.jul.cgst, f.facts.gst.jul.taxable]
+    figures: () => [EXPECTED.julyCgst, EXPECTED.julyTaxable]
   }),
   qa({
     id: 'acc.gst-nov-igst', category: 'accuracy', title: 'Output IGST for a month',
     question: 'What IGST is on our November 2025 sales?',
     tool: 'gst_summary', args: () => ({ period: '2025-11' }),
     answer: (r) => `November 2025 outward supplies: taxable ${r.outwardTaxable.taxable}, IGST ${r.outwardTaxable.igst}.`,
-    figures: (f) => [f.facts.gst.nov.igst]
+    figures: () => [EXPECTED.novIgst]
   }),
   qa({
     id: 'acc.tds-194c', category: 'accuracy', title: 'TDS deducted under one section',
@@ -112,7 +116,7 @@ export const ACCURACY_CASES: EvalCase[] = [
       const row = (r.rows as { section: string; quarter: string; tds: string }[] | undefined)?.find((x) => x.section === '194C')
       return `Under 194C, ${row?.tds} was deducted in ${row?.quarter}.`
     },
-    figures: (f) => [f.facts.tds194cFy]
+    figures: () => [EXPECTED.tds194c]
   }),
   qa({
     id: 'acc.stock-laptop', category: 'accuracy', title: 'Closing value of one item',
@@ -122,14 +126,14 @@ export const ACCURACY_CASES: EvalCase[] = [
       const row = rowOf<{ closingQty: string; closingValue: string }>(r.rows, 'itemId', c.f.items.laptop)
       return `Laptop 14": ${row?.closingQty} in stock, valued at ${row?.closingValue}.`
     },
-    figures: (f) => [f.facts.stockValue.laptop]
+    figures: () => [EXPECTED.stockLaptop]
   }),
   qa({
     id: 'acc.rent-fy', category: 'accuracy', title: 'An expense over the year',
     question: 'How much rent did we pay this year?',
     tool: 'ledger_statement', args: (f) => ({ ledgerId: f.ids.rent, ...FY }),
     answer: (r) => `Shop Rent was debited ${r.totalDebit} over ${r.vouchers} entries this year.`,
-    figures: (f) => [f.facts.rentFyDebit]
+    figures: () => [EXPECTED.rentFy]
   }),
   qa({
     id: 'acc.devanagari-party', category: 'accuracy', title: 'A non-Latin party name',
@@ -139,7 +143,36 @@ export const ACCURACY_CASES: EvalCase[] = [
       const row = rowOf<{ party: string; pending: string }>(r.rows, 'ledgerId', c.f.ids.sharmaTraders)
       return `${row?.party} owes ${row?.pending}.`
     },
-    figures: (f) => [f.facts.receivablePending.sharmaTraders!],
+    figures: () => [EXPECTED.sharmaTradersReceivable],
     includes: () => ['शर्मा ट्रेडर्स']
-  })
+  }),
+  qa({
+    id: 'acc.krishna-receivable', category: 'accuracy', title: 'A customer with two open bills (one part-paid)',
+    question: 'How much does Krishna Enterprises owe us in total?',
+    tool: 'outstandings', args: () => ({ side: 'receivable', asOn: TODAY }),
+    answer: (r, c) => `Krishna Enterprises owes ${rowOf<{ pending: string }>(r.rows, 'ledgerId', c.f.ids.krishna)?.pending}.`,
+    figures: () => [EXPECTED.krishnaReceivable]
+  }),
+  qa({
+    id: 'acc.stock-rod', category: 'accuracy', title: 'Weighted-average value after a manufacture consumed stock',
+    question: 'What is our Steel Rod stock worth?',
+    tool: 'stock_summary', args: () => ({ asOn: TODAY }),
+    answer: (r, c) => `Steel Rod: ${rowOf<{ closingQty: string; closingValue: string }>(r.rows, 'itemId', c.f.items.rod)?.closingValue}.`,
+    figures: () => [EXPECTED.stockRod]
+  }),
+  qa({
+    id: 'acc.stock-chair', category: 'accuracy', title: 'A manufactured item valued at its production cost',
+    question: 'What is the stock value of Office Chair?',
+    tool: 'stock_summary', args: () => ({ asOn: TODAY }),
+    answer: (r, c) => `Office Chair: ${rowOf<{ closingQty: string; closingValue: string }>(r.rows, 'itemId', c.f.items.chair)?.closingValue}.`,
+    figures: () => [EXPECTED.stockChair]
+  }),
+  {
+    kind: 'chat', id: 'acc.regenerate', category: 'accuracy', title: 'Regenerate answers the same question again, from fresh tool results',
+    turns: [
+      { question: 'What was our net profit for FY 2025-26?', route: [step(call('profit_and_loss', { ...FY })), say((c) => `Net: ${c.last('profit_and_loss')?.netProfit}.`)] },
+      { question: 'What was our net profit for FY 2025-26?', regenerate: true, route: [step(call('profit_and_loss', { ...FY })), say((c) => `The net result is a loss of ${c.last('profit_and_loss')?.netProfit}.`)] }
+    ],
+    expect: { figures: () => [{ paise: EXPECTED.netProfitFy, signed: true }], answerIncludes: () => ['loss'] }
+  }
 ]

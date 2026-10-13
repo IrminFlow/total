@@ -21,7 +21,7 @@ import { useCallback, useEffect, useMemo, useReducer, useRef, useState, type Rea
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { create } from 'zustand'
 import { formatMicroUsd, memoryDetailsText, memorySourceText, type AiContext, type AiDraftDto, type AiEvent, type AiMemoryDto, type AiMessageDto, type AiPreCall, type AiSource, type AiThreadDto } from '@shared/ai'
-import { explainContextFor, parseNavIntent, pickNavTarget, screenContextLines } from '@shared/aiExplain'
+import { explainContextFor, parseNavIntent, routeNavigation, screenContextLines } from '@shared/aiExplain'
 import { fyOf, todayISO, toDisplayDate } from '@shared/dates'
 import type { VoucherKind } from '@shared/domain'
 import { aiApi, onAiEvent } from '../../lib/aiClient'
@@ -291,20 +291,16 @@ export function AssistantDrawer({ onClose }: { onClose: () => void }): React.JSX
 
   /** "Open the ledger for Acme" → the search service, then navigate. True when handled. */
   const navigateByIntent = async (q: string): Promise<boolean> => {
-    const intent = parseNavIntent(q)
-    if (!intent) return false
-    const screenDef = intent.kind === null ? SCREENS.find((s) => s.screen && s.title.toLowerCase() === intent.target.toLowerCase()) : undefined
-    if (screenDef?.screen) {
-      nav.go(screenDef.screen)
-      toast.push('success', `Opened ${screenDef.title}`)
-      return true
-    }
-    if (intent.kind === null) return false
+    if (!parseNavIntent(q)) return false
     try {
-      const r = await api.search.query({ q: intent.target, today: todayISO(), fyStartYear: fyOf(from).startYear, limitPerKind: 3 })
-      const target = pickNavTarget(intent, r)
-      if (!target) toast.push('error', `Nothing in the books matches “${intent.target}”`)
+      const d = await routeNavigation(q, SCREENS, (target) => api.search.query({ q: target, today: todayISO(), fyStartYear: fyOf(from).startYear, limitPerKind: 3 }))
+      if (!d) return false
+      if (d.to === 'screen') {
+        nav.go(d.screen)
+        toast.push('success', `Opened ${d.title}`)
+      } else if (d.to === 'nothing') toast.push('error', `Nothing in the books matches “${d.target}”`)
       else {
+        const target = d.target
         if (target.kind === 'ledger') openLedgerStatement(target.id)
         else if (target.kind === 'item') nav.go({ name: 'stock-movements', itemId: target.id })
         else openVoucher(target.id)

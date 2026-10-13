@@ -14,6 +14,10 @@ export const MCP_CASES: EvalCase[] = [
   { kind: 'mcp', id: 'mcp.masked-ledgers', category: 'mcp_parity', title: 'list_ledgers with masking on', tool: 'list_ledgers', args: () => ({}), masked: true },
   { kind: 'mcp', id: 'mcp.close-checklist', category: 'mcp_parity', title: 'close_checklist (WP 5.5)', tool: 'close_checklist', args: () => ({ period: '2026-03' }) },
   { kind: 'mcp', id: 'mcp.anomalies', category: 'mcp_parity', title: 'find_anomalies (WP 5.5)', tool: 'find_anomalies', args: () => ({ ...FY }) },
-  { kind: 'mcp', id: 'mcp.viewer-remember-refused', category: 'mcp_parity', title: 'A viewer’s remember call is refused on both paths (WP 5.6)', tool: 'remember', args: () => ({ kind: 'fact', text: 'Books close on the 5th' }), refused: true },
-  { kind: 'mcp', id: 'mcp.viewer-draft-refused', category: 'mcp_parity', title: 'A viewer’s draft call is refused on both paths', tool: 'draft_voucher', args: () => ({ kind: 'payment', party: 'Sharma Steel', account: 'HDFC Bank', amount: '1,000' }), refused: true }
+  { kind: 'mcp', id: 'mcp.viewer-remember-refused', category: 'mcp_parity', title: 'A viewer’s remember call is refused on both paths (WP 5.6)', tool: 'remember', args: () => ({ kind: 'fact', text: 'Books close on the 5th' }), refused: /may not use remember/i },
+  { kind: 'mcp', id: 'mcp.viewer-draft-refused', category: 'mcp_parity', title: 'A viewer’s draft call is refused on both paths', tool: 'draft_voucher', args: () => ({ kind: 'payment', party: 'Sharma Steel', account: 'HDFC Bank', amount: '1,000' }), refused: /may not use draft_voucher/i },
+  {
+    kind: 'mcp', id: 'mcp.accountant-draft', category: 'mcp_parity', title: "An accountant's MCP draft: source 'mcp', origin = client, audited as mcp:<client>",
+    tool: 'draft_voucher', role: 'accountant', draft: true, args: () => ({ kind: 'payment', party: 'Sharma Steel', account: 'HDFC Bank', amount: '1,000' })
+  }
 ]

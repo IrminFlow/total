@@ -9,7 +9,7 @@
 // results the mock actually received, so the numbers check sees real quoting. A live run ignores
 // routes and lets the real model choose.
 import type { AiContext, AiPrivacy } from '@shared/ai'
-import type { EvalCategory, ExpectedCall, ExpectedDraft, InjectionProbe } from '@shared/aiEvalScoring'
+import type { EvalCategory, ExpectedCall, ExpectedDraft, ExpectedFigure, InjectionProbe } from '@shared/aiEvalScoring'
 import type { Role } from '../../services/roles'
 import type { EvalFixture } from './fixture'
 
@@ -47,13 +47,21 @@ export interface EvalTurn {
   context?: (f: EvalFixture) => AiContext
   /** The mocked model's behaviour for this turn. */
   route?: Route
+  /** Regenerate the thread's last answer instead of asking `question` (WP 5.2). */
+  regenerate?: boolean
 }
 
 export interface EvalExpect {
-  /** Figures (paise) the final answer must contain, each sourced from a tool result. */
-  figures?: (f: EvalFixture) => number[]
+  /** Figures (paise) the final answer must contain, each sourced from a tool result; a
+   *  `{ paise, signed: true }` entry must match with its sign (a loss). */
+  figures?: (f: EvalFixture) => ExpectedFigure[]
+  /** This figure appears in several rows of the result: it must be sourced and marked ambiguous
+   *  (linked to the report, never to a guessed row). */
+  ambiguousFigure?: (f: EvalFixture) => number
   /** No unsourced money figure in the answer (default true for chat cases). */
   allFiguresSourced?: boolean
+  /** Words the final answer must NOT contain (case-insensitive). */
+  answerExcludes?: (f: EvalFixture) => string[]
   /** Words the final answer must contain (case-insensitive). */
   answerIncludes?: (f: EvalFixture) => string[]
   /** Tool calls expected (over all turns). */
@@ -68,6 +76,9 @@ export interface EvalExpect {
   draftRefused?: RegExp
   /** Injection: the planted instruction this case's data carries. */
   injection?: InjectionProbe
+  /** Text that must have REACHED the model (in a request sent) for the case to test anything —
+   *  e.g. the planted INJECTIONS string. Absent → the case is `inconclusive`, never a pass. */
+  reaches?: (f: EvalFixture) => string[]
   /** Every draft that appears must be flagged unrequested (the app's defence). */
   draftsUnrequested?: boolean
   /** Privacy: none of these may appear in anything sent; `mustSend` proves the probe can see. */
@@ -95,6 +106,8 @@ export interface ChatCase extends CaseBase {
   role?: Role
   privacy?: AiPrivacy
   expect: EvalExpect
+  /** Tools that must be in the registry; absent → the case is skipped (a later WP brings them). */
+  requiresTools?: string[]
   /** Mocked run only: the route plays a COMPROMISED model (it obeys the planted text), and the
    *  case checks the app's defences. Skipped in live runs — a real model cannot be made to obey. */
   mockOnly?: boolean
@@ -105,8 +118,10 @@ export interface ChatCase extends CaseBase {
 export interface NavCase extends CaseBase {
   kind: 'nav'
   text: string | ((f: EvalFixture) => string)
-  /** null = not a navigation request (the question goes to the model). */
+  /** null = not a navigation request: the text goes to the assistant (the model IS called). */
   expect: (f: EvalFixture) => { kind: 'ledger' | 'item' | 'voucher'; id: number } | null
+  /** Mocked: what the assistant answers when the text is not navigation. */
+  route?: Route
 }
 
 /** MCP parity: the same tool through the MCP server and through the registry gives the same result. */
@@ -117,8 +132,10 @@ export interface McpCase extends CaseBase {
   role?: Role
   /** Compare with masking on (both sides masked by field, as MCP does). */
   masked?: boolean
-  /** Expect the MCP side to refuse (e.g. a draft tool for a viewer). */
-  refused?: boolean
+  /** Expect both paths to refuse, with an error matching this. */
+  refused?: RegExp
+  /** A draft over MCP (accountant): source 'mcp', origin = the client, audit user mcp:<client>. */
+  draft?: boolean
 }
 
 export type EvalCase = ChatCase | NavCase | McpCase

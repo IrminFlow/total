@@ -1,7 +1,7 @@
 // Shared builders for the evaluation cases (types only + @shared — no services, no DB).
 import { formatPaise } from '@shared/money'
 import type { AiContext, AiPrivacy } from '@shared/ai'
-import type { EvalCategory, ExpectedCall } from '@shared/aiEvalScoring'
+import type { EvalCategory, ExpectedCall, ExpectedFigure } from '@shared/aiEvalScoring'
 import type { Role } from '../../../services/roles'
 import type { EvalFixture } from '../fixture'
 import type { ChatCase, EvalExpect, RouteCtx, RouteStep } from '../types'
@@ -48,7 +48,7 @@ export interface QaOptions {
   args: (f: EvalFixture) => Args
   /** The answer, quoting the tool's result (`r`). */
   answer: (r: any, c: RouteCtx) => string // eslint-disable-line @typescript-eslint/no-explicit-any
-  figures?: (f: EvalFixture) => number[]
+  figures?: (f: EvalFixture) => ExpectedFigure[]
   includes?: (f: EvalFixture) => string[]
   /** Score the call itself: the expected arguments subset (default: the route's args) and the
    *  lookups allowed besides it. */

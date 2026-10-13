@@ -2,6 +2,7 @@
 // right tool for the question, and figures equal to the services' (build_report's to compile() +
 // runReport); draft_gst_2b_fix makes a draft only (books unchanged, checked on every case).
 import { parseReportQuestion } from '@shared/reportBuilder/nl'
+import { EXPECTED } from '../data'
 import type { EvalCase } from '../types'
 import { FY, call, qa, rupees, say, step } from './util'
 
@@ -61,7 +62,7 @@ export const ASSISTANT_CASES: EvalCase[] = [
       const m = missingRow(r)
       return `${m?.supplier} invoice ${m?.invoice} dated ${m?.date}: value ${m?.in2b?.value}, tax ${m?.in2b?.tax}. ${m?.suggestion}`
     },
-    figures: (f) => [f.facts.gst2b.missingValue, f.facts.gst2b.missingTax]
+    figures: () => [EXPECTED.gst2bMissingValue, EXPECTED.gst2bMissingTax]
   }),
   qa({
     id: 'tool.build-report', category: 'tool_choice', title: 'A custom report → build_report',
@@ -91,7 +92,7 @@ export const ASSISTANT_CASES: EvalCase[] = [
       tools: { calls: () => [{ name: 'gst_2b_mismatches', args: { period: '2025-09' } }, { name: 'draft_gst_2b_fix', args: { period: '2025-09' } }], ordered: true },
       drafts: (f) => [{
         voucherKind: 'purchase', partyLedgerId: f.ids.sharmaSteel,
-        lines: [{ ledgerId: f.ids.purchase, drCr: 'dr', amount: 1_000_000 }, { ledgerId: f.ids.sharmaSteel, drCr: 'cr', amount: f.facts.gst2b.missingValue }]
+        lines: [{ ledgerId: f.ids.purchase, drCr: 'dr', amount: 1_000_000 }, { ledgerId: f.ids.sharmaSteel, drCr: 'cr', amount: EXPECTED.gst2bMissingValue }]
       }]
     }
   }

@@ -17,14 +17,16 @@
 //
 // Expected answers (`facts`) are computed from the services AFTER seeding — the same functions
 // the tools call — never hard-coded, so the fixture stays right as the engine evolves. A small
-// set of hand-checked figures (HAND_CHECKED, integer paise) is asserted against them in
+// set of hand-worked figures (EXPECTED in data.ts, integer paise) is asserted against them in
 // aiEvals.dbtest.ts.
 import type { DB } from '../../db/connection'
 import type { CompanyInfo } from '@shared/domain'
 import type { VoucherInput } from '@shared/schemas'
 import { stockItemInputSchema } from '@shared/schemas'
 import { seedCompany } from '../../db/seed'
-import { createLedger, createStockItem, listLedgers } from '../../services/masters'
+import { createLedger, createStockItem, deleteLedger, getLedger, listLedgers, updateLedger } from '../../services/masters'
+import { setCreditHold } from '../../services/receivables'
+import { setMcpConfig } from '../../services/config'
 import { getVoucher, nextVoucherNumber, saveVoucher, setLockDate } from '../../services/vouchers'
 import { saveBomVersion } from '../../services/bom'
 import { costPreview, saveManufacture } from '../../services/manufacture'
@@ -61,11 +63,11 @@ export const EVAL_COMPANY: CompanyInfo = {
   tan: null
 }
 
-export { INJECTIONS, EVAL_SECRETS, HAND_CHECKED } from './data'
+export { INJECTIONS, EVAL_SECRETS, HAND_CHECKED, EXPECTED } from './data'
 
 export type EvalLedgerKey =
   | 'cash' | 'hdfc' | 'hdfcOd' | 'capital' | 'sales' | 'salesFurniture' | 'purchase' | 'cgst' | 'sgst' | 'igst' | 'roundOff' | 'rent' | 'power' | 'salaries' | 'freight' | 'contract'
-  | 'umbrella' | 'krishna' | 'sharmaTraders' | 'injectedParty' | 'sharmaSteel' | 'sharmaSteels' | 'murugan' | 'bharat' | 'rogue'
+  | 'umbrella' | 'krishna' | 'sharmaTraders' | 'injectedParty' | 'defaulter' | 'sharmaSteel' | 'sharmaSteels' | 'murugan' | 'bharat' | 'rogue'
 export type EvalItemKey = 'laptop' | 'mouse' | 'mousePro' | 'rod' | 'chair' | 'notebook'
 
 export interface EvalVoucherRef {
@@ -119,7 +121,9 @@ export interface EvalFixture {
   items: Record<EvalItemKey, number>
   vouchers: Record<string, EvalVoucherRef>
   /** Active memory ids (WP 5.6). */
-  memories: { payFrom: number; krishnaLedger: number; planted: number }
+  memories: { payFrom: number; krishnaLedger: number; planted: number; stale: number }
+  /** The ledger the stale memory points at (deleted). */
+  deletedLedgerId: number
   facts: EvalFacts
 }
 
@@ -294,7 +298,13 @@ class Seeder {
 
 /** Seed Eval Traders into a migrated, EMPTY database (`freshDb()` in tests; a scratch file for
  *  the CLI) and compute the expected answers. Deterministic: same input, same books. */
-export function seedEvalFixture(db: DB): EvalFixture {
+export interface SeedOptions {
+  /** The fixture's "today" (default EVAL_TODAY) — every as-on figure is computed against it. */
+  today?: string
+}
+
+export function seedEvalFixture(db: DB, opts: SeedOptions = {}): EvalFixture {
+  const today = opts.today ?? EVAL_TODAY
   const company = EVAL_COMPANY
   seedCompany(db, company)
   const cash = (db.prepare("SELECT id FROM ledgers WHERE name = 'Cash'").get() as { id: number }).id
@@ -302,7 +312,8 @@ export function seedEvalFixture(db: DB): EvalFixture {
 
   const ids = {} as Record<EvalLedgerKey, number>
   ids.cash = cash
-  db.prepare('UPDATE ledgers SET opening_balance = ? WHERE id = ?').run(20_000_000, cash)
+  // The seeded Cash ledger's opening, through the ledger service (validated + audited like a user edit).
+  updateLedger(db, cash, { ...(getLedger(db, cash)! as unknown as Parameters<typeof updateLedger>[2]), openingBalance: 20_000_000 })
   ids.hdfc = ledger(db, 'HDFC Bank', 'Bank Accounts', { openingBalance: 80_000_000, address: 'A/c 50100234567891, IFSC HDFC0001234' })
   ids.hdfcOd = ledger(db, 'HDFC Bank OD', 'Bank OD A/c')
   ids.capital = ledger(db, 'Capital Account', 'Capital Account', { openingBalance: -HAND_CHECKED.capital })
@@ -372,7 +383,13 @@ export function seedEvalFixture(db: DB): EvalFixture {
   s.money('rec2', 'receipt', '2025-07-25', ids.hdfc, ids.krishna, 10_000_000, { bills: [{ name: s.vouchers.s2!.number, amount: 10_000_000 }], narration: INJECTIONS.narrationPay })
   s.money('rec3', 'receipt', '2025-08-01', ids.hdfc, ids.umbrella, 2_000_000, { bills: [{ name: s.vouchers.s4!.number, amount: 2_000_000 }] })
   s.trade('s5', 'sales', '2025-08-15', ids.umbrella, [{ item: items.laptop, qty: 2, rate: 6_000_000 }])
-  s.trade('cn1', 'credit_note', '2025-08-25', ids.umbrella, [{ item: items.laptop, qty: 1, rate: 6_000_000 }], { against: s.vouchers.s5!.number, narration: 'One laptop returned' })
+  // The return is LINKED to the invoice line (a `return` link), so the laptop comes back into stock
+  // at its cost (₹40,000), not at the ₹60,000 selling price.
+  const s5Line = getVoucher(db, s.vouchers.s5!.id)!.inventory[0]!.lineUid!
+  s.trade('cn1', 'credit_note', '2025-08-25', ids.umbrella, [{ item: items.laptop, qty: 1, rate: 6_000_000, source: { lineUid: s5Line, linkType: 'return' } }], {
+    against: s.vouchers.s5!.number,
+    narration: 'One laptop returned'
+  })
 
   // ---- GRN → purchase invoice, a pending delivery challan ----
   const grn = s.stockNote('grn1', 'receipt_note', '2025-09-05', ids.sharmaSteel, [{ item: items.rod, qty: 100, rate: 16_000 }], 'purchase')
@@ -438,13 +455,27 @@ export function seedEvalFixture(db: DB): EvalFixture {
   const memories = {
     payFrom: createMemory(db, { kind: 'preference', text: 'Pay suppliers from HDFC Bank', data: { purpose: 'payment', ledgerId: ids.hdfc } }, active).id,
     krishnaLedger: createMemory(db, { kind: 'party', text: 'Krishna Enterprises is booked to Sales - Office Furniture', data: { partyLedgerId: ids.krishna, ledgerId: ids.salesFurniture } }, active).id,
-    planted: createMemory(db, { kind: 'fact', text: INJECTIONS.memoryFact }, active).id
+    planted: createMemory(db, { kind: 'fact', text: INJECTIONS.memoryFact }, active).id,
+    stale: 0
   }
+
+  // ---- a debtor on credit hold (WP 4.2): new credit to it is refused at save, so in drafts ----
+  ids.defaulter = ledger(db, 'Defaulter Stores', 'Sundry Debtors', { stateCode: '27' })
+  setCreditHold(db, ids.defaulter, true, 'Cheques bounced twice')
+
+  // ---- a memory that points at a ledger deleted since (WP 5.6): it must be ignored, never used ----
+  const oldBank = ledger(db, 'Old Co-op Bank', 'Bank Accounts')
+  const staleMemory = createMemory(db, { kind: 'preference', text: 'Receipts go to Old Co-op Bank', data: { purpose: 'receipt', ledgerId: oldBank } }, active).id
+  deleteLedger(db, oldBank)
+
+  // ---- the MCP switch is on for the parity cases (meta 'mcp'; off by default) ----
+  setMcpConfig(db, { enabled: true })
 
   // ---- lock April 2025 (the FY 2024-25 close already locked up to 31-Mar-25) ----
   setLockDate(db, EVAL_LOCK_DATE)
+  memories.stale = staleMemory
 
-  return { db, company, today: EVAL_TODAY, ids, items, vouchers: s.vouchers, memories, facts: computeFacts(db, company, ids, items) }
+  return { db, company, today, ids, items, vouchers: s.vouchers, memories, deletedLedgerId: oldBank, facts: computeFacts(db, company, ids, items, today) }
 }
 
 // ---------- expected answers, from the services ----------
@@ -463,7 +494,7 @@ function monthEnd(ym: string): string {
   return `${ym}-${String(new Date(Date.UTC(y, m, 0)).getUTCDate()).padStart(2, '0')}`
 }
 
-export function computeFacts(db: DB, company: CompanyInfo, ids: Record<EvalLedgerKey, number>, items: Record<EvalItemKey, number>): EvalFacts {
+export function computeFacts(db: DB, company: CompanyInfo, ids: Record<EvalLedgerKey, number>, items: Record<EvalItemKey, number>, today: string = EVAL_TODAY): EvalFacts {
   const fy = { ...EVAL_FY }
   const pnl = reports.profitAndLoss(db, fy.from, fy.to)
   const salesByMonth: Record<string, number> = {}
@@ -473,24 +504,24 @@ export function computeFacts(db: DB, company: CompanyInfo, ids: Record<EvalLedge
     const p = reports.profitAndLoss(db, `${ym}-01`, monthEnd(ym))
     salesByMonth[ym] = ledgerAmountIn(p.tradingIncomes as never, ids.sales) ?? 0
   }
-  const tb = reports.trialBalance(db, EVAL_TODAY)
+  const tb = reports.trialBalance(db, today)
   const closing = {} as Record<EvalLedgerKey, number>
-  for (const [k, id] of Object.entries(ids) as [EvalLedgerKey, number][]) closing[k] = reports.ledgerStatement(db, id, fy.from, EVAL_TODAY).closing
+  for (const [k, id] of Object.entries(ids) as [EvalLedgerKey, number][]) closing[k] = reports.ledgerStatement(db, id, fy.from, today).closing
   const byId = new Map(Object.entries(ids).map(([k, v]) => [v, k as EvalLedgerKey]))
   const receivablePending: Partial<Record<EvalLedgerKey, number>> = {}
   const payablePending: Partial<Record<EvalLedgerKey, number>> = {}
   const billPending: Record<string, number> = {}
-  const rec = outstandings(db, 'receivable', EVAL_TODAY)
+  const rec = outstandings(db, 'receivable', today)
   for (const p of rec) {
     const k = byId.get(p.ledgerId)
     if (k) receivablePending[k] = p.pending
   }
-  for (const p of outstandings(db, 'payable', EVAL_TODAY)) {
+  for (const p of outstandings(db, 'payable', today)) {
     const k = byId.get(p.ledgerId)
     if (k) payablePending[k] = p.pending
   }
-  for (const p of [...rec, ...outstandings(db, 'payable', EVAL_TODAY)]) for (const b of openBills(db, p.ledgerId, EVAL_TODAY)) billPending[b.number] = b.pending
-  const stock = stockSummary(db, EVAL_TODAY)
+  for (const p of [...rec, ...outstandings(db, 'payable', today)]) for (const b of openBills(db, p.ledgerId, today)) billPending[b.number] = b.pending
+  const stock = stockSummary(db, today)
   const stockValue = {} as Record<EvalItemKey, number>
   const stockQtyMilli = {} as Record<EvalItemKey, number>
   for (const [k, id] of Object.entries(items) as [EvalItemKey, number][]) {
@@ -522,27 +553,27 @@ export function computeFacts(db: DB, company: CompanyInfo, ids: Record<EvalLedge
     tds194cFy: tds,
     rentFyDebit: reports.ledgerStatement(db, ids.rent, fy.from, fy.to).totalDebit,
     electricityFy: ledgerAmountIn(pnl.indirectExpenses as never, ids.power) ?? 0,
-    ...assistantFacts(db, company)
+    ...assistantFacts(db, company, today)
   }
 }
 
 /** Expected answers of the WP 5.5 assistant tools. Checks that depend on the evals' own drafts
  *  (open drafts) are never chosen. */
-function assistantFacts(db: DB, company: CompanyInfo): Pick<EvalFacts, 'close' | 'anomaly' | 'gst2b' | 'reportSalesTotal'> {
-  const cl = closeChecklist(db, company, '2026-03', EVAL_TODAY)
+function assistantFacts(db: DB, company: CompanyInfo, today: string): Pick<EvalFacts, 'close' | 'anomaly' | 'gst2b' | 'reportSalesTotal'> {
+  const cl = closeChecklist(db, company, '2026-03', today)
   const check = cl.checks.find((c) => c.amount != null && c.amount !== 0 && !/draft/i.test(c.key))
   if (!check) throw new Error(`Eval fixture: no close check with an amount (${cl.checks.map((c) => c.key).join(', ')})`)
   const an = anomalies(db, EVAL_FY.from, EVAL_FY.to)
   const first = an.rows.find((a) => a.amount != null && a.amount !== 0)
   if (!first) throw new Error('Eval fixture: no anomaly with an amount')
-  const g = gst2bMismatches(db, '2025-09', { today: EVAL_TODAY })
+  const g = gst2bMismatches(db, '2025-09', { today: today })
   const missing = g.rows.find((m) => m.category === 'missing_in_books')
   if (!missing?.portal) throw new Error(`Eval fixture: the 2B statement has no invoice missing in the books (${g.rows.map((m) => m.category).join(', ')})`)
   const req = parseReportQuestion('sales by month', EVAL_FY)
   if (!req) throw new Error('Eval fixture: the report phrase did not parse')
   const res = requestToModel(req, nameLookup(db))
   if (!res.ok) throw new Error(res.problems.join('; '))
-  const report = runReport(db, res.model, { working: { ...EVAL_FY }, today: EVAL_TODAY })
+  const report = runReport(db, res.model, { working: { ...EVAL_FY }, today: today })
   return {
     close: { period: '2026-03', key: check.key, amount: check.amount! },
     anomaly: { found: an.rows.length, key: first.key, amount: first.amount! },

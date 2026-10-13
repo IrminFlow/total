@@ -67,5 +67,13 @@ export const EXPLAIN_CASES: EvalCase[] = [
     scoreTool: { allowExtra: ['profit_and_loss', 'explain_figure'] },
     answer: (r) => `Gross profit is ${r.grossProfit}, but indirect expenses bring the net result to ${r.netProfit}.`,
     figures: (f) => [f.facts.netProfitFy, f.facts.grossProfitFy]
+  }),
+  qa({
+    id: 'exp.repeated-amount', category: 'explain', title: 'A repeated amount links to the report, never a guessed row',
+    question: 'Explain this figure',
+    context: (f) => ({ screen: 'profit-loss', label: 'Profit & loss', ...FY, explain: { label: 'Shop Rent', value: '₹1,00,000.00', ledgerId: f.ids.rent, ...FY } }),
+    tool: 'explain_figure', args: (f) => ({ ledgerId: f.ids.rent, ...FY }),
+    answer: (r) => `Shop Rent is made of ${r.vouchers} payments of ${(r.largestVouchers as { debit: string }[])[0]?.debit} each.`,
+    expect: { ambiguousFigure: () => 2_500_000 }
   })
 ]

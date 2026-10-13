@@ -42,6 +42,12 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Artifact name
+        id: name
+        env:
+          MODEL: ${{ inputs.model }}
+        run: echo "artifact=ai-evals-$(printf '%s' "$MODEL" | tr -c 'A-Za-z0-9._-' '-' | cut -c1-60)-${{ github.run_id }}" >> "$GITHUB_OUTPUT"
+
       - name: Run the live evaluation
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
@@ -63,7 +69,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: ai-evals-${{ inputs.model }}-${{ github.run_id }}
+          name: ${{ steps.name.outputs.artifact }}
           path: |
             ${{ runner.temp }}/ai-evals/report.json
             ${{ runner.temp }}/ai-evals/report.md

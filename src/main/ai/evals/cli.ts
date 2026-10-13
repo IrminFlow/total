@@ -12,9 +12,9 @@
 // Only the synthetic fixture is ever sent. The key stays in the provider; both report files are
 // passed through redactSecrets before they are written.
 import Database from 'better-sqlite3'
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'fs'
+import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'fs'
 import { homedir, tmpdir } from 'os'
-import { join, resolve } from 'path'
+import { dirname, join, resolve, sep } from 'path'
 import { reportMarkdown } from '@shared/aiEvalScoring'
 import { AI_DEFAULT_MODEL } from '@shared/ai'
 import { migrate } from '../../db/migrate'
@@ -55,15 +55,33 @@ export function parseArgs(argv: readonly string[]): Args {
   return a
 }
 
+/** Whether `dir` is (inside) the real app data root ~/Documents/total — compared on real paths
+ *  (symlinks resolved, through the nearest existing parent) and case-insensitively (macOS
+ *  file systems usually are). */
+export function insideUserData(dir: string): boolean {
+  const real = (p: string): string => {
+    let cur = resolve(p)
+    const tail: string[] = []
+    while (!existsSync(cur) && dirname(cur) !== cur) {
+      tail.unshift(cur.slice(dirname(cur).length + 1))
+      cur = dirname(cur)
+    }
+    return join(existsSync(cur) ? realpathSync(cur) : cur, ...tail)
+  }
+  const root = real(join(homedir(), 'Documents', 'total')).toLowerCase()
+  const d = real(dir).toLowerCase()
+  return d === root || d.startsWith(root + sep)
+}
+
 async function main(): Promise<number> {
   const args = parseArgs(process.argv.slice(2))
   const out = resolve(args.out ?? mkdtempSync(join(tmpdir(), 'total-ai-evals-')))
-  if (out.startsWith(join(homedir(), 'Documents', 'total'))) throw new Error('Refusing to write evals into ~/Documents/total — use a scratch directory')
+  if (insideUserData(out)) throw new Error('Refusing to write evals into ~/Documents/total — use a scratch directory')
   mkdirSync(out, { recursive: true })
   const key = args.live ? (process.env.OPENAI_API_KEY ?? '').trim() : ''
   if (args.live && !key) throw new Error('A live run needs OPENAI_API_KEY in the environment')
 
-  const cases = selectCases(EVAL_CASES, args.cases, args.sample)
+  const cases = selectCases(EVAL_CASES, args.cases, args.sample, { live: args.live })
   if (!cases.length) throw new Error(`No case matches ${args.cases.join(', ')}`)
 
   let live: OpenAiProvider | undefined

@@ -164,9 +164,57 @@ export const DRAFT_CASES: EvalCase[] = [
       route: [step(call('draft_voucher', { kind: 'payment', date: '15 April 2025', lines: [{ ledger: 'Shop Rent', drCr: 'dr', amount: '5,000' }, { ledger: 'Cash', drCr: 'cr', amount: '5,000' }] })), say(quoteDraft('draft_voucher'))]
     }],
     expect: {
-      tools: { calls: () => [{ name: 'draft_voucher' }], allowExtra: ['list_ledgers', 'get_company_info'] },
+      tools: { calls: () => [{ name: 'draft_voucher', mayFail: true }], allowExtra: ['list_ledgers', 'get_company_info'] },
       drafts: () => [],
       draftRefused: /lock/i
+    }
+  },
+  {
+    kind: 'chat', id: 'draft.credit-hold', category: 'draft', title: 'New credit to a party on credit hold is refused',
+    turns: [{
+      question: 'Record a sales invoice to Defaulter Stores for 1 Wireless Mouse at 900.',
+      route: [step(call('draft_invoice', { kind: 'sales', party: 'Defaulter Stores', items: [{ item: 'Wireless Mouse', qty: '1', rate: '900' }] })), say(quoteDraft('draft_invoice'))]
+    }],
+    expect: { tools: { calls: () => [{ name: 'draft_invoice', mayFail: true }], allowExtra: ['list_ledgers'] }, drafts: () => [], draftRefused: /hold/i }
+  },
+  {
+    kind: 'chat', id: 'draft.closed-fy', category: 'draft', title: 'A draft dated in the closed FY 2024-25 is refused',
+    turns: [{
+      question: 'Record a payment of 1,000 for shop rent from cash on 10 March 2025.',
+      route: [step(call('draft_voucher', { kind: 'payment', date: '10 March 2025', lines: [{ ledger: 'Shop Rent', drCr: 'dr', amount: '1,000' }, { ledger: 'Cash', drCr: 'cr', amount: '1,000' }] })), say(quoteDraft('draft_voucher'))]
+    }],
+    expect: { tools: { calls: () => [{ name: 'draft_voucher', mayFail: true }], allowExtra: ['list_ledgers'] }, drafts: () => [], draftRefused: /lock|closed/i }
+  },
+  {
+    kind: 'chat', id: 'draft.memory-deleted-ledger', category: 'draft', title: 'A memory pointing at a deleted ledger is never used',
+    turns: [{
+      question: 'Receive 5,000 from Umbrella Retail.',
+      route: [
+        step(call('draft_voucher', { kind: 'receipt', party: 'Umbrella Retail', amount: '5,000' })),
+        say((c) => {
+          const q = (c.last('draft_voucher')?.questions as { question: string; candidates: { name: string }[] }[] | undefined) ?? []
+          return q.map((x) => `${x.question} ${x.candidates.map((k) => k.name).join(', ')}?`).join(' ') || quoteDraft('draft_voucher')(c)
+        })
+      ]
+    }],
+    // The stale "receipts go to Old Co-op Bank" memory is skipped: the tool asks among the LIVE
+    // cash / bank ledgers instead of using (or naming) the deleted one.
+    expect: {
+      drafts: () => [],
+      clarification: (f) => ({ candidates: [f.ids.cash, f.ids.hdfc, f.ids.hdfcOd] }),
+      answerExcludes: () => ['Old Co-op Bank'],
+      tools: { calls: () => [{ name: 'draft_voucher', args: { kind: 'receipt' } }], allowExtra: ['list_ledgers'] }
+    }
+  },
+  {
+    kind: 'chat', id: 'draft.tamil-purchase', category: 'draft', title: 'Purchase from a Tamil-named supplier in another state (IGST)',
+    turns: [{
+      question: 'Enter purchase bill MS/77 from முருகன் ஸ்டோர்ஸ் for 100 Notebook A4 at 40.',
+      route: [step(call('draft_invoice', { kind: 'purchase', party: 'முருகன் ஸ்டோர்ஸ்', billNo: 'MS/77', items: [{ item: 'Notebook A4', qty: '100', rate: '40' }] })), say(quoteDraft('draft_invoice'))]
+    }],
+    expect: {
+      tools: { calls: () => [{ name: 'draft_invoice', args: { kind: 'purchase' } }], allowExtra: ['list_ledgers', 'search_books'] },
+      drafts: (f) => [{ voucherKind: 'purchase', partyLedgerId: f.ids.murugan, total: 448_000, lines: [{ ledgerId: f.ids.igst, drCr: 'dr', amount: 48_000 }] }]
     }
   }
 ]
