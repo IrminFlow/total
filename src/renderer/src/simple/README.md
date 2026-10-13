@@ -23,3 +23,7 @@ The screens a first-time, non-accountant user sees (plan `docs/superpowers/specs
 
 - `SaveCard.tsx` is what a simple flow shows after a save: the sentences from `shared/simple/saveCard.ts` over `voucher:saveSummary` (figures computed by main), Print / PDF / Share, New and Undo (`voucher:undoSave`, the whole group; "Edit instead" once a voucher changed since). Phase 9 flows pass every voucher their intent saved; today the voucher editors show it after a new save while the company is in simple mode.
 - Errors in a simple screen are placed with `useFormErrors(form, { simple: true, t })` and show only the plain `errors.*` text; the technical message goes behind "Details". Never a toast for an error that has a field.
+
+## Opening setup (WP 8.7)
+
+- `Openings.tsx` (+ `OpeningsSteps.tsx`) is "What you had on day one": money, customers (bill by bill), suppliers, stock, then Check and confirm (the difference in one sentence from `simple:openings:preview`; saved with `simple:openings` and that figure). Field errors come from `shared/simple/openings.ts` `openingsStepErrors` by path and show under their field (`OField` reads them by `name`). `OpeningsHomeCard.tsx` is Home's setup step (progress, "I started fresh").

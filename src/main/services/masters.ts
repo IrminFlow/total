@@ -313,7 +313,8 @@ export function deleteLedger(db: DB, id: number): void {
   // records how many, so the trail shows what the delete took.
   const cascaded: Record<string, number> = {}
   // WP 6.4: so do its party notes / tasks (party_notes.ledger_id).
-  for (const [t, col] of [['reminder_log', 'party_ledger_id'], ['bill_followups', 'party_ledger_id'], ['party_notes', 'ledger_id']] as const) {
+  // WP 8.7: and its opening bills (opening_bills.party_ledger_id).
+  for (const [t, col] of [['reminder_log', 'party_ledger_id'], ['bill_followups', 'party_ledger_id'], ['party_notes', 'ledger_id'], ['opening_bills', 'party_ledger_id']] as const) {
     if (db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?").get(t)) {
       const n = (db.prepare(`SELECT COUNT(*) AS n FROM ${t} WHERE ${col} = ?`).get(id) as { n: number }).n
       if (n > 0) cascaded[t] = n

@@ -3384,5 +3384,24 @@ export const MIGRATIONS: string[] = [
   // report reads it — reports keep working off groups and voucher lines.
   `
   ALTER TABLE ledgers ADD COLUMN simple_category TEXT;
+  `,
+  // WP 8.7 (last — 048, after WP 8.3's simple_category 047; WP 8.4 also appends one, the second
+  // to land re-places) — opening bills. A party's opening balance can be split into the bills
+  // that make it up (number, date, amount), so they show in Outstandings one by one and can be
+  // settled by name. The ledger's opening_balance stays the figure every report sums; these rows
+  // only split it (services/analysis.ts reads them; a difference between the two is an unnamed
+  // 'Opening' bill or settles the bills oldest first). Identity is (party, name) — stableBillKey
+  // `o:<name>`. Written by the simple opening setup (services/openings.ts); a deleted ledger takes
+  // its bills with it.
+  `
+  CREATE TABLE opening_bills (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    party_ledger_id INTEGER NOT NULL REFERENCES ledgers(id) ON DELETE CASCADE,
+    name TEXT NOT NULL CHECK (length(trim(name)) > 0),
+    date TEXT NOT NULL,
+    due_date TEXT,
+    amount INTEGER NOT NULL CHECK (amount > 0)
+  );
+  CREATE UNIQUE INDEX idx_opening_bills_party_name ON opening_bills(party_ledger_id, name COLLATE NOCASE);
   `
 ]

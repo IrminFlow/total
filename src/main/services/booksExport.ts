@@ -14,7 +14,8 @@
  *
  * Not carried (listed in the Manifest): manufacture / job-work facts (those vouchers re-import as
  * stock journals), payroll, fixed-asset registers, budgets, bank statements and rules, users,
- * attachments, audit trail, custom order series' numbering settings.
+ * attachments, audit trail, custom order series' numbering settings, the split of a party's opening
+ * balance into opening bills (WP 8.7 — the balance itself is carried; it re-imports as one bill).
  */
 import type { DB } from '../db/connection'
 import type { CompanyInfo } from '@shared/domain'
@@ -294,7 +295,7 @@ export function buildBooksWorkbook(db: DB, info: CompanyInfo, appVersion: string
     ['appVersion', appVersion],
     ['databaseVersion', String(dbVersion)],
     ...Object.entries(counts).map(([k, n]) => [`rows: ${k}`, String(n)] as [string, string]),
-    ['notCarried', 'manufacture and job-work details (re-import as stock journals); payroll; fixed-asset registers; budgets; bank statements and rules; users; attachments; the audit trail; numbering settings of custom order series'],
+    ['notCarried', 'manufacture and job-work details (re-import as stock journals); payroll; fixed-asset registers; budgets; bank statements and rules; users; attachments; the audit trail; numbering settings of custom order series; how opening balances split into opening bills (the balances themselves are carried)'],
     ['readMe', 'Import this workbook with System → Import (it is recognised automatically). Sheets marked (info) are computed and never imported. "… (JSON)" cells carry the fields without a column of their own — edit with care.']
   ]
   sheets.unshift({ name: MANIFEST_SHEET, columns: [{ header: 'Key', kind: 'text', width: 22 }, { header: 'Value', kind: 'text', width: 90 }], rows: manifest })

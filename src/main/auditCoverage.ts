@@ -29,6 +29,12 @@ export const AUDIT_COVERAGE: Record<string, AuditCoverage> = {
   'company:createDemo': a('company', 'ledger', 'stockItem', 'voucher'),
   // WP 8.3: the setup wizard — company + preset accounts / units + features / gstProfile / ui.
   'simple:setup': a('company', 'ledger', 'unit'),
+  // WP 8.7: the opening setup — accounts' / items' openings through the masters services, the
+  // opening bills and one batch row; "I started fresh" is a company (meta ui) update.
+  'simple:openings:get': QUERY,
+  'simple:openings:preview': r('rehearses the opening setup in a transaction that is always rolled back; writes nothing'),
+  'simple:openings': a('opening_batch', 'ledger', 'stockItem'),
+  'simple:openings:skip': a('company'),
   'company:delete': a('company'),
   'company:open': a('backup', 'voucher', 'audit_log', 'attachment'),
   'company:close': r('closes the database handle'),

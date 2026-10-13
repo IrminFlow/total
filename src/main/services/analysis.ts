@@ -203,6 +203,38 @@ function openingEvent(asOn: string, openingBalance: number, sign: number): BillE
   return [{ voucherId: null, date: fyOf(asOn).from, number: 'Opening', amount: sign * openingBalance, refs: [] }]
 }
 
+/** WP 8.7: a party's opening bills (migration "opening_bills"), by party. Empty on a database
+ *  without the table (a migration-slice test DB) and for every party that has none. */
+export interface OpeningBillRow { name: string; date: string; dueDate: string | null; amount: number }
+export function openingBillsByParty(db: DB, partyIds?: readonly number[]): Map<number, OpeningBillRow[]> {
+  const out = new Map<number, OpeningBillRow[]>()
+  if (!db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'opening_bills'").get()) return out
+  const filter = partyIds ? (partyIds.length ? `WHERE party_ledger_id IN (${partyIds.map(() => '?').join(',')})` : 'WHERE 0') : ''
+  const rows = db
+    .prepare(`SELECT party_ledger_id AS partyId, name, date, due_date AS dueDate, amount FROM opening_bills ${filter} ORDER BY party_ledger_id, date, id`)
+    .all(...(partyIds ?? [])) as ({ partyId: number } & OpeningBillRow)[]
+  for (const { partyId, ...bill } of rows) {
+    const list = out.get(partyId) ?? []
+    list.push(bill)
+    out.set(partyId, list)
+  }
+  return out
+}
+
+/** The opening as bill events: with no opening bills, exactly `openingEvent` (unchanged). With
+ *  bills, one named bill per row on its own date (stableBillKey `o:<name>`); what the ledger's
+ *  opening says beyond them is an unnamed 'Opening' bill, and anything short of them settles
+ *  them oldest first — so the party's total always equals its opening balance. */
+function openingEvents(asOn: string, openingBalance: number, sign: number, bills: readonly OpeningBillRow[] | undefined): BillEvent[] {
+  if (!bills?.length) return openingEvent(asOn, openingBalance, sign)
+  const events: BillEvent[] = bills.map((b) => ({
+    voucherId: null, date: b.date, number: b.name, amount: b.amount, refs: [{ kind: 'new', name: b.name, amount: b.amount, dueDate: b.dueDate }]
+  }))
+  const rest = sign * openingBalance - bills.reduce((s, b) => s + b.amount, 0)
+  if (rest !== 0) events.push({ voucherId: null, date: fyOf(asOn).from, number: 'Opening', amount: rest, refs: [] })
+  return events
+}
+
 /**
  * Party-wise outstandings: invoices/bill-refs open bills, receipts/notes/against-refs settle
  * them (named exactly when a ref says so, oldest-first otherwise). `side` picks debtors or
@@ -221,8 +253,9 @@ export function outstandings(db: DB, side: 'receivable' | 'payable', asOn: strin
   const result: OutstandingParty[] = []
 
   const eventsByParty = partyEventsBatch(db, parties.map((p) => p.id), asOn, sign)
+  const openingBills = openingBillsByParty(db)
   for (const party of parties) {
-    const events = [...openingEvent(asOn, party.opening_balance, sign), ...(eventsByParty.get(party.id) ?? [])]
+    const events = [...openingEvents(asOn, party.opening_balance, sign, openingBills.get(party.id)), ...(eventsByParty.get(party.id) ?? [])]
     const { bills, warnings } = allocateBills(events, asOn, party.credit_days)
     if (bills.length === 0 && warnings.length === 0) continue
 
@@ -258,7 +291,7 @@ export function partyAllocation(db: DB, partyLedgerId: number, asOn: string): Al
   const debtorIds = descendantIdsByName(db, ['Sundry Debtors'])
   const sign = debtorIds.has(ledger.group_id) ? 1 : -1
   const eventsByParty = partyEventsBatch(db, [partyLedgerId], asOn, sign)
-  const events = [...openingEvent(asOn, ledger.opening_balance, sign), ...(eventsByParty.get(partyLedgerId) ?? [])]
+  const events = [...openingEvents(asOn, ledger.opening_balance, sign, openingBillsByParty(db, [partyLedgerId]).get(partyLedgerId)), ...(eventsByParty.get(partyLedgerId) ?? [])]
   return allocateBills(events, asOn, ledger.credit_days)
 }
 
@@ -271,6 +304,9 @@ export function partyBillEvents(db: DB, partyLedgerId: number, asOn: string): { 
     | undefined
   if (!ledger) return { events: [], creditDays: null }
   const sign = descendantIdsByName(db, ['Sundry Debtors']).has(ledger.group_id) ? 1 : -1
-  const events = [...openingEvent(asOn, ledger.opening_balance, sign), ...(partyEventsBatch(db, [partyLedgerId], asOn, sign).get(partyLedgerId) ?? [])]
+  const events = [
+    ...openingEvents(asOn, ledger.opening_balance, sign, openingBillsByParty(db, [partyLedgerId]).get(partyLedgerId)),
+    ...(partyEventsBatch(db, [partyLedgerId], asOn, sign).get(partyLedgerId) ?? [])
+  ]
   return { events, creditDays: ledger.credit_days }
 }

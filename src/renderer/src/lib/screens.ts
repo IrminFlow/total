@@ -970,6 +970,20 @@ export const SCREENS: ScreenDef[] = [
     navSection: null,
     invalidates: ['features']
   },
+  // WP 8.7: Settings → What you had on day one — the opening setup for a business that was
+  // already running (also Home's setup step). Its accountant counterparts are the opening
+  // balances on accounts and products in Masters ("See them in the full app").
+  {
+    name: 'simple-openings',
+    modes: ['simple'],
+    simpleView: 'Openings',
+    simpleSection: 'settings',
+    simpleEntries: [{ id: 'openings', label: 'simple.settings.openings', screen: { name: 'simple-openings' } }],
+    title: 'Opening balances (day one)',
+    screen: null, // simple shell only
+    navSection: null,
+    invalidates: ['openings', 'ledgers', 'stockItems', 'dashboard']
+  },
   {
     name: 'search',
     modes: ['accountant'],
@@ -1028,7 +1042,7 @@ export const SIMPLE_ENTRY_ORDER: readonly string[] = [
   // Taxes
   'gst-summary', 'gst-sales', 'check-supplier-bills', 'tds', 'tcs',
   // Settings (then Advanced)
-  'business', 'bills-printing', 'backups', 'people-roles', 'features', 'looks', 'advanced'
+  'business', 'openings', 'bills-printing', 'backups', 'people-roles', 'features', 'looks', 'advanced'
 ]
 
 export interface ResolvedSimpleEntry {

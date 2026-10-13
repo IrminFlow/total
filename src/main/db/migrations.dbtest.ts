@@ -56,6 +56,8 @@ const EXPECTED_TABLES = [
   'trade_voucher_details',
   'undo_group_vouchers',
   'undo_groups',
+  // WP 8.7 (opening bills)
+  'opening_bills',
   'line_links',
   'ca_asset_classes',
   'it_blocks',

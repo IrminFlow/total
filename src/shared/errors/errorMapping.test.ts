@@ -25,7 +25,7 @@ function enumerateCodes(): Map<string, string> {
   const suffixes = all(/code\('([a-z_]+)'\)/g, src('shared/withholding.ts'))
   for (const p of ['tds', 'tcs']) add('shared/withholding.ts', suffixes.map((s) => `${p}_${s}`))
   // Services and the IPC boundary: new AppError('x', …).
-  for (const f of ['main/services/vouchers.ts', 'main/services/masters.ts', 'main/services/undo.ts', 'main/ipc.ts']) {
+  for (const f of ['main/services/vouchers.ts', 'main/services/masters.ts', 'main/services/undo.ts', 'main/services/openings.ts', 'main/ipc.ts']) {
     add(f, all(/new AppError\(\s*'([a-z_]+)'/g, src(f)))
   }
   // ipc.ts structured codes produced without an AppError.

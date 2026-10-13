@@ -13,7 +13,7 @@ describe('screen registry modes (WP 8.1)', () => {
   it('every screen declares its modes; every 0.10 screen is an accountant screen', () => {
     for (const s of SCREENS) {
       expect(s.modes.length, s.name).toBeGreaterThan(0)
-      if (s.name !== 'simple-section' && s.name !== 'simple-looks' && s.name !== 'simple-features') expect(s.modes, s.name).toContain('accountant')
+      if (s.name !== 'simple-section' && s.name !== 'simple-looks' && s.name !== 'simple-features' && s.name !== 'simple-openings') expect(s.modes, s.name).toContain('accountant')
     }
   })
 
@@ -26,7 +26,7 @@ describe('screen registry modes (WP 8.1)', () => {
 
   it('every simple-mode screen is drawn by a component under src/renderer/src/simple/ (so the i18n lints cover it)', () => {
     const simple = SCREENS.filter((d) => d.modes.includes('simple'))
-    expect(simple.map((d) => d.name).sort()).toEqual(['gateway', 'simple-features', 'simple-looks', 'simple-section'])
+    expect(simple.map((d) => d.name).sort()).toEqual(['gateway', 'simple-features', 'simple-looks', 'simple-openings', 'simple-section'])
     for (const d of simple) {
       expect(d.simpleView, d.name).toMatch(/^[A-Z]\w+$/)
       expect(existsSync(resolve(__dirname, '../simple', `${d.simpleView}.tsx`)), d.name).toBe(true)
@@ -40,8 +40,8 @@ describe('screen registry modes (WP 8.1)', () => {
     expect(tab('by-month')).toEqual({ name: 'registers', tab: 'sales' })
   })
 
-  it('the simple Settings list: business details … how Total looks, then Advanced (the full Settings)', () => {
-    expect(simpleEntriesOf('settings').map((e) => e.id)).toEqual(['business', 'bills-printing', 'backups', 'people-roles', 'features', 'looks', 'advanced'])
+  it('the simple Settings list: business details, day one … how Total looks, then Advanced (the full Settings)', () => {
+    expect(simpleEntriesOf('settings').map((e) => e.id)).toEqual(['business', 'openings', 'bills-printing', 'backups', 'people-roles', 'features', 'looks', 'advanced'])
     expect(simpleEntriesOf('settings').find((e) => e.id === 'looks')?.screen).toEqual({ name: 'simple-looks' })
     expect(simpleEntriesOf('settings').find((e) => e.id === 'advanced')?.screen).toEqual({ name: 'settings' })
   })
