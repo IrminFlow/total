@@ -33,7 +33,8 @@ export const READ_TOOL_ARGS: Record<string, (f: EvalFixture) => Record<string, u
   close_checklist: () => ({ period: '2026-03' }),
   gst_2b_mismatches: () => ({ period: '2025-09' }),
   find_anomalies: () => ({ ...FY }),
-  build_report: () => parseReportQuestion('sales by month', FY) as unknown as Record<string, unknown>
+  build_report: () => parseReportQuestion('sales by month', FY) as unknown as Record<string, unknown>,
+  categorise_statement: (f) => ({ bankLedgerId: f.ids.hdfc })
 }
 
 export const ROLE_CASES: EvalCase[] = [
