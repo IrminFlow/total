@@ -97,6 +97,7 @@ import { appSecretStore } from './services/secretStore'
 import type { AiEvent } from '@shared/ai'
 import { registerReceivablesIpc } from './ipcReceivables'
 import { creditOverrideSchema } from '@shared/receivables/schemas'
+import { UI_MODES } from '@shared/simple/uiMode'
 import { registerPayablesIpc } from './ipcPayables'
 import { registerBankingIpc } from './ipcBanking'
 import { registerCashFinanceIpc } from './ipcCashFinance'
@@ -361,7 +362,9 @@ export function registerIpc(): void {
   handle('company:list', () => readRegistry())
 
   handle('company:create', (payload) => {
-    const input = companyCreateSchema.parse(payload)
+    // WP 8.1: `mode` picks the company's mode; omitted = accountant (the default until the WP 8.3
+    // setup wizard), which writes no `ui` meta at all — a missing key means accountant.
+    const { mode, ...input } = companyCreateSchema.extend({ mode: z.enum(UI_MODES).optional() }).parse(payload)
     let slug = slugify(input.name)
     let n = 2
     while (existsSync(companyDbPath(slug))) slug = `${slugify(input.name)}-${n++}`
@@ -370,6 +373,7 @@ export function registerIpc(): void {
     const info: CompanyInfo = { ...input }
     seedCompany(db, info)
     writeAudit(db, 'company', 0, 'create', null, info)
+    if (mode === 'simple') configSvc.setUi(db, { mode })
     db.close()
     upsertCompany({ slug, name: input.name, stateCode: input.stateCode, gstin: input.gstin, lastOpenedAt: null })
     return { slug }
@@ -482,7 +486,7 @@ export function registerIpc(): void {
     // past this reply and only while the company is unlocked (a company with users waits for the
     // sign-in — auth:login starts the pass then).
     void runDuePacksInBackground({ slug, db, info }, { allowed: packsAllowed, current: getUnlockedCompany })
-    return { slug, info, integrity, locked: current.usersExist }
+    return { slug, info, integrity, locked: current.usersExist, ui: configSvc.getUi(db) }
   })
 
   handle('company:close', () => {
@@ -492,9 +496,15 @@ export function registerIpc(): void {
 
   handle('company:current', () =>
     current
-      ? { slug: current.slug, info: current.info, locked: current.usersExist && !sessionUser }
+      ? { slug: current.slug, info: current.info, locked: current.usersExist && !sessionUser, ui: configSvc.getUi(current.db) }
       : null
   )
+
+  // ---------- company mode (WP 8.1): meta `ui` — simple / accountant, setup answers, language ----------
+  // Read with the open payload too; `ui:get` refreshes it (after a restore, say). Owner-only to
+  // change (everyone in a company without users), audited as a company update.
+  handle('ui:get', () => configSvc.getUi(requireCompany().db), 'viewer')
+  handle('ui:set', (payload) => configSvc.setUi(requireCompany().db, payload), 'owner')
 
   handle('company:updateInfo', (payload) => {
     const c = requireCompany()

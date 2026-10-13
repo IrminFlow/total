@@ -7,22 +7,22 @@ import { SupportLink } from './SupportLink'
 import { TotalLogo } from './TotalLogo'
 import { toDisplayDate, fyOf, fyFromStartYear, todayISO } from '@shared/dates'
 import { useFeatures } from '../lib/useFeatures'
-import { NAV_SECTIONS, SCREENS } from '../lib/screens'
+import { ACCOUNTANT_NAV } from '../lib/screens'
+import { useScreenView } from '../lib/mode'
+import { useT } from '../lib/i18n'
+import { SimpleHeader } from '../simple/SimpleHeader'
+import { SimpleSidebar } from '../simple/SimpleSidebar'
+import { ViewToggle } from '../simple/ViewToggle'
 import { useNavSections } from '../lib/navSections'
 import { useDynamicNav } from '../lib/dynamicNav'
 // Registers the pinned-saved-reports source (WP 6.1) before the first render.
 import '../lib/pinnedReports'
 import { AssistantPanel, useAssistantPanel } from './ai/AssistantPanel'
 
-/** Sidebar derived from the single screen registry (lib/screens.ts). */
-const NAV = NAV_SECTIONS.map((section) => ({
-  ...section,
-  items: SCREENS.filter((s) => s.navSection === section.id && s.screen != null).map((s) => ({
-    label: s.navLabel ?? s.title,
-    screen: s.screen!,
-    feature: s.feature
-  }))
-}))
+/** Sidebar derived from the single screen registry (lib/screens.ts) — accountant-mode screens. */
+const NAV = ACCOUNTANT_NAV
+
+const HEADER_CHIP = 'rounded-md border border-line bg-panel2 px-2.5 py-1 text-small text-muted hover:border-amber/60 hover:text-ink'
 
 export function Shell({ children, onOpenPalette }: { children: ReactNode; onOpenPalette: () => void }): React.JSX.Element {
   const { info, from, to, clearCompany, user, setUser, setLocked } = useSession()
@@ -37,6 +37,10 @@ export function Shell({ children, onOpenPalette }: { children: ReactNode; onOpen
   const dynamicNav = useDynamicNav()
   const toggleAssistant = useAssistantPanel((s) => s.toggle)
   const assistantOpen = useAssistantPanel((s) => s.open)
+  const t = useT()
+  // WP 8.1: a simple company shows its simple screens in the simple shell (header + sidebar);
+  // <main> stays in place, so switching a screen's view keeps the screen (and its state) mounted.
+  const simple = useScreenView(screen.name).view === 'simple'
   const visibleNav = NAV.filter((s) => !s.feature || features[s.feature]).map((s) => ({
     ...s,
     items: s.items.filter((i) => !i.feature || features[i.feature]),
@@ -59,9 +63,9 @@ export function Shell({ children, onOpenPalette }: { children: ReactNode; onOpen
         }}
         className="sr-only z-50 rounded-md bg-amberbar px-3 py-1.5 text-detail font-semibold text-on-amber focus:not-sr-only focus:fixed focus:top-2 focus:left-24"
       >
-        Skip to content
+        {simple ? t('simple.shell.skip') : 'Skip to content'}
       </a>
-      <header
+      {simple ? <SimpleHeader onOpenPalette={onOpenPalette} /> : <header
         className={`drag-region flex h-12 shrink-0 items-center gap-3 border-b border-line bg-panel pr-4 panel-shadow ${
           window.total.platform === 'darwin' ? 'pl-24' : 'pl-4'
         }`}
@@ -77,6 +81,8 @@ export function Shell({ children, onOpenPalette }: { children: ReactNode; onOpen
           {info?.gstin && <span className="num text-label text-muted">{info.gstin}</span>}
         </button>
         <div className="flex-1" />
+        {/* "Back to simple" — only in a simple company (renders nothing otherwise). */}
+        <ViewToggle screen={screen} className={HEADER_CHIP} />
         <button
           type="button"
           className="num rounded-md border border-line bg-panel2 px-2.5 py-1 text-small text-muted hover:border-amber/60 hover:text-ink"
@@ -142,10 +148,10 @@ export function Shell({ children, onOpenPalette }: { children: ReactNode; onOpen
             </button>
           </>
         )}
-      </header>
+      </header>}
 
       <div className="flex min-h-0 flex-1">
-        <nav aria-label="Main" className="flex w-48 shrink-0 flex-col gap-0.5 overflow-y-auto border-r border-line bg-panel p-2">
+        {simple ? <SimpleSidebar /> : <nav aria-label="Main" className="flex w-48 shrink-0 flex-col gap-0.5 overflow-y-auto border-r border-line bg-panel p-2">
           <div className="mb-2 flex items-center gap-2 px-2 py-2">
             <TotalLogo size={28} />
             <span className="font-serif text-brand font-semibold tracking-tight">Total</span>
@@ -249,7 +255,7 @@ export function Shell({ children, onOpenPalette }: { children: ReactNode; onOpen
           <div className="mt-2 border-t border-line pt-2">
             <SupportLink />
           </div>
-        </nav>
+        </nav>}
 
         {/* data-screen + data-loading: the E2E harness's navigation/idle markers (lib/testids.ts). */}
         <main

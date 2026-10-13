@@ -4,6 +4,7 @@ import type { CompanyInfo, TradeDocKind, VoucherKind } from '@shared/domain'
 import type { TradeDocDraft } from '@shared/tradeCycle/types'
 import { fyOf, todayISO } from '@shared/dates'
 import type { SessionUser } from '../lib/client'
+import type { SimpleSectionId, UiSettings } from '@shared/simple/uiMode'
 import { confirmDialog } from '../lib/dialogs'
 import { hasUnsavedChanges } from '../lib/useUnsavedGuard'
 
@@ -54,13 +55,16 @@ export type Screen =
   // Like 'settings', the active tab lives in the nav stack (nav.go per tab) so Esc/back
   // retraces tabs and other screens can deep-link straight to one.
   // `itemId` (items tab only) opens that stock item's editor — how search results open an item.
+  // WP 8.1 `parties` (ledgers tab): only customers and suppliers (the simple "People" entry).
   // WP 2.2: a new manufacture voucher (saved ones open through voucher-entry, same form).
   // WP 2.4: `jobWork` opens it in "Receive from job worker" mode; `prefill` starts it for an item
   // and quantity ("manufacture the sub-assembly first" links).
   | { name: 'manufacture'; jobWork?: boolean; prefill?: { itemId: number; qtyMilli: number } }
   | { name: 'manufacture-register' }
   | { name: 'manufacture-reports'; tab?: 'production' | 'cost-sheet' | 'margin' | 'variance' | 'job-work' }
-  | { name: 'masters'; tab?: 'ledgers' | 'groups' | 'items' | 'units' | 'types' | 'currencies' | 'godowns' | 'stock-groups' | 'price-lists' | 'party-rates' | 'schemes'; itemId?: number }
+  | { name: 'masters'; tab?: 'ledgers' | 'groups' | 'items' | 'units' | 'types' | 'currencies' | 'godowns' | 'stock-groups' | 'price-lists' | 'party-rates' | 'schemes'; itemId?: number; parties?: boolean }
+  // WP 8.1: a simple section's page (the simple shell's sidebar targets).
+  | { name: 'simple-section'; section: SimpleSectionId }
   | { name: 'counter-billing' }
   // Books search results (⌘⇧F, or "See all" in the ⌘K palette): `q` is the query-language
   // string, `kind` the initially selected tab (omitted = all kinds).
@@ -199,7 +203,11 @@ interface SessionState {
    *  discarded right along with it. App.tsx renders the warning once, above both the locked and
    *  unlocked layouts, so no navigation or unmount can make it disappear before it's dismissed. */
   integrityWarning: { quickCheck: string; unbalancedVoucherIds: number[]; context: string } | null
-  setCompany: (slug: string, info: CompanyInfo, locked?: boolean) => void
+  /** WP 8.1: the open company's mode (meta `ui`, read with the open payload; missing = accountant). */
+  ui: UiSettings
+  /** `ui` given = a (re)opened company's settings; omitted keeps the current ones (an info edit). */
+  setCompany: (slug: string, info: CompanyInfo, locked?: boolean, ui?: UiSettings) => void
+  setUi: (ui: UiSettings) => void
   clearCompany: () => void
   setPeriod: (from: string, to: string) => void
   setWorkingDate: (date: string) => void
@@ -219,8 +227,10 @@ export const useSession = create<SessionState>((set) => ({
   user: null,
   locked: false,
   integrityWarning: null,
-  setCompany: (slug, info, locked = false) => set({ slug, info, locked }),
-  clearCompany: () => set({ slug: null, info: null, user: null, locked: false, integrityWarning: null }),
+  ui: { mode: 'accountant' },
+  setCompany: (slug, info, locked = false, ui) => set(ui ? { slug, info, locked, ui } : { slug, info, locked }),
+  setUi: (ui) => set({ ui }),
+  clearCompany: () => set({ slug: null, info: null, user: null, locked: false, integrityWarning: null, ui: { mode: 'accountant' } }),
   setPeriod: (from, to) => set({ from, to }),
   setWorkingDate: (workingDate) => set({ workingDate }),
   setUser: (user) => set({ user }),

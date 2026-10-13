@@ -71,6 +71,13 @@ export function BackupsSection(): React.JSX.Element {
       setLocked(true)
     }
     await queryClient.invalidateQueries()
+    // WP 8.1: the restored books may carry another mode (meta `ui`) — company:current is ungated.
+    try {
+      const cur = await api.company.current()
+      if (cur) useSession.getState().setUi(cur.ui)
+    } catch {
+      /* keep the current mode; the next open reads it again */
+    }
     toast.push('success', 'Backup restored')
     if (!result.integrity.ok) {
       setIntegrityWarning({
