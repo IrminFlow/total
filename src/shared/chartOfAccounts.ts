@@ -206,3 +206,40 @@ export function filterLedgers<L extends FilterableLedger>(
   const inGroup = groupId != null ? descendantGroupIds(groups, groupId) : null
   return ledgers.filter((l) => (!inGroup || inGroup.has(l.groupId)) && ledgerMatches(l, query, chains))
 }
+
+// ---------- parties (WP 8.1: the simple "Customers and suppliers" list) ----------
+
+export interface PartyGroupLink extends GroupLink {
+  nature: string
+}
+
+/**
+ * A group's party ROLE, by name AND nature: the seeded Sundry Debtors (asset) / Sundry Creditors
+ * (liability) — default groups cannot be renamed in the app (updateGroup refuses), so the seeded
+ * name is their role — plus the names imports and other books use for the same root (Debtors,
+ * Trade Receivables, Accounts Receivable / Creditors, Trade Payables, Accounts Payable), case and
+ * spacing ignored. The nature must agree, so an unrelated group that happens to carry the name
+ * (an expense group called "Creditors", say) is not a party root.
+ */
+const DEBTOR_ROOT_NAMES = new Set(['sundry debtors', 'debtors', 'trade receivables', 'accounts receivable'])
+const CREDITOR_ROOT_NAMES = new Set(['sundry creditors', 'creditors', 'trade payables', 'accounts payable'])
+const normName = (s: string): string => s.trim().toLowerCase().replace(/\s+/g, ' ')
+
+export function partyGroupRole(g: PartyGroupLink): 'debtor' | 'creditor' | null {
+  const n = normName(g.name)
+  if (g.nature === 'asset' && DEBTOR_ROOT_NAMES.has(n)) return 'debtor'
+  if (g.nature === 'liability' && CREDITOR_ROOT_NAMES.has(n)) return 'creditor'
+  return null
+}
+
+/** Ids of every party group: each party root and all its sub-groups (whatever they are called). */
+export function partyGroupIds(groups: PartyGroupLink[]): Set<number> {
+  const ids = new Set<number>()
+  for (const g of groups) if (partyGroupRole(g)) for (const id of descendantGroupIds(groups, g.id)) ids.add(id)
+  return ids
+}
+
+/** A ledger is a party (customer / supplier) when its group is at or under a party root. */
+export function isPartyLedger(ledger: { groupId: number }, groups: PartyGroupLink[], ids: Set<number> = partyGroupIds(groups)): boolean {
+  return ids.has(ledger.groupId)
+}

@@ -62,7 +62,7 @@ describe('language switch', () => {
 
   it('the existing Appearance wording is unchanged', () => {
     render(<AppearanceSection />)
-    for (const text of ['Appearance', 'Theme', 'Density', 'Motion', 'Language']) expect(screen.getByText(text)).toBeTruthy()
+    for (const text of ['How Total looks', 'Theme', 'Density', 'Motion', 'Language']) expect(screen.getByText(text)).toBeTruthy()
   })
 
   it('the simple placeholder renders through t()', () => {

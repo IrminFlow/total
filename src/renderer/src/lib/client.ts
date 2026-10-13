@@ -4,6 +4,7 @@ import type {
   TdsRate, TdsCertificateRow, TdsChallan,
   Voucher, VoucherTransport, VoucherType, TradeDocType, SaveVoucherWarnings
 } from '@shared/domain'
+import type { UiMode, UiPatch, UiSettings } from '@shared/simple/uiMode'
 import type { BudgetVarianceRow } from '@shared/budgets'
 import type { McpConfig, McpLogRow, McpSettingsView } from '@shared/mcp'
 import type { AiDraftDto, AiDraftStatus } from '@shared/ai'
@@ -633,16 +634,22 @@ export async function call<T>(channel: string, payload?: unknown): Promise<T> {
 }
 
 export const api = {
+  /** WP 8.1: the company's mode (meta `ui`; missing = accountant). `set` is owner-only. */
+  ui: {
+    get: () => call<UiSettings>('ui:get'),
+    set: (patch: UiPatch) => call<UiSettings>('ui:mode:set', patch)
+  },
   company: {
     list: () => call<Registry>('company:list'),
-    create: (input: CompanyCreateInput) => call<{ slug: string }>('company:create', input),
+    /** WP 8.1: `mode` omitted = accountant (no `ui` meta written). */
+    create: (input: CompanyCreateInput & { mode?: UiMode }) => call<{ slug: string }>('company:create', input),
     createDemo: () => call<{ slug: string }>('company:createDemo'),
     remove: (slug: string, confirmName: string, pin?: string) =>
       call<null>('company:delete', { slug, confirmName, pin }),
     open: (slug: string) =>
-      call<{ slug: string; info: CompanyInfo; integrity: IntegrityResult; locked: boolean }>('company:open', { slug }),
+      call<{ slug: string; info: CompanyInfo; integrity: IntegrityResult; locked: boolean; ui: UiSettings }>('company:open', { slug }),
     close: () => call<null>('company:close'),
-    current: () => call<{ slug: string; info: CompanyInfo; locked: boolean } | null>('company:current'),
+    current: () => call<{ slug: string; info: CompanyInfo; locked: boolean; ui: UiSettings } | null>('company:current'),
     updateInfo: (input: CompanyCreateInput) => call<CompanyInfo>('company:updateInfo', input),
     backup: () => call<{ path: string }>('company:backup'),
     revealExports: () => call<null>('company:revealExports'),

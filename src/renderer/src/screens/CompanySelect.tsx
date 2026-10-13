@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import type { UiSettings } from '@shared/simple/uiMode'
 import { useIsFetching, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api, type IntegrityResult } from '../lib/client'
 import { useNav, useSession, useToasts } from '../state/stores'
@@ -22,7 +23,7 @@ export function CompanySelect(): React.JSX.Element {
   const [demoLoading, setDemoLoading] = useState(false)
   const [deleting, setDeleting] = useState<CompanySummary | null>(null)
   const [integrityIssue, setIntegrityIssue] = useState<{
-    pending: { slug: string; info: CompanyInfo; locked: boolean }
+    pending: { slug: string; info: CompanyInfo; locked: boolean; ui: UiSettings }
     integrity: IntegrityResult
   } | null>(null)
 
@@ -32,10 +33,10 @@ export function CompanySelect(): React.JSX.Element {
     try {
       const r = await api.company.open(slug)
       if (!r.integrity.ok) {
-        setIntegrityIssue({ pending: { slug: r.slug, info: r.info, locked: r.locked }, integrity: r.integrity })
+        setIntegrityIssue({ pending: { slug: r.slug, info: r.info, locked: r.locked, ui: r.ui }, integrity: r.integrity })
         return
       }
-      setCompany(r.slug, r.info, r.locked)
+      setCompany(r.slug, r.info, r.locked, r.ui)
     } catch (err) {
       toast.push('error', (err as Error).message)
     }
@@ -174,13 +175,13 @@ export function CompanySelect(): React.JSX.Element {
           onOpenAnyway={() => {
             const { pending } = integrityIssue
             setIntegrityIssue(null)
-            setCompany(pending.slug, pending.info, pending.locked)
+            setCompany(pending.slug, pending.info, pending.locked, pending.ui)
           }}
           onGoBackups={() => {
             // Restoring a backup needs the company open — open it and land on Settings → Backups.
             const { pending } = integrityIssue
             setIntegrityIssue(null)
-            setCompany(pending.slug, pending.info, pending.locked)
+            setCompany(pending.slug, pending.info, pending.locked, pending.ui)
             nav.go({ name: 'settings', tab: 'backups' })
           }}
           onCancel={async () => {

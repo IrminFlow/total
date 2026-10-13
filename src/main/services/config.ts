@@ -6,6 +6,8 @@ import { getAuditTrailRequired, setAuditTrailRequired, writeAudit } from './audi
 import { MIN_AUDIT_KEEP_DAYS } from '@shared/auditRetention'
 import { getLegacyConfigView, setLegacyConfig } from './printTemplates'
 import type { McpConfig } from '@shared/mcp'
+import { applyUiPatch, normalizeUi, uiPatchSchema, type UiSettings } from '@shared/simple/uiMode'
+import { UI_META_KEY } from '../i18n'
 
 /** Company-scoped JSON config living in the `meta` table — same pattern as readCompanyInfo/
  *  writeCompanyInfo (db/seed.ts) and the NIC credentials (services/nic.ts). */
@@ -157,6 +159,31 @@ export function setMcpConfig(db: DB, input: McpConfig): McpConfig {
   db.transaction(() => {
     writeMeta(db, 'mcp', after)
     writeAudit(db, 'company', 0, 'update', { mcp: before }, { mcp: after })
+  })()
+  return after
+}
+
+// ---------- company mode (WP 8.1, plan 2026-10-13 §2.1) ----------
+
+/** Meta `ui`: the company's mode (simple / accountant), setup answers and language. A missing key
+ *  means accountant — every existing company and backup opens exactly as before. */
+export function getUi(db: DB): UiSettings {
+  return normalizeUi(readMeta(db, UI_META_KEY))
+}
+
+/** Merges a patch into meta `ui` (owner-only at the IPC layer), audited as a company update with
+ *  the whole before / after (`before` null while the key was missing). A patch that changes
+ *  nothing in effect writes nothing — including `{ mode: 'accountant' }` on a company with no `ui`
+ *  key, which already IS accountant. */
+export function setUi(db: DB, patch: unknown): UiSettings {
+  const parsed = uiPatchSchema.parse(patch)
+  const stored = readMeta(db, UI_META_KEY)
+  const before = normalizeUi(stored)
+  const after = applyUiPatch(before, parsed)
+  if (JSON.stringify(before) === JSON.stringify(after)) return after
+  db.transaction(() => {
+    writeMeta(db, UI_META_KEY, after)
+    writeAudit(db, 'company', 0, 'update', { ui: stored === null ? null : before }, { ui: after })
   })()
   return after
 }

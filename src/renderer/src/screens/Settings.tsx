@@ -1,5 +1,7 @@
 import type { Screen } from '../state/stores'
 import { useNav } from '../state/stores'
+import { useMode } from '../lib/mode'
+import { useT } from '../lib/i18n'
 import { TabBar } from '../components/TabBar'
 import { Page, PageHeader } from '../components/ui'
 import { BackupsSection } from './settings/BackupsSection'
@@ -18,7 +20,9 @@ import { PacksSection } from './settings/PacksSection'
 
 export type SettingsTab = NonNullable<Extract<Screen, { name: 'settings' }>['tab']>
 
-const TABS: { id: SettingsTab; label: string }[] = [
+/** 'company' is an entry, not a tab: it opens Company details (WP 8.1 — in both modes). */
+const TABS: { id: SettingsTab | 'company'; label: string }[] = [
+  { id: 'company', label: 'Company details' },
   { id: 'backups', label: 'Backups' },
   { id: 'bin', label: 'Bin' },
   { id: 'users', label: 'Users' },
@@ -27,7 +31,7 @@ const TABS: { id: SettingsTab; label: string }[] = [
   { id: 'features', label: 'Features' },
   { id: 'invoice', label: 'Invoice templates' },
   { id: 'receivables', label: 'Receivables' },
-  { id: 'appearance', label: 'Appearance' },
+  { id: 'appearance', label: 'How Total looks' },
   { id: 'agents', label: 'Agent access' },
   { id: 'packs', label: 'Scheduled packs' },
   { id: 'ai', label: 'AI assistant' },
@@ -37,6 +41,10 @@ const TABS: { id: SettingsTab; label: string }[] = [
 export function Settings({ tab }: { tab?: SettingsTab }): React.JSX.Element {
   const nav = useNav()
   const active = tab ?? 'backups'
+  // WP 8.1: a simple company calls it what its simple Settings list does.
+  const simple = useMode() === 'simple'
+  const t = useT()
+  const tabs = simple ? TABS.map((x) => (x.id === 'company' ? { ...x, label: t('simple.settings.business') } : x)) : TABS
 
   return (
     <Page>
@@ -51,10 +59,11 @@ export function Settings({ tab }: { tab?: SettingsTab }): React.JSX.Element {
             screen="settings"
             vertical
             label="Settings sections"
-            tabs={TABS}
+            tabs={tabs}
             active={active}
             onSelect={(t) => {
-              if (t !== active) nav.go({ name: 'settings', tab: t })
+              if (t === 'company') nav.go({ name: 'company-info' })
+              else if (t !== active) nav.go({ name: 'settings', tab: t })
             }}
           />
         </aside>
