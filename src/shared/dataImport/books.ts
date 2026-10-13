@@ -36,6 +36,8 @@ export const BOOKS_SHEETS: BooksSheetDef[] = [
     sheet: 'Ledgers', target: 'ledgers',
     columns: [c('name'), c('group'), c('opening', 'money'), c('gstin'), c('state'), c('pan'), c('creditDays', 'integer'), c('creditLimit', 'money'), c('address'), c('taxType'), c('gstRate', 'percent'), c('hsn'), c('more')]
   },
+  // WP 8.7: how a party's opening splits into bills (after Ledgers, which set the openings).
+  { sheet: 'Opening Bills', target: 'openingBills', columns: [c('party'), c('bill'), c('date', 'date'), c('dueDate', 'date'), c('amount', 'money')] },
   { sheet: 'Godowns', target: 'godowns', columns: [c('name'), c('address'), c('kind'), c('party')] },
   {
     sheet: 'Stock Items', target: 'items',

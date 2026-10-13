@@ -7,6 +7,7 @@ import type { GroupTreeNode, LedgerBalanceRow } from '@shared/reports'
 import { CASH_BANK_GROUPS } from '@shared/seed'
 import { rebuildItemSerials } from './serials'
 import { writeAudit } from './audit'
+import { guardOpeningChange } from './openingBills'
 import { CATEGORIES, expectedClass, type CategoryKey } from '@shared/simple/categories'
 
 // ---------- row mappers ----------
@@ -234,6 +235,11 @@ export function createLedger(db: DB, raw: LedgerInput): Ledger {
 }
 
 export function updateLedger(db: DB, id: number, raw: LedgerInput): Ledger {
+  // One transaction: clearing opening bills (WP 8.7) and the update land together or not at all.
+  return db.transaction(() => updateLedgerNow(db, id, raw))()
+}
+
+function updateLedgerNow(db: DB, id: number, raw: LedgerInput): Ledger {
   const input = ledgerInputSchema.parse(raw)
   const existing = getLedger(db, id)
   if (!existing) throw new AppError('ledger_not_found', 'Ledger not found')
@@ -251,6 +257,9 @@ export function updateLedger(db: DB, id: number, raw: LedgerInput): Ledger {
       category = null // the stored one no longer fits the edit (renamed to "Round Off", tagged…): drop it
     }
   }
+  // WP 8.7: opening bills follow the opening — cleared (audited) when they no longer fit, or the
+  // change is refused when one of them is in use (openingBills.ts).
+  if (input.openingBalance !== existing.openingBalance || groupChanged) guardOpeningChange(db, id, input.openingBalance, input.groupId)
   db.prepare(
     `UPDATE ledgers SET name = ?, group_id = ?, opening_balance = ?, gstin = ?, state_code = ?,
      address = ?, tax_type = ?, gst_rate = ?, hsn = ?, tds_section_id = ?, pan = ?, credit_days = ?, export_type = ?,
@@ -332,7 +341,8 @@ export function deleteLedger(db: DB, id: number): void {
   // records how many, so the trail shows what the delete took.
   const cascaded: Record<string, number> = {}
   // WP 6.4: so do its party notes / tasks (party_notes.ledger_id).
-  for (const [t, col] of [['reminder_log', 'party_ledger_id'], ['bill_followups', 'party_ledger_id'], ['party_notes', 'ledger_id']] as const) {
+  // WP 8.7: and its opening bills (opening_bills.party_ledger_id).
+  for (const [t, col] of [['reminder_log', 'party_ledger_id'], ['bill_followups', 'party_ledger_id'], ['party_notes', 'ledger_id'], ['opening_bills', 'party_ledger_id']] as const) {
     if (db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?").get(t)) {
       const n = (db.prepare(`SELECT COUNT(*) AS n FROM ${t} WHERE ${col} = ?`).get(id) as { n: number }).n
       if (n > 0) cascaded[t] = n

@@ -30,4 +30,8 @@ The screens a first-time, non-accountant user sees (plan `docs/superpowers/specs
 - "Needs attention" fills in after Home shows: overdue rows from the tiles' own figures (by side), the close checklist + anomalies from `simple:homeAttention`. A company with nothing recorded gets one "Nothing recorded yet" card with the next setup step.
 - Each tile's "Why?" (`kit/Why.tsx`) shows a sentence from `shared/simple/explain.ts` (pure, `t()` + money.ts) and a link that says what it opens and opens THAT figure (`homeReportScreen` in `homeTasks.ts`: same date, side, period).
 - `homeTasks.ts` is the one mapping for the task buttons (+ Sale, + Purchase, Money in, Money out) and the report links — Phase 9 swaps a task's `screen` for its simple flow there.
-- The setup checklist labels are keyed by `onboarding.ts` step id; `openings` (WP 8.7, "Enter what you had on day one") is a label slot that shows once that step exists.
+- The setup checklist labels are keyed by `onboarding.ts` step id; WP 8.7's `openings` step ("Enter what you had on day one") is a real step with its own label.
+
+## Opening setup (WP 8.7)
+
+- `Openings.tsx` (+ `OpeningsSteps.tsx`) is "What you had on day one": money, customers (bill by bill), suppliers, stock, then Check and confirm (the difference in one sentence from `simple:openings:preview`; saved with `simple:openings` and that figure). Field errors come from `shared/simple/openings.ts` `openingsStepErrors` by path and show under their field (`OField` reads them by `name`). `OpeningsHomeCard.tsx` is Home's setup step (progress, "I started fresh").

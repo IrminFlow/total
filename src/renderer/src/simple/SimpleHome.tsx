@@ -6,6 +6,7 @@ import { onboardingScreen } from '../lib/onboarding'
 import { useNav } from '../state/stores'
 import { Page } from '../components/ui'
 import { Button, SkeletonTiles, Why } from '../components/kit'
+import { OpeningsHomeCard } from './OpeningsHomeCard'
 import { HOME_TASKS, accountScreen, attentionScreen, homeReportScreen, type HomeReport } from './homeTasks'
 import { onboardingFromDashSetup, type OnboardingChecklist, type OnboardingStepId } from '@shared/onboarding'
 import { todayISO, toPlainDate } from '@shared/dates'
@@ -16,17 +17,15 @@ import {
 } from '@shared/simple/explain'
 
 /** Plain labels for the onboarding steps, keyed by step id (the step logic stays in onboarding.ts).
- *  `openings` is WP 8.7's "Enter what you had on day one" — a label only; it shows once
- *  onboarding.ts has that step. */
-const STEP_LABEL: Record<OnboardingStepId | 'openings', { label: MessageKey; hint: MessageKey }> = {
+ *  WP 8.7's "Enter what you had on day one" is its own card (OpeningsHomeCard) above them. */
+const STEP_LABEL: Record<OnboardingStepId, { label: MessageKey; hint: MessageKey }> = {
   company: { label: 'simple.setupSteps.company.label', hint: 'simple.setupSteps.company.hint' },
   gstin: { label: 'simple.setupSteps.gstin.label', hint: 'simple.setupSteps.gstin.hint' },
   ledger: { label: 'simple.setupSteps.ledger.label', hint: 'simple.setupSteps.ledger.hint' },
   bank: { label: 'simple.setupSteps.bank.label', hint: 'simple.setupSteps.bank.hint' },
   voucher: { label: 'simple.setupSteps.voucher.label', hint: 'simple.setupSteps.voucher.hint' },
   invoice: { label: 'simple.setupSteps.invoice.label', hint: 'simple.setupSteps.invoice.hint' },
-  backup: { label: 'simple.setupSteps.backup.label', hint: 'simple.setupSteps.backup.hint' },
-  openings: { label: 'simple.setupSteps.openings.label', hint: 'simple.setupSteps.openings.hint' }
+  backup: { label: 'simple.setupSteps.backup.label', hint: 'simple.setupSteps.backup.hint' }
 }
 
 const cardCls = 'rounded-lg border border-line bg-panel p-panel shadow-elev-1'
@@ -122,6 +121,8 @@ function HomeBody({ home }: { home: SimpleHomeData }): React.JSX.Element {
           <p className="mt-1 text-detail text-muted">{t('simple.home.notSureGstHint')}</p>
         </section>
       )}
+
+      <OpeningsHomeCard owed={{ receivables: home.receivables.total, payables: home.payables.total }} />
 
       {empty && <EmptyHome checklist={checklist} />}
 
@@ -341,11 +342,16 @@ function Attention({ home }: { home: SimpleHomeData }): React.JSX.Element | null
   )
 }
 
-/** A company with nothing recorded: one card, with the next setup step as the way in. */
-function EmptyHome({ checklist }: { checklist: OnboardingChecklist }): React.JSX.Element {
+/** A company with nothing recorded: one card, with the next setup step as the way in. A
+ *  continuing business that has not entered its day-one figures yet sees only the openings card
+ *  (WP 8.7, above) — that is its first step, never offered twice. */
+function EmptyHome({ checklist }: { checklist: OnboardingChecklist }): React.JSX.Element | null {
   const t = useT()
   const nav = useNav()
   const next = checklist.steps.find((s) => !s.done && STEP_LABEL[s.id])
+  // Same query (and cache) as OpeningsHomeCard.
+  const { data: openings } = useQuery({ queryKey: ['openings'], queryFn: api.openings.get }) // i18n-technical
+  if (openings && !openings.appliedAt && openings.startedFresh === false) return null
   return (
     <section className={`${cardCls} mt-5`} data-testid="simple-home-empty">
       <h2 className="text-title font-semibold text-ink">{t('simple.home.emptyTitle')}</h2>

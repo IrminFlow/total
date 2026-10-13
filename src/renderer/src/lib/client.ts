@@ -635,6 +635,7 @@ export interface PdcRow {
 }
 
 import type { SimpleSetupInput } from '@shared/simple/setup'
+import type { OpeningsResult, OpeningsState, SimpleOpeningsInput } from '@shared/simple/openings'
 import type { GstProfile } from '@shared/gst/filing'
 /** A failed IPC call (WP 8.5): `message` is the service's wording, unchanged; the structured
  *  fields (shared/errors) let a form put a plain message under the field (`useFormErrors`). */
@@ -673,6 +674,13 @@ export const api = {
   simple: {
     home: (today: string) => call<SimpleHomeData>('simple:home', { today }),
     homeAttention: (today: string) => call<HomeAttention>('simple:homeAttention', { today })
+  },
+  /** WP 8.7: the opening setup (what a continuing business had on day one). */
+  openings: {
+    get: () => call<OpeningsState>('simple:openings:get'),
+    preview: (input: SimpleOpeningsInput) => call<OpeningsResult>('simple:openings:preview', input),
+    apply: (input: SimpleOpeningsInput) => call<OpeningsResult>('simple:openings', input),
+    skip: () => call<{ startedFresh: true }>('simple:openings:skip')
   },
   /** WP 8.3: GSTR-1 filing frequency (meta `gstProfile`; missing = monthly). `set` is owner-only. */
   gstProfile: {

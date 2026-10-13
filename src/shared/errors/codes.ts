@@ -120,6 +120,17 @@ export const ERROR_MAP = {
   godown_job_work: e('errors.placeJobWork'),
   godown_in_use: e('errors.placeInUse'),
 
+  // ---------- opening setup (services/openings.ts, WP 8.7) ----------
+  openings_invalid: e('errors.checkFields'),
+  openings_name_taken: e('errors.openings.nameTaken', 'name'),
+  openings_wrong_kind: e('errors.openings.wrongKind', 'name'),
+  openings_date_after_start: e('errors.openings.dateAfterStart', 'date'),
+  openings_changed: e('errors.openings.changed'),
+  openings_no_cash: e('errors.openings.noCash'),
+  openings_bill_in_use: e('errors.openings.billInUse', 'name'),
+  // services/openingBills.ts: an opening split into bills, one of them in use, changed elsewhere.
+  opening_bills_in_use: e('errors.openings.billInUse', 'openingBalance'),
+
   // ---------- IPC boundary (src/main/ipc.ts) ----------
   duplicate_name: e('errors.duplicateName', 'name'),
   not_permitted: e('errors.notAllowed'),

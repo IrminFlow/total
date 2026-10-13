@@ -27,6 +27,8 @@ import { setCreditHold } from './receivables'
 import { postClose } from './yearEnd'
 import { trialBalance } from './reports'
 import { canonicalDump } from './canonicalDump.testutil'
+import { replaceOpeningBills } from './openingBills'
+import { outstandings } from './analysis'
 
 let dataDir: string
 beforeEach(() => {
@@ -53,7 +55,13 @@ function richCompany(): { db: DB; prevFy: number } {
 
   // Masters with extras.
   const bank = createLedger(db, { name: 'HDFC Current', groupId: groupId(db, 'Bank Accounts'), pan: null })
-  const capital = createLedger(db, { name: 'Partners Capital', groupId: groupId(db, 'Capital Account'), openingBalance: -500000, pan: null })
+  const capital = createLedger(db, { name: 'Partners Capital', groupId: groupId(db, 'Capital Account'), openingBalance: -950000, pan: null })
+  // WP 8.7: a debtor whose opening is split into two opening bills (one settled in part below).
+  const obCo = createLedger(db, { name: 'Opening Bills Co', groupId: groupId(db, 'Sundry Debtors'), openingBalance: 450000, pan: null })
+  replaceOpeningBills(db, obCo.id, [
+    { name: 'OB-1', date: `${prevFy - 1}-12-10`, dueDate: `${prevFy}-01-09`, amount: 300000 },
+    { name: 'Opening', date: `${prevFy}-04-01`, dueDate: null, amount: 150000 }
+  ])
   createLedger(db, { name: 'Office Furniture', groupId: groupId(db, 'Fixed Assets'), openingBalance: 500000, pan: null })
   const rent = createLedger(db, { name: 'Office Rent', groupId: groupId(db, 'Indirect Expenses'), pan: null })
   const income = createLedger(db, { name: 'Consulting Income', groupId: groupId(db, 'Indirect Incomes'), pan: null })
@@ -106,6 +114,12 @@ function richCompany(): { db: DB; prevFy: number } {
     inventory: [{ stockItemId: phone.id, godownId: null, qtyMilli: 1000, ratePaise: 72000, discountPaise: 2000, amount: 70000, direction: 'out', serials: ['SN-1'], source: { lineUid: getVoucher(db, dn.id)!.inventory[0]!.lineUid!, linkType: 'fulfil' } }],
     billRefs: [{ kind: 'new', name: 'INV-K1', amount: 70000, dueDate: null }]
   })
+  // A part receipt matched to the named opening bill.
+  saveVoucher(db, {
+    ...base, voucherTypeId: vt(db, 'receipt'), date: `${prevFy + 1}-05-09`, partyLedgerId: obCo.id,
+    lines: [{ ledgerId: bank.id, drCr: 'dr', amount: 100000, costAllocations: [] }, { ledgerId: obCo.id, drCr: 'cr', amount: 100000, costAllocations: [] }],
+    billRefs: [{ kind: 'against', name: 'OB-1', amount: 100000, dueDate: null }]
+  })
   setCreditHold(db, krishna, true, 'Cheque bounced')
   return { db, prevFy }
 }
@@ -132,6 +146,14 @@ describe('Books workbook fidelity', () => {
     // The closing journal is a closing journal again (immutable, out of profit).
     expect(dst.prepare('SELECT COUNT(*) AS n FROM vouchers WHERE is_year_end_close = 1').get()).toEqual({ n: 1 })
     expect(trialBalance(dst, `${prevFy + 1}-12-31`).totalDebit).toBe(trialBalance(src, `${prevFy + 1}-12-31`).totalDebit)
+    // WP 8.7: the opening bills and the receipt matched to one of them come back intact.
+    expect(dst.prepare("SELECT b.name, b.date, b.due_date AS dueDate, b.amount FROM opening_bills b JOIN ledgers l ON l.id = b.party_ledger_id WHERE l.name = 'Opening Bills Co' ORDER BY b.date").all()).toEqual([
+      { name: 'OB-1', date: `${prevFy - 1}-12-10`, dueDate: `${prevFy}-01-09`, amount: 300000 },
+      { name: 'Opening', date: `${prevFy}-04-01`, dueDate: null, amount: 150000 }
+    ])
+    const ob = (d: DB): unknown => outstandings(d, 'receivable', `${prevFy + 1}-06-30`).find((p) => p.name === 'Opening Bills Co')?.bills.map((x) => [x.number, x.pending])
+    expect(ob(dst)).toEqual([['OB-1', 200000], ['Opening', 150000]])
+    expect(ob(dst)).toEqual(ob(src))
 
     // A second import changes nothing (Source IDs match; both receipts "1" are found in their own FY).
     const again = importBooks(dst, bytes, { duplicate: 'skip' })

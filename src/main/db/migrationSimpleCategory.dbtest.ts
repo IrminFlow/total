@@ -1,5 +1,6 @@
 // The simple_category migration (WP 8.3): one nullable column on ledgers, appended LAST — its
-// number is its position (re-placed when main gains migrations first).
+// number is its position (re-placed when main gains migrations first). WP 8.7's opening_bills
+// migration follows it.
 import { describe, expect, it } from 'vitest'
 import { MIGRATIONS } from './migrations'
 import { migrate, schemaVersion } from './migrate'

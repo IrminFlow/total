@@ -227,6 +227,42 @@ describe('simple Home (WP 8.6)', () => {
     expect(screen.queryByTestId('simple-setup-openings')).toBeNull()
   })
 
+  it('WP 8.7: a continuing business sees "Enter what you had on day one" as its first step (not twice); once entered, the card quotes the tiles', async () => {
+    const state = {
+      booksBegin: '2026-04-01', startedFresh: false, stockOn: false, appliedAt: null as string | null,
+      cash: { ledgerId: 1, name: 'Cash', amount: 0 }, banks: [], overdrafts: [], customers: [], suppliers: [], items: [], others: [],
+      pick: { customers: [], suppliers: [], items: [], units: [] }, capitals: [], progress: { done: 0, total: 4 }
+    }
+    const nothing = home({
+      moneyIn: { amount: 0, entries: 0, loans: 0 }, moneyOut: { amount: 0, entries: 0, loans: 0 }, receivables: owed({}), payables: owed({}),
+      cash: { accounts: [{ ledgerId: 1, name: 'Cash', kind: 'cash', balance: 0 }], cash: 0, bank: 0, total: 0 },
+      setup: { companyInfoComplete: false, gstRegistered: true, gstinSet: true, userLedgers: 0, bankLedgers: 0, voucherCount: 0, userBackups: 0 }
+    })
+    const mount = (data: SimpleHomeData): void => {
+      invoke.mockImplementation(async (channel: string) => {
+        if (channel === 'simple:home') return { ok: true, data }
+        if (channel === 'simple:homeAttention') return { ok: true, data: { period: '2026-09', items: [], anomaliesSkipped: false } }
+        if (channel === 'simple:openings:get') return { ok: true, data: state }
+        return { ok: true, data: null }
+      })
+      const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+      render(
+        <QueryClientProvider client={client}>
+          <SimpleHome />
+        </QueryClientProvider>
+      )
+    }
+    mount(nothing)
+    await waitFor(() => expect(screen.getByTestId('simple-home-openings').dataset.done).toBe('false'))
+    expect(screen.queryByTestId('simple-home-empty')).toBeNull()
+    cleanup()
+    state.appliedAt = '2026-10-13T10:00:00Z'
+    mount(home({ receivables: owed({ total: 300000, parties: 1, oldest: { ledgerId: 9, name: 'Sharma Stores', days: 195 } }) }))
+    await waitFor(() => expect(screen.getByTestId('simple-home-openings').dataset.done).toBe('true'))
+    expect(screen.getByTestId('simple-home-customers-owe').textContent).toBe('Customers owe you ₹3,000.00')
+    expect(screen.getByTestId('simple-tile-receivables-value').textContent).toBe('₹3,000.00')
+  })
+
   it('a load error offers Try again', async () => {
     invoke.mockImplementation(async () => ({ ok: false, error: 'boom' }))
     const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })

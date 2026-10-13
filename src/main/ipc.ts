@@ -126,6 +126,8 @@ import { globalSearch, search } from './services/search'
 import { createDemoCompany } from './services/demo'
 import { createCompanyFromSetup } from './services/companySetup'
 import { simpleSetupSchema } from '@shared/simple/setup'
+import { simpleOpeningsSchema } from '@shared/simple/openings'
+import * as openingsSvc from './services/openings'
 import { gstProfileSchema } from '@shared/gst/filing'
 import {
   setAuditContext, writeAudit, listAudit, pruneAudit, verifyAudit, editLogExport, runAsAuditUser, osAuditUser, SYSTEM_AUDIT_USER
@@ -416,6 +418,18 @@ export function registerIpc(): void {
   // WP 8.3: the plain-language setup wizard — a company from the answers (business type preset,
   // GST, stock, start date) in one transaction; services/companySetup.ts. Default mode simple (D2).
   handle('simple:setup', (payload) => createCompanyFromSetup(simpleSetupSchema.parse(payload), todayISO()))
+
+  // WP 8.7: the plain-language opening setup (services/openings.ts) — what a continuing business
+  // had on day one. `get` reads the books' openings; `preview` rehearses the run (rolled back) for
+  // the confirm step; `simple:openings` writes it in one transaction once the user confirmed the
+  // owner's-money figure; `skip` = "I started fresh" (meta ui.startedFresh).
+  handle('simple:openings:get', () => openingsSvc.openingsState(requireCompany().db), 'viewer')
+  handle('simple:openings:preview', (payload) => openingsSvc.previewOpenings(requireCompany().db, simpleOpeningsSchema.parse(payload)))
+  handle('simple:openings', (payload) => openingsSvc.applyOpenings(requireCompany().db, simpleOpeningsSchema.parse(payload)))
+  handle('simple:openings:skip', (payload) => {
+    z.object({}).strict().optional().parse(payload)
+    return openingsSvc.skipOpenings(requireCompany().db)
+  })
 
   // WP 8.3: `mode` 'simple' = the wizard's "Try with sample data" (D2); omitted = accountant, as before.
   handle('company:createDemo', (payload) =>

@@ -187,12 +187,12 @@ describe('the simple shell', () => {
     expect(screen.queryByTestId('simple-entry-gst-summary')).toBeNull()
   })
 
-  it('the simple Settings list: six entries and Advanced (the full Settings)', async () => {
+  it('the simple Settings list: seven entries (WP 8.7: day one) and Advanced (the full Settings)', async () => {
     setSession({ mode: 'simple' })
     render(withClient(<SimpleSection section="settings" />))
     await waitFor(() => expect(screen.getByTestId('simple-entry-advanced')).toBeTruthy())
     const ids = Array.from(document.querySelectorAll('[data-testid^="simple-entry-"]')).map((e) => e.getAttribute('data-testid'))
-    expect(ids).toEqual(['business', 'bills-printing', 'backups', 'people-roles', 'features', 'looks', 'advanced'].map((i) => `simple-entry-${i}`))
+    expect(ids).toEqual(['business', 'openings', 'bills-printing', 'backups', 'people-roles', 'features', 'looks', 'advanced'].map((i) => `simple-entry-${i}`))
     fireEvent.click(screen.getByTestId('simple-entry-advanced'))
     await waitFor(() => expect(useNav.getState().stack.at(-1)).toEqual({ name: 'settings' }))
   })

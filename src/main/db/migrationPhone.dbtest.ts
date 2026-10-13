@@ -1,5 +1,5 @@
-// The party phone migration (WP 8.4): two nullable columns on ledgers, appended LAST — its number
-// is its position (re-placed when main gains migrations first).
+// The party phone migration (WP 8.4): two nullable columns on ledgers — its number is its position
+// (048; WP 8.7's opening_bills 049 follows).
 import { describe, expect, it } from 'vitest'
 import { MIGRATIONS } from './migrations'
 import { migrate, schemaVersion } from './migrate'
@@ -10,8 +10,8 @@ import { trialBalance } from '../services/reports'
 const M_PHONE = MIGRATIONS.findIndex((sql) => sql.includes('ADD COLUMN phone'))
 
 describe('ledger phone migration', () => {
-  it('is the last migration', () => {
-    expect(M_PHONE).toBe(MIGRATIONS.length - 1)
+  it('comes right before WP 8.7 opening_bills (the last migration; number by position)', () => {
+    expect(MIGRATIONS[M_PHONE + 1]).toContain('CREATE TABLE opening_bills')
     expect(MIGRATIONS[M_PHONE]!.startsWith('-- @foreign-keys-off')).toBe(false)
   })
 

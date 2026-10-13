@@ -66,12 +66,12 @@ await scenario('47-mode-switch', async (h) => {
   }
   await tour('light')
 
-  // Simple Settings list: six entries and Advanced.
+  // Simple Settings list: seven entries and Advanced (WP 8.7 added "What you had on day one").
   await h.click('simple-nav-settings')
   await attached('[data-testid="simple-section-settings"]')
   assertSame(
     await h.page.evaluate(() => [...document.querySelectorAll('[data-testid^="simple-entry-"]')].map((e) => e.getAttribute('data-testid'))),
-    ['business', 'bills-printing', 'backups', 'people-roles', 'features', 'looks', 'advanced'].map((i) => `simple-entry-${i}`),
+    ['business', 'openings', 'bills-printing', 'backups', 'people-roles', 'features', 'looks', 'advanced'].map((i) => `simple-entry-${i}`),
     'simple Settings list'
   )
 

@@ -4,6 +4,7 @@ import { allocateBills, type AllocateBillsResult, type BillEvent, type BillRef }
 import { fyOf } from '@shared/dates'
 import { descendantIdsByName } from './masters'
 import { IN_BOOKS } from './vouchers'
+import { openingBillsByParty, openingEvents } from './openingBills'
 
 /** WP 4.4: forex revaluation journals and their reversals restate a foreign balance at a closing
  *  rate; they are not bills or payments, so they stay out of the bill events (otherwise the
@@ -194,14 +195,8 @@ function partyEventsBatch(db: DB, partyIds: number[], asOn: string, sign: number
   return result
 }
 
-/** Opening-balance event, normalized to the same sign convention as `partyEvents`. Kept as a
- *  separate first event (never carries refs) — matches the pre-refactor behavior exactly. */
-function openingEvent(asOn: string, openingBalance: number, sign: number): BillEvent[] {
-  if (openingBalance === 0) return []
-  // v0.3 #62: the FY start of asOn — `${asOn.year}-04-01` was wrong for Jan–Mar dates (it
-  // produced a date in asOn's FUTURE, zeroing the opening bill's age).
-  return [{ voucherId: null, date: fyOf(asOn).from, number: 'Opening', amount: sign * openingBalance, refs: [] }]
-}
+// WP 8.7: a party's opening as bill events — the one reader of opening bills (openingBills.ts).
+export { openingBillsByParty, openingEvents, type OpeningBillRow } from './openingBills'
 
 /**
  * Party-wise outstandings: invoices/bill-refs open bills, receipts/notes/against-refs settle
@@ -234,8 +229,9 @@ export function outstandingsWithAdvances(
   const result: OutstandingParty[] = []
 
   const eventsByParty = partyEventsBatch(db, parties.map((p) => p.id), asOn, sign)
+  const openingBills = openingBillsByParty(db)
   for (const party of parties) {
-    const events = [...openingEvent(asOn, party.opening_balance, sign), ...(eventsByParty.get(party.id) ?? [])]
+    const events = [...openingEvents(asOn, party.opening_balance, sign, openingBills.get(party.id), party.credit_days), ...(eventsByParty.get(party.id) ?? [])]
     const { bills, warnings, unappliedCredit } = allocateBills(events, asOn, party.credit_days)
     if (unappliedCredit > 0) {
       advances += unappliedCredit
@@ -275,7 +271,7 @@ export function partyAllocation(db: DB, partyLedgerId: number, asOn: string): Al
   const debtorIds = descendantIdsByName(db, ['Sundry Debtors'])
   const sign = debtorIds.has(ledger.group_id) ? 1 : -1
   const eventsByParty = partyEventsBatch(db, [partyLedgerId], asOn, sign)
-  const events = [...openingEvent(asOn, ledger.opening_balance, sign), ...(eventsByParty.get(partyLedgerId) ?? [])]
+  const events = [...openingEvents(asOn, ledger.opening_balance, sign, openingBillsByParty(db, [partyLedgerId]).get(partyLedgerId), ledger.credit_days), ...(eventsByParty.get(partyLedgerId) ?? [])]
   return allocateBills(events, asOn, ledger.credit_days)
 }
 
@@ -288,6 +284,9 @@ export function partyBillEvents(db: DB, partyLedgerId: number, asOn: string): { 
     | undefined
   if (!ledger) return { events: [], creditDays: null }
   const sign = descendantIdsByName(db, ['Sundry Debtors']).has(ledger.group_id) ? 1 : -1
-  const events = [...openingEvent(asOn, ledger.opening_balance, sign), ...(partyEventsBatch(db, [partyLedgerId], asOn, sign).get(partyLedgerId) ?? [])]
+  const events = [
+    ...openingEvents(asOn, ledger.opening_balance, sign, openingBillsByParty(db, [partyLedgerId]).get(partyLedgerId), ledger.credit_days),
+    ...(partyEventsBatch(db, [partyLedgerId], asOn, sign).get(partyLedgerId) ?? [])
+  ]
   return { events, creditDays: ledger.credit_days }
 }
