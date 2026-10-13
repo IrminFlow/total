@@ -38,7 +38,7 @@ import * as masters from './masters'
 import { getFeatures, getUi, setUi } from './config'
 import { writeAudit } from './audit'
 import { openingTotals } from './dataImport'
-import { openingBillsByParty, type OpeningBillRow } from './analysis'
+import { openingBillsByParty, replaceOpeningBills, type OpeningBillRow } from './openingBills'
 
 const META_KEY = 'simpleOpenings'
 const DEBTORS = 'Sundry Debtors'
@@ -66,13 +66,15 @@ function cashLedger(db: DB): LedgerLite | null {
   return all.find((l) => l.name === 'Cash') ?? all[0] ?? null
 }
 
-/** The capital account the difference goes to: the setup's "Owner's money", else the first
- *  account directly under Capital Account that isn't drawings. Null = none yet (created on write). */
-function capitalLedger(db: DB): LedgerLite | null {
+/** The capital accounts the difference can go to — directly under Capital Account, drawings
+ *  left out — the setup's "Owner's money" first, then by id. Empty = none yet (one is created). */
+function capitalLedgers(db: DB): LedgerLite[] {
   const group = db.prepare('SELECT id FROM groups WHERE name = ?').get(CAPITAL_GROUP) as { id: number } | undefined
-  if (!group) return null
-  const rows = db.prepare('SELECT * FROM ledgers WHERE group_id = ? ORDER BY id').all(group.id) as LedgerLite[]
-  return rows.find((l) => l.simple_category === 'owner_capital') ?? rows.find((l) => l.simple_category !== 'owner_drawings' && !/drawing/i.test(l.name)) ?? null
+  if (!group) return []
+  const rows = (db.prepare('SELECT * FROM ledgers WHERE group_id = ? ORDER BY id').all(group.id) as LedgerLite[]).filter(
+    (l) => l.simple_category !== 'owner_drawings' && !/drawing/i.test(l.name)
+  )
+  return [...rows.filter((l) => l.simple_category === 'owner_capital'), ...rows.filter((l) => l.simple_category !== 'owner_capital')]
 }
 
 function storedMeta(db: DB): { appliedAt: string } | null {
@@ -86,13 +88,18 @@ function storedMeta(db: DB): { appliedAt: string } | null {
   }
 }
 
+/** A party as Outstandings shows its opening: the stored bills, plus an unnamed bill for what they
+ *  don't cover; `mismatch` when they add up to more than the opening. */
 function partyState(l: LedgerLite, sign: 1 | -1, bills: OpeningBillRow[] | undefined): OpeningPartyState {
   const amount = sign * l.opening_balance
+  const stored = (bills ?? []).map((b) => ({ ref: b.name, date: b.date as string | null, amount: b.amount }))
+  const rest = amount - stored.reduce((s, b) => s + b.amount, 0)
   return {
     ledgerId: l.id,
     name: l.name,
     amount,
-    bills: bills?.length ? bills.map((b) => ({ ref: b.name, date: b.date, amount: b.amount })) : amount > 0 ? [{ ref: '', date: null, amount }] : []
+    bills: rest > 0 ? [...stored, { ref: '', date: null, amount: rest }] : stored,
+    mismatch: rest < 0
   }
 }
 
@@ -103,7 +110,11 @@ export function openingsState(db: DB): OpeningsState {
   const stockOn = !!effectiveFeatures(getFeatures(db)).inventory
   const cash = cashLedger(db)
   if (!cash) throw new AppError('openings_no_cash', 'This company has no cash account')
-  const banks = ledgersIn(db, BANK_GROUPS)
+  const allBanks = ledgersIn(db, BANK_GROUPS)
+  const odIds = masters.descendantIdsByName(db, ['Bank OD A/c'])
+  const isOd = (l: LedgerLite): boolean => l.opening_balance < 0 || (l.opening_balance === 0 && odIds.has(l.group_id))
+  const banks = allBanks.filter((l) => !isOd(l))
+  const overdrafts = allBanks.filter(isOd)
   const debtors = ledgersIn(db, [DEBTORS])
   const creditors = ledgersIn(db, [CREDITORS])
   const bills = openingBillsByParty(db)
@@ -125,7 +136,7 @@ export function openingsState(db: DB): OpeningsState {
     }
   }
   const units = db.prepare('SELECT id, name, symbol FROM units ORDER BY id').all() as { id: number; name: string; symbol: string }[]
-  const parts = [cash.opening_balance !== 0 || banks.some((b) => b.opening_balance !== 0), customers.length > 0, suppliers.length > 0, ...(stockOn ? [items.length > 0] : [])]
+  const parts = [cash.opening_balance !== 0 || allBanks.some((b) => b.opening_balance !== 0), customers.length > 0, suppliers.length > 0, ...(stockOn ? [items.length > 0] : [])]
   const ui = getUi(db)
   return {
     booksBegin,
@@ -134,6 +145,7 @@ export function openingsState(db: DB): OpeningsState {
     appliedAt: storedMeta(db)?.appliedAt ?? null,
     cash: { ledgerId: cash.id, name: cash.name, amount: cash.opening_balance },
     banks: banks.map((b) => ({ ledgerId: b.id, name: b.name, amount: b.opening_balance })),
+    overdrafts: overdrafts.map((b) => ({ ledgerId: b.id, name: b.name, amount: -b.opening_balance })),
     customers,
     suppliers,
     items,
@@ -144,6 +156,7 @@ export function openingsState(db: DB): OpeningsState {
       items: itemRows.map((r) => ({ id: r.id, name: r.name, unitId: r.unit_id })),
       units
     },
+    capitals: capitalLedgers(db).map((l) => ({ ledgerId: l.id, name: l.name, amount: l.opening_balance })),
     progress: { done: parts.filter(Boolean).length, total: parts.length }
   }
 }
@@ -188,43 +201,45 @@ const emptyLedgerInput = (name: string, gid: number, opening: number): Record<st
   tdsSectionId: null, pan: null, creditDays: null, exportType: null
 })
 
-/** Set one account's opening to `target` (dr-positive). Returns the ledger id, or null when it
- *  was left alone (changed elsewhere since the screen loaded it). */
-function setOpening(ctx: RunCtx, row: { ledgerId: number | null; name: string; base: number | null }, groups: string[], createIn: string, target: number, field: string, extra: Record<string, unknown> = {}): number | null {
+/** Set one account's opening to `target` (dr-positive) — and, for a party, its opening bills
+ *  (`bills`: named and dated; `null` = no split, the one unnamed opening) through the single
+ *  writer, in the order the invariant needs. Returns the ledger id, or null when it was left alone
+ *  (changed elsewhere since the screen loaded it). */
+function setOpening(
+  ctx: RunCtx, row: { ledgerId: number | null; name: string; base: number | null }, groups: string[], createIn: string, target: number, field: string,
+  bills?: OpeningBillRow[] | null
+): number | null {
   const r = resolveLedger(ctx, row, groups, field)
   if (!r.ledger) {
     if (target === 0) return null
-    const created = masters.createLedger(ctx.db, ledgerInputSchema.parse({ ...emptyLedgerInput(r.name, groupId(ctx.db, createIn), target), ...extra }))
+    const created = masters.createLedger(ctx.db, ledgerInputSchema.parse(emptyLedgerInput(r.name, groupId(ctx.db, createIn), target)))
     ctx.changes.push({ kind: 'account', id: created.id, name: created.name, before: null, after: target })
+    if (bills?.length && replaceOpeningBills(ctx.db, created.id, bills, undefined, field)) ctx.changes.push({ kind: 'bills', id: created.id, name: created.name, before: [], after: bills })
     return created.id
   }
-  const current = r.ledger.opening_balance
-  if (current === target) return r.ledger.id
+  const ledger = r.ledger
+  const current = ledger.opening_balance
   // A row the screen loaded at another value, or a row for an account it didn't load (base
   // null = it showed none) that already holds a figure: the books changed under the screen —
-  // keep them.
-  if (current !== (row.base ?? 0)) {
-    ctx.warnings.push({ kind: 'account', name: r.ledger.name, kept: current })
+  // keep them (and their bills).
+  if (current !== target && current !== (row.base ?? 0)) {
+    ctx.warnings.push({ kind: 'account', name: ledger.name, kept: current })
     return null
   }
-  const before = masters.getLedger(ctx.db, r.ledger.id)!
-  masters.updateLedger(ctx.db, r.ledger.id, ledgerInputSchema.parse({ ...before, openingBalance: target }))
-  ctx.changes.push({ kind: 'account', id: r.ledger.id, name: r.ledger.name, before: current, after: target })
-  return r.ledger.id
-}
-
-/** Replace a party's opening bills with `bills` (already named and dated), unless they are the
- *  same — or the party has none stored and the answer is the one unnamed bill its opening
- *  already means (nothing to split). */
-function setBills(ctx: RunCtx, ledgerId: number, name: string, bills: { name: string; date: string; amount: number; plain: boolean }[]): void {
-  const stored = openingBillsByParty(ctx.db, [ledgerId]).get(ledgerId) ?? []
-  const next = bills.map((b) => ({ name: b.name, date: b.date, dueDate: null as string | null, amount: b.amount }))
-  if (!stored.length && bills.length <= 1 && bills.every((b) => b.plain)) return
-  if (JSON.stringify(stored) === JSON.stringify(next)) return
-  ctx.db.prepare('DELETE FROM opening_bills WHERE party_ledger_id = ?').run(ledgerId)
-  const ins = ctx.db.prepare('INSERT INTO opening_bills (party_ledger_id, name, date, due_date, amount) VALUES (?, ?, ?, ?, ?)')
-  for (const b of next) ins.run(ledgerId, b.name, b.date, b.dueDate, b.amount)
-  ctx.changes.push({ kind: 'bills', id: ledgerId, name, before: stored, after: next })
+  const apply = (): void => {
+    if (current === target) return
+    const before = masters.getLedger(ctx.db, ledger.id)!
+    masters.updateLedger(ctx.db, ledger.id, ledgerInputSchema.parse({ ...before, openingBalance: target }))
+    ctx.changes.push({ kind: 'account', id: ledger.id, name: ledger.name, before: current, after: target })
+  }
+  if (bills === undefined) {
+    apply()
+    return ledger.id
+  }
+  const stored = openingBillsByParty(ctx.db, [ledger.id]).get(ledger.id) ?? []
+  const next = bills ?? []
+  if (replaceOpeningBills(ctx.db, ledger.id, next, apply, field)) ctx.changes.push({ kind: 'bills', id: ledger.id, name: ledger.name, before: stored, after: next })
+  return ledger.id
 }
 
 function writeParties(ctx: RunCtx, input: SimpleOpenings, side: 'customers' | 'suppliers'): void {
@@ -237,10 +252,13 @@ function writeParties(ctx: RunCtx, input: SimpleOpenings, side: 'customers' | 's
       }
     })
     const total = p.bills.reduce((s, b) => s + b.amount, 0)
-    const id = setOpening(ctx, p, [group], group, sign * total, `${side}.${i}.name`)
-    if (id == null) return
-    const names = billNames(p.bills.map((b) => b.ref))
-    setBills(ctx, id, p.name, p.bills.map((b, j) => ({ name: names[j]!, date: b.date ?? ctx.booksBegin, amount: b.amount, plain: !b.ref && !b.date })))
+    // One bill with no number and no date is the opening itself — nothing to split.
+    const plain = p.bills.length <= 1 && p.bills.every((b) => !b.ref && !b.date)
+    const names = billNames(p.bills.map((b) => b.ref), p.bills.map((b) => b.date), ctx.booksBegin)
+    const bills = plain
+      ? null
+      : p.bills.map((b, j) => ({ name: names[j]!, date: b.date ?? ctx.booksBegin, dueDate: null, amount: b.amount })).sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0))
+    setOpening(ctx, p, [group], group, sign * total, `${side}.${i}.name`, bills)
   })
 }
 
@@ -294,6 +312,8 @@ function run(db: DB, input: SimpleOpenings, confirm: boolean): OpeningsResult {
   // Money you have.
   setOpening(ctx, { ledgerId: cash.id, name: cash.name, base: input.cash.base }, [CASH_GROUP], CASH_GROUP, input.cash.amount, 'cash.amount')
   input.banks.forEach((b, i) => setOpening(ctx, b, BANK_GROUPS, 'Bank Accounts', b.amount, `banks.${i}.name`))
+  // An overdrawn bank is something you owe (its opening is a credit).
+  input.overdrafts.forEach((b, i) => setOpening(ctx, b, BANK_GROUPS, 'Bank OD A/c', -b.amount, `overdrafts.${i}.name`))
   // What people owe you / what you owe.
   writeParties(ctx, input, 'customers')
   writeParties(ctx, input, 'suppliers')
@@ -306,7 +326,9 @@ function run(db: DB, input: SimpleOpenings, confirm: boolean): OpeningsResult {
   })
 
   // The owner's money: whatever makes the openings agree.
-  const capital = capitalLedger(db)
+  const capitals = capitalLedgers(db)
+  const capital = input.capitalLedgerId != null ? capitals.find((l) => l.id === input.capitalLedgerId) : capitals[0]
+  if (input.capitalLedgerId != null && !capital) throw new AppError('openings_wrong_kind', 'Pick one of your capital accounts', { field: 'capital' })
   const { have, owe } = figuresWithoutCapital(db, capital?.id ?? null)
   const target = -(have - owe)
   const before = capital?.opening_balance ?? 0

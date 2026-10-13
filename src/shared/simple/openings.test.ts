@@ -7,7 +7,7 @@ import {
   simpleOpeningsSchema, stockLineRate, stockLineValue, type OpeningsDraft
 } from './openings'
 
-const empty = (): OpeningsDraft => ({ cash: { amount: null, base: null }, banks: [], customers: [], suppliers: [], items: [], others: [] })
+const empty = (): OpeningsDraft => ({ cash: { amount: null, base: null }, banks: [], overdrafts: [], customers: [], suppliers: [], items: [], others: [] })
 const bill = (over: Partial<OpeningsDraft['customers'][number]['bills'][number]> = {}) => ({ key: 'b', ref: '', date: '', amount: 100_00, ...over })
 const party = (name: string, bills: ReturnType<typeof bill>[], over: Partial<OpeningsDraft['customers'][number]> = {}) => ({ key: name, ledgerId: null, name, base: null, bills, ...over })
 
@@ -108,6 +108,26 @@ describe('bill numbers and the payload', () => {
     expect(billNames(['', 'B-1', ''])).toEqual(['Opening', 'B-1', 'Opening 2'])
     expect(billNames(['Opening', ''])).toEqual(['Opening', 'Opening 2'])
     expect(billNames(['opening 2', '', ''])).toEqual(['opening 2', 'Opening', 'Opening 3'])
+    // In date order (blank date = the books-begin day), whatever order they were typed in.
+    expect(billNames(['', '', 'X'], [null, '2026-03-01', '2026-02-01'], '2026-04-01')).toEqual(['Opening 2', 'Opening', 'X'])
+  })
+
+  it('"Opening (balance)" is reserved for the uncovered part of an opening', () => {
+    expect(simpleOpeningsSchema.safeParse({ cash: { amount: 0 }, customers: [{ name: 'A', bills: [{ ref: ' Opening (Balance)', amount: 1 }] }] }).success).toBe(false)
+    const d = empty()
+    d.customers = [party('A', [bill({ ref: 'opening (balance)' })])]
+    expect(openingsStepErrors(d, 'customers', '2026-04-01')).toEqual({ 'customers.0.bills.0.ref': 'errors.openings.reservedName' })
+  })
+
+  it('overdrafts are what you owe; the capital account rides with the payload', () => {
+    const d = empty()
+    d.overdrafts = [{ key: 'o', ledgerId: 4, name: 'SBI OD', amount: 3_000_00, base: -3_000_00 }, { key: 'p', ledgerId: null, name: '', amount: -1, base: null }]
+    expect(openingsStepErrors(d, 'suppliers', '2026-04-01')).toEqual({ 'overdrafts.1.amount': 'errors.openings.negative', 'overdrafts.1.name': 'errors.openings.nameNeeded' })
+    d.overdrafts = d.overdrafts.slice(0, 1)
+    const p = simpleOpeningsSchema.parse(openingsPayload(d, -5, 9))
+    expect(p.overdrafts).toEqual([{ ledgerId: 4, name: 'SBI OD', amount: 3_000_00, base: -3_000_00 }])
+    expect(p.capitalLedgerId).toBe(9)
+    expect(openingFigures(p)).toEqual({ have: 0, owe: 3_000_00, difference: -3_000_00 })
   })
 
   it('drops blank new rows, keeps loaded rows (so clearing one clears it) and parses quantities', () => {

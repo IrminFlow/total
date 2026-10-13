@@ -112,16 +112,16 @@ describe('simple opening setup', () => {
     expect(later.bills[0]).toMatchObject({ number: 'B-12', date: '2026-03-10' })
   })
 
-  it('a mid-year start dates undated bills on that day', () => {
+  it('a mid-year start dates undated bills on that day; blank numbers are given in date order; due = bill date without credit days', () => {
     const db = kirana('2026-06-15')
     const input = answers(db)
     input.customers![0]!.bills = [{ ref: '', date: null, amount: 2_000_00 }, { ref: '', date: '2026-06-01', amount: 1_000_00 }]
     input.suppliers![0]!.bills = [{ ref: 'GT-881', date: '2026-06-01', amount: 8_000_00 }]
     confirmAndApply(db, input)
     const sharma = outstandings(db, 'receivable', '2026-07-15').find((p) => p.name === 'Sharma Stores')!
-    expect(sharma.bills.map((b) => [b.number, b.date, b.ageDays])).toEqual([
-      ['Opening 2', '2026-06-01', 44],
-      ['Opening', '2026-06-15', 30]
+    expect(sharma.bills.map((b) => [b.number, b.date, b.dueDate, b.ageDays, b.overdueDays])).toEqual([
+      ['Opening', '2026-06-01', '2026-06-01', 44, 44],
+      ['Opening 2', '2026-06-15', '2026-06-15', 30, 30]
     ])
   })
 
@@ -185,24 +185,27 @@ describe('simple opening setup', () => {
     expect(confirmAndApply(db, reload).changed).toBe(0)
   })
 
-  it('clearing a loaded row clears it; a party opening edited in the full app keeps its bills consistent', () => {
+  it('a party opening edited in the full app clears its bills (audited); the screen then loads what Outstandings shows', () => {
     const db = kirana()
     confirmAndApply(db, answers(db))
     const sharma = ledgerId(db, 'Sharma Stores')
-    // Raised in the full app: the extra is an unnamed opening bill; lowered: bills settle oldest first.
     const l = getLedger(db, sharma)!
     updateLedger(db, sharma, { ...l, openingBalance: 5_000_00 })
-    expect(outstandings(db, 'receivable', '2026-05-01').find((p) => p.ledgerId === sharma)!.bills.map((b) => [b.number, b.pending])).toEqual([
-      ['B-12', 3_000_00], ['Opening', 1_500_00], ['Opening', 500_00]
-    ])
-    updateLedger(db, sharma, { ...l, openingBalance: 2_000_00 })
-    expect(outstandings(db, 'receivable', '2026-05-01').find((p) => p.ledgerId === sharma)!.bills.map((b) => [b.number, b.pending])).toEqual([['B-12', 500_00], ['Opening', 1_500_00]])
-    // Cleared from the screen (loaded at 2,000): opening 0, its bills gone.
-    const input = answers(db)
-    input.customers = [{ ledgerId: sharma, base: 2_000_00, bills: [] }]
-    confirmAndApply(db, input)
-    expect(opening(db, 'Sharma Stores')).toBe(0)
     expect(count(db, 'opening_bills', `party_ledger_id = ${sharma}`)).toBe(0)
+    expect(db.prepare("SELECT action FROM audit_log WHERE entity = 'opening_bills' AND entity_id = ? ORDER BY id DESC LIMIT 1").get(sharma)).toEqual({ action: 'delete' })
+    expect(outstandings(db, 'receivable', '2026-05-01').find((p) => p.ledgerId === sharma)!.bills.map((b) => [b.number, b.pending])).toEqual([['Opening', 5_000_00]])
+    // The screen loads exactly that, and saving it unchanged writes nothing.
+    const st = openingsState(db).customers.find((c) => c.ledgerId === sharma)!
+    expect(st).toMatchObject({ amount: 5_000_00, mismatch: false, bills: [{ ref: '', date: null, amount: 5_000_00 }] })
+    const audit = count(db, 'audit_log')
+    const reload = { cash: { amount: 5_000_00, base: 5_000_00 }, customers: [{ ledgerId: sharma, base: 5_000_00, bills: st.bills }] }
+    expect(confirmAndApply(db, reload).changed).toBe(1) // only the capital account (the others were left out of this run)
+    expect(opening(db, 'Sharma Stores')).toBe(5_000_00)
+    expect(confirmAndApply(db, reload).changed).toBe(0)
+    expect(count(db, 'audit_log')).toBeGreaterThan(audit)
+    // Cleared from the screen: opening 0, no bills.
+    confirmAndApply(db, { cash: { amount: 5_000_00, base: 5_000_00 }, customers: [{ ledgerId: sharma, base: 5_000_00, bills: [] }] })
+    expect(opening(db, 'Sharma Stores')).toBe(0)
     expect(outstandings(db, 'receivable', '2026-05-01').find((p) => p.ledgerId === sharma)).toBeUndefined()
   })
 

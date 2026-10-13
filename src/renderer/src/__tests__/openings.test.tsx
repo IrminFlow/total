@@ -26,11 +26,13 @@ const STATE: OpeningsState = {
   appliedAt: null,
   cash: { ledgerId: 1, name: 'Cash', amount: 0 },
   banks: [],
+  overdrafts: [],
   customers: [],
   suppliers: [],
   items: [],
   others: [],
   pick: { customers: [{ id: 10, name: 'Sharma Stores' }], suppliers: [], items: [], units: [{ id: 2, name: 'Pieces', symbol: 'Pcs' }] },
+  capitals: [{ ledgerId: 5, name: "Owner's money", amount: 0 }],
   progress: { done: 0, total: 4 }
 }
 
@@ -129,7 +131,7 @@ describe('opening setup screen', () => {
 
     await waitFor(() => expect(screen.getByTestId('openings-difference-sentence').getAttribute('data-kind')).toBe('more'))
     expect(screen.getByTestId('openings-difference-sentence').textContent).toBe(
-      'Your assets are ₹12,345.00 more than what you owe. We will record that as your own money in the business (capital).'
+      'What you have is ₹12,345.00 more than what you owe. We’ll record that as your own money in the business.'
     )
     expect(screen.getByTestId('openings-sum-money').textContent).toBe('₹25,000.00')
     expect(screen.getByTestId('openings-sum-customers').textContent).toBe('₹4,500.00')
@@ -160,7 +162,7 @@ describe('opening setup screen', () => {
     for (let i = 0; i < 4; i++) click('openings-next')
     await waitFor(() => expect(screen.getByTestId('openings-difference-sentence').getAttribute('data-kind')).toBe('less'))
     expect(screen.getByTestId('openings-difference-sentence').textContent).toBe(
-      'You owe ₹2,000.00 more than your assets. We will record that as a shortfall in your own money in the business (capital below zero).'
+      'You owe ₹2,000.00 more than what you have. We’ll record that as a shortfall in your own money in the business.'
     )
     cleanup()
     previewDifference = 0
@@ -169,6 +171,51 @@ describe('opening setup screen', () => {
     type('openings-cash', '100')
     for (let i = 0; i < 4; i++) click('openings-next')
     await waitFor(() => expect(screen.getByTestId('openings-difference-sentence').getAttribute('data-kind')).toBe('even'))
+  })
+
+  it('an overdrawn bank shows under what you owe (not blocking money); blank bill numbers show the names they will get; two capital accounts → pick one', async () => {
+    const state: OpeningsState = {
+      ...STATE,
+      overdrafts: [{ ledgerId: 7, name: 'SBI OD', amount: 3_000_00 }],
+      capitals: [{ ledgerId: 5, name: "Owner's money", amount: 0 }, { ledgerId: 6, name: 'Partner B', amount: 0 }]
+    }
+    invoke.mockImplementation(async (channel: string, payload?: unknown) => {
+      if (channel === 'simple:openings:get') return { ok: true, data: state }
+      if (channel === 'simple:openings:preview') return { ok: true, data: result(-3_000_00) }
+      if (channel === 'simple:openings') {
+        applied = payload as SimpleOpeningsInput
+        return { ok: true, data: result(-3_000_00) }
+      }
+      return { ok: false, error: `unmocked ${channel}` }
+    })
+    render(withClient(<Openings />))
+    await waitFor(() => expect(step()).toBe('money'))
+    expect(screen.getByTestId('openings-overdraft-note')).toBeTruthy()
+    click('openings-next')
+    click('openings-add-customer')
+    type('openings-customer-0-name', 'Sharma')
+    type('openings-customer-0-bill-0-amount', '100')
+    type('openings-customer-0-bill-0-date', '1/3/26')
+    fireEvent.blur(screen.getByTestId('openings-customer-0-bill-0-date'))
+    click('openings-customer-0-add-bill')
+    type('openings-customer-0-bill-1-amount', '50')
+    // Bill 1 has no date (= 1 Apr 2026), bill 0 is dated 1 Mar: the dated one is "Opening".
+    expect((screen.getByTestId('openings-customer-0-bill-0-ref') as HTMLInputElement).placeholder).toBe('Opening')
+    expect((screen.getByTestId('openings-customer-0-bill-1-ref') as HTMLInputElement).placeholder).toBe('Opening 2')
+    expect((screen.getByTestId('openings-customer-0-bill-0-date') as HTMLInputElement).value).toBe('1 Mar 2026')
+    click('openings-next')
+    expect(step()).toBe('suppliers')
+    expect(screen.getByTestId('openings-overdraft-0').textContent).toContain('SBI OD')
+    expect(screen.getByTestId('openings-suppliers-total').textContent).toBe('You owe ₹3,000.00 in all')
+    click('openings-next')
+    click('openings-next')
+    await waitFor(() => expect(screen.getByTestId('openings-capital')).toBeTruthy())
+    expect(screen.getByTestId('openings-sum-overdrafts').textContent).toBe('₹3,000.00')
+    fireEvent.change(screen.getByTestId('openings-capital'), { target: { value: '6' } })
+    await waitFor(() => expect((screen.getByTestId('openings-confirm') as HTMLButtonElement).disabled).toBe(false))
+    click('openings-confirm')
+    await waitFor(() => expect(applied).not.toBeNull())
+    expect(applied).toMatchObject({ capitalLedgerId: 6, overdrafts: [{ ledgerId: 7, amount: 3_000_00, base: -3_000_00 }] })
   })
 
   it('nothing entered: the confirm button stays off and says so', async () => {

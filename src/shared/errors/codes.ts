@@ -127,6 +127,9 @@ export const ERROR_MAP = {
   openings_date_after_start: e('errors.openings.dateAfterStart', 'date'),
   openings_changed: e('errors.openings.changed'),
   openings_no_cash: e('errors.openings.noCash'),
+  openings_bill_in_use: e('errors.openings.billInUse', 'name'),
+  // services/openingBills.ts: an opening split into bills, one of them in use, changed elsewhere.
+  opening_bills_in_use: e('errors.openings.billInUse', 'openingBalance'),
 
   // ---------- IPC boundary (src/main/ipc.ts) ----------
   duplicate_name: e('errors.duplicateName', 'name'),

@@ -6,6 +6,7 @@ import { toPlainDate } from '@shared/dates'
 import type { MessageKey } from '@shared/i18n'
 import {
   OPENING_OTHER_KINDS,
+  billNames,
   parseQtyText,
   stockLineValue,
   type BillDraft,
@@ -70,14 +71,47 @@ function RemoveButton({ onClick, testId }: { onClick: () => void; testId: string
 
 // ---------- money ----------
 
+type MoneyPath = 'banks' | 'overdrafts'
+
+/** Bank rows (money you have) or overdrafts (what you owe the bank): a loaded row shows its name
+ *  and can be cleared ("Remove" sends it at zero); a new row asks for a name. */
+function MoneyRows({ path, draft, update, date }: { path: MoneyPath; draft: OpeningsDraft; update: OpeningsStepProps['update']; date: string }): React.JSX.Element {
+  const t = useT()
+  const rows = draft[path]
+  const set = (i: number, patch: Partial<MoneyRowDraft>): void => update((d) => ({ ...d, [path]: d[path].map((b, j) => (j === i ? { ...b, ...patch } : b)) }))
+  const amountLabel = path === 'banks' ? t('simple.openings.money.bankBalance', { date }) : t('simple.openings.overdraft.amount', { date })
+  const prefix = path === 'banks' ? 'bank' : 'overdraft' // i18n-technical: test ids
+  return (
+    <>
+      {rows.map((b, i) => (
+        <div key={b.key} className="grid grid-cols-1 gap-2 rounded-md border border-line p-3 md:grid-cols-[1fr_12rem_4rem] md:items-start" data-testid={`openings-${prefix}-${i}`}>
+          {b.ledgerId != null ? (
+            <p className="pt-6 text-body font-semibold text-ink">{b.name}</p>
+          ) : (
+            <OField label={path === 'banks' ? t('simple.openings.money.bankName') : t('simple.openings.overdraft.name')} name={`${path}.${i}.name`}>
+              <TextInput data-testid={`openings-${prefix}-${i}-name`} value={b.name} placeholder={t('simple.openings.money.bankNamePlaceholder')} onChange={(e) => set(i, { name: e.target.value })} />
+            </OField>
+          )}
+          <OField label={amountLabel} name={`${path}.${i}.amount`}>
+            <AmountInput testId={`openings-${prefix}-${i}-amount`} paise={b.amount} onPaise={(p) => set(i, { amount: p })} />
+          </OField>
+          <div className="md:pt-6">
+            <RemoveButton
+              testId={`openings-${prefix}-${i}-remove`}
+              onClick={() => update((d) => ({ ...d, [path]: b.ledgerId != null ? d[path].map((x, j) => (j === i ? { ...x, amount: null } : x)) : d[path].filter((_, j) => j !== i) }))}
+            />
+          </div>
+        </div>
+      ))}
+    </>
+  )
+}
+
+const blankMoneyRow = (): MoneyRowDraft => ({ key: newKey(), ledgerId: null, name: '', amount: null, base: null })
+
 export function MoneyStep({ draft, update, state }: OpeningsStepProps): React.JSX.Element {
   const t = useT()
   const date = toPlainDate(state.booksBegin)
-  const setBank = (i: number, patch: Partial<MoneyRowDraft>): void =>
-    update((d) => ({
-      ...d,
-      banks: d.banks.map((b, j) => (j === i ? { ...b, ...patch } : b))
-    }))
   const total = (draft.cash.amount ?? 0) + draft.banks.reduce((s, b) => s + (b.amount ?? 0), 0)
   return (
     <div data-testid="openings-step-money">
@@ -86,67 +120,21 @@ export function MoneyStep({ draft, update, state }: OpeningsStepProps): React.JS
         <OField label={t('simple.openings.money.cash')} name="cash.amount">
           <AmountInput testId="openings-cash" paise={draft.cash.amount} onPaise={(p) => update((d) => ({ ...d, cash: { ...d.cash, amount: p } }))} autoFocus />
         </OField>
-        {draft.banks.map((b, i) =>
-          b.ledgerId != null ? (
-            <OField key={b.key} label={b.name} hint={t('simple.openings.money.bankBalance', { date })} name={`banks.${i}.amount`}>
-              <AmountInput testId={`openings-bank-${i}-amount`} paise={b.amount} onPaise={(p) => setBank(i, { amount: p })} />
-            </OField>
-          ) : (
-            <div key={b.key} className="grid grid-cols-1 gap-2 rounded-md border border-line p-3 md:grid-cols-[1fr_12rem_auto] md:items-start">
-              <OField label={t('simple.openings.money.bankName')} name={`banks.${i}.name`}>
-                <TextInput
-                  data-testid={`openings-bank-${i}-name`}
-                  value={b.name}
-                  placeholder={t('simple.openings.money.bankNamePlaceholder')}
-                  onChange={(e) => setBank(i, { name: e.target.value })}
-                />
-              </OField>
-              <OField label={t('simple.openings.money.bankBalance', { date })} name={`banks.${i}.amount`}>
-                <AmountInput testId={`openings-bank-${i}-amount`} paise={b.amount} onPaise={(p) => setBank(i, { amount: p })} />
-              </OField>
-              <div className="md:pt-6">
-                <RemoveButton
-                  testId={`openings-bank-${i}-remove`}
-                  onClick={() =>
-                    update((d) => ({
-                      ...d,
-                      banks: d.banks.filter((_, j) => j !== i)
-                    }))
-                  }
-                />
-              </div>
-            </div>
-          )
-        )}
+        <MoneyRows path={BANKS} draft={draft} update={update} date={date} />
         <div>
-          <Button
-            type="button"
-            variant="ghost"
-            data-testid="openings-add-bank"
-            onClick={() =>
-              update((d) => ({
-                ...d,
-                banks: [
-                  ...d.banks,
-                  {
-                    key: newKey(),
-                    ledgerId: null,
-                    name: '',
-                    amount: null,
-                    base: null
-                  }
-                ]
-              }))
-            }
-          >
+          <Button type="button" variant="ghost" className="text-ink" data-testid="openings-add-bank" onClick={() => update((d) => ({ ...d, banks: [...d.banks, blankMoneyRow()] }))}>
             {t('simple.openings.money.addBank')}
           </Button>
         </div>
+        {draft.overdrafts.length > 0 && <p className="text-small text-muted" data-testid="openings-overdraft-note">{t('simple.openings.overdraft.note')}</p>}
       </div>
       <Total testId="openings-money-total">{t('simple.openings.money.total', { amount: rupees(total) })}</Total>
     </div>
   )
 }
+
+const BANKS: MoneyPath = 'banks' // i18n-technical
+const OVERDRAFTS: MoneyPath = 'overdrafts' // i18n-technical
 
 // ---------- customers / suppliers ----------
 
@@ -208,8 +196,16 @@ export function PartiesStep({ side, draft, update, state }: OpeningsStepProps & 
           : r
       )
     )
-  const total = rows.reduce((s, r) => s + r.bills.reduce((x, b) => x + (b.amount ?? 0), 0), 0)
+  const total = rows.reduce((s, r) => s + r.bills.reduce((x, b) => x + (b.amount ?? 0), 0), 0) + (side === 'suppliers' ? draft.overdrafts.reduce((s, b) => s + (b.amount ?? 0), 0) : 0)
   const prefix = side === 'customers' ? 'customer' : 'supplier' // i18n-technical: test ids
+  // The numbers blank bills will get (shown greyed in their box), in date order.
+  const generated = (r: PartyDraft): string[] =>
+    billNames(
+      r.bills.map((b) => b.ref),
+      r.bills.map((b) => b.date || null),
+      state.booksBegin
+    )
+  const mismatched = new Set(state[side].filter((p) => p.mismatch).map((p) => p.ledgerId))
   return (
     <div data-testid={`openings-step-${side}`}>
       <Question title={say(text.title)} hint={say(text.hint, { date })} />
@@ -243,10 +239,20 @@ export function PartiesStep({ side, draft, update, state }: OpeningsStepProps & 
                 />
               </div>
             </div>
+            {r.ledgerId != null && mismatched.has(r.ledgerId) && (
+              <p className="mt-1 text-small text-warning" data-testid={`openings-${prefix}-${i}-mismatch`}>
+                {t('simple.openings.party.mismatch')}
+              </p>
+            )}
             {r.bills.map((b, k) => (
               <div key={b.key} className="mt-2 grid grid-cols-1 gap-2 md:grid-cols-[1fr_11rem_10rem_4rem] md:items-start">
                 <OField label={t('simple.openings.bill.number')} name={`${side}.${i}.bills.${k}.ref`}>
-                  <TextInput data-testid={`openings-${prefix}-${i}-bill-${k}-ref`} value={b.ref} onChange={(e) => setBill(i, k, { ref: e.target.value })} />
+                  <TextInput
+                    data-testid={`openings-${prefix}-${i}-bill-${k}-ref`}
+                    value={b.ref}
+                    placeholder={generated(r)[k]}
+                    onChange={(e) => setBill(i, k, { ref: e.target.value })}
+                  />
                 </OField>
                 <OField label={t('simple.openings.bill.date')} name={`${side}.${i}.bills.${k}.date`}>
                   <DateInput
@@ -254,6 +260,7 @@ export function PartiesStep({ side, draft, update, state }: OpeningsStepProps & 
                     value={b.date}
                     context={state.booksBegin}
                     allowEmpty
+                    format={toPlainDate}
                     placeholder={t('simple.openings.bill.datePlaceholder', {
                       date
                     })}
@@ -273,7 +280,7 @@ export function PartiesStep({ side, draft, update, state }: OpeningsStepProps & 
             <Button
               type="button"
               variant="ghost"
-              className="mt-2"
+              className="mt-2 text-ink"
               data-testid={`openings-${prefix}-${i}-add-bill`}
               onClick={() => setRow(i, { bills: [...r.bills, blankBill()] })}
             >
@@ -285,6 +292,7 @@ export function PartiesStep({ side, draft, update, state }: OpeningsStepProps & 
           <Button
             type="button"
             variant="ghost"
+            className="text-ink"
             data-testid={`openings-add-${prefix}`}
             onClick={() =>
               setRows((rs) => [
@@ -303,6 +311,19 @@ export function PartiesStep({ side, draft, update, state }: OpeningsStepProps & 
           </Button>
         </div>
       </div>
+      {side === 'suppliers' && (
+        <div className="mt-6" data-testid="openings-overdrafts">
+          <Question title={t('simple.openings.overdraft.title')} hint={t('simple.openings.overdraft.hint', { date })} />
+          <div className="flex flex-col gap-3">
+            <MoneyRows path={OVERDRAFTS} draft={draft} update={update} date={date} />
+            <div>
+              <Button type="button" variant="ghost" className="text-ink" data-testid="openings-add-overdraft" onClick={() => update((d) => ({ ...d, overdrafts: [...d.overdrafts, blankMoneyRow()] }))}>
+                {t('simple.openings.overdraft.add')}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
       <Total testId={`openings-${side}-total`}>{say(text.total, { amount: rupees(total) })}</Total>
     </div>
   )

@@ -68,7 +68,7 @@ export type Screen =
   | { name: 'simple-section'; section: SimpleSectionId }
   | { name: 'simple-looks' }
   | { name: 'simple-features' }
-  | { name: 'simple-openings' }
+  | { name: 'simple-openings'; from?: 'home' }
   | { name: 'counter-billing' }
   // Books search results (⌘⇧F, or "See all" in the ⌘K palette): `q` is the query-language
   // string, `kind` the initially selected tab (omitted = all kinds).

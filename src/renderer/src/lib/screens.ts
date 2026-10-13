@@ -1097,6 +1097,8 @@ export function screenView(companyMode: UiMode, name: Screen['name'], override: 
 /** The simple section a screen highlights in the simple sidebar. */
 export function simpleSectionOf(screen: Screen): SimpleSectionId | null {
   if (screen.name === 'simple-section') return screen.section
+  // WP 8.7: the opening setup opened from Home's step keeps Home highlighted.
+  if (screen.name === 'simple-openings' && screen.from === 'home') return 'home'
   return byName.get(screen.name)?.simpleSection ?? null
 }
 

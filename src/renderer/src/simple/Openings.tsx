@@ -3,7 +3,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { api, IpcError } from '../lib/client'
 import { useT } from '../lib/i18n'
 import { useNav, type Screen } from '../state/stores'
-import { Banner, Button, Page } from '../components/ui'
+import { Banner, Button, Page, Select } from '../components/ui'
 import { formatPaise, formatQtyMilli } from '@shared/money'
 import { toPlainDate } from '@shared/dates'
 import { ERROR_MAP, isErrorCode } from '@shared/errors'
@@ -62,6 +62,7 @@ function breakdown(p: SimpleOpeningsInput): {
   stock: number
   otherHave: number
   suppliers: number
+  overdrafts: number
   otherOwe: number
 } {
   const bills = (list: SimpleOpeningsInput['customers']): number => (list ?? []).reduce((s, r) => s + r.bills.reduce((x, b) => x + b.amount, 0), 0)
@@ -77,6 +78,7 @@ function breakdown(p: SimpleOpeningsInput): {
     stock: (p.items ?? []).reduce((s, i) => s + (i.value ?? stockLineValue(i.qtyMilli, i.ratePaise)), 0),
     otherHave,
     suppliers: bills(p.suppliers),
+    overdrafts: (p.overdrafts ?? []).reduce((s, b) => s + b.amount, 0),
     otherOwe
   }
 }
@@ -113,12 +115,14 @@ function OpeningsFlow({ state }: { state: OpeningsState }): React.JSX.Element {
   const [preview, setPreview] = useState<OpeningsResult | null>(null)
   const [previewing, setPreviewing] = useState(false)
   const [more, setMore] = useState(state.others.length > 0)
+  // The capital account the owner's money goes to (only asked when there is more than one).
+  const [capitalId, setCapitalId] = useState<number | undefined>(state.capitals[0]?.ledgerId)
   const [busy, setBusy] = useState(false)
   const [done, setDone] = useState<OpeningsResult | null>(null)
   const step = steps[stepIdx]!
   const last = step === 'confirm'
   const date = toPlainDate(state.booksBegin)
-  const payload = useMemo(() => openingsPayload(draft), [draft])
+  const payload = useMemo(() => openingsPayload(draft, undefined, state.capitals.length > 1 ? capitalId : undefined), [draft, capitalId, state.capitals.length])
   const payloadKey = JSON.stringify(payload)
 
   const update = (fn: (d: OpeningsDraft) => OpeningsDraft): void => {
@@ -278,6 +282,8 @@ function OpeningsFlow({ state }: { state: OpeningsState }): React.JSX.Element {
                   more={more}
                   onMore={() => setMore((m) => !m)}
                   empty={empty}
+                  capitalId={capitalId}
+                  onCapital={setCapitalId}
                 />
               )}
             </OpeningsErrorsContext.Provider>
@@ -291,7 +297,7 @@ function OpeningsFlow({ state }: { state: OpeningsState }): React.JSX.Element {
 
             <div className="mt-6 flex items-center justify-between">
               {stepIdx > 0 ? (
-                <Button type="button" variant="ghost" data-testid="openings-back" onClick={back} disabled={busy}>
+                <Button type="button" variant="ghost" className="text-ink" data-testid="openings-back" onClick={back} disabled={busy}>
                   {t('common.back')}
                 </Button>
               ) : (
@@ -332,8 +338,12 @@ function ConfirmStep({
   more,
   onMore,
   empty,
+  capitalId,
+  onCapital,
   ...props
 }: Parameters<typeof OtherBalances>[0] & {
+  capitalId: number | undefined
+  onCapital: (id: number) => void
   payload: SimpleOpeningsInput
   preview: OpeningsResult | null
   previewing: boolean
@@ -345,14 +355,14 @@ function ConfirmStep({
   const date = toPlainDate(props.state.booksBegin)
   const b = breakdown(payload)
   const answersHave = b.money + b.customers + b.stock + b.otherHave
-  const answersOwe = b.suppliers + b.otherOwe
+  const answersOwe = b.suppliers + b.overdrafts + b.otherOwe
   const kind = preview ? differenceKind(preview.difference) : null
   return (
     <div data-testid="openings-step-confirm">
       <Question title={t('simple.openings.confirm.title')} hint={t('simple.openings.confirm.hint', { date })} />
 
       <div className="mb-4">
-        <Button type="button" variant="ghost" data-testid="openings-more" aria-expanded={more} onClick={onMore}>
+        <Button type="button" variant="secondary" data-testid="openings-more" aria-expanded={more} onClick={onMore}>
           {more ? t('simple.openings.moreHide') : t('simple.openings.more')}
         </Button>
         {more && (
@@ -378,6 +388,7 @@ function ConfirmStep({
             </div>
             <div>
               <Line label={t('simple.openings.confirm.suppliers')} amount={b.suppliers} testId="openings-sum-suppliers" />
+              {b.overdrafts > 0 && <Line label={t('simple.openings.confirm.overdrafts')} amount={b.overdrafts} testId="openings-sum-overdrafts" />}
               {b.otherOwe > 0 && <Line label={t('simple.openings.confirm.otherOwe')} amount={b.otherOwe} testId="openings-sum-other-owe" />}
               <Line label={t('simple.openings.confirm.owe')} amount={preview?.owe ?? answersOwe} testId="openings-sum-owe" strong />
             </div>
@@ -399,6 +410,18 @@ function ConfirmStep({
                     })}
                   {kind === 'even' && t('simple.openings.confirm.even')}
                 </p>
+                {props.state.capitals.length > 1 && (
+                  <label className="mt-3 flex flex-wrap items-center gap-2 text-small text-ink">
+                    <span>{t('simple.openings.confirm.capitalAccount')}</span>
+                    <Select data-testid="openings-capital" className="w-auto" value={String(capitalId ?? '')} onChange={(e) => onCapital(Number(e.target.value))}>
+                      {props.state.capitals.map((c) => (
+                        <option key={c.ledgerId} value={c.ledgerId}>
+                          {c.name}
+                        </option>
+                      ))}
+                    </Select>
+                  </label>
+                )}
                 {(preview.have !== answersHave || preview.owe !== answersOwe) && (
                   <p className="mt-1 text-small text-muted">{t('simple.openings.confirm.alsoCounted')}</p>
                 )}

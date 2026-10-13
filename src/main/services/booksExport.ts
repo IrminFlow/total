@@ -14,8 +14,8 @@
  *
  * Not carried (listed in the Manifest): manufacture / job-work facts (those vouchers re-import as
  * stock journals), payroll, fixed-asset registers, budgets, bank statements and rules, users,
- * attachments, audit trail, custom order series' numbering settings, the split of a party's opening
- * balance into opening bills (WP 8.7 — the balance itself is carried; it re-imports as one bill).
+ * attachments, audit trail, custom order series' numbering settings. (WP 8.7 opening bills ride in
+ * their own sheet after Ledgers.)
  */
 import type { DB } from '../db/connection'
 import type { CompanyInfo } from '@shared/domain'
@@ -89,6 +89,13 @@ export function buildBooksWorkbook(db: DB, info: CompanyInfo, appVersion: string
     pan: l.pan as string | null, creditDays: l.credit_days as number | null, creditLimit: l.credit_limit as number | null, address: l.address as string | null,
     taxType: l.tax_type as string | null, gstRate: l.gst_rate as number | null, hsn: l.hsn as string | null, more: extras(l, [...LEDGER_CANON, 'grp'])
   }))
+
+  // WP 8.7: how parties' openings split into bills (absent table on an old file = none).
+  const openingBills = db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'opening_bills'").get()
+    ? all<{ party: string; name: string; date: string; due_date: string | null; amount: number }>(
+        'SELECT l.name AS party, b.name, b.date, b.due_date, b.amount FROM opening_bills b JOIN ledgers l ON l.id = b.party_ledger_id ORDER BY b.party_ledger_id, b.date, b.id'
+      ).map((b) => ({ party: b.party, bill: b.name, date: b.date, dueDate: b.due_date, amount: b.amount }))
+    : []
 
   const ITEM_CANON = ['id', 'name', 'group_id', 'unit_id', 'hsn', 'gst_rate', 'cess_rate', 'opening_qty_milli', 'opening_value', 'mrp_paise', 'barcode', 'reorder_level_milli']
   const items = all<DbRow & { grp: string | null; unit: string }>(
@@ -239,6 +246,7 @@ export function buildBooksWorkbook(db: DB, info: CompanyInfo, appVersion: string
   push('Stock Groups', stockGroups)
   push('Price Levels', levels)
   push('Ledgers', ledgers)
+  push('Opening Bills', openingBills)
   push('Godowns', godowns)
   push('Stock Items', items)
   push('Batches', batches)
@@ -295,7 +303,7 @@ export function buildBooksWorkbook(db: DB, info: CompanyInfo, appVersion: string
     ['appVersion', appVersion],
     ['databaseVersion', String(dbVersion)],
     ...Object.entries(counts).map(([k, n]) => [`rows: ${k}`, String(n)] as [string, string]),
-    ['notCarried', 'manufacture and job-work details (re-import as stock journals); payroll; fixed-asset registers; budgets; bank statements and rules; users; attachments; the audit trail; numbering settings of custom order series; how opening balances split into opening bills (the balances themselves are carried)'],
+    ['notCarried', 'manufacture and job-work details (re-import as stock journals); payroll; fixed-asset registers; budgets; bank statements and rules; users; attachments; the audit trail; numbering settings of custom order series'],
     ['readMe', 'Import this workbook with System → Import (it is recognised automatically). Sheets marked (info) are computed and never imported. "… (JSON)" cells carry the fields without a column of their own — edit with care.']
   ]
   sheets.unshift({ name: MANIFEST_SHEET, columns: [{ header: 'Key', kind: 'text', width: 22 }, { header: 'Value', kind: 'text', width: 90 }], rows: manifest })

@@ -33,7 +33,7 @@ export const AUDIT_COVERAGE: Record<string, AuditCoverage> = {
   // opening bills and one batch row; "I started fresh" is a company (meta ui) update.
   'simple:openings:get': QUERY,
   'simple:openings:preview': r('rehearses the opening setup in a transaction that is always rolled back; writes nothing'),
-  'simple:openings': a('opening_batch', 'ledger', 'stockItem'),
+  'simple:openings': a('opening_batch', 'opening_bills', 'ledger', 'stockItem'),
   'simple:openings:skip': a('company'),
   'company:delete': a('company'),
   'company:open': a('backup', 'voucher', 'audit_log', 'attachment'),
@@ -111,7 +111,7 @@ export const AUDIT_COVERAGE: Record<string, AuditCoverage> = {
   'master:groups:update': a('group'),
   'master:groups:delete': a('group'),
   'master:ledgers:create': a('ledger'),
-  'master:ledgers:update': a('ledger'),
+  'master:ledgers:update': a('ledger', 'opening_bills'),
   'master:ledgers:delete': a('ledger'),
   'master:voucherTypes:create': a('voucherType'),
   'master:voucherTypes:update': a('voucherType'),
@@ -210,7 +210,7 @@ export const AUDIT_COVERAGE: Record<string, AuditCoverage> = {
   // ---------- imports ----------
   'import:pickCsv': r('file dialog; returns the text'),
   'import:preview': QUERY,
-  'import:apply': a('csv_import', 'ledger', 'stockItem'),
+  'import:apply': a('csv_import', 'ledger', 'stockItem', 'opening_bills'),
   'import:template': EXPORT,
   // WP 6.3: orders land in trade_docs (saveTradeDoc audits them); booksFrom is company info.
   'tally:import': a('tally_import', 'trade_doc', 'company', 'ledger'),
@@ -221,12 +221,12 @@ export const AUDIT_COVERAGE: Record<string, AuditCoverage> = {
   'importwiz:preview': r('dry run: applies inside a transaction that is always rolled back'),
   'importwiz:run': a(
     'csv_import', 'import_template', 'group', 'ledger', 'unit', 'stockGroup', 'godown', 'stockItem', 'batch', 'priceLevel', 'priceRate',
-    'voucherType', 'voucher', 'voucher_line', 'trade_doc', 'bank_statement', 'costCentre', 'company', 'backup'
+    'voucherType', 'voucher', 'voucher_line', 'trade_doc', 'bank_statement', 'costCentre', 'company', 'backup', 'opening_bills'
   ),
   'importwiz:planPreview': r('dry run: applies inside a transaction that is always rolled back'),
-  'importwiz:planRun': a('csv_import', 'company', 'costCentre', 'voucher_line', 'group', 'ledger', 'unit', 'stockGroup', 'godown', 'stockItem', 'batch', 'priceLevel', 'priceRate', 'voucherType', 'voucher', 'trade_doc', 'backup'),
+  'importwiz:planRun': a('csv_import', 'company', 'costCentre', 'voucher_line', 'group', 'ledger', 'unit', 'stockGroup', 'godown', 'stockItem', 'batch', 'priceLevel', 'priceRate', 'voucherType', 'voucher', 'trade_doc', 'backup', 'opening_bills'),
   'importwiz:batches': QUERY,
-  'importwiz:undo': a('import_batch', 'voucher', 'voucher_line', 'costCentre', 'trade_doc', 'ledger', 'stockItem', 'group', 'unit', 'stockGroup', 'godown', 'batch', 'priceLevel', 'priceRate', 'voucherType', 'backup'),
+  'importwiz:undo': a('import_batch', 'voucher', 'voucher_line', 'costCentre', 'trade_doc', 'ledger', 'stockItem', 'group', 'unit', 'stockGroup', 'godown', 'batch', 'priceLevel', 'priceRate', 'voucherType', 'backup', 'opening_bills'),
   'importwiz:templates': QUERY,
   'importwiz:templateSave': a('import_template'),
   'importwiz:templateDelete': a('import_template'),
@@ -441,8 +441,8 @@ export const AUDIT_COVERAGE: Record<string, AuditCoverage> = {
 
   // ---------- bulk edit, attachments, party notes (WP 6.4) ----------
   'bulk:preview': r('a dry run: every save runs inside a transaction that is rolled back — nothing is kept, not even its audit rows'),
-  'bulk:apply': a('bulk_batch', 'voucher', 'ledger', 'stockItem'),
-  'bulk:undo': a('bulk_batch', 'voucher', 'ledger', 'stockItem'),
+  'bulk:apply': a('bulk_batch', 'voucher', 'ledger', 'stockItem', 'opening_bills'),
+  'bulk:undo': a('bulk_batch', 'voucher', 'ledger', 'stockItem', 'opening_bills'),
   'attachments:add': a('attachment'),
   'attachments:remove': a('attachment'),
   'attachments:setConfig': a('company'),

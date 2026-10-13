@@ -3390,9 +3390,10 @@ export const MIGRATIONS: string[] = [
   // that make it up (number, date, amount), so they show in Outstandings one by one and can be
   // settled by name. The ledger's opening_balance stays the figure every report sums; these rows
   // only split it (services/analysis.ts reads them; a difference between the two is an unnamed
-  // 'Opening' bill or settles the bills oldest first). Identity is (party, name) — stableBillKey
-  // `o:<name>`. Written by the simple opening setup (services/openings.ts); a deleted ledger takes
-  // its bills with it.
+  // "Opening (balance)" bill or settles the bills oldest first). Identity is (party, name) —
+  // stableBillKey `o:<name>`. Read and written only through services/openingBills.ts; the bills
+  // always add up to the opening (cleared / refused otherwise, plus the trigger below); a deleted
+  // ledger takes its bills with it.
   `
   CREATE TABLE opening_bills (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -3403,5 +3404,15 @@ export const MIGRATIONS: string[] = [
     amount INTEGER NOT NULL CHECK (amount > 0)
   );
   CREATE UNIQUE INDEX idx_opening_bills_party_name ON opening_bills(party_ledger_id, name COLLATE NOCASE);
+  -- The guard: an opening may not change away from what its bills add up to. The app clears
+  -- (and audits) bills that no longer fit before it writes the opening (services/openingBills.ts),
+  -- so this only stops a write that skipped that path.
+  CREATE TRIGGER opening_bills_follow_opening BEFORE UPDATE OF opening_balance ON ledgers
+  WHEN NEW.opening_balance <> OLD.opening_balance
+    AND EXISTS (SELECT 1 FROM opening_bills WHERE party_ledger_id = NEW.id)
+    AND (SELECT SUM(amount) FROM opening_bills WHERE party_ledger_id = NEW.id) <> abs(NEW.opening_balance)
+  BEGIN
+    SELECT RAISE(ABORT, 'The opening balance is split into opening bills that no longer add up to it - change it through the opening setup');
+  END;
   `
 ]

@@ -103,7 +103,7 @@ await scenario('51-openings', async (h) => {
   // have = 5,000 + 3,000 + 12,900 = 20,900; owe = 8,000 → 12,900 owner's money.
   assertEq(
     await text(h, 'openings-difference-sentence'),
-    'Your assets are ₹12,900.00 more than what you owe. We will record that as your own money in the business (capital).',
+    'What you have is ₹12,900.00 more than what you owe. We’ll record that as your own money in the business.',
     'the difference in one sentence'
   )
   await h.click('openings-confirm')

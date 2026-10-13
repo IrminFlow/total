@@ -36,6 +36,9 @@ export const OTHER_KIND_SIDE: Record<OpeningOtherKind, 1 | -1> = { loan_taken: -
 
 /** The bill number given to a bill typed without one. */
 export const OPENING_BILL_NAME = 'Opening'
+/** Reserved for the part of an opening its bills don't cover (never a user's bill number). */
+export const OPENING_BALANCE_NAME = 'Opening (balance)'
+const isReserved = (ref: string): boolean => ref.trim().toLowerCase() === OPENING_BALANCE_NAME.toLowerCase()
 
 // ---------- payload (simple:openings / simple:openings:preview) ----------
 
@@ -83,13 +86,18 @@ export const simpleOpeningsSchema = z
   .object({
     cash: z.object({ amount, base: paise.nullable().default(null) }),
     banks: z.array(moneyRowSchema).max(200).default([]),
+    /** Bank overdrafts: what the business owes its bank (amount owed ≥ 0; the account's opening
+     *  becomes −amount). */
+    overdrafts: z.array(moneyRowSchema).max(200).default([]),
     customers: z.array(partySchema).max(5000).default([]),
     suppliers: z.array(partySchema).max(5000).default([]),
     items: z.array(itemSchema).max(5000).default([]),
     others: z.array(otherSchema).max(200).default([]),
     /** The owner's-money figure the confirm step showed (paise, dr-positive like every opening).
      *  `simple:openings` refuses to write when the books now give a different one. */
-    confirmCapital: paise.optional()
+    confirmCapital: paise.optional(),
+    /** Which capital account takes the owner's money (one of OpeningsState.capitals); absent = the first. */
+    capitalLedgerId: id.optional()
   })
   .strict()
   .superRefine((v, ctx) => {
@@ -102,7 +110,7 @@ export const simpleOpeningsSchema = z
         seen.add(k)
       })
     }
-    rows(v.banks, 'banks')
+    rows([...v.banks, ...v.overdrafts], 'banks')
     rows(v.customers, 'customers')
     rows(v.suppliers, 'suppliers')
     rows(v.others, 'others')
@@ -112,6 +120,7 @@ export const simpleOpeningsSchema = z
         const refs = new Set<string>()
         p.bills.forEach((b, j) => {
           if (!b.ref) return
+          if (isReserved(b.ref)) ctx.addIssue({ code: 'custom', path: [side, i, 'bills', j, 'ref'], message: `"${OPENING_BALANCE_NAME}" is kept for the part of an opening its bills don't cover` })
           if (refs.has(refKey(b.ref))) ctx.addIssue({ code: 'custom', path: [side, i, 'bills', j, 'ref'], message: 'Two bills of one party have the same number' })
           refs.add(refKey(b.ref))
         })
@@ -135,22 +144,28 @@ export function stockLineRate(qtyMilli: number, value: number): number {
   return Number((BigInt(value) * 1000n + BigInt(qtyMilli) / 2n) / BigInt(qtyMilli))
 }
 
-/** Bill numbers for a party's bills: typed numbers kept, blank ones get "Opening", "Opening 2" …
- *  skipping any number already typed. */
-export function billNames(refs: readonly string[]): string[] {
+/** Bill numbers for a party's bills: typed numbers kept; blank ones get "Opening", "Opening 2" …
+ *  in DATE order (blank date = `booksBegin`; ties keep their order), skipping typed numbers. */
+export function billNames(refs: readonly string[], dates: readonly (string | null)[] = [], booksBegin = ''): string[] {
   const taken = new Set(refs.filter((r) => r.trim()).map(refKey))
+  const out = refs.map((r) => r.trim())
+  const blanks = refs
+    .map((r, i) => ({ i, blank: !r.trim(), date: dates[i] || booksBegin }))
+    .filter((x) => x.blank)
+    .sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : a.i - b.i))
   let n = 1
-  return refs.map((r) => {
-    if (r.trim()) return r.trim()
+  for (const { i } of blanks) {
     for (;;) {
       const candidate = n === 1 ? OPENING_BILL_NAME : `${OPENING_BILL_NAME} ${n}`
       n++
       if (!taken.has(refKey(candidate))) {
         taken.add(refKey(candidate))
-        return candidate
+        out[i] = candidate
+        break
       }
     }
-  })
+  }
+  return out
 }
 
 export interface OpeningFigures {
@@ -164,10 +179,11 @@ export interface OpeningFigures {
 
 /** The day-one figures of the answers alone (the screen's running totals; the confirm step shows
  *  the service's figures, which also count balances entered elsewhere in the books). */
-export function openingFigures(input: Pick<SimpleOpenings, 'cash' | 'banks' | 'customers' | 'suppliers' | 'items' | 'others'>): OpeningFigures {
+export function openingFigures(input: Pick<SimpleOpenings, 'cash' | 'banks' | 'overdrafts' | 'customers' | 'suppliers' | 'items' | 'others'>): OpeningFigures {
   let have = input.cash.amount
   let owe = 0
   for (const b of input.banks) have += b.amount
+  for (const b of input.overdrafts) owe += b.amount
   for (const p of input.customers) for (const b of p.bills) have += b.amount
   for (const p of input.suppliers) for (const b of p.bills) owe += b.amount
   for (const it of input.items) have += it.value ?? stockLineValue(it.qtyMilli, it.ratePaise)
@@ -221,6 +237,8 @@ export interface OtherDraft extends MoneyRowDraft {
 export interface OpeningsDraft {
   cash: { amount: number | null; base: number | null }
   banks: MoneyRowDraft[]
+  /** Bank accounts that are overdrawn — shown with what you owe (amount owed). */
+  overdrafts: MoneyRowDraft[]
   customers: PartyDraft[]
   suppliers: PartyDraft[]
   items: ItemDraft[]
@@ -236,6 +254,7 @@ export type OpeningsErrorKey =
   | 'errors.openings.dateAfterStart'
   | 'errors.openings.qtyNeeded'
   | 'errors.openings.qtyInvalid'
+  | 'errors.openings.reservedName'
 
 /** Errors by field path ('banks.0.amount', 'customers.1.bills.0.ref' …). */
 export type OpeningsErrors = Record<string, OpeningsErrorKey>
@@ -280,7 +299,8 @@ function checkParties(rows: PartyDraft[], path: string, booksBegin: string, e: O
       if (b.amount == null || b.amount === 0) e[`${at}.amount`] = 'errors.openings.amountNeeded'
       else if (b.amount < 0) e[`${at}.amount`] = 'errors.openings.negative'
       if (b.ref.trim()) {
-        if (refs.has(refKey(b.ref))) e[`${at}.ref`] = 'errors.openings.duplicateBill'
+        if (isReserved(b.ref)) e[`${at}.ref`] = 'errors.openings.reservedName'
+        else if (refs.has(refKey(b.ref))) e[`${at}.ref`] = 'errors.openings.duplicateBill'
         refs.add(refKey(b.ref))
       }
       if (b.date && b.date > booksBegin) e[`${at}.date`] = 'errors.openings.dateAfterStart'
@@ -312,7 +332,10 @@ export function openingsStepErrors(d: OpeningsDraft, step: OpeningStep, booksBeg
     checkMoneyRows(d.banks, 'banks', e)
   }
   if (step === 'customers' || step === 'confirm') checkParties(d.customers, 'customers', booksBegin, e)
-  if (step === 'suppliers' || step === 'confirm') checkParties(d.suppliers, 'suppliers', booksBegin, e)
+  if (step === 'suppliers' || step === 'confirm') {
+    checkParties(d.suppliers, 'suppliers', booksBegin, e)
+    checkMoneyRows(d.overdrafts, 'overdrafts', e)
+  }
   if (step === 'stock' || step === 'confirm') checkItems(d.items, e)
   if (step === 'confirm') checkMoneyRows(d.others, 'others', e)
   return e
@@ -320,7 +343,7 @@ export function openingsStepErrors(d: OpeningsDraft, step: OpeningStep, booksBeg
 
 /** The answers → the payload (call once the checks are clean). Blank new rows are dropped; a row
  *  the screen loaded is always sent (at zero when emptied), so clearing it clears the books. */
-export function openingsPayload(d: OpeningsDraft, confirmCapital?: number): SimpleOpeningsInput {
+export function openingsPayload(d: OpeningsDraft, confirmCapital?: number, capitalLedgerId?: number): SimpleOpeningsInput {
   const money = (r: MoneyRowDraft): { ledgerId: number | null; name: string; amount: number; base: number | null } => ({
     ledgerId: r.ledgerId, name: r.name.trim(), amount: r.amount ?? 0, base: r.base
   })
@@ -334,6 +357,7 @@ export function openingsPayload(d: OpeningsDraft, confirmCapital?: number): Simp
   return {
     cash: { amount: d.cash.amount ?? 0, base: d.cash.base },
     banks: d.banks.filter((r) => r.ledgerId != null || (!blankMoney(r) && (r.amount ?? 0) > 0)).map(money),
+    overdrafts: d.overdrafts.filter((r) => r.ledgerId != null || (!blankMoney(r) && (r.amount ?? 0) > 0)).map(money),
     customers: d.customers.filter(keepParty).map(party),
     suppliers: d.suppliers.filter(keepParty).map(party),
     items: d.items
@@ -346,7 +370,8 @@ export function openingsPayload(d: OpeningsDraft, confirmCapital?: number): Simp
       })
       .filter((r) => r.itemId != null || r.qtyMilli > 0),
     others: d.others.filter((r) => r.ledgerId != null || (!blankMoney(r) && (r.amount ?? 0) > 0)).map((r) => ({ ...money(r), kind: r.kind })),
-    ...(confirmCapital !== undefined ? { confirmCapital } : {})
+    ...(confirmCapital !== undefined ? { confirmCapital } : {}),
+    ...(capitalLedgerId !== undefined ? { capitalLedgerId } : {})
   }
 }
 
@@ -362,6 +387,8 @@ export interface OpeningsState {
   appliedAt: string | null
   cash: { ledgerId: number; name: string; amount: number }
   banks: { ledgerId: number; name: string; amount: number }[]
+  /** Overdrawn bank accounts (and accounts under Bank OD): `amount` = what is owed to the bank. */
+  overdrafts: { ledgerId: number; name: string; amount: number }[]
   customers: OpeningPartyState[]
   suppliers: OpeningPartyState[]
   items: { itemId: number; name: string; unitId: number; qtyMilli: number; value: number; ratePaise: number }[]
@@ -373,6 +400,8 @@ export interface OpeningsState {
     items: { id: number; name: string; unitId: number }[]
     units: { id: number; name: string; symbol: string }[]
   }
+  /** Capital accounts the owner's money can go to (the first is the default). */
+  capitals: { ledgerId: number; name: string; amount: number }[]
   /** Parts of the setup that hold a figure (money, customers, suppliers, stock while on). */
   progress: { done: number; total: number }
 }
@@ -381,8 +410,12 @@ export interface OpeningPartyState {
   ledgerId: number
   name: string
   amount: number
-  /** Stored opening bills, or one unnamed bill for the whole opening (ref '' / date null). */
+  /** What Outstandings shows: the stored opening bills, plus an unnamed bill for any part of the
+   *  opening they don't cover (or one unnamed bill for the whole opening — ref '' / date null). */
   bills: { ref: string; date: string | null; amount: number }[]
+  /** The stored bills add up to MORE than the opening (it was lowered elsewhere) — the screen
+   *  warns; saving puts the bills you see. */
+  mismatch: boolean
 }
 
 export interface OpeningsWarning {
@@ -422,6 +455,7 @@ export function draftFromState(st: OpeningsState, formatQty: (qtyMilli: number) 
   return {
     cash: { amount: st.cash.amount, base: st.cash.amount },
     banks: st.banks.map((b) => ({ key: key(), ledgerId: b.ledgerId, name: b.name, amount: b.amount, base: b.amount })),
+    overdrafts: st.overdrafts.map((b) => ({ key: key(), ledgerId: b.ledgerId, name: b.name, amount: b.amount, base: -b.amount })),
     customers: st.customers.map((p) => party(p, 1)),
     suppliers: st.suppliers.map((p) => party(p, -1)),
     items: st.items.map((i) => ({ key: key(), itemId: i.itemId, name: i.name, unitId: i.unitId, qty: formatQty(i.qtyMilli), rate: i.ratePaise, base: { qtyMilli: i.qtyMilli, value: i.value } })),

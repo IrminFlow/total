@@ -7,6 +7,9 @@ import { Button } from '../components/ui'
 import { formatPaise } from '@shared/money'
 import { toPlainDate } from '@shared/dates'
 import type { DashboardSeries } from '@shared/dashboard'
+import type { Screen } from '../state/stores'
+
+const FROM_HOME: Screen = { name: 'simple-openings', from: 'home' } // i18n-technical
 
 /**
  * WP 8.7: Home's setup step "Enter what you had on day one" for a business that was already
@@ -24,7 +27,7 @@ export function OpeningsHomeCard({ series }: { series: DashboardSeries | undefin
   const [busy, setBusy] = useState(false)
   if (!state) return null
   if (!state.appliedAt && state.startedFresh !== false) return null
-  const open = (): void => nav.go({ name: 'simple-openings' })
+  const open = (): void => nav.go(FROM_HOME)
   const date = toPlainDate(state.booksBegin)
 
   if (state.appliedAt) {
