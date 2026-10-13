@@ -7,7 +7,8 @@ import { mkdtempSync, rmSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import { openCompanyDb, type DB } from '../db/connection'
-import { seededDb } from '../db/testdb'
+import { freshDb, seededDb } from '../db/testdb'
+import { applySetup } from './companySetup'
 import { readCompanyInfo, writeCompanyInfo } from '../db/seed'
 import { fyOf, todayISO } from '@shared/dates'
 import { createDemoCompany } from './demo'
@@ -160,6 +161,35 @@ describe('Books workbook fidelity', () => {
     const r = importBooks(dst, xlsxBytes(sheets), {})
     expect(r.warnings.filter((w) => /not a closing entry/.test(w)).length).toBeGreaterThan(0)
     expect(dst.prepare('SELECT COUNT(*) AS n FROM vouchers WHERE is_year_end_close = 1').get()).toEqual({ n: 1 }) // only the real one
+    src.close()
+  })
+})
+
+describe('Books workbook fidelity — a setup-preset company (WP 8.3)', () => {
+  it('round-trips the preset accounts with their simple categories, unit and books', () => {
+    const src = freshDb()
+    applySetup(src, {
+      name: 'Preset Round Trip', stateCode: '27', businessType: 'restaurant', gst: 'regular', gstin: '27AAPFU0939F1ZV', filing: 'quarterly',
+      stock: true, startDate: `${fyOf(todayISO()).startYear}-04-01`, fresh: true
+    }, todayISO())
+    saveVoucher(src, {
+      ...base, voucherTypeId: vt(src, 'sales'), date: todayISO(), number: undefined, partyLedgerId: L(src, 'Cash'),
+      lines: [
+        { ledgerId: L(src, 'Cash'), drCr: 'dr', amount: 11_800, costAllocations: [] },
+        { ledgerId: L(src, 'Sales'), drCr: 'cr', amount: 10_000, costAllocations: [] },
+        { ledgerId: L(src, 'Output CGST'), drCr: 'cr', amount: 900, costAllocations: [] },
+        { ledgerId: L(src, 'Output SGST'), drCr: 'cr', amount: 900, costAllocations: [] }
+      ]
+    })
+    const bytes = xlsxBytes(buildBooksWorkbook(src, readCompanyInfo(src), '0.0.0-test').sheets)
+    const dst = seededDb()
+    const r = importBooks(dst, bytes, { duplicate: 'update' })
+    expect(r.blocked).toBeUndefined()
+    expect(r.steps.flatMap((s) => s.errors.map((e) => `${s.sheet}:${e.line} ${e.message}`))).toEqual([])
+    const a = canonicalDump(src)
+    const b = canonicalDump(dst)
+    for (const t of Object.keys(a)) expect({ table: t, rows: b[t] }).toEqual({ table: t, rows: a[t] })
+    expect(dst.prepare("SELECT simple_category FROM ledgers WHERE name = 'Kitchen supplies'").get()).toEqual({ simple_category: 'kitchen_supplies' })
     src.close()
   })
 })

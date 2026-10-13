@@ -13,6 +13,8 @@ import {
 } from '@shared/demo'
 import { todayISO } from '@shared/dates'
 import type { VoucherKind } from '@shared/domain'
+import type { UiMode } from '@shared/simple/uiMode'
+import { setUi } from './config'
 
 function groupId(db: DB, name: string): number {
   const row = db.prepare('SELECT id FROM groups WHERE name = ?').get(name) as { id: number } | undefined
@@ -84,7 +86,7 @@ function postDemoVoucher(
  * without typing anything in. Mirrors company:create (slugify + dedup, ensureCompanyTree,
  * openCompanyDb, seedCompany), then layers demo-specific masters and vouchers on top.
  */
-export function createDemoCompany(): { slug: string } {
+export function createDemoCompany(mode?: UiMode): { slug: string } {
   let slug = slugify(DEMO_COMPANY.name)
   let n = 2
   while (existsSync(companyDbPath(slug))) slug = `${slugify(DEMO_COMPANY.name)}-${n++}`
@@ -157,6 +159,11 @@ export function createDemoCompany(): { slug: string } {
 
     for (const v of demoVouchers(todayISO())) {
       postDemoVoucher(db, v, ledgerIdByName, itemIdByName)
+    }
+    // WP 8.3 (owner decision D2): from the setup wizard's "Try with sample data" the sample
+    // company opens in simple mode — a trader that keeps stock and is registered for GST.
+    if (mode === 'simple') {
+      setUi(db, { mode: 'simple', setup: { businessType: 'trader', gst: DEMO_COMPANY.gstRegistrationType === 'regular' ? 'regular' : DEMO_COMPANY.gstRegistrationType === 'composition' ? 'composition' : 'no', stock: true }, startedFresh: false })
     }
   } finally {
     db.close()

@@ -142,7 +142,7 @@ export const SCREENS: ScreenDef[] = [
     keywords: ['production', 'stock journal', 'bom', 'raw material', 'finished goods'],
     screen: { name: 'manufacture' },
     navSection: 'top',
-    feature: 'inventory',
+    feature: 'manufacturing',
     invalidates: ['manufacturePreview', 'nextNumber', 'stockItems', 'ledgers', 'godowns', 'units', 'bom', 'bomVersions', 'jobWorkSendChallans', 'voucherTypes']
   },
   // WP 2.6: POS-style counter sales (a normal sales invoice + its receipt).
@@ -817,7 +817,6 @@ export const SCREENS: ScreenDef[] = [
       { id: 'bills-printing', label: 'simple.settings.billsPrinting', screen: { name: 'settings', tab: 'invoice' } },
       { id: 'backups', label: 'simple.settings.backups', screen: { name: 'settings', tab: 'backups' } },
       { id: 'people-roles', label: 'simple.settings.peopleRoles', screen: { name: 'settings', tab: 'users' } },
-      { id: 'features', label: 'simple.settings.features', screen: { name: 'settings', tab: 'features' } },
       { id: 'advanced', label: 'simple.settings.advanced' }
     ],
     title: 'Settings',
@@ -923,7 +922,7 @@ export const SCREENS: ScreenDef[] = [
     keywords: ['production register', 'margin', 'manufacturing profit'],
     screen: { name: 'manufacture-register' },
     navSection: null,
-    feature: 'inventory',
+    feature: 'manufacturing',
     invalidates: ['manufactureRegister']
   },
   {
@@ -933,7 +932,7 @@ export const SCREENS: ScreenDef[] = [
     keywords: ['production register', 'cost sheet', 'material variance', 'bom variance', 'job work', 'job worker', 'itc-04', 'expected margin'],
     screen: { name: 'manufacture-reports' },
     navSection: null, // reached from the Manufacture register / Manufacture options and the palette
-    feature: 'inventory',
+    feature: 'manufacturing',
     invalidates: ['manufactureProduction', 'manufactureCostSheet', 'manufactureMargin', 'manufactureVariance', 'jobWorkPending', 'stockItems']
   },
   // WP 8.1: a simple section's page (Sell, Buy, Money …) — the simple shell's sidebar targets.
@@ -957,6 +956,19 @@ export const SCREENS: ScreenDef[] = [
     screen: null, // simple shell only (its accountant home is Settings → How Total looks)
     navSection: null,
     invalidates: []
+  },
+  // WP 8.3: Settings → Features in the simple shell ("Turn on" cards; its accountant home is
+  // Settings → Features).
+  {
+    name: 'simple-features',
+    modes: ['simple'],
+    simpleView: 'SimpleFeatures',
+    simpleSection: 'settings',
+    simpleEntries: [{ id: 'features', label: 'simple.settings.features', screen: { name: 'simple-features' } }],
+    title: 'Features',
+    screen: null, // simple shell only
+    navSection: null,
+    invalidates: ['features']
   },
   {
     name: 'search',

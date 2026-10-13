@@ -65,6 +65,22 @@ describe('buildCloseChecklist', () => {
     expect(status(buildCloseChecklist(f, { period: '2026-05', today: '2026-06-12' }), 'gst_returns')).toBe('na')
   })
 
+  it('GST, quarterly (QRMP, WP 8.3): nothing due in the first two months; the quarter-end month is due the 13th / 22nd', () => {
+    const f = clean()
+    f.gst = { gstr1ExportedAt: null, gstr3bExportedAt: null, filing: 'quarterly' }
+    expect(status(buildCloseChecklist(f, { period: '2026-05', today: '2026-06-12' }), 'gst_returns')).toBe('na')
+    const warn = buildCloseChecklist(f, { period: '2026-06', today: '2026-07-12' })
+    expect(status(warn, 'gst_returns')).toBe('warn')
+    const check = warn.checks.find((x) => x.key === 'gst_returns')!
+    expect(check.dueDate).toBe('2026-07-13')
+    expect(check.rows.map((r) => r.date)).toEqual(['2026-07-13', '2026-07-22'])
+    expect(check.rows[1]!.detail).toMatch(/UNVERIFIED/)
+    expect(status(buildCloseChecklist(f, { period: '2026-06', today: '2026-07-14' }), 'gst_returns')).toBe('fail')
+    // Monthly (explicit or absent) keeps the 11th.
+    f.gst = { gstr1ExportedAt: null, gstr3bExportedAt: null, filing: 'monthly' }
+    expect(buildCloseChecklist(f, { period: '2026-05', today: '2026-06-05' }).checks.find((x) => x.key === 'gst_returns')!.dueDate).toBe('2026-06-11')
+  })
+
   it('TDS outstanding: warn before the 7th, fail after; March is due 30 April', () => {
     const f = clean()
     f.withholding = [{ kind: 'tds', ledgerId: 30, name: 'TDS Payable 194C', deducted: [{ month: '2026-05', amount: 2000_00 }], paid: 0 }]

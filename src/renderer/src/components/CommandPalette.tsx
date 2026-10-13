@@ -109,7 +109,7 @@ export function CommandPalette({ onClose }: { onClose: () => void }): React.JSX.
       {
         label: 'New manufacture (stock journal)',
         hint: 'Alt F7',
-        feature: 'inventory',
+        feature: 'manufacturing',
         run: go({ name: 'manufacture' })
       },
       {

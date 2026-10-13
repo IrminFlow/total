@@ -55,6 +55,13 @@ export function toDisplayDate(date: string): string {
   return `${d.toString().padStart(2, '0')}-${months[m - 1]}-${(y % 100).toString().padStart(2, '0')}`
 }
 
+/** WP 8.3: 'YYYY-MM-DD' → '1 Apr 2026' — plain words for simple screens (the setup wizard). */
+export function toPlainDate(date: string): string {
+  const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+  const [y, m, d] = date.split('-').map(Number) as [number, number, number]
+  return `${d} ${months[m - 1]} ${y}`
+}
+
 /** 'YYYY-MM' → 'Apr' (short) or 'Apr 2026' (long) — chart axes and tooltips. */
 export function toMonthLabel(ym: string, style: 'short' | 'long' = 'short'): string {
   const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']

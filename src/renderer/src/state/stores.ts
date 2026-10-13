@@ -67,6 +67,7 @@ export type Screen =
   // WP 8.1: a simple section's page (the simple shell's sidebar targets).
   | { name: 'simple-section'; section: SimpleSectionId }
   | { name: 'simple-looks' }
+  | { name: 'simple-features' }
   | { name: 'counter-billing' }
   // Books search results (⌘⇧F, or "See all" in the ⌘K palette): `q` is the query-language
   // string, `kind` the initially selected tab (omitted = all kinds).

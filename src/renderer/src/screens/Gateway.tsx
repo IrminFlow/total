@@ -93,7 +93,8 @@ export function Gateway(): React.JSX.Element {
       }
       if (isManufactureKey(e)) {
         e.preventDefault()
-        if (features.inventory) nav.go({ name: 'manufacture' })
+        // WP 8.3: `manufacturing` (effectiveFeatures — follows inventory unless setup turned it off).
+        if (features.manufacturing) nav.go({ name: 'manufacture' })
         return
       }
       if (e.metaKey || e.ctrlKey || e.altKey) return

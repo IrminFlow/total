@@ -3378,5 +3378,11 @@ export const MIGRATIONS: string[] = [
     PRIMARY KEY (group_id, voucher_id)
   );
   CREATE UNIQUE INDEX idx_undo_group_vouchers_voucher ON undo_group_vouchers(voucher_id);
+  `,
+  // WP 8.3 (last — 047, after WP 8.5's undo 046; simple-for-everyone plan §4.1 / §6): the simple-mode category of a seeded account
+  // (src/shared/simple/categories.ts). Nullable, set only by the setup wizard's presets; no
+  // report reads it — reports keep working off groups and voucher lines.
+  `
+  ALTER TABLE ledgers ADD COLUMN simple_category TEXT;
   `
 ]

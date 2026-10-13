@@ -28,7 +28,7 @@ import { gstr3b, turnover } from './gst'
 import { itc04Periodicity } from '@shared/gst/itc04'
 import { fyOf } from '@shared/dates'
 import { tdsSummary } from './tds'
-import { getFeatures } from './config'
+import { getFeatures, getGstProfile } from './config'
 import { listGroups } from './masters'
 import { IN_BOOKS, NOT_DELETED, getLockDate } from './vouchers'
 import { promisedThisWeek } from './receivables'
@@ -176,7 +176,8 @@ function computeSeries(
 
   const gst = section((): DashGst | null => {
     if (company.gstRegistrationType !== 'regular') return null
-    const due = upcomingDeadlines(w.today, 'regular', false, 45).filter((d) => d.kind === 'gst')
+    // WP 8.3: GSTR-1 follows the filing frequency (QRMP: the 13th after the quarter).
+    const due = upcomingDeadlines(w.today, 'regular', false, 45, { gstFiling: getGstProfile(db).filing }).filter((d) => d.kind === 'gst')
     const next3b = due.find((d) => d.form === 'GSTR-3B')
     const next1 = due.find((d) => d.form === 'GSTR-1')
     // The return the next GSTR-3B files covers the month before its due month.
@@ -263,10 +264,11 @@ function computeSeries(
     return { lockDate: getLockDate(db), lastBackup: newest ? { at: newest.mtime, tag: newest.tag } : null, userBackups }
   })
 
+  // WP 8.3: accounts seeded by a setup preset (simple_category) are not the user's own yet.
   const setup = section((): DashSetup => {
     const counts = db
       .prepare(
-        `SELECT (SELECT COUNT(*) FROM ledgers WHERE is_system = 0) AS userLedgers,
+        `SELECT (SELECT COUNT(*) FROM ledgers WHERE is_system = 0 AND simple_category IS NULL) AS userLedgers,
                 (SELECT COUNT(*) FROM vouchers v WHERE ${NOT_DELETED}) AS voucherCount`
       )
       .get() as { userLedgers: number; voucherCount: number }

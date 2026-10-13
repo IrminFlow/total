@@ -1,5 +1,5 @@
 // Site proof screenshots: launches the BUILT app (out/) against a fresh scratch data dir,
-// drives the real "Explore with sample data" flow (createDemo + open, chained by the renderer
+// drives the real "Sample data in the full app" flow (WP 8.3) (createDemo + open, chained by the renderer
 // itself — see CompanySelect.tsx), and captures Gateway / GSTR-1 / dark-theme voucher shots
 // straight into site/public/. Modeled on scripts/smoke-ci.mjs (launch pattern) and
 // the scripts/lib/harness.mjs conventions (clickText DOM-click pattern). Run `npm run build` first.
@@ -74,12 +74,12 @@ let page
 try {
   ;({ app, page } = await launchApp())
 
-  // --- Get to the Gateway with demo data. "Explore with sample data" chains
+  // --- Get to the Gateway with demo data. "Sample data in the full app" chains
   // company:createDemo -> company:open -> setCompany itself (CompanySelect.tsx), so a single
   // click drives create+open, integrity/locked handling included.
-  await waitForText(page, 'Explore with sample data', 15000)
-  const clicked = await clickText(page, 'Explore with sample data')
-  if (clicked !== 'OK') throw new Error('could not find "Explore with sample data" button')
+  await waitForText(page, 'Sample data in the full app', 15000)
+  const clicked = await clickText(page, 'Sample data in the full app')
+  if (clicked !== 'OK') throw new Error('could not find "Sample data in the full app" button')
   await waitForTextWithLog(page, 'Cash & bank', { intervalMs: 3000, maxIterations: 15, label: 'Cash & bank (Gateway loaded)' })
   await wait(800)
 

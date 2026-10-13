@@ -7,6 +7,7 @@ import type { GroupTreeNode, LedgerBalanceRow } from '@shared/reports'
 import { CASH_BANK_GROUPS } from '@shared/seed'
 import { rebuildItemSerials } from './serials'
 import { writeAudit } from './audit'
+import { CATEGORIES, expectedClass, type CategoryKey } from '@shared/simple/categories'
 
 // ---------- row mappers ----------
 
@@ -32,6 +33,7 @@ interface LedgerRow {
   credit_hold?: number; credit_hold_reason?: string | null; credit_hold_at?: string | null
   msme_registered?: number | null; msme_registered_from?: string | null; udyam_no?: string | null; msme_category?: Ledger['msmeCategory']; agreed_credit_days?: number | null
   early_payment_discount_bp?: number | null; early_payment_discount_days?: number | null
+  simple_category?: string | null
 }
 const mapLedger = (r: LedgerRow): Ledger => ({
   id: r.id, name: r.name, groupId: r.group_id, openingBalance: r.opening_balance,
@@ -48,7 +50,9 @@ const mapLedger = (r: LedgerRow): Ledger => ({
   creditHold: !!r.credit_hold, creditHoldReason: r.credit_hold_reason ?? null, creditHoldAt: r.credit_hold_at ?? null,
   msmeRegistered: !!r.msme_registered, msmeRegisteredFrom: r.msme_registered_from ?? null, udyamNo: r.udyam_no ?? null, msmeCategory: r.msme_category ?? null,
   agreedCreditDays: r.agreed_credit_days ?? null,
-  earlyPaymentDiscountBp: r.early_payment_discount_bp ?? null, earlyPaymentDiscountDays: r.early_payment_discount_days ?? null
+  earlyPaymentDiscountBp: r.early_payment_discount_bp ?? null, earlyPaymentDiscountDays: r.early_payment_discount_days ?? null,
+  // WP 8.3: only when set, so every ledger without one reads (and audits) exactly as before.
+  ...(r.simple_category ? { simpleCategory: r.simple_category as CategoryKey } : {})
 })
 
 // ---------- groups ----------
@@ -173,10 +177,29 @@ export function getLedger(db: DB, id: number): Ledger | null {
   return row ? mapLedger(row) : null
 }
 
+/** WP 8.3: a simple-mode category must fit the ledger — its group is the category's group (or
+ *  under it) and the ledger's class (nature, GST tag, Round Off) is the category's class, the same
+ *  rule ai/ledgerClass.ts applies. Throws a plain message otherwise. */
+function assertCategoryFits(db: DB, key: CategoryKey, groupId: number, name: string, taxType: string | null): void {
+  const c = CATEGORIES[key]
+  const chain = db
+    .prepare(
+      `WITH RECURSIVE up(id, name, parent_id, nature) AS (
+         SELECT id, name, parent_id, nature FROM groups WHERE id = ?
+         UNION ALL SELECT g.id, g.name, g.parent_id, g.nature FROM groups g JOIN up ON g.id = up.parent_id)
+       SELECT name, nature FROM up`
+    )
+    .all(groupId) as { name: string; nature: 'asset' | 'liability' | 'income' | 'expense' }[]
+  if (!chain.length) throw new Error('Group not found')
+  if (!chain.some((g) => g.name === c.group)) throw new Error(`"${name}" can't be the ${c.name} account — that account belongs under ${c.group}`)
+  if (expectedClass(chain[0]!.nature, name, taxType) !== c.cls) throw new Error(`"${name}" can't be the ${c.name} account — it is a different kind of account`)
+}
+
 export function createLedger(db: DB, raw: LedgerInput): Ledger {
   // Parse here (not just at the IPC boundary) so direct service callers — tests, importers,
   // the Tally import — get defaults for later-added fields (rcm/itcEligibility) applied too.
   const input = ledgerInputSchema.parse(raw)
+  if (input.simpleCategory) assertCategoryFits(db, input.simpleCategory, input.groupId, input.name, input.taxType)
   const res = db
     .prepare(
       `INSERT INTO ledgers (name, group_id, opening_balance, gstin, state_code, address, tax_type, gst_rate, hsn,
@@ -198,6 +221,7 @@ export function createLedger(db: DB, raw: LedgerInput): Ledger {
     )
   }
   writeSupplierTerms(db, Number(res.lastInsertRowid), input, null)
+  if (input.simpleCategory) db.prepare('UPDATE ledgers SET simple_category = ? WHERE id = ?').run(input.simpleCategory, Number(res.lastInsertRowid))
   const created = getLedger(db, Number(res.lastInsertRowid))!
   writeAudit(db, 'ledger', created.id, 'create', null, created)
   return created
@@ -207,6 +231,20 @@ export function updateLedger(db: DB, id: number, raw: LedgerInput): Ledger {
   const input = ledgerInputSchema.parse(raw)
   const existing = getLedger(db, id)
   if (!existing) throw new AppError('ledger_not_found', 'Ledger not found')
+  // WP 8.3: the simple category. A moved ledger loses it (it was chosen for the old group) unless a
+  // NEW category is given, which must fit; a kept category must still fit the edited ledger.
+  const groupChanged = input.groupId !== existing.groupId
+  let category: string | null | undefined =
+    input.simpleCategory === undefined || (groupChanged && input.simpleCategory === (existing.simpleCategory ?? null)) ? (groupChanged ? null : undefined) : input.simpleCategory
+  const effective = category === undefined ? (existing.simpleCategory ?? null) : category
+  if (effective) {
+    try {
+      assertCategoryFits(db, effective as CategoryKey, input.groupId, input.name, input.taxType)
+    } catch (e) {
+      if (category !== undefined) throw e
+      category = null // the stored one no longer fits the edit (renamed to "Round Off", tagged…): drop it
+    }
+  }
   db.prepare(
     `UPDATE ledgers SET name = ?, group_id = ?, opening_balance = ?, gstin = ?, state_code = ?,
      address = ?, tax_type = ?, gst_rate = ?, hsn = ?, tds_section_id = ?, pan = ?, credit_days = ?, export_type = ?,
@@ -237,6 +275,7 @@ export function updateLedger(db: DB, id: number, raw: LedgerInput): Ledger {
     )
   }
   writeSupplierTerms(db, id, input, existing)
+  if (category !== undefined) db.prepare('UPDATE ledgers SET simple_category = ? WHERE id = ?').run(category, id)
   const updated = getLedger(db, id)!
   writeAudit(db, 'ledger', id, 'update', existing, updated)
   return updated

@@ -121,6 +121,9 @@ import { writeExportPdf } from './services/pdf'
 import { reportHtml } from './services/reportHtml'
 import { globalSearch, search } from './services/search'
 import { createDemoCompany } from './services/demo'
+import { createCompanyFromSetup } from './services/companySetup'
+import { simpleSetupSchema } from '@shared/simple/setup'
+import { gstProfileSchema } from '@shared/gst/filing'
 import {
   setAuditContext, writeAudit, listAudit, pruneAudit, verifyAudit, editLogExport, runAsAuditUser, osAuditUser, SYSTEM_AUDIT_USER
 } from './services/audit'
@@ -407,7 +410,14 @@ export function registerIpc(): void {
     return { slug }
   })
 
-  handle('company:createDemo', () => createDemoCompany())
+  // WP 8.3: the plain-language setup wizard — a company from the answers (business type preset,
+  // GST, stock, start date) in one transaction; services/companySetup.ts. Default mode simple (D2).
+  handle('simple:setup', (payload) => createCompanyFromSetup(simpleSetupSchema.parse(payload), todayISO()))
+
+  // WP 8.3: `mode` 'simple' = the wizard's "Try with sample data" (D2); omitted = accountant, as before.
+  handle('company:createDemo', (payload) =>
+    createDemoCompany(z.object({ mode: z.enum(UI_MODES).optional() }).optional().parse(payload)?.mode)
+  )
 
   handle('company:delete', (payload) => {
     const { slug, confirmName, pin } = z
@@ -541,7 +551,12 @@ export function registerIpc(): void {
     // WP 8.0: a changed registration takes effect from the given date (default today) and keeps
     // the type it replaces, so vouchers and returns of the earlier months keep their GST.
     const { gstRegistrationSince, gstPreviousRegistrationType: _prev, ...rest } = input
-    const info: CompanyInfo = { ...rest, ...nextRegistrationFacts(before, input.gstRegistrationType, gstRegistrationSince, todayISO()) }
+    const info: CompanyInfo = {
+      ...rest,
+      ...nextRegistrationFacts(before, input.gstRegistrationType, gstRegistrationSince, todayISO()),
+      // WP 8.3: set by setup, not edited here.
+      ...(before.booksBeginDate ? { booksBeginDate: before.booksBeginDate } : {})
+    }
     writeCompanyInfo(c.db, info)
     c.info = info
     upsertCompany({ slug: c.slug, name: info.name, stateCode: info.stateCode, gstin: info.gstin, lastOpenedAt: new Date().toISOString() })
@@ -1925,6 +1940,9 @@ export function registerIpc(): void {
   // ---------- F11 features + F12 invoice print config ----------
   handle('config:features:get', () => configSvc.getFeatures(requireCompany().db), 'viewer')
   handle('config:features:set', (p) => configSvc.setFeatures(requireCompany().db, featuresSchema.parse(p)), 'owner')
+  // WP 8.3: GSTR-1 filing frequency (monthly / quarterly QRMP), meta `gstProfile`.
+  handle('gstProfile:get', () => configSvc.getGstProfile(requireCompany().db), 'viewer')
+  handle('gstProfile:set', (p) => configSvc.setGstProfile(requireCompany().db, gstProfileSchema.parse(p)), 'owner')
   handle('config:invoice:get', () => configSvc.getInvoiceConfig(requireCompany().db), 'viewer')
   handle('config:invoice:set', (p) => configSvc.setInvoiceConfig(requireCompany().db, invoiceConfigSchema.parse(p)), 'owner')
 

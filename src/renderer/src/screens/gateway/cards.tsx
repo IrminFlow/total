@@ -1,6 +1,7 @@
 // Gateway dashboard cards (WP 1.10b). Each card takes its own CardState, so a section that
 // failed (or threw while rendering — CardBoundary) degrades alone.
 import { useEffect, useMemo, useState } from 'react'
+import { useQuery } from '@tanstack/react-query'
 import type {
   DashAgeing, DashCash, DashGst, DashParty, DashStatus, DashStock, DashTds, DashTrade, DashActivity, DashboardWindow, DashSetup, DashPdc
 } from '@shared/dashboard'
@@ -8,6 +9,7 @@ import type { DayBookRow } from '@shared/reports'
 import { formatPaise, formatPaiseCompact } from '@shared/money'
 import { toDisplayDate, toDisplayDateTime, toMonthLabel, todayISO } from '@shared/dates'
 import { COMPLIANCE_UNVERIFIED, upcomingDeadlines } from '@shared/compliance'
+import { GST_FILING_UNVERIFIED } from '@shared/gst/filing'
 import { api } from '../../lib/client'
 import { useNav, useSession } from '../../state/stores'
 import { Badge, Checklist, Money } from '../../components/ui'
@@ -248,7 +250,10 @@ export function ComplianceCard({
   // WP 8.0: the TDS deposit date shows only where the TDS row applies (the dashboard sends no TDS
   // section when TDS is off or nothing was ever deducted — complianceApplicability).
   const tdsApplies = tds != null && (tds.state !== 'ready' || tds.data != null)
-  const deadlines = useMemo(() => upcomingDeadlines(today, regType, hasPayroll, 30, { tds: tdsApplies }), [today, regType, hasPayroll, tdsApplies])
+  // WP 8.3: GSTR-1 follows the filing frequency (meta gstProfile; missing = monthly).
+  const { data: gstProfile } = useQuery({ queryKey: ['gstProfile'], queryFn: api.gstProfile.get, enabled: regType === 'regular' })
+  const gstFiling = gstProfile?.filing ?? 'monthly'
+  const deadlines = useMemo(() => upcomingDeadlines(today, regType, hasPayroll, 30, { tds: tdsApplies, gstFiling }), [today, regType, hasPayroll, tdsApplies, gstFiling])
   // GST and TDS have their own rows; the list carries the rest (PF/ESI/advance tax).
   const others = deadlines.filter((d) => d.kind !== 'gst' && !(d.kind === 'tds' && tds))
 
@@ -256,7 +261,7 @@ export function ComplianceCard({
     // WP 8.0: wait for the TDS section too, so the notice never lists a TDS date that won't apply.
     if (!info || !slug || !dashboardLoaded || tds?.state === 'loading' || notifiedCompanies.has(slug)) return
     notifiedCompanies.add(slug)
-    const soon = upcomingDeadlines(today, regType, hasPayroll, 3, { tds: tdsApplies })
+    const soon = upcomingDeadlines(today, regType, hasPayroll, 3, { tds: tdsApplies, gstFiling })
     if (soon.length) {
       // Fire-and-forget: an OS notification failing is not worth interrupting the Gateway for.
       void api.app.notifyDeadlines(soon.map((d) => ({ title: d.form, body: `${d.title} — due ${toDisplayDate(d.date)}` }))).catch(() => {})
@@ -292,6 +297,11 @@ export function ComplianceCard({
                     </span>
                   )}
                   {g.gstr3bDue && <Badge tone={dueTone(g.gstr3bDue, today)} testId="chip-gstr3b">GSTR-3B {dueIn(g.gstr3bDue, today)}</Badge>}
+                  {gstFiling === 'quarterly' && (
+                    <span title={GST_FILING_UNVERIFIED.join(' · ')}>
+                      <Badge tone="neutral" testId="chip-gst-quarterly">Quarterly filer — dates UNVERIFIED</Badge>
+                    </span>
+                  )}
                 </span>
                 <dl className="grid grid-cols-3 gap-2 text-caption">
                   <div><dt className="text-muted">Output tax</dt><dd className="num text-ink">{formatPaiseCompact(g.liability)}</dd></div>

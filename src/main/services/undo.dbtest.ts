@@ -56,8 +56,8 @@ const code = (fn: () => unknown): string | undefined => {
 }
 
 describe('undo migration', () => {
-  it('is the last migration (number by position — WP 8.3 re-places on rebase)', () => {
-    expect(MIGRATIONS.findIndex((sql) => sql.includes('CREATE TABLE undo_groups'))).toBe(MIGRATIONS.length - 1)
+  it('comes right before WP 8.3 simple_category (046; number by position)', () => {
+    expect(MIGRATIONS.findIndex((sql) => sql.includes('CREATE TABLE undo_groups'))).toBe(MIGRATIONS.findIndex((sql) => sql.includes('ADD COLUMN simple_category')) - 1)
   })
 })
 

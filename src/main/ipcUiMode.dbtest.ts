@@ -175,3 +175,72 @@ describe('company mode (meta ui)', () => {
     expect((await ok<{ ui: unknown }>('company:current')).ui).toEqual({ mode: 'simple' })
   })
 })
+
+describe('WP 8.3: setup wizard, sample company, GST filing frequency', () => {
+  const setup = (over: Record<string, unknown> = {}): Record<string, unknown> => ({
+    name: 'Wizard Kirana', stateCode: '27', businessType: 'retail', gst: 'no', gstin: null, filing: null,
+    stock: true, startDate: '2026-04-01', fresh: true, ...over
+  })
+
+  it('simple:setup creates the company in simple mode with its preset; a bad answer creates nothing', async () => {
+    const { slug } = await ok<{ slug: string }>('simple:setup', setup())
+    const opened = await ok<{ ui: unknown; info: Record<string, unknown> }>('company:open', { slug })
+    expect(opened.ui).toEqual({ mode: 'simple', setup: { businessType: 'retail', gst: 'no', stock: true }, startedFresh: true })
+    expect(opened.info).toMatchObject({ gstRegistrationType: 'unregistered', gstin: null })
+    expect(await ok('config:features:get')).toMatchObject({ tds: false, payroll: false, inventory: true, manufacturing: false })
+    expect(await ok('gstProfile:get')).toEqual({ filing: 'monthly' })
+    expect(await ok<{ ok: boolean }>('audit:verify')).toMatchObject({ ok: true })
+    const before = (await ok<{ companies: unknown[] }>('company:list')).companies.length
+    expect((await call('simple:setup', setup({ name: 'No GSTIN Co', gst: 'regular', filing: 'monthly' }))).ok).toBe(false)
+    expect((await call('simple:setup', setup({ name: 'Future Co', startDate: '2999-01-01' }))).ok).toBe(false)
+    expect((await ok<{ companies: unknown[] }>('company:list')).companies.length).toBe(before)
+  })
+
+  it('gstProfile:set is owner-only, audited, and unchanged writes nothing', async () => {
+    expect(ipc.CHANNEL_ROLES.get('gstProfile:set')).toBe('owner')
+    const { slug } = await ok<{ slug: string }>('simple:setup', setup({ name: 'Wizard Services', businessType: 'services', gst: 'regular', gstin: '27AAPFU0939F1ZV', filing: 'monthly', stock: false }))
+    await ok('company:open', { slug })
+    expect(await ok('gstProfile:get')).toEqual({ filing: 'monthly' })
+    expect(await ok('gstProfile:set', { filing: 'quarterly' })).toEqual({ filing: 'quarterly' })
+    expect(await ok('gstProfile:set', { filing: 'quarterly' })).toEqual({ filing: 'quarterly' })
+    expect((await call('gstProfile:set', { filing: 'yearly' })).ok).toBe(false)
+    const rows = read(slug, (db) =>
+      (db.prepare("SELECT before_json, after_json FROM audit_log WHERE entity = 'company' AND after_json LIKE '%gstProfile%' ORDER BY id").all() as { before_json: string; after_json: string }[])
+        .map((r) => [JSON.parse(r.before_json), JSON.parse(r.after_json)])
+    )
+    expect(rows).toEqual([
+      [{ gstProfile: null }, { gstProfile: { filing: 'monthly' } }],
+      [{ gstProfile: { filing: 'monthly' } }, { gstProfile: { filing: 'quarterly' } }]
+    ])
+    expect(read(slug, (db) => db.prepare('SELECT COUNT(*) AS n FROM ledgers WHERE tax_type IS NOT NULL').get())).toEqual({ n: 6 })
+  })
+
+  it('the sample company opens in simple mode from the wizard, in accountant mode otherwise', async () => {
+    const simple = await ok<{ slug: string }>('company:createDemo', { mode: 'simple' })
+    expect((await ok<{ ui: { mode: string } }>('company:open', { slug: simple.slug })).ui.mode).toBe('simple')
+    const plain = await ok<{ slug: string }>('company:createDemo')
+    expect(read(plain.slug, (db) => db.prepare("SELECT value FROM meta WHERE key = 'ui'").get())).toBeUndefined()
+    expect((await call('company:createDemo', { mode: 'expert' })).ok).toBe(false)
+  })
+})
+
+describe('WP 8.3 review: a failed setup leaves nothing on disk', () => {
+  it('a step failing inside the transaction removes the company folder; the retry gets the same slug', async () => {
+    const { createCompanyFromSetup } = await import('./services/companySetup')
+    const { existsSync } = await import('fs')
+    const answers = {
+      name: 'Rollback Kirana', stateCode: '27', businessType: 'retail', gst: 'no', gstin: null, filing: null,
+      stock: true, startDate: '2026-04-01', fresh: true
+    } as const
+    expect(() =>
+      createCompanyFromSetup(answers, '2026-10-13', {
+        beforeCommit: () => {
+          throw new Error('disk full')
+        }
+      })
+    ).toThrow('disk full')
+    expect(existsSync(join(DATA_DIR, 'companies', 'rollback-kirana'))).toBe(false)
+    expect((await ok<{ companies: { slug: string }[] }>('company:list')).companies.some((c) => c.slug.startsWith('rollback-kirana'))).toBe(false)
+    expect(createCompanyFromSetup(answers, '2026-10-13').slug).toBe('rollback-kirana')
+  })
+})

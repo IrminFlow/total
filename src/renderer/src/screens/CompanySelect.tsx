@@ -11,6 +11,9 @@ import { gstinErrorMessage } from '../lib/gstinError'
 import { fyOf, todayISO } from '@shared/dates'
 import type { CompanyCreateInput } from '@shared/schemas'
 import type { CompanyInfo, CompanySummary } from '@shared/domain'
+import type { SimpleSetupInput } from '@shared/simple/setup'
+import { SetupWizard } from '../simple/SetupWizard'
+import { useT } from '../lib/i18n'
 
 export function CompanySelect(): React.JSX.Element {
   const queryClient = useQueryClient()
@@ -21,6 +24,10 @@ export function CompanySelect(): React.JSX.Element {
   const [creating, setCreating] = useState(false)
   const [importing, setImporting] = useState(false)
   const [demoLoading, setDemoLoading] = useState(false)
+  // WP 8.3: the setup wizard — opened from "Set up a new business", and on first run (no
+  // companies yet) it IS the company-select screen. The accountant ways in stay reachable here.
+  const [wizard, setWizard] = useState(false)
+  const t = useT()
   const [deleting, setDeleting] = useState<CompanySummary | null>(null)
   const [integrityIssue, setIntegrityIssue] = useState<{
     pending: { slug: string; info: CompanyInfo; locked: boolean; ui: UiSettings }
@@ -28,6 +35,7 @@ export function CompanySelect(): React.JSX.Element {
   } | null>(null)
 
   const companies = registry?.companies ?? []
+  const showWizard = wizard || (registry != null && companies.length === 0 && !creating && !importing)
 
   const open = async (slug: string): Promise<void> => {
     try {
@@ -42,6 +50,29 @@ export function CompanySelect(): React.JSX.Element {
     }
   }
 
+  const createDemo = async (mode?: 'simple'): Promise<void> => {
+    setDemoLoading(true)
+    try {
+      const r = await api.company.createDemo(mode)
+      await queryClient.invalidateQueries({ queryKey: ['registry'] })
+      setWizard(false)
+      await open(r.slug)
+    } catch (err) {
+      toast.push('error', (err as Error).message)
+    } finally {
+      setDemoLoading(false)
+    }
+  }
+
+  const finishSetup = async (input: SimpleSetupInput, opts: { tally: boolean }): Promise<void> => {
+    const r = await api.setup.create(input)
+    await queryClient.invalidateQueries({ queryKey: ['registry'] })
+    setWizard(false)
+    toast.push('success', t('simple.setup.created', { name: input.name }))
+    await open(r.slug)
+    if (opts.tally) nav.go({ name: 'import-tally' })
+  }
+
   const { active, setActive } = useKeyNav(companies.length, (i) => {
     const c = companies[i]
     if (c) void open(c.slug)
@@ -54,6 +85,25 @@ export function CompanySelect(): React.JSX.Element {
       data-loading={fetching > 0 ? 'true' : 'false'}
       className="drag-region flex h-full flex-col items-center justify-center"
     >
+      {showWizard ? (
+        <div className="flex max-h-full w-full justify-center overflow-y-auto px-6 py-10 [-webkit-app-region:no-drag]">
+          <SetupWizard
+            onFinish={finishSetup}
+            onSample={() => void createDemo('simple')}
+            onSampleFull={() => void createDemo()}
+            onFullForm={() => {
+              setWizard(false)
+              setCreating(true)
+            }}
+            onImportBackup={() => {
+              setWizard(false)
+              setImporting(true)
+            }}
+            onCancel={companies.length > 0 ? () => setWizard(false) : undefined}
+            sampleLoading={demoLoading}
+          />
+        </div>
+      ) : (
       <div className="w-full max-w-lg">
         <TotalLogo size={88} className="mx-auto mb-3" />
         <h1 className="text-center font-serif text-hero font-semibold tracking-tight">Total</h1>
@@ -104,36 +154,31 @@ export function CompanySelect(): React.JSX.Element {
         </div>
 
         <div className="mt-4 flex justify-center gap-2">
-          <Button variant="primary" data-testid="btn-company-create" onClick={() => setCreating(true)}>
-            Create company
+          <Button variant="primary" data-testid="btn-company-setup" onClick={() => setWizard(true)}>
+            {t('simple.setup.title')}
+          </Button>
+          <Button variant="ghost" data-testid="btn-company-demo" disabled={demoLoading} onClick={() => void createDemo('simple')}>
+            {demoLoading ? t('simple.setup.sampleLoading') : t('simple.setup.sample')}
           </Button>
           <Button variant="ghost" onClick={() => setImporting(true)}>
             Import encrypted backup…
           </Button>
-          <Button
-            variant="ghost"
-            disabled={demoLoading}
-            onClick={async () => {
-              setDemoLoading(true)
-              try {
-                const r = await api.company.createDemo()
-                await queryClient.invalidateQueries({ queryKey: ['registry'] })
-                await open(r.slug)
-              } catch (err) {
-                toast.push('error', (err as Error).message)
-              } finally {
-                setDemoLoading(false)
-              }
-            }}
-          >
-            {demoLoading ? 'Setting up sample data…' : 'Explore with sample data'}
-          </Button>
         </div>
+        <p className="mt-3 flex justify-center gap-3 text-small text-muted">
+          <span>{t('simple.setup.forAccountants')}</span>
+          <button type="button" className="underline-offset-2 hover:text-ink hover:underline" data-testid="btn-company-create" onClick={() => setCreating(true)}>
+            {t('simple.setup.fullForm')}
+          </button>
+          <button type="button" className="underline-offset-2 hover:text-ink hover:underline" data-testid="btn-company-demo-full" disabled={demoLoading} onClick={() => void createDemo()}>
+            {t('simple.setup.sampleFull')}
+          </button>
+        </p>
 
         <div className="mt-8 text-center">
           <SupportLink />
         </div>
       </div>
+      )}
 
       {deleting && (
         <DeleteCompanyModal

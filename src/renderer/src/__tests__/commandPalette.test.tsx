@@ -107,6 +107,21 @@ describe('searchRecents (pure)', () => {
 })
 
 describe('CommandPalette', () => {
+  it('"New manufacture" is offered only while manufacturing is on (WP 8.3)', async () => {
+    for (const manufacturing of [false, undefined]) {
+      invoke.mockImplementation(async (channel: string) =>
+        channel === 'config:features:get' ? { ok: true, data: { ...DEFAULT_FEATURES, ...(manufacturing === false ? { manufacturing } : {}) } } : { ok: true, data: response() }
+      )
+      renderPalette()
+      type('new manufacture')
+      await waitFor(() => expect(invoke.mock.calls.some((c) => c[0] === 'config:features:get')).toBe(true))
+      await top()
+      if (manufacturing === false) await waitFor(() => expect(screen.queryByText('New manufacture (stock journal)')).toBeNull())
+      else await waitFor(() => expect(screen.getByText('New manufacture (stock journal)')).toBeTruthy())
+      cleanup()
+    }
+  })
+
   it('shows parsed-filter chips immediately (local parse) and unknown tokens', () => {
     renderPalette()
     type('amt:>=50000 date:2026-04 colour:red')

@@ -179,6 +179,8 @@ export function VoucherEntry({
       const target = manufactureKey ? 'stock_journal' : kindForVoucherKey(e, { stockNotes: stockNotesOn })
       if (!target || voucherId || !types) return
       if (target === 'stock_journal' && !features.inventory) return
+      // WP 8.3: Alt+F7 (manufacture) only while manufacturing is on (effectiveFeatures).
+      if (manufactureKey && !features.manufacturing) return
       // Never switch voucher type underneath an open dialog (quick-create ledger, confirm…).
       if (isAnyModalOpen()) return
       const t = types.find((t) => t.kind === target)
@@ -191,7 +193,7 @@ export function VoucherEntry({
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [types, voucherId, features.inventory, stockNotesOn])
+  }, [types, voucherId, features.inventory, features.manufacturing, stockNotesOn])
 
   if (!types || (voucherId && (!existing || !plan)) || waitingForAiDraft || aiTradeDoc || (aiDraftOpen && typeId == null)) {
     return (
@@ -386,9 +388,11 @@ export function VoucherEntry({
             key={`${currentType.id}-${sjMode}`}
             typeId={currentType.id}
             initialMode={sjMode}
-            extraModes={[
-              { value: 'manufacture', label: 'Manufacture (BOM)', render: () => <ManufactureForm key={currentType.id} typeId={currentType.id} /> }
-            ]}
+            extraModes={
+              features.manufacturing
+                ? [{ value: 'manufacture', label: 'Manufacture (BOM)', render: () => <ManufactureForm key={currentType.id} typeId={currentType.id} /> }]
+                : []
+            }
           />
         ) : modeForKind(currentType.kind) === 'physical' ? (
           <PhysicalStockEntry key={currentType.id} typeId={currentType.id} />

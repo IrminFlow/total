@@ -35,7 +35,7 @@ export interface OnboardingChecklist {
 export interface OnboardingFacts {
   company: Pick<CompanyInfo, 'name' | 'address' | 'stateCode' | 'gstin' | 'gstRegistrationType' | 'email' | 'phone'> | null
   /** All ledgers (seeded system ledgers carry isSystem). */
-  ledgers: readonly { isSystem: boolean; groupId: number }[]
+  ledgers: readonly { isSystem: boolean; groupId: number; simpleCategory?: string }[]
   /** All account groups, for finding ledgers under Bank Accounts / Bank OD A/c (any depth). */
   groups: readonly { id: number; name: string; parentId: number | null }[]
   /** Vouchers in the books (DashboardData.voucherCount). */
@@ -99,7 +99,8 @@ export function deriveOnboarding(facts: OnboardingFacts): OnboardingChecklist {
     companyComplete: !!c && filled(c.name) && filled(c.address) && filled(c.stateCode) && (filled(c.email) || filled(c.phone)),
     gstRegistered: c?.gstRegistrationType !== 'unregistered',
     gstinSet: filled(c?.gstin),
-    userLedgers: facts.ledgers.filter((l) => !l.isSystem).length,
+    // WP 8.3: accounts a setup preset seeded (simpleCategory) don't count as the user's first one.
+    userLedgers: facts.ledgers.filter((l) => !l.isSystem && !l.simpleCategory).length,
     bankLedgers: facts.ledgers.filter((l) => banks.has(l.groupId)).length,
     voucherCount: facts.voucherCount,
     backups: facts.backupCount,
