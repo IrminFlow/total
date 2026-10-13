@@ -7,6 +7,7 @@ import type {
 import type { UiMode, UiPatch, UiSettings } from '@shared/simple/uiMode'
 import type { CaughtError, ErrorIssue, ErrorParams } from '@shared/errors'
 import type { SaveSummary } from '@shared/simple/saveCard'
+import type { SimpleHomeData } from '@shared/simple/home'
 import type { BudgetVarianceRow } from '@shared/budgets'
 import type { McpConfig, McpLogRow, McpSettingsView } from '@shared/mcp'
 import type { AiDraftDto, AiDraftStatus } from '@shared/ai'
@@ -666,6 +667,10 @@ export const api = {
   /** WP 8.3: the plain-language setup wizard (a company from a business preset). */
   setup: {
     create: (input: SimpleSetupInput) => call<{ slug: string }>('simple:setup', input)
+  },
+  /** WP 8.6: everything the simple Home shows, as on `today`, in one round trip. */
+  simple: {
+    home: (today: string) => call<SimpleHomeData>('simple:home', { today })
   },
   /** WP 8.3: GSTR-1 filing frequency (meta `gstProfile`; missing = monthly). `set` is owner-only. */
   gstProfile: {

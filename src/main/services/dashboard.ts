@@ -59,6 +59,78 @@ function annualGstDeadlines(db: DB, today: string): { form: string; title: strin
     .map((d) => ({ form: d.form, title: d.title, date: d.date }))
 }
 
+/** The GST row (WP 8.6: shared by the Gateway's Compliance card and the simple Home): the next
+ *  GSTR-1 / GSTR-3B due dates and the GSTR-3B figures of the return the next GSTR-3B files.
+ *  Null unless the registration is regular. */
+export function dashGst(db: DB, company: CompanyInfo, today: string): DashGst | null {
+  if (company.gstRegistrationType !== 'regular') return null
+  // WP 8.3: GSTR-1 follows the filing frequency (QRMP: the 13th after the quarter).
+  const due = upcomingDeadlines(today, 'regular', false, 45, { gstFiling: getGstProfile(db).filing }).filter((d) => d.kind === 'gst')
+  const next3b = due.find((d) => d.form === 'GSTR-3B')
+  const next1 = due.find((d) => d.form === 'GSTR-1')
+  // The return the next GSTR-3B files covers the month before its due month.
+  const period = addMonths(monthOf(next3b?.date ?? today), -1)
+  const from = `${period}-01`
+  const to = monthEnd(period)
+  const r = gstr3b(db, company, from, to, gstPeriodOf(from))
+  return {
+    period,
+    gstr1Due: next1?.date ?? null,
+    gstr3bDue: next3b?.date ?? null,
+    liability: sum4(r.outward) + r.zeroRated.igst + r.zeroRated.cess + sum4(r.rcm),
+    itc: sum4(r.itc),
+    payable: sum4(r.netPayable) + sum4(r.rcmPayable),
+    annual: annualGstDeadlines(db, today)
+  }
+}
+
+/** The "TDS Payable …" ledgers (under Duties & Taxes) with a balance, credit-positive. */
+export function tdsPayableLedgers(
+  ledgers: readonly { id: number; name: string; groupId: number }[],
+  dutiesIds: Set<number>,
+  bal: Map<number, number>
+): { ledgerId: number; name: string; balance: number }[] {
+  return ledgers
+    .filter((l) => dutiesIds.has(l.groupId) && l.name.startsWith('TDS Payable'))
+    .map((l) => ({ ledgerId: l.id, name: l.name, balance: -(bal.get(l.id) ?? 0) }))
+    .filter((l) => l.balance !== 0)
+}
+
+/** WP 8.0: the TDS row (and its deposit date) applies only with TDS on AND something deducted —
+ *  a live entry or a TDS payable balance (complianceApplicability). */
+export function tdsApplies(db: DB, company: CompanyInfo, tdsOn: boolean, payableBalance: boolean): boolean {
+  if (!tdsOn) return false
+  const everDeducted = !!db.prepare(`SELECT 1 FROM tds_entries te JOIN vouchers v ON v.id = te.voucher_id WHERE ${IN_BOOKS} LIMIT 1`).get()
+  return complianceApplicability({
+    gstRegistrationType: company.gstRegistrationType, tdsOn, tdsActivity: everDeducted || payableBalance, hasPayroll: false
+  }).tds
+}
+
+/** The onboarding facts (WP 1.10a) the setup checklist is derived from. WP 8.3: accounts seeded
+ *  by a setup preset (simple_category) are not the user's own yet. */
+export function dashSetup(db: DB, company: CompanyInfo, bankLedgers: number, userBackups: number): DashSetup {
+  const counts = db
+    .prepare(
+      `SELECT (SELECT COUNT(*) FROM ledgers WHERE is_system = 0 AND simple_category IS NULL) AS userLedgers,
+              (SELECT COUNT(*) FROM vouchers v WHERE ${NOT_DELETED}) AS voucherCount`
+    )
+    .get() as { userLedgers: number; voucherCount: number }
+  return {
+    companyInfoComplete: !!company.address.trim() && !!(company.email || company.phone) && !!company.pan,
+    gstRegistered: company.gstRegistrationType !== 'unregistered',
+    gstinSet: !!company.gstin,
+    userLedgers: counts.userLedgers,
+    bankLedgers,
+    voucherCount: counts.voucherCount,
+    userBackups
+  }
+}
+
+/** Backups the user took — the automatic on-open snapshots don't count. */
+export function userBackupsOf<T extends DashBackupInput>(backups: readonly T[]): T[] {
+  return backups.filter((b) => !AUTOMATIC_TAGS.has(b.tag))
+}
+
 function section<T>(fn: () => T): DashSection<T> {
   try {
     return { ok: true, data: fn() }
@@ -174,27 +246,7 @@ function computeSeries(
   const topCustomers = section(() => topBy('sales'))
   const topSuppliers = section(() => topBy('purchases'))
 
-  const gst = section((): DashGst | null => {
-    if (company.gstRegistrationType !== 'regular') return null
-    // WP 8.3: GSTR-1 follows the filing frequency (QRMP: the 13th after the quarter).
-    const due = upcomingDeadlines(w.today, 'regular', false, 45, { gstFiling: getGstProfile(db).filing }).filter((d) => d.kind === 'gst')
-    const next3b = due.find((d) => d.form === 'GSTR-3B')
-    const next1 = due.find((d) => d.form === 'GSTR-1')
-    // The return the next GSTR-3B files covers the month before its due month.
-    const period = addMonths(monthOf(next3b?.date ?? w.today), -1)
-    const from = `${period}-01`
-    const to = monthEnd(period)
-    const r = gstr3b(db, company, from, to, gstPeriodOf(from))
-    return {
-      period,
-      gstr1Due: next1?.date ?? null,
-      gstr3bDue: next3b?.date ?? null,
-      liability: sum4(r.outward) + r.zeroRated.igst + r.zeroRated.cess + sum4(r.rcm),
-      itc: sum4(r.itc),
-      payable: sum4(r.netPayable) + sum4(r.rcmPayable),
-      annual: annualGstDeadlines(db, w.today)
-    }
-  })
+  const gst = section((): DashGst | null => dashGst(db, company, w.today))
 
   const tds = section((): DashTds | null => {
     if (!features.tds) return null
@@ -203,16 +255,8 @@ function computeSeries(
       .filter((r) => r.quarter === q.label)
       .reduce((s, r) => s + r.tds, 0)
     const bal = w.asOn === w.today ? balances() : closingBalances(db, w.today)
-    const payableLedgers = ledgers
-      .filter((l) => dutiesIds.has(l.groupId) && l.name.startsWith('TDS Payable'))
-      .map((l) => ({ ledgerId: l.id, name: l.name, balance: -(bal.get(l.id) ?? 0) }))
-      .filter((l) => l.balance !== 0)
-    // WP 8.0: no TDS row (or TDS deadline) for a company that has never deducted anything.
-    const everDeducted = !!db.prepare(`SELECT 1 FROM tds_entries te JOIN vouchers v ON v.id = te.voucher_id WHERE ${IN_BOOKS} LIMIT 1`).get()
-    const applies = complianceApplicability({
-      gstRegistrationType: company.gstRegistrationType, tdsOn: features.tds, tdsActivity: everDeducted || payableLedgers.length > 0, hasPayroll: false
-    })
-    if (!applies.tds) return null
+    const payableLedgers = tdsPayableLedgers(ledgers, dutiesIds, bal)
+    if (!tdsApplies(db, company, features.tds, payableLedgers.length > 0)) return null
     const nextDue =upcomingDeadlines(w.today, company.gstRegistrationType, false, 45).find((d) => d.kind === 'tds')?.date ?? null
     return { quarter: q.label, deducted, payable: payableLedgers.reduce((s, l) => s + l.balance, 0), payableLedgers, nextDue }
   })
@@ -258,30 +302,13 @@ function computeSeries(
     return { today: row.today, week: row.week, weekFrom }
   })
 
-  const userBackups = opts.backups.filter((b) => !AUTOMATIC_TAGS.has(b.tag)).length
+  const userBackups = userBackupsOf(opts.backups).length
   const status = section((): DashStatus => {
     const newest = opts.backups.reduce<DashBackupInput | null>((a, b) => (a == null || b.mtime > a.mtime ? b : a), null)
     return { lockDate: getLockDate(db), lastBackup: newest ? { at: newest.mtime, tag: newest.tag } : null, userBackups }
   })
 
-  // WP 8.3: accounts seeded by a setup preset (simple_category) are not the user's own yet.
-  const setup = section((): DashSetup => {
-    const counts = db
-      .prepare(
-        `SELECT (SELECT COUNT(*) FROM ledgers WHERE is_system = 0 AND simple_category IS NULL) AS userLedgers,
-                (SELECT COUNT(*) FROM vouchers v WHERE ${NOT_DELETED}) AS voucherCount`
-      )
-      .get() as { userLedgers: number; voucherCount: number }
-    return {
-      companyInfoComplete: !!company.address.trim() && !!(company.email || company.phone) && !!company.pan,
-      gstRegistered: company.gstRegistrationType !== 'unregistered',
-      gstinSet: !!company.gstin,
-      userLedgers: counts.userLedgers,
-      bankLedgers: ledgers.filter((l) => bankIds.has(l.groupId)).length,
-      voucherCount: counts.voucherCount,
-      userBackups
-    }
-  })
+  const setup = section((): DashSetup => dashSetup(db, company, ledgers.filter((l) => bankIds.has(l.groupId)).length, userBackups))
 
   // WP 4.1: PDCs maturing this week — reminder row on the compliance card.
   const pdc = section((): DashPdc => pdcsMaturing(db, w.today, 7))

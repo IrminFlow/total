@@ -38,6 +38,7 @@ import * as vouchers from './services/vouchers'
 import * as undo from './services/undo'
 import * as reports from './services/reports'
 import * as dashboard from './services/dashboard'
+import { simpleHome } from './services/simpleHome'
 import * as gst from './services/gst'
 import * as gstAnnual from './services/gstAnnual'
 import * as gstIms from './services/gstIms'
@@ -1217,6 +1218,13 @@ export function registerIpc(): void {
     // Backup status comes from the backups folder (the service itself never touches files).
     const backups = listBackupsIn(companyBackupsDir(c.slug))
     return dashboard.dashboardSeries(c.db, c.info, { today, from, to, backups })
+  }, 'viewer')
+  // WP 8.6: the simple Home in one round trip — every figure as on today, from the services the
+  // accountant screens use (services/simpleHome.ts). Read-only, any role.
+  handle('simple:home', (p) => {
+    const { today } = z.object({ today: isoDate.optional() }).strict().parse(p ?? {})
+    const c = requireCompany()
+    return simpleHome(c.db, c.info, { today: today ?? todayISO(), backups: listBackupsIn(companyBackupsDir(c.slug)) })
   }, 'viewer')
   handle('report:cashFlow', (p) => {
     const { from, to } = periodSchema.parse(p)
