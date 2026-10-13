@@ -2,7 +2,7 @@
 // the sidebar, build 2 Chairs from 2 raw materials + labour, watch profit update live, save, see
 // the finished item inward and the raw materials outward on the voucher date in Stock summary,
 // alter the quantity, delete.
-import { scenario, assert, assertEq } from '../lib/harness.mjs'
+import { scenario, assert, assertEq, OPTION } from '../lib/harness.mjs'
 
 await scenario('17-manufacture', async (h) => {
   await h.createCompanyUI('Manufacture Works')
@@ -28,7 +28,7 @@ await scenario('17-manufacture', async (h) => {
     const input = page.locator(`[data-testid="${testId}"]`)
     await input.click()
     await input.fill(name)
-    await page.locator('[role="option"]', { hasText: name }).first().waitFor({ timeout: 10000 })
+    await page.locator(OPTION, { hasText: name }).first().waitFor({ timeout: 10000 })
     await input.press('Enter')
     await page.waitForFunction(([id, n]) => document.querySelector(`[data-testid="${id}"]`)?.value === n, [testId, name])
   }

@@ -17,6 +17,10 @@ import { TabBar } from './TabBar'
 import { PartyNotesPanel } from './partyNotes/PartyNotes'
 import { AttachmentList } from './attachments/Attachments'
 import { bpToPercent, percentToBp } from '@shared/receivables/interest'
+import { useMode } from '../lib/mode'
+import { isPhoneNumber } from '@shared/simple/accountKinds'
+import type { AccountContext } from '@shared/simple/accountKinds'
+import { NewAccountDialog } from '../simple/NewAccountDialog'
 import { SupplierTermsFields, initialSupplierTerms, supplierTermsError, supplierTermsPayload } from './SupplierTermsFields'
 
 const EXPORT_TYPES: { value: NonNullable<Ledger['exportType']> | ''; label: string }[] = [
@@ -78,12 +82,32 @@ export function LedgerFormModal(
   ) & {
     /** When set, an existing ledger's window offers "Statement" (the drill-down host passes it). */
     onOpenStatement?: (ledgerId: number) => void
+    /** WP 8.4: where the plain new-account dialog starts (simple mode, create only). */
+    context?: AccountContext
   }
 ): React.JSX.Element {
   if (props.ledgerId !== undefined) {
     return <LedgerByIdModal ledgerId={props.ledgerId} onClose={props.onClose} onOpenStatement={props.onOpenStatement} />
   }
+  if (!props.ledger) return <NewLedger onClose={props.onClose} onOpenStatement={props.onOpenStatement} context={props.context} />
   return <LedgerForm ledger={props.ledger ?? null} onClose={props.onClose} onOpenStatement={props.onOpenStatement} />
+}
+
+/** WP 8.4: a NEW ledger in a simple-mode company opens the plain dialog (simple/NewAccountDialog);
+ *  "Show every field" — and every accountant-mode company — gets the form below, unchanged. */
+function NewLedger({
+  onClose,
+  onOpenStatement,
+  context
+}: {
+  onClose: () => void
+  onOpenStatement?: (ledgerId: number) => void
+  context?: AccountContext
+}): React.JSX.Element {
+  const simple = useMode() === 'simple'
+  const [full, setFull] = useState(false)
+  if (simple && !full) return <NewAccountDialog name="" context={context ?? { field: 'none' }} onClose={onClose} onCreated={() => onClose()} onFullForm={() => setFull(true)} />
+  return <LedgerForm ledger={null} onClose={onClose} onOpenStatement={onOpenStatement} />
 }
 
 function LedgerByIdModal({
@@ -153,6 +177,9 @@ function LedgerForm({
   const [priceLevelId, setPriceLevelId] = useState<number | ''>(ledger?.priceLevelId ?? '')
   // WP 4.2: email for statements / reminders, credit limit, interest on overdue bills.
   const [email, setEmail] = useState(ledger?.email ?? '')
+  // WP 8.4 (migration "phone"): a party's phone / WhatsApp.
+  const [phone, setPhone] = useState(ledger?.phone ?? '')
+  const [whatsapp, setWhatsapp] = useState(ledger?.whatsapp ?? '')
   const [creditLimit, setCreditLimit] = useState<number | null>(ledger?.creditLimit ?? null)
   const [interestPct, setInterestPct] = useState(bpToPercent(ledger?.interestRateBp ?? null))
   const [graceDays, setGraceDays] = useState(ledger?.interestGraceDays ? String(ledger.interestGraceDays) : '')
@@ -169,6 +196,8 @@ function LedgerForm({
   const isDebtor = ancestry.includes('Sundry Debtors')
   const interestBp = percentToBp(interestPct)
   const interestError = Number.isNaN(interestBp) || (interestBp ?? 0) > 10000 ? 'A yearly rate like 18 or 1.5' : null
+  const phoneError = phone.trim() && !isPhoneNumber(phone) ? 'Not a phone number' : null
+  const whatsappError = whatsapp.trim() && !isPhoneNumber(whatsapp) ? 'Not a phone number' : null
   const emailError = email.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim()) ? 'Not an email address' : null
 
   const panError = isParty && pan.trim() && !PAN_RE.test(pan.trim()) ? 'Invalid PAN — format AAAAA9999A' : null
@@ -185,6 +214,7 @@ function LedgerForm({
       if (gstinError) return void toast.push('error', gstinError)
       if (panError) return void toast.push('error', panError)
       if (isParty && (interestError || emailError)) return void toast.push('error', interestError ?? emailError!)
+      if (isParty && (phoneError || whatsappError)) return void toast.push('error', phoneError ?? whatsappError!)
       const termsError = isCreditor ? supplierTermsError(supplierTerms) : null
       if (termsError) return void toast.push('error', termsError)
       const effectiveState = stateCode || (gstinCheck?.valid ? gstinCheck.stateCode : null)
@@ -218,6 +248,8 @@ function LedgerForm({
         ...(features.inventory && isParty ? { priceLevelId: priceLevelId === '' ? null : priceLevelId } : {}),
         // WP 4.2 — likewise only where shown (absent = keep).
         ...(isParty ? { email: email.trim() || null } : {}),
+        // WP 8.4 — likewise only where shown (absent = keep).
+        ...(isParty ? { phone: phone.trim() || null, whatsapp: whatsapp.trim() || null } : {}),
         ...(isDebtor
           ? { creditLimit: creditLimit && creditLimit > 0 ? creditLimit : null, interestRateBp: interestBp || null, interestGraceDays: graceDays.trim() ? Math.max(0, Math.min(365, Math.trunc(Number(graceDays) || 0))) : 0 }
           : {}),
@@ -468,6 +500,14 @@ function LedgerForm({
             <Field label="Email" hint="Statements and reminder letters open an email draft to this address" error={emailError}>
               <TextInput data-testid="ledger-email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="accounts@example.com" />
             </Field>
+            <div className="grid grid-cols-2 gap-3">
+              <Field label="Phone" error={phoneError}>
+                <TextInput data-testid="ledger-phone" type="tel" className="num" value={phone} onChange={(e) => setPhone(e.target.value)} />
+              </Field>
+              <Field label="WhatsApp" error={whatsappError}>
+                <TextInput data-testid="ledger-whatsapp" type="tel" className="num" value={whatsapp} onChange={(e) => setWhatsapp(e.target.value)} />
+              </Field>
+            </div>
             {isDebtor && (
               <div className="grid grid-cols-3 gap-3" data-testid="ledger-credit-terms">
                 <Field label="Credit limit" hint="Invoices warn past it (block under F11)">

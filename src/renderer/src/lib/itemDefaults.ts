@@ -1,11 +1,20 @@
 // WP 8.0 item defaults, shared by the quick "New stock item" modal and the Masters item form.
 import { chargesGst, type GstRegistrationType } from '@shared/gst/registration'
+import { PRESETS, type BusinessType } from '@shared/simple/presets'
 
 /** The unit a new item starts with: Pcs, else Nos, else the first unit listed. */
 export function defaultUnitId(units: readonly { id: number; symbol: string }[] | undefined): number | null {
   if (!units?.length) return null
   const by = (sym: string): number | undefined => units.find((u) => u.symbol.toLowerCase() === sym)?.id
   return by('pcs') ?? by('nos') ?? units[0]!.id
+}
+
+/** WP 8.4: a setup company's new product starts with its preset's first unit (Plate for a
+ *  restaurant, Nos for services …); otherwise the WP 8.0 default. */
+export function presetUnitId(units: readonly { id: number; symbol: string }[] | undefined, businessType: BusinessType | null | undefined): number | null {
+  const first = businessType ? PRESETS[businessType]?.units[0] : undefined
+  const hit = first ? units?.find((u) => u.symbol.toLowerCase() === first.toLowerCase()) : undefined
+  return hit?.id ?? defaultUnitId(units)
 }
 
 /** Does the item dialog show (and save) GST / cess rates? Only in a regular registration. */

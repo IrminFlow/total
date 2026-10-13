@@ -35,6 +35,8 @@ interface LedgerRow {
   msme_registered?: number | null; msme_registered_from?: string | null; udyam_no?: string | null; msme_category?: Ledger['msmeCategory']; agreed_credit_days?: number | null
   early_payment_discount_bp?: number | null; early_payment_discount_days?: number | null
   simple_category?: string | null
+  phone?: string | null
+  whatsapp?: string | null
 }
 const mapLedger = (r: LedgerRow): Ledger => ({
   id: r.id, name: r.name, groupId: r.group_id, openingBalance: r.opening_balance,
@@ -53,7 +55,10 @@ const mapLedger = (r: LedgerRow): Ledger => ({
   agreedCreditDays: r.agreed_credit_days ?? null,
   earlyPaymentDiscountBp: r.early_payment_discount_bp ?? null, earlyPaymentDiscountDays: r.early_payment_discount_days ?? null,
   // WP 8.3: only when set, so every ledger without one reads (and audits) exactly as before.
-  ...(r.simple_category ? { simpleCategory: r.simple_category as CategoryKey } : {})
+  ...(r.simple_category ? { simpleCategory: r.simple_category as CategoryKey } : {}),
+  // WP 8.4: likewise only when set.
+  ...(r.phone ? { phone: r.phone } : {}),
+  ...(r.whatsapp ? { whatsapp: r.whatsapp } : {})
 })
 
 // ---------- groups ----------
@@ -223,6 +228,7 @@ export function createLedger(db: DB, raw: LedgerInput): Ledger {
   }
   writeSupplierTerms(db, Number(res.lastInsertRowid), input, null)
   if (input.simpleCategory) db.prepare('UPDATE ledgers SET simple_category = ? WHERE id = ?').run(input.simpleCategory, Number(res.lastInsertRowid))
+  writeContact(db, Number(res.lastInsertRowid), input, null)
   const created = getLedger(db, Number(res.lastInsertRowid))!
   writeAudit(db, 'ledger', created.id, 'create', null, created)
   return created
@@ -285,9 +291,22 @@ function updateLedgerNow(db: DB, id: number, raw: LedgerInput): Ledger {
   }
   writeSupplierTerms(db, id, input, existing)
   if (category !== undefined) db.prepare('UPDATE ledgers SET simple_category = ? WHERE id = ?').run(category, id)
+  writeContact(db, id, input, existing)
   const updated = getLedger(db, id)!
   writeAudit(db, 'ledger', id, 'update', existing, updated)
   return updated
+}
+
+/** WP 8.4 (migration "phone"): phone / WhatsApp — each absent = keep. Written before the audit
+ *  row, so the after-image carries them. A pre-migration test DB has no such columns. */
+function writeContact(db: DB, id: number, input: ReturnType<typeof ledgerInputSchema.parse>, existing: Ledger | null): void {
+  if (input.phone === undefined && input.whatsapp === undefined) return
+  if (!db.prepare("SELECT 1 FROM pragma_table_info('ledgers') WHERE name = 'phone'").get()) return
+  db.prepare('UPDATE ledgers SET phone = ?, whatsapp = ? WHERE id = ?').run(
+    input.phone === undefined ? (existing?.phone ?? null) : input.phone,
+    input.whatsapp === undefined ? (existing?.whatsapp ?? null) : input.whatsapp,
+    id
+  )
 }
 
 /** WP 4.3 (migration 033): supplier MSME facts / payment terms — each field absent = keep. Runs

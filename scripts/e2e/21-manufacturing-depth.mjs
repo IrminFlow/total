@@ -7,7 +7,7 @@
 // themes at 1440×900 into that directory.
 import * as fs from 'node:fs'
 import * as path from 'node:path'
-import { scenario, assert, assertEq } from '../lib/harness.mjs'
+import { scenario, assert, assertEq, OPTION } from '../lib/harness.mjs'
 
 await scenario('21-manufacturing-depth', async (h) => {
   await h.createCompanyUI('Depth Works')
@@ -69,7 +69,7 @@ await scenario('21-manufacturing-depth', async (h) => {
     const input = page.locator(`[data-testid="${testId}"]`).first()
     await input.click()
     await input.fill(name)
-    await page.locator('[role="option"]', { hasText: name }).first().waitFor({ timeout: 10000 })
+    await page.locator(OPTION, { hasText: name }).first().waitFor({ timeout: 10000 })
     await input.press('Enter')
     await waitValue(testId, name)
   }

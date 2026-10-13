@@ -1,3 +1,4 @@
+import { isPhoneNumber } from './simple/accountKinds'
 import { z } from 'zod'
 import { GST_STATES } from './gst/states'
 import { validateGstin } from './gst/validate'
@@ -79,6 +80,17 @@ export const supplierTermsFields = {
   earlyPaymentDiscountDays: z.number().int().min(0).max(365).nullable().optional()
 }
 
+/** A phone number as people write it: digits with optional +, spaces, dashes, brackets; 6–15
+ *  digits. '' → null. Absent = keep the stored value. */
+const phoneSchema = z
+  .string()
+  .trim()
+  .max(24)
+  .transform((s) => (s === '' ? null : s))
+  .refine((s) => s === null || isPhoneNumber(s), 'Not a phone number')
+  .nullable()
+  .optional()
+
 export const ledgerInputSchema = z.object({
   name: z.string().trim().min(1).max(120),
   groupId: id,
@@ -121,7 +133,10 @@ export const ledgerInputSchema = z.object({
   ...supplierTermsFields,
   /** WP 8.3: the simple-mode category key (shared/simple/categories.ts) — set by the setup presets;
    *  absent = keep the stored value. No report reads it. */
-  simpleCategory: z.enum(CATEGORY_KEYS as [CategoryKey, ...CategoryKey[]]).nullable().optional()
+  simpleCategory: z.enum(CATEGORY_KEYS as [CategoryKey, ...CategoryKey[]]).nullable().optional(),
+  /** WP 8.4 (migration "phone"): a party's phone / WhatsApp number — absent = keep; '' = none. */
+  phone: phoneSchema,
+  whatsapp: phoneSchema
 })
 /** Unparsed shape (defaults optional) — createLedger/updateLedger parse internally, so direct
  *  service callers (tests, importers) don't have to spell out every defaulted field. */
@@ -181,6 +196,19 @@ export const stockItemInputSchema = z.object({
   standardCostPaise: paise.min(0).nullable().optional()
 })
 export type StockItemInput = z.infer<typeof stockItemInputSchema>
+
+/** WP 8.4: the plain "New product" dialog — the item plus its selling price (on the default price
+ *  level, services/quickCreate.ts) and an optional purchase price (the item's standard cost). */
+export const quickItemSchema = z
+  .object({
+    item: stockItemInputSchema,
+    /** Selling price per unit, paise (before GST in a regular company); null = none. */
+    sellingPricePaise: paise.min(0).nullable().default(null),
+    /** Purchase price per unit, paise; stored as the item's standard cost. null = none. */
+    purchasePricePaise: paise.min(0).nullable().default(null)
+  })
+  .strict()
+export type QuickItemInput = z.input<typeof quickItemSchema>
 
 export const godownInputSchema = z.object({
   name: z.string().trim().min(1).max(120),

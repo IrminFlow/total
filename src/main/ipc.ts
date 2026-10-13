@@ -79,6 +79,8 @@ import * as tradeChain from './services/tradeChain'
 import * as tradeAnalysis from './services/tradeAnalysis'
 import * as tradeClosure from './services/tradeClosure'
 import * as priceLevels from './services/priceLevels'
+import { quickCreateItem } from './services/quickCreate'
+import { quickItemSchema } from '@shared/schemas'
 import * as budgets from './services/budgets'
 import * as yearEnd from './services/yearEnd'
 import { registerFixedAssetIpc } from './ipcFixedAssets'
@@ -945,6 +947,8 @@ export function registerIpc(): void {
   handle('master:stockGroups:create', (p) => masters.createStockGroup(requireCompany().db, stockGroupInputSchema.parse(p)))
   handle('master:stockItems:list', () => masters.listStockItems(requireCompany().db), 'viewer')
   handle('master:stockItems:create', (p) => masters.createStockItem(requireCompany().db, stockItemInputSchema.parse(p)))
+  // WP 8.4: the plain "New product" dialog — item + its selling price on the default level, one transaction.
+  handle('master:stockItems:quickCreate', (p) => quickCreateItem(requireCompany().db, quickItemSchema.parse(p)))
   handle('master:stockItems:update', (p) => {
     const { id, data } = withIdSchema(stockItemInputSchema).parse(p)
     return masters.updateStockItem(requireCompany().db, id, data)

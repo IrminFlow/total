@@ -214,6 +214,8 @@ export const LEDGER_COLUMNS = defineColumns<LedgerRow>([
   { id: 'group', header: 'Group', kind: 'text', value: (l) => l.groupName, className: 'text-muted', width: 200 },
   { id: 'gstin', header: 'GSTIN', kind: 'text', value: (l) => l.gstin ?? '', className: 'num text-muted', width: 170, groupable: false },
   { id: 'pan', header: 'PAN', kind: 'text', value: (l) => l.pan ?? '', className: 'num text-muted', width: 120, groupable: false, defaultHidden: true },
+  // WP 8.4: a party's phone (WhatsApp in the form); empty for other accounts.
+  { id: 'phone', header: 'Phone', kind: 'text', value: (l) => l.phone ?? '', className: 'num text-muted', width: 140, groupable: false },
   // Signed dr-positive paise. Not totalled: a sum of mixed openings isn't a figure anyone reads here.
   { id: 'opening', header: 'Opening', kind: 'money', signed: true, value: (l) => l.openingBalance, width: 160 }
 ])
@@ -342,7 +344,13 @@ function LedgersTab({ partiesOnly: partiesInitially = false }: { partiesOnly?: b
           exportOptions={{ title: 'Ledgers', periodLabel: 'Masters', filename: 'ledgers' }}
         />
       </Panel>
-      {editing && <LedgerFormModal ledger={editing === 'new' ? null : editing} onClose={() => setEditing(null)} />}
+      {editing && (
+        <LedgerFormModal
+          ledger={editing === 'new' ? null : editing}
+          onClose={() => setEditing(null)}
+          context={partiesOnly ? { field: 'party', side: 'sales' } : { field: 'none' }}
+        />
+      )}
       {bulk.dialogs}
     </>
   )

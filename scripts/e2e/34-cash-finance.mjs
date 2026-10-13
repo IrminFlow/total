@@ -5,7 +5,7 @@
 // Every screen is shot in both themes. Set WP44_SHOTS=/tmp/wp44 to copy the shots there.
 import fs from 'node:fs'
 import path from 'node:path'
-import { scenario, assert, assertEq } from '../lib/harness.mjs'
+import { scenario, assert, assertEq, OPTION } from '../lib/harness.mjs'
 
 await scenario('34-cash-finance', async (h) => {
   await h.createCompanyUI('Cash Finance Co')
@@ -30,7 +30,7 @@ await scenario('34-cash-finance', async (h) => {
     const input = page.locator(`[data-testid="${testId}"]`)
     await input.click()
     await input.fill(text)
-    await page.locator('[role="option"]', { hasText: text }).first().waitFor({ timeout: 10000 })
+    await page.locator(OPTION, { hasText: text }).first().waitFor({ timeout: 10000 })
     await input.press('Enter')
   }
   const typeDate = async (testId, iso) => {

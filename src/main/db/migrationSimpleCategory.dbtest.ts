@@ -11,8 +11,8 @@ import { trialBalance } from '../services/reports'
 const M_SIMPLE = MIGRATIONS.findIndex((sql) => sql.includes('ADD COLUMN simple_category'))
 
 describe('simple_category migration', () => {
-  it('comes after the undo migration (WP 8.7 opening bills follow it)', () => {
-    expect(M_SIMPLE).toBeGreaterThan(MIGRATIONS.findIndex((sql) => sql.includes('CREATE TABLE undo_groups')))
+  it('comes right before WP 8.4 phone (the last migration; number by position)', () => {
+    expect(MIGRATIONS[M_SIMPLE + 1]).toContain('ADD COLUMN phone')
     expect(MIGRATIONS[M_SIMPLE]!.startsWith('-- @foreign-keys-off')).toBe(false)
   })
 
@@ -26,7 +26,7 @@ describe('simple_category migration', () => {
     expect(schemaVersion(db)).toBe(MIGRATIONS.length)
     expect(trialBalance(db, '2026-03-31')).toEqual(before)
     const after = db.prepare('SELECT * FROM ledgers ORDER BY id').all() as Record<string, unknown>[]
-    expect(after.map(({ simple_category, ...rest }) => (expect(simple_category).toBeNull(), rest))).toEqual(ledgersBefore)
+    expect(after.map(({ simple_category, phone: _p, whatsapp: _w, ...rest }) => (expect(simple_category).toBeNull(), rest))).toEqual(ledgersBefore)
     const col = (db.prepare('PRAGMA table_info(ledgers)').all() as { name: string; notnull: number; dflt_value: unknown }[]).find((c) => c.name === 'simple_category')
     expect(col).toMatchObject({ notnull: 0, dflt_value: null })
   })
