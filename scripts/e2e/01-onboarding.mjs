@@ -11,7 +11,20 @@ await scenario('01-onboarding', async (h) => {
     for (const k of Object.keys(localStorage)) if (k.startsWith('total-navsections-')) localStorage.removeItem(k)
   })
 
-  await h.createCompanyUI('E2E Traders')
+  // WP 8.0: a company without a GSTIN is unregistered — no GST returns / e-documents to file, so
+  // the GST group is not offered at all.
+  await h.createCompanyUI('E2E Unregistered')
+  await h.page.waitForSelector('[data-testid="nav-daybook"]', { timeout: 10000 })
+  // The group stays for TDS / TCS, but none of the GST returns / e-documents appear in it.
+  await h.click('nav-section-gst')
+  assert(await h.page.isVisible('[data-testid="nav-tds"]'), 'the group still lists TDS once opened')
+  for (const id of ['gstr1', 'gstr3b', 'gstr2b', 'edocs']) {
+    assert(!(await h.page.isVisible(`[data-testid="nav-${id}"]`)), `an unregistered company shows no ${id}`)
+  }
+  await h.relaunch()
+
+  // A registered (Regular) company gets the GST group.
+  await h.createCompanyUI('E2E Traders', { gstin: '27AAPFU0939F1ZV' })
   await h.shot('02-gateway')
 
   // The sidebar (registry-derived nav testids) is up.
