@@ -2,7 +2,7 @@
 import type { DB } from '../db/connection'
 
 /** Tables that are not books data, or legitimately differ between two companies. */
-const NOT_COMPARED = new Set(['audit_log', 'migrations', 'meta', 'sqlite_sequence', 'import_templates', 'import_batches', 'import_batch_items'])
+const NOT_COMPARED = new Set(['audit_log', 'migrations', 'meta', 'sqlite_sequence', 'import_templates', 'import_batches', 'import_batch_items', 'simple_posts'])
 const SKIP_COLUMN = (c: string): boolean => c === 'id' || c.endsWith('_at') || c === 'row_hash' || c === 'prev_hash'
 
 /** Every table as a sorted list of canonical rows. */

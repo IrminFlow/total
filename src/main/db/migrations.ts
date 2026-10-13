@@ -3420,5 +3420,20 @@ export const MIGRATIONS: string[] = [
   BEGIN
     SELECT RAISE(ABORT, 'The opening balance is split into opening bills that no longer add up to it - change it through the opening setup');
   END;
+  `,
+  // WP 9.1 (last — 050, after WP 8.7's opening_bills 049; number by position) — simple:post's
+  // idempotency record. A simple screen posts an intent with a clientId; the vouchers it saved are
+  // remembered here so a retry with the same clientId returns them and never posts twice. Only the
+  // link is stored (the vouchers are ordinary vouchers; the audit row is 'simple_intent').
+  `
+  CREATE TABLE simple_posts (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    client_id TEXT NOT NULL UNIQUE,
+    kind TEXT NOT NULL,
+    intent_hash TEXT NOT NULL,
+    voucher_ids_json TEXT NOT NULL,
+    facts_json TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
   `
 ]

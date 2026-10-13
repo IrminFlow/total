@@ -9,6 +9,7 @@ import type { QuickItemInput } from '@shared/schemas'
 import type { CaughtError, ErrorIssue, ErrorParams } from '@shared/errors'
 import type { SaveSummary } from '@shared/simple/saveCard'
 import type { HomeAttention, SimpleHomeData } from '@shared/simple/home'
+import type { SimpleIntentInput, SimplePostResult, SimplePreview } from '@shared/simple/intents'
 import type { BudgetVarianceRow } from '@shared/budgets'
 import type { McpConfig, McpLogRow, McpSettingsView } from '@shared/mcp'
 import type { AiDraftDto, AiDraftStatus } from '@shared/ai'
@@ -673,7 +674,11 @@ export const api = {
   /** WP 8.6: everything the simple Home shows, as on `today`, in one round trip. */
   simple: {
     home: (today: string) => call<SimpleHomeData>('simple:home', { today }),
-    homeAttention: (today: string) => call<HomeAttention>('simple:homeAttention', { today })
+    homeAttention: (today: string) => call<HomeAttention>('simple:homeAttention', { today }),
+    /** WP 9.1: what an intent will record (rehearsed, nothing saved) — plain sentences + the exact accounts. */
+    preview: (intent: SimpleIntentInput, today?: string) => call<SimplePreview>('simple:preview', { intent, ...(today ? { today } : {}) }),
+    /** WP 9.1: save an intent (idempotent by its clientId); the vouchers come back together for the save card. */
+    post: (intent: SimpleIntentInput, today?: string) => call<SimplePostResult>('simple:post', { intent, ...(today ? { today } : {}) })
   },
   /** WP 8.7: the opening setup (what a continuing business had on day one). */
   openings: {

@@ -12,7 +12,8 @@ import { formatPaise } from './money'
 import type { OutstandingBill } from './reports'
 
 export interface BillRef {
-  /** 'new' opens a named bill; 'against' settles one. */
+  /** 'new' opens a named bill — or, on a settling (negative) event, a named credit (an advance, a
+   *  note's own bill); 'against' settles a bill — or, on a positive event, uses a named credit. */
   kind: 'new' | 'against'
   name: string
   /** Always positive. */
@@ -55,9 +56,21 @@ function daysBetween(fromDate: string, toDate: string): number {
  * one; null means no default (due date stays null unless a ref says otherwise).
  */
 export function allocateBills(events: BillEvent[], asOn: string, creditDays: number | null): AllocateBillsResult {
+  const { credits: _credits, ...result } = allocateBillsWithCredits(events, asOn, creditDays)
+  return result
+}
+
+/** allocateBills plus the named credits still open (advances / notes' own bills, by name) — for
+ *  callers that must not reuse a name that is still open (WP 9.1 simple intents). */
+export function allocateBillsWithCredits(events: BillEvent[], asOn: string, creditDays: number | null): AllocateBillsResult & { credits: { name: string; amount: number }[] } {
   const open: OutstandingBill[] = []
   let credit = 0
   const warnings: string[] = []
+  // WP 9.1 fix: named credits — a 'new' ref on a SETTLING (negative) event: an advance received /
+  // paid, or a credit / debit note's own bill. Held by name (oldest first) until a positive
+  // event's 'against' ref uses it; counted in unappliedCredit. Never netted off refless bills
+  // (that path is unchanged), so the legacy inference stays byte-identical.
+  const namedCredits: { name: string; amount: number }[] = []
 
   const dueDateFor = (date: string, ref?: BillRef): string | null => {
     if (ref?.dueDate) return ref.dueDate
@@ -101,10 +114,32 @@ export function allocateBills(events: BillEvent[], asOn: string, creditDays: num
     if (bill.pending > 0) open.push(bill)
   }
 
+  /** A positive event drawing on a named credit (an invoice against an advance, a refund against
+   *  a note): returns what the credit could not cover. */
+  const useNamedCredit = (name: string, amount: number): number => {
+    let remaining = amount
+    for (const c of namedCredits) {
+      if (remaining <= 0) break
+      if (c.name !== name || c.amount <= 0) continue
+      const take = Math.min(c.amount, remaining)
+      c.amount -= take
+      remaining -= take
+    }
+    for (let i = namedCredits.length - 1; i >= 0; i--) if (namedCredits[i]!.amount === 0) namedCredits.splice(i, 1)
+    return remaining
+  }
+
   for (const ev of events) {
     if (ev.refs.length > 0) {
       for (const ref of ev.refs) {
-        if (ref.kind === 'new') {
+        if (ref.kind === 'new' && ev.amount < 0) {
+          namedCredits.push({ name: ref.name, amount: ref.amount })
+        } else if (ref.kind === 'against' && ev.amount > 0 && namedCredits.some((c) => c.name === ref.name)) {
+          const left = useNamedCredit(ref.name, ref.amount)
+          if (left > 0) {
+            addBill({ voucherId: ev.voucherId, number: ev.number, date: ev.date, amount: left, pending: left, ageDays: 0, dueDate: dueDateFor(ev.date), overdueDays: 0 })
+          }
+        } else if (ref.kind === 'new') {
           addBill({
             voucherId: ev.voucherId,
             number: ref.name,
@@ -141,7 +176,7 @@ export function allocateBills(events: BillEvent[], asOn: string, creditDays: num
     bill.overdueDays = Math.max(0, daysBetween(dueBasis, asOn))
   }
 
-  return { bills: open, unappliedCredit: credit, warnings }
+  return { bills: open, unappliedCredit: credit + namedCredits.reduce((t, c) => t + c.amount, 0), warnings, credits: namedCredits.map((c) => ({ ...c })) }
 }
 
 export interface ReminderCompany {

@@ -246,9 +246,9 @@ describe('overdrafts and the capital account', () => {
 })
 
 describe('the opening_bills migration', () => {
-  it('is the last migration and leaves the books unchanged', () => {
+  it('comes right before WP 9.1 simple_posts (the last migration) and leaves the books unchanged', () => {
     const idx = MIGRATIONS.findIndex((sql) => sql.includes('CREATE TABLE opening_bills'))
-    expect(idx).toBe(MIGRATIONS.length - 1)
+    expect(MIGRATIONS[idx + 1]).toContain('CREATE TABLE simple_posts')
     const db = freshDb()
     migrate(db)
     expect(db.prepare("SELECT COUNT(*) AS n FROM sqlite_master WHERE name = 'opening_bills_follow_opening'").get()).toEqual({ n: 1 })
