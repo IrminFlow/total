@@ -5,6 +5,7 @@ import type {
   Voucher, VoucherTransport, VoucherType, TradeDocType, SaveVoucherWarnings
 } from '@shared/domain'
 import type { UiMode, UiPatch, UiSettings } from '@shared/simple/uiMode'
+import type { QuickItemInput } from '@shared/schemas'
 import type { CaughtError, ErrorIssue, ErrorParams } from '@shared/errors'
 import type { SaveSummary } from '@shared/simple/saveCard'
 import type { BudgetVarianceRow } from '@shared/budgets'
@@ -789,6 +790,8 @@ export const api = {
   stockItems: {
     list: () => call<StockItem[]>('master:stockItems:list'),
     create: (data: StockItemInput) => call<StockItem>('master:stockItems:create', data),
+    /** WP 8.4: item + selling price on the default level, one transaction. */
+    quickCreate: (data: QuickItemInput) => call<{ item: StockItem; priceLevelId: number | null }>('master:stockItems:quickCreate', data),
     update: (id: number, data: StockItemInput) => call<StockItem>('master:stockItems:update', { id, data }),
     remove: (id: number) => call<null>('master:stockItems:delete', { id })
   },

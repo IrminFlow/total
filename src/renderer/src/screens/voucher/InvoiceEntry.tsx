@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import type { Voucher, VoucherBillRef, VoucherKind } from '@shared/domain'
+import type { Group, Ledger, Voucher, VoucherBillRef, VoucherKind } from '@shared/domain'
 import type { OutstandingBill } from '@shared/reports'
 import type { VoucherInputParsed } from '@shared/schemas'
 import {
@@ -21,6 +21,9 @@ import { confirmDialog, promptDialog } from '../../lib/dialogs'
 import { useUnsavedGuard } from '../../lib/useUnsavedGuard'
 import { addDaysLocal, nextLineKey, NUMBER_LOADING, useAlterationDirty, useErrorShell, useLeaveAfterSave, useSaveCard, useVoucherNumberField } from './hooks'
 import { QuickItemModal, QuickLedgerModal } from './modals'
+import { CategoryPicker } from '../../simple/CategoryPicker'
+import { CATEGORIES, CATEGORY_KEYS } from '@shared/simple/categories'
+import { useMode } from '../../lib/mode'
 import { TransportModal } from './TransportModal'
 import { useTcsCollection, useTdsDeduction, type TcsCandidate } from './useTdsDeduction'
 import { TdsBanner, TdsNotApplicableNote } from './TdsBanner'
@@ -47,6 +50,10 @@ const NARRATION_PLACEHOLDER: Partial<Record<VoucherKind, string>> = {
 // and every state → payload rule live in @shared/voucherEdit/invoice — this component only owns
 // the inputs. `initial` (an alteration) comes from planVoucherEdit, which has already proved the
 // voucher round-trips through this form unchanged.
+
+/** WP 8.4: the categories a bill's sales / purchase account can be (simple mode). */
+const SALE_CATEGORIES = CATEGORY_KEYS.filter((k) => CATEGORIES[k].use === 'sale')
+const PURCHASE_CATEGORIES = CATEGORY_KEYS.filter((k) => CATEGORIES[k].use === 'purchase')
 
 export function InvoiceEntry({
   typeId,
@@ -102,6 +109,19 @@ export function InvoiceEntry({
   // same rule as AccountingEntry.
   const [alterNumber, setAlterNumber] = useState(initial?.number ?? '')
   const isSalesSide = kind === 'sales' || kind === 'credit_note'
+  const simpleCompany = useMode() === 'simple'
+  const accountFilter = useCallback(
+    (l: Ledger, groups: Map<number, Group>): boolean => {
+      const rootName = isSalesSide ? 'Sales Accounts' : 'Purchase Accounts'
+      let g = groups.get(l.groupId)
+      while (g) {
+        if (g.name === rootName) return true
+        g = g.parentId ? groups.get(g.parentId) : undefined
+      }
+      return false
+    },
+    [isSalesSide]
+  )
   const { saved, leave } = useLeaveAfterSave()
 
   const party = ledgers.find((l) => l.id === partyId) ?? null
@@ -609,21 +629,27 @@ export function InvoiceEntry({
           </div>
         </Field>
         <Field label={isSalesSide ? 'Sales ledger' : 'Purchase ledger'} name="account" error={formErrors.get('account')}>
+          {simpleCompany ? (
+            // WP 8.4: simple mode — the sales / purchase account as categories (Sales, Service
+            // income … / Purchases, Raw material …), the full list behind "Search all".
+            <CategoryPicker
+              value={accountId}
+              onPick={setAccountId}
+              keys={isSalesSide ? SALE_CATEGORIES : PURCHASE_CATEGORIES}
+              context={{ field: 'account', side: isSalesSide ? 'sales' : 'purchase' }}
+              side={isSalesSide ? 'sale' : 'purchase'}
+              filter={accountFilter}
+              testId="picker-account-category"
+            />
+          ) : (
           <LedgerPicker
             value={accountId}
             onPick={setAccountId}
             placeholder={isSalesSide ? 'e.g. Sales' : 'e.g. Purchases'}
-            filter={(l, groups) => {
-              const rootName = isSalesSide ? 'Sales Accounts' : 'Purchase Accounts'
-              let g = groups.get(l.groupId)
-              while (g) {
-                if (g.name === rootName) return true
-                g = g.parentId ? groups.get(g.parentId) : undefined
-              }
-              return false
-            }}
+            filter={accountFilter}
             onCreateRequest={(name) => setQuickLedger({ name, forParty: false })}
           />
+          )}
         </Field>
       </div>
 

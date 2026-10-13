@@ -72,11 +72,9 @@ await scenario('49-save-card-undo', async (h) => {
   await page.waitForSelector('[data-testid="field-error-party"]', { state: 'detached', timeout: 5000 })
 
   // ---------- a correct bill → the save card ----------
-  const salesPicker = page.locator('input[placeholder="e.g. Sales"]')
-  await salesPicker.click()
-  await salesPicker.fill('Sales')
-  await page.waitForSelector('[role="listbox"] [role="option"]', { timeout: 5000 })
-  await salesPicker.press('Enter')
+  // WP 8.4: in a simple-mode company the bill's account is a category picker (Sales, Service income …).
+  await h.click('picker-account-category')
+  await h.click('category-sales')
   await pick('picker-item', 'Sugar 1kg')
   await page.locator('[data-testid="input-line-qty"]').first().fill('2')
   await page.locator('[data-testid="input-line-rate"]').first().fill('45')

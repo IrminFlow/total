@@ -48,6 +48,8 @@ describe('field-aware masking', () => {
   it('classifies keys', () => {
     expect(fieldKind('gstin')).toBe('id')
     expect(fieldKind('bank_account_no')).toBe('id')
+    expect(fieldKind('phone')).toBe('id') // WP 8.4: a party's phone / WhatsApp
+    expect(fieldKind('whatsapp')).toBe('id')
     expect(fieldKind('voucherId')).toBe('keep')
     expect(fieldKind('narration')).toBe('text')
     expect(fieldKind('name')).toBe('text')

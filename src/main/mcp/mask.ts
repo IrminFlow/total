@@ -13,7 +13,7 @@ import { GSTIN_RE, IFSC_RE, PAN_RE, type PrivacyOptions } from '../ai/privacy'
 /** Keys whose value IS an identifier: masked whenever masking is on. */
 // "account" alone is a ledger name (day book's main account), never an identifier: an account
 // NUMBER needs a bank prefix or a number suffix.
-const ID_KEY = /^(gstin|pan|tan|ifsc|ifsccode|udyam(no|number)?|aadhaar|bank(account|acct|ac)\w*|(account|acct|ac)(no|number|num)\w*)$/i
+const ID_KEY = /^(gstin|pan|tan|ifsc|phone|whatsapp|mobile|ifsccode|udyam(no|number)?|aadhaar|bank(account|acct|ac)\w*|(account|acct|ac)(no|number|num)\w*)$/i
 /** Keys whose value is a code, number, id, date or enum — returned verbatim. */
 const KEEP_KEY =
   /^(hsn|sac|hsnsac|number|vouchernumber|billno|billname|lineuid|uid|id|\w*id|\w*ids|date|\w*date|\w*at|statecode|state_code|state|pos|posoverride|currencycode|unit|symbol|kind|\w*kind|status|drcr|sha256|\w*sha256|storedpath|schemaversion|from|to|ason|fy|period|type|mime)$/i
@@ -43,6 +43,7 @@ export function maskIdentifierValue(key: string, text: string): string {
   if (k === 'gstin') return `[GSTIN …${tail(text.trim(), 3)}]`
   if (k === 'pan' || k === 'tan') return `[${k.toUpperCase()} …${tail(text.trim(), 2)}]`
   if (k.startsWith('ifsc')) return `[IFSC ${text.trim().slice(0, 4)}…]`
+  if (k === 'phone' || k === 'whatsapp' || k === 'mobile') return `[Phone …${tail(text.replace(/\D/g, ''), 2)}]` // WP 8.4
   return `[${k.startsWith('udyam') ? 'Udyam' : k === 'aadhaar' ? 'Aadhaar' : 'A/c'} …${tail(text.replace(/\W/g, ''), 4)}]`
 }
 

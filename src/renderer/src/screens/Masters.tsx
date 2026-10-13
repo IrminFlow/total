@@ -342,7 +342,13 @@ function LedgersTab({ partiesOnly: partiesInitially = false }: { partiesOnly?: b
           exportOptions={{ title: 'Ledgers', periodLabel: 'Masters', filename: 'ledgers' }}
         />
       </Panel>
-      {editing && <LedgerFormModal ledger={editing === 'new' ? null : editing} onClose={() => setEditing(null)} />}
+      {editing && (
+        <LedgerFormModal
+          ledger={editing === 'new' ? null : editing}
+          onClose={() => setEditing(null)}
+          context={partiesOnly ? { field: 'party', side: 'sales' } : { field: 'none' }}
+        />
+      )}
       {bulk.dialogs}
     </>
   )

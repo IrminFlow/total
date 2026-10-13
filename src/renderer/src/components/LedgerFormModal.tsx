@@ -17,6 +17,9 @@ import { TabBar } from './TabBar'
 import { PartyNotesPanel } from './partyNotes/PartyNotes'
 import { AttachmentList } from './attachments/Attachments'
 import { bpToPercent, percentToBp } from '@shared/receivables/interest'
+import { useMode } from '../lib/mode'
+import type { AccountContext } from '@shared/simple/accountKinds'
+import { NewAccountDialog } from '../simple/NewAccountDialog'
 import { SupplierTermsFields, initialSupplierTerms, supplierTermsError, supplierTermsPayload } from './SupplierTermsFields'
 
 const EXPORT_TYPES: { value: NonNullable<Ledger['exportType']> | ''; label: string }[] = [
@@ -78,12 +81,32 @@ export function LedgerFormModal(
   ) & {
     /** When set, an existing ledger's window offers "Statement" (the drill-down host passes it). */
     onOpenStatement?: (ledgerId: number) => void
+    /** WP 8.4: where the plain new-account dialog starts (simple mode, create only). */
+    context?: AccountContext
   }
 ): React.JSX.Element {
   if (props.ledgerId !== undefined) {
     return <LedgerByIdModal ledgerId={props.ledgerId} onClose={props.onClose} onOpenStatement={props.onOpenStatement} />
   }
+  if (!props.ledger) return <NewLedger onClose={props.onClose} onOpenStatement={props.onOpenStatement} context={props.context} />
   return <LedgerForm ledger={props.ledger ?? null} onClose={props.onClose} onOpenStatement={props.onOpenStatement} />
+}
+
+/** WP 8.4: a NEW ledger in a simple-mode company opens the plain dialog (simple/NewAccountDialog);
+ *  "Show every field" — and every accountant-mode company — gets the form below, unchanged. */
+function NewLedger({
+  onClose,
+  onOpenStatement,
+  context
+}: {
+  onClose: () => void
+  onOpenStatement?: (ledgerId: number) => void
+  context?: AccountContext
+}): React.JSX.Element {
+  const simple = useMode() === 'simple'
+  const [full, setFull] = useState(false)
+  if (simple && !full) return <NewAccountDialog name="" context={context ?? { field: 'none' }} onClose={onClose} onCreated={() => onClose()} onFullForm={() => setFull(true)} />
+  return <LedgerForm ledger={null} onClose={onClose} onOpenStatement={onOpenStatement} />
 }
 
 function LedgerByIdModal({

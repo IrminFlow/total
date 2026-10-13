@@ -14,6 +14,9 @@ import { bankingApi } from '../../lib/bankingClient'
 import { useNav, useSession, useToasts, type VoucherDraft } from '../../state/stores'
 import { AmountInput, Button, DateInput, Field, FieldError, isAnyModalOpen, LineTableScroller, Money, Panel, Select, TextInput, useFormErrors } from '../../components/ui'
 import { SaveCard } from '../../simple/SaveCard'
+import { CategoryPicker } from '../../simple/CategoryPicker'
+import { categoriesFor } from '@shared/simple/accountKinds'
+import { useMode } from '../../lib/mode'
 import { LedgerPicker, useGroups, useLedgers } from '../../components/pickers'
 import { LedgerFormModal } from '../../components/LedgerFormModal'
 import { useFeatures } from '../../lib/useFeatures'
@@ -39,6 +42,9 @@ interface AcctRow extends AccountingRowState {
 
 const blankAcctRow = (drCr: 'dr' | 'cr'): AcctRow => ({ key: nextLineKey(), drCr, ledgerId: null, amount: null, costAllocations: [] })
 
+/** WP 8.4: what a money-out line can be for (simple mode). */
+const EXPENSE_CATEGORIES = categoriesFor('expense')
+
 export function AccountingEntry({
   typeId,
   kind,
@@ -63,6 +69,7 @@ export function AccountingEntry({
   const nav = useNav()
   const queryClient = useQueryClient()
   const features = useFeatures()
+  const simpleCompany = useMode() === 'simple'
   const ledgers = useLedgers()
   const groups = useGroups()
   const groupMap = useMemo(() => new Map(groups.map((g) => [g.id, g])), [groups])
@@ -610,6 +617,19 @@ export function AccountingEntry({
               </td>
               <td>
                 <div className="flex items-center gap-1.5">
+                  {simpleCompany && kind === 'payment' && r.drCr === 'dr' ? (
+                    // WP 8.4: money out in a simple-mode company — what it was for, as categories.
+                    <div className="flex-1">
+                      <CategoryPicker
+                        value={r.ledgerId}
+                        onPick={(id) => setRow(i, { ledgerId: id })}
+                        keys={EXPENSE_CATEGORIES}
+                        context={{ field: 'line', voucherKind: kind, drCr: 'dr' }}
+                        autoFocus={i === 0 && !voucherId}
+                        testId={`picker-category-${i}`}
+                      />
+                    </div>
+                  ) : (
                   <LedgerPicker
                     value={r.ledgerId}
                     onPick={(id) => setRow(i, { ledgerId: id })}
@@ -629,6 +649,7 @@ export function AccountingEntry({
                     onCreateRequest={(name) => setQuickLedger({ name, row: i })}
                     className="flex-1"
                   />
+                  )}
                   {(() => {
                     const rowLedger = r.ledgerId != null ? ledgers.find((l) => l.id === r.ledgerId) : null
                     return rowLedger && isPartyLedger(rowLedger, groupMap) ? (
@@ -884,6 +905,7 @@ export function AccountingEntry({
           name={quickLedger.name}
           suggestParty={null}
           suggestAccount={null}
+          context={{ field: 'line', voucherKind: kind, drCr: rows[quickLedger.row]?.drCr ?? 'dr' }}
           onClose={() => setQuickLedger(null)}
           onCreated={(l) => {
             setRow(quickLedger.row, { ledgerId: l.id })
