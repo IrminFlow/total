@@ -2,9 +2,11 @@
 //
 // - `en` is complete and the source of every key (catalogues/en.ts); `hi` and `hinglish` are
 //   stubs until Phase 10 and fall back to `en` PER KEY.
-// - A key that is not in `en` (only possible through an untyped string) never shows raw in
-//   production: it renders as '' (or the caller's `fallback`). In dev it renders the key so it is
-//   visible, and every problem is reported once through the handler (configureI18n).
+// - A missing or EMPTY translation falls back to the English value. A key that is not in `en`
+//   (only possible through an untyped string) never shows raw or blank in production: it renders
+//   the caller's `fallback`, else the key's last segment ('simple.sell.makeBill' → 'makeBill'),
+//   so a button never goes blank. In dev it renders the whole key so it is visible, and every
+//   problem is reported once through the handler (configureI18n).
 // - Pure: no DOM, no Electron. The renderer binds the user's language with `useT()`
 //   (renderer lib/i18n.ts); main reads the company's language (main/i18n.ts).
 // - Money and Indian digit grouping stay in money.ts: pass amounts in already formatted.
@@ -91,7 +93,7 @@ function render(key: MessageKey, message: string, vars: MessageVars | undefined,
 /** Translates `key` in `lang` (default English), falling back to `en` per key. */
 export function t(key: MessageKey, vars?: MessageVars, lang: Language = DEFAULT_LANGUAGE, options?: TOptions): string {
   const own = lang === 'en' ? undefined : CATALOGUES[lang][key]
-  if (own != null) {
+  if (own != null && own !== '') {
     const text = render(key, own, vars, lang)
     if (text != null) return text
   } else if (lang !== 'en') {
@@ -100,13 +102,20 @@ export function t(key: MessageKey, vars?: MessageVars, lang: Language = DEFAULT_
   const base = (en as Record<string, string>)[key]
   if (base == null) {
     report({ kind: 'unknown-key', key, lang })
-    return options?.fallback ?? (config.dev ? String(key) : '')
+    return options?.fallback ?? (config.dev ? String(key) : lastSegment(String(key)))
   }
   // English text is rendered with English plural rules (a Hindi plural rule on an English
   // sentence would pick the wrong branch for 0).
   const text = render(key, base, vars, 'en')
   if (text != null) return text
-  return options?.fallback ?? (config.dev ? String(key) : '')
+  // A broken English message (the catalogue test parses every value, so only a bad edit gets
+  // here): show its raw text rather than nothing.
+  return options?.fallback ?? base
+}
+
+function lastSegment(key: string): string {
+  const parts = key.split('.').filter(Boolean)
+  return parts[parts.length - 1] ?? key
 }
 
 /** A `t` bound to one language (what `useT()` and the main-side accessor return). */

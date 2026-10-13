@@ -4,7 +4,7 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { act, cleanup, fireEvent, render, renderHook, screen } from '@testing-library/react'
 import { AppearanceSection } from '../screens/settings/AppearanceSection'
-import { LANGUAGE_KEY, languageStorageKey, useT } from '../lib/i18n'
+import { LANGUAGE_KEY, languageStorageKey, useLanguage, useT } from '../lib/i18n'
 import { SimplePlaceholder } from '../simple/SimplePlaceholder'
 import { useSession } from '../state/stores'
 
@@ -46,6 +46,18 @@ describe('language switch', () => {
 
     act(() => useSession.setState({ user: { id: 8, name: 'Ravi', role: 'viewer' } }))
     expect(result.current('simple.home.moneyOut')).toBe('Paise gaye')
+  })
+
+  it('a switch made anywhere else (not AppearanceSection) re-renders every useT() consumer', () => {
+    render(<SimplePlaceholder />)
+    const { result: other } = renderHook(() => useLanguage())
+    const { result: t } = renderHook(() => useT())
+    expect(t.current('simple.home.moneyIn')).toBe('Money in')
+    act(() => other.current[1]('hinglish'))
+    expect(other.current[0]).toBe('hinglish')
+    expect(t.current('simple.home.moneyIn')).toBe('Paise aaye')
+    // the placeholder has no Hinglish yet: it falls back to English, still rendered
+    expect(screen.getByTestId('simple-placeholder').textContent).toContain('Simple mode is on its way')
   })
 
   it('the existing Appearance wording is unchanged', () => {

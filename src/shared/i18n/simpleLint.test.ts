@@ -7,9 +7,10 @@
 //   - JSX text containing a letter;
 //   - a string / template literal with a letter inside a JSX expression or a non-technical JSX
 //     prop (title, placeholder, label, aria-label, …);
-//   - outside JSX, a literal that reads like prose (starts "Xy…", or is ≥ 2 letter-only words) —
-//     so a label table can't sneak strings past the lint; mark a genuine technical literal with
-//     an `i18n-technical` comment on its line;
+//   - outside JSX, a literal that reads like prose (starts "Xy…", or is ≥ 2 letter-only words)
+//     or is a single all-letter word of ≥ 2 characters not in CODE_WORDS (`show('saved')`,
+//     'OK', 'GST') — so a label table or toast can't sneak strings past the lint; mark a genuine
+//     technical literal with an `i18n-technical` comment on its line;
 //   - a t() key outside common.* / simple.* / errors.*, or not in the en catalogue.
 // Allowed: className, data-*, aria-* state attributes, TECHNICAL_PROPS, t() arguments, import
 // paths, equality / case comparisons, element-access keys and literal types.
@@ -68,7 +69,21 @@ function technicalProp(name: string): boolean {
   return TECHNICAL_PROPS.has(name) || name.startsWith('data-') || name.startsWith('aria-')
 }
 
+// Lower-case single words that are code, not copy: DOM / ARIA / React tokens, kit variants and
+// the simple flows' enum values. Case-sensitive — 'OK' or 'Cash' is still flagged.
+const CODE_WORDS = new Set([
+  'button', 'submit', 'reset', 'text', 'number', 'email', 'tel', 'search', 'checkbox', 'radio',
+  'polite', 'assertive', 'off', 'on', 'true', 'false', 'none', 'auto', 'smooth', 'instant',
+  'click', 'keydown', 'keyup', 'change', 'input', 'focus', 'blur', 'div', 'span', 'section',
+  'default', 'center', 'start', 'end', 'top', 'bottom', 'left', 'right', 'ltr', 'rtl',
+  'sm', 'md', 'lg', 'primary', 'secondary', 'ghost', 'danger', 'success', 'warning', 'error', 'info',
+  'neutral', 'string', 'object', 'function', 'undefined', 'boolean',
+  'cash', 'upi', 'card', 'bank', 'credit', 'simple', 'accountant', 'en', 'hi', 'hinglish',
+  'customer', 'supplier', 'expense', 'income', 'owner', 'items', 'amount'
+])
+
 const hasLetter = (s: string): boolean => /\p{L}/u.test(s)
+const isCodeWordViolation = (s: string): boolean => /^\p{L}{2,}$/u.test(s) && !CODE_WORDS.has(s)
 function readsLikeProse(s: string): boolean {
   const text = s.trim()
   if (/^\p{Lu}\p{Ll}/u.test(text)) return true
@@ -128,6 +143,7 @@ export function lintSimpleSource(source: string, file: string): LintIssue[] {
     const where = context(node)
     if (where === 'jsx') add(node, text, 'raw string in JSX — use t()')
     else if (where === 'code' && readsLikeProse(text)) add(node, text, 'prose string outside t()')
+    else if (where === 'code' && isCodeWordViolation(text.trim())) add(node, text, 'word string outside t() (mark i18n-technical if it is code)')
   }
 
   function visit(node: ts.Node): void {
@@ -197,6 +213,19 @@ describe('simple-mode string lint', () => {
       '10:t() key outside common / simple / errors',
       '11:t() key not in the en catalogue'
     ])
+  })
+
+  it('catches short and all-letter code literals (toasts, OK, acronyms)', () => {
+    const bad = `
+      show('saved')
+      const ok = 'OK'
+      const tax = 'GST'
+      const kind = 'button'
+      const one = 'x'
+      const marked = 'saved' // i18n-technical
+      const slug = 'simple-home'
+    `
+    expect(lintSimpleSource(bad, 'Short.ts').map((i) => `${i.line}:${i.text}`)).toEqual(['2:saved', '3:OK', '4:GST'])
   })
 
   it('leaves technical strings alone', () => {

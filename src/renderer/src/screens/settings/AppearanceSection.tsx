@@ -52,7 +52,7 @@ export function AppearanceSection(): React.JSX.Element {
           <Segmented label={t('settings.language.title')} options={languages} value={language} onChange={setLanguage} testId="btn-language" />
         </Row>
       </Panel>
-      <p className="mt-2 text-hint text-muted">These apply to every company on this Mac and are never stored in the books.</p>
+      <p className="mt-2 text-hint text-muted">Theme, density and motion apply to every company on this Mac. Language is kept for each person — per company and user when someone signs in. None of these are stored in the books.</p>
     </div>
   )
 }

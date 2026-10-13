@@ -70,7 +70,8 @@ describe('t()', () => {
     const report = vi.fn()
     const bogus = 'simple.nope' as MessageKey
     configureI18n({ dev: false, report })
-    expect(t(bogus)).toBe('')
+    expect(t(bogus)).toBe('nope') // the last key segment, never blank
+    expect(t('simple.sell.noSuchButton' as MessageKey, undefined, 'hi')).toBe('noSuchButton')
     expect(t(bogus, undefined, 'en', { fallback: 'Fallback' })).toBe('Fallback')
     expect(report).not.toHaveBeenCalled()
 
@@ -79,6 +80,18 @@ describe('t()', () => {
     t(bogus)
     t(bogus)
     expect(report.mock.calls.filter(([p]) => p.kind === 'unknown-key')).toHaveLength(1)
+  })
+
+  it('a present-but-empty translation falls back to English', () => {
+    const hi = CATALOGUES.hi as Record<string, string>
+    const before = hi['simple.sell.makeBill']
+    hi['simple.sell.makeBill'] = ''
+    try {
+      expect(t('simple.sell.makeBill', undefined, 'hi')).toBe('Make a bill')
+    } finally {
+      if (before == null) delete hi['simple.sell.makeBill']
+      else hi['simple.sell.makeBill'] = before
+    }
   })
 
   it('dev reports untranslated keys and missing variables once each', () => {
@@ -117,10 +130,13 @@ describe('catalogues', () => {
     }
   })
 
-  it('no empty values; keys are dotted and namespaced', () => {
+  it('no empty values in any language; keys are dotted and namespaced', () => {
     for (const key of enKeys) {
       expect(en[key as MessageKey].trim(), key).not.toBe('')
       expect(key).toMatch(/^[a-z]+(\.[A-Za-z0-9]+)+$/)
+    }
+    for (const lang of LANGUAGES) {
+      for (const [key, value] of Object.entries(CATALOGUES[lang])) expect((value ?? '').trim(), `${lang} ${key}`).not.toBe('')
     }
   })
 
