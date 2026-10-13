@@ -3361,5 +3361,22 @@ export const MIGRATIONS: string[] = [
   );
   CREATE INDEX idx_capture_items_status ON capture_items(status);
   CREATE INDEX idx_capture_items_sha ON capture_items(sha256);
+  `,
+  // WP 8.5 (last; number by position — 046, after WP 5.4's 045; WP 8.3 also appends one, the
+  // second to land re-places) — grouped undo. An Undo from the save card bins the vouchers it
+  // saved together as ONE group; restoring any of them from the bin restores the group. Only
+  // the grouping is stored (which vouchers went to the bin together); the bin itself is still
+  // vouchers.deleted_at. A purged voucher leaves its group (cascade).
+  `
+  CREATE TABLE undo_groups (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+  CREATE TABLE undo_group_vouchers (
+    group_id INTEGER NOT NULL REFERENCES undo_groups(id) ON DELETE CASCADE,
+    voucher_id INTEGER NOT NULL REFERENCES vouchers(id) ON DELETE CASCADE,
+    PRIMARY KEY (group_id, voucher_id)
+  );
+  CREATE UNIQUE INDEX idx_undo_group_vouchers_voucher ON undo_group_vouchers(voucher_id);
   `
 ]

@@ -15,6 +15,22 @@ const layerStack: number[] = []
  *  inside the topmost one. */
 const layerElements = new Map<number, () => HTMLElement | null>()
 
+/** Called with a layer's id once it closes (WP 8.5: the toasts it raised close with it). */
+const closeListeners = new Set<(id: number) => void>()
+
+/** Subscribe to layer closes; returns the unsubscribe. */
+export function onLayerClose(listener: (id: number) => void): () => void {
+  closeListeners.add(listener)
+  return () => {
+    closeListeners.delete(listener)
+  }
+}
+
+/** The topmost open layer's id, or null with no dialog / drawer open (WP 8.5 toast scopes). */
+export function topLayerId(): number | null {
+  return layerStack[layerStack.length - 1] ?? null
+}
+
 /** True while any Modal or Drawer is mounted — screens use it to suppress their own global
  *  shortcuts (Gateway single-letter keys, VoucherEntry F-keys / ⌘↵) so keys aimed at a dialog
  *  never leak through to the screen underneath. useKeyNav already checks this internally. */
@@ -112,6 +128,7 @@ export function useDialogLayer(ref: RefObject<HTMLElement | null>, onEscape: () 
       const i = layerStack.indexOf(id)
       if (i >= 0) layerStack.splice(i, 1)
       layerElements.delete(id)
+      for (const l of closeListeners) l(id)
     }
   }, [ref])
 }

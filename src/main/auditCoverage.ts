@@ -161,7 +161,9 @@ export const AUDIT_COVERAGE: Record<string, AuditCoverage> = {
   // statement-line draft reconciles its line (bank date, match, learned rule).
   'voucher:save': a('voucher', 'credit_override', 'ai_draft', 'attachment', 'capture_item', 'voucher_line', 'bank_statement_line', 'bank_learned_rule'),
   'voucher:delete': a('voucher'),
-  'voucher:restore': a('voucher'),
+  // WP 8.5: restoring a voucher undone with others restores its undo group (one row per group).
+  'voucher:restore': a('voucher', 'undo_group'),
+  'voucher:undoSave': a('voucher', 'undo_group'),
   'voucher:purge': a('voucher', 'attachment'),
   'voucher:nextNumber': QUERY,
   'voucher:numberExists': QUERY,

@@ -113,7 +113,9 @@ export const AUDIT_ENTITIES = [
   // WP 6.4 bulk edit, attachments, party notes / tasks
   'attachment',
   'bulk_batch',
-  'party_note'
+  'party_note',
+  // WP 8.5 grouped undo (vouchers binned together by the save card's Undo)
+  'undo_group'
 ] as const
 
 export type AuditEntity = (typeof AUDIT_ENTITIES)[number]
@@ -145,6 +147,7 @@ export type AuditAction = (typeof AUDIT_ACTIONS)[number]
 export const AUDIT_ENTITY_LABELS: Partial<Record<AuditEntity, string>> = {
   ai_data: 'AI data (deleted)',
   ai_draft: 'AI draft',
+  undo_group: 'Undo (entries binned together)',
   ai_memory: 'AI memory',
   ai_settings: 'AI settings',
   ai_thread: 'AI conversation',
