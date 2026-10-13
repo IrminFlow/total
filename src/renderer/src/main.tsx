@@ -4,9 +4,12 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import App from './App'
 import { applyStoredAppearance } from './state/stores'
 import { bindQueryCacheToCompany } from './lib/companyCache'
+import { configureI18n } from '@shared/i18n'
 import './app.css'
 
 applyStoredAppearance()
+// Dev builds show an unknown i18n key as itself and warn once; production falls back silently.
+configureI18n({ dev: (import.meta as unknown as { env?: { DEV?: boolean } }).env?.DEV === true })
 
 const queryClient = new QueryClient({
   defaultOptions: {

@@ -1,6 +1,8 @@
 import { Checkbox, Panel, SectionTitle } from '../../components/ui'
 import { Segmented } from '../../components/kit/Segmented'
 import { useAppearance, useTheme, type Density, type ThemePref } from '../../state/stores'
+import { LANGUAGES } from '@shared/i18n'
+import { useLanguage, useT } from '../../lib/i18n'
 
 const THEMES: { value: ThemePref; label: string }[] = [
   { value: 'light', label: 'Light' },
@@ -25,10 +27,14 @@ function Row({ title, hint, children }: { title: string; hint: string; children:
   )
 }
 
-/** Settings → Appearance: theme, density and motion — app-wide display preferences (this Mac). */
+/** Settings → Appearance: theme, density and motion — app-wide display preferences (this Mac) —
+ *  and the language (per user: kept per company + user when someone is signed in; lib/i18n.ts). */
 export function AppearanceSection(): React.JSX.Element {
   const { pref, setPref } = useTheme()
   const { density, setDensity, reduceMotion, setReduceMotion } = useAppearance()
+  const [language, setLanguage] = useLanguage()
+  const t = useT()
+  const languages = LANGUAGES.map((value) => ({ value, label: t(`settings.language.${value}` as const) }))
   return (
     <div>
       <SectionTitle>Appearance</SectionTitle>
@@ -41,6 +47,9 @@ export function AppearanceSection(): React.JSX.Element {
         </Row>
         <Row title="Motion" hint="Turn off animations even when macOS allows them.">
           <Checkbox label="Reduce motion" checked={reduceMotion} onChange={setReduceMotion} testId="input-reduce-motion" />
+        </Row>
+        <Row title={t('settings.language.title')} hint={t('settings.language.hint')}>
+          <Segmented label={t('settings.language.title')} options={languages} value={language} onChange={setLanguage} testId="btn-language" />
         </Row>
       </Panel>
       <p className="mt-2 text-hint text-muted">These apply to every company on this Mac and are never stored in the books.</p>
