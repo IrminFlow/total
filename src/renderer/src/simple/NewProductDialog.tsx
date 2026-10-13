@@ -58,7 +58,7 @@ export function NewProductDialog({
   // WP 9.2: a rate outside the dated table only through "Custom rate (check with your CA)".
   const [customOpen, setCustomOpen] = useState(false)
   // WP 9.2: with stock off a product is a name and a price — the unit is not asked (the preset's).
-  const stockOn = useFeatures().inventory
+  const stockOn = useFeatures().inventory !== false
   const [hsn, setHsn] = useState('')
   const [saving, setSaving] = useState(false)
   const [asked, setAsked] = useState(false)

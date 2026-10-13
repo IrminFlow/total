@@ -15,6 +15,7 @@ import { bannedWordsIn } from '@shared/simple/bannedWords'
 import { useSession } from '../state/stores'
 import { MakeBill } from '../simple/sell/MakeBill'
 import { recordPaymentScreen } from '../simple/sell/recordPayment'
+import { NewProductDialog } from '../simple/NewProductDialog'
 
 const invoke = vi.fn()
 const GROUPS: Group[] = [
@@ -231,5 +232,30 @@ describe('Make a bill (WP 9.2)', () => {
   it('Record a payment opens Money in — the receipt editor pre-filled while Money in is still the full app', () => {
     const s = recordPaymentScreen({ partyId: 10, due: 68_000 }, 30)
     expect(s).toMatchObject({ name: 'voucher-entry', kindHint: 'receipt', draft: { partyLedgerId: 10, lines: [{ ledgerId: 30, drCr: 'dr', amount: 68_000 }, { ledgerId: 10, drCr: 'cr', amount: 68_000 }] } })
+  })
+
+  it('the product dialog (WP 8.4, gate follow-ups): a rate outside the dated slabs only as a marked custom rate; no unit with stock off', async () => {
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    const { unmount } = render(
+      <QueryClientProvider client={client}>
+        <NewProductDialog name="Bolt" onClose={() => undefined} onCreated={() => undefined} />
+      </QueryClientProvider>
+    )
+    await screen.findByTestId('select-product-unit')
+    click('gst-rate-other')
+    expect(screen.queryByTestId('input-product-gst-other')).toBeNull()
+    click('gst-rate-custom')
+    expect(text('product-gst-custom')).toContain('Use it only if your CA says so')
+    typeIn('input-product-gst-other', '12')
+    expect(screen.getByTestId('product-gst-custom')).toBeTruthy()
+    unmount()
+    features = { ...DEFAULT_FEATURES, inventory: false }
+    render(
+      <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+        <NewProductDialog name="Repair" onClose={() => undefined} onCreated={() => undefined} />
+      </QueryClientProvider>
+    )
+    await screen.findByTestId('dialog-new-product')
+    await waitFor(() => expect(screen.queryByTestId('select-product-unit')).toBeNull())
   })
 })
