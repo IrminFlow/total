@@ -280,6 +280,11 @@ export class Harness {
 }
 
 /** Simple assertion with a labeled failure. */
+/** WP 8.4: a picker's real options — never its "Create …" row (role="option" data-create="true"),
+ *  which a bare `[role="option"]` wait would also match while a typed name has no match yet. */
+export const OPTION = '[role="option"]:not([data-create])'
+export const PICKER_OPTION = `[role="listbox"] ${OPTION}`
+
 export function assert(cond, msg) {
   if (!cond) throw new Error(`assertion failed: ${msg}`)
 }

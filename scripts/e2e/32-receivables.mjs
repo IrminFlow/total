@@ -9,7 +9,7 @@
 // With WP42_SHOTS set, screens are captured in both themes there.
 import * as fs from 'node:fs'
 import * as path from 'node:path'
-import { scenario, assert, assertEq } from '../lib/harness.mjs'
+import { scenario, assert, assertEq, PICKER_OPTION } from '../lib/harness.mjs'
 
 await scenario('32-receivables', async (h) => {
   await h.createDemoCompany()
@@ -211,7 +211,7 @@ await scenario('32-receivables', async (h) => {
     const input = page.locator(`[data-testid="${testId}"]`).first()
     await input.click()
     await input.fill(text)
-    await page.waitForSelector('[role="listbox"] [role="option"]', { timeout: 5000 })
+    await page.waitForSelector(PICKER_OPTION, { timeout: 5000 })
     await input.press('Enter')
   }
   await h.goto('voucher-entry')
@@ -223,7 +223,7 @@ await scenario('32-receivables', async (h) => {
   const acct = page.locator('input[placeholder="e.g. Sales"]')
   await acct.click()
   await acct.fill(salesAcc.name)
-  await page.waitForSelector('[role="listbox"] [role="option"]', { timeout: 5000 })
+  await page.waitForSelector(PICKER_OPTION, { timeout: 5000 })
   await acct.press('Enter')
   const item = (await h.invoke('master:stockItems:list'))[0]
   await pick('picker-item', item.name)

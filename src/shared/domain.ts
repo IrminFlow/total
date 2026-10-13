@@ -67,6 +67,9 @@ export interface Ledger {
   creditLimit: number | null
   /** WP 8.3: simple-mode category key (shared/simple/categories.ts); present only when set. */
   simpleCategory?: import('./simple/categories').CategoryKey
+  /** WP 8.4 (migration "phone"): a party's phone / WhatsApp number; present only when set. */
+  phone?: string
+  whatsapp?: string
   /** WP 4.2 (migration 032) — party email for statements / reminders (mailto:). */
   email?: string | null
   /** Annual simple-interest rate on overdue bills, basis points (1800 = 18%); null = none. */

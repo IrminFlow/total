@@ -9,6 +9,10 @@ import { useGroups } from '../../components/pickers'
 import { groupAncestryNames, PARTY_GROUPS, TRADING_GROUPS } from '../../components/LedgerFormModal'
 import { defaultUnitId, itemShowsGst, itemShowsHsn, newItemGstRateError } from '../../lib/itemDefaults'
 import { chargesGst } from '@shared/gst/registration'
+import type { AccountContext } from '@shared/simple/accountKinds'
+import { useMode } from '../../lib/mode'
+import { NewAccountDialog } from '../../simple/NewAccountDialog'
+import { NewProductDialog } from '../../simple/NewProductDialog'
 
 // ---------- per-line cost-centre allocation modal ----------
 
@@ -94,20 +98,43 @@ export function CostAllocModal({
 
 // ---------- quick-create modals ----------
 
-export function QuickLedgerModal({
+interface QuickLedgerProps {
+  name: string
+  /** true → Sundry Debtors, false → Sundry Creditors, null → no preselect */
+  suggestParty: boolean | null
+  suggestAccount: boolean | null
+  /** WP 8.4: where the plain dialog starts when neither suggestion applies (a voucher line). */
+  context?: AccountContext
+  onClose: () => void
+  onCreated: (ledger: Ledger) => void
+}
+
+/** The context the plain dialog pre-picks from, read off the accountant suggestions. */
+function contextOf(p: QuickLedgerProps): AccountContext {
+  if (p.suggestParty != null) return { field: 'party', side: p.suggestParty ? 'sales' : 'purchase' }
+  if (p.suggestAccount != null) return { field: 'account', side: p.suggestAccount ? 'sales' : 'purchase' }
+  return p.context ?? { field: 'none' }
+}
+
+/** Inline "create" from a picker. A company in simple mode gets the plain dialog (WP 8.4,
+ *  simple/NewAccountDialog — "Show every field" falls back to the form below); accountant mode
+ *  keeps the form unchanged (accountantForms.test.tsx snapshots it). */
+export function QuickLedgerModal(props: QuickLedgerProps): React.JSX.Element {
+  const simple = useMode() === 'simple'
+  const [full, setFull] = useState(false)
+  if (simple && !full) {
+    return <NewAccountDialog name={props.name} context={contextOf(props)} onClose={props.onClose} onCreated={props.onCreated} onFullForm={() => setFull(true)} />
+  }
+  return <AccountantQuickLedgerModal {...props} />
+}
+
+function AccountantQuickLedgerModal({
   name,
   suggestParty,
   suggestAccount,
   onClose,
   onCreated
-}: {
-  name: string
-  /** true → Sundry Debtors, false → Sundry Creditors, null → no preselect */
-  suggestParty: boolean | null
-  suggestAccount: boolean | null
-  onClose: () => void
-  onCreated: (ledger: Ledger) => void
-}): React.JSX.Element {
+}: QuickLedgerProps): React.JSX.Element {
   const groups = useGroups()
   const toast = useToasts()
   const queryClient = useQueryClient()
@@ -199,15 +226,21 @@ export function QuickLedgerModal({
   )
 }
 
-export function QuickItemModal({
-  name,
-  onClose,
-  onCreated
-}: {
+interface QuickItemProps {
   name: string
   onClose: () => void
   onCreated: (id: number) => void
-}): React.JSX.Element {
+}
+
+/** Inline "create" of a stock item. Simple mode → the plain "New product" dialog (WP 8.4: unit,
+ *  selling / purchase price, cited GST slab picker); accountant mode → the form below, unchanged. */
+export function QuickItemModal(props: QuickItemProps): React.JSX.Element {
+  const simple = useMode() === 'simple'
+  if (simple) return <NewProductDialog {...props} />
+  return <AccountantQuickItemModal {...props} />
+}
+
+function AccountantQuickItemModal({ name, onClose, onCreated }: QuickItemProps): React.JSX.Element {
   const { data: units } = useQuery({ queryKey: ['units'], queryFn: api.units.list })
   const toast = useToasts()
   const queryClient = useQueryClient()

@@ -12,7 +12,7 @@
 // both themes there.
 import * as fs from 'node:fs'
 import * as path from 'node:path'
-import { scenario, assert, assertEq } from '../lib/harness.mjs'
+import { scenario, assert, assertEq, PICKER_OPTION } from '../lib/harness.mjs'
 
 await scenario('29-counter-billing', async (h) => {
   await h.createDemoCompany()
@@ -240,12 +240,12 @@ await scenario('29-counter-billing', async (h) => {
   const party = page.locator('[data-testid="picker-party"]')
   await party.click()
   await party.fill('Umbrella Retail')
-  await page.waitForSelector('[role="listbox"] [role="option"]', { timeout: 5000 })
+  await page.waitForSelector(PICKER_OPTION, { timeout: 5000 })
   await party.press('Enter')
   const itemPicker = page.locator('[data-testid="picker-item"]').first()
   await itemPicker.click()
   await itemPicker.fill('Notebook Pack')
-  await page.waitForSelector('[role="listbox"] [role="option"]', { timeout: 5000 })
+  await page.waitForSelector(PICKER_OPTION, { timeout: 5000 })
   await itemPicker.press('Enter')
   const qty = page.locator('[data-testid="input-line-qty"]').first()
   await qty.fill('3')

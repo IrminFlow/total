@@ -6,6 +6,8 @@ import { createScanDetector } from '@shared/barcode'
 import { api } from '../lib/client'
 import { inputCls } from './ui'
 import { useFieldAria, useInField } from './kit/Field'
+import { useMode } from '../lib/mode'
+import { useT } from '../lib/i18n'
 
 export function useLedgers(): Ledger[] {
   const { data } = useQuery({ queryKey: ['ledgers'], queryFn: api.ledgers.list })
@@ -65,6 +67,14 @@ export function TypeAhead({
   const [text, setText] = useState(selected?.label ?? '')
   const [open, setOpen] = useState(false)
   const [active, setActive] = useState(0)
+  // WP 8.4: Enter never creates. The "Create …" row is reached only explicitly — ↓ past the last
+  // match (or onto it when nothing matches) or the mouse — and only then does Enter open the
+  // create dialog. A typo plus Enter used to become a new record ("Sal" next to "Sales").
+  const [onCreateRow, setOnCreateRow] = useState(false)
+  // Enter pressed with nothing matching: say how to create (accountant mode shows it only then).
+  const [enterMissed, setEnterMissed] = useState(false)
+  const simple = useMode() === 'simple'
+  const t = useT()
   const wrapRef = useRef<HTMLDivElement>(null)
 
   const filtered = useMemo(() => {
@@ -134,7 +144,7 @@ export function TypeAhead({
         aria-autocomplete="list"
         aria-expanded={open && (filtered.length > 0 || !!showCreate)}
         aria-controls={listId}
-        aria-activedescendant={open && filtered[active] ? `${listId}-${filtered[active]!.id}` : undefined}
+        aria-activedescendant={open && onCreateRow && showCreate ? `${listId}-create` : open && filtered[active] ? `${listId}-${filtered[active]!.id}` : undefined}
         autoFocus={autoFocus}
         onFocus={(e) => {
           e.target.select()
@@ -147,6 +157,8 @@ export function TypeAhead({
           setText(e.target.value)
           setOpen(true)
           setActive(0)
+          setOnCreateRow(false)
+          setEnterMissed(false)
           if (e.target.value.trim() === '') onPick(null)
         }}
         onKeyDown={(e) => {
@@ -172,20 +184,31 @@ export function TypeAhead({
           }
           if (e.key === 'ArrowDown') {
             e.preventDefault()
-            setActive((a) => Math.min(filtered.length - (showCreate ? 0 : 1), a + 1))
+            if (showCreate && (filtered.length === 0 || active >= filtered.length - 1)) setOnCreateRow(true)
+            else setActive((a) => Math.min(filtered.length - 1, a + 1))
           } else if (e.key === 'ArrowUp') {
             e.preventDefault()
-            setActive((a) => Math.max(0, a - 1))
+            if (onCreateRow) {
+              setOnCreateRow(false)
+              setActive(Math.max(0, filtered.length - 1))
+            } else setActive((a) => Math.max(0, a - 1))
           } else if (e.key === 'Enter') {
             e.preventDefault()
-            if (showCreate && active === filtered.length) {
+            if (showCreate && onCreateRow) {
               onCreate(text.trim())
               setOpen(false)
+              setOnCreateRow(false)
+              // The dialog decides what lands here (a new record, or an existing one it offered);
+              // until then the field shows its current value, not the typed name.
+              setText(selected?.label ?? '')
             } else {
+              // Selects the highlighted match; with no match Enter does nothing (never creates).
+              if (filtered.length === 0) setEnterMissed(true)
               pick(filtered[active])
             }
           } else if (e.key === 'Escape') {
             setOpen(false)
+            setOnCreateRow(false)
             setText(selected?.label ?? '')
           }
         }}
@@ -197,11 +220,14 @@ export function TypeAhead({
               key={o.id}
               id={`${listId}-${o.id}`}
               role="option"
-              aria-selected={i === active}
-              data-active={i === active}
+              aria-selected={!onCreateRow && i === active}
+              data-active={!onCreateRow && i === active}
 
               className="kbar-row cursor-pointer px-3 py-1.5"
-              onMouseEnter={() => setActive(i)}
+              onMouseEnter={() => {
+                setActive(i)
+                setOnCreateRow(false)
+              }}
               onMouseDown={(e) => {
                 e.preventDefault()
                 pick(o)
@@ -213,16 +239,28 @@ export function TypeAhead({
           ))}
           {showCreate && (
             <div
-              data-active={active === filtered.length}
+              id={`${listId}-create`}
+              role="option"
+              aria-selected={onCreateRow}
+              data-create="true"
+              data-active={onCreateRow}
+              data-testid={testId ? `${testId}-create` : undefined}
               className="kbar-row cursor-pointer border-t border-line px-3 py-1.5 text-detail text-amber"
-              onMouseEnter={() => setActive(filtered.length)}
+              onMouseEnter={() => setOnCreateRow(true)}
               onMouseDown={(e) => {
                 e.preventDefault()
                 onCreate(text.trim())
                 setOpen(false)
+                setOnCreateRow(false)
+                setText(selected?.label ?? '')
               }}
             >
-              Create “{text.trim()}”
+              {simple ? t('simple.picker.create', { name: text.trim() }) : <>Create “{text.trim()}”</>}
+            </div>
+          )}
+          {showCreate && filtered.length === 0 && !onCreateRow && (simple || enterMissed) && (
+            <div className="px-3 pb-1.5 text-caption text-muted" data-testid={testId ? `${testId}-nomatch` : undefined}>
+              {simple ? t('simple.picker.noMatch', { name: text.trim() }) : 'No match — ↓ to create'}
             </div>
           )}
         </div>

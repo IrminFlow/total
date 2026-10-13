@@ -3379,10 +3379,17 @@ export const MIGRATIONS: string[] = [
   );
   CREATE UNIQUE INDEX idx_undo_group_vouchers_voucher ON undo_group_vouchers(voucher_id);
   `,
-  // WP 8.3 (last — 047, after WP 8.5's undo 046; simple-for-everyone plan §4.1 / §6): the simple-mode category of a seeded account
+  // WP 8.3 (047, after WP 8.5's undo 046; WP 8.4's phone follows; simple-for-everyone plan §4.1 / §6): the simple-mode category of a seeded account
   // (src/shared/simple/categories.ts). Nullable, set only by the setup wizard's presets; no
   // report reads it — reports keep working off groups and voucher lines.
   `
   ALTER TABLE ledgers ADD COLUMN simple_category TEXT;
+  `,
+  // WP 8.4 (last; number by position — 048, after WP 8.3's simple_category 047; WP 8.7 also
+  // appends one, the second to land re-places): a party's phone and (optional) WhatsApp number,
+  // asked by the plain new-account dialog. Nullable, contact details only — no report reads them.
+  `
+  ALTER TABLE ledgers ADD COLUMN phone TEXT;
+  ALTER TABLE ledgers ADD COLUMN whatsapp TEXT;
   `
 ]

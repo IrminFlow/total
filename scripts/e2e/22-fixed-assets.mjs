@@ -5,7 +5,7 @@
 // both themes. Set WP36_SHOTS=/tmp/wp36 to also copy the screenshots there.
 import fs from 'node:fs'
 import path from 'node:path'
-import { scenario, assert, assertEq } from '../lib/harness.mjs'
+import { scenario, assert, assertEq, OPTION } from '../lib/harness.mjs'
 
 await scenario('22-fixed-assets', async (h) => {
   await h.createCompanyUI('Asset Works')
@@ -143,7 +143,7 @@ await scenario('22-fixed-assets', async (h) => {
   const cons = page.locator('[data-testid="picker-fixed-assets-consideration"]')
   await cons.click()
   await cons.fill('HDFC Bank')
-  await page.locator('[role="option"]', { hasText: 'HDFC Bank' }).first().waitFor({ timeout: 10000 })
+  await page.locator(OPTION, { hasText: 'HDFC Bank' }).first().waitFor({ timeout: 10000 })
   await cons.press('Enter')
   await page.waitForFunction(() => !document.querySelector('[data-testid="btn-fixed-assets-disposal-next"]')?.hasAttribute('disabled'), null, { timeout: 10000 })
   await shot('10-disposal-light')

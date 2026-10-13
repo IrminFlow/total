@@ -11,7 +11,7 @@
 // Set WP41_SHOTS=/tmp/wp41 to also copy the screenshots there.
 import fs from 'node:fs'
 import path from 'node:path'
-import { scenario, assert, assertEq } from '../lib/harness.mjs'
+import { scenario, assert, assertEq, OPTION } from '../lib/harness.mjs'
 
 await scenario('31-banking-depth', async (h) => {
   await h.createDemoCompany()
@@ -43,7 +43,7 @@ await scenario('31-banking-depth', async (h) => {
     const input = h.page.locator(selector).first()
     await input.click()
     await input.fill(text)
-    await h.page.waitForSelector('[role="option"]', { timeout: 10000 })
+    await h.page.waitForSelector(OPTION, { timeout: 10000 })
     await input.press('Enter')
   }
 

@@ -7,7 +7,7 @@
 // the UI-typed entry flow lands with lane S1's VoucherEntry split.
 // RECONCILE: after merge, consider driving one voucher through the invoice form itself
 // (picker-party / rows-invoice-lines / btn-save-voucher).
-import { scenario, assert, assertEq } from '../lib/harness.mjs'
+import { scenario, assert, assertEq, OPTION } from '../lib/harness.mjs'
 
 await scenario('03-voucher-lifecycle', async (h) => {
   // GST-registered: the scenario posts CGST / SGST (WP 8.0 refuses tax lines when unregistered).
@@ -208,7 +208,7 @@ await scenario('03-voucher-lifecycle', async (h) => {
     const input = h.page.locator(selector).first()
     await input.click()
     await input.fill(text)
-    await h.page.waitForSelector('[role="option"]', { timeout: 10000 })
+    await h.page.waitForSelector(OPTION, { timeout: 10000 })
     await input.press('Enter')
   }
   await pick('[data-testid="picker-party"]', 'E2E Contractor')
