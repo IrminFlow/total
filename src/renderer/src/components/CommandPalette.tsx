@@ -24,6 +24,7 @@ import { isEmptyQuery, parseSearchQuery, type SearchKind } from '@shared/searchQ
 import { fyOf, todayISO, toDisplayDate } from '@shared/dates'
 import { paletteQuestion, parseNavIntent } from '@shared/aiExplain'
 import { useAiAffordances } from '../lib/explain'
+import { useT } from '../lib/i18n'
 import { useAssistantPanel, useCurrentAiContext } from './ai/AssistantPanel'
 
 interface Command {
@@ -67,6 +68,7 @@ const PALETTE_LIMIT = 6
 export function CommandPalette({ onClose }: { onClose: () => void }): React.JSX.Element {
   const nav = useNav()
   const toast = useToasts()
+  const t = useT()
   const { clearCompany } = useSession()
   const from = useSession((s) => s.from)
   const regType = useSession((s) => s.info?.gstRegistrationType)
@@ -192,8 +194,8 @@ export function CommandPalette({ onClose }: { onClose: () => void }): React.JSX.
   // Books search: debounced 150ms, only fires once the query is meaningfully specific (2+ chars).
   const [debounced, setDebounced] = useState('')
   useEffect(() => {
-    const t = setTimeout(() => setDebounced(searchText.trim()), 150)
-    return () => clearTimeout(t)
+    const timer = setTimeout(() => setDebounced(searchText.trim()), 150)
+    return () => clearTimeout(timer)
   }, [searchText])
   const searchEnabled = debounced.length >= 2 && !isEmptyQuery(parseSearchQuery(debounced, ctx))
   const { data: results } = useQuery({
@@ -335,7 +337,7 @@ export function CommandPalette({ onClose }: { onClose: () => void }): React.JSX.
             }
             else if (e.key === 'Enter') runItem(navItems[active])
           }}
-          placeholder="Type a command, or search the books — name, number, GSTIN, amount…"
+          placeholder={t('palette.placeholder')}
           className="w-full border-b border-line bg-transparent px-5 py-3.5 text-lead outline-none placeholder:text-muted"
         />
         {(parsed.chips.length > 0 || parsed.unknown.length > 0) && (
@@ -372,7 +374,7 @@ export function CommandPalette({ onClose }: { onClose: () => void }): React.JSX.
           ))}
           {navItems.length === 0 && (
             <p className="px-5 py-6 text-center text-detail text-muted">
-              {searchEnabled && !live ? 'Searching…' : 'No commands or matches'}
+              {searchEnabled && !live ? t('palette.searching') : t('palette.empty')}
             </p>
           )}
         </div>
