@@ -24,7 +24,8 @@ import { setCreditHold } from './receivables'
 import { postClose } from './yearEnd'
 import { getFeatures, setFeatures } from './config'
 import { restoreFromBin, undoSave } from './undo'
-import { previewIntent, postIntent } from './simplePost'
+import { previewIntent, postIntent, remapSaveError } from './simplePost'
+import { normaliseIntent, type MappedEntry } from '@shared/simple/intents'
 
 const INFO: CompanyInfo = { ...TEST_INFO, name: 'Simple Post Co', gstin: '27AAPFU0939F1ZV', stateCode: '27', gstRegistrationType: 'regular' }
 const TODAY = '2025-08-14'
@@ -194,7 +195,7 @@ describe('every intent kind round-trips through its editor and equals a hand-ent
     ])
     expect(rows(twin, ids[0]!)).toEqual(rows(db, bill))
     expect(rows(twin, ids[1]!)).toEqual(rows(db, receipt))
-    expect(out.sentences).toEqual(['Bill ₹1,180.00 to Ramesh.', 'Includes GST ₹180.00.', '₹500.00 received by UPI.', '₹680.00 still due from Ramesh.'])
+    expect(out.sentences).toEqual(['Bill ₹1,180.00 to Ramesh.', 'Includes GST ₹180.00.', '₹500.00 received by UPI.', 'Ramesh still owes ₹680.00.'])
     expect(out.summary.parties).toEqual([{ ledgerId: L('Ramesh'), name: 'Ramesh', side: 'customer', balance: 68_000 }])
   })
 
@@ -324,7 +325,7 @@ describe('rehearsal, idempotency, undo', () => {
   it('preview says what will be recorded and leaves no trace — on success and on failure', () => {
     const before = trace()
     const p = previewIntent(db, INFO, { clientId: 'preview-0001', kind: 'sale', customerId: L('Ramesh'), items: [{ itemId: I('Widget'), qty: '1', rate: '1000' }], payment: { how: 'cash', amount: '500' } }, TODAY)
-    expect(p.sentences).toEqual(['Bill ₹1,180.00 to Ramesh.', 'Includes GST ₹180.00.', '₹500.00 received in cash.', '₹680.00 still due from Ramesh.'])
+    expect(p.sentences).toEqual(['Bill ₹1,180.00 to Ramesh.', 'Includes GST ₹180.00.', '₹500.00 received in cash.', 'Ramesh still owes ₹680.00.'])
     expect(p.entries.map((e) => [e.kind, e.lines.map((l) => [l.name, l.drCr, l.amount])])).toEqual([
       ['sales', [['Ramesh', 'dr', 118_000], ['Sales', 'cr', 100_000], ['CGST', 'cr', 9000], ['SGST', 'cr', 9000]]],
       ['receipt', [['Cash', 'dr', 50_000], ['Ramesh', 'cr', 50_000]]]
@@ -406,7 +407,217 @@ describe('refusals come back on the intent’s fields', () => {
     const v = getVoucher(db, out.voucherIds[0]!)!
     expect(v.lines.map((l) => [l.ledgerId, l.amount])).toEqual([[L('Ramesh'), 100_000], [L('Sales'), 100_000]])
     roundTrips(v.id, 'invoice')
-    expect(out.sentences).toEqual(['Bill ₹1,000.00 to Ramesh.', '₹1,000.00 received in cash.'])
+    expect(out.sentences).toEqual(['Bill ₹1,000.00 to Ramesh.', '₹1,000.00 received in cash.', 'Ramesh has paid everything.'])
+  })
+})
+
+// ---------------------------------------------------------------- review fixes
+
+/** Hand-entered twin through the accounting editor's own builder. */
+const acc = (kind: VoucherKind, date: string, rowsIn: AccountingFormState['rows'], refs: AccountingFormState['billRefs'], extra: Partial<AccountingFormState> = {}) =>
+  ({ kind, form: 'accounting' as const, state: blankAccounting(date, rowsIn, refs, extra) })
+const due = (name: string, d: DB = db) => partyAllocation(d, L(name, d), '2026-03-31')
+
+describe('advances and credits read as credit (outstanding.ts follows the sign)', () => {
+  it('money in with the advance flag: Outstandings shows a credit, the save card a negative balance', () => {
+    const out = post({ kind: 'money_in', customerId: L('Ramesh'), amount: '2,000', into: { how: 'bank' }, advance: true })
+    const v = getVoucher(db, out.voucherIds[0]!)!
+    expect(v.billRefs).toEqual([expect.objectContaining({ kind: 'new', amount: 200_000 })])
+    expect(due('Ramesh')).toMatchObject({ bills: [], unappliedCredit: 200_000 })
+    expect(out.summary.parties[0]!.balance).toBe(-200_000)
+    expect(out.sentences).toContain('Ramesh has paid ₹2,000.00 in advance.')
+    // A later bill set against the advance uses it: ₹1,180 − ₹2,000 → ₹820 credit left.
+    roundTrips(v.id, 'accounting')
+    const { twin, ids } = handEntered([acc('receipt', TODAY, [r('dr', L('HDFC Bank'), 200_000), r('cr', L('Ramesh'), 200_000)], [{ kind: 'new', name: v.number, amount: 200_000, dueDate: null }])])
+    expect(rows(twin, ids[0]!)).toEqual(rows(db, v.id))
+  })
+
+  it('a supplier advance (money out, advance) is a credit on the supplier side', () => {
+    const out = post({ kind: 'money_out', supplierId: L('Bharat Steel'), amount: 50_000, from: { how: 'cash' }, advance: true })
+    expect(due('Bharat Steel')).toMatchObject({ bills: [], unappliedCredit: 50_000 })
+    expect(out.summary.parties[0]!.balance).toBe(-50_000)
+    const v = getVoucher(db, out.voucherIds[0]!)!
+    const { twin, ids } = handEntered([acc('payment', TODAY, [r('dr', L('Bharat Steel'), 50_000), r('cr', L('Cash'), 50_000)], [{ kind: 'new', name: v.number, amount: 50_000, dueDate: null }])])
+    expect(rows(twin, ids[0]!)).toEqual(rows(db, v.id))
+  })
+
+  it('a return on a paid bill is a credit (sales and purchase side), equal to the hand-entered note', () => {
+    const sale = post({ kind: 'sale', customerId: L('Ramesh'), amount: { amount: '1000', gstRate: 18 }, payment: { how: 'cash' } })
+    const ret = post({ kind: 'return_sale', billId: sale.voucherIds[0]!, amount: { amount: '100' } })
+    expect(due('Ramesh')).toMatchObject({ bills: [], unappliedCredit: 11_800 })
+    expect(ret.sentences).toContain('Ramesh keeps ₹118.00 to use on a later bill.')
+    const n = getVoucher(db, ret.voucherIds[0]!)!
+    roundTrips(n.id, 'accounting')
+    const bill = post({ kind: 'purchase', supplierId: L('Bharat Steel'), billNo: 'B-1', amount: { amount: '1000', accountId: L('Purchases'), gstRate: 18 }, payment: { how: 'bank' } })
+    const dn = post({ kind: 'return_purchase', billId: bill.voucherIds[0]!, amount: { amount: '100' } })
+    expect(due('Bharat Steel')).toMatchObject({ bills: [], unappliedCredit: 11_800 })
+    const d = getVoucher(db, dn.voucherIds[0]!)!
+    expect(d.lines.map((l) => [l.ledgerId, l.drCr, l.amount])).toEqual([[L('Bharat Steel'), 'dr', 11_800], [L('Purchases'), 'cr', 10_000], [L('CGST'), 'cr', 900], [L('SGST'), 'cr', 900]])
+    // The twins, through the accounting editor's builder.
+    const { twin, ids } = handEntered([])
+    const cnType = typeId(twin, 'credit_note')
+    const cn = buildAccountingPayload(blankAccounting(TODAY, [r('cr', L('Ramesh', twin), 11_800), r('dr', L('Sales', twin), 10_000), r('dr', L('CGST', twin), 900), r('dr', L('SGST', twin), 900)], [{ kind: 'new', name: n.number, amount: 11_800, dueDate: TODAY }], { number: n.number }), { kind: 'credit_note', voucherTypeId: cnType, derivedPartyId: L('Ramesh', twin) })
+    if (!cn.ok) throw new Error(cn.error)
+    ids.push(saveVoucher(twin, cn.payload).id)
+    expect(rows(twin, ids[0]!)).toEqual(rows(db, n.id))
+  })
+
+  it('a return larger than what is still due: the due part comes off the bill, the rest is a credit; a refund pays back only that rest', () => {
+    const sale = post({ kind: 'sale', customerId: L('Ramesh'), amount: { amount: '1000', gstRate: 0 }, payment: { how: 'cash', amount: '950' } })
+    const ret = post({ kind: 'return_sale', billId: sale.voucherIds[0]!, amount: { amount: '200', gstRate: 0 } })
+    const n = getVoucher(db, ret.voucherIds[0]!)!
+    expect(n.billRefs.map((b) => [b.kind, b.amount])).toEqual([['against', 5_000], ['new', 15_000]])
+    expect(due('Ramesh')).toMatchObject({ bills: [], unappliedCredit: 15_000 })
+    roundTrips(n.id, 'accounting')
+    // With a refund (another sale): only the ₹150 credit goes back, settling the NOTE's bill.
+    const sale2 = post({ kind: 'sale', customerId: L('Kumar'), items: [{ itemId: I('Rice'), qty: '10', rate: '100' }], payment: { how: 'cash', amount: '950' } })
+    const ret2 = post({ kind: 'return_sale', billId: sale2.voucherIds[0]!, items: [{ lineUid: getVoucher(db, sale2.voucherIds[0]!)!.inventory[0]!.lineUid!, qty: '2' }], refund: { how: 'cash' } })
+    const [note2, refund] = ret2.voucherIds.map((id) => getVoucher(db, id)!)
+    // 2 × ₹100 + 5% IGST = ₹210; ₹100 was still due → ₹110 credit, refunded.
+    expect(note2!.billRefs.map((b) => [b.kind, b.amount])).toEqual([['against', 10_000], ['new', 11_000]])
+    expect(refund!.lines.map((l) => [l.ledgerId, l.drCr, l.amount])).toEqual([[L('Kumar'), 'dr', 11_000], [L('Cash'), 'cr', 11_000]])
+    expect(refund!.billRefs).toEqual([expect.objectContaining({ kind: 'against', name: note2!.billRefs[1]!.name, amount: 11_000 })])
+    expect(due('Kumar')).toMatchObject({ bills: [], unappliedCredit: 0 })
+    // A note whose refs mix both sides opens in the accounting form (the invoice form shows one kind) and round-trips.
+    const plan = editorResave(db, note2!.id).plan
+    expect(plan.mode).toBe('accounting')
+    saveVoucher(db, editorResave(db, note2!.id).payload, note2!.id)
+    expect(due('Kumar')).toMatchObject({ bills: [], unappliedCredit: 0 })
+  })
+})
+
+describe('bill names never collide with an open one', () => {
+  const lastYearInfo: CompanyInfo = { ...INFO, booksFrom: 2024 }
+  it("last year's bill 1 still open + this year's bill 1 paid in full: the receipt settles this year's", () => {
+    db = company(lastYearInfo)
+    const old = post({ kind: 'sale', customerId: L('Ramesh'), date: '2025-01-10', amount: { amount: '300', gstRate: 0 } }, db, lastYearInfo)
+    expect(getVoucher(db, old.voucherIds[0]!)!.number).toBe('1')
+    const now = post({ kind: 'sale', customerId: L('Ramesh'), amount: { amount: '500', gstRate: 0 }, payment: { how: 'cash' } }, db, lastYearInfo)
+    const [bill, receipt] = now.voucherIds.map((id) => getVoucher(db, id)!)
+    expect(bill!.number).toBe('1')
+    expect(bill!.billRefs[0]!.name).toBe('1/25-26')
+    expect(receipt!.billRefs[0]!.name).toBe('1/25-26')
+    expect(due('Ramesh').bills.map((b) => [b.number, b.pending])).toEqual([['1', 30_000]])
+    expect(now.sentences).toContain('Ramesh still owes ₹300.00.')
+    roundTrips(bill!.id, 'accounting')
+  })
+
+  it("the supplier's bill number repeated across years: a distinct bill, last year's stays open", () => {
+    db = company(lastYearInfo)
+    post({ kind: 'purchase', supplierId: L('Bharat Steel'), billNo: '101', date: '2025-02-01', amount: { amount: '400', accountId: L('Purchases'), gstRate: 0 } }, db, lastYearInfo)
+    const now = post({ kind: 'purchase', supplierId: L('Bharat Steel'), billNo: '101', amount: { amount: '600', accountId: L('Purchases'), gstRate: 0 }, payment: { how: 'bank' } }, db, lastYearInfo)
+    const bill = getVoucher(db, now.voucherIds[0]!)!
+    expect(bill.reference).toBe('101')
+    expect(bill.billRefs[0]!.name).toBe('101/25-26')
+    expect(due('Bharat Steel').bills.map((b) => [b.number, b.pending])).toEqual([['101', 40_000]])
+  })
+
+  it('a refund settles the note, never sale #1 of the same number', () => {
+    const s1 = post({ kind: 'sale', customerId: L('Ramesh'), amount: { amount: '100', gstRate: 0 }, payment: { how: 'cash' } })
+    // Credit note #1 on a paid bill, while sale "1" is still open on another bill → its name must differ.
+    post({ kind: 'sale', customerId: L('Ramesh'), amount: { amount: '700', gstRate: 0 } })
+    db.prepare("UPDATE bill_refs SET name = '1' WHERE voucher_id = (SELECT MAX(id) FROM vouchers WHERE voucher_type_id = ?)").run(typeId(db, 'sales'))
+    const ret = post({ kind: 'return_sale', billId: s1.voucherIds[0]!, amount: { amount: '100', gstRate: 0 }, refund: { how: 'cash' } })
+    const [note, refund] = ret.voucherIds.map((id) => getVoucher(db, id)!)
+    expect(note!.number).toBe('1')
+    expect(note!.billRefs[0]!.name).toBe('1/25-26')
+    expect(refund!.billRefs[0]!.name).toBe('1/25-26')
+    expect(due('Ramesh').bills.map((b) => [b.number, b.pending])).toEqual([['1', 70_000]])
+  })
+})
+
+describe('idempotency and the save card', () => {
+  it('the same clientId with different answers is refused; after Undo the same answers post again as new', () => {
+    const intent = { clientId: 'idem-0001', kind: 'move_money', amount: 10_000, fromId: L('Cash'), toId: L('HDFC Bank') }
+    const a = postIntent(db, INFO, intent, TODAY)
+    expect(() => postIntent(db, INFO, { ...intent, amount: 20_000 }, TODAY)).toThrow(expect.objectContaining({ code: 'simple_client_reused' }))
+    try {
+      postIntent(db, INFO, { ...intent, amount: 20_000 }, TODAY)
+    } catch (e) {
+      expect((e as { field?: string }).field).toBeUndefined()
+    }
+    expect(postIntent(db, INFO, { ...intent }, TODAY)).toMatchObject({ replayed: true, voucherIds: a.voucherIds })
+    undoSave(db, a.voucherIds)
+    const again = postIntent(db, INFO, intent, TODAY)
+    expect(again.replayed).toBe(false)
+    expect(again.voucherIds).not.toEqual(a.voucherIds)
+    expect(count("SELECT COUNT(*) AS n FROM simple_posts WHERE client_id = 'idem-0001'")).toBe(1)
+  })
+
+  it('what is still due comes from the allocation after the save (an earlier credit counts)', () => {
+    post({ kind: 'money_in', customerId: L('Ramesh'), amount: '100', into: { how: 'cash' } })
+    expect(due('Ramesh')).toMatchObject({ bills: [], unappliedCredit: 10_000 })
+    const out = post({ kind: 'sale', customerId: L('Ramesh'), amount: { amount: '1000', gstRate: 0 }, payment: { how: 'cash', amount: '500' } })
+    expect(out.facts.due).toBe(40_000)
+    expect(out.sentences).toContain('Ramesh still owes ₹400.00.')
+    expect(out.summary.parties[0]!.balance).toBe(40_000)
+  })
+})
+
+describe('simple date guards and plain-error fields', () => {
+  it('before the books begin, or more than 30 days ahead, is refused at the date', () => {
+    expect(() => post({ kind: 'move_money', amount: 100, fromId: L('Cash'), toId: L('HDFC Bank'), date: '2025-03-31' })).toThrow(expect.objectContaining({ code: 'simple_before_books', field: 'date' }))
+    expect(() => post({ kind: 'move_money', amount: 100, fromId: L('Cash'), toId: L('HDFC Bank'), date: '2025-09-14' })).toThrow(expect.objectContaining({ code: 'simple_far_future', field: 'date' }))
+    expect(post({ kind: 'move_money', amount: 100, fromId: L('Cash'), toId: L('HDFC Bank'), date: '2025-09-13' }).voucherIds).toHaveLength(1)
+  })
+
+  it('a composition company: no GST, said in the preview; the bill equals the hand-entered one', () => {
+    const info: CompanyInfo = { ...INFO, gstRegistrationType: 'composition' }
+    db = company(info)
+    const p = previewIntent(db, info, { clientId: 'comp-0001', kind: 'sale', customerId: L('Ramesh'), amount: { amount: '1000', gstRate: 18 }, payment: { how: 'card' } }, TODAY)
+    expect(p.facts.noGst).toBe('composition')
+    expect(p.sentences.some((x) => x.startsWith('GST is not added'))).toBe(true)
+    const out = postIntent(db, info, { clientId: 'comp-0001', kind: 'sale', customerId: L('Ramesh'), amount: { amount: '1000', gstRate: 18 }, payment: { how: 'card' } }, TODAY)
+    const [bill, receipt] = out.voucherIds.map((id) => getVoucher(db, id)!)
+    expect(bill!.lines.map((l) => [l.ledgerId, l.amount])).toEqual([[L('Ramesh'), 100_000], [L('Sales'), 100_000]])
+    // Card → the counter's card account (the first bank by default).
+    expect(receipt!.lines[0]).toMatchObject({ ledgerId: L('HDFC Bank'), drCr: 'dr' })
+    roundTrips(bill!.id, 'accounting')
+    roundTrips(receipt!.id, 'accounting')
+  })
+
+  it('walk-in receipt and money in / out equal the hand-entered entries', () => {
+    const walk = post({ kind: 'sale', items: [{ itemId: I('Rice'), qty: '2', rate: '50' }] })
+    const rec = getVoucher(db, walk.voucherIds[1]!)!
+    const bill = getVoucher(db, walk.voucherIds[0]!)!
+    const tw = handEntered([])
+    ledger(tw.twin, 'Cash sale', 'Sundry Debtors')
+    const recTwin = buildAccountingPayload(blankAccounting(TODAY, [r('dr', L('Cash', tw.twin), 10_500), r('cr', L('Cash sale', tw.twin), 10_500)], [{ kind: 'against', name: bill.number, amount: 10_500, dueDate: null }]), { kind: 'receipt', voucherTypeId: typeId(tw.twin, 'receipt'), derivedPartyId: L('Cash sale', tw.twin) })
+    if (!recTwin.ok) throw new Error(recTwin.error)
+    const twinId = saveVoucher(tw.twin, recTwin.payload).id
+    expect(rows(tw.twin, twinId)).toEqual(rows(db, rec.id))
+
+    const mi = post({ kind: 'money_in', sourceId: L("Owner's money"), amount: '5000', into: { how: 'bank' } })
+    const mo = post({ kind: 'money_out', payeeId: L('Rent'), amount: '1500', from: { how: 'cash' } })
+    const { twin, ids } = handEntered([
+      acc('receipt', TODAY, [r('dr', L('HDFC Bank'), 500_000), r('cr', L("Owner's money"), 500_000)], [], { number: getVoucher(db, mi.voucherIds[0]!)!.number }),
+      acc('payment', TODAY, [r('dr', L('Rent'), 150_000), r('cr', L('Cash'), 150_000)], [], { number: getVoucher(db, mo.voucherIds[0]!)!.number })
+    ])
+    expect(rows(twin, ids[0]!)).toEqual(rows(db, mi.voucherIds[0]!))
+    expect(rows(twin, ids[1]!)).toEqual(rows(db, mo.voucherIds[0]!))
+  })
+
+  it('an expense purchase equals the hand-entered one', () => {
+    const out = post({ kind: 'purchase', supplierId: L('Bharat Steel'), billNo: 'R-9', amount: { amount: '1000', accountId: L('Rent') } })
+    const { twin, ids } = handEntered([
+      acc('purchase', TODAY, [r('cr', L('Bharat Steel'), 118_000), r('dr', L('Rent'), 100_000), r('dr', L('CGST'), 9000), r('dr', L('SGST'), 9000)], [{ kind: 'new', name: 'R-9', amount: 118_000, dueDate: TODAY }], { number: getVoucher(db, out.voucherIds[0]!)!.number, reference: 'R-9' })
+    ])
+    expect(rows(twin, ids[0]!)).toEqual(rows(db, out.voucherIds[0]!))
+  })
+
+  it('a plain-Error refusal from the save comes back as simple_save_refused (on the items when goods move)', () => {
+    const entry = { role: 'note', kind: 'credit_note', voucherTypeId: 1, form: 'invoice', state: {}, payload: { inventory: [{}] } } as unknown as MappedEntry
+    expect(() => remapSaveError(new Error('Line 1 would return more than was sold'), normaliseIntent({ clientId: 'x-000001', kind: 'return_sale', billId: 1, amount: { amount: 100 } }, TODAY), entry))
+      .toThrow(expect.objectContaining({ code: 'simple_save_refused', field: 'items', message: 'Line 1 would return more than was sold', params: { part: 'note' } }))
+    const money = { ...entry, role: 'money', payload: { inventory: [] } } as unknown as MappedEntry
+    let e: unknown
+    try {
+      remapSaveError(new Error('x'), normaliseIntent({ clientId: 'x-000001', kind: 'move_money', amount: 1, fromId: 1, toId: 2 }, TODAY), money)
+    } catch (err) {
+      e = err
+    }
+    expect(e).toMatchObject({ code: 'simple_save_refused' })
+    expect((e as { field?: string }).field).toBeUndefined()
   })
 })
 

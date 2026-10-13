@@ -15,7 +15,7 @@ const result = (ids: number[]): SimplePostResult => ({
   replayed: false,
   summary: { entries: [], parties: [], undo: { undoable: true, reason: null } },
   sentences: ['₹2,000.00 moved from Cash to HDFC Bank.'],
-  facts: { kind: 'move_money', partyName: null, total: 200_000, tax: 0, paid: 0, how: null, moneyAccount: null, due: 0, settled: [], advance: 0, fromName: 'Cash', toName: 'HDFC Bank', againstBill: null, walkIn: false },
+  facts: { kind: 'move_money', partyName: null, total: 200_000, tax: 0, paid: 0, how: null, moneyAccount: null, due: 0, settled: [], advance: 0, fromName: 'Cash', toName: 'HDFC Bank', againstBill: null, offBill: 0, credit: 0, walkIn: false, balance: null, noGst: null, side: null },
   warnings: { negativeStock: [], creditLimitExceeded: null }
 })
 
@@ -91,6 +91,28 @@ describe('useSimplePost', () => {
     })
     expect(sent(1).intent.clientId).toBe(sent(0).intent.clientId)
     expect(sent(1).intent).toMatchObject({ kind: 'move_money', amount: '2,000', fromId: 1, toId: 2 })
+  })
+
+  it('reset while a post is running keeps that request (no second post)', async () => {
+    let release!: (v: unknown) => void
+    invoke.mockImplementation(() => new Promise((r) => (release = r)))
+    const { result: h } = renderHook(() => useSimplePost())
+    let a!: Promise<SimplePostResult>
+    let b!: Promise<SimplePostResult>
+    act(() => {
+      a = h.current.post(intent)
+    })
+    act(() => h.current.reset())
+    act(() => {
+      b = h.current.post(intent)
+    })
+    expect(b).toBe(a)
+    expect(invoke).toHaveBeenCalledTimes(1)
+    await act(async () => {
+      release({ ok: true, data: result([5]) })
+      await a
+    })
+    expect(h.current.status).toBe('saved')
   })
 
   it('reset starts over with a new clientId', async () => {
