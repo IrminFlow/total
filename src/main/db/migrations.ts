@@ -3385,11 +3385,40 @@ export const MIGRATIONS: string[] = [
   `
   ALTER TABLE ledgers ADD COLUMN simple_category TEXT;
   `,
-  // WP 8.4 (last; number by position — 048, after WP 8.3's simple_category 047; WP 8.7 also
+  // WP 8.4 (number by position — 048, after WP 8.3's simple_category 047; WP 8.7 also
   // appends one, the second to land re-places): a party's phone and (optional) WhatsApp number,
   // asked by the plain new-account dialog. Nullable, contact details only — no report reads them.
   `
   ALTER TABLE ledgers ADD COLUMN phone TEXT;
   ALTER TABLE ledgers ADD COLUMN whatsapp TEXT;
+  `,
+  // WP 8.7 (last — 049, after WP 8.4's phone 048; number by position) — opening bills. A party's opening balance can be split into the bills
+  // that make it up (number, date, amount), so they show in Outstandings one by one and can be
+  // settled by name. The ledger's opening_balance stays the figure every report sums; these rows
+  // only split it (services/analysis.ts reads them; a difference between the two is an unnamed
+  // "Opening (balance)" bill or settles the bills oldest first). Identity is (party, name) —
+  // stableBillKey `o:<name>`. Read and written only through services/openingBills.ts; the bills
+  // always add up to the opening (cleared / refused otherwise, plus the trigger below); a deleted
+  // ledger takes its bills with it.
+  `
+  CREATE TABLE opening_bills (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    party_ledger_id INTEGER NOT NULL REFERENCES ledgers(id) ON DELETE CASCADE,
+    name TEXT NOT NULL CHECK (length(trim(name)) > 0),
+    date TEXT NOT NULL,
+    due_date TEXT,
+    amount INTEGER NOT NULL CHECK (amount > 0)
+  );
+  CREATE UNIQUE INDEX idx_opening_bills_party_name ON opening_bills(party_ledger_id, name COLLATE NOCASE);
+  -- The guard: an opening may not change away from what its bills add up to. The app clears
+  -- (and audits) bills that no longer fit before it writes the opening (services/openingBills.ts),
+  -- so this only stops a write that skipped that path.
+  CREATE TRIGGER opening_bills_follow_opening BEFORE UPDATE OF opening_balance ON ledgers
+  WHEN NEW.opening_balance <> OLD.opening_balance
+    AND EXISTS (SELECT 1 FROM opening_bills WHERE party_ledger_id = NEW.id)
+    AND (SELECT SUM(amount) FROM opening_bills WHERE party_ledger_id = NEW.id) <> abs(NEW.opening_balance)
+  BEGIN
+    SELECT RAISE(ABORT, 'The opening balance is split into opening bills that no longer add up to it - change it through the opening setup');
+  END;
   `
 ]

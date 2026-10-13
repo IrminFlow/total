@@ -14,7 +14,7 @@ import {
 
 export const TARGET_IDS = [
   'groups', 'ledgers', 'parties', 'units', 'stockGroups', 'godowns', 'items', 'batches', 'priceLists', 'priceLevels', 'costCentres',
-  'openings', 'stockOpenings', 'voucherTypes', 'vouchers', 'tradeDocs', 'bank'
+  'openings', 'openingBills', 'stockOpenings', 'voucherTypes', 'vouchers', 'tradeDocs', 'bank'
 ] as const
 export type TargetId = (typeof TARGET_IDS)[number]
 
@@ -77,6 +77,8 @@ export interface ItemRow {
 export interface BatchRow { line: number; item: string; name: string; mfgDate: string | null; expiryDate: string | null }
 export interface PriceRow { line: number; level: string; item: string; rate: number; from: string | null; minQtyMilli: number | null; more?: MoreFields | null }
 export interface OpeningRow { line: number; ledger: string; opening: number }
+/** WP 8.7: one bill of a party's opening (the party's bills must add up to its opening). */
+export interface OpeningBillImportRow { line: number; party: string; bill: string; date: string; dueDate: string | null; amount: number }
 export interface StockOpeningRow { line: number; item: string; qtyMilli: number; value: number | null; rate: number | null }
 export interface VoucherTypeRow { line: number; name: string; kind: VoucherKind | null; prefix: string | null; more?: MoreFields | null }
 export interface BankRow { line: number; date: string; description: string; reference: string; deposit: number; withdrawal: number }
@@ -149,6 +151,7 @@ export type TargetRows =
   | { target: 'priceLevels'; rows: PriceLevelRow[] }
   | { target: 'costCentres'; rows: CostCentreRow[] }
   | { target: 'openings'; rows: OpeningRow[] }
+  | { target: 'openingBills'; rows: OpeningBillImportRow[] }
   | { target: 'stockOpenings'; rows: StockOpeningRow[] }
   | { target: 'voucherTypes'; rows: VoucherTypeRow[] }
   | { target: 'vouchers'; rows: VoucherDraft[] }
@@ -275,6 +278,17 @@ export const TARGETS: Record<TargetId, TargetDef> = {
       f('drCr', 'Dr/Cr', { aliases: ['dr / cr', 'type'] }),
       f('debit', 'Debit', { aliases: ['dr', 'debit amount', 'dr amount'] }),
       f('credit', 'Credit', { aliases: ['cr', 'credit amount', 'cr amount'] })
+    ]
+  },
+  openingBills: {
+    id: 'openingBills', label: 'Opening bills', section: 'Balances', matchOn: 'party',
+    description: 'The bills that make up a party’s opening balance (they must add up to it).',
+    fields: [
+      f('party', 'Party', { required: true, aliases: ['party name', 'ledger', 'customer', 'supplier'] }),
+      f('bill', 'Bill', { required: true, aliases: ['bill no', 'bill number', 'invoice', 'invoice no', 'ref'] }),
+      f('date', 'Bill Date', { required: true, aliases: ['bill date', 'invoice date'] }),
+      f('dueDate', 'Due Date', { aliases: ['due on'] }),
+      f('amount', 'Amount', { required: true, aliases: ['pending', 'pending amount', 'balance'] })
     ]
   },
   stockOpenings: {
@@ -594,6 +608,26 @@ export function parseTarget(target: TargetId, records: MappedRecord[], opts: { d
             const cr = take(c, 'credit', parseMoney)
             const opening = signed ?? (dr ?? 0) - (cr ?? 0)
             return { line: c.rec.line, ledger, opening }
+          })
+        },
+        errors
+      }
+    case 'openingBills':
+      return {
+        result: {
+          target,
+          rows: each((c) => {
+            const amount = take(c, 'amount', parseMoney)
+            if ((amount ?? 0) <= 0 && !c.bad) {
+              c.errors.push({ line: c.rec.line, field: 'amount', message: 'A bill needs an amount above zero' })
+              c.bad = true
+            }
+            const d = take(c, 'date', (r) => parseDate(r, dateOrder))
+            if (d === null && !c.bad) {
+              c.errors.push({ line: c.rec.line, field: 'date', message: 'Bill date is missing' })
+              c.bad = true
+            }
+            return { line: c.rec.line, party: need(c, 'party', 'Party'), bill: need(c, 'bill', 'Bill'), date: d ?? '', dueDate: take(c, 'dueDate', (r) => parseDate(r, dateOrder)), amount: amount ?? 0 }
           })
         },
         errors

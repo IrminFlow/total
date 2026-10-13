@@ -4,6 +4,7 @@ import { useT } from '../lib/i18n'
 import { onboardingScreen } from '../lib/onboarding'
 import { useNav, useSession } from '../state/stores'
 import { Page } from '../components/ui'
+import { OpeningsHomeCard } from './OpeningsHomeCard'
 import { onboardingFromDashSetup, type OnboardingStepId } from '@shared/onboarding'
 import { todayISO } from '@shared/dates'
 import type { MessageKey } from '@shared/i18n'
@@ -44,6 +45,8 @@ export function SimpleHome(): React.JSX.Element {
         <h2 className="text-title font-semibold text-ink">{t('simple.home.comingTitle')}</h2>
         <p className="mt-2 text-detail text-muted">{t('simple.home.comingBody')}</p>
       </section>
+
+      <OpeningsHomeCard series={seriesQ.data} />
 
       {checklist && (
         <section data-testid="simple-home-setup" className="mt-5 rounded-lg border border-line bg-panel p-panel shadow-elev-1">

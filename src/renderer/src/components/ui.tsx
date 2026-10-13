@@ -104,7 +104,8 @@ export function DateInput({
   testId = 'input-date',
   ariaLabel,
   allowEmpty = false,
-  placeholder
+  placeholder,
+  format
 }: {
   value: string
   context: string
@@ -117,8 +118,10 @@ export function DateInput({
   /** An optional date: '' is a valid value (shown blank; clearing the text sets it). */
   allowEmpty?: boolean
   placeholder?: string
+  /** How a valid date is shown (default DD-MMM-YY; simple screens pass toPlainDate). */
+  format?: (iso: string) => string
 }): React.JSX.Element {
-  const show = (v: string): string => (allowEmpty && !v ? '' : toDisplayDate(v))
+  const show = (v: string): string => (allowEmpty && !v ? '' : (format ?? toDisplayDate)(v))
   const [text, setText] = useState(show(value))
   const [bad, setBad] = useState(false)
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -151,7 +154,7 @@ export function DateInput({
           if (parsed) {
             setBad(false)
             onChange(parsed)
-            setText(toDisplayDate(parsed))
+            setText(show(parsed))
           } else {
             setBad(true)
           }

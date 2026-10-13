@@ -48,6 +48,7 @@ import { setCreditHold } from './receivables'
 import { setBankDetails } from './bulkPayments'
 import { markImportedClose } from './yearEnd'
 import { writeAudit } from './audit'
+import { openingBillsByParty, replaceOpeningBills, type OpeningBillRow } from './openingBills'
 import { readCompanyInfo, writeCompanyInfo } from '../db/seed'
 
 export type DuplicateStrategy = 'skip' | 'update' | 'create'
@@ -812,6 +813,38 @@ function settleOpenings(ctx: Ctx, before: number): string | null {
   )
 }
 
+/** WP 8.7: the Opening Bills sheet — per party, its bills replace the stored ones through the
+ *  single writer (they must add up to the party's opening, set by the Ledgers sheet before it;
+ *  a removed / renumbered bill with a matched payment is refused). Undo restores the bills the
+ *  party had. */
+function applyOpeningBillRows(ctx: Ctx, rows: { line: number; party: string; bill: string; date: string; dueDate: string | null; amount: number }[]): void {
+  const byParty = new Map<string, typeof rows>()
+  for (const r of rows) {
+    const k = r.party.trim().toLowerCase()
+    byParty.set(k, [...(byParty.get(k) ?? []), r])
+  }
+  for (const list of byParty.values()) {
+    const first = list[0]!
+    const id = lookup(ctx, 'ledgers', first.party)
+    if (id === null) {
+      outcome(ctx, first.line, first.party, 'error', `Unknown party "${first.party}" — import the ledgers first`)
+      continue
+    }
+    const next: OpeningBillRow[] = list
+      .map((r) => ({ name: r.bill.trim(), date: r.date, dueDate: r.dueDate, amount: r.amount }))
+      .sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0))
+    attempt(ctx, first.line, first.party, () => {
+      const before = openingBillsByParty(ctx.db, [id]).get(id) ?? []
+      if (!replaceOpeningBills(ctx.db, id, next)) {
+        outcome(ctx, first.line, first.party, 'skip', undefined)
+        return
+      }
+      track(ctx, 'opening_bills', id, 'update', { bills: before }, first.line)
+      outcome(ctx, first.line, first.party, before.length ? 'update' : 'create', undefined)
+    })
+  }
+}
+
 function applyStockOpenings(ctx: Ctx, rows: { line: number; item: string; qtyMilli: number; value: number | null; rate: number | null }[]): void {
   for (const r of rows) {
     attempt(ctx, r.line, r.item, () => {
@@ -1268,6 +1301,8 @@ function applyStep(ctx: Ctx, rows: TargetRows, result: ImportRunResult, booksFro
       return applyPriceLists(ctx, rows.rows, booksFromDate)
     case 'openings':
       return applyOpenings(ctx, rows.rows)
+    case 'openingBills':
+      return applyOpeningBillRows(ctx, rows.rows)
     case 'stockOpenings':
       return applyStockOpenings(ctx, rows.rows)
     case 'voucherTypes':
@@ -1367,6 +1402,8 @@ export function undoImport(db: DB, batchId: number): UndoResult {
       .prepare("SELECT 1 FROM audit_log WHERE entity = ? AND entity_id = ? AND id > ? AND action IN ('update', 'delete', 'restore', 'purge') LIMIT 1")
       .get(AUDIT_ENTITY_OF[entity] ?? entity, id, batch.last_audit_id)
   const markDone = db.prepare("UPDATE import_batch_items SET undone_at = datetime('now') WHERE id = ?")
+  // WP 8.7: opening bills are put back AFTER the ledgers' openings (they must add up to them).
+  const billsBack: { id: number; ledgerId: number; bills: OpeningBillRow[] }[] = []
   db.transaction(() => {
     for (const it of items) {
       if (editedAfter(it.entity, it.entity_id)) {
@@ -1378,7 +1415,16 @@ export function undoImport(db: DB, batchId: number): UndoResult {
           if (it.action === 'update') {
             const before = it.before_json ? JSON.parse(it.before_json) : null
             if (!before) return
-            if (it.entity === 'ledger') masters.updateLedger(db, it.entity_id, ledgerInputSchema.parse(before))
+            if (it.entity === 'opening_bills') {
+              // Put the earlier bills back; if they don't fit the opening yet (a ledger item below
+              // restores it), retry after the loop.
+              const earlier = (before as { bills: OpeningBillRow[] }).bills ?? []
+              try {
+                db.transaction(() => replaceOpeningBills(db, it.entity_id, earlier))()
+              } catch {
+                billsBack.push({ id: it.id, ledgerId: it.entity_id, bills: earlier })
+              }
+            } else if (it.entity === 'ledger') masters.updateLedger(db, it.entity_id, ledgerInputSchema.parse(before))
             else if (it.entity === 'stockItem') masters.updateStockItem(db, it.entity_id, stockItemInputSchema.parse(itemInputFromRow(before as StockItemRowDb)))
             else if (it.entity === 'voucher') saveVoucher(db, voucherToInput(before as Voucher), it.entity_id, { historicImport: true })
             else if (it.entity === 'bank_date') setBankDate(db, it.entity_id, (before as { bankDate: string | null }).bankDate)
@@ -1449,6 +1495,14 @@ export function undoImport(db: DB, batchId: number): UndoResult {
       } catch (err) {
         const msg = (err as Error).message
         res.kept.push({ entity: it.entity, id: it.entity_id, reason: msg === 'in use' || /vouchers|in use|movements/i.test(msg) ? 'still in use (purge the bin to remove it)' : msg })
+      }
+    }
+    for (const b of billsBack) {
+      if (!db.prepare('SELECT 1 FROM ledgers WHERE id = ?').get(b.ledgerId)) continue
+      try {
+        db.transaction(() => replaceOpeningBills(db, b.ledgerId, b.bills))()
+      } catch (err) {
+        res.kept.push({ entity: 'opening_bills', id: b.ledgerId, reason: `opening bills not put back: ${(err as Error).message}` })
       }
     }
     const status = res.kept.length ? 'partly_undone' : 'undone'

@@ -36,7 +36,7 @@ import {
 import type { FollowupInput } from '@shared/receivables/schemas'
 import { followupInputSchema } from '@shared/receivables/schemas'
 import { ledgerStatement } from './reports'
-import { outstandings, partyAllocation, registerVoucherRows } from './analysis'
+import { openingBillsByParty, outstandings, partyAllocation, registerVoucherRows } from './analysis'
 import { createLedger, descendantIdsByName, getLedger } from './masters'
 import { outwardSupplyClass } from './gst'
 import { extractEdocInvoices } from './edocs'
@@ -397,13 +397,16 @@ function gstApplies(company: CompanyInfo, cfg: ReceivablesConfig, override?: boo
   return company.gstRegistrationType === 'regular' && (override ?? cfg.interest.gstOnInterest)
 }
 
-const booksBegin = (company: CompanyInfo): string => `${company.booksFrom}-04-01`
+// The books' first day: the setup's chosen day (WP 8.3 booksBeginDate), else the first FY's start.
+const booksBegin = (company: CompanyInfo): string => company.booksBeginDate ?? `${company.booksFrom}-04-01`
 
 /**
  * Interest due per overdue bill of every party with a rate (or one party) as on `asOn`.
- * Bills are identified by stableBillKey; an opening-balance bill runs from its true origin — the
- * books-begin date (+ credit days) — never the current FY start the ageing allocation re-dates it
- * to, so no year's interest is lost and charging continues from the last charged day.
+ * Bills are identified by stableBillKey. A stored opening bill (WP 8.7, opening_bills) runs from
+ * its own date / due date; the unnamed opening (no split, or what the bills don't cover) runs from
+ * its true origin — the books-begin date (+ credit days) — never the current FY start the ageing
+ * allocation re-dates it to, so no year's interest is lost and charging continues from the last
+ * charged day.
  * Fully paid late bills accrue nothing (interest is on the pending amount only).
  */
 export function interestPreview(db: DB, company: CompanyInfo, asOn: string, ledgerId?: number, gstOnInterest?: boolean): InterestRow[] {
@@ -413,17 +416,25 @@ export function interestPreview(db: DB, company: CompanyInfo, asOn: string, ledg
   const parties = new Map(debtorRows(db).filter((p) => (p.rateBp ?? 0) > 0 && (!ledgerId || p.id === ledgerId)).map((p) => [p.id, p]))
   if (!parties.size) return []
   const rows: InterestRow[] = []
+  const openingBills = openingBillsByParty(db, [...parties.keys()])
   for (const op of outstandings(db, 'receivable', asOn)) {
     const party = parties.get(op.ledgerId)
     if (!party) continue
     const charged = chargedTo(db, party.id)
     const refs = newRefsByVoucher(db, party.id)
+    const stored = new Map((openingBills.get(party.id) ?? []).map((ob) => [ob.name, ob]))
     for (const b of op.bills) {
       if (b.pending <= 0 || (b.voucherId != null && notes.has(b.voucherId))) continue
       const billKey = stableBillKey(b.voucherId, b.number, b.voucherId != null ? refs.get(b.voucherId) : [])
       const opening = b.voucherId == null
-      const billDate = opening ? booksBegin(company) : b.date
-      const dueDate = opening ? (party.creditDays != null ? addDaysIso(billDate, party.creditDays) : null) : b.dueDate
+      const named = opening ? stored.get(b.number) : undefined
+      const billDate = named ? named.date : opening ? booksBegin(company) : b.date
+      // A stored bill: its due date as the allocation gives it (own due, else + credit days, else the bill date).
+      const dueDate = named
+        ? b.dueDate
+        : opening
+          ? (party.creditDays != null ? addDaysIso(billDate, party.creditDays) : null)
+          : b.dueDate
       const upto = charged.get(billKey) ?? null
       const r = billInterest({ billDate, dueDate, pendingPaise: b.pending, rateBp: party.rateBp!, graceDays: party.graceDays, chargedTo: upto }, asOn)
       if (!r.period || r.interestPaise < Math.max(1, cfg.interest.minimumPaise)) continue
