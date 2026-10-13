@@ -25,7 +25,7 @@ import type { ExplainInput } from '../lib/explain'
 type SectionKey = Exclude<keyof DashboardSeries, 'window'>
 type SectionData<K extends SectionKey> = DashboardSeries[K] extends DashSection<infer D> ? D : never
 import { useFeatures } from '../lib/useFeatures'
-import { CARD_SCREENS } from '../lib/screens'
+import { CARD_SCREENS, screenApplies } from '../lib/screens'
 import { isManufactureKey, kindForVoucherKey } from '../lib/voucherKeys'
 import { Sparkline } from '../components/charts'
 import { cardState, type CardState } from './gateway/parts'
@@ -43,10 +43,11 @@ import {
 } from './gateway/cards'
 
 /** Single-letter screen shortcuts, from the screen registry (lib/screens.ts). */
-const SHORTCUTS: { key: string; screen: Screen; feature?: (typeof CARD_SCREENS)[number]['feature'] }[] = CARD_SCREENS.map((s) => ({
+const SHORTCUTS: { key: string; screen: Screen; feature?: (typeof CARD_SCREENS)[number]['feature']; requiresGstRegistration?: boolean }[] = CARD_SCREENS.map((s) => ({
   key: s.card.key,
   screen: s.screen,
-  feature: s.feature
+  feature: s.feature,
+  requiresGstRegistration: s.requiresGstRegistration
 }))
 
 const QUICK_VOUCHERS: { kind: 'sales' | 'purchase' | 'receipt' | 'payment' | 'journal'; label: string; key: string }[] = [
@@ -61,10 +62,11 @@ export function Gateway(): React.JSX.Element {
   const nav = useNav()
   const toast = useToasts()
   const queryClient = useQueryClient()
-  const { from, to } = useSession()
+  const { from, to, info } = useSession()
   const today = todayISO()
   const features = useFeatures()
-  const shortcuts = useMemo(() => SHORTCUTS.filter((c) => !c.feature || features[c.feature]), [features])
+  const regType = info?.gstRegistrationType
+  const shortcuts = useMemo(() => SHORTCUTS.filter((c) => (!c.feature || features[c.feature]) && screenApplies(c, regType)), [features, regType])
 
   const seriesQ = useQuery({
     queryKey: ['dashboard', 'series', today, from, to],

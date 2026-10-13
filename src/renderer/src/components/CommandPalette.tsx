@@ -4,7 +4,7 @@ import { useNav, useSession, useToasts, type Screen } from '../state/stores'
 import { api } from '../lib/client'
 import { Kbd, Money, useKeyNav } from './ui'
 import { useFeatures } from '../lib/useFeatures'
-import { SCREENS } from '../lib/screens'
+import { SCREENS, screenApplies } from '../lib/screens'
 import { useSearchRecents, type RecentKind, type RecentRecord } from '../lib/searchRecents'
 import { openLedgerEdit } from '../lib/drill'
 import {
@@ -33,6 +33,8 @@ interface Command {
   keywords?: string[]
   /** Hidden (render-only) when this feature is off. */
   feature?: keyof CompanyFeatures
+  /** WP 8.0: hidden when the company is unregistered. */
+  requiresGstRegistration?: boolean
   run: () => void | Promise<void>
 }
 
@@ -67,6 +69,7 @@ export function CommandPalette({ onClose }: { onClose: () => void }): React.JSX.
   const toast = useToasts()
   const { clearCompany } = useSession()
   const from = useSession((s) => s.from)
+  const regType = useSession((s) => s.info?.gstRegistrationType)
   const features = useFeatures()
   const [query, setQuery] = useState('')
   const { recents, addQuery } = useSearchRecents()
@@ -89,6 +92,7 @@ export function CommandPalette({ onClose }: { onClose: () => void }): React.JSX.
       hint: s.name === 'search' ? '⌘⇧F' : s.card?.key,
       keywords: s.keywords,
       feature: s.feature,
+      requiresGstRegistration: s.requiresGstRegistration,
       run: s.name === 'gateway' ? () => nav.home() : go(s.screen!)
     }))
     return [
@@ -174,13 +178,13 @@ export function CommandPalette({ onClose }: { onClose: () => void }): React.JSX.
   }, [nav, toast, clearCompany])
 
   const filtered = useMemo(() => {
-    const visible = commands.filter((c) => !c.feature || features[c.feature])
+    const visible = commands.filter((c) => (!c.feature || features[c.feature]) && screenApplies(c, regType))
     const q = searchText.trim().toLowerCase()
     if (!q) return query.trim() && !intent ? [] : visible
     return visible.filter(
       (c) => c.label.toLowerCase().includes(q) || c.keywords?.some((k) => k.toLowerCase().includes(q))
     )
-  }, [commands, query, searchText, intent, features])
+  }, [commands, query, searchText, intent, features, regType])
 
   // Chips come from a local parse (instant, no round-trip); the IPC re-parses the same string.
   const parsed = useMemo(() => parseSearchQuery(query, ctx), [query, ctx])

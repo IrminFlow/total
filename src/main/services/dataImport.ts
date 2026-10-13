@@ -1380,7 +1380,7 @@ export function undoImport(db: DB, batchId: number): UndoResult {
             if (!before) return
             if (it.entity === 'ledger') masters.updateLedger(db, it.entity_id, ledgerInputSchema.parse(before))
             else if (it.entity === 'stockItem') masters.updateStockItem(db, it.entity_id, stockItemInputSchema.parse(itemInputFromRow(before as StockItemRowDb)))
-            else if (it.entity === 'voucher') saveVoucher(db, voucherToInput(before as Voucher), it.entity_id)
+            else if (it.entity === 'voucher') saveVoucher(db, voucherToInput(before as Voucher), it.entity_id, { historicImport: true })
             else if (it.entity === 'bank_date') setBankDate(db, it.entity_id, (before as { bankDate: string | null }).bankDate)
             else if (it.entity === 'group') masters.updateGroup(db, it.entity_id, { name: before.name, parentId: before.parentId })
             else if (it.entity === 'godown') masters.updateGodown(db, it.entity_id, before)

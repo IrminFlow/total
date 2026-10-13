@@ -11,6 +11,10 @@ export function defaultUnitId(units: readonly { id: number; symbol: string }[] |
 /** Does the item dialog show (and save) GST / cess rates? Only in a regular registration. */
 export const itemShowsGst = (type: GstRegistrationType | null | undefined): boolean => chargesGst(type)
 
+/** HSN on items / ledgers: a registered company needs it (a composition bill of supply too —
+ *  rule 49(e)); an unregistered business doesn't. */
+export const itemShowsHsn = (type: GstRegistrationType | null | undefined): boolean => type !== 'unregistered'
+
 /** A NEW item in a regular company needs a GST rate (blank by default — the user picks it; 0
  *  for nil-rated / exempt goods). Null = fine. */
 export function newItemGstRateError(type: GstRegistrationType | null | undefined, rateText: string): string | null {

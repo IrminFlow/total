@@ -3,13 +3,18 @@
 // refused with a plain message; an alteration of a voucher that already carried tax keeps it;
 // counter billing posts no tax and prints a "Bill of supply"; imports restore history as it was.
 import { describe, it, expect } from 'vitest'
+import { autoPlan, parseImportFile } from './importFiles'
+import { runImport, undoImport } from './dataImport'
+import { createLedger } from './masters'
+import { computeInvoice, emptyInvoiceState } from '@shared/voucherEdit'
+import { gstRegistrationOf, nextRegistrationFacts } from '@shared/gst/registration'
 import { pricingFixture, imbalance } from './pricingFixture.testutil'
 import { TEST_INFO } from '../db/testdb'
 import { writeCompanyInfo } from '../db/seed'
 import { getVoucher, saveVoucher } from './vouchers'
 import { counterCheckout, counterQuote } from './counter'
 import { documentHtml, getTemplate } from './printTemplates'
-import { gstr3b } from './gst'
+import { extractOutwardDocs, gstr3b } from './gst'
 import type { CompanyInfo } from '@shared/domain'
 import type { DB } from '../db/connection'
 import type { VoucherInput } from '@shared/schemas'
@@ -99,11 +104,17 @@ describe('WP 8.0 counter billing and print', () => {
     const taxIds = (db.prepare("SELECT id FROM ledgers WHERE tax_type IS NOT NULL").all() as { id: number }[]).map((x) => x.id)
     expect(inv.lines.some((l) => taxIds.includes(l.ledgerId))).toBe(false)
     const a4 = documentHtml(db, info, inv.id, getTemplate(db, 'classic')).html
-    expect(a4).toContain('BILL OF SUPPLY')
-    expect(a4).not.toContain('TAX INVOICE')
-    expect(a4).not.toContain('print-composition-note')
+    // Rule 49 is for registered persons: an unregistered business prints a plain INVOICE, with no
+    // GST column, tax table, CGST / SGST rows, place of supply or "this invoice" declaration.
+    expect(a4).toContain('<b>INVOICE</b>')
+    expect(a4).not.toMatch(/TAX INVOICE|BILL OF SUPPLY|print-composition-note/)
+    expect(a4).toContain('78.00') // the voucher's total — the print computes no GST from the item master
+    expect(a4).not.toContain('5.67')
+    expect(a4).not.toMatch(/GST %|GST rate|HSN\/SAC|>CGST<|>SGST<|Place of supply|this invoice/i)
     const roll = documentHtml(db, info, inv.id, getTemplate(db, 'receipt-80mm')).html
-    expect(roll).toContain('BILL OF SUPPLY')
+    expect(roll).toContain('>INVOICE<')
+    expect(roll).not.toMatch(/TAX INVOICE|Taxable value|<th>GST<\/th>|CGST/)
+    expect(roll).toContain('Subtotal')
     // GSTR-3B: the item master's 18% never applies — nothing is owed.
     const ret = gstr3b(db, info, '2025-10-01', '2025-10-31', '102025')
     expect(ret.outward).toMatchObject({ cgst: 0, sgst: 0, igst: 0, cess: 0 })
@@ -126,6 +137,90 @@ describe('WP 8.0 counter billing and print', () => {
     expect(r.totalPaise).toBe(10000)
     const html = documentHtml(db, info, r.invoiceId, getTemplate(db, 'classic')).html
     expect(html).toContain('BILL OF SUPPLY')
+    expect(html).not.toMatch(/>CGST<|>SGST<|Place of supply|this invoice/i)
     expect(html).toContain('Composition taxable person, not eligible to collect tax on supplies')
+  })
+})
+
+describe('WP 8.0 the registration is effective-dated (the voucher date decides)', () => {
+  /** Regular until 30 Sep 2025, composition from 1 Oct 2025. */
+  const switchToComposition = (db: DB): CompanyInfo => {
+    const info: CompanyInfo = { ...TEST_INFO, ...nextRegistrationFacts(TEST_INFO, 'composition', '2025-10-01', '2025-10-13') }
+    writeCompanyInfo(db, info)
+    return info
+  }
+
+  it('records the previous type and the date; an unchanged type keeps the history', () => {
+    const f = nextRegistrationFacts(TEST_INFO, 'composition', '2025-10-01', '2025-10-13')
+    expect(f).toEqual({ gstRegistrationType: 'composition', gstRegistrationSince: '2025-10-01', gstPreviousRegistrationType: 'regular' })
+    expect(nextRegistrationFacts({ ...TEST_INFO, ...f }, 'composition', '2026-01-01', '2026-01-02')).toEqual(f)
+    expect(nextRegistrationFacts(TEST_INFO, 'unregistered', null, '2025-10-13').gstRegistrationSince).toBe('2025-10-13')
+  })
+
+  it('a late bill of the regular months keeps its GST; one dated after the switch is refused', () => {
+    const { db, umbrella } = pricingFixture()
+    switchToComposition(db)
+    expect(saveVoucher(db, { ...taxedSale(db, umbrella), date: '2025-09-20' }).id).toBeGreaterThan(0)
+    expect(() => saveVoucher(db, { ...taxedSale(db, umbrella), date: '2025-10-07' })).toThrow(/composition scheme/)
+  })
+
+  it('a credit note after the switch, against a taxed invoice of the regular months, keeps its GST (s.34)', () => {
+    const { db, umbrella } = pricingFixture()
+    saveVoucher(db, { ...taxedSale(db, umbrella), date: '2025-09-10', billRefs: [{ kind: 'new', name: 'INV-9', amount: 11800, dueDate: null }] })
+    switchToComposition(db)
+    const note = { ...taxedSale(db, umbrella, 'credit_note'), date: '2025-10-07' }
+    expect(() => saveVoucher(db, note)).toThrow(/composition scheme/) // not set against anything
+    const id = saveVoucher(db, { ...note, billRefs: [{ kind: 'against', name: 'INV-9', amount: 11800, dueDate: null }] }).id
+    expect(getVoucher(db, id)!.lines.some((l) => l.ledgerId === ledgerId(db, 'CGST Output'))).toBe(true)
+  })
+
+  it('the editor computes a regular-period bill (and a note against one) with GST after the switch', () => {
+    const { db, pen } = pricingFixture()
+    const info = switchToComposition(db)
+    const ctx = { kind: 'sales' as const, companyStateCode: '27', ...gstRegistrationOf(info), items: new Map([[pen, { gstRate: 18, cessRate: null }]]), ledgers: new Map() }
+    const rows = [{ itemId: pen, qtyText: '1', rate: 10_000, discount: null, godownId: null, batchId: null }]
+    expect(computeInvoice({ ...emptyInvoiceState('2025-09-30'), rows }, ctx).gst.cgst).toBe(900)
+    expect(computeInvoice({ ...emptyInvoiceState('2025-10-01'), rows }, ctx).gst.cgst).toBe(0)
+    expect(computeInvoice({ ...emptyInvoiceState('2025-10-01'), rows, taxedOriginal: true }, { ...ctx, kind: 'credit_note' }).gst.cgst).toBe(900)
+  })
+
+  it('GSTR-3B of the regular months is unchanged by the switch — an export under LUT keeps its rate', () => {
+    const { db, pen } = pricingFixture()
+    const exporter = createLedger(db, {
+      name: 'Overseas Buyer', groupId: (db.prepare("SELECT id FROM groups WHERE name = 'Sundry Debtors'").get() as { id: number }).id, openingBalance: 0,
+      gstin: null, stateCode: '96', address: null, taxType: null, gstRate: null, hsn: null, tdsSectionId: null, pan: null, creditDays: null, exportType: 'exp_wop'
+    }).id
+    saveVoucher(db, {
+      ...taxedSale(db, exporter), date: '2025-09-12',
+      lines: [{ ledgerId: exporter, drCr: 'dr', amount: 10000, costAllocations: [] }, { ledgerId: ledgerId(db, 'Sales A/c'), drCr: 'cr', amount: 10000, costAllocations: [] }],
+      inventory: [{ stockItemId: pen, godownId: null, batchId: null, qtyMilli: 1000, ratePaise: 10000, discountPaise: 0, amount: 10000, direction: 'out' }]
+    })
+    const sep = (info: CompanyInfo) => gstr3b(db, info, '2025-09-01', '2025-09-30', '092025')
+    const before = sep(TEST_INFO)
+    expect(before.zeroRated.taxable).toBe(10000)
+    const docsBefore = extractOutwardDocs(db, TEST_INFO, '2025-09-01', '2025-09-30')
+    expect(docsBefore[0]!.items.map((i) => i.rate)).toEqual([18])
+    const info = switchToComposition(db)
+    const after = sep(info)
+    expect(after.zeroRated).toEqual(before.zeroRated)
+    expect(after.nilExempt).toEqual(before.nilExempt)
+    // Still rated at 18% (zero-rated under LUT), not turned into a nil-rated supply.
+    expect(extractOutwardDocs(db, info, '2025-09-01', '2025-09-30')).toEqual(docsBefore)
+  })
+})
+
+describe('WP 8.0 undo restores the earlier version exactly', () => {
+  it('an import that replaced a taxed sale is undone in an unregistered company', () => {
+    const { db, umbrella } = pricingFixture()
+    const v = saveVoucher(db, { ...taxedSale(db, umbrella), number: 'S-1' }) // regular: taxed
+    as(db, 'unregistered')
+    const csv = 'Voucher Type,Date,Number,Party,Ledger,Debit,Credit,Narration\nSales,2025-10-07,S-1,Umbrella Retail,Umbrella Retail,100,,changed\n,,,,Sales A/c,,100,'
+    const f = parseImportFile('x.csv', new TextEncoder().encode(csv))
+    const { steps, profile } = autoPlan(db, f, '27', {})
+    const r = runImport(db, steps, { duplicate: 'update' }, { source: profile.source, profileId: profile.id, fileName: 'x.csv' }, false)
+    expect(r.steps[0]).toMatchObject({ updated: 1 })
+    expect(getVoucher(db, v.id)!.lines).toHaveLength(2)
+    expect(undoImport(db, r.batchId!)).toMatchObject({ restored: 1, kept: [] })
+    expect(getVoucher(db, v.id)!.lines.filter((l) => l.ledgerId === ledgerId(db, 'CGST Output'))).toHaveLength(1)
   })
 })

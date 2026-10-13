@@ -207,7 +207,7 @@ function computeSeries(
       .map((l) => ({ ledgerId: l.id, name: l.name, balance: -(bal.get(l.id) ?? 0) }))
       .filter((l) => l.balance !== 0)
     // WP 8.0: no TDS row (or TDS deadline) for a company that has never deducted anything.
-    const everDeducted = !!db.prepare('SELECT 1 FROM tds_entries te JOIN vouchers v ON v.id = te.voucher_id WHERE v.deleted_at IS NULL LIMIT 1').get()
+    const everDeducted = !!db.prepare(`SELECT 1 FROM tds_entries te JOIN vouchers v ON v.id = te.voucher_id WHERE ${IN_BOOKS} LIMIT 1`).get()
     const applies = complianceApplicability({
       gstRegistrationType: company.gstRegistrationType, tdsOn: features.tds, tdsActivity: everDeducted || payableLedgers.length > 0, hasPayroll: false
     })

@@ -9,6 +9,8 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { useNav, useSession } from '../state/stores'
 import { QuickItemModal } from '../screens/voucher/modals'
 import { ComplianceCard } from '../screens/gateway/cards'
+import { Gstr3bScreen } from '../screens/GstReturns'
+import { SCREENS, screenApplies } from '../lib/screens'
 import { defaultUnitId, newItemGstRateError } from '../lib/itemDefaults'
 import type { CompanyInfo } from '@shared/domain'
 
@@ -80,6 +82,7 @@ describe('item defaults', () => {
     renderUi(<QuickItemModal name="Sugar 1kg" onClose={() => {}} onCreated={onCreated} />)
     await waitFor(() => expect((screen.getByRole('combobox') as HTMLSelectElement).value).toBe('4'))
     expect(screen.queryByTestId('input-quick-item-gst')).toBeNull()
+    expect(screen.queryByTestId('input-quick-item-hsn')).toBeNull()
     expect(screen.queryByText('GST %')).toBeNull()
     fireEvent.click(screen.getByText('Create item'))
     await waitFor(() => expect(onCreated).toHaveBeenCalledWith(99))
@@ -109,6 +112,20 @@ describe('placeholders that look like real data are gone', () => {
     const src = readFileSync(join(root, 'screens/voucher/InvoiceEntry.tsx'), 'utf8')
     expect(src).not.toContain('placeholder="Being goods sold…"')
     expect(src).toMatch(/purchase: 'Being goods purchased…'/)
+  })
+})
+
+describe('GST screens for an unregistered company', () => {
+  it('the GST returns / e-documents are flagged and hidden; GSTR-3B says no return is due', async () => {
+    const flagged = SCREENS.filter((s) => s.requiresGstRegistration).map((s) => s.name).sort()
+    expect(flagged).toEqual(['edocs', 'gstr1', 'gstr2b', 'gstr3b', 'gstr9', 'itc-reversal', 'itc04'])
+    expect(screenApplies({ requiresGstRegistration: true }, 'unregistered')).toBe(false)
+    expect(screenApplies({ requiresGstRegistration: true }, 'composition')).toBe(true)
+    expect(screenApplies({}, 'unregistered')).toBe(true)
+    act(() => useSession.setState({ slug: 'k3', info: info('unregistered'), from: '2026-04-01', to: '2027-03-31' }))
+    renderUi(<Gstr3bScreen />)
+    expect((await screen.findByTestId('gstr3b-unregistered')).textContent).toMatch(/not registered for GST, so no GSTR-3B is due/)
+    expect(screen.queryByText('Export JSON')).toBeNull()
   })
 })
 

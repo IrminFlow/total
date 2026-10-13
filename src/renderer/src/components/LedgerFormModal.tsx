@@ -116,7 +116,8 @@ function LedgerForm({
   onClose: () => void
   onOpenStatement?: (ledgerId: number) => void
 }): React.JSX.Element {
-  const companyChargesGst = chargesGst(useSession((s) => s.info?.gstRegistrationType ?? 'regular'))
+  const companyRegType = useSession((s) => s.info?.gstRegistrationType ?? 'regular')
+  const companyChargesGst = chargesGst(companyRegType)
   const groups = useGroups()
   const toast = useToasts()
   const queryClient = useQueryClient()
@@ -497,9 +498,11 @@ function LedgerForm({
                 <TextInput value={gstRate} onChange={(e) => setGstRate(e.target.value)} className="num" placeholder={GST_RATE_PRESETS.join(' / ')} />
               </Field>
             )}
-            <Field label="HSN / SAC">
-              <TextInput value={hsn} onChange={(e) => setHsn(e.target.value)} className="num" placeholder="For services" />
-            </Field>
+            {(companyRegType !== 'unregistered' || !!hsn) && (
+              <Field label="HSN / SAC">
+                <TextInput value={hsn} onChange={(e) => setHsn(e.target.value)} className="num" placeholder="For services" />
+              </Field>
+            )}
             <Field label="TDS section (default)" hint="Debits to this ledger suggest TDS for parties with a PAN or deductee type">
               <Select
                 data-testid="ledger-tds-default-section"

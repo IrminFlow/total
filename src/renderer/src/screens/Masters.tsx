@@ -24,7 +24,7 @@ import { PartyRatesTab } from './masters/PartyRatesTab'
 import { SchemesTab } from './masters/SchemesTab'
 import { useBulkSelection } from '../components/bulk/BulkEdit'
 import { AttachmentList } from '../components/attachments/Attachments'
-import { defaultUnitId, itemShowsGst, newItemGstRateError } from '../lib/itemDefaults'
+import { defaultUnitId, itemShowsGst, itemShowsHsn, newItemGstRateError } from '../lib/itemDefaults'
 
 export type MastersTab = NonNullable<Extract<Screen, { name: 'masters' }>['tab']>
 
@@ -711,9 +711,11 @@ export function ItemFormModal({ item, onClose }: { item: StockItem | null; onClo
               ))}
             </Select>
           </Field>
-          <Field label="HSN" error={hsnError}>
-            <TextInput value={hsn} onChange={(e) => setHsn(e.target.value)} className="num" />
-          </Field>
+          {(itemShowsHsn(regType) || !!item?.hsn) && (
+            <Field label="HSN" error={hsnError}>
+              <TextInput value={hsn} onChange={(e) => setHsn(e.target.value)} className="num" />
+            </Field>
+          )}
           {showGst && (
             <Field label="GST %" error={gstError}>
               <TextInput value={gstRate} onChange={(e) => setGstRate(e.target.value)} className="num" placeholder="Pick a rate" data-testid="input-item-gst-rate" />

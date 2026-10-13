@@ -7,7 +7,7 @@ import { useSession, useToasts } from '../../state/stores'
 import { AmountInput, Button, Field, Modal, Select, TextInput } from '../../components/ui'
 import { useGroups } from '../../components/pickers'
 import { groupAncestryNames, PARTY_GROUPS, TRADING_GROUPS } from '../../components/LedgerFormModal'
-import { defaultUnitId, itemShowsGst, newItemGstRateError } from '../../lib/itemDefaults'
+import { defaultUnitId, itemShowsGst, itemShowsHsn, newItemGstRateError } from '../../lib/itemDefaults'
 import { chargesGst } from '@shared/gst/registration'
 
 // ---------- per-line cost-centre allocation modal ----------
@@ -269,9 +269,11 @@ export function QuickItemModal({
               ))}
             </Select>
           </Field>
-          <Field label="HSN">
-            <TextInput value={hsn} onChange={(e) => setHsn(e.target.value)} className="num" placeholder="Optional" data-testid="input-quick-item-hsn" />
-          </Field>
+          {itemShowsHsn(regType) && (
+            <Field label="HSN">
+              <TextInput value={hsn} onChange={(e) => setHsn(e.target.value)} className="num" placeholder="Optional" data-testid="input-quick-item-hsn" />
+            </Field>
+          )}
           {showGst && (
             <Field label="GST %" error={gstTried ? newItemGstRateError(regType, rate) : null}>
               <TextInput value={rate} onChange={(e) => setRate(e.target.value)} className="num" placeholder="Pick a rate" data-testid="input-quick-item-gst" />

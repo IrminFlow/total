@@ -1,7 +1,8 @@
 // Scenario 46 — WP 8.0, an unregistered shop: a company created through the UI with no GSTIN
 // (unregistered) → an item that still carries an 18% rate (as an import would leave it) → the
 // Sales form shows no GST column and says why → a counter sale charges no GST (total = price) →
-// the bill prints "BILL OF SUPPLY", never "TAX INVOICE" → a hand-built sale with CGST / SGST
+// the bill prints a plain "INVOICE" (rule 49's bill of supply is for registered persons), never
+// "TAX INVOICE", with no GST rows or place of supply → a hand-built sale with CGST / SGST
 // lines is refused with the plain message → GSTR-3B shows nothing owed → Outstandings ageing is
 // as on today (not the FY end) and the dashboard shows no TDS deadline.
 import { scenario, assert, assertEq } from '../lib/harness.mjs'
@@ -59,10 +60,11 @@ await scenario('46-unregistered-sale', async (h) => {
   assertEq(inv.lines.find((l) => l.ledgerId === sales.id)?.amount, 9000, 'the sales ledger takes the whole ₹90')
   await h.shot('02-after-sale')
 
-  // ---------- print: Bill of supply ----------
+  // ---------- print: a plain invoice, no GST ----------
   for (const templateId of ['classic', 'receipt-80mm']) {
     const { html } = await h.invoke('counter:printHtml', { voucherId: inv.id, templateId })
-    assert(/bill of supply/i.test(html), `${templateId}: the print title is Bill of supply`)
+    assert(/>INVOICE</.test(html) && !/bill of supply/i.test(html), `${templateId}: the print title is INVOICE`)
+    assert(!/>CGST<|>SGST<|Place of supply/.test(html), `${templateId}: no GST rows or place of supply`)
     assert(!/tax invoice/i.test(html), `${templateId}: never "Tax invoice"`)
   }
 
@@ -108,6 +110,10 @@ await scenario('46-unregistered-sale', async (h) => {
   assertEq(owed, 0, 'GSTR-3B: nothing owed')
   const outTax = ['igst', 'cgst', 'sgst', 'cess'].reduce((s, k) => s + (r3b.outward?.[k] ?? 0), 0)
   assertEq(outTax, 0, 'GSTR-3B: no output tax')
+
+  // The GST returns are not in the sidebar of an unregistered company.
+  assertEq(await page.$('[data-testid="nav-gstr3b"]'), null, 'no GSTR-3B in the sidebar')
+  assertEq(await page.$('[data-testid="nav-gstr1"]'), null, 'no GSTR-1 in the sidebar')
 
   // ---------- Outstandings: as on today; the dashboard: no TDS deadline ----------
   await h.goto('outstandings')

@@ -4,7 +4,7 @@ import type { EdocInvoice, EdocItem } from '../gst/edocs'
 import { amountInWords, formatPaise, formatQtyMilli, plainRupees } from '../money'
 import { formatDateAs } from '../dates'
 import { GST_STATES } from '../gst/states'
-import { BILL_OF_SUPPLY_TITLE, chargesGst, COMPOSITION_DECLARATION } from '../gst/registration'
+import { chargesGstOn, COMPOSITION_DECLARATION, nonTaxInvoiceTitle, registrationOn } from '../gst/registration'
 import { einvoiceQrPayload } from '../einvoiceQr'
 import {
   CHALLAN_COPY_LABELS,
@@ -194,21 +194,31 @@ const NUMBER_STACKS: Record<'mono' | 'plex-mono', string> = {
   'plex-mono': "'IBM Plex Mono', 'SF Mono', Menlo, monospace"
 }
 
-/** WP 8.0: the printed title. A composition / unregistered company never prints "Tax invoice": a
- *  sales title that says so becomes "Bill of supply" (CGST Act s.31(3)(c) + rule 49 CGST Rules —
- *  sources in shared/gst/registration.ts). A custom title that doesn't claim to be a tax invoice is
- *  kept. A legacy bill that carries tax (saved before the rule) still prints without the claim. */
-function docTitle(t: PrintTemplate, company: CompanyInfo, kind: PrintDocKind): string {
+/** WP 8.0: the printed title. A bill dated while the company is composition prints "BILL OF
+ *  SUPPLY" (CGST Act s.31(3)(c) + rule 49), one dated while it is unregistered a plain "INVOICE"
+ *  (rule 49 is for registered persons) — where the sales title claims to be a tax invoice; a custom
+ *  title that doesn't is kept. Sources in shared/gst/registration.ts. */
+function docTitle(t: PrintTemplate, company: CompanyInfo, kind: PrintDocKind, date: string): string {
   const title = t.header.titles[kind]
-  if (kind === 'sales' && !chargesGst(company.gstRegistrationType) && /tax\s*invoice/i.test(title)) return BILL_OF_SUPPLY_TITLE
-  return title
+  const replaced = kind === 'sales' && /tax\s*invoice/i.test(title) ? nonTaxInvoiceTitle(registrationOn(company, date)) : null
+  return replaced ?? title
 }
 
-/** Rule 5(1)(f) CGST Rules (clause letter UNVERIFIED): a composition dealer's bill of supply carries
- *  the declaration at the top — printed under the title. */
-function compositionNote(company: CompanyInfo, kind: PrintDocKind, cls: string): string {
-  return kind === 'sales' && company.gstRegistrationType === 'composition' ? `<div class="${cls}" data-testid="print-composition-note">${esc(COMPOSITION_DECLARATION)}</div>` : ''
+/** Rule 5(1)(f) CGST Rules: a composition dealer's bill of supply carries the declaration at the
+ *  top — printed under the title. */
+function compositionNote(company: CompanyInfo, kind: PrintDocKind, date: string, cls: string): string {
+  return kind === 'sales' && registrationOn(company, date) === 'composition' ? `<div class="${cls}" data-testid="print-composition-note">${esc(COMPOSITION_DECLARATION)}</div>` : ''
 }
+
+/** WP 8.0: a sale / note dated while the company doesn't charge GST, carrying no tax — printed
+ *  without the GST column, the tax table, the CGST / SGST rows and the place of supply. */
+function printsWithoutGst(company: CompanyInfo, kind: PrintDocKind, inv: EdocInvoice): boolean {
+  return (kind === 'sales' || kind === 'credit_note' || kind === 'debit_note') && !chargesGstOn(company, inv.date) &&
+    inv.cgst + inv.sgst + inv.igst + inv.cess === 0
+}
+
+/** "…this invoice…" in the declaration reads "this bill" on a print that is not a tax invoice. */
+const billWording = (text: string): string => text.replace(/\bthis invoice\b/gi, 'this bill')
 
 /** Meta-block label (and <title> prefix) per kind. */
 const DOC_LABEL: Record<PrintDocKind, string> = {
@@ -555,7 +565,7 @@ interface ColumnSpec {
   value?: (item: EdocItem) => number
 }
 
-function visibleColumns(c: Ctx, inv: EdocInvoice, isIntra: boolean): ColumnSpec[] {
+function visibleColumns(c: Ctx, inv: EdocInvoice, isIntra: boolean, noGst = false): ColumnSpec[] {
   const anyBarcode = inv.items.some((i) => i.barcode)
   const anyDescription = inv.items.some((i) => i.description)
   const anyCess = inv.cess > 0 || inv.items.some((i) => i.cess > 0)
@@ -585,7 +595,8 @@ function visibleColumns(c: Ctx, inv: EdocInvoice, isIntra: boolean): ColumnSpec[
     (col.key === 'description' && !anyDescription) ||
     ((col.key === 'cgst' || col.key === 'sgst') && !isIntra) ||
     (col.key === 'igst' && isIntra) ||
-    (col.key === 'cess' && !anyCess)
+    (col.key === 'cess' && !anyCess) ||
+    (noGst && (col.key === 'gstRate' || col.key === 'cgst' || col.key === 'sgst' || col.key === 'igst' || col.key === 'cess'))
   return c.t.columns
     .filter((col) => !hidden(col))
     .map((col) => {
@@ -603,8 +614,8 @@ function visibleColumns(c: Ctx, inv: EdocInvoice, isIntra: boolean): ColumnSpec[
     })
 }
 
-function itemsTable(c: Ctx, inv: EdocInvoice, isIntra: boolean): string {
-  const columns = visibleColumns(c, inv, isIntra)
+function itemsTable(c: Ctx, inv: EdocInvoice, isIntra: boolean, noGst = false): string {
+  const columns = visibleColumns(c, inv, isIntra, noGst)
   const columnCount = columns.length
   const itemRow = (item: EdocItem, i: number): string => `
       <tr>
@@ -734,8 +745,9 @@ function renderReceipt(c: Ctx, doc: InvoiceDocument, opts: RenderOptions): strin
     })
     .join('')
   const qtyTotal = inv.items.reduce((s, it) => s + it.qtyMilli, 0)
+  const noGst = printsWithoutGst(company, doc.kind, inv)
   const tot = [
-    `<tr><td>Taxable value</td><td class="r num">${m(inv.taxable)}</td></tr>`,
+    `<tr><td>${noGst ? 'Subtotal' : 'Taxable value'}</td><td class="r num">${m(inv.taxable)}</td></tr>`,
     isIntra && inv.cgst ? `<tr><td>CGST</td><td class="r num">${m(inv.cgst)}</td></tr>` : '',
     isIntra && inv.sgst ? `<tr><td>SGST</td><td class="r num">${m(inv.sgst)}</td></tr>` : '',
     !isIntra && inv.igst ? `<tr><td>IGST</td><td class="r num">${m(inv.igst)}</td></tr>` : '',
@@ -750,7 +762,7 @@ function renderReceipt(c: Ctx, doc: InvoiceDocument, opts: RenderOptions): strin
         counter.tenderedPaise > 0 ? `<tr><td>Cash tendered</td><td class="r num">${m(counter.tenderedPaise)}</td></tr><tr><td>Change</td><td class="r num">${m(counter.changePaise)}</td></tr>` : ''
       }</table>`
     : ''
-  const summaryRows = t.totals.taxSummary === 'none' ? [] : taxSummaryForInvoice(inv, 'rate', isIntra ? 'intra' : 'inter')
+  const summaryRows = t.totals.taxSummary === 'none' || noGst ? [] : taxSummaryForInvoice(inv, 'rate', isIntra ? 'intra' : 'inter')
   const summary = summaryRows.length
     ? `<div class="rc-rule"></div><table class="rc-tax"><thead><tr><th>GST</th><th class="r">Taxable</th><th class="r">Tax</th></tr></thead><tbody>${summaryRows
         .map((r) => `<tr><td class="num">${r.rate}%${r.cessRate ? `+${r.cessRate}%` : ''}</td><td class="r num">${m(r.taxable)}</td><td class="r num">${m(r.cgst + r.sgst + r.igst + r.cess)}</td></tr>`)
@@ -769,7 +781,7 @@ function renderReceipt(c: Ctx, doc: InvoiceDocument, opts: RenderOptions): strin
         ${h.showAddress && company.address ? `<div class="rc-sm">${esc(company.address)}</div>` : ''}
         ${h.showGstin ? `<div class="rc-sm num">GSTIN ${esc(company.gstin ?? 'Unregistered')}</div>` : ''}
         ${contact.length ? `<div class="rc-sm">${contact.join(' · ')}</div>` : ''}
-        <div class="rc-title">${esc(docTitle(t, company, doc.kind))}</div>${compositionNote(company, doc.kind, 'rc-sm')}
+        <div class="rc-title">${esc(docTitle(t, company, doc.kind, inv.date))}</div>${compositionNote(company, doc.kind, inv.date, 'rc-sm')}
       </div>
       <div class="rc-rule"></div>
       <div class="rc-row"><span>Bill <b class="num">${esc(inv.number)}</b></span><span class="num">${c.date(inv.date)}</span></div>
@@ -813,8 +825,12 @@ function renderInvoice(c: Ctx, doc: InvoiceDocument, opts: RenderOptions): strin
   const tradeDoc = TRADE_DOC_PRINT_KINDS.includes(doc.kind)
   const notInvoice = stockNote || tradeDoc
   const trade = tradeDoc ? (doc.trade ?? null) : null
+  const noGst = printsWithoutGst(company, doc.kind, inv)
 
-  const taxRows = [
+  const taxRows = noGst ? [
+    t.totals.showRoundOff && inv.roundOff !== 0 ? `<tr><td>Round off</td><td class="r num">${m(inv.roundOff)}</td></tr>` : '',
+    tcsRow(c, inv)
+  ].join('') : [
     isIntra ? `<tr><td>CGST</td><td class="r num">${m(inv.cgst)}</td></tr>` : '',
     isIntra ? `<tr><td>SGST</td><td class="r num">${m(inv.sgst)}</td></tr>` : '',
     !isIntra ? `<tr><td>IGST</td><td class="r num">${m(inv.igst)}</td></tr>` : '',
@@ -848,7 +864,7 @@ function renderInvoice(c: Ctx, doc: InvoiceDocument, opts: RenderOptions): strin
       ? ''
       : legacy || f.declaration.trim()
       ? `<div style="margin-top:10px" class="lbl">Declaration</div>
-          <div style="font-size:${c.px(10.5)}">${esc(f.declaration)}</div>`
+          <div style="font-size:${c.px(10.5)}">${esc(noGst ? billWording(f.declaration) : f.declaration)}</div>`
       : ''
   const wordsBlock = t.totals.showAmountInWords
     ? `<div class="lbl">${stockNote ? 'Value in words' : 'Amount in words'}</div>
@@ -903,7 +919,7 @@ function renderInvoice(c: Ctx, doc: InvoiceDocument, opts: RenderOptions): strin
       <div class="logo-c">${logoCenter}</div>` : ''}
       <div class="head">${companyBlock(c, company)}
         <div class="tag">
-          ${logoRight}<b>${esc(docTitle(t, company, doc.kind))}</b>${compositionNote(company, doc.kind, 'lbl')}
+          ${logoRight}<b>${esc(docTitle(t, company, doc.kind, inv.date))}</b>${compositionNote(company, doc.kind, inv.date, 'lbl')}
           ${headerQr}
         </div>
       </div>
@@ -920,13 +936,13 @@ function renderInvoice(c: Ctx, doc: InvoiceDocument, opts: RenderOptions): strin
           <div>No: <b class="num">${esc(inv.number)}</b></div>
           <div>Date: <span class="num">${c.date(inv.date)}</span></div>
           ${inv.precedingDoc ? `<div>Against: <span class="num">${esc(inv.precedingDoc.invNo)}</span> dt <span class="num">${c.date(inv.precedingDoc.invDate)}</span></div>` : ''}
-          ${p.showPlaceOfSupply ? `<div>Place of supply: <span class="num">${esc(inv.pos)}-${esc(GST_STATES[inv.pos] ?? '')}</span></div>` : ''}${doc.kind === 'self_invoice' ? `
+          ${p.showPlaceOfSupply && !noGst ? `<div>Place of supply: <span class="num">${esc(inv.pos)}-${esc(GST_STATES[inv.pos] ?? '')}</span></div>` : ''}${doc.kind === 'self_invoice' ? `
           <div>Tax payable on reverse charge: <b>Yes</b></div>` : ''}
           ${p.showVehicle && inv.vehicleNo ? `<div>Vehicle: <span class="num">${esc(inv.vehicleNo)}</span></div>` : ''}${purposeLine}${tradeLines}
         </div>
       </div>${einvoiceLine(c, { irn, ackNo: doc.einvoice?.ackNo ?? null, ackDate: doc.einvoice?.ackDate ?? null, ewbNo: doc.einvoice?.ewbNo ?? null })}
-      ${itemsTable(c, inv, isIntra)}
-      ${taxSummaryBlock(c, inv, isIntra)}
+      ${itemsTable(c, inv, isIntra, noGst)}
+      ${noGst ? '' : taxSummaryBlock(c, inv, isIntra)}
       <div class="bottom">
         <div class="words">
           ${wordsBlock}
