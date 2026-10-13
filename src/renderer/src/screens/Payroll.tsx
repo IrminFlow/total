@@ -401,7 +401,7 @@ function EmployeeModal({ employee, onClose }: { employee: Employee | null; onClo
         <p className="border-t border-line pt-3 text-caption font-semibold tracking-[0.08em] text-muted uppercase">Statutory profile</p>
         <div className="grid grid-cols-4 gap-3">
           <Field label="PF member id">
-            <TextInput value={pfNumber} onChange={(e) => setPfNumber(e.target.value)} className="num" placeholder="MHBAN0012345000000123" data-testid="input-employee-pf-number" />
+            <TextInput value={pfNumber} onChange={(e) => setPfNumber(e.target.value)} className="num" placeholder="PF account number" data-testid="input-employee-pf-number" />
           </Field>
           <Field label="ESI IP number">
             <TextInput value={esicNo} onChange={(e) => setEsicNo(e.target.value)} className="num" data-testid="input-employee-esic" />

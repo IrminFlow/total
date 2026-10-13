@@ -3,7 +3,7 @@ import { useQueryClient } from '@tanstack/react-query'
 import { api } from '../lib/client'
 import { useNav, useSession, useToasts } from '../state/stores'
 import { Button, Field, Page, PageHeader, Panel, SectionTitle, Select, TextInput } from '../components/ui'
-import { GST_STATES } from '@shared/gst/states'
+import { GST_STATE_LIST } from '@shared/gst/states'
 import { gstinErrorMessage } from '../lib/gstinError'
 import { useUnsavedGuard } from '../lib/useUnsavedGuard'
 
@@ -102,7 +102,7 @@ export function CompanyInfoScreen(): React.JSX.Element {
         <div className="grid grid-cols-2 gap-3">
           <Field label="State">
             <Select value={stateCode} onChange={(e) => setStateCode(e.target.value)}>
-              {Object.entries(GST_STATES).map(([code, label]) => (
+              {GST_STATE_LIST.map(([code, label]) => (
                 <option key={code} value={code}>
                   {code} — {label}
                 </option>

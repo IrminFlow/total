@@ -3,10 +3,12 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import type { CostCentre, Ledger } from '@shared/domain'
 import { formatPaise } from '@shared/money'
 import { api } from '../../lib/client'
-import { useToasts } from '../../state/stores'
+import { useSession, useToasts } from '../../state/stores'
 import { AmountInput, Button, Field, Modal, Select, TextInput } from '../../components/ui'
 import { useGroups } from '../../components/pickers'
 import { groupAncestryNames, PARTY_GROUPS, TRADING_GROUPS } from '../../components/LedgerFormModal'
+import { defaultUnitId, itemShowsGst, newItemGstRateError } from '../../lib/itemDefaults'
+import { chargesGst } from '@shared/gst/registration'
 
 // ---------- per-line cost-centre allocation modal ----------
 
@@ -122,6 +124,7 @@ export function QuickLedgerModal({
   }, [defaultGroup, groupId])
   const [gstin, setGstin] = useState('')
   const [gstRate, setGstRate] = useState('')
+  const regType = useSession((s) => s.info?.gstRegistrationType ?? 'regular')
 
   const ancestry = useMemo(() => (groupId != null ? groupAncestryNames(groupId, groups) : []), [groupId, groups])
   const isParty = ancestry.some((n) => PARTY_GROUPS.includes(n))
@@ -138,7 +141,7 @@ export function QuickLedgerModal({
         stateCode: isParty && gstin.trim().length >= 2 ? gstin.trim().slice(0, 2) : null,
         address: null,
         taxType: null,
-        gstRate: isTradingLedger && gstRate.trim() ? Number(gstRate) : null,
+        gstRate: isTradingLedger && chargesGst(regType) && gstRate.trim() ? Number(gstRate) : null,
         hsn: null,
         tdsSectionId: null,
         pan: null,
@@ -178,7 +181,7 @@ export function QuickLedgerModal({
                 <TextInput value={gstin} onChange={(e) => setGstin(e.target.value.toUpperCase())} className="num" placeholder="Optional" />
               </Field>
             )}
-            {isTradingLedger && (
+            {isTradingLedger && chargesGst(regType) && (
               <Field label="GST rate %">
                 <TextInput value={gstRate} onChange={(e) => setGstRate(e.target.value)} className="num" placeholder="Optional" />
               </Field>
@@ -211,21 +214,31 @@ export function QuickItemModal({
   const [itemName, setItemName] = useState(name)
   const [unitId, setUnitId] = useState<number | null>(null)
   const [hsn, setHsn] = useState('')
-  const [rate, setRate] = useState('18')
+  // WP 8.0: unit Pcs by default; the GST rate starts blank (required in a regular company,
+  // never shown in a composition / unregistered one).
+  const [rate, setRate] = useState('')
+  const regType = useSession((s) => s.info?.gstRegistrationType ?? 'regular')
+  const showGst = itemShowsGst(regType)
+  const [gstTried, setGstTried] = useState(false)
 
   useEffect(() => {
-    if (unitId == null && units?.length) setUnitId(units[0]!.id)
+    if (unitId == null && units?.length) setUnitId(defaultUnitId(units))
   }, [units, unitId])
 
   const create = async (): Promise<void> => {
     try {
       if (!unitId) return void toast.push('error', 'Pick a unit')
+      const rateError = newItemGstRateError(regType, rate)
+      if (rateError) {
+        setGstTried(true)
+        return void toast.push('error', rateError)
+      }
       const item = await api.stockItems.create({
         name: itemName.trim(),
         groupId: null,
         unitId,
         hsn: hsn.trim() || null,
-        gstRate: rate.trim() ? Number(rate) : null,
+        gstRate: showGst && rate.trim() ? Number(rate) : null,
         cessRate: null,
         openingQtyMilli: 0,
         openingValue: 0,
@@ -257,11 +270,13 @@ export function QuickItemModal({
             </Select>
           </Field>
           <Field label="HSN">
-            <TextInput value={hsn} onChange={(e) => setHsn(e.target.value)} className="num" placeholder="8471" />
+            <TextInput value={hsn} onChange={(e) => setHsn(e.target.value)} className="num" placeholder="Optional" data-testid="input-quick-item-hsn" />
           </Field>
-          <Field label="GST %">
-            <TextInput value={rate} onChange={(e) => setRate(e.target.value)} className="num" />
-          </Field>
+          {showGst && (
+            <Field label="GST %" error={gstTried ? newItemGstRateError(regType, rate) : null}>
+              <TextInput value={rate} onChange={(e) => setRate(e.target.value)} className="num" placeholder="Pick a rate" data-testid="input-quick-item-gst" />
+            </Field>
+          )}
         </div>
         <div className="flex justify-end gap-2">
           <Button onClick={onClose}>Cancel</Button>

@@ -3,10 +3,11 @@ import { DEDUCTEE_TYPES, DEDUCTEE_TYPE_LABELS, deducteeTypeFromPan } from '@shar
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import type { Group, Ledger } from '@shared/domain'
 import { api } from '../lib/client'
-import { useToasts } from '../state/stores'
+import { useSession, useToasts } from '../state/stores'
+import { chargesGst } from '@shared/gst/registration'
 import { AmountInput, Button, Field, Modal, Select, TextInput } from './ui'
 import { useGroups } from './pickers'
-import { GST_STATES } from '@shared/gst/states'
+import { GST_STATES, GST_STATE_LIST } from '@shared/gst/states'
 import { validateGstin } from '@shared/gst/validate'
 import { GST_RATE_PRESETS } from '@shared/seed'
 import { confirmDialog } from '../lib/dialogs'
@@ -115,6 +116,7 @@ function LedgerForm({
   onClose: () => void
   onOpenStatement?: (ledgerId: number) => void
 }): React.JSX.Element {
+  const companyChargesGst = chargesGst(useSession((s) => s.info?.gstRegistrationType ?? 'regular'))
   const groups = useGroups()
   const toast = useToasts()
   const queryClient = useQueryClient()
@@ -355,7 +357,7 @@ function LedgerForm({
               <Field label="State (place of supply)">
                 <Select value={stateCode} onChange={(e) => setStateCode(e.target.value)}>
                   <option value="">Same as company</option>
-                  {Object.entries(GST_STATES).map(([code, label]) => (
+                  {GST_STATE_LIST.map(([code, label]) => (
                     <option key={code} value={code}>
                       {code} — {label}
                     </option>
@@ -489,9 +491,12 @@ function LedgerForm({
 
         {isTradingLedger && (
           <div className="grid grid-cols-2 gap-3">
-            <Field label="GST rate %" hint="For sales/purchase service ledgers">
-              <TextInput value={gstRate} onChange={(e) => setGstRate(e.target.value)} className="num" placeholder={GST_RATE_PRESETS.join(' / ')} />
-            </Field>
+            {/* WP 8.0: a composition / unregistered company charges no GST — no rate to set. */}
+            {companyChargesGst && (
+              <Field label="GST rate %" hint="For sales/purchase service ledgers">
+                <TextInput value={gstRate} onChange={(e) => setGstRate(e.target.value)} className="num" placeholder={GST_RATE_PRESETS.join(' / ')} />
+              </Field>
+            )}
             <Field label="HSN / SAC">
               <TextInput value={hsn} onChange={(e) => setHsn(e.target.value)} className="num" placeholder="For services" />
             </Field>
