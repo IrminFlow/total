@@ -1,3 +1,4 @@
+import { AppError } from '@shared/errors'
 import type { DB } from '../db/connection'
 import type { Batch, Godown, Group, Ledger, StockGroup, StockItem, Unit, VoucherType } from '@shared/domain'
 import { ledgerInputSchema } from '@shared/schemas'
@@ -77,7 +78,7 @@ export function groupTree(db: DB): GroupTreeNode[] {
 
 export function createGroup(db: DB, input: GroupInput): Group {
   const parent = db.prepare('SELECT * FROM groups WHERE id = ?').get(input.parentId) as GroupRow | undefined
-  if (!parent) throw new Error('Parent group not found')
+  if (!parent) throw new AppError('group_not_found', 'Parent group not found', { field: 'group' })
   const res = db
     .prepare('INSERT INTO groups (name, parent_id, nature, affects_gross_profit, is_system) VALUES (?, ?, ?, ?, 0)')
     .run(input.name, input.parentId, parent.nature, parent.affects_gross_profit)
@@ -88,11 +89,11 @@ export function createGroup(db: DB, input: GroupInput): Group {
 
 export function updateGroup(db: DB, id: number, input: GroupInput): Group {
   const existing = db.prepare('SELECT * FROM groups WHERE id = ?').get(id) as GroupRow | undefined
-  if (!existing) throw new Error('Group not found')
-  if (existing.is_system) throw new Error('Default groups cannot be edited')
-  if (descendantIds(db, [id]).has(input.parentId)) throw new Error('A group cannot be moved under itself')
+  if (!existing) throw new AppError('group_not_found', 'Group not found')
+  if (existing.is_system) throw new AppError('group_system', 'Default groups cannot be edited')
+  if (descendantIds(db, [id]).has(input.parentId)) throw new AppError('group_cycle', 'A group cannot be moved under itself', { field: 'group' })
   const parent = db.prepare('SELECT * FROM groups WHERE id = ?').get(input.parentId) as GroupRow | undefined
-  if (!parent) throw new Error('Parent group not found')
+  if (!parent) throw new AppError('group_not_found', 'Parent group not found', { field: 'group' })
   // A group's nature/affects-gross-profit always follow its parent's. Cascade to every descendant
   // group in the same transaction — otherwise a sub-group moved along with its parent keeps the
   // old nature (e.g. stays 'expense' under an asset group), and reports keyed off g.nature (the
@@ -111,11 +112,11 @@ export function updateGroup(db: DB, id: number, input: GroupInput): Group {
 
 export function deleteGroup(db: DB, id: number): void {
   const existing = db.prepare('SELECT * FROM groups WHERE id = ?').get(id) as GroupRow | undefined
-  if (!existing) throw new Error('Group not found')
-  if (existing.is_system) throw new Error('Default groups cannot be deleted')
+  if (!existing) throw new AppError('group_not_found', 'Group not found')
+  if (existing.is_system) throw new AppError('group_system', 'Default groups cannot be deleted')
   const childCount = db.prepare('SELECT COUNT(*) AS n FROM groups WHERE parent_id = ?').get(id) as { n: number }
   const ledgerCount = db.prepare('SELECT COUNT(*) AS n FROM ledgers WHERE group_id = ?').get(id) as { n: number }
-  if (childCount.n > 0 || ledgerCount.n > 0) throw new Error('Group is in use')
+  if (childCount.n > 0 || ledgerCount.n > 0) throw new AppError('group_in_use', 'Group is in use')
   db.prepare('DELETE FROM groups WHERE id = ?').run(id)
   writeAudit(db, 'group', id, 'delete', mapGroup(existing), null)
 }
@@ -156,7 +157,7 @@ export function findOrCreateLedger(db: DB, name: string, groupName: string): num
   const existing = db.prepare('SELECT id FROM ledgers WHERE name = ? COLLATE NOCASE').get(name) as { id: number } | undefined
   if (existing) return existing.id
   const group = db.prepare('SELECT id FROM groups WHERE name = ?').get(groupName) as { id: number } | undefined
-  if (!group) throw new Error(`Group ${groupName} missing`)
+  if (!group) throw new AppError('group_missing', `Group ${groupName} missing`)
   const res = db.prepare('INSERT INTO ledgers (name, group_id, is_system) VALUES (?, ?, 0)').run(name, group.id)
   return Number(res.lastInsertRowid)
 }
@@ -205,7 +206,7 @@ export function createLedger(db: DB, raw: LedgerInput): Ledger {
 export function updateLedger(db: DB, id: number, raw: LedgerInput): Ledger {
   const input = ledgerInputSchema.parse(raw)
   const existing = getLedger(db, id)
-  if (!existing) throw new Error('Ledger not found')
+  if (!existing) throw new AppError('ledger_not_found', 'Ledger not found')
   db.prepare(
     `UPDATE ledgers SET name = ?, group_id = ?, opening_balance = ?, gstin = ?, state_code = ?,
      address = ?, tax_type = ?, gst_rate = ?, hsn = ?, tds_section_id = ?, pan = ?, credit_days = ?, export_type = ?,
@@ -265,10 +266,10 @@ function writeSupplierTerms(db: DB, id: number, input: ReturnType<typeof ledgerI
 
 export function deleteLedger(db: DB, id: number): void {
   const existing = getLedger(db, id)
-  if (!existing) throw new Error('Ledger not found')
-  if (existing.isSystem) throw new Error('System ledgers cannot be deleted')
+  if (!existing) throw new AppError('ledger_not_found', 'Ledger not found')
+  if (existing.isSystem) throw new AppError('ledger_system', 'System ledgers cannot be deleted')
   const used = db.prepare('SELECT COUNT(*) AS n FROM voucher_lines WHERE ledger_id = ?').get(id) as { n: number }
-  if (used.n > 0) throw new Error('Ledger has vouchers; delete those first')
+  if (used.n > 0) throw new AppError('ledger_in_use', 'Ledger has vouchers; delete those first')
   // WP 4.2: its reminder log and bill follow-ups go with it (ON DELETE CASCADE) — the audit row
   // records how many, so the trail shows what the delete took.
   const cascaded: Record<string, number> = {}
@@ -329,7 +330,7 @@ export function createVoucherType(db: DB, input: VoucherTypeInput): VoucherType 
 
 export function updateVoucherType(db: DB, id: number, input: VoucherTypeInput): VoucherType {
   const existing = db.prepare('SELECT * FROM voucher_types WHERE id = ?').get(id) as VtRow | undefined
-  if (!existing) throw new Error('Voucher type not found')
+  if (!existing) throw new AppError('voucher_type_not_found', 'Voucher type not found')
   const kind = existing.is_system ? existing.kind : input.kind
   db.prepare('UPDATE voucher_types SET name = ?, kind = ?, numbering = ?, prefix = ?, suffix = ?, pad_width = ?, restart_fy = ? WHERE id = ?')
     .run(existing.is_system ? existing.name : input.name, kind, input.numbering, input.prefix, input.suffix, input.padWidth, input.restartFy ? 1 : 0, id)
@@ -412,7 +413,7 @@ export function createStockItem(db: DB, input: StockItemInput): StockItem {
 
 export function updateStockItem(db: DB, id: number, input: StockItemInput): StockItem {
   const existing = db.prepare('SELECT * FROM stock_items WHERE id = ?').get(id) as StockItemRow | undefined
-  if (!existing) throw new Error('Stock item not found')
+  if (!existing) throw new AppError('item_not_found', 'Stock item not found')
   const trackSerials = input.trackSerials === undefined ? existing.track_serials : input.trackSerials ? 1 : 0
   db.transaction(() => {
     db.prepare(
@@ -434,9 +435,9 @@ export function updateStockItem(db: DB, id: number, input: StockItemInput): Stoc
 
 export function deleteStockItem(db: DB, id: number): void {
   const existing = db.prepare('SELECT * FROM stock_items WHERE id = ?').get(id) as StockItemRow | undefined
-  if (!existing) throw new Error('Stock item not found')
+  if (!existing) throw new AppError('item_not_found', 'Stock item not found')
   const used = db.prepare('SELECT COUNT(*) AS n FROM inventory_lines WHERE stock_item_id = ?').get(id) as { n: number }
-  if (used.n > 0) throw new Error('Stock item has vouchers; delete those first')
+  if (used.n > 0) throw new AppError('item_in_use', 'Stock item has vouchers; delete those first')
   db.prepare('DELETE FROM stock_items WHERE id = ?').run(id)
   writeAudit(db, 'stockItem', id, 'delete', mapItem(existing), null)
 }
@@ -454,8 +455,8 @@ function godownKindFields(db: DB, input: GodownInput, existing?: Godown): { kind
   const kind = input.kind ?? existing?.kind ?? 'own'
   if (kind === 'own') return { kind, partyLedgerId: null }
   const partyLedgerId = input.partyLedgerId === undefined ? (existing?.partyLedgerId ?? null) : input.partyLedgerId
-  if (partyLedgerId == null) throw new Error('A job worker godown needs the job worker’s party ledger')
-  if (!db.prepare('SELECT 1 FROM ledgers WHERE id = ?').get(partyLedgerId)) throw new Error('Party ledger not found')
+  if (partyLedgerId == null) throw new AppError('godown_needs_party', 'A job worker godown needs the job worker’s party ledger', { field: 'party' })
+  if (!db.prepare('SELECT 1 FROM ledgers WHERE id = ?').get(partyLedgerId)) throw new AppError('party_not_found', 'Party ledger not found', { field: 'party' })
   return { kind, partyLedgerId }
 }
 
@@ -471,10 +472,10 @@ export function createGodown(db: DB, input: GodownInput): Godown {
 
 export function updateGodown(db: DB, id: number, input: GodownInput): Godown {
   const existing = godownById(db, id)
-  if (!existing) throw new Error('Godown not found')
+  if (!existing) throw new AppError('godown_not_found', 'Godown not found')
   const k = godownKindFields(db, input, existing)
   if (k.kind !== existing.kind && db.prepare('SELECT 1 FROM job_work_challans WHERE godown_id = ?').get(id)) {
-    throw new Error('This godown has job-work challans — it must stay a job worker godown')
+    throw new AppError('godown_job_work', 'This godown has job-work challans — it must stay a job worker godown')
   }
   db.prepare('UPDATE godowns SET name = ?, address = ?, kind = ?, party_ledger_id = ? WHERE id = ?')
     .run(input.name, input.address === undefined ? existing.address : input.address, k.kind, k.partyLedgerId, id)
@@ -485,9 +486,9 @@ export function updateGodown(db: DB, id: number, input: GodownInput): Godown {
 
 export function deleteGodown(db: DB, id: number): void {
   const existing = godownById(db, id)
-  if (!existing) throw new Error('Godown not found')
+  if (!existing) throw new AppError('godown_not_found', 'Godown not found')
   const used = db.prepare('SELECT COUNT(*) AS n FROM inventory_lines WHERE godown_id = ?').get(id) as { n: number }
-  if (used.n > 0) throw new Error('Godown has stock movements; delete those first')
+  if (used.n > 0) throw new AppError('godown_in_use', 'Godown has stock movements; delete those first')
   db.prepare('DELETE FROM godowns WHERE id = ?').run(id)
   writeAudit(db, 'godown', id, 'delete', existing, null)
 }
@@ -514,7 +515,7 @@ export function createBatch(db: DB, input: BatchInput): Batch {
     .get(input.stockItemId, input.name) as BatchRow | undefined
   if (existing) return mapBatch(existing)
   const item = db.prepare('SELECT id FROM stock_items WHERE id = ?').get(input.stockItemId)
-  if (!item) throw new Error('Stock item not found')
+  if (!item) throw new AppError('item_not_found', 'Stock item not found')
   const res = db
     .prepare('INSERT INTO batches (stock_item_id, name, mfg_date, expiry_date) VALUES (?, ?, ?, ?)')
     .run(input.stockItemId, input.name, input.mfgDate, input.expiryDate)

@@ -12,7 +12,16 @@ const BIN_COLUMNS = defineColumns<BinRow>([
   { id: 'type', header: 'Type', kind: 'text', value: (r) => r.voucherType, width: 84 },
   { id: 'account', header: 'Account', kind: 'text', value: (r) => r.account, hideable: false },
   { id: 'amount', header: 'Amount', kind: 'money', value: (r) => r.amount, width: 112 },
-  { id: 'deleted', header: 'Deleted', kind: 'date', value: (r) => r.deletedAt.slice(0, 10), className: 'text-muted', width: 106 }
+  { id: 'deleted', header: 'Deleted', kind: 'date', value: (r) => r.deletedAt.slice(0, 10), className: 'text-muted', width: 106 },
+  // WP 8.5: vouchers one Undo binned together come back together.
+  {
+    id: 'undoGroup',
+    header: 'Undone together',
+    kind: 'text',
+    value: (r) => (r.undoGroupId != null && (r.undoGroupSize ?? 0) > 1 ? `Undo #${r.undoGroupId} · ${r.undoGroupSize} entries` : ''),
+    className: 'text-muted',
+    width: 150
+  }
 ])
 
 export function BinSection(): React.JSX.Element {
@@ -33,9 +42,10 @@ export function BinSection(): React.JSX.Element {
   const restore = async (row: BinRow): Promise<void> => {
     try {
       // A restored voucher affects every report — invalidate everything, not just ['bin'].
-      await api.vouchers.restore(row.id)
+      const r = await api.vouchers.restore(row.id)
       await queryClient.invalidateQueries()
-      toast.push('success', `Voucher ${row.number} restored`)
+      const n = r?.restored?.length ?? 1
+      toast.push('success', n > 1 ? `Voucher ${row.number} restored with ${n - 1} more undone with it` : `Voucher ${row.number} restored`)
     } catch (err) {
       toast.push('error', (err as Error).message)
     }

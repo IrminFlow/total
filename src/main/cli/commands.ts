@@ -5,6 +5,7 @@
  * path, same period lock. The dispatcher in `main.ts` handles argv/stdout; these stay testable
  * from `cli.dbtest.ts` without spawning a process.
  */
+import { isAppError } from '@shared/errors'
 import { existsSync, writeFileSync } from 'fs'
 import { join } from 'path'
 import { openCompanyDb, type DB } from '../db/connection'
@@ -82,7 +83,7 @@ export function cmdPost(db: DB, payload: unknown): PostResult[] {
       return { index, ok: true, id: saved.id, number: saved.number, date: saved.date, total }
     } catch (err) {
       const message =
-        err && typeof err === 'object' && 'issues' in err
+        err && typeof err === 'object' && 'issues' in err && !isAppError(err)
           ? (err as { issues: { path: (string | number)[]; message: string }[] }).issues
               .map((i) => `${i.path.join('.')}: ${i.message}`)
               .join('; ')

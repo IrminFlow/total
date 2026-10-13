@@ -12,13 +12,14 @@ import { formatPaise, amountInWords } from '@shared/money'
 import { toDisplayDate } from '@shared/dates'
 import { api } from '../../lib/client'
 import { useNav, useSession, useToasts, type VoucherDraft } from '../../state/stores'
-import { AmountInput, Banner, Button, DateInput, Field, isAnyModalOpen, Kbd, Money, Panel, Select, TextInput, inputCls } from '../../components/ui'
+import { AmountInput, Banner, Button, DateInput, Field, FieldError, isAnyModalOpen, Kbd, Money, Panel, Select, TextInput, inputCls, useFormErrors } from '../../components/ui'
+import { SaveCard } from '../../simple/SaveCard'
 import { LedgerPicker, useLedgers, useStockItems, useTaxLedgers } from '../../components/pickers'
 import { LedgerFormModal } from '../../components/LedgerFormModal'
 import { useFeatures } from '../../lib/useFeatures'
 import { confirmDialog, promptDialog } from '../../lib/dialogs'
 import { useUnsavedGuard } from '../../lib/useUnsavedGuard'
-import { addDaysLocal, nextLineKey, NUMBER_LOADING, useAlterationDirty, useLeaveAfterSave, useVoucherNumberField } from './hooks'
+import { addDaysLocal, nextLineKey, NUMBER_LOADING, useAlterationDirty, useErrorShell, useLeaveAfterSave, useSaveCard, useVoucherNumberField } from './hooks'
 import { QuickItemModal, QuickLedgerModal } from './modals'
 import { TransportModal } from './TransportModal'
 import { useTcsCollection, useTdsDeduction, type TcsCandidate } from './useTdsDeduction'
@@ -342,13 +343,28 @@ export function InvoiceEntry({
     return r.payload
   }, [partyId, accountId, computed, formState, ctx, typeId, ensureTax, ensureRoundOff, kind, voucher, ledgers])
 
+  // WP 8.5: field errors (cleared when the field changes) and the simple-mode save card.
+  const errorShell = useErrorShell()
+  const formErrors = useFormErrors(
+    { number: isEdit ? alterNumber : numberField.value, date, party: partyId, account: accountId, items: rows },
+    errorShell
+  )
+  const saveCard = useSaveCard()
+
   const save = useCallback(async (andPdf = false): Promise<void> => {
     if (saving) return
-    if (!partyId) return void toast.push('error', 'Pick the party account first')
-    if (!accountId) return void toast.push('error', `Pick the ${isSalesSide ? 'sales' : 'purchase'} ledger`)
-    if (computed.detail.length === 0) return void toast.push('error', 'Add at least one item line')
+    // WP 8.5: a missing field is said under that field (the accountant wording is unchanged).
+    const plain = errorShell.simple
+    if (!partyId) return void formErrors.set('party', plain ? errorShell.t(isSalesSide ? 'errors.chooseCustomer' : 'errors.chooseSupplier') : 'Pick the party account first')
+    if (!accountId) return void formErrors.set('account', plain ? errorShell.t(isSalesSide ? 'errors.chooseSaleAccount' : 'errors.choosePurchaseAccount') : `Pick the ${isSalesSide ? 'sales' : 'purchase'} ledger`)
+    if (computed.detail.length === 0) return void formErrors.set('items', plain ? errorShell.t('errors.addItem') : 'Add at least one item line')
     if (onHold && !overrideReason) {
-      return void toast.push('error', `${party?.name ?? 'This party'} is on credit hold${party?.creditHoldReason ? ` (${party.creditHoldReason})` : ''} — ${canOverrideHold ? 'override it with a reason to save' : 'an owner can override it'}`)
+      return void formErrors.set(
+        'party',
+        plain
+          ? errorShell.t('errors.creditHold', { name: party?.name ?? '' })
+          : `${party?.name ?? 'This party'} is on credit hold${party?.creditHoldReason ? ` (${party.creditHoldReason})` : ''} — ${canOverrideHold ? 'override it with a reason to save' : 'an owner can override it'}`
+      )
     }
     if (tdsStale) return void toast.push('error', 'The invoice changed since TDS was applied — apply TDS again (or remove it) before saving')
     if (tcsStale) return void toast.push('error', 'The invoice changed since TCS was applied — apply TCS again (or remove it) before saving')
@@ -383,7 +399,9 @@ export function InvoiceEntry({
       })
       if (invoiceKindTakesTds(kind)) await tdsDeduction.afterSave(result.id)
       if (features.tcs && invoiceKindTakesTcs(kind)) await tcsCollection.afterSave(result.id)
-      toast.push('success', `${result.number} ${isEdit ? 'altered' : 'saved'} — ${formatPaise(grandTotal, { symbol: true })}`)
+      // WP 8.5: a new entry in a simple-mode company gets the save card instead of the toast.
+      if (saveCard.simple && !isEdit && !aiDraftId) saveCard.show([result.id])
+      else toast.push('success', `${result.number} ${isEdit ? 'altered' : 'saved'} — ${formatPaise(grandTotal, { symbol: true })}`)
       // Credit limit (warn-only; with Orders & challans on it names the open sales-order value).
       if (result.warnings?.creditLimitExceeded) toast.push('warning', creditLimitWarningText(result.warnings.creditLimitExceeded))
       if (andPdf && kind === 'sales') {
@@ -412,11 +430,13 @@ export function InvoiceEntry({
       numberField.reset()
       await queryClient.invalidateQueries()
     } catch (err) {
-      toast.push('error', (err as Error).message)
+      // WP 8.5: an error with a field on this form shows under it; the rest stays a toast.
+      const mapped = formErrors.apply(err)
+      if (mapped.general) toast.push('error', mapped.general)
     } finally {
       setSaving(false)
     }
-  }, [saving, partyId, accountId, computed, buildPayload, isSalesSide, kind, typeId, voucherId, isEdit, date, toast, setWorkingDate, queryClient, numberField.reset, leave, tdsDeduction.reset, tdsDeduction.afterSave, tdsStale, tcsStale, tcsCollection.reset, tcsCollection.afterSave, features.tcs, grandTotal, onHold, overrideReason, canOverrideHold, party, draft?.aiDraftId])
+  }, [saving, partyId, accountId, computed, buildPayload, isSalesSide, kind, typeId, voucherId, isEdit, date, toast, setWorkingDate, queryClient, numberField.reset, leave, tdsDeduction.reset, tdsDeduction.afterSave, tdsStale, tcsStale, tcsCollection.reset, tcsCollection.afterSave, features.tcs, grandTotal, onHold, overrideReason, canOverrideHold, party, draft?.aiDraftId, formErrors, errorShell, saveCard])
 
   const remove = async (): Promise<void> => {
     if (!voucherId) return
@@ -548,8 +568,18 @@ export function InvoiceEntry({
 
   return (
     <Panel className="p-5">
+      {saveCard.ids && (
+        <SaveCard
+          voucherIds={saveCard.ids}
+          onNew={saveCard.hide}
+          onEdit={(id) => {
+            saveCard.hide()
+            nav.go({ name: 'voucher-entry', voucherId: id })
+          }}
+        />
+      )}
       <div className="grid grid-cols-4 gap-3">
-        <Field label="No." hint={isEdit || numberField.value === NUMBER_LOADING ? undefined : 'Auto — edit to override'}>
+        <Field label="No." name="number" error={formErrors.get('number')} hint={isEdit || numberField.value === NUMBER_LOADING ? undefined : 'Auto — edit to override'}>
           <TextInput
             value={isEdit ? alterNumber : numberField.value === NUMBER_LOADING ? '' : numberField.value}
             onChange={(e) => (isEdit ? setAlterNumber(e.target.value) : numberField.onChange(e.target.value))}
@@ -557,10 +587,10 @@ export function InvoiceEntry({
             className="num"
           />
         </Field>
-        <Field label="Date">
+        <Field label="Date" name="date" error={formErrors.get('date')}>
           <DateInput value={date} context={workingDate} onChange={setDate} />
         </Field>
-        <Field label={isSalesSide ? 'Party (buyer)' : 'Party (supplier)'}>
+        <Field label={isSalesSide ? 'Party (buyer)' : 'Party (supplier)'} name="party" error={formErrors.get('party')}>
           <div className="flex items-center gap-1.5">
             <LedgerPicker
               autoFocus={!isEdit && draft?.fromTradeDocId == null && draft?.aiDraftId == null}
@@ -578,7 +608,7 @@ export function InvoiceEntry({
             )}
           </div>
         </Field>
-        <Field label={isSalesSide ? 'Sales ledger' : 'Purchase ledger'}>
+        <Field label={isSalesSide ? 'Sales ledger' : 'Purchase ledger'} name="account" error={formErrors.get('account')}>
           <LedgerPicker
             value={accountId}
             onPick={setAccountId}
@@ -689,6 +719,7 @@ export function InvoiceEntry({
         showGst={computed.chargesGst}
         rateLabel={nonClaimable ? 'Rate incl. GST' : undefined}
       />
+      <FieldError name="items" error={formErrors.get('items')} />
       {nonClaimable && (
         <p className="mt-1 text-hint text-muted" data-testid="invoice-non-claimable">{NON_CLAIMABLE_RATE_HINT}</p>
       )}

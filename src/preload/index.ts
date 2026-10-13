@@ -4,6 +4,11 @@ export interface IpcResult<T = unknown> {
   ok: boolean
   data?: T
   error?: string
+  /** WP 8.5 structured error fields (see src/shared/errors): code, field path, params, issues. */
+  code?: string
+  field?: string
+  params?: Record<string, string | number>
+  issues?: { code: string; field?: string; line?: number; params?: Record<string, string | number>; message?: string }[]
 }
 
 const api = {

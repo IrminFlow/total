@@ -5,7 +5,7 @@ import type { Group, Ledger, StockItem } from '@shared/domain'
 import { createScanDetector } from '@shared/barcode'
 import { api } from '../lib/client'
 import { inputCls } from './ui'
-import { useInField } from './kit/Field'
+import { useFieldAria, useInField } from './kit/Field'
 
 export function useLedgers(): Ledger[] {
   const { data } = useQuery({ queryKey: ['ledgers'], queryFn: api.ledgers.list })
@@ -59,6 +59,8 @@ export function TypeAhead({
 }): React.JSX.Element {
   const listId = useId()
   const inField = useInField()
+  // WP 8.5: inside a Field, its error / hint describes the picker and marks it invalid.
+  const fieldAria = useFieldAria()
   const selected = options.find((o) => o.id === value) ?? null
   const [text, setText] = useState(selected?.label ?? '')
   const [open, setOpen] = useState(false)
@@ -127,6 +129,8 @@ export function TypeAhead({
         placeholder={placeholder}
         role="combobox"
         aria-label={inField ? undefined : (ariaLabel ?? placeholder)}
+        aria-describedby={fieldAria['aria-describedby']}
+        aria-invalid={fieldAria['aria-invalid']}
         aria-autocomplete="list"
         aria-expanded={open && (filtered.length > 0 || !!showCreate)}
         aria-controls={listId}

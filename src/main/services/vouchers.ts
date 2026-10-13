@@ -7,8 +7,10 @@ import {
 import { voucherInputSchema } from '@shared/schemas'
 import type { VoucherInput, VoucherInputParsed } from '@shared/schemas'
 import type { VoucherListRow } from '@shared/reports'
-import { validateVoucher, type LedgerFacts } from '@shared/posting'
-import { fyOf } from '@shared/dates'
+import { sumCredits, sumDebits, validateVoucher, type LedgerFacts } from '@shared/posting'
+import { formatPaise } from '@shared/money'
+import { AppError, isErrorCode } from '@shared/errors'
+import { fyOf, toDisplayDate } from '@shared/dates'
 import { nextSeriesNumber } from './numbering'
 import { cashBankGroupIds } from './masters'
 import { getFeatures } from './config'
@@ -36,6 +38,11 @@ interface VoucherRow {
   post_dated: number; is_optional: number; is_year_end_close: number
   deleted_at: string | null
   created_at: string; updated_at: string
+}
+
+/** The lock-date refusal — same wording everywhere, with the date for a plain message (WP 8.5). */
+export function lockedError(lock: string): AppError {
+  return new AppError('books_locked', `Books are locked up to ${lock}`, { field: 'date', params: { date: toDisplayDate(lock) } })
 }
 
 /** Greppable filter for every query joining `vouchers` as `v` that must exclude binned vouchers. */
@@ -99,7 +106,7 @@ function getVoucherType(db: DB, id: number): VoucherType {
         suffix: string; pad_width: number; restart_fy: number; is_system: number
       }
     | undefined
-  if (!row) throw new Error('Voucher type not found')
+  if (!row) throw new AppError('voucher_type_not_found', 'Voucher type not found')
   return {
     id: row.id, name: row.name, kind: row.kind, numbering: row.numbering, prefix: row.prefix,
     suffix: row.suffix, padWidth: row.pad_width, restartFy: !!row.restart_fy, isSystem: !!row.is_system
@@ -469,7 +476,7 @@ export function assertGstAllowed(
   if (!taxed(input.lines)) return
   if (before && taxed(before.lines)) return
   if ((kind === 'credit_note' || kind === 'debit_note') && noteAgainstTaxedBill(db, reg, input)) return
-  throw new Error(gstNotChargedMessage(registrationOn(reg, input.date)))
+  throw new AppError('gst_not_charged', gstNotChargedMessage(registrationOn(reg, input.date)), { field: 'items' })
 }
 
 /** A note's originals — the bills it is set against (same party) and the invoices its return
@@ -504,24 +511,24 @@ export function saveVoucher(db: DB, raw: VoucherInput, existingId?: number, hook
     const flagged = db.prepare('SELECT is_year_end_close AS f FROM vouchers WHERE id = ?').get(existingId) as
       | { f: number }
       | undefined
-    if (flagged?.f) throw new Error(YEAR_END_CLOSE_IMMUTABLE)
+    if (flagged?.f) throw new AppError('year_end_close_immutable', YEAR_END_CLOSE_IMMUTABLE)
     // A manufacture's entry facts (manufacture_details) would go stale under a generic edit.
     if (!hooks.manufacture && db.prepare('SELECT 1 FROM manufacture_details WHERE voucher_id = ?').get(existingId)) {
-      throw new Error(MANUFACTURE_EDIT_ELSEWHERE)
+      throw new AppError('manufacture_edit_elsewhere', MANUFACTURE_EDIT_ELSEWHERE)
     }
     if (!hooks.jobWork && !hooks.manufacture && db.prepare('SELECT 1 FROM job_work_challans WHERE voucher_id = ?').get(existingId)) {
-      throw new Error(JOB_WORK_EDIT_ELSEWHERE)
+      throw new AppError('job_work_edit_elsewhere', JOB_WORK_EDIT_ELSEWHERE)
     }
     // WP 3.6: depreciation-run and disposal journals belong to the fixed-asset register.
     assertNotFixedAssetVoucher(db, existingId)
     // WP 4.2: an interest debit note belongs to its interest_charges rows (the bill-periods it
     // charged) — an edit would leave them describing other figures.
     if (hasInterestCharges(db) && db.prepare('SELECT 1 FROM interest_charges WHERE debit_note_voucher_id = ?').get(existingId)) {
-      throw new Error(INTEREST_NOTE_IMMUTABLE)
+      throw new AppError('interest_note_immutable', INTEREST_NOTE_IMMUTABLE)
     }
     // WP 3.7: a salary journal belongs to its pay run (payroll lines, statutory dues, salary TDS
     // entries for 24Q) — an edit here would leave them describing other figures.
-    if (db.prepare('SELECT 1 FROM payroll_runs WHERE voucher_id = ?').get(existingId)) throw new Error(PAYROLL_VOUCHER_EDIT)
+    if (db.prepare('SELECT 1 FROM payroll_runs WHERE voucher_id = ?').get(existingId)) throw new AppError('payroll_voucher_edit', PAYROLL_VOUCHER_EDIT)
     // WP 4.4: loan instalments, forex revaluations / reversals and settlements — bin, don't edit.
     assertCashFinanceVoucherEditable(db, existingId)
   }
@@ -541,26 +548,30 @@ export function saveVoucher(db: DB, raw: VoucherInput, existingId?: number, hook
       : id === PENDING_TCS_PAYABLE_LEDGER ? { exists: true, isCashOrBank: false } : baseFacts(id)
   const errors = [...validateVoucher(posting, vt.kind, facts), ...preparedTds.errors, ...preparedTcs.errors]
   if (errors.length) {
-    throw new Error(errors.map((e) => e.message).join('; '))
+    // WP 8.5: the joined message is unchanged; each rule's code (and line) rides along so a
+    // screen can put it under its field.
+    throw new AppError(errors.length === 1 && isErrorCode(errors[0]!.code) ? errors[0]!.code : 'validation', errors.map((e) => e.message).join('; '), {
+      issues: errors.map((e) => ({ code: e.code, message: e.message, ...(e.line != null ? { line: e.line } : {}), ...(e.code === 'unbalanced' ? { params: { amount: formatPaise(Math.abs(sumDebits(posting.lines) - sumCredits(posting.lines)), { symbol: true }) } } : {}) }))
+    })
   }
 
   const number =
     vt.numbering === 'manual'
-      ? (input.number ?? '').trim() || (() => { throw new Error('Voucher number is required') })()
+      ? (input.number ?? '').trim() || (() => { throw new AppError('number_required', 'Voucher number is required', { field: 'number' }) })()
       : input.number?.trim() || nextVoucherNumber(db, vt.id, input.date, existingId)
 
   const before = existingId ? getVoucher(db, existingId) : null
-  if (existingId && !before) throw new Error('Voucher not found')
-  if (before?.deletedAt) throw new Error('Voucher is in the bin; restore it first')
+  if (existingId && !before) throw new AppError('voucher_not_found', 'Voucher not found')
+  if (before?.deletedAt) throw new AppError('voucher_in_bin', 'Voucher is in the bin; restore it first')
   // WP 6.4 review: an e-invoice's IRN was generated for this type's number — renumbering it (a new
   // number, or another series) would leave the IRN describing a document that no longer exists.
   if (before?.irn && (number !== before.number || vt.id !== before.voucherTypeId)) {
-    throw new Error(`${IRN_RENUMBER_REFUSED} (IRN ${before.irn.slice(0, 12)}…)`)
+    throw new AppError('irn_renumber', `${IRN_RENUMBER_REFUSED} (IRN ${before.irn.slice(0, 12)}…)`, { field: 'number' })
   }
 
   const lock = getLockDate(db)
   if (lock && (input.date <= lock || (before && before.date <= lock))) {
-    throw new Error(`Books are locked up to ${lock}`)
+    throw lockedError(lock)
   }
 
   // WP 8.0: only a regular GST registration charges GST on a bill — see assertGstAllowed.
@@ -574,7 +585,7 @@ export function saveVoucher(db: DB, raw: VoucherInput, existingId?: number, hook
     ? (input.trade?.purpose ?? before?.trade?.purpose ?? DEFAULT_PURPOSE[vt.kind]!)
     : null
   if (purpose && !PURPOSES_FOR[vt.kind]!.includes(purpose)) {
-    throw new Error(`A ${vt.name} can't have the purpose "${purpose.replace('_', ' ')}"`)
+    throw new AppError('bad_purpose', `A ${vt.name} can't have the purpose "${purpose.replace('_', ' ')}"`)
   }
   const trade = hasTradeSchema(db)
 
@@ -594,7 +605,7 @@ export function saveVoucher(db: DB, raw: VoucherInput, existingId?: number, hook
     : null
   const holdOverride = hold ? hooks.creditHoldOverride?.reason.trim() || null : null
   if (hold && !holdOverride) {
-    throw new Error(`${CREDIT_HOLD_PREFIX} ${hold.name} is on credit hold${hold.reason ? ` (${hold.reason})` : ''} — an owner can override with a reason`)
+    throw new AppError('credit_hold', `${CREDIT_HOLD_PREFIX} ${hold.name} is on credit hold${hold.reason ? ` (${hold.reason})` : ''} — an owner can override with a reason`, { field: 'party', params: { name: hold.name } })
   }
 
   const run = db.transaction((): number => {
@@ -776,9 +787,9 @@ export function saveVoucher(db: DB, raw: VoucherInput, existingId?: number, hook
       )
       for (const line of batchLines) {
         const batch = batchStmt.get(line.batchId) as { id: number; stock_item_id: number; name: string } | undefined
-        if (!batch) throw new Error('Batch not found')
+        if (!batch) throw new AppError('batch_not_found', 'Batch not found', { field: 'items' })
         if (batch.stock_item_id !== line.stockItemId) {
-          throw new Error(`Batch ${batch.name} belongs to a different stock item`)
+          throw new AppError('batch_wrong_item', `Batch ${batch.name} belongs to a different stock item`, { field: 'items' })
         }
       }
       const outBatchIds = [...new Set(
@@ -788,7 +799,7 @@ export function saveVoucher(db: DB, raw: VoucherInput, existingId?: number, hook
         const { bal } = balanceStmt.get(batchId) as { bal: number }
         if (bal < 0) {
           const batch = batchStmt.get(batchId) as { name: string }
-          throw new Error(`Not enough stock in batch ${batch.name} (short by ${-bal / 1000})`)
+          throw new AppError('batch_short', `Not enough stock in batch ${batch.name} (short by ${-bal / 1000})`, { field: 'items', params: { batch: batch.name } })
         }
       }
     }
@@ -800,7 +811,7 @@ export function saveVoucher(db: DB, raw: VoucherInput, existingId?: number, hook
     warnings.negativeStock = checkStock(db, outItemIds, input.date)
     if (features.preventNegativeStock && warnings.negativeStock.length > 0) {
       const names = warnings.negativeStock.map((w) => w.name).join(', ')
-      throw new Error(`Insufficient stock for: ${names}`)
+      throw new AppError('insufficient_stock', `Insufficient stock for: ${names}`, { field: 'items', params: { names } })
     }
 
     // Credit limit (task 76): with this voucher's lines now in the books, the party's
@@ -836,8 +847,10 @@ export function saveVoucher(db: DB, raw: VoucherInput, existingId?: number, hook
             ...(openSalesOrders !== undefined ? { openSalesOrders, ordersOnly: outstanding <= party.credit_limit } : {})
           }
           if (features.enforceCreditLimit && outstanding > party.credit_limit) {
-            throw new Error(
-              `Credit limit exceeded for ${party.name}: outstanding ${outstanding} > limit ${party.credit_limit} paise`
+            throw new AppError(
+              'credit_limit',
+              `Credit limit exceeded for ${party.name}: outstanding ${outstanding} > limit ${party.credit_limit} paise`,
+              { field: 'party', params: { name: party.name } }
             )
           }
         }
@@ -866,9 +879,9 @@ export function saveVoucher(db: DB, raw: VoucherInput, existingId?: number, hook
 /** Move a voucher to the bin (soft delete). Report queries exclude it; restoreVoucher undoes this. */
 export function deleteVoucher(db: DB, id: number): void {
   const before = getVoucher(db, id)
-  if (!before) throw new Error('Voucher not found')
+  if (!before) throw new AppError('voucher_not_found', 'Voucher not found')
   const lock = getLockDate(db)
-  if (lock && before.date <= lock) throw new Error(`Books are locked up to ${lock}`)
+  if (lock && before.date <= lock) throw lockedError(lock)
   db.transaction(() => {
     // WP 2.5: refused while a live document draws on its lines (or it re-prices a frozen GRN).
     assertBinnable(db, id)
@@ -893,16 +906,16 @@ function assertInterestRestorable(db: DB, id: number): void {
        WHERE a.debit_note_voucher_id = ? AND ${NOT_DELETED} LIMIT 1`
     )
     .get(id) as { bill: string } | undefined
-  if (clash) throw new Error(`Interest on ${clash.bill} for this period has been charged again on another debit note — restoring this one would charge it twice`)
+  if (clash) throw new AppError('interest_restore_clash', `Interest on ${clash.bill} for this period has been charged again on another debit note — restoring this one would charge it twice`)
 }
 
 /** Reinstate a binned voucher so it counts in reports again. */
 export function restoreVoucher(db: DB, id: number): void {
   const before = getVoucher(db, id)
-  if (!before) throw new Error('Voucher not found')
-  if (!before.deletedAt) throw new Error('Voucher is not in the bin')
+  if (!before) throw new AppError('voucher_not_found', 'Voucher not found')
+  if (!before.deletedAt) throw new AppError('not_in_bin', 'Voucher is not in the bin')
   const lock = getLockDate(db)
-  if (lock && before.date <= lock) throw new Error(`Books are locked up to ${lock}`)
+  if (lock && before.date <= lock) throw lockedError(lock)
   // WP 4.2: a restored interest debit note must not charge a bill-period that another live
   // note has charged since it was binned.
   assertInterestRestorable(db, id)
@@ -916,7 +929,7 @@ export function restoreVoucher(db: DB, id: number): void {
       .prepare(`SELECT 1 FROM vouchers v WHERE ${NOT_DELETED} AND v.is_year_end_close = 1 AND v.date BETWEEN ? AND ? LIMIT 1`)
       .get(fy.from, fy.to)
     if (live) {
-      throw new Error(`FY ${fy.label} already has a year-end closing entry; bin that one first to restore this one`)
+      throw new AppError('year_closed_again', `FY ${fy.label} already has a year-end closing entry; bin that one first to restore this one`)
     }
   }
   // WP 4.4: refused when it would double-count a loan instalment / revaluation / settlement.
@@ -1080,6 +1093,9 @@ export interface BinRow {
   account: string
   amount: number
   deletedAt: string
+  /** WP 8.5: the undo group it went to the bin with (restoring one restores all), or null. */
+  undoGroupId: number | null
+  undoGroupSize: number | null
 }
 
 /** Binned vouchers, most recently deleted first. Mirrors listVouchers' account/amount derivation. */
@@ -1089,8 +1105,11 @@ export function listBin(db: DB): BinRow[] {
       `SELECT v.id, v.date, vt.name AS voucherType, v.number,
               COALESCE(pl.name, fl.name, '') AS account,
               COALESCE(t.total, 0) AS amount,
-              v.deleted_at AS deletedAt
+              v.deleted_at AS deletedAt,
+              ug.group_id AS undoGroupId,
+              (SELECT COUNT(*) FROM undo_group_vouchers g2 WHERE g2.group_id = ug.group_id) AS undoGroupSize
        FROM vouchers v
+       LEFT JOIN undo_group_vouchers ug ON ug.voucher_id = v.id
        JOIN voucher_types vt ON vt.id = v.voucher_type_id
        LEFT JOIN ledgers pl ON pl.id = v.party_ledger_id
        LEFT JOIN (

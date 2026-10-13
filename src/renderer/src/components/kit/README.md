@@ -102,6 +102,30 @@ a Field its aria props, and `useInField()` tells it not to add a fallback `aria-
 DateInput and the TypeAhead pickers name themselves "Amount" / "Date" / their placeholder outside
 a Field).
 
+### Field errors: `useFormErrors`, `FieldError` (WP 8.5)
+
+```tsx
+const errors = useFormErrors({ party: partyId, date, items: rows }, useErrorShell())
+<Field label="Party" name="party" error={errors.get('party')}>…</Field>
+<FieldError name="items" error={errors.get('items')} />   {/* for a grid / table, not one control */}
+
+if (!partyId) return errors.set('party', 'Pick the party account first')
+try { await api.vouchers.save(…) } catch (err) {
+  const { general } = errors.apply(err)        // fields placed by shared/errors mapError
+  if (general) toast.push('error', general)    // only what has no field on this form
+}
+```
+
+Plan §1.7: an error sits **under its field** (never a corner toast), says what happened and
+what to do, and is gone once the field changes — `useFormErrors(form)` keeps each message until
+that field's value differs from the value it was set on (pass stable state values, not
+re-created objects). `name` gives the message `data-testid="field-error-<name>"` and
+`data-field-error`. `apply(err)` reads the structured fields an `IpcError` carries (code /
+field / params / issues — `src/shared/errors`); an issue whose field the form doesn't show walks
+up its path (`lines.2.amount` → `lines`) or comes back as `general`. The shell decides the
+wording: accountant screens (`simple: false`) keep the service's own message; simple screens
+(`simple: true`) show only the plain `errors.*` text, with the technical one behind "Details".
+
 ### `Segmented`
 
 `<Segmented label="Density" options={[…]} value={v} onChange={set} testId="btn-density" />` — a
@@ -124,6 +148,14 @@ shows a number after the label.
 `role="toolbar"` row; `bordered` is the rule at the top of a Panel.
 
 ## Overlays
+
+### Toasts (WP 8.5)
+
+`useToasts().push(kind, text)` — bottom-right. An **error or warning toast belongs to the view
+that raised it**: the topmost dialog / drawer layer at the time (else the screen), and it closes
+when that view closes, so it can never outlive it. Success / info confirmations keep their short
+timer (they report a finished action — usually the one that closed the dialog). An error that has
+a field goes under the field (`useFormErrors`), not into a toast.
 
 ### `Modal`
 

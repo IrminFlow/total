@@ -5,6 +5,8 @@ import type {
   Voucher, VoucherTransport, VoucherType, TradeDocType, SaveVoucherWarnings
 } from '@shared/domain'
 import type { UiMode, UiPatch, UiSettings } from '@shared/simple/uiMode'
+import type { CaughtError, ErrorIssue, ErrorParams } from '@shared/errors'
+import type { SaveSummary } from '@shared/simple/saveCard'
 import type { BudgetVarianceRow } from '@shared/budgets'
 import type { McpConfig, McpLogRow, McpSettingsView } from '@shared/mcp'
 import type { AiDraftDto, AiDraftStatus } from '@shared/ai'
@@ -118,6 +120,9 @@ export interface BinRow {
   account: string
   amount: number
   deletedAt: string
+  /** WP 8.5: binned by one Undo with others — restoring one restores the group. */
+  undoGroupId: number | null
+  undoGroupSize: number | null
 }
 
 /** Mirrors src/main/services/users.ts's User shape (kept local — that file is main-process only). */
@@ -627,9 +632,26 @@ export interface PdcRow {
   amount: number
 }
 
+/** A failed IPC call (WP 8.5): `message` is the service's wording, unchanged; the structured
+ *  fields (shared/errors) let a form put a plain message under the field (`useFormErrors`). */
+export class IpcError extends Error implements CaughtError {
+  declare code?: string
+  declare field?: string
+  declare params?: ErrorParams
+  declare issues?: ErrorIssue[]
+  constructor(result: { error?: string; code?: string; field?: string; params?: ErrorParams; issues?: ErrorIssue[] }) {
+    super(result.error ?? 'Unknown error')
+    this.name = 'IpcError'
+    if (result.code) this.code = result.code
+    if (result.field) this.field = result.field
+    if (result.params) this.params = result.params
+    if (result.issues) this.issues = result.issues
+  }
+}
+
 export async function call<T>(channel: string, payload?: unknown): Promise<T> {
   const result = await window.total.invoke(channel, payload)
-  if (!result.ok) throw new Error(result.error ?? 'Unknown error')
+  if (!result.ok) throw new IpcError(result)
   return result.data as T
 }
 
@@ -855,7 +877,12 @@ export const api = {
     duplicates: (data: VoucherInputParsed, excludeId?: number) =>
       call<{ voucherId: number; number: string; date: string }[]>('voucher:duplicates', { data, excludeId }),
     bin: () => call<BinRow[]>('voucher:bin'),
-    restore: (id: number) => call<null>('voucher:restore', { id }),
+    /** A voucher undone with others (WP 8.5) restores with its whole group — `restored` lists them. */
+    restore: (id: number) => call<{ restored: number[] }>('voucher:restore', { id }),
+    /** WP 8.5 save card: bin the vouchers just saved as one undo group (refused once edited since). */
+    undoSave: (voucherIds: number[]) => call<{ groupId: number; binned: number[] }>('voucher:undoSave', { voucherIds }),
+    /** WP 8.5 save card figures (saved vouchers + the party's outstanding) and whether Undo still applies. */
+    saveSummary: (voucherIds: number[]) => call<SaveSummary>('voucher:saveSummary', { voucherIds }),
     purge: (id: number) => call<null>('voucher:purge', { id })
   },
   reports: {

@@ -7,6 +7,7 @@ import type { SessionUser } from '../lib/client'
 import type { SimpleSectionId, UiSettings } from '@shared/simple/uiMode'
 import { confirmDialog } from '../lib/dialogs'
 import { hasUnsavedChanges } from '../lib/useUnsavedGuard'
+import { onLayerClose, topLayerId } from '../components/kit/layers'
 
 // ---------- navigation ----------
 
@@ -384,6 +385,11 @@ export interface Toast {
   id: number
   kind: 'info' | 'success' | 'error' | 'warning'
   text: string
+  /** WP 8.5: the view an error / warning belongs to — the dialog (layer id) that was on top when
+   *  it was raised, else the screen (nav entry token). It closes when that view closes, so a toast
+   *  never outlives the view that raised it. Confirmations (success / info) report a finished
+   *  action — usually the very thing that closed the dialog — so they keep their short timer. */
+  scope?: { layer: number | null; screen: number }
 }
 
 export interface ToastState {
@@ -422,7 +428,8 @@ export const useToasts = create<ToastState>((set, get) => {
         return
       }
       const id = ++toastId
-      set((s) => ({ toasts: [...s.toasts, { id, kind, text }] }))
+      const scope = kind === 'error' || kind === 'warning' ? { layer: topLayerId(), screen: screenToken(topScreen()) } : undefined
+      set((s) => ({ toasts: [...s.toasts, { id, kind, text, ...(scope ? { scope } : {}) }] }))
       if (toastRemaining) toastRemaining.set(id, ttl)
       else arm(id, ttl)
     },
@@ -452,4 +459,34 @@ export const useToasts = create<ToastState>((set, get) => {
       for (const [id, ms] of remaining) arm(id, ms)
     }
   }
+})
+
+/** Stable token per nav entry (the stack holds a new object for every go / replace). */
+const screenTokens = new WeakMap<Screen, number>()
+let screenSeq = 0
+function screenToken(screen: Screen): number {
+  let t = screenTokens.get(screen)
+  if (t === undefined) {
+    t = ++screenSeq
+    screenTokens.set(screen, t)
+  }
+  return t
+}
+const topScreen = (): Screen => {
+  const stack = useNav.getState().stack
+  return stack[stack.length - 1]!
+}
+
+/** Close the scoped toasts a view raised once it closes (WP 8.5). */
+function dismissScoped(match: (scope: NonNullable<Toast['scope']>) => boolean): void {
+  const { toasts, dismiss } = useToasts.getState()
+  for (const t of toasts) if (t.scope && match(t.scope)) dismiss(t.id)
+}
+onLayerClose((layer) => dismissScoped((s) => s.layer === layer))
+useNav.subscribe((state, prev) => {
+  const now = state.stack[state.stack.length - 1]
+  const before = prev.stack[prev.stack.length - 1]
+  if (now === before || !before) return
+  const gone = screenToken(before)
+  dismissScoped((s) => s.screen === gone)
 })
