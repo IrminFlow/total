@@ -60,11 +60,13 @@ export interface ItemLineGridProps {
   pricing?: LinePricingContext
   /** WP 8.0: false hides the GST % column (a composition / unregistered company charges no GST). */
   showGst?: boolean
+  /** WP 8.0: the rate column's header ("Rate incl. GST" on a purchase that can't claim GST). */
+  rateLabel?: string
 }
 
 export function ItemLineGrid({
   rows, setRow, setRows, direction, priceLevelId, fxActive, date, voucherId, fallbackGstRate, onCreateItem,
-  lockedBySource, rowNote, onRemoveRow, stockDetail = true, pricing, showGst = true
+  lockedBySource, rowNote, onRemoveRow, stockDetail = true, pricing, showGst = true, rateLabel
 }: ItemLineGridProps): React.JSX.Element {
   const features = useFeatures()
   const resolverOn = !!pricing?.enabled
@@ -90,7 +92,7 @@ export function ItemLineGrid({
           <tr>
             <th>Item</th>
             <th className="r w-28">Qty</th>
-            <th className="r w-32">Rate</th>
+            <th className="r w-32">{rateLabel ?? 'Rate'}</th>
             <th className="r w-28">Disc.</th>
             {showGst && <th className="r w-24">GST %</th>}
             <th className="r w-36">Amount</th>

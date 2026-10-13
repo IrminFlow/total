@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { gstRegistrationOf } from '@shared/gst/registration'
 import { useQuery } from '@tanstack/react-query'
 import { STOCK_NOTE_KINDS, type VoucherKind } from '@shared/domain'
 import { todayISO } from '@shared/dates'
@@ -136,7 +137,7 @@ export function VoucherEntry({
       planVoucherEdit(existing, existingKind, {
         invoice: {
           companyStateCode: info.stateCode,
-          gstRegistrationType: info.gstRegistrationType,
+          ...gstRegistrationOf(info),
           items: new Map(items.map((i) => [i.id, { gstRate: i.gstRate, cessRate: i.cessRate }])),
           ledgers: new Map(ledgers.map((l) => [l.id, { stateCode: l.stateCode, gstRate: l.gstRate, tdsPayableSectionId: l.tdsPayableSectionId }]))
         },

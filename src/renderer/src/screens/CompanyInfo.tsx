@@ -2,7 +2,8 @@ import { useEffect, useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { api } from '../lib/client'
 import { useNav, useSession, useToasts } from '../state/stores'
-import { Button, Field, Page, PageHeader, Panel, SectionTitle, Select, TextInput } from '../components/ui'
+import { Button, DateInput, Field, Page, PageHeader, Panel, SectionTitle, Select, TextInput } from '../components/ui'
+import { todayISO, toDisplayDate } from '@shared/dates'
 import { GST_STATE_LIST } from '@shared/gst/states'
 import { gstinErrorMessage } from '../lib/gstinError'
 import { useUnsavedGuard } from '../lib/useUnsavedGuard'
@@ -23,6 +24,9 @@ export function CompanyInfoScreen(): React.JSX.Element {
   const [phone, setPhone] = useState(info?.phone ?? '')
   const [pan, setPan] = useState(info?.pan ?? '')
   const [tan, setTan] = useState(info?.tan ?? '')
+  // WP 8.0: a changed registration takes effect from a date (default today); earlier vouchers
+  // and returns keep the registration they were made under.
+  const [regSince, setRegSince] = useState(todayISO())
 
   // Re-seed the form whenever the saved info changes (company switch, save round-trip,
   // Tally import updating details) so the fields never show a stale company's values.
@@ -52,6 +56,9 @@ export function CompanyInfoScreen(): React.JSX.Element {
   useUnsavedGuard(dirty)
 
   const gstinError = gstinErrorMessage(gstin, stateCode)
+  const effectiveRegType = gstin.trim() ? (regType === 'unregistered' ? 'regular' : regType) : 'unregistered'
+  const regChanged = !!info && effectiveRegType !== info.gstRegistrationType
+  const REG_LABEL = { regular: 'Regular', composition: 'Composition', unregistered: 'Unregistered' } as const
   const panError = pan.trim() && !PAN_RE.test(pan.trim()) ? 'Invalid PAN (e.g. ABCDE1234F)' : null
   const tanError = tan.trim() && !TAN_RE.test(tan.trim()) ? 'Invalid TAN (e.g. ABCD12345E)' : null
 
@@ -64,7 +71,8 @@ export function CompanyInfoScreen(): React.JSX.Element {
         name: name.trim(),
         stateCode,
         gstin: gstin.trim() ? gstin.trim().toUpperCase() : null,
-        gstRegistrationType: gstin.trim() ? (regType === 'unregistered' ? 'regular' : regType) : 'unregistered',
+        gstRegistrationType: effectiveRegType,
+        ...(regChanged ? { gstRegistrationSince: regSince } : {}),
         address,
         booksFrom: info?.booksFrom ?? 2025,
         email: email.trim() || null,
@@ -120,6 +128,17 @@ export function CompanyInfoScreen(): React.JSX.Element {
         <Field label="GSTIN" error={gstinError} hint="Needed for GSTR exports">
           <TextInput value={gstin} onChange={(e) => setGstin(e.target.value.toUpperCase())} className="num" />
         </Field>
+        {regChanged ? (
+          <Field label={`${REG_LABEL[effectiveRegType]} from`} hint={`Bills dated before this stay ${REG_LABEL[info!.gstRegistrationType].toLowerCase()} — their GST and returns don't change`}>
+            <DateInput value={regSince} context={regSince} onChange={setRegSince} testId="input-company-reg-since" />
+          </Field>
+        ) : (
+          info?.gstRegistrationSince && info.gstPreviousRegistrationType && (
+            <p className="text-hint text-muted" data-testid="company-reg-history">
+              {REG_LABEL[info.gstRegistrationType]} since {toDisplayDate(info.gstRegistrationSince)} · {REG_LABEL[info.gstPreviousRegistrationType].toLowerCase()} before
+            </p>
+          )
+        )}
         <Field label="Address">
           <TextInput value={address} onChange={(e) => setAddress(e.target.value)} />
         </Field>

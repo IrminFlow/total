@@ -1,4 +1,5 @@
 import { app, BrowserWindow, dialog, ipcMain, Notification, shell } from 'electron'
+import { nextRegistrationFacts } from '@shared/gst/registration'
 import { readFileSync, writeFileSync, copyFileSync, rmSync, unlinkSync, mkdtempSync, existsSync, appendFileSync } from 'fs'
 import { tmpdir } from 'os'
 import { join, basename } from 'path'
@@ -500,7 +501,10 @@ export function registerIpc(): void {
     const c = requireCompany()
     const before = c.info
     const input = companyCreateSchema.parse(payload)
-    const info: CompanyInfo = { ...input }
+    // WP 8.0: a changed registration takes effect from the given date (default today) and keeps
+    // the type it replaces, so vouchers and returns of the earlier months keep their GST.
+    const { gstRegistrationSince, gstPreviousRegistrationType: _prev, ...rest } = input
+    const info: CompanyInfo = { ...rest, ...nextRegistrationFacts(before, input.gstRegistrationType, gstRegistrationSince, todayISO()) }
     writeCompanyInfo(c.db, info)
     c.info = info
     upsertCompany({ slug: c.slug, name: info.name, stateCode: info.stateCode, gstin: info.gstin, lastOpenedAt: new Date().toISOString() })

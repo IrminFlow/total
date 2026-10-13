@@ -30,7 +30,7 @@ import { addFromFor, rowsFromSourcePicks, sourceLocksGoods, type SourcePick } fr
 import type { OpenSourceLine } from '@shared/tradeCycle/types'
 import { DocLink } from '../../components/links'
 import { creditLimitWarningText } from '@shared/tradeCycle/edit'
-import { legacyTaxWarning } from '@shared/gst/registration'
+import { chargesGstOn, gstRegistrationOf, legacyTaxWarning, NON_CLAIMABLE_RATE_HINT, registrationOn } from '@shared/gst/registration'
 
 /** The narration hint per kind (WP 8.0: a purchase never says "goods sold"). */
 const NARRATION_PLACEHOLDER: Partial<Record<VoucherKind, string>> = {
@@ -189,13 +189,20 @@ export function InvoiceEntry({
     queryFn: () => api.bills.open(partyId!, date),
     enabled: !!partyId && isNoteKind && !manualNewBillMode
   })
+  // WP 8.0: a note set against a bill raised while the company charged GST keeps that bill's GST
+  // (s.34), even after the registration changed. Bills are matched by name among the open ones.
+  const taxedOriginal =
+    isNoteKind && !chargesGstOn(info!, date) &&
+    noteBillRefs.some((r) => (openBillsForNote ?? []).some((b) => b.number === r.name && chargesGstOn(info!, b.date)))
+  // An unregistered business files no GST: no e-way / place-of-supply fields on its bills.
+  const unregisteredNow = registrationOn(info!, date) === 'unregistered'
 
   // Everything the shared invoice math needs, from the same masters the pickers show.
   const ctx: InvoiceContext = useMemo(
     () => ({
       kind,
       companyStateCode: info!.stateCode,
-      gstRegistrationType: info!.gstRegistrationType,
+      ...gstRegistrationOf(info!),
       items: new Map(items.map((i) => [i.id, { gstRate: i.gstRate, cessRate: i.cessRate }])),
       ledgers: new Map(ledgers.map((l) => [l.id, { stateCode: l.stateCode, gstRate: l.gstRate, tdsPayableSectionId: l.tdsPayableSectionId, tcsPayableSectionId: l.tcsPayableSectionId ?? null }]))
     }),
@@ -227,13 +234,16 @@ export function InvoiceEntry({
       tds: invoiceKindTakesTds(kind) ? tds : null,
       tcs: invoiceKindTakesTcs(kind) ? tcs : null,
       // WP 8.0: a saved voucher that already carries GST keeps it (planVoucherEdit sets it).
-      ...(initial?.legacyTax ? { legacyTax: true } : {})
+      ...(initial?.legacyTax ? { legacyTax: true } : {}),
+      ...(taxedOriginal ? { taxedOriginal: true } : {})
     }),
-    [date, isEdit, alterNumber, numberField.forPayload, partyId, accountId, rows, narration, vehicleNo, transporterId, distanceKm, currencyCode, fxRateText, posOverride, optionalVoucher, billName, billDueDate, manualNewBillMode, noteBillRefs, initial, kind, tds, tcs]
+    [date, isEdit, alterNumber, numberField.forPayload, partyId, accountId, rows, narration, vehicleNo, transporterId, distanceKm, currencyCode, fxRateText, posOverride, optionalVoucher, billName, billDueDate, manualNewBillMode, noteBillRefs, initial, kind, tds, tcs, taxedOriginal]
   )
 
   const computed = useMemo(() => computeInvoice(formState, ctx), [formState, ctx])
   const { supply, fxActive } = computed
+  // WP 8.0: a purchase / debit note that can't claim GST: rates are typed including it (the cost).
+  const nonClaimable = !computed.chargesGst && (kind === 'purchase' || kind === 'debit_note')
   // WP 2.6: the grid prices sales lines through the resolver (party rate › level › scheme …).
   const linePricing = useInvoicePricing(kind, partyId, date, supply, fxActive ? currencyCode : '')
 
@@ -611,7 +621,7 @@ export function InvoiceEntry({
       )}
       {initial?.legacyTax && (
         <Banner tone="warning" className="mt-2" testId="invoice-legacy-tax" title="GST on a company that doesn’t charge it">
-          {legacyTaxWarning(info!.gstRegistrationType)}
+          {legacyTaxWarning(registrationOn(info!, date))}
         </Banner>
       )}
       <div className="mt-2 flex items-center justify-between">
@@ -619,7 +629,7 @@ export function InvoiceEntry({
           <p className="text-hint text-muted" data-testid="invoice-supply-line">
             {party.gstin ? <>GSTIN <span className="num">{party.gstin}</span> · </> : 'Unregistered · '}
             {!computed.chargesGst
-              ? info!.gstRegistrationType === 'composition' ? 'No GST — composition scheme (bill of supply)' : 'No GST — the company is not GST-registered'
+              ? registrationOn(info!, date) === 'composition' ? 'No GST — composition scheme (bill of supply)' : 'No GST — the company is not GST-registered'
               : supply === 'intra' ? 'Intra-state — CGST + SGST' : 'Inter-state — IGST'}
           </p>
         ) : (
@@ -677,14 +687,18 @@ export function InvoiceEntry({
         onRemoveRow={removeRow}
         pricing={linePricing}
         showGst={computed.chargesGst}
+        rateLabel={nonClaimable ? 'Rate incl. GST' : undefined}
       />
+      {nonClaimable && (
+        <p className="mt-1 text-hint text-muted" data-testid="invoice-non-claimable">{NON_CLAIMABLE_RATE_HINT}</p>
+      )}
 
       <div className="mt-4 flex items-start justify-between gap-6">
         <div className="flex-1">
           <Field label="Narration">
             <TextInput value={narration} onChange={(e) => setNarration(e.target.value)} placeholder={NARRATION_PLACEHOLDER[kind] ?? 'Optional'} data-testid="input-invoice-narration" />
           </Field>
-          {isSalesSide && kind === 'sales' && (
+          {isSalesSide && kind === 'sales' && !unregisteredNow && (
             <div className="mt-3 grid grid-cols-3 gap-3">
               <Field label="Vehicle no.">
                 <TextInput value={vehicleNo} onChange={(e) => setVehicleNo(e.target.value.toUpperCase())} placeholder="Vehicle number" className="num" />
@@ -818,7 +832,7 @@ export function InvoiceEntry({
           onClick={() => setGstOpen((v) => !v)}
         >
           <span className="inline-block w-3 text-micro">{gstOpen ? '▾' : '▸'}</span>
-          GST details
+          {unregisteredNow ? 'More options' : 'GST details'}
           {(posOverride || optionalVoucher) && (
             <span className="normal-case text-muted">
               {' '}
@@ -829,6 +843,7 @@ export function InvoiceEntry({
         </button>
         {gstOpen && (
           <div className="mt-2 grid grid-cols-3 items-end gap-3">
+            {(!unregisteredNow || posOverride) && (
             <Field
               label="Place of supply"
               hint="Overrides the party state in GST returns and the CGST+SGST / IGST split"
@@ -846,6 +861,7 @@ export function InvoiceEntry({
                 ))}
               </Select>
             </Field>
+            )}
             <label className="col-span-2 flex items-center gap-2 pb-2 text-body-sm">
               <input
                 type="checkbox"

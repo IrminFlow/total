@@ -1,4 +1,5 @@
 import { mkdirSync, writeFileSync } from 'fs'
+import { chargesGstOn } from '@shared/gst/registration'
 import { join } from 'path'
 import type { DB } from '../db/connection'
 import type { CompanyInfo, TradePurpose, VoucherTransport } from '@shared/domain'
@@ -275,6 +276,12 @@ export function extractEdocInvoices(
   const totalStmt = db.prepare(
     "SELECT COALESCE(SUM(amount), 0) AS t FROM voucher_lines WHERE voucher_id = ? AND dr_cr = 'dr'"
   )
+  // WP 8.0: a bill dated while the company is composition / unregistered charges no GST — its
+  // lines print / export at 0% unless the voucher actually posts tax (as services/gst.ts).
+  const taxLineStmt = db.prepare(
+    `SELECT 1 FROM voucher_lines vl JOIN ledgers l ON l.id = vl.ledger_id
+     WHERE vl.voucher_id = ? AND l.tax_type IN ('cgst', 'sgst', 'igst', 'cess') LIMIT 1`
+  )
   // Original invoice for a note's RefDtls.PrecDocDtls: match voucher.reference against a
   // sales voucher number (null-safe — omitted when it doesn't resolve).
   const refStmt = db.prepare(
@@ -296,7 +303,8 @@ export function extractEdocInvoices(
     const withoutPayment = v.partyExportType === 'exp_wop' || v.partyExportType === 'sez_wop'
     const isNote = v.kind === 'delivery_note' || v.kind === 'receipt_note'
     // A challan carries tax only "where the transportation is for supply" (rule 55(1)(vii)).
-    const taxed = !isNote || purposeIsTaxed(v.purpose ?? (v.kind === 'delivery_note' ? 'supply' : 'purchase'))
+    const taxed = (!isNote || purposeIsTaxed(v.purpose ?? (v.kind === 'delivery_note' ? 'supply' : 'purchase'))) &&
+      (chargesGstOn(company, v.date) || !!taxLineStmt.get(v.id))
     const rawItems = invStmt.all(v.id) as {
       qtyMilli: number; ratePaise: number; amount: number; discountPaise: number
       name: string; hsn: string | null; gstRate: number | null; cessRate: number | null; barcode: string | null; uqc: string
@@ -334,8 +342,8 @@ export function extractEdocInvoices(
       items = lines
         .filter((l) => l.drCr === salesSide && salesGroupIds.has(l.groupId))
         .map((l) => {
-          const rate = l.gstRate ?? 0
-          const cessRate = l.cessRate ?? 0
+          const rate = taxed ? (l.gstRate ?? 0) : 0
+          const cessRate = taxed ? (l.cessRate ?? 0) : 0
           const g = computeGst(l.amount, rate, supply, cessRate)
           return {
             name: l.name,

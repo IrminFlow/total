@@ -20,7 +20,7 @@ import { descendantIdsByName } from './masters'
 import { getGst3bManual } from './config'
 import { companyExportsDir } from '../paths'
 import { IN_BOOKS } from './vouchers'
-import { chargesGst } from '@shared/gst/registration'
+import { chargesGstOn } from '@shared/gst/registration'
 import { hasTradeSchema } from './tradeLinks'
 
 interface DocVoucherRow {
@@ -145,10 +145,10 @@ export function extractOutwardDocs(db: DB, company: CompanyInfo, from: string, t
     `SELECT COALESCE(SUM(te.tds_amount), 0) AS t FROM tds_entries te JOIN tds_sections ts ON ts.id = te.section_id
      WHERE te.voucher_id = ? AND ts.kind = 'tcs'`
   )
-  // WP 8.0: a composition / unregistered company's bill charges no GST, so its lines are reported
-  // at 0% (the item / ledger master's rate never applies) — except a voucher saved before the
-  // rule that actually posts tax, which is reported as before.
-  const companyCharges = chargesGst(company.gstRegistrationType)
+  // WP 8.0: a bill dated while the company is composition / unregistered charges no GST, so its
+  // lines are reported at 0% (the item / ledger master's rate never applies) — except a voucher
+  // that actually posts tax (saved before the rule, or a note against a regular-period bill).
+  // Decided per voucher by ITS date, so a later change of registration never rewrites past returns.
   const taxLineStmt = db.prepare(
     `SELECT 1 FROM voucher_lines vl JOIN ledgers l ON l.id = vl.ledger_id
      WHERE vl.voucher_id = ? AND l.tax_type IN ('cgst', 'sgst', 'igst', 'cess') LIMIT 1`
@@ -158,7 +158,7 @@ export function extractOutwardDocs(db: DB, company: CompanyInfo, from: string, t
     .filter((v) => v.kind !== 'debit_note' || outwardDbn.has(v.id))
     .map((v) => {
       const { invTyp, isExport, pos, supply, zeroTax } = outwardSupplyClass(company, v)
-      const rated = companyCharges || !!taxLineStmt.get(v.id)
+      const rated = chargesGstOn(company, v.date) || !!taxLineStmt.get(v.id)
 
       const inv = invStmt.all(v.id) as {
         qtyMilli: number; amount: number; itemName: string

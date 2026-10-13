@@ -4,6 +4,7 @@
 // allocations and tds_entries identical apart from row ids. Also pins which entry mode each
 // voucher opens in.
 import { describe, it, expect } from 'vitest'
+import { gstRegistrationOf } from '@shared/gst/registration'
 import { seededDb, TEST_INFO } from '../db/testdb'
 import { readCompanyInfo, writeCompanyInfo } from '../db/seed'
 import type { DB } from '../db/connection'
@@ -105,7 +106,7 @@ function editContext(db: DB, voucherId?: number): EditPlanContext {
     invoice: {
       companyStateCode: TEST_INFO.stateCode,
       // The company's registration as stored (WP 8.0 tests flip it after saving).
-      gstRegistrationType: readCompanyInfo(db).gstRegistrationType,
+      ...gstRegistrationOf(readCompanyInfo(db)),
       items: new Map(items.map((i) => [i.id, { gstRate: i.gstRate, cessRate: i.cessRate }])),
       ledgers: new Map(ledgers.map((l) => [l.id, { stateCode: l.stateCode, gstRate: l.gstRate, tdsPayableSectionId: l.tdsPayableSectionId, tcsPayableSectionId: l.tcsPayableSectionId ?? null }]))
     },
