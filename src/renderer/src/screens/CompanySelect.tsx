@@ -6,7 +6,7 @@ import { useNav, useSession, useToasts } from '../state/stores'
 import { Button, Field, Modal, ScrollList, Select, TextInput, useKeyNav } from '../components/ui'
 import { SupportLink } from '../components/SupportLink'
 import { TotalLogo } from '../components/TotalLogo'
-import { GST_STATES } from '@shared/gst/states'
+import { GST_STATES, GST_STATE_LIST } from '@shared/gst/states'
 import { gstinErrorMessage } from '../lib/gstinError'
 import { fyOf, todayISO } from '@shared/dates'
 import type { CompanyCreateInput } from '@shared/schemas'
@@ -443,7 +443,7 @@ function CreateCompanyModal({ onClose, onCreated }: { onClose: () => void; onCre
         <div className="grid grid-cols-2 gap-3">
           <Field label="State">
             <Select value={stateCode} onChange={(e) => setStateCode(e.target.value)}>
-              {Object.entries(GST_STATES).map(([code, label]) => (
+              {GST_STATE_LIST.map(([code, label]) => (
                 <option key={code} value={code}>
                   {code} — {label}
                 </option>
@@ -461,7 +461,7 @@ function CreateCompanyModal({ onClose, onCreated }: { onClose: () => void; onCre
           </Field>
         </div>
         <Field label="GSTIN" hint="Leave empty if not GST-registered" error={gstinError}>
-          <TextInput value={gstin} onChange={(e) => setGstin(e.target.value.toUpperCase())} placeholder="27AAPFU0939F1ZV" className="num" />
+          <TextInput value={gstin} onChange={(e) => setGstin(e.target.value.toUpperCase())} placeholder="GSTIN (15 characters)" className="num" data-testid="input-company-gstin" />
         </Field>
         {gstin.trim() && (
           <Field label="Registration type">

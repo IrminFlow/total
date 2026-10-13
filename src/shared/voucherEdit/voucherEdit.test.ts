@@ -28,6 +28,7 @@ const CHAIR = 300
 
 const baseCtx: Omit<InvoiceContext, 'kind'> = {
   companyStateCode: '27',
+  gstRegistrationType: 'regular',
   items: new Map([
     [WIDGET, { gstRate: 18, cessRate: null }],
     [GADGET, { gstRate: 5, cessRate: 1 }]

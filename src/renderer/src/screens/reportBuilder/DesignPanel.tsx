@@ -4,7 +4,7 @@ import {
   DIMENSIONS, DIMENSION_KEYS, MEASURES, MEASURE_KEYS, defaultModel, isPeriodDimension,
   type ComparativeKind, type DimensionKey, type MeasureKey, type ReportFilters, type ReportModel
 } from '@shared/reportBuilder/model'
-import { GST_STATES } from '@shared/gst/states'
+import { GST_STATE_LIST } from '@shared/gst/states'
 import { api } from '../../lib/client'
 import { reportsApi } from '../../lib/reportsClient'
 import { AmountInput, Button, Checkbox, Field, Segmented, Select, TextInput } from '../../components/ui'
@@ -66,7 +66,7 @@ export function DesignPanel({ model, onChange }: { model: ReportModel; onChange:
   const stockGroupOptions = useMemo(() => (stockGroups ?? []).map((g) => ({ id: g.id, label: g.name })), [stockGroups])
   const godownOptions = useMemo(() => godowns.map((g) => ({ id: g.id, label: g.name })), [godowns])
   const centreOptions = useMemo(() => (centres ?? []).map((c) => ({ id: c.id, label: c.name })), [centres])
-  const stateOptions = useMemo(() => Object.entries(GST_STATES).map(([code, name]) => ({ id: Number(code), label: `${code} ${name}` })), [])
+  const stateOptions = useMemo(() => GST_STATE_LIST.map(([code, name]) => ({ id: Number(code), label: `${code} ${name}` })), [])
   const userOptions = useMemo(() => (users ?? []).map((u, i) => ({ id: i + 1, label: u })), [users])
   const kinds = useMemo(() => {
     const seen = new Map<string, string>()

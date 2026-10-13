@@ -7,6 +7,7 @@
 // flag on injected text, multi-draft turns, and the numbers rule on draft summaries.
 import { beforeEach, describe, expect, it } from 'vitest'
 import { seededDb, TEST_INFO } from '../db/testdb'
+import { writeCompanyInfo } from '../db/seed'
 import type { DB } from '../db/connection'
 import type { CompanyInfo, Voucher } from '@shared/domain'
 import type { AiSettings, AiVoucherDraftPayload } from '@shared/ai'
@@ -467,5 +468,18 @@ describe('the agent: multi-draft turns, injection, numbers rule on summaries', (
     const [d] = store.listDrafts(db)
     expect(d).toMatchObject({ unrequested: false })
     expect(d!.payload).toMatchObject({ form: 'invoice', total: 10_620_000 })
+  })
+})
+
+describe('WP 8.0: drafting follows the GST registration rule', () => {
+  it('an unregistered company: the sales draft charges no GST, says so, and its rehearsed save passes', async () => {
+    const un: CompanyInfo = { ...INFO, gstin: null, gstRegistrationType: 'unregistered' }
+    writeCompanyInfo(db, un)
+    const r = await draft('draft_invoice', { kind: 'sales', party: 'Umbrella Retail', items: [{ item: 'Laptop 14', qty: '1', rate: '45000' }] }, { company: un })
+    expect(r.ok, r.error).toBe(true)
+    const p = payloadOf(r.draftId!)
+    expect(p.total).toBe(4_500_000)
+    expect(p.assumptions).toContain('No GST — the company is not GST-registered')
+    expect((p.lines ?? []).some((l) => [ids.cgst, ids.sgst, ids.igst].includes(l.ledgerId))).toBe(false)
   })
 })

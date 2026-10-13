@@ -20,6 +20,7 @@ import { descendantIdsByName } from './masters'
 import { getGst3bManual } from './config'
 import { companyExportsDir } from '../paths'
 import { IN_BOOKS } from './vouchers'
+import { chargesGstOn } from '@shared/gst/registration'
 import { hasTradeSchema } from './tradeLinks'
 
 interface DocVoucherRow {
@@ -144,11 +145,20 @@ export function extractOutwardDocs(db: DB, company: CompanyInfo, from: string, t
     `SELECT COALESCE(SUM(te.tds_amount), 0) AS t FROM tds_entries te JOIN tds_sections ts ON ts.id = te.section_id
      WHERE te.voucher_id = ? AND ts.kind = 'tcs'`
   )
+  // WP 8.0: a bill dated while the company is composition / unregistered charges no GST, so its
+  // lines are reported at 0% (the item / ledger master's rate never applies) — except a voucher
+  // that actually posts tax (saved before the rule, or a note against a regular-period bill).
+  // Decided per voucher by ITS date, so a later change of registration never rewrites past returns.
+  const taxLineStmt = db.prepare(
+    `SELECT 1 FROM voucher_lines vl JOIN ledgers l ON l.id = vl.ledger_id
+     WHERE vl.voucher_id = ? AND l.tax_type IN ('cgst', 'sgst', 'igst', 'cess') LIMIT 1`
+  )
 
   return vouchers
     .filter((v) => v.kind !== 'debit_note' || outwardDbn.has(v.id))
     .map((v) => {
       const { invTyp, isExport, pos, supply, zeroTax } = outwardSupplyClass(company, v)
+      const rated = chargesGstOn(company, v.date) || !!taxLineStmt.get(v.id)
 
       const inv = invStmt.all(v.id) as {
         qtyMilli: number; amount: number; itemName: string
@@ -199,7 +209,7 @@ export function extractOutwardDocs(db: DB, company: CompanyInfo, from: string, t
           // kept as-is so the validation panel can flag them (never silently 'OTH').
           const mapped = toUqc(line.uqc)
           const uqc = mapped.fallback ? line.uqc : mapped.uqc
-          addLine(line.amount, line.gstRate ?? 0, line.cessRate ?? 0, line.hsn, line.itemName, uqc, line.qtyMilli)
+          addLine(line.amount, rated ? (line.gstRate ?? 0) : 0, rated ? (line.cessRate ?? 0) : 0, line.hsn, line.itemName, uqc, line.qtyMilli)
         }
       } else {
         const lines = lineStmt.all(v.id) as {
@@ -210,7 +220,7 @@ export function extractOutwardDocs(db: DB, company: CompanyInfo, from: string, t
         for (const line of lines) {
           if (line.drCr !== salesSide || !salesGroupIds.has(line.groupId)) continue
           // WP 4.2: a ledger can carry a cess rate (migration 032) — absent = no cess, as before.
-          addLine(line.amount, line.gstRate ?? 0, line.cessRate ?? 0, line.hsn, line.name, 'OTH', 0)
+          addLine(line.amount, rated ? (line.gstRate ?? 0) : 0, rated ? (line.cessRate ?? 0) : 0, line.hsn, line.name, 'OTH', 0)
         }
       }
 

@@ -165,11 +165,22 @@ describe('dashboardSeries reconciles with the reports', () => {
   })
 
   it('TDS card: quarter deductions from the TDS summary; off with the feature', () => {
-    const t = ok(series().tds)!
-    const q = tdsQuarterOf(today)
-    expect(t.quarter).toBe(q.label)
-    expect(t.deducted).toBe(tdsSummary(db, q.fyStartYear).filter((r) => r.quarter === q.label).reduce((s, r) => s + r.tds, 0))
-    expect(t.nextDue).not.toBeNull()
+    // WP 8.0: no TDS row while nothing was ever deducted (the demo books have no deduction).
+    expect(ok(series().tds)).toBeNull()
+    // One deduction on a live voucher (fixture-only row) brings the card back.
+    const v = id(`SELECT id FROM vouchers WHERE deleted_at IS NULL AND date <= ? ORDER BY date DESC, id DESC LIMIT 1`, today)
+    const entry = db
+      .prepare('INSERT INTO tds_entries (voucher_id, section_id, party_ledger_id, base_amount, tds_amount) VALUES (?, (SELECT id FROM tds_sections ORDER BY id LIMIT 1), ?, 100000, 1000)')
+      .run(v, ledger('Cash')).lastInsertRowid
+    try {
+      const t = ok(series().tds)!
+      const q = tdsQuarterOf(today)
+      expect(t.quarter).toBe(q.label)
+      expect(t.deducted).toBe(tdsSummary(db, q.fyStartYear).filter((r) => r.quarter === q.label).reduce((s, r) => s + r.tds, 0))
+      expect(t.nextDue).not.toBeNull()
+    } finally {
+      db.prepare('DELETE FROM tds_entries WHERE id = ?').run(entry)
+    }
   })
 
   it('stock alerts are the Exceptions negative-stock rows and the stock-ageing reorder breaches', () => {

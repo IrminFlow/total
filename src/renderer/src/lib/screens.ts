@@ -84,6 +84,9 @@ export interface ScreenDef {
   navLabel?: string
   /** Hidden everywhere (render-only) when this feature is off. */
   feature?: keyof CompanyFeatures
+  /** WP 8.0: hidden from the sidebar / palette / Gateway when the company is unregistered (no GST
+   *  returns or e-documents to file). The screen still opens by link and says so. */
+  requiresGstRegistration?: boolean
   /** Gateway card: subtitle + single-letter shortcut (also ShortcutHelp's Gateway group). */
   card?: { sub: string; key: string }
   /** Extra command-palette search terms beyond the title. */
@@ -696,6 +699,7 @@ export const SCREENS: ScreenDef[] = [
 
   {
     name: 'gstr1',
+    requiresGstRegistration: true,
     modes: ['accountant'],
     simpleSection: 'taxes',
     simpleEntries: [
@@ -709,6 +713,7 @@ export const SCREENS: ScreenDef[] = [
   },
   {
     name: 'gstr3b',
+    requiresGstRegistration: true,
     modes: ['accountant'],
     simpleSection: 'taxes',
     simpleEntries: [
@@ -723,6 +728,7 @@ export const SCREENS: ScreenDef[] = [
   },
   {
     name: 'gstr9',
+    requiresGstRegistration: true,
     modes: ['accountant'],
     title: 'GSTR-9 annual workings',
     keywords: ['annual return', 'gstr-9', 'gstr9c', 'reconciliation'],
@@ -732,6 +738,7 @@ export const SCREENS: ScreenDef[] = [
   },
   {
     name: 'itc04',
+    requiresGstRegistration: true,
     modes: ['accountant'],
     title: 'ITC-04 · job work',
     keywords: ['job work', 'itc-04', 'challan'],
@@ -741,6 +748,7 @@ export const SCREENS: ScreenDef[] = [
   },
   {
     name: 'itc-reversal',
+    requiresGstRegistration: true,
     modes: ['accountant'],
     title: 'ITC reversal workings',
     keywords: ['rule 42', 'rule 43', 'rule 37', '17(5)', 'blocked credit', 'reversal'],
@@ -750,6 +758,7 @@ export const SCREENS: ScreenDef[] = [
   },
   {
     name: 'gstr2b',
+    requiresGstRegistration: true,
     modes: ['accountant'],
     simpleSection: 'taxes',
     simpleEntries: [
@@ -763,6 +772,7 @@ export const SCREENS: ScreenDef[] = [
   },
   {
     name: 'edocs',
+    requiresGstRegistration: true,
     modes: ['accountant'],
     simpleSection: 'sell',
     keywords: ['e-invoice', 'e-way bill', 'irn', 'ewb'],
@@ -980,7 +990,8 @@ export const ACCOUNTANT_NAV = NAV_SECTIONS.map((section) => ({
   items: SCREENS.filter((s) => s.navSection === section.id && s.screen != null && s.modes.includes('accountant')).map((s) => ({
     label: s.navLabel ?? s.title,
     screen: s.screen!,
-    feature: s.feature
+    feature: s.feature,
+    requiresGstRegistration: s.requiresGstRegistration
   }))
 }))
 
@@ -1067,3 +1078,7 @@ export function simpleSectionOf(screen: Screen): SimpleSectionId | null {
 export function invalidationFamilies(name: Screen['name']): string[] {
   return byName.get(name)?.invalidates ?? []
 }
+
+/** WP 8.0: is a registry entry shown for this company? */
+export const screenApplies = (s: { requiresGstRegistration?: boolean }, gstRegistrationType: string | undefined): boolean =>
+  !s.requiresGstRegistration || gstRegistrationType !== 'unregistered'

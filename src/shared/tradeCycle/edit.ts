@@ -79,6 +79,9 @@ export function computeTradeDoc(state: TradeDocFormState, ctx: TradeDocContext):
   return computeInvoice(asInvoiceState(state), {
     kind: tradeDocIsSales(ctx.kind) ? 'sales' : 'purchase',
     companyStateCode: ctx.companyStateCode,
+    // Trade documents keep today's pricing (their lines store a GST snapshot); the WP 8.0
+    // registration rule applies to the invoice raised from them (deferred: quotations / orders).
+    gstRegistrationType: 'regular',
     items: ctx.items,
     ledgers: new Map([...ctx.ledgers].map(([id, l]) => [id, { stateCode: l.stateCode, gstRate: null }]))
   })

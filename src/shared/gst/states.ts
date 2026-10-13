@@ -52,3 +52,15 @@ export function posLabel(code: string): string {
   const name = stateName(code)
   return name ? `${code}-${name}` : code
 }
+
+/** WP 8.0: the states in GST state-code order, 01 → 38 then 96 / 97 — what every picker lists.
+ *  (`Object.entries(GST_STATES)` puts the integer-like keys 10–97 before the zero-padded 01–09.)
+ *  Codes per the GST state code table: 01 Jammu & Kashmir … 38 Ladakh, 97 Other Territory; 25
+ *  (Daman & Diu) is merged into 26 since 26-01-2020 and 28 (undivided Andhra Pradesh) is not
+ *  issued. Cross-checked 2026-10-13 against published copies of the GSTN list
+ *  (https://www.zoho.com/in/books/kb/gst/valid-state-codes-list.html,
+ *  https://www.mastersindia.co/blog/list-of-state-code-under-gst/) — the official GSTN master
+ *  itself was not re-read: UNVERIFIED. */
+export const GST_STATE_LIST: readonly (readonly [code: string, name: string])[] = Object.entries(GST_STATES).sort(
+  ([a], [b]) => Number(a) - Number(b)
+)

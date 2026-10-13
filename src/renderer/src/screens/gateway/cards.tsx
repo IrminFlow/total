@@ -7,7 +7,7 @@ import type {
 import type { DayBookRow } from '@shared/reports'
 import { formatPaise, formatPaiseCompact } from '@shared/money'
 import { toDisplayDate, toDisplayDateTime, toMonthLabel, todayISO } from '@shared/dates'
-import { upcomingDeadlines } from '@shared/compliance'
+import { COMPLIANCE_UNVERIFIED, upcomingDeadlines } from '@shared/compliance'
 import { api } from '../../lib/client'
 import { useNav, useSession } from '../../state/stores'
 import { Badge, Checklist, Money } from '../../components/ui'
@@ -245,20 +245,24 @@ export function ComplianceCard({
   const today = todayISO()
   const [showAll, setShowAll] = useState(false)
   const regType = info?.gstRegistrationType ?? 'unregistered'
-  const deadlines = useMemo(() => upcomingDeadlines(today, regType, hasPayroll, 30), [today, regType, hasPayroll])
+  // WP 8.0: the TDS deposit date shows only where the TDS row applies (the dashboard sends no TDS
+  // section when TDS is off or nothing was ever deducted — complianceApplicability).
+  const tdsApplies = tds != null && (tds.state !== 'ready' || tds.data != null)
+  const deadlines = useMemo(() => upcomingDeadlines(today, regType, hasPayroll, 30, { tds: tdsApplies }), [today, regType, hasPayroll, tdsApplies])
   // GST and TDS have their own rows; the list carries the rest (PF/ESI/advance tax).
   const others = deadlines.filter((d) => d.kind !== 'gst' && !(d.kind === 'tds' && tds))
 
   useEffect(() => {
-    if (!info || !slug || !dashboardLoaded || notifiedCompanies.has(slug)) return
+    // WP 8.0: wait for the TDS section too, so the notice never lists a TDS date that won't apply.
+    if (!info || !slug || !dashboardLoaded || tds?.state === 'loading' || notifiedCompanies.has(slug)) return
     notifiedCompanies.add(slug)
-    const soon = upcomingDeadlines(today, regType, hasPayroll, 3)
+    const soon = upcomingDeadlines(today, regType, hasPayroll, 3, { tds: tdsApplies })
     if (soon.length) {
       // Fire-and-forget: an OS notification failing is not worth interrupting the Gateway for.
       void api.app.notifyDeadlines(soon.map((d) => ({ title: d.form, body: `${d.title} — due ${toDisplayDate(d.date)}` }))).catch(() => {})
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [info, slug, hasPayroll, dashboardLoaded])
+  }, [info, slug, hasPayroll, dashboardLoaded, tds?.state])
 
   const combined: CardState<{ gst: DashGst | null | string; tds: DashTds | null | string }> =
     gst.state === 'loading' || tds?.state === 'loading'
@@ -282,7 +286,11 @@ export function ComplianceCard({
               <div data-testid="dash-gst" {...drillRowProps(() => nav.go({ name: 'gstr3b' }))} className={stackRowCls}>
                 <span className="text-body-sm text-ink">GST returns · {toMonthLabel(g.period, 'long')}</span>
                 <span className="flex flex-wrap gap-1">
-                  {g.gstr1Due && <Badge tone={dueTone(g.gstr1Due, today)} testId="chip-gstr1">GSTR-1 {dueIn(g.gstr1Due, today)}</Badge>}
+                  {g.gstr1Due && (
+                    <span title={COMPLIANCE_UNVERIFIED[0]} data-testid="chip-gstr1-note">
+                      <Badge tone={dueTone(g.gstr1Due, today)} testId="chip-gstr1">GSTR-1 {dueIn(g.gstr1Due, today)}</Badge>
+                    </span>
+                  )}
                   {g.gstr3bDue && <Badge tone={dueTone(g.gstr3bDue, today)} testId="chip-gstr3b">GSTR-3B {dueIn(g.gstr3bDue, today)}</Badge>}
                 </span>
                 <dl className="grid grid-cols-3 gap-2 text-caption">

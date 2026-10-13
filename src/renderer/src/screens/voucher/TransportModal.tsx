@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import type { VoucherTransportInput } from '@shared/schemas'
-import { GST_STATES } from '@shared/gst/states'
+import { GST_STATE_LIST } from '@shared/gst/states'
 import { api } from '../../lib/client'
 import { useToasts } from '../../state/stores'
 import { Button, DateInput, Field, Modal, Select, Spinner, TextInput } from '../../components/ui'
@@ -151,7 +151,7 @@ export function TransportModal({
                   data-testid="input-vehicle-no"
                   value={form.vehicleNo ?? ''}
                   onChange={(e) => set({ vehicleNo: text(e.target.value.toUpperCase()) })}
-                  placeholder="MH01AB1234"
+                  placeholder="Vehicle number"
                   className="num"
                 />
               </Field>
@@ -244,7 +244,7 @@ export function TransportModal({
                     onChange={(e) => set({ shipToState: e.target.value || null })}
                   >
                     <option value="">—</option>
-                    {Object.entries(GST_STATES).map(([code, name]) => (
+                    {GST_STATE_LIST.map(([code, name]) => (
                       <option key={code} value={code}>
                         {code} — {name}
                       </option>

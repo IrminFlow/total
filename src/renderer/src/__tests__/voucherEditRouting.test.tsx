@@ -61,7 +61,7 @@ function salesPayload() {
       rows: [{ itemId: 100, qtyText: '2', rate: 50000, discount: 10000, godownId: null, batchId: 7 }]
     },
     {
-      kind: 'sales', companyStateCode: '27',
+      kind: 'sales', companyStateCode: '27', gstRegistrationType: 'regular',
       items: new Map(ITEMS.map((i) => [i.id, { gstRate: i.gstRate, cessRate: i.cessRate }])),
       ledgers: new Map(LEDGERS.map((l) => [l.id, { stateCode: l.stateCode, gstRate: l.gstRate }]))
     },

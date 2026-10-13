@@ -570,6 +570,10 @@ export interface CompanyInfo {
   stateCode: string
   gstin: string | null
   gstRegistrationType: 'regular' | 'composition' | 'unregistered'
+  /** WP 8.0: the date the current registration took effect (null / absent = always). */
+  gstRegistrationSince?: string | null
+  /** WP 8.0: the registration before `gstRegistrationSince`. */
+  gstPreviousRegistrationType?: 'regular' | 'composition' | 'unregistered' | null
   address: string
   /** FY start year of the earliest books, e.g. 2025. */
   booksFrom: number

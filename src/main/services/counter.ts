@@ -1,4 +1,5 @@
 import type { DB } from '../db/connection'
+import { gstRegistrationOf } from '@shared/gst/registration'
 import type { CompanyInfo } from '@shared/domain'
 import {
   buildInvoicePayload, computeInvoice, emptyInvoiceState, pickTaxLedger, requiredTaxLedgers,
@@ -173,7 +174,7 @@ function invoiceContext(db: DB, company: CompanyInfo, itemIds: number[], ledgerI
     if (!r) throw new Error('Ledger not found')
     ;(ledgers as Map<number, { stateCode: string | null; gstRate: number | null }>).set(id, { stateCode: r.state_code, gstRate: r.gst_rate })
   }
-  return { kind: 'sales', companyStateCode: company.stateCode, items, ledgers }
+  return { kind: 'sales', companyStateCode: company.stateCode, ...gstRegistrationOf(company), items, ledgers }
 }
 
 // ---------------------------------------------------------------- checkout

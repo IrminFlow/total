@@ -187,11 +187,16 @@ export class Harness {
   }
 
   /** From company-select: create a fresh (unregistered, default-state) company via the UI
-   *  and land on the Gateway, in `mode` (default the harness mode, 'accountant'). */
-  async createCompanyUI(name, timeout = 30000, { mode = this.mode } = {}) {
+   *  and land on the Gateway, in `mode` (default the harness mode, 'accountant'). `opts.gstin`
+   *  registers it (Regular) — WP 8.0: only a regular registration may charge GST, so scenarios
+   *  that post tax lines pass one. */
+  async createCompanyUI(name, timeout = 30000, opts = {}) {
+    if (typeof timeout === 'object') [opts, timeout] = [timeout, 30000]
+    const mode = opts.mode ?? this.mode
     await this.waitScreen('company-select')
     await this.click('btn-company-create')
     await this.fill('input-company-name', name)
+    if (opts.gstin) await this.fill('input-company-gstin', opts.gstin)
     await this.click('btn-company-save')
     await this.waitScreen('gateway', timeout)
     await this.setMode(mode)

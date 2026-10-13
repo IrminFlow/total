@@ -1,5 +1,7 @@
 // WP 5.3 — the drafting dbtests' shared company fixture and helpers (not a test file).
 import { seededDb, TEST_INFO } from '../db/testdb'
+import { readCompanyInfo } from '../db/seed'
+import { gstRegistrationOf } from '@shared/gst/registration'
 import type { DB } from '../db/connection'
 import type { CompanyInfo, Voucher } from '@shared/domain'
 import type { AiVoucherDraftPayload } from '@shared/ai'
@@ -91,7 +93,7 @@ export function planOf(v: Voucher, kind: Parameters<typeof planVoucherEdit>[1]) 
   const items = listStockItems(db)
   return planVoucherEdit(v, kind, {
     invoice: {
-      companyStateCode: INFO.stateCode,
+      companyStateCode: INFO.stateCode, ...gstRegistrationOf(readCompanyInfo(db)),
       items: new Map(items.map((i) => [i.id, { gstRate: i.gstRate, cessRate: i.cessRate }])),
       ledgers: new Map(ledgers.map((l) => [l.id, { stateCode: l.stateCode, gstRate: l.gstRate, tdsPayableSectionId: l.tdsPayableSectionId }]))
     },
@@ -110,7 +112,7 @@ export function invoiceEditorPayload(state: InvoiceFormState, kind: 'sales' | 'p
   const r = buildInvoicePayload(
     { ...state, billName: state.billName || number },
     {
-      kind, companyStateCode: INFO.stateCode,
+      kind, companyStateCode: INFO.stateCode, ...gstRegistrationOf(readCompanyInfo(db)),
       items: new Map(items.map((i) => [i.id, { gstRate: i.gstRate, cessRate: i.cessRate }])),
       ledgers: new Map(ledgers.map((l) => [l.id, { stateCode: l.stateCode, gstRate: l.gstRate, tdsPayableSectionId: l.tdsPayableSectionId }]))
     },

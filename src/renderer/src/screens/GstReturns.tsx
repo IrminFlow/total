@@ -546,6 +546,18 @@ export function Gstr3bScreen(): React.JSX.Element {
     )
   }
 
+  // WP 8.0: an unregistered business files no GST returns — say so instead of nil-rated rows.
+  if (info?.gstRegistrationType === 'unregistered') {
+    return (
+      <Page>
+        <PageHeader title="GSTR-3B · Summary return" />
+        <Banner tone="info" testId="gstr3b-unregistered" title="No GSTR-3B is due">
+          This business is not registered for GST, so no GSTR-3B is due. If it registers, add the GSTIN under Company details.
+        </Banner>
+      </Page>
+    )
+  }
+
   if (!month) {
     return (
       <Page>

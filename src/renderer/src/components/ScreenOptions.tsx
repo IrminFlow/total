@@ -101,8 +101,9 @@ export function useScreenOptions<T extends Record<string, unknown>>(
 // ---------- drawer building blocks ----------
 
 /** "Period": the working period (or as-on date) with a Change… button (the header's modal). */
-export function OptionsPeriod({ asOn = false, note }: { asOn?: boolean; note?: ReactNode }): React.JSX.Element {
-  const { from, to } = useSession()
+export function OptionsPeriod({ asOn = false, asOnDate, note }: { asOn?: boolean; /** The as-on date shown when it isn't the period end (WP 8.0 Outstandings: today). */ asOnDate?: string; note?: ReactNode }): React.JSX.Element {
+  const { from, to: periodTo } = useSession()
+  const to = asOn && asOnDate ? asOnDate : periodTo
   const openPicker = usePeriodPicker((s) => s.setOpen)
   return (
     <DrawerSection title="Period" testId="options-period">

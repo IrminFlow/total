@@ -7,7 +7,7 @@ import { SupportLink } from './SupportLink'
 import { TotalLogo } from './TotalLogo'
 import { toDisplayDate, fyOf, fyFromStartYear, todayISO } from '@shared/dates'
 import { useFeatures } from '../lib/useFeatures'
-import { ACCOUNTANT_NAV } from '../lib/screens'
+import { ACCOUNTANT_NAV, screenApplies } from '../lib/screens'
 import { useScreenView } from '../lib/mode'
 import { useT } from '../lib/i18n'
 import { SimpleHeader } from '../simple/SimpleHeader'
@@ -42,7 +42,7 @@ export function Shell({ children, onOpenPalette }: { children: ReactNode; onOpen
   const simple = useScreenView(screen.name).view === 'simple'
   const visibleNav = NAV.filter((s) => !s.feature || features[s.feature]).map((s) => ({
     ...s,
-    items: s.items.filter((i) => !i.feature || features[i.feature]),
+    items: s.items.filter((i) => (!i.feature || features[i.feature]) && screenApplies(i, info?.gstRegistrationType)),
     dynamic: dynamicNav.get(s.id) ?? []
   }))
   const navBtnCls = (active: boolean): string =>

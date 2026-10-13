@@ -389,7 +389,7 @@ export function StockNoteEntry({
           </Field>
           <div className="mt-3 grid grid-cols-3 gap-3">
             <Field label="Vehicle no.">
-              <TextInput value={vehicleNo} onChange={(e) => setVehicleNo(e.target.value.toUpperCase())} placeholder="MH01AB1234" className="num" data-testid="input-stock-note-vehicle" />
+              <TextInput value={vehicleNo} onChange={(e) => setVehicleNo(e.target.value.toUpperCase())} placeholder="Vehicle number" className="num" data-testid="input-stock-note-vehicle" />
             </Field>
             <Field label="Transporter ID">
               <TextInput value={transporterId} onChange={(e) => setTransporterId(e.target.value.toUpperCase())} placeholder="For e-way bill" className="num" />

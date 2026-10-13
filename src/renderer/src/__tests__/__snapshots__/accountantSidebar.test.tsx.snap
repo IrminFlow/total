@@ -114,6 +114,115 @@ exports[`accountant sidebar (unchanged from 0.10) > a pinned saved report joins 
 ]
 `;
 
+exports[`accountant sidebar (unchanged from 0.10) > an unregistered company (WP 8.0: GST screens hidden) 1`] = `
+[
+  {
+    "footer": "Total",
+  },
+  {
+    "expanded": "always",
+    "items": [
+      "nav-gateway | Gateway",
+      "nav-voucher-entry | Voucher entry",
+      "nav-manufacture | Manufacture",
+      "nav-counter-billing | Counter",
+      "nav-daybook | Day book",
+      "nav-masters | Masters",
+    ],
+    "section": "nav-list-top",
+    "title": null,
+  },
+  {
+    "expanded": "true",
+    "items": [
+      "nav-trial-balance | Trial balance",
+      "nav-profit-loss | Profit & Loss",
+      "nav-balance-sheet | Balance sheet",
+      "nav-cash-flow | Cash flow",
+      "nav-stock-summary | Stock summary",
+      "nav-stock-movements | Stock movements",
+      "nav-stock-journal | Stock journal",
+      "nav-fixed-assets | Fixed assets",
+      "nav-year-end | Year-end close",
+    ],
+    "section": "nav-list-books",
+    "title": "Books▾",
+  },
+  {
+    "expanded": "false",
+    "items": [
+      "nav-registers | Registers",
+      "nav-outstandings | Outstandings",
+      "nav-receivables | Credit control",
+      "nav-payables | Payables",
+      "nav-consolidation | Group consolidation",
+      "nav-consolidated | Combined view",
+      "nav-cost-centres | Cost centres",
+      "nav-budgets | Budgets",
+      "nav-cash-forecast | Cash forecast",
+      "nav-loans | Loans",
+      "nav-forex | Forex",
+      "nav-report-builder | Report builder",
+      "nav-ratios | Ratios",
+      "nav-assistants | Assistants",
+      "nav-exceptions | Exceptions",
+    ],
+    "section": "nav-list-analysis",
+    "title": "Analysis▸",
+  },
+  {
+    "expanded": "false",
+    "items": [
+      "nav-banking | Reconciliation",
+      "nav-capture | Document capture",
+    ],
+    "section": "nav-list-banking",
+    "title": "Banking▸",
+  },
+  {
+    "expanded": "false",
+    "items": [
+      "nav-payroll | Employees & runs",
+    ],
+    "section": "nav-list-payroll",
+    "title": "Payroll▸",
+  },
+  {
+    "expanded": "false",
+    "items": [
+      "nav-tds | TDS",
+      "nav-tcs | TCS",
+    ],
+    "section": "nav-list-gst",
+    "title": "GST▸",
+  },
+  {
+    "expanded": "false",
+    "items": [
+      "nav-settings | Settings",
+      "nav-audit-trail | Audit trail",
+      "nav-data-import | Import",
+      "nav-data-export | Export",
+      "nav-import-tally | Import from Tally",
+    ],
+    "section": "nav-list-system",
+    "title": "System▸",
+  },
+  {
+    "footer": "",
+  },
+  {
+    "footer": "Back up now",
+  },
+  {
+    "footer": "Switch company",
+  },
+  {
+    "footer": "Support · total@irminflow.com",
+  },
+]
+`;
+
 exports[`accountant sidebar (unchanged from 0.10) > default features 1`] = `
 [
   {

@@ -214,6 +214,7 @@ describe('derived status and conversions', () => {
     // The challan drawn from the SO still opens in (and round-trips through) the challan form.
     const c = {
       companyStateCode: TEST_INFO.stateCode,
+      gstRegistrationType: TEST_INFO.gstRegistrationType,
       items: new Map(listStockItems(b.db).map((i) => [i.id, { gstRate: i.gstRate, cessRate: i.cessRate }])),
       ledgers: new Map(listLedgers(b.db).map((l) => [l.id, { stateCode: l.stateCode, gstRate: l.gstRate, tdsPayableSectionId: l.tdsPayableSectionId }]))
     }
