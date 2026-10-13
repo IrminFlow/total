@@ -1,7 +1,8 @@
 // WP 8.0 — the registration rule in the pure engine, the state-code order, compliance applicability
 // and the print title.
 import { describe, expect, it } from 'vitest'
-import { chargesGst, BILL_OF_SUPPLY_TITLE, gstNotChargedMessage } from './registration'
+import { chargesGst, chargesGstOn, BILL_OF_SUPPLY_TITLE, gstNotChargedMessage, nonTaxInvoiceTitle, registrationOn } from './registration'
+import { nonClaimableCosts, rateForCost } from '../capture/nonClaimable'
 import { GST_STATE_LIST, GST_STATES } from './states'
 import { buildInvoicePayload, computeInvoice, emptyInvoiceState, invoiceRepresentation, type InvoiceContext, type TaxLedgerIds } from '../voucherEdit'
 import type { Voucher } from '../domain'
@@ -87,5 +88,38 @@ describe('compliance applicability (WP 8.0)', () => {
     expect(kinds()).toContain('tds')
     expect(kinds({ tds: false })).not.toContain('tds')
     expect(kinds({ tds: false })).not.toContain('gst')
+  })
+})
+
+describe('effective-dated registration (WP 8.0 review)', () => {
+  const c = { gstRegistrationType: 'composition' as const, gstRegistrationSince: '2025-10-01', gstPreviousRegistrationType: 'regular' as const }
+  it('the voucher date decides', () => {
+    expect(registrationOn(c, '2025-09-30')).toBe('regular')
+    expect(registrationOn(c, '2025-10-01')).toBe('composition')
+    expect(chargesGstOn(c, '2025-09-30')).toBe(true)
+    expect(chargesGstOn({ gstRegistrationType: 'unregistered' }, '2000-01-01')).toBe(false)
+    expect(nonTaxInvoiceTitle('composition')).toBe('BILL OF SUPPLY')
+    expect(nonTaxInvoiceTitle('unregistered')).toBe('INVOICE')
+    expect(nonTaxInvoiceTitle('regular')).toBeNull()
+  })
+})
+
+describe('non-claimable GST on a captured bill (WP 8.0 review)', () => {
+  it('each line costs taxable + its tax; the printed total tax is met exactly', () => {
+    const costs = nonClaimableCosts([
+      { taxable: 2_000_000, rateBp: 1800, printedTax: null },
+      { taxable: 950_000, rateBp: 1200, printedTax: null }
+    ], 474_000)
+    expect(costs).toEqual([{ tax: 360_000, cost: 2_360_000 }, { tax: 114_000, cost: 1_064_000 }])
+    // A rounding difference goes to the line with the largest tax.
+    expect(nonClaimableCosts([{ taxable: 333, rateBp: 1800, printedTax: null }, { taxable: 333, rateBp: 1800, printedTax: null }], 121))
+      .toEqual([{ tax: 61, cost: 394 }, { tax: 60, cost: 393 }])
+  })
+  it('a rate that comes to exactly the cost (rounded up, the rest as a discount)', () => {
+    for (const [cost, qty] of [[2_360_000, 4000], [1_000_001, 3000], [10, 7000]] as const) {
+      const { ratePaise, discountPaise } = rateForCost(cost, qty)
+      expect(Math.round((qty * ratePaise) / 1000) - discountPaise).toBe(cost)
+      expect(discountPaise).toBeGreaterThanOrEqual(0)
+    }
   })
 })

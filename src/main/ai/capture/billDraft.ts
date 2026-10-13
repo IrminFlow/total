@@ -25,7 +25,8 @@ import { formatPaise, roundToRupee } from '@shared/money'
 import { resolveName } from '@shared/aiResolve'
 import { computeGst, addBreakups, supplyTypeFor } from '@shared/gst/calc'
 import { stateName } from '@shared/gst/states'
-import { chargesGst } from '@shared/gst/registration'
+import { chargesGstOn, registrationOn } from '@shared/gst/registration'
+import { nonClaimableCosts, rateForCost, type NonClaimableLine } from '@shared/capture/nonClaimable'
 import { computeInvoice, taxLedgerIdsFrom, type AccountingFormState, type AccountingRowState, type InvoiceFormState } from '@shared/voucherEdit'
 import { saveVoucher, NOT_DELETED } from '../../services/vouchers'
 import { writeAudit } from '../../services/audit'
@@ -269,24 +270,39 @@ function buildLedgerPurchase(w: DraftWork, party: Ledger, maps: LineMap[], parse
   const supply = supplyTypeFor(m.company.stateCode, partyState)
   // WP 8.0: a composition / unregistered company books no GST lines (the editor's rule; the save
   // refuses them) — the bill's printed tax shows up in the GST / total check on the banner.
-  const noGst = !chargesGst(m.company.gstRegistrationType)
-  if (noGst) w.assume(`No GST lines — the company is ${m.company.gstRegistrationType === 'composition' ? 'under the composition scheme' : 'not GST-registered'}, so the bill's GST can't be claimed`)
+  const noGst = !chargesGstOn(m.company, date)
+  if (noGst) w.assume(`No GST lines — the company is ${registrationOn(m.company, date) === 'composition' ? 'under the composition scheme' : 'not GST-registered'}, so the GST the supplier charged is part of the cost`)
   const byLedger = new Map<number, number>()
   const buckets = new Map<number, number>()
+  const costLines: (NonClaimableLine & { ledgerId: number; index: number })[] = []
   for (const { line, ledger } of maps) {
     const taxable = line.qtyMilli != null && line.ratePaise != null ? lineGross(line.qtyMilli, line.ratePaise) - (line.discountPaise ?? 0) : (line.taxablePaise ?? line.amountPaise)
     if (taxable == null || taxable <= 0) throw new Error(`Line ${line.index + 1} has no legible amount to book`)
-    let rate = noGst ? 0 : ledger!.gstRate
+    let rate = ledger!.gstRate
     if (rate == null) {
       // The line's printed rate, else the bill's only tax-summary rate, else 0%.
       const summaryRates = [...new Set(parsed.taxSummary.map((t) => t.rateBp).filter((r): r is number => r != null))]
       const bp = line.gstRateBp ?? (summaryRates.length === 1 ? summaryRates[0]! : null)
       rate = bp != null ? bp / 100 : 0
       w.assume(`${ledger!.name} has no GST rate in its master — ${rate}% taken from the bill for line ${line.index + 1}`)
-    } else if (!noGst) w.assume(`${rate}% GST on line ${line.index + 1} from the ${ledger!.name} ledger master`)
-    byLedger.set(ledger!.id, (byLedger.get(ledger!.id) ?? 0) + taxable)
-    buckets.set(rate, (buckets.get(rate) ?? 0) + taxable)
+    } else w.assume(`${rate}% GST on line ${line.index + 1} from the ${ledger!.name} ledger master`)
+    const printedTax = [line.cgst, line.sgst, line.igst, line.cess].some((x) => x != null) ? (line.cgst ?? 0) + (line.sgst ?? 0) + (line.igst ?? 0) + (line.cess ?? 0) : null
+    costLines.push({ ledgerId: ledger!.id, index: line.index, taxable, rateBp: Math.round(rate * 100), printedTax })
+    if (!noGst) {
+      byLedger.set(ledger!.id, (byLedger.get(ledger!.id) ?? 0) + taxable)
+      buckets.set(rate, (buckets.get(rate) ?? 0) + taxable)
+    }
     w.fields.add(`line:${line.index}`)
+  }
+  if (noGst) {
+    // The GST the supplier charged is part of each line's cost (0% buckets: no input-tax line).
+    const costs = nonClaimableCosts(costLines, recomputeBill(parsed).tax || null)
+    costLines.forEach((l, i) => {
+      const { cost, tax } = costs[i]!
+      byLedger.set(l.ledgerId, (byLedger.get(l.ledgerId) ?? 0) + cost)
+      buckets.set(0, (buckets.get(0) ?? 0) + cost)
+      if (tax) w.assume(`Line ${l.index + 1}: the supplier's GST of ${rs(tax)} is part of the cost (${rs(cost)}) — the company can't claim it`)
+    })
   }
   const gst = addBreakups([...buckets].map(([rate, taxable]) => computeGst(taxable, rate, supply)))
   const total = roundToRupee(gst.total)
@@ -399,6 +415,10 @@ export function draftFromBill(input: BillDraftInput): BillDraftOutcome {
   let built: BuiltDraft
   try {
     if (maps.every((x) => x.item)) {
+      // WP 8.0: the company can't claim GST on the bill's date — each line's cost includes it.
+      const noGst = !chargesGstOn(m.company, parsed.date ?? input.today)
+      const summaryRates = [...new Set(parsed.taxSummary.map((t) => t.rateBp).filter((r): r is number => r != null))]
+      const costLines: (NonClaimableLine & { qtyMilli: number; index: number })[] = []
       const items = maps.map(({ line, item }) => {
         let qtyMilli = line.qtyMilli
         let rate = line.ratePaise
@@ -420,9 +440,14 @@ export function draftFromBill(input: BillDraftInput): BillDraftOutcome {
         if (line.unit && unit && ![unit.symbol, unit.name].some((u) => u && u.toLowerCase().replace(/\.$/, '') === line.unit!.toLowerCase().replace(/\.$/, ''))) {
           w.assume(`Line ${line.index + 1}: the bill's unit “${line.unit}” is not ${item!.name}'s unit (${unit.symbol}) — the quantity is taken as ${unit.symbol}; check it`)
         }
-        if (chargesGst(m.company.gstRegistrationType) && line.gstRateBp != null && item!.gstRate != null && line.gstRateBp !== Math.round(item!.gstRate * 100)) {
+        if (!noGst && line.gstRateBp != null && item!.gstRate != null && line.gstRateBp !== Math.round(item!.gstRate * 100)) {
           w.assume(`Line ${line.index + 1}: the bill charges ${line.gstRateBp / 100}% but ${item!.name} is ${item!.gstRate}% in the item master — the master's rate is used`)
         }
+        const printedTax = [line.cgst, line.sgst, line.igst, line.cess].some((x) => x != null) ? (line.cgst ?? 0) + (line.sgst ?? 0) + (line.igst ?? 0) + (line.cess ?? 0) : null
+        costLines.push({
+          index: line.index, qtyMilli, taxable: lineGross(qtyMilli, rate) - (line.discountPaise ?? 0), printedTax,
+          rateBp: line.gstRateBp ?? (summaryRates.length === 1 ? summaryRates[0]! : item!.gstRate != null ? Math.round(item!.gstRate * 100) : null)
+        })
         return {
           itemId: item!.id,
           qty: String(qtyMilli / 1000),
@@ -430,6 +455,17 @@ export function draftFromBill(input: BillDraftInput): BillDraftOutcome {
           ...(line.discountPaise && line.discountPaise > 0 ? { discount: paiseToRupeeText(line.discountPaise) } : {})
         }
       })
+      if (noGst) {
+        const costs = nonClaimableCosts(costLines, totals.tax || null)
+        costLines.forEach((l, i) => {
+          const { cost, tax } = costs[i]!
+          if (tax === 0) return
+          const { ratePaise, discountPaise } = rateForCost(cost, l.qtyMilli)
+          const { discount: _d, ...rest } = items[i]!
+          items[i] = { ...rest, rate: paiseToRupeeText(ratePaise), ...(discountPaise > 0 ? { discount: paiseToRupeeText(discountPaise) } : {}) }
+          w.assume(`Line ${l.index + 1}: the supplier's GST of ${rs(tax)} is part of the cost (${rs(cost)}) — the company can't claim it`)
+        })
+      }
       const pos = parsed.placeOfSupply && parsed.placeOfSupply !== (supplier.stateCode ?? m.company.stateCode) ? parsed.placeOfSupply : undefined
       built = buildInvoiceDraft(w, {
         kind: 'purchase',
@@ -465,7 +501,8 @@ export function draftFromBill(input: BillDraftInput): BillDraftOutcome {
   const draftTotal = built.payload.total ?? 0
   review.taxCheck = { computed: computedTax, printed: totals.tax, computedTotal: draftTotal, printedTotal: totals.printedTotal }
   const extra: string[] = []
-  if (computedTax !== totals.tax) extra.push(`The bill prints GST of ${rs(totals.tax)}; the editor's calculation from the masters gives ${rs(computedTax)} (difference ${rs(totals.tax - computedTax)}) — check the GST rates before saving`)
+  // WP 8.0: a company that can't claim GST folds it into the cost — there's no tax line to compare.
+  if (computedTax !== totals.tax && chargesGstOn(m.company, built.payload.date)) extra.push(`The bill prints GST of ${rs(totals.tax)}; the editor's calculation from the masters gives ${rs(computedTax)} (difference ${rs(totals.tax - computedTax)}) — check the GST rates before saving`)
   if (totals.printedTotal != null && totals.printedTotal !== draftTotal) extra.push(`The bill's total is ${rs(totals.printedTotal)}; this draft totals ${rs(draftTotal)} (difference ${rs(totals.printedTotal - draftTotal)})`)
   for (const d of totals.discrepancies) extra.push(`On the bill: ${d}`)
   for (const wmsg of parsed.warnings) extra.push(`Not read: ${wmsg}`)
