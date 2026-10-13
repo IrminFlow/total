@@ -58,11 +58,13 @@ export interface ItemLineGridProps {
   /** WP 2.6: price lines through the resolver (party rate › level › scheme › default › MRP) and
    *  show where each rate came from. Absent / disabled = the legacy party-price-level fill. */
   pricing?: LinePricingContext
+  /** WP 8.0: false hides the GST % column (a composition / unregistered company charges no GST). */
+  showGst?: boolean
 }
 
 export function ItemLineGrid({
   rows, setRow, setRows, direction, priceLevelId, fxActive, date, voucherId, fallbackGstRate, onCreateItem,
-  lockedBySource, rowNote, onRemoveRow, stockDetail = true, pricing
+  lockedBySource, rowNote, onRemoveRow, stockDetail = true, pricing, showGst = true
 }: ItemLineGridProps): React.JSX.Element {
   const features = useFeatures()
   const resolverOn = !!pricing?.enabled
@@ -90,7 +92,7 @@ export function ItemLineGrid({
             <th className="r w-28">Qty</th>
             <th className="r w-32">Rate</th>
             <th className="r w-28">Disc.</th>
-            <th className="r w-24">GST %</th>
+            {showGst && <th className="r w-24">GST %</th>}
             <th className="r w-36">Amount</th>
             {stockDetailOn && <th className="w-6"><span className="sr-only">Stock details</span></th>}
           </tr>
@@ -190,9 +192,11 @@ export function ItemLineGrid({
                     testId="input-line-discount"
                   />
                 </td>
-                <td className="r">
-                  <span className="num text-body-sm text-muted">{item ? `${item.gstRate ?? fallbackGstRate ?? 0}%` : ''}</span>
-                </td>
+                {showGst && (
+                  <td className="r">
+                    <span className="num text-body-sm text-muted">{item ? `${item.gstRate ?? fallbackGstRate ?? 0}%` : ''}</span>
+                  </td>
+                )}
                 <td className="r">
                   <Money paise={amount} className="text-body" />
                   {(!detailOpen || locked?.lockDetail) && stockDetailOn && <div><LineStockSummary fields={r} /></div>}
@@ -205,7 +209,7 @@ export function ItemLineGrid({
               </tr>
               {detailOpen && item && !locked?.lockDetail && (
                 <tr className="line-detail-row" data-testid="row-line-detail">
-                  <td colSpan={7} className="!pt-0">
+                  <td colSpan={showGst ? 7 : 6} className="!pt-0">
                     <LineStockDetail
                       item={item}
                       direction={direction}

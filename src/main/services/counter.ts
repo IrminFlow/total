@@ -173,7 +173,7 @@ function invoiceContext(db: DB, company: CompanyInfo, itemIds: number[], ledgerI
     if (!r) throw new Error('Ledger not found')
     ;(ledgers as Map<number, { stateCode: string | null; gstRate: number | null }>).set(id, { stateCode: r.state_code, gstRate: r.gst_rate })
   }
-  return { kind: 'sales', companyStateCode: company.stateCode, items, ledgers }
+  return { kind: 'sales', companyStateCode: company.stateCode, gstRegistrationType: company.gstRegistrationType, items, ledgers }
 }
 
 // ---------------------------------------------------------------- checkout

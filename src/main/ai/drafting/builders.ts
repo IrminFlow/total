@@ -14,6 +14,7 @@ import { formatPaise, formatQtyMilli } from '@shared/money'
 import { addDaysISO, toDisplayDate } from '@shared/dates'
 import { supplyTypeFor } from '@shared/gst/calc'
 import { stateName } from '@shared/gst/states'
+import { chargesGst } from '@shared/gst/registration'
 import { voucherInputSchema, type VoucherInputParsed } from '@shared/schemas'
 import { validateVoucher } from '@shared/posting'
 import { resolveName } from '@shared/aiResolve'
@@ -189,7 +190,16 @@ function priceLine(
   return { rate, discount: discount && discount > 0 ? discount : null }
 }
 
-function gstAssumptions(w: DraftWork, items: StockItem[], supply: 'intra' | 'inter', partyState: string | null, pos: string | null): void {
+function gstAssumptions(w: DraftWork, items: StockItem[], supply: 'intra' | 'inter', partyState: string | null, pos: string | null, invoice = true): void {
+  // WP 8.0: the editor's rule — a composition / unregistered company charges no GST.
+  if (invoice && !chargesGst(w.m.company.gstRegistrationType)) {
+    w.assume(
+      w.m.company.gstRegistrationType === 'composition'
+        ? 'No GST — the company is under the composition scheme (bill of supply)'
+        : 'No GST — the company is not GST-registered'
+    )
+    return
+  }
   for (const it of items) {
     if (it.gstRate != null) w.assume(`${it.gstRate}% GST on ${it.name} from the item master${it.cessRate ? ` (+ ${it.cessRate}% cess)` : ''}`)
     else w.assume(`${it.name} has no GST rate in the item master — the ledger's rate (or 0%) applies`)
@@ -204,6 +214,7 @@ export function invoiceCtx(m: DraftMasters, kind: VoucherKind): InvoiceContext {
   return {
     kind,
     companyStateCode: m.company.stateCode,
+    gstRegistrationType: m.company.gstRegistrationType,
     items: new Map(m.items.map((i) => [i.id, { gstRate: i.gstRate, cessRate: i.cessRate }])),
     ledgers: new Map(
       m.ledgers.map((l) => [l.id, { stateCode: l.stateCode, gstRate: l.gstRate, tdsPayableSectionId: l.tdsPayableSectionId, tcsPayableSectionId: l.tcsPayableSectionId ?? null }])
@@ -887,7 +898,7 @@ export function buildTradeDocDraft(w: DraftWork, input: TradeDocDraftInput): Bui
     return { itemId: r.item!.id, qtyText: qtyText(r.qtyMilli), rate, discount, godownId: null, batchId: null }
   })
   w.settle()
-  gstAssumptions(w, [...new Map(resolved.map((r) => [r.item!.id, r.item!])).values()], supply, party!.stateCode, pos)
+  gstAssumptions(w, [...new Map(resolved.map((r) => [r.item!.id, r.item!])).values()], supply, party!.stateCode, pos, false)
   const validUntil = kind === 'quotation' ? w.optionalDate('validUntil', input.validUntil) : null
   const dueDate = kind !== 'quotation' ? w.optionalDate('dueDate', input.dueDate) : null
   for (const [k, v] of [['reference', input.reference], ['terms', input.terms], ['narration', input.narration]] as const) if (v) w.fields.add(k)

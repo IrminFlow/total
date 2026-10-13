@@ -1060,7 +1060,7 @@ function applyVouchers(ctx: Ctx, drafts: VoucherDraft[]): void {
       if (dup !== null && ctx.opts.duplicate === 'update') {
         const before = getVoucher(ctx.db, dup)!
         const { input, post } = voucherInputFor(ctx, d, vt, d.number ?? undefined)
-        saveVoucher(ctx.db, input, dup, { adoptLineUids: true })
+        saveVoucher(ctx.db, input, dup, { adoptLineUids: true, historicImport: true })
         afterVoucherSave(ctx, dup, d, post, label)
         track(ctx, 'voucher', dup, 'update', before, line, sourceKey)
         outcome(ctx, line, label, 'update')
@@ -1068,7 +1068,7 @@ function applyVouchers(ctx: Ctx, drafts: VoucherDraft[]): void {
       }
       const number = dup !== null && d.number ? freeVoucherNumber(ctx, vt, d.number, d.date) : (d.number ?? undefined)
       const { input, post } = voucherInputFor(ctx, d, vt, number)
-      const saved = saveVoucher(ctx.db, input, undefined, { adoptLineUids: true })
+      const saved = saveVoucher(ctx.db, input, undefined, { adoptLineUids: true, historicImport: true })
       afterVoucherSave(ctx, saved.id, d, post, label)
       track(ctx, 'voucher', saved.id, 'create', null, line, sourceKey)
       const notes = [...d.notes, ...(dup !== null ? [`Numbered ${saved.number} — ${d.number} was taken`] : [])]

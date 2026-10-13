@@ -6,6 +6,7 @@
 import type { LineSource, Voucher, VoucherBillRef, VoucherKind } from '../domain'
 import { computeGst, supplyTypeFor, addBreakups, type GstBreakup, type SupplyType } from '../gst/calc'
 import { roundToRupee } from '../money'
+import { chargesGst, type GstRegistrationType } from '../gst/registration'
 import type { TdsDeductionState } from './tds'
 import {
   confirmRoundTrip, passthroughOf, qtyText,
@@ -59,6 +60,10 @@ export interface InvoiceFormState {
   /** TCS collected on a sales invoice (WP 3.3) — same shape, the amount in `tdsAmount`.
    *  Absent/null = none. */
   tcs?: InvoiceTdsState | null
+  /** WP 8.0: a SAVED voucher that already carries GST in a company that doesn't charge it
+   *  (composition / unregistered) — the editor keeps computing its tax so it round-trips
+   *  unchanged, and shows a warning. Set only by invoiceRepresentation; never on new entries. */
+  legacyTax?: boolean
 }
 
 /** A purchase invoice's TDS deduction: the party (vendor) line is reduced by `tdsAmount` and a
@@ -141,6 +146,8 @@ export function voucherTaxLedgers(v: Pick<Voucher, 'lines'>, ledgers: readonly T
 export interface InvoiceContext {
   kind: VoucherKind
   companyStateCode: string
+  /** WP 8.0: only a regular registration charges GST (shared/gst/registration.ts). */
+  gstRegistrationType: GstRegistrationType
   items: ReadonlyMap<number, { gstRate: number | null; cessRate: number | null }>
   ledgers: ReadonlyMap<number, { stateCode: string | null; gstRate: number | null; tdsPayableSectionId?: number | null; tcsPayableSectionId?: number | null }>
 }
@@ -162,6 +169,8 @@ export interface InvoiceLineDetail {
 
 export interface InvoiceComputed {
   supply: SupplyType
+  /** WP 8.0: false = the company doesn't charge GST, every line is computed at 0% (no tax lines). */
+  chargesGst: boolean
   fxActive: boolean
   fxRate: number | null
   detail: InvoiceLineDetail[]
@@ -174,7 +183,13 @@ export const partyIsDebit = (kind: VoucherKind): boolean => kind === 'sales' || 
 export const goodsComeIn = (kind: VoucherKind): boolean => kind === 'purchase' || kind === 'credit_note'
 export const isNoteKind = (kind: VoucherKind): boolean => kind === 'credit_note' || kind === 'debit_note'
 
+/** Does this invoice charge GST? A regular company always; a composition / unregistered one only
+ *  for a saved voucher that already carried tax (legacyTax — kept as saved). */
+export const invoiceChargesGst = (state: Pick<InvoiceFormState, 'legacyTax'>, ctx: Pick<InvoiceContext, 'gstRegistrationType'>): boolean =>
+  chargesGst(ctx.gstRegistrationType) || !!state.legacyTax
+
 export function computeInvoice(state: InvoiceFormState, ctx: InvoiceContext): InvoiceComputed {
+  const charges = invoiceChargesGst(state, ctx)
   const party = state.partyId != null ? ctx.ledgers.get(state.partyId) : undefined
   const account = state.accountId != null ? ctx.ledgers.get(state.accountId) : undefined
   // Same precedence the GSTR builders use: explicit override → party state → company state.
@@ -198,8 +213,8 @@ export function computeInvoice(state: InvoiceFormState, ctx: InvoiceContext): In
       ratePaise: baseRate,
       discountPaise,
       amount: gross - discountPaise,
-      rate: item.gstRate ?? account?.gstRate ?? 0,
-      cessRate: item.cessRate ?? 0,
+      rate: charges ? (item.gstRate ?? account?.gstRate ?? 0) : 0,
+      cessRate: charges ? (item.cessRate ?? 0) : 0,
       godownId: r.godownId,
       batchId: r.batchId,
       ...(r.serials && r.serials.length > 0 ? { serials: [...r.serials] } : {}),
@@ -217,7 +232,7 @@ export function computeInvoice(state: InvoiceFormState, ctx: InvoiceContext): In
   }
   const gst = addBreakups([...buckets.values()].map((b) => computeGst(b.taxable, b.rate, supply, b.cessRate)))
   const rounded = roundToRupee(gst.total)
-  return { supply, fxActive, fxRate: fxActive ? fxRate : null, detail, gst, rounded, roundDiff: rounded - gst.total }
+  return { supply, chargesGst: charges, fxActive, fxRate: fxActive ? fxRate : null, detail, gst, rounded, roundDiff: rounded - gst.total }
 }
 
 /** Which tax / round-off ledgers a computed invoice posts to (the form ensures these exist). */
@@ -486,5 +501,13 @@ export function invoiceRepresentation(
 ): Representation<InvoiceFormState> {
   const loaded = invoiceStateFromVoucher(v, ctx.kind, taxLedgers, ctx.ledgers)
   if (!loaded.ok) return loaded
-  return confirmRoundTrip(v, loaded.state, buildInvoicePayload(loaded.state, ctx, v.voucherTypeId, taxLedgers))
+  // WP 8.0: tax saved before the registration rule stays exactly as saved (legacyTax).
+  const state = !chargesGst(ctx.gstRegistrationType) && voucherCarriesGst(v, taxLedgers) ? { ...loaded.state, legacyTax: true } : loaded.state
+  return confirmRoundTrip(v, state, buildInvoicePayload(state, ctx, v.voucherTypeId, taxLedgers))
+}
+
+/** Does a saved voucher post to one of the GST component ledgers (CGST / SGST / IGST / cess)? */
+export function voucherCarriesGst(v: Pick<Voucher, 'lines'>, taxLedgers: TaxLedgerIds): boolean {
+  const ids = new Set([taxLedgers.cgst, taxLedgers.sgst, taxLedgers.igst, taxLedgers.cess].filter((x): x is number => x != null))
+  return v.lines.some((l) => ids.has(l.ledgerId))
 }

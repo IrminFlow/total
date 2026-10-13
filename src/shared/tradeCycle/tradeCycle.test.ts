@@ -118,7 +118,7 @@ const EMPTY_HEADER = {
 }
 
 const ctx: EditPlanContext = {
-  invoice: { companyStateCode: '27', items: new Map([[1, { gstRate: 0, cessRate: null }]]), ledgers: new Map([[7, { stateCode: '27', gstRate: null }]]) },
+  invoice: { companyStateCode: '27', gstRegistrationType: 'regular', items: new Map([[1, { gstRate: 0, cessRate: null }]]), ledgers: new Map([[7, { stateCode: '27', gstRate: null }]]) },
   taxLedgers: { cgst: null, sgst: null, igst: null, cess: null, roundOff: null },
   itemName: () => 'Item'
 }

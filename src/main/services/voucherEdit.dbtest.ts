@@ -5,6 +5,7 @@
 // voucher opens in.
 import { describe, it, expect } from 'vitest'
 import { seededDb, TEST_INFO } from '../db/testdb'
+import { readCompanyInfo, writeCompanyInfo } from '../db/seed'
 import type { DB } from '../db/connection'
 import type { Group, Voucher, VoucherKind } from '@shared/domain'
 import {
@@ -103,6 +104,8 @@ function editContext(db: DB, voucherId?: number): EditPlanContext {
   return {
     invoice: {
       companyStateCode: TEST_INFO.stateCode,
+      // The company's registration as stored (WP 8.0 tests flip it after saving).
+      gstRegistrationType: readCompanyInfo(db).gstRegistrationType,
       items: new Map(items.map((i) => [i.id, { gstRate: i.gstRate, cessRate: i.cessRate }])),
       ledgers: new Map(ledgers.map((l) => [l.id, { stateCode: l.stateCode, gstRate: l.gstRate, tdsPayableSectionId: l.tdsPayableSectionId, tcsPayableSectionId: l.tcsPayableSectionId ?? null }]))
     },
@@ -743,4 +746,44 @@ describe('voucher editor round-trip (WP 2.5a): challans, GRNs and linked invoice
     expectRoundTrip(db, inv.id, 'invoice')
     expect(getVoucher(db, inv.id)!.inventory[0]!.source).toEqual({ lineUid: lineUid(db, d.id), linkType: 'fulfil' })
   })
+})
+
+describe('WP 8.0: a taxed voucher saved before the registration rule', () => {
+  for (const type of ['unregistered', 'composition'] as const) {
+    it(`still opens in the invoice form and re-saves unchanged once the company is ${type}`, () => {
+      const db = seededDb()
+      const x = setup(db)
+      const ctx = editContext(db)
+      const kinds = ['sales', 'purchase'] as const
+      const ids = kinds.map((kind) => {
+        const r = buildInvoicePayload(
+          {
+            ...emptyInvoiceState('2025-05-10'), partyId: kind === 'sales' ? x.buyer : x.supplier, accountId: kind === 'sales' ? x.sales : x.purchases,
+            billName: `L-${kind}`, billDueDate: '2025-06-01',
+            rows: [{ itemId: x.widget, qtyText: '2', rate: 50000, discount: null, godownId: null, batchId: null }, { itemId: x.gadget, qtyText: '1', rate: 10050, discount: null, godownId: null, batchId: null }]
+          },
+          { ...ctx.invoice, kind }, typeId(db, kind), ctx.taxLedgers
+        )
+        if (!r.ok) throw new Error(r.error)
+        return saveVoucher(db, r.payload).id
+      })
+      writeCompanyInfo(db, { ...TEST_INFO, gstRegistrationType: type })
+      for (const id of ids) {
+        const plan = expectRoundTrip(db, id, 'invoice')
+        expect(plan.mode === 'invoice' && plan.state.legacyTax).toBe(true)
+        expect(getVoucher(db, id)!.lines.some((l) => l.ledgerId === x.cgst || l.ledgerId === x.sgst)).toBe(true)
+      }
+      // A new invoice through the same editor context charges no GST (and saves).
+      const fresh = editContext(db)
+      const r = buildInvoicePayload(
+        { ...emptyInvoiceState('2025-05-12'), partyId: x.buyer, accountId: x.sales, billName: 'N-1', billDueDate: '2025-06-01', rows: [{ itemId: x.widget, qtyText: '2', rate: 50000, discount: null, godownId: null, batchId: null }] },
+        { ...fresh.invoice, kind: 'sales' }, typeId(db, 'sales'), fresh.taxLedgers
+      )
+      if (!r.ok) throw new Error(r.error)
+      expect(r.payload.lines.map((l) => [l.ledgerId, l.drCr, l.amount])).toEqual([[x.buyer, 'dr', 100000], [x.sales, 'cr', 100000]])
+      const n = saveVoucher(db, r.payload)
+      const plan = expectRoundTrip(db, n.id, 'invoice')
+      expect(plan.mode === 'invoice' && plan.state.legacyTax).toBeUndefined()
+    })
+  }
 })

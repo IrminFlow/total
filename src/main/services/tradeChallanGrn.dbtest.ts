@@ -55,7 +55,7 @@ function ctxOf(db: DB) {
   const items = listStockItems(db)
   const ledgers = listLedgers(db)
   return {
-    companyStateCode: COMPANY.stateCode,
+    companyStateCode: COMPANY.stateCode, gstRegistrationType: COMPANY.gstRegistrationType,
     items: new Map(items.map((i) => [i.id, { gstRate: i.gstRate, cessRate: i.cessRate }])),
     ledgers: new Map(ledgers.map((l) => [l.id, { stateCode: l.stateCode, gstRate: l.gstRate, tdsPayableSectionId: l.tdsPayableSectionId }])),
     taxLedgers: taxLedgerIdsFrom(ledgers)

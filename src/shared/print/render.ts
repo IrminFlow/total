@@ -4,6 +4,7 @@ import type { EdocInvoice, EdocItem } from '../gst/edocs'
 import { amountInWords, formatPaise, formatQtyMilli, plainRupees } from '../money'
 import { formatDateAs } from '../dates'
 import { GST_STATES } from '../gst/states'
+import { BILL_OF_SUPPLY_TITLE, chargesGst, COMPOSITION_DECLARATION } from '../gst/registration'
 import { einvoiceQrPayload } from '../einvoiceQr'
 import {
   CHALLAN_COPY_LABELS,
@@ -191,6 +192,22 @@ const FONT_STACKS: Record<PrintTemplate['typography']['fontFamily'], string> = {
 const NUMBER_STACKS: Record<'mono' | 'plex-mono', string> = {
   mono: "'SF Mono', Menlo, monospace",
   'plex-mono': "'IBM Plex Mono', 'SF Mono', Menlo, monospace"
+}
+
+/** WP 8.0: the printed title. A composition / unregistered company never prints "Tax invoice": a
+ *  sales title that says so becomes "Bill of supply" (CGST Act s.31(3)(c) + rule 49 CGST Rules —
+ *  sources in shared/gst/registration.ts). A custom title that doesn't claim to be a tax invoice is
+ *  kept. A legacy bill that carries tax (saved before the rule) still prints without the claim. */
+function docTitle(t: PrintTemplate, company: CompanyInfo, kind: PrintDocKind): string {
+  const title = t.header.titles[kind]
+  if (kind === 'sales' && !chargesGst(company.gstRegistrationType) && /tax\s*invoice/i.test(title)) return BILL_OF_SUPPLY_TITLE
+  return title
+}
+
+/** Rule 5(1)(f) CGST Rules (clause letter UNVERIFIED): a composition dealer's bill of supply carries
+ *  the declaration at the top — printed under the title. */
+function compositionNote(company: CompanyInfo, kind: PrintDocKind, cls: string): string {
+  return kind === 'sales' && company.gstRegistrationType === 'composition' ? `<div class="${cls}" data-testid="print-composition-note">${esc(COMPOSITION_DECLARATION)}</div>` : ''
 }
 
 /** Meta-block label (and <title> prefix) per kind. */
@@ -752,7 +769,7 @@ function renderReceipt(c: Ctx, doc: InvoiceDocument, opts: RenderOptions): strin
         ${h.showAddress && company.address ? `<div class="rc-sm">${esc(company.address)}</div>` : ''}
         ${h.showGstin ? `<div class="rc-sm num">GSTIN ${esc(company.gstin ?? 'Unregistered')}</div>` : ''}
         ${contact.length ? `<div class="rc-sm">${contact.join(' · ')}</div>` : ''}
-        <div class="rc-title">${esc(h.titles[doc.kind])}</div>
+        <div class="rc-title">${esc(docTitle(t, company, doc.kind))}</div>${compositionNote(company, doc.kind, 'rc-sm')}
       </div>
       <div class="rc-rule"></div>
       <div class="rc-row"><span>Bill <b class="num">${esc(inv.number)}</b></span><span class="num">${c.date(inv.date)}</span></div>
@@ -886,7 +903,7 @@ function renderInvoice(c: Ctx, doc: InvoiceDocument, opts: RenderOptions): strin
       <div class="logo-c">${logoCenter}</div>` : ''}
       <div class="head">${companyBlock(c, company)}
         <div class="tag">
-          ${logoRight}<b>${esc(t.header.titles[doc.kind])}</b>
+          ${logoRight}<b>${esc(docTitle(t, company, doc.kind))}</b>${compositionNote(company, doc.kind, 'lbl')}
           ${headerQr}
         </div>
       </div>

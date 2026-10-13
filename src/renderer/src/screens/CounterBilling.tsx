@@ -155,6 +155,7 @@ export function CounterBillingScreen(): React.JSX.Element {
     () => ({
       kind: 'sales',
       companyStateCode: info!.stateCode,
+      gstRegistrationType: info!.gstRegistrationType,
       items: new Map(items.map((i) => [i.id, { gstRate: i.gstRate, cessRate: i.cessRate }])),
       ledgers: new Map(ledgers.map((l) => [l.id, { stateCode: l.stateCode, gstRate: l.gstRate }]))
     }),

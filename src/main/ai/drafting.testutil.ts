@@ -91,7 +91,7 @@ export function planOf(v: Voucher, kind: Parameters<typeof planVoucherEdit>[1]) 
   const items = listStockItems(db)
   return planVoucherEdit(v, kind, {
     invoice: {
-      companyStateCode: INFO.stateCode,
+      companyStateCode: INFO.stateCode, gstRegistrationType: INFO.gstRegistrationType,
       items: new Map(items.map((i) => [i.id, { gstRate: i.gstRate, cessRate: i.cessRate }])),
       ledgers: new Map(ledgers.map((l) => [l.id, { stateCode: l.stateCode, gstRate: l.gstRate, tdsPayableSectionId: l.tdsPayableSectionId }]))
     },
@@ -110,7 +110,7 @@ export function invoiceEditorPayload(state: InvoiceFormState, kind: 'sales' | 'p
   const r = buildInvoicePayload(
     { ...state, billName: state.billName || number },
     {
-      kind, companyStateCode: INFO.stateCode,
+      kind, companyStateCode: INFO.stateCode, gstRegistrationType: INFO.gstRegistrationType,
       items: new Map(items.map((i) => [i.id, { gstRate: i.gstRate, cessRate: i.cessRate }])),
       ledgers: new Map(ledgers.map((l) => [l.id, { stateCode: l.stateCode, gstRate: l.gstRate, tdsPayableSectionId: l.tdsPayableSectionId }]))
     },

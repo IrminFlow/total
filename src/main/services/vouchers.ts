@@ -22,6 +22,7 @@ import {
 } from './tradeLinks'
 import { isGodownTransferShape } from '@shared/voucherEdit/stockJournal'
 import { assertFixedAssetVoucherRestorable, assertNotFixedAssetVoucher } from './fixedAssets'
+import { chargesGst, gstNotChargedMessage, type GstRegistrationType } from '@shared/gst/registration'
 
 interface VoucherRow {
   id: number; voucher_type_id: number; date: string; number: string
@@ -354,6 +355,9 @@ export interface SaveVoucherHooks {
   /** WP 6.3 Books import: keep the input line uids of a NEW voucher when they are free anywhere
    *  (so the links of the exported company can be restored). */
   adoptLineUids?: boolean
+  /** WP 8.0: a Tally / books import restores history as it was recorded — the GST registration
+   *  rule (assertGstAllowed) applies to entries made in Total, not to imported books. */
+  historicImport?: boolean
 }
 
 export const IRN_RENUMBER_REFUSED = 'This invoice has an e-invoice IRN — its number and voucher type can’t change (cancel the IRN on the portal and enter a new invoice instead)'
@@ -426,6 +430,36 @@ export function syncTransferMark(db: DB, voucherId: number, isTransfer: boolean)
   else db.prepare('DELETE FROM stock_transfers WHERE voucher_id = ?').run(voucherId)
 }
 
+/** The company's GST registration (a DB without company meta — some fixtures — counts as regular). */
+function registrationTypeOf(db: DB): GstRegistrationType {
+  const row = db.prepare("SELECT value FROM meta WHERE key = 'company'").get() as { value: string } | undefined
+  if (!row) return 'regular'
+  return (JSON.parse(row.value) as { gstRegistrationType?: GstRegistrationType }).gstRegistrationType ?? 'regular'
+}
+
+/** Kinds that are supplies (a bill / note): the registration rule applies to these. A payment or
+ *  journal to a GST ledger (settling a liability from before a cancellation) stays allowed. */
+const SUPPLY_KINDS: readonly string[] = ['sales', 'purchase', 'credit_note', 'debit_note']
+
+/** WP 8.0 (shared/gst/registration.ts): a sales / purchase / note that posts CGST / SGST / IGST /
+ *  cess in a composition or unregistered company is refused — unless it is an alteration of a
+ *  voucher that already carried tax (saved before the rule), which keeps round-tripping as saved. */
+export function assertGstAllowed(db: DB, kind: string, lines: readonly { ledgerId: number }[], before: Voucher | null): void {
+  if (!SUPPLY_KINDS.includes(kind)) return
+  const type = registrationTypeOf(db)
+  if (chargesGst(type)) return
+  const taxed = (ls: readonly { ledgerId: number }[]): boolean => {
+    const ids = [...new Set(ls.map((l) => l.ledgerId))].filter((id) => id > 0)
+    if (ids.length === 0) return false
+    return !!db
+      .prepare(`SELECT 1 FROM ledgers WHERE tax_type IN ('cgst', 'sgst', 'igst', 'cess') AND id IN (${ids.map(() => '?').join(',')}) LIMIT 1`)
+      .get(...ids)
+  }
+  if (!taxed(lines)) return
+  if (before && taxed(before.lines)) return
+  throw new Error(gstNotChargedMessage(type))
+}
+
 export function saveVoucher(db: DB, raw: VoucherInput, existingId?: number, hooks: SaveVoucherHooks = {}): SaveVoucherResult {
   // Parse here as well as at the IPC boundary so direct callers (tests, importers)
   // get defaults for later-added fields (posOverride) applied consistently.
@@ -495,6 +529,9 @@ export function saveVoucher(db: DB, raw: VoucherInput, existingId?: number, hook
   if (lock && (input.date <= lock || (before && before.date <= lock))) {
     throw new Error(`Books are locked up to ${lock}`)
   }
+
+  // WP 8.0: only a regular GST registration charges GST on a bill — see assertGstAllowed.
+  if (!hooks.historicImport) assertGstAllowed(db, vt.kind, posting.lines, before)
 
   const warnings: SaveVoucherWarnings = { negativeStock: [], creditLimitExceeded: null }
 

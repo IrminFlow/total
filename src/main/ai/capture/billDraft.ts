@@ -25,6 +25,7 @@ import { formatPaise, roundToRupee } from '@shared/money'
 import { resolveName } from '@shared/aiResolve'
 import { computeGst, addBreakups, supplyTypeFor } from '@shared/gst/calc'
 import { stateName } from '@shared/gst/states'
+import { chargesGst } from '@shared/gst/registration'
 import { computeInvoice, taxLedgerIdsFrom, type AccountingFormState, type AccountingRowState, type InvoiceFormState } from '@shared/voucherEdit'
 import { saveVoucher, NOT_DELETED } from '../../services/vouchers'
 import { writeAudit } from '../../services/audit'
@@ -266,19 +267,23 @@ function buildLedgerPurchase(w: DraftWork, party: Ledger, maps: LineMap[], parse
   const partyState = party.stateCode ?? m.company.stateCode
   if (pos && pos !== partyState) w.assume(`The bill's place of supply is ${pos} ${stateName(pos) ?? ''}; a ledger-line purchase uses the supplier's state ${partyState} — check the tax`)
   const supply = supplyTypeFor(m.company.stateCode, partyState)
+  // WP 8.0: a composition / unregistered company books no GST lines (the editor's rule; the save
+  // refuses them) — the bill's printed tax shows up in the GST / total check on the banner.
+  const noGst = !chargesGst(m.company.gstRegistrationType)
+  if (noGst) w.assume(`No GST lines — the company is ${m.company.gstRegistrationType === 'composition' ? 'under the composition scheme' : 'not GST-registered'}, so the bill's GST can't be claimed`)
   const byLedger = new Map<number, number>()
   const buckets = new Map<number, number>()
   for (const { line, ledger } of maps) {
     const taxable = line.qtyMilli != null && line.ratePaise != null ? lineGross(line.qtyMilli, line.ratePaise) - (line.discountPaise ?? 0) : (line.taxablePaise ?? line.amountPaise)
     if (taxable == null || taxable <= 0) throw new Error(`Line ${line.index + 1} has no legible amount to book`)
-    let rate = ledger!.gstRate
+    let rate = noGst ? 0 : ledger!.gstRate
     if (rate == null) {
       // The line's printed rate, else the bill's only tax-summary rate, else 0%.
       const summaryRates = [...new Set(parsed.taxSummary.map((t) => t.rateBp).filter((r): r is number => r != null))]
       const bp = line.gstRateBp ?? (summaryRates.length === 1 ? summaryRates[0]! : null)
       rate = bp != null ? bp / 100 : 0
       w.assume(`${ledger!.name} has no GST rate in its master — ${rate}% taken from the bill for line ${line.index + 1}`)
-    } else w.assume(`${rate}% GST on line ${line.index + 1} from the ${ledger!.name} ledger master`)
+    } else if (!noGst) w.assume(`${rate}% GST on line ${line.index + 1} from the ${ledger!.name} ledger master`)
     byLedger.set(ledger!.id, (byLedger.get(ledger!.id) ?? 0) + taxable)
     buckets.set(rate, (buckets.get(rate) ?? 0) + taxable)
     w.fields.add(`line:${line.index}`)
@@ -415,7 +420,7 @@ export function draftFromBill(input: BillDraftInput): BillDraftOutcome {
         if (line.unit && unit && ![unit.symbol, unit.name].some((u) => u && u.toLowerCase().replace(/\.$/, '') === line.unit!.toLowerCase().replace(/\.$/, ''))) {
           w.assume(`Line ${line.index + 1}: the bill's unit “${line.unit}” is not ${item!.name}'s unit (${unit.symbol}) — the quantity is taken as ${unit.symbol}; check it`)
         }
-        if (line.gstRateBp != null && item!.gstRate != null && line.gstRateBp !== Math.round(item!.gstRate * 100)) {
+        if (chargesGst(m.company.gstRegistrationType) && line.gstRateBp != null && item!.gstRate != null && line.gstRateBp !== Math.round(item!.gstRate * 100)) {
           w.assume(`Line ${line.index + 1}: the bill charges ${line.gstRateBp / 100}% but ${item!.name} is ${item!.gstRate}% in the item master — the master's rate is used`)
         }
         return {

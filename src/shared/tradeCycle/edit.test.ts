@@ -26,7 +26,7 @@ describe('trade doc totals', () => {
     for (const partyId of [10, 11]) {
       const s = { ...emptyTradeDocState('sales_order', '2025-06-01'), partyId, rows }
       const inv = computeInvoice({ ...emptyInvoiceState('2025-06-01'), partyId, rows }, {
-        kind: 'sales', companyStateCode: '27', items: ctx.items, ledgers: new Map([[partyId, { stateCode: ctx.ledgers.get(partyId)!.stateCode, gstRate: null }]])
+        kind: 'sales', companyStateCode: '27', gstRegistrationType: 'regular', items: ctx.items, ledgers: new Map([[partyId, { stateCode: ctx.ledgers.get(partyId)!.stateCode, gstRate: null }]])
       })
       const c = computeTradeDoc(s, ctx)
       expect(c.gst).toEqual(inv.gst)
