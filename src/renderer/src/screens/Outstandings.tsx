@@ -232,7 +232,11 @@ function StatementsSection({ parties, onPreview }: { parties: OutstandingParty[]
 }
 
 export function OutstandingsScreen(): React.JSX.Element {
-  const { to } = useSession()
+  const { to: periodTo } = useSession()
+  // WP 8.0: ageing is as on TODAY unless the working period ends earlier — never the FY end in
+  // the future (bills due next month would read as 90+ days overdue).
+  const today = todayISO()
+  const to = periodTo > today ? today : periodTo
   const toast = useToasts()
   const [side, setSide] = useState<'receivable' | 'payable'>('receivable')
   const features = useFeatures()
@@ -284,7 +288,7 @@ export function OutstandingsScreen(): React.JSX.Element {
           onReset: opts.reset,
           content: (
             <>
-              <OptionsPeriod asOn />
+              <OptionsPeriod asOn asOnDate={to} note={to !== periodTo ? 'Ageing runs to today; the working period ends later.' : undefined} />
               <DrawerSection title="Display">
                 <OptionToggle
                   label="Only parties overdue more than 30 days"
@@ -387,7 +391,7 @@ export function OutstandingsScreen(): React.JSX.Element {
                   type="button"
                   data-testid="btn-outstandings-remind"
                   className="text-hint text-blue hover:underline"
-                  onClick={() => void remind(p, to > todayISO() ? todayISO() : to, toast)}
+                  onClick={() => void remind(p, to, toast)}
                 >
                   Remind
                 </button>

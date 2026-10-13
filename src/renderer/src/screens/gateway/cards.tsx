@@ -245,14 +245,17 @@ export function ComplianceCard({
   const today = todayISO()
   const [showAll, setShowAll] = useState(false)
   const regType = info?.gstRegistrationType ?? 'unregistered'
-  const deadlines = useMemo(() => upcomingDeadlines(today, regType, hasPayroll, 30), [today, regType, hasPayroll])
+  // WP 8.0: the TDS deposit date shows only where the TDS row applies (the dashboard sends no TDS
+  // section when TDS is off or nothing was ever deducted — complianceApplicability).
+  const tdsApplies = tds != null && (tds.state !== 'ready' || tds.data != null)
+  const deadlines = useMemo(() => upcomingDeadlines(today, regType, hasPayroll, 30, { tds: tdsApplies }), [today, regType, hasPayroll, tdsApplies])
   // GST and TDS have their own rows; the list carries the rest (PF/ESI/advance tax).
   const others = deadlines.filter((d) => d.kind !== 'gst' && !(d.kind === 'tds' && tds))
 
   useEffect(() => {
     if (!info || !slug || !dashboardLoaded || notifiedCompanies.has(slug)) return
     notifiedCompanies.add(slug)
-    const soon = upcomingDeadlines(today, regType, hasPayroll, 3)
+    const soon = upcomingDeadlines(today, regType, hasPayroll, 3, { tds: tdsApplies })
     if (soon.length) {
       // Fire-and-forget: an OS notification failing is not worth interrupting the Gateway for.
       void api.app.notifyDeadlines(soon.map((d) => ({ title: d.form, body: `${d.title} — due ${toDisplayDate(d.date)}` }))).catch(() => {})

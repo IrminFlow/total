@@ -62,8 +62,10 @@ export function upcomingDeadlines(
   hasPayroll: boolean,
   horizonDays = 30,
   /** WP 3.4 — annual GST deadlines: GSTR-9 (regular registrations) always; ITC-04 only when the
-   *  company sends goods for job work (`jobWork`), half-yearly or annual per `itc04`. */
-  annual: { jobWork?: boolean; itc04?: 'half_yearly' | 'annual' } = {}
+   *  company sends goods for job work (`jobWork`), half-yearly or annual per `itc04`.
+   *  WP 8.0 — `tds: false` drops the monthly TDS deposit (TDS off, or nothing ever deducted —
+   *  see complianceApplicability); absent = listed, as before. */
+  annual: { jobWork?: boolean; itc04?: 'half_yearly' | 'annual'; tds?: boolean } = {}
 ): Deadline[] {
   const horizonEnd = addDays(today, horizonDays)
   const { y: ty, m: tm } = parseISO(today)
@@ -98,7 +100,7 @@ export function upcomingDeadlines(
     }
 
     const tdsDate = ymd(filingY, filingM, 7)
-    if (inRange(tdsDate)) {
+    if (annual.tds !== false && inRange(tdsDate)) {
       out.push({ id: `tds-${period.y}-${pad2(period.m)}`, form: 'TDS Challan', title: `TDS deposit — challan for ${periodLabel}`, date: tdsDate, kind: 'tds' })
     }
 
@@ -169,3 +171,32 @@ export function upcomingDeadlines(
   out.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : a.id < b.id ? -1 : 1))
   return out
 }
+
+/** WP 8.0 — which compliance rows (dashboard card, deadline notifications) apply to a company. */
+export interface ComplianceApplicability {
+  /** GSTR-1 / GSTR-3B / GSTR-9 (and the GST row): a regular registration only. */
+  gst: boolean
+  /** The TDS row and its monthly deposit date: TDS switched on AND something deducted (an entry
+   *  or a balance on a TDS payable ledger) — a shop that never deducts sees no TDS deadline. */
+  tds: boolean
+  /** PF / ESI: payroll on with active employees. */
+  payroll: boolean
+}
+
+export function complianceApplicability(c: {
+  gstRegistrationType: 'regular' | 'composition' | 'unregistered'
+  tdsOn: boolean
+  /** Any live TDS deduction, or a non-zero TDS payable balance. */
+  tdsActivity: boolean
+  hasPayroll: boolean
+}): ComplianceApplicability {
+  return { gst: c.gstRegistrationType === 'regular', tds: c.tdsOn && c.tdsActivity, payroll: c.hasPayroll }
+}
+
+/** GSTR-1 is listed on the 11th of the next month (monthly filers). There is no filing-frequency
+ *  setting yet, so quarterly (QRMP) filers' dates — GSTR-1 after the quarter, IFF, GSTR-3B on the
+ *  22nd / 24th — are not modelled. UNVERIFIED (see shared/assistantSources.ts). */
+export const COMPLIANCE_UNVERIFIED: readonly string[] = [
+  'GSTR-1 on the 11th assumes a monthly filer — QRMP (quarterly) dates are not modelled (no filing-frequency setting)',
+  'Composition returns (CMP-08, GSTR-4) are not listed'
+]
