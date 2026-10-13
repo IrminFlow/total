@@ -190,6 +190,33 @@ describe('OpenAiProvider', () => {
     expect(refusing.bodies[1]!.include).toBeUndefined()
   })
 
+  it('WP 5.4: sends a document with a user message as input_text + input_image / input_file parts', () => {
+    const body = buildResponsesBody({
+      ...REQ,
+      input: [
+        {
+          type: 'message', role: 'user', content: 'Extract this bill',
+          attachments: [{ kind: 'image', mime: 'image/png', base64: 'iVBOR' }, { kind: 'file', mime: 'application/pdf', base64: 'JVBER', filename: 'bill.pdf' }]
+        }
+      ],
+      tools: [],
+      responseFormat: { name: 'bill_extraction', schema: { type: 'object' } }
+    })
+    expect(body.input).toEqual([
+      {
+        type: 'message',
+        role: 'user',
+        content: [
+          { type: 'input_text', text: 'Extract this bill' },
+          { type: 'input_image', image_url: 'data:image/png;base64,iVBOR', detail: 'high' },
+          { type: 'input_file', filename: 'bill.pdf', file_data: 'data:application/pdf;base64,JVBER' }
+        ]
+      }
+    ])
+    expect((body.text as { format: { strict: boolean; name: string } }).format).toMatchObject({ strict: true, name: 'bill_extraction' })
+    expect(body.tools).toBeUndefined()
+  })
+
   it('lists models (sorted)', async () => {
     const client = fakeClient([], ['gpt-6-luna', 'gpt-6.1-sol', 'a-model'])
     expect(await new OpenAiProvider({ apiKey: KEY, client }).models()).toEqual(['a-model', 'gpt-6-luna', 'gpt-6.1-sol'])

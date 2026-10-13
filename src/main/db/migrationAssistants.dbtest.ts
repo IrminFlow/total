@@ -11,8 +11,8 @@ import { trialBalance } from '../services/reports'
 const M = MIGRATIONS.findIndex((sql) => sql.includes('CREATE TABLE assistant_marks'))
 
 describe('assistants migration — marks and stored 2B statements', () => {
-  it('is the last migration', () => {
-    expect(M).toBe(MIGRATIONS.length - 1)
+  it('comes right before WP 5.4 capture (the last migration; number by position)', () => {
+    expect(M).toBe(MIGRATIONS.findIndex((sql) => sql.includes('CREATE TABLE capture_items')) - 1)
     expect(MIGRATIONS.findIndex((sql) => sql.includes('CREATE TABLE mcp_log'))).toBeLessThan(M)
     expect(MIGRATIONS.findIndex((sql) => sql.includes('CREATE TABLE ai_memory_new'))).toBe(M - 1) // WP 5.6 memory (043); this is 044
   })

@@ -8,6 +8,7 @@
 // July?" and "pay … in cash" style questions.
 import { parseReportQuestion } from '@shared/reportBuilder/nl'
 import { draftingDemoStep } from './mockDrafting'
+import { captureMockStep } from './capture/mock'
 import { AiAbortError, ZERO_USAGE, type AiProvider, type ChatHandlers, type ChatItem, type ChatRequest, type ChatResult, type ChatUsage } from './types'
 
 export type MockStep =
@@ -260,6 +261,9 @@ function rememberStep(question: string, results: { name: string; output: string 
 }
 
 export const demoScript: MockScript = (req) => {
+  // WP 5.4: the structured capture calls (bill extraction, statement categories).
+  const capture = captureMockStep(req)
+  if (capture) return capture
   const { question, results } = sinceLastUser(req.input)
   const q = question.toLowerCase()
   // WP 5.3: drafting questions (sales invoice, payment against bills) — mockDrafting.ts.

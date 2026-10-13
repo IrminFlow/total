@@ -85,6 +85,8 @@ import { registerReportsIpc } from './ipcReports'
 import { registerConsolidationIpc } from './ipcConsolidation'
 import { runDuePacksInBackground } from './packScheduler'
 import { registerAiIpc, aiRuns, type AppKeyAuditEntry } from './ai/ipc'
+import { registerCaptureIpc, captureOnCompanyOpen, captureOnCompanyClose, resumeCapture } from './ai/capture/ipc'
+import { dropPendingAttachments, flushCaptureAttachments } from './ai/capture/consume'
 import { registerAssistantsIpc } from './ipcAssistants'
 import { aiMockAllowed } from './ai/env'
 import { settleDraftOnSave } from './ai/drafts'
@@ -221,6 +223,8 @@ export function closeCurrentCompany(): void {
   nic.resetNicSession()
   // In-flight AI answers belong to this company's handle — stop them before it closes.
   aiRuns.cancelAll()
+  // WP 5.4: the capture queue runner and the capture-inbox watcher, too.
+  captureOnCompanyClose()
   // WP 6.3: a file loaded into the import wizard never carries over to another company.
   clearLoadedImports()
   if (current) {
@@ -329,6 +333,13 @@ export function registerIpc(): void {
     emit: (e: AiEvent) => {
       for (const w of BrowserWindow.getAllWindows()) if (!w.isDestroyed()) w.webContents.send('total:ai:event', e)
     },
+    mock: () => aiMockAllowed(process.env, app.isPackaged)
+  })
+  // ---------- document capture (WP 5.4) — channels live in ai/capture/ipc.ts ----------
+  registerCaptureIpc(handle, {
+    company: () => requireCompany(),
+    session: () => (sessionUser ? { name: sessionUser.name, role: sessionUser.role } : { name: null, role: 'owner' }),
+    secrets: () => appSecretStore(),
     mock: () => aiMockAllowed(process.env, app.isPackaged)
   })
   // ---------- assistants (WP 5.5): close checklist, anomalies, GSTR-2B mismatches — ipcAssistants.ts ----------
@@ -461,6 +472,12 @@ export function registerIpc(): void {
     touchLastOpened(slug)
     // Agent bridge (feature flag, default OFF): watch <company>/inbox/ for dropped files.
     if (configSvc.getAgentBridgeEnabled(db)) agentBridge.syncInboxWatcher({ slug, db })
+    // WP 5.4: interrupted capture work back to the approved queue; the capture inbox watched.
+    try {
+      captureOnCompanyOpen({ slug, db, usersExist: current.usersExist })
+    } catch (err) {
+      log('warn', 'capture-open-failed', { slug, error: err instanceof Error ? err.message : String(err) })
+    }
     // WP 6.2: scheduled report packs that came due while the app was closed run once, deferred
     // past this reply and only while the company is unlocked (a company with users waits for the
     // sign-in — auth:login starts the pass then).
@@ -1043,13 +1060,21 @@ export function registerIpc(): void {
     // WP 5.1: a voucher reviewed from an AI draft saves through the normal path; the draft is
     // settled in the same transaction (consumed when still open; otherwise the save goes ahead
     // and the audit trail records that the draft was no longer open).
-    const saved = aiDraftId
-      ? c.db.transaction(() => {
+    let saved: ReturnType<typeof vouchers.saveVoucher>
+    if (aiDraftId) {
+      try {
+        saved = c.db.transaction(() => {
           const v = vouchers.saveVoucher(c.db, data, id, saveOpts)
-          settleDraftOnSave(c.db, aiDraftId, v.id)
+          settleDraftOnSave(c.db, aiDraftId, v.id, 'voucher', { companyDir: companyDir(c.slug) })
           return v
         })()
-      : vouchers.saveVoucher(c.db, data, id, saveOpts)
+      } catch (err) {
+        dropPendingAttachments()
+        throw err
+      }
+      // WP 5.4: a captured bill's file is attached only once the save has committed.
+      flushCaptureAttachments()
+    } else saved = vouchers.saveVoucher(c.db, data, id, saveOpts)
     // WP 2.6 "remember last price" (Options toggle; a no-op unless on and this is a sale). Never
     // fails the save it follows.
     try {
@@ -2170,6 +2195,7 @@ export function registerIpc(): void {
     sessionUser = result
     // WP 6.2: due report packs wait for the first sign-in of a locked company.
     void runDuePacksInBackground(c, { allowed: packsAllowed, current: getUnlockedCompany })
+    resumeCapture()
     return result
   })
   handle('auth:logout', () => {

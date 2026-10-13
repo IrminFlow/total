@@ -3197,6 +3197,7 @@ export const MIGRATIONS: string[] = [
   CREATE INDEX idx_mcp_log_session ON mcp_log(session_id);
   `,
   // WP 5.6 (043, number by position, after WP 5.7's 042; WP 5.5 follows) — per-company AI memory. ai_memory (created empty by the
+  // WP 5.6 (number by position — 043, after WP 5.7's 042; WP 5.4 capture follows) — per-company AI memory. ai_memory (created empty by the
   // WP 5.1 migration with a placeholder key/value shape nothing ever wrote) is rebuilt as typed
   // entries: kind (preference / style / party / fact), a short text, optional structured
   // data_json (purpose, ledger / party / item ids), source (user / assistant / derived / mcp — with
@@ -3238,7 +3239,7 @@ export const MIGRATIONS: string[] = [
   ALTER TABLE ai_outbound_log ADD COLUMN memory_count INTEGER NOT NULL DEFAULT 0;
   ALTER TABLE ai_outbound_log ADD COLUMN memory_bytes INTEGER NOT NULL DEFAULT 0;
   `,
-  // WP 5.5 (last; number by position) — the assistants (month-end close checklist, GST 2B
+  // WP 5.5 (044, number by position; WP 5.4 capture follows) — the assistants (month-end close checklist, GST 2B
   // mismatch resolution, anomaly detection). Every figure the assistants show is computed at
   // query time from the books; only the user's decisions and the imported 2B statement are kept.
   // - assistant_marks: a check marked done / not applicable for a month, an anomaly dismissed, a
@@ -3293,5 +3294,72 @@ export const MIGRATIONS: string[] = [
   DROP TABLE ai_drafts;
   ALTER TABLE ai_drafts_new RENAME TO ai_drafts;
   CREATE INDEX idx_ai_drafts_status ON ai_drafts(status);
+  `,
+  // WP 5.4 (last; number by position — 045, after WP 5.5's 044) — document capture.
+  // - ai_drafts.source gains 'capture' (keeping WP 5.5's 'assistant'): a purchase draft made from a captured bill (or a payment /
+  //   receipt drafted from a categorised bank statement line). Rebuilt for the CHECK; mcp_log and
+  //   capture_items reference ai_drafts by name, so FKs are off for the swap.
+  // - capture_items: the persisted capture queue (survives a restart: 'processing' goes back to
+  //   'pending' on open). The file itself lives in <company>/capture/files/<sha256> until the draft
+  //   is saved, when it becomes the voucher's attachment (WP 6.4). extraction_json / review_json
+  //   hold what the provider returned and the app's reading of it — local only, like AI messages;
+  //   audit rows about an item carry its file name, size and hash, never its content.
+  `-- @foreign-keys-off
+  CREATE TABLE ai_drafts_new (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    thread_id INTEGER REFERENCES ai_threads(id) ON DELETE SET NULL,
+    message_id INTEGER REFERENCES ai_messages(id) ON DELETE SET NULL,
+    kind TEXT NOT NULL CHECK (kind IN ('voucher')),
+    summary TEXT NOT NULL,
+    payload_json TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'open' CHECK (status IN ('open', 'consumed', 'discarded', 'superseded')),
+    voucher_id INTEGER REFERENCES vouchers(id) ON DELETE SET NULL,
+    unrequested INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    consumed_at TEXT,
+    source TEXT NOT NULL DEFAULT 'chat' CHECK (source IN ('chat', 'mcp', 'inbox', 'assistant', 'capture')),
+    origin TEXT
+  );
+  INSERT INTO ai_drafts_new (id, thread_id, message_id, kind, summary, payload_json, status, voucher_id, unrequested, created_at, consumed_at, source, origin)
+    SELECT id, thread_id, message_id, kind, summary, payload_json, status, voucher_id, unrequested, created_at, consumed_at, source, origin FROM ai_drafts;
+  DROP TABLE ai_drafts;
+  ALTER TABLE ai_drafts_new RENAME TO ai_drafts;
+  CREATE INDEX idx_ai_drafts_status ON ai_drafts(status);
+
+  CREATE TABLE capture_items (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    kind TEXT NOT NULL DEFAULT 'bill' CHECK (kind IN ('bill')),
+    file_name TEXT NOT NULL,
+    mime TEXT NOT NULL,
+    size INTEGER NOT NULL CHECK (size >= 0),
+    sha256 TEXT NOT NULL,
+    stored_path TEXT NOT NULL,
+    pages INTEGER NOT NULL DEFAULT 1 CHECK (pages >= 1),
+    text_layer INTEGER NOT NULL DEFAULT 0,
+    origin TEXT NOT NULL CHECK (origin IN ('picker', 'drop', 'folder')),
+    status TEXT NOT NULL DEFAULT 'queued'
+      CHECK (status IN ('queued', 'pending', 'processing', 'needs_review', 'drafted', 'duplicate', 'saved', 'failed', 'cancelled')),
+    error TEXT,
+    attempts INTEGER NOT NULL DEFAULT 0,
+    added_by TEXT,
+    approved_by TEXT,
+    extraction_json TEXT,
+    review_json TEXT,
+    mapping_json TEXT,
+    supplier_name TEXT,
+    supplier_ledger_id INTEGER REFERENCES ledgers(id) ON DELETE SET NULL,
+    invoice_no TEXT,
+    invoice_date TEXT,
+    total INTEGER,
+    duplicate_kind TEXT CHECK (duplicate_kind IS NULL OR duplicate_kind IN ('same_invoice', 'same_amount')),
+    duplicate_voucher_id INTEGER REFERENCES vouchers(id) ON DELETE SET NULL,
+    draft_id INTEGER REFERENCES ai_drafts(id) ON DELETE SET NULL,
+    voucher_id INTEGER REFERENCES vouchers(id) ON DELETE SET NULL,
+    cost_micro_usd INTEGER,
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+  );
+  CREATE INDEX idx_capture_items_status ON capture_items(status);
+  CREATE INDEX idx_capture_items_sha ON capture_items(sha256);
   `
 ]

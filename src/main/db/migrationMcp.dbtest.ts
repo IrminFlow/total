@@ -1,6 +1,6 @@
 // The MCP migration (WP 5.7): ai_drafts gains source / origin and the mcp_log table appears. It
-// is appended LAST (its number is its position — re-placed when main gains migrations first); an
-// existing company upgrades with its books and its existing drafts unchanged (they read 'chat').
+// was appended last (its number is its position — WP 5.4 capture follows it); an existing company
+// upgrades with its books and its existing drafts unchanged (they read 'chat').
 import { describe, expect, it } from 'vitest'
 import { MIGRATIONS } from './migrations'
 import { migrate, schemaVersion } from './migrate'

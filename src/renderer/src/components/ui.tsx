@@ -237,12 +237,15 @@ export function Modal({
   onClose,
   children,
   wide,
+  extraWide,
   dirty = false
 }: {
   title: string
   onClose: () => void
   children: ReactNode
   wide?: boolean
+  /** Review tables (WP 5.4 categorise): up to max-w-6xl. */
+  extraWide?: boolean
   /** When true, dismissing (Esc / overlay / ✕) first asks to discard unsaved changes. */
   dirty?: boolean
 }): React.JSX.Element {
@@ -294,7 +297,7 @@ export function Modal({
         aria-labelledby={titleId}
         data-modal={title}
         tabIndex={-1}
-        className={`max-h-[75vh] w-full ${wide ? 'max-w-3xl' : 'max-w-lg'} overflow-auto rounded-xl border border-line bg-raised shadow-elev-3 outline-none`}
+        className={`max-h-[75vh] w-full ${extraWide ? 'max-w-6xl' : wide ? 'max-w-3xl' : 'max-w-lg'} overflow-auto rounded-xl border border-line bg-raised shadow-elev-3 outline-none`}
       >
         <div className="flex items-center justify-between border-b border-line px-5 py-3">
           <h3 id={titleId} className="font-serif text-title font-semibold">

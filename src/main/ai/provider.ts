@@ -73,7 +73,22 @@ export function abortableSleep(ms: number, signal?: AbortSignal): Promise<void> 
 /** Provider-neutral items → Responses API input items. */
 export function toResponsesInput(items: readonly ChatItem[]): Record<string, unknown>[] {
   return items.map((it) => {
-    if (it.type === 'message') return { type: 'message', role: it.role, content: it.content }
+    if (it.type === 'message') {
+      if (!it.attachments?.length) return { type: 'message', role: it.role, content: it.content }
+      // WP 5.4: text first, then the document parts (input_image / input_file as data URLs).
+      return {
+        type: 'message',
+        role: it.role,
+        content: [
+          { type: 'input_text', text: it.content },
+          ...it.attachments.map((a) =>
+            a.kind === 'image'
+              ? { type: 'input_image', image_url: `data:${a.mime};base64,${a.base64}`, detail: 'high' }
+              : { type: 'input_file', filename: a.filename, file_data: `data:${a.mime};base64,${a.base64}` }
+          )
+        ]
+      }
+    }
     if (it.type === 'tool_call') return { type: 'function_call', call_id: it.callId, name: it.name, arguments: it.arguments }
     if (it.type === 'reasoning') return it.item
     return { type: 'function_call_output', call_id: it.callId, output: it.output }

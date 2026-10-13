@@ -73,6 +73,12 @@ describe('the MCP SDK stays in the CLI', () => {
     expect(files.filter((f) => /src\/main\/mcp\/(server|stdio)\.ts$/.test(f))).toEqual([])
   })
 
+  it('the CLI entry never reaches the OpenAI provider (WP 5.4: capture keeps its model calls in app-only modules)', () => {
+    const files = [...reachable(join(SRC_MAIN, 'cli', 'main.ts'))].map(rel)
+    expect(files).toContain('src/main/ai/capture/bankCategorise.ts') // draft_voucher / categorise_statement
+    expect(files.filter((f) => /src\/main\/ai\/(provider|agent)\.ts$|src\/main\/ai\/capture\/(bankCategoriseAi|extract|runner|ipc)\.ts$/.test(f))).toEqual([])
+  })
+
   it('the CLI entry does reach it', () => {
     const files = [...reachable(join(SRC_MAIN, 'cli', 'main.ts'))].map(rel)
     expect(files).toContain('src/main/mcp/stdio.ts')
