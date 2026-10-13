@@ -6,8 +6,8 @@ import { describe, expect, it } from 'vitest'
 import { seededDb, TEST_INFO } from '../db/testdb'
 import type { DB } from '../db/connection'
 import { createLedger } from './masters'
-import { deleteVoucher, getVoucher, listBin, saveVoucher, setLockDate } from './vouchers'
-import { restoreFromBin, saveSummary, undoSave, undoState } from './undo'
+import { deleteVoucher, getVoucher, listBin, restoreVoucher, saveVoucher, setLockDate } from './vouchers'
+import { restoreFromBin, saveSummary, undoSave, undoState, UNDO_WINDOW_MS } from './undo'
 import { trialBalance } from './reports'
 import { postClose } from './yearEnd'
 import { AppError } from '@shared/errors'
@@ -70,7 +70,7 @@ describe('save card figures', () => {
       ['sales', 118000, null],
       ['receipt', 50000, { name: 'UPI', isCash: false, amount: 50000 }]
     ])
-    expect(s.party).toEqual({ ledgerId: f.ramesh, name: 'Ramesh', side: 'customer', balance: 68000 })
+    expect(s.parties).toEqual([{ ledgerId: f.ramesh, name: 'Ramesh', side: 'customer', balance: 68000 }])
     expect(s.undo).toEqual({ undoable: true, reason: null })
   })
 
@@ -82,7 +82,7 @@ describe('save card figures', () => {
     })
     const s = saveSummary(f.db, [r.id])
     expect(s.entries[0]!.money).toEqual({ name: 'Cash', isCash: true, amount: 2500 })
-    expect(s.party?.balance).toBe(-2500) // paid ahead
+    expect(s.parties.map((p) => p.balance)).toEqual([-2500]) // paid ahead
   })
 })
 
@@ -175,3 +175,129 @@ describe('grouped undo', () => {
     expect(ids.every((id) => getVoucher(f.db, id)!.deletedAt !== null)).toBe(true)
   })
 })
+
+describe('save card figures — every party, as on the saved date', () => {
+  it('a cash sale and a party voucher in one call: cash is never a party, the party is', () => {
+    const f = setup()
+    const cash = cashId(f.db)
+    const sale = saveVoucher(f.db, {
+      ...base, voucherTypeId: typeId(f.db, 'sales'), date: '2026-10-01', partyLedgerId: cash,
+      lines: [{ ledgerId: cash, drCr: 'dr', amount: 9000 }, { ledgerId: f.sales, drCr: 'cr', amount: 9000 }]
+    })
+    const [bill] = saveIntent(f)
+    const s = saveSummary(f.db, [sale.id, bill])
+    expect(s.entries.map((e) => e.voucherId)).toEqual([sale.id, bill])
+    expect(s.parties.map((p) => p.name)).toEqual(['Ramesh'])
+  })
+
+  it('two parties in one intent are both on the card', () => {
+    const f = setup()
+    const gupta = ledger(f.db, 'Gupta', 'Sundry Creditors')
+    const purchases = ledger(f.db, 'Purchases', 'Purchase Accounts')
+    const [bill] = saveIntent(f)
+    const buy = saveVoucher(f.db, {
+      ...base, voucherTypeId: typeId(f.db, 'purchase'), date: '2026-10-01', partyLedgerId: gupta,
+      lines: [{ ledgerId: purchases, drCr: 'dr', amount: 4000 }, { ledgerId: gupta, drCr: 'cr', amount: 4000 }]
+    })
+    expect(saveSummary(f.db, [bill, buy.id]).parties.map((p) => [p.name, p.side, p.balance])).toEqual([
+      ['Ramesh', 'customer', 68000],
+      ['Gupta', 'supplier', 4000]
+    ])
+  })
+
+  it('a credit note lowers what the customer owes', () => {
+    const f = setup()
+    saveIntent(f)
+    const note = saveVoucher(f.db, {
+      ...base, voucherTypeId: typeId(f.db, 'credit_note'), date: '2026-10-02', partyLedgerId: f.ramesh,
+      lines: [{ ledgerId: f.sales, drCr: 'dr', amount: 18000 }, { ledgerId: f.ramesh, drCr: 'cr', amount: 18000 }]
+    })
+    const s = saveSummary(f.db, [note.id])
+    expect(s.entries[0]).toMatchObject({ kind: 'credit_note', amount: 18000 })
+    expect(s.parties).toEqual([{ ledgerId: f.ramesh, name: 'Ramesh', side: 'customer', balance: 50000 }])
+  })
+
+  it('is as on the latest saved voucher’s date — a later payment is not counted', () => {
+    const f = setup()
+    const [bill] = saveIntent(f, '2026-10-01')
+    saveVoucher(f.db, {
+      ...base, voucherTypeId: typeId(f.db, 'receipt'), date: '2026-10-20', partyLedgerId: f.ramesh,
+      lines: [{ ledgerId: f.upi, drCr: 'dr', amount: 68000 }, { ledgerId: f.ramesh, drCr: 'cr', amount: 68000 }]
+    })
+    // As on 1 Oct the bill is open; the receipt saved with it (same date) counts, the 20 Oct one doesn't.
+    expect(saveSummary(f.db, [bill]).parties[0]!.balance).toBe(68000)
+  })
+})
+
+describe('undo safety', () => {
+  const billWithRef = (f: ReturnType<typeof setup>): number =>
+    saveVoucher(f.db, {
+      ...base, voucherTypeId: typeId(f.db, 'sales'), date: '2026-10-01', partyLedgerId: f.ramesh,
+      lines: [{ ledgerId: f.ramesh, drCr: 'dr', amount: 118000 }, { ledgerId: f.sales, drCr: 'cr', amount: 118000 }],
+      billRefs: [{ kind: 'new', name: 'S-1', amount: 118000, dueDate: null }]
+    }).id
+  const receiptAgainst = (f: ReturnType<typeof setup>): number =>
+    saveVoucher(f.db, {
+      ...base, voucherTypeId: typeId(f.db, 'receipt'), date: '2026-10-02', partyLedgerId: f.ramesh,
+      lines: [{ ledgerId: f.upi, drCr: 'dr', amount: 50000 }, { ledgerId: f.ramesh, drCr: 'cr', amount: 50000 }],
+      billRefs: [{ kind: 'against', name: 'S-1', amount: 50000, dueDate: null }]
+    }).id
+
+  it('refuses a bill a later voucher has settled against — unless they are undone together', () => {
+    const f = setup()
+    const bill = billWithRef(f)
+    const receipt = receiptAgainst(f)
+    expect(undoState(f.db, [bill])).toEqual({ undoable: false, reason: 'linked' })
+    expect(code(() => undoSave(f.db, [bill]))).toBe('undo_linked')
+    expect(getVoucher(f.db, bill)!.deletedAt).toBeNull()
+    expect(undoSave(f.db, [bill, receipt]).binned).toEqual([bill, receipt])
+  })
+
+  it('refuses a voucher matched to a bank statement line', () => {
+    const f = setup()
+    const [, receipt] = saveIntent(f)
+    const imp = Number(f.db.prepare("INSERT INTO bank_statement_imports (bank_ledger_id, format) VALUES (?, 'csv')").run(f.upi).lastInsertRowid)
+    const line = Number(
+      f.db
+        .prepare("INSERT INTO bank_statement_lines (import_id, bank_ledger_id, line_no, date, deposit, import_hash) VALUES (?, ?, 1, '2026-10-01', 50000, 'h1')")
+        .run(imp, f.upi).lastInsertRowid
+    )
+    f.db.prepare('INSERT INTO bank_statement_matches (statement_line_id, voucher_id) VALUES (?, ?)').run(line, receipt)
+    expect(undoState(f.db, [receipt])).toEqual({ undoable: false, reason: 'linked' })
+    expect(code(() => undoSave(f.db, [receipt]))).toBe('undo_linked')
+  })
+
+  it('refuses a voucher another document draws on (line links)', () => {
+    const f = setup()
+    const [bill, receipt] = saveIntent(f)
+    f.db
+      .prepare("INSERT INTO line_links (link_type, from_voucher_id, from_line_uid, to_voucher_id, to_line_uid, qty_milli) VALUES ('fulfil', ?, 'a', ?, 'b', 1000)")
+      .run(bill, receipt)
+    expect(undoState(f.db, [bill])).toEqual({ undoable: false, reason: 'linked' })
+    expect(undoState(f.db, [bill, receipt]).undoable).toBe(true) // the drawing voucher goes with it
+  })
+
+  it('is offered for 24 hours after the save, then says edit instead', () => {
+    const f = setup()
+    const ids = saveIntent(f)
+    const later = (ms: number): Date => new Date(Date.now() + ms)
+    expect(undoState(f.db, ids, { now: later(UNDO_WINDOW_MS - 60_000) }).undoable).toBe(true)
+    expect(undoState(f.db, ids, { now: later(UNDO_WINDOW_MS + 60_000) })).toEqual({ undoable: false, reason: 'expired' })
+    expect(code(() => undoSave(f.db, ids, { now: later(UNDO_WINDOW_MS + 60_000) }))).toBe('undo_expired')
+  })
+
+  it('a closing journal restored after the save blocks undo (audit order, not voucher id)', () => {
+    const f = setup()
+    saveIntent(f, '2025-05-01')
+    const close = postClose(f.db, TEST_INFO, 2025)
+    setLockDate(f.db, null)
+    deleteVoucher(f.db, close.voucherId) // year re-opened
+    const [late] = saveIntent(f, '2025-06-01') // saved after the closing journal's id
+    expect(late).toBeGreaterThan(close.voucherId)
+    expect(undoState(f.db, [late]).undoable).toBe(true)
+    restoreVoucher(f.db, close.voucherId) // the year is closed again after the save
+    expect(undoState(f.db, [late])).toEqual({ undoable: false, reason: 'closed_year' })
+    expect(code(() => undoSave(f.db, [late]))).toBe('undo_closed_year')
+  })
+})
+

@@ -385,10 +385,12 @@ export interface Toast {
   id: number
   kind: 'info' | 'success' | 'error' | 'warning'
   text: string
-  /** WP 8.5: the view an error / warning belongs to — the dialog (layer id) that was on top when
-   *  it was raised, else the screen (nav entry token). It closes when that view closes, so a toast
-   *  never outlives the view that raised it. Confirmations (success / info) report a finished
-   *  action — usually the very thing that closed the dialog — so they keep their short timer. */
+  /** WP 8.5: an error / warning raised inside a dialog / drawer belongs to it (`layer`) and to the
+   *  screen under it. When that layer closes the toast moves to the layer below (or the screen,
+   *  `layer: null`) instead of vanishing, so the user still reads it; it closes when its screen
+   *  goes. A toast raised with no dialog open (a screen's save warning right before it navigates,
+   *  a background job) is never scoped — only its timer ends it. Confirmations (success / info)
+   *  are never scoped either. */
   scope?: { layer: number | null; screen: number }
 }
 
@@ -428,7 +430,8 @@ export const useToasts = create<ToastState>((set, get) => {
         return
       }
       const id = ++toastId
-      const scope = kind === 'error' || kind === 'warning' ? { layer: topLayerId(), screen: screenToken(topScreen()) } : undefined
+      const layer = topLayerId()
+      const scope = (kind === 'error' || kind === 'warning') && layer !== null ? { layer, screen: screenToken(topScreen()) } : undefined
       set((s) => ({ toasts: [...s.toasts, { id, kind, text, ...(scope ? { scope } : {}) }] }))
       if (toastRemaining) toastRemaining.set(id, ttl)
       else arm(id, ttl)
@@ -482,11 +485,20 @@ function dismissScoped(match: (scope: NonNullable<Toast['scope']>) => boolean): 
   const { toasts, dismiss } = useToasts.getState()
   for (const t of toasts) if (t.scope && match(t.scope)) dismiss(t.id)
 }
-onLayerClose((layer) => dismissScoped((s) => s.layer === layer))
+// A closed dialog hands its toasts to what is now on top (the layer below, else the screen).
+onLayerClose((layer) => {
+  const parent = topLayerId()
+  useToasts.setState((st) => ({
+    toasts: st.toasts.map((t) => (t.scope?.layer === layer ? { ...t, scope: { ...t.scope, layer: parent } } : t))
+  }))
+})
 useNav.subscribe((state, prev) => {
   const now = state.stack[state.stack.length - 1]
   const before = prev.stack[prev.stack.length - 1]
   if (now === before || !before) return
   const gone = screenToken(before)
-  dismissScoped((s) => s.screen === gone)
+  // Only toasts already handed to the screen (their dialog closed before the user left). One whose
+  // dialog is still mounted while the screen changes (a dialog's save that navigates) is moved by
+  // that dialog's close, after this — it then just runs out its timer.
+  dismissScoped((s) => s.layer === null && s.screen === gone)
 })

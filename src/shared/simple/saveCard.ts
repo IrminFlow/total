@@ -10,9 +10,10 @@ import { formatPaise } from '../money'
 /** Whether Undo is still offered for a group of just-saved vouchers. */
 export interface UndoState {
   undoable: boolean
-  /** Why not: changed since the save ("Edit instead"), already in the bin, inside the lock,
-   *  the year was closed after it, or it is a closing entry. */
-  reason: 'edited' | 'binned' | 'locked' | 'closed_year' | 'closing_entry' | null
+  /** Why not: changed since the save, already settled / matched / drawn on by another entry, or
+   *  saved more than a day ago (these three say "Edit instead"); already in the bin, inside the
+   *  lock, the year was closed after it, or it is a closing entry. */
+  reason: 'edited' | 'linked' | 'expired' | 'binned' | 'locked' | 'closed_year' | 'closing_entry' | null
 }
 
 export interface SaveCardEntry {
@@ -37,7 +38,8 @@ export interface SaveCardParty {
 
 export interface SaveSummary {
   entries: SaveCardEntry[]
-  party: SaveCardParty | null
+  /** Every customer / supplier the saved vouchers touched, in order (never cash or bank). */
+  parties: SaveCardParty[]
   undo: UndoState
 }
 
@@ -71,8 +73,7 @@ export function saveCardSentences(summary: SaveSummary, t: Translate): string[] 
         : t(received ? 'simple.saveCard.receivedInto' : 'simple.saveCard.paidFrom', { amount: money(m.amount), account: m.name })
     )
   }
-  const p = summary.party
-  if (p) {
+  for (const p of summary.parties) {
     const vars = { name: p.name, amount: money(Math.abs(p.balance)) }
     if (p.side === 'customer') {
       out.push(t(p.balance > 0 ? 'simple.saveCard.customerOwes' : p.balance < 0 ? 'simple.saveCard.customerAhead' : 'simple.saveCard.customerSettled', vars))

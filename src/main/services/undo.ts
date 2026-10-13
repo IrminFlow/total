@@ -21,36 +21,78 @@ import { partyAllocation } from './analysis'
 /** Most vouchers one undo may carry (an intent saves a handful; a guard against a runaway list). */
 export const UNDO_MAX = 20
 
-function latestVoucherAudit(db: DB, id: number): string | null {
-  const row = db
-    .prepare("SELECT action FROM audit_log WHERE entity = 'voucher' AND entity_id = ? ORDER BY id DESC LIMIT 1")
-    .get(id) as { action: string } | undefined
-  return row?.action ?? null
+/** How long after its save a voucher may still be undone from the save card. */
+export const UNDO_WINDOW_MS = 24 * 60 * 60 * 1000
+
+export interface UndoOptions {
+  /** The clock (tests). */
+  now?: Date
 }
 
-/** Why `id` can't be undone, or null when it can. */
-function blockOf(db: DB, id: number, lock: string | null): UndoState['reason'] | 'missing' {
+/** The voucher's newest 'voucher' audit row (id, action, UTC time). */
+function latestVoucherAudit(db: DB, id: number): { id: number; action: string; at: string } | null {
+  const row = db
+    .prepare("SELECT id, action, at FROM audit_log WHERE entity = 'voucher' AND entity_id = ? ORDER BY id DESC LIMIT 1")
+    .get(id) as { id: number; action: string; at: string } | undefined
+  return row ?? null
+}
+
+/** audit_log.at is UTC 'YYYY-MM-DD HH:MM:SS'. */
+const auditTime = (at: string): number => Date.parse(`${at.replace(' ', 'T')}${/Z$|[+-]\d\d:?\d\d$/.test(at) ? '' : 'Z'}`)
+
+/** Why `id` can't be undone, or null when it can. `set` = the vouchers undone together (links
+ *  among them don't count). */
+function blockOf(db: DB, id: number, lock: string | null, set: readonly number[], now: Date): UndoState['reason'] | 'missing' {
   const v = db.prepare('SELECT id, date, deleted_at, is_year_end_close FROM vouchers WHERE id = ?').get(id) as
     | { id: number; date: string; deleted_at: string | null; is_year_end_close: number }
     | undefined
   if (!v) return 'missing'
   if (v.deleted_at) return 'binned'
   if (v.is_year_end_close) return 'closing_entry'
-  if (latestVoucherAudit(db, id) !== 'create') return 'edited'
+  const created = latestVoucherAudit(db, id)
+  if (!created || created.action !== 'create') return 'edited'
   if (lock && v.date <= lock) return 'locked'
+  // A closing entry for its year that came into the books (created or restored) after this save,
+  // by audit order — binning this now would change a closed year.
   const fy = fyOf(v.date)
   const closedAfter = db
-    .prepare(`SELECT 1 FROM vouchers v WHERE ${NOT_DELETED} AND v.is_year_end_close = 1 AND v.date BETWEEN ? AND ? AND v.id > ? LIMIT 1`)
-    .get(fy.from, fy.to, id)
+    .prepare(
+      `SELECT 1 FROM audit_log a JOIN vouchers v ON v.id = a.entity_id
+       WHERE a.entity = 'voucher' AND a.action IN ('create', 'restore') AND a.id > ?
+         AND ${NOT_DELETED} AND v.is_year_end_close = 1 AND v.date BETWEEN ? AND ? LIMIT 1`
+    )
+    .get(created.id, fy.from, fy.to)
   if (closedAfter) return 'closed_year'
+  // Something else already rests on it: a bill settled against it by another voucher, a matched
+  // bank statement line, or a document line drawing on its lines.
+  const others = set.length ? `AND v.id NOT IN (${set.map(() => '?').join(',')})` : ''
+  const settled = db
+    .prepare(
+      `SELECT 1 FROM bill_refs mine
+       JOIN bill_refs br ON br.kind = 'against' AND br.name = mine.name AND br.party_ledger_id = mine.party_ledger_id AND br.voucher_id <> mine.voucher_id
+       JOIN vouchers v ON v.id = br.voucher_id
+       WHERE mine.voucher_id = ? AND mine.kind = 'new' AND ${NOT_DELETED} ${others} LIMIT 1`
+    )
+    .get(id, ...set)
+  if (settled) return 'linked'
+  if (db.prepare('SELECT 1 FROM bank_statement_matches WHERE voucher_id = ? LIMIT 1').get(id)) return 'linked'
+  const drawn = db
+    .prepare(
+      `SELECT 1 FROM line_links ll JOIN vouchers v ON v.id = ll.to_voucher_id
+       WHERE ll.from_voucher_id = ? AND ${NOT_DELETED} ${others} LIMIT 1`
+    )
+    .get(id, ...set)
+  if (drawn) return 'linked'
+  if (now.getTime() - auditTime(created.at) > UNDO_WINDOW_MS) return 'expired'
   return null
 }
 
 /** Whether the save card may still offer Undo for these just-saved vouchers. */
-export function undoState(db: DB, voucherIds: readonly number[]): UndoState {
+export function undoState(db: DB, voucherIds: readonly number[], opts: UndoOptions = {}): UndoState {
   const lock = getLockDate(db)
+  const now = opts.now ?? new Date()
   for (const id of voucherIds) {
-    const why = blockOf(db, id, lock)
+    const why = blockOf(db, id, lock, voucherIds, now)
     if (why === 'missing') return { undoable: false, reason: 'binned' }
     if (why) return { undoable: false, reason: why }
   }
@@ -58,16 +100,19 @@ export function undoState(db: DB, voucherIds: readonly number[]): UndoState {
 }
 
 /** voucher:undoSave — bin the just-saved vouchers as one group. */
-export function undoSave(db: DB, voucherIds: readonly number[]): { groupId: number; binned: number[] } {
+export function undoSave(db: DB, voucherIds: readonly number[], opts: UndoOptions = {}): { groupId: number; binned: number[] } {
   const ids = [...new Set(voucherIds)]
   if (ids.length === 0 || ids.length > UNDO_MAX) throw new AppError('undo_nothing', 'Nothing to undo')
   const lock = getLockDate(db)
+  const now = opts.now ?? new Date()
   for (const id of ids) {
-    const why = blockOf(db, id, lock)
+    const why = blockOf(db, id, lock, ids, now)
     if (why === 'missing' || why === 'binned') throw new AppError('undo_nothing', `Voucher #${id} is already in the bin — nothing to undo`)
     if (why === 'edited') throw new AppError('undo_edited', `Voucher #${id} was changed after it was saved — edit it instead of undoing`)
     if (why === 'closing_entry') throw new AppError('undo_closing_entry', 'A year-end closing journal cannot be undone')
     if (why === 'closed_year') throw new AppError('undo_closed_year', `The year of voucher #${id} was closed after it was saved — it cannot be undone`)
+    if (why === 'linked') throw new AppError('undo_linked', `Voucher #${id} is already settled, matched to a bank line or drawn on by another document — edit it instead of undoing`)
+    if (why === 'expired') throw new AppError('undo_expired', `Voucher #${id} was saved more than 24 hours ago — undo is only offered for a day; edit or bin it instead`)
     if (why === 'locked') throw lockedError(lock!)
   }
   return db.transaction(() => {
@@ -117,18 +162,27 @@ export function restoreFromBin(db: DB, id: number): { restored: number[] } {
   })()
 }
 
-/** voucher:saveSummary — the save card's figures, computed now from the saved vouchers and the
- *  party's bill allocation (the Outstandings engine). */
+/** voucher:saveSummary — the save card's figures, computed now from the saved vouchers and
+ *  each party's bill allocation (the Outstandings engine) as on the latest saved voucher's date.
+ *  Every customer / supplier the intent touched is a party (cash and bank never are). */
 export function saveSummary(db: DB, voucherIds: readonly number[]): SaveSummary {
   const cashBank = cashBankGroupIds(db)
   const cashOnly = descendantIdsByName(db, ['Cash-in-Hand'])
   const debtors = descendantIdsByName(db, ['Sundry Debtors'])
   const creditors = descendantIdsByName(db, ['Sundry Creditors'])
-  const ledger = db.prepare('SELECT id, name, group_id AS groupId FROM ledgers WHERE id = ?')
+  const ledgerStmt = db.prepare('SELECT id, name, group_id AS groupId FROM ledgers WHERE id = ?')
+  const ledger = (id: number): { id: number; name: string; groupId: number } | undefined =>
+    ledgerStmt.get(id) as { id: number; name: string; groupId: number } | undefined
   const kindOf = db.prepare('SELECT vt.kind FROM vouchers v JOIN voucher_types vt ON vt.id = v.voucher_type_id WHERE v.id = ?')
   const entries: SaveCardEntry[] = []
-  let partyId: number | null = null
-  let latest = todayISO()
+  const partyIds: number[] = []
+  const addParty = (id: number | null): void => {
+    if (id == null || partyIds.includes(id)) return
+    const led = ledger(id)
+    if (!led || cashBank.has(led.groupId)) return
+    if (debtors.has(led.groupId) || creditors.has(led.groupId)) partyIds.push(id)
+  }
+  let asOn: string | null = null
   for (const id of voucherIds) {
     const v = getVoucher(db, id)
     if (!v || v.deletedAt) continue
@@ -137,9 +191,9 @@ export function saveSummary(db: DB, voucherIds: readonly number[]): SaveSummary 
     let moneyLine: SaveCardEntry['money'] = null
     if (kind === 'receipt' || kind === 'payment') {
       const side = kind === 'receipt' ? 'dr' : 'cr'
-      const lines = v.lines.filter((l) => l.drCr === side)
-      const cash = lines
-        .map((l) => ({ l, led: ledger.get(l.ledgerId) as { id: number; name: string; groupId: number } | undefined }))
+      const cash = v.lines
+        .filter((l) => l.drCr === side)
+        .map((l) => ({ l, led: ledger(l.ledgerId) }))
         .filter((x) => x.led && cashBank.has(x.led.groupId))
       if (cash.length) {
         moneyLine = {
@@ -150,24 +204,16 @@ export function saveSummary(db: DB, voucherIds: readonly number[]): SaveSummary 
       }
     }
     entries.push({ voucherId: id, kind, number: v.number, date: v.date, amount, money: moneyLine })
-    if (v.date > latest) latest = v.date
-    if (partyId == null) {
-      const candidate =
-        v.partyLedgerId ??
-        v.lines.map((l) => ledger.get(l.ledgerId) as { id: number; groupId: number } | undefined).find((l) => l && (debtors.has(l.groupId) || creditors.has(l.groupId)))?.id ??
-        null
-      if (candidate != null) partyId = candidate
-    }
+    if (asOn == null || v.date > asOn) asOn = v.date
+    addParty(v.partyLedgerId)
+    for (const l of v.lines) addParty(l.ledgerId)
   }
-  let party: SaveCardParty | null = null
-  if (partyId != null) {
-    const led = ledger.get(partyId) as { id: number; name: string; groupId: number } | undefined
-    const side = led && debtors.has(led.groupId) ? 'customer' : led && creditors.has(led.groupId) ? 'supplier' : null
-    if (led && side) {
-      const alloc = partyAllocation(db, led.id, latest)
-      const open = alloc.bills.reduce((s, b) => s + b.pending, 0)
-      party = { ledgerId: led.id, name: led.name, side, balance: open - alloc.unappliedCredit }
-    }
+  const parties: SaveCardParty[] = []
+  for (const id of partyIds) {
+    const led = ledger(id)!
+    const alloc = partyAllocation(db, led.id, asOn ?? todayISO())
+    const open = alloc.bills.reduce((s, b) => s + b.pending, 0)
+    parties.push({ ledgerId: led.id, name: led.name, side: debtors.has(led.groupId) ? 'customer' : 'supplier', balance: open - alloc.unappliedCredit })
   }
-  return { entries, party, undo: undoState(db, voucherIds) }
+  return { entries, parties, undo: undoState(db, voucherIds) }
 }

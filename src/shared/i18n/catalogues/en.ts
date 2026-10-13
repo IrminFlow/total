@@ -507,6 +507,8 @@ export const en = {
   'simple.saveCard.supplierAhead': 'You have paid {name} {amount} in advance.',
   'simple.saveCard.editedSince': 'This was changed after it was saved, so it can’t be undone here. Edit it instead.',
   'simple.saveCard.editInstead': 'Edit instead',
+  'simple.saveCard.linkedSince': 'Other entries already use this one, so it can’t be undone here. Edit it instead.',
+  'simple.saveCard.expired': 'Undo is only offered for a day after saving. Edit it instead.',
   'simple.saveCard.shareHint': 'The PDF is open in Finder and the message is copied. Paste both into WhatsApp or mail.',
   'simple.saveCard.pdfSaved': 'PDF saved: {path}',
 
@@ -584,6 +586,8 @@ export const en = {
   'errors.notInBin': 'This entry is not in the bin.',
   'errors.undoEdited': 'This was changed after it was saved, so it can’t be undone here. Edit it instead.',
   'errors.undoClosedYear': 'The year was closed after this was saved, so it can’t be undone. Edit it instead.',
+  'errors.undoLinked': 'Other entries already use this one — a payment against it, a bank match or a linked bill — so it can’t be undone here. Edit it instead.',
+  'errors.undoExpired': 'Undo is only offered for a day after saving. Edit it instead, or move it to the bin from the accountant view.',
   'errors.undoNothing': 'There is nothing left to undo — it is already in the bin.',
   'errors.typeMissing': 'This kind of account no longer exists. Pick another kind.',
   'errors.builtInType': 'This built-in kind of account can’t be changed or deleted.',

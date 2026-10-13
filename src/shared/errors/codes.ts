@@ -100,6 +100,8 @@ export const ERROR_MAP = {
   undo_closed_year: e('errors.undoClosedYear'),
   undo_closing_entry: e('errors.yearClosedEntry'),
   undo_nothing: e('errors.undoNothing'),
+  undo_linked: e('errors.undoLinked'),
+  undo_expired: e('errors.undoExpired'),
 
   // ---------- masters (services/masters.ts) ----------
   group_not_found: e('errors.typeMissing', 'group'),

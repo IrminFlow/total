@@ -95,13 +95,16 @@ await scenario('49-save-card-undo', async (h) => {
   assertEq(list.length, 1, 'one bill saved')
   const bill = list[0]
   const summary = await h.invoke('voucher:saveSummary', { voucherIds: [bill.id] })
-  assertEq(summary.party.ledgerId, ramesh.id, 'the card names the bill’s customer')
-  assertEq(summary.party.balance, 9000, 'what Ramesh owes comes from the outstandings')
+  assertEq(summary.parties.length, 1, 'one party on the card')
+  assertEq(summary.parties[0].ledgerId, ramesh.id, 'the card names the bill’s customer')
+  assertEq(summary.parties[0].balance, 9000, 'what Ramesh owes comes from the outstandings')
   await both('02-save-card')
 
   // ---------- Undo → the bin; the Day book no longer shows it ----------
   await h.click('btn-save-card-undo')
   await page.waitForSelector('[data-testid="save-card"][data-state="undone"]', { timeout: 10000 })
+  await h.waitIdle()
+  assertEq(await page.$('[data-testid="voucher-first-hint"]'), null, 'the "First voucher?" hint does not come back after Undo')
   await both('03-undone')
   const bin = await h.invoke('voucher:bin')
   const binned = bin.find((r) => r.id === bill.id)

@@ -121,7 +121,7 @@ describe('mapError', () => {
 })
 
 describe('save card sentences', () => {
-  const base: SaveSummary = { entries: [], party: null, undo: { undoable: true, reason: null } }
+  const base: SaveSummary = { entries: [], parties: [], undo: { undoable: true, reason: null } }
   const k = (key: MessageKey, vars?: Record<string, string | number>): string => t(key, vars)
 
   it('a bill with a payment and the balance left', () => {
@@ -132,7 +132,7 @@ describe('save card sentences', () => {
           { voucherId: 1, kind: 'sales', number: 'S1', date: '2026-10-13', amount: 118000, money: null },
           { voucherId: 2, kind: 'receipt', number: 'R1', date: '2026-10-13', amount: 50000, money: { name: 'UPI', isCash: false, amount: 50000 } }
         ],
-        party: { ledgerId: 9, name: 'Ramesh', side: 'customer', balance: 68000 }
+        parties: [{ ledgerId: 9, name: 'Ramesh', side: 'customer', balance: 68000 }]
       },
       t
     )
@@ -141,10 +141,10 @@ describe('save card sentences', () => {
 
   it('a cash purchase settled in full; a supplier paid ahead', () => {
     expect(
-      saveCardSentences({ ...base, entries: [{ voucherId: 1, kind: 'purchase', number: 'P1', date: '2026-10-13', amount: 1000, money: null }], party: { ledgerId: 3, name: 'Gupta', side: 'supplier', balance: 0 } }, t)
+      saveCardSentences({ ...base, entries: [{ voucherId: 1, kind: 'purchase', number: 'P1', date: '2026-10-13', amount: 1000, money: null }], parties: [{ ledgerId: 3, name: 'Gupta', side: 'supplier', balance: 0 }] }, t)
     ).toEqual([k('simple.saveCard.entry', { kind: 'purchase', amount: '₹10.00' }), 'You owe Gupta nothing now.'])
     expect(
-      saveCardSentences({ ...base, entries: [{ voucherId: 1, kind: 'payment', number: 'X', date: '2026-10-13', amount: 500, money: { name: 'Cash', isCash: true, amount: 500 } }], party: { ledgerId: 3, name: 'Gupta', side: 'supplier', balance: -500 } }, t)
+      saveCardSentences({ ...base, entries: [{ voucherId: 1, kind: 'payment', number: 'X', date: '2026-10-13', amount: 500, money: { name: 'Cash', isCash: true, amount: 500 } }], parties: [{ ledgerId: 3, name: 'Gupta', side: 'supplier', balance: -500 }] }, t)
     ).toEqual(['Money out ₹5.00 saved.', 'You have paid Gupta ₹5.00 in advance.'])
   })
 })

@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { api, type BinRow } from '../../lib/client'
 import { useSession, useToasts } from '../../state/stores'
-import { Button, Modal, Panel, SectionTitle, TextInput } from '../../components/ui'
+import { Badge, Button, Modal, Panel, SectionTitle, TextInput } from '../../components/ui'
 import { DataTable, defineColumns } from '../../components/table'
 import { todayISO, toDisplayDate } from '@shared/dates'
 
@@ -10,18 +10,26 @@ const BIN_COLUMNS = defineColumns<BinRow>([
   { id: 'date', header: 'Date', kind: 'date', value: (r) => r.date, className: 'text-muted', width: 104 },
   { id: 'number', header: 'No.', kind: 'text', value: (r) => r.number, className: 'num', width: 84, groupable: false },
   { id: 'type', header: 'Type', kind: 'text', value: (r) => r.voucherType, width: 84 },
-  { id: 'account', header: 'Account', kind: 'text', value: (r) => r.account, hideable: false },
-  { id: 'amount', header: 'Amount', kind: 'money', value: (r) => r.amount, width: 112 },
-  { id: 'deleted', header: 'Deleted', kind: 'date', value: (r) => r.deletedAt.slice(0, 10), className: 'text-muted', width: 106 },
-  // WP 8.5: vouchers one Undo binned together come back together.
   {
-    id: 'undoGroup',
-    header: 'Undone together',
+    id: 'account',
+    header: 'Account',
     kind: 'text',
-    value: (r) => (r.undoGroupId != null && (r.undoGroupSize ?? 0) > 1 ? `Undo #${r.undoGroupId} · ${r.undoGroupSize} entries` : ''),
-    className: 'text-muted',
-    width: 150
-  }
+    value: (r) => r.account,
+    // WP 8.5: entries one Undo binned together come back together — a badge when there are several.
+    cell: (r) => (
+      <span>
+        {r.account}
+        {r.undoGroupId != null && (r.undoGroupSize ?? 0) > 1 && (
+          <Badge tone="info" className="ml-2" testId={`bin-undo-group-${r.id}`}>
+            {`Undone with ${(r.undoGroupSize ?? 1) - 1} more`}
+          </Badge>
+        )}
+      </span>
+    ),
+    hideable: false
+  },
+  { id: 'amount', header: 'Amount', kind: 'money', value: (r) => r.amount, width: 112 },
+  { id: 'deleted', header: 'Deleted', kind: 'date', value: (r) => r.deletedAt.slice(0, 10), className: 'text-muted', width: 106 }
 ])
 
 export function BinSection(): React.JSX.Element {

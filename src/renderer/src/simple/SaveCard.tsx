@@ -100,7 +100,17 @@ export function SaveCard({
   }
 
   const undoable = data?.undo.undoable ?? false
-  const edited = data != null && !undoable && data.undo.reason === 'edited'
+  // Changed since, already used by other entries, or older than a day: "Edit instead".
+  const reason = data != null && !undoable ? data.undo.reason : null
+  const editNote =
+    reason === 'edited'
+      ? t('simple.saveCard.editedSince')
+      : reason === 'linked'
+        ? t('simple.saveCard.linkedSince')
+        : reason === 'expired'
+          ? t('simple.saveCard.expired')
+          : null
+  const edited = editNote != null
   return (
     <section
       data-testid="save-card"
@@ -113,8 +123,8 @@ export function SaveCard({
         {sentences.length ? sentences.join(' ') : t('common.saved')}
       </p>
       {edited && (
-        <p className="mt-1 text-detail text-muted" data-testid="save-card-edited">
-          {t('simple.saveCard.editedSince')}
+        <p className="mt-1 text-detail text-muted" data-testid="save-card-edited" data-reason={reason ?? undefined}>
+          {editNote}
         </p>
       )}
       <div className="mt-3 flex flex-wrap gap-2">

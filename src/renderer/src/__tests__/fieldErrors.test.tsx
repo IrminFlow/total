@@ -118,21 +118,34 @@ describe('toast lifetime', () => {
     return open ? <Dialog onClose={() => setOpen(false)} /> : <p data-testid="closed">closed</p>
   }
 
-  it('an error raised in a dialog closes with the dialog; a confirmation keeps its timer', () => {
+  it('an error raised in a dialog the user closes moves to the screen (still visible), and goes with the screen', () => {
+    act(() => useNav.setState({ stack: [{ name: 'gateway' }, { name: 'daybook' }] }))
     render(<Host />)
     fireEvent.click(screen.getByTestId('raise'))
     act(() => useToasts.getState().push('success', 'Ledger created'))
-    expect(useToasts.getState().toasts.map((x) => x.text)).toEqual(['A GSTIN has 15 characters', 'Ledger created'])
+    expect(useToasts.getState().toasts[0]!.scope?.layer).not.toBeNull()
     fireEvent.click(screen.getByTestId('modal-close'))
     expect(screen.getByTestId('closed')).toBeTruthy()
+    // Re-parented, not dismissed.
+    expect(useToasts.getState().toasts.map((x) => x.text)).toEqual(['A GSTIN has 15 characters', 'Ledger created'])
+    expect(useToasts.getState().toasts[0]!.scope?.layer).toBeNull()
+    act(() => useNav.getState().replace({ name: 'trial-balance' }))
     expect(useToasts.getState().toasts.map((x) => x.text)).toEqual(['Ledger created'])
   })
 
-  it('an error raised on a screen closes when the screen changes', () => {
+  it('a warning raised on a screen right before it navigates survives the navigation', () => {
     act(() => useNav.setState({ stack: [{ name: 'gateway' }, { name: 'daybook' }] }))
-    act(() => useToasts.getState().push('error', 'Pick the party account first'))
-    expect(useToasts.getState().toasts).toHaveLength(1)
+    act(() => useToasts.getState().push('warning', 'Credit limit exceeded for Ramesh'))
+    expect(useToasts.getState().toasts[0]!.scope).toBeUndefined()
     act(() => useNav.getState().replace({ name: 'trial-balance' }))
+    expect(useToasts.getState().toasts.map((x) => x.text)).toEqual(['Credit limit exceeded for Ramesh'])
+  })
+
+  it('the user can still dismiss an error toast', () => {
+    render(<Host />)
+    fireEvent.click(screen.getByTestId('raise'))
+    const id = useToasts.getState().toasts[0]!.id
+    act(() => useToasts.getState().dismiss(id))
     expect(useToasts.getState().toasts).toHaveLength(0)
   })
 })
@@ -143,7 +156,7 @@ describe('SaveCard', () => {
       { voucherId: 11, kind: 'sales', number: 'S/1', date: '2026-10-13', amount: 118000, money: null },
       { voucherId: 12, kind: 'receipt', number: 'R/1', date: '2026-10-13', amount: 50000, money: { name: 'UPI', isCash: false, amount: 50000 } }
     ],
-    party: { ledgerId: 5, name: 'Ramesh', side: 'customer', balance: 68000 },
+    parties: [{ ledgerId: 5, name: 'Ramesh', side: 'customer', balance: 68000 }],
     undo
   })
   const invoke = vi.fn()

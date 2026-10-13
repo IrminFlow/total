@@ -151,11 +151,12 @@ shows a number after the label.
 
 ### Toasts (WP 8.5)
 
-`useToasts().push(kind, text)` — bottom-right. An **error or warning toast belongs to the view
-that raised it**: the topmost dialog / drawer layer at the time (else the screen), and it closes
-when that view closes, so it can never outlive it. Success / info confirmations keep their short
-timer (they report a finished action — usually the one that closed the dialog). An error that has
-a field goes under the field (`useFormErrors`), not into a toast.
+`useToasts().push(kind, text)` — bottom-right. An **error or warning raised inside a dialog /
+drawer belongs to it**: when that layer closes the toast moves to the layer below (or the screen)
+— still visible — and it closes when that screen goes, so it never lingers on another screen. A
+toast raised with no dialog open (a screen's save warning just before it navigates, a background
+job) is not scoped: only its timer (or the user) ends it. Success / info confirmations are never
+scoped. An error that has a field goes under the field (`useFormErrors`), not into a toast.
 
 ### `Modal`
 
