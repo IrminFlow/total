@@ -20,8 +20,9 @@ const led = (id: number, name: string, cls: IntentLedgerClass, extra: Partial<In
   id, { id, name, cls, stateCode: null, gstRate: null, creditDays: null, ...extra }
 ]
 
-function ctx(over: Partial<IntentContext> & { regular?: boolean } = {}): IntentContext {
-  const regular = over.regular ?? true
+function ctx(all: Partial<IntentContext> & { regular?: boolean; composition?: boolean } = {}): IntentContext {
+  const { regular: reg, composition, ...over } = all
+  const regular = reg ?? true
   const ledgers = new Map<number, IntentLedger>([
     led(L.cash, 'Cash', 'cash'), led(L.bank, 'HDFC Bank', 'bank'), led(L.upiBank, 'UPI Bank', 'bank'),
     led(L.sales, 'Sales', 'income'), led(L.purchases, 'Purchases', 'expense'), led(L.rent, 'Rent', 'expense', { gstRate: 18 }),
@@ -35,7 +36,7 @@ function ctx(over: Partial<IntentContext> & { regular?: boolean } = {}): IntentC
   return {
     invoice: {
       companyStateCode: '27',
-      gstRegistrationType: regular ? 'regular' : 'unregistered',
+      gstRegistrationType: composition ? 'composition' : regular ? 'regular' : 'unregistered',
       items: new Map([[100, { gstRate: 18, cessRate: null }], [101, { gstRate: 5, cessRate: null }]]),
       ledgers: new Map([...ledgers.values()].map((l) => [l.id, { stateCode: l.stateCode, gstRate: l.gstRate }]))
     },
@@ -58,6 +59,7 @@ function ctx(over: Partial<IntentContext> & { regular?: boolean } = {}): IntentC
     prices: new Map(),
     openBills: new Map(),
     original: null,
+    takenNames: new Map(),
     ...over
   }
 }
@@ -158,6 +160,23 @@ describe('sale', () => {
     expect(u.entries[0]!.payload.lines.map((l) => [l.ledgerId, l.amount])).toEqual([[L.ramesh, 100_000], [L.sales, 100_000]])
     const ui = map({ kind: 'sale', customerId: L.ramesh, items: [{ itemId: 100, qty: '1', rate: '1000' }] }, ctx({ regular: false }))
     expect(ui.entries[0]!.payload.lines.map((l) => l.ledgerId)).toEqual([L.ramesh, L.sales])
+  })
+
+  it('a bill number the customer still has open (last year’s) gets the year added', () => {
+    const m = map({ kind: 'sale', customerId: L.ramesh, items: [{ itemId: 100, qty: '1', rate: '100' }], payment: { how: 'cash' } }, ctx({ takenNames: new Map([[L.ramesh, new Set(['S-7'])]]) }))
+    expect(m.entries[0]!.payload.billRefs[0]!.name).toBe('S-7/25-26')
+    expect(m.entries[1]!.payload.billRefs).toEqual([{ kind: 'against', name: 'S-7/25-26', amount: 11_800, dueDate: null }])
+    const twice = map({ kind: 'sale', customerId: L.ramesh, items: [{ itemId: 100, qty: '1', rate: '100' }] }, ctx({ takenNames: new Map([[L.ramesh, new Set(['S-7', 'S-7/25-26'])]]) }))
+    expect(twice.entries[0]!.payload.billRefs[0]!.name).toBe('S-7/25-26 (2)')
+  })
+
+  it('no GST for a business that does not charge it — said, not silently zeroed', () => {
+    for (const [c, type] of [[ctx({ regular: false }), 'unregistered'], [ctx({ composition: true }), 'composition']] as const) {
+      const m = map({ kind: 'sale', customerId: L.ramesh, amount: { amount: '1000', gstRate: 18 } }, c)
+      expect(m.facts.noGst).toBe(type)
+      expect(m.entries[0]!.payload.lines.map((l) => l.ledgerId)).toEqual([L.ramesh, L.sales])
+      expect(intentSentences(m.facts, t).some((x) => x.startsWith('GST is not added'))).toBe(true)
+    }
   })
 
   it('rounds to the rupee with Round Off', () => {
@@ -315,6 +334,36 @@ describe('returns', () => {
     expect(refund!.kind).toBe('payment')
     expect(refund!.payload.lines.map((l) => [l.ledgerId, l.drCr, l.amount])).toEqual([[L.ramesh, 'dr', 11_800], [L.cash, 'cr', 11_800]])
     expect(refund!.payload.billRefs).toEqual([{ kind: 'against', name: 'CN-1', amount: 11_800, dueDate: null }])
+  })
+
+  it('a part-paid bill: the pending part comes off it, the rest is a credit — refund only that rest', () => {
+    const c = ctx({ original: original({ pending: 5000 }) })
+    const m = map({ kind: 'return_sale', billId: 500, amount: { amount: '100' } }, c)
+    expect(m.entries[0]!.payload.billRefs).toEqual([
+      { kind: 'against', name: 'S-4', amount: 5000, dueDate: null },
+      { kind: 'new', name: 'CN-1', amount: 6800, dueDate: TODAY }
+    ])
+    expect(intentSentences(m.facts, t)).toEqual(['Sale return ₹118.00 from Ramesh.', 'Includes GST ₹18.00.', 'Bill S-4 goes down by ₹50.00.', 'Ramesh keeps ₹68.00 to use on a later bill.'])
+    const r = map({ kind: 'return_sale', billId: 500, amount: { amount: '100' }, refund: { how: 'upi' } }, c)
+    balanced(r)
+    expect(r.entries[1]!.payload.lines.map((l) => [l.ledgerId, l.drCr, l.amount])).toEqual([[L.ramesh, 'dr', 6800], [L.upiBank, 'cr', 6800]])
+    expect(r.entries[1]!.payload.billRefs).toEqual([{ kind: 'against', name: 'CN-1', amount: 6800, dueDate: null }])
+    // With items: the same split, in the invoice form (its bill refs mix both).
+    const items = map({ kind: 'return_sale', billId: 500, items: [{ lineUid: 'u-1', qty: '1' }] }, c)
+    expect(items.entries[0]!.form).toBe('invoice')
+    expect(items.entries[0]!.payload.billRefs.map((b) => [b.kind, b.amount])).toEqual([['against', 5000], ['new', items.facts.total - 5000]])
+  })
+
+  it("the note's own bill never reuses an open name; the refund settles the note, not the sale", () => {
+    const m = map({ kind: 'return_sale', billId: 500, amount: { amount: '100' }, refund: { how: 'cash' } }, ctx({ original: original({ pending: 0 }), takenNames: new Map([[L.ramesh, new Set(['CN-1'])]]) }))
+    expect(m.entries[0]!.payload.billRefs[0]!.name).toBe('CN-1/25-26')
+    expect(m.entries[1]!.payload.billRefs[0]!.name).toBe('CN-1/25-26')
+  })
+
+  it('rates come from the original bill: unknown (changed since) refuses an item return, asks for an amount return', () => {
+    expect(codeOf(() => map({ kind: 'return_sale', billId: 500, items: [{ lineUid: 'u-1', qty: '1' }] }, ctx({ original: original({ rates: null }) })))).toEqual({ code: 'simple_return_rate', field: 'items' })
+    expect(codeOf(() => map({ kind: 'return_sale', billId: 500, amount: { amount: '100' } }, ctx({ original: original({ rates: [5, 18] }) })))).toEqual({ code: 'simple_return_rate', field: 'amount' })
+    expect(map({ kind: 'return_sale', billId: 500, amount: { amount: '100', gstRate: 5 } }, ctx({ original: original({ rates: [5, 18] }) })).facts.tax).toBe(500)
   })
 
   it('purchase return: a debit note, goods go out, input tax reverses', () => {

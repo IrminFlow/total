@@ -141,6 +141,54 @@ describe('allocateBills — named bill refs', () => {
   })
 })
 
+describe('allocateBills — refs follow the event sign (WP 9.1 fix)', () => {
+  it("a receipt's 'new' ref is a named credit, not a bill owed", () => {
+    const events: BillEvent[] = [
+      { voucherId: 1, date: '2025-05-01', number: 'R1', amount: -1_00_000_00, refs: [{ kind: 'new', name: 'R1', amount: 1_00_000_00, dueDate: null }] }
+    ]
+    expect(allocateBills(events, '2025-06-01', null)).toEqual({ bills: [], unappliedCredit: 1_00_000_00, warnings: [] })
+  })
+
+  it("an invoice 'against' the advance uses it; the rest of the credit stays", () => {
+    const events: BillEvent[] = [
+      { voucherId: 1, date: '2025-05-01', number: 'R1', amount: -1_00_000_00, refs: [{ kind: 'new', name: 'R1', amount: 1_00_000_00, dueDate: null }] },
+      { voucherId: 2, date: '2025-05-10', number: 'S1', amount: 60_000_00, refs: [{ kind: 'against', name: 'R1', amount: 60_000_00, dueDate: null }] }
+    ]
+    expect(allocateBills(events, '2025-06-01', null)).toEqual({ bills: [], unappliedCredit: 40_000_00, warnings: [] })
+  })
+
+  it('an invoice larger than the advance it is set against owes only the difference', () => {
+    const events: BillEvent[] = [
+      { voucherId: 1, date: '2025-05-01', number: 'R1', amount: -30_000, refs: [{ kind: 'new', name: 'R1', amount: 30_000, dueDate: null }] },
+      { voucherId: 2, date: '2025-05-10', number: 'S1', amount: 50_000, refs: [{ kind: 'against', name: 'R1', amount: 50_000, dueDate: null }] }
+    ]
+    const r = allocateBills(events, '2025-06-01', null)
+    expect(r.bills.map((b) => [b.number, b.pending])).toEqual([['S1', 20_000]])
+    expect(r.unappliedCredit).toBe(0)
+  })
+
+  it("a credit note's own bill is a credit; a refund against it uses it up", () => {
+    const events: BillEvent[] = [
+      { voucherId: 1, date: '2025-05-01', number: 'S1', amount: 10_000, refs: [{ kind: 'new', name: 'S1', amount: 10_000, dueDate: null }] },
+      { voucherId: 2, date: '2025-05-02', number: 'RC1', amount: -10_000, refs: [{ kind: 'against', name: 'S1', amount: 10_000, dueDate: null }] },
+      { voucherId: 3, date: '2025-05-05', number: 'CN1', amount: -2_000, refs: [{ kind: 'new', name: 'CN1', amount: 2_000, dueDate: null }] }
+    ]
+    expect(allocateBills(events, '2025-06-01', null)).toEqual({ bills: [], unappliedCredit: 2_000, warnings: [] })
+    events.push({ voucherId: 4, date: '2025-05-06', number: 'PY1', amount: 2_000, refs: [{ kind: 'against', name: 'CN1', amount: 2_000, dueDate: null }] })
+    expect(allocateBills(events, '2025-06-01', null)).toEqual({ bills: [], unappliedCredit: 0, warnings: [] })
+  })
+
+  it('a named credit does not net off a refless bill (that path is unchanged)', () => {
+    const events: BillEvent[] = [
+      { voucherId: 1, date: '2025-05-01', number: 'R1', amount: -5_000, refs: [{ kind: 'new', name: 'R1', amount: 5_000, dueDate: null }] },
+      { voucherId: 2, date: '2025-05-02', number: 'INV-1', amount: 8_000, refs: [] }
+    ]
+    const r = allocateBills(events, '2025-06-01', null)
+    expect(r.bills.map((b) => [b.number, b.pending])).toEqual([['INV-1', 8_000]])
+    expect(r.unappliedCredit).toBe(5_000)
+  })
+})
+
 describe('allocateBills — due dates', () => {
   it('explicit ref due date wins over party credit days', () => {
     const events: BillEvent[] = [

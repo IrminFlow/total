@@ -835,6 +835,7 @@ export const en = {
   'simple.intent.refunded': '{amount} paid back {how, select, cash {in cash} upi {by UPI} card {by card} other {from the bank}}.',
   'simple.intent.refundIn': '{amount} received back {how, select, cash {in cash} upi {by UPI} card {by card} other {in the bank}}.',
   'simple.intent.creditKept': '{name} keeps {amount} to use on a later bill.',
+  'simple.intent.noGst': 'GST is not added: {type, select, composition {the business is under the composition scheme, so its bills carry no GST} other {the business is not registered for GST}}.',
   'simple.intent.creditHeld': '{name} owes you {amount} back, kept for a later bill.',
   // WP 9.2 — Sell: Make a bill, the sales list, Quick bill.
   'simple.sell.title.tax': 'Tax invoice',
@@ -1124,10 +1125,14 @@ export const en = {
   'errors.intent.returnRate': 'The bill has more than one GST rate. Say the rate of what is coming back.',
   'errors.intent.refundNotDue': 'Bill {bill} is not paid yet, so the return comes off it — there is nothing to refund.',
   'errors.intent.refundNotDuePlain': 'The bill is not paid yet, so the return comes off it — there is nothing to refund.',
+  'errors.intent.beforeBooks': 'Your books begin on {date}. Pick that day or a later one.',
+  'errors.intent.beforeBooksPlain': 'That date is before your books begin. Pick a later day.',
+  'errors.intent.farFuture': 'That date is more than a month ahead. Check the date.',
+  'errors.intent.saveRefused': 'This can’t be saved as it is. Open it in the full app to see why.',
   'errors.intent.yearClosed': 'That year is closed. Pick a date in an open year.',
   'errors.intent.duplicateBill': 'This supplier’s bill is already recorded (entry {number}). Open that one instead.',
   'errors.intent.duplicateBillPlain': 'This supplier’s bill is already recorded. Open that one instead.',
-  'errors.intent.clientReused': 'Something went wrong saving this. Start again.',
+  'errors.intent.clientReused': 'This was already saved with different details. Start a new entry.',
   'errors.openings.noCash': 'Total can’t find your cash account. Open Settings → Advanced to check your accounts.',
 
   // ---------- command palette (shared chrome; wording unchanged from 0.10) ----------

@@ -1,6 +1,6 @@
 import type { DB } from '../db/connection'
 import type { OutstandingBill, OutstandingParty, RegisterMonthRow } from '@shared/reports'
-import { allocateBills, type AllocateBillsResult, type BillEvent, type BillRef } from '@shared/outstanding'
+import { allocateBills, allocateBillsWithCredits, type AllocateBillsResult, type BillEvent, type BillRef } from '@shared/outstanding'
 import { fyOf } from '@shared/dates'
 import { descendantIdsByName } from './masters'
 import { IN_BOOKS } from './vouchers'
@@ -264,15 +264,21 @@ export function openBills(db: DB, partyLedgerId: number, asOn: string): Outstand
 /** One party's full bill allocation as of `asOn` (open bills + unapplied credit + warnings) —
  *  the same engine run as `outstandings` / `openBills` (WP 4.2 statements read the advance). */
 export function partyAllocation(db: DB, partyLedgerId: number, asOn: string): AllocateBillsResult {
+  const { credits: _credits, ...result } = partyAllocationWithCredits(db, partyLedgerId, asOn)
+  return result
+}
+
+/** partyAllocation plus the party's named credits still open (WP 9.1: bill names in use). */
+export function partyAllocationWithCredits(db: DB, partyLedgerId: number, asOn: string): AllocateBillsResult & { credits: { name: string; amount: number }[] } {
   const ledger = db.prepare('SELECT group_id, opening_balance, credit_days FROM ledgers WHERE id = ?').get(partyLedgerId) as
     | { group_id: number; opening_balance: number; credit_days: number | null }
     | undefined
-  if (!ledger) return { bills: [], unappliedCredit: 0, warnings: [] }
+  if (!ledger) return { bills: [], unappliedCredit: 0, warnings: [], credits: [] }
   const debtorIds = descendantIdsByName(db, ['Sundry Debtors'])
   const sign = debtorIds.has(ledger.group_id) ? 1 : -1
   const eventsByParty = partyEventsBatch(db, [partyLedgerId], asOn, sign)
   const events = [...openingEvents(asOn, ledger.opening_balance, sign, openingBillsByParty(db, [partyLedgerId]).get(partyLedgerId), ledger.credit_days), ...(eventsByParty.get(partyLedgerId) ?? [])]
-  return allocateBills(events, asOn, ledger.credit_days)
+  return allocateBillsWithCredits(events, asOn, ledger.credit_days)
 }
 
 /** A party's bill events (opening balance first, then its in-books vouchers to `asOn`) in the

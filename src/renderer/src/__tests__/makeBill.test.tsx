@@ -46,7 +46,7 @@ const info = (gstRegistrationType: CompanyInfo['gstRegistrationType']): CompanyI
   address: '', booksFrom: 2026, email: null, phone: null, pan: null, tan: null
 })
 const FACTS: IntentFacts = {
-  kind: 'sale', partyName: 'Ramesh', total: 118_000, tax: 0, paid: 50_000, how: 'upi', moneyAccount: 'HDFC Bank', due: 68_000, settled: [], advance: 0, fromName: null, toName: null, againstBill: null, walkIn: false, dueDate: '2026-11-20'
+  kind: 'sale', partyName: 'Ramesh', total: 118_000, tax: 0, paid: 50_000, how: 'upi', moneyAccount: 'HDFC Bank', due: 68_000, settled: [], advance: 0, fromName: null, toName: null, againstBill: null, offBill: 0, credit: 0, balance: 68_000, noGst: null, side: 'customer', walkIn: false, dueDate: '2026-11-20'
 }
 
 let features = { ...DEFAULT_FEATURES }

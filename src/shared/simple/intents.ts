@@ -19,9 +19,9 @@ import type { SaveVoucherWarnings, VoucherBillRef, VoucherKind } from '../domain
 import type { SaveSummary } from './saveCard'
 import type { Translate } from '../i18n'
 import { formatPaise, parseAmountText, roundToRupee } from '../money'
-import { addDaysISO, isValidISODate, resolveDateText } from '../dates'
+import { addDaysISO, fyOf, isValidISODate, resolveDateText } from '../dates'
 import { addBreakups, computeGst, supplyTypeFor, type GstBreakup } from '../gst/calc'
-import { chargesGstOn } from '../gst/registration'
+import { chargesGstOn, registrationOn } from '../gst/registration'
 import { AppError } from '../errors/appError'
 import type { ErrorCode } from '../errors/codes'
 import { nonClaimableCosts, rateForCost } from '../capture/nonClaimable'
@@ -362,8 +362,10 @@ export interface IntentOriginal {
   pending: number
   /** It posts GST (s.34: a note against it follows it). */
   carriesGst: boolean
-  /** Distinct GST rates of its lines (item masters; the account's rate for a ledger-line bill). */
-  rates: number[]
+  /** The GST rates of its lines as the bill posted them: the item rates when they still give the
+   *  bill's tax (one per line, distinct), the bill's own rate for a ledger-line bill; null = they
+   *  can't be told from the bill (a rate changed since) — a return then asks / refuses. */
+  rates: number[] | null
   lines: { lineUid: string; itemId: number; qtyMilli: number; ratePaise: number; discountPaise: number; godownId: number | null; batchId: number | null; leftMilli: number }[]
 }
 
@@ -392,6 +394,9 @@ export interface IntentContext {
   /** The party's open bills, oldest first (the Outstandings allocation). */
   openBills: ReadonlyMap<number, readonly IntentOpenBill[]>
   original: IntentOriginal | null
+  /** Per party: names of its bills and credits still open (a new bill must not reuse one —
+   *  a settlement by name applies to the OLDEST open bill of that name). */
+  takenNames: ReadonlyMap<number, ReadonlySet<string>>
 }
 
 /** Thrown when an entry needs GST / round-off ledgers that don't exist yet: main creates them
@@ -432,7 +437,17 @@ export interface IntentFacts {
   toName: string | null
   /** Return set against the original bill (its bill name). */
   againstBill: string | null
+  /** Returns: the part taken off the original bill, and the credit the note created. */
+  offBill: number
+  credit: number
   walkIn: boolean
+  /** The party's position AFTER the save (Outstandings allocation: open bills − credit; > 0 owes /
+   *  you owe, < 0 paid ahead) — filled by main from the saved books; null = not known. */
+  balance: number | null
+  /** A GST rate was asked for but the company doesn't charge GST on that date (WP 8.0). */
+  noGst: 'composition' | 'unregistered' | null
+  /** Which side the party is on (null = no customer / supplier: walk-in aside, a source or payee). */
+  side: 'customer' | 'supplier' | null
   /** WP 9.2: when what stays open on a sale / purchase bill falls due (bill date + the party's
    *  credit days, or the date given); absent when nothing stays open. */
   dueDate?: string | null
@@ -544,8 +559,19 @@ function ledgerLines(
 }
 
 const emptyFacts = (kind: SimpleIntentKind): IntentFacts => ({
-  kind, partyName: null, total: 0, tax: 0, paid: 0, how: null, moneyAccount: null, due: 0, settled: [], advance: 0, fromName: null, toName: null, againstBill: null, walkIn: false
+  kind, partyName: null, total: 0, tax: 0, paid: 0, how: null, moneyAccount: null, due: 0, settled: [], advance: 0, fromName: null, toName: null, againstBill: null,
+  offBill: 0, credit: 0, walkIn: false, balance: null, noGst: null, side: null
 })
+
+/** `base`, or — when the party already has an open bill / credit of that name — the name with the
+ *  financial year ("1/25-26"), then a counter. Numbering restarts each year and per series, and a
+ *  settlement by name applies to the OLDEST open bill of that name. */
+export function uniqueName(base: string, taken: ReadonlySet<string> | undefined, date: string): string {
+  if (!taken || !taken.has(base)) return base
+  const fy = `${base}/${fyOf(date).label.slice(2)}`
+  if (!taken.has(fy)) return fy
+  for (let i = 2; ; i++) if (!taken.has(`${fy} (${i})`)) return `${fy} (${i})`
+}
 
 // ---------------------------------------------------------------- sale / purchase
 
@@ -558,13 +584,13 @@ function mapTrade(n: Extract<NormalIntent, { kind: 'sale' | 'purchase' }>, ctx: 
   const { type, number } = typeOf(ctx, kind, n.number, 'number')
   const date = n.date
   const billNo = n.kind === 'purchase' ? n.billNo : null
-  const billName = billNo ?? number
+  const billName = uniqueName(billNo ?? number, ctx.takenNames.get(party.id), date)
   const due = n.dueDate ?? addDaysISO(date, party.creditDays ?? 0)
   const accountClasses: IntentLedgerClass[] = sale ? ['income'] : ['expense']
   const defaultAccount = sale ? ctx.defaults.salesId : ctx.defaults.purchaseId
   const charges = chargesGstOn(ctx.invoice, date)
   const gstOnBill = n.kind === 'purchase' ? n.gstOnBill : true
-  const facts: IntentFacts = { ...emptyFacts(n.kind), partyName: party.name, walkIn }
+  const facts: IntentFacts = { ...emptyFacts(n.kind), partyName: party.name, walkIn, side: sale ? 'customer' : 'supplier' }
 
   let bill: MappedEntry
   let total: number
@@ -611,6 +637,7 @@ function mapTrade(n: Extract<NormalIntent, { kind: 'sale' | 'purchase' }>, ctx: 
     const account = ledgerOf(ctx, a.accountId ?? n.accountId ?? defaultAccount, accountClasses, 'simple_wrong_account', 'account', sale ? 'income account' : 'expense account')
     let taxable = a.amount
     let rate = charges && gstOnBill ? (a.gstRate ?? account.gstRate ?? 0) : 0
+    if (sale && !charges && a.gstRate != null && a.gstRate > 0) facts.noGst = registrationOn(ctx.invoice, date) === 'composition' ? 'composition' : 'unregistered'
     if (!sale && !charges && gstOnBill) {
       const rateBp = Math.round((a.gstRate ?? account.gstRate ?? 0) * 100)
       if (rateBp > 0) taxable = nonClaimableCosts([{ taxable, rateBp, printedTax: null }], null)[0]!.cost
@@ -722,11 +749,12 @@ function mapMoney(n: Extract<NormalIntent, { kind: 'money_in' | 'money_out' }>, 
   let billRefs: VoucherBillRef[] = []
   if (partyId != null) {
     other = ledgerOf(ctx, partyId, [into ? 'debtor' : 'creditor'], 'simple_no_party', 'party', into ? 'customer' : 'supplier')
-    const alloc = allocateToBills(ctx.openBills.get(other.id) ?? [], n.amount, n.bills, n.advance, number)
+    const alloc = allocateToBills(ctx.openBills.get(other.id) ?? [], n.amount, n.bills, n.advance, uniqueName(number, ctx.takenNames.get(other.id), n.date))
     billRefs = alloc.refs
     facts.settled = alloc.settled
     facts.advance = alloc.advance
     facts.partyName = other.name
+    facts.side = into ? 'customer' : 'supplier'
   } else {
     const otherId = into ? (n as Extract<NormalIntent, { kind: 'money_in' }>).sourceId : (n as Extract<NormalIntent, { kind: 'money_out' }>).drawings ? ctx.defaults.drawingsId : (n as Extract<NormalIntent, { kind: 'money_out' }>).payeeId
     if (otherId == null) return fail('simple_wrong_account', 'There is no Owner’s drawings account — pick the account', 'party')
@@ -773,16 +801,28 @@ function mapReturn(n: Extract<NormalIntent, { kind: 'return_sale' | 'return_purc
   const account = ledgerOf(ctx, accountId, sale ? ['income'] : ['expense'], 'simple_wrong_account', 'bill', sale ? 'sales account' : 'purchase account')
   // WP 8.0 / s.34: a note against a bill of a GST-charging period (or one that carries tax) keeps its GST.
   const taxedOriginal = !chargesGstOn(ctx.invoice, date) && (chargesGstOn(ctx.invoice, o.date) || o.carriesGst)
-  const facts: IntentFacts = { ...emptyFacts(n.kind), partyName: party.name }
+  const facts: IntentFacts = { ...emptyFacts(n.kind), partyName: party.name, side: sale ? 'customer' : 'supplier' }
 
   let note: MappedEntry
   let total: number
-  // The note settles the original bill while that much is pending on it; otherwise it is its own
-  // (credit) bill — the same rule as WP 5.3 drafting.
-  const settle = (t: number): { against: boolean; refs: VoucherBillRef[] } =>
-    o.pending >= t ? { against: true, refs: [{ kind: 'against', name: o.billName, amount: t, dueDate: null }] } : { against: false, refs: [{ kind: 'new', name: number, amount: t, dueDate: date }] }
-  let against: boolean
+  // The note takes what is still pending off the original bill; anything beyond that is its own
+  // bill — a CREDIT for the party (a 'new' ref on a settling entry, shared/outstanding.ts), named
+  // so it can't be mistaken for another open bill. A note entirely within the pending amount is
+  // set against the bill alone; one on a fully paid bill is a credit alone.
+  const noteBill = uniqueName(number, ctx.takenNames.get(party.id), date)
+  const settle = (t: number): { refs: VoucherBillRef[]; credit: number } => {
+    const off = Math.min(Math.max(o.pending, 0), t)
+    const refs: VoucherBillRef[] = []
+    if (off > 0) refs.push({ kind: 'against', name: o.billName, amount: off, dueDate: null })
+    if (t - off > 0) refs.push({ kind: 'new', name: noteBill, amount: t - off, dueDate: date })
+    return { refs, credit: t - off }
+  }
+  const charges = chargesGstOn(ctx.invoice, date) || taxedOriginal
+  let settled: { refs: VoucherBillRef[]; credit: number }
   if (n.items) {
+    // Rates come from the ORIGINAL bill: main checks that the item rates still give the tax the
+    // bill posted (o.rates null = they don't — a rate changed since, or a mixed bill).
+    if (charges && o.carriesGst && o.rates == null) return fail('simple_return_rate', 'The GST rates changed since this bill — enter the return in the full editor', 'items')
     const taken = new Map<string, number>()
     const rows: InvoiceRowState[] = n.items.map((r, i) => {
       const line = o.lines.find((l) => l.lineUid === r.lineUid)
@@ -802,51 +842,56 @@ function mapReturn(n: Extract<NormalIntent, { kind: 'return_sale' | 'return_purc
       ...(taxedOriginal ? { taxedOriginal: true } : {})
     }
     const probe = computeInvoice(state, { ...ctx.invoice, kind })
-    const s = settle(probe.rounded)
-    against = s.against
-    const final: InvoiceFormState = s.against ? { ...state, noteBillRefs: s.refs } : { ...state, manualNewBillMode: true, billName: number, billDueDate: date }
+    settled = settle(probe.rounded)
+    const only = settled.refs.length === 1 ? settled.refs[0]! : null
+    const final: InvoiceFormState =
+      only && only.kind === 'new' ? { ...state, manualNewBillMode: true, billName: noteBill, billDueDate: date } : { ...state, noteBillRefs: settled.refs }
     const built = invoiceEntry(ctx, 'note', kind, type, final, 'items')
     note = built.entry
     total = built.total
     facts.tax = built.tax
   } else {
     const a = n.amount!
-    const charges = chargesGstOn(ctx.invoice, date) || taxedOriginal
     let rate = a.gstRate
-    if (rate == null) {
-      if (o.rates.length > 1) return fail('simple_return_rate', 'The bill has more than one GST rate — say the rate of what is returned', 'amount')
-      rate = o.rates[0] ?? 0
+    if (rate == null && charges && o.carriesGst) {
+      if (o.rates == null || o.rates.length !== 1) return fail('simple_return_rate', 'The bill has more than one GST rate — say the rate of what is returned', 'amount')
+      rate = o.rates[0]!
     }
-    const lines = ledgerLines(ctx, kind as 'credit_note' | 'debit_note', party, account.id, a.amount, charges ? rate : 0)
+    const lines = ledgerLines(ctx, kind as 'credit_note' | 'debit_note', party, account.id, a.amount, charges ? (rate ?? 0) : 0)
     total = lines.total
     facts.tax = lines.gst.total - lines.gst.taxable
-    const s = settle(total)
-    against = s.against
-    note = accountingEntry(ctx, 'note', kind, type, { date, number, rows: lines.rows, narration: n.narration, billRefs: s.refs })
+    settled = settle(total)
+    note = accountingEntry(ctx, 'note', kind, type, { date, number, rows: lines.rows, narration: n.narration, billRefs: settled.refs })
   }
   facts.total = total
+  facts.credit = settled.credit
+  const offBill = settled.refs.find((r) => r.kind === 'against')
+  if (offBill) {
+    facts.againstBill = o.billName
+    facts.offBill = offBill.amount
+  }
   const entries = [note]
-  if (against) facts.againstBill = o.billName
   if (n.refund) {
-    if (against) fail('simple_refund_not_due', `The return comes off bill ${o.billName}, which is not paid yet — nothing to refund`, 'refund', { bill: o.billName })
+    // Only the credit the note created can be paid back — never more.
+    if (settled.credit <= 0) fail('simple_refund_not_due', `The return comes off bill ${o.billName}, which is not paid yet — nothing to refund`, 'refund', { bill: o.billName })
     const acct = moneyAccount(ctx, n.refund.how, n.refund.accountId, 'refund')
     const payKind: VoucherKind = sale ? 'payment' : 'receipt'
     const { type: payType, number: payNumber } = typeOf(ctx, payKind, null, 'refund')
+    const back = settled.credit
     entries.push(
       accountingEntry(ctx, 'refund', payKind, payType, {
         date,
         number: payNumber,
-        rows: sale ? [row('dr', party.id, total), row('cr', acct.id, total)] : [row('dr', acct.id, total), row('cr', party.id, total)],
+        rows: sale ? [row('dr', party.id, back), row('cr', acct.id, back)] : [row('dr', acct.id, back), row('cr', party.id, back)],
         narration: n.narration,
         instrumentNo: n.refund.reference ?? '',
-        billRefs: [{ kind: 'against', name: number, amount: total, dueDate: null }]
+        // The NOTE's own bill (its credit), by its unique name.
+        billRefs: [{ kind: 'against', name: noteBill, amount: back, dueDate: null }]
       })
     )
-    facts.paid = total
+    facts.paid = back
     facts.how = n.refund.how
     facts.moneyAccount = acct.name
-  } else if (!against) {
-    facts.due = total
   }
   return { entries, facts }
 }
@@ -874,34 +919,39 @@ export function mapIntent(n: NormalIntent, ctx: IntentContext): MappedIntent {
 
 // ---------------------------------------------------------------- plain words
 
-/** What will be recorded, in plain sentences (t() + money.ts; never a model). */
+/** What will be recorded, in plain sentences (t() + money.ts; never a model). Where the party
+ *  stands comes from `balance` (the allocation after the save) when main filled it in. */
 export function intentSentences(f: IntentFacts, t: Translate): string[] {
   const m = (p: number): string => formatPaise(p, { symbol: true })
   const out: string[] = []
   const name = f.partyName ?? ''
   const how = f.how ?? 'cash'
+  const position = (fallback: () => void): void => {
+    if (f.balance == null || !f.side || f.walkIn) return fallback()
+    const vars = { name, amount: m(Math.abs(f.balance)) }
+    if (f.side === 'customer') out.push(t(f.balance > 0 ? 'simple.saveCard.customerOwes' : f.balance < 0 ? 'simple.saveCard.customerAhead' : 'simple.saveCard.customerSettled', vars))
+    else out.push(t(f.balance > 0 ? 'simple.saveCard.supplierOwed' : f.balance < 0 ? 'simple.saveCard.supplierAhead' : 'simple.saveCard.supplierSettled', vars))
+  }
   switch (f.kind) {
     case 'sale':
       out.push(t(f.walkIn ? 'simple.intent.saleWalkIn' : 'simple.intent.sale', { amount: m(f.total), name }))
       if (f.tax > 0) out.push(t('simple.intent.tax', { amount: m(f.tax) }))
+      if (f.noGst) out.push(t('simple.intent.noGst', { type: f.noGst }))
       if (f.paid > 0) out.push(t('simple.intent.received', { amount: m(f.paid), how }))
-      if (f.due > 0) out.push(t('simple.intent.dueFrom', { amount: m(f.due), name }))
+      position(() => { if (f.due > 0) out.push(t('simple.intent.dueFrom', { amount: m(f.due), name })) })
       break
     case 'purchase':
       out.push(t('simple.intent.purchase', { amount: m(f.total), name }))
       if (f.tax > 0) out.push(t('simple.intent.tax', { amount: m(f.tax) }))
       if (f.paid > 0) out.push(t('simple.intent.paid', { amount: m(f.paid), how }))
-      if (f.due > 0) out.push(t('simple.intent.dueTo', { amount: m(f.due), name }))
+      position(() => { if (f.due > 0) out.push(t('simple.intent.dueTo', { amount: m(f.due), name })) })
       break
     case 'money_in':
-      out.push(t('simple.intent.moneyIn', { amount: m(f.total), name, account: f.moneyAccount ?? '' }))
-      for (const s of f.settled) out.push(t('simple.intent.settles', { bill: s.name, amount: m(s.amount) }))
-      if (f.advance > 0) out.push(t('simple.intent.advance', { amount: m(f.advance) }))
-      break
     case 'money_out':
-      out.push(t('simple.intent.moneyOut', { amount: m(f.total), name, account: f.moneyAccount ?? '' }))
+      out.push(t(f.kind === 'money_in' ? 'simple.intent.moneyIn' : 'simple.intent.moneyOut', { amount: m(f.total), name, account: f.moneyAccount ?? '' }))
       for (const s of f.settled) out.push(t('simple.intent.settles', { bill: s.name, amount: m(s.amount) }))
       if (f.advance > 0) out.push(t('simple.intent.advance', { amount: m(f.advance) }))
+      position(() => undefined)
       break
     case 'move_money':
       out.push(t('simple.intent.move', { amount: m(f.total), from: f.fromName ?? '', to: f.toName ?? '' }))
@@ -910,9 +960,12 @@ export function intentSentences(f: IntentFacts, t: Translate): string[] {
     case 'return_purchase':
       out.push(t(f.kind === 'return_sale' ? 'simple.intent.returnSale' : 'simple.intent.returnPurchase', { amount: m(f.total), name }))
       if (f.tax > 0) out.push(t('simple.intent.tax', { amount: m(f.tax) }))
-      if (f.againstBill) out.push(t('simple.intent.offBill', { bill: f.againstBill, amount: m(f.total) }))
-      else if (f.paid > 0) out.push(t(f.kind === 'return_sale' ? 'simple.intent.refunded' : 'simple.intent.refundIn', { amount: m(f.paid), how }))
-      else out.push(t(f.kind === 'return_sale' ? 'simple.intent.creditKept' : 'simple.intent.creditHeld', { amount: m(f.total), name }))
+      if (f.againstBill && f.offBill > 0) out.push(t('simple.intent.offBill', { bill: f.againstBill, amount: m(f.offBill) }))
+      if (f.credit > 0) {
+        if (f.paid > 0) out.push(t(f.kind === 'return_sale' ? 'simple.intent.refunded' : 'simple.intent.refundIn', { amount: m(f.paid), how }))
+        else out.push(t(f.kind === 'return_sale' ? 'simple.intent.creditKept' : 'simple.intent.creditHeld', { amount: m(f.credit), name }))
+      }
+      position(() => undefined)
       break
   }
   return out

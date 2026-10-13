@@ -3430,6 +3430,7 @@ export const MIGRATIONS: string[] = [
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     client_id TEXT NOT NULL UNIQUE,
     kind TEXT NOT NULL,
+    intent_hash TEXT NOT NULL,
     voucher_ids_json TEXT NOT NULL,
     facts_json TEXT NOT NULL,
     created_at TEXT NOT NULL DEFAULT (datetime('now'))

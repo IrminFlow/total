@@ -89,10 +89,11 @@ export function useSimplePost(): SimplePostState & {
     [today]
   )
 
+  // A post still running is never forgotten: a second post() after reset() gets that same
+  // request (it may have saved) — the next intent's id is used once it has settled.
   const reset = useCallback(() => {
-    clientId.current = newClientId()
-    inFlight.current = null
-    setState({ ...IDLE })
+    if (!inFlight.current) clientId.current = newClientId()
+    setState((s) => (inFlight.current ? s : { ...IDLE }))
   }, [])
 
   return { ...state, clientId: clientId.current, preview, post, reset }

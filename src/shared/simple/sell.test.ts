@@ -52,6 +52,7 @@ function intentCtx(c: SellContext): IntentContext {
     defaults: { walkInId: 12, cashId: 30, upiId: 31, cardId: 31, bankId: 31, salesId: 20, purchaseId: null, drawingsId: null },
     prices: new Map(),
     openBills: new Map(),
+    takenNames: new Map(),
     original: null
   }
 }
@@ -166,7 +167,7 @@ describe('the form checks before asking main', () => {
 
 describe('plain words', () => {
   const facts = (p: Partial<IntentFacts>): IntentFacts => ({
-    kind: 'sale', partyName: 'Ramesh', total: 118_000, tax: 18_000, paid: 0, how: null, moneyAccount: null, due: 0, settled: [], advance: 0, fromName: null, toName: null, againstBill: null, walkIn: false, ...p
+    kind: 'sale', partyName: 'Ramesh', total: 118_000, tax: 18_000, paid: 0, how: null, moneyAccount: null, due: 0, settled: [], advance: 0, fromName: null, toName: null, againstBill: null, offBill: 0, credit: 0, balance: null, noGst: null, side: 'customer', walkIn: false, ...p
   })
   it('the preview line', () => {
     expect(salePreviewLine(facts({ paid: 50_000, how: 'upi', due: 68_000, dueDate: '2026-11-20' }), t)).toBe('Bill ₹1,180.00 to Ramesh. ₹500.00 by UPI now, ₹680.00 due by 20 Nov 2026.')
