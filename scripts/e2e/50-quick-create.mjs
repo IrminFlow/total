@@ -56,6 +56,9 @@ await scenario('50-quick-create', async (h) => {
   await theme('light')
   await h.click('simple-nav-sell')
   await h.click('simple-entry-make-bill')
+  // WP 9.2: Make a bill is the simple flow; its Accountant view is the sales editor this scenario drives.
+  await h.waitScreen('simple-sell')
+  await h.click('btn-sell-accountant-view')
   await h.waitScreen('voucher-entry')
   await page.waitForSelector('[data-testid="rows-invoice-lines"]', { timeout: 10000 })
 
@@ -157,6 +160,9 @@ await scenario('50-quick-create', async (h) => {
   })
   await h.click('simple-nav-sell')
   await h.click('simple-entry-make-bill')
+  // WP 9.2: Make a bill is the simple flow; its Accountant view is the sales editor this scenario drives.
+  await h.waitScreen('simple-sell')
+  await h.click('btn-sell-accountant-view')
   await h.waitScreen('voucher-entry')
   await page.waitForSelector('[data-testid="rows-invoice-lines"]', { timeout: 10000 })
   const nb = await typeIn('picker-item', 'Notebook A5')

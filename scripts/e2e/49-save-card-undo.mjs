@@ -54,6 +54,9 @@ await scenario('49-save-card-undo', async (h) => {
   // ---------- Sell → Make a bill ----------
   await h.click('simple-nav-sell')
   await h.click('simple-entry-make-bill')
+  // WP 9.2: Make a bill is the simple flow; its Accountant view is the sales editor this scenario drives.
+  await h.waitScreen('simple-sell')
+  await h.click('btn-sell-accountant-view')
   await h.waitScreen('voucher-entry')
   await page.waitForSelector('[data-testid="rows-invoice-lines"]', { timeout: 10000 })
 
