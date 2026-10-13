@@ -11,8 +11,8 @@ import { trialBalance } from '../services/reports'
 const M_CAPTURE = MIGRATIONS.findIndex((sql) => sql.includes('CREATE TABLE capture_items'))
 
 describe('capture migration — capture_items and the capture draft source', () => {
-  it('is the last migration and a table rebuild (foreign keys off)', () => {
-    expect(M_CAPTURE).toBe(MIGRATIONS.length - 1)
+  it('comes before WP 8.3 simple_category and is a table rebuild (foreign keys off)', () => {
+    expect(M_CAPTURE).toBe(MIGRATIONS.findIndex((sql) => sql.includes('simple_category')) - 1)
     expect(MIGRATIONS[M_CAPTURE]!.startsWith('-- @foreign-keys-off')).toBe(true)
   })
 

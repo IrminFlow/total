@@ -24,6 +24,10 @@ export interface CompanyFeatures {
   /** Orders & challans (WP 2.5): delivery challans, goods receipt notes and their pending
    *  reports in the sidebar. Needs inventory. Off by default (design §9 Q14). */
   orders: boolean
+  /** WP 8.3: manufacturing (made goods) screens. ABSENT = follows inventory (every company before
+   *  WP 8.3, and DEFAULT_FEATURES, which does not carry it); the setup wizard writes it explicitly
+   *  (on only for a manufacturer that keeps stock). Read it through `effectiveFeatures`. */
+  manufacturing?: boolean
 }
 
 export const DEFAULT_FEATURES: CompanyFeatures = {
@@ -51,7 +55,8 @@ export const featuresSchema = z.object({
   preventNegativeStock: z.boolean(),
   batches: z.boolean(),
   enforceCreditLimit: z.boolean(),
-  orders: z.boolean()
+  orders: z.boolean(),
+  manufacturing: z.boolean().optional()
 })
 
 /**
@@ -64,4 +69,10 @@ export function mergeFeatures(partial: unknown): CompanyFeatures {
   const merged = { ...DEFAULT_FEATURES, ...obj }
   const parsed = featuresSchema.safeParse(merged)
   return parsed.success ? parsed.data : { ...DEFAULT_FEATURES }
+}
+
+/** The flags screens gate on: `manufacturing` resolved (absent = on, and never without
+ *  inventory). Use this — not the stored object — wherever a screen or entry is shown or hidden. */
+export function effectiveFeatures(f: CompanyFeatures): CompanyFeatures & { manufacturing: boolean } {
+  return { ...f, manufacturing: f.inventory && f.manufacturing !== false }
 }

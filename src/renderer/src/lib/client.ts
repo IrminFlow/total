@@ -627,6 +627,8 @@ export interface PdcRow {
   amount: number
 }
 
+import type { SimpleSetupInput } from '@shared/simple/setup'
+import type { GstProfile } from '@shared/gst/filing'
 export async function call<T>(channel: string, payload?: unknown): Promise<T> {
   const result = await window.total.invoke(channel, payload)
   if (!result.ok) throw new Error(result.error ?? 'Unknown error')
@@ -639,11 +641,21 @@ export const api = {
     get: () => call<UiSettings>('ui:get'),
     set: (patch: UiPatch) => call<UiSettings>('ui:mode:set', patch)
   },
+  /** WP 8.3: the plain-language setup wizard (a company from a business preset). */
+  setup: {
+    create: (input: SimpleSetupInput) => call<{ slug: string }>('simple:setup', input)
+  },
+  /** WP 8.3: GSTR-1 filing frequency (meta `gstProfile`; missing = monthly). `set` is owner-only. */
+  gstProfile: {
+    get: () => call<GstProfile>('gstProfile:get'),
+    set: (p: GstProfile) => call<GstProfile>('gstProfile:set', p)
+  },
   company: {
     list: () => call<Registry>('company:list'),
     /** WP 8.1: `mode` omitted = accountant (no `ui` meta written). */
     create: (input: CompanyCreateInput & { mode?: UiMode }) => call<{ slug: string }>('company:create', input),
-    createDemo: () => call<{ slug: string }>('company:createDemo'),
+    /** WP 8.3: `mode` 'simple' = the setup wizard's "Try with sample data"; omitted = accountant. */
+    createDemo: (mode?: UiMode) => call<{ slug: string }>('company:createDemo', mode ? { mode } : undefined),
     remove: (slug: string, confirmName: string, pin?: string) =>
       call<null>('company:delete', { slug, confirmName, pin }),
     open: (slug: string) =>

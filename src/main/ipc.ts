@@ -119,6 +119,9 @@ import { writeExportPdf } from './services/pdf'
 import { reportHtml } from './services/reportHtml'
 import { globalSearch, search } from './services/search'
 import { createDemoCompany } from './services/demo'
+import { applySetup, parseSetup } from './services/companySetup'
+import { simpleSetupSchema } from '@shared/simple/setup'
+import { gstProfileSchema } from '@shared/gst/filing'
 import {
   setAuditContext, writeAudit, listAudit, pruneAudit, verifyAudit, editLogExport, runAsAuditUser, osAuditUser, SYSTEM_AUDIT_USER
 } from './services/audit'
@@ -380,7 +383,31 @@ export function registerIpc(): void {
     return { slug }
   })
 
-  handle('company:createDemo', () => createDemoCompany())
+  // WP 8.3: the plain-language setup wizard — a company from the answers (business type preset,
+  // GST, stock, start date) in one transaction; services/companySetup.ts. Default mode simple (D2).
+  handle('simple:setup', (payload) => {
+    const input = simpleSetupSchema.parse(payload)
+    const today = todayISO()
+    parseSetup(input, today) // refuse before anything is created on disk
+    let slug = slugify(input.name)
+    let n = 2
+    while (existsSync(companyDbPath(slug))) slug = `${slugify(input.name)}-${n++}`
+    ensureCompanyTree(slug)
+    const db = openCompanyDb(slug)
+    let info: CompanyInfo
+    try {
+      info = applySetup(db, input, today).info
+    } finally {
+      db.close()
+    }
+    upsertCompany({ slug, name: info.name, stateCode: info.stateCode, gstin: info.gstin, lastOpenedAt: null })
+    return { slug }
+  })
+
+  // WP 8.3: `mode` 'simple' = the wizard's "Try with sample data" (D2); omitted = accountant, as before.
+  handle('company:createDemo', (payload) =>
+    createDemoCompany(z.object({ mode: z.enum(UI_MODES).optional() }).optional().parse(payload)?.mode)
+  )
 
   handle('company:delete', (payload) => {
     const { slug, confirmName, pin } = z
@@ -1894,6 +1921,9 @@ export function registerIpc(): void {
   // ---------- F11 features + F12 invoice print config ----------
   handle('config:features:get', () => configSvc.getFeatures(requireCompany().db), 'viewer')
   handle('config:features:set', (p) => configSvc.setFeatures(requireCompany().db, featuresSchema.parse(p)), 'owner')
+  // WP 8.3: GSTR-1 filing frequency (monthly / quarterly QRMP), meta `gstProfile`.
+  handle('gstProfile:get', () => configSvc.getGstProfile(requireCompany().db), 'viewer')
+  handle('gstProfile:set', (p) => configSvc.setGstProfile(requireCompany().db, gstProfileSchema.parse(p)), 'owner')
   handle('config:invoice:get', () => configSvc.getInvoiceConfig(requireCompany().db), 'viewer')
   handle('config:invoice:set', (p) => configSvc.setInvoiceConfig(requireCompany().db, invoiceConfigSchema.parse(p)), 'owner')
 

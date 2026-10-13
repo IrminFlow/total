@@ -65,7 +65,7 @@ export function upcomingDeadlines(
    *  company sends goods for job work (`jobWork`), half-yearly or annual per `itc04`.
    *  WP 8.0 — `tds: false` drops the monthly TDS deposit (TDS off, or nothing ever deducted —
    *  see complianceApplicability); absent = listed, as before. */
-  annual: { jobWork?: boolean; itc04?: 'half_yearly' | 'annual'; tds?: boolean } = {}
+  annual: { jobWork?: boolean; itc04?: 'half_yearly' | 'annual'; tds?: boolean; gstFiling?: 'monthly' | 'quarterly' } = {}
 ): Deadline[] {
   const horizonEnd = addDays(today, horizonDays)
   const { y: ty, m: tm } = parseISO(today)
@@ -89,9 +89,22 @@ export function upcomingDeadlines(
     const periodLabel = monthLabel(period.y, period.m)
 
     if (gstRegistrationType === 'regular') {
-      const gstr1Date = ymd(filingY, filingM, 11)
-      if (inRange(gstr1Date)) {
-        out.push({ id: `gstr1-${period.y}-${pad2(period.m)}`, form: 'GSTR-1', title: `GSTR-1 — outward supplies (${periodLabel})`, date: gstr1Date, kind: 'gst' })
+      if (annual.gstFiling === 'quarterly') {
+        // WP 8.3 — QRMP: GSTR-1 for the quarter by the 13th of the month after it (Notification
+        // 83/2020-CT; sources + UNVERIFIED in shared/gst/filing.ts). Quarters end Jun / Sep / Dec / Mar.
+        if (period.m % 3 === 0) {
+          const gstr1Date = ymd(filingY, filingM, 13)
+          const q = monthAdd(period.y, period.m, -2)
+          if (inRange(gstr1Date)) {
+            const short = (m: number): string => MONTH_NAMES[m - 1]!.slice(0, 3)
+            out.push({ id: `gstr1q-${period.y}-${pad2(period.m)}`, form: 'GSTR-1', title: `GSTR-1 — outward supplies (quarter ${short(q.m)}–${short(period.m)} ${period.y})`, date: gstr1Date, kind: 'gst' })
+          }
+        }
+      } else {
+        const gstr1Date = ymd(filingY, filingM, 11)
+        if (inRange(gstr1Date)) {
+          out.push({ id: `gstr1-${period.y}-${pad2(period.m)}`, form: 'GSTR-1', title: `GSTR-1 — outward supplies (${periodLabel})`, date: gstr1Date, kind: 'gst' })
+        }
       }
       const gstr3bDate = ymd(filingY, filingM, 20)
       if (inRange(gstr3bDate)) {
@@ -193,10 +206,10 @@ export function complianceApplicability(c: {
   return { gst: c.gstRegistrationType === 'regular', tds: c.tdsOn && c.tdsActivity, payroll: c.hasPayroll }
 }
 
-/** GSTR-1 is listed on the 11th of the next month (monthly filers). There is no filing-frequency
- *  setting yet, so quarterly (QRMP) filers' dates — GSTR-1 after the quarter, IFF, GSTR-3B on the
- *  22nd / 24th — are not modelled. UNVERIFIED (see shared/assistantSources.ts). */
+/** GSTR-1 is listed on the 11th of the next month for monthly filers and, since WP 8.3, on the
+ *  13th after the quarter for QRMP filers (meta `gstProfile`, shared/gst/filing.ts). The IFF and
+ *  quarterly GSTR-3B (22nd / 24th) are not modelled. UNVERIFIED (see shared/assistantSources.ts). */
 export const COMPLIANCE_UNVERIFIED: readonly string[] = [
-  'GSTR-1 on the 11th assumes a monthly filer — QRMP (quarterly) dates are not modelled (no filing-frequency setting)',
+  'GSTR-1 on the 11th (monthly) / 13th after the quarter (QRMP) rests on Notification 83/2020-CT as read in a secondary copy; quarterly GSTR-3B (22nd / 24th) and the IFF are not modelled',
   'Composition returns (CMP-08, GSTR-4) are not listed'
 ]

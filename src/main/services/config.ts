@@ -8,6 +8,7 @@ import { getLegacyConfigView, setLegacyConfig } from './printTemplates'
 import type { McpConfig } from '@shared/mcp'
 import { applyUiPatch, normalizeUi, uiPatchSchema, type UiSettings } from '@shared/simple/uiMode'
 import { UI_META_KEY } from '../i18n'
+import { gstProfileSchema, normalizeGstProfile, type GstProfile } from '@shared/gst/filing'
 
 /** Company-scoped JSON config living in the `meta` table — same pattern as readCompanyInfo/
  *  writeCompanyInfo (db/seed.ts) and the NIC credentials (services/nic.ts). */
@@ -186,6 +187,26 @@ export function setUi(db: DB, patch: unknown): UiSettings {
     writeAudit(db, 'company', 0, 'update', { ui: stored === null ? null : before }, { ui: after })
   })()
   return after
+}
+
+// ---------- GST filing frequency (WP 8.3, meta `gstProfile`) ----------
+
+/** How often the company files GSTR-1 (shared/gst/filing.ts). Missing = monthly. */
+export function getGstProfile(db: DB): GstProfile {
+  return normalizeGstProfile(readMeta(db, 'gstProfile'))
+}
+
+/** Owner-only at the IPC layer; audited as a company update. An unchanged value writes nothing. */
+export function setGstProfile(db: DB, input: unknown): GstProfile {
+  const parsed = gstProfileSchema.parse(input)
+  const stored = readMeta(db, 'gstProfile')
+  const before = getGstProfile(db)
+  if (stored !== null && before.filing === parsed.filing) return before
+  db.transaction(() => {
+    writeMeta(db, 'gstProfile', parsed)
+    writeAudit(db, 'company', 0, 'update', { gstProfile: stored === null ? null : before }, { gstProfile: parsed })
+  })()
+  return parsed
 }
 
 // ---------- compliance-deadline notifications (once-per-day guard) ----------

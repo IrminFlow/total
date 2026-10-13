@@ -117,7 +117,10 @@ export const ledgerInputSchema = z.object({
   interestRateBp: z.number().int().min(0).max(10000).nullable().optional(),
   interestGraceDays: z.number().int().min(0).max(365).optional(),
   // WP 4.3 (migration 033): supplier MSME facts and payment terms — absent = keep the stored value.
-  ...supplierTermsFields
+  ...supplierTermsFields,
+  /** WP 8.3: the simple-mode category key (shared/simple/categories.ts) — set by the setup presets;
+   *  absent = keep the stored value. No report reads it. */
+  simpleCategory: z.string().trim().min(1).max(40).nullable().optional()
 })
 /** Unparsed shape (defaults optional) — createLedger/updateLedger parse internally, so direct
  *  service callers (tests, importers) don't have to spell out every defaulted field. */

@@ -31,6 +31,7 @@ interface LedgerRow {
   credit_hold?: number; credit_hold_reason?: string | null; credit_hold_at?: string | null
   msme_registered?: number | null; msme_registered_from?: string | null; udyam_no?: string | null; msme_category?: Ledger['msmeCategory']; agreed_credit_days?: number | null
   early_payment_discount_bp?: number | null; early_payment_discount_days?: number | null
+  simple_category?: string | null
 }
 const mapLedger = (r: LedgerRow): Ledger => ({
   id: r.id, name: r.name, groupId: r.group_id, openingBalance: r.opening_balance,
@@ -47,7 +48,9 @@ const mapLedger = (r: LedgerRow): Ledger => ({
   creditHold: !!r.credit_hold, creditHoldReason: r.credit_hold_reason ?? null, creditHoldAt: r.credit_hold_at ?? null,
   msmeRegistered: !!r.msme_registered, msmeRegisteredFrom: r.msme_registered_from ?? null, udyamNo: r.udyam_no ?? null, msmeCategory: r.msme_category ?? null,
   agreedCreditDays: r.agreed_credit_days ?? null,
-  earlyPaymentDiscountBp: r.early_payment_discount_bp ?? null, earlyPaymentDiscountDays: r.early_payment_discount_days ?? null
+  earlyPaymentDiscountBp: r.early_payment_discount_bp ?? null, earlyPaymentDiscountDays: r.early_payment_discount_days ?? null,
+  // WP 8.3: only when set, so every ledger without one reads (and audits) exactly as before.
+  ...(r.simple_category ? { simpleCategory: r.simple_category } : {})
 })
 
 // ---------- groups ----------
@@ -197,6 +200,7 @@ export function createLedger(db: DB, raw: LedgerInput): Ledger {
     )
   }
   writeSupplierTerms(db, Number(res.lastInsertRowid), input, null)
+  if (input.simpleCategory) db.prepare('UPDATE ledgers SET simple_category = ? WHERE id = ?').run(input.simpleCategory, Number(res.lastInsertRowid))
   const created = getLedger(db, Number(res.lastInsertRowid))!
   writeAudit(db, 'ledger', created.id, 'create', null, created)
   return created
@@ -236,6 +240,7 @@ export function updateLedger(db: DB, id: number, raw: LedgerInput): Ledger {
     )
   }
   writeSupplierTerms(db, id, input, existing)
+  if (input.simpleCategory !== undefined) db.prepare('UPDATE ledgers SET simple_category = ? WHERE id = ?').run(input.simpleCategory, id)
   const updated = getLedger(db, id)!
   writeAudit(db, 'ledger', id, 'update', existing, updated)
   return updated

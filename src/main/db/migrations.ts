@@ -3361,5 +3361,11 @@ export const MIGRATIONS: string[] = [
   );
   CREATE INDEX idx_capture_items_status ON capture_items(status);
   CREATE INDEX idx_capture_items_sha ON capture_items(sha256);
+  `,
+  // WP 8.3 (simple-for-everyone plan §4.1 / §6): the simple-mode category of a seeded account
+  // (src/shared/simple/categories.ts). Nullable, set only by the setup wizard's presets; no
+  // report reads it — reports keep working off groups and voucher lines.
+  `
+  ALTER TABLE ledgers ADD COLUMN simple_category TEXT;
   `
 ]

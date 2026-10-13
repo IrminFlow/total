@@ -142,7 +142,7 @@ export const SCREENS: ScreenDef[] = [
     keywords: ['production', 'stock journal', 'bom', 'raw material', 'finished goods'],
     screen: { name: 'manufacture' },
     navSection: 'top',
-    feature: 'inventory',
+    feature: 'manufacturing',
     invalidates: ['manufacturePreview', 'nextNumber', 'stockItems', 'ledgers', 'godowns', 'units', 'bom', 'bomVersions', 'jobWorkSendChallans', 'voucherTypes']
   },
   // WP 2.6: POS-style counter sales (a normal sales invoice + its receipt).
@@ -923,7 +923,7 @@ export const SCREENS: ScreenDef[] = [
     keywords: ['production register', 'margin', 'manufacturing profit'],
     screen: { name: 'manufacture-register' },
     navSection: null,
-    feature: 'inventory',
+    feature: 'manufacturing',
     invalidates: ['manufactureRegister']
   },
   {
@@ -933,7 +933,7 @@ export const SCREENS: ScreenDef[] = [
     keywords: ['production register', 'cost sheet', 'material variance', 'bom variance', 'job work', 'job worker', 'itc-04', 'expected margin'],
     screen: { name: 'manufacture-reports' },
     navSection: null, // reached from the Manufacture register / Manufacture options and the palette
-    feature: 'inventory',
+    feature: 'manufacturing',
     invalidates: ['manufactureProduction', 'manufactureCostSheet', 'manufactureMargin', 'manufactureVariance', 'jobWorkPending', 'stockItems']
   },
   // WP 8.1: a simple section's page (Sell, Buy, Money …) — the simple shell's sidebar targets.

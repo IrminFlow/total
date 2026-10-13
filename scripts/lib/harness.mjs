@@ -202,10 +202,12 @@ export class Harness {
     await this.setMode(mode)
   }
 
-  /** From company-select: build the Demo Traders sample company and land on the Gateway. */
+  /** From company-select: build the Demo Traders sample company and land on the Gateway. WP 8.3:
+   *  "Try with sample data" opens it in simple mode (D2); the accountant link "Sample data in the
+   *  full app" is the 0.10 path (no `ui` meta), used for the default accountant mode. */
   async createDemoCompany(timeout = 60000, { mode = this.mode } = {}) {
     await this.waitScreen('company-select')
-    await this.clickText('Explore with sample data')
+    await this.click(mode === 'simple' ? 'btn-company-demo' : 'btn-company-demo-full')
     await this.waitScreen('gateway', timeout)
     await this.setMode(mode)
   }

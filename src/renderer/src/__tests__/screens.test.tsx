@@ -34,7 +34,8 @@ describe('screen registry invalidation families', () => {
   it('Manufacture sits in the top block directly under Voucher entry, gated on inventory (WP 2.2)', () => {
     const top = SCREENS.filter((s) => s.navSection === 'top').map((s) => s.name)
     expect(top.indexOf('manufacture')).toBe(top.indexOf('voucher-entry') + 1)
-    expect(SCREENS.find((s) => s.name === 'manufacture')).toMatchObject({ title: 'Manufacture', feature: 'inventory' })
+    // WP 8.3: gated on `manufacturing`, which follows inventory unless setup wrote it (effectiveFeatures).
+    expect(SCREENS.find((s) => s.name === 'manufacture')).toMatchObject({ title: 'Manufacture', feature: 'manufacturing' })
     expect(invalidationFamilies('manufacture-register')).toEqual(['manufactureRegister'])
   })
 

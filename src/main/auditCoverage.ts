@@ -27,6 +27,8 @@ export const AUDIT_COVERAGE: Record<string, AuditCoverage> = {
   'company:current': QUERY,
   'company:create': a('company'),
   'company:createDemo': a('company', 'ledger', 'stockItem', 'voucher'),
+  // WP 8.3: the setup wizard — company + preset accounts / units + features / gstProfile / ui.
+  'simple:setup': a('company', 'ledger', 'unit'),
   'company:delete': a('company'),
   'company:open': a('backup', 'voucher', 'audit_log', 'attachment'),
   'company:close': r('closes the database handle'),
@@ -58,6 +60,8 @@ export const AUDIT_COVERAGE: Record<string, AuditCoverage> = {
 
   // ---------- settings ----------
   'config:features:set': a('company'),
+  'gstProfile:get': QUERY,
+  'gstProfile:set': a('company'),
   'config:invoice:set': a('company'),
   'config:audit:set': a('company'),
   'config:audit:required': a('company'),
