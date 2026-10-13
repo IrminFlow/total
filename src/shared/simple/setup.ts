@@ -2,8 +2,9 @@
 // Pure: the schema `simple:setup` parses, the per-step checks the wizard shows under each field,
 // and the mapping to CompanyInfo / features / meta `ui` the setup service writes.
 //
-// GST (§4.2): regular → GSTIN required + filing frequency; composition → GSTIN optional (it can be
-// added later in Business details); "no" and "not sure" → unregistered (not sure is treated as no,
+// GST (§4.2): regular → GSTIN required + filing frequency; composition → GSTIN required too (a
+// composition dealer is a registered person under s.10, and rule 49 prints the GSTIN on the bill of
+// supply); "no" and "not sure" → unregistered (not sure is treated as no,
 // with a "you can change this later" note and a Home card in WP 8.6). The registration takes
 // effect from the start date (`gstRegistrationSince`), and the WP 8.0 rule (shared/gst/
 // registration.ts) does the rest: only a regular registration charges GST.
@@ -33,11 +34,14 @@ export const simpleSetupSchema = z
     /** A new business (nothing to bring in) vs one already running (WP 8.7 asks for openings). */
     fresh: z.boolean(),
     /** "I have an accountant — show the full app" picks accountant; the default is simple (D2). */
-    mode: z.enum(UI_MODES).default('simple')
+    mode: z.enum(UI_MODES).default('simple'),
+    /** "Coming from Tally? — yes": the Tally books become the chart, so the preset seeds NO
+     *  accounts (a same-named preset account would otherwise shadow a Tally ledger). */
+    fromTally: z.boolean().default(false)
   })
   .strict()
   .superRefine((v, ctx) => {
-    if (v.gst === 'regular' && !v.gstin) ctx.addIssue({ code: 'custom', path: ['gstin'], message: 'A regular GST registration needs its GSTIN' })
+    if ((v.gst === 'regular' || v.gst === 'composition') && !v.gstin) ctx.addIssue({ code: 'custom', path: ['gstin'], message: 'A GST registration (regular or composition) needs its GSTIN' })
     if (v.gst === 'regular' && !v.filing) ctx.addIssue({ code: 'custom', path: ['filing'], message: 'Choose how often you file GST returns' })
     if ((v.gst === 'no' || v.gst === 'not_sure') && v.gstin) ctx.addIssue({ code: 'custom', path: ['gstin'], message: 'A business not registered for GST has no GSTIN' })
     if (v.gstin && v.gstin.slice(0, 2) !== v.stateCode) ctx.addIssue({ code: 'custom', path: ['gstin'], message: 'The GSTIN belongs to another state' })
@@ -61,6 +65,9 @@ export function setupCompanyInfo(s: SimpleSetup): CompanyInfo {
     gstPreviousRegistrationType: null,
     address: '',
     booksFrom: fyOf(s.startDate).startYear,
+    // The chosen day itself — "Today" for a continuing business is today, not 1 April (WP 8.7
+    // dates the openings on it); booksFrom stays the FY that contains it (the year-opening rule).
+    booksBeginDate: s.startDate,
     email: null,
     phone: null,
     pan: null,
@@ -140,7 +147,7 @@ export function setupStepErrors(d: SetupDraft, step: SetupStep, today: string): 
     if (registered && gstin) {
       if (!validateGstin(gstin).valid) e.gstin = 'errors.setup.gstinInvalid'
       else if (gstin.slice(0, 2) !== d.stateCode) e.gstin = 'errors.setup.gstinOtherState'
-    } else if (d.gst === 'regular') e.gstin = 'errors.setup.gstinNeeded'
+    } else if (registered) e.gstin = 'errors.setup.gstinNeeded'
     if (d.gst === 'regular' && !d.filing) e.filing = 'errors.setup.filingNeeded'
   } else if (step === 'stock') {
     if (d.stock == null) e.stock = 'errors.setup.stockNeeded'
@@ -155,7 +162,7 @@ export function setupStepErrors(d: SetupDraft, step: SetupStep, today: string): 
 }
 
 /** The answers → the `simple:setup` payload (call once every step is clean). */
-export function setupPayload(d: SetupDraft, today: string, mode: 'simple' | 'accountant' = 'simple'): SimpleSetupInput {
+export function setupPayload(d: SetupDraft, today: string, mode: 'simple' | 'accountant' = 'simple', fromTally = false): SimpleSetupInput {
   const registered = d.gst === 'regular' || d.gst === 'composition'
   return {
     name: d.name.trim(),
@@ -167,6 +174,7 @@ export function setupPayload(d: SetupDraft, today: string, mode: 'simple' | 'acc
     stock: d.stock ?? false,
     startDate: startDateOf(d, today),
     fresh: d.fresh ?? true,
-    mode
+    mode,
+    fromTally
   }
 }

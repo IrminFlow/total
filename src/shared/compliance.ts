@@ -106,9 +106,20 @@ export function upcomingDeadlines(
           out.push({ id: `gstr1-${period.y}-${pad2(period.m)}`, form: 'GSTR-1', title: `GSTR-1 — outward supplies (${periodLabel})`, date: gstr1Date, kind: 'gst' })
         }
       }
-      const gstr3bDate = ymd(filingY, filingM, 20)
-      if (inRange(gstr3bDate)) {
-        out.push({ id: `gstr3b-${period.y}-${pad2(period.m)}`, form: 'GSTR-3B', title: `GSTR-3B — summary return (${periodLabel})`, date: gstr3bDate, kind: 'gst' })
+      if (annual.gstFiling === 'quarterly') {
+        // WP 8.3 — QRMP: GSTR-3B for the quarter, the 22nd or 24th by state — UNVERIFIED, listed
+        // on the earlier 22nd and labelled so (no monthly 20th for a quarterly filer).
+        if (period.m % 3 === 0) {
+          const gstr3bDate = ymd(filingY, filingM, 22)
+          if (inRange(gstr3bDate)) {
+            out.push({ id: `gstr3bq-${period.y}-${pad2(period.m)}`, form: 'GSTR-3B', title: `GSTR-3B — quarterly filer, quarter to ${periodLabel} (22nd or 24th by state — dates UNVERIFIED)`, date: gstr3bDate, kind: 'gst' })
+          }
+        }
+      } else {
+        const gstr3bDate = ymd(filingY, filingM, 20)
+        if (inRange(gstr3bDate)) {
+          out.push({ id: `gstr3b-${period.y}-${pad2(period.m)}`, form: 'GSTR-3B', title: `GSTR-3B — summary return (${periodLabel})`, date: gstr3bDate, kind: 'gst' })
+        }
       }
     }
 
@@ -210,6 +221,6 @@ export function complianceApplicability(c: {
  *  13th after the quarter for QRMP filers (meta `gstProfile`, shared/gst/filing.ts). The IFF and
  *  quarterly GSTR-3B (22nd / 24th) are not modelled. UNVERIFIED (see shared/assistantSources.ts). */
 export const COMPLIANCE_UNVERIFIED: readonly string[] = [
-  'GSTR-1 on the 11th (monthly) / 13th after the quarter (QRMP) rests on Notification 83/2020-CT as read in a secondary copy; quarterly GSTR-3B (22nd / 24th) and the IFF are not modelled',
+  'GSTR-1 on the 11th (monthly) / 13th after the quarter (quarterly filers under the proviso to s.39(1)) is Notification 83/2020-CT (GST Council copy); its later amendments, the IFF and the quarterly GSTR-3B 22nd / 24th by state are UNVERIFIED',
   'Composition returns (CMP-08, GSTR-4) are not listed'
 ]

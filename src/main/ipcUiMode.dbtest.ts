@@ -223,3 +223,24 @@ describe('WP 8.3: setup wizard, sample company, GST filing frequency', () => {
     expect((await call('company:createDemo', { mode: 'expert' })).ok).toBe(false)
   })
 })
+
+describe('WP 8.3 review: a failed setup leaves nothing on disk', () => {
+  it('a step failing inside the transaction removes the company folder; the retry gets the same slug', async () => {
+    const { createCompanyFromSetup } = await import('./services/companySetup')
+    const { existsSync } = await import('fs')
+    const answers = {
+      name: 'Rollback Kirana', stateCode: '27', businessType: 'retail', gst: 'no', gstin: null, filing: null,
+      stock: true, startDate: '2026-04-01', fresh: true
+    } as const
+    expect(() =>
+      createCompanyFromSetup(answers, '2026-10-13', {
+        beforeCommit: () => {
+          throw new Error('disk full')
+        }
+      })
+    ).toThrow('disk full')
+    expect(existsSync(join(DATA_DIR, 'companies', 'rollback-kirana'))).toBe(false)
+    expect((await ok<{ companies: { slug: string }[] }>('company:list')).companies.some((c) => c.slug.startsWith('rollback-kirana'))).toBe(false)
+    expect(createCompanyFromSetup(answers, '2026-10-13').slug).toBe('rollback-kirana')
+  })
+})

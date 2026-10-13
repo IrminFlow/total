@@ -15,6 +15,8 @@ import { CATEGORIES, isCategoryKey } from '@shared/simple/categories'
 import { BUSINESS_TYPES, PRESETS, presetAccounts, presetFeatures } from '@shared/simple/presets'
 import type { SimpleSetupInput } from '@shared/simple/setup'
 import { saveVoucher } from './vouchers'
+import { importTallyXml } from './tallyImport'
+import { createGroup, createLedger, updateLedger } from './masters'
 
 const TODAY = '2026-10-13'
 const GSTIN = '27AAPFU0939F1ZV'
@@ -91,10 +93,11 @@ describe('applySetup — each preset', () => {
 })
 
 describe('applySetup — rules', () => {
-  it('composition: registered without GST accounts or a filing frequency; GSTIN optional', () => {
+  it('composition: registered with its GSTIN (required), no GST accounts, no filing frequency', () => {
+    expect(() => applySetup(freshDb(), answers({ gst: 'composition' }), TODAY)).toThrow(/GSTIN/)
     const db = freshDb()
-    applySetup(db, answers({ gst: 'composition' }), TODAY)
-    expect(meta(db, 'company')).toMatchObject({ gstRegistrationType: 'composition', gstin: null })
+    applySetup(db, answers({ gst: 'composition', gstin: GSTIN }), TODAY)
+    expect(meta(db, 'company')).toMatchObject({ gstRegistrationType: 'composition', gstin: GSTIN })
     expect(db.prepare('SELECT COUNT(*) AS n FROM ledgers WHERE tax_type IS NOT NULL').get()).toEqual({ n: 0 })
     expect(meta(db, 'gstProfile')).toBeNull()
   })
@@ -140,11 +143,10 @@ describe('applySetup — rules', () => {
 })
 
 describe('accountant path unchanged', () => {
-  it('seedCompany output is byte-identical (snapshot) and carries no ui / features / gstProfile meta', () => {
+  // The byte-identical seed snapshot (generated from main) lives in db/seedSnapshot.dbtest.ts.
+  it('seedCompany carries no ui / features / gstProfile meta and no categories', () => {
     const db = freshDb()
     seedCompany(db, TEST_INFO)
-    const dump = canonicalDump(db)
-    expect(dump).toMatchSnapshot()
     expect(db.prepare('SELECT key FROM meta ORDER BY key').all()).toEqual([{ key: 'company' }])
     expect(db.prepare('SELECT COUNT(*) AS n FROM ledgers WHERE simple_category IS NOT NULL').get()).toEqual({ n: 0 })
   })
@@ -155,5 +157,85 @@ describe('accountant path unchanged', () => {
     const setup = freshDb()
     applySetup(setup, answers({ businessType: 'other', stock: false }), TODAY)
     for (const t of ['groups', 'voucher_types', 'units', 'godowns']) expect(canonicalDump(setup)[t], t).toEqual(canonicalDump(plain)[t])
+  })
+})
+
+describe('applySetup + Tally import (WP 8.3 review)', () => {
+  const XML = `<ENVELOPE><TALLYMESSAGE>
+    <LEDGER NAME="Cash"><PARENT>Cash-in-Hand</PARENT><OPENINGBALANCE>-10000.00</OPENINGBALANCE></LEDGER>
+    <LEDGER NAME="Proprietor Capital"><PARENT>Capital Account</PARENT><OPENINGBALANCE>10000.00</OPENINGBALANCE></LEDGER>
+    <LEDGER NAME="Sales"><PARENT>Sales Accounts</PARENT><OPENINGBALANCE>0</OPENINGBALANCE></LEDGER>
+    <LEDGER NAME="Repairs"><PARENT>Direct Expenses</PARENT><OPENINGBALANCE>0</OPENINGBALANCE></LEDGER>
+    <LEDGER NAME="Shop Rent"><PARENT>Indirect Expenses</PARENT><OPENINGBALANCE>0</OPENINGBALANCE></LEDGER>
+  </TALLYMESSAGE></ENVELOPE>`
+  const opening = (db: ReturnType<typeof freshDb>, name: string): number =>
+    (db.prepare('SELECT opening_balance AS o FROM ledgers WHERE name = ?').get(name) as { o: number }).o
+
+  it('"Coming from Tally": no preset accounts are seeded — the Tally books are the chart', () => {
+    const db = freshDb()
+    const r = applySetup(db, answers({ fromTally: true }), TODAY)
+    expect(r.accounts).toEqual({})
+    expect(db.prepare('SELECT name FROM ledgers ORDER BY id').all()).toEqual([{ name: 'Cash' }])
+    const summary = importTallyXml(db, XML)
+    expect(summary.ledgers).toBe(4)
+    expect(opening(db, 'Cash')).toBe(1_000_000) // dr-positive (Tally's -10000.00 is a debit)
+    expect(opening(db, 'Proprietor Capital')).toBe(-1_000_000)
+    expect(db.prepare("SELECT g.name FROM ledgers l JOIN groups g ON g.id = l.group_id WHERE l.name = 'Repairs'").get()).toEqual({ name: 'Direct Expenses' })
+    const tb = trialBalance(db, '2027-03-31')
+    expect(tb.totalDebit).toBe(tb.totalCredit)
+    expect(verifyAudit(db).ok).toBe(true)
+  })
+
+  it('a preset company importing Tally later: a same-named ledger takes the Tally opening (audited) and every clash is reported', () => {
+    const db = freshDb()
+    applySetup(db, answers(), TODAY)
+    const summary = importTallyXml(db, XML)
+    // Cash (seeded, opening 0) takes Tally's opening; nothing is silently dropped.
+    expect(opening(db, 'Cash')).toBe(1_000_000) // dr-positive (Tally's -10000.00 is a debit)
+    expect(summary.warnings).toContain('Ledger "Cash" already existed — its opening balance was taken from Tally')
+    expect(summary.warnings).toContain('Ledger "Repairs" already existed under "Indirect Expenses" — Tally has it under "Direct Expenses"; left under "Indirect Expenses"')
+    expect(summary.warnings.some((w) => w.includes('"Sales"'))).toBe(false)
+    const tb = trialBalance(db, '2027-03-31')
+    expect(tb.totalDebit).toBe(tb.totalCredit)
+    const audit = db.prepare("SELECT before_json, after_json FROM audit_log WHERE entity = 'ledger' AND action = 'update'").all() as { before_json: string; after_json: string }[]
+    expect(audit.map((a) => JSON.parse(a.after_json))).toEqual([{ openingBalance: 1_000_000, source: 'tally_import' }])
+    expect(verifyAudit(db).ok).toBe(true)
+    // A different non-zero opening is kept and reported, never overwritten.
+    db.prepare("UPDATE ledgers SET opening_balance = -5 WHERE name = 'Shop Rent'").run()
+    const again = importTallyXml(db, XML)
+    expect(opening(db, 'Shop Rent')).toBe(-5)
+    expect(again.warnings).toContain('Ledger "Shop Rent" already existed with a different opening balance — kept the existing one; check it against Tally')
+  })
+})
+
+describe('simple_category on ledgers (WP 8.3 review)', () => {
+  const gid = (db: ReturnType<typeof freshDb>, name: string): number => (db.prepare('SELECT id FROM groups WHERE name = ?').get(name) as { id: number }).id
+
+  it('create: only a known key that fits the group and class', () => {
+    const db = freshDb()
+    seedCompany(db, TEST_INFO)
+    expect(() => createLedger(db, { name: 'X', groupId: gid(db, 'Indirect Expenses'), simpleCategory: 'nonsense' as never })).toThrow()
+    expect(() => createLedger(db, { name: 'Rent 2', groupId: gid(db, 'Sales Accounts'), simpleCategory: 'rent' })).toThrow(/belongs under Indirect Expenses/)
+    // Round Off is 'other' — naming a rent account "Round Off" doesn't fit 'rent'.
+    expect(() => createLedger(db, { name: 'Round Off', groupId: gid(db, 'Indirect Expenses'), simpleCategory: 'rent' })).toThrow(/different kind/)
+    // A sub-group of the category's group fits.
+    const sub = createGroup(db, { name: 'Shop costs', parentId: gid(db, 'Indirect Expenses') })
+    expect(createLedger(db, { name: 'Shop rent', groupId: sub.id, simpleCategory: 'rent' }).simpleCategory).toBe('rent')
+  })
+
+  it('update: a moved ledger loses its category; a kept group keeps it; a new category must fit', () => {
+    const db = freshDb()
+    seedCompany(db, TEST_INFO)
+    const l = createLedger(db, { name: 'Rent', groupId: gid(db, 'Indirect Expenses'), simpleCategory: 'rent' })
+    // The editor sends the whole ledger back (category included): same group → kept.
+    expect(updateLedger(db, l.id, { ...l, name: 'Shop rent' }).simpleCategory).toBe('rent')
+    // Moved to Direct Expenses with the old category still in the payload → cleared, audited.
+    const moved = updateLedger(db, l.id, { ...l, groupId: gid(db, 'Direct Expenses') })
+    expect(moved.simpleCategory).toBeUndefined()
+    expect(db.prepare('SELECT simple_category FROM ledgers WHERE id = ?').get(l.id)).toEqual({ simple_category: null })
+    // A new category that fits the new group is taken; one that doesn't is refused.
+    expect(updateLedger(db, l.id, { ...moved, simpleCategory: 'labour' }).simpleCategory).toBe('labour')
+    expect(() => updateLedger(db, l.id, { ...moved, simpleCategory: 'sales' })).toThrow(/belongs under Sales Accounts/)
+    expect(verifyAudit(db).ok).toBe(true)
   })
 })

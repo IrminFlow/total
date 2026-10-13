@@ -20,8 +20,9 @@ describe('setup wizard checks', () => {
     expect(setupStepErrors(draft({ gst: 'regular', gstin: '27AAPFU0939F1ZX', filing: 'monthly' }), 'gst', TODAY)).toEqual({ gstin: 'errors.setup.gstinInvalid' })
     expect(setupStepErrors(draft({ gst: 'regular', gstin: GSTIN_MH, filing: 'monthly', stateCode: '29' }), 'gst', TODAY)).toEqual({ gstin: 'errors.setup.gstinOtherState' })
     expect(setupStepErrors(draft({ gst: 'regular', gstin: GSTIN_MH.toLowerCase(), filing: 'quarterly' }), 'gst', TODAY)).toEqual({})
-    // Composition: the GSTIN may come later; "not sure" asks nothing more.
-    expect(setupStepErrors(draft({ gst: 'composition' }), 'gst', TODAY)).toEqual({})
+    // Composition is a registration too: its GSTIN is needed (no filing frequency); "not sure" asks nothing more.
+    expect(setupStepErrors(draft({ gst: 'composition' }), 'gst', TODAY)).toEqual({ gstin: 'errors.setup.gstinNeeded' })
+    expect(setupStepErrors(draft({ gst: 'composition', gstin: GSTIN_MH }), 'gst', TODAY)).toEqual({})
     expect(setupStepErrors(draft({ gst: 'not_sure' }), 'gst', TODAY)).toEqual({})
     expect(setupStepErrors({ ...draft(), stock: null }, 'stock', TODAY)).toEqual({ stock: 'errors.setup.stockNeeded' })
     expect(setupStepErrors(draft({ start: 'earlier', earlierDate: '' }), 'start', TODAY)).toEqual({ earlierDate: 'errors.setup.startDateNeeded' })
@@ -42,7 +43,7 @@ describe('setup → company', () => {
     for (const gst of ['no', 'not_sure'] as const) {
       const s = simpleSetupSchema.parse(setupPayload(draft({ gst, start: 'earlier', earlierDate: '2025-07-01' }), TODAY))
       const info = setupCompanyInfo(s)
-      expect(info).toMatchObject({ gstRegistrationType: 'unregistered', gstin: null, gstRegistrationSince: '2025-07-01', gstPreviousRegistrationType: null, booksFrom: 2025 })
+      expect(info).toMatchObject({ gstRegistrationType: 'unregistered', gstin: null, gstRegistrationSince: '2025-07-01', gstPreviousRegistrationType: null, booksFrom: 2025, booksBeginDate: '2025-07-01' })
       expect(setupUi(s)).toEqual({ mode: 'simple', setup: { businessType: 'retail', gst, stock: true }, startedFresh: true })
     }
   })
@@ -53,6 +54,13 @@ describe('setup → company', () => {
     const s = simpleSetupSchema.parse(setupPayload(draft({ gst: 'regular', gstin: GSTIN_MH, filing: 'quarterly' }), TODAY, 'accountant'))
     expect(setupCompanyInfo(s)).toMatchObject({ gstRegistrationType: 'regular', gstin: GSTIN_MH, booksFrom: 2026, gstRegistrationSince: '2026-04-01' })
     expect(setupUi(s).mode).toBe('accountant')
+  })
+
+  it('"Today" for a continuing business begins the books today (booksBeginDate), in the FY that contains it', () => {
+    const s = simpleSetupSchema.parse(setupPayload(draft({ start: 'today', fresh: false }), TODAY))
+    expect(setupCompanyInfo(s)).toMatchObject({ booksFrom: 2026, booksBeginDate: TODAY, gstRegistrationSince: TODAY })
+    const fy = simpleSetupSchema.parse(setupPayload(draft({ start: 'fy' }), TODAY))
+    expect(setupCompanyInfo(fy).booksBeginDate).toBe('2026-04-01')
   })
 
   it('a GSTIN typed before switching to "No" is dropped, never stored', () => {
@@ -68,7 +76,10 @@ describe('GSTR-1 due date follows the filing frequency', () => {
     expect(quarterly.map((d) => [d.date, d.title])).toEqual([['2026-10-13', 'GSTR-1 — outward supplies (quarter Jul–Sep 2026)']])
     // Jan–Mar files in April, across the year end.
     expect(upcomingDeadlines('2027-04-01', 'regular', false, 20, { gstFiling: 'quarterly' }).filter((d) => d.form === 'GSTR-1').map((d) => d.date)).toEqual(['2027-04-13'])
-    // GSTR-3B is unchanged (monthly 20th — quarterly 3B is UNVERIFIED / not modelled).
-    expect(upcomingDeadlines('2026-09-20', 'regular', false, 30, { gstFiling: 'quarterly' }).filter((d) => d.form === 'GSTR-3B').map((d) => d.date)).toEqual(['2026-09-20', '2026-10-20'])
+    // GSTR-3B: a quarterly filer has no monthly 20th — the quarter's 3B on the 22nd, labelled UNVERIFIED.
+    const q3b = upcomingDeadlines('2026-09-20', 'regular', false, 60, { gstFiling: 'quarterly' }).filter((d) => d.form === 'GSTR-3B')
+    expect(q3b.map((d) => d.date)).toEqual(['2026-10-22'])
+    expect(q3b[0]!.title).toMatch(/quarterly filer.*UNVERIFIED/)
+    expect(upcomingDeadlines('2026-09-20', 'regular', false, 30).filter((d) => d.form === 'GSTR-3B').map((d) => d.date)).toEqual(['2026-09-20', '2026-10-20'])
   })
 })

@@ -137,6 +137,26 @@ describe('Gateway dashboard', () => {
     expect(go).toHaveBeenLastCalledWith({ name: 'daybook' })
   })
 
+  it('Alt+F7 opens Manufacture only while manufacturing is on (WP 8.3: setup can turn it off)', async () => {
+    setup({ features: { manufacturing: false } })
+    await waitFor(() => screen.getByTestId('tile-cash'))
+    // Let the features query settle (useFeatures shows the defaults while it loads).
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 30))
+    })
+    go.mockClear()
+    fireEvent.keyDown(window, { key: 'F7', altKey: true })
+    expect(go).not.toHaveBeenCalledWith({ name: 'manufacture' })
+    cleanup()
+    setup()
+    await waitFor(() => screen.getByTestId('tile-cash'))
+    // Absent = follows inventory (every pre-8.3 company).
+    await waitFor(() => {
+      fireEvent.keyDown(window, { key: 'F7', altKey: true })
+      expect(go).toHaveBeenLastCalledWith({ name: 'manufacture' })
+    })
+  })
+
   it('feature flags hide the stock card and the TDS row; no GST registration hides GST', async () => {
     setup({ features: { inventory: false, tds: false }, series: series({ gst: { ok: true, data: null } }) })
     await waitFor(() => expect(screen.getByTestId('tile-cash').textContent).toContain('1,49,000.00'))

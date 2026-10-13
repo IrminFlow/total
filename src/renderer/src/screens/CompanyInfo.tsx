@@ -13,7 +13,16 @@ const PAN_RE = /^[A-Z]{5}\d{4}[A-Z]$/
 const TAN_RE = /^[A-Z]{4}\d{5}[A-Z]$/
 
 export function CompanyInfoScreen(): React.JSX.Element {
-  const { info, slug, setCompany } = useSession()
+  const { info, slug, setCompany, user } = useSession()
+  const queryClient = useQueryClient()
+  // WP 8.3: GSTR-1 filing frequency (meta gstProfile) — part of this form, saved with it; owner only
+  // (everyone in a company without users), like the server's gstProfile:set.
+  const isOwner = !user || user.role === 'owner'
+  const showFiling = isOwner && info?.gstRegistrationType === 'regular'
+  const { data: gstProfile } = useQuery({ queryKey: ['gstProfile'], queryFn: api.gstProfile.get, enabled: showFiling })
+  const savedFiling: GstFilingFrequency = gstProfile?.filing ?? 'monthly'
+  const [filing, setFiling] = useState<GstFilingFrequency>(savedFiling)
+  useEffect(() => setFiling(savedFiling), [savedFiling])
   const toast = useToasts()
   const nav = useNav()
   const [name, setName] = useState(info?.name ?? '')
@@ -53,7 +62,8 @@ export function CompanyInfoScreen(): React.JSX.Element {
     email !== (info?.email ?? '') ||
     phone !== (info?.phone ?? '') ||
     pan !== (info?.pan ?? '') ||
-    tan !== (info?.tan ?? '')
+    tan !== (info?.tan ?? '') ||
+    (showFiling && filing !== savedFiling)
   useUnsavedGuard(dirty)
 
   const gstinError = gstinErrorMessage(gstin, stateCode)
@@ -82,6 +92,11 @@ export function CompanyInfoScreen(): React.JSX.Element {
         tan: tan.trim() ? tan.trim().toUpperCase() : null
       })
       if (slug) setCompany(slug, updated)
+      if (showFiling && updated.gstRegistrationType === 'regular' && filing !== savedFiling) {
+        await api.gstProfile.set({ filing })
+        await queryClient.invalidateQueries({ queryKey: ['gstProfile'] })
+        await queryClient.invalidateQueries({ queryKey: ['dashboard'] })
+      }
       toast.push('success', 'Company details saved')
     } catch (err) {
       toast.push('error', (err as Error).message)
@@ -129,7 +144,14 @@ export function CompanyInfoScreen(): React.JSX.Element {
         <Field label="GSTIN" error={gstinError} hint="Needed for GSTR exports">
           <TextInput value={gstin} onChange={(e) => setGstin(e.target.value.toUpperCase())} className="num" />
         </Field>
-        {info?.gstRegistrationType === 'regular' && <GstFilingField />}
+        {showFiling && (
+          <Field label="GSTR-1 filing" hint="Monthly: due the 11th. Quarterly (QRMP): due the 13th after the quarter. Saved with the details.">
+            <Select value={filing} onChange={(e) => setFiling(e.target.value as GstFilingFrequency)} data-testid="select-gst-filing">
+              <option value="monthly">Monthly</option>
+              <option value="quarterly">Quarterly (QRMP)</option>
+            </Select>
+          </Field>
+        )}
         {regChanged ? (
           <Field label={`${REG_LABEL[effectiveRegType]} from`} hint={`Bills dated before this stay ${REG_LABEL[info!.gstRegistrationType].toLowerCase()} — their GST and returns don't change`}>
             <DateInput value={regSince} context={regSince} onChange={setRegSince} testId="input-company-reg-since" />
@@ -361,29 +383,3 @@ function CsvImportCard(): React.JSX.Element {
   )
 }
 
-/** WP 8.3: how often GSTR-1 is filed (meta gstProfile) — drives its due date on the dashboard
- *  (monthly: the 11th; quarterly QRMP: the 13th after the quarter — shared/gst/filing.ts). Saved at
- *  once (owner-only, audited). */
-function GstFilingField(): React.JSX.Element {
-  const toast = useToasts()
-  const queryClient = useQueryClient()
-  const { data } = useQuery({ queryKey: ['gstProfile'], queryFn: api.gstProfile.get })
-  const change = async (filing: GstFilingFrequency): Promise<void> => {
-    try {
-      await api.gstProfile.set({ filing })
-      await queryClient.invalidateQueries({ queryKey: ['gstProfile'] })
-      await queryClient.invalidateQueries({ queryKey: ['dashboard'] })
-      toast.push('success', filing === 'quarterly' ? 'GSTR-1 is now due quarterly (QRMP)' : 'GSTR-1 is now due monthly')
-    } catch (err) {
-      toast.push('error', (err as Error).message)
-    }
-  }
-  return (
-    <Field label="GSTR-1 filing" hint="Monthly: due the 11th. Quarterly (QRMP): due the 13th after the quarter.">
-      <Select value={data?.filing ?? 'monthly'} onChange={(e) => void change(e.target.value as GstFilingFrequency)} data-testid="select-gst-filing">
-        <option value="monthly">Monthly</option>
-        <option value="quarterly">Quarterly (QRMP)</option>
-      </Select>
-    </Field>
-  )
-}

@@ -66,7 +66,9 @@ async function shootHomeAndFeatures(h, prefix) {
   await h.click('simple-nav-settings')
   await attached(h, '[data-testid="simple-entry-features"]')
   await h.click('simple-entry-features')
-  await attached(h, '[data-testid="features-cards"]')
+  await attached(h, '[data-testid="simple-features"]')
+  // The simple Features screen: plain cards inside the simple shell (no accountant sidebar).
+  assertEq(await h.page.$('nav[aria-label="Main"]'), null, 'Features stays in the simple shell')
   await h.waitIdle()
   await h.shot(`${prefix}-features`)
 }

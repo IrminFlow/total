@@ -3,13 +3,17 @@
 // company before WP 8.3 keeps the dates it always had.
 //
 // Sources (accessed 2026-10-13):
-//  - Notification 83/2020-Central Tax (10 Nov 2020, in force 1 Jan 2021), issued under the proviso
-//    to s.37(1) CGST Act: GSTR-1 by the eleventh day of the following month for monthly filers and,
-//    for registered persons who opted for quarterly furnishing under the proviso to rule 59(1)
-//    (QRMP), "the thirteenth day of the month succeeding such tax period" (the quarter). Read in
-//    the ICMAI copy: https://icmai.in/upload/Taxation/Top_Stories/ITN/ITN_12012021_83.pdf.filepart
-//  - Rule 59 CGST Rules as substituted by Notification 82/2020-CT (QRMP, the invoice furnishing
-//    facility for the first two months of a quarter). UNVERIFIED — wording not re-read here.
+//  - Notification 83/2020-Central Tax, 10 Nov 2020, in force 1 Jan 2021 — the GST Council's copy:
+//    https://gstcouncil.gov.in/sites/default/files/2024-05/notfctn-83-central-tax-english-2020.pdf
+//    "…extends the time limit for furnishing the details of outward supplies in FORM GSTR-1 …
+//    for each of the tax periods, till the eleventh day of the month succeeding such tax period:
+//    Provided that the time limit … for the class of registered persons required to furnish return
+//    for every quarter under proviso to sub-section (1) of section 39 of the said Act, shall be
+//    extended till the thirteenth day of the month succeeding such tax period."
+//    So a quarterly filer is one filing under the proviso to s.39(1) CGST Act (QRMP), and its tax
+//    period for GSTR-1 is the quarter.
+//  - Later amendments to that notification (12/2021, 17/2021, 09/2024-CT and state-specific
+//    provisos) were not read — UNVERIFIED below.
 import { z } from 'zod'
 
 export const GST_FILING_FREQUENCIES = ['monthly', 'quarterly'] as const
@@ -27,7 +31,7 @@ export function normalizeGstProfile(raw: unknown): GstProfile {
 }
 
 export const GST_FILING_UNVERIFIED: readonly string[] = [
-  'Rule 59 (QRMP, invoice furnishing facility) as substituted by Notification 82/2020-CT — not re-read in an official copy',
-  'Amendments to Notification 83/2020-CT after 09/2024-CT, and one-off extensions (e.g. the 15 Jan 2025 date for Oct–Dec 2024), are not modelled',
-  'Quarterly GSTR-3B (22nd / 24th by state) and the monthly PMT-06 payment under QRMP are not modelled — GSTR-3B is still listed monthly on the 20th'
+  'Amendments to Notification 83/2020-CT (12/2021, 17/2021, 09/2024-CT, state-specific provisos) and one-off extensions (e.g. the 15 Jan 2025 date for Oct–Dec 2024) were not read and are not modelled',
+  'The invoice furnishing facility (IFF) for the first two months of a quarter is not modelled',
+  'Quarterly GSTR-3B is due the 22nd or 24th depending on the state — not re-read in an official text; listed on the earlier 22nd after each quarter. The monthly PMT-06 payment under QRMP is not modelled'
 ]

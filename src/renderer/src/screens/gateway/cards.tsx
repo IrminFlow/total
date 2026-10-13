@@ -9,6 +9,7 @@ import type { DayBookRow } from '@shared/reports'
 import { formatPaise, formatPaiseCompact } from '@shared/money'
 import { toDisplayDate, toDisplayDateTime, toMonthLabel, todayISO } from '@shared/dates'
 import { COMPLIANCE_UNVERIFIED, upcomingDeadlines } from '@shared/compliance'
+import { GST_FILING_UNVERIFIED } from '@shared/gst/filing'
 import { api } from '../../lib/client'
 import { useNav, useSession } from '../../state/stores'
 import { Badge, Checklist, Money } from '../../components/ui'
@@ -296,6 +297,11 @@ export function ComplianceCard({
                     </span>
                   )}
                   {g.gstr3bDue && <Badge tone={dueTone(g.gstr3bDue, today)} testId="chip-gstr3b">GSTR-3B {dueIn(g.gstr3bDue, today)}</Badge>}
+                  {gstFiling === 'quarterly' && (
+                    <span title={GST_FILING_UNVERIFIED.join(' · ')}>
+                      <Badge tone="neutral" testId="chip-gst-quarterly">Quarterly filer — dates UNVERIFIED</Badge>
+                    </span>
+                  )}
                 </span>
                 <dl className="grid grid-cols-3 gap-2 text-caption">
                   <div><dt className="text-muted">Output tax</dt><dd className="num text-ink">{formatPaiseCompact(g.liability)}</dd></div>

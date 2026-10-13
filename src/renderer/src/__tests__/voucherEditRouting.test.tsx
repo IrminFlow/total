@@ -2,7 +2,8 @@
 // kind when that mode can show it faithfully, and in the lossless fallback (with a banner)
 // otherwise. Drives the real component tree against a mocked IPC bridge.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { within, cleanup, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, within, cleanup, render, screen, waitFor } from '@testing-library/react'
+import { DEFAULT_FEATURES } from '@shared/features'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import type { Group, Ledger, StockItem, Voucher, VoucherType } from '@shared/domain'
 import { buildInvoicePayload, emptyInvoiceState, taxLedgerIdsFrom } from '@shared/voucherEdit'
@@ -192,5 +193,44 @@ describe('VoucherEntry alteration routing', () => {
     const modeEl = await screen.findByTestId('voucher-entry-mode', undefined, { timeout: 3000 })
     expect(screen.queryByTestId('year-end-close-banner')).toBeNull()
     expect((modeEl.closest('fieldset') as HTMLFieldSetElement).disabled).toBe(false)
+  })
+})
+
+describe('Alt+F7 in voucher entry (WP 8.3)', () => {
+  const withFeatures = (manufacturing: boolean | undefined): void => {
+    const base = invoke.getMockImplementation()!
+    invoke.mockImplementation(async (channel: string, payload?: unknown) =>
+      channel === 'config:features:get'
+        ? { ok: true, data: { ...DEFAULT_FEATURES, ...(manufacturing === undefined ? {} : { manufacturing }) } }
+        : base(channel, payload)
+    )
+  }
+  const settle = (): Promise<void> =>
+    act(async () => {
+      await new Promise((r) => setTimeout(r, 30))
+    })
+  const renderNew = async (): Promise<void> => {
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    render(
+      <QueryClientProvider client={client}>
+        <VoucherEntry />
+      </QueryClientProvider>
+    )
+    await screen.findByTestId('voucher-entry-mode', undefined, { timeout: 3000 })
+    await waitFor(() => expect(invoke.mock.calls.some((c) => c[0] === 'config:features:get')).toBe(true))
+    await settle()
+  }
+
+  it('opens the manufacture form only while manufacturing is on', async () => {
+    withFeatures(false)
+    await renderNew()
+    fireEvent.keyDown(window, { key: 'F7', altKey: true })
+    await settle()
+    expect(screen.queryByText('Manufacture (BOM)')).toBeNull()
+    cleanup()
+    withFeatures(undefined)
+    await renderNew()
+    fireEvent.keyDown(window, { key: 'F7', altKey: true })
+    await waitFor(() => expect(screen.getByText('Manufacture (BOM)')).toBeTruthy())
   })
 })

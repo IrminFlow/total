@@ -817,7 +817,6 @@ export const SCREENS: ScreenDef[] = [
       { id: 'bills-printing', label: 'simple.settings.billsPrinting', screen: { name: 'settings', tab: 'invoice' } },
       { id: 'backups', label: 'simple.settings.backups', screen: { name: 'settings', tab: 'backups' } },
       { id: 'people-roles', label: 'simple.settings.peopleRoles', screen: { name: 'settings', tab: 'users' } },
-      { id: 'features', label: 'simple.settings.features', screen: { name: 'settings', tab: 'features' } },
       { id: 'advanced', label: 'simple.settings.advanced' }
     ],
     title: 'Settings',
@@ -957,6 +956,19 @@ export const SCREENS: ScreenDef[] = [
     screen: null, // simple shell only (its accountant home is Settings → How Total looks)
     navSection: null,
     invalidates: []
+  },
+  // WP 8.3: Settings → Features in the simple shell ("Turn on" cards; its accountant home is
+  // Settings → Features).
+  {
+    name: 'simple-features',
+    modes: ['simple'],
+    simpleView: 'SimpleFeatures',
+    simpleSection: 'settings',
+    simpleEntries: [{ id: 'features', label: 'simple.settings.features', screen: { name: 'simple-features' } }],
+    title: 'Features',
+    screen: null, // simple shell only
+    navSection: null,
+    invalidates: ['features']
   },
   {
     name: 'search',

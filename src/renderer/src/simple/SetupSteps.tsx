@@ -173,9 +173,9 @@ export function GstStep({ draft, set, errors }: StepProps): React.JSX.Element {
       {registered && (
         <Field
           label={t('simple.setup.gstin')}
-          hint={draft.gst === 'composition' ? t('simple.setup.gstinOptionalHint') : t('simple.setup.gstinHint')}
+          hint={t('simple.setup.gstinHint')}
           error={err.gstin ?? null}
-          required={draft.gst === 'regular'}
+          required
         >
           <TextInput data-testid="setup-gstin" className="num" maxLength={15} value={draft.gstin} onChange={(e) => set({ gstin: e.target.value.toUpperCase() })} />
         </Field>

@@ -6,6 +6,7 @@
 // are stored, each change audited. The AI tools (src/main/ai/tools/assistantTools.ts) call these
 // same functions, so the screen and the assistant always agree.
 import type { DB } from '../db/connection'
+import { getGstProfile } from './config'
 import type { CompanyInfo } from '@shared/domain'
 import { fyOf, gstPeriodOf, todayISO } from '@shared/dates'
 import { formatQtyMilli } from '@shared/money'
@@ -187,7 +188,8 @@ export function closeFacts(db: DB, company: CompanyInfo, period: string, today: 
       return null
     }
   }
-  const gst = company.gstRegistrationType === 'regular' && company.gstin ? { gstr1ExportedAt: snapAt('gstr1'), gstr3bExportedAt: snapAt('gstr3b') } : null
+  // WP 8.3: the filing frequency decides which months have returns due (QRMP: quarter ends only).
+  const gst = company.gstRegistrationType === 'regular' && company.gstin ? { gstr1ExportedAt: snapAt('gstr1'), gstr3bExportedAt: snapAt('gstr3b'), filing: getGstProfile(db).filing } : null
 
   // TDS / TCS: per tagged payable ledger, what was deducted each month (credits, by voucher date)
   // up to TODAY — the check reports the months up to this one — and everything paid out of it

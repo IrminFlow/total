@@ -81,7 +81,7 @@ describe('setup wizard', () => {
     const [payload, opts] = onFinish.mock.calls[0]! as unknown as [SimpleSetupInput, { tally: boolean }]
     expect(payload).toEqual({
       name: 'Ramesh Kirana', stateCode: '27', businessType: 'retail', gst: 'no', gstin: null, filing: null,
-      stock: true, startDate: '2026-04-01', fresh: true, mode: 'simple'
+      stock: true, startDate: '2026-04-01', fresh: true, mode: 'simple', fromTally: false
     })
     expect(opts).toEqual({ tally: false })
   })
@@ -119,7 +119,7 @@ describe('setup wizard', () => {
     click('setup-finish')
     await waitFor(() => expect(onFinish).toHaveBeenCalledTimes(1))
     const [payload, opts] = onFinish.mock.calls[0]! as unknown as [SimpleSetupInput, { tally: boolean }]
-    expect(payload).toMatchObject({ businessType: 'services', gst: 'regular', gstin: '27AAPFU0939F1ZV', filing: 'quarterly', stock: false, startDate: '2025-07-01', fresh: false, mode: 'accountant' })
+    expect(payload).toMatchObject({ businessType: 'services', gst: 'regular', gstin: '27AAPFU0939F1ZV', filing: 'quarterly', stock: false, startDate: '2025-07-01', fresh: false, mode: 'accountant', fromTally: true })
     expect(opts).toEqual({ tally: true })
   })
 
@@ -183,5 +183,37 @@ describe('company-select', () => {
     await waitFor(() => expect(screen.getByTestId('setup-wizard')).toBeTruthy())
     click('btn-company-create')
     await waitFor(() => expect(screen.getByTestId('input-company-name')).toBeTruthy())
+  })
+})
+
+describe('simple Settings → Features (WP 8.3 review)', () => {
+  it('"Turn on" cards in plain words — no banned word — and a click saves at once', async () => {
+    const { SimpleFeatures } = await import('../simple/SimpleFeatures')
+    const { bannedWordsIn } = await import('@shared/simple/bannedWords')
+    const { presetFeatures } = await import('@shared/simple/presets')
+    let stored = presetFeatures('retail', true)
+    invoke.mockImplementation(async (channel: string, payload?: unknown) => {
+      if (channel === 'config:features:get') return { ok: true, data: stored }
+      if (channel === 'config:features:set') {
+        stored = payload as typeof stored
+        return { ok: true, data: stored }
+      }
+      return { ok: false, error: `unmocked ${channel}` }
+    })
+    act(() => useSession.setState({ user: null }))
+    render(withClient(<SimpleFeatures />))
+    await waitFor(() => expect(screen.getByTestId('feature-card-tds').getAttribute('data-on')).toBe('false'))
+    expect(bannedWordsIn(screen.getByTestId('simple-features').textContent ?? '')).toEqual([])
+    expect(screen.getByTestId('feature-card-tds').textContent).toContain('Your CA will tell you')
+    click('btn-feature-payroll')
+    await waitFor(() => expect(screen.getByTestId('feature-card-payroll').getAttribute('data-on')).toBe('true'))
+    expect(stored.payroll).toBe(true)
+    // Making goods needs stock: turning it on in a company without stock turns stock on too.
+    stored = { ...stored, inventory: false, manufacturing: false }
+    cleanup()
+    render(withClient(<SimpleFeatures />))
+    await waitFor(() => expect(screen.getByTestId('feature-card-inventory').getAttribute('data-on')).toBe('false'))
+    click('btn-feature-manufacturing')
+    await waitFor(() => expect(stored).toMatchObject({ manufacturing: true, inventory: true }))
   })
 })

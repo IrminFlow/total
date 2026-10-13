@@ -66,7 +66,7 @@ export interface Ledger {
    *  enforceCreditLimit) when the party's outstanding would exceed it. */
   creditLimit: number | null
   /** WP 8.3: simple-mode category key (shared/simple/categories.ts); present only when set. */
-  simpleCategory?: string
+  simpleCategory?: import('./simple/categories').CategoryKey
   /** WP 4.2 (migration 032) — party email for statements / reminders (mailto:). */
   email?: string | null
   /** Annual simple-interest rate on overdue bills, basis points (1800 = 18%); null = none. */
@@ -579,6 +579,10 @@ export interface CompanyInfo {
   address: string
   /** FY start year of the earliest books, e.g. 2025. */
   booksFrom: number
+  /** WP 8.3: the first day the books record, as chosen in setup ("Today" / "Earlier…" / the FY
+   *  start). Absent = 1 April of `booksFrom` (every company before WP 8.3). Openings (WP 8.7) are
+   *  dated on it. Kept by company:updateInfo. */
+  booksBeginDate?: string | null
   email: string | null
   phone: string | null
   /** Company's Income Tax PAN, e.g. "ABCDE1234F". */

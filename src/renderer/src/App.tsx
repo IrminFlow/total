@@ -8,6 +8,7 @@ import { Gateway } from './screens/Gateway'
 import { SimpleHome } from './simple/SimpleHome'
 import { SimpleSection } from './simple/SimpleSection'
 import { SimpleLooks } from './simple/SimpleLooks'
+import { SimpleFeatures } from './simple/SimpleFeatures'
 import { useScreenView } from './lib/mode'
 import { DayBook } from './screens/DayBook'
 import { ImportTallyScreen } from './screens/ImportTally'
@@ -174,6 +175,7 @@ export default function App(): React.JSX.Element {
           {screen.name === 'gateway' && (simpleView ? <SimpleHome /> : <Gateway />)}
           {screen.name === 'simple-section' && <SimpleSection key={screen.section} section={screen.section} />}
           {screen.name === 'simple-looks' && <SimpleLooks />}
+          {screen.name === 'simple-features' && <SimpleFeatures />}
           {screen.name === 'daybook' && <DayBook month={screen.month} kind={screen.kind} />}
           {screen.name === 'import-tally' && <ImportTallyScreen />}
           {screen.name === 'data-import' && <ImportWizardScreen />}

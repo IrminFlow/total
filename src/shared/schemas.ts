@@ -5,6 +5,7 @@ import { isUqc } from './gst/uqc'
 import { PT_STATES } from './payroll'
 import { TRADE_DOC_KINDS, TRADE_PURPOSES, VOUCHER_KINDS } from './domain'
 import { MSME_CATEGORIES, normalizeUdyam, UDYAM_RE } from './payables/msme'
+import { CATEGORY_KEYS, type CategoryKey } from './simple/categories'
 
 export const isoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Expected YYYY-MM-DD')
 
@@ -120,7 +121,7 @@ export const ledgerInputSchema = z.object({
   ...supplierTermsFields,
   /** WP 8.3: the simple-mode category key (shared/simple/categories.ts) — set by the setup presets;
    *  absent = keep the stored value. No report reads it. */
-  simpleCategory: z.string().trim().min(1).max(40).nullable().optional()
+  simpleCategory: z.enum(CATEGORY_KEYS as [CategoryKey, ...CategoryKey[]]).nullable().optional()
 })
 /** Unparsed shape (defaults optional) — createLedger/updateLedger parse internally, so direct
  *  service callers (tests, importers) don't have to spell out every defaulted field. */

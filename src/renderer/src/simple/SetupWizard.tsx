@@ -75,7 +75,7 @@ export function SetupWizard({
     setBusy(true)
     setFailure(null)
     try {
-      await onFinish(setupPayload(draft, today, accountant ? 'accountant' : 'simple'), { tally })
+      await onFinish(setupPayload(draft, today, accountant ? 'accountant' : 'simple', tally), { tally })
     } catch (err) {
       setFailure((err as Error).message)
       setBusy(false)

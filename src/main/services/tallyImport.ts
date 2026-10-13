@@ -187,8 +187,27 @@ function applyParsedTallyImport(db: DB, data: TallyImport, canSetBooksFrom: bool
   // Ledgers
   const suspense = groupId('Suspense A/c')!
   for (const l of data.ledgers) {
-    const exists = db.prepare('SELECT id FROM ledgers WHERE name = ? COLLATE NOCASE').get(l.name)
-    if (exists) continue
+    const exists = db.prepare('SELECT l.id, l.name, l.opening_balance, g.name AS grp FROM ledgers l JOIN groups g ON g.id = l.group_id WHERE l.name = ? COLLATE NOCASE').get(l.name) as
+      | { id: number; name: string; opening_balance: number; grp: string }
+      | undefined
+    if (exists) {
+      // WP 8.3: a ledger of the same name already exists (a setup preset's "Rent", the seeded
+      // Cash). Its Tally opening is never lost: an empty opening takes Tally's (audited), a
+      // different one is kept and reported; a different group is reported too.
+      if (l.opening !== exists.opening_balance) {
+        if (exists.opening_balance === 0) {
+          db.prepare('UPDATE ledgers SET opening_balance = ? WHERE id = ?').run(l.opening, exists.id)
+          writeAudit(db, 'ledger', exists.id, 'update', { openingBalance: 0 }, { openingBalance: l.opening, source: 'tally_import' })
+          warnings.push(`Ledger "${exists.name}" already existed — its opening balance was taken from Tally`)
+        } else {
+          warnings.push(`Ledger "${exists.name}" already existed with a different opening balance — kept the existing one; check it against Tally`)
+        }
+      }
+      if (exists.grp.toLowerCase() !== l.parent.toLowerCase()) {
+        warnings.push(`Ledger "${exists.name}" already existed under "${exists.grp}" — Tally has it under "${l.parent}"; left under "${exists.grp}"`)
+      }
+      continue
+    }
     const gid = groupId(l.parent) ?? suspense
     if (!groupId(l.parent)) warnings.push(`Ledger "${l.name}": group "${l.parent}" not found, placed under Suspense A/c`)
     db.prepare(

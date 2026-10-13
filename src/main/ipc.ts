@@ -119,7 +119,7 @@ import { writeExportPdf } from './services/pdf'
 import { reportHtml } from './services/reportHtml'
 import { globalSearch, search } from './services/search'
 import { createDemoCompany } from './services/demo'
-import { applySetup, parseSetup } from './services/companySetup'
+import { createCompanyFromSetup } from './services/companySetup'
 import { simpleSetupSchema } from '@shared/simple/setup'
 import { gstProfileSchema } from '@shared/gst/filing'
 import {
@@ -385,24 +385,7 @@ export function registerIpc(): void {
 
   // WP 8.3: the plain-language setup wizard — a company from the answers (business type preset,
   // GST, stock, start date) in one transaction; services/companySetup.ts. Default mode simple (D2).
-  handle('simple:setup', (payload) => {
-    const input = simpleSetupSchema.parse(payload)
-    const today = todayISO()
-    parseSetup(input, today) // refuse before anything is created on disk
-    let slug = slugify(input.name)
-    let n = 2
-    while (existsSync(companyDbPath(slug))) slug = `${slugify(input.name)}-${n++}`
-    ensureCompanyTree(slug)
-    const db = openCompanyDb(slug)
-    let info: CompanyInfo
-    try {
-      info = applySetup(db, input, today).info
-    } finally {
-      db.close()
-    }
-    upsertCompany({ slug, name: info.name, stateCode: info.stateCode, gstin: info.gstin, lastOpenedAt: null })
-    return { slug }
-  })
+  handle('simple:setup', (payload) => createCompanyFromSetup(simpleSetupSchema.parse(payload), todayISO()))
 
   // WP 8.3: `mode` 'simple' = the wizard's "Try with sample data" (D2); omitted = accountant, as before.
   handle('company:createDemo', (payload) =>
@@ -541,7 +524,12 @@ export function registerIpc(): void {
     // WP 8.0: a changed registration takes effect from the given date (default today) and keeps
     // the type it replaces, so vouchers and returns of the earlier months keep their GST.
     const { gstRegistrationSince, gstPreviousRegistrationType: _prev, ...rest } = input
-    const info: CompanyInfo = { ...rest, ...nextRegistrationFacts(before, input.gstRegistrationType, gstRegistrationSince, todayISO()) }
+    const info: CompanyInfo = {
+      ...rest,
+      ...nextRegistrationFacts(before, input.gstRegistrationType, gstRegistrationSince, todayISO()),
+      // WP 8.3: set by setup, not edited here.
+      ...(before.booksBeginDate ? { booksBeginDate: before.booksBeginDate } : {})
+    }
     writeCompanyInfo(c.db, info)
     c.info = info
     upsertCompany({ slug: c.slug, name: info.name, stateCode: info.stateCode, gstin: info.gstin, lastOpenedAt: new Date().toISOString() })

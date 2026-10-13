@@ -205,7 +205,7 @@ export const AUDIT_COVERAGE: Record<string, AuditCoverage> = {
   'import:apply': a('csv_import', 'ledger', 'stockItem'),
   'import:template': EXPORT,
   // WP 6.3: orders land in trade_docs (saveTradeDoc audits them); booksFrom is company info.
-  'tally:import': a('tally_import', 'trade_doc', 'company'),
+  'tally:import': a('tally_import', 'trade_doc', 'company', 'ledger'),
   // WP 6.3 import wizard (ipcDataImport.ts). Every record goes through its own service's audit;
   // csv_import is the run's summary row; a dry run writes and rolls everything back.
   'importwiz:load': r('reads a file into memory; writes nothing'),
