@@ -9,6 +9,7 @@ import { writeCompanyInfo } from '../db/seed'
 import { getVoucher, saveVoucher } from './vouchers'
 import { counterCheckout, counterQuote } from './counter'
 import { documentHtml, getTemplate } from './printTemplates'
+import { gstr3b } from './gst'
 import type { CompanyInfo } from '@shared/domain'
 import type { DB } from '../db/connection'
 import type { VoucherInput } from '@shared/schemas'
@@ -103,6 +104,17 @@ describe('WP 8.0 counter billing and print', () => {
     expect(a4).not.toContain('print-composition-note')
     const roll = documentHtml(db, info, inv.id, getTemplate(db, 'receipt-80mm')).html
     expect(roll).toContain('BILL OF SUPPLY')
+    // GSTR-3B: the item master's 18% never applies — nothing is owed.
+    const ret = gstr3b(db, info, '2025-10-01', '2025-10-31', '102025')
+    expect(ret.outward).toMatchObject({ cgst: 0, sgst: 0, igst: 0, cess: 0 })
+    expect(ret.netPayable).toEqual({ igst: 0, cgst: 0, sgst: 0, cess: 0 })
+  })
+
+  it('GSTR-3B still reports a legacy taxed sale after the company became unregistered', () => {
+    const { db, pen } = pricingFixture()
+    counterCheckout(db, TEST_INFO, { date: DATE, lines: [{ itemId: pen, qtyMilli: 1000, ratePaise: 10000 }], payments: [{ mode: 'cash', amountPaise: 11800 }] })
+    const info = as(db, 'unregistered')
+    expect(gstr3b(db, info, '2025-10-01', '2025-10-31', '102025').outward).toMatchObject({ cgst: 900, sgst: 900 })
   })
 
   it('a composition sale prints Bill of supply with the rule 5 declaration; a regular one stays a Tax invoice', () => {

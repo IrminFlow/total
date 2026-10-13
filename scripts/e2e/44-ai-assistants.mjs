@@ -19,7 +19,8 @@ process.env.TOTAL_AI_MOCK = '1'
 const GSTIN = '27AAPFU0939F1ZV'
 
 await scenario('44-ai-assistants', async (h) => {
-  await h.createCompanyUI('Assistants Co')
+  // GST-registered: the scenario books input CGST / SGST (WP 8.0 refuses tax lines when unregistered).
+  await h.createCompanyUI('Assistants Co', { gstin: '27AABCD1234E1Z8' })
   const extraShots = process.env.WP55_SHOTS
   const shot = async (name) => {
     await h.page.waitForTimeout(250)

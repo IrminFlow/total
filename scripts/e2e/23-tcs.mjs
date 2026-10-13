@@ -8,7 +8,8 @@
 import { scenario, assert, assertEq } from '../lib/harness.mjs'
 
 await scenario('23-tcs', async (h) => {
-  await h.createCompanyUI('TCS Motors')
+  // GST-registered: the scenario posts CGST / SGST (WP 8.0 refuses tax lines when unregistered).
+  await h.createCompanyUI('TCS Motors', { gstin: '27AAPFU0939F1ZV' })
   await h.stubDialogs()
   const page = h.page
   const today = await page.evaluate(() => {
