@@ -1,6 +1,6 @@
 import { useT } from '../lib/i18n'
 import { useScreenView } from '../lib/mode'
-import { simpleSectionOf } from '../lib/screens'
+import { screenDef, simpleSectionOf } from '../lib/screens'
 import { useNav, type Screen } from '../state/stores'
 
 const HOME: Screen = { name: 'gateway' } // i18n-technical
@@ -16,7 +16,8 @@ export function ViewToggle({ screen, className }: { screen: Screen; className: s
   const t = useT()
   const nav = useNav()
   const { view, companyMode, override, setAccountantView } = useScreenView(screen.name)
-  if (companyMode !== 'simple' || screen.name === 'simple-section') return null
+  // Simple-only screens (section pages, How Total looks) have no full-app counterpart.
+  if (companyMode !== 'simple' || !screenDef(screen.name)?.modes.includes('accountant')) return null
   const backToSimple = (): void => {
     if (override) {
       setAccountantView(false)

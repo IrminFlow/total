@@ -13,6 +13,7 @@ import { DEFAULT_FEATURES, type CompanyFeatures } from '@shared/features'
 
 const invoke = vi.fn()
 let features: Partial<CompanyFeatures> = {}
+let savedReports: unknown[] = []
 
 function sidebarShape(): unknown {
   const nav = screen.getByRole('navigation', { name: 'Main' })
@@ -58,10 +59,11 @@ async function renderShell(): Promise<void> {
 beforeEach(() => {
   localStorage.clear()
   features = {}
+  savedReports = []
   invoke.mockReset()
   invoke.mockImplementation(async (channel: string) => {
     if (channel === 'config:features:get') return { ok: true, data: { ...DEFAULT_FEATURES, ...features } }
-    if (channel === 'rb:list') return { ok: true, data: [] }
+    if (channel === 'rb:list') return { ok: true, data: savedReports }
     return { ok: false, error: `unmocked channel ${channel}` }
   })
   window.total = { platform: 'test', invoke } as unknown as typeof window.total
@@ -95,6 +97,16 @@ describe('accountant sidebar (unchanged from 0.10)', () => {
   it('inventory, payroll, TDS / TCS and cost centres off', async () => {
     features = { inventory: false, payroll: false, tds: false, tcs: false, costCentres: false, orders: false }
     await renderShell()
+    expect(sidebarShape()).toMatchSnapshot()
+  })
+
+  it('a pinned saved report joins Analysis as a dynamic entry (badge ◆)', async () => {
+    savedReports = [
+      { id: 5, name: 'Sales by party by month', model: null, problem: null, owner: null, pinned: true, createdAt: '', updatedAt: '' },
+      { id: 6, name: 'Not pinned', model: null, problem: null, owner: null, pinned: false, createdAt: '', updatedAt: '' }
+    ]
+    await renderShell()
+    await waitFor(() => expect(screen.getByTestId('nav-report-5')).toBeTruthy())
     expect(sidebarShape()).toMatchSnapshot()
   })
 })

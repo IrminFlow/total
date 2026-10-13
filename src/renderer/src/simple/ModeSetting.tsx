@@ -7,7 +7,7 @@ import { UI_MODES, type UiMode } from '@shared/simple/uiMode'
 
 /**
  * WP 8.1: Settings → "How Total looks" → the company's mode. Owner only (everyone in a company
- * without users) — `ui:set` refuses anyone else; others see the choice read-only. One plain line
+ * without users) — `ui:mode:set` refuses anyone else; others see the choice read-only. One plain line
  * explains each mode. Switching writes meta `ui` (audited) and the shell follows at once.
  */
 export function ModeSetting(): React.JSX.Element {

@@ -637,7 +637,7 @@ export const api = {
   /** WP 8.1: the company's mode (meta `ui`; missing = accountant). `set` is owner-only. */
   ui: {
     get: () => call<UiSettings>('ui:get'),
-    set: (patch: UiPatch) => call<UiSettings>('ui:set', patch)
+    set: (patch: UiPatch) => call<UiSettings>('ui:mode:set', patch)
   },
   company: {
     list: () => call<Registry>('company:list'),

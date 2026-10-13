@@ -65,6 +65,7 @@ export type Screen =
   | { name: 'masters'; tab?: 'ledgers' | 'groups' | 'items' | 'units' | 'types' | 'currencies' | 'godowns' | 'stock-groups' | 'price-lists' | 'party-rates' | 'schemes'; itemId?: number; parties?: boolean }
   // WP 8.1: a simple section's page (the simple shell's sidebar targets).
   | { name: 'simple-section'; section: SimpleSectionId }
+  | { name: 'simple-looks' }
   | { name: 'counter-billing' }
   // Books search results (⌘⇧F, or "See all" in the ⌘K palette): `q` is the query-language
   // string, `kind` the initially selected tab (omitted = all kinds).
@@ -88,7 +89,7 @@ export type Screen =
   | { name: 'itc04' }
   | { name: 'itc-reversal' }
   | { name: 'edocs'; tab?: 'documents' | 'self-invoices' }
-  | { name: 'registers' }
+  | { name: 'registers'; tab?: 'sales' | 'purchase' | 'items' }
   | { name: 'outstandings' }
   // WP 4.2: credit control, reminders, interest on overdue bills, collection reports.
   | { name: 'receivables'; tab?: 'control' | 'reminders' | 'interest' | 'collections' }

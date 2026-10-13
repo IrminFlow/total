@@ -48,10 +48,11 @@ export interface SimpleEntry {
   section?: SimpleSectionId
   /** Navigation target (default: the screen's default target). */
   screen?: Screen
-  /** A sub-heading inside the section: Reports → "For your CA", Settings → "Advanced". */
-  group?: 'forYourCa' | 'advanced'
-  /** Shown only while the company is GST-registered / the AI assistant is ready. */
-  needs?: 'gstRegistered' | 'aiReady'
+  /** A sub-heading inside the section: Reports → "For your CA". */
+  group?: 'forYourCa'
+  /** Shown only for a regular GST registration (not composition / unregistered) / while the AI
+   *  assistant is ready. */
+  needs?: 'gstRegular' | 'aiReady'
   /** Hidden when this feature is off (on top of the screen's own feature). */
   feature?: keyof CompanyFeatures
 }
@@ -60,11 +61,15 @@ export interface ScreenDef {
   name: Screen['name']
   /**
    * WP 8.1: the modes this screen belongs to. 'accountant' = today's sidebar / palette / Gateway
-   * (every 0.10 screen); 'simple' = it shows inside the simple shell (with an "Accountant view"
-   * toggle). A screen without 'simple' always opens in the accountant view, even from a simple
-   * entry (the plan's "A" tag), with a "Back to simple" button.
+   * (every 0.10 screen); 'simple' = it shows inside the simple shell, drawn by a component under
+   * src/renderer/src/simple/ (`simpleView`, so the i18n lints cover it). Until a screen has its
+   * Phase 9 simple flow it stays accountant-only: simple entries open it in the full app ("Full
+   * app" tag) with a "Back to simple" button.
    */
   modes: readonly UiMode[]
+  /** WP 8.1: the simple-mode component (a file under src/renderer/src/simple/, without .tsx);
+   *  required with 'simple' (simpleRegistry.test.ts). */
+  simpleView?: string
   /** WP 8.1: the simple section this screen belongs to (plan §2.3; required with 'simple'). */
   simpleSection?: SimpleSectionId
   /** WP 8.1: the plain-named entries simple sections list for this screen. */
@@ -95,7 +100,9 @@ export interface ScreenDef {
 export const SCREENS: ScreenDef[] = [
   {
     name: 'gateway',
+    // Simple view = simple/SimpleHome (WP 8.6 grows it); accountant view = the Gateway dashboard.
     modes: ['accountant', 'simple'],
+    simpleView: 'SimpleHome',
     simpleSection: 'home',
     title: 'Gateway',
     screen: { name: 'gateway' },
@@ -104,7 +111,7 @@ export const SCREENS: ScreenDef[] = [
   },
   {
     name: 'voucher-entry',
-    modes: ['accountant', 'simple'],
+    modes: ['accountant'],
     simpleSection: 'sell',
     simpleEntries: [
       { id: 'make-bill', label: 'simple.entries.makeBill', screen: { name: 'voucher-entry', kindHint: 'sales' } },
@@ -123,7 +130,7 @@ export const SCREENS: ScreenDef[] = [
   },
   {
     name: 'manufacture',
-    modes: ['accountant', 'simple'],
+    modes: ['accountant'],
     simpleSection: 'stock',
     simpleEntries: [
       { id: 'made-goods', label: 'simple.stock.madeGoods' }
@@ -138,7 +145,7 @@ export const SCREENS: ScreenDef[] = [
   // WP 2.6: POS-style counter sales (a normal sales invoice + its receipt).
   {
     name: 'counter-billing',
-    modes: ['accountant', 'simple'],
+    modes: ['accountant'],
     simpleSection: 'sell',
     simpleEntries: [
       { id: 'quick-bill', label: 'simple.entries.quickBill' }
@@ -153,7 +160,7 @@ export const SCREENS: ScreenDef[] = [
   },
   {
     name: 'daybook',
-    modes: ['accountant', 'simple'],
+    modes: ['accountant'],
     simpleSection: 'money',
     simpleEntries: [
       { id: 'all-entries', label: 'simple.entries.allEntries' }
@@ -166,12 +173,11 @@ export const SCREENS: ScreenDef[] = [
   },
   {
     name: 'masters',
-    modes: ['accountant', 'simple'],
+    modes: ['accountant'],
     simpleSection: 'people',
     simpleEntries: [
       { id: 'customers-suppliers', label: 'simple.entries.customersSuppliers', screen: { name: 'masters', tab: 'ledgers', parties: true } },
-      { id: 'product-list', label: 'simple.entries.productList', section: 'stock', screen: { name: 'masters', tab: 'items' }, feature: 'inventory' },
-      { id: 'accounts', label: 'simple.settings.accounts', section: 'settings', screen: { name: 'masters', tab: 'ledgers' }, group: 'advanced' }
+      { id: 'product-list', label: 'simple.entries.productList', section: 'stock', screen: { name: 'masters', tab: 'items' }, feature: 'inventory' }
     ],
     keywords: ['ledgers', 'items', 'groups', 'units', 'voucher types', 'currencies', 'godowns', 'stock groups'],
     title: 'Masters',
@@ -189,7 +195,7 @@ export const SCREENS: ScreenDef[] = [
   // WP 2.5c: quotations and orders (non-posting documents) with their pending reports.
   {
     name: 'quotations',
-    modes: ['accountant', 'simple'],
+    modes: ['accountant'],
     simpleSection: 'sell',
     simpleEntries: [
       { id: 'quotations', label: 'simple.entries.quotations' }
@@ -203,7 +209,7 @@ export const SCREENS: ScreenDef[] = [
   },
   {
     name: 'sales-orders',
-    modes: ['accountant', 'simple'],
+    modes: ['accountant'],
     simpleSection: 'sell',
     simpleEntries: [
       { id: 'customer-orders', label: 'simple.entries.customerOrders' }
@@ -217,7 +223,7 @@ export const SCREENS: ScreenDef[] = [
   },
   {
     name: 'purchase-orders',
-    modes: ['accountant', 'simple'],
+    modes: ['accountant'],
     simpleSection: 'buy',
     simpleEntries: [
       { id: 'supplier-orders', label: 'simple.entries.supplierOrders' }
@@ -231,7 +237,7 @@ export const SCREENS: ScreenDef[] = [
   },
   {
     name: 'trade-doc',
-    modes: ['accountant', 'simple'],
+    modes: ['accountant'],
     simpleSection: 'sell',
     title: 'Quotation / order',
     screen: null,
@@ -371,7 +377,7 @@ export const SCREENS: ScreenDef[] = [
   },
   {
     name: 'profit-loss',
-    modes: ['accountant', 'simple'],
+    modes: ['accountant'],
     simpleSection: 'reports',
     simpleEntries: [
       { id: 'how-am-i-doing', label: 'simple.reports.howAmIDoing' }
@@ -384,7 +390,7 @@ export const SCREENS: ScreenDef[] = [
   },
   {
     name: 'balance-sheet',
-    modes: ['accountant', 'simple'],
+    modes: ['accountant'],
     simpleSection: 'reports',
     simpleEntries: [
       { id: 'balance-sheet', label: 'simple.entries.balanceSheet', group: 'forYourCa' }
@@ -397,7 +403,7 @@ export const SCREENS: ScreenDef[] = [
   },
   {
     name: 'cash-flow',
-    modes: ['accountant', 'simple'],
+    modes: ['accountant'],
     simpleSection: 'reports',
     simpleEntries: [
       { id: 'cash-flow', label: 'simple.entries.cashFlow', group: 'forYourCa' }
@@ -410,7 +416,7 @@ export const SCREENS: ScreenDef[] = [
   },
   {
     name: 'stock-summary',
-    modes: ['accountant', 'simple'],
+    modes: ['accountant'],
     simpleSection: 'stock',
     simpleEntries: [
       { id: 'products', label: 'simple.entries.products' }
@@ -424,7 +430,7 @@ export const SCREENS: ScreenDef[] = [
   },
   {
     name: 'stock-movements',
-    modes: ['accountant', 'simple'],
+    modes: ['accountant'],
     simpleSection: 'stock',
     simpleEntries: [
       { id: 'stock-history', label: 'simple.entries.stockHistory' }
@@ -457,7 +463,7 @@ export const SCREENS: ScreenDef[] = [
   },
   {
     name: 'year-end',
-    modes: ['accountant', 'simple'],
+    modes: ['accountant'],
     simpleSection: 'home',
     title: 'Year-end close',
     screen: { name: 'year-end' },
@@ -467,12 +473,12 @@ export const SCREENS: ScreenDef[] = [
 
   {
     name: 'registers',
-    modes: ['accountant', 'simple'],
+    modes: ['accountant'],
     simpleSection: 'sell',
     simpleEntries: [
-      { id: 'sales-list', label: 'simple.entries.salesList' },
-      { id: 'purchase-list', label: 'simple.entries.purchaseList', section: 'buy' },
-      { id: 'by-month', label: 'simple.reports.byMonth', section: 'reports' }
+      { id: 'sales-list', label: 'simple.entries.salesList', screen: { name: 'registers', tab: 'sales' } },
+      { id: 'purchase-list', label: 'simple.entries.purchaseList', section: 'buy', screen: { name: 'registers', tab: 'purchase' } },
+      { id: 'by-month', label: 'simple.reports.byMonth', section: 'reports', screen: { name: 'registers', tab: 'sales' } }
     ],
     keywords: ['sales register', 'purchase register'],
     title: 'Registers',
@@ -482,7 +488,7 @@ export const SCREENS: ScreenDef[] = [
   },
   {
     name: 'outstandings',
-    modes: ['accountant', 'simple'],
+    modes: ['accountant'],
     simpleSection: 'people',
     simpleEntries: [
       { id: 'who-owes', label: 'simple.entries.whoOwes' },
@@ -497,7 +503,7 @@ export const SCREENS: ScreenDef[] = [
   // WP 4.2: receivables — credit control, reminder letters, interest, collection reports.
   {
     name: 'receivables',
-    modes: ['accountant', 'simple'],
+    modes: ['accountant'],
     simpleSection: 'people',
     simpleEntries: [
       { id: 'reminders', label: 'simple.entries.reminders' }
@@ -510,7 +516,7 @@ export const SCREENS: ScreenDef[] = [
   },
   {
     name: 'payables',
-    modes: ['accountant', 'simple'],
+    modes: ['accountant'],
     simpleSection: 'people',
     simpleEntries: [
       { id: 'bills-to-pay', label: 'simple.people.billsToPay' }
@@ -562,7 +568,7 @@ export const SCREENS: ScreenDef[] = [
   // WP 4.4: cash and finance.
   {
     name: 'cash-forecast',
-    modes: ['accountant', 'simple'],
+    modes: ['accountant'],
     simpleSection: 'reports',
     simpleEntries: [
       { id: 'cash-next-30', label: 'simple.reports.cashNext30' }
@@ -620,7 +626,7 @@ export const SCREENS: ScreenDef[] = [
   // hands a result to the assistant panel.
   {
     name: 'assistants',
-    modes: ['accountant', 'simple'],
+    modes: ['accountant'],
     simpleSection: 'home',
     title: 'Assistants',
     keywords: ['month end', 'close checklist', 'closing', 'gstr-2b mismatch', '2b', 'itc', 'anomalies', 'duplicates', 'unusual entries', 'fraud', 'report from a question', 'natural language report'],
@@ -630,7 +636,7 @@ export const SCREENS: ScreenDef[] = [
   },
   {
     name: 'exceptions',
-    modes: ['accountant', 'simple'],
+    modes: ['accountant'],
     simpleSection: 'home',
     keywords: ['exception reports', 'negative stock', 'unreconciled'],
     title: 'Exceptions',
@@ -641,7 +647,7 @@ export const SCREENS: ScreenDef[] = [
 
   {
     name: 'banking',
-    modes: ['accountant', 'simple'],
+    modes: ['accountant'],
     simpleSection: 'money',
     simpleEntries: [
       { id: 'bank', label: 'simple.entries.bank', screen: { name: 'banking', tab: 'import' } }
@@ -660,7 +666,7 @@ export const SCREENS: ScreenDef[] = [
   // WP 5.4: bills → purchase drafts, the capture queue and inbox folder.
   {
     name: 'capture',
-    modes: ['accountant', 'simple'],
+    modes: ['accountant'],
     simpleSection: 'buy',
     simpleEntries: [
       { id: 'snap-bill', label: 'simple.entries.snapBill', needs: 'aiReady' }
@@ -690,10 +696,10 @@ export const SCREENS: ScreenDef[] = [
 
   {
     name: 'gstr1',
-    modes: ['accountant', 'simple'],
+    modes: ['accountant'],
     simpleSection: 'taxes',
     simpleEntries: [
-      { id: 'gst-sales', label: 'simple.entries.gstSales', needs: 'gstRegistered' }
+      { id: 'gst-sales', label: 'simple.entries.gstSales', needs: 'gstRegular' }
     ],
     title: 'GSTR-1',
     screen: { name: 'gstr1' },
@@ -703,11 +709,11 @@ export const SCREENS: ScreenDef[] = [
   },
   {
     name: 'gstr3b',
-    modes: ['accountant', 'simple'],
+    modes: ['accountant'],
     simpleSection: 'taxes',
     simpleEntries: [
-      { id: 'gst-summary', label: 'simple.entries.gstToPay', needs: 'gstRegistered' },
-      { id: 'gst-summary-report', label: 'simple.reports.gstSummary', section: 'reports', needs: 'gstRegistered' }
+      { id: 'gst-summary', label: 'simple.entries.gstToPay', needs: 'gstRegular' },
+      { id: 'gst-summary-report', label: 'simple.reports.gstSummary', section: 'reports', needs: 'gstRegular' }
     ],
     title: 'GSTR-3B',
     screen: { name: 'gstr3b' },
@@ -744,10 +750,10 @@ export const SCREENS: ScreenDef[] = [
   },
   {
     name: 'gstr2b',
-    modes: ['accountant', 'simple'],
+    modes: ['accountant'],
     simpleSection: 'taxes',
     simpleEntries: [
-      { id: 'check-supplier-bills', label: 'simple.taxes.gst.step2', needs: 'gstRegistered' }
+      { id: 'check-supplier-bills', label: 'simple.taxes.gst.step2', needs: 'gstRegular' }
     ],
     keywords: ['reconciliation', 'itc'],
     title: 'GSTR-2B recon',
@@ -795,16 +801,14 @@ export const SCREENS: ScreenDef[] = [
 
   {
     name: 'settings',
-    modes: ['accountant', 'simple'],
+    modes: ['accountant'],
     simpleSection: 'settings',
     simpleEntries: [
       { id: 'bills-printing', label: 'simple.settings.billsPrinting', screen: { name: 'settings', tab: 'invoice' } },
       { id: 'backups', label: 'simple.settings.backups', screen: { name: 'settings', tab: 'backups' } },
       { id: 'people-roles', label: 'simple.settings.peopleRoles', screen: { name: 'settings', tab: 'users' } },
       { id: 'features', label: 'simple.settings.features', screen: { name: 'settings', tab: 'features' } },
-      { id: 'looks', label: 'simple.settings.looks', screen: { name: 'settings', tab: 'appearance' } },
-      { id: 'bin', label: 'simple.entries.bin', screen: { name: 'settings', tab: 'bin' }, group: 'advanced' },
-      { id: 'all-settings', label: 'simple.entries.allSettings', group: 'advanced' }
+      { id: 'advanced', label: 'simple.settings.advanced' }
     ],
     title: 'Settings',
     screen: { name: 'settings' },
@@ -821,9 +825,6 @@ export const SCREENS: ScreenDef[] = [
     name: 'audit-trail',
     modes: ['accountant'],
     simpleSection: 'settings',
-    simpleEntries: [
-      { id: 'change-history', label: 'simple.settings.changeHistory', group: 'advanced' }
-    ],
     title: 'Audit trail (edit log)',
     navLabel: 'Audit trail',
     keywords: ['edit log', 'audit log', 'rule 11(g)', 'mca', 'history', 'who changed', 'tamper', 'hash chain'],
@@ -834,11 +835,8 @@ export const SCREENS: ScreenDef[] = [
   // WP 6.3 — kept before "Import from Tally", which stays last in System.
   {
     name: 'data-import',
-    modes: ['accountant', 'simple'],
+    modes: ['accountant'],
     simpleSection: 'settings',
-    simpleEntries: [
-      { id: 'import-data', label: 'simple.entries.importData', group: 'advanced' }
-    ],
     title: 'Import from Excel, CSV, Busy or Zoho Books',
     navLabel: 'Import',
     keywords: ['excel', 'xlsx', 'csv', 'busy', 'zoho', 'opening balances', 'migrate', 'bulk import', 'undo import'],
@@ -848,10 +846,9 @@ export const SCREENS: ScreenDef[] = [
   },
   {
     name: 'data-export',
-    modes: ['accountant', 'simple'],
+    modes: ['accountant'],
     simpleSection: 'settings',
     simpleEntries: [
-      { id: 'export-books', label: 'simple.entries.exportBooks', group: 'advanced' },
       { id: 'ca-export', label: 'simple.entries.caExport', section: 'reports', group: 'forYourCa' }
     ],
     title: 'Export books to Excel',
@@ -863,11 +860,8 @@ export const SCREENS: ScreenDef[] = [
   },
   {
     name: 'import-tally',
-    modes: ['accountant', 'simple'],
+    modes: ['accountant'],
     simpleSection: 'settings',
-    simpleEntries: [
-      { id: 'tally', label: 'simple.entries.tally', group: 'advanced' }
-    ],
     title: 'Import from Tally',
     screen: { name: 'import-tally' },
     navSection: 'system',
@@ -878,7 +872,7 @@ export const SCREENS: ScreenDef[] = [
   // invalidation map still need them.
   {
     name: 'company-info',
-    modes: ['accountant', 'simple'],
+    modes: ['accountant'],
     simpleSection: 'settings',
     simpleEntries: [
       { id: 'business', label: 'simple.settings.business' }
@@ -891,7 +885,7 @@ export const SCREENS: ScreenDef[] = [
   },
   {
     name: 'stock-reports',
-    modes: ['accountant', 'simple'],
+    modes: ['accountant'],
     simpleSection: 'stock',
     simpleEntries: [
       { id: 'low-stock', label: 'simple.entries.lowStock', screen: { name: 'stock-reports', tab: 'reorder' } }
@@ -905,7 +899,7 @@ export const SCREENS: ScreenDef[] = [
   },
   {
     name: 'ledger-statement',
-    modes: ['accountant', 'simple'],
+    modes: ['accountant'],
     simpleSection: 'people',
     title: 'Ledger statement',
     screen: null, // needs a ledgerId — reached from ledger lists/search, never bare navigation
@@ -936,14 +930,27 @@ export const SCREENS: ScreenDef[] = [
   {
     name: 'simple-section',
     modes: ['simple'],
+    simpleView: 'SimpleSection',
     title: 'Simple section',
     screen: null, // needs its section
     navSection: null,
     invalidates: []
   },
+  // WP 8.1: Settings → How Total looks in the simple shell (mode, theme, density, language).
+  {
+    name: 'simple-looks',
+    modes: ['simple'],
+    simpleView: 'SimpleLooks',
+    simpleSection: 'settings',
+    simpleEntries: [{ id: 'looks', label: 'simple.settings.looks', screen: { name: 'simple-looks' } }],
+    title: 'How Total looks',
+    screen: null, // simple shell only (its accountant home is Settings → How Total looks)
+    navSection: null,
+    invalidates: []
+  },
   {
     name: 'search',
-    modes: ['accountant', 'simple'],
+    modes: ['accountant'],
     simpleSection: 'home',
     title: 'Search the books',
     keywords: ['find', 'search', 'lookup', 'all results'],
@@ -998,8 +1005,7 @@ export const SIMPLE_ENTRY_ORDER: readonly string[] = [
   // Taxes
   'gst-summary', 'gst-sales', 'check-supplier-bills', 'tds', 'tcs',
   // Settings (then Advanced)
-  'business', 'bills-printing', 'backups', 'people-roles', 'features', 'looks',
-  'accounts', 'change-history', 'import-data', 'export-books', 'tally', 'bin', 'all-settings'
+  'business', 'bills-printing', 'backups', 'people-roles', 'features', 'looks', 'advanced'
 ]
 
 export interface ResolvedSimpleEntry {

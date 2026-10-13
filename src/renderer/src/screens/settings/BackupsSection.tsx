@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { refreshUiFromMain } from '../../lib/mode'
 import { api, type BackupInfo, type IntegrityResult } from '../../lib/client'
 import { useSession, useToasts } from '../../state/stores'
 import { Button, Field, Modal, Panel, SectionTitle, TextInput } from '../../components/ui'
@@ -71,13 +72,8 @@ export function BackupsSection(): React.JSX.Element {
       setLocked(true)
     }
     await queryClient.invalidateQueries()
-    // WP 8.1: the restored books may carry another mode (meta `ui`) — company:current is ungated.
-    try {
-      const cur = await api.company.current()
-      if (cur) useSession.getState().setUi(cur.ui)
-    } catch {
-      /* keep the current mode; the next open reads it again */
-    }
+    // WP 8.1: the restored books may carry another mode (meta `ui`).
+    await refreshUiFromMain()
     toast.push('success', 'Backup restored')
     if (!result.integrity.ok) {
       setIntegrityWarning({

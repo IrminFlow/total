@@ -4,6 +4,7 @@ import { usePeriodPicker, useScreen, useSession, useTheme, useToasts, useNav } f
 import { Kbd } from '../components/ui'
 import { toDisplayDate } from '@shared/dates'
 import { ViewToggle } from './ViewToggle'
+import { AssistantButton } from '../components/ai/AssistantButton'
 
 const CHIP = 'rounded-md border border-line bg-panel2 px-2.5 py-1 text-small text-muted hover:border-amber/60 hover:text-ink'
 
@@ -58,6 +59,14 @@ export function SimpleHeader({ onOpenPalette }: { onOpenPalette: () => void }): 
         {toDisplayDate(from)} → {toDisplayDate(to)}
       </button>
       <ViewToggle screen={screen} className={CHIP} />
+      <AssistantButton
+        label={t('simple.shell.assistant')}
+        shortcut={t('simple.shell.assistantKey')}
+        title={t('simple.shell.assistantHint')}
+        openLabel={t('simple.shell.assistantOpen')}
+        closeLabel={t('simple.shell.assistantClose')}
+        className={CHIP}
+      />
       <button type="button" data-testid="btn-theme" className={CHIP} onClick={toggle} aria-label={t('simple.shell.themeHint', { theme })}>
         {t('simple.shell.theme', { theme })}
       </button>

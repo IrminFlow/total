@@ -1,5 +1,7 @@
 import type { Screen } from '../state/stores'
 import { useNav } from '../state/stores'
+import { useMode } from '../lib/mode'
+import { useT } from '../lib/i18n'
 import { TabBar } from '../components/TabBar'
 import { Page, PageHeader } from '../components/ui'
 import { BackupsSection } from './settings/BackupsSection'
@@ -39,6 +41,10 @@ const TABS: { id: SettingsTab | 'company'; label: string }[] = [
 export function Settings({ tab }: { tab?: SettingsTab }): React.JSX.Element {
   const nav = useNav()
   const active = tab ?? 'backups'
+  // WP 8.1: a simple company calls it what its simple Settings list does.
+  const simple = useMode() === 'simple'
+  const t = useT()
+  const tabs = simple ? TABS.map((x) => (x.id === 'company' ? { ...x, label: t('simple.settings.business') } : x)) : TABS
 
   return (
     <Page>
@@ -53,7 +59,7 @@ export function Settings({ tab }: { tab?: SettingsTab }): React.JSX.Element {
             screen="settings"
             vertical
             label="Settings sections"
-            tabs={TABS}
+            tabs={tabs}
             active={active}
             onSelect={(t) => {
               if (t === 'company') nav.go({ name: 'company-info' })

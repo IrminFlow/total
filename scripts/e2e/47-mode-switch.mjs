@@ -1,9 +1,10 @@
 // Scenario 47 — WP 8.1 company mode: a new company opens in the full (accountant) app; the owner
 // switches it to simple in Settings → How Total looks; the simple sidebar has ≤ 10 entries;
-// Settings opens through the simple shell; a mapped screen (People → Customers and suppliers =
-// the ledger list filtered to parties) opens inside the simple shell, and "Accountant view" shows
-// the same screen in the full shell with the same state, "Back to simple" returns; switching
-// back restores the identical accountant sidebar; another (accountant) company is unchanged.
+// Settings → How Total looks opens inside the simple shell; a mapped screen without its simple flow
+// yet (People → Customers and suppliers = the ledger list filtered to parties) opens in the full
+// app ("Full app" tag) with "Back to simple"; on Home, "Accountant view" shows the same screen
+// (the Gateway) in the full shell, is remembered, and "Back to simple" returns; switching back
+// restores the identical accountant sidebar; another (accountant) company is unchanged.
 // Light and dark screenshots of Home, every section and Settings for the visual review.
 import { scenario, assert, assertEq } from '../lib/harness.mjs'
 
@@ -59,42 +60,47 @@ await scenario('47-mode-switch', async (h) => {
       await h.shot(`${theme}-section-${s}`)
     }
     await h.click('simple-entry-looks')
-    await h.waitScreen('settings')
+    await h.waitScreen('simple-looks')
+    await attached('[data-testid="simple-nav"]')
     await h.shot(`${theme}-settings-looks`)
   }
   await tour('light')
 
-  // Settings opened through the simple shell stays in it.
+  // Simple Settings list: six entries and Advanced.
   await h.click('simple-nav-settings')
   await attached('[data-testid="simple-section-settings"]')
-  await h.click('simple-entry-business')
-  await h.waitScreen('company-info')
-  await attached('[data-testid="simple-nav"]')
+  assertSame(
+    await h.page.evaluate(() => [...document.querySelectorAll('[data-testid^="simple-entry-"]')].map((e) => e.getAttribute('data-testid'))),
+    ['business', 'bills-printing', 'backups', 'people-roles', 'features', 'looks', 'advanced'].map((i) => `simple-entry-${i}`),
+    'simple Settings list'
+  )
 
-  // A mapped screen: People → Customers and suppliers (ledgers filtered to parties).
+  // A mapped screen without its simple flow yet: People → Customers and suppliers opens the
+  // ledger list filtered to parties in the FULL app, with Back to simple.
   await h.click('simple-nav-people')
+  assert((await h.page.textContent('[data-testid="simple-entry-customers-suppliers"]'))?.includes('Full app'), 'tagged Full app')
   await h.click('simple-entry-customers-suppliers')
   await h.waitScreen('masters')
-  await attached('[data-testid="masters-ledgers-parties-only"]')
-  await attached('[data-testid="simple-nav"]')
-  await h.fill('masters-ledgers-filter', 'Ramesh')
-  await h.shot('light-mapped-screen')
-
-  // Accountant view: the full shell, the same screen and state.
-  await h.click('btn-accountant-view')
   await attached('nav[aria-label="Main"]')
   await absent('[data-testid="simple-nav"]')
-  await h.waitScreen('masters')
-  assertEq(await h.page.inputValue('[data-testid="masters-ledgers-filter"]'), 'Ramesh', 'filter kept across the view switch')
   await attached('[data-testid="masters-ledgers-parties-only"]')
-  await h.shot('light-accountant-view')
-  const remembered = await h.page.evaluate(() => Object.keys(localStorage).filter((k) => k.startsWith('total-view:') && k.endsWith(':masters')))
-  assertEq(remembered.length, 1, 'the accountant view is remembered for this screen')
-
-  // Back to simple.
+  await h.shot('light-mapped-screen')
   await h.click('btn-back-to-simple')
+  await attached('[data-testid="simple-section-people"]')
+
+  // Home: Accountant view = the same screen (Gateway) in the full shell, remembered for Home.
+  await h.click('simple-nav-home')
+  await attached('[data-testid="simple-home"]')
+  await h.click('btn-accountant-view')
+  await attached('nav[aria-label="Main"]')
+  await absent('[data-testid="simple-home"]')
+  await h.waitScreen('gateway')
+  await h.shot('light-accountant-view')
+  const remembered = await h.page.evaluate(() => Object.keys(localStorage).filter((k) => k.startsWith('total-view:') && k.endsWith(':gateway')))
+  assertEq(remembered.length, 1, 'the accountant view is remembered for Home')
+  await h.click('btn-back-to-simple')
+  await attached('[data-testid="simple-home"]')
   await attached('[data-testid="simple-nav"]')
-  assertEq(await h.page.inputValue('[data-testid="masters-ledgers-filter"]'), 'Ramesh', 'state kept going back')
 
   // Dark: the same tour.
   await h.click('btn-theme')

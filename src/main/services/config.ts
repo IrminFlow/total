@@ -172,14 +172,15 @@ export function getUi(db: DB): UiSettings {
 }
 
 /** Merges a patch into meta `ui` (owner-only at the IPC layer), audited as a company update with
- *  the whole before / after (`before` null while the key was missing). An unchanged value writes
- *  nothing. */
+ *  the whole before / after (`before` null while the key was missing). A patch that changes
+ *  nothing in effect writes nothing — including `{ mode: 'accountant' }` on a company with no `ui`
+ *  key, which already IS accountant. */
 export function setUi(db: DB, patch: unknown): UiSettings {
   const parsed = uiPatchSchema.parse(patch)
   const stored = readMeta(db, UI_META_KEY)
-  const before = getUi(db)
+  const before = normalizeUi(stored)
   const after = applyUiPatch(before, parsed)
-  if (stored !== null && JSON.stringify(normalizeUi(stored)) === JSON.stringify(after)) return after
+  if (JSON.stringify(before) === JSON.stringify(after)) return after
   db.transaction(() => {
     writeMeta(db, UI_META_KEY, after)
     writeAudit(db, 'company', 0, 'update', { ui: stored === null ? null : before }, { ui: after })

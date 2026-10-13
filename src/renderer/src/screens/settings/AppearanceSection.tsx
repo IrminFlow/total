@@ -1,11 +1,10 @@
 import { Checkbox, Panel, SectionTitle } from '../../components/ui'
 import { Segmented } from '../../components/kit/Segmented'
-import { useAppearance, useSession, useTheme, useToasts, type Density, type ThemePref } from '../../state/stores'
-import { LANGUAGES, type Language } from '@shared/i18n'
-import { api } from '../../lib/client'
-import { useCanSetMode } from '../../lib/mode'
+import { useAppearance, useTheme, type Density, type ThemePref } from '../../state/stores'
+import { LANGUAGES } from '@shared/i18n'
+import { useLanguageChoice } from '../../lib/mode'
 import { ModeSetting } from '../../simple/ModeSetting'
-import { useLanguage, useT } from '../../lib/i18n'
+import { useT } from '../../lib/i18n'
 
 const THEMES: { value: ThemePref; label: string }[] = [
   { value: 'light', label: 'Light' },
@@ -38,17 +37,8 @@ function Row({ title, hint, children }: { title: string; hint: string; children:
 export function AppearanceSection(): React.JSX.Element {
   const { pref, setPref } = useTheme()
   const { density, setDensity, reduceMotion, setReduceMotion } = useAppearance()
-  const [language, setUserLanguage] = useLanguage()
+  const { language, setLanguage, setsCompany: canSetCompany } = useLanguageChoice()
   const t = useT()
-  const canSetCompany = useCanSetMode()
-  const setUi = useSession((s) => s.setUi)
-  const slug = useSession((s) => s.slug)
-  const toast = useToasts()
-  const setLanguage = (lang: Language): void => {
-    setUserLanguage(lang)
-    if (!canSetCompany || !slug) return
-    api.ui.set({ language: lang }).then(setUi, (err: Error) => toast.push('error', err.message))
-  }
   const languages = LANGUAGES.map((value) => ({ value, label: t(`settings.language.${value}` as const) }))
   return (
     <div>

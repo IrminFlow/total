@@ -9,11 +9,15 @@ import { useNav, useSession } from '../state/stores'
 import { Shell } from '../components/Shell'
 import { SimpleSection } from '../simple/SimpleSection'
 import { ModeSetting } from '../simple/ModeSetting'
-import { useMode, useScreenView, viewOverrideKey } from '../lib/mode'
+import { refreshUiFromMain, useMode, useScreenView, viewOverrideKey } from '../lib/mode'
+import { RegistersScreen } from '../screens/Registers'
+import { Settings } from '../screens/Settings'
+import { screenOptionsKey } from '../components/ScreenOptions'
 import { DEFAULT_FEATURES } from '@shared/features'
 import type { UiSettings } from '@shared/simple/uiMode'
 
 const invoke = vi.fn()
+let currentUi: UiSettings | undefined
 const INFO = { name: 'Mode Co', stateCode: '27', gstin: null, gstRegistrationType: 'regular', address: '', booksFrom: 2026, email: null, phone: null, pan: null, tan: null }
 
 function withClient(ui: React.JSX.Element): React.JSX.Element {
@@ -43,22 +47,24 @@ beforeEach(() => {
   invoke.mockImplementation(async (channel: string, payload?: unknown) => {
     if (channel === 'config:features:get') return { ok: true, data: DEFAULT_FEATURES }
     if (channel === 'rb:list') return { ok: true, data: [] }
-    if (channel === 'ui:set') return { ok: true, data: { ...useSession.getState().ui, ...(payload as object) } }
+    if (channel === 'ui:mode:set') return { ok: true, data: { ...useSession.getState().ui, ...(payload as object) } }
+    if (channel === 'company:current') return { ok: true, data: currentUi === undefined ? null : { slug: 'mode-co', info: INFO, locked: false, ui: currentUi } }
     return { ok: false, error: `unmocked channel ${channel}` }
   })
   window.total = { platform: 'test', invoke } as unknown as typeof window.total
-  act(() => useNav.setState({ stack: [{ name: 'daybook' }] }))
+  currentUi = undefined
+  act(() => useNav.setState({ stack: [{ name: 'gateway' }] }))
 })
 afterEach(() => cleanup())
 
 describe('useMode and the per-screen override', () => {
   it('reads the company mode; the override is per company + screen + user', () => {
     setSession({ mode: 'simple' }, { id: 7, name: 'Asha', role: 'owner' })
-    const { result } = renderHook(() => ({ mode: useMode(), day: useScreenView('daybook'), pl: useScreenView('profit-loss') }))
+    const { result } = renderHook(() => ({ mode: useMode(), day: useScreenView('gateway'), pl: useScreenView('simple-looks') }))
     expect(result.current.mode).toBe('simple')
     expect(result.current.day.view).toBe('simple')
     act(() => result.current.day.setAccountantView(true))
-    expect(localStorage.getItem(viewOverrideKey('mode-co', 7, 'daybook'))).toBe('accountant')
+    expect(localStorage.getItem(viewOverrideKey('mode-co', 7, 'gateway'))).toBe('accountant')
     expect(result.current.day).toMatchObject({ view: 'accountant', override: true })
     expect(result.current.pl.view).toBe('simple')
     // Another user of the same company keeps their own choice.
@@ -67,17 +73,28 @@ describe('useMode and the per-screen override', () => {
     act(() => useSession.setState({ user: { id: 7, name: 'Asha', role: 'owner' } as never }))
     expect(result.current.day.view).toBe('accountant')
     act(() => result.current.day.setAccountantView(false))
-    expect(localStorage.getItem(viewOverrideKey('mode-co', 7, 'daybook'))).toBeNull()
+    expect(localStorage.getItem(viewOverrideKey('mode-co', 7, 'gateway'))).toBeNull()
     expect(result.current.day.view).toBe('simple')
   })
 
-  it('an accountant company ignores overrides; accountant-only screens never show simple', () => {
+  it('an accountant company shows everything in the full app; screens without a simple flow never show simple', () => {
     setSession({ mode: 'accountant' })
-    localStorage.setItem(viewOverrideKey('mode-co', null, 'daybook'), 'accountant')
-    const { result } = renderHook(() => ({ day: useScreenView('daybook'), tb: useScreenView('trial-balance') }))
-    expect(result.current.day.view).toBe('accountant')
+    const { result } = renderHook(() => ({ home: useScreenView('gateway'), day: useScreenView('daybook'), tb: useScreenView('trial-balance') }))
+    expect(result.current.home.view).toBe('accountant')
     act(() => useSession.setState({ ui: { mode: 'simple' } }))
+    expect(result.current.home.view).toBe('simple')
+    expect(result.current.day.view).toBe('accountant')
     expect(result.current.tb.view).toBe('accountant')
+  })
+
+  it('refreshUiFromMain: a restored simple backup flips the session; a pre-8.1 one brings accountant back', async () => {
+    setSession({ mode: 'accountant' })
+    currentUi = { mode: 'simple' }
+    await act(async () => refreshUiFromMain())
+    expect(useSession.getState().ui).toEqual({ mode: 'simple' })
+    currentUi = { mode: 'accountant' } // main's answer for a backup without the ui key
+    await act(async () => refreshUiFromMain())
+    expect(useSession.getState().ui).toEqual({ mode: 'accountant' })
   })
 })
 
@@ -89,8 +106,9 @@ describe('the simple shell', () => {
     const entries = nav.querySelectorAll('[data-testid^="simple-nav-"]')
     expect(entries.length).toBeLessThanOrEqual(10)
     expect(Array.from(entries).map((e) => e.textContent)).toEqual(['Home', 'Sell', 'Buy', 'Money', 'Stock', 'People', 'Reports', 'Taxes', 'Settings'])
-    expect(screen.getByTestId('simple-nav-money').getAttribute('aria-current')).toBe('page')
+    expect(screen.getByTestId('simple-nav-home').getAttribute('aria-current')).toBe('page')
     expect(screen.getByTestId('btn-search').textContent).toBe('Search ⌘K')
+    expect(screen.getByTestId('btn-assistant').textContent).toBe('Assistant ⌘J')
     expect(screen.queryByTestId('nav-gateway')).toBeNull()
 
     fireEvent.click(screen.getByTestId('counter'))
@@ -100,20 +118,30 @@ describe('the simple shell', () => {
     expect(await screen.findByTestId('nav-gateway')).toBeTruthy()
     expect(screen.queryByTestId('simple-nav')).toBeNull()
     expect(screen.getByTestId('counter').textContent).toBe('2')
-    expect(useNav.getState().stack.at(-1)).toEqual({ name: 'daybook' })
+    expect(useNav.getState().stack.at(-1)).toEqual({ name: 'gateway' })
 
     fireEvent.click(screen.getByTestId('btn-back-to-simple'))
     expect(await screen.findByTestId('simple-nav')).toBeTruthy()
     expect(screen.getByTestId('counter').textContent).toBe('2')
   })
 
-  it('an accountant-only screen opens in the full shell; Back to simple goes to its section', async () => {
+  it('a screen without its simple flow yet opens in the full shell; Back to simple goes to its section', async () => {
     setSession({ mode: 'simple' })
-    act(() => useNav.setState({ stack: [{ name: 'trial-balance' }] }))
+    act(() => useNav.setState({ stack: [{ name: 'daybook' }] }))
     render(withClient(<Shell onOpenPalette={() => {}}><div /></Shell>))
     expect(await screen.findByTestId('nav-gateway')).toBeTruthy()
+    expect(screen.queryByTestId('btn-accountant-view')).toBeNull()
     fireEvent.click(screen.getByTestId('btn-back-to-simple'))
-    await waitFor(() => expect(useNav.getState().stack.at(-1)).toEqual({ name: 'simple-section', section: 'reports' }))
+    await waitFor(() => expect(useNav.getState().stack.at(-1)).toEqual({ name: 'simple-section', section: 'money' }))
+  })
+
+  it('simple-only screens (How Total looks) stay in the simple shell with no Accountant view', async () => {
+    setSession({ mode: 'simple' })
+    act(() => useNav.setState({ stack: [{ name: 'simple-looks' }] }))
+    render(withClient(<Shell onOpenPalette={() => {}}><div /></Shell>))
+    expect(await screen.findByTestId('simple-nav')).toBeTruthy()
+    expect(screen.getByTestId('simple-nav-settings').getAttribute('aria-current')).toBe('page')
+    expect(screen.queryByTestId('btn-accountant-view')).toBeNull()
   })
 
   it('an accountant company shows no view toggle at all', async () => {
@@ -128,6 +156,7 @@ describe('the simple shell', () => {
     setSession({ mode: 'simple' })
     render(withClient(<SimpleSection section="people" />))
     await waitFor(() => expect(screen.getByTestId('simple-entry-customers-suppliers').textContent).toContain('Customers and suppliers'))
+    expect(screen.getByTestId('simple-entry-customers-suppliers').textContent).toContain('Full app')
     fireEvent.click(screen.getByTestId('simple-entry-customers-suppliers'))
     await waitFor(() => expect(useNav.getState().stack.at(-1)).toEqual({ name: 'masters', tab: 'ledgers', parties: true }))
     cleanup()
@@ -138,17 +167,67 @@ describe('the simple shell', () => {
     render(withClient(<SimpleSection section="taxes" />))
     await waitFor(() => expect(screen.getByTestId('simple-entry-tds')).toBeTruthy())
     expect(screen.queryByTestId('simple-entry-gst-summary')).toBeNull()
+    expect(screen.getByTestId('simple-taxes-unregistered')).toBeTruthy()
+  })
+
+  it('composition: no GSTR-1 / 3B / 2B entries, the composition note instead; nothing GST while details load', async () => {
+    setSession({ mode: 'simple' })
+    act(() => useSession.setState({ info: { ...INFO, gstRegistrationType: 'composition' } as never }))
+    render(withClient(<SimpleSection section="taxes" />))
+    await waitFor(() => expect(screen.getByTestId('simple-taxes-composition').textContent).toContain('CMP-08'))
+    for (const id of ['gst-summary', 'gst-sales', 'check-supplier-bills']) expect(screen.queryByTestId(`simple-entry-${id}`)).toBeNull()
+    cleanup()
+    render(withClient(<SimpleSection section="reports" />))
+    await waitFor(() => expect(screen.getByTestId('simple-entry-how-am-i-doing')).toBeTruthy())
+    expect(screen.queryByTestId('simple-entry-gst-summary-report')).toBeNull()
+    cleanup()
+    act(() => useSession.setState({ info: null }))
+    render(withClient(<SimpleSection section="taxes" />))
+    await waitFor(() => expect(screen.getByTestId('simple-entry-tds')).toBeTruthy())
+    expect(screen.queryByTestId('simple-entry-gst-summary')).toBeNull()
+  })
+
+  it('the simple Settings list: six entries and Advanced (the full Settings)', async () => {
+    setSession({ mode: 'simple' })
+    render(withClient(<SimpleSection section="settings" />))
+    await waitFor(() => expect(screen.getByTestId('simple-entry-advanced')).toBeTruthy())
+    const ids = Array.from(document.querySelectorAll('[data-testid^="simple-entry-"]')).map((e) => e.getAttribute('data-testid'))
+    expect(ids).toEqual(['business', 'bills-printing', 'backups', 'people-roles', 'features', 'looks', 'advanced'].map((i) => `simple-entry-${i}`))
+    fireEvent.click(screen.getByTestId('simple-entry-advanced'))
+    await waitFor(() => expect(useNav.getState().stack.at(-1)).toEqual({ name: 'settings' }))
+  })
+
+  it('Settings calls the company tab "Business details" in a simple company', () => {
+    setSession({ mode: 'simple' })
+    render(withClient(<Settings tab="appearance" />))
+    expect(screen.getByTestId('tab-settings-company').textContent).toBe('Business details')
+    cleanup()
+    setSession({ mode: 'accountant' })
+    render(withClient(<Settings tab="appearance" />))
+    expect(screen.getByTestId('tab-settings-company').textContent).toBe('Company details')
+  })
+})
+
+describe('Registers honours a requested tab (Purchase list)', () => {
+  it('opens the purchase register whatever was viewed last, and remembers it', async () => {
+    setSession({ mode: 'simple' })
+    localStorage.setItem(screenOptionsKey('mode-co', 'registers'), JSON.stringify({ tab: 'items' }))
+    render(withClient(<RegistersScreen tab="purchase" />))
+    await waitFor(() => expect(screen.getByTestId('tab-registers-purchase').getAttribute('aria-selected')).toBe('true'))
+    cleanup()
+    render(withClient(<RegistersScreen />))
+    await waitFor(() => expect(screen.getByTestId('tab-registers-purchase').getAttribute('aria-selected')).toBe('true'))
   })
 })
 
 describe('Settings → How Total looks → mode', () => {
-  it('the owner switches (ui:set) and the session follows', async () => {
+  it('the owner switches (ui:mode:set) and the session follows', async () => {
     setSession({ mode: 'accountant' }, { id: 1, name: 'Owner', role: 'owner' })
     render(withClient(<ModeSetting />))
     expect(screen.getByTestId('btn-mode-accountant').getAttribute('aria-checked')).toBe('true')
     fireEvent.click(screen.getByTestId('btn-mode-simple'))
     await waitFor(() => expect(useSession.getState().ui.mode).toBe('simple'))
-    expect(invoke).toHaveBeenCalledWith('ui:set', { mode: 'simple' })
+    expect(invoke).toHaveBeenCalledWith('ui:mode:set', { mode: 'simple' })
   })
 
   it('anyone but the owner sees it read-only', () => {
@@ -157,6 +236,6 @@ describe('Settings → How Total looks → mode', () => {
     expect((screen.getByTestId('btn-mode-simple') as HTMLButtonElement).disabled).toBe(true)
     expect(screen.getByText('Only the owner can change this.')).toBeTruthy()
     fireEvent.click(screen.getByTestId('btn-mode-simple'))
-    expect(invoke).not.toHaveBeenCalledWith('ui:set', expect.anything())
+    expect(invoke).not.toHaveBeenCalledWith('ui:mode:set', expect.anything())
   })
 })

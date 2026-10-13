@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { api } from '../lib/client'
 import { useNav, useSession, useToasts } from '../state/stores'
@@ -95,16 +95,24 @@ export const ITEM_PROFIT_COLUMNS = defineColumns<ItemProfitRow>([
   }
 ])
 
-type Tab = 'sales' | 'purchase' | 'items'
+export type RegistersTab = 'sales' | 'purchase' | 'items'
+type Tab = RegistersTab
 
 const TAB_LABELS: Record<Tab, string> = { sales: 'Sales', purchase: 'Purchase', items: 'Item profit' }
 
-export function RegistersScreen(): React.JSX.Element {
+export function RegistersScreen({ tab: requestedTab }: { tab?: Tab } = {}): React.JSX.Element {
   const { from, to } = useSession()
   const toast = useToasts()
   // The last register viewed is remembered per company (screen option); tabs stay in the header.
+  // WP 8.1: a link may ask for a tab ("Purchase list" → purchase); it becomes the remembered one.
   const opts = useScreenOptions('registers', { tab: 'sales' as Tab }, { tab: ['sales', 'purchase', 'items'] })
-  const tab = opts.options.tab
+  const [pending, setPending] = useState(requestedTab ?? null)
+  const tab = pending ?? opts.options.tab
+  useEffect(() => {
+    if (pending === null) return
+    if (opts.options.tab !== pending) opts.set('tab', pending)
+    setPending(null)
+  }, [pending, opts])
   const setTab = (t: Tab): void => opts.set('tab', t)
   const [busy, setBusy] = useState<'caPack' | 'tallyXml' | null>(null)
   const kind = tab === 'items' ? 'sales' : tab

@@ -9,7 +9,7 @@
 //   mode            WP 8.1: the company mode createCompanyUI / createDemoCompany leave the company
 //                   in — 'accountant' (default: e2e 01–45 run in the full app) or 'simple'
 //                   (constructor option, or per call). Accountant writes nothing (a missing `ui`
-//                   key means accountant); simple switches through ui:set and waits for the shell.
+//                   key means accountant); simple switches through ui:mode:set and waits for the shell.
 //   goto(name)      Expand the item's sidebar section if collapsed, click
 //                   [data-testid="nav-<name>"], then wait for
 //                   [data-screen="<name>"][data-loading="false"].
@@ -210,7 +210,7 @@ export class Harness {
   async setMode(mode) {
     const current = (await this.invoke('company:current'))?.ui?.mode ?? 'accountant'
     if (current === mode) return
-    // Through Settings → How Total looks, like the owner would (the session follows ui:set).
+    // Through Settings → How Total looks, like the owner would (the session follows ui:mode:set).
     if (current === 'simple') await this.click('simple-nav-settings')
     else await this.goto('settings')
     if (current === 'simple') await this.click('simple-entry-looks')

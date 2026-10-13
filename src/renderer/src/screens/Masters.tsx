@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react'
 import { useDeepLinkOpen } from '../lib/useDeepLinkOpen'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { TRADE_DOC_KINDS, type Currency, type Godown, type Ledger, type StockGroup, type StockItem, type TradeDocType, type Unit, type VoucherType } from '@shared/domain'
-import { descendantGroupIds, filterLedgers, type ChartGroupNode } from '@shared/chartOfAccounts'
+import { filterLedgers, isPartyLedger, partyGroupIds, type ChartGroupNode } from '@shared/chartOfAccounts'
 import { api } from '../lib/client'
 import { useNav, useSession, useToasts, type Screen } from '../state/stores'
 import { AmountInput, Button, Checkbox, DrawerSection, EmptyState, Field, Modal, Page, PageActions, PageHeader, Panel, Select, TextInput } from '../components/ui'
@@ -219,9 +219,6 @@ export const LEDGER_COLUMNS = defineColumns<LedgerRow>([
 
 const LEDGER_VIEW_DEFAULTS = { sort: [{ id: 'name', dir: 'asc' as const }] }
 
-/** Groups whose ledgers are parties (customers / suppliers) — the WP 8.1 `parties` filter. */
-const PARTY_GROUPS = ['Sundry Debtors', 'Sundry Creditors']
-
 function LedgersTab({ partiesOnly: partiesInitially = false }: { partiesOnly?: boolean }): React.JSX.Element {
   const allLedgers = useLedgers()
   const groups = useGroups()
@@ -230,9 +227,8 @@ function LedgersTab({ partiesOnly: partiesInitially = false }: { partiesOnly?: b
   const [partiesOnly, setPartiesOnly] = useState(partiesInitially)
   const ledgers = useMemo(() => {
     if (!partiesOnly) return allLedgers
-    const ids = new Set<number>()
-    for (const g of groups) if (PARTY_GROUPS.includes(g.name)) for (const id of descendantGroupIds(groups, g.id)) ids.add(id)
-    return allLedgers.filter((l) => ids.has(l.groupId))
+    const ids = partyGroupIds(groups)
+    return allLedgers.filter((l) => isPartyLedger(l, groups, ids))
   }, [allLedgers, groups, partiesOnly])
   const [filter, setFilter] = useState('')
   const [groupFilter, setGroupFilter] = useState<number | null>(null)

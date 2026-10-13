@@ -5,12 +5,19 @@
 // screen; that choice is remembered PER SCREEN, PER USER, PER COMPANY in localStorage
 // (`total-view:<slug>:<userId|->:<screen>` = 'accountant') — a display preference, never in the
 // books. The full screen's "Back to simple" clears it.
+//
+// Users: while a company has no users the key's user part is '-'. When users are created later
+// those '-' choices are deliberately NOT carried over to anyone — each signed-in user starts from
+// the company's mode and makes their own choices (a display preference; nothing to migrate).
 
 import { useCallback } from 'react'
 import { create } from 'zustand'
 import type { UiMode } from '@shared/simple/uiMode'
+import type { Language } from '@shared/i18n'
+import { api } from './client'
+import { useLanguage } from './i18n'
 import { screenView } from './screens'
-import { useSession, type Screen } from '../state/stores'
+import { useSession, useToasts, type Screen } from '../state/stores'
 
 export const VIEW_KEY = 'total-view'
 
@@ -37,7 +44,7 @@ export function useMode(): UiMode {
 }
 
 /** Whether the signed-in user may change the company's mode: the owner, or anyone in a company
- *  without users (the `ui:set` gate). */
+ *  without users (the `ui:mode:set` gate). */
 export function useCanSetMode(): boolean {
   const user = useSession((s) => s.user)
   return !user || user.role === 'owner'
@@ -74,4 +81,35 @@ export function useScreenView(name: Screen['name']): ScreenViewState {
     [slug, userId, name]
   )
   return { view: screenView(companyMode, name, override), companyMode, override, setAccountantView }
+}
+
+/**
+ * The language control (Settings → How Total looks, both shells): the user's own display
+ * language, and — for the owner (anyone in a company without users) — also the company language
+ * in meta `ui.language`, which `companyT` uses for what main prints.
+ */
+export function useLanguageChoice(): { language: Language; setLanguage: (lang: Language) => void; setsCompany: boolean } {
+  const [language, setUserLanguage] = useLanguage()
+  const setsCompany = useCanSetMode()
+  const slug = useSession((s) => s.slug)
+  const setUi = useSession((s) => s.setUi)
+  const toast = useToasts()
+  const setLanguage = (lang: Language): void => {
+    setUserLanguage(lang)
+    if (!setsCompany || !slug) return
+    api.ui.set({ language: lang }).then(setUi, (err: Error) => toast.push('error', err.message))
+  }
+  return { language, setLanguage, setsCompany }
+}
+
+/** Re-reads the open company's mode from main into the session (after a backup restore, which can
+ *  bring back books in another mode — or a pre-8.1 backup with no `ui` key, i.e. accountant).
+ *  `company:current` is ungated, so this works on a restore that locks the company too. */
+export async function refreshUiFromMain(): Promise<void> {
+  try {
+    const cur = await api.company.current()
+    if (cur) useSession.getState().setUi(cur.ui)
+  } catch {
+    /* keep the current mode; the next open reads it again */
+  }
 }

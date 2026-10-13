@@ -36,7 +36,7 @@ export const AUDIT_COVERAGE: Record<string, AuditCoverage> = {
   'company:revealExports': r('opens the exports folder in Finder'),
   // WP 8.1: the company mode (meta `ui`).
   'ui:get': QUERY,
-  'ui:set': a('company'),
+  'ui:mode:set': a('company'),
   'app:info': QUERY,
   'log:renderer': r('writes the app log file (outside the books)'),
   'log:reveal': r('opens the logs folder'),

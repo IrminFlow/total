@@ -7,6 +7,7 @@ import { Shell } from './components/Shell'
 import { Gateway } from './screens/Gateway'
 import { SimpleHome } from './simple/SimpleHome'
 import { SimpleSection } from './simple/SimpleSection'
+import { SimpleLooks } from './simple/SimpleLooks'
 import { useScreenView } from './lib/mode'
 import { DayBook } from './screens/DayBook'
 import { ImportTallyScreen } from './screens/ImportTally'
@@ -172,6 +173,7 @@ export default function App(): React.JSX.Element {
         <ErrorBoundary key={screen.name} screen={screen.name}>
           {screen.name === 'gateway' && (simpleView ? <SimpleHome /> : <Gateway />)}
           {screen.name === 'simple-section' && <SimpleSection key={screen.section} section={screen.section} />}
+          {screen.name === 'simple-looks' && <SimpleLooks />}
           {screen.name === 'daybook' && <DayBook month={screen.month} kind={screen.kind} />}
           {screen.name === 'import-tally' && <ImportTallyScreen />}
           {screen.name === 'data-import' && <ImportWizardScreen />}
@@ -219,7 +221,7 @@ export default function App(): React.JSX.Element {
           {screen.name === 'gstr9' && <Gstr9Screen />}
           {screen.name === 'itc04' && <Itc04Screen />}
           {screen.name === 'itc-reversal' && <ItcReversalScreen />}
-          {screen.name === 'registers' && <RegistersScreen />}
+          {screen.name === 'registers' && <RegistersScreen key={screen.tab ?? 'last'} tab={screen.tab} />}
           {screen.name === 'outstandings' && <OutstandingsScreen />}
           {screen.name === 'receivables' && <ReceivablesScreen key={screen.tab ?? 'control'} tab={screen.tab} />}
           {screen.name === 'payables' && <PayablesScreen key={screen.tab ?? 'plan'} tab={screen.tab} />}

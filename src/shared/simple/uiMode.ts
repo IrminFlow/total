@@ -2,7 +2,7 @@
 //
 // Company meta `ui` = { mode, setup?, startedFresh?, language? }. **A missing (or unreadable)
 // `ui` key means accountant** — that one rule covers every existing company and every backup,
-// so nothing about them changes until the owner switches. Only the owner writes it (`ui:set`,
+// so nothing about them changes until the owner switches. Only the owner writes it (`ui:mode:set`,
 // audited as a company update); setup (WP 8.3) fills `setup` / `startedFresh`; Settings →
 // "How Total looks" writes `mode` and `language` (the company language `companyT` reads).
 import { z } from 'zod'
@@ -32,7 +32,7 @@ export const uiSettingsSchema = z.object({
 })
 export type UiSettings = z.infer<typeof uiSettingsSchema>
 
-/** `ui:set` payload: the fields to change (merged over what is stored). */
+/** `ui:mode:set` payload: the fields to change (merged over what is stored). */
 export const uiPatchSchema = uiSettingsSchema.partial().strict()
 export type UiPatch = z.infer<typeof uiPatchSchema>
 

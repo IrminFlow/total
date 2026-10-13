@@ -97,7 +97,7 @@ import { appSecretStore } from './services/secretStore'
 import type { AiEvent } from '@shared/ai'
 import { registerReceivablesIpc } from './ipcReceivables'
 import { creditOverrideSchema } from '@shared/receivables/schemas'
-import { UI_MODES } from '@shared/simple/uiMode'
+import { UI_MODES, uiPatchSchema } from '@shared/simple/uiMode'
 import { registerPayablesIpc } from './ipcPayables'
 import { registerBankingIpc } from './ipcBanking'
 import { registerCashFinanceIpc } from './ipcCashFinance'
@@ -501,10 +501,10 @@ export function registerIpc(): void {
   )
 
   // ---------- company mode (WP 8.1): meta `ui` — simple / accountant, setup answers, language ----------
-  // Read with the open payload too; `ui:get` refreshes it (after a restore, say). Owner-only to
+  // Read with the open payload too; `ui:get` refreshes it. `ui:mode:set` (plan §6) is owner-only to
   // change (everyone in a company without users), audited as a company update.
   handle('ui:get', () => configSvc.getUi(requireCompany().db), 'viewer')
-  handle('ui:set', (payload) => configSvc.setUi(requireCompany().db, payload), 'owner')
+  handle('ui:mode:set', (payload) => configSvc.setUi(requireCompany().db, uiPatchSchema.parse(payload)), 'owner')
 
   handle('company:updateInfo', (payload) => {
     const c = requireCompany()

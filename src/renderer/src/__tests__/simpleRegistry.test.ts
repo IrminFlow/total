@@ -2,6 +2,8 @@
 // modes; every simple-mode screen has a simple section; the simple entries carry linted i18n
 // keys and a place in SIMPLE_ENTRY_ORDER; the simple sidebar stays ≤ 10 entries; screenView
 // applies the "accountant company / accountant-only screen / per-screen override" rules.
+import { existsSync } from 'fs'
+import { resolve } from 'path'
 import { describe, expect, it } from 'vitest'
 import { en } from '@shared/i18n'
 import { SIMPLE_SECTION_IDS } from '@shared/simple/uiMode'
@@ -11,7 +13,7 @@ describe('screen registry modes (WP 8.1)', () => {
   it('every screen declares its modes; every 0.10 screen is an accountant screen', () => {
     for (const s of SCREENS) {
       expect(s.modes.length, s.name).toBeGreaterThan(0)
-      if (s.name !== 'simple-section') expect(s.modes, s.name).toContain('accountant')
+      if (s.name !== 'simple-section' && s.name !== 'simple-looks') expect(s.modes, s.name).toContain('accountant')
     }
   })
 
@@ -20,6 +22,28 @@ describe('screen registry modes (WP 8.1)', () => {
       expect(s.simpleSection, s.name).toBeDefined()
       expect(SIMPLE_SECTION_IDS).toContain(s.simpleSection)
     }
+  })
+
+  it('every simple-mode screen is drawn by a component under src/renderer/src/simple/ (so the i18n lints cover it)', () => {
+    const simple = SCREENS.filter((d) => d.modes.includes('simple'))
+    expect(simple.map((d) => d.name).sort()).toEqual(['gateway', 'simple-looks', 'simple-section'])
+    for (const d of simple) {
+      expect(d.simpleView, d.name).toMatch(/^[A-Z]\w+$/)
+      expect(existsSync(resolve(__dirname, '../simple', `${d.simpleView}.tsx`)), d.name).toBe(true)
+    }
+  })
+
+  it('Registers entries ask for their tab', () => {
+    const tab = (id: string): unknown => SIMPLE_ENTRIES.find((e) => e.id === id)?.screen
+    expect(tab('sales-list')).toEqual({ name: 'registers', tab: 'sales' })
+    expect(tab('purchase-list')).toEqual({ name: 'registers', tab: 'purchase' })
+    expect(tab('by-month')).toEqual({ name: 'registers', tab: 'sales' })
+  })
+
+  it('the simple Settings list: business details … how Total looks, then Advanced (the full Settings)', () => {
+    expect(simpleEntriesOf('settings').map((e) => e.id)).toEqual(['business', 'bills-printing', 'backups', 'people-roles', 'features', 'looks', 'advanced'])
+    expect(simpleEntriesOf('settings').find((e) => e.id === 'looks')?.screen).toEqual({ name: 'simple-looks' })
+    expect(simpleEntriesOf('settings').find((e) => e.id === 'advanced')?.screen).toEqual({ name: 'settings' })
   })
 
   it('the accountant sidebar lists only accountant screens, and every one of them', () => {
@@ -54,9 +78,10 @@ describe('screen registry modes (WP 8.1)', () => {
   })
 
   it('screenView: accountant company → accountant; accountant-only screen → accountant; override → accountant', () => {
-    expect(screenView('accountant', 'daybook', false)).toBe('accountant')
-    expect(screenView('simple', 'daybook', false)).toBe('simple')
-    expect(screenView('simple', 'daybook', true)).toBe('accountant')
+    expect(screenView('accountant', 'gateway', false)).toBe('accountant')
+    expect(screenView('simple', 'gateway', false)).toBe('simple')
+    expect(screenView('simple', 'gateway', true)).toBe('accountant')
+    expect(screenView('simple', 'daybook', false)).toBe('accountant')
     expect(screenView('simple', 'trial-balance', false)).toBe('accountant')
     expect(screenView('simple', 'simple-section', false)).toBe('simple')
     expect(simpleSectionOf({ name: 'simple-section', section: 'buy' })).toBe('buy')

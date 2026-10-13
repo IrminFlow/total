@@ -17,7 +17,8 @@ import { useNavSections } from '../lib/navSections'
 import { useDynamicNav } from '../lib/dynamicNav'
 // Registers the pinned-saved-reports source (WP 6.1) before the first render.
 import '../lib/pinnedReports'
-import { AssistantPanel, useAssistantPanel } from './ai/AssistantPanel'
+import { AssistantPanel } from './ai/AssistantPanel'
+import { AssistantButton } from './ai/AssistantButton'
 
 /** Sidebar derived from the single screen registry (lib/screens.ts) — accountant-mode screens. */
 const NAV = ACCOUNTANT_NAV
@@ -35,8 +36,6 @@ export function Shell({ children, onOpenPalette }: { children: ReactNode; onOpen
   const features = useFeatures()
   const sections = useNavSections(screen.name)
   const dynamicNav = useDynamicNav()
-  const toggleAssistant = useAssistantPanel((s) => s.toggle)
-  const assistantOpen = useAssistantPanel((s) => s.open)
   const t = useT()
   // WP 8.1: a simple company shows its simple screens in the simple shell (header + sidebar);
   // <main> stays in place, so switching a screen's view keeps the screen (and its state) mounted.
@@ -93,19 +92,14 @@ export function Shell({ children, onOpenPalette }: { children: ReactNode; onOpen
         >
           {toDisplayDate(from)} → {toDisplayDate(to)}
         </button>
-        <button
-          type="button"
-          data-testid="btn-assistant"
-          className="rounded-md border border-line bg-panel2 px-2.5 py-1 text-small text-muted hover:border-amber/60 hover:text-ink"
-          onClick={toggleAssistant}
+        <AssistantButton
+          label="Assistant"
+          shortcut="⌘J"
           title="Ask about your books (optional; off until turned on in Settings → AI)"
-          aria-label={assistantOpen ? 'Close the assistant (⌘J)' : 'Open the assistant (⌘J)'}
-          aria-pressed={assistantOpen}
-        >
-          <span className="flex items-center gap-2">
-            Assistant <Kbd>⌘J</Kbd>
-          </span>
-        </button>
+          openLabel="Open the assistant (⌘J)"
+          closeLabel="Close the assistant (⌘J)"
+          className={HEADER_CHIP}
+        />
         <button
           type="button"
           data-testid="btn-theme"
