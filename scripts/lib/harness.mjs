@@ -6,6 +6,10 @@
 //                   TOTAL_SUPPRESS_SYNC_WARNING=1, one retry, viewport 1440x900, waits for
 //                   window.total.
 //   invoke(ch, p)   window.total.invoke — throws on { ok: false }.
+//   mode            WP 8.1: the company mode createCompanyUI / createDemoCompany leave the company
+//                   in — 'accountant' (default: e2e 01–45 run in the full app) or 'simple'
+//                   (constructor option, or per call). Accountant writes nothing (a missing `ui`
+//                   key means accountant); simple switches through ui:mode:set and waits for the shell.
 //   goto(name)      Expand the item's sidebar section if collapsed, click
 //                   [data-testid="nav-<name>"], then wait for
 //                   [data-screen="<name>"][data-loading="false"].
@@ -35,9 +39,11 @@ const CONSOLE_IGNORE = [
 ]
 
 export class Harness {
-  /** @param {{ dataDir?: string, outDir?: string, appDir?: string }} [opts] */
+  /** @param {{ dataDir?: string, outDir?: string, appDir?: string, mode?: 'accountant'|'simple' }} [opts] */
   constructor(opts = {}) {
     this.appDir = opts.appDir ?? process.cwd()
+    /** WP 8.1: the mode new companies are put in (see the header). */
+    this.mode = opts.mode ?? 'accountant'
     this.dataDir = opts.dataDir ?? fs.mkdtempSync(path.join(os.tmpdir(), 'total-e2e-'))
     this.outDir = opts.outDir ?? process.env.SMOKE_OUT ?? path.join(os.tmpdir(), 'total-e2e-out')
     fs.mkdirSync(this.dataDir, { recursive: true })
@@ -181,23 +187,43 @@ export class Harness {
   }
 
   /** From company-select: create a fresh (unregistered, default-state) company via the UI
-   *  and land on the Gateway. `opts.gstin` registers it (Regular) — WP 8.0: only a regular
-   *  registration may charge GST, so scenarios that post tax lines pass one. */
+   *  and land on the Gateway, in `mode` (default the harness mode, 'accountant'). `opts.gstin`
+   *  registers it (Regular) — WP 8.0: only a regular registration may charge GST, so scenarios
+   *  that post tax lines pass one. */
   async createCompanyUI(name, timeout = 30000, opts = {}) {
     if (typeof timeout === 'object') [opts, timeout] = [timeout, 30000]
+    const mode = opts.mode ?? this.mode
     await this.waitScreen('company-select')
     await this.click('btn-company-create')
     await this.fill('input-company-name', name)
     if (opts.gstin) await this.fill('input-company-gstin', opts.gstin)
     await this.click('btn-company-save')
     await this.waitScreen('gateway', timeout)
+    await this.setMode(mode)
   }
 
   /** From company-select: build the Demo Traders sample company and land on the Gateway. */
-  async createDemoCompany(timeout = 60000) {
+  async createDemoCompany(timeout = 60000, { mode = this.mode } = {}) {
     await this.waitScreen('company-select')
     await this.clickText('Explore with sample data')
     await this.waitScreen('gateway', timeout)
+    await this.setMode(mode)
+  }
+
+  /** WP 8.1: put the open company in `mode`. Accountant is what a company without `ui` meta
+   *  already is, so it writes nothing (no audit row) unless the company says otherwise. */
+  async setMode(mode) {
+    const current = (await this.invoke('company:current'))?.ui?.mode ?? 'accountant'
+    if (current === mode) return
+    // Through Settings → How Total looks, like the owner would (the session follows ui:mode:set).
+    if (current === 'simple') await this.click('simple-nav-settings')
+    else await this.goto('settings')
+    if (current === 'simple') await this.click('simple-entry-looks')
+    else await this.click('tab-settings-appearance')
+    await this.click(`btn-mode-${mode}`)
+    await this.page.waitForSelector(mode === 'simple' ? '[data-testid="simple-nav"]' : 'nav[aria-label="Main"]', { state: 'attached', timeout: 10000 })
+    await this.click(mode === 'simple' ? 'simple-nav-home' : 'nav-gateway')
+    await this.waitScreen('gateway')
   }
 
   /** Screenshot into the out dir; auto-numbered unless a name is given. */

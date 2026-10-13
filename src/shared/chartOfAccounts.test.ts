@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
-  allGroupIds, buildChartOfAccounts, descendantGroupIds, filterChartTree, filterLedgers, groupChains, ledgerMatches,
+  allGroupIds, buildChartOfAccounts, descendantGroupIds, filterChartTree, filterLedgers, groupChains, isPartyLedger, ledgerMatches,
+  partyGroupIds, partyGroupRole,
   type ChartGroupInput, type ChartGroupNode, type ChartLedgerInput
 } from './chartOfAccounts'
 
@@ -123,5 +124,27 @@ describe('ledger filter (Ledgers tab)', () => {
     expect(filterLedgers(LEDGERS, GROUPS, '', 4).map((l) => l.name)).toEqual(['Acme Traders', 'Walk-in Customer'])
     expect(filterLedgers(LEDGERS, GROUPS, 'walk', 3).map((l) => l.name)).toEqual(['Walk-in Customer'])
     expect(filterLedgers(LEDGERS, GROUPS, 'local', 1).map((l) => l.name)).toEqual(['Local Sale'])
+  })
+})
+
+describe('isPartyLedger (WP 8.1)', () => {
+  const groups = [
+    { id: 1, name: 'Current Assets', parentId: null, nature: 'asset' },
+    { id: 2, name: 'Sundry Debtors', parentId: 1, nature: 'asset' },
+    { id: 3, name: 'Mumbai customers', parentId: 2, nature: 'asset' },
+    { id: 4, name: 'Current Liabilities', parentId: null, nature: 'liability' },
+    { id: 5, name: '  trade   PAYABLES ', parentId: 4, nature: 'liability' },
+    { id: 6, name: 'Bank Accounts', parentId: 1, nature: 'asset' },
+    { id: 7, name: 'Creditors', parentId: null, nature: 'expense' }
+  ]
+  it('roots by name and nature; children whatever their names', () => {
+    expect(partyGroupRole(groups[1]!)).toBe('debtor')
+    expect(partyGroupRole(groups[4]!)).toBe('creditor')
+    expect(partyGroupRole(groups[6]!)).toBeNull()
+    expect([...partyGroupIds(groups)].sort()).toEqual([2, 3, 5])
+    expect(isPartyLedger({ groupId: 3 }, groups)).toBe(true)
+    expect(isPartyLedger({ groupId: 5 }, groups)).toBe(true)
+    expect(isPartyLedger({ groupId: 6 }, groups)).toBe(false)
+    expect(isPartyLedger({ groupId: 7 }, groups)).toBe(false)
   })
 })

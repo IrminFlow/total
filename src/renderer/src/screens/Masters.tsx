@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react'
 import { useDeepLinkOpen } from '../lib/useDeepLinkOpen'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { TRADE_DOC_KINDS, type Currency, type Godown, type Ledger, type StockGroup, type StockItem, type TradeDocType, type Unit, type VoucherType } from '@shared/domain'
-import { filterLedgers, type ChartGroupNode } from '@shared/chartOfAccounts'
+import { filterLedgers, isPartyLedger, partyGroupIds, type ChartGroupNode } from '@shared/chartOfAccounts'
 import { api } from '../lib/client'
 import { useNav, useSession, useToasts, type Screen } from '../state/stores'
 import { AmountInput, Button, Checkbox, DrawerSection, EmptyState, Field, Modal, Page, PageActions, PageHeader, Panel, Select, TextInput } from '../components/ui'
@@ -44,7 +44,7 @@ const TABS: { id: MastersTab; label: string }[] = [
 ]
 const PRICING_TABS: readonly MastersTab[] = ['price-lists', 'party-rates', 'schemes']
 
-export function Masters({ tab, itemId }: { tab?: MastersTab; itemId?: number }): React.JSX.Element {
+export function Masters({ tab, itemId, parties }: { tab?: MastersTab; itemId?: number; parties?: boolean }): React.JSX.Element {
   const nav = useNav()
   const features = useFeatures()
   const tabs = features.inventory ? TABS : TABS.filter((t) => !PRICING_TABS.includes(t.id))
@@ -76,7 +76,7 @@ export function Masters({ tab, itemId }: { tab?: MastersTab; itemId?: number }):
           )
         }}
       />
-      {active === 'ledgers' && <LedgersTab />}
+      {active === 'ledgers' && <LedgersTab partiesOnly={parties === true} />}
       {active === 'groups' && <GroupsTab />}
       {active === 'items' && <ItemsTab openItemId={itemId} />}
       {active === 'stock-groups' && <StockGroupsTab />}
@@ -220,10 +220,17 @@ export const LEDGER_COLUMNS = defineColumns<LedgerRow>([
 
 const LEDGER_VIEW_DEFAULTS = { sort: [{ id: 'name', dir: 'asc' as const }] }
 
-function LedgersTab(): React.JSX.Element {
-  const ledgers = useLedgers()
+function LedgersTab({ partiesOnly: partiesInitially = false }: { partiesOnly?: boolean }): React.JSX.Element {
+  const allLedgers = useLedgers()
   const groups = useGroups()
   const nav = useNav()
+  // WP 8.1: opened from the simple "Customers and suppliers" entry — parties only, until cleared.
+  const [partiesOnly, setPartiesOnly] = useState(partiesInitially)
+  const ledgers = useMemo(() => {
+    if (!partiesOnly) return allLedgers
+    const ids = partyGroupIds(groups)
+    return allLedgers.filter((l) => isPartyLedger(l, groups, ids))
+  }, [allLedgers, groups, partiesOnly])
   const [filter, setFilter] = useState('')
   const [groupFilter, setGroupFilter] = useState<number | null>(null)
   const [editing, setEditing] = useState<Ledger | 'new' | null>(null)
@@ -305,6 +312,17 @@ function LedgersTab(): React.JSX.Element {
                   ))}
                 </Select>
               </div>
+              {partiesOnly && (
+                <button
+                  type="button"
+                  className="shrink-0 rounded-md border border-line bg-panel2 px-2 py-0.5 text-small text-muted hover:text-ink"
+                  onClick={() => setPartiesOnly(false)}
+                  data-testid="masters-ledgers-parties-only"
+                  aria-label="Showing customers and suppliers only — show every ledger"
+                >
+                  Customers and suppliers only ×
+                </button>
+              )}
             </>
           }
           onRowActivate={(l) => nav.go({ name: 'ledger-statement', ledgerId: l.id })}

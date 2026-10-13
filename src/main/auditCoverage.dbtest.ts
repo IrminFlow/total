@@ -180,6 +180,9 @@ describe('write channels really write their mapped entities (driven through IPC)
 
     await expectLogged('company:lock:set', { date: '2025-04-01' })
     await expectLogged('config:features:set', await ok('config:features:get'))
+    // WP 8.1 company mode (meta `ui`).
+    await expectLogged('ui:mode:set', { mode: 'simple' })
+    await expectLogged('ui:mode:set', { mode: 'accountant' })
     await expectLogged('import:apply', { kind: 'ledgers', csvText: 'Name,Group,Opening Balance\nImported Party,Sundry Debtors,0\n' })
     await expectLogged('backup:run')
     await expectLogged('audit:exportCsv', { from: '2025-01-01', to: '2030-12-31' })

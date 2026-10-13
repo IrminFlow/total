@@ -12,4 +12,9 @@ The screens a first-time, non-accountant user sees (plan `docs/superpowers/specs
 - Plain words for accounting terms live in `src/shared/simple/glossary.ts` (`plain(term)`, `explain(term)`).
 - Amounts are formatted with `money.ts` and passed into `t()` as variables; never build a sentence by concatenation.
 
-`SimplePlaceholder.tsx` is the stand-in until the WP 8.1 shell lands.
+## The simple shell (WP 8.1)
+
+- `SimpleHeader.tsx` / `SimpleSidebar.tsx` replace the accountant header and sidebar inside `components/Shell.tsx` when the visible screen's view is simple (`lib/mode.ts` `useScreenView`); `<main>` stays mounted, so "Accountant view" / "Back to simple" (`ViewToggle.tsx`) keep the screen's state.
+- `SimpleSection.tsx` is a section's page (Sell, Buy, Money …); its entries come from the registry (`lib/screens.ts` `simpleEntries`, ordered by `SIMPLE_ENTRY_ORDER`). Registry keys are passed to `t()` on lines marked `i18n-technical`; `__tests__/simpleRegistry.test.ts` checks they are `simple.*` / `common.*` keys in the catalogue.
+- `SimpleHome.tsx` is Home until WP 8.6 (a placeholder card + the setup checklist). `ModeSetting.tsx` is the owner's mode switch in Settings → How Total looks.
+- `SimplePlaceholder.tsx` is the generic "on its way" card.
