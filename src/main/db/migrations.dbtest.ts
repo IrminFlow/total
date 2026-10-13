@@ -146,7 +146,9 @@ const EXPECTED_TABLES = [
   'assistant_marks',
   'gst2b_statements',
   // WP 5.4 (last) — the document capture queue
-  'capture_items'
+  'capture_items',
+  // WP 9.1 — simple:post idempotency
+  'simple_posts'
 ]
 
 describe('migrate', () => {

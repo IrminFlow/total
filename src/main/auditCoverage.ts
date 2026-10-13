@@ -35,6 +35,10 @@ export const AUDIT_COVERAGE: Record<string, AuditCoverage> = {
   'simple:openings:preview': r('rehearses the opening setup in a transaction that is always rolled back; writes nothing'),
   'simple:openings': a('opening_batch', 'opening_bills', 'ledger', 'stockItem'),
   'simple:openings:skip': a('company'),
+  // WP 9.1: an intent saved through saveVoucher (the vouchers log themselves; the intent as one
+  // event); the walk-in customer / tax ledgers the editor would create on first use log as ledgers.
+  'simple:post': a('simple_intent', 'voucher', 'ledger'),
+  'simple:preview': r('rehearses simple:post in a transaction that is always rolled back; writes nothing'),
   'company:delete': a('company'),
   'company:open': a('backup', 'voucher', 'audit_log', 'attachment'),
   'company:close': r('closes the database handle'),

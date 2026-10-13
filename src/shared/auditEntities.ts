@@ -117,7 +117,9 @@ export const AUDIT_ENTITIES = [
   'bulk_batch',
   'party_note',
   // WP 8.5 grouped undo (vouchers binned together by the save card's Undo)
-  'undo_group'
+  'undo_group',
+  // WP 9.1 a simple-mode intent posted through simple:post (the whole intent + its voucher ids)
+  'simple_intent'
 ] as const
 
 export type AuditEntity = (typeof AUDIT_ENTITIES)[number]
@@ -150,6 +152,7 @@ export const AUDIT_ENTITY_LABELS: Partial<Record<AuditEntity, string>> = {
   ai_data: 'AI data (deleted)',
   ai_draft: 'AI draft',
   undo_group: 'Undo (entries binned together)',
+  simple_intent: 'Simple entry (bill + payment saved together)',
   ai_memory: 'AI memory',
   ai_settings: 'AI settings',
   ai_thread: 'AI conversation',

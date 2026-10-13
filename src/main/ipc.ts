@@ -125,6 +125,8 @@ import { reportHtml } from './services/reportHtml'
 import { globalSearch, search } from './services/search'
 import { createDemoCompany } from './services/demo'
 import { createCompanyFromSetup } from './services/companySetup'
+import * as simplePost from './services/simplePost'
+import { simpleIntentSchema } from '@shared/simple/intents'
 import { simpleSetupSchema } from '@shared/simple/setup'
 import { simpleOpeningsSchema } from '@shared/simple/openings'
 import * as openingsSvc from './services/openings'
@@ -429,6 +431,24 @@ export function registerIpc(): void {
   handle('simple:openings:skip', (payload) => {
     z.object({}).strict().optional().parse(payload)
     return openingsSvc.skipOpenings(requireCompany().db)
+  })
+
+  // WP 9.1: the ONE write path of the simple screens (services/simplePost.ts) — an intent mapped to
+  // the editors' own form state and saved through saveVoucher in one transaction (idempotent by
+  // clientId; the vouchers come back together for the save card's grouped Undo). `preview`
+  // rehearses the same run (always rolled back) and says what will be recorded.
+  const simpleIntentPayload = z.object({ intent: simpleIntentSchema, today: isoDate.optional() }).strict()
+  handle('simple:preview', (payload) => {
+    const { intent, today } = simpleIntentPayload.parse(payload)
+    const c = requireCompany()
+    return simplePost.previewIntent(c.db, c.info, intent, today ?? todayISO())
+  }, 'viewer')
+  handle('simple:post', (payload) => {
+    const { intent, today } = simpleIntentPayload.parse(payload)
+    const c = requireCompany()
+    const out = simplePost.postIntent(c.db, c.info, intent, today ?? todayISO())
+    if (!out.replayed && configSvc.getAgentBridgeEnabled(c.db)) agentBridge.scheduleMirrorRefresh(c.db, c.slug)
+    return out
   })
 
   // WP 8.3: `mode` 'simple' = the wizard's "Try with sample data" (D2); omitted = accountant, as before.
