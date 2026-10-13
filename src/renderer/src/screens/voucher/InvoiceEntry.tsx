@@ -24,6 +24,7 @@ import { QuickItemModal, QuickLedgerModal } from './modals'
 import { CategoryPicker } from '../../simple/CategoryPicker'
 import { CATEGORIES, CATEGORY_KEYS } from '@shared/simple/categories'
 import { useMode } from '../../lib/mode'
+import { useT } from '../../lib/i18n'
 import { TransportModal } from './TransportModal'
 import { useTcsCollection, useTdsDeduction, type TcsCandidate } from './useTdsDeduction'
 import { TdsBanner, TdsNotApplicableNote } from './TdsBanner'
@@ -110,6 +111,7 @@ export function InvoiceEntry({
   const [alterNumber, setAlterNumber] = useState(initial?.number ?? '')
   const isSalesSide = kind === 'sales' || kind === 'credit_note'
   const simpleCompany = useMode() === 'simple'
+  const t = useT()
   const accountFilter = useCallback(
     (l: Ledger, groups: Map<number, Group>): boolean => {
       const rootName = isSalesSide ? 'Sales Accounts' : 'Purchase Accounts'
@@ -628,7 +630,11 @@ export function InvoiceEntry({
             )}
           </div>
         </Field>
-        <Field label={isSalesSide ? 'Sales ledger' : 'Purchase ledger'} name="account" error={formErrors.get('account')}>
+        <Field
+          label={simpleCompany ? (isSalesSide ? t('simple.category.salePlaceholder') : t('simple.category.purchasePlaceholder')) : isSalesSide ? 'Sales ledger' : 'Purchase ledger'}
+          name="account"
+          error={formErrors.get('account')}
+        >
           {simpleCompany ? (
             // WP 8.4: simple mode — the sales / purchase account as categories (Sales, Service
             // income … / Purchases, Raw material …), the full list behind "Search all".

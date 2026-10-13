@@ -627,6 +627,7 @@ export function AccountingEntry({
                         context={{ field: 'line', voucherKind: kind, drCr: 'dr' }}
                         autoFocus={i === 0 && !voucherId}
                         testId={`picker-category-${i}`}
+                        partyTile
                       />
                     </div>
                   ) : (

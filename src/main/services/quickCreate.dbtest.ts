@@ -48,7 +48,7 @@ describe('quick-created ledgers', () => {
   it('every plain answer’s group gets the class the kind promises (ai/ledgerClass.ts)', () => {
     const db = seededDb()
     const answers: KindAnswer[] = [
-      { kind: 'customer' }, { kind: 'supplier' }, { kind: 'bank' }, { kind: 'cash' }, { kind: 'loan' },
+      { kind: 'customer' }, { kind: 'supplier' }, { kind: 'bank' }, { kind: 'cash' }, { kind: 'loan' }, { kind: 'loan', loanKind: 'gave' },
       ...INCOME_KINDS.map((incomeKind) => ({ kind: 'income' as const, incomeKind })),
       ...NEW_CATEGORY_KINDS.map((expenseKind) => ({ kind: 'expense' as const, expenseKind }))
     ]
@@ -88,5 +88,16 @@ describe('product quick-create', () => {
     const before = (db.prepare('SELECT COUNT(*) AS n FROM stock_items').get() as { n: number }).n
     expect(() => quickCreateItem(db, { item: item(db, 'Pen'), sellingPricePaise: 500 })).toThrow()
     expect((db.prepare('SELECT COUNT(*) AS n FROM stock_items').get() as { n: number }).n).toBe(before)
+  })
+
+  it('a non-default level already named "Selling price" (any case) gets the price and stays non-default', () => {
+    const db = seededDb()
+    const level = savePriceLevel(db, { name: 'SELLING PRICE', isDefault: false })
+    const res = quickCreateItem(db, { item: item(db, 'Diary'), sellingPricePaise: 9900 })
+    expect(res.priceLevelId).toBe(level.id)
+    expect(listPriceLevels(db)).toEqual([expect.objectContaining({ id: level.id, isDefault: false })])
+    expect(listRates(db, level.id)).toEqual([expect.objectContaining({ stockItemId: res.item.id, rate: 9900 })])
+    // the product name is not blamed: a second product goes through the same way
+    expect(quickCreateItem(db, { item: item(db, 'Diary 2'), sellingPricePaise: 100 }).priceLevelId).toBe(level.id)
   })
 })

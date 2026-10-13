@@ -11,6 +11,20 @@ import { inputCls, useFormErrors } from '../components/ui'
 import { PlainIcon } from './icons'
 import { NewAccountDialog } from './NewAccountDialog'
 
+const PARTY = 'party' as const // i18n-technical: search mode
+const ALL = 'all' as const // i18n-technical: search mode
+const SUPPLIER_CONTEXT: AccountContext = { field: 'party', side: 'purchase' } // i18n-technical
+
+/** A customer / supplier account (under Sundry Debtors / Creditors, at any depth). */
+function isParty(l: Ledger, groups: Map<number, Group>): boolean {
+  let g = groups.get(l.groupId)
+  while (g) {
+    if (g.name === 'Sundry Creditors' || g.name === 'Sundry Debtors') return true // i18n-technical: group names
+    g = g.parentId ? groups.get(g.parentId) : undefined
+  }
+  return false
+}
+
 /** The ledger a category stands for: the one carrying its key, else one with its seeded name. */
 function ledgerFor(key: CategoryKey, ledgers: readonly Ledger[]): Ledger | undefined {
   const name = CATEGORIES[key].name.toLowerCase()
@@ -32,7 +46,8 @@ export function CategoryPicker({
   side = 'expense',
   filter,
   testId = 'picker-category',
-  autoFocus
+  autoFocus,
+  partyTile = false
 }: {
   value: number | null
   onPick: (id: number | null) => void
@@ -47,6 +62,8 @@ export function CategoryPicker({
   filter?: (l: Ledger, groups: Map<number, Group>) => boolean
   testId?: string
   autoFocus?: boolean
+  /** Money out: the first tile is "Pay a supplier" (a party search). */
+  partyTile?: boolean
 }): React.JSX.Element {
   const t = useT()
   const toast = useToasts()
@@ -54,7 +71,10 @@ export function CategoryPicker({
   const ledgers = useLedgers()
   const groups = useGroups()
   const [open, setOpen] = useState(false)
-  const [searchAll, setSearchAll] = useState(false)
+  // null = the tiles; 'all' = every account; 'party' = customers / suppliers ("Pay a supplier").
+  const [searchMode, setSearchMode] = useState<null | 'all' | 'party'>(null)
+  const searchAll = searchMode != null
+  const setSearchAll = (on: boolean): void => setSearchMode(on ? ALL : null)
   const [newName, setNewName] = useState<string | null>(null)
   const errors = useFormErrors<'category'>({ category: value }, { simple: true, t })
   const wrapRef = useRef<HTMLDivElement>(null)
@@ -111,12 +131,11 @@ export function CategoryPicker({
   }
 
   const label = selected?.name ?? ''
+  // On a bill the field's label already asks the question ("What are you selling?").
   const placeholder =
-    side === 'sale'
-      ? t('simple.category.salePlaceholder')
-      : side === 'purchase'
-        ? t('simple.category.purchasePlaceholder')
-        : side === 'income'
+    side === 'sale' || side === 'purchase'
+      ? t('simple.category.choose')
+      : side === 'income'
           ? t('simple.category.incomePlaceholder')
           : t('simple.category.placeholder')
   const icon = selected?.simpleCategory ? CATEGORIES[selected.simpleCategory].icon : null
@@ -131,9 +150,9 @@ export function CategoryPicker({
               onPick(id)
               if (id != null) setSearchAll(false)
             }}
-            filter={filter}
+            filter={searchMode === 'party' ? isParty : filter}
             autoFocus
-            placeholder={t('simple.category.searchAll')}
+            placeholder={searchMode === 'party' ? t('simple.category.searchSuppliers') : t('simple.category.searchAll')}
             onCreateRequest={(n) => setNewName(n)}
             className="flex-1"
             testId={`${testId}-search`}
@@ -166,6 +185,22 @@ export function CategoryPicker({
           data-testid={`${testId}-list`}
         >
           <div className="grid grid-cols-2 gap-1.5">
+            {partyTile && (
+              <button
+                type="button"
+                role="option"
+                aria-selected={false}
+                data-testid={`${testId}-pay-supplier`}
+                onClick={() => {
+                  setOpen(false)
+                  setSearchMode(PARTY)
+                }}
+                className="flex items-center gap-2 rounded-md border border-amber/50 bg-panel px-2 py-1.5 text-left text-detail text-ink transition-colors hover:border-amber focus-visible:outline-2 focus-visible:outline-amber/70"
+              >
+                <PlainIcon id="truck" className="shrink-0 text-muted" />
+                <span className="truncate">{t('simple.category.paySupplier')}</span>
+              </button>
+            )}
             {tiles.map(({ key, ledger }) => (
               <button
                 key={key}
@@ -214,7 +249,7 @@ export function CategoryPicker({
       {newName != null && (
         <NewAccountDialog
           name={newName}
-          context={context}
+          context={searchMode === PARTY ? SUPPLIER_CONTEXT : context}
           onClose={() => setNewName(null)}
           onCreated={(l) => {
             onPick(l.id)

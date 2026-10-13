@@ -189,7 +189,7 @@ export function NewProductDialog({
             <AmountInput paise={selling} onPaise={setSelling} testId="input-product-selling" />
           </Field>
         </div>
-        <Field label={t('simple.newProduct.purchasePrice')} hint={t('common.optional')}>
+        <Field label={t('simple.newProduct.purchasePrice')} hint={t('simple.newProduct.purchasePriceHint')}>
           <AmountInput paise={purchase} onPaise={setPurchase} testId="input-product-purchase" />
         </Field>
 
@@ -212,7 +212,7 @@ export function NewProductDialog({
             {(otherOpen || (picked != null && !slabs.find((s) => s.rate === picked)?.common && rate.trim() !== '')) && (
               <div className="mt-2 flex flex-wrap items-end gap-2">
                 {special.map((s) => chip(s.rate, `${s.rate}%`))}
-                <Field label={t('simple.newProduct.otherRateLabel')} className="w-28">
+                <Field label={t('simple.newProduct.otherRateLabel')} className="w-44">
                   <TextInput
                     value={isListed ? '' : rate}
                     placeholder={t('simple.newProduct.otherRate')}
@@ -233,7 +233,7 @@ export function NewProductDialog({
         )}
 
         {itemShowsHsn(regType) && (
-          <Field label={t('simple.newProduct.hsn')} hint={t('common.optional')}>
+          <Field label={showGst ? t('simple.newProduct.hsnRegular') : t('simple.newProduct.hsn')} hint={t('simple.newProduct.hsnHint')}>
             <TextInput value={hsn} onChange={(e) => setHsn(e.target.value)} className="num" data-testid="input-product-hsn" />
           </Field>
         )}

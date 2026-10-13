@@ -7,12 +7,14 @@ import {
   ACCOUNT_KINDS,
   ACCOUNT_KIND_DEFS,
   INCOME_KINDS,
+  LOAN_KINDS,
   groupForKind,
   isPhoneNumber,
   kindFromContext,
   type AccountContext,
   type AccountKind,
-  type IncomeKind
+  type IncomeKind,
+  type LoanKind
 } from '@shared/simple/accountKinds'
 import { NEW_CATEGORY_KINDS, type CategoryKey, type NewCategoryKind } from '@shared/simple/categories'
 import { nearDuplicates } from '@shared/simple/nearDuplicate'
@@ -38,6 +40,10 @@ const EXPENSE_TEXT: Record<NewCategoryKind, MessageKey> = {
   day_to_day: 'simple.newAccount.expenseKind.dayToDay',
   stock_you_sell: 'simple.newAccount.expenseKind.stockYouSell',
   use_for_years: 'simple.newAccount.expenseKind.useForYears'
+}
+const LOAN_TEXT: Record<LoanKind, MessageKey> = {
+  took: 'simple.newAccount.loanKind.took',
+  gave: 'simple.newAccount.loanKind.gave'
 }
 const INCOME_TEXT: Record<IncomeKind, MessageKey> = {
   sales: 'simple.newAccount.incomeKind.sales',
@@ -87,6 +93,7 @@ export function NewAccountDialog({
   const [kind, setKind] = useState<AccountKind | null>(initial?.kind ?? null)
   const [expenseKind, setExpenseKind] = useState<NewCategoryKind>(initial?.expenseKind ?? 'day_to_day')
   const [incomeKind, setIncomeKind] = useState<IncomeKind>(initial?.incomeKind ?? 'sales') // i18n-technical
+  const [loanKind, setLoanKind] = useState<LoanKind>(initial?.loanKind ?? 'took') // i18n-technical
   const [groupId, setGroupId] = useState<number | ''>('')
   const [phone, setPhone] = useState('')
   const [whatsapp, setWhatsapp] = useState('')
@@ -106,7 +113,7 @@ export function NewAccountDialog({
   const targetGroupId = (): number | null => {
     if (kind == null) return null
     if (kind === 'other') return groupId === '' ? null : groupId
-    const g = groupForKind({ kind, expenseKind, incomeKind, makingCost: manufacturer })
+    const g = groupForKind({ kind, expenseKind, incomeKind, loanKind, makingCost: manufacturer })
     return groups.find((x) => x.name === g)?.id ?? null
   }
 
@@ -244,6 +251,17 @@ export function NewAccountDialog({
               {INCOME_KINDS.map((k) => (
                 <option key={k} value={k}>
                   {lbl(INCOME_TEXT[k])}
+                </option>
+              ))}
+            </Select>
+          </Field>
+        )}
+        {kind === 'loan' && (
+          <Field label={t('simple.newAccount.loanKind')}>
+            <Select value={loanKind} onChange={(e) => setLoanKind(e.target.value as LoanKind)} data-testid="select-loan-kind">
+              {LOAN_KINDS.map((k) => (
+                <option key={k} value={k}>
+                  {lbl(LOAN_TEXT[k])}
                 </option>
               ))}
             </Select>

@@ -12,7 +12,7 @@
 // With WP25D_SHOTS set, every new screen is captured in both themes there.
 import * as fs from 'node:fs'
 import * as path from 'node:path'
-import { scenario, assert, assertEq } from '../lib/harness.mjs'
+import { scenario, assert, assertEq, PICKER_OPTION } from '../lib/harness.mjs'
 
 await scenario('28-trade-returns', async (h) => {
   await h.createDemoCompany()
@@ -76,14 +76,14 @@ await scenario('28-trade-returns', async (h) => {
     const input = page.locator(`[data-testid="${testId}"]`).nth(nth)
     await input.click()
     await input.fill(text)
-    await page.waitForSelector('[role="listbox"] [role="option"]', { timeout: 5000 })
+    await page.waitForSelector(PICKER_OPTION, { timeout: 5000 })
     await input.press('Enter')
   }
   const pickAccount = async (placeholder, name) => {
     const input = page.locator(`input[placeholder="${placeholder}"]`)
     await input.click()
     await input.fill(name)
-    await page.waitForSelector('[role="listbox"] [role="option"]', { timeout: 5000 })
+    await page.waitForSelector(PICKER_OPTION, { timeout: 5000 })
     await input.press('Enter')
   }
   const idOf = (v) => v.voucherId ?? v.id

@@ -71,6 +71,8 @@ export function TypeAhead({
   // match (or onto it when nothing matches) or the mouse — and only then does Enter open the
   // create dialog. A typo plus Enter used to become a new record ("Sal" next to "Sales").
   const [onCreateRow, setOnCreateRow] = useState(false)
+  // Enter pressed with nothing matching: say how to create (accountant mode shows it only then).
+  const [enterMissed, setEnterMissed] = useState(false)
   const simple = useMode() === 'simple'
   const t = useT()
   const wrapRef = useRef<HTMLDivElement>(null)
@@ -156,6 +158,7 @@ export function TypeAhead({
           setOpen(true)
           setActive(0)
           setOnCreateRow(false)
+          setEnterMissed(false)
           if (e.target.value.trim() === '') onPick(null)
         }}
         onKeyDown={(e) => {
@@ -200,6 +203,7 @@ export function TypeAhead({
               setText(selected?.label ?? '')
             } else {
               // Selects the highlighted match; with no match Enter does nothing (never creates).
+              if (filtered.length === 0) setEnterMissed(true)
               pick(filtered[active])
             }
           } else if (e.key === 'Escape') {
@@ -238,6 +242,7 @@ export function TypeAhead({
               id={`${listId}-create`}
               role="option"
               aria-selected={onCreateRow}
+              data-create="true"
               data-active={onCreateRow}
               data-testid={testId ? `${testId}-create` : undefined}
               className="kbar-row cursor-pointer border-t border-line px-3 py-1.5 text-detail text-amber"
@@ -251,9 +256,11 @@ export function TypeAhead({
               }}
             >
               {simple ? t('simple.picker.create', { name: text.trim() }) : <>Create “{text.trim()}”</>}
-              {simple && filtered.length === 0 && !onCreateRow && (
-                <span className="ml-2 text-caption text-muted">{t('simple.picker.noMatch', { name: text.trim() })}</span>
-              )}
+            </div>
+          )}
+          {showCreate && filtered.length === 0 && !onCreateRow && (simple || enterMissed) && (
+            <div className="px-3 pb-1.5 text-caption text-muted" data-testid={testId ? `${testId}-nomatch` : undefined}>
+              {simple ? t('simple.picker.noMatch', { name: text.trim() }) : 'No match — ↓ to create'}
             </div>
           )}
         </div>

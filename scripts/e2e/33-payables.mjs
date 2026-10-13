@@ -8,7 +8,7 @@
 // Set WP43_SHOTS=/tmp/wp43 to also copy the screenshots there.
 import fs from 'node:fs'
 import path from 'node:path'
-import { scenario, assert, assertEq } from '../lib/harness.mjs'
+import { scenario, assert, assertEq, OPTION } from '../lib/harness.mjs'
 
 await scenario('33-payables', async (h) => {
   await h.createCompanyUI('MSME Works')
@@ -166,7 +166,7 @@ await scenario('33-payables', async (h) => {
   const picker = page.locator('[data-testid="picker-payables-batch-supplier-0"]')
   await picker.click()
   await picker.fill('Kiran')
-  await page.waitForSelector('[role="option"]', { timeout: 5000 })
+  await page.waitForSelector(OPTION, { timeout: 5000 })
   await page.keyboard.press('Enter')
   await h.click('btn-payables-batch-bills-0')
   await h.click('pick-batch-bill-KMC-102')
@@ -189,7 +189,7 @@ await scenario('33-payables', async (h) => {
   const sp = page.locator('[data-testid="picker-payables-supplier"]')
   await sp.click()
   await sp.fill('Kiran')
-  await page.waitForSelector('[role="option"]', { timeout: 5000 })
+  await page.waitForSelector(OPTION, { timeout: 5000 })
   await page.keyboard.press('Enter')
   await page.waitForSelector('[data-testid="rows-payables-statement"] tr.dt-row', { timeout: 15000 })
   const dmy = (isoDate) => isoDate.split('-').reverse().join('/')

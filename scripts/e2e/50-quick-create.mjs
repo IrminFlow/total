@@ -6,7 +6,7 @@
 // picker with icons; a new product in an unregistered shop has no GST field and its selling price
 // lands on the default price level; in a regular company the product dialog offers the cited GST
 // slabs and requires one. Light and dark screenshots of each dialog.
-import { scenario, assert, assertEq } from '../lib/harness.mjs'
+import { scenario, assert, assertEq, PICKER_OPTION } from '../lib/harness.mjs'
 
 await scenario('50-quick-create', async (h) => {
   const page = h.page
@@ -103,7 +103,7 @@ await scenario('50-quick-create', async (h) => {
 
   // A prefix + Enter selects the highlighted match.
   party = await typeIn('picker-party', 'Anit')
-  await page.waitForSelector('[role="listbox"] [role="option"]:not([data-testid$="-create"])', { timeout: 5000 })
+  await page.waitForSelector(PICKER_OPTION, { timeout: 5000 })
   await party.press('Enter')
   assertEq(await page.inputValue('[data-testid="picker-party"]'), 'Anita Stores', 'Enter selected the match')
   assertEq(await ledgerCount(), count1, 'still nothing new')
@@ -177,7 +177,7 @@ await scenario('50-quick-create', async (h) => {
   // Save the bill (leaving nothing unsaved): an existing customer picked with Enter, Sales from the
   // categories (created on the click, with its key), the new product on the line.
   const p2 = await typeIn('picker-party', 'Mehta')
-  await page.waitForSelector('[role="listbox"] [role="option"]:not([data-testid$="-create"])', { timeout: 5000 })
+  await page.waitForSelector(PICKER_OPTION, { timeout: 5000 })
   await p2.press('Enter')
   assertEq(await page.inputValue('[data-testid="picker-party"]'), 'Mehta & Sons', 'Enter selected the customer')
   await h.click('picker-account-category')

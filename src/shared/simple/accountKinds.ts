@@ -18,6 +18,10 @@ export type KindClass = 'debtor' | 'creditor' | 'expense' | 'income' | 'bank' | 
 export const INCOME_KINDS = ['sales', 'other_income'] as const
 export type IncomeKind = (typeof INCOME_KINDS)[number]
 
+/** A loan: one you took (a liability) or one you gave (an asset). */
+export const LOAN_KINDS = ['took', 'gave'] as const
+export type LoanKind = (typeof LOAN_KINDS)[number]
+
 export interface AccountKindDef {
   /** Icon id (simple/icons.tsx). */
   icon: string
@@ -42,6 +46,8 @@ export interface KindAnswer {
   expenseKind?: NewCategoryKind
   /** Income only: from what you sell (default) / other income. */
   incomeKind?: IncomeKind
+  /** Loan only: took (default) / gave. */
+  loanKind?: LoanKind
   /** A manufacturer's stock-you-sell cost is a making cost (Direct Expenses). */
   makingCost?: boolean
 }
@@ -58,7 +64,7 @@ export function groupForKind(a: KindAnswer): string {
     case 'cash':
       return 'Cash-in-Hand'
     case 'loan':
-      return 'Loans (Liability)'
+      return (a.loanKind ?? 'took') === 'took' ? 'Loans (Liability)' : 'Loans & Advances (Asset)'
     case 'income':
       return (a.incomeKind ?? 'sales') === 'sales' ? 'Sales Accounts' : 'Indirect Incomes'
     case 'expense':
@@ -103,7 +109,7 @@ export function kindFromContext(ctx: AccountContext): KindAnswer | null {
     case 'account':
       return ctx.side === 'sales' ? { kind: 'income', incomeKind: 'sales' } : { kind: 'expense', expenseKind: 'stock_you_sell' }
     case 'loan':
-      return { kind: 'loan' }
+      return { kind: 'loan', loanKind: 'took' }
     case 'none':
       return null
     case 'line': {

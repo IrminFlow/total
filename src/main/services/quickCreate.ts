@@ -15,6 +15,18 @@ import { defaultPriceLevel, savePriceLevel, saveRate } from './priceLevels'
 /** Name of the default level created for a company that has none. */
 export const DEFAULT_SELLING_LEVEL = 'Selling price'
 
+/** No default level: a level already called "Selling price" (names are UNIQUE NOCASE) is used AS
+ *  IS — never made the default, so pricing keeps behaving exactly as the user set it up (the
+ *  resolver finds it only through a party that points at it); otherwise a new default level
+ *  "Selling price" (or "Selling price (2)", … when that name is taken) is created. */
+function sellingLevel(db: DB): { id: number } {
+  const byName = (n: string): { id: number } | undefined =>
+    db.prepare('SELECT id FROM price_levels WHERE name = ? COLLATE NOCASE').get(n) as { id: number } | undefined
+  const existing = byName(DEFAULT_SELLING_LEVEL)
+  if (existing) return existing
+  return savePriceLevel(db, { name: DEFAULT_SELLING_LEVEL, inclusiveOfTax: false, isDefault: true })
+}
+
 export interface QuickItemResult {
   item: StockItem
   /** The default level the selling price went on (created when the company had none). */
@@ -29,7 +41,7 @@ export function quickCreateItem(db: DB, raw: QuickItemInput): QuickItemResult {
       ...(input.purchasePricePaise != null && input.purchasePricePaise > 0 ? { standardCostPaise: input.purchasePricePaise } : {})
     })
     if (input.sellingPricePaise == null || input.sellingPricePaise <= 0) return { item, priceLevelId: null }
-    const level = defaultPriceLevel(db) ?? savePriceLevel(db, { name: DEFAULT_SELLING_LEVEL, inclusiveOfTax: false, isDefault: true })
+    const level = defaultPriceLevel(db) ?? sellingLevel(db)
     const info = readCompanyInfo(db)
     const from = info.booksBeginDate ?? `${info.booksFrom}-04-01`
     saveRate(db, { priceLevelId: level.id, stockItemId: item.id, rate: input.sellingPricePaise, effectiveFrom: from })

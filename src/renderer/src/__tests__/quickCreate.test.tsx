@@ -12,6 +12,7 @@ import { NewAccountDialog } from '../simple/NewAccountDialog'
 import { NewProductDialog } from '../simple/NewProductDialog'
 import { CategoryPicker } from '../simple/CategoryPicker'
 import { QuickItemModal, QuickLedgerModal } from '../screens/voucher/modals'
+import { LedgerFormModal } from '../components/LedgerFormModal'
 
 const invoke = vi.fn()
 const GROUPS: Group[] = [
@@ -284,5 +285,85 @@ describe('CategoryPicker', () => {
     fireEvent.click(await screen.findByTestId('category-travel'))
     await waitFor(() => expect(onPick).toHaveBeenLastCalledWith(99))
     expect(calls('master:ledgers:create')[0]).toMatchObject({ name: 'Travel', groupId: 6, simpleCategory: 'travel' })
+  })
+})
+
+describe('review fixes', () => {
+  it('accountant: Enter with no match shows a small "↓ to create" hint; the create row is data-create', () => {
+    act(() => useSession.setState({ ui: { mode: 'accountant' } }))
+    render(<TypeAhead options={[{ id: 1, label: 'Sales' }]} value={null} onPick={() => {}} onCreate={() => {}} placeholder="Account" testId="pick" />)
+    const input = screen.getByTestId('pick')
+    fireEvent.focus(input)
+    fireEvent.change(input, { target: { value: 'Xyz' } })
+    expect(screen.queryByTestId('pick-nomatch')).toBeNull()
+    expect(screen.getByTestId('pick-create').getAttribute('data-create')).toBe('true')
+    fireEvent.keyDown(input, { key: 'Enter' })
+    expect(screen.getByTestId('pick-nomatch').textContent).toBe('No match — ↓ to create')
+    expect(screen.getByTestId('pick-create').textContent).toBe('Create “Xyz”')
+  })
+
+  it('simple: the no-match hint is its own line, not inside the create row', () => {
+    render(<TypeAhead options={[{ id: 1, label: 'Sales' }]} value={null} onPick={() => {}} onCreate={() => {}} placeholder="Account" testId="pick" />)
+    const input = screen.getByTestId('pick')
+    fireEvent.focus(input)
+    fireEvent.change(input, { target: { value: 'Xyz' } })
+    expect(screen.getByTestId('pick-create').textContent).toBe('Create “Xyz”…')
+    expect(screen.getByTestId('pick-nomatch').textContent).toMatch(/Press ↓/)
+  })
+
+  it('"Loan" asks which way: a loan I gave goes under Loans & Advances (Asset)', async () => {
+    const groups = [...GROUPS, { id: 20, name: 'Loans (Liability)', parentId: null, nature: 'liability', affectsGrossProfit: false, isSystem: true }, { id: 21, name: 'Loans & Advances (Asset)', parentId: 1, nature: 'asset', affectsGrossProfit: false, isSystem: true }] as Group[]
+    invoke.mockImplementation(async (channel: string, payload?: unknown) => {
+      if (channel === 'master:groups:list') return { ok: true, data: groups }
+      if (channel === 'master:ledgers:list') return { ok: true, data: LEDGERS }
+      if (channel === 'master:ledgers:create') return { ok: true, data: ledger(98, (payload as { name: string }).name, (payload as { groupId: number }).groupId) }
+      return { ok: true, data: [] }
+    })
+    const onCreated = vi.fn()
+    renderUi(<NewAccountDialog name="Loan to Vijay" context={{ field: 'loan' }} onClose={() => {}} onCreated={onCreated} />)
+    await waitFor(() => expect(calls('master:groups:list').length).toBeGreaterThan(0))
+    fireEvent.change(screen.getByTestId('select-loan-kind'), { target: { value: 'gave' } })
+    fireEvent.click(screen.getByTestId('btn-account-create'))
+    await waitFor(() => expect(onCreated).toHaveBeenCalled())
+    expect(calls('master:ledgers:create')[0]).toMatchObject({ groupId: 21 })
+  })
+
+  it('money out: "Pay a supplier" is the first tile and searches customers / suppliers only', async () => {
+    renderUi(<CategoryPicker value={null} onPick={() => {}} keys={['rent']} partyTile context={{ field: 'line', voucherKind: 'payment', drCr: 'dr' }} />)
+    await waitFor(() => expect(calls('master:ledgers:list').length).toBeGreaterThan(0))
+    fireEvent.click(screen.getByTestId('picker-category'))
+    const first = (await screen.findByTestId('picker-category-list')).querySelector('button')!
+    expect(first.getAttribute('data-testid')).toBe('picker-category-pay-supplier')
+    fireEvent.click(first)
+    const search = await screen.findByTestId('picker-category-search')
+    expect(search.getAttribute('placeholder')).toBe('Search your suppliers')
+    fireEvent.focus(search)
+    expect(screen.getAllByRole('option').map((o) => o.textContent)).toEqual([expect.stringContaining('Sharma Traders')])
+  })
+
+  it('the full form shows and saves a party’s phone / WhatsApp', async () => {
+    act(() => useSession.setState({ ui: { mode: 'accountant' } }))
+    const party = ledger(12, 'Sharma Traders', 2, { phone: '98111 22233' })
+    invoke.mockImplementation(async (channel: string, payload?: unknown) => {
+      if (channel === 'master:groups:list') return { ok: true, data: GROUPS }
+      if (channel === 'master:ledgers:list') return { ok: true, data: [party] }
+      if (channel === 'master:ledgers:update') return { ok: true, data: { ...party, ...(payload as { data: object }).data } }
+      return { ok: true, data: [] }
+    })
+    renderUi(<LedgerFormModal ledger={party} onClose={() => {}} />)
+    const phone = (await screen.findByTestId('ledger-phone')) as HTMLInputElement
+    expect(phone.value).toBe('98111 22233')
+    fireEvent.change(screen.getByTestId('ledger-whatsapp'), { target: { value: '98111 22234' } })
+    fireEvent.click(screen.getByTestId('btn-ledger-save'))
+    await waitFor(() => expect(calls('master:ledgers:update')).toHaveLength(1))
+    expect(calls('master:ledgers:update')[0]).toMatchObject({ data: { phone: '98111 22233', whatsapp: '98111 22234' } })
+  })
+
+  it('the product dialog calls the purchase price a reference figure and explains HSN', async () => {
+    renderUi(<NewProductDialog name="Notebook" onClose={() => {}} onCreated={() => {}} />)
+    await screen.findByText('Pcs')
+    expect(screen.getByText('What it usually costs you')).toBeTruthy()
+    expect(screen.getByText('Optional, for your reference.')).toBeTruthy()
+    expect(screen.getByText('HSN code (needed for GST returns and e-invoices)')).toBeTruthy()
   })
 })

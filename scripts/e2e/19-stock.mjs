@@ -3,7 +3,7 @@
 // serial-tracked item through the invoice form picks its serial in the line's detail row; the
 // reorder report lists an item below its level with max(0, 2R − closing). Screenshots of the new
 // screens in both themes (copied to /tmp/wp23 by hand for review).
-import { scenario, assert, assertEq } from '../lib/harness.mjs'
+import { scenario, assert, assertEq, PICKER_OPTION } from '../lib/harness.mjs'
 
 await scenario('19-stock', async (h) => {
   await h.createDemoCompany()
@@ -50,7 +50,7 @@ await scenario('19-stock', async (h) => {
     const input = h.page.locator(`[data-testid="${testId}"]`).nth(nth)
     await input.click()
     await input.fill(text)
-    await h.page.waitForSelector('[role="listbox"] [role="option"]', { timeout: 5000 })
+    await h.page.waitForSelector(PICKER_OPTION, { timeout: 5000 })
     await input.press('Enter')
   }
   await pick('picker-transfer-item', 'E2E Phone')
@@ -101,7 +101,7 @@ await scenario('19-stock', async (h) => {
   const salesPicker = h.page.locator('input[placeholder="e.g. Sales"]')
   await salesPicker.click()
   await salesPicker.fill(salesAcc.name)
-  await h.page.waitForSelector('[role="listbox"] [role="option"]', { timeout: 5000 })
+  await h.page.waitForSelector(PICKER_OPTION, { timeout: 5000 })
   await salesPicker.press('Enter')
   await pick('picker-item', 'E2E Phone')
   await h.page.locator('[data-testid="input-line-qty"]').first().fill('1')

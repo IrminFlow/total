@@ -51,7 +51,7 @@ export const GST_RATE_TABLE: readonly GstRatePeriod[] = [
   },
   {
     from: '2025-09-22',
-    to: null,
+    to: '2026-01-31',
     slabs: [
       { rate: 0, common: true, note: NIL },
       { rate: 5, common: true, note: 'Schedule I' },
@@ -66,24 +66,44 @@ export const GST_RATE_TABLE: readonly GstRatePeriod[] = [
       'Notification No. 9/2025-Central Tax (Rate), 17 September 2025, in force from 22 September 2025 (56th GST Council) — Schedules I–VII: CGST 2.5% / 9% / 20% / 1.5% / 0.125% / 0.75% / 14%; Notification No. 9/2025-Integrated Tax (Rate) lists the same seven slabs at 5% / 18% / 40% / 3% / 0.25% / 1.5% / 28%',
       'Notification No. 10/2025-Central Tax (Rate), 17 September 2025 — goods exempt (nil)'
     ]
+  },
+  {
+    from: '2026-02-01',
+    to: null,
+    slabs: [
+      { rate: 0, common: true, note: NIL },
+      { rate: 5, common: true, note: 'Schedule I' },
+      { rate: 18, common: true, note: 'Schedule II' },
+      { rate: 40, common: false, note: 'Schedule III (luxury and sin goods, now incl. pan masala / tobacco)' },
+      { rate: 3, common: false, note: 'Schedule IV (gold, silver, jewellery)' },
+      { rate: 0.25, common: false, note: 'Schedule V (rough diamonds, precious stones)' },
+      { rate: 1.5, common: false, note: 'Schedule VI' }
+    ],
+    sources: [
+      'Notification No. 19/2025-Central Tax (Rate), 31 December 2025, in force from 1 February 2026 — omits Schedule VII (CGST 14%, i.e. 28%); pan masala / tobacco goods move to Schedule III (CGST 20%, i.e. 40%), biris to 18%',
+      'Notification No. 9/2025-Central Tax (Rate), 17 September 2025 — Schedules I–VI as amended'
+    ]
   }
 ]
 
-/** Compensation cess is a separate levy on a few goods (tobacco, aerated drinks, motor vehicles,
- *  coal …). The picker does not offer it; the full item form keeps its own cess field. */
+/** Compensation cess: a separate levy, not offered by the picker (the full item form keeps its own
+ *  cess field). Which goods still carry it changed twice — see GST_RATE_UNVERIFIED — so the note
+ *  names no goods. */
 export const GST_CESS_NOTE = {
-  note: 'Compensation cess applies to a few goods on top of GST; set it in the full product form.',
+  note: 'A few goods may carry cess on top of GST; set it in the full product form if yours does.',
   sources: [
     'Goods and Services Tax (Compensation to States) Act, 2017, s.8 and Schedule',
-    'Notification No. 1/2017-Compensation Cess (Rate), 28 June 2017'
+    'Notification No. 1/2017-Compensation Cess (Rate), 28 June 2017',
+    'Notification No. 02/2025-Compensation Cess (Rate) — nil cess on goods other than tobacco from 22 September 2025 (secondary sources)'
   ]
 } as const
 
 /** What this table states but could not be checked against the official text. */
 export const GST_RATE_UNVERIFIED: readonly string[] = [
-  'The 2025 slabs and schedule numbering come from secondary summaries of Notification No. 9/2025-Central Tax (Rate) (state tax department / trade circulars), not the Gazette copy itself.',
+  'The 2025 and 2026 slabs and schedule numbering come from secondary copies / summaries, not the Gazette text: Notification No. 9/2025-Central Tax (Rate) (https://www.taxheal.com/?p=104997, https://a2ztaxcorp.net/cbic-notifies-new-igst-goods-rate-notification-effective-from-22nd-september-2025/, West Bengal tax department monthly update, TexProCil circular 158/2025) and Notification No. 19/2025-Central Tax (Rate) (text reproduced at https://taxo.online, summary at https://www.taxmann.com); CBIC rates page https://cbic-gst.gov.in/gst-goods-services-rates.html not re-read.',
   'Rates on SERVICES after 22 September 2025 (the services notification replacing No. 11/2017) are not reflected — whether 12% or 28% remain for any service is unverified.',
-  'Whether compensation cess ended for goods other than tobacco from 22 September 2025 (56th GST Council) is unverified.',
+  'Compensation cess: nil on goods other than tobacco from 22 September 2025 (Notification No. 02/2025-Compensation Cess (Rate)), and ended on tobacco from 1 February 2026 (replaced by central excise plus a new cess) — both per secondary sources only.',
+  'Biris at 18% from 1 February 2026 (Notification No. 19/2025-Central Tax (Rate)) — secondary sources only.',
   'Which product falls in which slab (the HSN mapping) is not covered at all — the user picks the slab.'
 ]
 

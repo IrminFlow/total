@@ -32,7 +32,7 @@ function classify(group: string, name: string): string {
 }
 
 const ANSWERS: KindAnswer[] = [
-  { kind: 'customer' }, { kind: 'supplier' }, { kind: 'bank' }, { kind: 'cash' }, { kind: 'loan' },
+  { kind: 'customer' }, { kind: 'supplier' }, { kind: 'bank' }, { kind: 'cash' }, { kind: 'loan' }, { kind: 'loan', loanKind: 'gave' },
   ...INCOME_KINDS.map((incomeKind) => ({ kind: 'income' as const, incomeKind })),
   ...NEW_CATEGORY_KINDS.flatMap((expenseKind) => [{ kind: 'expense' as const, expenseKind }, { kind: 'expense' as const, expenseKind, makingCost: true }])
 ]
@@ -57,6 +57,8 @@ describe('account kinds', () => {
     expect(groupForKind({ kind: 'bank' })).toBe('Bank Accounts')
     expect(groupForKind({ kind: 'cash' })).toBe('Cash-in-Hand')
     expect(groupForKind({ kind: 'loan' })).toBe('Loans (Liability)')
+    expect(groupForKind({ kind: 'loan', loanKind: 'took' })).toBe('Loans (Liability)')
+    expect(groupForKind({ kind: 'loan', loanKind: 'gave' })).toBe('Loans & Advances (Asset)')
     expect(ACCOUNT_KINDS).toEqual(['customer', 'supplier', 'expense', 'income', 'bank', 'cash', 'loan', 'other'])
     expect(ACCOUNT_KINDS.filter((k) => ACCOUNT_KIND_DEFS[k].party)).toEqual(['customer', 'supplier'])
   })
@@ -143,12 +145,19 @@ describe('GST rate table', () => {
     expect(slabsOn('2024-04-01').filter((s) => s.common).map((s) => s.rate)).toEqual([0, 5, 12, 18, 28])
     expect(slabsOn('2025-09-21').filter((s) => s.common).map((s) => s.rate)).toEqual([0, 5, 12, 18, 28])
     expect(slabsOn('2025-09-22').filter((s) => s.common).map((s) => s.rate)).toEqual([0, 5, 18])
-    expect(slabsOn('2026-10-13').map((s) => s.rate)).toEqual([0, 5, 18, 0.25, 1.5, 3, 28, 40])
+    expect(slabsOn('2026-01-31').map((s) => s.rate)).toEqual([0, 5, 18, 0.25, 1.5, 3, 28, 40])
+    // Notification 19/2025-CT(Rate): Schedule VII (28%) omitted from 1 Feb 2026.
+    expect(slabsOn('2026-02-01').map((s) => s.rate)).toEqual([0, 5, 18, 0.25, 1.5, 3, 40])
+    expect(ratePeriodOn('2026-02-01').sources.join(' ')).toMatch(/19\/2025-Central Tax \(Rate\)/)
+    expect(slabsOn('2026-10-13').some((s) => s.rate === 28)).toBe(false)
     expect(ratePeriodOn('2010-01-01')).toBe(GST_RATE_TABLE[0])
   })
   it('cess is a note with sources, and the unverified list is not empty', () => {
     expect(GST_CESS_NOTE.sources.length).toBeGreaterThan(0)
     expect(GST_RATE_UNVERIFIED.length).toBeGreaterThan(0)
     expect(GST_RATE_UNVERIFIED.join(' ')).toMatch(/HSN/)
+    expect(GST_RATE_UNVERIFIED.join(' ')).toMatch(/taxo\.online/)
+    expect(GST_RATE_UNVERIFIED.join(' ')).toMatch(/Compensation Cess/)
+    expect(GST_CESS_NOTE.note).not.toMatch(/cars|aerated/i)
   })
 })
