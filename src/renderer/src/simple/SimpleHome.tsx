@@ -6,13 +6,13 @@ import { onboardingScreen } from '../lib/onboarding'
 import { useNav } from '../state/stores'
 import { Page } from '../components/ui'
 import { Button, SkeletonTiles, Why } from '../components/kit'
-import { HOME_REPORTS, HOME_TASKS, accountScreen, attentionScreen, type HomeReport } from './homeTasks'
+import { HOME_TASKS, accountScreen, attentionScreen, homeReportScreen, type HomeReport } from './homeTasks'
 import { onboardingFromDashSetup, type OnboardingChecklist, type OnboardingStepId } from '@shared/onboarding'
 import { todayISO, toPlainDate } from '@shared/dates'
 import type { MessageKey } from '@shared/i18n'
-import type { HomeGst, SimpleHomeData } from '@shared/simple/home'
+import { homeAttentionRows, isEmptyHome, owedAttention, type HomeGst, type SimpleHomeData } from '@shared/simple/home'
 import {
-  attentionText, cashWhy, deadlineText, gstLine, gstWhy, money, moneyInWhy, moneyOutWhy, payablesWhy, profitSentence, profitWhy, receivablesWhy
+  attentionText, cashWhy, deadlineText, gstLine, gstLinkLabel, gstWhy, money, moneyInWhy, moneyOutWhy, payablesWhy, profitSentence, profitWhy, receivablesWhy
 } from '@shared/simple/explain'
 
 /** Plain labels for the onboarding steps, keyed by step id (the step logic stays in onboarding.ts).
@@ -100,11 +100,19 @@ function HomeBody({ home }: { home: SimpleHomeData }): React.JSX.Element {
   const t = useT()
   const nav = useNav()
   const checklist = onboardingFromDashSetup(home.setup)
-  const seeReport = t('simple.home.seeReport')
-  const links = Object.fromEntries(
-    Object.entries(HOME_REPORTS).map(([id, screen]) => [id, { label: seeReport, onOpen: () => nav.go(screen) }])
-  ) as Record<HomeReport, { label: string; onOpen: () => void }>
   const gstRegular = home.gst?.kind === 'regular' ? (home.gst as Extract<HomeGst, { kind: 'regular' }>) : null
+  // Each link says what it opens, and opens that figure (same date, side, period).
+  const link = (id: HomeReport, label: string): { label: string; onOpen: () => void } => ({ label, onOpen: () => nav.go(homeReportScreen(id, home)) })
+  const links = {
+    day: link('day', t('simple.home.link.day')), // i18n-technical
+    receivables: link('receivables', t('simple.home.link.receivables')), // i18n-technical
+    payables: link('payables', t('simple.home.link.payables')), // i18n-technical
+    cash: link('cash', t('simple.home.link.cash')), // i18n-technical
+    profit: link('profit', t('simple.home.link.profit')), // i18n-technical
+    gst: link('gst', gstRegular ? gstLinkLabel(gstRegular, t) : '') // i18n-technical
+  }
+  const empty = isEmptyHome(home)
+  const backupsScreen = homeReportScreen('backups', home) // i18n-technical
 
   return (
     <>
@@ -115,6 +123,9 @@ function HomeBody({ home }: { home: SimpleHomeData }): React.JSX.Element {
         </section>
       )}
 
+      {empty && <EmptyHome checklist={checklist} />}
+
+      {!empty && (
       <ul className="mt-5 grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
         <Tile
           id="money-in"
@@ -161,14 +172,14 @@ function HomeBody({ home }: { home: SimpleHomeData }): React.JSX.Element {
           title={t('simple.home.customersOwe')}
           paise={home.receivables.total}
           why={receivablesWhy(home.receivables, t)}
-          link={links.owed}
+          link={links.receivables}
         />
         <Tile
           id="payables"
           title={t('simple.home.youOweSuppliers')}
           paise={home.payables.total}
           why={payablesWhy(home.payables, home.today, t)}
-          link={links.owed}
+          link={links.payables}
         />
         {gstRegular && (
           <Tile
@@ -176,7 +187,7 @@ function HomeBody({ home }: { home: SimpleHomeData }): React.JSX.Element {
             title={t('simple.home.gstTitle')}
             value={gstLine(gstRegular, home.today, t)}
             paise={gstRegular.row.payable}
-            why={gstWhy(gstRegular, t)}
+            why={gstWhy(gstRegular, home.today, t)}
             link={links.gst}
           >
             {gstRegular.filing === 'quarterly' && (
@@ -208,8 +219,9 @@ function HomeBody({ home }: { home: SimpleHomeData }): React.JSX.Element {
           </div>
         </li>
       </ul>
+      )}
 
-      {home.attention && home.attention.items.length > 0 && <Attention home={home} />}
+      {!empty && <Attention home={home} />}
 
       {(home.deadlines.length > 0 || home.backup.nudge) && (
         <section className={`${cardCls} mt-5`} data-testid="simple-home-coming-up">
@@ -224,7 +236,7 @@ function HomeBody({ home }: { home: SimpleHomeData }): React.JSX.Element {
           {home.backup.nudge && home.backup.days != null && (
             <div className="mt-3 flex flex-wrap items-center justify-between gap-3 rounded-md bg-panel2 px-3 py-2" data-testid="simple-home-backup-nudge">
               <p className="text-detail text-ink">{t('simple.home.backupNudge', { days: home.backup.days })}</p>
-              <Button size="sm" variant="secondary" onClick={() => nav.go(HOME_REPORTS.backups)}>
+              <Button size="sm" variant="secondary" onClick={() => nav.go(backupsScreen)}>
                 {t('simple.home.backupNow')}
               </Button>
             </div>
@@ -276,18 +288,25 @@ function Tile({
   )
 }
 
-function Attention({ home }: { home: SimpleHomeData }): React.JSX.Element {
+function Attention({ home }: { home: SimpleHomeData }): React.JSX.Element | null {
   const t = useT()
   const nav = useNav()
-  const attention = home.attention!
-  const items = attention.items
-  const open = (source: 'close' | 'anomaly'): void => nav.go(attentionScreen(source, attention.period))
+  // The slow half (close checklist + anomaly scan) comes after Home shows; the overdue rows are
+  // the tiles' own figures, so they show at once and never contradict them.
+  const attentionQ = useQuery({
+    queryKey: ['simple', 'homeAttention', home.today], // i18n-technical
+    queryFn: () => api.simple.homeAttention(home.today)
+  })
+  const attention = attentionQ.data
+  const period = attention?.period ?? ''
+  const items = homeAttentionRows(owedAttention(home.receivables, home.payables), attention?.items ?? [])
+  if (items.length === 0) return null
   return (
-    <section className={`${cardCls} mt-5 border-amber/50`} data-testid="simple-home-attention">
+    <section className={`${cardCls} mt-5 border-amber/50`} data-testid="simple-home-attention" data-loading={attentionQ.isLoading ? 'true' : 'false'}>
       <div className="flex flex-wrap items-baseline justify-between gap-2">
         <h2 className="text-title font-semibold text-ink">{t('simple.home.needsAttention')}</h2>
         <span className="text-small text-muted" data-testid="simple-home-attention-count">
-          {t('simple.home.attentionCount', { count: items.length })}
+          {attentionQ.isLoading ? t('simple.home.attentionLoading') : t('simple.home.attentionCount', { count: items.length })}
         </span>
       </div>
       <ul className="mt-2 flex flex-col">
@@ -296,12 +315,12 @@ function Attention({ home }: { home: SimpleHomeData }): React.JSX.Element {
             <button
               type="button"
               data-testid={`simple-attention-${item.source}-${item.key}`}
-              onClick={() => open(item.source)}
+              onClick={() => nav.go(attentionScreen(item, period))}
               className="flex w-full items-start justify-between gap-3 py-2 text-left hover:bg-panel2 focus-visible:bg-panel2"
             >
               <span className="flex min-w-0 items-start gap-2">
                 <span aria-hidden="true" className={`mt-1.5 h-2 w-2 shrink-0 rounded-full ${item.level === 'high' ? 'bg-cr' : 'bg-amber'}`} />
-                <span className="text-detail text-ink">{attentionText(item, attention.period, t)}</span>
+                <span className="text-detail text-ink">{attentionText(item, period, t)}</span>
               </span>
               <span className="shrink-0 text-hint text-blue">{t('simple.home.attentionOpen')} →</span>
             </button>
@@ -309,17 +328,48 @@ function Attention({ home }: { home: SimpleHomeData }): React.JSX.Element {
         ))}
       </ul>
       {items.length > 3 && (
-        <button type="button" data-testid="simple-home-attention-all" className="mt-2 text-hint text-blue hover:underline" onClick={() => open(items[0]!.source)}>
+        <button type="button" data-testid="simple-home-attention-all" className="mt-2 text-hint text-blue hover:underline" onClick={() => nav.go(attentionScreen(items[3]!, period))}>
           {t('simple.home.attentionSeeAll', { count: items.length })}
         </button>
+      )}
+      {attention?.anomaliesSkipped && (
+        <p className="mt-2 text-hint text-muted" data-testid="simple-home-attention-capped">
+          {t('simple.home.attentionCapped')}
+        </p>
       )}
     </section>
   )
 }
 
-function Setup({ checklist }: { checklist: OnboardingChecklist }): React.JSX.Element {
+/** A company with nothing recorded: one card, with the next setup step as the way in. */
+function EmptyHome({ checklist }: { checklist: OnboardingChecklist }): React.JSX.Element {
   const t = useT()
   const nav = useNav()
+  const next = checklist.steps.find((s) => !s.done && STEP_LABEL[s.id])
+  return (
+    <section className={`${cardCls} mt-5`} data-testid="simple-home-empty">
+      <h2 className="text-title font-semibold text-ink">{t('simple.home.emptyTitle')}</h2>
+      <p className="mt-1 text-detail text-muted">{t('simple.home.emptyBody')}</p>
+      <Button
+        className="mt-4"
+        variant="primary"
+        data-testid="simple-home-empty-next"
+        onClick={() => nav.go(next ? onboardingScreen(checklist, next.id) : HOME_TASKS[0]!.screen)}
+      >
+        {next ? t(STEP_LABEL[next.id]!.label) /* i18n-technical: keyed by step id */ : t(HOME_TASKS[0]!.label) /* i18n-technical: keyed in homeTasks.ts */}
+      </Button>
+    </section>
+  )
+}
+
+function Setup({ checklist: all }: { checklist: OnboardingChecklist }): React.JSX.Element {
+  const t = useT()
+  const nav = useNav()
+  // A step that does not apply (the GST number for an unregistered business) is left out — never
+  // shown ticked as if the user had done it. The step logic stays in onboarding.ts.
+  const steps = all.steps.filter((s) => !s.skipped)
+  const doneCount = steps.filter((s) => s.done).length
+  const checklist = { ...all, steps, doneCount, total: steps.length, complete: doneCount === steps.length }
   return (
     <section data-testid="simple-home-setup" className={`${cardCls} mt-5`}>
       <div className="flex items-baseline justify-between gap-3">
@@ -346,7 +396,7 @@ function Setup({ checklist }: { checklist: OnboardingChecklist }): React.JSX.Ele
             const keys = STEP_LABEL[step.id]
             if (!keys) return null
             const label = t(keys.label) // i18n-technical: keyed by step id above
-            const hint = step.skipped ? t('simple.setupSteps.gstin.notNeeded') : t(keys.hint) // i18n-technical: keyed by step id above
+            const hint = t(keys.hint) // i18n-technical: keyed by step id above
             const body = (
               <>
                 <span
@@ -362,7 +412,7 @@ function Setup({ checklist }: { checklist: OnboardingChecklist }): React.JSX.Ele
                     {label}
                     <span className="sr-only"> {step.done ? t('simple.home.stepDone') : t('simple.home.stepToDo')}</span>
                   </span>
-                  {(!step.done || step.skipped) && <span className="block text-hint text-muted">{hint}</span>}
+                  {!step.done && <span className="block text-hint text-muted">{hint}</span>}
                 </span>
               </>
             )

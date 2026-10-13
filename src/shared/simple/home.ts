@@ -1,12 +1,13 @@
-// Simple Home (WP 8.6, plan 2026-10-13 §2.2): the shape `simple:home` returns, and the pure rules
-// that pick what the "Needs attention" card shows. Every figure is computed by main at query
-// time, as on TODAY, through the services the accountant screens use (services/simpleHome.ts):
+// Simple Home (WP 8.6, plan 2026-10-13 §2.2): the shapes `simple:home` / `simple:homeAttention`
+// return, and the pure rules that pick what the "Needs attention" card shows. Every figure is
+// computed by main at query time, as on TODAY, through the services the accountant screens use
+// (services/simpleHome.ts):
 //   money in / out today   cash + bank lines of today's in-books entries (Day Book scope)
 //   customers / suppliers  analysis.outstandings — the Outstandings screen's allocation
 //   cash and bank          opening + in-books movements to today (= trial balance rows)
 //   profit                 reports.profitAndLoss (→ pnlLedgerAmounts), month and FY to date
 //   GST                    dashboard.dashGst (the Gateway's Compliance row, regular only)
-//   needs attention        assistants.closeChecklist + assistants.anomalies
+//   needs attention        the tiles' overdue bills + assistants.closeChecklist + anomalies
 //   deadlines              compliance.upcomingDeadlines with complianceApplicability
 // The sentences that explain them are in ./explain.ts. Nothing here is stored.
 
@@ -30,6 +31,10 @@ export interface HomeOwed {
   oldest: { ledgerId: number; name: string; days: number } | null
   /** The earliest due date from today on (not yet overdue). */
   nextDue: { ledgerId: number; name: string; date: string; amount: number } | null
+  /** Paid ahead and not set against any bill yet (the same allocation's unapplied credit): what
+   *  customers paid you in advance / what you paid suppliers in advance. */
+  advances: number
+  advanceParties: number
 }
 
 /** Money that came in (or went out) today through cash and bank. An entry that only moves money
@@ -37,6 +42,9 @@ export interface HomeOwed {
 export interface HomeMoneyDay {
   amount: number
   entries: number
+  /** The part that came from (money in) or went to (money out) a loan account — borrowed or
+   *  repaid money, not income or expense. */
+  loans: number
 }
 
 export interface HomeCashAccount {
@@ -70,17 +78,26 @@ export interface HomeProfit {
   year: HomeProfitPeriod
 }
 
+/** GST paid on purchases against GSTR-2B (the portal's statement of suppliers' bills, imported
+ *  per month): `none` = no month of the period has a statement, so all of it is booked but not
+ *  yet checked; `awaiting` = tax on purchase bills of the checked months that 2B does not list. */
+export interface HomeGstCredit {
+  checked: 'none' | 'some' | 'all'
+  awaiting: number
+}
+
 export type HomeGst =
-  | { kind: 'regular'; filing: GstFilingFrequency; row: DashGst }
-  /** Composition: no monthly GST figure — the CMP-08 note only. */
+  | { kind: 'regular'; filing: GstFilingFrequency; row: DashGst; credit: HomeGstCredit }
+  /** Composition: no GST figure — the composition return note only. */
   | { kind: 'composition' }
 
-export type HomeAttentionSource = 'close' | 'anomaly'
+export type HomeAttentionSource = 'owed' | 'close' | 'anomaly'
 
 export interface HomeAttentionItem {
   source: HomeAttentionSource
-  /** A close-checklist key or an anomaly kind — the plain sentence is keyed by it. */
-  key: CloseCheckKey | AnomalyKind
+  /** 'receivable' / 'payable' (owed), a close-checklist key or an anomaly kind — the plain
+   *  sentence is keyed by it. */
+  key: CloseCheckKey | AnomalyKind | 'receivable' | 'payable'
   /** How many things (bills, entries, products …) the item is about. */
   count: number
   /** Paise, when the item has one amount. */
@@ -88,12 +105,19 @@ export interface HomeAttentionItem {
   level: 'high' | 'medium'
 }
 
+/** `simple:homeAttention` — the slower half of "Needs attention", fetched after Home shows. */
 export interface HomeAttention {
   /** The month the close checklist was run for (YYYY-MM, the Assistants screen's default). */
   period: string
-  /** Every item, most important first; the card shows the first three. */
+  /** Close checks + anomalies, most important first. */
   items: HomeAttentionItem[]
+  /** Anomalies were not looked for: the year has more entries than ANOMALY_HOME_CAP (the
+   *  Assistants screen still runs them on request). */
+  anomaliesSkipped: boolean
 }
+
+/** Above this many in-books entries in the year, Home does not run the anomaly scan. */
+export const ANOMALY_HOME_CAP = 10_000
 
 export interface HomeBackup {
   /** The newest backup the user took (the automatic on-open snapshot doesn't count). */
@@ -108,6 +132,7 @@ export interface HomeBackup {
 export const BACKUP_NUDGE_DAYS = 7
 
 export interface SimpleHomeData {
+  /** The as-on date: the asked date, never after the server's today. */
   today: string
   fy: { from: string; to: string }
   moneyIn: HomeMoneyDay
@@ -116,12 +141,10 @@ export interface SimpleHomeData {
   payables: HomeOwed
   cash: HomeCash
   profit: HomeProfit
-  /** Regular → the next GSTR-3B; composition → the CMP-08 note; unregistered → null. */
+  /** Regular → the next GSTR-3B; composition → the composition return note; unregistered → null. */
   gst: HomeGst | null
   /** Applicable deadlines in the next 30 days other than GST (the GST tile carries those). */
   deadlines: Deadline[]
-  /** Null when it could not be computed (the rest of Home still shows). */
-  attention: HomeAttention | null
   backup: HomeBackup
   /** The onboarding facts (same as the Gateway's `setup` section). */
   setup: DashSetup
@@ -129,14 +152,27 @@ export interface SimpleHomeData {
   gstAnswer: 'regular' | 'composition' | 'no' | 'not_sure' | null
 }
 
+/** Nothing recorded yet: no entries, and no balance or open bill from openings either — Home shows
+ *  one "Nothing recorded yet" card instead of a row of ₹0 tiles. */
+export function isEmptyHome(home: SimpleHomeData): boolean {
+  return (
+    home.setup.voucherCount === 0 &&
+    home.cash.accounts.every((a) => a.balance === 0) &&
+    home.receivables.total === 0 &&
+    home.payables.total === 0 &&
+    home.receivables.advances === 0 &&
+    home.payables.advances === 0
+  )
+}
+
 /**
- * Close-checklist rows Home lifts into "Needs attention", and from which status. The books'
- * housekeeping rows (lock, narration, regular expenses) stay on the Assistants screen; bank
- * reconciliation and rounding only when they fail (statement lines not matched, an entry that
- * does not balance) — "not ticked yet" is not something a shop owner has to act on today.
+ * Close-checklist rows Home lifts into "Needs attention", and from which status. Overdue bills
+ * are NOT taken from the checklist (it counts both sides as on last month's end) — they come from
+ * the tiles' own figures as on today (`owedAttention`), so the card never contradicts them. The
+ * books' housekeeping rows (lock, narration, regular expenses) stay on the Assistants screen;
+ * bank reconciliation, rounding and depreciation only when they fail.
  */
 export const HOME_CHECK_LEVEL: Partial<Record<CloseCheckKey, 'warn' | 'fail'>> = {
-  overdue_bills: 'warn',
   unallocated: 'warn',
   gst_returns: 'warn',
   withholding: 'warn',
@@ -153,9 +189,16 @@ export const HOME_CHECK_LEVEL: Partial<Record<CloseCheckKey, 'warn' | 'fail'>> =
 /** Anomaly severities Home shows (low ones — weekend postings, round amounts — stay on the screen). */
 const HOME_ANOMALY_SEVERITIES: ReadonlySet<AnomalySeverity> = new Set(['high', 'medium'])
 
-/** The "Needs attention" items: close checks that still need doing (a user's done / n/a mark
- *  counts — `effective`) and open anomalies grouped by kind; failures and high-severity
- *  findings first, then by count. */
+/** The overdue rows, one per side, from the SAME figures as the tiles (as on today). */
+export function owedAttention(receivables: HomeOwed, payables: HomeOwed): HomeAttentionItem[] {
+  const out: HomeAttentionItem[] = []
+  if (receivables.overdueBills > 0) out.push({ source: 'owed', key: 'receivable', count: receivables.overdueBills, amount: receivables.overdue, level: 'medium' })
+  if (payables.overdueBills > 0) out.push({ source: 'owed', key: 'payable', count: payables.overdueBills, amount: payables.overdue, level: 'medium' })
+  return out
+}
+
+/** The close checks that still need doing (a user's done / n/a mark counts — `effective`) and
+ *  open anomalies grouped by kind; failures and high-severity findings first, then by count. */
 export function attentionItems(
   checks: readonly Pick<CloseCheck, 'key' | 'effective' | 'count' | 'amount'>[],
   anomalies: readonly { kind: AnomalyKind; severity: AnomalySeverity; amount: number | null; dismissed?: unknown }[]
@@ -181,6 +224,11 @@ export function attentionItems(
   return items.sort((a, b) => rank(a) - rank(b) || b.count - a.count || String(a.key).localeCompare(String(b.key)))
 }
 
+/** The card's rows: high findings first, then the tiles' overdue bills, then the rest. */
+export function homeAttentionRows(owed: HomeAttentionItem[], rest: readonly HomeAttentionItem[]): HomeAttentionItem[] {
+  return [...rest.filter((i) => i.level === 'high'), ...owed, ...rest.filter((i) => i.level !== 'high')]
+}
+
 /** Whole days between an epoch-ms instant and `today` (local midnight), never negative. */
 export function daysSince(at: number, today: string): number {
   const [y, m, d] = today.split('-').map(Number) as [number, number, number]
@@ -189,12 +237,13 @@ export function daysSince(at: number, today: string): number {
   return Math.max(0, Math.round((Date.UTC(y, m - 1, d) - thenDay) / 86_400_000))
 }
 
-/** A side's summary from the Outstandings allocation (analysis.outstandings as on today): the
- *  same total the Outstandings screen and the Gateway tile show, plus the facts the sentence
- *  needs. Pure. */
+/** A side's summary from the Outstandings allocation (analysis.outstandingsWithAdvances as on
+ *  today): the same total the Outstandings screen and the Gateway tile show, plus the facts the
+ *  sentence needs. Pure. */
 export function owedSummary(
   parties: readonly { ledgerId: number; name: string; pending: number; bills: readonly { pending: number; ageDays: number; dueDate: string | null; overdueDays: number }[] }[],
-  today: string
+  today: string,
+  advances: { amount: number; parties: number } = { amount: 0, parties: 0 }
 ): HomeOwed {
   let overdue = 0
   let overdueBills = 0
@@ -219,6 +268,8 @@ export function owedSummary(
     overdue,
     overdueBills,
     oldest,
-    nextDue
+    nextDue,
+    advances: advances.amount,
+    advanceParties: advances.parties
   }
 }

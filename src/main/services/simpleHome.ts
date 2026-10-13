@@ -1,31 +1,42 @@
-// Simple Home (WP 8.6) — everything the simple Home shows, in ONE call (`simple:home`), as on
-// TODAY (never the financial year's end). Every figure comes from the service the matching
-// accountant screen uses, so the two never disagree (simpleHome.dbtest.ts pins each one):
-//   customers / suppliers  analysis.outstandings (Outstandings screen; Gateway tiles)
+// Simple Home (WP 8.6) — what the simple Home shows, as on TODAY (never the financial year's end;
+// a later date asked for is clamped to the server's today). Every figure comes from the service
+// the matching accountant screen uses, so the two never disagree (simpleHome.dbtest.ts pins each):
+//   customers / suppliers  analysis.outstandingsWithAdvances (Outstandings screen; Gateway tiles)
 //   cash and bank          reports.closingBalances (trial balance rows; Gateway Cash & bank)
 //   profit                 reports.profitAndLoss → pnlLedgerAmounts (P&L; Gateway month / FY)
-//   GST                    dashboard.dashGst (Gateway Compliance row) — regular only
-//   needs attention        assistants.closeChecklist (previous month) + assistants.anomalies
+//   GST                    dashboard.dashGst (Gateway Compliance row) — regular only — and the
+//                          stored GSTR-2B statements for "booked, not yet confirmed"
 //   deadlines              compliance.upcomingDeadlines + the WP 8.0 applicability rules
 //   setup                  dashboard.dashSetup (Gateway setup card → onboarding.ts)
-// Read-only: one read transaction, nothing stored. The sentences are shared/simple/explain.ts.
+// `simple:home` is the fast half (one round trip, every tile); `simple:homeAttention` is the slow
+// half — the close checklist and the anomaly scan — fetched after Home shows (capped: no anomaly
+// scan over ANOMALY_HOME_CAP entries). Read-only: read transactions, nothing stored.
 import type { DB } from '../db/connection'
 import type { CompanyInfo } from '@shared/domain'
-import { addDays, addMonths, monthOf, monthSpan } from '@shared/dashboard'
-import { fyOf } from '@shared/dates'
+import { addDays, addMonths, monthOf, monthRange, monthSpan } from '@shared/dashboard'
+import { fyOf, gstPeriodOf } from '@shared/dates'
 import { upcomingDeadlines } from '@shared/compliance'
+import { parseGstr2b, reconcile2b, recon2bOptionsFrom } from '@shared/gst/recon2b'
 import {
-  attentionItems, BACKUP_NUDGE_DAYS, daysSince, owedSummary,
-  type HomeAttention, type HomeCash, type HomeGst, type HomeMoneyDay, type HomeProfitPeriod, type SimpleHomeData
+  ANOMALY_HOME_CAP, attentionItems, BACKUP_NUDGE_DAYS, daysSince, owedSummary,
+  type HomeAttention, type HomeCash, type HomeGst, type HomeGstCredit, type HomeMoneyDay, type HomeProfitPeriod, type SimpleHomeData
 } from '@shared/simple/home'
-import { closingBalances, descendantIdSet, profitAndLoss } from './reports'
-import { outstandings } from './analysis'
+import type { DashGst } from '@shared/dashboard'
+import { descendantIdSet, profitAndLoss } from './reports'
+import { outstandingsWithAdvances } from './analysis'
 import { stockValuesAt } from './stockAnalysis'
 import { listGroups } from './masters'
 import { IN_BOOKS } from './vouchers'
 import { getFeatures, getGstProfile, getUi } from './config'
 import { dashGst, dashSetup, tdsApplies, tdsPayableLedgers, userBackupsOf, type DashBackupInput } from './dashboard'
-import { anomalies, closeChecklist } from './assistants'
+import { anomalies, closeChecklist, getStatement } from './assistants'
+import { extractPurchaseDocs } from './gst'
+import { getRecon2bTolerances } from './gstIms'
+
+/** The as-on date: what was asked for, never after the server's today. */
+export function homeAsOn(asked: string | undefined, serverToday: string): string {
+  return asked && asked < serverToday ? asked : serverToday
+}
 
 export function simpleHome(db: DB, company: CompanyInfo, opts: { today: string; backups: DashBackupInput[] }): SimpleHomeData {
   // One read transaction: every tile sees the same snapshot of the books.
@@ -42,8 +53,9 @@ function compute(db: DB, company: CompanyInfo, opts: { today: string; backups: D
   const ledgers = db.prepare('SELECT id, name, group_id AS groupId FROM ledgers').all() as LedgerRow[]
   const cashIds = descendantIdSet(groups, ['Cash-in-Hand'])
   const bankIds = descendantIdSet(groups, ['Bank Accounts', 'Bank OD A/c'])
+  const loanIds = new Set([...descendantIdSet(groups, ['Loans (Liability)'])].filter((id) => !bankIds.has(id)))
   const dutiesIds = descendantIdSet(groups, ['Duties & Taxes'])
-  const bal = closingBalances(db, today)
+  const bal = balancesOf(db, ledgers.filter((l) => cashIds.has(l.groupId) || bankIds.has(l.groupId) || dutiesIds.has(l.groupId)).map((l) => l.id), today)
 
   // ---- cash and bank: each account's balance as on today ----
   const accounts = ledgers
@@ -54,35 +66,45 @@ function compute(db: DB, company: CompanyInfo, opts: { today: string; backups: D
   const bankTotal = accounts.filter((a) => a.kind === 'bank').reduce((s, a) => s + a.balance, 0)
   const cash: HomeCash = { accounts, cash: cashTotal, bank: bankTotal, total: cashTotal + bankTotal }
 
-  // ---- money in / out today: per entry, its net on cash + bank (a move between them nets 0) ----
+  // ---- money in / out today: per entry, its net on cash + bank (a move between them nets 0);
+  //      the part whose other side is a loan account is borrowed / repaid money ----
   const moneyIds = [...cashIds, ...bankIds]
-  const moneyIn: HomeMoneyDay = { amount: 0, entries: 0 }
-  const moneyOut: HomeMoneyDay = { amount: 0, entries: 0 }
+  const moneyIn: HomeMoneyDay = { amount: 0, entries: 0, loans: 0 }
+  const moneyOut: HomeMoneyDay = { amount: 0, entries: 0, loans: 0 }
   if (moneyIds.length) {
+    const inList = (ids: Iterable<number>): string => [...ids].join(',') || 'NULL'
     const rows = db
       .prepare(
-        `SELECT v.id, SUM(CASE WHEN vl.dr_cr = 'dr' THEN vl.amount ELSE -vl.amount END) AS net
+        `SELECT v.id,
+                SUM(CASE WHEN l.group_id IN (${inList(moneyIds)}) THEN (CASE WHEN vl.dr_cr = 'dr' THEN vl.amount ELSE -vl.amount END) ELSE 0 END) AS net,
+                SUM(CASE WHEN l.group_id IN (${inList(loanIds)}) THEN (CASE WHEN vl.dr_cr = 'cr' THEN vl.amount ELSE -vl.amount END) ELSE 0 END) AS loanCr
          FROM voucher_lines vl
          JOIN vouchers v ON v.id = vl.voucher_id
          JOIN ledgers l ON l.id = vl.ledger_id
-         WHERE v.date = ? AND ${IN_BOOKS} AND l.group_id IN (${moneyIds.map(() => '?').join(',')})
+         WHERE v.date = ? AND ${IN_BOOKS}
          GROUP BY v.id`
       )
-      .all(today, ...moneyIds) as { id: number; net: number }[]
+      .all(today) as { id: number; net: number; loanCr: number }[]
     for (const r of rows) {
       if (r.net > 0) {
         moneyIn.amount += r.net
         moneyIn.entries++
+        if (r.loanCr > 0) moneyIn.loans += Math.min(r.net, r.loanCr)
       } else if (r.net < 0) {
         moneyOut.amount -= r.net
         moneyOut.entries++
+        if (r.loanCr < 0) moneyOut.loans += Math.min(-r.net, -r.loanCr)
       }
     }
   }
 
-  // ---- who owes whom: the Outstandings allocation as on today ----
-  const receivables = owedSummary(outstandings(db, 'receivable', today), today)
-  const payables = owedSummary(outstandings(db, 'payable', today), today)
+  // ---- who owes whom: the Outstandings allocation as on today (+ its unapplied credit) ----
+  const owed = (side: 'receivable' | 'payable'): ReturnType<typeof owedSummary> => {
+    const o = outstandingsWithAdvances(db, side, today)
+    return owedSummary(o.parties, today, { amount: o.advances, parties: o.advanceParties })
+  }
+  const receivables = owed('receivable')
+  const payables = owed('payable')
 
   // ---- profit: this month and the FY, to today (the Gateway's month and period P&L) ----
   const month = monthOf(today)
@@ -95,26 +117,19 @@ function compute(db: DB, company: CompanyInfo, opts: { today: string; backups: D
   }
   const profit = { month: { month, ...pnl(span.from, span.to) }, year: pnl(fy.from, today) }
 
-  // ---- GST: the Gateway's row for a regular registration; composition gets the CMP-08 note ----
+  // ---- GST: the Gateway's row for a regular registration; composition gets its note ----
   const filing = company.gstRegistrationType === 'regular' ? getGstProfile(db).filing : 'monthly'
   const gstRow = dashGst(db, company, today)
-  const gst: HomeGst | null = gstRow ? { kind: 'regular', filing, row: gstRow } : company.gstRegistrationType === 'composition' ? { kind: 'composition' } : null
+  const gst: HomeGst | null = gstRow
+    ? { kind: 'regular', filing, row: gstRow, credit: gstCredit(db, gstRow) }
+    : company.gstRegistrationType === 'composition'
+      ? { kind: 'composition' }
+      : null
 
   // ---- deadlines (WP 8.0: applicable ones only), other than GST ----
   const hasPayroll = features.payroll && !!db.prepare('SELECT 1 FROM employees WHERE active = 1 LIMIT 1').get()
   const tds = tdsApplies(db, company, features.tds, tdsPayableLedgers(ledgers, dutiesIds, bal).length > 0)
   const deadlines = upcomingDeadlines(today, company.gstRegistrationType, hasPayroll, 30, { tds, gstFiling: filing }).filter((d) => d.kind !== 'gst')
-
-  // ---- needs attention: the close checklist (previous month, the Assistants default) + anomalies ----
-  let attention: HomeAttention | null = null
-  const period = addMonths(month, -1)
-  try {
-    const checks = closeChecklist(db, company, period, today).checks
-    const found = anomalies(db, fy.from, today).rows
-    attention = { period, items: attentionItems(checks, found) }
-  } catch {
-    attention = null // never blanks Home; the Assistants screen shows the error
-  }
 
   // ---- backup nudge ----
   const mine = userBackupsOf(opts.backups)
@@ -136,9 +151,68 @@ function compute(db: DB, company: CompanyInfo, opts: { today: string; backups: D
     profit,
     gst,
     deadlines,
-    attention,
     backup,
     setup,
     gstAnswer: ui.setup?.gst ?? null
   }
+}
+
+/** reports.closingBalances' definition (opening + in-books movements up to `asOn`) for just the
+ *  ledgers Home needs — cash, bank and the duties ledgers — instead of every ledger. The dbtest
+ *  pins the result to the trial balance's / Gateway's figures. */
+function balancesOf(db: DB, ids: number[], asOn: string): Map<number, number> {
+  const out = new Map<number, number>()
+  if (ids.length === 0) return out
+  const rows = db
+    .prepare(
+      `SELECT l.id, l.opening_balance + COALESCE((
+         SELECT SUM(CASE WHEN vl.dr_cr = 'dr' THEN vl.amount ELSE -vl.amount END)
+         FROM voucher_lines vl JOIN vouchers v ON v.id = vl.voucher_id
+         WHERE vl.ledger_id = l.id AND v.date <= ? AND ${IN_BOOKS}
+       ), 0) AS bal
+       FROM ledgers l WHERE l.id IN (${ids.map(() => '?').join(',')})`
+    )
+    .all(asOn, ...ids) as { id: number; bal: number }[]
+  for (const r of rows) out.set(r.id, r.bal)
+  return out
+}
+
+/**
+ * GST paid on purchases vs the imported GSTR-2B statements (one per return month, the WP 5.5
+ * store): a month without a statement is unchecked; in a checked month, the tax on purchase bills
+ * 2B does not list (the WP 3.4 matcher's `missingInPortal`) is booked but not yet confirmed.
+ */
+function gstCredit(db: DB, row: DashGst): HomeGstCredit {
+  const from = row.from ?? `${row.period}-01`
+  const to = row.to ?? from
+  const months = monthRange(monthOf(from), monthOf(to))
+  let checkedMonths = 0
+  let awaiting = 0
+  const tol = recon2bOptionsFrom(getRecon2bTolerances(db))
+  for (const m of months) {
+    const st = getStatement(db, gstPeriodOf(`${m}-01`))
+    if (!st) continue
+    checkedMonths++
+    const mFrom = `${m}-01`
+    const mTo = m === monthOf(to) ? to : addDays(`${addMonths(m, 1)}-01`, -1)
+    const result = reconcile2b(parseGstr2b(st.jsonText).invoices, extractPurchaseDocs(db, mFrom, mTo), tol)
+    const b = result.buckets.missingInPortal
+    awaiting += b.igst + b.cgst + b.sgst + b.cess
+  }
+  return { checked: checkedMonths === 0 ? 'none' : checkedMonths === months.length ? 'all' : 'some', awaiting }
+}
+
+/** `simple:homeAttention` — the close checklist for the previous month (the Assistants default)
+ *  and, unless the year has more than ANOMALY_HOME_CAP entries, the anomaly scan for the FY to
+ *  today. Overdue bills are not taken from here (Home has them from the tiles, as on today). */
+export function simpleHomeAttention(db: DB, company: CompanyInfo, today: string): HomeAttention {
+  return db.transaction((): HomeAttention => {
+    const fy = fyOf(today)
+    const period = addMonths(monthOf(today), -1)
+    const checks = closeChecklist(db, company, period, today).checks
+    const count = (db.prepare(`SELECT COUNT(*) AS n FROM vouchers v WHERE v.date BETWEEN ? AND ? AND ${IN_BOOKS}`).get(fy.from, today) as { n: number }).n
+    const anomaliesSkipped = count > ANOMALY_HOME_CAP
+    const found = anomaliesSkipped ? [] : anomalies(db, fy.from, today).rows
+    return { period, items: attentionItems(checks, found), anomaliesSkipped }
+  })()
 }

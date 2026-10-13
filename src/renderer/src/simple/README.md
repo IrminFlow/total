@@ -27,6 +27,7 @@ The screens a first-time, non-accountant user sees (plan `docs/superpowers/specs
 ## Home (WP 8.6)
 
 - `SimpleHome.tsx` makes ONE call, `simple:home` (`services/simpleHome.ts`, shape in `shared/simple/home.ts`): money in / out today, customers owe you, you owe suppliers, cash and each bank, GST due (regular only; composition → the CMP-08 note), how the business is doing (month + FY profit), "Needs attention", what is coming up, the backup nudge and the setup facts — every figure as on today from the services the accountant screens use.
-- Each tile's "Why?" (`kit/Why.tsx`) shows a sentence from `shared/simple/explain.ts` (pure, `t()` + money.ts) and links to the full report.
+- "Needs attention" fills in after Home shows: overdue rows from the tiles' own figures (by side), the close checklist + anomalies from `simple:homeAttention`. A company with nothing recorded gets one "Nothing recorded yet" card with the next setup step.
+- Each tile's "Why?" (`kit/Why.tsx`) shows a sentence from `shared/simple/explain.ts` (pure, `t()` + money.ts) and a link that says what it opens and opens THAT figure (`homeReportScreen` in `homeTasks.ts`: same date, side, period).
 - `homeTasks.ts` is the one mapping for the task buttons (+ Sale, + Purchase, Money in, Money out) and the report links — Phase 9 swaps a task's `screen` for its simple flow there.
 - The setup checklist labels are keyed by `onboarding.ts` step id; `openings` (WP 8.7, "Enter what you had on day one") is a label slot that shows once that step exists.

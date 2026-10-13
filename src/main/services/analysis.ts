@@ -210,6 +210,19 @@ function openingEvent(asOn: string, openingBalance: number, sign: number): BillE
  * date is known) — see shared/outstanding.ts's `allocateBills`.
  */
 export function outstandings(db: DB, side: 'receivable' | 'payable', asOn: string): OutstandingParty[] {
+  return outstandingsWithAdvances(db, side, asOn).parties
+}
+
+/** `outstandings` plus what the same allocation leaves unapplied — money a customer paid ahead
+ *  (receivable side) or you paid a supplier ahead (payable side), and how many parties hold it
+ *  (WP 8.6, the simple Home). One run of the engine, so the two always agree. */
+export function outstandingsWithAdvances(
+  db: DB,
+  side: 'receivable' | 'payable',
+  asOn: string
+): { parties: OutstandingParty[]; advances: number; advanceParties: number } {
+  let advances = 0
+  let advanceParties = 0
   const groupIds = descendantIdsByName(db, [side === 'receivable' ? 'Sundry Debtors' : 'Sundry Creditors'])
   const parties = (
     db.prepare('SELECT id, name, opening_balance, group_id, credit_days FROM ledgers').all() as {
@@ -223,7 +236,11 @@ export function outstandings(db: DB, side: 'receivable' | 'payable', asOn: strin
   const eventsByParty = partyEventsBatch(db, parties.map((p) => p.id), asOn, sign)
   for (const party of parties) {
     const events = [...openingEvent(asOn, party.opening_balance, sign), ...(eventsByParty.get(party.id) ?? [])]
-    const { bills, warnings } = allocateBills(events, asOn, party.credit_days)
+    const { bills, warnings, unappliedCredit } = allocateBills(events, asOn, party.credit_days)
+    if (unappliedCredit > 0) {
+      advances += unappliedCredit
+      advanceParties++
+    }
     if (bills.length === 0 && warnings.length === 0) continue
 
     const buckets: [number, number, number, number] = [0, 0, 0, 0]
@@ -240,7 +257,7 @@ export function outstandings(db: DB, side: 'receivable' | 'payable', asOn: strin
       ...(warnings.length > 0 ? { warnings } : {})
     })
   }
-  return result.sort((a, b) => b.pending - a.pending)
+  return { parties: result.sort((a, b) => b.pending - a.pending), advances, advanceParties }
 }
 
 /** Open bills for a single party as of `asOn` — feeds the receipt/payment "settle against" picker. */

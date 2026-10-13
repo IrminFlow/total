@@ -1,7 +1,8 @@
 // Scenario 52 — WP 8.6 simple Home. Demo Traders in simple mode: Home loads from one
 // `simple:home` call; its figures equal the accountant Dashboard tiles (receivables, payables,
 // cash and bank, FY profit) and the Outstandings screen's totals as on today; "Why?" opens the
-// computed sentence and its link opens the full report; a task button opens the editor in the
+// computed sentence and each link opens THAT figure (Outstandings on its side, the Day book on
+// today, the cash / bank balances as on today, GSTR-3B on the tile's month); a task button opens the editor in the
 // full app; "Needs attention" shows when the close checklist / anomalies find something (the demo
 // has bills past their due date). Home is captured light and dark, and for an empty company.
 // WP86_SHOTS=<dir> also copies the screenshots there for the visual review.
@@ -31,6 +32,12 @@ async function backHome(h) {
   await h.click('simple-nav-home')
   await attached(h, '[data-testid="simple-home"]')
   await attached(h, '[data-testid="simple-tile-receivables"]')
+}
+
+/** Open a tile's "Why?" and follow its link. */
+async function openLink(h, id) {
+  await h.click(`simple-why-${id}`)
+  await h.click(`simple-why-${id}-link`)
 }
 
 async function shoot(h, name) {
@@ -81,12 +88,41 @@ await scenario('52-home', async (h) => {
   assert(sentence.includes(`₹${formatPaise(home.receivables.total)}`), `the sentence quotes the figure: ${sentence}`)
   assert(sentence.includes(home.receivables.oldest.name), 'the sentence names the oldest bill’s customer')
   await shoot(h, '02-home-why')
+  // Each link opens THAT figure in the accountant view.
   await h.click('simple-why-receivables-link')
   await h.waitScreen('outstandings')
   await attached(h, '[data-testid="btn-back-to-simple"]')
   await attached(h, '[data-testid="outstandings-table-totals"]')
-  // The Outstandings screen (accountant view) shows the same total as on today.
-  assert((await textOf(h, '[data-testid="outstandings-table-totals"]')).includes(formatPaise(home.receivables.total)), 'Outstandings total = Customers owe you')
+  assert((await textOf(h, '[data-testid="outstandings-table-totals"]')).includes(formatPaise(home.receivables.total)), 'Outstandings (receivables) total = Customers owe you')
+  await backHome(h)
+
+  await openLink(h, 'payables')
+  await h.waitScreen('outstandings')
+  await attached(h, '[data-testid="outstandings-table-totals"]')
+  assert((await textOf(h, '[data-testid="outstandings-table-totals"]')).includes(formatPaise(home.payables.total)), 'Outstandings opens on the payables side: total = You owe suppliers')
+  await backHome(h)
+
+  await openLink(h, 'money-in')
+  await h.waitScreen('daybook')
+  await attached(h, '[data-testid="daybook-date-chip"]')
+  const [y, m, d] = today.split('-')
+  const MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'][Number(m) - 1]
+  assertEq(await textOf(h, '[data-testid="daybook-date-chip"]'), `${d}-${MON}-${y.slice(2)}`, 'the Day book opens on today')
+  await backHome(h)
+
+  await openLink(h, 'cash')
+  await h.waitScreen('trial-balance')
+  await attached(h, '[data-testid="trial-balance-table-totals"]')
+  const tbRows = await page.$$eval('[data-testid="rows-trial-balance"] tr.dt-row', (rows) => rows.length)
+  assertEq(tbRows, home.cash.accounts.filter((a) => a.balance !== 0).length, 'the trial balance lists just the cash and bank accounts')
+  if (home.cash.accounts.every((a) => a.balance >= 0)) {
+    assert((await textOf(h, '[data-testid="trial-balance-table-totals"]')).includes(formatPaise(home.cash.total)), 'its total = Cash and bank')
+  }
+  await backHome(h)
+
+  await openLink(h, 'gst')
+  await h.waitScreen('gstr3b')
+  await page.waitForFunction((v) => document.querySelector('[data-testid="input-gstr3b-month"]')?.value === v, home.gst.row.period)
   await backHome(h)
 
   // ---------- the accountant Dashboard shows the same figures ----------
@@ -103,18 +139,27 @@ await scenario('52-home', async (h) => {
   await backHome(h)
 
   // ---------- needs attention ----------
-  const overdue = home.attention?.items.find((i) => i.source === 'close' && i.key === 'overdue_bills')
-  if (home.attention && home.attention.items.length > 0) {
-    await attached(h, '[data-testid="simple-home-attention"]')
-    assert((await textOf(h, '[data-testid="simple-home-attention-count"]')).startsWith(String(home.attention.items.length)), 'the card counts every item')
-    // An overdue bill is listed (in the top three, or behind "See all").
-    if (overdue) {
-      const at = home.attention.items.indexOf(overdue)
-      await attached(h, at < 3 ? '[data-testid="simple-attention-close-overdue_bills"]' : '[data-testid="simple-home-attention-all"]')
+  // The overdue rows come from the tiles' own figures (by side, as on today); the rest from
+  // simple:homeAttention, which fills in after Home shows.
+  const attention = await h.invoke('simple:homeAttention', { today })
+  const owedRows = [home.receivables.overdueBills > 0 ? 'receivable' : null, home.payables.overdueBills > 0 ? 'payable' : null].filter(Boolean)
+  const total = owedRows.length + attention.items.length
+  if (total > 0) {
+    await attached(h, '[data-testid="simple-home-attention"][data-loading="false"]')
+    assert((await textOf(h, '[data-testid="simple-home-attention-count"]')).startsWith(String(total)), 'the card counts every item')
+    assert(!attention.items.some((i) => i.key === 'overdue_bills'), 'overdue bills never come from the month-end checklist')
+    const high = attention.items.filter((i) => i.level === 'high').length
+    if (home.receivables.overdueBills > 0 && high < 3) {
+      const row = await textOf(h, '[data-testid="simple-attention-owed-receivable"]')
+      assert(row.includes(`${home.receivables.overdueBills} customer bill`) && row.includes(formatPaise(home.receivables.overdue)), `the overdue row matches the tile: ${row}`)
+      await h.click('simple-attention-owed-receivable')
+      await h.waitScreen('outstandings')
+      await backHome(h)
+      await attached(h, '[data-testid="simple-home-attention"][data-loading="false"]')
     }
-    const first = home.attention.items[0]
-    await h.click(`simple-attention-${first.source}-${first.key}`)
-    await h.waitScreen('assistants')
+    const first = await page.getAttribute('[data-testid^="simple-attention-"]', 'data-testid')
+    await h.click(first)
+    await page.waitForSelector('[data-screen="assistants"][data-loading="false"], [data-screen="outstandings"][data-loading="false"]', { state: 'attached', timeout: 15000 })
     await backHome(h)
   } else {
     assertEq(await page.$('[data-testid="simple-home-attention"]'), null, 'no "Needs attention" card when nothing needs it')
@@ -143,16 +188,15 @@ await scenario('52-home', async (h) => {
   // ---------- an empty company ----------
   await h.click('btn-switch-company')
   await h.createCompanyUI('Empty Home Co', { mode: 'simple' })
-  await attached(h, '[data-testid="simple-tile-receivables"]')
+  await attached(h, '[data-testid="simple-home-empty"]')
   await h.waitIdle()
   const empty = await h.invoke('simple:home', { today })
   assertEq(empty.receivables.total, 0, 'an empty company owes nothing')
   assertEq(empty.gst, null, 'an unregistered company has no GST tile')
+  assertEq(await page.$('[data-testid="simple-tile-receivables"]'), null, 'no row of ₹0 tiles — one "Nothing recorded yet" card')
   assertEq(await page.$('[data-testid="simple-tile-gst"]'), null, 'no GST tile for an unregistered company')
   assertEq(await page.$('[data-testid="simple-home-attention"]'), null, 'nothing needs attention in an empty company')
-  assert((await textOf(h, '[data-testid="simple-why-receivables"]')).length > 0, 'Why? is there on an empty tile too')
-  await h.click('simple-why-receivables')
-  assertEq(await textOf(h, '[data-testid="simple-why-receivables-sentence"]'), 'Nobody owes you money right now.', 'the empty sentence')
-  await page.keyboard.press('Escape')
+  assertEq(await page.$('[data-testid="simple-setup-gstin"]'), null, 'the GST number step is not shown as done for an unregistered company')
+  assert((await textOf(h, '[data-testid="simple-home-empty-next"]')).length > 0, 'the next setup step is the way in')
   await shoot(h, '05-home-empty')
 })

@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '../lib/client'
 import { receivablesApi, type FollowupRow } from '../lib/receivablesClient'
@@ -231,14 +231,16 @@ function StatementsSection({ parties, onPreview }: { parties: OutstandingParty[]
   )
 }
 
-export function OutstandingsScreen(): React.JSX.Element {
+/** `initialSide` (WP 8.6): the simple Home's "You owe suppliers" opens the payables side. */
+export function OutstandingsScreen({ initialSide = 'receivable' }: { initialSide?: 'receivable' | 'payable' } = {}): React.JSX.Element {
   const { to: periodTo } = useSession()
   // WP 8.0: ageing is as on TODAY unless the working period ends earlier — never the FY end in
   // the future (bills due next month would read as 90+ days overdue).
   const today = todayISO()
   const to = periodTo > today ? today : periodTo
   const toast = useToasts()
-  const [side, setSide] = useState<'receivable' | 'payable'>('receivable')
+  const [side, setSide] = useState<'receivable' | 'payable'>(initialSide)
+  useEffect(() => setSide(initialSide), [initialSide])
   const features = useFeatures()
   const nav = useNav()
   const [expanded, setExpanded] = useState<Set<RowKey>>(() => new Set())

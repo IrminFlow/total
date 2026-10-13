@@ -1,8 +1,10 @@
 // "Why?" sentences (WP 8.6, plan 2026-10-13 §1 principle 5: every number explains itself in one
 // sentence). Pure: each function turns figures main computed (`simple:home`, shared/simple/home.ts)
-// into a sentence through t() — plurals by the catalogue's rules, amounts by money.ts, dates by
+// into sentences through t() — plurals by the catalogue's rules, amounts by money.ts, dates by
 // dates.ts. Nothing here computes a figure the service did not return; the sentence is never
-// written by a model. WP 10.2 extends this to Reports and Taxes.
+// written by a model. Where a figure needs a caveat (a loan inside money in, customer advances,
+// reverse charge, who files), the caveat is its own sentence after the first. WP 10.2 extends
+// this to Reports and Taxes.
 
 import type { MessageKey, Translate } from '../i18n'
 import { formatPaise } from '../money'
@@ -14,40 +16,56 @@ import type { AnomalyKind } from '../anomalies'
 
 export const money = (paise: number): string => formatPaise(paise, { symbol: true })
 
+type RegularGst = Extract<HomeGst, { kind: 'regular' }>
+
 /** '2026-11-20' → '20 Nov' (the year only when it is not `today`'s). */
 export function shortDate(date: string, today?: string): string {
   const plain = toPlainDate(date)
   return today && date.slice(0, 4) === today.slice(0, 4) ? plain.slice(0, plain.lastIndexOf(' ')) : plain
 }
 
+const join = (parts: (string | null)[]): string => parts.filter((p): p is string => !!p).join(' ')
+
 export function moneyInWhy(day: HomeMoneyDay, t: Translate): string {
-  return day.entries === 0
-    ? t('simple.explain.moneyInNone')
-    : t('simple.explain.moneyIn', { amount: money(day.amount), count: day.entries })
+  if (day.entries === 0) return t('simple.explain.moneyInNone')
+  return join([
+    t('simple.explain.moneyIn', { amount: money(day.amount), count: day.entries }),
+    day.loans > 0 ? t('simple.explain.moneyInLoan', { amount: money(day.loans) }) : null
+  ])
 }
 
 export function moneyOutWhy(day: HomeMoneyDay, t: Translate): string {
-  return day.entries === 0
-    ? t('simple.explain.moneyOutNone')
-    : t('simple.explain.moneyOut', { amount: money(day.amount), count: day.entries })
+  if (day.entries === 0) return t('simple.explain.moneyOutNone')
+  return join([
+    t('simple.explain.moneyOut', { amount: money(day.amount), count: day.entries }),
+    day.loans > 0 ? t('simple.explain.moneyOutLoan', { amount: money(day.loans) }) : null
+  ])
 }
 
-/** "₹4,200.00 is what 3 customers still owe you; the oldest bill is for Ramesh, 12 days old." */
+/** "₹4,200.00 is what 3 customers still owe you; the oldest bill is for Ramesh, 12 days old." —
+ *  plus the customer advances the same allocation holds, when there are any. */
 export function receivablesWhy(owed: HomeOwed, t: Translate): string {
-  if (owed.total <= 0 || !owed.oldest) return t('simple.explain.receivablesNone')
+  const advance = owed.advances > 0 ? t('simple.explain.receivablesAdvances', { amount: money(owed.advances), count: owed.advanceParties }) : null
+  if (owed.total <= 0 || !owed.oldest) return join([t('simple.explain.receivablesNone'), advance])
   const vars = { amount: money(owed.total), count: owed.parties, name: owed.oldest.name, days: owed.oldest.days }
-  return owed.overdue > 0
-    ? t('simple.explain.receivablesOverdue', { ...vars, overdue: money(owed.overdue) })
-    : t('simple.explain.receivables', vars)
+  return join([
+    owed.overdue > 0 ? t('simple.explain.receivablesOverdue', { ...vars, overdue: money(owed.overdue) }) : t('simple.explain.receivables', vars),
+    advance
+  ])
 }
 
 /** "You owe ₹9,000.00 to 2 suppliers; the next payment, to Sharma Traders, is due 20 Oct." */
 export function payablesWhy(owed: HomeOwed, today: string, t: Translate): string {
-  if (owed.total <= 0) return t('simple.explain.payablesNone')
+  const advance = owed.advances > 0 ? t('simple.explain.payablesAdvances', { amount: money(owed.advances), count: owed.advanceParties }) : null
+  if (owed.total <= 0) return join([t('simple.explain.payablesNone'), advance])
   const vars = { amount: money(owed.total), count: owed.parties }
-  if (owed.overdue > 0) return t('simple.explain.payablesOverdue', { ...vars, overdue: money(owed.overdue) })
-  if (owed.nextDue) return t('simple.explain.payables', { ...vars, name: owed.nextDue.name, date: shortDate(owed.nextDue.date, today) })
-  return t('simple.explain.payablesNoDate', vars)
+  const first =
+    owed.overdue > 0
+      ? t('simple.explain.payablesOverdue', { ...vars, overdue: money(owed.overdue) })
+      : owed.nextDue
+        ? t('simple.explain.payables', { ...vars, name: owed.nextDue.name, date: shortDate(owed.nextDue.date, today) })
+        : t('simple.explain.payablesNoDate', vars)
+  return join([first, advance])
 }
 
 export function cashWhy(cash: HomeCash, t: Translate): string {
@@ -78,19 +96,53 @@ export function profitWhy(profit: HomeProfit, t: Translate): string {
     : t('simple.explain.profitPlain', { from: toPlainDate(profit.year.from) })
 }
 
-/** The GST tile's figure line: "₹Z by 20 Nov" (regular registrations only). */
-export function gstLine(gst: Extract<HomeGst, { kind: 'regular' }>, today: string, t: Translate): string {
+/** The dates the GST figures cover, in words: "September 2026", "Jul – Sep 2026", or
+ *  "Oct 2026 so far" for a quarter still running. */
+export function gstPeriodLabel(gst: RegularGst, t: Translate): string {
   const r = gst.row
-  if (!r.gstr3bDue) return t('simple.home.gstNoDate', { amount: money(Math.max(0, r.payable)), month: toMonthLabel(r.period, 'long') })
+  if (!r.quarterly || !r.from) return toMonthLabel(r.period, 'long')
+  const first = r.from.slice(0, 7)
+  const vars = { from: toMonthLabel(first), to: toMonthLabel(r.period, 'long') }
+  if (r.soFar) return first === r.period ? t('simple.home.gstMonthSoFar', { month: toMonthLabel(r.period, 'long') }) : t('simple.home.gstQuarterSoFar', vars)
+  return t('simple.home.gstQuarter', vars)
+}
+
+/** The GST tile's figure line: "₹Z by 20 Nov" (regular registrations only); a quarter still
+ *  running (its return more than 45 days off) shows "So far this quarter: ₹X". */
+export function gstLine(gst: RegularGst, today: string, t: Translate): string {
+  const r = gst.row
+  if (r.soFar) return t('simple.home.gstSoFar', { amount: money(Math.max(0, r.payable)) })
+  if (!r.gstr3bDue) return t('simple.home.gstNoDate', { amount: money(Math.max(0, r.payable)), month: gstPeriodLabel(gst, t) })
   return r.payable > 0
     ? t('simple.home.gstAmountBy', { amount: money(r.payable), date: shortDate(r.gstr3bDue, today) })
     : t('simple.home.gstNothingDue', { date: shortDate(r.gstr3bDue, today) })
 }
 
-export function gstWhy(gst: Extract<HomeGst, { kind: 'regular' }>, t: Translate): string {
+/**
+ * The three figures (plan §2.2 / principle 10): GST collected on sales (reverse charge NOT
+ * included), GST you paid on purchases (booked; how much GSTR-2B has not confirmed), and the cash
+ * to pay by the date — then reverse charge (only when there is some) and who files.
+ */
+export function gstWhy(gst: RegularGst, today: string, t: Translate): string {
   const r = gst.row
-  const vars = { month: toMonthLabel(r.period, 'long'), collected: money(r.liability), paid: money(r.itc) }
-  return r.payable > 0 ? t('simple.explain.gst', { ...vars, payable: money(r.payable) }) : t('simple.explain.gstNothing', vars)
+  const sales = r.outwardTax ?? r.liability
+  const rcm = r.rcmTax ?? 0
+  const credit =
+    gst.credit.checked === 'none'
+      ? t('simple.explain.gstCreditNotChecked')
+      : gst.credit.awaiting > 0
+        ? t('simple.explain.gstCreditAwaiting', { amount: money(gst.credit.awaiting) })
+        : gst.credit.checked === 'all'
+          ? t('simple.explain.gstCreditConfirmed')
+          : t('simple.explain.gstCreditSome')
+  const vars = { period: gstPeriodLabel(gst, t), collected: money(sales), paid: money(r.itc), credit }
+  const first =
+    r.payable <= 0
+      ? t('simple.explain.gstNothing', vars)
+      : r.gstr3bDue && !r.soFar
+        ? t('simple.explain.gst', { ...vars, payable: money(r.payable), date: shortDate(r.gstr3bDue, today) })
+        : t('simple.explain.gstNoDate', { ...vars, payable: money(r.payable) })
+  return join([first, rcm > 0 ? t('simple.explain.gstRcm', { amount: money(rcm) }) : null, t('simple.explain.gstYouFile')])
 }
 
 const CLOSE_TEXT: Partial<Record<CloseCheckKey, MessageKey>> = {
@@ -122,9 +174,15 @@ const ANOMALY_TEXT: Record<AnomalyKind, MessageKey> = {
   hsn_rate_mismatch: 'simple.attention.anomaly.hsnRateMismatch'
 }
 
-/** A "Needs attention" row in plain words, keyed by its check / anomaly kind. `period` is the
- *  month the close checklist ran for (YYYY-MM). */
+/** A "Needs attention" row in plain words, keyed by its source and kind. `period` is the month
+ *  the close checklist ran for (YYYY-MM). */
 export function attentionText(item: HomeAttentionItem, period: string, t: Translate): string {
+  if (item.source === 'owed') {
+    return t(item.key === 'receivable' ? 'simple.attention.owed.receivable' : 'simple.attention.owed.payable', {
+      count: item.count,
+      amount: money(item.amount ?? 0)
+    })
+  }
   const key =
     item.source === 'close'
       ? CLOSE_TEXT[item.key as CloseCheckKey] ?? 'simple.attention.close.other'
@@ -142,4 +200,12 @@ const DEADLINE_KEY: Partial<Record<Deadline['kind'], MessageKey>> = {
 export function deadlineText(d: Pick<Deadline, 'kind' | 'form' | 'date'>, today: string, t: Translate): string {
   const key = DEADLINE_KEY[d.kind] ?? 'simple.home.deadline.other'
   return t(key, { date: shortDate(d.date, today), form: d.form })
+}
+
+/** The GST link says what opens: the month's return, or (quarterly) the return month by month. */
+export function gstLinkLabel(gst: RegularGst, t: Translate): string {
+  const r = gst.row
+  return r.quarterly && r.from
+    ? t('simple.home.link.gstQuarter', { month: toMonthLabel(r.from.slice(0, 7), 'long') })
+    : t('simple.home.link.gst', { month: toMonthLabel(r.period, 'long') })
 }

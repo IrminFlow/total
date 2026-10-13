@@ -65,23 +65,57 @@ function annualGstDeadlines(db: DB, today: string): { form: string; title: strin
 export function dashGst(db: DB, company: CompanyInfo, today: string): DashGst | null {
   if (company.gstRegistrationType !== 'regular') return null
   // WP 8.3: GSTR-1 follows the filing frequency (QRMP: the 13th after the quarter).
-  const due = upcomingDeadlines(today, 'regular', false, 45, { gstFiling: getGstProfile(db).filing }).filter((d) => d.kind === 'gst')
+  const filing = getGstProfile(db).filing
+  const due = upcomingDeadlines(today, 'regular', false, 45, { gstFiling: filing }).filter((d) => d.kind === 'gst')
   const next3b = due.find((d) => d.form === 'GSTR-3B')
   const next1 = due.find((d) => d.form === 'GSTR-1')
-  // The return the next GSTR-3B files covers the month before its due month.
-  const period = addMonths(monthOf(next3b?.date ?? today), -1)
-  const from = `${period}-01`
-  const to = monthEnd(period)
-  const r = gstr3b(db, company, from, to, gstPeriodOf(from))
+  let from: string
+  let to: string
+  let soFar = false
+  if (filing === 'quarterly') {
+    // WP 8.6: a quarterly filer's GSTR-3B covers the quarter before its due month (listed on the
+    // 22nd — UNVERIFIED, shared/gst/filing.ts); with none due in 45 days, the running quarter so far.
+    if (next3b) {
+      const last = addMonths(monthOf(next3b.date), -1)
+      from = `${quarterStartOf(last)}-01`
+      to = monthEnd(last)
+    } else {
+      from = `${quarterStartOf(monthOf(today))}-01`
+      to = today
+      soFar = true
+    }
+  } else {
+    // The return the next GSTR-3B files covers the month before its due month.
+    const month = addMonths(monthOf(next3b?.date ?? today), -1)
+    from = `${month}-01`
+    to = monthEnd(month)
+  }
+  const period = monthOf(to)
+  const r = gstr3b(db, company, from, to, gstPeriodOf(`${period}-01`))
+  const outwardTax = sum4(r.outward) + r.zeroRated.igst + r.zeroRated.cess
+  const rcmTax = sum4(r.rcm)
   return {
     period,
+    from,
+    to,
+    quarterly: filing === 'quarterly',
+    soFar,
     gstr1Due: next1?.date ?? null,
     gstr3bDue: next3b?.date ?? null,
-    liability: sum4(r.outward) + r.zeroRated.igst + r.zeroRated.cess + sum4(r.rcm),
+    liability: outwardTax + rcmTax,
+    outwardTax,
+    rcmTax,
     itc: sum4(r.itc),
     payable: sum4(r.netPayable) + sum4(r.rcmPayable),
     annual: annualGstDeadlines(db, today)
   }
+}
+
+/** Indian FY quarters are calendar quarters (Apr–Jun, Jul–Sep, Oct–Dec, Jan–Mar): 'YYYY-MM' of
+ *  the quarter's first month. */
+export function quarterStartOf(ym: string): string {
+  const m = Number(ym.slice(5, 7))
+  return addMonths(ym, -((m - 1) % 3))
 }
 
 /** The "TDS Payable …" ledgers (under Duties & Taxes) with a balance, credit-positive. */
