@@ -109,4 +109,10 @@ describe('accountant sidebar (unchanged from 0.10)', () => {
     await waitFor(() => expect(screen.getByTestId('nav-report-5')).toBeTruthy())
     expect(sidebarShape()).toMatchSnapshot()
   })
+
+  it('an unregistered company (WP 8.0: GST screens hidden)', async () => {
+    act(() => useSession.setState({ info: { ...(useSession.getState().info as object), gstRegistrationType: 'unregistered' } as never }))
+    await renderShell()
+    expect(sidebarShape()).toMatchSnapshot()
+  })
 })
