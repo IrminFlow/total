@@ -54,6 +54,8 @@ const EXPECTED_TABLES = [
   'trade_docs',
   'trade_doc_lines',
   'trade_voucher_details',
+  'undo_group_vouchers',
+  'undo_groups',
   'line_links',
   'ca_asset_classes',
   'it_blocks',

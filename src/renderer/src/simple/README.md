@@ -18,3 +18,8 @@ The screens a first-time, non-accountant user sees (plan `docs/superpowers/specs
 - `SimpleSection.tsx` is a section's page (Sell, Buy, Money …); its entries come from the registry (`lib/screens.ts` `simpleEntries`, ordered by `SIMPLE_ENTRY_ORDER`). Registry keys are passed to `t()` on lines marked `i18n-technical`; `__tests__/simpleRegistry.test.ts` checks they are `simple.*` / `common.*` keys in the catalogue.
 - `SimpleHome.tsx` is Home until WP 8.6 (a placeholder card + the setup checklist). `ModeSetting.tsx` is the owner's mode switch in Settings → How Total looks.
 - `SimplePlaceholder.tsx` is the generic "on its way" card.
+
+## Save card and errors (WP 8.5)
+
+- `SaveCard.tsx` is what a simple flow shows after a save: the sentences from `shared/simple/saveCard.ts` over `voucher:saveSummary` (figures computed by main), Print / PDF / Share, New and Undo (`voucher:undoSave`, the whole group; "Edit instead" once a voucher changed since). Phase 9 flows pass every voucher their intent saved; today the voucher editors show it after a new save while the company is in simple mode.
+- Errors in a simple screen are placed with `useFormErrors(form, { simple: true, t })` and show only the plain `errors.*` text; the technical message goes behind "Details". Never a toast for an error that has a field.

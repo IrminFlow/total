@@ -52,14 +52,20 @@ export function Field({
   hint,
   error,
   required,
+  name,
   className = ''
 }: {
   label: string
   children: ReactNode
   /** Help text under the control (hidden while an error shows). */
   hint?: ReactNode
+  /** The error slot (WP 8.5): what went wrong + what to do, under the control, wired to it via
+   *  aria-describedby (the control is aria-invalid, so it is read with the control). Feed it from `useFormErrors` (cleared when the field's
+   *  value changes). */
   error?: string | null
   required?: boolean
+  /** The field's path in its form ('party', 'date' …) — names the error (`field-error-<name>`). */
+  name?: string
   className?: string
 }): React.JSX.Element {
   const id = useId()
@@ -80,7 +86,12 @@ export function Field({
           {children}
         </label>
         {error ? (
-          <span id={msgId} className="mt-1 block text-hint text-danger">
+          <span
+            id={msgId}
+            data-field-error={name ?? ''}
+            data-testid={name ? `field-error-${name}` : undefined}
+            className="mt-1 block text-hint text-danger"
+          >
             {error}
           </span>
         ) : hint ? (

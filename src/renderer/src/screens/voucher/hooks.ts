@@ -3,7 +3,10 @@ import { useQuery } from '@tanstack/react-query'
 import type { Group, Ledger, Voucher } from '@shared/domain'
 import { diffPayloads, voucherToPayload, type BuildResult } from '@shared/voucherEdit'
 import { api } from '../../lib/client'
-import { useNav } from '../../state/stores'
+import { useNav, useScreen } from '../../state/stores'
+import { useMode, useScreenView } from '../../lib/mode'
+import { useT } from '../../lib/i18n'
+import type { ErrorShell } from '../../components/kit/formErrors'
 
 export { TRADING_KINDS } from '@shared/voucherEdit'
 
@@ -125,3 +128,21 @@ export function useVoucherNumberField(typeId: number, date: string, excludeId?: 
 
   return { value, onChange, reset, forPayload: value === NUMBER_LOADING ? '' : value.trim(), touched }
 }
+
+/** WP 8.5: the save card after a NEW voucher is saved — only while the company is in simple mode
+ *  (the accountant shell keeps its toast). `ids` are the vouchers the save made. */
+export function useSaveCard(): { simple: boolean; ids: number[] | null; show: (ids: number[]) => void; hide: () => void } {
+  const simple = useMode() === 'simple'
+  const [ids, setIds] = useState<number[] | null>(null)
+  return { simple, ids, show: useCallback((next: number[]) => setIds(next), []), hide: useCallback(() => setIds(null), []) }
+}
+
+/** WP 8.5: how a save error is worded on this screen — the plain message only in a simple
+ *  view; an accountant screen keeps the service's own wording. */
+export function useErrorShell(): ErrorShell {
+  const screen = useScreen()
+  const simple = useScreenView(screen.name).view === 'simple'
+  const t = useT()
+  return useMemo(() => ({ simple, t }), [simple, t])
+}
+

@@ -13,6 +13,7 @@
  * Concurrency: the app and the CLI may have the same company.db open at once — WAL journal mode
  * + busy_timeout (set in db/connection.ts) make that safe; nothing here takes exclusive locks.
  */
+import { isAppError } from '@shared/errors'
 import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, statSync, watch, writeFileSync, type FSWatcher } from 'fs'
 import { basename, extname, join } from 'path'
 import { Notification } from 'electron'
@@ -461,7 +462,7 @@ export function processInboxFile(db: DB, slug: string, filePath: string, opts: I
 
 /** A ZodError flattened into readable "path: message" lines; any other error's message. */
 function zodOrErrorMessage(err: unknown): string {
-  return err && typeof err === 'object' && 'issues' in err
+  return err && typeof err === 'object' && 'issues' in err && !isAppError(err)
     ? (err as { issues: { path: (string | number)[]; message: string }[] }).issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('; ')
     : err instanceof Error
       ? err.message

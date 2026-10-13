@@ -30,10 +30,12 @@ import {
   tdsChallanFromPaymentSchema, tdsChallanRowsSchema, tcsSuggestSchema, tdsChallanInterestSchema, tdsAutoAllocateSchema, tdsForm16aSchema, tdsLedgerSummarySchema
 } from '@shared/schemas'
 import { todayISO } from '@shared/dates'
+import { AppError, structuredOf, type StructuredError } from '@shared/errors'
 import { formatPaise } from '@shared/money'
 import * as configSvc from './services/config'
 import * as masters from './services/masters'
 import * as vouchers from './services/vouchers'
+import * as undo from './services/undo'
 import * as reports from './services/reports'
 import * as dashboard from './services/dashboard'
 import * as gst from './services/gst'
@@ -272,6 +274,29 @@ export const CHANNEL_ROLES = new Map<string, Role>()
 /** The ungated channels (exported for the same registry test — several of them write). */
 export const UNGATED_CHANNEL_NAMES: ReadonlySet<string> = UNGATED_CHANNELS
 
+/** The structured fields of a failed call (WP 8.5): an AppError's own; a Zod failure as
+ *  'invalid_input' with one 'zod.<code>' issue per path (the `data` wrapper of `{ id, data }` /
+ *  voucher:save payloads stripped); a UNIQUE clash on a name column as 'duplicate_name'. */
+export function ipcStructuredError(err: unknown): Partial<StructuredError> {
+  const own = structuredOf(err)
+  if (own) return own
+  if (err instanceof z.ZodError) {
+    return {
+      code: 'invalid_input',
+      issues: err.issues.map((i) => {
+        const path = i.path[0] === 'data' ? i.path.slice(1) : i.path
+        return { code: `zod.${i.code}`, ...(path.length ? { field: path.join('.') } : {}), message: `${i.path.join('.')}: ${i.message}` }
+      })
+    }
+  }
+  const sqlite = err as { code?: unknown; message?: unknown }
+  if (sqlite?.code === 'SQLITE_CONSTRAINT_UNIQUE' && typeof sqlite.message === 'string') {
+    const column = /UNIQUE constraint failed: \w+\.(\w+)/.exec(sqlite.message)?.[1]
+    if (column === 'name') return { code: 'duplicate_name', field: 'name' }
+  }
+  return {}
+}
+
 function handle(channel: string, fn: Handler, minRole: Role = 'accountant'): void {
   CHANNEL_ROLES.set(channel, minRole)
   ipcMain.handle(`total:${channel}`, async (_event, payload: unknown) => {
@@ -284,10 +309,10 @@ function handle(channel: string, fn: Handler, minRole: Role = 'accountant'): voi
         if (!sessionUser) {
           // Distinct from the role-denied case below: the renderer can route this specifically
           // to the lock screen instead of a generic permission toast.
-          throw new Error('Locked — sign in first')
+          throw new AppError('session_locked', 'Locked — sign in first')
         }
         if (!roleAllows(sessionUser.role, minRole)) {
-          throw new Error('You do not have permission to do that')
+          throw new AppError('not_permitted', 'You do not have permission to do that')
         }
       }
       return { ok: true, data: await fn(payload) }
@@ -299,7 +324,9 @@ function handle(channel: string, fn: Handler, minRole: Role = 'accountant'): voi
           : String(err)
       // Never log payloads — only the channel name and the error message.
       log('error', 'ipc-handler', { channel, error: message })
-      return { ok: false, error: message }
+      // WP 8.5: the structured part (code / field / params / issues) rides next to the message
+      // so a screen can show a plain message under the field; `error` is unchanged.
+      return { ok: false, error: message, ...ipcStructuredError(err) }
     }
   })
 }
@@ -1117,7 +1144,11 @@ export function registerIpc(): void {
   })
   handle('voucher:delete', (p) => vouchers.deleteVoucher(requireCompany().db, idSchema.parse(p).id))
   handle('voucher:bin', () => vouchers.listBin(requireCompany().db), 'viewer')
-  handle('voucher:restore', (p) => vouchers.restoreVoucher(requireCompany().db, idSchema.parse(p).id))
+  // WP 8.5: a voucher undone with others comes back with its whole undo group.
+  handle('voucher:restore', (p) => undo.restoreFromBin(requireCompany().db, idSchema.parse(p).id))
+  const undoIdsSchema = z.object({ voucherIds: z.array(z.number().int().positive()).min(1).max(undo.UNDO_MAX) })
+  handle('voucher:undoSave', (p) => undo.undoSave(requireCompany().db, undoIdsSchema.parse(p).voucherIds))
+  handle('voucher:saveSummary', (p) => undo.saveSummary(requireCompany().db, undoIdsSchema.parse(p).voucherIds), 'viewer')
   handle('voucher:purge', (p) => {
     const c = requireCompany()
     vouchers.purgeVoucher(c.db, idSchema.parse(p).id)

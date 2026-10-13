@@ -103,7 +103,13 @@ export function VoucherEntry({
   const { from, info } = useSession()
   const today = todayISO()
   const { data: dash } = useQuery({ queryKey: ['dashboard', today, from], queryFn: () => api.reports.dashboard(today, from) })
-  const showFirstVoucherHint = !voucherId && !hintDismissed && dash?.voucherCount === 0
+  // Once this screen has seen a voucher in the books (saved here, say), the first-voucher hint stays
+  // away — an Undo (WP 8.5) that empties the books again must not bring it back.
+  const [sawVouchers, setSawVouchers] = useState(false)
+  useEffect(() => {
+    if ((dash?.voucherCount ?? 0) > 0) setSawVouchers(true)
+  }, [dash?.voucherCount])
+  const showFirstVoucherHint = !voucherId && !hintDismissed && !sawVouchers && dash?.voucherCount === 0
   const opts = useScreenOptions('voucher-entry', { showShortcuts: true })
 
 

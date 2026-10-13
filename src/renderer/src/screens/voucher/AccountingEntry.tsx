@@ -12,7 +12,8 @@ import { toDisplayDate } from '@shared/dates'
 import { api } from '../../lib/client'
 import { bankingApi } from '../../lib/bankingClient'
 import { useNav, useSession, useToasts, type VoucherDraft } from '../../state/stores'
-import { AmountInput, Button, DateInput, Field, isAnyModalOpen, LineTableScroller, Money, Panel, Select, TextInput } from '../../components/ui'
+import { AmountInput, Button, DateInput, Field, FieldError, isAnyModalOpen, LineTableScroller, Money, Panel, Select, TextInput, useFormErrors } from '../../components/ui'
+import { SaveCard } from '../../simple/SaveCard'
 import { LedgerPicker, useGroups, useLedgers } from '../../components/pickers'
 import { LedgerFormModal } from '../../components/LedgerFormModal'
 import { useFeatures } from '../../lib/useFeatures'
@@ -20,7 +21,7 @@ import { confirmDialog } from '../../lib/dialogs'
 import { useUnsavedGuard } from '../../lib/useUnsavedGuard'
 import {
   isBankLedger, isCashOrBankLedger, isPartyLedger, nextLineKey, NUMBER_LOADING, TRADING_KINDS,
-  useAlterationDirty, useLeaveAfterSave, useVoucherNumberField
+  useAlterationDirty, useErrorShell, useLeaveAfterSave, useSaveCard, useVoucherNumberField
 } from './hooks'
 import { CostAllocModal, QuickLedgerModal } from './modals'
 import { TransportModal } from './TransportModal'
@@ -395,10 +396,18 @@ export function AccountingEntry({
         : rows.some((r) => r.ledgerId != null || (r.amount ?? 0) !== 0) || narration.trim() !== '')
   )
 
+  // WP 8.5: field errors (cleared when the field changes) and the simple-mode save card.
+  const errorShell = useErrorShell()
+  const formErrors = useFormErrors(
+    { number: voucherId ? alterNumber : numberField.value, date, lines: rows, billRefs, tds: tds ?? null, tcs: tcs ?? null },
+    errorShell
+  )
+  const saveCard = useSaveCard()
+
   const save = useCallback(async (): Promise<void> => {
     if (saving) return
     const input = buildPayload()
-    if (!input) return void toast.push('error', 'Enter at least one debit and one credit')
+    if (!input) return void formErrors.set('lines', errorShell.simple ? errorShell.t('errors.twoSides') : 'Enter at least one debit and one credit')
     setSaving(true)
     try {
       // Duplicate-number confirm — a manually typed (or race-lost auto) number that's already
@@ -425,7 +434,9 @@ export function AccountingEntry({
       const saved = await api.vouchers.save(input, voucherId, !voucherId && draft?.aiDraftId ? { aiDraftId: draft.aiDraftId } : undefined)
       await tdsDeduction.afterSave(saved.id)
       if (features.tcs && kind === 'receipt') await tcsCollection.afterSave(saved.id)
-      toast.push('success', `${saved.number} ${voucherId ? 'altered' : 'saved'}`)
+      // WP 8.5: a new entry in a simple-mode company gets the save card instead of the toast.
+      if (saveCard.simple && !voucherId && !draft?.aiDraftId) saveCard.show([saved.id])
+      else toast.push('success', `${saved.number} ${voucherId ? 'altered' : 'saved'}`)
       setWorkingDate(date)
       await queryClient.invalidateQueries()
       // An AI draft is used up by its save — go back to where the user came from.
@@ -441,11 +452,13 @@ export function AccountingEntry({
         numberField.reset()
       }
     } catch (err) {
-      toast.push('error', (err as Error).message)
+      // WP 8.5: an error with a field on this form shows under it; the rest stays a toast.
+      const mapped = formErrors.apply(err)
+      if (mapped.general) toast.push('error', mapped.general)
     } finally {
       setSaving(false)
     }
-  }, [saving, buildPayload, date, typeId, voucherId, toast, setWorkingDate, queryClient, leave, numberField.reset, tdsDeduction.reset, tdsDeduction.afterSave, tcsCollection.reset, tcsCollection.afterSave, features.tcs, kind, draft?.aiDraftId])
+  }, [saving, buildPayload, date, typeId, voucherId, toast, setWorkingDate, queryClient, leave, numberField.reset, tdsDeduction.reset, tdsDeduction.afterSave, tcsCollection.reset, tcsCollection.afterSave, features.tcs, kind, draft?.aiDraftId, formErrors, errorShell, saveCard])
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
@@ -537,8 +550,18 @@ export function AccountingEntry({
           lines and other details are kept exactly as saved.
         </p>
       )}
+      {saveCard.ids && (
+        <SaveCard
+          voucherIds={saveCard.ids}
+          onNew={saveCard.hide}
+          onEdit={(id) => {
+            saveCard.hide()
+            nav.go({ name: 'voucher-entry', voucherId: id })
+          }}
+        />
+      )}
       <div className="grid grid-cols-4 gap-3">
-        <Field label="No." hint={voucherId || numberField.value === NUMBER_LOADING ? undefined : 'Auto — edit to override'}>
+        <Field label="No." name="number" error={formErrors.get('number')} hint={voucherId || numberField.value === NUMBER_LOADING ? undefined : 'Auto — edit to override'}>
           <TextInput
             value={voucherId ? alterNumber : numberField.value === NUMBER_LOADING ? '' : numberField.value}
             onChange={(e) => (voucherId ? setAlterNumber(e.target.value) : numberField.onChange(e.target.value))}
@@ -546,7 +569,7 @@ export function AccountingEntry({
             className="num"
           />
         </Field>
-        <Field label="Date">
+        <Field label="Date" name="date" error={formErrors.get('date')}>
           <DateInput value={date} context={workingDate} onChange={setDate} />
         </Field>
         <div className="col-span-2 flex items-end justify-end">
@@ -674,6 +697,7 @@ export function AccountingEntry({
         </tbody>
       </table>
       </LineTableScroller>
+      <FieldError name="lines" error={formErrors.get('lines')} />
 
       {voucher && stockLines.length > 0 && (
         features.inventory ? (
@@ -719,6 +743,8 @@ export function AccountingEntry({
         />
       )}
 
+      <FieldError name="tds" error={formErrors.get('tds')} />
+      <FieldError name="tcs" error={formErrors.get('tcs')} />
       {showBillsSection && (
         <div className="mt-4 border-t border-line pt-3">
           <button
@@ -790,6 +816,7 @@ export function AccountingEntry({
               )}
             </div>
           )}
+          <FieldError name="billRefs" error={formErrors.get('billRefs')} />
         </div>
       )}
 
