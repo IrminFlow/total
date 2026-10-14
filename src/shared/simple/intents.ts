@@ -584,6 +584,9 @@ export interface IntentFacts {
   /** WP 9.2: when what stays open on a sale / purchase bill falls due (bill date + the party's
    *  credit days, or the date given); absent when nothing stays open. */
   dueDate?: string | null
+  /** WP 10.8: a purchase of just an amount on an expense account (not the purchases account) —
+   *  that account's name, so the sentence says "Bill … for Rent". */
+  forWhat?: string
   /** WP 9.7 stock_count: per product counted, what the books said and what was counted; the
    *  value change is the valuation engine's (filled by main from the saved books). */
   count?: CountFacts
@@ -837,6 +840,8 @@ function mapTrade(n: Extract<NormalIntent, { kind: 'sale' | 'purchase' }>, ctx: 
       rate = 0
     }
     const lines = ledgerLines(ctx, kind as 'sales' | 'purchase', party, account.id, taxable, rate, a.billTotal ?? null)
+    // WP 10.8: a bill for an expense (rent, electricity …) is said as that, not "Purchase bill".
+    if (!sale && account.id !== ctx.defaults.purchaseId) facts.forWhat = account.name
     total = lines.total
     facts.tax = lines.gst.total - lines.gst.taxable
     bill = accountingEntry(ctx, 'bill', kind, type, {
@@ -1172,7 +1177,7 @@ export function intentSentences(f: IntentFacts, t: Translate): string[] {
       position(() => { if (f.due > 0) out.push(t('simple.intent.dueFrom', { amount: m(f.due), name })) })
       break
     case 'purchase':
-      out.push(t('simple.intent.purchase', { amount: m(f.total), name }))
+      out.push(f.forWhat ? t('simple.intent.purchaseFor', { amount: m(f.total), name, what: f.forWhat }) : t('simple.intent.purchase', { amount: m(f.total), name }))
       if (f.tax > 0) out.push(t('simple.intent.tax', { amount: m(f.tax) }))
       if (f.paid > 0) out.push(t('simple.intent.paid', { amount: m(f.paid), how }))
       position(() => { if (f.due > 0) out.push(t('simple.intent.dueTo', { amount: m(f.due), name })) })
