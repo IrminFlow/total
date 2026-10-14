@@ -19,12 +19,14 @@ import { translator, type Language, type MessageKey, type Translate } from '@sha
 import { formatQtyMilli } from '@shared/money'
 import { toMonthLabel, toPlainDate } from '@shared/dates'
 import { owedSummary } from '@shared/simple/home'
-import { cashWhy, gstLine, gstWhy, money, payablesWhy, receivablesWhy } from '@shared/simple/explain'
+import { cashWhy, collectedWhy, money, onPurchasesWhy, payablesWhy, receivablesWhy, taxesPeriodLabel, toPayWhy } from '@shared/simple/explain'
+import { doingLines } from '@shared/simple/reports'
 import { GLOSSARY, glossaryEntry, plain, type GlossaryEntry } from '@shared/simple/glossary'
 import { needsReorder } from '@shared/simple/stock'
 import { outstandingsWithAdvances } from '../services/analysis'
 import { profitAndLoss } from '../services/reports'
 import { simpleHome } from '../services/simpleHome'
+import { simpleTaxes } from '../services/simpleTaxes'
 import { stockList } from '../services/simpleStock'
 import { getFeatures } from '../services/config'
 import { companyLanguage } from '../i18n'
@@ -57,8 +59,6 @@ const target = (screen: string, params?: AssistTarget['params']): AssistTarget =
 export function answer(intent: AssistIntent, sentences: string[], extra: Partial<AssistAnswer> = {}): AssistAnswer {
   return { intent: intent.kind, answeredBy: 'total', sentences, figures: [], links: [], understood: true, ...extra }
 }
-
-const sum = (nodes: readonly StatementNode[]): number => nodes.reduce((s, n) => s + n.amount, 0)
 
 /** The biggest ledgers of a statement side, largest first (the WP 9.9 Reports "where the money went"). */
 function leaves(nodes: readonly StatementNode[], limit: number): StatementNode[] {
@@ -166,37 +166,46 @@ function pickedLedger(db: DB, id: number): { status: 'match'; id: number; name: 
 }
 
 function gstAnswer(db: DB, company: CompanyInfo, intent: AssistIntent, input: AskInput, t: Translate): AssistAnswer {
-  const type = company.gstRegistrationType
-  if (type !== 'regular') {
-    return answer(intent, [t(type === 'composition' ? 'simple.home.gstComposition' : 'assist.gst.unregistered')])
+  // WP 9.9's Taxes service: the three figures (= GSTR-3B) of the return the next GSTR-3B files and
+  // its due date (shared/gst/filing.ts) — the Taxes screen's own answer.
+  const x = simpleTaxes(db, company, {}, input.today)
+  const taxes = target('simple-taxes')
+  if (x.kind === 'unregistered') return answer(intent, [t('assist.gst.unregistered')])
+  if (x.kind === 'composition') {
+    const c = x.composition
+    return answer(intent, [
+      t('simple.taxes.composition.cmp08', { from: toPlainDate(c.cmp08.from), to: toPlainDate(c.cmp08.to), date: toPlainDate(c.cmp08.due) }),
+      t('simple.taxes.composition.note')
+    ], { links: [{ label: t('assist.link.gst'), target: taxes }] })
   }
-  const home = simpleHome(db, company, { today: input.today, backups: [] })
-  const gst = home.gst?.kind === 'regular' ? home.gst : null
-  if (!gst) return answer(intent, [t('assist.gst.none')])
-  const r = gst.row
-  const month = r.quarterly && r.from ? r.from.slice(0, 7) : r.period
-  const to = target('gstr3b', { month })
-  const src = screenSource('gstr3b', t('assist.source.gstr3b'), { month })
-  const figures = [fig(Math.max(0, r.payable), src, to), fig(r.outwardTax ?? r.liability, src, to), fig(r.itc, src, to)]
-  if ((r.rcmTax ?? 0) > 0) figures.push(fig(r.rcmTax!, src, to))
-  return answer(intent, [gstLine(gst, input.today, t), gstWhy(gst, input.today, t)], { figures, links: [{ label: t('assist.link.gst'), target: to }] })
+  const to = target('simple-taxes', { period: x.period.period })
+  const src = screenSource('simple-taxes', t('assist.source.taxes'), { period: x.period.period })
+  const f = x.figures
+  const figures = [fig(Math.max(0, f.toPay), src, to), fig(f.collected, src, to), fig(f.onPurchases, src, to)]
+  if (f.awaiting > 0) figures.push(fig(f.awaiting, src, to))
+  if (f.reverseCharge > 0) figures.push(fig(f.reverseCharge, src, to))
+  return answer(intent, [t('assist.gst.period', { period: taxesPeriodLabel(x.period, t) }), collectedWhy(x, t), onPurchasesWhy(x, t), toPayWhy(x, t)], {
+    figures, links: [{ label: t('assist.link.gst'), target: to }]
+  })
 }
 
 function figureAnswer(db: DB, company: CompanyInfo, intent: Extract<AssistIntent, { kind: 'figure' }>, input: AskInput, t: Translate): AssistAnswer {
   const p = intent.period
   const pnl = profitAndLoss(db, p.from, p.to)
+  // WP 9.9's column ("How is my business doing"): the P&L's own totals, re-arranged — one definition.
+  const d = doingLines(pnl)
   const when = periodText(p, input.today, t)
   const src = screenSource('profit-loss', t('assist.source.pnl'), { from: p.from, to: p.to })
-  const pnlScreen = target('profit-loss')
+  const pnlScreen = target('simple-reports', { report: 'doing' })
   const sentences: string[] = []
   const figures: AssistFigure[] = []
   const links: AssistLink[] = []
   if (intent.measure === 'profit') {
-    const v = pnl.netProfit
+    const v = d.profit
     sentences.push(t(v >= 0 ? 'assist.figure.profit' : 'assist.figure.loss', { amount: money(Math.abs(v)), period: when }))
     figures.push(fig(Math.abs(v), src, pnlScreen))
-    const sales = sum(pnl.tradingIncomes)
-    const expenses = sum(pnl.indirectExpenses)
+    const sales = d.sales
+    const expenses = d.expenses
     if (sales !== 0 || expenses !== 0) {
       sentences.push(t('assist.figure.profitParts', { sales: money(sales), expenses: money(expenses) }))
       figures.push(fig(sales, src, pnlScreen), fig(expenses, src, pnlScreen))
@@ -207,19 +216,19 @@ function figureAnswer(db: DB, company: CompanyInfo, intent: Extract<AssistIntent
     }
     links.push({ label: t('assist.link.pnl'), target: pnlScreen })
   } else if (intent.measure === 'sales') {
-    const v = sum(pnl.tradingIncomes)
+    const v = d.sales
     sentences.push(t('assist.figure.sales', { amount: money(v), period: when }))
     figures.push(fig(v, src, target('simple-sales')))
     if (company.gstRegistrationType === 'regular') sentences.push(t('assist.figure.beforeGst'))
     links.push({ label: t('assist.link.sales'), target: target('simple-sales') })
   } else if (intent.measure === 'purchases') {
-    const v = sum(pnl.tradingExpenses)
+    const v = d.purchases
     sentences.push(t('assist.figure.purchases', { amount: money(v), period: when }))
     figures.push(fig(v, src, target('simple-purchases')))
     if (company.gstRegistrationType === 'regular') sentences.push(t('assist.figure.beforeGst'))
     links.push({ label: t('assist.link.purchases'), target: target('simple-purchases') })
   } else {
-    const v = sum(pnl.indirectExpenses)
+    const v = d.expenses
     sentences.push(t('assist.figure.expenses', { amount: money(v), period: when }))
     figures.push(fig(v, src, pnlScreen))
     const top = leaves(pnl.indirectExpenses, 3)
@@ -303,9 +312,10 @@ const PLACES: [RegExp, AssistTarget, MessageKey][] = [
   [/^(?:returns?|sale returns?)$/, target('simple-return-sale'), 'assist.place.returns'],
   [/^(?:stock|products?|items?|inventory|maal)$/, target('simple-stock'), 'assist.place.stock'],
   [/^(?:stock count|count stock|count)$/, target('simple-stock-count'), 'assist.place.stockCount'],
-  [/^(?:reports?)$/, target('simple-section', { section: 'reports' }), 'assist.place.reports'],
-  [/^(?:profit|profit and loss|p&l|p and l)$/, target('profit-loss'), 'assist.place.profit'],
-  [/^(?:gst|taxes|tax|gstr|gstr-?3b)$/, target('simple-section', { section: 'taxes' }), 'assist.place.taxes'],
+  [/^(?:reports?|how am i doing|business)$/, target('simple-reports', { report: 'doing' }), 'assist.place.reports'],
+  [/^(?:profit|profit and loss|p&l|p and l)$/, target('simple-reports', { report: 'doing' }), 'assist.place.profit'],
+  [/^(?:cash next 30 days|cash forecast)$/, target('simple-reports', { report: 'cash' }), 'assist.place.cashNext'],
+  [/^(?:gst|taxes|tax|gstr|gstr-?3b|gst return)$/, target('simple-taxes'), 'assist.place.taxes'],
   [/^(?:settings|setting)$/, target('simple-section', { section: 'settings' }), 'assist.place.settings'],
   [/^(?:home|dashboard)$/, target('gateway'), 'assist.place.home'],
   [/^(?:backups?|back up)$/, target('settings', { tab: 'backups' }), 'assist.place.backups'],
@@ -364,7 +374,7 @@ const HOWTO_TARGET: Record<AssistHowTo, AssistTarget> = {
   customer: target('simple-people'),
   product: target('simple-stock'),
   stockCount: target('simple-stock-count'),
-  gst: target('simple-section', { section: 'taxes' }),
+  gst: target('simple-taxes'),
   backup: target('settings', { tab: 'backups' }),
   language: target('simple-looks'),
   openings: target('simple-openings'),
