@@ -11,8 +11,8 @@ import { NewAccountDialog } from '../NewAccountDialog'
 import { SaveCard } from '../SaveCard'
 import { Card, MoneyFooter, MoneyHeader } from './MoneyParts'
 import { useMoneyFlow } from './useMoneyFlow'
+import { useAccountantView } from '../../lib/handoff'
 
-const CONTRA = 'contra' as const // i18n-technical: voucher kind for the accountant editor
 const F = { date: 'date', amount: 'amount', from: 'from', to: 'to' } as const // i18n-technical: form field paths
 const T_FROM = 'select-move-from' // i18n-technical: test ids
 const T_TO = 'select-move-to' // i18n-technical
@@ -42,10 +42,9 @@ export function MoveMoney(): React.JSX.Element {
   const errors = useFormErrors<MoveField>({ date: form.date, amount: form.amount, from: form.fromId, to: `${form.fromId}|${form.toId}` }, { simple: true, t })
   const flow = useMoneyFlow<MoveField>({ intent, clientErrors, errors, dirty: isDirty(form), onStartNew: () => setForm(blank()) })
 
-  const accountantView = (): void => {
-    if (flow.savedIds) nav.go({ name: 'voucher-entry', voucherId: flow.savedIds[0]! }) // i18n-technical
-    else nav.go({ name: 'voucher-entry', kindHint: CONTRA }) // i18n-technical
-  }
+  // WP 9.10: the saved move, or the full editor with these answers filled in.
+  const openFull = useAccountantView('simple-move-money') // i18n-technical: screen name
+  const accountantView = (always: boolean): void => void openFull({ intent: isDirty(form) ? intent : null, savedId: flow.savedIds?.[0] ?? null, always })
   const pick = (value: number | null, onPick: (id: number | null) => void, testId: string, exclude: number | null): React.JSX.Element => (
     <Select value={value ?? ''} onChange={(e) => onPick(e.target.value ? Number(e.target.value) : null)} data-testid={testId}>
       <option value="">{t('simple.money.movePick')}</option>

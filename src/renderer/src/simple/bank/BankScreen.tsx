@@ -19,6 +19,8 @@ import { NewAccountDialog } from '../NewAccountDialog'
 import { StatementDrop } from './StatementDrop'
 import { LineCard, canSave, categoryFor, type LineProblem } from './LineCard'
 import { DoneLines } from './DoneLines'
+import { useAccountantView } from '../../lib/handoff'
+import { AccountantViewButton } from '../AccountantViewButton'
 
 const BRS_TAB = 'brs' as const // i18n-technical
 const IMPORT_TAB = 'import' as const // i18n-technical
@@ -42,6 +44,7 @@ type Creating = { what: 'customer' | 'supplier' | 'account' | 'bank'; name: stri
 export function BankScreen({ bankId }: { bankId?: number }): React.JSX.Element {
   const t = useT()
   const nav = useNav()
+  const openFull = useAccountantView('simple-bank') // i18n-technical: screen name
   const queryClient = useQueryClient()
   const workingDate = useSession((s) => s.workingDate)
   const groups = useGroups()
@@ -218,14 +221,11 @@ export function BankScreen({ bankId }: { bankId?: number }): React.JSX.Element {
           <h1 className="font-serif text-heading font-semibold tracking-tight text-ink">{t('simple.bank.title')}</h1>
           <p className="mt-1 text-detail text-muted">{t('simple.bank.subtitle')}</p>
         </div>
-        <Button
-          variant="ghost"
-          data-testid="btn-bank-accountant-view"
+        <AccountantViewButton
+          testId="btn-bank-accountant-view"
           title={t('simple.bank.accountantHint')}
-          onClick={() => nav.go({ name: 'banking', tab: IMPORT_TAB, ...(bankLedgerId != null ? { ledgerId: bankLedgerId } : {}) })} // i18n-technical
-        >
-          {t('common.accountantView')}
-        </Button>
+          onOpen={(always) => void openFull({ intent: null, always, fallback: { name: 'banking', tab: IMPORT_TAB, ...(bankLedgerId != null ? { ledgerId: bankLedgerId } : {}) } })} // i18n-technical
+        />
       </div>
 
       {setup && banks.length === 0 ? (

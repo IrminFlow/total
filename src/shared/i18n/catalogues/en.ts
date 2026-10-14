@@ -108,7 +108,7 @@ export const en = {
   'simple.shell.lock': 'Lock',
   'simple.shell.lockHint': 'Lock Total until someone signs in again',
   'simple.shell.backupSaved': 'Backup saved',
-  'simple.shell.accountantViewHint': 'Open the full screen for accountants. Total remembers this for this screen.',
+  'simple.shell.accountantViewHint': 'Open the full screen for accountants, just this time.',
   'simple.shell.backToSimpleHint': 'Go back to the simple screens.',
   'simple.shell.fullApp': 'Full app',
   'simple.shell.fullAppHint': 'Opens the full screen for accountants',
@@ -117,6 +117,17 @@ export const en = {
   'simple.shell.assistantOpen': 'Open the assistant (⌘J)',
   'simple.shell.assistantClose': 'Close the assistant (⌘J)',
   'simple.shell.assistantKey': '⌘J',
+
+  // ---------- Accountant-view hand-off (WP 9.10) ----------
+  'simple.handoff.more': 'More choices for the full app — Total can remember to always open it here, until you press "Back to simple"',
+  'simple.handoff.always': 'Always open the full app for this',
+  'simple.handoff.title': 'Your answers are filled in',
+  'simple.handoff.body': 'Check them here and save. Nothing is saved until you do.',
+  'simple.handoff.otherReceived': 'The {amount} you got now is not part of this form. After you save, add it under Money in.',
+  'simple.handoff.otherPaid': 'The {amount} you paid now is not part of this form. After you save, add it under Money out.',
+  'simple.handoff.missing': 'Not set up yet: {names}. Pick or create {count, plural, one {it} other {them}} here.',
+  'simple.handoff.notCarried': 'Some answers could not be carried over — the full form opens empty.',
+  'simple.palette.title': 'Simple screens',
 
   // ---------- simple sections: the plain-named entries (§2.3, WP 8.1) ----------
   'simple.section.empty': 'Nothing to show here for your business yet. Turn more on in Settings → Features.',

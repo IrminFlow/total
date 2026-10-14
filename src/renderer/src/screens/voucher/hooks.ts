@@ -6,6 +6,7 @@ import { api } from '../../lib/client'
 import { useNav, useScreen } from '../../state/stores'
 import { useMode, useScreenView } from '../../lib/mode'
 import { useT } from '../../lib/i18n'
+import { rememberSaved } from '../../lib/handoff'
 import type { ErrorShell } from '../../components/kit/formErrors'
 
 export { TRADING_KINDS } from '@shared/voucherEdit'
@@ -134,7 +135,12 @@ export function useVoucherNumberField(typeId: number, date: string, excludeId?: 
 export function useSaveCard(): { simple: boolean; ids: number[] | null; show: (ids: number[]) => void; hide: () => void } {
   const simple = useMode() === 'simple'
   const [ids, setIds] = useState<number[] | null>(null)
-  return { simple, ids, show: useCallback((next: number[]) => setIds(next), []), hide: useCallback(() => setIds(null), []) }
+  // WP 9.10: the save card's voucher is what "Back to simple" from this (reset) editor means.
+  const show = useCallback((next: number[]) => {
+    if (next[0] != null) rememberSaved(next[0])
+    setIds(next)
+  }, [])
+  return { simple, ids, show, hide: useCallback(() => setIds(null), []) }
 }
 
 /** WP 8.5: how a save error is worded on this screen — the plain message only in a simple

@@ -11,10 +11,12 @@ import { useFeatures } from '../../lib/useFeatures'
 import { useSimplePost } from '../../lib/simplePost'
 import { useUnsavedGuard } from '../../lib/useUnsavedGuard'
 import { confirmDialog } from '../../lib/dialogs'
-import { useNav, useSession } from '../../state/stores'
+import { useNav, useSession, type Screen } from '../../state/stores'
 import { AmountInput, Button, DateInput, Field, FieldError, isAnyModalOpen, Page, TextInput, useFormErrors } from '../../components/ui'
 import { TypeAhead } from '../../components/pickers'
 import { SaveCard } from '../SaveCard'
+import { useAccountantView } from '../../lib/handoff'
+import { AccountantViewButton } from '../AccountantViewButton'
 
 const F = { date: 'date', item: 'item', qty: 'qty', price: 'price', labour: 'labour', labourRecorded: 'labourRecorded' } as const satisfies Record<MakeField, MakeField> // i18n-technical: form field paths
 const FEATURES_SCREEN = { name: 'simple-features' } as const // i18n-technical
@@ -169,14 +171,15 @@ export function MadeGoods({ itemId }: { itemId?: number }): React.JSX.Element {
     return () => window.removeEventListener('keydown', h, true)
   }, [])
 
-  const accountantView = (): void => {
-    if (saved) {
-      nav.go({ name: 'voucher-entry', voucherId: saved.ids[0]! }) // i18n-technical
-      return
-    }
+  // WP 9.10: the saved batch, the full manufacture form with these answers filled in, or (not
+  // complete yet) the form started for the product and quantity picked.
+  const openFull = useAccountantView('simple-made-goods') // i18n-technical: screen name
+  const accountantView = (always: boolean): void => {
     const q = parseCountText(form.qtyText)
-    nav.go(form.itemId != null && q != null && q > 0 ? { name: 'manufacture', prefill: { itemId: form.itemId, qtyMilli: q } } : MANUFACTURE_SCREEN) // i18n-technical
+    const fallback: Screen = form.itemId != null && q != null && q > 0 ? { name: 'manufacture', prefill: { itemId: form.itemId, qtyMilli: q } } : MANUFACTURE_SCREEN // i18n-technical
+    void openFull({ intent: dirty ? intent : null, savedId: saved?.ids[0] ?? null, always, fallback })
   }
+
 
   const options = useMemo(() => products.map((p) => ({ id: p.itemId, label: p.name })), [products])
   const qtyMilli = parseCountText(form.qtyText)
@@ -203,9 +206,7 @@ export function MadeGoods({ itemId }: { itemId?: number }): React.JSX.Element {
           <h1 className="font-serif text-heading font-semibold tracking-tight text-ink">{t('simple.stock.madeGoods')}</h1>
           <p className="mt-1 text-detail text-muted">{t('simple.made.subtitle')}</p>
         </div>
-        <Button variant="ghost" data-testid="btn-made-accountant-view" title={t('simple.made.accountantHint')} onClick={accountantView}>
-          {t('common.accountantView')}
-        </Button>
+        <AccountantViewButton testId="btn-made-accountant-view" title={t('simple.made.accountantHint')} onOpen={accountantView} />
       </div>
 
       {saved ? (

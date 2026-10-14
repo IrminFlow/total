@@ -6,6 +6,11 @@
 // (`total-view:<slug>:<userId|->:<screen>` = 'accountant') — a display preference, never in the
 // books. The full screen's "Back to simple" clears it.
 //
+// WP 9.10: the remembered choice is set ONLY by "Always open the full app for this" (the menu next
+// to every simple screen's "Accountant view"); a plain "Accountant view" is a one-off — for a
+// screen with both views (Home) a session-only override, for a simple flow just the navigation.
+// "Back to simple" clears both, for the screen it lands on and the simple flow it came from.
+//
 // Users: while a company has no users the key's user part is '-'. When users are created later
 // those '-' choices are deliberately NOT carried over to anyone — each signed-in user starts from
 // the company's mode and makes their own choices (a display preference; nothing to migrate).
@@ -25,7 +30,11 @@ export function viewOverrideKey(slug: string | null, userId: number | null | und
   return `${VIEW_KEY}:${slug ?? '-'}:${userId ?? '-'}:${screen}`
 }
 
-export function readViewOverride(slug: string | null, userId: number | null | undefined, screen: Screen['name']): boolean {
+/** One-off "Accountant view" choices (this session only, never stored). */
+const sessionOverrides = new Set<string>()
+
+/** The REMEMBERED choice only ("Always open the full app for this"). */
+export function readRememberedOverride(slug: string | null, userId: number | null | undefined, screen: Screen['name']): boolean {
   try {
     return localStorage.getItem(viewOverrideKey(slug, userId, screen)) === 'accountant'
   } catch {
@@ -33,10 +42,38 @@ export function readViewOverride(slug: string | null, userId: number | null | un
   }
 }
 
+export function readViewOverride(slug: string | null, userId: number | null | undefined, screen: Screen['name']): boolean {
+  return sessionOverrides.has(viewOverrideKey(slug, userId, screen)) || readRememberedOverride(slug, userId, screen)
+}
+
 const useViewVersion = create<{ version: number; bump: () => void }>((set) => ({
   version: 0,
   bump: () => set((s) => ({ version: s.version + 1 }))
 }))
+
+/**
+ * Set (`on`) or clear this user's accountant-view choice for a screen. `remember` = stored in
+ * localStorage ("Always open the full app for this"); otherwise a one-off for this session.
+ * Clearing removes both.
+ */
+export function setViewOverride(
+  slug: string | null,
+  userId: number | null | undefined,
+  screen: Screen['name'],
+  on: boolean,
+  remember = false
+): void {
+  const key = viewOverrideKey(slug, userId, screen)
+  if (on && !remember) sessionOverrides.add(key)
+  else sessionOverrides.delete(key)
+  try {
+    if (on && remember) localStorage.setItem(key, 'accountant')
+    else if (!on) localStorage.removeItem(key)
+  } catch {
+    /* private mode / quota — the choice still applies until the next render */
+  }
+  useViewVersion.getState().bump()
+}
 
 /** The open company's mode (meta `ui`; missing = accountant). */
 export function useMode(): UiMode {
@@ -56,8 +93,9 @@ export interface ScreenViewState {
   companyMode: UiMode
   /** The user picked "Accountant view" for this screen. */
   override: boolean
-  /** "Accountant view" (true) / "Back to simple" (false) for this screen. */
-  setAccountantView: (on: boolean) => void
+  /** "Accountant view" (true; `remember` = "Always open the full app for this") / "Back to
+   *  simple" (false, clears both) for this screen. */
+  setAccountantView: (on: boolean, remember?: boolean) => void
 }
 
 /** The effective view of a screen: company mode + the screen's modes + this user's override. */
@@ -67,19 +105,7 @@ export function useScreenView(name: Screen['name']): ScreenViewState {
   const companyMode = useMode()
   useViewVersion((s) => s.version)
   const override = readViewOverride(slug, userId, name)
-  const setAccountantView = useCallback(
-    (on: boolean) => {
-      try {
-        const key = viewOverrideKey(slug, userId, name)
-        if (on) localStorage.setItem(key, 'accountant')
-        else localStorage.removeItem(key)
-      } catch {
-        /* private mode / quota — the choice still applies until the next render */
-      }
-      useViewVersion.getState().bump()
-    },
-    [slug, userId, name]
-  )
+  const setAccountantView = useCallback((on: boolean, remember = false) => setViewOverride(slug, userId, name, on, remember), [slug, userId, name])
   return { view: screenView(companyMode, name, override), companyMode, override, setAccountantView }
 }
 

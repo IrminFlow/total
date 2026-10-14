@@ -1310,7 +1310,9 @@ export function screenView(companyMode: UiMode, name: Screen['name'], override: 
   if (companyMode === 'accountant') return 'accountant'
   const def = byName.get(name)
   if (!def || !def.modes.includes('simple')) return 'accountant'
-  return override ? 'accountant' : 'simple'
+  // WP 9.10: a simple-only flow's remembered "always the full app" choice opens its full
+  // counterpart (lib/handoff.ts useAlwaysFullRedirect); the flow itself stays in the simple shell.
+  return override && def.modes.includes('accountant') ? 'accountant' : 'simple'
 }
 
 /** The simple section a screen highlights in the simple sidebar. */
@@ -1329,3 +1331,46 @@ export function invalidationFamilies(name: Screen['name']): string[] {
 /** WP 8.0: is a registry entry shown for this company? */
 export const screenApplies = (s: { requiresGstRegistration?: boolean }, gstRegistrationType: string | undefined): boolean =>
   !s.requiresGstRegistration || gstRegistrationType !== 'unregistered'
+
+/** What a simple entry needs to show for this company (features on, a regular GST registration,
+ *  the AI assistant ready). */
+export interface SimpleEntryFacts {
+  features: CompanyFeatures
+  regular: boolean
+  aiReady: boolean
+}
+
+export function simpleEntryVisible(e: ResolvedSimpleEntry, f: SimpleEntryFacts): boolean {
+  return e.features.every((x) => f.features[x]) && (e.needs !== 'gstRegular' || f.regular) && (e.needs !== 'aiReady' || f.aiReady)
+}
+
+export interface SimplePaletteRow {
+  id: string
+  label: MessageKey
+  screen: Screen
+}
+
+/**
+ * WP 9.10: the ⌘K palette's rows while the company is in simple mode — every simple-native entry
+ * (Make a bill, Record a purchase, Money in …, in SIMPLE_ENTRY_ORDER) the company's sections show,
+ * then the sections themselves (People, Reports, Taxes …). From the registry, never hand-listed:
+ * a later simple screen with a `simpleEntries` row appears here by itself.
+ */
+export function simplePaletteRows(f: SimpleEntryFacts): SimplePaletteRow[] {
+  const seen = new Set<string>()
+  const rows: SimplePaletteRow[] = []
+  const add = (row: SimplePaletteRow): void => {
+    if (seen.has(row.label)) return
+    seen.add(row.label)
+    rows.push(row)
+  }
+  for (const e of SIMPLE_ENTRIES) {
+    if (!byName.get(e.screenName)?.modes.includes('simple') || !simpleEntryVisible(e, f)) continue
+    add({ id: e.id, label: e.label, screen: e.screen })
+  }
+  for (const s of SIMPLE_SECTIONS) {
+    if (s.feature && !f.features[s.feature]) continue
+    add({ id: `section-${s.id}`, label: s.label, screen: s.id === 'home' ? { name: 'gateway' } : { name: 'simple-section', section: s.id } })
+  }
+  return rows
+}
