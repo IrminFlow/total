@@ -150,7 +150,9 @@ describe('the passphrase lock', () => {
     const on = await ok<{ encrypted: boolean; backupsConverted: number; backupsFailed: string[] }>('security:passphrase:on', { passphrase: PASS, confirm: PASS })
     expect(on.encrypted).toBe(true)
     expect(on.backupsFailed).toEqual([])
-    expect(on.backupsConverted).toBeGreaterThan(plainBackups.length) // + the pre-encrypt one
+    // the manual + the pre-encrypt one at least (review: the reopen's own "open" backup, already
+    // encrypted, replaces a plaintext "open" backup of the same second instead of failing on it)
+    expect(on.backupsConverted).toBeGreaterThanOrEqual(2)
 
     expect(header(dbFile(slug))).not.toBe(PLAIN)
     expect(await tbTotals()).toEqual(before)

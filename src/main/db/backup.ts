@@ -4,7 +4,7 @@ import Database from 'better-sqlite3-multiple-ciphers'
 import { existsSync, readdirSync, statSync, unlinkSync, copyFileSync, renameSync, rmSync } from 'fs'
 import { join, basename } from 'path'
 import type { DB } from './connection'
-import { keyOfHandle, openDb } from './encryption'
+import { keyOfHandle, openDb, removeDbFiles } from './encryption'
 import { CheckStoppedError, pragmaCheck } from './checkHost'
 
 export interface BackupInfo {
@@ -42,8 +42,18 @@ export function tagOf(file: string): string {
 export async function snapshotTo(db: DB, dest: string): Promise<void> {
   // WP 7.2: SQLite's online backup cannot write into an unkeyed target from an encrypted source;
   // VACUUM INTO copies with the source's key (the backup is encrypted like the books are).
+  // VACUUM INTO refuses a target that exists (a second backup in the same second has the same
+  // name; the online backup overwrites it): write beside it and rename over, like the backup API.
   if (keyOfHandle(db)) {
-    snapshotSync(db, dest)
+    const tmp = `${dest}.vacuum-tmp`
+    removeDbFiles(tmp)
+    try {
+      snapshotSync(db, tmp)
+      renameSync(tmp, dest)
+    } catch (err) {
+      removeDbFiles(tmp)
+      throw err
+    }
     return
   }
   await db.backup(dest)

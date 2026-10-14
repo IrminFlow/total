@@ -139,7 +139,7 @@ export function commitConvertedCopy(tmp: string, dbPath: string): void {
 
 /** Remove what an interrupted conversion / restore / export may have left in a company folder:
  *  `company.db.converting` (a copy of the books — PLAINTEXT when the lock was being taken off),
- *  backups' `*.converting` / `*.restore-tmp`, and the encrypted export's plaintext snapshot.
+ *  backups' `*.converting` / `*.restore-tmp` / `*.vacuum-tmp`, and the encrypted export's plaintext snapshot.
  *  Called before the company is opened; never touches the books or a finished backup. */
 export function removeLeftoverCopies(dbPath: string, backupsDir: string, exportsDir: string): void {
   removeDbFiles(`${dbPath}.converting`)
@@ -147,7 +147,7 @@ export function removeLeftoverCopies(dbPath: string, backupsDir: string, exports
     if (!existsSync(dir)) return
     for (const f of readdirSync(dir)) if (match(f)) rmSync(join(dir, f), { force: true })
   }
-  sweep(backupsDir, (f) => /\.db\.(converting|restore-tmp)(-journal|-wal|-shm)?$/.test(f))
+  sweep(backupsDir, (f) => /\.db\.(converting|restore-tmp|vacuum-tmp)(-journal|-wal|-shm)?$/.test(f))
   // An export may still be writing its snapshot (it awaits the file encryption): only an old one.
   const hourAgo = Date.now() - 60 * 60 * 1000
   sweep(exportsDir, (f) => /^\.export-tmp-.*\.db(-journal|-wal|-shm)?$/.test(f) && statSync(join(exportsDir, f)).mtimeMs < hourAgo)

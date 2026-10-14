@@ -9,6 +9,7 @@ import { tmpdir } from 'os'
 import { join } from 'path'
 import Database from 'better-sqlite3-multiple-ciphers'
 import { forgetAllKeys, isEncryptedFile, openDb, rekeyFile } from './encryption'
+import { snapshotTo } from './backup'
 import { newDataKey, wrapKey } from './keyEnvelope'
 import { migrate } from './migrate'
 import { seedCompany } from './seed'
@@ -220,5 +221,29 @@ describe('the two envelope copies', () => {
     expect(writeEnvelope(dir, 'm', wrapKey(key, 'second passphrase', SCRYPT), failing).mirrored).toBe(false)
     expect(store.map.size).toBe(0)
     expect(readEnvelopes(dir, 'm', store)).toHaveLength(1)
+  })
+})
+
+describe('backups of a locked business', () => {
+  it('a second backup with the same name (same second) replaces the first, as the online backup does — VACUUM INTO alone refuses', async () => {
+    const path = companyFile()
+    const key = newDataKey()
+    rekeyFile(path, null, key)
+    const db = open(path, key)
+    const dest = join(path, '..', 'backups', '2026-10-15T00-00-00-manual.db')
+    try {
+      await snapshotTo(db, dest)
+      db.prepare("INSERT INTO meta (key, value) VALUES ('review.marker', '1')").run()
+      await snapshotTo(db, dest)
+    } finally {
+      db.close()
+    }
+    expect(existsSync(`${dest}.vacuum-tmp`)).toBe(false)
+    const copy = openDb(dest, { key, readonly: true })
+    try {
+      expect(copy.prepare("SELECT value FROM meta WHERE key = 'review.marker'").get()).toEqual({ value: '1' })
+    } finally {
+      copy.close()
+    }
   })
 })
