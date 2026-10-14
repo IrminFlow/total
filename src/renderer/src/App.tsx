@@ -98,8 +98,8 @@ import { LockScreen } from './components/LockScreen'
 import { DialogHost } from './components/dialogs'
 import { DrillHost } from './components/DrillHost'
 import { LinkedDocsHost } from './components/LinkedDocs'
-import { helpKeyFor, invalidationFamilies } from './lib/screens'
-import { useHelpPanel } from './help/store'
+import { invalidationFamilies } from './lib/screens'
+import { handleHelpKey } from './help/keys'
 import { HelpSettings } from './simple/HelpSettings'
 
 export default function App(): React.JSX.Element {
@@ -131,14 +131,9 @@ export default function App(): React.JSX.Element {
         useAssistantPanel.getState().toggle()
         return
       }
-      // WP 10.3: ⌘/ — the help panel on this screen's article (simple mode; works in a box too).
-      if ((e.metaKey || e.ctrlKey) && !e.shiftKey && !e.altKey && e.key === '/') {
-        const s = useSession.getState()
-        if (integrityWarning || !s.slug || s.locked || s.ui.mode !== 'simple') return
-        e.preventDefault()
-        useHelpPanel.getState().toggleForScreen(helpKeyFor(useNav.getState().stack.at(-1) ?? { name: 'gateway' }))
-        return
-      }
+      // WP 10.3: ⌘/ (anywhere) and ? (no box focused) — the help panel on this screen's article,
+      // in a simple company; the full app keeps ? for its shortcut reference (below).
+      if (!integrityWarning && handleHelpKey(e)) return
       // ⌘⇧F — the full Search results screen (focuses its query box when already there).
       if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key.toLowerCase() === 'f') {
         e.preventDefault()
@@ -160,14 +155,7 @@ export default function App(): React.JSX.Element {
       }
       if (e.key === '?') {
         const tag = (e.target as HTMLElement).tagName
-        if (tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA' || (e.target as HTMLElement).isContentEditable) return
-        // WP 10.3: in a simple company ? opens the help panel (the shortcut list is an article
-        // there); the full app keeps its shortcut reference.
-        const s = useSession.getState()
-        if (s.slug && !s.locked && s.ui.mode === 'simple') {
-          useHelpPanel.getState().toggleForScreen(helpKeyFor(useNav.getState().stack.at(-1) ?? { name: 'gateway' }))
-          return
-        }
+        if (tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA') return
         setHelpOpen(true)
       }
     }
