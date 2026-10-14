@@ -16,7 +16,8 @@
 //                 durations in scripts/e2e/timings.json (unknown = 60 s) so CI's parallel
 //                 matrix jobs take about the same time. Filters apply before sharding.
 //   --json FILE   also write the summary to FILE.
-//   --write-timings  after the run, write each scenario's (last) duration to scripts/e2e/timings.json.
+//   --write-timings  after the run, write each scenario's duration (the longest over --repeat runs)
+//                 to scripts/e2e/timings.json.
 import { spawn } from 'node:child_process'
 import * as fs from 'node:fs'
 import * as path from 'node:path'
