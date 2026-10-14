@@ -20,6 +20,8 @@ import { simplePaletteRows, SIMPLE_ENTRIES } from '../lib/screens'
 import { ViewToggle } from '../simple/ViewToggle'
 import { CommandPalette } from '../components/CommandPalette'
 import { HandoffBanner } from '../components/HandoffBanner'
+import { DialogHost } from '../components/dialogs'
+import { useUnsavedGuard } from '../lib/useUnsavedGuard'
 
 const invoke = vi.fn()
 const INFO = { name: 'Hand-off Co', stateCode: '27', gstin: '27AAPFU0939F1ZV', gstRegistrationType: 'regular', address: '', booksFrom: 2026, email: null, phone: null, pan: null, tan: null }
@@ -173,6 +175,51 @@ describe('the remembered choice', () => {
     expect(localStorage.getItem(KEY('simple-sell'))).toBeNull()
   })
 
+  it('review: Back / Esc from the full editor "Always" opened returns to the flow — no second blank editor', async () => {
+    setSession({ mode: 'simple' })
+    const flow: Screen = { name: 'simple-sell' }
+    act(() => useNav.setState({ stack: [{ name: 'gateway' }, flow] }))
+    renderHook(() => useAlwaysFullRedirect(), { wrapper: ({ children }) => withClient(<>{children}</>) })
+    // Arrived without the choice: the flow stays; the user then picks "Always" there.
+    expect(top()).toBe(flow)
+    localStorage.setItem(KEY('simple-sell'), 'accountant')
+    act(() => useNav.setState({ stack: [{ name: 'gateway' }, flow, { name: 'voucher-entry', kindHint: 'sales' }] }))
+    act(() => useNav.setState({ stack: [{ name: 'gateway' }, flow] })) // Back
+    await new Promise((r) => setTimeout(r, 20))
+    expect(top()).toBe(flow)
+    // A NEW arrival still opens the full app.
+    act(() => useNav.setState({ stack: [{ name: 'gateway' }, { name: 'simple-sell' }] }))
+    await waitFor(() => expect(top()).toEqual({ name: 'voucher-entry', kindHint: 'sales' }))
+  })
+
+  it('review: "Back to simple" from an unsaved editor asks first; "Stay" keeps the editor AND the remembered choice', async () => {
+    setSession({ mode: 'simple' })
+    localStorage.setItem(KEY('simple-sell'), 'accountant')
+    const editor: Screen = { name: 'voucher-entry', kindHint: 'sales' }
+    act(() => useNav.setState({ stack: [{ name: 'gateway' }, editor] }))
+    const Dirty = (): null => {
+      useUnsavedGuard(true)
+      return null
+    }
+    render(withClient(<><Dirty /><DialogHost /></>))
+    const back = renderHook(() => useBackToSimple(), { wrapper: ({ children }) => withClient(<>{children}</>) })
+    let done: Promise<void> | undefined
+    act(() => {
+      done = back.result.current()
+    })
+    fireEvent.click(await screen.findByTestId('confirm-cancel'))
+    await act(async () => done)
+    expect(top()).toBe(editor)
+    expect(localStorage.getItem(KEY('simple-sell'))).toBe('accountant')
+    act(() => {
+      done = back.result.current()
+    })
+    fireEvent.click(await screen.findByTestId('confirm-ok'))
+    await act(async () => done)
+    expect(top()).toEqual({ name: 'simple-sell' })
+    expect(localStorage.getItem(KEY('simple-sell'))).toBeNull()
+  })
+
   it('answers the mapping refuses open the blank editor; a saved form opens the saved voucher', async () => {
     setSession({ mode: 'simple' })
     intentForm = new Error('Pick a product')
@@ -230,6 +277,15 @@ describe('⌘K: the simple screens, in simple mode only', () => {
     fireEvent.change(screen.getByTestId('input-palette'), { target: { value: 'make a' } })
     fireEvent.keyDown(screen.getByTestId('input-palette'), { key: 'Enter' })
     await waitFor(() => expect(top()).toEqual({ name: 'simple-sell' }))
+    // Opened with nothing typed, a simple company's palette holds only the simple screens — the
+    // full app's commands (New voucher, Ledgers …) come with a search, under "Full app".
+    fireEvent.change(screen.getByTestId('input-palette'), { target: { value: '' } })
+    await screen.findByTestId('palette-simple-make-bill')
+    expect(screen.queryByText('New voucher')).toBeNull()
+    expect(screen.queryByTestId('palette-section-commands')).toBeNull()
+    fireEvent.change(screen.getByTestId('input-palette'), { target: { value: 'new vouch' } })
+    await screen.findByText('New voucher')
+    expect(screen.getByTestId('palette-section-commands').textContent).toContain('Full app')
     cleanup()
     setSession({ mode: 'accountant' })
     render(withClient(<CommandPalette onClose={() => {}} />))

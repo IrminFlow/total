@@ -184,6 +184,8 @@ interface NavState {
   /** `force`: skip the unsaved-changes question — only for a hand-off that CARRIES the unsaved
    *  answers to the next screen (WP 9.10 Accountant view), never to discard them. */
   go: (screen: Screen, opts?: { force?: boolean }) => void
+  /** `go`, resolving to whether the screen opened (false = the user chose to stay). */
+  tryGo: (screen: Screen) => Promise<boolean>
   replace: (screen: Screen) => void
   back: () => void
   home: () => void
@@ -213,6 +215,11 @@ export const useNav = create<NavState>((set) => ({
       if (ok) set((s) => ({ stack: [...s.stack, screen] }))
     })
   },
+  tryGo: (screen) =>
+    confirmLeave().then((ok) => {
+      if (ok) set((s) => ({ stack: [...s.stack, screen] }))
+      return ok
+    }),
   replace: (screen) => set((s) => ({ stack: [...s.stack.slice(0, -1), screen] })),
   back: () => {
     void confirmLeave().then((ok) => {

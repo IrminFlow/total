@@ -250,14 +250,21 @@ export function useAccountantView(self: Name): (req: AccountantViewRequest) => P
   )
 }
 
+/** Nav entries already arrived at — returning to one (Back / Esc from the full editor the choice
+ *  opened) shows the simple flow again instead of bouncing into another blank full editor. */
+const arrived = new WeakSet<Screen>()
+
 /** A simple flow the user chose "Always open the full app for this" for opens its full
- *  counterpart instead (only on arrival — never while the user is on it). */
+ *  counterpart instead (only on arrival — never while the user is on it, nor when coming back to
+ *  it with Back). */
 export function useAlwaysFullRedirect(): void {
   const screen = useScreen()
   const mode = useMode()
   const slug = useSession((s) => s.slug)
   const userId = useSession((s) => s.user?.id)
   useEffect(() => {
+    if (arrived.has(screen)) return
+    arrived.add(screen)
     if (mode !== 'simple' || !screenDef(screen.name)?.modes.includes('simple')) return
     if (!readRememberedOverride(slug, userId, screen.name)) return
     const full = fullCounterpart(screen)
@@ -284,7 +291,11 @@ export function useBackToSimple(): () => Promise<void> {
       }
     }
     const target = simpleTargetFor(screen, facts)
-    for (const name of backToSimpleClears(screen, target)) setViewOverride(slug, userId, name, false)
-    nav.go(target)
+    // Cleared before the move (the arrival redirect must not see it); put back when the user
+    // chooses to stay on an unsaved editor.
+    const names = backToSimpleClears(screen, target)
+    const remembered = names.filter((name) => readRememberedOverride(slug, userId, name))
+    for (const name of names) setViewOverride(slug, userId, name, false)
+    if (!(await nav.tryGo(target))) for (const name of remembered) setViewOverride(slug, userId, name, true, true)
   }, [screen, nav, slug, userId])
 }
