@@ -139,18 +139,17 @@ row: `node scripts/run-e2e.mjs --repeat 3`, a CI shard: `--shard 2/3`).
 Fixed in this PR: **MT940 / CAMT.053 statements could not be imported** (Banking → Import kept
 "Apply the mapping first" for any statement without a column mapping) — e2e 72 tests the fixed path.
 
-Fixed in PR #107 (`fix/year-end-ui-bugs`, merged while this WP ran); the scenarios still carry the
-workarounds they were written with (they pass either way) — tightening them to the fixed paths is a
-follow-up:
+Fixed in PR #107 (`fix/year-end-ui-bugs`, merged while this WP ran). The scenarios were written
+with workarounds; the review switched them to assert the fixed behaviour where that was cheap:
 
-| Bug | Scenario | Workaround in the scenario |
+| Bug | Scenario | Now |
 | --- | --- | --- |
-| Settings → Period lock is not editable in a company without users | 67 | creates an owner user and signs in |
-| The closing journal's Delete is disabled in its editor (inside the read-only fieldset) | 67 | bins it through `voucher:delete`, the channel that button calls |
-| The editor's pre-save duplicate-number check ignores the financial year | 67 | edits last year's No. 2 (No. 1 is reused this year) |
-| Stock ageing uses the period END as its as-on date | 68 | working period set to "This month" |
-| Cost-centre report's Net Dr / Cr label is inverted | 69 | asserts the figures, not the label |
-| Import undo leaves the openings unequal (kept masters keep imported openings) | 71 | reported in the header, not asserted |
+| Settings → Period lock is not editable in a company without users | 67 | still creates an owner user and signs in (keeps the lock-screen sign-in covered); #107's renderer test covers the no-users case |
+| The closing journal's Delete is disabled in its editor (inside the read-only fieldset) | 67 | bins it from the banner's Move to Bin; asserts the lock moves back to the day before the FY |
+| The editor's pre-save duplicate-number check ignores the financial year | 67 | re-saves last year's No. 1 (the same number as this year's April payment) |
+| Stock ageing uses the period END as its as-on date | 68 | the working period stays the whole FY; ageing is as on today |
+| Cost-centre report's Net Dr / Cr label is inverted | 69 | asserts a loss reads Dr |
+| Import undo leaves the openings unequal (kept masters keep imported openings) | 71 | asserts the kept masters' openings are cleared and the openings tie |
 
 ## Date robustness
 

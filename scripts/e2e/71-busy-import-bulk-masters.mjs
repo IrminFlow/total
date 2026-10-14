@@ -11,10 +11,9 @@
 //      (nothing written; the books' openings still tie, stock included) → import → the group,
 //      ledgers (openings), item (opening stock) and the sale land (IPC) → "Undo this import" on the
 //      done step → the sale is in the bin, the ledger nothing uses is removed, the masters the
-//      binned sale still uses are kept (purge the bin to remove them), the batch is undone.
-//      (Not asserted, reported: the kept masters keep their imported openings, so after the undo
-//      the books' openings differ by ₹2,400 Dr — Mehta ₹2,000 + stock ₹400 — while the capital
-//      that balanced them is gone.)
+//      binned sale still uses are kept (purge the bin to remove them) with their imported openings
+//      CLEARED (#107: Mehta ₹2,000 Dr and the ₹400 opening stock go with the capital that balanced
+//      them), so the books' openings still tie; the batch is undone.
 //   3. Masters → Ledgers: tick three parties → Bulk edit… → Credit terms 45 days → server
 //      preview (2 will change, 1 already 45) → Apply (audited, one bulk batch) → Bulk edits →
 //      Undo → 30 / none again.
@@ -191,6 +190,12 @@ await scenario('71-busy-import-bulk-masters', async (h) => {
   // The binned sale still uses these — the undo keeps them (purge the bin to remove them).
   assert(await ledgerNamed('Mehta Stores'), 'Mehta Stores kept (used by the binned sale)')
   assert(await ledgerNamed('Sale A/c'), 'Sale A/c kept (used by the binned sale)')
+  assertEq((await ledgerNamed('Mehta Stores')).openingBalance, 0, 'the kept Mehta Stores has its imported opening cleared')
+  const cartonAfter = (await h.invoke('master:stockItems:list')).find((i) => i.name === 'Carton')
+  assertEq(`${cartonAfter.openingQtyMilli} ${cartonAfter.openingValue}`, '0 0', 'the kept Carton has its opening stock cleared')
+  const ledgerOpenings = (await h.invoke('master:ledgers:list')).reduce((n, l) => n + (l.openingBalance ?? 0), 0)
+  const stockOpenings = (await h.invoke('master:stockItems:list')).reduce((n, i) => n + (i.openingValue ?? 0), 0)
+  assertEq(ledgerOpenings + stockOpenings, 0, 'after the undo the openings still tie (Dr = Cr, stock included)')
   assertEq(undoToast[0], 1, 'one voucher binned')
   assertEq(undoToast[2], 0, 'nothing to restore (all created)')
   const [xmlAfter] = await h.invoke('importwiz:batches')
