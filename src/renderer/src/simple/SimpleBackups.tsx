@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { toPlainDate } from '@shared/dates'
+import { daysAgo } from '@shared/backupCheck'
 import { api } from '../lib/client'
 import { useT } from '../lib/i18n'
 import { useNav, useToasts } from '../state/stores'
@@ -30,6 +31,9 @@ export function SimpleBackups(): React.JSX.Element {
   const toast = useToasts()
   const queryClient = useQueryClient()
   const { data: backups } = useQuery({ queryKey: BACKUPS_KEY, queryFn: () => api.backups.list() })
+  // WP 7.2: the newest restore check (a backup you take is checked at once, automatic ones daily).
+  const { data: checks } = useQuery({ queryKey: [...BACKUPS_KEY, 'checks'], queryFn: () => api.backups.checks() }) // i18n-technical
+  const check = checks?.[0] ?? null
   const [busy, setBusy] = useState(false)
   const [saved, setSaved] = useState<string | null>(null)
   const newest = (backups ?? []).reduce<number | null>((m, b) => (m == null || b.mtime > m ? b.mtime : m), null)
@@ -56,6 +60,11 @@ export function SimpleBackups(): React.JSX.Element {
           {newest == null ? t('simple.backups.none') : t('simple.backups.last', { date: toPlainDate(localDay(newest), t.lang) })}
         </p>
         {backups && backups.length > 0 && <p className="mt-1 text-detail text-muted">{t('simple.backups.count', { count: backups.length })}</p>}
+        {check && (
+          <p className={`mt-1 text-detail ${check.ok ? 'text-ink' : 'text-cr'}`} data-testid="simple-backups-check" data-ok={check.ok ? 'true' : 'false'}>
+            {check.ok ? t('simple.security.backup.ok', { days: daysAgo(check.checkedAt) }) : t('simple.security.backup.failed', { days: daysAgo(check.checkedAt) })}
+          </p>
+        )}
         {canSave ? (
           <Button className="mt-4" variant="primary" disabled={busy} data-testid="btn-simple-backup-now" onClick={() => void run()}>
             {t('simple.nav.backupNow')}

@@ -206,7 +206,7 @@ describe('the simple shell', () => {
     render(withClient(<SimpleSection section="settings" />))
     await waitFor(() => expect(screen.getByTestId('simple-entry-advanced')).toBeTruthy())
     const ids = Array.from(document.querySelectorAll('[data-testid^="simple-entry-"]')).map((e) => e.getAttribute('data-testid'))
-    expect(ids).toEqual(['business', 'openings', 'bills-printing', 'backups', 'people-roles', 'features', 'ai-helper', 'looks', 'help-tour', 'advanced'].map((i) => `simple-entry-${i}`))
+    expect(ids).toEqual(['business', 'openings', 'bills-printing', 'backups', 'people-roles', 'security', 'features', 'ai-helper', 'looks', 'help-tour', 'advanced'].map((i) => `simple-entry-${i}`))
     fireEvent.click(screen.getByTestId('simple-entry-advanced'))
     await waitFor(() => expect(useNav.getState().stack.at(-1)).toEqual({ name: 'settings' }))
   })

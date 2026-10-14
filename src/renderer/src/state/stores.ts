@@ -81,6 +81,9 @@ export type Screen =
   // WP 10.8: Settings → Backups in the simple shell.
   | { name: 'simple-backups' }
   | { name: 'simple-features' }
+  // WP 7.2: Settings → Lock and safety, People & roles (simple/SecuritySettings, simple/PeopleRoles).
+  | { name: 'simple-security' }
+  | { name: 'simple-people-roles' }
   | { name: 'simple-ai' }
   | { name: 'simple-help' }
   | { name: 'simple-openings'; from?: 'home' }
@@ -193,7 +196,7 @@ export type Screen =
   | { name: 'year-end' }
   | { name: 'fixed-assets'; tab?: 'register' | 'depreciation' | 'schedule' | 'income-tax' | 'setup' }
   | { name: 'audit-trail'; voucherId?: number }
-  | { name: 'settings'; tab?: 'appearance' | 'backups' | 'bin' | 'users' | 'audit' | 'nic' | 'features' | 'invoice' | 'receivables' | 'agents' | 'packs' | 'ai' | 'about' }
+  | { name: 'settings'; tab?: 'appearance' | 'backups' | 'bin' | 'users' | 'security' | 'audit' | 'nic' | 'features' | 'invoice' | 'receivables' | 'agents' | 'packs' | 'ai' | 'about' }
 
 interface NavState {
   stack: Screen[]

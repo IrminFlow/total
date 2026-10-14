@@ -1,4 +1,4 @@
-// WP 7.1 — the performance-index migration: the last one (number by position), CREATE INDEX IF NOT
+// WP 7.1 — the performance-index migration: right before WP 7.2's (number by position), CREATE INDEX IF NOT
 // EXISTS only (no table rebuild, no data written), and the books read the same before and after.
 import { describe, expect, it } from 'vitest'
 import { MIGRATIONS } from './migrations'
@@ -13,8 +13,8 @@ const INDEXES = [
 ]
 
 describe('WP 7.1 performance indexes migration', () => {
-  it('is the last migration and only creates indexes', () => {
-    expect(M).toBe(MIGRATIONS.length - 1)
+  it('comes right before WP 7.2 security (backup_runs, the last migration) and only creates indexes', () => {
+    expect(M).toBe(MIGRATIONS.findIndex((sql) => sql.includes('CREATE TABLE backup_runs')) - 1)
     const statements = MIGRATIONS[M]!.split(';').map((s) => s.replace(/--.*$/gm, '').trim()).filter(Boolean)
     expect(statements.length).toBe(INDEXES.length)
     for (const s of statements) expect(s).toMatch(/^CREATE INDEX IF NOT EXISTS idx_\w+ ON \w+\([^)]*\)$/)

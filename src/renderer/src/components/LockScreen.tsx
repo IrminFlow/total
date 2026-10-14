@@ -4,10 +4,18 @@ import { api, type LoginName } from '../lib/client'
 import { useNav, useSession, useToasts } from '../state/stores'
 import { Button, TextInput, useKeyNav } from './ui'
 import { SupportLink } from './SupportLink'
+import { useMode } from '../lib/mode'
+import { SimpleLockScreen } from '../simple/SimpleLockScreen'
+import { useLockReason } from '../lib/sessionLock'
 
 /** Full-viewport PIN lock, shown whenever a company has users but no one has signed in yet
- *  (see App.tsx: `slug && locked`). Pick a user, type their PIN, Enter (or the button) submits. */
+ *  (see App.tsx: `slug && locked`) — and after ⌘L / the idle auto-lock (WP 7.2). A simple-mode
+ *  company gets the plain-words lock screen (simple/SimpleLockScreen.tsx); the full app's is below. */
 export function LockScreen(): React.JSX.Element {
+  return useMode() === 'simple' ? <SimpleLockScreen /> : <AccountantLockScreen />
+}
+
+function AccountantLockScreen(): React.JSX.Element {
   const { data: userList } = useQuery({ queryKey: ['auth-users'], queryFn: api.auth.users })
   const fetching = useIsFetching()
   const { setUser, setLocked, clearCompany } = useSession()
@@ -39,6 +47,7 @@ export function LockScreen(): React.JSX.Element {
     try {
       const result = await api.auth.login(selected.id, pin)
       setUser(result)
+      useLockReason.getState().set(null)
       setLocked(false)
     } catch (err) {
       // Wrong PIN, or throttled — either way, reset the field so the next attempt starts clean.

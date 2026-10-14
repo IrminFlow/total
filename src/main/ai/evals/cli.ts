@@ -11,7 +11,7 @@
 //
 // Only the synthetic fixture is ever sent. The key stays in the provider; both report files are
 // passed through redactSecrets before they are written.
-import Database from 'better-sqlite3'
+import Database from 'better-sqlite3-multiple-ciphers'
 import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'fs'
 import { homedir, tmpdir } from 'os'
 import { dirname, join, resolve, sep } from 'path'

@@ -16,7 +16,7 @@
 //   (voucher:undoSave) and Restore brings them back together.
 import { createHash } from 'crypto'
 import type { DB } from '../db/connection'
-import type Database from 'better-sqlite3'
+import type Database from 'better-sqlite3-multiple-ciphers'
 import type { CompanyInfo, SaveVoucherWarnings, VoucherKind } from '@shared/domain'
 import { gstRegistrationOf } from '@shared/gst/registration'
 import { addBreakups, computeGst, supplyTypeFor } from '@shared/gst/calc'

@@ -2,7 +2,7 @@
 // append-only triggers, retention under the audit-trail-required flag, clock-skew notes, user
 // attribution, the edit-log export and the CA pack's audit files.
 import { beforeEach, describe, expect, it } from 'vitest'
-import Database from 'better-sqlite3'
+import Database from 'better-sqlite3-multiple-ciphers'
 import { existsSync, mkdtempSync, readFileSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'

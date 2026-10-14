@@ -2,6 +2,7 @@ import type { DB } from '../db/connection'
 import { hashPin, verifyPin } from './authcrypt'
 import { writeAudit } from './audit'
 import type { Role } from './roles'
+import { normaliseFlags, parseFlags, type CapabilityFlags } from '@shared/capabilities'
 
 export type { Role }
 
@@ -11,6 +12,8 @@ export interface User {
   role: Role
   active: boolean
   createdAt: string
+  /** WP 7.2: capability flags that differ from the role's default (null = none — as the role says). */
+  capabilities: CapabilityFlags | null
 }
 
 export interface UserInput {
@@ -19,12 +22,15 @@ export interface UserInput {
   /** Required when creating a user; omit on update to keep the existing PIN hash. */
   pin?: string
   active?: boolean
+  /** WP 7.2: omitted = keep the stored flags (a new user: none). */
+  capabilities?: CapabilityFlags | null
 }
 
 export interface LoginResult {
   id: number
   name: string
   role: Role
+  capabilities: CapabilityFlags | null
 }
 
 interface UserRow {
@@ -33,7 +39,10 @@ interface UserRow {
   role: Role
   active: number
   createdAt: string
+  capabilitiesJson: string | null
 }
+
+const USER_COLS = 'id, name, role, active, created_at AS createdAt, capabilities_json AS capabilitiesJson'
 
 /** True once at least one user row exists for this company — the signal that the app is
  *  PIN-locked and IPC calls need a signed-in session. Callers should cache this (see ipc.ts's
@@ -44,13 +53,13 @@ export function usersExist(db: DB): boolean {
 }
 
 function toUser(row: UserRow): User {
-  return { id: row.id, name: row.name, role: row.role, active: !!row.active, createdAt: row.createdAt }
+  return { id: row.id, name: row.name, role: row.role, active: !!row.active, createdAt: row.createdAt, capabilities: parseFlags(row.capabilitiesJson) }
 }
 
 /** All users (active and inactive), for the owner-only management screen. */
 export function listUsers(db: DB): User[] {
   const rows = db
-    .prepare('SELECT id, name, role, active, created_at AS createdAt FROM users ORDER BY name COLLATE NOCASE')
+    .prepare(`SELECT ${USER_COLS} FROM users ORDER BY name COLLATE NOCASE`)
     .all() as UserRow[]
   return rows.map(toUser)
 }
@@ -64,7 +73,7 @@ export function listLoginNames(db: DB): { id: number; name: string; role: Role }
 
 export function getUser(db: DB, id: number): User {
   const row = db
-    .prepare('SELECT id, name, role, active, created_at AS createdAt FROM users WHERE id = ?')
+    .prepare(`SELECT ${USER_COLS} FROM users WHERE id = ?`)
     .get(id) as UserRow | undefined
   if (!row) throw new Error('User not found')
   return toUser(row)
@@ -81,13 +90,17 @@ export function saveUser(db: DB, input: UserInput, id?: number): User {
     const bootstrap = !usersExist(db)
     const role: Role = bootstrap ? 'owner' : input.role
     const pinHash = hashPin(input.pin)
+    const caps = normaliseFlags(role, input.capabilities)
     const result = db
-      .prepare('INSERT INTO users (name, pin_hash, role, active) VALUES (?, ?, ?, ?)')
-      .run(input.name, pinHash, role, input.active === false ? 0 : 1)
+      .prepare('INSERT INTO users (name, pin_hash, role, active, capabilities_json) VALUES (?, ?, ?, ?, ?)')
+      .run(input.name, pinHash, role, input.active === false ? 0 : 1, caps ? JSON.stringify(caps) : null)
     return getUser(db, Number(result.lastInsertRowid))
   }
 
-  getUser(db, id) // 404s if missing
+  const existing = getUser(db, id) // 404s if missing
+  // WP 7.2: flags are kept unless given; they are re-normalised against the (possibly new) role.
+  const caps = normaliseFlags(input.role, input.capabilities !== undefined ? input.capabilities : existing.capabilities)
+  db.prepare('UPDATE users SET capabilities_json = ? WHERE id = ?').run(caps ? JSON.stringify(caps) : null, id)
   if (input.pin) {
     const pinHash = hashPin(input.pin)
     db.prepare('UPDATE users SET name = ?, role = ?, active = ?, pin_hash = ? WHERE id = ?').run(
@@ -199,8 +212,8 @@ export function login(db: DB, userId: number, pin: string): LoginResult {
   }
 
   const row = db
-    .prepare('SELECT id, name, pin_hash AS pinHash, role, active FROM users WHERE id = ?')
-    .get(userId) as { id: number; name: string; pinHash: string; role: Role; active: number } | undefined
+    .prepare('SELECT id, name, pin_hash AS pinHash, role, active, capabilities_json AS capabilitiesJson FROM users WHERE id = ?')
+    .get(userId) as { id: number; name: string; pinHash: string; role: Role; active: number; capabilitiesJson: string | null } | undefined
 
   const ok = row && row.active ? verifyPin(pin, row.pinHash) : false
   if (!row || !row.active || !ok) {
@@ -212,5 +225,5 @@ export function login(db: DB, userId: number, pin: string): LoginResult {
   // WP 3.8: the sign-in is the user's own act — attribute it to them, not to whoever the session
   // held before (a failed attempt stays with the machine's OS login: we don't know who typed it).
   writeAudit(db, 'user', row.id, 'login', null, { name: row.name, role: row.role }, { user: row.name })
-  return { id: row.id, name: row.name, role: row.role }
+  return { id: row.id, name: row.name, role: row.role, capabilities: parseFlags(row.capabilitiesJson) }
 }

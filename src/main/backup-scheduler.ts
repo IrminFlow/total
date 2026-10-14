@@ -6,7 +6,9 @@ import { backupCompany, stashBackupAttachments } from './db/connection'
 import { backupStamp, snapshotSync } from './db/backup'
 import { companyBackupsDir } from './paths'
 import { log } from './log'
-import { SYSTEM_AUDIT_USER, writeAudit } from './services/audit'
+import { SYSTEM_AUDIT_USER, runAsAuditUser, writeAudit } from './services/audit'
+import { checkBackupIfDue } from './services/backupVerify'
+import { todayISO } from '@shared/dates'
 
 export interface CurrentCompanyLike {
   slug: string
@@ -24,8 +26,11 @@ export function startBackupScheduler(
         try {
           const current = getCurrent()
           if (!current) return
-          await backupCompany(current.db, current.slug, 'auto')
+          const dest = await backupCompany(current.db, current.slug, 'auto')
           log('info', 'backup-auto', { slug: current.slug })
+          // WP 7.2: verify after backup — restored into a scratch folder and checked, at most daily.
+          const check = runAsAuditUser(SYSTEM_AUDIT_USER, () => checkBackupIfDue(current.db, dest, 'auto', todayISO()))
+          if (check && !check.ok) log('warn', 'backup-check-failed', { slug: current.slug, error: check.error })
         } catch (err) {
           log('error', 'backup-auto-failed', { error: err instanceof Error ? err.message : String(err) })
         }

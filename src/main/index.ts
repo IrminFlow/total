@@ -12,6 +12,7 @@ import { startPackScheduler } from './packScheduler'
 import { cleanupOpenedCopies, sweepStaleOpenCopies } from './services/attachments'
 import { syncFolderWarning } from '@shared/syncpath'
 import { configureI18n } from '@shared/i18n'
+import { allowedExternalUrl } from '@shared/externalLinks'
 import { dataFolderLabel } from '@shared/updateText'
 
 // Hermetic scripted runs (smoke/e2e/CI, TOTAL_DATA_DIR set): keep Electron's userData —
@@ -97,10 +98,22 @@ function createWindow(): void {
 
   win.on('ready-to-show', () => win.show())
 
+  // WP 7.2: no window is ever opened, and only the allow-listed links (help pages, mailto:, a
+  // WhatsApp chat — shared/externalLinks.ts) go to the OS; anything else is refused and logged.
   win.webContents.setWindowOpenHandler((details) => {
-    shell.openExternal(details.url)
+    const safe = allowedExternalUrl(details.url)
+    if (safe) void shell.openExternal(safe)
+    else log('warn', 'window-open-refused', { scheme: details.url.split(':')[0]?.slice(0, 16) ?? '' })
     return { action: 'deny' }
   })
+  // The window never navigates away from the app itself (a dropped file, a stray link).
+  win.webContents.on('will-navigate', (event, url) => {
+    const devUrl = is.dev ? process.env.ELECTRON_RENDERER_URL : undefined
+    if (devUrl && url.startsWith(devUrl)) return
+    event.preventDefault()
+    log('warn', 'navigation-refused', { scheme: url.split(':')[0]?.slice(0, 16) ?? '' })
+  })
+  win.webContents.on('will-attach-webview', (event) => event.preventDefault())
 
   if (is.dev && process.env.ELECTRON_RENDERER_URL) {
     win.loadURL(process.env.ELECTRON_RENDERER_URL)

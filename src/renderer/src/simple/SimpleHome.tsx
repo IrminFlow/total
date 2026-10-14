@@ -1,4 +1,5 @@
 import { useState, type ReactNode } from 'react'
+import { daysAgo } from '@shared/backupCheck'
 import { useAssistantPanel } from '../components/ai/AssistantPanel'
 import { useAskTotal } from './AskTotal'
 import { useQuery } from '@tanstack/react-query'
@@ -243,6 +244,12 @@ function HomeBody({ home }: { home: SimpleHomeData }): React.JSX.Element {
             <p className="mt-2 text-detail text-ink">{t('simple.home.gstComposition')}</p>
           </li>
         )}
+        {home.profitHidden ? (
+          <li className={`${cardCls} md:col-span-2 xl:col-span-1`} data-testid="simple-tile-profit-hidden">
+            <h2 className="text-small font-medium text-muted">{t('simple.home.profitTitle')}</h2>
+            <p className="mt-2 text-detail text-muted">{t('simple.home.profitHidden')}</p>
+          </li>
+        ) : (
         <li className={`${cardCls} md:col-span-2 xl:col-span-1`} data-testid="simple-tile-profit" data-paise={home.profit.year.netProfit} data-month-paise={home.profit.month.netProfit}>
           <h2 className="text-small font-medium text-muted">{t('simple.home.profitTitle')}</h2>
           <p className="mt-2 text-lead text-ink" data-testid="simple-tile-profit-sentence">
@@ -262,10 +269,29 @@ function HomeBody({ home }: { home: SimpleHomeData }): React.JSX.Element {
             </Why>
           </div>
         </li>
+        )}
       </ul>
       )}
 
+      {home.backupCheck && !home.backupCheck.ok && (
+        <section className={`${cardCls} mt-5 border-cr/50`} data-testid="simple-home-backup-check-failed">
+          <p className="flex items-start gap-2 text-detail text-ink">
+            <span aria-hidden="true" className="mt-1.5 h-2 w-2 shrink-0 rounded-full bg-cr" />
+            {t('simple.home.backupCheckFailed')}
+          </p>
+          <Button className="mt-2" size="sm" variant="secondary" onClick={() => nav.go(backupsScreen)}>
+            {t('simple.home.backupNow')}
+          </Button>
+        </section>
+      )}
+
       {!empty && <Attention home={home} />}
+
+      {home.backupCheck?.ok && (
+        <p className="mt-4 text-small text-muted" data-testid="simple-home-backup-check">
+          {t('simple.home.backupChecked', { days: daysAgo(home.backupCheck.checkedAt) })}
+        </p>
+      )}
 
       {(home.deadlines.length > 0 || home.backup.nudge) && (
         <section className={`${cardCls} mt-5`} data-testid="simple-home-coming-up">

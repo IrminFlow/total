@@ -102,6 +102,9 @@ export interface SessionUser {
   id: number
   name: string
   role: Role
+  /** WP 7.2: the user's capability flags (null = as the role says) and the effective set. */
+  capabilities?: CapabilityFlags | null
+  can?: Record<Capability, boolean>
 }
 
 export interface LoginName {
@@ -146,6 +149,8 @@ export interface UserRow {
   role: Role
   active: boolean
   createdAt: string
+  /** WP 7.2: flags that differ from the role's default (null = none). */
+  capabilities?: CapabilityFlags | null
 }
 
 /** Mirrors src/main/services/audit.ts's AuditRow shape (kept local — that file is main-process only). */
@@ -647,6 +652,9 @@ export interface PdcRow {
 }
 
 import type { SimpleSetupInput } from '@shared/simple/setup'
+import type { BackupCheck } from '@shared/backupCheck'
+import type { SecurityChangeResult, SecurityView } from '@shared/security'
+import type { Capability, CapabilityFlags } from '@shared/capabilities'
 import type { OpeningsResult, OpeningsState, SimpleOpeningsInput } from '@shared/simple/openings'
 import type { GstProfile } from '@shared/gst/filing'
 import type { UpdateAction, UpdateCheckResult, UpdateNotice, UpdatesView } from '@shared/updates'
@@ -669,7 +677,11 @@ export class IpcError extends Error implements CaughtError {
 
 export async function call<T>(channel: string, payload?: unknown): Promise<T> {
   const result = await window.total.invoke(channel, payload)
-  if (!result.ok) throw new IpcError(result)
+  if (!result.ok) {
+    // WP 7.2: main locked the session (idle / ⌘L elsewhere) — the PIN screen follows (lib/sessionLock.ts).
+    if (result.code === 'session_locked' && typeof window.dispatchEvent === 'function') window.dispatchEvent(new Event('total:session-locked'))
+    throw new IpcError(result)
+  }
   return result.data as T
 }
 
@@ -800,21 +812,27 @@ export const api = {
     create: (input: CompanyCreateInput & { mode?: UiMode }) => call<{ slug: string }>('company:create', input),
     /** WP 8.3: `mode` 'simple' = the setup wizard's "Try with sample data"; omitted = accountant. */
     createDemo: (mode?: UiMode) => call<{ slug: string }>('company:createDemo', mode ? { mode } : undefined),
-    remove: (slug: string, confirmName: string, pin?: string) =>
-      call<null>('company:delete', { slug, confirmName, pin }),
-    open: (slug: string) =>
-      call<{ slug: string; info: CompanyInfo; integrity: IntegrityResult; locked: boolean; ui: UiSettings }>('company:open', { slug }),
+    /** WP 7.2 review: `passphrase` for a business locked with one (code 'passphrase_required'). */
+    remove: (slug: string, confirmName: string, pin?: string, passphrase?: string) =>
+      call<null>('company:delete', { slug, confirmName, pin, ...(passphrase ? { passphrase } : {}) }),
+    /** WP 7.2: `passphrase` for a business locked with one (company:open fails with code
+     *  'passphrase_required' without it). */
+    open: (slug: string, passphrase?: string) =>
+      call<{ slug: string; info: CompanyInfo; integrity: IntegrityResult; locked: boolean; ui: UiSettings; encrypted?: boolean }>('company:open', passphrase ? { slug, passphrase } : { slug }),
     close: () => call<null>('company:close'),
-    current: () => call<{ slug: string; info: CompanyInfo; locked: boolean; ui: UiSettings } | null>('company:current'),
+    current: () => call<{ slug: string; info: CompanyInfo; locked: boolean; ui: UiSettings; encrypted?: boolean } | null>('company:current'),
     updateInfo: (input: CompanyCreateInput) => call<CompanyInfo>('company:updateInfo', input),
-    backup: () => call<{ path: string }>('company:backup'),
+    backup: () => call<{ path: string; check?: BackupCheck | null }>('company:backup'),
     revealExports: () => call<null>('company:revealExports'),
     lockGet: () => call<{ date: string | null }>('company:lock:get'),
     lockSet: (date: string | null) => call<{ date: string | null }>('company:lock:set', { date })
   },
   backups: {
     list: () => call<BackupInfo[]>('backup:list'),
-    run: () => call<{ path: string }>('backup:run'),
+    run: () => call<{ path: string; check?: BackupCheck | null }>('backup:run'),
+    /** WP 7.2: the restore checks (newest first) and "Check now" (the newest backup, or `file`). */
+    checks: () => call<BackupCheck[]>('backup:checks'),
+    check: (file?: string) => call<BackupCheck>('backup:check', file ? { file } : {}),
     restore: (file: string) =>
       call<{ info: CompanyInfo; integrity: IntegrityResult; locked: boolean }>('backup:restore', { file }),
     exportEncrypted: (passphrase: string) => call<{ path: string }>('backup:exportEncrypted', { passphrase }),
@@ -1400,6 +1418,18 @@ export const api = {
     login: (userId: number, pin: string) => call<SessionUser>('auth:login', { userId, pin }),
     logout: () => call<null>('auth:logout'),
     current: () => call<SessionUser | null>('auth:current')
+  },
+  /** WP 7.2: the screen lock (⌘L, idle auto-lock) and the passphrase lock. */
+  session: {
+    activity: () => call<null>('session:activity'),
+    lock: () => call<{ locked: boolean }>('session:lock')
+  },
+  security: {
+    get: () => call<SecurityView>('security:get'),
+    setAutoLock: (minutes: number | null) => call<SecurityView>('security:autoLock:set', { minutes }),
+    passphraseOn: (passphrase: string, confirm: string) => call<SecurityChangeResult>('security:passphrase:on', { passphrase, confirm }),
+    passphraseOff: (passphrase: string) => call<SecurityChangeResult>('security:passphrase:off', { passphrase }),
+    passphraseChange: (current: string, passphrase: string, confirm: string) => call<SecurityView>('security:passphrase:change', { current, passphrase, confirm })
   },
   users: {
     list: () => call<UserRow[]>('users:list'),

@@ -1,6 +1,7 @@
 // Electron-free integrity check (dbtest-able; DB is opened by the caller with the Electron ABI).
 import type { DB } from './connection'
 import { pragmaCheck } from './checkHost'
+import { keyOfHandle } from './encryption'
 
 export interface IntegrityResult {
   ok: boolean
@@ -51,7 +52,7 @@ export function checkIntegrity(db: DB): IntegrityResult {
  * database file of `db`. If the worker cannot run the check, it runs on `db` as before.
  */
 export async function checkIntegrityAsync(db: DB, path: string): Promise<IntegrityResult> {
-  const quick = pragmaCheck(path, 'quick_check').catch(() => db.pragma('quick_check', { simple: true }) as string)
+  const quick = pragmaCheck(path, 'quick_check', keyOfHandle(db)).catch(() => db.pragma('quick_check', { simple: true }) as string)
   let unbalancedVoucherIds: number[] = []
   let balanceError: string | null = null
   try {

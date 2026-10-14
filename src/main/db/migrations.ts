@@ -3436,7 +3436,7 @@ export const MIGRATIONS: string[] = [
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
   );
   `,
-  // WP 7.1 (last — after WP 9.1's simple_posts; number by position) — performance indexes, nothing
+  // WP 7.1 (after WP 9.1's simple_posts, before WP 7.2's security; number by position) — performance indexes, nothing
   // else: covering indexes for the hot read shapes measured on the 100k / 500k Perf Traders seeds
   // (docs/perf-budgets.md). Reports aggregate in-books lines by date (vouchers by date → their
   // lines), by ledger (a ledger's lines → their vouchers) and walk stock lines in voucher order;
@@ -3449,5 +3449,25 @@ export const MIGRATIONS: string[] = [
   CREATE INDEX IF NOT EXISTS idx_vouchers_type_number ON vouchers(voucher_type_id, number);
   CREATE INDEX IF NOT EXISTS idx_inv_voucher_cover ON inventory_lines(voucher_id, moves_stock, line_order, stock_item_id, godown_id, qty_milli, amount, direction, is_absolute);
   CREATE INDEX IF NOT EXISTS idx_bill_refs_party_cover ON bill_refs(party_ledger_id, voucher_id, kind, name, amount, due_date);
+  `,
+  // WP 7.2 (last — after WP 7.1's performance indexes; number by position) —
+  // security. `backup_runs`: one row per automatic restore check of a backup (the file restored
+  // into a scratch folder, migrated, its audit chain verified and its entries checked to balance —
+  // services/backupVerify.ts); Home and Settings → Backups read the newest. `users.capabilities_json`:
+  // a user's capability flags that differ from the role's default (shared/capabilities.ts; NULL =
+  // as the role says, so every existing user is unchanged).
+  `
+  CREATE TABLE backup_runs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    file TEXT NOT NULL,
+    tag TEXT NOT NULL,
+    encrypted INTEGER NOT NULL DEFAULT 0 CHECK (encrypted IN (0, 1)),
+    checked_at TEXT NOT NULL,
+    ok INTEGER NOT NULL CHECK (ok IN (0, 1)),
+    checks_json TEXT NOT NULL,
+    error TEXT
+  );
+  CREATE INDEX idx_backup_runs_checked ON backup_runs(checked_at);
+  ALTER TABLE users ADD COLUMN capabilities_json TEXT;
   `
 ]

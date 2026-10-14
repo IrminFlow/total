@@ -6,7 +6,7 @@
 import { existsSync } from 'fs'
 import { join } from 'path'
 import { Worker } from 'worker_threads'
-import Database from 'better-sqlite3'
+import Database from 'better-sqlite3-multiple-ciphers'
 
 export type CheckPragma = 'quick_check' | 'integrity_check'
 
@@ -14,9 +14,20 @@ export type CheckPragma = 'quick_check' | 'integrity_check'
  *  compile-time ceiling (SQLITE_MAX_MMAP_SIZE, 0x7fff0000 ≈ 2 GB). */
 export const MMAP_SIZE = 0x7fff0000
 
-/** A read-only connection for a whole-file check, memory-mapped like the app's own. */
-function openForCheck(path: string): Database.Database {
+/** A read-only connection for a whole-file check, memory-mapped like the app's own. WP 7.2: an
+ *  encrypted file (a business locked with a passphrase) is keyed with `keyHex` — the key the main
+ *  thread remembered for its folder, handed to the worker with the message (never stored). */
+function openForCheck(path: string, keyHex: string | null = null): Database.Database {
   const db = new Database(path, { readonly: true, fileMustExist: true })
+  if (keyHex) {
+    if (!/^[0-9a-f]{64}$/.test(keyHex)) {
+      db.close()
+      throw new Error('bad key')
+    }
+    db.pragma("cipher = 'sqlcipher'")
+    db.pragma('legacy = 4')
+    db.exec(`PRAGMA key = "x'${keyHex}'"`)
+  }
   db.pragma(`mmap_size = ${MMAP_SIZE}`)
   return db
 }
@@ -59,10 +70,13 @@ export class CheckStoppedError extends Error {
  *  cannot be opened, the pragma throws, the worker dies (an 'error' or an exit without an
  *  answer — never a promise that hangs company:open) or the check is stopped (stopChecks) —
  *  callers decide what a failure means, as before. */
-export async function pragmaCheck(path: string, pragma: CheckPragma): Promise<string> {
+export async function pragmaCheck(path: string, pragma: CheckPragma, key?: Buffer | null): Promise<string> {
+  // WP 7.2: the caller passes the key of an encrypted file (its handle's — keyOfHandle); the
+  // worker bundle stays self-contained (no key map, no app modules).
+  const keyHex = key ? key.toString('hex') : null
   const file = workerFile()
   if (!file) {
-    const db = openForCheck(path)
+    const db = openForCheck(path, keyHex)
     try {
       return runPragmaCheck(db, pragma)
     } finally {
@@ -83,7 +97,7 @@ export async function pragmaCheck(path: string, pragma: CheckPragma): Promise<st
         if (m.ok) resolve(m.result!)
         else reject(new Error(m.error ?? 'check failed'))
       })
-      worker.postMessage({ id, path, pragma })
+      worker.postMessage({ id, path, pragma, keyHex })
     })
   } finally {
     set.delete(worker)
@@ -112,9 +126,9 @@ export const runningChecks = (path: string): number => running.get(path)?.size ?
 
 /** quickCheckOk (db/backup.ts) off the main thread: true iff the file opens read-only and passes
  *  quick_check. Never throws. */
-export async function quickCheckOkAsync(path: string): Promise<boolean> {
+export async function quickCheckOkAsync(path: string, key?: Buffer | null): Promise<boolean> {
   try {
-    return (await pragmaCheck(path, 'quick_check')) === 'ok'
+    return (await pragmaCheck(path, 'quick_check', key)) === 'ok'
   } catch {
     return false
   }

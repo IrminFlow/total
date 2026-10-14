@@ -6,9 +6,9 @@
 import { parentPort } from 'worker_threads'
 import { openForCheck, runPragmaCheck, type CheckPragma } from './checkHost'
 
-parentPort?.on('message', (msg: { id: number; path: string; pragma: CheckPragma }) => {
+parentPort?.on('message', (msg: { id: number; path: string; pragma: CheckPragma; keyHex?: string | null }) => {
   try {
-    const db = openForCheck(msg.path)
+    const db = openForCheck(msg.path, msg.keyHex ?? null)
     try {
       parentPort!.postMessage({ id: msg.id, ok: true, result: runPragmaCheck(db, msg.pragma) })
     } finally {

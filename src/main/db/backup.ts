@@ -1,9 +1,10 @@
 // Path-parameterized, Electron-free backup primitives (dbtest-able; better-sqlite3 objects are
 // passed in from callers that already opened them with the Electron ABI).
-import Database from 'better-sqlite3'
+import Database from 'better-sqlite3-multiple-ciphers'
 import { existsSync, readdirSync, statSync, unlinkSync, copyFileSync, renameSync, rmSync } from 'fs'
 import { join, basename } from 'path'
 import type { DB } from './connection'
+import { keyOfHandle, openDb, removeDbFiles } from './encryption'
 import { CheckStoppedError, pragmaCheck } from './checkHost'
 
 export interface BackupInfo {
@@ -39,6 +40,22 @@ export function tagOf(file: string): string {
  * online backup API. Captures uncheckpointed WAL content, unlike a raw file copy.
  */
 export async function snapshotTo(db: DB, dest: string): Promise<void> {
+  // WP 7.2: SQLite's online backup cannot write into an unkeyed target from an encrypted source;
+  // VACUUM INTO copies with the source's key (the backup is encrypted like the books are).
+  // VACUUM INTO refuses a target that exists (a second backup in the same second has the same
+  // name; the online backup overwrites it): write beside it and rename over, like the backup API.
+  if (keyOfHandle(db)) {
+    const tmp = `${dest}.vacuum-tmp`
+    removeDbFiles(tmp)
+    try {
+      snapshotSync(db, tmp)
+      renameSync(tmp, dest)
+    } catch (err) {
+      removeDbFiles(tmp)
+      throw err
+    }
+    return
+  }
   await db.backup(dest)
 }
 
@@ -93,10 +110,10 @@ export function pruneBackupsIn(dir: string, keep: number): void {
  * that was corrupted in flight (full disk, sync-folder interference, ...) fails loudly at write
  * time instead of being discovered at restore time. Never throws.
  */
-export function quickCheckOk(path: string): boolean {
+export function quickCheckOk(path: string, key?: Buffer | null): boolean {
   let db: Database.Database
   try {
-    db = new Database(path, { readonly: true, fileMustExist: true })
+    db = openDb(path, { readonly: true, fileMustExist: true, ...(key !== undefined ? { key } : {}) })
   } catch {
     return false
   }
@@ -168,7 +185,7 @@ export async function runWeeklyIntegrityCheckAsync(db: DB, path: string, now = n
         return { ran: false, ok: true, detail: null }
       }
     }
-    const detail = await pragmaCheck(path, 'integrity_check')
+    const detail = await pragmaCheck(path, 'integrity_check', keyOfHandle(db))
     if (!db.open) return null
     db.prepare('INSERT INTO meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value').run(
       INTEGRITY_CHECK_META_KEY,
@@ -187,10 +204,10 @@ export async function runWeeklyIntegrityCheckAsync(db: DB, path: string, now = n
  * unrelated file must never be allowed to overwrite a live company DB. Checks both SQLite-level
  * integrity (quick_check) and that it has the shape of a Total company DB (a `meta.company` row).
  */
-export function assertValidCompanyDb(path: string): void {
+export function assertValidCompanyDb(path: string, key?: Buffer | null): void {
   let check: Database.Database
   try {
-    check = new Database(path, { readonly: true, fileMustExist: true })
+    check = openDb(path, { readonly: true, fileMustExist: true, ...(key !== undefined ? { key } : {}) })
   } catch {
     throw new Error('That file is not a valid Total backup')
   }

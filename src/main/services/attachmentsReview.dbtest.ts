@@ -5,7 +5,7 @@
 // audit row when the attachment copy fails. The write failures are injected by putting a FILE
 // where the store folder should be — that fails on every OS (chmod is a no-op on Windows).
 import { describe, expect, it } from 'vitest'
-import Database from 'better-sqlite3'
+import Database from 'better-sqlite3-multiple-ciphers'
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, symlinkSync, utimesSync, writeFileSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'

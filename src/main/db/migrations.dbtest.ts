@@ -148,7 +148,9 @@ const EXPECTED_TABLES = [
   // WP 5.4 (last) — the document capture queue
   'capture_items',
   // WP 9.1 — simple:post idempotency
-  'simple_posts'
+  'simple_posts',
+  // WP 7.2 — backup restore checks
+  'backup_runs'
 ]
 
 describe('migrate', () => {

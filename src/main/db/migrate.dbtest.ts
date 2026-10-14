@@ -2,7 +2,7 @@
 // enforcement off OUTSIDE its transaction, checks foreign_key_check before committing, and turns
 // enforcement back on whatever happened. Unmarked migrations behave exactly as before.
 import { describe, it, expect } from 'vitest'
-import Database from 'better-sqlite3'
+import Database from 'better-sqlite3-multiple-ciphers'
 import type { DB } from './connection'
 import { FOREIGN_KEYS_OFF_MARKER, migrate, schemaVersion } from './migrate'
 

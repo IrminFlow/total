@@ -25,7 +25,7 @@ esbuild.buildSync({
   format: 'cjs',
   target: 'node20',
   outfile: tmpOutfile,
-  external: ['electron', 'better-sqlite3'],
+  external: ['electron', 'better-sqlite3-multiple-ciphers'],
   alias: { '@shared': join(root, 'src', 'shared'), '@main': join(root, 'src', 'main') },
   loader: { '.md': 'text' },
   logLevel: 'warning'

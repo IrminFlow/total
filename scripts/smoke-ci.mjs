@@ -179,6 +179,26 @@ try {
   const enc = await invoke('backup:exportEncrypted', { passphrase: 'smoke-passphrase-1' })
   assert(fs.existsSync(enc.path) && fs.statSync(enc.path).size > 0, `encrypted backup exists (${enc.path})`)
 
+  // WP 7.2 review: the passphrase lock works in THIS build (on Windows CI also the packaged
+  // Total.exe) — the native SQLite3 Multiple Ciphers module encrypts, reopens with the passphrase
+  // only, and decrypts again, the books unchanged; a locked backup passes the restore check.
+  const PASS = 'smoke lock passphrase'
+  const header = (f) => fs.readFileSync(f).subarray(0, 15).toString('latin1')
+  const dbPath = path.join(dataDir, 'companies', slug, 'company.db')
+  const on = await invoke('security:passphrase:on', { passphrase: PASS, confirm: PASS })
+  assert(on.encrypted === true && on.backupsFailed.length === 0, `the lock goes on (${JSON.stringify(on.backupsFailed)})`)
+  assert(header(dbPath) !== 'SQLite format 3', 'the books file is encrypted')
+  await invoke('company:close')
+  const refusedOpen = await page.evaluate((s) => window.total.invoke('company:open', { slug: s }), slug)
+  assert(!refusedOpen.ok && refusedOpen.code === 'passphrase_required', `a locked business asks for its passphrase (${refusedOpen.code})`)
+  await invoke('company:open', { slug, passphrase: PASS })
+  const tbLocked = await invoke('report:trialBalance', { asOn: today })
+  assert(tbLocked.totalDebit === 50000, `the locked books are the same (got ${tbLocked.totalDebit})`)
+  const lockedBackup = await invoke('backup:run')
+  assert(lockedBackup.check?.ok === true && lockedBackup.check.encrypted === true, `a locked backup passes the restore check (${JSON.stringify(lockedBackup.check?.error ?? null)})`)
+  const offResult = await invoke('security:passphrase:off', { passphrase: PASS })
+  assert(offResult.encrypted === false && header(dbPath) === 'SQLite format 3', 'the lock comes off (plaintext again)')
+
   // Main-process facts: the PDF worker thread loads (from app.asar in a packaged build), the
   // Devanagari print font is found (extraResources), and on Windows the secret store has DPAPI.
   const probe = await app.evaluate(async ({ app: a, safeStorage }) => {

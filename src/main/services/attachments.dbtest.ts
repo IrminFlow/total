@@ -2,7 +2,7 @@
 // traversal and symlink safety, the orphan sweep on bin purge, and the round trips through a local
 // backup → restore and an encrypted export → import keeping every file and its hash.
 import { describe, expect, it } from 'vitest'
-import Database from 'better-sqlite3'
+import Database from 'better-sqlite3-multiple-ciphers'
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, symlinkSync, unlinkSync, writeFileSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'

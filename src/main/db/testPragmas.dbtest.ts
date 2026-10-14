@@ -5,7 +5,7 @@ import { describe, expect, it } from 'vitest'
 import { mkdtempSync, rmSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
-import Database from 'better-sqlite3'
+import Database from 'better-sqlite3-multiple-ciphers'
 
 process.env.TOTAL_DATA_DIR = mkdtempSync(join(tmpdir(), 'total-sync-pragma-'))
 const { openCompanyDb } = await import('./connection')

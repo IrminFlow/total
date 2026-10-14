@@ -1,4 +1,5 @@
-import Database from 'better-sqlite3'
+import type Database from 'better-sqlite3-multiple-ciphers'
+import { keyOfHandle, openDb } from './encryption'
 import { rmSync } from 'fs'
 import { basename, join } from 'path'
 import { companyAttachmentsDir, companyBackupAttachmentsDir, companyBackupsDir, companyDbPath, ensureCompanyTree } from '../paths'
@@ -18,7 +19,8 @@ export { testSynchronous }
 
 export function openCompanyDb(slug: string): DB {
   ensureCompanyTree(slug)
-  const db = new Database(companyDbPath(slug))
+  // WP 7.2: an encrypted company opens with the key unlocked for its folder (db_locked otherwise).
+  const db = openDb(companyDbPath(slug))
   db.pragma('journal_mode = WAL')
   db.pragma('busy_timeout = 5000')
   db.pragma('foreign_keys = ON')
@@ -83,7 +85,7 @@ export async function backupCompany(db: DB, slug: string, tag = 'auto', auditUse
   // no backup — it silently displaces a good one in the pruning window. Remove it and fail loudly
   // (manual backups surface this as an error toast; scheduled ones log it).
   // WP 7.1: the same quick_check, run in a worker thread (db/checkHost.ts) so main stays free.
-  if (!(await quickCheckOkAsync(dest))) {
+  if (!(await quickCheckOkAsync(dest, keyOfHandle(db)))) {
     rmSync(dest, { force: true })
     throw new Error('Backup verification failed (quick_check) — the snapshot was discarded')
   }

@@ -7,6 +7,8 @@ import { Page, PageHeader } from '../components/ui'
 import { BackupsSection } from './settings/BackupsSection'
 import { BinSection } from './settings/BinSection'
 import { UsersSection } from './settings/UsersSection'
+import { SecuritySettings } from '../simple/SecuritySettings'
+import { PeopleRoles } from '../simple/PeopleRoles'
 import { AuditSection } from './settings/AuditSection'
 import { NicSection } from './settings/NicSection'
 import { FeaturesSection } from './settings/FeaturesSection'
@@ -26,6 +28,7 @@ const TABS: { id: SettingsTab | 'company'; label: string }[] = [
   { id: 'backups', label: 'Backups' },
   { id: 'bin', label: 'Bin' },
   { id: 'users', label: 'Users' },
+  { id: 'security', label: 'Security' },
   { id: 'audit', label: 'Audit trail' },
   { id: 'nic', label: 'NIC live filing' },
   { id: 'features', label: 'Features' },
@@ -71,6 +74,12 @@ export function Settings({ tab }: { tab?: SettingsTab }): React.JSX.Element {
           {active === 'backups' && <BackupsSection />}
           {active === 'bin' && <BinSection />}
           {active === 'users' && <UsersSection />}
+          {active === 'security' && (
+            <>
+              <SecuritySettings embedded />
+              <PeopleRoles embedded />
+            </>
+          )}
           {active === 'audit' && <AuditSection />}
           {active === 'nic' && <NicSection />}
           {active === 'features' && <FeaturesSection />}
