@@ -288,7 +288,7 @@ export function MadeGoods({ itemId }: { itemId?: number }): React.JSX.Element {
 
           <section className="rounded-lg border border-line bg-panel p-panel shadow-elev-1" aria-label={t('simple.made.moneyPart')}>
             <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-              <Field label={t('simple.made.price', { unit: picked?.unit ?? '' })} name="price" error={errors.get(F.price)} hint={t('simple.made.priceHint')}>
+              <Field label={picked ? t('simple.made.price', { name: picked.name }) : t('simple.made.priceNoProduct')} name="price" error={errors.get(F.price)} hint={t('simple.made.priceHint')}>
                 <AmountInput
                   paise={form.price}
                   onPaise={(p) => {

@@ -237,9 +237,9 @@ export function StockCount(): React.JSX.Element {
           </section>
 
           <section className="rounded-lg border border-line bg-panel2 p-panel" aria-live="polite" data-testid="count-preview">
-            <p className="text-body text-ink">{t('simple.stock.count.countedN', { count: counted })}</p>
+            {!preview && <p className="text-body text-ink">{t('simple.stock.count.countedN', { count: counted })}</p>}
             {preview && (
-              <ul className="mt-1 list-disc pl-5 text-detail text-ink" data-testid="count-preview-lines">
+              <ul className="list-disc pl-5 text-body text-ink" data-testid="count-preview-lines">
                 {preview.sentences.map((s, i) => (
                   <li key={i}>{s}</li>
                 ))}
