@@ -121,6 +121,17 @@ export const en = {
   'common.table.activeFilters': 'Active filters',
   'common.table.removeFilter': 'Remove filter: {what}',
   'common.table.filterColumn': '{filtered, select, yes {Filter {column} (filtered)} other {Filter {column}}}',
+  'common.table.sortBy': 'Sort by {column} (Shift-click to add a secondary sort; drag to reorder)',
+  'common.table.resize': 'Resize {column}',
+  'common.table.total': 'Total',
+  'common.table.details': 'Details',
+  'common.table.showDetails': '{open, select, yes {Hide details} other {Show details}}',
+  'common.table.showDetailsFor': '{open, select, yes {Hide details for {what}} other {Show details for {what}}}',
+  'common.table.expandGroup': '{collapsed, select, yes {Expand {label}} other {Collapse {label}}}',
+  'common.table.rowActions': 'Row actions',
+  'common.table.actions': 'Actions',
+  'common.table.excelTitle': 'Excel workbook — amounts as numbers, dates as dates',
+  'common.table.compactTitle': '{own, select, yes {Compact rows (this table)} other {Compact rows (following the app setting)}}',
 
   // ---------- simple shell (§2.2) ----------
   'simple.nav.home': 'Home',

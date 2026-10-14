@@ -55,12 +55,16 @@ describe('kit labels (WP 10.4)', () => {
     // A filter that hides every row says so in Hindi.
     fireEvent.change(screen.getByTestId('people-table-quick'), { target: { value: 'zzz' } })
     expect(screen.getByText('कोई पंक्ति नहीं मिली')).toBeTruthy()
+    // Gate polish: the header's sort tooltip too.
+    expect(screen.getAllByTitle(/^Name से क्रम में लगाएँ/).length).toBeGreaterThan(0)
   })
 
   it('in the simple shell, Hinglish', () => {
     localStorage.setItem(LANGUAGE_KEY, 'hinglish')
     render(<Screen simple />)
-    expect(screen.getByTestId('people-table-count').textContent).toBe('2 rows')
+    // Gate polish: no English "rows" left in the Hinglish chrome.
+    expect(screen.getByTestId('people-table-count').textContent).toBe('Kul 2')
+    expect(screen.getAllByTitle(/^Name ke hisaab se lagayein/).length).toBeGreaterThan(0)
     expect(screen.getByTestId('people-table-quick').getAttribute('placeholder')).toBe('Isme dhoondhein…')
     expect(screen.getByText('Dikhane ko kuch nahi')).toBeTruthy()
   })
@@ -71,6 +75,7 @@ describe('kit labels (WP 10.4)', () => {
     expect(screen.getByTestId('people-table-count').textContent).toBe('2 rows')
     expect(screen.getByTestId('people-table-quick').getAttribute('placeholder')).toBe('Filter rows…')
     expect(screen.getByText('Nothing to show')).toBeTruthy()
+    expect(screen.getAllByTitle('Sort by Name (Shift-click to add a secondary sort; drag to reorder)').length).toBeGreaterThan(0)
     expect(screen.getByTestId('modal-close').getAttribute('aria-label')).toBe('Close')
     fireEvent.change(screen.getByTestId('input-x'), { target: { value: 'abc' } })
     expect(screen.getByText('Not an amount')).toBeTruthy()

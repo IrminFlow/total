@@ -42,7 +42,17 @@ export function simpleKitLabels(t: Translate): KitLabels {
       clearAll: t('common.table.clearAll'),
       activeFilters: t('common.table.activeFilters'),
       removeFilter: (what) => t('common.table.removeFilter', { what }),
-      filterColumn: (column, filtered) => t('common.table.filterColumn', { column, filtered: filtered ? 'yes' : 'no' })
+      filterColumn: (column, filtered) => t('common.table.filterColumn', { column, filtered: filtered ? 'yes' : 'no' }),
+      sortBy: (column) => t('common.table.sortBy', { column }),
+      resize: (column) => t('common.table.resize', { column }),
+      total: t('common.table.total'),
+      details: t('common.table.details'),
+      showDetails: (open, what) => (what ? t('common.table.showDetailsFor', { open: open ? 'yes' : 'no', what }) : t('common.table.showDetails', { open: open ? 'yes' : 'no' })),
+      expandGroup: (collapsed, label) => t('common.table.expandGroup', { collapsed: collapsed ? 'yes' : 'no', label }),
+      rowActions: t('common.table.rowActions'),
+      actions: t('common.table.actions'),
+      excelTitle: t('common.table.excelTitle'),
+      compactTitle: (own) => t('common.table.compactTitle', { own: own ? 'yes' : 'no' })
     }
   }
 }
