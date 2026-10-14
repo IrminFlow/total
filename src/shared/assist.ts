@@ -42,6 +42,8 @@ export interface AssistEntrySlots {
   date?: string
   /** "Ramesh ko 5000 mila" — read as money in from Ramesh; the answer says so. */
   readAs?: 'koMila'
+  /** "3 bags at 300 each" / "@ 300" / "300 per bag": `amount` is the price of ONE, not the total. */
+  perUnit?: boolean
 }
 
 export type AssistIntent =

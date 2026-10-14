@@ -34,6 +34,8 @@ const PHRASES: [RegExp, string][] = [
   [dv('इस\\s+महीने'), 'this month'],
   [dv('पिछले\\s+महीने'), 'last month'],
   [dv('इस\\s+साल'), 'this year'],
+  [/\b(?:piad|payed|paied|pai)\b/g, 'paid'],
+  [/\b(?:recived|recieved|recevied)\b/g, 'received'],
   [/\bparso\b/g, 'day before yesterday'],
   [dv('परसों'), 'day before yesterday'],
   [/\baaj\b|\baj\b/g, 'today'],
@@ -60,6 +62,8 @@ const PHRASES: [RegExp, string][] = [
   [dv('मिला|मिले|मिली'), 'mila'],
   [dv('दिया|दिए|दिये'), 'diya'],
   [dv('बेचा|बेचे|बेची'), 'becha'],
+  [dv('भेजा|भेजे|भेजी'), 'bheja'],
+  [dv('लिया'), 'liya'],
   [dv('खरीदा|खरीदे|खरीदी'), 'kharida'],
   [dv('रुपये|रुपए|रुपया'), 'rupees'],
   [dv('को'), 'ko'],
@@ -206,29 +210,69 @@ interface NumberHit {
   money: boolean
   /** The word after it, when it is not a unit / money word (the product of "3 bags"). */
   noun?: string
+  /** "300 each", "@ 300", "at 300 per bag": the price of one. */
+  perUnit?: boolean
 }
 
 const MONEY_BEFORE = new Set(['rs', 'inr', 'for', 'at', 'worth', 'of', '@', 'amount', 'total', 'paid', 'received', 'got', 'diya', 'mila', 'diye'])
 const MONEY_AFTER = new Set(['rs', 'rupees', 'rupee', 'rupaye', 'rupaiye', 'rupay', 'mein', 'me', 'main', 'ka', 'ke', 'ki', 'only'])
-const NOT_NOUN = new Set([...UNIT_WORDS, ...MONEY_WORDS, 'mein', 'me', 'main', 'ka', 'ke', 'ki', 'ko', 'se', 'ne', 'for', 'to', 'from', 'in', 'on', 'by', 'via', 'at', 'cash', 'upi', 'card', 'bank', 'paid', 'received', 'mila', 'diya', 'diye', 'mile', 'mili', 'today', 'yesterday', 'and', 'the', 'a', 'an', 'ka', 'aur', 'hai', 'kiye', 'kiya', 'liye', 'pe', 'par'])
+const NOT_NOUN = new Set([...UNIT_WORDS, ...MONEY_WORDS, 'mein', 'me', 'main', 'ka', 'ke', 'ki', 'ko', 'se', 'ne', 'for', 'to', 'from', 'in', 'on', 'by', 'via', 'at', 'cash', 'upi', 'card', 'bank', 'paid', 'received', 'mila', 'diya', 'diye', 'mile', 'mili', 'today', 'yesterday', 'and', 'the', 'a', 'an', 'ka', 'aur', 'hai', 'kiye', 'kiya', 'liye', 'pe', 'par', 'de', 'di', 'do', 'bheja', 'bheje', 'bheji', 'liya', 'each', 'per', 'apiece', 'only'])
+/** Words after a number that make it a time span, not money ("last 30 days", "2 mahine"). */
+const TIME_WORDS = new Set(['day', 'days', 'week', 'weeks', 'month', 'months', 'year', 'years', 'hour', 'hours', 'din', 'hafte', 'mahine', 'mahina', 'saal', 'sal', 'baje'])
+/** Words before a number that make it a year or a span ("in 2025", "since 2024", "last 30"). */
+const YEAR_BEFORE = new Set(['in', 'since', 'year', 'saal', 'fy', 'during', 'till', 'until'])
+const SPAN_BEFORE = new Set(['last', 'past', 'next', 'pichle', 'agle'])
+/** Units of measure: "10 kg rice" — the product is the word after the unit. */
+const QTY_UNITS = new Set([
+  'kg', 'kgs', 'kilo', 'kilos', 'g', 'gm', 'gms', 'gram', 'grams', 'ltr', 'ltrs', 'litre', 'litres', 'liter', 'liters', 'ml', 'pcs', 'pc', 'piece', 'pieces',
+  'nos', 'no', 'dozen', 'box', 'boxes', 'packet', 'packets', 'pkt', 'pkts', 'meter', 'meters', 'metre', 'metres', 'mtr', 'ton', 'tons', 'tonne', 'tonnes', 'quintal', 'quintals', 'sq', 'ft', 'feet'
+])
+const PER_AFTER = new Set(['each', 'per', 'apiece', 'har'])
+/** Amount units, largest first — "2 lakh 50 thousand" adds up only in that order. */
+const UNIT_RANK: Record<string, number> = { cr: 3, crore: 3, crores: 3, l: 2, lakh: 2, lakhs: 2, lac: 2, lacs: 2, k: 1, thousand: 1 }
 
 function numbersIn(tokens: string[]): NumberHit[] {
   const out: NumberHit[] = []
   for (let i = 0; i < tokens.length; i++) {
     const tok = tokens[i]!
     if (!NUM.test(tok)) continue
+    const before = tokens[i - 1]
+    // A year ("in 2025") or a time span ("last 30 days", "2 mahine") is not an amount.
+    if ((before && YEAR_BEFORE.has(before) && /^(?:19|20)\d\d$/.test(tok)) || (before && SPAN_BEFORE.has(before)) || TIME_WORDS.has(tokens[i + 1] ?? '')) continue
     let span = 1
     let text = tok
+    let paise: number | null
     const next = tokens[i + 1]
     if (next && UNIT_WORDS.has(next)) {
       text = `${tok} ${next}`
       span = 2
-    }
+      paise = parseAmountText(text)
+      // "2 lakh 50 thousand": each part through parseAmountText, added in integer paise, only
+      // while the units get smaller.
+      let rank = UNIT_RANK[next] ?? 0
+      while (paise != null && NUM.test(tokens[i + span] ?? '') && UNIT_WORDS.has(tokens[i + span + 1] ?? '') && (UNIT_RANK[tokens[i + span + 1]!] ?? 0) < rank) {
+        const part = parseAmountText(`${tokens[i + span]} ${tokens[i + span + 1]}`)
+        if (part == null) break
+        paise += part
+        rank = UNIT_RANK[tokens[i + span + 1]!] ?? 0
+        text = `${text} ${tokens[i + span]} ${tokens[i + span + 1]}`
+        span += 2
+      }
+    } else paise = parseAmountText(text)
+    let k = i + span
+    while (tokens[k] && MONEY_WORDS.has(tokens[k]!) && tokens[k] !== 'only') k++
     const after = tokens[i + span]
-    const before = tokens[i - 1]
-    const money = (!!before && MONEY_BEFORE.has(before)) || (!!after && MONEY_AFTER.has(after)) || span === 2 || /[klr]$/.test(tok)
-    const noun = after && !NOT_NOUN.has(after) && /^[a-zऀ-ॿ][a-zऀ-ॿ'-]*$/.test(after) ? after : undefined
-    out.push({ index: i, span, text, paise: parseAmountText(text), money, ...(noun ? { noun } : {}) })
+    const money = (!!before && MONEY_BEFORE.has(before)) || (!!after && MONEY_AFTER.has(after)) || span >= 2 || /[klr]$/.test(tok)
+    let noun = tokens[k] && !NOT_NOUN.has(tokens[k]!) && /^[a-zऀ-ॿ][a-zऀ-ॿ'-]*$/.test(tokens[k]!) ? tokens[k] : undefined
+    // "10 kg rice" / "2 dozen of eggs": the product follows the unit.
+    if (noun && QTY_UNITS.has(noun)) {
+      const j = tokens[k + 1] === 'of' ? k + 2 : k + 1
+      const w = tokens[j]
+      noun = w && !NOT_NOUN.has(w) && !QTY_UNITS.has(w) && /^[a-zऀ-ॿ][a-zऀ-ॿ'-]*$/.test(w) ? w : undefined
+      if (!noun) noun = undefined
+    }
+    const perUnit = before === '@' || PER_AFTER.has(tokens[k] ?? '') || (tokens[k] === 'a' && /^(?:piece|bag|kg|unit|pc)$/.test(tokens[k + 1] ?? ''))
+    out.push({ index: i, span, text, paise, money: money || perUnit, ...(noun ? { noun } : {}), ...(perUnit ? { perUnit } : {}) })
     i += span - 1
   }
   return out
@@ -240,7 +284,8 @@ const NAME_STOP = new Set([
   'spent', 'got', 'received', 'receive', 'sell', 'buy', 'becha', 'beche', 'bechi', 'kharida', 'kharide', 'kharidi', 'kharcha', 'kharch', 'kharche',
   'bhara', 'bhare', 'chukaya', 'aaya', 'aaye', 'aya', 'aye', 'jama', 'collected', 'payment', 'money', 'paisa', 'paise', 'rent', 'please', 'record', 'add',
   'entry', 'bill', 'just', 'now', 'this', 'that', 'it', 'him', 'her', 'them', 'is', 'was', 'he', 'she', 'with', 'as', 'of', 'kiye', 'kiya', 'karo', 'diye',
-  'di', 'de', 'do', 'did', 'liye', 'wala', 'wale', 'udhaar', 'udhar', 'advance'
+  'di', 'de', 'do', 'did', 'liye', 'wala', 'wale', 'udhaar', 'udhar', 'advance', 'tomorrow', 'last', 'past', 'next', 'bills', 'over', 'above',
+  'below', 'under', 'more', 'than', 'less', 'maal', 'saman', 'samaan', 'us', 'each', 'per'
 ])
 
 const isNameWord = (w: string | undefined): w is string => !!w && !NAME_STOP.has(w) && !NUM.test(w) && /^[a-zऀ-ॿ][a-zऀ-ॿ.&'-]*$/.test(w)
@@ -266,16 +311,18 @@ function nameBefore(tokens: string[], before: number): string | undefined {
 }
 
 const DATE_PHRASE = new RegExp(
-  `\\b(?:on\\s+)?(\\d{1,2}(?:st|nd|rd|th)?\\s+(?:of\\s+)?(?:${MONTH_NAMES.map((m) => m.slice(0, 3)).join('|')})[a-z]*(?:\\s+\\d{4})?|(?:${MONTH_NAMES.map((m) => m.slice(0, 3)).join('|')})[a-z]*\\s+\\d{1,2}(?:st|nd|rd|th)?|\\d{1,2}/\\d{1,2}(?:/\\d{2,4})?|day before yesterday|yesterday|today|\\d{1,2} days? ago)\\b`
+  `\\b(?:on\\s+)?(\\d{1,2}(?:st|nd|rd|th)?\\s+(?:of\\s+)?(?:${MONTH_NAMES.map((m) => m.slice(0, 3)).join('|')})[a-z]*(?:\\s+\\d{4})?|(?:${MONTH_NAMES.map((m) => m.slice(0, 3)).join('|')})[a-z]*\\s+\\d{1,2}(?:st|nd|rd|th)?|\\d{1,2}/\\d{1,2}(?:/\\d{2,4})?|day before yesterday|yesterday|today|tomorrow|\\d{1,2} days? ago)\\b`
 )
 
 // ---------------------------------------------------------------- entries
 
-const OUT_VERB = /\b(?:paid|pay|spent|spend|gave|given|diya|diye|di|de diya|bhara|bhare|bhari|chukaya|chukaye|kharch|kharcha|kharche|kharach)\b/
-const IN_VERB = /\b(?:received|receive|got|mila|mile|mili|aaya|aaye|aayi|aya|aye|collected)\b/
+const OUT_VERB = /\b(?:paid|pay|spent|spend|gave|given|sent|diya|diye|di|de diya|bhara|bhare|bhari|chukaya|chukaye|kharch|kharcha|kharche|kharach|bheja|bheje|bheji|bhej diya)\b/
+const IN_VERB = /\b(?:received|receive|got|mila|mile|mili|aaya|aaye|aayi|aya|aye|collected|liya)\b/
 const SALE_VERB = /\b(?:sold|sell|becha|beche|bechi|bech|bechaa)\b/
-const BUY_VERB = /\b(?:bought|buy|purchased|kharida|kharide|kharidi|khareeda|khareede)\b/
-const QUESTION_START = /^(?:how|what|did|do|does|was|were|when|why|who|which|should|can|kya|kab|kyun|kyon|kaise)\b|^how much\b/
+const BUY_VERB = /\b(?:bought|buy|purchased|kharida|kharide|kharidi|khareeda|khareede)\b|\b(?:maal|saman|samaan)\b.*\b(?:liya|liye|mangaya|mangwaya)\b/
+// A request for a figure or a list ("show me what I sold…", "total I received from Sita in 2025")
+// is a question too — never an entry.
+const QUESTION_START = /^(?:how|what|did|do|does|was|were|when|why|who|which|should|can|kya|kab|kyun|kyon|kaise|tell|show|list|find|search|give me|total|check|report|summary)\b|^how much\b/
 
 /** What a money-out line was for: "for tea", "tea ke liye", "chai pe", "2,500 rent". */
 function purposeOf(tokens: string[], nums: NumberHit[], skip: Set<number>): string | undefined {
@@ -296,7 +343,8 @@ function purposeOf(tokens: string[], nums: NumberHit[], skip: Set<number>): stri
     const after = tokens[amount.index + amount.span]
     if ((after === 'ka' || after === 'ki' || after === 'ke') && isNameWord(tokens[amount.index + amount.span + 1])) return tokens[amount.index + amount.span + 1]
   }
-  return undefined
+  // "paid rent 2,500", "electricity paid 2000": a known expense word anywhere.
+  return tokens.find((w, i) => !skip.has(i) && Object.prototype.hasOwnProperty.call(EXPENSE_WORDS, w))
 }
 
 export function entryOf(raw: string, n: Normalised, today: string): AssistEntrySlots | null {
@@ -305,8 +353,12 @@ export function entryOf(raw: string, n: Normalised, today: string): AssistEntryS
   const sale = SALE_VERB.test(q)
   const buy = !sale && BUY_VERB.test(q)
   const neDiya = /\bne\b/.test(q) && OUT_VERB.test(q)
-  const inV = IN_VERB.test(q) || neDiya
-  const outV = !neDiya && OUT_VERB.test(q)
+  // "Ramesh paid me 5000", "Sita gave 2000 by UPI": a person BEFORE the paying verb paid YOU —
+  // money in from them (never "rent paid 500": an expense word is not a person).
+  const subject = OUT_VERB.test(q) && !neDiya ? payerBefore(q.split(' ')) : undefined
+  const paidMe = /\b(?:paid|gave|sent|given) (?:me|us)\b/.test(q)
+  const inV = IN_VERB.test(q) || neDiya || !!subject || paidMe
+  const outV = !inV && OUT_VERB.test(q)
   if (!sale && !buy && !inV && !outV) return null
 
   // The date first (its digits are not an amount).
@@ -338,6 +390,8 @@ export function entryOf(raw: string, n: Normalised, today: string): AssistEntryS
       slots.what = qty.noun
     }
     if (money?.paise != null) slots.amount = money.paise
+    // "3 bags at 300 each": 300 is the price of one bag, not the bill.
+    if (money?.perUnit && slots.qtyMilli != null) slots.perUnit = true
     if (!slots.what) {
       // "5 kg of rice", or the word right after the verb ("sold rice for 500").
       const of = tokens.indexOf('of')
@@ -359,6 +413,7 @@ export function entryOf(raw: string, n: Normalised, today: string): AssistEntryS
     party = nameAfter(tokens, toFrom + 1)
     if (party) for (let i = toFrom; i <= toFrom + party.split(' ').length; i++) skip.add(i)
   }
+  if (!party && subject) party = subject
   if (!party) {
     const marker = tokens.findIndex((w) => w === 'ko' || w === 'se' || w === 'ne' || (inV && w === 'ka'))
     if (marker > 0) {
@@ -381,7 +436,17 @@ export function entryOf(raw: string, n: Normalised, today: string): AssistEntryS
     if (what && what !== party) slots.what = what
   }
   if (slots.what && HOW_WORDS.some(([re]) => re.test(slots.what!))) delete slots.what
+  if (slots.what && slots.what === slots.party) delete slots.what
   return slots
+}
+
+/** The person who paid you, when the sentence starts with them: "ramesh kumar paid 5000". */
+function payerBefore(tokens: string[]): string | undefined {
+  const at = tokens.findIndex((w) => /^(?:paid|gave|sent|given|pay)$/.test(w))
+  if (at <= 0 || at > 3) return undefined
+  const words = tokens.slice(0, at)
+  if (!words.every((w) => isNameWord(w) && !(w in EXPENSE_WORDS))) return undefined
+  return words.join(' ')
 }
 
 /** "3", "2.5", "1,000" → thousandths (integer maths); null otherwise. */

@@ -95,6 +95,10 @@ describe('Ask Total entry drafts for a bill and a purchase (stock on, not regist
     await ok('simple:post', { intent: { ...(sale.intent as object), clientId: 'ask-sale-00001' }, today: T, aiDraftId: sd.draftId })
     const drafts = await ok<AiDraftDto[]>('ai:drafts', {})
     expect(drafts.filter((d) => [bd.draftId, sd.draftId].includes(d.id)).map((d) => d.status)).toEqual(['consumed', 'consumed'])
+    // "at 250 each" is the price of ONE bag: 2 × ₹250 = ₹500, not ₹250 for both (review fix).
+    const each = (await ask('sold 2 bags to Sita at 250 each')).entry!
+    expect(each.prefill).toEqual({ screen: 'simple-sell', party: sita, itemId: bag, qtyMilli: 2000, rate: 25000, how: 'credit' })
+    expect(each.intent).toMatchObject({ kind: 'sale', items: [{ itemId: bag, qty: 2000, rate: 25000 }] })
     // Sita owes ₹900; 7 bags left.
     expect(paise(await ask('does Sita owe me'))).toContain(90000)
     expect((await ask('how many bags left')).sentences[0]).toContain('7')

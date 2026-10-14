@@ -83,6 +83,15 @@ function rateFor(amount: number, qtyMilli: number): number {
   return Number((num * 2n + den) / (den * 2n))
 }
 
+/** What the words come to: the amount said, or — "3 bags at 300 each" — the price of one × the
+ *  quantity (integer maths, half-up to the paisa). */
+export function saidTotal(s: AssistEntrySlots): number | undefined {
+  if (s.amount == null) return undefined
+  if (!s.perUnit || s.qtyMilli == null) return s.amount
+  const num = BigInt(s.amount) * BigInt(s.qtyMilli)
+  return Number((num * 2n + 1000n) / 2000n)
+}
+
 function firstError(errs: Partial<Record<string, MessageKey>>, t: Translate): string | null {
   const k = Object.values(errs).find(Boolean)
   return k ? t(k as 'simple.money.err.amount') : null
@@ -194,7 +203,7 @@ function goods(
   }
   const qtyMilli = s.qtyMilli ?? 1000
   if (itemId == null) return { itemId: null, qtyMilli, rate: null, incl: false, missing: null }
-  if (s.amount != null) return { itemId, qtyMilli, rate: rateFor(s.amount, qtyMilli), incl: true, missing: null }
+  if (s.amount != null) return { itemId, qtyMilli, rate: s.perUnit ? s.amount : rateFor(s.amount, qtyMilli), incl: true, missing: null }
   if (side === 'purchase') return { itemId, qtyMilli, rate: null, incl: false, missing: null }
   // No price said: the price list's (resolvePrice — the bill's own prefill).
   const p = pricingLoader(db)({ date: s.date ?? input.today, partyLedgerId: partyId, currency: 'INR', supply: 'intra' }, itemId, qtyMilli)
@@ -218,7 +227,7 @@ function sale(db: DB, company: CompanyInfo, s: AssistEntrySlots, input: AskInput
   missing ??= g.missing
   const prefill: Extract<AssistPrefill, { screen: 'simple-sell' }> = {
     screen: 'simple-sell', ...(customerId != null ? { party: customerId } : {}), ...(g.itemId != null ? { itemId: g.itemId, qtyMilli: g.qtyMilli } : {}),
-    ...(g.itemId != null && s.amount != null && g.rate != null ? { rate: g.rate } : {}), ...(g.itemId == null && s.amount != null ? { amount: s.amount } : {}),
+    ...(g.itemId != null && s.amount != null && g.rate != null ? { rate: g.rate } : {}), ...(g.itemId == null && s.amount != null ? { amount: saidTotal(s)! } : {}),
     how: s.how ?? (customerId == null ? 'cash' : 'credit'), ...(s.date ? { date: s.date } : {})
   }
   let form: SellForm = sellFromAsk(emptySellForm(today, { mode: 'amount', ratesIncludeGst: false }), prefill, (l) => ({ ...l, key: 1 }))
@@ -251,7 +260,7 @@ function purchase(db: DB, company: CompanyInfo, s: AssistEntrySlots, input: AskI
   const regular = company.gstRegistrationType === 'regular'
   const prefill: Extract<AssistPrefill, { screen: 'simple-buy' }> = {
     screen: 'simple-buy', ...(supplierId != null ? { party: supplierId } : {}), ...(g.itemId != null ? { itemId: g.itemId, qtyMilli: g.qtyMilli } : {}),
-    ...(g.rate != null && g.itemId != null ? { rate: g.rate } : {}), ...(g.itemId == null && s.amount != null ? { amount: s.amount } : {}),
+    ...(g.rate != null && g.itemId != null ? { rate: g.rate } : {}), ...(g.itemId == null && s.amount != null ? { amount: saidTotal(s)! } : {}),
     how: s.how ?? 'credit', ...(s.date ? { date: s.date } : {})
   }
   // The screen's blank form: bills print prices before GST for a regular registration.
@@ -314,7 +323,7 @@ function readVars(db: DB, offer: AssistEntryOffer, s: AssistEntrySlots, t: Trans
   const said = s.what ?? s.party ?? null
   const what = said && account && said.toLowerCase() !== account.toLowerCase() ? `${said} (${account})` : (account ?? said)
   return {
-    amount: s.amount != null ? money(s.amount) : '',
+    amount: s.amount != null ? money(saidTotal(s)!) : '',
     how,
     what: what ? t(p.screen === 'simple-money-in' ? 'assist.entry.from' : 'assist.entry.for', { what }) : ''
   }
@@ -354,7 +363,7 @@ export function createAskDraft(db: DB, company: CompanyInfo, input: AskInput, en
   const type = listVoucherTypes(db).find((v) => v.kind === kind)
   if (!type) throw new Error(`There is no ${kind} entry type in this company`)
   const preview = offer.intent ? previewLines(db, company, offer.intent, input.today) : null
-  const amount = intent.entry.amount ?? preview?.total ?? 0
+  const amount = saidTotal(intent.entry) ?? preview?.total ?? 0
   const summary = t(SUMMARY[offer.kind], { amount: money(amount) })
   const payload: AiVoucherDraftPayload = {
     voucherTypeId: type.id,
