@@ -7,9 +7,6 @@ import { join } from 'path'
 
 describe('timing', () => {
   it('demo company per synchronous mode', async () => {
-    const t0 = performance.now()
-    await import('./ipc')
-    console.log(`TIMING ipc import ${Math.round(performance.now() - t0)} ms`)
     const { createDemoCompany } = await import('./services/demo')
     for (const mode of ['', 'normal', 'off', '', 'normal', 'off']) {
       process.env.TOTAL_DATA_DIR = mkdtempSync(join(tmpdir(), 'zz-timing-'))
