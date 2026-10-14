@@ -24,4 +24,4 @@ Naye version apne-aap download hote hain aur Total band karne par lag jaate hain
 
 ## Save kiye gaye password aur key
 
-Total se poochne ki key aur aapka e-invoice login Windows ki apni suraksha ke saath aapke Windows account ke liye rakhe jaate hain. Naye computer par inhein phir se likhein — yeh kabhi backup mein nahi jaate.
+[AI helper](total://screen/simple-ai) ki key aur aapka e-invoice login Windows ki apni suraksha ke saath aapke Windows account ke liye rakhe jaate hain. Naye computer par inhein phir se likhein — yeh kabhi backup mein nahi jaate.

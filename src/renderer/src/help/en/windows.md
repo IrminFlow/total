@@ -24,4 +24,4 @@ New versions download by themselves and are put in when you close Total. Your bo
 
 ## Saved passwords and keys
 
-The key for Ask Total and your e-invoice login are kept with Windows' own protection for your Windows account. On a new computer, type them in again — they are never put in a backup.
+The key for the [AI helper](total://screen/simple-ai) and your e-invoice login are kept with Windows' own protection for your Windows account. On a new computer, type them in again — they are never put in a backup.
