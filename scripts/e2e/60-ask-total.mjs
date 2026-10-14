@@ -22,8 +22,8 @@
 import * as fs from 'node:fs'
 import * as path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { scenario, assert, assertEq } from '../lib/harness.mjs'
-import { journey, localIso, bannedWordsIn } from './lib/beginner-journey.mjs'
+import { scenario, assert, assertEq, fixedToday } from '../lib/harness.mjs'
+import { journey, bannedWordsIn } from './lib/beginner-journey.mjs'
 import { JourneyMetrics } from './lib/journey-metrics.mjs'
 
 const here = path.dirname(fileURLToPath(import.meta.url))
@@ -63,7 +63,7 @@ await scenario('60-ask-total', async (h) => {
     const found = bannedWordsIn(await j.mainText())
     assert(found.length === 0, `no accounting words on ${where} (${found.join(', ')})`)
   }
-  const today = localIso()
+  const today = fixedToday
   const month = today.slice(0, 7)
 
   // ================= 1. setup =================

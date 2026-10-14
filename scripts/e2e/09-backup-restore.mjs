@@ -1,6 +1,6 @@
 // Scenario 09 — backup/restore round-trip with every native dialog stubbed: back up, mutate,
 // restore the backup, and the pre-mutation books come back — validated by TB tie-outs.
-import { scenario, assert, assertEq } from '../lib/harness.mjs'
+import { scenario, assert, assertEq, localToday } from '../lib/harness.mjs'
 import * as fs from 'node:fs'
 import * as path from 'node:path'
 
@@ -19,7 +19,7 @@ await scenario('09-backup-restore', async (h) => {
   const bkSales = (await h.invoke('master:ledgers:list')).find((l) => l.name === 'BK Sales')
   const types = await h.invoke('master:voucherTypes:list')
   const receipt = types.find((t) => t.kind === 'receipt')
-  const today = new Date().toISOString().slice(0, 10)
+  const today = localToday()
 
   const saved = await h.invoke('voucher:save', {
     data: {

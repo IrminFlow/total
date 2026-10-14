@@ -11,7 +11,7 @@
 // Set WP41_SHOTS=/tmp/wp41 to also copy the screenshots there.
 import fs from 'node:fs'
 import path from 'node:path'
-import { scenario, assert, assertEq, OPTION } from '../lib/harness.mjs'
+import { scenario, assert, assertEq, OPTION, localToday, relativeDate } from '../lib/harness.mjs'
 
 await scenario('31-banking-depth', async (h) => {
   await h.createDemoCompany()
@@ -58,7 +58,7 @@ await scenario('31-banking-depth', async (h) => {
   const rent = await h.invoke('master:ledgers:create', { ...blank, name: 'Shop Rent', groupId: gid('Indirect Expenses') })
   const types = await h.invoke('master:voucherTypes:list')
   const vt = (kind) => types.find((t) => t.kind === kind && t.isSystem !== false).id
-  const iso = (daysAgo) => new Date(Date.now() - daysAgo * 86400000).toISOString().slice(0, 10)
+  const iso = (daysAgo) => relativeDate(-daysAgo, localToday())
   const dmy = (d) => `${d.slice(8, 10)}/${d.slice(5, 7)}/${d.slice(0, 4)}`
   const voucher = (kind, date, party, lines, extra = {}) => ({
     voucherTypeId: vt(kind), date, partyLedgerId: party, narration: null, reference: null, instrumentNo: null, instrumentDate: null,

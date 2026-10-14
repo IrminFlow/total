@@ -530,7 +530,9 @@ function PreviewPanel({
       </Select>
     </Field>
   )
-  const dirty = JSON.stringify(profile) !== JSON.stringify(preview.profile ?? null)
+  // Only a CSV / Excel statement has a column mapping; MT940 / CAMT.053 / pasted text come with
+  // none (profile null), which must not read as "mapping changed, apply it first".
+  const dirty = tabular && JSON.stringify(profile) !== JSON.stringify(preview.profile ?? null)
 
   return (
     <div className="flex flex-col gap-3" data-testid="banking-import-preview">

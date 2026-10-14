@@ -5,7 +5,7 @@
 //
 // A persona: { name, company, type, gst: 'regular'|'composition'|'no'|'not-sure', gstin?, stock,
 //   continuing, language: 'en'|'hi'|'hinglish', openings?, sale, purchase, ... } — see e2e 60.
-import { PICKER_OPTION } from '../../lib/harness.mjs'
+import { PICKER_OPTION, isoLocal } from '../../lib/harness.mjs'
 
 export const BANNED = [
   /\bvouchers?\b/i, /\bledgers?\b/i, /\bjournals?\b/i, /\bcontras?\b/i, /\b(?:Dr|Cr)\b/, /\bparticulars?\b/i, /\bnarrations?\b/i, /\bsundry\b/i,
@@ -15,7 +15,8 @@ export const BANNED = [
 export const bannedWordsIn = (text) => BANNED.filter((re) => re.test(text)).map((re) => re.source)
 
 /** The local calendar date (the app's working date is local, never UTC). */
-export const localIso = (d = new Date()) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+/** The harness's one local-date helper (WP 7.4), kept under the journey's name for the study driver. */
+export const localIso = isoLocal
 /** dd/mm/yy as the HDFC-style statement writes it. */
 const dmy = (s) => `${s.slice(8, 10)}/${s.slice(5, 7)}/${s.slice(2, 4)}`
 
