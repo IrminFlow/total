@@ -327,7 +327,7 @@ export const en = {
   // ---------- "Needs attention" (keyed by close-checklist key / anomaly kind) ----------
   'simple.attention.close.overdueBills': '{count, plural, one {# bill is} other {# bills are}} past the due date — remind the customer or record the payment',
   'simple.attention.close.unallocated': '{count, plural, one {# customer or supplier has} other {# customers or suppliers have}} money not matched to a bill',
-  'simple.attention.close.gstReturns': 'The GST files for {month} are not prepared yet',
+  'simple.attention.close.gstReturns': 'The GST files for {month} are not prepared yet (Total asks for the months since your books began)',
   'simple.attention.close.withholding': 'TDS / TCS (tax deducted / collected at source) is waiting to be paid to the government',
   'simple.attention.close.negativeStock': '{count, plural, one {# product shows} other {# products show}} less than zero in stock — a purchase may be missing',
   'simple.attention.close.unbilledGoods': '{count, plural, one {# delivery or goods receipt has} other {# deliveries or goods receipts have}} no bill yet',
@@ -1208,6 +1208,7 @@ export const en = {
   'simple.taxes.gst.soFarNote': 'This period is still running — the figures are so far, to {date}.',
   'simple.taxes.runningSoFar': '{period}: you have collected {collected} of GST and paid {purchases} on purchases — that goes in the next return.',
   'simple.taxes.runningOpen': 'See it',
+  'simple.taxes.sinceBooks': 'Total shows the returns for the months since your books began on {date}. If you filed one before you started using Total, note it under step 5 so it is not asked again.',
   'simple.taxes.gst.rcmLine': 'plus {amount} under reverse charge',
   'simple.taxes.why.collected': 'GST you charged on your sales from {from} to {to}: {amount}. It is the government’s money that you hold until you pay it.',
   'simple.taxes.why.onPurchases': 'GST you paid on your purchases from {from} to {to}: {amount}. It is taken off what you owe — {credit}.',

@@ -72,6 +72,7 @@ export function TaxesScreen({ period }: { period?: string }): React.JSX.Element 
 function GstAnswer({ x }: { x: Regular }): React.JSX.Element {
   const t = useT()
   const nav = useNav()
+  const booksBegin = useSession((s) => s.info?.booksBeginDate ?? null)
   const f = x.figures
   const by = t('simple.taxes.gst.byDate', { date: shortDate(x.due.gstr3b, x.today, t.lang) })
   const link = { label: t('simple.taxes.accountant3b'), screen: gstr3bScreen(x.period.from.slice(0, 7)) }
@@ -105,6 +106,12 @@ function GstAnswer({ x }: { x: Regular }): React.JSX.Element {
             help="gst" // i18n-technical
           />
         </div>
+      )}
+      {/* Gate polish: a continuing business sees returns from the day its books began — say so. */}
+      {booksBegin && !x.period.soFar && !x.filed.gstr1 && !x.filed.gstr3b && (
+        <p className="mb-3 text-detail text-muted" data-testid="taxes-since-books">
+          {t('simple.taxes.sinceBooks', { date: toPlainDate(booksBegin, t.lang) })}
+        </p>
       )}
       {x.period.soFar && (
         <p className="mb-3 text-detail text-muted" data-testid="taxes-so-far">
