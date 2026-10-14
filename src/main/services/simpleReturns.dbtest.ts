@@ -271,6 +271,43 @@ describe('stock and GST reverse exactly (= the accountant-entered note in a twin
   })
 })
 
+describe('s.34 after leaving GST: the return keeps the bill’s GST (= the accountant twin) (review)', () => {
+  it('a sale of a GST-charging period returned after the business became unregistered: same rows, GSTR-1 and GSTR-3B as the editor’s note', () => {
+    const left: CompanyInfo = { ...INFO, gstRegistrationType: 'unregistered', gstRegistrationSince: '2025-08-10', gstPreviousRegistrationType: 'regular' }
+    const twin = company()
+    // The sale while still registered: 2 Widget @ ₹500 + 18%.
+    const sale = post({ kind: 'sale', customerId: L('Ramesh'), items: [{ itemId: I('Widget'), qty: '2', rate: '500' }], date: '2025-08-05' })
+    const t = (n: string) => L(n, twin)
+    const saleId = enterInvoice(twin, 'sales', {
+      ...emptyInvoiceState('2025-08-05'), number: '1', partyId: t('Ramesh'), accountId: t('Sales'), billName: '1', billDueDate: '2025-08-20',
+      rows: [{ itemId: I('Widget', twin), qtyText: '2', rate: 50_000, discount: null, godownId: null, batchId: null }]
+    })
+    expect(rows(db, sale.voucherIds[0]!)).toEqual(rows(twin, saleId))
+    // Then the business leaves GST (effective 10 Aug).
+    writeCompanyInfo(db, left)
+    writeCompanyInfo(twin, left)
+    const bill = returnBill(db, left, 'sale', sale.voucherIds[0]!, TODAY)!
+    const form = formFor({ qty: { [bill.lines[0]!.lineUid]: '1' } })
+    const totals = returnTotals(form, bill, ctxOf())
+    expect(totals).toMatchObject({ taxable: 50_000, tax: 9_000, total: 59_000, charges: true })
+    const out = post(returnIntentFrom(form, bill, ctxOf(), sellSetup(db).defaults), db, left)
+    expect(out.facts).toMatchObject({ total: 59_000, tax: 9_000 })
+    const noteId = enterInvoice(twin, 'credit_note', {
+      ...emptyInvoiceState(TODAY), number: '1', partyId: t('Ramesh'), accountId: t('Sales'), reference: '1', taxedOriginal: true, noteBillRefs: [{ kind: 'against', name: '1', amount: 59_000, dueDate: null }],
+      rows: [{ itemId: I('Widget', twin), qtyText: '1', rate: 50_000, discount: null, godownId: null, batchId: null, source: { lineUid: getVoucher(twin, saleId)!.inventory[0]!.lineUid!, linkType: 'return' } }]
+    })
+    expect(rows(db, out.voucherIds[0]!)).toEqual(rows(twin, noteId))
+    const g = (d: DB) => ({
+      g1: JSON.parse(JSON.stringify(gstr1(d, left, '2025-08-01', '2025-08-31', '082025'))),
+      g3: JSON.parse(JSON.stringify(gstr3b(d, left, '2025-08-01', '2025-08-31', '082025')))
+    })
+    const mine = g(db)
+    expect(mine).toEqual(g(twin))
+    // The note reduces August's outward tax by its own GST (18% of 1000 − 18% of 500).
+    expect(mine.g3.outward.cgst + mine.g3.outward.sgst).toBe(18_000 - 9_000)
+  })
+})
+
 // ---------------------------------------------------------------- I1–I7
 
 describe('the trade-cycle rules hold (I1–I7)', () => {
