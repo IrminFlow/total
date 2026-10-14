@@ -1,6 +1,6 @@
 // WP 8.2: t() (interpolation, plurals, select, fallback), catalogue key parity across en / hi /
 // hinglish, and the banned-word lint over the simple-mode namespaces.
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, onTestFinished, vi } from 'vitest'
 import { CATALOGUES, LANGUAGES, configureI18n, en, normalizeLanguage, t, translator, type MessageKey } from './index'
 import { MessageSyntaxError, formatMessage, messageVariables, parseMessage } from './format'
 import { bannedWordsIn } from '../simple/bannedWords'
@@ -62,8 +62,10 @@ describe('t()', () => {
   it('a translated key uses the language; an untranslated one falls back to English per key', () => {
     expect(t('simple.home.moneyIn', undefined, 'hi')).toBe('पैसे आए')
     expect(t('simple.home.moneyIn', undefined, 'hinglish')).toBe('Paise aaye')
-    expect(t('simple.sell.makeBill', undefined, 'hi')).toBe('Make a bill')
-    expect(translator('hinglish')('simple.sell.makeBill')).toBe('Make a bill')
+    // Accountant chrome may still fall back (simple-mode keys no longer do — strict parity below).
+    expect(t('palette.placeholder', undefined, 'hinglish')).toBe(CATALOGUES.hinglish['palette.placeholder'] ?? en['palette.placeholder'])
+    expect(translator('hinglish')('simple.sell.makeBill')).not.toBe('Make a bill')
+    expect(translator('hi').lang).toBe('hi')
   })
 
   it('an unknown key never shows raw in production; dev shows it and reports once', () => {
@@ -96,6 +98,12 @@ describe('t()', () => {
 
   it('dev reports untranslated keys and missing variables once each', () => {
     const report = vi.fn()
+    const hi = CATALOGUES.hi as Record<string, string>
+    const before = hi['simple.sell.makeBill']
+    delete hi['simple.sell.makeBill']
+    onTestFinished(() => {
+      if (before != null) hi['simple.sell.makeBill'] = before
+    })
     configureI18n({ dev: true, report })
     t('simple.sell.makeBill', undefined, 'hi')
     t('simple.sell.makeBill', undefined, 'hi')
@@ -128,6 +136,52 @@ describe('catalogues', () => {
         expect(messageVariables(value!), `${lang} ${key} variables`).toEqual(messageVariables(en[key as MessageKey]))
       }
     }
+  })
+
+  // WP 10.4: the simple-mode namespaces are COMPLETE in Hindi and Hinglish — no fallback there.
+  // Accountant chrome (palette.*, settings.*) may still fall back to English per key.
+  const STRICT = /^(common|simple|errors|assist)\./
+
+  it('strict parity: every common / simple / errors / assist key has a Hindi and a Hinglish value', () => {
+    for (const lang of ['hi', 'hinglish'] as const) {
+      const missing = enKeys.filter((k) => STRICT.test(k) && !(CATALOGUES[lang][k as MessageKey] ?? '').trim())
+      expect(missing, `${lang} is missing ${missing.length} simple-mode keys`).toEqual([])
+    }
+  })
+
+  it('a translation keeps every select branch of the English (plural branches may differ)', () => {
+    const selects = (message: string): string[] => {
+      const out: string[] = []
+      const walk = (parts: ReturnType<typeof parseMessage>): void => {
+        for (const p of parts) {
+          if (p.kind === 'select') out.push(`${p.name}:${[...p.branches.keys()].sort().join('|')}`)
+          if (p.kind === 'select' || p.kind === 'plural') for (const b of p.branches.values()) walk(b)
+        }
+      }
+      walk(parseMessage(message))
+      return out.sort()
+    }
+    for (const lang of ['hi', 'hinglish'] as const) {
+      for (const [key, value] of Object.entries(CATALOGUES[lang])) {
+        for (const s of selects(en[key as MessageKey])) expect(selects(value!), `${lang} ${key}`).toContain(s)
+      }
+    }
+  })
+
+  it('Hindi is written in Devanagari and Hinglish in Latin script (language names excepted)', () => {
+    const devanagari = /[\u0900-\u097F]/
+    const names = /\.lang(uage)?\.(en|hi|hinglish)$/
+    const latinOnly: string[] = []
+    const noDevanagari: string[] = []
+    for (const [key, value] of Object.entries(CATALOGUES.hinglish)) if (!names.test(key) && devanagari.test(value!)) latinOnly.push(key)
+    for (const [key, value] of Object.entries(CATALOGUES.hi)) {
+      // The app's name and the language names stay as they are (each language in its own script).
+      if (!STRICT.test(key) || key === 'common.appName' || names.test(key)) continue
+      const words = en[key as MessageKey].replace(/\{[^{}]*\}/g, ' ').match(/[a-z]{3,}/g) ?? []
+      if (words.length && !devanagari.test(value!)) noDevanagari.push(key)
+    }
+    expect(latinOnly).toEqual([])
+    expect(noDevanagari).toEqual([])
   })
 
   it('no empty values in any language; keys are dotted and namespaced', () => {
@@ -167,6 +221,17 @@ describe('catalogues', () => {
       'SOA'
     ])
     expect(bannedWordsIn('Money in, credit, dry goods, GST, GSTIN, HSN, TDS')).toEqual([])
+  })
+
+  it('WP 10.4: the banned words are caught in Hindi and in Hinglish spellings too', () => {
+    expect(bannedWordsIn('वाउचर और लेजर देखें')).toEqual(['voucher', 'ledger'])
+    expect(bannedWordsIn('लेज़र, जर्नल, कॉन्ट्रा, नैरेशन, संड्री, ग्रुप, गोदाम, एजिंग, आईटीसी, बीओएम, सेट-ऑफ, पर्टिकुलर्स').sort()).toEqual(
+      ['ledger', 'journal', 'contra', 'narration', 'sundry', 'group', 'ITC', 'set-off', 'ageing', 'godown', 'BOM', 'particulars'].sort()
+    )
+    expect(bannedWordsIn('Vouchar banayein, lejar kholein, jarnal entry, godam mein maal')).toEqual(['voucher', 'ledger', 'journal', 'godown'])
+    // Everyday words that only look alike stay allowed.
+    expect(bannedWordsIn('बिल बनाएँ, पैसे आए, उधार, ग्राहक, सामान, जगह, बही')).toEqual([])
+    expect(bannedWordsIn('Bill banayein, udhaar, grahak, saamaan, jagah, God bless')).toEqual([])
   })
 
   it('the shared chrome converted to t() keeps its 0.10 English wording', () => {
