@@ -101,8 +101,11 @@ export function percentOf(paise: number, ratePercent: number): number {
   return roundPaise((paise * ratePercent) / 100)
 }
 
-/** Amounts in words (Indian system) for invoice printing. Integer-rupee focus with paise tail. */
-export function amountInWords(paise: number): string {
+/** Amounts in words (Indian system) for invoice printing. Integer-rupee focus with paise tail.
+ *  WP 10.4: `lang` 'hi' writes Hindi (एक लाख बीस हज़ार रुपये केवल), 'hinglish' the same words in
+ *  Latin script (Ek lakh bees hazaar rupaye); anything else is the English text, unchanged. */
+export function amountInWords(paise: number, lang?: string): string {
+  if (lang === 'hi' || lang === 'hinglish') return indicAmountInWords(paise, lang)
   const ones = ['', 'One', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven', 'Eight', 'Nine', 'Ten',
     'Eleven', 'Twelve', 'Thirteen', 'Fourteen', 'Fifteen', 'Sixteen', 'Seventeen', 'Eighteen', 'Nineteen']
   const tens = ['', '', 'Twenty', 'Thirty', 'Forty', 'Fifty', 'Sixty', 'Seventy', 'Eighty', 'Ninety']
@@ -143,6 +146,70 @@ export function amountInWords(paise: number): string {
   if (p) words += ` and ${twoDigits(p)} Paise`
   words += ' Only'
   return (negative ? 'Minus ' : '') + words
+}
+
+// Hindi numbers 0–99 are one word each (no tens + ones rule), so they are listed in full.
+// Spellings: the common modern forms (Kendriya Hindi Nideshalaya standard); Hinglish is their
+// everyday Latin transliteration. Pending native review (plan D6).
+const HI_0_99 = (
+  'शून्य एक दो तीन चार पाँच छह सात आठ नौ दस ग्यारह बारह तेरह चौदह पंद्रह सोलह सत्रह अठारह उन्नीस ' +
+  'बीस इक्कीस बाईस तेईस चौबीस पच्चीस छब्बीस सत्ताईस अट्ठाईस उनतीस तीस इकतीस बत्तीस तैंतीस चौंतीस ' +
+  'पैंतीस छत्तीस सैंतीस अड़तीस उनतालीस चालीस इकतालीस बयालीस तैंतालीस चवालीस पैंतालीस छियालीस ' +
+  'सैंतालीस अड़तालीस उनचास पचास इक्यावन बावन तिरपन चौवन पचपन छप्पन सत्तावन अट्ठावन उनसठ साठ इकसठ ' +
+  'बासठ तिरसठ चौंसठ पैंसठ छियासठ सड़सठ अड़सठ उनहत्तर सत्तर इकहत्तर बहत्तर तिहत्तर चौहत्तर पचहत्तर ' +
+  'छिहत्तर सतहत्तर अठहत्तर उन्यासी अस्सी इक्यासी बयासी तिरासी चौरासी पचासी छियासी सत्तासी अट्ठासी ' +
+  'नवासी नब्बे इक्यानवे बानवे तिरानवे चौरानवे पचानवे छियानवे सत्तानवे अट्ठानवे निन्यानवे'
+).split(' ')
+const HINGLISH_0_99 = (
+  'shunya ek do teen chaar paanch chhah saat aath nau das gyaarah baarah terah chaudah pandrah solah ' +
+  'satrah athaarah unnees bees ikkees baais teis chaubees pachchees chhabbees sattaais atthaais untees ' +
+  'tees ikattees battees taintees chauntees paintees chhattees saintees adtees untaalees chaalees ' +
+  'iktaalees bayaalees taintaalees chavaalees paintaalees chhiyaalees saintaalees adtaalees unchaas ' +
+  'pachaas ikyaavan baavan tirpan chauvan pachpan chhappan sattaavan atthaavan unsath saath iksath ' +
+  'baasath tirsath chaunsath painsath chhiyaasath sadsath adsath unhattar sattar ikhattar bahattar ' +
+  'tihattar chauhattar pachhattar chhihattar sathattar athhattar unyaasi assi ikyaasi bayaasi tiraasi ' +
+  'chauraasi pachaasi chhiyaasi sattaasi atthaasi navaasi nabbe ikyaanve baanve tiraanve chauraanve ' +
+  'pachaanve chhiyaanve sattaanve atthaanve ninyaanve'
+).split(' ')
+
+const INDIC_WORDS = {
+  hi: { n: HI_0_99, hundred: 'सौ', thousand: 'हज़ार', lakh: 'लाख', crore: 'करोड़', rupee: 'रुपया', rupees: 'रुपये', paisa: 'पैसा', paise: 'पैसे', and: 'और', only: ' केवल', minus: 'ऋण ' },
+  hinglish: { n: HINGLISH_0_99, hundred: 'sau', thousand: 'hazaar', lakh: 'lakh', crore: 'crore', rupee: 'rupaya', rupees: 'rupaye', paisa: 'paisa', paise: 'paise', and: 'aur', only: '', minus: 'minus ' }
+} as const
+
+function indicAmountInWords(paise: number, lang: 'hi' | 'hinglish'): string {
+  const w = INDIC_WORDS[lang]
+  const below100 = (n: number): string => w.n[n]!
+  const below1000 = (n: number): string => {
+    const h = Math.floor(n / 100)
+    const rest = n % 100
+    const parts: string[] = []
+    if (h) parts.push(`${below100(h)} ${w.hundred}`)
+    if (rest) parts.push(below100(rest))
+    return parts.join(' ')
+  }
+  const integerWords = (n: number): string => {
+    if (n === 0) return below100(0)
+    const crore = Math.floor(n / 10000000)
+    const lakh = Math.floor((n % 10000000) / 100000)
+    const thousand = Math.floor((n % 100000) / 1000)
+    const rest = n % 1000
+    const parts: string[] = []
+    if (crore) parts.push(`${integerWords(crore)} ${w.crore}`)
+    if (lakh) parts.push(`${below100(lakh)} ${w.lakh}`)
+    if (thousand) parts.push(`${below100(thousand)} ${w.thousand}`)
+    if (rest) parts.push(below1000(rest))
+    return parts.join(' ')
+  }
+  const negative = paise < 0
+  const abs = Math.abs(paise)
+  const rupees = Math.floor(abs / 100)
+  const p = abs % 100
+  let words = `${integerWords(rupees)} ${rupees === 1 ? w.rupee : w.rupees}`
+  if (p) words += ` ${w.and} ${below100(p)} ${p === 1 ? w.paisa : w.paise}`
+  words = (negative ? w.minus : '') + words + w.only
+  // Hinglish is a sentence in Latin script: capitalise its first letter (as the English is).
+  return lang === 'hinglish' ? words.charAt(0).toUpperCase() + words.slice(1) : words
 }
 
 /**
