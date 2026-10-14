@@ -129,6 +129,7 @@ import * as simplePost from './services/simplePost'
 import * as simpleMoney from './services/simpleMoney'
 import * as simpleSell from './services/simpleSell'
 import * as simpleBuy from './services/simpleBuy'
+import * as simpleStock from './services/simpleStock'
 import { simpleIntentSchema } from '@shared/simple/intents'
 import { simpleSetupSchema } from '@shared/simple/setup'
 import { simpleOpeningsSchema } from '@shared/simple/openings'
@@ -501,6 +502,26 @@ export function registerIpc(): void {
     const { id, today } = z.object({ id: z.number().int().positive(), today: isoDate.optional() }).strict().parse(payload)
     return simpleSell.saleView(requireCompany().db, id, homeAsOn(today, todayISO()))
   }, 'viewer')
+  // WP 9.7: the simple Stock screens' reads (services/simpleStock.ts) — the product list (the
+  // Stock summary's own valuation pass as on today), one product's view and history, and Made
+  // goods' recipes. Counting and making go through simple:post; "Change price" writes the
+  // product's row on the default price level (priceLevels.saveRate, audited).
+  handle('simple:stock:list', (payload) => {
+    const { today } = z.object({ today: isoDate.optional() }).strict().optional().parse(payload) ?? {}
+    return simpleStock.stockList(requireCompany().db, homeAsOn(today, todayISO()))
+  }, 'viewer')
+  handle('simple:stock:product', (payload) => {
+    const { id, today } = z.object({ id: z.number().int().positive(), today: isoDate.optional() }).strict().parse(payload)
+    return simpleStock.stockProduct(requireCompany().db, id, homeAsOn(today, todayISO()))
+  }, 'viewer')
+  handle('simple:stock:madeSetup', (payload) => {
+    const { date } = z.object({ date: isoDate }).strict().parse(payload)
+    return simpleStock.madeGoodsSetup(requireCompany().db, date)
+  }, 'viewer')
+  handle('simple:stock:setPrice', (payload) => {
+    const { itemId, ratePaise, date } = z.object({ itemId: z.number().int().positive(), ratePaise: z.number().int().positive().max(1e13), date: isoDate.optional() }).strict().parse(payload)
+    return simpleStock.setSellingPrice(requireCompany().db, itemId, ratePaise, date ?? todayISO())
+  })
 
   // WP 8.3: `mode` 'simple' = the wizard's "Try with sample data" (D2); omitted = accountant, as before.
   handle('company:createDemo', (payload) =>

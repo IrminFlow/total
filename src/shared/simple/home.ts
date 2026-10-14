@@ -91,13 +91,13 @@ export type HomeGst =
   /** Composition: no GST figure — the composition return note only. */
   | { kind: 'composition' }
 
-export type HomeAttentionSource = 'owed' | 'close' | 'anomaly'
+export type HomeAttentionSource = 'owed' | 'close' | 'anomaly' | 'stock'
 
 export interface HomeAttentionItem {
   source: HomeAttentionSource
   /** 'receivable' / 'payable' (owed), a close-checklist key or an anomaly kind — the plain
    *  sentence is keyed by it. */
-  key: CloseCheckKey | AnomalyKind | 'receivable' | 'payable'
+  key: CloseCheckKey | AnomalyKind | 'receivable' | 'payable' | 'low_stock'
   /** How many things (bills, entries, products …) the item is about. */
   count: number
   /** Paise, when the item has one amount. */

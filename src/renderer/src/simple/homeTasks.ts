@@ -52,5 +52,7 @@ export const accountScreen = (ledgerId: number): Screen => ({ name: 'ledger-stat
  *  screen on the tab they came from. */
 export function attentionScreen(item: Pick<HomeAttentionItem, 'source' | 'key'>, period: string): Screen {
   if (item.source === 'owed') return { name: 'outstandings', side: item.key === 'payable' ? 'payable' : 'receivable' } // i18n-technical
+  // WP 9.7: products running low → the Stock list, filtered to them.
+  if (item.source === 'stock') return { name: 'simple-stock', filter: 'low' } // i18n-technical
   return item.source === 'close' ? { name: 'assistants', tab: 'close', period } : { name: 'assistants', tab: 'anomalies' } // i18n-technical
 }
