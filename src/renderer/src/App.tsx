@@ -185,8 +185,8 @@ export default function App(): React.JSX.Element {
           {screen.name === 'simple-looks' && <SimpleLooks />}
           {screen.name === 'simple-features' && <SimpleFeatures />}
           {screen.name === 'simple-openings' && <Openings />}
-          {screen.name === 'simple-money-in' && <MoneyIn key={`${screen.party ?? ''}|${screen.amount ?? ''}|${screen.bill ?? ''}`} party={screen.party} amount={screen.amount} bill={screen.bill} />}
-          {screen.name === 'simple-money-out' && <MoneyOut key={`${screen.party ?? ''}|${screen.amount ?? ''}|${screen.bill ?? ''}`} party={screen.party} amount={screen.amount} bill={screen.bill} />}
+          {screen.name === 'simple-money-in' && <MoneyIn key={`${screen.party ?? ''}|${screen.amount ?? ''}|${screen.bill ?? ''}|${screen.billId ?? ''}`} party={screen.party} amount={screen.amount} bill={screen.bill} billId={screen.billId} />}
+          {screen.name === 'simple-money-out' && <MoneyOut key={`${screen.party ?? ''}|${screen.amount ?? ''}|${screen.bill ?? ''}|${screen.billId ?? ''}`} party={screen.party} amount={screen.amount} bill={screen.bill} billId={screen.billId} />}
           {screen.name === 'simple-move-money' && <MoveMoney />}
           {screen.name === 'simple-money' && <MoneyList key={screen.entryId ?? 'list'} entryId={screen.entryId} />}
           {screen.name === 'simple-sell' && <MakeBill />}

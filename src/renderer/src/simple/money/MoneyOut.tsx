@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import type { Ledger } from '@shared/domain'
 import type { MessageKey } from '@shared/i18n'
@@ -8,7 +8,7 @@ import { slabsOn } from '@shared/gst/rateTable'
 import { categoriesFor, type AccountContext } from '@shared/simple/accountKinds'
 import type { CategoryKey } from '@shared/simple/categories'
 import {
-  billAllocation, emptyMoneyOutForm, expenseGstApplies, MONEY_OUT_WHO, moneyOutErrors, moneyOutFieldOf, moneyOutIntentFrom,
+  billAllocation, emptyMoneyOutForm, linkedBillName, expenseGstApplies, MONEY_OUT_WHO, moneyOutErrors, moneyOutFieldOf, moneyOutIntentFrom,
   type MoneyOutField, type MoneyOutForm, type MoneyOutWho
 } from '@shared/simple/money'
 import { api } from '../../lib/client'
@@ -50,7 +50,7 @@ const isDirty = (f: MoneyOutForm): boolean => f.amount != null || f.supplierId !
  * existing eligibility rules fire, a read-only hint points at the accountant view (no TDS is
  * added here). "Accountant view" opens the payment editor.
  */
-export function MoneyOut({ party, amount, bill }: { party?: number; amount?: number; bill?: string }): React.JSX.Element {
+export function MoneyOut({ party, amount, bill, billId }: { party?: number; amount?: number; bill?: string; billId?: number }): React.JSX.Element {
   const t = useT()
   const lbl = (k: MessageKey): string => t(k) // i18n-technical: keys from the typed tables above
   const nav = useNav()
@@ -73,6 +73,13 @@ export function MoneyOut({ party, amount, bill }: { party?: number; amount?: num
     enabled: billsParty != null
   })
   const open = useMemo(() => (billsParty != null ? (bills ?? []) : []), [billsParty, bills])
+  // Opened for a bill ("Record a payment"): tick that bill by its entry (its open name may carry
+  // the FY); one no longer open falls back to oldest first.
+  useEffect(() => {
+    if (!(bill || billId != null) || !bills || form.ticks?.length !== 1 || form.ticks[0] !== bill) return
+    const name = linkedBillName(bills, bill, billId)
+    if (name !== bill) setForm((f) => ({ ...f, ticks: name ? [name] : null }))
+  }, [bills]) // eslint-disable-line react-hooks/exhaustive-deps
   const defaults = setup?.defaultsOut ?? { cash: null, upi: null, card: null, bank: null }
   const ctx = useMemo(
     () =>
@@ -249,6 +256,7 @@ export function MoneyOut({ party, amount, bill }: { party?: number; amount?: num
               leftOver={alloc.short ? 0 : alloc.advance}
               advance={form.advance}
               showAdvance={showAdvance}
+              short={alloc.short}
               error={errors.get(F.bills)}
               onToggle={toggle}
               onAdvance={(v) => update({ advance: v })}

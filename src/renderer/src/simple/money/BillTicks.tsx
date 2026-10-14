@@ -19,6 +19,7 @@ export function BillTicks({
   leftOver,
   advance,
   showAdvance,
+  short = false,
   error,
   onToggle,
   onAdvance
@@ -33,6 +34,8 @@ export function BillTicks({
   leftOver: number
   advance: boolean
   showAdvance: boolean
+  /** The user's ticks come to less than the amount (and no advance yet): "No" would be refused. */
+  short?: boolean
   error: string | null
   onToggle: (name: string, on: boolean) => void
   onAdvance: (on: boolean) => void
@@ -103,7 +106,11 @@ export function BillTicks({
               </button>
             ))}
           </div>
-          {!advance && <p className="mt-1 text-small text-muted">{t('simple.money.advanceHint')}</p>}
+          {!advance && (
+            <p className="mt-1 text-small text-muted" data-testid="money-advance-hint">
+              {short ? t('simple.money.advanceShortHint') : t('simple.money.advanceHint')}
+            </p>
+          )}
         </div>
       )}
     </section>

@@ -1,11 +1,13 @@
 import { useMemo, useState } from 'react'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
+import type { Ledger } from '@shared/domain'
 import { toPlainDate } from '@shared/dates'
 import { emptyMoveForm, moveErrors, moveIntentFrom, type MoveField, type MoveForm } from '@shared/simple/money'
 import { api } from '../../lib/client'
 import { useT } from '../../lib/i18n'
 import { useNav, useSession } from '../../state/stores'
-import { AmountInput, DateInput, Field, Page, Select, TextInput, useFormErrors } from '../../components/ui'
+import { AmountInput, Button, DateInput, Field, Page, Select, TextInput, useFormErrors } from '../../components/ui'
+import { NewAccountDialog } from '../NewAccountDialog'
 import { SaveCard } from '../SaveCard'
 import { Card, MoneyFooter, MoneyHeader } from './MoneyParts'
 import { useMoneyFlow } from './useMoneyFlow'
@@ -28,6 +30,10 @@ export function MoveMoney(): React.JSX.Element {
   const workingDate = useSession((s) => s.workingDate)
   const { data: setup } = useQuery({ queryKey: ['simpleMoneySetup'], queryFn: api.simpleMoney.setup }) // i18n-technical
   const accounts = setup?.moneyAccounts ?? []
+  const queryClient = useQueryClient()
+  const [addingBank, setAddingBank] = useState(false)
+  // A business set up with the wizard has only Cash: add the bank right here (never a dead end).
+  const noBank = !!setup && !accounts.some((a) => a.kind === 'bank')
   const blank = (): MoveForm => emptyMoveForm(workingDate)
   const [form, setForm] = useState<MoveForm>(blank)
   const update = (patch: Partial<MoveForm>): void => setForm((f) => ({ ...f, ...patch }))
@@ -61,6 +67,14 @@ export function MoveMoney(): React.JSX.Element {
       ) : (
         <div className="flex flex-col gap-4">
           <Card title={t('simple.money.move.title')} testId="money-move">
+            {noBank && (
+              <div className="mb-4 flex flex-wrap items-center gap-3" data-testid="money-move-no-bank">
+                <p className="text-small text-ink">{t('simple.money.moveNoBank')}</p>
+                <Button data-testid="btn-money-add-bank" onClick={() => setAddingBank(true)}>
+                  {t('simple.money.addBank')}
+                </Button>
+              </div>
+            )}
             <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
               <Field label={t('simple.money.moveFrom')} name={F.from} error={errors.get(F.from)}>
                 {pick(form.fromId, (id) => update({ fromId: id }), T_FROM, null)}
@@ -94,6 +108,18 @@ export function MoveMoney(): React.JSX.Element {
             onStartAgain={() => void flow.askDiscard().then((ok) => ok && flow.startNew())}
           />
         </div>
+      )}
+      {addingBank && (
+        <NewAccountDialog
+          name=""
+          context={{ field: 'line', voucherKind: 'contra', drCr: 'dr' }} // i18n-technical: a move between accounts → a bank
+          onClose={() => setAddingBank(false)}
+          onCreated={(l: Ledger) => {
+            setAddingBank(false)
+            void queryClient.invalidateQueries({ queryKey: ['simpleMoneySetup'] }) // i18n-technical
+            setForm((f) => (f.toId == null && f.fromId !== l.id ? { ...f, toId: l.id } : f.fromId == null ? { ...f, fromId: l.id } : f))
+          }}
+        />
       )}
     </Page>
   )

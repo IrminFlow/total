@@ -277,6 +277,8 @@ describe('Make a bill (WP 9.2)', () => {
   it('Record a payment opens Money in (WP 9.4) for the customer, what is still due and that bill', () => {
     expect(recordPaymentScreen({ partyId: 10, due: 68_000, number: 'S-7' }, 30)).toEqual({ name: 'simple-money-in', party: 10, amount: 68_000, bill: 'S-7' })
     expect(recordPaymentScreen({ partyId: 10, due: 0 }, 30)).toEqual({ name: 'simple-money-in', party: 10 })
+    // Review: the bill's entry goes along, so the tick follows it even if its open name differs.
+    expect(recordPaymentScreen({ partyId: 10, due: 68_000, number: 'S-7', voucherId: 44 }, 30)).toEqual({ name: 'simple-money-in', party: 10, amount: 68_000, bill: 'S-7', billId: 44 })
   })
 
   it('the product dialog (WP 8.4, gate follow-ups): a rate outside the dated slabs only as a marked custom rate; no unit with stock off', async () => {

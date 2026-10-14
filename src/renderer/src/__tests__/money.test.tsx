@@ -166,6 +166,8 @@ describe('Money in (WP 9.4)', () => {
     click('btn-money-save')
     await waitFor(() => expect(screen.getByTestId('field-error-bills').textContent).toContain('Tick more bills'))
     expect(calls('simple:post')).toEqual([])
+    // Review: "No" would be refused here, so the hint says to tick more (not "it stays with them").
+    expect(screen.getByTestId('money-advance-hint').textContent).toContain('tick more bills')
     click('money-advance-yes')
     click('btn-money-save')
     await waitFor(() => expect(calls('simple:post')).toHaveLength(1))
@@ -182,6 +184,43 @@ describe('Money in (WP 9.4)', () => {
     click('btn-money-save')
     await waitFor(() => expect(screen.getByTestId('field-error-date')).toBeTruthy())
     expect((calls('simple:post')[0] as { intent: Record<string, unknown> }).intent).toMatchObject({ kind: 'money_in', sourceId: 50, amount: 500_000 })
+  })
+})
+
+describe('review fixes', () => {
+  const NO_BANK: MoneySetup = { ...SETUP, moneyAccounts: [{ id: 30, name: 'Cash', kind: 'cash' }], defaultsIn: { cash: 30, upi: null, card: null, bank: null }, defaultsOut: { cash: 30, upi: null, card: null, bank: null } }
+  const noBank = (): void => {
+    const base = invoke.getMockImplementation()!
+    invoke.mockImplementation(async (channel: string, payload: unknown) => (channel === 'simple:money:setup' ? { ok: true, data: NO_BANK } : base(channel, payload)))
+  }
+
+  it('UPI with no bank account yet: "Add a bank account" right there (never "go to Settings")', async () => {
+    noBank()
+    renderUi(<MoneyIn />)
+    await ready()
+    click('money-how-upi')
+    expect(screen.getByTestId('money-no-account').textContent).not.toContain('Settings')
+    click('btn-money-add-bank')
+    await waitFor(() => expect(screen.getByTestId('dialog-new-account')).toBeTruthy())
+    expect(bannedWordsIn(visible())).toEqual([])
+  })
+
+  it('Move money with only Cash: "Add a bank account" on the form', async () => {
+    noBank()
+    renderUi(<MoveMoney />)
+    await waitFor(() => expect(screen.getByTestId('money-move-no-bank')).toBeTruthy())
+    click('btn-money-add-bank')
+    await waitFor(() => expect(screen.getByTestId('dialog-new-account')).toBeTruthy())
+  })
+
+  it('"Record a payment" ticks the bill by its entry even when its open name differs from its number', async () => {
+    renderUi(<MoneyIn party={10} amount={60_000} bill="2" billId={2} />)
+    await ready()
+    await waitFor(() => expect((screen.getByTestId('money-bill-1') as HTMLInputElement).checked).toBe(true))
+    expect((screen.getByTestId('money-bill-0') as HTMLInputElement).checked).toBe(false)
+    click('btn-money-save')
+    await waitFor(() => expect(calls('simple:post')).toHaveLength(1))
+    expect((calls('simple:post')[0] as { intent: Record<string, unknown> }).intent).toMatchObject({ customerId: 10, amount: 60_000, bills: [{ name: 'S-2', amount: 60_000 }] })
   })
 })
 
@@ -208,7 +247,7 @@ describe('Money out (WP 9.4)', () => {
     click('btn-money-save')
     await waitFor(() => expect(calls('simple:post')).toHaveLength(1))
     expect((calls('simple:post')[0] as { intent: Record<string, unknown> }).intent).toEqual(expect.objectContaining({
-      kind: 'purchase', supplierId: 20, billNo: 'R-77', amount: { amount: 100_000, accountId: 40, gstRate: 18 }, payment: { how: 'bank', accountId: 31 }
+      kind: 'purchase', supplierId: 20, billNo: 'R-77', amount: { amount: 100_000, accountId: 40, gstRate: 18, billTotal: 118_000 }, payment: { how: 'bank', accountId: 31 }
     }))
   })
 

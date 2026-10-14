@@ -6,12 +6,16 @@ export interface MoneyLinkParams {
   party?: number | null
   amount?: number | null
   bill?: string | null
+  /** The bill's own entry (voucher id): the tick follows it even when its open-bill name differs
+   *  from its number (a name the party already had open gets the FY added — WP 9.1). */
+  billId?: number | null
 }
 
-const clean = (p: MoneyLinkParams): { party?: number; amount?: number; bill?: string } => ({
+const clean = (p: MoneyLinkParams): { party?: number; amount?: number; bill?: string; billId?: number } => ({
   ...(p.party != null ? { party: p.party } : {}),
   ...(p.amount != null && p.amount > 0 ? { amount: p.amount } : {}),
-  ...(p.bill ? { bill: p.bill } : {})
+  ...(p.bill ? { bill: p.bill } : {}),
+  ...(p.billId != null ? { billId: p.billId } : {})
 })
 
 /**

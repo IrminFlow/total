@@ -8,10 +8,10 @@ import { moneyInScreen } from '../money/moneyLinks'
  * moneyLinks.ts); were Money in the accountant receipt editor again, that editor opens
  * pre-filled with the customer and what is still due (into cash — change it there).
  */
-export function recordPaymentScreen(bill: { partyId: number | null; due: number; number?: string }, cashId: number | null = null): Screen {
+export function recordPaymentScreen(bill: { partyId: number | null; due: number; number?: string; voucherId?: number }, cashId: number | null = null): Screen {
   const entry = SIMPLE_ENTRIES.find((e) => e.id === 'money-in') // i18n-technical: registry id
   const target = entry?.screen
-  if (target && screenDef(target.name)?.modes.includes('simple')) return moneyInScreen({ party: bill.partyId, amount: bill.due, bill: bill.number ?? null })
+  if (target && screenDef(target.name)?.modes.includes('simple')) return moneyInScreen({ party: bill.partyId, amount: bill.due, bill: bill.number ?? null, billId: bill.voucherId ?? null })
   if (bill.partyId == null) return { name: 'voucher-entry', kindHint: 'receipt' } // i18n-technical
   return {
     name: 'voucher-entry', // i18n-technical

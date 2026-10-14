@@ -5,7 +5,7 @@ import type { MessageKey } from '@shared/i18n'
 import { toPlainDate } from '@shared/dates'
 import { categoriesFor, type AccountContext } from '@shared/simple/accountKinds'
 import {
-  billAllocation, emptyMoneyInForm, MONEY_IN_WHO, moneyInErrors, moneyInIntentFrom,
+  billAllocation, emptyMoneyInForm, linkedBillName, MONEY_IN_WHO, moneyInErrors, moneyInIntentFrom,
   type MoneyInField, type MoneyInForm, type MoneyInWho
 } from '@shared/simple/money'
 import { api } from '../../lib/client'
@@ -46,7 +46,7 @@ const isDirty = (f: MoneyInForm): boolean => f.amount != null || f.customerId !=
  * simple:post (a receipt through the editor's own mapping); the preview says what will be saved
  * and where the customer then stands. "Accountant view" opens the receipt editor.
  */
-export function MoneyIn({ party, amount, bill }: { party?: number; amount?: number; bill?: string }): React.JSX.Element {
+export function MoneyIn({ party, amount, bill, billId }: { party?: number; amount?: number; bill?: string; billId?: number }): React.JSX.Element {
   const t = useT()
   const lbl = (k: MessageKey): string => t(k) // i18n-technical: keys from the typed tables above
   const nav = useNav()
@@ -66,9 +66,12 @@ export function MoneyIn({ party, amount, bill }: { party?: number; amount?: numb
     enabled: billsParty != null
   })
   const open = useMemo(() => (billsParty != null ? (bills ?? []) : []), [billsParty, bills])
-  // Opened for a bill ("Record a payment") that is no longer open under that name: oldest first.
+  // Opened for a bill ("Record a payment"): tick that bill by its entry (its open name may carry
+  // the FY); one no longer open falls back to oldest first.
   useEffect(() => {
-    if (bill && bills && form.ticks?.length === 1 && form.ticks[0] === bill && !bills.some((b) => b.name === bill)) setForm((f) => ({ ...f, ticks: null }))
+    if (!(bill || billId != null) || !bills || form.ticks?.length !== 1 || form.ticks[0] !== bill) return
+    const name = linkedBillName(bills, bill, billId)
+    if (name !== bill) setForm((f) => ({ ...f, ticks: name ? [name] : null }))
   }, [bills]) // eslint-disable-line react-hooks/exhaustive-deps
   const sources = { ownerId: setup?.ownerId ?? null }
   const defaults = setup?.defaultsIn ?? { cash: null, upi: null, card: null, bank: null }
@@ -201,6 +204,7 @@ export function MoneyIn({ party, amount, bill }: { party?: number; amount?: numb
               leftOver={alloc.short ? 0 : alloc.advance}
               advance={form.advance}
               showAdvance={showAdvance}
+              short={alloc.short}
               error={errors.get(F.bills)}
               onToggle={toggle}
               onAdvance={(v) => update({ advance: v })}
