@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { createUpdater, type UpdateEngine, type UpdaterDeps } from './updaterCore'
+import { createUpdater, makeFetchLatest, NEUTRAL_REQUEST_HEADERS, type UpdateEngine, type UpdaterDeps } from './updaterCore'
 import type { UpdateNotice, UpdateSettings } from '@shared/updates'
 
 type Listener = (arg: never) => void
@@ -11,6 +11,7 @@ function setup(opts: { settings?: Partial<UpdateSettings>; latest?: { version: s
   const engine = {
     autoDownload: true,
     autoInstallOnAppQuit: true,
+    requestHeaders: null as Record<string, string> | null,
     checkForUpdates: vi.fn(async () => undefined),
     downloadUpdate: vi.fn(async () => undefined),
     quitAndInstall: vi.fn(),
@@ -73,6 +74,76 @@ describe('update consent flow', () => {
     t.u.act('installOnQuit')
     expect(t.engine.autoInstallOnAppQuit).toBe(true)
     expect(t.engine.quitAndInstall).not.toHaveBeenCalled()
+  })
+
+  it('"install when I quit" re-arms the finished download (electron-updater only arms install-on-quit when a download completes) without showing "ready" again', () => {
+    const t = setup()
+    t.u.init()
+    t.emit('update-available', { version: '0.13.0' })
+    t.u.act('download')
+    t.emit('update-downloaded', { version: '0.13.0' })
+    t.u.act('installOnQuit')
+    // The flag is on BEFORE the second downloadUpdate call (the cached file completes it and arms the quit handler).
+    expect(t.engine.downloadUpdate).toHaveBeenCalledTimes(2)
+    t.emit('update-downloaded', { version: '0.13.0' })
+    expect(t.u.view().notice).toBeNull()
+  })
+
+  it('"Later" after the download leaves install-on-quit off', () => {
+    const t = setup()
+    t.u.init()
+    t.emit('update-available', { version: '0.13.0' })
+    t.u.act('download')
+    t.emit('update-downloaded', { version: '0.13.0' })
+    // "Later" is renderer-only: main is never told, so nothing changes here.
+    expect(t.engine.autoInstallOnAppQuit).toBe(false)
+    expect(t.engine.quitAndInstall).not.toHaveBeenCalled()
+  })
+
+  it('an install that fails (unsigned macOS) turns into the release-page notice, never a silent nothing', () => {
+    const t = setup({ settings: { autoCheck: false } })
+    t.u.init()
+    t.emit('update-available', { version: '0.13.0' })
+    t.u.act('download')
+    t.emit('update-downloaded', { version: '0.13.0' })
+    t.u.act('install')
+    t.emit('error', new Error('Code signature did not pass validation'))
+    expect(t.u.view().notice).toEqual({ phase: 'available', version: '0.13.0', via: 'site' })
+    expect(t.opened).toEqual([])
+    t.u.act('download')
+    expect(t.opened).toEqual(['https://example.test/releases'])
+  })
+
+  it('a failed "install when I quit" also falls back and turns install-on-quit off again', () => {
+    const t = setup()
+    t.u.init()
+    t.emit('update-available', { version: '0.13.0' })
+    t.u.act('download')
+    t.emit('update-downloaded', { version: '0.13.0' })
+    t.u.act('installOnQuit')
+    t.emit('error', new Error('squirrel'))
+    expect(t.engine.autoInstallOnAppQuit).toBe(false)
+    expect(t.u.view().notice).toEqual({ phase: 'available', version: '0.13.0', via: 'site' })
+  })
+
+  it('a failed download opens the release page once (electron-updater both emits error and rejects)', async () => {
+    const t = setup()
+    t.u.init()
+    t.emit('update-available', { version: '0.13.0' })
+    let reject: (e: Error) => void = () => {}
+    t.engine.downloadUpdate.mockImplementationOnce(() => new Promise((_r, j) => (reject = j)))
+    t.u.act('download')
+    t.emit('error', new Error('boom'))
+    reject(new Error('boom'))
+    await new Promise((r) => setTimeout(r, 0))
+    expect(t.opened).toEqual(['https://example.test/releases'])
+  })
+
+  it('blanks electron-updater\'s per-install id header', () => {
+    const t = setup()
+    t.u.init()
+    expect(t.engine.requestHeaders).toEqual(NEUTRAL_REQUEST_HEADERS)
+    expect(NEUTRAL_REQUEST_HEADERS['x-user-staging-id']).toMatch(/^0{8}-0{4}-0{4}-0{4}-0{12}$/)
   })
 
   it('actions that do not fit the phase do nothing', () => {
@@ -165,5 +236,83 @@ describe('"Check for updates automatically" gate', () => {
     t.u.init()
     expect((await t.u.checkNow()).status).toBe('available')
     expect(t.fetchLatest).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('no request when off: the three network paths stubbed', () => {
+  // electron-updater's feed (engine.checkForUpdates), the site's /api/latest and api.github.com (both
+  // through the real makeFetchLatest with a stubbed fetch).
+  function wired(autoCheck: boolean) {
+    const fetchImpl = vi.fn(async (url: string) => ({
+      ok: true,
+      json: async () => (url.includes('api.github.com') ? { tag_name: 'v0.13.0' } : { version: '0.13.0' })
+    }))
+    const fetchLatest = makeFetchLatest(fetchImpl, {
+      siteLatestUrl: 'https://site.test/api/latest',
+      githubRepo: 'o/r',
+      releasesUrl: 'https://github.com/o/r/releases/latest',
+      log: () => {}
+    })
+    const listeners = new Map<string, (a: unknown) => void>()
+    const timers: (() => void)[] = []
+    const engine = {
+      autoDownload: true,
+      autoInstallOnAppQuit: true,
+      checkForUpdates: vi.fn(async () => {
+        throw new Error('unsigned')
+      }),
+      downloadUpdate: vi.fn(async () => undefined),
+      quitAndInstall: vi.fn(),
+      on: (ev: string, fn: (a: never) => void) => void listeners.set(ev, fn as (a: unknown) => void)
+    } satisfies UpdateEngine
+    const u = createUpdater({
+      engine,
+      currentVersion: '0.12.0',
+      releasesUrl: 'https://github.com/o/r/releases/latest',
+      readSettings: () => ({ autoCheck, skippedVersion: null }),
+      writeSettings: () => ({ autoCheck, skippedVersion: null }),
+      fetchLatest,
+      openExternal: () => {},
+      publish: () => {},
+      log: () => {},
+      setTimer: (fn) => void timers.push(fn)
+    })
+    return { u, engine, fetchImpl, timers, emit: (ev: string, a: unknown) => listeners.get(ev)?.(a) }
+  }
+
+  it('off: launch, the launch timer and an engine error make no request on any path', async () => {
+    const t = wired(false)
+    t.u.init()
+    for (const fn of t.timers) fn()
+    t.emit('error', new Error('x'))
+    await new Promise((r) => setTimeout(r, 0))
+    expect(t.engine.checkForUpdates).not.toHaveBeenCalled()
+    expect(t.fetchImpl).not.toHaveBeenCalled()
+  })
+
+  it('off: Check now asks the site (and only what the user asked for)', async () => {
+    const t = wired(false)
+    t.u.init()
+    expect((await t.u.checkNow()).status).toBe('available')
+    expect(t.fetchImpl.mock.calls.map((c) => c[0])).toEqual(['https://site.test/api/latest'])
+    expect(t.engine.checkForUpdates).not.toHaveBeenCalled()
+  })
+
+  it('on: the launch check goes to the feed, and its failure falls back to the site', async () => {
+    const t = wired(true)
+    t.u.init()
+    t.timers[0]!()
+    await vi.waitFor(() => expect(t.fetchImpl).toHaveBeenCalledWith('https://site.test/api/latest'))
+    expect(t.engine.checkForUpdates).toHaveBeenCalledTimes(1)
+  })
+
+  it('the site down: falls back to api.github.com', async () => {
+    const fetchImpl = vi.fn(async (url: string) => {
+      if (url.includes('site.test')) throw new Error('offline')
+      return { ok: true, json: async () => ({ tag_name: 'v0.13.0', html_url: 'https://gh/rel' }) }
+    })
+    const latest = await makeFetchLatest(fetchImpl, { siteLatestUrl: 'https://site.test/api/latest', githubRepo: 'o/r', releasesUrl: 'x', log: () => {} })()
+    expect(latest).toEqual({ version: 'v0.13.0', downloadUrl: 'https://gh/rel' })
+    expect(fetchImpl.mock.calls[1]![0]).toBe('https://api.github.com/repos/o/r/releases/latest')
   })
 })

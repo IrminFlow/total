@@ -18,7 +18,7 @@ import { GITHUB_REPO, SITE_URL } from '@shared/product'
 import { type UpdateAction, type UpdateCheckResult, type UpdatesView } from '@shared/updates'
 import { dataRoot } from './paths'
 import { readUpdateSettings, writeUpdateSettings } from './services/appSettings'
-import { createUpdater, type LatestInfo, type Updater } from './updaterCore'
+import { createUpdater, makeFetchLatest, type Updater } from './updaterCore'
 
 const { autoUpdater } = electronUpdater
 
@@ -26,31 +26,12 @@ const RELEASES_URL = `https://github.com/${GITHUB_REPO}/releases/latest`
 /** The marketing site proxies release info for the private repo (see site/app/api/latest). */
 const SITE_LATEST_URL = `${SITE_URL}/api/latest`
 
-/** The site's /api/latest works even while the repo is private; GitHub's API is the public-repo fallback. */
-async function fetchLatest(): Promise<LatestInfo | null> {
-  try {
-    const res = await fetch(SITE_LATEST_URL)
-    if (res.ok) {
-      const data = (await res.json()) as { version?: string; downloadUrl?: string }
-      if (data.version) return { version: data.version, downloadUrl: data.downloadUrl ?? SITE_LATEST_URL.replace('/api/latest', '/api/download') }
-    }
-  } catch (err) {
-    // Site unreachable — try GitHub directly.
-    log('warn', 'updater', { error: String(err) })
-  }
-  try {
-    const res = await fetch(`https://api.github.com/repos/${GITHUB_REPO}/releases/latest`, {
-      headers: { Accept: 'application/vnd.github+json' }
-    })
-    if (!res.ok) return null
-    const release = (await res.json()) as { tag_name?: string; html_url?: string }
-    if (!release.tag_name) return null
-    return { version: release.tag_name, downloadUrl: release.html_url ?? RELEASES_URL }
-  } catch (err) {
-    log('warn', 'updater', { error: String(err) })
-    return null
-  }
-}
+const fetchLatest = makeFetchLatest((url, init) => fetch(url, init), {
+  siteLatestUrl: SITE_LATEST_URL,
+  githubRepo: GITHUB_REPO,
+  releasesUrl: RELEASES_URL,
+  log: (level, message, extra) => log(level, message, extra)
+})
 
 let updater: Updater | null = null
 let actor: string | null = null
