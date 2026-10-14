@@ -12,7 +12,7 @@
 // both themes there.
 import * as fs from 'node:fs'
 import * as path from 'node:path'
-import { scenario, assert, assertEq, PICKER_OPTION } from '../lib/harness.mjs'
+import { scenario, assert, assertEq, PICKER_OPTION, localToday } from '../lib/harness.mjs'
 
 await scenario('29-counter-billing', async (h) => {
   await h.createDemoCompany()
@@ -56,7 +56,7 @@ await scenario('29-counter-billing', async (h) => {
   await h.invoke('master:stockItems:update', { id: mouse.id, data: { ...mouseData, barcode: '8901000000011' } })
   await h.invoke('master:stockItems:update', { id: notebook.id, data: { ...notebookData, barcode: '8901000000028' } })
   const level = await h.invoke('master:priceLevels:create', { name: 'Shop MRP', inclusiveOfTax: true, isDefault: true })
-  const today = await page.evaluate(() => new Date().toISOString().slice(0, 10))
+  const today = localToday()
   await h.invoke('pricing:setGridRate', { priceLevelId: level.id, stockItemId: mouse.id, date: '2000-01-01', rate: 94400 }) // ₹944 incl. 18% = ₹800
   await h.invoke('pricing:setGridRate', { priceLevelId: level.id, stockItemId: notebook.id, date: '2000-01-01', rate: 47250 }) // ₹472.50 incl. 5% = ₹450
   await h.invoke('pricing:saveScheme', {

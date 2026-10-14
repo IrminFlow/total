@@ -228,6 +228,21 @@ export class Harness {
     await this.waitScreen('gateway')
   }
 
+  /** WP 7.4, the setup wizard's start-date step: "Start of this financial year" unless dates
+   *  `daysBack` days ago would fall before it — then "Earlier" with a date that covers them
+   *  (`booksStartCovering`), so relative bills keep their age on every day of the year. */
+  async pickSetupStart(daysBack) {
+    const start = booksStartCovering(daysBack)
+    if (!start) {
+      await this.click('setup-start-fy')
+      return fyStartOf()
+    }
+    await this.click('setup-start-earlier')
+    await this.fill('setup-start-date', `${start.slice(8, 10)}-${start.slice(5, 7)}-${start.slice(0, 4)}`)
+    await this.page.press('[data-testid="setup-start-date"]', 'Enter')
+    return start
+  }
+
   /** Screenshot into the out dir; auto-numbered unless a name is given. */
   async shot(name) {
     const file = path.join(this.outDir, `${name ?? `shot-${String(++this._shotSeq).padStart(2, '0')}`}.png`)
@@ -329,4 +344,56 @@ export async function scenario(name, fn, opts = {}) {
   }
   console.log(JSON.stringify({ scenario: name, ok, ms: Date.now() - started, ...(error ? { error } : {}) }))
   process.exit(ok ? 0 : 1)
+}
+
+// ---------------- WP 7.4: dates the way the app sees them ----------------
+// The app's "today" is the LOCAL date of the machine it runs on (`todayISO()` in shared/dates.ts;
+// the renderer's working date starts there). Scripts must never use `toISOString()` for today —
+// that is the UTC date, a day behind between 00:00 and 05:30 IST. CI runs the e2e job with
+// TZ=Asia/Kolkata so local runs and CI agree.
+
+/** A Date's LOCAL calendar day as YYYY-MM-DD. */
+export function isoLocal(d = new Date()) {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
+
+/** Today, as the app sees it (local date). */
+export function localToday() {
+  return isoLocal(new Date())
+}
+
+/** The day this scenario started on — one anchor for every relative date in a run, so a
+ *  scenario that crosses midnight keeps its dates consistent with each other. */
+export const fixedToday = localToday()
+
+/** `days` after `from` (negative = before), pure calendar arithmetic on an ISO date. */
+export function relativeDate(days, from = fixedToday) {
+  const d = new Date(`${from}T00:00:00Z`)
+  d.setUTCDate(d.getUTCDate() + days)
+  return d.toISOString().slice(0, 10)
+}
+
+/** The Indian financial year (April–March) containing `iso`: its starting calendar year. */
+export function fyStartYearOf(iso = fixedToday) {
+  const y = Number(iso.slice(0, 4))
+  return Number(iso.slice(5, 7)) >= 4 ? y : y - 1
+}
+
+/** 1 April of the FY containing `iso`. */
+export function fyStartOf(iso = fixedToday) {
+  return `${fyStartYearOf(iso)}-04-01`
+}
+
+/** A books-begin date early enough that `daysBack` days ago is inside the books — or null when
+ *  the current FY start already covers it (then a scenario starts the books on the FY start as
+ *  before). Relative dates are never clamped to the FY start (that turned "40 days ago" into
+ *  "today-ish" every 1 April – mid May and broke the overdue checks); the books begin earlier
+ *  instead. TOTAL_E2E_EARLY_BOOKS=1 forces the early branch so it can be exercised on any day. */
+export function booksStartCovering(daysBack, from = fixedToday) {
+  const wanted = relativeDate(-(daysBack + 5), from)
+  if (process.env.TOTAL_E2E_EARLY_BOOKS === '1') {
+    const dayBeforeFy = relativeDate(-1, fyStartOf(from))
+    return wanted < dayBeforeFy ? wanted : dayBeforeFy
+  }
+  return relativeDate(-daysBack, from) < fyStartOf(from) ? wanted : null
 }

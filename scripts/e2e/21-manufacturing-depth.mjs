@@ -7,7 +7,7 @@
 // themes at 1440×900 into that directory.
 import * as fs from 'node:fs'
 import * as path from 'node:path'
-import { scenario, assert, assertEq, OPTION } from '../lib/harness.mjs'
+import { scenario, assert, assertEq, OPTION, localToday, relativeDate } from '../lib/harness.mjs'
 
 await scenario('21-manufacturing-depth', async (h) => {
   await h.createCompanyUI('Depth Works')
@@ -53,7 +53,7 @@ await scenario('21-manufacturing-depth', async (h) => {
   await h.invoke('bom:saveVersion', { itemId: frame.id, name: 'v1', isDefault: true, lines: [{ componentId: steel.id, qtyMilliPerUnit: 2000 }] })
   const types = await h.invoke('master:voucherTypes:list')
   const typeOf = (k) => types.find((t) => t.kind === k).id
-  const today = new Date().toISOString().slice(0, 10)
+  const today = localToday()
 
   const text = async (testId) => (await page.locator(`[data-testid="${testId}"]`).first().textContent()) ?? ''
   const value = async (testId) => page.locator(`[data-testid="${testId}"]`).first().inputValue()
@@ -110,7 +110,7 @@ await scenario('21-manufacturing-depth', async (h) => {
   assertEq(md.details.byProducts.length, 1, 'scrap row stored')
 
   // ---------- a backdated purchase re-prices the register ----------
-  const yesterday = new Date(Date.now() - 86_400_000).toISOString().slice(0, 10)
+  const yesterday = relativeDate(-1, localToday())
   await h.invoke('voucher:save', {
     data: {
       voucherTypeId: typeOf('purchase'), date: yesterday, partyLedgerId: null,

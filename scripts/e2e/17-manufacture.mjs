@@ -2,7 +2,7 @@
 // the sidebar, build 2 Chairs from 2 raw materials + labour, watch profit update live, save, see
 // the finished item inward and the raw materials outward on the voucher date in Stock summary,
 // alter the quantity, delete.
-import { scenario, assert, assertEq, OPTION } from '../lib/harness.mjs'
+import { scenario, assert, assertEq, OPTION, localToday } from '../lib/harness.mjs'
 
 await scenario('17-manufacture', async (h) => {
   await h.createCompanyUI('Manufacture Works')
@@ -64,7 +64,7 @@ await scenario('17-manufacture', async (h) => {
 
   await h.click('btn-save-manufacture')
   await page.waitForFunction(() => document.querySelector('[data-testid="input-manufacture-qty"]')?.value === '', null, { timeout: 10000 })
-  const today = new Date().toISOString().slice(0, 10)
+  const today = localToday()
   const reg = await h.invoke('manufacture:register', { from: '2000-01-01', to: '2100-12-31' })
   assertEq(reg.length, 1, 'one manufacture in the register')
   const voucherId = reg[0].voucherId

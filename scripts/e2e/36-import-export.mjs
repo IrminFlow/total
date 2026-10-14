@@ -5,9 +5,9 @@
 import { readFileSync, writeFileSync } from 'fs'
 import os from 'os'
 import path from 'path'
-import { scenario, assert, assertEq } from '../lib/harness.mjs'
+import { scenario, assert, assertEq, localToday } from '../lib/harness.mjs'
 
-const today = new Date().toISOString().slice(0, 10)
+const today = localToday()
 const tbKey = (tb) => tb.rows.map((r) => `${r.ledgerName}|${r.debit}|${r.credit}`).sort()
 
 await scenario('36-import-export', async (h) => {
