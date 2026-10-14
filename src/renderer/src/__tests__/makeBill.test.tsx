@@ -274,9 +274,11 @@ describe('Make a bill (WP 9.2)', () => {
     expect(text('field-error-date')).toContain('ask the owner to unlock')
   })
 
-  it('Record a payment opens Money in — the receipt editor pre-filled while Money in is still the full app', () => {
-    const s = recordPaymentScreen({ partyId: 10, due: 68_000 }, 30)
-    expect(s).toMatchObject({ name: 'voucher-entry', kindHint: 'receipt', draft: { partyLedgerId: 10, lines: [{ ledgerId: 30, drCr: 'dr', amount: 68_000 }, { ledgerId: 10, drCr: 'cr', amount: 68_000 }] } })
+  it('Record a payment opens Money in (WP 9.4) for the customer, what is still due and that bill', () => {
+    expect(recordPaymentScreen({ partyId: 10, due: 68_000, number: 'S-7' }, 30)).toEqual({ name: 'simple-money-in', party: 10, amount: 68_000, bill: 'S-7' })
+    expect(recordPaymentScreen({ partyId: 10, due: 0 }, 30)).toEqual({ name: 'simple-money-in', party: 10 })
+    // Review: the bill's entry goes along, so the tick follows it even if its open name differs.
+    expect(recordPaymentScreen({ partyId: 10, due: 68_000, number: 'S-7', voucherId: 44 }, 30)).toEqual({ name: 'simple-money-in', party: 10, amount: 68_000, bill: 'S-7', billId: 44 })
   })
 
   it('the product dialog (WP 8.4, gate follow-ups): a rate outside the dated slabs only as a marked custom rate; no unit with stock off', async () => {

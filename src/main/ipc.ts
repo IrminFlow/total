@@ -126,8 +126,10 @@ import { globalSearch, search } from './services/search'
 import { createDemoCompany } from './services/demo'
 import { createCompanyFromSetup } from './services/companySetup'
 import * as simplePost from './services/simplePost'
+import * as simpleMoney from './services/simpleMoney'
 import * as simpleSell from './services/simpleSell'
 import * as simpleBank from './services/simpleBank'
+import * as simpleBuy from './services/simpleBuy'
 import { simpleIntentSchema } from '@shared/simple/intents'
 import { bankAcceptSchema } from '@shared/simple/bank'
 import { simpleSetupSchema } from '@shared/simple/setup'
@@ -436,6 +438,23 @@ export function registerIpc(): void {
     return openingsSvc.skipOpenings(requireCompany().db)
   })
 
+  // WP 9.3: the simple Buy screens' reads (services/simpleBuy.ts) — the form's suppliers, cash /
+  // bank accounts and their defaults (WP 5.6 memory "Pay from", else the counter's), the purchase
+  // list with what is still due on each bill (the Outstandings allocation as on today) and one
+  // bill's simple view. Writing goes through simple:post only.
+  handle('simple:buy:setup', (payload) => {
+    z.object({}).strict().optional().parse(payload)
+    return simpleBuy.buySetup(requireCompany().db)
+  }, 'viewer')
+  handle('simple:purchases', (payload) => {
+    const { from, to, today } = z.object({ from: isoDate, to: isoDate, today: isoDate.optional() }).strict().parse(payload)
+    return simpleBuy.purchasesList(requireCompany().db, from, to, homeAsOn(today, todayISO()))
+  }, 'viewer')
+  handle('simple:purchase', (payload) => {
+    const { id, today } = z.object({ id: z.number().int().positive(), today: isoDate.optional() }).strict().parse(payload)
+    return simpleBuy.purchaseView(requireCompany().db, id, homeAsOn(today, todayISO()))
+  }, 'viewer')
+
   // WP 9.1: the ONE write path of the simple screens (services/simplePost.ts) — an intent mapped to
   // the editors' own form state and saved through saveVoucher in one transaction (idempotent by
   // clientId; the vouchers come back together for the save card's grouped Undo). `preview`
@@ -454,6 +473,23 @@ export function registerIpc(): void {
     return out
   })
 
+  // WP 9.4: the simple Money screens' reads (services/simpleMoney.ts) — the forms' customers,
+  // suppliers, cash / bank accounts and their defaults (WP 5.6 memory, else the counter's), a
+  // party's open bills (the Outstandings allocation), the money list and one entry's view.
+  // Writing goes through simple:post only.
+  handle('simple:money:setup', () => simpleMoney.moneySetup(requireCompany().db), 'viewer')
+  handle('simple:money:bills', (payload) => {
+    const { partyId, date } = z.object({ partyId: z.number().int().positive(), date: isoDate }).strict().parse(payload)
+    return simpleMoney.moneyBills(requireCompany().db, partyId, date)
+  }, 'viewer')
+  handle('simple:money:list', (payload) => {
+    const { from, to } = z.object({ from: isoDate, to: isoDate }).strict().parse(payload)
+    return simpleMoney.moneyList(requireCompany().db, from, to)
+  }, 'viewer')
+  handle('simple:money:entry', (payload) => {
+    const { id } = z.object({ id: z.number().int().positive() }).strict().parse(payload)
+    return simpleMoney.moneyEntry(requireCompany().db, id)
+  }, 'viewer')
   // WP 9.2: the simple Sell screens' reads (services/simpleSell.ts) — the form's customers, cash /
   // bank accounts and their defaults (WP 5.6 memory, else the counter's), the sales list with what
   // is still due on each bill (the Outstandings allocation as on today) and one bill's simple view.

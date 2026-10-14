@@ -69,6 +69,12 @@ export type Screen =
   | { name: 'simple-looks' }
   | { name: 'simple-features' }
   | { name: 'simple-openings'; from?: 'home' }
+  // WP 9.4: Money — Money in / out (optionally for a party, an amount and a bill: what "Record a
+  // payment" on a bill passes), Move money, the money list (`entryId` = one entry's simple view).
+  | { name: 'simple-money-in'; party?: number; amount?: number; bill?: string; billId?: number }
+  | { name: 'simple-money-out'; party?: number; amount?: number; bill?: string; billId?: number }
+  | { name: 'simple-move-money' }
+  | { name: 'simple-money'; entryId?: number }
   // WP 9.2: Sell — Make a bill, the sales list (`billId` = that bill's simple view), Quick bill
   // (the Counter screen inside the simple shell).
   | { name: 'simple-sell' }
@@ -76,6 +82,9 @@ export type Screen =
   | { name: 'simple-quick-bill' }
   // WP 9.6: Money → Bank (simple/bank/BankScreen), opened on a bank account by `bankId`.
   | { name: 'simple-bank'; bankId?: number }
+  // WP 9.3: Buy — Record a purchase, the purchase list (`billId` = that bill's simple view).
+  | { name: 'simple-buy' }
+  | { name: 'simple-purchases'; billId?: number }
   | { name: 'counter-billing' }
   // Books search results (⌘⇧F, or "See all" in the ⌘K palette): `q` is the query-language
   // string, `kind` the initially selected tab (omitted = all kinds).

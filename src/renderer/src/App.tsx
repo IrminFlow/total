@@ -10,10 +10,16 @@ import { SimpleSection } from './simple/SimpleSection'
 import { SimpleLooks } from './simple/SimpleLooks'
 import { SimpleFeatures } from './simple/SimpleFeatures'
 import { Openings } from './simple/Openings'
+import { MoneyIn } from './simple/money/MoneyIn'
+import { MoneyOut } from './simple/money/MoneyOut'
+import { MoveMoney } from './simple/money/MoveMoney'
+import { MoneyList } from './simple/money/MoneyList'
 import { MakeBill } from './simple/sell/MakeBill'
 import { SalesList } from './simple/sell/SalesList'
 import { QuickBill } from './simple/sell/QuickBill'
 import { BankScreen } from './simple/bank/BankScreen'
+import { RecordPurchase } from './simple/buy/RecordPurchase'
+import { PurchaseList } from './simple/buy/PurchaseList'
 import { useScreenView } from './lib/mode'
 import { DayBook } from './screens/DayBook'
 import { ImportTallyScreen } from './screens/ImportTally'
@@ -182,10 +188,16 @@ export default function App(): React.JSX.Element {
           {screen.name === 'simple-looks' && <SimpleLooks />}
           {screen.name === 'simple-features' && <SimpleFeatures />}
           {screen.name === 'simple-openings' && <Openings />}
+          {screen.name === 'simple-money-in' && <MoneyIn key={`${screen.party ?? ''}|${screen.amount ?? ''}|${screen.bill ?? ''}|${screen.billId ?? ''}`} party={screen.party} amount={screen.amount} bill={screen.bill} billId={screen.billId} />}
+          {screen.name === 'simple-money-out' && <MoneyOut key={`${screen.party ?? ''}|${screen.amount ?? ''}|${screen.bill ?? ''}|${screen.billId ?? ''}`} party={screen.party} amount={screen.amount} bill={screen.bill} billId={screen.billId} />}
+          {screen.name === 'simple-move-money' && <MoveMoney />}
+          {screen.name === 'simple-money' && <MoneyList key={screen.entryId ?? 'list'} entryId={screen.entryId} />}
           {screen.name === 'simple-sell' && <MakeBill />}
           {screen.name === 'simple-sales' && <SalesList key={screen.billId ?? 'list'} billId={screen.billId} />}
           {screen.name === 'simple-quick-bill' && <QuickBill />}
           {screen.name === 'simple-bank' && <BankScreen key={screen.bankId ?? 'bank'} bankId={screen.bankId} />}
+          {screen.name === 'simple-buy' && <RecordPurchase />}
+          {screen.name === 'simple-purchases' && <PurchaseList key={screen.billId ?? 'list'} billId={screen.billId} />}
           {screen.name === 'daybook' && <DayBook month={screen.month} kind={screen.kind} date={screen.date} />}
           {screen.name === 'import-tally' && <ImportTallyScreen />}
           {screen.name === 'data-import' && <ImportWizardScreen />}

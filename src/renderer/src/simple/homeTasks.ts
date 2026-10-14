@@ -12,9 +12,11 @@ export type HomeTaskId = 'sale' | 'purchase' | 'money-in' | 'money-out'
 export const HOME_TASKS: readonly { id: HomeTaskId; label: MessageKey; screen: Screen }[] = [
   // WP 9.2: + Sale opens the simple Make a bill flow.
   { id: 'sale', label: 'simple.home.addSale', screen: { name: 'simple-sell' } }, // i18n-technical
-  { id: 'purchase', label: 'simple.home.addPurchase', screen: { name: 'voucher-entry', kindHint: 'purchase' } }, // i18n-technical
-  { id: 'money-in', label: 'simple.home.moneyIn', screen: { name: 'voucher-entry', kindHint: 'receipt' } }, // i18n-technical
-  { id: 'money-out', label: 'simple.home.moneyOut', screen: { name: 'voucher-entry', kindHint: 'payment' } } // i18n-technical
+  // WP 9.3: + Purchase opens the simple Record a purchase flow.
+  { id: 'purchase', label: 'simple.home.addPurchase', screen: { name: 'simple-buy' } }, // i18n-technical
+  // WP 9.4: + Money in / + Money out open the simple Money flows.
+  { id: 'money-in', label: 'simple.home.moneyIn', screen: { name: 'simple-money-in' } }, // i18n-technical
+  { id: 'money-out', label: 'simple.home.moneyOut', screen: { name: 'simple-money-out' } } // i18n-technical
 ]
 
 export type HomeReport = 'day' | 'receivables' | 'payables' | 'cash' | 'profit' | 'gst' | 'backups'
