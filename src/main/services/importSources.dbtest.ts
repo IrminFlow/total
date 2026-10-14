@@ -247,8 +247,8 @@ describe('Busy', () => {
     // with their openings cleared; the capital and the opening-difference ledger are deleted.
     expect(u.binned).toBe(1)
     expect(u.kept).toEqual(expect.arrayContaining([
-      { entity: 'ledger', id: mehta, reason: 'kept Mehta Stores, opening cleared — still in use (purge the bin to remove it)' },
-      { entity: 'stockItem', id: carton, reason: 'kept Carton, opening cleared — still in use (purge the bin to remove it)' }
+      { entity: 'ledger', id: mehta, reason: "kept Mehta Stores, opening cleared — still in use by entries (the bin's too); delete it yourself once they are gone" },
+      { entity: 'stockItem', id: carton, reason: "kept Carton, opening cleared — still in use by entries (the bin's too); delete it yourself once they are gone" }
     ]))
     expect(getLedger(db, mehta)!.openingBalance).toBe(0)
     expect(db.prepare('SELECT opening_qty_milli, opening_value FROM stock_items WHERE id = ?').get(carton)).toEqual({ opening_qty_milli: 0, opening_value: 0 })
@@ -258,6 +258,16 @@ describe('Busy', () => {
     // Audited through the masters services.
     expect(db.prepare("SELECT COUNT(*) AS n FROM audit_log WHERE entity = 'ledger' AND entity_id = ? AND action = 'update'").get(mehta)).toEqual({ n: 1 })
     expect(db.prepare("SELECT COUNT(*) AS n FROM audit_log WHERE entity = 'stockItem' AND entity_id = ? AND action = 'update'").get(carton)).toEqual({ n: 1 })
+    // A second undo changes nothing: the books stay tied, the kept records stay as they are.
+    const booksAudit = (): number => (db.prepare("SELECT COUNT(*) AS n FROM audit_log WHERE entity <> 'import_batch'").get() as { n: number }).n
+    const auditBefore = booksAudit()
+    const u2 = undoImport(db, r.batchId!)
+    expect(u2).toMatchObject({ binned: 0, deleted: 0, restored: 0 })
+    expect(u2.kept.map((k) => k.id)).toEqual(expect.arrayContaining([mehta, carton]))
+    expect(openingTotals(db)).toMatchObject({ debit: 0, credit: 0, difference: 0 })
+    expect(getLedger(db, mehta)!.openingBalance).toBe(0)
+    // Only the batch's own status row is written.
+    expect(booksAudit()).toBe(auditBefore)
     // The next import's check starts from tied books (no "already differed").
     const again = runImport(db, planSteps(parseImportFile('MSAll.xml', enc.encode(BUSY_XML))), { openingDifference: 'suspense' }, { source: 'busy-xml', profileId: null, fileName: 'MSAll.xml' }, true)
     expect(again.warnings.join(' ')).not.toMatch(/already differed/)

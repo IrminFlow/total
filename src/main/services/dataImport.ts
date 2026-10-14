@@ -1522,8 +1522,9 @@ export function undoImport(db: DB, batchId: number): UndoResult {
           res.deleted++
         })()
         if (cleared !== null) {
-          // Kept (not marked undone, so a retry after the bin is purged deletes it).
-          res.kept.push({ entity: it.entity, id: it.entity_id, reason: `kept ${cleared}, opening cleared — still in use (purge the bin to remove it)` })
+          // Kept, and not marked undone. A retry never deletes it: the opening change just audited
+          // reads as an edit after the import (left alone) — so the reason says what to do.
+          res.kept.push({ entity: it.entity, id: it.entity_id, reason: `kept ${cleared}, opening cleared — still in use by entries (the bin's too); delete it yourself once they are gone` })
           continue
         }
         markDone.run(it.id)
