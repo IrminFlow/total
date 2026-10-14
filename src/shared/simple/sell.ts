@@ -172,7 +172,10 @@ export interface SellTotals {
   tax: number
   /** The bill, rounded to the rupee (what the customer pays). */
   total: number
-  /** Each form line's value before GST (null = not complete). */
+  /** total − (taxable + tax): the rupee round-off (+ up, − down), shown as its own line. */
+  rounding: number
+  /** Each form line's value (null = not complete) in the basis its price is typed in: before GST,
+   *  or WITH the line's GST when prices include GST (so qty × price − discount is what it shows). */
   lineAmounts: (number | null)[]
   charges: boolean
 }
@@ -182,9 +185,10 @@ export function sellTotals(form: SellForm, ctx: SellContext): SellTotals {
   const charges = chargesGstOn(ctx.invoice, form.date)
   if (form.mode === 'amount') {
     const taxable = amountTaxable(form, ctx)
-    if (taxable == null) return { taxable: 0, tax: 0, total: 0, lineAmounts: [], charges }
+    if (taxable == null) return { taxable: 0, tax: 0, total: 0, rounding: 0, lineAmounts: [], charges }
     const gst = addBreakups([computeGst(taxable, amountRate(form, ctx), supplyFor(form, ctx))])
-    return { taxable: gst.taxable, tax: gst.total - gst.taxable, total: roundToRupee(gst.total), lineAmounts: [], charges }
+    const total = roundToRupee(gst.total)
+    return { taxable: gst.taxable, tax: gst.total - gst.taxable, total, rounding: total - gst.total, lineAmounts: [], charges }
   }
   const { lines } = exclusiveLines(form, ctx)
   const c = computeInvoice(
@@ -198,13 +202,15 @@ export function sellTotals(form: SellForm, ctx: SellContext): SellTotals {
   )
   // Map each computed line back to its form line (incomplete lines are not in `lines`).
   const lineAmounts: (number | null)[] = form.lines.map(() => null)
+  const withGst = form.ratesIncludeGst && charges
   let k = 0
   form.lines.forEach((l, i) => {
     if (l.itemId == null || qtyMilliOf(l.qtyText) == null || l.rate == null) return
-    lineAmounts[i] = c.detail[k]?.amount ?? null
+    const d = c.detail[k]
+    lineAmounts[i] = d == null ? null : withGst ? computeGst(d.amount, d.rate, c.supply, d.cessRate).total : d.amount
     k++
   })
-  return { taxable: c.gst.taxable, tax: c.gst.total - c.gst.taxable, total: c.rounded, lineAmounts, charges }
+  return { taxable: c.gst.taxable, tax: c.gst.total - c.gst.taxable, total: c.rounded, rounding: c.roundDiff, lineAmounts, charges }
 }
 
 /** The default cash / bank account for each way of being paid (main: WP 5.6 memory, else the
@@ -335,8 +341,11 @@ export interface SaleView {
   /** Ledger-line bills ("just an amount"): the income account lines. */
   amounts: { name: string; amount: number }[]
   note: string | null
+  /** What the customer owes for the bill (its party amount — the rounded total). */
   total: number
   tax: number
+  /** The rupee round-off on the bill (paise, + = rounded up, − = down; 0 = none). */
+  rounding: number
   paid: number
   due: number
   dueDate: string | null

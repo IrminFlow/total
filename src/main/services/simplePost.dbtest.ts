@@ -23,12 +23,12 @@ import { partyAllocation } from './analysis'
 import { setCreditHold } from './receivables'
 import { postClose } from './yearEnd'
 import { getFeatures, setFeatures } from './config'
-import { restoreFromBin, undoSave } from './undo'
+import { restoreFromBin, saveSummary, undoSave } from './undo'
 import { previewIntent, postIntent, remapSaveError } from './simplePost'
 import { normaliseIntent, type MappedEntry } from '@shared/simple/intents'
 import { saleView, salesList, sellSetup } from './simpleSell'
 import { createMemory } from '../ai/memory'
-import { emptySellForm, saleIntentFrom, sellFormErrors, sellTotals, type SellContext, type SellForm } from '@shared/simple/sell'
+import { emptySellForm, saleIntentFrom, saleStatus, sellFormErrors, sellTotals, type SellContext, type SellForm } from '@shared/simple/sell'
 
 const INFO: CompanyInfo = { ...TEST_INFO, name: 'Simple Post Co', gstin: '27AAPFU0939F1ZV', stateCode: '27', gstRegistrationType: 'regular' }
 const TODAY = '2025-08-14'
@@ -728,6 +728,24 @@ describe('WP 9.2 Make a bill: the form → simple:post = the invoice + receipt a
     expect(sellSetup(db)).toMatchObject({ defaults: { cash: L('Cash'), upi: sbi, card: sbi, bank: sbi }, memoryId: m.id })
     db.prepare("INSERT OR REPLACE INTO meta (key, value) VALUES ('ai', json_set(COALESCE((SELECT value FROM meta WHERE key = 'ai'), '{}'), '$.useMemory', json('false')))").run()
     expect(sellSetup(db).defaults.upi).toBe(L('HDFC Bank'))
+  })
+
+  it('review: a rounded-DOWN bill on credit is its rounded total everywhere — list, bill view, save card (never "part paid")', () => {
+    // 1 Widget at ₹100.34 + 18% GST = ₹118.40 → the bill is ₹118.00 (the round-off sits on the customer's side).
+    const out = sell({ customerId: L('Ramesh'), paid: 'credit', lines: [ln(1, 'Widget', '1', 10_034)] })
+    const bill = out.voucherIds[0]!
+    expect(out.facts.total).toBe(11_800)
+    const debits = getVoucher(db, bill)!.lines.filter((l) => l.drCr === 'dr').reduce((s, l) => s + l.amount, 0)
+    expect(debits).toBe(11_840) // the register's debit side is the unrounded total
+    const row = salesList(db, '2025-04-01', TODAY, TODAY).find((x) => x.voucherId === bill)!
+    expect(row).toMatchObject({ total: 11_800, paid: 0, due: 11_800 })
+    expect(saleStatus(row.total, row.due, row.overdueDays)).toBe('due')
+    expect(saleView(db, bill, TODAY)).toMatchObject({ total: 11_800, tax: 1_806, rounding: -40, paid: 0, due: 11_800 })
+    expect(saveSummary(db, out.voucherIds).entries[0]).toMatchObject({ kind: 'sales', amount: 11_800 })
+    // Paid in full by cash: nothing due, "paid" is the bill, not the unrounded figure.
+    const paid = sell({ customerId: L('Ramesh'), paid: 'cash', lines: [ln(1, 'Widget', '1', 10_034)] })
+    expect(salesList(db, '2025-04-01', TODAY, TODAY).find((x) => x.voucherId === paid.voucherIds[0])).toMatchObject({ total: 11_800, paid: 11_800, due: 0 })
+    expect(saveSummary(db, paid.voucherIds).entries.map((e) => e.amount)).toEqual([11_800, 11_800])
   })
 
   it('a customer on hold / a locked date are refused on their questions with nothing saved', () => {

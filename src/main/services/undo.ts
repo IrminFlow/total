@@ -10,7 +10,7 @@
 // voucher outside a group restores exactly as before.
 
 import type { DB } from '../db/connection'
-import type { SaveCardEntry, SaveCardParty, SaveSummary, UndoState } from '@shared/simple/saveCard'
+import { billAmount, type SaveCardEntry, type SaveCardParty, type SaveSummary, type UndoState } from '@shared/simple/saveCard'
 import { AppError } from '@shared/errors'
 import { fyOf, todayISO } from '@shared/dates'
 import { writeAudit } from './audit'
@@ -165,6 +165,9 @@ export function restoreFromBin(db: DB, id: number): { restored: number[] } {
 /** voucher:saveSummary — the save card's figures, computed now from the saved vouchers and
  *  each party's bill allocation (the Outstandings engine) as on the latest saved voucher's date.
  *  Every customer / supplier the intent touched is a party (cash and bank never are). */
+/** Bills and notes: their amount is the party's (billAmount). */
+const TRADE_KINDS: ReadonlySet<string> = new Set(['sales', 'purchase', 'credit_note', 'debit_note'])
+
 export function saveSummary(db: DB, voucherIds: readonly number[]): SaveSummary {
   const cashBank = cashBankGroupIds(db)
   const cashOnly = descendantIdsByName(db, ['Cash-in-Hand'])
@@ -187,7 +190,8 @@ export function saveSummary(db: DB, voucherIds: readonly number[]): SaveSummary 
     const v = getVoucher(db, id)
     if (!v || v.deletedAt) continue
     const kind = (kindOf.get(id) as { kind: SaveCardEntry['kind'] }).kind
-    const amount = v.lines.filter((l) => l.drCr === 'dr').reduce((s, l) => s + l.amount, 0)
+    // A bill / note: what the party owes (a rounded-down bill's debits are its unrounded total).
+    const amount = TRADE_KINDS.has(kind) ? billAmount(v.lines, v.partyLedgerId) : v.lines.filter((l) => l.drCr === 'dr').reduce((s, l) => s + l.amount, 0)
     let moneyLine: SaveCardEntry['money'] = null
     if (kind === 'receipt' || kind === 'payment') {
       const side = kind === 'receipt' ? 'dr' : 'cr'

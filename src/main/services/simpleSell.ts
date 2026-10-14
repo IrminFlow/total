@@ -15,6 +15,7 @@
 import type { DB } from '../db/connection'
 import type { MoneyHow } from '@shared/simple/intents'
 import type { SaleRow, SaleView, SellSetup } from '@shared/simple/sell'
+import { billAmount } from '@shared/simple/saveCard'
 import { getVoucher, IN_BOOKS } from './vouchers'
 import { counterAccounts, WALK_IN_NAME } from './counter'
 import { outstandingsWithAdvances, partyAllocation, registerVoucherRows } from './analysis'
@@ -74,11 +75,15 @@ export function salesList(db: DB, from: string, to: string, today: string): Sale
   }
   const walkInId = counterAccounts(db).walkInLedgerId
   const info = db.prepare('SELECT v.number, l.name FROM vouchers v LEFT JOIN ledgers l ON l.id = v.party_ledger_id WHERE v.id = ?')
+  const partyLines = db.prepare('SELECT ledger_id AS ledgerId, dr_cr AS drCr, amount FROM voucher_lines WHERE voucher_id = ?')
   return rows
     .map((r) => {
       const v = info.get(r.voucherId) as { number: string; name: string | null }
       const o = open.get(r.voucherId)
-      const due = Math.min(o?.pending ?? 0, r.total)
+      // The bill as the customer owes it — the register's debit side is the UNROUNDED total on a
+      // rounded-down bill (its round-off sits on the customer's side).
+      const total = billAmount(partyLines.all(r.voucherId) as { ledgerId: number; drCr: 'dr' | 'cr'; amount: number }[], r.partyLedgerId)
+      const due = Math.min(o?.pending ?? 0, total)
       return {
         voucherId: r.voucherId,
         number: v.number,
@@ -86,9 +91,9 @@ export function salesList(db: DB, from: string, to: string, today: string): Sale
         partyId: r.partyLedgerId,
         partyName: v.name ?? '',
         walkIn: r.partyLedgerId != null && (r.partyLedgerId === walkInId || v.name === WALK_IN_NAME),
-        total: r.total,
+        total,
         tax: r.tax,
-        paid: r.total - due,
+        paid: total - due,
         due,
         dueDate: o?.dueDate ?? null,
         overdueDays: o?.overdueDays ?? 0
@@ -110,17 +115,23 @@ export function saleView(db: DB, id: number, today: string): SaleView | null {
   const cls = ledgerClassifier(db)
   const walkInId = counterAccounts(db).walkInLedgerId
   const party = v.partyLedgerId != null ? (ledger.get(v.partyLedgerId) as { name: string } | undefined)?.name ?? '' : ''
-  const total = v.lines.filter((l) => l.drCr === 'dr').reduce((s, l) => s + l.amount, 0)
+  const total = billAmount(v.lines, v.partyLedgerId)
   let tax = 0
+  // The round-off the editor posted (the "Round Off" ledger it picks by name): + rounded up.
+  let rounding = 0
   const amounts: SaleView['amounts'] = []
   for (const l of v.lines) {
-    if (l.drCr !== 'cr') continue
     const lg = ledger.get(l.ledgerId) as { name: string; taxType: string | null } | undefined
+    if (lg && lg.name.trim().toLowerCase() === 'round off') {
+      rounding += l.drCr === 'cr' ? l.amount : -l.amount
+      continue
+    }
+    if (l.drCr !== 'cr') continue
     if (lg?.taxType) tax += l.amount
     else if (cls.cls(l.ledgerId) === 'income' && v.inventory.length === 0) amounts.push({ name: lg?.name ?? '', amount: l.amount })
   }
-  const billName = v.billRefs.find((r) => r.kind === 'new')?.name ?? v.number
-  const open = v.partyLedgerId != null ? partyAllocation(db, v.partyLedgerId, today).bills.find((b) => b.voucherId === v.id || b.number === billName) : undefined
+  // This bill's own row in the allocation (by voucher id — another bill may share its name).
+  const open = v.partyLedgerId != null ? partyAllocation(db, v.partyLedgerId, today).bills.find((b) => b.voucherId === v.id) : undefined
   const due = Math.min(open?.pending ?? 0, total)
   return {
     voucherId: v.id,
@@ -137,6 +148,7 @@ export function saleView(db: DB, id: number, today: string): SaleView | null {
     note: v.narration,
     total,
     tax,
+    rounding,
     paid: total - due,
     due,
     dueDate: open?.dueDate ?? null,

@@ -63,6 +63,28 @@ function posted(f: SellForm, c: SellContext) {
 }
 
 describe('live totals = the editor calculation = what is posted', () => {
+  it('review: the rupee round-off is its own figure (down and up), and taxable + tax + rounding = total', () => {
+    const c = ctxFor('unregistered')
+    // 3 × ₹145.50 + 2.5 × ₹46.30 = ₹552.25 → ₹552.00 (rounded down by 25 paise).
+    const down = sellTotals(form({ customerId: 10, lines: [line(1, 1, '3', 14_550), line(2, 2, '2.5', 4_630)] }), c)
+    expect(down).toMatchObject({ taxable: 55_225, tax: 0, total: 55_200, rounding: -25 })
+    // Just an amount ₹1,499.60 → ₹1,500.00 (up by 40 paise).
+    const up = sellTotals(form({ mode: 'amount', amount: 149_960 }), c)
+    expect(up).toMatchObject({ taxable: 149_960, total: 150_000, rounding: 40 })
+    for (const x of [down, up]) expect(x.taxable + x.tax + x.rounding).toBe(x.total)
+  })
+
+  it('review: with prices including GST each line shows its value WITH GST (qty × price − discount)', () => {
+    const c = ctxFor()
+    const f = form({ customerId: 10, ratesIncludeGst: true, lines: [line(1, 1, '2', 11_800, 1_180), line(2, 2, '1', 10_500)] })
+    const tot = sellTotals(f, c)
+    expect(tot.lineAmounts).toEqual([22_420, 10_500])
+    // The bill is still the editor's figure on the exclusive lines.
+    expect(posted(f, c).facts.total).toBe(tot.total)
+    // Typed before GST, the same figures are the lines' taxable values.
+    expect(sellTotals({ ...f, ratesIncludeGst: false }, c).lineAmounts).toEqual([22_420, 10_500])
+  })
+
   it('two products, prices before GST, intra-state', () => {
     const c = ctxFor()
     const f = form({ customerId: 10, lines: [line(1, 1, '2', 50_000), line(2, 2, '3', 6_000, 1_000)] })
