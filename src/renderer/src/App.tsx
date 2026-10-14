@@ -17,6 +17,8 @@ import { MoneyList } from './simple/money/MoneyList'
 import { MakeBill } from './simple/sell/MakeBill'
 import { SalesList } from './simple/sell/SalesList'
 import { QuickBill } from './simple/sell/QuickBill'
+import { ReturnSale } from './simple/returns/ReturnSale'
+import { ReturnPurchase } from './simple/returns/ReturnPurchase'
 import { BankScreen } from './simple/bank/BankScreen'
 import { RecordPurchase } from './simple/buy/RecordPurchase'
 import { PurchaseList } from './simple/buy/PurchaseList'
@@ -200,6 +202,8 @@ export default function App(): React.JSX.Element {
           {screen.name === 'simple-sell' && <MakeBill />}
           {screen.name === 'simple-sales' && <SalesList key={screen.billId ?? 'list'} billId={screen.billId} />}
           {screen.name === 'simple-quick-bill' && <QuickBill />}
+          {screen.name === 'simple-return-sale' && <ReturnSale key={screen.billId ?? 'pick'} billId={screen.billId} />}
+          {screen.name === 'simple-return-purchase' && <ReturnPurchase key={screen.billId ?? 'pick'} billId={screen.billId} />}
           {screen.name === 'simple-bank' && <BankScreen key={screen.bankId ?? 'bank'} bankId={screen.bankId} />}
           {screen.name === 'simple-buy' && <RecordPurchase />}
           {screen.name === 'simple-purchases' && <PurchaseList key={screen.billId ?? 'list'} billId={screen.billId} />}

@@ -128,6 +128,7 @@ import { createCompanyFromSetup } from './services/companySetup'
 import * as simplePost from './services/simplePost'
 import * as simpleMoney from './services/simpleMoney'
 import * as simpleSell from './services/simpleSell'
+import * as simpleReturns from './services/simpleReturns'
 import * as simpleBank from './services/simpleBank'
 import * as simpleBuy from './services/simpleBuy'
 import * as simpleStock from './services/simpleStock'
@@ -564,6 +565,20 @@ export function registerIpc(): void {
     return simpleTaxes.setGstFiled(c.db, c.info, input, sessionUser?.name ?? null, todayISO())
   })
 
+  // WP 9.5: the simple return screens' reads (services/simpleReturns.ts) — the recent bills with
+  // what is still returnable, and one bill as simple:post maps a return from it (as on the
+  // return's date, never past today). Writing goes through simple:post only.
+  const returnSide = z.enum(['sale', 'purchase'])
+  handle('simple:returns:bills', (payload) => {
+    const { side, today, q } = z.object({ side: returnSide, today: isoDate.optional(), q: z.string().max(80).optional() }).strict().parse(payload)
+    const c = requireCompany()
+    return simpleReturns.returnBills(c.db, c.info, side, homeAsOn(today, todayISO()), q)
+  }, 'viewer')
+  handle('simple:returns:bill', (payload) => {
+    const { side, id, asOn } = z.object({ side: returnSide, id: z.number().int().positive(), asOn: isoDate.optional() }).strict().parse(payload)
+    const c = requireCompany()
+    return simpleReturns.returnBill(c.db, c.info, side, id, homeAsOn(asOn, todayISO()))
+  }, 'viewer')
   // WP 9.6: the simple Bank screen (services/simpleBank.ts). Reads: the bank accounts and every
   // account's class; one bank's statement lines with the matcher's / categoriser's suggestion
   // (no model — the screen asks bankImport:categorise for that, only when AI is ready) and the

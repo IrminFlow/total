@@ -459,7 +459,7 @@ describe('advances and credits read as credit (outstanding.ts follows the sign)'
     // The twins, through the accounting editor's builder.
     const { twin, ids } = handEntered([])
     const cnType = typeId(twin, 'credit_note')
-    const cn = buildAccountingPayload(blankAccounting(TODAY, [r('cr', L('Ramesh', twin), 11_800), r('dr', L('Sales', twin), 10_000), r('dr', L('CGST', twin), 900), r('dr', L('SGST', twin), 900)], [{ kind: 'new', name: n.number, amount: 11_800, dueDate: TODAY }], { number: n.number }), { kind: 'credit_note', voucherTypeId: cnType, derivedPartyId: L('Ramesh', twin) })
+    const cn = buildAccountingPayload(blankAccounting(TODAY, [r('cr', L('Ramesh', twin), 11_800), r('dr', L('Sales', twin), 10_000), r('dr', L('CGST', twin), 900), r('dr', L('SGST', twin), 900)], [{ kind: 'new', name: n.billRefs[0]!.name, amount: 11_800, dueDate: TODAY }], { number: n.number, reference: getVoucher(db, sale.voucherIds[0]!)!.number }), { kind: 'credit_note', voucherTypeId: cnType, derivedPartyId: L('Ramesh', twin) })
     if (!cn.ok) throw new Error(cn.error)
     ids.push(saveVoucher(twin, cn.payload).id)
     expect(rows(twin, ids[0]!)).toEqual(rows(db, n.id))
