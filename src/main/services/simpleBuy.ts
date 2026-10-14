@@ -23,6 +23,7 @@ import { outstandingsWithAdvances, partyAllocation } from './analysis'
 import { ledgerClassifier } from '../ai/ledgerClass'
 import { memoryContextFor } from '../ai/memory'
 import { getAiSettings } from '../ai/settings'
+import { returnsOfBills } from './simpleReturns'
 
 function purchaseAccount(db: DB): number | null {
   const cat = db.prepare("SELECT id FROM ledgers WHERE simple_category = 'purchases' ORDER BY id LIMIT 1").get() as { id: number } | undefined
@@ -102,9 +103,14 @@ export function purchasesList(db: DB, from: string, to: string, today: string): 
   for (const p of outstandingsWithAdvances(db, 'payable', today).parties) {
     for (const b of p.bills) if (b.voucherId != null) open.set(b.voucherId, { pending: b.pending, dueDate: b.dueDate, overdueDays: b.overdueDays })
   }
-  return bills(db, 'v.date BETWEEN ? AND ?', from, to).map((r) => {
+  const rows = bills(db, 'v.date BETWEEN ? AND ?', from, to)
+  // WP 9.5: the returns against each bill — a chip, and what they took off it is not "paid".
+  const returns = returnsOfBills(db, 'purchase', rows)
+  return rows.map((r) => {
     const o = open.get(r.id)
     const due = Math.min(o?.pending ?? 0, r.total)
+    const back = returns.get(r.id) ?? []
+    const offBill = back.reduce((s, x) => s + x.offBill, 0)
     return {
       voucherId: r.id,
       number: r.number,
@@ -114,10 +120,11 @@ export function purchasesList(db: DB, from: string, to: string, today: string): 
       partyName: r.partyName ?? '',
       total: r.total,
       tax: r.tax,
-      paid: r.total - due,
+      paid: Math.max(0, r.total - due - offBill),
       due,
       dueDate: o?.dueDate ?? null,
-      overdueDays: o?.overdueDays ?? 0
+      overdueDays: o?.overdueDays ?? 0,
+      returned: back.reduce((s, x) => s + x.total, 0)
     }
   })
 }
@@ -143,6 +150,8 @@ export function purchaseView(db: DB, id: number, today: string): PurchaseView | 
   const billName = v.billRefs.find((r) => r.kind === 'new')?.name ?? v.number
   const open = v.partyLedgerId != null ? partyAllocation(db, v.partyLedgerId, today).bills.find((b) => b.voucherId === v.id && b.number === billName) : undefined
   const due = Math.min(open?.pending ?? 0, row.total)
+  const back = returnsOfBills(db, 'purchase', [row]).get(v.id) ?? []
+  const offBill = back.reduce((s, x) => s + x.offBill, 0)
   return {
     voucherId: v.id,
     number: v.number,
@@ -152,10 +161,11 @@ export function purchaseView(db: DB, id: number, today: string): PurchaseView | 
     partyName: row.partyName ?? '',
     total: row.total,
     tax: row.tax,
-    paid: row.total - due,
+    paid: Math.max(0, row.total - due - offBill),
     due,
     dueDate: open?.dueDate ?? null,
     overdueDays: open?.overdueDays ?? 0,
+    returned: back.reduce((s, x) => s + x.total, 0),
     items: v.inventory.map((l) => {
       const it = item.get(l.stockItemId) as { name: string; symbol: string | null } | undefined
       return { name: it?.name ?? '', qtyMilli: l.qtyMilli, unit: it?.symbol ?? '', ratePaise: l.ratePaise, discountPaise: l.discountPaise, amount: l.amount }

@@ -82,6 +82,9 @@ export type Screen =
   | { name: 'simple-sell'; party?: number }
   | { name: 'simple-sales'; billId?: number }
   | { name: 'simple-quick-bill' }
+  // WP 9.5: Returns — Return a sale (Sell) / a purchase (Buy); `billId` = start from that bill.
+  | { name: 'simple-return-sale'; billId?: number }
+  | { name: 'simple-return-purchase'; billId?: number }
   // WP 9.6: Money → Bank (simple/bank/BankScreen), opened on a bank account by `bankId`.
   | { name: 'simple-bank'; bankId?: number }
   // WP 9.3: Buy — Record a purchase, the purchase list (`billId` = that bill's simple view).

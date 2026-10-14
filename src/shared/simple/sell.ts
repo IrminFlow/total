@@ -284,11 +284,20 @@ export function salePreviewLine(f: IntentFacts, t: Translate): string {
 }
 
 /** A sales list row's status chip. */
-export type SaleStatus = 'paid' | 'part' | 'due' | 'overdue'
-export function saleStatus(total: number, due: number, overdueDays: number): SaleStatus {
-  if (due <= 0) return 'paid'
+export type SaleStatus = 'paid' | 'part' | 'due' | 'overdue' | 'returned'
+/** `total` − `paid` − `due` is what returns took off the bill (WP 9.5): "part paid" only when
+ *  money was actually paid, and a bill that returns cleared with no money paid is 'returned'
+ *  ("Nothing due"), never "Paid". */
+export function saleStatus(total: number, due: number, overdueDays: number, paid?: number): SaleStatus {
+  if (due <= 0) return paid != null && paid <= 0 && total > 0 ? 'returned' : 'paid'
   if (overdueDays > 0) return 'overdue'
-  return due < total ? 'part' : 'due'
+  return (paid ?? total - due) > 0 ? 'part' : 'due'
+}
+
+/** WP 9.5: what returns took off a sale / purchase bill — total = paid + due + this (the lists'
+ *  `paid` leaves it out, services/simpleSell.ts / simpleBuy.ts); 0 without returns. */
+export function offBillByReturns(b: { total: number; paid: number; due: number; returned: number }): number {
+  return b.returned > 0 ? Math.max(0, b.total - b.paid - Math.max(0, b.due)) : 0
 }
 
 // ---------------------------------------------------------------- read shapes (services/simpleSell.ts)
@@ -322,11 +331,14 @@ export interface SaleRow {
   walkIn: boolean
   total: number
   tax: number
-  /** Total − what is still due on the bill (Outstandings allocation as on today). */
+  /** Total − what is still due on the bill (Outstandings allocation as on today) − what returns
+   *  took off it (WP 9.5 — a return set against an unpaid bill is not a payment). */
   paid: number
   due: number
   dueDate: string | null
   overdueDays: number
+  /** WP 9.5: the returns made against this bill (their total; 0 = none) — the list's chip. */
+  returned: number
 }
 
 export interface SaleView {
@@ -350,6 +362,8 @@ export interface SaleView {
   due: number
   dueDate: string | null
   overdueDays: number
+  /** WP 9.5: the returns made against this bill (their total; 0 = none). */
+  returned: number
 }
 
 /** A price-list rate (tax-exclusive, resolvePrice) as the form shows it: GST-inclusive per unit

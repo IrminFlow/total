@@ -58,6 +58,9 @@ export const AUDIT_COVERAGE: Record<string, AuditCoverage> = {
   'simple:people:update': a('ledger'),
   'simple:people:reminded': a('reminder'),
   'simple:sale': QUERY,
+  // WP 9.5: the simple return screens' reads (recent bills with what is returnable, one bill).
+  'simple:returns:bills': QUERY,
+  'simple:returns:bill': QUERY,
   // WP 9.7: the simple Stock screens (services/simpleStock.ts); counting / making go through simple:post.
   'simple:stock:list': QUERY,
   'simple:stock:product': QUERY,

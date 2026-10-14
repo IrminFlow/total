@@ -9,7 +9,7 @@ import { computeInvoice, emptyInvoiceState } from '../voucherEdit'
 import { mapIntent, normaliseIntent, type IntentContext, type IntentFacts, type IntentLedger } from './intents'
 import { bannedWordsIn } from './bannedWords'
 import {
-  billTitleKey, emptySellForm, exclusiveLines, paidChoicesFor, saleIntentFrom, salePreviewLine, saleStatus, sellFormErrors, sellTotals, shownRate,
+  billTitleKey, emptySellForm, offBillByReturns, exclusiveLines, paidChoicesFor, saleIntentFrom, salePreviewLine, saleStatus, sellFormErrors, sellTotals, shownRate,
   type SellContext, type SellForm
 } from './sell'
 
@@ -208,6 +208,12 @@ describe('plain words', () => {
     expect(saleStatus(100, 40, 0)).toBe('part')
     expect(saleStatus(100, 100, 0)).toBe('due')
     expect(saleStatus(100, 100, 3)).toBe('overdue')
+    // WP 9.5 review: a bill a return cleared with no money paid is not "Paid".
+    expect(saleStatus(100, 0, 0, 0)).toBe('returned')
+    expect(saleStatus(100, 0, 0, 60)).toBe('paid')
+    expect(saleStatus(100, 40, 0, 0)).toBe('due')
+    expect(offBillByReturns({ total: 2610, paid: 1000, due: 0, returned: 1770 })).toBe(1610)
+    expect(offBillByReturns({ total: 2610, paid: 1000, due: 1610, returned: 0 })).toBe(0)
   })
   it('no banned word in the Sell strings', () => {
     const keys = ['simple.sell.preview.part', 'simple.sell.err.onHold', 'simple.sell.shortStock', 'simple.sales.totals', 'simple.sell.walkInPaysNow'] as const

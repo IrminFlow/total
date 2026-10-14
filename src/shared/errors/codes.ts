@@ -155,6 +155,8 @@ export const ERROR_MAP = {
   simple_return_line: e('errors.intent.returnLine', 'items'),
   simple_return_qty: e('errors.intent.returnQty', 'items', ['qty'], 'errors.intent.returnQtyPlain'),
   simple_return_rate: e('errors.intent.returnRate', 'amount'),
+  simple_return_before_bill: e('errors.intent.returnBeforeBill', 'date', ['date'], 'errors.intent.returnBeforeBillPlain'),
+  simple_return_amount: e('errors.intent.returnAmount', 'amount', ['amount'], 'errors.intent.returnAmountPlain'),
   simple_refund_not_due: e('errors.intent.refundNotDue', 'refund', ['bill'], 'errors.intent.refundNotDuePlain'),
   simple_before_books: e('errors.intent.beforeBooks', 'date', ['date'], 'errors.intent.beforeBooksPlain'),
   simple_far_future: e('errors.intent.farFuture', 'date'),
