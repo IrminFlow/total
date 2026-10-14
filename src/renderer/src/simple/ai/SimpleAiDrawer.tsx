@@ -20,7 +20,7 @@ import { applyAiEvent, emptyPanel, turnCost, type AiPanelState } from '../../lib
 import { cfApi } from '../../lib/cashFinanceClient'
 import { useT } from '../../lib/i18n'
 import { useNav, useSession, useToasts, type Screen } from '../../state/stores'
-import { Badge, Banner, Button, DockedDrawer, Spinner, Textarea } from '../../components/kit'
+import { Banner, Button, DockedDrawer, Spinner, Textarea } from '../../components/kit'
 import { AnswerMarkdown } from '../../components/ai/Markdown'
 
 const SETTINGS_KEY = ['aiSettings'] // i18n-technical
@@ -218,7 +218,7 @@ export function SimpleAiDrawer({
             {t('simple.ai.panel.off')}
           </Banner>
         )}
-        {view?.mock && <Badge tone="warning" testId="ai-plain-mock">{t('simple.ai.test')}</Badge>}
+        {view?.mock && <Banner tone="warning" testId="ai-plain-mock">{t('simple.ai.test')}</Banner>}
         {state.messages.length === 0 && !state.running && ready && <p className="text-hint text-muted" data-testid="ai-plain-empty">{t('simple.ai.panel.empty')}</p>}
         {state.messages.map((m) => {
           if (m.role === 'user') {
