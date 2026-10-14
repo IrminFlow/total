@@ -307,6 +307,7 @@ export const en = {
   'simple.attention.owed.receivable': '{count, plural, one {# customer bill} other {# customer bills}} ({amount}) past the due date',
   'simple.attention.owed.payable': '{count, plural, one {# supplier bill} other {# supplier bills}} ({amount}) past the due date',
   'simple.attention.stock.low': '{count, plural, one {# product is} other {# products are}} running low or out of stock',
+  'simple.attention.stock.negative': '{count, plural, one {# product shows} other {# products show}} less than nothing in stock — record the purchase, or your profit will be wrong',
 
   // ---------- "Needs attention" (keyed by close-checklist key / anomaly kind) ----------
   'simple.attention.close.overdueBills': '{count, plural, one {# bill is} other {# bills are}} past the due date — remind the customer or record the payment',
@@ -1697,7 +1698,7 @@ export const en = {
   'simple.sell.preview.dueBy': '{amount} due by {date}.',
   'simple.sell.preview.due': '{amount} due — no due date is set for this customer.',
   'simple.sell.preview.checking': 'Checking…',
-  'simple.sell.shortStock': '{name}: you are selling more than Total shows in stock — it will be short by {qty} {unit}. Check the quantity, or record the purchase first.',
+  'simple.sell.shortStock': '{name}: you are selling more than you have — {qty} {unit} more than Total shows in stock. Record the purchase first, or the profit will be wrong.',
   'simple.sell.save': 'Save bill',
   'simple.sell.noSalesAccount': 'Total needs an account to keep your sales in. Add one called “Sales” to start making bills.',
   'simple.sell.addSalesAccount': 'Add “Sales”',

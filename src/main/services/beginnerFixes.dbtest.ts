@@ -9,6 +9,9 @@ import { readCompanyInfo } from '../db/seed'
 import { applySetup } from './companySetup'
 import { simpleTaxes } from './simpleTaxes'
 import { simpleHome, simpleHomeAttention } from './simpleHome'
+import { createStockItem } from './masters'
+import { postIntent } from './simplePost'
+import { stockItemInputSchema } from '@shared/schemas'
 import type { DB } from '../db/connection'
 
 const TODAY = '2026-10-14'
@@ -30,6 +33,18 @@ describe('WP 10.8: GST periods start with the books', () => {
     const home = simpleHome(db, company, { today: TODAY, backups: [] })
     expect(home.gst?.kind === 'regular' && home.gst.row).toMatchObject({ period: '2026-10', soFar: true, from: '2026-10-01', to: TODAY })
     expect(simpleHomeAttention(db, company, TODAY).items.filter((i) => i.source === 'close')).toEqual([])
+  })
+
+  it('stock sold before its purchase was recorded is a Home attention row today', () => {
+    const db = freshDb()
+    applySetup(db, { name: 'Ramesh Kirana', stateCode: '27', businessType: 'retail', gst: 'no', gstin: null, filing: null, stock: true, startDate: '2026-04-01', fresh: true }, TODAY)
+    const company = readCompanyInfo(db)
+    const unit = (db.prepare("SELECT id FROM units WHERE symbol = 'Pcs'").get() as { id: number }).id
+    const soap = createStockItem(db, stockItemInputSchema.parse({ name: 'Soap', unitId: unit }))
+    expect(simpleHomeAttention(db, company, TODAY).items.some((i) => i.key === 'negative_stock')).toBe(false)
+    postIntent(db, company, { clientId: 'neg-stock-sale-0001', kind: 'sale', date: TODAY, items: [{ itemId: soap.id, qty: '2', rate: '40' }], payment: { how: 'cash' } }, TODAY)
+    const row = simpleHomeAttention(db, company, TODAY).items.find((i) => i.key === 'negative_stock')
+    expect(row).toMatchObject({ source: 'stock', count: 1, level: 'high' })
   })
 
   it('a business that started at the FY start keeps the return due next (September)', () => {

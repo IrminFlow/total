@@ -151,7 +151,8 @@ describe('Make a bill (WP 9.2)', () => {
     await waitFor(() => expect(screen.getByTestId('sell-total').getAttribute('data-paise')).toBe('105000'))
     expect(text('sell-line-gst-0')).toContain('5% GST')
     await waitFor(() => expect(text('sell-preview')).toContain('Bill ₹1,180.00 to Ramesh. ₹500.00 by UPI now, ₹680.00 due by 20 Nov 2026.'), { timeout: 3000 })
-    expect(text('sell-short-stock')).toContain('Sugar 1kg: you are selling more than Total shows in stock')
+    expect(text('sell-short-stock')).toContain('Sugar 1kg: you are selling more than you have')
+    expect(text('sell-short-stock')).toContain('Record the purchase first, or the profit will be wrong.')
     expect(text('sell-print-title')).toContain('Prints as: Tax invoice')
     expect(bannedWordsIn(visibleText())).toEqual([])
     // A named customer starts on credit (plan §3); paid in cash is one click.

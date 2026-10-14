@@ -81,6 +81,8 @@ export interface StockList {
   rows: StockRow[]
   /** Products running low or out (needsReorder) — Home's attention row says this number. */
   lowCount: number
+  /** WP 10.8: products below zero (sold before their purchase was recorded). */
+  negativeCount?: number
 }
 
 export type StockHistoryWhat = 'opening' | 'bought' | 'sold' | 'returnedIn' | 'returnedOut' | 'counted' | 'made' | 'used' | 'sent' | 'received' | 'adjusted' | 'other'

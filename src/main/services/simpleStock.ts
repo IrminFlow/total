@@ -69,12 +69,14 @@ export function stockList(db: DB, asOn: string): StockList {
       }
     })
     rows.sort((a, b) => a.name.localeCompare(b.name, 'en', { sensitivity: 'base' }))
-    return { asOn, rows, lowCount: rows.filter((r) => needsReorder(r.level)).length }
+    return { asOn, rows, lowCount: rows.filter((r) => needsReorder(r.level)).length, negativeCount: rows.filter((r) => r.qtyMilli < 0).length }
   })()
 }
 
 /** Products running low or out as on `asOn` (Home's "Needs attention"). */
 export const lowStockCount = (db: DB, asOn: string): number => stockList(db, asOn).lowCount
+/** WP 10.8: products sold before their purchase was recorded (less than nothing in stock as on `asOn`). */
+export const negativeStockCount = (db: DB, asOn: string): number => stockList(db, asOn).negativeCount ?? 0
 
 function recipeOf(db: DB, itemId: number, date: string, versions = listBomVersions(db)): StockRecipe | null {
   const v = pickBomVersion(versions, itemId, date)

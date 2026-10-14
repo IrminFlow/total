@@ -34,7 +34,7 @@ import { dashGst, dashSetup, tdsApplies, tdsPayableLedgers, userBackupsOf, type 
 import { anomalies, closeChecklist, getStatement } from './assistants'
 import { extractPurchaseDocs } from './gst'
 import { getRecon2bTolerances } from './gstIms'
-import { lowStockCount } from './simpleStock'
+import { lowStockCount, negativeStockCount } from './simpleStock'
 
 /** The as-on date: what was asked for, never after the server's today. */
 export function homeAsOn(asked: string | undefined, serverToday: string): string {
@@ -250,6 +250,10 @@ export function simpleHomeAttention(db: DB, company: CompanyInfo, today: string)
     // that opens the list filtered to them.
     const low = getFeatures(db).inventory ? lowStockCount(db, today) : 0
     if (low > 0) items.push({ source: 'stock', key: 'low_stock', count: low, amount: null, level: 'medium' })
+    // WP 10.8: stock sold before its purchase was recorded is costed at nothing by the valuation
+    // pass — said on Home as on today (the month-end check only sees last month).
+    const negative = getFeatures(db).inventory ? negativeStockCount(db, today) : 0
+    if (negative > 0) items.unshift({ source: 'stock', key: 'negative_stock', count: negative, amount: null, level: 'high' })
     return { period, items, anomaliesSkipped }
   })()
 }
