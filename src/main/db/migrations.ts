@@ -3445,7 +3445,7 @@ export const MIGRATIONS: string[] = [
   `
   CREATE INDEX IF NOT EXISTS idx_lines_voucher_cover ON voucher_lines(voucher_id, ledger_id, dr_cr, amount);
   CREATE INDEX IF NOT EXISTS idx_lines_ledger_cover ON voucher_lines(ledger_id, voucher_id, dr_cr, amount);
-  CREATE INDEX IF NOT EXISTS idx_vouchers_books_date ON vouchers(date, deleted_at, post_dated, is_optional, is_year_end_close, voucher_type_id, party_ledger_id);
+  CREATE INDEX IF NOT EXISTS idx_vouchers_books_date ON vouchers(date, id, deleted_at, post_dated, is_optional, is_year_end_close, voucher_type_id, party_ledger_id);
   CREATE INDEX IF NOT EXISTS idx_vouchers_type_number ON vouchers(voucher_type_id, number);
   CREATE INDEX IF NOT EXISTS idx_inv_voucher_cover ON inventory_lines(voucher_id, moves_stock, line_order, stock_item_id, godown_id, qty_milli, amount, direction, is_absolute);
   CREATE INDEX IF NOT EXISTS idx_bill_refs_party_cover ON bill_refs(party_ledger_id, voucher_id, kind, name, amount, due_date);
