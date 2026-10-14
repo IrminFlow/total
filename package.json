@@ -72,6 +72,10 @@
       {
         "from": "resources/total.png",
         "to": "total.png"
+      },
+      {
+        "from": "resources/fonts",
+        "to": "fonts"
       }
     ],
     "mac": {

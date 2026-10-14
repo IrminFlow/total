@@ -42,6 +42,9 @@ import { outwardSupplyClass } from './gst'
 import { extractEdocInvoices } from './edocs'
 import { resolveTemplate } from './printTemplates'
 import { plexFontFaceCss } from './printFonts'
+import { printLocale } from './printLocale'
+import { companyT } from '../i18n'
+import type { MessageKey } from '@shared/i18n'
 import { htmlToPdf } from './pdf'
 import { openSalesOrderValue } from './tradeDocs'
 import { IN_BOOKS, NOT_DELETED, saveVoucher } from './vouchers'
@@ -157,7 +160,8 @@ export function statementData(db: DB, company: CompanyInfo, ledgerId: number, fr
 export function statementHtml(db: DB, company: CompanyInfo, ledgerId: number, from: string, to: string): { html: string; data: StatementData } {
   const data = statementData(db, company, ledgerId, from, to)
   const doc: StatementDocument = { shape: 'statement', kind: 'statement', company, statement: data }
-  return { html: renderDocument(resolveTemplate(db, 'statement'), doc, RENDER_OPTS), data }
+  const locale = printLocale(db)
+  return { html: renderDocument(locale.template(resolveTemplate(db, 'statement')), doc, locale.opts), data }
 }
 
 async function writePdf(dir: string, file: string, html: string, db: DB, kind: 'statement' | 'reminder'): Promise<string> {
@@ -278,6 +282,8 @@ export function logReminder(db: DB, r: ReminderLogInsert, extra: Record<string, 
 }
 
 const BUCKET_HEAD: Record<ReminderBucket, string> = { gentle: 'Reminder', firm: 'Second reminder', final: 'Final notice' }
+/** WP 10.4: the same heads in the company language (a localised simple-mode print only). */
+const REMINDER_HEAD_KEY = { gentle: 'simple.print.reminder.gentle', firm: 'simple.print.reminder.firm', final: 'simple.print.reminder.final' } as const satisfies Record<ReminderBucket, MessageKey>
 
 /** Render, save and log one reminder. Refused inside the cadence window unless `force`. */
 export async function remind(
@@ -300,7 +306,9 @@ export async function remind(
       subject: letter.subject, bodyBefore: letter.bodyBefore, bills: letter.bills, bodyAfter: letter.bodyAfter, overdue: letter.overdue
     }
   }
-  const html = renderDocument(resolveTemplate(db, 'reminder'), doc, RENDER_OPTS)
+  const locale = printLocale(db)
+  if (locale.lang !== 'en') doc.reminder.bucketLabel = companyT(db)(REMINDER_HEAD_KEY[cand.bucket])
+  const html = renderDocument(locale.template(resolveTemplate(db, 'reminder')), doc, locale.opts)
   const path = await writePdf(join(companyExportsDir(slug), 'reminders'), `reminder-${cand.bucket}-${safeName(party.name)}-${q.asOn}.pdf`, html, db, 'reminder')
   const logId = logReminder(db, {
     party_ledger_id: q.ledgerId, bucket: cand.bucket, date: q.asOn, amount_paise: cand.overdue, oldest_bill: cand.oldestBill,
