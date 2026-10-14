@@ -44,7 +44,7 @@ before a release that changes them.
 
 ## Running the tests on Windows
 
-PowerShell, from a checkout (Node 22, `npm ci`; `postinstall` rebuilds better-sqlite3 for Electron):
+PowerShell, from a checkout (Node 22, `npm ci`; `postinstall` rebuilds better-sqlite3-multiple-ciphers for Electron):
 
 ```powershell
 npm run typecheck

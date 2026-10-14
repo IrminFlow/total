@@ -59,7 +59,7 @@ and what differs: [docs/windows.md](docs/windows.md).
 Needs Node 22 (the version CI uses) and npm.
 
 ```bash
-npm ci                      # postinstall rebuilds better-sqlite3 for Electron
+npm ci                      # postinstall rebuilds better-sqlite3-multiple-ciphers for Electron
 npm run dev                 # the app with hot reload
 npm test                    # engine tests (pure TypeScript, no database)
 npm run test:db             # database tests, run under Electron-as-Node
@@ -71,8 +71,8 @@ npm run smoke               # headless IPC check of the built app (run build fir
 npm run e2e                 # Playwright UI scenarios against out/ (run build first)
 ```
 
-If better-sqlite3 complains about `NODE_MODULE_VERSION`, rebuild it for Electron:
-`npx @electron/rebuild -f -w better-sqlite3`. If a shell sets `ELECTRON_RUN_AS_NODE=1`, unset it for
+If the SQLite driver (better-sqlite3-multiple-ciphers) complains about `NODE_MODULE_VERSION`, rebuild it for Electron:
+`npx @electron/rebuild -f -w better-sqlite3-multiple-ciphers`. If a shell sets `ELECTRON_RUN_AS_NODE=1`, unset it for
 `smoke` and `e2e` (`env -u ELECTRON_RUN_AS_NODE npm run e2e`). `TOTAL_DATA_DIR=/some/scratch` points the
 app at a scratch data folder instead of `~/Documents/total/`. More in [CLAUDE.md](CLAUDE.md).
 
@@ -99,7 +99,7 @@ commands.
 - `src/shared/` is the pure engine: money as integer paise, dates and financial years, GST calculation
   and validators, GSTR-1/3B and e-invoice builders, posting rules, payroll, the Tally parser. No
   Electron, no database. All the unit tests live here.
-- `src/main/` is the Electron main process: SQLite through better-sqlite3, numbered migrations, the
+- `src/main/` is the Electron main process: SQLite through better-sqlite3-multiple-ciphers (the better-sqlite3 API; optional per-business encryption), numbered migrations, the
   services, and IPC handlers that validate every payload with Zod.
 - `src/renderer/` is the React and Tailwind UI. It reaches main only through the typed client in
   `src/renderer/src/lib/client.ts`.

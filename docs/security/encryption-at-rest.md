@@ -67,6 +67,12 @@ C was rejected because of its asynchronous API.
   passphrase) and mirrored in `<dataRoot>/secrets.json` under safeStorage (`company:<slug>` /
   `dbKeyEnvelope`). The passphrase is never stored; the unwrapped key lives in main's memory only
   while that business is open (`db/encryption.ts` folder-key map; forgotten on close).
+- **Two envelope copies.** They can disagree (the folder put back from an older copy after a
+  passphrase change, a keychain write that failed): an unlock tries each distinct envelope and
+  accepts a key only once it opens the file; a mirror that cannot take a new envelope is cleared so
+  an old passphrase does not survive in it. The envelope's associated data binds its version and
+  scrypt cost, not the business: binding the folder name would break a folder imported under a new
+  name, and an envelope of another business only unwraps a key that does not open this file.
 - **Opening.** `company:open` on an encrypted file without a remembered key fails with
   `passphrase_required`; the picker asks (`simple/PassphrasePrompt.tsx`). Five wrong passphrases
   lock the prompt for 30 s. A plaintext business opens exactly as before — no prompt, nothing asked.
@@ -77,13 +83,44 @@ C was rejected because of its asynchronous API.
   inside the copy (entity `security`), the live handle closed and the copy renamed over the
   original (same directory — atomic), then every backup converted the same way (copy, rekey,
   quick_check, rename). Any difference: the copy is deleted and nothing changes. Re-runnable: a
-  crash before the rename leaves the original; after it the file is the verified copy.
+  crash before the rename leaves the original; after it the file is the verified copy. Review
+  hardening (`db/encryptionCrash.dbtest.ts` simulates a crash at each step): background checks are
+  stopped first; the copy is fsynced (F_FULLFSYNC on macOS) before the rename and the folder after;
+  the swap is refused while the original still has WAL frames (they would be read as pages of the
+  new file); a failed swap reopens the original; a leftover `company.db.converting` (plaintext when
+  the lock was being taken off) is removed before the next open.
 - **Changing the passphrase** re-wraps the same data key: books and backups are not rewritten.
 - **Backups** of a locked business are encrypted with its key (`VACUUM INTO`). The encrypted export
   (`.totalbak`) contains a *plaintext* copy wrapped in its own passphrase file, so a recovery copy
   imports anywhere — the UI offers one right after locking.
 - **Warning.** The screen says, in plain words, that a lost passphrase means lost books, and the
   lock button needs an "I understand" tick.
+
+## What the lock does NOT protect (read this before relying on it)
+
+- **A lost passphrase means lost books.** There is no recovery key, no back door and no support
+  route: the data key exists only inside the envelope, wrapped by the passphrase. The recovery copy
+  (`.totalbak`, offered right after locking) is the only way back — keep it, and its own passphrase,
+  somewhere else. The screen says this and the lock button needs an "I understand" tick.
+- **Copies made before the lock.** Backups inside the business's `backups/` folder are converted
+  when the lock goes on, but any copy the user made elsewhere (a USB stick, a cloud folder, Time
+  Machine / APFS local snapshots of `~/Documents/total/`) stays plaintext. So does the disk space the
+  plaintext `company.db` used to occupy: the converted copy replaces it by a rename, the old file is
+  deleted, never overwritten — secure erase is not possible on APFS / SSDs. Locking protects what is
+  written from now on.
+- **Recovery copies import unlocked.** A `.totalbak` holds a plaintext copy under its own passphrase;
+  importing it creates a business WITHOUT the passphrase lock (turn it on again there).
+- **A backup file alone cannot be opened.** Its key is in `company.key.json` beside the books (and in
+  this Mac's keychain-protected `secrets.json`); there is no in-app way to open an encrypted backup
+  `.db` copied away on its own — copy the whole business folder, or use the `.totalbak`.
+- **Not encrypted at all:** attachments (`attachments/`, `backups/attachments/`), capture files,
+  exports (CSV / XLSX / PDF / JSON), logs, and the temporary plaintext snapshot an encrypted export
+  writes (`exports/.export-tmp-*.db`, removed when the export finishes, or on the next open after a
+  crash). SQLite's own temporary files are not verified to be encrypted (`temp_store` default).
+- **Turning the lock off** decrypts the books and every backup; the key file stays only while some
+  backup could not be converted (it would be unreadable without it) — `backupsFailed` says which.
+- **While the business is open** the key is in the app's memory; anyone at the unlocked Mac can read
+  the books (that is what the screen lock / auto-lock is for).
 
 ## Not covered (deferred)
 
