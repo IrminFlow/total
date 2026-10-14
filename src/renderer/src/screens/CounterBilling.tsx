@@ -80,7 +80,8 @@ interface Pay {
 const NO_PAY: Pay = { cash: '', upi: '', card: '', tendered: '' }
 const payPaise = (s: string): number => parseRupees(s) ?? 0
 
-export function CounterBillingScreen(): React.JSX.Element {
+/** `title`: WP 9.2's simple Quick bill shows the screen under its plain name; omitted = unchanged. */
+export function CounterBillingScreen({ title }: { title?: string } = {}): React.JSX.Element {
   const { info, workingDate, setWorkingDate } = useSession()
   const toast = useToasts()
   const queryClient = useQueryClient()
@@ -467,7 +468,7 @@ export function CounterBillingScreen(): React.JSX.Element {
   return (
     <Page width="wide">
       <PageHeader
-        title="Counter billing"
+        title={title ?? 'Counter billing'}
         subtitle={
           <span className="flex items-center gap-2">
             <span>

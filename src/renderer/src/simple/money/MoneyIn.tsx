@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import type { Ledger } from '@shared/domain'
 import type { MessageKey } from '@shared/i18n'
@@ -66,6 +66,10 @@ export function MoneyIn({ party, amount, bill }: { party?: number; amount?: numb
     enabled: billsParty != null
   })
   const open = useMemo(() => (billsParty != null ? (bills ?? []) : []), [billsParty, bills])
+  // Opened for a bill ("Record a payment") that is no longer open under that name: oldest first.
+  useEffect(() => {
+    if (bill && bills && form.ticks?.length === 1 && form.ticks[0] === bill && !bills.some((b) => b.name === bill)) setForm((f) => ({ ...f, ticks: null }))
+  }, [bills]) // eslint-disable-line react-hooks/exhaustive-deps
   const sources = { ownerId: setup?.ownerId ?? null }
   const defaults = setup?.defaultsIn ?? { cash: null, upi: null, card: null, bank: null }
   const alloc = useMemo(() => billAllocation(open, form.amount, form.ticks, form.advance), [open, form.amount, form.ticks, form.advance])

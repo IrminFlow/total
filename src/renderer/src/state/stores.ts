@@ -75,6 +75,11 @@ export type Screen =
   | { name: 'simple-money-out'; party?: number; amount?: number; bill?: string }
   | { name: 'simple-move-money' }
   | { name: 'simple-money'; entryId?: number }
+  // WP 9.2: Sell — Make a bill, the sales list (`billId` = that bill's simple view), Quick bill
+  // (the Counter screen inside the simple shell).
+  | { name: 'simple-sell' }
+  | { name: 'simple-sales'; billId?: number }
+  | { name: 'simple-quick-bill' }
   | { name: 'counter-billing' }
   // Books search results (⌘⇧F, or "See all" in the ⌘K palette): `q` is the query-language
   // string, `kind` the initially selected tab (omitted = all kinds).

@@ -10,7 +10,8 @@ export type HomeTaskId = 'sale' | 'purchase' | 'money-in' | 'money-out'
  * the WP 8.1 hand-off); Phase 9 swaps a target for its simple flow by changing its `screen` here.
  */
 export const HOME_TASKS: readonly { id: HomeTaskId; label: MessageKey; screen: Screen }[] = [
-  { id: 'sale', label: 'simple.home.addSale', screen: { name: 'voucher-entry', kindHint: 'sales' } }, // i18n-technical
+  // WP 9.2: + Sale opens the simple Make a bill flow.
+  { id: 'sale', label: 'simple.home.addSale', screen: { name: 'simple-sell' } }, // i18n-technical
   { id: 'purchase', label: 'simple.home.addPurchase', screen: { name: 'voucher-entry', kindHint: 'purchase' } }, // i18n-technical
   // WP 9.4: + Money in / + Money out open the simple Money flows.
   { id: 'money-in', label: 'simple.home.moneyIn', screen: { name: 'simple-money-in' } }, // i18n-technical

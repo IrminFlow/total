@@ -7,6 +7,18 @@ import type { VoucherKind } from '../domain'
 import type { Translate } from '../i18n'
 import { formatPaise } from '../money'
 
+/** A bill's amount as the customer / supplier sees it: what its party line moves by (the rounded
+ *  total, TCS included). The debit side is NOT that on a rounded-DOWN bill — the editor posts the
+ *  round-off on the party's side, so the debits add up to the unrounded total. Falls back to the
+ *  debit side when the entry has no party line (e.g. a receipt, or a sale billed to cash). */
+export function billAmount(lines: readonly { ledgerId: number; drCr: 'dr' | 'cr'; amount: number }[], partyLedgerId: number | null): number {
+  const debits = lines.filter((l) => l.drCr === 'dr').reduce((s, l) => s + l.amount, 0)
+  if (partyLedgerId == null) return debits
+  const party = lines.filter((l) => l.ledgerId === partyLedgerId)
+  if (party.length === 0) return debits
+  return Math.abs(party.reduce((s, l) => s + (l.drCr === 'dr' ? l.amount : -l.amount), 0))
+}
+
 /** Whether Undo is still offered for a group of just-saved vouchers. */
 export interface UndoState {
   undoable: boolean
@@ -21,7 +33,7 @@ export interface SaveCardEntry {
   kind: VoucherKind
   number: string
   date: string
-  /** Voucher total (its debit side), paise. */
+  /** Voucher total, paise: a bill's / note's party amount (`billAmount`), else its debit side. */
   amount: number
   /** Receipts / payments: the cash or bank account the money went through. */
   money: { name: string; isCash: boolean; amount: number } | null
