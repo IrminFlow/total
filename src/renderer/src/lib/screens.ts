@@ -2,6 +2,7 @@ import type { Screen } from '../state/stores'
 import type { CompanyFeatures } from '@shared/features'
 import type { MessageKey } from '@shared/i18n'
 import { SIMPLE_SECTION_IDS, type SimpleSectionId, type UiMode } from '@shared/simple/uiMode'
+import type { HelpArticleId } from '../help/articles'
 
 /**
  * The single screen registry — Shell's sidebar NAV, the Gateway cards, the CommandPalette's
@@ -74,6 +75,9 @@ export interface ScreenDef {
   simpleSection?: SimpleSectionId
   /** WP 8.1: the plain-named entries simple sections list for this screen. */
   simpleEntries?: SimpleEntry[]
+  /** WP 10.3: the help article the help panel opens on this screen (required with 'simple' —
+   *  simpleRegistry.test.ts; help/articles.test.ts checks the article exists). */
+  helpKey?: HelpArticleId
   /** Canonical name — used by the command palette (and the sidebar unless navLabel differs). */
   title: string
   /** Default navigation target (screens with required params aren't navigable from here). */
@@ -106,6 +110,7 @@ export const SCREENS: ScreenDef[] = [
     // Simple view = simple/SimpleHome (WP 8.6 grows it); accountant view = the Gateway dashboard.
     modes: ['accountant', 'simple'],
     simpleView: 'SimpleHome',
+    helpKey: 'getting-started',
     simpleSection: 'home',
     title: 'Gateway',
     screen: { name: 'gateway' },
@@ -912,6 +917,7 @@ export const SCREENS: ScreenDef[] = [
     name: 'simple-section',
     modes: ['simple'],
     simpleView: 'SimpleSection',
+    helpKey: 'getting-started',
     title: 'Simple section',
     screen: null, // needs its section
     navSection: null,
@@ -922,10 +928,25 @@ export const SCREENS: ScreenDef[] = [
     name: 'simple-looks',
     modes: ['simple'],
     simpleView: 'SimpleLooks',
+    helpKey: 'settings',
     simpleSection: 'settings',
     simpleEntries: [{ id: 'looks', label: 'simple.settings.looks', screen: { name: 'simple-looks' } }],
     title: 'How Total looks',
     screen: null, // simple shell only (its accountant home is Settings → How Total looks)
+    navSection: null,
+    invalidates: []
+  },
+  // WP 10.3: Settings → Help & tour — show the first-run tour of Home again, open the help panel.
+  {
+    name: 'simple-help',
+    modes: ['simple'],
+    simpleView: 'HelpSettings',
+    helpKey: 'getting-started',
+    simpleSection: 'settings',
+    simpleEntries: [{ id: 'help-tour', label: 'simple.settings.helpTour', screen: { name: 'simple-help' } }],
+    title: 'Help & tour',
+    keywords: ['help', 'tour', 'how do i', 'guide'],
+    screen: null, // simple shell only
     navSection: null,
     invalidates: []
   },
@@ -935,6 +956,7 @@ export const SCREENS: ScreenDef[] = [
     name: 'simple-features',
     modes: ['simple'],
     simpleView: 'SimpleFeatures',
+    helpKey: 'settings',
     simpleSection: 'settings',
     simpleEntries: [{ id: 'features', label: 'simple.settings.features', screen: { name: 'simple-features' } }],
     title: 'Features',
@@ -949,6 +971,7 @@ export const SCREENS: ScreenDef[] = [
     name: 'simple-openings',
     modes: ['simple'],
     simpleView: 'Openings',
+    helpKey: 'day-one',
     simpleSection: 'settings',
     simpleEntries: [{ id: 'openings', label: 'simple.settings.openings', screen: { name: 'simple-openings' } }],
     title: 'Opening balances (day one)',
@@ -964,6 +987,7 @@ export const SCREENS: ScreenDef[] = [
     name: 'simple-bank',
     modes: ['simple'],
     simpleView: 'bank/BankScreen',
+    helpKey: 'bank-statement',
     simpleSection: 'money',
     simpleEntries: [{ id: 'bank', label: 'simple.entries.bank', screen: { name: 'simple-bank' } }],
     title: 'Bank',
@@ -981,6 +1005,7 @@ export const SCREENS: ScreenDef[] = [
     name: 'simple-money-in',
     modes: ['simple'],
     simpleView: 'money/MoneyIn',
+    helpKey: 'money-in-out',
     simpleSection: 'money',
     simpleEntries: [{ id: 'money-in', label: 'simple.home.moneyIn', screen: { name: 'simple-money-in' } }],
     title: 'Money in',
@@ -993,6 +1018,7 @@ export const SCREENS: ScreenDef[] = [
     name: 'simple-money-out',
     modes: ['simple'],
     simpleView: 'money/MoneyOut',
+    helpKey: 'money-in-out',
     simpleSection: 'money',
     simpleEntries: [{ id: 'money-out', label: 'simple.home.moneyOut', screen: { name: 'simple-money-out' } }],
     title: 'Money out',
@@ -1005,6 +1031,7 @@ export const SCREENS: ScreenDef[] = [
     name: 'simple-move-money',
     modes: ['simple'],
     simpleView: 'money/MoveMoney',
+    helpKey: 'money-in-out',
     simpleSection: 'money',
     simpleEntries: [{ id: 'move-money', label: 'simple.entries.moveMoney', screen: { name: 'simple-move-money' } }],
     title: 'Move money',
@@ -1018,6 +1045,7 @@ export const SCREENS: ScreenDef[] = [
     name: 'simple-money',
     modes: ['simple'],
     simpleView: 'money/MoneyList',
+    helpKey: 'money-in-out',
     simpleSection: 'money',
     simpleEntries: [{ id: 'money-list', label: 'simple.entries.moneyList', screen: { name: 'simple-money' } }],
     title: 'Money in and out',
@@ -1032,6 +1060,7 @@ export const SCREENS: ScreenDef[] = [
     name: 'simple-sell',
     modes: ['simple'],
     simpleView: 'sell/MakeBill',
+    helpKey: 'make-a-bill',
     simpleSection: 'sell',
     simpleEntries: [{ id: 'make-bill', label: 'simple.entries.makeBill', screen: { name: 'simple-sell' } }],
     title: 'Make a bill',
@@ -1045,6 +1074,7 @@ export const SCREENS: ScreenDef[] = [
     name: 'simple-sales',
     modes: ['simple'],
     simpleView: 'sell/SalesList',
+    helpKey: 'make-a-bill',
     simpleSection: 'sell',
     simpleEntries: [{ id: 'sales-list', label: 'simple.entries.salesList', screen: { name: 'simple-sales' } }],
     title: 'Sales list',
@@ -1058,6 +1088,7 @@ export const SCREENS: ScreenDef[] = [
     name: 'simple-quick-bill',
     modes: ['simple'],
     simpleView: 'sell/QuickBill',
+    helpKey: 'make-a-bill',
     simpleSection: 'sell',
     simpleEntries: [{ id: 'quick-bill', label: 'simple.entries.quickBill', screen: { name: 'simple-quick-bill' }, feature: 'inventory' }],
     title: 'Quick bill',
@@ -1073,6 +1104,7 @@ export const SCREENS: ScreenDef[] = [
     name: 'simple-return-sale',
     modes: ['simple'],
     simpleView: 'returns/ReturnSale',
+    helpKey: 'returns',
     simpleSection: 'sell',
     simpleEntries: [{ id: 'sale-returns', label: 'simple.entries.saleReturns', screen: { name: 'simple-return-sale' } }],
     title: 'Return a sale',
@@ -1085,6 +1117,7 @@ export const SCREENS: ScreenDef[] = [
     name: 'simple-return-purchase',
     modes: ['simple'],
     simpleView: 'returns/ReturnPurchase',
+    helpKey: 'returns',
     simpleSection: 'buy',
     simpleEntries: [{ id: 'purchase-returns', label: 'simple.entries.purchaseReturns', screen: { name: 'simple-return-purchase' } }],
     title: 'Return a purchase',
@@ -1100,6 +1133,7 @@ export const SCREENS: ScreenDef[] = [
     name: 'simple-buy',
     modes: ['simple'],
     simpleView: 'buy/RecordPurchase',
+    helpKey: 'record-a-purchase',
     simpleSection: 'buy',
     simpleEntries: [{ id: 'record-purchase', label: 'simple.entries.recordPurchase', screen: { name: 'simple-buy' } }],
     title: 'Record a purchase',
@@ -1113,6 +1147,7 @@ export const SCREENS: ScreenDef[] = [
     name: 'simple-purchases',
     modes: ['simple'],
     simpleView: 'buy/PurchaseList',
+    helpKey: 'record-a-purchase',
     simpleSection: 'buy',
     simpleEntries: [{ id: 'purchase-list', label: 'simple.entries.purchaseList', screen: { name: 'simple-purchases' } }],
     title: 'Purchase list',
@@ -1131,6 +1166,7 @@ export const SCREENS: ScreenDef[] = [
     name: 'simple-people',
     modes: ['simple'],
     simpleView: 'people/PeopleList',
+    helpKey: 'people-and-reminders',
     simpleSection: 'people',
     simpleEntries: [
       { id: 'customers-suppliers', label: 'simple.entries.customersSuppliers', screen: { name: 'simple-people' } },
@@ -1148,6 +1184,7 @@ export const SCREENS: ScreenDef[] = [
     name: 'simple-person',
     modes: ['simple'],
     simpleView: 'people/PersonView',
+    helpKey: 'people-and-reminders',
     simpleSection: 'people',
     title: 'Person',
     screen: null, // opened from the People list
@@ -1161,6 +1198,7 @@ export const SCREENS: ScreenDef[] = [
     name: 'simple-stock',
     modes: ['simple'],
     simpleView: 'stock/StockList',
+    helpKey: 'stock-and-count',
     simpleSection: 'stock',
     simpleEntries: [
       { id: 'products', label: 'simple.entries.products', screen: { name: 'simple-stock' } },
@@ -1179,6 +1217,7 @@ export const SCREENS: ScreenDef[] = [
     name: 'simple-stock-count',
     modes: ['simple'],
     simpleView: 'stock/StockCount',
+    helpKey: 'stock-and-count',
     simpleSection: 'stock',
     simpleEntries: [{ id: 'stock-count', label: 'simple.entries.stockCount', screen: { name: 'simple-stock-count' } }],
     title: 'Count your stock',
@@ -1194,6 +1233,7 @@ export const SCREENS: ScreenDef[] = [
     name: 'simple-made-goods',
     modes: ['simple'],
     simpleView: 'stock/MadeGoods',
+    helpKey: 'made-goods',
     simpleSection: 'stock',
     simpleEntries: [{ id: 'made-goods', label: 'simple.stock.madeGoods', screen: { name: 'simple-made-goods' } }],
     title: 'Made goods',
@@ -1211,6 +1251,7 @@ export const SCREENS: ScreenDef[] = [
     name: 'simple-reports',
     modes: ['simple'],
     simpleView: 'reports/ReportsScreen',
+    helpKey: 'reports',
     simpleSection: 'reports',
     simpleEntries: [
       { id: 'how-am-i-doing', label: 'simple.reports.howAmIDoing', screen: { name: 'simple-reports', report: 'doing' } },
@@ -1231,6 +1272,7 @@ export const SCREENS: ScreenDef[] = [
     name: 'simple-taxes',
     modes: ['simple'],
     simpleView: 'taxes/TaxesScreen',
+    helpKey: 'gst',
     simpleSection: 'taxes',
     simpleEntries: [
       { id: 'gst-summary', label: 'simple.entries.gstToPay', screen: { name: 'simple-taxes' }, needs: 'gstRegular' },
@@ -1300,7 +1342,7 @@ export const SIMPLE_ENTRY_ORDER: readonly string[] = [
   // Taxes
   'gst-summary', 'gst-sales', 'check-supplier-bills', 'tds', 'tcs',
   // Settings (then Advanced)
-  'business', 'openings', 'bills-printing', 'backups', 'people-roles', 'features', 'looks', 'advanced'
+  'business', 'openings', 'bills-printing', 'backups', 'people-roles', 'features', 'looks', 'help-tour', 'advanced'
 ]
 
 export interface ResolvedSimpleEntry {
@@ -1360,6 +1402,27 @@ export function simpleSectionOf(screen: Screen): SimpleSectionId | null {
   // WP 8.7: the opening setup opened from Home's step keeps Home highlighted.
   if (screen.name === 'simple-openings' && screen.from === 'home') return 'home'
   return byName.get(screen.name)?.simpleSection ?? null
+}
+
+/** WP 10.3: the article for each simple section's page (and for a full-app screen opened from it). */
+export const SECTION_HELP: Record<SimpleSectionId, HelpArticleId> = {
+  home: 'getting-started',
+  sell: 'make-a-bill',
+  buy: 'record-a-purchase',
+  money: 'money-in-out',
+  stock: 'stock-and-count',
+  people: 'people-and-reminders',
+  reports: 'reports',
+  taxes: 'gst',
+  settings: 'settings'
+}
+
+/** WP 10.3: the help article for a screen — its own helpKey, a section page's article, else the
+ *  article of the section a full-app screen belongs to, else Getting started. */
+export function helpKeyFor(screen: Screen): HelpArticleId {
+  if (screen.name === 'simple-section') return SECTION_HELP[screen.section]
+  const def = byName.get(screen.name)
+  return def?.helpKey ?? (def?.simpleSection ? SECTION_HELP[def.simpleSection] : 'getting-started')
 }
 
 /** Query-key families to refresh when `name` becomes the visible screen. */

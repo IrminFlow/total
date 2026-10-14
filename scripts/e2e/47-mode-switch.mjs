@@ -71,7 +71,7 @@ await scenario('47-mode-switch', async (h) => {
   await attached('[data-testid="simple-section-settings"]')
   assertSame(
     await h.page.evaluate(() => [...document.querySelectorAll('[data-testid^="simple-entry-"]')].map((e) => e.getAttribute('data-testid'))),
-    ['business', 'openings', 'bills-printing', 'backups', 'people-roles', 'features', 'looks', 'advanced'].map((i) => `simple-entry-${i}`),
+    ['business', 'openings', 'bills-printing', 'backups', 'people-roles', 'features', 'looks', 'help-tour', 'advanced'].map((i) => `simple-entry-${i}`),
     'simple Settings list'
   )
 

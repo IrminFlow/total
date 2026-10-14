@@ -19,6 +19,7 @@ import { useDynamicNav } from '../lib/dynamicNav'
 import '../lib/pinnedReports'
 import { AssistantPanel } from './ai/AssistantPanel'
 import { AssistantButton } from './ai/AssistantButton'
+import { HelpPanel } from '../simple/help/HelpPanel'
 
 /** Sidebar derived from the single screen registry (lib/screens.ts) — accountant-mode screens. */
 const NAV = ACCOUNTANT_NAV
@@ -263,6 +264,8 @@ export function Shell({ children, onOpenPalette }: { children: ReactNode; onOpen
         </main>
         {/* WP 5.2: docked beside the screen (the screen narrows), on every screen. */}
         <AssistantPanel />
+        {/* WP 10.3: the help panel (simple companies only; renders nothing in the full app). */}
+        <HelpPanel />
       </div>
 
       {periodOpen && <PeriodModal onClose={() => setPeriodOpen(false)} />}

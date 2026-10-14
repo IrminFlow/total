@@ -434,7 +434,7 @@ function glossaryFind(term: string): GlossaryEntry | null {
   return glossaryEntry(t) ?? glossaryEntry(t.replace(/s$/, '')) ?? ENTRIES.find((e) => e.plain.toLowerCase() === t) ?? null
 }
 
-/** Help search (WP 10.3's help articles are not there yet): the plain glossary, by the words asked. */
+/** Glossary search by the words asked — the second source next to WP 10.3's help articles, which the panel searches itself (renderer, bundled). */
 export function helpSearch(text: string, lang: Language, limit = 3): { term: string; plain: string; explain: string }[] {
   const words = text.toLowerCase().split(/[^\p{L}\p{N}]+/u).filter((w) => w.length >= 3)
   if (!words.length) return []

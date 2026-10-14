@@ -5,6 +5,8 @@
 // today, the cash / bank balances as on today, GSTR-3B on the tile's month); + Sale / + Purchase open Make a bill / Record a purchase, Money in the editor in the
 // full app; "Needs attention" shows when the close checklist / anomalies find something (the demo
 // has bills past their due date). Home is captured light and dark, and for an empty company.
+// WP 10.3: on the empty company ? opens the help on Home's article, and Sell → Sales list shows
+// its teaching empty state (Learn how → Make a bill's article).
 // WP86_SHOTS=<dir> also copies the screenshots there for the visual review.
 import * as fs from 'node:fs'
 import * as path from 'node:path'
@@ -245,4 +247,42 @@ await scenario('52-home', async (h) => {
   assertEq(await page.$('[data-testid="simple-setup-gstin"]'), null, 'the GST number step is not shown as done for an unregistered company')
   assert((await textOf(h, '[data-testid="simple-home-empty-next"]')).length > 0, 'the next setup step is the way in')
   await shoot(h, '05-home-empty')
+
+  // ---------- WP 10.3: the help panel opens on Home's article (? and the header button) ----------
+  await page.evaluate(() => (document.activeElement instanceof HTMLElement ? document.activeElement.blur() : undefined))
+  await page.keyboard.press('?')
+  await attached(h, '[data-testid="help-panel"]')
+  assertEq(await page.getAttribute('[data-testid="help-article"]', 'data-article'), 'getting-started', '? opens the help on Home’s article')
+  assertEq(await textOf(h, '[data-testid="help-article-title"]'), 'Getting started', 'the article’s title')
+  await h.waitIdle()
+  await page.waitForTimeout(400) // the panel slides in
+  await shoot(h, '06-help-home-light')
+  await h.fill('help-search', 'bank statement')
+  await attached(h, '[data-testid="help-hit"][data-article="bank-statement"]')
+  await h.click('drawer-close')
+  await page.waitForSelector('[data-testid="help-panel"]', { state: 'detached', timeout: 5000 })
+  await h.click('btn-help')
+  await attached(h, '[data-testid="help-article"][data-article="getting-started"]')
+  await h.click('btn-help')
+  await page.waitForSelector('[data-testid="help-panel"]', { state: 'detached', timeout: 5000 })
+
+  // ---------- WP 10.3: Sell → Sales list before the first bill teaches ----------
+  await h.click('simple-nav-sell')
+  await h.click('simple-entry-sales-list')
+  await h.waitScreen('simple-sales')
+  await attached(h, '[data-testid="simple-sales-empty"]')
+  await h.waitIdle()
+  assert((await textOf(h, '[data-testid="simple-sales-empty"] [data-testid="empty-purpose"]')).length > 20, 'the empty list says what it is for')
+  assertEq(await page.$$eval('[data-testid="simple-sales-empty"] [data-empty-action]', (els) => els.length), 1, 'one primary action')
+  await shoot(h, '07-sales-empty-light')
+  await h.click('empty-learn')
+  await attached(h, '[data-testid="help-article"][data-article="make-a-bill"]')
+  await h.click('btn-theme')
+  await page.waitForFunction(() => document.documentElement.dataset.theme === 'dark')
+  await page.waitForTimeout(400)
+  await shoot(h, '08-sales-empty-help-dark')
+  await h.click('btn-theme')
+  await page.waitForFunction(() => document.documentElement.dataset.theme !== 'dark')
+  await h.click('btn-sales-empty-make')
+  await h.waitScreen('simple-sell')
 })

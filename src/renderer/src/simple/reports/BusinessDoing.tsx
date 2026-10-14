@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { EmptyTeach } from '../help/EmptyTeach'
 import { useQuery } from '@tanstack/react-query'
 import { toPlainDate } from '@shared/dates'
 import { mapError, type CaughtError } from '@shared/errors'
@@ -8,7 +9,7 @@ import {
 } from '@shared/simple/explain'
 import { api } from '../../lib/client'
 import { useT } from '../../lib/i18n'
-import { useSession, type Screen } from '../../state/stores'
+import { useNav, useSession, type Screen } from '../../state/stores'
 import { Button, DateInput, Field, Page, SkeletonTiles } from '../../components/ui'
 import { Choice, LoadError, ReportHeader, WhyLink, cardCls, money } from './parts'
 
@@ -24,6 +25,7 @@ const OWED = { name: 'simple-reports', report: 'owed', side: 'receivable' } as c
  */
 export function BusinessDoing(): React.JSX.Element {
   const t = useT()
+  const nav = useNav()
   const today = useSession((s) => s.workingDate)
   const [period, setPeriod] = useState<ReportPeriodKind>('this-month')
   const [from, setFrom] = useState('')
@@ -74,9 +76,12 @@ export function BusinessDoing(): React.JSX.Element {
       {q.isError && !err?.fields.to && !err?.fields.from && <LoadError testId="doing" text={t('simple.reports.loadError')} onRetry={() => void q.refetch()} />}
       {q.isLoading && query && <SkeletonTiles count={3} />}
       {d && d.empty && (
-        <section className={cardCls} data-testid="doing-empty">
-          <p className="text-detail text-ink">{t('simple.reports.doing.empty')}</p>
-        </section>
+        <EmptyTeach
+          testId="doing-empty"
+          purpose={t('simple.reports.doing.empty')}
+          action={{ label: t('simple.sales.makeBill'), testId: 'btn-doing-empty-sell', onClick: () => nav.go({ name: 'simple-sell' }) }} // i18n-technical
+          help="reports" // i18n-technical
+        />
       )}
       {d && !d.empty && <DoingBody d={d} />}
     </Page>

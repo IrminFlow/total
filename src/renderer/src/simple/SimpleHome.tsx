@@ -9,6 +9,7 @@ import { useNav } from '../state/stores'
 import { Page } from '../components/ui'
 import { Button, SkeletonTiles, Why } from '../components/kit'
 import { OpeningsHomeCard } from './OpeningsHomeCard'
+import { HomeTour } from './help/Tour'
 import { HOME_TASKS, accountScreen, attentionScreen, deadlineScreen, homeReportScreen, type HomeReport } from './homeTasks'
 import { onboardingFromDashSetup, type OnboardingChecklist, type OnboardingStepId } from '@shared/onboarding'
 import { todayISO, toPlainDate } from '@shared/dates'
@@ -75,6 +76,8 @@ export function SimpleHome(): React.JSX.Element {
         </div>
       )}
       {home && <HomeBody home={home} />}
+      {/* WP 10.3: the first-run tour (once per company + user after setup; Help runs it again). */}
+      <HomeTour />
     </Page>
   )
 }

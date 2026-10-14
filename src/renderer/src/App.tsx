@@ -99,6 +99,8 @@ import { DialogHost } from './components/dialogs'
 import { DrillHost } from './components/DrillHost'
 import { LinkedDocsHost } from './components/LinkedDocs'
 import { invalidationFamilies } from './lib/screens'
+import { handleHelpKey } from './help/keys'
+import { HelpSettings } from './simple/HelpSettings'
 
 export default function App(): React.JSX.Element {
   const { slug, locked, integrityWarning, setIntegrityWarning } = useSession()
@@ -129,6 +131,9 @@ export default function App(): React.JSX.Element {
         useAssistantPanel.getState().toggle()
         return
       }
+      // WP 10.3: ⌘/ (anywhere) and ? (no box focused) — the help panel on this screen's article,
+      // in a simple company; the full app keeps ? for its shortcut reference (below).
+      if (!integrityWarning && handleHelpKey(e)) return
       // ⌘⇧F — the full Search results screen (focuses its query box when already there).
       if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key.toLowerCase() === 'f') {
         e.preventDefault()
@@ -199,6 +204,7 @@ export default function App(): React.JSX.Element {
           {screen.name === 'simple-section' && <SimpleSection key={screen.section} section={screen.section} />}
           {screen.name === 'simple-looks' && <SimpleLooks />}
           {screen.name === 'simple-features' && <SimpleFeatures />}
+          {screen.name === 'simple-help' && <HelpSettings />}
           {screen.name === 'simple-openings' && <Openings />}
           {screen.name === 'simple-money-in' && <MoneyIn key={`${screen.party ?? ''}|${screen.amount ?? ''}|${screen.bill ?? ''}|${screen.billId ?? ''}|${screen.date ?? ''}|${screen.bankId ?? ''}|${screen.ask ? JSON.stringify(screen.ask) : ''}`} party={screen.party} amount={screen.amount} bill={screen.bill} billId={screen.billId} date={screen.date} bankId={screen.bankId} reference={screen.reference} note={screen.note} ask={screen.ask} />}
           {screen.name === 'simple-money-out' && <MoneyOut key={`${screen.party ?? ''}|${screen.amount ?? ''}|${screen.bill ?? ''}|${screen.billId ?? ''}|${screen.date ?? ''}|${screen.bankId ?? ''}|${screen.ask ? JSON.stringify(screen.ask) : ''}`} party={screen.party} amount={screen.amount} bill={screen.bill} billId={screen.billId} date={screen.date} bankId={screen.bankId} reference={screen.reference} note={screen.note} ask={screen.ask} />}

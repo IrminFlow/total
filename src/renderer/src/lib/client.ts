@@ -687,6 +687,10 @@ export const api = {
     ask: (input: AssistAskInput) => call<AssistAnswer>('assist:ask', input),
     draft: (input: AssistAskInput) => call<AssistDraftResult>('assist:draft', input)
   },
+  /** WP 10.3: open a help article's GST portal / CBIC link in the system browser (allow-listed in main). */
+  help: {
+    openLink: (url: string) => call<void>('help:openLink', { url })
+  },
   /** WP 8.6: everything the simple Home shows, as on `today`, in one round trip. */
   simple: {
     home: (today: string) => call<SimpleHomeData>('simple:home', { today }),
