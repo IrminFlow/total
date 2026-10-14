@@ -9,6 +9,8 @@ import { SetupWizard } from '../simple/SetupWizard'
 import { CompanySelect } from '../screens/CompanySelect'
 import { useNav, useSession } from '../state/stores'
 import type { SimpleSetupInput } from '@shared/simple/setup'
+import { t } from '@shared/i18n'
+import { LANGUAGE_KEY } from '../lib/i18n'
 
 const TODAY = '2026-10-13'
 const invoke = vi.fn()
@@ -121,6 +123,48 @@ describe('setup wizard', () => {
     const [payload, opts] = onFinish.mock.calls[0]! as unknown as [SimpleSetupInput, { tally: boolean }]
     expect(payload).toMatchObject({ businessType: 'services', gst: 'regular', gstin: '27AAPFU0939F1ZV', filing: 'quarterly', stock: false, startDate: '2025-07-01', fresh: false, mode: 'accountant', fromTally: true })
     expect(opts).toEqual({ tally: true })
+  })
+
+  it('WP 10.4: the language is asked first and applies at once; the payload carries it as the company language', async () => {
+    const { onFinish } = renderWizard()
+    // English to start with on an English machine; the picker sits above the first question.
+    expect(screen.getByTestId('setup-language-en').getAttribute('aria-checked')).toBe('true')
+    expect(screen.getByTestId('setup-step-label').textContent).toBe('Step 1 of 6')
+    click('setup-language-hi')
+    expect(localStorage.getItem(LANGUAGE_KEY)).toBe('hi')
+    // The wizard itself re-renders in Hindi.
+    expect(screen.getByTestId('setup-step-label').textContent).toBe(t('simple.setup.step', { step: 1, total: 6 }, 'hi'))
+    expect(screen.getByTestId('setup-next').textContent).toBe(t('common.next', undefined, 'hi'))
+    fireEvent.change(screen.getByTestId('setup-name'), { target: { value: 'Ramesh Kirana' } })
+    next()
+    click('setup-type-retail')
+    next()
+    click('setup-gst-no')
+    next()
+    next()
+    // Dates in plain words follow the language too.
+    expect(screen.getByTestId('setup-start-today').textContent).toContain('13 अक्तू 2026')
+    click('setup-start-fy')
+    click('setup-fresh-new')
+    next()
+    click('setup-finish')
+    await waitFor(() => expect(onFinish).toHaveBeenCalledTimes(1))
+    const [payload] = onFinish.mock.calls[0]! as unknown as [SimpleSetupInput]
+    expect(payload.language).toBe('hi')
+  })
+
+  it('WP 10.4: a Hindi OS suggests Hindi when nothing is chosen yet; a stored choice wins', () => {
+    const lang = vi.spyOn(window.navigator, 'language', 'get').mockReturnValue('hi-IN')
+    try {
+      renderWizard()
+      expect(screen.getByTestId('setup-language-hi').getAttribute('aria-checked')).toBe('true')
+      cleanup()
+      localStorage.setItem(LANGUAGE_KEY, 'hinglish')
+      renderWizard()
+      expect(screen.getByTestId('setup-language-hinglish').getAttribute('aria-checked')).toBe('true')
+    } finally {
+      lang.mockRestore()
+    }
   })
 
   it('"not sure" is explained and asks for nothing more; Back keeps the answers', () => {
