@@ -1,7 +1,7 @@
 import { useQuery } from '@tanstack/react-query'
 import { toPlainDate } from '@shared/dates'
 import type { CashFlowSource, CashItem, SimpleCash } from '@shared/simple/reports'
-import { cashNext30Why, shortDate } from '@shared/simple/explain'
+import { cashEndWhy, cashInWhy, cashNext30Why, cashNowWhy, cashOutWhy, shortDate } from '@shared/simple/explain'
 import { api } from '../../lib/client'
 import { useT } from '../../lib/i18n'
 import { useSession } from '../../state/stores'
@@ -39,14 +39,17 @@ export function CashNext30(): React.JSX.Element {
 function CashBody({ c }: { c: SimpleCash }): React.JSX.Element {
   const t = useT()
   const why = cashNext30Why(c, t)
-  const link = { label: t('simple.reports.cash.accountant'), screen: FORECAST }
+  const link = { label: t('simple.why.link.forecast'), screen: FORECAST }
+  // WP 10.2: each figure has its own "Why?" — today's money opens the trial balance as on today,
+  // limited to the cash and bank accounts (the forecast starts from it); the rest the forecast.
+  const tb = { label: t('simple.why.link.cashToday'), screen: { name: 'trial-balance', asOn: c.asOn, ledgerIds: c.split.ledgerIds } as const } // i18n-technical
   return (
     <>
       <ul className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <FigureTile id="cash-now" title={t('simple.reports.cash.now')} paise={c.now} why={why} link={link} />
-        <FigureTile id="cash-in" title={t('simple.reports.cash.in')} paise={c.moneyIn} why={why} link={link} />
-        <FigureTile id="cash-out" title={t('simple.reports.cash.out')} paise={c.moneyOut} why={why} link={link} />
-        <FigureTile id="cash-end" emphasis title={t('simple.reports.cash.end', { date: shortDate(c.until, c.asOn) })} paise={c.end} why={why} link={link} />
+        <FigureTile id="cash-now" title={t('simple.reports.cash.now')} paise={c.now} why={cashNowWhy(c, t)} link={tb} />
+        <FigureTile id="cash-in" title={t('simple.reports.cash.in')} paise={c.moneyIn} why={cashInWhy(c, t)} whyExtra={(c.inBy.customers ?? 0) > 0 ? t('simple.reports.cash.estimate') : null} link={link} />
+        <FigureTile id="cash-out" title={t('simple.reports.cash.out')} paise={c.moneyOut} why={cashOutWhy(c, t)} link={link} />
+        <FigureTile id="cash-end" emphasis title={t('simple.reports.cash.end', { date: shortDate(c.until, c.asOn) })} paise={c.end} why={cashEndWhy(c, t)} link={link} />
       </ul>
       <p className="mt-3 text-detail text-ink" data-testid="cash-sentence">
         {why}

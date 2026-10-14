@@ -47,6 +47,12 @@ async function shoot(h, name) {
     fs.mkdirSync(dir, { recursive: true })
     fs.copyFileSync(file, path.join(dir, `${name}.png`))
   }
+  // WP 10.2: the "Why?" popovers for the visual review.
+  const whyDir = process.env.WP102_SHOTS
+  if (whyDir && name.includes('why-profit')) {
+    fs.mkdirSync(whyDir, { recursive: true })
+    fs.copyFileSync(file, path.join(whyDir, `${name}.png`))
+  }
 }
 
 await scenario('52-home', async (h) => {
@@ -120,6 +126,22 @@ await scenario('52-home', async (h) => {
   }
   await backHome(h)
 
+  // WP 10.2: the profit "Why?" says what the FY's profit is made of and compares the month; its
+  // link opens the P&L for the FY to today (not the session period's whole year).
+  await h.click('simple-why-profit')
+  const profitWhy = await textOf(h, '[data-testid="simple-why-profit-sentence"]')
+  assert(profitWhy.includes(`₹${formatPaise(Math.abs(home.profit.year.netProfit))}`), `the profit Why quotes the profit: ${profitWhy}`)
+  assert(profitWhy.includes(`₹${formatPaise(home.profit.year.lines.sales)}`), 'and the sales it came from')
+  assert((await textOf(h, '[data-testid="simple-why-profit-compare"]')).includes('the same days last month'), 'the month is compared')
+  await h.click('simple-why-profit-link')
+  await h.waitScreen('profit-loss')
+  const disp = (iso) => {
+    const [yy, mm, dd] = iso.split('-').map(Number)
+    return `${String(dd).padStart(2, '0')}-${['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'][mm - 1]}-${String(yy % 100).padStart(2, '0')}`
+  }
+  await page.waitForFunction(([f, to]) => document.querySelector('[data-testid="input-pnl-from"]')?.value === f && document.querySelector('[data-testid="input-pnl-to"]')?.value === to, [disp(home.profit.year.from), disp(today)], { timeout: 15000 })
+  await backHome(h)
+
   // WP 9.9: the GST tile opens the simple Taxes screen on its period, with the same cash figure.
   await openLink(h, 'gst')
   await attached(h, '[data-testid="simple-taxes"] [data-testid="tile-gst-to-pay"]')
@@ -189,6 +211,12 @@ await scenario('52-home', async (h) => {
   await attached(h, '[data-testid="btn-back-to-simple"]')
   await backHome(h)
   await attached(h, '[data-testid="simple-tile-receivables"]')
+
+  await h.click('simple-why-profit')
+  await attached(h, '[data-testid="simple-why-profit-sentence"]')
+  await page.waitForTimeout(300)
+  await shoot(h, '04-home-why-profit-light')
+  await page.keyboard.press('Escape')
 
   // ---------- dark ----------
   await h.click('btn-theme')

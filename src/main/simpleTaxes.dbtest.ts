@@ -93,6 +93,14 @@ describe('simple:taxes — regular (WP 9.9)', () => {
     expect(x.figures.collected).toBe(sum4(v.outward) + v.zeroRated.igst + v.zeroRated.cess)
     expect(x.figures.onPurchases).toBe(sum4(v.itc))
     expect(x.figures.toPay).toBe(sum4(v.netPayable) + sum4(v.rcmPayable))
+    // WP 10.2: the "Why?" parts are gstr3b()'s own — RCM part = 3.1(d), the cash on sales =
+    // netPayable, the reverse charge cash = rcmPayable; credit used + left = the credit.
+    expect(x.figures.reverseCharge).toBe(sum4(v.rcm))
+    expect(x.figures.cashOnSales).toBe(sum4(v.netPayable))
+    expect(x.figures.rcmCash).toBe(sum4(v.rcmPayable))
+    expect(x.figures.cashOnSales + x.figures.rcmCash).toBe(x.figures.toPay)
+    expect(x.figures.collected - x.figures.creditUsed).toBe(x.figures.cashOnSales)
+    expect(x.figures.creditUsed + x.figures.creditLeft).toBe(x.figures.onPurchases)
     expect(x.figures.collected).toBeGreaterThan(0)
     expect(x.due).toMatchObject({ gstr1: gstr1DueDate(x.period.period, 'monthly'), gstr3b: gstr3bDueDate(x.period.period, 'monthly', '27').date, gstr3bUnverified: false, pmt06: [] })
     expect(x.figures.checked).toBe('none')
@@ -220,7 +228,7 @@ describe('simple:taxes — hand-worked figures (review, WP 9.9)', () => {
     const x = await ok<Regular>('simple:taxes', { period: month, today: TODAY })
     // Collected 360 + 360 + 540 = ₹1,260. Credit ₹1,080 (all IGST-free). Set-off: CGST 540 pays
     // CGST 360, its 180 left pays IGST; SGST likewise → IGST 540 − 180 − 180 = ₹180 in cash.
-    expect(x.figures).toEqual({ collected: 1_260_00, reverseCharge: 0, onPurchases: 1_080_00, awaiting: 0, checked: 'none', toPay: 180_00 })
+    expect(x.figures).toEqual({ collected: 1_260_00, reverseCharge: 0, onPurchases: 1_080_00, awaiting: 0, checked: 'none', toPay: 180_00, cashOnSales: 180_00, rcmCash: 0, creditUsed: 1_080_00, creditLeft: 0 })
     // The accountant GSTR-3B screen's "Net payable in cash" says the same.
     const v = await view3b(x.period.from, x.period.to, month)
     expect(v.netPayable).toEqual({ igst: 180_00, cgst: 0, sgst: 0, cess: 0 })
@@ -286,7 +294,7 @@ describe('simple:taxes — not regular, roles (WP 9.9)', () => {
     expect(r.kind).toBe('unregistered')
     expect(r.withholding).toEqual([
       {
-        kind: 'tds', thisMonth: 300_00, thisMonthDue: '2026-05-07', totalUnpaid: 900_00,
+        kind: 'tds', thisMonth: 300_00, thisMonthDue: '2026-05-07', totalUnpaid: 900_00, lateUnpaid: 0,
         unpaid: [{ month: '2026-03', amount: 600_00, dueDate: '2026-04-30', late: false }, { month: '2026-04', amount: 300_00, dueDate: '2026-05-07', late: false }]
       }
     ])

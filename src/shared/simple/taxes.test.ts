@@ -6,7 +6,8 @@ import { translator } from '../i18n'
 import { bannedWordsIn } from './bannedWords'
 import { cmp08DueDate, gstr1DueDate, gstr3bDueDate, gstr4DueDate, pmt06DueDate, qrmp3bDay } from '../gst/filing'
 import { upcomingDeadlines } from '../compliance'
-import { gstPeriodChoices, gstPeriodFor, nextCompositionDue, normalizeArn, normalizeGstFiled, stepsDone, type SimpleTaxes } from './taxes'
+import { creditParts, gstPeriodChoices, gstPeriodFor, nextCompositionDue, normalizeArn, normalizeGstFiled, stepsDone, type SimpleTaxes } from './taxes'
+import { applySetOff } from '../gst/returns'
 import { collectedWhy, creditStatus, onPurchasesWhy, taxesPeriodLabel, toPayWhy, withholdingUnpaidText } from './explain'
 import { GST_STATES } from '../gst/states'
 
@@ -105,7 +106,7 @@ describe('the GST answer sentences', () => {
   const regular = (over: Partial<Extract<SimpleTaxes, { kind: 'regular' }>['figures']> = {}): Extract<SimpleTaxes, { kind: 'regular' }> => ({
     kind: 'regular', today: '2026-10-14', filing: 'monthly',
     period: { period: '2026-09', from: '2026-09-01', to: '2026-09-30', quarterly: false, soFar: false },
-    periods: [], figures: { collected: 18_000_00, reverseCharge: 0, onPurchases: 10_800_00, awaiting: 0, checked: 'none', toPay: 7_200_00, ...over },
+    periods: [], figures: { collected: 18_000_00, reverseCharge: 0, onPurchases: 10_800_00, awaiting: 0, checked: 'none', toPay: 7_200_00, cashOnSales: 7_200_00, rcmCash: 0, creditUsed: 10_800_00, creditLeft: 0, ...over },
     due: { gstr1: '2026-10-11', gstr3b: '2026-10-20', gstr3bUnverified: false, pmt06: [] },
     missing: [], supplierBills: [], prepared: { gstr1: null, gstr3b: null }, filesMonthly: false, filed: {}, withholding: []
   })
@@ -133,5 +134,25 @@ describe('the GST answer sentences', () => {
     expect(withholdingUnpaidText({ month: '2026-09', amount: 1_000_00, dueDate: '2026-10-07', late: true }, '2026-10-14', t)).toBe('Sep 2026: ₹1,000.00 still to pay, due 7 Oct — late')
     expect(withholdingUnpaidText({ month: '2026-10', amount: 500_00, dueDate: '2026-11-07', late: false }, '2026-10-14', t)).toBe('Oct 2026: ₹500.00 still to pay, due 7 Nov')
     expect(withholdingUnpaidText({ month: null, amount: 500_00, dueDate: null, late: true }, '2026-10-14', t)).toBe('From before your books began: ₹500.00 still to pay.')
+  })
+})
+
+describe('the credit used / left (WP 10.2 review)', () => {
+  const sum = (s: { igst: number; cgst: number; sgst: number; cess: number }): number => s.igst + s.cgst + s.sgst + s.cess
+  const parts = (liability: { igst: number; cgst: number; sgst: number; cess: number }, credit: typeof liability): ReturnType<typeof creditParts> & { cash: number } => {
+    const cash = sum(applySetOff(liability, credit))
+    return { ...creditParts(sum(liability), cash, sum(credit)), cash }
+  }
+  it('an ordinary month: used = collected − cash, left = credit − used', () => {
+    // CGST 900 / SGST 900 collected, credit CGST 540 / SGST 540 → 360 + 360 cash.
+    expect(parts({ igst: 0, cgst: 900_00, sgst: 900_00, cess: 0 }, { igst: 0, cgst: 540_00, sgst: 540_00, cess: 0 })).toEqual({ cash: 720_00, creditUsed: 1_080_00, creditLeft: 0 })
+    // More credit than tax: CGST credit 1,000 pays CGST 500, SGST 500 stays cash (CGST can't pay SGST).
+    expect(parts({ igst: 0, cgst: 500_00, sgst: 500_00, cess: 0 }, { igst: 0, cgst: 1_000_00, sgst: 0, cess: 0 })).toEqual({ cash: 500_00, creditUsed: 500_00, creditLeft: 500_00 })
+  })
+  it('a month of returns (negative sales tax) never reads as negative credit used or as credit the purchases did not give', () => {
+    // CGST −100 on sales (returns), no purchases: the set-off pays nothing; nothing is "left over".
+    expect(parts({ igst: 0, cgst: -100_00, sgst: 0, cess: 0 }, { igst: 0, cgst: 0, sgst: 0, cess: 0 })).toEqual({ cash: 0, creditUsed: 0, creditLeft: 0 })
+    // With ₹1,000 of credit: all of it is left (the return is not credit from purchases).
+    expect(parts({ igst: 0, cgst: -100_00, sgst: 0, cess: 0 }, { igst: 0, cgst: 1_000_00, sgst: 0, cess: 0 })).toEqual({ cash: 0, creditUsed: 0, creditLeft: 1_000_00 })
   })
 })

@@ -10,13 +10,14 @@ import { Page } from '../components/ui'
 import { Button, SkeletonTiles, Why } from '../components/kit'
 import { OpeningsHomeCard } from './OpeningsHomeCard'
 import { HomeTour } from './help/Tour'
-import { HOME_TASKS, accountScreen, attentionScreen, homeReportScreen, type HomeReport } from './homeTasks'
+import { HOME_TASKS, accountScreen, attentionScreen, deadlineScreen, homeReportScreen, type HomeReport } from './homeTasks'
 import { onboardingFromDashSetup, type OnboardingChecklist, type OnboardingStepId } from '@shared/onboarding'
 import { todayISO, toPlainDate } from '@shared/dates'
 import type { MessageKey } from '@shared/i18n'
 import { homeAttentionRows, isEmptyHome, owedAttention, type HomeGst, type SimpleHomeData } from '@shared/simple/home'
 import {
-  attentionText, cashWhy, deadlineText, gstLine, gstLinkLabel, gstWhy, money, moneyInWhy, moneyOutWhy, payablesWhy, profitSentence, profitWhy, receivablesWhy
+  attentionText, cashWhy, deadlineText, deadlineWhy, gstLine, gstLinkLabel, gstWhy, homeProfitWhy, money, monthCompareWhy, moneyInWhy, moneyOutWhy, payablesWhy, profitSentence,
+  receivablesWhy
 } from '@shared/simple/explain'
 
 /** Plain labels for the onboarding steps, keyed by step id (the step logic stays in onboarding.ts).
@@ -251,10 +252,14 @@ function HomeBody({ home }: { home: SimpleHomeData }): React.JSX.Element {
             <Why
               label={t('common.why')}
               ariaLabel={t('simple.home.whyLabel', { what: t('simple.home.profitTitle') })}
-              sentence={profitWhy(home.profit, t)}
+              sentence={homeProfitWhy(home.profit, t)}
               link={links.profit}
               testId="simple-why-profit"
-            />
+            >
+              <p className="text-small text-muted" data-testid="simple-why-profit-compare">
+                {monthCompareWhy(home.profit, t)}
+              </p>
+            </Why>
           </div>
         </li>
       </ul>
@@ -266,11 +271,21 @@ function HomeBody({ home }: { home: SimpleHomeData }): React.JSX.Element {
         <section className={`${cardCls} mt-5`} data-testid="simple-home-coming-up">
           <h2 className="text-title font-semibold text-ink">{t('simple.home.deadlinesTitle')}</h2>
           <ul className="mt-2 flex flex-col gap-1">
-            {home.deadlines.map((d) => (
-              <li key={d.id} className="text-detail text-ink" data-testid={`simple-deadline-${d.kind}`}>
-                {deadlineText(d, home.today, t)}
-              </li>
-            ))}
+            {home.deadlines.map((d) => {
+              const target = deadlineScreen(d.kind)
+              return (
+                <li key={d.id} className="flex flex-wrap items-baseline justify-between gap-x-3 text-detail text-ink">
+                  <span data-testid={`simple-deadline-${d.kind}`}>{deadlineText(d, home.today, t)}</span>
+                  <Why
+                    label={t('common.why')}
+                    ariaLabel={t('simple.home.whyLabel', { what: deadlineText(d, home.today, t) })}
+                    sentence={deadlineWhy(d, home.today, t)}
+                    link={target ? { label: d.kind === 'tds' ? t('simple.why.link.tds') : t('simple.why.link.payroll'), onOpen: () => nav.go(target) } : undefined}
+                    testId={`simple-why-deadline-${d.kind}`}
+                  />
+                </li>
+              )
+            })}
           </ul>
           {home.backup.nudge && home.backup.days != null && (
             <div className="mt-3 flex flex-wrap items-center justify-between gap-3 rounded-md bg-panel2 px-3 py-2" data-testid="simple-home-backup-nudge">

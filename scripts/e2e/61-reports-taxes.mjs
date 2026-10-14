@@ -47,6 +47,26 @@ await scenario('61-reports-taxes', async (h) => {
     await h.click('btn-theme')
     await page.waitForFunction(() => document.documentElement.dataset.theme === 'light')
   }
+  // WP 10.2: a "Why?" popover in both themes (opened after each theme switch — the switch closes it).
+  const shootWhy = async (name, id) => {
+    for (const want of ['light', 'dark']) {
+      if ((await page.evaluate(() => document.documentElement.dataset.theme)) !== want) {
+        await h.click('btn-theme')
+        await page.waitForFunction((w) => document.documentElement.dataset.theme === w, want)
+      }
+      if (!(await page.$(`[data-testid="${id}-sentence"]`))) await h.click(id)
+      await attached(h, `[data-testid="${id}-sentence"]`)
+      await page.waitForTimeout(400)
+      const file = await h.shot(`${name}-${want}`)
+      const dir = process.env.WP102_SHOTS
+      if (dir) {
+        fs.mkdirSync(dir, { recursive: true })
+        fs.copyFileSync(file, path.join(dir, `${name}-${want}.png`))
+      }
+    }
+    await h.click('btn-theme')
+    await page.waitForFunction(() => document.documentElement.dataset.theme === 'light')
+  }
   const text = async (sel) => ((await page.textContent(sel)) ?? '').replace(/\s+/g, ' ').trim()
   const paise = async (testId) => Number(await page.getAttribute(`[data-testid="${testId}"]`, 'data-paise'))
   const noBanned = async (where) => {
@@ -127,7 +147,21 @@ await scenario('61-reports-taxes', async (h) => {
   assertEq(fyPl.netProfit, 4_000_00, 'profit ₹10,000 sold − ₹6,000 the fans cost (none left)')
   await h.click('why-doing-profit')
   assert((await text('[data-testid="why-doing-profit-sentence"]')).includes('You made a profit of ₹4,000.00'), 'the profit sentence')
-  await page.keyboard.press('Escape')
+  // WP 10.2: the comparison under it, and the link opens the P&L for exactly this period.
+  assert((await text('[data-testid="why-doing-profit-extra"]')).includes('than the period before'), 'the comparison with the period before')
+  await noBanned('How is my business doing — Why?')
+  await shootWhy('why-doing-profit', 'why-doing-profit')
+  if (!(await page.$('[data-testid="why-doing-profit-link"]'))) await h.click('why-doing-profit')
+  await h.click('why-doing-profit-link')
+  const disp = (iso) => {
+    const [y, m, d] = iso.split('-').map(Number)
+    return `${String(d).padStart(2, '0')}-${['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'][m - 1]}-${String(y % 100).padStart(2, '0')}`
+  }
+  await page.waitForFunction(([f, to]) => document.querySelector('[data-testid="input-pnl-from"]')?.value === f && document.querySelector('[data-testid="input-pnl-to"]')?.value === to, [disp(fyFrom), disp(today)], { timeout: 15000 })
+  await h.click('btn-back-to-simple')
+  await attached(h, '[data-testid="simple-nav"]')
+  await openEntry('reports', 'how-am-i-doing')
+  await attached(h, '[data-testid="doing-line-sales"]')
   await noBanned('How is my business doing')
   await shoot('01-doing')
 
@@ -180,6 +214,24 @@ await scenario('61-reports-taxes', async (h) => {
   }
   await noBanned('Taxes steps')
   await shoot('04-steps', '[data-testid="taxes-steps"]')
+
+  // WP 10.2: the cash to pay in its parts (collected − what the purchases' GST covers), and a due
+  // date's "Why?" whose link opens that return in the full app.
+  await page.locator('[data-testid="tile-gst-to-pay"]').scrollIntoViewIfNeeded()
+  await h.click('why-gst-to-pay')
+  const toPayWhy = await text('[data-testid="why-gst-to-pay-sentence"]')
+  if (x.figures.toPay > 0) assert(toPayWhy.includes('Of the ₹1,800.00 you collected, ₹1,080.00 is covered by the GST on your purchases, so ₹720.00 is left'), `the cash to pay in parts: ${toPayWhy}`)
+  assertEq(bannedWordsIn(toPayWhy).length, 0, 'no accounting words in the Why')
+  await page.keyboard.press('Escape')
+  await shootWhy('why-gst-to-pay', 'why-gst-to-pay') // (the last theme switch closes it — no Esc: that would go back)
+  await page.locator('[data-testid="taxes-dates"]').scrollIntoViewIfNeeded()
+  await h.click('why-due-gstr3b')
+  assert((await text('[data-testid="why-due-gstr3b-sentence"]')).includes('the 20th of the next month'), 'the 3B date explained')
+  await h.click('why-due-gstr3b-link')
+  await attached(h, '[data-testid="btn-back-to-simple"]')
+  await page.waitForFunction(() => document.querySelector('main')?.textContent?.includes('GSTR-3B'))
+  await h.click('btn-back-to-simple')
+  await attached(h, '[data-testid="simple-nav"]')
 
   // ================= 5. an unregistered kirana =================
   await h.click('btn-switch-company')

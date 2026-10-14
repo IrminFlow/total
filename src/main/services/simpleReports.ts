@@ -14,7 +14,7 @@ import type { CompanyInfo } from '@shared/domain'
 import { AppError } from '@shared/errors'
 import { addDaysISO, buildForecast, SCENARIO_PRESETS, type ForecastSource } from '@shared/cashForecast'
 import {
-  CASH_HORIZON_DAYS, doingLines, last12Months, monthBars, owedRows, previousSpan, reportSpan, topParts,
+  CASH_HORIZON_DAYS, doingLines, last12Months, monthBars, monthTotals, owedRows, previousSpan, reportSpan, topParts,
   type BusinessDoing, type CashFlowSource, type CashItem, type DoingCash, type DoingOwed, type DoingQuery, type SimpleByMonth, type SimpleCash, type SimpleOwed
 } from '@shared/simple/reports'
 import { closingBalances, descendantIdSet, profitAndLoss } from './reports'
@@ -141,9 +141,11 @@ export function cashNext30(db: DB, company: CompanyInfo, today: string): SimpleC
     // The running balance day by day; the lowest point when it dips below today's balance.
     let running = base.openingCash
     let lowest: SimpleCash['lowest'] = null
+    let belowZero: SimpleCash['belowZero'] = base.openingCash < 0 ? { amount: base.openingCash, date: today } : null
     for (const day of [...byDay.keys()].sort()) {
       running += byDay.get(day)!
       if (running < base.openingCash && (!lowest || running < lowest.amount)) lowest = { amount: running, date: day }
+      if (running < 0 && !belowZero) belowZero = { amount: running, date: day }
     }
     const top = (dir: 'in' | 'out'): CashItem[] =>
       items
@@ -163,7 +165,11 @@ export function cashNext30(db: DB, company: CompanyInfo, today: string): SimpleC
       outBy,
       topIn: top('in'),
       topOut: top('out'),
-      warnings: base.warnings.length
+      warnings: base.warnings.length,
+      // The trial balance's cash / bank rows as on today — the forecast's opening (the dbtest
+      // pins split.total = now).
+      split: cashAt(db, today),
+      belowZero
     }
   })()
 }
@@ -187,9 +193,8 @@ export function owedList(db: DB, side: 'receivable' | 'payable', today: string):
 export function byMonth(db: DB, today: string): SimpleByMonth {
   const months = last12Months(today)
   const from = `${months[0]}-01`
-  return db.transaction((): SimpleByMonth => ({
-    months: monthBars(months, registerByMonth(db, 'sales', from, today), registerByMonth(db, 'purchase', from, today)),
-    from,
-    to: today
-  }))()
+  return db.transaction((): SimpleByMonth => {
+    const bars = monthBars(months, registerByMonth(db, 'sales', from, today), registerByMonth(db, 'purchase', from, today))
+    return { months: bars, from, to: today, totals: monthTotals(bars) }
+  })()
 }

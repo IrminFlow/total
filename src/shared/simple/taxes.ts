@@ -54,6 +54,26 @@ export interface GstFigures {
   checked: 'none' | 'some' | 'all'
   /** Cash to pay after the credit is used: 3B's netPayable + rcmPayable. */
   toPay: number
+  /** WP 10.2 — the parts of `toPay` as gstr3b() returns them: the tax on sales left after the
+   *  credit is used (netPayable) and the reverse charge (rcmPayable, always cash). toPay =
+   *  cashOnSales + rcmCash. */
+  cashOnSales: number
+  rcmCash: number
+  /** Of the credit, what the set-off used against the tax on sales (collected − cashOnSales) and
+   *  what is left over for the next return (onPurchases − creditUsed). */
+  creditUsed: number
+  creditLeft: number
+}
+
+/**
+ * WP 10.2 review — of the credit, what the set-off used against the tax on sales and what is left
+ * for the next return. gstr3b()'s set-off turns a head whose sales tax is NEGATIVE (a month of
+ * returns) into extra credit; that is not GST paid on purchases, so neither part may go below zero
+ * or past the credit itself. Pure.
+ */
+export function creditParts(collected: number, cashOnSales: number, onPurchases: number): { creditUsed: number; creditLeft: number } {
+  const creditUsed = Math.min(Math.max(0, collected - cashOnSales), Math.max(0, onPurchases))
+  return { creditUsed, creditLeft: Math.max(0, onPurchases - creditUsed) }
 }
 
 export interface GstDue {
@@ -143,6 +163,8 @@ export interface TaxesWithholding {
   /** Still unpaid, oldest first (FIFO against every payment up to today). */
   unpaid: { month: string | null; amount: number; dueDate: string | null; late: boolean }[]
   totalUnpaid: number
+  /** WP 10.2 — of `totalUnpaid`, the part already past its due date. */
+  lateUnpaid: number
 }
 
 export interface CompositionDue {

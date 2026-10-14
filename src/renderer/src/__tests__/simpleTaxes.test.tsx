@@ -20,7 +20,7 @@ const SEP = { period: '2026-09', from: '2026-09-01', to: '2026-09-30', quarterly
 const REGULAR: Regular = {
   kind: 'regular', today: '2026-10-13', filing: 'monthly', period: SEP,
   periods: [{ period: '2026-10', from: '2026-10-01', to: '2026-10-13', quarterly: false, soFar: true }, SEP, { period: '2026-08', from: '2026-08-01', to: '2026-08-31', quarterly: false, soFar: false }],
-  figures: { collected: 18_000_00, reverseCharge: 0, onPurchases: 10_800_00, awaiting: 1_200_00, checked: 'all', toPay: 7_200_00 },
+  figures: { collected: 18_000_00, reverseCharge: 0, onPurchases: 10_800_00, awaiting: 1_200_00, checked: 'all', toPay: 7_200_00, cashOnSales: 7_200_00, rcmCash: 0, creditUsed: 10_800_00, creditLeft: 0 },
   due: { gstr1: '2026-10-11', gstr3b: '2026-10-20', gstr3bUnverified: false, pmt06: [] },
   missing: [{ key: 'unbilled_goods', count: 2 }],
   supplierBills: [{ month: '2026-09', imported: true, matched: 4, categories: [{ category: 'missing_in_2b', count: 1, tax: 1_200_00 }] }],
@@ -73,7 +73,7 @@ describe('Taxes — regular GST (WP 9.9)', () => {
     expect(screen.getByTestId('taxes-due-gstr3b').textContent).toBe('GSTR-3B (the summary, with the payment): by 20 Oct 2026')
     expect(screen.queryByTestId('taxes-due-gstr3b-passed')).toBeNull()
     fireEvent.click(screen.getByTestId('why-gst-to-pay'))
-    expect((await screen.findByTestId('why-gst-to-pay-sentence')).textContent).toContain('₹7,200.00 is left to pay in cash by 20 Oct')
+    expect((await screen.findByTestId('why-gst-to-pay-sentence')).textContent).toContain('₹10,800.00 is covered by the GST on your purchases, so ₹7,200.00 is left — to pay by 20 Oct')
     expect(bannedWordsIn(visibleText())).toEqual([])
     fireEvent.click(screen.getByTestId('taxes-accountant-view'))
     await waitFor(() => expect(lastScreen()).toEqual({ name: 'gstr3b', month: '2026-09' }))
@@ -156,7 +156,7 @@ describe('Taxes — regular GST (WP 9.9)', () => {
 
 describe('Taxes — not regular (WP 9.9)', () => {
   it('unregistered: nothing to file; TDS when on', async () => {
-    reply = { kind: 'unregistered', today: '2026-10-13', withholding: [{ kind: 'tds', thisMonth: 300_00, thisMonthDue: '2026-11-07', totalUnpaid: 900_00, unpaid: [{ month: '2026-09', amount: 600_00, dueDate: '2026-10-07', late: true }, { month: '2026-10', amount: 300_00, dueDate: '2026-11-07', late: false }] }] }
+    reply = { kind: 'unregistered', today: '2026-10-13', withholding: [{ kind: 'tds', thisMonth: 300_00, thisMonthDue: '2026-11-07', totalUnpaid: 900_00, lateUnpaid: 600_00, unpaid: [{ month: '2026-09', amount: 600_00, dueDate: '2026-10-07', late: true }, { month: '2026-10', amount: 300_00, dueDate: '2026-11-07', late: false }] }] }
     renderUi(<TaxesScreen />)
     expect(within(await screen.findByTestId('taxes-unregistered')).getByTestId('empty-purpose').textContent).toBe('You are not registered for GST, so there is nothing to file.')
     expect(screen.getByTestId('taxes-tds-this-month').textContent).toBe('TDS you deducted this month: ₹300.00, pay by 7 Nov.')
