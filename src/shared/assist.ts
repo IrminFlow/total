@@ -119,6 +119,8 @@ export interface AssistAnswer {
   suggestions?: string[]
   /** Help search over the plain glossary (WP 10.3 help articles are not there yet). */
   help?: { term: string; plain: string; explain: string }[]
+  /** "Open X": where the panel goes right away (resolved by the search service / the place words). */
+  open?: AssistTarget
   /** Not understood: with AI on, the panel may pass the question to the model. */
   understood: boolean
 }
