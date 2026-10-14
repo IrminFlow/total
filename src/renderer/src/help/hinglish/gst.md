@@ -4,15 +4,15 @@ GST (Goods and Services Tax) woh tax hai jo aap apne bills mein jodte hain aur s
 
 ## GST mein registered nahi hain?
 
-Tab aapke bills par GST nahi lagta aur file karne ko kuch nahi hai. Agar aap baad mein register hote hain, to ise Business ki details mein badlein aur woh date dein jab se aap registered hain (aaj ki, jab tak aap use na badlein); Total us date se bills mein GST jodta hai.
+Tab aapke bills par GST nahi lagta aur file karne ko kuch nahi hai. Agar aap baad mein register hote hain, to ise Business ki jaankari mein badlein aur woh date dein jab se aap registered hain (aaj ki, jab tak aap use na badlein); Total us date se bills mein GST jodta hai.
 
 ## Registered (regular)
 
 [Tax](total://screen/simple-taxes) har period ke liye teen alag figures dikhata hai:
 
-1. **Aapka liya GST** — aapki sale par.
-2. **Aapki purchase par GST** — suppliers ne aapse jo liya, jo aam taur par aapke bharne wale GST mein se kam ho jaata hai. Total yeh bhi batata hai ki ismein se kitna aapke suppliers ne abhi portal par confirm nahi kiya hai (unka GSTR-2B).
-3. **Bharna hai** — cash mein kitna bharna baaki hai, aur kab tak.
+1. **Aapne jo GST liya** — aapki sale par.
+2. **Purchase par diya GST** — suppliers ne aapse jo liya, jo aam taur par aapke bharne wale GST mein se kam ho jaata hai. Total yeh bhi batata hai ki ismein se kitna aapke suppliers ne abhi portal par confirm nahi kiya hai (unka GSTR-2B).
+3. **Cash mein bharna hai** — cash mein kitna bharna baaki hai, aur kab tak.
 
 ## Dates
 
@@ -30,4 +30,4 @@ Shak ho to portal ya [CBIC](https://cbic-gst.gov.in) par dekh lein.
 
 ## File karna, step by step
 
-Tax screen aapko har step par le chalti hai: check karein ki har bill likha gaya hai, suppliers ke bills portal se milayein, files taiyaar karein, unhe portal par file karein, phir **Maine file kar diya** dabayein aur portal se mila reference number (ARN) likhein.
+Tax screen aapko har step par le chalti hai: check karein ki har bill likha gaya hai, suppliers ke bills portal se milayein, files taiyaar karein, unhe portal par file karein, phir **Maine file kar diya** dabayein aur portal se mila acknowledgement number (ARN) likhein.

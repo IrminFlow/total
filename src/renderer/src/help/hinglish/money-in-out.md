@@ -21,7 +21,7 @@ Batayein ki paisa cash mein aaya ya kisi bank account mein.
 - aap kisi supplier ko payment karein — uske bina chukaye bills dikhte hain aur sabse purane pehle tick hote hain;
 - aap koi kharcha chukayein — kiraya, salary, chai, bijli. Tiles mein se chunein ki yeh kis cheez ke liye tha;
 - aap apne liye paise nikaalein;
-- aap salary dein (jab Features mein salary on ho).
+- aap salary dein (jab “Features” mein salary chalu ho).
 
 Loan lautana abhi choices mein nahi hai — apne accountant se kahein ki woh ise full app mein likhein.
 

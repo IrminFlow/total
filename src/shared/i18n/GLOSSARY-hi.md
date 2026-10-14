@@ -98,3 +98,48 @@ in both catalogues.
 | bin                      | बिन (हटाई गई चीज़ें)  | bin                     |
 | day one (openings)       | पहला दिन              | pehla din               |
 | AI helper                | AI मददगार             | AI helper               |
+| Accountant view (toggle)  | अकाउंटेंट व्यू         | Accountant view         |
+| Back to simple (button)  | आसान स्क्रीन पर लौटें  | Simple screen par lautein |
+| Not sure (wizard answer) | पक्का नहीं            | Pakka nahi              |
+| People (screen)          | लोग                   | Log                     |
+| Features (Settings)      | सुविधाएँ              | Features                |
+| Help & tour / tour       | मदद और टूर / टूर      | Help aur tour / tour    |
+| How Total looks          | Total कैसा दिखे        | Total kaisa dikhe       |
+| People & roles           | लोग और उनके अधिकार    | Log aur unke adhikaar   |
+| Bills & printing         | बिल और प्रिंट          | Bill aur print          |
+| Record a purchase        | खरीद लिखें             | Purchase likhein        |
+| Return a sale / purchase | बिक्री की वापसी / खरीद की वापसी | Sale return / Purchase return |
+| Count your stock         | स्टॉक गिनें            | Stock ginein            |
+| Running low (nav entry)  | कम बचा माल            | Kam bacha maal          |
+| Cash in the next 30 days | अगले 30 दिन में नकद    | Agle 30 din mein cash   |
+| Partly / Partly paid     | कुछ चुकाया            | Thoda paid              |
+| Paid by (method)         | कैसे चुकाया            | Kaise chukaya           |
+| profit and loss (report) | मुनाफ़ा-घाटा           | profit-loss             |
+| your books               | आपका हिसाब            | aapka hisaab            |
+| walk-in / cash customer  | नकद ग्राहक            | Cash customer           |
+| GST rate                 | GST रेट (prints: GST दर) | GST rate             |
+| GST you collected        | आपने जो GST लिया       | Aapne jo GST liya       |
+| TDS (tax deducted at source) | TDS (स्रोत पर काटा गया टैक्स) | TDS (source par kaata gaya tax) |
+| TCS (tax collected at source) | TCS (स्रोत पर लिया गया टैक्स) | TCS (source par liya gaya tax) |
+| ARN                      | पावती नंबर (ARN)       | Acknowledgement number (ARN) |
+| Why this number?         | यह आँकड़ा क्यों?       | Yeh figure kyun?        |
+| figure(s)                | आँकड़ा / आँकड़े (always with ँ) | figure(s)        |
+| credit hold              | रोक (रोक लगाएँ / रोक लगी है) | hold (Hold par)  |
+| kind of account (not "group") | खाते की किस्म      | account ki kism         |
+
+## Decisions from the consistency pass (WP 10.4 review)
+
+- **A label quoted inside a sentence uses the label's own words**, inside “…” (e.g. “सुविधाएँ”, “पैसे आए”,
+  “आसान स्क्रीन पर लौटें”, “लोग”). Hinglish quotes the screen name too — “Log” — so it is not read as the
+  English word "log".
+- **Screens of the full app that are still English** (Settings → Backups: Export encrypted…, Restore…,
+  Import encrypted backup…; Assistants; Manufacture) are quoted in English in Hindi text and help, with a
+  Hindi gloss in brackets where useful.
+- **What the user says is gender-neutral**: no "मैं … करता/करती हूँ", "समझ गया" or "kar raha hoon" in
+  answers and buttons. Use the plural/noun form instead — "हाँ, स्टॉक रखते हैं", "माल बनाना
+  (मैन्युफ़ैक्चरिंग)", "नहीं, शुरुआत Total से ही", "ठीक है, समझ आ गया" / "Theek hai, samajh aa gaya".
+  Past forms with ने ("मैंने नया शुरू किया", "मैंने फ़ाइल कर दिया") are already neutral. Total itself speaks
+  in the masculine ("Total … करता है", "मैं … नहीं दे सकता") — it is the app's name.
+- **Direction of money**: a line shown for both customers and suppliers never says who pays —
+  "{days} दिन में आखिरी तारीख" / "{days} din mein due", "आखिरी तारीख आज". "Who still has to pay" =
+  "किसने अभी पैसे नहीं दिए" (not "किसे पैसे देने हैं", which means "whom you have to pay").
