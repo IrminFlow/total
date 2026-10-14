@@ -33,6 +33,15 @@ const fetchLatest = makeFetchLatest((url, init) => fetch(url, init), {
   log: (level, message, extra) => log(level, message, extra)
 })
 
+/** A corrupt app-settings.json reads as the defaults; say so in the log once per run (it is read often). */
+let corruptLogged = false
+const onCorrupt = (error: string): void => {
+  if (corruptLogged) return
+  corruptLogged = true
+  log('warn', 'app-settings-unreadable', { error })
+}
+const readSettings = (): ReturnType<typeof readUpdateSettings> => readUpdateSettings(dataRoot(), onCorrupt)
+
 let updater: Updater | null = null
 let actor: string | null = null
 
@@ -47,8 +56,8 @@ function build(): Updater {
     engine: autoUpdater as never,
     currentVersion: app.getVersion(),
     releasesUrl: RELEASES_URL,
-    readSettings: () => readUpdateSettings(dataRoot()),
-    writeSettings: (patch) => writeUpdateSettings(dataRoot(), patch, actor, app.getVersion()),
+    readSettings,
+    writeSettings: (patch) => writeUpdateSettings(dataRoot(), patch, actor, app.getVersion(), onCorrupt),
     fetchLatest,
     openExternal: (url) => void shell.openExternal(url),
     publish,
@@ -65,14 +74,14 @@ export async function checkForUpdatesInteractive(): Promise<UpdateCheckResult> {
 
 /** The settings + the notice now showing (dev runs: the stored settings, never a notice). */
 export function updatesView(): UpdatesView {
-  if (!app.isPackaged) return { settings: readUpdateSettings(dataRoot()), notice: null, current: app.getVersion() }
+  if (!app.isPackaged) return { settings: readSettings(), notice: null, current: app.getVersion() }
   return build().view()
 }
 
 export function setAutoCheck(autoCheck: boolean, who: string | null): UpdatesView {
   actor = who
   if (!app.isPackaged) {
-    writeUpdateSettings(dataRoot(), { autoCheck }, who, app.getVersion())
+    writeUpdateSettings(dataRoot(), { autoCheck }, who, app.getVersion(), onCorrupt)
     return updatesView()
   }
   return build().setAutoCheck(autoCheck)

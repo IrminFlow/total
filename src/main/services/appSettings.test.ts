@@ -17,6 +17,21 @@ describe('app-level update settings', () => {
     expect(readUpdateSettings(root)).toEqual({ autoCheck: true, skippedVersion: null })
   })
 
+  it('a corrupt file is reported (a missing one is not), never thrown, and a write replaces it', () => {
+    const warns: string[] = []
+    readUpdateSettings(root, (e) => warns.push(e))
+    expect(warns).toEqual([])
+    for (const bad of ['{not json', 'null', '[1]', '"x"']) {
+      writeFileSync(join(root, 'app-settings.json'), bad)
+      expect(readUpdateSettings(root, (e) => warns.push(e))).toEqual({ autoCheck: true, skippedVersion: null })
+    }
+    expect(warns.length).toBe(1) // only the unparsable one; the others parse and fall back silently
+    writeFileSync(join(root, 'app-settings.json'), '{not json')
+    expect(writeUpdateSettings(root, { autoCheck: false }, null, '0.12.0').autoCheck).toBe(false)
+    expect(readUpdateSettings(root)).toEqual({ autoCheck: false, skippedVersion: null })
+    expect(existsSync(join(root, 'app-settings.json.tmp'))).toBe(false)
+  })
+
   it('persists a patch, keeps unrelated keys, and appends an audit line', () => {
     writeFileSync(join(root, 'app-settings.json'), JSON.stringify({ other: 1 }))
     writeUpdateSettings(root, { autoCheck: false }, 'Asha', '0.12.0')

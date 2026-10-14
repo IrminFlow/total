@@ -11,29 +11,40 @@ import { DEFAULT_UPDATE_SETTINGS, type UpdateSettings } from '@shared/updates'
 const FILE = 'app-settings.json'
 const AUDIT = 'app-settings-audit.jsonl'
 
-/** Missing / unreadable / malformed file = the defaults (automatic check ON, nothing skipped). */
-export function readUpdateSettings(root: string): UpdateSettings {
+/** Missing / unreadable / malformed file = the defaults (automatic check ON, nothing skipped).
+ *  `onCorrupt` hears about a file that exists but cannot be read (a missing file is normal). */
+export function readUpdateSettings(root: string, onCorrupt?: (error: string) => void): UpdateSettings {
   try {
-    const raw = JSON.parse(readFileSync(join(root, FILE), 'utf8')) as { updates?: Partial<UpdateSettings> }
-    const u = raw.updates ?? {}
+    const raw = JSON.parse(readFileSync(join(root, FILE), 'utf8')) as { updates?: Partial<UpdateSettings> } | null
+    const u = (raw && typeof raw === 'object' ? raw.updates : null) ?? {}
     return {
       autoCheck: typeof u.autoCheck === 'boolean' ? u.autoCheck : DEFAULT_UPDATE_SETTINGS.autoCheck,
       skippedVersion: typeof u.skippedVersion === 'string' && u.skippedVersion ? u.skippedVersion : null
     }
-  } catch {
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code !== 'ENOENT') onCorrupt?.(String(err))
     return { ...DEFAULT_UPDATE_SETTINGS }
   }
 }
 
 /** Merge a patch into the stored settings (atomic write) and audit what changed. */
-export function writeUpdateSettings(root: string, patch: Partial<UpdateSettings>, who: string | null, appVersion: string): UpdateSettings {
-  const before = readUpdateSettings(root)
+export function writeUpdateSettings(
+  root: string,
+  patch: Partial<UpdateSettings>,
+  who: string | null,
+  appVersion: string,
+  onCorrupt?: (error: string) => void
+): UpdateSettings {
+  const before = readUpdateSettings(root, onCorrupt)
   const after: UpdateSettings = { ...before, ...patch }
   if (after.autoCheck === before.autoCheck && after.skippedVersion === before.skippedVersion) return before
   mkdirSync(root, { recursive: true })
   let rest: Record<string, unknown> = {}
   try {
-    if (existsSync(join(root, FILE))) rest = JSON.parse(readFileSync(join(root, FILE), 'utf8')) as Record<string, unknown>
+    if (existsSync(join(root, FILE))) {
+      const parsed = JSON.parse(readFileSync(join(root, FILE), 'utf8')) as unknown
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) rest = parsed as Record<string, unknown>
+    }
   } catch {
     rest = {}
   }
