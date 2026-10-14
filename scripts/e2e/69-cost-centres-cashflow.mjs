@@ -15,6 +15,7 @@
 import * as fs from 'node:fs'
 import * as path from 'node:path'
 import { scenario, assert, assertEq, PICKER_OPTION, localToday, fyStartOf, fyStartYearOf, relativeDate } from '../lib/harness.mjs'
+import { waitForSettled } from '../lib/a11y.mjs'
 
 /** formatPaise (src/shared/money.ts): Indian grouping, 2 decimals, leading minus. */
 function rupees(paise) {
@@ -114,6 +115,7 @@ await scenario('69-cost-centres-cashflow', async (h) => {
   const plText = await page.textContent(plRow)
   assert(plText.includes('Pune Branch') && plText.includes('6,000.00'), `P&L by centre: Pune Branch ₹6,000 (row: ${plText})`)
   assert(!plText.includes('10,000.00'), 'only the allocated part counts for the centre')
+  assert(plText.includes('6,000.00 Dr') && !plText.includes(' Cr'), `Net of a loss reads Dr, as the P&L carries it (row: ${plText})`)
   await page.click(plRow)
   await page.waitForSelector('[data-testid="cc-drill"]', { timeout: 10000 })
   const drill = await page.textContent('[data-testid="cc-drill"]')
@@ -213,7 +215,7 @@ await scenario('69-cost-centres-cashflow', async (h) => {
   assert(rentCsv.pop().endsWith('10500.00'), 'rent statement closes at ₹10,500 (payment + journal)')
   assert(read('audit-trail-verification.txt').includes('Result: VERIFIED'), 'the audit chain verifies')
   assert(read('tally-vouchers.xml').includes('<ENVELOPE'), 'Tally vouchers XML')
-  await page.waitForTimeout(300)
+  await waitForSettled(page) // the toast's entry animation, before the shot
   await h.shot('06-ca-pack')
   await h.goto('gateway')
 })

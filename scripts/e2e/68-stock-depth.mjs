@@ -15,6 +15,7 @@
 import * as fs from 'node:fs'
 import * as path from 'node:path'
 import { scenario, assert, assertEq, PICKER_OPTION, localToday, fyStartOf, fyStartYearOf } from '../lib/harness.mjs'
+import { waitForSettled } from '../lib/a11y.mjs'
 
 /** Every file under `dir` (recursive). */
 function walk(dir) {
@@ -214,8 +215,8 @@ await scenario('68-stock-depth', async (h) => {
   await buy(aged, 3, 1000, today)
   await sell(aged, 2, 1500, today)
   // 6 on hand, newest lot first: 3 from today's lot, 3 from the FY-start lot (one lot when today
-  // IS the FY start). The tab ages as on the working period's END, so the period is set to
-  // "This month" (ends today) first — as on 31 Mar every lot bought so far reads 90+ days.
+  // IS the FY start). The working period is the whole FY (it ends after today): the tab ages as
+  // on TODAY, never the period end (#107), and says so.
   const bucketOf = (date) => {
     const age = Math.max(0, days(date, today))
     return age <= 30 ? 0 : age <= 60 ? 1 : age <= 90 ? 2 : 3
@@ -225,9 +226,6 @@ await scenario('68-stock-depth', async (h) => {
   expected[bucketOf(fyStart)] += 3
   // Stock reports has no sidebar entry — reached from the Stock summary's header.
   await h.goto('stock-summary')
-  await h.click('btn-period')
-  await page.locator('[role="dialog"]').getByRole('button', { name: 'This month' }).click()
-  await h.click('btn-apply-period')
   await h.click('btn-stock-summary-reorder')
   await h.waitScreen('stock-reports')
   await h.click('tab-stock-reports-ageing')
@@ -287,7 +285,7 @@ await scenario('68-stock-depth', async (h) => {
   const bytes = fs.readFileSync(pdfs[0])
   assertEq(bytes.subarray(0, 5).toString('latin1'), '%PDF-', 'the file is a PDF')
   assert(bytes.length > 1000, `the PDF has content (${bytes.length} bytes)`)
-  await page.waitForTimeout(300)
+  await waitForSettled(page) // the toast's entry animation, before the shot
   await h.shot('08-labels-printed')
   await h.goto('gateway')
 })
