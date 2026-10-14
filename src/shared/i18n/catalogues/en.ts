@@ -817,7 +817,7 @@ export const en = {
   'simple.people.reminder.wait': 'Your setting says to wait until {date} before the next one. You can still send it.',
   'simple.people.reminder.copied': 'Copied. Paste it where you like — noted as a reminder sent today.',
   'simple.people.reminder.opened': 'WhatsApp is opening with the message — noted as a reminder sent today.',
-  'simple.people.reminder.noPhone': 'No phone number saved, so WhatsApp will ask whom to send it to.',
+  'simple.people.reminder.noPhone': 'No mobile number WhatsApp can use is saved (with the country code for a number outside India), so WhatsApp will ask whom to send it to.',
   'simple.people.reminder.noCopy': 'Total couldn’t copy it. Select the text and copy it yourself.',
   'simple.people.reminder.nothingLate': 'Nothing is late yet, so there is nothing to remind them of.',
   'simple.people.lang.en': 'English',
