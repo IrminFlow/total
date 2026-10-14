@@ -187,7 +187,7 @@ describe('simple Bank (WP 9.6)', () => {
   it('a business with no bank account is offered "Add a bank account", not a dead end', async () => {
     setup = { ...SETUP, banks: [] }
     renderUi()
-    expect((await screen.findByTestId('bank-no-bank')).textContent).toContain('Import your bank statement (PDF / CSV / Excel) and Total matches it.')
+    expect((await screen.findByTestId('bank-no-bank')).textContent).toContain('Import your bank statement (CSV or Excel) and Total matches it.')
     expect(screen.getByTestId('btn-bank-add-bank')).toBeTruthy()
     expect(bannedWordsIn(visibleText())).toEqual([])
   })

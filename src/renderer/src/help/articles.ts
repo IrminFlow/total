@@ -64,11 +64,16 @@ function parseArticle(id: HelpArticleId, lang: 'en' | 'hi', raw: string): HelpAr
 
 const fileId = (path: string): string => path.replace(/^.*\//, '').replace(/\.md$/, '')
 
-const words = (s: string): string[] =>
+/** Search words: lower case; Latin accents dropped (café = cafe); Devanagari vowel signs and
+ *  virama (\p{M}) kept INSIDE the word — splitting on them broke "बिल" into single letters. */
+export const words = (s: string): string[] =>
   s
+    .normalize('NFD')
+    .replace(/(\p{Script=Latin})\p{M}+/gu, '$1')
+    .normalize('NFC')
     .toLowerCase()
-    .split(/[^\p{L}\p{N}]+/u)
-    .filter((w) => w.length >= 2)
+    .split(/[^\p{L}\p{M}\p{N}]+/u)
+    .filter((w) => [...w].length >= 2)
 
 export interface HelpIndex {
   /** The article in `lang` (Hindi → English when not translated); null for an unknown id. */

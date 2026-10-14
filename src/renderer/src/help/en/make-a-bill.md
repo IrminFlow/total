@@ -7,7 +7,7 @@ Use **Make a bill** whenever you sell something — to a walk-in customer who pa
 1. **Who is it for?** Leave it as the cash customer for a walk-in who pays now, or type a customer's name. A new name can be added on the spot.
 2. **Bill date** — today, unless you are entering an older bill.
 3. **What was sold?** Pick the products and how many. Total fills in the price you sell at. No products? Choose **Just an amount** and type the total.
-4. **Paid how?** Cash, UPI or card now — or later, on credit. If the customer pays only part, type what they paid; the rest stays due.
+4. **Paid how?** Cash, UPI, card or bank transfer now — or later, **on credit (udhaar)**. If the customer pays only part, choose **Partly paid** and type what they paid; the rest stays due. A cash customer always pays in full — to sell on credit, pick the customer.
 5. Press **Save** (or **⌘↵**).
 
 ## After you save

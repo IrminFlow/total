@@ -8,6 +8,8 @@ import { SCREENS, SECTION_HELP, helpKeyFor } from '../lib/screens'
 import { HELP, HELP_ARTICLE_IDS, HELP_FILES, createHelpIndex } from './articles'
 import { linksIn, parseInline, parseMarkdown } from './markdown'
 import { resolveHelpLink } from './links'
+import { en } from '@shared/i18n/catalogues/en'
+import { STATEMENT_EXTENSIONS } from '@shared/simple/bank'
 
 describe('help articles (WP 10.3)', () => {
   it('ships at least 12 English articles, one per id, each with a title and a summary', () => {
@@ -80,6 +82,16 @@ describe('help articles (WP 10.3)', () => {
     }
   })
 
+  it('the bank texts promise only the statement files Bank reads (review: no PDF while there is no PDF reader)', () => {
+    const pdf = (STATEMENT_EXTENSIONS as readonly string[]).includes('pdf')
+    if (!pdf) {
+      expect(en['simple.empty.bank']).not.toMatch(/PDF/)
+      expect(en['assist.howto.bank']).not.toMatch(/PDF/)
+      const raw = HELP_FILES.en['./en/bank-statement.md']!
+      for (const line of raw.split('\n').filter((l) => /PDF/.test(l))) expect(line).toMatch(/PDF statements cannot be read yet/)
+    }
+  })
+
   it('search finds by title and by body', () => {
     expect(HELP.search('backup')[0]!.article.id).toBe('backups')
     expect(HELP.search('bank statement')[0]!.article.id).toBe('bank-statement')
@@ -87,6 +99,19 @@ describe('help articles (WP 10.3)', () => {
     // A word only in the body (the overdraft line of the day-one article).
     expect(HELP.search('overdraft').map((h) => h.article.id)).toContain('day-one')
     expect(HELP.search('zzzz')).toEqual([])
+    // Review: Devanagari words keep their vowel signs (\p{M}) — "बिल" was split into single
+    // letters and found nothing; Latin accents are ignored; a partial word finds the article.
+    const idx = createHelpIndex(
+      { './en/make-a-bill.md': '# Make a bill\n\nSell to a café customer.', './en/gst.md': '# GST\n\nTax.' },
+      { './hi/make-a-bill.md': '# बिल बनाएँ\n\nग्राहक को बिल दें, उधार या नकद।' }
+    )
+    expect(idx.search('बिल', 'hi').map((h) => h.article.id)).toEqual(['make-a-bill'])
+    expect(idx.search('उधार', 'hi').map((h) => h.article.id)).toEqual(['make-a-bill'])
+    expect(idx.search('ग्राहक', 'en').map((h) => h.article.id)).toEqual(['make-a-bill'])
+    expect(idx.search('cafe', 'en').map((h) => h.article.id)).toEqual(['make-a-bill'])
+    expect(idx.search('custom', 'en').map((h) => h.article.id)).toEqual(['make-a-bill'])
+    // The app's own word for credit sales (the "Paid how?" choice) finds Make a bill.
+    expect(HELP.search('udhaar')[0]!.article.id).toBe('make-a-bill')
     expect(HELP.search('')).toEqual([])
   })
 })
