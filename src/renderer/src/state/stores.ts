@@ -9,6 +9,8 @@ import type { PeopleFilter } from '@shared/simple/people'
 import type { AssistPrefill } from '@shared/assist'
 import type { SimpleHandoff } from '@shared/simple/handoff'
 import { confirmDialog } from '../lib/dialogs'
+import { translator } from '@shared/i18n'
+import { storedLanguage } from '../lib/i18n'
 import { hasUnsavedChanges } from '../lib/useUnsavedGuard'
 import { onLayerClose, topLayerId } from '../components/kit/layers'
 
@@ -214,13 +216,30 @@ interface NavState {
  *  `replace` deliberately skips this: it's only used programmatically right after a save. */
 async function confirmLeave(): Promise<boolean> {
   if (!hasUnsavedChanges()) return true
-  return confirmDialog({
-    title: 'Unsaved changes',
-    message: 'Leave this screen and discard your unsaved changes?',
-    confirmLabel: 'Discard changes',
-    cancelLabel: 'Stay',
-    danger: true
-  })
+  return confirmDialog({ ...unsavedQuestion(), danger: true })
+}
+
+/** The words of the unsaved-changes question. The full app keeps its literal English (its
+ *  snapshots); inside the simple shell (html[data-shell='simple'], set by Shell.tsx) they come
+ *  from `common.kit.unsaved*` in the reader's language. */
+export function unsavedQuestion(): { title: string; message: string; confirmLabel: string; cancelLabel: string } {
+  const simple = typeof document !== 'undefined' && document.documentElement.dataset.shell === 'simple'
+  if (!simple) {
+    return {
+      title: 'Unsaved changes',
+      message: 'Leave this screen and discard your unsaved changes?',
+      confirmLabel: 'Discard changes',
+      cancelLabel: 'Stay'
+    }
+  }
+  const { slug, user } = useSession.getState()
+  const t = translator(storedLanguage(slug, user?.id))
+  return {
+    title: t('common.kit.unsavedTitle'),
+    message: t('common.kit.unsavedMessage'),
+    confirmLabel: t('common.kit.unsavedDiscard'),
+    cancelLabel: t('common.kit.unsavedStay')
+  }
 }
 
 export const useNav = create<NavState>((set) => ({
