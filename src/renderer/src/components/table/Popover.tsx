@@ -28,7 +28,9 @@ export function Popover({
   testId?: string
 }): React.JSX.Element {
   const ref = useRef<HTMLDivElement>(null)
-  const [pos, setPos] = useState<{ top: number; left: number }>({ top: 0, left: 0 })
+  // `bottom` (distance from the window's bottom edge) only for a panel opened above its anchor, so
+  // content that grows after placement grows upward, away from the anchor.
+  const [pos, setPos] = useState<{ top?: number; bottom?: number; left: number }>({ top: 0, left: 0 })
   const onCloseRef = useRef(onClose)
   onCloseRef.current = onClose
   const id = useId()
@@ -45,8 +47,9 @@ export function Popover({
       const vh = window.innerHeight || 768
       const h = ref.current?.offsetHeight ?? 0
       const below = r.bottom + 4
-      const top = h > 0 && below + h > vh - 8 && r.top - 4 - h >= 8 ? r.top - 4 - h : below
-      setPos({ top, left })
+      const above = h > 0 && below + h > vh - 8 && r.top - 4 - h >= 8
+      const vb = document.documentElement.clientHeight || vh // the fixed-position viewport
+      setPos(above ? { bottom: vb - (r.top - 4), left } : { top: below, left })
     }
     place()
   }, [anchor, align, width])
@@ -98,7 +101,7 @@ export function Popover({
       id={id}
       data-testid={testId}
       data-table-popover=""
-      style={{ position: 'fixed', top: pos.top, left: pos.left, width }}
+      style={{ position: 'fixed', top: pos.top, bottom: pos.bottom, left: pos.left, width }}
       className="z-50 rounded-lg border border-line bg-raised p-3 text-detail text-ink shadow-elev-2"
     >
       {children}
