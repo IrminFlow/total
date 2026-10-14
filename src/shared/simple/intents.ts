@@ -448,6 +448,9 @@ export interface IntentFacts {
   noGst: 'composition' | 'unregistered' | null
   /** Which side the party is on (null = no customer / supplier: walk-in aside, a source or payee). */
   side: 'customer' | 'supplier' | null
+  /** WP 9.2: when what stays open on a sale / purchase bill falls due (bill date + the party's
+   *  credit days, or the date given); absent when nothing stays open. */
+  dueDate?: string | null
 }
 
 export interface MappedIntent {
@@ -657,6 +660,7 @@ function mapTrade(n: Extract<NormalIntent, { kind: 'sale' | 'purchase' }>, ctx: 
   facts.total = total
   facts.paid = paid
   facts.due = total - paid
+  if (facts.due > 0) facts.dueDate = due
   if (paid > 0) {
     const how = payment.how as MoneyHow
     const acct = moneyAccount(ctx, how, payment.accountId, 'payment')

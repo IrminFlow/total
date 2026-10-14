@@ -23,9 +23,12 @@ import { partyAllocation } from './analysis'
 import { setCreditHold } from './receivables'
 import { postClose } from './yearEnd'
 import { getFeatures, setFeatures } from './config'
-import { restoreFromBin, undoSave } from './undo'
+import { restoreFromBin, saveSummary, undoSave } from './undo'
 import { previewIntent, postIntent, remapSaveError } from './simplePost'
 import { normaliseIntent, type MappedEntry } from '@shared/simple/intents'
+import { saleView, salesList, sellSetup } from './simpleSell'
+import { createMemory } from '../ai/memory'
+import { emptySellForm, saleIntentFrom, saleStatus, sellFormErrors, sellTotals, type SellContext, type SellForm } from '@shared/simple/sell'
 
 const INFO: CompanyInfo = { ...TEST_INFO, name: 'Simple Post Co', gstin: '27AAPFU0939F1ZV', stateCode: '27', gstRegistrationType: 'regular' }
 const TODAY = '2025-08-14'
@@ -624,5 +627,138 @@ describe('simple date guards and plain-error fields', () => {
 describe('the simple_posts migration', () => {
   it('is the last migration', () => {
     expect(MIGRATIONS.findIndex((sql) => sql.includes('CREATE TABLE simple_posts'))).toBe(MIGRATIONS.length - 1)
+  })
+})
+
+// ---------------------------------------------------------------- WP 9.2 Make a bill
+
+describe('WP 9.2 Make a bill: the form → simple:post = the invoice + receipt an accountant enters', () => {
+  /** The renderer's path: the form's answers → saleIntentFrom (shared/simple/sell.ts) with the
+   *  defaults simple:sell:setup gives, then postIntent. */
+  function sell(f: Partial<SellForm>): ReturnType<typeof postIntent> {
+    const ctx: SellContext = { invoice: invoiceCtx(db), salesAccountId: sellSetup(db).salesAccountId }
+    const form: SellForm = { ...emptySellForm(TODAY, { mode: 'items', ratesIncludeGst: false }), ...f }
+    expect(sellFormErrors(form, ctx, { regular: true })).toEqual({})
+    const intent = saleIntentFrom(form, ctx, sellSetup(db).defaults)
+    const out = post(intent)
+    // The live total the form showed is what was saved.
+    expect(out.facts.total).toBe(sellTotals(form, ctx).total)
+    return out
+  }
+  const ln = (key: number, item: string, qtyText: string, rate: number) => ({ key, itemId: I(item), qtyText, rate, discount: null })
+  const inv = (party: string, rowsIn: [string, string, number][], billName: string, due: string, d: DB = db): InvoiceFormState => ({
+    ...emptyInvoiceState(TODAY), partyId: L(party, d), accountId: L('Sales', d), billName, billDueDate: due,
+    rows: rowsIn.map(([item, qtyText, rate]) => ({ itemId: I(item, d), qtyText, rate, discount: null, godownId: null, batchId: null }))
+  })
+
+  it('on credit: one invoice, due by the customer’s credit days', () => {
+    const out = sell({ customerId: L('Ramesh'), paid: 'credit', lines: [ln(1, 'Widget', '2', 50_000)] })
+    expect(out.entries.map((e) => e.kind)).toEqual(['sales'])
+    const bill = out.voucherIds[0]!
+    roundTrips(bill, 'invoice')
+    const number = getVoucher(db, bill)!.number
+    const { twin, ids } = handEntered([{ kind: 'sales', form: 'invoice', state: inv('Ramesh', [['Widget', '2', 50_000]], number, '2025-08-29') }])
+    expect(rows(twin, ids[0]!)).toEqual(rows(db, bill))
+    expect(out.facts).toMatchObject({ total: 118_000, paid: 0, due: 118_000, dueDate: '2025-08-29' })
+  })
+
+  it('part paid in cash: the invoice + a cash receipt against it, the rest due', () => {
+    const out = sell({ customerId: L('Ramesh'), paid: 'part', partHow: 'cash', partAmount: 50_000, lines: [ln(1, 'Widget', '2', 50_000)] })
+    const [bill, receipt] = out.voucherIds as [number, number]
+    roundTrips(bill, 'invoice')
+    roundTrips(receipt, 'accounting')
+    const number = getVoucher(db, bill)!.number
+    const { twin, ids } = handEntered([
+      { kind: 'sales', form: 'invoice', state: inv('Ramesh', [['Widget', '2', 50_000]], number, '2025-08-29') },
+      { kind: 'receipt', form: 'accounting', state: blankAccounting(TODAY, [r('dr', L('Cash'), 50_000), r('cr', L('Ramesh'), 50_000)], [{ kind: 'against', name: number, amount: 50_000, dueDate: null }]) }
+    ])
+    expect(rows(twin, ids[0]!)).toEqual(rows(db, bill))
+    expect(rows(twin, ids[1]!)).toEqual(rows(db, receipt))
+    // The sales list says the same as the Outstandings allocation.
+    const row = salesList(db, '2025-04-01', TODAY, TODAY).find((x) => x.voucherId === bill)!
+    expect(row).toMatchObject({ total: 118_000, paid: 50_000, due: 68_000, dueDate: '2025-08-29', walkIn: false, partyName: 'Ramesh' })
+    expect(partyAllocation(db, L('Ramesh'), TODAY).bills.find((b) => b.number === number)!.pending).toBe(row.due)
+    expect(saleView(db, bill, TODAY)).toMatchObject({ total: 118_000, tax: 18_000, paid: 50_000, due: 68_000, items: [{ name: 'Widget', qtyMilli: 2000, ratePaise: 50_000 }] })
+  })
+
+  it('by card (an inter-state customer): the invoice + a receipt into the card account (the first bank)', () => {
+    expect(sellSetup(db).defaults.card).toBe(L('HDFC Bank'))
+    const out = sell({ customerId: L('Kumar'), paid: 'card', lines: [ln(1, 'Rice', '10', 3_000), ln(2, 'Widget', '1', 20_000)] })
+    const [bill, receipt] = out.voucherIds as [number, number]
+    roundTrips(bill, 'invoice')
+    roundTrips(receipt, 'accounting')
+    const v = getVoucher(db, bill)!
+    expect(v.lines.some((l) => l.ledgerId === L('IGST'))).toBe(true)
+    const { twin, ids } = handEntered([
+      { kind: 'sales', form: 'invoice', state: inv('Kumar', [['Rice', '10', 3_000], ['Widget', '1', 20_000]], v.number, TODAY) },
+      { kind: 'receipt', form: 'accounting', state: blankAccounting(TODAY, [r('dr', L('HDFC Bank'), out.facts.total), r('cr', L('Kumar'), out.facts.total)], [{ kind: 'against', name: v.number, amount: out.facts.total, dueDate: null }]) }
+    ])
+    expect(rows(twin, ids[0]!)).toEqual(rows(db, bill))
+    expect(rows(twin, ids[1]!)).toEqual(rows(db, receipt))
+    expect(salesList(db, '2025-04-01', TODAY, TODAY).find((x) => x.voucherId === bill)).toMatchObject({ paid: out.facts.total, due: 0 })
+  })
+
+  it('cash, a walk-in: the invoice to the counter’s cash customer + a cash receipt', () => {
+    const out = sell({ paid: 'cash', lines: [ln(1, 'Rice', '2', 5_000)] })
+    const [bill, receipt] = out.voucherIds as [number, number]
+    roundTrips(bill, 'invoice')
+    roundTrips(receipt, 'accounting')
+    const number = getVoucher(db, bill)!.number
+    const { twin, ids } = handEntered([])
+    ledger(twin, 'Cash sale', 'Sundry Debtors') // the walk-in the counter creates on first use
+    const st = inv('Cash sale', [['Rice', '2', 5_000]], number, TODAY, twin)
+    const b1 = buildInvoicePayload(st, { ...invoiceCtx(twin), kind: 'sales' }, typeId(twin, 'sales'), taxLedgerIdsFrom(listLedgers(twin), 'output'))
+    if (!b1.ok) throw new Error(b1.error)
+    ids.push(saveVoucher(twin, b1.payload).id)
+    const rc = blankAccounting(TODAY, [r('dr', L('Cash', twin), 10_500), r('cr', L('Cash sale', twin), 10_500)], [{ kind: 'against', name: number, amount: 10_500, dueDate: null }])
+    const b2 = buildAccountingPayload(rc, { kind: 'receipt', voucherTypeId: typeId(twin, 'receipt'), derivedPartyId: L('Cash sale', twin) })
+    if (!b2.ok) throw new Error(b2.error)
+    ids.push(saveVoucher(twin, b2.payload).id)
+    expect(rows(twin, ids[0]!)).toEqual(rows(db, bill))
+    expect(rows(twin, ids[1]!)).toEqual(rows(db, receipt))
+    expect(salesList(db, '2025-04-01', TODAY, TODAY).find((x) => x.voucherId === bill)).toMatchObject({ walkIn: true, paid: 10_500, due: 0 })
+    // The walk-in is the form's "Cash customer", never one of its customers.
+    expect(sellSetup(db).customers.map((c) => c.name)).not.toContain('Cash sale')
+  })
+
+  it('the money account defaults: WP 5.6 memory "Receive into" (a bank), else the counter / first bank; off with Use memory off', () => {
+    const sbi = ledger(db, 'SBI', 'Bank Accounts')
+    expect(sellSetup(db)).toMatchObject({ defaults: { cash: L('Cash'), upi: L('HDFC Bank'), card: L('HDFC Bank'), bank: L('HDFC Bank') }, memoryId: null })
+    const m = createMemory(db, { kind: 'preference', text: 'Customers pay into SBI', data: { purpose: 'receipt', ledgerId: sbi } }, { source: 'user', status: 'active', createdBy: null })
+    expect(sellSetup(db)).toMatchObject({ defaults: { cash: L('Cash'), upi: sbi, card: sbi, bank: sbi }, memoryId: m.id })
+    db.prepare("INSERT OR REPLACE INTO meta (key, value) VALUES ('ai', json_set(COALESCE((SELECT value FROM meta WHERE key = 'ai'), '{}'), '$.useMemory', json('false')))").run()
+    expect(sellSetup(db).defaults.upi).toBe(L('HDFC Bank'))
+  })
+
+  it('review: a rounded-DOWN bill on credit is its rounded total everywhere — list, bill view, save card (never "part paid")', () => {
+    // 1 Widget at ₹100.34 + 18% GST = ₹118.40 → the bill is ₹118.00 (the round-off sits on the customer's side).
+    const out = sell({ customerId: L('Ramesh'), paid: 'credit', lines: [ln(1, 'Widget', '1', 10_034)] })
+    const bill = out.voucherIds[0]!
+    expect(out.facts.total).toBe(11_800)
+    const debits = getVoucher(db, bill)!.lines.filter((l) => l.drCr === 'dr').reduce((s, l) => s + l.amount, 0)
+    expect(debits).toBe(11_840) // the register's debit side is the unrounded total
+    const row = salesList(db, '2025-04-01', TODAY, TODAY).find((x) => x.voucherId === bill)!
+    expect(row).toMatchObject({ total: 11_800, paid: 0, due: 11_800 })
+    expect(saleStatus(row.total, row.due, row.overdueDays)).toBe('due')
+    expect(saleView(db, bill, TODAY)).toMatchObject({ total: 11_800, tax: 1_806, rounding: -40, paid: 0, due: 11_800 })
+    expect(saveSummary(db, out.voucherIds).entries[0]).toMatchObject({ kind: 'sales', amount: 11_800 })
+    // Paid in full by cash: nothing due, "paid" is the bill, not the unrounded figure.
+    const paid = sell({ customerId: L('Ramesh'), paid: 'cash', lines: [ln(1, 'Widget', '1', 10_034)] })
+    expect(salesList(db, '2025-04-01', TODAY, TODAY).find((x) => x.voucherId === paid.voucherIds[0])).toMatchObject({ total: 11_800, paid: 11_800, due: 0 })
+    expect(saveSummary(db, paid.voucherIds).entries.map((e) => e.amount)).toEqual([11_800, 11_800])
+  })
+
+  it('a customer on hold / a locked date are refused on their questions with nothing saved', () => {
+    setCreditHold(db, L('Ramesh'), true, 'Old dues')
+    expect(sellSetup(db).customers.find((c) => c.id === L('Ramesh'))!.creditHold).toBe(true)
+    const ctx: SellContext = { invoice: invoiceCtx(db), salesAccountId: sellSetup(db).salesAccountId }
+    const f: SellForm = { ...emptySellForm(TODAY, { mode: 'items', ratesIncludeGst: false }), customerId: L('Ramesh'), paid: 'cash', lines: [ln(1, 'Widget', '1', 100)] }
+    const before = trace()
+    expect(() => post(saleIntentFrom(f, ctx, sellSetup(db).defaults))).toThrow(expect.objectContaining({ code: 'credit_hold', field: 'party' }))
+    setLockDate(db, '2025-08-31')
+    const locked = trace()
+    expect(() => post(saleIntentFrom({ ...f, customerId: L('Kumar') }, ctx, sellSetup(db).defaults))).toThrow(expect.objectContaining({ code: 'books_locked', field: 'date' }))
+    expect(trace()).toEqual(locked)
+    expect((before as { vouchers: number }).vouchers).toBe((locked as { vouchers: number }).vouchers)
   })
 })

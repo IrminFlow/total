@@ -126,6 +126,7 @@ import { globalSearch, search } from './services/search'
 import { createDemoCompany } from './services/demo'
 import { createCompanyFromSetup } from './services/companySetup'
 import * as simplePost from './services/simplePost'
+import * as simpleSell from './services/simpleSell'
 import { simpleIntentSchema } from '@shared/simple/intents'
 import { simpleSetupSchema } from '@shared/simple/setup'
 import { simpleOpeningsSchema } from '@shared/simple/openings'
@@ -450,6 +451,20 @@ export function registerIpc(): void {
     if (!out.replayed && configSvc.getAgentBridgeEnabled(c.db)) agentBridge.scheduleMirrorRefresh(c.db, c.slug)
     return out
   })
+
+  // WP 9.2: the simple Sell screens' reads (services/simpleSell.ts) — the form's customers, cash /
+  // bank accounts and their defaults (WP 5.6 memory, else the counter's), the sales list with what
+  // is still due on each bill (the Outstandings allocation as on today) and one bill's simple view.
+  // Writing goes through simple:post only.
+  handle('simple:sell:setup', () => simpleSell.sellSetup(requireCompany().db), 'viewer')
+  handle('simple:sales', (payload) => {
+    const { from, to, today } = z.object({ from: isoDate, to: isoDate, today: isoDate.optional() }).strict().parse(payload)
+    return simpleSell.salesList(requireCompany().db, from, to, homeAsOn(today, todayISO()))
+  }, 'viewer')
+  handle('simple:sale', (payload) => {
+    const { id, today } = z.object({ id: z.number().int().positive(), today: isoDate.optional() }).strict().parse(payload)
+    return simpleSell.saleView(requireCompany().db, id, homeAsOn(today, todayISO()))
+  }, 'viewer')
 
   // WP 8.3: `mode` 'simple' = the wizard's "Try with sample data" (D2); omitted = accountant, as before.
   handle('company:createDemo', (payload) =>
