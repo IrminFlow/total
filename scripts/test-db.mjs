@@ -12,7 +12,10 @@ const result = spawnSync(
   ['node_modules/vitest/vitest.mjs', 'run', '-c', 'vitest.db.config.ts', ...process.argv.slice(2)],
   {
     stdio: 'inherit',
-    env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' }
+    // WP 7.3: test DBs skip the per-commit fsync (connection.ts testSynchronous — scratch data
+    // dirs only). Measured on the Windows runner: the suite 420 s → 373 s, the demo seed 0.5 s →
+    // 0.3 s, and the seeding hooks that had stalled past 10 s (tradeLegacy 11.2 s) ran in 0.5 s.
+    env: { TOTAL_TEST_DB_SYNCHRONOUS: 'off', ...process.env, ELECTRON_RUN_AS_NODE: '1' }
   }
 )
 

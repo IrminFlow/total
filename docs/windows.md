@@ -74,7 +74,13 @@ others). Measured locally, about 95 % of those IPC tests' `beforeAll` was `await
 the whole main-process module graph — not the fixture (2.4 s import vs 0.14 s company create /
 open). The import now happens at collection (top-level await before the hooks), where vitest has no
 hook timeout. The job also excludes the workspace and temp folders from Defender's real-time scan
-(every new SQLite file and `-wal`/`-shm` write was scanned). `hookTimeout` is unchanged (10 s).
+(every new SQLite file and `-wal`/`-shm` write was scanned) — measured, that alone did not remove
+the stalls (a run with real-time scanning confirmed off still had tradeLegacy's synchronous seed
+hook take 11.2 s against its usual 0.5–2 s). The remaining cause is per-commit fsync
+(FlushFileBuffers) on the runner's disk: `scripts/test-db.mjs` sets `TOTAL_TEST_DB_SYNCHRONOUS=off`
+(honoured only with a scratch `TOTAL_DATA_DIR`, `db/connection.ts` `testSynchronous`), which took
+the Windows DB suite from 420 s to 373 s and the demo seed from ~0.5 s to ~0.3 s. Real books keep
+SQLite's default (FULL). `hookTimeout` is unchanged (10 s).
 
 ## Known differences from macOS
 
