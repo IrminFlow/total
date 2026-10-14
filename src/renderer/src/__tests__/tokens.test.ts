@@ -109,3 +109,12 @@ describe('contrast helpers', () => {
     expect(blend([0, 0, 0, 0.5], [255, 255, 255, 1])[0]).toBeCloseTo(127.5)
   })
 })
+
+describe('gate polish: toast placement (simple shell only)', () => {
+  it('on Lock and safety / Backups the toast stack moves to the top right, clear of the backup-check card', () => {
+    const rule = /\[data-shell='simple'\]:has\(\[data-testid='simple-security'\], \[data-testid='simple-backups'\]\) \[data-toasts\] \{\s*top: 3\.75rem;\s*bottom: auto;\s*\}/
+    expect(css).toMatch(rule)
+    // Only ever scoped to the simple shell: no bare [data-toasts] rule moves the full app's stack.
+    expect(css).not.toMatch(/^\[data-toasts\]/m)
+  })
+})
