@@ -22,6 +22,7 @@ import { DoneLines } from './DoneLines'
 import { EmptyTeach } from '../help/EmptyTeach'
 import { useAccountantView } from '../../lib/handoff'
 import { AccountantViewButton } from '../AccountantViewButton'
+import { useCanSave, ViewerNote } from '../ViewerNote'
 
 const BRS_TAB = 'brs' as const // i18n-technical
 const IMPORT_TAB = 'import' as const // i18n-technical
@@ -44,6 +45,7 @@ type Creating = { what: 'customer' | 'supplier' | 'account' | 'bank'; name: stri
  */
 export function BankScreen({ bankId }: { bankId?: number }): React.JSX.Element {
   const t = useT()
+  const mayWrite = useCanSave()
   const nav = useNav()
   const openFull = useAccountantView('simple-bank') // i18n-technical: screen name
   const queryClient = useQueryClient()
@@ -308,9 +310,13 @@ export function BankScreen({ bankId }: { bankId?: number }): React.JSX.Element {
                 <h2 className="text-subtitle font-semibold text-ink">
                   {t('simple.bank.toAnswer')} <span className="text-detail font-normal text-muted">{t('simple.bank.toAnswerCount', { count: open.length })}</span>
                 </h2>
-                <Button variant="primary" disabled={ready.length === 0 || busy.size > 0} data-testid="btn-bank-accept-all" onClick={() => void save(ready)}>
-                  {t('simple.bank.acceptAllCount', { count: ready.length })}
-                </Button>
+                {mayWrite ? (
+                  <Button variant="primary" disabled={ready.length === 0 || busy.size > 0} data-testid="btn-bank-accept-all" onClick={() => void save(ready)}>
+                    {t('simple.bank.acceptAllCount', { count: ready.length })}
+                  </Button>
+                ) : (
+                  <ViewerNote />
+                )}
               </div>
               {aiReady && residual.length > 0 && (
                 <div className="rounded-lg border border-line bg-panel2 px-4 py-3" data-testid="bank-ask">

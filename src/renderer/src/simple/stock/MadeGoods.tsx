@@ -15,6 +15,7 @@ import { useNav, useSession, type Screen } from '../../state/stores'
 import { AmountInput, Button, DateInput, Field, FieldError, isAnyModalOpen, Page, TextInput, useFormErrors } from '../../components/ui'
 import { TypeAhead } from '../../components/pickers'
 import { SaveCard } from '../SaveCard'
+import { useCanSave, ViewerNote } from '../ViewerNote'
 import { useAccountantView } from '../../lib/handoff'
 import { AccountantViewButton } from '../AccountantViewButton'
 
@@ -34,6 +35,7 @@ const isDirty = (f: MakeForm): boolean => f.itemId != null || f.qtyText.trim() !
  */
 export function MadeGoods({ itemId }: { itemId?: number }): React.JSX.Element {
   const t = useT()
+  const canSave = useCanSave()
   const nav = useNav()
   const queryClient = useQueryClient()
   const workingDate = useSession((s) => s.workingDate)
@@ -355,9 +357,13 @@ export function MadeGoods({ itemId }: { itemId?: number }): React.JSX.Element {
 
           <div className="sticky bottom-0 z-10 -mx-1 flex flex-wrap items-center justify-between gap-3 border-t border-line bg-canvas/95 px-1 py-3 backdrop-blur">
             <p className="text-small text-muted">{t('simple.made.shortcuts')}</p>
-            <Button variant="primary" data-testid="btn-made-save" disabled={saving} onClick={() => void save()}>
-              {t('simple.made.save')}
-            </Button>
+            {canSave ? (
+              <Button variant="primary" data-testid="btn-made-save" disabled={saving} onClick={() => void save()}>
+                {t('simple.made.save')}
+              </Button>
+            ) : (
+              <ViewerNote />
+            )}
           </div>
         </div>
       )}

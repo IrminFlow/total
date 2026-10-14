@@ -140,6 +140,7 @@ export const en = {
   'simple.shell.theme': '{theme, select, light {Dark} other {Light}}',
   'simple.shell.themeHint': '{theme, select, light {Switch to the dark look} other {Switch to the light look}}',
   'simple.shell.user': '{name} · {role, select, owner {Owner} accountant {Accountant} other {Viewer}}',
+  'simple.viewer.cantSave': 'You can look at everything, but your sign-in can’t save entries. Ask the owner if you need to.',
   'simple.shell.lock': 'Lock',
   'simple.shell.lockHint': 'Lock Total until someone signs in again',
   'simple.shell.backupSaved': 'Backup saved',

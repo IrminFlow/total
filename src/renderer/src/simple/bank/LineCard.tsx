@@ -13,6 +13,7 @@ import { moneyInScreen, moneyOutScreen } from '../money/moneyLinks'
 import { Button, Field, FieldError, Select } from '../../components/ui'
 import { TypeAhead } from '../../components/pickers'
 import { CategoryPicker } from '../CategoryPicker'
+import { useCanSave } from '../ViewerNote'
 
 const EXPENSE_CONTEXT: AccountContext = { field: 'line', voucherKind: 'payment', drCr: 'dr' } // i18n-technical
 const INCOME_CONTEXT: AccountContext = { field: 'account', side: 'sales' } // i18n-technical
@@ -90,6 +91,7 @@ export function LineCard({
   problem: LineProblem | null
 }): React.JSX.Element {
   const t = useT()
+  const mayWrite = useCanSave()
   const workingDate = useSession((s) => s.workingDate)
   const nav = useNav()
   const label = (k: MessageKey, vars?: Record<string, string | number>): string => t(k, vars) // i18n-technical: keys from shared/simple/bank.ts
@@ -270,7 +272,7 @@ export function LineCard({
       )}
       <FieldError name="choice" error={problem?.fields.choice ?? null} />
 
-      {choice && choice.kind !== 'skip' && (
+      {mayWrite && choice && choice.kind !== 'skip' && (
         <div className="mt-3 flex justify-end">
           <Button variant="primary" disabled={busy || !canSave(choice)} data-testid="btn-bank-line-save" onClick={onSave}>
             {busy ? t('simple.bank.saving') : t('simple.bank.saveLine')}

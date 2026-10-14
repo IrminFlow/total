@@ -126,6 +126,7 @@ export const hinglish: Partial<Record<MessageKey, string>> = {
   'simple.shell.theme': '{theme, select, light {Dark} other {Light}}',
   'simple.shell.themeHint': '{theme, select, light {Dark look par jaayein} other {Light look par jaayein}}',
   'simple.shell.user': '{name} · {role, select, owner {Owner} accountant {Accountant} other {Sirf dekhne wale}}',
+  'simple.viewer.cantSave': 'Aap sab kuch dekh sakte hain, par aapke sign-in se entry save nahi hoti. Zaroorat ho to owner se poochhein.',
   'simple.shell.lock': 'Lock karein',
   'simple.shell.lockHint': 'Jab tak koi dobara sign in na kare, Total ko lock karein',
   'simple.shell.backupSaved': 'Backup save ho gaya',

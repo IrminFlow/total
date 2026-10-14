@@ -131,6 +131,7 @@ export const hi: Partial<Record<MessageKey, string>> = {
   'simple.shell.theme': '{theme, select, light {डार्क} other {लाइट}}',
   'simple.shell.themeHint': '{theme, select, light {गहरे रंग वाली स्क्रीन पर जाएँ} other {हल्के रंग वाली स्क्रीन पर जाएँ}}',
   'simple.shell.user': '{name} · {role, select, owner {मालिक} accountant {अकाउंटेंट} other {सिर्फ़ देखने वाले}}',
+  'simple.viewer.cantSave': 'आप सब कुछ देख सकते हैं, पर आपके साइन-इन से एंट्री सेव नहीं होती। ज़रूरत हो तो मालिक से पूछें।',
   'simple.shell.lock': 'लॉक करें',
   'simple.shell.lockHint': 'किसी के दोबारा साइन इन करने तक Total को लॉक करें',
   'simple.shell.backupSaved': 'बैकअप सेव हो गया',
