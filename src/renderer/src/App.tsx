@@ -15,6 +15,8 @@ import { SalesList } from './simple/sell/SalesList'
 import { QuickBill } from './simple/sell/QuickBill'
 import { ReturnSale } from './simple/returns/ReturnSale'
 import { ReturnPurchase } from './simple/returns/ReturnPurchase'
+import { RecordPurchase } from './simple/buy/RecordPurchase'
+import { PurchaseList } from './simple/buy/PurchaseList'
 import { useScreenView } from './lib/mode'
 import { DayBook } from './screens/DayBook'
 import { ImportTallyScreen } from './screens/ImportTally'
@@ -188,6 +190,8 @@ export default function App(): React.JSX.Element {
           {screen.name === 'simple-quick-bill' && <QuickBill />}
           {screen.name === 'simple-return-sale' && <ReturnSale key={screen.billId ?? 'pick'} billId={screen.billId} />}
           {screen.name === 'simple-return-purchase' && <ReturnPurchase key={screen.billId ?? 'pick'} billId={screen.billId} />}
+          {screen.name === 'simple-buy' && <RecordPurchase />}
+          {screen.name === 'simple-purchases' && <PurchaseList key={screen.billId ?? 'list'} billId={screen.billId} />}
           {screen.name === 'daybook' && <DayBook month={screen.month} kind={screen.kind} date={screen.date} />}
           {screen.name === 'import-tally' && <ImportTallyScreen />}
           {screen.name === 'data-import' && <ImportWizardScreen />}

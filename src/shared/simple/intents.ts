@@ -601,6 +601,40 @@ export function uniqueName(base: string, taken: ReadonlySet<string> | undefined,
 
 // ---------------------------------------------------------------- sale / purchase
 
+/** WP 8.0: an item line of a purchase by a company that can't claim GST, with the bill's GST
+ *  (at `gstRate` %) folded into its cost — the editor's rates are GST-inclusive there. Integer
+ *  paise (capture's nonClaimableCosts / rateForCost); a 0 % rate leaves the line as it is. WP 9.3
+ *  shows the same figure live, so this is the one place it is worked out. */
+export function foldGstIntoLine(qtyMilli: number, rate: number, discount: number | null, gstRate: number | null): { rate: number; discount: number | null } {
+  const rateBp = Math.round((gstRate ?? 0) * 100)
+  if (rateBp <= 0) return { rate, discount }
+  const gross = Math.round((qtyMilli * rate) / 1000)
+  const taxable = gross - Math.min(gross, discount ?? 0)
+  const cost = nonClaimableCosts([{ taxable, rateBp, printedTax: null }], null)[0]!.cost
+  const folded = rateForCost(cost, qtyMilli)
+  return { rate: folded.ratePaise, discount: folded.discountPaise || null }
+}
+
+/** WP 8.0: "just an amount" (before GST) of such a purchase with the bill's GST folded in. */
+export function foldGstIntoAmount(taxable: number, gstRate: number | null): number {
+  const rateBp = Math.round((gstRate ?? 0) * 100)
+  return rateBp > 0 ? nonClaimableCosts([{ taxable, rateBp, printedTax: null }], null)[0]!.cost : taxable
+}
+
+/** Would these product lines carry GST in the editor (computeInvoice's rate: the item's, else the
+ *  account's; or a cess)? A product bill without GST is refused only then (WP 9.3). */
+export function itemsCarryGst(
+  lines: readonly { itemId: number }[],
+  invoice: Pick<InvoiceContext, 'items' | 'ledgers'>,
+  accountId: number | null
+): boolean {
+  const accountRate = accountId != null ? (invoice.ledgers.get(accountId)?.gstRate ?? null) : null
+  return lines.some((l) => {
+    const item = invoice.items.get(l.itemId)
+    return (item?.gstRate ?? accountRate ?? 0) > 0 || (item?.cessRate ?? 0) > 0
+  })
+}
+
 function mapTrade(n: Extract<NormalIntent, { kind: 'sale' | 'purchase' }>, ctx: IntentContext): MappedIntent {
   const sale = n.kind === 'sale'
   const kind: VoucherKind = sale ? 'sales' : 'purchase'
@@ -622,6 +656,13 @@ function mapTrade(n: Extract<NormalIntent, { kind: 'sale' | 'purchase' }>, ctx: 
   let total: number
   if (n.items) {
     const account = ledgerOf(ctx, n.accountId ?? defaultAccount, accountClasses, 'simple_wrong_account', 'account', sale ? 'sales account' : 'purchase account')
+    // WP 9.3: the purchase editor's item lines always carry their items' GST while the company
+    // charges it — a bill WITHOUT GST can't be held there when a product carries GST, so it is
+    // refused (never posted with tax the bill doesn't show); as "just an amount" it books no tax.
+    // Products at nil GST (and no cess) post no tax either way, so they are fine.
+    if (!sale && charges && !gstOnBill && itemsCarryGst(n.items, ctx.invoice, account.id)) {
+      fail('simple_items_no_gst', 'A bill without GST can’t list products here — record it as just an amount, or in the full editor', 'gstOnBill')
+    }
     const rows: InvoiceRowState[] = n.items.map((l, i) => {
       if (!ctx.items.has(l.itemId)) fail('simple_no_item', 'Pick the product', `items.${i}.item`)
       const priced = l.rate == null ? ctx.prices.get(i) : undefined
@@ -631,16 +672,7 @@ function mapTrade(n: Extract<NormalIntent, { kind: 'sale' | 'purchase' }>, ctx: 
       let r: InvoiceRowState = { itemId: l.itemId, qtyText: qtyText(l.qtyMilli), rate, discount, godownId: null, batchId: null }
       // WP 8.0: a purchase by a company that can't claim GST books the bill's GST as part of the
       // cost (the editor's rates are GST-inclusive there): fold it into the line, integer paise.
-      if (!sale && !charges && gstOnBill) {
-        const rateBp = Math.round((ctx.invoice.items.get(l.itemId)?.gstRate ?? 0) * 100)
-        if (rateBp > 0) {
-          const gross = Math.round((l.qtyMilli * rate) / 1000)
-          const taxable = gross - Math.min(gross, discount ?? 0)
-          const cost = nonClaimableCosts([{ taxable, rateBp, printedTax: null }], null)[0]!.cost
-          const folded = rateForCost(cost, l.qtyMilli)
-          r = { ...r, rate: folded.ratePaise, discount: folded.discountPaise || null }
-        }
-      }
+      if (!sale && !charges && gstOnBill) r = { ...r, ...foldGstIntoLine(l.qtyMilli, rate, discount, ctx.invoice.items.get(l.itemId)?.gstRate ?? null) }
       return r
     })
     const state: InvoiceFormState = {
@@ -665,8 +697,7 @@ function mapTrade(n: Extract<NormalIntent, { kind: 'sale' | 'purchase' }>, ctx: 
     let rate = charges && gstOnBill ? (a.gstRate ?? account.gstRate ?? 0) : 0
     if (sale && !charges && a.gstRate != null && a.gstRate > 0) facts.noGst = registrationOn(ctx.invoice, date) === 'composition' ? 'composition' : 'unregistered'
     if (!sale && !charges && gstOnBill) {
-      const rateBp = Math.round((a.gstRate ?? account.gstRate ?? 0) * 100)
-      if (rateBp > 0) taxable = nonClaimableCosts([{ taxable, rateBp, printedTax: null }], null)[0]!.cost
+      taxable = foldGstIntoAmount(taxable, a.gstRate ?? account.gstRate ?? null)
       rate = 0
     }
     const lines = ledgerLines(ctx, kind as 'sales' | 'purchase', party, account.id, taxable, rate)

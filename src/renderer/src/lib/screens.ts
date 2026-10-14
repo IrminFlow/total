@@ -117,7 +117,6 @@ export const SCREENS: ScreenDef[] = [
     modes: ['accountant'],
     simpleSection: 'sell',
     simpleEntries: [
-      { id: 'record-purchase', label: 'simple.entries.recordPurchase', section: 'buy', screen: { name: 'voucher-entry', kindHint: 'purchase' } },
       { id: 'money-in', label: 'simple.home.moneyIn', section: 'money', screen: { name: 'voucher-entry', kindHint: 'receipt' } },
       { id: 'money-out', label: 'simple.home.moneyOut', section: 'money', screen: { name: 'voucher-entry', kindHint: 'payment' } },
       { id: 'move-money', label: 'simple.entries.moveMoney', section: 'money', screen: { name: 'voucher-entry', kindHint: 'contra' } }
@@ -473,7 +472,6 @@ export const SCREENS: ScreenDef[] = [
     modes: ['accountant'],
     simpleSection: 'sell',
     simpleEntries: [
-      { id: 'purchase-list', label: 'simple.entries.purchaseList', section: 'buy', screen: { name: 'registers', tab: 'purchase' } },
       { id: 'by-month', label: 'simple.reports.byMonth', section: 'reports', screen: { name: 'registers', tab: 'sales' } }
     ],
     keywords: ['sales register', 'purchase register'],
@@ -1044,6 +1042,33 @@ export const SCREENS: ScreenDef[] = [
     screen: null, // simple shell only
     navSection: null,
     invalidates: ['simpleReturnBills', 'simpleReturnBill', 'simpleSellSetup', 'ledgers', 'stockItems']
+  },
+  // WP 9.3: Buy → Record a purchase (simple/buy/RecordPurchase: plain questions → a `purchase`
+  // intent → simple:post). Its accountant counterpart is the purchase invoice editor
+  // ("Accountant view" in the form opens it — the saved bill once there is one).
+  {
+    name: 'simple-buy',
+    modes: ['simple'],
+    simpleView: 'buy/RecordPurchase',
+    simpleSection: 'buy',
+    simpleEntries: [{ id: 'record-purchase', label: 'simple.entries.recordPurchase', screen: { name: 'simple-buy' } }],
+    title: 'Record a purchase',
+    keywords: ['purchase', 'bill', 'expense', 'buy', 'supplier bill'],
+    screen: null, // simple shell only
+    navSection: null,
+    invalidates: ['simpleBuySetup', 'ledgers', 'stockItems', 'units']
+  },
+  // WP 9.3: Buy → Purchase list (simple/buy/PurchaseList), each bill's simple view (`billId`).
+  {
+    name: 'simple-purchases',
+    modes: ['simple'],
+    simpleView: 'buy/PurchaseList',
+    simpleSection: 'buy',
+    simpleEntries: [{ id: 'purchase-list', label: 'simple.entries.purchaseList', screen: { name: 'simple-purchases' } }],
+    title: 'Purchase list',
+    screen: null, // simple shell only
+    navSection: null,
+    invalidates: ['simplePurchases', 'simplePurchase']
   },
   {
     name: 'search',

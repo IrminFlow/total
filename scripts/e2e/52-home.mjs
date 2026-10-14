@@ -2,7 +2,7 @@
 // `simple:home` call; its figures equal the accountant Dashboard tiles (receivables, payables,
 // cash and bank, FY profit) and the Outstandings screen's totals as on today; "Why?" opens the
 // computed sentence and each link opens THAT figure (Outstandings on its side, the Day book on
-// today, the cash / bank balances as on today, GSTR-3B on the tile's month); + Sale opens Make a bill, another task the editor in the
+// today, the cash / bank balances as on today, GSTR-3B on the tile's month); + Sale / + Purchase open Make a bill / Record a purchase, Money in the editor in the
 // full app; "Needs attention" shows when the close checklist / anomalies find something (the demo
 // has bills past their due date). Home is captured light and dark, and for an empty company.
 // WP86_SHOTS=<dir> also copies the screenshots there for the visual review.
@@ -165,13 +165,19 @@ await scenario('52-home', async (h) => {
     assertEq(await page.$('[data-testid="simple-home-attention"]'), null, 'no "Needs attention" card when nothing needs it')
   }
 
-  // ---------- a task button opens its flow (WP 9.2: + Sale = the simple Make a bill) ----------
+  // ---------- a task button opens its flow (WP 9.2: + Sale = Make a bill; WP 9.3: + Purchase =
+  // Record a purchase; Money in is still the editor in the full app) ----------
   await h.click('simple-task-sale')
   await h.waitScreen('simple-sell')
   await attached(h, '[data-testid="simple-nav"]')
   await h.click('simple-nav-home')
   await attached(h, '[data-testid="simple-home"]')
   await h.click('simple-task-purchase')
+  await h.waitScreen('simple-buy')
+  await attached(h, '[data-testid="simple-nav"]')
+  await h.click('simple-nav-home')
+  await attached(h, '[data-testid="simple-home"]')
+  await h.click('simple-task-money-in')
   await h.waitScreen('voucher-entry')
   await attached(h, '[data-testid="btn-back-to-simple"]')
   await backHome(h)
