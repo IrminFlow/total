@@ -43,7 +43,7 @@ export function Form24qPanel({ fyStartYear, quarter, label }: { fyStartYear: num
   const exportCsv = async (): Promise<void> => {
     try {
       const r = await statApi.form24qCsv(fyStartYear, quarter)
-      toast.push('success', `24Q data CSV ready (${r.path.split('/').pop()}) — key into the RPU by hand, this is not a filed FVU`)
+      toast.push('success', `24Q data CSV ready (${r.path.split(/[\\/]/).pop()}) — key into the RPU by hand, this is not a filed FVU`)
     } catch (err) {
       toast.push('error', (err as Error).message)
     }

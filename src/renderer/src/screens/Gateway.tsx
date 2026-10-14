@@ -110,7 +110,7 @@ export function Gateway(): React.JSX.Element {
     setBackingUp(true)
     try {
       const r = await api.backups.run()
-      toast.push('success', `Backup saved — ${r.path.split('/').pop()}`)
+      toast.push('success', `Backup saved — ${r.path.split(/[\\/]/).pop()}`)
       void queryClient.invalidateQueries({ queryKey: ['dashboard'] })
     } catch (err) {
       toast.push('error', (err as Error).message)
