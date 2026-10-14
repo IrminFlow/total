@@ -206,6 +206,12 @@ await scenario('59-people', async (h) => {
   await page.locator('[data-testid="rows-simple-bills-to-pay"] tr[data-bill="BS-7"] [data-testid="btn-bill-pay"]').click()
   await h.waitScreen('simple-money-out')
   await attached(h, '[data-testid="money-bill-list"]')
+  assert(await page.$eval('[data-testid="money-bill-0"]', (e) => e.checked && e.dataset.bill === 'BS-7'), 'that bill is ticked')
+  // Leave the prefilled form (it asks first) so the app closes clean.
+  await h.click('simple-nav-people')
+  const discard = await page.waitForSelector('[data-testid="confirm-ok"]', { timeout: 3000 }).catch(() => null)
+  if (discard) await discard.click()
+  await attached(h, '[data-testid="simple-section-people"]')
 
   h.assertNoConsoleErrors()
 })

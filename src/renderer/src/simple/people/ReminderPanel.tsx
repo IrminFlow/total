@@ -85,11 +85,17 @@ export function ReminderPanel({ person, reminder, startLang, onSent }: { person:
       </div>
       {reminder.lastSent && (
         <p className="mt-2 text-detail text-muted" data-testid="reminder-last">
-          {t('simple.people.reminder.last', { date: toPlainDate(reminder.lastSent) })}
-          {!reminder.allowed && reminder.nextAllowed && ` ${t('simple.people.reminder.wait', { date: toPlainDate(reminder.nextAllowed) })}`}
+          {reminder.lastSent === person.today ? (
+            t('simple.people.reminder.sentToday')
+          ) : (
+            <>
+              {t('simple.people.reminder.last', { date: toPlainDate(reminder.lastSent) })}
+              {!reminder.allowed && reminder.nextAllowed && ` ${t('simple.people.reminder.wait', { date: toPlainDate(reminder.nextAllowed) })}`}
+            </>
+          )}
         </p>
       )}
-      <Textarea className="mt-3 min-h-48 font-sans" readOnly value={text} data-testid="reminder-text" aria-label={t('simple.people.reminder.title', { name: person.name })} />
+      <Textarea className="mt-3 font-sans" rows={11} readOnly value={text} data-testid="reminder-text" aria-label={t('simple.people.reminder.title', { name: person.name })} />
       <div className="mt-3 flex flex-wrap gap-2">
         <Button variant="primary" data-testid="btn-reminder-whatsapp" onClick={() => void onWhatsapp()}>
           {t('simple.people.reminder.whatsapp')}

@@ -684,6 +684,7 @@ export const en = {
   'simple.people.reminder.whatsapp': 'Open in WhatsApp',
   'simple.people.reminder.sms': 'Copy for SMS',
   'simple.people.reminder.last': 'You last sent a reminder on {date}.',
+  'simple.people.reminder.sentToday': 'You already sent them a reminder today.',
   'simple.people.reminder.wait': 'Your setting says to wait until {date} before the next one. You can still send it.',
   'simple.people.reminder.copied': 'Copied. Paste it where you like — noted as a reminder sent today.',
   'simple.people.reminder.opened': 'WhatsApp is opening with the message — noted as a reminder sent today.',
