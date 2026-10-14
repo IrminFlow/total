@@ -136,8 +136,6 @@ function claimRate(ctx: BuyContext, itemId: number): { rate: number; cess: numbe
   return { rate: item?.gstRate ?? account?.gstRate ?? 0, cess: item?.cessRate ?? 0 }
 }
 
-/** The GST % a product line shows (null = none applies): the claimed rate, or — when it is folded
- *  into the cost — the product's own rate (what mapIntent folds at). */
 /** WP 10.8: a claimed GST bill whose product (and purchase account) has no GST rate — the line
  *  would claim no GST though the bill has it; the screen says so instead of a "0% GST" chip. */
 export function buyLineRateMissing(itemId: number, form: BuyForm, ctx: BuyContext): boolean {
@@ -146,6 +144,8 @@ export function buyLineRateMissing(itemId: number, form: BuyForm, ctx: BuyContex
   return ctx.invoice.items.get(itemId)?.gstRate == null && account?.gstRate == null
 }
 
+/** The GST % a product line shows (null = none applies): the claimed rate, or — when it is folded
+ *  into the cost — the product's own rate (what mapIntent folds at). */
 export function buyLineGstRate(itemId: number, form: BuyForm, ctx: BuyContext): number | null {
   const g = buyGst(form, ctx)
   if (g === 'claim') return claimRate(ctx, itemId).rate
