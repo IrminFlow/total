@@ -18,7 +18,7 @@ import type { DB } from '../db/connection'
 import type { CompanyInfo } from '@shared/domain'
 import { createLedger, getLedger } from './masters'
 import { outstandings, outstandingsWithAdvances, partyAllocation } from './analysis'
-import { replaceOpeningBills } from './openingBills'
+import { openingBillsByParty, replaceOpeningBills } from './openingBills'
 import { postIntent } from './simplePost'
 import { simpleHome } from './simpleHome'
 import { reminderLog } from './receivables'
@@ -200,6 +200,21 @@ describe('writes', () => {
     expect(() => updatePerson(db, { id, whatsapp: 'call me' })).toThrow(expect.objectContaining({ code: 'simple_people_bad_phone', field: 'whatsapp' }))
     expect(count("SELECT COUNT(*) n FROM audit_log WHERE entity = 'ledger'")).toBe(n)
     expect(() => updatePerson(db, { id: L('Sales'), phone: '9876543210' })).toThrow(expect.objectContaining({ code: 'simple_people_not_party' }))
+  })
+
+  it('editing a person with opening bills keeps every bill (guardOpeningChange is not touched)', () => {
+    const id = L('Gopal')
+    const bills = openingBillsByParty(db, [id]).get(id)
+    const view = personView(db, INFO, id, TODAY)!
+    expect(bills?.map((b) => b.name)).toEqual(['OB-1', 'OB-2'])
+    const billAudits = count("SELECT COUNT(*) n FROM audit_log WHERE entity = 'opening_bills'")
+    updatePerson(db, { id, phone: '98765 00000', whatsapp: '98765 00000', creditDays: 45 })
+    expect(openingBillsByParty(db, [id]).get(id)).toEqual(bills)
+    expect(count("SELECT COUNT(*) n FROM audit_log WHERE entity = 'opening_bills'")).toBe(billAudits)
+    // The bills keep their own due dates; the figures don't move.
+    const after = personView(db, INFO, id, TODAY)!
+    expect(after.bills).toEqual(view.bills)
+    expect(after.open).toBe(view.open)
   })
 })
 
