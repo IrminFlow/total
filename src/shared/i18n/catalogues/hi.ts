@@ -2508,5 +2508,17 @@ export const hi: Partial<Record<MessageKey, string>> = {
   'simple.ai.from.books': 'आपका हिसाब',
 
   'settings.language.hinglish': 'Hinglish',
-  'settings.language.companyNote': 'आप मालिक हैं, इसलिए आपकी चुनी भाषा में ही Total इस बिज़नेस के बिल और कागज़ प्रिंट करेगा।'
+  'settings.language.companyNote': 'आप मालिक हैं, इसलिए आपकी चुनी भाषा में ही Total इस बिज़नेस के बिल और कागज़ प्रिंट करेगा।',
+  // ---------- WP 7.2 security: passphrase lock, screen lock, backup checks, permissions ----------
+  'errors.security.locked': 'यह बिज़नेस पासफ़्रेज़ से लॉक है। खोलने के लिए पासफ़्रेज़ लिखें।',
+  'errors.security.keyMismatch': 'यह फ़ाइल इस बिज़नेस की चाबी से नहीं खुली। हो सकता है यह किसी और बिज़नेस की हो या खराब हो गई हो।',
+  'errors.security.passphraseRequired': 'पासफ़्रेज़ लिखें।',
+  'errors.security.wrongPassphrase': 'यह पासफ़्रेज़ सही नहीं है। जाँचकर फिर से लिखें।',
+  'errors.security.tooManyTries': 'बहुत बार कोशिश हो गई। 30 सेकंड रुककर फिर से कोशिश करें।',
+  'errors.security.passphrasesDiffer': 'दोनों पासफ़्रेज़ एक जैसे नहीं हैं।',
+  'errors.security.alreadyLocked': 'यह बिज़नेस पहले से पासफ़्रेज़ से लॉक है।',
+  'errors.security.notLocked': 'यह बिज़नेस पासफ़्रेज़ से लॉक नहीं है।',
+  'errors.security.verifyFailed': 'Total लॉक की हुई कॉपी को जाँच नहीं पाया, इसलिए कुछ नहीं बदला। आपका हिसाब पहले जैसा है।',
+  'errors.security.lockNeedsPeople': 'स्क्रीन लॉक करने के लिए पहले ‘यूज़र और उनके अधिकार’ में अपना PIN बनाएँ।',
+  // ---------- end WP 7.2 ----------
 }

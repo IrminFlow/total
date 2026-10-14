@@ -193,6 +193,17 @@ export const ERROR_MAP = {
   duplicate_name: e('errors.duplicateName', 'name'),
   not_permitted: e('errors.notAllowed'),
   session_locked: e('errors.signInFirst'),
+  // ---------- WP 7.2 security (db/encryption.ts, services/dbEncryption.ts, ipc.ts) ----------
+  db_locked: e('errors.security.locked'),
+  db_key_mismatch: e('errors.security.keyMismatch'),
+  passphrase_required: e('errors.security.passphraseRequired', 'passphrase'),
+  wrong_passphrase: e('errors.security.wrongPassphrase', 'passphrase'),
+  passphrase_throttled: e('errors.security.tooManyTries', 'passphrase'),
+  passphrase_mismatch: e('errors.security.passphrasesDiffer', 'confirm'),
+  security_already_locked: e('errors.security.alreadyLocked'),
+  security_not_locked: e('errors.security.notLocked'),
+  security_verify_failed: e('errors.security.verifyFailed'),
+  lock_needs_people: e('errors.security.lockNeedsPeople'),
   /** Zod: the payload didn't fit its schema — issues carry 'zod.<issue code>' (rules in map.ts). */
   invalid_input: e('errors.checkFields')
 } as const satisfies Record<string, ErrorMapEntry>

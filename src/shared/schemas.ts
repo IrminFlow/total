@@ -672,7 +672,9 @@ export const userInputSchema = z.object({
   name: z.string().trim().min(1).max(60),
   role: z.enum(['owner', 'accountant', 'viewer']),
   pin: z.string().regex(/^\d{4,12}$/, 'PIN must be 4-12 digits').optional(),
-  active: z.boolean().default(true)
+  active: z.boolean().default(true),
+  /** WP 7.2: capability flags (shared/capabilities.ts); omitted = keep. */
+  capabilities: z.object({ canPost: z.boolean(), canSeeProfit: z.boolean(), canExport: z.boolean(), canManageAi: z.boolean() }).partial().strict().nullable().optional()
 })
 export type UserInput = z.infer<typeof userInputSchema>
 

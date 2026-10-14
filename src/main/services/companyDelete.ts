@@ -1,4 +1,5 @@
-import Database from 'better-sqlite3-multiple-ciphers'
+import type Database from 'better-sqlite3-multiple-ciphers'
+import { openDb } from '../db/encryption'
 import { existsSync } from 'fs'
 import { log } from '../log'
 import { AUTH_THROTTLE_MESSAGE, clearAuthFailures, isAuthThrottled, recordAuthFailure, usersExist } from './users'
@@ -38,7 +39,7 @@ export function assertDeleteAuthorized(dbPath: string, pin: string | undefined):
   let db: Database.Database | null = null
   let hasUsers: boolean
   try {
-    db = new Database(dbPath, { fileMustExist: true })
+    db = openDb(dbPath, { fileMustExist: true })
     hasUsers = usersExist(db)
   } catch (err) {
     db?.close()
@@ -88,7 +89,7 @@ export function auditCompanyDeletion(dbPath: string, slug: string, userName: str
   if (!existsSync(dbPath)) return
   let db: Database.Database | null = null
   try {
-    db = new Database(dbPath)
+    db = openDb(dbPath)
     // Chained like any other row (WP 3.8) — writeAudit falls back to a plain insert on a file
     // that predates migration 031.
     writeAudit(db, 'company', 0, 'delete', { slug }, null, { user: userName ?? osAuditUser() })

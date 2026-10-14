@@ -2503,5 +2503,17 @@ export const hinglish: Partial<Record<MessageKey, string>> = {
   'simple.ai.from.books': 'Aapka hisaab',
 
   'settings.language.hinglish': 'Hinglish',
-  'settings.language.companyNote': 'Aap owner hain, isliye aapki chuni bhasha mein hi Total is business ke bill aur kaagaz print karega.'
+  'settings.language.companyNote': 'Aap owner hain, isliye aapki chuni bhasha mein hi Total is business ke bill aur kaagaz print karega.',
+  // ---------- WP 7.2 security: passphrase lock, screen lock, backup checks, permissions ----------
+  'errors.security.locked': 'Yeh business passphrase se lock hai. Kholne ke liye passphrase likhein.',
+  'errors.security.keyMismatch': 'Yeh file is business ki chaabi se nahi khuli. Ho sakta hai yeh kisi aur business ki ho ya kharab ho gayi ho.',
+  'errors.security.passphraseRequired': 'Passphrase likhein.',
+  'errors.security.wrongPassphrase': 'Yeh passphrase sahi nahi hai. Check karke phir se likhein.',
+  'errors.security.tooManyTries': 'Bahut baar koshish ho gayi. 30 second rukkar phir se koshish karein.',
+  'errors.security.passphrasesDiffer': 'Dono passphrase ek jaise nahi hain.',
+  'errors.security.alreadyLocked': 'Yeh business pehle se passphrase se lock hai.',
+  'errors.security.notLocked': 'Yeh business passphrase se lock nahi hai.',
+  'errors.security.verifyFailed': 'Total lock ki hui copy ko check nahi kar paya, isliye kuch nahi badla. Aapka hisaab pehle jaisa hai.',
+  'errors.security.lockNeedsPeople': 'Screen lock karne ke liye pehle ‘Users aur unke adhikaar’ mein apna PIN banayein.',
+  // ---------- end WP 7.2 ----------
 }

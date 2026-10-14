@@ -1,4 +1,5 @@
-import Database from 'better-sqlite3-multiple-ciphers'
+import type Database from 'better-sqlite3-multiple-ciphers'
+import { openDb } from './encryption'
 import { rmSync } from 'fs'
 import { basename, join } from 'path'
 import { companyAttachmentsDir, companyBackupAttachmentsDir, companyBackupsDir, companyDbPath, ensureCompanyTree } from '../paths'
@@ -13,7 +14,8 @@ export { migrate }
 
 export function openCompanyDb(slug: string): DB {
   ensureCompanyTree(slug)
-  const db = new Database(companyDbPath(slug))
+  // WP 7.2: an encrypted company opens with the key unlocked for its folder (db_locked otherwise).
+  const db = openDb(companyDbPath(slug))
   db.pragma('journal_mode = WAL')
   db.pragma('busy_timeout = 5000')
   db.pragma('foreign_keys = ON')

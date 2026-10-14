@@ -11,6 +11,7 @@
 //   deadlines              compliance.upcomingDeadlines with complianceApplicability
 // The sentences that explain them are in ./explain.ts. Nothing here is stored.
 
+import type { BackupCheck } from '../backupCheck'
 import type { DashGst, DashSetup } from '../dashboard'
 import type { CloseCheck, CloseCheckKey } from '../closeChecklist'
 import type { AnomalyKind, AnomalySeverity } from '../anomalies'
@@ -158,6 +159,11 @@ export interface SimpleHomeData {
   setup: DashSetup
   /** The setup wizard's GST answer (meta ui.setup.gst), null for a company made another way. */
   gstAnswer: 'regular' | 'composition' | 'no' | 'not_sure' | null
+  /** WP 7.2: the signed-in user may not see profit (their `canSeeProfit` flag is off) — the
+   *  profit tile is left out and its figures are zero. Absent = shown. */
+  profitHidden?: boolean
+  /** WP 7.2: the newest automatic restore check of a backup (null = none yet). Set by ipc.ts. */
+  backupCheck?: BackupCheck | null
 }
 
 /** Nothing recorded yet: no entries, and no balance or open bill from openings either — Home shows

@@ -1,4 +1,5 @@
-import Database from 'better-sqlite3-multiple-ciphers'
+import type Database from 'better-sqlite3-multiple-ciphers'
+import { openDb } from '../db/encryption'
 import type { ProfitAndLoss, StatementNode } from '@shared/reports'
 import {
   mergeByName, type ConsolidateCompanyInput, type ConsolidateInputRow, type ConsolidatedResult
@@ -53,11 +54,13 @@ function flattenPnl(pnl: ProfitAndLoss): ConsolidateInputRow[] {
 export function withMemberDb<T>(slug: string, label: string, fn: (db: Database.Database) => T): { ok: true; value: T } | { ok: false; warning: string } {
   let db: Database.Database | undefined
   try {
-    db = new Database(companyDbPath(slug), { readonly: true, fileMustExist: true })
+    db = openDb(companyDbPath(slug), { readonly: true, fileMustExist: true })
     const { n } = db.prepare('SELECT COUNT(*) AS n FROM migrations').get() as { n: number }
     if (n !== MIGRATIONS.length) return { ok: false, warning: `${label}: schema is out of date and can't be migrated read-only — skipped` }
     return { ok: true, value: fn(db) }
   } catch (err) {
+    // WP 7.2: a member locked with a passphrase is read only once it was unlocked this session.
+    if ((err as { code?: unknown })?.code === 'db_locked') return { ok: false, warning: `${label}: locked with a passphrase — open it once in this session to include it — skipped` }
     return { ok: false, warning: `${label}: ${err instanceof Error ? err.message : String(err)} — skipped` }
   } finally {
     db?.close()

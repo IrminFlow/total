@@ -5,7 +5,18 @@ import { readFileSync, writeFileSync, copyFileSync, rmSync, unlinkSync, mkdtempS
 import { tmpdir } from 'os'
 import { join, basename } from 'path'
 import { z } from 'zod'
-import Database from 'better-sqlite3-multiple-ciphers'
+import { forgetFolderKey, isEncryptedFile, keyForPath, keyOfHandle, openDb, plainCopy, rekeyFile, removeDbFiles, rememberFolderKey } from './db/encryption'
+import { DEFAULT_SCRYPT, newDataKey, unwrapKeyAsync, wrapKeyAsync, WrongPassphraseError, type ScryptParams } from './db/keyEnvelope'
+import { insecureTestCipherAllowed } from './services/secrets'
+import { readEnvelope, removeEnvelope, writeEnvelope } from './services/companyKeys'
+import { commitConvertedCopy, convertBackups, prepareConvertedCopy } from './services/dbEncryption'
+import { checkBackupIfDue, latestBackupCheck, listBackupChecks, recordBackupCheck, verifyBackupFile } from './services/backupVerify'
+import { AUTO_LOCK_CHOICES, IdleClock, getAutoLockMinutes, setAutoLockMinutes } from './services/sessionLock'
+import { capabilityAllows, channelCapabilities } from './capabilities'
+import { effectiveCapabilities, type Capability, type CapabilityFlags } from '@shared/capabilities'
+import type { BackupCheck } from '@shared/backupCheck'
+import type { SecurityView } from '@shared/security'
+import { redactDashboard, redactDashboardSeries, redactHome } from '@shared/profitRedaction'
 import type { DB } from './db/connection'
 import { backupCompany, closeCompanyDb, openCompanyDb, stashBackupAttachments } from './db/connection'
 import * as attachments from './services/attachments'
@@ -176,9 +187,27 @@ export interface OpenCompany {
   /** Cached usersExist(db) — recomputed only on open and after users:save/deactivate, so ordinary
    *  IPC calls (the vast majority) never pay for a COUNT query just to check the role gate. */
   usersExist: boolean
+  /** WP 7.2: the file is encrypted (locked with a passphrase). */
+  encrypted: boolean
 }
 
 let current: OpenCompany | null = null
+
+/** WP 7.2: the passphrase KDF cost — the real one, except in a hermetic test run that already
+ *  uses the insecure test cipher (TOTAL_INSECURE_TEST_SECRETS + TOTAL_DATA_DIR, never packaged),
+ *  where the cheapest cost the envelope accepts keeps e2e fast. */
+function scryptParams(): ScryptParams {
+  return insecureTestCipherAllowed(process.env, app.isPackaged) ? { N: 2 ** 14, r: 8, p: 1 } : DEFAULT_SCRYPT
+}
+
+/** WP 7.2: the session's idle clock (auto-lock minutes from the open company's meta). */
+const idleClock = new IdleClock(null)
+
+/** WP 7.2: wrong passphrases per company slug — 5 in a row lock the prompt for 30 seconds (in
+ *  memory: the passphrase cannot be checked against anything inside the locked file). */
+const passphraseFails = new Map<string, { fails: number; until: number }>()
+const PASSPHRASE_MAX_FAILS = 5
+const PASSPHRASE_LOCKOUT_MS = 30_000
 
 /** Paths the Tally-import file dialog has actually issued this session. A `filePath` supplied in
  *  a tally:import payload must be one of these — otherwise the renderer could pass any path on
@@ -189,7 +218,47 @@ const dialogIssuedTallyPaths = new Set<string>()
 
 /** The signed-in user for the currently-open company, or null before login / after logout.
  *  Cleared whenever the company itself closes (see closeCurrentCompany). */
-let sessionUser: { id: number; name: string; role: Role } | null = null
+let sessionUser: { id: number; name: string; role: Role; capabilities: CapabilityFlags | null } | null = null
+
+/** WP 7.2: sign the session out because of a lock (⌘L / idle); audited as the user's logout with
+ *  the reason, and every window told so it shows the PIN screen. */
+function lockSession(reason: 'manual' | 'idle'): void {
+  if (!current || !sessionUser) return
+  try {
+    writeAudit(current.db, 'user', sessionUser.id, 'logout', null, { lock: reason })
+  } catch (err) {
+    log('warn', 'session-lock-audit-failed', { error: err instanceof Error ? err.message : String(err) })
+  }
+  sessionUser = null
+  for (const w of BrowserWindow.getAllWindows?.() ?? []) if (!w.isDestroyed()) w.webContents.send('total:session:locked', { reason })
+}
+
+/** WP 7.2: the automatic restore check of a backup that was just written — deferred a few
+ *  seconds so it never delays the reply that triggered the backup; skipped when not due (at most
+ *  daily for automatic backups) or when the company was closed meanwhile. */
+export function scheduleBackupCheck(db: DB, dest: string, tag: string): void {
+  const t = setTimeout(() => {
+    try {
+      const check = runAsAuditUser(SYSTEM_AUDIT_USER, () => checkBackupIfDue(db, dest, tag, todayISO()))
+      if (check && !check.ok) log('warn', 'backup-check-failed', { file: check.file, error: check.error })
+    } catch (err) {
+      log('warn', 'backup-check-error', { error: err instanceof Error ? err.message : String(err) })
+    }
+  }, 3_000)
+  t.unref?.()
+}
+
+/** The signed-in user's view of themselves (auth:login / auth:current): role, flags and the
+ *  effective capabilities the gate applies. */
+function sessionView(u: { id: number; name: string; role: Role; capabilities: CapabilityFlags | null }): { id: number; name: string; role: Role; capabilities: CapabilityFlags | null; can: Record<Capability, boolean> } {
+  return { ...u, can: effectiveCapabilities(u.role, u.capabilities) }
+}
+
+/** Whether the current session may see profit figures (dashboards / Home leave them out otherwise). */
+function canSeeProfitNow(): boolean {
+  if (!current?.usersExist || !sessionUser) return true
+  return effectiveCapabilities(sessionUser.role, sessionUser.capabilities).canSeeProfit
+}
 
 /** company:updateInfo is owner-only; in a company without users everyone may. */
 function canChangeCompanyInfo(): boolean {
@@ -229,7 +298,7 @@ function renameFile(src: string, dest: string): void {
 function companyHasUsers(dbPath: string): boolean {
   if (!existsSync(dbPath)) return false
   try {
-    const d = new Database(dbPath, { readonly: true, fileMustExist: true })
+    const d = openDb(dbPath, { readonly: true, fileMustExist: true })
     try {
       return ((d.prepare('SELECT COUNT(*) AS n FROM users WHERE active = 1').get() as { n: number }).n ?? 0) > 0
     } finally {
@@ -247,7 +316,11 @@ function appendAiKeyAudit(entry: AppKeyAuditEntry): void {
   appendFileSync(join(dataRoot(), 'ai-key-audit.jsonl'), `${JSON.stringify({ ...entry, appVersion: app.getVersion() })}\n`, { mode: 0o600 })
 }
 
-export function closeCurrentCompany(): void {
+export function closeCurrentCompany(opts: { keepKey?: boolean } = {}): void {
+  // WP 7.2: a business locked with a passphrase asks for it again on its next open — its key is
+  // forgotten with the handle (a restore / a lock change reopens it at once and keeps it).
+  if (current && !opts.keepKey) forgetFolderKey(companyDir(current.slug))
+  idleClock.setMinutes(null)
   // Stop the inbox watcher + any pending mirror refresh before the handle closes under them.
   agentBridge.syncInboxWatcher(null)
   // The cached NIC login belongs to this company's identity — never carry it into the next one.
@@ -298,6 +371,13 @@ export const CHANNEL_ROLES = new Map<string, Role>()
 /** The ungated channels (exported for the same registry test — several of them write). */
 export const UNGATED_CHANNEL_NAMES: ReadonlySet<string> = UNGATED_CHANNELS
 
+/** WP 7.2: channel → the capability flag that governs it (capabilities.ts), built once. */
+let capabilityMap: Map<string, Capability> | null = null
+export function channelCapabilityMap(): Map<string, Capability> {
+  capabilityMap ??= channelCapabilities(UNGATED_CHANNELS)
+  return capabilityMap
+}
+
 /** The structured fields of a failed call (WP 8.5): an AppError's own; a Zod failure as
  *  'invalid_input' with one 'zod.<code>' issue per path (the `data` wrapper of `{ id, data }` /
  *  voucher:save payloads stripped); a UNIQUE clash on a name column as 'duplicate_name'. */
@@ -329,13 +409,20 @@ function handle(channel: string, fn: Handler, minRole: Role = 'accountant'): voi
       // (usersExist is cached on `current` — see OpenCompany — to avoid a COUNT query per call).
       // A brand-new company with zero users is intentionally wide open: that's how the very
       // first (owner) user gets created via users:save without a chicken-and-egg deadlock.
+      // WP 7.2: an idle session past its auto-lock minutes is locked here, before the gate — main
+      // decides, so a renderer that missed the lock event cannot keep using the session.
+      if (current && current.usersExist && sessionUser && idleClock.due()) lockSession('idle')
       if (!UNGATED_CHANNELS.has(channel) && current && current.usersExist) {
         if (!sessionUser) {
           // Distinct from the role-denied case below: the renderer can route this specifically
           // to the lock screen instead of a generic permission toast.
           throw new AppError('session_locked', 'Locked — sign in first')
         }
-        if (!roleAllows(sessionUser.role, minRole)) {
+        // WP 7.2: a channel governed by a capability flag follows the user's flag (none set = the
+        // role, exactly as before); every other channel follows the role alone.
+        const cap = channelCapabilityMap().get(channel)
+        const allowed = cap ? capabilityAllows(sessionUser.role, sessionUser.capabilities, cap, minRole) : roleAllows(sessionUser.role, minRole)
+        if (!allowed) {
           throw new AppError('not_permitted', 'You do not have permission to do that')
         }
       }
@@ -367,6 +454,13 @@ export function registerIpc(): void {
   // to the OS login ('os:<name>') — only reachable in a company without users, since a company
   // with users refuses every gated channel until someone signs in.
   setAuditContext({ appVersion: app.getVersion(), getUserName: () => sessionUser?.name ?? null, getUserId: () => sessionUser?.id ?? null })
+
+  // WP 7.2: the auto-lock fires on its own too (not only at the next call), so the PIN screen
+  // comes back while the app sits idle.
+  const idleTimer = setInterval(() => {
+    if (current && current.usersExist && sessionUser && idleClock.due()) lockSession('idle')
+  }, 15_000)
+  idleTimer.unref?.()
 
   // ---------- fixed assets (WP 3.6) — channels live in ipcFixedAssets.ts ----------
   registerFixedAssetIpc(handle, () => requireCompany().db)
@@ -676,6 +770,7 @@ export function registerIpc(): void {
     auditCompanyDeletion(companyDbPath(slug), slug, sessionUser?.name ?? null)
     log('warn', 'company-deleted', { slug, user: sessionUser?.name ?? null })
     if (current?.slug === slug) closeCurrentCompany()
+    forgetFolderKey(companyDir(slug))
     rmSync(companyDir(slug), { recursive: true, force: true })
     removeCompany(slug)
     // Secrets live outside the company folder; drop them so a future company reusing this slug
@@ -689,16 +784,54 @@ export function registerIpc(): void {
   })
 
   handle('company:open', async (payload) => {
-    const { slug } = z.object({ slug: z.string().min(1) }).parse(payload)
+    const { slug, passphrase } = z.object({ slug: z.string().min(1), passphrase: z.string().max(1024).optional() }).parse(payload)
     if (!existsSync(companyDbPath(slug))) throw new Error('Company database not found')
+    // WP 7.2: a business locked with a passphrase needs it (its key is unwrapped and remembered
+    // for this open); a plaintext one opens exactly as before — no prompt, nothing asked. The
+    // business open until now is closed first (its key forgotten).
     closeCurrentCompany()
+    await unlockFolderIfNeeded(slug, passphrase)
+    return openCompanyNow(slug)
+  })
+
+  /** Throttled passphrase unlock of a company folder (no-op when plaintext or already unlocked). */
+  async function unlockFolderIfNeeded(slug: string, passphrase: string | undefined): Promise<void> {
+    const dbPath = companyDbPath(slug)
+    if (!isEncryptedFile(dbPath) || keyForPath(dbPath)) return
+    if (!passphrase) throw new AppError('passphrase_required', 'This business is locked with a passphrase — type it to open the books', { field: 'passphrase' })
+    const now = Date.now()
+    const state = passphraseFails.get(slug)
+    if (state && state.until > now) throw new AppError('passphrase_throttled', 'Too many tries — wait 30 seconds', { field: 'passphrase' })
+    const env = readEnvelope(companyDir(slug), slug, appSecretStore())
+    if (!env) throw new AppError('db_key_mismatch', 'The key file of this business (company.key.json) is missing — restore the folder or open a recovery copy')
+    let key: Buffer
+    try {
+      key = await unwrapKeyAsync(env, passphrase)
+    } catch (err) {
+      if (!(err instanceof WrongPassphraseError)) throw err
+      const fails = (state?.fails ?? 0) + 1
+      passphraseFails.set(slug, { fails, until: fails >= PASSPHRASE_MAX_FAILS ? now + PASSPHRASE_LOCKOUT_MS : 0 })
+      log('warn', 'passphrase-wrong', { slug, fails })
+      throw new AppError('wrong_passphrase', 'That passphrase is not right', { field: 'passphrase' })
+    }
+    passphraseFails.delete(slug)
+    rememberFolderKey(companyDir(slug), key)
+  }
+
+  /** Open `slug` as the current company (the key, if any, already remembered) and run the
+   *  on-open housekeeping — company:open, and the passphrase on / off flows that reopen the file. */
+  async function openCompanyNow(slug: string, opts: { keepKey?: boolean } = {}): Promise<{ slug: string; info: CompanyInfo; integrity: ReturnType<typeof checkIntegrity>; locked: boolean; ui: ReturnType<typeof configSvc.getUi>; encrypted: boolean }> {
+    closeCurrentCompany({ keepKey: opts.keepKey ?? true })
     const db = openCompanyDb(slug)
     const info = readCompanyInfo(db)
-    current = { slug, db, info, usersExist: users.usersExist(db) }
+    current = { slug, db, info, usersExist: users.usersExist(db), encrypted: keyOfHandle(db) !== null }
+    idleClock.setMinutes(getAutoLockMinutes(db))
     // Online backup needs an open handle, so this runs after open (not before, as it used to).
     // A backup failure here must never fail — or desync — the open itself.
     try {
-      await backupCompany(db, slug, 'open')
+      const dest = await backupCompany(db, slug, 'open')
+      // WP 7.2: the automatic restore check (at most daily), after this reply.
+      scheduleBackupCheck(db, dest, 'open')
     } catch (err) {
       log('warn', 'backup-on-open-failed', { slug, error: err instanceof Error ? err.message : String(err) })
     }
@@ -761,8 +894,8 @@ export function registerIpc(): void {
     // past this reply and only while the company is unlocked (a company with users waits for the
     // sign-in — auth:login starts the pass then).
     void runDuePacksInBackground({ slug, db, info }, { allowed: packsAllowed, current: getUnlockedCompany })
-    return { slug, info, integrity, locked: current.usersExist, ui: configSvc.getUi(db) }
-  })
+    return { slug, info, integrity, locked: current.usersExist, ui: configSvc.getUi(db), encrypted: current.encrypted }
+  }
 
   handle('company:close', () => {
     closeCurrentCompany()
@@ -771,7 +904,7 @@ export function registerIpc(): void {
 
   handle('company:current', () =>
     current
-      ? { slug: current.slug, info: current.info, locked: current.usersExist && !sessionUser, ui: configSvc.getUi(current.db) }
+      ? { slug: current.slug, info: current.info, locked: current.usersExist && !sessionUser, ui: configSvc.getUi(current.db), encrypted: current.encrypted }
       : null
   )
 
@@ -801,9 +934,17 @@ export function registerIpc(): void {
     return info
   }, 'owner')
 
-  const runManualBackup = async (): Promise<{ path: string }> => {
+  const runManualBackup = async (): Promise<{ path: string; check: BackupCheck | null }> => {
     const c = requireCompany()
-    return { path: await backupCompany(c.db, c.slug, 'manual', sessionUser?.name ?? osAuditUser()) }
+    const path = await backupCompany(c.db, c.slug, 'manual', sessionUser?.name ?? osAuditUser())
+    // WP 7.2: a backup the user asked for is restore-checked at once (the answer comes back with it).
+    let check: BackupCheck | null = null
+    try {
+      check = checkBackupIfDue(c.db, path, 'manual', todayISO())
+    } catch (err) {
+      log('warn', 'backup-check-error', { error: err instanceof Error ? err.message : String(err) })
+    }
+    return { path, check }
   }
   // 'company:backup' is kept as an alias of 'backup:run' for existing callers.
   handle('company:backup', runManualBackup)
@@ -854,7 +995,24 @@ export function registerIpc(): void {
     // and atomically swaps it into place. Throws — leaving the live DB completely untouched —
     // if the backup fails validation. `current`/`c.db` are still fully intact at that point,
     // since we haven't closed anything yet.
-    const { preRestoreSnapshotPath } = restoreCompanyDb(c.db, dbPath, backupPath, companyBackupsDir(slug))
+    // WP 7.2: a business locked with a passphrase keeps its lock — a plaintext backup (one made
+    // before the lock, if converting it failed) is restored through an encrypted copy of itself.
+    const liveKey = keyOfHandle(c.db)
+    let source = backupPath
+    let tempSource: string | null = null
+    if (liveKey && !isEncryptedFile(backupPath)) {
+      tempSource = `${backupPath}.restore-tmp`
+      removeDbFiles(tempSource)
+      copyFileSync(backupPath, tempSource)
+      rekeyFile(tempSource, null, liveKey)
+      source = tempSource
+    }
+    let preRestoreSnapshotPath: string
+    try {
+      preRestoreSnapshotPath = restoreCompanyDb(c.db, dbPath, source, companyBackupsDir(slug)).preRestoreSnapshotPath
+    } finally {
+      if (tempSource) removeDbFiles(tempSource)
+    }
     // WP 6.4: the pre-restore snapshot's attachments are still in the live store — keep copies,
     // so restoring that snapshot later brings them back too.
     try {
@@ -863,11 +1021,11 @@ export function registerIpc(): void {
       log('warn', 'backup-restore-stash-failed', { slug, error: err instanceof Error ? err.message : String(err) })
     }
 
-    closeCurrentCompany()
+    closeCurrentCompany({ keepKey: true })
     const reopen = (): OpenCompany => {
       const db = openCompanyDb(slug) // migrates if the backup predates the current schema
       const info = readCompanyInfo(db)
-      return { slug, db, info, usersExist: users.usersExist(db) }
+      return { slug, db, info, usersExist: users.usersExist(db), encrypted: keyOfHandle(db) !== null }
     }
 
     try {
@@ -903,6 +1061,7 @@ export function registerIpc(): void {
     } catch {
       // Best-effort — the restore itself already succeeded regardless of this.
     }
+    idleClock.setMinutes(getAutoLockMinutes(current.db))
     const integrity = checkIntegrity(current.db)
     if (!integrity.ok) {
       log('warn', 'integrity', { slug, quickCheck: integrity.quickCheck, unbalanced: integrity.unbalancedVoucherIds })
@@ -935,7 +1094,9 @@ export function registerIpc(): void {
     const { passphrase } = z.object({ passphrase: passphraseSchema }).parse(payload)
     const c = requireCompany()
     const tempPath = join(companyExportsDir(c.slug), `.export-tmp-${backupStamp()}.db`)
-    snapshotSync(c.db, tempPath)
+    // WP 7.2: the snapshot inside is plaintext (a locked business's file is decrypted into it) —
+    // the .totalbak is protected by ITS passphrase, and imports anywhere without the company key.
+    plainCopy(c.db, tempPath)
     // WP 6.4: the encrypted file carries the attachments (a blob table inside the snapshot).
     let embedded: StashResult
     try {
@@ -975,7 +1136,7 @@ export function registerIpc(): void {
 
     let info: CompanyInfo
     try {
-      const check = new Database(tempDbPath, { readonly: true })
+      const check = openDb(tempDbPath, { readonly: true, key: null })
       try {
         const result = check.pragma('quick_check') as Array<{ quick_check: string }>
         if (result[0]?.quick_check !== 'ok') throw new Error('bad')
@@ -1448,14 +1609,16 @@ export function registerIpc(): void {
   }, 'viewer')
   handle('report:dashboard', (p) => {
     const { today, fyFrom } = z.object({ today: z.string(), fyFrom: z.string() }).parse(p)
-    return reports.dashboard(requireCompany().db, today, fyFrom)
+    const d = reports.dashboard(requireCompany().db, today, fyFrom)
+    return canSeeProfitNow() ? d : redactDashboard(d)
   }, 'viewer')
   handle('report:dashboardSeries', (p) => {
     const { today, from, to } = periodSchema.extend({ today: isoDate }).refine((v) => v.from <= v.to, 'from must be on or before to').parse(p)
     const c = requireCompany()
     // Backup status comes from the backups folder (the service itself never touches files).
     const backups = listBackupsIn(companyBackupsDir(c.slug))
-    return dashboard.dashboardSeries(c.db, c.info, { today, from, to, backups })
+    const d = dashboard.dashboardSeries(c.db, c.info, { today, from, to, backups })
+    return canSeeProfitNow() ? d : redactDashboardSeries(d)
   }, 'viewer')
   // WP 8.6: the simple Home in one round trip — every figure as on today, from the services the
   // accountant screens use (services/simpleHome.ts). Read-only, any role. The as-on date is
@@ -1463,7 +1626,8 @@ export function registerIpc(): void {
   handle('simple:home', (p) => {
     const { today } = z.object({ today: isoDate.optional() }).strict().parse(p ?? {})
     const c = requireCompany()
-    return simpleHome(c.db, c.info, { today: homeAsOn(today, todayISO()), backups: listBackupsIn(companyBackupsDir(c.slug)) })
+    const home = { ...simpleHome(c.db, c.info, { today: homeAsOn(today, todayISO()), backups: listBackupsIn(companyBackupsDir(c.slug)) }), backupCheck: latestBackupCheck(c.db) }
+    return canSeeProfitNow() ? home : redactHome(home)
   }, 'viewer')
   handle('simple:homeAttention', (p) => {
     const { today } = z.object({ today: isoDate.optional() }).strict().parse(p ?? {})
@@ -2508,10 +2672,11 @@ export function registerIpc(): void {
     const c = requireCompany()
     const result = users.login(c.db, userId, pin)
     sessionUser = result
+    idleClock.touch()
     // WP 6.2: due report packs wait for the first sign-in of a locked company.
     void runDuePacksInBackground(c, { allowed: packsAllowed, current: getUnlockedCompany })
     resumeCapture()
-    return result
+    return sessionView(result)
   })
   handle('auth:logout', () => {
     // [lane-Q audit] logout audit row (task Q1 #90) — only meaningful with a live session.
@@ -2519,7 +2684,7 @@ export function registerIpc(): void {
     sessionUser = null
     return null
   })
-  handle('auth:current', () => sessionUser)
+  handle('auth:current', () => (sessionUser ? sessionView(sessionUser) : null))
 
   handle('users:list', () => users.listUsers(requireCompany().db), 'owner')
   handle('users:save', (p) => {
@@ -2532,7 +2697,10 @@ export function registerIpc(): void {
     // The bootstrap owner (the very first user of a fresh company) is auto-authenticated as
     // themselves — they just proved they're standing at the machine by creating the account,
     // and forcing them to immediately re-enter the PIN they picked a second ago would be theatre.
-    if (bootstrap) sessionUser = { id: saved.id, name: saved.name, role: saved.role }
+    if (bootstrap) {
+      sessionUser = { id: saved.id, name: saved.name, role: saved.role, capabilities: saved.capabilities }
+      idleClock.touch()
+    }
     writeAudit(c.db, 'user', saved.id, id ? 'update' : 'create', before, saved)
     return { ...saved, locked: c.usersExist && !sessionUser }
   }, 'owner')
@@ -2545,6 +2713,149 @@ export function registerIpc(): void {
     writeAudit(c.db, 'user', id, 'update', before, { ...before, active: false })
     return null
   }, 'owner')
+
+  // ---------- WP 7.2 security: screen lock, passphrase lock, backup checks ----------
+  // The session lock: ⌘L (session:lock) and the idle auto-lock sign the user out — the PIN screen
+  // (auth:login) is the only way back, and the gate above refuses everything else meanwhile.
+  handle('session:activity', () => {
+    idleClock.touch()
+    return null
+  }, 'viewer')
+  handle('session:lock', () => {
+    const c = requireCompany()
+    if (!c.usersExist) throw new AppError('lock_needs_people', 'Add a user with a PIN first — a business without users has nothing to lock the screen with')
+    lockSession('manual')
+    return { locked: true }
+  }, 'viewer')
+
+  const securityView = (): SecurityView => {
+    const c = requireCompany()
+    return {
+      encrypted: c.encrypted,
+      keyFile: c.encrypted && !!readEnvelope(companyDir(c.slug), c.slug, appSecretStore()),
+      usersExist: c.usersExist,
+      autoLockMinutes: getAutoLockMinutes(c.db),
+      autoLockChoices: [...AUTO_LOCK_CHOICES],
+      lastCheck: latestBackupCheck(c.db)
+    }
+  }
+  handle('security:get', () => securityView(), 'viewer')
+  handle('security:autoLock:set', (p) => {
+    const { minutes } = z
+      .object({ minutes: z.number().int().refine((m) => (AUTO_LOCK_CHOICES as readonly number[]).includes(m), 'Pick one of the offered minutes').nullable() })
+      .strict()
+      .parse(p)
+    const c = requireCompany()
+    if (minutes !== null && !c.usersExist) throw new AppError('lock_needs_people', 'Add a user with a PIN first — the screen lock asks for a PIN')
+    setAutoLockMinutes(c.db, minutes)
+    idleClock.setMinutes(minutes)
+    return securityView()
+  }, 'owner')
+
+  const passphrasePair = z.object({ passphrase: passphraseSchema, confirm: z.string().max(1024) }).strict()
+  /** Turn the passphrase lock on (`to` = a new key) or off (`to` = null) for the open company:
+   *  a normal backup first, then the verified copy (services/dbEncryption.ts) swapped in and the
+   *  company reopened, then every backup converted. The signed-in user stays signed in. */
+  const convertOpenCompany = async (to: Buffer | null, auditAfter: Record<string, unknown>): Promise<{ backupsConverted: number; backupsFailed: string[] }> => {
+    const c = requireCompany()
+    const { slug } = c
+    const by = sessionUser?.name ?? osAuditUser()
+    const keepUser = sessionUser
+    const from = keyOfHandle(c.db)
+    await backupCompany(c.db, slug, to ? 'pre-encrypt' : 'pre-decrypt', by)
+    const tmp = prepareConvertedCopy({
+      db: c.db,
+      dbPath: companyDbPath(slug),
+      to,
+      asOn: todayISO(),
+      audit: { before: { encrypted: !!from }, after: { encrypted: !!to, ...auditAfter }, user: by }
+    })
+    closeCurrentCompany({ keepKey: true })
+    commitConvertedCopy(tmp, companyDbPath(slug))
+    if (to) rememberFolderKey(companyDir(slug), to)
+    else forgetFolderKey(companyDir(slug))
+    await openCompanyNow(slug, { keepKey: true })
+    sessionUser = keepUser
+    idleClock.touch()
+    // The older backups follow the books: none is left plaintext behind a locked business (or
+    // encrypted behind an unlocked one, where no key would open it any more).
+    const conv = convertBackups(companyBackupsDir(slug), from, to)
+    if (conv.failed.length) log('warn', 'security-backups-not-converted', { slug, failed: conv.failed.length })
+    return { backupsConverted: conv.converted, backupsFailed: conv.failed }
+  }
+
+  /** The passphrase opens the open company's key (passphrase off / change), else wrong_passphrase. */
+  const assertPassphrase = async (c: OpenCompany, passphrase: string, field: string): Promise<Buffer> => {
+    const env = readEnvelope(companyDir(c.slug), c.slug, appSecretStore())
+    const key = keyOfHandle(c.db)
+    let unwrapped: Buffer | null = null
+    try {
+      unwrapped = env ? await unwrapKeyAsync(env, passphrase) : null
+    } catch {
+      unwrapped = null
+    }
+    if (!unwrapped || !key || !unwrapped.equals(key)) throw new AppError('wrong_passphrase', 'That passphrase is not right', { field })
+    return key
+  }
+
+  handle('security:passphrase:on', async (p) => {
+    const { passphrase, confirm } = passphrasePair.parse(p)
+    if (confirm !== passphrase) throw new AppError('passphrase_mismatch', 'The two passphrases are not the same', { field: 'confirm' })
+    const c = requireCompany()
+    if (c.encrypted) throw new AppError('security_already_locked', 'This business is already locked with a passphrase')
+    const key = newDataKey()
+    const env = await wrapKeyAsync(key, passphrase, scryptParams())
+    // The key file goes first: from the moment the file is encrypted it must be there.
+    const { mirrored } = writeEnvelope(companyDir(c.slug), c.slug, env, appSecretStore())
+    try {
+      const out = await convertOpenCompany(key, { cipher: 'sqlcipher-4', kdf: `scrypt N=${env.N} r=${env.r} p=${env.p}`, keyCopyInSecureStorage: mirrored })
+      return { ...securityView(), ...out, mirrored }
+    } catch (err) {
+      // Nothing was swapped in (the copy failed its check): the key file goes again.
+      if (!current?.encrypted) removeEnvelope(companyDir(c.slug), c.slug, appSecretStore())
+      throw err
+    }
+  }, 'owner')
+
+  handle('security:passphrase:off', async (p) => {
+    const { passphrase } = z.object({ passphrase: z.string().min(1).max(1024) }).strict().parse(p)
+    const c = requireCompany()
+    if (!c.encrypted) throw new AppError('security_not_locked', 'This business is not locked with a passphrase')
+    await assertPassphrase(c, passphrase, 'passphrase')
+    const out = await convertOpenCompany(null, {})
+    removeEnvelope(companyDir(c.slug), c.slug, appSecretStore())
+    return { ...securityView(), ...out }
+  }, 'owner')
+
+  handle('security:passphrase:change', async (p) => {
+    const { current: old, passphrase, confirm } = z
+      .object({ current: z.string().min(1).max(1024), passphrase: passphraseSchema, confirm: z.string().max(1024) })
+      .strict()
+      .parse(p)
+    if (confirm !== passphrase) throw new AppError('passphrase_mismatch', 'The two passphrases are not the same', { field: 'confirm' })
+    const c = requireCompany()
+    if (!c.encrypted) throw new AppError('security_not_locked', 'This business is not locked with a passphrase')
+    const before = readEnvelope(companyDir(c.slug), c.slug, appSecretStore())
+    const key = await assertPassphrase(c, old, 'current')
+    // Only the wrapping changes: the books and every backup keep the same key.
+    const next = await wrapKeyAsync(key, passphrase, scryptParams())
+    const { mirrored } = writeEnvelope(companyDir(c.slug), c.slug, next, appSecretStore())
+    writeAudit(c.db, 'security', 0, 'update', { passphraseSetAt: before?.createdAt ?? null }, { passphraseSetAt: next.createdAt, keyCopyInSecureStorage: mirrored })
+    return securityView()
+  }, 'owner')
+
+  // Backup checks: the list (Settings → Backups) and "Check now" on the newest (or a named) backup.
+  handle('backup:checks', () => listBackupChecks(requireCompany().db), 'viewer')
+  handle('backup:check', (p) => {
+    const { file } = z.object({ file: backupFileSchema.optional() }).strict().parse(p ?? {})
+    const c = requireCompany()
+    const name = file ?? listBackupsIn(companyBackupsDir(c.slug))[0]?.file
+    if (!name) throw new Error('There is no backup to check yet — take one first')
+    const path = join(companyBackupsDir(c.slug), name)
+    if (!existsSync(path)) throw new Error('Backup file not found')
+    const check = verifyBackupFile(path, { asOn: todayISO(), key: isEncryptedFile(path) ? keyOfHandle(c.db) : null })
+    return recordBackupCheck(c.db, check)
+  })
 
   // ---------- logging ----------
   handle('log:renderer', (p) => {

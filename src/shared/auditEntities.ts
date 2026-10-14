@@ -119,7 +119,10 @@ export const AUDIT_ENTITIES = [
   // WP 8.5 grouped undo (vouchers binned together by the save card's Undo)
   'undo_group',
   // WP 9.1 a simple-mode intent posted through simple:post (the whole intent + its voucher ids)
-  'simple_intent'
+  'simple_intent',
+  // WP 7.2 the passphrase lock (on / off / changed, auto-lock minutes) and a backup's restore check
+  'security',
+  'backup_check'
 ] as const
 
 export type AuditEntity = (typeof AUDIT_ENTITIES)[number]
@@ -161,6 +164,8 @@ export const AUDIT_ENTITY_LABELS: Partial<Record<AuditEntity, string>> = {
   gst2b_statement: 'GSTR-2B statement',
   audit_log: 'Audit log',
   backup: 'Backup',
+  backup_check: 'Backup check (restored and verified)',
+  security: 'Security (passphrase lock, screen lock)',
   bank_import_profile: 'Bank statement mapping',
   bank_learned_rule: 'Learned bank rule',
   bank_rule: 'Bank rule',

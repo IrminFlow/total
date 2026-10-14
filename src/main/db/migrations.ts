@@ -3435,5 +3435,25 @@ export const MIGRATIONS: string[] = [
     facts_json TEXT NOT NULL,
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
   );
+  `,
+  // WP 7.2 (last — number by position; WP 7.1's index migration may land first and re-place this) —
+  // security. `backup_runs`: one row per automatic restore check of a backup (the file restored
+  // into a scratch folder, migrated, its audit chain verified and its entries checked to balance —
+  // services/backupVerify.ts); Home and Settings → Backups read the newest. `users.capabilities_json`:
+  // a user's capability flags that differ from the role's default (shared/capabilities.ts; NULL =
+  // as the role says, so every existing user is unchanged).
+  `
+  CREATE TABLE backup_runs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    file TEXT NOT NULL,
+    tag TEXT NOT NULL,
+    encrypted INTEGER NOT NULL DEFAULT 0 CHECK (encrypted IN (0, 1)),
+    checked_at TEXT NOT NULL,
+    ok INTEGER NOT NULL CHECK (ok IN (0, 1)),
+    checks_json TEXT NOT NULL,
+    error TEXT
+  );
+  CREATE INDEX idx_backup_runs_checked ON backup_runs(checked_at);
+  ALTER TABLE users ADD COLUMN capabilities_json TEXT;
   `
 ]

@@ -86,11 +86,12 @@ export const AUDIT_COVERAGE: Record<string, AuditCoverage> = {
   'simple:intentForm': r("maps the intent with simple:post's mapping in a transaction that is always rolled back; writes nothing"),
   'simple:handoffTarget': QUERY,
   'company:delete': a('company'),
-  'company:open': a('backup', 'voucher', 'audit_log', 'attachment'),
+  // WP 7.2: + the (deferred, at most daily) restore check of the on-open backup.
+  'company:open': a('backup', 'voucher', 'audit_log', 'attachment', 'backup_check'),
   'company:close': r('closes the database handle'),
   'company:updateInfo': a('company'),
   'company:lock:set': a('company'),
-  'company:backup': a('backup'),
+  'company:backup': a('backup', 'backup_check'),
   'company:revealExports': r('opens the exports folder in Finder'),
   // WP 8.1: the company mode (meta `ui`).
   'ui:get': QUERY,
@@ -114,10 +115,24 @@ export const AUDIT_COVERAGE: Record<string, AuditCoverage> = {
   'users:deactivate': a('user'),
 
   // ---------- backups ----------
-  'backup:run': a('backup'),
+  // WP 7.2: a manual backup is restore-checked at once.
+  'backup:run': a('backup', 'backup_check'),
   'backup:restore': a('backup'),
   'backup:exportEncrypted': EXPORT,
   'backup:importEncrypted': a('backup'),
+  // WP 7.2: the restore checks (list; check now) — a check is its own audited row.
+  'backup:checks': QUERY,
+  'backup:check': a('backup_check'),
+
+  // ---------- WP 7.2 security: the screen lock, the passphrase lock ----------
+  'session:activity': r('moves the idle clock of the auto-lock; writes nothing'),
+  'session:lock': a('user'),
+  'security:get': QUERY,
+  'security:autoLock:set': a('security'),
+  // On / off: a backup first, the change audited inside the converted file ('security').
+  'security:passphrase:on': a('security', 'backup'),
+  'security:passphrase:off': a('security', 'backup'),
+  'security:passphrase:change': a('security'),
 
   // ---------- settings ----------
   'config:features:set': a('company'),

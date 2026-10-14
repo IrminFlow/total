@@ -18,7 +18,8 @@
  * Every copy in either direction is verified against its SHA-256; a file that doesn't match is
  * never written, and is reported as missing instead.
  */
-import Database from 'better-sqlite3-multiple-ciphers'
+import type Database from 'better-sqlite3-multiple-ciphers'
+import { openDb } from './encryption'
 import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, unlinkSync } from 'fs'
 import { join } from 'path'
 import type { DB } from './connection'
@@ -29,7 +30,7 @@ import { contentRefusal, openRefusal } from '@shared/attachments'
 export const BLOB_TABLE = 'backup_attachment_blobs'
 
 function hashesInDbFile(path: string): string[] {
-  const db = new Database(path, { readonly: true, fileMustExist: true })
+  const db = openDb(path, { readonly: true, fileMustExist: true })
   try {
     return referencedHashes(db)
   } finally {
@@ -108,7 +109,7 @@ export function pruneBackupAttachmentStore(backupsDir: string, storeDir: string)
 /** Encrypted export: copy every referenced file into the (temporary, unencrypted) snapshot. */
 export function embedAttachments(snapshotPath: string, liveDir: string): StashResult {
   const out: StashResult = { copied: 0, missing: [] }
-  const db = new Database(snapshotPath, { fileMustExist: true })
+  const db = openDb(snapshotPath, { fileMustExist: true })
   try {
     const hashes = referencedHashes(db)
     if (hashes.length === 0) return out
@@ -211,7 +212,7 @@ export function restoreAttachmentFiles(db: DB, liveDir: string, storeDir: string
 /** restoreAttachmentFiles for a database file that isn't open yet (encrypted import). The blob
  *  table is dropped and the file vacuumed even when a file fails. */
 export function restoreAttachmentFilesAt(dbPath: string, liveDir: string, storeDir: string | null): RestoreFilesResult {
-  const db = new Database(dbPath, { fileMustExist: true })
+  const db = openDb(dbPath, { fileMustExist: true })
   try {
     return restoreAttachmentFiles(db, liveDir, storeDir)
   } finally {

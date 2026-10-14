@@ -26,6 +26,14 @@ const api = {
     return () => {
       ipcRenderer.removeListener('total:ai:event', wrapped)
     }
+  },
+  /** WP 7.2: main locked the session (⌘L elsewhere, or the idle auto-lock). Returns an unsubscribe. */
+  onSessionLocked: (listener: (event: { reason: 'manual' | 'idle' }) => void): (() => void) => {
+    const wrapped = (_e: unknown, event: { reason: 'manual' | 'idle' }): void => listener(event)
+    ipcRenderer.on('total:session:locked', wrapped)
+    return () => {
+      ipcRenderer.removeListener('total:session:locked', wrapped)
+    }
   }
 }
 

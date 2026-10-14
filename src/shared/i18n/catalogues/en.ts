@@ -2616,7 +2616,19 @@ export const en = {
   'simple.ai.from.report': 'A report Total made',
   'simple.ai.from.books': 'Your books',
   'settings.language.hinglish': 'Hinglish',
-  'settings.language.companyNote': 'As the owner, your choice is also this business’s language for what Total prints.'
+  'settings.language.companyNote': 'As the owner, your choice is also this business’s language for what Total prints.',
+  // ---------- WP 7.2 security: passphrase lock, screen lock, backup checks, permissions ----------
+  'errors.security.locked': 'This business is locked with a passphrase. Type the passphrase to open it.',
+  'errors.security.keyMismatch': 'This file could not be opened with this business’s key. It may belong to another business or be damaged.',
+  'errors.security.passphraseRequired': 'Type the passphrase.',
+  'errors.security.wrongPassphrase': 'That passphrase is not right. Check it and try again.',
+  'errors.security.tooManyTries': 'Too many tries. Wait 30 seconds and try again.',
+  'errors.security.passphrasesDiffer': 'The two passphrases are not the same.',
+  'errors.security.alreadyLocked': 'This business is already locked with a passphrase.',
+  'errors.security.notLocked': 'This business is not locked with a passphrase.',
+  'errors.security.verifyFailed': 'Total could not check the locked copy, so nothing was changed. Your books are as they were.',
+  'errors.security.lockNeedsPeople': 'To lock the screen, first add yourself with a PIN in People & roles.',
+  // ---------- end WP 7.2 ----------
 } as const satisfies Record<string, string>
 
 export type MessageKey = keyof typeof en
