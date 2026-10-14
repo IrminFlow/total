@@ -72,6 +72,14 @@ export function pickModels(models: readonly string[], current: { defaultModel: s
   return { defaultModel, fastModel, changed: defaultModel !== current.defaultModel || fastModel !== current.fastModel }
 }
 
+/** "gpt-5, gpt-5-mini, gpt-4.1 and 9 more" — the chat models first (best first), at most `max`. */
+export function modelsListText(models: readonly string[], t: Translate, max = 5): string {
+  const chat = [...rank(models, false), ...rank(models, true)]
+  const ordered = [...chat, ...models.filter((m) => !chat.includes(m))]
+  const shown = ordered.slice(0, max).join(', ')
+  return ordered.length > max ? t('simple.ai.key.more', { list: shown, count: ordered.length - max }) : shown
+}
+
 // ---------- provider errors → plain words + a field ----------
 
 export type AiPlainErrorKind = 'key' | 'quota' | 'busy' | 'network' | 'model' | 'sharedKey' | 'sharedKeyConfirm' | 'noSecureStorage' | 'other'

@@ -40,6 +40,7 @@ import { screenFor } from './screenTargets'
 import { useMode } from '../../lib/mode'
 import { useT } from '../../lib/i18n'
 import { AskTotalDrawer } from '../../simple/AskTotal'
+import { SimpleAiDrawer } from '../../simple/ai/SimpleAiDrawer'
 
 export { screenFor }
 
@@ -174,7 +175,20 @@ export function AssistantPanel(): React.JSX.Element | null {
       />
     )
   }
-  return <AssistantDrawer onClose={() => setOpen(false)} {...(mode === 'simple' ? { onBack: () => setSimpleView('ask') } : {})} />
+  // WP 10.6: in simple mode the AI's answers come in plain words (the accountant panel is unchanged).
+  if (mode === 'simple') return <PlainAiHost onClose={() => setOpen(false)} onBack={() => setSimpleView('ask')} />
+  return <AssistantDrawer onClose={() => setOpen(false)} />
+}
+
+/** WP 10.6: the simple shell's AI panel, fed the same context and pending question as the
+ *  accountant drawer. */
+function PlainAiHost({ onClose, onBack }: { onClose: () => void; onBack: () => void }): React.JSX.Element {
+  const width = useAssistantPanel((s) => s.width)
+  const setWidth = useAssistantPanel((s) => s.setWidth)
+  const pending = useAssistantPanel((s) => s.pending)
+  const context = useCurrentAiContext()
+  const takePending = useCallback(() => useAssistantPanel.getState().takePending(), [])
+  return <SimpleAiDrawer onClose={onClose} onBack={onBack} width={width} onResize={setWidth} context={context} pending={pending} takePending={takePending} />
 }
 
 /** "Explain this": the figure + the current screen → a prefilled question in a new conversation. */

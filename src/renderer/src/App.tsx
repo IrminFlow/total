@@ -9,6 +9,7 @@ import { SimpleHome } from './simple/SimpleHome'
 import { SimpleSection } from './simple/SimpleSection'
 import { SimpleLooks } from './simple/SimpleLooks'
 import { SimpleFeatures } from './simple/SimpleFeatures'
+import { AiHelper } from './simple/ai/AiHelper'
 import { Openings } from './simple/Openings'
 import { MoneyIn } from './simple/money/MoneyIn'
 import { MoneyOut } from './simple/money/MoneyOut'
@@ -199,6 +200,7 @@ export default function App(): React.JSX.Element {
           {screen.name === 'simple-section' && <SimpleSection key={screen.section} section={screen.section} />}
           {screen.name === 'simple-looks' && <SimpleLooks />}
           {screen.name === 'simple-features' && <SimpleFeatures />}
+          {screen.name === 'simple-ai' && <AiHelper />}
           {screen.name === 'simple-openings' && <Openings />}
           {screen.name === 'simple-money-in' && <MoneyIn key={`${screen.party ?? ''}|${screen.amount ?? ''}|${screen.bill ?? ''}|${screen.billId ?? ''}|${screen.date ?? ''}|${screen.bankId ?? ''}|${screen.ask ? JSON.stringify(screen.ask) : ''}`} party={screen.party} amount={screen.amount} bill={screen.bill} billId={screen.billId} date={screen.date} bankId={screen.bankId} reference={screen.reference} note={screen.note} ask={screen.ask} />}
           {screen.name === 'simple-money-out' && <MoneyOut key={`${screen.party ?? ''}|${screen.amount ?? ''}|${screen.bill ?? ''}|${screen.billId ?? ''}|${screen.date ?? ''}|${screen.bankId ?? ''}|${screen.ask ? JSON.stringify(screen.ask) : ''}`} party={screen.party} amount={screen.amount} bill={screen.bill} billId={screen.billId} date={screen.date} bankId={screen.bankId} reference={screen.reference} note={screen.note} ask={screen.ask} />}

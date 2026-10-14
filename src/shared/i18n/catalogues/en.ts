@@ -2277,6 +2277,8 @@ export const en = {
   'simple.ai.key.confirmOk': 'Save the key',
   'simple.ai.key.works': 'Works. Models available: {models}.',
   'simple.ai.key.picked': 'Total will use {model}.',
+  'simple.ai.key.more': '{list} and {count} more',
+  'simple.ai.saveFailed': 'That could not be saved. Try again.',
   'simple.ai.ownerOnly': 'Only the owner can change the AI helper.',
   'simple.ai.turnOn.title': 'Turn it on',
   'simple.ai.turnOn.agree': 'I agree — turn on the AI helper',

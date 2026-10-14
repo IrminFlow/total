@@ -16,6 +16,8 @@ import { Badge, Banner, Button, Modal, Page, PageHeader, Panel, StatGrid, StatTi
 import { MenuButton } from '../components/kit'
 import { ItemPicker, LedgerPicker } from '../components/pickers'
 import { VoucherLink } from '../components/links'
+import { useMode } from '../lib/mode'
+import { PlainCaptureEstimate } from '../simple/ai/CaptureEstimatePlain'
 
 const STATUS: Record<CaptureStatus, { label: string; tone: 'neutral' | 'info' | 'success' | 'warning' | 'danger' }> = {
   queued: { label: 'Queued — not sent', tone: 'neutral' },
@@ -269,6 +271,9 @@ export function CaptureScreen(): React.JSX.Element {
 }
 
 function EstimateModal({ estimate, onClose, onConfirm }: { estimate: CaptureEstimate; onClose: () => void; onConfirm: () => void }): React.JSX.Element {
+  // WP 10.6: a company in simple mode gets the estimate in plain words (same estimate, same approval).
+  const mode = useMode()
+  if (mode === 'simple') return <PlainCaptureEstimate estimate={estimate} onClose={onClose} onConfirm={onConfirm} />
   return (
     <Modal title="Send the queued files?" onClose={onClose}>
       <div className="space-y-3 p-4" data-testid="capture-estimate">
