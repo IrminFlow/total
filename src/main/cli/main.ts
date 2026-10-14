@@ -9,7 +9,7 @@
  * All writes are audit-logged with user_name 'agent-cli' — except `mcp`, which speaks the MCP
  * protocol on stdin/stdout (WP 5.7, src/main/mcp/) and attributes its rows to `mcp:<client>`.
  */
-import { readFileSync } from 'fs'
+import { readFileSync, writeFileSync } from 'fs'
 import { setAuditContext } from '../services/audit'
 import { todayISO } from '@shared/dates'
 import { dataRoot } from '../paths'
@@ -22,6 +22,8 @@ import {
   cmdPost, cmdTrialBalance, openCompany
 } from './commands'
 import { AGENTS_MD, ensureAgentDocs, voucherSchemaJsonText } from './docs'
+import { perfOpenSteps, perfProfile, perfReportText, perfRun, perfSeed } from '../perf/cli'
+import { overBudget } from '../perf/bench'
 
 const USAGE = `total-cli — headless access to Total's books (same validation as the app)
 
@@ -50,6 +52,16 @@ Commands:
                                            company has users, --user + TOTAL_MCP_PIN. Masking of
                                            GSTIN/PAN/bank numbers is on unless --no-mask. Nothing
                                            it does posts to the books.
+  perf-seed --vouchers <n> --out <dir> [--seed <n>]
+                                           WP 7.1: write the deterministic "Perf Traders"
+                                           company (n vouchers, 2,000 parties, 500 items, 3 FYs)
+                                           into the data root <dir> (never ~/Documents/total).
+  perf [--vouchers <n>] [--data <dir>] [--only id,id] [--repeat <n>] [--check] [--scale <f>]
+       [--json <file>] [--keep] [--profile <id> --data <dir>] [--open-steps --data <dir>]
+                                           Time every budgeted operation (docs/perf-budgets.md)
+                                           on a perf-seed data root, or a fresh seed in a temp
+                                           dir (default 100000 vouchers). --check exits 1 when
+                                           one is over 150 % of budget × scale.
   inbox --company <slug> [--legacy-inbox-post]
                                            Process <company>/inbox/ once: voucher drops become
                                            drafts for review. --legacy-inbox-post (DEPRECATED)
@@ -64,7 +76,7 @@ interface Args {
 }
 
 /** Flags that take no value. */
-const SWITCHES = new Set(['legacy-inbox-post', 'no-mask', 'pseudonymise'])
+const SWITCHES = new Set(['legacy-inbox-post', 'no-mask', 'pseudonymise', 'check', 'keep', 'open-steps'])
 
 function parseArgs(argv: string[]): Args {
   const [command, ...rest] = argv
@@ -111,7 +123,8 @@ async function main(): Promise<void> {
   const args = parseArgs(process.argv.slice(2))
   setAuditContext({ appVersion: CLI_VERSION, getUserName: () => 'agent-cli' })
   // Self-discovery: make sure AGENTS.md exists in the data root from the very first CLI run.
-  ensureAgentDocs()
+  // The perf commands pick their own data root (WP 7.1) and never write into the default one.
+  if (args.command !== 'perf' && args.command !== 'perf-seed') ensureAgentDocs()
 
   switch (args.command) {
     case 'companies':
@@ -186,6 +199,38 @@ async function main(): Promise<void> {
       const legacyPost = args.flags.has('legacy-inbox-post')
       if (legacyPost) process.stderr.write(`${LEGACY_INBOX_WARNING}\n`)
       out(withCompany(args, (db, slug) => runAsAuditUser('agent-inbox', () => scanInbox(db, slug, { legacyPost }))))
+      return
+    }
+    case 'perf-seed': {
+      const manifest = perfSeed({
+        vouchers: Number(required(args, 'vouchers')), out: required(args, 'out'),
+        ...(args.flags.has('seed') ? { seed: Number(args.flags.get('seed')) } : {}),
+        log: (s) => process.stderr.write(`${s}\n`)
+      })
+      out(manifest)
+      return
+    }
+    case 'perf': {
+      if (args.flags.has('open-steps')) {
+        for (const s of await perfOpenSteps({ data: required(args, 'data') })) process.stdout.write(`${s.ms.toFixed(0).padStart(7)} ms  ${s.step}\n`)
+        return
+      }
+      if (args.flags.has('profile')) {
+        process.stdout.write((await perfProfile({ data: required(args, 'data'), caseId: args.flags.get('profile')! })) + '\n')
+        return
+      }
+      const scale = Number(args.flags.get('scale') ?? process.env.TOTAL_PERF_SCALE ?? 1)
+      const report = await perfRun({
+        vouchers: Number(args.flags.get('vouchers') ?? 100_000),
+        ...(args.flags.has('data') ? { data: args.flags.get('data')! } : {}),
+        keep: args.flags.has('keep'),
+        ...(args.flags.has('repeat') ? { repeat: Number(args.flags.get('repeat')) } : {}),
+        ...(args.flags.has('only') ? { only: args.flags.get('only')!.split(',') } : {}),
+        log: (s) => process.stderr.write(`${s}\n`)
+      })
+      process.stdout.write(perfReportText(report, scale) + '\n')
+      if (args.flags.has('json')) writeFileSync(args.flags.get('json')!, JSON.stringify({ ...report, scale }, null, 2))
+      if (args.flags.has('check') && overBudget(report.results, scale).length) process.exitCode = 1
       return
     }
     case 'init-agent-docs':
