@@ -12,6 +12,9 @@ import { useSession } from '../state/stores'
 import { DialogHost } from '../components/dialogs'
 
 const invoke = vi.fn()
+// The books' lock date as company:lock:get / :set see it (the year-end close sets it to its own date).
+let lockDate: string | null = null
+let binRefusal: string | null = null
 
 const GROUPS: Group[] = [
   { id: 1, name: 'Sundry Debtors', parentId: null, nature: 'asset', affectsGrossProfit: false, isSystem: true },
@@ -77,12 +80,16 @@ function salesPayload() {
 let voucher: Voucher
 
 beforeEach(() => {
+  lockDate = null
+  binRefusal = null
   useSession.setState({
     slug: 'test',
     info: { name: 'T', stateCode: '27', gstin: null, gstRegistrationType: 'regular', address: '', booksFrom: 2025, email: null, phone: null, pan: null, tan: null }
   })
-  invoke.mockImplementation(async (channel: string) => {
+  invoke.mockImplementation(async (channel: string, payload?: unknown) => {
     switch (channel) {
+      case 'company:lock:get': return { ok: true, data: { date: lockDate } }
+      case 'company:lock:set': lockDate = (payload as { date: string | null }).date; return { ok: true, data: { date: lockDate } }
       case 'master:voucherTypes:list': return { ok: true, data: TYPES }
       case 'voucher:get': return { ok: true, data: voucher }
       case 'master:ledgers:list': return { ok: true, data: LEDGERS }
@@ -97,7 +104,7 @@ beforeEach(() => {
       case 'master:batches:list': return { ok: true, data: [] }
       case 'stock:byGodown': return { ok: true, data: [] }
       case 'voucher:nextNumber': return { ok: true, data: { number: '99' } }
-      case 'voucher:delete': return { ok: true, data: null }
+      case 'voucher:delete': return binRefusal ? { ok: false, error: binRefusal } : { ok: true, data: null }
       default: return { ok: false, error: `unmocked ${channel}` }
     }
   })
@@ -209,6 +216,55 @@ describe('VoucherEntry alteration routing', () => {
     const dialog = await screen.findByRole('dialog')
     fireEvent.click(within(dialog).getByRole('button', { name: 'Move to Bin' }))
     await waitFor(() => expect(invoke).toHaveBeenCalledWith('voucher:delete', { id: 13 }))
+  })
+
+  // The close locks the books up to its own date and the bin refuses an entry inside the lock:
+  // the button moves the lock (when it is the close's own) back to the day before the FY starts.
+  const renderClosing = async (id: number): Promise<HTMLButtonElement> => {
+    voucher = { ...asVoucher(id, salesPayload()), date: '2026-03-31', isYearEndClose: true }
+    act(() => useSession.setState({ user: null }))
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    render(
+      <QueryClientProvider client={client}>
+        <VoucherEntry voucherId={id} />
+        <DialogHost />
+      </QueryClientProvider>
+    )
+    await screen.findByTestId('voucher-entry-mode', undefined, { timeout: 3000 })
+    return screen.getByTestId('btn-year-end-close-bin') as HTMLButtonElement
+  }
+  const channels = (): string[] => invoke.mock.calls.map((c) => c[0] as string).filter((c) => c === 'company:lock:set' || c === 'voucher:delete')
+
+  it('the close\'s own lock: the confirm says so, the lock moves back to the day before the FY, then the bin', async () => {
+    lockDate = '2026-03-31'
+    fireEvent.click(await renderClosing(15))
+    const dialog = await screen.findByRole('dialog')
+    expect(dialog.textContent).toContain('locked up to 31-Mar-26')
+    expect(dialog.textContent).toContain('moves back to 31-Mar-25')
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Move to Bin' }))
+    await waitFor(() => expect(invoke).toHaveBeenCalledWith('voucher:delete', { id: 15 }))
+    expect(channels()).toEqual(['company:lock:set', 'voucher:delete'])
+    expect(invoke).toHaveBeenCalledWith('company:lock:set', { date: '2025-03-31' })
+    expect(lockDate).toBe('2025-03-31')
+  })
+
+  it('a refused bin puts the lock back', async () => {
+    lockDate = '2026-03-31'
+    binRefusal = 'refused for the test'
+    fireEvent.click(await renderClosing(16))
+    fireEvent.click(within(await screen.findByRole('dialog')).getByRole('button', { name: 'Move to Bin' }))
+    await waitFor(() => expect(invoke).toHaveBeenCalledWith('voucher:delete', { id: 16 }))
+    await waitFor(() => expect(lockDate).toBe('2026-03-31'))
+  })
+
+  it('a lock past the entry is not moved for the user (nothing is sent)', async () => {
+    lockDate = '2027-03-31'
+    fireEvent.click(await renderClosing(17))
+    await waitFor(() => expect(invoke.mock.calls.some((c) => c[0] === 'company:lock:get')).toBe(true))
+    await new Promise((r) => setTimeout(r, 50))
+    expect(screen.queryByRole('dialog')).toBeNull()
+    expect(channels()).toEqual([])
+    expect(lockDate).toBe('2027-03-31')
   })
 
   it.each([
