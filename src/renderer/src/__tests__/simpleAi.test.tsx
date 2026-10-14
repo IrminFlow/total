@@ -164,6 +164,60 @@ describe('Settings → AI helper (simple)', () => {
     await waitFor(() => expect(screen.getByTestId('simple-ai-error').textContent).toContain('Could not reach the AI service — Total works without it'))
   })
 
+  it('a failed check never leaves the helper on: a new key that does not work turns it off', async () => {
+    view = READY()
+    test = { ok: false, models: [], defaultModelFound: false, fastModelFound: false, error: 'The provider rejected the API key (401). Check the key in Settings → AI.' }
+    wrap(<AiHelper />)
+    fireEvent.change(await screen.findByTestId('simple-ai-key-input'), { target: { value: 'sk-bad-0123456789' } })
+    fireEvent.click(screen.getByTestId('simple-ai-check'))
+    expect((await screen.findByTestId('simple-ai-key-error')).getAttribute('data-kind')).toBe('key')
+    await waitFor(() => expect(calls('ai:settings:set')).toEqual([{ enabled: false }]))
+    expect((await screen.findByTestId('simple-ai-stopped')).textContent).toBe('The AI helper is off until a key works.')
+    await waitFor(() => expect(screen.getByTestId('simple-ai-status').textContent).toBe('Off'))
+  })
+
+  it('a busy service on a re-check of the key in use leaves the helper on', async () => {
+    view = READY()
+    test = { ok: false, models: [], defaultModelFound: false, fastModelFound: false, error: 'Could not reach the provider (network error).' }
+    wrap(<AiHelper />)
+    fireEvent.click(await screen.findByTestId('simple-ai-check'))
+    await screen.findByTestId('simple-ai-error')
+    expect(calls('ai:settings:set')).toEqual([])
+  })
+
+  it('a list with no chat model picks nothing and says the current model may not work', async () => {
+    test = { ok: true, models: ['whisper-1', 'text-embedding-3-small'], defaultModelFound: false, fastModelFound: false, error: null }
+    view = baseView({ keyPresent: true, keyHint: '…WXYZ' })
+    wrap(<AiHelper />)
+    fireEvent.click(await screen.findByTestId('simple-ai-check'))
+    expect((await screen.findByTestId('simple-ai-no-model')).textContent).toContain('keeps gpt-6.1-sol, which may not work')
+    expect(screen.queryByTestId('simple-ai-picked')).toBeNull()
+    expect(calls('ai:settings:set')).toEqual([])
+    cleanup()
+    test = { ok: true, models: [], defaultModelFound: false, fastModelFound: false, error: null }
+    wrap(<AiHelper />)
+    fireEvent.click(await screen.findByTestId('simple-ai-check'))
+    expect((await screen.findByTestId('simple-ai-check-ok')).textContent).toContain('did not list the models it offers')
+  })
+
+  it('a failure that is not the AI service is said as such, main’s words behind Details (never swallowed)', async () => {
+    view = READY()
+    wrap(<AiHelper />)
+    const real = invoke.getMockImplementation()!
+    invoke.mockImplementation(async (c: string, p?: unknown) => (c === 'ai:settings:set' ? { ok: false, error: 'database is locked' } : real(c, p)))
+    fireEvent.click(await screen.findByTestId('simple-ai-memory'))
+    const err = await screen.findByTestId('simple-ai-error-text')
+    expect(err.textContent).toContain('That could not be saved. Try again.')
+    expect(err.querySelector('details')!.textContent).toContain('database is locked')
+  })
+
+  it('the notice summary follows the hiding setting', async () => {
+    view = baseView({}, { privacy: { maskIds: false, pseudonymiseParties: false } })
+    wrap(<AiHelper />)
+    const bullets = within(await screen.findByTestId('simple-ai-notice-summary')).getAllByRole('listitem').map((li) => li.textContent)
+    expect(bullets[1]).toContain('sent as they are')
+  })
+
   it('a too-short key is caught before anything is sent', async () => {
     wrap(<AiHelper />)
     fireEvent.change(await screen.findByTestId('simple-ai-key-input'), { target: { value: 'sk-1' } })
@@ -289,6 +343,18 @@ describe('the AI panel in plain words (simple mode)', () => {
     expect(within(answer).getByTestId('ai-plain-details-context').textContent).toContain('Screen: Gateway (gateway)')
   })
 
+  it('what is sent is said before the first answer, the screen-context lines one click away', async () => {
+    useAssistantPanel.setState({ pending: null })
+    await escalate('Anything unusual?')
+    const sent = await screen.findByTestId('ai-plain-sent')
+    expect(screen.queryByTestId('ai-plain-answer')).toBeNull()
+    expect(sent.textContent).toContain('What is sent with each question: your question')
+    expect(sent.textContent).toContain('GST, PAN and bank numbers are hidden.')
+    expect(sent.textContent).toContain('Customer and supplier names are sent as they are.')
+    expect(sent.textContent).toContain('What Total remembers goes too.')
+    expect(screen.getByTestId('ai-plain-sent-details').tagName).toBe('DETAILS')
+  })
+
   it('a draft offer in plain words opens the SIMPLE flow pre-filled (never the accountant editor)', async () => {
     drafts[77] = {
       id: 77, threadId: 9, kind: 'voucher', summary: 'Payment of ₹2,500.00 to Shop Rent from Cash', status: 'open', voucherId: null, unrequested: true, source: 'chat', origin: null, createdAt: '', consumedAt: null,
@@ -303,7 +369,7 @@ describe('the AI panel in plain words (simple mode)', () => {
     fireEvent.click(within(card).getByTestId('ai-plain-draft-open'))
     await waitFor(() => expect(useNav.getState().stack.length).toBe(2))
     const top = useNav.getState().stack.at(-1) as { name: string; ask?: unknown }
-    expect(top).toEqual({ name: 'simple-money-out', ask: { draftId: null, prefill: { screen: 'simple-money-out', who: 'expense', payee: 12, amount: 250000, date: '2026-10-14', note: 'Shop rent' } } })
+    expect(top).toEqual({ name: 'simple-money-out', ask: { draftId: 77, prefill: { screen: 'simple-money-out', who: 'expense', payee: 12, amount: 250000, date: '2026-10-14', note: 'Shop rent' } } })
     expect(useAssistantPanel.getState().open).toBe(false)
   })
 
@@ -348,6 +414,7 @@ describe('the capture estimate in plain words', () => {
     expect(details.textContent).toContain('Pages: 4 · model: gpt-5')
     const outside = screen.getByTestId('capture-estimate').textContent!.replace(details.textContent!, '')
     expect(outside).not.toMatch(/gpt-5|token/i)
+    expect(screen.getByTestId('text-capture-privacy').textContent).toContain('Customer and supplier names are sent as they are.')
     fireEvent.click(screen.getByTestId('btn-capture-confirm'))
     expect(onConfirm).toHaveBeenCalled()
   })

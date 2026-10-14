@@ -65,6 +65,8 @@ export function AiHelper(): React.JSX.Element {
   const [key, setKey] = useState('')
   const [busy, setBusy] = useState<null | 'check' | 'on' | 'off' | 'save' | 'remove'>(null)
   const [check, setCheck] = useState<{ result: AiConnectionResult; picked: string | null } | null>(null)
+  /** A failed check turned the helper off (it was on, and the key no longer works). */
+  const [stoppedByCheck, setStoppedByCheck] = useState(false)
   const [keyError, setKeyError] = useState<AiPlainError | null>(null)
   const [error, setError] = useState<AiPlainError | null>(null)
 
@@ -75,7 +77,9 @@ export function AiHelper(): React.JSX.Element {
   const fail = (err: unknown): void => {
     const e = classifyAiError((err as Error)?.message ?? String(err))
     if (e.field === 'key') setKeyError(e)
-    else if (e.kind === 'other') toast.push('error', t('simple.ai.saveFailed'))
+    // Not a provider / key-rule message: say it could not be saved, with main's words behind
+    // Details (never swallowed).
+    else if (e.kind === 'other') setError({ ...e, key: 'simple.ai.saveFailed' }) // i18n-technical
     else setError(e)
   }
 
@@ -107,6 +111,7 @@ export function AiHelper(): React.JSX.Element {
     setKeyError(null)
     setError(null)
     setCheck(null)
+    setStoppedByCheck(false)
     const typed = key.trim()
     if (typed && typed.length < 8) {
       setKeyError({ kind: 'key', field: 'key', key: 'simple.ai.key.tooShort', detail: '' }) // i18n-technical
@@ -126,6 +131,13 @@ export function AiHelper(): React.JSX.Element {
         const e = classifyAiError(result.error ?? '')
         if (e.field === 'key') setKeyError(e)
         else setError(e)
+        // A failed check never leaves the helper on: the key was just replaced, or the service
+        // refused it. (A busy / unreachable service says nothing about a key already in use.)
+        if (s.enabled && (typed || e.kind === 'key')) {
+          await aiApi.setSettings({ enabled: false })
+          await refresh()
+          setStoppedByCheck(true)
+        }
         return
       }
       const pick = pickModels(result.models, s)
@@ -133,7 +145,7 @@ export function AiHelper(): React.JSX.Element {
         await aiApi.setSettings({ defaultModel: pick.defaultModel, fastModel: pick.fastModel })
         await refresh()
       }
-      setCheck({ result, picked: result.models.length ? pick.defaultModel : null })
+      setCheck({ result, picked: pick.found ? pick.defaultModel : null })
     } catch (err) {
       fail(err)
     } finally {
@@ -222,7 +234,7 @@ export function AiHelper(): React.JSX.Element {
         <Card title={t('simple.ai.notice.title')} testId="simple-ai-notice">
           <ul className="flex list-disc flex-col gap-1 pl-5 text-body-sm text-ink" data-testid="simple-ai-notice-summary">
             <li>{t('simple.ai.notice.sent')}</li>
-            <li>{t('simple.ai.notice.masked')}</li>
+            <li>{s.privacy.maskIds ? t('simple.ai.notice.masked') : t('simple.ai.notice.notMasked')}</li>
             <li>{t('simple.ai.notice.where')}</li>
           </ul>
           <details className="mt-2 text-small" data-testid="simple-ai-notice-full">
@@ -270,9 +282,16 @@ export function AiHelper(): React.JSX.Element {
           </div>
           {check?.result.ok && (
             <div className="mt-2 rounded-md bg-panel2 px-3 py-2 text-small text-ink" data-testid="simple-ai-check-ok">
-              <p>{t('simple.ai.key.works', { models: modelsListText(check.result.models, t) })}</p>
-              {check.picked && <p className="text-muted" data-testid="simple-ai-picked">{t('simple.ai.key.picked', { model: check.picked })}</p>}
+              <p>{check.result.models.length ? t('simple.ai.key.works', { models: modelsListText(check.result.models, t) }) : t('simple.ai.key.worksNoList')}</p>
+              {check.picked ? (
+                <p className="text-muted" data-testid="simple-ai-picked">{t('simple.ai.key.picked', { model: check.picked })}</p>
+              ) : (
+                <p className="text-warning" data-testid="simple-ai-no-model">{t('simple.ai.key.noModel', { model: s.defaultModel })}</p>
+              )}
             </div>
+          )}
+          {stoppedByCheck && (
+            <p className="mt-2 text-small text-warning" data-testid="simple-ai-stopped">{t('simple.ai.key.stopped')}</p>
           )}
           <p className="mt-3 text-hint text-muted">
             {t('simple.ai.key.shared')}

@@ -26,7 +26,9 @@ export function PlainCaptureEstimate({ estimate, onClose, onConfirm }: { estimat
             : t('simple.ai.capture.cost', { count, cost: moneyText(estimate.costMicroUsd, rate) })}
         </p>
         {estimate.costMicroUsd != null && <p className="text-hint text-muted">{rateNote(rate, t)}</p>}
-        <p className="text-small text-muted" data-testid="text-capture-privacy">{estimate.maskIds ? t('simple.ai.capture.hidden') : t('simple.ai.capture.notHidden')}</p>
+        <p className="text-small text-muted" data-testid="text-capture-privacy">{estimate.maskIds ? t('simple.ai.capture.hidden') : t('simple.ai.capture.notHidden')}{' '}
+          {estimate.pseudonymise ? t('simple.ai.capture.namesHidden') : t('simple.ai.capture.namesShown')}
+        </p>
         {estimate.unmaskable > 0 && (
           <Banner tone="warning" testId="banner-capture-unmaskable">
             {t('simple.ai.capture.photos', { count: estimate.unmaskable })}

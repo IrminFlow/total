@@ -13,24 +13,29 @@ const t = translator('en')
 describe('pickModels — never a hard-coded id when the key listed its models', () => {
   it('keeps the current models when the key offers them', () => {
     expect(pickModels(['gpt-6.1-sol', 'gpt-6-luna', 'mock-model'], { defaultModel: 'gpt-6.1-sol', fastModel: 'gpt-6-luna' })).toEqual({
-      defaultModel: 'gpt-6.1-sol', fastModel: 'gpt-6-luna', changed: false
+      defaultModel: 'gpt-6.1-sol', fastModel: 'gpt-6-luna', changed: false, found: true
     })
   })
   it('picks the newest undated chat model, and a small one for the fast model', () => {
     const models = ['text-embedding-3-large', 'whisper-1', 'gpt-4o-2024-08-06', 'gpt-4o', 'gpt-4.1', 'gpt-4.1-mini', 'gpt-4o-mini', 'dall-e-3', 'tts-1', 'gpt-5-nano-2025-08-07', 'gpt-5', 'gpt-5-mini', 'omni-moderation-latest']
-    expect(pickModels(models, { defaultModel: 'gpt-6.1-sol', fastModel: 'gpt-6-luna' })).toEqual({ defaultModel: 'gpt-5', fastModel: 'gpt-5-mini', changed: true })
+    expect(pickModels(models, { defaultModel: 'gpt-6.1-sol', fastModel: 'gpt-6-luna' })).toEqual({ defaultModel: 'gpt-5', fastModel: 'gpt-5-mini', changed: true, found: true })
   })
   it('only the missing one changes', () => {
-    expect(pickModels(['gpt-6.1-sol', 'gpt-5-mini'], { defaultModel: 'gpt-6.1-sol', fastModel: 'gpt-6-luna' })).toEqual({ defaultModel: 'gpt-6.1-sol', fastModel: 'gpt-5-mini', changed: true })
+    expect(pickModels(['gpt-6.1-sol', 'gpt-5-mini'], { defaultModel: 'gpt-6.1-sol', fastModel: 'gpt-6-luna' })).toEqual({ defaultModel: 'gpt-6.1-sol', fastModel: 'gpt-5-mini', changed: true, found: true })
   })
   it('no small model: the fast model is the default', () => {
-    expect(pickModels(['gpt-5'], { defaultModel: 'x', fastModel: 'y' })).toEqual({ defaultModel: 'gpt-5', fastModel: 'gpt-5', changed: true })
+    expect(pickModels(['gpt-5'], { defaultModel: 'x', fastModel: 'y' })).toEqual({ defaultModel: 'gpt-5', fastModel: 'gpt-5', changed: true, found: true })
   })
   it('only odd ids: the first listed (still from the list)', () => {
     expect(pickModels(['acme-chat'], { defaultModel: 'x', fastModel: 'y' }).defaultModel).toBe('acme-chat')
   })
   it('an empty list keeps the current ids', () => {
-    expect(pickModels([], { defaultModel: 'x', fastModel: 'y' })).toEqual({ defaultModel: 'x', fastModel: 'y', changed: false })
+    expect(pickModels([], { defaultModel: 'x', fastModel: 'y' })).toEqual({ defaultModel: 'x', fastModel: 'y', changed: false, found: false })
+  })
+  it('a list with no chat model picks nothing (never an embedding / speech id), keeping the current ids unverified', () => {
+    expect(pickModels(['text-embedding-3-large', 'whisper-1', 'tts-1', 'dall-e-3'], { defaultModel: 'x', fastModel: 'y' })).toEqual({
+      defaultModel: 'x', fastModel: 'y', changed: false, found: false
+    })
   })
 })
 
