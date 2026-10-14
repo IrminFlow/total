@@ -2,8 +2,8 @@
  * Headless CLI entry point — bundled by `scripts/total-cli.mjs` (esbuild) and run under
  * Electron-as-Node so better-sqlite3's Electron-ABI build loads. Never imports Electron APIs
  * that need a browser process; `require('electron')` resolves to the binary-path string here,
- * which the shared modules tolerate (they only call `app.*` when TOTAL_DATA_DIR is unset, and
- * the launcher always sets it).
+ * which the shared modules tolerate (they only call `app.*` when TOTAL_DATA_DIR is unset — so it
+ * is set here first, to the app's own default: WP 7.3, the Documents known folder on Windows).
  *
  * Every command prints a single JSON document to stdout; errors go to stderr with exit code 1.
  * All writes are audit-logged with user_name 'agent-cli' — except `mcp`, which speaks the MCP
@@ -13,6 +13,7 @@ import { readFileSync } from 'fs'
 import { setAuditContext } from '../services/audit'
 import { todayISO } from '@shared/dates'
 import { dataRoot } from '../paths'
+import { defaultDataRoot } from './dataRoot'
 import { LEGACY_INBOX_WARNING, scanInbox, type MirrorFormat, type MirrorWhat } from '../services/agentBridge'
 import { runAsAuditUser } from '../services/audit'
 import { runMcpStdio } from '../mcp/stdio'
@@ -22,6 +23,8 @@ import {
   cmdPost, cmdTrialBalance, openCompany
 } from './commands'
 import { AGENTS_MD, ensureAgentDocs, voucherSchemaJsonText } from './docs'
+
+if (!process.env.TOTAL_DATA_DIR) process.env.TOTAL_DATA_DIR = defaultDataRoot()
 
 const USAGE = `total-cli — headless access to Total's books (same validation as the app)
 

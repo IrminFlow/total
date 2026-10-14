@@ -23,6 +23,14 @@ describe('client config snippets', () => {
     })
   })
 
+  it('WP 7.3: a Windows checkout gets one backslash path (JSON-escaped in the desktop config)', () => {
+    const win = { ...base, repoDir: 'C:\\Users\\Asha\\src\\total\\' }
+    expect(mcpArgs(win)[0]).toBe('C:\\Users\\Asha\\src\\total\\scripts\\total-cli.mjs')
+    expect(JSON.parse(claudeDesktopConfig(win, false)).mcpServers['total-demo-traders'].args[0]).toBe('C:\\Users\\Asha\\src\\total\\scripts\\total-cli.mjs')
+    // Single quotes are literal in PowerShell and Git Bash, where `claude mcp add` is run on Windows.
+    expect(claudeCodeCommand(win, false)).toBe("claude mcp add total-demo-traders -- node 'C:\\Users\\Asha\\src\\total\\scripts\\total-cli.mjs' mcp --company demo-traders")
+  })
+
   it('accountant with users: --role, --user and a PIN placeholder in the environment', () => {
     const o = { ...base, role: 'accountant' as const, user: 'Asha K', dataDir: '/tmp/scratch dir' }
     expect(claudeCodeCommand(o, true)).toBe(
