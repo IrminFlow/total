@@ -20,7 +20,7 @@ import {
 import { IN_BOOKS, NOT_DELETED, NOT_YEAR_END_CLOSE, getLockDate } from './vouchers'
 import { listGroups, listLedgers, descendantIdsByName } from './masters'
 import { closingBalances, descendantIdSet, exceptions } from './reports'
-import { outstandings, partyAllocation } from './analysis'
+import { outstandingsWithAdvances, partyAllocation } from './analysis'
 import { bankLedgers, brs } from './banking'
 import { tdsEligible } from './tdsWorkbench'
 import { negativeStock } from './stockAnalysis'
@@ -187,16 +187,23 @@ export function closeFacts(db: DB, company: CompanyInfo, period: string, today: 
   // Parties: unallocated settlements and overdue bills (as on the month end).
   const partyGroups = descendantIdSet(groups, ['Sundry Debtors', 'Sundry Creditors'])
   const debtorGroups = descendantIdSet(groups, ['Sundry Debtors'])
-  const used = new Set((db.prepare(`SELECT DISTINCT vl.ledger_id AS id FROM voucher_lines vl JOIN vouchers v ON v.id = vl.voucher_id WHERE v.date <= ? AND ${IN_BOOKS}`).all(to) as { id: number }[]).map((r) => r.id))
+  // WP 7.1: per ledger, does any in-books line exist (stops at the first) — the same set as a
+  // DISTINCT over every line, without reading them all.
+  const used = new Set((db.prepare(`SELECT l.id FROM ledgers l WHERE EXISTS (SELECT 1 FROM voucher_lines vl JOIN vouchers v ON v.id = vl.voucher_id WHERE vl.ledger_id = l.id AND v.date <= ? AND ${IN_BOOKS})`).all(to) as { id: number }[]).map((r) => r.id))
+  // WP 7.1: one Outstandings run per side (the engine partyAllocation runs, over the same events)
+  // instead of one allocation per party; a party outside both sides' groups keeps its own run.
+  const sides = { receivable: outstandingsWithAdvances(db, 'receivable', to), payable: outstandingsWithAdvances(db, 'payable', to) }
+  const sideGroups = { receivable: descendantIdsByName(db, ['Sundry Debtors']), payable: descendantIdsByName(db, ['Sundry Creditors']) }
   const unallocated: CloseFacts['unallocated'] = []
   for (const l of ledgers) {
     if (!partyGroups.has(l.groupId) || !used.has(l.id)) continue
-    const a = partyAllocation(db, l.id, to)
-    if (a.unappliedCredit > 0) unallocated.push({ ledgerId: l.id, name: l.name, side: debtorGroups.has(l.groupId) ? 'receivable' : 'payable', amount: a.unappliedCredit })
+    const covered = sideGroups.receivable.has(l.groupId) ? sides.receivable : sideGroups.payable.has(l.groupId) ? sides.payable : null
+    const credit = covered ? (covered.advanceByParty.get(l.id) ?? 0) : partyAllocation(db, l.id, to).unappliedCredit
+    if (credit > 0) unallocated.push({ ledgerId: l.id, name: l.name, side: debtorGroups.has(l.groupId) ? 'receivable' : 'payable', amount: credit })
   }
   const overdue: CloseFacts['overdue'] = []
   for (const side of ['receivable', 'payable'] as const) {
-    for (const p of outstandings(db, side, to)) {
+    for (const p of sides[side].parties) {
       for (const b of p.bills) if (b.overdueDays > 0 && b.pending > 0) overdue.push({ ledgerId: p.ledgerId, name: p.name, side, voucherId: b.voucherId, bill: b.number, date: b.date, pending: b.pending, overdueDays: b.overdueDays })
     }
   }

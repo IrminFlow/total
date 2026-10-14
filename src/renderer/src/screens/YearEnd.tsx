@@ -162,7 +162,7 @@ export function YearEndScreen(): React.JSX.Element {
             Earnings. Books are locked up to {toDisplayDate(result.lockedUpTo)}.
           </p>
           <div className="mt-4 flex justify-center gap-2">
-            <Button variant="primary" onClick={() => nav.go({ name: 'voucher-entry', voucherId: result.voucherId })}>
+            <Button variant="primary" data-testid="btn-year-end-open-entry" onClick={() => nav.go({ name: 'voucher-entry', voucherId: result.voucherId })}>
               Open closing voucher
             </Button>
             <Button

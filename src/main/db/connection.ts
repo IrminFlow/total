@@ -2,9 +2,10 @@ import Database from 'better-sqlite3'
 import { rmSync } from 'fs'
 import { basename, join } from 'path'
 import { companyAttachmentsDir, companyBackupAttachmentsDir, companyBackupsDir, companyDbPath, ensureCompanyTree } from '../paths'
-import { migrate } from './migrate'
+import { migrate, schemaVersion } from './migrate'
+import { backupStamp, pruneBackupsIn, snapshotTo } from './backup'
+import { MMAP_SIZE, quickCheckOkAsync } from './checkHost'
 import { testSynchronous } from './testPragmas'
-import { backupStamp, pruneBackupsIn, quickCheckOk, snapshotTo } from './backup'
 import { SYSTEM_AUDIT_USER, writeAudit } from '../services/audit'
 import { pruneBackupAttachmentStore, stashSnapshotAttachments, type StashResult } from './attachmentBackup'
 
@@ -23,15 +24,24 @@ export function openCompanyDb(slug: string): DB {
   db.pragma('foreign_keys = ON')
   // Perf tuning (v0.3): ~64MB page cache and memory-mapped reads keep the hot report
   // queries off the disk; ANALYZE below refreshes planner stats after any new migration.
+  // WP 7.1: the map covers the whole file up to SQLite's 2 GB ceiling (was 256 MB). A 100k-voucher
+  // company is ~290 MB and a 500k one ~1.4 GB; pages past the map are read one pread at a time
+  // into the 64 MB cache, which made a quick_check of the 500k file 28 s instead of ~1–3 s. The map
+  // only reserves address space — the pages are the OS file cache, shared, not extra memory.
   db.pragma('cache_size = -64000')
-  db.pragma('mmap_size = 268435456')
+  db.pragma(`mmap_size = ${MMAP_SIZE}`)
   // WP 7.3: test runs only (a scratch TOTAL_DATA_DIR is required) may trade crash durability for
   // speed — see testSynchronous(). Real books always keep the build default (NORMAL in WAL mode).
   const sync = testSynchronous(process.env)
   if (sync) db.pragma(`synchronous = ${sync}`)
   try {
+    const before = schemaVersion(db)
     migrate(db)
-    db.exec('ANALYZE')
+    // WP 7.1: a full ANALYZE reads every index (~0.5 s at 100k vouchers, seconds at 500k) — run
+    // it when a migration just ran or there are no statistics yet; otherwise `PRAGMA optimize`
+    // (SQLite's recommended on-open call) re-analyzes only tables whose statistics went stale.
+    if (schemaVersion(db) !== before || !hasPlannerStats(db)) db.exec('ANALYZE')
+    else db.pragma('optimize = 0x10002')
   } catch (err) {
     // Never leak an open handle on a failed open — on Windows it would also block any
     // later restore/rollback rename of this file (EPERM on open files).
@@ -39,6 +49,12 @@ export function openCompanyDb(slug: string): DB {
     throw err
   }
   return db
+}
+
+/** True when ANALYZE has recorded statistics (sqlite_stat1 exists and holds rows). */
+function hasPlannerStats(db: DB): boolean {
+  if (!db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'sqlite_stat1'").get()) return false
+  return !!db.prepare('SELECT 1 FROM sqlite_stat1 LIMIT 1').get()
 }
 
 /** Close a company DB, first letting SQLite fold fresh ANALYZE-style stats into the schema
@@ -66,7 +82,8 @@ export async function backupCompany(db: DB, slug: string, tag = 'auto', auditUse
   // Post-write verification (task Q3 #99): a backup that doesn't pass quick_check is worse than
   // no backup — it silently displaces a good one in the pruning window. Remove it and fail loudly
   // (manual backups surface this as an error toast; scheduled ones log it).
-  if (!quickCheckOk(dest)) {
+  // WP 7.1: the same quick_check, run in a worker thread (db/checkHost.ts) so main stays free.
+  if (!(await quickCheckOkAsync(dest))) {
     rmSync(dest, { force: true })
     throw new Error('Backup verification failed (quick_check) — the snapshot was discarded')
   }

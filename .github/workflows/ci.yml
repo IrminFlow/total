@@ -36,6 +36,43 @@ jobs:
       - name: DB-layer tests (Electron-as-Node — headless-safe, no display needed)
         run: npm run test:db
 
+  # WP 7.1 performance budgets (docs/perf-budgets.md): a 100k-voucher Perf Traders company is
+  # seeded through the services once per generator / save-path version (cached by the hash of
+  # the files that decide what it stores), then every budgeted operation is timed and the job
+  # fails when one is over 150 % of its budget × TOTAL_PERF_SCALE (this runner vs the laptop the
+  # budgets were measured on). The 500k run is manual: npm run perf -- --vouchers 500000.
+  perf:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Restore the 100k seed
+        id: seed-cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/perf100k
+          key: perf-seed-100k-v1-${{ hashFiles('src/main/perf/seedLarge.ts', 'src/main/db/seed.ts', 'src/main/services/vouchers.ts', 'src/main/services/masters.ts', 'src/main/services/openingBills.ts', 'src/main/services/tradeLinks.ts', 'src/main/services/banking.ts', 'src/main/db/migrations.ts') }}
+
+      - name: Seed 100k vouchers (cache miss only)
+        if: steps.seed-cache.outputs.cache-hit != 'true'
+        run: node scripts/total-cli.mjs perf-seed --vouchers 100000 --out "$RUNNER_TEMP/perf100k"
+
+      - name: Performance budgets (100k)
+        run: npm run test:db -- src/main/perf/budgets.dbtest.ts
+        env:
+          TOTAL_PERF: '1'
+          TOTAL_PERF_DATA: ${{ runner.temp }}/perf100k
+          TOTAL_PERF_SCALE: '1.6'
+
   smoke-mac:
     runs-on: macos-14
     steps:

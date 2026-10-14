@@ -15,6 +15,7 @@
     "test:db": "node scripts/test-db.mjs",
     "test:renderer": "vitest run -c vitest.renderer.config.ts",
     "cli": "node scripts/total-cli.mjs",
+    "perf": "node scripts/total-cli.mjs perf",
     "smoke": "node scripts/smoke-ci.mjs",
     "e2e": "node scripts/run-e2e.mjs",
     "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json",

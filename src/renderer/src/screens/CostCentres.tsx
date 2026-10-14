@@ -26,13 +26,15 @@ const CENTRE_COLUMNS = defineColumns<CentreRow>([
   { id: 'active', header: 'Active', kind: 'enum', value: (r) => (r.active ? 'yes' : 'no'), options: ACTIVE_OPTIONS, width: 112, className: 'text-muted' }
 ])
 
-// Income / expense / net are per-centre period figures, so their totals are meaningful. Net keeps
-// today's signed (Dr/Cr) presentation.
+// Income / expense / net are per-centre period figures, so their totals are meaningful. Net is
+// shown the way the P&L account carries it (dr-positive, like every signed amount in the app): a
+// profit (income > expense) is a CREDIT, a loss a DEBIT. The service's `net` is income − expense,
+// so the column shows its negation — a ₹6,000 loss reads "6,000.00 Dr", never "Cr".
 export const CC_REPORT_COLUMNS = defineColumns<CcReportRow>([
   { id: 'name', header: 'Cost centre', kind: 'text', value: (r) => r.name, hideable: false, groupable: false, minWidth: 160 },
   { id: 'income', header: 'Income', kind: 'money', value: (r) => r.income, aggregate: 'sum', width: 150 },
   { id: 'expense', header: 'Expense', kind: 'money', value: (r) => r.expense, aggregate: 'sum', width: 150 },
-  { id: 'net', header: 'Net', kind: 'money', value: (r) => r.net, signed: true, aggregate: 'sum', width: 160, className: 'font-medium' }
+  { id: 'net', header: 'Net', kind: 'money', value: (r) => -r.net, signed: true, aggregate: 'sum', width: 160, className: 'font-medium' }
 ])
 
 export function CostCentresScreen(): React.JSX.Element {
@@ -155,6 +157,7 @@ export function CostCentresScreen(): React.JSX.Element {
           exportOptions={{ title: 'P&L by cost centre', periodLabel, filename: 'cost-centre-pl' }}
         />
       </Panel>
+      <p className="mt-2 text-hint text-muted" data-testid="cost-centre-pl-net-hint">Net: Cr = profit, Dr = loss — as the Profit &amp; Loss account carries it.</p>
 
       {editing && (
         <CostCentreFormModal cc={editing === 'new' ? null : editing} centres={centres ?? []} onClose={() => setEditing(null)} />

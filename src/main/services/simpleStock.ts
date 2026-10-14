@@ -74,7 +74,12 @@ export function stockList(db: DB, asOn: string): StockList {
 }
 
 /** Products running low or out as on `asOn` (Home's "Needs attention"). */
-export const lowStockCount = (db: DB, asOn: string): number => stockList(db, asOn).lowCount
+export const lowStockCount = (db: DB, asOn: string): number =>
+  // WP 7.1: stockList's own count (same summary, same levels) without pricing every product.
+  db.transaction((): number => {
+    const facts = itemFacts(db)
+    return stockSummary(db, asOn).filter((s) => needsReorder(stockLevel(s, facts.get(s.stockItemId)?.reorderLevelMilli ?? null))).length
+  })()
 
 function recipeOf(db: DB, itemId: number, date: string, versions = listBomVersions(db)): StockRecipe | null {
   const v = pickBomVersion(versions, itemId, date)

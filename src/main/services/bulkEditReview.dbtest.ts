@@ -120,6 +120,21 @@ describe('voucher numbers', () => {
     expect(getVoucher(db, next.id)!.number).toBe('1')
   })
 
+  it('undo of a date moved across FYs puts the old number back: another FY\'s same number is no clash (restartFy)', () => {
+    const db = seededDb()
+    const b = books(db)
+    const series = createVoucherType(db, { name: 'Yearly journal', kind: 'journal', numbering: 'auto', prefix: '', suffix: '', padWidth: 0, restartFy: true })
+    const old = b.journal('2025-05-01', series.id)
+    const next = b.journal('2026-05-01', series.id)
+    const res = applyBulk(db, { target: 'voucher', ids: [old.id], change: { field: 'date', date: '2026-06-01' } })
+    expect(getVoucher(db, old.id)!.number).toBe('2')
+    // Its old "1" in FY 2025-26 is free; FY 2026-27's "1" is another series year.
+    const undo = undoBulk(db, res.batchId!)
+    expect(undo.records[0]).toMatchObject({ status: 'undone' })
+    expect(getVoucher(db, old.id)).toMatchObject({ date: '2025-05-01', number: '1' })
+    expect(getVoucher(db, next.id)!.number).toBe('1')
+  })
+
   it('a manual series refuses a clashing number', () => {
     const db = seededDb()
     const b = books(db)

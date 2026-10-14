@@ -374,7 +374,7 @@ export function ManufactureForm({
     setSaving(true)
     try {
       const number = current.input.number
-      if (number && (await api.vouchers.numberExists(typeId, number, voucherId))) {
+      if (number && (await api.vouchers.numberExists(typeId, number, voucherId, current.input.date))) {
         const proceed = await confirmDialog({
           title: 'Duplicate number',
           message: `Voucher number ${number} is already used by another voucher of this type. Save anyway with the same number?`,

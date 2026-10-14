@@ -430,9 +430,6 @@ function searchVouchers(db: DB, q: ParsedQuery, limit: number, offset: number, g
     w.add(c.sql, ...c.params)
   }
 
-  const total = (db.prepare(`SELECT COUNT(*) AS n FROM vouchers v WHERE ${w.sql()}`).get(...w.params) as { n: number }).n
-  if (total === 0 || offset >= total) return { rows: [], total, offset }
-
   // Phase 1 — the page of ids, ranked. Display columns (totals, first ledger) are computed only
   // for these rows in phase 2, never for every match.
   const rt = rankTexts(q)
@@ -452,16 +449,23 @@ function searchVouchers(db: DB, q: ParsedQuery, limit: number, offset: number, g
       rank = tiers
     }
   }
-  const ids = (
-    db
-      .prepare(
-        `SELECT v.id FROM vouchers v LEFT JOIN ledgers pl ON pl.id = v.party_ledger_id
-         WHERE ${w.sql()}
-         ORDER BY ${rank.sql}, v.date DESC, v.id DESC
-         LIMIT ? OFFSET ?`
-      )
-      .all(...w.params, ...rank.params, limit, offset) as { id: number }[]
-  ).map((r) => r.id)
+  // WP 7.1: the match count rides on the page query (a window over the same matches) — one scan
+  // of the vouchers instead of two. An empty page past the first still asks for the count.
+  const page = db
+    .prepare(
+      `SELECT v.id, COUNT(*) OVER () AS total FROM vouchers v LEFT JOIN ledgers pl ON pl.id = v.party_ledger_id
+       WHERE ${w.sql()}
+       ORDER BY ${rank.sql}, v.date DESC, v.id DESC
+       LIMIT ? OFFSET ?`
+    )
+    .all(...w.params, ...rank.params, limit, offset) as { id: number; total: number }[]
+  const total = page.length
+    ? page[0]!.total
+    : offset === 0
+      ? 0
+      : (db.prepare(`SELECT COUNT(*) AS n FROM vouchers v WHERE ${w.sql()}`).get(...w.params) as { n: number }).n
+  if (total === 0 || offset >= total) return { rows: [], total, offset }
+  const ids = page.map((r) => r.id)
 
   // Phase 2 — details for the page.
   const pageJson = json(ids)
