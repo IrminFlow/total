@@ -38,12 +38,17 @@ async function pdfTextReader() {
 await scenario('64-hindi', async (h) => {
   const { page } = h
   const review = process.env.WP104_SHOTS
+  // The theme button lives in the shell; before a company is open (the wizard) the theme
+  // attribute is set directly for the screenshot.
+  const setTheme = async (want) => {
+    if ((await page.evaluate(() => document.documentElement.dataset.theme)) === want) return
+    if (await page.$('[data-testid="btn-theme"]')) await h.click('btn-theme')
+    else await page.evaluate((w) => (document.documentElement.dataset.theme = w), want)
+    await page.waitForFunction((w) => document.documentElement.dataset.theme === w, want)
+  }
   const shoot = async (name, keep = false) => {
     for (const want of ['light', 'dark']) {
-      if ((await page.evaluate(() => document.documentElement.dataset.theme)) !== want) {
-        await h.click('btn-theme')
-        await page.waitForFunction((w) => document.documentElement.dataset.theme === w, want)
-      }
+      await setTheme(want)
       await page.waitForTimeout(400)
       const file = await h.shot(`${name}-${want}`)
       if (review && keep) {
@@ -51,8 +56,7 @@ await scenario('64-hindi', async (h) => {
         fs.copyFileSync(file, path.join(review, `${name}-${want}.png`))
       }
     }
-    await h.click('btn-theme')
-    await page.waitForFunction(() => document.documentElement.dataset.theme === 'light')
+    await setTheme('light')
   }
   const mainText = (sel = 'main') => page.evaluate((s) => document.querySelector(s)?.innerText ?? '', sel)
   const noBanned = async (where, sel = 'main') => {
@@ -196,7 +200,9 @@ await scenario('64-hindi', async (h) => {
   await h.click('btn-assistant')
 
   // ================= 4. switch to Hinglish =================
-  await h.goto('simple-looks')
+  await h.click('simple-nav-settings')
+  await attached(h, '[data-testid="simple-entry-looks"]')
+  await h.click('simple-entry-looks')
   await attached(h, '[data-testid="simple-looks"]')
   await h.click('btn-language-hinglish')
   await h.click('simple-nav-home')

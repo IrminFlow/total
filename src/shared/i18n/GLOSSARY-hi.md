@@ -143,3 +143,5 @@ in both catalogues.
 - **Direction of money**: a line shown for both customers and suppliers never says who pays —
   "{days} दिन में आखिरी तारीख" / "{days} din mein due", "आखिरी तारीख आज". "Who still has to pay" =
   "किसने अभी पैसे नहीं दिए" (not "किसे पैसे देने हैं", which means "whom you have to pay").
+
+- People (customers + suppliers) in Hinglish = **Party** (what shops say; "Log" read as the English word log). Users of the app = Users.
