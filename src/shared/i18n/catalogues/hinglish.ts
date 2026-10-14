@@ -33,8 +33,8 @@ export const hinglish: Partial<Record<MessageKey, string>> = {
   'simple.why.link.payroll': 'Full app mein payroll kholein',
   'simple.why.home.profit':
     '{from} se aaj tak aapne {sales} ki sale ki; maal ki laagat {cost} rahi{hasOther, select, yes {, doosri income {other} judi} other {}}{hasExpenses, select, yes { aur chalane ke kharche {expenses} rahe} other {}}, isliye {result, select, profit {profit {amount} hai} loss {loss {amount} hai} other {na profit hai na loss}}.',
-  'simple.why.home.stockUp': 'Profit sale minus purchase se zyada hai, kyunki aapka khareeda hua {amount} ka maal shuru se zyada abhi bhi dukaan mein rakha hai.',
-  'simple.why.home.stockDown': 'Profit sale minus purchase se kam hai, kyunki aapne shuru mein rakhe maal mein se bhi {amount} ka maal becha.',
+  'simple.why.home.stockUp': 'Beche gaye maal ki laagat aapki poori purchase se {amount} kam hai, kyunki aapka khareeda hua {amount} ka maal shuru se zyada abhi bhi dukaan mein rakha hai — woh aapka hai, kharcha nahi, isliye profit utna zyada hai.',
+  'simple.why.home.stockDown': 'Beche gaye maal ki laagat aapki purchase se {amount} zyada hai, kyunki aapne shuru mein rakhe maal mein se bhi {amount} ka maal becha — isliye profit utna kam hai.',
   'simple.why.home.topExpense': 'Sabse bada kharcha {name} raha: {amount}.',
   'simple.why.compare':
     '{when, select, month {Is mahine ka result} other {Result}} {when, select, month {pichhle mahine ke inhi dinon} other {pichhli period}} ({from} se {to}) {dir, select, up {se {amount} behtar hai} down {se {amount} kamzor hai} other {jaisa hi hai}}{part, select, sales {, zyadatar isliye ki sale {partAmount} {partDir, select, up {badhi} other {ghati}}} costOfGoods {, zyadatar isliye ki maal ki laagat {partAmount} {partDir, select, up {badhi} other {ghati}}} otherIncome {, zyadatar isliye ki doosri income {partAmount} {partDir, select, up {badhi} other {ghati}}} expenses {, zyadatar isliye ki chalane ke kharche {partAmount} {partDir, select, up {badhe} other {ghate}}} other {}}.',

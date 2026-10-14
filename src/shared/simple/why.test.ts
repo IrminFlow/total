@@ -108,7 +108,7 @@ describe('each sentence says the figures it was given (WP 10.2)', () => {
     const s = homeProfitWhy(PROFIT, t)
     expect(s).toBe(
       'From 1 Apr 2026 to today you sold ₹2,00,000.00; the goods cost ₹1,30,000.00, other income added ₹1,000.00 and running costs came to ₹25,000.00, so the profit is ₹46,000.00. ' +
-        'Profit is higher than sales minus purchases because ₹30,000.00 more of the stock you bought is still on the shelf than at the start.'
+        'The goods you sold cost ₹30,000.00 less than everything you bought, because ₹30,000.00 more of the stock you bought is still on the shelf than at the start — it is yours, not a cost, so profit is that much higher.'
     )
     // sales − cost + other − expenses = profit, and the stock = closing − opening
     expect(YEAR.sales - YEAR.costOfGoods + YEAR.otherIncome - YEAR.expenses).toBe(YEAR.profit)
@@ -121,9 +121,16 @@ describe('each sentence says the figures it was given (WP 10.2)', () => {
     // no running costs → not mentioned as "₹0.00"
     const noCosts = { ...PROFIT, year: { ...PROFIT.year, lines: lines({ sales: 10_000_00, purchases: 6_000_00 }), netProfit: 4_000_00 } }
     expect(homeProfitWhy(noCosts, t)).toMatch(/^From 1 Apr 2026 to today you sold ₹10,000.00; the goods cost ₹6,000.00, so the profit is ₹4,000.00\./)
+    // review: the stock sentence compares what the goods cost with what was bought (always true:
+    // purchases − cost = closing − opening); it never claims "profit is higher than sales minus
+    // purchases", false below: sales − purchases = ₹4,000, profit ₹2,400 once ₹4,000 of running costs count.
+    expect(YEAR.purchases - YEAR.costOfGoods).toBe(PROFIT.year.closingStock - PROFIT.year.openingStock)
+    const costly = { ...PROFIT, year: { ...PROFIT.year, lines: lines({ sales: 16_000_00, purchases: 12_000_00, closingStock: 2_400_00, expenses: 4_000_00 }), netProfit: 2_400_00, closingStock: 2_400_00 } }
+    expect(costly.year.lines.profit).toBe(2_400_00)
+    expect(homeProfitWhy(costly, t)).toContain('The goods you sold cost ₹2,400.00 less than everything you bought')
     // stock sold down: profit lower than sales − purchases
     const down = { ...PROFIT, year: { ...PROFIT.year, openingStock: 40_000_00, closingStock: 30_000_00 } }
-    expect(homeProfitWhy(down, t)).toContain('Profit is lower than sales minus purchases because you also sold ₹10,000.00 of the stock you had at the start.')
+    expect(homeProfitWhy(down, t)).toContain('The goods you sold cost ₹10,000.00 more than what you bought, because you also sold ₹10,000.00 of the stock you had at the start — so profit is that much lower.')
   })
 
   it('the comparison: better / worse by the difference, mostly from the line that moved it most', () => {
@@ -142,7 +149,7 @@ describe('each sentence says the figures it was given (WP 10.2)', () => {
   it('Reports: sales with their change; the result with its stock reason; cash in its parts', () => {
     figuresFrom(salesCompareWhy(DOING, t), [MONTH.sales, MONTH.sales - PREV.sales])
     expect(doingResultWhy(DOING, t)).toBe(
-      'You made a profit of ₹20,000.00 from 1 Oct 2026 to 13 Oct 2026 — the same figure the full profit and loss report shows. Profit is higher than sales minus purchases because ₹5,000.00 more stock is on the shelf than at the start — it is yours, not a cost.'
+      'You made a profit of ₹20,000.00 from 1 Oct 2026 to 13 Oct 2026 — the same figure the full profit and loss report shows. The goods you sold cost ₹5,000.00 less than everything you bought, because ₹5,000.00 more of the stock you bought is still on the shelf than at the start — it is yours, not a cost, so profit is that much higher.'
     )
     figuresFrom(doingCompareWhy(DOING, t), [MONTH.profit - PREV.profit, MONTH.sales - PREV.sales])
     expect(cashNowWhy(CASH, t)).toBe('₹10,000.00 is what you have today: ₹2,000.00 in cash and ₹8,000.00 in 1 bank account.')

@@ -38,8 +38,8 @@ export const hi: Partial<Record<MessageKey, string>> = {
   'simple.why.link.payroll': 'पूरे ऐप में पेरोल खोलें',
   'simple.why.home.profit':
     '{from} से आज तक आपने {sales} की बिक्री की; माल की लागत {cost} रही{hasOther, select, yes {, दूसरी आमदनी {other} जुड़ी} other {}}{hasExpenses, select, yes { और चलाने के खर्च {expenses} रहे} other {}}, इसलिए {result, select, profit {मुनाफ़ा {amount} है} loss {घाटा {amount} है} other {न मुनाफ़ा है न घाटा}}।',
-  'simple.why.home.stockUp': 'मुनाफ़ा बिक्री घटा खरीद से ज़्यादा है, क्योंकि आपका खरीदा हुआ {amount} का माल शुरुआत से ज़्यादा अभी भी दुकान में रखा है।',
-  'simple.why.home.stockDown': 'मुनाफ़ा बिक्री घटा खरीद से कम है, क्योंकि आपने शुरुआत में रखे माल में से भी {amount} का माल बेचा।',
+  'simple.why.home.stockUp': 'बेचे गए माल की लागत आपकी पूरी खरीद से {amount} कम है, क्योंकि आपका खरीदा हुआ {amount} का माल शुरुआत से ज़्यादा अभी भी दुकान में रखा है — वह आपका है, खर्च नहीं, इसलिए मुनाफ़ा उतना ज़्यादा है।',
+  'simple.why.home.stockDown': 'बेचे गए माल की लागत आपकी खरीद से {amount} ज़्यादा है, क्योंकि आपने शुरुआत में रखे माल में से भी {amount} का माल बेचा — इसलिए मुनाफ़ा उतना कम है।',
   'simple.why.home.topExpense': 'सबसे बड़ा खर्च {name} रहा: {amount}।',
   'simple.why.compare':
     '{when, select, month {इस महीने का नतीजा} other {नतीजा}} {when, select, month {पिछले महीने के इन्हीं दिनों} other {पिछली अवधि}} ({from} से {to}) {dir, select, up {से {amount} बेहतर है} down {से {amount} कमज़ोर है} other {जैसा ही है}}{part, select, sales {, ज़्यादातर इसलिए कि बिक्री {partAmount} {partDir, select, up {बढ़ी} other {घटी}}} costOfGoods {, ज़्यादातर इसलिए कि माल की लागत {partAmount} {partDir, select, up {बढ़ी} other {घटी}}} otherIncome {, ज़्यादातर इसलिए कि दूसरी आमदनी {partAmount} {partDir, select, up {बढ़ी} other {घटी}}} expenses {, ज़्यादातर इसलिए कि चलाने के खर्च {partAmount} {partDir, select, up {बढ़े} other {घटे}}} other {}}।',

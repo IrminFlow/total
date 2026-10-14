@@ -120,7 +120,7 @@ describe('simple Home (WP 8.6)', () => {
     await open('gst', 'See what to pay and file for Sep 2026', { name: 'simple-taxes', period: '2026-09' })
     await open('profit', 'Open the profit and loss report', { name: 'profit-loss', from: '2026-04-01', to: '2026-10-13' })
     fireEvent.click(screen.getByTestId('simple-why-profit'))
-    expect((await screen.findByTestId('simple-why-profit-sentence')).textContent).toContain('Profit is higher than sales minus purchases because ₹1,54,000.00 more of the stock you bought is still on the shelf')
+    expect((await screen.findByTestId('simple-why-profit-sentence')).textContent).toContain('The goods you sold cost ₹1,54,000.00 less than everything you bought, because ₹1,54,000.00 more of the stock you bought is still on the shelf')
   })
 
   it('task buttons go where the one mapping says', async () => {

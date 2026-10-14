@@ -1085,8 +1085,8 @@ export const en = {
   'simple.reports.why.expensesNone': 'No running costs recorded from {from} to {to}.',
   'simple.reports.why.profit':
     '{result, select, profit {You made a profit of {amount}} loss {You made a loss of {amount}} other {No profit or loss}} from {from} to {to} — the same figure the full profit and loss report shows.',
-  'simple.reports.why.stockUp': 'Profit is higher than sales minus purchases because {amount} more stock is on the shelf than at the start — it is yours, not a cost.',
-  'simple.reports.why.stockDown': 'Profit is lower than sales minus purchases because you sold {amount} of the stock you already had at the start.',
+  'simple.reports.why.stockUp': 'The goods you sold cost {amount} less than everything you bought, because {amount} more of the stock you bought is still on the shelf than at the start — it is yours, not a cost, so profit is that much higher.',
+  'simple.reports.why.stockDown': 'The goods you sold cost {amount} more than what you bought, because you also sold {amount} of the stock you had at the start — so profit is that much lower.',
   'simple.reports.why.cash': '{total} in cash and bank on {date}: {cash} in cash and {bank} in {count, plural, one {# bank account} other {# bank accounts}}.',
   'simple.reports.why.cashOnly': '{total} in cash on {date}; no bank account is added yet.',
   'simple.reports.why.owed': 'On {date} customers owe you {receivable} and you owe suppliers {payable}, bill by bill.',
@@ -1226,8 +1226,8 @@ export const en = {
   'simple.why.link.payroll': 'Open payroll in the full app',
   'simple.why.home.profit':
     'From {from} to today you sold {sales}; the goods cost {cost}{hasOther, select, yes {, other income added {other}} other {}}{hasExpenses, select, yes { and running costs came to {expenses}} other {}}, so {result, select, profit {the profit is {amount}} loss {the loss is {amount}} other {there is no profit or loss}}.',
-  'simple.why.home.stockUp': 'Profit is higher than sales minus purchases because {amount} more of the stock you bought is still on the shelf than at the start.',
-  'simple.why.home.stockDown': 'Profit is lower than sales minus purchases because you also sold {amount} of the stock you had at the start.',
+  'simple.why.home.stockUp': 'The goods you sold cost {amount} less than everything you bought, because {amount} more of the stock you bought is still on the shelf than at the start — it is yours, not a cost, so profit is that much higher.',
+  'simple.why.home.stockDown': 'The goods you sold cost {amount} more than what you bought, because you also sold {amount} of the stock you had at the start — so profit is that much lower.',
   'simple.why.home.topExpense': 'The biggest running cost was {name}: {amount}.',
   'simple.why.compare':
     '{when, select, month {This month’s result is} other {The result is}} {dir, select, up {{amount} better than} down {{amount} worse than} other {the same as}} {when, select, month {the same days last month} other {the period before}} ({from} to {to}){part, select, sales {, mostly because sales went {partDir, select, up {up} other {down}} by {partAmount}} costOfGoods {, mostly because what the goods cost went {partDir, select, up {up} other {down}} by {partAmount}} otherIncome {, mostly because other income went {partDir, select, up {up} other {down}} by {partAmount}} expenses {, mostly because running costs went {partDir, select, up {up} other {down}} by {partAmount}} other {}}.',

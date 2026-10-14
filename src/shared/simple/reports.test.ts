@@ -81,7 +81,7 @@ describe('the one column', () => {
     expect(expensesWhy(d, t)).toBe('Running costs such as rent, salaries and electricity: ₹30,000.00. The biggest: Salary ₹18,000.00, Rent ₹12,000.00.')
     expect(doingProfitWhy(d, t)).toBe(
       'You made a profit of ₹24,000.00 from 1 Oct 2026 to 14 Oct 2026 — the same figure the full profit and loss report shows. ' +
-        'Profit is higher than sales minus purchases because ₹10,000.00 more stock is on the shelf than at the start — it is yours, not a cost. ' +
+        'The goods you sold cost ₹10,000.00 less than everything you bought, because ₹10,000.00 more of the stock you bought is still on the shelf than at the start — it is yours, not a cost, so profit is that much higher. ' +
         '₹4,000.00 more than the previous period (1 Sep 2026 to 14 Sep 2026).'
     )
     expect(doingCashWhy(d, t)).toBe('₹50,000.00 in cash and bank on 14 Oct 2026: ₹5,000.00 in cash and ₹45,000.00 in 1 bank account.')
