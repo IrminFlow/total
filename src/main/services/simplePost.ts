@@ -39,6 +39,8 @@ import { writeAudit } from './audit'
 import { saveSummary } from './undo'
 import { ledgerClassifier } from '../ai/ledgerClass'
 import { rehearse } from '../ai/drafting/rehearse'
+import { getFeatures } from './config'
+import { tdsEligible } from './tdsWorkbench'
 
 // ---------------------------------------------------------------- context
 
@@ -77,7 +79,7 @@ function partyOf(n: NormalIntent, walkInId: number | null): number | null {
     case 'purchase':
       return n.supplierId
     case 'money_in':
-      return n.customerId
+      return n.customerId ?? n.supplierId
     case 'money_out':
       return n.supplierId
     default:
@@ -225,6 +227,9 @@ export function loadIntentContext(db: DB, company: CompanyInfo, n: NormalIntent)
   if ((n.kind === 'money_in' || n.kind === 'money_out') && partyId != null) {
     bills.set(partyId, openBills(db, partyId, n.date).filter((b) => b.pending > 0).map((b) => ({ name: b.number, date: b.date, pending: b.pending, voucherId: b.voucherId })))
   }
+  // WP 9.4: a supplier's refund is set against their named credits (oldest first).
+  const openCredits = new Map<number, { name: string; amount: number }[]>()
+  if (n.kind === 'money_in' && n.supplierId != null) openCredits.set(n.supplierId, partyAllocationWithCredits(db, n.supplierId, n.date).credits)
   return {
     invoice: {
       companyStateCode: company.stateCode,
@@ -248,6 +253,7 @@ export function loadIntentContext(db: DB, company: CompanyInfo, n: NormalIntent)
     },
     prices,
     openBills: bills,
+    openCredits,
     original,
     takenNames
   }
@@ -465,7 +471,15 @@ export function previewIntent(db: DB, company: CompanyInfo, raw: unknown, today:
   const n = normaliseIntent(raw, today)
   return rehearse(db, () => {
     const out = execute(db, company, n, today)
-    return { kind: n.kind, sentences: intentSentences(out.facts, companyT(db)), facts: out.facts, entries: previewEntries(db, out.saved), warnings: out.warnings }
+    const preview: SimplePreview = { kind: n.kind, sentences: intentSentences(out.facts, companyT(db)), facts: out.facts, entries: previewEntries(db, out.saved), warnings: out.warnings }
+    // WP 9.4: with TDS on, the EXISTING eligibility rules (tdsWorkbench.tdsEligible) run over the
+    // rehearsed entries — a read-only hint for the simple screen; no TDS is added here.
+    if ((n.kind === 'money_out' || n.kind === 'purchase') && getFeatures(db).tds) {
+      const ids = new Set(out.saved.map((s) => s.id))
+      const hits = tdsEligible(db, n.date, n.date).filter((r) => ids.has(r.voucherId))
+      if (hits.length) preview.tds = hits.map((r) => ({ partyName: r.partyName, sectionCode: r.sectionCode, tdsPaise: r.tdsPaise }))
+    }
+    return preview
   })
 }
 

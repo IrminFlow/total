@@ -126,6 +126,7 @@ import { globalSearch, search } from './services/search'
 import { createDemoCompany } from './services/demo'
 import { createCompanyFromSetup } from './services/companySetup'
 import * as simplePost from './services/simplePost'
+import * as simpleMoney from './services/simpleMoney'
 import * as simpleSell from './services/simpleSell'
 import * as simpleReturns from './services/simpleReturns'
 import * as simpleBuy from './services/simpleBuy'
@@ -471,6 +472,23 @@ export function registerIpc(): void {
     return out
   })
 
+  // WP 9.4: the simple Money screens' reads (services/simpleMoney.ts) — the forms' customers,
+  // suppliers, cash / bank accounts and their defaults (WP 5.6 memory, else the counter's), a
+  // party's open bills (the Outstandings allocation), the money list and one entry's view.
+  // Writing goes through simple:post only.
+  handle('simple:money:setup', () => simpleMoney.moneySetup(requireCompany().db), 'viewer')
+  handle('simple:money:bills', (payload) => {
+    const { partyId, date } = z.object({ partyId: z.number().int().positive(), date: isoDate }).strict().parse(payload)
+    return simpleMoney.moneyBills(requireCompany().db, partyId, date)
+  }, 'viewer')
+  handle('simple:money:list', (payload) => {
+    const { from, to } = z.object({ from: isoDate, to: isoDate }).strict().parse(payload)
+    return simpleMoney.moneyList(requireCompany().db, from, to)
+  }, 'viewer')
+  handle('simple:money:entry', (payload) => {
+    const { id } = z.object({ id: z.number().int().positive() }).strict().parse(payload)
+    return simpleMoney.moneyEntry(requireCompany().db, id)
+  }, 'viewer')
   // WP 9.2: the simple Sell screens' reads (services/simpleSell.ts) — the form's customers, cash /
   // bank accounts and their defaults (WP 5.6 memory, else the counter's), the sales list with what
   // is still due on each bill (the Outstandings allocation as on today) and one bill's simple view.
