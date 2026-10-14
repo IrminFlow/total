@@ -75,18 +75,17 @@ await scenario('47-mode-switch', async (h) => {
     'simple Settings list'
   )
 
-  // A mapped screen without its simple flow yet: People → Customers and suppliers opens the
-  // ledger list filtered to parties in the FULL app, with Back to simple.
-  await h.click('simple-nav-people')
-  assert((await h.page.textContent('[data-testid="simple-entry-customers-suppliers"]'))?.includes('Full app'), 'tagged Full app')
-  await h.click('simple-entry-customers-suppliers')
-  await h.waitScreen('masters')
+  // A mapped screen without its simple flow yet: Money → All entries opens the Day book in the
+  // FULL app, with Back to simple. (WP 9.8: People → Customers and suppliers is the simple People.)
+  await h.click('simple-nav-money')
+  assert((await h.page.textContent('[data-testid="simple-entry-all-entries"]'))?.includes('Full app'), 'tagged Full app')
+  await h.click('simple-entry-all-entries')
+  await h.waitScreen('daybook')
   await attached('nav[aria-label="Main"]')
   await absent('[data-testid="simple-nav"]')
-  await attached('[data-testid="masters-ledgers-parties-only"]')
   await h.shot('light-mapped-screen')
   await h.click('btn-back-to-simple')
-  await attached('[data-testid="simple-section-people"]')
+  await attached('[data-testid="simple-section-money"]')
 
   // Home: Accountant view = the same screen (Gateway) in the full shell, remembered for Home.
   await h.click('simple-nav-home')

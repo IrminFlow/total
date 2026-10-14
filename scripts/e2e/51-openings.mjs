@@ -136,9 +136,11 @@ await scenario('51-openings', async (h) => {
   await h.shot('light-7-home-after')
 
   // ---------- Outstandings lists the bill ----------
-  await h.click('simple-nav-people')
-  await attached(h, '[data-testid="simple-entry-who-owes"]')
-  await h.click('simple-entry-who-owes')
+  // WP 9.8: People → Who owes me is the simple People list; Reports → Who owes me still opens
+  // the accountant Outstandings.
+  await h.click('simple-nav-reports')
+  await attached(h, '[data-testid="simple-entry-who-owes-me"]')
+  await h.click('simple-entry-who-owes-me')
   await h.waitScreen('outstandings')
   await h.waitIdle()
   const row = page.locator('tr', { hasText: 'Sharma Stores' }).first()
