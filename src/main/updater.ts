@@ -6,6 +6,13 @@
  * errors (typical for unsigned beta builds), we fall back to a manual check
  * against the GitHub API and offer the release page to download.
  *
+ * Windows (WP 7.3): the NSIS build updates through electron-updater itself — it reads
+ * latest.yml from the release and verifies the download's sha512; with no `publisherName`
+ * configured it does not require a signature, so the unsigned installer installs in place on
+ * quit. latest.yml names the installer `Total-Setup-<version>.exe` and the release asset must
+ * carry exactly that name (package.json `nsis.artifactName`). The manual fallback opens
+ * /api/download?platform=win.
+ *
  * The app stays fully offline otherwise: this runs only in packaged builds,
  * never blocks anything, and failing silently is the correct behavior.
  */
@@ -13,6 +20,7 @@ import { app, dialog, shell } from 'electron'
 import electronUpdater from 'electron-updater'
 import { log } from './log'
 import { GITHUB_REPO, SITE_URL } from '@shared/product'
+import { downloadUrlFor, updateAvailableDetail, updateCheckDisabled, updateReadyDetail } from '@shared/updateText'
 
 const { autoUpdater } = electronUpdater
 
@@ -79,12 +87,14 @@ async function checkAndOffer(): Promise<UpdateCheckResult> {
     const choice = await dialog.showMessageBox({
       type: 'info',
       message: `Total ${latest.version.replace(/^v/, '')} is available`,
-      detail: `You're on ${current}. Download the new version — your data in ~/Documents/total is untouched by updates.`,
+      // WP 7.3: the data folder as this platform writes it, plus the unsigned-build note
+      // (SmartScreen on Windows, Gatekeeper on macOS).
+      detail: updateAvailableDetail(process.platform, current),
       buttons: ['Download update', 'Later'],
       defaultId: 0,
       cancelId: 1
     })
-    if (choice.response === 0) shell.openExternal(latest.downloadUrl)
+    if (choice.response === 0) shell.openExternal(downloadUrlFor(latest.downloadUrl, process.platform))
     return { status: 'available', current, latest: latest.version }
   } catch (err) {
     log('warn', 'updater', { error: String(err) })
@@ -112,6 +122,8 @@ export async function checkForUpdatesInteractive(): Promise<UpdateCheckResult> {
 
 export function initUpdater(): void {
   if (!app.isPackaged) return
+  // WP 7.3: scripted runs against a packaged build (the Windows CI smoke) never check.
+  if (updateCheckDisabled(process.env)) return
 
   autoUpdater.autoDownload = true
   autoUpdater.autoInstallOnAppQuit = true
@@ -121,7 +133,7 @@ export function initUpdater(): void {
       .showMessageBox({
         type: 'info',
         message: `Total ${info.version} is ready`,
-        detail: 'The update installs when the app restarts. Your data in ~/Documents/total is untouched.',
+        detail: updateReadyDetail(process.platform),
         buttons: ['Restart now', 'On next quit'],
         defaultId: 0,
         cancelId: 1
