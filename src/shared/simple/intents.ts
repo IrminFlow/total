@@ -19,7 +19,7 @@ import type { SaveVoucherWarnings, VoucherBillRef, VoucherKind } from '../domain
 import type { SaveSummary } from './saveCard'
 import type { Translate } from '../i18n'
 import { formatPaise, parseAmountText, roundToRupee } from '../money'
-import { addDaysISO, fyOf, isValidISODate, resolveDateText } from '../dates'
+import { addDaysISO, fyOf, isValidISODate, resolveDateText, toDisplayDate, toPlainDate } from '../dates'
 import { addBreakups, computeGst, supplyTypeFor, type GstBreakup } from '../gst/calc'
 import { chargesGstOn, registrationOn } from '../gst/registration'
 import { AppError } from '../errors/appError'
@@ -905,6 +905,9 @@ function mapReturn(n: Extract<NormalIntent, { kind: 'return_sale' | 'return_purc
   const party = ledgerOf(ctx, o.partyId, [sale ? 'debtor' : 'creditor'], 'simple_no_party', 'bill', sale ? 'customer' : 'supplier')
   const { type, number } = typeOf(ctx, kind, n.number, 'number')
   const date = n.date
+  // A return before its bill would find nothing pending on it (the whole return a credit) and slip
+  // past what is left of an amount bill — refused at the date.
+  if (date < o.date) fail('simple_return_before_bill', `The bill is dated ${toDisplayDate(o.date)} — a return can only be on that day or later`, 'date', { date: toPlainDate(o.date) })
   const accountId = o.accountId ?? (sale ? ctx.defaults.salesId : ctx.defaults.purchaseId)
   const account = ledgerOf(ctx, accountId, sale ? ['income'] : ['expense'], 'simple_wrong_account', 'bill', sale ? 'sales account' : 'purchase account')
   // WP 8.0 / s.34: a note against a bill of a GST-charging period (or one that carries tax) keeps its GST.

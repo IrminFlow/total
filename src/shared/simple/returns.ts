@@ -188,6 +188,7 @@ export type ReturnField = 'date' | 'items' | 'amount' | 'gstRate' | 'refund'
 export function returnFormErrors(form: ReturnForm, bill: ReturnBill, ctx: ReturnContext, opts: { refundAccount?: boolean } = {}): Partial<Record<ReturnField, MessageKey>> {
   const out: Partial<Record<ReturnField, MessageKey>> = {}
   const asks = returnAsks(form, bill, ctx)
+  if (form.date < bill.date) out.date = 'simple.returns.err.beforeBill'
   if (bill.mode === 'items') {
     if (asks.blocked) out.items = 'simple.returns.err.ratesChanged'
     else {
