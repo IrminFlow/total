@@ -15,7 +15,7 @@ import { join, relative, resolve } from 'node:path'
 import { DockModeContext, DockedDrawer, isPanelOpen, routePanelEscape } from '../components/kit'
 import { Modal, isAnyModalOpen } from '../components/ui'
 import { TypeAhead, type PickerOption } from '../components/pickers'
-import { handleRadioArrows, handleSlashKey, screenSearchBox } from '../lib/simpleKeys'
+import { handleRadioArrows, handleSlashKey, screenSearchBox, syncRovingRadios, useRovingRadios } from '../lib/simpleKeys'
 import { handleHelpKey } from '../help/keys'
 import { useHelpPanel } from '../help/store'
 import { useNav, useSession } from '../state/stores'
@@ -131,6 +131,56 @@ describe('Esc closes the topmost layer only (simple shell)', () => {
     expect(screen.getByTestId('panel')).toBeTruthy()
   })
 
+  it('review: the ⌘K palette over an open panel takes Esc first (one Esc closes the palette, not the panel)', async () => {
+    const formEsc = vi.fn()
+    render(<Stack dock="overlay" onFormEscape={formEsc} />)
+    // The palette's overlay (CommandPalette.tsx) — not a dialog layer, so it says it owns Esc.
+    const overlay = document.createElement('div')
+    overlay.setAttribute('data-esc-layer', '')
+    const box = document.createElement('input')
+    overlay.appendChild(box)
+    document.body.appendChild(overlay)
+    const e = new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })
+    Object.defineProperty(e, 'target', { value: box })
+    expect(routePanelEscape(e)).toBe(false)
+    expect(e.defaultPrevented).toBe(false)
+    overlay.remove()
+    expect(screen.getByTestId('panel')).toBeTruthy()
+    esc(screen.getByTestId('form-button'))
+    await waitFor(() => expect(screen.queryByTestId('panel')).toBeNull())
+  })
+
+  it('review: a window crossing 1600 px (overlay ↔ dock) keeps the keyboard in the panel and its place in the Esc stack', async () => {
+    function Two({ dock }: { dock: 'dock' | 'overlay' }): React.JSX.Element {
+      const [help, setHelp] = useState(true)
+      const [ask, setAsk] = useState(true)
+      return (
+        <DockModeContext.Provider value={dock}>
+          {help && (
+            <DockedDrawer title="Help" onClose={() => setHelp(false)} width={400} testId="help">
+              <p>help</p>
+            </DockedDrawer>
+          )}
+          {ask && (
+            <DockedDrawer title="Ask" onClose={() => setAsk(false)} width={400} testId="ask">
+              <textarea aria-label="Question" data-testid="ask-box" />
+            </DockedDrawer>
+          )}
+        </DockModeContext.Provider>
+      )
+    }
+    const { rerender } = render(<Two dock="overlay" />)
+    screen.getByTestId('ask-box').focus()
+    rerender(<Two dock="dock" />)
+    expect(document.activeElement).toBe(screen.getByTestId('ask-box'))
+    rerender(<Two dock="overlay" />)
+    expect(document.activeElement).toBe(screen.getByTestId('ask-box'))
+    // Ask Total opened last: it is still the top layer after the resizes.
+    esc(document.body)
+    await waitFor(() => expect(screen.queryByTestId('ask')).toBeNull())
+    expect(screen.getByTestId('help')).toBeTruthy()
+  })
+
   it('the full app (no dock provider): the panel is not a layer — Esc on the screen reaches the form as before', () => {
     const formEsc = vi.fn()
     render(<Stack dock={null} onFormEscape={formEsc} />)
@@ -219,6 +269,40 @@ describe('shortcuts never fire while typing', () => {
     fireEvent.keyDown(screen.getByTestId('r-cash'), { key: 'ArrowUp' }) // wraps to the last
     expect(document.activeElement).toBe(screen.getByTestId('r-card'))
     expect(picked.mock.calls.map((c) => c[0])).toEqual(['upi', 'cash', 'card'])
+  })
+
+  it('review: a question is ONE Tab stop — the picked choice, else the first (roving tabindex)', async () => {
+    function Groups(): React.JSX.Element {
+      useRovingRadios(true)
+      const [v, setV] = useState<string | null>(null)
+      return (
+        <>
+          <div role="radiogroup" aria-label="Paid how?">
+            {['cash', 'upi', 'card'].map((x) => (
+              <button key={x} type="button" role="radio" aria-checked={v === x} data-testid={`g-${x}`} onClick={() => setV(x)}>
+                {x}
+              </button>
+            ))}
+          </div>
+          <div role="radiogroup" aria-label="Who?">
+            <button type="button" role="radio" aria-checked={false} disabled data-testid="w-off">off</button>
+            <button type="button" role="radio" aria-checked={false} data-testid="w-on">on</button>
+          </div>
+        </>
+      )
+    }
+    render(<Groups />)
+    const tab = (id: string): number => screen.getByTestId(id).tabIndex
+    expect([tab('g-cash'), tab('g-upi'), tab('g-card')]).toEqual([0, -1, -1])
+    expect([tab('w-off'), tab('w-on')]).toEqual([-1, 0]) // a disabled choice is never the stop
+    fireEvent.click(screen.getByTestId('g-card'))
+    await waitFor(() => expect([tab('g-cash'), tab('g-upi'), tab('g-card')]).toEqual([-1, -1, 0]))
+    // The sync itself (no observer): a static group.
+    const g = document.createElement('div')
+    g.setAttribute('role', 'radiogroup')
+    g.innerHTML = '<button role="radio" aria-checked="false"></button><button role="radio" aria-checked="true"></button>'
+    syncRovingRadios(g.parentNode ?? (document.createDocumentFragment().appendChild(g), g.parentNode!))
+    expect([...g.querySelectorAll('button')].map((b) => b.tabIndex)).toEqual([-1, 0])
   })
 
   it('? opens help only when no box has the keyboard', () => {

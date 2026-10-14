@@ -230,6 +230,29 @@ describe('simple-mode string lint', () => {
     expect(lintSimpleSource(bad, 'Short.ts').map((i) => `${i.line}:${i.text}`)).toEqual(['2:saved', '3:OK', '4:GST'])
   })
 
+  it('review: style and *TestId props stay technical without opening a hole for copy', () => {
+    const src = `
+      export function Bar({ t }: { t: (k: string) => string }) {
+        return (
+          <>
+            <SaveBar totalTestId="sell-total" previewTestId="sell-preview" style={{ bottom: 'calc(-1 * var(--x))' }} preview="Bill to Ramesh" shortcuts="Press Enter to save">
+              {t('simple.nav.home')}
+            </SaveBar>
+            <div style={{ width: 4 }}>Raw words</div>
+            <Card titleTestId="x" title={'Raw title'} />
+            <Card testIds="Not a test id" />
+          </>
+        )
+      }`
+    expect(lintSimpleSource(src, 'Bar.tsx').map((i) => `${i.line}:${i.text}`)).toEqual([
+      '5:Bill to Ramesh',
+      '5:Press Enter to save',
+      '8:Raw words',
+      '9:Raw title',
+      '10:Not a test id'
+    ])
+  })
+
   it('leaves technical strings alone', () => {
     const ok = `
       import { useT } from '../lib/i18n'
