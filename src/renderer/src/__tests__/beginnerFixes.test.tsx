@@ -4,6 +4,9 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import { cleanup, render, screen } from '@testing-library/react'
 import { SaveBar } from '../simple/SaveBar'
+import { periodChip } from '../simple/SimpleHeader'
+import { translator } from '@shared/i18n'
+import { toMonthLabel, toPlainDate } from '@shared/dates'
 import { useSession } from '../state/stores'
 
 afterEach(() => {
@@ -20,6 +23,20 @@ const bar = (): void => {
     </main>
   )
 }
+
+describe('WP 10.8: the period chip in plain words', () => {
+  const chip = (from: string, to: string, lang: 'en' | 'hi' | 'hinglish' = 'en'): string => {
+    const t = translator(lang)
+    return periodChip(from, to, '2026-10-14', (d) => `${toMonthLabel(d.slice(0, 7), 'short', lang)} ${d.slice(0, 4)}`, (d) => toPlainDate(d, lang), t)
+  }
+  it('the year holding today, another whole year, any other dates', () => {
+    expect(chip('2026-04-01', '2027-03-31')).toBe('This year: Apr 2026 – Mar 2027')
+    expect(chip('2025-04-01', '2026-03-31')).toBe('Apr 2025 – Mar 2026')
+    expect(chip('2026-04-01', '2026-10-14')).toBe('1 Apr 2026 – 14 Oct 2026')
+    expect(chip('2026-04-01', '2027-03-31', 'hinglish')).toBe('Is saal: Apr 2026 – Mar 2027')
+    expect(chip('2026-04-01', '2027-03-31', 'hi')).toMatch(/^यह साल: /)
+  })
+})
 
 describe('WP 10.8: the Save bar and a viewer', () => {
   it('no sign-ins / an accountant: the buttons', () => {

@@ -359,7 +359,7 @@ export function purchasePreviewLine(f: IntentFacts, t: Translate): string {
   const how = f.how ?? 'cash'
   const due = f.dueDate ? toPlainDate(f.dueDate, t.lang) : ''
   const owed = f.due > 0 ? f.due : 0
-  if (f.paid > 0 && owed > 0) return `${head} ${t('simple.buy.preview.part', { paid: money(f.paid), how, due: money(owed), date: due })}`
+  if (f.paid > 0 && owed > 0) return `${head} ${t(due ? 'simple.buy.preview.part' : 'simple.buy.preview.partNoDate', { paid: money(f.paid), how, due: money(owed), date: due })}`
   if (f.paid > 0) return `${head} ${t('simple.buy.preview.paid', { amount: money(f.paid), how })}`
   if (owed > 0) return `${head} ${t(due ? 'simple.buy.preview.dueBy' : 'simple.buy.preview.due', { amount: money(owed), date: due })}`
   return head

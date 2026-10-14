@@ -853,7 +853,9 @@ function mapTrade(n: Extract<NormalIntent, { kind: 'sale' | 'purchase' }>, ctx: 
   facts.total = total
   facts.paid = paid
   facts.due = total - paid
-  if (facts.due > 0) facts.dueDate = due
+  // WP 10.8: a party without days to pay has no due date to tell (the bill is still due on its
+  // date in the books, as before) — the preview says "no due date set" rather than "due by today".
+  if (facts.due > 0 && (n.dueDate != null || (party.creditDays ?? 0) > 0)) facts.dueDate = due
   if (paid > 0) {
     const how = payment.how as MoneyHow
     const acct = moneyAccount(ctx, how, payment.accountId, 'payment')

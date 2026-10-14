@@ -194,6 +194,9 @@ describe('plain words', () => {
   it('the preview line', () => {
     expect(salePreviewLine(facts({ paid: 50_000, how: 'upi', due: 68_000, dueDate: '2026-11-20' }), t)).toBe('Bill ₹1,180.00 to Ramesh. ₹500.00 by UPI now, ₹680.00 due by 20 Nov 2026.')
     expect(salePreviewLine(facts({ due: 118_000, dueDate: '2026-10-13' }), t)).toBe('Bill ₹1,180.00 to Ramesh. ₹1,180.00 due by 13 Oct 2026.')
+    // WP 10.8: no days to pay → no due date to tell
+    expect(salePreviewLine(facts({ due: 118_000, dueDate: null }), t)).toBe('Bill ₹1,180.00 to Ramesh. ₹1,180.00 due — no due date is set for this customer.')
+    expect(salePreviewLine(facts({ paid: 50_000, how: 'upi', due: 68_000, dueDate: null }), t)).toBe('Bill ₹1,180.00 to Ramesh. ₹500.00 by UPI now, ₹680.00 still due (no due date set).')
     expect(salePreviewLine(facts({ walkIn: true, partyName: 'Cash sale', paid: 118_000, how: 'cash' }), t)).toBe('Bill ₹1,180.00 for a cash customer. ₹1,180.00 in cash now.')
     expect(salePreviewLine(facts({ paid: 118_000, how: 'bank' }), t)).toBe('Bill ₹1,180.00 to Ramesh. ₹1,180.00 by bank transfer now.')
   })

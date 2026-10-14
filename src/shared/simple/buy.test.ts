@@ -219,6 +219,7 @@ describe('plain words', () => {
   it('the preview line', () => {
     expect(purchasePreviewLine(facts({ paid: 50_000, how: 'upi', due: 68_000, dueDate: '2026-11-20' }), t)).toBe('Bill ₹1,180.00 from Bharat Steel. ₹500.00 paid by UPI now, ₹680.00 still to pay by 20 Nov 2026.')
     expect(purchasePreviewLine(facts({ due: 118_000, dueDate: '2026-10-13' }), t)).toBe('Bill ₹1,180.00 from Bharat Steel. ₹1,180.00 to pay by 13 Oct 2026.')
+    expect(purchasePreviewLine(facts({ due: 118_000, dueDate: null }), t)).toBe('Bill ₹1,180.00 from Bharat Steel. ₹1,180.00 to pay — no due date is set for this supplier.')
     expect(purchasePreviewLine(facts({ paid: 118_000, how: 'cash' }), t)).toBe('Bill ₹1,180.00 from Bharat Steel. ₹1,180.00 paid in cash now.')
     expect(purchasePreviewLine(facts({ paid: 118_000, how: 'bank' }), t)).toBe('Bill ₹1,180.00 from Bharat Steel. ₹1,180.00 paid by bank transfer now.')
   })
