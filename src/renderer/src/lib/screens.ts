@@ -373,8 +373,10 @@ export const SCREENS: ScreenDef[] = [
     name: 'profit-loss',
     modes: ['accountant'],
     simpleSection: 'reports',
+    // WP 9.9: "How is my business doing" is the simple report (simple-reports); this T-form
+    // P&L is its Accountant view and a "For your CA" entry.
     simpleEntries: [
-      { id: 'how-am-i-doing', label: 'simple.reports.howAmIDoing' }
+      { id: 'pnl-tform', label: 'simple.entries.pnlTform', group: 'forYourCa' }
     ],
     title: 'Profit & Loss',
     screen: { name: 'profit-loss' },
@@ -465,8 +467,10 @@ export const SCREENS: ScreenDef[] = [
     name: 'registers',
     modes: ['accountant'],
     simpleSection: 'sell',
+    // WP 9.9: Reports → Sales and purchases by month is the simple report over these registers;
+    // the CA pack export lives on this screen.
     simpleEntries: [
-      { id: 'by-month', label: 'simple.reports.byMonth', section: 'reports', screen: { name: 'registers', tab: 'sales' } }
+      { id: 'ca-pack', label: 'simple.entries.caPack', section: 'reports', group: 'forYourCa' }
     ],
     keywords: ['sales register', 'purchase register'],
     title: 'Registers',
@@ -479,8 +483,8 @@ export const SCREENS: ScreenDef[] = [
     modes: ['accountant'],
     simpleSection: 'people',
     simpleEntries: [
-      { id: 'who-owes', label: 'simple.entries.whoOwes' },
-      { id: 'who-owes-me', label: 'simple.reports.whoOwesMe', section: 'reports' }
+      { id: 'who-owes', label: 'simple.entries.whoOwes' }
+      // WP 9.9: Reports → Who owes me / Whom I owe are the simple report (simple-reports, owed).
     ],
     keywords: ['ageing', 'receivables', 'payables', 'bills'],
     title: 'Outstandings',
@@ -558,9 +562,7 @@ export const SCREENS: ScreenDef[] = [
     name: 'cash-forecast',
     modes: ['accountant'],
     simpleSection: 'reports',
-    simpleEntries: [
-      { id: 'cash-next-30', label: 'simple.reports.cashNext30' }
-    ],
+    // WP 9.9: Reports → Cash in the next 30 days is the simple report over this forecast.
     title: 'Cash-flow forecast',
     navLabel: 'Cash forecast',
     keywords: ['forecast', 'cash flow projection', 'liquidity', 'shortfall', 'runway', 'scenario'],
@@ -699,10 +701,7 @@ export const SCREENS: ScreenDef[] = [
     requiresGstRegistration: true,
     modes: ['accountant'],
     simpleSection: 'taxes',
-    simpleEntries: [
-      { id: 'gst-summary', label: 'simple.entries.gstToPay', needs: 'gstRegular' },
-      { id: 'gst-summary-report', label: 'simple.reports.gstSummary', section: 'reports', needs: 'gstRegular' }
-    ],
+    // WP 9.9: Taxes → GST to pay (and Reports → GST summary) is the simple Taxes screen.
     title: 'GSTR-3B',
     screen: { name: 'gstr3b' },
     navSection: 'gst',
@@ -1153,6 +1152,45 @@ export const SCREENS: ScreenDef[] = [
     feature: 'manufacturing',
     invalidates: ['simpleMadeSetup', 'simpleStock', 'stockItems', 'bomVersions']
   },
+  // WP 9.9: Reports — the plain reports (simple/reports/ReportsScreen): how the business is doing
+  // (the P&L's own totals in one column), cash in the next 30 days (the Cash forecast), who owes
+  // whom (Outstandings) and sales / purchases by month (the registers). Accountant views: the
+  // T-form P&L, Cash forecast, Outstandings, Registers.
+  {
+    name: 'simple-reports',
+    modes: ['simple'],
+    simpleView: 'reports/ReportsScreen',
+    simpleSection: 'reports',
+    simpleEntries: [
+      { id: 'how-am-i-doing', label: 'simple.reports.howAmIDoing', screen: { name: 'simple-reports', report: 'doing' } },
+      { id: 'cash-next-30', label: 'simple.reports.cashNext30', screen: { name: 'simple-reports', report: 'cash' } },
+      { id: 'who-owes-me', label: 'simple.reports.whoOwesMe', screen: { name: 'simple-reports', report: 'owed', side: 'receivable' } },
+      { id: 'whom-i-owe', label: 'simple.reports.whomIOwe', screen: { name: 'simple-reports', report: 'owed', side: 'payable' } },
+      { id: 'by-month', label: 'simple.reports.byMonth', screen: { name: 'simple-reports', report: 'by-month' } }
+    ],
+    title: 'How is my business doing',
+    keywords: ['profit', 'how am i doing', 'cash next 30 days', 'who owes me', 'sales by month', 'purchases by month'],
+    screen: null, // simple shell only
+    navSection: null,
+    invalidates: ['simpleReports']
+  },
+  // WP 9.9: Taxes — the GST answer and the steps to file (simple/taxes/TaxesScreen), TDS / TCS
+  // when on. Accountant view: GSTR-3B.
+  {
+    name: 'simple-taxes',
+    modes: ['simple'],
+    simpleView: 'taxes/TaxesScreen',
+    simpleSection: 'taxes',
+    simpleEntries: [
+      { id: 'gst-summary', label: 'simple.entries.gstToPay', screen: { name: 'simple-taxes' }, needs: 'gstRegular' },
+      { id: 'gst-summary-report', label: 'simple.reports.gstSummary', section: 'reports', screen: { name: 'simple-taxes' }, needs: 'gstRegular' }
+    ],
+    title: 'GST to pay and file',
+    keywords: ['gst', 'taxes', 'what do i owe the government', 'gst due', 'file gst', 'arn'],
+    screen: null, // simple shell only
+    navSection: null,
+    invalidates: ['simpleTaxes']
+  },
   {
     name: 'search',
     modes: ['accountant'],
@@ -1206,8 +1244,8 @@ export const SIMPLE_ENTRY_ORDER: readonly string[] = [
   // People
   'customers-suppliers', 'who-owes', 'reminders', 'bills-to-pay',
   // Reports (then For your CA)
-  'how-am-i-doing', 'cash-next-30', 'who-owes-me', 'by-month', 'gst-summary-report',
-  'trial-balance', 'balance-sheet', 'cash-flow', 'ca-export',
+  'how-am-i-doing', 'cash-next-30', 'who-owes-me', 'whom-i-owe', 'by-month', 'gst-summary-report',
+  'trial-balance', 'balance-sheet', 'pnl-tform', 'cash-flow', 'ca-pack', 'ca-export',
   // Taxes
   'gst-summary', 'gst-sales', 'check-supplier-bills', 'tds', 'tcs',
   // Settings (then Advanced)

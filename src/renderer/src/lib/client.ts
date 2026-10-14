@@ -15,6 +15,8 @@ import type { MoneyEntryView, MoneyOpenBill, MoneyRow, MoneySetup } from '@share
 import type { SaleRow, SaleView, SellSetup } from '@shared/simple/sell'
 import type { BuySetup, PurchaseRow, PurchaseView } from '@shared/simple/buy'
 import type { MadeGoodsSetup, StockList, StockProductView } from '@shared/simple/stock'
+import type { BusinessDoing, ReportPeriodKind, SimpleByMonth, SimpleCash, SimpleOwed } from '@shared/simple/reports'
+import type { GstFiledInput, GstFiledPeriod, SimpleTaxes } from '@shared/simple/taxes'
 import type { BudgetVarianceRow } from '@shared/budgets'
 import type { McpConfig, McpLogRow, McpSettingsView } from '@shared/mcp'
 import type { AiDraftDto, AiDraftStatus } from '@shared/ai'
@@ -713,6 +715,19 @@ export const api = {
   },
   /** WP 9.7: the simple Stock screens (services/simpleStock.ts). Counting and making go through
    *  simple:post (the `stock_count` / `make_goods` intents). */
+  /** WP 9.9: the simple Reports screens (services/simpleReports.ts) — read-only, as on today. */
+  simpleReports: {
+    doing: (q: { period: ReportPeriodKind; from?: string; to?: string; today?: string }) => call<BusinessDoing>('simple:reports:doing', q),
+    cash: (today?: string) => call<SimpleCash>('simple:reports:cash', today ? { today } : {}),
+    owed: (side: 'receivable' | 'payable', today?: string) => call<SimpleOwed>('simple:reports:owed', { side, ...(today ? { today } : {}) }),
+    byMonth: (today?: string) => call<SimpleByMonth>('simple:reports:byMonth', today ? { today } : {})
+  },
+  /** WP 9.9: the simple Taxes screen (services/simpleTaxes.ts): the GST answer for a period (the
+   *  Home tile's by default), TDS / TCS when on; "I've filed" notes an ARN + date per return. */
+  simpleTaxes: {
+    get: (period?: string, today?: string) => call<SimpleTaxes>('simple:taxes', { ...(period ? { period } : {}), ...(today ? { today } : {}) }),
+    setFiled: (input: GstFiledInput) => call<GstFiledPeriod>('simple:taxes:filed', input)
+  },
   simpleStock: {
     /** Every product with quantity and value as on today (the Stock summary's own pass). */
     list: (today?: string) => call<StockList>('simple:stock:list', today ? { today } : {}),

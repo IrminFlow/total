@@ -1,0 +1,118 @@
+import { useQuery } from '@tanstack/react-query'
+import { toPlainDate } from '@shared/dates'
+import type { SimpleTaxes } from '@shared/simple/taxes'
+import { collectedWhy, creditStatus, onPurchasesWhy, shortDate, taxesPeriodLabel, toPayWhy } from '@shared/simple/explain'
+import { api } from '../../lib/client'
+import { useT } from '../../lib/i18n'
+import { useNav, useSession } from '../../state/stores'
+import { Page, Select, SkeletonTiles } from '../../components/ui'
+import { FigureTile, LoadError, ReportHeader, cardCls, money } from '../reports/parts'
+import { GstSteps } from './GstSteps'
+import { WithholdingCards } from './Withholding'
+
+type Regular = Extract<SimpleTaxes, { kind: 'regular' }>
+const gstr3bScreen = (month: string): { name: 'gstr3b'; month: string } => ({ name: 'gstr3b', month }) // i18n-technical
+const taxesScreen = (period: string): { name: 'simple-taxes'; period: string } => ({ name: 'simple-taxes', period }) // i18n-technical
+
+/**
+ * WP 9.9 — Taxes (plan §2.2, §3 "GST answer"): what you owe the government and by when.
+ * Regular GST: the period (the Home tile's by default; a quarter for a quarterly filer), THREE
+ * separate figures — GST you collected, GST on purchases (with what GSTR-2B has not confirmed),
+ * cash to pay by the date — the dates, then the five steps to file. Unregistered: nothing to
+ * file. Composition: the CMP-08 / GSTR-4 dates only. TDS / TCS when they apply. Every figure is
+ * simple:taxes' (gstr3b() and the stored GSTR-2B); Total prepares, the user files.
+ */
+export function TaxesScreen({ period }: { period?: string }): React.JSX.Element {
+  const t = useT()
+  const today = useSession((s) => s.workingDate)
+  const q = useQuery({ queryKey: ['simpleTaxes', period ?? null, today], queryFn: () => api.simpleTaxes.get(period, today) }) // i18n-technical
+  const x = q.data
+  const accountant = x?.kind === 'regular' ? { screen: gstr3bScreen(x.period.from.slice(0, 7)), hint: t('simple.taxes.accountant3b') } : undefined
+  return (
+    <Page data-testid="simple-taxes" data-kind={x?.kind}>
+      <ReportHeader testId="taxes" title={t('simple.taxes.title')} subtitle={t('simple.taxes.subtitle')} accountant={accountant} />
+      {q.isError && <LoadError testId="taxes" text={t('simple.taxes.loadError')} onRetry={() => void q.refetch()} />}
+      {!x && !q.isError && <SkeletonTiles count={3} />}
+      {x?.kind === 'unregistered' && (
+        <section className={cardCls} data-testid="taxes-unregistered">
+          <p className="text-lead text-ink">{t('simple.taxes.gst.unregistered')}</p>
+        </section>
+      )}
+      {x?.kind === 'composition' && (
+        <section className={cardCls} data-testid="taxes-composition">
+          <h2 className="text-lead font-semibold text-ink">{t('simple.taxes.gst.compositionTitle')}</h2>
+          <ul className="mt-2 flex flex-col gap-1 text-body text-ink">
+            <li data-testid="taxes-cmp08">
+              {t('simple.taxes.composition.cmp08', { from: toPlainDate(x.composition.cmp08.from), to: toPlainDate(x.composition.cmp08.to), date: toPlainDate(x.composition.cmp08.due) })}
+            </li>
+            <li data-testid="taxes-gstr4">{t('simple.taxes.composition.gstr4', { fy: x.composition.gstr4.fyLabel, date: toPlainDate(x.composition.gstr4.due) })}</li>
+          </ul>
+          <p className="mt-2 text-small text-muted">{t('simple.taxes.composition.note')}</p>
+        </section>
+      )}
+      {x?.kind === 'regular' && <GstAnswer x={x} />}
+      {x && <WithholdingCards items={x.withholding} today={x.today} />}
+    </Page>
+  )
+}
+
+function GstAnswer({ x }: { x: Regular }): React.JSX.Element {
+  const t = useT()
+  const nav = useNav()
+  const f = x.figures
+  const by = t('simple.taxes.gst.byDate', { date: shortDate(x.due.gstr3b, x.today) })
+  const link = { label: t('simple.taxes.accountant3b'), screen: gstr3bScreen(x.period.from.slice(0, 7)) }
+  return (
+    <>
+      <div className="mb-4 flex flex-wrap items-center gap-3">
+        <label className="flex items-center gap-2 text-detail text-muted">
+          {t('simple.taxes.periodLabel')}
+          <Select data-testid="taxes-period" value={x.period.period} onChange={(e) => nav.replace(taxesScreen(e.target.value))}>
+            {x.periods.map((p) => (
+              <option key={p.period} value={p.period}>
+                {taxesPeriodLabel(p, t)}
+              </option>
+            ))}
+          </Select>
+        </label>
+        <span className="text-detail text-muted" data-testid="taxes-filing">
+          {t('simple.taxes.filing', { filing: x.filing })}
+        </span>
+      </div>
+      {x.period.soFar && (
+        <p className="mb-3 text-detail text-muted" data-testid="taxes-so-far">
+          {t('simple.taxes.gst.soFarNote', { date: toPlainDate(x.period.to) })}
+        </p>
+      )}
+      <ul className="grid grid-cols-1 gap-3 md:grid-cols-3" data-testid="taxes-figures">
+        <FigureTile
+          id="gst-collected"
+          title={t('simple.taxes.gst.collectedLabel')}
+          paise={f.collected}
+          sub={f.reverseCharge > 0 ? t('simple.taxes.gst.rcmLine', { amount: money(f.reverseCharge) }) : null}
+          why={collectedWhy(x, t)}
+          link={link}
+        />
+        <FigureTile id="gst-purchases" title={t('simple.taxes.gst.onPurchasesLabel')} paise={f.onPurchases} sub={creditStatus(f, t)} why={onPurchasesWhy(x, t)} link={link} />
+        <FigureTile id="gst-to-pay" emphasis title={t('simple.taxes.gst.toPayLabel')} paise={f.toPay} sub={by} why={toPayWhy(x, t)} link={link} />
+      </ul>
+
+      <section className={`${cardCls} mt-4`} data-testid="taxes-dates">
+        <h2 className="text-subtitle font-semibold text-ink">{t('simple.taxes.due.title')}</h2>
+        <ul className="mt-2 flex flex-col gap-1 text-body text-ink">
+          <li data-testid="taxes-due-gstr1">{t('simple.taxes.due.gstr1', { date: toPlainDate(x.due.gstr1) })}</li>
+          <li data-testid="taxes-due-gstr3b">{t('simple.taxes.due.gstr3b', { date: toPlainDate(x.due.gstr3b) })}</li>
+        </ul>
+        {x.due.gstr3bUnverified && <p className="mt-1 text-small text-muted">{t('simple.taxes.due.unverified')}</p>}
+        {x.due.pmt06.length > 0 && (
+          <p className="mt-1 text-small text-muted" data-testid="taxes-pmt06">
+            {t('simple.taxes.due.pmt06', { dates: x.due.pmt06.map((d) => shortDate(d, x.today)).join(', ') })}
+          </p>
+        )}
+        <p className="mt-2 text-caption text-muted">{t('simple.taxes.due.source')}</p>
+      </section>
+
+      <GstSteps x={x} />
+    </>
+  )
+}
