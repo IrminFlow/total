@@ -103,7 +103,7 @@ export function StockLinesEntry({
     if (!built.ok) return void toast.push('error', built.error)
     setSaving(true)
     try {
-      if (built.payload.number && (await api.vouchers.numberExists(typeId, built.payload.number, voucherId))) {
+      if (built.payload.number && (await api.vouchers.numberExists(typeId, built.payload.number, voucherId, built.payload.date))) {
         const proceed = await confirmDialog({
           title: 'Duplicate number',
           message: `Voucher number ${built.payload.number} is already used by another voucher of this type. Save anyway with the same number?`,

@@ -1402,6 +1402,18 @@ export function undoImport(db: DB, batchId: number): UndoResult {
       .prepare("SELECT 1 FROM audit_log WHERE entity = ? AND entity_id = ? AND id > ? AND action IN ('update', 'delete', 'restore', 'purge') LIMIT 1")
       .get(AUDIT_ENTITY_OF[entity] ?? entity, id, batch.last_audit_id)
   const markDone = db.prepare("UPDATE import_batch_items SET undone_at = datetime('now') WHERE id = ?")
+  // A created ledger / item that vouchers (binned ones included) still use can't be deleted (the
+  // masters' delete refuses it: ledger_in_use / item_in_use): it is kept with its imported
+  // opening CLEARED, so the undone books' openings still agree.
+  const refusedInUse = (fn: () => void, code: string): boolean => {
+    try {
+      fn()
+      return false
+    } catch (err) {
+      if ((err as { code?: string }).code === code) return true
+      throw err
+    }
+  }
   // WP 8.7: opening bills are put back AFTER the ledgers' openings (they must add up to them).
   const billsBack: { id: number; ledgerId: number; bills: OpeningBillRow[] }[] = []
   db.transaction(() => {
@@ -1410,6 +1422,7 @@ export function undoImport(db: DB, batchId: number): UndoResult {
         res.kept.push({ entity: it.entity, id: it.entity_id, reason: 'edited after the import — left as it is' })
         continue
       }
+      let cleared: string | null = null
       try {
         db.transaction(() => {
           if (it.action === 'update') {
@@ -1454,10 +1467,27 @@ export function undoImport(db: DB, batchId: number): UndoResult {
               return
             }
             case 'ledger':
-              masters.deleteLedger(db, it.entity_id)
+              if (refusedInUse(() => masters.deleteLedger(db, it.entity_id), 'ledger_in_use')) {
+                // Its vouchers (live or in the bin) keep it, but the opening the import gave it
+                // must go — or the undone books carry an opening with no contra (an unused
+                // balancing ledger IS deleted). Through updateLedger: audited, and the WP 8.7
+                // opening-bills guard clears (or refuses, when in use) its bills.
+                const l = masters.getLedger(db, it.entity_id)
+                if (!l || l.openingBalance === 0) throw new Error('in use')
+                masters.updateLedger(db, it.entity_id, ledgerInputSchema.parse({ ...l, openingBalance: 0 }))
+                cleared = l.name
+                return
+              }
               break
             case 'stockItem':
-              masters.deleteStockItem(db, it.entity_id)
+              if (refusedInUse(() => masters.deleteStockItem(db, it.entity_id), 'item_in_use')) {
+                // Same for an item with movements: its imported opening stock goes.
+                const row = db.prepare('SELECT * FROM stock_items WHERE id = ?').get(it.entity_id) as StockItemRowDb | undefined
+                if (!row || (row.opening_qty_milli === 0 && row.opening_value === 0)) throw new Error('in use')
+                masters.updateStockItem(db, it.entity_id, stockItemInputSchema.parse(itemInputFromRow({ ...row, opening_qty_milli: 0, opening_value: 0 })))
+                cleared = row.name
+                return
+              }
               break
             case 'group':
               masters.deleteGroup(db, it.entity_id)
@@ -1491,6 +1521,12 @@ export function undoImport(db: DB, batchId: number): UndoResult {
           }
           res.deleted++
         })()
+        if (cleared !== null) {
+          // Kept, and not marked undone. A retry never deletes it: the opening change just audited
+          // reads as an edit after the import (left alone) — so the reason says what to do.
+          res.kept.push({ entity: it.entity, id: it.entity_id, reason: `kept ${cleared}, opening cleared — still in use by entries (the bin's too); delete it yourself once they are gone` })
+          continue
+        }
         markDone.run(it.id)
       } catch (err) {
         const msg = (err as Error).message

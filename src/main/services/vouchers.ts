@@ -248,13 +248,25 @@ export function nextVoucherNumber(db: DB, voucherTypeId: number, date: string, e
 /** True when another live voucher of this type already carries `number` — the renderer's
  *  pre-save confirm for a manually typed number (the post-save duplicateNumber flag on
  *  SavedVoucher stays as the belt-and-braces warning for races). Binned vouchers don't
- *  count: restoring one back into a clash is already the restore flow's problem. */
-export function voucherNumberExists(db: DB, voucherTypeId: number, number: string, excludeId?: number): boolean {
+ *  count: restoring one back into a clash is already the restore flow's problem.
+ *  The scope is the series' own: a type that restarts each FY (`restartFy`, the default) only
+ *  clashes within the FY containing `date` — last year's No. 1 and this year's No. 1 are not
+ *  duplicates — while a continuous series clashes across years. Without a `date` every year
+ *  counts (the conservative answer). */
+export function voucherNumberExists(db: DB, voucherTypeId: number, number: string, excludeId?: number, date?: string): boolean {
+  return numberClash(db, voucherTypeId, number, excludeId ?? -1, date)
+}
+
+/** The shared duplicate-number query (pre-save check and the post-save flag). */
+function numberClash(db: DB, voucherTypeId: number, number: string, excludeId: number, date: string | undefined): boolean {
+  const restartFy = !!(db.prepare('SELECT restart_fy AS r FROM voucher_types WHERE id = ?').get(voucherTypeId) as { r: number } | undefined)?.r
+  const fy = restartFy && date ? fyOf(date) : null
   const row = db
     .prepare(
-      `SELECT 1 FROM vouchers v WHERE v.voucher_type_id = ? AND v.number = ? AND v.id IS NOT ? AND ${NOT_DELETED} LIMIT 1`
+      `SELECT 1 FROM vouchers v WHERE v.voucher_type_id = ? AND v.number = ? AND v.id IS NOT ? AND ${NOT_DELETED}
+       ${fy ? 'AND v.date BETWEEN ? AND ?' : ''} LIMIT 1`
     )
-    .get(voucherTypeId, number, excludeId ?? -1)
+    .get(voucherTypeId, number, excludeId, ...(fy ? [fy.from, fy.to] : []))
   return !!row
 }
 
@@ -868,11 +880,8 @@ export function saveVoucher(db: DB, raw: VoucherInput, existingId?: number, hook
       voucherId, number: after.number, ledgerId: input.partyLedgerId, party: hold.name, holdReason: hold.reason, overrideReason: holdOverride
     })
   }
-  const duplicate = db
-    .prepare(
-      `SELECT 1 FROM vouchers v WHERE v.voucher_type_id = ? AND v.number = ? AND v.id <> ? AND ${NOT_DELETED} LIMIT 1`
-    )
-    .get(vt.id, number, voucherId)
+  // Per the series' FY scope (numbering restarts each FY unless the type says otherwise).
+  const duplicate = numberClash(db, vt.id, number, voucherId, after.date)
   return duplicate ? { ...after, warnings, duplicateNumber: true } : { ...after, warnings }
 }
 
