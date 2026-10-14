@@ -60,6 +60,8 @@ export const CATEGORIES = {
   discount_given: { name: 'Discount given', group: 'Indirect Expenses', cls: 'expense', use: 'expense', icon: 'tag' },
   // ---------- other income ----------
   discount_received: { name: 'Discount received', group: 'Indirect Incomes', cls: 'income', use: 'income', icon: 'tag' },
+  // WP 9.6: the simple Bank screen's "Interest from the bank" (never seeded by a preset).
+  interest_received: { name: 'Interest received', group: 'Indirect Incomes', cls: 'income', use: 'income', icon: 'percent' },
   // ---------- the owner ----------
   owner_capital: { name: "Owner's money", group: 'Capital Account', cls: 'other', use: 'owner', icon: 'wallet' },
   owner_drawings: { name: "Owner's drawings", group: 'Capital Account', cls: 'other', use: 'owner', icon: 'wallet' },

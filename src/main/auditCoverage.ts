@@ -42,6 +42,12 @@ export const AUDIT_COVERAGE: Record<string, AuditCoverage> = {
   'simple:sell:setup': QUERY,
   'simple:sales': QUERY,
   'simple:sale': QUERY,
+  // WP 9.6: the simple Bank screen — reads (accounts; lines + suggestions + the BRS sentence) and
+  // accepting lines: a confirmed match (voucher_line / bank_statement_line / learned rules) or an
+  // intent saved like simple:post and its line reconciled (the same rows reconcileSavedDraft writes).
+  'simple:bank:setup': QUERY,
+  'simple:bank:lines': QUERY,
+  'simple:bank:accept': a('simple_intent', 'voucher', 'ledger', 'voucher_line', 'bank_statement_line', 'bank_learned_rule'),
   'simple:preview': r('rehearses simple:post in a transaction that is always rolled back; writes nothing'),
   'company:delete': a('company'),
   'company:open': a('backup', 'voucher', 'audit_log', 'attachment'),

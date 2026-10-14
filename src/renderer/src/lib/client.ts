@@ -10,6 +10,7 @@ import type { CaughtError, ErrorIssue, ErrorParams } from '@shared/errors'
 import type { SaveSummary } from '@shared/simple/saveCard'
 import type { HomeAttention, SimpleHomeData } from '@shared/simple/home'
 import type { SimpleIntentInput, SimplePostResult, SimplePreview } from '@shared/simple/intents'
+import type { BankAcceptItem, BankAcceptResult, BankSetup, BankView } from '@shared/simple/bank'
 import type { SaleRow, SaleView, SellSetup } from '@shared/simple/sell'
 import type { BudgetVarianceRow } from '@shared/budgets'
 import type { McpConfig, McpLogRow, McpSettingsView } from '@shared/mcp'
@@ -698,6 +699,14 @@ export const api = {
   gstProfile: {
     get: () => call<GstProfile>('gstProfile:get'),
     set: (p: GstProfile) => call<GstProfile>('gstProfile:set', p)
+  },
+  /** WP 9.6: the simple Bank screen — accounts, one bank's lines with suggestions + the sentence's
+   *  facts, and accepting lines (each its own transaction; failures come back per line). */
+  simpleBank: {
+    setup: () => call<BankSetup>('simple:bank:setup'),
+    lines: (bankLedgerId: number, today?: string) => call<BankView>('simple:bank:lines', { bankLedgerId, ...(today ? { today } : {}) }),
+    accept: (bankLedgerId: number, items: BankAcceptItem[], today?: string) =>
+      call<BankAcceptResult>('simple:bank:accept', { bankLedgerId, items, ...(today ? { today } : {}) })
   },
   company: {
     list: () => call<Registry>('company:list'),

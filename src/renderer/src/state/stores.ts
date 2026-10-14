@@ -74,6 +74,8 @@ export type Screen =
   | { name: 'simple-sell' }
   | { name: 'simple-sales'; billId?: number }
   | { name: 'simple-quick-bill' }
+  // WP 9.6: Money → Bank (simple/bank/BankScreen), opened on a bank account by `bankId`.
+  | { name: 'simple-bank'; bankId?: number }
   | { name: 'counter-billing' }
   // Books search results (⌘⇧F, or "See all" in the ⌘K palette): `q` is the query-language
   // string, `kind` the initially selected tab (omitted = all kinds).
@@ -126,7 +128,8 @@ export type Screen =
   | { name: 'consolidated' }
   // WP 6.5: group consolidation (statements, inter-company, eliminations, group definition).
   | { name: 'consolidation'; tab?: 'statements' | 'intercompany' | 'eliminations' | 'groups'; groupId?: number }
-  | { name: 'banking'; tab?: 'recon' | 'import' | 'rules' | 'cheques' | 'pdc' | 'bulk' | 'brs' }
+  // `ledgerId` / `asOn`: the account (and BRS date) to open with (WP 9.6's "see them").
+  | { name: 'banking'; tab?: 'recon' | 'import' | 'rules' | 'cheques' | 'pdc' | 'bulk' | 'brs'; ledgerId?: number; asOn?: string }
   // WP 5.4: document capture (bill photos / PDFs → purchase drafts).
   | { name: 'capture' }
   | { name: 'payroll' }
