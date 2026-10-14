@@ -82,9 +82,12 @@ export interface McpLaunchOptions {
   dataDir?: string | null
 }
 
-/** argv for `node <repo>/scripts/total-cli.mjs mcp …`. */
+/** argv for `node <repo>/scripts/total-cli.mjs mcp …`. WP 7.3: a Windows checkout
+ *  (a `C:\` path) gets backslashes, so the copied command is one path an MCP client can run. */
 export function mcpArgs(o: McpLaunchOptions): string[] {
-  const args = [`${o.repoDir.replace(/\/+$/, '')}/scripts/total-cli.mjs`, 'mcp', '--company', o.slug]
+  const sep = o.repoDir.includes('\\') && !o.repoDir.includes('/') ? '\\' : '/'
+  const root = o.repoDir.replace(/[\\/]+$/, '')
+  const args = [`${root}${sep}scripts${sep}total-cli.mjs`, 'mcp', '--company', o.slug]
   if (o.role !== 'viewer') args.push('--role', o.role)
   if (o.user && o.role !== 'viewer') args.push('--user', o.user)
   return args

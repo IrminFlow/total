@@ -1,6 +1,7 @@
 import { useCallback, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { api } from '../lib/client'
+import { ageingAsOn } from '../lib/asOn'
 import { useNav, useSession } from '../state/stores'
 import { Button, DrawerSection, Money, Page, PageHeader, Panel, SectionTitle } from '../components/ui'
 import { OptionToggle, OptionsPeriod, OptionsTable, useScreenOptions } from '../components/ScreenOptions'
@@ -168,7 +169,7 @@ export function StockSummaryScreen(): React.JSX.Element {
           exportOptions={{ title: 'Stock summary', periodLabel, filename: 'stock-summary' }}
         />
       </Panel>
-      {opts.options.showAnalysis && <StockAnalysis asOn={to} />}
+      {opts.options.showAnalysis && <StockAnalysis asOn={ageingAsOn(to)} />}
     </Page>
   )
 }

@@ -11,6 +11,8 @@ import type { CcReportRow } from '../lib/client'
 import type { PdcRegisterRow } from '../lib/bankingClient'
 import { useNav, useSession } from '../state/stores'
 import { StockSummaryScreen } from '../screens/StockSummary'
+import { StockReportsScreen } from '../screens/StockReports'
+import { ageingAsOn } from '../lib/asOn'
 import { BankingScreen } from '../screens/Banking'
 import { CostCentresScreen } from '../screens/CostCentres'
 import { PayrollScreen } from '../screens/Payroll'
@@ -192,6 +194,40 @@ describe('Banking on DataTable', () => {
   })
 })
 
+// ---------------------------------------------------------------- stock ageing
+
+describe('Stock ageing runs to today, not the FY end', () => {
+  it('ageingAsOn: a future period end is clamped to today; an earlier one is kept', () => {
+    expect(ageingAsOn('2027-03-31', '2026-10-14')).toBe('2026-10-14')
+    expect(ageingAsOn('2026-06-30', '2026-10-14')).toBe('2026-06-30')
+    expect(ageingAsOn('2026-10-14', '2026-10-14')).toBe('2026-10-14')
+  })
+
+  it('the Ageing tab asks for today while the working period ends later, and says so', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date(2026, 9, 14, 12, 0, 0))
+    try {
+      const asked: string[] = []
+      handlers['report:stockAgeing'] = (p) => {
+        asked.push((p as { asOn: string }).asOn)
+        return []
+      }
+      renderScreen(<StockReportsScreen tab="ageing" />)
+      await waitFor(() => expect(asked).toEqual(['2026-10-14']))
+      expect(screen.getByTestId('stock-ageing-as-on').textContent).toContain('Ageing runs to today')
+      cleanup()
+      // An explicit earlier period end is kept as it is.
+      asked.length = 0
+      act(() => useSession.setState({ to: '2026-06-30' }))
+      renderScreen(<StockReportsScreen tab="ageing" />)
+      await waitFor(() => expect(asked).toEqual(['2026-06-30']))
+      expect(screen.getByTestId('stock-ageing-as-on').textContent).not.toContain('Ageing runs to today')
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+})
+
 // ---------------------------------------------------------------- cost centres
 
 const CC_REPORT: CcReportRow[] = [
@@ -215,11 +251,13 @@ describe('Cost centres on DataTable', () => {
     expect(columnText('cost-centres', 'parent')).toEqual(['', 'Branch A'])
     expect(columnText('cost-centres', 'active')).toEqual(['Yes', 'No'])
     await waitFor(() => expect(bodyRows('cost-centre-pl')).toHaveLength(2))
-    expect(columnText('cost-centre-pl', 'net')).toEqual(['3,000.00 Dr', '1,500.00 Cr'])
+    // A profit is a credit, a loss a debit (as the P&L account carries it).
+    expect(columnText('cost-centre-pl', 'net')).toEqual(['3,000.00 Cr', '1,500.00 Dr'])
     const totals = totalsRow('cost-centre-pl').textContent ?? ''
     expect(totals).toContain('6,000.00')
     expect(totals).toContain('4,500.00')
-    expect(totals).toContain('1,500.00 Dr')
+    expect(totals).toContain('1,500.00 Cr')
+    expect(screen.getByTestId('cost-centre-pl-net-hint').textContent).toContain('Cr = profit, Dr = loss')
     fireEvent.click(bodyRows('cost-centre-pl')[0]!)
     const drill = await screen.findByTestId('cc-drill')
     fireEvent.click(within(drill).getByText('S12'))

@@ -3435,5 +3435,19 @@ export const MIGRATIONS: string[] = [
     facts_json TEXT NOT NULL,
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
   );
+  `,
+  // WP 7.1 (last — after WP 9.1's simple_posts; number by position) — performance indexes, nothing
+  // else: covering indexes for the hot read shapes measured on the 100k / 500k Perf Traders seeds
+  // (docs/perf-budgets.md). Reports aggregate in-books lines by date (vouchers by date → their
+  // lines), by ledger (a ledger's lines → their vouchers) and walk stock lines in voucher order;
+  // these let SQLite answer them from the indexes alone. No table is rebuilt and nothing derived
+  // is stored — every figure is still computed from voucher_lines at query time.
+  `
+  CREATE INDEX IF NOT EXISTS idx_lines_voucher_cover ON voucher_lines(voucher_id, ledger_id, dr_cr, amount);
+  CREATE INDEX IF NOT EXISTS idx_lines_ledger_cover ON voucher_lines(ledger_id, voucher_id, dr_cr, amount);
+  CREATE INDEX IF NOT EXISTS idx_vouchers_books_date ON vouchers(date, id, deleted_at, post_dated, is_optional, is_year_end_close, voucher_type_id, party_ledger_id);
+  CREATE INDEX IF NOT EXISTS idx_vouchers_type_number ON vouchers(voucher_type_id, number);
+  CREATE INDEX IF NOT EXISTS idx_inv_voucher_cover ON inventory_lines(voucher_id, moves_stock, line_order, stock_item_id, godown_id, qty_milli, amount, direction, is_absolute);
+  CREATE INDEX IF NOT EXISTS idx_bill_refs_party_cover ON bill_refs(party_ledger_id, voucher_id, kind, name, amount, due_date);
   `
 ]

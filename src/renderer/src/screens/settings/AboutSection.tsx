@@ -1,10 +1,12 @@
 import { useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '../../lib/client'
+import { isOwnerOrNoUsers } from '../../lib/roles'
 import { useSession, useToasts, type Toast } from '../../state/stores'
 import { Button, DateInput, Field, Modal, Panel, SectionTitle } from '../../components/ui'
 import { toDisplayDate, todayISO } from '@shared/dates'
 import { TotalLogo } from '../../components/TotalLogo'
+import { dataFolder } from '../../lib/platform'
 
 const PLATFORM_LABELS: Record<string, string> = { darwin: 'macOS', win32: 'Windows', linux: 'Linux' }
 
@@ -18,7 +20,7 @@ function statusToast(r: { status: 'dev' | 'available' | 'up-to-date' | 'error'; 
     case 'up-to-date':
       return { kind: 'success', text: `You're on the latest version (${r.current})` }
     case 'available':
-      return { kind: 'info', text: `Total ${(r.latest ?? '').replace(/^v/, '')} is available — see the download dialog` }
+      return { kind: 'info', text: `Total ${(r.latest ?? '').replace(/^v/, '')} is available — see the update notice` }
     case 'error':
       return { kind: 'error', text: "Couldn't check for updates — check your internet connection" }
   }
@@ -66,8 +68,9 @@ export function AboutSection(): React.JSX.Element {
             Reveal logs
           </Button>
         </div>
+        <AutoCheckRow />
         <p className="mt-6 text-hint text-muted">
-          Your data lives at <span className="num">~/Documents/total</span> — fully offline, no cloud, no accounts.
+          Your data lives at <span className="num">{dataFolder}</span> — fully offline, no cloud, no accounts.
         </p>
         <p className="mt-2 text-caption text-muted">© Irmin Labs — proprietary</p>
       </Panel>
@@ -76,11 +79,54 @@ export function AboutSection(): React.JSX.Element {
   )
 }
 
+// ---------- update check ----------
+
+/** "Check for updates automatically" — app-wide (not per company), default on, owner only where the
+ *  business has users. Off = Total makes no request at launch; "Check for updates" above still works. */
+function AutoCheckRow(): React.JSX.Element {
+  const toast = useToasts()
+  const queryClient = useQueryClient()
+  const { user } = useSession()
+  const canEdit = !user || user.role === 'owner'
+  const { data } = useQuery({ queryKey: ['appUpdates'], queryFn: api.app.updates })
+  const [busy, setBusy] = useState(false)
+  const toggle = async (next: boolean): Promise<void> => {
+    setBusy(true)
+    try {
+      await api.app.setAutoCheck(next)
+      await queryClient.invalidateQueries({ queryKey: ['appUpdates'] })
+    } catch (err) {
+      toast.push('error', (err as Error).message)
+    } finally {
+      setBusy(false)
+    }
+  }
+  return (
+    <label className="mt-4 flex items-start gap-2" data-testid="about-auto-check">
+      <input
+        type="checkbox"
+        className="mt-1"
+        checked={data?.settings.autoCheck ?? true}
+        disabled={!canEdit || busy || !data}
+        onChange={(e) => void toggle(e.target.checked)}
+        data-testid="chk-update-auto"
+      />
+      <span>
+        <span className="block text-body">Check for updates automatically</span>
+        <span className="block text-hint text-muted">
+          Total asks once at launch whether a newer version exists (a request to the release feed; nothing about your books is sent). Nothing is
+          downloaded until you say so.{canEdit ? '' : ' Only owners can change this.'}
+        </span>
+      </span>
+    </label>
+  )
+}
+
 // ---------- period lock ----------
 
 function PeriodLockCard(): React.JSX.Element {
   const { user } = useSession()
-  const canEdit = user?.role === 'owner'
+  const canEdit = isOwnerOrNoUsers(user)
   const { data } = useQuery({ queryKey: ['companyLock'], queryFn: api.company.lockGet })
   const [editing, setEditing] = useState(false)
 

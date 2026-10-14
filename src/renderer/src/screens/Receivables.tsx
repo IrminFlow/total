@@ -106,7 +106,7 @@ const LOG_COLUMNS = defineColumns<ReminderLogRow>([
   { id: 'days', header: 'Days', kind: 'number', value: (r) => r.days, width: 70 },
   { id: 'channel', header: 'Channel', kind: 'text', value: (r) => r.channel, width: 80 },
   { id: 'by', header: 'By', kind: 'text', value: (r) => r.userName ?? '', width: 110 },
-  { id: 'doc', header: 'Document', kind: 'text', value: (r) => r.documentPath?.split('/').pop() ?? '', minWidth: 150, defaultHidden: true }
+  { id: 'doc', header: 'Document', kind: 'text', value: (r) => r.documentPath?.split(/[\\/]/).pop() ?? '', minWidth: 150, defaultHidden: true }
 ])
 
 const INTEREST_COLUMNS = defineColumns<InterestRow>([

@@ -27,6 +27,7 @@ import { paletteQuestion, parseNavIntent } from '@shared/aiExplain'
 import { useAiAffordances } from '../lib/explain'
 import { useT } from '../lib/i18n'
 import { useAssistantPanel, useCurrentAiContext } from './ai/AssistantPanel'
+import { isWindows } from '../lib/platform'
 
 interface Command {
   label: string
@@ -172,7 +173,7 @@ export function CommandPalette({ onClose }: { onClose: () => void }): React.JSX.
         }
       },
       {
-        label: 'Show exports in Finder',
+        label: isWindows ? 'Show exports in Explorer' : 'Show exports in Finder',
         run: async () => {
           try {
             await api.company.revealExports()

@@ -1,18 +1,33 @@
 /**
- * Auto-update via GitHub Releases.
+ * Auto-update via GitHub Releases — with consent.
  *
- * Primary path: electron-updater downloads the new version and installs on restart.
- * On macOS, silent install requires a code-signed build — if the update engine
- * errors (typical for unsigned beta builds), we fall back to a manual check
- * against the GitHub API and offer the release page to download.
+ * Nothing is downloaded or installed without the user's say-so: electron-updater only CHECKS
+ * (`autoDownload` / `autoInstallOnAppQuit` are false); a found version becomes an in-app notice
+ * ("Download now / Later / Skip this version"), and a finished download another ("Restart to
+ * update"). The flow lives in updaterCore.ts (unit-tested); this file wires it to Electron.
+ * If the update engine errors (typical for unsigned macOS builds) the site / GitHub release
+ * page is offered instead. "Check for updates automatically" (default on) and the skipped
+ * version live in <dataRoot>/app-settings.json; when it is off no request is made at launch.
  *
- * The app stays fully offline otherwise: this runs only in packaged builds,
- * never blocks anything, and failing silently is the correct behavior.
+ * Windows (WP 7.3): the NSIS build updates through electron-updater itself — it reads
+ * latest.yml from the release and verifies the download's sha512; with no `publisherName`
+ * configured it does not require a signature. latest.yml names the installer
+ * `Total-Setup-<version>.exe` and the release asset must carry exactly that name (package.json
+ * `nsis.artifactName`). A page opened for a manual download asks /api/download for this
+ * platform (`?platform=win|mac`), and TOTAL_NO_UPDATE_CHECK=1 (scripted runs against a packaged
+ * build — the Windows CI smoke) turns the launch check off.
+ *
+ * The app stays fully offline otherwise: this runs only in packaged builds and never blocks.
  */
-import { app, dialog, shell } from 'electron'
+import { app, BrowserWindow, shell } from 'electron'
 import electronUpdater from 'electron-updater'
 import { log } from './log'
 import { GITHUB_REPO, SITE_URL } from '@shared/product'
+import { type UpdateAction, type UpdateCheckResult, type UpdatesView } from '@shared/updates'
+import { dataRoot } from './paths'
+import { readUpdateSettings, writeUpdateSettings } from './services/appSettings'
+import { createUpdater, makeFetchLatest, type Updater } from './updaterCore'
+import { downloadUrlFor, updateCheckDisabled } from '@shared/updateText'
 
 const { autoUpdater } = electronUpdater
 
@@ -20,125 +35,76 @@ const RELEASES_URL = `https://github.com/${GITHUB_REPO}/releases/latest`
 /** The marketing site proxies release info for the private repo (see site/app/api/latest). */
 const SITE_LATEST_URL = `${SITE_URL}/api/latest`
 
-let fallbackDone = false
+const fetchLatest = makeFetchLatest((url, init) => fetch(url, init), {
+  siteLatestUrl: SITE_LATEST_URL,
+  githubRepo: GITHUB_REPO,
+  releasesUrl: RELEASES_URL,
+  log: (level, message, extra) => log(level, message, extra)
+})
 
-function isNewer(remote: string, local: string): boolean {
-  const parse = (v: string): number[] => v.replace(/^v/, '').split('.').map((n) => parseInt(n, 10) || 0)
-  const [r, l] = [parse(remote), parse(local)]
-  for (let i = 0; i < 3; i++) {
-    if ((r[i] ?? 0) !== (l[i] ?? 0)) return (r[i] ?? 0) > (l[i] ?? 0)
-  }
-  return false
+/** A corrupt app-settings.json reads as the defaults; say so in the log once per run (it is read often). */
+let corruptLogged = false
+const onCorrupt = (error: string): void => {
+  if (corruptLogged) return
+  corruptLogged = true
+  log('warn', 'app-settings-unreadable', { error })
 }
+const readSettings = (): ReturnType<typeof readUpdateSettings> => readUpdateSettings(dataRoot(), onCorrupt)
 
-interface LatestInfo {
-  version: string
-  downloadUrl: string
-}
+let updater: Updater | null = null
+let actor: string | null = null
 
-/** The site's /api/latest works even while the repo is private; GitHub's API is the public-repo fallback. */
-async function fetchLatest(): Promise<LatestInfo | null> {
-  try {
-    const res = await fetch(SITE_LATEST_URL)
-    if (res.ok) {
-      const data = (await res.json()) as { version?: string; downloadUrl?: string }
-      if (data.version) return { version: data.version, downloadUrl: data.downloadUrl ?? SITE_LATEST_URL.replace('/api/latest', '/api/download') }
-    }
-  } catch (err) {
-    // Site unreachable — try GitHub directly.
-    log('warn', 'updater', { error: String(err) })
-  }
-  try {
-    const res = await fetch(`https://api.github.com/repos/${GITHUB_REPO}/releases/latest`, {
-      headers: { Accept: 'application/vnd.github+json' }
-    })
-    if (!res.ok) return null
-    const release = (await res.json()) as { tag_name?: string; html_url?: string }
-    if (!release.tag_name) return null
-    return { version: release.tag_name, downloadUrl: release.html_url ?? RELEASES_URL }
-  } catch (err) {
-    log('warn', 'updater', { error: String(err) })
-    return null
+function publish(notice: unknown): void {
+  for (const w of BrowserWindow.getAllWindows()) {
+    if (!w.isDestroyed()) w.webContents.send('total:updates:event', notice)
   }
 }
 
-export interface UpdateCheckResult {
-  status: 'dev' | 'available' | 'up-to-date' | 'error'
-  current: string
-  latest?: string
+function build(): Updater {
+  updater ??= createUpdater({
+    engine: autoUpdater as never,
+    currentVersion: app.getVersion(),
+    releasesUrl: RELEASES_URL,
+    readSettings,
+    writeSettings: (patch) => writeUpdateSettings(dataRoot(), patch, actor, app.getVersion(), onCorrupt),
+    fetchLatest,
+    openExternal: (url) => void shell.openExternal(downloadUrlFor(url, process.platform)),
+    publish,
+    log: (level, message, extra) => log(level, message, extra)
+  })
+  return updater
 }
 
-/** Shared fetch+compare+offer-download logic behind both the silent startup fallback
- *  (manualCheck) and the interactive Settings → About "Check for updates" button. */
-async function checkAndOffer(): Promise<UpdateCheckResult> {
-  const current = app.getVersion()
-  try {
-    const latest = await fetchLatest()
-    if (!latest) return { status: 'error', current }
-    if (!isNewer(latest.version, current)) return { status: 'up-to-date', current }
-    const choice = await dialog.showMessageBox({
-      type: 'info',
-      message: `Total ${latest.version.replace(/^v/, '')} is available`,
-      detail: `You're on ${current}. Download the new version — your data in ~/Documents/total is untouched by updates.`,
-      buttons: ['Download update', 'Later'],
-      defaultId: 0,
-      cancelId: 1
-    })
-    if (choice.response === 0) shell.openExternal(latest.downloadUrl)
-    return { status: 'available', current, latest: latest.version }
-  } catch (err) {
-    log('warn', 'updater', { error: String(err) })
-    return { status: 'error', current }
-  }
-}
-
-/** Manual fallback: compare versions and point at a download the user can reach. */
-async function manualCheck(): Promise<void> {
-  if (fallbackDone) return
-  fallbackDone = true
-  await checkAndOffer()
-}
-
-/** Interactive check triggered from Settings → About. Clears the startup-fallback dedupe
- *  guard before running, so this always performs a real check regardless of whether the
- *  automatic startup check (or its fallback) already ran — and leaves the guard clear
- *  afterward too, so a later autoUpdater 'error' event can still trigger its own one-shot
- *  manual fallback rather than finding the guard already tripped. */
+/** Interactive check from Settings → About / the simple Updates card ("Check now"). */
 export async function checkForUpdatesInteractive(): Promise<UpdateCheckResult> {
   if (!app.isPackaged) return { status: 'dev', current: app.getVersion() }
-  fallbackDone = false
-  return checkAndOffer()
+  return build().checkNow()
+}
+
+/** The settings + the notice now showing (dev runs: the stored settings, never a notice). */
+export function updatesView(): UpdatesView {
+  if (!app.isPackaged) return { settings: readSettings(), notice: null, current: app.getVersion() }
+  return build().view()
+}
+
+export function setAutoCheck(autoCheck: boolean, who: string | null): UpdatesView {
+  actor = who
+  if (!app.isPackaged) {
+    writeUpdateSettings(dataRoot(), { autoCheck }, who, app.getVersion(), onCorrupt)
+    return updatesView()
+  }
+  return build().setAutoCheck(autoCheck)
+}
+
+export function updateAction(action: UpdateAction, who: string | null): UpdatesView {
+  actor = who
+  if (!app.isPackaged) return updatesView()
+  return build().act(action)
 }
 
 export function initUpdater(): void {
   if (!app.isPackaged) return
-
-  autoUpdater.autoDownload = true
-  autoUpdater.autoInstallOnAppQuit = true
-
-  autoUpdater.on('update-downloaded', (info) => {
-    void dialog
-      .showMessageBox({
-        type: 'info',
-        message: `Total ${info.version} is ready`,
-        detail: 'The update installs when the app restarts. Your data in ~/Documents/total is untouched.',
-        buttons: ['Restart now', 'On next quit'],
-        defaultId: 0,
-        cancelId: 1
-      })
-      .then((choice) => {
-        if (choice.response === 0) autoUpdater.quitAndInstall()
-      })
-  })
-
-  autoUpdater.on('error', (err) => {
-    // Unsigned builds can check but not install silently — offer the release page instead.
-    log('warn', 'updater', { error: String(err) })
-    void manualCheck()
-  })
-
-  // Give the window a moment to appear; updates are never the first thing on screen.
-  setTimeout(() => {
-    autoUpdater.checkForUpdates().catch(() => void manualCheck())
-  }, 5_000)
+  // WP 7.3: scripted runs against a packaged build (the Windows CI smoke) never check.
+  if (updateCheckDisabled(process.env)) return
+  build().init()
 }

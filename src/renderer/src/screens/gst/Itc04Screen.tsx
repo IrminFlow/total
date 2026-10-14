@@ -87,7 +87,7 @@ export function Itc04Screen(): React.JSX.Element {
   const doExport = async (): Promise<void> => {
     try {
       const x = await api.gst.exportItc04({ fyStartYear: fy, kind: shownKind, periodicity })
-      toast.push('success', `ITC-04 saved — ${x.csvPath.split('/').pop()} and JSON`)
+      toast.push('success', `ITC-04 saved — ${x.csvPath.split(/[\\/]/).pop()} and JSON`)
     } catch (err) {
       toast.push('error', (err as Error).message)
     }

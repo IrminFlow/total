@@ -12,6 +12,7 @@ import { startPackScheduler } from './packScheduler'
 import { cleanupOpenedCopies, sweepStaleOpenCopies } from './services/attachments'
 import { syncFolderWarning } from '@shared/syncpath'
 import { configureI18n } from '@shared/i18n'
+import { dataFolderLabel } from '@shared/updateText'
 
 // Hermetic scripted runs (smoke/e2e/CI, TOTAL_DATA_DIR set): keep Electron's userData —
 // localStorage (theme, sidebar sections, report columns), caches, the single-instance lock —
@@ -52,7 +53,7 @@ function warnIfSyncedFolder(): void {
       title: 'Cloud sync folder detected',
       message: 'Total’s data folder appears to be inside a cloud-sync folder.',
       detail:
-        'Total stores your books as a live SQLite database. Cloud-sync tools (Dropbox, OneDrive, Google Drive, iCloud, etc.) can corrupt the database if it is edited on two machines at once, or synced mid-write. Moving ~/Documents/total out of the synced folder is strongly recommended.',
+        `Total stores your books as a live SQLite database. Cloud-sync tools (Dropbox, OneDrive, Google Drive, iCloud, etc.) can corrupt the database if it is edited on two machines at once, or synced mid-write. Moving ${dataFolderLabel(process.platform)} out of the synced folder is strongly recommended.`,
       buttons: ['OK']
     })
   }

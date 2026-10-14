@@ -85,7 +85,7 @@ export function RunSummary({ run }: { run: PaymentRun }): React.JSX.Element {
   const exportCsv = async (): Promise<void> => {
     try {
       const r = await payablesApi.runExportCsv(run.id)
-      toast.push('success', `Saved ${r.path.split('/').pop()}`)
+      toast.push('success', `Saved ${r.path.split(/[\\/]/).pop()}`)
     } catch (err) {
       toast.push('error', (err as Error).message)
     }

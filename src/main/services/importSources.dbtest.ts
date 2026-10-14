@@ -4,7 +4,7 @@
 import { describe, expect, it } from 'vitest'
 import { seededDb } from '../db/testdb'
 import type { DB } from '../db/connection'
-import { openingTotals, runImport, type ImportOptions } from './dataImport'
+import { openingTotals, runImport, undoImport, type ImportOptions } from './dataImport'
 import { autoPlan, parseImportFile, planSteps } from './importFiles'
 import { getLedger } from './masters'
 import { getVoucher } from './vouchers'
@@ -230,5 +230,46 @@ describe('Busy', () => {
     expect(db.prepare("SELECT opening_qty_milli, opening_value FROM stock_items WHERE name = 'Carton'").get()).toEqual({ opening_qty_milli: 20000, opening_value: 40000 })
     expect(lines(db, 'X-1')).toEqual(['Mehta Stores dr 10000', 'Sale A/c cr 10000'])
     expect(getVoucher(db, vid(db, 'X-1'))!.narration).toBe('XML sale')
+  })
+
+  it('undoing a Busy XML import leaves the openings tied: a ledger / item its vouchers keep loses its imported opening', () => {
+    const db = seededDb()
+    expect(openingTotals(db).difference).toBe(0)
+    const f = parseImportFile('MSAll.xml', enc.encode(BUSY_XML))
+    // The stock opening (₹400) has no contra in the file: posted to the opening-difference ledger.
+    const r = runImport(db, planSteps(f), { openingDifference: 'suspense' }, { source: 'busy-xml', profileId: null, fileName: 'MSAll.xml' }, false)
+    expect(r.steps.flatMap((s) => s.errors)).toEqual([])
+    expect(openingTotals(db).difference).toBe(0)
+    const mehta = lid(db, 'Mehta Stores')
+    const carton = (db.prepare("SELECT id FROM stock_items WHERE name = 'Carton'").get() as { id: number }).id
+    const u = undoImport(db, r.batchId!)
+    // The sale X-1 is binned; Mehta Stores and Carton stay (the binned voucher still uses them)
+    // with their openings cleared; the capital and the opening-difference ledger are deleted.
+    expect(u.binned).toBe(1)
+    expect(u.kept).toEqual(expect.arrayContaining([
+      { entity: 'ledger', id: mehta, reason: "kept Mehta Stores, opening cleared — still in use by entries (the bin's too); delete it yourself once they are gone" },
+      { entity: 'stockItem', id: carton, reason: "kept Carton, opening cleared — still in use by entries (the bin's too); delete it yourself once they are gone" }
+    ]))
+    expect(getLedger(db, mehta)!.openingBalance).toBe(0)
+    expect(db.prepare('SELECT opening_qty_milli, opening_value FROM stock_items WHERE id = ?').get(carton)).toEqual({ opening_qty_milli: 0, opening_value: 0 })
+    expect(db.prepare("SELECT 1 FROM ledgers WHERE name = 'Proprietor Capital'").get()).toBeUndefined()
+    expect(openingTotals(db)).toMatchObject({ debit: 0, credit: 0, difference: 0 })
+    expect(db.prepare('SELECT COUNT(*) AS n FROM opening_bills').get()).toEqual({ n: 0 })
+    // Audited through the masters services.
+    expect(db.prepare("SELECT COUNT(*) AS n FROM audit_log WHERE entity = 'ledger' AND entity_id = ? AND action = 'update'").get(mehta)).toEqual({ n: 1 })
+    expect(db.prepare("SELECT COUNT(*) AS n FROM audit_log WHERE entity = 'stockItem' AND entity_id = ? AND action = 'update'").get(carton)).toEqual({ n: 1 })
+    // A second undo changes nothing: the books stay tied, the kept records stay as they are.
+    const booksAudit = (): number => (db.prepare("SELECT COUNT(*) AS n FROM audit_log WHERE entity <> 'import_batch'").get() as { n: number }).n
+    const auditBefore = booksAudit()
+    const u2 = undoImport(db, r.batchId!)
+    expect(u2).toMatchObject({ binned: 0, deleted: 0, restored: 0 })
+    expect(u2.kept.map((k) => k.id)).toEqual(expect.arrayContaining([mehta, carton]))
+    expect(openingTotals(db)).toMatchObject({ debit: 0, credit: 0, difference: 0 })
+    expect(getLedger(db, mehta)!.openingBalance).toBe(0)
+    // Only the batch's own status row is written.
+    expect(booksAudit()).toBe(auditBefore)
+    // The next import's check starts from tied books (no "already differed").
+    const again = runImport(db, planSteps(parseImportFile('MSAll.xml', enc.encode(BUSY_XML))), { openingDifference: 'suspense' }, { source: 'busy-xml', profileId: null, fileName: 'MSAll.xml' }, true)
+    expect(again.warnings.join(' ')).not.toMatch(/already differed/)
   })
 })

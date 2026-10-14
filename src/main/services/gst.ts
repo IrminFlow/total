@@ -146,31 +146,49 @@ export function extractOutwardDocs(db: DB, company: CompanyInfo, from: string, t
   const outwardDbn = outwardDebitNoteIds(db, from, to)
   const salesGroupIds = descendantIdsByName(db, INCOME_GROUPS)
 
-  const invStmt = db.prepare(
-    `SELECT il.qty_milli AS qtyMilli, il.amount,
-            si.name AS itemName, si.hsn, si.gst_rate AS gstRate, si.cess_rate AS cessRate,
-            u.uqc
-     FROM inventory_lines il
-     JOIN stock_items si ON si.id = il.stock_item_id
-     JOIN units u ON u.id = si.unit_id
-     WHERE il.voucher_id = ? ORDER BY il.line_order, il.id`
-  )
+  // WP 7.1: each document's item lines, total and TCS are read for the whole period in chunks of
+  // 500 vouchers (one query per chunk, not three per voucher); per voucher, lines keep their order.
+  type InvRow = { qtyMilli: number; amount: number; itemName: string; hsn: string | null; gstRate: number | null; cessRate: number | null; uqc: string }
+  const invBy = new Map<number, InvRow[]>()
+  const totalBy = new Map<number, number>()
+  const tcsBy = new Map<number, number>()
+  const docIds = vouchers.map((v) => v.id)
+  for (let i = 0; i < docIds.length; i += 500) {
+    const chunk = docIds.slice(i, i + 500)
+    const marks = chunk.map(() => '?').join(',')
+    const invRows = db
+      .prepare(
+        `SELECT il.voucher_id AS voucherId, il.qty_milli AS qtyMilli, il.amount,
+                si.name AS itemName, si.hsn, si.gst_rate AS gstRate, si.cess_rate AS cessRate,
+                u.uqc
+         FROM inventory_lines il
+         JOIN stock_items si ON si.id = il.stock_item_id
+         JOIN units u ON u.id = si.unit_id
+         WHERE il.voucher_id IN (${marks}) ORDER BY il.voucher_id, il.line_order, il.id`
+      )
+      .all(...chunk) as (InvRow & { voucherId: number })[]
+    for (const { voucherId, ...r } of invRows) {
+      const list = invBy.get(voucherId)
+      if (list) list.push(r)
+      else invBy.set(voucherId, [r])
+    }
+    for (const r of db.prepare(`SELECT voucher_id AS id, SUM(amount) AS t FROM voucher_lines WHERE voucher_id IN (${marks}) AND dr_cr = 'dr' GROUP BY voucher_id`).all(...chunk) as { id: number; t: number }[]) totalBy.set(r.id, r.t)
+    for (const r of db
+      .prepare(
+        `SELECT te.voucher_id AS id, SUM(te.tds_amount) AS t FROM tds_entries te JOIN tds_sections ts ON ts.id = te.section_id
+         WHERE te.voucher_id IN (${marks}) AND ts.kind = 'tcs' GROUP BY te.voucher_id`
+      )
+      .all(...chunk) as { id: number; t: number }[]) tcsBy.set(r.id, r.t)
+  }
   const lineStmt = db.prepare(
     `SELECT vl.amount, vl.dr_cr AS drCr, l.group_id AS groupId, l.gst_rate AS gstRate, l.cess_rate AS cessRate, l.hsn, l.name
      FROM voucher_lines vl JOIN ledgers l ON l.id = vl.ledger_id
      WHERE vl.voucher_id = ? ORDER BY vl.line_order, vl.id`
   )
-  const totalStmt = db.prepare(
-    "SELECT COALESCE(SUM(amount), 0) AS t FROM voucher_lines WHERE voucher_id = ? AND dr_cr = 'dr'"
-  )
   // WP 3.3: income-tax TCS on the invoice is part of the invoice value (the buyer's total, as the
   // e-invoice reports it in OthChrg / TotInvVal) but not of the GST value of supply (CBIC
   // Circular 76/50/2018-GST corrigendum 7-3-2019 — see services/tcs.ts tcsOnVoucher), so the
-  // value-mismatch check leaves it out.
-  const tcsStmt = db.prepare(
-    `SELECT COALESCE(SUM(te.tds_amount), 0) AS t FROM tds_entries te JOIN tds_sections ts ON ts.id = te.section_id
-     WHERE te.voucher_id = ? AND ts.kind = 'tcs'`
-  )
+  // value-mismatch check leaves it out (tcsBy, read above).
   // WP 8.0: a bill dated while the company is composition / unregistered charges no GST, so its
   // lines are reported at 0% (the item / ledger master's rate never applies) — except a voucher
   // that actually posts tax (saved before the rule, or a note against a regular-period bill).
@@ -186,10 +204,7 @@ export function extractOutwardDocs(db: DB, company: CompanyInfo, from: string, t
       const { invTyp, isExport, pos, supply, zeroTax } = outwardSupplyClass(company, v)
       const rated = chargesGstOn(company, v.date) || !!taxLineStmt.get(v.id)
 
-      const inv = invStmt.all(v.id) as {
-        qtyMilli: number; amount: number; itemName: string
-        hsn: string | null; gstRate: number | null; cessRate: number | null; uqc: string
-      }[]
+      const inv = invBy.get(v.id) ?? []
 
       interface Bucket { rate: number; taxable: number; cgst: number; sgst: number; igst: number; cess: number }
       const buckets = new Map<number, Bucket>()
@@ -264,7 +279,7 @@ export function extractOutwardDocs(db: DB, company: CompanyInfo, from: string, t
         rate: b.rate, taxable: b.taxable, cgst: b.cgst, sgst: b.sgst, igst: b.igst, cess: b.cess
       }))
 
-      const invoiceValue = (totalStmt.get(v.id) as { t: number }).t
+      const invoiceValue = totalBy.get(v.id) ?? 0
 
       return {
         voucherId: v.id,
@@ -282,7 +297,7 @@ export function extractOutwardDocs(db: DB, company: CompanyInfo, from: string, t
         rchrg: !!v.partyRcm,
         shippingBill: isExport ? { num: v.transDocNo, date: v.transDocDate } : null,
         validation: {
-          valDiff: invoiceValue - (tcsStmt.get(v.id) as { t: number }).t - computedTotal,
+          valDiff: invoiceValue - (tcsBy.get(v.id) ?? 0) - computedTotal,
           missingHsnCount,
           ...(offSlabRate ? { offSlabRate: true } : {}),
           // SEZ/deemed-export registrations always have a GSTIN — flag its absence.

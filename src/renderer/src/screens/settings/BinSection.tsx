@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { api, type BinRow } from '../../lib/client'
+import { canWriteOrNoUsers, isOwnerOrNoUsers } from '../../lib/roles'
 import { useSession, useToasts } from '../../state/stores'
 import { Badge, Button, Modal, Panel, SectionTitle, TextInput } from '../../components/ui'
 import { DataTable, defineColumns } from '../../components/table'
@@ -43,8 +44,8 @@ export function BinSection(): React.JSX.Element {
   // owner-only (see ipc.ts). `user == null` covers the no-users bootstrap window, where every
   // IPC call is ungated. Showing a button a viewer/accountant can't actually use would just be
   // a doomed round-trip to a permission error.
-  const canRestore = user == null || user.role !== 'viewer'
-  const canPurge = user == null || user.role === 'owner'
+  const canRestore = canWriteOrNoUsers(user)
+  const canPurge = isOwnerOrNoUsers(user)
   const showActions = canRestore || canPurge
 
   const restore = async (row: BinRow): Promise<void> => {

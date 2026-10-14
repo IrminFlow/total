@@ -649,6 +649,7 @@ export interface PdcRow {
 import type { SimpleSetupInput } from '@shared/simple/setup'
 import type { OpeningsResult, OpeningsState, SimpleOpeningsInput } from '@shared/simple/openings'
 import type { GstProfile } from '@shared/gst/filing'
+import type { UpdateAction, UpdateCheckResult, UpdateNotice, UpdatesView } from '@shared/updates'
 /** A failed IPC call (WP 8.5): `message` is the service's wording, unchanged; the structured
  *  fields (shared/errors) let a form put a plain message under the field (`useFormErrors`). */
 export class IpcError extends Error implements CaughtError {
@@ -1007,8 +1008,9 @@ export const api = {
     remove: (id: number) => call<null>('voucher:delete', { id }),
     nextNumber: (voucherTypeId: number, date: string, excludeId?: number) =>
       call<{ number: string }>('voucher:nextNumber', { voucherTypeId, date, excludeId }),
-    numberExists: (voucherTypeId: number, number: string, excludeId?: number) =>
-      call<boolean>('voucher:numberExists', { voucherTypeId, number, excludeId }),
+    /** `date` = the voucher's date: a series that restarts each FY only clashes within it. */
+    numberExists: (voucherTypeId: number, number: string, excludeId: number | undefined, date: string) =>
+      call<boolean>('voucher:numberExists', { voucherTypeId, number, excludeId, date }),
     duplicates: (data: VoucherInputParsed, excludeId?: number) =>
       call<{ voucherId: number; number: string; date: string }[]>('voucher:duplicates', { data, excludeId }),
     bin: () => call<BinRow[]>('voucher:bin'),
@@ -1417,10 +1419,19 @@ export const api = {
   app: {
     info: () => call<{ version: string; platform: string }>('app:info'),
     checkUpdates: () =>
-      call<{ status: 'dev' | 'available' | 'up-to-date' | 'error'; current: string; latest?: string }>(
-        'app:checkUpdates'
-      ),
+      call<UpdateCheckResult>('app:checkUpdates'),
+    updates: () => call<UpdatesView>('app:updates:get'),
+    setAutoCheck: (autoCheck: boolean) => call<UpdatesView>('app:updates:set', { autoCheck }),
+    updateAction: (action: UpdateAction) => call<UpdatesView>('app:updates:act', { action }),
     notifyDeadlines: (items: { title: string; body: string }[]) =>
       call<null>('app:notifyDeadlines', { items })
   }
+}
+
+/** Update notices pushed by main (null = nothing to show now); returns the unsubscribe. A no-op where
+ *  the preload bridge has no event channel (renderer unit tests stub `window.total` without it). */
+export function onUpdateEvent(listener: (notice: UpdateNotice | null) => void): () => void {
+  const sub = window.total?.onUpdateEvent
+  if (!sub) return () => {}
+  return sub((n) => listener(n as UpdateNotice | null))
 }

@@ -59,9 +59,21 @@ export function returnsOfBills(db: DB, side: ReturnSide, bills: readonly BillHea
       .all(kind, ...chunk) as { billId: number; noteId: number }[]
     for (const r of linked) add(r.billId, r.noteId)
   }
+  // WP 7.1: a note naming its bill by reference is rare — ask notesByReference only for the
+  // (party, reference) pairs some in-books note of this kind carries (its own WHERE needs both),
+  // instead of one query per bill.
+  const refPairs = new Set(
+    (db
+      .prepare(
+        `SELECT DISTINCT v.party_ledger_id AS partyId, TRIM(v.reference) AS ref FROM vouchers v JOIN voucher_types vt ON vt.id = v.voucher_type_id
+         WHERE vt.kind = ? AND v.reference IS NOT NULL AND ${IN_BOOKS}`
+      )
+      .all(kind) as { partyId: number | null; ref: string }[]).map((r) => `${r.partyId}\u0000${r.ref}`)
+  )
   for (const b of bills) {
     if (b.partyId == null) continue
     const ref = side === 'sale' ? b.number : b.reference?.trim() || b.number
+    if (!refPairs.has(`${b.partyId}\u0000${ref}`)) continue
     for (const noteId of notesByReference(db, billKind(side), { id: b.id, partyId: b.partyId, date: b.date, ref })) add(b.id, noteId)
   }
   const head = db.prepare('SELECT number, date, party_ledger_id AS partyId FROM vouchers WHERE id = ?')

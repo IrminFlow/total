@@ -4,7 +4,8 @@
 //
 //   launch()        Electron via require('electron'), args [cwd], mkdtemp TOTAL_DATA_DIR,
 //                   TOTAL_SUPPRESS_SYNC_WARNING=1, one retry, viewport 1440x900, waits for
-//                   window.total.
+//                   window.total. WP 7.3: ELECTRON_RUN_AS_NODE is dropped from the env and
+//                   TOTAL_APP_EXECUTABLE launches a packaged build instead (launchTarget).
 //   invoke(ch, p)   window.total.invoke — throws on { ok: false }.
 //   mode            WP 8.1: the company mode createCompanyUI / createDemoCompany leave the company
 //                   in — 'accountant' (default: e2e 01–45 run in the full app) or 'simple'
@@ -29,6 +30,30 @@ import * as os from 'node:os'
 
 const require = createRequire(import.meta.url)
 const electronPath = require('electron')
+
+/**
+ * WP 7.3: what to launch. By default the Electron binary from node_modules with the checkout as
+ * its app (out/ built by `npm run build`) — on every platform (`require('electron')` gives
+ * `electron.exe` on Windows). TOTAL_APP_EXECUTABLE (absolute path) launches a PACKAGED app
+ * instead — `dist/win-unpacked/Total.exe` on the Windows CI job — with no app-dir argument.
+ */
+export function launchTarget(appDir = process.cwd()) {
+  const exe = process.env.TOTAL_APP_EXECUTABLE
+  if (exe) return { executablePath: exe, args: [], packaged: true }
+  return { executablePath: electronPath, args: [appDir], packaged: false }
+}
+
+/**
+ * WP 7.3: the environment a scripted launch runs with. ELECTRON_RUN_AS_NODE is dropped (agent
+ * shells and `npm run test:db` set it; with it the binary starts as plain Node and Playwright's
+ * launch hangs — on Windows the env block is case-insensitive, so every casing goes). The update
+ * check is off (a packaged build would otherwise ask GitHub and may open a dialog mid-run).
+ */
+export function launchEnv(extra = {}) {
+  const env = { ...process.env }
+  for (const k of Object.keys(env)) if (k.toUpperCase() === 'ELECTRON_RUN_AS_NODE') delete env[k]
+  return { ...env, TOTAL_NO_UPDATE_CHECK: '1', ...extra }
+}
 
 /** Console noise that is not the app's fault — never fails a scenario. */
 const CONSOLE_IGNORE = [
@@ -60,18 +85,19 @@ export class Harness {
   /** Launch the built app (one retry on a slow first boot). */
   async launch() {
     const attempt = async () => {
+      const { executablePath, args } = launchTarget(this.appDir)
       const app = await electron.launch({
-        executablePath: electronPath,
-        args: [this.appDir],
+        executablePath,
+        args,
         timeout: 60000,
-        env: {
-          ...process.env,
+        env: launchEnv({
           TOTAL_DATA_DIR: this.dataDir,
           TOTAL_SUPPRESS_SYNC_WARNING: '1',
           // Non-secure test cipher for the secret store (services/secretStore.ts) so runs never
-          // touch the real keychain; honoured only together with TOTAL_DATA_DIR.
+          // touch the real keychain; honoured only together with TOTAL_DATA_DIR in an unpackaged
+          // build (a packaged Windows run uses DPAPI, which needs no prompt).
           TOTAL_INSECURE_TEST_SECRETS: '1'
-        }
+        })
       })
       const page = await app.firstWindow()
       await page.setViewportSize({ width: 1440, height: 900 })

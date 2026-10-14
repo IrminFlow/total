@@ -396,7 +396,7 @@ export function InvoiceEntry({
       if (!input) return
       // Duplicate-number confirm — catches a manually typed number that's already on the books
       // (and the auto-suggested one losing a race with another entry screen).
-      if (input.number && (await api.vouchers.numberExists(typeId, input.number, voucherId))) {
+      if (input.number && (await api.vouchers.numberExists(typeId, input.number, voucherId, input.date))) {
         const proceed = await confirmDialog({
           title: 'Duplicate number',
           message: `Voucher number ${input.number} is already used by another voucher of this type. Save anyway with the same number?`,

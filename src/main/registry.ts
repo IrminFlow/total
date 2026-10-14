@@ -1,4 +1,5 @@
-import { readFileSync, writeFileSync, existsSync, renameSync, rmSync, statSync } from 'fs'
+import { readFileSync, writeFileSync, existsSync, rmSync, statSync } from 'fs'
+import { renameReplacing } from './fsRetry'
 import type { CompanySummary } from '@shared/domain'
 import { registryPath, ensureDataTree } from './paths'
 
@@ -33,7 +34,7 @@ export function writeRegistry(registry: Registry): void {
   const path = registryPath()
   const tmpPath = `${path}.tmp`
   writeFileSync(tmpPath, JSON.stringify(registry, null, 2))
-  renameSync(tmpPath, path)
+  renameReplacing(tmpPath, path) // WP 7.3: Windows EPERM while a scanner holds total.json
 }
 
 // ---------- write lock (task Q3 #99) ----------
@@ -51,7 +52,9 @@ function lockPath(): string {
 
 function acquireRegistryLock(): void {
   ensureDataTree()
-  const deadline = Date.now() + LOCK_WAIT_MS
+  // WP 7.3: the wait is timed on the monotonic clock — a test that fakes Date (tradeLegacy
+  // freezes it) must not turn a contended lock into an endless spin.
+  const deadline = performance.now() + LOCK_WAIT_MS
   for (;;) {
     try {
       writeFileSync(lockPath(), String(process.pid), { flag: 'wx' })
@@ -66,15 +69,13 @@ function acquireRegistryLock(): void {
       } catch {
         continue // lock vanished between our failed create and the stat — try again immediately
       }
-      if (Date.now() > deadline) {
+      if (performance.now() > deadline) {
         throw new Error('The company registry is locked by another process — try again in a moment')
       }
       // Contention is near-impossible in practice (single-instance app); a brief synchronous
       // spin keeps this dependency-free rather than pulling in async plumbing for a rare case.
-      const spinUntil = Date.now() + 25
-      while (Date.now() < spinUntil) {
-        // busy-wait
-      }
+      // A synchronous 25 ms sleep (no busy-wait burning the CPU the other writer needs).
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 25)
     }
   }
 }

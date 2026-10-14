@@ -106,7 +106,7 @@ export function Gstr9Screen(): React.JSX.Element {
   const doExport = async (): Promise<void> => {
     try {
       const r = await api.gst.exportGstr9(fy)
-      toast.push('success', `GSTR-9 workings saved — ${r.csvPath.split('/').pop()} and JSON`)
+      toast.push('success', `GSTR-9 workings saved — ${r.csvPath.split(/[\\/]/).pop()} and JSON`)
     } catch (err) {
       toast.push('error', (err as Error).message)
     }

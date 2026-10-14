@@ -32,7 +32,9 @@ export const HELP_ARTICLE_IDS = [
   'backups',
   'accountant-view',
   'settings',
-  'keyboard-shortcuts'
+  'keyboard-shortcuts',
+  // WP 7.3: what differs on Windows (keys, the data folder, SmartScreen, file names).
+  'windows'
 ] as const
 export type HelpArticleId = (typeof HELP_ARTICLE_IDS)[number]
 
