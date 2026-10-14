@@ -56,6 +56,9 @@ export interface ModelPick {
   fastModel: string
   /** Either differs from the current settings (the screen saves it). */
   changed: boolean
+  /** The default model is one the key's list offers. False = the list had no chat model (or was
+   *  empty): the current ids are kept, unverified, and the screen says so — never a guess. */
+  found: boolean
 }
 
 /**
@@ -64,12 +67,15 @@ export interface ModelPick {
  * for the fast model (else the default). An empty list keeps the current ids (nothing to pick from).
  */
 export function pickModels(models: readonly string[], current: { defaultModel: string; fastModel: string }): ModelPick {
-  if (models.length === 0) return { ...current, changed: false }
+  const keep = { defaultModel: current.defaultModel, fastModel: current.fastModel, changed: false, found: false }
+  if (models.length === 0) return keep
   const big = rank(models, false)
   const small = rank(models, true)
-  const defaultModel = models.includes(current.defaultModel) ? current.defaultModel : (big[0] ?? small[0] ?? models[0]!)
+  // Never fall back to any listed id (an embedding or speech model would be "picked").
+  const defaultModel = models.includes(current.defaultModel) ? current.defaultModel : (big[0] ?? small[0])
+  if (!defaultModel) return keep
   const fastModel = models.includes(current.fastModel) ? current.fastModel : (small[0] ?? defaultModel)
-  return { defaultModel, fastModel, changed: defaultModel !== current.defaultModel || fastModel !== current.fastModel }
+  return { defaultModel, fastModel, changed: defaultModel !== current.defaultModel || fastModel !== current.fastModel, found: true }
 }
 
 /** "gpt-5, gpt-5-mini, gpt-4.1 and 9 more" — the chat models first (best first), at most `max`. */
@@ -271,7 +277,7 @@ export function turnCostText(costMicroUsd: number | null, rate: FxRate | null, t
 export interface DraftOffer {
   /** "Save this as a bill?" */
   question: MessageKey
-  /** The simple flow's prefill (opened with `ask: { draftId: null, prefill }`), or null = no
+  /** The simple flow's prefill (opened with `ask: { draftId, prefill }`), or null = no
    *  simple flow for this kind of entry (the panel says so). */
   prefill: AssistPrefill | null
 }
@@ -295,7 +301,8 @@ function singleItemRow(state: unknown): { itemId: number; qtyMilli?: number } | 
  * purchase → Record a purchase, a payment → Money out, a receipt → Money in — pre-filled with the
  * party, the one product + quantity (the flow prices it; several products → the party only, the
  * user adds them) or the amount, the date and the note. Every other kind has no simple flow.
- * The flow saves through simple:post as always (the draft itself stays in the AI's list).
+ * The flow saves through simple:post as always; its first save consumes the draft (`aiDraftId`,
+ * main/assist/settle.ts — the same voucher-kind → flow pairs as CHAT_DRAFT_INTENT there).
  */
 export function draftOffer(d: Pick<AiDraftDto, 'payload'>): DraftOffer {
   const p = d.payload

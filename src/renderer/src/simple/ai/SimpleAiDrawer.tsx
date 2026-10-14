@@ -205,6 +205,7 @@ export function SimpleAiDrawer({
     <DockedDrawer title={t('simple.ai.panel.title')} subtitle={t('simple.ai.panel.sub')} onClose={onClose} width={width} onResize={onResize} testId="ai-panel-plain" header={header} footer={footer}>
       <div className="flex flex-col gap-3" aria-live="polite" data-testid="ai-plain-messages">
         <Banner tone="info" testId="ai-escalated">{t('assist.panel.aiAnswered')}</Banner>
+        {view && <PlainSent context={context} privacy={view.settings.privacy} useMemory={view.settings.useMemory} />}
         {view && !ready && (
           <Banner
             tone="info"
@@ -245,6 +246,31 @@ export function SimpleAiDrawer({
         <div ref={endRef} />
       </div>
     </DockedDrawer>
+  )
+}
+
+/** WP 5.2's "what the model is told" strip in plain words: shown before the first question is
+ *  sent (and all along), one click opens the screen-context lines (the system prompt's own). */
+function PlainSent({ context, privacy, useMemory }: { context: AiContext; privacy: { maskIds: boolean; pseudonymiseParties: boolean }; useMemory: boolean }): React.JSX.Element {
+  const t = useT()
+  const lines = screenContextLines(context)
+  return (
+    <div className="rounded-md border border-line bg-panel2 px-2.5 py-1.5 text-caption text-muted" data-testid="ai-plain-sent">
+      <p className="text-ink">{t('simple.ai.panel.sent.what', { screen: context.label ?? t('simple.ai.panel.sent.screen') })}</p>
+      <p>
+        {privacy.maskIds ? t('simple.ai.panel.sent.idsHidden') : t('simple.ai.panel.sent.idsShown')}{' '}
+        {privacy.pseudonymiseParties ? t('simple.ai.panel.sent.namesHidden') : t('simple.ai.panel.sent.namesShown')}
+        {useMemory ? ` ${t('simple.ai.panel.sent.memory')}` : ''}
+      </p>
+      <details className="mt-0.5" data-testid="ai-plain-sent-details">
+        <summary className="cursor-pointer hover:text-ink">{t('common.details')}</summary>
+        <ul className="num mt-0.5 flex flex-col gap-0.5 pl-2" data-testid="ai-plain-sent-lines">
+          {lines.map((l) => (
+            <li key={l}>{l}</li>
+          ))}
+        </ul>
+      </details>
+    </div>
   )
 }
 
@@ -322,7 +348,8 @@ function PlainDraftCard({ draftId, known, onLeavePanel }: { draftId: number; kno
   }
   const open = (): void => {
     onLeavePanel()
-    if (offer.prefill) nav.go({ name: offer.prefill.screen, ask: { draftId: null, prefill: offer.prefill } } as Screen)
+    // The flow's first save consumes the draft (simple:post `aiDraftId`, main/assist/settle.ts).
+    if (offer.prefill) nav.go({ name: offer.prefill.screen, ask: { draftId: draft.id, prefill: offer.prefill } } as Screen)
     else nav.go({ name: 'voucher-entry', aiDraftId: draft.id, kindHint: draft.payload.voucherKind as VoucherKind })
   }
   return (
