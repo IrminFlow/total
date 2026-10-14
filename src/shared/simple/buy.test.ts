@@ -9,7 +9,7 @@ import { computeInvoice, emptyInvoiceState } from '../voucherEdit'
 import { mapIntent, normaliseIntent, type IntentContext, type IntentFacts, type IntentLedger } from './intents'
 import { bannedWordsIn } from './bannedWords'
 import {
-  buyFormErrors, buyGst, buyIntentLines, buyTotals, emptyBuyForm, purchaseIntentFrom, purchasePreviewLine, purchaseStatus,
+  buyFormErrors, buyGst, buyIntentLines, buyLineRateMissing, buyTotals, emptyBuyForm, purchaseIntentFrom, purchasePreviewLine, purchaseStatus,
   type BuyContext, type BuyForm
 } from './buy'
 
@@ -234,5 +234,14 @@ describe('plain words', () => {
   it('no banned word in the Buy strings', () => {
     const keys = ['simple.buy.preview.part', 'simple.buy.cantClaim', 'simple.buy.gstQuestionWhat', 'simple.buy.notYetHint', 'errors.intent.itemsNoGst', 'errors.intent.duplicateBill'] as const
     for (const k of keys) expect(bannedWordsIn(t(k, { amount: '₹1', name: 'X', paid: '₹1', due: '₹1', date: '1 Nov', how: 'cash', number: 'P-1' }))).toEqual([])
+  })
+})
+
+describe('WP 10.8: a product without a GST rate on a claimed GST bill', () => {
+  it('is flagged only when the bill claims GST and neither the product nor the account has a rate', () => {
+    expect(buyLineRateMissing(3, form({ gstOnBill: true }), ctxFor('regular'))).toBe(true)
+    expect(buyLineRateMissing(1, form({ gstOnBill: true }), ctxFor('regular'))).toBe(false)
+    expect(buyLineRateMissing(3, form({ gstOnBill: false }), ctxFor('regular'))).toBe(false)
+    expect(buyLineRateMissing(3, form(), ctxFor('unregistered'))).toBe(false)
   })
 })

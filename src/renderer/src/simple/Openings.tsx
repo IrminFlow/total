@@ -121,6 +121,7 @@ function OpeningsFlow({ state }: { state: OpeningsState }): React.JSX.Element {
   const [done, setDone] = useState<OpeningsResult | null>(null)
   const step = steps[stepIdx]!
   const last = step === 'confirm'
+  const checkOpts = useMemo(() => ({ chargesGst: state.chargesGst === true, knownItems: state.pick.items.map((i) => i.name) }), [state])
   const date = toPlainDate(state.booksBegin, t.lang)
   const payload = useMemo(() => openingsPayload(draft, undefined, state.capitals.length > 1 ? capitalId : undefined), [draft, capitalId, state.capitals.length])
   const payloadKey = JSON.stringify(payload)
@@ -164,7 +165,7 @@ function OpeningsFlow({ state }: { state: OpeningsState }): React.JSX.Element {
   }, [last, payloadKey, done])
 
   const next = (): void => {
-    const e = openingsStepErrors(draft, step, state.booksBegin)
+    const e = openingsStepErrors(draft, step, state.booksBegin, checkOpts)
     setErrors(e)
     if (Object.keys(e).length) return
     setServerError(null)
@@ -178,7 +179,7 @@ function OpeningsFlow({ state }: { state: OpeningsState }): React.JSX.Element {
   }
 
   const confirm = async (): Promise<void> => {
-    const e = openingsStepErrors(draft, 'confirm', state.booksBegin) // i18n-technical
+    const e = openingsStepErrors(draft, 'confirm', state.booksBegin, checkOpts) // i18n-technical
     setErrors(e)
     if (Object.keys(e).length) {
       const first = Object.keys(e)[0]!

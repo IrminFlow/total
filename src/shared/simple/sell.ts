@@ -380,3 +380,11 @@ export function lineGstRate(itemId: number, form: SellForm, ctx: SellContext): n
   const charges = chargesGstOn(ctx.invoice, form.date)
   return charges ? itemRate(ctx, itemId, charges).rate : null
 }
+
+/** WP 10.8: the bill charges GST but neither the product nor the sales account has a rate — the
+ *  line would go out with no GST at all (the screen says so instead of a "0% GST" chip). */
+export function lineRateMissing(itemId: number, form: SellForm, ctx: SellContext): boolean {
+  if (!chargesGstOn(ctx.invoice, form.date)) return false
+  const account = ctx.salesAccountId != null ? ctx.invoice.ledgers.get(ctx.salesAccountId) : undefined
+  return ctx.invoice.items.get(itemId)?.gstRate == null && account?.gstRate == null
+}

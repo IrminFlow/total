@@ -136,6 +136,22 @@ describe('simple opening setup', () => {
     expect(rows.find((r) => r.name === 'Rice 25 kg bag')).toMatchObject({ closingQtyMilli: 10_000, closingValue: 12_000_00 })
   })
 
+  it('WP 10.8: a regular business is asked each new product’s GST rate, and the product keeps it', () => {
+    const db = freshDb()
+    applySetup(db, { name: 'Agarwal Traders', stateCode: '27', businessType: 'trader', gst: 'regular', gstin: '27AAPFU0939F1ZV', filing: 'monthly', stock: true, startDate: '2026-04-01', fresh: false }, TODAY)
+    expect(openingsState(db).chargesGst).toBe(true)
+    expect(openingsState(kirana()).chargesGst).toBe(false)
+    const input = answers(db)
+    input.items = [
+      { itemId: null, name: 'Atta 10 kg', unitId: null, qtyMilli: 20_000, ratePaise: 380_00, base: null, gstRate: 5 },
+      { itemId: null, name: 'Salt', unitId: null, qtyMilli: 5_000, ratePaise: 20_00, base: null, gstRate: 0 }
+    ]
+    confirmAndApply(db, input)
+    const items = listStockItems(db)
+    expect(items.find((i) => i.name === 'Atta 10 kg')?.gstRate).toBe(5)
+    expect(items.find((i) => i.name === 'Salt')?.gstRate).toBe(0)
+  })
+
   it('re-running the same answers changes nothing and writes no audit row', () => {
     const db = kirana()
     confirmAndApply(db, answers(db))

@@ -9,7 +9,7 @@ import { computeInvoice, emptyInvoiceState } from '../voucherEdit'
 import { mapIntent, normaliseIntent, type IntentContext, type IntentFacts, type IntentLedger } from './intents'
 import { bannedWordsIn } from './bannedWords'
 import {
-  billTitleKey, emptySellForm, offBillByReturns, exclusiveLines, paidChoicesFor, saleIntentFrom, salePreviewLine, saleStatus, sellFormErrors, sellTotals, shownRate,
+  billTitleKey, emptySellForm, lineRateMissing, offBillByReturns, exclusiveLines, paidChoicesFor, saleIntentFrom, salePreviewLine, saleStatus, sellFormErrors, sellTotals, shownRate,
   type SellContext, type SellForm
 } from './sell'
 
@@ -218,5 +218,17 @@ describe('plain words', () => {
   it('no banned word in the Sell strings', () => {
     const keys = ['simple.sell.preview.part', 'simple.sell.err.onHold', 'simple.sell.shortStock', 'simple.sales.totals', 'simple.sell.walkInPaysNow'] as const
     for (const k of keys) expect(bannedWordsIn(t(k, { amount: '₹1', name: 'X', paid: '₹1', due: '₹1', date: '1 Nov', how: 'cash', qty: '1', unit: 'Nos', count: 1, total: '₹1' }))).toEqual([])
+  })
+})
+
+describe('WP 10.8: a product without a GST rate on a GST bill', () => {
+  it('is flagged only while the bill charges GST and neither the product nor the account has a rate', () => {
+    const base = ctxFor('regular')
+    const c: SellContext = { ...base, invoice: { ...base.invoice, items: new Map([...base.invoice.items, [3, { gstRate: null, cessRate: null }]]) } }
+    expect(lineRateMissing(3, form(), c)).toBe(true)
+    expect(lineRateMissing(1, form(), c)).toBe(false)
+    expect(lineRateMissing(3, form(), ctxFor('unregistered'))).toBe(false)
+    const rated: SellContext = { ...c, invoice: { ...c.invoice, ledgers: new Map([...c.invoice.ledgers, [20, { stateCode: null, gstRate: 5 }]]) } }
+    expect(lineRateMissing(3, form(), rated)).toBe(false)
   })
 })

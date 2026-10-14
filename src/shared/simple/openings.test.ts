@@ -154,3 +154,20 @@ describe('bill numbers and the payload', () => {
     expect(openingSteps(false)).toEqual(['money', 'customers', 'suppliers', 'confirm'])
   })
 })
+
+describe('WP 10.8: a new product’s GST rate while GST is charged', () => {
+  const row = (name: string, gstRate?: number | null): OpeningsDraft['items'][number] => ({ key: name, itemId: null, name, unitId: 1, qty: '2', rate: 10_00, base: null, gstRate })
+  it('a new product needs its rate only when the company charges GST; a known product keeps its own', () => {
+    const d = empty()
+    d.items = [row('Atta'), row('Rice', 5), row('Sugar')]
+    expect(openingsStepErrors(d, 'stock', '2026-04-01')).toEqual({})
+    expect(openingsStepErrors(d, 'stock', '2026-04-01', { chargesGst: true, knownItems: ['sugar'] })).toEqual({ 'items.0.gstRate': 'errors.openings.gstRateNeeded' })
+  })
+  it('the payload carries a new product’s rate (0 = nil-rated is a rate), never an existing one’s', () => {
+    const d = empty()
+    d.items = [row('Rice', 5), row('Salt', 0), { ...row('Old', 18), itemId: 7 }]
+    const p = openingsPayload(d)
+    expect(p.items!.map((i) => i.gstRate)).toEqual([5, 0, undefined])
+    expect(simpleOpeningsSchema.safeParse(p).success).toBe(true)
+  })
+})
