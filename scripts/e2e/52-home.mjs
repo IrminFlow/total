@@ -255,6 +255,7 @@ await scenario('52-home', async (h) => {
   assertEq(await page.getAttribute('[data-testid="help-article"]', 'data-article'), 'getting-started', '? opens the help on Home’s article')
   assertEq(await textOf(h, '[data-testid="help-article-title"]'), 'Getting started', 'the article’s title')
   await h.waitIdle()
+  await page.waitForTimeout(400) // the panel slides in
   await shoot(h, '06-help-home-light')
   await h.fill('help-search', 'bank statement')
   await attached(h, '[data-testid="help-hit"][data-article="bank-statement"]')
@@ -272,7 +273,7 @@ await scenario('52-home', async (h) => {
   await attached(h, '[data-testid="simple-sales-empty"]')
   await h.waitIdle()
   assert((await textOf(h, '[data-testid="simple-sales-empty"] [data-testid="empty-purpose"]')).length > 20, 'the empty list says what it is for')
-  assertEq(await page.$eval('[data-testid="simple-sales-empty"] [data-empty-action]', (els) => els.length), 1, 'one primary action')
+  assertEq(await page.$$eval('[data-testid="simple-sales-empty"] [data-empty-action]', (els) => els.length), 1, 'one primary action')
   await shoot(h, '07-sales-empty-light')
   await h.click('empty-learn')
   await attached(h, '[data-testid="help-article"][data-article="make-a-bill"]')

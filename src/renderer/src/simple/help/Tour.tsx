@@ -5,6 +5,7 @@
 // Once ended (skipped, finished or left) it does not come back by itself for this company + user;
 // Help → "Show the tour" runs it again.
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { useT } from '../../lib/i18n'
 import { useMode } from '../../lib/mode'
 import { useSession } from '../../state/stores'
@@ -139,13 +140,14 @@ function TourStepView({ step, onEnd }: { step: number; onEnd: () => void }): Rea
   const cardTop = rect ? (below ? rect.top + rect.height + PAD + 12 : Math.max(12, rect.top - PAD - 12 - 170)) : vh / 2 - 90
   const cardLeft = rect ? Math.min(Math.max(12, rect.left + rect.width / 2 - CARD_W / 2), vw - CARD_W - 12) : vw / 2 - CARD_W / 2
 
-  return (
+  // In a portal on <body>: an animated (transformed) screen would otherwise move the fixed layer.
+  return createPortal(
     <div className="pointer-events-none fixed inset-0 z-40" data-testid="tour" data-step={TOUR_STEPS[step]!.id}>
       {rect ? (
         <div
           aria-hidden="true"
           data-testid="tour-spotlight"
-          className="absolute rounded-lg ring-2 ring-amber transition-all duration-200"
+          className="absolute rounded-lg ring-2 ring-amber"
           style={{
             top: rect.top - PAD,
             left: rect.left - PAD,
@@ -183,6 +185,7 @@ function TourStepView({ step, onEnd }: { step: number; onEnd: () => void }): Rea
         </div>
         <p className="mt-2 text-hint text-muted">{t('simple.tour.keys')}</p>
       </div>
-    </div>
+    </div>,
+    document.body
   )
 }
