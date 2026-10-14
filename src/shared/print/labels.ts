@@ -74,6 +74,8 @@ export interface PrintLabels {
   /** The debit / credit heads of a receipt / payment print's lines (not a statement's). */
   lineDebit: string
   lineCredit: string
+  /** Caption under the bill's verification QR code. */
+  verificationQr: string
   balance: string
   openingBalance: string
   totalsClosing: string
@@ -150,6 +152,7 @@ export const ENGLISH_PRINT_LABELS: PrintLabels = {
   credit: 'Credit',
   lineDebit: 'Debit',
   lineCredit: 'Credit',
+  verificationQr: 'Verification QR',
   balance: 'Balance',
   openingBalance: 'Opening balance',
   totalsClosing: 'Totals / closing balance',
@@ -241,6 +244,7 @@ export function printLabelsFor(t: Translate): PrintLabels {
     supplierStatement: { debit: t('simple.print.credit'), credit: t('simple.print.debit'), unadjusted: t('simple.print.unadjustedPaid') },
     lineDebit: t('simple.print.lineDebit'),
     lineCredit: t('simple.print.lineCredit'),
+    verificationQr: t('simple.print.verificationQr'),
     balance: t('simple.print.balance'),
     openingBalance: t('simple.print.openingBalance'),
     totalsClosing: t('simple.print.totalsClosing'),

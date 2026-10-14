@@ -721,7 +721,7 @@ function qrBlock(c: Ctx, company: CompanyInfo, inv: EdocInvoice, irn: string | n
            }),
            c.t.einvoice.qrSizeMm
          )}
-         <div style="font-size:${c.px(8.5)};color:#555;text-align:center;margin-top:2px">Verification QR</div>
+         <div style="font-size:${c.px(8.5)};color:#555;text-align:center;margin-top:2px">${esc(c.L.verificationQr)}</div>
        </div>`
 }
 

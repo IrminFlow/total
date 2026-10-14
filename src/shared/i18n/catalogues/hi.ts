@@ -2322,6 +2322,7 @@ export const hi: Partial<Record<MessageKey, string>> = {
   'simple.print.alloc.new': 'बिल {name}: {amount}',
   'simple.print.alloc.against': 'बिल {name} में लगे: {amount}',
   'simple.print.alloc.oldest': 'सबसे पुराने खुले बिलों में लगा',
+  'simple.print.verificationQr': 'जाँच के लिए QR',
   'simple.print.paymentRequest': 'कृपया बाकी रकम नीचे दिए बैंक खाते में भेजें, साथ में बिल नंबर लिखें।',
 
   'palette.placeholder': 'कमांड लिखें, या हिसाब में खोजें — नाम, नंबर, GSTIN, रकम…',

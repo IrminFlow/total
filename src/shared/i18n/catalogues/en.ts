@@ -2429,6 +2429,7 @@ export const en = {
   'simple.print.alloc.new': 'Bill {name}: {amount}',
   'simple.print.alloc.against': 'Set against bill {name}: {amount}',
   'simple.print.alloc.oldest': 'Set against the oldest open bills',
+  'simple.print.verificationQr': 'Verification QR',
   'simple.print.paymentRequest': 'Please pay the balance into the bank account below, with the bill numbers.',
 
   // ---------- command palette (shared chrome; wording unchanged from 0.10) ----------
