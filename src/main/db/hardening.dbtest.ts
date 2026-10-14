@@ -1,6 +1,6 @@
 // Lane Q, task Q3 #99: backup post-write verification + scheduled weekly full integrity check.
 import { describe, it, expect } from 'vitest'
-import Database from 'better-sqlite3'
+import Database from 'better-sqlite3-multiple-ciphers'
 import { mkdtempSync, writeFileSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'

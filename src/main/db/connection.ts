@@ -1,4 +1,4 @@
-import Database from 'better-sqlite3'
+import Database from 'better-sqlite3-multiple-ciphers'
 import { rmSync } from 'fs'
 import { basename, join } from 'path'
 import { companyAttachmentsDir, companyBackupAttachmentsDir, companyBackupsDir, companyDbPath, ensureCompanyTree } from '../paths'

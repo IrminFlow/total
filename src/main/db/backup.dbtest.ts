@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import Database from 'better-sqlite3'
+import Database from 'better-sqlite3-multiple-ciphers'
 import { mkdtempSync, mkdirSync, copyFileSync, writeFileSync, utimesSync, existsSync, readFileSync } from 'fs'
 import { tmpdir } from 'os'
 import { join, basename as nodeBasename } from 'path'

@@ -18,7 +18,7 @@
  * Every copy in either direction is verified against its SHA-256; a file that doesn't match is
  * never written, and is reported as missing instead.
  */
-import Database from 'better-sqlite3'
+import Database from 'better-sqlite3-multiple-ciphers'
 import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, unlinkSync } from 'fs'
 import { join } from 'path'
 import type { DB } from './connection'

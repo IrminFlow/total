@@ -1,6 +1,6 @@
 // Path-parameterized, Electron-free backup primitives (dbtest-able; better-sqlite3 objects are
 // passed in from callers that already opened them with the Electron ABI).
-import Database from 'better-sqlite3'
+import Database from 'better-sqlite3-multiple-ciphers'
 import { existsSync, readdirSync, statSync, unlinkSync, copyFileSync, renameSync, rmSync } from 'fs'
 import { join, basename } from 'path'
 import type { DB } from './connection'

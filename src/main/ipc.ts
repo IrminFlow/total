@@ -5,7 +5,7 @@ import { readFileSync, writeFileSync, copyFileSync, rmSync, unlinkSync, mkdtempS
 import { tmpdir } from 'os'
 import { join, basename } from 'path'
 import { z } from 'zod'
-import Database from 'better-sqlite3'
+import Database from 'better-sqlite3-multiple-ciphers'
 import type { DB } from './db/connection'
 import { backupCompany, closeCompanyDb, openCompanyDb, stashBackupAttachments } from './db/connection'
 import * as attachments from './services/attachments'

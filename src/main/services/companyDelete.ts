@@ -1,4 +1,4 @@
-import Database from 'better-sqlite3'
+import Database from 'better-sqlite3-multiple-ciphers'
 import { existsSync } from 'fs'
 import { log } from '../log'
 import { AUTH_THROTTLE_MESSAGE, clearAuthFailures, isAuthThrottled, recordAuthFailure, usersExist } from './users'

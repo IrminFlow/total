@@ -2,7 +2,7 @@
 // Tally import single-transaction + summary audit, batched bin purge, audit retention pruning,
 // year-end close and bank statement-import audit rows.
 import { describe, it, expect, beforeEach } from 'vitest'
-import Database from 'better-sqlite3'
+import Database from 'better-sqlite3-multiple-ciphers'
 import { freshDb, seededDb, postSimpleVoucher, TEST_INFO } from '../db/testdb'
 import { seedCompany } from '../db/seed'
 import { saveUser, login } from './users'

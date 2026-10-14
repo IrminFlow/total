@@ -1,6 +1,6 @@
 // Test-only helpers for DB-layer tests (*.dbtest.ts). Not itself a test file — no describe/it here.
 // Runs only under `npm run test:db` (Electron-as-Node), never under plain-Node vitest.
-import Database from 'better-sqlite3'
+import Database from 'better-sqlite3-multiple-ciphers'
 import type { DB } from './connection'
 import { migrate } from './migrate'
 import { MIGRATIONS } from './migrations'
