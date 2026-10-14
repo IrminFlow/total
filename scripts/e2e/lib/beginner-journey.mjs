@@ -14,7 +14,6 @@ export const BANNED = [
 ]
 export const bannedWordsIn = (text) => BANNED.filter((re) => re.test(text)).map((re) => re.source)
 
-/** The local calendar date (the app's working date is local, never UTC). */
 /** The harness's one local-date helper (WP 7.4), kept under the journey's name for the study driver. */
 export const localIso = isoLocal
 /** dd/mm/yy as the HDFC-style statement writes it. */
