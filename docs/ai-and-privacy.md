@@ -8,11 +8,11 @@ each statement in the code; file paths are relative to the repository root.
 named by `TOTAL_DATA_DIR` for scripted runs). Total has no accounts, no cloud copy, no analytics and
 no crash reporting that I could find (no such dependency is in `package.json`). Total is not
 "fully offline": it can make network requests in the cases below. The update check runs by
-default; the AI helper and live filing only after you set them up; a link only when you click it:
+default (and can be switched off); the AI helper and live filing only after you set them up; a link only when you click it:
 
 | What | When | Where it goes | Needs you to opt in? |
 |---|---|---|---|
-| Update check | About 5 seconds after launch, once per launch, packaged app only; also Settings, About, "Check for updates" | GitHub's release feed for `IrminFlow/total` (electron-updater); and, if that errors, `devjindal.tech/api/latest`, then `api.github.com` | No. It runs by default and there is no setting to turn it off (nothing in `src/main/updater.ts`, `src/main/index.ts` or the Settings screens reads one). |
+| Update check | About 5 seconds after launch, once per launch, packaged app only, and only while "Check for updates automatically" is on; also Settings, About (or How Total looks in simple mode), "Check for updates" / "Check now" | GitHub's release feed for `IrminFlow/total` (electron-updater); and, if that errors, `devjindal.tech/api/latest`, then `api.github.com` | It is on by default and you can turn it off: "Check for updates automatically" (app-wide, owner only where the business has users). With it off, Total makes no request at launch. Nothing is downloaded until you press "Download now". |
 | AI helper | Only after you accept the data notice and add your own key | OpenAI (`https://api.openai.com/v1`) | Yes |
 | Live e-invoice / e-way bill filing | Only when you press a live-filing button after entering credentials | The NIC API address you typed in | Yes |
 | Opening a link | When you click a help link, a reminder's "Open in WhatsApp", "Email…" on a statement, or "Support" | Your browser or mail app, not Total | Only on click |
@@ -46,27 +46,34 @@ Total, backups, imports, exports) works with the network unplugged.
 
 Code: `src/main/updater.ts`, started from `src/main/index.ts`. Only the packaged app does this.
 
-1. About 5 seconds after launch the app asks electron-updater to check the GitHub releases feed
-   of `IrminFlow/total` (`build.publish` in `package.json`). electron-updater is set to
-   `autoDownload = true` and `autoInstallOnAppQuit = true`: where it works (a signed build), a
-   newer version is **downloaded in the background without asking** and installed when you quit; a
-   dialog says it is ready.
-2. If electron-updater reports an error (the usual case for today's unsigned macOS builds, which
+1. About 5 seconds after launch, **only if "Check for updates automatically" is on** (the
+   default), the app asks electron-updater to check the GitHub releases feed of `IrminFlow/total`
+   (`build.publish` in `package.json`). electron-updater is set to `autoDownload = false` and
+   `autoInstallOnAppQuit = false`: it only looks. If a newer version exists, an in-app notice says
+   "Total 0.13.0 is available" with "Download now", "Later" and "Skip this version". Nothing is
+   downloaded until you press "Download now". "Skip this version" is remembered (that version
+   stays quiet on automatic checks).
+2. After a download finishes, a second notice offers "Restart to update", "Install when I quit" or
+   "Later". The update is installed only on your action: restarting, or quitting after you chose
+   "Install when I quit".
+3. If electron-updater reports an error (the usual case for today's unsigned macOS builds, which
    cannot be installed silently), a one-time fallback asks
    `https://devjindal.tech/api/latest` (`SITE_URL` in `src/shared/product.ts`) for the newest
    version, and if the site does not answer, `https://api.github.com/repos/IrminFlow/total/releases/latest`.
-   Only if the version is newer does a dialog offer "Download update", which opens the release
-   page or download link in your browser. Whether an unsigned macOS build has already downloaded
-   the update before electron-updater fails is **unverified**.
-3. The comparison with your version happens on your computer. The code sends no body, no company
-   data and no identifier of its own: they are plain GET requests. As with any web request, the
-   server sees your IP address and the client's standard request headers. Whether electron-updater
-   adds your app version to its headers is **unverified** (not read in its source for this page).
-4. In that fallback you install the new version yourself.
+   Only if the version is newer does the same notice appear; "Download now" then opens the release
+   page or download link in your browser and you install the new version yourself.
+4. The comparison with your version happens on your computer. What is requested is the version
+   information at those addresses: plain GET requests with no body, no company data and no
+   identifier of its own. As with any web request, the server sees your IP address and the client's
+   standard request headers. Whether electron-updater adds your app version to its headers is
+   **unverified** (not read in its source for this page).
 
-There is no off switch: no setting, environment variable or flag turns the check off (read in
-`src/main/updater.ts`). A development run (`npm run dev`) does not check. If you need an installed
-app to stay silent, block it in a firewall; the app keeps working.
+Where to turn it off: Settings, About, "Check for updates automatically" (full app), or Settings,
+How Total looks, "Updates" (simple mode). It is one app-wide setting kept in
+`<data folder>/app-settings.json` (not in any company file or backup; changes are appended to
+`app-settings-audit.jsonl`); where a business has users, only an owner can change it. With it off
+the app makes no request at launch; "Check now" still checks when you ask. A development run
+(`npm run dev`) never checks. You can also block the app in a firewall; the app keeps working.
 
 ## 3. The AI helper (optional, off by default, your own key)
 
@@ -167,8 +174,8 @@ you to them.
 ## What to do if your policy is stricter than this
 
 - Leave the AI helper off (the default) and never enter NIC credentials.
-- Block the app's outbound traffic in your firewall to stop the update check. Everything except the
-  optional features above keeps working.
+- Turn off "Check for updates automatically" (Settings, About), or block the app's outbound traffic in your
+  firewall. Everything except the optional features above keeps working.
 - Run `npm run test:db` and `npm test` from a source checkout; the boundary tests above run there.
 
 If you find a statement here that the code does not support, please open an issue on

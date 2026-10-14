@@ -20,9 +20,9 @@ Read [docs/features.md](docs/features.md) to see whether it fits you.
 ## What "offline" means here
 
 Your books are never uploaded or synced. Total is not completely offline, though: it makes a few
-network calls. The update check is on by default and cannot be switched off. [docs/ai-and-privacy.md](docs/ai-and-privacy.md) lists every one and the code
+network calls. The update check is on by default and can be switched off in Settings ("Check for updates automatically"). [docs/ai-and-privacy.md](docs/ai-and-privacy.md) lists every one and the code
 that makes it. In short: an update check at launch (it asks GitHub, and the project's site if that fails, for the
-newest version and may download it); an optional AI helper, off until you accept a data notice and
+newest version and asks before downloading anything); an optional AI helper, off until you accept a data notice and
 add **your own** OpenAI key, which sends the figures and text a question needs (identifiers masked)
 to OpenAI; optional live e-invoice filing (experimental, never run against the real portal); and an
 optional MCP server for developers (stdio only, run from a source checkout, no network port). Total prepares GST figures and

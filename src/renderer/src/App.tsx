@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { useNav, useScreen, useSession } from './state/stores'
 import { Button, Modal, Toasts } from './components/ui'
+import { UpdateNotice } from './simple/UpdateNotice'
 import { CompanySelect } from './screens/CompanySelect'
 import { Shell } from './components/Shell'
 import { SimpleKitLabels } from './simple/kitLabels'
@@ -186,6 +187,7 @@ export default function App(): React.JSX.Element {
       {integrityModal}
       <DialogHost />
       <Toasts />
+      <UpdateNotice />
     </>
   )
 
@@ -195,6 +197,7 @@ export default function App(): React.JSX.Element {
       {integrityModal}
       <DialogHost />
       <Toasts />
+      <UpdateNotice />
     </>
   )
 
@@ -334,6 +337,7 @@ export default function App(): React.JSX.Element {
       {integrityModal}
       <DialogHost />
       <Toasts />
+      <UpdateNotice />
     </SimpleKitLabels>
   )
 }
