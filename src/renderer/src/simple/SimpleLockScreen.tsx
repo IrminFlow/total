@@ -46,7 +46,7 @@ export function SimpleLockScreen(): React.JSX.Element {
       setLocked(false)
     } catch (err) {
       const entry = err instanceof IpcError && err.code ? errorEntry(err.code, err.field) : null
-      setError(entry ? t(entry.key) : t('simple.lock.wrongPin'))
+      setError(entry ? t(entry.key) : t('simple.lock.wrongPin')) // i18n-technical: the plain errors.* key of the code
       setPin('')
     } finally {
       setBusy(false)
@@ -128,7 +128,7 @@ export function SimpleLockScreen(): React.JSX.Element {
                 clearCompany()
                 nav.home()
               } catch (err) {
-                toast.push('error', (err as Error).message)
+                toast.push('error', (err as Error).message) // i18n-technical
               }
             }}
           >

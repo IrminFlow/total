@@ -53,7 +53,7 @@ function usePlain(): (err: unknown) => string {
   const t = useT()
   return (err) => {
     const entry = err instanceof IpcError && err.code ? errorEntry(err.code, err.field) : null
-    return entry ? t(entry.key) : t('errors.generic')
+    return entry ? t(entry.key) : t('errors.generic') // i18n-technical: the plain errors.* key of the code
   }
 }
 
@@ -99,7 +99,7 @@ function PassphraseCard({ view, canEdit }: { view: SecurityView; canEdit: boolea
 
   const saveRecovery = async (): Promise<void> => {
     if (!recoveryPass) return
-    setBusy('recovery')
+    setBusy('recovery') // i18n-technical
     try {
       await api.backups.exportEncrypted(recoveryPass)
       setRecoveryPass(null)

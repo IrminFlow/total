@@ -32,7 +32,7 @@ export function PassphrasePrompt({
       await onSubmit(pass)
     } catch (err) {
       const entry = err instanceof IpcError && err.code ? errorEntry(err.code, err.field) : null
-      setError(entry ? t(entry.key) : t('errors.generic'))
+      setError(entry ? t(entry.key) : t('errors.generic')) // i18n-technical: the plain errors.* key of the code
       setPass('')
     } finally {
       setBusy(false)
