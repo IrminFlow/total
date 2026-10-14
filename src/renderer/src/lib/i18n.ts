@@ -31,6 +31,18 @@ export function storedLanguage(slug: string | null, userId: number | null | unde
   return normalizeLanguage(own ?? read(LANGUAGE_KEY))
 }
 
+/** WP 10.4: has anyone chosen a language on this Mac yet (app-wide, or for this user)? */
+export function hasStoredLanguage(slug: string | null = null, userId: number | null | undefined = null): boolean {
+  return read(languageStorageKey(slug, userId)) != null || read(LANGUAGE_KEY) != null
+}
+
+/** WP 10.4: the language the operating system suggests — Hindi for a hi / hi-IN locale, else
+ *  null (English needs no suggestion). The PRIMARY locale only (Hindi listed second is not a choice). Only the first-run wizard uses it, before anything is
+ *  stored, so an existing user's screens never change language on their own. */
+export function osLanguage(locale: string | undefined = typeof navigator === 'undefined' ? undefined : navigator.language): Language | null {
+  return /^hi(?:[-_]|$)/i.test(locale ?? '') ? 'hi' : null
+}
+
 // A version counter so every useLanguage() re-reads after a change.
 const useLanguageVersion = create<{ version: number; bump: () => void }>((set) => ({
   version: 0,
