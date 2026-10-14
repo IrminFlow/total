@@ -4,7 +4,8 @@
 // Home, with the shop's accounts seeded (no GST accounts), TDS / payroll / orders off and a sale
 // that charges no GST. Then a regular services company (GSTIN, quarterly filing) gets the GST
 // accounts and its sale carries GST. Settings → Features shows "Turn on" cards. Every wizard
-// step, Home and Features are captured light and dark for the visual review.
+// step, Home and Features are captured light and dark for the visual review. WP 10.3: after the
+// wizard the tour of Home shows once (Enter advances, Skip / Esc end it) and never again.
 import { scenario, assert, assertEq } from '../lib/harness.mjs'
 
 const attached = (h, sel, timeout = 10000) => h.page.waitForSelector(sel, { state: 'attached', timeout })
@@ -88,6 +89,21 @@ await scenario('48-setup-presets', async (h) => {
 
   // ---------- an unregistered kirana ----------
   await runWizard(h, 'light-kirana', { name: 'Ramesh Kirana', type: 'retail', gst: 'no', stock: true })
+  // WP 10.3: the first-run tour of Home — 4 steps, Enter advances, Skip ends it for good.
+  await attached(h, '[data-testid="tour"][data-step="sale"]')
+  await h.waitIdle()
+  await h.shot('light-kirana-tour-1')
+  await page.keyboard.press('Enter')
+  await attached(h, '[data-testid="tour"][data-step="money-in"]')
+  await h.shot('light-kirana-tour-2')
+  await h.click('tour-skip')
+  await page.waitForSelector('[data-testid="tour"]', { state: 'detached', timeout: 5000 })
+  // Seen once: going round Home again does not bring it back.
+  await h.click('simple-nav-sell')
+  await h.click('simple-nav-home')
+  await attached(h, '[data-testid="simple-home"]')
+  await h.waitIdle()
+  assertEq(await page.$('[data-testid="tour"]'), null, 'the tour shows once per company + user')
   const cur = await h.invoke('company:current')
   assertEq(JSON.stringify(cur.ui), JSON.stringify({ mode: 'simple', setup: { businessType: 'retail', gst: 'no', stock: true }, startedFresh: true }), 'meta ui from the wizard')
   assertEq(cur.info.gstRegistrationType, 'unregistered', 'no GST registration')
@@ -139,6 +155,12 @@ await scenario('48-setup-presets', async (h) => {
   await h.waitScreen('company-select')
   await h.click('btn-company-setup')
   await runWizard(h, 'dark-services', { name: 'Asha Design Studio', type: 'services', gst: 'regular', gstin: '27AAPFU0939F1ZV', filing: 'quarterly', stock: false })
+  // A new company's tour again; Esc skips it.
+  await attached(h, '[data-testid="tour"][data-step="sale"]')
+  await h.waitIdle()
+  await h.shot('dark-services-tour-1')
+  await page.keyboard.press('Escape')
+  await page.waitForSelector('[data-testid="tour"]', { state: 'detached', timeout: 5000 })
   const cur2 = await h.invoke('company:current')
   assertEq(cur2.info.gstRegistrationType, 'regular', 'regular registration')
   assertEq(cur2.info.gstin, '27AAPFU0939F1ZV', 'GSTIN stored')

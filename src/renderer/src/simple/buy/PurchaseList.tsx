@@ -9,6 +9,7 @@ import { api } from '../../lib/client'
 import { useT } from '../../lib/i18n'
 import { useNav, useSession } from '../../state/stores'
 import { Button, Page } from '../../components/ui'
+import { EmptyTeach } from '../help/EmptyTeach'
 import { DataTable, defineColumns } from '../../components/table'
 import { recordSupplierPaymentScreen } from './recordSupplierPayment'
 import { returnScreen, useReturnable } from '../returns/returnable'
@@ -69,6 +70,7 @@ function PurchaseTable(): React.JSX.Element {
   const until = workingDate < to ? workingDate : to
   const { data, isLoading } = useQuery({ queryKey: ['simplePurchases', from, until, workingDate], queryFn: () => api.buy.purchases(from, until, workingDate) }) // i18n-technical
   const rows = data ?? []
+  const empty = !isLoading && data != null && rows.length === 0
   const columns = useMemo(
     () =>
       defineColumns<PurchaseRow>([
@@ -102,10 +104,20 @@ function PurchaseTable(): React.JSX.Element {
           <h1 className="font-serif text-heading font-semibold tracking-tight text-ink">{t('simple.purchases.title')}</h1>
           <p className="mt-1 text-detail text-muted">{t('simple.purchases.period', { from: toPlainDate(from), to: toPlainDate(until) })}</p>
         </div>
-        <Button variant="primary" data-testid="btn-purchases-record" onClick={() => nav.go(BUY_SCREEN)}>
-          {t('simple.purchases.record')}
-        </Button>
+        {!empty && (
+          <Button variant="primary" data-testid="btn-purchases-record" onClick={() => nav.go(BUY_SCREEN)}>
+            {t('simple.purchases.record')}
+          </Button>
+        )}
       </div>
+      {empty ? (
+        <EmptyTeach
+          testId="simple-purchases-empty"
+          purpose={t('simple.empty.purchases')}
+          action={{ label: t('simple.purchases.record'), testId: 'btn-purchases-empty-record', onClick: () => nav.go(BUY_SCREEN) }} // i18n-technical
+          help="record-a-purchase" // i18n-technical
+        />
+      ) : (
       <section className="rounded-lg border border-line bg-panel shadow-elev-1">
         <DataTable
           testId="simple-purchases"
@@ -115,18 +127,12 @@ function PurchaseTable(): React.JSX.Element {
           rowAttrs={(r) => ({ 'data-row-id': r.voucherId })}
           loading={isLoading}
           toolbarFeatures={{ quickFilter: true, columns: false, groupBy: false, density: false, views: false }}
-          empty={{
-            title: t('simple.purchases.empty'),
-            action: (
-              <Button variant="primary" data-testid="btn-purchases-empty-record" onClick={() => nav.go(BUY_SCREEN)}>
-                {t('simple.purchases.record')}
-              </Button>
-            )
-          }}
+          empty={{ title: t('simple.purchases.empty') }}
           totalsLabel={t('simple.purchases.col.total')}
           onRowActivate={(r) => nav.go({ name: 'simple-purchases', billId: r.voucherId })} // i18n-technical
         />
       </section>
+      )}
     </Page>
   )
 }

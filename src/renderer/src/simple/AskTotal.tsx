@@ -5,7 +5,7 @@
 // simple flow pre-filled and saves only when the user presses Save there. With an AI key and the
 // assistant on, a question Total can't answer goes to the model (the WP 5.x panel, every rule
 // unchanged) — each answer says which one answered.
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { create } from 'zustand'
 import type { AssistAnswer, AssistFigure } from '@shared/assist'
 import type { Language } from '@shared/i18n'
@@ -14,6 +14,8 @@ import { useLanguage, useT } from '../lib/i18n'
 import { useNav, useSession, useToasts, type Screen } from '../state/stores'
 import { Badge, Button, DockedDrawer, Textarea } from '../components/kit'
 import { askScreen } from './askTargets'
+import { HELP } from '../help/articles'
+import { useHelpPanel } from '../help/store'
 
 // ---------- the pending question (Home's Ask box, a suggestion) ----------
 
@@ -104,7 +106,11 @@ function AnswerView({ turn, onAsk, onOpen, onEntry, busy }: {
   busy: boolean
 }): React.JSX.Element {
   const t = useT()
+  const [lang] = useLanguage()
   const a = turn.answer
+  // WP 10.3: a question Total can't answer also searches the help articles (the glossary stays
+  // below as the second source).
+  const helpHits = useMemo(() => (a && !a.understood ? HELP.search(turn.text, lang as Language, 3) : []), [a, turn.text, lang])
   return (
     <div className="flex flex-col gap-2" data-testid="ask-turn">
       <div className="max-w-[85%] self-end rounded-lg border border-amber/40 bg-amber/10 px-3 py-2 text-body-sm text-ink" data-testid="ask-question">
@@ -155,6 +161,25 @@ function AnswerView({ turn, onAsk, onOpen, onEntry, busy }: {
                   {s}
                 </Button>
               ))}
+            </div>
+          )}
+          {!a.understood && helpHits.length > 0 && (
+            <div className="mt-3 border-t border-line pt-2" data-testid="ask-help-articles">
+              <p className="text-hint font-semibold text-muted">{t('simple.help.fromHelp')}</p>
+              <div className="mt-1 flex flex-col items-start gap-1">
+                {helpHits.map((h) => (
+                  <button
+                    key={h.article.id}
+                    type="button"
+                    data-testid="ask-help-article"
+                    data-article={h.article.id}
+                    onClick={() => useHelpPanel.getState().openArticle(h.article.id)}
+                    className="text-left text-hint text-blue hover:underline"
+                  >
+                    {h.article.title}
+                  </button>
+                ))}
+              </div>
             </div>
           )}
           {a.help && a.help.length > 0 && (

@@ -119,7 +119,7 @@ export interface AssistAnswer {
   entry?: AssistEntryOffer
   /** "I can't answer that yet; try these" — 3 questions. */
   suggestions?: string[]
-  /** Help search over the plain glossary (WP 10.3 help articles are not there yet). */
+  /** Glossary search (plain words). WP 10.3: the panel also searches the help articles (renderer). */
   help?: { term: string; plain: string; explain: string }[]
   /** "Open X": where the panel goes right away (resolved by the search service / the place words). */
   open?: AssistTarget

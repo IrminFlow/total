@@ -10,6 +10,7 @@ import { api } from '../../lib/client'
 import { useT } from '../../lib/i18n'
 import { useNav, useSession } from '../../state/stores'
 import { Button, Page, Segmented, TabBar } from '../../components/ui'
+import { EmptyTeach } from '../help/EmptyTeach'
 import { DataTable, defineColumns } from '../../components/table'
 import { useGroups } from '../../components/pickers'
 import { NewAccountDialog } from '../NewAccountDialog'
@@ -126,14 +127,23 @@ function People({ startFilter }: { startFilter: PeopleFilter }): React.JSX.Eleme
   )
 
   const totals = data?.totals
+  const empty = !isLoading && data != null && data.people.length === 0
   return (
     <>
-      {totals && (
+      {empty && (
+        <EmptyTeach
+          testId="simple-people-empty"
+          purpose={t('simple.empty.people')}
+          action={canEdit ? { label: t('simple.people.new'), testId: 'btn-people-empty-new', onClick: () => setCreating(true) } : undefined} // i18n-technical
+          help="people-and-reminders" // i18n-technical
+        />
+      )}
+      {!empty && totals && (
         <p className="mb-3 text-body text-ink" data-testid="people-totals" data-owes-you={totals.owesYou} data-you-owe={totals.youOwe}>
           {t('simple.people.totals.owesYou', { amount: money(totals.owesYou) })} · {t('simple.people.totals.youOwe', { amount: money(totals.youOwe) })}
         </p>
       )}
-      <section className="rounded-lg border border-line bg-panel shadow-elev-1">
+      {!empty && <section className="rounded-lg border border-line bg-panel shadow-elev-1">
         <DataTable
           testId="simple-people"
           columns={columns}
@@ -159,19 +169,11 @@ function People({ startFilter }: { startFilter: PeopleFilter }): React.JSX.Eleme
               </Button>
             ) : null
           }
-          empty={{
-            title: (data?.people.length ?? 0) > 0 ? t('simple.people.emptyFilter') : t('simple.people.empty'),
-            action:
-              canEdit && (data?.people.length ?? 0) === 0 ? (
-                <Button variant="primary" data-testid="btn-people-empty-new" onClick={() => setCreating(true)}>
-                  {t('simple.people.new')}
-                </Button>
-              ) : undefined
-          }}
+          empty={{ title: t('simple.people.emptyFilter') }}
           totalsLabel={t('simple.sales.col.total')}
           onRowActivate={(r) => nav.go(personScreen(r.ledgerId))}
         />
-      </section>
+      </section>}
       {creating && (
         <NewAccountDialog
           name=""

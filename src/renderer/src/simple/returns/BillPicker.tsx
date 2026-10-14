@@ -4,7 +4,8 @@ import { toPlainDate } from '@shared/dates'
 import { LEFT_TEXT, type ReturnBillRow, type ReturnSide } from '@shared/simple/returns'
 import { api } from '../../lib/client'
 import { useT } from '../../lib/i18n'
-import { useSession } from '../../state/stores'
+import { useNav, useSession } from '../../state/stores'
+import { EmptyTeach } from '../help/EmptyTeach'
 import { TextInput } from '../../components/ui'
 import { DataTable, defineColumns } from '../../components/table'
 
@@ -45,6 +46,10 @@ export function BillPicker({ side, onPick }: { side: ReturnSide; onPick: (billId
     queryFn: () => api.simple.returnBills(side, workingDate, q || undefined)
   })
   const rows = data ?? []
+  const nav = useNav()
+  // Nothing to return against yet (not a search that found nothing): teach, and offer the flow
+  // that makes a bill.
+  const empty = !isLoading && data != null && rows.length === 0 && !q && !typed.trim()
   const columns = useMemo(
     () =>
       defineColumns<ReturnBillRow>([
@@ -86,6 +91,20 @@ export function BillPicker({ side, onPick }: { side: ReturnSide; onPick: (billId
           />
         </div>
       </div>
+      {empty ? (
+        <div className="px-panel pb-panel">
+          <EmptyTeach
+            testId="return-bills-empty"
+            purpose={sale ? t('simple.empty.returnSale') : t('simple.empty.returnPurchase')}
+            action={
+              sale
+                ? { label: t('simple.sales.makeBill'), testId: 'btn-return-empty-sell', onClick: () => nav.go({ name: 'simple-sell' }) } // i18n-technical
+                : { label: t('simple.purchases.record'), testId: 'btn-return-empty-buy', onClick: () => nav.go({ name: 'simple-buy' }) } // i18n-technical
+            }
+            help="returns" // i18n-technical
+          />
+        </div>
+      ) : (
       <DataTable
         testId="return-bills"
         columns={columns}
@@ -98,6 +117,7 @@ export function BillPicker({ side, onPick }: { side: ReturnSide; onPick: (billId
         empty={{ title: q ? t('simple.returns.noMatch') : sale ? t('simple.returns.noBills') : t('simple.returns.noBillsBuy') }}
         onRowActivate={(r) => onPick(r.voucherId)}
       />
+      )}
     </section>
   )
 }

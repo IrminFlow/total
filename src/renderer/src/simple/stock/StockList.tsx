@@ -8,6 +8,7 @@ import { useT } from '../../lib/i18n'
 import { useFeatures } from '../../lib/useFeatures'
 import { useNav, useSession } from '../../state/stores'
 import { Button, Page } from '../../components/ui'
+import { EmptyTeach } from '../help/EmptyTeach'
 import { DataTable, defineColumns } from '../../components/table'
 import { NewProductDialog } from '../NewProductDialog'
 import { ProductView } from './ProductView'
@@ -63,6 +64,7 @@ function StockTable({ initialFilter }: { initialFilter?: 'low' }): React.JSX.Ele
   const { data, isLoading } = useQuery({ queryKey: ['simpleStock', workingDate], queryFn: () => api.simpleStock.list(workingDate) }) // i18n-technical
   const all = data?.rows ?? []
   const rows = onlyLow ? all.filter((r) => needsReorder(r.level)) : all
+  const empty = !isLoading && data != null && all.length === 0
 
   const columns = useMemo(
     () =>
@@ -96,19 +98,31 @@ function StockTable({ initialFilter }: { initialFilter?: 'low' }): React.JSX.Ele
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <AccountantViewButton testId="btn-stock-accountant-view" title={t('simple.stock.accountantHint')} onOpen={(always) => void openFull({ intent: null, always, fallback: SUMMARY_SCREEN })} />
-          {features.manufacturing && (
+          {!empty && features.manufacturing && (
             <Button data-testid="btn-stock-made-goods" onClick={() => nav.go(MADE_SCREEN)}>
               {t('simple.stock.madeGoods')}
             </Button>
           )}
-          <Button data-testid="btn-stock-count" onClick={() => nav.go(COUNT_SCREEN)}>
-            {t('simple.stock.count')}
-          </Button>
-          <Button variant="primary" data-testid="btn-stock-new-product" onClick={() => setCreating(true)}>
-            {t('simple.stock.newProduct')}
-          </Button>
+          {!empty && (
+            <>
+              <Button data-testid="btn-stock-count" onClick={() => nav.go(COUNT_SCREEN)}>
+                {t('simple.stock.count')}
+              </Button>
+              <Button variant="primary" data-testid="btn-stock-new-product" onClick={() => setCreating(true)}>
+                {t('simple.stock.newProduct')}
+              </Button>
+            </>
+          )}
         </div>
       </div>
+      {empty ? (
+        <EmptyTeach
+          testId="simple-stock-empty"
+          purpose={t('simple.empty.stock')}
+          action={{ label: t('simple.stock.newProduct'), testId: 'btn-stock-empty-new', onClick: () => setCreating(true) }} // i18n-technical
+          help="stock-and-count" // i18n-technical
+        />
+      ) : (
       <section className="rounded-lg border border-line bg-panel shadow-elev-1">
         <DataTable
           testId="simple-stock"
@@ -128,18 +142,12 @@ function StockTable({ initialFilter }: { initialFilter?: 'low' }): React.JSX.Ele
               </button>
             </div>
           }
-          empty={{
-            title: onlyLow ? t('simple.stock.noneLow') : t('simple.stock.empty'),
-            action: onlyLow ? undefined : (
-              <Button variant="primary" data-testid="btn-stock-empty-new" onClick={() => setCreating(true)}>
-                {t('simple.stock.newProduct')}
-              </Button>
-            )
-          }}
+          empty={{ title: onlyLow ? t('simple.stock.noneLow') : t('simple.stock.empty') }}
           totalsLabel={t('simple.stock.totalWorth')}
           onRowActivate={(r) => nav.go({ name: 'simple-stock', itemId: r.itemId })} // i18n-technical
         />
       </section>
+      )}
       {creating && (
         <NewProductDialog
           name=""

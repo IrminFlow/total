@@ -8,6 +8,7 @@ import { api } from '../../lib/client'
 import { useT } from '../../lib/i18n'
 import { useNav, useSession } from '../../state/stores'
 import { Button, Page } from '../../components/ui'
+import { EmptyTeach } from '../help/EmptyTeach'
 import { DataTable, defineColumns } from '../../components/table'
 import { recordPaymentScreen } from './recordPayment'
 import { returnScreen, useReturnable } from '../returns/returnable'
@@ -68,6 +69,7 @@ function SalesTable(): React.JSX.Element {
   const until = workingDate < to ? workingDate : to
   const { data, isLoading } = useQuery({ queryKey: ['simpleSales', from, until, workingDate], queryFn: () => api.simple.sales(from, until, workingDate) }) // i18n-technical
   const rows = data ?? []
+  const empty = !isLoading && data != null && rows.length === 0
   const columns = useMemo(
     () =>
       defineColumns<SaleRow>([
@@ -101,10 +103,20 @@ function SalesTable(): React.JSX.Element {
           <h1 className="font-serif text-heading font-semibold tracking-tight text-ink">{t('simple.sales.title')}</h1>
           <p className="mt-1 text-detail text-muted">{t('simple.sales.period', { from: toPlainDate(from), to: toPlainDate(until) })}</p>
         </div>
-        <Button variant="primary" data-testid="btn-sales-make-bill" onClick={() => nav.go(SELL_SCREEN)}>
-          {t('simple.sales.makeBill')}
-        </Button>
+        {!empty && (
+          <Button variant="primary" data-testid="btn-sales-make-bill" onClick={() => nav.go(SELL_SCREEN)}>
+            {t('simple.sales.makeBill')}
+          </Button>
+        )}
       </div>
+      {empty ? (
+        <EmptyTeach
+          testId="simple-sales-empty"
+          purpose={t('simple.empty.sales')}
+          action={{ label: t('simple.sales.makeBill'), testId: 'btn-sales-empty-make', onClick: () => nav.go(SELL_SCREEN) }} // i18n-technical
+          help="make-a-bill" // i18n-technical
+        />
+      ) : (
       <section className="rounded-lg border border-line bg-panel shadow-elev-1">
         <DataTable
           testId="simple-sales"
@@ -114,14 +126,7 @@ function SalesTable(): React.JSX.Element {
           rowAttrs={(r) => ({ 'data-row-id': r.voucherId })}
           loading={isLoading}
           toolbarFeatures={{ quickFilter: true, columns: false, groupBy: false, density: false, views: false }}
-          empty={{
-            title: t('simple.sales.empty'),
-            action: (
-              <Button variant="primary" data-testid="btn-sales-empty-make" onClick={() => nav.go(SELL_SCREEN)}>
-                {t('simple.sales.makeBill')}
-              </Button>
-            )
-          }}
+          empty={{ title: t('simple.sales.empty') }}
           totalsLabel={t('simple.sales.col.total')}
           onRowActivate={(r) => nav.go({ name: 'simple-sales', billId: r.voucherId })} // i18n-technical
           trailing={(r) => (
@@ -134,6 +139,7 @@ function SalesTable(): React.JSX.Element {
           trailingWidth={70}
         />
       </section>
+      )}
     </Page>
   )
 }

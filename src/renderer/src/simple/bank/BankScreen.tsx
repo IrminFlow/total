@@ -19,6 +19,7 @@ import { NewAccountDialog } from '../NewAccountDialog'
 import { StatementDrop } from './StatementDrop'
 import { LineCard, canSave, categoryFor, type LineProblem } from './LineCard'
 import { DoneLines } from './DoneLines'
+import { EmptyTeach } from '../help/EmptyTeach'
 import { useAccountantView } from '../../lib/handoff'
 import { AccountantViewButton } from '../AccountantViewButton'
 
@@ -229,13 +230,12 @@ export function BankScreen({ bankId }: { bankId?: number }): React.JSX.Element {
       </div>
 
       {setup && banks.length === 0 ? (
-        <section className="rounded-lg border border-line bg-panel p-panel shadow-elev-1" data-testid="bank-no-bank">
-          <p className="text-body text-ink">{t('simple.bank.noBank')}</p>
-          <Button className="mt-3" variant="primary" data-testid="btn-bank-add-bank" onClick={() => setCreating({ what: 'bank', name: '', lineId: null })} // i18n-technical
-          >
-            {t('simple.bank.addBank')}
-          </Button>
-        </section>
+        <EmptyTeach
+          testId="bank-no-bank"
+          purpose={t('simple.empty.bank')}
+          action={{ label: t('simple.bank.addBank'), testId: 'btn-bank-add-bank', onClick: () => setCreating({ what: 'bank', name: '', lineId: null }) }} // i18n-technical
+          help="bank-statement" // i18n-technical
+        />
       ) : (
         <div className="flex flex-col gap-4">
           <section className="flex flex-wrap items-end gap-4">
