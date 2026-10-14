@@ -46,12 +46,21 @@ export function ReminderPanel({ person, reminder, startLang, onSent }: { person:
       return false
     }
   }
+  // One reminder per panel: Copy then Open in WhatsApp is the same message sent once, so only the
+  // first way is logged (reminder_log would otherwise count two reminders that day).
+  const [loggedOnce, setLoggedOnce] = useState(false)
   const logged = async (via: ReminderVia, said: string): Promise<void> => {
+    if (loggedOnce) {
+      setNote(said)
+      return
+    }
+    setLoggedOnce(true)
     try {
       await api.simplePeople.reminded(person.ledgerId, via, person.today)
       setNote(said)
       onSent()
     } catch (e) {
+      setLoggedOnce(false)
       toast.push('error', (e as Error).message)
     }
   }

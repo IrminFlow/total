@@ -223,8 +223,11 @@ describe('a person’s page', () => {
     // WhatsApp: a wa.me link for the saved number, opened by the OS browser.
     const open = vi.spyOn(window, 'open').mockReturnValue(null)
     fireEvent.click(screen.getByTestId('btn-reminder-whatsapp'))
-    await waitFor(() => expect(calls('simple:people:reminded')).toHaveLength(2))
+    await waitFor(() => expect(open).toHaveBeenCalled())
     expect(open.mock.calls[0]![0]).toMatch(/^https:\/\/wa\.me\/919876543210\?text=Namaste/)
+    // The same message copied and then opened in WhatsApp is ONE reminder in the log.
+    expect(screen.getByTestId('reminder-note').textContent).toContain('WhatsApp')
+    expect(calls('simple:people:reminded')).toHaveLength(1)
     open.mockRestore()
   })
 
