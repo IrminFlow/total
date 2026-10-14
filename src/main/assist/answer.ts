@@ -21,7 +21,7 @@ import { toMonthLabel, toPlainDate } from '@shared/dates'
 import { owedSummary } from '@shared/simple/home'
 import { cashWhy, collectedWhy, money, onPurchasesWhy, payablesWhy, receivablesWhy, taxesPeriodLabel, toPayWhy } from '@shared/simple/explain'
 import { doingLines } from '@shared/simple/reports'
-import { GLOSSARY, glossaryEntry, plain, type GlossaryEntry } from '@shared/simple/glossary'
+import { GLOSSARY, explain, glossaryEntry, plain, type GlossaryEntry } from '@shared/simple/glossary'
 import { needsReorder } from '@shared/simple/stock'
 import { outstandingsWithAdvances } from '../services/analysis'
 import { profitAndLoss } from '../services/reports'
@@ -30,7 +30,7 @@ import { simpleTaxes } from '../services/simpleTaxes'
 import { stockList } from '../services/simpleStock'
 import { getFeatures } from '../services/config'
 import { companyLanguage } from '../i18n'
-import { classify } from './classify'
+import { classify, questionLanguage } from './classify'
 import { findItem, findLedger } from './names'
 import { entryAnswer } from './entry'
 
@@ -184,9 +184,19 @@ function gstAnswer(db: DB, company: CompanyInfo, intent: AssistIntent, input: As
   const figures = [fig(Math.max(0, f.toPay), src, to), fig(f.collected, src, to), fig(f.onPurchases, src, to)]
   if (f.awaiting > 0) figures.push(fig(f.awaiting, src, to))
   if (f.reverseCharge > 0) figures.push(fig(f.reverseCharge, src, to))
-  return answer(intent, [t('assist.gst.period', { period: taxesPeriodLabel(x.period, t) }), collectedWhy(x, t), onPurchasesWhy(x, t), toPayWhy(x, t)], {
-    figures, links: [{ label: t('assist.link.gst'), target: to }]
-  })
+  const sentences = [t('assist.gst.period', { period: taxesPeriodLabel(x.period, t) }), collectedWhy(x, t), onPurchasesWhy(x, t), toPayWhy(x, t)]
+  const links: AssistLink[] = [{ label: t('assist.link.gst'), target: to }]
+  // Gate polish: while the answer is the return due next, the running month (or quarter) so far
+  // too — the Taxes screen's own line (WP 10.8 `running`), so this month's bills are not missing.
+  if (x.running) {
+    const r = x.running
+    const runTo = target('simple-taxes', { period: r.period.period })
+    const runSrc = screenSource('simple-taxes', t('assist.source.taxes'), { period: r.period.period })
+    sentences.push(t('simple.taxes.runningSoFar', { period: taxesPeriodLabel(r.period, t), collected: money(r.collected), purchases: money(r.onPurchases) }))
+    figures.push(fig(r.collected, runSrc, runTo), fig(r.onPurchases, runSrc, runTo))
+    links.push({ label: t('assist.link.gstRunning', { period: taxesPeriodLabel(r.period, t) }), target: runTo })
+  }
+  return answer(intent, sentences, { figures, links })
 }
 
 function figureAnswer(db: DB, company: CompanyInfo, intent: Extract<AssistIntent, { kind: 'figure' }>, input: AskInput, t: Translate): AssistAnswer {
@@ -262,7 +272,9 @@ function moneyAnswer(db: DB, company: CompanyInfo, intent: Extract<AssistIntent,
   return answer(intent, [cashWhy(cash, t)], { figures: [fig(cash.total, tb), fig(cash.cash, tb), fig(cash.bank, tb), ...cash.accounts.map(chip)], links: [{ label: t('assist.link.money'), target: target('simple-money') }] })
 }
 
-function stockAnswer(db: DB, intent: Extract<AssistIntent, { kind: 'stock' }>, input: AskInput, t: Translate): AssistAnswer {
+function stockAnswer(db: DB, intent: Extract<AssistIntent, { kind: 'stock' }>, input: AskInput, t: Translate, notUnderstood: () => AssistAnswer): AssistAnswer {
+  // "<name> kitna hai" was read as a product only loosely: no such product = not understood.
+  if (intent.loose && !getFeatures(db).inventory) return notUnderstood()
   if (!getFeatures(db).inventory) return answer(intent, [t('assist.stock.off')], { links: [{ label: t('assist.link.features'), target: target('simple-features') }] })
   const list = stockList(db, input.today)
   const src = screenSource('stock-summary', t('assist.source.stock'))
@@ -275,6 +287,7 @@ function stockAnswer(db: DB, intent: Extract<AssistIntent, { kind: 'stock' }>, i
   if (intent.item || input.picks?.item) {
     const found = input.picks?.item ? { status: 'match' as const, id: input.picks.item, name: '' } : findItem(db, intent.item!, input.today)
     if (found.status === 'choose') return answer(intent, [t('assist.whichItem', { name: intent.item ?? '' })], { choice: { slot: 'item', question: t('assist.whichItem', { name: intent.item ?? '' }), options: found.options } })
+    if (intent.loose && found.status === 'none') return notUnderstood()
     const row = found.status === 'match' ? list.rows.find((r) => r.itemId === found.id) : undefined
     if (!row) return answer(intent, [t('assist.notFound.item', { name: intent.item ?? '' })], { links: [{ label: t('assist.link.stock'), target: target('simple-stock') }] })
     const to = target('simple-stock', { itemId: row.itemId })
@@ -445,13 +458,19 @@ export function helpSearch(text: string, lang: Language, limit = 3): { term: str
   })
     .filter((x) => x.score > 0)
     .sort((a, b) => b.score - a.score)
-  return scored.slice(0, limit).map(({ e }) => ({ term: e.term, plain: plain(e.term, lang), explain: e.explain }))
+  return scored.slice(0, limit).map(({ e }) => ({ term: e.term, plain: plain(e.term, lang), explain: explain(e.term, lang) ?? e.explain }))
 }
 
-function meaningAnswer(intent: Extract<AssistIntent, { kind: 'meaning' }>, input: AskInput, lang: Language, t: Translate, gstRegular: boolean): AssistAnswer {
+function meaningAnswer(intent: Extract<AssistIntent, { kind: 'meaning' }>, input: AskInput, readerLang: Language, readerT: Translate, gstRegular: boolean): AssistAnswer {
+  // Gate polish: "GSTR-3B kya hai" is answered in Hinglish, "जीएसटी क्या है" in Hindi — the
+  // question's own language; an English question keeps the reader's. The explanation falls back
+  // to English only where the glossary has no translation.
+  const lang = questionLanguage(input.text) ?? readerLang
+  const t = lang === readerLang ? readerT : translator(lang)
   const e = glossaryFind(intent.term)
   if (!e) return unknownAnswer(intent, input.text, t, undefined, lang, gstRegular)
-  return answer(intent, [t('assist.meaning', { term: e.term, explain: e.explain, plain: plain(e.term, lang) })], { help: [{ term: e.term, plain: plain(e.term, lang), explain: e.explain }] })
+  const why = explain(e.term, lang) ?? e.explain
+  return answer(intent, [t('assist.meaning', { term: e.term, explain: why, plain: plain(e.term, lang) })], { help: [{ term: e.term, plain: plain(e.term, lang), explain: why }] })
 }
 
 const SUGGESTIONS: MessageKey[] = ['assist.suggest.owed', 'assist.suggest.profit', 'assist.suggest.cash', 'assist.suggest.gst', 'assist.suggest.entry']
@@ -502,7 +521,7 @@ export function askTotal(db: DB, company: CompanyInfo, input: AskInput, env: Ask
       case 'money':
         return moneyAnswer(db, company, intent, input, t)
       case 'stock':
-        return stockAnswer(db, intent, input, t)
+        return stockAnswer(db, intent, input, t, () => unknownAnswer({ kind: 'unknown' }, input.text, t, undefined, lang, gstRegular))
       case 'open':
         return openAnswer(db, intent, input, t, lang, gstRegular)
       case 'howto':

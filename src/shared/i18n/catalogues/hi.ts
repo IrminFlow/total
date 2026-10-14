@@ -2182,6 +2182,7 @@ export const hi: Partial<Record<MessageKey, string>> = {
   'assist.link.whoOwes': 'देखें किससे लेना है',
   'assist.link.billsToPay': 'चुकाने वाले बिल देखें',
   'assist.link.gst': 'GST के आँकड़े देखें',
+  'assist.link.gstRunning': '{period} देखें',
   'assist.link.pnl': 'देखें बिज़नेस कैसा चल रहा है',
   'assist.link.sales': 'बिक्री देखें',
   'assist.link.purchases': 'खरीद देखें',

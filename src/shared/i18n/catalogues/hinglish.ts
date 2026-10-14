@@ -2177,6 +2177,7 @@ export const hinglish: Partial<Record<MessageKey, string>> = {
   'assist.link.whoOwes': 'Dekhein kisse lena hai',
   'assist.link.billsToPay': 'Chukane wale bill dekhein',
   'assist.link.gst': 'GST ke figures dekhein',
+  'assist.link.gstRunning': '{period} dekhein',
   'assist.link.pnl': 'Dekhein business kaisa chal raha hai',
   'assist.link.sales': 'Sale dekhein',
   'assist.link.purchases': 'Purchase dekhein',

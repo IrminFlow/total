@@ -51,7 +51,8 @@ export type AssistIntent =
   | { kind: 'gst' }
   | { kind: 'figure'; measure: AssistMeasure; period: AssistPeriod; periodSaid: boolean }
   | { kind: 'money'; which: 'cash' | 'bank' | 'both' }
-  | { kind: 'stock'; item?: string; low?: boolean }
+  /** `loose`: read from "<name> kitna hai" — an unknown name is "not understood", not "no such product". */
+  | { kind: 'stock'; item?: string; low?: boolean; loose?: boolean }
   | { kind: 'open'; target: string }
   | { kind: 'howto'; task: AssistHowTo }
   | { kind: 'meaning'; term: string }

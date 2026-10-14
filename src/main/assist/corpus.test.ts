@@ -66,6 +66,17 @@ const CORPUS: [string, Expect][] = [
   ['what is running low', { kind: 'stock', low: true }],
   ['kya khatam ho raha hai', { kind: 'stock', low: true }],
   ['stock', { kind: 'stock', item: undefined }],
+  // gate polish: "bacha" is "left", never a typo of "becha" (sold)
+  ['Tata Namak kitna bacha hai', { kind: 'stock', item: 'tata namak' }],
+  ['tata namak bacha hai?', { kind: 'stock', item: 'tata namak' }],
+  ['Tata Namak stock', { kind: 'stock', item: 'tata namak' }],
+  ['tata namak stock kitna hai', { kind: 'stock', item: 'tata namak' }],
+  ['how much Tata Namak is left', { kind: 'stock', item: 'tata namak' }],
+  ['Tata Namak kitna hai', { kind: 'stock', item: 'tata namak', loose: true }],
+  ['टाटा नमक कितना बचा है', { kind: 'stock', item: 'टाटा नमक' }],
+  ['चीनी कितनी बची है', { kind: 'stock', item: 'चीनी' }],
+  ['kitna paisa hai', { kind: 'money', which: 'both' }],
+  ['Ramesh ka kitna hai', { kind: 'unknown' }],
   // ---- open ----
   ['open bank', { kind: 'open', target: 'bank' }],
   ['go to customers', { kind: 'open', target: 'customers' }],

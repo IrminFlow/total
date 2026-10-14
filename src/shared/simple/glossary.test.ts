@@ -45,7 +45,7 @@ describe('glossary', () => {
     const offenders: string[] = []
     for (const [id, e] of entries) {
       const own = [e.term, ...(e.aliases ?? [])]
-      for (const text of [e.plain, e.explain]) {
+      for (const text of [e.plain, e.explain, e.explainHi ?? '', e.explainHinglish ?? ''].filter(Boolean)) {
         const words = bannedWordsIn(text, own)
         if (words.length) offenders.push(`${id}: ${words.join(', ')} — "${text}"`)
       }
@@ -58,5 +58,15 @@ describe('glossary', () => {
     expect(explain('GSTR-3B')).toMatch(/Total prepares it, you file it/)
     expect(plain('Dr / Cr')).not.toMatch(/money/i)
     expect(explain('ITC')).toMatch(/confirms/)
+  })
+
+  it('gate polish: Hindi / Hinglish explanations where written, English otherwise; scripts right', () => {
+    expect(explain('GSTR-3B', 'hi')).toMatch(/तैयार करता है/)
+    expect(explain('GSTR-3B', 'hinglish')).toMatch(/taiyaar karta hai, file aap karte hain/)
+    expect(explain('Godown', 'hi')).toBe(explain('Godown'))
+    for (const [id, e] of entries) {
+      if (e.explainHi) expect(e.explainHi, id).toMatch(/[\u0900-\u097F]/)
+      if (e.explainHinglish) expect(e.explainHinglish, id).not.toMatch(/[\u0900-\u097F]/)
+    }
   })
 })

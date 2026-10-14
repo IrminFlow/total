@@ -2284,6 +2284,7 @@ export const en = {
   'assist.link.whoOwes': 'See who owes you',
   'assist.link.billsToPay': 'See bills to pay',
   'assist.link.gst': 'See the GST figures',
+  'assist.link.gstRunning': 'See {period}',
   'assist.link.pnl': 'See how the business is doing',
   'assist.link.sales': 'See sales',
   'assist.link.purchases': 'See purchases',
