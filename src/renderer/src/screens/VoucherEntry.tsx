@@ -116,7 +116,9 @@ export function VoucherEntry({
   useEffect(() => {
     if ((dash?.voucherCount ?? 0) > 0) setSawVouchers(true)
   }, [dash?.voucherCount])
-  const showFirstVoucherHint = !voucherId && !hintDismissed && !sawVouchers && dash?.voucherCount === 0
+  // WP 9.10: not over a hand-off — its answers are already filled in ("pick a type … fill in the
+  // lines" would contradict the hand-off banner).
+  const showFirstVoucherHint = !voucherId && !handoff && !hintDismissed && !sawVouchers && dash?.voucherCount === 0
   const opts = useScreenOptions('voucher-entry', { showShortcuts: true })
 
 
