@@ -15,6 +15,7 @@ The screens a first-time, non-accountant user sees (plan `docs/superpowers/specs
 ## The simple shell (WP 8.1)
 
 - `SimpleHeader.tsx` / `SimpleSidebar.tsx` replace the accountant header and sidebar inside `components/Shell.tsx` when the visible screen's view is simple (`lib/mode.ts` `useScreenView`); `<main>` stays mounted, so "Accountant view" / "Back to simple" (`ViewToggle.tsx`) keep the screen's state.
+- `AccountantViewButton.tsx` (WP 9.10) is every simple screen's "Accountant view": a one-off, with a ⋯ menu holding "Always open the full app for this" (the remembered choice). The hand-off itself (the unsaved answers into the full editor, "Back to simple" onto the same object) is `lib/handoff.ts`.
 - `SimpleSection.tsx` is a section's page (Sell, Buy, Money …); its entries come from the registry (`lib/screens.ts` `simpleEntries`, ordered by `SIMPLE_ENTRY_ORDER`). Registry keys are passed to `t()` on lines marked `i18n-technical`; `__tests__/simpleRegistry.test.ts` checks they are `simple.*` / `common.*` keys in the catalogue.
 - `SimpleHome.tsx` is Home (WP 8.6, below). `ModeSetting.tsx` is the owner's mode switch in Settings → How Total looks.
 - `SimplePlaceholder.tsx` is the generic "on its way" card.

@@ -420,7 +420,9 @@ export function CommandPalette({ onClose }: { onClose: () => void }): React.JSX.
             </>
           ) : (
             <span>
-              <Kbd>↑↓</Kbd> move · <Kbd>↵</Kbd> open · <Kbd>⌘E</Kbd> edit ledger · <Kbd>⌘↵</Kbd> all results
+              {/* WP 9.10: a simple company's palette keeps to plain words (⌘E still works). */}
+              <Kbd>↑↓</Kbd> {simpleMode ? t('simple.palette.move') : 'move'} · <Kbd>↵</Kbd> {simpleMode ? t('simple.palette.open') : 'open'}
+              {simpleMode ? '' : <> · <Kbd>⌘E</Kbd> edit ledger</>} · <Kbd>⌘↵</Kbd> {simpleMode ? t('simple.palette.allResults') : 'all results'}
             </span>
           )}
         </div>

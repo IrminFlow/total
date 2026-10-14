@@ -27,6 +27,8 @@ import type { IntentDraft } from './simplePost'
 type Name = Screen['name']
 
 const HOME: Screen = { name: 'gateway' }
+/** simple:intentForm parses the whole intent (a clientId included); nothing is posted with it. */
+const HANDOFF_CLIENT_ID = 'accountant-view-handoff'
 
 /** The blank full counterpart of a simple screen — what "Always open the full app for this" opens,
  *  and the fallback when the answers can't be carried. null = no full counterpart. */
@@ -226,7 +228,7 @@ export function useAccountantView(self: Name): (req: AccountantViewRequest) => P
       if (req.savedId != null) return nav.go({ name: 'voucher-entry', voucherId: req.savedId })
       if (!req.intent) return nav.go(blank)
       try {
-        const r = await api.simple.intentForm({ ...req.intent, clientId: req.clientId ?? 'handoff' } as SimpleIntentInput, today)
+        const r = await api.simple.intentForm({ ...req.intent, clientId: req.clientId ?? HANDOFF_CLIENT_ID } as SimpleIntentInput, today)
         const [entry, ...rest] = r.entries
         if (!entry) return nav.go(blank)
         const handoff: SimpleHandoff = {

@@ -128,6 +128,9 @@ export const en = {
   'simple.handoff.missing': 'Not set up yet: {names}. Pick or create {count, plural, one {it} other {them}} here.',
   'simple.handoff.notCarried': 'Some answers could not be carried over — the full form opens empty.',
   'simple.palette.title': 'Simple screens',
+  'simple.palette.move': 'move',
+  'simple.palette.open': 'open',
+  'simple.palette.allResults': 'everything found',
 
   // ---------- simple sections: the plain-named entries (§2.3, WP 8.1) ----------
   'simple.section.empty': 'Nothing to show here for your business yet. Turn more on in Settings → Features.',

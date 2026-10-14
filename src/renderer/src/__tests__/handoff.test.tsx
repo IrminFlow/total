@@ -153,7 +153,7 @@ describe('the remembered choice', () => {
     await act(async () => result.current({ intent: { kind: 'sale', date: '2026-05-10', customerId: 7, items: [{ itemId: 4, qty: 2000, rate: 50_000 }], payment: { how: 'credit' } } }))
     expect(top()).toMatchObject({ name: 'voucher-entry', handoff: { from: 'simple-sell', kind: 'sale', entry: BILL, others: [], missing: [] } })
     expect(localStorage.getItem(KEY('simple-sell'))).toBeNull()
-    expect(invoke).toHaveBeenCalledWith('simple:intentForm', expect.objectContaining({ intent: expect.objectContaining({ kind: 'sale', clientId: 'handoff' }), today: '2026-05-10' }))
+    expect(invoke).toHaveBeenCalledWith('simple:intentForm', expect.objectContaining({ intent: expect.objectContaining({ kind: 'sale', clientId: 'accountant-view-handoff' }), today: '2026-05-10' }))
 
     act(() => useNav.setState({ stack: [{ name: 'gateway' }, { name: 'simple-sell' }] }))
     await act(async () => result.current({ intent: null, always: true }))
