@@ -12,7 +12,7 @@
 // The remembered choice: only "Always open the full app for this" stores the per-screen override
 // (lib/mode.ts); a simple flow with it set opens its full counterpart (`fullCounterpart`) straight
 // away (`useAlwaysFullRedirect`). "Back to simple" clears it (`backToSimpleClears`).
-import { useCallback, useEffect } from 'react'
+import { useCallback, useEffect, useRef } from 'react'
 import { create } from 'zustand'
 import type { VoucherKind } from '@shared/domain'
 import { INTENT_SCREEN, type HandoffFacts, type SimpleHandoff } from '@shared/simple/handoff'
@@ -250,21 +250,22 @@ export function useAccountantView(self: Name): (req: AccountantViewRequest) => P
   )
 }
 
-/** Nav entries already arrived at — returning to one (Back / Esc from the full editor the choice
- *  opened) shows the simple flow again instead of bouncing into another blank full editor. */
-const arrived = new WeakSet<Screen>()
-
 /** A simple flow the user chose "Always open the full app for this" for opens its full
  *  counterpart instead (only on arrival — never while the user is on it, nor when coming back to
- *  it with Back). */
+ *  it with Back / Esc from the full editor the choice opened: the stack got shorter then, and the
+ *  user would only bounce into another blank editor). Registry entries reuse one Screen object,
+ *  so arrival is told by the stack's length, not by the object. */
 export function useAlwaysFullRedirect(): void {
   const screen = useScreen()
+  const depth = useNav((s) => s.stack.length)
+  const lastDepth = useRef<number | null>(null)
   const mode = useMode()
   const slug = useSession((s) => s.slug)
   const userId = useSession((s) => s.user?.id)
   useEffect(() => {
-    if (arrived.has(screen)) return
-    arrived.add(screen)
+    const cameBack = lastDepth.current != null && depth < lastDepth.current
+    lastDepth.current = depth
+    if (cameBack) return
     if (mode !== 'simple' || !screenDef(screen.name)?.modes.includes('simple')) return
     if (!readRememberedOverride(slug, userId, screen.name)) return
     const full = fullCounterpart(screen)

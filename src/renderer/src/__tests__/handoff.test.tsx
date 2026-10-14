@@ -187,8 +187,10 @@ describe('the remembered choice', () => {
     act(() => useNav.setState({ stack: [{ name: 'gateway' }, flow] })) // Back
     await new Promise((r) => setTimeout(r, 20))
     expect(top()).toBe(flow)
-    // A NEW arrival still opens the full app.
-    act(() => useNav.setState({ stack: [{ name: 'gateway' }, { name: 'simple-sell' }] }))
+    // A NEW arrival still opens the full app — even with the very same Screen object (the
+    // registry's section entries push one shared object every time).
+    act(() => useNav.setState({ stack: [{ name: 'gateway' }] }))
+    act(() => useNav.setState({ stack: [{ name: 'gateway' }, flow] }))
     await waitFor(() => expect(top()).toEqual({ name: 'voucher-entry', kindHint: 'sales' }))
   })
 
