@@ -326,7 +326,12 @@ export function ManufactureForm({
   // "changes" (same as the sibling entry forms); an alteration compares everything.
   // The job-work header (worker, their challan, nature) of a NEW voucher is a setting carried from
   // one receipt to the next, not a change; an alteration compares it too.
-  const initialKey = useMemo(() => manufactureFormKey(isEdit ? base : { ...base, jobWork: null }), [base, isEdit])
+  // WP 9.10: a handed-off form's answers exist nowhere else (no draft row) — they count as changes,
+  // so leaving asks first; compare a NEW handed-off form with the blank form instead of `base`.
+  const initialKey = useMemo(
+    () => manufactureFormKey(isEdit ? base : handedOff ? { ...emptyManufactureState(base.date), jobWork: null } : { ...base, jobWork: null }),
+    [base, isEdit, handedOff]
+  )
   const numberTyped = !isEdit && numberField.touched
   const dirty =
     numberTyped || manufactureFormKey(isEdit ? state : { ...state, number: '', date: base.date, jobWork: null }) !== initialKey
