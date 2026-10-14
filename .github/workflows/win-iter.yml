@@ -27,6 +27,7 @@ jobs:
         run: |
           Add-MpPreference -ExclusionPath $env:GITHUB_WORKSPACE, $env:RUNNER_TEMP, $env:TEMP -ErrorAction SilentlyContinue
           Set-MpPreference -DisableRealtimeMonitoring $true -ErrorAction SilentlyContinue
+          Get-MpComputerStatus | Select-Object RealTimeProtectionEnabled, AntivirusEnabled | Format-List
 
       - uses: actions/checkout@v4
 
@@ -46,6 +47,9 @@ jobs:
 
       - name: Renderer tests (jsdom + RTL)
         run: npm run test:renderer
+
+      - name: TEMP diagnostic — demo seed per synchronous mode
+        run: npm run test:db -- src/main/zzWinTiming.dbtest.ts
 
       - name: DB-layer tests (Electron-as-Node)
         run: npm run test:db
