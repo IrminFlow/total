@@ -32,7 +32,7 @@ and `release-win` in `release.yml` on tags. "Unit" = a vitest test that runs on 
 | CLI's Documents folder (registry known folder, OneDrive redirect) | Unit (`src/shared/windowsPaths.test.ts`) |
 | Temp-file rename retry (EPERM / EACCES / EBUSY) | Unit (`src/main/fsRetry.test.ts`, injected) |
 | Shortcut labels Ctrl / Alt | Unit (`src/shared/shortcutLabels.test.ts`, `src/renderer/src/lib/platform.test.ts`) |
-| Updater text (SmartScreen, `Documents\total`, `/api/download?platform=win`) | Unit (`src/shared/updateText.test.ts`) |
+| Updater platform facts (`Documents\total`, `/api/download?platform=win`, `TOTAL_NO_UPDATE_CHECK`) | Unit (`src/shared/updateText.test.ts`) |
 
 Not verified without a real Windows machine (CI runners have no interactive user, no OneDrive,
 no SmartScreen, no installed update to replace): the NSIS installer actually installing and
@@ -92,7 +92,7 @@ the build default (better-sqlite3's SQLITE_DEFAULT_WAL_SYNCHRONOUS=1: NORMAL in 
   Windows 11 machines) that is `…\OneDrive\Documents\total` and the sync-folder warning shows at
   start. The CLI reads the Documents known folder from the registry so it opens the same books.
 - **Installer**: per-user (`perMachine: false`), no administrator rights, no file associations.
-  Unsigned, so SmartScreen warns on first run ("More info → Run anyway"); the updater dialog says so.
+  Unsigned, so SmartScreen warns on first run ("More info → Run anyway"); the help article "Total on Windows" says so (the update notices are in-app since the consent updater).
 - **Updates**: electron-updater installs in place on quit (no `publisherName`, so no signature
   check); the manual fallback opens `/api/download?platform=win`. `nsis.artifactName` is
   `${productName}-Setup-${version}.${ext}` — no spaces, so the GitHub asset name equals the one in

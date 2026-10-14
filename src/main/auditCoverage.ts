@@ -101,6 +101,9 @@ export const AUDIT_COVERAGE: Record<string, AuditCoverage> = {
   'help:openLink': r('opens an allow-listed government web page in the browser; writes nothing'),
   'simple:homeAttention': QUERY,
   'app:info': QUERY,
+  'app:updates:get': QUERY,
+  'app:updates:set': r('app-level setting in <dataRoot>/app-settings.json (append-only app-settings-audit.jsonl), outside every company; writes no company audit row'),
+  'app:updates:act': r('app-level: starts a download the user approved, or remembers a skipped version in app-settings.json; writes no company audit row'),
   'log:renderer': r('writes the app log file (outside the books)'),
   'log:reveal': r('opens the logs folder'),
 
