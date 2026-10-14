@@ -195,7 +195,7 @@ export function BankScreen({ bankId }: { bankId?: number }): React.JSX.Element {
   }
 
   const sentence = view ? bankSentence(view.sentence) : null
-  const sentenceText = sentence ? t(sentence.key as MessageKey, { ...sentence.vars, ...(sentence.tone === 'agree' ? { date: toPlainDate(String(sentence.vars.date), t.lang) } : {}) }) : '' // i18n-technical: key from bankSentence
+  const sentenceText = sentence ? t(sentence.key as MessageKey, { ...sentence.vars, ...(sentence.tone === 'agree' || sentence.tone === 'balance' ? { date: toPlainDate(String(sentence.vars.date), t.lang) } : {}) }) : '' // i18n-technical: key from bankSentence
   const seeThem = (): void => {
     if (bankLedgerId == null || !view?.sentence.asOn) return
     nav.go({ name: 'banking', tab: BRS_TAB, ledgerId: bankLedgerId, asOn: view.sentence.asOn }) // i18n-technical
@@ -262,7 +262,7 @@ export function BankScreen({ bankId }: { bankId?: number }): React.JSX.Element {
             <section
               role="status"
               className={`rounded-lg border px-4 py-3 ${
-                sentence.tone === 'agree' ? 'border-success/50 bg-success/10' : sentence.tone === 'differ' ? 'border-amber/60 bg-amberbar/10' : 'border-line bg-panel2'
+                sentence.tone === 'agree' ? 'border-success/50 bg-success/10' : sentence.tone === 'differ' || sentence.tone === 'balance' ? 'border-amber/60 bg-amberbar/10' : 'border-line bg-panel2'
               }`}
               data-testid="bank-sentence"
               data-tone={sentence.tone}

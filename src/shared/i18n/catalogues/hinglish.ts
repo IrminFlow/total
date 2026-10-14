@@ -567,6 +567,7 @@ export const hinglish: Partial<Record<MessageKey, string>> = {
   'simple.bank.sentence.none': 'Apne hisaab ko bank se milane ke liye statement jodein.',
   'simple.bank.sentence.agree': '{date} tak aapka hisaab aur bank match karte hain.',
   'simple.bank.sentence.open': '{count, plural, one {# bank line ka} other {# bank lines ka}} jawab neeche dena abhi baaki hai.',
+  'simple.bank.sentence.balance': 'Har line ka jawab de diya hai, par {date} ko bank {bank} batata hai aur aapka hisaab {books}. {gap} ka yeh fark aisa paisa hai jo abhi likha nahi gaya — aksar shuruaat ke din bank mein jo tha (Settings → Pehle din aapke paas kya tha).',
   'simple.bank.agree': 'Hisaab aur bank match karte hain.',
   'simple.bank.differ': '{count, plural, one {# entry alag hai} other {# entries alag hain}}: dekhein',
   'simple.bank.differHint': '{count, plural, one {Aapke hisaab ki ek entry jo bank ne nahi dikhayi} other {Aapke hisaab ki entries jo bank ne nahi dikhayin}}, {date} tak. “Dekhein” full app kholta hai.',

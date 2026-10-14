@@ -613,6 +613,7 @@ export const en = {
   'simple.bank.sentence.none': 'Add a statement to check your books against the bank.',
   'simple.bank.sentence.agree': 'Books and bank agree as on {date}.',
   'simple.bank.sentence.open': '{count, plural, one {# bank line still needs} other {# bank lines still need}} an answer below.',
+  'simple.bank.sentence.balance': 'Every line is answered, but on {date} the bank says {bank} and your books say {books}. The {gap} gap is money not recorded yet — often what was in the bank on the day you started (Settings → What you had on day one).',
   'simple.bank.agree': 'Books and bank agree.',
   'simple.bank.differ': '{count, plural, one {# entry differs} other {# entries differ}}: see them',
   'simple.bank.differHint': '{count, plural, one {An entry in your books that the bank has not shown} other {Entries in your books that the bank has not shown}} by {date}. “See them” opens the full app.',

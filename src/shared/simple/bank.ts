@@ -9,6 +9,7 @@
 // No money arithmetic: amounts are the statement line's integer paise, passed through unchanged.
 
 import { z } from 'zod'
+import { formatPaise } from '../money'
 import type { MessageKey } from '../i18n'
 import type { StructuredError } from '../errors/appError'
 import type { CategorySource } from '../capture/categorise'
@@ -203,14 +204,24 @@ export interface BankSentenceFacts {
   difference: number
   /** Statement lines up to `asOn` that still need an answer. */
   open: number
+  /** WP 10.8: the balance the statement prints on its latest line up to `asOn` (null = the file
+   *  has no balance column) and the bank balance the books give (book − what the bank hasn't shown). */
+  statementBalance?: number | null
+  bankBalance?: number | null
 }
 
 /** The one sentence about the books against the bank. Only "agree" when nothing differs either
  *  way: no BRS entry and no statement line left without an answer. */
-export function bankSentence(f: BankSentenceFacts): { key: MessageKey; vars: Record<string, string | number>; tone: 'none' | 'agree' | 'differ' | 'open' } {
+export function bankSentence(f: BankSentenceFacts): { key: MessageKey; vars: Record<string, string | number>; tone: 'none' | 'agree' | 'differ' | 'open' | 'balance' } {
   if (!f.asOn) return { key: 'simple.bank.sentence.none', vars: {}, tone: 'none' }
   if (f.differ > 0) return { key: 'simple.bank.differ', vars: { count: f.differ }, tone: 'differ' }
   if (f.open > 0) return { key: 'simple.bank.sentence.open', vars: { count: f.open }, tone: 'open' }
+  // WP 10.8 (the 9.6 deferred item): every line answered is not "agree" while the statement's own
+  // closing balance differs from the books' — usually the balance on the day the books began.
+  if (f.statementBalance != null && f.bankBalance != null && f.statementBalance !== f.bankBalance) {
+    const m = (p: number): string => formatPaise(p, { symbol: true })
+    return { key: 'simple.bank.sentence.balance', vars: { date: f.asOn, bank: m(f.statementBalance), books: m(f.bankBalance), gap: m(Math.abs(f.statementBalance - f.bankBalance)) }, tone: 'balance' }
+  }
   return { key: 'simple.bank.sentence.agree', vars: { date: f.asOn }, tone: 'agree' }
 }
 

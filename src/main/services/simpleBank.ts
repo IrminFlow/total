@@ -104,10 +104,18 @@ export async function bankView(db: DB, bankLedgerId: number, today: string): Pro
   const asOn = ws.lines.reduce<string | null>((m, l) => (m == null || l.date > m ? l.date : m), null)
   let differ = 0
   let difference = 0
+  let bankBalance: number | null = null
+  let statementBalance: number | null = null
   if (asOn) {
     const r = brs(db, bankLedgerId, asOn)
     differ = r.uncredited.length + r.unpresented.length
     difference = r.uncreditedTotal - r.unpresentedTotal
+    bankBalance = r.bankBalance
+    // WP 10.8: the balance the statement itself prints on its last line up to then (if any).
+    const row = db
+      .prepare('SELECT balance FROM bank_statement_lines WHERE bank_ledger_id = ? AND date <= ? AND balance IS NOT NULL AND ignored_at IS NULL ORDER BY date DESC, import_id DESC, line_no DESC LIMIT 1')
+      .get(bankLedgerId, asOn) as { balance: number } | undefined
+    statementBalance = row?.balance ?? null
   }
   const open = lines.filter((l) => l.status === 'open' && asOn != null && l.date <= asOn).length
   const last = ws.imports[0]
@@ -115,7 +123,7 @@ export async function bankView(db: DB, bankLedgerId: number, today: string): Pro
     bankLedgerId,
     bankName,
     lines,
-    sentence: { asOn, differ, difference, open },
+    sentence: { asOn, differ, difference, open, statementBalance, bankBalance },
     lastImport: last ? { id: last.id, fileName: last.fileName, lineCount: last.lineCount } : null
   }
 }

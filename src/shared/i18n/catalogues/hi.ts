@@ -572,6 +572,7 @@ export const hi: Partial<Record<MessageKey, string>> = {
   'simple.bank.sentence.none': 'अपने हिसाब को बैंक से मिलाने के लिए स्टेटमेंट जोड़ें।',
   'simple.bank.sentence.agree': '{date} तक आपका हिसाब और बैंक मेल खाते हैं।',
   'simple.bank.sentence.open': '{count, plural, one {# बैंक लाइन का} other {# बैंक लाइनों का}} जवाब नीचे देना अभी बाकी है।',
+  'simple.bank.sentence.balance': 'हर लाइन का जवाब दे दिया है, पर {date} को बैंक {bank} बताता है और आपका हिसाब {books}। {gap} का यह फ़र्क ऐसा पैसा है जो अभी लिखा नहीं गया — अक्सर शुरुआत के दिन बैंक में जो था (सेटिंग्स → पहले दिन आपके पास क्या था)।',
   'simple.bank.agree': 'हिसाब और बैंक मेल खाते हैं।',
   'simple.bank.differ': '{count, plural, one {# एंट्री अलग है} other {# एंट्री अलग हैं}}: देखें',
   'simple.bank.differHint': '{count, plural, one {आपके हिसाब की एक एंट्री जो बैंक ने नहीं दिखाई} other {आपके हिसाब की एंट्री जो बैंक ने नहीं दिखाईं}}, {date} तक। “देखें” पूरा ऐप खोलता है।',
