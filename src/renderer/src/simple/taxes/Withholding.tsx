@@ -1,9 +1,9 @@
 import type { TaxesWithholding } from '@shared/simple/taxes'
-import { money, shortDate, withholdingUnpaidText } from '@shared/simple/explain'
+import { money, shortDate, withholdingUnpaidText, withholdingWhy } from '@shared/simple/explain'
 import { useT } from '../../lib/i18n'
 import { useNav } from '../../state/stores'
 import { Button } from '../../components/ui'
-import { cardCls } from '../reports/parts'
+import { WhyLink, cardCls } from '../reports/parts'
 
 const TDS = { name: 'tds' } as const // i18n-technical
 const TCS = { name: 'tcs' } as const // i18n-technical
@@ -39,6 +39,14 @@ export function WithholdingCards({ items, today }: { items: TaxesWithholding[]; 
               ))}
             </ul>
           )}
+          <div className="mt-2">
+            <WhyLink
+              what={w.kind === 'tds' ? t('simple.taxes.tds.what') : t('simple.taxes.tcs.what')}
+              sentence={withholdingWhy(w, today, t)}
+              link={{ label: w.kind === 'tds' ? t('simple.why.link.tds') : t('simple.why.link.tcs'), screen: w.kind === 'tds' ? TDS : TCS }}
+              testId={`why-${w.kind}`}
+            />
+          </div>
           <p className="mt-2 text-caption text-muted">{t('simple.taxes.withholding.source')}</p>
           <Button className="mt-2" size="sm" onClick={() => nav.go(w.kind === 'tds' ? TDS : TCS)}>
             {w.kind === 'tds' ? t('simple.taxes.withholding.openTds') : t('simple.taxes.withholding.openTcs')}

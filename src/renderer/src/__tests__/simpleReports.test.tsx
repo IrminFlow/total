@@ -7,7 +7,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-libra
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import type { CompanyInfo } from '@shared/domain'
 import type { BusinessDoing, SimpleByMonth, SimpleCash, SimpleOwed } from '@shared/simple/reports'
-import { last12Months, monthBars } from '@shared/simple/reports'
+import { last12Months, monthBars, monthTotals } from '@shared/simple/reports'
 import { bannedWordsIn } from '@shared/simple/bannedWords'
 import { useNav, useSession } from '../state/stores'
 import { useExplain } from '../lib/explain'
@@ -24,14 +24,16 @@ const DOING: BusinessDoing = {
 }
 const CASH: SimpleCash = {
   asOn: '2026-10-13', until: '2026-11-11', now: 50_000_00, moneyIn: 8_000_00, moneyOut: 3_000_00, end: 55_000_00, lowest: null,
-  inBy: { customers: 8_000_00 }, outBy: { suppliers: 3_000_00 }, topIn: [{ label: 'Asha Stores', date: '2026-10-20', amount: 8_000_00, source: 'customers', ledgerId: 7 }], topOut: [], warnings: 0
+  inBy: { customers: 8_000_00 }, outBy: { suppliers: 3_000_00 }, topIn: [{ label: 'Asha Stores', date: '2026-10-20', amount: 8_000_00, source: 'customers', ledgerId: 7 }], topOut: [], warnings: 0,
+  split: { cash: 5_000_00, bank: 45_000_00, total: 50_000_00, ledgerIds: [1, 2], banks: 1 }, belowZero: null
 }
 const OWED: SimpleOwed = {
   side: 'receivable', asOn: '2026-10-13', total: 8_000_00, overdue: 5_000_00, advances: 0, advanceParties: 0,
   parties: [{ ledgerId: 7, name: 'Asha Stores', pending: 5_000_00, overdue: 5_000_00, bills: 1, oldestDays: 40 }, { ledgerId: 8, name: 'Bala', pending: 3_000_00, overdue: 0, bills: 1, oldestDays: 3 }]
 }
 const months = last12Months('2026-10-13')
-const BY_MONTH: SimpleByMonth = { from: `${months[0]}-01`, to: '2026-10-13', months: monthBars(months, [{ month: '2026-09', taxable: 70_000_00, vouchers: 3 }], [{ month: '2026-09', taxable: 40_000_00, vouchers: 2 }]) }
+const BARS = monthBars(months, [{ month: '2026-09', taxable: 70_000_00, vouchers: 3 }], [{ month: '2026-09', taxable: 40_000_00, vouchers: 2 }])
+const BY_MONTH: SimpleByMonth = { from: `${months[0]}-01`, to: '2026-10-13', months: BARS, totals: monthTotals(BARS) }
 
 let doingReply: (p: { period: string }) => { ok: boolean; data?: unknown; error?: string; code?: string; field?: string }
 const calls = (ch: string): unknown[] => invoke.mock.calls.filter(([c]) => c === ch).map(([, p]) => p)
@@ -78,7 +80,8 @@ describe('How is my business doing (WP 9.9)', () => {
     expect((await screen.findByTestId('why-doing-expenses-sentence')).textContent).toBe('Running costs such as rent, salaries and electricity: ₹30,000.00. The biggest: Salary ₹18,000.00, Rent ₹12,000.00.')
     fireEvent.click(screen.getByTestId('why-doing-profit'))
     fireEvent.click(await screen.findByTestId('why-doing-profit-link'))
-    await waitFor(() => expect(lastScreen()).toEqual({ name: 'profit-loss' }))
+    // WP 10.2: the P&L for exactly the period the line covers
+    await waitFor(() => expect(lastScreen()).toEqual({ name: 'profit-loss', from: '2026-10-01', to: '2026-10-13' }))
     expect(screen.getByTestId('doing-cash').getAttribute('data-paise')).toBe(String(50_000_00))
     expect(screen.getByTestId('doing-receivable').textContent).toBe('₹8,000.00')
     expect(bannedWordsIn(visibleText())).toEqual([])

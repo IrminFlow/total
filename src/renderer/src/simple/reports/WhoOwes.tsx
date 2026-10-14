@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { toPlainDate } from '@shared/dates'
 import type { OwedParty } from '@shared/simple/reports'
-import { owedListWhy } from '@shared/simple/explain'
+import { owedListWhy, owedTotalWhy } from '@shared/simple/explain'
 import { api } from '../../lib/client'
 import { useT } from '../../lib/i18n'
 import { useNav, useSession } from '../../state/stores'
@@ -73,7 +73,7 @@ export function WhoOwes({ side: initial }: { side?: Side }): React.JSX.Element {
             {owedListWhy(o, t)}
           </p>
           <div className="mt-2">
-            <WhyLink what={title} sentence={owedListWhy(o, t)} link={{ label: t('simple.reports.owed.accountant'), screen: outstandingsOf(side) }} testId="why-owed" />
+            <WhyLink what={title} sentence={owedTotalWhy(o, t)} link={{ label: t('simple.why.link.outstandings'), screen: outstandingsOf(side) }} testId="why-owed" />
           </div>
         </section>
       )}

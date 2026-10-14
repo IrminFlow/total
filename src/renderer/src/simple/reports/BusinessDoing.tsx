@@ -4,11 +4,11 @@ import { toPlainDate } from '@shared/dates'
 import { mapError, type CaughtError } from '@shared/errors'
 import type { BusinessDoing as Doing, ReportPeriodKind } from '@shared/simple/reports'
 import {
-  changeSentence, costWhy, doingCashWhy, doingOwedWhy, doingProfitWhy, expensesWhy, otherIncomeWhy, profitOnGoodsWhy, salesWhy
+  changeSentence, costWhy, doingCashWhy, doingCompareWhy, doingOwedWhy, doingResultWhy, expensesWhy, otherIncomeWhy, profitOnGoodsWhy, salesCompareWhy
 } from '@shared/simple/explain'
 import { api } from '../../lib/client'
 import { useT } from '../../lib/i18n'
-import { useSession } from '../../state/stores'
+import { useSession, type Screen } from '../../state/stores'
 import { Button, DateInput, Field, Page, SkeletonTiles } from '../../components/ui'
 import { Choice, LoadError, ReportHeader, WhyLink, cardCls, money } from './parts'
 
@@ -83,7 +83,19 @@ export function BusinessDoing(): React.JSX.Element {
   )
 }
 
-function Line({ id, op, label, paise, why, strong, sub, link }: { id: string; op: string; label: string; paise: number; why: string; strong?: boolean; sub?: string | null; link?: { label: string; screen: typeof PNL } }): React.JSX.Element {
+function Line({
+  id, op, label, paise, why, extra, strong, sub, link
+}: {
+  id: string
+  op: string
+  label: string
+  paise: number
+  why: string
+  extra?: string | null
+  strong?: boolean
+  sub?: string | null
+  link?: { label: string; screen: Screen }
+}): React.JSX.Element {
   return (
     <li className={`flex flex-wrap items-baseline gap-x-3 gap-y-1 py-2.5 ${strong ? 'border-t-2 border-ink/70' : 'border-t border-line first:border-t-0'}`} data-testid={`doing-line-${id}`} data-paise={paise}>
       <span aria-hidden="true" className="num w-4 shrink-0 text-center text-muted">
@@ -94,7 +106,7 @@ function Line({ id, op, label, paise, why, strong, sub, link }: { id: string; op
         {sub && <span className="block text-small text-muted">{sub}</span>}
       </span>
       <span className={`num shrink-0 ${strong ? 'text-title font-semibold' : 'text-body'} ${paise < 0 ? 'text-cr' : 'text-ink'}`}>{money(paise)}</span>
-      <span className="w-14 shrink-0 text-right"><WhyLink what={label} sentence={why} link={link} testId={`why-doing-${id}`} /></span>
+      <span className="w-14 shrink-0 text-right"><WhyLink what={label} sentence={why} extra={extra} link={link} testId={`why-doing-${id}`} /></span>
     </li>
   )
 }
@@ -106,23 +118,26 @@ function DoingBody({ d }: { d: Doing }): React.JSX.Element {
   const hasStock = l.openingStock !== 0 || l.closingStock !== 0
   const asOn = toPlainDate(d.asOn)
   const tb = { name: 'trial-balance', asOn: d.asOn, ledgerIds: d.cash.ledgerIds } as const // i18n-technical
+  // WP 10.2: every line's "Why?" opens the P&L for exactly the period it covers.
+  const pnl = { label: t('simple.why.link.pnl', { from: toPlainDate(d.span.from), to: toPlainDate(d.span.to) }), screen: { name: 'profit-loss', from: d.span.from, to: d.span.to } as Screen } // i18n-technical
   return (
     <>
       <section className={cardCls} aria-label={t('simple.reports.howAmIDoing')}>
         <ul className="-my-1" data-testid="doing-column">
-          <Line id="sales" op="" label={t('simple.reports.sales')} paise={l.sales} why={salesWhy(d, t)} />
+          <Line id="sales" op="" label={t('simple.reports.sales')} paise={l.sales} why={salesCompareWhy(d, t)} link={pnl} />
           <Line
             id="cost"
             op="−"
             label={t('simple.reports.costOfGoods')}
             paise={l.costOfGoods}
             why={costWhy(d, t)}
+            link={pnl}
             sub={hasStock ? t('simple.reports.doing.costParts', { opening: money(l.openingStock), purchases: money(l.purchases), closing: money(l.closingStock) }) : null}
           />
-          <Line id="goods" op="=" label={t('simple.reports.profitOnGoods')} paise={l.profitOnGoods} why={profitOnGoodsWhy(d, t)} />
-          {l.otherIncome !== 0 && <Line id="other" op="+" label={t('simple.reports.otherIncome')} paise={l.otherIncome} why={otherIncomeWhy(d, t)} />}
-          <Line id="expenses" op="−" label={t('simple.reports.expenses')} paise={l.expenses} why={expensesWhy(d, t)} />
-          <Line id="profit" op="=" strong label={t('simple.reports.doing.result', { result })} paise={l.profit} why={doingProfitWhy(d, t)} link={{ label: t('simple.reports.doing.linkPnl'), screen: PNL }} />
+          <Line id="goods" op="=" label={t('simple.reports.profitOnGoods')} paise={l.profitOnGoods} why={profitOnGoodsWhy(d, t)} link={pnl} />
+          {l.otherIncome !== 0 && <Line id="other" op="+" label={t('simple.reports.otherIncome')} paise={l.otherIncome} why={otherIncomeWhy(d, t)} link={pnl} />}
+          <Line id="expenses" op="−" label={t('simple.reports.expenses')} paise={l.expenses} why={expensesWhy(d, t)} link={pnl} />
+          <Line id="profit" op="=" strong label={t('simple.reports.doing.result', { result })} paise={l.profit} why={doingResultWhy(d, t)} extra={doingCompareWhy(d, t)} link={pnl} />
         </ul>
         <p className="mt-2 text-small text-muted" data-testid="doing-change">
           {changeSentence(l.profit, d.previousLines.profit, d.previous, t)}

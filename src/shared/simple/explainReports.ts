@@ -87,8 +87,7 @@ export function owedListWhy(o: SimpleOwed, t: Translate): string {
 }
 
 export function byMonthWhy(b: SimpleByMonth, t: Translate): string {
-  const sales = b.months.reduce((s, m) => s + m.sales, 0)
-  const purchases = b.months.reduce((s, m) => s + m.purchases, 0)
+  const { sales, purchases } = b.totals // WP 10.2: the service's totals (monthTotals)
   if (sales === 0 && purchases === 0) return t('simple.reports.byMonth.whyNone')
   const best = b.months.reduce((a, m) => (m.sales > a.sales ? m : a), b.months[0]!)
   return t('simple.reports.byMonth.why', { sales: money(sales), purchases: money(purchases), month: toMonthLabel(best.month, 'long'), amount: money(best.sales) })

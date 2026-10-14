@@ -2,7 +2,7 @@ import { useMemo } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { toMonthLabel } from '@shared/dates'
 import type { MonthBar, SimpleByMonth } from '@shared/simple/reports'
-import { byMonthWhy } from '@shared/simple/explain'
+import { byMonthTotalsWhy, byMonthWhy } from '@shared/simple/explain'
 import { api } from '../../lib/client'
 import { useT } from '../../lib/i18n'
 import { useSession } from '../../state/stores'
@@ -38,7 +38,7 @@ export function ByMonth(): React.JSX.Element {
 function Body({ b }: { b: SimpleByMonth }): React.JSX.Element {
   const t = useT()
   const max = b.months.reduce((m, x) => Math.max(m, x.sales, x.purchases), 0)
-  const why = byMonthWhy(b, t)
+  const why = byMonthTotalsWhy(b, t)
   const columns = useMemo(
     () =>
       defineColumns<MonthBar>([
@@ -53,9 +53,9 @@ function Body({ b }: { b: SimpleByMonth }): React.JSX.Element {
       <section className={cardCls}>
         <div className="flex flex-wrap items-center justify-between gap-3">
           <p className="text-detail text-ink" data-testid="by-month-sentence">
-            {why}
+            {byMonthWhy(b, t)}
           </p>
-          <WhyLink what={t('simple.reports.byMonth')} sentence={`${why} ${t('simple.reports.byMonth.note')}`} link={{ label: t('simple.reports.byMonth.accountant'), screen: REGISTERS }} testId="why-by-month" />
+          <WhyLink what={t('simple.reports.byMonth')} sentence={why} extra={t('simple.reports.byMonth.note')} link={{ label: t('simple.why.link.registers'), screen: REGISTERS }} testId="why-by-month" />
         </div>
         <div className="mt-3 flex items-center gap-4 text-small text-muted" aria-hidden="true">
           <span className="inline-flex items-center gap-1.5">

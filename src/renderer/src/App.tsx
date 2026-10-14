@@ -234,7 +234,7 @@ export default function App(): React.JSX.Element {
           )}
           {screen.name === 'search' && <SearchResultsScreen key={`${screen.q ?? ''}|${screen.kind ?? ''}`} q={screen.q} kind={screen.kind} />}
           {screen.name === 'trial-balance' && <TrialBalanceScreen asOn={screen.asOn} ledgerIds={screen.ledgerIds} />}
-          {screen.name === 'profit-loss' && <ProfitLossScreen />}
+          {screen.name === 'profit-loss' && <ProfitLossScreen from={screen.from} to={screen.to} />}
           {screen.name === 'balance-sheet' && <BalanceSheetScreen />}
           {screen.name === 'cash-flow' && <CashFlowScreen />}
           {screen.name === 'exceptions' && <ExceptionsScreen />}

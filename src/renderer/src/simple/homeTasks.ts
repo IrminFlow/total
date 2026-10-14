@@ -1,5 +1,6 @@
 import type { MessageKey } from '@shared/i18n'
 import type { HomeAttentionItem, SimpleHomeData } from '@shared/simple/home'
+import type { Deadline } from '@shared/compliance'
 import type { Screen } from '../state/stores'
 
 export type HomeTaskId = 'sale' | 'purchase' | 'money-in' | 'money-out'
@@ -34,7 +35,8 @@ export function homeReportScreen(id: HomeReport, home: SimpleHomeData): Screen {
     case 'cash':
       return { name: 'trial-balance', asOn: home.today, ledgerIds: home.cash.accounts.map((a) => a.ledgerId) }
     case 'profit':
-      return { name: 'profit-loss' }
+      // WP 10.2: the P&L for the dates the tile's figures cover (the FY to today).
+      return { name: 'profit-loss', from: home.profit.year.from, to: home.today } // i18n-technical
     case 'gst': {
       // WP 9.9: the simple Taxes screen on the tile's period (a quarter is named by its last month,
       // which simple:taxes reads as the quarter); its Accountant view is GSTR-3B.
@@ -44,6 +46,14 @@ export function homeReportScreen(id: HomeReport, home: SimpleHomeData): Screen {
     case 'backups':
       return { name: 'settings', tab: 'backups' } // i18n-technical
   }
+}
+
+/** WP 10.2 — where a "Coming up" row's "Why?" link goes: the full-app screen behind it (none
+ *  for advance tax, which Total does not work out). */
+export function deadlineScreen(kind: Deadline['kind']): Screen | null {
+  if (kind === 'tds') return { name: 'tds' } // i18n-technical
+  if (kind === 'pf' || kind === 'esi') return { name: 'payroll' } // i18n-technical
+  return null
 }
 
 /** A cash / bank account's statement. */

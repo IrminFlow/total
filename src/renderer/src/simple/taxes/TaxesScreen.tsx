@@ -1,17 +1,21 @@
 import { useQuery } from '@tanstack/react-query'
 import { toPlainDate } from '@shared/dates'
 import type { SimpleTaxes } from '@shared/simple/taxes'
-import { collectedWhy, creditStatus, onPurchasesWhy, shortDate, taxesPeriodLabel, toPayWhy } from '@shared/simple/explain'
+import { collectedWhy, compositionDueWhy, creditLeftWhy, creditStatus, dueWhy, onPurchasesWhy, shortDate, taxesPeriodLabel, toPayPartsWhy } from '@shared/simple/explain'
 import { api } from '../../lib/client'
 import { useT } from '../../lib/i18n'
 import { useNav, useSession } from '../../state/stores'
 import { Page, Select, SkeletonTiles } from '../../components/ui'
-import { FigureTile, LoadError, ReportHeader, cardCls, money } from '../reports/parts'
+import { FigureTile, LoadError, ReportHeader, WhyLink, cardCls, money } from '../reports/parts'
 import { GstSteps } from './GstSteps'
 import { WithholdingCards } from './Withholding'
 
 type Regular = Extract<SimpleTaxes, { kind: 'regular' }>
 const gstr3bScreen = (month: string): { name: 'gstr3b'; month: string } => ({ name: 'gstr3b', month }) // i18n-technical
+const GSTR1 = { name: 'gstr1' } as const // i18n-technical
+const CMP08 = 'cmp08' // i18n-technical
+const GSTR4 = 'gstr4' // i18n-technical
+const PMT06 = 'pmt06' // i18n-technical
 const taxesScreen = (period: string): { name: 'simple-taxes'; period: string } => ({ name: 'simple-taxes', period }) // i18n-technical
 
 /**
@@ -42,10 +46,14 @@ export function TaxesScreen({ period }: { period?: string }): React.JSX.Element 
         <section className={cardCls} data-testid="taxes-composition">
           <h2 className="text-lead font-semibold text-ink">{t('simple.taxes.gst.compositionTitle')}</h2>
           <ul className="mt-2 flex flex-col gap-1 text-body text-ink">
-            <li data-testid="taxes-cmp08">
-              {t('simple.taxes.composition.cmp08', { from: toPlainDate(x.composition.cmp08.from), to: toPlainDate(x.composition.cmp08.to), date: toPlainDate(x.composition.cmp08.due) })}
+            <li className="flex flex-wrap items-baseline justify-between gap-x-3">
+              <span data-testid="taxes-cmp08">{t('simple.taxes.composition.cmp08', { from: toPlainDate(x.composition.cmp08.from), to: toPlainDate(x.composition.cmp08.to), date: toPlainDate(x.composition.cmp08.due) })}</span>
+              <WhyLink what={t('simple.taxes.composition.cmp08', { from: toPlainDate(x.composition.cmp08.from), to: toPlainDate(x.composition.cmp08.to), date: toPlainDate(x.composition.cmp08.due) })} sentence={compositionDueWhy(CMP08, x, t)} testId="why-due-cmp08" />
             </li>
-            <li data-testid="taxes-gstr4">{t('simple.taxes.composition.gstr4', { fy: x.composition.gstr4.fyLabel, date: toPlainDate(x.composition.gstr4.due) })}</li>
+            <li className="flex flex-wrap items-baseline justify-between gap-x-3">
+              <span data-testid="taxes-gstr4">{t('simple.taxes.composition.gstr4', { fy: x.composition.gstr4.fyLabel, date: toPlainDate(x.composition.gstr4.due) })}</span>
+              <WhyLink what={t('simple.taxes.composition.gstr4', { fy: x.composition.gstr4.fyLabel, date: toPlainDate(x.composition.gstr4.due) })} sentence={compositionDueWhy(GSTR4, x, t)} testId="why-due-gstr4" />
+            </li>
           </ul>
           <p className="mt-2 text-small text-muted">{t('simple.taxes.composition.note')}</p>
         </section>
@@ -62,6 +70,10 @@ function GstAnswer({ x }: { x: Regular }): React.JSX.Element {
   const f = x.figures
   const by = t('simple.taxes.gst.byDate', { date: shortDate(x.due.gstr3b, x.today) })
   const link = { label: t('simple.taxes.accountant3b'), screen: gstr3bScreen(x.period.from.slice(0, 7)) }
+  const dueLink = {
+    gstr1: { label: t('simple.why.link.gstr1'), screen: GSTR1 },
+    gstr3b: { label: t('simple.why.link.gstr3b'), screen: gstr3bScreen(x.period.from.slice(0, 7)) }
+  }
   return (
     <>
       <div className="mb-4 flex flex-wrap items-center gap-3">
@@ -94,29 +106,38 @@ function GstAnswer({ x }: { x: Regular }): React.JSX.Element {
           link={link}
         />
         <FigureTile id="gst-purchases" title={t('simple.taxes.gst.onPurchasesLabel')} paise={f.onPurchases} sub={creditStatus(f, t)} why={onPurchasesWhy(x, t)} link={link} />
-        <FigureTile id="gst-to-pay" emphasis title={t('simple.taxes.gst.toPayLabel')} paise={f.toPay} sub={by} why={toPayWhy(x, t)} link={link} />
+        <FigureTile id="gst-to-pay" emphasis title={t('simple.taxes.gst.toPayLabel')} paise={f.toPay} sub={by} why={toPayPartsWhy(x, t)} whyExtra={creditLeftWhy(f, t)} link={link} />
       </ul>
 
       <section className={`${cardCls} mt-4`} data-testid="taxes-dates">
         <h2 className="text-subtitle font-semibold text-ink">{t('simple.taxes.due.title')}</h2>
         <ul className="mt-2 flex flex-col gap-1 text-body text-ink">
-          {(['gstr1', 'gstr3b'] as const).map((form) => ( // i18n-technical
-            <li key={form} data-testid={`taxes-due-${form}`}>
-              {form === 'gstr1' ? t('simple.taxes.due.gstr1', { date: toPlainDate(x.due.gstr1) }) : t('simple.taxes.due.gstr3b', { date: toPlainDate(x.due.gstr3b) })}
-              {/* Review fix: a date already gone by, for a return not noted as filed, says so. */}
-              {x.today > x.due[form] && !x.filed[form] && (
-                <span className="ml-2 font-medium text-warning" data-testid={`taxes-due-${form}-passed`}>
-                  {t('simple.taxes.due.passed')}
+          {(['gstr1', 'gstr3b'] as const).map((form) => { // i18n-technical
+            const label = form === 'gstr1' ? t('simple.taxes.due.gstr1', { date: toPlainDate(x.due.gstr1) }) : t('simple.taxes.due.gstr3b', { date: toPlainDate(x.due.gstr3b) }) // i18n-technical
+            return (
+              <li key={form} className="flex flex-wrap items-baseline justify-between gap-x-3">
+                <span data-testid={`taxes-due-${form}`}>
+                  {label}
+                  {/* Review fix: a date already gone by, for a return not noted as filed, says so. */}
+                  {x.today > x.due[form] && !x.filed[form] && (
+                    <span className="ml-2 font-medium text-warning" data-testid={`taxes-due-${form}-passed`}>
+                      {t('simple.taxes.due.passed')}
+                    </span>
+                  )}
                 </span>
-              )}
-            </li>
-          ))}
+                <WhyLink what={label} sentence={dueWhy(form, x, t)} link={dueLink[form]} testId={`why-due-${form}`} />
+              </li>
+              )
+          })}
         </ul>
         {x.due.gstr3bUnverified && <p className="mt-1 text-small text-muted">{t('simple.taxes.due.unverified')}</p>}
         {x.due.pmt06.length > 0 && (
-          <p className="mt-1 text-small text-muted" data-testid="taxes-pmt06">
-            {t('simple.taxes.due.pmt06', { dates: x.due.pmt06.map((d) => shortDate(d, x.today)).join(', ') })}
-          </p>
+          <div className="mt-1 flex flex-wrap items-baseline justify-between gap-x-3">
+            <p className="text-small text-muted" data-testid="taxes-pmt06">
+              {t('simple.taxes.due.pmt06', { dates: x.due.pmt06.map((d) => shortDate(d, x.today)).join(', ') })}
+            </p>
+            <WhyLink what={t('simple.taxes.due.title')} sentence={dueWhy(PMT06, x, t)} testId="why-due-pmt06" />
+          </div>
         )}
         <p className="mt-2 text-caption text-muted">{t('simple.taxes.due.source')}</p>
       </section>

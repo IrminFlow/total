@@ -109,7 +109,7 @@ export type Screen =
   // string, `kind` the initially selected tab (omitted = all kinds).
   | { name: 'search'; q?: string; kind?: 'ledger' | 'item' | 'voucher' }
   | { name: 'trial-balance'; asOn?: string; ledgerIds?: number[] }
-  | { name: 'profit-loss' }
+  | { name: 'profit-loss'; from?: string; to?: string }
   | { name: 'balance-sheet' }
   | { name: 'cash-flow' }
   | { name: 'exceptions' }
