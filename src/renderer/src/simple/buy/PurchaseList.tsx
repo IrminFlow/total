@@ -103,7 +103,7 @@ function PurchaseTable(): React.JSX.Element {
               </Button>
             )
           }}
-          totalsLabel={t('simple.buy.total')}
+          totalsLabel={t('simple.purchases.col.total')}
           onRowActivate={(r) => nav.go({ name: 'simple-purchases', billId: r.voucherId })} // i18n-technical
         />
       </section>

@@ -17,6 +17,7 @@ import { useNav, useSession } from '../state/stores'
 import { useExplain } from '../lib/explain'
 import { useDialogs } from '../lib/dialogs'
 import { RecordPurchase } from '../simple/buy/RecordPurchase'
+import { PurchaseList } from '../simple/buy/PurchaseList'
 import { recordSupplierPaymentScreen } from '../simple/buy/recordSupplierPayment'
 
 const invoke = vi.fn()
@@ -296,6 +297,35 @@ describe('Record a purchase (WP 9.3)', () => {
     click('btn-buy-save')
     await screen.findByTestId('save-card')
     expect(calls('simple:post')[0]).toMatchObject({ intent: { kind: 'purchase', gstOnBill: false, items: [{ itemId: 3, qty: 3_000, rate: 1_030 }] } })
+  })
+
+  it('review: the purchase list totals row says "Total" (never "Bill total" over many bills); the bill view shows the round-off', async () => {
+    const row = { voucherId: 5, number: '1', billNo: 'BS/1', date: '2026-10-13', partyId: 10, partyName: 'Bharat Steel', total: 594_300, tax: 84_076, paid: 200_000, due: 394_300, dueDate: '2026-10-13', overdueDays: 0 }
+    const base = invoke.getMockImplementation()!
+    invoke.mockImplementation(async (channel: string, payload: unknown) =>
+      channel === 'simple:purchases'
+        ? { ok: true, data: [row, { ...row, voucherId: 6, billNo: 'BS/2' }] }
+        : channel === 'simple:purchase'
+          ? { ok: true, data: { ...row, items: [{ name: 'MS Angle', qtyMilli: 10_000, unit: 'Pcs', ratePaise: 45_050, discountPaise: 0, amount: 450_500 }, { name: 'Paint', qtyMilli: 3_000, unit: 'Pcs', ratePaise: 19_900, discountPaise: 0, amount: 59_700 }], amounts: [], rounding: 24, note: null } }
+          : base(channel, payload)
+    )
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    const { unmount } = render(
+      <QueryClientProvider client={client}>
+        <PurchaseList />
+      </QueryClientProvider>
+    )
+    await waitFor(() => expect(visibleText()).toContain('BS/2'))
+    expect(visibleText()).not.toContain('Bill total')
+    unmount()
+    render(
+      <QueryClientProvider client={client}>
+        <PurchaseList billId={5} />
+      </QueryClientProvider>
+    )
+    expect((await screen.findByTestId('simple-purchase-rounding')).getAttribute('data-paise')).toBe('24')
+    expect(text('simple-purchase-total')).toBe('₹5,943.00')
+    expect(bannedWordsIn(visibleText())).toEqual([])
   })
 
   it('Record a payment opens Money out — the payment editor pre-filled while Money out is still the full app', () => {
