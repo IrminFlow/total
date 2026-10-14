@@ -149,6 +149,9 @@ await scenario('29-counter-billing', async (h) => {
   await page.fill('[data-testid="input-counter-pay-cash"]', '1000')
   await page.keyboard.press('F6')
   await page.waitForFunction(() => document.querySelector('[data-testid="input-counter-pay-upi"]')?.value === '795.00', null, { timeout: 3000 })
+  // F6 focuses + selects the UPI box on the next animation frame; filling the tendered box before
+  // that frame let the focus jump back and the typed 2000 replace the selected UPI amount.
+  await page.waitForFunction(() => document.activeElement?.getAttribute('data-testid') === 'input-counter-pay-upi', null, { timeout: 3000 })
   await page.fill('[data-testid="input-counter-tendered"]', '2000')
   await page.waitForFunction(() => document.querySelector('[data-testid="counter-change-due"]')?.textContent?.includes('1,000.00'), null, { timeout: 3000 })
   await both('05-counter-split-payment')
