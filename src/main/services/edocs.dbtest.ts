@@ -277,3 +277,19 @@ describe('edocs service — transport, per-bill EWB, service invoices, preceding
     expect(() => setTransport(s.db, v.id, input)).toThrow(/not found/i)
   })
 })
+
+describe('edocs - ledger-line items take the posted tax rate', () => {
+  it('a service invoice on a rate-less Sales ledger with 9% + 9% posted is an 18% item', () => {
+    const s = setup()
+    const salesGroup = (s.db.prepare('SELECT id FROM groups WHERE name = ?').get('Sales Accounts') as { id: number }).id
+    const bare = createLedger(s.db, { name: 'Sales bare', groupId: salesGroup, hsn: '9983' }).id
+    s.post('sales', '2026-07-06', s.buyer, [
+      { ledgerId: s.buyer, drCr: 'dr', amount: 118000 },
+      { ledgerId: bare, drCr: 'cr', amount: 100000 },
+      { ledgerId: s.cgstL, drCr: 'cr', amount: 9000 },
+      { ledgerId: s.sgstL, drCr: 'cr', amount: 9000 }
+    ])
+    const [inv] = extractEdocInvoices(s.db, INFO, '2026-07-01', '2026-07-31')
+    expect(inv!.items[0]).toMatchObject({ rate: 18, taxablePaise: 100000, cgst: 9000, sgst: 9000 })
+  })
+})

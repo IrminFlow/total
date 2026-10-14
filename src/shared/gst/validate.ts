@@ -73,6 +73,7 @@ export interface GstIssue {
     | 'rate_zero_untyped'
     | 'b2cl_edge'
     | 'zero_rated_intra_tax'
+    | 'off_slab_rate'
   severity: 'blocking' | 'warning'
   message: string
   /** Vouchers to drill into from the issues panel (empty for company-level issues). */
@@ -145,6 +146,16 @@ export function validateGstr1(docs: GstDoc[], company: Gstr1ValidationCompany): 
       severity: 'blocking',
       message: `${badUqc.length} document${badUqc.length === 1 ? '' : 's'} use a unit whose UQC is not a valid portal code — fix the unit master (Masters → Units).`,
       voucherIds: badUqc.map((d) => d.voucherId)
+    })
+  }
+
+  const offSlab = docs.filter((d) => d.validation?.offSlabRate)
+  if (offSlab.length) {
+    issues.push({
+      code: 'off_slab_rate',
+      severity: 'warning',
+      message: `${offSlab.length} document${offSlab.length === 1 ? '' : 's'} where the posted GST matches no standard rate — reported at the rate the posted tax implies. Check the tax lines.`,
+      voucherIds: offSlab.map((d) => d.voucherId)
     })
   }
 

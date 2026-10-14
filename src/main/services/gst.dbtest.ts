@@ -4,7 +4,7 @@ import { tmpdir } from 'os'
 import { join } from 'path'
 import {
   assertExportable, exportGstr1Csv, extractAdvances, extractOutwardDocs, extractDocSeries,
-  gstValidate, itcBreakdown, rcmInwardSummary, turnover
+  gstValidate, gstr1, gstr3b, itcBreakdown, rcmInwardSummary, turnover
 } from './gst'
 import { companyExportsDir, ensureCompanyTree } from '../paths'
 import type { Gstr1Result } from '@shared/gst/returns'
@@ -274,5 +274,115 @@ describe('gst service — extraction (G1)', () => {
     expect(() =>
       assertExportable(s.db, { ...TEST_INFO, gstRegistrationType: 'composition' }, FROM, TO)
     ).toThrow(/composition/)
+  })
+})
+
+// Bug fix: an amount-only (ledger-line) invoice reports at the rate its POSTED tax implies, not at
+// the sales ledger's rate (nil when the ledger has none).
+describe('gst service — ledger-line documents take the posted tax rate', () => {
+  const FROM = '2026-07-01'
+  const TO = '2026-07-31'
+  function setup() {
+    const db = seededDb()
+    const g = (name: string): number => (db.prepare('SELECT id FROM groups WHERE name = ?').get(name) as { id: number }).id
+    const vt = (kind: string): number => (db.prepare('SELECT id FROM voucher_types WHERE kind = ?').get(kind) as { id: number }).id
+    const L = (i: Parameters<typeof createLedger>[1]): number => createLedger(db, i).id
+    const b2b = L({ name: 'B2B Buyer', groupId: g('Sundry Debtors'), gstin: '27AAPFU0939F1ZV', stateCode: '27' })
+    const b2c = L({ name: 'B2C Buyer', groupId: g('Sundry Debtors'), stateCode: '27' })
+    const bare = L({ name: 'Sales bare', groupId: g('Sales Accounts'), hsn: '9983' })
+    const at12 = L({ name: 'Sales 12', groupId: g('Sales Accounts'), hsn: '9983', gstRate: 12 })
+    const cgst = L({ name: 'CGST', groupId: g('Duties & Taxes'), taxType: 'cgst' })
+    const sgst = L({ name: 'SGST', groupId: g('Duties & Taxes'), taxType: 'sgst' })
+    const igst = L({ name: 'IGST', groupId: g('Duties & Taxes'), taxType: 'igst' })
+    const post = (kind: string, party: number, lines: { ledgerId: number; drCr: DrCr; amount: number }[], pos: string | null = null) =>
+      saveVoucher(db, {
+        voucherTypeId: vt(kind), date: '2026-07-05', partyLedgerId: party, posOverride: pos,
+        lines: lines.map((l) => ({ ...l, costAllocations: [] })), inventory: [], billRefs: [], tds: null
+      })
+    return { db, b2b, b2c, bare, at12, cgst, sgst, igst, post }
+  }
+
+  it('B2B sale on a rate-less Sales ledger with CGST+SGST 9% each is 18%, in GSTR-1 and 3B', () => {
+    const s = setup()
+    s.post('sales', s.b2b, [
+      { ledgerId: s.b2b, drCr: 'dr', amount: 118000 }, { ledgerId: s.bare, drCr: 'cr', amount: 100000 },
+      { ledgerId: s.cgst, drCr: 'cr', amount: 9000 }, { ledgerId: s.sgst, drCr: 'cr', amount: 9000 }
+    ])
+    const [d] = extractOutwardDocs(s.db, TEST_INFO, FROM, TO)
+    expect(d!.items).toEqual([{ rate: 18, taxable: 100000, cgst: 9000, sgst: 9000, igst: 0, cess: 0 }])
+    expect(d!.nilLines).toEqual([])
+    expect(d!.validation).toEqual({ valDiff: 0, missingHsnCount: 0, missingGstin: false })
+    const r1 = gstr1(s.db, TEST_INFO, FROM, TO, '072026')
+    expect(r1.summary.find((x) => x.section === 'b2b')).toMatchObject({ docs: 1, taxable: 100000, cgst: 9000, sgst: 9000 })
+    expect(r1.summary.find((x) => x.section === 'nil')?.taxable).toBe(0)
+    const r3 = gstr3b(s.db, TEST_INFO, FROM, TO, '072026')
+    expect(r3.outward).toMatchObject({ taxable: 100000, cgst: 9000, sgst: 9000 })
+    expect(r3.nilExempt.taxable).toBe(0)
+  })
+
+  it('B2C sale, inter-state IGST, and a credit note against such a bill', () => {
+    const s = setup()
+    s.post('sales', s.b2c, [
+      { ledgerId: s.b2c, drCr: 'dr', amount: 105000 }, { ledgerId: s.bare, drCr: 'cr', amount: 100000 },
+      { ledgerId: s.cgst, drCr: 'cr', amount: 2500 }, { ledgerId: s.sgst, drCr: 'cr', amount: 2500 }
+    ])
+    s.post('sales', s.b2b, [
+      { ledgerId: s.b2b, drCr: 'dr', amount: 118000 }, { ledgerId: s.bare, drCr: 'cr', amount: 100000 },
+      { ledgerId: s.igst, drCr: 'cr', amount: 18000 }
+    ], '29')
+    s.post('credit_note', s.b2b, [
+      { ledgerId: s.b2b, drCr: 'cr', amount: 11800 }, { ledgerId: s.bare, drCr: 'dr', amount: 10000 },
+      { ledgerId: s.cgst, drCr: 'dr', amount: 900 }, { ledgerId: s.sgst, drCr: 'dr', amount: 900 }
+    ])
+    const docs = extractOutwardDocs(s.db, TEST_INFO, FROM, TO)
+    expect(docs.map((d) => d.items)).toEqual([
+      [{ rate: 5, taxable: 100000, cgst: 2500, sgst: 2500, igst: 0, cess: 0 }],
+      [{ rate: 18, taxable: 100000, cgst: 0, sgst: 0, igst: 18000, cess: 0 }],
+      [{ rate: 18, taxable: 10000, cgst: 900, sgst: 900, igst: 0, cess: 0 }]
+    ])
+    expect(docs.every((d) => d.validation!.valDiff === 0)).toBe(true)
+    const r1 = gstr1(s.db, TEST_INFO, FROM, TO, '072026')
+    expect(r1.summary.find((x) => x.section === 'b2cs')).toMatchObject({ taxable: 100000, cgst: 2500, sgst: 2500 })
+    expect(r1.summary.find((x) => x.section === 'nil')?.taxable).toBe(0)
+    // 3B: the credit note nets off the outward supply (taxable 100000 + 100000 - 10000).
+    const r3 = gstr3b(s.db, TEST_INFO, FROM, TO, '072026')
+    expect(r3.outward).toMatchObject({ taxable: 190000, cgst: 2500 - 900, sgst: 2500 - 900, igst: 18000 })
+    expect(r3.nilExempt.taxable).toBe(0)
+  })
+
+  it('a posting that matches no slab is reported at the implied rate and warned', () => {
+    const s = setup()
+    s.post('sales', s.b2b, [
+      { ledgerId: s.b2b, drCr: 'dr', amount: 103400 }, { ledgerId: s.bare, drCr: 'cr', amount: 100000 },
+      { ledgerId: s.cgst, drCr: 'cr', amount: 1700 }, { ledgerId: s.sgst, drCr: 'cr', amount: 1700 }
+    ])
+    const [d] = extractOutwardDocs(s.db, TEST_INFO, FROM, TO)
+    expect(d!.items[0]).toMatchObject({ rate: 3.4, taxable: 100000, cgst: 1700, sgst: 1700 })
+    expect(d!.validation!.offSlabRate).toBe(true)
+    const w = gstValidate(s.db, TEST_INFO, FROM, TO).find((i) => i.code === 'off_slab_rate')!
+    expect(w.severity).toBe('warning')
+    expect(w.voucherIds).toEqual([d!.voucherId])
+  })
+
+  it('unchanged: a ledger WITH a rate keeps it; no posted tax on a rate-less ledger stays nil', () => {
+    const s = setup()
+    s.post('sales', s.b2b, [
+      { ledgerId: s.b2b, drCr: 'dr', amount: 112000 }, { ledgerId: s.at12, drCr: 'cr', amount: 100000 },
+      { ledgerId: s.cgst, drCr: 'cr', amount: 6000 }, { ledgerId: s.sgst, drCr: 'cr', amount: 6000 }
+    ])
+    s.post('sales', s.b2b, [{ ledgerId: s.b2b, drCr: 'dr', amount: 5000 }, { ledgerId: s.bare, drCr: 'cr', amount: 5000 }])
+    const docs = extractOutwardDocs(s.db, TEST_INFO, FROM, TO)
+    expect(docs[0]!.items).toEqual([{ rate: 12, taxable: 100000, cgst: 6000, sgst: 6000, igst: 0, cess: 0 }])
+    expect(docs[1]!.items).toEqual([])
+    expect(docs[1]!.nilLines).toEqual([{ taxable: 5000 }])
+    expect(docs.some((d) => d.validation!.offSlabRate)).toBe(false)
+  })
+
+  it('a composition company posting no tax reports nothing at a rate', () => {
+    const s = setup()
+    s.post('sales', s.b2c, [{ ledgerId: s.b2c, drCr: 'dr', amount: 5000 }, { ledgerId: s.at12, drCr: 'cr', amount: 5000 }])
+    const comp = { ...TEST_INFO, gstRegistrationType: 'composition' as const }
+    const [d] = extractOutwardDocs(s.db, comp, FROM, TO)
+    expect(d!.items).toEqual([])
   })
 })
