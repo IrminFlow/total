@@ -131,6 +131,8 @@ describe('simple Home (WP 8.6)', () => {
     expect(screen.getByTestId('simple-task-sale').textContent).toBe('+ Sale')
     // WP 9.2: + Sale is the simple Make a bill flow.
     expect(HOME_TASKS.find((x) => x.id === 'sale')!.screen).toEqual({ name: 'simple-sell' })
+    // WP 9.3: + Purchase is the simple Record a purchase flow.
+    expect(HOME_TASKS.find((x) => x.id === 'purchase')!.screen).toEqual({ name: 'simple-buy' })
   })
 
   it('needs attention: overdue bills by side from the tiles, then the checklist / anomalies (own call), top three in plain words', async () => {

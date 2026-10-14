@@ -41,6 +41,11 @@ The screens a first-time, non-accountant user sees (plan `docs/superpowers/specs
 - `sell/MakeBill.tsx` is Make a bill: customer (empty = the walk-in "Cash customer"), date, products (`BillLines`) or "just an amount" (`AmountLine`; the only mode with stock off), "Paid how?" (`PaidHow`), the live total and the preview line. Everything it computes comes from `shared/simple/sell.ts` (the editor's calculation); it saves only through `useSimplePost` → `simple:post`, then shows the save card.
 - `sell/SalesList.tsx` is the sales list (shared `DataTable`) and, with `billId`, one bill's read-only view (Print, Record a payment, Edit in the full app). `sell/QuickBill.tsx` is the Counter screen with a plain title.
 
+## Buy (WP 9.3)
+
+- `buy/RecordPurchase.tsx` is Record a purchase: supplier (picker + the plain New account dialog), their bill number and the bill's date, what was bought — products (`BuyLines`, stock on), an expense (`CategoryPicker`) or just an amount (`BuyAmount`) — "Does the bill show GST?" (a regular registration on the bill's date only), "Paid now?" (`PaidNow`), the live total and the preview line. Everything it computes comes from `shared/simple/buy.ts` (the editor's calculation); it saves only through `useSimplePost` → `simple:post`, then shows the save card. "Snap a bill" (Capture) shows only while AI is ready.
+- `buy/PurchaseList.tsx` is the purchase list (shared `DataTable`) and, with `billId`, one bill's read-only view (Record a payment, Edit in the full app). `buy/recordSupplierPayment.ts` sends Record a payment wherever the registry's Money out entry goes.
+
 ## Money (WP 9.4)
 
 - `money/MoneyIn.tsx`, `money/MoneyOut.tsx`, `money/MoveMoney.tsx`: plain questions → a `money_in` / `money_out` (an expense with a GST bill: one `purchase` paid now) / `move_money` intent built by `shared/simple/money.ts`, saved only through `useMoneyFlow` → `simple:post`, then the save card. `BillTicks` shows a party's open bills oldest first with what the amount pays (`billAllocation`, the allocation simple:post runs); `HowPaid` is Cash / UPI / Bank transfer / Card + the account.
