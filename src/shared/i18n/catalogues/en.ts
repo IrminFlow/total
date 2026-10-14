@@ -895,6 +895,7 @@ export const en = {
   'simple.buy.err.partAmount': 'Type how much was paid now.',
   'simple.buy.err.partTooMuch': 'That is the whole bill or more. Pick how it was paid instead of “Partly”.',
   'simple.buy.err.problem': 'The bill could not be saved.',
+  'simple.buy.err.duplicate': 'This bill from this supplier is already recorded. Check the bill number, or open the one already recorded.',
   'simple.purchases.title': 'Purchase list',
   'simple.purchases.empty': 'No purchases yet. Record your first supplier bill and it shows here.',
   'simple.purchases.record': 'Record a purchase',

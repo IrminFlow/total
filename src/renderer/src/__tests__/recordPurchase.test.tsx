@@ -230,7 +230,7 @@ describe('Record a purchase (WP 9.3)', () => {
     await pick('picker-buy-item-0', 'Steel bolt')
     typeIn('input-buy-rate-0', '100')
     click('btn-buy-save')
-    expect((await screen.findByTestId('field-error-billNo')).textContent).toContain('already recorded (entry P-3)')
+    expect((await screen.findByTestId('field-error-billNo')).textContent).toBe('This bill from this supplier is already recorded. Check the bill number, or open the one already recorded.')
     click('btn-buy-open-duplicate')
     // What was typed here would be lost: the app asks first (the unsaved-changes guard).
     await waitFor(() => expect(useDialogs.getState().queue).toHaveLength(1))

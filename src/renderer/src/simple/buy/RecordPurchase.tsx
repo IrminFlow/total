@@ -175,10 +175,14 @@ export function RecordPurchase(): React.JSX.Element {
   // ---------- save ----------
   const place = (err: unknown): void => {
     const caught = err as CaughtError & { code?: string; params?: Record<string, unknown> }
+    // The same supplier's bill number again in the year: said under the bill number in the form's
+    // own words (the entry's number means nothing here), with a link to the bill already recorded.
+    if (caught.code === DUPLICATE) {
+      errors.set('billNo', t('simple.buy.err.duplicate')) // i18n-technical
+      if (typeof caught.params?.voucherId === 'number') setDupId(caught.params.voucherId)
+      return
+    }
     const mapped = errors.apply(err)
-    // The same supplier's bill number again in the year: the message sits under the bill number,
-    // with a link to the bill already recorded.
-    if (caught.code === DUPLICATE && typeof caught.params?.voucherId === 'number') setDupId(caught.params.voucherId)
     if (mapped.general || Object.keys(mapped.fields).length === 0) {
       setGeneral({ text: mapped.general || t('simple.buy.err.problem'), details: mapError(caught, { simple: true, t }).details })
     }

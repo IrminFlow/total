@@ -35,3 +35,8 @@ The screens a first-time, non-accountant user sees (plan `docs/superpowers/specs
 ## Opening setup (WP 8.7)
 
 - `Openings.tsx` (+ `OpeningsSteps.tsx`) is "What you had on day one": money, customers (bill by bill), suppliers, stock, then Check and confirm (the difference in one sentence from `simple:openings:preview`; saved with `simple:openings` and that figure). Field errors come from `shared/simple/openings.ts` `openingsStepErrors` by path and show under their field (`OField` reads them by `name`). `OpeningsHomeCard.tsx` is Home's setup step (progress, "I started fresh").
+
+## Buy (WP 9.3)
+
+- `buy/RecordPurchase.tsx` is Record a purchase: supplier (picker + the plain New account dialog), their bill number and the bill's date, what was bought — products (`BuyLines`, stock on), an expense (`CategoryPicker`) or just an amount (`BuyAmount`) — "Does the bill show GST?" (a regular registration on the bill's date only), "Paid now?" (`PaidNow`), the live total and the preview line. Everything it computes comes from `shared/simple/buy.ts` (the editor's calculation); it saves only through `useSimplePost` → `simple:post`, then shows the save card. "Snap a bill" (Capture) shows only while AI is ready.
+- `buy/PurchaseList.tsx` is the purchase list (shared `DataTable`) and, with `billId`, one bill's read-only view (Record a payment, Edit in the full app). `buy/recordSupplierPayment.ts` sends Record a payment wherever the registry's Money out entry goes.
