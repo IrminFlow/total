@@ -171,6 +171,15 @@ describe('Return a sale (WP 9.5)', () => {
     expect((calls('simple:post')[0] as { intent: Record<string, unknown> }).intent.refund).toBeUndefined()
   })
 
+  it('part due: says what comes off the bill and how much the question is about (review fix)', async () => {
+    bill = itemsBill({ pending: 30_000 })
+    renderUi(<ReturnSale billId={7} />)
+    await screen.findByTestId('return-bill')
+    typeIn('input-return-qty-0', '1')
+    await waitFor(() => expect(text('return-off-bill')).toBe('₹300.00 comes off bill 3 (it was still due). For the other ₹290.00:'))
+    expect(screen.getByTestId('return-settle')).toBeTruthy()
+  })
+
   it('a refusal from main sits under its question', async () => {
     postReply = () => ({ ok: false, error: 'Only 0.5 left to return on this line', code: 'simple_return_qty', field: 'items.0.qty', params: { qty: '0.5' } })
     renderUi(<ReturnSale billId={7} />)

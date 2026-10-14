@@ -335,8 +335,8 @@ export function ReturnScreen({ side, billId: initialBill }: { side: ReturnSide; 
                     <p className="mb-3 text-body text-ink" data-testid="return-off-bill">
                       {split.credit > 0
                         ? sale
-                          ? t('simple.returns.offBillPart', { amount: money(split.offBill), bill: billNo(bill) })
-                          : t('simple.returns.offBillPartBuy', { amount: money(split.offBill), bill: billNo(bill) })
+                          ? t('simple.returns.offBillPart', { amount: money(split.offBill), bill: billNo(bill), rest: money(split.credit) })
+                          : t('simple.returns.offBillPartBuy', { amount: money(split.offBill), bill: billNo(bill), rest: money(split.credit) })
                         : sale
                           ? t('simple.returns.offBillAll', { bill: billNo(bill) })
                           : t('simple.returns.offBillAllBuy', { bill: billNo(bill) })}
