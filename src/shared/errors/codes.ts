@@ -172,6 +172,10 @@ export const ERROR_MAP = {
   simple_bank_no_match: e('errors.bank.noMatch', 'choice'),
   simple_bank_not_matched: e('errors.bank.notMatched', 'line'),
   simple_items_no_gst: e('errors.intent.itemsNoGst', 'gstOnBill'),
+  // WP 9.8: the simple People screens (services/simplePeople.ts).
+  simple_people_not_party: e('errors.people.notParty'),
+  simple_people_bad_phone: e('errors.people.badPhone', 'phone'),
+  simple_people_nothing_late: e('errors.people.nothingLate'),
   // WP 9.7: the stock intents (shared/simple/stock.ts).
   simple_count_twice: e('errors.intent.countTwice', 'counts', ['name'], 'errors.intent.countTwicePlain'),
   simple_no_recipe: e('errors.intent.noRecipe', 'item', ['name'], 'errors.intent.noRecipePlain'),

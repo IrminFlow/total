@@ -50,6 +50,13 @@ export const AUDIT_COVERAGE: Record<string, AuditCoverage> = {
   // WP 9.2: the simple Sell screens' reads (customers / accounts / defaults, the sales list, one bill).
   'simple:sell:setup': QUERY,
   'simple:sales': QUERY,
+  // WP 9.8: the simple People screens — reads (the list, one person, bills to pay); phone /
+  // WhatsApp / credit days through masters.updateLedger; a sent reminder through reminder_log.
+  'simple:people:list': QUERY,
+  'simple:people:person': QUERY,
+  'simple:people:billsToPay': QUERY,
+  'simple:people:update': a('ledger'),
+  'simple:people:reminded': a('reminder'),
   'simple:sale': QUERY,
   // WP 9.5: the simple return screens' reads (recent bills with what is returnable, one bill).
   'simple:returns:bills': QUERY,

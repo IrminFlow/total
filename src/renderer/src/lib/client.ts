@@ -12,6 +12,7 @@ import type { HomeAttention, SimpleHomeData } from '@shared/simple/home'
 import type { SimpleIntentInput, SimplePostResult, SimplePreview } from '@shared/simple/intents'
 import type { BankAcceptItem, BankAcceptResult, BankSetup, BankView } from '@shared/simple/bank'
 import type { MoneyEntryView, MoneyOpenBill, MoneyRow, MoneySetup } from '@shared/simple/money'
+import type { BillsToPay, PeopleList, PersonUpdate, PersonView, ReminderVia } from '@shared/simple/people'
 import type { SaleRow, SaleView, SellSetup } from '@shared/simple/sell'
 import type { ReturnBill, ReturnBillRow, ReturnSide as SimpleReturnSide } from '@shared/simple/returns'
 import type { BuySetup, PurchaseRow, PurchaseView } from '@shared/simple/buy'
@@ -706,6 +707,19 @@ export const api = {
     list: (from: string, to: string) => call<MoneyRow[]>('simple:money:list', { from, to }),
     /** One entry's simple (read-only) view; null when it is not an in-books money entry. */
     entry: (id: number) => call<MoneyEntryView | null>('simple:money:entry', { id })
+  },
+  /** WP 9.8: the simple People screens — every figure as on today (the Outstandings allocation). */
+  simplePeople: {
+    /** Every customer and supplier with phone, days to pay and where they stand. */
+    list: (today?: string) => call<PeopleList>('simple:people:list', today ? { today } : {}),
+    /** One person: the same figures, open bills oldest first, the reminder facts. */
+    person: (id: number, today?: string) => call<PersonView | null>('simple:people:person', { id, ...(today ? { today } : {}) }),
+    /** Every supplier's open bill (most late first) + due this week / this month. */
+    billsToPay: (today?: string) => call<BillsToPay>('simple:people:billsToPay', today ? { today } : {}),
+    /** Phone / WhatsApp ('' = none) / days to pay (null = none) — the full app's account write. */
+    update: (patch: PersonUpdate) => call<{ ledgerId: number; phone: string | null; whatsapp: string | null; creditDays: number | null }>('simple:people:update', patch),
+    /** Log a reminder sent from a person's page (reminder_log). */
+    reminded: (id: number, via: ReminderVia, today?: string) => call<{ logId: number }>('simple:people:reminded', { id, via, ...(today ? { today } : {}) })
   },
   /** WP 9.3: the simple Buy screens' reads (writing goes through api.simple.post). */
   buy: {

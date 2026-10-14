@@ -17,5 +17,12 @@ export const hi: Partial<Record<MessageKey, string>> = {
   'palette.placeholder': 'कमांड लिखें, या बही में खोजें — नाम, नंबर, GSTIN, रकम…',
   'palette.searching': 'खोज रहे हैं…',
   'palette.empty': 'कोई कमांड या नतीजा नहीं मिला',
-  'settings.language.title': 'भाषा'
+  'settings.language.title': 'भाषा',
+  'simple.people.msg.hello': 'नमस्ते {party} जी,',
+  'simple.people.msg.gentle': '{company} की ओर से एक याद: {amount} का भुगतान बाकी है और उसकी तारीख निकल चुकी है।',
+  'simple.people.msg.firm': '{company} की ओर से दोबारा याद: {amount} अभी भी बाकी है, सबसे पुराना बिल {days, plural, one {# दिन} other {# दिन}} देर से है।',
+  'simple.people.msg.final': '{company} की ओर से आखिरी याद: {amount} {days, plural, one {# दिन} other {# दिन}} से बाकी है। कृपया 7 दिन में भुगतान करें।',
+  'simple.people.msg.bill': '• बिल {bill}, {date}: {amount}',
+  'simple.people.msg.more': '…और {count, plural, one {# बिल} other {# बिल}}',
+  'simple.people.msg.thanks': 'अगर आप भुगतान कर चुके हैं, तो धन्यवाद — इस संदेश को अनदेखा करें।'
 }
