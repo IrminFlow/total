@@ -9,6 +9,14 @@
  * page is offered instead. "Check for updates automatically" (default on) and the skipped
  * version live in <dataRoot>/app-settings.json; when it is off no request is made at launch.
  *
+ * Windows (WP 7.3): the NSIS build updates through electron-updater itself — it reads
+ * latest.yml from the release and verifies the download's sha512; with no `publisherName`
+ * configured it does not require a signature. latest.yml names the installer
+ * `Total-Setup-<version>.exe` and the release asset must carry exactly that name (package.json
+ * `nsis.artifactName`). A page opened for a manual download asks /api/download for this
+ * platform (`?platform=win|mac`), and TOTAL_NO_UPDATE_CHECK=1 (scripted runs against a packaged
+ * build — the Windows CI smoke) turns the launch check off.
+ *
  * The app stays fully offline otherwise: this runs only in packaged builds and never blocks.
  */
 import { app, BrowserWindow, shell } from 'electron'
@@ -19,6 +27,7 @@ import { type UpdateAction, type UpdateCheckResult, type UpdatesView } from '@sh
 import { dataRoot } from './paths'
 import { readUpdateSettings, writeUpdateSettings } from './services/appSettings'
 import { createUpdater, makeFetchLatest, type Updater } from './updaterCore'
+import { downloadUrlFor, updateCheckDisabled } from '@shared/updateText'
 
 const { autoUpdater } = electronUpdater
 
@@ -59,7 +68,7 @@ function build(): Updater {
     readSettings,
     writeSettings: (patch) => writeUpdateSettings(dataRoot(), patch, actor, app.getVersion(), onCorrupt),
     fetchLatest,
-    openExternal: (url) => void shell.openExternal(url),
+    openExternal: (url) => void shell.openExternal(downloadUrlFor(url, process.platform)),
     publish,
     log: (level, message, extra) => log(level, message, extra)
   })
@@ -95,5 +104,7 @@ export function updateAction(action: UpdateAction, who: string | null): UpdatesV
 
 export function initUpdater(): void {
   if (!app.isPackaged) return
+  // WP 7.3: scripted runs against a packaged build (the Windows CI smoke) never check.
+  if (updateCheckDisabled(process.env)) return
   build().init()
 }

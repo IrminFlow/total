@@ -1008,8 +1008,9 @@ export const api = {
     remove: (id: number) => call<null>('voucher:delete', { id }),
     nextNumber: (voucherTypeId: number, date: string, excludeId?: number) =>
       call<{ number: string }>('voucher:nextNumber', { voucherTypeId, date, excludeId }),
-    numberExists: (voucherTypeId: number, number: string, excludeId?: number) =>
-      call<boolean>('voucher:numberExists', { voucherTypeId, number, excludeId }),
+    /** `date` = the voucher's date: a series that restarts each FY only clashes within it. */
+    numberExists: (voucherTypeId: number, number: string, excludeId: number | undefined, date: string) =>
+      call<boolean>('voucher:numberExists', { voucherTypeId, number, excludeId, date }),
     duplicates: (data: VoucherInputParsed, excludeId?: number) =>
       call<{ voucherId: number; number: string; date: string }[]>('voucher:duplicates', { data, excludeId }),
     bin: () => call<BinRow[]>('voucher:bin'),

@@ -25,8 +25,12 @@ process.env.TOTAL_SUPPRESS_SYNC_WARNING = '1'
 
 const call = (payload: unknown): Promise<{ ok: boolean; error?: string }> => handlers.get('help:openLink')!({}, payload)
 
+// WP 7.3: the ipc module graph is imported at collection, not inside the hook — on Windows CI the
+// import alone (most of the hook's time, measured) ran past the 10 s hookTimeout.
+const ipcModule = await import('./ipc')
+
 beforeAll(async () => {
-  const ipc = await import('./ipc')
+  const ipc = ipcModule
   ipc.registerIpc()
 })
 beforeEach(() => {

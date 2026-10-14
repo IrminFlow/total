@@ -75,10 +75,25 @@ export function salesList(db: DB, from: string, to: string, today: string): Sale
     for (const b of p.bills) if (b.voucherId != null) open.set(b.voucherId, { pending: b.pending, dueDate: b.dueDate, overdueDays: b.overdueDays })
   }
   const walkInId = counterAccounts(db).walkInLedgerId
-  const info = db.prepare('SELECT v.number, v.reference, l.name FROM vouchers v LEFT JOIN ledgers l ON l.id = v.party_ledger_id WHERE v.id = ?')
-  const partyLines = db.prepare('SELECT ledger_id AS ledgerId, dr_cr AS drCr, amount FROM voucher_lines WHERE voucher_id = ?')
+  // WP 7.1: the bills' heads and lines in chunks of 500 (was two queries per bill).
+  const infoById = new Map<number, { number: string; reference: string | null; name: string | null }>()
+  const linesById = new Map<number, { ledgerId: number; drCr: 'dr' | 'cr'; amount: number }[]>()
+  const ids = [...new Set(rows.map((r) => r.voucherId))]
+  for (let i = 0; i < ids.length; i += 500) {
+    const chunk = ids.slice(i, i + 500)
+    const marks = chunk.map(() => '?').join(',')
+    for (const v of db.prepare(`SELECT v.id, v.number, v.reference, l.name FROM vouchers v LEFT JOIN ledgers l ON l.id = v.party_ledger_id WHERE v.id IN (${marks})`).all(...chunk) as { id: number; number: string; reference: string | null; name: string | null }[]) {
+      infoById.set(v.id, { number: v.number, reference: v.reference, name: v.name })
+    }
+    for (const l of db.prepare(`SELECT voucher_id AS voucherId, ledger_id AS ledgerId, dr_cr AS drCr, amount FROM voucher_lines WHERE voucher_id IN (${marks})`).all(...chunk) as { voucherId: number; ledgerId: number; drCr: 'dr' | 'cr'; amount: number }[]) {
+      const list = linesById.get(l.voucherId)
+      const line = { ledgerId: l.ledgerId, drCr: l.drCr, amount: l.amount }
+      if (list) list.push(line)
+      else linesById.set(l.voucherId, [line])
+    }
+  }
   const heads = rows.map((r) => {
-    const v = info.get(r.voucherId) as { number: string; reference: string | null; name: string | null }
+    const v = infoById.get(r.voucherId)!
     return { id: r.voucherId, number: v.number, reference: v.reference, date: r.date, partyId: r.partyLedgerId, name: v.name }
   })
   // WP 9.5: the returns against each bill — a chip, and what they took off it is not "paid".
@@ -90,7 +105,7 @@ export function salesList(db: DB, from: string, to: string, today: string): Sale
       const o = open.get(r.voucherId)
       // The bill as the customer owes it — the register's debit side is the UNROUNDED total on a
       // rounded-down bill (its round-off sits on the customer's side).
-      const total = billAmount(partyLines.all(r.voucherId) as { ledgerId: number; drCr: 'dr' | 'cr'; amount: number }[], r.partyLedgerId)
+      const total = billAmount(linesById.get(r.voucherId) ?? [], r.partyLedgerId)
       const due = Math.min(o?.pending ?? 0, total)
       const back = returns.get(r.voucherId) ?? []
       const offBill = back.reduce((s, x) => s + x.offBill, 0)

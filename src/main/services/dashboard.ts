@@ -442,12 +442,14 @@ function monthEndBalances(
     .prepare(
       `SELECT vl.ledger_id AS ledgerId, substr(v.date, 1, 7) AS month,
               SUM(CASE WHEN vl.dr_cr = 'dr' THEN vl.amount ELSE -vl.amount END) AS net
-       FROM voucher_lines vl
-       JOIN vouchers v ON v.id = vl.voucher_id
-       JOIN ledgers l ON l.id = vl.ledger_id
+       FROM ledgers l
+       CROSS JOIN voucher_lines vl ON vl.ledger_id = l.id
+       CROSS JOIN vouchers v ON v.id = vl.voucher_id
        WHERE l.group_id IN (${placeholders}) AND v.date <= ? AND ${IN_BOOKS}
        GROUP BY vl.ledger_id, month
        ORDER BY vl.ledger_id, month`
+      // WP 7.1: CROSS JOIN pins the order — these few ledgers' lines off the covering
+      // idx_lines_ledger_cover, then each voucher by id (the planner otherwise walked every line).
     )
     .all(...groupIds, w.asOn) as { ledgerId: number; month: string; net: number }[]
   const moves = new Map<number, { month: string; net: number }[]>()

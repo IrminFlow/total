@@ -95,7 +95,7 @@ export function ReturnsTab({ fyStartYear, initialQuarter, kind = 'tds' }: { fySt
   const exportCsv = async (): Promise<void> => {
     try {
       const r = await wapi.exportReturn(fyStartYear, quarter)
-      toast.push('success', `${returnName} CSV ready (${r.path.split('/').pop()}) — import into the return preparation utility manually, this is not a filed FVU`)
+      toast.push('success', `${returnName} CSV ready (${r.path.split(/[\\/]/).pop()}) — import into the return preparation utility manually, this is not a filed FVU`)
     } catch (err) {
       toast.push('error', (err as Error).message)
     }
@@ -103,7 +103,7 @@ export function ReturnsTab({ fyStartYear, initialQuarter, kind = 'tds' }: { fySt
   const pdf = async (partyLedgerId?: number): Promise<void> => {
     try {
       const r = await wapi.certificatePdf(fyStartYear, quarter, partyLedgerId)
-      toast.push('success', `${certName} data saved (${r.path.split('/').pop()}) — TRACES issues the certificate itself`)
+      toast.push('success', `${certName} data saved (${r.path.split(/[\\/]/).pop()}) — TRACES issues the certificate itself`)
     } catch (err) {
       toast.push('error', (err as Error).message)
     }

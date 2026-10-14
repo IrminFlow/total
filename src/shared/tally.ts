@@ -1,4 +1,5 @@
 import { decimalToScaled } from './dataImport/values'
+import { normaliseNewlines } from './textFiles'
 /**
  * Tally XML import: a small tolerant XML parser plus mapping from Tally's
  * TALLYMESSAGE export format (Masters and Daybook/Vouchers) into neutral
@@ -24,8 +25,12 @@ function decodeEntities(s: string): string {
   })
 }
 
-/** Parse an XML document into a tree. Tolerates declarations, comments and Tally's quirks. */
-export function parseXml(input: string): XNode {
+/** Parse an XML document into a tree. Tolerates declarations, comments and Tally's quirks.
+ *  WP 7.3: a leading byte-order mark is dropped and CRLF / CR become LF first (XML 1.0 §2.11 line-end
+ *  handling) — Tally on Windows writes CRLF, so a multi-line address or narration reads the same as
+ *  one exported on a Mac. */
+export function parseXml(source: string): XNode {
+  const input = normaliseNewlines(source.replace(/^\uFEFF/, ''))
   const root: XNode = { tag: '#root', attrs: {}, children: [], text: '' }
   const stack: XNode[] = [root]
   let i = 0

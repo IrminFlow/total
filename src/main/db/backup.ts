@@ -4,6 +4,7 @@ import Database from 'better-sqlite3'
 import { existsSync, readdirSync, statSync, unlinkSync, copyFileSync, renameSync, rmSync } from 'fs'
 import { join, basename } from 'path'
 import type { DB } from './connection'
+import { CheckStoppedError, pragmaCheck } from './checkHost'
 
 export interface BackupInfo {
   file: string
@@ -146,6 +147,37 @@ export function runWeeklyIntegrityCheck(db: DB, now = new Date()): WeeklyIntegri
     )
     return { ran: true, ok: detail === 'ok', detail }
   } catch (err) {
+    return { ran: true, ok: false, detail: err instanceof Error ? err.message : String(err) }
+  }
+}
+
+/**
+ * runWeeklyIntegrityCheck with the `PRAGMA integrity_check` on its own read-only connection in a
+ * worker thread (WP 7.1): company:open starts it and does not wait — the result is only logged.
+ * Same throttle, same stamp (written when the check finishes, while `db` is still open); a company
+ * closed before then simply runs it on its next open. Never rejects.
+ */
+export async function runWeeklyIntegrityCheckAsync(db: DB, path: string, now = new Date()): Promise<WeeklyIntegrityResult | null> {
+  try {
+    const row = db.prepare('SELECT value FROM meta WHERE key = ?').get(INTEGRITY_CHECK_META_KEY) as
+      | { value: string }
+      | undefined
+    if (row) {
+      const last = Date.parse(JSON.parse(row.value) as string)
+      if (Number.isFinite(last) && now.getTime() - last < WEEK_MS) {
+        return { ran: false, ok: true, detail: null }
+      }
+    }
+    const detail = await pragmaCheck(path, 'integrity_check')
+    if (!db.open) return null
+    db.prepare('INSERT INTO meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value').run(
+      INTEGRITY_CHECK_META_KEY,
+      JSON.stringify(now.toISOString())
+    )
+    return { ran: true, ok: detail === 'ok', detail }
+  } catch (err) {
+    // Stopped because the file is being restored / removed (stopChecks): no finding, no stamp.
+    if (!db.open || err instanceof CheckStoppedError) return null
     return { ran: true, ok: false, detail: err instanceof Error ? err.message : String(err) }
   }
 }

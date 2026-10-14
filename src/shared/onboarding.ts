@@ -180,7 +180,7 @@ export function onboardingFromFlags(f: OnboardingFlags): OnboardingChecklist {
     {
       id: 'backup',
       label: 'Take a backup',
-      hint: 'Everything stays on this Mac — keep a copy somewhere safe.',
+      hint: 'Everything stays on this computer — keep a copy somewhere safe.',
       done: f.backups > 0,
       target: 'settings-backups'
     }

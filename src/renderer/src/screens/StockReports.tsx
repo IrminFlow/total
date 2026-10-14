@@ -9,6 +9,7 @@ import type { SerialStatus } from '@shared/serials'
 import type { PrintTemplate } from '@shared/printTemplates'
 import { toDisplayDate } from '@shared/dates'
 import { api } from '../lib/client'
+import { ageingAsOn } from '../lib/asOn'
 import { useNav, useSession, useToasts } from '../state/stores'
 import { Badge, Button, Page, PageHeader, Panel, Segmented, Select, TabBar, inputCls } from '../components/ui'
 import { OptionToggle, OptionsPeriod, useScreenOptions } from '../components/ScreenOptions'
@@ -118,7 +119,7 @@ export function StockReportsScreen({ tab = 'reorder' }: { tab?: StockReportTab }
     <Page>
       <PageHeader
         title="Stock reports"
-        period={tab === 'reorder' ? `${toDisplayDate(from)} → ${toDisplayDate(to)}` : `as on ${toDisplayDate(to)}`}
+        period={tab === 'reorder' ? `${toDisplayDate(from)} → ${toDisplayDate(to)}` : `as on ${toDisplayDate(tab === 'ageing' ? ageingAsOn(to) : to)}`}
         tabs={
           <div className="flex items-center gap-3">
             <TabBar screen="stock-reports" tabs={TABS} active={tab} onSelect={(t) => nav.replace({ name: 'stock-reports', tab: t })} />
@@ -168,12 +169,16 @@ function ReorderTab(): React.JSX.Element {
 }
 
 function AgeingTab(): React.JSX.Element {
-  const { to } = useSession()
+  const { to: periodTo } = useSession()
+  const to = ageingAsOn(periodTo)
   const { data, isLoading } = useQuery({ queryKey: ['stockAgeing', to], queryFn: () => api.reports.stockAgeing(to) })
   const rows = (data ?? []).filter((r) => r.closingQtyMilli > 0)
   return (
     <Panel>
-      <p className="px-3 pt-3 text-hint text-muted">Closing stock aged by the inward lots it most recently came from (newest lots first), as on {toDisplayDate(to)}.</p>
+      <p className="px-3 pt-3 text-hint text-muted" data-testid="stock-ageing-as-on">
+        Closing stock aged by the inward lots it most recently came from (newest lots first), as on {toDisplayDate(to)}.
+        {to !== periodTo ? ' Ageing runs to today; the working period ends later.' : ''}
+      </p>
       <DataTable
         viewId="stock-reports-ageing"
         testId="stock-reports-ageing"
@@ -290,7 +295,7 @@ function LabelsTab(): React.JSX.Element {
     setPrinting(true)
     try {
       const { path } = await api.stock.labelsPdf(query)
-      toast.push('success', `Labels saved — ${path.split('/').pop()}`)
+      toast.push('success', `Labels saved — ${path.split(/[\\/]/).pop()}`)
     } catch (err) {
       toast.push('error', (err as Error).message)
     } finally {

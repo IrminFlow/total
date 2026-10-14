@@ -74,9 +74,15 @@ export function stockList(db: DB, asOn: string): StockList {
 }
 
 /** Products running low or out as on `asOn` (Home's "Needs attention"). */
-export const lowStockCount = (db: DB, asOn: string): number => stockList(db, asOn).lowCount
-/** WP 10.8: products sold before their purchase was recorded (less than nothing in stock as on `asOn`). */
-export const negativeStockCount = (db: DB, asOn: string): number => stockList(db, asOn).negativeCount ?? 0
+export const lowStockCount = (db: DB, asOn: string): number =>
+  // WP 7.1: stockList's own count (same summary, same levels) without pricing every product.
+  db.transaction((): number => {
+    const facts = itemFacts(db)
+    return stockSummary(db, asOn).filter((s) => needsReorder(stockLevel(s, facts.get(s.stockItemId)?.reorderLevelMilli ?? null))).length
+  })()
+/** WP 10.8: products sold before their purchase was recorded (less than nothing in stock as on
+ *  `asOn`) — the same summary the list shows. */
+export const negativeStockCount = (db: DB, asOn: string): number => stockSummary(db, asOn).filter((s) => s.closingQtyMilli < 0).length
 
 function recipeOf(db: DB, itemId: number, date: string, versions = listBomVersions(db)): StockRecipe | null {
   const v = pickBomVersion(versions, itemId, date)

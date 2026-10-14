@@ -6,6 +6,7 @@ import { applyStoredAppearance } from './state/stores'
 import { bindQueryCacheToCompany } from './lib/companyCache'
 import { configureI18n } from '@shared/i18n'
 import './app.css'
+import { installPcShortcutLabels } from './lib/platform'
 
 applyStoredAppearance()
 // Dev builds show an unknown i18n key as itself and warn once; production falls back silently.
@@ -17,6 +18,8 @@ const queryClient = new QueryClient({
   }
 })
 bindQueryCacheToCompany(queryClient)
+// WP 7.3: ⌘K / ⌥A labels read Ctrl+K / Alt+A on Windows (the handlers accept Ctrl already).
+installPcShortcutLabels()
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>

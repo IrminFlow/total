@@ -60,8 +60,12 @@ const uiAudit = (slug: string): { action: string; before: unknown; after: unknow
 let ipc: typeof import('./ipc')
 let i18n: typeof import('./i18n')
 
+// WP 7.3: the ipc module graph is imported at collection, not inside the hook — on Windows CI the
+// import alone (most of the hook's time, measured) ran past the 10 s hookTimeout.
+const ipcModule = await import('./ipc')
+
 beforeAll(async () => {
-  ipc = await import('./ipc')
+  ipc = ipcModule
   i18n = await import('./i18n')
   ipc.registerIpc()
 })

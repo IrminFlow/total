@@ -84,7 +84,7 @@ export function ImsTab({ period, periodLabel, pairs }: { period: string; periodL
   const doExport = async (): Promise<void> => {
     try {
       const r = await api.gst.imsExport(period)
-      toast.push('success', `${r.count} IMS actions saved — ${r.jsonPath.split('/').pop()} and CSV`)
+      toast.push('success', `${r.count} IMS actions saved — ${r.jsonPath.split(/[\\/]/).pop()} and CSV`)
     } catch (err) {
       toast.push('error', (err as Error).message)
     }

@@ -37,8 +37,12 @@ async function ok<T>(channel: string, payload?: unknown): Promise<T> {
 let ipc: typeof import('./ipc')
 let rxIpc: typeof import('./ipcReceivables')
 
+// WP 7.3: the ipc module graph is imported at collection, not inside the hook — on Windows CI the
+// import alone (most of the hook's time, measured) ran past the 10 s hookTimeout.
+const ipcModule = await import('./ipc')
+
 beforeAll(async () => {
-  ipc = await import('./ipc')
+  ipc = ipcModule
   rxIpc = await import('./ipcReceivables')
   ipc.registerIpc()
 })
