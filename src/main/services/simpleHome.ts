@@ -34,7 +34,7 @@ import { dashGst, dashSetup, tdsApplies, tdsPayableLedgers, userBackupsOf, type 
 import { anomalies, closeChecklist, getStatement } from './assistants'
 import { extractPurchaseDocs } from './gst'
 import { getRecon2bTolerances } from './gstIms'
-import { lowStockCount, negativeStockCount } from './simpleStock'
+import { stockAttentionCounts } from './simpleStock'
 
 /** The as-on date: what was asked for, never after the server's today. */
 export function homeAsOn(asked: string | undefined, serverToday: string): string {
@@ -245,15 +245,19 @@ export function simpleHomeAttention(db: DB, company: CompanyInfo, today: string)
     // meta gstFiled), "GST files not prepared" is no longer something to look at — they may have
     // filed on the portal without Total's files. The Assistants checklist itself is unchanged.
     const filed = readGstFiled(db)[period]
-    const items = attentionItems(filed?.gstr1 && filed.gstr3b ? checks.filter((c) => c.key !== 'gst_returns') : checks, found)
+    // WP 10.8 review: nor for a month that ended before the regular registration began (the
+    // Taxes screen and Home's GST tile never offer it — the same gstStartsOn rule).
+    const gstFrom = gstStartsOn(company.booksBeginDate, company.gstRegistrationSince)
+    const noReturn = (filed?.gstr1 && filed.gstr3b) || (gstFrom != null && gstPeriodEnd({ period }) < gstFrom)
+    const items = attentionItems(noReturn ? checks.filter((c) => c.key !== 'gst_returns') : checks, found)
     // WP 9.7: products running low or out (the Stock list's own rule, as on today) — one row
     // that opens the list filtered to them.
-    const low = getFeatures(db).inventory ? lowStockCount(db, today) : 0
-    if (low > 0) items.push({ source: 'stock', key: 'low_stock', count: low, amount: null, level: 'medium' })
+    const stock = getFeatures(db).inventory ? stockAttentionCounts(db, today) : { low: 0, negative: 0 }
+    if (stock.low > 0) items.push({ source: 'stock', key: 'low_stock', count: stock.low, amount: null, level: 'medium' })
     // WP 10.8: stock sold before its purchase was recorded is costed at nothing by the valuation
     // pass — said on Home as on today (the month-end check only sees last month).
     // Only when last month's checks don't already say it (one row per finding).
-    const negative = getFeatures(db).inventory && !items.some((i) => i.key === 'negative_stock') ? negativeStockCount(db, today) : 0
+    const negative = items.some((i) => i.key === 'negative_stock') ? 0 : stock.negative
     if (negative > 0) items.push({ source: 'stock', key: 'negative_stock', count: negative, amount: null, level: 'high' })
     return { period, items, anomaliesSkipped }
   })()

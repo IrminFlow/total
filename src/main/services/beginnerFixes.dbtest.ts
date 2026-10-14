@@ -5,13 +5,14 @@
 //   - A business that started earlier keeps the return the next GSTR-3B files (unchanged).
 import { describe, expect, it } from 'vitest'
 import { freshDb } from '../db/testdb'
-import { readCompanyInfo } from '../db/seed'
+import { readCompanyInfo, writeCompanyInfo } from '../db/seed'
 import { applySetup } from './companySetup'
 import { simpleTaxes } from './simpleTaxes'
 import { simpleHome, simpleHomeAttention } from './simpleHome'
 import { createStockItem } from './masters'
 import { postIntent } from './simplePost'
 import { stockItemInputSchema } from '@shared/schemas'
+import { closeChecklist } from './assistants'
 import type { DB } from '../db/connection'
 
 const TODAY = '2026-10-14'
@@ -33,6 +34,28 @@ describe('WP 10.8: GST periods start with the books', () => {
     const home = simpleHome(db, company, { today: TODAY, backups: [] })
     expect(home.gst?.kind === 'regular' && home.gst.row).toMatchObject({ period: '2026-10', soFar: true, from: '2026-10-01', to: TODAY })
     expect(simpleHomeAttention(db, company, TODAY).items.filter((i) => i.source === 'close')).toEqual([])
+  })
+
+  it('review: registered as regular this month (books from April) — Taxes, Home tile and Home checks all start with the registration', () => {
+    const db = trader('2026-04-01')
+    writeCompanyInfo(db, { ...readCompanyInfo(db), gstRegistrationSince: '2026-10-05', gstPreviousRegistrationType: 'unregistered' })
+    const company = readCompanyInfo(db)
+    const x = simpleTaxes(db, company, {}, TODAY)
+    if (x.kind !== 'regular') throw new Error('regular expected')
+    expect(x.period).toMatchObject({ period: '2026-10', soFar: true })
+    expect(x.periods.map((p) => p.period)).toEqual(['2026-10'])
+    const home = simpleHome(db, company, { today: TODAY, backups: [] })
+    expect(home.gst?.kind === 'regular' && home.gst.row).toMatchObject({ period: '2026-10', soFar: true })
+    // The Assistants checklist itself still lists September's returns (accountant screen unchanged);
+    // Home does not ask for them.
+    expect(closeChecklist(db, company, '2026-09', TODAY).checks.find((c) => c.key === 'gst_returns')?.status).not.toBe('na')
+    expect(simpleHomeAttention(db, company, TODAY).items.some((i) => i.key === 'gst_returns')).toBe(false)
+    // Registered from 20 Sep instead: September is a return period again, everywhere.
+    writeCompanyInfo(db, { ...company, gstRegistrationSince: '2026-09-20' })
+    const sep = readCompanyInfo(db)
+    const y = simpleTaxes(db, sep, {}, TODAY)
+    expect(y.kind === 'regular' && y.period.period).toBe('2026-09')
+    expect(simpleHomeAttention(db, sep, TODAY).items.some((i) => i.key === 'gst_returns')).toBe(true)
   })
 
   it('stock sold before its purchase was recorded is a Home attention row today', () => {
