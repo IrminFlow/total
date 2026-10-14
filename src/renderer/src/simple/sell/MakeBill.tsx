@@ -30,6 +30,7 @@ import { AmountLine } from './AmountLine'
 import { PaidHow } from './PaidHow'
 import { useAccountantView } from '../../lib/handoff'
 import { AccountantViewButton } from '../AccountantViewButton'
+import { SaveBar } from '../SaveBar'
 
 const INCL_KEY = 'total-sell-incl' // i18n-technical: localStorage key (per company)
 const SALES_KIND = 'sales' as const // i18n-technical
@@ -376,7 +377,7 @@ export function MakeBill({ party, ask }: { party?: number; ask?: AskOpen<'simple
                 />
               </Field>
               <Field label={t('simple.sell.date')} name="date" error={errors.get(F.date)}>
-                <DateInput value={form.date} context={workingDate} onChange={(d) => update({ date: d })} format={toPlainDate} testId="input-sell-date" />
+                <DateInput value={form.date} context={workingDate} onChange={(d) => update({ date: d })} format={((d: string) => toPlainDate(d, t.lang))} testId="input-sell-date" />
               </Field>
             </div>
             {form.customerId == null ? (
@@ -496,9 +497,6 @@ export function MakeBill({ party, ask }: { party?: number; ask?: AskOpen<'simple
                 {formatPaise(totals?.total ?? 0, { symbol: true })}
               </span>
             </div>
-            <p className="mt-2 min-h-5 text-body text-ink" data-testid="sell-preview">
-              {preview ? salePreviewLine(preview.facts, t) : ready && !previewProblem ? t('simple.sell.preview.checking') : ''}
-            </p>
             {previewProblem && (
               <p role="status" className="mt-1 text-detail text-warning" data-testid="sell-preview-problem">
                 {t('simple.sell.previewProblem', { reason: previewProblem })}
@@ -521,22 +519,20 @@ export function MakeBill({ party, ask }: { party?: number; ask?: AskOpen<'simple
             </div>
           )}
 
-          <div className="sticky bottom-0 z-10 -mx-1 flex flex-wrap items-center justify-between gap-3 border-t border-line bg-canvas/95 px-1 py-3 backdrop-blur">
-            <p className="text-small text-muted">
-              <span className="num mr-3 text-body font-semibold text-ink" data-testid="sell-total-bar">
-                {formatPaise(totals?.total ?? 0, { symbol: true })}
-              </span>
-              {t('simple.sell.shortcuts')}
-            </p>
-            <div className="flex gap-2">
-              <Button data-testid="btn-sell-start-again" disabled={saving} onClick={() => (dirty ? void askDiscard().then((ok) => ok && startNew()) : startNew())}>
-                {t('simple.sell.startAgain')}
-              </Button>
-              <Button variant="primary" data-testid="btn-sell-save" disabled={saving || !setup || noSalesAccount} onClick={() => void save()}>
-                {t('simple.sell.save')}
-              </Button>
-            </div>
-          </div>
+          <SaveBar
+            total={formatPaise(totals?.total ?? 0, { symbol: true })}
+            totalTestId="sell-total-bar"
+            preview={preview ? salePreviewLine(preview.facts, t) : ready && !previewProblem ? t('simple.sell.preview.checking') : ''}
+            previewTestId="sell-preview"
+            shortcuts={t('simple.sell.shortcuts')}
+          >
+            <Button data-testid="btn-sell-start-again" disabled={saving} onClick={() => (dirty ? void askDiscard().then((ok) => ok && startNew()) : startNew())}>
+              {t('simple.sell.startAgain')}
+            </Button>
+            <Button variant="primary" data-testid="btn-sell-save" disabled={saving || !setup || noSalesAccount} onClick={() => void save()}>
+              {t('simple.sell.save')}
+            </Button>
+          </SaveBar>
         </div>
       )}
 

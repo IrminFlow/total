@@ -29,8 +29,8 @@ export function BillsToPay(): React.JSX.Element {
       defineColumns<BillToPay>([
         { id: 'supplier', header: t('simple.people.col.supplier'), kind: 'text', hideable: false, value: (b) => b.party }, // i18n-technical
         { id: 'bill', header: t('simple.people.col.bill'), kind: 'text', width: 110, groupable: false, value: (b) => b.name }, // i18n-technical
-        { id: 'date', header: t('simple.people.col.date'), kind: 'date', width: 120, groupable: false, value: (b) => b.date, text: (b) => toPlainDate(b.date) }, // i18n-technical
-        { id: 'due', header: t('simple.people.col.due'), kind: 'date', width: 120, groupable: false, value: (b) => b.dueDate ?? b.date, text: (b) => toPlainDate(b.dueDate ?? b.date) }, // i18n-technical
+        { id: 'date', header: t('simple.people.col.date'), kind: 'date', width: 120, groupable: false, value: (b) => b.date, text: (b) => toPlainDate(b.date, t.lang) }, // i18n-technical
+        { id: 'due', header: t('simple.people.col.due'), kind: 'date', width: 120, groupable: false, value: (b) => b.dueDate ?? b.date, text: (b) => toPlainDate(b.dueDate ?? b.date, t.lang) }, // i18n-technical
         { id: 'pending', header: t('simple.people.col.pending'), kind: 'money', value: (b) => b.pending, aggregate: 'sum', explainable: false }, // i18n-technical
         {
           id: 'when', header: t('simple.people.col.when'), kind: 'text', groupable: false, filterable: false, // i18n-technical
@@ -48,8 +48,8 @@ export function BillsToPay(): React.JSX.Element {
     <>
       {data && (
         <div className="mb-4 grid gap-3 sm:grid-cols-3" data-testid="bills-to-pay-totals">
-          <Tile label={t('simple.people.toPay.week', { date: toPlainDate(data.weekEnd) })} amount={money(data.dueThisWeek)} testId="bills-due-week" paise={data.dueThisWeek} />
-          <Tile label={t('simple.people.toPay.month', { date: toPlainDate(data.monthEnd) })} amount={money(data.dueThisMonth)} testId="bills-due-month" paise={data.dueThisMonth} />
+          <Tile label={t('simple.people.toPay.week', { date: toPlainDate(data.weekEnd, t.lang) })} amount={money(data.dueThisWeek)} testId="bills-due-week" paise={data.dueThisWeek} />
+          <Tile label={t('simple.people.toPay.month', { date: toPlainDate(data.monthEnd, t.lang) })} amount={money(data.dueThisMonth)} testId="bills-due-month" paise={data.dueThisMonth} />
           <Tile label={t('simple.people.toPay.late')} amount={money(data.late)} testId="bills-late" paise={data.late} danger={data.late > 0} />
         </div>
       )}

@@ -204,7 +204,7 @@ export function MoneyOut({ party, amount, bill, billId, date, bankId, reference,
                 )}
               </div>
               <Field label={t('simple.money.date')} name={F.date} error={errors.get(F.date)}>
-                <DateInput value={form.date} context={workingDate} onChange={(d) => update({ date: d })} format={toPlainDate} testId="input-money-date" />
+                <DateInput value={form.date} context={workingDate} onChange={(d) => update({ date: d })} format={((d: string) => toPlainDate(d, t.lang))} testId="input-money-date" />
               </Field>
             </div>
             <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-[1fr_2fr]">

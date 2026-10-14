@@ -53,7 +53,7 @@ export function PeopleList({ tab = 'people', filter: startFilter = 'all' }: { ta
     <Page data-testid="simple-people" data-tab={tab}>
       <div className="mb-3">
         <h1 className="font-serif text-heading font-semibold tracking-tight text-ink">{t('simple.people.title')}</h1>
-        <p className="mt-1 text-detail text-muted">{t('simple.people.asOn', { date: toPlainDate(workingDate) })}</p>
+        <p className="mt-1 text-detail text-muted">{t('simple.people.asOn', { date: toPlainDate(workingDate, t.lang) })}</p>
       </div>
       <TabBar
         screen={SCREEN}

@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react'
+import { useId, type ReactNode } from 'react'
 import { useT } from '../lib/i18n'
 import type { MessageKey } from '@shared/i18n'
 import { DateInput, Field, Select, TextInput } from '../components/ui'
@@ -39,13 +39,19 @@ export function ChoiceCard({
 }
 
 function Choices({ label, error, children, cols = 2 }: { label: string; error?: string; children: ReactNode; cols?: 1 | 2 | 3 }): React.JSX.Element {
+  const errorId = useId()
   return (
     <div>
-      <div role="radiogroup" aria-label={label} className={`grid gap-2 ${cols === 1 ? 'grid-cols-1' : cols === 3 ? 'grid-cols-1 md:grid-cols-3' : 'grid-cols-1 md:grid-cols-2'}`}>
+      <div
+        role="radiogroup"
+        aria-label={label}
+        aria-describedby={error ? errorId : undefined}
+        className={`grid gap-2 ${cols === 1 ? 'grid-cols-1' : cols === 3 ? 'grid-cols-1 md:grid-cols-3' : 'grid-cols-1 md:grid-cols-2'}`}
+      >
         {children}
       </div>
       {error && (
-        <p role="alert" className="mt-1.5 text-small text-danger" data-testid="setup-choice-error">
+        <p id={errorId} role="alert" className="mt-1.5 text-small text-danger" data-testid="setup-choice-error">
           {error}
         </p>
       )}
@@ -230,8 +236,8 @@ export function StartStep({ draft, set, errors, today }: StepProps): React.JSX.E
         <Question>{t('simple.setup.start')}</Question>
         <Hint>{t('simple.setup.startHint')}</Hint>
         <Choices label={t('simple.setup.start')} cols={3}>
-          <ChoiceCard testId="setup-start-fy" on={draft.start === FY} onPick={() => pick(FY!)} title={t('simple.setup.start.fy', { date: toPlainDate(fyStart) })} hint={t('simple.setup.start.fyHint')} />
-          <ChoiceCard testId="setup-start-today" on={draft.start === TODAY} onPick={() => pick(TODAY!)} title={t('simple.setup.start.today')} hint={t('simple.setup.start.todayHint', { date: toPlainDate(today) })} />
+          <ChoiceCard testId="setup-start-fy" on={draft.start === FY} onPick={() => pick(FY!)} title={t('simple.setup.start.fy', { date: toPlainDate(fyStart, t.lang) })} hint={t('simple.setup.start.fyHint')} />
+          <ChoiceCard testId="setup-start-today" on={draft.start === TODAY} onPick={() => pick(TODAY!)} title={t('simple.setup.start.today')} hint={t('simple.setup.start.todayHint', { date: toPlainDate(today, t.lang) })} />
           <ChoiceCard testId="setup-start-earlier" on={draft.start === EARLIER} onPick={() => pick(EARLIER!)} title={t('simple.setup.start.earlier')} hint={t('simple.setup.start.earlierHint')} />
         </Choices>
         {draft.start === 'earlier' && (
@@ -263,7 +269,7 @@ export function TallyStep({
     ...(draft.gstin.trim() && (draft.gst === 'regular' || draft.gst === 'composition') ? [['simple.setup.summary.gstin', draft.gstin.trim().toUpperCase()] as [MessageKey, string]] : []),
     ...(draft.gst === 'regular' && draft.filing ? [['simple.setup.summary.filing', lbl(FILING_LABEL[draft.filing])] as [MessageKey, string]] : []),
     ['simple.setup.summary.stock', draft.stock ? t('simple.setup.stock.yes') : t('simple.setup.stock.no')],
-    ['simple.setup.summary.start', startDate ? toPlainDate(startDate) : '']
+    ['simple.setup.summary.start', startDate ? toPlainDate(startDate, t.lang) : '']
   ]
   return (
     <div className="flex flex-col gap-5">

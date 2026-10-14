@@ -1,7 +1,8 @@
 import qrcode from 'qrcode-generator'
 import type { CompanyInfo } from '../domain'
 import type { EdocInvoice, EdocItem } from '../gst/edocs'
-import { amountInWords, formatPaise, formatQtyMilli, plainRupees } from '../money'
+import { formatPaise, formatQtyMilli, plainRupees } from '../money'
+import { ENGLISH_PRINT_LABELS, type PrintLabels } from './labels'
 import { formatDateAs } from '../dates'
 import { GST_STATES } from '../gst/states'
 import { chargesGstOn, COMPOSITION_DECLARATION, nonTaxInvoiceTitle, registrationOn } from '../gst/registration'
@@ -159,6 +160,12 @@ export interface RenderOptions {
   /** @font-face CSS for a bundled IBM Plex family (main embeds the woff2 as a data URL). When
    *  absent the stack falls back to the system faces listed after it. */
   fontFaceCss?: (family: PlexFamily) => string
+  /** WP 10.4: the words around the figures (labels.ts). Absent = the English literals, so an
+   *  unlocalised print is byte-identical to before. */
+  labels?: PrintLabels
+  /** WP 10.4: an extra script face (Noto Sans Devanagari for a Hindi print): its @font-face CSS
+   *  and the family name put first in every text stack (its unicode-range keeps Latin as is). */
+  scriptFont?: { css: string; family: string }
 }
 
 const esc = (s: string | null | undefined): string =>
@@ -257,6 +264,10 @@ const num2 = (n: number): string => String(Math.round(n * 100) / 100)
 
 interface Ctx {
   t: PrintTemplate
+  /** The words around the figures (English unless the print is localised — WP 10.4). */
+  L: PrintLabels
+  /** Family put in front of the text stacks (a Hindi print's Devanagari face), or ''. */
+  scriptFamily: string
   /** Scale a Classic-at-12px size to the template's base size → "Npx". */
   px: (n: number) => string
   money: (paise: number) => string
@@ -265,10 +276,12 @@ interface Ctx {
   extra: Set<string>
 }
 
-function makeCtx(t: PrintTemplate): Ctx {
+function makeCtx(t: PrintTemplate, opts: RenderOptions = {}): Ctx {
   const k = t.typography.baseFontPx / 12
   return {
     t,
+    L: opts.labels ?? ENGLISH_PRINT_LABELS,
+    scriptFamily: opts.scriptFont?.css ? `'${opts.scriptFont.family}', ` : '',
     px: (n) => `${num2(n * k)}px`,
     money: (p) => (t.formats.number === 'plain' ? plainRupees(p) : formatPaise(p)),
     date: (iso) => formatDateAs(iso.slice(0, 10), t.formats.date),
@@ -280,12 +293,12 @@ function makeCtx(t: PrintTemplate): Ctx {
 
 function baseCss(c: Ctx): string {
   const { t, px } = c
-  const fam = FONT_STACKS[t.typography.fontFamily]
+  const fam = c.scriptFamily + FONT_STACKS[t.typography.fontFamily]
   const acc = t.typography.accent
   const numCss =
     t.typography.numberFont === 'body'
       ? '.num { font-variant-numeric: tabular-nums; }'
-      : `.num { font-variant-numeric: tabular-nums; font-family: ${NUMBER_STACKS[t.typography.numberFont]}; font-size: ${px(11.5)}; }`
+      : `.num { font-variant-numeric: tabular-nums; font-family: ${c.scriptFamily}${NUMBER_STACKS[t.typography.numberFont]}; font-size: ${px(11.5)}; }`
   if (t.style === 'classic') {
     // Byte-for-byte the pre-1.10c stylesheet at the Classic defaults (12px, Helvetica, #16181f).
     return `
@@ -463,11 +476,12 @@ function pageCss(t: PrintTemplate): string {
 }
 
 function fontFaces(t: PrintTemplate, opts: RenderOptions): string {
-  if (!opts.fontFaceCss) return ''
+  const script = opts.scriptFont?.css ? [opts.scriptFont.css] : []
+  if (!opts.fontFaceCss) return script.join('\n')
   const fams = new Set<PlexFamily>()
   if (t.typography.fontFamily === 'plex-sans' || t.typography.fontFamily === 'plex-serif') fams.add(t.typography.fontFamily)
   if (t.typography.numberFont === 'plex-mono') fams.add('plex-mono')
-  return [...fams].map((f) => opts.fontFaceCss!(f)).join('\n')
+  return [...script, ...[...fams].map((f) => opts.fontFaceCss!(f))].join('\n')
 }
 
 // ---------------------------------------------------------------- shared blocks
@@ -482,7 +496,7 @@ function companyBlock(c: Ctx, company: CompanyInfo): string {
   const h = c.t.header
   const left = h.logoPosition === 'left' ? logoImg(c) : ''
   const gstLine = [
-    h.showGstin ? `GSTIN: ${esc(company.gstin ?? 'Unregistered')}` : null,
+    h.showGstin ? `GSTIN: ${esc(company.gstin ?? c.L.unregistered)}` : null,
     h.showState ? esc(GST_STATES[company.stateCode] ?? company.stateCode) : null
   ].filter(Boolean)
   const ids = [
@@ -490,7 +504,7 @@ function companyBlock(c: Ctx, company: CompanyInfo): string {
     h.showCin && h.cin ? `CIN: ${esc(h.cin)}` : null
   ].filter(Boolean)
   const contact = [
-    h.showPhone && company.phone ? `Ph: ${esc(company.phone)}` : null,
+    h.showPhone && company.phone ? `${esc(c.L.phone)}: ${esc(company.phone)}` : null,
     h.showEmail && company.email ? esc(company.email) : null,
     h.showWebsite && h.website ? esc(h.website) : null
   ].filter(Boolean)
@@ -512,15 +526,15 @@ function sigBlock(c: Ctx, company: CompanyInfo, middle: string): string {
       <div class="sig">
         ${f.showReceiverSignature ? `<div>${escText(f.receiverLabel)}</div>` : '<div></div>'}
         ${middle}
-        ${f.showSignature ? `<div class="for">For <b>${esc(company.name)}</b><br/><br/><br/>${esc(f.signatureLabel)}</div>` : '<div></div>'}
+        ${f.showSignature ? `<div class="for">${esc(c.L.sigFor.before)}<b>${esc(company.name)}</b>${esc(c.L.sigFor.after)}<br/><br/><br/>${esc(f.signatureLabel)}</div>` : '<div></div>'}
       </div>`
 }
 
 function auditFoot(c: Ctx, audit: InvoiceAuditTrail | undefined): string {
   if (!(c.t.footer.showEnteredBy && audit && (audit.enteredBy || audit.alteredBy))) return ''
   return `<div class="audit-foot">${[
-    audit.enteredBy ? `Entered by ${esc(audit.enteredBy)}` : '',
-    audit.alteredBy ? `Altered by ${esc(audit.alteredBy)}` : ''
+    audit.enteredBy ? `${esc(c.L.enteredBy)} ${esc(audit.enteredBy)}` : '',
+    audit.alteredBy ? `${esc(c.L.alteredBy)} ${esc(audit.alteredBy)}` : ''
   ]
     .filter(Boolean)
     .join(' · ')}</div>`
@@ -535,8 +549,8 @@ function cgNote(c: Ctx): string {
 function outstandingRow(c: Ctx, outstanding: number | null | undefined): string {
   if (!c.t.totals.showOutstanding || outstanding == null) return ''
   c.extra.add('due')
-  const side = outstanding === 0 ? '' : outstanding > 0 ? ' Dr' : ' Cr'
-  return `<tr class="due"><td>Balance outstanding</td><td class="r num">${c.money(Math.abs(outstanding))}${side}</td></tr>`
+  const side = outstanding === 0 ? '' : outstanding > 0 ? ` ${c.L.dr}` : ` ${c.L.cr}`
+  return `<tr class="due"><td>${esc(c.L.balanceOutstanding)}</td><td class="r num">${c.money(Math.abs(outstanding))}${side}</td></tr>`
 }
 
 function wrapDocument(c: Ctx, title: string, sheet: string, opts: RenderOptions, copyLabels?: readonly string[]): string {
@@ -644,9 +658,9 @@ function itemsTable(c: Ctx, inv: EdocInvoice, isIntra: boolean, noGst = false): 
   for (let start = 0; start < inv.items.length; start += per) {
     const slice = inv.items.slice(start, start + per)
     const isLast = start + per >= inv.items.length
-    const broughtForward = start > 0 ? cf('Brought forward', cumulative) : ''
+    const broughtForward = start > 0 ? cf(esc(c.L.broughtForward), cumulative) : ''
     cumulative += slice.reduce((s, it) => s + value(it), 0)
-    const carriedForward = !isLast ? cf('Carried forward', cumulative) : ''
+    const carriedForward = !isLast ? cf(esc(c.L.carriedForward), cumulative) : ''
     chunks.push(`
       <table class="items${isLast ? '' : ' page-split'}">
         <thead>${headRow}</thead>
@@ -663,17 +677,17 @@ function taxSummaryBlock(c: Ctx, inv: EdocInvoice, isIntra: boolean): string {
   if (!rows.length) return ''
   const anyCess = rows.some((r) => r.cess > 0)
   const m = c.money
-  const first = mode === 'hsn' ? '<th>HSN/SAC</th><th class="c" style="width:60px">Rate</th>' : '<th>GST rate</th>'
+  const first = mode === 'hsn' ? `<th>HSN/SAC</th><th class="c" style="width:60px">${esc(c.L.taxRate)}</th>` : `<th>${esc(c.L.gstRate)}</th>`
   const firstCells = (r: (typeof rows)[number]): string =>
     mode === 'hsn'
       ? `<td class="num">${r.hsn ? esc(r.hsn) : '—'}</td><td class="c num">${r.rate}%</td>`
-      : `<td class="num">${r.rate}%${r.cessRate ? ` + ${r.cessRate}% cess` : ''}</td>`
+      : `<td class="num">${r.rate}%${r.cessRate ? ` + ${r.cessRate}% ${esc(c.L.cessWord)}` : ''}</td>`
   return `
       <table class="hsn">
         <thead><tr>
-          ${first}<th class="r" style="width:110px">Taxable</th>
+          ${first}<th class="r" style="width:110px">${esc(c.L.taxable)}</th>
           ${isIntra ? '<th class="r" style="width:100px">CGST</th><th class="r" style="width:100px">SGST</th>' : '<th class="r" style="width:100px">IGST</th>'}
-          ${anyCess ? '<th class="r" style="width:100px">Cess</th>' : ''}
+          ${anyCess ? `<th class="r" style="width:100px">${esc(c.L.cess)}</th>` : ''}
         </tr></thead>
         <tbody>
         ${rows
@@ -707,7 +721,7 @@ function qrBlock(c: Ctx, company: CompanyInfo, inv: EdocInvoice, irn: string | n
            }),
            c.t.einvoice.qrSizeMm
          )}
-         <div style="font-size:${c.px(8.5)};color:#555;text-align:center;margin-top:2px">Verification QR</div>
+         <div style="font-size:${c.px(8.5)};color:#555;text-align:center;margin-top:2px">${esc(c.L.verificationQr)}</div>
        </div>`
 }
 
@@ -828,14 +842,14 @@ function renderInvoice(c: Ctx, doc: InvoiceDocument, opts: RenderOptions): strin
   const noGst = printsWithoutGst(company, doc.kind, inv)
 
   const taxRows = noGst ? [
-    t.totals.showRoundOff && inv.roundOff !== 0 ? `<tr><td>Round off</td><td class="r num">${m(inv.roundOff)}</td></tr>` : '',
+    t.totals.showRoundOff && inv.roundOff !== 0 ? `<tr><td>${esc(c.L.roundOff)}</td><td class="r num">${m(inv.roundOff)}</td></tr>` : '',
     tcsRow(c, inv)
   ].join('') : [
     isIntra ? `<tr><td>CGST</td><td class="r num">${m(inv.cgst)}</td></tr>` : '',
     isIntra ? `<tr><td>SGST</td><td class="r num">${m(inv.sgst)}</td></tr>` : '',
     !isIntra ? `<tr><td>IGST</td><td class="r num">${m(inv.igst)}</td></tr>` : '',
-    inv.cess > 0 ? `<tr><td>Cess</td><td class="r num">${m(inv.cess)}</td></tr>` : '',
-    t.totals.showRoundOff && inv.roundOff !== 0 ? `<tr><td>Round off</td><td class="r num">${m(inv.roundOff)}</td></tr>` : '',
+    inv.cess > 0 ? `<tr><td>${esc(c.L.cess)}</td><td class="r num">${m(inv.cess)}</td></tr>` : '',
+    t.totals.showRoundOff && inv.roundOff !== 0 ? `<tr><td>${esc(c.L.roundOff)}</td><td class="r num">${m(inv.roundOff)}</td></tr>` : '',
     // WP 3.3: income-tax TCS collected on the invoice — after GST, inside the total; emitted only
     // when the invoice carries TCS (so every pre-3.3 rendering, Classic included, is unchanged).
     tcsRow(c, inv)
@@ -843,18 +857,18 @@ function renderInvoice(c: Ctx, doc: InvoiceDocument, opts: RenderOptions): strin
 
   const f = t.footer
   const bankBlock = f.bankDetails && !stockNote && doc.kind !== 'purchase_order'
-    ? `<div style="margin-top:10px" class="lbl">Bank details</div>
-       <div style="font-size:${c.px(10.5)}">${esc(f.bankDetails.name)}<br/>A/c ${esc(f.bankDetails.account)} · IFSC ${esc(f.bankDetails.ifsc)}<br/>${esc(f.bankDetails.branch)}</div>`
+    ? `<div style="margin-top:10px" class="lbl">${esc(c.L.bankDetails)}</div>
+       <div style="font-size:${c.px(10.5)}">${esc(f.bankDetails.name)}<br/>${esc(c.L.account)} ${esc(f.bankDetails.account)} · IFSC ${esc(f.bankDetails.ifsc)}<br/>${esc(f.bankDetails.branch)}</div>`
     : ''
   // A quotation / order prints its own terms first, then the template's standing terms.
   const docTermsBlock = trade?.terms?.trim()
-    ? `<div style="margin-top:10px" class="lbl">Terms &amp; conditions</div><div style="font-size:${c.px(10.5)}" data-doc-terms>${esc(trade.terms).replace(/\n/g, '<br/>')}</div>`
+    ? `<div style="margin-top:10px" class="lbl">${esc(c.L.termsAndConditions)}</div><div style="font-size:${c.px(10.5)}" data-doc-terms>${esc(trade.terms).replace(/\n/g, '<br/>')}</div>`
     : ''
   const remarksBlock = trade?.narration?.trim()
-    ? `<div style="margin-top:10px" class="lbl">Remarks</div><div style="font-size:${c.px(10.5)}">${esc(trade.narration)}</div>`
+    ? `<div style="margin-top:10px" class="lbl">${esc(c.L.remarks)}</div><div style="font-size:${c.px(10.5)}">${esc(trade.narration)}</div>`
     : ''
   const termsBlock = docTermsBlock + remarksBlock + (f.terms.trim()
-    ? `<div style="margin-top:10px" class="lbl">Terms</div><div style="font-size:${c.px(10.5)}">${esc(f.terms).replace(/\n/g, '<br/>')}</div>`
+    ? `<div style="margin-top:10px" class="lbl">${esc(c.L.terms)}</div><div style="font-size:${c.px(10.5)}">${esc(f.terms).replace(/\n/g, '<br/>')}</div>`
     : '')
   // Classic keeps the old renderer's always-printed Declaration heading; other styles drop an
   // empty one.
@@ -863,12 +877,12 @@ function renderInvoice(c: Ctx, doc: InvoiceDocument, opts: RenderOptions): strin
     notInvoice && /invoice/i.test(f.declaration)
       ? ''
       : legacy || f.declaration.trim()
-      ? `<div style="margin-top:10px" class="lbl">Declaration</div>
+      ? `<div style="margin-top:10px" class="lbl">${esc(c.L.declaration)}</div>
           <div style="font-size:${c.px(10.5)}">${esc(noGst ? billWording(f.declaration) : f.declaration)}</div>`
       : ''
   const wordsBlock = t.totals.showAmountInWords
-    ? `<div class="lbl">${stockNote ? 'Value in words' : 'Amount in words'}</div>
-          <div><i>${esc(amountInWords(inv.total))}</i></div>`
+    ? `<div class="lbl">${esc(stockNote ? c.L.valueInWords : c.L.amountInWords)}</div>
+          <div><i>${esc(c.L.words(inv.total))}</i></div>`
     : ''
 
   // No QR on a self-invoice (never e-invoiced, no payment details) or a non-invoice document.
@@ -882,7 +896,7 @@ function renderInvoice(c: Ctx, doc: InvoiceDocument, opts: RenderOptions): strin
   if (logoCenter) c.extra.add('logo-c')
 
   const p = t.party
-  const label = DOC_LABEL[doc.kind]
+  const label = c.L.docLabel[doc.kind] ?? DOC_LABEL[doc.kind]
   const partyLabel =
     doc.kind === 'delivery_challan' ? 'Consignee'
       : doc.kind === 'goods_receipt' ? 'Received from'
@@ -926,19 +940,19 @@ function renderInvoice(c: Ctx, doc: InvoiceDocument, opts: RenderOptions): strin
       <div class="meta">
         <div>
           <div class="lbl">${esc(partyLabel)}</div>
-          <div><b>${esc(inv.partyName ?? 'Cash sale')}</b></div>
+          <div><b>${esc(inv.partyName ?? c.L.cashSale)}</b></div>
           ${p.showAddress ? `<div>${esc(inv.partyAddress)}</div>` : ''}
-          ${p.showGstin ? `<div class="num">${inv.partyGstin ? 'GSTIN: ' + esc(inv.partyGstin) : 'Unregistered'}</div>` : ''}
-          ${p.showState ? `<div>State: <span class="num">${esc(inv.partyStateCode)}</span>${partyState ? `-${esc(partyState)}` : ''}</div>` : ''}
+          ${p.showGstin ? `<div class="num">${inv.partyGstin ? 'GSTIN: ' + esc(inv.partyGstin) : esc(c.L.unregistered)}</div>` : ''}
+          ${p.showState ? `<div>${esc(c.L.state)}: <span class="num">${esc(inv.partyStateCode)}</span>${partyState ? `-${esc(partyState)}` : ''}</div>` : ''}
         </div>${shipBlock}
         <div>
-          <div class="lbl">${label}</div>
-          <div>No: <b class="num">${esc(inv.number)}</b></div>
-          <div>Date: <span class="num">${c.date(inv.date)}</span></div>
-          ${inv.precedingDoc ? `<div>Against: <span class="num">${esc(inv.precedingDoc.invNo)}</span> dt <span class="num">${c.date(inv.precedingDoc.invDate)}</span></div>` : ''}
-          ${p.showPlaceOfSupply && !noGst ? `<div>Place of supply: <span class="num">${esc(inv.pos)}-${esc(GST_STATES[inv.pos] ?? '')}</span></div>` : ''}${doc.kind === 'self_invoice' ? `
+          <div class="lbl">${esc(label)}</div>
+          <div>${esc(c.L.no)}: <b class="num">${esc(inv.number)}</b></div>
+          <div>${esc(c.L.date)}: <span class="num">${c.date(inv.date)}</span></div>
+          ${inv.precedingDoc ? `<div>${esc(c.L.against)}: <span class="num">${esc(inv.precedingDoc.invNo)}</span> ${esc(c.L.dated)} <span class="num">${c.date(inv.precedingDoc.invDate)}</span></div>` : ''}
+          ${p.showPlaceOfSupply && !noGst ? `<div>${esc(c.L.placeOfSupply)}: <span class="num">${esc(inv.pos)}-${esc(GST_STATES[inv.pos] ?? '')}</span></div>` : ''}${doc.kind === 'self_invoice' ? `
           <div>Tax payable on reverse charge: <b>Yes</b></div>` : ''}
-          ${p.showVehicle && inv.vehicleNo ? `<div>Vehicle: <span class="num">${esc(inv.vehicleNo)}</span></div>` : ''}${purposeLine}${tradeLines}
+          ${p.showVehicle && inv.vehicleNo ? `<div>${esc(c.L.vehicle)}: <span class="num">${esc(inv.vehicleNo)}</span></div>` : ''}${purposeLine}${tradeLines}
         </div>
       </div>${einvoiceLine(c, { irn, ackNo: doc.einvoice?.ackNo ?? null, ackDate: doc.einvoice?.ackDate ?? null, ewbNo: doc.einvoice?.ewbNo ?? null })}
       ${itemsTable(c, inv, isIntra, noGst)}
@@ -951,9 +965,9 @@ function renderInvoice(c: Ctx, doc: InvoiceDocument, opts: RenderOptions): strin
           ${termsBlock}${ruleNote}
         </div>
         <table class="tot">
-          <tr><td>Taxable value</td><td class="r num">${m(inv.taxable)}</td></tr>
+          <tr><td>${esc(c.L.taxableValue)}</td><td class="r num">${m(inv.taxable)}</td></tr>
           ${taxRows}
-          <tr class="grand"><td>${stockNote ? 'Value of goods' : 'Total'}</td><td class="r num">${t.formats.currencySymbolOnTotal ? '₹ ' : ''}${m(inv.total)}</td></tr>
+          <tr class="grand"><td>${esc(stockNote ? c.L.valueOfGoods : c.L.total)}</td><td class="r num">${t.formats.currencySymbolOnTotal ? '₹ ' : ''}${m(inv.total)}</td></tr>
           ${notInvoice ? '' : outstandingRow(c, doc.outstandingPaise)}
         </table>
       </div>${sigBlock(c, company, footerQr)}
@@ -978,7 +992,7 @@ function renderVoucher(c: Ctx, doc: VoucherDocument, opts: RenderOptions): strin
   const { t } = c
   const { company, voucher: v } = doc
   const m = c.money
-  const label = DOC_LABEL[doc.kind]
+  const label = c.L.docLabel[doc.kind] ?? DOC_LABEL[doc.kind]
   const p = t.party
   const logoRight = t.header.logoPosition === 'right' ? logoImg(c) : ''
   const logoCenter = t.header.logoPosition === 'center' ? logoImg(c) : ''
@@ -989,7 +1003,7 @@ function renderVoucher(c: Ctx, doc: VoucherDocument, opts: RenderOptions): strin
   const partyBlock = v.partyName
     ? `
         <div>
-          <div class="lbl">${esc(PARTY_LABEL[doc.kind] ?? 'Party')}</div>
+          <div class="lbl">${esc(c.L.partyLabel[doc.kind] ?? PARTY_LABEL[doc.kind] ?? c.L.party)}</div>
           <div><b>${esc(v.partyName)}</b></div>
           ${p.showAddress && v.partyAddress ? `<div>${esc(v.partyAddress)}</div>` : ''}
           ${p.showGstin && v.partyGstin ? `<div class="num">GSTIN: ${esc(v.partyGstin)}</div>` : ''}
@@ -1005,16 +1019,16 @@ function renderVoucher(c: Ctx, doc: VoucherDocument, opts: RenderOptions): strin
       </div>
       <div class="meta">${partyBlock}
         <div>
-          <div class="lbl">${label}</div>
-          <div>No: <b class="num">${esc(v.number)}</b></div>
-          <div>Date: <span class="num">${c.date(v.date)}</span></div>
-          ${v.reference ? `<div>Ref: <span class="num">${esc(v.reference)}</span></div>` : ''}
-          ${v.instrumentNo ? `<div>Cheque/UTR: <span class="num">${esc(v.instrumentNo)}</span>${v.instrumentDate ? ` dt <span class="num">${c.date(v.instrumentDate)}</span>` : ''}</div>` : ''}
+          <div class="lbl">${esc(label)}</div>
+          <div>${esc(c.L.no)}: <b class="num">${esc(v.number)}</b></div>
+          <div>${esc(c.L.date)}: <span class="num">${c.date(v.date)}</span></div>
+          ${v.reference ? `<div>${esc(c.L.ref)}: <span class="num">${esc(v.reference)}</span></div>` : ''}
+          ${v.instrumentNo ? `<div>${esc(c.L.chequeUtr)}: <span class="num">${esc(v.instrumentNo)}</span>${v.instrumentDate ? ` ${esc(c.L.dated)} <span class="num">${c.date(v.instrumentDate)}</span>` : ''}</div>` : ''}
         </div>
       </div>
       <table class="items">
         <thead><tr>
-          <th>Particulars</th><th class="r" style="width:130px">Debit</th><th class="r" style="width:130px">Credit</th>
+          <th>${esc(c.L.particulars)}</th><th class="r" style="width:130px">${esc(c.L.lineDebit)}</th><th class="r" style="width:130px">${esc(c.L.lineCredit)}</th>
         </tr></thead>
         <tbody>${v.lines
           .map(
@@ -1026,17 +1040,17 @@ function renderVoucher(c: Ctx, doc: VoucherDocument, opts: RenderOptions): strin
       </tr>`
           )
           .join('')}
-      <tr class="vt"><td class="r">Total</td><td class="r num">${m(dr)}</td><td class="r num">${m(cr)}</td></tr>
+      <tr class="vt"><td class="r">${esc(c.L.total)}</td><td class="r num">${m(dr)}</td><td class="r num">${m(cr)}</td></tr>
         </tbody>
       </table>
       <div class="bottom">
         <div class="words">
-          ${t.totals.showAmountInWords ? `<div class="lbl">Amount in words</div>
-          <div><i>${esc(amountInWords(v.total))}</i></div>` : ''}
-          ${v.narration ? `<div style="margin-top:10px" class="lbl">Narration</div><div style="font-size:${c.px(10.5)}">${esc(v.narration)}</div>` : ''}
+          ${t.totals.showAmountInWords ? `<div class="lbl">${esc(c.L.amountInWords)}</div>
+          <div><i>${esc(c.L.words(v.total))}</i></div>` : ''}
+          ${v.narration ? `<div style="margin-top:10px" class="lbl">${esc(c.L.note)}</div><div style="font-size:${c.px(10.5)}">${esc(v.narration)}</div>` : ''}
         </div>
         <table class="tot">
-          <tr class="grand"><td>Amount</td><td class="r num">${t.formats.currencySymbolOnTotal ? '₹ ' : ''}${m(v.total)}</td></tr>
+          <tr class="grand"><td>${esc(c.L.amount)}</td><td class="r num">${t.formats.currencySymbolOnTotal ? '₹ ' : ''}${m(v.total)}</td></tr>
           ${outstandingRow(c, doc.outstandingPaise)}
         </table>
       </div>${sigBlock(c, company, '')}
@@ -1073,15 +1087,15 @@ function partyCell(label: string, p: { name: string; address: string | null; gst
 /** Dr / Cr suffixed absolute amount. */
 function drcr(c: Ctx, signed: number): string {
   if (signed === 0) return c.money(0)
-  return `${c.money(Math.abs(signed))} ${signed > 0 ? 'Dr' : 'Cr'}`
+  return `${c.money(Math.abs(signed))} ${signed > 0 ? c.L.dr : c.L.cr}`
 }
 
 function billsTable(c: Ctx, bills: OutstandingBill[]): string {
   return `
       <table class="items">
         <thead><tr>
-          <th>Bill</th><th style="width:90px">Bill date</th><th style="width:90px">Due date</th>
-          <th class="r" style="width:80px">Overdue</th><th class="r" style="width:110px">Bill amount</th><th class="r" style="width:110px">Pending</th>
+          <th>${esc(c.L.bill)}</th><th style="width:90px">${esc(c.L.billDate)}</th><th style="width:90px">${esc(c.L.dueDate)}</th>
+          <th class="r" style="width:80px">${esc(c.L.overdue)}</th><th class="r" style="width:110px">${esc(c.L.billAmount)}</th><th class="r" style="width:110px">${esc(c.L.pending)}</th>
         </tr></thead>
         <tbody>${bills
           .map(
@@ -1090,7 +1104,7 @@ function billsTable(c: Ctx, bills: OutstandingBill[]): string {
         <td class="num">${esc(b.number)}</td>
         <td class="num">${c.date(b.date)}</td>
         <td class="num">${b.dueDate ? c.date(b.dueDate) : ''}</td>
-        <td class="r num">${b.overdueDays > 0 ? `${b.overdueDays} d` : '—'}</td>
+        <td class="r num">${b.overdueDays > 0 ? `${b.overdueDays} ${esc(c.L.daysShort)}` : '—'}</td>
         <td class="r num">${c.money(b.amount)}</td>
         <td class="r num">${c.money(b.pending)}</td>
       </tr>`
@@ -1120,37 +1134,37 @@ function renderStatement(c: Ctx, doc: StatementDocument, opts: RenderOptions): s
     .join('')
   const total = s.buckets.reduce((a, b) => a + b, 0)
   const bank = s.bank && (s.bank.name || s.bank.account)
-    ? `<div class="sub" style="margin-top:6px">Bank: <b>${esc(s.bank.name)}</b>${s.bank.account ? ` · A/c <span class="num">${esc(s.bank.account)}</span>` : ''}${s.bank.ifsc ? ` · IFSC <span class="num">${esc(s.bank.ifsc)}</span>` : ''}${s.bank.branch ? ` · ${esc(s.bank.branch)}` : ''}</div>`
+    ? `<div class="sub" style="margin-top:6px">${esc(c.L.bank)}: <b>${esc(s.bank.name)}</b>${s.bank.account ? ` · ${esc(c.L.account)} <span class="num">${esc(s.bank.account)}</span>` : ''}${s.bank.ifsc ? ` · IFSC <span class="num">${esc(s.bank.ifsc)}</span>` : ''}${s.bank.branch ? ` · ${esc(s.bank.branch)}` : ''}</div>`
     : ''
   const sheet = `
     <div class="sheet">${partyHead(c, company, 'statement')}
-      <div class="meta">${partyCell('Statement for', s.party, c)}
+      <div class="meta">${partyCell(c.L.statementFor, s.party, c)}
         <div>
-          <div class="lbl">Period</div>
-          <div><span class="num">${c.date(s.from)}</span> to <span class="num">${c.date(s.to)}</span></div>
-          <div>Opening: <b class="num">${drcr(c, s.opening)}</b></div>
-          <div>Closing: <b class="num">${drcr(c, s.closing)}</b></div>
+          <div class="lbl">${esc(c.L.period)}</div>
+          <div><span class="num">${c.date(s.from)}</span> ${esc(c.L.periodTo)} <span class="num">${c.date(s.to)}</span></div>
+          <div>${esc(c.L.opening)}: <b class="num">${drcr(c, s.opening)}</b></div>
+          <div>${esc(c.L.closing)}: <b class="num">${drcr(c, s.closing)}</b></div>
         </div>
       </div>
       <table class="items">
         <thead><tr>
-          <th style="width:80px">Date</th><th>Particulars</th><th class="r" style="width:110px">Debit</th>
-          <th class="r" style="width:110px">Credit</th><th class="r" style="width:120px">Balance</th>
+          <th style="width:80px">${esc(c.L.date)}</th><th>${esc(c.L.particulars)}</th><th class="r" style="width:110px">${esc(c.L.debit)}</th>
+          <th class="r" style="width:110px">${esc(c.L.credit)}</th><th class="r" style="width:120px">${esc(c.L.balance)}</th>
         </tr></thead>
         <tbody>
-      <tr class="ob"><td class="num">${c.date(s.from)}</td><td>Opening balance</td><td></td><td></td><td class="r num">${drcr(c, s.opening)}</td></tr>${rows}
-      <tr class="cb"><td></td><td class="r">Totals / closing balance</td><td class="r num">${m(s.totalDebit)}</td><td class="r num">${m(s.totalCredit)}</td><td class="r num">${drcr(c, s.closing)}</td></tr>
+      <tr class="ob"><td class="num">${c.date(s.from)}</td><td>${esc(c.L.openingBalance)}</td><td></td><td></td><td class="r num">${drcr(c, s.opening)}</td></tr>${rows}
+      <tr class="cb"><td></td><td class="r">${esc(c.L.totalsClosing)}</td><td class="r num">${m(s.totalDebit)}</td><td class="r num">${m(s.totalCredit)}</td><td class="r num">${drcr(c, s.closing)}</td></tr>
         </tbody>
       </table>
       <div class="sect">
-        <h3>Open bills as on ${c.date(s.to)}</h3>
-        ${s.openBills.length ? billsTable(c, s.openBills) : '<div class="sub">No open bills.</div>'}
-        ${s.unapplied > 0 ? `<div class="sub" style="margin-top:4px">Unadjusted receipts (on account): <span class="num">${m(s.unapplied)}</span></div>` : ''}
+        <h3>${esc(c.L.openBillsAsOn.before)}${c.date(s.to)}${esc(c.L.openBillsAsOn.after)}</h3>
+        ${s.openBills.length ? billsTable(c, s.openBills) : `<div class="sub">${esc(c.L.noOpenBills)}</div>`}
+        ${s.unapplied > 0 ? `<div class="sub" style="margin-top:4px">${esc(c.L.unadjusted)}: <span class="num">${m(s.unapplied)}</span></div>` : ''}
       </div>
       <div class="sect">
-        <h3>Ageing (days overdue)</h3>
+        <h3>${esc(c.L.ageingHead)}</h3>
         <table class="age">
-          <thead><tr><th>0–30</th><th>31–60</th><th>61–90</th><th>Over 90</th><th>Total due</th></tr></thead>
+          <thead><tr><th>0–30</th><th>31–60</th><th>61–90</th><th>${esc(c.L.over90)}</th><th>${esc(c.L.totalDue)}</th></tr></thead>
           <tbody><tr>${s.buckets.map((b) => `<td class="num">${m(b)}</td>`).join('')}<td class="num"><b>${withSymbol(c, total)}</b></td></tr></tbody>
         </table>
       </div>
@@ -1164,11 +1178,11 @@ function renderReminder(c: Ctx, doc: ReminderDocument, opts: RenderOptions): str
   c.extra.add('party')
   const sheet = `
     <div class="sheet">${partyHead(c, company, 'reminder')}
-      <div class="meta">${partyCell('To', r.party, c)}
+      <div class="meta">${partyCell(c.L.to, r.party, c)}
         <div>
           <div class="lbl">${esc(r.bucketLabel)}</div>
-          <div>Date: <span class="num">${c.date(r.date)}</span></div>
-          <div>Overdue: <b class="num">${withSymbol(c, r.overdue)}</b></div>
+          <div>${esc(c.L.date)}: <span class="num">${c.date(r.date)}</span></div>
+          <div>${esc(c.L.overdue)}: <b class="num">${withSymbol(c, r.overdue)}</b></div>
         </div>
       </div>
       <div class="letter"><p class="subj">${esc(r.subject)}</p>${esc(r.bodyBefore)}</div>${r.bills ? billsTable(c, r.bills) : ''}${r.bodyAfter ? `
@@ -1184,10 +1198,10 @@ export function renderDocument(template: PrintTemplate, doc: PrintDocument, opts
   const base = doc.shape !== 'invoice' && template.style === 'receipt' ? { ...template, style: 'compact' as const } : template
   if (doc.shape === 'statement' || doc.shape === 'reminder') {
     // Party documents print one copy and no receiver's signature.
-    const c = makeCtx({ ...base, footer: { ...base.footer, showReceiverSignature: false } })
+    const c = makeCtx({ ...base, footer: { ...base.footer, showReceiverSignature: false } }, opts)
     return doc.shape === 'statement' ? renderStatement(c, doc, opts) : renderReminder(c, doc, opts)
   }
-  const c = makeCtx(base)
+  const c = makeCtx(base, opts)
   return doc.shape === 'invoice' ? renderInvoice(c, doc, opts) : renderVoucher(c, doc, opts)
 }
 

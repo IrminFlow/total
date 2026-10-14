@@ -18,6 +18,7 @@
 //   that can't be reconciled rolls its entry back, so nothing is left half done. Failures are
 //   reported per line with the structured error (plain message on its row).
 import type { DB } from '../db/connection'
+import { companyLanguage } from '../i18n'
 import type { CompanyInfo } from '@shared/domain'
 import { toPlainDate } from '@shared/dates'
 import { AppError, structuredOf } from '@shared/errors'
@@ -85,7 +86,7 @@ export async function bankView(db: DB, bankLedgerId: number, today: string): Pro
     if (p && !p.ambiguous && p.entries.length) {
       const first = p.entries[0]!
       match = { name: first.particulars, date: first.date, amount: p.entries.reduce((s, e) => s + e.amount, 0) }
-      suggestion = { choice: { kind: 'existing' }, source: 'match', because: becauseFor('match', { name: first.particulars, date: toPlainDate(first.date) }) }
+      suggestion = { choice: { kind: 'existing' }, source: 'match', because: becauseFor('match', { name: first.particulars, date: toPlainDate(first.date, companyLanguage(db)) }) }
     } else {
       const row = catBy.get(l.id)
       const acc = row?.ledgerId ? accounts.get(row.ledgerId) : undefined

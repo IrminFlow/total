@@ -6,7 +6,7 @@
 // user starts from. Simple-mode screens (src/renderer/src/simple/**) get every string from
 // `useT()`; accountant screens keep their literal English (they are not migrated in this plan).
 
-import { useCallback } from 'react'
+import { useCallback, useMemo } from 'react'
 import { create } from 'zustand'
 import { normalizeLanguage, translator, type Language, type Translate } from '@shared/i18n'
 import { useSession } from '../state/stores'
@@ -29,6 +29,18 @@ const read = (key: string): string | null => {
 export function storedLanguage(slug: string | null, userId: number | null | undefined): Language {
   const own = read(languageStorageKey(slug, userId))
   return normalizeLanguage(own ?? read(LANGUAGE_KEY))
+}
+
+/** WP 10.4: has anyone chosen a language on this Mac yet (app-wide, or for this user)? */
+export function hasStoredLanguage(slug: string | null = null, userId: number | null | undefined = null): boolean {
+  return read(languageStorageKey(slug, userId)) != null || read(LANGUAGE_KEY) != null
+}
+
+/** WP 10.4: the language the operating system suggests — Hindi for a hi / hi-IN locale, else
+ *  null (English needs no suggestion). The PRIMARY locale only (Hindi listed second is not a choice). Only the first-run wizard uses it, before anything is
+ *  stored, so an existing user's screens never change language on their own. */
+export function osLanguage(locale: string | undefined = typeof navigator === 'undefined' ? undefined : navigator.language): Language | null {
+  return /^hi(?:[-_]|$)/i.test(locale ?? '') ? 'hi' : null
 }
 
 // A version counter so every useLanguage() re-reads after a change.
@@ -60,5 +72,5 @@ export function useLanguage(): [Language, (lang: Language) => void] {
 /** `t` bound to the user's language: `const t = useT(); t('simple.nav.home')`. */
 export function useT(): Translate {
   const [language] = useLanguage()
-  return useCallback<Translate>((key, vars, options) => translator(language)(key, vars, options), [language])
+  return useMemo<Translate>(() => translator(language), [language])
 }

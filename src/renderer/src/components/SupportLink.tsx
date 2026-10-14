@@ -5,12 +5,27 @@ export const SUPPORT_EMAIL = 'total@irminflow.com'
 
 /** Support contact shown on every screen — Shell sidebar, company select and lock screen.
  *  Clicking it opens a small dialog so users can copy the address or launch their mail app. */
-export function SupportLink({ className = '' }: { className?: string }): React.JSX.Element {
+export function SupportLink({ className = '', compact = false }: { className?: string; compact?: boolean }): React.JSX.Element {
   const [open, setOpen] = useState(false)
 
   return (
     <>
-      <button
+      {compact ? (
+        // WP 10.5: the simple sidebar's narrow (icons-only) form — an envelope, named for readers.
+        <button
+          type="button"
+          data-testid="link-support"
+          title={`Email support (${SUPPORT_EMAIL})`}
+          aria-label={`Support · ${SUPPORT_EMAIL}`}
+          onClick={() => setOpen(true)}
+          className={`rounded-md px-2 py-1 text-muted hover:text-ink ${className}`}
+        >
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth={1.7} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <path d="M3 5h18v14H3z" />
+            <path d="m3 6 9 7 9-7" />
+          </svg>
+        </button>
+      ) : <button
         type="button"
         data-testid="link-support"
         title={`Email support (${SUPPORT_EMAIL})`}
@@ -18,7 +33,7 @@ export function SupportLink({ className = '' }: { className?: string }): React.J
         className={`text-left text-small text-muted hover:text-ink ${className}`}
       >
         Support · {SUPPORT_EMAIL}
-      </button>
+      </button>}
       {open && <SupportModal onClose={() => setOpen(false)} />}
     </>
   )

@@ -7,6 +7,7 @@ import { AppearanceSection } from '../screens/settings/AppearanceSection'
 import { LANGUAGE_KEY, languageStorageKey, useLanguage, useT } from '../lib/i18n'
 import { SimplePlaceholder } from '../simple/SimplePlaceholder'
 import { useSession } from '../state/stores'
+import { CATALOGUES } from '@shared/i18n'
 
 beforeEach(() => {
   localStorage.clear()
@@ -24,7 +25,7 @@ describe('language switch', () => {
     fireEvent.click(screen.getByTestId('btn-language-hi'))
     expect(localStorage.getItem(LANGUAGE_KEY)).toBe('hi')
     expect(result.current('simple.home.moneyIn')).toBe('पैसे आए')
-    expect(result.current('simple.sell.makeBill')).toBe('Make a bill') // stub → en per key
+    expect(result.current('simple.sell.makeBill')).toBe(CATALOGUES.hi['simple.sell.makeBill']) // WP 10.4: complete, no fallback
     expect(screen.getByTestId('btn-language-hi').getAttribute('aria-checked')).toBe('true')
     expect(screen.getByText('भाषा')).toBeTruthy() // the row title itself follows the language
 
@@ -56,8 +57,8 @@ describe('language switch', () => {
     act(() => other.current[1]('hinglish'))
     expect(other.current[0]).toBe('hinglish')
     expect(t.current('simple.home.moneyIn')).toBe('Paise aaye')
-    // the placeholder has no Hinglish yet: it falls back to English, still rendered
-    expect(screen.getByTestId('simple-placeholder').textContent).toContain('Simple mode is on its way')
+    // the placeholder re-renders in Hinglish too (WP 10.4: the simple namespaces are complete)
+    expect(screen.getByTestId('simple-placeholder').textContent).toContain(CATALOGUES.hinglish['simple.placeholder.title'] ?? '')
   })
 
   it('the existing Appearance wording is unchanged', () => {

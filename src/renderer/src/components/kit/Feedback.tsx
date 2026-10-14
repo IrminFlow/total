@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react'
+import { useKitLabels } from './labels'
 
 // ---------- loading ----------
 
@@ -117,6 +118,7 @@ export function Banner({
   className?: string
   testId?: string
 }): React.JSX.Element {
+  const labels = useKitLabels()
   return (
     <div
       role={tone === 'danger' || tone === 'warning' ? 'alert' : 'status'}
@@ -132,7 +134,7 @@ export function Banner({
       {onDismiss && (
         <button
           type="button"
-          aria-label="Dismiss"
+          aria-label={labels.dismiss}
           onClick={onDismiss}
           className="shrink-0 self-center rounded px-1 text-muted hover:text-ink"
         >

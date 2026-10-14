@@ -1021,7 +1021,7 @@ function mapReturn(n: Extract<NormalIntent, { kind: 'return_sale' | 'return_purc
   const date = n.date
   // A return before its bill would find nothing pending on it (the whole return a credit) and slip
   // past what is left of an amount bill — refused at the date.
-  if (date < o.date) fail('simple_return_before_bill', `The bill is dated ${toDisplayDate(o.date)} — a return can only be on that day or later`, 'date', { date: toPlainDate(o.date) })
+  if (date < o.date) fail('simple_return_before_bill', `The bill is dated ${toDisplayDate(o.date)} — a return can only be on that day or later`, 'date', { date: o.date }) // ISO: mapError writes it in the reader's language
   const accountId = o.accountId ?? (sale ? ctx.defaults.salesId : ctx.defaults.purchaseId)
   const account = ledgerOf(ctx, accountId, sale ? ['income'] : ['expense'], 'simple_wrong_account', 'bill', sale ? 'sales account' : 'purchase account')
   // WP 8.0 / s.34: a note against a bill of a GST-charging period (or one that carries tax) keeps its GST.

@@ -121,7 +121,7 @@ function OpeningsFlow({ state }: { state: OpeningsState }): React.JSX.Element {
   const [done, setDone] = useState<OpeningsResult | null>(null)
   const step = steps[stepIdx]!
   const last = step === 'confirm'
-  const date = toPlainDate(state.booksBegin)
+  const date = toPlainDate(state.booksBegin, t.lang)
   const payload = useMemo(() => openingsPayload(draft, undefined, state.capitals.length > 1 ? capitalId : undefined), [draft, capitalId, state.capitals.length])
   const payloadKey = JSON.stringify(payload)
 
@@ -352,7 +352,7 @@ function ConfirmStep({
   empty: boolean
 }): React.JSX.Element {
   const t = useT()
-  const date = toPlainDate(props.state.booksBegin)
+  const date = toPlainDate(props.state.booksBegin, t.lang)
   const b = breakdown(payload)
   const answersHave = b.money + b.customers + b.stock + b.otherHave
   const answersOwe = b.suppliers + b.overdrafts + b.otherOwe

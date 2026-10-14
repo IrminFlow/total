@@ -6,6 +6,7 @@ import { Button, IconButton } from './kit/Button'
 import { Kbd } from './kit/Text'
 import { inputCls, useFieldAria, useInField } from './kit/Field'
 import { isAnyModalOpen, layerCount, topModalElement, useDialogLayer } from './kit/layers'
+import { useKitLabels } from './kit/labels'
 
 // The design-system kit lives in components/kit (see kit/README.md). Everything is re-exported
 // here so existing `from '../components/ui'` imports keep working.
@@ -54,6 +55,7 @@ export function AmountInput({
   /** Accessible name when there's no wrapping Field/label (grid cells, toolbars). */
   ariaLabel?: string
 }): React.JSX.Element {
+  const labels = useKitLabels()
   const [text, setText] = useState(paise != null && paise !== 0 ? formatPaise(paise) : '')
   useEffect(() => {
     // Reflect external resets (e.g. clearing a form).
@@ -74,7 +76,7 @@ export function AmountInput({
         autoFocus={autoFocus}
         placeholder={placeholder ?? '0.00'}
         inputMode="decimal"
-        aria-label={ariaLabel ?? (inField ? undefined : 'Amount')}
+        aria-label={ariaLabel ?? (inField ? undefined : labels.amount)}
         aria-describedby={fieldAria['aria-describedby']}
         aria-invalid={invalid || fieldAria['aria-invalid'] || undefined}
         onChange={(e) => {
@@ -89,7 +91,7 @@ export function AmountInput({
           if (e.key === 'Enter' && onEnter) onEnter()
         }}
       />
-      {invalid && <span className="mt-0.5 block text-hint text-danger">Not an amount</span>}
+      {invalid && <span className="mt-0.5 block text-hint text-danger">{labels.notAnAmount}</span>}
     </span>
   )
 }
@@ -121,6 +123,7 @@ export function DateInput({
   /** How a valid date is shown (default DD-MMM-YY; simple screens pass toPlainDate). */
   format?: (iso: string) => string
 }): React.JSX.Element {
+  const labels = useKitLabels()
   const show = (v: string): string => (allowEmpty && !v ? '' : (format ?? toDisplayDate)(v))
   const [text, setText] = useState(show(value))
   const [bad, setBad] = useState(false)
@@ -135,7 +138,7 @@ export function DateInput({
         data-testid={testId}
         value={text}
         placeholder={placeholder}
-        aria-label={ariaLabel ?? (inField ? undefined : 'Date')}
+        aria-label={ariaLabel ?? (inField ? undefined : labels.date)}
 
         aria-describedby={fieldAria['aria-describedby']}
         aria-invalid={bad || fieldAria['aria-invalid'] || undefined}
@@ -163,7 +166,7 @@ export function DateInput({
           if (e.key === 'Enter') (e.target as HTMLInputElement).blur()
         }}
       />
-      {bad && <span className="mt-0.5 block text-hint text-danger">Try 7, 7/4, t, y or 15-08-2026</span>}
+      {bad && <span className="mt-0.5 block text-hint text-danger">{labels.dateHint}</span>}
     </span>
   )
 }
@@ -254,6 +257,7 @@ export function Modal({
   /** When true, dismissing (Esc / overlay / ✕) first asks to discard unsaved changes. */
   dirty?: boolean
 }): React.JSX.Element {
+  const labels = useKitLabels()
   const titleId = useId()
   const dialogRef = useRef<HTMLDivElement>(null)
   const [confirmDiscard, setConfirmDiscard] = useState(false)
@@ -310,7 +314,7 @@ export function Modal({
           </h3>
           <div className="flex items-center gap-2">
             <Kbd>Esc</Kbd>
-            <IconButton label="Close" size="sm" data-testid="modal-close" onClick={requestClose}>
+            <IconButton label={labels.close} size="sm" data-testid="modal-close" onClick={requestClose}>
               ✕
             </IconButton>
           </div>
@@ -318,13 +322,13 @@ export function Modal({
         <div className="p-5">{children}</div>
         {confirmDiscard && (
           <div className="flex items-center justify-between gap-3 border-t border-warning/50 bg-warning-soft px-5 py-3">
-            <p className="text-detail text-ink">Discard unsaved changes?</p>
+            <p className="text-detail text-ink">{labels.discardPrompt}</p>
             <div className="flex shrink-0 gap-2">
               <Button data-testid="modal-keep-editing" onClick={() => setConfirmDiscard(false)}>
-                Keep editing
+                {labels.keepEditing}
               </Button>
               <Button variant="danger" data-testid="modal-discard" onClick={() => onCloseRef.current()}>
-                Discard
+                {labels.discard}
               </Button>
             </div>
           </div>
@@ -349,6 +353,7 @@ export function Toasts(): React.JSX.Element {
     <div
       aria-live="polite"
       role="status"
+      data-toasts=""
       onMouseEnter={pause}
       onMouseLeave={resume}
       className="pointer-events-none fixed right-4 bottom-4 z-50 flex w-96 flex-col gap-2"

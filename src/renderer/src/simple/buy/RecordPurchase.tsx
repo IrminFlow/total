@@ -33,6 +33,7 @@ import { BuyAmount } from './BuyAmount'
 import { PaidNow } from './PaidNow'
 import { useAccountantView } from '../../lib/handoff'
 import { AccountantViewButton } from '../AccountantViewButton'
+import { SaveBar } from '../SaveBar'
 
 const INCL_KEY = 'total-buy-incl' // i18n-technical: localStorage key (per company)
 const PURCHASES_CATEGORY = 'purchases' as const // i18n-technical
@@ -383,7 +384,7 @@ export function RecordPurchase({ party, ask }: { party?: number; ask?: AskOpen<'
                 )}
               </div>
               <Field label={t('simple.buy.theirBillDate')} name="date" error={errors.get(F.date)}>
-                <DateInput value={form.date} context={workingDate} onChange={(d) => update({ date: d })} format={toPlainDate} testId="input-buy-date" />
+                <DateInput value={form.date} context={workingDate} onChange={(d) => update({ date: d })} format={((d: string) => toPlainDate(d, t.lang))} testId="input-buy-date" />
               </Field>
             </div>
           </section>
@@ -546,9 +547,6 @@ export function RecordPurchase({ party, ask }: { party?: number; ask?: AskOpen<'
                 {formatPaise(totals?.total ?? 0, { symbol: true })}
               </span>
             </div>
-            <p className="mt-2 min-h-5 text-body text-ink" data-testid="buy-preview">
-              {preview ? purchasePreviewLine(preview.facts, t) : ready && !previewFailed ? t('simple.buy.preview.checking') : ''}
-            </p>
             {previewProblem && (
               <p role="status" className="mt-1 text-detail text-warning" data-testid="buy-preview-problem">
                 {t('simple.buy.previewProblem', { reason: previewProblem })}
@@ -566,22 +564,20 @@ export function RecordPurchase({ party, ask }: { party?: number; ask?: AskOpen<'
             </div>
           )}
 
-          <div className="sticky bottom-0 z-10 -mx-1 flex flex-wrap items-center justify-between gap-3 border-t border-line bg-canvas/95 px-1 py-3 backdrop-blur">
-            <p className="text-small text-muted">
-              <span className="num mr-3 text-body font-semibold text-ink" data-testid="buy-total-bar">
-                {formatPaise(totals?.total ?? 0, { symbol: true })}
-              </span>
-              {t('simple.buy.shortcuts')}
-            </p>
-            <div className="flex gap-2">
-              <Button data-testid="btn-buy-start-again" disabled={saving} onClick={() => (dirty ? void askDiscard().then((ok) => ok && startNew()) : startNew())}>
-                {t('simple.buy.startAgain')}
-              </Button>
-              <Button variant="primary" data-testid="btn-buy-save" disabled={saving || !setup || noPurchaseAccount} onClick={() => void save()}>
-                {t('simple.buy.save')}
-              </Button>
-            </div>
-          </div>
+          <SaveBar
+            total={formatPaise(totals?.total ?? 0, { symbol: true })}
+            totalTestId="buy-total-bar"
+            preview={preview ? purchasePreviewLine(preview.facts, t) : ready && !previewFailed ? t('simple.buy.preview.checking') : ''}
+            previewTestId="buy-preview"
+            shortcuts={t('simple.buy.shortcuts')}
+          >
+            <Button data-testid="btn-buy-start-again" disabled={saving} onClick={() => (dirty ? void askDiscard().then((ok) => ok && startNew()) : startNew())}>
+              {t('simple.buy.startAgain')}
+            </Button>
+            <Button variant="primary" data-testid="btn-buy-save" disabled={saving || !setup || noPurchaseAccount} onClick={() => void save()}>
+              {t('simple.buy.save')}
+            </Button>
+          </SaveBar>
         </div>
       )}
 

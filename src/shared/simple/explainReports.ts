@@ -11,11 +11,11 @@ import { dirOf, join, money, resultOf, shortDate, span } from './explainCommon'
 /** "₹1,200.00 more than the previous period (1 Sep 2026 to 13 Sep 2026)." */
 export function changeSentence(current: number, previous: number, prev: { from: string; to: string }, t: Translate): string {
   const diff = current - previous
-  return t('simple.reports.change', { dir: diff > 0 ? 'up' : diff < 0 ? 'down' : 'same', amount: money(Math.abs(diff)), ...span(prev) })
+  return t('simple.reports.change', { dir: diff > 0 ? 'up' : diff < 0 ? 'down' : 'same', amount: money(Math.abs(diff)), ...span(prev, t.lang) })
 }
 
 export function salesWhy(d: Pick<BusinessDoing, 'lines' | 'span'>, t: Translate): string {
-  return d.lines.sales === 0 ? t('simple.reports.why.salesNone', span(d.span)) : t('simple.reports.why.sales', { ...span(d.span), amount: money(d.lines.sales) })
+  return d.lines.sales === 0 ? t('simple.reports.why.salesNone', span(d.span, t.lang)) : t('simple.reports.why.sales', { ...span(d.span, t.lang), amount: money(d.lines.sales) })
 }
 
 export function costWhy(d: Pick<BusinessDoing, 'lines'>, t: Translate): string {
@@ -33,7 +33,7 @@ export function otherIncomeWhy(d: Pick<BusinessDoing, 'lines'>, t: Translate): s
 }
 
 export function expensesWhy(d: Pick<BusinessDoing, 'lines' | 'span' | 'topExpenses'>, t: Translate): string {
-  if (d.lines.expenses === 0) return t('simple.reports.why.expensesNone', span(d.span))
+  if (d.lines.expenses === 0) return t('simple.reports.why.expensesNone', span(d.span, t.lang))
   const list = d.topExpenses
     .slice(0, 3)
     .map((p) => `${p.name} ${money(p.amount)}`)
@@ -46,7 +46,7 @@ export function doingProfitWhy(d: Pick<BusinessDoing, 'lines' | 'previousLines' 
   const l = d.lines
   const stock = l.closingStock - l.openingStock
   return join([
-    t('simple.reports.why.profit', { result: resultOf(l.profit), amount: money(Math.abs(l.profit)), ...span(d.span) }),
+    t('simple.reports.why.profit', { result: resultOf(l.profit), amount: money(Math.abs(l.profit)), ...span(d.span, t.lang) }),
     stock > 0 ? t('simple.reports.why.stockUp', { amount: money(stock) }) : stock < 0 ? t('simple.reports.why.stockDown', { amount: money(-stock) }) : null,
     changeSentence(l.profit, d.previousLines.profit, d.previous, t)
   ])
@@ -54,7 +54,7 @@ export function doingProfitWhy(d: Pick<BusinessDoing, 'lines' | 'previousLines' 
 
 export function doingCashWhy(d: Pick<BusinessDoing, 'cash' | 'asOn'>, t: Translate): string {
   const c = d.cash
-  const date = toPlainDate(d.asOn)
+  const date = toPlainDate(d.asOn, t.lang)
   return c.banks === 0
     ? t('simple.reports.why.cashOnly', { total: money(c.total), date })
     : t('simple.reports.why.cash', { total: money(c.total), cash: money(c.cash), bank: money(c.bank), count: c.banks, date })
@@ -62,7 +62,7 @@ export function doingCashWhy(d: Pick<BusinessDoing, 'cash' | 'asOn'>, t: Transla
 
 export function doingOwedWhy(d: Pick<BusinessDoing, 'owed' | 'asOn'>, t: Translate): string {
   return join([
-    t('simple.reports.why.owed', { date: toPlainDate(d.asOn), receivable: money(d.owed.receivable), payable: money(d.owed.payable) }),
+    t('simple.reports.why.owed', { date: toPlainDate(d.asOn, t.lang), receivable: money(d.owed.receivable), payable: money(d.owed.payable) }),
     d.owed.customerAdvances > 0 ? t('simple.reports.why.advances', { amount: money(d.owed.customerAdvances) }) : null
   ])
 }
@@ -70,8 +70,8 @@ export function doingOwedWhy(d: Pick<BusinessDoing, 'owed' | 'asOn'>, t: Transla
 export function cashNext30Why(c: SimpleCash, t: Translate): string {
   const low = Math.min(c.end, c.lowest?.amount ?? c.end)
   return join([
-    t('simple.reports.cash.why', { now: money(c.now), in: money(c.moneyIn), out: money(c.moneyOut), date: shortDate(c.until, c.asOn), end: money(c.end) }),
-    c.lowest && c.lowest.amount < c.end ? t('simple.reports.cash.lowest', { amount: money(c.lowest.amount), date: shortDate(c.lowest.date, c.asOn) }) : null,
+    t('simple.reports.cash.why', { now: money(c.now), in: money(c.moneyIn), out: money(c.moneyOut), date: shortDate(c.until, c.asOn, t.lang), end: money(c.end) }),
+    c.lowest && c.lowest.amount < c.end ? t('simple.reports.cash.lowest', { amount: money(c.lowest.amount), date: shortDate(c.lowest.date, c.asOn, t.lang) }) : null,
     low < 0 ? t('simple.reports.cash.belowZero') : null,
     (c.inBy.customers ?? 0) > 0 ? t('simple.reports.cash.estimate') : null
   ])
@@ -90,7 +90,7 @@ export function byMonthWhy(b: SimpleByMonth, t: Translate): string {
   const { sales, purchases } = b.totals // WP 10.2: the service's totals (monthTotals)
   if (sales === 0 && purchases === 0) return t('simple.reports.byMonth.whyNone')
   const best = b.months.reduce((a, m) => (m.sales > a.sales ? m : a), b.months[0]!)
-  return t('simple.reports.byMonth.why', { sales: money(sales), purchases: money(purchases), month: toMonthLabel(best.month, 'long'), amount: money(best.sales) })
+  return t('simple.reports.byMonth.why', { sales: money(sales), purchases: money(purchases), month: toMonthLabel(best.month, 'long', t.lang), amount: money(best.sales) })
 }
 
 // ---------------------------------------------------------------- WP 10.2
@@ -109,7 +109,7 @@ export function compareSentence(current: CompareLines, previous: CompareLines, p
     when,
     dir: dirOf(diff),
     amount: money(Math.abs(diff)),
-    ...span(prev),
+    ...span(prev, t.lang),
     part: part ? part.part : 'none',
     partDir: part && part.change > 0 ? 'up' : 'down',
     partAmount: money(Math.abs(part?.change ?? 0))
@@ -127,7 +127,7 @@ export function doingResultWhy(d: Pick<BusinessDoing, 'lines' | 'span'>, t: Tran
   const l = d.lines
   const stock = l.closingStock - l.openingStock
   return join([
-    t('simple.reports.why.profit', { result: resultOf(l.profit), amount: money(Math.abs(l.profit)), ...span(d.span) }),
+    t('simple.reports.why.profit', { result: resultOf(l.profit), amount: money(Math.abs(l.profit)), ...span(d.span, t.lang) }),
     stock > 0 ? t('simple.reports.why.stockUp', { amount: money(stock) }) : stock < 0 ? t('simple.reports.why.stockDown', { amount: money(-stock) }) : null
   ])
 }
@@ -155,34 +155,34 @@ const cashItemName = (i: SimpleCash['topIn'][number], t: Translate): string => i
 
 /** Expected in: by source, then the biggest single receipt. */
 export function cashInWhy(c: SimpleCash, t: Translate): string {
-  const date = shortDate(c.until, c.asOn)
+  const date = shortDate(c.until, c.asOn, t.lang)
   if (c.moneyIn <= 0) return t('simple.why.cash.inNone', { date })
   const top = c.topIn[0]
   return join([
     t('simple.why.cash.in', { amount: money(c.moneyIn), date, list: cashList(c.inBy, t) }),
-    top ? t('simple.why.cash.biggestIn', { name: cashItemName(top, t), amount: money(top.amount), date: shortDate(top.date, c.asOn) }) : null
+    top ? t('simple.why.cash.biggestIn', { name: cashItemName(top, t), amount: money(top.amount), date: shortDate(top.date, c.asOn, t.lang) }) : null
   ])
 }
 
 /** Expected out: by source, then the biggest single payment. */
 export function cashOutWhy(c: SimpleCash, t: Translate): string {
-  const date = shortDate(c.until, c.asOn)
+  const date = shortDate(c.until, c.asOn, t.lang)
   if (c.moneyOut <= 0) return t('simple.why.cash.outNone', { date })
   const top = c.topOut[0]
   return join([
     t('simple.why.cash.out', { amount: money(c.moneyOut), date, list: cashList(c.outBy, t) }),
-    top ? t('simple.why.cash.biggestOut', { name: cashItemName(top, t), amount: money(top.amount), date: shortDate(top.date, c.asOn) }) : null
+    top ? t('simple.why.cash.biggestOut', { name: cashItemName(top, t), amount: money(top.amount), date: shortDate(top.date, c.asOn, t.lang) }) : null
   ])
 }
 
 /** The end balance: now + in − out, then the first day below zero (or else the lowest point). */
 export function cashEndWhy(c: SimpleCash, t: Translate): string {
   return join([
-    t('simple.why.cash.end', { now: money(c.now), in: money(c.moneyIn), out: money(c.moneyOut), end: money(c.end), date: shortDate(c.until, c.asOn) }),
+    t('simple.why.cash.end', { now: money(c.now), in: money(c.moneyIn), out: money(c.moneyOut), end: money(c.end), date: shortDate(c.until, c.asOn, t.lang) }),
     c.belowZero
-      ? t('simple.why.cash.belowZero', { date: shortDate(c.belowZero.date, c.asOn), amount: money(-c.belowZero.amount) })
+      ? t('simple.why.cash.belowZero', { date: shortDate(c.belowZero.date, c.asOn, t.lang), amount: money(-c.belowZero.amount) })
       : c.lowest && c.lowest.amount < c.end
-        ? t('simple.reports.cash.lowest', { amount: money(c.lowest.amount), date: shortDate(c.lowest.date, c.asOn) })
+        ? t('simple.reports.cash.lowest', { amount: money(c.lowest.amount), date: shortDate(c.lowest.date, c.asOn, t.lang) })
         : null
   ])
 }
@@ -207,9 +207,9 @@ export function byMonthTotalsWhy(b: SimpleByMonth, t: Translate): string {
   const last = b.months[b.months.length - 2]
   const before = b.months[b.months.length - 3]
   return join([
-    t('simple.reports.byMonth.why', { sales: money(sales), purchases: money(purchases), month: toMonthLabel(best.month, 'long'), amount: money(best.sales) }),
+    t('simple.reports.byMonth.why', { sales: money(sales), purchases: money(purchases), month: toMonthLabel(best.month, 'long', t.lang), amount: money(best.sales) }),
     last && before
-      ? t('simple.why.byMonth.change', { month: toMonthLabel(last.month, 'long'), previous: toMonthLabel(before.month, 'long'), dir: dirOf(last.sales - before.sales), amount: money(Math.abs(last.sales - before.sales)) })
+      ? t('simple.why.byMonth.change', { month: toMonthLabel(last.month, 'long', t.lang), previous: toMonthLabel(before.month, 'long', t.lang), dir: dirOf(last.sales - before.sales), amount: money(Math.abs(last.sales - before.sales)) })
       : null
   ])
 }

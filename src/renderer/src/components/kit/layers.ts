@@ -75,6 +75,12 @@ const consumesEscape = (t: EventTarget | null): boolean => t instanceof Element 
 export function useDialogLayer(ref: RefObject<HTMLElement | null>, onEscape: () => void): void {
   const onEscapeRef = useRef(onEscape)
   onEscapeRef.current = onEscape
+  // What had the keyboard when the layer was first rendered — before a child's autoFocus took it
+  // (by the effect below `activeElement` is already inside the layer when a field autofocuses).
+  const openerRef = useRef<HTMLElement | null>(null)
+  if (openerRef.current === null && typeof document !== 'undefined' && document.activeElement instanceof HTMLElement) {
+    openerRef.current = document.activeElement
+  }
 
   useEffect(() => {
     const previous = document.activeElement as HTMLElement | null
@@ -84,6 +90,19 @@ export function useDialogLayer(ref: RefObject<HTMLElement | null>, onEscape: () 
       ;(first ?? el).focus()
     }
     return () => {
+      // WP 10.5 (simple shell only — the full app restores exactly as before): an autofocused
+      // dialog remembered its own field, which is gone by now, so the keyboard fell to <body>;
+      // give it back to the control that opened the dialog.
+      const opener = openerRef.current
+      if (
+        document.documentElement.dataset.shell === 'simple' &&
+        (!previous || !previous.isConnected || el?.contains(previous)) &&
+        opener?.isConnected &&
+        !el?.contains(opener)
+      ) {
+        opener.focus()
+        return
+      }
       previous?.focus?.()
     }
   }, [ref])
@@ -137,3 +156,47 @@ export function useDialogLayer(ref: RefObject<HTMLElement | null>, onEscape: () 
 export function layerCount(): number {
   return layerStack.length
 }
+
+// ---------------------------------------------------------------------------------------------
+// WP 10.5: docked panels as Esc layers in the simple shell. A DockedDrawer rendered under the
+// simple shell's dock provider registers here while open; Esc then closes the topmost panel
+// before anything below it sees the key (a form's "Esc asks before discarding", the app's
+// "Esc goes back") — the order is dialog → panel → form → screen. A dialog layer, an open
+// popover / picker list (aria-expanded), a field that clears itself, or an overlay marked
+// `data-esc-layer` (the ⌘K palette — not a dialog layer) keeps its Esc. The full
+// app's AI panel never registers, so accountant mode keeps its keys exactly as they were.
+
+const panelStack: { close: () => void }[] = []
+
+/** Registers an open panel; returns the unregister function. */
+export function registerPanelLayer(close: () => void): () => void {
+  const entry = { close }
+  panelStack.push(entry)
+  return () => {
+    const i = panelStack.indexOf(entry)
+    if (i >= 0) panelStack.splice(i, 1)
+  }
+}
+
+/** True while a simple-shell panel (Help, Ask Total, the AI drawer) is open. */
+export function isPanelOpen(): boolean {
+  return panelStack.length > 0
+}
+
+/** The Esc router (true = it closed a panel). Installed on window in the capture phase when
+ *  this module is first evaluated — before any component's effect adds its own listener — so it
+ *  runs first. Exported for tests. */
+export function routePanelEscape(e: KeyboardEvent): boolean {
+  if (e.key !== 'Escape' || e.defaultPrevented || panelStack.length === 0) return false
+  if (layerStack.length > 0 || escapeLayers > 0 || consumesEscape(e.target)) return false
+  const t = e.target instanceof Element ? e.target : null
+  if (t?.matches('[role="combobox"][aria-expanded="true"]')) return false // an open picker list closes first
+  // An overlay drawn over the panels that owns its Esc (the ⌘K palette) closes first.
+  if (typeof document !== 'undefined' && document.querySelector('[data-esc-layer]')) return false
+  e.preventDefault()
+  e.stopImmediatePropagation()
+  panelStack[panelStack.length - 1]!.close()
+  return true
+}
+
+if (typeof window !== 'undefined') window.addEventListener('keydown', routePanelEscape, true)

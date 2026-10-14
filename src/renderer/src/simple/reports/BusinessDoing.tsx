@@ -53,7 +53,7 @@ export function BusinessDoing(): React.JSX.Element {
       <ReportHeader
         testId="doing"
         title={t('simple.reports.howAmIDoing')}
-        subtitle={d ? t('simple.reports.doing.subtitle', { from: toPlainDate(d.span.from), to: toPlainDate(d.span.to) }) : t('common.loading')}
+        subtitle={d ? t('simple.reports.doing.subtitle', { from: toPlainDate(d.span.from, t.lang), to: toPlainDate(d.span.to, t.lang) }) : t('common.loading')}
         accountant={{ screen: PNL, hint: t('simple.reports.doing.accountant') }}
       />
       <div className="mb-4 flex flex-wrap items-end gap-3">
@@ -61,10 +61,10 @@ export function BusinessDoing(): React.JSX.Element {
         {period === 'custom' && (
           <>
             <Field label={t('simple.reports.period.from')} name="from" error={err?.fields.from ?? null}>
-              <DateInput testId="doing-from" allowEmpty value={from} context={today} onChange={setFrom} format={toPlainDate} />
+              <DateInput testId="doing-from" allowEmpty value={from} context={today} onChange={setFrom} format={((d: string) => toPlainDate(d, t.lang))} />
             </Field>
             <Field label={t('simple.reports.period.to')} name="to" error={err?.fields.to ?? null}>
-              <DateInput testId="doing-to" allowEmpty value={to} context={today} onChange={setTo} format={toPlainDate} />
+              <DateInput testId="doing-to" allowEmpty value={to} context={today} onChange={setTo} format={((d: string) => toPlainDate(d, t.lang))} />
             </Field>
             <Button variant="primary" data-testid="doing-show" disabled={!from || !to} onClick={() => setCustom({ from, to })}>
               {t('simple.reports.period.show')}
@@ -121,10 +121,10 @@ function DoingBody({ d }: { d: Doing }): React.JSX.Element {
   const l = d.lines
   const result = l.profit < 0 ? 'loss' : 'profit' // i18n-technical
   const hasStock = l.openingStock !== 0 || l.closingStock !== 0
-  const asOn = toPlainDate(d.asOn)
+  const asOn = toPlainDate(d.asOn, t.lang)
   const tb = { name: 'trial-balance', asOn: d.asOn, ledgerIds: d.cash.ledgerIds } as const // i18n-technical
   // WP 10.2: every line's "Why?" opens the P&L for exactly the period it covers.
-  const pnl = { label: t('simple.why.link.pnl', { from: toPlainDate(d.span.from), to: toPlainDate(d.span.to) }), screen: { name: 'profit-loss', from: d.span.from, to: d.span.to } as Screen } // i18n-technical
+  const pnl = { label: t('simple.why.link.pnl', { from: toPlainDate(d.span.from, t.lang), to: toPlainDate(d.span.to, t.lang) }), screen: { name: 'profit-loss', from: d.span.from, to: d.span.to } as Screen } // i18n-technical
   return (
     <>
       <section className={cardCls} aria-label={t('simple.reports.howAmIDoing')}>

@@ -178,7 +178,7 @@ export function StockCount(): React.JSX.Element {
           <section className="rounded-lg border border-line bg-panel p-panel shadow-elev-1">
             <div className="grid grid-cols-1 gap-4 md:grid-cols-[1fr_2fr]">
               <Field label={t('simple.stock.count.date')} name="date" error={errors.get(F.date)}>
-                <DateInput value={form.date} context={workingDate} onChange={(d) => update({ date: d })} format={toPlainDate} testId="input-count-date" />
+                <DateInput value={form.date} context={workingDate} onChange={(d) => update({ date: d })} format={((d: string) => toPlainDate(d, t.lang))} testId="input-count-date" />
               </Field>
               <Field label={t('simple.stock.count.find')}>
                 <TextInput value={search} placeholder={t('simple.stock.count.findPlaceholder')} onChange={(e) => setSearch(e.target.value)} data-testid="input-count-search" />
