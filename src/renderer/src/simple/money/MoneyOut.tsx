@@ -13,7 +13,8 @@ import {
 } from '@shared/simple/money'
 import { api } from '../../lib/client'
 import { useT } from '../../lib/i18n'
-import { useNav, useSession } from '../../state/stores'
+import { useNav, useSession, type AskOpen } from '../../state/stores'
+import { moneyOutFromAsk } from '@shared/simple/askPrefill'
 import { AmountInput, DateInput, Field, FieldError, Page, TextInput, useFormErrors } from '../../components/ui'
 import { TypeAhead, useGroups, useLedgers } from '../../components/pickers'
 import { CategoryPicker } from '../CategoryPicker'
@@ -50,7 +51,7 @@ const isDirty = (f: MoneyOutForm): boolean => f.amount != null || f.supplierId !
  * existing eligibility rules fire, a read-only hint points at the accountant view (no TDS is
  * added here). "Accountant view" opens the payment editor.
  */
-export function MoneyOut({ party, amount, bill, billId, date, bankId, reference, note }: {
+export function MoneyOut({ party, amount, bill, billId, date, bankId, reference, note, ask }: {
   party?: number
   amount?: number
   bill?: string
@@ -60,6 +61,8 @@ export function MoneyOut({ party, amount, bill, billId, date, bankId, reference,
   bankId?: number
   reference?: string
   note?: string
+  /** WP 10.1: opened from an Ask Total entry request (askPrefill.ts — the same mapping its draft used). */
+  ask?: AskOpen<'simple-money-out'>
 }): React.JSX.Element {
   const t = useT()
   const lbl = (k: MessageKey): string => t(k) // i18n-technical: keys from the typed tables above
@@ -70,7 +73,10 @@ export function MoneyOut({ party, amount, bill, billId, date, bankId, reference,
   const groups = useGroups()
   const { data: setup } = useQuery({ queryKey: ['simpleMoneySetup'], queryFn: api.simpleMoney.setup }) // i18n-technical
   const blank = (): MoneyOutForm => emptyMoneyOutForm(workingDate)
-  const [form, setForm] = useState<MoneyOutForm>(() => emptyMoneyOutForm(date ?? workingDate, { supplierId: party ?? null, amount: amount ?? null, bill: bill ?? null, bankId: bankId ?? null, reference: reference ?? null, note: note ?? null }))
+  const [form, setForm] = useState<MoneyOutForm>(() => {
+    const f = emptyMoneyOutForm(date ?? workingDate, { supplierId: party ?? null, amount: amount ?? null, bill: bill ?? null, bankId: bankId ?? null, reference: reference ?? null, note: note ?? null })
+    return ask ? moneyOutFromAsk(f, ask.prefill) : f
+  })
   const [creating, setCreating] = useState<{ what: 'supplier' | 'billSupplier'; name: string } | null>(null)
 
   const facts = useMemo(() => (info ? gstRegistrationOf(info) : null), [info])
@@ -128,7 +134,8 @@ export function MoneyOut({ party, amount, bill, billId, date, bankId, reference,
       const id = await ensureCategoryAccount(DRAWINGS, groups, queryClient)
       return id == null ? null : intent
     },
-    onStartNew: () => setForm(blank())
+    onStartNew: () => setForm(blank()),
+    aiDraftId: ask?.draftId ?? null
   })
 
   const ticked = form.ticks ?? alloc.settled.map((s) => s.name)

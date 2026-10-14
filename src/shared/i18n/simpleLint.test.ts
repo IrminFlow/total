@@ -11,7 +11,7 @@
 //     or is a single all-letter word of ≥ 2 characters not in CODE_WORDS (`show('saved')`,
 //     'OK', 'GST') — so a label table or toast can't sneak strings past the lint; mark a genuine
 //     technical literal with an `i18n-technical` comment on its line;
-//   - a t() key outside common.* / simple.* / errors.*, or not in the en catalogue.
+//   - a t() key outside common.* / simple.* / errors.* / assist.* (WP 10.1), or not in the en catalogue.
 // Allowed: className, data-*, aria-* state attributes, TECHNICAL_PROPS, t() arguments, import
 // paths, equality / case comparisons, element-access keys and literal types.
 import { readdirSync, readFileSync, statSync } from 'fs'
@@ -62,7 +62,7 @@ const TECHNICAL_PROPS = new Set([
 ])
 // aria-* attributes whose value is read out to the user.
 const USER_FACING_ARIA = new Set(['aria-label', 'aria-description', 'aria-placeholder', 'aria-roledescription', 'aria-valuetext'])
-const LINTED_NAMESPACES = /^(common|simple|errors)\./
+const LINTED_NAMESPACES = /^(common|simple|errors|assist)\./
 
 function technicalProp(name: string): boolean {
   if (USER_FACING_ARIA.has(name)) return false

@@ -297,17 +297,24 @@ export function entryAnswer(db: DB, company: CompanyInfo, intent: EntryIntent, i
   const screen = t(SCREEN_NAME[offer.prefill.screen])
   const sentences = [...r.readAs]
   if (offer.sentences.length) sentences.push(...offer.sentences)
-  else sentences.push(t(`assist.entry.read.${offer.kind}` as 'assist.entry.read.money_out', { amount: intent.entry.amount != null ? money(intent.entry.amount) : '' }))
+  else sentences.push(t(READ[offer.kind], { amount: intent.entry.amount != null ? money(intent.entry.amount) : '' }))
   if (offer.missing) sentences.push(t('assist.entry.missing', { reason: offer.missing, screen }))
   sentences.push(env.canDraft ? t('assist.entry.notSaved', { screen }) : t('assist.entry.viewer'))
   return { ...base, sentences, entry: offer }
 }
 
+const READ: Record<AssistEntrySlots['action'], MessageKey> = {
+  money_out: 'assist.entry.read.moneyOut',
+  money_in: 'assist.entry.read.moneyIn',
+  sale: 'assist.entry.read.sale',
+  purchase: 'assist.entry.read.purchase'
+}
+
 // ---------------------------------------------------------------- the draft
 
 const SUMMARY: Record<AssistEntrySlots['action'], MessageKey> = {
-  money_out: 'assist.draft.summary.money_out',
-  money_in: 'assist.draft.summary.money_in',
+  money_out: 'assist.draft.summary.moneyOut',
+  money_in: 'assist.draft.summary.moneyIn',
   sale: 'assist.draft.summary.sale',
   purchase: 'assist.draft.summary.purchase'
 }

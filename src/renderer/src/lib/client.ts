@@ -60,6 +60,7 @@ import type {
   VoucherInputParsed
 } from '@shared/schemas'
 import type { CompanyFeatures } from '@shared/features'
+import type { AssistAnswer, AssistAskInput, AssistDraftResult } from '@shared/assist'
 import type { StockCostPosition, ConsumptionCosting, ProposedOutward } from '@shared/valuation'
 import type { ManufactureDetails, ManufactureInput } from '@shared/manufacture'
 import type { BomVersion, ExplosionResult } from '@shared/bom'
@@ -680,6 +681,11 @@ export const api = {
   setup: {
     create: (input: SimpleSetupInput) => call<{ slug: string }>('simple:setup', input)
   },
+  /** WP 10.1: Ask Total — deterministic answers (viewer) and the entry draft a simple flow opens (accountant+). */
+  assist: {
+    ask: (input: AssistAskInput) => call<AssistAnswer>('assist:ask', input),
+    draft: (input: AssistAskInput) => call<AssistDraftResult>('assist:draft', input)
+  },
   /** WP 8.6: everything the simple Home shows, as on `today`, in one round trip. */
   simple: {
     home: (today: string) => call<SimpleHomeData>('simple:home', { today }),
@@ -687,7 +693,8 @@ export const api = {
     /** WP 9.1: what an intent will record (rehearsed, nothing saved) — plain sentences + the exact accounts. */
     preview: (intent: SimpleIntentInput, today?: string) => call<SimplePreview>('simple:preview', { intent, ...(today ? { today } : {}) }),
     /** WP 9.1: save an intent (idempotent by its clientId); the vouchers come back together for the save card. */
-    post: (intent: SimpleIntentInput, today?: string) => call<SimplePostResult>('simple:post', { intent, ...(today ? { today } : {}) }),
+    post: (intent: SimpleIntentInput, today?: string, aiDraftId?: number) =>
+      call<SimplePostResult>('simple:post', { intent, ...(today ? { today } : {}), ...(aiDraftId ? { aiDraftId } : {}) }),
     /** WP 9.2: Make a bill's choices — customers, cash / bank accounts and their defaults. */
     sellSetup: () => call<SellSetup>('simple:sell:setup'),
     /** WP 9.2: the sales list — bills dated from…to with what is still due on each (as on today). */

@@ -140,11 +140,11 @@ describe('catalogues', () => {
     }
   })
 
-  it('the simple-mode namespaces (common / simple / errors) carry no banned word in any language', () => {
+  it('the simple-mode namespaces (common / simple / errors / assist — WP 10.1 Ask Total) carry no banned word in any language', () => {
     const offenders: string[] = []
     for (const lang of LANGUAGES) {
       for (const [key, value] of Object.entries(CATALOGUES[lang])) {
-        if (!/^(common|simple|errors)\./.test(key)) continue
+        if (!/^(common|simple|errors|assist)\./.test(key)) continue
         const words = bannedWordsIn(value!)
         if (words.length) offenders.push(`${lang} ${key}: ${words.join(', ')} — "${value}"`)
       }

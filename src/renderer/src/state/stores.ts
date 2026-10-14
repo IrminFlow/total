@@ -6,6 +6,7 @@ import { fyOf, todayISO } from '@shared/dates'
 import type { SessionUser } from '../lib/client'
 import type { SimpleSectionId, UiSettings } from '@shared/simple/uiMode'
 import type { PeopleFilter } from '@shared/simple/people'
+import type { AssistPrefill } from '@shared/assist'
 import { confirmDialog } from '../lib/dialogs'
 import { hasUnsavedChanges } from '../lib/useUnsavedGuard'
 import { onLayerClose, topLayerId } from '../components/kit/layers'
@@ -41,6 +42,12 @@ export function nextDraftId(): number {
   return draftIdCounter
 }
 
+/** WP 10.1: a simple flow opened from Ask Total — the prefill and the draft (null = none stored). */
+export interface AskOpen<S extends AssistPrefill['screen']> {
+  draftId: number | null
+  prefill: Extract<AssistPrefill, { screen: S }>
+}
+
 export type Screen =
   | { name: 'gateway' }
   // Optional drill params (Registers month rows → filtered Day Book): restrict to one
@@ -72,14 +79,15 @@ export type Screen =
   | { name: 'simple-openings'; from?: 'home' }
   // WP 9.4: Money — Money in / out (optionally for a party, an amount and a bill: what "Record a
   // payment" on a bill passes), Move money, the money list (`entryId` = one entry's simple view).
-  | { name: 'simple-money-in'; party?: number; amount?: number; bill?: string; billId?: number; date?: string; bankId?: number; reference?: string; note?: string }
-  | { name: 'simple-money-out'; party?: number; amount?: number; bill?: string; billId?: number; date?: string; bankId?: number; reference?: string; note?: string }
+  // WP 10.1: `ask` = opened from an Ask Total entry request — its prefill, and the draft its Save consumes.
+  | { name: 'simple-money-in'; party?: number; amount?: number; bill?: string; billId?: number; date?: string; bankId?: number; reference?: string; note?: string; ask?: AskOpen<'simple-money-in'> }
+  | { name: 'simple-money-out'; party?: number; amount?: number; bill?: string; billId?: number; date?: string; bankId?: number; reference?: string; note?: string; ask?: AskOpen<'simple-money-out'> }
   | { name: 'simple-move-money' }
   | { name: 'simple-money'; entryId?: number }
   // WP 9.2: Sell — Make a bill, the sales list (`billId` = that bill's simple view), Quick bill
   // (the Counter screen inside the simple shell).
   // WP 9.8: `party` = start the bill for that customer (People → Make a bill).
-  | { name: 'simple-sell'; party?: number }
+  | { name: 'simple-sell'; party?: number; ask?: AskOpen<'simple-sell'> }
   | { name: 'simple-sales'; billId?: number }
   | { name: 'simple-quick-bill' }
   // WP 9.5: Returns — Return a sale (Sell) / a purchase (Buy); `billId` = start from that bill.
@@ -89,7 +97,7 @@ export type Screen =
   | { name: 'simple-bank'; bankId?: number }
   // WP 9.3: Buy — Record a purchase, the purchase list (`billId` = that bill's simple view).
   // WP 9.8: `party` = start the purchase for that supplier (People → Record a purchase).
-  | { name: 'simple-buy'; party?: number }
+  | { name: 'simple-buy'; party?: number; ask?: AskOpen<'simple-buy'> }
   // WP 9.8: People — the list (`tab` 'bills' = Bills to pay; `filter` = who it shows) and one
   // person's page.
   | { name: 'simple-people'; tab?: 'people' | 'bills'; filter?: PeopleFilter }

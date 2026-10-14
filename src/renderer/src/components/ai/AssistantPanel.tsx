@@ -37,6 +37,9 @@ import { ItemLink, LedgerLink, VoucherLink } from '../links'
 import { confirmDialog } from '../../lib/dialogs'
 import { AnswerMarkdown } from './Markdown'
 import { screenFor } from './screenTargets'
+import { useMode } from '../../lib/mode'
+import { useT } from '../../lib/i18n'
+import { AskTotalDrawer } from '../../simple/AskTotal'
 
 export { screenFor }
 
@@ -63,6 +66,9 @@ interface AssistantStore {
   setWidth: (width: number) => void
   ask: (text: string, context?: AiContext, preCall?: AiPreCall) => void
   takePending: () => PendingAsk | null
+  /** WP 10.1, simple mode: Ask Total (deterministic, no key) or the AI assistant (key + AI on). */
+  simpleView: 'ask' | 'ai'
+  setSimpleView: (v: 'ask' | 'ai') => void
 }
 
 function loadPrefs(): { open: boolean; width: number } {
@@ -87,6 +93,8 @@ let askSeq = 0
 export const useAssistantPanel = create<AssistantStore>((set, get) => ({
   ...loadPrefs(),
   pending: null,
+  simpleView: 'ask',
+  setSimpleView: (simpleView) => set({ simpleView }),
   setOpen: (open) => {
     set({ open })
     savePrefs(get())
@@ -97,7 +105,8 @@ export const useAssistantPanel = create<AssistantStore>((set, get) => ({
     savePrefs(get())
   },
   ask: (text, context, preCall) => {
-    set({ open: true, pending: { id: ++askSeq, text, context, ...(preCall ? { preCall } : {}) } })
+    // A question for the MODEL (Explain this, the palette's Ask AI, Ask Total's escalation).
+    set({ open: true, simpleView: 'ai', pending: { id: ++askSeq, text, context, ...(preCall ? { preCall } : {}) } })
     savePrefs(get())
   },
   takePending: () => {
@@ -119,7 +128,8 @@ export function useCurrentAiContext(): AiContext {
 // ---------- the host ----------
 
 export function AssistantPanel(): React.JSX.Element | null {
-  const { open, setOpen } = useAssistantPanel()
+  const { open, setOpen, simpleView, setSimpleView, width, setWidth } = useAssistantPanel()
+  const mode = useMode()
   const { data: view } = useQuery({ queryKey: ['aiSettings'], queryFn: aiApi.settings })
   const ready = !!view?.ready
 
@@ -149,7 +159,20 @@ export function AssistantPanel(): React.JSX.Element | null {
   }, [ready])
 
   if (!open) return null
-  return <AssistantDrawer onClose={() => setOpen(false)} />
+  // WP 10.1: in simple mode the panel is Ask Total (answers from the books, no key) unless the AI
+  // assistant is on and the question went to it; accountant mode is unchanged.
+  if (mode === 'simple' && (!ready || simpleView === 'ask')) {
+    return (
+      <AskTotalDrawer
+        onClose={() => setOpen(false)}
+        width={width}
+        onResize={setWidth}
+        aiReady={ready}
+        onEscalate={(q) => useAssistantPanel.getState().ask(q)}
+      />
+    )
+  }
+  return <AssistantDrawer onClose={() => setOpen(false)} {...(mode === 'simple' ? { onBack: () => setSimpleView('ask') } : {})} />
 }
 
 /** "Explain this": the figure + the current screen → a prefilled question in a new conversation. */
@@ -187,7 +210,8 @@ function reducer(state: AiPanelState, a: Action): AiPanelState {
 }
 
 /** Exported for renderer tests (mounted without the store). `onClose` closes the panel. */
-export function AssistantDrawer({ onClose }: { onClose: () => void }): React.JSX.Element {
+export function AssistantDrawer({ onClose, onBack }: { onClose: () => void; /** WP 10.1: simple mode — back to Ask Total. */ onBack?: () => void }): React.JSX.Element {
+  const tr = useT()
   const queryClient = useQueryClient()
   const toast = useToasts()
   const nav = useNav()
@@ -448,6 +472,11 @@ export function AssistantDrawer({ onClose }: { onClose: () => void }): React.JSX
       {view && !view.ready && (
         <Banner tone="info" className="mb-3" testId="ai-off-banner" action={<Button size="sm" onClick={goSettings} data-testid="btn-ai-open-settings">Settings → AI</Button>}>
           {view.blocker}. The assistant is optional and off until you turn it on; nothing leaves this computer until then.
+        </Banner>
+      )}
+      {onBack && (
+        <Banner tone="info" className="mb-3" testId="ai-escalated" action={<Button size="sm" onClick={onBack} data-testid="btn-back-ask-total">{tr('assist.panel.back')}</Button>}>
+          {tr('assist.panel.aiAnswered')}
         </Banner>
       )}
       {view?.mock && (
