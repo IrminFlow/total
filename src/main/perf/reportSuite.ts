@@ -11,6 +11,18 @@ import { gstr1, gstr3b } from '../services/gst'
 import { owedList, byMonth } from '../services/simpleReports'
 import { billsToPay } from '../services/simplePeople'
 import { PERF_CASES, perfContext } from './bench'
+import { closeFacts } from '../services/assistants'
+import { negativeStock } from '../services/stockAnalysis'
+import { checkStock, listVouchers } from '../services/vouchers'
+import { gstValidate } from '../services/gst'
+import { gstr9 } from '../services/gstAnnual'
+import { search } from '../services/search'
+import { purchasesList, purchaseView } from '../services/simpleBuy'
+import { salesList, saleView } from '../services/simpleSell'
+import { returnBills } from '../services/simpleReturns'
+import { lowStockCount } from '../services/simpleStock'
+import { dashboardSeries } from '../services/dashboard'
+import { addDaysISO, fyOf } from '@shared/dates'
 
 /** Canonical JSON: keys sorted; per-run identifiers (line uids) dropped. */
 export function canonical(value: unknown): string {
@@ -56,6 +68,52 @@ export async function reportOutputs(db: DB, info: CompanyInfo, today: string): P
   out.withAdvancesPayable = outstandingsWithAdvances(db, 'payable', today)
   out.byMonth = byMonth(db, today)
   out.billsToPay = billsToPay(db, today)
+  // WP 7.1 review: every other reader of the rewritten queries — the close checklist's facts
+  // (one Outstandings run per side, the in-books ledger set), the stock check on many / few items,
+  // all-type voucher lists and the Gateway's recent entries on other days, search pages past the
+  // first, the purchase side of the returns lookup, the low-stock count, GSTR-9 / validation over
+  // the chunked outward documents, the Gateway series a year back.
+  for (let k = 0; k < 13; k++) {
+    const d = new Date(`${today.slice(0, 7)}-01T00:00:00Z`)
+    d.setUTCMonth(d.getUTCMonth() - k)
+    const period = d.toISOString().slice(0, 7)
+    if (`${period}-01` < ctx.booksFrom) break
+    out[`closeFacts:${period}`] = closeFacts(db, info, period, today)
+  }
+  const itemIds = (db.prepare('SELECT id FROM stock_items ORDER BY id').all() as { id: number }[]).map((r) => r.id)
+  for (const d of [today, addDaysISO(today, -200), addDaysISO(today, -400)]) {
+    out[`negativeStock:${d}`] = negativeStock(db, d)
+    out[`checkStock:few:${d}`] = checkStock(db, itemIds.slice(0, 5), d)
+    out[`dashboardRecent:${d}`] = reports.dashboard(db, d, fyOf(d).from)
+    out[`lowStock:${d}`] = lowStockCount(db, d)
+  }
+  out['voucherList:all:month'] = listVouchers(db, ctx.month.from, ctx.month.to)
+  out['voucherList:all:fy'] = listVouchers(db, ctx.fy.from, ctx.fy.to)
+  for (const q of [ctx.ids.partyName, ctx.ids.partyName.slice(0, 3), ctx.ids.voucherNumber]) {
+    for (const offset of [0, 20, 40, 100_000]) out[`search:${q}:${offset}`] = search(db, q, { today, offset, kind: 'voucher' })
+  }
+  const prevFy = { from: addDaysISO(ctx.fy.from, -365), to: addDaysISO(ctx.fy.from, -1) }
+  out['sales:prevFy'] = salesList(db, prevFy.from, prevFy.to, today)
+  out['purchases:fy'] = purchasesList(db, ctx.fy.from, today, today)
+  out['purchases:prevFy'] = purchasesList(db, prevFy.from, prevFy.to, today)
+  out['returnBills:sale'] = returnBills(db, info, 'sale', today)
+  out['returnBills:purchase'] = returnBills(db, info, 'purchase', today)
+  const returned = db
+    .prepare(
+      `SELECT DISTINCT ll.from_voucher_id AS id, vt.kind FROM line_links ll JOIN vouchers v ON v.id = ll.from_voucher_id
+       JOIN voucher_types vt ON vt.id = v.voucher_type_id WHERE ll.link_type = 'return' ORDER BY ll.from_voucher_id LIMIT 40`
+    )
+    .all() as { id: number; kind: string }[]
+  for (const r of returned) {
+    if (r.kind === 'sales') out[`saleView:${r.id}`] = saleView(db, r.id, today)
+    if (r.kind === 'purchase') out[`purchaseView:${r.id}`] = purchaseView(db, r.id, today)
+  }
+  for (const y of fyStarts) {
+    out[`gstr9:${y}`] = gstr9(db, info, y)
+    out[`gstValidate:${y}`] = gstValidate(db, info, `${y}-04-01`, `${y + 1}-03-31` < today ? `${y + 1}-03-31` : today)
+  }
+  out['gateway:prevFy'] = dashboardSeries(db, info, { today: prevFy.to, from: prevFy.from, to: prevFy.to, backups: [] })
+  out['pnl:month'] = reports.profitAndLoss(db, ctx.month.from, today)
   return out
 }
 
