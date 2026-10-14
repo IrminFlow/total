@@ -27,6 +27,8 @@ import { SaveCard } from '../SaveCard'
 import { BillLines, type FormLine } from './BillLines'
 import { AmountLine } from './AmountLine'
 import { PaidHow } from './PaidHow'
+import { useAccountantView } from '../../lib/handoff'
+import { AccountantViewButton } from '../AccountantViewButton'
 
 const INCL_KEY = 'total-sell-incl' // i18n-technical: localStorage key (per company)
 const SALES_KIND = 'sales' as const // i18n-technical
@@ -284,10 +286,9 @@ export function MakeBill({ party }: { party?: number } = {}): React.JSX.Element 
     return () => window.removeEventListener('keydown', h, true)
   }, [])
 
-  const accountantView = (): void => {
-    if (savedIds) nav.go({ name: 'voucher-entry', voucherId: savedIds[0]! }) // i18n-technical
-    else nav.go({ name: 'voucher-entry', kindHint: SALES_KIND }) // i18n-technical
-  }
+  // WP 9.10: the saved bill, or the full sales editor with these answers filled in.
+  const openFull = useAccountantView('simple-sell') // i18n-technical: screen name
+  const accountantView = (always: boolean): void => void openFull({ intent: dirty ? intent : null, savedId: savedIds?.[0] ?? null, always })
 
   const setIncl = (on: boolean): void => {
     try {
@@ -334,9 +335,7 @@ export function MakeBill({ party }: { party?: number } = {}): React.JSX.Element 
             {t('simple.sell.printsAs', { title })}
           </p>
         </div>
-        <Button variant="ghost" data-testid="btn-sell-accountant-view" title={t('simple.sell.accountantHint')} onClick={accountantView}>
-          {t('common.accountantView')}
-        </Button>
+        <AccountantViewButton testId="btn-sell-accountant-view" title={t('simple.sell.accountantHint')} onOpen={accountantView} />
       </div>
 
       {noSalesAccount && !savedIds && (

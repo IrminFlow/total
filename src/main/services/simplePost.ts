@@ -45,6 +45,7 @@ import { stockSummary } from './stockAnalysis'
 import { listBomVersions } from './bom'
 import { costPreview, saveManufacture, suggestedSaleRate } from './manufacture'
 import { recipeRows } from '@shared/simple/stock'
+import { sanitiseHandoffEntry, type HandoffEntry, type IntentFormResult } from '@shared/simple/handoff'
 import { LABOUR_CREDIT_GROUP, LABOUR_CREDIT_LEDGER, LABOUR_EXPENSE_GROUP, LABOUR_EXPENSE_LEDGER } from '@shared/manufacture'
 
 // ---------------------------------------------------------------- context
@@ -609,4 +610,35 @@ export function postIntent(db: DB, company: CompanyInfo, raw: unknown, today: st
     voucherIds: ids, entries: out.entries, replayed: false, summary: saveSummary(db, ids),
     sentences: intentSentences(out.facts, companyT(db)), facts: out.facts, warnings: out.warnings
   }
+}
+
+// ---------------------------------------------------------------- WP 9.10 hand-off
+
+/** The total an entry moves (its debits) — what the hand-off says about the parts it leaves out. */
+const entryAmount = (entry: MappedEntry): number => entry.payload.lines.filter((l) => l.drCr === 'dr').reduce((t, l) => t + l.amount, 0)
+
+/**
+ * simple:intentForm (WP 9.10) — the editors' own form state for the CURRENT answers of a simple
+ * screen, so its "Accountant view" opens the full editor pre-filled. The same mapping simple:post
+ * saves through (mapIntent over loadIntentContext, tax ledgers created as the editor does), run in
+ * a rehearsal that is always rolled back; no save is rehearsed (the editor's own save applies every
+ * rule when the user saves there). References to rows the rehearsal created (walk-in customer, GST
+ * / round-off ledgers) are cleared and named (`missing`). Writes nothing.
+ */
+export function intentForm(db: DB, company: CompanyInfo, raw: unknown, today: string): IntentFormResult {
+  const n = normaliseIntent(raw, today)
+  const before = new Set((db.prepare('SELECT id FROM ledgers').all() as { id: number }[]).map((r) => r.id))
+  const { mapped, created } = rehearse(db, () => {
+    const m = mapWithLedgers(db, company, n)
+    const rows = db.prepare('SELECT id, name FROM ledgers').all() as { id: number; name: string }[]
+    return { mapped: m, created: new Map(rows.filter((r) => !before.has(r.id)).map((r) => [r.id, r.name])) }
+  })
+  const missing: string[] = []
+  const entries = mapped.entries.map((e) => {
+    const entry = { role: e.role, kind: e.kind, voucherTypeId: e.voucherTypeId, form: e.form, state: e.state, amount: entryAmount(e) } as HandoffEntry
+    const out = sanitiseHandoffEntry(entry, (id) => before.has(id), (id) => created.get(id) ?? null)
+    for (const m of out.missing) if (!missing.includes(m)) missing.push(m)
+    return out.entry
+  })
+  return { kind: n.kind, entries, missing }
 }

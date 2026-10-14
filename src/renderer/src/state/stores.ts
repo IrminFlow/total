@@ -6,6 +6,7 @@ import { fyOf, todayISO } from '@shared/dates'
 import type { SessionUser } from '../lib/client'
 import type { SimpleSectionId, UiSettings } from '@shared/simple/uiMode'
 import type { PeopleFilter } from '@shared/simple/people'
+import type { SimpleHandoff } from '@shared/simple/handoff'
 import { confirmDialog } from '../lib/dialogs'
 import { hasUnsavedChanges } from '../lib/useUnsavedGuard'
 import { onLayerClose, topLayerId } from '../components/kit/layers'
@@ -53,7 +54,9 @@ export type Screen =
   // (e.g. two "Create purchase" nudges in a row) — App.tsx keys the component on it, see there.
   // WP 5.1 `aiDraftId`: open an ai_drafts row (the assistant's proposal) pre-filled; saving it
   // goes through voucher:save as usual and marks the draft consumed.
-  | { name: 'voucher-entry'; voucherId?: number; kindHint?: VoucherKind; draft?: VoucherDraft; draftId?: number; aiDraftId?: number }
+  // WP 9.10 `handoff`: a simple form's unsaved answers as the editor's own form state (simple:intentForm),
+  // opened like an AI draft's state (`initial`) — nothing stored; the editor saves through voucher:save.
+  | { name: 'voucher-entry'; voucherId?: number; kindHint?: VoucherKind; draft?: VoucherDraft; draftId?: number; aiDraftId?: number; handoff?: SimpleHandoff }
   // Like 'settings', the active tab lives in the nav stack (nav.go per tab) so Esc/back
   // retraces tabs and other screens can deep-link straight to one.
   // `itemId` (items tab only) opens that stock item's editor — how search results open an item.
@@ -182,7 +185,11 @@ export type Screen =
 
 interface NavState {
   stack: Screen[]
-  go: (screen: Screen) => void
+  /** `force`: skip the unsaved-changes question — only for a hand-off that CARRIES the unsaved
+   *  answers to the next screen (WP 9.10 Accountant view), never to discard them. */
+  go: (screen: Screen, opts?: { force?: boolean }) => void
+  /** `go`, resolving to whether the screen opened (false = the user chose to stay). */
+  tryGo: (screen: Screen) => Promise<boolean>
   replace: (screen: Screen) => void
   back: () => void
   home: () => void
@@ -203,11 +210,20 @@ async function confirmLeave(): Promise<boolean> {
 
 export const useNav = create<NavState>((set) => ({
   stack: [{ name: 'gateway' }],
-  go: (screen) => {
+  go: (screen, opts) => {
+    if (opts?.force) {
+      set((s) => ({ stack: [...s.stack, screen] }))
+      return
+    }
     void confirmLeave().then((ok) => {
       if (ok) set((s) => ({ stack: [...s.stack, screen] }))
     })
   },
+  tryGo: (screen) =>
+    confirmLeave().then((ok) => {
+      if (ok) set((s) => ({ stack: [...s.stack, screen] }))
+      return ok
+    }),
   replace: (screen) => set((s) => ({ stack: [...s.stack.slice(0, -1), screen] })),
   back: () => {
     void confirmLeave().then((ok) => {
