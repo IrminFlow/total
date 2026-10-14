@@ -9,6 +9,7 @@ import type { Group, Ledger, StockItem, Voucher, VoucherType } from '@shared/dom
 import { buildInvoicePayload, emptyInvoiceState, taxLedgerIdsFrom } from '@shared/voucherEdit'
 import { VoucherEntry } from '../screens/VoucherEntry'
 import { useSession } from '../state/stores'
+import { DialogHost } from '../components/dialogs'
 
 const invoke = vi.fn()
 
@@ -96,6 +97,7 @@ beforeEach(() => {
       case 'master:batches:list': return { ok: true, data: [] }
       case 'stock:byGodown': return { ok: true, data: [] }
       case 'voucher:nextNumber': return { ok: true, data: { number: '99' } }
+      case 'voucher:delete': return { ok: true, data: null }
       default: return { ok: false, error: `unmocked ${channel}` }
     }
   })
@@ -185,6 +187,41 @@ describe('VoucherEntry alteration routing', () => {
     const modeEl = await screen.findByTestId('voucher-entry-mode', undefined, { timeout: 3000 })
     expect(screen.getByTestId('year-end-close-banner').textContent).toMatch(/read-only/)
     expect((modeEl.closest('fieldset') as HTMLFieldSetElement).disabled).toBe(true)
+  })
+
+  it('offers the closing entry\'s "Move to Bin" outside the disabled form (owner / no users)', async () => {
+    voucher = { ...asVoucher(13, salesPayload()), isYearEndClose: true }
+    act(() => useSession.setState({ user: null }))
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    render(
+      <QueryClientProvider client={client}>
+        <VoucherEntry voucherId={13} />
+        <DialogHost />
+      </QueryClientProvider>
+    )
+    const modeEl = await screen.findByTestId('voucher-entry-mode', undefined, { timeout: 3000 })
+    const bin = screen.getByTestId('btn-year-end-close-bin') as HTMLButtonElement
+    expect(bin.closest('fieldset')).toBeNull()
+    expect(bin.disabled).toBe(false)
+    // The form itself stays read-only.
+    expect((modeEl.closest('fieldset') as HTMLFieldSetElement).disabled).toBe(true)
+    fireEvent.click(bin)
+    const dialog = await screen.findByRole('dialog')
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Move to Bin' }))
+    await waitFor(() => expect(invoke).toHaveBeenCalledWith('voucher:delete', { id: 13 }))
+  })
+
+  it.each([
+    ['owner', 'owner', true],
+    ['accountant', 'accountant', false],
+    ['viewer', 'viewer', false]
+  ] as const)('the closing entry\'s bin button for a signed-in %s: %s', async (_l, role, shown) => {
+    voucher = { ...asVoucher(14, salesPayload()), isYearEndClose: true }
+    act(() => useSession.setState({ user: { id: 1, name: 'U', role } }))
+    renderEntry(14)
+    await screen.findByTestId('voucher-entry-mode', undefined, { timeout: 3000 })
+    expect(screen.queryByTestId('btn-year-end-close-bin') != null).toBe(shown)
+    act(() => useSession.setState({ user: null }))
   })
 
   it('leaves ordinary vouchers editable', async () => {

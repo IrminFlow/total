@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { gstRegistrationOf } from '@shared/gst/registration'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { STOCK_NOTE_KINDS, type VoucherKind } from '@shared/domain'
 import { todayISO } from '@shared/dates'
 import {
@@ -10,12 +10,14 @@ import {
 import type { SimpleHandoff } from '@shared/simple/handoff'
 import { HandoffBanner } from '../components/HandoffBanner'
 import { api } from '../lib/client'
+import { confirmDialog } from '../lib/dialogs'
+import { isOwnerOrNoUsers } from '../lib/roles'
 import { aiApi, type AiDraftDto } from '../lib/aiClient'
-import { useNav, useSession, type VoucherDraft } from '../state/stores'
+import { useNav, useSession, useToasts, type VoucherDraft } from '../state/stores'
 import { AiDraftReview, screenForDraft } from '../components/ai/AiDraftReview'
 import { useAiFieldHighlights } from '../lib/aiHighlights'
 import { AttachmentsButton } from '../components/attachments/Attachments'
-import { Banner, DrawerSection, isAnyModalOpen, Kbd, Page, PageHeader, Panel, SkeletonRows } from '../components/ui'
+import { Banner, Button, DrawerSection, isAnyModalOpen, Kbd, Page, PageHeader, Panel, SkeletonRows } from '../components/ui'
 import { OptionToggle, useScreenOptions } from '../components/ScreenOptions'
 import { useFeatures } from '../lib/useFeatures'
 import { isManufactureKey, kindForVoucherKey } from '../lib/voucherKeys'
@@ -326,7 +328,12 @@ export function VoucherEntry({
         </Banner>
       )}
       {closingEntry && (
-        <Banner tone="info" className="mb-section" testId="year-end-close-banner">
+        <Banner
+          tone="info"
+          className="mb-section"
+          testId="year-end-close-banner"
+          action={voucherId ? <BinClosingEntryButton voucherId={voucherId} /> : undefined}
+        >
           Year-end closing entry — read-only. Move it to the bin to reopen the year, then close again.
         </Banner>
       )}
@@ -438,3 +445,40 @@ export function VoucherEntry({
 
 // Re-export for renderer unit tests that target the pre-split path (lane T's voucherNumberField.test).
 export { useVoucherNumberField } from './voucher/hooks'
+
+/** The closing journal's way to the bin. The editor's fieldset is disabled for a closing entry
+ *  (Delete included), so the banner carries the action: owner — or anyone in a company without
+ *  users — since closing a year is owner-only. Same confirm and `voucher:delete` as the editor's
+ *  Delete; the bin rules (lock date, restore guards) are the server's. */
+function BinClosingEntryButton({ voucherId }: { voucherId: number }): React.JSX.Element | null {
+  const { user } = useSession()
+  const toast = useToasts()
+  const queryClient = useQueryClient()
+  const [busy, setBusy] = useState(false)
+  if (!isOwnerOrNoUsers(user)) return null
+  const remove = async (): Promise<void> => {
+    const proceed = await confirmDialog({
+      title: 'Move to Bin',
+      message: 'Move this closing entry to the Bin? The year reopens; you can restore it from the bin for 30 days.',
+      confirmLabel: 'Move to Bin',
+      danger: true
+    })
+    if (!proceed) return
+    setBusy(true)
+    try {
+      await api.vouchers.remove(voucherId)
+      toast.push('success', 'Moved to Bin')
+      await queryClient.invalidateQueries()
+      useNav.getState().back()
+    } catch (err) {
+      toast.push('error', (err as Error).message)
+    } finally {
+      setBusy(false)
+    }
+  }
+  return (
+    <Button variant="danger" data-testid="btn-year-end-close-bin" disabled={busy} onClick={() => void remove()}>
+      Move to Bin
+    </Button>
+  )
+}
