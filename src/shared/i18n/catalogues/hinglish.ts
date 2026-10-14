@@ -32,7 +32,7 @@ export const hinglish: Partial<Record<MessageKey, string>> = {
   'simple.why.link.tcs': 'Full app mein TCS kholein',
   'simple.why.link.payroll': 'Full app mein payroll kholein',
   'simple.why.home.profit':
-    '{from} se aaj tak aapne {sales} ki sale ki; maal ki laagat {cost} rahi{hasOther, select, yes {, doosri income {other} judi} other {}} aur chalane ke kharche {expenses} rahe, isliye {result, select, profit {profit {amount} hai} loss {loss {amount} hai} other {na profit hai na loss}}.',
+    '{from} se aaj tak aapne {sales} ki sale ki; maal ki laagat {cost} rahi{hasOther, select, yes {, doosri income {other} judi} other {}}{hasExpenses, select, yes { aur chalane ke kharche {expenses} rahe} other {}}, isliye {result, select, profit {profit {amount} hai} loss {loss {amount} hai} other {na profit hai na loss}}.',
   'simple.why.home.stockUp': 'Profit sale minus purchase se zyada hai, kyunki aapka khareeda hua {amount} ka maal shuru se zyada abhi bhi dukaan mein rakha hai.',
   'simple.why.home.stockDown': 'Profit sale minus purchase se kam hai, kyunki aapne shuru mein rakhe maal mein se bhi {amount} ka maal becha.',
   'simple.why.home.topExpense': 'Sabse bada kharcha {name} raha: {amount}.',

@@ -1225,7 +1225,7 @@ export const en = {
   'simple.why.link.tcs': 'Open TCS in the full app',
   'simple.why.link.payroll': 'Open payroll in the full app',
   'simple.why.home.profit':
-    'From {from} to today you sold {sales}; the goods cost {cost}{hasOther, select, yes {, other income added {other}} other {}} and running costs came to {expenses}, so {result, select, profit {the profit is {amount}} loss {the loss is {amount}} other {there is no profit or loss}}.',
+    'From {from} to today you sold {sales}; the goods cost {cost}{hasOther, select, yes {, other income added {other}} other {}}{hasExpenses, select, yes { and running costs came to {expenses}} other {}}, so {result, select, profit {the profit is {amount}} loss {the loss is {amount}} other {there is no profit or loss}}.',
   'simple.why.home.stockUp': 'Profit is higher than sales minus purchases because {amount} more of the stock you bought is still on the shelf than at the start.',
   'simple.why.home.stockDown': 'Profit is lower than sales minus purchases because you also sold {amount} of the stock you had at the start.',
   'simple.why.home.topExpense': 'The biggest running cost was {name}: {amount}.',

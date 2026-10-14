@@ -157,7 +157,7 @@ await scenario('61-reports-taxes', async (h) => {
     const [y, m, d] = iso.split('-').map(Number)
     return `${String(d).padStart(2, '0')}-${['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'][m - 1]}-${String(y % 100).padStart(2, '0')}`
   }
-  await page.waitForFunction((label) => document.querySelector('main')?.textContent?.includes(label), `${disp(fyFrom)} → ${disp(today)}`, { timeout: 15000 })
+  await page.waitForFunction(([f, to]) => document.querySelector('[data-testid="input-pnl-from"]')?.value === f && document.querySelector('[data-testid="input-pnl-to"]')?.value === to, [disp(fyFrom), disp(today)], { timeout: 15000 })
   await h.click('btn-back-to-simple')
   await attached(h, '[data-testid="simple-nav"]')
   await openEntry('reports', 'how-am-i-doing')
@@ -223,8 +223,7 @@ await scenario('61-reports-taxes', async (h) => {
   if (x.figures.toPay > 0) assert(toPayWhy.includes('Of the ₹1,800.00 you collected, ₹1,080.00 is covered by the GST on your purchases, so ₹720.00 is left'), `the cash to pay in parts: ${toPayWhy}`)
   assertEq(bannedWordsIn(toPayWhy).length, 0, 'no accounting words in the Why')
   await page.keyboard.press('Escape')
-  await shootWhy('why-gst-to-pay', 'why-gst-to-pay')
-  await page.keyboard.press('Escape')
+  await shootWhy('why-gst-to-pay', 'why-gst-to-pay') // (the last theme switch closes it — no Esc: that would go back)
   await page.locator('[data-testid="taxes-dates"]').scrollIntoViewIfNeeded()
   await h.click('why-due-gstr3b')
   assert((await text('[data-testid="why-due-gstr3b-sentence"]')).includes('the 20th of the next month'), 'the 3B date explained')

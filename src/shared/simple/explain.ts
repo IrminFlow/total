@@ -112,6 +112,7 @@ export function homeProfitWhy(profit: HomeProfit, t: Translate): string {
       cost: money(l.costOfGoods),
       hasOther: l.otherIncome !== 0 ? 'yes' : 'no',
       other: money(l.otherIncome),
+      hasExpenses: l.expenses !== 0 ? 'yes' : 'no',
       expenses: money(l.expenses),
       result: resultOf(y.netProfit),
       amount: money(Math.abs(y.netProfit))

@@ -40,7 +40,13 @@ export function Popover({
       const vw = window.innerWidth || 1024
       let left = align === 'right' ? r.right - width : r.left
       left = Math.max(8, Math.min(left, vw - width - 8))
-      setPos({ top: r.bottom + 4, left })
+      // WP 10.2: a panel that would run past the window's bottom (a "Why?" on a low tile) opens
+      // above its anchor instead; one that fits is placed exactly as before.
+      const vh = window.innerHeight || 768
+      const h = ref.current?.offsetHeight ?? 0
+      const below = r.bottom + 4
+      const top = h > 0 && below + h > vh - 8 && r.top - 4 - h >= 8 ? r.top - 4 - h : below
+      setPos({ top, left })
     }
     place()
   }, [anchor, align, width])

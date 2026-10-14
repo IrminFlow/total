@@ -118,6 +118,9 @@ describe('each sentence says the figures it was given (WP 10.2)', () => {
     expect(homeProfitWhy(flat, t)).toBe(
       'From 1 Apr 2026 to today you sold ₹10,000.00; the goods cost ₹12,000.00 and running costs came to ₹1,000.00, so the loss is ₹3,000.00. The biggest running cost was Rent: ₹20,000.00.'
     )
+    // no running costs → not mentioned as "₹0.00"
+    const noCosts = { ...PROFIT, year: { ...PROFIT.year, lines: lines({ sales: 10_000_00, purchases: 6_000_00 }), netProfit: 4_000_00 } }
+    expect(homeProfitWhy(noCosts, t)).toMatch(/^From 1 Apr 2026 to today you sold ₹10,000.00; the goods cost ₹6,000.00, so the profit is ₹4,000.00\./)
     // stock sold down: profit lower than sales − purchases
     const down = { ...PROFIT, year: { ...PROFIT.year, openingStock: 40_000_00, closingStock: 30_000_00 } }
     expect(homeProfitWhy(down, t)).toContain('Profit is lower than sales minus purchases because you also sold ₹10,000.00 of the stock you had at the start.')

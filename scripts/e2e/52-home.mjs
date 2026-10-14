@@ -139,7 +139,7 @@ await scenario('52-home', async (h) => {
     const [yy, mm, dd] = iso.split('-').map(Number)
     return `${String(dd).padStart(2, '0')}-${['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'][mm - 1]}-${String(yy % 100).padStart(2, '0')}`
   }
-  await page.waitForFunction((label) => document.querySelector('main')?.textContent?.includes(label), `${disp(home.profit.year.from)} → ${disp(today)}`, { timeout: 15000 })
+  await page.waitForFunction(([f, to]) => document.querySelector('[data-testid="input-pnl-from"]')?.value === f && document.querySelector('[data-testid="input-pnl-to"]')?.value === to, [disp(home.profit.year.from), disp(today)], { timeout: 15000 })
   await backHome(h)
 
   // WP 9.9: the GST tile opens the simple Taxes screen on its period, with the same cash figure.
