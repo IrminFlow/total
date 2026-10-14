@@ -358,11 +358,12 @@ export function purchasePreviewLine(f: IntentFacts, t: Translate): string {
 }
 
 /** A purchase list row's status chip. */
-export type PurchaseStatus = 'paid' | 'part' | 'due' | 'overdue'
+export type PurchaseStatus = 'paid' | 'part' | 'due' | 'overdue' | 'returned'
 /** `paid` (WP 9.5): what a return took off the bill is not a payment — "part paid" only when money
- *  was actually paid (omitted = total − due). */
+ *  was actually paid (omitted = total − due), and a bill that returns cleared with nothing paid is
+ *  'returned' ("Nothing to pay"), never "Paid". */
 export function purchaseStatus(total: number, due: number, overdueDays: number, paid?: number): PurchaseStatus {
-  if (due <= 0) return 'paid'
+  if (due <= 0) return paid != null && paid <= 0 && total > 0 ? 'returned' : 'paid'
   if (overdueDays > 0) return 'overdue'
   return (paid ?? total - due) > 0 ? 'part' : 'due'
 }

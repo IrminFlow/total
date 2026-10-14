@@ -425,6 +425,13 @@ describe('the purchase list / bill view show the returns (WP 9.3 + 9.5)', () => 
     expect(row).toMatchObject({ total: 118_000, due: 94_400, paid: 0, returned: 23_600 })
     expect(purchaseStatus(row.total, row.due, row.overdueDays, row.paid)).toBe('due')
     expect(purchaseView(db, unpaid.voucherIds[0]!, TODAY)).toMatchObject({ paid: 0, due: 94_400, returned: 23_600 })
+    // Review fix: the rest comes back too — nothing to pay, and still nothing PAID (not "Paid").
+    const b2 = returnBill(db, INFO, 'purchase', unpaid.voucherIds[0]!, TODAY)!
+    post(returnIntentFrom(formFor({ qty: { [b2.lines[0]!.lineUid]: '8' } }), b2, ctxOf(), sellSetup(db).defaults))
+    const cleared = purchasesList(db, '2025-04-01', TODAY, TODAY).find((x) => x.voucherId === unpaid.voucherIds[0])!
+    expect(cleared).toMatchObject({ total: 118_000, due: 0, paid: 0, returned: 118_000 })
+    expect(purchaseStatus(cleared.total, cleared.due, cleared.overdueDays, cleared.paid)).toBe('returned')
+    expect(due('Bharat Steel')).toMatchObject({ bills: [], unappliedCredit: 0 })
     const paid = post({ kind: 'purchase', supplierId: L('Bharat Steel'), billNo: 'BS/2', amount: { amount: '500', accountId: L('Purchases'), gstRate: 0 }, payment: { how: 'bank' } })
     const pb = returnBill(db, INFO, 'purchase', paid.voucherIds[0]!, TODAY)!
     post(returnIntentFrom(formFor({ amount: 10_000, settle: 'credit' }), pb, ctxOf(), sellSetup(db).defaults))

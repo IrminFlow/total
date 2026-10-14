@@ -16,13 +16,15 @@ const STATUS_TEXT: Record<SaleStatus, MessageKey> = {
   paid: 'simple.sales.status.paid',
   part: 'simple.sales.status.part',
   due: 'simple.sales.status.due',
-  overdue: 'simple.sales.status.overdue'
+  overdue: 'simple.sales.status.overdue',
+  returned: 'simple.sales.status.returned'
 }
 const STATUS_CLS: Record<SaleStatus, string> = {
   paid: 'border-success/50 bg-success-soft text-ink',
   part: 'border-amber/60 bg-amberbar/10 text-ink',
   due: 'border-line bg-panel2 text-ink',
-  overdue: 'border-danger/50 bg-danger-soft text-danger'
+  overdue: 'border-danger/50 bg-danger-soft text-danger',
+  returned: 'border-line bg-panel2 text-muted'
 }
 
 function StatusChip({ status }: { status: SaleStatus }): React.JSX.Element {

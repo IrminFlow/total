@@ -208,6 +208,10 @@ describe('plain words', () => {
     expect(saleStatus(100, 40, 0)).toBe('part')
     expect(saleStatus(100, 100, 0)).toBe('due')
     expect(saleStatus(100, 100, 3)).toBe('overdue')
+    // WP 9.5 review: a bill a return cleared with no money paid is not "Paid".
+    expect(saleStatus(100, 0, 0, 0)).toBe('returned')
+    expect(saleStatus(100, 0, 0, 60)).toBe('paid')
+    expect(saleStatus(100, 40, 0, 0)).toBe('due')
   })
   it('no banned word in the Sell strings', () => {
     const keys = ['simple.sell.preview.part', 'simple.sell.err.onHold', 'simple.sell.shortStock', 'simple.sales.totals', 'simple.sell.walkInPaysNow'] as const

@@ -284,11 +284,12 @@ export function salePreviewLine(f: IntentFacts, t: Translate): string {
 }
 
 /** A sales list row's status chip. */
-export type SaleStatus = 'paid' | 'part' | 'due' | 'overdue'
+export type SaleStatus = 'paid' | 'part' | 'due' | 'overdue' | 'returned'
 /** `total` − `paid` − `due` is what returns took off the bill (WP 9.5): "part paid" only when
- *  money was actually paid. */
+ *  money was actually paid, and a bill that returns cleared with no money paid is 'returned'
+ *  ("Nothing due"), never "Paid". */
 export function saleStatus(total: number, due: number, overdueDays: number, paid?: number): SaleStatus {
-  if (due <= 0) return 'paid'
+  if (due <= 0) return paid != null && paid <= 0 && total > 0 ? 'returned' : 'paid'
   if (overdueDays > 0) return 'overdue'
   return (paid ?? total - due) > 0 ? 'part' : 'due'
 }
