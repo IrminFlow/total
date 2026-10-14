@@ -174,6 +174,24 @@ export interface BankLineView {
   suggestion: BankSuggestion | null
   /** The matcher proposed an entry already in the books (offered as "Already recorded"). */
   match: { name: string; date: string; amount: number } | null
+  /** The same date, side, amount, reference and description as an earlier line of this bank (a
+   *  repeated row in the bank's file): no answer is pre-selected for it, so "Save all" can't
+   *  record the same money twice by default. Optional (absent = false). */
+  repeat?: boolean
+}
+
+/** Lines that repeat an earlier one exactly (same date, side, amount, non-empty reference and
+ *  description) — `lines` in statement order. Pure. */
+export function repeatedLines(lines: readonly Pick<BankLineFacts, 'id' | 'date' | 'side' | 'amount' | 'reference' | 'description'>[]): Set<number> {
+  const seen = new Set<string>()
+  const out = new Set<number>()
+  for (const l of lines) {
+    if (!l.reference.trim()) continue
+    const k = JSON.stringify([l.date, l.side, l.amount, l.reference.trim(), l.description.trim()])
+    if (seen.has(k)) out.add(l.id)
+    else seen.add(k)
+  }
+  return out
 }
 
 export interface BankSentenceFacts {

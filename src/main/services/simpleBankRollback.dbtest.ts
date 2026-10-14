@@ -132,4 +132,18 @@ describe('simple Bank — one transaction per line (WP 9.6 review)', () => {
     expect(r.failed[0]!.error).toMatchObject({ code: 'simple_bank_no_match', field: 'choice' })
     expect(traces()).toEqual(before)
   })
+  it('a row the bank file repeats (same date, amount, reference, description) gets no pre-selected answer', async () => {
+    commitStatement(db, bank, { fileName: 'hdfc-2.csv', text: [HEADER, '18/08/2025,NEFT-RAMESH TRADERS-UTR111,N7,,"500.00",', '18/08/2025,NEFT-RAMESH TRADERS-UTR111,N7,,"500.00",'].join('\n') })
+    const v = await view()
+    const both = v.lines.filter((l) => l.description.includes('UTR111'))
+    expect(both).toHaveLength(2)
+    expect(both[0]!.suggestion?.choice).toEqual({ kind: 'customer', partyId: ramesh })
+    expect(both[0]!.repeat).toBeUndefined()
+    expect(both[1]!.suggestion).toBeNull()
+    expect(both[1]!.repeat).toBe(true)
+    // The first saved, the repeat is still offered (the user may say it is real money).
+    expect(accept({ lineId: both[0]!.id, choice: { kind: 'customer', partyId: ramesh } }).failed).toEqual([])
+    const after = (await view()).lines.find((l) => l.id === both[1]!.id)!
+    expect(after).toMatchObject({ status: 'open', repeat: true, suggestion: null })
+  })
 })

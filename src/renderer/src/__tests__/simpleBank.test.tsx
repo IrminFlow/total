@@ -218,4 +218,12 @@ describe('simple Bank (WP 9.6)', () => {
     const items = calls('simple:bank:accept')[0]!.items as { lineId: number; choice: { kind: string; accountId: number } }[]
     expect(items.map((i) => [i.lineId, i.choice])).toEqual([[5, { kind: 'charges', accountId: 90 }], [6, { kind: 'charges', accountId: 90 }]])
   })
+  it('a repeated row says so in plain words and has nothing pre-selected', async () => {
+    view = { ...VIEW, lines: [{ ...VIEW.lines[0]!, id: 8, suggestion: null, repeat: true }] }
+    renderUi()
+    await waitFor(() => expect(screen.getAllByTestId('bank-line')).toHaveLength(1))
+    expect(lineCard(8).dataset.choice).toBe('')
+    expect(within(lineCard(8)).getByTestId('bank-line-repeat').textContent).toContain('looks the same as another one')
+    expect(bannedWordsIn(visibleText())).toEqual([])
+  })
 })

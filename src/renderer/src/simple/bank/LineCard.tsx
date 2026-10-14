@@ -148,6 +148,11 @@ export function LineCard({
         </span>
       </div>
 
+      {line.repeat && (
+        <p className="mt-2 rounded-md border border-amber/60 bg-amberbar/10 px-3 py-2 text-small text-ink" data-testid="bank-line-repeat">
+          {t('simple.bank.repeat')}
+        </p>
+      )}
       <h3 className="mt-3 mb-2 text-detail font-semibold text-ink">{t('simple.bank.whatIsThis')}</h3>
       <div role="radiogroup" aria-label={t('simple.bank.whatIsThis')} className="flex flex-wrap gap-2">
         {kinds.map((k) => (

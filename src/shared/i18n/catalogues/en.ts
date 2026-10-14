@@ -509,6 +509,7 @@ export const en = {
   'simple.bank.nothingToAnswer': 'Every line has an answer.',
   'simple.bank.doneTitle': 'Done',
   'simple.bank.whatIsThis': 'What is this?',
+  'simple.bank.repeat': 'This line looks the same as another one (same date, amount and reference). If the bank shows the money only once, choose Skip for now.',
   'simple.bank.in': 'Money in',
   'simple.bank.out': 'Money out',
   'simple.bank.suggested': 'Suggested because {reason}',

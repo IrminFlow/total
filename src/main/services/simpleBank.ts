@@ -23,7 +23,7 @@ import { toPlainDate } from '@shared/dates'
 import { AppError, structuredOf } from '@shared/errors'
 import { narrationPrefix } from '@shared/capture/categorise'
 import {
-  becauseFor, choiceFitsSide, choiceForAccount, intentForChoice,
+  becauseFor, choiceFitsSide, choiceForAccount, intentForChoice, repeatedLines,
   type BankAcceptItem, type BankAcceptResult, type BankAccountInfo, type BankLineFacts, type BankLineView, type BankSetup, type BankSuggestion, type BankView
 } from '@shared/simple/bank'
 import { ledgerClassifier } from '../ai/ledgerClass'
@@ -74,6 +74,7 @@ export async function bankView(db: DB, bankLedgerId: number, today: string): Pro
   const cat = await categoriseStatement({ db, today, ask: null }, bankLedgerId, { useAi: false })
   const catBy = new Map(cat.rows.map((r) => [r.lineId, r]))
 
+  const repeats = repeatedLines(ws.lines.map((l) => ({ id: l.id, date: l.date, side: l.side, amount: l.amount, reference: l.reference, description: l.description })))
   const lines: BankLineView[] = ws.lines.map((l) => {
     const base = { id: l.id, date: l.date, description: l.description, reference: l.reference, side: l.side, amount: l.amount }
     if (l.status === 'matched') return { ...base, status: 'done', done: l.matched.map((m) => ({ voucherId: m.voucherId, name: m.particulars })), suggestion: null, match: null }
@@ -89,11 +90,12 @@ export async function bankView(db: DB, bankLedgerId: number, today: string): Pro
       const row = catBy.get(l.id)
       const acc = row?.ledgerId ? accounts.get(row.ledgerId) : undefined
       const choice = row && row.source !== 'none' ? choiceForAccount(acc, l.side, bankLedgerId) : null
-      if (row && acc && choice && row.source !== 'none') {
+      // A repeated row gets no pre-selected answer (the user says whether it is real money).
+      if (row && acc && choice && row.source !== 'none' && !repeats.has(l.id)) {
         suggestion = { choice, source: row.source, because: becauseFor(row.source, { name: acc.name, words: narrationPrefix(l.description) }) }
       }
     }
-    return { ...base, status: 'open', done: [], suggestion, match }
+    return { ...base, status: 'open', done: [], suggestion, match, ...(repeats.has(l.id) ? { repeat: true } : {}) }
   })
 
   // The sentence: the BRS as on the latest statement line (entries the bank has not shown yet),

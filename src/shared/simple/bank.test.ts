@@ -5,6 +5,7 @@ import { en } from '../i18n'
 import { bannedWordsIn } from './bannedWords'
 import { simpleIntentSchema } from './intents'
 import {
+  repeatedLines,
   BANK_CHOICE_KINDS, bankAcceptSchema, bankChoiceSchema, bankSentence, becauseFor, choiceComplete, choiceFitsSide, choiceForAccount, choiceLabelKey, choicesFor,
   intentForChoice, type BankAccountInfo, type BankLineFacts, type BankSuggestSource
 } from './bank'
@@ -107,5 +108,15 @@ describe('the intent a choice becomes', () => {
     expect(parse(intentForChoice(withdrawal, { kind: 'transfer', accountId: 8 }, BANK, 'bank-2-abcdef'))).not.toHaveProperty('reference')
     expect(intentForChoice(deposit, { kind: 'existing' }, BANK, 'bank-1-abcdef')).toBeNull()
     expect(intentForChoice(deposit, { kind: 'skip' }, BANK, 'bank-1-abcdef')).toBeNull()
+  })
+})
+
+describe('repeatedLines (WP 9.6 review)', () => {
+  const l = (id: number, over: Partial<{ date: string; side: 'deposit' | 'withdrawal'; amount: number; reference: string; description: string }> = {}) => ({
+    id, date: '2025-08-12', side: 'deposit' as const, amount: 400_000, reference: 'N1', description: 'NEFT-RAMESH', ...over
+  })
+  it('flags only a later exact repeat with a reference', () => {
+    expect([...repeatedLines([l(1), l(2), l(3, { amount: 1 }), l(4, { reference: 'N2' }), l(5, { date: '2025-08-13' }), l(6, { side: 'withdrawal' })])]).toEqual([2])
+    expect([...repeatedLines([l(1, { reference: '' }), l(2, { reference: ' ' })])]).toEqual([])
   })
 })
