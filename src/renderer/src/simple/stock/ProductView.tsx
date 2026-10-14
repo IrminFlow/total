@@ -12,6 +12,7 @@ import { useNav, useSession } from '../../state/stores'
 import { AmountInput, Button, Field, Page } from '../../components/ui'
 import { DataTable, defineColumns } from '../../components/table'
 import { LevelChip } from './StockList'
+import { useCanSave } from '../ViewerNote'
 
 const WHAT_TEXT: Record<StockHistoryWhat, MessageKey> = {
   opening: 'simple.stock.what.opening',
@@ -42,6 +43,7 @@ const movementsScreen = (itemId: number): { name: 'stock-movements'; itemId: num
  */
 export function ProductView({ itemId }: { itemId: number }): React.JSX.Element {
   const t = useT()
+  const canSave = useCanSave()
   const nav = useNav()
   const queryClient = useQueryClient()
   const workingDate = useSession((s) => s.workingDate)
@@ -154,18 +156,20 @@ export function ProductView({ itemId }: { itemId: number }): React.JSX.Element {
                 <span className="num text-lead font-semibold text-ink" data-testid="stock-product-price" data-paise={p.sellingPrice ?? ''}>
                   {p.sellingPrice != null ? t('simple.stock.perUnit', { amount: money(p.sellingPrice), unit }) : t('simple.stock.noPrice')}
                 </span>
-                <button
-                  type="button"
-                  className="text-detail text-blue hover:underline"
-                  data-testid="btn-stock-change-price"
-                  onClick={() => {
-                    setPrice(p.sellingPrice)
-                    setPriceError(null)
-                    setEditingPrice(true)
-                  }}
-                >
-                  {t('simple.stock.changePrice')}
-                </button>
+                {canSave && (
+                  <button
+                    type="button"
+                    className="text-detail text-blue hover:underline"
+                    data-testid="btn-stock-change-price"
+                    onClick={() => {
+                      setPrice(p.sellingPrice)
+                      setPriceError(null)
+                      setEditingPrice(true)
+                    }}
+                  >
+                    {t('simple.stock.changePrice')}
+                  </button>
+                )}
               </dd>
             )}
             {editingPrice && <dd className="mt-1 text-small text-muted">{t('simple.stock.priceFrom', { date: toPlainDate(workingDate, t.lang) })}</dd>}

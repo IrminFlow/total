@@ -151,7 +151,8 @@ describe('Make a bill (WP 9.2)', () => {
     await waitFor(() => expect(screen.getByTestId('sell-total').getAttribute('data-paise')).toBe('105000'))
     expect(text('sell-line-gst-0')).toContain('5% GST')
     await waitFor(() => expect(text('sell-preview')).toContain('Bill ₹1,180.00 to Ramesh. ₹500.00 by UPI now, ₹680.00 due by 20 Nov 2026.'), { timeout: 3000 })
-    expect(text('sell-short-stock')).toContain('Sugar 1kg: you are selling more than Total shows in stock')
+    expect(text('sell-short-stock')).toContain('Sugar 1kg: you are selling more than you have')
+    expect(text('sell-short-stock')).toContain('Record the purchase first, or the profit will be wrong.')
     expect(text('sell-print-title')).toContain('Prints as: Tax invoice')
     expect(bannedWordsIn(visibleText())).toEqual([])
     // A named customer starts on credit (plan §3); paid in cash is one click.
@@ -160,6 +161,33 @@ describe('Make a bill (WP 9.2)', () => {
     click('btn-sell-save')
     await screen.findByTestId('save-card')
     expect(calls('simple:post')[0]).toMatchObject({ intent: { kind: 'sale', customerId: 10, items: [{ itemId: 1, qty: 2000, rate: 50_000 }], payment: { how: 'cash', accountId: 30 } } })
+  })
+
+  it('WP 10.8 review: a viewer sees the note, and ⌘↵ posts nothing (an accountant\'s ⌘↵ does)', async () => {
+    const fill = async (): Promise<void> => {
+      await pickCustomer('Ramesh')
+      await pickItem(0, 'Sugar')
+      typeIn('input-sell-qty-0', '2')
+      typeIn('input-sell-rate-0', '500')
+      click('sell-paid-cash')
+      await waitFor(() => expect(screen.getByTestId('sell-total').getAttribute('data-paise')).toBe('105000'))
+    }
+    act(() => useSession.setState({ user: { id: 2, name: 'Vee', role: 'viewer' } as never }))
+    renderUi()
+    await screen.findByTestId('viewer-note')
+    expect(screen.queryByTestId('btn-sell-save')).toBeNull()
+    await fill()
+    fireEvent.keyDown(window, { key: 'Enter', metaKey: true })
+    await new Promise((r) => setTimeout(r, 50))
+    expect(calls('simple:post')).toHaveLength(0)
+    cleanup()
+    act(() => useSession.setState({ user: { id: 1, name: 'Asha', role: 'accountant' } as never }))
+    renderUi()
+    await ready()
+    await fill()
+    fireEvent.keyDown(window, { key: 'Enter', metaKey: true })
+    await waitFor(() => expect(calls('simple:post')).toHaveLength(1))
+    act(() => useSession.setState({ user: null }))
   })
 
   it('review: Paid how follows the customer until the user picks — walk-in cash, named customer on credit', async () => {

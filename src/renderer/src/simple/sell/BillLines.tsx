@@ -1,7 +1,7 @@
 import { useMemo } from 'react'
 import type { Unit } from '@shared/domain'
 import { formatPaise } from '@shared/money'
-import { lineGstRate, type SellContext, type SellForm, type SellLine } from '@shared/simple/sell'
+import { lineGstRate, lineRateMissing, type SellContext, type SellForm, type SellLine } from '@shared/simple/sell'
 import { useT } from '../../lib/i18n'
 import { AmountInput, FieldError, TextInput } from '../../components/ui'
 import { TypeAhead, useStockItems } from '../../components/pickers'
@@ -77,7 +77,11 @@ export function BillLines({
                   testId={`picker-sell-item-${i}`}
                   ariaLabel={t('simple.sell.product')}
                 />
-                {rate != null && l.itemId != null && (
+                {l.itemId != null && lineRateMissing(l.itemId, form, ctx) ? (
+                  <p role="status" className="mt-0.5 text-caption text-warning" data-testid={`sell-line-no-rate-${i}`}>
+                    {t('simple.sell.noRate')}
+                  </p>
+                ) : rate != null && l.itemId != null && (
                   <span className="mt-0.5 inline-block rounded-full border border-line px-2 text-caption text-muted" data-testid={`sell-line-gst-${i}`}>
                     {t('simple.sell.gstChip', { rate })}
                   </span>

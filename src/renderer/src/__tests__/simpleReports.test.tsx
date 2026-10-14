@@ -69,6 +69,16 @@ afterEach(() => {
 })
 
 describe('How is my business doing (WP 9.9)', () => {
+  it('WP 10.8: a loss says "Loss ₹1,150.00", never a minus after the word Loss', async () => {
+    doingReply = () => ({ ok: true, data: { ...DOING, lines: { ...lines, profit: -1_150_00 } } })
+    renderUi(<ReportsScreen />)
+    const row = await screen.findByTestId('doing-line-profit')
+    expect(row.getAttribute('data-paise')).toBe(String(-1_150_00))
+    expect(row.textContent).toContain('Loss')
+    expect(row.textContent).toContain('₹1,150.00')
+    expect(row.textContent).not.toMatch(/[-−–]\s*₹1,150/)
+  })
+
   it('one column from the P&L totals, a "Why?" per line, the change, cash and dues', async () => {
     renderUi(<ReportsScreen />)
     expect((await screen.findByTestId('doing-line-sales')).getAttribute('data-paise')).toBe(String(1_05_000_00))

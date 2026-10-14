@@ -16,7 +16,7 @@ import type { AiSource } from '@shared/ai'
 import type { AssistAnswer, AssistChoice, AssistFigure, AssistHowTo, AssistIntent, AssistLink, AssistPeriod, AssistTarget } from '@shared/assist'
 import type { StatementNode } from '@shared/reports'
 import { translator, type Language, type MessageKey, type Translate } from '@shared/i18n'
-import { formatQtyMilli } from '@shared/money'
+import { formatPaise, formatQtyMilli } from '@shared/money'
 import { toMonthLabel, toPlainDate } from '@shared/dates'
 import { owedSummary } from '@shared/simple/home'
 import { cashWhy, collectedWhy, money, onPurchasesWhy, payablesWhy, receivablesWhy, taxesPeriodLabel, toPayWhy } from '@shared/simple/explain'
@@ -468,6 +468,20 @@ export function unknownAnswer(intent: AssistIntent, text: string, t: Translate, 
   }
 }
 
+/** WP 10.8: "5000 Ramesh" — which way did the money go? Two answers the user can press (each is
+ *  a full entry request the classifier reads as money in / money out). */
+function directionAnswer(intent: Extract<AssistIntent, { kind: 'direction' }>, t: Translate): AssistAnswer {
+  const vars = { name: intent.party, amount: formatPaise(intent.amount, { symbol: true }) }
+  return {
+    intent: intent.kind, answeredBy: 'total',
+    sentences: [t('assist.direction.ask', vars)],
+    figures: [], links: [],
+    suggestions: [t('assist.direction.in', { name: intent.party, amount: formatPaise(intent.amount) }), t('assist.direction.out', { name: intent.party, amount: formatPaise(intent.amount) })],
+    help: [],
+    understood: true
+  }
+}
+
 // ---------------------------------------------------------------- entry point
 
 export function askTotal(db: DB, company: CompanyInfo, input: AskInput, env: AskEnv): AssistAnswer {
@@ -497,6 +511,8 @@ export function askTotal(db: DB, company: CompanyInfo, input: AskInput, env: Ask
         return meaningAnswer(intent, input, lang, t, gstRegular)
       case 'entry':
         return entryAnswer(db, company, intent, input, env, t)
+      case 'direction':
+        return directionAnswer(intent, t)
       case 'unknown':
         return unknownAnswer(intent, input.text, t, undefined, lang, gstRegular)
     }

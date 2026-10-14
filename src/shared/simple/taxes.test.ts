@@ -6,7 +6,7 @@ import { translator } from '../i18n'
 import { bannedWordsIn } from './bannedWords'
 import { cmp08DueDate, gstr1DueDate, gstr3bDueDate, gstr4DueDate, pmt06DueDate, qrmp3bDay } from '../gst/filing'
 import { upcomingDeadlines } from '../compliance'
-import { creditParts, gstPeriodChoices, gstPeriodFor, nextCompositionDue, normalizeArn, normalizeGstFiled, stepsDone, type SimpleTaxes } from './taxes'
+import { creditParts, gstPeriodChoices, gstPeriodEnd, gstPeriodFor, gstStartsOn, nextCompositionDue, normalizeArn, normalizeGstFiled, stepsDone, type SimpleTaxes } from './taxes'
 import { applySetOff } from '../gst/returns'
 import { collectedWhy, creditStatus, onPurchasesWhy, taxesPeriodLabel, toPayWhy, withholdingUnpaidText } from './explain'
 import { GST_STATES } from '../gst/states'
@@ -76,6 +76,17 @@ describe('periods, the ARN, the filed marks', () => {
     expect(gstPeriodFor('2026-10', 'quarterly', '2026-10-14')).toEqual({ period: '2026-12', from: '2026-10-01', to: '2026-10-14', quarterly: true, soFar: true })
     expect(gstPeriodChoices('quarterly', '2026-10-14').map((p) => p.period)).toEqual(['2026-12', '2026-09', '2026-06', '2026-03', '2025-12'])
     expect(gstPeriodChoices('monthly', '2026-10-14')).toHaveLength(7)
+  })
+
+  it('WP 10.8: nothing that ended before the books / the registration began; a running period ends at its month end', () => {
+    expect(gstPeriodChoices('monthly', '2026-10-14', undefined, '2026-10-14').map((p) => p.period)).toEqual(['2026-10'])
+    expect(gstPeriodChoices('monthly', '2026-10-14', undefined, '2026-09-10').map((p) => p.period)).toEqual(['2026-10', '2026-09'])
+    expect(gstPeriodChoices('quarterly', '2026-10-14', undefined, '2026-08-01').map((p) => p.period)).toEqual(['2026-12', '2026-09'])
+    expect(gstStartsOn('2026-10-14', null)).toBe('2026-10-14')
+    expect(gstStartsOn('2026-04-01', '2026-07-01')).toBe('2026-07-01')
+    expect(gstStartsOn(null, undefined)).toBeUndefined()
+    expect(gstPeriodEnd(gstPeriodFor('2026-10', 'monthly', '2026-10-14')!)).toBe('2026-10-31')
+    expect(gstPeriodEnd(gstPeriodFor('2026-10', 'quarterly', '2026-10-14')!)).toBe('2026-12-31')
   })
 
   it('ARN: letters and digits, spaces / dashes dropped, 10–20 long (format UNVERIFIED)', () => {

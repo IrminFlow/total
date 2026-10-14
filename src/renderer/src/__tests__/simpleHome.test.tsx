@@ -204,7 +204,7 @@ describe('simple Home (WP 8.6)', () => {
     expect(screen.getByTestId('simple-deadline-tds').textContent).toBe('Pay the TDS (tax deducted at source) you deducted — by 7 Nov')
     expect(screen.getByTestId('simple-home-backup-nudge').textContent).toContain('Your last backup was 9 days ago.')
     fireEvent.click(within(screen.getByTestId('simple-home-backup-nudge')).getByRole('button'))
-    await waitFor(() => expect(lastScreen()).toEqual({ name: 'settings', tab: 'backups' }))
+    await waitFor(() => expect(lastScreen()).toEqual({ name: 'simple-backups' }))
   })
 
   it('an empty company: one "Nothing recorded yet" card with the next setup step; the GST number step is never ticked for an unregistered business', async () => {

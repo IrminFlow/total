@@ -3,6 +3,7 @@ import { useT } from '../lib/i18n'
 import { AmountInput, Button, DateInput, Field, Select, TextInput } from '../components/ui'
 import { formatPaise } from '@shared/money'
 import { toPlainDate } from '@shared/dates'
+import { slabsOn } from '@shared/gst/rateTable'
 import type { MessageKey } from '@shared/i18n'
 import {
   OPENING_OTHER_KINDS,
@@ -338,6 +339,10 @@ export function StockStep({ draft, update, state }: OpeningsStepProps): React.JS
   const listed = new Set(draft.items.map((r) => r.name.trim().toLowerCase()))
   const suggestions = state.pick.items.filter((p) => !listed.has(p.name.toLowerCase()))
   const known = (name: string): boolean => state.pick.items.some((p) => p.name.toLowerCase() === name.trim().toLowerCase())
+  // WP 10.8: while the business charges GST, a new product's rate is asked here — a product made
+  // without one would go on its first bill with no GST at all (the slabs in force on the day).
+  const askGst = state.chargesGst === true
+  const slabs = askGst ? slabsOn(state.booksBegin) : []
   const defaultUnit = state.pick.units.find((u) => u.symbol === 'Pcs')?.id ?? state.pick.units[0]?.id ?? null
   const setItem = (i: number, patch: Partial<ItemDraft>): void =>
     update((d) => ({
@@ -362,7 +367,7 @@ export function StockStep({ draft, update, state }: OpeningsStepProps): React.JS
         {draft.items.map((r, i) => (
           <div
             key={r.key}
-            className="grid grid-cols-1 gap-2 rounded-md border border-line p-3 md:grid-cols-[1fr_8rem_7rem_9rem_7rem_auto] md:items-start"
+            className={`grid grid-cols-1 gap-2 rounded-md border border-line p-3 md:items-start ${askGst ? 'md:grid-cols-[1fr_7rem_7rem_6rem_8rem_7rem_auto]' : 'md:grid-cols-[1fr_8rem_7rem_9rem_7rem_auto]'}`}
             data-testid={`openings-item-${i}`}
           >
             {r.itemId != null ? (
@@ -391,6 +396,25 @@ export function StockStep({ draft, update, state }: OpeningsStepProps): React.JS
                 )}
               </>
             )}
+            {askGst &&
+              (r.itemId == null && !known(r.name) ? (
+                <OField label={t('simple.openings.stock.gstRate')} name={`items.${i}.gstRate`}>
+                  <Select
+                    data-testid={`openings-item-${i}-gst`}
+                    value={r.gstRate == null ? '' : String(r.gstRate)}
+                    onChange={(e) => setItem(i, { gstRate: e.target.value === '' ? null : Number(e.target.value) })}
+                  >
+                    <option value="">{t('simple.openings.stock.gstPick')}</option>
+                    {slabs.map((s) => (
+                      <option key={s.rate} value={s.rate}>
+                        {s.rate === 0 ? t('simple.newProduct.gstNil') : t('simple.sell.gstChip', { rate: s.rate })}
+                      </option>
+                    ))}
+                  </Select>
+                </OField>
+              ) : (
+                <span />
+              ))}
             <OField label={t('simple.openings.stock.qty')} name={`items.${i}.qty`}>
               <TextInput
                 data-testid={`openings-item-${i}-qty`}
@@ -439,7 +463,8 @@ export function StockStep({ draft, update, state }: OpeningsStepProps): React.JS
                     unitId: defaultUnit,
                     qty: '',
                     rate: null,
-                    base: null
+                    base: null,
+                    gstRate: null
                   }
                 ]
               }))

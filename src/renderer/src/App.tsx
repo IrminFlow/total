@@ -10,6 +10,7 @@ import { Gateway } from './screens/Gateway'
 import { SimpleHome } from './simple/SimpleHome'
 import { SimpleSection } from './simple/SimpleSection'
 import { SimpleLooks } from './simple/SimpleLooks'
+import { SimpleBackups } from './simple/SimpleBackups'
 import { SimpleFeatures } from './simple/SimpleFeatures'
 import { AiHelper } from './simple/ai/AiHelper'
 import { Openings } from './simple/Openings'
@@ -209,6 +210,7 @@ export default function App(): React.JSX.Element {
           {screen.name === 'gateway' && (simpleView ? <SimpleHome /> : <Gateway />)}
           {screen.name === 'simple-section' && <SimpleSection key={screen.section} section={screen.section} />}
           {screen.name === 'simple-looks' && <SimpleLooks />}
+          {screen.name === 'simple-backups' && <SimpleBackups />}
           {screen.name === 'simple-features' && <SimpleFeatures />}
           {screen.name === 'simple-ai' && <AiHelper />}
           {screen.name === 'simple-help' && <HelpSettings />}

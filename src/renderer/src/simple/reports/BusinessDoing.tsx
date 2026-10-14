@@ -89,8 +89,10 @@ export function BusinessDoing(): React.JSX.Element {
 }
 
 function Line({
-  id, op, label, paise, why, extra, strong, sub, link
+  id, op, label, paise, why, extra, strong, sub, link, unsigned
 }: {
+  /** WP 10.8: the label already says Loss — show the amount without its minus. */
+  unsigned?: boolean
   id: string
   op: string
   label: string
@@ -110,7 +112,7 @@ function Line({
         {label}
         {sub && <span className="block text-small text-muted">{sub}</span>}
       </span>
-      <span className={`num shrink-0 ${strong ? 'text-title font-semibold' : 'text-body'} ${paise < 0 ? 'text-cr' : 'text-ink'}`}>{money(paise)}</span>
+      <span className={`num shrink-0 ${strong ? 'text-title font-semibold' : 'text-body'} ${paise < 0 ? 'text-cr' : 'text-ink'}`}>{money(unsigned ? Math.abs(paise) : paise)}</span>
       <span className="w-14 shrink-0 text-right"><WhyLink what={label} sentence={why} extra={extra} link={link} testId={`why-doing-${id}`} /></span>
     </li>
   )
@@ -142,7 +144,7 @@ function DoingBody({ d }: { d: Doing }): React.JSX.Element {
           <Line id="goods" op="=" label={t('simple.reports.profitOnGoods')} paise={l.profitOnGoods} why={profitOnGoodsWhy(d, t)} link={pnl} />
           {l.otherIncome !== 0 && <Line id="other" op="+" label={t('simple.reports.otherIncome')} paise={l.otherIncome} why={otherIncomeWhy(d, t)} link={pnl} />}
           <Line id="expenses" op="−" label={t('simple.reports.expenses')} paise={l.expenses} why={expensesWhy(d, t)} link={pnl} />
-          <Line id="profit" op="=" strong label={t('simple.reports.doing.result', { result })} paise={l.profit} why={doingResultWhy(d, t)} extra={doingCompareWhy(d, t)} link={pnl} />
+          <Line id="profit" op="=" strong unsigned label={t('simple.reports.doing.result', { result })} paise={l.profit} why={doingResultWhy(d, t)} extra={doingCompareWhy(d, t)} link={pnl} />
         </ul>
         <p className="mt-2 text-small text-muted" data-testid="doing-change">
           {changeSentence(l.profit, d.previousLines.profit, d.previous, t)}

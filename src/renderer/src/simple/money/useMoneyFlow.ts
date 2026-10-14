@@ -10,6 +10,7 @@ import { useUnsavedGuard } from '../../lib/useUnsavedGuard'
 import { confirmDialog } from '../../lib/dialogs'
 import { useNav } from '../../state/stores'
 import { isAnyModalOpen, type FormErrors } from '../../components/ui'
+import { useCanSave } from '../ViewerNote'
 
 const REFRESH = ['simpleMoneySetup', 'simpleMoneyBills', 'simpleMoneyList', 'ledgers', 'dashboard', 'simpleHome'] // i18n-technical: query families
 
@@ -57,6 +58,7 @@ export function useMoneyFlow<F extends string>(opts: {
   askDiscard: () => Promise<boolean>
 } {
   const t = useT()
+  const canSave = useCanSave()
   const nav = useNav()
   const queryClient = useQueryClient()
   const poster = useSimplePost({ aiDraftId: opts.aiDraftId ?? null })
@@ -146,7 +148,7 @@ export function useMoneyFlow<F extends string>(opts: {
     if (mod && e.key === 'Enter') {
       e.preventDefault()
       e.stopPropagation()
-      if (!savedIds) void save()
+      if (!savedIds && canSave) void save() // WP 10.8 review: a viewer's ⌘↵ saves nothing (the note says why)
       return
     }
     if (mod && !e.shiftKey && e.key.toLowerCase() === 'n') {

@@ -117,6 +117,12 @@ describe('near-duplicate names ("Did you mean Sales?")', () => {
     expect(names('Sa')).toEqual([]) // two letters is not a prefix worth asking about
     expect(names('!!!')).toEqual([])
   })
+  it('WP 10.8: the honorific "ji" and a plural s do not hide a copy ("Sharmaji Store" → Sharma Stores)', () => {
+    const shops = [{ id: 9, name: 'Sharma Stores' }, { id: 10, name: 'Verma General Store' }]
+    expect(nearDuplicates('Sharmaji Store', shops).map((d) => d.name)).toEqual(['Sharma Stores'])
+    expect(nearDuplicates('Sharma ji stores', shops)[0]).toMatchObject({ id: 9, same: false })
+    expect(nearDuplicates('Gupta Store', shops)).toEqual([])
+  })
   it('lists at most three, best first', () => {
     const many = Array.from({ length: 6 }, (_, i) => ({ id: i, name: `Sales ${i}` }))
     expect(nearDuplicates('Sales', many)).toHaveLength(3)

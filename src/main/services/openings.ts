@@ -30,6 +30,7 @@ import { AppError } from '@shared/errors'
 import { fyFromStartYear } from '@shared/dates'
 import { ledgerInputSchema, stockItemInputSchema } from '@shared/schemas'
 import { effectiveFeatures } from '@shared/features'
+import { chargesGstOn, gstRegistrationOf } from '@shared/gst/registration'
 import {
   OTHER_KIND_GROUP, OTHER_KIND_SIDE, OPENING_OTHER_KINDS, billNames, simpleOpeningsSchema, stockLineRate, stockLineValue,
   type OpeningOtherKind, type OpeningPartyState, type OpeningsResult, type OpeningsState, type OpeningsWarning, type SimpleOpenings
@@ -142,6 +143,7 @@ export function openingsState(db: DB): OpeningsState {
     booksBegin,
     startedFresh: typeof ui.startedFresh === 'boolean' ? ui.startedFresh : null,
     stockOn,
+    chargesGst: chargesGstOn(gstRegistrationOf(readCompanyInfo(db)), booksBegin),
     appliedAt: storedMeta(db)?.appliedAt ?? null,
     cash: { ledgerId: cash.id, name: cash.name, amount: cash.opening_balance },
     banks: banks.map((b) => ({ ledgerId: b.id, name: b.name, amount: b.opening_balance })),
@@ -281,7 +283,7 @@ function writeItems(ctx: RunCtx, input: SimpleOpenings): void {
       if (r.qtyMilli === 0 && value === 0) return
       const unitId = r.unitId ?? defaultUnit
       if (!unitId) throw new AppError('openings_invalid', 'No unit to count this item in', { field: `items.${i}.unit` })
-      const created = masters.createStockItem(ctx.db, stockItemInputSchema.parse({ name: r.name, unitId, openingQtyMilli: r.qtyMilli, openingValue: value }))
+      const created = masters.createStockItem(ctx.db, stockItemInputSchema.parse({ name: r.name, unitId, openingQtyMilli: r.qtyMilli, openingValue: value, ...(r.gstRate != null ? { gstRate: r.gstRate } : {}) }))
       ctx.changes.push({ kind: 'item', id: created.id, name: created.name, before: null, after: { qtyMilli: r.qtyMilli, value } })
       return
     }

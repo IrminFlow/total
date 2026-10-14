@@ -237,6 +237,20 @@ describe('counter billing (WP 2.6)', () => {
     await waitFor(() => expect(document.activeElement).toBe(search))
   })
 
+  it('WP 10.8: Quick bill (the simple title) of an unregistered shop shows no GST column or "taxable"; the full Counter keeps them', async () => {
+    useSession.setState({ info: { ...useSession.getState().info!, gstRegistrationType: 'unregistered' } })
+    const { unmount } = render(<QueryClientProvider client={client()}><CounterBillingScreen title="Quick bill" /></QueryClientProvider>)
+    await screen.findByTestId('input-counter-search', {}, { timeout: 10000 })
+    expect(screen.queryByRole('columnheader', { name: 'GST' })).toBeNull()
+    expect(document.body.textContent).toContain('0 lines')
+    expect(document.body.textContent).not.toContain('taxable')
+    unmount()
+    render(<QueryClientProvider client={client()}><CounterBillingScreen /></QueryClientProvider>)
+    await screen.findByTestId('input-counter-search', {}, { timeout: 10000 })
+    expect(document.body.textContent).toContain('0 lines · taxable')
+    expect(screen.getByRole('columnheader', { name: 'GST' })).toBeTruthy()
+  })
+
   it('a walk-in bill must be paid in full before F9 completes it', async () => {
     render(<QueryClientProvider client={client()}><CounterBillingScreen /></QueryClientProvider>)
     const search = (await screen.findByTestId('input-counter-search')) as HTMLInputElement

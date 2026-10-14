@@ -133,7 +133,7 @@ describe('simple Bank (WP 9.6)', () => {
     const after = await view()
     expect(after.lines.every((l) => l.status === 'done')).toBe(true)
     expect(lineOf(after, 'RAMESH').done[0]!.name).toBe('Ramesh Traders')
-    expect(after.sentence).toEqual({ asOn: '2025-08-18', differ: 0, difference: 0, open: 0 })
+    expect(after.sentence).toMatchObject({ asOn: '2025-08-18', differ: 0, difference: 0, open: 0, statementBalance: null })
     expect(bankSentence(after.sentence)).toMatchObject({ key: 'simple.bank.sentence.agree', tone: 'agree' })
 
     // Undo the import: the statement lines go, the vouchers the user saved stay (bank date reset).
@@ -144,6 +144,29 @@ describe('simple Bank (WP 9.6)', () => {
     const kept = getVoucher(db, rameshVoucher)!
     expect(kept.deletedAt).toBeNull()
     expect(kept.lines.find((x) => x.ledgerId === ids.bank)!.bankDate).toBeNull()
+  })
+
+  it('WP 10.8: every line answered is "agree" only when the statement’s own closing balance is the books’', async () => {
+    const rows = (closing: string) => ['05/07/2025,SMS CHARGES APR-JUN,S1,"59.00",,"-59.00"', `10/08/2025,CASH DEP KUMAR,C1,,"1,000.00","${closing}"`]
+    statement(rows('49,941.00'))
+    let v = await view()
+    accept(v.lines.filter((l) => l.suggestion?.choice.kind === 'existing').map((l) => ({ lineId: l.id, choice: { kind: 'existing' as const } })))
+    v = await view()
+    expect(v.sentence).toMatchObject({ differ: 0, open: 0, statementBalance: 49_941_00, bankBalance: 941_00 })
+    expect(bankSentence(v.sentence)).toMatchObject({ key: 'simple.bank.sentence.balance', tone: 'balance', vars: { bank: '₹49,941.00', books: '₹941.00', gap: '₹49,000.00' } })
+    // The same lines with a closing balance the books agree with.
+    expect(bankSentence({ ...v.sentence, statementBalance: 941_00 })).toMatchObject({ tone: 'agree' })
+  })
+
+  it('WP 10.8 review: a newest-first file is read at the END of its last day, not its last line', async () => {
+    post({ kind: 'money_out', date: '2025-08-10', payeeId: ids.charges, amount: 4_100, from: { how: 'bank', accountId: ids.bank }, narration: 'CHQ BOOK CHARGES' })
+    // Books: −59 + 1,000 − 41 = ₹900. The file runs newest first; the day's last line is its FIRST.
+    statement(['10/08/2025,CHQ BOOK CHARGES,K1,"41.00",,"900.00"', '10/08/2025,CASH DEP KUMAR,C1,,"1,000.00","941.00"', '05/07/2025,SMS CHARGES APR-JUN,S1,"59.00",,"-59.00"'])
+    let v = await view()
+    accept(v.lines.filter((l) => l.suggestion?.choice.kind === 'existing').map((l) => ({ lineId: l.id, choice: { kind: 'existing' as const } })))
+    v = await view()
+    expect(v.sentence).toMatchObject({ differ: 0, open: 0, statementBalance: 900_00, bankBalance: 900_00 })
+    expect(bankSentence(v.sentence)).toMatchObject({ tone: 'agree' })
   })
 
   it('the sentence equals the BRS service: entries in the books the bank has not shown', async () => {

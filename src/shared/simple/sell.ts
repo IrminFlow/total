@@ -277,7 +277,7 @@ export function salePreviewLine(f: IntentFacts, t: Translate): string {
   const head = f.walkIn ? t('simple.sell.preview.walkIn', { amount: money(f.total) }) : t('simple.sell.preview.bill', { amount: money(f.total), name: f.partyName ?? '' })
   const how = f.how ?? 'cash'
   const due = f.dueDate ? toPlainDate(f.dueDate, t.lang) : ''
-  if (f.paid > 0 && f.due > 0) return `${head} ${t('simple.sell.preview.part', { paid: money(f.paid), how, due: money(f.due), date: due })}`
+  if (f.paid > 0 && f.due > 0) return `${head} ${t(due ? 'simple.sell.preview.part' : 'simple.sell.preview.partNoDate', { paid: money(f.paid), how, due: money(f.due), date: due })}`
   if (f.paid > 0) return `${head} ${t('simple.sell.preview.paid', { amount: money(f.paid), how })}`
   if (f.due > 0) return `${head} ${t(due ? 'simple.sell.preview.dueBy' : 'simple.sell.preview.due', { amount: money(f.due), date: due })}`
   return head
@@ -379,4 +379,12 @@ export function shownRate(exclusiveRate: number, itemId: number, form: SellForm,
 export function lineGstRate(itemId: number, form: SellForm, ctx: SellContext): number | null {
   const charges = chargesGstOn(ctx.invoice, form.date)
   return charges ? itemRate(ctx, itemId, charges).rate : null
+}
+
+/** WP 10.8: the bill charges GST but neither the product nor the sales account has a rate — the
+ *  line would go out with no GST at all (the screen says so instead of a "0% GST" chip). */
+export function lineRateMissing(itemId: number, form: SellForm, ctx: SellContext): boolean {
+  if (!chargesGstOn(ctx.invoice, form.date)) return false
+  const account = ctx.salesAccountId != null ? ctx.invoice.ledgers.get(ctx.salesAccountId) : undefined
+  return ctx.invoice.items.get(itemId)?.gstRate == null && account?.gstRate == null
 }
