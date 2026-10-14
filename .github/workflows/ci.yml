@@ -59,7 +59,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ${{ runner.temp }}/perf100k
-          key: perf-seed-100k-v1-${{ hashFiles('src/main/perf/seedLarge.ts', 'src/main/db/seed.ts', 'src/main/services/vouchers.ts', 'src/main/services/masters.ts', 'src/main/services/openingBills.ts', 'src/main/services/tradeLinks.ts', 'src/main/services/banking.ts') }}
+          key: perf-seed-100k-v1-${{ hashFiles('src/main/perf/seedLarge.ts', 'src/main/db/seed.ts', 'src/main/services/vouchers.ts', 'src/main/services/masters.ts', 'src/main/services/openingBills.ts', 'src/main/services/tradeLinks.ts', 'src/main/services/banking.ts', 'src/main/db/migrations.ts') }}
 
       - name: Seed 100k vouchers (cache miss only)
         if: steps.seed-cache.outputs.cache-hit != 'true'
