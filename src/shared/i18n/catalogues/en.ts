@@ -1370,11 +1370,12 @@ export const en = {
   'simple.openings.bill.add': '+ Another unpaid bill',
   // stock
   'simple.openings.stock.title': 'Stock on hand',
-  'simple.openings.stock.hint': 'Count what is in the shop or store on {date}. For each product: how many you have and what one cost you to buy (not what you sell it for).',
+  'simple.openings.stock.hint': 'Count what is in the shop or store on {date}. For each product: how many you have and what one cost you to buy. If you like, also what you sell one for — your bills then fill it in.',
   'simple.openings.stock.product': 'Product',
   'simple.openings.stock.unit': 'Counted in',
   'simple.openings.stock.qty': 'How many',
   'simple.openings.stock.rate': 'What one cost you',
+  'simple.openings.stock.sell': 'What you sell it for (optional)',
   'simple.openings.stock.value': 'Worth',
   'simple.openings.stock.add': '+ Add a product',
   'simple.openings.stock.total': 'Stock worth {amount} in all',

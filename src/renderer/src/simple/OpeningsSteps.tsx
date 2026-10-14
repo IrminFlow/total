@@ -367,7 +367,7 @@ export function StockStep({ draft, update, state }: OpeningsStepProps): React.JS
         {draft.items.map((r, i) => (
           <div
             key={r.key}
-            className={`grid grid-cols-1 gap-2 rounded-md border border-line p-3 md:items-start ${askGst ? 'md:grid-cols-[1fr_7rem_7rem_6rem_8rem_7rem_auto]' : 'md:grid-cols-[1fr_8rem_7rem_9rem_7rem_auto]'}`}
+            className={`grid grid-cols-1 gap-2 rounded-md border border-line p-3 md:items-start ${askGst ? 'md:grid-cols-[1fr_7rem_7rem_6rem_8rem_8rem_7rem_auto]' : 'md:grid-cols-[1fr_8rem_7rem_9rem_9rem_7rem_auto]'}`}
             data-testid={`openings-item-${i}`}
           >
             {r.itemId != null ? (
@@ -427,6 +427,10 @@ export function StockStep({ draft, update, state }: OpeningsStepProps): React.JS
             <OField label={t('simple.openings.stock.rate')} name={`items.${i}.rate`}>
               <AmountInput testId={`openings-item-${i}-rate`} paise={r.rate} onPaise={(p) => setItem(i, { rate: p })} />
             </OField>
+            {/* Gate polish: optional — the first bill then fills the price, the Stock list shows it. */}
+            <OField label={t('simple.openings.stock.sell')} name={`items.${i}.sell`}>
+              <AmountInput testId={`openings-item-${i}-sell`} paise={r.sell ?? null} onPaise={(p) => setItem(i, { sell: p })} />
+            </OField>
             <div>
               <span className="mb-1 block text-caption font-semibold tracking-[0.08em] text-muted uppercase">{t('simple.openings.stock.value')}</span>
               <p className="num pt-1.5 text-right text-body text-ink" data-testid={`openings-item-${i}-value`}>
@@ -464,7 +468,9 @@ export function StockStep({ draft, update, state }: OpeningsStepProps): React.JS
                     qty: '',
                     rate: null,
                     base: null,
-                    gstRate: null
+                    gstRate: null,
+                    sell: null,
+                    sellBase: null
                   }
                 ]
               }))

@@ -171,3 +171,18 @@ describe('WP 10.8: a new product’s GST rate while GST is charged', () => {
     expect(simpleOpeningsSchema.safeParse(p).success).toBe(true)
   })
 })
+
+describe('gate polish: "What you sell it for" on an opening-stock row', () => {
+  it('a typed price goes with its loaded base; a blank one is not sent; a negative one is refused', () => {
+    const d = empty()
+    d.items = [
+      { key: 'a', itemId: null, name: 'Salt', unitId: 1, qty: '10', rate: 18_00, base: null, sell: 22_00, sellBase: null },
+      { key: 'b', itemId: 4, name: 'Tea', unitId: 1, qty: '2', rate: 100_00, base: { qtyMilli: 2_000, value: 200_00 }, sell: 130_00, sellBase: 120_00 },
+      { key: 'c', itemId: null, name: 'Atta', unitId: 1, qty: '1', rate: 40_00, base: null, sell: null }
+    ]
+    const p = simpleOpeningsSchema.parse(openingsPayload(d))
+    expect(p.items.map((i) => [i.sellPrice, i.sellBase])).toEqual([[22_00, null], [130_00, 120_00], [undefined, undefined]])
+    d.items = [{ ...d.items[0]!, sell: -1 }]
+    expect(openingsStepErrors(d, 'stock', '2026-04-01')).toEqual({ 'items.0.sell': 'errors.openings.negative' })
+  })
+})
