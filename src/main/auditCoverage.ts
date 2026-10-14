@@ -41,7 +41,7 @@ export const AUDIT_COVERAGE: Record<string, AuditCoverage> = {
   'simple:purchase': QUERY,
   // WP 9.1: an intent saved through saveVoucher (the vouchers log themselves; the intent as one
   // event); the walk-in customer / tax ledgers the editor would create on first use log as ledgers.
-  'simple:post': a('simple_intent', 'voucher', 'ledger'),
+  'simple:post': a('simple_intent', 'voucher', 'ledger', 'manufacture'),
   // WP 9.4: the simple Money screens' reads (choices / defaults, a party's open bills, the money list, one entry).
   'simple:money:setup': QUERY,
   'simple:money:bills': QUERY,
@@ -58,6 +58,11 @@ export const AUDIT_COVERAGE: Record<string, AuditCoverage> = {
   'simple:people:update': a('ledger'),
   'simple:people:reminded': a('reminder'),
   'simple:sale': QUERY,
+  // WP 9.7: the simple Stock screens (services/simpleStock.ts); counting / making go through simple:post.
+  'simple:stock:list': QUERY,
+  'simple:stock:product': QUERY,
+  'simple:stock:madeSetup': QUERY,
+  'simple:stock:setPrice': a('priceRate', 'priceLevel'),
   // WP 9.6: the simple Bank screen — reads (accounts; lines + suggestions + the BRS sentence) and
   // accepting lines: a confirmed match (voucher_line / bank_statement_line / learned rules) or an
   // intent saved like simple:post and its line reconciled (the same rows reconcileSavedDraft writes).

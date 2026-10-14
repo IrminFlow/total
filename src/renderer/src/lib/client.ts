@@ -15,6 +15,7 @@ import type { MoneyEntryView, MoneyOpenBill, MoneyRow, MoneySetup } from '@share
 import type { BillsToPay, PeopleList, PersonUpdate, PersonView, ReminderVia } from '@shared/simple/people'
 import type { SaleRow, SaleView, SellSetup } from '@shared/simple/sell'
 import type { BuySetup, PurchaseRow, PurchaseView } from '@shared/simple/buy'
+import type { MadeGoodsSetup, StockList, StockProductView } from '@shared/simple/stock'
 import type { BudgetVarianceRow } from '@shared/budgets'
 import type { McpConfig, McpLogRow, McpSettingsView } from '@shared/mcp'
 import type { AiDraftDto, AiDraftStatus } from '@shared/ai'
@@ -723,6 +724,18 @@ export const api = {
     purchases: (from: string, to: string, today?: string) => call<PurchaseRow[]>('simple:purchases', { from, to, ...(today ? { today } : {}) }),
     /** One bill's simple (read-only) view; null when it is not an in-books purchase bill. */
     purchase: (id: number, today?: string) => call<PurchaseView | null>('simple:purchase', { id, ...(today ? { today } : {}) })
+  },
+  /** WP 9.7: the simple Stock screens (services/simpleStock.ts). Counting and making go through
+   *  simple:post (the `stock_count` / `make_goods` intents). */
+  simpleStock: {
+    /** Every product with quantity and value as on today (the Stock summary's own pass). */
+    list: (today?: string) => call<StockList>('simple:stock:list', today ? { today } : {}),
+    /** One product's simple view (null when it no longer exists). */
+    product: (id: number, today?: string) => call<StockProductView | null>('simple:stock:product', { id, ...(today ? { today } : {}) }),
+    /** Made goods' choices: products with a recipe in force on the date. */
+    madeSetup: (date: string) => call<MadeGoodsSetup>('simple:stock:madeSetup', { date }),
+    /** "Change price": the selling price from `date` (default level, as the new-product dialog). */
+    setPrice: (itemId: number, ratePaise: number, date?: string) => call<{ sellingPrice: number | null }>('simple:stock:setPrice', { itemId, ratePaise, ...(date ? { date } : {}) })
   },
   /** WP 8.7: the opening setup (what a continuing business had on day one). */
   openings: {

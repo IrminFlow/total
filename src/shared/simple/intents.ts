@@ -31,6 +31,13 @@ import {
   type TaxLedgerIds, type TaxSide, type VoucherPayload
 } from '../voucherEdit'
 import { qtyText } from '../voucherEdit/payload'
+import type { PhysicalFormState } from '../voucherEdit/physical'
+import type { ManufactureFormState } from '../voucherEdit/manufacture'
+import type { ManufactureInput } from '../manufacture'
+import type { BomVersion } from '../bom'
+// WP 9.7: the stock intents' pure mapping lives beside the Stock screens' helpers (stock.ts only
+// imports TYPES from this module, so there is no runtime cycle).
+import { mapMakeGoods, mapStockCount, stockSentences } from './stock'
 
 // ---------------------------------------------------------------- schemas
 
@@ -198,6 +205,40 @@ const returnBase = {
 export const returnSaleIntentSchema = z.object({ kind: z.literal('return_sale'), ...returnBase }).strict()
 export const returnPurchaseIntentSchema = z.object({ kind: z.literal('return_purchase'), ...returnBase }).strict()
 
+/** WP 9.7: a counted quantity — integer thousandths or typed text; 0 is a count ("none left"). */
+const countIn = z.union([z.number().int().min(0).max(1e12), z.string().trim().min(1).max(20)])
+
+/** WP 9.7 "Count your stock": what is on the shelf now, per product (absolute quantities — the
+ *  physical-stock entry; a product left out is not touched). */
+export const stockCountIntentSchema = z
+  .object({
+    kind: z.literal('stock_count'),
+    ...base,
+    counts: z.array(z.object({ itemId: id, qty: countIn }).strict()).min(1).max(2000),
+    number: z.string().trim().min(1).max(40).optional()
+  })
+  .strict()
+
+/** WP 9.7 "Made goods": make `qty` of a product from its recipe (the BOM in force on the date) —
+ *  the WP 2.2 manufacture entry. */
+export const makeGoodsIntentSchema = z
+  .object({
+    kind: z.literal('make_goods'),
+    ...base,
+    itemId: id,
+    qty: qtyIn,
+    /** What one sells for (the manufacture's average price, margin only); omitted = the editor's
+     *  suggestion (this year's sales, else the price list). */
+    price: amountIn.optional(),
+    /** Labour for this batch; omitted = none. */
+    labour: amountIn.optional(),
+    /** "Labour already recorded?" — true: paid / billed elsewhere, only added to the goods' value;
+     *  false / omitted: recorded here as wages still to pay (the editor's default). */
+    labourRecorded: z.boolean().optional(),
+    number: z.string().trim().min(1).max(40).optional()
+  })
+  .strict()
+
 export const simpleIntentSchema = z.discriminatedUnion('kind', [
   saleIntentSchema,
   purchaseIntentSchema,
@@ -205,14 +246,16 @@ export const simpleIntentSchema = z.discriminatedUnion('kind', [
   moneyOutIntentSchema,
   moveMoneyIntentSchema,
   returnSaleIntentSchema,
-  returnPurchaseIntentSchema
+  returnPurchaseIntentSchema,
+  stockCountIntentSchema,
+  makeGoodsIntentSchema
 ])
 
 export type SimpleIntent = z.infer<typeof simpleIntentSchema>
 /** What a screen sends (schema input: optional fields may be left out). */
 export type SimpleIntentInput = z.input<typeof simpleIntentSchema>
 export type SimpleIntentKind = SimpleIntent['kind']
-export const SIMPLE_INTENT_KINDS: readonly SimpleIntentKind[] = ['sale', 'purchase', 'money_in', 'money_out', 'move_money', 'return_sale', 'return_purchase']
+export const SIMPLE_INTENT_KINDS: readonly SimpleIntentKind[] = ['sale', 'purchase', 'money_in', 'money_out', 'move_money', 'return_sale', 'return_purchase', 'stock_count', 'make_goods']
 
 // ---------------------------------------------------------------- normalised intents
 
@@ -231,6 +274,8 @@ export type NormalIntent =
   | (NBase & { kind: 'money_out'; amount: number; from: NMoneyAccount; supplierId: number | null; bills: NBill[] | null; advance: boolean; payeeId: number | null; drawings: boolean })
   | (NBase & { kind: 'move_money'; amount: number; fromId: number; toId: number; reference: string | null })
   | (NBase & { kind: 'return_sale' | 'return_purchase'; billId: number; items: { lineUid: string; qtyMilli: number }[] | null; amount: { amount: number; gstRate: number | null } | null; refund: NMoneyAccount | null })
+  | (NBase & { kind: 'stock_count'; counts: { itemId: number; qtyMilli: number }[] })
+  | (NBase & { kind: 'make_goods'; itemId: number; qtyMilli: number; price: number | null; labour: number; labourRecorded: boolean })
 
 const fail = (code: ErrorCode, message: string, field?: string, params?: Record<string, string | number>): never => {
   throw new AppError(code, message, { ...(field ? { field } : {}), ...(params ? { params } : {}) })
@@ -254,6 +299,12 @@ export function readQty(v: number | string, field: string): number {
   const milli = Number(m[1]!.replace(/,/g, '')) * 1000 + Number((m[2] ?? '').padEnd(3, '0'))
   if (!Number.isSafeInteger(milli) || milli <= 0) return fail('simple_bad_qty', `“${v}” is not a quantity`, field)
   return milli
+}
+
+/** WP 9.7: a counted quantity — as readQty, but 0 ("none left") is a count. */
+export function readCount(v: number | string, field: string): number {
+  if (v === 0 || (typeof v === 'string' && /^0+(?:\.0{1,3})?$/.test(v.trim()))) return 0
+  return readQty(v, field)
 }
 
 /** ISO, or typed text resolved against the working date (resolveDateText); omitted = `today`. */
@@ -335,6 +386,18 @@ export function normaliseIntent(raw: unknown, today: string): NormalIntent {
         amount: i.amount ? { amount: readAmount(i.amount.amount, 'amount'), gstRate: i.amount.gstRate ?? null } : null,
         refund: i.refund ? nMoney(i.refund) : null
       }
+    case 'stock_count':
+      return { ...b, kind: 'stock_count', counts: i.counts.map((c, k) => ({ itemId: c.itemId, qtyMilli: readCount(c.qty, `counts.${k}.qty`) })) }
+    case 'make_goods':
+      return {
+        ...b,
+        kind: 'make_goods',
+        itemId: i.itemId,
+        qtyMilli: readQty(i.qty, 'qty'),
+        price: i.price != null ? readAmount(i.price, 'price', { zeroOk: true }) : null,
+        labour: i.labour != null ? readAmount(i.labour, 'labour', { zeroOk: true }) : 0,
+        labourRecorded: !!i.labourRecorded
+      }
   }
 }
 
@@ -414,6 +477,27 @@ export interface IntentContext {
   /** Per party: names of its bills and credits still open (a new bill must not reuse one —
    *  a settlement by name applies to the OLDEST open bill of that name). */
   takenNames: ReadonlyMap<number, ReadonlySet<string>>
+  /** WP 9.7 (stock_count / make_goods): each product's stock as on the intent's date, BEFORE the
+   *  entry — stockAnalysis.stockSummary, the one valuation pass (shared/simple/stock.ts). */
+  stock?: ReadonlyMap<number, IntentStockPosition>
+  /** WP 9.7 (make_goods): the recipe and the engine's prices for it. */
+  make?: IntentMake
+}
+
+export interface IntentStockPosition { name: string; unit: string; qtyMilli: number; value: number }
+
+/** What Made goods reads from the books (loaded by main, as the Manufacture screen loads it). */
+export interface IntentMake {
+  /** The product's BOM versions (every item's — a component's own recipe is told apart). */
+  versions: readonly BomVersion[]
+  /** manufacture.suggestedSaleRate — the editor's "average price" prefill (paise per unit). */
+  suggestedPrice: number | null
+  /** manufacture.costPreview of the recipe's rows on the date: each row's engine cost and what
+   *  was on hand before it (the derived rule's consumption). */
+  priced: { lines: { itemId: number; qtyMilli: number; costPaise: number; onHandQtyMilli: number }[]; totalPaise: number }
+  /** The labour accounts the editor would use (Labour Charges / Wages Payable — found or created
+   *  by main exactly as saveManufacture does; null while not needed). */
+  labour: { expenseId: number | null; creditId: number | null }
 }
 
 /** Thrown when an entry needs GST / round-off ledgers that don't exist yet: main creates them
@@ -428,11 +512,17 @@ export class NeedTaxLedgers extends Error {
 // ---------------------------------------------------------------- mapped result
 
 /** What each saved entry is to the intent. */
-export type IntentRole = 'bill' | 'payment' | 'money' | 'note' | 'refund'
+export type IntentRole = 'bill' | 'payment' | 'money' | 'note' | 'refund' | 'count' | 'made'
 
 export type MappedEntry =
   | { role: IntentRole; kind: VoucherKind; voucherTypeId: number; form: 'invoice'; state: InvoiceFormState; payload: VoucherPayload }
   | { role: IntentRole; kind: VoucherKind; voucherTypeId: number; form: 'accounting'; state: AccountingFormState; payload: VoucherPayload }
+  /** WP 9.7: the Physical Stock editor's form (saved through saveVoucher). */
+  | { role: IntentRole; kind: VoucherKind; voucherTypeId: number; form: 'physical'; state: PhysicalFormState; payload: VoucherPayload }
+  /** WP 9.7: the Manufacture screen's form; `input` is what manufacture:save receives (saved
+   *  through saveManufacture → saveVoucher), `payload` the stock journal it posts at the engine's
+   *  prices (buildManufactureVoucher — for the preview). */
+  | { role: IntentRole; kind: VoucherKind; voucherTypeId: number; form: 'manufacture'; state: ManufactureFormState; input: ManufactureInput; payload: VoucherPayload }
 
 /** The figures the plain sentences are made of (all paise, all from the mapped payloads). */
 export interface IntentFacts {
@@ -468,6 +558,30 @@ export interface IntentFacts {
   /** WP 9.2: when what stays open on a sale / purchase bill falls due (bill date + the party's
    *  credit days, or the date given); absent when nothing stays open. */
   dueDate?: string | null
+  /** WP 9.7 stock_count: per product counted, what the books said and what was counted; the
+   *  value change is the valuation engine's (filled by main from the saved books). */
+  count?: CountFacts
+  /** WP 9.7 make_goods: what was made, from what, and what it adds to stock. */
+  made?: MadeFacts
+}
+
+export interface CountFacts {
+  lines: { itemId: number; name: string; unit: string; beforeMilli: number; countedMilli: number; valueChange: number | null }[]
+}
+
+export interface MadeFacts {
+  itemId: number
+  name: string
+  unit: string
+  qtyMilli: number
+  materials: { itemId: number; name: string; unit: string; qtyMilli: number; costPaise: number }[]
+  materialPaise: number
+  labourPaise: number
+  labourRecorded: boolean
+  /** What the made goods enter stock at: materials + labour (the derived rule). */
+  valuePaise: number
+  /** Sale amount − that value at the price given (negative = sold below cost). */
+  profitPaise: number
 }
 
 export interface MappedIntent {
@@ -996,6 +1110,10 @@ export function mapIntent(n: NormalIntent, ctx: IntentContext): MappedIntent {
     case 'return_sale':
     case 'return_purchase':
       return mapReturn(n, ctx)
+    case 'stock_count':
+      return mapStockCount(n, ctx, emptyFacts('stock_count'))
+    case 'make_goods':
+      return mapMakeGoods(n, ctx, emptyFacts('make_goods'))
   }
 }
 
@@ -1048,6 +1166,10 @@ export function intentSentences(f: IntentFacts, t: Translate): string[] {
         else out.push(t(f.kind === 'return_sale' ? 'simple.intent.creditKept' : 'simple.intent.creditHeld', { amount: m(f.credit), name }))
       }
       position(() => undefined)
+      break
+    case 'stock_count':
+    case 'make_goods':
+      out.push(...stockSentences(f, t))
       break
   }
   return out

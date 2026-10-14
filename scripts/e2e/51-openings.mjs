@@ -150,16 +150,16 @@ await scenario('51-openings', async (h) => {
   await h.shot('light-8-outstandings')
   await h.click('btn-back-to-simple')
 
-  // ---------- the stock summary shows the value ----------
+  // ---------- Stock → Products shows the value (WP 9.7: the simple list, the Stock summary's pass) ----------
   await h.click('simple-nav-stock')
   await attached(h, '[data-testid="simple-entry-products"]')
   await h.click('simple-entry-products')
-  await h.waitScreen('stock-summary')
+  await h.waitScreen('simple-stock')
   await h.waitIdle()
-  const stockText = await page.textContent('[data-screen="stock-summary"]')
-  assert(stockText.includes('12,000.00') && stockText.includes('900.00'), 'stock summary: each product at quantity × cost')
+  await attached(h, '[data-testid="rows-simple-stock"] [data-row-id]')
+  const stockText = await page.textContent('[data-screen="simple-stock"]')
+  assert(stockText.includes('12,000.00') && stockText.includes('900.00'), 'Stock → Products: each product at quantity × cost')
   await h.shot('light-9-stock-summary')
-  await h.click('btn-back-to-simple')
 
   // ---------- dark: Home and every step again (from Settings, the figures as saved) ----------
   await h.click('btn-theme')

@@ -22,6 +22,9 @@ import { RecordPurchase } from './simple/buy/RecordPurchase'
 import { PurchaseList } from './simple/buy/PurchaseList'
 import { PeopleList } from './simple/people/PeopleList'
 import { PersonView } from './simple/people/PersonView'
+import { StockList } from './simple/stock/StockList'
+import { StockCount } from './simple/stock/StockCount'
+import { MadeGoods } from './simple/stock/MadeGoods'
 import { useScreenView } from './lib/mode'
 import { DayBook } from './screens/DayBook'
 import { ImportTallyScreen } from './screens/ImportTally'
@@ -202,6 +205,9 @@ export default function App(): React.JSX.Element {
           {screen.name === 'simple-purchases' && <PurchaseList key={screen.billId ?? 'list'} billId={screen.billId} />}
           {screen.name === 'simple-people' && <PeopleList key={`${screen.tab ?? 'people'}|${screen.filter ?? 'all'}`} tab={screen.tab} filter={screen.filter} />}
           {screen.name === 'simple-person' && <PersonView key={screen.id} id={screen.id} />}
+          {screen.name === 'simple-stock' && <StockList key={`${screen.itemId ?? 'list'}-${screen.filter ?? 'all'}`} filter={screen.filter} itemId={screen.itemId} />}
+          {screen.name === 'simple-stock-count' && <StockCount />}
+          {screen.name === 'simple-made-goods' && <MadeGoods key={screen.itemId ?? 'new'} itemId={screen.itemId} />}
           {screen.name === 'daybook' && <DayBook month={screen.month} kind={screen.kind} date={screen.date} />}
           {screen.name === 'import-tally' && <ImportTallyScreen />}
           {screen.name === 'data-import' && <ImportWizardScreen />}

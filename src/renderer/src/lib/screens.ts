@@ -130,9 +130,8 @@ export const SCREENS: ScreenDef[] = [
     name: 'manufacture',
     modes: ['accountant'],
     simpleSection: 'stock',
-    simpleEntries: [
-      { id: 'made-goods', label: 'simple.stock.madeGoods' }
-    ],
+    // WP 9.7: Stock → Made goods is the simple flow (simple-made-goods); this editor is its
+    // Accountant view.
     title: 'Manufacture',
     keywords: ['production', 'stock journal', 'bom', 'raw material', 'finished goods'],
     screen: { name: 'manufacture' },
@@ -412,9 +411,7 @@ export const SCREENS: ScreenDef[] = [
     name: 'stock-summary',
     modes: ['accountant'],
     simpleSection: 'stock',
-    simpleEntries: [
-      { id: 'products', label: 'simple.entries.products' }
-    ],
+    // WP 9.7: Stock → Products is the simple list (simple-stock, the same valuation pass).
     title: 'Stock summary',
     screen: { name: 'stock-summary' },
     navSection: 'books',
@@ -426,9 +423,7 @@ export const SCREENS: ScreenDef[] = [
     name: 'stock-movements',
     modes: ['accountant'],
     simpleSection: 'stock',
-    simpleEntries: [
-      { id: 'stock-history', label: 'simple.entries.stockHistory' }
-    ],
+    // WP 9.7: a product's history is on its simple view (Stock → product → History).
     keywords: ['item movement register', 'stock register', 'stock ledger', 'item ledger'],
     title: 'Stock movements',
     screen: { name: 'stock-movements' },
@@ -877,7 +872,8 @@ export const SCREENS: ScreenDef[] = [
     modes: ['accountant'],
     simpleSection: 'stock',
     simpleEntries: [
-      { id: 'low-stock', label: 'simple.entries.lowStock', screen: { name: 'stock-reports', tab: 'reorder' } }
+      // WP 9.7: "Running low" is the simple list's filter; expiry dates and labels stay here.
+      { id: 'expiry-labels', label: 'simple.entries.expiryLabels', screen: { name: 'stock-reports', tab: 'expiry' } }
     ],
     keywords: ['reorder', 'reorder planning', 'stock ageing', 'expiry', 'serial numbers', 'barcode labels', 'labels'],
     title: 'Stock reports — reorder, ageing, expiry, serials, labels',
@@ -1134,6 +1130,55 @@ export const SCREENS: ScreenDef[] = [
     navSection: null,
     invalidates: ['simplePerson', 'ledgers']
   },
+  // WP 9.7: Stock → the product list (simple/stock/StockList: quantity and value from the Stock
+  // summary's own valuation pass), a product's simple view (`itemId`) and the list filtered to
+  // what is running low (`filter: 'low'` — Home's attention row). Accountant view = Stock summary.
+  {
+    name: 'simple-stock',
+    modes: ['simple'],
+    simpleView: 'stock/StockList',
+    simpleSection: 'stock',
+    simpleEntries: [
+      { id: 'products', label: 'simple.entries.products', screen: { name: 'simple-stock' } },
+      { id: 'low-stock', label: 'simple.entries.lowStock', screen: { name: 'simple-stock', filter: 'low' } }
+    ],
+    title: 'Products',
+    keywords: ['stock', 'products', 'items', 'quantity', 'low stock', 'price'],
+    screen: null, // simple shell only
+    navSection: null,
+    feature: 'inventory',
+    invalidates: ['simpleStock', 'simpleStockProduct', 'stockItems', 'priceLevels']
+  },
+  // WP 9.7: Stock → Count your stock (simple/stock/StockCount: counted quantities → a
+  // `stock_count` intent → the physical-stock entry). Accountant view = the Physical Stock editor.
+  {
+    name: 'simple-stock-count',
+    modes: ['simple'],
+    simpleView: 'stock/StockCount',
+    simpleSection: 'stock',
+    simpleEntries: [{ id: 'stock-count', label: 'simple.entries.stockCount', screen: { name: 'simple-stock-count' } }],
+    title: 'Count your stock',
+    keywords: ['stock count', 'physical stock', 'stock taking', 'count'],
+    screen: null, // simple shell only
+    navSection: null,
+    feature: 'inventory',
+    invalidates: ['simpleStock', 'stockItems']
+  },
+  // WP 9.7: Stock → Made goods (simple/stock/MadeGoods: a recipe, how many, labour → a
+  // `make_goods` intent → the WP 2.2 manufacture entry). Accountant view = the Manufacture screen.
+  {
+    name: 'simple-made-goods',
+    modes: ['simple'],
+    simpleView: 'stock/MadeGoods',
+    simpleSection: 'stock',
+    simpleEntries: [{ id: 'made-goods', label: 'simple.stock.madeGoods', screen: { name: 'simple-made-goods' } }],
+    title: 'Made goods',
+    keywords: ['manufacture', 'production', 'made', 'recipe'],
+    screen: null, // simple shell only
+    navSection: null,
+    feature: 'manufacturing',
+    invalidates: ['simpleMadeSetup', 'simpleStock', 'stockItems', 'bomVersions']
+  },
   {
     name: 'search',
     modes: ['accountant'],
@@ -1183,7 +1228,7 @@ export const SIMPLE_ENTRY_ORDER: readonly string[] = [
   // Money
   'money-in', 'money-out', 'move-money', 'money-list', 'bank', 'all-entries', 'salaries',
   // Stock
-  'products', 'product-list', 'low-stock', 'stock-history', 'made-goods',
+  'products', 'low-stock', 'stock-count', 'made-goods', 'product-list', 'expiry-labels',
   // People
   'customers-suppliers', 'who-owes', 'reminders', 'bills-to-pay',
   // Reports (then For your CA)

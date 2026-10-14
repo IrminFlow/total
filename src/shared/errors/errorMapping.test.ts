@@ -30,6 +30,8 @@ function enumerateCodes(): Map<string, string> {
   }
   // WP 9.1: the intent mapper's fail('x', …).
   add('shared/simple/intents.ts', all(/fail\(\s*'([a-z_]+)'/g, src('shared/simple/intents.ts')))
+  // WP 9.7: the stock intents' mapper (stock_count / make_goods).
+  add('shared/simple/stock.ts', all(/fail\(\s*'([a-z_]+)'/g, src('shared/simple/stock.ts')))
   // ipc.ts structured codes produced without an AppError.
   add('main/ipc.ts', all(/code: '([a-z_]+)'/g, src('main/ipc.ts')).filter((c) => c === 'invalid_input' || c === 'duplicate_name'))
   return codes
