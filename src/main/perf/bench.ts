@@ -63,9 +63,12 @@ export interface PerfCase {
   run: (ctx: PerfContext) => unknown
 }
 
+// docs/perf-budgets.md says why each figure is what it is (measured on the laptop, WP 7.1).
 const REPORT = { k100: 1000, k500: 3000 }
 const SAVE = { k100: 300, k500: 300 }
-const SEARCH = { k100: 200, k500: 200 }
+// A voucher search reads every voucher's number / narration / reference (LIKE '%…%'): linear in the
+// books until a full-text index exists (deferred) — 200 ms at 100k, 600 ms at 500k.
+const SEARCH = { k100: 200, k500: 600 }
 
 const HEADER = {
   narration: null, reference: null, instrumentNo: null, instrumentDate: null, transporterId: null, vehicleNo: null,
@@ -89,7 +92,9 @@ export const PERF_CASES: PerfCase[] = [
   { id: 'gstr3b', label: 'GSTR-3B (this month)', group: 'report', budget: REPORT, run: (c) => gstr3b(c.db, c.info, c.month.from, c.month.to, c.month.period) },
   { id: 'gateway', label: 'Gateway (report:dashboardSeries)', group: 'report', budget: REPORT, run: (c) => dashboardSeries(c.db, c.info, { today: c.today, from: c.fy.from, to: c.fy.to, backups: [] }) },
   { id: 'gatewayRecent', label: 'Gateway (report:dashboard)', group: 'report', budget: REPORT, run: (c) => reports.dashboard(c.db, c.today, c.fy.from) },
-  { id: 'home', label: 'simple:home', group: 'report', budget: { k100: 500, k500: 1500 }, run: (c) => simpleHome(c.db, c.info, { today: c.today, backups: [] }) },
+  // The floor is the valuation pass + Outstandings on both sides + three P&L periods in one round
+  // trip (simpleHome.perf.dbtest keeps its 500 ms bound on its lighter raw-insert fixture).
+  { id: 'home', label: 'simple:home', group: 'report', budget: { k100: 600, k500: 3000 }, run: (c) => simpleHome(c.db, c.info, { today: c.today, backups: [] }) },
   { id: 'homeAttention', label: 'simple:homeAttention', group: 'report', budget: REPORT, run: (c) => simpleHomeAttention(c.db, c.info, c.today) },
   { id: 'doing', label: 'Reports: how the business is doing (this year)', group: 'report', budget: REPORT, run: (c) => businessDoing(c.db, { period: 'this-year' }, c.today) },
   { id: 'taxes', label: 'Taxes (simple)', group: 'report', budget: REPORT, run: (c) => simpleTaxes(c.db, c.info, {}, c.today) },

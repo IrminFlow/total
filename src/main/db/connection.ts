@@ -4,7 +4,7 @@ import { basename, join } from 'path'
 import { companyAttachmentsDir, companyBackupAttachmentsDir, companyBackupsDir, companyDbPath, ensureCompanyTree } from '../paths'
 import { migrate, schemaVersion } from './migrate'
 import { backupStamp, pruneBackupsIn, snapshotTo } from './backup'
-import { quickCheckOkAsync } from './checkHost'
+import { MMAP_SIZE, quickCheckOkAsync } from './checkHost'
 import { SYSTEM_AUDIT_USER, writeAudit } from '../services/audit'
 import { pruneBackupAttachmentStore, stashSnapshotAttachments, type StashResult } from './attachmentBackup'
 
@@ -20,8 +20,12 @@ export function openCompanyDb(slug: string): DB {
   db.pragma('foreign_keys = ON')
   // Perf tuning (v0.3): ~64MB page cache and memory-mapped reads keep the hot report
   // queries off the disk; ANALYZE below refreshes planner stats after any new migration.
+  // WP 7.1: the map covers the whole file up to SQLite's 2 GB ceiling (was 256 MB). A 100k-voucher
+  // company is ~290 MB and a 500k one ~1.4 GB; pages past the map are read one pread at a time
+  // into the 64 MB cache, which made a quick_check of the 500k file 28 s instead of ~1–3 s. The map
+  // only reserves address space — the pages are the OS file cache, shared, not extra memory.
   db.pragma('cache_size = -64000')
-  db.pragma('mmap_size = 268435456')
+  db.pragma(`mmap_size = ${MMAP_SIZE}`)
   try {
     const before = schemaVersion(db)
     migrate(db)

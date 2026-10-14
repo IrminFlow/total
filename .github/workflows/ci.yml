@@ -70,7 +70,7 @@ jobs:
         env:
           TOTAL_PERF: '1'
           TOTAL_PERF_DATA: ${{ runner.temp }}/perf100k
-          TOTAL_PERF_SCALE: '2'
+          TOTAL_PERF_SCALE: '1.6'
 
   smoke-mac:
     runs-on: macos-14

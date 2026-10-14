@@ -10,7 +10,20 @@ import Database from 'better-sqlite3'
 
 export type CheckPragma = 'quick_check' | 'integrity_check'
 
+/** mmap_size for company connections (db/connection.ts) and these checks: SQLite's default
+ *  compile-time ceiling (SQLITE_MAX_MMAP_SIZE, 0x7fff0000 ≈ 2 GB). */
+export const MMAP_SIZE = 0x7fff0000
+
+/** A read-only connection for a whole-file check, memory-mapped like the app's own. */
+function openForCheck(path: string): Database.Database {
+  const db = new Database(path, { readonly: true, fileMustExist: true })
+  db.pragma(`mmap_size = ${MMAP_SIZE}`)
+  return db
+}
+
 /** The pragma's first result row ('ok' when the file is sound). */
+export { openForCheck }
+
 export function runPragmaCheck(db: Database.Database, pragma: CheckPragma): string {
   const rows = db.pragma(pragma) as Record<string, string>[]
   return rows[0]?.[pragma] ?? 'no result'
@@ -29,7 +42,7 @@ let seq = 0
 export async function pragmaCheck(path: string, pragma: CheckPragma): Promise<string> {
   const file = workerFile()
   if (!file) {
-    const db = new Database(path, { readonly: true, fileMustExist: true })
+    const db = openForCheck(path)
     try {
       return runPragmaCheck(db, pragma)
     } finally {

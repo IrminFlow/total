@@ -4,12 +4,11 @@
 // run, reading the same committed pages, while main keeps answering the renderer. checkHost.ts
 // runs it in-process where the worker file does not exist (dbtests, the CLI).
 import { parentPort } from 'worker_threads'
-import Database from 'better-sqlite3'
-import { runPragmaCheck, type CheckPragma } from './checkHost'
+import { openForCheck, runPragmaCheck, type CheckPragma } from './checkHost'
 
 parentPort?.on('message', (msg: { id: number; path: string; pragma: CheckPragma }) => {
   try {
-    const db = new Database(msg.path, { readonly: true, fileMustExist: true })
+    const db = openForCheck(msg.path)
     try {
       parentPort!.postMessage({ id: msg.id, ok: true, result: runPragmaCheck(db, msg.pragma) })
     } finally {
