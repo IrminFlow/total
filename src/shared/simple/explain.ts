@@ -13,6 +13,8 @@ import type { HomeAttentionItem, HomeCash, HomeGst, HomeMoneyDay, HomeOwed, Home
 import type { Deadline } from '../compliance'
 import type { CloseCheckKey } from '../closeChecklist'
 import type { AnomalyKind } from '../anomalies'
+import type { BusinessDoing, SimpleByMonth, SimpleCash, SimpleOwed } from './reports'
+import type { GstFigures, GstPeriod, SimpleTaxes, TaxesWithholding } from './taxes'
 
 export const money = (paise: number): string => formatPaise(paise, { symbol: true })
 
@@ -209,4 +211,139 @@ export function gstLinkLabel(gst: RegularGst, t: Translate): string {
   return r.quarterly && r.from
     ? t('simple.home.link.gstQuarter', { month: toMonthLabel(r.from.slice(0, 7), 'long') })
     : t('simple.home.link.gst', { month: toMonthLabel(r.period, 'long') })
+}
+
+// ---------------------------------------------------------------- WP 9.9: Reports and Taxes
+// The same rule: each sentence is a pure function of figures main returned (simple:reports:* /
+// simple:taxes) — nothing here computes a figure.
+
+const span = (s: { from: string; to: string }): { from: string; to: string } => ({ from: toPlainDate(s.from), to: toPlainDate(s.to) })
+const resultOf = (paise: number): 'profit' | 'loss' | 'none' => (paise > 0 ? 'profit' : paise < 0 ? 'loss' : 'none')
+
+/** "₹1,200.00 more than the previous period (1 Sep 2026 to 13 Sep 2026)." */
+export function changeSentence(current: number, previous: number, prev: { from: string; to: string }, t: Translate): string {
+  const diff = current - previous
+  return t('simple.reports.change', { dir: diff > 0 ? 'up' : diff < 0 ? 'down' : 'same', amount: money(Math.abs(diff)), ...span(prev) })
+}
+
+export function salesWhy(d: Pick<BusinessDoing, 'lines' | 'span'>, t: Translate): string {
+  return d.lines.sales === 0 ? t('simple.reports.why.salesNone', span(d.span)) : t('simple.reports.why.sales', { ...span(d.span), amount: money(d.lines.sales) })
+}
+
+export function costWhy(d: Pick<BusinessDoing, 'lines'>, t: Translate): string {
+  const l = d.lines
+  if (l.openingStock === 0 && l.closingStock === 0) return t('simple.reports.why.costNoStock', { cost: money(l.costOfGoods) })
+  return t('simple.reports.why.cost', { cost: money(l.costOfGoods), opening: money(l.openingStock), purchases: money(l.purchases), closing: money(l.closingStock) })
+}
+
+export function profitOnGoodsWhy(d: Pick<BusinessDoing, 'lines'>, t: Translate): string {
+  return t('simple.reports.why.profitOnGoods', { sales: money(d.lines.sales), cost: money(d.lines.costOfGoods), amount: money(d.lines.profitOnGoods) })
+}
+
+export function otherIncomeWhy(d: Pick<BusinessDoing, 'lines'>, t: Translate): string {
+  return t('simple.reports.why.otherIncome', { amount: money(d.lines.otherIncome) })
+}
+
+export function expensesWhy(d: Pick<BusinessDoing, 'lines' | 'span' | 'topExpenses'>, t: Translate): string {
+  if (d.lines.expenses === 0) return t('simple.reports.why.expensesNone', span(d.span))
+  const list = d.topExpenses
+    .slice(0, 3)
+    .map((p) => `${p.name} ${money(p.amount)}`)
+    .join(', ')
+  return t('simple.reports.why.expenses', { amount: money(d.lines.expenses), list })
+}
+
+/** The profit line: the result, why stock makes it differ from sales − purchases, the change. */
+export function doingProfitWhy(d: Pick<BusinessDoing, 'lines' | 'previousLines' | 'span' | 'previous'>, t: Translate): string {
+  const l = d.lines
+  const stock = l.closingStock - l.openingStock
+  return join([
+    t('simple.reports.why.profit', { result: resultOf(l.profit), amount: money(Math.abs(l.profit)), ...span(d.span) }),
+    stock > 0 ? t('simple.reports.why.stockUp', { amount: money(stock) }) : stock < 0 ? t('simple.reports.why.stockDown', { amount: money(-stock) }) : null,
+    changeSentence(l.profit, d.previousLines.profit, d.previous, t)
+  ])
+}
+
+export function doingCashWhy(d: Pick<BusinessDoing, 'cash' | 'asOn'>, t: Translate): string {
+  const c = d.cash
+  const date = toPlainDate(d.asOn)
+  return c.banks === 0
+    ? t('simple.reports.why.cashOnly', { total: money(c.total), date })
+    : t('simple.reports.why.cash', { total: money(c.total), cash: money(c.cash), bank: money(c.bank), count: c.banks, date })
+}
+
+export function doingOwedWhy(d: Pick<BusinessDoing, 'owed' | 'asOn'>, t: Translate): string {
+  return join([
+    t('simple.reports.why.owed', { date: toPlainDate(d.asOn), receivable: money(d.owed.receivable), payable: money(d.owed.payable) }),
+    d.owed.customerAdvances > 0 ? t('simple.reports.why.advances', { amount: money(d.owed.customerAdvances) }) : null
+  ])
+}
+
+export function cashNext30Why(c: SimpleCash, t: Translate): string {
+  const low = Math.min(c.end, c.lowest?.amount ?? c.end)
+  return join([
+    t('simple.reports.cash.why', { now: money(c.now), in: money(c.moneyIn), out: money(c.moneyOut), date: shortDate(c.until, c.asOn), end: money(c.end) }),
+    c.lowest ? t('simple.reports.cash.lowest', { amount: money(c.lowest.amount), date: shortDate(c.lowest.date, c.asOn) }) : null,
+    low < 0 ? t('simple.reports.cash.belowZero') : null,
+    (c.inBy.customers ?? 0) > 0 ? t('simple.reports.cash.estimate') : null
+  ])
+}
+
+export function owedListWhy(o: SimpleOwed, t: Translate): string {
+  const receivable = o.side === 'receivable'
+  const advance =
+    o.advances > 0 ? t(receivable ? 'simple.reports.owed.advancesReceivable' : 'simple.reports.owed.advancesPayable', { amount: money(o.advances) }) : null
+  if (o.total <= 0) return join([t(receivable ? 'simple.reports.owed.noneReceivable' : 'simple.reports.owed.nonePayable'), advance])
+  const vars = { amount: money(o.total), count: o.parties.length, overdue: money(o.overdue) }
+  return join([t(receivable ? 'simple.reports.owed.whyReceivable' : 'simple.reports.owed.whyPayable', vars), advance])
+}
+
+export function byMonthWhy(b: SimpleByMonth, t: Translate): string {
+  const sales = b.months.reduce((s, m) => s + m.sales, 0)
+  const purchases = b.months.reduce((s, m) => s + m.purchases, 0)
+  if (sales === 0 && purchases === 0) return t('simple.reports.byMonth.whyNone')
+  const best = b.months.reduce((a, m) => (m.sales > a.sales ? m : a), b.months[0]!)
+  return t('simple.reports.byMonth.why', { sales: money(sales), purchases: money(purchases), month: toMonthLabel(best.month, 'long'), amount: money(best.sales) })
+}
+
+type RegularTaxes = Extract<SimpleTaxes, { kind: 'regular' }>
+
+/** "Sep 2026", "Jul – Sep 2026", "Oct 2026 so far" — the Home tile's words. */
+export function taxesPeriodLabel(p: GstPeriod, t: Translate): string {
+  if (!p.quarterly) return p.soFar ? t('simple.home.gstMonthSoFar', { month: toMonthLabel(p.period, 'long') }) : toMonthLabel(p.period, 'long')
+  const vars = { from: toMonthLabel(p.from.slice(0, 7)), to: toMonthLabel(p.period, 'long') }
+  return p.soFar ? t('simple.home.gstQuarterSoFar', vars) : t('simple.home.gstQuarter', vars)
+}
+
+/** The credit's status in words (the purchases figure's tail). */
+export function creditStatus(f: GstFigures, t: Translate): string {
+  if (f.checked === 'none') return t('simple.taxes.gst.notCheckedYet')
+  if (f.awaiting > 0) return t('simple.taxes.gst.awaitingLine', { amount: money(f.awaiting) })
+  return f.checked === 'all' ? t('simple.taxes.gst.allConfirmed') : t('simple.taxes.gst.someChecked')
+}
+
+export function collectedWhy(x: Pick<RegularTaxes, 'figures' | 'period'>, t: Translate): string {
+  return join([
+    t('simple.taxes.why.collected', { ...span(x.period), amount: money(x.figures.collected) }),
+    x.figures.reverseCharge > 0 ? t('simple.explain.gstRcm', { amount: money(x.figures.reverseCharge) }) : null
+  ])
+}
+
+export function onPurchasesWhy(x: Pick<RegularTaxes, 'figures' | 'period'>, t: Translate): string {
+  return t('simple.taxes.why.onPurchases', { ...span(x.period), amount: money(x.figures.onPurchases), credit: creditStatus(x.figures, t) })
+}
+
+export function toPayWhy(x: Pick<RegularTaxes, 'figures' | 'due' | 'today'>, t: Translate): string {
+  const f = x.figures
+  return join([
+    f.toPay > 0 ? t('simple.taxes.why.toPay', { amount: money(f.toPay), date: shortDate(x.due.gstr3b, x.today) }) : t('simple.taxes.why.toPayNone'),
+    f.toPay > 0 && f.reverseCharge > 0 ? t('simple.taxes.why.rcmCash', { amount: money(f.reverseCharge) }) : null,
+    t('simple.taxes.why.source'),
+    t('simple.explain.gstYouFile')
+  ])
+}
+
+export function withholdingUnpaidText(u: TaxesWithholding['unpaid'][number], today: string, t: Translate): string {
+  if (!u.month || !u.dueDate) return t('simple.taxes.withholding.unpaidOpening', { amount: money(u.amount) })
+  return t('simple.taxes.withholding.unpaid', { month: toMonthLabel(u.month, 'long'), amount: money(u.amount), date: shortDate(u.dueDate, today), late: u.late ? 'yes' : 'no' })
 }
