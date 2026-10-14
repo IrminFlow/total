@@ -10,7 +10,8 @@ import {
 } from '@shared/simple/money'
 import { api } from '../../lib/client'
 import { useT } from '../../lib/i18n'
-import { useNav, useSession } from '../../state/stores'
+import { useNav, useSession, type AskOpen } from '../../state/stores'
+import { moneyInFromAsk } from '@shared/simple/askPrefill'
 import { AmountInput, Button, DateInput, Field, Page, Select, TextInput, useFormErrors } from '../../components/ui'
 import { TypeAhead, useGroups, useLedgers } from '../../components/pickers'
 import { CategoryPicker } from '../CategoryPicker'
@@ -46,7 +47,7 @@ const isDirty = (f: MoneyInForm): boolean => f.amount != null || f.customerId !=
  * simple:post (a receipt through the editor's own mapping); the preview says what will be saved
  * and where the customer then stands. "Accountant view" opens the receipt editor.
  */
-export function MoneyIn({ party, amount, bill, billId, date, bankId, reference, note }: {
+export function MoneyIn({ party, amount, bill, billId, date, bankId, reference, note, ask }: {
   party?: number
   amount?: number
   bill?: string
@@ -56,6 +57,8 @@ export function MoneyIn({ party, amount, bill, billId, date, bankId, reference, 
   bankId?: number
   reference?: string
   note?: string
+  /** WP 10.1: opened from an Ask Total entry request (askPrefill.ts — the same mapping its draft used). */
+  ask?: AskOpen<'simple-money-in'>
 }): React.JSX.Element {
   const t = useT()
   const lbl = (k: MessageKey): string => t(k) // i18n-technical: keys from the typed tables above
@@ -66,7 +69,10 @@ export function MoneyIn({ party, amount, bill, billId, date, bankId, reference, 
   const groups = useGroups()
   const { data: setup } = useQuery({ queryKey: ['simpleMoneySetup'], queryFn: api.simpleMoney.setup }) // i18n-technical
   const blank = (): MoneyInForm => emptyMoneyInForm(workingDate)
-  const [form, setForm] = useState<MoneyInForm>(() => emptyMoneyInForm(date ?? workingDate, { customerId: party ?? null, amount: amount ?? null, bill: bill ?? null, bankId: bankId ?? null, reference: reference ?? null, note: note ?? null }))
+  const [form, setForm] = useState<MoneyInForm>(() => {
+    const f = emptyMoneyInForm(date ?? workingDate, { customerId: party ?? null, amount: amount ?? null, bill: bill ?? null, bankId: bankId ?? null, reference: reference ?? null, note: note ?? null })
+    return ask ? moneyInFromAsk(f, ask.prefill) : f
+  })
   const [creating, setCreating] = useState<{ what: 'customer' | 'loan'; name: string } | null>(null)
 
   const billsParty = form.who === 'customer' ? form.customerId : null
@@ -106,7 +112,8 @@ export function MoneyIn({ party, amount, bill, billId, date, bankId, reference, 
       const id = await ensureCategoryAccount(OWNER_CAPITAL, groups, queryClient)
       return id == null ? null : moneyInIntentFrom({ ...form, sourceId: id }, open, defaults, sources)
     },
-    onStartNew: () => setForm(blank())
+    onStartNew: () => setForm(blank()),
+    aiDraftId: ask?.draftId ?? null
   })
 
   const newLoan = (): void => setCreating({ what: 'loan', name: '' }) // i18n-technical

@@ -44,6 +44,8 @@ export function useMoneyFlow<F extends string>(opts: {
   prepare?: () => Promise<MoneyIntentDraft | null>
   mapField?: (field: string | undefined) => string | undefined
   onStartNew: () => void
+  /** WP 10.1: the Ask Total draft this entry was opened from (its first save consumes it). */
+  aiDraftId?: number | null
 }): {
   preview: SimplePreview | null
   previewing: boolean
@@ -57,7 +59,7 @@ export function useMoneyFlow<F extends string>(opts: {
   const t = useT()
   const nav = useNav()
   const queryClient = useQueryClient()
-  const poster = useSimplePost()
+  const poster = useSimplePost({ aiDraftId: opts.aiDraftId ?? null })
   const [preview, setPreview] = useState<SimplePreview | null>(null)
   const [savedIds, setSavedIds] = useState<number[] | null>(null)
   const [general, setGeneral] = useState<{ text: string; details: string } | null>(null)

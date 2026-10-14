@@ -36,7 +36,7 @@ export function newClientId(): string {
 
 const asIpcError = (err: unknown): IpcError => (err instanceof IpcError ? err : new IpcError({ error: err instanceof Error ? err.message : String(err) }))
 
-export function useSimplePost(): SimplePostState & {
+export function useSimplePost(opts: { aiDraftId?: number | null } = {}): SimplePostState & {
   clientId: string
   preview: (intent: IntentDraft) => Promise<SimplePreview>
   post: (intent: IntentDraft) => Promise<SimplePostResult>
@@ -46,6 +46,9 @@ export function useSimplePost(): SimplePostState & {
   const clientId = useRef<string>(newClientId())
   const inFlight = useRef<Promise<SimplePostResult> | null>(null)
   const [state, setState] = useState<SimplePostState>(IDLE)
+  // WP 10.1: the flow was opened from an Ask Total draft — its FIRST successful save consumes it
+  // (simple:post `aiDraftId`); a later entry made on the same screen is the user's own.
+  const draftRef = useRef<number | null>(opts.aiDraftId ?? null)
 
   const preview = useCallback(
     async (intent: IntentDraft): Promise<SimplePreview> => {
@@ -69,7 +72,9 @@ export function useSimplePost(): SimplePostState & {
       setState((s) => ({ ...s, status: 'posting', error: null }))
       const run = (async () => {
         try {
-          const r = await api.simple.post({ ...intent, clientId: clientId.current } as SimpleIntentInput, today)
+          const send = { ...intent, clientId: clientId.current } as SimpleIntentInput
+          const r = draftRef.current != null ? await api.simple.post(send, today, draftRef.current) : await api.simple.post(send, today)
+          draftRef.current = null
           // Saved: the next intent gets its own id.
           clientId.current = newClientId()
           setState({ status: 'saved', lastPreview: null, result: r, error: null })

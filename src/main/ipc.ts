@@ -94,6 +94,8 @@ import { registerAiIpc, aiRuns, type AppKeyAuditEntry } from './ai/ipc'
 import { registerCaptureIpc, captureOnCompanyOpen, captureOnCompanyClose, resumeCapture } from './ai/capture/ipc'
 import { dropPendingAttachments, flushCaptureAttachments } from './ai/capture/consume'
 import { registerAssistantsIpc } from './ipcAssistants'
+import { registerAskTotalIpc } from './assist/ipc'
+import { settleAskDraft } from './assist/settle'
 import { aiMockAllowed } from './ai/env'
 import { settleDraftOnSave } from './ai/drafts'
 import * as aiStore from './ai/store'
@@ -397,6 +399,11 @@ export function registerIpc(): void {
   })
   // ---------- assistants (WP 5.5): close checklist, anomalies, GSTR-2B mismatches — ipcAssistants.ts ----------
   registerAssistantsIpc(handle, () => requireCompany(), () => sessionUser?.name ?? osAuditUser())
+  // ---------- Ask Total (WP 10.1): deterministic answers + entry drafts, no key — assist/ipc.ts ----------
+  registerAskTotalIpc(handle, {
+    company: () => requireCompany(),
+    roleNow: () => (sessionUser ? sessionUser.role : current?.usersExist ? null : 'owner')
+  })
   // ---------- receivables (WP 4.2) — channels live in ipcReceivables.ts ----------
   registerReceivablesIpc(handle, () => requireCompany())
   // ---------- payables (WP 4.3) — channels live in ipcPayables.ts ----------
@@ -474,6 +481,9 @@ export function registerIpc(): void {
     const c = requireCompany()
     return simplePost.previewIntent(c.db, c.info, intent, today ?? todayISO())
   }, 'viewer')
+  // WP 10.1: `aiDraftId` = the flow was opened from an Ask Total draft — the save consumes it in
+  // the same transaction (only an open ask-total draft of the same kind; anything else is ignored).
+  const simplePostPayload = simpleIntentPayload.extend({ aiDraftId: z.number().int().positive().optional() }).strict()
   // WP 9.10: "Accountant view" of an unsaved simple form — the editors' own form state for the
   // current answers (the same mapping, rolled back); "Back to simple" — what a voucher / ledger is.
   handle('simple:intentForm', (payload) => {
@@ -486,9 +496,13 @@ export function registerIpc(): void {
     return simpleHandoff.handoffFacts(requireCompany().db, q)
   }, 'viewer')
   handle('simple:post', (payload) => {
-    const { intent, today } = simpleIntentPayload.parse(payload)
+    const { intent, today, aiDraftId } = simplePostPayload.parse(payload)
     const c = requireCompany()
-    const out = simplePost.postIntent(c.db, c.info, intent, today ?? todayISO())
+    const out = c.db.transaction(() => {
+      const r = simplePost.postIntent(c.db, c.info, intent, today ?? todayISO())
+      if (aiDraftId && !r.replayed) settleAskDraft(c.db, aiDraftId, intent.kind, r.voucherIds)
+      return r
+    })()
     if (!out.replayed && configSvc.getAgentBridgeEnabled(c.db)) agentBridge.scheduleMirrorRefresh(c.db, c.slug)
     return out
   })

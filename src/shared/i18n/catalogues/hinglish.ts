@@ -70,5 +70,13 @@ export const hinglish: Partial<Record<MessageKey, string>> = {
   'simple.why.withholding':
     '{kind, select, tds {Aapka kaata hua TDS} other {Aapka collect kiya TCS}} sarkar ka paisa hai jo bharne tak aapke paas rehta hai: {total} bharna baaki hai{late, select, yes {, jismein se {lateAmount} ki tareekh nikal chuki hai} other {}}.',
   'simple.why.withholdingAllPaid': 'Ab tak {kind, select, tds {kaata hua} other {collect kiya}} sab bhar diya gaya hai; is mahine ke {amount} ki tareekh {date} hai.',
-  'simple.why.withholdingOldest': 'Sabse purana {month} ka hai, tareekh {date}.'
+  'simple.why.withholdingOldest': 'Sabse purana {month} ka hai, tareekh {date}.',
+  'assist.panel.byTotal': 'Total ne khud jawab diya',
+  'assist.panel.ask': 'Poochhein',
+  'assist.home.ask': 'Poochhein',
+  'assist.unknown': 'Iska jawab abhi nahi de sakta. Inme se koi poochh kar dekhiye:',
+  'assist.figure.profit': '{period} aapka profit {amount} hua.',
+  'assist.figure.loss': '{period} aapko {amount} ka nuksan hua.',
+  'assist.money.cash': 'Galle mein {amount} cash hai.',
+  'assist.entry.notSaved': 'Abhi kuch save nahi hua — {screen} kholiye, check kijiye aur Save dabaiye.'
 }

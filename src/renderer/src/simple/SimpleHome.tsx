@@ -1,4 +1,6 @@
-import type { ReactNode } from 'react'
+import { useState, type ReactNode } from 'react'
+import { useAssistantPanel } from '../components/ai/AssistantPanel'
+import { useAskTotal } from './AskTotal'
 import { useQuery } from '@tanstack/react-query'
 import { api } from '../lib/client'
 import { useT } from '../lib/i18n'
@@ -56,6 +58,7 @@ export function SimpleHome(): React.JSX.Element {
         </span>
       </div>
 
+      <AskBox />
       <Tasks />
 
       {homeQ.isError && (
@@ -73,6 +76,38 @@ export function SimpleHome(): React.JSX.Element {
       )}
       {home && <HomeBody home={home} />}
     </Page>
+  )
+}
+
+/** WP 10.1: "Ask Total" — a search-style box that opens the assistant panel with the question. */
+function AskBox(): React.JSX.Element {
+  const t = useT()
+  const [q, setQ] = useState('')
+  const submit = (e: React.FormEvent): void => {
+    e.preventDefault()
+    const text = q.trim()
+    if (!text) return
+    const panel = useAssistantPanel.getState()
+    panel.setSimpleView('ask') // i18n-technical
+    panel.setOpen(true)
+    useAskTotal.getState().ask(text)
+    setQ('')
+  }
+  return (
+    <form role="search" aria-label={t('assist.home.label')} onSubmit={submit} className="mb-4 flex gap-2" data-testid="simple-home-ask">
+      <input
+        type="search"
+        value={q}
+        onChange={(e) => setQ(e.target.value)}
+        placeholder={t('assist.home.placeholder')}
+        aria-label={t('assist.home.label')}
+        data-testid="simple-home-ask-input"
+        className="min-w-0 flex-1 rounded-lg border border-line bg-panel px-3 py-2.5 text-body text-ink shadow-elev-1 placeholder:text-muted focus-visible:border-amber focus-visible:outline-none"
+      />
+      <Button type="submit" variant="primary" disabled={!q.trim()} data-testid="simple-home-ask-send">
+        {t('assist.home.ask')}
+      </Button>
+    </form>
   )
 }
 

@@ -265,6 +265,17 @@ describe('Money out (WP 9.4)', () => {
     expect((calls('simple:post')[0] as { intent: Record<string, unknown> }).intent).toMatchObject({ kind: 'money_out', payeeId: 40, amount: 25_000, from: { how: 'cash', accountId: 30 } })
   })
 
+  it('WP 10.1: opened from Ask Total — pre-filled from the prefill; Save posts that intent with the draft id, once', async () => {
+    act(() => useSession.setState({ info: info('unregistered') }))
+    renderUi(<MoneyOut ask={{ draftId: 41, prefill: { screen: 'simple-money-out', who: 'expense', payee: 40, amount: 50_000, how: 'cash', note: 'tea' } }} />)
+    await ready()
+    click('btn-money-save')
+    await waitFor(() => expect(calls('simple:post')).toHaveLength(1))
+    const sent = calls('simple:post')[0] as { intent: Record<string, unknown>; aiDraftId?: number }
+    expect(sent.intent).toMatchObject({ kind: 'money_out', payeeId: 40, amount: 50_000, from: { how: 'cash', accountId: 30 }, narration: 'tea' })
+    expect(sent.aiDraftId).toBe(41)
+  })
+
   it('Salary only with Payroll on; the owner took money = drawings; the TDS hint says it plainly', async () => {
     previewReply = () => ({ ok: true, data: { ...PREVIEW, kind: 'money_out', sentences: ['₹35,000.00 to Bharat Steel from Cash.'], tds: [{ partyName: 'Bharat Steel', sectionCode: '194C', tdsPaise: 70_000 }] } })
     renderUi(<MoneyOut />)

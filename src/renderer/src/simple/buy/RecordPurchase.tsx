@@ -20,7 +20,8 @@ import { useSimplePost } from '../../lib/simplePost'
 import { useUnsavedGuard } from '../../lib/useUnsavedGuard'
 import { useAiAffordances } from '../../lib/explain'
 import { confirmDialog } from '../../lib/dialogs'
-import { useNav, useSession } from '../../state/stores'
+import { useNav, useSession, type AskOpen } from '../../state/stores'
+import { buyFromAsk } from '@shared/simple/askPrefill'
 import { Button, DateInput, Field, FieldError, isAnyModalOpen, Page, TextInput, useFormErrors } from '../../components/ui'
 import { TypeAhead, useGroups, useLedgers, useStockItems } from '../../components/pickers'
 import { CategoryPicker } from '../CategoryPicker'
@@ -72,7 +73,7 @@ const isDirty = (f: BuyForm, party?: number): boolean =>
  * the save card offers New / Undo. ⌘↵ saves, ⌘N starts a new bill, Esc asks before discarding.
  * "Accountant view" opens the full purchase editor (the saved bill once there is one).
  */
-export function RecordPurchase({ party }: { party?: number } = {}): React.JSX.Element {
+export function RecordPurchase({ party, ask }: { party?: number; ask?: AskOpen<'simple-buy'> } = {}): React.JSX.Element {
   const t = useT()
   const lbl = (k: MessageKey): string => t(k) // i18n-technical: keys from the typed tables above
   const nav = useNav()
@@ -86,7 +87,7 @@ export function RecordPurchase({ party }: { party?: number } = {}): React.JSX.El
   const groups = useGroups()
   const { data: setup } = useQuery({ queryKey: ['simpleBuySetup'], queryFn: api.buy.setup }) // i18n-technical
   const { data: units } = useQuery({ queryKey: ['units'], queryFn: api.units.list }) // i18n-technical
-  const poster = useSimplePost()
+  const poster = useSimplePost({ aiDraftId: ask?.draftId ?? null })
 
   const facts = useMemo(() => (info ? gstRegistrationOf(info) : null), [info])
   const startMode: BuyMode = stockOn ? 'items' : 'amount' // i18n-technical
@@ -98,7 +99,8 @@ export function RecordPurchase({ party }: { party?: number } = {}): React.JSX.El
     return { ...f, ratesIncludeGst: remembered ?? !regular, lines: startMode === 'items' ? [newLine()] : [] }
   }, [workingDate, startMode, slug, info?.gstRegistrationType])
   // WP 9.8: `party` starts the purchase for that supplier (People → Record a purchase).
-  const [form, setForm] = useState<BuyForm>(() => (party != null ? { ...blank(), supplierId: party } : blank()))
+  // WP 10.1: an Ask Total entry request opens the purchase pre-filled (askPrefill.ts — the draft's own mapping).
+  const [form, setForm] = useState<BuyForm>(() => (ask ? buyFromAsk(blank(), ask.prefill, (l) => ({ ...newLine(), ...l })) : party != null ? { ...blank(), supplierId: party } : blank()))
   const [savedIds, setSavedIds] = useState<number[] | null>(null)
   const [preview, setPreview] = useState<SimplePreview | null>(null)
   const [previewProblem, setPreviewProblem] = useState<string | null>(null)
