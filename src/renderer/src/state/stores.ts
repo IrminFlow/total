@@ -100,6 +100,10 @@ export type Screen =
   | { name: 'simple-stock'; filter?: 'low'; itemId?: number }
   | { name: 'simple-stock-count' }
   | { name: 'simple-made-goods'; itemId?: number }
+  // WP 9.9: Reports — one plain report (`report`, default 'doing'; `side` for who owes whom) —
+  // and Taxes (`period` = the GST period's last month, default the Home tile's).
+  | { name: 'simple-reports'; report?: 'doing' | 'cash' | 'owed' | 'by-month'; side?: 'receivable' | 'payable' }
+  | { name: 'simple-taxes'; period?: string }
   | { name: 'counter-billing' }
   // Books search results (⌘⇧F, or "See all" in the ⌘K palette): `q` is the query-language
   // string, `kind` the initially selected tab (omitted = all kinds).

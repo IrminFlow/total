@@ -5,6 +5,8 @@
  * driven identically from the main-process notifier (services/reports-adjacent) and the renderer
  * (Gateway's GST-countdown tile), both of which already have `today` + `CompanyInfo` in hand.
  */
+import { gstr3bDueDate } from './gst/filing'
+import { depositDueDate } from './tdsInterest'
 
 export type DeadlineKind = 'gst' | 'tds' | 'pf' | 'esi' | 'advance-tax'
 
@@ -65,7 +67,11 @@ export function upcomingDeadlines(
    *  company sends goods for job work (`jobWork`), half-yearly or annual per `itc04`.
    *  WP 8.0 — `tds: false` drops the monthly TDS deposit (TDS off, or nothing ever deducted —
    *  see complianceApplicability); absent = listed, as before. */
-  annual: { jobWork?: boolean; itc04?: 'half_yearly' | 'annual'; tds?: boolean; gstFiling?: 'monthly' | 'quarterly' } = {}
+  annual: {
+    jobWork?: boolean; itc04?: 'half_yearly' | 'annual'; tds?: boolean; gstFiling?: 'monthly' | 'quarterly'
+    /** WP 9.9: the company's state (GSTIN prefix) — a quarterly filer's GSTR-3B day (22nd / 24th). */
+    stateCode?: string | null
+  } = {}
 ): Deadline[] {
   const horizonEnd = addDays(today, horizonDays)
   const { y: ty, m: tm } = parseISO(today)
@@ -107,12 +113,20 @@ export function upcomingDeadlines(
         }
       }
       if (annual.gstFiling === 'quarterly') {
-        // WP 8.3 — QRMP: GSTR-3B for the quarter, the 22nd or 24th by state — UNVERIFIED, listed
-        // on the earlier 22nd and labelled so (no monthly 20th for a quarterly filer).
+        // QRMP: GSTR-3B for the quarter — no monthly 20th for a quarterly filer. WP 9.9: the 22nd
+        // or 24th by the state of the principal place of business (rule 61(1)(ii) Table,
+        // shared/gst/filing.ts gstr3bDueDate); without a state in the Table, the earlier 22nd,
+        // labelled UNVERIFIED as before.
         if (period.m % 3 === 0) {
-          const gstr3bDate = ymd(filingY, filingM, 22)
-          if (inRange(gstr3bDate)) {
-            out.push({ id: `gstr3bq-${period.y}-${pad2(period.m)}`, form: 'GSTR-3B', title: `GSTR-3B — quarterly filer, quarter to ${periodLabel} (22nd or 24th by state — dates UNVERIFIED)`, date: gstr3bDate, kind: 'gst' })
+          const due = gstr3bDueDate(`${period.y}-${pad2(period.m)}`, 'quarterly', annual.stateCode)
+          if (inRange(due.date)) {
+            out.push({
+              id: `gstr3bq-${period.y}-${pad2(period.m)}`, form: 'GSTR-3B',
+              title: due.unverified
+                ? `GSTR-3B — quarterly filer, quarter to ${periodLabel} (22nd or 24th by state — dates UNVERIFIED)`
+                : `GSTR-3B — quarterly filer, quarter to ${periodLabel}`,
+              date: due.date, kind: 'gst'
+            })
           }
         }
       } else {
@@ -123,7 +137,10 @@ export function upcomingDeadlines(
       }
     }
 
-    const tdsDate = ymd(filingY, filingM, 7)
+    // WP 9.9: the deposit date of a month's deductions is depositDueDate's (rule 30(2) 1962 Rules,
+    // non-government deductor; sourced in shared/tdsInterest.ts): the 7th of the next month, and
+    // 30 April for March deductions — not 7 April.
+    const tdsDate = depositDueDate(`${period.y}-${pad2(period.m)}-15`)
     if (annual.tds !== false && inRange(tdsDate)) {
       out.push({ id: `tds-${period.y}-${pad2(period.m)}`, form: 'TDS Challan', title: `TDS deposit — challan for ${periodLabel}`, date: tdsDate, kind: 'tds' })
     }
@@ -218,9 +235,13 @@ export function complianceApplicability(c: {
 }
 
 /** GSTR-1 is listed on the 11th of the next month for monthly filers and, since WP 8.3, on the
- *  13th after the quarter for QRMP filers (meta `gstProfile`, shared/gst/filing.ts). The IFF and
- *  quarterly GSTR-3B (22nd / 24th) are not modelled. UNVERIFIED (see shared/assistantSources.ts). */
+ *  13th after the quarter for QRMP filers (meta `gstProfile`, shared/gst/filing.ts). WP 9.9: the
+ *  quarterly GSTR-3B is the 22nd / 24th by state (rule 61(1)(ii), cited in shared/gst/filing.ts)
+ *  when the company's state is passed; the TDS deposit for March deductions is 30 April
+ *  (depositDueDate). The IFF is not modelled. */
 export const COMPLIANCE_UNVERIFIED: readonly string[] = [
-  'GSTR-1 on the 11th (monthly) / 13th after the quarter (quarterly filers under the proviso to s.39(1)) is Notification 83/2020-CT (GST Council copy); its later amendments, the IFF and the quarterly GSTR-3B 22nd / 24th by state are UNVERIFIED',
-  'Composition returns (CMP-08, GSTR-4) are not listed'
+  'GSTR-1 on the 11th (monthly) / 13th after the quarter (quarterly filers under the proviso to s.39(1)) is Notification 83/2020-CT (GST Council copy); its later amendments and the IFF are UNVERIFIED',
+  'Quarterly GSTR-3B: 22nd / 24th by state per rule 61(1)(ii) (read 2026-10-14); a state in neither entry of the rule’s Table is listed on the 22nd, UNVERIFIED',
+  'TDS deposit: rule 30(2) of the 1962 Rules (7th of the next month, 30 April for March); the Income-tax Rules 2026 equivalent (rule 218) was read only in secondary sources and is UNVERIFIED',
+  'Composition returns (CMP-08, GSTR-4) are not listed here — the simple Taxes screen shows them (rule 62, shared/gst/filing.ts)'
 ]

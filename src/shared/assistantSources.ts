@@ -90,7 +90,7 @@ export const ASSISTANT_SOURCES = {
     url: 'https://taxinformation.cbic.gov.in/content/html/tax_repository/gst/rules/cgst_rules/active/chapter8/rule61_v1.00.html',
     accessed: '2026-10-07',
     verified: true,
-    note: 'Read for WP 3.4 (src/shared/gst/sources.ts). Quarterly (QRMP) filers’ 22nd / 24th are not modelled — the checklist assumes monthly returns.'
+    note: 'Read for WP 3.4 (src/shared/gst/sources.ts). WP 9.9 re-read rule 61(1)(ii): quarterly (QRMP) filers’ GSTR-3B is the 22nd / 24th by state (Table quoted in src/shared/gst/filing.ts).'
   },
   gstr2bJson: {
     id: 'gstr2bJson',
@@ -106,7 +106,7 @@ export type AssistantSourceId = keyof typeof ASSISTANT_SOURCES
 
 export const ASSISTANT_UNVERIFIED: { id: string; text: string; sources: AssistantSourceId[] }[] = [
   { id: 'gstr1-11th', text: 'GSTR-1 due on the 11th (monthly) rests on the extending notification, not read here; quarterly filers are not modelled.', sources: ['gstr1_11th', 's37_1'] },
-  { id: 'gstr3b-qrmp', text: 'GSTR-3B due on the 20th applies to monthly filers; QRMP due dates (22nd / 24th) are not modelled.', sources: ['rule61'] },
+  { id: 'gstr3b-qrmp', text: 'Quarterly (QRMP) GSTR-3B is dated the 22nd / 24th by state (rule 61(1)(ii)); a state code in neither entry of the rule’s Table is listed on the 22nd. Extensions notified for a month or state are not modelled.', sources: ['rule61'] },
   { id: 'gstr2b-schema', text: 'The GSTR-2B JSON field names follow real downloads; the official schema (API portal) was not read.', sources: ['gstr2bJson'] },
   { id: 'gstr2b-flags', text: 'The 2B fields rev (reverse charge), itcavl (ITC available) and the amendment sections b2ba / cdnra (original number oinum / ont_num) are read by name without the official schema; a file that names them differently shows no flag.', sources: ['gstr2bJson'] },
   { id: 's16-4-annual-return', text: 's.16(4) time bar uses 30 November after the FY only; the earlier "furnishing of the relevant annual return" limb is not known to the app.', sources: ['s16_4'] },

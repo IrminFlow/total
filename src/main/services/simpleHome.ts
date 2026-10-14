@@ -21,7 +21,7 @@ import {
   ANOMALY_HOME_CAP, attentionItems, BACKUP_NUDGE_DAYS, daysSince, owedSummary,
   type HomeAttention, type HomeCash, type HomeGst, type HomeGstCredit, type HomeMoneyDay, type HomeProfitPeriod, type SimpleHomeData
 } from '@shared/simple/home'
-import type { DashGst } from '@shared/dashboard'
+import { GST_FILED_META_KEY, normalizeGstFiled, type GstFiledMeta } from '@shared/simple/taxes'
 import { descendantIdSet, profitAndLoss } from './reports'
 import { outstandingsWithAdvances } from './analysis'
 import { stockValuesAt } from './stockAnalysis'
@@ -122,7 +122,7 @@ function compute(db: DB, company: CompanyInfo, opts: { today: string; backups: D
   const filing = company.gstRegistrationType === 'regular' ? getGstProfile(db).filing : 'monthly'
   const gstRow = dashGst(db, company, today)
   const gst: HomeGst | null = gstRow
-    ? { kind: 'regular', filing, row: gstRow, credit: gstCredit(db, gstRow) }
+    ? { kind: 'regular', filing, row: gstRow, credit: gstCredit(db, gstRow.from ?? `${gstRow.period}-01`, gstRow.to ?? gstRow.from ?? `${gstRow.period}-01`) }
     : company.gstRegistrationType === 'composition'
       ? { kind: 'composition' }
       : null
@@ -130,7 +130,7 @@ function compute(db: DB, company: CompanyInfo, opts: { today: string; backups: D
   // ---- deadlines (WP 8.0: applicable ones only), other than GST ----
   const hasPayroll = features.payroll && !!db.prepare('SELECT 1 FROM employees WHERE active = 1 LIMIT 1').get()
   const tds = tdsApplies(db, company, features.tds, tdsPayableLedgers(ledgers, dutiesIds, bal).length > 0)
-  const deadlines = upcomingDeadlines(today, company.gstRegistrationType, hasPayroll, 30, { tds, gstFiling: filing }).filter((d) => d.kind !== 'gst')
+  const deadlines = upcomingDeadlines(today, company.gstRegistrationType, hasPayroll, 30, { tds, gstFiling: filing, stateCode: company.stateCode }).filter((d) => d.kind !== 'gst')
 
   // ---- backup nudge ----
   const mine = userBackupsOf(opts.backups)
@@ -183,9 +183,7 @@ function balancesOf(db: DB, ids: number[], asOn: string): Map<number, number> {
  * store): a month without a statement is unchecked; in a checked month, the tax on purchase bills
  * 2B does not list (the WP 3.4 matcher's `missingInPortal`) is booked but not yet confirmed.
  */
-function gstCredit(db: DB, row: DashGst): HomeGstCredit {
-  const from = row.from ?? `${row.period}-01`
-  const to = row.to ?? from
+export function gstCredit(db: DB, from: string, to: string): HomeGstCredit {
   const months = monthRange(monthOf(from), monthOf(to))
   let checkedMonths = 0
   let awaiting = 0
@@ -203,6 +201,18 @@ function gstCredit(db: DB, row: DashGst): HomeGstCredit {
   return { checked: checkedMonths === 0 ? 'none' : checkedMonths === months.length ? 'all' : 'some', awaiting }
 }
 
+/** meta `gstFiled` (the Taxes screen's "I've filed" marks, shared/simple/taxes.ts); missing or
+ *  malformed = none. simpleTaxes.ts writes it. */
+export function readGstFiled(db: DB): GstFiledMeta {
+  const row = db.prepare('SELECT value FROM meta WHERE key = ?').get(GST_FILED_META_KEY) as { value: string } | undefined
+  if (!row) return {}
+  try {
+    return normalizeGstFiled(JSON.parse(row.value))
+  } catch {
+    return {}
+  }
+}
+
 /** `simple:homeAttention` — the close checklist for the previous month (the Assistants default)
  *  and, unless the year has more than ANOMALY_HOME_CAP entries, the anomaly scan for the FY to
  *  today. Overdue bills are not taken from here (Home has them from the tiles, as on today). */
@@ -214,7 +224,11 @@ export function simpleHomeAttention(db: DB, company: CompanyInfo, today: string)
     const count = (db.prepare(`SELECT COUNT(*) AS n FROM vouchers v WHERE v.date BETWEEN ? AND ? AND ${IN_BOOKS}`).get(fy.from, today) as { n: number }).n
     const anomaliesSkipped = count > ANOMALY_HOME_CAP
     const found = anomaliesSkipped ? [] : anomalies(db, fy.from, today).rows
-    const items = attentionItems(checks, found)
+    // WP 9.9: once the user has noted BOTH returns of that period as filed (Taxes → "I've filed",
+    // meta gstFiled), "GST files not prepared" is no longer something to look at — they may have
+    // filed on the portal without Total's files. The Assistants checklist itself is unchanged.
+    const filed = readGstFiled(db)[period]
+    const items = attentionItems(filed?.gstr1 && filed.gstr3b ? checks.filter((c) => c.key !== 'gst_returns') : checks, found)
     // WP 9.7: products running low or out (the Stock list's own rule, as on today) — one row
     // that opens the list filtered to them.
     const low = getFeatures(db).inventory ? lowStockCount(db, today) : 0
