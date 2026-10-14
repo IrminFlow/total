@@ -35,6 +35,8 @@ describe('external links (window.open allow-list)', () => {
     expect(allowedExternalUrl('https://www.gst.gov.in/help')).toBe('https://www.gst.gov.in/help')
     expect(allowedExternalUrl('mailto:a@b.in?subject=Statement')).toBe('mailto:a@b.in?subject=Statement')
     expect(allowedExternalUrl('https://wa.me/919876543210?text=Hi')).toBe('https://wa.me/919876543210?text=Hi')
+    // people.ts whatsappLink without a number (the share page)
+    expect(allowedExternalUrl('https://wa.me/?text=Hi')).toBe('https://wa.me/?text=Hi')
   })
 
   it('refuses everything else', () => {
@@ -46,6 +48,11 @@ describe('external links (window.open allow-list)', () => {
       'https://wa.me.evil.example/x',
       'https://user:pw@wa.me/1',
       'https://wa.me:8443/1',
+      // WP 7.2 review: only a number (digits) on wa.me — no other page of it
+      'https://wa.me/message/ABCDEF',
+      'https://wa.me/91987/../../x',
+      'https://wa.me/919876543210/extra',
+      'https://wa.me/919876543210#frag',
       'smb://server/share',
       'not a url'
     ]) {

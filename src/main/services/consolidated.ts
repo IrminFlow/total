@@ -60,7 +60,7 @@ export function withMemberDb<T>(slug: string, label: string, fn: (db: Database.D
     return { ok: true, value: fn(db) }
   } catch (err) {
     // WP 7.2: a member locked with a passphrase is read only once it was unlocked this session.
-    if ((err as { code?: unknown })?.code === 'db_locked') return { ok: false, warning: `${label}: locked with a passphrase — open it once in this session to include it — skipped` }
+    if ((err as { code?: unknown })?.code === 'db_locked') return { ok: false, warning: `${label}: locked with a passphrase — it is read only while it is the open business — skipped` }
     return { ok: false, warning: `${label}: ${err instanceof Error ? err.message : String(err)} — skipped` }
   } finally {
     db?.close()

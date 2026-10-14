@@ -18,6 +18,7 @@ export function allowedExternalUrl(url: string): string | null {
     return null
   }
   if (u.protocol === 'mailto:') return u.href
-  if (u.protocol === 'https:' && u.hostname === 'wa.me' && !u.username && !u.password && (!u.port || u.port === '443')) return u.href
+  // wa.me: a chat with a number (digits only) or the bare share page — never another path on it.
+  if (u.protocol === 'https:' && u.hostname === 'wa.me' && !u.username && !u.password && (!u.port || u.port === '443') && /^\/(\d{1,15})?$/.test(u.pathname) && !u.hash) return u.href
   return null
 }
