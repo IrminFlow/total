@@ -118,6 +118,19 @@ describe('prints in the company language (WP 10.4)', () => {
     expect(html).toContain('बिल</') // the entry is named by its kind
     expect(html).toContain('<th class="r" style="width:110px">बिल</th>')
     expect(html).toContain('<th class="r" style="width:110px">चुकाया</th>')
+    // the default payment request is said in Hindi; month names never print in English
+    expect(html).toContain('कृपया बाकी रकम नीचे दिए बैंक खाते में भेजें')
+    expect(html).not.toContain('Kindly remit')
+    expect(html).not.toMatch(/\d{2}-(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)-\d{2}/)
+  })
+
+  it('WP 10.4 review: a Hindi bill writes its dates in digits (no English month names); Hinglish keeps the format', () => {
+    const hi = setup({ mode: 'simple', language: 'hi' })
+    const html = pt.documentHtml(hi.db, INFO, hi.voucherId).html
+    expect(html).toContain('05/07/2026')
+    expect(html).not.toMatch(/\b(?:Jul|July)\b/)
+    const hg = setup({ mode: 'simple', language: 'hinglish' })
+    expect(pt.documentHtml(hg.db, INFO, hg.voucherId).html).not.toContain('05/07/2026')
   })
 
   it('WP 10.4 review: a supplier\'s Hindi statement puts their bills in the credit column and our balance as "लेना है" for them', () => {

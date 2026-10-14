@@ -23,7 +23,7 @@ import { pdfOptionsFor } from '@shared/printTemplates'
 import { renderDocument, type ReminderDocument, type StatementDocument } from '@shared/print/render'
 import {
   parseReceivablesConfig, receivablesConfigSchema, RECEIVABLES_META_KEY, REMINDER_BUCKET_LABELS,
-  type ReceivablesConfig, type ReminderBucket, type ReminderChannel
+  type ReceivablesConfig, type ReminderBucket, type ReminderChannel, DEFAULT_RECEIVABLES_CONFIG
 } from '@shared/receivables/config'
 import { ageingBuckets, mailtoLink, mergeTemplate, reminderBucketFor, reminderCadence, reminderFields } from '@shared/receivables/reminders'
 import { addDaysIso, billInterest, gstOfLines, splitInterestGst, type RateShare } from '@shared/receivables/interest'
@@ -167,7 +167,8 @@ export function statementHtml(db: DB, company: CompanyInfo, ledgerId: number, fr
   // kind instead of the English type name, the bill-wise lines without "New ref / Agst ref"), and
   // a supplier's statement puts their bills in the credit column, an advance paid under "paid".
   const t = companyT(db)
-  const printed: StatementDocument = { ...doc, statement: { ...data, rows: localisedStatementRows(db, ledgerId, data.rows, t) } }
+  const paymentRequest = data.paymentRequest === DEFAULT_RECEIVABLES_CONFIG.paymentRequest ? t('simple.print.paymentRequest') : data.paymentRequest
+  const printed: StatementDocument = { ...doc, statement: { ...data, paymentRequest, rows: localisedStatementRows(db, ledgerId, data.rows, t) } }
   const labels = locale.opts.labels!
   const sup = labels.supplierStatement
   const opts =

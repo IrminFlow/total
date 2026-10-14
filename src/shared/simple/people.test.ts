@@ -65,7 +65,7 @@ describe('reminder message', () => {
     const hi = reminderMessage(FACTS, 'hi')
     expect(hi.startsWith('नमस्ते Ramesh जी,')).toBe(true)
     expect(hi).toContain('₹1,500.50')
-    expect(hi).toContain('• बिल 1, 20 अग 2026: ₹1,200.00')
+    expect(hi).toContain('• बिल 1, 20 अगस्त 2026: ₹1,200.00')
     const hg = reminderMessage({ ...FACTS, bucket: 'firm' }, 'hinglish')
     expect(hg).toContain('Sharma Traders ki taraf se dobara yaad: ₹1,500.50 abhi bhi baaki hai, sabse purana bill 40 din late hai.')
   })

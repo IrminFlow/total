@@ -307,8 +307,14 @@ export function localiseTemplate(template: PrintTemplate, t: Translate): PrintTe
   const keep = (value: string, def: string, local: string): string => (value === def ? local : value)
   const titles = { ...template.header.titles }
   for (const [k, key] of TITLE_KEY) titles[k] = keep(titles[k], DEFAULT_TITLES[k], t(key))
+  // A Hindi print can't write English month names (04-Sep-26 in a Hindi bill): a format with
+  // month NAMES prints as day / month / year digits instead (what Hindi bills use). Hinglish reads
+  // Latin script, so it keeps the owner's format. (WP 10.4 review)
+  const monthNames = /mmm/.test(template.formats.date)
+  const formats = t.lang === 'hi' && monthNames ? { ...template.formats, date: 'dd/mm/yyyy' as const } : template.formats
   return {
     ...template,
+    formats,
     header: {
       ...template.header,
       titles,
