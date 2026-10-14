@@ -4,6 +4,7 @@ import { Button, inputSmCls } from '../ui'
 import { PopoverButton } from './Popover'
 import type { TableColumn } from './types'
 import type { TableViewController } from './useTableView'
+import { useKitLabels } from '../kit/labels'
 
 export interface ToolbarFeatures {
   quickFilter?: boolean
@@ -58,6 +59,7 @@ export function TableToolbar<Row>({
 }): React.JSX.Element {
   const { view, setView } = controller
   const density: Density = view.density ?? appDensity
+  const labels = useKitLabels()
   const byId = new Map(columns.map((c) => [c.id, c]))
   const chips = Object.entries(view.filters).filter(([id]) => byId.has(id))
   const groupable = columns.filter((c) => isGroupable(c))
@@ -71,8 +73,8 @@ export function TableToolbar<Row>({
           <input
             type="search"
             className={`${inputSmCls} !w-56`}
-            placeholder="Filter rows…"
-            aria-label="Filter rows"
+            placeholder={labels.table.filterRows}
+            aria-label={labels.table.filterRowsLabel}
             value={quick}
             // While it has text, Esc clears it — an enclosing Modal must not close on that key.
             data-consumes-escape={quick ? '' : undefined}
@@ -89,20 +91,20 @@ export function TableToolbar<Row>({
         )}
         {!loading && (
           <span className="num text-small text-muted" aria-live="polite" data-testid={`${area}-table-count`}>
-            {filtered ? `${model.rows.length} of ${model.totalCount}` : `${model.totalCount}`} {model.totalCount === 1 ? 'row' : 'rows'}
+            {labels.table.rowCount(model.totalCount, filtered ? model.rows.length : null)}
           </span>
         )}
         <div className="ml-auto flex flex-wrap items-center gap-2">
           {features.groupBy && groupable.length > 0 && (
             <label className="flex items-center gap-1 text-small text-muted">
-              <span>Group</span>
+              <span>{labels.table.groupBy}</span>
               <select
                 className={`${inputSmCls} !w-auto !text-small`}
                 value={view.groupBy ?? ''}
                 onChange={(e) => setView((v) => ({ ...v, groupBy: e.target.value || null }))}
                 data-testid={`${area}-table-group`}
               >
-                <option value="">None</option>
+                <option value="">{labels.table.groupNone}</option>
                 {groupable.map((c) => (
                   <option key={c.id} value={c.id}>
                     {columnLabel(c)}
@@ -116,7 +118,7 @@ export function TableToolbar<Row>({
               type="button"
               className="rounded-md border border-line bg-panel2 px-2 py-1 text-small text-muted hover:border-amber/60 hover:text-ink"
               aria-pressed={density === 'compact'}
-              aria-label="Compact rows"
+              aria-label={labels.table.compactRows}
               title={view.density ? 'Compact rows (this table)' : 'Compact rows (following the app setting)'}
               // Picking the app's own density stores null, so the table follows the setting again.
               onClick={() => {
@@ -125,13 +127,13 @@ export function TableToolbar<Row>({
               }}
               data-testid={`${area}-table-density`}
             >
-              {density === 'compact' ? '☰ Compact' : '☰ Comfortable'}
+              {density === 'compact' ? `☰ ${labels.table.compact}` : `☰ ${labels.table.comfortable}`}
             </button>
           )}
           {features.columns && (
             <PopoverButton
-              label="Columns"
-              popoverLabel="Choose columns"
+              label={labels.table.columns}
+              popoverLabel={labels.table.chooseColumns}
               open={menu === 'columns'}
               setOpen={(o) => setMenu(o ? 'columns' : null)}
               align="right"
@@ -139,13 +141,13 @@ export function TableToolbar<Row>({
               testId={`${area}-table-columns`}
               render={() => <ColumnChooser columns={columns} controller={controller} area={area} />}
             >
-              ⚙ Columns
+              ⚙ {labels.table.columns}
             </PopoverButton>
           )}
           {features.views && controller.persistent && (
             <PopoverButton
-              label={`Views${controller.active ? `: ${controller.active}` : ''}`}
-              popoverLabel="Saved views"
+              label={`${labels.table.views}${controller.active ? `: ${controller.active}` : ''}`}
+              popoverLabel={labels.table.savedViews}
               open={menu === 'views'}
               setOpen={(o) => setMenu(o ? 'views' : null)}
               align="right"
@@ -153,7 +155,7 @@ export function TableToolbar<Row>({
               testId={`${area}-table-views`}
               render={(close) => <ViewsMenu controller={controller} close={close} area={area} />}
             >
-              ▤ {controller.active ?? 'Default view'}
+              ▤ {controller.active ?? labels.table.defaultView}
               {controller.modified ? ' •' : ''}
             </PopoverButton>
           )}
@@ -176,14 +178,14 @@ export function TableToolbar<Row>({
         </div>
       </div>
       {chips.length > 0 && (
-        <div className="flex flex-wrap items-center gap-1.5" aria-label="Active filters" role="group">
+        <div className="flex flex-wrap items-center gap-1.5" aria-label={labels.table.activeFilters} role="group">
           {chips.map(([id, f]) => (
             <span key={id} className={chipCls} data-testid={`${area}-table-chip-${id}`}>
               {describeFilter(byId.get(id)!, f)}
               <button
                 type="button"
                 className="rounded-full px-1 text-muted hover:text-ink"
-                aria-label={`Remove filter: ${describeFilter(byId.get(id)!, f)}`}
+                aria-label={labels.table.removeFilter(describeFilter(byId.get(id)!, f))}
                 onClick={() =>
                   setView((v) => {
                     const filters = { ...v.filters }
@@ -202,7 +204,7 @@ export function TableToolbar<Row>({
             onClick={() => setView((v) => ({ ...v, filters: {} }))}
             data-testid={`${area}-table-clear-filters`}
           >
-            Clear all
+            {labels.table.clearAll}
           </button>
         </div>
       )}

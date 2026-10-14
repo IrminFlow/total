@@ -52,12 +52,12 @@ export function TaxesScreen({ period }: { period?: string }): React.JSX.Element 
           <h2 className="text-lead font-semibold text-ink">{t('simple.taxes.gst.compositionTitle')}</h2>
           <ul className="mt-2 flex flex-col gap-1 text-body text-ink">
             <li className="flex flex-wrap items-baseline justify-between gap-x-3">
-              <span data-testid="taxes-cmp08">{t('simple.taxes.composition.cmp08', { from: toPlainDate(x.composition.cmp08.from), to: toPlainDate(x.composition.cmp08.to), date: toPlainDate(x.composition.cmp08.due) })}</span>
-              <WhyLink what={t('simple.taxes.composition.cmp08', { from: toPlainDate(x.composition.cmp08.from), to: toPlainDate(x.composition.cmp08.to), date: toPlainDate(x.composition.cmp08.due) })} sentence={compositionDueWhy(CMP08, x, t)} testId="why-due-cmp08" />
+              <span data-testid="taxes-cmp08">{t('simple.taxes.composition.cmp08', { from: toPlainDate(x.composition.cmp08.from, t.lang), to: toPlainDate(x.composition.cmp08.to, t.lang), date: toPlainDate(x.composition.cmp08.due, t.lang) })}</span>
+              <WhyLink what={t('simple.taxes.composition.cmp08', { from: toPlainDate(x.composition.cmp08.from, t.lang), to: toPlainDate(x.composition.cmp08.to, t.lang), date: toPlainDate(x.composition.cmp08.due, t.lang) })} sentence={compositionDueWhy(CMP08, x, t)} testId="why-due-cmp08" />
             </li>
             <li className="flex flex-wrap items-baseline justify-between gap-x-3">
-              <span data-testid="taxes-gstr4">{t('simple.taxes.composition.gstr4', { fy: x.composition.gstr4.fyLabel, date: toPlainDate(x.composition.gstr4.due) })}</span>
-              <WhyLink what={t('simple.taxes.composition.gstr4', { fy: x.composition.gstr4.fyLabel, date: toPlainDate(x.composition.gstr4.due) })} sentence={compositionDueWhy(GSTR4, x, t)} testId="why-due-gstr4" />
+              <span data-testid="taxes-gstr4">{t('simple.taxes.composition.gstr4', { fy: x.composition.gstr4.fyLabel, date: toPlainDate(x.composition.gstr4.due, t.lang) })}</span>
+              <WhyLink what={t('simple.taxes.composition.gstr4', { fy: x.composition.gstr4.fyLabel, date: toPlainDate(x.composition.gstr4.due, t.lang) })} sentence={compositionDueWhy(GSTR4, x, t)} testId="why-due-gstr4" />
             </li>
           </ul>
           <p className="mt-2 text-small text-muted">{t('simple.taxes.composition.note')}</p>
@@ -73,7 +73,7 @@ function GstAnswer({ x }: { x: Regular }): React.JSX.Element {
   const t = useT()
   const nav = useNav()
   const f = x.figures
-  const by = t('simple.taxes.gst.byDate', { date: shortDate(x.due.gstr3b, x.today) })
+  const by = t('simple.taxes.gst.byDate', { date: shortDate(x.due.gstr3b, x.today, t.lang) })
   const link = { label: t('simple.taxes.accountant3b'), screen: gstr3bScreen(x.period.from.slice(0, 7)) }
   const dueLink = {
     gstr1: { label: t('simple.why.link.gstr1'), screen: gstr1Screen(x.period.from.slice(0, 7)) },
@@ -108,7 +108,7 @@ function GstAnswer({ x }: { x: Regular }): React.JSX.Element {
       )}
       {x.period.soFar && (
         <p className="mb-3 text-detail text-muted" data-testid="taxes-so-far">
-          {t('simple.taxes.gst.soFarNote', { date: toPlainDate(x.period.to) })}
+          {t('simple.taxes.gst.soFarNote', { date: toPlainDate(x.period.to, t.lang) })}
         </p>
       )}
       <ul className="grid grid-cols-1 gap-3 md:grid-cols-3" data-testid="taxes-figures">
@@ -128,7 +128,7 @@ function GstAnswer({ x }: { x: Regular }): React.JSX.Element {
         <h2 className="text-subtitle font-semibold text-ink">{t('simple.taxes.due.title')}</h2>
         <ul className="mt-2 flex flex-col gap-1 text-body text-ink">
           {(['gstr1', 'gstr3b'] as const).map((form) => { // i18n-technical
-            const label = form === 'gstr1' ? t('simple.taxes.due.gstr1', { date: toPlainDate(x.due.gstr1) }) : t('simple.taxes.due.gstr3b', { date: toPlainDate(x.due.gstr3b) }) // i18n-technical
+            const label = form === 'gstr1' ? t('simple.taxes.due.gstr1', { date: toPlainDate(x.due.gstr1, t.lang) }) : t('simple.taxes.due.gstr3b', { date: toPlainDate(x.due.gstr3b, t.lang) }) // i18n-technical
             return (
               <li key={form} className="flex flex-wrap items-baseline justify-between gap-x-3">
                 <span data-testid={`taxes-due-${form}`}>
@@ -149,7 +149,7 @@ function GstAnswer({ x }: { x: Regular }): React.JSX.Element {
         {x.due.pmt06.length > 0 && (
           <div className="mt-1 flex flex-wrap items-baseline justify-between gap-x-3">
             <p className="text-small text-muted" data-testid="taxes-pmt06">
-              {t('simple.taxes.due.pmt06', { dates: x.due.pmt06.map((d) => shortDate(d, x.today)).join(', ') })}
+              {t('simple.taxes.due.pmt06', { dates: x.due.pmt06.map((d) => shortDate(d, x.today, t.lang)).join(', ') })}
             </p>
             <WhyLink what={t('simple.taxes.due.title')} sentence={dueWhy(PMT06, x, t)} testId="why-due-pmt06" />
           </div>

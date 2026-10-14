@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom'
 import { registerPanelLayer, useDialogLayer } from './layers'
 import { Kbd } from './Text'
 import { IconButton } from './Button'
+import { useKitLabels } from './labels'
 
 /**
  * Right-side panel over the screen: screen options, a record's details, filters. A dialog layer
@@ -28,6 +29,7 @@ export function Drawer({
   width?: number
   testId?: string
 }): React.JSX.Element {
+  const labels = useKitLabels()
   const titleId = useId()
   const panelRef = useRef<HTMLDivElement>(null)
   const onCloseRef = useRef(onClose)
@@ -60,7 +62,7 @@ export function Drawer({
           </div>
           <div className="flex shrink-0 items-center gap-2">
             <Kbd>Esc</Kbd>
-            <IconButton label="Close" size="sm" data-testid="drawer-close" onClick={() => onCloseRef.current()}>
+            <IconButton label={labels.close} size="sm" data-testid="drawer-close" onClick={() => onCloseRef.current()}>
               ✕
             </IconButton>
           </div>
@@ -135,6 +137,7 @@ export function DockedDrawer({
   onResize?: (width: number) => void
   testId?: string
 }): React.JSX.Element {
+  const labels = useKitLabels()
   const titleId = useId()
   const dock = useContext(DockModeContext)
   const onCloseRef = useRef(onClose)
@@ -201,7 +204,7 @@ export function DockedDrawer({
         <div
           role="separator"
           aria-orientation="vertical"
-          aria-label="Resize the panel"
+          aria-label={labels.resizePanel}
           aria-valuenow={width}
           aria-valuemin={minWidth}
           aria-valuemax={maxWidth}
@@ -227,7 +230,7 @@ export function DockedDrawer({
         </div>
         <div className="flex shrink-0 items-center gap-2">
           <Kbd>Esc</Kbd>
-          <IconButton label="Close" size="sm" data-testid="drawer-close" onClick={onClose}>
+          <IconButton label={labels.close} size="sm" data-testid="drawer-close" onClick={onClose}>
             ✕
           </IconButton>
         </div>

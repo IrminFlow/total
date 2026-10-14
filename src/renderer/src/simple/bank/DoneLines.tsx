@@ -22,7 +22,7 @@ export function DoneLines({ lines }: { lines: BankLineView[] }): React.JSX.Eleme
   const columns = useMemo(
     () =>
       defineColumns<BankLineView>([
-        { id: 'date', header: t('simple.bank.col.date'), kind: 'date', value: (r) => r.date, text: (r) => toPlainDate(r.date), width: 130, groupable: false }, // i18n-technical
+        { id: 'date', header: t('simple.bank.col.date'), kind: 'date', value: (r) => r.date, text: (r) => toPlainDate(r.date, t.lang), width: 130, groupable: false }, // i18n-technical
         { id: 'description', header: t('simple.bank.col.description'), kind: 'text', value: (r) => r.description, minWidth: 220, hideable: false, groupable: false }, // i18n-technical
         { id: 'amount', header: t('simple.bank.col.amount'), kind: 'money', value: (r) => (r.side === 'withdrawal' ? -r.amount : r.amount), width: 130, explainable: false }, // i18n-technical
         {

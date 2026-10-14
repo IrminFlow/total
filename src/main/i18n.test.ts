@@ -26,7 +26,8 @@ describe('companyLanguage', () => {
     const db = fakeDb({ ui: JSON.stringify({ mode: 'simple', language: 'hi' }) })
     expect(companyLanguage(db)).toBe('hi')
     expect(companyT(db)('simple.home.moneyIn')).toBe('पैसे आए')
-    expect(companyT(db)('simple.sell.billOfSupply')).toBe('Bill of supply') // untranslated → en
+    expect(companyT(db)('palette.searching')).toBe('खोज रहे हैं…')
+    expect(companyT(db).lang).toBe('hi')
     expect(companyT(fakeDb({}))('errors.chooseCustomer')).toBe('Choose a customer.')
   })
 })

@@ -146,7 +146,7 @@ function ArticleView({ article, wanted, isContext, onLink }: { article: HelpArti
       <h2 id="help-article-title" className="mb-3 font-serif text-title font-semibold text-ink" data-testid="help-article-title">
         {article.title}
       </h2>
-      {wanted === 'hi' && article.lang !== 'hi' && (
+      {wanted !== 'en' && article.lang !== wanted && (
         <p className="mb-3 text-hint text-muted" data-testid="help-in-english">
           {t('simple.help.inEnglish')}
         </p>

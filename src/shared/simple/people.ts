@@ -259,7 +259,7 @@ function reminderParts(f: ReminderMessageFacts, lang: Language): { hello: string
   const amount = f.bills.reduce((s, b) => s + b.pending, 0)
   const days = f.bills.reduce((m, b) => Math.max(m, b.overdueDays), 0)
   const shown = f.bills.slice(0, REMINDER_BILL_LINES)
-  const lines = shown.map((b) => t('simple.people.msg.bill', { bill: b.name, date: toPlainDate(b.date), amount: money(b.pending) }))
+  const lines = shown.map((b) => t('simple.people.msg.bill', { bill: b.name, date: toPlainDate(b.date, t.lang), amount: money(b.pending) }))
   if (f.bills.length > shown.length) lines.push(t('simple.people.msg.more', { count: f.bills.length - shown.length }))
   return {
     hello: t('simple.people.msg.hello', { party: f.party }),

@@ -53,7 +53,7 @@ export function BillPicker({ side, onPick }: { side: ReturnSide; onPick: (billId
   const columns = useMemo(
     () =>
       defineColumns<ReturnBillRow>([
-        { id: 'date', header: t('simple.sales.col.date'), kind: 'date', value: (r) => r.date, text: (r) => toPlainDate(r.date), width: 130, groupable: false }, // i18n-technical
+        { id: 'date', header: t('simple.sales.col.date'), kind: 'date', value: (r) => r.date, text: (r) => toPlainDate(r.date, t.lang), width: 130, groupable: false }, // i18n-technical
         {
           id: 'number', header: sale ? t('simple.sales.col.number') : t('simple.returns.col.theirBill'), kind: 'text', width: 130, groupable: false,
           value: (r) => (sale ? r.number : (r.billNo ?? r.number))

@@ -349,7 +349,7 @@ const money = (p: number): string => formatPaise(p, { symbol: true })
 export function purchasePreviewLine(f: IntentFacts, t: Translate): string {
   const head = t('simple.buy.preview.bill', { amount: money(f.total), name: f.partyName ?? '' })
   const how = f.how ?? 'cash'
-  const due = f.dueDate ? toPlainDate(f.dueDate) : ''
+  const due = f.dueDate ? toPlainDate(f.dueDate, t.lang) : ''
   const owed = f.due > 0 ? f.due : 0
   if (f.paid > 0 && owed > 0) return `${head} ${t('simple.buy.preview.part', { paid: money(f.paid), how, due: money(owed), date: due })}`
   if (f.paid > 0) return `${head} ${t('simple.buy.preview.paid', { amount: money(f.paid), how })}`

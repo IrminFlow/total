@@ -19,9 +19,9 @@ const IMPORT_2B = { name: 'gstr2b' } as const // i18n-technical
 const GSTR1 = { name: 'gstr1' } as const // i18n-technical
 const FORMS: readonly GstForm[] = ['gstr1', 'gstr3b']
 /** An ISO timestamp as the local day, in plain words. */
-const localDay = (at: string): string => {
+const localDay = (at: string, lang?: string): string => {
   const d = new Date(at)
-  return toPlainDate(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`)
+  return toPlainDate(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`, lang)
 }
 /** A month-end check as Home's attention row (its plain sentence). */
 const missingItem = (key: MissingBillsItem['key'], count: number): HomeAttentionItem => ({ source: 'close', key, count, amount: null, level: 'medium' }) // i18n-technical
@@ -91,7 +91,7 @@ export function GstSteps({ x }: { x: Regular }): React.JSX.Element {
         <Step n={2} title={t('simple.taxes.gst.step2')} done={done.supplier} testId="taxes-step-2">
           <ul className="flex flex-col gap-1">
             {x.supplierBills.map((m) => {
-              const month = toMonthLabel(m.month, 'long') // i18n-technical
+              const month = toMonthLabel(m.month, 'long', t.lang) // i18n-technical
               const issues = m.categories.reduce((s, c) => s + c.count, 0)
               return (
                 <li key={m.month} data-testid={`taxes-2b-${m.month}`} data-imported={m.imported}>
@@ -174,7 +174,7 @@ function PrepareFiles({ x }: { x: Regular }): React.JSX.Element {
       </>
     )
   }
-  if (x.period.soFar) return <p data-testid="taxes-files-wait">{t('simple.taxes.step3.wait', { date: toPlainDate(x.period.to) })}</p>
+  if (x.period.soFar) return <p data-testid="taxes-files-wait">{t('simple.taxes.step3.wait', { date: toPlainDate(x.period.to, t.lang) })}</p>
   const prepare = async (form: GstForm): Promise<void> => {
     setBusy(form)
     setError(null)
@@ -200,7 +200,7 @@ function PrepareFiles({ x }: { x: Regular }): React.JSX.Element {
               {form === 'gstr1' ? t('simple.taxes.step3.prepare1') : t('simple.taxes.step3.prepare3b')}
             </Button>
             <span className="text-small text-muted" data-testid={`taxes-prepared-${form}`}>
-              {x.prepared[form] ? t('simple.taxes.gst.prepared', { date: localDay(x.prepared[form]!) }) : t('simple.taxes.step3.notYet')}
+              {x.prepared[form] ? t('simple.taxes.gst.prepared', { date: localDay(x.prepared[form]!, t.lang) }) : t('simple.taxes.step3.notYet')}
             </span>
           </li>
         ))}

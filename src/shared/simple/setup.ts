@@ -9,6 +9,7 @@
 // effect from the start date (`gstRegistrationSince`), and the WP 8.0 rule (shared/gst/
 // registration.ts) does the rest: only a regular registration charges GST.
 import { z } from 'zod'
+import { LANGUAGES, type Language } from '../i18n'
 import { gstinSchema, isoDate, stateCodeSchema } from '../schemas'
 import { validateGstin } from '../gst/validate'
 import { GST_FILING_FREQUENCIES, type GstProfile } from '../gst/filing'
@@ -37,7 +38,10 @@ export const simpleSetupSchema = z
     mode: z.enum(UI_MODES).default('simple'),
     /** "Coming from Tally? — yes": the Tally books become the chart, so the preset seeds NO
      *  accounts (a same-named preset account would otherwise shadow a Tally ledger). */
-    fromTally: z.boolean().default(false)
+    fromTally: z.boolean().default(false),
+    /** WP 10.4: the language the wizard was answered in — the company language for prints
+     *  (meta `ui.language`). Omitted / 'en' writes nothing (English is the default). */
+    language: z.enum(LANGUAGES).optional()
   })
   .strict()
   .superRefine((v, ctx) => {
@@ -80,7 +84,12 @@ export function setupFeatures(s: SimpleSetup): CompanyFeatures {
 }
 
 export function setupUi(s: SimpleSetup): UiSettings {
-  return { mode: s.mode, setup: { businessType: s.businessType, gst: s.gst, stock: s.stock }, startedFresh: s.fresh }
+  return {
+    mode: s.mode,
+    setup: { businessType: s.businessType, gst: s.gst, stock: s.stock },
+    startedFresh: s.fresh,
+    ...(s.language && s.language !== 'en' ? { language: s.language } : {})
+  }
 }
 
 /** Only a regular registration files GSTR-1, so only it gets a filing frequency. */
@@ -162,7 +171,7 @@ export function setupStepErrors(d: SetupDraft, step: SetupStep, today: string): 
 }
 
 /** The answers → the `simple:setup` payload (call once every step is clean). */
-export function setupPayload(d: SetupDraft, today: string, mode: 'simple' | 'accountant' = 'simple', fromTally = false): SimpleSetupInput {
+export function setupPayload(d: SetupDraft, today: string, mode: 'simple' | 'accountant' = 'simple', fromTally = false, language: Language = 'en'): SimpleSetupInput {
   const registered = d.gst === 'regular' || d.gst === 'composition'
   return {
     name: d.name.trim(),
@@ -175,6 +184,7 @@ export function setupPayload(d: SetupDraft, today: string, mode: 'simple' | 'acc
     startDate: startDateOf(d, today),
     fresh: d.fresh ?? true,
     mode,
-    fromTally
+    fromTally,
+    ...(language !== 'en' ? { language } : {})
   }
 }

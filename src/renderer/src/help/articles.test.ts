@@ -116,6 +116,44 @@ describe('help articles (WP 10.3)', () => {
   })
 })
 
+describe('help in Hindi and Hinglish (WP 10.4)', () => {
+  const HINGLISH_SIX = ['getting-started', 'make-a-bill', 'record-a-purchase', 'money-in-out', 'bank-statement', 'gst']
+  const linkTargets = (raw: string): string[] => [...raw.matchAll(/\]\(([^)\s]+)\)/g)].map((m) => m[1]!).sort()
+
+  it('every article is in Hindi; the six most used are in Hinglish; the rest fall back to English', () => {
+    expect([...HELP.ids.hi].sort()).toEqual([...HELP_ARTICLE_IDS].sort())
+    expect([...HELP.ids.hinglish].sort()).toEqual([...HINGLISH_SIX].sort())
+    for (const id of HELP_ARTICLE_IDS) {
+      expect(HELP.article(id, 'hi')!.lang, id).toBe('hi')
+      expect(HELP.article(id, 'hinglish')!.lang, id).toBe(HINGLISH_SIX.includes(id) ? 'hinglish' : 'en')
+    }
+  })
+
+  it('translations keep every link of the English article, no banned word, the right script, no raw HTML', () => {
+    for (const lang of ['hi', 'hinglish'] as const) {
+      for (const [path, raw] of Object.entries(HELP_FILES[lang])) {
+        const id = path.replace(/^.*\//, '').replace(/\.md$/, '')
+        expect(linkTargets(raw), `${lang}/${id} links`).toEqual(linkTargets(HELP_FILES.en[`./en/${id}.md`]!))
+        expect(bannedWordsIn(raw), `${lang}/${id}`).toEqual([])
+        expect(/<\/?[a-zA-Z!][^>]*>/.test(raw), `${lang}/${id}: raw HTML`).toBe(false)
+        if (lang === 'hinglish') expect(/[\u0900-\u097F]/.test(raw), `${id}: Devanagari in Hinglish`).toBe(false)
+        else expect(/[\u0900-\u097F]/.test(raw), `${id}: Hindi in Devanagari`).toBe(true)
+      }
+    }
+    for (const lang of ['hinglish'] as const) {
+      for (const a of HELP.list(lang)) for (const href of linksIn(a.blocks)) expect(resolveHelpLink(href).kind, `${a.id} (${lang}): ${href}`).not.toBe('invalid')
+    }
+  })
+
+  it('search finds Hindi and Hinglish words and shows the reader’s language', () => {
+    const hits = HELP.search('उधार', 'hi')
+    expect(hits.length).toBeGreaterThan(0)
+    expect(hits[0]!.article.lang).toBe('hi')
+    expect(HELP.search('बैंक', 'hi').map((h) => h.article.id)).toContain('bank-statement')
+    expect(HELP.search('GST', 'hinglish')[0]!.article).toMatchObject({ id: 'gst', lang: 'hinglish' })
+  })
+})
+
 describe('the help markdown (safe subset)', () => {
   it('parses headings, paragraphs, lists, bold and links — and keeps anything else as text', () => {
     const blocks = parseMarkdown('# T\n\nA **bold** [link](total://help/gst) line\nwrapped.\n\n- one\n- two\n\n1. first\n2. second\n\n<b>x</b>')

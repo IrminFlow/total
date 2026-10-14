@@ -159,7 +159,7 @@ describe('the form’s checks', () => {
   it('a return dated before its bill is refused at the date — by the form and by mapReturn (review fix)', () => {
     expect(returnFormErrors(form({ date: '2025-07-31', qty: { 'u-1': '1' } }), billOf(o), c)).toEqual({ date: 'simple.returns.err.beforeBill' })
     expect(() => mapIntent(normaliseIntent({ clientId: 'returns-0002', kind: 'return_sale', date: '2025-07-31', billId: 500, items: [{ lineUid: 'u-1', qty: '1' }] }, TODAY), intentCtx('regular', o))).toThrow(
-      expect.objectContaining({ code: 'simple_return_before_bill', field: 'date', params: { date: '1 Aug 2025' } })
+      expect.objectContaining({ code: 'simple_return_before_bill', field: 'date', params: { date: '2025-08-01' } })
     )
     // The bill's own day is fine.
     expect(() => mapIntent(normaliseIntent({ clientId: 'returns-0003', kind: 'return_sale', date: '2025-08-01', billId: 500, items: [{ lineUid: 'u-1', qty: '1' }] }, TODAY), intentCtx('regular', o))).not.toThrow()

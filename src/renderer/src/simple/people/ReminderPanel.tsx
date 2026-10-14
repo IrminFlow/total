@@ -98,8 +98,8 @@ export function ReminderPanel({ person, reminder, startLang, onSent }: { person:
             t('simple.people.reminder.sentToday')
           ) : (
             <>
-              {t('simple.people.reminder.last', { date: toPlainDate(reminder.lastSent) })}
-              {!reminder.allowed && reminder.nextAllowed && ` ${t('simple.people.reminder.wait', { date: toPlainDate(reminder.nextAllowed) })}`}
+              {t('simple.people.reminder.last', { date: toPlainDate(reminder.lastSent, t.lang) })}
+              {!reminder.allowed && reminder.nextAllowed && ` ${t('simple.people.reminder.wait', { date: toPlainDate(reminder.nextAllowed, t.lang) })}`}
             </>
           )}
         </p>

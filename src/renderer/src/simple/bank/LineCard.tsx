@@ -137,7 +137,7 @@ export function LineCard({
       <div className="flex flex-wrap items-baseline justify-between gap-3">
         <div className="min-w-0">
           <p className="text-small text-muted">
-            {toPlainDate(line.date)} · {deposit ? t('simple.bank.in') : t('simple.bank.out')}
+            {toPlainDate(line.date, t.lang)} · {deposit ? t('simple.bank.in') : t('simple.bank.out')}
           </p>
           <p className="truncate text-body font-medium text-ink" title={line.description} data-testid="bank-line-description">
             {line.description}
@@ -180,7 +180,7 @@ export function LineCard({
       <div className="mt-3 max-w-md">
         {choice?.kind === 'existing' && line.match && (
           <p className="text-detail text-ink" data-testid="bank-line-existing">
-            {t('simple.bank.existingIs', { name: line.match.name, date: toPlainDate(line.match.date) })}
+            {t('simple.bank.existingIs', { name: line.match.name, date: toPlainDate(line.match.date, t.lang) })}
           </p>
         )}
         {(choice?.kind === 'customer' || choice?.kind === 'supplier') && (

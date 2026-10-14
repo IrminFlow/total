@@ -2,6 +2,7 @@
 // `t()` message of each issue; the accountant shell keeps the wording the service always had
 // (the fallback text) — at the field when the issue has one, as a message for the form when not.
 
+import { toPlainDate } from '../dates'
 import type { MessageKey, Translate } from '../i18n'
 import { ERROR_MAP, isErrorCode, type ErrorMapEntry } from './codes'
 import type { ErrorIssue, ErrorParams, StructuredError } from './appError'
@@ -53,10 +54,15 @@ function fieldOf(entry: ErrorMapEntry | null, issue: ErrorIssue): string | undef
   return tpl
 }
 
+const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/
+
 function plainText(entry: ErrorMapEntry, params: ErrorParams | undefined, t: Translate): string {
   const has = (entry.vars ?? []).every((v) => params?.[v] != null && params[v] !== '')
   const key: MessageKey = has ? entry.key : (entry.plainKey ?? entry.key)
-  return t(key, params)
+  // WP 10.4 review: a service sends dates as ISO ('2025-08-01'); the plain text writes them in
+  // the reader's language (1 अगस्त 2025 / 1 Aug 2025), never main's English.
+  const vars = params && Object.fromEntries(Object.entries(params).map(([k, v]) => [k, typeof v === 'string' && ISO_DATE.test(v) ? toPlainDate(v, t.lang) : v]))
+  return t(key, vars)
 }
 
 /** The issues of an error: its own list, or the error itself as one issue. */

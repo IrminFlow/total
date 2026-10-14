@@ -236,7 +236,7 @@ export function ReturnScreen({ side, billId: initialBill }: { side: ReturnSide; 
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div>
                 <h2 className="text-subtitle font-semibold text-ink" data-testid="return-bill-head">
-                  {t('simple.returns.billHead', { number: billNo(bill), name: partyLabel(bill), date: toPlainDate(bill.date) })}
+                  {t('simple.returns.billHead', { number: billNo(bill), name: partyLabel(bill), date: toPlainDate(bill.date, t.lang) })}
                 </h2>
                 <p className="mt-1 text-detail text-muted" data-testid="return-bill-facts">
                   {t('simple.returns.billTotal', { amount: money(bill.total) })}
@@ -268,7 +268,7 @@ export function ReturnScreen({ side, billId: initialBill }: { side: ReturnSide; 
                 <div className="mb-3 grid grid-cols-1 gap-4 md:grid-cols-[2fr_1fr]">
                   <h2 className="self-end text-subtitle font-semibold text-ink">{bill.mode === 'items' ? t('simple.returns.whichItems') : t('simple.returns.howMuch')}</h2>
                   <Field label={t('simple.returns.date')} name="date" error={errors.get(F.date)}>
-                    <DateInput value={form.date} context={workingDate} onChange={(d) => update({ date: d })} format={toPlainDate} testId="input-return-date" />
+                    <DateInput value={form.date} context={workingDate} onChange={(d) => update({ date: d })} format={((d: string) => toPlainDate(d, t.lang))} testId="input-return-date" />
                   </Field>
                 </div>
                 {bill.mode === 'items' ? (

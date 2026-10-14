@@ -16,6 +16,7 @@
 //   (voucher:undoSave) and Restore brings them back together.
 import { createHash } from 'crypto'
 import type { DB } from '../db/connection'
+import type Database from 'better-sqlite3'
 import type { CompanyInfo, SaveVoucherWarnings, VoucherKind } from '@shared/domain'
 import { gstRegistrationOf } from '@shared/gst/registration'
 import { addBreakups, computeGst, supplyTypeFor } from '@shared/gst/calc'
@@ -128,14 +129,17 @@ function partyOf(n: NormalIntent, walkInId: number | null): number | null {
  *  (those belong to the bill they are linked to), and with no later bill of the same party and the
  *  same number in between — numbers restart every year, so a note on this year's bill "1" must not
  *  also count against last year's bill "1". */
-const notesByRefStmts = new WeakMap<DB, Map<string, ReturnType<DB['prepare']>>>()
+// An explicit statement type: `ReturnType<DB['prepare']>` of the generic prepare() resolved its
+// bind parameters differently as the program grew (tsc then refused the 11 arguments below).
+type NotesStmt = Database.Statement<unknown[]>
+const notesByRefStmts = new WeakMap<DB, Map<string, NotesStmt>>()
 export function notesByReference(db: DB, kind: 'sales' | 'purchase', bill: { id: number; partyId: number; date: string; ref: string }): number[] {
   const key = (a: string): string => (kind === 'sales' ? `${a}.number` : `COALESCE(NULLIF(TRIM(${a}.reference), ''), ${a}.number)`)
-  const cache = notesByRefStmts.get(db) ?? new Map<string, ReturnType<DB['prepare']>>()
+  const cache = notesByRefStmts.get(db) ?? new Map<string, NotesStmt>()
   notesByRefStmts.set(db, cache)
-  const stmt =
+  const stmt: NotesStmt =
     cache.get(kind) ??
-    db.prepare(
+    db.prepare<unknown[]>(
       `SELECT v.id FROM vouchers v JOIN voucher_types vt ON vt.id = v.voucher_type_id
        WHERE vt.kind = ? AND v.party_ledger_id = ? AND TRIM(v.reference) = ? AND v.date >= ? AND v.id <> ? AND ${IN_BOOKS}
          AND NOT EXISTS (SELECT 1 FROM line_links ll WHERE ll.to_voucher_id = v.id AND ll.link_type = 'return')
@@ -437,7 +441,7 @@ function guardDate(db: DB, company: CompanyInfo, date: string, today: string): v
   const fy = fyOf(date)
   if (fyIsClosed(db, fy.startYear)) throw new AppError('simple_year_closed', `FY ${fy.label} is closed — bin its closing journal to reopen the year`, { field: 'date' })
   const begin = company.booksBeginDate ?? `${company.booksFrom}-04-01`
-  if (date < begin) throw new AppError('simple_before_books', `The books begin on ${toDisplayDate(begin)}`, { field: 'date', params: { date: toDisplayDate(begin) } })
+  if (date < begin) throw new AppError('simple_before_books', `The books begin on ${toDisplayDate(begin)}`, { field: 'date', params: { date: begin } }) // ISO: mapError writes it in the reader's language
   const latest = addDaysISO(today, SIMPLE_MAX_DAYS_AHEAD)
   if (date > latest) throw new AppError('simple_far_future', `${toDisplayDate(date)} is more than ${SIMPLE_MAX_DAYS_AHEAD} days ahead`, { field: 'date' })
 }

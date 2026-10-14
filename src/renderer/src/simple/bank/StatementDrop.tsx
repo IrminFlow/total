@@ -141,7 +141,7 @@ export function StatementDrop({
         <div className="mt-3 flex flex-col gap-2" data-testid="bank-preview">
           <p className="text-body text-ink" data-testid="bank-preview-found" data-count={newLines.length}>
             {newLines.length
-              ? t('simple.bank.found', { file: source.fileName, count: newLines.length, from: toPlainDate(dates[0]!), to: toPlainDate(dates.at(-1)!) })
+              ? t('simple.bank.found', { file: source.fileName, count: newLines.length, from: toPlainDate(dates[0]!, t.lang), to: toPlainDate(dates.at(-1)!, t.lang) })
               : t('simple.bank.foundNone', { file: source.fileName })}
           </p>
           {preview.duplicateCount > 0 && <p className="text-small text-muted">{t('simple.bank.already', { count: preview.duplicateCount })}</p>}

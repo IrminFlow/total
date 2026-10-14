@@ -60,7 +60,7 @@ export function payablesWhy(owed: HomeOwed, today: string, t: Translate): string
     owed.overdue > 0
       ? t('simple.explain.payablesOverdue', { ...vars, overdue: money(owed.overdue) })
       : owed.nextDue
-        ? t('simple.explain.payables', { ...vars, name: owed.nextDue.name, date: shortDate(owed.nextDue.date, today) })
+        ? t('simple.explain.payables', { ...vars, name: owed.nextDue.name, date: shortDate(owed.nextDue.date, today, t.lang) })
         : t('simple.explain.payablesNoDate', vars)
   return join([first, advance])
 }
@@ -76,13 +76,13 @@ const result = (netProfit: number): 'profit' | 'loss' | 'none' => (netProfit > 0
 
 /** "How is my business doing": this month and the FY to date, signed — one sentence. */
 export function profitSentence(profit: HomeProfit, t: Translate): string {
-  if (profit.month.netProfit === 0 && profit.year.netProfit === 0) return t('simple.explain.profitNone', { from: toPlainDate(profit.year.from) })
+  if (profit.month.netProfit === 0 && profit.year.netProfit === 0) return t('simple.explain.profitNone', { from: toPlainDate(profit.year.from, t.lang) })
   return t('simple.explain.profit', {
     month: result(profit.month.netProfit),
     monthAmount: money(Math.abs(profit.month.netProfit)),
     year: result(profit.year.netProfit),
     yearAmount: money(Math.abs(profit.year.netProfit)),
-    from: toPlainDate(profit.year.from)
+    from: toPlainDate(profit.year.from, t.lang)
   })
 }
 
@@ -90,7 +90,7 @@ export function profitSentence(profit: HomeProfit, t: Translate): string {
 export function profitWhy(profit: HomeProfit, t: Translate): string {
   return profit.year.closingStock > 0
     ? t('simple.explain.profitStock', { stock: money(profit.year.closingStock) })
-    : t('simple.explain.profitPlain', { from: toPlainDate(profit.year.from) })
+    : t('simple.explain.profitPlain', { from: toPlainDate(profit.year.from, t.lang) })
 }
 
 /**
@@ -102,12 +102,12 @@ export function homeProfitWhy(profit: HomeProfit, t: Translate): string {
   const y = profit.year
   const l = y.lines
   if (l.sales === 0 && l.costOfGoods === 0 && l.otherIncome === 0 && l.expenses === 0 && y.netProfit === 0) {
-    return t('simple.explain.profitPlain', { from: toPlainDate(y.from) })
+    return t('simple.explain.profitPlain', { from: toPlainDate(y.from, t.lang) })
   }
   const stock = y.closingStock - y.openingStock
   return join([
     t('simple.why.home.profit', {
-      from: toPlainDate(y.from),
+      from: toPlainDate(y.from, t.lang),
       sales: money(l.sales),
       cost: money(l.costOfGoods),
       hasOther: l.otherIncome !== 0 ? 'yes' : 'no',
@@ -141,17 +141,17 @@ const DEADLINE_WHY: Partial<Record<Deadline['kind'], MessageKey>> = {
 
 /** WP 10.2 — a "Coming up" row's "Why?": what the date is for and the rule's day in words. */
 export function deadlineWhy(d: Pick<Deadline, 'kind' | 'form' | 'date'>, today: string, t: Translate): string {
-  return t(DEADLINE_WHY[d.kind] ?? 'simple.why.deadline.other', { date: shortDate(d.date, today), form: d.form })
+  return t(DEADLINE_WHY[d.kind] ?? 'simple.why.deadline.other', { date: shortDate(d.date, today, t.lang), form: d.form })
 }
 
 /** The dates the GST figures cover, in words: "September 2026", "Jul – Sep 2026", or
  *  "Oct 2026 so far" for a quarter still running. */
 export function gstPeriodLabel(gst: RegularGst, t: Translate): string {
   const r = gst.row
-  if (!r.quarterly || !r.from) return toMonthLabel(r.period, 'long')
+  if (!r.quarterly || !r.from) return toMonthLabel(r.period, 'long', t.lang)
   const first = r.from.slice(0, 7)
-  const vars = { from: toMonthLabel(first), to: toMonthLabel(r.period, 'long') }
-  if (r.soFar) return first === r.period ? t('simple.home.gstMonthSoFar', { month: toMonthLabel(r.period, 'long') }) : t('simple.home.gstQuarterSoFar', vars)
+  const vars = { from: toMonthLabel(first, 'short', t.lang), to: toMonthLabel(r.period, 'long', t.lang) }
+  if (r.soFar) return first === r.period ? t('simple.home.gstMonthSoFar', { month: toMonthLabel(r.period, 'long', t.lang) }) : t('simple.home.gstQuarterSoFar', vars)
   return t('simple.home.gstQuarter', vars)
 }
 
@@ -162,8 +162,8 @@ export function gstLine(gst: RegularGst, today: string, t: Translate): string {
   if (r.soFar) return t('simple.home.gstSoFar', { amount: money(Math.max(0, r.payable)) })
   if (!r.gstr3bDue) return t('simple.home.gstNoDate', { amount: money(Math.max(0, r.payable)), month: gstPeriodLabel(gst, t) })
   return r.payable > 0
-    ? t('simple.home.gstAmountBy', { amount: money(r.payable), date: shortDate(r.gstr3bDue, today) })
-    : t('simple.home.gstNothingDue', { date: shortDate(r.gstr3bDue, today) })
+    ? t('simple.home.gstAmountBy', { amount: money(r.payable), date: shortDate(r.gstr3bDue, today, t.lang) })
+    : t('simple.home.gstNothingDue', { date: shortDate(r.gstr3bDue, today, t.lang) })
 }
 
 /**
@@ -188,7 +188,7 @@ export function gstWhy(gst: RegularGst, today: string, t: Translate): string {
     r.payable <= 0
       ? t('simple.explain.gstNothing', vars)
       : r.gstr3bDue && !r.soFar
-        ? t('simple.explain.gst', { ...vars, payable: money(r.payable), date: shortDate(r.gstr3bDue, today) })
+        ? t('simple.explain.gst', { ...vars, payable: money(r.payable), date: shortDate(r.gstr3bDue, today, t.lang) })
         : t('simple.explain.gstNoDate', { ...vars, payable: money(r.payable) })
   return join([first, rcm > 0 ? t('simple.explain.gstRcm', { amount: money(rcm) }) : null, t('simple.explain.gstYouFile')])
 }
@@ -236,7 +236,7 @@ export function attentionText(item: HomeAttentionItem, period: string, t: Transl
     item.source === 'close'
       ? CLOSE_TEXT[item.key as CloseCheckKey] ?? 'simple.attention.close.other'
       : ANOMALY_TEXT[item.key as AnomalyKind] ?? 'simple.attention.anomaly.other'
-  return t(key, { count: item.count, month: toMonthLabel(period, 'long') })
+  return t(key, { count: item.count, month: toMonthLabel(period, 'long', t.lang) })
 }
 
 const DEADLINE_KEY: Partial<Record<Deadline['kind'], MessageKey>> = {
@@ -248,13 +248,13 @@ const DEADLINE_KEY: Partial<Record<Deadline['kind'], MessageKey>> = {
 
 export function deadlineText(d: Pick<Deadline, 'kind' | 'form' | 'date'>, today: string, t: Translate): string {
   const key = DEADLINE_KEY[d.kind] ?? 'simple.home.deadline.other'
-  return t(key, { date: shortDate(d.date, today), form: d.form })
+  return t(key, { date: shortDate(d.date, today, t.lang), form: d.form })
 }
 
 /** The GST link says what opens: the month's return, or (quarterly) the return month by month. */
 export function gstLinkLabel(gst: RegularGst, t: Translate): string {
   const r = gst.row
   return r.quarterly && r.from
-    ? t('simple.home.link.gstQuarter', { month: toMonthLabel(r.from.slice(0, 7), 'long') })
-    : t('simple.home.link.gst', { month: toMonthLabel(r.period, 'long') })
+    ? t('simple.home.link.gstQuarter', { month: toMonthLabel(r.from.slice(0, 7), 'long', t.lang) })
+    : t('simple.home.link.gst', { month: toMonthLabel(r.period, 'long', t.lang) })
 }
