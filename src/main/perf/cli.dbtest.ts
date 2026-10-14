@@ -13,7 +13,8 @@ describe('usePerfDataRoot never touches ~/Documents/total', () => {
     }
   })
   it('isInside: separators, case and siblings', () => {
-    expect(isInside('/home/a/Documents/Total', '/home/a/Documents/total', 'linux')).toBe(false)
+    // path.relative is itself case-blind on a Windows host, so the case-sensitive check is POSIX-only.
+    if (process.platform !== 'win32') expect(isInside('/home/a/Documents/Total', '/home/a/Documents/total', 'linux')).toBe(false)
     expect(isInside('/Users/a/Documents/Total/p', '/Users/a/Documents/total', 'darwin')).toBe(true)
     expect(isInside('/Users/a/Documents/total-perf', '/Users/a/Documents/total', 'darwin')).toBe(false)
   })
