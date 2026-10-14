@@ -180,6 +180,9 @@ describe('the simple shell', () => {
     render(withClient(<SimpleSection section="taxes" />))
     await waitFor(() => expect(screen.getByTestId('simple-taxes-composition').textContent).toContain('CMP-08'))
     for (const id of ['gst-summary', 'gst-sales', 'check-supplier-bills']) expect(screen.queryByTestId(`simple-entry-${id}`)).toBeNull()
+    // WP 9.9: the card opens Taxes (the CMP-08 / GSTR-4 dates).
+    fireEvent.click(screen.getByTestId('simple-taxes-composition-open'))
+    await waitFor(() => expect(useNav.getState().stack.at(-1)).toEqual({ name: 'simple-taxes' }))
     cleanup()
     render(withClient(<SimpleSection section="reports" />))
     await waitFor(() => expect(screen.getByTestId('simple-entry-how-am-i-doing')).toBeTruthy())

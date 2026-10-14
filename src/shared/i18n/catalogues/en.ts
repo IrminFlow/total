@@ -1024,6 +1024,7 @@ export const en = {
   'simple.taxes.gst.unregistered': 'You are not registered for GST, so there is nothing to file.',
   'simple.taxes.gst.compositionTitle': 'GST (Goods and Services Tax) — composition scheme',
   'simple.taxes.gst.composition': 'Composition scheme: CMP-08 and GSTR-4 are shown as reminders only.',
+  'simple.taxes.composition.open': 'See the dates',
   'simple.taxes.gst.step1': 'Add any missing bills',
   'simple.taxes.gst.step2': 'Check supplier bills against the GST portal',
   'simple.taxes.gst.step3': 'Prepare the GST files',
