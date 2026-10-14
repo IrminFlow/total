@@ -181,6 +181,38 @@ describe('Esc closes the topmost layer only (simple shell)', () => {
     expect(screen.getByTestId('help')).toBeTruthy()
   })
 
+  it('review: closing an autofocused dialog gives the keyboard back to its opener (simple shell; the full app as before)', async () => {
+    function Opener(): React.JSX.Element {
+      const [open, setOpen] = useState(false)
+      return (
+        <>
+          <button type="button" data-testid="opener" onClick={() => setOpen(true)}>
+            New account
+          </button>
+          {open && (
+            <Modal title="New account" onClose={() => setOpen(false)}>
+              <input aria-label="Name" data-testid="auto" autoFocus />
+            </Modal>
+          )}
+        </>
+      )
+    }
+    for (const shell of ['simple', null] as const) {
+      if (shell) document.documentElement.dataset.shell = shell
+      else delete document.documentElement.dataset.shell
+      render(<Opener />)
+      screen.getByTestId('opener').focus()
+      fireEvent.click(screen.getByTestId('opener'))
+      await waitFor(() => expect(document.activeElement).toBe(screen.getByTestId('auto')))
+      esc(screen.getByTestId('auto'))
+      await waitFor(() => expect(screen.queryByTestId('auto')).toBeNull())
+      if (shell) expect(document.activeElement).toBe(screen.getByTestId('opener'))
+      else expect(document.activeElement).toBe(document.body) // unchanged in the full app
+      cleanup()
+    }
+    delete document.documentElement.dataset.shell
+  })
+
   it('the full app (no dock provider): the panel is not a layer — Esc on the screen reaches the form as before', () => {
     const formEsc = vi.fn()
     render(<Stack dock={null} onFormEscape={formEsc} />)

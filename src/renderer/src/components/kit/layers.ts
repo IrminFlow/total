@@ -75,6 +75,12 @@ const consumesEscape = (t: EventTarget | null): boolean => t instanceof Element 
 export function useDialogLayer(ref: RefObject<HTMLElement | null>, onEscape: () => void): void {
   const onEscapeRef = useRef(onEscape)
   onEscapeRef.current = onEscape
+  // What had the keyboard when the layer was first rendered — before a child's autoFocus took it
+  // (by the effect below `activeElement` is already inside the layer when a field autofocuses).
+  const openerRef = useRef<HTMLElement | null>(null)
+  if (openerRef.current === null && typeof document !== 'undefined' && document.activeElement instanceof HTMLElement) {
+    openerRef.current = document.activeElement
+  }
 
   useEffect(() => {
     const previous = document.activeElement as HTMLElement | null
@@ -84,6 +90,19 @@ export function useDialogLayer(ref: RefObject<HTMLElement | null>, onEscape: () 
       ;(first ?? el).focus()
     }
     return () => {
+      // WP 10.5 (simple shell only — the full app restores exactly as before): an autofocused
+      // dialog remembered its own field, which is gone by now, so the keyboard fell to <body>;
+      // give it back to the control that opened the dialog.
+      const opener = openerRef.current
+      if (
+        document.documentElement.dataset.shell === 'simple' &&
+        (!previous || !previous.isConnected || el?.contains(previous)) &&
+        opener?.isConnected &&
+        !el?.contains(opener)
+      ) {
+        opener.focus()
+        return
+      }
       previous?.focus?.()
     }
   }, [ref])
