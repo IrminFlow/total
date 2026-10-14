@@ -94,7 +94,7 @@ function AnswerView({ turn, onAsk, onOpen, onEntry, busy }: {
   const a = turn.answer
   return (
     <div className="flex flex-col gap-2" data-testid="ask-turn">
-      <div className="self-end rounded-lg bg-panel-alt px-3 py-2 text-body-sm text-ink" data-testid="ask-question">
+      <div className="max-w-[85%] self-end rounded-lg border border-amber/40 bg-amber/10 px-3 py-2 text-body-sm text-ink" data-testid="ask-question">
         {turn.text}
       </div>
       {!a && !turn.failed && <p className="text-hint text-muted">{t('assist.panel.thinking')}</p>}

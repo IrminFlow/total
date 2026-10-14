@@ -297,10 +297,27 @@ export function entryAnswer(db: DB, company: CompanyInfo, intent: EntryIntent, i
   const screen = t(SCREEN_NAME[offer.prefill.screen])
   const sentences = [...r.readAs]
   if (offer.sentences.length) sentences.push(...offer.sentences)
-  else sentences.push(t(READ[offer.kind], { amount: intent.entry.amount != null ? money(intent.entry.amount) : '' }))
+  else sentences.push(t(READ[offer.kind], readVars(db, offer, intent.entry, t)))
   if (offer.missing) sentences.push(t('assist.entry.missing', { reason: offer.missing, screen }))
   sentences.push(env.canDraft ? t('assist.entry.notSaved', { screen }) : t('assist.entry.viewer'))
   return { ...base, sentences, entry: offer }
+}
+
+const HOW_TEXT = { cash: 'assist.entry.how.cash', upi: 'assist.entry.how.upi', card: 'assist.entry.how.card', bank: 'assist.entry.how.bank' } as const
+
+/** "You paid ₹500.00 in cash for tea (Office expenses)" — what the words were read as. */
+function readVars(db: DB, offer: AssistEntryOffer, s: AssistEntrySlots, t: Translate): Record<string, string> {
+  const p = offer.prefill
+  const nameOf = (id: number | undefined): string | null => (id ? ((db.prepare('SELECT name FROM ledgers WHERE id = ?').get(id) as { name: string } | undefined)?.name ?? null) : null)
+  const how = 'how' in p && p.how && p.how !== 'credit' ? t(HOW_TEXT[p.how]) : ''
+  const account = p.screen === 'simple-money-out' ? nameOf(p.payee ?? p.party) : p.screen === 'simple-money-in' ? nameOf(p.party) : null
+  const said = s.what ?? s.party ?? null
+  const what = said && account && said.toLowerCase() !== account.toLowerCase() ? `${said} (${account})` : (account ?? said)
+  return {
+    amount: s.amount != null ? money(s.amount) : '',
+    how,
+    what: what ? t(p.screen === 'simple-money-in' ? 'assist.entry.from' : 'assist.entry.for', { what }) : ''
+  }
 }
 
 const READ: Record<AssistEntrySlots['action'], MessageKey> = {

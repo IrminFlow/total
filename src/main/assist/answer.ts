@@ -204,11 +204,9 @@ function figureAnswer(db: DB, company: CompanyInfo, intent: Extract<AssistIntent
     const v = d.profit
     sentences.push(t(v >= 0 ? 'assist.figure.profit' : 'assist.figure.loss', { amount: money(Math.abs(v)), period: when }))
     figures.push(fig(Math.abs(v), src, pnlScreen))
-    const sales = d.sales
-    const expenses = d.expenses
-    if (sales !== 0 || expenses !== 0) {
-      sentences.push(t('assist.figure.profitParts', { sales: money(sales), expenses: money(expenses) }))
-      figures.push(fig(sales, src, pnlScreen), fig(expenses, src, pnlScreen))
+    if (d.sales !== 0 || d.expenses !== 0 || d.costOfGoods !== 0) {
+      sentences.push(t('assist.figure.profitParts', { sales: money(d.sales), cost: money(d.costOfGoods), expenses: money(d.expenses) }))
+      figures.push(fig(d.sales, src, pnlScreen), fig(d.costOfGoods, src, pnlScreen), fig(d.expenses, src, pnlScreen))
     }
     if (pnl.closingStock > 0) {
       sentences.push(t('simple.explain.profitStock', { stock: money(pnl.closingStock) }))
