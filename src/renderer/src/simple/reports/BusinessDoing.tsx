@@ -85,7 +85,7 @@ export function BusinessDoing(): React.JSX.Element {
 
 function Line({ id, op, label, paise, why, strong, sub, link }: { id: string; op: string; label: string; paise: number; why: string; strong?: boolean; sub?: string | null; link?: { label: string; screen: typeof PNL } }): React.JSX.Element {
   return (
-    <li className={`flex flex-wrap items-baseline gap-x-3 gap-y-1 py-2.5 ${strong ? 'border-t-2 border-ink/70' : 'border-t border-line'}`} data-testid={`doing-line-${id}`} data-paise={paise}>
+    <li className={`flex flex-wrap items-baseline gap-x-3 gap-y-1 py-2.5 ${strong ? 'border-t-2 border-ink/70' : 'border-t border-line first:border-t-0'}`} data-testid={`doing-line-${id}`} data-paise={paise}>
       <span aria-hidden="true" className="num w-4 shrink-0 text-center text-muted">
         {op}
       </span>
@@ -109,7 +109,7 @@ function DoingBody({ d }: { d: Doing }): React.JSX.Element {
   return (
     <>
       <section className={cardCls} aria-label={t('simple.reports.howAmIDoing')}>
-        <ul className="-mt-2.5" data-testid="doing-column">
+        <ul className="-my-1" data-testid="doing-column">
           <Line id="sales" op="" label={t('simple.reports.sales')} paise={l.sales} why={salesWhy(d, t)} />
           <Line
             id="cost"

@@ -1,6 +1,6 @@
 import { useState, type ReactNode } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
-import { gstPeriodOf, toMonthLabel, toPlainDate, toDisplayDateTime } from '@shared/dates'
+import { gstPeriodOf, toMonthLabel, toPlainDate } from '@shared/dates'
 import { mapError, type CaughtError } from '@shared/errors'
 import { stepsDone, type GstForm, type MissingBillsItem, type SimpleTaxes } from '@shared/simple/taxes'
 import type { HomeAttentionItem } from '@shared/simple/home'
@@ -18,6 +18,11 @@ const gst2bScreen = (period: string): { name: 'assistants'; tab: 'gst2b'; period
 const IMPORT_2B = { name: 'gstr2b' } as const // i18n-technical
 const GSTR1 = { name: 'gstr1' } as const // i18n-technical
 const FORMS: readonly GstForm[] = ['gstr1', 'gstr3b']
+/** An ISO timestamp as the local day, in plain words. */
+const localDay = (at: string): string => {
+  const d = new Date(at)
+  return toPlainDate(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`)
+}
 /** A month-end check as Home's attention row (its plain sentence). */
 const missingItem = (key: MissingBillsItem['key'], count: number): HomeAttentionItem => ({ source: 'close', key, count, amount: null, level: 'medium' }) // i18n-technical
 
@@ -191,11 +196,11 @@ function PrepareFiles({ x }: { x: Regular }): React.JSX.Element {
       <ul className="flex flex-col gap-2">
         {FORMS.map((form) => (
           <li key={form} className="flex flex-wrap items-center gap-3">
-            <Button size="sm" variant={x.prepared[form] ? 'secondary' : 'primary'} loading={busy === form} disabled={busy !== null} data-testid={`taxes-prepare-${form}`} onClick={() => void prepare(form)}>
+            <Button size="sm" variant={!x.prepared[form] && FORMS.find((f) => !x.prepared[f]) === form ? 'primary' : 'secondary'} loading={busy === form} disabled={busy !== null} data-testid={`taxes-prepare-${form}`} onClick={() => void prepare(form)}>
               {form === 'gstr1' ? t('simple.taxes.step3.prepare1') : t('simple.taxes.step3.prepare3b')}
             </Button>
             <span className="text-small text-muted" data-testid={`taxes-prepared-${form}`}>
-              {x.prepared[form] ? t('simple.taxes.gst.prepared', { date: toDisplayDateTime(new Date(x.prepared[form]!)) }) : t('simple.taxes.step3.notYet')}
+              {x.prepared[form] ? t('simple.taxes.gst.prepared', { date: localDay(x.prepared[form]!) }) : t('simple.taxes.step3.notYet')}
             </span>
           </li>
         ))}

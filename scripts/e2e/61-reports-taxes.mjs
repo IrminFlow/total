@@ -1,7 +1,9 @@
 // Scenario 61 — WP 9.9 Plain reports and Taxes (simple mode). (The plan's e2e 60 is reserved for
 // the growing "no-ledger-knowledge" beginner journey, so this one is 61.)
-//   1. The setup wizard: a regular, monthly-filing trader (Maharashtra GSTIN), no stock.
-//   2. A GST sale and a GST purchase last month (the Sell / Buy intents through simple:post).
+//   1. The setup wizard: a regular, monthly-filing trader (Maharashtra GSTIN) that keeps stock.
+//   2. A GST purchase and a GST sale of a product last month (the Buy / Sell intents through
+//      simple:post; item bills — an amount-only bill's GST is not in GSTR-1 / 3B yet, the queued
+//      GSTR-1 amount-only rate fix).
 //   3. Reports → How is my business doing: this year — sales / expenses / profit equal the P&L;
 //      the "Why?" sentence; the Accountant view is the T-form P&L. By month: 12 bars, last month's
 //      = the sales register.
@@ -69,7 +71,7 @@ await scenario('61-reports-taxes', async (h) => {
   await h.fill('setup-gstin', '27AAPFU0939F1ZV')
   await h.click('setup-filing-monthly')
   await h.click('setup-next')
-  await h.click('setup-stock-no')
+  await h.click('setup-stock-yes')
   await h.click('setup-next')
   await h.click('setup-start-fy')
   await h.click('setup-fresh-new')
@@ -92,12 +94,21 @@ await scenario('61-reports-taxes', async (h) => {
   const day = month === ym ? today : `${month}-10`
   const groups = await h.invoke('master:groups:list')
   const supplier = await h.invoke('master:ledgers:create', {
-    name: 'Shiv Wholesale', groupId: groups.find((g) => g.name === 'Sundry Creditors').id, openingBalance: 0, gstin: '27AAACS1234A1Z5', stateCode: '27', address: null,
+    name: 'Shiv Wholesale', groupId: groups.find((g) => g.name === 'Sundry Creditors').id, openingBalance: 0, gstin: '27AABCG3456H1ZN', stateCode: '27', address: null,
     taxType: null, gstRate: null, hsn: null, tdsSectionId: null, pan: null, creditDays: 30, exportType: null
   })
-  // Sale ₹10,000 + 18% GST, paid in cash (walk-in); purchase ₹6,000 + 18% on credit.
-  await h.invoke('simple:post', { intent: { clientId: 'e2e61-sale-0001', kind: 'sale', date: day, amount: { amount: 10_000_00, gstRate: 18 }, payment: { how: 'cash' } } })
-  await h.invoke('simple:post', { intent: { clientId: 'e2e61-buy-0001', kind: 'purchase', date: day, supplierId: supplier.id, billNo: 'SW/101', amount: { amount: 6_000_00, gstRate: 18 }, payment: { how: 'credit' } } })
+  const units = await h.invoke('master:units:list')
+  const nos = units.find((u) => u.symbol === 'Nos') ?? units[0]
+  const fan = (
+    await h.invoke('master:stockItems:quickCreate', {
+      item: { name: 'Table fan', groupId: null, unitId: nos.id, hsn: '8414', gstRate: 18, cessRate: null, openingQtyMilli: 0, openingValue: 0, barcode: null, reorderLevelMilli: null },
+      sellingPricePaise: 1_000_00,
+      purchasePricePaise: null
+    })
+  ).item
+  // Purchase 10 fans at ₹600 + 18% GST on credit; sell all 10 at ₹1,000 + 18%, paid in cash.
+  await h.invoke('simple:post', { intent: { clientId: 'e2e61-buy-0001', kind: 'purchase', date: day, supplierId: supplier.id, billNo: 'SW/101', items: [{ itemId: fan.id, qty: '10', rate: 600_00 }], payment: { how: 'credit' } } })
+  await h.invoke('simple:post', { intent: { clientId: 'e2e61-sale-0001', kind: 'sale', date: day, items: [{ itemId: fan.id, qty: '10', rate: 1_000_00 }], payment: { how: 'cash' } } })
   await page.reload()
   await page.waitForSelector('[data-screen="company-select"], [data-testid="simple-home"]', { state: 'attached', timeout: 20000 })
   if (await page.$('[data-screen="company-select"]')) await h.openCompany('Sharma Traders')
@@ -113,7 +124,7 @@ await scenario('61-reports-taxes', async (h) => {
   await page.waitForFunction((p) => document.querySelector('[data-testid="doing-line-profit"]')?.getAttribute('data-paise') === String(p), fyPl.netProfit)
   assertEq(await paise('doing-line-sales'), 10_000_00, 'sales before GST')
   assertEq(await paise('doing-line-profit'), fyPl.netProfit, 'profit = the P&L net profit')
-  assertEq(fyPl.netProfit, 4_000_00, 'profit ₹10,000 sold − ₹6,000 bought (no stock kept)')
+  assertEq(fyPl.netProfit, 4_000_00, 'profit ₹10,000 sold − ₹6,000 the fans cost (none left)')
   await h.click('why-doing-profit')
   assert((await text('[data-testid="why-doing-profit-sentence"]')).includes('You made a profit of ₹4,000.00'), 'the profit sentence')
   await page.keyboard.press('Escape')

@@ -283,7 +283,7 @@ export function cashNext30Why(c: SimpleCash, t: Translate): string {
   const low = Math.min(c.end, c.lowest?.amount ?? c.end)
   return join([
     t('simple.reports.cash.why', { now: money(c.now), in: money(c.moneyIn), out: money(c.moneyOut), date: shortDate(c.until, c.asOn), end: money(c.end) }),
-    c.lowest ? t('simple.reports.cash.lowest', { amount: money(c.lowest.amount), date: shortDate(c.lowest.date, c.asOn) }) : null,
+    c.lowest && c.lowest.amount < c.end ? t('simple.reports.cash.lowest', { amount: money(c.lowest.amount), date: shortDate(c.lowest.date, c.asOn) }) : null,
     low < 0 ? t('simple.reports.cash.belowZero') : null,
     (c.inBy.customers ?? 0) > 0 ? t('simple.reports.cash.estimate') : null
   ])
