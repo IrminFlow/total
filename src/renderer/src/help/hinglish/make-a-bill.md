@@ -24,4 +24,4 @@ Bheed wale counter par [Quick bill](total://screen/simple-quick-bill) use karein
 
 ## Apne bill dekhein
 
-[Sale ki list](total://screen/simple-sales) har bill dikhati hai, saath mein kitna paid hua aur kitna abhi baaki hai. Kisi bill ko kholkar use phir se print karein, payment likhein ya wapsi shuru karein.
+[Sale ki list](total://screen/simple-sales) har bill dikhati hai, saath mein kitne paise mile aur kitne abhi lene baaki hain. Kisi bill ko kholkar use phir se print karein, payment likhein ya wapsi shuru karein.

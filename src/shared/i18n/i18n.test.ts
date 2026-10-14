@@ -228,6 +228,7 @@ describe('catalogues', () => {
     expect(bannedWordsIn('लेज़र, जर्नल, कॉन्ट्रा, नैरेशन, संड्री, ग्रुप, गोदाम, एजिंग, आईटीसी, बीओएम, सेट-ऑफ, पर्टिकुलर्स').sort()).toEqual(
       ['ledger', 'journal', 'contra', 'narration', 'sundry', 'group', 'ITC', 'set-off', 'ageing', 'godown', 'BOM', 'particulars'].sort()
     )
+    expect(bannedWordsIn('बीआरएस और एसओए').sort()).toEqual(['BRS', 'SOA'])
     expect(bannedWordsIn('Vouchar banayein, lejar kholein, jarnal entry, godam mein maal')).toEqual(['voucher', 'ledger', 'journal', 'godown'])
     // Everyday words that only look alike stay allowed.
     expect(bannedWordsIn('बिल बनाएँ, पैसे आए, उधार, ग्राहक, सामान, जगह, बही')).toEqual([])

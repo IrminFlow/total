@@ -71,7 +71,9 @@ export const TRANSLATED_PATTERNS: { word: (typeof BANNED_WORDS)[number]; re: Reg
   { word: 'ageing', re: hiWord('एजिंग') },
   { word: 'godown', re: hiWord('गोडाउन|गोदाम') },
   { word: 'godown', re: /\bgod(?:a)?ams?\b/i },
-  { word: 'BOM', re: hiWord('बीओएम') }
+  { word: 'BOM', re: hiWord('बीओएम') },
+  { word: 'BRS', re: hiWord('बीआरएस') },
+  { word: 'SOA', re: hiWord('एसओए') }
 ]
 
 /** The banned words found in `text` (empty when clean). `allow` removes phrases first — a
