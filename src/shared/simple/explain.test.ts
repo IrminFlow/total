@@ -14,6 +14,16 @@ const t = translator('en')
 const hi = translator('hi')
 const TODAY = '2026-10-13'
 
+const zeroLines = { sales: 0, openingStock: 0, purchases: 0, closingStock: 0, costOfGoods: 0, profitOnGoods: 0, otherIncome: 0, expenses: 0, profit: 0 }
+/** A HomeProfit with only the net profits and stock set (the WP 8.6 sentences read nothing else). */
+function homeProfit(month: number, year: number, closingStock = 0): HomeProfit {
+  return {
+    month: { month: '2026-10', from: '2026-10-01', to: TODAY, netProfit: month, openingStock: 0, closingStock, lines: { ...zeroLines, profit: month }, topExpense: null },
+    year: { from: '2026-04-01', to: TODAY, netProfit: year, openingStock: 0, closingStock, lines: { ...zeroLines, profit: year }, topExpense: null },
+    previousMonth: { from: '2026-09-01', to: '2026-09-13', lines: zeroLines }
+  }
+}
+
 const owed = (o: Partial<HomeOwed> = {}): HomeOwed => ({ total: 0, parties: 0, overdue: 0, overdueBills: 0, oldest: null, nextDue: null, advances: 0, advanceParties: 0, ...o })
 const day = (amount: number, entries: number, loans = 0): { amount: number; entries: number; loans: number } => ({ amount, entries, loans })
 type Regular = Extract<HomeGst, { kind: 'regular' }>
@@ -76,10 +86,7 @@ describe('explain sentences (WP 8.6)', () => {
   })
 
   it('profit: one signed sentence for the month and the year; zero reads as no profit or loss', () => {
-    const p = (month: number, year: number, closingStock = 0): HomeProfit => ({
-      month: { month: '2026-10', from: '2026-10-01', to: TODAY, netProfit: month, openingStock: 0, closingStock },
-      year: { from: '2026-04-01', to: TODAY, netProfit: year, openingStock: 0, closingStock }
-    })
+    const p = (month: number, year: number, closingStock = 0): HomeProfit => homeProfit(month, year, closingStock)
     expect(profitSentence(p(150000, 8882000), t)).toBe('This month you made a profit of ₹1,500.00; since 1 Apr 2026 you made a profit of ₹88,820.00.')
     expect(profitSentence(p(-20000, 100), t)).toBe('This month you made a loss of ₹200.00; since 1 Apr 2026 you made a profit of ₹1.00.')
     expect(profitSentence(p(0, -500000), t)).toBe('This month you have no profit or loss yet; since 1 Apr 2026 you made a loss of ₹5,000.00.')

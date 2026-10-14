@@ -16,6 +16,7 @@ import type { HomeAttention, HomeOwed, SimpleHomeData } from '@shared/simple/hom
 const t = translator('en')
 const invoke = vi.fn()
 
+const LINES0 = { sales: 0, openingStock: 0, purchases: 0, closingStock: 0, costOfGoods: 0, profitOnGoods: 0, otherIncome: 0, expenses: 0, profit: 0 }
 const owed = (o: Partial<HomeOwed>): HomeOwed => ({ total: 0, parties: 0, overdue: 0, overdueBills: 0, oldest: null, nextDue: null, advances: 0, advanceParties: 0, ...o })
 
 function home(over: Partial<SimpleHomeData> = {}): SimpleHomeData {
@@ -34,8 +35,9 @@ function home(over: Partial<SimpleHomeData> = {}): SimpleHomeData {
       cash: 150000, bank: 2500000, total: 2650000
     },
     profit: {
-      month: { month: '2026-10', from: '2026-10-01', to: '2026-10-13', netProfit: -20000, openingStock: 0, closingStock: 100 },
-      year: { from: '2026-04-01', to: '2026-10-13', netProfit: 8882000, openingStock: 0, closingStock: 15400000 }
+      month: { month: '2026-10', from: '2026-10-01', to: '2026-10-13', netProfit: -20000, openingStock: 0, closingStock: 100, lines: { ...LINES0, profit: -20000 }, topExpense: null },
+      year: { from: '2026-04-01', to: '2026-10-13', netProfit: 8882000, openingStock: 0, closingStock: 15400000, lines: { ...LINES0, profit: 8882000 }, topExpense: null },
+      previousMonth: { from: '2026-09-01', to: '2026-09-13', lines: LINES0 }
     },
     gst: {
       kind: 'regular', filing: 'monthly', credit: { checked: 'none', awaiting: 0 },
@@ -116,9 +118,9 @@ describe('simple Home (WP 8.6)', () => {
     await open('cash', 'See each account’s balance today', { name: 'trial-balance', asOn: '2026-10-13', ledgerIds: [1, 2] })
     // WP 9.9: the GST tile opens the simple Taxes screen on its period.
     await open('gst', 'See what to pay and file for Sep 2026', { name: 'simple-taxes', period: '2026-09' })
-    await open('profit', 'Open the profit and loss report', { name: 'profit-loss' })
+    await open('profit', 'Open the profit and loss report', { name: 'profit-loss', from: '2026-04-01', to: '2026-10-13' })
     fireEvent.click(screen.getByTestId('simple-why-profit'))
-    expect((await screen.findByTestId('simple-why-profit-sentence')).textContent).toContain('₹1,54,000.00 of goods still on your shelf')
+    expect((await screen.findByTestId('simple-why-profit-sentence')).textContent).toContain('The goods you sold cost ₹1,54,000.00 less than everything you bought, because ₹1,54,000.00 more of the stock you bought is still on the shelf')
   })
 
   it('task buttons go where the one mapping says', async () => {

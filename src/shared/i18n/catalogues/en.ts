@@ -1085,8 +1085,8 @@ export const en = {
   'simple.reports.why.expensesNone': 'No running costs recorded from {from} to {to}.',
   'simple.reports.why.profit':
     '{result, select, profit {You made a profit of {amount}} loss {You made a loss of {amount}} other {No profit or loss}} from {from} to {to} — the same figure the full profit and loss report shows.',
-  'simple.reports.why.stockUp': 'Profit is higher than sales minus purchases because {amount} more stock is on the shelf than at the start — it is yours, not a cost.',
-  'simple.reports.why.stockDown': 'Profit is lower than sales minus purchases because you sold {amount} of the stock you already had at the start.',
+  'simple.reports.why.stockUp': 'The goods you sold cost {amount} less than everything you bought, because {amount} more of the stock you bought is still on the shelf than at the start — it is yours, not a cost, so profit is that much higher.',
+  'simple.reports.why.stockDown': 'The goods you sold cost {amount} more than what you bought, because you also sold {amount} of the stock you had at the start — so profit is that much lower.',
   'simple.reports.why.cash': '{total} in cash and bank on {date}: {cash} in cash and {bank} in {count, plural, one {# bank account} other {# bank accounts}}.',
   'simple.reports.why.cashOnly': '{total} in cash on {date}; no bank account is added yet.',
   'simple.reports.why.owed': 'On {date} customers owe you {receivable} and you owe suppliers {payable}, bill by bill.',
@@ -1211,6 +1211,59 @@ export const en = {
   'simple.taxes.withholding.source': 'Due dates: the 7th of the next month, and 30 April for March (the Income-tax rules on paying TDS / TCS).',
   'simple.taxes.withholding.openTds': 'Open TDS',
   'simple.taxes.withholding.openTcs': 'Open TCS',
+
+  // ---------- "Why?" for every Home / Reports / Taxes figure (WP 10.2, plan §1 principle 5, §5) ----------
+  // Sentences are built by shared/simple/explain*.ts from the figures the services returned.
+  'simple.why.link.pnl': 'Open the profit and loss report for {from} to {to}',
+  'simple.why.link.cashToday': 'See each account’s balance today',
+  'simple.why.link.forecast': 'Open the full cash forecast',
+  'simple.why.link.outstandings': 'See every open bill, party by party',
+  'simple.why.link.registers': 'Open the sales and purchase lists',
+  'simple.why.link.gstr1': 'Open GSTR-1 in the full app',
+  'simple.why.link.gstr3b': 'Open GSTR-3B in the full app',
+  'simple.why.link.tds': 'Open TDS in the full app',
+  'simple.why.link.tcs': 'Open TCS in the full app',
+  'simple.why.link.payroll': 'Open payroll in the full app',
+  'simple.why.home.profit':
+    'From {from} to today you sold {sales}; the goods cost {cost}{hasOther, select, yes {, other income added {other}} other {}}{hasExpenses, select, yes { and running costs came to {expenses}} other {}}, so {result, select, profit {the profit is {amount}} loss {the loss is {amount}} other {there is no profit or loss}}.',
+  'simple.why.home.stockUp': 'The goods you sold cost {amount} less than everything you bought, because {amount} more of the stock you bought is still on the shelf than at the start — it is yours, not a cost, so profit is that much higher.',
+  'simple.why.home.stockDown': 'The goods you sold cost {amount} more than what you bought, because you also sold {amount} of the stock you had at the start — so profit is that much lower.',
+  'simple.why.home.topExpense': 'The biggest running cost was {name}: {amount}.',
+  'simple.why.compare':
+    '{when, select, month {This month’s result is} other {The result is}} {dir, select, up {{amount} better than} down {{amount} worse than} other {the same as}} {when, select, month {the same days last month} other {the period before}} ({from} to {to}){part, select, sales {, mostly because sales went {partDir, select, up {up} other {down}} by {partAmount}} costOfGoods {, mostly because what the goods cost went {partDir, select, up {up} other {down}} by {partAmount}} otherIncome {, mostly because other income went {partDir, select, up {up} other {down}} by {partAmount}} expenses {, mostly because running costs went {partDir, select, up {up} other {down}} by {partAmount}} other {}}.',
+  'simple.why.deadline.tds': 'The TDS (tax deducted at source) you deduct in a month is paid to the government by the 7th of the next month, and by 30 April for March. The next date is {date}.',
+  'simple.why.deadline.pf': 'PF (provident fund) on your staff’s salaries for the month before is paid by {date}; the payroll screen shows how much.',
+  'simple.why.deadline.esi': 'ESI (employees’ state insurance) on your staff’s salaries for the month before is paid by {date}; the payroll screen shows how much.',
+  'simple.why.deadline.advanceTax': 'Income tax on this year’s profit is paid in parts during the year (advance tax). The next part is due {date}; your CA works out how much.',
+  'simple.why.deadline.other': '{form} is due {date}.',
+  'simple.why.cash.in': 'About {amount} should come in by {date}: {list}.',
+  'simple.why.cash.out': 'About {amount} should go out by {date}: {list}.',
+  'simple.why.cash.inNone': 'Nothing is expected to come in by {date}.',
+  'simple.why.cash.outNone': 'Nothing is expected to go out by {date}.',
+  'simple.why.cash.biggestIn': 'The biggest: {name}, about {amount} on {date}.',
+  'simple.why.cash.biggestOut': 'The biggest: {name}, about {amount} on {date}.',
+  'simple.why.cash.end': '{now} today, plus about {in} coming in, minus about {out} going out, leaves about {end} on {date}.',
+  'simple.why.cash.belowZero': 'On {date} it would go {amount} below zero — plan for that before then.',
+  'simple.why.owed.biggestReceivable': '{name} owes you the most: {amount}.',
+  'simple.why.owed.biggestPayable': 'You owe {name} the most: {amount}.',
+  'simple.why.byMonth.change': 'In {month} sales were {dir, select, up {{amount} more than} down {{amount} less than} other {the same as}} in {previous}.',
+  'simple.why.taxes.toPay':
+    'Of the {collected} you collected, {used} is covered by the GST on your purchases, so {cash} is left{rcm, select, yes {; with {rcmAmount} under reverse charge, always paid in cash, that makes {total}} other {}} — to pay by {date}.',
+  'simple.why.taxes.toPayNoCredit':
+    'No GST on your purchases can be used against the {collected} you collected, so all of it is paid in cash{rcm, select, yes {; with {rcmAmount} under reverse charge, also paid in cash, that makes {total}} other {}} — by {date}.',
+  'simple.why.taxes.toPayRcmOnly': 'The GST on your purchases covers what you collected; the {amount} under reverse charge is always paid in cash — by {date}.',
+  'simple.why.taxes.creditLeft': '{amount} of the GST on your purchases is left over; it is used in the next return.',
+  'simple.why.due.gstr1':
+    'GSTR-1 lists every sales bill of {period}; it is due {date}{quarterly, select, yes {, the 13th after the quarter because you file every three months} other {, the 11th of the next month}}.',
+  'simple.why.due.gstr3b':
+    'GSTR-3B sums up {period} and goes with the payment of {amount}; it is due {date}{quarterly, select, yes {, the 22nd or 24th after the quarter depending on your state} other {, the 20th of the next month}}.',
+  'simple.why.due.pmt06': 'Filing every three months, you still pay the GST of each of the quarter’s first two months by the 25th of the next month (form PMT-06): {dates}.',
+  'simple.why.due.cmp08': 'Under composition you pay a fixed share of your sales; CMP-08 states it for {from} to {to} and is due {date}, the 18th after the quarter.',
+  'simple.why.due.gstr4': 'GSTR-4 is the yearly return for {fy}; it is due {date}.',
+  'simple.why.withholding':
+    '{kind, select, tds {TDS you deduct} other {TCS you collect}} is the government’s money that you hold until you pay it: {total} is still to pay{late, select, yes {, and {lateAmount} of it is past its date} other {}}.',
+  'simple.why.withholdingAllPaid': 'Everything you {kind, select, tds {deducted} other {collected}} so far has been paid; this month’s {amount} is due {date}.',
+  'simple.why.withholdingOldest': 'The oldest is from {month}, due {date}.',
 
   // ---------- Opening setup (WP 8.7, §3 "Opening setup") ----------
   'simple.settings.openings': 'What you had on day one',

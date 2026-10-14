@@ -30,7 +30,20 @@ export function ReportHeader({ title, subtitle, accountant, testId }: { title: s
 }
 
 /** One figure with its "Why?" sentence (shared/simple/explain.ts) and the link to the figure. */
-export function WhyLink({ what, sentence, link, testId }: { what: string; sentence: string; link?: { label: string; screen: Screen }; testId: string }): React.JSX.Element {
+export function WhyLink({
+  what,
+  sentence,
+  link,
+  testId,
+  extra
+}: {
+  what: string
+  sentence: string
+  link?: { label: string; screen: Screen }
+  testId: string
+  /** WP 10.2: a second, quieter line under the sentence (a comparison, what is left over). */
+  extra?: string | null
+}): React.JSX.Element {
   const t = useT()
   const nav = useNav()
   return (
@@ -40,7 +53,13 @@ export function WhyLink({ what, sentence, link, testId }: { what: string; senten
       sentence={sentence}
       link={link ? { label: link.label, onOpen: () => nav.go(link.screen) } : undefined}
       testId={testId}
-    />
+    >
+      {extra && (
+        <p className="text-small text-muted" data-testid={`${testId}-extra`}>
+          {extra}
+        </p>
+      )}
+    </Why>
   )
 }
 
@@ -52,6 +71,7 @@ export function FigureTile({
   value,
   sub,
   why,
+  whyExtra,
   link,
   emphasis,
   children
@@ -63,6 +83,7 @@ export function FigureTile({
   value?: string
   sub?: string | null
   why: string
+  whyExtra?: string | null
   link?: { label: string; screen: Screen }
   emphasis?: boolean
   children?: ReactNode
@@ -80,7 +101,7 @@ export function FigureTile({
       )}
       {children}
       <div className="mt-2">
-        <WhyLink what={title} sentence={why} link={link} testId={`why-${id}`} />
+        <WhyLink what={title} sentence={why} extra={whyExtra} link={link} testId={`why-${id}`} />
       </div>
     </li>
   )

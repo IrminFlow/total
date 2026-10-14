@@ -23,7 +23,7 @@ import { depositDueDate } from '@shared/tdsInterest'
 import { tcsDepositDueDate } from '@shared/tcs'
 import { cmp08DueDate, gstr1DueDate, gstr3bDueDate, gstr4DueDate, pmt06DueDate } from '@shared/gst/filing'
 import {
-  GST_FILED_META_KEY, MISSING_BILL_CHECKS, gstPeriodChoices, gstPeriodFor, nextCompositionDue, normalizeArn, normalizeGstFiled,
+  GST_FILED_META_KEY, MISSING_BILL_CHECKS, creditParts, gstPeriodChoices, gstPeriodFor, nextCompositionDue, normalizeArn, normalizeGstFiled,
   type GstFiledInput, type GstFiledMeta, type GstFiledPeriod, type GstForm, type GstPeriod, type MissingBillsItem, type SimpleTaxes, type SupplierBillsMonth, type TaxesWithholding
 } from '@shared/simple/taxes'
 import { getFeatures, getGstProfile } from './config'
@@ -67,7 +67,8 @@ function withholdingAnswers(db: DB, today: string): TaxesWithholding[] {
       thisMonth: mine.reduce((s, w) => s + w.deducted.filter((d) => d.month === month).reduce((t, d) => t + d.amount, 0), 0),
       thisMonthDue: kind === 'tds' ? depositDueDate(`${month}-15`) : tcsDepositDueDate(`${month}-15`),
       unpaid,
-      totalUnpaid: unpaid.reduce((s, u) => s + u.amount, 0)
+      totalUnpaid: unpaid.reduce((s, u) => s + u.amount, 0),
+      lateUnpaid: unpaid.filter((u) => u.late).reduce((s, u) => s + u.amount, 0)
     }
   })
 }
@@ -137,7 +138,10 @@ export function simpleTaxes(db: DB, company: CompanyInfo, q: { period?: string }
         onPurchases: f.itc,
         awaiting: credit.awaiting,
         checked: credit.checked,
-        toPay: f.payable
+        toPay: f.payable,
+        cashOnSales: f.cashOnSales,
+        rcmCash: f.rcmCash,
+        ...creditParts(f.outwardTax, f.cashOnSales, f.itc)
       },
       due: {
         gstr1: gstr1DueDate(period.period, filing),

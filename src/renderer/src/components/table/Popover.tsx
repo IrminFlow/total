@@ -28,7 +28,9 @@ export function Popover({
   testId?: string
 }): React.JSX.Element {
   const ref = useRef<HTMLDivElement>(null)
-  const [pos, setPos] = useState<{ top: number; left: number }>({ top: 0, left: 0 })
+  // `bottom` (distance from the window's bottom edge) only for a panel opened above its anchor, so
+  // content that grows after placement grows upward, away from the anchor.
+  const [pos, setPos] = useState<{ top?: number; bottom?: number; left: number }>({ top: 0, left: 0 })
   const onCloseRef = useRef(onClose)
   onCloseRef.current = onClose
   const id = useId()
@@ -40,7 +42,14 @@ export function Popover({
       const vw = window.innerWidth || 1024
       let left = align === 'right' ? r.right - width : r.left
       left = Math.max(8, Math.min(left, vw - width - 8))
-      setPos({ top: r.bottom + 4, left })
+      // WP 10.2: a panel that would run past the window's bottom (a "Why?" on a low tile) opens
+      // above its anchor instead; one that fits is placed exactly as before.
+      const vh = window.innerHeight || 768
+      const h = ref.current?.offsetHeight ?? 0
+      const below = r.bottom + 4
+      const above = h > 0 && below + h > vh - 8 && r.top - 4 - h >= 8
+      const vb = document.documentElement.clientHeight || vh // the fixed-position viewport
+      setPos(above ? { bottom: vb - (r.top - 4), left } : { top: below, left })
     }
     place()
   }, [anchor, align, width])
@@ -92,7 +101,7 @@ export function Popover({
       id={id}
       data-testid={testId}
       data-table-popover=""
-      style={{ position: 'fixed', top: pos.top, left: pos.left, width }}
+      style={{ position: 'fixed', top: pos.top, bottom: pos.bottom, left: pos.left, width }}
       className="z-50 rounded-lg border border-line bg-raised p-3 text-detail text-ink shadow-elev-2"
     >
       {children}

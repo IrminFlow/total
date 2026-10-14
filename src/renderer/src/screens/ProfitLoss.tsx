@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { keepPreviousData, useQuery } from '@tanstack/react-query'
 import { api } from '../lib/client'
 import { useSession, useToasts } from '../state/stores'
@@ -16,14 +16,19 @@ const EXPORT_COLUMNS: PdfColumn[] = [
   { label: 'Amount', align: 'r' }
 ]
 
-export function ProfitLossScreen(): React.JSX.Element {
+export function ProfitLossScreen({ from: askedFrom, to: askedTo }: { from?: string; to?: string } = {}): React.JSX.Element {
   const { from: sessionFrom, to: sessionTo } = useSession()
   const toast = useToasts()
   // Local, on-screen range (user ask): seeded from the header period, editable here without
-  // touching the global session period other screens read.
-  const [from, setFrom] = useState(sessionFrom)
-  const [to, setTo] = useState(sessionTo)
+  // touching the global session period other screens read. WP 10.2: a simple "Why?" link may ask
+  // for the exact dates of the figure it explains; they seed the range instead (the session
+  // period is left alone, and a later change of it still applies). Without them: unchanged.
+  const [from, setFrom] = useState(askedFrom && askedTo ? askedFrom : sessionFrom)
+  const [to, setTo] = useState(askedFrom && askedTo ? askedTo : sessionTo)
+  const seededFor = useRef(askedFrom && askedTo ? `${sessionFrom}|${sessionTo}` : null)
   useEffect(() => {
+    if (seededFor.current === `${sessionFrom}|${sessionTo}`) return
+    seededFor.current = null
     setFrom(sessionFrom)
     setTo(sessionTo)
   }, [sessionFrom, sessionTo])

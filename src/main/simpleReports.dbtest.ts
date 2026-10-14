@@ -113,6 +113,25 @@ describe('simple:reports on Demo Traders (WP 9.9)', () => {
     expect(cash.now).toBe(sumTb(tbNow, year.cash.ledgerIds))
     expect(cash.end).toBe(cash.now + cash.moneyIn - cash.moneyOut)
     expect(Object.values(cash.inBy).reduce((s, v) => s + (v ?? 0), 0)).toBe(cash.moneyIn)
+    // WP 10.2: today's figure in parts = the trial balance's cash / bank rows; the below-zero day
+    // is a day the running balance (open + every flow up to it) is under zero, and the first one.
+    expect(cash.split.total).toBe(cash.now)
+    expect(cash.split.cash + cash.split.bank).toBe(cash.now)
+    expect(cash.split.ledgerIds.sort()).toEqual([...year.cash.ledgerIds].sort())
+    expect(Object.values(cash.outBy).reduce((s, v) => s + (v ?? 0), 0)).toBe(cash.moneyOut)
+    if (cash.belowZero) {
+      expect(cash.belowZero.amount).toBeLessThan(0)
+      expect(cash.belowZero.date <= cash.until).toBe(true)
+    } else if (cash.lowest) expect(cash.lowest.amount).toBeGreaterThanOrEqual(0)
+    if (cash.end < 0) expect(cash.belowZero).not.toBeNull()
+
+    // The profit line's comparison: its parts are the two P&Ls' own lines (previousLines = the
+    // previous period's P&L), so the change "mostly from" a line is a difference of P&L totals.
+    const month = await ok<BusinessDoing>('simple:reports:doing', { period: 'this-month', today: TODAY })
+    const plPrev = await ok<ProfitAndLoss>('report:profitLoss', { from: month.previous.from, to: month.previous.to })
+    expect(month.previousLines.profit).toBe(plPrev.netProfit)
+    expect(month.previousLines.sales).toBe(nodes(plPrev.tradingIncomes))
+    expect(month.previousLines.expenses).toBe(nodes(plPrev.indirectExpenses))
 
     // Who owes whom = Outstandings as on today.
     for (const side of ['receivable', 'payable'] as const) {
@@ -132,6 +151,8 @@ describe('simple:reports on Demo Traders (WP 9.9)', () => {
       expect(m.purchases, m.month).toBe(purchases.find((r) => r.month === m.month)?.taxable ?? 0)
     }
     expect(bm.months.some((m) => m.sales > 0)).toBe(true)
+    // WP 10.2: the 12 months' totals = the registers' rows summed.
+    expect(bm.totals).toEqual({ sales: sales.reduce((s, r) => s + r.taxable, 0), purchases: purchases.reduce((s, r) => s + r.taxable, 0) })
 
     // Read-only.
     expect(audit()).toBe(before)

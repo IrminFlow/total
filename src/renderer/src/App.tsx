@@ -238,7 +238,7 @@ export default function App(): React.JSX.Element {
           )}
           {screen.name === 'search' && <SearchResultsScreen key={`${screen.q ?? ''}|${screen.kind ?? ''}`} q={screen.q} kind={screen.kind} />}
           {screen.name === 'trial-balance' && <TrialBalanceScreen asOn={screen.asOn} ledgerIds={screen.ledgerIds} />}
-          {screen.name === 'profit-loss' && <ProfitLossScreen />}
+          {screen.name === 'profit-loss' && <ProfitLossScreen from={screen.from} to={screen.to} />}
           {screen.name === 'balance-sheet' && <BalanceSheetScreen />}
           {screen.name === 'cash-flow' && <CashFlowScreen />}
           {screen.name === 'exceptions' && <ExceptionsScreen />}
@@ -260,7 +260,7 @@ export default function App(): React.JSX.Element {
           {screen.name === 'stock-journal' && <StockJournalScreen key={screen.mode ?? 'transfer'} mode={screen.mode} />}
           {screen.name === 'stock-reports' && <StockReportsScreen key={screen.tab ?? 'reorder'} tab={screen.tab} />}
           {screen.name === 'ledger-statement' && <LedgerStatementScreen ledgerId={screen.ledgerId} />}
-          {screen.name === 'gstr1' && <Gstr1Screen />}
+          {screen.name === 'gstr1' && <Gstr1Screen initialMonth={screen.month} />}
           {screen.name === 'gstr3b' && <Gstr3bScreen initialMonth={screen.month} />}
           {screen.name === 'gstr2b' && <Gstr2bScreen />}
           {screen.name === 'edocs' && <EdocsScreen key={screen.tab ?? 'documents'} tab={screen.tab} />}

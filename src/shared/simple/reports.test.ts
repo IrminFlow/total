@@ -4,7 +4,7 @@
 import { describe, expect, it } from 'vitest'
 import { translator } from '../i18n'
 import { bannedWordsIn } from './bannedWords'
-import { doingLines, last12Months, monthBars, owedRows, previousSpan, reportSpan, topParts, type BusinessDoing, type SimpleCash } from './reports'
+import { doingLines, last12Months, monthBars, monthTotals, owedRows, previousSpan, reportSpan, topParts, type BusinessDoing, type SimpleCash } from './reports'
 import { byMonthWhy, cashNext30Why, costWhy, doingCashWhy, doingOwedWhy, doingProfitWhy, expensesWhy, owedListWhy, profitOnGoodsWhy, salesWhy } from './explain'
 import type { ProfitAndLoss, StatementNode } from '../reports'
 
@@ -81,7 +81,7 @@ describe('the one column', () => {
     expect(expensesWhy(d, t)).toBe('Running costs such as rent, salaries and electricity: ₹30,000.00. The biggest: Salary ₹18,000.00, Rent ₹12,000.00.')
     expect(doingProfitWhy(d, t)).toBe(
       'You made a profit of ₹24,000.00 from 1 Oct 2026 to 14 Oct 2026 — the same figure the full profit and loss report shows. ' +
-        'Profit is higher than sales minus purchases because ₹10,000.00 more stock is on the shelf than at the start — it is yours, not a cost. ' +
+        'The goods you sold cost ₹10,000.00 less than everything you bought, because ₹10,000.00 more of the stock you bought is still on the shelf than at the start — it is yours, not a cost, so profit is that much higher. ' +
         '₹4,000.00 more than the previous period (1 Sep 2026 to 14 Sep 2026).'
     )
     expect(doingCashWhy(d, t)).toBe('₹50,000.00 in cash and bank on 14 Oct 2026: ₹5,000.00 in cash and ₹45,000.00 in 1 bank account.')
@@ -97,7 +97,8 @@ describe('cash, owed, by month', () => {
   it('cash in the next 30 days: the sentence names the lowest point and a shortfall', () => {
     const c: SimpleCash = {
       asOn: '2026-10-14', until: '2026-11-12', now: 10_000_00, moneyIn: 4_000_00, moneyOut: 16_000_00, end: -2_000_00,
-      lowest: { amount: -3_000_00, date: '2026-10-20' }, inBy: { customers: 4_000_00 }, outBy: { suppliers: 16_000_00 }, topIn: [], topOut: [], warnings: 0
+      lowest: { amount: -3_000_00, date: '2026-10-20' }, inBy: { customers: 4_000_00 }, outBy: { suppliers: 16_000_00 }, topIn: [], topOut: [], warnings: 0,
+      split: { cash: 10_000_00, bank: 0, total: 10_000_00, ledgerIds: [1], banks: 0 }, belowZero: { amount: -1_000_00, date: '2026-10-18' }
     }
     expect(cashNext30Why(c, t)).toBe(
       'You have ₹10,000.00 today. About ₹4,000.00 should come in and ₹16,000.00 go out by 12 Nov, which leaves about -₹2,000.00. ' +
@@ -129,9 +130,9 @@ describe('cash, owed, by month', () => {
     const bars = monthBars(months, [{ month: '2026-09', taxable: 70_000_00, vouchers: 3 }, { month: '2026-10', taxable: 10_000_00, vouchers: 1 }], [{ month: '2026-09', taxable: 40_000_00, vouchers: 2 }])
     expect(bars.find((b) => b.month === '2026-09')).toEqual({ month: '2026-09', sales: 70_000_00, purchases: 40_000_00, salesBills: 3, purchaseBills: 2 })
     expect(bars.find((b) => b.month === '2026-01')).toEqual({ month: '2026-01', sales: 0, purchases: 0, salesBills: 0, purchaseBills: 0 })
-    expect(byMonthWhy({ months: bars, from: '2025-11-01', to: '2026-10-14' }, t)).toBe(
+    expect(byMonthWhy({ months: bars, from: '2025-11-01', to: '2026-10-14', totals: monthTotals(bars) }, t)).toBe(
       'Sales over the 12 months: ₹80,000.00; purchases: ₹40,000.00. The best month for sales was Sep 2026 (₹70,000.00).'
     )
-    expect(byMonthWhy({ months: monthBars(months, [], []), from: '', to: '' }, t)).toBe('No sales or purchase bills in the last 12 months.')
+    expect(byMonthWhy({ months: monthBars(months, [], []), from: '', to: '', totals: { sales: 0, purchases: 0 } }, t)).toBe('No sales or purchase bills in the last 12 months.')
   })
 })
