@@ -81,6 +81,10 @@ export const AUDIT_COVERAGE: Record<string, AuditCoverage> = {
   'simple:bank:lines': QUERY,
   'simple:bank:accept': a('simple_intent', 'voucher', 'ledger', 'voucher_line', 'bank_statement_line', 'bank_learned_rule'),
   'simple:preview': r('rehearses simple:post in a transaction that is always rolled back; writes nothing'),
+  // WP 9.10: the Accountant-view hand-off — an unsaved simple form's editor state (simple:post's
+  // mapping, rehearsed and rolled back) and the facts "Back to simple" maps a full screen with.
+  'simple:intentForm': r("maps the intent with simple:post's mapping in a transaction that is always rolled back; writes nothing"),
+  'simple:handoffTarget': QUERY,
   'company:delete': a('company'),
   'company:open': a('backup', 'voucher', 'audit_log', 'attachment'),
   'company:close': r('closes the database handle'),

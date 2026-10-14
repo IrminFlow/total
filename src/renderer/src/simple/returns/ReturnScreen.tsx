@@ -23,9 +23,10 @@ import { SaveCard } from '../SaveCard'
 import { BillPicker } from './BillPicker'
 import { ReturnLines } from './ReturnLines'
 import { RefundHow } from './RefundHow'
+import { useAccountantView } from '../../lib/handoff'
+import { AccountantViewButton } from '../AccountantViewButton'
 
 const F = { date: 'date', items: 'items', amount: 'amount', gstRate: 'gstRate', refund: 'refund' } as const satisfies Record<ReturnField, ReturnField> // i18n-technical: form field paths
-const NOTE_KIND = { sale: 'credit_note', purchase: 'debit_note' } as const // i18n-technical
 const INVALIDATE = ['simpleReturnBills', 'simpleReturnBill', 'simpleSales', 'simpleSale', 'simplePurchases', 'simplePurchase', 'stockItems', 'dashboard'] // i18n-technical: query keys
 
 const isDirty = (f: ReturnForm): boolean => f.amount != null || f.reason.trim() !== '' || Object.values(f.qty).some((q) => q.trim() !== '' && q.trim() !== '0')
@@ -191,10 +192,9 @@ export function ReturnScreen({ side, billId: initialBill }: { side: ReturnSide; 
     return () => window.removeEventListener('keydown', h, true)
   }, [])
 
-  const accountantView = (): void => {
-    if (savedIds) nav.go({ name: 'voucher-entry', voucherId: savedIds[0]! }) // i18n-technical
-    else nav.go({ name: 'voucher-entry', kindHint: NOTE_KIND[side] }) // i18n-technical
-  }
+  // WP 9.10: the saved note, or the full return editor with these answers filled in.
+  const openFull = useAccountantView(side === 'sale' ? 'simple-return-sale' : 'simple-return-purchase') // i18n-technical: screen names
+  const accountantView = (always: boolean): void => void openFull({ intent: dirty ? intent : null, savedId: savedIds?.[0] ?? null, always })
 
   const money = (p: number): string => formatPaise(p, { symbol: true })
   const partyLabel = (b: ReturnBill): string => (b.walkIn ? t('simple.sales.cashCustomer') : b.partyName)
@@ -209,9 +209,7 @@ export function ReturnScreen({ side, billId: initialBill }: { side: ReturnSide; 
           <h1 className="font-serif text-heading font-semibold tracking-tight text-ink">{sale ? t('simple.returns.titleSale') : t('simple.returns.titlePurchase')}</h1>
           <p className="mt-1 text-detail text-muted">{sale ? t('simple.returns.subtitleSale') : t('simple.returns.subtitlePurchase')}</p>
         </div>
-        <Button variant="ghost" data-testid="btn-return-accountant-view" title={t('simple.returns.accountantHint')} onClick={accountantView}>
-          {t('common.accountantView')}
-        </Button>
+        <AccountantViewButton testId="btn-return-accountant-view" title={t('simple.returns.accountantHint')} onOpen={accountantView} />
       </div>
 
       {savedIds ? (

@@ -260,3 +260,31 @@ describe('helpers', () => {
     expect(root.querySelectorAll('[data-ai-set]')).toHaveLength(3)
   })
 })
+
+describe('WP 9.10 review: a simple form handed off to the editor', () => {
+  it('opens pre-filled under the hand-off banner only (no first-entry hint)', async () => {
+    const base = invoke.getMockImplementation()!
+    invoke.mockImplementation(async (channel: string, payload?: unknown) =>
+      channel === 'report:dashboard' ? { ok: true, data: { voucherCount: 0 } } : base(channel, payload)
+    )
+    const handoff = {
+      from: 'simple-sell', kind: 'sale' as const, others: [], missing: [],
+      entry: { role: 'bill' as const, kind: 'sales' as const, voucherTypeId: 1, form: 'invoice' as const, state: STATE, amount: 10_620_000 }
+    }
+    useNav.setState({ stack: [{ name: 'gateway' }, { name: 'voucher-entry', handoff }] })
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    render(
+      <QueryClientProvider client={client}>
+        <VoucherEntry handoff={handoff} />
+        <DialogHost />
+      </QueryClientProvider>
+    )
+    expect((await screen.findByTestId('voucher-entry-mode', undefined, { timeout: 3000 })).getAttribute('data-mode')).toBe('invoice')
+    await waitFor(() => expect((screen.getAllByTestId('input-line-qty')[0] as HTMLInputElement).value).toBe('2'))
+    expect(screen.getByTestId('handoff-banner')).toBeTruthy()
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 50))
+    })
+    expect(screen.queryByTestId('voucher-first-hint')).toBeNull()
+  })
+})

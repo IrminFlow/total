@@ -31,9 +31,10 @@ import { SaveCard } from '../SaveCard'
 import { BuyLines } from './BuyLines'
 import { BuyAmount } from './BuyAmount'
 import { PaidNow } from './PaidNow'
+import { useAccountantView } from '../../lib/handoff'
+import { AccountantViewButton } from '../AccountantViewButton'
 
 const INCL_KEY = 'total-buy-incl' // i18n-technical: localStorage key (per company)
-const PURCHASE_KIND = 'purchase' as const // i18n-technical
 const PURCHASES_CATEGORY = 'purchases' as const // i18n-technical
 const AMOUNT_MODE = 'amount' as const // i18n-technical
 const DUPLICATE = 'simple_duplicate_bill' // i18n-technical: error code
@@ -273,10 +274,9 @@ export function RecordPurchase({ party, ask }: { party?: number; ask?: AskOpen<'
     return () => window.removeEventListener('keydown', h, true)
   }, [])
 
-  const accountantView = (): void => {
-    if (savedIds) nav.go({ name: 'voucher-entry', voucherId: savedIds[0]! }) // i18n-technical
-    else nav.go({ name: 'voucher-entry', kindHint: PURCHASE_KIND }) // i18n-technical
-  }
+  // WP 9.10: the saved bill, or the full purchase editor with these answers filled in.
+  const openFull = useAccountantView('simple-buy') // i18n-technical: screen name
+  const accountantView = (always: boolean): void => void openFull({ intent: dirty ? intent : null, savedId: savedIds?.[0] ?? null, always })
 
   const setIncl = (on: boolean): void => {
     try {
@@ -336,9 +336,7 @@ export function RecordPurchase({ party, ask }: { party?: number; ask?: AskOpen<'
               {t('simple.buy.snap')}
             </Button>
           )}
-          <Button variant="ghost" data-testid="btn-buy-accountant-view" title={t('simple.buy.accountantHint')} onClick={accountantView}>
-            {t('common.accountantView')}
-          </Button>
+          <AccountantViewButton testId="btn-buy-accountant-view" title={t('simple.buy.accountantHint')} onOpen={accountantView} />
         </div>
       </div>
 

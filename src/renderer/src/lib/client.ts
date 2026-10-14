@@ -10,6 +10,7 @@ import type { CaughtError, ErrorIssue, ErrorParams } from '@shared/errors'
 import type { SaveSummary } from '@shared/simple/saveCard'
 import type { HomeAttention, SimpleHomeData } from '@shared/simple/home'
 import type { SimpleIntentInput, SimplePostResult, SimplePreview } from '@shared/simple/intents'
+import type { HandoffFacts, IntentFormResult } from '@shared/simple/handoff'
 import type { BankAcceptItem, BankAcceptResult, BankSetup, BankView } from '@shared/simple/bank'
 import type { MoneyEntryView, MoneyOpenBill, MoneyRow, MoneySetup } from '@shared/simple/money'
 import type { BillsToPay, PeopleList, PersonUpdate, PersonView, ReminderVia } from '@shared/simple/people'
@@ -695,6 +696,10 @@ export const api = {
     /** WP 9.1: save an intent (idempotent by its clientId); the vouchers come back together for the save card. */
     post: (intent: SimpleIntentInput, today?: string, aiDraftId?: number) =>
       call<SimplePostResult>('simple:post', { intent, ...(today ? { today } : {}), ...(aiDraftId ? { aiDraftId } : {}) }),
+    /** WP 9.10: the editors' own form state for an unsaved intent (the Accountant-view hand-off; nothing saved). */
+    intentForm: (intent: SimpleIntentInput, today?: string) => call<IntentFormResult>('simple:intentForm', { intent, ...(today ? { today } : {}) }),
+    /** WP 9.10: what a voucher (kind, a note's original bill) / a ledger (a customer or supplier?) is — for "Back to simple". */
+    handoffTarget: (q: { voucherId?: number; ledgerId?: number }) => call<HandoffFacts>('simple:handoffTarget', q),
     /** WP 9.2: Make a bill's choices — customers, cash / bank accounts and their defaults. */
     sellSetup: () => call<SellSetup>('simple:sell:setup'),
     /** WP 9.2: the sales list — bills dated from…to with what is still due on each (as on today). */

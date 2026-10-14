@@ -13,9 +13,10 @@ import { confirmDialog } from '../../lib/dialogs'
 import { useNav, useSession } from '../../state/stores'
 import { Button, DateInput, Field, FieldError, isAnyModalOpen, Page, TextInput, useFormErrors } from '../../components/ui'
 import { SaveCard } from '../SaveCard'
+import { useAccountantView } from '../../lib/handoff'
+import { AccountantViewButton } from '../AccountantViewButton'
 
 const F = { date: 'date', counts: 'counts' } as const satisfies Record<CountField, CountField> // i18n-technical: form field paths
-const PHYSICAL_KIND = 'physical_stock' as const // i18n-technical
 
 const isDirty = (f: CountForm): boolean => Object.values(f.counted).some((v) => v.trim() !== '')
 
@@ -147,10 +148,9 @@ export function StockCount(): React.JSX.Element {
     return () => window.removeEventListener('keydown', h, true)
   }, [])
 
-  const accountantView = (): void => {
-    if (saved) nav.go({ name: 'voucher-entry', voucherId: saved.ids[0]! }) // i18n-technical
-    else nav.go({ name: 'voucher-entry', kindHint: PHYSICAL_KIND }) // i18n-technical
-  }
+  // WP 9.10: the saved count, or the full stock count form with these counts filled in.
+  const openFull = useAccountantView('simple-stock-count') // i18n-technical: screen name
+  const accountantView = (always: boolean): void => void openFull({ intent: dirty ? intent : null, savedId: saved?.ids[0] ?? null, always })
 
   const counted = Object.values(form.counted).filter((v) => v.trim() !== '').length
 
@@ -161,9 +161,7 @@ export function StockCount(): React.JSX.Element {
           <h1 className="font-serif text-heading font-semibold tracking-tight text-ink">{t('simple.stock.count')}</h1>
           <p className="mt-1 text-detail text-muted">{t('simple.stock.count.subtitle')}</p>
         </div>
-        <Button variant="ghost" data-testid="btn-count-accountant-view" title={t('simple.stock.count.accountantHint')} onClick={accountantView}>
-          {t('common.accountantView')}
-        </Button>
+        <AccountantViewButton testId="btn-count-accountant-view" title={t('simple.stock.count.accountantHint')} onOpen={accountantView} />
       </div>
 
       {saved ? (
