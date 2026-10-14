@@ -13,6 +13,8 @@ import { AiHelper } from '../simple/ai/AiHelper'
 import { PlainCaptureEstimate } from '../simple/ai/CaptureEstimatePlain'
 import { AssistantPanel, useAssistantPanel } from '../components/ai/AssistantPanel'
 import { useNav, useSession } from '../state/stores'
+import { DockModeContext, isPanelOpen } from '../components/kit'
+import { a11yProblems } from './helpers/a11yProblems'
 
 const invoke = vi.fn()
 let listener: ((e: unknown) => void) | null = null
@@ -430,5 +432,44 @@ describe('the capture estimate in plain words', () => {
     wrap(<PlainCaptureEstimate estimate={est} onClose={() => {}} onConfirm={() => {}} />)
     expect((await screen.findByTestId('text-capture-cost')).textContent).toBe('About $0.0300 to read 3 bills.')
     expect(screen.getByTestId('capture-estimate').textContent).toContain('Your AI service charges in US dollars.')
+  })
+})
+
+// WP 10.5: the AI helper screen and the plain AI drawer pass the simple a11y sweep; in the simple
+// shell the drawer is an Esc layer that can overlay the screen.
+describe('WP 10.5: keyboard and screen readers', () => {
+  it('Settings → AI helper, off and on: every control named and labelled', async () => {
+    wrap(<AiHelper />)
+    await screen.findByTestId('simple-ai-intro')
+    expect(a11yProblems()).toEqual([])
+    cleanup()
+    view = READY()
+    wrap(<AiHelper />)
+    await screen.findByTestId('simple-ai-intro')
+    await waitFor(() => expect(screen.getByTestId('simple-ai-status').textContent).not.toBe('Off'))
+    expect(a11yProblems()).toEqual([])
+  })
+
+  it('the plain AI drawer: a named complementary region, overlaying and an Esc layer in the simple shell', async () => {
+    view = READY()
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    render(
+      <QueryClientProvider client={client}>
+        <DockModeContext.Provider value="overlay">
+          <AssistantPanel />
+        </DockModeContext.Provider>
+      </QueryClientProvider>
+    )
+    await waitFor(() => expect(calls('ai:settings:get').length).toBeGreaterThan(0))
+    act(() => useAssistantPanel.getState().ask('Anything unusual?'))
+    await waitFor(() => expect(listener).not.toBeNull())
+    const panel = await screen.findByTestId('ai-panel-plain')
+    answerTurn()
+    await screen.findByTestId('ai-plain-answer')
+    expect(panel.tagName).toBe('ASIDE')
+    expect(panel.hasAttribute('data-overlay')).toBe(true)
+    expect(screen.getByRole('complementary', { name: panel.querySelector('h2')!.textContent! })).toBe(panel)
+    expect(isPanelOpen()).toBe(true)
+    expect(a11yProblems()).toEqual([])
   })
 })
