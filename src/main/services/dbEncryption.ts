@@ -17,8 +17,8 @@
 // The company's backups are converted after the swap (each one copied, rekeyed, quick-checked,
 // renamed over itself), so no plaintext backup is left behind a locked company — and none
 // encrypted behind an unlocked one. Electron-free.
-import { copyFileSync, existsSync, readdirSync, renameSync, rmSync } from 'fs'
-import { join } from 'path'
+import { closeSync, copyFileSync, existsSync, fsyncSync, openSync, readdirSync, renameSync, rmSync, statSync } from 'fs'
+import { dirname, join } from 'path'
 import type { DB } from '../db/connection'
 import { copyWithKey, isEncryptedFile, keyOfHandle, openDb, rekeyFile, removeDbFiles } from '../db/encryption'
 import { quickCheckOk } from '../db/backup'
@@ -93,11 +93,64 @@ export function prepareConvertedCopy(opts: ConvertOptions): string {
   }
 }
 
+/** fsync a file (libuv uses F_FULLFSYNC on macOS, so the bytes are on the disk, not only in its
+ *  cache) — the converted copy must be durable BEFORE it replaces the only other copy. */
+export function fsyncFile(path: string): void {
+  const fd = openSync(path, 'r+')
+  try {
+    fsyncSync(fd)
+  } finally {
+    closeSync(fd)
+  }
+}
+
+/** fsync a directory so a rename in it is durable (POSIX; Windows cannot open a directory — the
+ *  rename there is MoveFileEx, journalled by NTFS). Best effort. */
+export function fsyncDir(dir: string): void {
+  if (process.platform === 'win32') return
+  try {
+    const fd = openSync(dir, 'r')
+    try {
+      fsyncSync(fd)
+    } finally {
+      closeSync(fd)
+    }
+  } catch {
+    // a file system that cannot sync a directory
+  }
+}
+
 /** Step 4: the copy renamed over the original (same directory — atomic). Every handle on
- *  `dbPath` must be closed first. */
+ *  `dbPath` must be closed first. Refused (nothing changed, the copy removed) while the original
+ *  still has a WAL with frames in it: those frames belong to the OLD file — they were not in the
+ *  copy, and next to the new file they would be read as its pages. A cleanly closed WAL database
+ *  has no `-wal` (or an empty one after the TRUNCATE checkpoint). */
 export function commitConvertedCopy(tmp: string, dbPath: string): void {
+  const wal = `${dbPath}-wal`
+  if (existsSync(wal) && statSync(wal).size > 0) {
+    removeDbFiles(tmp)
+    throw new AppError('security_verify_failed', 'The books were still in use while being converted — nothing was changed; try again')
+  }
+  fsyncFile(tmp)
   renameSync(tmp, dbPath)
-  for (const p of [`${dbPath}-wal`, `${dbPath}-shm`, `${tmp}-journal`]) rmSync(p, { force: true })
+  fsyncDir(dirname(dbPath))
+  for (const p of [wal, `${dbPath}-shm`, `${tmp}-journal`]) rmSync(p, { force: true })
+}
+
+/** Remove what an interrupted conversion / restore / export may have left in a company folder:
+ *  `company.db.converting` (a copy of the books — PLAINTEXT when the lock was being taken off),
+ *  backups' `*.converting` / `*.restore-tmp`, and the encrypted export's plaintext snapshot.
+ *  Called before the company is opened; never touches the books or a finished backup. */
+export function removeLeftoverCopies(dbPath: string, backupsDir: string, exportsDir: string): void {
+  removeDbFiles(`${dbPath}.converting`)
+  const sweep = (dir: string, match: (f: string) => boolean): void => {
+    if (!existsSync(dir)) return
+    for (const f of readdirSync(dir)) if (match(f)) rmSync(join(dir, f), { force: true })
+  }
+  sweep(backupsDir, (f) => /\.db\.(converting|restore-tmp)(-journal|-wal|-shm)?$/.test(f))
+  // An export may still be writing its snapshot (it awaits the file encryption): only an old one.
+  const hourAgo = Date.now() - 60 * 60 * 1000
+  sweep(exportsDir, (f) => /^\.export-tmp-.*\.db(-journal|-wal|-shm)?$/.test(f) && statSync(join(exportsDir, f)).mtimeMs < hourAgo)
 }
 
 /** Steps 1–4 for a handle nothing else holds (tests): `db` is closed on success. */
@@ -134,6 +187,7 @@ export function convertBackups(dir: string, from: Buffer | null, to: Buffer | nu
       copyFileSync(path, tmp)
       rekeyFile(tmp, enc ? from : null, to)
       if (!quickCheckOk(tmp, to)) throw new Error('quick_check')
+      fsyncFile(tmp)
       renameSync(tmp, path)
       out.converted++
     } catch {
@@ -141,6 +195,7 @@ export function convertBackups(dir: string, from: Buffer | null, to: Buffer | nu
       out.failed.push(f)
     }
   }
+  if (out.converted) fsyncDir(dir)
   return out
 }
 

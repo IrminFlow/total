@@ -11,7 +11,8 @@ import { closeSync, existsSync, fsyncSync, openSync, readFileSync, renameSync, r
 import { join } from 'path'
 import { randomBytes } from 'crypto'
 import { companyScope, type SecretStore } from './secrets'
-import { isKeyEnvelope, type KeyEnvelope } from '../db/keyEnvelope'
+import { isKeyEnvelope, unwrapKeyAsync, WrongPassphraseError, type KeyEnvelope } from '../db/keyEnvelope'
+import { openDb } from '../db/encryption'
 
 export const ENVELOPE_FILE = 'company.key.json'
 export const ENVELOPE_SECRET = 'dbKeyEnvelope'
@@ -55,30 +56,49 @@ export function writeEnvelope(companyDir: string, slug: string, env: KeyEnvelope
   } catch {
     mirrored = false
   }
+  // A mirror that could not take the NEW envelope must not keep the old one: after a passphrase
+  // change the old passphrase would still open the books through it.
+  if (!mirrored) {
+    try {
+      store?.delete(companyScope(slug), ENVELOPE_SECRET)
+    } catch {
+      // nothing stored / no secure storage
+    }
+  }
   return { mirrored }
 }
 
 /** The envelope: the folder's copy, else the secret store's. Null when there is none. */
 export function readEnvelope(companyDir: string, slug: string, store: SecretStore | null): KeyEnvelope | null {
-  const file = envelopePath(companyDir)
-  if (existsSync(file)) {
+  return readEnvelopes(companyDir, slug, store)[0] ?? null
+}
+
+/** Every distinct envelope there is — the folder's first, then the secret store's when it differs.
+ *  The two can disagree (the folder put back from an older copy after a passphrase change, a
+ *  mirror write that failed): an unlock tries each, so either copy's passphrase opens the books. */
+export function readEnvelopes(companyDir: string, slug: string, store: SecretStore | null): KeyEnvelope[] {
+  const out: KeyEnvelope[] = []
+  const add = (text: string | null | undefined): void => {
+    if (!text) return
     try {
-      const v = JSON.parse(readFileSync(file, 'utf8')) as unknown
-      if (isKeyEnvelope(v)) return v
+      const v = JSON.parse(text) as unknown
+      if (isKeyEnvelope(v) && !out.some((e) => e.salt === v.salt && e.ct === v.ct)) out.push(v)
     } catch {
-      // fall through to the mirror
+      // unreadable copy: the other one may do
     }
   }
+  const file = envelopePath(companyDir)
   try {
-    const text = store?.get(companyScope(slug), ENVELOPE_SECRET)
-    if (text) {
-      const v = JSON.parse(text) as unknown
-      if (isKeyEnvelope(v)) return v
-    }
+    if (existsSync(file)) add(readFileSync(file, 'utf8'))
+  } catch {
+    // fall through to the mirror
+  }
+  try {
+    add(store?.get(companyScope(slug), ENVELOPE_SECRET))
   } catch {
     // no mirror (or no secure storage)
   }
-  return null
+  return out
 }
 
 /** Remove both copies (the passphrase was taken off). */
@@ -89,4 +109,26 @@ export function removeEnvelope(companyDir: string, slug: string, store: SecretSt
   } catch {
     // best effort
   }
+}
+
+/** The data key `passphrase` unwraps from one of `envelopes` AND that opens `dbPath` (an old
+ *  envelope from before the lock was turned off and on again unwraps a key of another file). Throws
+ *  WrongPassphraseError when none does — a wrong passphrase and a key of another file look alike. */
+export async function unlockKey(dbPath: string, envelopes: readonly KeyEnvelope[], passphrase: string): Promise<Buffer> {
+  for (const env of envelopes) {
+    let key: Buffer
+    try {
+      key = await unwrapKeyAsync(env, passphrase)
+    } catch (err) {
+      if (err instanceof WrongPassphraseError) continue
+      throw err
+    }
+    try {
+      openDb(dbPath, { readonly: true, fileMustExist: true, key }).close()
+      return key
+    } catch {
+      // this envelope's key belongs to another file
+    }
+  }
+  throw new WrongPassphraseError()
 }
