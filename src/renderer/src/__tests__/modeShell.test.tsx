@@ -108,7 +108,7 @@ describe('the simple shell', () => {
     expect(Array.from(entries).map((e) => e.textContent)).toEqual(['Home', 'Sell', 'Buy', 'Money', 'Stock', 'People', 'Reports', 'Taxes', 'Settings'])
     expect(screen.getByTestId('simple-nav-home').getAttribute('aria-current')).toBe('page')
     expect(screen.getByTestId('btn-search').textContent).toBe('Search ⌘K')
-    expect(screen.getByTestId('btn-assistant').textContent).toBe('Assistant ⌘J')
+    expect(screen.getByTestId('btn-assistant').textContent).toBe('Ask Total ⌘J') // WP 10.1: the simple header's button opens Ask Total
     expect(screen.queryByTestId('nav-gateway')).toBeNull()
 
     fireEvent.click(screen.getByTestId('counter'))

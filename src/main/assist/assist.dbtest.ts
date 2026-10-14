@@ -71,6 +71,36 @@ const count = (sql: string): number => {
   }
 }
 
+describe('Ask Total entry drafts for a bill and a purchase (stock on, not registered)', () => {
+  it('"sold 3 bags to Sita for 900" → Make a bill pre-filled (₹300 a bag); its intent saves through simple:post and consumes the draft', async () => {
+    const { slug: s2 } = await ok<{ slug: string }>('simple:setup', { name: 'Ask Stock Traders', stateCode: '27', businessType: 'trader', gst: 'no', stock: true, startDate: '2025-04-01', fresh: true })
+    await ok('company:open', { slug: s2 })
+    const groups = await ok<{ id: number; name: string }[]>('master:groups:list')
+    const sita = (await ok<{ id: number }>('master:ledgers:create', { name: 'Sita Stores', groupId: groups.find((g) => g.name === 'Sundry Debtors')!.id, stateCode: '27' })).id
+    const mohan = (await ok<{ id: number }>('master:ledgers:create', { name: 'Mohan Wholesale', groupId: groups.find((g) => g.name === 'Sundry Creditors')!.id, stateCode: '27' })).id
+    const units = await ok<{ id: number; symbol: string }[]>('master:units:list')
+    const bag = (await ok<{ id: number }>('master:stockItems:create', { name: 'Bag', unitId: units[0]!.id })).id
+    // Buy 10 bags for ₹2,000 (₹200 a bag) first, so the sale has stock.
+    const buy = (await ask('bought 10 bags from Mohan Wholesale for 2000')).entry!
+    expect(buy.prefill).toEqual({ screen: 'simple-buy', party: mohan, itemId: bag, qtyMilli: 10000, rate: 20000, how: 'credit' })
+    expect(buy.missing).toBeNull()
+    const bd = await ok<AssistDraftResult>('assist:draft', { text: 'bought 10 bags from Mohan Wholesale for 2000', today: T })
+    await ok('simple:post', { intent: { ...(buy.intent as object), clientId: 'ask-buy-000001' }, today: T, aiDraftId: bd.draftId })
+    const sale = (await ask('sold 3 bags to Sita for 900')).entry!
+    // ₹900 for 3 bags = ₹300 a bag (as the user priced it).
+    expect(sale.prefill).toEqual({ screen: 'simple-sell', party: sita, itemId: bag, qtyMilli: 3000, rate: 30000, how: 'credit' })
+    expect(sale.missing).toBeNull()
+    expect(sale.intent).toMatchObject({ kind: 'sale', customerId: sita, items: [{ itemId: bag, qty: 3000, rate: 30000 }] })
+    const sd = await ok<AssistDraftResult>('assist:draft', { text: 'sold 3 bags to Sita for 900', today: T })
+    await ok('simple:post', { intent: { ...(sale.intent as object), clientId: 'ask-sale-00001' }, today: T, aiDraftId: sd.draftId })
+    const drafts = await ok<AiDraftDto[]>('ai:drafts', {})
+    expect(drafts.filter((d) => [bd.draftId, sd.draftId].includes(d.id)).map((d) => d.status)).toEqual(['consumed', 'consumed'])
+    // Sita owes ₹900; 7 bags left.
+    expect(paise(await ask('does Sita owe me'))).toContain(90000)
+    expect((await ask('how many bags left')).sentences[0]).toContain('7')
+  })
+})
+
 describe('Ask Total on hand-worked books', () => {
   it('sets up a regular trader with one sale, one purchase and rent (all in September 2025)', async () => {
     slug = (
