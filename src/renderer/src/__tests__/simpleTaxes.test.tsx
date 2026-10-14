@@ -68,13 +68,23 @@ describe('Taxes — regular GST (WP 9.9)', () => {
     expect(screen.getByTestId('tile-gst-purchases-sub').textContent).toBe('of which ₹1,200.00 awaits confirmation in GSTR-2B')
     expect(screen.getByTestId('tile-gst-to-pay-value').textContent).toBe('₹7,200.00')
     expect(screen.getByTestId('tile-gst-to-pay-sub').textContent).toBe('by 20 Oct')
-    expect(screen.getByTestId('taxes-due-gstr1').textContent).toBe('GSTR-1 (the list of your sales bills): by 11 Oct 2026')
+    // Today is 13 Oct: the 11th has gone by (and GSTR-1 is not noted as filed), the 20th not yet.
+    expect(screen.getByTestId('taxes-due-gstr1').textContent).toBe('GSTR-1 (the list of your sales bills): by 11 Oct 2026— this date has passed; file it as soon as you can')
     expect(screen.getByTestId('taxes-due-gstr3b').textContent).toBe('GSTR-3B (the summary, with the payment): by 20 Oct 2026')
+    expect(screen.queryByTestId('taxes-due-gstr3b-passed')).toBeNull()
     fireEvent.click(screen.getByTestId('why-gst-to-pay'))
     expect((await screen.findByTestId('why-gst-to-pay-sentence')).textContent).toContain('₹7,200.00 is left to pay in cash by 20 Oct')
     expect(bannedWordsIn(visibleText())).toEqual([])
     fireEvent.click(screen.getByTestId('taxes-accountant-view'))
     await waitFor(() => expect(lastScreen()).toEqual({ name: 'gstr3b', month: '2026-09' }))
+  })
+
+  it('a passed date says so until that return is noted as filed', async () => {
+    reply = { ...REGULAR, today: '2026-10-25', filed: { gstr1: { arn: 'AA270926123456X', date: '2026-10-11', by: null, at: '' } } }
+    renderUi(<TaxesScreen />)
+    expect(await screen.findByTestId('taxes-due-gstr3b-passed')).toBeTruthy()
+    expect(screen.queryByTestId('taxes-due-gstr1-passed')).toBeNull()
+    expect(bannedWordsIn(visibleText())).toEqual([])
   })
 
   it('"not checked yet" when no GSTR-2B is imported', async () => {

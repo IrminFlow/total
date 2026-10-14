@@ -1147,6 +1147,7 @@ export const en = {
   'simple.taxes.due.title': 'Dates',
   'simple.taxes.due.gstr1': 'GSTR-1 (the list of your sales bills): by {date}',
   'simple.taxes.due.gstr3b': 'GSTR-3B (the summary, with the payment): by {date}',
+  'simple.taxes.due.passed': '— this date has passed; file it as soon as you can',
   'simple.taxes.due.unverified': 'Your state isn’t in the rule’s list, so the earlier 22nd is shown — check the date with your CA.',
   'simple.taxes.due.pmt06': 'In the first two months of the quarter, pay that month’s GST by the 25th of the next month (form PMT-06): {dates}. Total does not work out those amounts yet — ask your CA.',
   'simple.taxes.due.source': 'Dates from the CGST Rules (rule 61) and the GSTR-1 notification; one-off extensions are not shown.',

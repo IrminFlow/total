@@ -100,8 +100,17 @@ function GstAnswer({ x }: { x: Regular }): React.JSX.Element {
       <section className={`${cardCls} mt-4`} data-testid="taxes-dates">
         <h2 className="text-subtitle font-semibold text-ink">{t('simple.taxes.due.title')}</h2>
         <ul className="mt-2 flex flex-col gap-1 text-body text-ink">
-          <li data-testid="taxes-due-gstr1">{t('simple.taxes.due.gstr1', { date: toPlainDate(x.due.gstr1) })}</li>
-          <li data-testid="taxes-due-gstr3b">{t('simple.taxes.due.gstr3b', { date: toPlainDate(x.due.gstr3b) })}</li>
+          {(['gstr1', 'gstr3b'] as const).map((form) => ( // i18n-technical
+            <li key={form} data-testid={`taxes-due-${form}`}>
+              {form === 'gstr1' ? t('simple.taxes.due.gstr1', { date: toPlainDate(x.due.gstr1) }) : t('simple.taxes.due.gstr3b', { date: toPlainDate(x.due.gstr3b) })}
+              {/* Review fix: a date already gone by, for a return not noted as filed, says so. */}
+              {x.today > x.due[form] && !x.filed[form] && (
+                <span className="ml-2 font-medium text-warning" data-testid={`taxes-due-${form}-passed`}>
+                  {t('simple.taxes.due.passed')}
+                </span>
+              )}
+            </li>
+          ))}
         </ul>
         {x.due.gstr3bUnverified && <p className="mt-1 text-small text-muted">{t('simple.taxes.due.unverified')}</p>}
         {x.due.pmt06.length > 0 && (
