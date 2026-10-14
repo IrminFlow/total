@@ -21,7 +21,7 @@ import {
   ANOMALY_HOME_CAP, attentionItems, BACKUP_NUDGE_DAYS, daysSince, owedSummary,
   type HomeAttention, type HomeCash, type HomeGst, type HomeGstCredit, type HomeMoneyDay, type HomeProfitPeriod, type SimpleHomeData
 } from '@shared/simple/home'
-import { GST_FILED_META_KEY, normalizeGstFiled, type GstFiledMeta } from '@shared/simple/taxes'
+import { GST_FILED_META_KEY, gstPeriodEnd, gstStartsOn, normalizeGstFiled, type GstFiledMeta } from '@shared/simple/taxes'
 import { doingLines, previousSpan, topParts } from '@shared/simple/reports'
 import type { ProfitAndLoss } from '@shared/reports'
 import { descendantIdSet, profitAndLoss } from './reports'
@@ -133,7 +133,8 @@ function compute(db: DB, company: CompanyInfo, opts: { today: string; backups: D
 
   // ---- GST: the Gateway's row for a regular registration; composition gets its note ----
   const filing = company.gstRegistrationType === 'regular' ? getGstProfile(db).filing : 'monthly'
-  const gstRow = dashGst(db, company, today)
+  // WP 10.8: never a return period that ended before the books (or the registration) began.
+  const gstRow = dashGst(db, company, today, gstStartsOn(company.booksBeginDate, company.gstRegistrationSince))
   const gst: HomeGst | null = gstRow
     ? { kind: 'regular', filing, row: gstRow, credit: gstCredit(db, gstRow.from ?? `${gstRow.period}-01`, gstRow.to ?? gstRow.from ?? `${gstRow.period}-01`) }
     : company.gstRegistrationType === 'composition'
@@ -233,7 +234,10 @@ export function simpleHomeAttention(db: DB, company: CompanyInfo, today: string)
   return db.transaction((): HomeAttention => {
     const fy = fyOf(today)
     const period = addMonths(monthOf(today), -1)
-    const checks = closeChecklist(db, company, period, today).checks
+    // WP 10.8: a business whose books began after that month has nothing to close for it (a
+    // company started today is not told "GST files for last month are not prepared").
+    const startsOn = gstStartsOn(company.booksBeginDate, null)
+    const checks = startsOn && gstPeriodEnd({ period }) < startsOn ? [] : closeChecklist(db, company, period, today).checks
     const count = (db.prepare(`SELECT COUNT(*) AS n FROM vouchers v WHERE v.date BETWEEN ? AND ? AND ${IN_BOOKS}`).get(fy.from, today) as { n: number }).n
     const anomaliesSkipped = count > ANOMALY_HOME_CAP
     const found = anomaliesSkipped ? [] : anomalies(db, fy.from, today).rows
