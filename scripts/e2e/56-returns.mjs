@@ -184,9 +184,10 @@ await scenario('56-returns', async (h) => {
   assert((await text('rows-simple-sales')).includes('Paid'), 'the bill is still paid')
   await h.click('simple-nav-people')
   await h.click('simple-entry-who-owes')
-  await h.waitScreen('outstandings')
+  await h.waitScreen('simple-people')
+  await attached(h, '[data-testid="people-totals"]')
+  assertEq(await page.getAttribute('[data-testid="people-totals"]', 'data-owes-you'), '0', 'People: customers owe nothing after the return')
   // The bill list now says what came back.
-  await h.click('btn-back-to-simple')
   await h.click('simple-nav-sell')
   await h.click('simple-entry-sale-returns')
   await h.waitScreen('simple-return-sale')
