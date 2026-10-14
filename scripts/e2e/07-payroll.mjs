@@ -4,7 +4,7 @@
 //
 // RECONCILE: lane S4 moves the renderer preview to the server (payroll:preview) — once merged,
 // assert the Payroll screen's preview table shows these same figures.
-import { scenario, assert, assertEq } from '../lib/harness.mjs'
+import { scenario, assert, assertEq, localToday } from '../lib/harness.mjs'
 
 await scenario('07-payroll', async (h) => {
   await h.createDemoCompany()
@@ -26,7 +26,7 @@ await scenario('07-payroll', async (h) => {
     }
   })
 
-  const month = new Date().toISOString().slice(0, 7)
+  const month = localToday().slice(0, 7)
   const preview = await h.invoke('payroll:preview', { month, days: [] })
   assertEq(preview.length, 2, 'preview covers both employees')
   for (const line of preview) {
@@ -44,7 +44,7 @@ await scenario('07-payroll', async (h) => {
   assertEq(commitGross, previewGross, 'preview/commit gross parity')
 
   // The books still tie with the salary voucher in.
-  const today = new Date().toISOString().slice(0, 10)
+  const today = localToday()
   const tb = await h.invoke('report:trialBalance', { asOn: today })
   assertEq(tb.totalDebit, tb.totalCredit, 'TB ties after payroll commit')
 

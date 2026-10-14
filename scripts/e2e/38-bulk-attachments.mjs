@@ -10,7 +10,7 @@ import * as fs from 'node:fs'
 import * as os from 'node:os'
 import * as path from 'node:path'
 import { createHash } from 'node:crypto'
-import { scenario, assert, assertEq } from '../lib/harness.mjs'
+import { scenario, assert, assertEq, localToday } from '../lib/harness.mjs'
 
 await scenario('38-bulk-attachments', async (h) => {
   await h.createCompanyUI('Bulk Files Co')
@@ -39,7 +39,7 @@ await scenario('38-bulk-attachments', async (h) => {
   const cash = (await h.invoke('master:ledgers:list')).find((l) => l.name === 'Cash').id
   const types = await h.invoke('master:voucherTypes:list')
   const typeOf = (k) => types.find((t) => t.kind === k).id
-  const today = new Date().toISOString().slice(0, 10)
+  const today = localToday()
   const header = {
     reference: null, instrumentNo: null, instrumentDate: null, transporterId: null, vehicleNo: null,
     transportDistanceKm: null, currencyCode: null, exchangeRate: null, inventory: [], billRefs: [], tds: null

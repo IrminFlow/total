@@ -25,13 +25,16 @@ describe('plain dates follow the language', () => {
     for (const root of ROOTS) {
       for (const file of files(root)) {
         const text = readFileSync(file, 'utf8')
+        // Split once per file (WP 7.4: splitting the whole file again for every call expression
+        // made this test take > 5 s on a loaded machine).
+        const lines = text.split('\n')
         const sf = ts.createSourceFile(file, text, ts.ScriptTarget.Latest, true, file.endsWith('x') ? ts.ScriptKind.TSX : ts.ScriptKind.TS)
         const visit = (n: ts.Node): void => {
-          if (ts.isCallExpression(n) && ts.isIdentifier(n.expression)) {
-            const need = NEEDS[n.expression.text]
+          if (ts.isCallExpression(n) && ts.isIdentifier(n.expression) && NEEDS[n.expression.text]) {
+            const need = NEEDS[n.expression.text]!
             const line = sf.getLineAndCharacterOfPosition(n.getStart()).line
-            const technical = text.split('\n')[line]?.includes('i18n-technical')
-            if (need && n.arguments.length < need && !technical) offenders.push(`${relative(resolve(__dirname, '../..'), file)}:${line + 1} ${n.getText().slice(0, 80)}`)
+            const technical = lines[line]?.includes('i18n-technical')
+            if (n.arguments.length < need && !technical) offenders.push(`${relative(resolve(__dirname, '../..'), file)}:${line + 1} ${n.getText().slice(0, 80)}`)
           }
           ts.forEachChild(n, visit)
         }
@@ -39,5 +42,7 @@ describe('plain dates follow the language', () => {
       }
     }
     expect(offenders).toEqual([])
-  })
+    // Parses every simple source with the TypeScript compiler: ~1 s idle, > 5 s (vitest's
+    // default) on a loaded machine.
+  }, 30_000)
 })

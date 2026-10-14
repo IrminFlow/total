@@ -253,8 +253,21 @@ export function focusedIndicatorInPage(rest) {
   return { ok: outline || changed, what }
 }
 
-/** Wait (best effort, ≤ 3 s) until no finite animation / transition is still running. */
+/** Wait (best effort) until nothing on the page is still loading — no `[data-loading="true"]`
+ *  screen and no `[data-state="loading"]` region (WP 7.4: the report builder's result keeps its
+ *  refetch dim, opacity-70, for as long as the query runs — a steady state, not a transition, so
+ *  waiting for animations alone swept it dimmed on a slow runner: 16 findings at 3.6–4.4 on
+ *  report-builder) — then (≤ 3 s) until no finite animation / transition is still running. */
 export async function waitForSettled(page, timeout = 3000) {
+  try {
+    await page.waitForFunction(
+      () => !document.querySelector('[data-loading="true"], [data-state="loading"]'),
+      null,
+      { timeout: 20000, polling: 50 }
+    )
+  } catch {
+    /* still loading after 20 s — sweep what is there (a finding will say so) */
+  }
   try {
     await page.waitForFunction(
       () =>

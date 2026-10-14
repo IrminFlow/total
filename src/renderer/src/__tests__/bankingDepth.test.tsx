@@ -118,6 +118,64 @@ describe('Import tab workspace', () => {
   })
 })
 
+describe('Import tab preview: the mapping gate', () => {
+  // WP 7.4 (e2e 72 found it): MT940 / CAMT.053 come with no column mapping (profile null); that
+  // must not read as "mapping changed, apply it first". A CSV / Excel file still needs one.
+  const line = (lineNo: number, deposit: number) => ({
+    lineNo, hash: `h${lineNo}`, duplicate: false, date: '2026-08-02', valueDate: null, description: `LINE ${lineNo}`, reference: '', deposit, withdrawal: 0, balance: null
+  })
+  const PROFILE = {
+    delimiter: 'auto', encoding: 'utf-8', headerRow: 1, dateFormat: 'auto', dateCol: 0, valueDateCol: null, descCols: [1], refCol: null,
+    amountMode: 'split', debitCol: 2, creditCol: 3, amountCol: null, flagCol: null, balanceCol: null, signedNegativeIsDeposit: false
+  }
+  const previewOf = (fileName: string, format: string, profile: unknown, grid: string[][] | null) => ({
+    fileName, format, profile, profileSource: profile ? 'detected' : null, grid, lines: [line(1, 10_000), line(2, 20_000)],
+    newCount: 2, duplicateCount: 0, warnings: [], account: null, openingBalance: null, closingBalance: null
+  })
+  const pick = async (fileName: string): Promise<HTMLElement> => {
+    handlers['bankImport:pickFile'] = () => ({ fileName, base64: 'AA==' })
+    renderUi(<BankingScreen tab="import" />)
+    fireEvent.click(await screen.findByTestId('btn-banking-pick-statement'))
+    return screen.findByTestId('btn-banking-commit-import')
+  }
+  beforeEach(() => {
+    handlers['bankImport:workspace'] = () => ({ ...WS, imports: [], lines: [] })
+    handlers['bankImport:commit'] = () => ({ importId: 4, inserted: 2, duplicates: 0 })
+  })
+
+  for (const [fileName, format] of [['aug.sta', 'mt940'], ['aug.xml', 'camt053']] as const) {
+    it(`${format}: no mapping to apply — imports at once`, async () => {
+      handlers['bankImport:preview'] = () => previewOf(fileName, format, null, null)
+      const commit = await pick(fileName)
+      expect(commit.textContent).toBe('Import 2 lines')
+      expect(commit).toHaveProperty('disabled', false)
+      expect(screen.queryByTestId('btn-banking-apply-mapping')).toBeNull()
+      const before = calls('bankImport:commit').length
+      fireEvent.click(commit)
+      await waitFor(() => expect(calls('bankImport:commit')).toHaveLength(before + 1))
+      expect(calls('bankImport:commit').at(-1)).toMatchObject({ bankLedgerId: 5, source: { fileName, format, profile: null } })
+    })
+  }
+
+  it('csv without a mapping still has to apply one first', async () => {
+    handlers['bankImport:preview'] = () => previewOf('aug.csv', 'csv', null, [['Date', 'Narration', 'Debit', 'Credit']])
+    const commit = await pick('aug.csv')
+    expect(commit.textContent).toBe('Apply the mapping first')
+    expect(commit).toHaveProperty('disabled', true)
+    expect(screen.getByTestId('btn-banking-apply-mapping')).toHaveProperty('disabled', false)
+  })
+
+  it('csv with a detected mapping imports until the mapping is changed', async () => {
+    handlers['bankImport:preview'] = () => previewOf('aug.csv', 'csv', PROFILE, [['Date', 'Narration', 'Debit', 'Credit']])
+    const commit = await pick('aug.csv')
+    expect(commit.textContent).toBe('Import 2 lines')
+    expect(commit).toHaveProperty('disabled', false)
+    fireEvent.change(screen.getByTestId('input-banking-map-creditCol'), { target: { value: '2' } })
+    expect(screen.getByTestId('btn-banking-commit-import').textContent).toBe('Apply the mapping first')
+    expect(screen.getByTestId('btn-banking-commit-import')).toHaveProperty('disabled', true)
+  })
+})
+
 describe('Post-dated tab', () => {
   const row = (o: Partial<PdcRegisterRow>): PdcRegisterRow => ({
     voucherId: 1, number: 'R9', voucherTypeName: 'Receipt', date: '2026-08-10', direction: 'received', partyLedgerId: 31, partyName: 'Acme Traders',

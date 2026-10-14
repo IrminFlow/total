@@ -7,7 +7,7 @@
 // the UI-typed entry flow lands with lane S1's VoucherEntry split.
 // RECONCILE: after merge, consider driving one voucher through the invoice form itself
 // (picker-party / rows-invoice-lines / btn-save-voucher).
-import { scenario, assert, assertEq, OPTION } from '../lib/harness.mjs'
+import { scenario, assert, assertEq, OPTION, localToday } from '../lib/harness.mjs'
 
 await scenario('03-voucher-lifecycle', async (h) => {
   // GST-registered: the scenario posts CGST / SGST (WP 8.0 refuses tax lines when unregistered).
@@ -26,7 +26,7 @@ await scenario('03-voucher-lifecycle', async (h) => {
 
   const types = await h.invoke('master:voucherTypes:list')
   const receipt = types.find((t) => t.kind === 'receipt')
-  const today = new Date().toISOString().slice(0, 10)
+  const today = localToday()
 
   const saved = await h.invoke('voucher:save', {
     data: {

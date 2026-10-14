@@ -9,7 +9,7 @@
 // With WP42_SHOTS set, screens are captured in both themes there.
 import * as fs from 'node:fs'
 import * as path from 'node:path'
-import { scenario, assert, assertEq, PICKER_OPTION } from '../lib/harness.mjs'
+import { scenario, assert, assertEq, PICKER_OPTION, localToday } from '../lib/harness.mjs'
 
 await scenario('32-receivables', async (h) => {
   await h.createDemoCompany()
@@ -240,9 +240,9 @@ await scenario('32-receivables', async (h) => {
   await page.waitForTimeout(500)
   assertEq(await count('sales'), salesBefore, 'the invoice is blocked')
   // The server refuses it too (the banner is not the only gate).
-  const direct = await page.evaluate(([p, t, s]) => window.total.invoke('voucher:save', {
-    data: { voucherTypeId: t, date: new Date().toISOString().slice(0, 10), partyLedgerId: p, lines: [{ ledgerId: p, drCr: 'dr', amount: 100 }, { ledgerId: s, drCr: 'cr', amount: 100 }], inventory: [], billRefs: [] }
-  }), [party.id, typeOf('sales').id, service.id])
+  const direct = await page.evaluate(([p, t, s, d]) => window.total.invoke('voucher:save', {
+    data: { voucherTypeId: t, date: d, partyLedgerId: p, lines: [{ ledgerId: p, drCr: 'dr', amount: 100 }, { ledgerId: s, drCr: 'cr', amount: 100 }], inventory: [], billRefs: [] }
+  }), [party.id, typeOf('sales').id, service.id, localToday()])
   assert(!direct.ok && direct.error.startsWith('Credit hold:'), `saveVoucher refuses: ${direct.error}`)
   // Owner override (the demo company has no users: the user is the owner).
   await h.click('btn-credit-override')

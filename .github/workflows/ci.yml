@@ -137,6 +137,9 @@ jobs:
         run: npm run e2e
         env:
           SMOKE_OUT: ${{ runner.temp }}/e2e
+          # WP 7.4: the app's "today" is the LOCAL date; scenarios compute theirs the same way
+          # (scripts/lib/harness.mjs localToday) — pin the zone so CI and a local run in India agree.
+          TZ: Asia/Kolkata
 
       - name: Upload E2E screenshots + results
         # Diagnostics only: kept for failures, short-lived, and never allowed to fail the job
