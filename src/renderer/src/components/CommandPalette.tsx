@@ -203,9 +203,14 @@ export function CommandPalette({ onClose }: { onClose: () => void }): React.JSX.
       return list.filter((c) => c.label.toLowerCase().includes(q) || c.keywords?.some((k) => k.toLowerCase().includes(q)))
     }
   }, [query, searchText, intent])
+  // In a simple-mode company the full app's commands (New voucher, Ledgers, Day Book …) show only
+  // once something is typed, under "Full app" — the opened palette keeps to the simple screens.
   const filtered = useMemo(
-    () => matching(commands.filter((c) => (!c.feature || features[c.feature]) && screenApplies(c, regType))),
-    [commands, matching, features, regType]
+    () =>
+      simpleMode && !searchText.trim()
+        ? []
+        : matching(commands.filter((c) => (!c.feature || features[c.feature]) && screenApplies(c, regType))),
+    [commands, matching, features, regType, simpleMode, searchText]
   )
   const filteredSimple = useMemo(() => matching(simpleCommands), [simpleCommands, matching])
 
@@ -246,7 +251,8 @@ export function CommandPalette({ onClose }: { onClose: () => void }): React.JSX.
       out.push({ key: 'simple', title: t('simple.palette.title'), items: filteredSimple.map((cmd) => ({ type: 'command', cmd })) })
     }
     if (filtered.length) {
-      out.push({ key: 'commands', title: hasRecents || live || filteredSimple.length ? 'Commands' : null, items: filtered.map((cmd) => ({ type: 'command', cmd })) })
+      const title = simpleMode ? t('simple.shell.fullApp') : hasRecents || live || filteredSimple.length ? 'Commands' : null
+      out.push({ key: 'commands', title, items: filtered.map((cmd) => ({ type: 'command', cmd })) })
     }
     if (hasRecents) {
       if (recents.queries.length) {
@@ -272,7 +278,7 @@ export function CommandPalette({ onClose }: { onClose: () => void }): React.JSX.
     }
     if (askGroup && exactHit) out.push(askGroup)
     return out
-  }, [query, recents, filtered, filteredSimple, live, question, intent, t])
+  }, [query, recents, filtered, filteredSimple, live, question, intent, t, simpleMode])
 
   const navItems = useMemo(() => groups.flatMap((g) => g.items), [groups])
   const { active, setActive } = useKeyNav(navItems.length, () => {}, false)
