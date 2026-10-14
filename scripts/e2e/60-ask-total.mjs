@@ -34,7 +34,7 @@ const csvHead = (() => {
 })()
 
 /** Clicks per step on the reference run (journey-metrics warns when a step needs more). */
-const BASELINE = { setup: 22, openings: 24, sale: 8, purchase: 10, 'money-in': 9, 'money-out': 8, bank: 6, return: 7, 'stock-count': 4, gst: 3, reminder: 5, backup: 3, 'ask-total': 12 }
+const BASELINE = { setup: 18, openings: 20, sale: 8, purchase: 12, 'money-in': 8, 'money-out': 10, bank: 4, return: 7, 'stock-count': 4, gst: 2, reminder: 5, backup: 3, 'ask-total': 13 }
 
 /** Paise as the text a user types ("6863.00"), integer arithmetic only. */
 const typed = (p) => `${Math.trunc(p / 100)}.${String(p % 100).padStart(2, '0')}`
