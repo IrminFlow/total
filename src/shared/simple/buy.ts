@@ -25,7 +25,8 @@ import { chargesGstOn } from '../gst/registration'
 import { inclusiveLine, solveTaxable } from '../pricing'
 import { computeInvoice, emptyInvoiceState, type InvoiceContext } from '../voucherEdit'
 import { qtyText } from '../voucherEdit/payload'
-import { foldGstIntoAmount, foldGstIntoLine, readQty, type IntentFacts, type MoneyHow, type SimpleIntentInput } from './intents'
+import { foldGstIntoAmount, foldGstIntoLine, type IntentFacts, type MoneyHow, type SimpleIntentInput } from './intents'
+import { qtyMilliOf } from './sell'
 
 /** "Paid now?" — Cash / UPI / Card / Bank transfer / Not yet (`credit`) / Partly. */
 export const BUY_PAID_CHOICES = ['cash', 'upi', 'card', 'bank', 'credit', 'part'] as const
@@ -120,15 +121,8 @@ export function buyGst(form: Pick<BuyForm, 'date' | 'gstOnBill' | 'ratesIncludeG
  *  GST needs the before-GST price; a bill without GST: no.) */
 export const showsPriceBasis = (g: BuyGst): boolean => g !== 'none'
 
-/** Quantity thousandths, or null when the text isn't a quantity (intents.ts readQty). */
-export function buyQtyMilli(text: string): number | null {
-  if (!text.trim()) return null
-  try {
-    return readQty(text, 'qty')
-  } catch {
-    return null
-  }
-}
+/** Quantity thousandths, or null when the text isn't a quantity (WP 9.2's reader, intents.ts readQty). */
+export const buyQtyMilli = qtyMilliOf
 
 function supplyFor(form: BuyForm, ctx: BuyContext): SupplyType {
   const state = form.supplierId != null ? ctx.invoice.ledgers.get(form.supplierId)?.stateCode : null

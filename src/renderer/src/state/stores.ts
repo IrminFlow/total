@@ -69,6 +69,11 @@ export type Screen =
   | { name: 'simple-looks' }
   | { name: 'simple-features' }
   | { name: 'simple-openings'; from?: 'home' }
+  // WP 9.2: Sell — Make a bill, the sales list (`billId` = that bill's simple view), Quick bill
+  // (the Counter screen inside the simple shell).
+  | { name: 'simple-sell' }
+  | { name: 'simple-sales'; billId?: number }
+  | { name: 'simple-quick-bill' }
   // WP 9.3: Buy — Record a purchase, the purchase list (`billId` = that bill's simple view).
   | { name: 'simple-buy' }
   | { name: 'simple-purchases'; billId?: number }

@@ -10,6 +10,9 @@ import { SimpleSection } from './simple/SimpleSection'
 import { SimpleLooks } from './simple/SimpleLooks'
 import { SimpleFeatures } from './simple/SimpleFeatures'
 import { Openings } from './simple/Openings'
+import { MakeBill } from './simple/sell/MakeBill'
+import { SalesList } from './simple/sell/SalesList'
+import { QuickBill } from './simple/sell/QuickBill'
 import { RecordPurchase } from './simple/buy/RecordPurchase'
 import { PurchaseList } from './simple/buy/PurchaseList'
 import { useScreenView } from './lib/mode'
@@ -180,6 +183,9 @@ export default function App(): React.JSX.Element {
           {screen.name === 'simple-looks' && <SimpleLooks />}
           {screen.name === 'simple-features' && <SimpleFeatures />}
           {screen.name === 'simple-openings' && <Openings />}
+          {screen.name === 'simple-sell' && <MakeBill />}
+          {screen.name === 'simple-sales' && <SalesList key={screen.billId ?? 'list'} billId={screen.billId} />}
+          {screen.name === 'simple-quick-bill' && <QuickBill />}
           {screen.name === 'simple-buy' && <RecordPurchase />}
           {screen.name === 'simple-purchases' && <PurchaseList key={screen.billId ?? 'list'} billId={screen.billId} />}
           {screen.name === 'daybook' && <DayBook month={screen.month} kind={screen.kind} date={screen.date} />}

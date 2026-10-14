@@ -117,7 +117,6 @@ export const SCREENS: ScreenDef[] = [
     modes: ['accountant'],
     simpleSection: 'sell',
     simpleEntries: [
-      { id: 'make-bill', label: 'simple.entries.makeBill', screen: { name: 'voucher-entry', kindHint: 'sales' } },
       { id: 'sale-returns', label: 'simple.entries.saleReturns', screen: { name: 'voucher-entry', kindHint: 'credit_note' } },
       { id: 'purchase-returns', label: 'simple.entries.purchaseReturns', section: 'buy', screen: { name: 'voucher-entry', kindHint: 'debit_note' } },
       { id: 'money-in', label: 'simple.home.moneyIn', section: 'money', screen: { name: 'voucher-entry', kindHint: 'receipt' } },
@@ -149,9 +148,6 @@ export const SCREENS: ScreenDef[] = [
     name: 'counter-billing',
     modes: ['accountant'],
     simpleSection: 'sell',
-    simpleEntries: [
-      { id: 'quick-bill', label: 'simple.entries.quickBill' }
-    ],
     title: 'Counter billing',
     navLabel: 'Counter',
     keywords: ['pos', 'point of sale', 'retail', 'barcode', 'scan', 'cash sale', 'billing', 'till', 'receipt'],
@@ -478,7 +474,6 @@ export const SCREENS: ScreenDef[] = [
     modes: ['accountant'],
     simpleSection: 'sell',
     simpleEntries: [
-      { id: 'sales-list', label: 'simple.entries.salesList', screen: { name: 'registers', tab: 'sales' } },
       { id: 'by-month', label: 'simple.reports.byMonth', section: 'reports', screen: { name: 'registers', tab: 'sales' } }
     ],
     keywords: ['sales register', 'purchase register'],
@@ -981,6 +976,46 @@ export const SCREENS: ScreenDef[] = [
     screen: null, // simple shell only
     navSection: null,
     invalidates: ['openings', 'ledgers', 'stockItems', 'dashboard']
+  },
+  // WP 9.2: Sell → Make a bill — the first simple flow (simple/sell/MakeBill: plain questions → a
+  // `sale` intent → simple:post). Its accountant counterpart is the sales invoice editor
+  // ("Accountant view" in the form opens it — the saved bill once there is one).
+  {
+    name: 'simple-sell',
+    modes: ['simple'],
+    simpleView: 'sell/MakeBill',
+    simpleSection: 'sell',
+    simpleEntries: [{ id: 'make-bill', label: 'simple.entries.makeBill', screen: { name: 'simple-sell' } }],
+    title: 'Make a bill',
+    keywords: ['sale', 'bill', 'invoice', 'sell'],
+    screen: null, // simple shell only
+    navSection: null,
+    invalidates: ['simpleSellSetup', 'ledgers', 'stockItems', 'units', 'pricingConfig']
+  },
+  // WP 9.2: Sell → Sales list (simple/sell/SalesList), each bill's simple view (`billId`).
+  {
+    name: 'simple-sales',
+    modes: ['simple'],
+    simpleView: 'sell/SalesList',
+    simpleSection: 'sell',
+    simpleEntries: [{ id: 'sales-list', label: 'simple.entries.salesList', screen: { name: 'simple-sales' } }],
+    title: 'Sales list',
+    screen: null, // simple shell only
+    navSection: null,
+    invalidates: ['simpleSales', 'simpleSale']
+  },
+  // WP 9.2: Sell → Quick bill — the existing Counter screen inside the simple shell (its header
+  // relabelled; the Counter itself unchanged). Needs products, so only with stock on.
+  {
+    name: 'simple-quick-bill',
+    modes: ['simple'],
+    simpleView: 'sell/QuickBill',
+    simpleSection: 'sell',
+    simpleEntries: [{ id: 'quick-bill', label: 'simple.entries.quickBill', screen: { name: 'simple-quick-bill' }, feature: 'inventory' }],
+    title: 'Quick bill',
+    screen: null, // simple shell only
+    navSection: null,
+    invalidates: ['counterConfig', 'counterHeld', 'counterDayEnd', 'nextNumber', 'stockItems', 'ledgers', 'groups', 'units', 'pricingConfig', 'printTemplates']
   },
   // WP 9.3: Buy → Record a purchase (simple/buy/RecordPurchase: plain questions → a `purchase`
   // intent → simple:post). Its accountant counterpart is the purchase invoice editor

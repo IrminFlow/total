@@ -10,6 +10,7 @@ import type { CaughtError, ErrorIssue, ErrorParams } from '@shared/errors'
 import type { SaveSummary } from '@shared/simple/saveCard'
 import type { HomeAttention, SimpleHomeData } from '@shared/simple/home'
 import type { SimpleIntentInput, SimplePostResult, SimplePreview } from '@shared/simple/intents'
+import type { SaleRow, SaleView, SellSetup } from '@shared/simple/sell'
 import type { BuySetup, PurchaseRow, PurchaseView } from '@shared/simple/buy'
 import type { BudgetVarianceRow } from '@shared/budgets'
 import type { McpConfig, McpLogRow, McpSettingsView } from '@shared/mcp'
@@ -679,7 +680,13 @@ export const api = {
     /** WP 9.1: what an intent will record (rehearsed, nothing saved) — plain sentences + the exact accounts. */
     preview: (intent: SimpleIntentInput, today?: string) => call<SimplePreview>('simple:preview', { intent, ...(today ? { today } : {}) }),
     /** WP 9.1: save an intent (idempotent by its clientId); the vouchers come back together for the save card. */
-    post: (intent: SimpleIntentInput, today?: string) => call<SimplePostResult>('simple:post', { intent, ...(today ? { today } : {}) })
+    post: (intent: SimpleIntentInput, today?: string) => call<SimplePostResult>('simple:post', { intent, ...(today ? { today } : {}) }),
+    /** WP 9.2: Make a bill's choices — customers, cash / bank accounts and their defaults. */
+    sellSetup: () => call<SellSetup>('simple:sell:setup'),
+    /** WP 9.2: the sales list — bills dated from…to with what is still due on each (as on today). */
+    sales: (from: string, to: string, today?: string) => call<SaleRow[]>('simple:sales', { from, to, ...(today ? { today } : {}) }),
+    /** WP 9.2: one bill's simple (read-only) view; null when it is not an in-books sales bill. */
+    sale: (id: number, today?: string) => call<SaleView | null>('simple:sale', { id, ...(today ? { today } : {}) })
   },
   /** WP 9.3: the simple Buy screens' reads (writing goes through api.simple.post). */
   buy: {

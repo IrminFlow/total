@@ -9,6 +9,7 @@ import { isBusinessType } from '@shared/simple/presets'
 import { useSession, useToasts } from '../state/stores'
 import { AmountInput, Button, Field, Modal, Select, TextInput, useFormErrors } from '../components/ui'
 import { useStockItems } from '../components/pickers'
+import { useFeatures } from '../lib/useFeatures'
 
 const F = { name: 'name', unit: 'unit', gstRate: 'gstRate', sellingPrice: 'sellingPrice' } as const // i18n-technical: form field paths
 type FieldName = (typeof F)[keyof typeof F]
@@ -54,6 +55,10 @@ export function NewProductDialog({
   const [purchase, setPurchase] = useState<number | null>(null)
   const [rate, setRate] = useState('')
   const [otherOpen, setOtherOpen] = useState(false)
+  // WP 9.2: a rate outside the dated table only through "Custom rate (check with your CA)".
+  const [customOpen, setCustomOpen] = useState(false)
+  // WP 9.2: with stock off a product is a name and a price — the unit is not asked (the preset's).
+  const stockOn = useFeatures().inventory !== false
   const [hsn, setHsn] = useState('')
   const [saving, setSaving] = useState(false)
   const [asked, setAsked] = useState(false)
@@ -171,19 +176,21 @@ export function NewProductDialog({
         )}
 
         <div className="grid grid-cols-3 gap-3">
-          <Field label={t('simple.newProduct.unit')} name={F.unit}>
-            <Select value={unitId ?? ''} onChange={(e) => setUnitId(Number(e.target.value))} data-testid="select-product-unit">
-              {(units ?? []).map((u) => (
-                <option key={u.id} value={u.id}>
-                  {u.symbol}
-                </option>
-              ))}
-            </Select>
-          </Field>
+          {stockOn && (
+            <Field label={t('simple.newProduct.unit')} name={F.unit}>
+              <Select value={unitId ?? ''} onChange={(e) => setUnitId(Number(e.target.value))} data-testid="select-product-unit">
+                {(units ?? []).map((u) => (
+                  <option key={u.id} value={u.id}>
+                    {u.symbol}
+                  </option>
+                ))}
+              </Select>
+            </Field>
+          )}
           <Field
             label={showGst ? t('simple.newProduct.sellingPriceBeforeGst') : t('simple.newProduct.sellingPrice')}
             name={F.sellingPrice}
-            className="col-span-2"
+            className={stockOn ? 'col-span-2' : 'col-span-3'}
             hint={t('simple.newProduct.sellingPriceHint')}
           >
             <AmountInput paise={selling} onPaise={setSelling} testId="input-product-selling" />
@@ -209,10 +216,24 @@ export function NewProductDialog({
                 {t('simple.newProduct.otherRates')}
               </button>
             </div>
-            {(otherOpen || (picked != null && !slabs.find((s) => s.rate === picked)?.common && rate.trim() !== '')) && (
+            {(otherOpen || customOpen || (picked != null && !slabs.find((s) => s.rate === picked)?.common && rate.trim() !== '')) && (
               <div className="mt-2 flex flex-wrap items-end gap-2">
                 {special.map((s) => chip(s.rate, `${s.rate}%`))}
-                <Field label={t('simple.newProduct.otherRateLabel')} className="w-44">
+                {!customOpen && !(rate.trim() !== '' && !isListed) && (
+                  <button
+                    type="button"
+                    data-testid="gst-rate-custom"
+                    onClick={() => setCustomOpen(true)}
+                    className="rounded-md border border-dashed border-line px-3 py-1.5 text-detail text-muted hover:border-amber/60"
+                  >
+                    {t('simple.newProduct.customRate')}
+                  </button>
+                )}
+              </div>
+            )}
+            {(customOpen || (rate.trim() !== '' && !isListed)) && (
+              <div className="mt-2 rounded-md border border-amber/60 bg-amberbar/10 px-3 py-2" data-testid="product-gst-custom">
+                <Field label={t('simple.newProduct.customRateLabel')} className="w-44">
                   <TextInput
                     value={isListed ? '' : rate}
                     placeholder={t('simple.newProduct.otherRate')}
@@ -221,6 +242,7 @@ export function NewProductDialog({
                     data-testid="input-product-gst-other"
                   />
                 </Field>
+                <p className="mt-1 text-small text-ink">{t('simple.newProduct.customRateWarn')}</p>
               </div>
             )}
             {errors.get(F.gstRate) && (

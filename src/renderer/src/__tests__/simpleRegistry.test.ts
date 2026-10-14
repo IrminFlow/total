@@ -10,7 +10,7 @@ import { SIMPLE_SECTION_IDS } from '@shared/simple/uiMode'
 import { ACCOUNTANT_NAV, SCREENS, SIMPLE_ENTRIES, SIMPLE_ENTRY_ORDER, SIMPLE_SECTIONS, screenView, simpleEntriesOf, simpleSectionOf } from '../lib/screens'
 
 // Screens that exist only in the simple shell (no 0.10 counterpart).
-const SIMPLE_ONLY: string[] = ['simple-section', 'simple-looks', 'simple-features', 'simple-openings', 'simple-buy', 'simple-purchases']
+const SIMPLE_ONLY: string[] = ['simple-section', 'simple-looks', 'simple-features', 'simple-openings', 'simple-sell', 'simple-sales', 'simple-quick-bill', 'simple-buy', 'simple-purchases']
 
 describe('screen registry modes (WP 8.1)', () => {
   it('every screen declares its modes; every 0.10 screen is an accountant screen', () => {
@@ -29,17 +29,20 @@ describe('screen registry modes (WP 8.1)', () => {
 
   it('every simple-mode screen is drawn by a component under src/renderer/src/simple/ (so the i18n lints cover it)', () => {
     const simple = SCREENS.filter((d) => d.modes.includes('simple'))
-    expect(simple.map((d) => d.name).sort()).toEqual(['gateway', 'simple-buy', 'simple-features', 'simple-looks', 'simple-openings', 'simple-purchases', 'simple-section'])
+    expect(simple.map((d) => d.name).sort()).toEqual(['gateway', 'simple-buy', 'simple-features', 'simple-looks', 'simple-openings', 'simple-purchases', 'simple-quick-bill', 'simple-sales', 'simple-section', 'simple-sell'])
     for (const d of simple) {
-      // A component under simple/ — Phase 9's flows live in a folder per section (simple/buy/…).
+      // A component under simple/ — Phase 9's flows live in a folder per section (simple/sell/…, simple/buy/…).
       expect(d.simpleView, d.name).toMatch(/^([a-z]+\/)?[A-Z]\w+$/)
       expect(existsSync(resolve(__dirname, '../simple', `${d.simpleView}.tsx`)), d.name).toBe(true)
     }
   })
 
-  it('Registers entries ask for their tab; Buy is the simple flows (WP 9.3)', () => {
+  it('Registers entries ask for their tab; Sell and Buy are the simple flows (WP 9.2 / 9.3)', () => {
     const tab = (id: string): unknown => SIMPLE_ENTRIES.find((e) => e.id === id)?.screen
-    expect(tab('sales-list')).toEqual({ name: 'registers', tab: 'sales' })
+    expect(tab('sales-list')).toEqual({ name: 'simple-sales' })
+    expect(tab('make-bill')).toEqual({ name: 'simple-sell' })
+    expect(tab('quick-bill')).toEqual({ name: 'simple-quick-bill' })
+    expect(simpleEntriesOf('sell').map((e) => e.id).slice(0, 3)).toEqual(['make-bill', 'quick-bill', 'sales-list'])
     expect(tab('purchase-list')).toEqual({ name: 'simple-purchases' })
     expect(tab('record-purchase')).toEqual({ name: 'simple-buy' })
     expect(simpleEntriesOf('buy').map((e) => e.id).slice(0, 2)).toEqual(['record-purchase', 'purchase-list'])

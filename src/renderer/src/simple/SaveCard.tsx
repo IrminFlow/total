@@ -18,12 +18,16 @@ export function SaveCard({
   voucherIds,
   onNew,
   onEdit,
-  onUndone
+  onUndone,
+  skipParties = false
 }: {
   voucherIds: number[]
   onNew: () => void
   onEdit: (voucherId: number) => void
   onUndone?: () => void
+  /** WP 9.2: leave out where the party stands — a walk-in sale's "cash customer" is the counter's
+   *  account, not a customer anyone follows up. */
+  skipParties?: boolean
 }): React.JSX.Element {
   const t = useT()
   const queryClient = useQueryClient()
@@ -38,7 +42,7 @@ export function SaveCard({
     enabled: !undone
   })
   const primary = voucherIds[0]!
-  const sentences = data ? saveCardSentences(data, t) : []
+  const sentences = data ? saveCardSentences(skipParties ? { ...data, parties: [] } : data, t) : []
 
   const fail = (err: unknown): void => {
     // Refused because it changed since (or went to the bin): re-read, so the card says so.

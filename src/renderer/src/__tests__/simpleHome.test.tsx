@@ -129,7 +129,8 @@ describe('simple Home (WP 8.6)', () => {
       await waitFor(() => expect(lastScreen()).toEqual(task.screen))
     }
     expect(screen.getByTestId('simple-task-sale').textContent).toBe('+ Sale')
-    expect(HOME_TASKS.find((x) => x.id === 'sale')!.screen).toEqual({ name: 'voucher-entry', kindHint: 'sales' })
+    // WP 9.2: + Sale is the simple Make a bill flow.
+    expect(HOME_TASKS.find((x) => x.id === 'sale')!.screen).toEqual({ name: 'simple-sell' })
     // WP 9.3: + Purchase is the simple Record a purchase flow.
     expect(HOME_TASKS.find((x) => x.id === 'purchase')!.screen).toEqual({ name: 'simple-buy' })
   })
