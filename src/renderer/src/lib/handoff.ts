@@ -102,10 +102,15 @@ function voucherView(v: NonNullable<HandoffFacts['voucher']>): Screen | null {
   }
 }
 
-/** Reports → "How is my business doing" when it is a simple screen (WP 9.9), else the Reports page. */
+/** A WP 9.9 Reports entry's screen while it is a simple screen (else null). */
+function reportEntry(id: string): Screen | null {
+  const e = SIMPLE_ENTRIES.find((x) => x.id === id)
+  return e && screenDef(e.screenName)?.modes.includes('simple') ? e.screen : null
+}
+
+/** Reports → "How is my business doing" (WP 9.9), else the Reports page. */
 function profitView(): Screen {
-  const e = SIMPLE_ENTRIES.find((x) => x.id === 'how-am-i-doing')
-  return e && screenDef(e.screenName)?.modes.includes('simple') ? e.screen : { name: 'simple-section', section: 'reports' }
+  return reportEntry('how-am-i-doing') ?? { name: 'simple-section', section: 'reports' }
 }
 
 /**
@@ -134,9 +139,18 @@ export function simpleTargetFor(screen: Screen, facts: HandoffFacts | null): Scr
     case 'stock-summary':
       return { name: 'simple-stock' }
     case 'outstandings':
-      return screen.side === 'payable' ? { name: 'simple-people', tab: 'bills' } : { name: 'simple-people' }
+      // WP 9.9: the same list in plain words — Reports → "Who owes me" / "Whom I owe" (whose
+      // Accountant view is this screen); before it, People.
+      return (
+        reportEntry(screen.side === 'payable' ? 'whom-i-owe' : 'who-owes-me') ??
+        (screen.side === 'payable' ? { name: 'simple-people', tab: 'bills' } : { name: 'simple-people' })
+      )
     case 'profit-loss':
       return profitView()
+    case 'cash-forecast':
+      return reportEntry('cash-next-30') ?? section(screen)
+    case 'gstr3b':
+      return screenDef('simple-taxes')?.modes.includes('simple') ? { name: 'simple-taxes' } : section(screen)
     case 'manufacture':
       return screen.prefill ? { name: 'simple-made-goods', itemId: screen.prefill.itemId } : { name: 'simple-made-goods' }
     case 'banking':

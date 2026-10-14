@@ -91,10 +91,14 @@ describe('the full → simple table', () => {
     expect(simpleTargetFor({ name: 'masters', tab: 'ledgers', parties: true }, null)).toEqual({ name: 'simple-people' })
     expect(simpleTargetFor({ name: 'stock-movements', itemId: 4 }, null)).toEqual({ name: 'simple-stock', itemId: 4 })
     expect(simpleTargetFor({ name: 'stock-summary' }, null)).toEqual({ name: 'simple-stock' })
-    expect(simpleTargetFor({ name: 'outstandings', side: 'receivable' }, null)).toEqual({ name: 'simple-people' })
-    expect(simpleTargetFor({ name: 'outstandings', side: 'payable' }, null)).toEqual({ name: 'simple-people', tab: 'bills' })
+    // WP 9.9 is in: the plain reports whose Accountant view these screens are.
+    expect(simpleTargetFor({ name: 'outstandings', side: 'receivable' }, null)).toEqual({ name: 'simple-reports', report: 'owed', side: 'receivable' })
+    expect(simpleTargetFor({ name: 'outstandings', side: 'payable' }, null)).toEqual({ name: 'simple-reports', report: 'owed', side: 'payable' })
+    expect(simpleTargetFor({ name: 'cash-forecast' }, null)).toEqual({ name: 'simple-reports', report: 'cash' })
+    expect(simpleTargetFor({ name: 'gstr3b', month: '2026-05' }, null)).toEqual({ name: 'simple-taxes' })
     const how = SIMPLE_ENTRIES.find((e) => e.id === 'how-am-i-doing')!
-    expect(simpleTargetFor({ name: 'profit-loss' }, null)).toEqual(how.screenName.startsWith('simple-') ? how.screen : { name: 'simple-section', section: 'reports' })
+    expect(how.screen).toEqual({ name: 'simple-reports', report: 'doing' })
+    expect(simpleTargetFor({ name: 'profit-loss' }, null)).toEqual({ name: 'simple-reports', report: 'doing' })
     expect(simpleTargetFor({ name: 'banking', tab: 'import', ledgerId: 2 }, null)).toEqual({ name: 'simple-bank', bankId: 2 })
     expect(simpleTargetFor({ name: 'manufacture', prefill: { itemId: 4, qtyMilli: 1000 } }, null)).toEqual({ name: 'simple-made-goods', itemId: 4 })
     // Everything else: the section list (as before).
