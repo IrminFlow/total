@@ -31,6 +31,7 @@ import { PaidHow } from './PaidHow'
 const INCL_KEY = 'total-sell-incl' // i18n-technical: localStorage key (per company)
 const SALES_KIND = 'sales' as const // i18n-technical
 const CASH = 'cash' as const // i18n-technical
+const CREDIT = 'credit' as const // i18n-technical
 const F = { date: 'date', party: 'party', items: 'items', amount: 'amount', gstRate: 'gstRate', payment: 'payment' } as const satisfies Record<SellField, SellField> // i18n-technical: form field paths
 
 let lineSeq = 0
@@ -81,7 +82,11 @@ export function MakeBill(): React.JSX.Element {
   const [savedWalkIn, setSavedWalkIn] = useState(false)
   const [preview, setPreview] = useState<SimplePreview | null>(null)
   const [general, setGeneral] = useState<{ text: string; details: string } | null>(null)
-  const [creating, setCreating] = useState<{ what: 'customer' | 'product'; name: string; lineKey?: number } | null>(null)
+  const [creating, setCreating] = useState<{ what: 'customer' | 'product' | 'bank'; name: string; lineKey?: number } | null>(null)
+  // Plan §3: Paid how defaults to Cash for the walk-in and On credit for a named customer — until
+  // the user picks a way themselves.
+  const [paidChosen, setPaidChosen] = useState(false)
+  const [previewProblem, setPreviewProblem] = useState<string | null>(null)
   const [showDiscount, setShowDiscount] = useState(false)
   const [leaving, setLeaving] = useState(false)
   const saving = poster.status === 'posting'
@@ -91,7 +96,6 @@ export function MakeBill(): React.JSX.Element {
     if (!stockOn && form.mode === 'items') setForm((f) => ({ ...f, mode: 'amount', lines: [] })) // i18n-technical
   }, [stockOn, form.mode])
 
-  const regType = info?.gstRegistrationType ?? 'unregistered' // i18n-technical
   const facts = useMemo(() => (info ? gstRegistrationOf(info) : null), [info])
   const ctx: SellContext | null = useMemo(
     () =>
@@ -110,7 +114,8 @@ export function MakeBill(): React.JSX.Element {
   )
   const totals = useMemo(() => (ctx ? sellTotals(form, ctx) : null), [form, ctx])
   const charges = totals?.charges ?? false
-  const regular = regType === 'regular'
+  // GST questions follow the registration on the BILL's date (WP 8.0), not today's.
+  const regular = charges
   const customer = setup?.customers.find((c) => c.id === form.customerId) ?? null
   const clientErrors = useMemo(
     () => (ctx ? sellFormErrors(form, ctx, { onHold: !!customer?.creditHold, regular }) : {}),
@@ -128,9 +133,16 @@ export function MakeBill(): React.JSX.Element {
     if (leaving) nav.back()
   }, [leaving, nav])
 
-  const update = (patch: Partial<SellForm & { lines: FormLine[] }>): void => {
+  const update = (patch: Partial<SellForm & { lines: FormLine[] }>, opts?: { paidChosen?: boolean }): void => {
     setGeneral(null)
+    if (opts?.paidChosen) setPaidChosen(true)
     setForm((f) => ({ ...f, ...patch }))
+  }
+  /** A customer picked (null = the walk-in): the walk-in pays now; a named customer starts on
+   *  credit unless the user already said how it was paid. */
+  const pickCustomer = (id: number | null): void => {
+    if (id == null) update({ customerId: null, ...(form.paid === 'credit' || form.paid === 'part' || !paidChosen ? { paid: CASH } : {}) })
+    else update({ customerId: id, ...(!paidChosen ? { paid: CREDIT } : {}) })
   }
 
   // ---------- prices from the price list (resolvePrice) for lines the user hasn't typed over ----------
@@ -175,11 +187,17 @@ export function MakeBill(): React.JSX.Element {
   previewRef.current = poster.preview
   useEffect(() => {
     setPreview(null)
+    setPreviewProblem(null)
     if (!ready || savedIds) return
     const id = window.setTimeout(() => {
       previewRef.current(intent!).then(
         (p) => setPreview(p),
-        () => setPreview(null)
+        (err: unknown) => {
+          // Never "Checking…" for ever: say what stops the bill (Save puts it under its question).
+          setPreview(null)
+          const m = mapError(err as CaughtError, { simple: true, t })
+          setPreviewProblem([m.general, ...Object.values(m.fields)].filter(Boolean).join(' ') || t('simple.sell.err.problem'))
+        }
       )
     }, 350)
     return () => window.clearTimeout(id)
@@ -221,7 +239,9 @@ export function MakeBill(): React.JSX.Element {
   const startNew = (): void => {
     poster.reset()
     setSavedIds(null)
+    setPaidChosen(false)
     setPreview(null)
+    setPreviewProblem(null)
     setGeneral(null)
     errors.clear()
     setShowDiscount(false)
@@ -344,10 +364,7 @@ export function MakeBill(): React.JSX.Element {
                 <TypeAhead
                   options={customerOptions}
                   value={form.customerId}
-                  onPick={(id) => {
-                    const walkIn = id == null
-                    update({ customerId: id, ...(walkIn && (form.paid === 'credit' || form.paid === 'part') ? { paid: 'cash' as const } : {}) }) // i18n-technical
-                  }}
+                  onPick={pickCustomer}
                   placeholder={t('simple.sell.customerPlaceholder')}
                   onCreate={(name) => setCreating({ what: 'customer', name })} // i18n-technical
                   testId="picker-sell-customer"
@@ -363,7 +380,7 @@ export function MakeBill(): React.JSX.Element {
                 {t('simple.sell.cashCustomer')}
               </p>
             ) : (
-              <button type="button" className="mt-2 text-detail text-blue hover:underline" data-testid="btn-sell-cash-customer" onClick={() => update({ customerId: null, paid: CASH })}>
+              <button type="button" className="mt-2 text-detail text-blue hover:underline" data-testid="btn-sell-cash-customer" onClick={() => pickCustomer(null)}>
                 {t('simple.sell.pickCashCustomer')}
               </button>
             )}
@@ -440,20 +457,33 @@ export function MakeBill(): React.JSX.Element {
             setup={setup ?? null}
             error={errors.get(F.payment)}
             onChange={update}
+            onAddBank={() => setCreating({ what: 'bank', name: '' })} // i18n-technical
           />
 
           {/* Totals + the plain preview line */}
           <section className="rounded-lg border border-line bg-panel2 p-panel" aria-live="polite" data-testid="sell-totals">
-            {charges && (
+            {(charges || !!totals?.rounding) && (
               <dl className="mb-1 grid grid-cols-[1fr_auto] gap-x-6 gap-y-0.5 text-detail text-muted">
-                <dt>{t('simple.sell.beforeGst')}</dt>
-                <dd className="num text-right" data-testid="sell-taxable" data-paise={totals?.taxable ?? 0}>
-                  {formatPaise(totals?.taxable ?? 0, { symbol: true })}
-                </dd>
-                <dt>{t('simple.sell.gst')}</dt>
-                <dd className="num text-right" data-testid="sell-tax" data-paise={totals?.tax ?? 0}>
-                  {formatPaise(totals?.tax ?? 0, { symbol: true })}
-                </dd>
+                {charges && (
+                  <>
+                    <dt>{t('simple.sell.beforeGst')}</dt>
+                    <dd className="num text-right" data-testid="sell-taxable" data-paise={totals?.taxable ?? 0}>
+                      {formatPaise(totals?.taxable ?? 0, { symbol: true })}
+                    </dd>
+                    <dt>{t('simple.sell.gst')}</dt>
+                    <dd className="num text-right" data-testid="sell-tax" data-paise={totals?.tax ?? 0}>
+                      {formatPaise(totals?.tax ?? 0, { symbol: true })}
+                    </dd>
+                  </>
+                )}
+                {!!totals?.rounding && (
+                  <>
+                    <dt>{t('simple.sell.roundOff')}</dt>
+                    <dd className="num text-right" data-testid="sell-rounding" data-paise={totals.rounding}>
+                      {formatPaise(totals.rounding, { symbol: true })}
+                    </dd>
+                  </>
+                )}
               </dl>
             )}
             <div className="flex items-baseline justify-between gap-6">
@@ -463,8 +493,13 @@ export function MakeBill(): React.JSX.Element {
               </span>
             </div>
             <p className="mt-2 min-h-5 text-body text-ink" data-testid="sell-preview">
-              {preview ? salePreviewLine(preview.facts, t) : ready ? t('simple.sell.preview.checking') : ''}
+              {preview ? salePreviewLine(preview.facts, t) : ready && !previewProblem ? t('simple.sell.preview.checking') : ''}
             </p>
+            {previewProblem && (
+              <p role="status" className="mt-1 text-detail text-warning" data-testid="sell-preview-problem">
+                {t('simple.sell.previewProblem', { reason: previewProblem })}
+              </p>
+            )}
             {shortStock.map((w) => (
               <p key={w.stockItemId} role="status" className="mt-1 text-detail text-warning" data-testid="sell-short-stock">
                 {t('simple.sell.shortStock', { name: w.name, qty: formatQtyMilli(Math.abs(w.closingQtyMilli)), unit: w.unitSymbol })}
@@ -509,7 +544,19 @@ export function MakeBill(): React.JSX.Element {
           onCreated={(l: Ledger) => {
             setCreating(null)
             void queryClient.invalidateQueries({ queryKey: ['simpleSellSetup'] }) // i18n-technical
-            update({ customerId: l.id })
+            pickCustomer(l.id)
+          }}
+        />
+      )}
+      {creating?.what === 'bank' && (
+        <NewAccountDialog
+          name={creating.name}
+          context={{ field: 'line', voucherKind: 'receipt', drCr: 'dr' }} // i18n-technical: money in → where it went = a bank
+          onClose={() => setCreating(null)}
+          onCreated={(l: Ledger) => {
+            setCreating(null)
+            void queryClient.invalidateQueries({ queryKey: ['simpleSellSetup'] }) // i18n-technical
+            update({ accountId: l.id })
           }}
         />
       )}

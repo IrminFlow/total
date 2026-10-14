@@ -154,9 +154,54 @@ describe('Make a bill (WP 9.2)', () => {
     expect(text('sell-short-stock')).toContain('Sugar 1kg: you are selling more than Total shows in stock')
     expect(text('sell-print-title')).toContain('Prints as: Tax invoice')
     expect(bannedWordsIn(visibleText())).toEqual([])
+    // A named customer starts on credit (plan §3); paid in cash is one click.
+    expect(screen.getByTestId('sell-paid-credit').getAttribute('aria-checked')).toBe('true')
+    click('sell-paid-cash')
     click('btn-sell-save')
     await screen.findByTestId('save-card')
     expect(calls('simple:post')[0]).toMatchObject({ intent: { kind: 'sale', customerId: 10, items: [{ itemId: 1, qty: 2000, rate: 50_000 }], payment: { how: 'cash', accountId: 30 } } })
+  })
+
+  it('review: Paid how follows the customer until the user picks — walk-in cash, named customer on credit', async () => {
+    renderUi()
+    await ready()
+    expect(screen.getByTestId('sell-paid-cash').getAttribute('aria-checked')).toBe('true')
+    await pickCustomer('Ramesh')
+    expect(screen.getByTestId('sell-paid-credit').getAttribute('aria-checked')).toBe('true')
+    click('btn-sell-cash-customer')
+    expect(screen.getByTestId('sell-paid-cash').getAttribute('aria-checked')).toBe('true')
+    // Once the user says UPI, picking a customer keeps it.
+    click('sell-paid-upi')
+    await pickCustomer('Ramesh')
+    expect(screen.getByTestId('sell-paid-upi').getAttribute('aria-checked')).toBe('true')
+  })
+
+  it('review: no bank account yet — UPI offers "Add a bank account" right there (no dead end)', async () => {
+    const noBank: SellSetup = { ...SETUP, moneyAccounts: [{ id: 30, name: 'Cash', kind: 'cash' }], defaults: { cash: 30, upi: null, card: null, bank: null } }
+    const base = invoke.getMockImplementation()!
+    invoke.mockImplementation(async (channel: string, payload: unknown) => (channel === 'simple:sell:setup' ? { ok: true, data: noBank } : base(channel, payload)))
+    renderUi()
+    await ready()
+    click('sell-paid-upi')
+    expect(text('sell-no-account')).toContain('Add the account this money goes into')
+    expect(text('sell-no-account')).not.toMatch(/Settings/)
+    click('btn-sell-add-bank')
+    // The plain new-account dialog, already on "Bank".
+    expect(await screen.findByTestId('dialog-new-account')).toBeTruthy()
+    expect(screen.getByTestId('account-kind-bank').getAttribute('aria-checked')).toBe('true')
+  })
+
+  it('review: a preview the books refuse says why — never "Checking…" for ever', async () => {
+    const base = invoke.getMockImplementation()!
+    invoke.mockImplementation(async (channel: string, payload: unknown) =>
+      channel === 'simple:preview' ? { ok: false, error: 'No money account', code: 'simple_no_money_account', field: 'payment', params: {} } : base(channel, payload)
+    )
+    renderUi()
+    await ready()
+    await pickItem(0, 'Tea')
+    typeIn('input-sell-rate-0', '100')
+    await waitFor(() => expect(screen.getByTestId('sell-preview-problem').textContent).toContain('can’t be saved yet'), { timeout: 3000 })
+    expect(text('sell-preview')).not.toContain('Checking')
   })
 
   it('stock off: just an amount — the product picker never shows', async () => {

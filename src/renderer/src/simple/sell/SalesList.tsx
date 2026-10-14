@@ -103,7 +103,7 @@ function SalesTable(): React.JSX.Element {
               </Button>
             )
           }}
-          totalsLabel={t('simple.sell.total')}
+          totalsLabel={t('simple.sales.col.total')}
           onRowActivate={(r) => nav.go({ name: 'simple-sales', billId: r.voucherId })} // i18n-technical
           trailing={(r) => (
             <span className="flex justify-end gap-2">
@@ -180,6 +180,14 @@ function BillView({ billId }: { billId: number }): React.JSX.Element {
             <>
               <dt className="text-muted">{t('simple.sell.gst')}</dt>
               <dd className="num text-right text-muted">{money(bill.tax)}</dd>
+            </>
+          )}
+          {bill.rounding !== 0 && (
+            <>
+              <dt className="text-muted">{t('simple.sell.roundOff')}</dt>
+              <dd className="num text-right text-muted" data-testid="simple-sale-rounding" data-paise={bill.rounding}>
+                {money(bill.rounding)}
+              </dd>
             </>
           )}
           <dt className="text-lead font-semibold text-ink">{t('simple.sell.total')}</dt>

@@ -2,7 +2,7 @@ import type { MessageKey } from '@shared/i18n'
 import type { MoneyHow } from '@shared/simple/intents'
 import { PART_HOWS, paidChoicesFor, type PaidChoice, type SellForm, type SellSetup } from '@shared/simple/sell'
 import { useT } from '../../lib/i18n'
-import { AmountInput, Field, FieldError, Select } from '../../components/ui'
+import { AmountInput, Button, Field, FieldError, Select } from '../../components/ui'
 
 const PAID_TEXT: Record<PaidChoice, MessageKey> = {
   cash: 'simple.sell.paid.cash',
@@ -24,12 +24,16 @@ export function PaidHow({
   form,
   setup,
   error,
-  onChange
+  onChange,
+  onAddBank
 }: {
   form: SellForm
   setup: SellSetup | null
   error: string | null
-  onChange: (patch: Partial<SellForm>) => void
+  /** `paid` changes come with `paidChosen` so the form knows the user picked it. */
+  onChange: (patch: Partial<SellForm>, opts?: { paidChosen?: boolean }) => void
+  /** Opens the plain new-account dialog as a bank (a setup company has none yet). */
+  onAddBank: () => void
 }): React.JSX.Element {
   const t = useT()
   const lbl = (k: MessageKey): string => t(k) // i18n-technical: keys from the typed table above
@@ -51,7 +55,7 @@ export function PaidHow({
             aria-checked={form.paid === value}
             disabled={disabled}
             data-testid={`sell-paid-${value}`}
-            onClick={() => onChange({ paid: value, accountId: null })}
+            onClick={() => onChange({ paid: value, accountId: null }, { paidChosen: true })}
             className={`rounded-md border px-3 py-1.5 text-detail transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
               form.paid === value ? 'border-amber bg-amberbar/15 font-semibold text-ink' : 'border-line bg-panel text-ink hover:border-amber/60'
             }`}
@@ -101,7 +105,13 @@ export function PaidHow({
               </Select>
             </Field>
           ) : (
-            <p className="text-small text-muted" data-testid="sell-no-account">{t('simple.sell.noAccount')}</p>
+            // A business set up with the wizard has no bank yet: add it right here (never a dead end).
+            <div className="flex flex-wrap items-center gap-3" data-testid="sell-no-account">
+              <p className="text-small text-ink">{t('simple.sell.noAccount')}</p>
+              <Button data-testid="btn-sell-add-bank" onClick={onAddBank}>
+                {t('simple.sell.addBank')}
+              </Button>
+            </div>
           )}
         </div>
       )}
