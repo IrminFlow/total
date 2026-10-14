@@ -1194,7 +1194,8 @@ export function intentSentences(f: IntentFacts, t: Translate): string[] {
         if (f.paid > 0) out.push(t(f.kind === 'return_sale' ? 'simple.intent.refunded' : 'simple.intent.refundIn', { amount: m(f.paid), how }))
         else out.push(t(f.kind === 'return_sale' ? 'simple.intent.creditKept' : 'simple.intent.creditHeld', { amount: m(f.credit), name }))
       }
-      position(() => undefined)
+      // WP 10.8: the kept credit IS where they stand — not said twice.
+      if (!(f.credit > 0 && f.paid === 0 && f.balance === -f.credit)) position(() => undefined)
       break
     case 'stock_count':
     case 'make_goods':

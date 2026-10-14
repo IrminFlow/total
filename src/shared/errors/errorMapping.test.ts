@@ -156,6 +156,6 @@ describe('save card sentences', () => {
     ).toEqual([k('simple.saveCard.entry', { kind: 'purchase', amount: '₹10.00' }), 'You owe Gupta nothing now.'])
     expect(
       saveCardSentences({ ...base, entries: [{ voucherId: 1, kind: 'payment', number: 'X', date: '2026-10-13', amount: 500, money: { name: 'Cash', isCash: true, amount: 500 } }], parties: [{ ledgerId: 3, name: 'Gupta', side: 'supplier', balance: -500 }] }, t)
-    ).toEqual(['Money out ₹5.00 saved.', 'You have paid Gupta ₹5.00 in advance.'])
+    ).toEqual(['Money out ₹5.00 saved.', 'You have a credit of ₹5.00 with Gupta to use on your next bill.'])
   })
 })

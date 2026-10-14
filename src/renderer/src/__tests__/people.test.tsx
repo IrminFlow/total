@@ -112,7 +112,7 @@ describe('the People list', () => {
     expect(within(ramesh).getByTestId('person-chip-late').textContent).toBe('₹1,000.00 late · 25 days')
     expect(ramesh.textContent).toContain('15 days')
     const sita = rows.querySelector('tr[data-row-id="11"]') as HTMLElement
-    expect(within(sita).getByTestId('person-chip-ahead').textContent).toBe('₹200.00 paid ahead')
+    expect(within(sita).getByTestId('person-chip-ahead').textContent).toBe('₹200.00 credit')
     expect(within(sita).getByTestId('person-chip-hold')).toBeTruthy()
     expect(bannedWordsIn(visibleText())).toEqual([])
   })
