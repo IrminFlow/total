@@ -172,6 +172,11 @@ export const ERROR_MAP = {
   simple_bank_no_match: e('errors.bank.noMatch', 'choice'),
   simple_bank_not_matched: e('errors.bank.notMatched', 'line'),
   simple_items_no_gst: e('errors.intent.itemsNoGst', 'gstOnBill'),
+  // WP 9.7: the stock intents (shared/simple/stock.ts).
+  simple_count_twice: e('errors.intent.countTwice', 'counts', ['name'], 'errors.intent.countTwicePlain'),
+  simple_no_recipe: e('errors.intent.noRecipe', 'item', ['name'], 'errors.intent.noRecipePlain'),
+  simple_not_enough_material: e('errors.intent.notEnoughMaterial', 'qty', ['names'], 'errors.intent.notEnoughMaterialPlain'),
+  simple_no_sale_price: e('errors.intent.noSalePrice', 'price', ['name'], 'errors.intent.noSalePricePlain'),
 
   // ---------- IPC boundary (src/main/ipc.ts) ----------
   duplicate_name: e('errors.duplicateName', 'name'),
