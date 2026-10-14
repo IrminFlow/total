@@ -1,5 +1,6 @@
 # Runs on every push/PR to main: pure-TS + DB-layer tests on Linux, a hermetic Electron IPC
-# smoke test on macOS, and a Windows build sanity check. Separate from release.yml (tag-triggered
+# smoke test on macOS, and the Windows job (WP 7.3: every test suite, the smoke against out/ and
+# against the packaged exe, an e2e subset, the NSIS build). Separate from release.yml (tag-triggered
 # publish pipeline) — this workflow never publishes anything.
 name: CI
 
@@ -111,9 +112,22 @@ jobs:
           path: ${{ runner.temp }}/e2e
           retention-days: 7
 
+  # WP 7.3 Windows parity: the same gates as Linux + macOS (typecheck, unit, renderer, DB), then the
+  # built app is driven for real — the hermetic IPC smoke against out/, a small e2e subset, an NSIS
+  # build whose latest.yml must name the installer exactly, and the smoke again against the
+  # PACKAGED exe (asar, extraResources fonts, DPAPI secret store). docs/windows.md has the matrix.
   build-win:
     runs-on: windows-latest
+    timeout-minutes: 75
     steps:
+      # Hosted runners scan every new file (node_modules, scratch company DBs, the -wal/-shm SQLite
+      # writes) in real time; the stalls are what pushed DB-test hooks past 10 s now and then.
+      - name: Keep Defender's real-time scan off the workspace and temp folders
+        shell: pwsh
+        run: |
+          Add-MpPreference -ExclusionPath $env:GITHUB_WORKSPACE, $env:RUNNER_TEMP, $env:TEMP -ErrorAction SilentlyContinue
+          Set-MpPreference -DisableRealtimeMonitoring $true -ErrorAction SilentlyContinue
+
       - uses: actions/checkout@v4
 
       - uses: actions/setup-node@v4
@@ -130,11 +144,64 @@ jobs:
       - name: Unit tests (pure engine, no DB)
         run: npm test
 
+      - name: Renderer tests (jsdom + RTL)
+        run: npm run test:renderer
+
       - name: DB-layer tests (Electron-as-Node)
         run: npm run test:db
 
       - name: Build
         run: npm run build
 
-      - name: Electron-builder dir build (no publish)
-        run: npx electron-builder --win --dir --publish never
+      # The headless CLI on Windows: esbuild bundle + Electron-as-Node + a data dir with a space.
+      - name: CLI (total-cli) runs
+        shell: bash
+        run: |
+          node scripts/total-cli.mjs help > /dev/null
+          node scripts/total-cli.mjs create-company --name "CLI Win Co" --state 27 | tee "$RUNNER_TEMP/cli.json"
+          node scripts/total-cli.mjs companies | grep -q cli-win-co
+        env:
+          TOTAL_DATA_DIR: ${{ runner.temp }}\cli data
+
+      - name: Hermetic IPC smoke test (out/)
+        run: npm run smoke
+        env:
+          TOTAL_DATA_DIR: ${{ runner.temp }}\Total smoke data
+          SMOKE_OUT: ${{ runner.temp }}\smoke
+
+      - name: E2E subset (onboarding, voucher lifecycle, unregistered sale, setup presets)
+        run: node scripts/run-e2e.mjs 01 03 46 48
+        env:
+          SMOKE_OUT: ${{ runner.temp }}\e2e
+
+      - name: NSIS installer + unpacked app (no publish)
+        run: npx electron-builder --win --publish never
+
+      # electron-updater downloads the file latest.yml names; the release must carry exactly that
+      # asset (a space in the name is renamed by GitHub on upload — the 0.11.0 mismatch).
+      - name: latest.yml names the installer exactly
+        shell: bash
+        run: |
+          exe=$(cd dist && ls *.exe | head -1)
+          echo "installer: $exe"
+          case "$exe" in *" "*) echo "installer name has a space"; exit 1;; esac
+          grep -q "^path: $exe$" dist/latest.yml || { echo "latest.yml does not name $exe"; cat dist/latest.yml; exit 1; }
+
+      - name: Hermetic IPC smoke test (packaged Total.exe)
+        run: npm run smoke
+        env:
+          TOTAL_APP_EXECUTABLE: ${{ github.workspace }}\dist\win-unpacked\Total.exe
+          TOTAL_DATA_DIR: ${{ runner.temp }}\Total packaged data
+          SMOKE_OUT: ${{ runner.temp }}\smoke-packaged
+
+      - name: Upload smoke / e2e screenshots
+        if: failure()
+        continue-on-error: true
+        uses: actions/upload-artifact@v4
+        with:
+          name: win-shots
+          path: |
+            ${{ runner.temp }}\smoke
+            ${{ runner.temp }}\smoke-packaged
+            ${{ runner.temp }}\e2e
+          retention-days: 7
