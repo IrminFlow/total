@@ -130,6 +130,24 @@ describe('the product list is the Stock summary', () => {
     demo.close()
   })
 
+  it('hand-worked after a sale, a return and a count: the list, the Stock summary and the arithmetic agree', () => {
+    const L0 = { gstin: null, stateCode: null, address: null, taxType: null, gstRate: null, hsn: null, tdsSectionId: null, pan: null, creditDays: null, exportType: null, openingBalance: 0 }
+    createLedger(db, { ...L0, name: 'Sales', groupId: groupId(db, 'Sales Accounts') })
+    createLedger(db, { ...L0, name: 'Ramesh', groupId: groupId(db, 'Sundry Debtors'), stateCode: '27' })
+    // 10 kg of flour sold at ₹50 (it cost ₹40): 90 kg, ₹3,600 left.
+    const sale = post({ kind: 'sale', date: DAY, customerId: L('Ramesh'), items: [{ itemId: I('Flour'), qty: '10', rate: '50' }], payment: { how: 'credit' } })
+    const bill = getVoucher(db, sale.voucherIds[0]!)!
+    expect(listOf(db, TODAY).find((r) => r.itemId === I('Flour'))).toEqual({ itemId: I('Flour'), qtyMilli: 90_000, value: 360_000 })
+    // 4 kg come back: they return at what they went out at (₹40) → 94 kg, ₹3,760.
+    post({ kind: 'return_sale', date: DAY, billId: bill.id, items: [{ lineUid: bill.inventory[0]!.lineUid!, qty: '4' }] })
+    expect(listOf(db, TODAY).find((r) => r.itemId === I('Flour'))).toEqual({ itemId: I('Flour'), qtyMilli: 94_000, value: 376_000 })
+    // Counted 93 kg: 1 kg short at the ₹40 average → ₹3,720.
+    const count = post(countIntentFrom({ date: DAY, counted: { [I('Flour')]: '93' } }))
+    expect(count.facts.count!.lines[0]).toMatchObject({ beforeMilli: 94_000, countedMilli: 93_000, valueChange: -4000 })
+    expect(listOf(db, TODAY).find((r) => r.itemId === I('Flour'))).toEqual({ itemId: I('Flour'), qtyMilli: 93_000, value: 372_000 })
+    expect(listOf(db, TODAY)).toEqual(summaryOf(db, TODAY).sort((a, b) => a.itemId - b.itemId))
+  })
+
   it('running low: below the reorder level, else out of what has been in stock (never a product never stocked)', () => {
     const list = stockList(db, TODAY)
     const level = (name: string) => list.rows.find((r) => r.name === name)!.level
