@@ -96,7 +96,9 @@ export const useAssistantPanel = create<AssistantStore>((set, get) => ({
   simpleView: 'ask',
   setSimpleView: (simpleView) => set({ simpleView }),
   setOpen: (open) => {
-    set({ open })
+    // WP 10.1: closing the panel ends an escalation — the next question in simple mode goes to
+    // Ask Total first again (Total answers first; the model only when Total can't).
+    set(open ? { open } : { open, simpleView: 'ask' })
     savePrefs(get())
   },
   toggle: () => get().setOpen(!get().open),

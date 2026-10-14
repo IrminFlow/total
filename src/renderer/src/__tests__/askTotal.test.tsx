@@ -107,6 +107,17 @@ describe('Ask Total — which panel', () => {
     expect(await screen.findByTestId('ask-panel')).toBeTruthy()
   })
 
+  it('closing the panel after an escalation: it opens on Ask Total again (Total answers first)', async () => {
+    aiReady = true
+    useAssistantPanel.setState({ open: true, simpleView: 'ai' })
+    wrap(<AssistantPanel />)
+    expect(await screen.findByTestId('ai-escalated')).toBeTruthy()
+    act(() => useAssistantPanel.getState().setOpen(false))
+    act(() => useAssistantPanel.getState().setOpen(true))
+    expect(await screen.findByTestId('ask-panel')).toBeTruthy()
+    expect(screen.queryByTestId('ai-escalated')).toBeNull()
+  })
+
   it('with AI off an unknown question stays with Total: suggestions, nothing sent to a model', async () => {
     wrap(<AssistantPanel />)
     await askIt('write me a poem')

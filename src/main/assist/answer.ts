@@ -322,7 +322,7 @@ const PLACES: [RegExp, AssistTarget, MessageKey][] = [
   [/^(?:openings?|day one|opening balances?)$/, target('simple-openings'), 'assist.place.openings']
 ]
 
-function openAnswer(db: DB, intent: Extract<AssistIntent, { kind: 'open' }>, input: AskInput, t: Translate): AssistAnswer {
+function openAnswer(db: DB, intent: Extract<AssistIntent, { kind: 'open' }>, input: AskInput, t: Translate, lang: Language, gstRegular: boolean): AssistAnswer {
   const said = intent.target
     .replace(/^(?:the\s+)?(?:ledger|statement|account|page|screen)\s+(?:for|of)\s+/, '')
     .replace(/\s+(?:ledger|statement|account|page|screen|list)$/, '')
@@ -341,7 +341,7 @@ function openAnswer(db: DB, intent: Extract<AssistIntent, { kind: 'open' }>, inp
   if (item.status === 'match' && ledger.status === 'none') return openItem(db, item.id, intent, t)
   if (ledger.status === 'choose') return answer(intent, [t('assist.whichOpen', { name: said })], { choice: { slot: 'party', question: t('assist.whichOpen', { name: said }), options: ledger.options } })
   if (item.status === 'choose') return answer(intent, [t('assist.whichOpen', { name: said })], { choice: { slot: 'item', question: t('assist.whichOpen', { name: said }), options: item.options } })
-  return unknownAnswer(intent, input.text, t, [t('assist.open.none', { name: said })])
+  return unknownAnswer(intent, input.text, t, [t('assist.open.none', { name: said })], lang, gstRegular)
 }
 
 function openLedger(db: DB, id: number, intent: AssistIntent, t: Translate): AssistAnswer {
@@ -448,9 +448,9 @@ export function helpSearch(text: string, lang: Language, limit = 3): { term: str
   return scored.slice(0, limit).map(({ e }) => ({ term: e.term, plain: plain(e.term, lang), explain: e.explain }))
 }
 
-function meaningAnswer(intent: Extract<AssistIntent, { kind: 'meaning' }>, input: AskInput, lang: Language, t: Translate): AssistAnswer {
+function meaningAnswer(intent: Extract<AssistIntent, { kind: 'meaning' }>, input: AskInput, lang: Language, t: Translate, gstRegular: boolean): AssistAnswer {
   const e = glossaryFind(intent.term)
-  if (!e) return unknownAnswer(intent, input.text, t, undefined, lang)
+  if (!e) return unknownAnswer(intent, input.text, t, undefined, lang, gstRegular)
   return answer(intent, [t('assist.meaning', { term: e.term, explain: e.explain, plain: plain(e.term, lang) })], { help: [{ term: e.term, plain: plain(e.term, lang), explain: e.explain }] })
 }
 
@@ -474,6 +474,7 @@ export function askTotal(db: DB, company: CompanyInfo, input: AskInput, env: Ask
   const lang = input.lang ?? companyLanguage(db)
   const t = translator(lang)
   const intent = classify(input.text, input.today)
+  const gstRegular = company.gstRegistrationType === 'regular'
   // One read transaction: every figure in the answer sees the same books. (An entry's rehearsal
   // inside it is rolled back — nothing persists.)
   return db.transaction((): AssistAnswer => {
@@ -489,15 +490,15 @@ export function askTotal(db: DB, company: CompanyInfo, input: AskInput, env: Ask
       case 'stock':
         return stockAnswer(db, intent, input, t)
       case 'open':
-        return openAnswer(db, intent, input, t)
+        return openAnswer(db, intent, input, t, lang, gstRegular)
       case 'howto':
         return howtoAnswer(intent, t)
       case 'meaning':
-        return meaningAnswer(intent, input, lang, t)
+        return meaningAnswer(intent, input, lang, t, gstRegular)
       case 'entry':
         return entryAnswer(db, company, intent, input, env, t)
       case 'unknown':
-        return unknownAnswer(intent, input.text, t, undefined, lang, company.gstRegistrationType === 'regular')
+        return unknownAnswer(intent, input.text, t, undefined, lang, gstRegular)
     }
   })()
 }
