@@ -7,7 +7,6 @@ import { existsSync } from 'fs'
 import { join } from 'path'
 import { Worker } from 'worker_threads'
 import Database from 'better-sqlite3-multiple-ciphers'
-import { isEncryptedFile, keyForPath } from './encryption'
 
 export type CheckPragma = 'quick_check' | 'integrity_check'
 
@@ -72,8 +71,9 @@ export class CheckStoppedError extends Error {
  *  answer — never a promise that hangs company:open) or the check is stopped (stopChecks) —
  *  callers decide what a failure means, as before. */
 export async function pragmaCheck(path: string, pragma: CheckPragma, key?: Buffer | null): Promise<string> {
-  const k = key !== undefined ? key : isEncryptedFile(path) ? keyForPath(path) : null
-  const keyHex = k ? k.toString('hex') : null
+  // WP 7.2: the caller passes the key of an encrypted file (its handle's — keyOfHandle); the
+  // worker bundle stays self-contained (no key map, no app modules).
+  const keyHex = key ? key.toString('hex') : null
   const file = workerFile()
   if (!file) {
     const db = openForCheck(path, keyHex)

@@ -63,7 +63,7 @@ describe('encrypted company files', () => {
     db.close()
   })
 
-  it("WP 7.1's whole-file checks (checkHost.pragmaCheck) key an encrypted file: given, or the folder's", async () => {
+  it("WP 7.1's whole-file checks (checkHost.pragmaCheck) key an encrypted file with the key they are given", async () => {
     const { pragmaCheck, quickCheckOkAsync } = await import('./checkHost')
     const path = companyFile()
     const key = newDataKey()
@@ -71,8 +71,7 @@ describe('encrypted company files', () => {
     expect(await pragmaCheck(path, 'quick_check', key)).toBe('ok')
     await expect(pragmaCheck(path, 'quick_check', null)).rejects.toThrow()
     expect(await quickCheckOkAsync(path, newDataKey())).toBe(false)
-    rememberFolderKey(join(path, '..'), key)
-    expect(await pragmaCheck(path, 'integrity_check')).toBe('ok')
+    expect(await pragmaCheck(path, 'integrity_check', key)).toBe('ok')
   })
 
   it('an encrypted file of an older schema migrates like any other', () => {

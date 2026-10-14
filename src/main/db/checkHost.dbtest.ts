@@ -77,10 +77,10 @@ describe('the check worker thread', () => {
     const { build } = await import('esbuild')
     bundleDir = mkdtempSync(join(tmpdir(), 'total-checkworker-'))
     const out = join(bundleDir, 'checkWorker.js')
-    const sqlite = createRequire(import.meta.url).resolve('better-sqlite3')
+    const sqlite = createRequire(import.meta.url).resolve('better-sqlite3-multiple-ciphers')
     await build({
       entryPoints: [join(__dirname, 'checkWorker.ts')], bundle: true, platform: 'node', format: 'cjs', outfile: out, logLevel: 'silent',
-      plugins: [{ name: 'sqlite', setup: (b) => b.onResolve({ filter: /^better-sqlite3$/ }, () => ({ path: sqlite, external: true })) }]
+      plugins: [{ name: 'sqlite', setup: (b) => b.onResolve({ filter: /^better-sqlite3-multiple-ciphers$/ }, () => ({ path: sqlite, external: true })) }]
     })
     return out
   }
