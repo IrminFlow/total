@@ -12,7 +12,7 @@ import {
 import { computeGst, supplyTypeFor } from '@shared/gst/calc'
 import { toUqc } from '@shared/gst/uqc'
 import { descendantIdsByName } from './masters'
-import { outwardDebitNoteIds } from './gst'
+import { outwardDebitNoteIds, postedLineRates } from './gst'
 import { writeAudit } from './audit'
 import { companyExportsDir } from '../paths'
 import { IN_BOOKS, NOT_DELETED } from './vouchers'
@@ -339,10 +339,14 @@ export function extractEdocInvoices(
       const lines = lineStmt.all(v.id) as {
         amount: number; drCr: 'dr' | 'cr'; groupId: number; gstRate: number | null; cessRate: number | null; hsn: string | null; name: string
       }[]
-      items = lines
-        .filter((l) => l.drCr === salesSide && salesGroupIds.has(l.groupId))
-        .map((l) => {
-          const rate = taxed ? (l.gstRate ?? 0) : 0
+      const salesLines = lines.filter((l) => l.drCr === salesSide && salesGroupIds.has(l.groupId))
+      // Same rule as the returns: tax the voucher posts sets the rate of rate-less lines.
+      const resolved =
+        taxed && !withoutPayment
+          ? postedLineRates(db, v.id, salesSide, salesLines.map((l) => ({ taxable: l.amount, rate: l.gstRate ?? 0 })), supply, v.date)
+          : null
+      items = salesLines.map((l, i) => {
+          const rate = taxed ? (resolved ? resolved.rates[i]! : (l.gstRate ?? 0)) : 0
           const cessRate = taxed ? (l.cessRate ?? 0) : 0
           const g = computeGst(l.amount, rate, supply, cessRate)
           return {

@@ -51,6 +51,8 @@ export interface GstDocValidation {
   missingHsnCount: number
   /** SEZ/deemed-export party without a GSTIN (those registrations always have one). */
   missingGstin: boolean
+  /** Ledger-line document whose posted tax matches no GST slab: reported at the implied rate. */
+  offSlabRate?: boolean
 }
 
 export interface GstDoc {
