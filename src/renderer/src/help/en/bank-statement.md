@@ -11,7 +11,7 @@ Import your bank statement and Total matches it to what you recorded. Anything t
 
 ## The sentence at the top
 
-Total compares your books with the bank. When they agree it says so. When they differ it says how many entries are not in the bank yet — usually cheques that have not cleared.
+Total compares your books with the bank. When they agree it says so. When they differ it says how many entries differ — usually entries in your books the bank has not shown yet, such as cheques that have not cleared — and **see them** opens the full matching screen.
 
 ## For your accountant
 

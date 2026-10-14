@@ -21,7 +21,9 @@ Open [Money out](total://screen/simple-money-out) when:
 - you pay a supplier — their unpaid bills are shown and ticked oldest first;
 - you pay an expense — rent, salary, tea, electricity. Pick what it was for from the tiles;
 - you take money out for yourself;
-- you repay a loan.
+- you pay salaries (when salaries are turned on in Features).
+
+Repaying a loan is not one of the choices yet — ask your accountant to record it in the full app.
 
 ## Paid before the bill?
 
@@ -33,4 +35,4 @@ If a customer pays before you make their bill, answer **Yes** to "Is this for a 
 
 ## See it all
 
-[Money in and out](total://screen/simple-money) lists every entry. Open one to see it in plain words, change it or undo it.
+[Money in and out](total://screen/simple-money) lists every entry. Open one to see it in plain words, or press **Edit** to change it in the full form. Saved one by mistake? **Undo** is on the card that shows right after you save.

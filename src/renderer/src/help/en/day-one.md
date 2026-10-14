@@ -6,11 +6,11 @@ Open [What you had on day one](total://screen/simple-openings) from Home or from
 
 ## What it asks
 
-1. **Money** — cash in hand, and what was in each bank account. A bank account you owed money on (an overdraft) goes under what you owe.
+1. **Money** — cash in hand, and what was in each bank account. A bank account you owed money on (an overdraft) goes on the **What you owe** step.
 2. **Customers who owed you** — each customer's amount, and their bills if you want them followed one by one.
 3. **Suppliers you owed** — the same, the other way round.
 4. **Stock** — how many of each product, at what cost (only when you keep stock).
-5. **Loans and things you own** — a loan you took or gave, and things the business has used for years, such as a shop counter or a vehicle.
+5. **Loans and things you own** — on the last step, under **More…**: a loan you took or gave, and things the business has used for years, such as a shop counter or a vehicle.
 
 ## The owner's money
 

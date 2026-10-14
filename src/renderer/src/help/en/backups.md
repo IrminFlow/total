@@ -10,8 +10,10 @@ Home reminds you when your last backup is more than a week old.
 
 ## Keep a copy somewhere else
 
-A backup on the same computer does not help if the computer is lost. Now and then, copy your backups to a pen drive, or to a cloud folder you trust. [Settings → Backups](total://screen/settings?tab=backups) shows where they are and opens the folder.
+A backup on the same computer does not help if the computer is lost. Now and then, copy your backups to a pen drive, or to a cloud folder you trust. [Settings → Backups](total://screen/settings?tab=backups) shows where they are kept.
 
 ## Bringing a backup back
 
-On the screen where you pick a business, choose **Open a backup file**. Total opens the books as they were on the day of that backup.
+Open the business, go to [Settings → Backups](total://screen/settings?tab=backups), pick the backup in the list and press **Restore…**. The books go back to how they were when that backup was made.
+
+A backup saved with a passphrase (**Export encrypted…** in Settings → Backups) can also be opened on another computer: on the screen where you pick a business, choose **Import encrypted backup…** and type the passphrase.

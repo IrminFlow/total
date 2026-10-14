@@ -21,7 +21,7 @@ Tell Total what you had on the day you started using it — cash, bank, what cus
 
 ## Made a mistake?
 
-Every save shows a card with **Undo**. Undo works for a day, as long as nothing else depends on the entry. After that, open the entry and change it.
+After you save a bill, a purchase, money in or out, or a return, a card shows what Total recorded, with **Undo**. Undo works for a day, as long as nothing else depends on the entry. After that, open the entry and change it.
 
 ## Need more?
 

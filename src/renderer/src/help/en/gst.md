@@ -4,7 +4,7 @@ GST (Goods and Services Tax) is the tax you add to your bills and pay to the gov
 
 ## Not registered for GST?
 
-Then your bills carry no GST and there is nothing to file. If you register later, change it in Business details and Total starts adding GST from that date.
+Then your bills carry no GST and there is nothing to file. If you register later, change it in Business details and give the date you registered from (today, unless you change it); Total adds GST to bills from that date.
 
 ## Registered (regular)
 
