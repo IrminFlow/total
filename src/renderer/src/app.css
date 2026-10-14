@@ -589,10 +589,10 @@ textarea {
 }
 /* The screen is the containing block of its own absolutely-placed bits (screen-reader-only
    text): without it they stretched the WINDOW, which then scrolled when a panel scrolled an
-   article into view. Focus never lands under the sticky Save bar (scroll-padding). */
+   article into view. (Keyboard focus is kept clear of the sticky Save bar by SaveBar.tsx — not
+   scroll-padding, which made a mouse-down near the bottom scroll and lose the click.) */
 [data-shell='simple'] #main {
   position: relative;
-  scroll-padding-bottom: 6rem;
 }
 /* A toast never covers the Save bar's buttons: while a simple screen shows one, the stack sits
    above it. */

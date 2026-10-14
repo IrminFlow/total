@@ -5,14 +5,14 @@
 // simple flow pre-filled and saves only when the user presses Save there. With an AI key and the
 // assistant on, a question Total can't answer goes to the model (the WP 5.x panel, every rule
 // unchanged) — each answer says which one answered.
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import { create } from 'zustand'
 import type { AssistAnswer, AssistFigure } from '@shared/assist'
 import type { Language } from '@shared/i18n'
 import { api } from '../lib/client'
 import { useLanguage, useT } from '../lib/i18n'
 import { useNav, useSession, useToasts, type Screen } from '../state/stores'
-import { Badge, Button, DockedDrawer, Textarea } from '../components/kit'
+import { Badge, Button, DockedDrawer, DockModeContext, Textarea } from '../components/kit'
 import { askScreen } from './askTargets'
 import { HELP } from '../help/articles'
 import { useHelpPanel } from '../help/store'
@@ -223,6 +223,7 @@ export function AskTotalDrawer({ onClose, width, onResize, aiReady, onEscalate }
   aiReady: boolean
   onEscalate?: (text: string) => void
 }): React.JSX.Element {
+  const overlay = useContext(DockModeContext) === 'overlay'
   const t = useT()
   const nav = useNav()
   const toast = useToasts()
@@ -292,6 +293,9 @@ export function AskTotalDrawer({ onClose, width, onResize, aiReady, onEscalate }
     try {
       const d = await api.assist.draft({ text: turn.text, today: workingDate, ...(turn.picks ? { picks: turn.picks } : {}), lang: lang as Language })
       nav.go({ name: d.prefill.screen, ask: { draftId: d.draftId, prefill: d.prefill } } as Screen)
+      // WP 10.5: over the screen (a window under 1600 px) the panel would cover the flow's Save
+      // bar — it steps aside; ⌘J brings the conversation back.
+      if (overlay) onClose()
     } catch {
       toast.push('error', t('assist.panel.draftError'))
     } finally {

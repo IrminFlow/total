@@ -52,6 +52,11 @@ await scenario('60-ask-total', async (h) => {
   const answers = () => page.locator('[data-testid="ask-answer"]')
   /** Ask in the panel and wait for its (n-th) answer. */
   const askPanel = async (q) => {
+    // WP 10.5: under 1600 px the panel overlays the screen and steps aside when it opens a flow.
+    if (!(await page.$('[data-testid="ask-panel"]'))) {
+      await h.click('btn-assistant')
+      await attached(h, '[data-testid="ask-panel"]')
+    }
     const before = await answers().count()
     await page.fill('[data-testid="ask-input"]', q)
     await h.click('ask-send')

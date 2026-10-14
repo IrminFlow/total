@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react'
+import { useEffect, useRef, type ReactNode } from 'react'
 
 /**
  * WP 10.5 — the sticky Save bar of the simple entry screens (Make a bill, Record a purchase,
@@ -26,8 +26,26 @@ export function SaveBar({
   /** The buttons (Start again, Save). */
   children: ReactNode
 }): React.JSX.Element {
+  // Keyboard focus never lands under the bar (WCAG 2.4.11): a field Tab reaches behind it is
+  // scrolled up just clear of it. Keyboard focus only (:focus-visible) — scrolling on a mouse-down
+  // would move the control away from the pointer and lose the click.
+  const barRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    const onFocus = (e: FocusEvent): void => {
+      const bar = barRef.current
+      const el = e.target instanceof HTMLElement ? e.target : null
+      if (!bar || !el || bar.contains(el) || !el.matches(':focus-visible')) return
+      const main = bar.closest('#main')
+      if (!main || !main.contains(el)) return
+      const over = el.getBoundingClientRect().bottom - bar.getBoundingClientRect().top
+      if (over > 0) main.scrollBy({ top: over + 8 })
+    }
+    document.addEventListener('focusin', onFocus) // i18n-technical: event name
+    return () => document.removeEventListener('focusin', onFocus) // i18n-technical
+  }, [])
   return (
     <div
+      ref={barRef}
       data-testid="save-bar"
       // Flush with the window's bottom edge: the screen's own bottom padding would otherwise leave a
       // strip under the bar where the form scrolls past.
