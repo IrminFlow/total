@@ -343,7 +343,7 @@ export function extractEdocInvoices(
       // Same rule as the returns: tax the voucher posts sets the rate of rate-less lines.
       const resolved =
         taxed && !withoutPayment
-          ? postedLineRates(db, v.id, salesSide, salesLines.map((l) => ({ taxable: l.amount, rate: l.gstRate ?? 0 })), supply, v.date)
+          ? postedLineRates(db, v.id, salesSide, salesLines.map((l) => ({ taxable: l.amount, rate: l.gstRate })), supply, v.date)
           : null
       items = salesLines.map((l, i) => {
           const rate = taxed ? (resolved ? resolved.rates[i]! : (l.gstRate ?? 0)) : 0

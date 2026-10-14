@@ -93,6 +93,9 @@ export function outwardSupplyClass(
   return { invTyp, isExport, pos, supply, zeroTax }
 }
 
+// One prepared statement per connection (postedLineRates runs once per ledger-line document).
+const postedTaxStmts = new WeakMap<DB, { get(salesSide: string, voucherId: number): unknown }>()
+
 /**
  * Rates of a ledger-line document's sales-side lines. The ledger's rate is the fallback; when the
  * voucher POSTS CGST / SGST / IGST the rate-less lines take the rate the posted tax implies
@@ -102,15 +105,16 @@ export function outwardSupplyClass(
 export function postedLineRates(
   db: DB, voucherId: number, salesSide: 'cr' | 'dr', lines: PostedRateLine[], supply: 'intra' | 'inter', date: string
 ): PostedRates {
-  const posted = (
-    db
-      .prepare(
-        `SELECT COALESCE(SUM(CASE WHEN vl.dr_cr = ? THEN vl.amount ELSE -vl.amount END), 0) AS t
-         FROM voucher_lines vl JOIN ledgers l ON l.id = vl.ledger_id
-         WHERE vl.voucher_id = ? AND l.tax_type IN ('cgst', 'sgst', 'igst')`
-      )
-      .get(salesSide, voucherId) as { t: number }
-  ).t
+  let stmt = postedTaxStmts.get(db)
+  if (!stmt) {
+    stmt = db.prepare(
+      `SELECT COALESCE(SUM(CASE WHEN vl.dr_cr = ? THEN vl.amount ELSE -vl.amount END), 0) AS t
+       FROM voucher_lines vl JOIN ledgers l ON l.id = vl.ledger_id
+       WHERE vl.voucher_id = ? AND l.tax_type IN ('cgst', 'sgst', 'igst')`
+    )
+    postedTaxStmts.set(db, stmt)
+  }
+  const posted = (stmt.get(salesSide, voucherId) as { t: number }).t
   return resolvePostedRates(lines, posted, supply, date)
 }
 
@@ -244,7 +248,7 @@ export function extractOutwardDocs(db: DB, company: CompanyInfo, from: string, t
         // A voucher that posts tax is reported at the rate the posted tax implies on rate-less lines.
         const resolved =
           rated && !zeroTax
-            ? postedLineRates(db, v.id, salesSide, salesLines.map((l) => ({ taxable: l.amount, rate: l.gstRate ?? 0 })), supply, v.date)
+            ? postedLineRates(db, v.id, salesSide, salesLines.map((l) => ({ taxable: l.amount, rate: l.gstRate })), supply, v.date)
             : null
         if (resolved?.offSlab) offSlabRate = true
         salesLines.forEach((line, i) => {
