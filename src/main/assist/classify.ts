@@ -108,20 +108,6 @@ const PHRASES: [RegExp, string][] = [
   [dv('सामान'), 'samaan'],
   [dv('ग्राहक|ग्राहकों'), 'customers'],
   [dv('सप्लायर|सप्लायरों'), 'suppliers'],
-  [dv('चाय'), 'chai'],
-  [dv('किराया|किराए|किराये'), 'kiraya'],
-  [dv('बिजली'), 'bijli'],
-  [dv('तनख़्वाह|तनख्वाह|सैलरी|पगार'), 'salary'],
-  [dv('पेट्रोल'), 'petrol'],
-  [dv('डीज़ल|डीजल'), 'diesel'],
-  [dv('भाड़ा'), 'bhada'],
-  [dv('मज़दूरी|मजदूरी'), 'mazdoori'],
-  [dv('मरम्मत'), 'marammat'],
-  [dv('सफ़ाई|सफाई'), 'safai'],
-  [dv('नाश्ता'), 'nashta'],
-  [dv('पानी'), 'pani'],
-  [dv('रिचार्ज'), 'recharge'],
-  [dv('कमीशन'), 'commission'],
   [dv('को'), 'ko'],
   [dv('से'), 'se'],
   [dv('ने'), 'ne'],
@@ -533,7 +519,13 @@ export const EXPENSE_WORDS: Record<string, string> = {
   software: 'software', subscription: 'software',
   ca: 'professional_fees', accountant: 'professional_fees', lawyer: 'professional_fees', fees: 'professional_fees',
   labour: 'labour', mazdoori: 'labour', majdoori: 'labour',
-  shop: 'shop_expenses', cleaning: 'shop_expenses', safai: 'shop_expenses'
+  shop: 'shop_expenses', cleaning: 'shop_expenses', safai: 'shop_expenses',
+  // WP 10.4 review: the same words typed in Devanagari — kept as typed (the answer quotes the
+  // user's own word, "आपने चाय के लिए …"), never transliterated.
+  'चाय': 'office', 'नाश्ता': 'office', 'पानी': 'office', 'किराया': 'rent', 'किराए': 'rent', 'किराये': 'rent', 'भाड़ा': 'rent',
+  'बिजली': 'electricity', 'तनख़्वाह': 'salary', 'तनख्वाह': 'salary', 'सैलरी': 'salary', 'पगार': 'salary',
+  'पेट्रोल': 'transport', 'डीज़ल': 'transport', 'डीजल': 'transport', 'रिचार्ज': 'phone_internet', 'मरम्मत': 'repairs',
+  'मज़दूरी': 'labour', 'मजदूरी': 'labour', 'सफ़ाई': 'shop_expenses', 'सफाई': 'shop_expenses', 'कमीशन': 'commission_paid'
 }
 
 // ---------------------------------------------------------------- questions
