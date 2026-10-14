@@ -137,6 +137,29 @@ function monthlyNets(db: DB, ledgerIds: ReadonlySet<number>, from: string, to: s
   return out
 }
 
+/** Per tagged TDS / TCS payable ledger: what was deducted each month (credits, by voucher date)
+ *  up to `upTo` (a credit opening balance first), and everything paid out of it (debits) up to
+ *  `upTo` — the FIFO input of closeChecklist's withholdingUnpaid. WP 9.9: simple:taxes uses it too. */
+export function withholdingFacts(db: DB, ledgers: ReturnType<typeof listLedgers>, upTo: string): CloseFacts['withholding'] {
+  const withholding: CloseFacts['withholding'] = []
+  const credits = db.prepare(
+    `SELECT substr(v.date, 1, 7) AS month, SUM(vl.amount) AS amount FROM voucher_lines vl JOIN vouchers v ON v.id = vl.voucher_id
+     WHERE vl.ledger_id = ? AND vl.dr_cr = 'cr' AND v.date <= ? AND ${IN_BOOKS} GROUP BY month ORDER BY month`
+  )
+  const debits = db.prepare(
+    `SELECT COALESCE(SUM(vl.amount), 0) AS t FROM voucher_lines vl JOIN vouchers v ON v.id = vl.voucher_id
+     WHERE vl.ledger_id = ? AND vl.dr_cr = 'dr' AND v.date <= ? AND ${IN_BOOKS}`
+  )
+  for (const l of ledgers) {
+    const kind = l.tdsPayableSectionId != null ? 'tds' : l.tcsPayableSectionId != null ? 'tcs' : null
+    if (!kind) continue
+    const deducted: CloseFacts['withholding'][number]['deducted'] = (credits.all(l.id, upTo) as { month: string; amount: number }[]).map((r) => ({ month: r.month, amount: r.amount }))
+    if (l.openingBalance < 0) deducted.unshift({ month: null, amount: -l.openingBalance })
+    withholding.push({ kind, ledgerId: l.id, name: l.name, deducted, paid: (debits.get(l.id, upTo) as { t: number }).t })
+  }
+  return withholding
+}
+
 export function closeFacts(db: DB, company: CompanyInfo, period: string, today: string): CloseFacts {
   const { from, to } = monthBounds(period)
   const groups = listGroups(db)
@@ -189,28 +212,12 @@ export function closeFacts(db: DB, company: CompanyInfo, period: string, today: 
     }
   }
   // WP 8.3: the filing frequency decides which months have returns due (QRMP: quarter ends only).
-  const gst = company.gstRegistrationType === 'regular' && company.gstin ? { gstr1ExportedAt: snapAt('gstr1'), gstr3bExportedAt: snapAt('gstr3b'), filing: getGstProfile(db).filing } : null
+  const gst = company.gstRegistrationType === 'regular' && company.gstin ? { gstr1ExportedAt: snapAt('gstr1'), gstr3bExportedAt: snapAt('gstr3b'), filing: getGstProfile(db).filing, stateCode: company.stateCode } : null
 
   // TDS / TCS: per tagged payable ledger, what was deducted each month (credits, by voucher date)
   // up to TODAY — the check reports the months up to this one — and everything paid out of it
   // (debits) up to today, so a deposit made next month settles this month's deduction.
-  const withholding: CloseFacts['withholding'] = []
-  const credits = db.prepare(
-    `SELECT substr(v.date, 1, 7) AS month, SUM(vl.amount) AS amount FROM voucher_lines vl JOIN vouchers v ON v.id = vl.voucher_id
-     WHERE vl.ledger_id = ? AND vl.dr_cr = 'cr' AND v.date <= ? AND ${IN_BOOKS} GROUP BY month ORDER BY month`
-  )
-  const debits = db.prepare(
-    `SELECT COALESCE(SUM(vl.amount), 0) AS t FROM voucher_lines vl JOIN vouchers v ON v.id = vl.voucher_id
-     WHERE vl.ledger_id = ? AND vl.dr_cr = 'dr' AND v.date <= ? AND ${IN_BOOKS}`
-  )
-  const upTo = today > to ? today : to
-  for (const l of ledgers) {
-    const kind = l.tdsPayableSectionId != null ? 'tds' : l.tcsPayableSectionId != null ? 'tcs' : null
-    if (!kind) continue
-    const deducted: CloseFacts['withholding'][number]['deducted'] = (credits.all(l.id, upTo) as { month: string; amount: number }[]).map((r) => ({ month: r.month, amount: r.amount }))
-    if (l.openingBalance < 0) deducted.unshift({ month: null, amount: -l.openingBalance })
-    withholding.push({ kind, ledgerId: l.id, name: l.name, deducted, paid: (debits.get(l.id, upTo) as { t: number }).t })
-  }
+  const withholding = withholdingFacts(db, ledgers, today > to ? today : to)
   const withholdingMissed = tdsEligible(db, from, to).map((r) => ({
     voucherId: r.voucherId, label: `${r.partyName} — ${r.voucherNumber}`, date: r.date, amount: r.basePaise, ledgerId: r.partyLedgerId, detail: `section ${r.sectionCode}: TDS looks applicable but none was deducted`
   }))

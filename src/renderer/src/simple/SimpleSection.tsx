@@ -26,6 +26,7 @@ export function SimpleSection({ section }: { section: SimpleSectionId }): React.
   const t = useT()
   const entries = useVisibleEntries(section)
   const gstType = useSession((s) => s.info?.gstRegistrationType ?? null)
+  const nav = useNav()
   const meta = SIMPLE_SECTIONS.find((s) => s.id === section)
   const title = meta ? t(meta.label) : '' // i18n-technical: registry key (simple.nav.*)
   const main = entries.filter((e) => e.group === null)
@@ -43,6 +44,16 @@ export function SimpleSection({ section }: { section: SimpleSectionId }): React.
         <section className="mb-4 rounded-lg border border-line bg-panel p-panel shadow-elev-1" data-testid="simple-taxes-composition">
           <h2 className="text-lead font-semibold text-ink">{t('simple.taxes.gst.compositionTitle')}</h2>
           <p className="mt-1 text-detail text-muted">{t('simple.taxes.gst.composition')}</p>
+          {/* WP 9.9: the Taxes screen has the cited CMP-08 / GSTR-4 dates; its entries are for a
+              regular registration only, so the composition card is the way in. */}
+          <button
+            type="button"
+            data-testid="simple-taxes-composition-open"
+            onClick={() => nav.go(taxesScreen)}
+            className="mt-3 rounded-md border border-line px-3 py-1.5 text-detail font-medium text-ink hover:border-amber/60 hover:bg-panel2 focus-visible:border-amber"
+          >
+            {t('simple.taxes.composition.open')}
+          </button>
         </section>
       )}
       {entries.length === 0 && <p className="text-detail text-muted">{t('simple.section.empty')}</p>}
@@ -56,6 +67,8 @@ export function SimpleSection({ section }: { section: SimpleSectionId }): React.
     </Page>
   )
 }
+
+const taxesScreen = { name: 'simple-taxes' } as const // i18n-technical
 
 /** The entry opens a screen that only has an accountant view (it shows in the full app). */
 const accountantOnly = (e: ResolvedSimpleEntry): boolean => !screenDef(e.screenName)?.modes.includes('simple')

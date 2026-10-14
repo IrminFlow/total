@@ -36,9 +36,10 @@ export function homeReportScreen(id: HomeReport, home: SimpleHomeData): Screen {
     case 'profit':
       return { name: 'profit-loss' }
     case 'gst': {
+      // WP 9.9: the simple Taxes screen on the tile's period (a quarter is named by its last month,
+      // which simple:taxes reads as the quarter); its Accountant view is GSTR-3B.
       const row = home.gst?.kind === 'regular' ? home.gst.row : null
-      // A quarterly filer's return opens on the quarter's first month (the screen is month by month).
-      return { name: 'gstr3b', ...(row ? { month: row.quarterly && row.from ? row.from.slice(0, 7) : row.period } : {}) }
+      return { name: 'simple-taxes', ...(row ? { period: row.period } : {}) } // i18n-technical
     }
     case 'backups':
       return { name: 'settings', tab: 'backups' } // i18n-technical
