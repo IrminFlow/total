@@ -135,20 +135,23 @@ await scenario('51-openings', async (h) => {
   assertEq(await text(h, 'simple-home-you-owe'), 'You owe suppliers ₹8,000.00', 'Home: you owe suppliers')
   await h.shot('light-7-home-after')
 
-  // ---------- Outstandings lists the bill ----------
-  // WP 9.8: People → Who owes me is the simple People list; Reports → Who owes me still opens
-  // the accountant Outstandings.
+  // ---------- Who owes me lists the bill ----------
+  // WP 9.9: Reports → Who owes me is the simple report (a row opens the person's page, which
+  // lists the bills); the accountant Outstandings is its "Accountant view".
   await h.click('simple-nav-reports')
   await attached(h, '[data-testid="simple-entry-who-owes-me"]')
   await h.click('simple-entry-who-owes-me')
-  await h.waitScreen('outstandings')
+  await h.waitScreen('simple-reports')
+  await attached(h, '[data-testid="simple-report-owed"][data-side="receivable"]')
+  await attached(h, '[data-testid="owed-total"]')
   await h.waitIdle()
-  const row = page.locator('tr', { hasText: 'Sharma Stores' }).first()
+  assertEq(await page.getAttribute('[data-testid="owed-total"]', 'data-paise'), '300000', 'Who owes me: the total is the opening bill')
+  const row = page.locator('[data-testid="rows-owed"] tr', { hasText: 'Sharma Stores' }).first()
   await row.locator('td').first().click()
-  await attached(h, '[data-testid^="outstandings-bills-"]')
-  assert((await page.textContent('[data-testid^="outstandings-bills-"]')).includes('B-12'), 'Outstandings shows the bill number')
+  await h.waitScreen('simple-person')
+  await attached(h, '[data-testid="rows-person-bills"] [data-bill="B-12"]')
+  assertEq(await page.getAttribute('[data-testid="rows-person-bills"] [data-bill="B-12"]', 'data-pending'), '300000', "the person's page shows the opening bill number with its amount")
   await h.shot('light-8-outstandings')
-  await h.click('btn-back-to-simple')
 
   // ---------- Stock → Products shows the value (WP 9.7: the simple list, the Stock summary's pass) ----------
   await h.click('simple-nav-stock')
