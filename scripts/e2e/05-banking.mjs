@@ -4,7 +4,7 @@
 //
 // RECONCILE: lane S4 adds the renderer preview-confirm step (import button → preview table →
 // confirm). Once merged, drive that flow via its testids instead of raw IPC for the apply leg.
-import { scenario, assert, assertEq } from '../lib/harness.mjs'
+import { scenario, assert, assertEq, localToday, relativeDate } from '../lib/harness.mjs'
 
 await scenario('05-banking', async (h) => {
   await h.createDemoCompany()
@@ -15,8 +15,8 @@ await scenario('05-banking', async (h) => {
 
   // Find two real unreconciled book entries to make the statement from — the matcher wants
   // same amount, same direction, within ±5 days.
-  const today = new Date().toISOString().slice(0, 10)
-  const yearAgo = new Date(Date.now() - 200 * 86400000).toISOString().slice(0, 10)
+  const today = localToday()
+  const yearAgo = relativeDate(-200, localToday())
   const recon = await h.invoke('bank:recon', { ledgerId: hdfc.id, from: yearAgo, to: today })
   const lines = recon.rows.filter((r) => !r.bankDate)
   assert(lines.length >= 2, `at least 2 unreconciled bank lines in demo data (got ${lines.length})`)

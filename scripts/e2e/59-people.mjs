@@ -13,7 +13,7 @@
 // Screenshots light + dark of the list, a person and the reminder; WP98_SHOTS=<dir> copies them.
 import * as fs from 'node:fs'
 import * as path from 'node:path'
-import { scenario, assert, assertEq } from '../lib/harness.mjs'
+import { scenario, assert, assertEq, fixedToday, fyStartOf, relativeDate } from '../lib/harness.mjs'
 
 // The plan §1 banned list (shared/simple/bannedWords.ts), as its patterns match it.
 const BANNED = [
@@ -22,7 +22,6 @@ const BANNED = [
 ]
 const bannedWordsIn = (text) => BANNED.filter((re) => re.test(text)).map((re) => re.source)
 const attached = (h, sel, timeout = 15000) => h.page.waitForSelector(sel, { state: 'attached', timeout })
-const iso = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
 
 await scenario('59-people', async (h) => {
   const { page } = h
@@ -64,7 +63,8 @@ await scenario('59-people', async (h) => {
   await h.click('setup-next')
   await h.click('setup-stock-no')
   await h.click('setup-next')
-  await h.click('setup-start-fy')
+  // WP 7.4: the oldest bill is 40 days old — the books begin early enough to hold it.
+  await h.pickSetupStart(40)
   await h.click('setup-fresh-new')
   await h.click('setup-next')
   await h.click('setup-finish')
@@ -72,15 +72,9 @@ await scenario('59-people', async (h) => {
   await attached(h, '[data-testid="simple-home"]', 20000)
   await h.stubDialogs()
 
-  const now = new Date()
-  const today = iso(now)
-  const fyStart = `${now.getMonth() >= 3 ? now.getFullYear() : now.getFullYear() - 1}-04-01`
-  const ago = (n) => {
-    const d = new Date(now)
-    d.setDate(d.getDate() - n)
-    const s = iso(d)
-    return s < fyStart ? fyStart : s
-  }
+  const today = fixedToday
+  const fyStart = fyStartOf(today)
+  const ago = (n) => relativeDate(-n)
   const groups = await h.invoke('master:groups:list')
   const gid = (name) => groups.find((g) => g.name === name).id
   const party = (name, group, extra = {}) =>

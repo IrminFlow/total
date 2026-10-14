@@ -8,7 +8,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { createRequire } from 'node:module'
-import { scenario, assert, assertEq } from '../lib/harness.mjs'
+import { scenario, assert, assertEq, localToday } from '../lib/harness.mjs'
 
 const require = createRequire(import.meta.url)
 const { Client } = require('@modelcontextprotocol/sdk/client/index.js')
@@ -50,7 +50,7 @@ await scenario('42-mcp-server', async (h) => {
   await ledger('Acme Traders', 'Sundry Debtors', '27AAPFU0939F1ZV')
   const cash = (await h.invoke('master:ledgers:list')).find((l) => l.name === 'Cash').id
   const types = await h.invoke('master:voucherTypes:list')
-  const today = await h.page.evaluate(() => new Date().toISOString().slice(0, 10))
+  const today = localToday()
   const fy = await h.page.evaluate(() => (new Date().getMonth() >= 3 ? new Date().getFullYear() : new Date().getFullYear() - 1))
   const vouchers = async () => (await h.invoke('voucher:list', { from: `${fy}-04-01`, to: `${fy + 1}-03-31` })).length
 

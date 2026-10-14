@@ -15,7 +15,7 @@
 import * as fs from 'node:fs'
 import * as path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { scenario, assert, assertEq } from '../lib/harness.mjs'
+import { scenario, assert, assertEq, fixedToday, relativeDate } from '../lib/harness.mjs'
 
 const here = path.dirname(fileURLToPath(import.meta.url))
 const FIXTURE = path.resolve(here, '../../src/shared/bankFormats/fixtures/hdfc-style.csv')
@@ -28,11 +28,10 @@ const BANNED = [
 const bannedWordsIn = (text) => BANNED.filter((re) => re.test(text)).map((re) => re.source)
 const attached = (h, sel, timeout = 15000) => h.page.waitForSelector(sel, { state: 'attached', timeout })
 
-const iso = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
 const dmy = (s) => `${s.slice(8, 10)}/${s.slice(5, 7)}/${s.slice(2, 4)}`
 
 /** The fixture's own layout (bank header block + column row), with our three lines. Dates are
- *  `daysAgo` before today, never before the financial year the wizard starts the books on. */
+ *  `daysAgo` before today; the books begin early enough to hold them (WP 7.4 `pickSetupStart`). */
 function statementCsv(today, rows) {
   const fixture = fs.readFileSync(FIXTURE, 'utf8').split('\n')
   const head = fixture.slice(0, fixture.findIndex((l) => l.startsWith('Date,')) + 1)
@@ -77,7 +76,8 @@ await scenario('57-bank-simple', async (h) => {
   await h.click('setup-next')
   await h.click('setup-stock-no')
   await h.click('setup-next')
-  await h.click('setup-start-fy')
+  // WP 7.4: the oldest bill is 12 days old — the books begin early enough to hold it.
+  await h.pickSetupStart(12)
   await h.click('setup-fresh-new')
   await h.click('setup-next')
   await h.click('setup-finish')
@@ -110,15 +110,8 @@ await scenario('57-bank-simple', async (h) => {
     name: 'Ramesh Traders', groupId: groups.find((g) => g.name === 'Sundry Debtors').id, openingBalance: 0, gstin: null, stateCode: null, address: null,
     taxType: null, gstRate: null, hsn: null, tdsSectionId: null, pan: null, creditDays: 15, exportType: null
   })
-  const now = new Date()
-  const today = iso(now)
-  const fyStart = `${now.getMonth() >= 3 ? now.getFullYear() : now.getFullYear() - 1}-04-01`
-  const ago = (n) => {
-    const d = new Date(now)
-    d.setDate(d.getDate() - n)
-    const s = iso(d)
-    return s < fyStart ? fyStart : s
-  }
+  const today = fixedToday
+  const ago = (n) => relativeDate(-n)
   for (const [i, amount, days] of [[1, 300_000, 12], [2, 200_000, 10]]) {
     await h.invoke('simple:post', { intent: { kind: 'sale', clientId: `e2e-bill-${i}-xxxxxxxx`, date: ago(days), customerId: ramesh.id, amount: { amount }, payment: { how: 'credit' } }, today })
   }
