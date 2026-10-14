@@ -96,7 +96,7 @@ function GstAnswer({ x }: { x: Regular }): React.JSX.Element {
           {t('simple.taxes.filing', { filing: x.filing })}
         </span>
       </div>
-      {f.collected === 0 && f.onPurchases === 0 && f.toPay === 0 && f.reverseCharge === 0 && (
+      {f.collected === 0 && f.onPurchases === 0 && f.toPay === 0 && f.reverseCharge === 0 && !x.running && (
         <div className="mb-4">
           <EmptyTeach
             testId="taxes-empty"
