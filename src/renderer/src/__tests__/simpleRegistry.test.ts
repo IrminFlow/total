@@ -10,7 +10,7 @@ import { SIMPLE_SECTION_IDS } from '@shared/simple/uiMode'
 import { ACCOUNTANT_NAV, SCREENS, SIMPLE_ENTRIES, SIMPLE_ENTRY_ORDER, SIMPLE_SECTIONS, screenView, simpleEntriesOf, simpleSectionOf } from '../lib/screens'
 
 // Screens that exist only in the simple shell (no 0.10 counterpart).
-const SIMPLE_ONLY: string[] = ['simple-section', 'simple-looks', 'simple-features', 'simple-openings', 'simple-sell', 'simple-sales', 'simple-quick-bill', 'simple-buy', 'simple-purchases', 'simple-money-in', 'simple-money-out', 'simple-move-money', 'simple-money', 'simple-bank', 'simple-stock', 'simple-stock-count', 'simple-made-goods', 'simple-return-sale', 'simple-return-purchase', 'simple-reports', 'simple-taxes']
+const SIMPLE_ONLY: string[] = ['simple-section', 'simple-looks', 'simple-features', 'simple-openings', 'simple-sell', 'simple-sales', 'simple-quick-bill', 'simple-buy', 'simple-purchases', 'simple-money-in', 'simple-money-out', 'simple-move-money', 'simple-money', 'simple-bank', 'simple-stock', 'simple-stock-count', 'simple-made-goods', 'simple-return-sale', 'simple-return-purchase', 'simple-people', 'simple-person', 'simple-reports', 'simple-taxes']
 
 describe('screen registry modes (WP 8.1)', () => {
   it('every screen declares its modes; every 0.10 screen is an accountant screen', () => {
@@ -29,7 +29,7 @@ describe('screen registry modes (WP 8.1)', () => {
 
   it('every simple-mode screen is drawn by a component under src/renderer/src/simple/ (so the i18n lints cover it)', () => {
     const simple = SCREENS.filter((d) => d.modes.includes('simple'))
-    expect(simple.map((d) => d.name).sort()).toEqual(['gateway', 'simple-bank', 'simple-buy', 'simple-features', 'simple-looks', 'simple-made-goods', 'simple-money', 'simple-money-in', 'simple-money-out', 'simple-move-money', 'simple-openings', 'simple-purchases', 'simple-quick-bill', 'simple-reports', 'simple-return-purchase', 'simple-return-sale', 'simple-sales', 'simple-section', 'simple-sell', 'simple-stock', 'simple-stock-count', 'simple-taxes'])
+    expect(simple.map((d) => d.name).sort()).toEqual(['gateway', 'simple-bank', 'simple-buy', 'simple-features', 'simple-looks', 'simple-made-goods', 'simple-money', 'simple-money-in', 'simple-money-out', 'simple-move-money', 'simple-openings', 'simple-people', 'simple-person', 'simple-purchases', 'simple-quick-bill', 'simple-reports', 'simple-return-purchase', 'simple-return-sale', 'simple-sales', 'simple-section', 'simple-sell', 'simple-stock', 'simple-stock-count', 'simple-taxes'])
     for (const d of simple) {
       // A component under simple/ — Phase 9's flows live in a folder per section (simple/sell/…, simple/buy/…, simple/money/…).
       expect(d.simpleView, d.name).toMatch(/^([a-z]+\/)?[A-Z]\w+$/)
@@ -107,7 +107,8 @@ describe('screen registry modes (WP 8.1)', () => {
   })
 
   it('plan §2.3 placements: People → customers and suppliers, Money → all entries, Settings → business details', () => {
-    expect(simpleEntriesOf('people')[0]).toMatchObject({ id: 'customers-suppliers', screen: { name: 'masters', tab: 'ledgers', parties: true } })
+    // WP 9.8: People is the simple People screen (Masters → parties stays the accountant view).
+    expect(simpleEntriesOf('people')[0]).toMatchObject({ id: 'customers-suppliers', screen: { name: 'simple-people' } })
     expect(simpleEntriesOf('money').find((e) => e.id === 'all-entries')?.screen).toEqual({ name: 'daybook' })
     // WP 9.6: Money → Bank is the simple Bank screen (the full Banking stays the accountant view).
     expect(simpleEntriesOf('money').find((e) => e.id === 'bank')?.screen).toEqual({ name: 'simple-bank' })
@@ -139,5 +140,19 @@ describe('Money (WP 9.4)', () => {
     expect(moneyInScreen({ party: 10, amount: 50_000, bill: 'S-1' })).toEqual({ name: 'simple-money-in', party: 10, amount: 50_000, bill: 'S-1' })
     expect(moneyOutScreen({ party: null, amount: 0 })).toEqual({ name: 'simple-money-out' })
     expect(simpleSectionOf({ name: 'simple-money-in', party: 1 })).toBe('money')
+  })
+})
+
+describe('People (WP 9.8)', () => {
+  it('every People entry opens the simple People screen: the list, who owes, late to pay, bills to pay', () => {
+    expect(simpleEntriesOf('people').map((e) => [e.id, e.screen])).toEqual([
+      ['customers-suppliers', { name: 'simple-people' }],
+      ['who-owes', { name: 'simple-people', filter: 'owesYou' }],
+      ['reminders', { name: 'simple-people', filter: 'late' }],
+      ['bills-to-pay', { name: 'simple-people', tab: 'bills' }]
+    ])
+    expect(simpleSectionOf({ name: 'simple-person', id: 3 })).toBe('people')
+    // WP 9.9: Reports → Who owes me is the simple report (it links to People).
+    expect(SIMPLE_ENTRIES.find((e) => e.id === 'who-owes-me')?.screen).toEqual({ name: 'simple-reports', report: 'owed', side: 'receivable' })
   })
 })

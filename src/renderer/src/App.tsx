@@ -22,6 +22,8 @@ import { ReturnPurchase } from './simple/returns/ReturnPurchase'
 import { BankScreen } from './simple/bank/BankScreen'
 import { RecordPurchase } from './simple/buy/RecordPurchase'
 import { PurchaseList } from './simple/buy/PurchaseList'
+import { PeopleList } from './simple/people/PeopleList'
+import { PersonView } from './simple/people/PersonView'
 import { StockList } from './simple/stock/StockList'
 import { StockCount } from './simple/stock/StockCount'
 import { MadeGoods } from './simple/stock/MadeGoods'
@@ -199,14 +201,16 @@ export default function App(): React.JSX.Element {
           {screen.name === 'simple-money-out' && <MoneyOut key={`${screen.party ?? ''}|${screen.amount ?? ''}|${screen.bill ?? ''}|${screen.billId ?? ''}|${screen.date ?? ''}|${screen.bankId ?? ''}`} party={screen.party} amount={screen.amount} bill={screen.bill} billId={screen.billId} date={screen.date} bankId={screen.bankId} reference={screen.reference} note={screen.note} />}
           {screen.name === 'simple-move-money' && <MoveMoney />}
           {screen.name === 'simple-money' && <MoneyList key={screen.entryId ?? 'list'} entryId={screen.entryId} />}
-          {screen.name === 'simple-sell' && <MakeBill />}
+          {screen.name === 'simple-sell' && <MakeBill key={screen.party ?? 'new'} party={screen.party} />}
           {screen.name === 'simple-sales' && <SalesList key={screen.billId ?? 'list'} billId={screen.billId} />}
           {screen.name === 'simple-quick-bill' && <QuickBill />}
           {screen.name === 'simple-return-sale' && <ReturnSale key={screen.billId ?? 'pick'} billId={screen.billId} />}
           {screen.name === 'simple-return-purchase' && <ReturnPurchase key={screen.billId ?? 'pick'} billId={screen.billId} />}
           {screen.name === 'simple-bank' && <BankScreen key={screen.bankId ?? 'bank'} bankId={screen.bankId} />}
-          {screen.name === 'simple-buy' && <RecordPurchase />}
+          {screen.name === 'simple-buy' && <RecordPurchase key={screen.party ?? 'new'} party={screen.party} />}
           {screen.name === 'simple-purchases' && <PurchaseList key={screen.billId ?? 'list'} billId={screen.billId} />}
+          {screen.name === 'simple-people' && <PeopleList key={`${screen.tab ?? 'people'}|${screen.filter ?? 'all'}`} tab={screen.tab} filter={screen.filter} />}
+          {screen.name === 'simple-person' && <PersonView key={screen.id} id={screen.id} />}
           {screen.name === 'simple-stock' && <StockList key={`${screen.itemId ?? 'list'}-${screen.filter ?? 'all'}`} filter={screen.filter} itemId={screen.itemId} />}
           {screen.name === 'simple-stock-count' && <StockCount />}
           {screen.name === 'simple-made-goods' && <MadeGoods key={screen.itemId ?? 'new'} itemId={screen.itemId} />}

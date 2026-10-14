@@ -126,18 +126,18 @@ describe('Cash, who owes whom, by month (WP 9.9)', () => {
     await waitFor(() => expect(lastScreen()).toEqual({ name: 'cash-forecast' }))
   })
 
-  it('who owes me: total, sentence, rows; a row opens the statement; switch to whom I owe; People link', async () => {
+  it('who owes me: total, sentence, rows; a row opens the person; switch to whom I owe; People link', async () => {
     renderUi(<ReportsScreen report="owed" side="receivable" />)
     expect((await screen.findByTestId('owed-sentence')).textContent).toBe('₹8,000.00 is what 2 customers owe you today; ₹5,000.00 of it is past its due date.')
     const row = await screen.findByText('Asha Stores')
     fireEvent.doubleClick(row)
     fireEvent.keyDown(row, { key: 'Enter' })
-    await waitFor(() => expect(lastScreen()).toEqual({ name: 'ledger-statement', ledgerId: 7 }))
+    await waitFor(() => expect(lastScreen()).toEqual({ name: 'simple-person', id: 7 }))
     fireEvent.click(screen.getByTestId('owed-side-payable'))
     await waitFor(() => expect(calls('simple:reports:owed').at(-1)).toMatchObject({ side: 'payable' }))
     expect(await screen.findByText('Supplier')).toBeTruthy()
     fireEvent.click(screen.getByTestId('owed-people'))
-    await waitFor(() => expect(lastScreen()).toEqual({ name: 'simple-section', section: 'people' }))
+    await waitFor(() => expect(lastScreen()).toEqual({ name: 'simple-people', filter: 'youOwe' }))
     expect(bannedWordsIn(visibleText())).toEqual([])
   })
 

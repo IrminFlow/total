@@ -12,15 +12,16 @@ import { Choice, LoadError, ReportHeader, WhyLink, cardCls, money } from './part
 
 type Side = 'receivable' | 'payable'
 const SIDES: readonly Side[] = ['receivable', 'payable'] // i18n-technical
-const PEOPLE = { name: 'simple-section', section: 'people' } as const // i18n-technical
+/** WP 9.8's People list, filtered to the same side. */
+const peopleOf = (side: Side): { name: 'simple-people'; filter: 'owesYou' | 'youOwe' } => ({ name: 'simple-people', filter: side === 'receivable' ? 'owesYou' : 'youOwe' }) // i18n-technical
 const outstandingsOf = (side: Side): { name: 'outstandings'; side: Side } => ({ name: 'outstandings', side }) // i18n-technical
-const statement = (ledgerId: number): { name: 'ledger-statement'; ledgerId: number } => ({ name: 'ledger-statement', ledgerId }) // i18n-technical
+const person = (id: number): { name: 'simple-person'; id: number } => ({ name: 'simple-person', id }) // i18n-technical
 
 /**
  * WP 9.9 — Reports → Who owes me / Whom I owe, as on TODAY (simple:reports:owed — the
  * Outstandings allocation, advances included): the total with its "Why?", one row per customer /
  * supplier (open, past due, bills, oldest), a link to People and the Accountant view
- * (Outstandings on the same side). A row opens that person's statement.
+ * (Outstandings on the same side). A row opens that person in People (WP 9.8).
  */
 export function WhoOwes({ side: initial }: { side?: Side }): React.JSX.Element {
   const t = useT()
@@ -60,7 +61,7 @@ export function WhoOwes({ side: initial }: { side?: Side }): React.JSX.Element {
           onChange={setSide}
           testId="owed-side"
         />
-        <Button data-testid="owed-people" onClick={() => nav.go(PEOPLE)}>
+        <Button data-testid="owed-people" onClick={() => nav.go(peopleOf(side))}>
           {t('simple.reports.owed.people')}
         </Button>
       </div>
@@ -86,7 +87,7 @@ export function WhoOwes({ side: initial }: { side?: Side }): React.JSX.Element {
           loading={q.isLoading}
           toolbarFeatures={{ quickFilter: true, columns: false, groupBy: false, density: false, views: false }}
           empty={{ title: receivable ? t('simple.reports.owed.noneReceivable') : t('simple.reports.owed.nonePayable') }}
-          onRowActivate={(r) => nav.go(statement(r.ledgerId))}
+          onRowActivate={(r) => nav.go(person(r.ledgerId))}
         />
       </section>
     </Page>
