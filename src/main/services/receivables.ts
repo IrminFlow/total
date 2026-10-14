@@ -249,6 +249,34 @@ function reminderLetter(cfg: ReceivablesConfig, company: CompanyInfo, party: Par
   return { subject, body, bodyBefore, bodyAfter, bills: at >= 0 ? overdue : null, overdue: overdue.reduce((s, b) => s + b.pending, 0) }
 }
 
+export interface ReminderLogInsert {
+  party_ledger_id: number
+  bucket: ReminderBucket
+  date: string
+  amount_paise: number
+  oldest_bill: string | null
+  max_overdue_days: number
+  document_path: string | null
+  channel: ReminderChannel
+}
+
+/** Log one sent reminder (reminder_log + its audit row) — the letter above, and the simple
+ *  People screen's WhatsApp / SMS / copied message (WP 9.8, no document). `extra` rides in the
+ *  audit row only. */
+export function logReminder(db: DB, r: ReminderLogInsert, extra: Record<string, unknown> = {}): number {
+  const row = { ...r, user_name: currentAuditUserName() }
+  const logId = Number(
+    db
+      .prepare(
+        `INSERT INTO reminder_log (party_ledger_id, bucket, date, amount_paise, oldest_bill, max_overdue_days, document_path, channel, user_name)
+         VALUES (@party_ledger_id, @bucket, @date, @amount_paise, @oldest_bill, @max_overdue_days, @document_path, @channel, @user_name)`
+      )
+      .run(row).lastInsertRowid
+  )
+  writeAudit(db, 'reminder', logId, 'create', null, { ...row, ...extra })
+  return logId
+}
+
 const BUCKET_HEAD: Record<ReminderBucket, string> = { gentle: 'Reminder', firm: 'Second reminder', final: 'Final notice' }
 
 /** Render, save and log one reminder. Refused inside the cadence window unless `force`. */
@@ -274,19 +302,10 @@ export async function remind(
   }
   const html = renderDocument(resolveTemplate(db, 'reminder'), doc, RENDER_OPTS)
   const path = await writePdf(join(companyExportsDir(slug), 'reminders'), `reminder-${cand.bucket}-${safeName(party.name)}-${q.asOn}.pdf`, html, db, 'reminder')
-  const row = {
+  const logId = logReminder(db, {
     party_ledger_id: q.ledgerId, bucket: cand.bucket, date: q.asOn, amount_paise: cand.overdue, oldest_bill: cand.oldestBill,
-    max_overdue_days: cand.maxOverdueDays, document_path: path, channel: q.channel, user_name: currentAuditUserName()
-  }
-  const logId = Number(
-    db
-      .prepare(
-        `INSERT INTO reminder_log (party_ledger_id, bucket, date, amount_paise, oldest_bill, max_overdue_days, document_path, channel, user_name)
-         VALUES (@party_ledger_id, @bucket, @date, @amount_paise, @oldest_bill, @max_overdue_days, @document_path, @channel, @user_name)`
-      )
-      .run(row).lastInsertRowid
-  )
-  writeAudit(db, 'reminder', logId, 'create', null, { ...row, forced: !!q.force && !cand.allowed })
+    max_overdue_days: cand.maxOverdueDays, document_path: path, channel: q.channel
+  }, { forced: !!q.force && !cand.allowed })
   return {
     logId, ledgerId: q.ledgerId, name: party.name, bucket: cand.bucket, path, subject: letter.subject, body: letter.body,
     mailto: mailtoLink(party.email, letter.subject, letter.body)

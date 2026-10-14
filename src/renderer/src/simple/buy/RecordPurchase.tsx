@@ -58,8 +58,8 @@ function readIncl(slug: string | null): boolean | null {
 }
 
 /** Has the form anything the user typed (worth asking before throwing it away)? */
-const isDirty = (f: BuyForm): boolean =>
-  f.supplierId != null || f.billNo.trim() !== '' || f.amount != null || f.categoryId != null || f.note.trim() !== '' || f.lines.some((l) => l.itemId != null)
+const isDirty = (f: BuyForm, party?: number): boolean =>
+  (f.supplierId != null && f.supplierId !== party) || f.billNo.trim() !== '' || f.amount != null || f.categoryId != null || f.note.trim() !== '' || f.lines.some((l) => l.itemId != null)
 
 /**
  * WP 9.3 — Record a purchase (plan §3): whose bill it is (a supplier, their bill number and the
@@ -71,7 +71,7 @@ const isDirty = (f: BuyForm): boolean =>
  * the save card offers New / Undo. ⌘↵ saves, ⌘N starts a new bill, Esc asks before discarding.
  * "Accountant view" opens the full purchase editor (the saved bill once there is one).
  */
-export function RecordPurchase(): React.JSX.Element {
+export function RecordPurchase({ party }: { party?: number } = {}): React.JSX.Element {
   const t = useT()
   const lbl = (k: MessageKey): string => t(k) // i18n-technical: keys from the typed tables above
   const nav = useNav()
@@ -96,7 +96,8 @@ export function RecordPurchase(): React.JSX.Element {
     const regular = info?.gstRegistrationType === 'regular' // i18n-technical
     return { ...f, ratesIncludeGst: remembered ?? !regular, lines: startMode === 'items' ? [newLine()] : [] }
   }, [workingDate, startMode, slug, info?.gstRegistrationType])
-  const [form, setForm] = useState<BuyForm>(blank)
+  // WP 9.8: `party` starts the purchase for that supplier (People → Record a purchase).
+  const [form, setForm] = useState<BuyForm>(() => (party != null ? { ...blank(), supplierId: party } : blank()))
   const [savedIds, setSavedIds] = useState<number[] | null>(null)
   const [preview, setPreview] = useState<SimplePreview | null>(null)
   const [previewProblem, setPreviewProblem] = useState<string | null>(null)
@@ -145,7 +146,7 @@ export function RecordPurchase(): React.JSX.Element {
     { simple: true, t }
   )
 
-  const dirty = !savedIds && !leaving && isDirty(form)
+  const dirty = !savedIds && !leaving && isDirty(form, party)
   useUnsavedGuard(dirty)
   useEffect(() => {
     if (leaving) nav.back()

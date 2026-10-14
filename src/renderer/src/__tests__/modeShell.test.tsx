@@ -154,11 +154,15 @@ describe('the simple shell', () => {
 
   it('a section page lists its plain-named entries; GST entries only while registered', async () => {
     setSession({ mode: 'simple' })
+    // WP 9.8: People's entries are the simple People screen; Money → All entries is still the full app.
     render(withClient(<SimpleSection section="people" />))
     await waitFor(() => expect(screen.getByTestId('simple-entry-customers-suppliers').textContent).toContain('Customers and suppliers'))
-    expect(screen.getByTestId('simple-entry-customers-suppliers').textContent).toContain('Full app')
-    fireEvent.click(screen.getByTestId('simple-entry-customers-suppliers'))
-    await waitFor(() => expect(useNav.getState().stack.at(-1)).toEqual({ name: 'masters', tab: 'ledgers', parties: true }))
+    expect(screen.getByTestId('simple-entry-customers-suppliers').textContent).not.toContain('Full app')
+    cleanup()
+    render(withClient(<SimpleSection section="money" />))
+    await waitFor(() => expect(screen.getByTestId('simple-entry-all-entries').textContent).toContain('Full app'))
+    fireEvent.click(screen.getByTestId('simple-entry-all-entries'))
+    await waitFor(() => expect(useNav.getState().stack.at(-1)).toEqual({ name: 'daybook' }))
     cleanup()
     render(withClient(<SimpleSection section="taxes" />))
     expect(await screen.findByTestId('simple-entry-gst-summary')).toBeTruthy()
