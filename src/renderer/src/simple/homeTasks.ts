@@ -44,7 +44,8 @@ export function homeReportScreen(id: HomeReport, home: SimpleHomeData): Screen {
       return { name: 'simple-taxes', ...(row ? { period: row.period } : {}) } // i18n-technical
     }
     case 'backups':
-      return { name: 'settings', tab: 'backups' } // i18n-technical
+      // WP 10.8: the plain Backups screen (the full tab is behind it).
+      return { name: 'simple-backups' } // i18n-technical
   }
 }
 

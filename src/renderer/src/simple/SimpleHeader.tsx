@@ -18,13 +18,15 @@ const CHIP = 'shrink-0 whitespace-nowrap rounded-md border border-line bg-panel2
  * "Search ⌘K" (the palette), the light / dark switch, the per-screen "Accountant view" toggle and,
  * with users, who is signed in + Lock.
  */
+const SHORT = 'short' as const // i18n-technical: month-name style
+
 export function SimpleHeader({ onOpenPalette }: { onOpenPalette: () => void }): React.JSX.Element {
   const t = useT()
   // WP 10.4 review: in Hindi the period chip names its months in Hindi (01-Apr-26 was English).
   // WP 10.8: plain dates in every language; a whole financial year is said as its months
   // ("This year: Apr 2026 – Mar 2027"), never the accountant's 01-Apr-26 → 31-Mar-27.
   const periodDate = (d: string): string => toPlainDate(d, t.lang)
-  const month = (d: string): string => `${toMonthLabel(d.slice(0, 7), 'short', t.lang)} ${d.slice(0, 4)}`
+  const month = (d: string): string => `${toMonthLabel(d.slice(0, 7), SHORT, t.lang)} ${d.slice(0, 4)}`
   const nav = useNav()
   const screen = useScreen()
   const toast = useToasts()
@@ -131,7 +133,8 @@ export function periodChip(
 ): string {
   const fy = fyOf(from)
   if (fy.from === from && fy.to === to) {
-    return t(today >= from && today <= to ? 'simple.shell.periodThisYear' : 'simple.shell.periodRange', { from: month(from), to: month(to) })
+    const vars = { from: month(from), to: month(to) }
+    return today >= from && today <= to ? t('simple.shell.periodThisYear', vars) : t('simple.shell.periodRange', vars)
   }
   return t('simple.shell.periodRange', { from: date(from), to: date(to) })
 }

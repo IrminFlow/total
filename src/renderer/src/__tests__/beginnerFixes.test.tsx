@@ -1,13 +1,42 @@
 // WP 10.8 — the beginner study's fixes that live in shared renderer pieces.
 //   - A viewer sees a plain note where the simple Save bar's buttons would be (never a Save that
 //     main then refuses); an owner / accountant / a company without sign-ins sees the buttons.
-import { afterEach, describe, expect, it } from 'vitest'
-import { cleanup, render, screen } from '@testing-library/react'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { SaveBar } from '../simple/SaveBar'
+import { SimpleBackups } from '../simple/SimpleBackups'
 import { periodChip } from '../simple/SimpleHeader'
 import { translator } from '@shared/i18n'
 import { toMonthLabel, toPlainDate } from '@shared/dates'
-import { useSession } from '../state/stores'
+import { bannedWordsIn } from '@shared/simple/bannedWords'
+import { useNav, useSession } from '../state/stores'
+
+describe('WP 10.8: the plain Backups screen', () => {
+  it('the last backup in a sentence, Back up now says where the file went, the full list behind a button', async () => {
+    const day = new Date(2026, 9, 12, 10, 0).getTime()
+    const invoke = vi.fn(async (channel: string) => {
+      if (channel === 'backup:list') return { ok: true, data: [{ file: 'a.db', sizeBytes: 10, mtime: day, tag: 'manual' }] }
+      if (channel === 'backup:run') return { ok: true, data: { path: '/Users/x/Documents/total/shop/backups/manual.db' } }
+      return { ok: true, data: null }
+    })
+    window.total = { platform: 'test', invoke } as never
+    useNav.setState({ stack: [{ name: 'simple-backups' }] })
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    render(
+      <QueryClientProvider client={client}>
+        <SimpleBackups />
+      </QueryClientProvider>
+    )
+    expect(await screen.findByText('Your last backup was made on 12 Oct 2026.')).toBeTruthy()
+    fireEvent.click(screen.getByTestId('btn-simple-backup-now'))
+    expect((await screen.findByTestId('simple-backups-saved')).textContent).toContain('/Users/x/Documents/total/shop/backups/manual.db')
+    expect(bannedWordsIn(document.body.textContent ?? '')).toEqual([])
+    expect(document.body.textContent).not.toMatch(/SHA-256|voucher|ledger/i)
+    fireEvent.click(screen.getByTestId('btn-simple-backups-all'))
+    await waitFor(() => expect(useNav.getState().stack.at(-1)).toEqual({ name: 'settings', tab: 'backups' }))
+  })
+})
 
 afterEach(() => {
   cleanup()
