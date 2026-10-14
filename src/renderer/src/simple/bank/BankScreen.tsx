@@ -82,7 +82,7 @@ export function BankScreen({ bankId }: { bankId?: number }): React.JSX.Element {
   const suggestionOf = (l: BankLineView): BankSuggestion | null => l.suggestion ?? aiSugs[l.id] ?? null
   const choiceOf = (l: BankLineView): BankChoice | null => answers[l.id] ?? suggestionOf(l)?.choice ?? null
   const ready = open.filter((l) => canSave(choiceOf(l)))
-  const residual = open.filter((l) => !suggestionOf(l))
+  const residual = open.filter((l) => !suggestionOf(l) && !l.repeat) // a repeated row is the user's call, never the model's
 
   const refresh = async (): Promise<void> => {
     for (const k of REFRESH) await queryClient.invalidateQueries({ queryKey: [k] })
