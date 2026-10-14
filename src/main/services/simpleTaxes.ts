@@ -63,7 +63,9 @@ function withholdingAnswers(db: DB, today: string): TaxesWithholding[] {
   if (kinds.length === 0) return []
   const facts = withholdingFacts(db, listLedgers(db), today)
   const month = today.slice(0, 7)
-  return kinds.map((kind): TaxesWithholding => {
+  // Only a kind the company actually withholds: switched on AND a tagged payable account exists
+  // (WP 8.0's rule — a shop that never deducts sees no TDS answer).
+  return kinds.filter((kind) => facts.some((w) => w.kind === kind)).map((kind): TaxesWithholding => {
     const mine = facts.filter((w) => w.kind === kind)
     const unpaid = mine
       .flatMap((w) => withholdingUnpaid(w, today))
