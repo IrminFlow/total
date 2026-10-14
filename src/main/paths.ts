@@ -1,6 +1,7 @@
 import { app } from 'electron'
 import { join } from 'path'
 import { mkdirSync } from 'fs'
+import { portableSlug } from '@shared/fileNames'
 
 /** Root of all Total data: ~/Documents/total */
 export function dataRoot(): string {
@@ -55,7 +56,9 @@ export function ensureCompanyTree(slug: string): void {
 }
 
 export function slugify(name: string): string {
-  return (
+  // WP 7.3: a slug names a folder (companies/<slug>) and export files — `con`, `aux`, `nul`, `com1`
+  // … are Windows device names, so they get a suffix (portableSlug).
+  return portableSlug(
     name
       .toLowerCase()
       .replace(/[^a-z0-9]+/g, '-')

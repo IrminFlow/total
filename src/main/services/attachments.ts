@@ -34,6 +34,7 @@ import {
 import { tmpdir } from 'os'
 import { join, relative, isAbsolute, sep } from 'path'
 import type { DB } from '../db/connection'
+import { fitFileName, portableFileName } from '@shared/fileNames'
 import {
   ATTACHMENT_TYPES, DEFAULT_ATTACHMENT_CONFIG, SHA256_RE, attachmentConfigSchema, attachmentRefusal, cleanFileName, contentRefusal, extensionOf, openRefusal,
   isSafeStoredPath, storedPathFor, type Attachment, type AttachmentConfig, type AttachmentEntity, type AttachmentTarget
@@ -268,7 +269,10 @@ export function prepareOpen(db: DB, dir: string, id: number, tempRoot: string = 
   const policy = openRefusal(r.file_name, getAttachmentConfig(db)) ?? contentRefusal(r.file_name, readHead(abs))
   if (policy) throw new Error(`Not opened: ${policy}`)
   const outDir = mkdtempSync(join(sessionOpenDir(tempRoot), 'f-'))
-  const name = cleanFileName(r.file_name) || `attachment.${extensionOf(r.file_name) || 'bin'}`
+  // WP 7.3: the copy is named for the OS it opens on — a name attached elsewhere may hold
+  // characters Windows refuses (`a:b.pdf`), a device name (`CON.pdf`) or run past MAX_PATH once
+  // under the temp folder; the stored row keeps the name as attached.
+  const name = fitFileName(outDir, portableFileName(cleanFileName(r.file_name), { fallback: `attachment.${extensionOf(r.file_name) || 'bin'}` }))
   const out = join(outDir, name)
   if (!inside(outDir, out)) throw new Error('Bad attachment name')
   copyFileSync(abs, out)
