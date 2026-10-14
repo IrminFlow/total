@@ -1369,6 +1369,7 @@ export const hinglish: Partial<Record<MessageKey, string>> = {
   'simple.updates.failed': 'Update nahi jaanche ja sake. Apna internet dekhein.',
   'simple.updates.dev': 'Yeh copy source se chal rahi hai, isliye update karne ko kuch nahi hai.',
   'simple.updates.ownerOnly': 'Ise sirf malik badal sakta hai.',
+  'simple.updates.askOwner': 'Total update karne ke liye malik se kahein.',
   'simple.features.tds': 'Aap tay limit se upar contractors, kiraye ya professionals ko payment karte waqt tax kaatte hain. Aapke CA batayenge.',
   'simple.features.tcs': 'Aap kuch khaas sales par kharidaaron se tax collect karte hain. Aapke CA batayenge.',
   'simple.features.payroll': 'Aap har mahine salary dete hain aur payslip chahte hain.',

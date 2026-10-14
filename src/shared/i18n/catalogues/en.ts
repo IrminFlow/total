@@ -1462,6 +1462,7 @@ export const en = {
   'simple.updates.failed': 'Couldn\'t check for updates. Check your internet connection.',
   'simple.updates.dev': 'This copy runs from source, so there is nothing to update.',
   'simple.updates.ownerOnly': 'Only the owner can change this.',
+  'simple.updates.askOwner': 'Ask the owner to update Total.',
   'simple.features.tds': 'You deduct tax when paying contractors, rent or professionals above the limits. Your CA will tell you.',
   'simple.features.tcs': 'You collect tax from buyers on certain sales. Your CA will tell you.',
   'simple.features.payroll': 'You pay monthly salaries and want payslips.',

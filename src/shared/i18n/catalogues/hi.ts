@@ -1374,6 +1374,7 @@ export const hi: Partial<Record<MessageKey, string>> = {
   'simple.updates.failed': 'अपडेट नहीं जाँचे जा सके। अपना इंटरनेट देखें।',
   'simple.updates.dev': 'यह कॉपी सोर्स से चल रही है, इसलिए अपडेट करने को कुछ नहीं है।',
   'simple.updates.ownerOnly': 'इसे सिर्फ़ मालिक बदल सकता है।',
+  'simple.updates.askOwner': 'Total को अपडेट करने के लिए मालिक से कहें।',
   'simple.features.tds': 'आप तय सीमा से ऊपर ठेकेदारों, किराए या प्रोफ़ेशनल्स को भुगतान करते समय टैक्स काटते हैं। आपके CA बताएँगे।',
   'simple.features.tcs': 'आप कुछ खास बिक्री पर खरीदारों से टैक्स वसूलते हैं। आपके CA बताएँगे।',
   'simple.features.payroll': 'आप हर महीने तनख्वाह देते हैं और सैलरी स्लिप चाहते हैं।',

@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { api, onUpdateEvent } from '../lib/client'
 import { useT } from '../lib/i18n'
 import { useToasts } from '../state/stores'
+import { useCanSetMode } from '../lib/mode'
 import { Button } from '../components/ui'
 import type { UpdateAction, UpdateNotice as Notice } from '@shared/updates'
 
@@ -9,6 +10,16 @@ const DOWNLOAD: UpdateAction = 'download' // i18n-technical
 const SKIP: UpdateAction = 'skip' // i18n-technical
 const INSTALL: UpdateAction = 'install' // i18n-technical
 const ON_QUIT: UpdateAction = 'installOnQuit' // i18n-technical
+
+/** Notices hidden with "Later" this session (`phase:version`). Module-level, not component state: the
+ *  notice is mounted once per App layout (company select / shell / simple shell), so opening a company
+ *  re-mounts it — "Later" must still hold until Total restarts. */
+const hiddenThisSession = new Set<string>()
+
+/** Test hook: a fresh session. */
+export function resetUpdateNoticeSession(): void {
+  hiddenThisSession.clear()
+}
 
 /** The notice main last pushed (null = none), kept in step with `app:updates:get` and the push channel. */
 export function useUpdateNotice(): Notice | null {
@@ -37,12 +48,18 @@ export function UpdateNotice(): React.JSX.Element | null {
   const t = useT()
   const toast = useToasts()
   const notice = useUpdateNotice()
-  const [later, setLater] = useState<string | null>(null)
+  // Owner-only in main where the business has users: a non-owner gets the news and "Later", not buttons that refuse.
+  const canAct = useCanSetMode()
+  const [, setHidden] = useState(0)
   const [busy, setBusy] = useState(false)
 
   if (!notice) return null
   const key = `${notice.phase}:${notice.version}`
-  if (later === key) return null
+  if (hiddenThisSession.has(key)) return null
+  const later = (): void => {
+    hiddenThisSession.add(key)
+    setHidden((n) => n + 1)
+  }
 
   const act = async (action: UpdateAction): Promise<void> => {
     setBusy(true)
@@ -57,7 +74,8 @@ export function UpdateNotice(): React.JSX.Element | null {
 
   return (
     <div
-      role="alertdialog"
+      role="region"
+      aria-live="polite"
       aria-label={t('simple.updates.title')}
       data-testid="update-notice"
       className="fixed bottom-4 left-4 z-50 w-96 rounded-lg border border-line bg-raised p-4 shadow-elev-2"
@@ -67,21 +85,37 @@ export function UpdateNotice(): React.JSX.Element | null {
           <p className="text-detail font-medium text-ink">{t('simple.updates.available', { version: notice.version })}</p>
           <p className="mt-1 text-hint text-muted">{t('simple.updates.availableHint')}</p>
           <div className="mt-3 flex flex-wrap gap-2">
-            <Button variant="primary" disabled={busy} onClick={() => void act(DOWNLOAD)} data-testid="btn-update-download">
-              {t('simple.updates.download')}
-            </Button>
-            <Button disabled={busy} onClick={() => setLater(key)} data-testid="btn-update-later">
+            {canAct && (
+              <Button variant="primary" disabled={busy} onClick={() => void act(DOWNLOAD)} data-testid="btn-update-download">
+                {t('simple.updates.download')}
+              </Button>
+            )}
+            <Button disabled={busy} onClick={later} data-testid="btn-update-later">
               {t('simple.updates.later')}
             </Button>
-            <Button disabled={busy} onClick={() => void act(SKIP)} data-testid="btn-update-skip">
-              {t('simple.updates.skip')}
-            </Button>
+            {canAct && (
+              <Button disabled={busy} onClick={() => void act(SKIP)} data-testid="btn-update-skip">
+                {t('simple.updates.skip')}
+              </Button>
+            )}
           </div>
         </>
       )}
       {notice.phase === 'downloading' && (
-        <p className="text-detail text-ink" data-testid="update-downloading">
-          {t('simple.updates.downloading', { version: notice.version })}
+        <>
+          <p className="text-detail text-ink" data-testid="update-downloading">
+            {t('simple.updates.downloading', { version: notice.version })}
+          </p>
+          <div className="mt-3 flex flex-wrap gap-2">
+            <Button onClick={later} data-testid="btn-update-later">
+              {t('simple.updates.later')}
+            </Button>
+          </div>
+        </>
+      )}
+      {!canAct && notice.phase !== 'downloading' && (
+        <p className="mt-2 text-hint text-muted" data-testid="update-ask-owner">
+          {t('simple.updates.askOwner')}
         </p>
       )}
       {notice.phase === 'ready' && (
@@ -89,13 +123,17 @@ export function UpdateNotice(): React.JSX.Element | null {
           <p className="text-detail font-medium text-ink">{t('simple.updates.ready', { version: notice.version })}</p>
           <p className="mt-1 text-hint text-muted">{t('simple.updates.readyHint')}</p>
           <div className="mt-3 flex flex-wrap gap-2">
-            <Button variant="primary" disabled={busy} onClick={() => void act(INSTALL)} data-testid="btn-update-restart">
-              {t('simple.updates.restart')}
-            </Button>
-            <Button disabled={busy} onClick={() => void act(ON_QUIT)} data-testid="btn-update-onquit">
-              {t('simple.updates.onQuit')}
-            </Button>
-            <Button disabled={busy} onClick={() => setLater(key)} data-testid="btn-update-later">
+            {canAct && (
+              <>
+                <Button variant="primary" disabled={busy} onClick={() => void act(INSTALL)} data-testid="btn-update-restart">
+                  {t('simple.updates.restart')}
+                </Button>
+                <Button disabled={busy} onClick={() => void act(ON_QUIT)} data-testid="btn-update-onquit">
+                  {t('simple.updates.onQuit')}
+                </Button>
+              </>
+            )}
+            <Button disabled={busy} onClick={later} data-testid="btn-update-later">
               {t('simple.updates.later')}
             </Button>
           </div>

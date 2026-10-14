@@ -18,7 +18,7 @@ function statusToast(r: { status: 'dev' | 'available' | 'up-to-date' | 'error'; 
     case 'up-to-date':
       return { kind: 'success', text: `You're on the latest version (${r.current})` }
     case 'available':
-      return { kind: 'info', text: `Total ${(r.latest ?? '').replace(/^v/, '')} is available — see the download dialog` }
+      return { kind: 'info', text: `Total ${(r.latest ?? '').replace(/^v/, '')} is available — see the update notice` }
     case 'error':
       return { kind: 'error', text: "Couldn't check for updates — check your internet connection" }
   }

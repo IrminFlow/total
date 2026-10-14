@@ -6,7 +6,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-libra
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import type { ReactNode } from 'react'
 import type { UpdateNotice as Notice, UpdatesView } from '@shared/updates'
-import { UpdateNotice } from '../simple/UpdateNotice'
+import { UpdateNotice, resetUpdateNoticeSession } from '../simple/UpdateNotice'
 import { UpdatesSetting } from '../simple/UpdatesSetting'
 import { AboutSection } from '../screens/settings/AboutSection'
 import { LANGUAGE_KEY } from '../lib/i18n'
@@ -23,6 +23,7 @@ const wrap = (ui: ReactNode): ReactNode => (
 
 beforeEach(() => {
   localStorage.clear()
+  resetUpdateNoticeSession()
   view = { settings: { autoCheck: true, skippedVersion: null }, notice: null, current: '0.12.0' }
   push = null
   invoke.mockReset()
@@ -86,6 +87,39 @@ describe('update notice', () => {
     await waitFor(() => expect(invoke).toHaveBeenCalledWith('app:updates:act', { action: 'installOnQuit' }))
     act(() => push!(null))
     expect(screen.queryByTestId('update-notice')).toBeNull()
+  })
+
+  it('"Later" holds for the session even when the notice is mounted again (opening a company swaps the layout)', async () => {
+    view.notice = available
+    const first = render(wrap(<UpdateNotice />))
+    fireEvent.click(await screen.findByTestId('btn-update-later'))
+    first.unmount()
+    render(wrap(<UpdateNotice />))
+    await waitFor(() => expect(invoke).toHaveBeenCalledTimes(2))
+    expect(screen.queryByTestId('update-notice')).toBeNull()
+    // A newer version is news again.
+    act(() => push!({ ...available, version: '0.14.0' }))
+    expect(screen.getByTestId('update-notice')).toBeTruthy()
+  })
+
+  it('a download in progress can be hidden', async () => {
+    view.notice = { ...available, phase: 'downloading' }
+    render(wrap(<UpdateNotice />))
+    fireEvent.click(await screen.findByTestId('btn-update-later'))
+    expect(screen.queryByTestId('update-notice')).toBeNull()
+  })
+
+  it('a non-owner where the business has users gets the news, "Later" and "ask the owner" — no buttons main would refuse', async () => {
+    act(() => useSession.setState({ slug: 'a', user: { id: 2, name: 'Ravi', role: 'accountant' } }))
+    view.notice = available
+    render(wrap(<UpdateNotice />))
+    expect(await screen.findByTestId('update-ask-owner')).toBeTruthy()
+    expect(screen.queryByTestId('btn-update-download')).toBeNull()
+    expect(screen.queryByTestId('btn-update-skip')).toBeNull()
+    act(() => push!({ ...available, phase: 'ready' }))
+    expect(screen.queryByTestId('btn-update-restart')).toBeNull()
+    expect(screen.queryByTestId('btn-update-onquit')).toBeNull()
+    expect(screen.getByTestId('btn-update-later')).toBeTruthy()
   })
 
   it.each(['hi', 'hinglish'] as const)('speaks %s, with no English fallback', async (lang) => {
