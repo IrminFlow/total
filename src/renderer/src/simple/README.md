@@ -35,3 +35,8 @@ The screens a first-time, non-accountant user sees (plan `docs/superpowers/specs
 ## Opening setup (WP 8.7)
 
 - `Openings.tsx` (+ `OpeningsSteps.tsx`) is "What you had on day one": money, customers (bill by bill), suppliers, stock, then Check and confirm (the difference in one sentence from `simple:openings:preview`; saved with `simple:openings` and that figure). Field errors come from `shared/simple/openings.ts` `openingsStepErrors` by path and show under their field (`OField` reads them by `name`). `OpeningsHomeCard.tsx` is Home's setup step (progress, "I started fresh").
+
+## Money (WP 9.4)
+
+- `money/MoneyIn.tsx`, `money/MoneyOut.tsx`, `money/MoveMoney.tsx`: plain questions → a `money_in` / `money_out` (an expense with a GST bill: one `purchase` paid now) / `move_money` intent built by `shared/simple/money.ts`, saved only through `useMoneyFlow` → `simple:post`, then the save card. `BillTicks` shows a party's open bills oldest first with what the amount pays (`billAllocation`, the allocation simple:post runs); `HowPaid` is Cash / UPI / Bank transfer / Card + the account.
+- `money/MoneyList.tsx` is the money list (shared `DataTable`) and, with `entryId`, one entry's read-only view. `money/moneyLinks.ts` gives other flows the Money in / out targets (`party`, `amount`, `bill`).

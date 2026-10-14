@@ -63,7 +63,8 @@ function MoneyTable(): React.JSX.Element {
     () =>
       defineColumns<MoneyRow>([
         { id: 'date', header: t('simple.money.col.date'), kind: 'date', value: (r) => r.date, text: (r) => toPlainDate(r.date), width: 130, groupable: false }, // i18n-technical
-        { id: 'who', header: t('simple.money.col.who'), kind: 'text', hideable: false, groupable: false, value: (r) => r.who }, // i18n-technical
+        // A move says where it went from and to; anything else, who paid / was paid.
+        { id: 'who', header: t('simple.money.col.who'), kind: 'text', hideable: false, groupable: false, value: (r) => (r.direction === 'move' ? `${r.account} → ${r.who}` : r.who) }, // i18n-technical
         {
           id: 'direction', header: t('simple.money.col.direction'), kind: 'text', width: 110, // i18n-technical
           value: (r) => lbl(DIR_TEXT[r.direction]),
