@@ -1,5 +1,5 @@
-// Scenario 61 — WP 9.10 Accountant-view hand-off for every simple screen (plan §0.1 / §2.1; the
-// plan's "59-handoff" — 59 is People, 60 is reserved for the no-ledger-knowledge journey).
+// Scenario 62 — WP 9.10 Accountant-view hand-off for every simple screen (plan §0.1 / §2.1; the
+// plan's "59-handoff" — 59 is People, 60 is reserved for the no-ledger-knowledge journey, 61 is WP 9.9's Reports and Taxes).
 //   1. A trader made through the setup wizard (regular GST, stock): Make a bill half-filled (a
 //      customer, a product, a quantity, on credit) → "Accountant view" → the full sales editor shows
 //      the same customer, line and total (the hand-off banner says nothing is saved yet) → saved
@@ -22,7 +22,7 @@ const BANNED = [
 const bannedWordsIn = (text) => BANNED.filter((re) => re.test(text)).map((re) => re.source)
 const attached = (h, sel, timeout = 15000) => h.page.waitForSelector(sel, { state: 'attached', timeout })
 
-await scenario('61-handoff', async (h) => {
+await scenario('62-handoff', async (h) => {
   const { page } = h
   const shoot = async (name, themes = ['light', 'dark']) => {
     for (const want of themes) {
@@ -144,7 +144,7 @@ await scenario('61-handoff', async (h) => {
   await shoot('03-bill-view', ['light'])
 
   // ---------- 2. a receipt opened from the full app's sidebar → Money view ----------
-  const receipt = await h.invoke('simple:post', { intent: { clientId: 'e2e-61-receipt-1', kind: 'money_in', customerId: customer.id, amount: '300', into: { how: 'cash' } } })
+  const receipt = await h.invoke('simple:post', { intent: { clientId: 'e2e-62-receipt-1', kind: 'money_in', customerId: customer.id, amount: '300', into: { how: 'cash' } } })
   const receiptId = receipt.voucherIds[0]
   await h.click('simple-nav-money')
   await h.click('simple-entry-all-entries')
