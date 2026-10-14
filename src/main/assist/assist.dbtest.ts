@@ -239,6 +239,37 @@ describe('Ask Total on hand-worked books', () => {
     expect((await ok<AiDraftDto[]>('ai:drafts', {})).find((x) => x.id === d.draftId)!.status).toBe('open')
   })
 
+  it('WP 10.6: a chat (AI panel) draft opened in its simple flow is consumed by the save; other drafts are left alone', async () => {
+    const { insertDraft } = await import('../ai/store')
+    const receipt = (extra: Record<string, unknown> = {}): number => {
+      const db = new Database(dbPath)
+      try {
+        return insertDraft(db, {
+          threadId: null, messageId: null, summary: 'Receipt from Ramesh', source: 'chat',
+          payload: { voucherTypeId: 1, voucherKind: 'receipt', date: T, partyLedgerId: ids.ramesh!, narration: null, reference: null, lines: [], form: 'accounting', ...extra }
+        }).id
+      } finally {
+        db.close()
+      }
+    }
+    const status = async (id: number): Promise<AiDraftDto> => (await ok<AiDraftDto[]>('ai:drafts', {})).find((x) => x.id === id)!
+    const moneyIn = (clientId: string, aiDraftId: number): Promise<{ voucherIds: number[] }> =>
+      ok('simple:post', { intent: { kind: 'money_in', clientId, date: T, amount: 100, into: { how: 'cash' }, customerId: ids.ramesh }, today: T, aiDraftId })
+    // A receipt draft → Money in: consumed, linked to the receipt it became.
+    const fits = receipt()
+    const saved = await moneyIn('chat-flow-0001', fits)
+    expect(await status(fits)).toMatchObject({ status: 'consumed', voucherId: saved.voucherIds[0] })
+    // Another flow's kind, a statement-line draft (reconciled through voucher:save only): left open.
+    const other = receipt({ voucherKind: 'payment' })
+    const bank = receipt({ bankLine: { bankLedgerId: 1, statementLineId: 1 } })
+    await moneyIn('chat-flow-0002', other)
+    await moneyIn('chat-flow-0003', bank)
+    expect((await status(other)).status).toBe('open')
+    expect((await status(bank)).status).toBe('open')
+    // Each money-in above was ₹1 received: ₹6,700 (after the ₹100 test) − ₹1 × 3 = ₹6,697.
+    expect(paise(await ask('who owes me'))).toContain(669700)
+  })
+
   it('a viewer can ask (entries come back as not recordable) but cannot draft', async () => {
     expect(ipc.CHANNEL_ROLES.get('assist:ask')).toBe('viewer')
     expect(ipc.CHANNEL_ROLES.get('assist:draft')).toBe('accountant')
@@ -253,8 +284,8 @@ describe('Ask Total on hand-worked books', () => {
     expect(r.ok).toBe(false)
     expect(r.code).toBe('not_permitted')
     expect(count('SELECT COUNT(*) AS n FROM ai_drafts')).toBe(before)
-    // ₹6,800 − the ₹100 received in the test above = ₹6,700.
-    expect(paise(await ask('who owes me'))).toContain(670000)
+    // ₹6,800 − the ₹100 and the 3 × ₹1 received in the tests above = ₹6,697.
+    expect(paise(await ask('who owes me'))).toContain(669700)
     expect((await call('assist:ask', { text: '' })).ok).toBe(false)
     expect((await call('assist:ask', { text: 'hi', extra: 1 })).ok).toBe(false)
   })

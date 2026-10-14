@@ -964,6 +964,22 @@ export const SCREENS: ScreenDef[] = [
     navSection: null,
     invalidates: ['features']
   },
+  // WP 10.6: Settings → AI helper in the simple shell — plain key setup, the notice summary first,
+  // hiding toggles and this month's spend over the existing ai:* channels (its accountant home is
+  // Settings → AI).
+  {
+    name: 'simple-ai',
+    modes: ['simple'],
+    simpleView: 'ai/AiHelper',
+    simpleSection: 'settings',
+    simpleEntries: [{ id: 'ai-helper', label: 'simple.settings.aiHelper', screen: { name: 'simple-ai' } }],
+    helpKey: 'settings',
+    title: 'AI helper',
+    keywords: ['ai', 'openai', 'api key', 'assistant', 'chatgpt'],
+    screen: null, // simple shell only
+    navSection: null,
+    invalidates: ['aiSettings', 'aiUsage']
+  },
   // WP 8.7: Settings → What you had on day one — the opening setup for a business that was
   // already running (also Home's setup step). Its accountant counterparts are the opening
   // balances on accounts and products in Masters ("See them in the full app").
@@ -1342,7 +1358,7 @@ export const SIMPLE_ENTRY_ORDER: readonly string[] = [
   // Taxes
   'gst-summary', 'gst-sales', 'check-supplier-bills', 'tds', 'tcs',
   // Settings (then Advanced)
-  'business', 'openings', 'bills-printing', 'backups', 'people-roles', 'features', 'looks', 'help-tour', 'advanced'
+  'business', 'openings', 'bills-printing', 'backups', 'people-roles', 'features', 'ai-helper', 'looks', 'help-tour', 'advanced'
 ]
 
 export interface ResolvedSimpleEntry {
