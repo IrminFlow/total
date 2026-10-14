@@ -10,6 +10,7 @@ import type { CaughtError, ErrorIssue, ErrorParams } from '@shared/errors'
 import type { SaveSummary } from '@shared/simple/saveCard'
 import type { HomeAttention, SimpleHomeData } from '@shared/simple/home'
 import type { SimpleIntentInput, SimplePostResult, SimplePreview } from '@shared/simple/intents'
+import type { BuySetup, PurchaseRow, PurchaseView } from '@shared/simple/buy'
 import type { BudgetVarianceRow } from '@shared/budgets'
 import type { McpConfig, McpLogRow, McpSettingsView } from '@shared/mcp'
 import type { AiDraftDto, AiDraftStatus } from '@shared/ai'
@@ -679,6 +680,15 @@ export const api = {
     preview: (intent: SimpleIntentInput, today?: string) => call<SimplePreview>('simple:preview', { intent, ...(today ? { today } : {}) }),
     /** WP 9.1: save an intent (idempotent by its clientId); the vouchers come back together for the save card. */
     post: (intent: SimpleIntentInput, today?: string) => call<SimplePostResult>('simple:post', { intent, ...(today ? { today } : {}) })
+  },
+  /** WP 9.3: the simple Buy screens' reads (writing goes through api.simple.post). */
+  buy: {
+    /** Record a purchase's choices — suppliers, cash / bank accounts and their defaults. */
+    setup: () => call<BuySetup>('simple:buy:setup'),
+    /** The purchase list — bills dated from…to with what is still due on each (as on today). */
+    purchases: (from: string, to: string, today?: string) => call<PurchaseRow[]>('simple:purchases', { from, to, ...(today ? { today } : {}) }),
+    /** One bill's simple (read-only) view; null when it is not an in-books purchase bill. */
+    purchase: (id: number, today?: string) => call<PurchaseView | null>('simple:purchase', { id, ...(today ? { today } : {}) })
   },
   /** WP 8.7: the opening setup (what a continuing business had on day one). */
   openings: {

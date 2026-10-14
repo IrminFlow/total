@@ -126,6 +126,7 @@ import { globalSearch, search } from './services/search'
 import { createDemoCompany } from './services/demo'
 import { createCompanyFromSetup } from './services/companySetup'
 import * as simplePost from './services/simplePost'
+import * as simpleBuy from './services/simpleBuy'
 import { simpleIntentSchema } from '@shared/simple/intents'
 import { simpleSetupSchema } from '@shared/simple/setup'
 import { simpleOpeningsSchema } from '@shared/simple/openings'
@@ -432,6 +433,23 @@ export function registerIpc(): void {
     z.object({}).strict().optional().parse(payload)
     return openingsSvc.skipOpenings(requireCompany().db)
   })
+
+  // WP 9.3: the simple Buy screens' reads (services/simpleBuy.ts) — the form's suppliers, cash /
+  // bank accounts and their defaults (WP 5.6 memory "Pay from", else the counter's), the purchase
+  // list with what is still due on each bill (the Outstandings allocation as on today) and one
+  // bill's simple view. Writing goes through simple:post only.
+  handle('simple:buy:setup', (payload) => {
+    z.object({}).strict().optional().parse(payload)
+    return simpleBuy.buySetup(requireCompany().db)
+  }, 'viewer')
+  handle('simple:purchases', (payload) => {
+    const { from, to, today } = z.object({ from: isoDate, to: isoDate, today: isoDate.optional() }).strict().parse(payload)
+    return simpleBuy.purchasesList(requireCompany().db, from, to, homeAsOn(today, todayISO()))
+  }, 'viewer')
+  handle('simple:purchase', (payload) => {
+    const { id, today } = z.object({ id: z.number().int().positive(), today: isoDate.optional() }).strict().parse(payload)
+    return simpleBuy.purchaseView(requireCompany().db, id, homeAsOn(today, todayISO()))
+  }, 'viewer')
 
   // WP 9.1: the ONE write path of the simple screens (services/simplePost.ts) — an intent mapped to
   // the editors' own form state and saved through saveVoucher in one transaction (idempotent by

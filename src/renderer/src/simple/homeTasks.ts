@@ -11,7 +11,8 @@ export type HomeTaskId = 'sale' | 'purchase' | 'money-in' | 'money-out'
  */
 export const HOME_TASKS: readonly { id: HomeTaskId; label: MessageKey; screen: Screen }[] = [
   { id: 'sale', label: 'simple.home.addSale', screen: { name: 'voucher-entry', kindHint: 'sales' } }, // i18n-technical
-  { id: 'purchase', label: 'simple.home.addPurchase', screen: { name: 'voucher-entry', kindHint: 'purchase' } }, // i18n-technical
+  // WP 9.3: + Purchase opens the simple Record a purchase flow.
+  { id: 'purchase', label: 'simple.home.addPurchase', screen: { name: 'simple-buy' } }, // i18n-technical
   { id: 'money-in', label: 'simple.home.moneyIn', screen: { name: 'voucher-entry', kindHint: 'receipt' } }, // i18n-technical
   { id: 'money-out', label: 'simple.home.moneyOut', screen: { name: 'voucher-entry', kindHint: 'payment' } } // i18n-technical
 ]

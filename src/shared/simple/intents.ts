@@ -448,6 +448,9 @@ export interface IntentFacts {
   noGst: 'composition' | 'unregistered' | null
   /** Which side the party is on (null = no customer / supplier: walk-in aside, a source or payee). */
   side: 'customer' | 'supplier' | null
+  /** WP 9.2: when what stays open on a sale / purchase bill falls due (bill date + the party's
+   *  credit days, or the date given); absent when nothing stays open. */
+  dueDate?: string | null
 }
 
 export interface MappedIntent {
@@ -572,6 +575,26 @@ export function uniqueName(base: string, taken: ReadonlySet<string> | undefined,
 
 // ---------------------------------------------------------------- sale / purchase
 
+/** WP 8.0: an item line of a purchase by a company that can't claim GST, with the bill's GST
+ *  (at `gstRate` %) folded into its cost — the editor's rates are GST-inclusive there. Integer
+ *  paise (capture's nonClaimableCosts / rateForCost); a 0 % rate leaves the line as it is. WP 9.3
+ *  shows the same figure live, so this is the one place it is worked out. */
+export function foldGstIntoLine(qtyMilli: number, rate: number, discount: number | null, gstRate: number | null): { rate: number; discount: number | null } {
+  const rateBp = Math.round((gstRate ?? 0) * 100)
+  if (rateBp <= 0) return { rate, discount }
+  const gross = Math.round((qtyMilli * rate) / 1000)
+  const taxable = gross - Math.min(gross, discount ?? 0)
+  const cost = nonClaimableCosts([{ taxable, rateBp, printedTax: null }], null)[0]!.cost
+  const folded = rateForCost(cost, qtyMilli)
+  return { rate: folded.ratePaise, discount: folded.discountPaise || null }
+}
+
+/** WP 8.0: "just an amount" (before GST) of such a purchase with the bill's GST folded in. */
+export function foldGstIntoAmount(taxable: number, gstRate: number | null): number {
+  const rateBp = Math.round((gstRate ?? 0) * 100)
+  return rateBp > 0 ? nonClaimableCosts([{ taxable, rateBp, printedTax: null }], null)[0]!.cost : taxable
+}
+
 function mapTrade(n: Extract<NormalIntent, { kind: 'sale' | 'purchase' }>, ctx: IntentContext): MappedIntent {
   const sale = n.kind === 'sale'
   const kind: VoucherKind = sale ? 'sales' : 'purchase'
@@ -592,6 +615,10 @@ function mapTrade(n: Extract<NormalIntent, { kind: 'sale' | 'purchase' }>, ctx: 
   let bill: MappedEntry
   let total: number
   if (n.items) {
+    // WP 9.3: the purchase editor's item lines always carry their items' GST while the company
+    // charges it — a bill WITHOUT GST can't be held there, so it is refused (never posted with tax
+    // the bill doesn't show); as "just an amount" it books no tax.
+    if (!sale && charges && !gstOnBill) fail('simple_items_no_gst', 'A bill without GST can’t list products here — record it as just an amount, or in the full editor', 'gstOnBill')
     const account = ledgerOf(ctx, n.accountId ?? defaultAccount, accountClasses, 'simple_wrong_account', 'account', sale ? 'sales account' : 'purchase account')
     const rows: InvoiceRowState[] = n.items.map((l, i) => {
       if (!ctx.items.has(l.itemId)) fail('simple_no_item', 'Pick the product', `items.${i}.item`)
@@ -602,16 +629,7 @@ function mapTrade(n: Extract<NormalIntent, { kind: 'sale' | 'purchase' }>, ctx: 
       let r: InvoiceRowState = { itemId: l.itemId, qtyText: qtyText(l.qtyMilli), rate, discount, godownId: null, batchId: null }
       // WP 8.0: a purchase by a company that can't claim GST books the bill's GST as part of the
       // cost (the editor's rates are GST-inclusive there): fold it into the line, integer paise.
-      if (!sale && !charges && gstOnBill) {
-        const rateBp = Math.round((ctx.invoice.items.get(l.itemId)?.gstRate ?? 0) * 100)
-        if (rateBp > 0) {
-          const gross = Math.round((l.qtyMilli * rate) / 1000)
-          const taxable = gross - Math.min(gross, discount ?? 0)
-          const cost = nonClaimableCosts([{ taxable, rateBp, printedTax: null }], null)[0]!.cost
-          const folded = rateForCost(cost, l.qtyMilli)
-          r = { ...r, rate: folded.ratePaise, discount: folded.discountPaise || null }
-        }
-      }
+      if (!sale && !charges && gstOnBill) r = { ...r, ...foldGstIntoLine(l.qtyMilli, rate, discount, ctx.invoice.items.get(l.itemId)?.gstRate ?? null) }
       return r
     })
     const state: InvoiceFormState = {
@@ -636,8 +654,7 @@ function mapTrade(n: Extract<NormalIntent, { kind: 'sale' | 'purchase' }>, ctx: 
     let rate = charges && gstOnBill ? (a.gstRate ?? account.gstRate ?? 0) : 0
     if (sale && !charges && a.gstRate != null && a.gstRate > 0) facts.noGst = registrationOn(ctx.invoice, date) === 'composition' ? 'composition' : 'unregistered'
     if (!sale && !charges && gstOnBill) {
-      const rateBp = Math.round((a.gstRate ?? account.gstRate ?? 0) * 100)
-      if (rateBp > 0) taxable = nonClaimableCosts([{ taxable, rateBp, printedTax: null }], null)[0]!.cost
+      taxable = foldGstIntoAmount(taxable, a.gstRate ?? account.gstRate ?? null)
       rate = 0
     }
     const lines = ledgerLines(ctx, kind as 'sales' | 'purchase', party, account.id, taxable, rate)
@@ -657,6 +674,7 @@ function mapTrade(n: Extract<NormalIntent, { kind: 'sale' | 'purchase' }>, ctx: 
   facts.total = total
   facts.paid = paid
   facts.due = total - paid
+  if (facts.due > 0) facts.dueDate = due
   if (paid > 0) {
     const how = payment.how as MoneyHow
     const acct = moneyAccount(ctx, how, payment.accountId, 'payment')
