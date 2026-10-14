@@ -34,10 +34,11 @@ const HANDOFF_CLIENT_ID = 'accountant-view-handoff'
  *  and the fallback when the answers can't be carried. null = no full counterpart. */
 export function fullCounterpart(screen: Screen): Screen | null {
   switch (screen.name) {
+    // Started for a customer / supplier (People → Make a bill): the editor starts with them too.
     case 'simple-sell':
-      return { name: 'voucher-entry', kindHint: 'sales' }
+      return screen.party != null ? { name: 'voucher-entry', kindHint: 'sales', draft: { partyLedgerId: screen.party } } : { name: 'voucher-entry', kindHint: 'sales' }
     case 'simple-buy':
-      return { name: 'voucher-entry', kindHint: 'purchase' }
+      return screen.party != null ? { name: 'voucher-entry', kindHint: 'purchase', draft: { partyLedgerId: screen.party } } : { name: 'voucher-entry', kindHint: 'purchase' }
     case 'simple-money-in':
       return { name: 'voucher-entry', kindHint: 'receipt' }
     case 'simple-money-out':

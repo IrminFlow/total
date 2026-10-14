@@ -111,6 +111,7 @@ describe('the full → simple table', () => {
   it('the blank full counterpart of every simple flow', () => {
     expect(fullCounterpart({ name: 'simple-sell' })).toEqual({ name: 'voucher-entry', kindHint: 'sales' })
     expect(fullCounterpart({ name: 'simple-buy' })).toEqual({ name: 'voucher-entry', kindHint: 'purchase' })
+    expect(fullCounterpart({ name: 'simple-sell', party: 7 })).toEqual({ name: 'voucher-entry', kindHint: 'sales', draft: { partyLedgerId: 7 } })
     expect(fullCounterpart({ name: 'simple-money-in' })).toEqual({ name: 'voucher-entry', kindHint: 'receipt' })
     expect(fullCounterpart({ name: 'simple-money-out' })).toEqual({ name: 'voucher-entry', kindHint: 'payment' })
     expect(fullCounterpart({ name: 'simple-move-money' })).toEqual({ name: 'voucher-entry', kindHint: 'contra' })
