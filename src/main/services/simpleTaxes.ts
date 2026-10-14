@@ -23,7 +23,7 @@ import { depositDueDate } from '@shared/tdsInterest'
 import { tcsDepositDueDate } from '@shared/tcs'
 import { cmp08DueDate, gstr1DueDate, gstr3bDueDate, gstr4DueDate, pmt06DueDate } from '@shared/gst/filing'
 import {
-  GST_FILED_META_KEY, MISSING_BILL_CHECKS, creditParts, gstPeriodChoices, gstPeriodFor, nextCompositionDue, normalizeArn, normalizeGstFiled,
+  GST_FILED_META_KEY, MISSING_BILL_CHECKS, creditParts, gstPeriodChoices, gstPeriodEnd, gstPeriodFor, gstStartsOn, nextCompositionDue, normalizeArn, normalizeGstFiled,
   type GstFiledInput, type GstFiledMeta, type GstFiledPeriod, type GstForm, type GstPeriod, type MissingBillsItem, type SimpleTaxes, type SupplierBillsMonth, type TaxesWithholding
 } from '@shared/simple/taxes'
 import { getFeatures, getGstProfile } from './config'
@@ -80,7 +80,7 @@ function periodOf(db: DB, company: CompanyInfo, filing: 'monthly' | 'quarterly',
     if (!p) throw new AppError('simple_taxes_period', 'That period has not started yet.', { field: 'period' })
     return p
   }
-  const row = dashGst(db, company, today)!
+  const row = dashGst(db, company, today, gstStartsOn(company.booksBeginDate, company.gstRegistrationSince))!
   const from = row.from ?? `${row.period}-01`
   // The period is named by its last month (a quarter by its third month); the dates are dashGst's own.
   const named = gstPeriodFor(row.period, filing, today)!
@@ -96,7 +96,9 @@ export function simpleTaxes(db: DB, company: CompanyInfo, q: { period?: string }
     }
     const filing = getGstProfile(db).filing
     const period = periodOf(db, company, filing, q.period, today)
-    const choices = gstPeriodChoices(filing, today).map((p) => (p.period === period.period ? period : p))
+    // WP 10.8: no period that ended before the books (or the registration) began.
+    const startsOn = gstStartsOn(company.booksBeginDate, company.gstRegistrationSince)
+    const choices = gstPeriodChoices(filing, today, undefined, startsOn).map((p) => (p.period === period.period ? period : p))
     if (!choices.some((p) => p.period === period.period)) choices.push(period)
     choices.sort((a, b) => b.period.localeCompare(a.period))
 
@@ -123,6 +125,14 @@ export function simpleTaxes(db: DB, company: CompanyInfo, q: { period?: string }
       return { month: m, imported, matched: r.matched, categories: r.summary.filter((s) => s.count > 0).map((s) => ({ category: s.category, count: s.count, tax: s.tax })) }
     })
 
+    // WP 10.8 (the beginner study): the running period's GST so far, while an earlier one is shown.
+    const runningPeriod = gstPeriodFor(today.slice(0, 7), filing, today)!
+    let running: { period: GstPeriod; collected: number; onPurchases: number } | undefined
+    if (runningPeriod.period !== period.period) {
+      const r = gst3bFigures(db, company, runningPeriod.from, runningPeriod.to, runningPeriod.period)
+      if (r.outwardTax !== 0 || r.itc !== 0) running = { period: runningPeriod, collected: r.outwardTax, onPurchases: r.itc }
+    }
+
     const filedAll = readGstFiled(db)
     const filed: GstFiledPeriod = filedAll[period.period] ?? {}
     const due3b = gstr3bDueDate(period.period, filing, company.stateCode)
@@ -132,6 +142,7 @@ export function simpleTaxes(db: DB, company: CompanyInfo, q: { period?: string }
       filing,
       period,
       periods: choices,
+      ...(running ? { running } : {}),
       figures: {
         collected: f.outwardTax,
         reverseCharge: f.rcmTax,

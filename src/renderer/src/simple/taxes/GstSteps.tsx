@@ -2,7 +2,7 @@ import { useState, type ReactNode } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { gstPeriodOf, toMonthLabel, toPlainDate } from '@shared/dates'
 import { mapError, type CaughtError } from '@shared/errors'
-import { stepsDone, type GstForm, type MissingBillsItem, type SimpleTaxes } from '@shared/simple/taxes'
+import { gstPeriodEnd, stepsDone, type GstForm, type MissingBillsItem, type SimpleTaxes } from '@shared/simple/taxes'
 import type { HomeAttentionItem } from '@shared/simple/home'
 import { attentionText, money } from '@shared/simple/explain'
 import { api } from '../../lib/client'
@@ -174,7 +174,7 @@ function PrepareFiles({ x }: { x: Regular }): React.JSX.Element {
       </>
     )
   }
-  if (x.period.soFar) return <p data-testid="taxes-files-wait">{t('simple.taxes.step3.wait', { date: toPlainDate(x.period.to, t.lang) })}</p>
+  if (x.period.soFar) return <p data-testid="taxes-files-wait">{t('simple.taxes.step3.wait', { date: toPlainDate(gstPeriodEnd(x.period), t.lang) })}</p>
   const prepare = async (form: GstForm): Promise<void> => {
     setBusy(form)
     setError(null)

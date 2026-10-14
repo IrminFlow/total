@@ -9,6 +9,7 @@
 // No money arithmetic: amounts are the statement line's integer paise, passed through unchanged.
 
 import { z } from 'zod'
+import { formatPaise } from '../money'
 import type { MessageKey } from '../i18n'
 import type { StructuredError } from '../errors/appError'
 import type { CategorySource } from '../capture/categorise'
@@ -203,14 +204,42 @@ export interface BankSentenceFacts {
   difference: number
   /** Statement lines up to `asOn` that still need an answer. */
   open: number
+  /** WP 10.8: the balance the statement prints on its latest line up to `asOn` (null = the file
+   *  has no balance column) and the bank balance the books give (book − what the bank hasn't shown). */
+  statementBalance?: number | null
+  bankBalance?: number | null
+}
+
+/** WP 10.8 review: the balance a statement prints at the END of one day, from that day's lines of
+ *  one import (each with its file position, amounts and printed balance). Files run oldest first or
+ *  newest first, so the last line in the file is not always the day's last: the day's last line is
+ *  the one whose balance no other line of the day starts from (balance − its own movement); when
+ *  that doesn't pick exactly one, the file's direction (`newestFirst`) does. Null = no balance. */
+export function endOfDayBalance(
+  lines: readonly { lineNo: number; deposit: number; withdrawal: number; balance: number | null }[],
+  newestFirst: boolean
+): number | null {
+  const withBal = lines.filter((l): l is typeof l & { balance: number } => l.balance != null)
+  if (withBal.length === 0) return null
+  const starts = withBal.map((l) => l.balance - (l.deposit - l.withdrawal))
+  const ends = withBal.filter((l, i) => !withBal.some((m, j) => j !== i && starts[j] === l.balance))
+  if (ends.length === 1) return ends[0]!.balance
+  const byFile = [...withBal].sort((a, b) => a.lineNo - b.lineNo)
+  return (newestFirst ? byFile[0]! : byFile[byFile.length - 1]!).balance
 }
 
 /** The one sentence about the books against the bank. Only "agree" when nothing differs either
  *  way: no BRS entry and no statement line left without an answer. */
-export function bankSentence(f: BankSentenceFacts): { key: MessageKey; vars: Record<string, string | number>; tone: 'none' | 'agree' | 'differ' | 'open' } {
+export function bankSentence(f: BankSentenceFacts): { key: MessageKey; vars: Record<string, string | number>; tone: 'none' | 'agree' | 'differ' | 'open' | 'balance' } {
   if (!f.asOn) return { key: 'simple.bank.sentence.none', vars: {}, tone: 'none' }
   if (f.differ > 0) return { key: 'simple.bank.differ', vars: { count: f.differ }, tone: 'differ' }
   if (f.open > 0) return { key: 'simple.bank.sentence.open', vars: { count: f.open }, tone: 'open' }
+  // WP 10.8 (the 9.6 deferred item): every line answered is not "agree" while the statement's own
+  // closing balance differs from the books' — usually the balance on the day the books began.
+  if (f.statementBalance != null && f.bankBalance != null && f.statementBalance !== f.bankBalance) {
+    const m = (p: number): string => formatPaise(p, { symbol: true })
+    return { key: 'simple.bank.sentence.balance', vars: { date: f.asOn, bank: m(f.statementBalance), books: m(f.bankBalance), gap: m(Math.abs(f.statementBalance - f.bankBalance)) }, tone: 'balance' }
+  }
   return { key: 'simple.bank.sentence.agree', vars: { date: f.asOn }, tone: 'agree' }
 }
 

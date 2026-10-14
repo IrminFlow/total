@@ -791,7 +791,6 @@ export const SCREENS: ScreenDef[] = [
     simpleSection: 'settings',
     simpleEntries: [
       { id: 'bills-printing', label: 'simple.settings.billsPrinting', screen: { name: 'settings', tab: 'invoice' } },
-      { id: 'backups', label: 'simple.settings.backups', screen: { name: 'settings', tab: 'backups' } },
       { id: 'advanced', label: 'simple.settings.advanced' }
     ],
     title: 'Settings',
@@ -932,6 +931,21 @@ export const SCREENS: ScreenDef[] = [
     simpleEntries: [{ id: 'looks', label: 'simple.settings.looks', screen: { name: 'simple-looks' } }],
     title: 'How Total looks',
     screen: null, // simple shell only (its accountant home is Settings → How Total looks)
+    navSection: null,
+    invalidates: []
+  },
+  // WP 10.8: Settings → Backups in the simple shell — Back up now, the last backup in a sentence,
+  // what going back to one means; the full list and restore are Settings → Backups (its accountant home).
+  {
+    name: 'simple-backups',
+    modes: ['simple'],
+    simpleView: 'SimpleBackups',
+    helpKey: 'settings',
+    simpleSection: 'settings',
+    simpleEntries: [{ id: 'backups', label: 'simple.settings.backups', screen: { name: 'simple-backups' } }],
+    title: 'Backups',
+    keywords: ['backup', 'restore', 'copy'],
+    screen: null, // simple shell only
     navSection: null,
     invalidates: []
   },

@@ -78,6 +78,8 @@ export type Screen =
   // WP 8.1: a simple section's page (the simple shell's sidebar targets).
   | { name: 'simple-section'; section: SimpleSectionId }
   | { name: 'simple-looks' }
+  // WP 10.8: Settings → Backups in the simple shell.
+  | { name: 'simple-backups' }
   | { name: 'simple-features' }
   // WP 7.2: Settings → Lock and safety, People & roles (simple/SecuritySettings, simple/PeopleRoles).
   | { name: 'simple-security' }

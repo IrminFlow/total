@@ -1,7 +1,7 @@
 import { useMemo } from 'react'
 import type { Unit } from '@shared/domain'
 import { formatPaise } from '@shared/money'
-import { buyLineGstRate, type BuyContext, type BuyForm, type BuyGst, type BuyLine } from '@shared/simple/buy'
+import { buyLineGstRate, buyLineRateMissing, type BuyContext, type BuyForm, type BuyGst, type BuyLine } from '@shared/simple/buy'
 import { useT } from '../../lib/i18n'
 import { AmountInput, FieldError, TextInput } from '../../components/ui'
 import { TypeAhead, useStockItems } from '../../components/pickers'
@@ -74,7 +74,11 @@ export function BuyLines({
                   testId={`picker-buy-item-${i}`}
                   ariaLabel={t('simple.buy.product')}
                 />
-                {rate != null && l.itemId != null && (
+                {l.itemId != null && buyLineRateMissing(l.itemId, form, ctx) ? (
+                  <p role="status" className="mt-0.5 text-caption text-warning" data-testid={`buy-line-no-rate-${i}`}>
+                    {t('simple.buy.noRate')}
+                  </p>
+                ) : rate != null && l.itemId != null && (
                   <span className="mt-0.5 inline-block rounded-full border border-line px-2 text-caption text-muted" data-testid={`buy-line-gst-${i}`}>
                     {gst === 'fold' ? t('simple.buy.gstIntoCostChip', { rate }) : t('simple.buy.gstChip', { rate })}
                   </span>

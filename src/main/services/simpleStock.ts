@@ -69,7 +69,7 @@ export function stockList(db: DB, asOn: string): StockList {
       }
     })
     rows.sort((a, b) => a.name.localeCompare(b.name, 'en', { sensitivity: 'base' }))
-    return { asOn, rows, lowCount: rows.filter((r) => needsReorder(r.level)).length }
+    return { asOn, rows, lowCount: rows.filter((r) => needsReorder(r.level)).length, negativeCount: rows.filter((r) => r.qtyMilli < 0).length }
   })()
 }
 
@@ -79,6 +79,18 @@ export const lowStockCount = (db: DB, asOn: string): number =>
   db.transaction((): number => {
     const facts = itemFacts(db)
     return stockSummary(db, asOn).filter((s) => needsReorder(stockLevel(s, facts.get(s.stockItemId)?.reorderLevelMilli ?? null))).length
+  })()
+/** WP 10.8: Home's two stock rows from ONE summary (one valuation pass): running low or out
+ *  (= lowStockCount) and below zero — sold before their purchase was recorded (less than nothing
+ *  in stock as on `asOn`, the same quantity the list shows). */
+export const stockAttentionCounts = (db: DB, asOn: string): { low: number; negative: number } =>
+  db.transaction(() => {
+    const facts = itemFacts(db)
+    const summary = stockSummary(db, asOn)
+    return {
+      low: summary.filter((s) => needsReorder(stockLevel(s, facts.get(s.stockItemId)?.reorderLevelMilli ?? null))).length,
+      negative: summary.filter((s) => s.closingQtyMilli < 0).length
+    }
   })()
 
 function recipeOf(db: DB, itemId: number, date: string, versions = listBomVersions(db)): StockRecipe | null {

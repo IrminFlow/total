@@ -31,6 +31,7 @@ import { PaidHow } from './PaidHow'
 import { useAccountantView } from '../../lib/handoff'
 import { AccountantViewButton } from '../AccountantViewButton'
 import { SaveBar } from '../SaveBar'
+import { useCanSave } from '../ViewerNote'
 
 const INCL_KEY = 'total-sell-incl' // i18n-technical: localStorage key (per company)
 const SALES_KIND = 'sales' as const // i18n-technical
@@ -65,6 +66,7 @@ const isDirty = (f: SellForm & { lines: FormLine[] }, party?: number): boolean =
  */
 export function MakeBill({ party, ask }: { party?: number; ask?: AskOpen<'simple-sell'> } = {}): React.JSX.Element {
   const t = useT()
+  const canSave = useCanSave()
   const nav = useNav()
   const queryClient = useQueryClient()
   const { info, workingDate, slug } = useSession()
@@ -267,7 +269,7 @@ export function MakeBill({ party, ask }: { party?: number; ask?: AskOpen<'simple
     if (mod && e.key === 'Enter') {
       e.preventDefault()
       e.stopPropagation()
-      if (!savedIds) void save()
+      if (!savedIds && canSave) void save() // WP 10.8 review: a viewer's ⌘↵ saves nothing (the note says why)
       return
     }
     if (mod && !e.shiftKey && e.key.toLowerCase() === 'n') {

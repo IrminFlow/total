@@ -185,6 +185,10 @@ export type SimpleTaxes =
       /** The periods the picker offers (newest first), the default one included. */
       periods: GstPeriod[]
       figures: GstFigures
+      /** WP 10.8: while the screen shows an earlier period (the return due next), the running
+       *  period so far — so "how much GST do I owe" also answers for the bills just made. Absent
+       *  when the running period is the one shown or holds no GST. */
+      running?: { period: GstPeriod; collected: number; onPurchases: number }
       due: GstDue
       missing: MissingBillsItem[]
       supplierBills: SupplierBillsMonth[]
@@ -228,15 +232,27 @@ export function gstPeriodFor(last: string, filing: GstFilingFrequency, today: st
   return { period: end, from, to: soFar ? today : fullTo, quarterly, soFar }
 }
 
-/** The picker's periods, newest first: the running one and the `count` before it. */
-export function gstPeriodChoices(filing: GstFilingFrequency, today: string, count = filing === 'quarterly' ? 4 : 6): GstPeriod[] {
+/** WP 10.8: the last day of a period (its month / quarter end), even while it is running. */
+export const gstPeriodEnd = (p: Pick<GstPeriod, 'period'>): string => monthEnd(p.period)
+
+/** The picker's periods, newest first: the running one and the `count` before it. WP 10.8: with
+ *  `startsOn` (the day the books begin, or the GST registration if later) nothing that ended
+ *  before it — a business that started today is not asked about last month. */
+export function gstPeriodChoices(filing: GstFilingFrequency, today: string, count = filing === 'quarterly' ? 4 : 6, startsOn?: string): GstPeriod[] {
   const step = filing === 'quarterly' ? 3 : 1
   const out: GstPeriod[] = []
   for (let i = 0; i <= count; i++) {
     const p = gstPeriodFor(addMonths(today.slice(0, 7), -i * step), filing, today)
-    if (p) out.push(p)
+    if (p && (startsOn == null || i === 0 || gstPeriodEnd(p) >= startsOn)) out.push(p)
   }
   return out
+}
+
+/** WP 10.8: the first day GST applies to these books — the books-begin day or, when later, the day
+ *  the regular registration began (null facts = no limit). */
+export function gstStartsOn(booksBegin: string | null | undefined, registrationSince: string | null | undefined): string | undefined {
+  const days = [booksBegin, registrationSince].filter((d): d is string => !!d)
+  return days.length ? days.sort().at(-1) : undefined
 }
 
 /** The next CMP-08 (the last quarter's, while its 18th is still ahead; else the running one) and

@@ -136,6 +136,18 @@ describe('Taxes — regular GST (WP 9.9)', () => {
     expect(calls('simple:taxes').at(-1)).toMatchObject({ period: '2026-10' })
   })
 
+  it('WP 10.8 review: nothing in the return due next but GST in the running month — no "make a bill" empty state', async () => {
+    const zero = { ...REGULAR.figures, collected: 0, onPurchases: 0, toPay: 0, awaiting: 0, cashOnSales: 0, creditUsed: 0 }
+    reply = { ...REGULAR, figures: zero, running: { period: REGULAR.periods[0]!, collected: 562_50, onPurchases: 0 } }
+    renderUi(<TaxesScreen />)
+    expect((await screen.findByTestId('taxes-running')).textContent).toContain('₹562.50')
+    expect(screen.queryByTestId('taxes-empty')).toBeNull()
+    cleanup()
+    reply = { ...REGULAR, figures: zero }
+    renderUi(<TaxesScreen />)
+    expect(await screen.findByTestId('taxes-empty')).toBeTruthy()
+  })
+
   it('a quarterly filer: the quarter, PMT-06 dates, files month by month in the full app', async () => {
     const q = { period: '2026-09', from: '2026-07-01', to: '2026-09-30', quarterly: true, soFar: false }
     reply = { ...REGULAR, filing: 'quarterly', period: q, periods: [q], filesMonthly: true, due: { gstr1: '2026-10-13', gstr3b: '2026-10-22', gstr3bUnverified: false, pmt06: ['2026-08-25', '2026-09-25'] } }

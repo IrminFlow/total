@@ -34,6 +34,7 @@ import { PaidNow } from './PaidNow'
 import { useAccountantView } from '../../lib/handoff'
 import { AccountantViewButton } from '../AccountantViewButton'
 import { SaveBar } from '../SaveBar'
+import { useCanSave } from '../ViewerNote'
 
 const INCL_KEY = 'total-buy-incl' // i18n-technical: localStorage key (per company)
 const PURCHASES_CATEGORY = 'purchases' as const // i18n-technical
@@ -76,6 +77,7 @@ const isDirty = (f: BuyForm, party?: number): boolean =>
  */
 export function RecordPurchase({ party, ask }: { party?: number; ask?: AskOpen<'simple-buy'> } = {}): React.JSX.Element {
   const t = useT()
+  const canSave = useCanSave()
   const lbl = (k: MessageKey): string => t(k) // i18n-technical: keys from the typed tables above
   const nav = useNav()
   const queryClient = useQueryClient()
@@ -251,7 +253,7 @@ export function RecordPurchase({ party, ask }: { party?: number; ask?: AskOpen<'
     if (mod && e.key === 'Enter') {
       e.preventDefault()
       e.stopPropagation()
-      if (!savedIds) void save()
+      if (!savedIds && canSave) void save() // WP 10.8 review: a viewer's ⌘↵ saves nothing (the note says why)
       return
     }
     if (mod && !e.shiftKey && e.key.toLowerCase() === 'n') {

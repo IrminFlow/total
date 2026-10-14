@@ -112,7 +112,7 @@ describe('the People list', () => {
     expect(within(ramesh).getByTestId('person-chip-late').textContent).toBe('₹1,000.00 late · 25 days')
     expect(ramesh.textContent).toContain('15 days')
     const sita = rows.querySelector('tr[data-row-id="11"]') as HTMLElement
-    expect(within(sita).getByTestId('person-chip-ahead').textContent).toBe('₹200.00 paid ahead')
+    expect(within(sita).getByTestId('person-chip-ahead').textContent).toBe('₹200.00 credit')
     expect(within(sita).getByTestId('person-chip-hold')).toBeTruthy()
     expect(bannedWordsIn(visibleText())).toEqual([])
   })
@@ -169,6 +169,14 @@ describe('a person’s page', () => {
     await waitFor(() => expect(useNav.getState().stack.at(-1)).toEqual({ name: 'ledger-statement', ledgerId: 10 }))
     expect(screen.queryByTestId('btn-person-money-out')).toBeNull()
     expect(bannedWordsIn(visibleText())).toEqual([])
+  })
+
+  it('WP 10.8: a customer who owes but has nothing late is told why there is no reminder', async () => {
+    const notLate: PersonData = { ...RAMESH, bills: [RAMESH.bills[1]!], reminder: null }
+    invoke.mockImplementation(async (channel: string) => (channel === 'simple:people:person' ? { ok: true, data: notLate } : { ok: true, data: [] }))
+    renderUi(<PersonView id={10} />)
+    expect((await screen.findByTestId('person-nothing-late')).textContent).toBe('Nothing is late yet, so there is no reminder to send. To show them what they owe, use Statement.')
+    expect(screen.queryByTestId('btn-person-remind')).toBeNull()
   })
 
   it('a supplier: Money out and Record a purchase; no reminder or hold', async () => {

@@ -186,7 +186,7 @@ describe('the plain words', () => {
   it('a walk-in is "a cash customer" and gets no balance sentence; a named customer is told where they stand', () => {
     expect(returnPreviewLines(facts, t, { walkIn: true })).toEqual(['Sale return ₹590.00 from a cash customer.', 'Includes GST ₹90.00.', '₹590.00 paid back by UPI.'])
     const kept = returnPreviewLines({ ...facts, partyName: 'Ramesh', paid: 0, how: null, balance: -59_000 }, t, { walkIn: false })
-    expect(kept).toEqual(['Sale return ₹590.00 from Ramesh.', 'Includes GST ₹90.00.', 'Ramesh keeps ₹590.00 to use on a later bill.', 'Ramesh has paid ₹590.00 in advance.'])
+    expect(kept).toEqual(['Sale return ₹590.00 from Ramesh.', 'Includes GST ₹90.00.', 'Ramesh keeps ₹590.00 to use on a later bill.'])
     for (const s of [...kept, ...returnPreviewLines(facts, t, { walkIn: true })]) expect(bannedWordsIn(s)).toEqual([])
   })
 })

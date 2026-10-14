@@ -9,7 +9,7 @@ import { computeInvoice, emptyInvoiceState } from '../voucherEdit'
 import { mapIntent, normaliseIntent, type IntentContext, type IntentFacts, type IntentLedger } from './intents'
 import { bannedWordsIn } from './bannedWords'
 import {
-  buyFormErrors, buyGst, buyIntentLines, buyTotals, emptyBuyForm, purchaseIntentFrom, purchasePreviewLine, purchaseStatus,
+  buyFormErrors, buyGst, buyIntentLines, buyLineRateMissing, buyTotals, emptyBuyForm, purchaseIntentFrom, purchasePreviewLine, purchaseStatus,
   type BuyContext, type BuyForm
 } from './buy'
 
@@ -219,6 +219,7 @@ describe('plain words', () => {
   it('the preview line', () => {
     expect(purchasePreviewLine(facts({ paid: 50_000, how: 'upi', due: 68_000, dueDate: '2026-11-20' }), t)).toBe('Bill ₹1,180.00 from Bharat Steel. ₹500.00 paid by UPI now, ₹680.00 still to pay by 20 Nov 2026.')
     expect(purchasePreviewLine(facts({ due: 118_000, dueDate: '2026-10-13' }), t)).toBe('Bill ₹1,180.00 from Bharat Steel. ₹1,180.00 to pay by 13 Oct 2026.')
+    expect(purchasePreviewLine(facts({ due: 118_000, dueDate: null }), t)).toBe('Bill ₹1,180.00 from Bharat Steel. ₹1,180.00 to pay — no due date is set for this supplier.')
     expect(purchasePreviewLine(facts({ paid: 118_000, how: 'cash' }), t)).toBe('Bill ₹1,180.00 from Bharat Steel. ₹1,180.00 paid in cash now.')
     expect(purchasePreviewLine(facts({ paid: 118_000, how: 'bank' }), t)).toBe('Bill ₹1,180.00 from Bharat Steel. ₹1,180.00 paid by bank transfer now.')
   })
@@ -234,5 +235,14 @@ describe('plain words', () => {
   it('no banned word in the Buy strings', () => {
     const keys = ['simple.buy.preview.part', 'simple.buy.cantClaim', 'simple.buy.gstQuestionWhat', 'simple.buy.notYetHint', 'errors.intent.itemsNoGst', 'errors.intent.duplicateBill'] as const
     for (const k of keys) expect(bannedWordsIn(t(k, { amount: '₹1', name: 'X', paid: '₹1', due: '₹1', date: '1 Nov', how: 'cash', number: 'P-1' }))).toEqual([])
+  })
+})
+
+describe('WP 10.8: a product without a GST rate on a claimed GST bill', () => {
+  it('is flagged only when the bill claims GST and neither the product nor the account has a rate', () => {
+    expect(buyLineRateMissing(3, form({ gstOnBill: true }), ctxFor('regular'))).toBe(true)
+    expect(buyLineRateMissing(1, form({ gstOnBill: true }), ctxFor('regular'))).toBe(false)
+    expect(buyLineRateMissing(3, form({ gstOnBill: false }), ctxFor('regular'))).toBe(false)
+    expect(buyLineRateMissing(3, form(), ctxFor('unregistered'))).toBe(false)
   })
 })

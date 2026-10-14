@@ -1,4 +1,5 @@
 import { useEffect, useRef, type ReactNode } from 'react'
+import { useCanSave, ViewerNote } from './ViewerNote'
 
 /**
  * WP 10.5 — the sticky Save bar of the simple entry screens (Make a bill, Record a purchase,
@@ -30,6 +31,8 @@ export function SaveBar({
   // scrolled up just clear of it. Keyboard focus only (:focus-visible) — scrolling on a mouse-down
   // would move the control away from the pointer and lose the click.
   const barRef = useRef<HTMLDivElement>(null)
+  // WP 10.8: a viewer gets a plain note where the buttons would be, never a Save that refuses.
+  const canSave = useCanSave()
   useEffect(() => {
     const onFocus = (e: FocusEvent): void => {
       const bar = barRef.current
@@ -65,7 +68,7 @@ export function SaveBar({
         </div>
         <p className="text-small text-muted [@media(max-height:760px)]:hidden">{shortcuts}</p>
       </div>
-      <div className="flex shrink-0 gap-2">{children}</div>
+      {canSave ? <div className="flex shrink-0 gap-2">{children}</div> : <ViewerNote />}
     </div>
   )
 }

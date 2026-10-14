@@ -76,7 +76,11 @@ const itemSchema = z.object({
   /** The stored value, sent back when quantity and rate are as loaded (a rate worked out from a
    *  stored value may not multiply back to it exactly). Absent = quantity × rate. */
   value: amount.optional(),
-  base: z.object({ qtyMilli: z.number().int(), value: paise }).nullable().default(null)
+  base: z.object({ qtyMilli: z.number().int(), value: paise }).nullable().default(null),
+  /** WP 10.8: a NEW product's GST rate (percent) — asked while the company charges GST on the
+   *  books-begin day, so its first bill carries GST; absent / null = none (an existing product
+   *  keeps its own). */
+  gstRate: z.number().min(0).max(100).nullable().optional()
 })
 const otherSchema = moneyRowSchema.extend({ kind: z.enum(OPENING_OTHER_KINDS) })
 
@@ -230,6 +234,8 @@ export interface ItemDraft {
   qty: string
   rate: number | null
   base: { qtyMilli: number; value: number } | null
+  /** WP 10.8: a new product's GST rate (null = not picked; asked only while GST is charged). */
+  gstRate?: number | null
 }
 export interface OtherDraft extends MoneyRowDraft {
   kind: OpeningOtherKind
@@ -255,6 +261,7 @@ export type OpeningsErrorKey =
   | 'errors.openings.qtyNeeded'
   | 'errors.openings.qtyInvalid'
   | 'errors.openings.reservedName'
+  | 'errors.openings.gstRateNeeded'
 
 /** Errors by field path ('banks.0.amount', 'customers.1.bills.0.ref' …). */
 export type OpeningsErrors = Record<string, OpeningsErrorKey>
@@ -308,7 +315,8 @@ function checkParties(rows: PartyDraft[], path: string, booksBegin: string, e: O
   })
 }
 
-function checkItems(rows: ItemDraft[], e: OpeningsErrors): void {
+function checkItems(rows: ItemDraft[], e: OpeningsErrors, opts: OpeningsCheckOptions): void {
+  const known = new Set((opts.knownItems ?? []).map(refKey))
   const names = new Set<string>()
   rows.forEach((r, i) => {
     if (blankItem(r)) return
@@ -321,11 +329,21 @@ function checkItems(rows: ItemDraft[], e: OpeningsErrors): void {
     if (r.qty.trim() && qty == null) e[`items.${i}.qty`] = r.qty.trim().startsWith('-') ? 'errors.openings.negative' : 'errors.openings.qtyInvalid'
     else if (!r.qty.trim() && (r.rate ?? 0) > 0) e[`items.${i}.qty`] = 'errors.openings.qtyNeeded'
     if (r.rate != null && r.rate < 0) e[`items.${i}.rate`] = 'errors.openings.negative'
+    // WP 10.8: a new product in a GST-charging company needs its rate, or its first bill would
+    // silently carry no GST (the beginner study's top wrong-tax finding).
+    if (opts.chargesGst && r.itemId == null && r.name.trim() && !known.has(refKey(r.name)) && r.gstRate == null) e[`items.${i}.gstRate`] = 'errors.openings.gstRateNeeded'
   })
 }
 
+/** WP 10.8: what the stock checks need to know — the company charges GST on the books-begin day
+ *  (a new product then needs its rate) and the products that already exist (they keep theirs). */
+export interface OpeningsCheckOptions {
+  chargesGst?: boolean
+  knownItems?: readonly string[]
+}
+
 /** The problems on one step (empty = can go on). The confirm step checks everything. */
-export function openingsStepErrors(d: OpeningsDraft, step: OpeningStep, booksBegin: string): OpeningsErrors {
+export function openingsStepErrors(d: OpeningsDraft, step: OpeningStep, booksBegin: string, opts: OpeningsCheckOptions = {}): OpeningsErrors {
   const e: OpeningsErrors = {}
   if (step === 'money' || step === 'confirm') {
     if (d.cash.amount != null && d.cash.amount < 0) e['cash.amount'] = 'errors.openings.negative'
@@ -336,7 +354,7 @@ export function openingsStepErrors(d: OpeningsDraft, step: OpeningStep, booksBeg
     checkParties(d.suppliers, 'suppliers', booksBegin, e)
     checkMoneyRows(d.overdrafts, 'overdrafts', e)
   }
-  if (step === 'stock' || step === 'confirm') checkItems(d.items, e)
+  if (step === 'stock' || step === 'confirm') checkItems(d.items, e, opts)
   if (step === 'confirm') checkMoneyRows(d.others, 'others', e)
   return e
 }
@@ -366,7 +384,8 @@ export function openingsPayload(d: OpeningsDraft, confirmCapital?: number, capit
         const qtyMilli = parseQtyText(r.qty) ?? 0
         const ratePaise = r.rate ?? 0
         const asLoaded = r.base != null && qtyMilli === r.base.qtyMilli && ratePaise === stockLineRate(r.base.qtyMilli, r.base.value)
-        return { itemId: r.itemId, name: r.name.trim(), unitId: r.unitId, qtyMilli, ratePaise, ...(asLoaded ? { value: r.base!.value } : {}), base: r.base }
+        const gst = r.itemId == null && r.gstRate != null ? { gstRate: r.gstRate } : {}
+        return { itemId: r.itemId, name: r.name.trim(), unitId: r.unitId, qtyMilli, ratePaise, ...(asLoaded ? { value: r.base!.value } : {}), base: r.base, ...gst }
       })
       .filter((r) => r.itemId != null || r.qtyMilli > 0),
     others: d.others.filter((r) => r.ledgerId != null || (!blankMoney(r) && (r.amount ?? 0) > 0)).map((r) => ({ ...money(r), kind: r.kind })),
@@ -383,6 +402,9 @@ export interface OpeningsState {
   /** meta ui.startedFresh (null when setup didn't ask). */
   startedFresh: boolean | null
   stockOn: boolean
+  /** WP 10.8: the company charges GST on the books-begin day (a regular registration then) — the
+   *  stock step asks each new product's GST rate. Absent = no. */
+  chargesGst?: boolean
   /** When the opening setup was last confirmed (null = never). */
   appliedAt: string | null
   cash: { ledgerId: number; name: string; amount: number }

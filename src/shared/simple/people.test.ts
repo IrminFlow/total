@@ -118,9 +118,9 @@ describe('words and filters', () => {
   it('where someone stands', () => {
     expect(balanceWords(row({ open: 150_000 }), t)).toBe('Owes you ₹1,500.00')
     expect(balanceWords(row({ side: 'supplier', open: 80_000 }), t)).toBe('You owe ₹800.00')
-    expect(balanceWords(row({ ahead: 50_000 }), t)).toBe('Paid you ₹500.00 ahead')
-    expect(balanceWords(row({ side: 'supplier', ahead: 50_000 }), t)).toBe('You paid ₹500.00 ahead')
-    expect(balanceWords(row({ open: 100, ahead: 200 }), t)).toBe('Owes you ₹1.00 · Paid you ₹2.00 ahead')
+    expect(balanceWords(row({ ahead: 50_000 }), t)).toBe('Has a credit of ₹500.00 for the next bill')
+    expect(balanceWords(row({ side: 'supplier', ahead: 50_000 }), t)).toBe('You have a credit of ₹500.00 for your next bill')
+    expect(balanceWords(row({ open: 100, ahead: 200 }), t)).toBe('Owes you ₹1.00 · Has a credit of ₹2.00 for the next bill')
     expect(balanceWords(row({}), t)).toBe('Settled')
   })
 

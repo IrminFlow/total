@@ -21,7 +21,7 @@ import {
   ANOMALY_HOME_CAP, attentionItems, BACKUP_NUDGE_DAYS, daysSince, owedSummary,
   type HomeAttention, type HomeCash, type HomeGst, type HomeGstCredit, type HomeMoneyDay, type HomeProfitPeriod, type SimpleHomeData
 } from '@shared/simple/home'
-import { GST_FILED_META_KEY, normalizeGstFiled, type GstFiledMeta } from '@shared/simple/taxes'
+import { GST_FILED_META_KEY, gstPeriodEnd, gstStartsOn, normalizeGstFiled, type GstFiledMeta } from '@shared/simple/taxes'
 import { doingLines, previousSpan, topParts } from '@shared/simple/reports'
 import type { ProfitAndLoss } from '@shared/reports'
 import { descendantIdSet, profitAndLoss } from './reports'
@@ -34,7 +34,7 @@ import { dashGst, dashSetup, tdsApplies, tdsPayableLedgers, userBackupsOf, type 
 import { anomalies, closeChecklist, getStatement } from './assistants'
 import { extractPurchaseDocs } from './gst'
 import { getRecon2bTolerances } from './gstIms'
-import { lowStockCount } from './simpleStock'
+import { stockAttentionCounts } from './simpleStock'
 
 /** The as-on date: what was asked for, never after the server's today. */
 export function homeAsOn(asked: string | undefined, serverToday: string): string {
@@ -133,7 +133,8 @@ function compute(db: DB, company: CompanyInfo, opts: { today: string; backups: D
 
   // ---- GST: the Gateway's row for a regular registration; composition gets its note ----
   const filing = company.gstRegistrationType === 'regular' ? getGstProfile(db).filing : 'monthly'
-  const gstRow = dashGst(db, company, today)
+  // WP 10.8: never a return period that ended before the books (or the registration) began.
+  const gstRow = dashGst(db, company, today, gstStartsOn(company.booksBeginDate, company.gstRegistrationSince))
   const gst: HomeGst | null = gstRow
     ? { kind: 'regular', filing, row: gstRow, credit: gstCredit(db, gstRow.from ?? `${gstRow.period}-01`, gstRow.to ?? gstRow.from ?? `${gstRow.period}-01`) }
     : company.gstRegistrationType === 'composition'
@@ -233,7 +234,10 @@ export function simpleHomeAttention(db: DB, company: CompanyInfo, today: string)
   return db.transaction((): HomeAttention => {
     const fy = fyOf(today)
     const period = addMonths(monthOf(today), -1)
-    const checks = closeChecklist(db, company, period, today).checks
+    // WP 10.8: a business whose books began after that month has nothing to close for it (a
+    // company started today is not told "GST files for last month are not prepared").
+    const startsOn = gstStartsOn(company.booksBeginDate, null)
+    const checks = startsOn && gstPeriodEnd({ period }) < startsOn ? [] : closeChecklist(db, company, period, today).checks
     const count = (db.prepare(`SELECT COUNT(*) AS n FROM vouchers v WHERE v.date BETWEEN ? AND ? AND ${IN_BOOKS}`).get(fy.from, today) as { n: number }).n
     const anomaliesSkipped = count > ANOMALY_HOME_CAP
     const found = anomaliesSkipped ? [] : anomalies(db, fy.from, today).rows
@@ -241,11 +245,20 @@ export function simpleHomeAttention(db: DB, company: CompanyInfo, today: string)
     // meta gstFiled), "GST files not prepared" is no longer something to look at — they may have
     // filed on the portal without Total's files. The Assistants checklist itself is unchanged.
     const filed = readGstFiled(db)[period]
-    const items = attentionItems(filed?.gstr1 && filed.gstr3b ? checks.filter((c) => c.key !== 'gst_returns') : checks, found)
+    // WP 10.8 review: nor for a month that ended before the regular registration began (the
+    // Taxes screen and Home's GST tile never offer it — the same gstStartsOn rule).
+    const gstFrom = gstStartsOn(company.booksBeginDate, company.gstRegistrationSince)
+    const noReturn = (filed?.gstr1 && filed.gstr3b) || (gstFrom != null && gstPeriodEnd({ period }) < gstFrom)
+    const items = attentionItems(noReturn ? checks.filter((c) => c.key !== 'gst_returns') : checks, found)
     // WP 9.7: products running low or out (the Stock list's own rule, as on today) — one row
     // that opens the list filtered to them.
-    const low = getFeatures(db).inventory ? lowStockCount(db, today) : 0
-    if (low > 0) items.push({ source: 'stock', key: 'low_stock', count: low, amount: null, level: 'medium' })
+    const stock = getFeatures(db).inventory ? stockAttentionCounts(db, today) : { low: 0, negative: 0 }
+    if (stock.low > 0) items.push({ source: 'stock', key: 'low_stock', count: stock.low, amount: null, level: 'medium' })
+    // WP 10.8: stock sold before its purchase was recorded is costed at nothing by the valuation
+    // pass — said on Home as on today (the month-end check only sees last month).
+    // Only when last month's checks don't already say it (one row per finding).
+    const negative = items.some((i) => i.key === 'negative_stock') ? 0 : stock.negative
+    if (negative > 0) items.push({ source: 'stock', key: 'negative_stock', count: negative, amount: null, level: 'high' })
     return { period, items, anomaliesSkipped }
   })()
 }

@@ -56,6 +56,8 @@ export type AssistIntent =
   | { kind: 'howto'; task: AssistHowTo }
   | { kind: 'meaning'; term: string }
   | { kind: 'entry'; entry: AssistEntrySlots }
+  /** WP 10.8: "5000 Ramesh" — an amount and a name with no word for which way the money went. */
+  | { kind: 'direction'; amount: number; party: string }
   | { kind: 'unknown' }
 
 export type AssistIntentKind = AssistIntent['kind']

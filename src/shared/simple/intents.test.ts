@@ -224,6 +224,9 @@ describe('purchase', () => {
     expect(regular.entries[0]!.payload.lines.map((l) => [l.ledgerId, l.amount])).toEqual([[L.supplier, 118_000], [L.rent, 100_000], [L.cgstIn, 9000], [L.sgstIn, 9000]])
     const noGst = map({ kind: 'purchase', supplierId: L.supplier, gstOnBill: false, amount: { amount: '1000', accountId: L.rent } })
     expect(noGst.entries[0]!.payload.lines.map((l) => [l.ledgerId, l.amount])).toEqual([[L.supplier, 100_000], [L.rent, 100_000]])
+    // WP 10.8: a bill for rent is said as one, not "Purchase bill".
+    expect(intentSentences(regular.facts, t)[0]).toMatch(/^Bill ₹1,180\.00 from .+ for Rent\.$/)
+    expect(intentSentences(map({ kind: 'purchase', supplierId: L.supplier, amount: { amount: '1000', accountId: L.purchases } }).facts, t)[0]).toMatch(/^Purchase bill ₹1,000\.00 from /)
     const unreg = map({ kind: 'purchase', supplierId: L.supplier, amount: { amount: '1000', accountId: L.rent } }, ctx({ regular: false }))
     expect(unreg.entries[0]!.payload.lines.map((l) => [l.ledgerId, l.amount])).toEqual([[L.supplier, 118_000], [L.rent, 118_000]])
     const unregItems = map({ kind: 'purchase', supplierId: L.supplier, items: [{ itemId: 100, qty: '3', rate: '100' }] }, ctx({ regular: false }))

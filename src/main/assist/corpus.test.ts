@@ -123,7 +123,7 @@ const CORPUS: [string, Expect][] = [
   ['paid 2.5k for petrol', { kind: 'entry', entry: { action: 'money_out', amount: 250000, what: 'petrol' } }],
   ['receive 5000 from ramesh tomorrow', { kind: 'entry', entry: { action: 'money_in', amount: 500000, party: 'ramesh', date: '2026-10-15' } }],
   ['paid 12.345 to Ramesh', { kind: 'unknown' }],
-  ['5000 Ramesh', { kind: 'unknown' }],
+  ['5000 Ramesh', { kind: 'direction', amount: 5_000_00, party: 'Ramesh' }], // WP 10.8: asks which way (was unknown)
   ['total I received from Sita in 2025', { kind: 'unknown' }],
   ['received from Ramesh last 30 days', { kind: 'unknown' }],
   ['show me what I sold to Ramesh for 500', { kind: 'figure', measure: 'sales' }],
@@ -191,6 +191,32 @@ describe('Ask Total normalising', () => {
 })
 
 // WP 10.4 review: the suggestion chips are sent as questions — each must be understood in every
+// WP 10.8: "5000 Ramesh" asks which way the money went; each answer chip, in every language, is
+// read back as money in / money out with that person and amount.
+describe('an amount and a name only', () => {
+  it('is a direction question, never a guess', () => {
+    expect(classify('5000 Ramesh', TODAY)).toEqual({ kind: 'direction', amount: 5_000_00, party: 'Ramesh' })
+    expect(classify('Ramesh Traders 1,250', TODAY)).toEqual({ kind: 'direction', amount: 1_250_00, party: 'Ramesh Traders' })
+    expect(classify('₹300 Sita', TODAY)).toMatchObject({ kind: 'direction', amount: 300_00 })
+    expect(classify('5000', TODAY).kind).not.toBe('direction')
+    // WP 10.8 review: a period, a document, a list word with a number is not a person and an amount.
+    for (const q of ['march 2026', 'Sep 2025', 'year 2025', 'fy 2025', 'gst 18', 'invoice 123', 'bill 45', 'top 10', 'last 30', 'page 2', 'cash 5000', 'bank 5000', 'hello 123', 'mahine 2026', 'diwali 2026']) {
+      expect(classify(q, TODAY).kind, q).not.toBe('direction')
+    }
+    expect(classify('Ramesh ji 5000', TODAY)).toMatchObject({ kind: 'direction', party: 'Ramesh ji' })
+  })
+  for (const lang of LANGUAGES) {
+    it(`${lang}: the two chips are money in / money out`, () => {
+      const cat = CATALOGUES[lang] as Record<string, string | undefined>
+      const fill = (k: string): string => (cat[k] ?? (CATALOGUES.en as Record<string, string>)[k]!).replace('{name}', 'Ramesh').replace('{amount}', '5,000.00')
+      const inn = classify(fill('assist.direction.in'), TODAY)
+      const out = classify(fill('assist.direction.out'), TODAY)
+      expect(inn.kind === 'entry' && inn.entry, fill('assist.direction.in')).toMatchObject({ action: 'money_in', amount: 5_000_00 })
+      expect(out.kind === 'entry' && out.entry, fill('assist.direction.out')).toMatchObject({ action: 'money_out', amount: 5_000_00 })
+    })
+  }
+})
+
 // language (the Hindi "who owes me" chip used to fall through to "unknown").
 describe('Ask Total suggestion chips in every language', () => {
   const want = { owed: 'owed', profit: 'figure', profitHinglish: 'figure', cash: 'money', gst: 'gst', entry: 'entry' } as const

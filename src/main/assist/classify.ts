@@ -661,7 +661,37 @@ export function classify(text: string, today: string): AssistIntent {
     const target = (open[1] ?? open[2] ?? '').replace(/^(?:the|my|a)\s+/, '').trim()
     if (target) return { kind: 'open', target }
   }
+  const direction = directionOf(text)
+  if (direction) return direction
   return { kind: 'unknown' }
+}
+
+/** WP 10.8: "5000 Ramesh" / "Ramesh 5000" / "₹5,000 Ramesh Traders" — an amount and a name and
+ *  nothing else: the answer asks which way the money went (never guesses). */
+/** Words that make "<word> <number>" something other than a person and an amount (periods,
+ *  documents, places in the app, list words, greetings). */
+const NOT_A_NAME = new Set([
+  'year', 'yr', 'fy', 'month', 'week', 'day', 'days', 'quarter', 'q', 'today', 'yesterday', 'tomorrow', 'last', 'next', 'this', 'past', 'since', 'till', 'until',
+  'saal', 'mahina', 'mahine', 'hafta', 'din', 'aaj', 'kal', 'pichle', 'pichhle', 'agle', 'is',
+  'gst', 'tax', 'taxes', 'tds', 'tcs', 'hsn', 'rate', 'percent', 'gstr', 'itc',
+  'bill', 'bills', 'invoice', 'invoices', 'number', 'no', 'entry', 'entries', 'voucher', 'page', 'item', 'items', 'product', 'products', 'stock', 'qty', 'quantity',
+  'cash', 'bank', 'upi', 'top', 'first', 'show', 'open', 'list', 'find', 'search', 'help', 'hello', 'hi', 'hey', 'ok', 'okay', 'thanks', 'test', 'diwali', 'holi',
+  'version', 'room', 'table', 'plot', 'flat', 'gate', 'sector', 'pin', 'pincode', 'phone', 'mobile'
+])
+const AMOUNT_NAME = /^(?:rs\.?|inr|₹)?\s*(\d[\d,]*(?:\.\d{1,2})?)\s*(?:rs\.?|rupees?|rupaye)?\s+([a-z][a-z.&' -]{1,40})$/i
+const NAME_AMOUNT = /^([a-z][a-z.&' -]{1,40}?)\s+(?:rs\.?|inr|₹)?\s*(\d[\d,]*(?:\.\d{1,2})?)\s*(?:rs\.?|rupees?|rupaye)?$/i
+function directionOf(raw: string): AssistIntent | null {
+  const s = raw.trim().replace(/\s+/g, ' ')
+  const a = AMOUNT_NAME.exec(s)
+  const b = a ? null : NAME_AMOUNT.exec(s)
+  const amountText = a?.[1] ?? b?.[2]
+  const party = (a?.[2] ?? b?.[1])?.trim()
+  if (!amountText || !party || party.split(' ').length > 4) return null
+  // WP 10.8 review: "march 2026", "gst 18", "invoice 123", "top 10" are not a person and an amount.
+  const words = party.toLowerCase().split(/[\s.&'-]+/).filter(Boolean)
+  if (MONTH_RE.test(party.toLowerCase()) || words.some((w) => NOT_A_NAME.has(w))) return null
+  const paise = parseAmountText(amountText)
+  return paise != null && paise > 0 ? { kind: 'direction', amount: paise, party } : null
 }
 
 const partyOpt = (party: string | undefined): { party?: string } => (party ? { party } : {})

@@ -166,7 +166,7 @@ await scenario('56-returns', async (h) => {
   await fill('input-return-qty-0', '1')
   await h.click('return-settle-credit')
   await waitText('return-preview', 'keeps')
-  assertEq(await text('return-preview'), 'Sale return ₹590.00 from Ramesh. Includes GST ₹90.00. Ramesh keeps ₹590.00 to use on a later bill. Ramesh has paid ₹590.00 in advance.', 'credit kept')
+  assertEq(await text('return-preview'), 'Sale return ₹590.00 from Ramesh. Includes GST ₹90.00. Ramesh keeps ₹590.00 to use on a later bill.', 'credit kept')
   await h.click('btn-return-save')
   await attached(h, '[data-testid="save-card"]')
   await waitText('save-card-text', 'saved.')

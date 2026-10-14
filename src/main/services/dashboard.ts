@@ -62,7 +62,9 @@ function annualGstDeadlines(db: DB, today: string): { form: string; title: strin
 /** The GST row (WP 8.6: shared by the Gateway's Compliance card and the simple Home): the next
  *  GSTR-1 / GSTR-3B due dates and the GSTR-3B figures of the return the next GSTR-3B files.
  *  Null unless the registration is regular. */
-export function dashGst(db: DB, company: CompanyInfo, today: string): DashGst | null {
+/** `notBefore` (WP 10.8, simple Home / Taxes only): the first day GST applies to these books — a
+ *  return period that ended before it is never the one shown; the running period so far is. */
+export function dashGst(db: DB, company: CompanyInfo, today: string, notBefore?: string): DashGst | null {
   if (company.gstRegistrationType !== 'regular') return null
   // WP 8.3: GSTR-1 follows the filing frequency (QRMP: the 13th after the quarter).
   const filing = getGstProfile(db).filing
@@ -89,6 +91,11 @@ export function dashGst(db: DB, company: CompanyInfo, today: string): DashGst | 
     const month = addMonths(monthOf(next3b?.date ?? today), -1)
     from = `${month}-01`
     to = monthEnd(month)
+  }
+  if (notBefore && to < notBefore) {
+    from = filing === 'quarterly' ? `${quarterStartOf(monthOf(today))}-01` : `${monthOf(today)}-01`
+    to = today
+    soFar = true
   }
   const period = monthOf(to)
   const f = gst3bFigures(db, company, from, to, period)

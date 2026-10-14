@@ -5,7 +5,7 @@ import { en } from '../i18n'
 import { bannedWordsIn } from './bannedWords'
 import { simpleIntentSchema } from './intents'
 import {
-  repeatedLines,
+  repeatedLines, endOfDayBalance,
   BANK_CHOICE_KINDS, bankAcceptSchema, bankChoiceSchema, bankSentence, becauseFor, choiceComplete, choiceFitsSide, choiceForAccount, choiceLabelKey, choicesFor,
   intentForChoice, type BankAccountInfo, type BankLineFacts, type BankSuggestSource
 } from './bank'
@@ -90,6 +90,23 @@ describe('the one sentence', () => {
     expect(bankSentence({ asOn: '2025-08-18', differ: 0, difference: 0, open: 0 })).toMatchObject({ tone: 'agree', vars: { date: '2025-08-18' } })
     expect(bankSentence({ asOn: '2025-08-18', differ: 3, difference: 12_000, open: 2 })).toMatchObject({ tone: 'differ', key: 'simple.bank.differ', vars: { count: 3 } })
     expect(bankSentence({ asOn: '2025-08-18', differ: 0, difference: 0, open: 2 })).toMatchObject({ tone: 'open', vars: { count: 2 } })
+  })
+
+  it('WP 10.8 review: the end-of-day balance is the day\'s last line, whichever way the file runs', () => {
+    // 1,000 in then 300 out: balances 6,000 → 5,700 (start of day 5,000).
+    const day = [
+      { lineNo: 1, deposit: 1_000_00, withdrawal: 0, balance: 6_000_00 },
+      { lineNo: 2, deposit: 0, withdrawal: 300_00, balance: 5_700_00 }
+    ]
+    expect(endOfDayBalance(day, false)).toBe(5_700_00)
+    // The same day in a newest-first file: line 1 is the 300 out.
+    const newest = [{ ...day[1]!, lineNo: 1 }, { ...day[0]!, lineNo: 2 }]
+    expect(endOfDayBalance(newest, true)).toBe(5_700_00)
+    expect(endOfDayBalance(newest, false)).toBe(5_700_00) // the chain decides before the direction
+    // No chain to read (one balance missing): the file's direction decides.
+    const broken = [{ lineNo: 1, deposit: 0, withdrawal: 300_00, balance: 5_700_00 }, { lineNo: 2, deposit: 1_000_00, withdrawal: 0, balance: null }]
+    expect(endOfDayBalance(broken, true)).toBe(5_700_00)
+    expect(endOfDayBalance([{ lineNo: 1, deposit: 1, withdrawal: 0, balance: null }], false)).toBeNull()
   })
 })
 

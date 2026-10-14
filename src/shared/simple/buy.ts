@@ -136,6 +136,14 @@ function claimRate(ctx: BuyContext, itemId: number): { rate: number; cess: numbe
   return { rate: item?.gstRate ?? account?.gstRate ?? 0, cess: item?.cessRate ?? 0 }
 }
 
+/** WP 10.8: a claimed GST bill whose product (and purchase account) has no GST rate — the line
+ *  would claim no GST though the bill has it; the screen says so instead of a "0% GST" chip. */
+export function buyLineRateMissing(itemId: number, form: BuyForm, ctx: BuyContext): boolean {
+  if (buyGst(form, ctx) !== 'claim') return false
+  const account = ctx.purchaseAccountId != null ? ctx.invoice.ledgers.get(ctx.purchaseAccountId) : undefined
+  return ctx.invoice.items.get(itemId)?.gstRate == null && account?.gstRate == null
+}
+
 /** The GST % a product line shows (null = none applies): the claimed rate, or — when it is folded
  *  into the cost — the product's own rate (what mapIntent folds at). */
 export function buyLineGstRate(itemId: number, form: BuyForm, ctx: BuyContext): number | null {
@@ -351,7 +359,7 @@ export function purchasePreviewLine(f: IntentFacts, t: Translate): string {
   const how = f.how ?? 'cash'
   const due = f.dueDate ? toPlainDate(f.dueDate, t.lang) : ''
   const owed = f.due > 0 ? f.due : 0
-  if (f.paid > 0 && owed > 0) return `${head} ${t('simple.buy.preview.part', { paid: money(f.paid), how, due: money(owed), date: due })}`
+  if (f.paid > 0 && owed > 0) return `${head} ${t(due ? 'simple.buy.preview.part' : 'simple.buy.preview.partNoDate', { paid: money(f.paid), how, due: money(owed), date: due })}`
   if (f.paid > 0) return `${head} ${t('simple.buy.preview.paid', { amount: money(f.paid), how })}`
   if (owed > 0) return `${head} ${t(due ? 'simple.buy.preview.dueBy' : 'simple.buy.preview.due', { amount: money(owed), date: due })}`
   return head

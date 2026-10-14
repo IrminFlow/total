@@ -231,7 +231,7 @@ export function attentionText(item: HomeAttentionItem, period: string, t: Transl
       amount: money(item.amount ?? 0)
     })
   }
-  if (item.source === 'stock') return t('simple.attention.stock.low', { count: item.count })
+  if (item.source === 'stock') return t(item.key === 'negative_stock' ? 'simple.attention.stock.negative' : 'simple.attention.stock.low', { count: item.count })
   const key =
     item.source === 'close'
       ? CLOSE_TEXT[item.key as CloseCheckKey] ?? 'simple.attention.close.other'
