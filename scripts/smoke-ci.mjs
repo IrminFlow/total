@@ -63,7 +63,9 @@ try {
   // Financial year start: Apr-Dec -> current calendar year, Jan-Mar -> previous year.
   const now = new Date()
   const booksFrom = now.getMonth() >= 3 ? now.getFullYear() : now.getFullYear() - 1
-  const today = now.toISOString().slice(0, 10)
+  // The app's today is the LOCAL date (todayISO); toISOString() is UTC — a day behind 00:00–05:30 IST
+  // (on 1 April that put the voucher before the books begin).
+  const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
 
   const { slug } = await invoke('company:create', {
     name: 'CI Smoke',
