@@ -43,6 +43,7 @@ const TECHNICAL_PROPS = new Set([
   'tabIndex',
   'spellCheck',
   'testId',
+  'style',
   'variant',
   'size',
   'tone',
@@ -66,7 +67,8 @@ const LINTED_NAMESPACES = /^(common|simple|errors|assist)\./
 
 function technicalProp(name: string): boolean {
   if (USER_FACING_ARIA.has(name)) return false
-  return TECHNICAL_PROPS.has(name) || name.startsWith('data-') || name.startsWith('aria-')
+  // WP 10.5: `fooTestId` props (SaveBar's totalTestId / previewTestId) are test ids too.
+  return TECHNICAL_PROPS.has(name) || /TestId$/.test(name) || name.startsWith('data-') || name.startsWith('aria-')
 }
 
 // Lower-case single words that are code, not copy: DOM / ARIA / React tokens, kit variants and
