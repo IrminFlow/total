@@ -63,7 +63,14 @@ describe('useMode and the per-screen override', () => {
     const { result } = renderHook(() => ({ mode: useMode(), day: useScreenView('gateway'), pl: useScreenView('simple-looks') }))
     expect(result.current.mode).toBe('simple')
     expect(result.current.day.view).toBe('simple')
+    // WP 9.10: a plain "Accountant view" is a one-off (this session, nothing stored) …
     act(() => result.current.day.setAccountantView(true))
+    expect(localStorage.getItem(viewOverrideKey('mode-co', 7, 'gateway'))).toBeNull()
+    expect(result.current.day).toMatchObject({ view: 'accountant', override: true })
+    act(() => result.current.day.setAccountantView(false))
+    expect(result.current.day.view).toBe('simple')
+    // … "Always open the full app for this" remembers it.
+    act(() => result.current.day.setAccountantView(true, true))
     expect(localStorage.getItem(viewOverrideKey('mode-co', 7, 'gateway'))).toBe('accountant')
     expect(result.current.day).toMatchObject({ view: 'accountant', override: true })
     expect(result.current.pl.view).toBe('simple')

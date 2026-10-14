@@ -1,6 +1,6 @@
 import { useT } from '../lib/i18n'
 import { useAiAffordances } from '../lib/explain'
-import { screenDef, simpleEntriesOf, SIMPLE_SECTIONS, type ResolvedSimpleEntry } from '../lib/screens'
+import { screenDef, simpleEntriesOf, simpleEntryVisible, SIMPLE_SECTIONS, type ResolvedSimpleEntry } from '../lib/screens'
 import { useFeatures } from '../lib/useFeatures'
 import { useNav, useSession } from '../state/stores'
 import { Page } from '../components/ui'
@@ -13,12 +13,7 @@ export function useVisibleEntries(section: SimpleSectionId): ResolvedSimpleEntry
   const features = useFeatures()
   const aiReady = useAiAffordances()
   const regular = useSession((s) => s.info?.gstRegistrationType === 'regular')
-  return simpleEntriesOf(section).filter(
-    (e) =>
-      e.features.every((f) => features[f]) &&
-      (e.needs !== 'gstRegular' || regular) &&
-      (e.needs !== 'aiReady' || aiReady)
-  )
+  return simpleEntriesOf(section).filter((e) => simpleEntryVisible(e, { features, regular, aiReady }))
 }
 
 /**

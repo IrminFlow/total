@@ -7,6 +7,8 @@ import {
   modeForKind, planVoucherEdit, taxLedgerIdsFrom,
   type AccountingFormState, type EditPlan, type InvoiceFormState, type ManufactureFormState, type StockNoteFormState
 } from '@shared/voucherEdit'
+import type { SimpleHandoff } from '@shared/simple/handoff'
+import { HandoffBanner } from '../components/HandoffBanner'
 import { api } from '../lib/client'
 import { aiApi, type AiDraftDto } from '../lib/aiClient'
 import { useNav, useSession, type VoucherDraft } from '../state/stores'
@@ -42,13 +44,16 @@ export function VoucherEntry({
   voucherId,
   kindHint,
   draft: draftProp,
-  aiDraftId
+  aiDraftId,
+  handoff: handoffProp
 }: {
   voucherId?: number
   kindHint?: VoucherKind
   draft?: VoucherDraft
   /** WP 5.1: pre-fill from this AI draft (ai_drafts.id); saving marks it consumed. */
   aiDraftId?: number
+  /** WP 9.10: a simple form's unsaved answers as this editor's own form state (simple:intentForm). */
+  handoff?: SimpleHandoff
 }): React.JSX.Element {
   const { data: types } = useQuery({ queryKey: ['voucherTypes'], queryFn: api.voucherTypes.list })
   const { data: existing } = useQuery({
@@ -92,6 +97,8 @@ export function VoucherEntry({
         }
       : draftProp
   const waitingForAiDraft = !!aiDraftId && !voucherId && !aiDraft && !aiDraftError
+  // WP 9.10: only a NEW entry takes a hand-off (an AI draft wins; a saved voucher loads itself).
+  const handoff = !voucherId && !aiDraftId ? handoffProp : undefined
   const [typeId, setTypeId] = useState<number | null>(null)
   const [hintDismissed, setHintDismissed] = useState(false)
   const [sjMode, setSjMode] = useState<'transfer' | 'manufacture'>('transfer')
@@ -109,7 +116,9 @@ export function VoucherEntry({
   useEffect(() => {
     if ((dash?.voucherCount ?? 0) > 0) setSawVouchers(true)
   }, [dash?.voucherCount])
-  const showFirstVoucherHint = !voucherId && !hintDismissed && !sawVouchers && dash?.voucherCount === 0
+  // WP 9.10: not over a hand-off — its answers are already filled in ("pick a type … fill in the
+  // lines" would contradict the hand-off banner).
+  const showFirstVoucherHint = !voucherId && !handoff && !hintDismissed && !sawVouchers && dash?.voucherCount === 0
   const opts = useScreenOptions('voucher-entry', { showShortcuts: true })
 
 
@@ -164,10 +173,11 @@ export function VoucherEntry({
       if (!aiDraft) return
       if (aiDraftOpen && types.some((t) => t.id === aiDraft.payload.voucherTypeId)) return setTypeId(aiDraft.payload.voucherTypeId)
     }
+    if (handoff && types.some((t) => t.id === handoff.entry.voucherTypeId)) return setTypeId(handoff.entry.voucherTypeId)
     const wanted = kindHint ?? 'journal'
     const t = types.find((t) => t.kind === wanted) ?? types.find((t) => !STOCK_NOTE_KINDS.includes(t.kind)) ?? types[0]
     if (t) setTypeId(t.id)
-  }, [types, typeId, kindHint, voucherId, aiDraftId, aiDraft, aiDraftOpen, aiDraftError])
+  }, [types, typeId, kindHint, voucherId, aiDraftId, aiDraft, aiDraftOpen, aiDraftError, handoff])
 
   useEffect(() => {
     if (existing) setTypeId(existing.voucherTypeId)
@@ -210,7 +220,8 @@ export function VoucherEntry({
   // A draft opens in its own form (WP 5.3) — e.g. a GSTR-2B purchase draft (WP 5.5, ledger lines)
   // in the accounting form, which the mode attribute reports.
   const aiMode = aiForm && aiForm !== 'tradeDoc' && aiDraft && currentType.id === aiDraft.payload.voucherTypeId ? aiForm : null
-  const activeMode = voucherId ? plan!.mode : (aiMode ?? modeForKind(currentType.kind))
+  const handoffHere = handoff && currentType.id === handoff.entry.voucherTypeId ? handoff : null
+  const activeMode = voucherId ? plan!.mode : (aiMode ?? handoffHere?.entry.form ?? modeForKind(currentType.kind))
 
   const typeTabs = !voucherId ? (
     <div role="tablist" aria-label="Voucher type" className="flex flex-wrap items-center gap-1">
@@ -302,6 +313,7 @@ export function VoucherEntry({
           First voucher? Pick a type above (or <Kbd>F8</Kbd> for Sales), fill in the lines, then <Kbd>⌘↵</Kbd> to save.
         </Banner>
       )}
+      {handoffHere && <HandoffBanner handoff={handoffHere} />}
       {aiDraftId && aiDraft && aiDraftOpen && <AiDraftReview draft={aiDraft} form={aiForm ?? 'accounting'} />}
       {aiDraftId && aiDraft && !aiDraftOpen && (
         <Banner tone="warning" className="mb-section" testId="ai-draft-banner">
@@ -361,6 +373,17 @@ export function VoucherEntry({
               initial={plan.state}
               fallbackReason={plan.fallbackReason}
             />
+          )
+        ) : handoffHere ? (
+          // WP 9.10: the simple form's answers in this editor's own form state (as an AI draft opens).
+          handoffHere.entry.form === 'invoice' ? (
+            <InvoiceEntry key="handoff" typeId={currentType.id} kind={currentType.kind} initial={handoffHere.entry.state} />
+          ) : handoffHere.entry.form === 'manufacture' ? (
+            <ManufactureForm key="handoff" typeId={currentType.id} initial={handoffHere.entry.state} handedOff />
+          ) : handoffHere.entry.form === 'physical' ? (
+            <PhysicalStockEntry key="handoff" typeId={currentType.id} initial={handoffHere.entry.state} />
+          ) : (
+            <AccountingEntry key="handoff" typeId={currentType.id} kind={currentType.kind} initial={handoffHere.entry.state} />
           )
         ) : aiForm && aiDraft && currentType.id === aiDraft.payload.voucherTypeId ? (
           // WP 5.3: the draft's own editor, pre-filled with the state the draft tool built.

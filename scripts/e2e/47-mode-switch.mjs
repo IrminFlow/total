@@ -87,15 +87,24 @@ await scenario('47-mode-switch', async (h) => {
   await h.click('btn-back-to-simple')
   await attached('[data-testid="simple-section-money"]')
 
-  // Home: Accountant view = the same screen (Gateway) in the full shell, remembered for Home.
+  // Home: Accountant view = the same screen (Gateway) in the full shell — WP 9.10: a one-off;
+  // "Always open the full app for this" (its menu) remembers it for Home.
   await h.click('simple-nav-home')
   await attached('[data-testid="simple-home"]')
   await h.click('btn-accountant-view')
   await attached('nav[aria-label="Main"]')
   await absent('[data-testid="simple-home"]')
   await h.waitScreen('gateway')
+  const viewKeys = () => h.page.evaluate(() => Object.keys(localStorage).filter((k) => k.startsWith('total-view:') && k.endsWith(':gateway')))
+  assertEq((await viewKeys()).length, 0, 'a one-off accountant view is not remembered')
+  await h.click('btn-back-to-simple')
+  await attached('[data-testid="simple-home"]')
+  await h.click('btn-accountant-view-more')
+  await h.click('btn-accountant-view-always')
+  await attached('nav[aria-label="Main"]')
+  await absent('[data-testid="simple-home"]')
   await h.shot('light-accountant-view')
-  const remembered = await h.page.evaluate(() => Object.keys(localStorage).filter((k) => k.startsWith('total-view:') && k.endsWith(':gateway')))
+  const remembered = await viewKeys()
   assertEq(remembered.length, 1, 'the accountant view is remembered for Home')
   await h.click('btn-back-to-simple')
   await attached('[data-testid="simple-home"]')

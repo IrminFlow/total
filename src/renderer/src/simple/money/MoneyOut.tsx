@@ -24,6 +24,7 @@ import { HowPaid } from './HowPaid'
 import { Card, Choices, MoneyFooter, MoneyHeader } from './MoneyParts'
 import { ensureCategoryAccount } from './ensureAccount'
 import { useMoneyFlow } from './useMoneyFlow'
+import { useAccountantView } from '../../lib/handoff'
 
 const WHO_TEXT: Record<MoneyOutWho, MessageKey> = {
   supplier: 'simple.money.out.who.supplier',
@@ -33,7 +34,6 @@ const WHO_TEXT: Record<MoneyOutWho, MessageKey> = {
 }
 const EXPENSE_KEYS = categoriesFor('expense') // i18n-technical
 const SALARY_KEYS: readonly CategoryKey[] = ['salary'] // i18n-technical: category key
-const PAYMENT = 'payment' as const // i18n-technical
 const DRAWINGS = 'owner_drawings' as const // i18n-technical: category key
 const F = { date: 'date', party: 'party', amount: 'amount', from: 'from', bills: 'bills', gstBill: 'gstBill', billSupplier: 'billSupplier', billNo: 'billNo', gstRate: 'gstRate' } as const // i18n-technical: form field paths
 const OUT_SIDE = 'out' as const // i18n-technical
@@ -139,10 +139,10 @@ export function MoneyOut({ party, amount, bill, billId, date, bankId, reference,
   }
   const showAdvance = form.who === 'supplier' && form.supplierId != null && (form.amount ?? 0) > 0 && (open.length === 0 || alloc.advance > 0 || alloc.short || form.advance)
 
-  const accountantView = (): void => {
-    if (flow.savedIds) nav.go({ name: 'voucher-entry', voucherId: flow.savedIds[flow.savedIds.length - 1]! }) // i18n-technical
-    else nav.go({ name: 'voucher-entry', kindHint: PAYMENT }) // i18n-technical
-  }
+  // WP 9.10: the saved entry, or the full payment editor with these answers filled in.
+  const openFull = useAccountantView('simple-money-out') // i18n-technical: screen name
+  const accountantView = (always: boolean): void =>
+    void openFull({ intent: isDirty(form) ? intent : null, savedId: flow.savedIds?.[flow.savedIds.length - 1] ?? null, always })
 
   const supplierOptions = useMemo(() => (setup?.suppliers ?? []).map((c) => ({ id: c.id, label: c.name, ...(c.phone ? { sub: c.phone } : {}) })), [setup?.suppliers])
   const drawingsName = ledgers.find((l) => l.id === setup?.drawingsId)?.name ?? null

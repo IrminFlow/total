@@ -4,7 +4,8 @@ import { useNav, useSession, useToasts, type Screen } from '../state/stores'
 import { api } from '../lib/client'
 import { Kbd, Money, useKeyNav } from './ui'
 import { useFeatures } from '../lib/useFeatures'
-import { SCREENS, screenApplies } from '../lib/screens'
+import { SCREENS, screenApplies, simplePaletteRows } from '../lib/screens'
+import { useMode } from '../lib/mode'
 import { useSearchRecents, type RecentKind, type RecentRecord } from '../lib/searchRecents'
 import { openLedgerEdit } from '../lib/drill'
 import {
@@ -36,6 +37,8 @@ interface Command {
   feature?: keyof CompanyFeatures
   /** WP 8.0: hidden when the company is unregistered. */
   requiresGstRegistration?: boolean
+  /** WP 9.10: the simple rows' test id (`palette-simple-<entry id>`). */
+  testId?: string
   run: () => void | Promise<void>
 }
 
@@ -85,6 +88,20 @@ export function CommandPalette({ onClose }: { onClose: () => void }): React.JSX.
   const question = aiOn ? paletteQuestion(query) : null
   const intent = useMemo(() => parseNavIntent(query), [query])
   const searchText = intent ? intent.target : /^ask\s*:/i.test(query.trim()) ? '' : query.replace(/\?+\s*$/, '')
+  // WP 9.10: in a simple-mode company the simple screens lead (plain labels from the registry).
+  const simpleMode = useMode() === 'simple'
+  const regular = regType === 'regular'
+  const simpleCommands = useMemo<Command[]>(
+    () =>
+      simpleMode
+        ? simplePaletteRows({ features, regular, aiReady: aiOn }).map((r) => ({
+            label: t(r.label),
+            testId: `palette-simple-${r.id}`,
+            run: r.screen.name === 'gateway' ? () => nav.home() : () => nav.go(r.screen)
+          }))
+        : [],
+    [simpleMode, features, regular, aiOn, t, nav]
+  )
 
   const commands = useMemo<Command[]>(() => {
     const go = (screen: Screen) => () => nav.go(screen)
@@ -179,14 +196,23 @@ export function CommandPalette({ onClose }: { onClose: () => void }): React.JSX.
     ]
   }, [nav, toast, clearCompany])
 
-  const filtered = useMemo(() => {
-    const visible = commands.filter((c) => (!c.feature || features[c.feature]) && screenApplies(c, regType))
+  const matching = useMemo(() => {
     const q = searchText.trim().toLowerCase()
-    if (!q) return query.trim() && !intent ? [] : visible
-    return visible.filter(
-      (c) => c.label.toLowerCase().includes(q) || c.keywords?.some((k) => k.toLowerCase().includes(q))
-    )
-  }, [commands, query, searchText, intent, features, regType])
+    return (list: Command[]): Command[] => {
+      if (!q) return query.trim() && !intent ? [] : list
+      return list.filter((c) => c.label.toLowerCase().includes(q) || c.keywords?.some((k) => k.toLowerCase().includes(q)))
+    }
+  }, [query, searchText, intent])
+  // In a simple-mode company the full app's commands (New voucher, Ledgers, Day Book …) show only
+  // once something is typed, under "Full app" — the opened palette keeps to the simple screens.
+  const filtered = useMemo(
+    () =>
+      simpleMode && !searchText.trim()
+        ? []
+        : matching(commands.filter((c) => (!c.feature || features[c.feature]) && screenApplies(c, regType))),
+    [commands, matching, features, regType, simpleMode, searchText]
+  )
+  const filteredSimple = useMemo(() => matching(simpleCommands), [simpleCommands, matching])
 
   // Chips come from a local parse (instant, no round-trip); the IPC re-parses the same string.
   const parsed = useMemo(() => parseSearchQuery(query, ctx), [query, ctx])
@@ -221,8 +247,12 @@ export function CommandPalette({ onClose }: { onClose: () => void }): React.JSX.
     const hasRecents = empty && recents.queries.length + recents.vouchers.length + recents.ledgers.length + recents.items.length > 0
     // Commands always come first, so ⌘K then ↵ still runs what it always ran (New voucher);
     // recents sit below them and are never the default selection.
+    if (filteredSimple.length) {
+      out.push({ key: 'simple', title: t('simple.palette.title'), items: filteredSimple.map((cmd) => ({ type: 'command', cmd })) })
+    }
     if (filtered.length) {
-      out.push({ key: 'commands', title: hasRecents || live ? 'Commands' : null, items: filtered.map((cmd) => ({ type: 'command', cmd })) })
+      const title = simpleMode ? t('simple.shell.fullApp') : hasRecents || live || filteredSimple.length ? 'Commands' : null
+      out.push({ key: 'commands', title, items: filtered.map((cmd) => ({ type: 'command', cmd })) })
     }
     if (hasRecents) {
       if (recents.queries.length) {
@@ -248,7 +278,7 @@ export function CommandPalette({ onClose }: { onClose: () => void }): React.JSX.
     }
     if (askGroup && exactHit) out.push(askGroup)
     return out
-  }, [query, recents, filtered, live, question, intent])
+  }, [query, recents, filtered, filteredSimple, live, question, intent, t, simpleMode])
 
   const navItems = useMemo(() => groups.flatMap((g) => g.items), [groups])
   const { active, setActive } = useKeyNav(navItems.length, () => {}, false)
@@ -396,7 +426,9 @@ export function CommandPalette({ onClose }: { onClose: () => void }): React.JSX.
             </>
           ) : (
             <span>
-              <Kbd>↑↓</Kbd> move · <Kbd>↵</Kbd> open · <Kbd>⌘E</Kbd> edit ledger · <Kbd>⌘↵</Kbd> all results
+              {/* WP 9.10: a simple company's palette keeps to plain words (⌘E still works). */}
+              <Kbd>↑↓</Kbd> {simpleMode ? t('simple.palette.move') : 'move'} · <Kbd>↵</Kbd> {simpleMode ? t('simple.palette.open') : 'open'}
+              {simpleMode ? '' : <> · <Kbd>⌘E</Kbd> edit ledger</>} · <Kbd>⌘↵</Kbd> {simpleMode ? t('simple.palette.allResults') : 'all results'}
             </span>
           )}
         </div>
@@ -457,7 +489,7 @@ function PaletteRow({
       )
     case 'command':
       return (
-        <div {...common} className={base}>
+        <div {...common} data-testid={item.cmd.testId} className={base}>
           <span>{item.cmd.label}</span>
           {item.cmd.hint && <span className="text-caption text-muted">{item.cmd.hint}</span>}
         </div>
