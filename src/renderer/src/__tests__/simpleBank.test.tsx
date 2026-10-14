@@ -54,6 +54,7 @@ const VIEW: BankView = {
 }
 
 let setup: BankSetup = SETUP
+let view: BankView = VIEW
 let acceptReply: (items: { lineId: number }[]) => BankAcceptResult
 const calls = (ch: string): Record<string, unknown>[] => invoke.mock.calls.filter(([c]) => c === ch).map(([, p]) => p as Record<string, unknown>)
 
@@ -68,13 +69,15 @@ function renderUi(): void {
 
 beforeEach(() => {
   setup = SETUP
+  view = VIEW
   acceptReply = (items) => ({ done: items.map((i) => ({ lineId: i.lineId, voucherIds: [100 + i.lineId] })), failed: [] })
   invoke.mockImplementation(async (channel: string, payload: Record<string, unknown>) => {
     switch (channel) {
       case 'master:groups:list': return { ok: true, data: GROUPS }
       case 'master:ledgers:list': return { ok: true, data: LEDGERS }
       case 'simple:bank:setup': return { ok: true, data: setup }
-      case 'simple:bank:lines': return { ok: true, data: VIEW }
+      case 'simple:bank:lines': return { ok: true, data: view }
+      case 'master:ledgers:create': return { ok: true, data: { ...LEDGERS[0], ...(payload as object), id: 90 } }
       case 'simple:bank:accept': return { ok: true, data: acceptReply(payload.items as { lineId: number }[]) }
       case 'simple:preview': return { ok: true, data: { kind: 'money_in', sentences: ['₹4,000.00 received in the bank.', 'Ramesh Traders owes nothing now.'], facts: {}, entries: [], warnings: { negativeStock: [], creditLimitExceeded: null } } }
       case 'bankImport:preview':
@@ -199,5 +202,20 @@ describe('simple Bank (WP 9.6)', () => {
     )
     // Lines that are not a customer's / supplier's money offer no such link.
     expect(within(lineCard(2)).queryByTestId('btn-bank-pick-bills-2')).toBeNull()
+  })
+  it('two lines of one "Save all" that need the same new account share it — added once, not twice', async () => {
+    setup = { ...SETUP, accounts: SETUP.accounts.filter((a) => a.id !== 40), ids: { ...SETUP.ids, bankCharges: null } }
+    const charge = (id: number, date: string) => ({ id, date, description: `SMS CHARGES ${id}`, reference: '', side: 'withdrawal' as const, amount: 5_900, status: 'open' as const, done: [], match: null, suggestion: null })
+    view = { ...VIEW, lines: [charge(5, '2026-10-03'), charge(6, '2026-10-04')] }
+    renderUi()
+    await waitFor(() => expect(screen.getAllByTestId('bank-line')).toHaveLength(2))
+    fireEvent.click(within(lineCard(5)).getByTestId('bank-choice-charges'))
+    fireEvent.click(within(lineCard(6)).getByTestId('bank-choice-charges'))
+    fireEvent.click(screen.getByTestId('btn-bank-accept-all'))
+    await waitFor(() => expect(calls('simple:bank:accept')).toHaveLength(1))
+    expect(calls('master:ledgers:create')).toHaveLength(1)
+    expect(calls('master:ledgers:create')[0]).toMatchObject({ name: 'Bank charges', simpleCategory: 'bank_charges' })
+    const items = calls('simple:bank:accept')[0]!.items as { lineId: number; choice: { kind: string; accountId: number } }[]
+    expect(items.map((i) => [i.lineId, i.choice])).toEqual([[5, { kind: 'charges', accountId: 90 }], [6, { kind: 'charges', accountId: 90 }]])
   })
 })

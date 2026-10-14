@@ -89,18 +89,24 @@ export function BankScreen({ bankId }: { bankId?: number }): React.JSX.Element {
   }
 
   /** The category account a shortcut uses — added (with its category, as the presets do) when missing. */
-  const ensureCategory = async (choice: BankChoice, l: BankLineView, s: BankSetup): Promise<BankChoice> => {
+  // `added` is the save's own list of accounts it added: two lines of one "Save all" that both need
+  // the same new account (two interest credits) share it, never create it twice (a name clash
+  // that would fail every line).
+  const ensureCategory = async (choice: BankChoice, l: BankLineView, s: BankSetup, added: Map<string, number>): Promise<BankChoice> => {
     if ((choice.kind !== 'owner' && choice.kind !== 'charges') || choice.accountId) return choice
     const key = categoryFor(choice.kind, l.side)
     const def = CATEGORIES[key]
     const found = s.accounts.find((a) => a.category === key) ?? s.accounts.find((a) => a.name.toLowerCase() === def.name.toLowerCase())
     if (found) return { ...choice, accountId: found.id }
+    const already = added.get(key)
+    if (already != null) return { ...choice, accountId: already }
     const groupId = groups.find((g) => g.name === def.group)?.id
     if (groupId == null) return choice
     const created = await api.ledgers.create({
       name: def.name, groupId, openingBalance: 0, gstin: null, stateCode: null, address: null, taxType: null, gstRate: null, hsn: null,
       tdsSectionId: null, pan: null, creditDays: null, exportType: null, simpleCategory: key
     })
+    added.set(key, created.id)
     return { ...choice, accountId: created.id }
   }
 
@@ -124,10 +130,11 @@ export function BankScreen({ bankId }: { bankId?: number }): React.JSX.Element {
     })
     try {
       const items: BankAcceptItem[] = []
+      const added = new Map<string, number>()
       for (const l of targets) {
         const c = choiceOf(l)
         if (!c || c.kind === 'skip') continue
-        const choice = await ensureCategory(c, l, setup)
+        const choice = await ensureCategory(c, l, setup, added)
         if (choice.kind === 'skip') continue
         items.push({ lineId: l.id, clientId: clientIdFor(l.id, choice), choice })
       }
