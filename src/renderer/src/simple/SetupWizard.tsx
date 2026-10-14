@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useT } from '../lib/i18n'
 import { Button } from '../components/ui'
 import { TotalLogo } from '../components/TotalLogo'
@@ -44,6 +44,27 @@ export function SetupWizard({
   const [failure, setFailure] = useState<string | null>(null)
   const step: SetupStep = SETUP_STEPS[stepIdx]!
   const last = stepIdx === SETUP_STEPS.length - 1
+  const formRef = useRef<HTMLFormElement>(null)
+  // WP 10.5: the wizard is a simple screen outside the shell — the simple token tweaks apply.
+  useEffect(() => {
+    const root = document.documentElement
+    const had = root.dataset.shell
+    root.dataset.shell = 'simple'
+    return () => {
+      if (had) root.dataset.shell = had
+      else delete root.dataset.shell
+    }
+  }, [])
+  // WP 10.5: Next / Back moves the keyboard to the new step's first question (not back to the
+  // top of the page), so the wizard runs by keyboard alone.
+  const firstRender = useRef(true)
+  useEffect(() => {
+    if (firstRender.current) {
+      firstRender.current = false
+      return
+    }
+    formRef.current?.querySelector<HTMLElement>('input:not([disabled]), select:not([disabled]), textarea:not([disabled]), button:not([disabled])')?.focus()
+  }, [stepIdx])
 
   const set = (patch: Partial<SetupDraft>): void => {
     setDraft((d) => {
@@ -112,6 +133,7 @@ export function SetupWizard({
         </div>
 
         <form
+          ref={formRef}
           onSubmit={(e) => {
             e.preventDefault()
             void next()

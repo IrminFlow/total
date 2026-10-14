@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from 'react'
+import { useEffect, useState, type ReactNode } from 'react'
 import { useIsFetching } from '@tanstack/react-query'
 import { useNav, usePeriodPicker, useScreen, useSession, useTheme, useToasts } from '../state/stores'
 import { api } from '../lib/client'
@@ -20,6 +20,9 @@ import '../lib/pinnedReports'
 import { AssistantPanel } from './ai/AssistantPanel'
 import { AssistantButton } from './ai/AssistantButton'
 import { HelpPanel } from '../simple/help/HelpPanel'
+import { DockModeContext } from './kit'
+import { useSimplePanelsOverlay } from '../lib/simpleLayout'
+import { handleSlashKey } from '../lib/simpleKeys'
 
 /** Sidebar derived from the single screen registry (lib/screens.ts) — accountant-mode screens. */
 const NAV = ACCOUNTANT_NAV
@@ -41,6 +44,25 @@ export function Shell({ children, onOpenPalette }: { children: ReactNode; onOpen
   // WP 8.1: a simple company shows its simple screens in the simple shell (header + sidebar);
   // <main> stays in place, so switching a screen's view keeps the screen (and its state) mounted.
   const simple = useScreenView(screen.name).view === 'simple'
+  // WP 10.5: in the simple shell the panels open over the screen below 1600 px (lib/simpleLayout).
+  const overlayPanels = useSimplePanelsOverlay()
+  // WP 10.5: html[data-shell='simple'] scopes the simple shell's token tweaks (app.css) — portals
+  // (dialogs, popovers) included; the full app never has it.
+  useEffect(() => {
+    const root = document.documentElement
+    if (simple) root.dataset.shell = 'simple'
+    else delete root.dataset.shell
+    return () => {
+      delete root.dataset.shell
+    }
+  }, [simple])
+  // WP 10.5: `/` focuses the screen's search box (simple shell only; lib/simpleKeys.ts).
+  useEffect(() => {
+    if (!simple) return
+    const onKey = (e: KeyboardEvent): void => void handleSlashKey(e)
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [simple])
   const visibleNav = NAV.filter((s) => !s.feature || features[s.feature]).map((s) => ({
     ...s,
     items: s.items.filter((i) => (!i.feature || features[i.feature]) && screenApplies(i, info?.gstRegistrationType)),
@@ -262,10 +284,13 @@ export function Shell({ children, onOpenPalette }: { children: ReactNode; onOpen
         >
           {children}
         </main>
-        {/* WP 5.2: docked beside the screen (the screen narrows), on every screen. */}
-        <AssistantPanel />
-        {/* WP 10.3: the help panel (simple companies only; renders nothing in the full app). */}
-        <HelpPanel />
+        {/* WP 5.2: docked beside the screen (the screen narrows), on every screen. WP 10.5: in
+            the simple shell they are Esc layers and overlay the screen below 1600 px. */}
+        <DockModeContext.Provider value={simple ? (overlayPanels ? 'overlay' : 'dock') : null}>
+          <AssistantPanel />
+          {/* WP 10.3: the help panel (simple companies only; renders nothing in the full app). */}
+          <HelpPanel />
+        </DockModeContext.Provider>
       </div>
 
       {periodOpen && <PeriodModal onClose={() => setPeriodOpen(false)} />}

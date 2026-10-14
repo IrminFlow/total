@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react'
+import { useId, type KeyboardEvent, type ReactNode } from 'react'
 import { useT } from '../lib/i18n'
 import type { MessageKey } from '@shared/i18n'
 import { DateInput, Field, Select, TextInput } from '../components/ui'
@@ -38,14 +38,35 @@ export function ChoiceCard({
   )
 }
 
+/** WP 10.5: ←/→/↑/↓ move between a group's cards and pick the one they land on (a radio group's
+ *  keys); Tab still reaches each card. */
+function radioKeys(e: KeyboardEvent<HTMLDivElement>): void {
+  const step = e.key === 'ArrowDown' || e.key === 'ArrowRight' ? 1 : e.key === 'ArrowUp' || e.key === 'ArrowLeft' ? -1 : 0
+  if (!step) return
+  const radios = [...e.currentTarget.querySelectorAll<HTMLButtonElement>('[role="radio"]:not([disabled])')]
+  const at = radios.indexOf(document.activeElement as HTMLButtonElement)
+  if (at < 0 || radios.length === 0) return
+  e.preventDefault()
+  const to = radios[(at + step + radios.length) % radios.length]!
+  to.focus()
+  to.click()
+}
+
 function Choices({ label, error, children, cols = 2 }: { label: string; error?: string; children: ReactNode; cols?: 1 | 2 | 3 }): React.JSX.Element {
+  const errorId = useId()
   return (
     <div>
-      <div role="radiogroup" aria-label={label} className={`grid gap-2 ${cols === 1 ? 'grid-cols-1' : cols === 3 ? 'grid-cols-1 md:grid-cols-3' : 'grid-cols-1 md:grid-cols-2'}`}>
+      <div
+        role="radiogroup"
+        aria-label={label}
+        aria-describedby={error ? errorId : undefined}
+        onKeyDown={radioKeys}
+        className={`grid gap-2 ${cols === 1 ? 'grid-cols-1' : cols === 3 ? 'grid-cols-1 md:grid-cols-3' : 'grid-cols-1 md:grid-cols-2'}`}
+      >
         {children}
       </div>
       {error && (
-        <p role="alert" className="mt-1.5 text-small text-danger" data-testid="setup-choice-error">
+        <p id={errorId} role="alert" className="mt-1.5 text-small text-danger" data-testid="setup-choice-error">
           {error}
         </p>
       )}

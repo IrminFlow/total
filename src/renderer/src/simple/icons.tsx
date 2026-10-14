@@ -33,7 +33,13 @@ const PATHS: Record<string, readonly string[]> = {
   search: ['M11 18a7 7 0 1 0 0-14 7 7 0 0 0 0 14z', 'm20 20-4-4'],
   plus: ['M12 5v14', 'M5 12h14'],
   more: ['M5 13a1 1 0 1 0 0-2 1 1 0 0 0 0 2z', 'M12 13a1 1 0 1 0 0-2 1 1 0 0 0 0 2z', 'M19 13a1 1 0 1 0 0-2 1 1 0 0 0 0 2z'],
-  dot: ['M12 13a1 1 0 1 0 0-2 1 1 0 0 0 0 2z']
+  dot: ['M12 13a1 1 0 1 0 0-2 1 1 0 0 0 0 2z'],
+  // WP 10.5: the simple sidebar's sections and foot (shown alone under 1200 px).
+  chart: ['M4 20V10', 'M10 20V4', 'M16 20v-7', 'M3 20h18'],
+  gear: ['M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z', 'M12 2v3', 'M12 19v3', 'M2 12h3', 'M19 12h3', 'm4.9 4.9 2.1 2.1', 'm17 17 2.1 2.1', 'm4.9 19.1 2.1-2.1', 'm17 7 2.1-2.1'],
+  save: ['M12 3v12', 'm7 10 5 5 5-5', 'M4 19h16'],
+  swap: ['M7 4 3 8l4 4', 'M3 8h14', 'm17 12 4 4-4 4', 'M21 16H7'],
+  mail: ['M3 5h18v14H3z', 'm3 6 9 7 9-7']
 }
 
 const ROUND = { strokeLinecap: 'round', strokeLinejoin: 'round' } as const // i18n-technical: SVG attributes

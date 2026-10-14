@@ -137,3 +137,44 @@ export function useDialogLayer(ref: RefObject<HTMLElement | null>, onEscape: () 
 export function layerCount(): number {
   return layerStack.length
 }
+
+// ---------------------------------------------------------------------------------------------
+// WP 10.5: docked panels as Esc layers in the simple shell. A DockedDrawer rendered under the
+// simple shell's dock provider registers here while open; Esc then closes the topmost panel
+// before anything below it sees the key (a form's "Esc asks before discarding", the app's
+// "Esc goes back") — the order is dialog → panel → form → screen. A dialog layer, an open
+// popover / picker list (aria-expanded), or a field that clears itself keeps its Esc. The full
+// app's AI panel never registers, so accountant mode keeps its keys exactly as they were.
+
+const panelStack: { close: () => void }[] = []
+
+/** Registers an open panel; returns the unregister function. */
+export function registerPanelLayer(close: () => void): () => void {
+  const entry = { close }
+  panelStack.push(entry)
+  return () => {
+    const i = panelStack.indexOf(entry)
+    if (i >= 0) panelStack.splice(i, 1)
+  }
+}
+
+/** True while a simple-shell panel (Help, Ask Total, the AI drawer) is open. */
+export function isPanelOpen(): boolean {
+  return panelStack.length > 0
+}
+
+/** The Esc router (true = it closed a panel). Installed on window in the capture phase when
+ *  this module is first evaluated — before any component's effect adds its own listener — so it
+ *  runs first. Exported for tests. */
+export function routePanelEscape(e: KeyboardEvent): boolean {
+  if (e.key !== 'Escape' || e.defaultPrevented || panelStack.length === 0) return false
+  if (layerStack.length > 0 || escapeLayers > 0 || consumesEscape(e.target)) return false
+  const t = e.target instanceof Element ? e.target : null
+  if (t?.matches('[role="combobox"][aria-expanded="true"]')) return false // an open picker list closes first
+  e.preventDefault()
+  e.stopImmediatePropagation()
+  panelStack[panelStack.length - 1]!.close()
+  return true
+}
+
+if (typeof window !== 'undefined') window.addEventListener('keydown', routePanelEscape, true)
