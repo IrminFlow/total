@@ -29,12 +29,13 @@
 import { createHash, randomBytes } from 'crypto'
 import {
   constants as fsConstants, closeSync, copyFileSync, existsSync, fstatSync, lstatSync, mkdirSync, mkdtempSync, openSync,
-  readdirSync, readSync, realpathSync, renameSync, rmSync, unlinkSync, writeFileSync
+  readdirSync, readSync, realpathSync, rmSync, unlinkSync, writeFileSync
 } from 'fs'
 import { tmpdir } from 'os'
 import { join, relative, isAbsolute, sep } from 'path'
 import type { DB } from '../db/connection'
 import { fitFileName, portableFileName } from '@shared/fileNames'
+import { renameReplacing } from '../fsRetry'
 import {
   ATTACHMENT_TYPES, DEFAULT_ATTACHMENT_CONFIG, SHA256_RE, attachmentConfigSchema, attachmentRefusal, cleanFileName, contentRefusal, extensionOf, openRefusal,
   isSafeStoredPath, storedPathFor, type Attachment, type AttachmentConfig, type AttachmentEntity, type AttachmentTarget
@@ -152,7 +153,7 @@ export function putStoredFile(dir: string, sha: string, data: Buffer | { copyFro
     if (Buffer.isBuffer(data)) writeFileSync(tmp, data, { mode: 0o600, flag: 'wx' })
     else copyFileSync(data.copyFrom, tmp)
     if (sha256OfFile(tmp) !== sha) throw new Error('The file changed while it was being stored')
-    renameSync(tmp, abs)
+    renameReplacing(tmp, abs)
   } finally {
     rmSync(tmp, { force: true })
   }

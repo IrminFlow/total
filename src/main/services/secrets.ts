@@ -15,7 +15,8 @@
  *
  * Pure Node (fs/path only): no Electron, no DB — unit-tested in secrets.test.ts.
  */
-import { closeSync, fsyncSync, mkdirSync, openSync, readFileSync, renameSync, rmSync, writeSync } from 'fs'
+import { closeSync, fsyncSync, mkdirSync, openSync, readFileSync, rmSync, writeSync } from 'fs'
+import { renameReplacing } from '../fsRetry'
 import { dirname } from 'path'
 import { randomBytes } from 'crypto'
 
@@ -95,7 +96,7 @@ export function createSecretStore(opts: { filePath: () => string; cipher: Secret
       closeSync(fd)
     }
     try {
-      renameSync(tmp, file)
+      renameReplacing(tmp, file) // WP 7.3: Windows EPERM while a scanner holds secrets.json
     } catch (err) {
       rmSync(tmp, { force: true })
       throw err

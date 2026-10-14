@@ -1,4 +1,5 @@
-import { readFileSync, writeFileSync, existsSync, renameSync, rmSync, statSync } from 'fs'
+import { readFileSync, writeFileSync, existsSync, rmSync, statSync } from 'fs'
+import { renameReplacing } from './fsRetry'
 import type { CompanySummary } from '@shared/domain'
 import { registryPath, ensureDataTree } from './paths'
 
@@ -33,7 +34,7 @@ export function writeRegistry(registry: Registry): void {
   const path = registryPath()
   const tmpPath = `${path}.tmp`
   writeFileSync(tmpPath, JSON.stringify(registry, null, 2))
-  renameSync(tmpPath, path)
+  renameReplacing(tmpPath, path) // WP 7.3: Windows EPERM while a scanner holds total.json
 }
 
 // ---------- write lock (task Q3 #99) ----------

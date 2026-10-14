@@ -100,8 +100,27 @@ export async function scanCaptureInbox(
       fail(`${cleanName(name)} is ${(st.size / 1048576).toFixed(1)} MB — capture takes files up to ${CAPTURE_MAX_BYTES / 1048576} MB`)
       continue
     }
+    let bytes: Buffer
     try {
-      const bytes = readFileSync(full)
+      bytes = readFileSync(full)
+    } catch (err) {
+      // WP 7.3: on Windows a file another program still holds open (a scanner app, Explorer's
+      // copy, an antivirus scan) cannot be read — EBUSY / EPERM / EACCES. That is "not yet", not
+      // a bad bill: look again shortly, and give up quietly after INBOX_MAX_ATTEMPTS.
+      const code = (err as NodeJS.ErrnoException).code
+      if (code === 'EBUSY' || code === 'EPERM' || code === 'EACCES') {
+        const n = (state.attempts.get(name) ?? 0) + 1
+        state.attempts.set(name, n)
+        if (n >= INBOX_MAX_ATTEMPTS) {
+          state.gaveUp.add(name)
+          log('warn', 'capture-inbox-read-gave-up', { file: name, error: (err as Error).message })
+        } else waiting++
+        continue
+      }
+      fail((err as Error).message)
+      continue
+    }
+    try {
       const checked = await checkCaptureFile(name, bytes)
       const r = runAsAuditUser(CAPTURE_INBOX_USER, () => insertCaptureFile(db, captureFilesDir(companyDir), checked, { bytes, origin: 'folder', addedBy: CAPTURE_INBOX_USER }))
       if (r.refusal || !r.item) fail(r.refusal ?? 'not captured')
