@@ -64,7 +64,7 @@ function MoneyTable(): React.JSX.Element {
   const columns = useMemo(
     () =>
       defineColumns<MoneyRow>([
-        { id: 'date', header: t('simple.money.col.date'), kind: 'date', value: (r) => r.date, text: (r) => toPlainDate(r.date), width: 130, groupable: false }, // i18n-technical
+        { id: 'date', header: t('simple.money.col.date'), kind: 'date', value: (r) => r.date, text: (r) => toPlainDate(r.date, t.lang), width: 130, groupable: false }, // i18n-technical
         // A move says where it went from and to; anything else, who paid / was paid.
         { id: 'who', header: t('simple.money.col.who'), kind: 'text', hideable: false, groupable: false, value: (r) => (r.direction === 'move' ? `${r.account} → ${r.who}` : r.who) }, // i18n-technical
         {
@@ -94,7 +94,7 @@ function MoneyTable(): React.JSX.Element {
       <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
         <div>
           <h1 className="font-serif text-heading font-semibold tracking-tight text-ink">{t('simple.money.list.title')}</h1>
-          <p className="mt-1 text-detail text-muted">{t('simple.money.list.period', { from: toPlainDate(from), to: toPlainDate(until) })}</p>
+          <p className="mt-1 text-detail text-muted">{t('simple.money.list.period', { from: toPlainDate(from, t.lang), to: toPlainDate(until, t.lang) })}</p>
         </div>
         {!empty && <div className="flex flex-wrap gap-2">
           <Button variant="primary" data-testid="btn-money-list-in" onClick={() => nav.go(IN)}>
@@ -171,7 +171,7 @@ function EntryView({ entryId }: { entryId: number }): React.JSX.Element {
               {title} · <span className="num" data-testid="simple-money-entry-amount" data-paise={e.amount}>{money(e.amount)}</span>
             </h1>
             <p className="mt-1 text-detail text-muted">
-              {head} · {t('simple.money.entry.on', { date: toPlainDate(e.date) })}
+              {head} · {t('simple.money.entry.on', { date: toPlainDate(e.date, t.lang) })}
             </p>
           </div>
           <span>

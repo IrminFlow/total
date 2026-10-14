@@ -111,7 +111,7 @@ const blankMoneyRow = (): MoneyRowDraft => ({ key: newKey(), ledgerId: null, nam
 
 export function MoneyStep({ draft, update, state }: OpeningsStepProps): React.JSX.Element {
   const t = useT()
-  const date = toPlainDate(state.booksBegin)
+  const date = toPlainDate(state.booksBegin, t.lang)
   const total = (draft.cash.amount ?? 0) + draft.banks.reduce((s, b) => s + (b.amount ?? 0), 0)
   return (
     <div data-testid="openings-step-money">
@@ -179,7 +179,7 @@ export function PartiesStep({ side, draft, update, state }: OpeningsStepProps & 
   const say = (k: MessageKey, vars?: Record<string, string>): string => t(k, vars) // i18n-technical: keys from PARTY_TEXT
   const listId = useId()
   const text = PARTY_TEXT[side]
-  const date = toPlainDate(state.booksBegin)
+  const date = toPlainDate(state.booksBegin, t.lang)
   const rows = draft[side]
   const listed = new Set(rows.map((r) => r.name.trim().toLowerCase()))
   const suggestions = state.pick[side].filter((p) => !listed.has(p.name.toLowerCase()))
@@ -260,7 +260,7 @@ export function PartiesStep({ side, draft, update, state }: OpeningsStepProps & 
                     value={b.date}
                     context={state.booksBegin}
                     allowEmpty
-                    format={toPlainDate}
+                    format={((d: string) => toPlainDate(d, t.lang))}
                     placeholder={t('simple.openings.bill.datePlaceholder', {
                       date
                     })}
@@ -334,7 +334,7 @@ export function PartiesStep({ side, draft, update, state }: OpeningsStepProps & 
 export function StockStep({ draft, update, state }: OpeningsStepProps): React.JSX.Element {
   const t = useT()
   const listId = useId()
-  const date = toPlainDate(state.booksBegin)
+  const date = toPlainDate(state.booksBegin, t.lang)
   const listed = new Set(draft.items.map((r) => r.name.trim().toLowerCase()))
   const suggestions = state.pick.items.filter((p) => !listed.has(p.name.toLowerCase()))
   const known = (name: string): boolean => state.pick.items.some((p) => p.name.toLowerCase() === name.trim().toLowerCase())
@@ -465,7 +465,7 @@ const KIND_LABEL: Record<OpeningOtherKind, MessageKey> = {
 export function OtherBalances({ draft, update, state }: OpeningsStepProps): React.JSX.Element {
   const t = useT()
   const say = (k: MessageKey): string => t(k) // i18n-technical: keys from KIND_LABEL
-  const date = toPlainDate(state.booksBegin)
+  const date = toPlainDate(state.booksBegin, t.lang)
   const setRow = (i: number, patch: Partial<OtherDraft>): void =>
     update((d) => ({
       ...d,

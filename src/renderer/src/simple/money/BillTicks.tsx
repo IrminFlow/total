@@ -68,7 +68,7 @@ export function BillTicks({
                   <span className="min-w-0 flex-1 text-body text-ink">
                     {t('simple.money.billName', { bill: b.name })}{' '}
                     <span className="text-small text-muted">
-                      {t('simple.money.billDated', { date: toPlainDate(b.date) })}
+                      {t('simple.money.billDated', { date: toPlainDate(b.date, t.lang) })}
                       {b.overdueDays > 0 && ` · ${t('simple.money.billOverdue', { days: b.overdueDays })}`}
                     </span>
                   </span>

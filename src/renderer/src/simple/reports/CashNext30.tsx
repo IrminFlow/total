@@ -26,7 +26,7 @@ export function CashNext30(): React.JSX.Element {
       <ReportHeader
         testId="cash"
         title={t('simple.reports.cashNext30')}
-        subtitle={c ? t('simple.reports.cash.subtitle', { from: toPlainDate(c.asOn), to: toPlainDate(c.until) }) : t('common.loading')}
+        subtitle={c ? t('simple.reports.cash.subtitle', { from: toPlainDate(c.asOn, t.lang), to: toPlainDate(c.until, t.lang) }) : t('common.loading')}
         accountant={{ screen: FORECAST, hint: t('simple.reports.cash.accountant') }}
       />
       {q.isError && <LoadError testId="cash" text={t('simple.reports.loadError')} onRetry={() => void q.refetch()} />}

@@ -6,7 +6,7 @@
 // user starts from. Simple-mode screens (src/renderer/src/simple/**) get every string from
 // `useT()`; accountant screens keep their literal English (they are not migrated in this plan).
 
-import { useCallback } from 'react'
+import { useCallback, useMemo } from 'react'
 import { create } from 'zustand'
 import { normalizeLanguage, translator, type Language, type Translate } from '@shared/i18n'
 import { useSession } from '../state/stores'
@@ -60,5 +60,5 @@ export function useLanguage(): [Language, (lang: Language) => void] {
 /** `t` bound to the user's language: `const t = useT(); t('simple.nav.home')`. */
 export function useT(): Translate {
   const [language] = useLanguage()
-  return useCallback<Translate>((key, vars, options) => translator(language)(key, vars, options), [language])
+  return useMemo<Translate>(() => translator(language), [language])
 }

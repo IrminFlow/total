@@ -61,11 +61,11 @@ describe('reminder message', () => {
     expect(reminderMessage({ ...FACTS, bills: bills.slice(0, 6) })).toContain('…and 1 more bill')
   })
 
-  it('Hindi and Hinglish come from their catalogues; amounts and dates stay as money.ts / dates.ts write them', () => {
+  it('Hindi and Hinglish come from their catalogues; amounts as money.ts writes them, dates in the reader’s language (WP 10.4)', () => {
     const hi = reminderMessage(FACTS, 'hi')
     expect(hi.startsWith('नमस्ते Ramesh जी,')).toBe(true)
     expect(hi).toContain('₹1,500.50')
-    expect(hi).toContain('• बिल 1, 20 Aug 2026: ₹1,200.00')
+    expect(hi).toContain('• बिल 1, 20 अग 2026: ₹1,200.00')
     const hg = reminderMessage({ ...FACTS, bucket: 'firm' }, 'hinglish')
     expect(hg).toContain('Sharma Traders ki taraf se dobara yaad: ₹1,500.50 abhi bhi baaki hai, sabse purana bill 40 din late hai.')
   })

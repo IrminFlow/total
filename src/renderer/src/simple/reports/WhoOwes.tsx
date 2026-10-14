@@ -50,7 +50,7 @@ export function WhoOwes({ side: initial }: { side?: Side }): React.JSX.Element {
       <ReportHeader
         testId="owed"
         title={title}
-        subtitle={t('simple.reports.owed.subtitle', { date: toPlainDate(o?.asOn ?? today) })}
+        subtitle={t('simple.reports.owed.subtitle', { date: toPlainDate(o?.asOn ?? today, t.lang) })}
         accountant={{ screen: outstandingsOf(side), hint: t('simple.reports.owed.accountant') }}
       />
       <div className="mb-4 flex flex-wrap items-center gap-3">
