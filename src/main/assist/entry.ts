@@ -23,6 +23,7 @@ import { emptyMoneyInForm, emptyMoneyOutForm, moneyInErrors, moneyInIntentFrom, 
 import { emptySellForm, saleIntentFrom, sellFormErrors, sellTotals, type SellContext, type SellForm } from '@shared/simple/sell'
 import { buyFormErrors, emptyBuyForm, purchaseIntentFrom, type BuyContext, type BuyForm } from '@shared/simple/buy'
 import { money } from '@shared/simple/explain'
+import { formatQtyMilli } from '@shared/money'
 import { buyFromAsk, moneyInFromAsk, moneyOutFromAsk, sellFromAsk } from '@shared/simple/askPrefill'
 import { listLedgers, listStockItems, listVoucherTypes } from '../services/masters'
 import { moneyBills, moneySetup } from '../services/simpleMoney'
@@ -122,7 +123,9 @@ function moneyOut(db: DB, company: CompanyInfo, s: AssistEntrySlots, input: AskI
       payeeId = categoryAccount(db, s.party, today)
       if (payeeId == null) {
         who = 'supplier'
-        missing = t('assist.entry.noSupplier', { name: s.party })
+        // "Ramesh ko 5000 diya" where Ramesh is a customer: say so rather than "no supplier".
+        const customer = findLedger(db, s.party, ['debtor'], today)
+        missing = customer.status === 'match' ? t('assist.entry.customerNotSupplier', { name: customer.name }) : t('assist.entry.noSupplier', { name: s.party })
       }
     }
   }
@@ -306,7 +309,11 @@ export function entryAnswer(db: DB, company: CompanyInfo, intent: EntryIntent, i
   const screen = t(SCREEN_NAME[offer.prefill.screen])
   const sentences = [...r.readAs]
   if (offer.sentences.length) sentences.push(...offer.sentences)
-  else sentences.push(t(READ[offer.kind], readVars(db, offer, intent.entry, t)))
+  else {
+    const vars = readVars(db, offer, intent.entry, t)
+    const key = (offer.kind === 'sale' || offer.kind === 'purchase') && !vars.amount ? READ_NO_AMOUNT[offer.kind] : READ[offer.kind]
+    sentences.push(t(key, vars))
+  }
   if (offer.missing) sentences.push(t('assist.entry.missing', { reason: offer.missing, screen }))
   sentences.push(env.canDraft ? t('assist.entry.notSaved', { screen }) : t('assist.entry.viewer'))
   return { ...base, sentences, entry: offer }
@@ -320,14 +327,28 @@ function readVars(db: DB, offer: AssistEntryOffer, s: AssistEntrySlots, t: Trans
   const nameOf = (id: number | undefined): string | null => (id ? ((db.prepare('SELECT name FROM ledgers WHERE id = ?').get(id) as { name: string } | undefined)?.name ?? null) : null)
   const how = 'how' in p && p.how && p.how !== 'credit' ? t(HOW_TEXT[p.how]) : ''
   const account = p.screen === 'simple-money-out' ? nameOf(p.payee ?? p.party) : p.screen === 'simple-money-in' ? nameOf(p.party) : null
+  if (p.screen === 'simple-sell' || p.screen === 'simple-buy') {
+    // "You sold 3 bags to Ramesh Traders for ₹900.00" — the person as found (or as said).
+    const who = nameOf(p.party) ?? s.party ?? null
+    const items = s.qtyMilli != null && s.what ? ` ${formatQtyMilli(s.qtyMilli)} ${s.what}` : ''
+    return {
+      amount: s.amount != null ? money(saidTotal(s)!) : '',
+      items,
+      who: who ? t(p.screen === 'simple-sell' ? 'assist.entry.to' : 'assist.entry.from', { what: who }) : ''
+    }
+  }
+  // A person paid (Money out to someone who is not an account) reads "to Ramesh", not "for".
+  const toPerson = p.screen === 'simple-money-out' && !account && !s.what && !!s.party
   const said = s.what ?? s.party ?? null
   const what = said && account && said.toLowerCase() !== account.toLowerCase() ? `${said} (${account})` : (account ?? said)
   return {
     amount: s.amount != null ? money(saidTotal(s)!) : '',
     how,
-    what: what ? t(p.screen === 'simple-money-in' ? 'assist.entry.from' : 'assist.entry.for', { what }) : ''
+    what: what ? t(p.screen === 'simple-money-in' ? 'assist.entry.from' : toPerson ? 'assist.entry.to' : 'assist.entry.for', { what }) : ''
   }
 }
+
+const READ_NO_AMOUNT = { sale: 'assist.entry.read.saleNoAmount', purchase: 'assist.entry.read.purchaseNoAmount' } as const
 
 const READ: Record<AssistEntrySlots['action'], MessageKey> = {
   money_out: 'assist.entry.read.moneyOut',

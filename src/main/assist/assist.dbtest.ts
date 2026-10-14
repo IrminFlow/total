@@ -184,6 +184,19 @@ describe('Ask Total on hand-worked books', () => {
     expect((await ask('open taxes')).open).toEqual({ screen: 'simple-taxes' })
   })
 
+  it('an entry that still needs an answer says what it understood (review fix)', async () => {
+    // A sale with "each": 3 × ₹300 = ₹900, and who it was to.
+    const sale = await ask('sold 3 bags to Ramesh Traders at 300 each')
+    expect(sale.entry?.prefill).toMatchObject({ screen: 'simple-sell', party: ids.ramesh, amount: 90000 })
+    expect(sale.sentences[0]).toBe('You sold 3 bags to Ramesh Traders for ₹900.00.')
+    // Paying a customer: Money out pays suppliers and costs — it says Ramesh is a customer.
+    const out = await ask('Ramesh Traders ko 5000 diya')
+    expect(out.entry?.kind).toBe('money_out')
+    expect(out.sentences.join(' ')).toContain('Ramesh Traders is one of your customers, not a supplier')
+    // "Ramesh Traders paid me 2000" is money IN from Ramesh Traders.
+    expect((await ask('Ramesh Traders paid me 2000')).entry?.prefill).toMatchObject({ screen: 'simple-money-in', party: ids.ramesh, amount: 200000 })
+  })
+
   it('asking writes nothing — not even for an entry request', async () => {
     const audit = count('SELECT COUNT(*) AS n FROM audit_log')
     const vouchers = count('SELECT COUNT(*) AS n FROM vouchers')
