@@ -17,9 +17,12 @@ export interface BackupInfo {
 /** ISO stamp with ':' and '.' replaced by '-', fixed-width (e.g. "2025-08-15T12-34-56"). */
 const STAMP_LEN = 19
 
-/** Timestamp segment used in backup filenames: ISO with ':' and '.' replaced by '-'. */
+/** Timestamp segment used in backup filenames: the ISO shape with ':' replaced by '-', in LOCAL
+ *  time (gate polish: a backup taken at 1 am IST was named after the previous day in UTC). Still
+ *  fixed-width and sortable; older UTC-named files keep their names (the list sorts by mtime). */
 export function backupStamp(now = new Date()): string {
-  return now.toISOString().replace(/[:.]/g, '-').slice(0, STAMP_LEN)
+  const p = (n: number): string => String(n).padStart(2, '0')
+  return `${now.getFullYear()}-${p(now.getMonth() + 1)}-${p(now.getDate())}T${p(now.getHours())}-${p(now.getMinutes())}-${p(now.getSeconds())}`
 }
 
 /**

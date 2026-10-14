@@ -121,6 +121,7 @@ export const AUDIT_COVERAGE: Record<string, AuditCoverage> = {
   // WP 7.2: a manual backup is restore-checked at once.
   'backup:run': a('backup', 'backup_check'),
   'backup:restore': a('backup'),
+  'backup:reveal': r('shows a backup file (or the backups folder) in Finder; writes nothing'),
   'backup:exportEncrypted': EXPORT,
   'backup:importEncrypted': a('backup'),
   // WP 7.2: the restore checks (list; check now) — a check is its own audited row.

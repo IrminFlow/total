@@ -103,4 +103,18 @@ describe('receivables IPC', () => {
     await ok('receivables:reveal', { path: join(DATA_DIR, 'companies', slug, 'exports', 'statements', 'x.pdf') })
     expect(revealed).toEqual([join(DATA_DIR, 'companies', slug, 'exports', 'statements', 'x.pdf')])
   })
+
+  it('gate polish: backup:reveal shows one of THIS company\'s backup files by name, nothing outside its folder', async () => {
+    expect(ipc.CHANNEL_ROLES.get('backup:reveal')).toBe('viewer')
+    const { path: made } = await ok<{ path: string }>('backup:run')
+    revealed.length = 0
+    const file = path.basename(made)
+    await ok('backup:reveal', { file })
+    expect(revealed).toEqual([made])
+    for (const bad of ['../company.db', '..\\company.db', 'x/../../company.db', 'notes.txt']) expect((await call('backup:reveal', { file: bad })).ok, bad).toBe(false)
+    expect((await call('backup:reveal', { file, extra: 1 })).ok).toBe(false)
+    // No file named = the folder (openPath), nothing revealed.
+    await ok('backup:reveal', {})
+    expect(revealed).toEqual([made])
+  })
 })
