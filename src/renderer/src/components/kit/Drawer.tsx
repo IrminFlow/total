@@ -139,13 +139,16 @@ export function DockedDrawer({
   const dock = useContext(DockModeContext)
   const onCloseRef = useRef(onClose)
   onCloseRef.current = onClose
-  useEffect(() => (dock ? registerPanelLayer(() => onCloseRef.current()) : undefined), [dock])
+  // Keyed on "is a layer", not on the mode: a window crossing 1600 px (overlay ↔ dock) keeps the
+  // panel's place in the Esc stack and leaves the keyboard where it is.
+  const layered = dock !== null
+  useEffect(() => (layered ? registerPanelLayer(() => onCloseRef.current()) : undefined), [layered])
   // WP 10.5 (simple shell): opening moves the keyboard into the panel (the panel itself — a
   // reader hears its name; Tab goes on to its first control; a panel that wants its box focused,
   // like Ask Total, does so itself); closing gives it back to where it was, unless the user moved on.
   const asideRef = useRef<HTMLElement>(null)
   useEffect(() => {
-    if (!dock) return
+    if (!layered) return
     const el = asideRef.current
     const previous = document.activeElement instanceof HTMLElement ? document.activeElement : null
     if (el && !el.contains(document.activeElement)) el.focus({ preventScroll: true })
@@ -154,7 +157,7 @@ export function DockedDrawer({
       const lost = !now || now === document.body || (!!el && el.contains(now))
       if (lost && previous && previous.isConnected && !el?.contains(previous)) previous.focus({ preventScroll: true })
     }
-  }, [dock])
+  }, [layered])
   const clamp = (w: number): number => Math.round(Math.min(maxWidth, Math.max(minWidth, w)))
   const startDrag = (e: React.PointerEvent<HTMLDivElement>): void => {
     if (!onResize) return
