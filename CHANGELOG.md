@@ -78,6 +78,12 @@ what you typed, and a **Back to simple** button.
   amount in words uses lakh and crore. The
   translations are machine-drafted and **pending native-speaker review**; the catalogue headers
   say so. Accountant screens stay in English. [#105](https://github.com/IrminFlow/total/pull/105)
+- **First-run polish**: Ask Total answers "Tata Namak kitna bacha hai" with the stock left (not
+  the sales), adds this month's GST so far, and explains a term in the language you asked in; a
+  bill's round-off is its own "Rounding" line instead of a negative running cost; opening stock can
+  take what you sell each product for; Backups no longer show a file path (Show in Finder instead)
+  and are named in local time; the leave-without-saving question and table words follow your
+  language. [#114](https://github.com/IrminFlow/total/pull/114)
 
 ### For accountants (figures that changed)
 
