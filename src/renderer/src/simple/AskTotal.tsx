@@ -21,11 +21,24 @@ interface AskTotalStore {
   pending: { id: number; text: string } | null
   ask: (text: string) => void
   take: () => { id: number; text: string } | null
+  /** The conversation so far — kept here so "Back to Ask Total" after an escalation (the drawer
+   *  remounts) still shows it. */
+  turns: Turn[]
+  /** Whose conversation it is (company + signed-in user) — another company or user starts empty. */
+  owner: string | null
+  setTurns: (fn: (all: Turn[]) => Turn[]) => void
+  claim: (owner: string) => void
 }
 
 let seq = 0
 export const useAskTotal = create<AskTotalStore>((set, get) => ({
   pending: null,
+  turns: [],
+  owner: null,
+  setTurns: (fn) => set((s) => ({ turns: fn(s.turns) })),
+  claim: (owner) => {
+    if (get().owner !== owner) set({ owner, turns: [] })
+  },
   ask: (text) => set({ pending: { id: ++seq, text } }),
   take: () => {
     const p = get().pending
@@ -190,7 +203,14 @@ export function AskTotalDrawer({ onClose, width, onResize, aiReady, onEscalate }
   const toast = useToasts()
   const workingDate = useSession((s) => s.workingDate)
   const [lang] = useLanguage()
-  const [turns, setTurns] = useState<Turn[]>([])
+  const slug = useSession((s) => s.slug)
+  const userId = useSession((s) => s.user?.id ?? null)
+  const owner = `${slug ?? ''}:${userId ?? '-'}` // i18n-technical
+  const storedOwner = useAskTotal((s) => s.owner)
+  const storedTurns = useAskTotal((s) => s.turns)
+  const turns = storedOwner === owner ? storedTurns : []
+  const setTurns = useAskTotal((s) => s.setTurns)
+  useEffect(() => useAskTotal.getState().claim(owner), [owner])
   const [text, setText] = useState('')
   const [busy, setBusy] = useState(false)
   const inputRef = useRef<HTMLTextAreaElement>(null)

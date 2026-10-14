@@ -61,7 +61,7 @@ beforeEach(() => {
   useSession.setState({ user: null, from: '2025-04-01', to: '2026-03-31', workingDate: '2025-10-14', ui: { mode: 'simple' } } as never)
   useNav.setState({ stack: [{ name: 'gateway' }] })
   useAssistantPanel.setState({ open: true, pending: null, simpleView: 'ask' })
-  useAskTotal.setState({ pending: null })
+  useAskTotal.setState({ pending: null, turns: [], owner: null })
 })
 
 afterEach(() => {
@@ -105,6 +105,18 @@ describe('Ask Total — which panel', () => {
     await waitFor(() => expect(invoke.mock.calls.some(([c, p]) => c === 'ai:send' && (p as { text: string }).text === 'write me a poem about my shop')).toBe(true))
     fireEvent.click(screen.getByTestId('btn-back-ask-total'))
     expect(await screen.findByTestId('ask-panel')).toBeTruthy()
+    // Back on Ask Total, the conversation so far is still there (review fix: it was lost).
+    expect(screen.getAllByTestId('ask-question').map((e) => e.textContent)).toEqual(['who owes me', 'write me a poem about my shop'])
+  })
+
+  it('another company (or user) starts with an empty conversation', async () => {
+    useSession.setState({ slug: 'one' } as never)
+    wrap(<AssistantPanel />)
+    await askIt('who owes me')
+    expect(await screen.findByTestId('ask-answer')).toBeTruthy()
+    act(() => useSession.setState({ slug: 'two' } as never))
+    await waitFor(() => expect(screen.queryByTestId('ask-answer')).toBeNull())
+    expect(screen.getByTestId('ask-empty')).toBeTruthy()
   })
 
   it('closing the panel after an escalation: it opens on Ask Total again (Total answers first)', async () => {
