@@ -194,7 +194,7 @@ describe('simple:taxes — regular (WP 9.9)', () => {
 })
 
 describe('simple:taxes — hand-worked figures (review, WP 9.9)', () => {
-  it('a Maharashtra trader’s month: collected ₹1,260, on purchases ₹1,080, cash ₹180; both filed → Home stops asking for the files', async () => {
+  it('a Maharashtra trader’s month: collected ₹1,260, on purchases ₹1,080, cash ₹180 (then an amount-only sale); both filed → Home stops asking for the files', async () => {
     const month = addMonths(TODAY.slice(0, 7), -1)
     const { slug } = await ok<{ slug: string }>('simple:setup', {
       name: 'Hand Worked Traders', stateCode: '27', businessType: 'trader', gst: 'regular', gstin: '27AAPFU0939F1ZV', filing: 'monthly',
@@ -224,6 +224,16 @@ describe('simple:taxes — hand-worked figures (review, WP 9.9)', () => {
     // The accountant GSTR-3B screen's "Net payable in cash" says the same.
     const v = await view3b(x.period.from, x.period.to, month)
     expect(v.netPayable).toEqual({ igst: 180_00, cgst: 0, sgst: 0, cess: 0 })
+
+    // An amount-only sale (no items) of ₹2,000 at 18% in-state: CGST ₹180 + SGST ₹180 — counted
+    // since #93 (GSTR-1 / 3B take the rate from the posted tax). Collected 1,260 + 360 = ₹1,620;
+    // the credit now just covers CGST / SGST (540 each), so IGST ₹540 is all cash.
+    await ok('simple:post', { intent: { clientId: 'hw-sale-0003', kind: 'sale', date: `${month}-14`, amount: { amount: 2_000_00, gstRate: 18 }, payment: { how: 'cash' } } })
+    const xa = await ok<Regular>('simple:taxes', { period: month, today: TODAY })
+    const va = await view3b(xa.period.from, xa.period.to, month)
+    expect(xa.figures).toMatchObject({ collected: 1_620_00, onPurchases: 1_080_00, toPay: 540_00 })
+    expect(xa.figures.collected).toBe(sum4(va.outward) + va.zeroRated.igst + va.zeroRated.cess)
+    expect(xa.figures.toPay).toBe(sum4(va.netPayable) + sum4(va.rcmPayable))
 
     // Home asks for the month's files while they are neither prepared nor noted as filed …
     const keys = async (): Promise<string[]> => (await ok<HomeAttention>('simple:homeAttention', { today: TODAY })).items.map((i) => String(i.key))
