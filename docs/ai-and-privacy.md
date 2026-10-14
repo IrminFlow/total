@@ -12,7 +12,7 @@ default (and can be switched off); the AI helper and live filing only after you 
 
 | What | When | Where it goes | Needs you to opt in? |
 |---|---|---|---|
-| Update check | About 5 seconds after launch, once per launch, packaged app only, and only while "Check for updates automatically" is on; also Settings, About (or How Total looks in simple mode), "Check for updates" / "Check now" | GitHub's release feed for `IrminFlow/total` (electron-updater); and, if that errors, `devjindal.tech/api/latest`, then `api.github.com` | It is on by default and you can turn it off: "Check for updates automatically" (app-wide, owner only where the business has users). With it off, Total makes no request at launch. Nothing is downloaded until you press "Download now". |
+| Update check | About 5 seconds after launch, once per launch, packaged app only, and only while "Check for updates automatically" is on; also Settings, About (or How Total looks in simple mode), "Check for updates" / "Check now" | At launch: GitHub's release feed for `IrminFlow/total` (electron-updater); and, if that errors, `devjindal.tech/api/latest`, then `api.github.com`. "Check now" / "Check for updates" asks `devjindal.tech/api/latest` (then `api.github.com`) only | It is on by default and you can turn it off: "Check for updates automatically" (app-wide, owner only where the business has users). With it off, Total makes no request at launch. Nothing is downloaded until you press "Download now". |
 | AI helper | Only after you accept the data notice and add your own key | OpenAI (`https://api.openai.com/v1`) | Yes |
 | Live e-invoice / e-way bill filing | Only when you press a live-filing button after entering credentials | The NIC API address you typed in | Yes |
 | Opening a link | When you click a help link, a reminder's "Open in WhatsApp", "Email…" on a statement, or "Support" | Your browser or mail app, not Total | Only on click |
@@ -48,25 +48,40 @@ Code: `src/main/updater.ts`, started from `src/main/index.ts`. Only the packaged
 
 1. About 5 seconds after launch, **only if "Check for updates automatically" is on** (the
    default), the app asks electron-updater to check the GitHub releases feed of `IrminFlow/total`
-   (`build.publish` in `package.json`). electron-updater is set to `autoDownload = false` and
+   (`build.publish` in `package.json`): electron-updater 6.8 reads
+   `https://github.com/IrminFlow/total/releases.atom` (or `…/releases/latest`) and then the release's
+   `latest-mac.yml` / `latest.yml`. electron-updater is set to `autoDownload = false` and
    `autoInstallOnAppQuit = false`: it only looks. If a newer version exists, an in-app notice says
    "Total 0.13.0 is available" with "Download now", "Later" and "Skip this version". Nothing is
    downloaded until you press "Download now". "Skip this version" is remembered (that version
-   stays quiet on automatic checks).
+   stays quiet on automatic checks; a newer one is shown, and "Check now" still shows it). "Later"
+   hides the notice until Total restarts.
 2. After a download finishes, a second notice offers "Restart to update", "Install when I quit" or
    "Later". The update is installed only on your action: restarting, or quitting after you chose
-   "Install when I quit".
-3. If electron-updater reports an error (the usual case for today's unsigned macOS builds, which
-   cannot be installed silently), a one-time fallback asks
-   `https://devjindal.tech/api/latest` (`SITE_URL` in `src/shared/product.ts`) for the newest
-   version, and if the site does not answer, `https://api.github.com/repos/IrminFlow/total/releases/latest`.
-   Only if the version is newer does the same notice appear; "Download now" then opens the release
-   page or download link in your browser and you install the new version yourself.
+   "Install when I quit". After "Later" nothing is installed when you quit.
+3. If electron-updater reports an error (the usual case for today's unsigned macOS builds), a
+   one-time fallback asks `https://devjindal.tech/api/latest` (`SITE_URL` in
+   `src/shared/product.ts`) for the newest version, and if the site does not answer,
+   `https://api.github.com/repos/IrminFlow/total/releases/latest`. "Check now" (simple Settings) and
+   "Check for updates" (Settings, About) go straight to these two. Only if the version is newer
+   does the same notice appear; "Download now" then opens the release page or download link in
+   your browser and you install the new version yourself. If a download or an install through
+   electron-updater fails (an unsigned macOS build cannot replace itself), the notice turns into
+   the same browser download; "Install when I quit" is offered only after electron-updater itself
+   finished a download. How far an unsigned macOS build gets before it fails is **unverified**
+   (no signed or unsigned release was tested for this page).
 4. The comparison with your version happens on your computer. What is requested is the version
-   information at those addresses: plain GET requests with no body, no company data and no
-   identifier of its own. As with any web request, the server sees your IP address and the client's
-   standard request headers. Whether electron-updater adds your app version to its headers is
-   **unverified** (not read in its source for this page).
+   information at those addresses: plain GET requests with no body and no company data. As with
+   any web request, the server sees your IP address and the request headers. electron-updater's
+   requests (read in `node_modules/builder-util-runtime/out/httpExecutor.js` and
+   `electron-updater/out/AppUpdater.js`, version 6.8) carry `User-Agent: electron-builder` (not
+   your app version) and `Cache-Control: no-cache`, plus an `x-user-staging-id` header that
+   electron-updater fills with a random id it keeps per installation (`.updaterId` in the app's
+   user-data folder) for staged roll-outs. Total does not use staged roll-outs and overrides that
+   header with a fixed all-zero value (`NEUTRAL_REQUEST_HEADERS` in `src/main/updaterCore.ts`), so
+   the request carries no identifier of Total's or of the installation. The site / GitHub API
+   requests use the default headers of Electron's built-in `fetch` (no identifier, no version of
+   Total; the exact `User-Agent` string is **unverified**).
 
 Where to turn it off: Settings, About, "Check for updates automatically" (full app), or Settings,
 How Total looks, "Updates" (simple mode). It is one app-wide setting kept in
