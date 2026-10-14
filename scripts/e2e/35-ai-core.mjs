@@ -6,6 +6,10 @@
 // Review draft opens the real voucher editor pre-filled → save → the draft is consumed and the
 // voucher is in the books. Usage, cost and the outbound log show up in Settings. Every view is
 // shot in both themes; set WP51_SHOTS=/tmp/wp51 to also copy the screenshots there.
+// WP 10.6, simple mode: a second (simple) company → Settings → AI helper → paste the key → Check
+// it → turn on → ask Home's box something Ask Total can't answer → the plain answer ("Answered by
+// the AI service", where the figures came from) with model / tokens / tool names only behind
+// Details → the capture estimate in plain words. WP106_SHOTS=<dir> copies those shots there.
 import fs from 'node:fs'
 import path from 'node:path'
 import { scenario, assert, assertEq } from '../lib/harness.mjs'
@@ -160,4 +164,91 @@ await scenario('35-ai-core', async (h) => {
   await bothThemes('07-settings-usage')
   await h.page.evaluate(() => document.querySelector('[data-testid="rows-ai-outbound"]')?.scrollIntoView({ block: 'center' }))
   await bothThemes('08-settings-outbound')
+
+  // ================= WP 10.6: the AI helper in plain words (a simple company) =================
+  const plainShots = process.env.WP106_SHOTS
+  const plainShot = async (name) => {
+    await shot(name)
+    if (plainShots) {
+      fs.mkdirSync(plainShots, { recursive: true })
+      fs.copyFileSync(path.join(h.outDir, `${name}.png`), path.join(plainShots, `${name}.png`))
+    }
+  }
+  const plainBoth = async (name) => {
+    await setTheme('light')
+    await plainShot(`${name}-light`)
+    await setTheme('dark')
+    await plainShot(`${name}-dark`)
+    await setTheme('light')
+  }
+  const visibleText = (sel) => h.page.$eval(sel, (el) => {
+    const clone = el.cloneNode(true)
+    clone.querySelectorAll('details').forEach((d) => d.remove())
+    return clone.textContent
+  })
+  await h.page.evaluate(() => document.querySelector('[data-testid="btn-switch-company"]')?.click())
+  await h.waitScreen('company-select')
+  await h.createCompanyUI('Plain AI Shop', { mode: 'simple' })
+  await h.click('simple-nav-settings')
+  await h.click('simple-entry-ai-helper')
+  await h.page.waitForSelector('[data-testid="simple-ai"][data-on="false"]', { timeout: 10000 })
+  const intro = await h.page.$eval('[data-testid="simple-ai-intro"]', (el) => el.textContent)
+  assert(intro.includes('Nothing is sent until you turn it on'), `plain intro: ${intro}`)
+  assertEq(await h.page.$$eval('[data-testid="simple-ai-notice-summary"] li', (els) => els.length), 3, 'the notice summary: three points')
+  assert(!(await visibleText('[data-testid="simple-ai"]')).match(/gpt-|token/i), 'no model id or token count on the simple AI screen')
+  // The shared key is already saved (the first company): this company still starts off.
+  assertEq((await h.invoke('ai:settings:get')).ready, false, 'off in the new company')
+  await plainShot('10-simple-ai-off-light')
+  await h.fill('simple-ai-key-input', KEY)
+  await h.click('simple-ai-check')
+  await h.click('confirm-ok') // no sign-ins anywhere: the shared key needs an OK
+  await h.page.waitForSelector('[data-testid="simple-ai-check-ok"]', { timeout: 15000 })
+  const works = await h.page.$eval('[data-testid="simple-ai-check-ok"]', (el) => el.textContent)
+  assert(works.includes('Works. Models available:') && works.includes('Total will use gpt-6.1-sol'), `the check in plain words: ${works}`)
+  assert(!(await h.page.evaluate((k) => document.documentElement.outerHTML.includes(k), KEY)), 'the key never appears in the page')
+  await h.click('simple-ai-on')
+  await h.page.waitForSelector('[data-testid="simple-ai"][data-on="true"]', { timeout: 10000 })
+  const plainView = await h.invoke('ai:settings:get')
+  assertEq(plainView.ready, true, 'on after Turn on')
+  assert(plainView.settings.noticeAcceptedAt, 'turning on accepted the notice (ai:notice:accept)')
+  const companyAudit = await h.invoke('audit:list', { entity: 'company' })
+  assert(companyAudit.rows.length > 0, 'the settings changes are audited as before')
+  await h.page.evaluate(() => window.scrollTo(0, 0))
+  await plainBoth('11-simple-ai-on')
+
+  // ---------- ask what Ask Total can't → the plain answer ----------
+  await h.click('simple-nav-home')
+  await h.page.waitForSelector('[data-testid="simple-home-ask-input"]', { timeout: 15000 })
+  const sentBefore = (await h.invoke('ai:outbound')).length
+  await h.page.fill('[data-testid="simple-home-ask-input"]', 'Is there anything unusual?')
+  await h.click('simple-home-ask-send')
+  await h.page.waitForSelector('[data-testid="ai-panel-plain"]', { timeout: 15000 })
+  const plain = await h.page.waitForSelector('[data-testid="ai-plain-answer"]', { timeout: 20000 })
+  assert((await h.invoke('ai:outbound')).length > sentBefore, 'the question went to the (mock) AI service')
+  const plainText = await visibleText('[data-testid="ai-plain-answer"]')
+  assert(plainText.includes('Answered by the AI service'), `says who answered: ${plainText}`)
+  assert(plainText.includes('This answer used figures from: Things that look unusual'), `says where the figures came from: ${plainText}`)
+  assert(!/gpt-|tokens?\b|find_anomalies|unrequested/i.test(plainText), `no model id, tokens or tool names outside Details: ${plainText}`)
+  assertEq(await h.page.$('[data-testid="ai-panel-plain"] [data-testid="ai-tool-chip"]'), null, 'no tool chips in the plain panel')
+  assertEq(await h.page.$('[data-testid="ai-panel-plain"] [data-testid="ai-context"]'), null, 'no raw context strip')
+  assert(await plain.$('[data-testid="ai-plain-details"]'), 'Details is there')
+  await plainBoth('12-simple-panel-answer')
+  await h.page.click('[data-testid="ai-plain-answer"] [data-testid="ai-plain-details"] summary')
+  const details = await h.page.$eval('[data-testid="ai-plain-details-body"]', (el) => el.textContent)
+  assert(details.includes('Model: ') && details.includes('Tokens: ') && details.includes('find_anomalies'), `Details: model, tokens, tools: ${details}`)
+  await plainShot('13-simple-panel-details-light')
+
+  // ---------- the capture estimate in plain words ----------
+  const pdf = fs.readFileSync(path.join(path.dirname(new URL(import.meta.url).pathname), 'fixtures', 'bharat-steel-bill.pdf')).toString('base64')
+  await h.invoke('capture:addFiles', { files: [{ name: 'bharat-steel-bill.pdf', base64: pdf }] })
+  await h.page.keyboard.press('Escape')
+  await h.click('simple-nav-buy')
+  await h.click('simple-entry-snap-bill')
+  await h.waitScreen('capture')
+  await h.click('btn-capture-process')
+  await h.page.waitForSelector('[data-testid="capture-estimate"][data-plain="true"]', { timeout: 10000 })
+  const estimate = await h.page.$eval('[data-testid="text-capture-cost"]', (el) => el.textContent)
+  assert(/to read 1 bill|Reading 1 bill/.test(estimate), `the estimate in plain words first: ${estimate}`)
+  assert(!(await visibleText('[data-testid="capture-estimate"]')).match(/gpt-|token/i), 'model and tokens only behind Details')
+  await plainBoth('14-simple-capture-estimate')
 })
