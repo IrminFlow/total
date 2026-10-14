@@ -164,7 +164,7 @@ await scenario('64-hindi', async (h) => {
     const pdf = reader.read(opened[0])
     const text = pdf.pages.join('\n')
     assert(DEVANAGARI.test(text), 'the PDF text layer holds Devanagari (the font is embedded with its Unicode map)')
-    assert(text.includes('रुपये') && text.includes('केवल'), `the amount in words is Hindi (${text.slice(0, 200)})`)
+    assert(text.includes('रुपये') && text.includes('मात्र'), `the amount in words is Hindi (${text.slice(0, 200)})`)
     assert(text.includes('नब्बे'), 'ninety rupees in Hindi words')
     assert(!/Amount in words/.test(text), 'no English label left on the Hindi print')
     assert(!/�/.test(text), 'no replacement characters (no boxes)')

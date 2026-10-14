@@ -42,7 +42,7 @@ describe('print labels', () => {
     const html = renderDocument(localiseTemplate(CLASSIC_DEFAULT, t), doc, { labels: printLabelsFor(t), scriptFont: { css: '@font-face{}', family: 'Noto Sans Devanagari' } })
     expect(html).toContain('रकम शब्दों में')
     expect(html).toContain('रुपये')
-    expect(html).toContain('केवल')
+    expect(html).toContain('मात्र')
     expect(html).toContain('TAX INVOICE')
     expect(html).toContain("font: 12px/1.45 'Noto Sans Devanagari', ")
     expect(html).toContain('@font-face{}')

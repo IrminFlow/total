@@ -78,8 +78,8 @@ describe('prints in the company language (WP 10.4)', () => {
     expect(html).toContain("font-family: 'Noto Sans Devanagari'")
     expect(html).toMatch(/src: url\(data:font\/woff2;base64,[A-Za-z0-9+/]{1000,}/)
     expect(html).toContain('रकम शब्दों में')
-    // ₹1,41,600 → एक लाख इकतालीस हज़ार छह सौ रुपये केवल
-    expect(html).toContain('एक लाख इकतालीस हज़ार छह सौ रुपये केवल')
+    // ₹1,41,600 → एक लाख इकतालीस हज़ार छह सौ रुपये मात्र
+    expect(html).toContain('एक लाख इकतालीस हज़ार छह सौ रुपये मात्र')
     expect(html).toContain('TAX INVOICE') // the legal title stays
     expect(html).not.toContain('Amount in words')
   })

@@ -102,7 +102,8 @@ export function percentOf(paise: number, ratePercent: number): number {
 }
 
 /** Amounts in words (Indian system) for invoice printing. Integer-rupee focus with paise tail.
- *  WP 10.4: `lang` 'hi' writes Hindi (एक लाख बीस हज़ार रुपये केवल), 'hinglish' the same words in
+ *  WP 10.4: `lang` 'hi' writes Hindi (एक लाख बीस हज़ार रुपये मात्र — मात्र after the amount, as Hindi bills and
+ *  cheques write it; केवल would go BEFORE it), 'hinglish' the same words in
  *  Latin script (Ek lakh bees hazaar rupaye); anything else is the English text, unchanged. */
 export function amountInWords(paise: number, lang?: string): string {
   if (lang === 'hi' || lang === 'hinglish') return indicAmountInWords(paise, lang)
@@ -167,13 +168,13 @@ const HINGLISH_0_99 = (
   'iktaalees bayaalees taintaalees chavaalees paintaalees chhiyaalees saintaalees adtaalees unchaas ' +
   'pachaas ikyaavan baavan tirpan chauvan pachpan chhappan sattaavan atthaavan unsath saath iksath ' +
   'baasath tirsath chaunsath painsath chhiyaasath sadsath adsath unhattar sattar ikhattar bahattar ' +
-  'tihattar chauhattar pachhattar chhihattar sathattar athhattar unyaasi assi ikyaasi bayaasi tiraasi ' +
+  'tihattar chauhattar pachhattar chhihattar sathattar athattar unyaasi assi ikyaasi bayaasi tiraasi ' +
   'chauraasi pachaasi chhiyaasi sattaasi atthaasi navaasi nabbe ikyaanve baanve tiraanve chauraanve ' +
   'pachaanve chhiyaanve sattaanve atthaanve ninyaanve'
 ).split(' ')
 
 const INDIC_WORDS = {
-  hi: { n: HI_0_99, hundred: 'सौ', thousand: 'हज़ार', lakh: 'लाख', crore: 'करोड़', rupee: 'रुपया', rupees: 'रुपये', paisa: 'पैसा', paise: 'पैसे', and: 'और', only: ' केवल', minus: 'ऋण ' },
+  hi: { n: HI_0_99, hundred: 'सौ', thousand: 'हज़ार', lakh: 'लाख', crore: 'करोड़', rupee: 'रुपया', rupees: 'रुपये', paisa: 'पैसा', paise: 'पैसे', and: 'और', only: ' मात्र', minus: 'ऋण ' },
   hinglish: { n: HINGLISH_0_99, hundred: 'sau', thousand: 'hazaar', lakh: 'lakh', crore: 'crore', rupee: 'rupaya', rupees: 'rupaye', paisa: 'paisa', paise: 'paise', and: 'aur', only: '', minus: 'minus ' }
 } as const
 
@@ -205,8 +206,10 @@ function indicAmountInWords(paise: number, lang: 'hi' | 'hinglish'): string {
   const abs = Math.abs(paise)
   const rupees = Math.floor(abs / 100)
   const p = abs % 100
-  let words = `${integerWords(rupees)} ${rupees === 1 ? w.rupee : w.rupees}`
-  if (p) words += ` ${w.and} ${below100(p)} ${p === 1 ? w.paisa : w.paise}`
+  // Only paise (₹0.05) → "पाँच पैसे मात्र", never "शून्य रुपये और पाँच पैसे".
+  const paiseWords = p ? `${below100(p)} ${p === 1 ? w.paisa : w.paise}` : ''
+  let words = rupees === 0 && p ? paiseWords : `${integerWords(rupees)} ${rupees === 1 ? w.rupee : w.rupees}`
+  if (p && rupees) words += ` ${w.and} ${paiseWords}`
   words = (negative ? w.minus : '') + words + w.only
   // Hinglish is a sentence in Latin script: capitalise its first letter (as the English is).
   return lang === 'hinglish' ? words.charAt(0).toUpperCase() + words.slice(1) : words
