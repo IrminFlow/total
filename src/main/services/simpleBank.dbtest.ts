@@ -158,6 +158,17 @@ describe('simple Bank (WP 9.6)', () => {
     expect(bankSentence({ ...v.sentence, statementBalance: 941_00 })).toMatchObject({ tone: 'agree' })
   })
 
+  it('WP 10.8 review: a newest-first file is read at the END of its last day, not its last line', async () => {
+    post({ kind: 'money_out', date: '2025-08-10', payeeId: ids.charges, amount: 4_100, from: { how: 'bank', accountId: ids.bank }, narration: 'CHQ BOOK CHARGES' })
+    // Books: −59 + 1,000 − 41 = ₹900. The file runs newest first; the day's last line is its FIRST.
+    statement(['10/08/2025,CHQ BOOK CHARGES,K1,"41.00",,"900.00"', '10/08/2025,CASH DEP KUMAR,C1,,"1,000.00","941.00"', '05/07/2025,SMS CHARGES APR-JUN,S1,"59.00",,"-59.00"'])
+    let v = await view()
+    accept(v.lines.filter((l) => l.suggestion?.choice.kind === 'existing').map((l) => ({ lineId: l.id, choice: { kind: 'existing' as const } })))
+    v = await view()
+    expect(v.sentence).toMatchObject({ differ: 0, open: 0, statementBalance: 900_00, bankBalance: 900_00 })
+    expect(bankSentence(v.sentence)).toMatchObject({ tone: 'agree' })
+  })
+
   it('the sentence equals the BRS service: entries in the books the bank has not shown', async () => {
     statement(ROWS)
     const v = await view()

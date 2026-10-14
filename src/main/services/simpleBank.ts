@@ -24,7 +24,7 @@ import { toPlainDate } from '@shared/dates'
 import { AppError, structuredOf } from '@shared/errors'
 import { narrationPrefix } from '@shared/capture/categorise'
 import {
-  becauseFor, choiceFitsSide, choiceForAccount, intentForChoice, repeatedLines,
+  becauseFor, choiceFitsSide, choiceForAccount, endOfDayBalance, intentForChoice, repeatedLines,
   type BankAcceptItem, type BankAcceptResult, type BankAccountInfo, type BankLineFacts, type BankLineView, type BankSetup, type BankSuggestion, type BankView
 } from '@shared/simple/bank'
 import { ledgerClassifier } from '../ai/ledgerClass'
@@ -111,11 +111,21 @@ export async function bankView(db: DB, bankLedgerId: number, today: string): Pro
     differ = r.uncredited.length + r.unpresented.length
     difference = r.uncreditedTotal - r.unpresentedTotal
     bankBalance = r.bankBalance
-    // WP 10.8: the balance the statement itself prints on its last line up to then (if any).
-    const row = db
-      .prepare('SELECT balance FROM bank_statement_lines WHERE bank_ledger_id = ? AND date <= ? AND balance IS NOT NULL AND ignored_at IS NULL ORDER BY date DESC, import_id DESC, line_no DESC LIMIT 1')
-      .get(bankLedgerId, asOn) as { balance: number } | undefined
-    statementBalance = row?.balance ?? null
+    // WP 10.8: the balance the statement itself prints at the end of that day (if it prints one
+    // on that day — an earlier day's balance is never compared with the books as on this one).
+    // Ignored lines count: the bank's balance moved with them whether or not the books record them.
+    const imp = db
+      .prepare('SELECT import_id AS id FROM bank_statement_lines WHERE bank_ledger_id = ? AND date = ? AND balance IS NOT NULL ORDER BY import_id DESC LIMIT 1')
+      .get(bankLedgerId, asOn) as { id: number } | undefined
+    if (imp) {
+      const day = db
+        .prepare('SELECT line_no AS lineNo, deposit, withdrawal, balance FROM bank_statement_lines WHERE import_id = ? AND date = ?')
+        .all(imp.id, asOn) as { lineNo: number; deposit: number; withdrawal: number; balance: number | null }[]
+      const ends = db
+        .prepare('SELECT (SELECT date FROM bank_statement_lines WHERE import_id = ? ORDER BY line_no LIMIT 1) AS first, (SELECT date FROM bank_statement_lines WHERE import_id = ? ORDER BY line_no DESC LIMIT 1) AS last')
+        .get(imp.id, imp.id) as { first: string; last: string }
+      statementBalance = endOfDayBalance(day, ends.first > ends.last)
+    }
   }
   const open = lines.filter((l) => l.status === 'open' && asOn != null && l.date <= asOn).length
   const last = ws.imports[0]

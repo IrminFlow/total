@@ -210,6 +210,24 @@ export interface BankSentenceFacts {
   bankBalance?: number | null
 }
 
+/** WP 10.8 review: the balance a statement prints at the END of one day, from that day's lines of
+ *  one import (each with its file position, amounts and printed balance). Files run oldest first or
+ *  newest first, so the last line in the file is not always the day's last: the day's last line is
+ *  the one whose balance no other line of the day starts from (balance − its own movement); when
+ *  that doesn't pick exactly one, the file's direction (`newestFirst`) does. Null = no balance. */
+export function endOfDayBalance(
+  lines: readonly { lineNo: number; deposit: number; withdrawal: number; balance: number | null }[],
+  newestFirst: boolean
+): number | null {
+  const withBal = lines.filter((l): l is typeof l & { balance: number } => l.balance != null)
+  if (withBal.length === 0) return null
+  const starts = withBal.map((l) => l.balance - (l.deposit - l.withdrawal))
+  const ends = withBal.filter((l, i) => !withBal.some((m, j) => j !== i && starts[j] === l.balance))
+  if (ends.length === 1) return ends[0]!.balance
+  const byFile = [...withBal].sort((a, b) => a.lineNo - b.lineNo)
+  return (newestFirst ? byFile[0]! : byFile[byFile.length - 1]!).balance
+}
+
 /** The one sentence about the books against the bank. Only "agree" when nothing differs either
  *  way: no BRS entry and no statement line left without an answer. */
 export function bankSentence(f: BankSentenceFacts): { key: MessageKey; vars: Record<string, string | number>; tone: 'none' | 'agree' | 'differ' | 'open' | 'balance' } {
