@@ -17,7 +17,7 @@
 //   6. Inside the lock: re-saving last year's rent payment in its editor (period switched to the
 //      previous FY) shows "Books are locked up to …" and changes nothing; a new voucher dated in
 //      the lock is refused over IPC with `books_locked`.
-//   7. Reopen: Remove lock, bin the closing journal → the year reads as open again (preview +
+//   7. Reopen: the closing journal's banner Move to Bin (lock moves back first) → the year reads as open again (preview +
 //      Year-end screen, P&L opening row back); restoring it from Settings → Bin closes the year
 //      again. TB ties at every step.
 // The company gets an owner user (signed in through the lock screen): the Period lock card's
@@ -77,8 +77,8 @@ await scenario('67-year-boundary', async (h) => {
     ],
     inventory: []
   })
-  await h.invoke('voucher:save', { data: payment(`${prev}-06-10`, 1_200_000, 'Rent June') }) // ₹12,000
-  const november = await h.invoke('voucher:save', { data: payment(`${prev}-11-15`, 800_000, 'Rent November') }) // ₹8,000
+  const june = await h.invoke('voucher:save', { data: payment(`${prev}-06-10`, 1_200_000, 'Rent June') }) // ₹12,000
+  await await h.invoke('voucher:save', { data: payment(`${prev}-11-15`, 800_000, 'Rent November') }) // ₹8,000
   await h.invoke('voucher:save', { data: payment(curStart, 500_000, 'Rent April') }) // ₹5,000, this FY
 
   // Hand-worked: Rent this FY = ₹5,000 Dr (last year's ₹20,000 restarts); bank opens this FY at
@@ -247,9 +247,9 @@ await scenario('67-year-boundary', async (h) => {
 
   // ---------------- 6. inside the lock: the editor and the service refuse
   await h.goto('daybook') // the period is still the previous FY
-  // November's payment (No. 2): No. 1 of the type is reused by this FY's April payment, and the
-  // editor's pre-save duplicate-number check is not FY-scoped (reported with WP 7.4).
-  const lockedRow = `[data-testid="rows-daybook"] tr.dt-row[data-row-id="${november.id}"]`
+  // June's payment is No. 1 — the same number as this FY's April payment: the editor's pre-save
+  // duplicate-number check is FY-scoped (#107), so the save reaches the lock refusal.
+  const lockedRow = `[data-testid="rows-daybook"] tr.dt-row[data-row-id="${june.id}"]`
   await h.page.waitForSelector(lockedRow, { timeout: 15000 })
   await clickDate(lockedRow)
   await h.waitScreen('voucher-entry')
@@ -258,21 +258,27 @@ await scenario('67-year-boundary', async (h) => {
   await h.page.waitForFunction(() => document.body.innerText.includes('Books are locked up to'), null, { timeout: 10000 })
   assertEq(await h.page.$eval('[data-screen]', (el) => el.getAttribute('data-screen')), 'voucher-entry', 'the refused save stays in the editor')
   await h.shot('06-locked-save-refused')
-  const after = await h.invoke('voucher:get', { id: november.id })
-  assertEq(after.lines.find((l) => l.ledgerId === rent.id).amount, 800_000, 'the locked voucher is unchanged')
+  const after = await h.invoke('voucher:get', { id: june.id })
+  assertEq(after.lines.find((l) => l.ledgerId === rent.id).amount, 1_200_000, 'the locked voucher is unchanged')
   const inLock = await rawInvoke(h, 'voucher:save', { data: payment(`${prev}-12-01`, 100_000, 'Inside the lock') })
   assert(!inLock.ok, 'a new voucher dated inside the lock is refused')
   assertEq(inLock.code, 'books_locked', 'refused with books_locked')
   await tbTies('after the lock refusals')
 
-  // ---------------- 7. reopen: remove the lock, bin the closing journal; restore closes it again
-  await h.goto('settings')
-  await h.click('tab-settings-about')
-  await h.page.waitForFunction(() => /Books are locked up to/.test(document.body.innerText), null, { timeout: 10000 })
-  await removeLock()
-  // The editor's Delete button sits in the closing journal's disabled fieldset (read-only), so
-  // the bin goes through the same channel that button calls.
-  await h.invoke('voucher:delete', { id: closing.voucherId })
+  // ---------------- 7. reopen: the closing journal's banner "Move to Bin" (#107) moves the close's
+  // own lock back to the day before the FY, then bins it; restore closes the year again
+  await h.goto('daybook') // the period is still the previous FY
+  await h.page.waitForSelector(`${cjRow} [data-testid="daybook-year-end-chip"]`, { timeout: 15000 })
+  await clickDate(cjRow)
+  await h.waitScreen('voucher-entry')
+  await h.page.waitForSelector('[data-testid="year-end-close-banner"]', { timeout: 10000 })
+  await h.click('btn-year-end-close-bin')
+  const binDialog = h.page.getByRole('dialog')
+  await binDialog.waitFor()
+  assert((await binDialog.textContent()).includes('lock moves back'), 'the confirm says the lock moves back')
+  await binDialog.getByRole('button', { name: 'Move to Bin' }).click()
+  await h.page.waitForSelector('[data-testid="year-end-close-banner"]', { state: 'detached', timeout: 15000 })
+  assertEq((await h.invoke('company:lock:get')).date, `${prev}-03-31`, 'the lock moved back to the day before the closed FY')
   assert(!(await h.invoke('yearend:preview', { fyStartYear: prev })).alreadyClosed, 'binning the closing journal reopens the year')
   assertEq(await tbRow(-5), PRIOR_RENT, 'the P&L opening row is back')
   assertEq(await tbRow(retained.id), 0, 'Retained Earnings no longer carries the loss')
