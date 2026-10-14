@@ -143,7 +143,7 @@ describe('setup wizard', () => {
     next()
     next()
     // Dates in plain words follow the language too.
-    expect(screen.getByTestId('setup-start-today').textContent).toContain('13 अक्तू 2026')
+    expect(screen.getByTestId('setup-start-today').textContent).toContain('13 अक्तूबर 2026')
     click('setup-start-fy')
     click('setup-fresh-new')
     next()

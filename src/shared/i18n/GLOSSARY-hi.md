@@ -118,7 +118,7 @@ in both catalogues.
 | your books               | आपका हिसाब            | aapka hisaab            |
 | walk-in / cash customer  | नकद ग्राहक            | Cash customer           |
 | GST rate                 | GST रेट (prints: GST दर) | GST rate             |
-| GST you collected        | आपने जो GST लिया       | Aapne jo GST liya       |
+| GST you collected        | आपने जो GST वसूला       | Aapne jo GST collect kiya       |
 | TDS (tax deducted at source) | TDS (स्रोत पर काटा गया टैक्स) | TDS (source par kaata gaya tax) |
 | TCS (tax collected at source) | TCS (स्रोत पर लिया गया टैक्स) | TCS (source par liya gaya tax) |
 | ARN                      | पावती नंबर (ARN)       | Acknowledgement number (ARN) |

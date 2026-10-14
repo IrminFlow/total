@@ -56,14 +56,16 @@ export function toDisplayDate(date: string): string {
 }
 
 // WP 10.4: month names for the plain formatters. Hinglish reads Latin script, so it keeps the
-// English short names (as before); Hindi uses the short Devanagari forms without the
-// abbreviation mark (जन, फ़र …) — what a Hindi calendar prints.
+// English short names (as before). Hindi writes the FULL month name in a date (1 अक्तूबर 2026):
+// the clipped forms without the abbreviation mark are other words (जन = people, नव = new), so
+// only the chart axes use short forms, and those carry the mark (जन॰, अक्तू॰) — review decision.
 const MONTHS_EN = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
-const MONTHS_HI = ['जन', 'फ़र', 'मार्च', 'अप्रैल', 'मई', 'जून', 'जुल', 'अग', 'सित', 'अक्तू', 'नव', 'दिस']
+const MONTHS_HI = ['जनवरी', 'फ़रवरी', 'मार्च', 'अप्रैल', 'मई', 'जून', 'जुलाई', 'अगस्त', 'सितंबर', 'अक्तूबर', 'नवंबर', 'दिसंबर']
+const MONTHS_HI_SHORT = ['जन॰', 'फ़र॰', 'मार्च', 'अप्रैल', 'मई', 'जून', 'जुल॰', 'अग॰', 'सित॰', 'अक्तू॰', 'नव॰', 'दिस॰']
 
-/** The 12 short month names in `lang` (anything but 'hi' = English). */
-export function plainMonthNames(lang?: string): readonly string[] {
-  return lang === 'hi' ? MONTHS_HI : MONTHS_EN
+/** The 12 month names in `lang` as a date writes them (anything but 'hi' = English short). */
+export function plainMonthNames(lang?: string, style: 'short' | 'long' = 'long'): readonly string[] {
+  return lang === 'hi' ? (style === 'short' ? MONTHS_HI_SHORT : MONTHS_HI) : MONTHS_EN
 }
 
 /** WP 8.3: 'YYYY-MM-DD' → '1 Apr 2026' — plain words for simple screens (the setup wizard).
@@ -76,7 +78,7 @@ export function toPlainDate(date: string, lang?: string): string {
 
 /** 'YYYY-MM' → 'Apr' (short) or 'Apr 2026' (long) — chart axes and tooltips (`lang` as toPlainDate). */
 export function toMonthLabel(ym: string, style: 'short' | 'long' = 'short', lang?: string): string {
-  const months = plainMonthNames(lang)
+  const months = plainMonthNames(lang, style)
   const [y, m] = ym.split('-').map(Number) as [number, number]
   return style === 'short' ? months[m - 1]! : `${months[m - 1]} ${y}`
 }

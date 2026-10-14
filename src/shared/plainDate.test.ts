@@ -10,10 +10,12 @@ describe('toPlainDate', () => {
   })
 
   it('Hindi uses Devanagari month names', () => {
-    expect(toPlainDate('2026-01-05', 'hi')).toBe('5 जन 2026')
-    expect(toPlainDate('2026-02-14', 'hi')).toBe('14 फ़र 2026')
-    expect(toPlainDate('2025-10-31', 'hi')).toBe('31 अक्तू 2025')
-    expect(toPlainDate('2025-12-01', 'hi')).toBe('1 दिस 2025')
+    // full names: the clipped forms without ॰ are other words (जन = people, नव = new)
+    expect(toPlainDate('2026-01-05', 'hi')).toBe('5 जनवरी 2026')
+    expect(toPlainDate('2026-02-14', 'hi')).toBe('14 फ़रवरी 2026')
+    expect(toPlainDate('2025-10-31', 'hi')).toBe('31 अक्तूबर 2025')
+    expect(toPlainDate('2025-11-03', 'hi')).toBe('3 नवंबर 2025')
+    expect(toPlainDate('2025-12-01', 'hi')).toBe('1 दिसंबर 2025')
   })
 
   it('an unknown language reads as English', () => {
@@ -26,11 +28,13 @@ describe('toMonthLabel / month names', () => {
     expect(toMonthLabel('2026-03')).toBe('Mar')
     expect(toMonthLabel('2026-03', 'long')).toBe('Mar 2026')
     expect(toMonthLabel('2026-03', 'long', 'hi')).toBe('मार्च 2026')
-    expect(toMonthLabel('2026-08', 'short', 'hi')).toBe('अग')
+    expect(toMonthLabel('2026-08', 'short', 'hi')).toBe('अग॰')
+    expect(toMonthLabel('2026-01', 'short', 'hi')).toBe('जन॰')
+    expect(toMonthLabel('2026-10', 'long', 'hi')).toBe('अक्तूबर 2026')
     expect(toMonthLabel('2026-08', 'long', 'hinglish')).toBe('Aug 2026')
   })
 
   it('twelve distinct months per language', () => {
-    for (const lang of ['en', 'hi', 'hinglish']) expect(new Set(plainMonthNames(lang)).size).toBe(12)
+    for (const lang of ['en', 'hi', 'hinglish']) for (const style of ['short', 'long'] as const) expect(new Set(plainMonthNames(lang, style)).size).toBe(12)
   })
 })

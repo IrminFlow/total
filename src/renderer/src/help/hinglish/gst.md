@@ -10,7 +10,7 @@ Tab aapke bills par GST nahi lagta aur file karne ko kuch nahi hai. Agar aap baa
 
 [Tax](total://screen/simple-taxes) har period ke liye teen alag figures dikhata hai:
 
-1. **Aapne jo GST liya** — aapki sale par.
+1. **Aapne jo GST collect kiya** — aapki sale par.
 2. **Purchase par diya GST** — suppliers ne aapse jo liya, jo aam taur par aapke bharne wale GST mein se kam ho jaata hai. Total yeh bhi batata hai ki ismein se kitna aapke suppliers ne abhi portal par confirm nahi kiya hai (unka GSTR-2B).
 3. **Cash mein bharna hai** — cash mein kitna bharna baaki hai, aur kab tak.
 
